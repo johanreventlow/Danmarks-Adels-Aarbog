@@ -432,5 +432,192 @@ BEGIN
   RAISE NOTICE 'OK: signatur og rettigheder';
 END $t$;
 
+-- ===== Task 7: læsere af helposttekst følger revisionen (spec §4.4 »Én læser af gældende helposttekst«) =====
+
+-- clause_revision gennem hele kæden (autorisation → preflight → apply → finalize), som t5_apply.
+CREATE FUNCTION pg_temp.t7_clause_revision(fx jsonb,p_payload jsonb,p_nonce text) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_msha text:=encode(extensions.digest('t7:'||p_nonce,'sha256'),'hex'); v_psha text:=repeat('7',64);
+  v_element text:='clause-revision:'||(fx->>'record_key'); v_auth uuid; v_batch uuid; v_res jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',fx->>'actor',true);
+  PERFORM set_config('role','service_role',true);
+  v_auth:=public.red_authorize_reimport(v_msha,v_psha,
+    jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,
+    (fx->>'source')::bigint,fx->'profile'->>'profile_id',fx->'profile'->>'profile_sha256',
+    '{"person_creates":0,"source_evidence":0,"clause_revisions":1}'::jsonb,jsonb_build_object(v_element,p_payload),
+    gen_random_uuid(),clock_timestamp()+interval '5 minutes');
+  PERFORM set_config('role','authenticated',true);
+  PERFORM public.red_preflight_reimport_authorization(v_auth,v_msha,v_psha);
+  v_batch:=public.red_begin_reimport(v_auth,v_msha,v_psha);
+  v_res:=public.red_apply_reimport_clause_revision(v_batch,v_element,p_payload);
+  PERFORM public.red_finalize_reimport(v_batch);
+  RESET role;
+  RETURN v_res;
+END $$;
+
+-- Omsegmentering af det aktuelle sæt mod p_text (helpostens tekst, som manifest-builderen ville hashe den).
+CREATE FUNCTION pg_temp.t7_resegment_payload(fx jsonb,p_text text,p_parts text[]) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_help uuid:=(fx->>'helpost')::uuid; v_seq int;
+BEGIN
+  SELECT max(coalesce(clause_set_seq,1)) INTO v_seq FROM private.source_observation WHERE parent_observation_id=v_help;
+  RETURN jsonb_build_object('source_record_key',fx->>'record_key','rendition_content_sha256',repeat('2',64),
+    'rendition_projection_sha256',repeat('9',64),'parent_verbatim_sha256',encode(extensions.digest(p_text,'sha256'),'hex'),
+    'replaces_clause_set_seq',v_seq,'replaces_clause_set_sha256',private.clause_set_sha256(v_help,v_seq),
+    'clause_rules_version','clause-rules-fixture-v2','segmenter_version','clause_segment.py@fixture',
+    'ledger_sha256',repeat('e',64),'gap_charset',jsonb_build_array(' '),'clauses',pg_temp.t5_clauses(p_text,p_parts));
+END $$;
+
+-- test_clause_revision_follows_text_revision: efter en kildetekst-revision skæres en ren omsegmentering
+-- (clause_revision) af den gældende tekstversion og bindes til den; basistekstens hash er forældet
+-- (CLAUSE_EVIDENCE_PARENT_TEXT_DRIFT), så omsegmenteringen ikke tavst skærer mod den gamle tekst.
+DO $t$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-00000006a701'; s jsonb; post jsonb; fx jsonb; r jsonb; v_help uuid;
+  v_base text:='Anna Alfa. Gift med Bo Beta.'; v_new text:='Anna Alfa. Gift m. Bo Beta.'; v_tid uuid; v_seq int;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  s:=pg_temp.f5b_source(-65701);
+  post:=pg_temp.f5b_post(-65701,s,'T7-CR',v_base,ARRAY['Anna Alfa.','Gift med Bo Beta.'],NULL,v_actor);
+  v_help:=(post->>'helpost')::uuid;
+  fx:=jsonb_build_object('source',-65701,'record_key','T7-CR','helpost',v_help,'text',v_base,'actor',v_actor,
+    'profile',pg_temp.t5_profile(-65701));
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  r:=pg_temp.t5_apply(fx,pg_temp.t5_payload(fx,v_new,ARRAY['Anna Alfa.','Gift m. Bo Beta.']),'t7-cr-rev');
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  v_tid:=(r->>'text_id')::uuid;
+  -- Basistekstens hash er ikke længere helpostens tekst.
+  PERFORM pg_temp.expect_error(format('SELECT pg_temp.t7_clause_revision(%L::jsonb,%L::jsonb,%L)',fx,
+    pg_temp.t7_resegment_payload(fx,v_base,ARRAY['Anna Alfa. Gift med Bo Beta.']),'t7-cr-base'),'CLAUSE_EVIDENCE_PARENT_TEXT_DRIFT');
+  -- Den gældende tekst: omsegmenteringen lykkes og bindes til tekstversionen.
+  r:=pg_temp.t7_clause_revision(fx,pg_temp.t7_resegment_payload(fx,v_new,ARRAY['Anna Alfa. Gift m. Bo Beta.']),'t7-cr-new');
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  v_seq:=(r->>'clause_set_seq')::int;
+  IF v_seq<>3
+     OR (SELECT count(*) FROM private.source_observation WHERE parent_observation_id=v_help AND clause_set_seq=3)<>1
+     OR EXISTS (SELECT 1 FROM private.source_observation WHERE parent_observation_id=v_help AND clause_set_seq=3
+                  AND (parent_text_id IS DISTINCT FROM v_tid OR verbatim_text<>v_new))
+     OR EXISTS (SELECT 1 FROM private.source_observation o JOIN private.clause_disposition_current d ON d.observation_id=o.id
+                 WHERE o.parent_observation_id=v_help AND o.clause_set_seq=2 AND d.disposition<>'erstattet') THEN
+    RAISE EXCEPTION 'TEXT_REVISION_TEST_FAILED: clause_revision efter revision %',r;
+  END IF;
+  RAISE NOTICE 'OK: test_clause_revision_follows_text_revision';
+END $t$;
+
+-- test_party_inputs_ignore_superseded + test_relation_persona_v3_post_text_follows_revision:
+-- en post med to ægteskaber; Bo Beta er new_person_needed med dødsoplysning (D-population i relation_person_create_input),
+-- Cia Ceta er new_person_needed uden (v3's genafgørelsesrække). Efter revisionen er begge relationer forældede:
+-- person-create-inputtet har ingen række (og writeren afviser det gamle element), genafgørelsesrækken mister
+-- hovedperson og ægteskabsnummer (partens autoritet), og post_text er den gældende tekstversion.
+DO $t$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-00000006a702'; s jsonb; post jsonb; fx jsonb; r jsonb; c jsonb; v_help uuid;
+  sp1 uuid; sp2 uuid; m jsonb; v3 jsonb; q jsonb; b jsonb; v_err text; v_c2 uuid;
+  v_base text:='Anna Alfa. Gift 1890 med Bo Beta. Gift 1950 med Cia Ceta.';
+  v_new text:='Anna Alfa. Gift 1890 m. Bo Beta. Gift 1950 m. Cia Ceta.';
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) VALUES (-65702,false,false,'t7');
+  s:=pg_temp.f5b_source(-65702);
+  post:=pg_temp.f5b_post(-65702,s,'T7-PI',v_base,ARRAY['Anna Alfa.','Gift 1890 med Bo Beta.','Gift 1950 med Cia Ceta.'],-65702,v_actor);
+  v_help:=(post->>'helpost')::uuid;
+  PERFORM pg_temp.f2a_event_for_state((post->>'principal')::uuid);
+  c:=pg_temp.f5b_claim(-65702,s,'relation.marriage',(post->'clauses'->>1)::uuid,'Gift 1890 med Bo Beta.');
+  sp1:=pg_temp.f5b_spouse(-65702,s,post,c,(post->'clauses'->>1)::uuid,'Bo Beta',1);
+  c:=pg_temp.f5b_claim(-65702,s,'relation.marriage',(post->'clauses'->>2)::uuid,'Gift 1950 med Cia Ceta.');
+  sp2:=pg_temp.f5b_spouse(-65702,s,post,c,(post->'clauses'->>2)::uuid,'Cia Ceta',2);
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  PERFORM red_afgoer_source_persona(sp1,0,'new_person_needed',NULL,'test',jsonb_build_object('basis','human_sheet',
+    'sheet_sha256',repeat('a',64),'rows_sha256',repeat('a',64),'line',1,
+    'deceased',jsonb_build_object('rule','aarstal-120-v1','cutoff_year',1906,'clause_years',jsonb_build_array(1890))));
+  PERFORM red_afgoer_source_persona(sp2,0,'new_person_needed',NULL,'test',jsonb_build_object('basis','human_sheet',
+    'sheet_sha256',repeat('a',64),'rows_sha256',repeat('a',64),'line',2));
+  RESET ROLE;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+
+  -- Før revisionen: én D-række, og genafgørelsesrækken kender hovedperson, nummer og basisteksten.
+  m:=private.relation_person_create_input(-65702);
+  IF (m->'expected_counts'->>'relation_person_creates')::int<>1 OR NOT m->'authorized_elements' ? ('relation-person-create:'||sp1) THEN
+    RAISE EXCEPTION 'TEXT_REVISION_TEST_FAILED: person-create-input før revisionen %',m->'expected_counts';
+  END IF;
+  v3:=private.relation_persona_v3_input(-65702);
+  q:=v3->'redecide_rows'->0;
+  IF jsonb_array_length(v3->'redecide_rows')<>1 OR q->>'source_persona_id'<>sp2::text
+     OR (q->>'principal_person_id')::bigint IS DISTINCT FROM -65702 OR (q->>'marriage_ordinal')::int IS DISTINCT FROM 2
+     OR q->>'post_text' IS DISTINCT FROM v_base OR jsonb_array_length(v3->'rows')<>0 THEN
+    RAISE EXCEPTION 'TEXT_REVISION_TEST_FAILED: v3-input før revisionen %',v3;
+  END IF;
+
+  fx:=jsonb_build_object('source',-65702,'record_key','T7-PI','helpost',v_help,'text',v_base,'actor',v_actor,
+    'profile',pg_temp.t5_profile(-65702));
+  r:=pg_temp.t5_apply(fx,pg_temp.t5_payload(fx,v_new,ARRAY['Anna Alfa.','Gift 1890 m. Bo Beta.','Gift 1950 m. Cia Ceta.']),'t7-pi-rev');
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  IF jsonb_array_length(r->'superseded_keys')<>2 THEN RAISE EXCEPTION 'TEXT_REVISION_TEST_FAILED: revisionen %',r; END IF;
+
+  -- test_party_inputs_ignore_superseded: ingen række for den forældede relation; writeren afviser det gamle element.
+  IF (private.relation_person_create_input(-65702)->'expected_counts'->>'relation_person_creates')::int<>0 THEN
+    RAISE EXCEPTION 'TEXT_REVISION_TEST_FAILED: person-create-input efter revisionen %',private.relation_person_create_input(-65702);
+  END IF;
+  b:=pg_temp.f5b_batch(-65702,v_actor,pg_temp.f5b_profile(-65702),m->'authorized_elements',m->'expected_counts');
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    PERFORM red_apply_reimport_relation_person_create((b->>'batch')::uuid,e.key,e.value) FROM jsonb_each(m->'authorized_elements') e;
+    v_err:='ingen fejl';
+  EXCEPTION WHEN OTHERS THEN v_err:=SQLERRM;
+  END;
+  RESET ROLE;
+  IF v_err NOT LIKE 'RELATION_PERSON_CREATE_CLAUSE_STALE%' AND v_err NOT LIKE 'RELATION_PERSON_CREATE_INTERPRETATION_STALE%' THEN
+    RAISE EXCEPTION 'TEXT_REVISION_TEST_FAILED: writeren på forældet relation gav %',v_err;
+  END IF;
+
+  -- v3: genafgørelsesrækken står (identiteten er uafklaret), men uden partens autoritet; post_text er den nye tekst.
+  v3:=private.relation_persona_v3_input(-65702);
+  q:=v3->'redecide_rows'->0;
+  IF jsonb_array_length(v3->'redecide_rows')<>1 OR q->>'source_persona_id'<>sp2::text
+     OR q->'principal_person_id'<>'null'::jsonb OR q->'marriage_ordinal'<>'null'::jsonb
+     OR (q->>'clause_is_current')::boolean OR q->>'post_text' IS DISTINCT FROM v_new THEN
+    RAISE EXCEPTION 'TEXT_REVISION_TEST_FAILED: v3-genafgørelse efter revisionen %',q;
+  END IF;
+  -- En ny ægteskabspåstand på det nye sæt: v3's ægteskabsrække bærer den gældende tekst.
+  SELECT id INTO v_c2 FROM private.clause_observation_current WHERE parent_observation_id=v_help AND clause_ordinal=2;
+  PERFORM pg_temp.f5b_claim(-65702,s,'relation.marriage',v_c2,'Gift 1890 m. Bo Beta.');
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  v3:=private.relation_persona_v3_input(-65702);
+  IF jsonb_array_length(v3->'rows')<>1 OR v3->'rows'->0->>'post_text' IS DISTINCT FROM v_new THEN
+    RAISE EXCEPTION 'TEXT_REVISION_TEST_FAILED: v3-række efter revisionen %',v3->'rows';
+  END IF;
+  RAISE NOTICE 'OK: test_party_inputs_ignore_superseded';
+  RAISE NOTICE 'OK: test_relation_persona_v3_post_text_follows_revision';
+END $t$;
+
+-- test_persona_detail_current_text_version: efter to revisioner er begge versioner foretrukne (append-only), men
+-- red_source_persona_detail markerer præcis én som gældende: den, helpost_text_current vælger.
+DO $t$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-00000006a703'; s jsonb; post jsonb; fx jsonb; d jsonb; tv jsonb;
+  v_base text:='Anna Alfa. Gift med Bo Beta.';
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  s:=pg_temp.f5b_source(-65703);
+  post:=pg_temp.f5b_post(-65703,s,'T7-PD',v_base,ARRAY['Anna Alfa.','Gift med Bo Beta.'],NULL,v_actor);
+  fx:=jsonb_build_object('source',-65703,'record_key','T7-PD','helpost',post->>'helpost','text',v_base,'actor',v_actor,
+    'profile',pg_temp.t5_profile(-65703));
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM pg_temp.t5_apply(fx,pg_temp.t5_payload(fx,'Anna Alfa. Gift m. Bo Beta.',ARRAY['Anna Alfa.','Gift m. Bo Beta.']),'t7-pd-1');
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM pg_temp.t5_apply(fx,pg_temp.t5_payload(fx,'Anna Alfa. Gift m. Bo Beta',ARRAY['Anna Alfa.','Gift m. Bo Beta']),'t7-pd-2');
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  d:=red_source_persona_detail((post->>'principal')::uuid);
+  RESET ROLE;
+  tv:=d->'mentions'->0->'text_versions';
+  IF jsonb_array_length(tv)<>2
+     OR (SELECT count(*) FROM jsonb_array_elements(tv) x WHERE (x->>'preferred')::boolean)<>2
+     OR (SELECT count(*) FROM jsonb_array_elements(tv) x WHERE (x->>'current')::boolean)<>1
+     OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(tv) x
+                     WHERE (x->>'current')::boolean AND (x->>'version')::int=2 AND x->>'verbatim_text'='Anna Alfa. Gift m. Bo Beta') THEN
+    RAISE EXCEPTION 'TEXT_REVISION_TEST_FAILED: persona-detaljens tekstversioner %',tv;
+  END IF;
+  RAISE NOTICE 'OK: test_persona_detail_current_text_version';
+END $t$;
+
 ROLLBACK;
 \echo PASS test-source-text-revision

@@ -4199,7 +4199,7 @@ CREATE OR REPLACE FUNCTION private.clause_write_prepare(p_batch_id uuid,p_elemen
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE; v_profile private.reimport_writer_profile%ROWTYPE;
   v_record private.source_record%ROWTYPE; v_occurrence private.source_record_occurrence%ROWTYPE; v_parent private.source_observation%ROWTYPE;
-  v_parent_id uuid; v_run uuid; v_run_key text; v_keys text[]; v_prefix text; v_invalid text;
+  v_parent_id uuid; v_run uuid; v_run_key text; v_keys text[]; v_prefix text; v_invalid text; v_text_id uuid; v_text text;
 BEGIN
   IF p_operation='clause_evidence' THEN
     v_keys:=ARRAY['clause_rules_version','clauses','gap_charset','ledger_sha256','parent_verbatim_sha256','rendition_content_sha256','rendition_projection_sha256','segmenter_version','source_record_key'];
@@ -4284,9 +4284,15 @@ BEGIN
     RAISE EXCEPTION 'REIMPORT_WRITER_RENDITION_DRIFT';
   END IF;
   -- source_text_revision: basisteksten kontrolleres af writeren mod den gældende tekst (helpost_text_current).
+  -- clause_evidence/clause_revision (trin 6a, Task 7): helpostens GÆLDENDE tekst (helpost_text_current), ikke
+  -- basisteksten. Efter en kildetekst-revision skæres en omsegmentering af tekstversionen og bindes til den
+  -- (text_id i konteksten); uden tekstversion er det basisteksten og text_id NULL, som før.
   IF p_operation='source_text_revision' THEN
     IF p_payload->>'projection_rule' IS DISTINCT FROM private.writer_config_text_form(v_profile.writer_config) THEN RAISE EXCEPTION '%', v_invalid; END IF;
-  ELSIF encode(digest(v_parent.verbatim_text,'sha256'),'hex')<>p_payload->>'parent_verbatim_sha256' THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_PARENT_TEXT_DRIFT'; END IF;
+  ELSE
+    SELECT c.text_id,c.verbatim_text INTO v_text_id,v_text FROM private.helpost_text_current(v_parent.id) c;
+    IF encode(digest(v_text,'sha256'),'hex')<>p_payload->>'parent_verbatim_sha256' THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_PARENT_TEXT_DRIFT'; END IF;
+  END IF;
   v_run_key:=(v_profile.writer_config->>'run_key_prefix')||v_batch.manifest_sha256;
   INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
   VALUES(v_batch.source_id,v_run_key,v_profile.writer_config->>'schema_version',v_profile.writer_config->>'extractor_version',v_profile.profile_version,v_batch.manifest_sha256,
@@ -4306,7 +4312,7 @@ BEGIN
   RETURN jsonb_build_object('batch_id',p_batch_id,'manifest_sha256',v_batch.manifest_sha256,
     'record_key',v_record.record_key,'occurrence_id',v_occurrence.id,'parent_id',v_parent.id,'run_id',v_run,
     'observation_extraction_method',v_profile.writer_config->>'observation_extraction_method',
-    'text_form',private.writer_config_text_form(v_profile.writer_config));
+    'text_form',private.writer_config_text_form(v_profile.writer_config),'text_id',v_text_id);
 END $$;
 
 -- Skriv ét klausulsæt (sæt p_seq) under helposten i p_ctx: klausulvalidering, rækker og
@@ -4385,7 +4391,7 @@ DECLARE v_ctx jsonb; v_count integer;
 BEGIN
   v_ctx:=private.clause_write_prepare(p_batch_id,p_element_id,p_payload,'clause_evidence');
   IF EXISTS (SELECT 1 FROM private.source_observation WHERE parent_observation_id=(v_ctx->>'parent_id')::uuid) THEN RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_EVIDENCE_EXISTS'; END IF;
-  v_count:=private.clause_write_set(v_ctx,p_payload,1,p_element_id);
+  v_count:=private.clause_write_set(v_ctx,p_payload,1,p_element_id,(v_ctx->>'text_id')::uuid);
   SET CONSTRAINTS private.trg_clause_set_density IMMEDIATE;
   INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
   VALUES(p_batch_id,p_element_id,'clause_evidence',v_ctx->>'record_key',p_payload||jsonb_build_object('parent_observation_id',(v_ctx->>'parent_id')::uuid,'run_id',(v_ctx->>'run_id')::uuid,'clauses_written',v_count),
@@ -4430,7 +4436,7 @@ BEGIN
   IF v_current<>(p_payload->>'replaces_clause_set_seq')::integer OR v_before IS DISTINCT FROM p_payload->>'replaces_clause_set_sha256' THEN
     RAISE EXCEPTION 'CLAUSE_REVISION_BASE_DRIFT';
   END IF;
-  v_count:=private.clause_write_set(v_ctx,p_payload,v_current+1,p_element_id);
+  v_count:=private.clause_write_set(v_ctx,p_payload,v_current+1,p_element_id,(v_ctx->>'text_id')::uuid);
   v_after:=private.clause_set_sha256(v_parent,v_current+1);
   IF v_after=v_before THEN RAISE EXCEPTION 'CLAUSE_REVISION_NOOP'; END IF;
   v_old:=0;
@@ -9586,8 +9592,11 @@ BEGIN
       'mention_kind',mention.mention_kind,'mention_role',persona_mention.mention_role,
       'verbatim_text',mention.verbatim_text,'observation_kind',observation.observation_kind,
       'page_from',observation.page_from,'page_to',observation.page_to,
+      -- Trin 6a (Task 7): flere versioner kan være foretrukne efter to revisioner (tabellen er append-only);
+      -- 'current' er den ene, helpost_text_current vælger.
       'text_versions',coalesce((SELECT jsonb_agg(jsonb_build_object('version',text_version.version,
-        'verbatim_text',text_version.verbatim_text,'preferred',text_version.is_preferred)
+        'verbatim_text',text_version.verbatim_text,'preferred',text_version.is_preferred,
+        'current',text_version.id IS NOT DISTINCT FROM (SELECT c.text_id FROM private.helpost_text_current(observation.id) c))
         ORDER BY text_version.version) FROM private.source_observation_text text_version
         WHERE text_version.observation_id=observation.id),'[]'::jsonb))
       ORDER BY persona_mention.ordinal)
@@ -18245,6 +18254,10 @@ BEGIN
       FROM private.source_persona_identity i
       JOIN private.source_persona p ON p.id=i.source_persona_id AND p.source_id=p_source_id
       JOIN private.interpretation_party_current sp_party ON sp_party.source_persona_id=i.source_persona_id AND sp_party.party_role='spouse'
+      -- Trin 6a (Codex F3): parten har kun autoritet, mens relationen aktuelt er proposed eller accepted
+      -- (som writerens RELATION_PERSON_CREATE_INTERPRETATION_STALE); en forældet relation giver ingen række.
+      JOIN private.interpretation_current sp_ic ON sp_ic.interpretation_key=sp_party.interpretation_key
+                                               AND sp_ic.status IN ('proposed','accepted')
       JOIN private.interpretation_party_current pr ON pr.interpretation_key=sp_party.interpretation_key AND pr.party_role='principal'
       JOIN private.source_persona_identity pi ON pi.source_persona_id=pr.source_persona_id AND pi.decision_status='accepted'
       JOIN private.source_persona_mention spm ON spm.persona_id=i.source_persona_id AND spm.mention_role='spouse'
@@ -18656,9 +18669,11 @@ DECLARE v2 jsonb; v_rows jsonb; v_re jsonb;
 BEGIN
   IF p_source_id IS NULL THEN RAISE EXCEPTION 'RELATION_PERSONA_V3_INPUT_INVALID'; END IF;
   v2:=private.relation_persona_v2_input(p_source_id);
+  -- Trin 6a (Task 7): post_text er helpostens gældende tekst (helpost_text_current); klausulerne i v2-rækkerne er
+  -- fra det aktuelle sæt og dermed skåret af netop den. Uden tekstversion: basisteksten, som før.
   SELECT coalesce(jsonb_agg(t.r || jsonb_build_object('post_text',(
-           SELECT po.verbatim_text FROM private.source_observation co
-             JOIN private.source_observation po ON po.id=co.parent_observation_id
+           SELECT pt.verbatim_text FROM private.source_observation co
+             CROSS JOIN LATERAL private.helpost_text_current(co.parent_observation_id) pt
             WHERE co.id=(t.r#>>'{clauses,0,observation_id}')::uuid)) ORDER BY t.n),'[]'::jsonb)
     INTO v_rows FROM jsonb_array_elements(v2->'rows') WITH ORDINALITY AS t(r,n);
   SELECT coalesce(jsonb_agg(jsonb_build_object(
@@ -18667,7 +18682,8 @@ BEGIN
       'previous',jsonb_build_object('basis',i.evidence->>'basis','note',i.evidence->>'note'),
       'name_text',sm.verbatim_text,'clause_observation_id',o.id::text,'clause_text',o.verbatim_text,
       'clause_is_current',EXISTS (SELECT 1 FROM private.clause_observation_current cc WHERE cc.id=o.id),
-      'post_text',po.verbatim_text,'record_key',sr.record_key,'page_from',o.page_from,
+      'post_text',(SELECT pt.verbatim_text FROM private.helpost_text_current(o.parent_observation_id) pt),
+      'record_key',sr.record_key,'page_from',o.page_from,
       'marriage_ordinal',spp.marriage_ordinal,'principal_person_id',pi.canonical_person_id,
       'principal_partners',coalesce((
           SELECT jsonb_agg(jsonb_build_object('person_id',x.person_id,'family_id',x.family_id,'ordinal',x.ordinal,
@@ -18683,8 +18699,12 @@ BEGIN
     JOIN private.source_persona_mention spm ON spm.persona_id=i.source_persona_id AND spm.mention_role='spouse'
     JOIN private.source_mention sm ON sm.id=spm.mention_id
     JOIN private.source_observation o ON o.id=sm.observation_id
-    LEFT JOIN private.source_observation po ON po.id=o.parent_observation_id
-    LEFT JOIN private.interpretation_party_current spp ON spp.source_persona_id=i.source_persona_id AND spp.party_role='spouse'
+    -- Trin 6a (Codex F3): ægtefælleparten bærer hovedperson og nummer kun, mens relationen aktuelt er proposed eller
+    -- accepted. Rækken står (identiteten er stadig uafklaret), men uden partens autoritet giver arket U.
+    LEFT JOIN (private.interpretation_party_current spp
+               JOIN private.interpretation_current spp_ic ON spp_ic.interpretation_key=spp.interpretation_key
+                                                         AND spp_ic.status IN ('proposed','accepted'))
+           ON spp.source_persona_id=i.source_persona_id AND spp.party_role='spouse'
     LEFT JOIN private.interpretation_party_current pr ON pr.interpretation_key=spp.interpretation_key AND pr.party_role='principal'
     LEFT JOIN private.source_persona_identity pi ON pi.source_persona_id=pr.source_persona_id AND pi.decision_status='accepted'
     LEFT JOIN private.source_record_anchor_current ac ON ac.occurrence_id=o.occurrence_id AND ac.decision_status='accepted'

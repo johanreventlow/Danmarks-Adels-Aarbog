@@ -28222,3 +28222,386 @@ BEGIN
     'run_id',v_run,'result_receipt_sha256',private.interpretation_proposal_canonical_json_sha256(v_result_receipt));
 END $$;
 REVOKE ALL ON FUNCTION private.write_interpretation_proposal(uuid,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
+-- ===== trin 6a: helpost-tekst gennem én funktion og partsinput uden forældede relationer =====
+-- Trin 6a (spec §4.4, Task 7): læserne af helpostens tekst, der skal følge en kildetekst-revision, læser
+-- private.helpost_text_current (klausul-writernes basistekstkontrol og sætbinding, v3-arkets post_text og
+-- persona-detaljens 'current'-flag). Partsbaserede input kræver, at partens relation aktuelt er proposed eller
+-- accepted (Codex F3); writeren for relation_person_create afviste allerede (CLAUSE_STALE/INTERPRETATION_STALE).
+-- Signaturerne er uændrede, så CREATE OR REPLACE er nok; blokken står sidst, fordi ældre blokke genskaber
+-- funktionerne ved hver kørsel. Uden tekstversion og uden forældede relationer er adfærden uændret.
+CREATE OR REPLACE FUNCTION private.clause_write_prepare(p_batch_id uuid,p_element_id text,p_payload jsonb,p_operation text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE; v_profile private.reimport_writer_profile%ROWTYPE;
+  v_record private.source_record%ROWTYPE; v_occurrence private.source_record_occurrence%ROWTYPE; v_parent private.source_observation%ROWTYPE;
+  v_parent_id uuid; v_run uuid; v_run_key text; v_keys text[]; v_prefix text; v_invalid text; v_text_id uuid; v_text text;
+BEGIN
+  IF p_operation='clause_evidence' THEN
+    v_keys:=ARRAY['clause_rules_version','clauses','gap_charset','ledger_sha256','parent_verbatim_sha256','rendition_content_sha256','rendition_projection_sha256','segmenter_version','source_record_key'];
+    v_prefix:='clause-evidence:'; v_invalid:='REIMPORT_WRITER_CLAUSE_EVIDENCE_INVALID';
+  ELSIF p_operation='clause_revision' THEN
+    v_keys:=ARRAY['clause_rules_version','clauses','gap_charset','ledger_sha256','parent_verbatim_sha256','rendition_content_sha256','rendition_projection_sha256','replaces_clause_set_seq','replaces_clause_set_sha256','segmenter_version','source_record_key'];
+    v_prefix:='clause-revision:'; v_invalid:='REIMPORT_WRITER_CLAUSE_REVISION_INVALID';
+  ELSIF p_operation='source_text_revision' THEN
+    -- Trin 6a (spec §4.4): ny tekst for helposten; payloaden bærer intet spænd og ingen basistekst-hash.
+    v_keys:=ARRAY['after_text_sha256','before_text_sha256','clause_rules_version','clauses','expected_binding_loss','expected_superseded_keys','gap_charset','ledger_sha256','projection_rule','rendition_content_sha256','replaces_clause_set_seq','replaces_clause_set_sha256','segmenter_version','source_record_key','verbatim_text'];
+    v_prefix:='source-text-revision:'; v_invalid:='REIMPORT_WRITER_SOURCE_TEXT_REVISION_INVALID';
+  ELSE
+    RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_OPERATION_UNKNOWN';
+  END IF;
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  PERFORM private.require_reimport_writer_editor();
+  PERFORM private.lock_reimport_writer(v_batch.source_id,v_batch.profile_id);
+  SELECT * INTO v_auth FROM private.reimport_authorization WHERE id=v_batch.authorization_id;
+  SELECT * INTO v_profile FROM private.reimport_writer_profile WHERE source_id=v_batch.source_id AND profile_id=v_batch.profile_id AND profile_sha256=v_batch.profile_sha256;
+  IF NOT FOUND OR NOT v_auth.authorized_elements ? p_element_id OR v_auth.authorized_elements->p_element_id IS DISTINCT FROM p_payload THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED';
+  END IF;
+  IF jsonb_typeof(p_payload)<>'object'
+     OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(p_payload) k)<>v_keys
+     OR p_element_id<>v_prefix||coalesce(p_payload->>'source_record_key','')
+     OR coalesce(p_payload->>'rendition_content_sha256','') !~ '^[0-9a-f]{64}$'
+     OR (p_operation<>'source_text_revision' AND coalesce(p_payload->>'parent_verbatim_sha256','') !~ '^[0-9a-f]{64}$')
+     OR coalesce(p_payload->>'ledger_sha256','') !~ '^[0-9a-f]{64}$'
+     OR (p_operation<>'source_text_revision' AND coalesce(p_payload->>'rendition_projection_sha256','') !~ '^[0-9a-f]{64}$')
+     OR nullif(btrim(coalesce(p_payload->>'clause_rules_version','')),'') IS NULL
+     OR nullif(btrim(coalesce(p_payload->>'segmenter_version','')),'') IS NULL
+     OR jsonb_typeof(p_payload->'gap_charset')<>'array' OR jsonb_array_length(p_payload->'gap_charset')=0
+     OR jsonb_typeof(p_payload->'clauses')<>'array' OR jsonb_array_length(p_payload->'clauses')=0
+     OR (p_operation IN ('clause_revision','source_text_revision') AND (
+          jsonb_typeof(p_payload->'replaces_clause_set_seq')<>'number'
+          OR coalesce(p_payload->>'replaces_clause_set_seq','') !~ '^[1-9][0-9]{0,8}$'
+          OR coalesce(p_payload->>'replaces_clause_set_sha256','') !~ '^[0-9a-f]{64}$')) THEN
+    RAISE EXCEPTION '%', v_invalid;
+  END IF;
+  -- source_text_revision: teksten og dens hash skal stemme, og de forventede mængder skal være strengt sorterede
+  -- (dermed dubletfri) uuid-strenge og {promotion_id,target_type}-objekter (sorteret efter promotion_id).
+  IF p_operation='source_text_revision' AND (
+       jsonb_typeof(p_payload->'verbatim_text')<>'string' OR p_payload->>'verbatim_text'=''
+       OR coalesce(p_payload->>'before_text_sha256','') !~ '^[0-9a-f]{64}$'
+       OR coalesce(p_payload->>'after_text_sha256','') !~ '^[0-9a-f]{64}$'
+       OR encode(digest(p_payload->>'verbatim_text','sha256'),'hex')<>p_payload->>'after_text_sha256'
+       OR jsonb_typeof(p_payload->'projection_rule')<>'string'
+       OR jsonb_typeof(p_payload->'expected_superseded_keys')<>'array'
+       OR jsonb_typeof(p_payload->'expected_binding_loss')<>'array'
+       OR EXISTS (SELECT 1 FROM jsonb_array_elements(p_payload->'expected_superseded_keys') k
+                   WHERE jsonb_typeof(k)<>'string'
+                      OR k#>>'{}' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+       OR EXISTS (SELECT 1 FROM jsonb_array_elements(p_payload->'expected_binding_loss') b
+                   WHERE jsonb_typeof(b)<>'object'
+                      OR coalesce((SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(b) k),'{}')<>ARRAY['promotion_id','target_type']
+                      OR jsonb_typeof(b->'promotion_id')<>'string' OR jsonb_typeof(b->'target_type')<>'string'
+                      OR b->>'promotion_id' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                      OR btrim(b->>'target_type')='')) THEN
+    RAISE EXCEPTION '%', v_invalid;
+  END IF;
+  IF p_operation='source_text_revision' AND (
+       EXISTS (SELECT 1 FROM jsonb_array_elements_text(p_payload->'expected_superseded_keys') WITH ORDINALITY a(k,n)
+                 JOIN jsonb_array_elements_text(p_payload->'expected_superseded_keys') WITH ORDINALITY b(k,n) ON b.n=a.n+1
+                WHERE b.k::uuid<=a.k::uuid)
+       OR EXISTS (SELECT 1 FROM jsonb_array_elements(p_payload->'expected_binding_loss') WITH ORDINALITY a(v,n)
+                    JOIN jsonb_array_elements(p_payload->'expected_binding_loss') WITH ORDINALITY b(v,n) ON b.n=a.n+1
+                   WHERE (b.v->>'promotion_id')::uuid<=(a.v->>'promotion_id')::uuid)) THEN
+    RAISE EXCEPTION '%', v_invalid;
+  END IF;
+  SELECT * INTO v_record FROM private.source_record WHERE source_id=v_batch.source_id AND record_key=p_payload->>'source_record_key' FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_RECORD_MISSING'; END IF;
+  -- Helposten afgøres af den fælles regel (trin 6a, spec 4.2): profilens helpost-slags, ikke ankerantallet.
+  -- Radlås på helpost-observationen mod samtidige klausul-writes (spec 4.1.4).
+  v_parent_id:=private.record_helpost_observation(v_record.id,private.writer_config_helpost_kind(v_profile.writer_config));
+  SELECT * INTO v_parent FROM private.source_observation ob WHERE ob.id=v_parent_id FOR UPDATE;
+  SELECT * INTO v_occurrence FROM private.source_record_occurrence WHERE id=v_parent.occurrence_id;
+  IF NOT EXISTS (SELECT 1 FROM private.source_rendition r WHERE r.id=v_occurrence.rendition_id AND r.content_sha256=p_payload->>'rendition_content_sha256') THEN
+    -- source_text_revision: tekstversionen arver helpostens rendition og spænd; en anden rendition er et andet spænd.
+    IF p_operation='source_text_revision' THEN RAISE EXCEPTION 'TEXT_REVISION_SPAN_MISMATCH: payloadens rendition er ikke helpostens'; END IF;
+    RAISE EXCEPTION 'REIMPORT_WRITER_RENDITION_DRIFT';
+  END IF;
+  -- source_text_revision: basisteksten kontrolleres af writeren mod den gældende tekst (helpost_text_current).
+  -- clause_evidence/clause_revision (trin 6a, Task 7): helpostens GÆLDENDE tekst (helpost_text_current), ikke
+  -- basisteksten. Efter en kildetekst-revision skæres en omsegmentering af tekstversionen og bindes til den
+  -- (text_id i konteksten); uden tekstversion er det basisteksten og text_id NULL, som før.
+  IF p_operation='source_text_revision' THEN
+    IF p_payload->>'projection_rule' IS DISTINCT FROM private.writer_config_text_form(v_profile.writer_config) THEN RAISE EXCEPTION '%', v_invalid; END IF;
+  ELSE
+    SELECT c.text_id,c.verbatim_text INTO v_text_id,v_text FROM private.helpost_text_current(v_parent.id) c;
+    IF encode(digest(v_text,'sha256'),'hex')<>p_payload->>'parent_verbatim_sha256' THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_PARENT_TEXT_DRIFT'; END IF;
+  END IF;
+  v_run_key:=(v_profile.writer_config->>'run_key_prefix')||v_batch.manifest_sha256;
+  INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+  VALUES(v_batch.source_id,v_run_key,v_profile.writer_config->>'schema_version',v_profile.writer_config->>'extractor_version',v_profile.profile_version,v_batch.manifest_sha256,
+         jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256)) ON CONFLICT(source_id,run_key) DO NOTHING;
+  SELECT id INTO v_run FROM private.extraction_run WHERE source_id=v_batch.source_id AND run_key=v_run_key;
+  -- ON CONFLICT DO NOTHING kan genbruge en tidligere kørsel med ANDEN proveniens.
+  -- Samme efterkontrol som ensure_reimport_source_evidence: alt skal stemme, ellers stop.
+  IF NOT EXISTS(SELECT 1 FROM private.extraction_run
+                 WHERE id=v_run AND source_id=v_batch.source_id AND run_key=v_run_key
+                   AND schema_version=v_profile.writer_config->>'schema_version'
+                   AND extractor_version=v_profile.writer_config->>'extractor_version'
+                   AND profile_version=v_profile.profile_version
+                   AND input_sha256=v_batch.manifest_sha256
+                   AND manifest=jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256)) THEN
+    RAISE EXCEPTION 'CLAUSE_EVIDENCE_EXTRACTION_RUN_DRIFT';
+  END IF;
+  RETURN jsonb_build_object('batch_id',p_batch_id,'manifest_sha256',v_batch.manifest_sha256,
+    'record_key',v_record.record_key,'occurrence_id',v_occurrence.id,'parent_id',v_parent.id,'run_id',v_run,
+    'observation_extraction_method',v_profile.writer_config->>'observation_extraction_method',
+    'text_form',private.writer_config_text_form(v_profile.writer_config),'text_id',v_text_id);
+END $$;
+CREATE OR REPLACE FUNCTION private.write_clause_evidence(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_ctx jsonb; v_count integer;
+BEGIN
+  v_ctx:=private.clause_write_prepare(p_batch_id,p_element_id,p_payload,'clause_evidence');
+  IF EXISTS (SELECT 1 FROM private.source_observation WHERE parent_observation_id=(v_ctx->>'parent_id')::uuid) THEN RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_EVIDENCE_EXISTS'; END IF;
+  v_count:=private.clause_write_set(v_ctx,p_payload,1,p_element_id,(v_ctx->>'text_id')::uuid);
+  SET CONSTRAINTS private.trg_clause_set_density IMMEDIATE;
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
+  VALUES(p_batch_id,p_element_id,'clause_evidence',v_ctx->>'record_key',p_payload||jsonb_build_object('parent_observation_id',(v_ctx->>'parent_id')::uuid,'run_id',(v_ctx->>'run_id')::uuid,'clauses_written',v_count),
+         encode(digest((p_payload||jsonb_build_object('clauses_written',v_count))::text,'sha256'),'hex'));
+  RETURN jsonb_build_object('clauses',v_count,'parent_observation_id',(v_ctx->>'parent_id')::uuid,'run_id',(v_ctx->>'run_id')::uuid);
+END $$;
+CREATE OR REPLACE FUNCTION private.write_clause_revision(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_ctx jsonb; v_parent uuid; v_current integer; v_before text; v_after text; v_count integer; v_old integer; v_obs record;
+BEGIN
+  v_ctx:=private.clause_write_prepare(p_batch_id,p_element_id,p_payload,'clause_revision');
+  v_parent:=(v_ctx->>'parent_id')::uuid;
+  -- Lås det aktuelle sæts rækker (samme rækker, dispositionstriggeren låser) før kontrollerne.
+  SELECT max(coalesce(clause_set_seq,1)) INTO v_current FROM private.source_observation
+   WHERE parent_observation_id=v_parent AND observation_kind='clause';
+  IF v_current IS NULL THEN RAISE EXCEPTION 'CLAUSE_REVISION_NO_CLAUSES'; END IF;
+  PERFORM 1 FROM private.source_observation
+   WHERE parent_observation_id=v_parent AND coalesce(clause_set_seq,1)=v_current
+   ORDER BY clause_ordinal FOR UPDATE;
+  IF EXISTS (SELECT 1 FROM private.interpretation_observation io JOIN private.source_observation o ON o.id=io.observation_id
+              WHERE o.parent_observation_id=v_parent AND coalesce(o.clause_set_seq,1)=v_current) THEN
+    RAISE EXCEPTION 'CLAUSE_REVISION_HAS_INTERPRETATIONS';
+  END IF;
+  IF EXISTS (SELECT 1 FROM private.clause_disposition d JOIN private.source_observation o ON o.id=d.observation_id
+              WHERE o.parent_observation_id=v_parent AND coalesce(o.clause_set_seq,1)=v_current AND d.decided_by_kind='human') THEN
+    RAISE EXCEPTION 'CLAUSE_REVISION_HAS_HUMAN_DISPOSITION';
+  END IF;
+  v_before:=private.clause_set_sha256(v_parent,v_current);
+  IF v_current<>(p_payload->>'replaces_clause_set_seq')::integer OR v_before IS DISTINCT FROM p_payload->>'replaces_clause_set_sha256' THEN
+    RAISE EXCEPTION 'CLAUSE_REVISION_BASE_DRIFT';
+  END IF;
+  v_count:=private.clause_write_set(v_ctx,p_payload,v_current+1,p_element_id,(v_ctx->>'text_id')::uuid);
+  v_after:=private.clause_set_sha256(v_parent,v_current+1);
+  IF v_after=v_before THEN RAISE EXCEPTION 'CLAUSE_REVISION_NOOP'; END IF;
+  v_old:=0;
+  FOR v_obs IN SELECT o.id FROM private.source_observation o
+                WHERE o.parent_observation_id=v_parent AND coalesce(o.clause_set_seq,1)=v_current
+                ORDER BY o.clause_ordinal LOOP
+    INSERT INTO private.clause_disposition(observation_id,version,disposition,decided_by_kind,evidence)
+    VALUES(v_obs.id,(SELECT coalesce(max(version),0)+1 FROM private.clause_disposition WHERE observation_id=v_obs.id),'erstattet','machine',
+      jsonb_build_object('batch_id',p_batch_id,'element_id',p_element_id,'manifest_sha256',v_ctx->>'manifest_sha256','replaced_by_clause_set_seq',v_current+1));
+    v_old:=v_old+1;
+  END LOOP;
+  SET CONSTRAINTS private.trg_clause_set_density IMMEDIATE;
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
+  VALUES(p_batch_id,p_element_id,'clause_revision',v_ctx->>'record_key',
+    p_payload||jsonb_build_object('parent_observation_id',v_parent,'run_id',(v_ctx->>'run_id')::uuid,'clauses_written',v_count,
+      'clauses_replaced',v_old,'clause_set_seq',v_current+1,'before_clause_set_sha256',v_before,'after_clause_set_sha256',v_after),
+    v_after);
+  RETURN jsonb_build_object('clauses',v_count,'clauses_replaced',v_old,'clause_set_seq',v_current+1,
+    'before_clause_set_sha256',v_before,'after_clause_set_sha256',v_after,'parent_observation_id',v_parent,'run_id',(v_ctx->>'run_id')::uuid);
+END $$;
+CREATE OR REPLACE FUNCTION red_source_persona_detail(p_source_persona_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_result jsonb;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
+  END IF;
+  SELECT jsonb_build_object(
+    'persona',jsonb_build_object('source_persona_id',persona.id,'source_id',persona.source_id,
+      'persona_key',persona.persona_key,'decision_status',coalesce(identity_state.decision_status,'proposed'),
+      'version',coalesce(identity_state.version,0),'canonical_person_id',identity_state.canonical_person_id),
+    'mentions',coalesce((SELECT jsonb_agg(jsonb_build_object(
+      'mention_kind',mention.mention_kind,'mention_role',persona_mention.mention_role,
+      'verbatim_text',mention.verbatim_text,'observation_kind',observation.observation_kind,
+      'page_from',observation.page_from,'page_to',observation.page_to,
+      -- Trin 6a (Task 7): flere versioner kan være foretrukne efter to revisioner (tabellen er append-only);
+      -- 'current' er den ene, helpost_text_current vælger.
+      'text_versions',coalesce((SELECT jsonb_agg(jsonb_build_object('version',text_version.version,
+        'verbatim_text',text_version.verbatim_text,'preferred',text_version.is_preferred,
+        'current',text_version.id IS NOT DISTINCT FROM (SELECT c.text_id FROM private.helpost_text_current(observation.id) c))
+        ORDER BY text_version.version) FROM private.source_observation_text text_version
+        WHERE text_version.observation_id=observation.id),'[]'::jsonb))
+      ORDER BY persona_mention.ordinal)
+      FROM private.source_persona_mention persona_mention
+      JOIN private.source_mention mention ON mention.id=persona_mention.mention_id
+      JOIN private.source_observation observation ON observation.id=mention.observation_id
+      WHERE persona_mention.persona_id=persona.id),'[]'::jsonb),
+    'placements',coalesce((SELECT jsonb_agg(jsonb_build_object('placement_role',persona_placement.placement_role,
+      'printed_number',record_placement.printed_number,'generation_label_raw',record_placement.generation_label_raw))
+      FROM private.source_persona_placement_current persona_placement
+      JOIN private.source_record_placement_current record_placement ON record_placement.id=persona_placement.record_placement_id
+      WHERE persona_placement.source_persona_id=persona.id
+        AND persona_placement.decision_status='accepted'
+        AND record_placement.decision_status='accepted'),'[]'::jsonb),
+    -- Bevarer også modstridende/tvivlsomme fortolkninger som læsbar kontekst.
+    'interpretations',coalesce((SELECT jsonb_agg(jsonb_build_object('predicate',interpretation.predicate,
+      'value',interpretation.value,'status',interpretation.status,'confidence',interpretation.confidence,
+      'derivation_kind',interpretation.derivation_kind) ORDER BY interpretation.created_at)
+      FROM private.interpretation interpretation
+      WHERE interpretation.source_persona_id=persona.id),'[]'::jsonb),
+    'candidates',coalesce((SELECT jsonb_agg(jsonb_build_object(
+        'candidate_id',c.id,'run_id',c.run_id,'rank',c.rank,'score',c.score,'tier',c.tier,'basis',c.basis,
+        'person_id',p.id,'person_name',p.visning_navn,'born',p.visning_foedt,'died',p.visning_doed,
+        -- Trin 5b: kandidatvisning — titler, egen post og familie med hovedpersonen.
+        'titles',coalesce((SELECT jsonb_agg(DISTINCT a.vaerdi_tekst) FROM fact f JOIN conclusion k ON k.target_type='fact' AND k.target_id=f.id
+                            JOIN assertion a ON a.id=k.valgt_assertion_id WHERE f.subjekt_type='person' AND f.subjekt_id=p.id AND f.faktatype='titel'),'[]'::jsonb),
+        'own_post_key',(SELECT sr.record_key FROM private.source_persona_identity i2
+            JOIN private.source_persona_mention spm ON spm.persona_id=i2.source_persona_id AND spm.mention_role='primary'
+            JOIN private.source_mention sm ON sm.id=spm.mention_id
+            JOIN private.source_observation o ON o.id=sm.observation_id AND o.parent_observation_id IS NULL
+            JOIN private.source_record_anchor_current ac ON ac.occurrence_id=o.occurrence_id AND ac.decision_status='accepted'
+            JOIN private.source_record sr ON sr.id=ac.source_record_id
+           WHERE i2.canonical_person_id=p.id AND i2.decision_status='accepted' ORDER BY sr.record_key LIMIT 1),
+        'family_id',(SELECT (f->>'family_id')::bigint FROM jsonb_array_elements(private.persona_family_context(persona.id)->'families') f
+                      WHERE f->'partners' @> to_jsonb(p.id) LIMIT 1),
+        'ordinal',(SELECT (f->>'ordinal')::int FROM jsonb_array_elements(private.persona_family_context(persona.id)->'families') f
+                      WHERE f->'partners' @> to_jsonb(p.id) LIMIT 1)) ORDER BY c.rank)
+      FROM private.source_persona_identity_candidate c
+      JOIN public.person p ON p.id=c.candidate_person_id
+      WHERE c.source_persona_id=persona.id
+        AND c.run_id=(SELECT r.id FROM private.source_persona_identity_candidate_run r
+                       WHERE r.source_id=persona.source_id ORDER BY r.run_seq DESC LIMIT 1)),'[]'::jsonb),
+    -- Trin 5b: hvor ægtefællen står (hovedpersonens post og ægteskabets nummer).
+    'family_context',(SELECT jsonb_build_object('principal_record_key',
+        (SELECT sr.record_key FROM private.source_persona_mention spm JOIN private.source_mention sm ON sm.id=spm.mention_id
+           JOIN private.source_observation o ON o.id=sm.observation_id
+           JOIN private.source_record_anchor_current ac ON ac.occurrence_id=o.occurrence_id AND ac.decision_status='accepted'
+           JOIN private.source_record sr ON sr.id=ac.source_record_id
+          WHERE spm.persona_id=persona.id AND spm.mention_role='spouse' LIMIT 1),
+        'marriage_ordinal',(fc->>'marriage_ordinal')::int)
+      FROM private.persona_family_context(persona.id) fc WHERE fc IS NOT NULL),
+    -- Trin 5b 2b-i (spec §6.2): hovedpersonens faktiske partnere og en udledt årsag til, at sagen står i køen.
+    'principal_partners',coalesce((SELECT jsonb_agg(jsonb_build_object('person_id',pp.id,'family_id',(f->>'family_id')::bigint,
+        'name',coalesce(pp.visning_fuldt_navn,pp.visning_navn),'born',pp.visning_foedt,'died',pp.visning_doed,
+        'ordinal',(f->>'ordinal')::int,'konfidens',f->'konfidens') ORDER BY (f->>'family_id')::bigint,pp.id)
+      FROM jsonb_array_elements(private.persona_family_context(persona.id)->'families') f
+      CROSS JOIN LATERAL jsonb_array_elements_text(f->'partners') pid
+      JOIN public.person pp ON pp.id=pid::bigint),'[]'::jsonb),
+    'review_reason',CASE
+      WHEN coalesce(identity_state.decision_status,'proposed')<>'proposed'
+        OR NOT EXISTS (SELECT 1 FROM private.source_persona_mention m WHERE m.persona_id=persona.id AND m.mention_role='spouse') THEN NULL
+      WHEN private.persona_family_context(persona.id) IS NULL THEN 'context_unavailable'
+      WHEN jsonb_array_length(private.persona_family_context(persona.id)->'families')=0 THEN 'principal_no_family'
+      WHEN EXISTS (SELECT 1 FROM private.source_persona_identity_candidate c
+                    CROSS JOIN LATERAL jsonb_array_elements(private.persona_family_context(persona.id)->'families') f
+                    WHERE c.source_persona_id=persona.id AND c.rank=1
+                      AND c.run_id=(SELECT r.id FROM private.source_persona_identity_candidate_run r
+                                     WHERE r.source_id=persona.source_id ORDER BY r.run_seq DESC LIMIT 1)
+                      AND f->'partners' @> to_jsonb(c.candidate_person_id)) THEN 'partner_is_candidate'
+      ELSE 'partner_not_candidate' END,
+    -- Synlig, ikke blokerende: målarkitekturen kræver, at kollisioner vises.
+    'collisions',coalesce((SELECT jsonb_agg(DISTINCT jsonb_build_object('person_id',other.canonical_person_id,'persona_key',op.persona_key))
+      FROM private.source_persona_identity other
+      JOIN private.source_persona op ON op.id=other.source_persona_id
+      WHERE other.decision_status='accepted' AND op.source_id=persona.source_id AND op.id<>persona.id
+        AND other.canonical_person_id IN (SELECT c.candidate_person_id FROM private.source_persona_identity_candidate c
+                                           WHERE c.source_persona_id=persona.id
+                                             AND c.run_id=(SELECT r.id FROM private.source_persona_identity_candidate_run r
+                                                            WHERE r.source_id=persona.source_id ORDER BY r.run_seq DESC LIMIT 1))),'[]'::jsonb)
+  ) INTO v_result
+  FROM private.source_persona persona
+  LEFT JOIN private.source_persona_identity identity_state ON identity_state.source_persona_id=persona.id
+  WHERE persona.id=p_source_persona_id;
+  IF v_result IS NULL THEN RAISE EXCEPTION 'EVIDENCE_PERSONA_NOT_FOUND'; END IF;
+  RETURN v_result;
+END $$;
+CREATE OR REPLACE FUNCTION private.relation_person_create_input(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_elements jsonb;
+BEGIN
+  IF p_source_id IS NULL THEN RAISE EXCEPTION 'RELATION_PERSON_CREATE_INPUT_INVALID'; END IF;
+  WITH cand AS (
+    SELECT i.source_persona_id AS sp, i.version AS iv, sp_party.marriage_ordinal AS ord,
+           pi.canonical_person_id AS principal, sm.verbatim_text AS name_text, sr.record_key, o.page_from
+      FROM private.source_persona_identity i
+      JOIN private.source_persona p ON p.id=i.source_persona_id AND p.source_id=p_source_id
+      JOIN private.interpretation_party_current sp_party ON sp_party.source_persona_id=i.source_persona_id AND sp_party.party_role='spouse'
+      -- Trin 6a (Codex F3): parten har kun autoritet, mens relationen aktuelt er proposed eller accepted
+      -- (som writerens RELATION_PERSON_CREATE_INTERPRETATION_STALE); en forældet relation giver ingen række.
+      JOIN private.interpretation_current sp_ic ON sp_ic.interpretation_key=sp_party.interpretation_key
+                                               AND sp_ic.status IN ('proposed','accepted')
+      JOIN private.interpretation_party_current pr ON pr.interpretation_key=sp_party.interpretation_key AND pr.party_role='principal'
+      JOIN private.source_persona_identity pi ON pi.source_persona_id=pr.source_persona_id AND pi.decision_status='accepted'
+      JOIN private.source_persona_mention spm ON spm.persona_id=i.source_persona_id AND spm.mention_role='spouse'
+      JOIN private.source_mention sm ON sm.id=spm.mention_id
+      JOIN private.source_observation o ON o.id=sm.observation_id
+      LEFT JOIN private.source_record_anchor_current ac ON ac.occurrence_id=o.occurrence_id AND ac.decision_status='accepted'
+      LEFT JOIN private.source_record sr ON sr.id=ac.source_record_id
+     WHERE i.decision_status='unresolved' AND i.evidence->>'reason'='new_person_needed'
+       AND i.evidence->>'basis'='human_sheet' AND i.evidence ? 'deceased'
+  )
+  SELECT coalesce(jsonb_object_agg('relation-person-create:'||c.sp::text, jsonb_build_object(
+      'citation_label',coalesce(c.record_key,'?')||', s. '||c.page_from,
+      'family_id',f.fid,
+      'family_mode',CASE WHEN f.fid IS NULL THEN 'new' ELSE 'existing' END,
+      'identity_version',c.iv,'marriage_ordinal',c.ord,'name_text',c.name_text,
+      'principal_person_id',c.principal,'source_persona_id',c.sp::text)),'{}'::jsonb)
+    INTO v_elements
+    FROM cand c CROSS JOIN LATERAL (SELECT private.relation_person_create_family(c.principal,c.ord) AS fid) f;
+  RETURN jsonb_build_object('contract','relation-person-create-input-v1','source_id',p_source_id,
+    'expected_counts',jsonb_build_object('person_creates',0,'source_evidence',0,'relation_person_creates',
+       (SELECT count(*) FROM jsonb_object_keys(v_elements))),
+    'authorized_elements',v_elements);
+END $$;
+CREATE OR REPLACE FUNCTION private.relation_persona_v3_input(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v2 jsonb; v_rows jsonb; v_re jsonb;
+BEGIN
+  IF p_source_id IS NULL THEN RAISE EXCEPTION 'RELATION_PERSONA_V3_INPUT_INVALID'; END IF;
+  v2:=private.relation_persona_v2_input(p_source_id);
+  -- Trin 6a (Task 7): post_text er helpostens gældende tekst (helpost_text_current); klausulerne i v2-rækkerne er
+  -- fra det aktuelle sæt og dermed skåret af netop den. Uden tekstversion: basisteksten, som før.
+  SELECT coalesce(jsonb_agg(t.r || jsonb_build_object('post_text',(
+           SELECT pt.verbatim_text FROM private.source_observation co
+             CROSS JOIN LATERAL private.helpost_text_current(co.parent_observation_id) pt
+            WHERE co.id=(t.r#>>'{clauses,0,observation_id}')::uuid)) ORDER BY t.n),'[]'::jsonb)
+    INTO v_rows FROM jsonb_array_elements(v2->'rows') WITH ORDINALITY AS t(r,n);
+  SELECT coalesce(jsonb_agg(jsonb_build_object(
+      'source_persona_id',i.source_persona_id::text,'identity_version',i.version,
+      -- Indholds-id (#151, spec §4 pkt. 3): ingen dato; arkets hash må ikke afhænge af kørselsdagen.
+      'previous',jsonb_build_object('basis',i.evidence->>'basis','note',i.evidence->>'note'),
+      'name_text',sm.verbatim_text,'clause_observation_id',o.id::text,'clause_text',o.verbatim_text,
+      'clause_is_current',EXISTS (SELECT 1 FROM private.clause_observation_current cc WHERE cc.id=o.id),
+      'post_text',(SELECT pt.verbatim_text FROM private.helpost_text_current(o.parent_observation_id) pt),
+      'record_key',sr.record_key,'page_from',o.page_from,
+      'marriage_ordinal',spp.marriage_ordinal,'principal_person_id',pi.canonical_person_id,
+      'principal_partners',coalesce((
+          SELECT jsonb_agg(jsonb_build_object('person_id',x.person_id,'family_id',x.family_id,'ordinal',x.ordinal,
+                   'navn',coalesce(pp.visning_fuldt_navn,pp.visning_navn),'foedt',pp.visning_foedt,'doed',pp.visning_doed)
+                 ORDER BY x.person_id,x.family_id)
+            FROM public.family_member me JOIN public.family_member x ON x.family_id=me.family_id AND x.rolle='partner'
+                 AND x.person_id<>me.person_id JOIN public.person pp ON pp.id=x.person_id
+           WHERE me.person_id=pi.canonical_person_id AND me.rolle='partner'),'[]'::jsonb))
+     ORDER BY i.source_persona_id::text COLLATE "C"),'[]'::jsonb)
+    INTO v_re
+    FROM private.source_persona_identity i
+    JOIN private.source_persona p ON p.id=i.source_persona_id AND p.source_id=p_source_id
+    JOIN private.source_persona_mention spm ON spm.persona_id=i.source_persona_id AND spm.mention_role='spouse'
+    JOIN private.source_mention sm ON sm.id=spm.mention_id
+    JOIN private.source_observation o ON o.id=sm.observation_id
+    -- Trin 6a (Codex F3): ægtefælleparten bærer hovedperson og nummer kun, mens relationen aktuelt er proposed eller
+    -- accepted. Rækken står (identiteten er stadig uafklaret), men uden partens autoritet giver arket U.
+    LEFT JOIN (private.interpretation_party_current spp
+               JOIN private.interpretation_current spp_ic ON spp_ic.interpretation_key=spp.interpretation_key
+                                                         AND spp_ic.status IN ('proposed','accepted'))
+           ON spp.source_persona_id=i.source_persona_id AND spp.party_role='spouse'
+    LEFT JOIN private.interpretation_party_current pr ON pr.interpretation_key=spp.interpretation_key AND pr.party_role='principal'
+    LEFT JOIN private.source_persona_identity pi ON pi.source_persona_id=pr.source_persona_id AND pi.decision_status='accepted'
+    LEFT JOIN private.source_record_anchor_current ac ON ac.occurrence_id=o.occurrence_id AND ac.decision_status='accepted'
+    LEFT JOIN private.source_record sr ON sr.id=ac.source_record_id
+   WHERE i.decision_status='unresolved' AND i.evidence->>'reason'='new_person_needed' AND NOT (i.evidence ? 'deceased');
+  RETURN jsonb_build_object('contract','relation-persona-v3-input','source_id',p_source_id,
+                            'deceased_cutoff_year',1906,'rows',v_rows,'redecide_rows',v_re);
+END $$;
+REVOKE ALL ON FUNCTION private.clause_write_prepare(uuid,text,jsonb,text), private.write_clause_evidence(uuid,text,jsonb),
+  private.write_clause_revision(uuid,text,jsonb), private.relation_person_create_input(bigint),
+  private.relation_persona_v3_input(bigint) FROM PUBLIC,anon,authenticated,service_role;
