@@ -93,6 +93,24 @@ BEGIN
   EXECUTE pg_temp.clause_sql(fx, fx->>'rev', 1, 2, 31, 48, v_t);
 END $$;
 
+-- omvendt retning: første række uden binding, senere række med tekstversion
+DO $$
+DECLARE fx jsonb := pg_temp.fixture('c2'); v_t uuid;
+BEGIN
+  v_t := pg_temp.add_version(fx,1,NULL,true,fx->>'rev');
+  EXECUTE pg_temp.clause_sql(fx, fx->>'text', 1, 1, 0, 4, NULL);
+  PERFORM pg_temp.expect_error(pg_temp.clause_sql(fx, fx->>'rev', 1, 2, 31, 48, v_t), 'EVIDENCE_CLAUSE_SET_TEXT_MIXED');
+END $$;
+
+-- view'et har provenance-kolonnerne (genskabt efter ADD COLUMN på opgraderingsstien)
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM information_schema.columns WHERE table_schema='private'
+        AND table_name='source_observation_text_current' AND column_name IN ('extraction_run_id','method','evidence'))<>3 THEN
+    RAISE EXCEPTION 'TEXT_VERSION_TEST: source_observation_text_current mangler provenance-kolonner';
+  END IF;
+END $$;
+
 -- parent_text_id kun på klausuler
 DO $$
 DECLARE fx jsonb := pg_temp.fixture('d'); v_t uuid;

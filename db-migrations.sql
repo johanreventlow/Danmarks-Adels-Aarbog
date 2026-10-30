@@ -26978,6 +26978,13 @@ END $text_version_evidence_check$;
 ALTER TABLE private.source_observation
   ADD COLUMN IF NOT EXISTS parent_text_id uuid REFERENCES private.source_observation_text(id);
 
+-- Viewets * udvides ved oprettelse: genskab det efter de nye kolonner (ellers mangler de på opgraderingsstien).
+CREATE OR REPLACE VIEW private.source_observation_text_current
+WITH (security_invoker=true) AS
+SELECT DISTINCT ON (observation_id) *
+  FROM private.source_observation_text
+ ORDER BY observation_id,is_preferred DESC,version DESC,created_at DESC,id DESC;
+
 CREATE OR REPLACE FUNCTION private.validate_clause_observation()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
 DECLARE v_parent private.source_observation%ROWTYPE; v_ptext text;
