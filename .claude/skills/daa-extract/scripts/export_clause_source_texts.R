@@ -46,7 +46,10 @@ ok_rows <- DBI::dbGetQuery(con, "
    ORDER BY sr.record_key COLLATE \"C\"", params = list(paste0("{", paste(status_rows$observation_id[status_rows$status == "ok"], collapse = ","), "}")))
 invisible(DBI::dbExecute(con, "ROLLBACK"))
 none_keys <- status_rows$record_key[status_rows$status == "none"]
-if (nrow(ok_rows) != sum(status_rows$status == "ok")) stop("EXPORT_HELPOST_TEXT_MISSING", call. = FALSE)
+ok_keys <- status_rows$record_key[status_rows$status == "ok"]
+# Transaktionen er rullet tilbage ovenfor; mængden (ikke kun antallet) af ok-rækker skal være præcis ok-recordene.
+if (nrow(ok_rows) != length(ok_keys) || anyDuplicated(ok_rows$record_key) || !identical(sort(ok_rows$record_key, method = "radix"), sort(ok_keys, method = "radix")))
+  stop("EXPORT_HELPOST_ROWS_MISMATCH", call. = FALSE)
 cols <- c("record_key", "occurrence_key", "page_from", "page_to", "char_from", "char_to", "text_id", "verbatim_text", "verbatim_sha256", "rendition_content_sha256")
 # Rækkeform med eksplicitte null-felter: no_helpost-rækker bærer kun record_key (Python-ledgeren tæller dem).
 as_row <- function(src) lapply(setNames(cols, cols), function(k) if (is.null(src[[k]]) || is.na(src[[k]])) NULL else src[[k]])
@@ -55,8 +58,7 @@ out_rows <- c(lapply(seq_len(nrow(ok_rows)), function(i) as_row(as.list(ok_rows[
 out_rows <- out_rows[order(vapply(out_rows, function(r) r$record_key, ""), method = "radix")]
 invisible(file.create(texts_path)); Sys.chmod(texts_path, "0600")
 jsonlite::write_json(out_rows, texts_path, auto_unbox = TRUE, null = "null", digits = NA, pretty = TRUE)
-index_rows <- lapply(out_rows, function(r) r[setdiff(names(r), "verbatim_text")])
-index_rows <- Filter(function(r) !is.null(r$text_id) || !is.null(r$occurrence_key), index_rows)
+index_rows <- lapply(seq_len(nrow(ok_rows)), function(i) as_row(as.list(ok_rows[i, , drop = FALSE]))[setdiff(cols, "verbatim_text")])
 no_helpost <- lapply(none_keys, function(k) list(record_key = k, status = "none"))
 jsonlite::write_json(list(records = index_rows, no_helpost = no_helpost), index_path, auto_unbox = TRUE, null = "null", digits = NA, pretty = TRUE)
 cat(jsonlite::toJSON(list(records_ok = nrow(ok_rows), no_helpost = length(none_keys), texts_sha256 = digest::digest(file = texts_path, algo = "sha256")), auto_unbox = TRUE), "\n")

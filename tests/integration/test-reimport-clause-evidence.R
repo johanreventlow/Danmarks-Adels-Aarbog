@@ -345,8 +345,18 @@ ledger_summary <- jsonlite::fromJSON(file.path(ledger_dir, "clause-ledger-summar
 stopifnot(identical(as.integer(ledger_summary$records), 3L), identical(as.integer(ledger_summary$no_helpost$records), 1L),
   identical(ledger_summary$no_helpost$record_keys, "EXP-N"))
 
+# ambiguous: to accepterede person_post-forekomster med hver sin helpost-observation.
+rec_d <- mk_record("EXP-D"); mk_occ(rec_d, "exp-d1", 1000L, 1020L, "person_post", "Ambiguous et")
+mk_occ(rec_d, "exp-d2", 1100L, 1120L, "person_post", "Ambiguous to")
+amb_dir <- new_out_dir()
+amb <- run_export("person_post", amb_dir)
+stopifnot(amb$status != 0L, grepl("EXPORT_HELPOST_INVALID", amb$out, fixed = TRUE), length(list.files(amb_dir)) == 0L)
+
 # En underforekomst udenfor helposten gør recorden til outside: eksporten stopper uden at skrive filer.
 mk_occ(rec_c, "exp-c2", 900L, 910L, "fact", "udenfor")
+# Begge dårlige records er nu i basen; bevis at hver har sin egen status (så ingen maskerer den anden).
+stopifnot(identical(q("SELECT status FROM private.record_helpost_status($1::uuid,'person_post')", list(rec_c))$status, "outside"),
+  identical(q("SELECT status FROM private.record_helpost_status($1::uuid,'person_post')", list(rec_d))$status, "ambiguous"))
 bad_dir <- new_out_dir()
 bad <- run_export("person_post", bad_dir)
 stopifnot(bad$status != 0L, grepl("EXPORT_HELPOST_INVALID", bad$out, fixed = TRUE), length(list.files(bad_dir)) == 0L)
