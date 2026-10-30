@@ -128,7 +128,7 @@ Klausul- og mentionlæsere (ingen helposttekst): `interpretation_proposal_projec
 `interpretation_control_rows.sql:9`, `interpretation_decision_fingerprint.sql:25`,
 `interpretation_transfer_digests.sql:10`, `identity_control_rows.sql:29`, `relation_marriage_sheet*.py`,
 `relation_persona_extract*.py`, `identity_queue_sheet.py:47` og `spouse_exception_sheet.py:64`.
-Projektionen skal følge nøgleversionen (Task 13, spec §4.4 pkt. 6), men den læser ikke helposttekst.
+Forslagsprojektionen følger nu nøgleversionen (Task 13, se tabellen ovenfor), men den læser ikke helposttekst.
 
 Fil- og manifestbaserede (ingen DB-læsning af helposttekst): `build_43b_selection.py`, `build_45_selection.py`,
 `build_clause_ledger.py`, `build_header_manifest.py`, `build_source_evidence_manifest.py`, `clause_ledger.py`,
