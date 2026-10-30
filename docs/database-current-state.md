@@ -529,6 +529,38 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 17. Trin 6a: helpost-regel, kildetekst-revision og 1939's klausuler — LIVE i prod (2026-10-30)
+
+**Procedure:** `docs/runbooks/trin6a-prod.md`, private scripts `~/.private/5ab-overfoersel/25-trin6a.sh` og
+`25-trin6a-b.R`. Repo `e9a289cf` (`main` med PR #281-#283). To ceremonier med hver sin GO, kørt af projektejeren.
+
+- **Ceremoni A (DDL, GO 6a-A `035a4bcc`):** blokken fra `-- ===== trin 6a: helpost-regel =====` til slutningen af
+  `db-migrations.sql` (sha `4b284563…`) i én transaktion (3 s; `statement_timeout` 2 min), derefter PostgREST genindlæst.
+  12 nye funktioner (heraf `clause_write_set` med 5 argumenter i stedet for 4, og
+  `public.red_apply_reimport_source_text_revision`), nye kolonner og views; klausul-writeren bruger helpost-reglen og
+  den rå tekstform. Data: kun to rækker i `private.reimport_writer_profile`. Redaktørens 5b-ægteskabsark viser kun
+  ægtefælleparten ved en aktuel `proposed`/`accepted`-relation. Dump før: `daa-prod-20261030194417-6a.dump`
+  (sha `8239daf1…`, ekstern `age`-kopi `92771e2b…`, rundtur ok).
+  Kvittering: `T6A_APPLY_A_OK funktioner=12 profiler=2 view=t`, 2018-20 uændret (`k1` 984/591/`2c530d0a…`).
+- **Ceremoni B (data, GO 6a-B `a0524bcd`):** eksport `helposter=584 uden_helpost=8`; manifest indhold `3ee3d328…`
+  (fil `439c7f1d…`, byte-ens med slutøvelsens). Reimport-writerens kæde (dry-run, authorize → apply → finalize) med
+  profilen `daa-1939-clause-evidence-v1`: `T6A_APPLY_B_OK k3_klausuler=912 k3_poster=584 k3_afventer=687
+  k3_flagget=225 k3_batch=1 status=finalized committed=TRUE sekunder=150.6 inkl_dryrun=297.6`; kanonisk lag uændret,
+  replay `already_applied`, `k1` uændret. Flag: `page_marker_in_clause` 77, `unbalanced_parentheses` 66,
+  `unknown_abbreviation` 59, `short_clause` 40, `possible_layout_line` 21, `uncertain_marker` 7, `multiple_marriages` 1.
+  Dump før: `daa-prod-20261030221325-6a.dump` (sha `352b54a5…`, tilstand `a`, ekstern `age`-kopi `5af5dbbf…`,
+  rundtur ok). Efter: `T6A_MAAL_OK tilstand=b`.
+- **Ikke anvendt:** kildetekst-revisionen (`private.write_source_text_revision`, kræver READ COMMITTED) er deployet, men
+  ubrugt; første brug er A6b-resten i 6c. Læserfladen er uændret.
+- **Ydelse:** B's apply tog 150,6 s i prod mod 3,9 s på stand-in (slutøvelsen), knap 40 gange langsommere; kørslen blev ikke stoppet af prods
+  `statement_timeout` på 2 min.
+- **Rådgiver (skridt 5):** `get_advisors(security)` før/efter A tages af projektejeren i dashboardet; forventet højst ét
+  nyt fund (`red_apply_reimport_source_text_revision`, SECURITY DEFINER som de øvrige `red_apply_reimport_*`).
+  Resultat: udestår.
+- **Fortryd:** B ved restore af B-dumpet + `db-rls.sql` (klausulerne har ingen afhængige før 6c), eller et nyt
+  regelsæt via `clause_revision`. A med de tidligere funktionskroppe fra A-dumpet (ikke scriptet; runbookens liste)
+  eller restore af A-dumpet, hvis intet andet er skrevet.
+
 ## 16. 5c-2 + B11: læserne på placement og fakta med kilde — LIVE i prod (2026-10-29)
 
 **Procedure:** `docs/runbooks/5c2-b11-prod.md`, privat script `~/.private/5ab-overfoersel/24-5c2-b11.sh`.

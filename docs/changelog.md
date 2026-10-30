@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-10-30 — Trin 6a i prod: helpost-regel og kildetekst-revision (DDL) og 1939's klausuler (data)
+
+Prod-kørsel efter `docs/runbooks/trin6a-prod.md`, repo `e9a289cf` (PR #281-#283), kørt af projektejeren med
+`~/.private/5ab-overfoersel/25-trin6a.sh`. To ceremonier; detaljer i `database-current-state.md` §17.
+
+- **Kode:** PR #281 (DB: helpost-regel, 1939-klausulregler, `private.write_source_text_revision` med READ COMMITTED-vagt
+  og `FOR UPDATE`-låse, genkørsel af forslag), #282 (scripts: eksport, manifest, B-runner, samtidighedstest i CI med ren
+  ASCII-tekst, fordi R-workere uden `LANG` escaper `ø` på Linux), #283 (slutøvelse på `main`: B-tallene 912/687/225
+  forudsagt fra manifestet og ramt; runnerens lydløse stop ved `pipefail` fundet og rettet).
+- **Ceremoni A (GO 6a-A `035a4bcc`):** dump før `daa-prod-20261030194417-6a.dump` (sha `8239daf1…`, ekstern
+  `92771e2b…`); `T6A_APPLY_A_OK funktioner=12 profiler=2 view=t`, blok 3 s, 2018-20 uændret.
+- **Ceremoni B (GO 6a-B `a0524bcd`):** eksport 584 helposter / 8 uden; manifest `3ee3d328…` byte-ens med øvelsen; dump
+  før `daa-prod-20261030221325-6a.dump` (sha `352b54a5…`, ekstern `5af5dbbf…`); `T6A_APPLY_B_OK k3_klausuler=912
+  k3_poster=584 k3_afventer=687 k3_flagget=225 k3_batch=1 status=finalized committed=TRUE sekunder=150.6`; kanonisk
+  lag uændret, replay `already_applied`; `T6A_MAAL_OK tilstand=b`.
+- **Ikke anvendt:** kildetekst-revisionen er deployet, men ubrugt indtil A6b-resten i 6c.
+- **Rådgiver:** før/efter-diff af `get_advisors(security)` udestår.
+
 ## 2026-10-29 — 5c-2 + B11 i prod: læseren ser placering og fakta med kilde (DDL, ingen data)
 
 Prod-kørsel efter `docs/runbooks/5c2-b11-prod.md`, repo `bd86d833` (PR #275-#277), GO 5c2 `bb1678f9`, kørt af
