@@ -2,8 +2,9 @@
 
 **Status:** revideret efter builder-check, Fable-læsning og Codex-runden på spec+plan (§11). Skrevet uden
 afklarende spørgsmål (projektejeren sprang dem over 2026-10-29 og bad om bedste skøn plus reviews). Mine valg er
-markeret *mit valg*. Projektejerens afgørelse (§9) er truffet 2026-10-29: I-84 parkeres. Næste: projektejeren
-læser planen og vælger udførelse.
+markeret *mit valg*. Projektejerens afgørelse (§9) er truffet 2026-10-29: I-84 parkeres. Spec'en som helhed,
+herunder B7 og mine valg i §9, er **ikke godkendt endnu**. Næste: projektejeren læser §9 og planen, godkender
+eller retter, og vælger udførelse.
 **Gren:** `docs/trin6a-spec` fra `docs/trin6-spec` (`02d3e400`; PR #280 er ikke merget).
 **Review-budget (B13):** builder-check (frisk agent) + én Fable-læsning af spec'en (projektejerens ja 2026-10-29;
 overskridelse noteret i `docs/decisions.md`) + 1 Codex-runde på spec+plan (`gpt-6.1-sol`, Opus dømmer) + 1
