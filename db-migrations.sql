@@ -26986,6 +26986,16 @@ SELECT DISTINCT ON (observation_id) *
   FROM private.source_observation_text
  ORDER BY observation_id,is_preferred DESC,version DESC,created_at DESC,id DESC;
 
+-- Samme gælder klausulviewet (o.*): uden genskabelsen mangler parent_text_id på en base, der migreres med én kørsel.
+CREATE OR REPLACE VIEW private.clause_observation_current
+WITH (security_invoker=true) AS
+SELECT o.*
+  FROM private.source_observation o
+ WHERE o.observation_kind='clause'
+   AND coalesce(o.clause_set_seq,1)=(SELECT max(coalesce(o2.clause_set_seq,1))
+                                       FROM private.source_observation o2
+                                      WHERE o2.parent_observation_id=o.parent_observation_id);
+
 CREATE OR REPLACE FUNCTION private.validate_clause_observation()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
 DECLARE v_parent private.source_observation%ROWTYPE; v_ptext text;

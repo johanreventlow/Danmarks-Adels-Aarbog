@@ -398,6 +398,12 @@ jobs:
           test "$(cut -d'|' -f1 parity-red8-schema.txt | sort -u | wc -l)" -eq 25 || { echo "RED-8 kolonneparitet: forventede 25 tabeller" >&2; exit 1; }
           test "$(cut -d'|' -f1 parity-red8-upgraded.txt | sort -u | wc -l)" -eq 25 || { echo "RED-8 kolonneparitet: forventede 25 tabeller (migreret)" >&2; exit 1; }
           cmp parity-red8-schema.txt parity-red8-upgraded.txt
+          # Trin 6a: views med SELECT t.* låser kolonnelisten ved oprettelsen; en ny kolonne skal give samme view i frisk og migreret base.
+          psql -h localhost -U postgres -d reimport_schema_only_5ab -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-6a-view-parity.sql > parity-6a-view-schema.txt
+          psql -h localhost -U postgres -d reimport_legacy_empty_153 -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-6a-view-parity.sql > parity-6a-view-upgraded.txt
+          test "$(wc -l < parity-6a-view-schema.txt)" -eq 20 || { echo "6a viewparitet: forventede 20 views" >&2; exit 1; }
+          test "$(wc -l < parity-6a-view-upgraded.txt)" -eq 20 || { echo "6a viewparitet: forventede 20 views (migreret)" >&2; exit 1; }
+          cmp parity-6a-view-schema.txt parity-6a-view-upgraded.txt
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -c "ALTER TABLE private.reimport_batch ALTER COLUMN expected_counts DROP NOT NULL"
           psql -h localhost -U postgres -d reimport_fresh_153 -At -f tests/sql/inspect-reimport-writer-catalog.sql > reimport-writer-column-drift-catalog.json
           if cmp -s reimport-writer-fresh-catalog.json reimport-writer-column-drift-catalog.json; then
