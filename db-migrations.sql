@@ -27108,3 +27108,214 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
      AND NOT EXISTS (SELECT 1 FROM private.source_observation_text t WHERE t.observation_id=o.id)
 $$;
 REVOKE ALL ON FUNCTION private.helpost_text_current(uuid) FROM PUBLIC,anon,authenticated,service_role;
+
+-- ===== trin 6a: afhængighedsmængde og forældelse ved kildetekst-revision =====
+-- ===================================================================================
+-- Trin 6a (spec §4.4 pkt. 0, 2 og 5): afhængighedsmængden ved kildetekst-revision, de gældende bindinger over
+-- alle måltyper og forældelsen. Låsene tages af revisionsoperationen, før disse kaldes; funktionerne tager ingen
+-- egne låse. »Aktuelt sæt« er private.clause_observation_current (højeste clause_set_seq pr. helpost), samme
+-- definition som validate_interpretation_observation_current_clause.
+-- ===================================================================================
+
+-- Aktuelle versioner af de nøgler, hvis aktuelle version citerer en klausul i helpostens aktuelle sæt og hverken
+-- er rejected eller superseded. Afhængigheder, revisionen ikke kan håndtere, afvises (Codex F7, F8): en
+-- ikke-endelig aktuel version, der linker til helposten selv, eller som citerer det aktuelle sæt og også linker
+-- til en anden observation (fx en klausul under en anden helpost).
+CREATE OR REPLACE FUNCTION private.text_revision_dependents(p_parent_observation_id uuid)
+RETURNS TABLE(interpretation_key uuid, current_id uuid, current_status text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+#variable_conflict use_column
+DECLARE v_bad record;
+BEGIN
+  SELECT c.interpretation_key,c.id INTO v_bad
+    FROM (SELECT DISTINCT i.interpretation_key
+            FROM private.interpretation_observation io
+            JOIN private.interpretation i ON i.id=io.interpretation_id
+           WHERE io.observation_id=p_parent_observation_id
+              OR io.observation_id IN (SELECT k.id FROM private.clause_observation_current k
+                                        WHERE k.parent_observation_id=p_parent_observation_id)) keys
+    JOIN LATERAL (SELECT * FROM private.interpretation_current ic WHERE ic.interpretation_key=keys.interpretation_key) c ON true
+   WHERE c.status NOT IN ('rejected','superseded')
+     AND EXISTS (SELECT 1 FROM private.interpretation_observation io
+                  WHERE io.interpretation_id=c.id
+                    AND (io.observation_id=p_parent_observation_id
+                         OR io.observation_id IN (SELECT k.id FROM private.clause_observation_current k
+                                                   WHERE k.parent_observation_id=p_parent_observation_id)))
+     AND EXISTS (SELECT 1 FROM private.interpretation_observation io
+                  WHERE io.interpretation_id=c.id
+                    AND io.observation_id NOT IN (SELECT k.id FROM private.clause_observation_current k
+                                                   WHERE k.parent_observation_id=p_parent_observation_id))
+   ORDER BY c.interpretation_key LIMIT 1;
+  IF FOUND THEN
+    RAISE EXCEPTION 'TEXT_REVISION_DEPENDENCY_UNSUPPORTED: fortolkning % (version %) på helpost % linker uden for helpostens aktuelle klausulsæt',
+      v_bad.interpretation_key,v_bad.id,p_parent_observation_id;
+  END IF;
+  RETURN QUERY
+  SELECT c.interpretation_key,c.id,c.status
+    FROM (SELECT DISTINCT i.interpretation_key
+            FROM private.interpretation_observation io
+            JOIN private.interpretation i ON i.id=io.interpretation_id
+           WHERE io.observation_id IN (SELECT k.id FROM private.clause_observation_current k
+                                        WHERE k.parent_observation_id=p_parent_observation_id)) keys
+    JOIN LATERAL (SELECT * FROM private.interpretation_current ic WHERE ic.interpretation_key=keys.interpretation_key) c ON true
+   WHERE c.status NOT IN ('rejected','superseded')
+     AND EXISTS (SELECT 1 FROM private.interpretation_observation io
+                  WHERE io.interpretation_id=c.id
+                    AND io.observation_id IN (SELECT k.id FROM private.clause_observation_current k
+                                               WHERE k.parent_observation_id=p_parent_observation_id))
+   ORDER BY c.interpretation_key;
+END $$;
+REVOKE ALL ON FUNCTION private.text_revision_dependents(uuid) FROM PUBLIC,anon,authenticated,service_role;
+
+-- De gældende bindinger for nøglerne, over alle måltyper med hver sit gyldighedsprædikat (spec §4.4 pkt. 5):
+-- assertion = assertion_binding_current; family = aktuel version accepteret og relation_binding_state-hashen lig
+-- den gemte (som public_family_sources). En promotion med en anden måltype på en af nøglernes versioner afvises:
+-- nye måltyper skal have et prædikat her, før revisionen må røre dem.
+CREATE OR REPLACE FUNCTION private.text_revision_binding_set(p_interpretation_keys uuid[])
+RETURNS TABLE(promotion_id uuid, target_type text, interpretation_key uuid, target_id text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+#variable_conflict use_column
+DECLARE v_bad record;
+BEGIN
+  SELECT p.id,p.target_type INTO v_bad
+    FROM private.interpretation_promotion p
+    JOIN private.interpretation q ON q.id=p.interpretation_id
+   WHERE q.interpretation_key=ANY(p_interpretation_keys)
+     AND p.target_type NOT IN ('assertion','family')
+   ORDER BY p.id LIMIT 1;
+  IF FOUND THEN
+    RAISE EXCEPTION 'TEXT_REVISION_TARGET_TYPE_UNSUPPORTED: promotion % har måltype %',v_bad.id,v_bad.target_type;
+  END IF;
+  RETURN QUERY
+  SELECT p.id,p.target_type,q.interpretation_key,p.target_id::text
+    FROM private.interpretation_promotion p
+    JOIN private.interpretation q ON q.id=p.interpretation_id
+    JOIN private.interpretation_current cur ON cur.interpretation_key=q.interpretation_key
+   WHERE q.interpretation_key=ANY(p_interpretation_keys)
+     AND CASE p.target_type
+           WHEN 'assertion' THEN private.assertion_binding_current(p.id)
+           WHEN 'family' THEN cur.id=p.interpretation_id AND cur.status='accepted'
+                              AND private.relation_binding_state_sha256(p.interpretation_id)=p.evidence->>'state_sha256'
+           ELSE false
+         END IS TRUE
+   ORDER BY q.interpretation_key,p.target_type,p.id;
+END $$;
+REVOKE ALL ON FUNCTION private.text_revision_binding_set(uuid[]) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Forældelsen (spec §4.4 pkt. 2): pr. nøgle én ny version af den AKTUELLE version med status superseded og
+-- grundlaget source_text_revision, samme felter og audit-felter som red_decide_interpretation, og kopierede
+-- observations-links. Skal kaldes, mens det gamle klausulsæt stadig er aktuelt (linktriggeren afviser ellers
+-- kopien). Overgangen fra proposed, accepted og unresolved findes kun her; red_decide_interpretation afviser
+-- grundlaget. En ukendt eller allerede endelig nøgle afvises, før noget skrives.
+CREATE OR REPLACE FUNCTION private.supersede_for_text_revision(p_interpretation_keys uuid[], p_actor uuid,
+  p_actor_name text, p_evidence jsonb)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_keys uuid[]; v_bad uuid; v_cur private.interpretation%ROWTYPE; v_new uuid; v_n integer:=0; v_key uuid;
+BEGIN
+  IF p_actor IS NULL OR nullif(btrim(p_actor_name),'') IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
+  IF p_evidence IS NULL OR jsonb_typeof(p_evidence)<>'object' THEN RAISE EXCEPTION 'EVIDENCE_DECISION_INVALID'; END IF;
+  SELECT coalesce(array_agg(DISTINCT k ORDER BY k),'{}') INTO v_keys
+    FROM unnest(p_interpretation_keys) k WHERE k IS NOT NULL;
+  SELECT k INTO v_bad FROM unnest(v_keys) k
+   WHERE NOT EXISTS (SELECT 1 FROM private.interpretation_current c
+                      WHERE c.interpretation_key=k AND c.status NOT IN ('rejected','superseded'))
+   ORDER BY k LIMIT 1;
+  IF FOUND THEN
+    RAISE EXCEPTION 'TEXT_REVISION_KEY_SET_DRIFT: nøgle % er ukendt eller allerede endelig',v_bad;
+  END IF;
+  FOREACH v_key IN ARRAY v_keys LOOP
+    SELECT * INTO v_cur FROM private.interpretation_current WHERE interpretation_key=v_key;
+    v_new:=gen_random_uuid();
+    INSERT INTO private.interpretation(
+      id,interpretation_key,version,source_id,source_persona_id,
+      interpretation_kind,predicate,value,schema_version,derivation_kind,
+      confidence,status,method,model_version,prompt_version,extraction_run_id,
+      supersedes_id,decision_evidence,decided_by,decided_by_name,decided_at
+    ) VALUES (
+      v_new,v_cur.interpretation_key,v_cur.version+1,v_cur.source_id,
+      v_cur.source_persona_id,v_cur.interpretation_kind,v_cur.predicate,
+      v_cur.value,v_cur.schema_version,v_cur.derivation_kind,
+      v_cur.confidence,'superseded',v_cur.method,v_cur.model_version,
+      v_cur.prompt_version,v_cur.extraction_run_id,v_cur.id,
+      p_evidence||jsonb_build_object('basis','source_text_revision'),
+      p_actor,p_actor_name,clock_timestamp()
+    );
+    INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
+    SELECT v_new,observation_id,evidence_role,ordinal
+      FROM private.interpretation_observation
+     WHERE interpretation_id=v_cur.id;
+    v_n:=v_n+1;
+  END LOOP;
+  RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION private.supersede_for_text_revision(uuid[],uuid,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Trin 6a (spec §4.4 pkt. 6): red_decide_interpretation afviser det reserverede grundlag source_text_revision.
+-- CREATE OR REPLACE bevarer rettighederne (EXECUTE til authenticated).
+CREATE OR REPLACE FUNCTION red_decide_interpretation(
+  p_interpretation_id uuid,
+  p_expected_version integer,
+  p_decision_status text,
+  p_evidence jsonb
+) RETURNS uuid
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_current private.interpretation%ROWTYPE;
+  v_actor uuid := auth.uid();
+  v_actor_name text;
+  v_new_id uuid := gen_random_uuid();
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
+  END IF;
+  IF p_expected_version IS NULL OR p_expected_version<1 THEN
+    RAISE EXCEPTION 'EVIDENCE_EXPECTED_VERSION_REQUIRED';
+  END IF;
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text)
+    INTO v_actor_name FROM public.profiles WHERE id=v_actor;
+  IF v_actor_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
+  IF p_decision_status NOT IN ('accepted','rejected','unresolved','superseded')
+     OR jsonb_typeof(p_evidence)<>'object' OR p_evidence='{}'::jsonb THEN
+    RAISE EXCEPTION 'EVIDENCE_DECISION_INVALID';
+  END IF;
+  -- Trin 6a (spec §4.4 pkt. 6, Codex F2): grundlaget er reserveret til forældelsen ved kildetekst-revision
+  -- (private.supersede_for_text_revision), så redaktør-RPC'en ikke kan efterligne en revision.
+  IF p_evidence->>'basis'='source_text_revision' THEN
+    RAISE EXCEPTION 'EVIDENCE_BASIS_RESERVED: source_text_revision';
+  END IF;
+
+  SELECT * INTO v_current FROM private.interpretation
+   WHERE id=p_interpretation_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_NOT_FOUND'; END IF;
+  IF v_current.status<>'proposed' THEN
+    RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_NOT_PROPOSED';
+  END IF;
+  IF v_current.version<>p_expected_version OR EXISTS (
+    SELECT 1 FROM private.interpretation newer
+     WHERE newer.interpretation_key=v_current.interpretation_key
+       AND newer.version>v_current.version
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_VERSION_CONFLICT';
+  END IF;
+
+  INSERT INTO private.interpretation(
+    id,interpretation_key,version,source_id,source_persona_id,
+    interpretation_kind,predicate,value,schema_version,derivation_kind,
+    confidence,status,method,model_version,prompt_version,extraction_run_id,
+    supersedes_id,decision_evidence,decided_by,decided_by_name,decided_at
+  ) VALUES (
+    v_new_id,v_current.interpretation_key,v_current.version+1,v_current.source_id,
+    v_current.source_persona_id,v_current.interpretation_kind,v_current.predicate,
+    v_current.value,v_current.schema_version,v_current.derivation_kind,
+    v_current.confidence,p_decision_status,v_current.method,v_current.model_version,
+    v_current.prompt_version,v_current.extraction_run_id,v_current.id,p_evidence,
+    v_actor,v_actor_name,clock_timestamp()
+  );
+  INSERT INTO private.interpretation_observation(
+    interpretation_id,observation_id,evidence_role,ordinal
+  )
+  SELECT v_new_id,observation_id,evidence_role,ordinal
+    FROM private.interpretation_observation
+   WHERE interpretation_id=v_current.id;
+  RETURN v_new_id;
+END $$;

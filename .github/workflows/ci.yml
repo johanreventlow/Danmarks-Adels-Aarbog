@@ -319,6 +319,7 @@ jobs:
           psql -q -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f db-rls.sql > /dev/null
           psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-profile-seeds.sql
           psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-source-text-version.sql
+          psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-text-revision-dependencies.sql
       - name: Virkelig rollback/apply/reversal integration
         env:
           PGHOST: localhost
@@ -546,6 +547,9 @@ jobs:
       - name: Tekstversioner og klausulsæt bundet til version (trin 6a)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-source-text-version.sql
+      - name: Afhængighedsmængde og forældelse ved kildetekst-revision (trin 6a)
+        env: {PGPASSWORD: postgres}
+        run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-text-revision-dependencies.sql
       - name: Klausul-writer SQL (#148 4.1c)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-clause-evidence-writer.sql
