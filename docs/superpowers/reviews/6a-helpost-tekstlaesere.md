@@ -28,9 +28,9 @@ version, sættet er bundet til (`parent_text_id`). De står med for fuldstændig
 
 | Funktion | Linjer | Klasse | Ændring |
 |---|---|---|---|
-| `private.clause_write_prepare` | 4284-4295, 4315 | helpost (observation) | `parent_verbatim_sha256` for `clause_evidence` og `clause_revision` kontrolleres mod den gældende tekst. `text_id` lægges i konteksten. |
-| `private.write_clause_evidence` | 4394 | helpost (observation) | Sender `text_id` til `clause_write_set`. I praksis altid NULL, fordi en revision kræver et eksisterende sæt. |
-| `private.write_clause_revision` | 4439 | helpost (observation) | Sender `text_id` til `clause_write_set`, så omsegmenteringen skæres af og bindes til tekstversionen. |
+| `private.clause_write_prepare` | 4287-4294, 4316 | helpost (observation) | `parent_verbatim_sha256` for `clause_evidence` og `clause_revision` kontrolleres mod den gældende tekst. `text_id` lægges i konteksten. |
+| `private.write_clause_evidence` | 4396 | helpost (observation) | Sender `text_id` til `clause_write_set`. I praksis altid NULL, fordi en revision kræver et eksisterende sæt. |
+| `private.write_clause_revision` | 4441 | helpost (observation) | Sender `text_id` til `clause_write_set`, så omsegmenteringen skæres af og bindes til tekstversionen. |
 | `private.relation_persona_v3_input` | 18672-18676 (`rows`), 18685 (`redecide_rows`) | helpost (observation) | `post_text` er den gældende tekst (vist som »Hele posten« i ægteskabsarket v3). |
 | `public.red_source_persona_detail` | 9595-9599 | helpost (observation) | Nyt felt `current` pr. tekstversion: den version, `helpost_text_current` vælger. `preferred` er uændret, og webklienten ignorerer det nye felt. |
 
@@ -47,8 +47,8 @@ Følge for Task 13: manifest-builderen skal hashe den gældende tekst for en rev
 | Funktion | Linjer | Klasse | Begrundelse |
 |---|---|---|---|
 | `private.validate_clause_observation` | 699-711 | helpost (observation) | Bundet pr. række: `parent_text_id` angiver versionen, og NULL betyder basisteksten, som klausulen faktisk er skåret af. Den gældende tekst ville gøre gamle sæt ugyldige. |
-| `private.clause_write_set` | 4329-4371 | helpost (observation) | Uændret kontrakt fra R2 (NULL = basisteksten). Kalderne vælger versionen. |
-| `private.write_source_text_revision` | 4615-4710 | helpost (observation) | Bruger allerede `helpost_text_current` (Task 5). Linje 4710 udelader teksten fra hændelsen. |
+| `private.clause_write_set` | 4324-4388 | helpost (observation) | Uændret kontrakt fra R2 (NULL = basisteksten). Kalderne vælger versionen. |
+| `private.write_source_text_revision` | 4494-4719 | helpost (observation) | Bruger allerede `helpost_text_current` (Task 5). Linje 4710 udelader teksten fra hændelsen. |
 | `private.write_interpretation_proposal` | 4954 | helpost (observation) | Bruger allerede `helpost_text_current` til nøglens tekstversion (Task 6). Helpost-valget venter på 6c. |
 | `private.write_interpretation_proposal` | 5070, 5075, 5087 | klausul | Citathashes fra `clause_observation_current`. |
 | `private.migrate_legacy_narrative_record` | 4057 | helpost (forekomst) | Bundet til forekomstens tekst. Revisionen versionerer observationen, ikke forekomsten (§4.4: »Forekomsten … står urørt«), og 149b-manifesterne har forekomstens hash. |
@@ -92,9 +92,9 @@ eller `accepted`. Parts-historikken bevares, og viewet er uændret.
 | `private.marriage_ordinal_correction_input` | 16832 (2) | Kun `accepted`. |
 | `public.red_decide_relation_interpretations` | 17844 | Kun `proposed`. |
 | `red_afgoer_relation_interpretation`, `private.decide_relation_child`, `private.relation_child_rule`, `private.relation_structural_candidates` | 16945, 16684, 16589, 16867 | Nøgle-scopet på den fortolkning, der afgøres. Kalderen kræver `proposed`. |
-| `private.relation_binding_state` | 17632 (4) | Bindingshash for en given fortolkning. Uændret, fordi de gemte hashes ellers ville flytte sig. |
+| `private.relation_binding_state` | 17710 (4) | Bindingshash for en given fortolkning. Uændret, fordi de gemte hashes ellers ville flytte sig. Rute-A-rivaltjekket (`ic2.status<>'rejected'`, 17710) tæller også afløste (superseded) relationer; afgøres i 6c sammen med FAMILY_CORROBORATION_DOUBLE_TARGET. |
 | `private.relation_disposition_state` | 18488 (2) | Kun klausuler med aktuel disposition `afventer_identitet`. Et afløst sæt er `erstattet`. |
-| `private.write_source_text_revision` | 4646 | Kvitteringen lister med vilje parterne for de nøgler, revisionen forælder. |
+| `private.write_source_text_revision` | 4709 | Kvitteringen lister med vilje parterne for de nøgler, revisionen forælder. |
 | `private.persona_family_context`, `private.spouse_principal_person` | 16496, 17447 | Læse- og kontekstfunktioner for identitetsafgørelsen. Skrivevejen (`check_family_corroboration`) filtrerer selv, og en ændring ville flytte `family_context_sha256` i kandidatkørsler. Ikke ændret. |
 | `private.validate_interpretation_party` | 1404 | Trigger på selve parts-tabellen. |
 

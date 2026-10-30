@@ -872,6 +872,7 @@ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,priva
 DECLARE
   v_n integer; v_obs uuid; v_occ uuid; v_rend uuid; v_from integer; v_to integer;
 BEGIN
+  -- min(...)-aggregaterne læses kun, når der er præcis én kandidat (v_n=1); ved 0 eller flere bruges de ikke.
   SELECT count(*), min(c.obs_id::text)::uuid, min(c.occ_id::text)::uuid, min(c.rend_id::text)::uuid, min(c.cf), min(c.ct)
     INTO v_n, v_obs, v_occ, v_rend, v_from, v_to
     FROM (
@@ -4291,7 +4292,7 @@ BEGIN
     IF p_payload->>'projection_rule' IS DISTINCT FROM private.writer_config_text_form(v_profile.writer_config) THEN RAISE EXCEPTION '%', v_invalid; END IF;
   ELSE
     SELECT c.text_id,c.verbatim_text INTO v_text_id,v_text FROM private.helpost_text_current(v_parent.id) c;
-    IF encode(digest(v_text,'sha256'),'hex')<>p_payload->>'parent_verbatim_sha256' THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_PARENT_TEXT_DRIFT'; END IF;
+    IF encode(digest(v_text,'sha256'),'hex') IS DISTINCT FROM p_payload->>'parent_verbatim_sha256' THEN RAISE EXCEPTION 'CLAUSE_EVIDENCE_PARENT_TEXT_DRIFT'; END IF;
   END IF;
   v_run_key:=(v_profile.writer_config->>'run_key_prefix')||v_batch.manifest_sha256;
   INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
@@ -4317,8 +4318,9 @@ END $$;
 
 -- Skriv ét klausulsæt (sæt p_seq) under helposten i p_ctx: klausulvalidering, rækker og
 -- startdispositioner. Fælles for clause_evidence (sæt 1), clause_revision og source_text_revision (sæt n+1).
--- Trin 6a: p_parent_text_id binder sættet til en tekstversion af helposten (source_text_revision); så skæres og
--- kontrolleres klausulerne mod versionens tekst. NULL = basisteksten, uændret adfærd for de øvrige kaldere.
+-- Trin 6a: p_parent_text_id binder sættet til en tekstversion af helposten (source_text_revision, og efter en
+-- revision også clause_evidence/clause_revision via text_id i konteksten); så skæres og kontrolleres klausulerne
+-- mod versionens tekst. NULL = basisteksten, uændret adfærd.
 CREATE OR REPLACE FUNCTION private.clause_write_set(p_ctx jsonb,p_payload jsonb,p_seq integer,p_element_id text,p_parent_text_id uuid DEFAULT NULL)
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE v_parent private.source_observation%ROWTYPE; v_clause jsonb; v_expected_ordinal integer := 0; v_prev_end integer := 0;
@@ -4536,15 +4538,18 @@ BEGIN
   -- source_persona FOR UPDATE, partner-indsættelser låser family FOR UPDATE (_tjek_partner_loft), og nye fortolknings-
   -- og partsversioner på en rivalnøgle kræver writerens lås på nøglens aktuelle række (FOR UPDATE her).
   -- RESTRISIKO (INSERT-drevne vendinger ugyldig → gyldig, som FOR SHARE ikke stopper):
-  --   a) family_member INSERT af en partner i en NY familie (red_opret_union, write_relation_person_create): kan gøre
-  --      ægteskabets/forælderens fælles familie entydig (0 → 1);
-  --   b) family_member INSERT af et barn (red_tilfoej_barn, write_relation_person_create): kan rette børneflokken eller
+  --   a) family_member INSERT af en partner i en NY familie (red_opret_union, write_relation_person_create, der kun
+  --      indsætter rolle='partner'): kan gøre ægteskabets/forælderens fælles familie entydig (0 → 1);
+  --   b) family_member INSERT af et barn (red_tilfoej_barn; børn indsættes ikke andre steder): kan rette børneflokken eller
   --      forælderrelationen (barn-rækken), så relation_child_rule/relation_binding_state bliver gyldig;
   --   c) person_external_id INSERT (red_apply_reimport_person_create) for hovedpersonen (H1_postnoegle 0 → 1) eller et
   --      barn (linje/nr/kuld for flokken).
   --   Nye rivaliserende identiteter, mentions eller rivalnøgler kan kun gøre bindingen ugyldig (over-rapportering).
   -- Fast rækkefølge: assertion, fact, source_persona, identitet, person (parter), family, family_member, øvrige
   -- personer, rivalidentiteter, rivalnøgler, person_external_id.
+  -- Låserækkefølgen er ikke fælles med decide_source_persona_identity, red_genaabn_relation_interpretation,
+  -- red_ret_aegteskabsnummer og krydsende revisioner: en inversion kan give deadlock (40P01), som lukker sikkert
+  -- (transaktionen afbrydes, intet skrives).
   SELECT coalesce(array_agg((e->>'key')::uuid ORDER BY (e->>'key')::uuid),'{}') INTO v_lock_keys FROM jsonb_array_elements(v_deps) e;
   SELECT coalesce(array_agg(DISTINCT p.target_id),'{}') INTO v_lock_assertions
     FROM private.interpretation_promotion p JOIN private.interpretation q ON q.id=p.interpretation_id
@@ -4563,7 +4568,8 @@ BEGIN
   PERFORM 1 FROM private.source_persona sp WHERE sp.id=ANY(v_lock_personas) ORDER BY sp.id FOR SHARE;
   PERFORM 1 FROM private.source_persona_identity i WHERE i.source_persona_id=ANY(v_lock_personas)
    ORDER BY i.source_persona_id FOR SHARE;
-  -- Parternes og faktaenes personer (afledt af låste rækker).
+  -- Parternes og faktaenes personer. Under READ COMMITTED læser afledningen et nyt snapshot pr. sætning, ikke
+  -- præcis de rækker, vi har låst: en række, der committes imellem, kan indgå uden at være låst (jf. restrisikoen).
   SELECT coalesce(array_agg(DISTINCT x),'{}') INTO v_lock_persons FROM (
     SELECT i.canonical_person_id AS x FROM private.source_persona_identity i WHERE i.source_persona_id=ANY(v_lock_personas)
     UNION SELECT f.subjekt_id FROM public.fact f JOIN public.assertion a ON a.target_type='fact' AND a.target_id=f.id
