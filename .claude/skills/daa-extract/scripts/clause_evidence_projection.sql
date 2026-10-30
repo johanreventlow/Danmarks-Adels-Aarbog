@@ -69,7 +69,11 @@ WITH guard AS (
     'classification', c.clause_classification,
     'flags', c.clause_flags,
     'verbatim_sha256', encode(pg_catalog.sha256(convert_to(c.verbatim_text, 'UTF8')), 'hex'),
-    'parent_verbatim_sha256', encode(pg_catalog.sha256(convert_to(parent.verbatim_text, 'UTF8')), 'hex'),
+    -- Trin 6a (R2/R13-a): hashen af den tekst, klausulens SAET er skaaret af: tekstversionen i
+    -- parent_text_id, ellers basisteksten. Ikke helpostens gaeldende tekst: et afloest saet skal
+    -- fortsat hashe sin egen tekst. Uden tekstversion (alle 2018-20-saet) er vaerdien uaendret.
+    'parent_verbatim_sha256', encode(pg_catalog.sha256(convert_to(CASE WHEN c.parent_text_id IS NULL THEN parent.verbatim_text
+                                                                       ELSE parent_text.verbatim_text END, 'UTF8')), 'hex'),
     'disposition', d.disposition,
     'disposition_version', d.version,
     'decided_by_kind', d.decided_by_kind,
@@ -96,6 +100,8 @@ WITH guard AS (
   JOIN private.source_record_occurrence o ON o.id = c.occurrence_id
   LEFT JOIN accepted ac ON ac.occurrence_id = c.occurrence_id
   LEFT JOIN private.source_observation parent ON parent.id = c.parent_observation_id
+  LEFT JOIN private.source_observation_text parent_text ON parent_text.id = c.parent_text_id
+                                                    AND parent_text.observation_id = c.parent_observation_id
   LEFT JOIN private.clause_disposition_current d ON d.observation_id = c.id
   LEFT JOIN private.reimport_batch rb ON rb.id::text = run.manifest ->> 'batch_id'
   LEFT JOIN private.reimport_writer_profile wp

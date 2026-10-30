@@ -22,6 +22,9 @@ def _publishable(c: dict[str, Any]) -> bool:
 
 def dispose(c: dict[str, Any], t: dict[str, str], corpus: str) -> tuple[str, str, str]:
     """Returnér (disposition, reason, normalized_sha256)."""
+    # Trin 6a (R13-b): occurrence_text er bevidst FOREKOMSTENS tekst, ikke helpostens gældende tekstversion. En
+    # kildetekst-revision lader forekomsten stå urørt (spec §4.4), og writeren (migrate_legacy_narrative_record) og
+    # 149b-manifesterne er bundet til netop den tekst og dens hash.
     if _sha(t["narrative_text"]) != c["narrative_text_sha256"] or _sha(t["occurrence_text"]) != c["occurrence_verbatim_sha256"]:
         _fail("LEGACY_MIGRATION_TEXT_HASH_MISMATCH")
     if c["persons_for_record_key"] != 1 or c["external_ids_for_person"] != 1 or c["narratives_for_person"] != 1 or c["already_bound"]:

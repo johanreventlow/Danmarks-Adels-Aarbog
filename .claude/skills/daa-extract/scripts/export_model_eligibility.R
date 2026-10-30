@@ -130,12 +130,13 @@ spouse_risk AS (
 --    modelkald.
 text_filter AS (
   SELECT sr.record_key,
-         bool_or(ob.verbatim_text ~ 'f\\.[^0-9]{0,20}(19[5-9][0-9]|20[0-9][0-9])') AS hit
+         bool_or(cur.verbatim_text ~ 'f\\.[^0-9]{0,20}(19[5-9][0-9]|20[0-9][0-9])') AS hit
     FROM private.source_record sr
     JOIN private.source_record_anchor_current a ON a.source_record_id = sr.id
                                                AND a.decision_status = 'accepted'
     JOIN private.source_observation ob ON ob.occurrence_id = a.occurrence_id
                                       AND ob.parent_observation_id IS NULL
+    CROSS JOIN LATERAL private.helpost_text_current(ob.id) cur
    WHERE sr.source_id = $1
    GROUP BY sr.record_key
 ),
@@ -150,14 +151,19 @@ text_filter AS (
 --
 -- Helposten er det rigtige anker: klausulerne er udskåret af netop den tekst, så
 -- ændrer teksten sig, er klausulerne også andre.
+--
+-- Trin 6a: teksten er helpostens GÆLDENDE tekst (private.helpost_text_current), samme
+-- som runner-inputtet. Uden tekstversion er det basisteksten, så input_sha for en
+-- urørt post er uændret.
 record_input AS (
   SELECT sr.record_key,
-         encode(extensions.digest(ob.verbatim_text, 'sha256'), 'hex') AS input_sha
+         encode(extensions.digest(cur.verbatim_text, 'sha256'), 'hex') AS input_sha
     FROM private.source_record sr
     JOIN private.source_record_anchor_current a ON a.source_record_id = sr.id
                                                AND a.decision_status = 'accepted'
     JOIN private.source_observation ob ON ob.occurrence_id = a.occurrence_id
                                       AND ob.parent_observation_id IS NULL
+    CROSS JOIN LATERAL private.helpost_text_current(ob.id) cur
    WHERE sr.source_id = $1
 )
 SELECT sr.record_key,

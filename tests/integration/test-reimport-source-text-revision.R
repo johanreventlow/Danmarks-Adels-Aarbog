@@ -239,6 +239,45 @@ stopifnot(count1("SELECT count(*) FROM private.source_observation_text WHERE obs
 replay <- execute_reimport(manifest, preview_sha, "apply", env_gateway(), list(id = authorize(manifest, preview_sha)))
 stopifnot(identical(replay$status, "already_applied"), identical(state(), after))
 
+# ==== Task 13: scriptlæserne ser helpostens gældende tekst (I-1 revideret; I-2 og I-3 urørte) ============
+# (a) 4.3b's runner-input: post_verbatim_text er den gældende tekst, og klausulerne er det aktuelle sæt, skåret af
+#     netop den tekst (evidence_runner.check_clauses_within_post kræver delstrenge).
+runner_dir <- new_dir("runner-input")
+r <- run("Rscript", c(shQuote(file.path(scripts_dir, "export_43b_runner_input.R")), "--source-id", source_id,
+  "--output-dir", shQuote(runner_dir)))
+if (r$status != 0L) stop("runner-input fejlede: ", r$out)
+stopifnot(!grepl("Alfa|Echo|Golf|Revisor", r$out))
+runner <- jsonlite::fromJSON(file.path(runner_dir, "runner-input-v1.json"), simplifyVector = FALSE)$records
+stopifnot(identical(sort(names(runner)), c("I-1", "I-2", "I-3")))
+if (!identical(runner[["I-1"]]$post_verbatim_text, new_text)) stop("runner-input: I-1 viser ikke den gældende tekst")
+for (k in c("I-2", "I-3")) stopifnot(identical(runner[[k]]$post_verbatim_text, post[[k]]$text))
+stopifnot(length(runner[["I-1"]]$clauses) == n_new)
+for (k in names(runner)) for (cl in runner[[k]]$clauses)
+  if (!grepl(cl$verbatim_text, runner[[k]]$post_verbatim_text, fixed = TRUE)) stop("runner-input: klausul uden for posten (", k, ")")
+# (b) Eligibility-ledgeren: input_sha er hashen af den gældende tekst, og den følger runner-inputtet.
+elig_dir <- new_dir("eligibility")
+r <- run("Rscript", c(shQuote(file.path(scripts_dir, "export_model_eligibility.R")), "--source-id", source_id,
+  "--output-dir", shQuote(elig_dir), "--restore-identity", "t6a13-fixture"))
+if (r$status != 0L) stop("eligibility fejlede: ", r$out)
+stopifnot(!grepl("Alfa|Echo|Golf|Revisor", r$out))
+ledger <- jsonlite::fromJSON(file.path(elig_dir, "eligibility-ledger-v1.json"), simplifyVector = FALSE)$records
+if (!identical(ledger[["I-1"]]$record_input_sha256, sha_text(new_text))) stop("eligibility: I-1's input_sha er ikke den gældende teksts")
+for (k in c("I-2", "I-3")) stopifnot(identical(ledger[[k]]$record_input_sha256, sha_text(post[[k]]$text)))
+for (k in names(runner)) stopifnot(identical(ledger[[k]]$record_input_sha256, sha_text(runner[[k]]$post_verbatim_text)))
+# (c) Klausul-projektionen: parent_verbatim_sha256 er hashen af den tekst, klausulens SÆT er skåret af — sæt 1 af
+#     basisteksten, sæt 2 af tekstversionen (ikke den gældende tekst for alle sæt).
+clause_projection <- run("psql", c("-X", "-At", "-q", "-v", "ON_ERROR_STOP=1", "-v", paste0("source_id=", source_id),
+  "-f", shQuote(file.path(scripts_dir, "clause_evidence_projection.psql"))),
+  env = paste0("DAA_PROJECTION_SQL_DIR=", shQuote(scripts_dir)))
+if (clause_projection$status != 0L) stop("klausul-projektion fejlede: ", clause_projection$out)
+stopifnot(!grepl("Alfa|Echo|Golf|Revisor", clause_projection$out))
+projected <- jsonlite::fromJSON(clause_projection$out, simplifyVector = FALSE)$clauses
+parent_sha <- function(k, seq) unique(vapply(Filter(function(c) identical(c$record_key, k) && c$clause_set_seq == seq, projected),
+  function(c) c$parent_verbatim_sha256, ""))
+stopifnot(identical(parent_sha("I-1", 1L), sha_text(post[["I-1"]]$text)))
+if (!identical(parent_sha("I-1", 2L), sha_text(new_text))) stop("klausul-projektion: sæt 2 hasher ikke sin tekstversion")
+for (k in c("I-2", "I-3")) stopifnot(identical(parent_sha(k, 1L), sha_text(post[[k]]$text)))
+
 # Genkørsel efter gennemført apply afvises:
 # (1) byggeren: helpostens gældende tekst er nu revisionens, ikke v1-teksten.
 rebuilt <- build("2", export_texts("export-2"), dependencies("2"))
@@ -259,6 +298,16 @@ stale_preview <- run_hash("preview-stale")
 expect_error_code(execute_reimport(stale, stale_preview, "apply", env_gateway(), list(id = authorize(stale, stale_preview))),
   "TEXT_REVISION_BASE_DRIFT")
 stopifnot(identical(state(), after))
+
+# Task 13: en tekstversion uden et klausulsæt bundet til den (lagt direkte af tabelejeren, ingen writer gør det)
+# gør klausulerne til andet end delstrenge af posten; runner-eksporten stopper i stedet for at levere dem.
+e(paste("INSERT INTO private.source_observation_text(observation_id,rendition_id,version,verbatim_text,char_from,char_to,is_preferred)",
+  "SELECT o.id,$2,1,o.verbatim_text||' x',o.char_from,o.char_to,true FROM private.source_observation o WHERE o.id=$1::uuid"),
+  list(post[["I-3"]]$helpost, rend_id))
+unbound <- run("Rscript", c(shQuote(file.path(scripts_dir, "export_43b_runner_input.R")), "--source-id", source_id,
+  "--output-dir", shQuote(new_dir("runner-input-unbound"))))
+stopifnot(unbound$status != 0L, grepl("EXPORT_CLAUSE_SET_TEXT_MISMATCH", unbound$out, fixed = TRUE),
+  !grepl("Alfa|Echo|Golf|Revisor", unbound$out), length(list.files(file.path(work_dir, "runner-input-unbound"))) == 0L)
 
 # ==== Del B: afhængighedsfilen = writerens mængder på en post med bindinger ============================
 fixture_files <- file.path(root, "tests", "sql", "fixtures", c("relation-5b.sql", "relation-2a.sql", "source-text-revision.sql"))
