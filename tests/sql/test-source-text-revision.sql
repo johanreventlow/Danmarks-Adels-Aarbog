@@ -1,13 +1,11 @@
 -- Trin 6a, Task 5: writer-operationen source_text_revision (spec §4.4): ny tekstversion af helposten, forældelse af
 -- de afhængige fortolkninger, nyt klausulsæt bundet til versionen, drifttjek over nøgler og bindinger og hele
 -- reimport-kæden (authorize → preflight → apply → finalize). Kræver kontrakt v2 (reimport-writer-v2-bootstrap.sql)
--- som klausul-writer-testene. Alt syntetisk; én transaktion, rulles tilbage.
+-- som klausul-writer-testene. Alt syntetisk; én transaktion, rulles tilbage. Til sidst isolationsvagten i hver sin
+-- transaktion (isolationsniveauet sættes ved BEGIN).
 \set ON_ERROR_STOP on
-BEGIN;
-\ir fixtures/relation-5b.sql
-\ir fixtures/relation-2a.sql
-\ir fixtures/source-text-revision.sql
 
+-- Sessionens hjælper (oprettes uden for transaktionen, så isolationstestene til sidst også kan bruge den).
 CREATE FUNCTION pg_temp.expect_error(p_sql text, p_token text) RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
   BEGIN
@@ -20,6 +18,12 @@ BEGIN
   END;
   RAISE EXCEPTION 'TEXT_REVISION_TEST_NO_ERROR: expected %', p_token;
 END $$;
+
+-- Hovedtransaktionen kører eksplicit READ COMMITTED, som writeren kræver (uafhængigt af basens standard).
+BEGIN ISOLATION LEVEL READ COMMITTED;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+\ir fixtures/source-text-revision.sql
 
 -- Kør revisionen og forvent en fejl; bagefter må intet være skrevet (ingen tekstversion, intet nyt sæt, ingen
 -- forældelse, ingen revisions-event).
@@ -619,5 +623,37 @@ BEGIN
   RAISE NOTICE 'OK: test_persona_detail_current_text_version';
 END $t$;
 
+ROLLBACK;
+
+-- test_revision_isolation_guard (Codex I2): genmålingen efter låsene kræver et nyt snapshot pr. sætning, så writeren
+-- afviser REPEATABLE READ og SERIALIZABLE som første sætning (før prepare, uden låse og skrivninger). Under READ
+-- COMMITTED passerer kaldet vagten; næste kontrol er rollegaten, fordi kaldet her ikke har en redaktør.
+BEGIN ISOLATION LEVEL REPEATABLE READ;
+DO $t$
+BEGIN
+  PERFORM pg_temp.expect_error($q$SELECT public.red_apply_reimport_source_text_revision(gen_random_uuid(),'source-text-revision:iso','{}'::jsonb)$q$,
+    'TEXT_REVISION_ISOLATION_UNSUPPORTED');
+  PERFORM pg_temp.expect_error($q$SELECT private.write_source_text_revision(gen_random_uuid(),'source-text-revision:iso','{}'::jsonb)$q$,
+    'TEXT_REVISION_ISOLATION_UNSUPPORTED');
+  RAISE NOTICE 'OK: test_revision_isolation_guard (repeatable read)';
+END $t$;
+ROLLBACK;
+BEGIN ISOLATION LEVEL SERIALIZABLE;
+DO $t$
+BEGIN
+  PERFORM pg_temp.expect_error($q$SELECT public.red_apply_reimport_source_text_revision(gen_random_uuid(),'source-text-revision:iso','{}'::jsonb)$q$,
+    'TEXT_REVISION_ISOLATION_UNSUPPORTED');
+  PERFORM pg_temp.expect_error($q$SELECT private.write_source_text_revision(gen_random_uuid(),'source-text-revision:iso','{}'::jsonb)$q$,
+    'TEXT_REVISION_ISOLATION_UNSUPPORTED');
+  RAISE NOTICE 'OK: test_revision_isolation_guard (serializable)';
+END $t$;
+ROLLBACK;
+BEGIN ISOLATION LEVEL READ COMMITTED;
+DO $t$
+BEGIN
+  PERFORM pg_temp.expect_error($q$SELECT public.red_apply_reimport_source_text_revision(gen_random_uuid(),'source-text-revision:iso','{}'::jsonb)$q$,
+    'REIMPORT_WRITER_ROLE_FORBIDDEN');
+  RAISE NOTICE 'OK: test_revision_isolation_guard (read committed passerer vagten)';
+END $t$;
 ROLLBACK;
 \echo PASS test-source-text-revision

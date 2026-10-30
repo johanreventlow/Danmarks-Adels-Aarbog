@@ -4488,6 +4488,10 @@ GRANT EXECUTE ON FUNCTION public.red_apply_reimport_clause_revision(uuid,text,js
 -- desuden record og helpost som prepare. En promotion låser den aktuelle fortolkningsrække (FOR UPDATE) og
 -- fremmednøglen tager FOR KEY SHARE på den. En samtidig promotion er derfor enten committet før målingen i trin 3
 -- (og med i bindingsmængden), eller den venter til efter revisionen og møder en forældet fortolkning.
+-- Det forudsætter READ COMMITTED (Codex I2): målingen efter låsene skal se det, der blev committet, mens vi ventede,
+-- og det gør kun et nyt snapshot pr. sætning. Under REPEATABLE READ og SERIALIZABLE læser hele transaktionen sit
+-- første snapshot, så målingen kunne overse en committet promotion og forælde den uden kvittering. Writeren afviser
+-- derfor andre isolationsniveauer (TEXT_REVISION_ISOLATION_UNSUPPORTED), før den tager nogen lås.
 -- Gamle tekstversioner kan ikke få is_preferred=false (source_observation_text er append-only); den nye version er
 -- både foretrukken og højeste version i helpostens rendition og vinder derfor i source_observation_text_current.
 -- ===================================================================================
@@ -4501,6 +4505,9 @@ DECLARE v_ctx jsonb; v_parent private.source_observation%ROWTYPE; v_rendition uu
   v_lock_keys uuid[]; v_lock_assertions bigint[]; v_lock_personas uuid[]; v_lock_persons bigint[]; v_lock_families bigint[];
   v_lock_members bigint[]; v_rival_keys uuid[]; v_rival_locked bigint;
 BEGIN
+  -- Kun READ COMMITTED: genmålingen efter låsene kræver et nyt snapshot pr. sætning (se ovenfor). Første sætning,
+  -- før prepare, så der hverken er taget låse eller skrevet noget, når et andet niveau afvises.
+  IF current_setting('transaction_isolation')<>'read committed' THEN RAISE EXCEPTION 'TEXT_REVISION_ISOLATION_UNSUPPORTED'; END IF;
   -- 1. prepare
   v_ctx:=private.clause_write_prepare(p_batch_id,p_element_id,p_payload,'source_text_revision');
   IF EXISTS (SELECT 1 FROM private.reimport_event WHERE batch_id=p_batch_id AND element_id=p_element_id) THEN
@@ -4533,23 +4540,37 @@ BEGIN
   -- familier og målfamilien, børnenes person- og person_external_id-rækker, hovedpersonens person_external_id og
   -- #248-rivaltjekket: accepterede identiteter på ægtefællens person og rivalnøglernes seneste version og
   -- spouse-part. Promotion, regel, partsversioner, mentions og observationer er append-only.
-  -- Låsene: FOR SHARE blokerer UPDATE og DELETE af eksisterende rækker. Nye rækker lukkes, hvor writeren først
-  -- låser en eksisterende række, vi også låser: identitets-writeren (decide_source_persona_identity) låser
-  -- source_persona FOR UPDATE, partner-indsættelser låser family FOR UPDATE (_tjek_partner_loft), og nye fortolknings-
-  -- og partsversioner på en rivalnøgle kræver writerens lås på nøglens aktuelle række (FOR UPDATE her).
-  -- RESTRISIKO (INSERT-drevne vendinger ugyldig → gyldig, som FOR SHARE ikke stopper):
+  -- Låsene: FOR SHARE blokerer UPDATE og DELETE af eksisterende rækker. Personer og familier låses FOR UPDATE
+  -- (Codex I1): kun FOR UPDATE er i konflikt med fremmednøglekontrollens FOR KEY SHARE (FOR SHARE og FOR NO KEY
+  -- UPDATE er ikke), så en ny række, der refererer til en låst person eller familie, venter på revisionen.
+  -- Nye rækker lukkes desuden, hvor writeren først låser en eksisterende række, vi også låser: identitets-writeren
+  -- (decide_source_persona_identity) låser source_persona FOR UPDATE, og nye fortolknings- og partsversioner på en
+  -- rivalnøgle kræver writerens lås på nøglens aktuelle række (FOR UPDATE her).
+  -- De INSERT-drevne vendinger ugyldig → gyldig, som FOR SHARE ikke stoppede, er dermed LUKKET:
   --   a) family_member INSERT af en partner i en NY familie (red_opret_union, write_relation_person_create, der kun
-  --      indsætter rolle='partner'): kan gøre ægteskabets/forælderens fælles familie entydig (0 → 1);
-  --   b) family_member INSERT af et barn (red_tilfoej_barn; børn indsættes ikke andre steder): kan rette børneflokken eller
-  --      forælderrelationen (barn-rækken), så relation_child_rule/relation_binding_state bliver gyldig;
+  --      indsætter rolle='partner'), som kunne gøre ægteskabets/forælderens fælles familie entydig (0 → 1): partneren
+  --      er en parts kanoniske person, og FK'en til personen venter;
+  --   b) family_member INSERT af et barn (red_tilfoej_barn; børn indsættes ikke andre steder), som kunne rette
+  --      børneflokken eller forælderrelationen: FK'en til den låste familie venter (en ny familie kræver en partner, a);
   --   c) person_external_id INSERT (red_apply_reimport_person_create) for hovedpersonen (H1_postnoegle 0 → 1) eller et
-  --      barn (linje/nr/kuld for flokken).
-  --   Nye rivaliserende identiteter, mentions eller rivalnøgler kan kun gøre bindingen ugyldig (over-rapportering).
-  -- Fast rækkefølge: assertion, fact, source_persona, identitet, person (parter), family, family_member, øvrige
-  -- personer, rivalidentiteter, rivalnøgler, person_external_id.
-  -- Låserækkefølgen er ikke fælles med decide_source_persona_identity, red_genaabn_relation_interpretation,
-  -- red_ret_aegteskabsnummer og krydsende revisioner: en inversion kan give deadlock (40P01), som lukker sikkert
-  -- (transaktionen afbrydes, intet skrives).
+  --      barn (linje/nr/kuld for flokken): hovedpersonen er part, børnene er låste medlemmer, og FK'en venter.
+  --   Tilbage står kun: nye rivaliserende identiteter, mentions eller rivalnøgler kan gøre bindingen ugyldig
+  --   (over-rapportering, aldrig et tavst tab).
+  --   Prisen: under revisionen venter også andre, der refererer til de låste personer og familier (bogmærker,
+  --   slægtsmedlemskaber, identitetskandidater). Det svarer til ceremonireglen om skrivepause, nu håndhævet.
+  -- Fast rækkefølge (uændret): assertion, fact, source_persona, identitet, person (parter), family, family_member,
+  -- øvrige personer, rivalidentiteter, rivalnøgler, person_external_id.
+  -- Deadlock (40P01) lukker sikkert: transaktionen afbrydes, intet skrives. Låserækkefølgen er ikke fælles med
+  -- decide_source_persona_identity, red_genaabn_relation_interpretation, red_ret_aegteskabsnummer og krydsende
+  -- revisioner; de låser person eller familie FOR UPDATE (fx via lock_family_rows) og var allerede i konflikt med
+  -- FOR SHARE, så FOR UPDATE ændrer ikke de inversioner. Nyt er kun konflikten med FOR KEY SHARE, og den giver en
+  -- inversion, når writeren holder en lås, revisionen tager senere, og derefter venter ved en FK-kontrol:
+  --   - _tjek_partner_loft låser family FOR UPDATE og tager derefter FK-låsen på personen, mens revisionen låser
+  --     person før family (samme inversion som lock_family_rows dokumenterer);
+  --   - red_tilfoej_barn tager FK-låsene i triggerrækkefølge, familien før barnet. Er barnet en part (låst før
+  --     familien), er rækkefølgen omvendt af revisionens; er barnet et øvrigt medlem, er den den samme.
+  --   Writere, der kun indsætter rækker med FK til personen (person_external_id, bogmærker, kvitteringer), holder intet,
+  --   revisionen venter på, og venter blot.
   SELECT coalesce(array_agg((e->>'key')::uuid ORDER BY (e->>'key')::uuid),'{}') INTO v_lock_keys FROM jsonb_array_elements(v_deps) e;
   SELECT coalesce(array_agg(DISTINCT p.target_id),'{}') INTO v_lock_assertions
     FROM private.interpretation_promotion p JOIN private.interpretation q ON q.id=p.interpretation_id
@@ -4569,25 +4590,26 @@ BEGIN
   PERFORM 1 FROM private.source_persona_identity i WHERE i.source_persona_id=ANY(v_lock_personas)
    ORDER BY i.source_persona_id FOR SHARE;
   -- Parternes og faktaenes personer. Under READ COMMITTED læser afledningen et nyt snapshot pr. sætning, ikke
-  -- præcis de rækker, vi har låst: en række, der committes imellem, kan indgå uden at være låst (jf. restrisikoen).
+  -- præcis de rækker, vi har låst: en række, der committes imellem, kan indgå uden at være låst. Personerne og
+  -- familierne låses FOR UPDATE, så nye rækker, der refererer til dem, venter (se ovenfor).
   SELECT coalesce(array_agg(DISTINCT x),'{}') INTO v_lock_persons FROM (
     SELECT i.canonical_person_id AS x FROM private.source_persona_identity i WHERE i.source_persona_id=ANY(v_lock_personas)
     UNION SELECT f.subjekt_id FROM public.fact f JOIN public.assertion a ON a.target_type='fact' AND a.target_id=f.id
            WHERE a.id=ANY(v_lock_assertions) AND f.subjekt_type='person') y
    WHERE x IS NOT NULL;
-  PERFORM 1 FROM public.person pe WHERE pe.id=ANY(v_lock_persons) ORDER BY pe.id FOR SHARE;
+  PERFORM 1 FROM public.person pe WHERE pe.id=ANY(v_lock_persons) ORDER BY pe.id FOR UPDATE;
   -- Familierne (personernes og målfamilierne), derefter deres medlemsrækker; først derefter afledes de øvrige
   -- medlemmer (fx børn), så en barn-række, der committes før låsen, også får sin person- og eksterne række låst.
   SELECT coalesce(array_agg(DISTINCT x),'{}') INTO v_lock_families FROM (
     SELECT unnest(v_lock_families) AS x
     UNION SELECT m.family_id FROM public.family_member m WHERE m.person_id=ANY(v_lock_persons)) y
    WHERE x IS NOT NULL;
-  PERFORM 1 FROM public.family fa WHERE fa.id=ANY(v_lock_families) ORDER BY fa.id FOR SHARE;
+  PERFORM 1 FROM public.family fa WHERE fa.id=ANY(v_lock_families) ORDER BY fa.id FOR UPDATE;
   PERFORM 1 FROM public.family_member fm WHERE fm.family_id=ANY(v_lock_families)
    ORDER BY fm.family_id,fm.person_id,fm.rolle FOR SHARE;
   SELECT coalesce(array_agg(DISTINCT fm.person_id),'{}') INTO v_lock_members FROM public.family_member fm
    WHERE fm.family_id=ANY(v_lock_families) AND NOT fm.person_id=ANY(v_lock_persons);
-  PERFORM 1 FROM public.person pe WHERE pe.id=ANY(v_lock_members) ORDER BY pe.id FOR SHARE;
+  PERFORM 1 FROM public.person pe WHERE pe.id=ANY(v_lock_members) ORDER BY pe.id FOR UPDATE;
   v_lock_persons:=v_lock_persons||v_lock_members;
   -- #248-rivaltjekket: accepterede identiteter på de samme personer og deres spouse-nøgler.
   PERFORM 1 FROM private.source_persona_identity i

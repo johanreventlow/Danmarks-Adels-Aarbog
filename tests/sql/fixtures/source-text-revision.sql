@@ -190,3 +190,35 @@ BEGIN
   RETURN v_res||jsonb_build_object('batch_id',v_batch,'authorization_id',v_auth,'preflight',v_pre,'finalize',v_fin,
     'second_apply_error',v_err);
 END $$;
+
+-- t5_child_post (Codex I1, rækkefølge 5 i concurrency-testen): en accepteret relation.parent på barnets post
+-- 'Barn Alfa. søn af Far.' (klausul 2), bundet til forældrefamilien (forælder p_base-1 partner, barn p_base). Bagefter
+-- fjernes barnets barn-række, så bindingen er p.t. ugyldig: relation_binding_state kræver barnet som barn i præcis én
+-- familie med forælderen som partner. red_tilfoej_barn genindsætter den samme række (ordinal og konfidens NULL), så
+-- bindingens tilstand og hash bliver gyldige igen. Revisionen gælder barnets post. Personer: p_base (barn),
+-- p_base-1 (forælder) og p_base-2 (anden partner).
+CREATE OR REPLACE FUNCTION pg_temp.t5_child_post(p_base bigint,p_actor uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE s jsonb; par jsonb; items jsonb; pv jsonb; v_int uuid; v_prom uuid; prof jsonb;
+BEGIN
+  PERFORM pg_temp.f5b_actor(p_actor);
+  INSERT INTO person(id,levende,privat,status) VALUES (p_base,false,false,'t5'),(p_base-1,false,false,'t5'),(p_base-2,false,false,'t5');
+  s:=pg_temp.f5b_source(p_base);
+  par:=pg_temp.f2a_parent(p_base,s,p_base,p_base-1,p_base-2,p_actor);
+  SELECT ic.id INTO v_int FROM private.interpretation_current ic WHERE ic.interpretation_key=(par->'claim'->>'key')::uuid;
+  items:=jsonb_build_array(jsonb_build_object('interpretation_id',v_int::text,'family_id',(par->>'family')::bigint));
+  PERFORM set_config('request.jwt.claim.sub',p_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(p_base,items);
+  PERFORM red_promote_relation_interpretations_batch(p_base,items,pv->>'preview_sha256');
+  RESET ROLE;
+  SELECT p.id INTO v_prom FROM private.interpretation_promotion p
+   WHERE p.interpretation_id=v_int AND p.target_type='family';
+  IF v_prom IS NULL THEN RAISE EXCEPTION 'T5_CHILD_POST_NOT_PROMOTED'; END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  DELETE FROM family_member WHERE family_id=(par->>'family')::bigint AND person_id=p_base AND rolle='barn';
+  prof:=pg_temp.t5_profile(p_base);
+  RETURN jsonb_build_object('source',p_base,'child',p_base,'parent',p_base-1,'src',s,'post',par->'child_post',
+    'record_key',par->'child_post'->>'key','helpost',par->'child_post'->>'helpost','text','Barn Alfa. søn af Far.',
+    'actor',p_actor,'profile',prof,'parent_key',par->'claim'->>'key','parent_interpretation',v_int,
+    'family',par->>'family','family_promotion',v_prom);
+END $$;
