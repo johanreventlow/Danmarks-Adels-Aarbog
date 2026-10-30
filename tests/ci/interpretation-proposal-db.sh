@@ -77,6 +77,10 @@ psql -v ON_ERROR_STOP=1 -c 'BEGIN' -f tests/sql/reimport-writer-v2-bootstrap.sql
 psql -v ON_ERROR_STOP=1 -f db-rls.sql
 echo "::endgroup::"
 
+echo "::group::Genkørsel efter kildetekst-revision: S4-åbning og nøgle v2 ($catalog_order)"
+psql -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-proposal-rerun.sql
+echo "::endgroup::"
+
 echo "::group::Negative logins ($catalog_order)"
 if PGUSER=daa_proposal_nonmember_ci PGPASSWORD=ci-nonmember psql -v ON_ERROR_STOP=1 \
      -c 'BEGIN' -c 'SET LOCAL ROLE authenticated' > "$out_dir/nonmember.out" 2>&1; then

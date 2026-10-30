@@ -2444,6 +2444,16 @@ BEGIN
       '61000000-0000-0000-0000-000000000001',v_observation,v_rendition_a,
       1,'Anna Reventl',0,12,NULL,true,v_actor
     );
+    -- Trin 6a: tekstversionens provenance-kolonner findes, er valgfrie, og helpost_text_current finder versionen.
+    IF NOT EXISTS (SELECT 1 FROM private.source_observation_text
+                    WHERE id='61000000-0000-0000-0000-000000000001'
+                      AND extraction_run_id IS NULL AND method IS NULL AND evidence IS NULL)
+       OR NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_schema='private' AND table_name='source_observation' AND column_name='parent_text_id')
+       OR (SELECT text_id FROM private.helpost_text_current(v_observation))
+            IS DISTINCT FROM '61000000-0000-0000-0000-000000000001'::uuid THEN
+      RAISE EXCEPTION 'FEJL: tekstversionens kolonner eller helpost_text_current mangler';
+    END IF;
     INSERT INTO private.source_mention(
       id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id
     ) VALUES (v_mention,v_observation,'person',0,4,'Anna',v_run_a);
@@ -2789,11 +2799,16 @@ BEGIN
   IF v_def IS NULL OR v_def NOT LIKE '%clause_observation_current%' OR v_def NOT LIKE '%b.source_id=v_batch.source_id%' THEN
     RAISE EXCEPTION 'FEJL: write_interpretation_proposal er ikke sæt-bevidst eller mangler S4-tjekket';
   END IF;
+  -- Trin 6a (spec §4.4 pkt. 6): S4 åbner kun på revisions-events (superseded_keys), og nøglen kan være v2.
+  IF v_def NOT LIKE '%e.operation=''source_text_revision''%' OR v_def NOT LIKE '%superseded_keys%'
+     OR v_def NOT LIKE '%interpretation_proposal_key_material_v2(%' THEN
+    RAISE EXCEPTION 'FEJL: write_interpretation_proposal mangler genkørselskontrakten (S4-åbning, nøgle v2)';
+  END IF;
   v_def:=pg_get_functiondef(to_regprocedure('private.write_clause_evidence(uuid,text,jsonb)'));
   IF v_def IS NULL OR v_def NOT LIKE '%private.clause_write_set(%' THEN
     RAISE EXCEPTION 'FEJL: write_clause_evidence skriver ikke via clause_write_set';
   END IF;
-  v_def:=pg_get_functiondef(to_regprocedure('private.clause_write_set(jsonb,jsonb,integer,text)'));
+  v_def:=pg_get_functiondef(to_regprocedure('private.clause_write_set(jsonb,jsonb,integer,text,uuid)'));
   IF v_def IS NULL OR v_def NOT LIKE '%clause_set_seq%' THEN
     RAISE EXCEPTION 'FEJL: clause_write_set sætter ikke clause_set_seq';
   END IF;
@@ -2819,6 +2834,7 @@ BEGIN
      OR to_regprocedure('private.interpretation_proposal_key_material(bigint,text,text,jsonb,jsonb)') IS NULL
      OR to_regprocedure('private.interpretation_proposal_key_material_sha256(bigint,text,text,jsonb,jsonb)') IS NULL
      OR to_regprocedure('private.interpretation_proposal_key(bigint,text,text,jsonb,jsonb)') IS NULL
+     OR to_regprocedure('private.interpretation_proposal_key_material_v2(bigint,text,text,jsonb,jsonb,integer)') IS NULL
      OR to_regprocedure('private.write_interpretation_proposal(uuid,text,jsonb)') IS NULL
      OR to_regprocedure('public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)') IS NULL THEN
     RAISE EXCEPTION 'MISSING: #147 4.4 interpretation_proposal writer';
@@ -2828,6 +2844,7 @@ BEGIN
      OR NOT has_function_privilege('authenticated','public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)','EXECUTE')
      OR has_function_privilege('authenticated','private.interpretation_proposal_canonical_json_text(jsonb)','EXECUTE')
      OR has_function_privilege('authenticated','private.interpretation_proposal_key(bigint,text,text,jsonb,jsonb)','EXECUTE')
+     OR has_function_privilege('authenticated','private.interpretation_proposal_key_material_v2(bigint,text,text,jsonb,jsonb,integer)','EXECUTE')
      OR has_function_privilege('authenticated','private.write_interpretation_proposal(uuid,text,jsonb)','EXECUTE') THEN
     RAISE EXCEPTION 'INVALID: #147 4.4 authorization/ACL';
   END IF;
@@ -2940,6 +2957,7 @@ DECLARE
     'public.red_apply_reimport_legacy_migration(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_clause_evidence(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_clause_revision(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_source_text_revision(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_relation_persona(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_relation_person_create(uuid,text,jsonb)'::regprocedure,

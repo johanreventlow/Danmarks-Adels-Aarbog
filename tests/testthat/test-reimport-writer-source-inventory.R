@@ -93,6 +93,13 @@ integer_3|profile|source_id|final-schema/public.red_authorize_1939_v50_reimport#
 integer_3|profile|source_id|final-schema/public.red_lock_1939_v50_name_completion#1/integer_3/001
 integer_3|profile|source_id|final-schema/public.red_authorize_1939_v50_name_completion#1/integer_3/001
 integer_3|profile|source_id|final-schema/public.red_authorize_1939_v50_name_completion#1/integer_3/002
+integer_3|generic_invariant|comment_spec_section|final-schema/top_level/integer_3/003
+integer_3|profile|source_id|final-schema/top_level/integer_3/004
+citation_label|profile|citation_label_template|final-schema/top_level/citation_label/002
+integer_3|profile|source_id|final-schema/top_level/integer_3/005
+integer_3|generic_invariant|comment_step_number|final-schema/top_level/integer_3/006
+integer_3|generic_invariant|comment_step_number|final-schema/top_level/integer_3/007
+integer_3|generic_invariant|comment_step_number|final-schema/private.write_source_text_revision#1/integer_3/001
 integer_3|profile|source_id|final-migration/top_level/integer_3/001
 integer_3|profile|source_id|final-migration/top_level/integer_3/002
 citation_label|profile|citation_label_template|final-migration/top_level/citation_label/001
