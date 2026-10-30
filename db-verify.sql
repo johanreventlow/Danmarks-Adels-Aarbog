@@ -2444,6 +2444,16 @@ BEGIN
       '61000000-0000-0000-0000-000000000001',v_observation,v_rendition_a,
       1,'Anna Reventl',0,12,NULL,true,v_actor
     );
+    -- Trin 6a: tekstversionens provenance-kolonner findes, er valgfrie, og helpost_text_current finder versionen.
+    IF NOT EXISTS (SELECT 1 FROM private.source_observation_text
+                    WHERE id='61000000-0000-0000-0000-000000000001'
+                      AND extraction_run_id IS NULL AND method IS NULL AND evidence IS NULL)
+       OR NOT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_schema='private' AND table_name='source_observation' AND column_name='parent_text_id')
+       OR (SELECT text_id FROM private.helpost_text_current(v_observation))
+            IS DISTINCT FROM '61000000-0000-0000-0000-000000000001'::uuid THEN
+      RAISE EXCEPTION 'FEJL: tekstversionens kolonner eller helpost_text_current mangler';
+    END IF;
     INSERT INTO private.source_mention(
       id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id
     ) VALUES (v_mention,v_observation,'person',0,4,'Anna',v_run_a);

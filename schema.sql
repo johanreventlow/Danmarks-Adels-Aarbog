@@ -579,6 +579,10 @@ CREATE TABLE private.source_observation_text (
   -- Uforanderligt audit-id, bevidst uden FK til den mutable auth-livscyklus.
   created_by      uuid,
   created_at      timestamptz NOT NULL DEFAULT now(),
+  -- Trin 6a: provenance for en tekstversion (spec 4.4). Alle valgfrie; eksisterende rækker er uændrede.
+  extraction_run_id uuid REFERENCES private.extraction_run(id),
+  method          text,
+  evidence        jsonb CHECK (evidence IS NULL OR jsonb_typeof(evidence)='object'),
   UNIQUE (observation_id,rendition_id,version),
   CHECK (supersedes_id IS NULL OR supersedes_id <> id)
 );
@@ -644,7 +648,9 @@ ALTER TABLE private.source_observation
   ADD COLUMN clause_flags          jsonb CHECK (clause_flags IS NULL OR jsonb_typeof(clause_flags)='array'),
   -- Klausulsæt (omsegmentering, spec 2026-09-27): NULL på en klausul = sæt 1. Ingen
   -- default — den ville blive skrevet i alle rækker. Reglerne: validate_clause_set_seq.
-  ADD COLUMN clause_set_seq        integer CONSTRAINT source_observation_clause_set_seq_check CHECK (clause_set_seq IS NULL OR clause_set_seq >= 1);
+  ADD COLUMN clause_set_seq        integer CONSTRAINT source_observation_clause_set_seq_check CHECK (clause_set_seq IS NULL OR clause_set_seq >= 1),
+  -- Trin 6a: klausulsættet er skåret af denne tekstversion af helposten (NULL = helpostens basistekst).
+  ADD COLUMN parent_text_id        uuid REFERENCES private.source_observation_text(id);
 
 CREATE UNIQUE INDEX ux_source_observation_clause_ordinal
   ON private.source_observation(parent_observation_id, coalesce(clause_set_seq,1), clause_ordinal)
@@ -654,7 +660,7 @@ CREATE UNIQUE INDEX ux_source_observation_clause_ordinal
 -- forælderen, ordret udsnit, lukket vokabular. Offsets er rendition-absolutte.
 CREATE FUNCTION private.validate_clause_observation()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
-DECLARE v_parent private.source_observation%ROWTYPE;
+DECLARE v_parent private.source_observation%ROWTYPE; v_ptext text;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme='observation_kind' AND code=NEW.observation_kind) THEN
     RAISE EXCEPTION 'EVIDENCE_OBSERVATION_KIND_UNKNOWN: %', NEW.observation_kind;
@@ -662,7 +668,8 @@ BEGIN
   IF NEW.observation_kind<>'clause' THEN
     IF NEW.parent_observation_id IS NOT NULL OR NEW.clause_ordinal IS NOT NULL
        OR NEW.clause_classification IS NOT NULL OR NEW.clause_flags IS NOT NULL
-       OR NEW.post_char_from IS NOT NULL OR NEW.post_char_to IS NOT NULL THEN
+       OR NEW.post_char_from IS NOT NULL OR NEW.post_char_to IS NOT NULL
+       OR NEW.parent_text_id IS NOT NULL THEN
       RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_FORBIDDEN';
     END IF;
     RETURN NEW;
@@ -688,13 +695,20 @@ BEGIN
   IF NEW.page_from<>v_parent.page_from OR NEW.page_to<>v_parent.page_to THEN
     RAISE EXCEPTION 'EVIDENCE_CLAUSE_PAGE_OUTSIDE_PARENT';
   END IF;
+  -- Trin 6a: er klausulen bundet til en tekstversion, skæres den af versionens tekst, ikke basisteksten.
+  v_ptext := v_parent.verbatim_text;
+  IF NEW.parent_text_id IS NOT NULL THEN
+    SELECT t.verbatim_text INTO v_ptext FROM private.source_observation_text t
+     WHERE t.id=NEW.parent_text_id AND t.observation_id=NEW.parent_observation_id FOR SHARE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_TEXT_INVALID'; END IF;
+  END IF;
   -- Det post-relative par skal ligge inde i forælderens tekst ...
-  IF NEW.post_char_to>char_length(v_parent.verbatim_text) THEN
+  IF NEW.post_char_to>char_length(v_ptext) THEN
     RAISE EXCEPTION 'EVIDENCE_CLAUSE_POST_SPAN_OUTSIDE_PARENT';
   END IF;
   -- ... og udskæringen dér skal være ordret lig klausulens tekst. Denne kontrol
   -- kan IKKE laves med char_from/char_to, fordi forælderens tekst er foldet.
-  IF substr(v_parent.verbatim_text, NEW.post_char_from+1, NEW.post_char_to-NEW.post_char_from)<>NEW.verbatim_text THEN
+  IF substr(v_ptext, NEW.post_char_from+1, NEW.post_char_to-NEW.post_char_from)<>NEW.verbatim_text THEN
     RAISE EXCEPTION 'EVIDENCE_CLAUSE_TEXT_MISMATCH';
   END IF;
   -- De to par skal beskrive lige lange udsnit, ellers påstår de hver sit.
@@ -15485,7 +15499,16 @@ BEGIN
                    WHERE parent_observation_id=NEW.parent_observation_id
                      AND coalesce(clause_set_seq,1)=v_max
                      AND extraction_run_id IS DISTINCT FROM NEW.extraction_run_id) INTO v_foreign_run;
-    IF NOT v_foreign_run THEN RETURN NEW; END IF;
+    IF NOT v_foreign_run THEN
+      -- Trin 6a: ét sæt er skåret af én tekst (samme tekstversion, eller alle basistekst).
+      IF EXISTS(SELECT 1 FROM private.source_observation
+                 WHERE parent_observation_id=NEW.parent_observation_id
+                   AND coalesce(clause_set_seq,1)=v_max
+                   AND parent_text_id IS DISTINCT FROM NEW.parent_text_id) THEN
+        RAISE EXCEPTION 'EVIDENCE_CLAUSE_SET_TEXT_MIXED';
+      END IF;
+      RETURN NEW;
+    END IF;
   END IF;
   RAISE EXCEPTION 'EVIDENCE_CLAUSE_SET_SEQ_INVALID: sæt % efter %', NEW.clause_set_seq, coalesce(v_max,0);
 END $$;
@@ -15598,6 +15621,20 @@ DROP TRIGGER IF EXISTS trg_interpretation_observation_current_clause ON private.
 CREATE TRIGGER trg_interpretation_observation_current_clause
   BEFORE INSERT ON private.interpretation_observation
   FOR EACH ROW EXECUTE FUNCTION private.validate_interpretation_observation_current_clause();
+
+-- Trin 6a: helpostens gældende tekst: foretrukken version (source_observation_text_current: is_preferred,
+-- så højeste version), ellers (NULL, basisteksten).
+CREATE OR REPLACE FUNCTION private.helpost_text_current(p_observation_id uuid)
+RETURNS TABLE(text_id uuid, verbatim_text text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+  SELECT c.id, c.verbatim_text FROM private.source_observation_text_current c
+   WHERE c.observation_id=p_observation_id
+  UNION ALL
+  SELECT NULL::uuid, o.verbatim_text FROM private.source_observation o
+   WHERE o.id=p_observation_id
+     AND NOT EXISTS (SELECT 1 FROM private.source_observation_text t WHERE t.observation_id=o.id)
+$$;
+REVOKE ALL ON FUNCTION private.helpost_text_current(uuid) FROM PUBLIC,anon,authenticated,service_role;
 
 REVOKE ALL ON FUNCTION private.validate_clause_set_seq(), private.check_clause_set_density(),
   private.clause_set_sha256(uuid,integer), private.validate_clause_disposition_set(),

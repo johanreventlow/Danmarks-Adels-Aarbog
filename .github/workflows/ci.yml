@@ -318,6 +318,7 @@ jobs:
           psql -q -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f db-migrations.sql > /dev/null
           psql -q -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f db-rls.sql > /dev/null
           psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-profile-seeds.sql
+          psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-source-text-version.sql
       - name: Virkelig rollback/apply/reversal integration
         env:
           PGHOST: localhost
@@ -542,6 +543,9 @@ jobs:
           bash tests/sql/test-transfer-5ab-steps.sh ci_st5ab
           bash tests/sql/test-transfer-5ab-del1-steps.sh ci_d15ab
           bash tests/sql/test-transfer-fingerprints.sh ci_fp
+      - name: Tekstversioner og klausulsæt bundet til version (trin 6a)
+        env: {PGPASSWORD: postgres}
+        run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-source-text-version.sql
       - name: Klausul-writer SQL (#148 4.1c)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-clause-evidence-writer.sql

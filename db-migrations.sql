@@ -26961,3 +26961,143 @@ FROM (VALUES (
 )) AS v(writer_config)
 WHERE EXISTS(SELECT 1 FROM public.source WHERE id=3)
 ON CONFLICT DO NOTHING;
+
+-- ===== trin 6a: tekstversioner af helposten og klausulsæt bundet til version =====
+ALTER TABLE private.source_observation_text
+  ADD COLUMN IF NOT EXISTS extraction_run_id uuid REFERENCES private.extraction_run(id),
+  ADD COLUMN IF NOT EXISTS method text,
+  ADD COLUMN IF NOT EXISTS evidence jsonb;
+DO $text_version_evidence_check$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.source_observation_text'::regclass
+                    AND conname='source_observation_text_evidence_check') THEN
+    ALTER TABLE private.source_observation_text ADD CONSTRAINT source_observation_text_evidence_check
+      CHECK (evidence IS NULL OR jsonb_typeof(evidence)='object');
+  END IF;
+END $text_version_evidence_check$;
+ALTER TABLE private.source_observation
+  ADD COLUMN IF NOT EXISTS parent_text_id uuid REFERENCES private.source_observation_text(id);
+
+CREATE OR REPLACE FUNCTION private.validate_clause_observation()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_parent private.source_observation%ROWTYPE; v_ptext text;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme='observation_kind' AND code=NEW.observation_kind) THEN
+    RAISE EXCEPTION 'EVIDENCE_OBSERVATION_KIND_UNKNOWN: %', NEW.observation_kind;
+  END IF;
+  IF NEW.observation_kind<>'clause' THEN
+    IF NEW.parent_observation_id IS NOT NULL OR NEW.clause_ordinal IS NOT NULL
+       OR NEW.clause_classification IS NOT NULL OR NEW.clause_flags IS NOT NULL
+       OR NEW.post_char_from IS NOT NULL OR NEW.post_char_to IS NOT NULL
+       OR NEW.parent_text_id IS NOT NULL THEN
+      RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_FORBIDDEN';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.parent_observation_id IS NULL OR NEW.clause_ordinal IS NULL
+     OR NEW.clause_classification IS NULL OR NEW.clause_flags IS NULL
+     OR NEW.post_char_from IS NULL OR NEW.post_char_to IS NULL THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_REQUIRED';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.vocab WHERE scheme='clause_classification' AND code=NEW.clause_classification) THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_CLASSIFICATION_UNKNOWN: %', NEW.clause_classification;
+  END IF;
+  SELECT * INTO v_parent FROM private.source_observation WHERE id=NEW.parent_observation_id FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_REQUIRED'; END IF;
+  IF v_parent.parent_observation_id IS NOT NULL THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_NOT_TOP_LEVEL'; END IF;
+  IF v_parent.occurrence_id<>NEW.occurrence_id THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_OCCURRENCE_MISMATCH'; END IF;
+  IF NEW.char_from<v_parent.char_from OR NEW.char_to>v_parent.char_to THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_SPAN_OUTSIDE_PARENT';
+  END IF;
+  -- Sider er grænser, ikke en påstand om præcis side (spec 4.1.2): klausulen
+  -- arver forælderens sideinterval uændret. Et snævrere interval ville påstå en
+  -- finere sidelokalisering, end segmenteringen kan vide.
+  IF NEW.page_from<>v_parent.page_from OR NEW.page_to<>v_parent.page_to THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_PAGE_OUTSIDE_PARENT';
+  END IF;
+  -- Trin 6a: er klausulen bundet til en tekstversion, skæres den af versionens tekst, ikke basisteksten.
+  v_ptext := v_parent.verbatim_text;
+  IF NEW.parent_text_id IS NOT NULL THEN
+    SELECT t.verbatim_text INTO v_ptext FROM private.source_observation_text t
+     WHERE t.id=NEW.parent_text_id AND t.observation_id=NEW.parent_observation_id FOR SHARE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_PARENT_TEXT_INVALID'; END IF;
+  END IF;
+  -- Det post-relative par skal ligge inde i forælderens tekst ...
+  IF NEW.post_char_to>char_length(v_ptext) THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_POST_SPAN_OUTSIDE_PARENT';
+  END IF;
+  -- ... og udskæringen dér skal være ordret lig klausulens tekst. Denne kontrol
+  -- kan IKKE laves med char_from/char_to, fordi forælderens tekst er foldet.
+  IF substr(v_ptext, NEW.post_char_from+1, NEW.post_char_to-NEW.post_char_from)<>NEW.verbatim_text THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_TEXT_MISMATCH';
+  END IF;
+  -- De to par skal beskrive lige lange udsnit, ellers påstår de hver sit.
+  IF (NEW.char_to-NEW.char_from)<(NEW.post_char_to-NEW.post_char_from) THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_SPAN_PAIR_INCONSISTENT';
+  END IF;
+  -- Provenance (spec 4.1.2): klausulen arver forælderens kvalitetsklassifikation
+  -- og bæres af den versionerede segmenteringsregel. En klausul må ikke kunne
+  -- påstå 'clear' under en ocr_uncertain helpost.
+  IF NEW.quality_status<>v_parent.quality_status THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_QUALITY_MISMATCH: forælderen er %', v_parent.quality_status;
+  END IF;
+  -- starts_with, ikke LIKE: '_' er et jokertegn i LIKE, så 'clauseXsegmentXv1'
+  -- ville ellers passere metodekontrollen.
+  IF NOT starts_with(NEW.extraction_method, 'clause_segment_v1') THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_EXTRACTION_METHOD_INVALID: %', NEW.extraction_method;
+  END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.clause_flags) e
+              WHERE jsonb_typeof(e)<>'string' OR btrim(e#>>'{}')='') THEN
+    RAISE EXCEPTION 'EVIDENCE_CLAUSE_FLAGS_INVALID';
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE OR REPLACE FUNCTION private.validate_clause_set_seq()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+DECLARE v_max integer; v_foreign_run boolean;
+BEGIN
+  IF NEW.observation_kind<>'clause' THEN
+    IF NEW.clause_set_seq IS NOT NULL THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_SET_FORBIDDEN'; END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.clause_set_seq IS NULL THEN RAISE EXCEPTION 'EVIDENCE_CLAUSE_SET_REQUIRED'; END IF;
+  -- Serialisér sæt-tildelingen pr. helpost.
+  PERFORM 1 FROM private.source_observation WHERE id=NEW.parent_observation_id FOR UPDATE;
+  SELECT max(coalesce(clause_set_seq,1)) INTO v_max
+    FROM private.source_observation WHERE parent_observation_id=NEW.parent_observation_id;
+  IF NEW.clause_set_seq=coalesce(v_max,0)+1 THEN
+    RETURN NEW;
+  END IF;
+  IF NEW.clause_set_seq=v_max THEN
+    SELECT EXISTS(SELECT 1 FROM private.source_observation
+                   WHERE parent_observation_id=NEW.parent_observation_id
+                     AND coalesce(clause_set_seq,1)=v_max
+                     AND extraction_run_id IS DISTINCT FROM NEW.extraction_run_id) INTO v_foreign_run;
+    IF NOT v_foreign_run THEN
+      -- Trin 6a: ét sæt er skåret af én tekst (samme tekstversion, eller alle basistekst).
+      IF EXISTS(SELECT 1 FROM private.source_observation
+                 WHERE parent_observation_id=NEW.parent_observation_id
+                   AND coalesce(clause_set_seq,1)=v_max
+                   AND parent_text_id IS DISTINCT FROM NEW.parent_text_id) THEN
+        RAISE EXCEPTION 'EVIDENCE_CLAUSE_SET_TEXT_MIXED';
+      END IF;
+      RETURN NEW;
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'EVIDENCE_CLAUSE_SET_SEQ_INVALID: sæt % efter %', NEW.clause_set_seq, coalesce(v_max,0);
+END $$;
+
+-- Trin 6a: helpostens gældende tekst: foretrukken version (source_observation_text_current: is_preferred,
+-- så højeste version), ellers (NULL, basisteksten).
+CREATE OR REPLACE FUNCTION private.helpost_text_current(p_observation_id uuid)
+RETURNS TABLE(text_id uuid, verbatim_text text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+  SELECT c.id, c.verbatim_text FROM private.source_observation_text_current c
+   WHERE c.observation_id=p_observation_id
+  UNION ALL
+  SELECT NULL::uuid, o.verbatim_text FROM private.source_observation o
+   WHERE o.id=p_observation_id
+     AND NOT EXISTS (SELECT 1 FROM private.source_observation_text t WHERE t.observation_id=o.id)
+$$;
+REVOKE ALL ON FUNCTION private.helpost_text_current(uuid) FROM PUBLIC,anon,authenticated,service_role;
