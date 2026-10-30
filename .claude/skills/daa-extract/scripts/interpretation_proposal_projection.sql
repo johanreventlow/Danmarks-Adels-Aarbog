@@ -82,14 +82,43 @@ WITH guard AS (
   JOIN interpretation_src i ON i.id = io.interpretation_id
   JOIN private.source_observation o ON o.id = io.observation_id
   LEFT JOIN accepted ac ON ac.occurrence_id = o.occurrence_id
+), key_basis AS (
+  -- Trin 6a (spec 4.4 pkt. 6, Codex F6): noegleversion og tekstversion pr. fortolkningsnoegle, laest af den
+  -- forslags-event, hvis kvittering baerer noeglen (eventens topniveau key_version/text_version). En event fra
+  -- foer 6a har ingen key_version og er version 1. Flere forskellige par for samme noegle er ugyldigt (NULL).
+  SELECT c.claim ->> 'interpretation_key' AS interpretation_key,
+    CASE WHEN count(DISTINCT coalesce(e.payload ->> 'key_version', '1') || '/' || coalesce(e.payload ->> 'text_version', '')) <> 1 THEN NULL
+         WHEN min(coalesce(e.payload ->> 'key_version', '1')) = '1' AND min(e.payload ->> 'text_version') IS NULL THEN 1
+         WHEN min(e.payload ->> 'key_version') = '2' AND min(e.payload ->> 'text_version') ~ '^[1-9][0-9]{0,8}$' THEN 2
+    END AS key_version,
+    CASE WHEN min(e.payload ->> 'key_version') = '2' AND min(e.payload ->> 'text_version') ~ '^[1-9][0-9]{0,8}$'
+         THEN min(e.payload ->> 'text_version')::integer END AS text_version
+  FROM private.reimport_event e
+  JOIN private.reimport_batch b ON b.id = e.batch_id
+  JOIN guard g ON g.ok = 1 AND b.source_id = g.source_id
+  CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(e.payload -> 'result_receipt' -> 'claims') = 'array'
+                                               THEN e.payload -> 'result_receipt' -> 'claims' ELSE '[]'::jsonb END) c(claim)
+  WHERE e.operation = 'interpretation_proposal'
+  GROUP BY c.claim ->> 'interpretation_key'
 ), interpretation_keyed AS (
   -- Post-noegle og citerede klausuler genskabes fra linkene, saa noegle-guarden kan
   -- genberegne interpretation_key med den samme SQL-autoritet som writeren.
+  -- Noegleversionen kommer fra kvitteringen (key_basis): v1 genberegnes ALTID med v1-funktionen, ogsaa
+  -- efter en kildetekst-revision; v2 med den tekstversion, forslaget blev skrevet mod (ikke den gaeldende).
+  -- Ingen forslags-event (fx fortolkninger fra andre writere): version 1 som foer 6a.
   SELECT i AS irow,
     (SELECT CASE WHEN count(DISTINCT l.record_key) = 1 THEN min(l.record_key) END FROM link_rows l WHERE l.interpretation_id = i.id) AS record_key,
     (SELECT jsonb_agg(jsonb_build_object('ordinal', l.clause_ordinal, 'verbatim_sha256', l.verbatim_sha256) ORDER BY l.ordinal)
-       FROM link_rows l WHERE l.interpretation_id = i.id) AS cited
+       FROM link_rows l WHERE l.interpretation_id = i.id) AS cited,
+    CASE WHEN kb.interpretation_key IS NULL THEN 1 ELSE kb.key_version END AS key_version,
+    kb.text_version
   FROM private.interpretation i JOIN guard g ON g.ok = 1 AND i.source_id = g.source_id
+  LEFT JOIN key_basis kb ON kb.interpretation_key = i.interpretation_key::text
+), interpretation_material AS (
+  SELECT k.*, CASE WHEN k.record_key IS NOT NULL AND k.cited IS NOT NULL AND k.key_version = 2 THEN
+      private.interpretation_proposal_key_material_v2((k.irow).source_id, k.record_key, (k.irow).predicate, k.cited, (k.irow).value, k.text_version)
+    END AS material_v2
+  FROM interpretation_keyed k
 ), interpretation_rows AS (
   SELECT (k.irow).interpretation_key AS interpretation_key, (k.irow).version AS version, jsonb_build_object(
     'interpretation_id', (k.irow).id,
@@ -108,12 +137,18 @@ WITH guard AS (
     'supersedes_id', (k.irow).supersedes_id,
     'value_sha256', private.interpretation_proposal_canonical_json_sha256((k.irow).value),
     'key_material_sha256', CASE WHEN k.record_key IS NOT NULL AND k.cited IS NOT NULL THEN
-      private.interpretation_proposal_key_material_sha256((k.irow).source_id, k.record_key, (k.irow).predicate, k.cited, (k.irow).value) END,
+      CASE k.key_version
+        WHEN 1 THEN private.interpretation_proposal_key_material_sha256((k.irow).source_id, k.record_key, (k.irow).predicate, k.cited, (k.irow).value)
+        WHEN 2 THEN encode(pg_catalog.sha256(convert_to(k.material_v2, 'UTF8')), 'hex')
+      END END,
     'key_matches', coalesce(k.record_key IS NOT NULL AND k.cited IS NOT NULL
-      AND (k.irow).interpretation_key = private.interpretation_proposal_key((k.irow).source_id, k.record_key, (k.irow).predicate, k.cited, (k.irow).value), false),
+      AND (k.irow).interpretation_key = CASE k.key_version
+        WHEN 1 THEN private.interpretation_proposal_key((k.irow).source_id, k.record_key, (k.irow).predicate, k.cited, (k.irow).value)
+        WHEN 2 THEN private.deterministic_uuid(k.material_v2)
+      END, false),
     'row_sha256', private.interpretation_proposal_canonical_json_sha256(private.interpretation_proposal_interpretation_receipt(k.irow))
   ) AS row
-  FROM interpretation_keyed k
+  FROM interpretation_material k
 ), run_rows AS (
   SELECT r.id, jsonb_build_object(
     'run_id', r.id,

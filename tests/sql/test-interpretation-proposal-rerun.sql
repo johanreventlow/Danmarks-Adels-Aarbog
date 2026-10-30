@@ -3,9 +3,10 @@
 -- forældet alle nøgler fra recordens tidligere forslags-events, og hvis tekstversion er helpostens gældende. Nøglen
 -- binder til helpostens tekstversionsnummer (key_version 2); uden tekstversion er nøglen uændret version 1.
 -- Kræver kontrakt v2 (reimport-writer-v2-bootstrap.sql) og 1939-bootstrap som test-source-text-revision.sql.
--- Alt syntetisk; én transaktion, rulles tilbage.
+-- Alt syntetisk; én transaktion, rulles tilbage. REPEATABLE READ, så forslagsprojektionen til sidst kan køres i samme
+-- transaktion (dens guard kræver REPEATABLE READ og READ ONLY; read only slås til efter skrivningerne).
 \set ON_ERROR_STOP on
-BEGIN;
+BEGIN ISOLATION LEVEL REPEATABLE READ;
 \ir fixtures/relation-5b.sql
 \ir fixtures/relation-2a.sql
 \ir fixtures/source-text-revision.sql
@@ -287,6 +288,68 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: test_key_v2_b_c_b';
 END $t$;
+
+-- test_projection_follows_key_version (Task 13, R13-c; spec §4.4 pkt. 6): forslagsprojektionen genberegner hver nøgle
+-- med den nøgle- og tekstversion, den skabende forslags-events kvittering bærer. B → C → B-posten (kilde -66501) har
+-- v1-nøglen k1 (foreslået + forældet), v2/1-nøglen k2 (foreslået + forældet) og v2/2-nøglen k3: alle fem rækker skal
+-- have key_matches, og key_material_sha256 skal være kvitteringens. Negativt: v1-nøglen genberegnet mod den reviderede
+-- (gældende) tekst — v2 med den gældende tekstversion — er IKKE nøglen, og v1-genberegningen af en v2-nøgle heller ikke.
+CREATE FUNCTION pg_temp.rr_cited(p_interpretation uuid) RETURNS jsonb LANGUAGE sql AS $$
+  SELECT jsonb_agg(jsonb_build_object('ordinal',o.clause_ordinal,'verbatim_sha256',encode(extensions.digest(o.verbatim_text,'sha256'),'hex'))
+                   ORDER BY io.ordinal)
+    FROM private.interpretation_observation io JOIN private.source_observation o ON o.id=io.observation_id
+   WHERE io.interpretation_id=p_interpretation
+$$;
+CREATE FUNCTION pg_temp.rr_assert_projection(p jsonb, p_source bigint) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v record; v_rows int:=0; v_receipt int; v_current int; v_naive uuid;
+BEGIN
+  IF (p->>'source_id')::bigint IS DISTINCT FROM p_source THEN RAISE EXCEPTION 'PROPOSAL_RERUN_TEST_FAILED: projektionens kilde'; END IF;
+  SELECT t.version INTO v_current FROM private.source_observation_text t
+   WHERE t.id=(SELECT c.text_id FROM private.interpretation_current ic JOIN private.interpretation_observation io ON io.interpretation_id=ic.id
+                 JOIN private.source_observation o ON o.id=io.observation_id
+                 CROSS JOIN LATERAL private.helpost_text_current(o.parent_observation_id) c
+                WHERE ic.source_id=p_source AND ic.status='proposed' AND ic.method='model' LIMIT 1);
+  IF v_current IS DISTINCT FROM 2 THEN RAISE EXCEPTION 'PROPOSAL_RERUN_TEST_FAILED: gældende tekstversion %',v_current; END IF;
+  FOR v IN
+    SELECT r AS row, (e->>'key_version')::int AS key_version, i.id, i.interpretation_key, i.predicate, i.value
+      FROM jsonb_array_elements(p->'interpretations') r
+      JOIN private.interpretation i ON i.id=(r->>'interpretation_id')::uuid
+      JOIN private.reimport_event e0 ON e0.operation='interpretation_proposal'
+       AND e0.payload->'result_receipt'->'claims' @> jsonb_build_array(jsonb_build_object('interpretation_key',r->>'interpretation_key'))
+      CROSS JOIN LATERAL (SELECT e0.payload AS e) x
+  LOOP
+    v_rows:=v_rows+1;
+    IF (v.row->>'key_matches')::boolean IS NOT TRUE THEN
+      RAISE EXCEPTION 'PROPOSAL_RERUN_TEST_FAILED: key_matches falsk for nøgle % (key_version %)',v.interpretation_key,v.key_version;
+    END IF;
+    IF v.key_version=1 THEN
+      v_naive:=private.deterministic_uuid(private.interpretation_proposal_key_material_v2(p_source,v.row->>'record_key',v.predicate,
+        pg_temp.rr_cited(v.id),v.value,v_current));
+    ELSE
+      v_naive:=private.interpretation_proposal_key(p_source,v.row->>'record_key',v.predicate,pg_temp.rr_cited(v.id),v.value);
+    END IF;
+    IF v_naive=v.interpretation_key THEN
+      RAISE EXCEPTION 'PROPOSAL_RERUN_TEST_FAILED: den forkerte genberegning rammer nøglen %',v.interpretation_key;
+    END IF;
+  END LOOP;
+  IF v_rows<>5 THEN RAISE EXCEPTION 'PROPOSAL_RERUN_TEST_FAILED: % forslagsrækker, ventede 5',v_rows; END IF;
+  SELECT count(*) INTO v_receipt
+    FROM jsonb_array_elements(p->'proposal_events') e, jsonb_array_elements(e->'result_receipt'->'claims') c,
+         jsonb_array_elements(p->'interpretations') r
+   WHERE r->>'interpretation_key'=c->>'interpretation_key' AND (r->>'version')::int=1
+     AND r->>'key_material_sha256'=c->>'key_material_sha256';
+  IF v_receipt<>3 THEN RAISE EXCEPTION 'PROPOSAL_RERUN_TEST_FAILED: % nøglematerialer lig kvitteringen, ventede 3',v_receipt; END IF;
+END $$;
+SET LOCAL transaction_read_only = on;
+SET LOCAL TimeZone = 'UTC';
+SET LOCAL DateStyle = 'ISO, YMD';
+SET LOCAL IntervalStyle = 'postgres';
+SET LOCAL extra_float_digits = 1;
+SET LOCAL bytea_output = 'hex';
+SELECT set_config('daa.interpretation_projection_source_id','-66501',true) AS projection_source_id \gset
+\ir ../../.claude/skills/daa-extract/scripts/interpretation_proposal_projection.sql
+SELECT pg_temp.rr_assert_projection(:'projection'::jsonb,-66501);
+\echo OK: test_projection_follows_key_version
 
 ROLLBACK;
 \echo PASS test-interpretation-proposal-rerun
