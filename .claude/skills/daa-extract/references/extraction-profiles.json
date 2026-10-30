@@ -3,7 +3,7 @@
   "profiles": {
     "daa-1939-v1": {
       "edition": "1939",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "model_id": "gpt-5.6-terra",
       "escalation_model_id": "gpt-5.6-sol",
       "prompt_version": "evidence-extract-1.0.0",
@@ -240,10 +240,16 @@
           "nat.",
           "Ltnt.",
           "Till.",
-          "Reg."
+          "Reg.",
+          "Aarb.",
+          "Kbhvn.",
+          "Test.",
+          "Jfr.",
+          "Supp.",
+          "Prot."
         ],
-        "initial_pattern": "(?:^|\\s)[A-ZÆØÅ]\\.$",
-        "ordinal_number_pattern": "(?:^|\\s)\\d{1,2}\\.$",
+        "initial_pattern": "(?:^|[\\s(-])[A-ZÆØÅ]\\.$",
+        "ordinal_number_pattern": "(?:^|[\\s(])\\d{1,2}\\.$",
         "structural_header_patterns": [
           "^(Første|Andet|Tredje|Fjerde|Femte|Sjette|Syvende|Ottende|Niende|Tiende|Ellevte|Tolvte|Trettende|Fjortende|Femtende|Sekstende) slægtled\\b",
           "^[IVXLC]+\\.?\\s+(Linje|linje|Gren|gren)\\b"

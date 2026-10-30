@@ -3,6 +3,10 @@ Før forkortelseslisten: 1028 klausuler, unknown_abbreviation 324, short_clause 
 Efter (15 tokens): 1025 klausuler, unknown_abbreviation 62, short_clause 78.
 Uændret: page_marker_in_clause 77, possible_layout_line 21, unbalanced_parentheses 126,
 multiple_marriages 1, uncertain_marker 7.
+Røgtest 2026-10-30 (Task 14, seed 20261030, 20 poster om personer død før 1800): fejlsnit efter
+"Aarb.", "Kbhvn.", "(5." og "Sunds-H."; runde 2 (seed 20261031) kun enkeltstående: "Test.", "Jfr.",
+"Supp.", "Prot.". Profil 1.2.0 (seks forkortelser, "(" foran ordenstal, "(" og "-" foran initial):
+954 klausuler, unbalanced_parentheses 74, short_clause 42, unknown_abbreviation 60.
 """
 import json
 import os
@@ -297,6 +301,14 @@ class Test1939Rules(unittest.TestCase):
         """Før forkortelseslisten splittede "Ltnt. Hansen." efter "Ltnt."; nu én klausul."""
         result = _build("Ltnt. Hansen.")
         self.assertEqual(len(result["clauses"]), 1)
+
+    def test_smoke_test_cuts_do_not_split(self):
+        """Røgtestens fejlsnit (Task 14): Aarbog-henvisning, Kbhvn., dato i parentes, herred efter bindestreg."""
+        for text in ("g. m. X (Aarb. XXX, 138).", "f. 1708 i Kbhvn. † i Altona.",
+                     "1743 (5. Jan.) Overhofmester.", "Turø, Sunds-H. (-1674), Clausholm.",
+                     "indsatte i sit Test. Geheimeraad X.", "en Jfr. Engelke."):
+            with self.subTest(text=text):
+                self.assertEqual(len(_build(text)["clauses"]), 1)
 
     def test_2018_rules_unchanged(self):
         """Byte-identisk output med 2018-20-reglerne: pin af hash over hele det syntetiske fixture
