@@ -9,7 +9,7 @@ Spec: `docs/superpowers/specs/2026-10-29-trin6a-klausuler-og-kildetekst-revision
   og den rå tekstform. A skriver kun data i form af to nye rækker i `private.reimport_writer_profile`. A ændrer
   desuden redaktørens 5b-ægteskabsark: v3-inputtet viser kun ægtefælleparten ved en aktuel `proposed`/`accepted`-
   relation. Målt på stand-in bliver 1 række U i stedet for et forslag (spec, Codex F3). Læserfladen ændres ikke.
-- **Ceremoni B** skriver 1939's klausuler: 584 helposter og 954 klausuler med profilen `daa-1939-clause-evidence-v1`,
+- **Ceremoni B** skriver 1939's klausuler: 584 helposter og 912 klausuler med profilen `daa-1939-clause-evidence-v1`,
   gennem reimport-writerens kæde (authorize → apply → finalize). Det kanoniske lag og læserfladen ændres ikke.
 - **Kildetekst-revisionen anvendes ikke i prod i 6a.** Første brug er 6c's samlede ceremoni (spec §7 pkt. 5).
 
@@ -30,9 +30,8 @@ Projektejeren kører alt, der rører prod, fra egen shell. AI-sessionen læser k
 
   Ændres `db-migrations.sql`, 1939-reglerne, segmenteringen eller manifest-byggeren efter øvelsen, skal øvelsen
   gentages, og værdierne skal opdateres, før der tages GO.
-- **Øvelsen gentages på `main` efter merge af PR 2**, med den runner, der skal bruges i prod, på en frisk stand-in
-  (alle skridt i stand-in-tilstand). Først derefter tages GO. Runneren er rettet efter den sidste øvelse
-  (fejlkodevisningen ved `T6A_B_FEJL`).
+- **Slutøvelsen på `main` efter merge af PR 2 er gennemført** (se Øvelse), med den runner, der skal bruges i prod,
+  på en frisk stand-in. Ændres runneren, `db-migrations.sql`, reglerne eller byggerne derefter, gentages den før GO.
 - `DAA_EXPECTED_TARGET` (prods målidentitet) står i `prod/go-env.txt`, som ved 5c-2.
 
 ## Forløb (projektejerens shell)
@@ -64,7 +63,7 @@ Alle kommandoer køres som `/bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 25-t
 
 6. `eksport` → `T6A_EKSPORT_OK helposter=584 uden_helpost=8`. Læse-kun. Kræver tilstand `a`. Postteksterne lægges
    i en 0700-mappe under `prod/6a/` og forlader ikke maskinen.
-7. `manifest` → `T6A_MANIFEST_OK operationer=584 indhold=e35f72be…`. Bygges lokalt. Indholdet skal være øvelsens:
+7. `manifest` → `T6A_MANIFEST_OK operationer=584 indhold=3ee3d328…`. Bygges lokalt. Indholdet skal være øvelsens:
    afviger det, er teksten i prod en anden end i dumpet fra 2026-10-29, og B stopper her.
 8. `go-b` → `GO_6A_B_KODE=<8 hex>`. Projektejeren skriver `GO 6a-B <kode>`. Koden binder også manifestet.
 9. `dump` igen → `DUMP_6A_OK tilstand=a …`. `apply-b` kræver et dump taget i tilstand `a` (altså efter A); ellers
@@ -74,9 +73,9 @@ Alle kommandoer køres som `/bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 25-t
     - målingen før skal være `a`;
     - `25-trin6a-b.R` kører dry-run, authorize (som `service_role`), apply og replay. Det kanoniske lag skal være
       uændret;
-    - `T6A_FLAG k3 record_text:954 | multiple_marriages:1,page_marker_in_clause:77,possible_layout_line:21,
-      short_clause:42,unbalanced_parentheses:74,uncertain_marker:7,unknown_abbreviation:60`;
-    - `T6A_APPLY_B_OK k3_klausuler=954 k3_poster=584 k3_afventer=719 k3_flagget=235 k3_batch=1 status=finalized …`.
+    - `T6A_FLAG k3 record_text:912 | multiple_marriages:1,page_marker_in_clause:77,possible_layout_line:21,
+      short_clause:40,unbalanced_parentheses:66,uncertain_marker:7,unknown_abbreviation:59`;
+    - `T6A_APPLY_B_OK k3_klausuler=912 k3_poster=584 k3_afventer=687 k3_flagget=225 k3_batch=1 status=finalized …`.
 11. `maal` → `T6A_MAAL_OK tilstand=b`.
 12. Vinduet slutter. Redaktionen kan skrive igen.
 
@@ -87,7 +86,7 @@ Prods `statement_timeout` er 2 minutter. Grænsen gælder pr. sætning, ikke pr.
 | | Stand-in | Forventet i prod |
 |---|---|---|
 | Blokken (A) | 0,04 s; hele `db-migrations.sql` 0,67 s | sekunder |
-| Ceremoni B, apply alene | 3,7-3,8 s | ca. 3-4 min |
+| Ceremoni B, apply alene | 3,7-3,9 s | ca. 3-4 min |
 | Ceremoni B i alt (dry-run + apply + replay) | ca. 2 × apply | ca. 7-8 min |
 | Målingen | < 1 s | sekunder (stop ved > 60 s, skridt 1) |
 
@@ -181,6 +180,34 @@ Stand-in'erne blev bygget af 5c-2-dumpet (`0e988082…`, taget før 5c-2-blokken
 | `maal` | `b` |
 
 De dekrypterede rundtur-kopier blev slettet efter kontrollen; dumpet og `.age` blev liggende.
+
+### Slutøvelse på `main` (2026-10-30, efter merge af PR 2)
+
+`main` = `25b8ae26`. Profilen `daa-1939-v1` 1.3.0 (9 forkortelser mere) og writerens nye isolationsvagt og
+`FOR UPDATE` er med, så runnerens faste værdier er opdateret: `T6A_BLOK` = `4b284563…`, `T6A_MANIFEST_CONTENT` =
+`3ee3d328…`, `K3_B` med 912/687/225. B-tallene blev forudsagt fra manifestet (flagget = klausuler med mindst ét flag)
+og ramt præcist.
+
+- **Første forsøg (`…_6am`) fandt en runnerfejl:** efter et vellykket B stoppede runneren lydløst. Linjen, der
+  henter fejlkoden fra R's `Fejl:`-linje, endte med `grep -o` uden træf; under `pipefail` + `errexit` afsluttede det
+  scriptet efter commit, uden `T6A_APPLY_B_OK` og uden eftermålingen. Batchen var `finalized`, og `maal` gav `b`.
+  Hele pipelinen står nu under `|| true`. Begge veje er afprøvet: ingen kode ved succes, koden vises ved fejl.
+- **Andet forsøg (`daa5ab_ddl_standin_20261030210000_6am2`) med den rettede runner, fra ende til anden:**
+
+| Skridt | Resultat |
+|---|---|
+| `maal` | `foer`; `k1_klausuler=984 k1_poster=591 k1_hash=2c530d0a…` |
+| `go-a` → `apply-a` uden dump | `STOPPORT: DUMP_6A_MANGLER` |
+| `dump` → `apply-a` | `DUMP_6A_OK tilstand=foer`, `EKSTERN_6A_OK … rundtur=ok`; `T6A_APPLY_A_OK funktioner=12 profiler=2 view=t`, `k1` uændret |
+| `eksport` | 584 / 8 |
+| `manifest` | indhold `3ee3d328…`, ens i to bygninger |
+| `go-b` → `apply-b` med dumpet fra tilstand `foer` | `STOPPORT: DUMP_6A_TILSTAND` |
+| `dump` → `apply-b` | `DUMP_6A_OK tilstand=a`; `T6A_FLAG` som i skridt 10; `T6A_APPLY_B_OK k3_klausuler=912 k3_poster=584 k3_afventer=687 k3_flagget=225 k3_batch=1 … sekunder=3.9 inkl_dryrun=8.0`, replay `already_applied`, kanonisk uændret, `k1` uændret |
+| `maal` | `b` |
+| `apply-b` igen | `STOPPORT: T6A_FOER_B` (fik `b`) |
+
+Med forholdet prod/stand-in på cirka 55 for skrivninger (148c) svarer B's 3,9 s til omkring 215 s i prod, fordelt på
+flere statements under hver sin 2-minuttersgrænse (se Varighed).
 
 ## Efter ceremonierne
 
