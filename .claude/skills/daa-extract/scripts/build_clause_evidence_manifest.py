@@ -94,7 +94,11 @@ def _operations(profile: dict[str, Any], ledger: dict[str, Any], rendition: str)
             or not all(isinstance(g, str) and len(g) == 1 for g in gap_charset):
         _fail("LEDGER_GAP_CHARSET_INVALID")
 
-    raw = _text_form(profile) == RAW_TEXT_FORM
+    form = _text_form(profile)
+    if form not in (RAW_TEXT_FORM, "folded_projection@anywhere"):
+        # Fail-closed: kun raw og @anywhere projiceres her (@page_header hører til revisionsbyggeren).
+        _fail("CLAUSE_TEXT_FORM_UNSUPPORTED:" + str(form))
+    raw = form == RAW_TEXT_FORM
     kandidater: dict[int, list[int]] = defaultdict(list)
     if raw:
         projected, offsets = rendition, range(len(rendition))

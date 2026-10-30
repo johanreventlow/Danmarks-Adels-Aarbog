@@ -261,3 +261,10 @@ class TestRawTextForm(unittest.TestCase):
         digest = hashlib.sha256(json.dumps(m, ensure_ascii=False, sort_keys=True, indent=2)
                                 .encode("utf-8")).hexdigest()
         self.assertEqual(digest, PINNED_2018_MANIFEST_SHA256)
+
+    def test_page_header_text_form_fails_closed(self):
+        profile, ledger, *_ = _fixture()
+        profile["writer_config"] = {"text_form": "folded_projection@page_header"}
+        with self.assertRaises(B.BuildError) as ctx:
+            B.build_manifest(profile, ledger, RENDITION, "e" * 64)
+        self.assertEqual(str(ctx.exception), "CLAUSE_TEXT_FORM_UNSUPPORTED:folded_projection@page_header")
