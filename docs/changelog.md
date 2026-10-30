@@ -16,7 +16,8 @@ Prod-kørsel efter `docs/runbooks/trin6a-prod.md`, repo `e9a289cf` (PR #281-#283
   k3_poster=584 k3_afventer=687 k3_flagget=225 k3_batch=1 status=finalized committed=TRUE sekunder=150.6`; kanonisk
   lag uændret, replay `already_applied`; `T6A_MAAL_OK tilstand=b`.
 - **Ikke anvendt:** kildetekst-revisionen er deployet, men ubrugt indtil A6b-resten i 6c.
-- **Rådgiver:** før/efter-diff af `get_advisors(security)` udestår.
+- **Rådgiver:** ét fund på et 6a-objekt, det forventede (`red_apply_reimport_source_text_revision` kan kaldes af
+  `authenticated`, som de øvrige `red_apply_reimport_*`); ingen nye tabeller, ingen `anon`-fund.
 
 ## 2026-10-29 — 5c-2 + B11 i prod: læseren ser placering og fakta med kilde (DDL, ingen data)
 

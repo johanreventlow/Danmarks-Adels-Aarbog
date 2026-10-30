@@ -554,9 +554,12 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   ubrugt; første brug er A6b-resten i 6c. Læserfladen er uændret.
 - **Ydelse:** B's apply tog 150,6 s i prod mod 3,9 s på stand-in (slutøvelsen), knap 40 gange langsommere; kørslen blev ikke stoppet af prods
   `statement_timeout` på 2 min.
-- **Rådgiver (skridt 5):** `get_advisors(security)` før/efter A tages af projektejeren i dashboardet; forventet højst ét
-  nyt fund (`red_apply_reimport_source_text_revision`, SECURITY DEFINER som de øvrige `red_apply_reimport_*`).
-  Resultat: udestår.
+- **Rådgiver (skridt 5):** Security Advisor i dashboardet efter B (intet før-billede taget; fundene er i stedet holdt op
+  mod blokkens objekter). Eneste fund på et 6a-objekt er det forventede: `authenticated_security_definer_function_executable`
+  på `public.red_apply_reimport_source_text_revision` (samme mønster som de øvrige `red_apply_reimport_*`; adgangen
+  afgøres i `private.write_source_text_revision` af `require_reimport_writer_editor()` og elementets autorisation). De
+  fire ændrede public-funktioner beholder deres hidtidige grants (`CREATE OR REPLACE`). Blokken opretter ingen tabeller,
+  så ingen nye `rls_enabled_no_policy`; ingen `anon`-fund på 6a-objekter.
 - **Fortryd:** B ved restore af B-dumpet + `db-rls.sql` (klausulerne har ingen afhængige før 6c), eller et nyt
   regelsæt via `clause_revision`. A med de tidligere funktionskroppe fra A-dumpet (ikke scriptet; runbookens liste)
   eller restore af A-dumpet, hvis intet andet er skrevet.
