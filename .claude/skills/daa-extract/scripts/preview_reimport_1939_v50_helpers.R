@@ -1,6 +1,12 @@
 # Fail-closed helpers for the DAA 1939 v50 database preview.
 # This file deliberately has no connection side effects and is testable with
 # injected query/execute functions.
+#
+# Trin 6a (Task 13, R13-b): `verbatim_text` i denne fil er felter i 1939-v50-sporets
+# preview-/materialiserings-JSON (planlagte personas og source records), ikke en
+# databaselæsning af helposttekst; ingen forespørgsel her læser observationstekst.
+# Sporet er afsluttet og bruges ikke af 6a's scripts. Flyttes derfor ikke til
+# private.helpost_text_current.
 
 `%||%` <- function(value, fallback) if (is.null(value)) fallback else value
 

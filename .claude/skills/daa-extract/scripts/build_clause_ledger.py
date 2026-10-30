@@ -81,8 +81,13 @@ def main() -> None:
     records, texts, flag_counter, unknown_tokens, gap_chars = [], {}, Counter(), Counter(), Counter()
     counts = []
     structural = 0
+    no_helpost = []
     for row in rows:
         text = row["verbatim_text"]
+        if text is None:
+            # Record uden helpost (spec 4.2): en synlig disposition, ikke en fejl. Ingen klausuler.
+            no_helpost.append(row["record_key"])
+            continue
         if hashlib.sha256(text.encode("utf-8")).hexdigest() != row["verbatim_sha256"]:
             _fail("TEXT_HASH_MISMATCH:" + row["record_key"])
         result = clause_segment.build_record_ledger(row["record_key"], row["occurrence_key"], text, rules)
@@ -100,12 +105,17 @@ def main() -> None:
             texts[f"{row['record_key']}#{clause['ordinal']}"] = clause["verbatim_text"]
             clauses.append({k: clause[k] for k in ("ordinal", "char_from", "char_to", "classification", "flags", "verbatim_sha256")})
         counts.append(len(clauses))
-        records.append({"record_key": row["record_key"], "occurrence_key": row["occurrence_key"],
-                        "page_from": row["page_from"], "page_to": row["page_to"],
-                        "parent_char_from": row["char_from"], "parent_char_to": row["char_to"],
-                        "parent_verbatim_sha256": row["verbatim_sha256"],
-                        "rendition_content_sha256": row["rendition_content_sha256"],
-                        "rules_version": rules["version"], "ledger_sha256": result["ledger_sha256"], "clauses": clauses})
+        record = {"record_key": row["record_key"], "occurrence_key": row["occurrence_key"],
+                  "page_from": row["page_from"], "page_to": row["page_to"],
+                  "parent_char_from": row["char_from"], "parent_char_to": row["char_to"],
+                  "parent_verbatim_sha256": row["verbatim_sha256"],
+                  "rendition_content_sha256": row["rendition_content_sha256"],
+                  "rules_version": rules["version"], "ledger_sha256": result["ledger_sha256"], "clauses": clauses}
+        # Trin 6a: helpostens tekstversion fra eksporten (helpost_text_current). Kun når den findes, så en ledger
+        # over urørte poster er byte-identisk; manifest-byggeren fejler med en klar kode, hvis den ikke kan ankres.
+        if row.get("text_id") is not None:
+            record["text_id"] = row["text_id"]
+        records.append(record)
     ledger = {"schema_version": "clause-ledger-v1", "profile_id": args.profile, "profile_version": profile["version"],
               "rules_version": rules["version"], "segmenter_version": segmenter_version(),
               "gap_charset": list(rules["gap_charset"]),   # 4.1c's manifest hash-binder tegnsættet herfra
@@ -115,10 +125,11 @@ def main() -> None:
     summary = {"records": len(records), "clauses": {"total": sum(counts), "min": min(counts) if counts else 0,
                "median": statistics.median(counts) if counts else 0, "max": max(counts) if counts else 0},
                "flags": dict(flag_counter), "structural_header": structural,
+               "no_helpost": {"records": len(no_helpost), "record_keys": sorted(no_helpost)},
                "gap_violations": dict(gap_chars), "unknown_abbreviation_tokens": dict(unknown_tokens.most_common(50)),
                "ledger_file_sha256": hashlib.sha256((out / "clause-ledger-v1.json").read_bytes()).hexdigest()}
     _write_private(out / "clause-ledger-summary.json", summary)
-    print(json.dumps({k: summary[k] for k in ("records", "clauses", "flags", "structural_header", "gap_violations", "ledger_file_sha256")}, ensure_ascii=False))
+    print(json.dumps({k: summary[k] for k in ("records", "clauses", "flags", "structural_header", "no_helpost", "gap_violations", "ledger_file_sha256")}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

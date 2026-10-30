@@ -4,6 +4,13 @@
 # normaliseringen og aldrig committes. Kræver #152's ledger-tabel
 # (private.narrative_legacy_publication) — findes den ikke, fejler eksporten højt
 # (LEGACY_MIGRATION_LEDGER_TABLE_MISSING) i stedet for at antage tavse NULL'er.
+#
+# Trin 6a (Task 13, R13-b): begge forespørgsler læser bevidst FOREKOMSTENS tekst
+# (source_record_occurrence.verbatim_text), ikke helpostens gældende tekst. En
+# kildetekst-revision versionerer observationen og lader forekomsten stå urørt
+# (spec §4.4), private.migrate_legacy_narrative_record er bundet til samme
+# forekomsttekst, og 149b-manifesterne bærer dens hash. Flyttes ikke til
+# private.helpost_text_current.
 
 lmc_fail <- function(code) stop(code, call. = FALSE)
 
@@ -26,6 +33,7 @@ lmc_sql <- list(
     "coalesce(person.privat,false) AS person_privat, coalesce(person.staged,false) AS person_staged,",
     "coalesce(narrative.privat,false) AS narrative_privat,",
     "encode(extensions.digest(narrative.tekst,'sha256'),'hex') AS narrative_text_sha256,",
+    # Forekomstens tekst, ikke helpostens gældende (R13-b, se filhovedet).
     "encode(extensions.digest(occurrence.verbatim_text,'sha256'),'hex') AS occurrence_verbatim_sha256,",
     "(occurrence.id IS NOT NULL) AS has_occurrence,",
     "legacy.legacy_publication_ref::text AS legacy_publication_ref, legacy.status::text AS legacy_status,",
@@ -55,6 +63,7 @@ lmc_sql <- list(
     "SELECT subjekt_id AS person_id, min(id) AS narrative_id FROM public.narrative",
     "WHERE source_id=$1 AND subjekt_type='person' GROUP BY subjekt_id",
     ") SELECT scoped.record_key::text AS record_key, narrative.tekst AS narrative_text,",
+    # Forekomstens tekst, ikke helpostens gældende (R13-b, se filhovedet).
     "occurrence.verbatim_text AS occurrence_text",
     "FROM scoped",
     "LEFT JOIN narratives ON narratives.person_id=scoped.person_id",

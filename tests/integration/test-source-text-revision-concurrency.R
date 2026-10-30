@@ -23,6 +23,13 @@
 #                 måling indeholder den nye binding og afviser mod et manifest uden den
 #                 (TEXT_REVISION_BINDING_SET_DRIFT). Havde A målt før låsen, ville den have overset bindingen og
 #                 forældet fortolkningen uden at kvittere for tabet.
+#   Rækkefølge 5 (Codex I1): en accepteret relation.parent er bundet til forældrefamilien, men barnets barn-række er
+#                 fjernet, så bindingen er p.t. ugyldig og ikke i manifestet. Mens A står ved barrieren, genindsætter
+#                 session F rækken med red_tilfoej_barn (ugyldig → gyldig). INSERT'ens fremmednøgle tager FOR KEY
+#                 SHARE på familien og barnet; A låser dem FOR UPDATE, så F skal vente på A. Efter A's commit er
+#                 fortolkningen forældet, og bindingen står ikke som gældende og ukvitteret. Med FOR SHARE ville F gå
+#                 igennem før A's commit, og bindingen forsvandt uden kvittering (testen fejler da med
+#                 TEXT_REVISION_CONCURRENCY_EXPECTED_LOCK_WAIT_NOT_OBSERVED).
 #
 # Kræver en frisk base: evidence-promotion-bootstrap, schema.sql, db-rls.sql, 1939-v50-writer-bootstrap,
 # reimport-writer-v2-bootstrap, db-rls.sql (som klausul-writer-testene). Testen committer syntetiske fixtures.
@@ -71,16 +78,19 @@ psql_value <- function(sql) {
 actor <- "11000000-0000-0000-0000-00000006a5c1"
 
 # Opret en post med afgjort ægteskab (familiebinding) og en accepteret, IKKE promoveret dødsfortolkning, en payload
-# målt nu (kun familiebindingen) og en åben batch med autorisationen.
-prepare_case <- function(controller, base, nonce, fx_text = NULL) {
+# målt nu (kun familiebindingen) og en åben batch med autorisationen. Med fx_text bruges en anden fixture; ny tekst,
+# klausuler og det forventede antal familiebindinger følger den.
+prepare_case <- function(controller, base, nonce, fx_text = NULL, new_text = "Anna Alfa. Gift m. Bo Beta.",
+                         parts = c("Anna Alfa.", "Gift m. Bo Beta."), family_bindings = 1L) {
   fx <- if (is.null(fx_text)) psql_value(sprintf("SELECT pg_temp.t5_post(%d,'%s',false,false)::text", base, actor)) else fx_text
   fx_list <- jsonlite::fromJSON(fx, simplifyVector = FALSE)
   payload <- psql_value(sprintf(
-    "SELECT pg_temp.t5_payload(%s::jsonb,'Anna Alfa. Gift m. Bo Beta.',ARRAY['Anna Alfa.','Gift m. Bo Beta.'])::text",
-    DBI::dbQuoteLiteral(controller, fx)))
+    "SELECT pg_temp.t5_payload(%s::jsonb,%s,ARRAY[%s])::text",
+    DBI::dbQuoteLiteral(controller, fx), DBI::dbQuoteLiteral(controller, new_text),
+    paste(vapply(parts, function(part) as.character(DBI::dbQuoteLiteral(controller, part)), character(1)), collapse = ",")))
   payload_list <- jsonlite::fromJSON(payload, simplifyVector = FALSE)
-  expect_true(length(payload_list$expected_binding_loss) == 1L &&
-                identical(payload_list$expected_binding_loss[[1L]]$target_type, "family"),
+  expect_true(length(payload_list$expected_binding_loss) == family_bindings &&
+                all(vapply(payload_list$expected_binding_loss, function(b) identical(b$target_type, "family"), logical(1))),
               "TEXT_REVISION_CONCURRENCY_FIXTURE_BINDINGS")
   element <- paste0("source-text-revision:", fx_list$record_key)
   manifest <- digest_sha256(paste0("t5-conc:", nonce))
@@ -322,6 +332,51 @@ fixed_payload <- psql_value(sprintf(
   DBI::dbQuoteLiteral(controller, case2$fx_text)))
 expect_true(length(jsonlite::fromJSON(fixed_payload, simplifyVector = FALSE)$expected_binding_loss) == 2L,
             "TEXT_REVISION_CONCURRENCY_2_REMEASURE")
+
+# ---------------------------------------------------------------------------------------------------------------
+# Rækkefølge 5 (Codex I1): en samtidig INSERT af en barn-række venter på revisionens FOR UPDATE på familie og person.
+case5_fx <- psql_value(sprintf("SELECT pg_temp.t5_child_post(%d,'%s')::text", -66501L, actor))
+case5_fx_list <- jsonlite::fromJSON(case5_fx, simplifyVector = FALSE)
+parent_key5 <- case5_fx_list$parent_key
+family5 <- as.character(case5_fx_list$family)
+child5 <- as.character(case5_fx_list$child)
+promotion5 <- case5_fx_list$family_promotion
+current_bindings5 <- function() as.integer(scalar(controller,
+  "SELECT count(*) FROM private.text_revision_binding_set(ARRAY[$1::uuid])", list(parent_key5)))
+child_rows5 <- function() as.integer(scalar(controller, paste0(
+  "SELECT count(*) FROM public.family_member WHERE family_id=$1::bigint AND person_id=$2::bigint AND rolle='barn'"),
+  list(family5, child5)))
+expect_true(current_bindings5() == 0L && child_rows5() == 0L && identical(scalar(controller,
+  "SELECT status FROM private.interpretation_current WHERE interpretation_key=$1::uuid", list(parent_key5)), "accepted"),
+  "TEXT_REVISION_CONCURRENCY_5_PRECONDITION_INVALID")
+# Ren ASCII: workeren får kun PG*-miljøet (intet LANG), så R på Linux escaper ikke-ASCII i argumenterne (ø → <c3><b8>).
+case5 <- prepare_case(controller, NA_integer_, "order-5", fx_text = case5_fx, new_text = "Barn Alfa. son af F.",
+                      parts = c("Barn Alfa.", "son af F."), family_bindings = 0L)
+barrier5 <- connect("t5_barrier5")
+DBI::dbBegin(barrier5)
+invisible(scalar(barrier5, "SELECT count(*) FROM (SELECT 1 FROM private.source_rendition WHERE id=$1::uuid FOR UPDATE) x", list(case5$fx$src$rend)))
+barrier5_pid <- as.integer(scalar(barrier5, "SELECT pg_backend_pid()"))
+job_a5 <- launch_worker("t5_a5", apply_sql(case5))
+wait_blocked_by(observer, "t5_a5", barrier5_pid)
+a5_pid <- backend_pid(observer, "t5_a5")
+# A står ved trin fire med alle sine låse; F genindsætter barnets række (som redaktør gennem red_tilfoej_barn).
+job_f5 <- launch_worker("t5_f5", sprintf("SELECT 'OK' FROM public.red_tilfoej_barn(%s,%s,'barn')", family5, child5))
+wait_blocked_by(observer, "t5_f5", a5_pid)
+expect_true(child_rows5() == 0L && current_bindings5() == 0L, "TEXT_REVISION_CONCURRENCY_5_FLIPPED_WHILE_LOCKED")
+DBI::dbCommit(barrier5)
+DBI::dbDisconnect(barrier5)
+result_a5 <- collect_worker(job_a5)
+result_f5 <- collect_worker(job_f5)
+expect_true(identical(result_a5$code, "OK"), paste0("TEXT_REVISION_CONCURRENCY_5_A_FAILED: ", result_a5$output))
+expect_true(identical(result_f5$code, "OK"), paste0("TEXT_REVISION_CONCURRENCY_5_F_FAILED: ", result_f5$output))
+receipt_a5 <- jsonlite::fromJSON(result_a5$value, simplifyVector = FALSE)
+expect_true(!(promotion5 %in% vapply(receipt_a5$binding_loss, function(b) b$promotion_id, character(1))) &&
+              parent_key5 %in% unlist(receipt_a5$superseded_keys), "TEXT_REVISION_CONCURRENCY_5_RECEIPT")
+expect_true(identical(scalar(controller,
+  "SELECT status FROM private.interpretation_current WHERE interpretation_key=$1::uuid", list(parent_key5)), "superseded"),
+  "TEXT_REVISION_CONCURRENCY_5_PARENT_NOT_SUPERSEDED")
+# Barnets række er tilbage, men bindingen står ikke som gældende: fortolkningen er forældet af revisionen.
+expect_true(child_rows5() == 1L && current_bindings5() == 0L, "TEXT_REVISION_CONCURRENCY_5_BINDING_VALID_AFTER_REVISION")
 
 cat(sprintf("OK: test-source-text-revision-concurrency (%d assertions, %.1f s)\n", assertions,
             as.numeric(difftime(Sys.time(), started, units = "secs"))))

@@ -1047,3 +1047,92 @@ def test_sql_python_golden_vectors():
                 else cp._canon(parsed).encode("utf-8"))
         assert data.decode("utf-8") == canonical
         assert hashlib.sha256(data).hexdigest() == sha
+
+
+# ---- Trin 6a, Task 13 (R13-c; spec §4.4 pkt. 6): nøgleversion pr. kvittering ------------------------------
+HISTORIC = {
+    "batch": "20000000-0000-4000-8000-0000000000a1",
+    "run": "50000000-0000-4000-8000-0000000000a1",
+    "interpretation_v1": "60000000-0000-4000-8000-0000000000a1",
+    "interpretation_v2": "60000000-0000-4000-8000-0000000000a2",
+    "key": "70000000-0000-5000-8000-0000000000a1",
+}
+
+
+def _historic_v1_proposal(*, key_matches: bool) -> tuple[dict, list[dict]]:
+    """En tidligere forslags-event (key_version 1) på R0 og dens fortolkning: version 1 foreslået og version 2
+    forældet af en kildetekst-revision. Projektionen genberegner begge rækker med v1-funktionen; en projektion, der
+    genberegnede mod den reviderede tekst, ville give key_matches false."""
+    rows = []
+    for version, status, interpretation_id, supersedes in (
+            (1, "proposed", HISTORIC["interpretation_v1"], None),
+            (2, "superseded", HISTORIC["interpretation_v2"], HISTORIC["interpretation_v1"])):
+        rows.append({
+            "interpretation_id": interpretation_id, "interpretation_key": HISTORIC["key"], "version": version,
+            "status": status, "record_key": "R0", "predicate": "person.birth", "interpretation_kind": "fact",
+            "schema_version": "interpretation-proposal-v1", "derivation_kind": "model_inference", "method": "model",
+            "confidence": "0.9", "persona_bound": True, "extraction_run_id": HISTORIC["run"],
+            "supersedes_id": supersedes, "value_sha256": H("a"), "key_material_sha256": H("b"),
+            "key_matches": key_matches, "row_sha256": H("c" if version == 1 else "d"),
+        })
+    receipt = {
+        "schema_version": "interpretation-proposal-result-v1",
+        "claims": [{
+            "claim_id": "a" * 32, "interpretation_id": HISTORIC["interpretation_v1"],
+            "interpretation_key": HISTORIC["key"], "version": 1, "value_sha256": H("a"),
+            "key_material_sha256": H("b"), "row_sha256": H("c"), "extraction_run_id": HISTORIC["run"],
+            "observations": [],
+        }],
+        "clause_dispositions": [],
+    }
+    event = {
+        "event_id": 1, "batch_id": HISTORIC["batch"], "element_id": "interpretation-proposal:R0",
+        "source_record_key": "R0", "run_id": HISTORIC["run"], "runner_manifest_sha256": H("1"),
+        "model_version": "gpt-5.6-terra", "prompt_version": H("2"), "claim_count": 1,
+        "result_receipt": receipt, "result_receipt_sha256": cp.proposal_canonical_sha256(receipt),
+        "before_sha256": None, "after_sha256": cp.proposal_canonical_sha256(receipt), "row_sha256": H("3"),
+    }
+    return event, rows
+
+
+def _with_historic_v1(*, key_matches: bool) -> tuple[dict, dict]:
+    b, a = before(), correctly_applied()
+    event, rows = _historic_v1_proposal(key_matches=key_matches)
+    for value in (b, a):
+        value["proposal_events"].insert(0, copy.deepcopy(event))
+        value["interpretations"] = copy.deepcopy(rows) + value["interpretations"]
+    # Det nye forslags event-id følger efter det historiske.
+    a["proposal_events"][-1]["event_id"] = 2
+    return b, a
+
+
+def test_v1_and_v2_proposals_both_keep_key_matches():
+    """Et historisk v1-forslag (forældet af en revision) og et nyt v2-forslag: begge nøgler genberegnes efter
+    kvitteringens version, så alle rækker har key_matches true og det nye forslags nøglemateriale er kvitteringens."""
+    b, a = _with_historic_v1(key_matches=True)
+    new = a["interpretations"][2:]
+    receipt = {c["interpretation_key"]: c for c in a["proposal_events"][-1]["result_receipt"]["claims"]}
+    assert all(row["key_matches"] for row in a["interpretations"])
+    assert all(row["key_material_sha256"] == receipt[row["interpretation_key"]]["key_material_sha256"] for row in new)
+    result = compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"]))
+    assert result["status"] == "match"
+
+
+def test_v1_key_recomputed_against_revised_text_is_a_key_mismatch():
+    """Negativt: genberegnes den historiske v1-nøgle mod den reviderede tekst (v2 med den gældende tekstversion),
+    rammer den ikke nøglen. Komparatoren afviser, selv om rækken er ens før og efter."""
+    b, a = _with_historic_v1(key_matches=False)
+    caught = error(lambda: compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"])),
+                   "INTERPRETATION_PROJECTION_KEY_MISMATCH")
+    assert caught.details == {"part": "before", "rows": 2}
+
+
+def test_new_v2_proposal_recomputed_as_v1_is_claim_drift():
+    """Negativt for det nye forslag: en projektion, der genberegnede v2-nøglen med v1-funktionen, giver et andet
+    nøglemateriale end kvitteringens og key_matches false."""
+    b, a = _with_historic_v1(key_matches=True)
+    a["interpretations"][2]["key_matches"] = False
+    a["interpretations"][2]["key_material_sha256"] = H("e")
+    caught = error(lambda: compare_apply(manifest(), b, a, cp.target_sha256(b["database_target_identity"])),
+                   "INTERPRETATION_PROJECTION_CLAIM_DRIFT")
+    assert caught.details["fields"] == ["key_matches", "key_material_sha256"]

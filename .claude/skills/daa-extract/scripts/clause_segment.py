@@ -16,7 +16,7 @@ import clause_ledger
 
 FLAGS = ("unknown_abbreviation", "unbalanced_parentheses", "short_clause",
          "multiple_marriages", "uncertain_marker", "non_gap_whitespace_in_clause",
-         "section_numeral")
+         "section_numeral", "page_marker_in_clause", "possible_layout_line")
 _MARRIAGE_RE = re.compile(r"\bgift\b", re.IGNORECASE)
 _WORD_BEFORE_DOT_RE = re.compile(r"(\S+)\.$")
 
@@ -93,6 +93,24 @@ def _numeral_after_terminator(prefix: str, pattern: str, rules: Mapping[str, Any
     return before.rstrip().endswith(tuple(t.rstrip() for t in rules["terminators"] if t.strip()))
 
 
+def _compile_marker(rules: Mapping[str, Any]) -> "re.Pattern[str] | None":
+    pattern = rules.get("page_marker_pattern")
+    return re.compile(pattern, re.MULTILINE) if pattern else None
+
+
+def _skip_page_markers(text: str, pos: int, marker: "re.Pattern[str] | None") -> int:
+    """Hop over sidemarkørlinjer og efterfølgende whitespace fra pos (pos står ved en linjestart)."""
+    if marker is None:
+        return pos
+    while True:
+        match = marker.match(text, pos)
+        if not match or match.end() <= pos:
+            return pos
+        pos = match.end()
+        while pos < len(text) and text[pos].isspace():
+            pos += 1
+
+
 def _split_points(text: str, rules: Mapping[str, Any]) -> list[tuple[int, list[str]]]:
     """Positioner (indeks i text hvor en ny klausul begynder) + flag for den klausul, der slutter der."""
     points: list[tuple[int, list[str]]] = []
@@ -101,6 +119,12 @@ def _split_points(text: str, rules: Mapping[str, Any]) -> list[tuple[int, list[s
     # tre. Hverken før eller efter tallet splittes; klausulen bliver længere og flages
     # (samme konservative linje som resten af motoren). Uden nøglen: uændret adfærd.
     numeral = rules.get("section_numeral_pattern")
+    # Valgfri regel (Task 9): en sidemarkør på egen linje (1939: "### PAGE 0036 ###") er
+    # ikke tekst. Efter whitespace-springet hoppes markørlinjerne over, KUN når næste tegn
+    # bedømmes; splitpunktet bliver ved markørens start, så markøren hører til den NYE klausul.
+    # Efter et sætningstegn med lille bogstav dernæst sker der ingen split, og markøren bliver
+    # i klausulen (flaget sættes i segment_clauses). Uden nøglen: uændret adfærd.
+    marker = _compile_marker(rules)
     for terminator in rules["terminators"]:
         start = 0
         while True:
@@ -116,6 +140,7 @@ def _split_points(text: str, rules: Mapping[str, Any]) -> list[tuple[int, list[s
             # tegn uden for gap_charset dukker op som gap_violation, hvor det kan måles.
             while next_start < len(text) and text[next_start].isspace():
                 next_start += 1
+            look = _skip_page_markers(text, next_start, marker)
             flags: list[str] = []
             if terminator.startswith("."):
                 blocked, unknown = _is_non_terminal(text[:idx + 1], rules)
@@ -126,12 +151,12 @@ def _split_points(text: str, rules: Mapping[str, Any]) -> list[tuple[int, list[s
                         points.append((-next_start, flags))  # negativ = kun flag, ingen split
                     start = next_start
                     continue
-            nxt = text[next_start:next_start + 1]
+            nxt = text[look:look + 1]
             if nxt and (nxt.isupper() or nxt.isdigit() or nxt in "†([\"“"):
-                if numeral and (_numeral_heads_sentence(text, next_start, numeral)
+                if numeral and (_numeral_heads_sentence(text, look, numeral)
                                 or (terminator.startswith(".") and nxt.isupper()
                                     and _numeral_after_terminator(text[:idx + 1], numeral, rules))):
-                    points.append((-next_start, flags + ["section_numeral"]))  # kun flag, ingen split
+                    points.append((-look, flags + ["section_numeral"]))  # kun flag, ingen split
                 else:
                     points.append((next_start, flags))
             start = next_start
@@ -144,6 +169,9 @@ def segment_clauses(text: str, rules: Mapping[str, Any]) -> list[dict[str, Any]]
     if not text or not text.strip():
         raise ValueError("CLAUSE_TEXT_EMPTY")
     raw_points = _split_points(text, rules)
+    marker = _compile_marker(rules)
+    layout_pattern = rules.get("possible_layout_line_pattern")
+    layout_line = re.compile(layout_pattern, re.IGNORECASE) if layout_pattern else None
     starts = sorted({p for p, _ in raw_points if p > 0})
     pending_flags: dict[int, list[str]] = {}
     for p, flags in raw_points:
@@ -172,6 +200,10 @@ def segment_clauses(text: str, rules: Mapping[str, Any]) -> list[dict[str, Any]]
             # segmenteringen kan have sluppet en klausulgrænse, så det flagges frem for at forsvinde.
             if any(ch.isspace() and ch not in rules["gap_charset"] for ch in clause_text):
                 flags.append("non_gap_whitespace_in_clause")
+            if marker is not None and marker.search(clause_text):
+                flags.append("page_marker_in_clause")
+            if layout_line is not None and any(layout_line.match(line) for line in clause_text.split("\n")):
+                flags.append("possible_layout_line")  # kun flag: linjen bliver i klausulen
             classification = "structural_header" if any(re.search(p, clause_text) for p in rules["structural_header_patterns"]) else "record_text"
             clauses.append({"char_from": cf, "char_to": ct, "classification": classification, "flags": sorted(set(flags))})
         if trail:

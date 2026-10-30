@@ -713,6 +713,19 @@ def _check_preexisting(manifest: dict[str, Any], before: dict[str, Any],
         _fail("INTERPRETATION_PROJECTION_PREEXISTING_TARGET", part="interpretations")
 
 
+def _require_receipt_keys_match(projection: dict[str, Any], part: str) -> None:
+    """Trin 6a (spec §4.4 pkt. 6; R13-c): hver fortolkningsrække, hvis nøgle en forslagskvittering bærer, skal
+    genberegnes til sin nøgle — også historiske og forældede rækker. Projektionen genberegner med den nøgle- og
+    tekstversion, kvitteringens event bærer (v1 med v1-funktionen, v2 med forslagets tekstversion); en v1-nøgle
+    genberegnet mod en senere revideret tekst ville give key_matches false og stoppes her."""
+    keys = {claim["interpretation_key"] for event in projection["proposal_events"]
+            for claim in event["result_receipt"]["claims"]}
+    mismatched = [row for row in projection["interpretations"]
+                  if row["interpretation_key"] in keys and row["key_matches"] is not True]
+    if mismatched:
+        _fail("INTERPRETATION_PROJECTION_KEY_MISMATCH", part=part, rows=len(mismatched))
+
+
 def _validate_new_event_receipt(event: dict[str, Any]) -> None:
     receipt = event["result_receipt"]
     receipt_hash = proposal_canonical_sha256(receipt)
@@ -1023,6 +1036,9 @@ def compare_apply(manifest: Any, before: Any, after: Any, expected_target_sha256
         validated_manifest, validated_before, validated_after, events)
     dispositions = _compare_clause_dispositions(
         validated_manifest, validated_before, validated_after, batch, events, run_id)
+    # Efter de nye rækkers egne kontroller (de beholder CLAIM_DRIFT): også de historiske rækker skal matche.
+    _require_receipt_keys_match(validated_before, "before")
+    _require_receipt_keys_match(validated_after, "after")
     return {
         "status": "match",
         "scope": RESULT_SCOPE,
@@ -1085,6 +1101,8 @@ def compare_replay(after: Any, replayed: Any, replay_authorization_id: str,
             or any(new_authorization[field] != original_authorization[field]
                    for field in binding_fields)):
         _fail("INTERPRETATION_PROJECTION_REPLAY_DRIFT", part="binding")
+    _require_receipt_keys_match(original, "after")
+    _require_receipt_keys_match(replay, "replayed")
     return {
         "status": "match",
         "scope": REPLAY_SCOPE,

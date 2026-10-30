@@ -205,7 +205,9 @@ grænse på 2 minutter. Inden for én transaktion sker følgende i denne rækkef
 0. **Lås før måling (Codex F1).** Helpost-observationen, det aktuelle sæts rækker og de afhængige fortolkningers
    aktuelle rækker låses (`FOR UPDATE`, i nøgleorden), før afhængigheds- og bindingsmængden beregnes og sammenlignes.
    Promotionsvejen låser de samme fortolkningsrækker. En samtidig promotion er derfor enten committet før målingen
-   og med i mængden, eller den venter til efter revisionen og møder en `superseded` fortolkning.
+   og med i mængden, eller den venter til efter revisionen og møder en `superseded` fortolkning. Det kræver
+   READ COMMITTED, så målingen efter låsene ser det, der blev committet imens; andre isolationsniveauer afvises med
+   `TEXT_REVISION_ISOLATION_UNSUPPORTED` (Codex I2, slutreview).
    - **Afhængigheder, der ikke understøttes, afvises (Codex F7 og F8, latente: 0 på de 10 poster).** Det gælder
      en aktuel fortolkning, der linker til selve helposten eller til en anden observation end en klausul under den.
      Det gælder også en fortolkning, der citerer klausuler under mere end én helpost. Begge giver

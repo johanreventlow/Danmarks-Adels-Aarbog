@@ -17,6 +17,14 @@ Builderen bygger derfor samme projektion som `build_source_evidence_manifest`
 ledgeren, verificerer ankeret mod `parent_verbatim_sha256`, og oversætter hver
 klausuls offsets gennem kortet. Hver oversættelse hash-verificeres mod
 ledgerens `verbatim_sha256`. Alt fejler lukket.
+
+**Revideret helpost (trin 6a).** `parent_verbatim_sha256` er eksportens hash af
+helpostens GÆLDENDE tekst (`helpost_text_current`, via ledgeren) og regnes aldrig
+ud af renditionen; basen kræver netop den hash for en omsegmentering af en revideret
+post (ellers `CLAUSE_EVIDENCE_PARENT_TEXT_DRIFT`). Ankringen verificerer den mod
+projektionen under profilens tekstform. En tekstversion, der ikke er et udsnit af
+den projektion (2018-20's revisioner er `@page_header`, som denne bygger ikke
+projicerer), giver `CLAUSE_EVIDENCE_PARENT_TEXT_VERSION_NOT_PROJECTABLE`.
 """
 from __future__ import annotations
 
@@ -52,10 +60,29 @@ def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _anchor(projected: str, offsets: list[int], kandidater: dict[int, list[int]],
-            record: dict[str, Any]) -> tuple[int, int]:
+RAW_TEXT_FORM = "raw"
+
+
+def _text_form(profile: dict[str, Any]) -> str:
+    """Tekstformen fra writer_config; udeladt = 2018-20's foldede projektion."""
+    return (profile.get("writer_config") or {}).get("text_form", "folded_projection@anywhere")
+
+
+def _anchor_failed(record: dict[str, Any]) -> None:
+    # En tekstversion (eksportens text_id) er ikke en ankringsfejl i ledgeren, men en tekst, profilen ikke projicerer.
+    _fail("CLAUSE_EVIDENCE_PARENT_TEXT_VERSION_NOT_PROJECTABLE" if record.get("text_id") is not None
+          else "CLAUSE_EVIDENCE_PARENT_ANCHOR_FAILED")
+
+
+def _anchor(projected: str, offsets: Any, kandidater: dict[int, list[int]],
+            record: dict[str, Any], raw: bool = False) -> tuple[int, int]:
     """Find (p, q) i projektionen for helposten, verificeret mod dens hash."""
     pcf, pct = record["parent_char_from"], record["parent_char_to"]
+    if raw:
+        # Identitetsprojektion: helposten ER et ordret udsnit af renditionen.
+        if 0 <= pcf < pct <= len(projected) and _sha(projected[pcf:pct]) == record["parent_verbatim_sha256"]:
+            return pcf, pct
+        _anchor_failed(record)
     for p in kandidater.get(pcf, ()):
         q = p
         while q < len(offsets) and offsets[q] < pct:
@@ -63,7 +90,7 @@ def _anchor(projected: str, offsets: list[int], kandidater: dict[int, list[int]]
         if q > p and offsets[q - 1] + 1 == pct \
                 and _sha(projected[p:q]) == record["parent_verbatim_sha256"]:
             return p, q
-    _fail("CLAUSE_EVIDENCE_PARENT_ANCHOR_FAILED")
+    _anchor_failed(record)
 
 
 def _operations(profile: dict[str, Any], ledger: dict[str, Any], rendition: str) -> tuple[list[dict[str, Any]], str, list[str]]:
@@ -81,10 +108,18 @@ def _operations(profile: dict[str, Any], ledger: dict[str, Any], rendition: str)
             or not all(isinstance(g, str) and len(g) == 1 for g in gap_charset):
         _fail("LEDGER_GAP_CHARSET_INVALID")
 
-    projected, offsets = sem.project_rendition(rendition)
+    form = _text_form(profile)
+    if form not in (RAW_TEXT_FORM, "folded_projection@anywhere"):
+        # Fail-closed: kun raw og @anywhere projiceres her (@page_header hører til revisionsbyggeren).
+        _fail("CLAUSE_TEXT_FORM_UNSUPPORTED:" + str(form))
+    raw = form == RAW_TEXT_FORM
     kandidater: dict[int, list[int]] = defaultdict(list)
-    for i, o in enumerate(offsets):
-        kandidater[o].append(i)
+    if raw:
+        projected, offsets = rendition, range(len(rendition))
+    else:
+        projected, offsets = sem.project_rendition(rendition)
+        for i, o in enumerate(offsets):
+            kandidater[o].append(i)
     projection_sha = _sha(projected)
 
     operations: list[dict[str, Any]] = []
@@ -94,7 +129,7 @@ def _operations(profile: dict[str, Any], ledger: dict[str, Any], rendition: str)
         if key in seen:
             _fail("LEDGER_RECORD_KEY_DUPLICATE")
         seen.add(key)
-        p, q = _anchor(projected, offsets, kandidater, record)
+        p, q = _anchor(projected, offsets, kandidater, record, raw)
         post_length = q - p
 
         clauses: list[dict[str, Any]] = []

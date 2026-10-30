@@ -1,0 +1,24 @@
+{
+  "profile_schema_version": "reimport-clause-evidence-profile-v1",
+  "source_id": 3,
+  "profile_id": "daa-1939-clause-evidence-v1",
+  "profile_version": "clause-evidence-v1",
+  "writer_config": {
+    "citation_label_template": "DAA 1939 side {page_from}",
+    "extractor_version": "clause-evidence-v1",
+    "helpost_observation_kind": "person",
+    "observation_extraction_method": "clause_segment_v1",
+    "rendition_key": "daa-1939-calamari-r6-clean",
+    "rendition_kind": "ocr_text",
+    "rendition_metadata": {
+      "edition": "1939"
+    },
+    "run_key_prefix": "reimport-clause-evidence-1939:",
+    "schema_version": "clause-evidence-manifest-v1",
+    "text_form": "raw"
+  },
+  "raw_text_sha256": "020123a3588dacf80705a22fb021ab4f5da97b8de202e8664304ca01f9a6da37",
+  "clause_rules_version": "clause-rules-1939-v1",
+  "segmenter_version": "clause_segment.py@sha256:3e95b1b4534f6feb",
+  "expected_counts": {"person_creates": 0, "source_evidence": 0, "clause_evidence": 584}
+}

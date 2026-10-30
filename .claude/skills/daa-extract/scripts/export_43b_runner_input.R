@@ -8,6 +8,10 @@
 # `post_verbatim_text` er ankeret for `evidence_runner.canonical_record_input`
 # og SKAL være helpostens ordrette tekst — samme felt, som eligibility-eksporten
 # hasher. Divergerer de to, afviser værnet alt (eller bliver omgået).
+# Trin 6a: begge læser helpostens GÆLDENDE tekst gennem private.helpost_text_current
+# (tekstversionen efter en kildetekst-revision, ellers basisteksten). Klausulerne er
+# det aktuelle sæt, og sættet skal være skåret af netop den tekst (text_id), ellers
+# er de ikke delstrenge af posten (EXPORT_CLAUSE_SET_TEXT_MISMATCH).
 #
 # OUTPUTTET INDEHOLDER BIOGRAFITEKST. Filen skrives 0600 i en privat mappe uden
 # for repoet og må aldrig committes.
@@ -44,13 +48,14 @@ DBI::dbExecute(con, "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY
 # Helposten: parent_observation_id IS NULL. Samme afgrænsning som
 # eligibility-eksporten bruger til sin hash — de to SKAL følges ad.
 posts <- DBI::dbGetQuery(con, "
-  SELECT sr.record_key, ob.id AS post_id, ob.verbatim_text AS post_text,
+  SELECT sr.record_key, ob.id AS post_id, cur.verbatim_text AS post_text, cur.text_id::text AS text_id,
          COALESCE(sp.id::text, '') AS persona_id
     FROM private.source_record sr
     JOIN private.source_record_anchor_current a ON a.source_record_id = sr.id
                                                AND a.decision_status = 'accepted'
     JOIN private.source_observation ob ON ob.occurrence_id = a.occurrence_id
                                       AND ob.parent_observation_id IS NULL
+    CROSS JOIN LATERAL private.helpost_text_current(ob.id) cur
     -- Personaen kobles på `persona_key`, som for 2018-20 ER record-nøglen (målt:
     -- 587 af 587 matcher). Der er ingen FK fra source_persona til source_record.
     -- FIRE records har ingen persona — 149b's `unresolved_text`. De får tom
@@ -66,7 +71,8 @@ posts <- DBI::dbGetQuery(con, "
 
 clauses <- DBI::dbGetQuery(con, "
   SELECT sr.record_key, ob.clause_ordinal AS ordinal, ob.verbatim_text,
-         encode(extensions.digest(ob.verbatim_text, 'sha256'), 'hex') AS verbatim_sha256
+         encode(extensions.digest(ob.verbatim_text, 'sha256'), 'hex') AS verbatim_sha256,
+         ob.parent_text_id::text AS parent_text_id
     FROM private.source_record sr
     JOIN private.source_record_anchor_current a ON a.source_record_id = sr.id
                                                AND a.decision_status = 'accepted'
@@ -83,6 +89,9 @@ records <- list()
 for (i in seq_len(nrow(posts))) {
   key <- posts$record_key[i]
   own <- clauses[clauses$record_key == key, , drop = FALSE]
+  # Sættet skal være bundet til den eksporterede tekstversion (NA = basisteksten på begge sider).
+  if (!all(vapply(own$parent_text_id, identical, logical(1), posts$text_id[i])))
+    stop("EXPORT_CLAUSE_SET_TEXT_MISMATCH", call. = FALSE)
   cl <- lapply(seq_len(nrow(own)), function(j) list(
     ordinal = jsonlite::unbox(as.integer(own$ordinal[j])),
     verbatim_text = jsonlite::unbox(own$verbatim_text[j]),

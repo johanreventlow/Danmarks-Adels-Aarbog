@@ -279,6 +279,77 @@ test_that("en clause_revision uden clause_revisions-tælling afvises", {
   expect_error(validate_reimport_manifest(manifest), "REIMPORT_MANIFEST_COUNTS_INVALID")
 })
 
+# --- Kildetekst-revision (trin 6a): source_text_revision er en selvstændig operation --------------
+text_revision_manifest <- function(counts = list(source_evidence = 0L, person_creates = 0L,
+                                                 canonical_delta = 0L, source_text_revision = 1L)) {
+  list(
+    manifest_content_sha256 = sha("a"),
+    source = list(id = 17L, profile_id = "test-text-revision-profile-v1", profile_sha256 = sha("b")),
+    expected_counts = counts,
+    operations = list(list(
+      element_id = "source-text-revision:fixture-1",
+      dependency_class = "source_text_revision",
+      source_record_key = "fixture-1",
+      clauses = list(list(ordinal = 1L), list(ordinal = 2L)),
+      expected_superseded_keys = list("0b000000-0000-4000-8000-000000000001"),
+      expected_binding_loss = list(list(promotion_id = "2c000000-0000-4000-8000-000000000001",
+                                        target_type = "assertion"))
+    )),
+    dispositions = list(list(record_key = "fixture-2", code = "span_outside"))
+  )
+}
+
+text_revision_gateway <- function(manifest, receipt) {
+  seen <- character()
+  sent <- NULL
+  base <- reimport_gateway(manifest)
+  inner <- base$gateway$call
+  list(seen = function() seen, sent = function() sent, gateway = list(call = function(name, ...) {
+    seen <<- c(seen, name)
+    if (identical(name, "source_text_revision")) { sent <<- list(...)[[3L]]; return(receipt) }
+    inner(name, ...)
+  }))
+}
+
+test_that("source_text_revision kalder sin egen writer og tælles som source_text_revision", {
+  manifest <- text_revision_manifest()
+  expect_identical(names(reimport_writer_expected_counts(manifest)),
+                   c("person_creates", "source_evidence", "source_text_revision"))
+  g <- text_revision_gateway(manifest, list(clauses_written = 2L,
+    superseded_keys = list("0b000000-0000-4000-8000-000000000001")))
+  result <- execute_reimport(manifest, sha("e"), "dry-run", g$gateway)
+  expect_identical(result$status, "finalized")
+  expect_true("source_text_revision" %in% g$seen())
+  expect_false(any(c("clause_revision", "clause_evidence") %in% g$seen()))
+  # Payloaden er operationen uden element_id og dependency_class; dispositions sendes aldrig.
+  expect_false(any(c("element_id", "dependency_class") %in% names(g$sent())))
+  json <- jsonlite::fromJSON(reimport_authorized_payloads_json(manifest), simplifyVector = FALSE)
+  expect_identical(names(json), "source-text-revision:fixture-1")
+  expect_identical(json[[1L]]$expected_superseded_keys, list("0b000000-0000-4000-8000-000000000001"))
+  expect_identical(json[[1L]]$expected_binding_loss[[1L]]$target_type, "assertion")
+})
+
+test_that("en kvittering, der ikke svarer til payloaden, stopper kæden", {
+  manifest <- text_revision_manifest()
+  for (receipt in list(list(clauses_written = 1L, superseded_keys = list("0b000000-0000-4000-8000-000000000001")),
+                       list(clauses_written = 2L, superseded_keys = list()))) {
+    g <- text_revision_gateway(manifest, receipt)
+    expect_error(execute_reimport(manifest, sha("e"), "dry-run", g$gateway),
+                 "REIMPORT_WRITER_SOURCE_TEXT_REVISION_RECEIPT_MISMATCH")
+  }
+})
+
+test_that("en source_text_revision uden sin tælling eller med flertalsnavnet afvises", {
+  expect_error(validate_reimport_manifest(text_revision_manifest(
+    list(source_evidence = 0L, person_creates = 0L, canonical_delta = 0L))), "REIMPORT_MANIFEST_COUNTS_INVALID")
+  expect_error(validate_reimport_manifest(text_revision_manifest(
+    list(source_evidence = 0L, person_creates = 0L, canonical_delta = 0L, source_text_revisions = 1L))),
+    "REIMPORT_MANIFEST_COUNTS_INVALID")
+  expect_error(validate_reimport_manifest(text_revision_manifest(
+    list(source_evidence = 0L, person_creates = 0L, canonical_delta = 0L, source_text_revision = 2L))),
+    "REIMPORT_MANIFEST_COUNTS_INVALID")
+})
+
 test_that("external authorization kræves i begge modes og omgår gateway-authorize", {
   manifest <- reimport_manifest()
   gateway <- reimport_gateway(manifest)

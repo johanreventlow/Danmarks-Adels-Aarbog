@@ -266,4 +266,99 @@ replay_cr <- execute_reimport(manifest_cr, preview_sha_cr, "apply", env_gateway(
   list(id = authorize(manifest_cr, preview_sha_cr)))
 stopifnot(identical(replay_cr$status, "already_applied"), identical(projection(), after_rev_text))
 
+# ---- klausuleksport: helposten vælges af basens regel (trin 6a, Task 11) ------
+# Egen kilde, så eksporten kun ser fixturens records. Tre ok-records (én med underforekomst, én med revideret
+# tekstversion), én uden helpost (none). Bagefter en outside-record, som stopper eksporten.
+exp_source <- source_id + 1L
+e("INSERT INTO public.source(id,titel,udgave,slags) VALUES($1,'Eksport-fixture','synthetic','DAA-udgave') ON CONFLICT(id) DO NOTHING", list(exp_source))
+exp_run <- q("INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) VALUES($1,$2,'fixture','fixture','fixture',$3,'{}') RETURNING id",
+  list(exp_source, paste0("export-", run_nonce), sha("1")))$id[[1L]]
+exp_rend <- q("INSERT INTO private.source_rendition(source_id,rendition_key,rendition_kind,content_sha256,metadata) VALUES($1,'exp-r1','pdf_text_layer',$2,'{}') RETURNING id",
+  list(exp_source, sha("2")))$id[[1L]]
+mk_record <- function(key) q("INSERT INTO private.source_record(source_id,record_key,record_kind,created_run_id) VALUES($1,$2,'person',$3) RETURNING id",
+  list(exp_source, key, exp_run))$id[[1L]]
+mk_occ <- function(rec, okey, from, to, kind, text) {
+  occ <- q("INSERT INTO private.source_record_occurrence(rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id) VALUES($1,$2,1,1,$3,$4,$5,$6,$7,$8) RETURNING id",
+    list(exp_rend, okey, from, to, text, sha("3"), sha("4"), exp_run))$id[[1L]]
+  obs <- q("INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,extraction_method,extraction_run_id) VALUES($1,$2,1,1,$3,$4,$5,'clear','fixture',$6) RETURNING id",
+    list(occ, kind, from, to, text, exp_run))$id[[1L]]
+  e("INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name) VALUES($1,$2,'accepted','{\"fixture\":true}'::jsonb,1,gen_random_uuid(),'fixture')",
+    list(occ, rec))
+  obs
+}
+txt_a <- "Alfa Bravo, f. 1801, d. 1860. Gift 1830 m. Charlie."
+txt_b <- "Delta Echo, f. 1810. Gift 1840 m. Foxtrot."
+txt_b_rev <- "Delta Echo, f. 1810. Gift 1841 m. Foxtrot."
+txt_c <- "Golf Hotel, f. 1820."
+rec_a <- mk_record("EXP-A"); mk_occ(rec_a, "exp-a1", 100L, 100L + nchar(txt_a), "person_post", txt_a)
+rec_b <- mk_record("EXP-B"); obs_b <- mk_occ(rec_b, "exp-b1", 300L, 300L + nchar(txt_b), "person_post", txt_b)
+mk_occ(rec_b, "exp-b2", 310L, 320L, "fact", "sub")   # underforekomst inde i helposten
+rec_c <- mk_record("EXP-C"); mk_occ(rec_c, "exp-c1", 600L, 600L + nchar(txt_c), "person_post", txt_c)
+rec_n <- mk_record("EXP-N"); mk_occ(rec_n, "exp-n1", 700L, 720L, "fact", "ingen helpost")
+rev_text_id <- q("INSERT INTO private.source_observation_text(observation_id,rendition_id,version,verbatim_text,char_from,char_to,is_preferred) VALUES($1,$2,1,$3,300,$4,true) RETURNING id",
+  list(obs_b, exp_rend, txt_b_rev, 300L + nchar(txt_b_rev)))$id[[1L]]
+
+export_script <- file.path(scripts_dir, "export_clause_source_texts.R")
+run_export <- function(kind, out_dir) {
+  args <- c(shQuote(export_script), "--source-id", exp_source, "--output-dir", shQuote(out_dir))
+  if (!is.null(kind)) args <- c(args, "--helpost-kind", shQuote(kind))
+  out <- suppressWarnings(system2("Rscript", args, stdout = TRUE, stderr = TRUE))
+  list(status = if (is.null(attr(out, "status"))) 0L else attr(out, "status"), out = paste(out, collapse = "\n"))
+}
+new_out_dir <- function() { d <- tempfile("klausul-eksport-"); dir.create(d, mode = "0700"); d }
+stopifnot(grepl("EXPORT_CLI_INVALID", run_export(NULL, new_out_dir())$out, fixed = TRUE))
+stopifnot(grepl("EXPORT_CLI_INVALID", run_export("", new_out_dir())$out, fixed = TRUE))
+
+exp_dir <- new_out_dir()
+exported <- run_export("person_post", exp_dir)
+if (exported$status != 0L) stop("klausuleksport fejlede: ", exported$out)
+summary_out <- jsonlite::fromJSON(exported$out)
+stopifnot(identical(as.integer(summary_out$records_ok), 3L), identical(as.integer(summary_out$no_helpost), 1L),
+  grepl("^[0-9a-f]{64}$", summary_out$texts_sha256), !grepl("Alfa|Delta|Golf", exported$out))
+texts_file <- file.path(exp_dir, "clause-source-texts-v1.json")
+index_file <- file.path(exp_dir, "clause-source-index-v1.json")
+stopifnot(identical(bitwAnd(as.integer(file.info(texts_file)$mode), 511L), 384L))
+exp_rows <- jsonlite::fromJSON(texts_file, simplifyVector = FALSE)
+stopifnot(length(exp_rows) == 4L,
+  identical(vapply(exp_rows, function(r) r$record_key, ""), c("EXP-A", "EXP-B", "EXP-C", "EXP-N")))
+by_key <- setNames(exp_rows, vapply(exp_rows, function(r) r$record_key, ""))
+# ok-rækker: helpostens tekst, hash over den og text_id (kun revideret tekst har et).
+stopifnot(identical(by_key[["EXP-A"]]$verbatim_text, txt_a), identical(by_key[["EXP-A"]]$verbatim_sha256, sha_text(txt_a)),
+  identical(by_key[["EXP-C"]]$verbatim_text, txt_c), identical(by_key[["EXP-B"]]$occurrence_key, "exp-b1"))
+stopifnot(identical(by_key[["EXP-B"]]$verbatim_text, txt_b_rev), identical(by_key[["EXP-B"]]$verbatim_sha256, sha_text(txt_b_rev)),
+  identical(by_key[["EXP-B"]]$text_id, rev_text_id))
+# no_helpost-rækken står i tekstfilen med null i alle felter undtagen record_key.
+n_row <- by_key[["EXP-N"]]
+stopifnot(identical(sort(names(n_row)), sort(names(by_key[["EXP-A"]]))))
+for (k in setdiff(names(n_row), "record_key")) stopifnot(is.null(n_row[[k]]))
+index <- jsonlite::fromJSON(index_file, simplifyVector = FALSE)
+stopifnot(length(index$records) == 3L, length(index$no_helpost) == 1L,
+  identical(index$no_helpost[[1L]]$record_key, "EXP-N"), identical(index$no_helpost[[1L]]$status, "none"),
+  !any(vapply(index$records, function(r) "verbatim_text" %in% names(r), NA)))
+stopifnot(grepl("EXPORT_OUTPUT_EXISTS", run_export("person_post", exp_dir)$out, fixed = TRUE))
+# Python-ledgeren tæller null-rækken som »ingen helpost« i sit summary.
+ledger_dir <- new_out_dir()
+ledger <- suppressWarnings(system2("python3", c(shQuote(file.path(scripts_dir, "build_clause_ledger.py")),
+  "--profile", "daa-2018-20-v1", "--texts", shQuote(texts_file), "--output-dir", shQuote(ledger_dir)), stdout = TRUE, stderr = TRUE))
+if (!is.null(attr(ledger, "status"))) stop("ledger fejlede: ", paste(ledger, collapse = "\n"))
+ledger_summary <- jsonlite::fromJSON(file.path(ledger_dir, "clause-ledger-summary.json"))
+stopifnot(identical(as.integer(ledger_summary$records), 3L), identical(as.integer(ledger_summary$no_helpost$records), 1L),
+  identical(ledger_summary$no_helpost$record_keys, "EXP-N"))
+
+# ambiguous: to accepterede person_post-forekomster med hver sin helpost-observation.
+rec_d <- mk_record("EXP-D"); mk_occ(rec_d, "exp-d1", 1000L, 1020L, "person_post", "Ambiguous et")
+mk_occ(rec_d, "exp-d2", 1100L, 1120L, "person_post", "Ambiguous to")
+amb_dir <- new_out_dir()
+amb <- run_export("person_post", amb_dir)
+stopifnot(amb$status != 0L, grepl("EXPORT_HELPOST_INVALID", amb$out, fixed = TRUE), length(list.files(amb_dir)) == 0L)
+
+# En underforekomst udenfor helposten gør recorden til outside: eksporten stopper uden at skrive filer.
+mk_occ(rec_c, "exp-c2", 900L, 910L, "fact", "udenfor")
+# Begge dårlige records er nu i basen; bevis at hver har sin egen status (så ingen maskerer den anden).
+stopifnot(identical(q("SELECT status FROM private.record_helpost_status($1::uuid,'person_post')", list(rec_c))$status, "outside"),
+  identical(q("SELECT status FROM private.record_helpost_status($1::uuid,'person_post')", list(rec_d))$status, "ambiguous"))
+bad_dir <- new_out_dir()
+bad <- run_export("person_post", bad_dir)
+stopifnot(bad$status != 0L, grepl("EXPORT_HELPOST_INVALID", bad$out, fixed = TRUE), length(list.files(bad_dir)) == 0L)
+
 cat("clause_evidence integration OK\n")
