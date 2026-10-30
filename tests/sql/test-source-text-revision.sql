@@ -58,7 +58,7 @@ END $t$;
 DO $t$
 DECLARE v_actor uuid:='11000000-0000-0000-0000-00000006a501'; fx jsonb; e jsonb; p jsonb; r jsonb; v_help uuid; v_occ record;
   v_tv private.source_observation_text%ROWTYPE; v_parties jsonb; v_state_before text; v_state_after text; v_n int; v_ev jsonb;
-  v_new text:='Anna Alfa. Gift m. Bo Beta.'; v_cur record; v_h1 text;
+  v_new text:='Anna Alfa. Gift m. Bo Beta.'; v_cur record; v_h1 text; v_e1 text; v_e2 text;
 BEGIN
   fx:=pg_temp.t5_post(-65101,v_actor,true,true);
   SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
@@ -150,6 +150,30 @@ BEGIN
      OR v_ev->>'before_clause_set_sha256'<>v_h1 OR v_ev->>'after_clause_set_sha256'<>r->>'after_clause_set_sha256'
      OR v_ev->'expected_binding_loss'<>p->'expected_binding_loss' THEN
     RAISE EXCEPTION 'TEXT_REVISION_TEST_FAILED: event %',v_ev;
+  END IF;
+  -- eventet gemmer ikke postteksten: payload minus verbatim_text plus kvitteringen
+  IF v_ev ? 'verbatim_text' OR v_ev->>'after_text_sha256'<>pg_temp.sha(v_new)
+     OR v_ev<>(p-'verbatim_text')||(r-'batch_id'-'authorization_id'-'preflight'-'finalize'-'second_apply_error') THEN
+    RAISE EXCEPTION 'TEXT_REVISION_TEST_FAILED: event bærer posttekst eller afviger fra payload+kvittering';
+  END IF;
+  -- fortolkningernes link-krav står udskudt igen efter writeren: en fortolkning uden link kan indsættes og fejler
+  -- først, når kravet gøres IMMEDIATE (alt rulles tilbage i en undertransaktion).
+  BEGIN
+    INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,
+      value,schema_version,derivation_kind,confidence,status,method,extraction_run_id)
+    SELECT gen_random_uuid(),gen_random_uuid(),1,(fx->>'source')::bigint,NULL,'relation','relation.marriage','{"raw":"x","normalized":"x"}',
+      'fixture','model_inference',0.5,'proposed','fixture',(fx->'src'->>'run')::uuid;
+    BEGIN
+      SET CONSTRAINTS private.interpretation_has_observation IMMEDIATE;
+      v_e1:='ingen fejl';
+    EXCEPTION WHEN OTHERS THEN v_e1:=SQLERRM;
+    END;
+    RAISE EXCEPTION 'T5_ROLLBACK_MARK';
+  EXCEPTION WHEN OTHERS THEN v_e2:=SQLERRM;
+  END;
+  SET CONSTRAINTS ALL DEFERRED;
+  IF v_e2<>'T5_ROLLBACK_MARK' OR v_e1='ingen fejl' THEN
+    RAISE EXCEPTION 'TEXT_REVISION_TEST_FAILED: link-kravet efter writeren (indsæt: %, immediate: %)',v_e2,v_e1;
   END IF;
   -- narrativets publiceringstilstand er uændret
   v_state_after:=private.reimport_canonical_json_sha256(private.narrative_publication_state((fx->>'person')::bigint,(fx->>'source')::bigint,fx->>'record_key'));
@@ -352,6 +376,37 @@ BEGIN
   PERFORM pg_temp.expect_rejected(fx,pg_temp.t5_payload(fx,'Anna Alfa. Gift m. Bo Beta.',ARRAY['Anna Alfa.','Gift m. Bo Beta.']),
     'dep-2','TEXT_REVISION_DEPENDENCY_UNSUPPORTED');
   RAISE NOTICE 'OK: menneskelig disposition afvises';
+END $t$;
+
+-- test_revision_span_mismatch_existing_version: en eksisterende tekstversion i et andet spænd eller en anden rendition
+-- ⇒ TEXT_REVISION_SPAN_MISMATCH. Versionen bærer basisteksten, så basiskontrollen består og spændkontrollen afgør.
+DO $t$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-00000006a506'; fx jsonb; v_help uuid; v_rend uuid; v_err text; v_case text;
+BEGIN
+  FOREACH v_case IN ARRAY ARRAY['span','rendition'] LOOP
+    fx:=pg_temp.t5_post(CASE v_case WHEN 'span' THEN -65601 ELSE -65611 END,v_actor,false,false);
+    SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+    v_help:=(fx->>'helpost')::uuid;
+    IF v_case='span' THEN
+      INSERT INTO private.source_observation_text(observation_id,rendition_id,version,verbatim_text,char_from,char_to)
+      VALUES (v_help,(fx->'src'->>'rend')::uuid,1,fx->>'text',1001,1000+char_length(fx->>'text'));
+    ELSE
+      INSERT INTO private.source_rendition(source_id,rendition_key,rendition_kind,content_sha256,metadata)
+      VALUES ((fx->>'source')::bigint,'t5-anden','pdf_text_layer',repeat('8',64),'{}') RETURNING id INTO v_rend;
+      INSERT INTO private.source_observation_text(observation_id,rendition_id,version,verbatim_text,char_from,char_to)
+      VALUES (v_help,v_rend,1,fx->>'text',1000,1000+char_length(fx->>'text'));
+    END IF;
+    BEGIN
+      PERFORM pg_temp.t5_apply(fx,pg_temp.t5_payload(fx,'Anna Alfa. Gift m. Bo Beta.',ARRAY['Anna Alfa.','Gift m. Bo Beta.']),'span-'||v_case);
+      v_err:='ingen fejl';
+    EXCEPTION WHEN OTHERS THEN v_err:=SQLERRM;
+    END;
+    IF v_err NOT LIKE 'TEXT_REVISION_SPAN_MISMATCH%'
+       OR (SELECT count(*) FROM private.source_observation_text WHERE observation_id=v_help)<>1 THEN
+      RAISE EXCEPTION 'TEXT_REVISION_TEST_FAILED: eksisterende version (%) gav %',v_case,v_err;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: test_revision_span_mismatch_existing_version';
 END $t$;
 
 -- Signatur og rettigheder: clause_write_set har kun 5-argument-formen; RPC'en er authenticated-kaldbar, writeren privat.

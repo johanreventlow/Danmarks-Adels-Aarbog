@@ -12,6 +12,10 @@
 #
 #   Rækkefølge 1: A låser først. B skal vente på A (pg_blocking_pids(B) indeholder A). A committer; B fejler, og
 #                 ingen promotion er skrevet på den nu forældede fortolkning.
+#   Rækkefølge 3: en p.t. ugyldig assertion-binding (værdien afviger) måles som ugyldig. Mens A står ved barrieren,
+#                 retter session E assertionens værdi tilbage (ugyldig → gyldig). E skal vente på A's FOR SHARE på
+#                 assertion-rækken; efter A's commit er fortolkningen forældet, og bindingen er stadig ugyldig.
+#                 Uden låsen ville bindingen være gyldig mellem målingen og A's commit og forsvinde uden kvittering.
 #   Rækkefølge 2: B promoverer først i en åben transaktion. A skal vente på B, før den måler. B committer; A's
 #                 måling indeholder den nye binding og afviser mod et manifest uden den
 #                 (TEXT_REVISION_BINDING_SET_DRIFT). Havde A målt før låsen, ville den have overset bindingen og
@@ -65,8 +69,8 @@ actor <- "11000000-0000-0000-0000-00000006a5c1"
 
 # Opret en post med afgjort ægteskab (familiebinding) og en accepteret, IKKE promoveret dødsfortolkning, en payload
 # målt nu (kun familiebindingen) og en åben batch med autorisationen.
-prepare_case <- function(controller, base, nonce) {
-  fx <- psql_value(sprintf("SELECT pg_temp.t5_post(%d,'%s',false,false)::text", base, actor))
+prepare_case <- function(controller, base, nonce, fx_text = NULL) {
+  fx <- if (is.null(fx_text)) psql_value(sprintf("SELECT pg_temp.t5_post(%d,'%s',false,false)::text", base, actor)) else fx_text
   fx_list <- jsonlite::fromJSON(fx, simplifyVector = FALSE)
   payload <- psql_value(sprintf(
     "SELECT pg_temp.t5_payload(%s::jsonb,'Anna Alfa. Gift m. Bo Beta.',ARRAY['Anna Alfa.','Gift m. Bo Beta.'])::text",
@@ -99,14 +103,14 @@ prepare_case <- function(controller, base, nonce) {
 digest_sha256 <- function(text) scalar(controller, "SELECT encode(extensions.digest($1,'sha256'),'hex')", list(text))
 
 worker_program <- paste0(
-  "args<-commandArgs(trailingOnly=TRUE);application_name<-args[[1L]];sql<-args[[2L]];actor_id<-args[[3L]];",
+  "args<-commandArgs(trailingOnly=TRUE);application_name<-args[[1L]];sql<-args[[2L]];actor_id<-args[[3L]];role<-args[[4L]];",
   "con<-DBI::dbConnect(RPostgres::Postgres(),dbname=Sys.getenv('PGDATABASE'),host=Sys.getenv('PGHOST'),",
   "port=as.integer(Sys.getenv('PGPORT')),user=Sys.getenv('PGUSER'),password=Sys.getenv('PGPASSWORD'));",
   "on.exit(DBI::dbDisconnect(con),add=TRUE);",
   "DBI::dbGetQuery(con,\"SELECT set_config('application_name',$1,false)\",params=list(application_name));",
   "DBI::dbExecute(con,\"SET statement_timeout='20s'\");",
   "DBI::dbGetQuery(con,\"SELECT set_config('request.jwt.claim.sub',$1,false)\",params=list(actor_id));",
-  "DBI::dbExecute(con,'SET ROLE authenticated');",
+  "if(nzchar(role)) DBI::dbExecute(con,paste0('SET ROLE ',role));",
   "code<-tryCatch({v<-DBI::dbGetQuery(con,sql);cat('T5_VALUE:',as.character(v[[1L]][[1L]]),'\\n',sep='');'OK'},",
   "error=function(error){message<-conditionMessage(error);",
   "cat('T5_DB_ERROR:',gsub('[\\r\\n]+',' | ',message),'\\n',file=stderr(),sep='');",
@@ -114,11 +118,11 @@ worker_program <- paste0(
   "if(match[[1L]]<0L)'UNCLASSIFIED_DATABASE_ERROR' else regmatches(message,match)});",
   "cat('T5_RESULT_CODE:',code,'\\n',sep='')"
 )
-launch_worker <- function(application_name, sql) {
+launch_worker <- function(application_name, sql, role = "authenticated") {
   library_env <- Sys.getenv(c("R_LIBS", "R_LIBS_USER", "R_LIBS_SITE"), unset = NA_character_)
   library_env <- library_env[!is.na(library_env) & nzchar(library_env)]
   processx::process$new(
-    file.path(R.home("bin"), "Rscript"), args = c("--vanilla", "-e", worker_program, application_name, sql, actor),
+    file.path(R.home("bin"), "Rscript"), args = c("--vanilla", "-e", worker_program, application_name, sql, actor, role),
     env = c(PGDATABASE = pg$PGDATABASE, PGHOST = pg$PGHOST, PGPORT = pg$PGPORT, PGUSER = pg$PGUSER,
             PGPASSWORD = pg$PGPASSWORD, library_env),
     stdout = "|", stderr = "|", cleanup_tree = TRUE)
@@ -220,6 +224,40 @@ finalize1 <- jsonlite::fromJSON(scalar(controller, "SELECT public.red_finalize_r
 invisible(DBI::dbExecute(controller, "RESET ROLE"))
 expect_true(identical(finalize1$status, "finalized") && identical(as.integer(finalize1$counts$source_text_revision), 1L),
             "TEXT_REVISION_CONCURRENCY_1_FINALIZE")
+
+# ---------------------------------------------------------------------------------------------------------------
+# Rækkefølge 3: kanonisk vending ugyldig → gyldig, mens A holder sine låse.
+case3_fx <- psql_value(sprintf("SELECT pg_temp.t5_post(%d,'%s',false,true)::text", -66301L, actor))
+case3_fx_list <- jsonlite::fromJSON(case3_fx, simplifyVector = FALSE)
+assertion3 <- as.character(case3_fx_list$assertion)
+promotion3 <- case3_fx_list$assertion_promotion
+binding_current <- function() isTRUE(scalar(controller, "SELECT private.assertion_binding_current($1::uuid)", list(promotion3)))
+expect_true(binding_current(), "TEXT_REVISION_CONCURRENCY_3_PRECONDITION_VALID")
+invisible(DBI::dbExecute(controller, "UPDATE public.assertion SET date_raw='1851' WHERE id=$1::bigint", list(assertion3)))
+expect_true(!binding_current(), "TEXT_REVISION_CONCURRENCY_3_PRECONDITION_INVALID")
+case3 <- prepare_case(controller, NA_integer_, "order-3", fx_text = case3_fx)
+barrier3 <- connect("t5_barrier3")
+DBI::dbBegin(barrier3)
+invisible(scalar(barrier3, "SELECT count(*) FROM (SELECT 1 FROM private.source_rendition WHERE id=$1::uuid FOR UPDATE) x", list(case3$fx$src$rend)))
+barrier3_pid <- as.integer(scalar(barrier3, "SELECT pg_backend_pid()"))
+job_a3 <- launch_worker("t5_a3", apply_sql(case3))
+wait_blocked_by(observer, "t5_a3", barrier3_pid)
+a3_pid <- backend_pid(observer, "t5_a3")
+job_e3 <- launch_worker("t5_e3", sprintf(
+  "UPDATE public.assertion SET date_raw='1850' WHERE id=%s RETURNING id", assertion3), role = "")
+wait_blocked_by(observer, "t5_e3", a3_pid)
+expect_true(!binding_current(), "TEXT_REVISION_CONCURRENCY_3_FLIPPED_WHILE_LOCKED")
+DBI::dbCommit(barrier3)
+DBI::dbDisconnect(barrier3)
+result_a3 <- collect_worker(job_a3)
+result_e3 <- collect_worker(job_e3)
+expect_true(identical(result_a3$code, "OK"), paste0("TEXT_REVISION_CONCURRENCY_3_A_FAILED: ", result_a3$output))
+expect_true(identical(result_e3$code, "OK"), paste0("TEXT_REVISION_CONCURRENCY_3_E_FAILED: ", result_e3$output))
+receipt_a3 <- jsonlite::fromJSON(result_a3$value, simplifyVector = FALSE)
+expect_true(!(promotion3 %in% vapply(receipt_a3$binding_loss, function(b) b$promotion_id, character(1))),
+            "TEXT_REVISION_CONCURRENCY_3_INVALID_BINDING_IN_RECEIPT")
+expect_true(identical(scalar(controller, "SELECT date_raw FROM public.assertion WHERE id=$1::bigint", list(assertion3)), "1850") &&
+              !binding_current(), "TEXT_REVISION_CONCURRENCY_3_BINDING_VALID_AFTER_REVISION")
 
 # ---------------------------------------------------------------------------------------------------------------
 # Rækkefølge 2: B promoverer først (åben transaktion); A venter på B før målingen og afviser bagefter med drift.

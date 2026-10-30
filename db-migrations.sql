@@ -27571,6 +27571,7 @@ DECLARE v_ctx jsonb; v_parent private.source_observation%ROWTYPE; v_rendition uu
   v_binding_measured jsonb; v_parties jsonb; v_personas jsonb; v_cur_text_id uuid; v_cur_text text; v_prev private.source_observation_text%ROWTYPE;
   v_version integer; v_text_id uuid; v_before_set text; v_after_set text; v_actor uuid; v_actor_name text; v_superseded integer;
   v_count integer; v_old integer; v_obs record; v_receipt jsonb;
+  v_lock_keys uuid[]; v_lock_assertions bigint[]; v_lock_personas uuid[]; v_lock_persons bigint[];
 BEGIN
   -- 1. prepare
   v_ctx:=private.clause_write_prepare(p_batch_id,p_element_id,p_payload,'source_text_revision');
@@ -27597,6 +27598,46 @@ BEGIN
   PERFORM 1 FROM private.interpretation i
    WHERE i.id IN (SELECT (e->>'id')::uuid FROM jsonb_array_elements(v_deps) e)
    ORDER BY i.interpretation_key FOR UPDATE;
+  -- 2b. De kanoniske rækker, bindingernes gyldighed læser, FOR SHARE for ALLE promotions på nøglerne (gyldige og p.t.
+  -- ugyldige: den farlige vending er ugyldig → gyldig mellem målingen og commit, så tabet ikke kvitteres).
+  -- assertion_binding_current læser assertion (værdi), fact (faktatype, subjekt) og personaens identitet;
+  -- relation_binding_state (inkl. relation_child_rule) læser parternes identiteter, rivaliserende identiteter på
+  -- samme person, family_member for personerne og målfamilierne samt børnenes person- og person_external_id-række.
+  -- Promotion, regel, fortolkning, parter, mentions og observationer er append-only. FOR SHARE blokerer UPDATE og
+  -- DELETE af rækkerne, men ikke nye rækker (fantomer, se rapporten). Fast rækkefølge: assertion, fact, identitet,
+  -- person, family_member, person_external_id.
+  SELECT coalesce(array_agg((e->>'key')::uuid ORDER BY (e->>'key')::uuid),'{}') INTO v_lock_keys FROM jsonb_array_elements(v_deps) e;
+  SELECT coalesce(array_agg(DISTINCT p.target_id),'{}') INTO v_lock_assertions
+    FROM private.interpretation_promotion p JOIN private.interpretation q ON q.id=p.interpretation_id
+   WHERE q.interpretation_key=ANY(v_lock_keys) AND p.target_type='assertion';
+  PERFORM 1 FROM public.assertion a WHERE a.id=ANY(v_lock_assertions) ORDER BY a.id FOR SHARE;
+  PERFORM 1 FROM public.fact f
+   WHERE f.id IN (SELECT a.target_id FROM public.assertion a WHERE a.id=ANY(v_lock_assertions) AND a.target_type='fact')
+   ORDER BY f.id FOR SHARE;
+  SELECT coalesce(array_agg(DISTINCT x),'{}') INTO v_lock_personas FROM (
+    SELECT q.source_persona_id AS x FROM private.interpretation q WHERE q.interpretation_key=ANY(v_lock_keys)
+    UNION SELECT pt.source_persona_id FROM private.interpretation_party pt WHERE pt.interpretation_key=ANY(v_lock_keys)) y
+   WHERE x IS NOT NULL;
+  PERFORM 1 FROM private.source_persona_identity i WHERE i.source_persona_id=ANY(v_lock_personas)
+   ORDER BY i.source_persona_id FOR SHARE;
+  SELECT coalesce(array_agg(DISTINCT x),'{}') INTO v_lock_persons FROM (
+    SELECT i.canonical_person_id AS x FROM private.source_persona_identity i WHERE i.source_persona_id=ANY(v_lock_personas)
+    UNION SELECT f.subjekt_id FROM public.fact f JOIN public.assertion a ON a.target_type='fact' AND a.target_id=f.id
+           WHERE a.id=ANY(v_lock_assertions) AND f.subjekt_type='person'
+    UNION SELECT fm.person_id FROM public.family_member fm
+           WHERE fm.family_id IN (SELECT p.target_id FROM private.interpretation_promotion p JOIN private.interpretation q ON q.id=p.interpretation_id
+                                   WHERE q.interpretation_key=ANY(v_lock_keys) AND p.target_type='family')) y
+   WHERE x IS NOT NULL;
+  PERFORM 1 FROM private.source_persona_identity i
+   WHERE i.canonical_person_id=ANY(v_lock_persons) AND NOT i.source_persona_id=ANY(v_lock_personas)
+   ORDER BY i.source_persona_id FOR SHARE;
+  PERFORM 1 FROM public.person pe WHERE pe.id=ANY(v_lock_persons) ORDER BY pe.id FOR SHARE;
+  PERFORM 1 FROM public.family_member fm
+   WHERE fm.family_id IN (SELECT m.family_id FROM public.family_member m WHERE m.person_id=ANY(v_lock_persons))
+      OR fm.family_id IN (SELECT p.target_id FROM private.interpretation_promotion p JOIN private.interpretation q ON q.id=p.interpretation_id
+                           WHERE q.interpretation_key=ANY(v_lock_keys) AND p.target_type='family')
+   ORDER BY fm.family_id,fm.person_id,fm.rolle FOR SHARE;
+  PERFORM 1 FROM public.person_external_id x WHERE x.person_id=ANY(v_lock_persons) ORDER BY x.person_id,x.source_id FOR SHARE;
 
   -- 3. Mål igen efter låsene (ny sætning, nyt snapshot). Ændrede mængden sig under låsningen, fejler vi lukket.
   SELECT coalesce(jsonb_agg(jsonb_build_object('key',d.interpretation_key,'id',d.current_id) ORDER BY d.interpretation_key),'[]'::jsonb)
@@ -27690,10 +27731,14 @@ BEGIN
     v_old:=v_old+1;
   END LOOP;
 
-  -- 8.
+  -- 8. Sæt-tætheden som de øvrige klausul-writere; fortolkningernes link-krav kontrolleres nu (før eventet) og
+  -- stilles tilbage til udskudt, så resten af transaktionen ikke ændres.
   SET CONSTRAINTS private.trg_clause_set_density IMMEDIATE;
+  SET CONSTRAINTS private.interpretation_has_observation IMMEDIATE;
+  SET CONSTRAINTS private.interpretation_has_observation DEFERRED;
 
-  -- 9. Kvitteringen (returværdi og event-tillæg).
+  -- 9. Kvitteringen (returværdi og event-tillæg). Eventet gemmer ikke postteksten (kun after_text_sha256 og text_id),
+  -- som klausul-writernes events kun bærer klausulernes hashes og offsets.
   v_receipt:=jsonb_build_object('parent_observation_id',v_parent.id,'run_id',(v_ctx->>'run_id')::uuid,
     'text_id',v_text_id,'text_version',v_version,'before_text_id',v_cur_text_id,
     'clause_set_seq',v_current+1,'clauses_written',v_count,'clauses_replaced',v_old,
@@ -27701,7 +27746,7 @@ BEGIN
     'binding_loss',v_binding_loss,'parties_dropped',v_parties,'personas_on_old_set',v_personas,
     'before_clause_set_sha256',v_before_set,'after_clause_set_sha256',v_after_set);
   INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,before_sha256,after_sha256)
-  VALUES(p_batch_id,p_element_id,'source_text_revision',v_ctx->>'record_key',p_payload||v_receipt,
+  VALUES(p_batch_id,p_element_id,'source_text_revision',v_ctx->>'record_key',(p_payload-'verbatim_text')||v_receipt,
     p_payload->>'before_text_sha256',p_payload->>'after_text_sha256');
   RETURN v_receipt;
 END $$;
