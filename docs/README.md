@@ -14,6 +14,7 @@ i historiske planer og afsluttede reviews.
 | [`evidensbaseret-genimport/roadmap.md`](evidensbaseret-genimport/roadmap.md) | Det styrende roadmap: bindende prioritering og seks adgangskrav til nye planer. |
 | [`evidensbaseret-genimport/teknisk-maalarkitektur.md`](evidensbaseret-genimport/teknisk-maalarkitektur.md) | Autoritativ teknisk målarkitektur for den fælles ende-til-ende-kæde; levende kode og schema afgør aktuelle detaljer. |
 | [`evidensbaseret-genimport/status.md`](evidensbaseret-genimport/status.md) | Aktuel status og statusorakel for genimportprogrammets mål, modenhed og næste tilladte arbejde. |
+| [`evidensbaseret-genimport/ny-udgave-erfaringer.md`](evidensbaseret-genimport/ny-udgave-erfaringer.md) | Levende note: hvad det kostede at føre 1939 gennem den fælles kæde (målt / indstilling / ny fælles kode) — grundlag for beslutningspunktet efter trin 6. |
 | [`../CLAUDE.md`](../CLAUDE.md) | Projekt-handoff: arkitektur, invarianter og agentinstruktioner. |
 | [`../datamodel-oversigt.md`](../datamodel-oversigt.md) | Autoritativ bred konceptmodel — *hvorfor* modellen ser sådan ud. For source-record-, narrativ- og genimportproveniens styrer [`evidensbaseret-genimport/teknisk-maalarkitektur.md`](evidensbaseret-genimport/teknisk-maalarkitektur.md). |
 | [`database-current-state.md`](database-current-state.md) | Autoritet for senest dokumenterede live-prod-tilstand, autoritative SQL-filer og deploy-procedure; driftfølsomme spørgsmål kræver altid en frisk kontrol. |
