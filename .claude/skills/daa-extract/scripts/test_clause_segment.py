@@ -214,5 +214,95 @@ class TestAbbreviationMatch(unittest.TestCase):
         evidence_extract.validate_clause_rules(dict(rules_v2(), abbreviation_match="exact"))
 
 
+# --- 1939-regler (Task 9): linjeskift som terminator og sidemarkør i teksten -------------
+import hashlib  # noqa: E402
+
+
+def rules_1939():
+    return evidence_extract.load_profile("daa-1939-v1")["clause_rules"]
+
+
+def _build(text, key="k"):
+    return clause_segment.build_record_ledger(key, f"source-evidence:{key}", text, rules_1939())
+
+
+class Test1939Rules(unittest.TestCase):
+    def test_newline_terminator_splits(self):
+        result = _build("f. 1700.\nGift m. X.")
+        self.assertEqual([c["verbatim_text"] for c in result["clauses"]], ["f. 1700.", "Gift m. X."])
+        self.assertEqual(result["gap_violations"], [])
+
+    def test_page_marker_mid_sentence_stays_in_clause(self):
+        result = _build("boede i Ro-\n\n### PAGE 0036 ###\nstock † 1700.")
+        self.assertEqual(len(result["clauses"]), 1)
+        self.assertIn("page_marker_in_clause", result["clauses"][0]["flags"])
+
+    def test_page_marker_after_terminator_splits_before_marker(self):
+        result = _build("† 1726.\n\n### PAGE 0036 ###\nGift m. X.")
+        clauses = result["clauses"]
+        self.assertEqual(len(clauses), 2)
+        self.assertTrue(clauses[1]["verbatim_text"].startswith("### PAGE"))
+        self.assertIn("page_marker_in_clause", clauses[1]["flags"])
+        self.assertNotIn("page_marker_in_clause", clauses[0]["flags"])
+
+    def test_page_marker_after_semicolon_lowercase_no_split(self):
+        result = _build("Boede i Roskilde;\n### PAGE 0036 ###\nsenere i Kbh. 1700.")
+        self.assertEqual(len(result["clauses"]), 1)
+        self.assertIn("page_marker_in_clause", result["clauses"][0]["flags"])
+
+    def test_two_markers_one_post(self):
+        text = "† 1726.\n### PAGE 0036 ###\n### PAGE 0037 ###\nGift m. X;\n### PAGE 0038 ###\nsenere 1700. Barn Y."
+        result = _build(text)
+        clauses = result["clauses"]
+        self.assertEqual(len(clauses), 3)
+        self.assertTrue(clauses[1]["verbatim_text"].startswith("### PAGE 0036"))
+        self.assertEqual(clauses[1]["verbatim_text"].count("### PAGE"), 3)
+        self.assertIn("page_marker_in_clause", clauses[1]["flags"])
+        self.assertEqual(text.count("### PAGE"), sum(c["verbatim_text"].count("### PAGE") for c in clauses))
+
+    def test_leading_whitespace_post_full_coverage(self):
+        text = " \n### PAGE 0036 ###\nf. 1700.\nGift m. X. \n"
+        result = _build(text)
+        covered = sum(row["span"]["char_to"] - row["span"]["char_from"] for row in result["ledger"])
+        self.assertEqual(covered, len(text))
+        self.assertEqual(result["gap_violations"], [])
+        for row in result["ledger"]:
+            if row["classification"] == "layout":
+                self.assertTrue(set(row["verbatim_text"]) <= set(rules_1939()["gap_charset"]))
+
+    def test_possible_layout_line_flagged(self):
+        text = "Alfa boede i Roskilde\n1726.\nved Kbh. 1700."
+        result = _build(text)
+        flagged = [c for c in result["clauses"] if "possible_layout_line" in c["flags"]]
+        self.assertEqual(len(flagged), 1)
+        self.assertIn("1726.", "".join(c["verbatim_text"] for c in result["clauses"]))  # forsvinder ikke
+
+    def test_optional_keys_absent_leave_behaviour_unchanged(self):
+        rules = dict(rules_1939())
+        rules.pop("page_marker_pattern")
+        rules.pop("possible_layout_line_pattern")
+        text = "† 1726.\n\n### PAGE 0036 ###\nGift m. X."
+        result = clause_segment.build_record_ledger("k", "source-evidence:k", text, rules)
+        for clause in result["clauses"]:
+            self.assertNotIn("page_marker_in_clause", clause["flags"])
+            self.assertNotIn("possible_layout_line", clause["flags"])
+
+    def test_2018_rules_unchanged(self):
+        """Byte-identisk output med 2018-20-reglerne: pin af hash over hele det syntetiske fixture
+        (målt FØR Task 9 rørte motoren)."""
+        with open(FIXTURE, encoding="utf-8") as fh:
+            cases = json.load(fh)["cases"]
+        expected = {
+            "daa-2018-20-v1": "f2869955e084c7677f7bed09a3dedb11d0a8456862df0043de9f94503e63ce6c",
+            "daa-2018-20-v2": "91fbff96c95aa08ec90a2ba372974b2b7aaf4296a8094e0f27efe4e16973cb6a",
+        }
+        for profile_id, digest in expected.items():
+            with self.subTest(profile_id):
+                rules = evidence_extract.load_profile(profile_id)["clause_rules"]
+                out = [clause_segment.build_record_ledger(c["key"], "o:" + c["key"], c["text"], rules) for c in cases]
+                blob = json.dumps(out, ensure_ascii=False, sort_keys=True).encode("utf-8")
+                self.assertEqual(hashlib.sha256(blob).hexdigest(), digest)
+
+
 if __name__ == "__main__":
     unittest.main()

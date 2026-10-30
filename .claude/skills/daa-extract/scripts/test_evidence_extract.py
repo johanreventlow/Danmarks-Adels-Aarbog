@@ -414,3 +414,21 @@ def test_interpretation_schema_defines_all_six_value_forms():
     # Enhver værdiform i den genererede fil skal have et skema.
     kinds = {row["value_kind"] for row in _json.loads(_Path(evidence_extract.PREDICATES_FILE).read_text(encoding="utf-8"))["predicates"]}
     assert kinds <= set(schema["$defs"])
+
+
+def test_1939_profile_clause_rules_and_optional_page_keys(tmp_path):
+    profile = evidence_extract.load_profile("daa-1939-v1")
+    assert profile["version"] == "1.1.0"
+    rules = profile["clause_rules"]
+    assert rules["version"] == "clause-rules-1939-v1"
+    assert rules["gap_charset"] == [" ", "\n"]
+    assert rules["terminators"] == [". ", "; ", ".\n", ";\n"]
+    assert rules["page_marker_pattern"] == r"^###\s*PAGE\s+\d+\s*###\s*$"
+    assert profile["text_form"] == "raw" and profile["helpost_observation_kind"] == "person"
+    # nøglerne er valgfri: uden dem er reglerne stadig gyldige
+    bare = {k: v for k, v in rules.items() if k not in ("page_marker_pattern", "possible_layout_line_pattern")}
+    evidence_extract.validate_clause_rules(bare)
+    for key in ("page_marker_pattern", "possible_layout_line_pattern"):
+        for bad in ("([", "", 5):
+            with pytest.raises(ExtractionError, match="CLAUSE_RULES_INVALID"):
+                evidence_extract.validate_clause_rules(dict(rules, **{key: bad}))

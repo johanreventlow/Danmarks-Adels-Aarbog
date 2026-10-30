@@ -828,12 +828,12 @@ def test_prompt_file_cannot_escape_the_references_directory(ondsindet):
         evidence_extract.resolve_prompt(ondsindet, "0" * 64)
 
 
-def test_the_1939_profile_is_untouched_and_has_no_prompt_file():
+def test_the_1939_profile_has_no_prompt_file():
     """1939 bruges ikke af runneren før trin 6. Den skal IKKE have en tom eller
     gættet binding — fraværet er det ærlige svar, og runneren afviser den."""
     profile = evidence_extract.load_profile("daa-1939-v1")
     assert "prompt_file" not in profile
-    assert profile["version"] == "1.0.0"
+    assert profile["version"] == "1.1.0"
 
 
 def test_the_legacy_trin3_prompt_is_left_alone():
