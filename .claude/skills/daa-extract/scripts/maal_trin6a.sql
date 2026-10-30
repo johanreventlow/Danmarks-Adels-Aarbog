@@ -12,7 +12,7 @@
 --   k1_*         2018-20 (kilde 1): klausuler, distinkte helposter og en hash over hver klausuls id, sæt, spænd,
 --                teksthash og gældende disposition — skal være uændret af begge ceremonier
 -- Tilstande: foer (funktioner=0 profiler=0 view=f k3_*=0), a (funktioner=12 profiler=2 view=t k3_*=0),
--- b (som a, men k3_klausuler=954 k3_poster=584 k3_afventer=719 k3_flagget=235 k3_batch=1).
+-- b (som a, men k3_klausuler=912 k3_poster=584 k3_afventer=687 k3_flagget=225 k3_batch=1).
 \set QUIET on
 \set ON_ERROR_STOP on
 BEGIN READ ONLY;
