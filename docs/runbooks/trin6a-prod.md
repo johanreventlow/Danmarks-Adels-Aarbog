@@ -28,6 +28,9 @@ Projektejeren kører alt, der rører prod, fra egen shell. AI-sessionen læser k
 
   Ændres `db-migrations.sql`, 1939-reglerne, segmenteringen eller manifest-byggeren efter øvelsen, skal øvelsen
   gentages, og værdierne skal opdateres, før der tages GO.
+- **Øvelsen gentages på `main` efter merge af PR 2**, med den runner, der skal bruges i prod, på en frisk stand-in
+  (alle skridt i stand-in-tilstand). Først derefter tages GO. Runneren er rettet efter den sidste øvelse
+  (fejlkodevisningen ved `T6A_B_FEJL`).
 - `DAA_EXPECTED_TARGET` (prods målidentitet) står i `prod/go-env.txt`, som ved 5c-2.
 
 ## Forløb (projektejerens shell)
@@ -39,8 +42,9 @@ Alle kommandoer køres som `/bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 25-t
 1. `maal` → `T6A_MAAL_OK tilstand=foer`. 2018-20-delen (`k1_klausuler`, `k1_poster`, `k1_hash`) noteres. Målingen er
    ceremoniernes første læsning mod prod og dermed tidsprøven: tager den over 60 s, stoppes der og måles igen.
    Tag samtidig `get_advisors(security)` som før-billede (skridt 5 sammenligner med det).
-2. `go-a` → `GO_6A_A_KODE=<8 hex>`. Projektejeren skriver `GO 6a-A <kode>`. Koden binder ceremonien, commit'en,
-   `db-migrations.sql`, målingen, målidentitetens SQL, runneren, R-scriptet og hjælperne.
+2. `go-a` → `GO_6A_A_KODE=<8 hex>`. Projektejeren skriver `GO 6a-A <kode>`. Koden binder ceremonien, målet
+   (prod/stand-in), commit'en, `db-migrations.sql`, målingen, målidentitetens SQL, runneren, R-scriptet, `lib.zsh` og
+   `koer.zsh`. B's GO binder desuden R-hjælperne, eksporten, Python-byggerne, profilerne og manifestet.
 3. `dump` → `DUMP_6A_OK tilstand=foer …` og `EKSTERN_6A_OK … rundtur=ok`. B1: en `age`-krypteret kopi lægges på
    SFTP-serveren, hentes tilbage, sammenlignes og dekrypteres; den dekrypterede rundtur-kopi slettes efter kontrollen.
    Kvitteringen bærer basens tilstand; `apply-a` kræver `foer`.
@@ -91,8 +95,9 @@ Forholdet mellem prod og stand-in er målt tidligere og ikke på ny for 6a (inge
 
 Ceremoni B består af mange små kald, så 55× er det relevante forhold. Dry-run'et udfører alle 584 operationer og ruller
 tilbage, så B's samlede tid er omtrent det dobbelte af apply. Den forventede varighed er et skøn, ikke et bevis. Det, der
-tæller mod grænsen, er den længste enkelte sætning; i øvelsen var hele apply under 4 s, så ingen sætning er i
-nærheden.
+tæller mod grænsen, er den længste enkelte sætning. Den er ikke målt for sig; hele apply tog under 4 s på stand-in, og
+det er en øvre grænse for hver sætning (ca. 3,5 min ved 55×, hvis én sætning stod for det hele — det gør den ikke,
+fordi kæden er ét kald pr. post).
 
 ## Stoppunkter
 
@@ -103,9 +108,10 @@ Alle `STOPPORT:`-linjer stopper uden at skrive yderligere. Hvor langt man er nå
 | Før `apply-a`'s blok | `foer`; intet skrevet | Ret årsagen, kør skridtet igen |
 | I A's blok (`DDL_6A fejlede`) | `foer`; rullet tilbage | Ret årsagen; ny GO, hvis filer ændres |
 | Efter A's commit (`DDL_6A_NOTIFY`, `T6A_EFTER_A`, `T6A_K1_UAENDRET`) | A er committet | Kør `maal`. Er den `a` og `k1` uændret: kør `NOTIFY pgrst` manuelt og fortsæt. Ellers: stop og undersøg; fortrydelse af A (nedenfor) |
-| B før apply eller midt i kæden (fejl i dry-run, authorize eller apply) | `a`; batchen rullet tilbage eller ikke `finalized` | Læs koden i `apply-b-*.out`; ret; `apply-b` igen med samme GO (dumpet i tilstand `a` gælder stadig) |
+| B før apply eller midt i kæden (fejl i dry-run, authorize eller apply) | `a`; batchen rullet tilbage eller ikke `finalized` | Læs koden: `T6A_B_FEJL (<kode>; sidste trin: …)`, og den fulde fejllinje (`Fejl:`/`Error:`) i `apply-b-*.out`; ret; `apply-b` igen med samme GO. Dumpet i tilstand `a` gælder i 12 timer; derefter et nyt `dump` |
 | Efter B's commit: `T6A_B_KANONISK_AENDRET` | batchen `finalized` | **Fortrydelsestilfælde:** det kanoniske lag ændrede sig under B. Stop; afgør om det var en samtidig redaktionel skrivning (vinduet brudt) eller B. Var det B: restore af dumpet fra skridt 9 |
-| Efter B's commit: `T6A_B_REPLAY_STATUS`, `T6A_EFTER_B` | batchen `finalized` | Kør `maal`. Er den `b` og `k1` uændret, lykkedes B; undersøg replay-fejlen bagefter. Ellers stop og undersøg |
+| Efter B's commit: `T6A_B_REPLAY_STATUS`, `T6A_EFTER_B`, `T6A_K1_UAENDRET` | batchen `finalized` | Kør `maal`. Er den `b` og `k1` uændret, lykkedes B; undersøg fejlen bagefter. Er `k1` ændret: stop; 2018-20 er rørt, fortrydelse ved restore af dumpet fra skridt 9 |
+| Målingens egne fejl (`maal_trin6a.sql fejlede`, `T6A_MAAL_FORM`, `T6A_FLAG_FORM`) | uændret af fejlen selv | Efter et commit: læs batchens status i `private.reimport_batch` og kør `maal` igen; før et commit: intet er skrevet |
 
 Kør aldrig `apply-b` igen, når batchen er `finalized`: tilstanden er så ikke længere `a`, og runneren stopper selv.
 
