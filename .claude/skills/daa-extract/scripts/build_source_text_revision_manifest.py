@@ -24,9 +24,11 @@ Forudsætninger pr. kandidat (fejler lukket):
   * v1-teksten har sha lig den gældende tekst i basen (TEXT_REVISION_V1_MISMATCH), og v1-spændet er
     helpostens (TEXT_REVISION_V1_SPAN_MISMATCH): manifestet bygges kun mod præcis den post, basen har;
   * v2-teksten er forskellig fra v1-teksten (TEXT_REVISION_NOOP);
-  * v2-postens spænd (project_rendition med after-profilens støjregel) er helpostens. Er det ikke, kommer
-    recorden i manifestets `dispositions` med koden `span_outside` og ikke i operationerne: en anden
-    afgrænsning er en grænserevision, ikke en tekstversion (spec §5; I-84).
+  * v2-postens spænd (project_rendition med after-profilens støjregel) er helpostens. Starter v2-posten i
+    helpostens char_from og slutter senere (forlænget i halen: den nye linje ligger efter postens sidste
+    v1-linje), kommer recorden i manifestets `dispositions` med koden `span_outside` og ikke i operationerne:
+    en anden afgrænsning er en grænserevision, ikke en tekstversion (spec §5; I-84). Enhver anden
+    spændafvigelse (anden start, kortere slut) fejler lukket (TEXT_REVISION_SPAN_MISMATCH:<record_key>).
 
 Klausulerne skæres af v2-teksten med profilens klausulregler (clause_segment.build_record_ledger) og
 ankres gennem v2-projektionens offset-kort. Intet output på stdout eller i indeksfilen bærer tekst.
@@ -313,6 +315,11 @@ def build_manifest(profile: dict[str, Any], rendition_bytes: bytes, texts: Any, 
             _fail("TEXT_REVISION_NOOP")
         start, _, char_from, char_to = new_spans[key]
         if (char_from, char_to) != helpost_span:
+            # Kun halen må være forlænget (samme start, senere slut): den nye linje ligger efter postens sidste
+            # v1-linje, uden for helpostens afgrænsning (I-84's form, spec §5) → disposition span_outside.
+            # Enhver anden afvigelse (anden start, kortere slut) er ikke forklaret af støjreglen og fejler lukket.
+            if not (char_from == helpost_span[0] and char_to > helpost_span[1]):
+                _fail("TEXT_REVISION_SPAN_MISMATCH:" + key)
             dispositions.append({"record_key": key, "code": "span_outside",
                                  "helpost_char_from": helpost_span[0], "helpost_char_to": helpost_span[1],
                                  "revised_char_from": char_from, "revised_char_to": char_to,

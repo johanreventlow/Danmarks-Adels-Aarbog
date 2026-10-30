@@ -135,7 +135,8 @@ def test_same_span_revision_emitted(tmp_path):
     assert m["manifest_content_sha256"] == B._canonical_sha256(unhashed)
 
 
-def test_span_outside_goes_to_dispositions(tmp_path):
+def test_span_tail_extension_is_disposition(tmp_path):
+    # I-2: v2-posten starter i helpostens char_from og slutter senere (halelinje) → span_outside, ikke operation.
     m = _build(_profile(tmp_path))
     assert "I-2" not in [op["source_record_key"] for op in m["operations"]]
     assert m["dispositions"] == [{"record_key": "I-2", "code": "span_outside",
@@ -145,6 +146,28 @@ def test_span_outside_goes_to_dispositions(tmp_path):
                                   "after_text_sha256": _sha("Echo Foxtrot, f. 1802. von Revisor halelinje")}]
     # Ingen tekst i dispositionen.
     assert "Echo" not in json.dumps(m["dispositions"], ensure_ascii=False)
+
+
+def test_span_other_mismatch_fails(tmp_path, monkeypatch):
+    """Kun en haleforlængelse er en disposition; anden start eller kortere slut fejler lukket med record_key."""
+    profile = _profile(tmp_path)
+    real_spans = B._spans
+
+    for shift in ((1, 0), (-1, 0), (0, -1), (1, 5)):
+        def spans(rendition, posts, noise_rule, shift=shift):
+            projection, offsets, out = real_spans(rendition, posts, noise_rule)
+            if noise_rule == "page_header":
+                start, end, cf, ct = out["I-2"]
+                out = dict(out, **{"I-2": (start, end, cf + shift[0], SPAN["I-2"][1] + shift[1]
+                                           if shift[1] <= 0 else ct + shift[1])})
+            return projection, offsets, out
+        monkeypatch.setattr(B, "_spans", spans)
+        with pytest.raises(B.BuildError) as err:
+            _build(profile)
+        assert str(err.value) == "TEXT_REVISION_SPAN_MISMATCH:I-2"
+        assert "Echo" not in str(err.value)
+    monkeypatch.setattr(B, "_spans", real_spans)
+    assert [d["record_key"] for d in _build(profile)["dispositions"]] == ["I-2"]
 
 
 def test_v1_mismatch_fails(tmp_path):
