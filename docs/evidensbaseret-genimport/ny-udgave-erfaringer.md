@@ -30,6 +30,10 @@ Spec: `docs/superpowers/specs/2026-10-29-trin6a-klausuler-og-kildetekst-revision
 - **Ukendte forkortelser:** tokentælling efter reglerne. 15 forkortelser med mindst 3 forekomster blev taget ind;
   `unknown_abbreviation` faldt fra 324 til 62 klausuler, og 3 forkerte opdelinger forsvandt (1028 → 1025 klausuler).
   Ordenstal, initialer, bynavne og tvetydige enkeltbogstaver blev holdt ude ved skøn.
+- **Røgtest:** 2 × 20 tilfældige poster om personer død før 1800 blev læst klausul for klausul. Første runde fandt
+  fejlsnit, som tokentællingen ikke kunne se (`Aarb.`, `Kbhvn.`, dato og herred i parentes eller efter bindestreg);
+  anden runde kun enkeltstående. Rettelserne fjernede 71 forkerte opdelinger (1025 → 954 klausuler) og halverede
+  næsten `unbalanced_parentheses` (126 → 74). Tokentællingen alene var altså ikke nok; læsningen var nødvendig.
 - **Records og forekomster:** 592 records, 584 med en helpost og 8 uden. En record kan have flere forekomster, så
   det skulle afgøres, hvilken der er personens egen post.
 - **Renditionens fingeraftryk** (`raw_text_sha256`) blev bekræftet mod en eksport fra prod-kopien.
@@ -42,6 +46,7 @@ Spec: `docs/superpowers/specs/2026-10-29-trin6a-klausuler-og-kildetekst-revision
   (`folded_projection@…`). Formen erklæres pr. udgave, og writeren tjekker den.
 - `helpost_observation_kind` = `person`.
 - `rendition_metadata` (udgave, rendition-art) og `expected_counts` (584 klausul-evidenser).
+- Profilen hæves (1.1.0 → 1.2.0), når røgtesten ændrer reglerne, så ledgeren kan skelne regelsættene.
 
 ### Ny fælles kode
 
@@ -86,3 +91,6 @@ tekstlag (som 2018-20) vil sandsynligvis kunne nøjes med indstillinger; en ny O
 - **`segmenter_version` er pinnet i profilerne** som en hash af segmenteringskoden. Ændres koden, skal profilen
   udstedes på ny, før en ny kørsel.
 - **Kør hele CI lokalt før push**, også R-jobbet. Flere vagter fanger først nye filer, når de er committet.
+- **Opgraderingsstien skal måles med én kørsel og på views.** En ny kolonne på en tabel, som et view læser med `*`,
+  kom ikke med i viewet ved én migrationskørsel (6a, `clause_observation_current`). To kørsler skjulte fejlen, og CI
+  sammenlignede kun funktioner. Øvelsen på en prod-ækvivalent stand-in fandt den; CI har nu view-paritet.
