@@ -45,6 +45,9 @@ ALLOWED = {
     ".claude/skills/daa-extract/scripts/source_text_revision_dependencies.sql",
     # #150 placement-ceremonien: helposten som persona-placementens grundlag og identitetstjekket.
     ".claude/skills/daa-extract/scripts/fix_150_placement.sql",
+    # Trin 6a's ceremonimåling: tæller bevidst klausulrækker i ALLE sæt (ikke kun det aktuelle), fordi den skal
+    # vise, at ceremonierne hverken tilføjer eller fjerner rækker for 2018-20, og at 1939 får præcis ét sæt.
+    ".claude/skills/daa-extract/scripts/maal_trin6a.sql",
     # Ingen databaselæsning: kontrakter, manifester og ark bygget af eksporterede data.
     ".claude/skills/daa-extract/scripts/build_43b_judgement_sheet.py",
     ".claude/skills/daa-extract/scripts/build_43b_proposal_manifest.py",
