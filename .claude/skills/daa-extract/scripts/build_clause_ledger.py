@@ -105,12 +105,17 @@ def main() -> None:
             texts[f"{row['record_key']}#{clause['ordinal']}"] = clause["verbatim_text"]
             clauses.append({k: clause[k] for k in ("ordinal", "char_from", "char_to", "classification", "flags", "verbatim_sha256")})
         counts.append(len(clauses))
-        records.append({"record_key": row["record_key"], "occurrence_key": row["occurrence_key"],
-                        "page_from": row["page_from"], "page_to": row["page_to"],
-                        "parent_char_from": row["char_from"], "parent_char_to": row["char_to"],
-                        "parent_verbatim_sha256": row["verbatim_sha256"],
-                        "rendition_content_sha256": row["rendition_content_sha256"],
-                        "rules_version": rules["version"], "ledger_sha256": result["ledger_sha256"], "clauses": clauses})
+        record = {"record_key": row["record_key"], "occurrence_key": row["occurrence_key"],
+                  "page_from": row["page_from"], "page_to": row["page_to"],
+                  "parent_char_from": row["char_from"], "parent_char_to": row["char_to"],
+                  "parent_verbatim_sha256": row["verbatim_sha256"],
+                  "rendition_content_sha256": row["rendition_content_sha256"],
+                  "rules_version": rules["version"], "ledger_sha256": result["ledger_sha256"], "clauses": clauses}
+        # Trin 6a: helpostens tekstversion fra eksporten (helpost_text_current). Kun når den findes, så en ledger
+        # over urørte poster er byte-identisk; manifest-byggeren fejler med en klar kode, hvis den ikke kan ankres.
+        if row.get("text_id") is not None:
+            record["text_id"] = row["text_id"]
+        records.append(record)
     ledger = {"schema_version": "clause-ledger-v1", "profile_id": args.profile, "profile_version": profile["version"],
               "rules_version": rules["version"], "segmenter_version": segmenter_version(),
               "gap_charset": list(rules["gap_charset"]),   # 4.1c's manifest hash-binder tegnsættet herfra

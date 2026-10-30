@@ -37,6 +37,31 @@ class TestBuildClauseLedger(unittest.TestCase):
             self.assertNotIn("Alfa", json.dumps(summary))
             self.assertEqual(oct(os.stat(os.path.join(out, "clause-ledger-texts-v1.json")).st_mode & 0o777), "0o600")
 
+    def test_ledger_carries_the_exports_text_version_only_when_present(self):
+        """Trin 6a (Task 13): eksportens text_id (helpostens gældende tekstversion) følger med i ledger-recorden, så
+        manifest-byggeren kan fejle med en klar kode; en post uden tekstversion får ingen nøgle (2018-20 uændret)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chmod(tmp, 0o700)
+            texts = os.path.join(tmp, "texts.json")
+            text = "Alfa Bravo, f. 1801, d. 1860."
+            rows = []
+            for key, text_id in (("I.1", None), ("I.2", "6a130000-0000-4000-8000-000000000001")):
+                rows.append({"record_key": key, "occurrence_key": "source-evidence:" + key, "page_from": 10,
+                             "page_to": 10, "char_from": 100, "char_to": 100 + len(text), "text_id": text_id,
+                             "verbatim_text": text, "verbatim_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                             "rendition_content_sha256": "1" * 64})
+            with open(texts, "w", encoding="utf-8") as fh:
+                json.dump(rows, fh)
+            out = os.path.join(tmp, "out"); os.mkdir(out); os.chmod(out, 0o700)
+            proc = subprocess.run([sys.executable, os.path.join(HERE, "build_clause_ledger.py"), "--profile", "daa-2018-20-v1",
+                                   "--texts", texts, "--output-dir", out], capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            with open(os.path.join(out, "clause-ledger-v1.json"), encoding="utf-8") as fh:
+                records = {r["record_key"]: r for r in json.load(fh)["records"]}
+            self.assertNotIn("text_id", records["I.1"])
+            self.assertEqual(records["I.2"]["text_id"], "6a130000-0000-4000-8000-000000000001")
+            self.assertEqual(records["I.2"]["parent_verbatim_sha256"], hashlib.sha256(text.encode("utf-8")).hexdigest())
+
     def test_record_without_helpost_is_visible_in_summary_and_gets_no_clauses(self):
         with tempfile.TemporaryDirectory() as tmp:
             os.chmod(tmp, 0o700)

@@ -177,6 +177,31 @@ class TestClauseRevisionManifest(unittest.TestCase):
         with self.assertRaises(B.BuildError):
             B.build_revision_manifest(self.profile, self.ledger, RENDITION, "e" * 64, {})
 
+    def test_revideret_post_beholder_eksportens_hash(self):
+        """Trin 6a (Task 13): parent_verbatim_sha256 kommer fra eksporten (helpostens GÆLDENDE tekst, via ledgeren)
+        og regnes aldrig ud af renditionen. Er den reviderede tekst projektionens udsnit (fx B → C → B), bygges
+        omsegmenteringen med netop den hash, som basen kræver for en revideret post."""
+        ledger = json.loads(json.dumps(self.ledger))
+        ledger["records"][0]["text_id"] = "6a130000-0000-4000-8000-000000000002"
+        m = B.build_revision_manifest(self.profile, ledger, RENDITION, "e" * 64, self._current("0" * 64))
+        self.assertEqual(m["operations"][0]["parent_verbatim_sha256"], ledger["records"][0]["parent_verbatim_sha256"])
+
+    def test_revideret_post_uden_for_projektionen_fejler_lukket(self):
+        """En revideret tekst, der ikke er renditionens projektion under denne profils tekstform (2018-20's
+        page_header-revision), kan ikke ankres; byggeren fejler med en klar kode i stedet for ANCHOR_FAILED."""
+        ledger = json.loads(json.dumps(self.ledger))
+        record = ledger["records"][0]
+        revised = self.post + " Revideret."
+        record["parent_verbatim_sha256"] = _sha(revised)
+        record["text_id"] = "6a130000-0000-4000-8000-000000000003"
+        with self.assertRaises(B.BuildError) as ctx:
+            B.build_revision_manifest(self.profile, ledger, RENDITION, "e" * 64, self._current("0" * 64))
+        self.assertEqual(str(ctx.exception), "CLAUSE_EVIDENCE_PARENT_TEXT_VERSION_NOT_PROJECTABLE")
+        del record["text_id"]
+        with self.assertRaises(B.BuildError) as ctx:
+            B.build_revision_manifest(self.profile, ledger, RENDITION, "e" * 64, self._current("0" * 64))
+        self.assertEqual(str(ctx.exception), "CLAUSE_EVIDENCE_PARENT_ANCHOR_FAILED")
+
     def test_current_sets_fra_projektionen(self):
         rows = [
             {"record_key": "REC1", "clause_set_seq": 1, "clause_set_sha256": "1" * 64, "is_current_set": False},

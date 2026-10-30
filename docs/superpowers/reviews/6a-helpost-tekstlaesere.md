@@ -104,19 +104,25 @@ uden virkning på prods nuværende input. Den eneste mulige ændring for ikke-fo
 hvis ægteskabsrelation er **afvist** (`rejected`), viser nu U i stedet for et forslag. Det er hensigten i specen, men
 det bør tælles på stand-in (se rapporten).
 
-## C. Scripts (kun klassificeret; flyttes eller begrundes i Task 13)
+## C. Scripts (udfald efter Task 13)
 
 DB-læsere af helposttekst:
 
-| Fil:linje | Klasse | Til Task 13 |
+| Fil:linje | Klasse | Udfald |
 |---|---|---|
-| `export_43b_runner_input.R:47` | helpost (observation) | `post_text` skal være den gældende tekst, fordi `evidence_runner.canonical_record_input` og `check_clauses_within_post` kræver klausulerne som delstrenge af den. |
-| `export_43b_runner_input.R:68-69` | klausul | Følger, hvis forespørgslen begrænses til det aktuelle sæt. Tjek det. |
-| `export_clause_source_texts.R:20-21` | helpost (observation) | Kildeteksten til segmenteringen. Flyt til den gældende tekst, eller begrund basisteksten for en førstegangsimport. |
-| `export_model_eligibility.R:133, 155` | helpost (observation) | Mønstertjek og `input_sha`. Flyt, eller begrund. |
-| `clause_evidence_projection.sql:72` (`parent_verbatim_sha256`) | helpost (observation) | Skal være hashen af den tekst, *klausulens sæt* er skåret af (`parent_text_id`, ellers basisteksten), ikke nødvendigvis den gældende tekst. |
-| `export_legacy_migration_candidates_helpers.R:29, 58` og `build_legacy_migration_manifest.py` (149b-komparatoren) | helpost (forekomst) | Bundet til forekomstens tekst, som `migrate_legacy_narrative_record` (afsnit A). |
-| `preview_reimport_1939_v50_helpers.R:441, 636, 1036` | helpost (forekomst/observation), 1939-v50 | Afsluttet 1939-v50-spor. Sammenligner med det skrevne. Bekræft, at sporet ikke genbruges. |
+| `export_43b_runner_input.R` (`posts`) | helpost (observation) | **Flyttet** (Task 13): `post_text` = `helpost_text_current(ob.id)`. Klausulerne (`clause_observation_current`) er det aktuelle sæt; eksporten kræver, at sættets `parent_text_id` er den eksporterede tekstversion, ellers `EXPORT_CLAUSE_SET_TEXT_MISMATCH` (klausulerne ville ikke være delstrenge af posten). Test: `tests/integration/test-reimport-source-text-revision.R` (writer-jobbet). |
+| `export_43b_runner_input.R` (`clauses`) | klausul | **Allerede korrekt**: `clause_observation_current` = det aktuelle sæt. Efter en revision er det sættet bundet til tekstversionen (se kontrollen ovenfor). |
+| `export_clause_source_texts.R` | helpost (observation) | **Flyttet** i Task 11: helposten vælges af `record_helpost_status`, teksten og `text_id` af `helpost_text_current`. |
+| `export_model_eligibility.R` (`text_filter`, `record_input`) | helpost (observation) | **Flyttet** (Task 13): mønstertjek og `input_sha` på den gældende tekst, så `input_sha` følger runner-inputtet. Urørte poster: `input_sha` uændret (gældende tekst = basisteksten). `rules_script_sha256` ændres, fordi den er hashen af selve scriptfilen. Test: samme integrationstest. |
+| `clause_evidence_projection.sql` (`parent_verbatim_sha256`) | helpost (observation) | **Flyttet til sættets tekst** (R13-a): hashen af `source_observation_text` i klausulens `parent_text_id`, ellers basisteksten. Ikke `helpost_text_current`: et afløst sæt hasher fortsat sin egen tekst. 2018-20 (ingen tekstversioner) er byte-identisk. Test: samme integrationstest (sæt 1 = basistekstens hash, sæt 2 = tekstversionens). |
+| `interpretation_proposal_projection.sql` (`key_material_sha256`, `key_matches`) | nøgleversion | **Følger nøglen** (R13-c, spec §4.4 pkt. 6): nøgle- og tekstversion læses pr. nøgle af den forslags-event, hvis kvittering bærer nøglen (`key_version`/`text_version` på eventens topniveau; mangler de = v1). v1 genberegnes altid med v1-funktionen, v2 med `interpretation_proposal_key_material_v2(..., text_version)`. Ingen event: v1 som før. Komparatoren kræver nu `key_matches` for alle rækker med en kvitteret nøgle, også historiske (`INTERPRETATION_PROJECTION_KEY_MISMATCH`). Test: `tests/sql/test-interpretation-proposal-rerun.sql` (`test_projection_follows_key_version`) og `test_compare_interpretation_proposal_projection.py`. |
+| `build_clause_evidence_manifest.py` / `build_clause_ledger.py` (clause_revision) | helpost (observation) | **Hash fra eksporten**: `parent_verbatim_sha256` er eksportens hash af den gældende tekst (via ledgeren) og regnes aldrig ud af renditionen. Ledgeren bærer eksportens `text_id`, når den findes; kan en tekstversion ikke ankres i profilens projektion, fejler byggeren med `CLAUSE_EVIDENCE_PARENT_TEXT_VERSION_NOT_PROJECTABLE`. 2018-20's revisioner er `@page_header`, som byggeren ikke projicerer, så en omsegmentering af en revideret 2018-20-post kan ikke bygges endnu (6c). |
+| `export_legacy_migration_candidates_helpers.R` (`occurrence_verbatim_sha256`, `occurrence_text`) og `build_legacy_migration_manifest.py` (149b) | helpost (forekomst) | **Begrundet, ikke flyttet** (R13-b): forekomstens tekst, som `migrate_legacy_narrative_record` og 149b-manifesterne er bundet til; en revision lader forekomsten stå urørt. Kommentar i begge filer. |
+| `preview_reimport_1939_v50_helpers.R:441, 636, 1036` | ingen DB-læsning, 1939-v50 | **Begrundet, ikke flyttet** (R13-b): `verbatim_text` er felter i sporets preview-/materialiserings-JSON, ikke en læsning af observationstekst. Sporet er afsluttet; `git grep` viser kun 1939-v50-scripts, deres tests og SKILL.md som kaldere, ingen 6a-scripts. Kommentar i filhovedet. |
+
+Note til 6c: `export_43b_runner_input.R` og `export_model_eligibility.R` vælger stadig helposten som rodobservationen
+på ankerforekomsten (ikke `record_helpost_status`). Kun teksten er flyttet; helpost-valget hører til 6c som i
+forslags-writeren.
 
 Klausul- og mentionlæsere (ingen helposttekst): `interpretation_proposal_projection.sql:77, 80`,
 `interpretation_control_rows.sql:9`, `interpretation_decision_fingerprint.sql:25`,
