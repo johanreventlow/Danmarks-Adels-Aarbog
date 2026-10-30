@@ -1,0 +1,28 @@
+{
+  "profile_schema_version": "reimport-source-text-revision-profile-v1",
+  "source_id": 1,
+  "profile_id": "daa-2018-20-source-text-revision-v1",
+  "profile_version": "source-text-revision-v1",
+  "writer_config": {
+    "citation_label_template": "DAA 2018-20 side {page_from}",
+    "extractor_version": "source-text-revision-v1",
+    "helpost_observation_kind": "person_post",
+    "observation_extraction_method": "clause_segment_v1",
+    "rendition_key": "daa-2018-20-pdftotext-r1",
+    "rendition_kind": "pdf_text_layer",
+    "rendition_metadata": {
+      "edition": "2018-20",
+      "pdf_sha256": "3beadfc15e3fa1a4090589af56cd4e95599a9231e8f979dfb60c4e27bbd8252a",
+      "pdftotext_version": "26.07.0"
+    },
+    "run_key_prefix": "reimport-source-text-revision:",
+    "schema_version": "source-text-revision-manifest-v1",
+    "text_form": "folded_projection@page_header"
+  },
+  "raw_text_sha256": "2dd5cf8408943ccc50ac4d89dcbd08ac3b49a90fdabd1ddcbd7b22d218026563",
+  "segment_profile_before": "2018-20",
+  "segment_profile_after": "2018-20-v2",
+  "clause_rules_version": "clause-rules-2018-20-v3",
+  "segmenter_version": "clause_segment.py@sha256:3e95b1b4534f6feb",
+  "expected_counts": {"source_text_revision": 10}
+}

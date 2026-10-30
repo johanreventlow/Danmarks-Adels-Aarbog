@@ -39,6 +39,10 @@ ALLOWED = {
     # Læser kun helposten (parent_observation_id IS NULL), ikke klausuler.
     ".claude/skills/daa-extract/scripts/export_clause_source_texts.R",
     ".claude/skills/daa-extract/scripts/export_model_eligibility.R",
+    # Kildetekst-revisionens afhængighedsfil (trin 6a): bestemmer det aktuelle sæt som writeren
+    # (max clause_set_seq under helposten) og hasher det med private.clause_set_sha256; afhængighederne
+    # læses gennem private.text_revision_dependents (clause_observation_current).
+    ".claude/skills/daa-extract/scripts/source_text_revision_dependencies.sql",
     # #150 placement-ceremonien: helposten som persona-placementens grundlag og identitetstjekket.
     ".claude/skills/daa-extract/scripts/fix_150_placement.sql",
     # Ingen databaselæsning: kontrakter, manifester og ark bygget af eksporterede data.
