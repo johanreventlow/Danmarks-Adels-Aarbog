@@ -349,8 +349,9 @@ child_rows5 <- function() as.integer(scalar(controller, paste0(
 expect_true(current_bindings5() == 0L && child_rows5() == 0L && identical(scalar(controller,
   "SELECT status FROM private.interpretation_current WHERE interpretation_key=$1::uuid", list(parent_key5)), "accepted"),
   "TEXT_REVISION_CONCURRENCY_5_PRECONDITION_INVALID")
-case5 <- prepare_case(controller, NA_integer_, "order-5", fx_text = case5_fx, new_text = "Barn Alfa. søn af F.",
-                      parts = c("Barn Alfa.", "søn af F."), family_bindings = 0L)
+# Ren ASCII: workeren får kun PG*-miljøet (intet LANG), så R på Linux escaper ikke-ASCII i argumenterne (ø → <c3><b8>).
+case5 <- prepare_case(controller, NA_integer_, "order-5", fx_text = case5_fx, new_text = "Barn Alfa. son af F.",
+                      parts = c("Barn Alfa.", "son af F."), family_bindings = 0L)
 barrier5 <- connect("t5_barrier5")
 DBI::dbBegin(barrier5)
 invisible(scalar(barrier5, "SELECT count(*) FROM (SELECT 1 FROM private.source_rendition WHERE id=$1::uuid FOR UPDATE) x", list(case5$fx$src$rend)))
