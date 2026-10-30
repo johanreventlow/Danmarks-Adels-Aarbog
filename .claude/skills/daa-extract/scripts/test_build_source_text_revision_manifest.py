@@ -324,7 +324,8 @@ def test_2018_revision_profile_hash_matches_db_seed(sql_file):
     assert profile["writer_config"] == seeded
     assert profile["profile_sha256"] == rp.canonical_json_sha256(seeded) == EXPECTED_2018_SHA
     assert profile["expected_counts"] == {"source_text_revision": 10}
-    assert profile["segmenter_version"] == build_clause_ledger.segmenter_version()
+    # segmenter_version pinnes ikke her: byggeren afviser selv en profil, hvis segmenter_version ikke er den kørende
+    # kodes, og en pin ville gøre CI rød ved hver senere ændring af segmenteringen (Task 12 M2; fjernet efter Task 15).
     assert profile["writer_config"]["text_form"] == "folded_projection@page_header"
 
 
