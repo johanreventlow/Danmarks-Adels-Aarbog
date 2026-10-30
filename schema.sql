@@ -848,6 +848,54 @@ SELECT DISTINCT ON (observation_id) *
   FROM private.source_observation_text
  ORDER BY observation_id,is_preferred DESC,version DESC,created_at DESC,id DESC;
 
+-- Trin 6a: helpost-regel. En record kan have flere accepterede forekomster; helposten er den
+-- ene forekomst, hvis eneste top-observation har helpost-slagsen (p_helpost_kind). Alle øvrige
+-- accepterede forekomster skal ligge inde i helpostens tegnspænd i SAMME rendition.
+-- status: ok | none (ingen kandidat) | ambiguous (flere kandidater) | outside (underforekomst udenfor).
+CREATE OR REPLACE FUNCTION private.record_helpost_status(p_record_id uuid, p_helpost_kind text)
+RETURNS TABLE(observation_id uuid, occurrence_id uuid, status text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_n integer; v_obs uuid; v_occ uuid; v_rend uuid; v_from integer; v_to integer;
+BEGIN
+  SELECT count(*), min(c.obs_id::text)::uuid, min(c.occ_id::text)::uuid, min(c.rend_id::text)::uuid, min(c.cf), min(c.ct)
+    INTO v_n, v_obs, v_occ, v_rend, v_from, v_to
+    FROM (
+      SELECT ob.id AS obs_id, o.id AS occ_id, o.rendition_id AS rend_id, o.char_from AS cf, o.char_to AS ct
+        FROM private.source_record_anchor_current a
+        JOIN private.source_record_occurrence o ON o.id=a.occurrence_id
+        JOIN private.source_observation ob ON ob.occurrence_id=o.id AND ob.parent_observation_id IS NULL
+       WHERE a.source_record_id=p_record_id AND a.decision_status='accepted'
+         AND ob.observation_kind=p_helpost_kind
+         AND (SELECT count(*) FROM private.source_observation t
+               WHERE t.occurrence_id=o.id AND t.parent_observation_id IS NULL)=1
+    ) c;
+  IF v_n=0 THEN RETURN QUERY SELECT NULL::uuid,NULL::uuid,'none'::text; RETURN; END IF;
+  IF v_n>1 THEN RETURN QUERY SELECT NULL::uuid,NULL::uuid,'ambiguous'::text; RETURN; END IF;
+  IF EXISTS (
+    SELECT 1 FROM private.source_record_anchor_current a
+      JOIN private.source_record_occurrence o ON o.id=a.occurrence_id
+     WHERE a.source_record_id=p_record_id AND a.decision_status='accepted' AND o.id<>v_occ
+       AND NOT (o.rendition_id=v_rend AND o.char_from>=v_from AND o.char_to<=v_to)
+  ) THEN
+    RETURN QUERY SELECT v_obs,v_occ,'outside'::text; RETURN;
+  END IF;
+  RETURN QUERY SELECT v_obs,v_occ,'ok'::text;
+END $$;
+
+CREATE OR REPLACE FUNCTION private.record_helpost_observation(p_record_id uuid, p_helpost_kind text)
+RETURNS uuid LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE r record;
+BEGIN
+  SELECT * INTO r FROM private.record_helpost_status(p_record_id,p_helpost_kind);
+  IF r.status='ok' THEN RETURN r.observation_id; END IF;
+  IF r.status='outside' THEN RAISE EXCEPTION 'RECORD_HELPOST_SUBOCCURRENCE_OUTSIDE'; END IF;
+  RAISE EXCEPTION 'RECORD_HELPOST_AMBIGUOUS';
+END $$;
+
+REVOKE ALL ON FUNCTION private.record_helpost_status(uuid,text), private.record_helpost_observation(uuid,text)
+  FROM PUBLIC,anon,authenticated,service_role;
+
 -- Alle rå kilde-/hypoteserækker er uforanderlige. En rettelse er en ny række/event.
 CREATE FUNCTION private.reject_evidence_mutation()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$

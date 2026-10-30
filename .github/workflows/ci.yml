@@ -538,6 +538,9 @@ jobs:
       - name: Klausul-writer SQL (#148 4.1c)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-clause-evidence-writer.sql
+      - name: Helpost-regel SQL (trin 6a)
+        env: {PGPASSWORD: postgres}
+        run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-record-helpost.sql
       - name: Legacy migration writer integration (149b)
         env:
           PGHOST: localhost
@@ -582,6 +585,10 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f db-rls.sql
       - name: Fokuseret record-kontrakt
         run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-narrative-record-contract.sql
+      - name: Helpost-regel (trin 6a, schema + migrationer to gange)
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -f db-migrations.sql
+          psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-record-helpost.sql
       - name: Nulstil til frisk cutover-kontrakt
         run: |
           dropdb --force narrative_record_152_ci
