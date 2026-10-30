@@ -37,6 +37,33 @@ class TestBuildClauseLedger(unittest.TestCase):
             self.assertNotIn("Alfa", json.dumps(summary))
             self.assertEqual(oct(os.stat(os.path.join(out, "clause-ledger-texts-v1.json")).st_mode & 0o777), "0o600")
 
+    def test_record_without_helpost_is_visible_in_summary_and_gets_no_clauses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chmod(tmp, 0o700)
+            texts = os.path.join(tmp, "texts.json")
+            text = "Alfa Bravo, f. 1801, d. 1860."
+            with open(texts, "w", encoding="utf-8") as fh:
+                json.dump([
+                    {"record_key": "I.1", "occurrence_key": "source-evidence:I.1", "page_from": 10, "page_to": 10,
+                     "char_from": 100, "char_to": 100 + len(text), "verbatim_text": text,
+                     "verbatim_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                     "rendition_content_sha256": "1" * 64},
+                    {"record_key": "I.2", "occurrence_key": None, "page_from": 11, "page_to": 11,
+                     "char_from": None, "char_to": None, "verbatim_text": None,
+                     "verbatim_sha256": None, "rendition_content_sha256": None}], fh)
+            out = os.path.join(tmp, "out"); os.mkdir(out); os.chmod(out, 0o700)
+            proc = subprocess.run([sys.executable, os.path.join(HERE, "build_clause_ledger.py"), "--profile", "daa-2018-20-v1",
+                                   "--texts", texts, "--output-dir", out], capture_output=True, text=True)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            with open(os.path.join(out, "clause-ledger-v1.json"), encoding="utf-8") as fh:
+                ledger = json.load(fh)
+            self.assertEqual([r["record_key"] for r in ledger["records"]], ["I.1"])
+            with open(os.path.join(out, "clause-ledger-summary.json"), encoding="utf-8") as fh:
+                summary = json.load(fh)
+            self.assertEqual(summary["records"], 1)
+            self.assertEqual(summary["no_helpost"], {"records": 1, "record_keys": ["I.2"]})
+            self.assertIn("no_helpost", json.loads(proc.stdout))
+
     def test_segmenter_version_is_derived_from_the_code(self):
         """Review 35, P4: den hårdkodede "clause_segment.py@v1" stod stille gennem fire
         kodeændringer; ledgeren kunne ikke sige, hvilken kode der skrev klausulerne."""

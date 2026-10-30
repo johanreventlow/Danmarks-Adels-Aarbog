@@ -45,6 +45,9 @@ WRITER_CONFIG_KEYS = {
     "rendition_key", "rendition_kind", "rendition_metadata", "run_key_prefix",
     "schema_version",
 }
+#: Valgfri nøgler (trin 6a, B7). Udeladt = default, så 2018-20's profiler og hashes er uændrede.
+WRITER_CONFIG_OPTIONAL_KEYS = {"text_form", "helpost_observation_kind"}
+TEXT_FORMS = ("raw", "folded_projection@anywhere", "folded_projection@page_header")
 WRITER_CONFIG_TEXT_KEYS = (
     "run_key_prefix", "schema_version", "extractor_version", "rendition_key",
     "rendition_kind", "observation_extraction_method",
@@ -143,23 +146,34 @@ def _nonnegative_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
-def _validate_writer_config(config: Any, pdf_sha256: str) -> None:
-    if not isinstance(config, dict) or set(config) != WRITER_CONFIG_KEYS:
+def _validate_writer_config(config: Any, pdf_sha256: str | None) -> None:
+    if not isinstance(config, dict) or not WRITER_CONFIG_KEYS <= set(config) \
+            or set(config) - WRITER_CONFIG_KEYS - WRITER_CONFIG_OPTIONAL_KEYS:
         _fail("PROFILE_WRITER_CONFIG_INVALID")
     for key in WRITER_CONFIG_TEXT_KEYS:
         if not _text(config[key]):
             _fail("PROFILE_WRITER_CONFIG_INVALID")
+    if "text_form" in config and config["text_form"] not in TEXT_FORMS:
+        _fail("PROFILE_WRITER_CONFIG_INVALID")
+    if "helpost_observation_kind" in config and not _text(config["helpost_observation_kind"]):
+        _fail("PROFILE_WRITER_CONFIG_INVALID")
     template = config["citation_label_template"]
     if not isinstance(template, str) or template.count("{page_from}") != 1 \
             or re.search(r"\{[^}]*\}", template.replace("{page_from}", "")):
         _fail("PROFILE_WRITER_CONFIG_INVALID")
     metadata = config["rendition_metadata"]
-    if not isinstance(metadata, dict) or set(metadata) != RENDITION_METADATA_KEYS \
-            or not _text(metadata["edition"]) or not _text(metadata["pdftotext_version"]) \
-            or not isinstance(metadata["pdf_sha256"], str):
+    if not isinstance(metadata, dict) or not set(metadata) <= RENDITION_METADATA_KEYS \
+            or not _text(metadata.get("edition")):
         _fail("PROFILE_WRITER_CONFIG_INVALID")
-    if metadata["pdf_sha256"] != pdf_sha256:
-        _fail("PROFILE_PDF_SHA256_MISMATCH")
+    if config["rendition_kind"] == "pdf_text_layer":
+        # pdf_sha256 og pdftotext_version kræves kun for et PDF-tekstlag.
+        if set(metadata) != RENDITION_METADATA_KEYS or not _text(metadata["pdftotext_version"]) \
+                or not isinstance(metadata["pdf_sha256"], str):
+            _fail("PROFILE_WRITER_CONFIG_INVALID")
+        if metadata["pdf_sha256"] != pdf_sha256:
+            _fail("PROFILE_PDF_SHA256_MISMATCH")
+    elif set(metadata) != {"edition"}:
+        _fail("PROFILE_WRITER_CONFIG_INVALID")
 
 
 def _validate_source_evidence_profile(profile: dict[str, Any]) -> None:
@@ -244,10 +258,14 @@ def _validate_clause_evidence_profile(profile: dict[str, Any], count_key: str = 
     _assert_collation_stable(profile["writer_config"])
     config = profile["writer_config"]
     metadata = config.get("rendition_metadata") if isinstance(config, dict) else None
-    if not isinstance(metadata, dict) or not isinstance(metadata.get("pdf_sha256"), str) \
-            or not HASH_RE.match(metadata["pdf_sha256"]):
-        _fail("PROFILE_MEASURED_HASH_INVALID")
-    _validate_writer_config(config, metadata["pdf_sha256"])
+    if not isinstance(metadata, dict):
+        _fail("PROFILE_WRITER_CONFIG_INVALID")
+    pdf_hash = None
+    if config.get("rendition_kind") == "pdf_text_layer":
+        pdf_hash = metadata.get("pdf_sha256")
+        if not isinstance(pdf_hash, str) or not HASH_RE.match(pdf_hash):
+            _fail("PROFILE_MEASURED_HASH_INVALID")
+    _validate_writer_config(config, pdf_hash)
 
 
 def load_profile(path: Path) -> dict[str, Any]:

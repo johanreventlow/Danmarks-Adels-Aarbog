@@ -52,10 +52,23 @@ def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _anchor(projected: str, offsets: list[int], kandidater: dict[int, list[int]],
-            record: dict[str, Any]) -> tuple[int, int]:
+RAW_TEXT_FORM = "raw"
+
+
+def _text_form(profile: dict[str, Any]) -> str:
+    """Tekstformen fra writer_config; udeladt = 2018-20's foldede projektion."""
+    return (profile.get("writer_config") or {}).get("text_form", "folded_projection@anywhere")
+
+
+def _anchor(projected: str, offsets: Any, kandidater: dict[int, list[int]],
+            record: dict[str, Any], raw: bool = False) -> tuple[int, int]:
     """Find (p, q) i projektionen for helposten, verificeret mod dens hash."""
     pcf, pct = record["parent_char_from"], record["parent_char_to"]
+    if raw:
+        # Identitetsprojektion: helposten ER et ordret udsnit af renditionen.
+        if 0 <= pcf < pct <= len(projected) and _sha(projected[pcf:pct]) == record["parent_verbatim_sha256"]:
+            return pcf, pct
+        _fail("CLAUSE_EVIDENCE_PARENT_ANCHOR_FAILED")
     for p in kandidater.get(pcf, ()):
         q = p
         while q < len(offsets) and offsets[q] < pct:
@@ -81,10 +94,14 @@ def _operations(profile: dict[str, Any], ledger: dict[str, Any], rendition: str)
             or not all(isinstance(g, str) and len(g) == 1 for g in gap_charset):
         _fail("LEDGER_GAP_CHARSET_INVALID")
 
-    projected, offsets = sem.project_rendition(rendition)
+    raw = _text_form(profile) == RAW_TEXT_FORM
     kandidater: dict[int, list[int]] = defaultdict(list)
-    for i, o in enumerate(offsets):
-        kandidater[o].append(i)
+    if raw:
+        projected, offsets = rendition, range(len(rendition))
+    else:
+        projected, offsets = sem.project_rendition(rendition)
+        for i, o in enumerate(offsets):
+            kandidater[o].append(i)
     projection_sha = _sha(projected)
 
     operations: list[dict[str, Any]] = []
@@ -94,7 +111,7 @@ def _operations(profile: dict[str, Any], ledger: dict[str, Any], rendition: str)
         if key in seen:
             _fail("LEDGER_RECORD_KEY_DUPLICATE")
         seen.add(key)
-        p, q = _anchor(projected, offsets, kandidater, record)
+        p, q = _anchor(projected, offsets, kandidater, record, raw)
         post_length = q - p
 
         clauses: list[dict[str, Any]] = []

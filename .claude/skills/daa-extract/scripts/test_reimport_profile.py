@@ -232,3 +232,42 @@ def test_revision_profile_rejects_the_clause_evidence_count(tmp_path):
     path.write_text(json.dumps(_revision_profile(person_creates=0, source_evidence=0, clause_evidence=51)), encoding="utf-8")
     with pytest.raises(rp.ProfileError, match="PROFILE_EXPECTED_COUNTS_INVALID"):
         rp.load_profile(path)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+PROFILE_1939 = (Path(__file__).resolve().parents[1] /
+                "references/reimport-profiles/daa-1939-clause-evidence-v1.json")
+EXPECTED_1939_SHA = "2aa5a358063fdf98f19954a683279cc3cabfd3eb5d5dd9c7fdaf5e42571b66d7"
+
+
+def _seed_writer_config(sql_file):
+    """writer_config-strengen i INSERT-rækken for 1939-klausulprofilen, læst direkte fra SQL-filen."""
+    import re
+    text = (REPO_ROOT / sql_file).read_text(encoding="utf-8")
+    start = text.index("'daa-1939-clause-evidence-v1'")
+    match = re.search(r"VALUES \(\s*'(\{.*?\})'::jsonb", text[start:], re.S)
+    assert match, sql_file
+    return json.loads(match.group(1))
+
+
+@pytest.mark.parametrize("sql_file", ["schema.sql", "db-migrations.sql"])
+def test_1939_profile_hash_matches_db_seed(sql_file):
+    profile = rp.load_profile(PROFILE_1939)
+    seeded = _seed_writer_config(sql_file)
+    assert profile["writer_config"] == seeded
+    assert profile["profile_sha256"] == rp.canonical_json_sha256(seeded) == EXPECTED_1939_SHA
+    assert profile["expected_counts"]["clause_evidence"] == 584
+
+
+def test_pdf_metadata_still_required_for_pdf_text_layer(tmp_path):
+    raw = json.loads(PROFILE_1939.read_text(encoding="utf-8"))
+    raw["writer_config"]["rendition_kind"] = "pdf_text_layer"
+    with pytest.raises(rp.ProfileError):
+        rp.load_profile(write(tmp_path, raw))
+
+
+def test_unknown_text_form_rejected(tmp_path):
+    raw = json.loads(PROFILE_1939.read_text(encoding="utf-8"))
+    raw["writer_config"]["text_form"] = "folded"
+    with pytest.raises(rp.ProfileError):
+        rp.load_profile(write(tmp_path, raw))

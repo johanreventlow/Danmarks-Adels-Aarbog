@@ -81,8 +81,13 @@ def main() -> None:
     records, texts, flag_counter, unknown_tokens, gap_chars = [], {}, Counter(), Counter(), Counter()
     counts = []
     structural = 0
+    no_helpost = []
     for row in rows:
         text = row["verbatim_text"]
+        if text is None:
+            # Record uden helpost (spec 4.2): en synlig disposition, ikke en fejl. Ingen klausuler.
+            no_helpost.append(row["record_key"])
+            continue
         if hashlib.sha256(text.encode("utf-8")).hexdigest() != row["verbatim_sha256"]:
             _fail("TEXT_HASH_MISMATCH:" + row["record_key"])
         result = clause_segment.build_record_ledger(row["record_key"], row["occurrence_key"], text, rules)
@@ -115,10 +120,11 @@ def main() -> None:
     summary = {"records": len(records), "clauses": {"total": sum(counts), "min": min(counts) if counts else 0,
                "median": statistics.median(counts) if counts else 0, "max": max(counts) if counts else 0},
                "flags": dict(flag_counter), "structural_header": structural,
+               "no_helpost": {"records": len(no_helpost), "record_keys": sorted(no_helpost)},
                "gap_violations": dict(gap_chars), "unknown_abbreviation_tokens": dict(unknown_tokens.most_common(50)),
                "ledger_file_sha256": hashlib.sha256((out / "clause-ledger-v1.json").read_bytes()).hexdigest()}
     _write_private(out / "clause-ledger-summary.json", summary)
-    print(json.dumps({k: summary[k] for k in ("records", "clauses", "flags", "structural_header", "gap_violations", "ledger_file_sha256")}, ensure_ascii=False))
+    print(json.dumps({k: summary[k] for k in ("records", "clauses", "flags", "structural_header", "no_helpost", "gap_violations", "ledger_file_sha256")}, ensure_ascii=False))
 
 
 if __name__ == "__main__":
