@@ -418,7 +418,7 @@ def test_interpretation_schema_defines_all_six_value_forms():
 
 def test_1939_profile_clause_rules_and_optional_page_keys(tmp_path):
     profile = evidence_extract.load_profile("daa-1939-v1")
-    assert profile["version"] == "1.2.0"
+    assert profile["version"] == "1.3.0"
     rules = profile["clause_rules"]
     assert rules["version"] == "clause-rules-1939-v1"
     assert rules["gap_charset"] == [" ", "\n"]

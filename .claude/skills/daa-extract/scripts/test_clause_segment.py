@@ -7,6 +7,9 @@ Røgtest 2026-10-30 (Task 14, seed 20261030, 20 poster om personer død før 180
 "Aarb.", "Kbhvn.", "(5." og "Sunds-H."; runde 2 (seed 20261031) kun enkeltstående: "Test.", "Jfr.",
 "Supp.", "Prot.". Profil 1.2.0 (seks forkortelser, "(" foran ordenstal, "(" og "-" foran initial):
 954 klausuler, unbalanced_parentheses 74, short_clause 42, unknown_abbreviation 60.
+Optælling af ordet før hvert split i de 363 nyere poster (kun antal, ingen læsning): ni forkortelser mere
+("preuss.", "Dronn.", "sjæll.", "overord.", "Oberstltnt.", "Kmhre.", "Livreg.", "hjdbt.", "konst."). Profil 1.3.0:
+912 klausuler, unbalanced_parentheses 66, short_clause 40, unknown_abbreviation 59.
 """
 import json
 import os
@@ -306,7 +309,8 @@ class Test1939Rules(unittest.TestCase):
         """Røgtestens fejlsnit (Task 14): Aarbog-henvisning, Kbhvn., dato i parentes, herred efter bindestreg."""
         for text in ("g. m. X (Aarb. XXX, 138).", "f. 1708 i Kbhvn. † i Altona.",
                      "1743 (5. Jan.) Overhofmester.", "Turø, Sunds-H. (-1674), Clausholm.",
-                     "indsatte i sit Test. Geheimeraad X.", "en Jfr. Engelke."):
+                     "indsatte i sit Test. Geheimeraad X.", "en Jfr. Engelke.",
+                     "1790 preuss. Generalmajor.", "Oberstltnt. † 1801.", "Kmhre. (1780)."):
             with self.subTest(text=text):
                 self.assertEqual(len(_build(text)["clauses"]), 1)
 

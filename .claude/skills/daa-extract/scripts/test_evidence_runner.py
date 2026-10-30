@@ -833,7 +833,7 @@ def test_the_1939_profile_has_no_prompt_file():
     gættet binding — fraværet er det ærlige svar, og runneren afviser den."""
     profile = evidence_extract.load_profile("daa-1939-v1")
     assert "prompt_file" not in profile
-    assert profile["version"] == "1.2.0"
+    assert profile["version"] == "1.3.0"
 
 
 def test_the_legacy_trin3_prompt_is_left_alone():
