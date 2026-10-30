@@ -29008,14 +29008,21 @@ BEGIN
   --   Tilbage står kun: nye rivaliserende identiteter, mentions eller rivalnøgler kan gøre bindingen ugyldig
   --   (over-rapportering, aldrig et tavst tab).
   --   Prisen: under revisionen venter også andre, der refererer til de låste personer og familier (bogmærker,
-  --   slægtsmedlemskaber, identitetskandidater). Det svarer til ceremonireglen om skrivepause, nu håndhævet.
+  --   slægtsmedlemskaber, identitetskandidater). Det svarer til ceremonireglen om skrivepause, nu håndhævet. I en
+  --   ceremoni med flere revisioner i én transaktion holdes låsene til COMMIT, og også læsere, der opretter bogmærker,
+  --   venter og kan ramme deres rolles statement_timeout; en skrivepause for redaktører dækker ikke dem.
   -- Fast rækkefølge (uændret): assertion, fact, source_persona, identitet, person (parter), family, family_member,
   -- øvrige personer, rivalidentiteter, rivalnøgler, person_external_id.
   -- Deadlock (40P01) lukker sikkert: transaktionen afbrydes, intet skrives. Låserækkefølgen er ikke fælles med
-  -- decide_source_persona_identity, red_genaabn_relation_interpretation, red_ret_aegteskabsnummer og krydsende
-  -- revisioner; de låser person eller familie FOR UPDATE (fx via lock_family_rows) og var allerede i konflikt med
-  -- FOR SHARE, så FOR UPDATE ændrer ikke de inversioner. Nyt er kun konflikten med FOR KEY SHARE, og den giver en
-  -- inversion, når writeren holder en lås, revisionen tager senere, og derefter venter ved en FK-kontrol:
+  -- decide_source_persona_identity, red_genaabn_relation_interpretation og red_ret_aegteskabsnummer; de låser person
+  -- eller familie FOR UPDATE (fx via lock_family_rows) og var allerede i konflikt med FOR SHARE, så FOR UPDATE
+  -- ændrer ikke de inversioner. Nyt er to ting:
+  --   - krydsende revisioner med en fælles person eller familie: under FOR SHARE var de forenelige, nu er de i
+  --     konflikt, og de tre låsesætninger (parter, familier, øvrige medlemmer) giver ingen fælles rækkefølge på
+  --     tværs af revisioner. En ceremoni kører revisionerne efter hinanden i én transaktion, så det rammer ikke den;
+  --   - konflikten med FOR KEY SHARE. Den giver en inversion, når writeren holder en lås, revisionen tager senere,
+  --     og derefter venter ved en FK-kontrol (det omvendte, en writer der holder en FK-lås og venter på en række,
+  --     revisionen allerede har låst, er ikke fundet hos nogen writer):
   --   - _tjek_partner_loft låser family FOR UPDATE og tager derefter FK-låsen på personen, mens revisionen låser
   --     person før family (samme inversion som lock_family_rows dokumenterer);
   --   - red_tilfoej_barn tager FK-låsene i triggerrækkefølge, familien før barnet. Er barnet en part (låst før
