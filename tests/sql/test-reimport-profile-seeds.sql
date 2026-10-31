@@ -33,4 +33,31 @@ BEGIN
   IF NOT private.validate_reimport_writer_config(r.writer_config) THEN RAISE EXCEPTION 'SEED_2018_20_STR_INVALID'; END IF;
   RAISE NOTICE 'seed 2018-20 source text revision profile OK';
 END $seed_2018_20_source_text_revision$;
+-- Trin 6b: publikationsprofilen er klausulprofilens config med egen run-nøgle og extractor_version; ingen anden profils hash ændres.
+DO $profile_1939_publication$
+DECLARE r private.reimport_writer_profile%ROWTYPE; v_expected jsonb; v_clause jsonb; v_n int; k record;
+BEGIN
+  SELECT count(*) INTO v_n FROM private.reimport_writer_profile WHERE profile_id='daa-1939-publication-v1';
+  IF v_n<>1 THEN RAISE EXCEPTION 'PUBLICATION_REG_PROFILE_ROW_COUNT: %',v_n; END IF;
+  SELECT * INTO r FROM private.reimport_writer_profile WHERE profile_id='daa-1939-publication-v1';
+  IF r.source_id<>3 OR r.profile_version<>'publication-v1' THEN RAISE EXCEPTION 'PUBLICATION_REG_PROFILE_IDENTITY'; END IF;
+  SELECT writer_config INTO v_clause FROM private.reimport_writer_profile WHERE profile_id='daa-1939-clause-evidence-v1';
+  v_expected:=(v_clause-'run_key_prefix'-'extractor_version')||'{"run_key_prefix":"reimport-publication:","extractor_version":"publication-v1"}'::jsonb;
+  IF r.writer_config IS DISTINCT FROM v_expected THEN RAISE EXCEPTION 'PUBLICATION_REG_PROFILE_CONFIG'; END IF;
+  IF r.profile_sha256<>private.reimport_canonical_json_sha256(r.writer_config) THEN RAISE EXCEPTION 'PUBLICATION_REG_PROFILE_SHA'; END IF;
+  IF NOT private.validate_reimport_writer_config(r.writer_config) THEN RAISE EXCEPTION 'PUBLICATION_REG_PROFILE_INVALID'; END IF;
+  -- hashes taget fra main før ændringen (trin 6b); 2018-20-profilen kontrolleres, hvor kilde 1 findes
+  FOR k IN SELECT * FROM (VALUES
+      ('daa-1939-v50-production-write-v1','25349caff16f2c13002a4950e80fe8697ffcf49e196dbcd9d1550919caf52fd3',true),
+      ('daa-1939-clause-evidence-v1','2aa5a358063fdf98f19954a683279cc3cabfd3eb5d5dd9c7fdaf5e42571b66d7',true),
+      ('daa-2018-20-source-text-revision-v1','60c7deaa352a3d7916ef35aba160a8f602c931474dd093a0dd1d6873d0a16f45',false)
+    ) AS t(profile_id,sha,required) LOOP
+    SELECT count(*) INTO v_n FROM private.reimport_writer_profile WHERE profile_id=k.profile_id;
+    IF v_n=0 AND k.required THEN RAISE EXCEPTION 'PUBLICATION_REG_PROFILE_MISSING: %',k.profile_id; END IF;
+    IF v_n>1 OR EXISTS(SELECT 1 FROM private.reimport_writer_profile WHERE profile_id=k.profile_id AND profile_sha256<>k.sha) THEN
+      RAISE EXCEPTION 'PUBLICATION_REG_PROFILE_SHA_CHANGED: %',k.profile_id; END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: publication profile';
+END $profile_1939_publication$;
+
 ROLLBACK;

@@ -585,6 +585,7 @@ jobs:
           psql -q -v ON_ERROR_STOP=1 -f db-migrations.sql >/dev/null
           psql -q -v ON_ERROR_STOP=1 -f db-rls.sql >/dev/null
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-source-text-revision.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-publication-registration.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-proposal.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-proposal-rerun.sql
           Rscript tests/integration/test-source-text-revision-concurrency.R
@@ -594,6 +595,9 @@ jobs:
       - name: Helpost-regel SQL (trin 6a)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-record-helpost.sql
+      - name: Publication-operationer SQL (trin 6b)
+        env: {PGPASSWORD: postgres}
+        run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-publication-registration.sql
       - name: Legacy migration writer integration (149b)
         env:
           PGHOST: localhost
