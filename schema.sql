@@ -9591,6 +9591,26 @@ BEGIN
   RETURN v_new_version;
 END $$;
 
+-- Trin 6b: en persona fra en publication_persona-batch venter på kontrol (skjult i køen, spærret for afgørelse), indtil en
+-- finaliseret publication_identity-batch navngiver B-batchen. Hændelsen, ikke created_run_id, binder personaen til batchen
+-- (kørslen kan genbruges på tværs af batches med samme manifest).
+CREATE INDEX IF NOT EXISTS reimport_event_publication_persona_receipt_idx
+  ON private.reimport_event ((payload->'result_receipt'->>'source_persona_id')) WHERE operation='publication_persona';
+CREATE INDEX IF NOT EXISTS reimport_event_publication_identity_batch_idx
+  ON private.reimport_event ((payload->>'persona_batch_id')) WHERE operation='publication_identity';
+CREATE OR REPLACE FUNCTION private.persona_awaiting_control(p_persona uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+  SELECT NOT EXISTS (SELECT 1 FROM private.source_persona_identity i WHERE i.source_persona_id=p_persona)
+     AND EXISTS (
+       SELECT 1 FROM private.reimport_event b JOIN private.reimport_batch bb ON bb.id=b.batch_id
+        WHERE b.operation='publication_persona' AND b.payload->'result_receipt'->>'source_persona_id'=p_persona::text
+          AND bb.status<>'reversed'
+          AND NOT EXISTS (SELECT 1 FROM private.reimport_event c JOIN private.reimport_batch cb ON cb.id=c.batch_id
+                           WHERE c.operation='publication_identity' AND c.payload->>'persona_batch_id'=b.batch_id::text
+                             AND cb.status IN ('finalized','activated')));
+$$;
+REVOKE ALL ON FUNCTION private.persona_awaiting_control(uuid) FROM PUBLIC,anon,authenticated,service_role;
+
 -- Privat kø til menneskelig identitetsafgørelse. Kilden forekommer her, men
 -- ingen af disse RPC'er er en offentlig projektion eller skriver i person.
 CREATE OR REPLACE FUNCTION red_source_persona_queue(
@@ -9628,6 +9648,7 @@ BEGIN
     LEFT JOIN private.source_persona_identity identity_state ON identity_state.source_persona_id=persona.id
    WHERE (p_source_id IS NULL OR persona.source_id=p_source_id)
      AND (p_cursor IS NULL OR persona.id>p_cursor)
+     AND NOT private.persona_awaiting_control(persona.id)
      AND (p_mention_role IS NULL OR EXISTS (SELECT 1 FROM private.source_persona_mention spm
                                              WHERE spm.persona_id=persona.id AND spm.mention_role=p_mention_role))
      AND (p_status IS NULL
@@ -9811,6 +9832,8 @@ BEGIN
   -- Delt kildelås: kandidatwriteren tager den eksklusivt (Task 2), så en ny kørsel ikke
   -- kan indsættes mellem aktualitetskontrollen nedenfor og denne transaktions commit.
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-identity-candidates:'||v_source::text,0));
+  -- Trin 6b: en publiceringspersona kan ikke afgøres, før identitetsbatchen er finaliseret.
+  IF private.persona_awaiting_control(p_source_persona_id) THEN RAISE EXCEPTION 'IDENTITY_AWAITING_PUBLICATION_CONTROL'; END IF;
   IF NOT EXISTS (SELECT 1 FROM private.source_persona_mention WHERE persona_id=p_source_persona_id) THEN
     RAISE EXCEPTION 'EVIDENCE_PERSONA_BASIS_REQUIRED';
   END IF;
