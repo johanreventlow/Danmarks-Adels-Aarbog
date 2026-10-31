@@ -6,10 +6,12 @@ indtil 6c's runner har kørt i prod; runbooken udvides med C i Task 15.
 
 - **Ceremoni A** lægger trin 6b's DDL i prod: blokken fra `-- ===== trin 6b: publication-operationer =====` til
   slutningen af `db-migrations.sql` og derefter `db-rls.sql`, i én transaktion. A er additiv:
-  - 17 nye funktioner, heraf 5 `public.red_*`, som `authenticated` kan kalde: de to elementoperationer
+  - 18 nye funktioner, heraf 5 `public.red_*`, som `authenticated` kan kalde: de to elementoperationer
     `red_apply_reimport_publication_persona` og `red_apply_reimport_publication_identity`, kontrollen
     `red_publication_control` og `red_publication_control_details` samt C's fortrydelse
-    `red_reverse_reimport_publication`;
+    `red_reverse_reimport_publication`. Den 18. er `private.require_publication_identity_finalized`, funktionen bag
+    constraint-triggeren `trg_reimport_event_publication_identity_finalized` (på `private.reimport_event`, udskudt til
+    commit; afviser apply uden finalize med `PUBLICATION_IDENTITY_UNFINALIZED`);
   - 8 eksisterende funktioner erstattes: `decide_source_persona_identity`, `identity_candidate_input`
     (årstalsreserven), `validate_reimport_authorization_payload`, `validate_reimport_writer_config`,
     `red_finalize_reimport`, `red_reimport_batch_result`, `red_source_persona_queue` (webkøens filter) og
@@ -197,10 +199,10 @@ status i `private.reimport_batch` (profil `daa-1939-publication-v1`).
 | `dump` i tilstand `a` (`DUMP_6B_SKREVET_UNDER_DUMP`, `DUMP_6B_FORAELDRELOESE`, `DUMP_6B_TILSTAND_SKIFTEDE`) | `a`; læse-kun | Ingen gyldig kvittering. Find skriveren / de forældreløse rækker; tag `dump` igen |
 | B før apply-commit (fejl i dry-run, authorize eller apply; ingen `T6B_B_COMMITTED`-linje) | `a`; batchen rullet tilbage | Læs koden: `T6B_B_FEJL (<kode>; sidste trin: …)` og den fulde fejllinje (`Fejl:`/`Error:`/`!`) i `apply-b-*.out`; ret; `apply-b` igen med samme GO. Dumpet i tilstand `a` gælder i 12 timer fra `start_utc`; derefter et nyt `dump` |
 | Efter B's commit: `T6B_B_FEJL_EFTER_COMMIT`, `T6B_B_KONTROL_AFVIGER`, `T6B_B_PUBSTATE_AENDRET`, `T6B_B_KOE_VISER_NYE`, `T6B_B_REPLAY_STATUS`, `T6B_EFTER_B`, `T6B_K1_UAENDRET` | batchen `finalized` | Kør `maal`. Er den `b` og `k1` uændret, er B skrevet; undersøg kontrolfejlen bagefter. Viser kontrollen, at B skrev forkert, eller er `k1` ændret: **fortrydelsestilfælde**, `fortryd-b` (nedenfor). `fortryd-b` accepterer rå tilstand `b` også med afvigende tal (fx `afventer≠555`, hvor `maal` siger `ukendt`) |
-| `fortryd-b` før markøren (`GO_MISMATCH`, `T6B_FORTRYD_ANDET_DUMP`, `T6B_FORTRYD_MAAL_MANGLER`/`_AENDRET`, `T6B_FORTRYD_C`, `T6B_FORTRYD_TILSTAND`, `T6B_K1_AENDRET_I_VINDUET`, `T6B_VINDUE`-fejl, `RESTORE_PRIVILEGES`, `T6B_FORTRYD_LAAS`, `T6B_FORTRYD_MAALING`) | uændret; intet skrevet. Ved en genoptagelse (beslutning 3 eller genstart) står markøren uændret | `T6B_FORTRYD_LAAS`: en anden session holder en lås i public/private eller står »idle in transaction«; vent, og kør igen. `T6B_FORTRYD_ANDET_DUMP`: en påbegyndt fortrydelse af et andet dump findes; gennemfør den først. `T6B_FORTRYD_MAAL_MANGLER`: kvitteringen er i et ældre format eller uden mål |
+| `fortryd-b` før markøren (`GO_MISMATCH`, `T6B_FORTRYD_ANDET_DUMP`, `T6B_FORTRYD_MAAL_MANGLER`/`_AENDRET`, kvitterings- og ekstern-kontrollen (`DUMP_6B_TILSTAND`, `DUMP_AENDRET`, `B1_EKSTERN_BYTES`, `B1_EKSTERN_SHA`, `SFTP_FEJL`), `T6B_FORTRYD_C`, `T6B_FORTRYD_TILSTAND`, `T6B_K1_AENDRET_I_VINDUET`, `T6B_VINDUE`-fejl, `RESTORE_PRIVILEGES`, `T6B_FORTRYD_LAAS`, `T6B_FORTRYD_MAALING`) | uændret; intet skrevet. Ved en genoptagelse (beslutning 3 eller genstart) står markøren uændret | `T6B_FORTRYD_LAAS`: en anden session holder en lås i public/private eller står »idle in transaction«; vent, og kør igen. `T6B_FORTRYD_ANDET_DUMP`: en påbegyndt fortrydelse af et andet dump findes; gennemfør den først. `T6B_FORTRYD_MAAL_MANGLER`: kvitteringen er i et ældre format eller uden mål |
 | `fortryd-b`: `T6B_VINDUE_BRUDT` | uændret (`b`); intet skrevet, ingen markør | Der er skrevet i prod efter dumpet (tabeller/sekvenser i `vindue-afvigende-tabeller.txt`). En restore ville slette det skrevne, og runneren har ingen vej forbi. Projektejeren afgør skrivningen: kan den undværes eller genskrives, eller skal B rettes på anden vis? En fortrydelse, der accepterer tabet, kræver en ændret runner/vindue-SQL og dermed en ny `go-fortryd`. Kør ikke `fortryd-b` igen i håb om et andet udfald |
-| `fortryd-b` efter markøren, før `pg_restore` (`T6B_FORTRYD_IGANG` gælder ikke her; `transfer_acl_fingerprint.sql fejlede`, `SCHEMA_DEFAULT_ACL`) | markøren har trin `restore_startet` og vinduet før restoren; skema-defaults kan være ryddet | Kør `fortryd-b` igen: beslutning 1 (rå `b`, vinduet som før restoren) lægger markøren til side (`.forladt-…`) og kører den normale vej |
-| `fortryd-b` under/efter `pg_restore` (`T6B_FORTRYD_RESTORE_FEJL`, `T6B_FORTRYD_MAALING_EFTER_RESTORE`, `T6B_MARKOER_SKRIV`, fejl i diffen efter `RESTORE_FEJL`) | markøren har trin `restore_afsluttet` (fejlmængden eller exitstatus ikke godkendt; restore-hashen efter er gemt) eller stadig `restore_startet` (hashen efter kunne ikke måles) | Ved `T6B_FORTRYD_RESTORE_FEJL` udskrives `T6B_FORTRYD_DIFF` (antal grants og katalogobjekter, der mangler/er ekstra; objektnavne i `katalog-afvigende-objekter.txt`). Ret årsagen, eller acceptér en ny, forstået fejlklasse ved at udvide mønsteret i runneren (ny `go-fortryd`). Kør så `fortryd-b` igen: beslutning 3 restorer igen, hvis basen står, som den afbrudte restore efterlod den; ellers beslutning 4 |
+| `fortryd-b` efter markøren, før `pg_restore` (`T6B_FORTRYD_IGANG` gælder ikke her; `transfer_acl_fingerprint.sql fejlede`, `SCHEMA_DEFAULT_ACL`, `T6B_MARKOER_OMDOEB` ved række 1) | markøren har trin `restore_startet` og vinduet før restoren; skema-defaults kan være ryddet | Kør `fortryd-b` igen. Er markøren fra en **frisk** kørsel (rå `b`, vinduet som før restoren), er det beslutning 1: markøren lægges til side (`.forladt-…`) og den normale vej køres. En afbrudt **genoptaget** restore (beslutning 3) har nulstillet den gemte hash, og basen er ikke rå `b`: det ender i række 4 (`T6B_FORTRYD_UKLAR`) |
+| `fortryd-b` under/efter `pg_restore` (`T6B_FORTRYD_RESTORE_FEJL`, `T6B_RESTORE_FEJL_VURDERING` (markøren står på `restore_startet`: række 4), `T6B_FORTRYD_MAALING_EFTER_RESTORE`, `T6B_MARKOER_SKRIV`, fejl i diffen efter `RESTORE_FEJL`) | markøren har trin `restore_afsluttet` (fejlmængden eller exitstatus ikke godkendt; restore-hashen efter er gemt) eller stadig `restore_startet` (hashen efter kunne ikke måles) | Ved `T6B_FORTRYD_RESTORE_FEJL` udskrives `T6B_FORTRYD_DIFF` (antal grants og katalogobjekter, der mangler/er ekstra; objektnavne i `katalog-afvigende-objekter.txt`). Ret årsagen, eller acceptér en ny, forstået fejlklasse ved at udvide mønsteret i runneren (ny `go-fortryd`). Kør så `fortryd-b` igen: beslutning 3 restorer igen, hvis basen står, som den afbrudte restore efterlod den; ellers beslutning 4 |
 | `fortryd-b` efter godkendt restore (`T6B_FORTRYD_ANALYZE`/`_RLS`/`_NOTIFY`, `GRANTS_RECONCILE`, `SCHEMA_DEFAULT_ACL` i genskabelsen, `T6B_FORTRYD_ACL`/`_DEFAULT_ACL`/`_KATALOG`/`_FORAELDRELOESE`/`_RESTORE_HASH`, `T6B_EFTER_FORTRYD`, `T6B_K1_UAENDRET`, `T6B_MARKOER_OMDOEB`) | markøren har trin `restore_godkendt` med restore-hashen efter | Ret årsagen, og kør `fortryd-b` igen. Er restore-hashen dumpets, giver det beslutning 2 (kun efterarbejde). Er den ikke dumpets, men den gemte, giver det beslutning 3; ellers beslutning 4 |
 | `fortryd-b` ved genoptagelse: `T6B_FORTRYD_UKLAR` (beslutning 4) | markøren findes; intet er restoret i denne kørsel | Ingen af beslutningstabellens rækker 1-3 passer, eller en måling fejlede. `T6B_FORTRYD_UKLAR_DIFF` viser trinnet, antal vindueslinjer, der afviger fra dumpet, og om restore-hashen er dumpets eller den gemte. Typisk er der skrevet efter en afbrudt restore. Projektejeren afgør skrivningen. Den eneste udgang er `go-fortryd --genstart-restore` → `GO 6b-fortryd-B-genstart <kode>` → `fortryd-b --jeg-mener-det --go <kode> --genstart-restore`. Det er en bevidst accept af, at alt skrevet siden dumpet slettes |
 | `dump`, `apply-a`, `apply-b`, `manifest`, `go-a`, `go-b` med en markør: `T6B_FORTRYD_IGANG` | uændret | En fortrydelse er påbegyndt og ikke gennemført. Gennemfør `fortryd-b` først (`maal`, `go-fortryd` og `fortryd-b` er tilladt) |
@@ -214,7 +216,8 @@ hemmelighed. Brug den ikke uden at have tjekket, hvad der er ændret siden GO.
 
 - **Ceremoni A:** de tidligere funktionskroppe fra dumpet fra skridt 3. Det er ikke scriptet og ikke øvet; det
   bygges kun, hvis det bliver nødvendigt. Det kræver:
-  - drop de 17 nye funktioner;
+  - drop triggeren `trg_reimport_event_publication_identity_finalized` på `private.reimport_event` **først**, og derefter
+    de 18 nye funktioner (funktionen kan ikke droppes, så længe triggeren afhænger af den);
   - genskab de 8 erstattede funktioner fra dumpet fra skridt 3, med deres REVOKE/GRANT;
   - drop de 2 nye indekser;
   - tag stilling til profilrækken;
@@ -301,8 +304,12 @@ hemmelighed. Brug den ikke uden at have tjekket, hvad der er ændret siden GO.
   - Derfor stopper `fortryd-b` før restoren på `T6B_FORTRYD_LAAS`. En lås, der tages mellem kontrollen og restoren,
     kan stadig holde den. Står `fortryd-b` stille i restoren, ser operatøren i `pg_stat_activity` (kun pid,
     `wait_event_type` og `state`) og afbryder den blokerende session eller restorens backend med
-    `pg_cancel_backend`/`pg_terminate_backend`, eller trykker Ctrl-C på runneren. **Dræb aldrig pg_restore-processen
-    alene:** så kan runneren ikke måle bagefter. Exitstatus giver dog stadig `ikke godkendt`. En afbrudt restore er
+    `pg_terminate_backend`. pg_restore afslutter da med exitstatus ≠ 0, runneren lever og måler, og markøren går til
+    `restore_afsluttet` (beslutning 3). `pg_cancel_backend` afbryder **ikke** restoren; den springer kun den blokerede
+    sætning over, og pg_restore fortsætter. **Tryk ikke Ctrl-C på runneren:** det dræber hele procesgruppen, også
+    runneren, så markøren står på `restore_startet` uden efter-hash (række 4, en genstart-GO). Dræb heller ikke
+    pg_restore-processen alene uden at afslutte backenden: en forældreløs backend kan blive i låsekøen, og så kan
+    målingen efter restoren løbe ind i sine 15 minutter (række 4). En afbrudt restore er
     en delvis restore, og beslutningstabellen ovenfor gælder.
   - En delvis restore kan også komme af forbindelsestab, `kill` eller deadlock. Deadlock er mulig, fordi en
     `DROP TABLE` også låser den refererede tabel. Fejlmængden fanger det (`T6B_FORTRYD_RESTORE_FEJL`), og
@@ -388,6 +395,16 @@ vises først i C's kontrolrapport.
   webkøen. Alle andre `none`/uklare tilstande stopper stadig med `PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED`.
 - Runneren kører apply og finalize i én READ COMMITTED-transaktion og sætter aldrig `SET CONSTRAINTS ALL IMMEDIATE`.
 - Finalize kræver, at stikprøven ligger i C; ellers `PUBLICATION_IDENTITY_SAMPLE_MISMATCH`.
+- Fire kald er umålte mod prods 2 minutter og skal måles i Task 15: `red_publication_control`,
+  `red_publication_control_details`, C's første `enig`-element (stikprøven beregnes i writer-kaldet) og finalize's
+  genberegning af kandidatinputtet. Runneren sætter session-`statement_timeout` for C, som den gør for restore-hashen.
+- En tilbagetrækning efter `render` flytter stikprøven (den afhænger af bindingsstatus). Finalize giver så
+  `PUBLICATION_IDENTITY_SAMPLE_MISMATCH`; byg et nyt ark.
+- Helpost-drift mellem B og C (B-bindingen er stadig `published`, men bindingsopslaget giver `none`) blokerer C:
+  personaen kræves af finalize, writeren kan ikke skrive den (`PUBLICATION_IDENTITY_BINDING_DRIFT`), og arket stopper med
+  `PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED`. Stop og afgør; det er C's modstykke til `helpost_uegnet`.
+- `red_publication_control_details` og arkene rummer navne og leveår på kandidatpersoner, også levende konkurrenter.
+  Filerne ligger kun under `~/.private/6b/` og sendes aldrig til en model.
 - `publication_identity_sheet.py` kræver sammenhængende input: `render` og `manifest` tager begge
   `--control` og `--details` fra samme kørsel (`PUBLICATION_SHEET_INPUT_MISMATCH` ved afvigelse i kørsel, kilde,
   persona-mængde eller binding), og begge stopper ved over 90 kort (`PUBLICATION_SHEET_TOO_MANY_CARDS`).
