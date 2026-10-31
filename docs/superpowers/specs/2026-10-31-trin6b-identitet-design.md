@@ -71,9 +71,16 @@ også. »149b genbruges, hvor den gælder« (overordnet spec §5) gælder ingen 
   en `samme_som`, der overlapper en `ikke_samme_som`-komponent; 13 `ikke_samme_som` berører de 563.
 - **Navnefæller:** 239 af de 561 ikke-staged har mindst én person med samme visningsnavn i en anden
   `samme_som`-klynge (103 har fem eller flere). Kun navn kan altså ikke afgøre dem.
-- **Årstal:** 1939's personas har ingen fortolkninger før 6c, så generatoren får i dag kun navnet fra mentionen.
-  På personsiden har 18 af 370 1939-fødselspåstande `date_min/max` (5a-beviset); visningscachen har dog mindst ét
-  årstal for 434 af de 563.
+- **Navn og årstal på personasiden:** generatorens input tager personaens navn fra en `person.name`-fortolkning og
+  ellers fra den primære mentions tekst, og årstal kun fra fortolkninger. 1939 har ingen fortolkninger før 6c, og
+  1939's `person`-mention dækker hele helposten, ikke navnet: 7 af 584 er under 50 tegn, 115 over 400 (op til 3.931).
+  Kørt i dag ville generatoren altså sammenligne en hel post med et navn. 2018-20's mentions er lige så lange; 5a
+  virkede, fordi trin 4's runner havde lagt navn og årstal som fortolkninger.
+- **Årstal på personsiden:** 18 af 370 1939-fødselspåstande har `date_min/max` (5a-beviset); visningscachen har dog
+  mindst ét årstal for 434 af de 563.
+- **Navnefæller uden kobling:** af de 93 uden `samme_som` har 62 en navnefælle i en anden klynge, 17 af dem en
+  2018-20-person. Det er kandidater til en manglende kobling, ikke nødvendigvis fejl.
+- `staged` personer er med i generatorens kandidatpulje (flag, ikke filter).
 - Generatoren kender allerede `samme_som`-klynger (5b: `packages/identity-candidates/src/rank.ts`, `clusters` fra
   inputtets `same_as`); `udestaaende-raa.md` pkt. 59 er altså delvis løst. Pkt. 60 (årstal) er ikke.
 
@@ -116,8 +123,11 @@ Pr. element (én helpost):
   `narrative_record_publication`; narrativets subjekt er en person med præcis én `person_external_id` for kilden;
   ingen persona findes for recorden. Payloaden bærer hashes af mentionens tekst og bindingens id/status, så drift
   afvises (som 149b).
-- **Skriver:** `source_persona` (nøgle `3:record-<record_key>`, samme form som de 8 eksisterende) og
-  `source_persona_mention` (rolle `primary`). **Ingen identitet** i dette trin (§4.3 bestemmer den).
+- **Skriver:** `source_persona` og `source_persona_mention` (rolle `primary`). **Ingen identitet** i dette trin
+  (§4.3 bestemmer den). Nøglen er `'1939:' || source_record.record_key`, samme form som de 8 eksisterende
+  (*mit valg*: én form inden for kilden; 2018-20 bruger `record_key` alene). Runnerens input kobler i dag persona og
+  record på `persona_key = record_key` (`export_43b_runner_input.R:59-66`); 6c skal koble gennem mentionen i stedet
+  (§5).
 - **Id'er:** deterministiske (`private.deterministic_uuid` af persona-nøglen), som 5b's personas. Replay giver
   `already_applied`.
 
@@ -132,6 +142,12 @@ record. Dermed står 1939's identitet med samme styrke som 149b's `legacy_match`
 5a §3 pkt. 1 siger: ingen massegenbekræftelse. Det overholdes: mennesket ser kun uenigheder og en stikprøve.
 Maskinen kontrollerer alle.
 
+**Rækkefølge (*mit valg*):** kontrollen kører først, når 6c's runner har lagt `proposed` navn, fødsel og død som
+fortolkninger på de 1939-personas (§2.3: uden dem sammenligner generatoren en hel post med et navn). Runneren
+kræver kun personas, ikke identitet; promotionen kræver identitet. Derfor: personas (6b, ceremoni B) → runneren
+(6c) → kontrol og identiteter (6b, ceremoni C) → kontrolmodel og promotion (6c). Fravalgt: at udlede navn og år af
+helposten med en ny regel i inputtet; det ville være en anden navnekilde end 2018-20's og en ny heuristik på rå OCR.
+
 1. Generatoren (`packages/identity-candidates`) køres i `list`-tilstand på de 563 personas (de 555 nye + de 8),
    og kandidaterne gemmes med `red_record_identity_candidates` (5a's vej, ingen ny writer).
 2. **Udfald pr. persona:**
@@ -144,7 +160,9 @@ Maskinen kontrollerer alle.
    overordnet §3 (d)). Kortet viser bindingens person og den eller de konkurrerende klynger side om side med navn,
    leveår, titel og postreference (pkt. 16, kandidatvisning), fordi et forudfyldt ark før har skjult en konkurrent
    (#248). Svar:
-   - **S** (bindingen er rigtig): identitet med oprindelse `human`, `basis='human_sheet'`, målet er bindingens person;
+   - **S** (bindingen er rigtig): identitet med oprindelse `human`, `basis='human_sheet'`, målet er bindingens person.
+     Kortet kan desuden markere »og kandidat X er samme person« (en manglende `samme_som`); markeringen skrives kun
+     som note i evidensen og i kontrolrapporten, så en rigtig binding med manglende kobling ikke tvinges til F/U;
    - **F** (bindingen er forkert): identitet `unresolved` med `reason='publication_binding_disputed'`; ingen anden
      person vælges i 6b, og publiceringsbindingen røres ikke (sagen står synligt til en senere C3-rettelse);
    - **U** (ved ikke): `unresolved` med `reason='unknown'`.
@@ -155,15 +173,11 @@ En persona uden accepteret identitet er udelukket fra 6c's promotion, som i dag.
 
 ### 4.4 Generatoren: årstal fra rå tekst (pkt. 16, *mit valg* af form)
 
-Uden årstal bliver de 239 navnefæller kort. Inputtet (`private.identity_candidate_input`) får årstal som
-reserve, når der ingen fortolkning eller `date_min/max` er:
-
-- **personasiden:** fødsels- og dødsår fra helpostens egen tekst ved de faste markører (fødsel og `†`), første forekomst,
-  med oprindelse `raw_text`;
-- **personsiden:** årstal fra påstandens `date_raw`, når `date_min/max` mangler.
-
-Begge er deterministiske, gemmes som signal med oprindelse og vægtes ikke højere end parsede datoer. Dækningen måles i
-planen på stand-in'en, før reglen låses; giver den ikke et klart fald i navnefæller, er stopreglen (§4.3 pkt. 5) svaret.
+Personasiden får årstal fra runnerens fortolkninger (§4.3). Personsiden mangler dem: uden årstal bliver de 239
+navnefæller kort. Inputtet (`private.identity_candidate_input`) får derfor årstal fra påstandens `date_raw` som
+reserve, når `date_min/max` mangler. Reglen er deterministisk, bærer oprindelsen `date_raw` i inputtet og vægtes ikke
+højere end parsede datoer. Dækningen måles i planen på stand-in'en, før reglen låses; giver den ikke et klart fald i
+navnefæller, er stopreglen (§4.3 pkt. 5) svaret.
 
 ### 4.5 `samme_som` (*mit valg*)
 
@@ -188,8 +202,10 @@ Ingen af resterne får persona i 6b. Hver vises i ceremoniens rapport med antal 
 
 ## 5. Følger
 
-- Efter 6b har 1939 en persona for hver bundet helpost. 6c's runner kan køre på dem, og promotionen kan binde til
-  kilde 3-rækken.
+- Efter ceremoni B har 1939 en persona for hver bundet helpost, og 6c's runner kan køre på dem. Efter ceremoni C kan
+  promotionen binde til kilde 3-rækken. 6c's delspec skal rumme rækkefølgen runner → 6b C → promotion.
+- 6c's runner-input skal koble persona og record gennem den primære mention, ikke gennem `persona_key = record_key`
+  (§4.2), og vælge tilladte poster ud fra bindingens person (alle 563 er afdøde), ikke ud fra identiteten.
 - `private.identity_candidate_input` ændres (årstalsreserve); det rammer også 2018-20-kørsler. 5a's kalibrering mod de
   587 genkøres i planen og må ikke falde.
 - Den nye oprindelse skal med i 5a's guard mod gamle veje (`decide_source_persona_identity`'s oprindelsesliste) og i
@@ -197,19 +213,20 @@ Ingen af resterne får persona i 6b. Hver vises i ceremoniens rapport med antal 
 
 ## 6. Prod
 
-To ceremonier i 6a's form (dump med ekstern kopi, kørsel fra projektejerens shell med `--jeg-mener-det` og GO,
+Tre ceremonier i 6a's form (dump med ekstern kopi, kørsel fra projektejerens shell med `--jeg-mener-det` og GO,
 `maal` før og efter):
 
-- **A (DDL):** elementoperationen, den nye oprindelse, årstalsreserven i inputtet. Additiv; tal uændrede.
-- **B (data), i tre trin under ét GO-vindue:**
-  1. `publication_identity`-batchen: 555 personas + mentions (ingen identitet);
-  2. generatoren i `list`-tilstand mod prod (inputtet læses fra prod, kandidaterne skrives med
+- **A (DDL):** elementoperationen og dens reversal, den nye oprindelse, årstalsreserven i inputtet. Additiv; tal
+  uændrede.
+- **B (data):** `publication_identity`-batchen: 555 personas + mentions, ingen identitet.
+- *(6c's runner kører her.)*
+- **C (data), efter runneren:**
+  1. generatoren i `list`-tilstand mod prod (inputtet læses fra prod, kandidaterne skrives med
      `red_record_identity_candidates`); arket bygges lokalt i en gitignoreret arbejdsmappe (alle 563 er afdøde;
      arket sendes aldrig til en model) og udfyldes af projektejeren; arkets hash bindes;
-  3. identiteterne: `publication_binding` for enige + S, `unresolved` for F/U, i én transaktion med den bundne hash.
+  2. identiteterne: `publication_binding` for enige + S, `unresolved` for F/U, i én transaktion med den bundne hash.
 
-  Trin 2 kan tage dage; B's dump fra trin 1 er fortrydelsens grænse, og der skrives ikke redaktionelt i personas i
-  mellemtiden (skrivepause som 5c-1).
+  Udfyldningen kan tage dage; kandidatkørslen bindes af `input_sha256`, så drift i mellemtiden afvises.
 - **Fortrydelse:** personas uden identitet har ingen afhængige; `red_reverse_reimport` på batchen (den nye
   elementoperation skal have sin gren i reversalen; bygges og øves i A). Identiteterne fortrydes med
   `reversal`-oprindelsen. Nødudvej: restore af dumpet.
@@ -232,12 +249,14 @@ To ceremonier i 6a's form (dump med ekstern kopi, kørsel fra projektejerens she
 Mine valg, som projektejeren bør se:
 
 1. Ny elementoperation og ny oprindelse `publication_binding` i stedet for at løsne 149b (§4.2).
-2. Maskinen kontrollerer alle 563; projektejeren ser kun uenigheder, navnefæller og en blind stikprøve på 20 (§4.3).
-3. **F** giver `unresolved`, aldrig en anden person; publiceringsbindingen røres ikke (§4.3).
-4. Årstal fra rå tekst som reserve på begge sider (§4.4).
-5. 6b skriver ingen `samme_som` (§4.5).
-6. De 2 bundne `staged` får identitet; deres `staged` ændres ikke (§4.6).
-7. Stopregel ved over 90 kort (§4.3).
+2. Personas nu, identitet først efter 6c's runner (§4.3, rækkefølge); persona-nøglen `'1939:' || record_key` (§4.2).
+3. Maskinen kontrollerer alle 563; projektejeren ser kun uenigheder, navnefæller og en blind stikprøve på 20 (§4.3).
+4. **F** giver `unresolved`, aldrig en anden person; publiceringsbindingen røres ikke. **S** kan notere en manglende
+   `samme_som` uden at skrive den (§4.3).
+5. Årstal fra `date_raw` som reserve på personsiden (§4.4).
+6. 6b skriver ingen `samme_som` (§4.5).
+7. De 2 bundne `staged` får identitet; deres `staged` ændres ikke (§4.6).
+8. Stopregel ved over 90 kort (§4.3).
 
 ## 9. Uden for scope
 
