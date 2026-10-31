@@ -9941,7 +9941,7 @@ BEGIN
   RETURN jsonb_build_object('candidate_run_id',v_run.id,'source_id',v_run.source_id,'personas',v_out);
 END $$;
 
-REVOKE ALL ON FUNCTION public.red_publication_control(uuid),public.red_publication_control_details(uuid) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION public.red_publication_control(uuid),public.red_publication_control_details(uuid) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_publication_control(uuid),public.red_publication_control_details(uuid) TO authenticated;
 
 -- Privat kø til menneskelig identitetsafgørelse. Kilden forekommer her, men
@@ -16959,7 +16959,7 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,publi
 BEGIN
   RETURN private.write_publication_persona(p_batch_id,p_element_id,p_payload);
 END $$;
-REVOKE ALL ON FUNCTION public.red_apply_reimport_publication_persona(uuid,text,jsonb) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION public.red_apply_reimport_publication_persona(uuid,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_apply_reimport_publication_persona(uuid,text,jsonb) TO authenticated;
 
 -- Trin 6b (ceremoni C, spec §4.3 pkt. 4, §4.3.1): stikprøven for en kandidatkørsel, beregnet én gang pr. transaktion i en
@@ -17143,14 +17143,14 @@ BEGIN
          private.reimport_canonical_json_sha256(v_receipt||jsonb_build_object('source_persona_id',v_persona,'canonical_person_id',v_target)));
   RETURN v_receipt;
 END $$;
-REVOKE ALL ON FUNCTION private.write_publication_identity(uuid,text,jsonb) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION private.write_publication_identity(uuid,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE OR REPLACE FUNCTION public.red_apply_reimport_publication_identity(p_batch_id uuid,p_element_id text,p_payload jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 BEGIN
   RETURN private.write_publication_identity(p_batch_id,p_element_id,p_payload);
 END $$;
-REVOKE ALL ON FUNCTION public.red_apply_reimport_publication_identity(uuid,text,jsonb) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION public.red_apply_reimport_publication_identity(uuid,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_apply_reimport_publication_identity(uuid,text,jsonb) TO authenticated;
 
 -- Inputdrift ved finalize (Codex plan-r1 fund 4): kandidatinputtet genberegnes én gang pr. batch og skal stadig give
@@ -17225,7 +17225,7 @@ BEGIN
   FOR v_event IN SELECT * FROM private.reimport_event e WHERE e.batch_id=p_batch_id AND e.operation='publication_identity'
                   ORDER BY (e.payload->>'source_persona_id')::uuid LOOP
     v_persona:=(v_event.payload->>'source_persona_id')::uuid;
-    IF jsonb_typeof(v_event.payload->'result_receipt'->'identity_version')<>'number' THEN
+    IF jsonb_typeof(v_event.payload->'result_receipt'->'identity_version') IS DISTINCT FROM 'number' THEN
       RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID';
     END IF;
     v_expected:=(v_event.payload->'result_receipt'->>'identity_version')::integer;
