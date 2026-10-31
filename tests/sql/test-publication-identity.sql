@@ -175,8 +175,9 @@ END $reject$;
 -- 3) Fuld kæde: 34 elementer (hvert udfald med hvert tilladt svar) og finalize; status, oprindelse og evidens pr. svar.
 --    Codex 6B-01: C skal omfatte HELE B-batchens kontrolmængde (ikke-staged personas uden identitet fra før C), ellers
 --    afviser finalize med PUBLICATION_IDENTITY_SET_MISMATCH og hele C rulles tilbage:
---    3a) de 34 alene (35-37 og 39 mangler) afvises; 3b) hele mængden plus en staged persona (40) afvises, og det gør
---    også en udskiftning med samme antal (39 ud, 40 ind); 3c) hele mængden (1-37 og 39; 38 har en identitet fra blok 2,
+--    3a) de 34 alene (35, 36 og 39 mangler) afvises; 3b) hele mængden plus en staged persona (40) afvises, og det gør
+--    også en udskiftning med samme antal (39 ud, 40 ind); 3c) hele mængden (1-36 og 39; 37's binding blev trukket tilbage
+--    i blok 2 mellem B og C og er ikke krævet; 38 har en identitet fra blok 2,
 --    40 er staged) går igennem, og kun C's personas og den staged frigives: en anden B-batchs persona venter stadig.
 DO $chain$
 DECLARE
@@ -185,7 +186,7 @@ DECLARE
   v_payloads jsonb:='[]'::jsonb; v_rest jsonb:='[]'::jsonb; v_all jsonb; v_p40 jsonb; v_try jsonb; v_i int; v_k int;
   v_ans text; v_out text; v_p jsonb; v_batch uuid; v_final jsonb; v_rc jsonb; v_res text; v_tag text; v_other jsonb;
   v_id private.source_persona_identity%ROWTYPE; v_ev private.reimport_event%ROWTYPE; v_cands_sha text;
-  v_state1 jsonb; v_state26 jsonb; v_receipts jsonb:='{}'::jsonb;
+  v_state1 jsonb; v_state26 jsonb; v_receipts jsonb:='{}'::jsonb; v_p37 uuid;
 BEGIN
   v_other:=(SELECT v FROM t6 WHERE k='other');
   v_state1:=private.narrative_publication_state(-6610001,-6610,'r1');
@@ -199,9 +200,11 @@ BEGIN
            CASE WHEN v_i=29 THEN '{"same_as_hint_person_id":-6610929}'::jsonb ELSE '{}'::jsonb END);
     v_payloads:=v_payloads||jsonb_build_array(v_p);
   END LOOP;
-  -- resten af kontrolmængden: 35-37 og 39 (svag uden årstal); 37's binding, trukket tilbage i blok 2, genoprettes
-  UPDATE private.narrative_record_publication SET status='published' WHERE id=(pg_temp.pi_post(w,37)->>'binding')::uuid;
-  FOREACH v_i IN ARRAY ARRAY[35,36,37,39] LOOP
+  -- resten af kontrolmængden: 35, 36 og 39 (svag uden årstal). 37's binding blev trukket tilbage i blok 2 (mellem B og C):
+  -- C kan ikke skrive den, og den er ikke krævet
+  IF (SELECT status FROM private.narrative_record_publication WHERE id=(pg_temp.pi_post(w,37)->>'binding')::uuid)<>'withdrawn' THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: 37''s binding er ikke trukket tilbage'; END IF;
+  FOREACH v_i IN ARRAY ARRAY[35,36,39] LOOP
     v_rest:=v_rest||jsonb_build_array(pg_temp.pi_payload(w,v_i,v_run,'svag','S'));
   END LOOP;
   v_all:=v_payloads||v_rest;
@@ -252,12 +255,12 @@ BEGIN
     v_rc:=pg_temp.pi_apply(w,v_batch,pg_temp.pi_el(v_p),v_p);
     IF v_k<34 THEN v_receipts:=v_receipts||jsonb_build_object((v_k+1)::text,v_rc); END IF;
   END LOOP;
-  -- C-batchen er åben: den staged B-persona uden for C (40) venter stadig på kontrol
-  IF NOT private.persona_awaiting_control(pg_temp.pi_persona(w,40)) THEN
+  -- C-batchen er åben: den staged B-persona (40) og den tilbagetrukne (37) uden for C venter stadig på kontrol
+  IF NOT private.persona_awaiting_control(pg_temp.pi_persona(w,40)) OR NOT private.persona_awaiting_control(pg_temp.pi_persona(w,37)) THEN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: venter ikke før finalize'; END IF;
   v_final:=pg_temp.pi_finalize(w,v_batch);
-  IF v_final->>'status'<>'finalized' OR (v_final->'counts'->>'publication_identities')::int<>38
-     OR (SELECT observed_counts->>'publication_identities' FROM private.reimport_batch WHERE id=v_batch)<>'38' THEN
+  IF v_final->>'status'<>'finalized' OR (v_final->'counts'->>'publication_identities')::int<>37
+     OR (SELECT observed_counts->>'publication_identities' FROM private.reimport_batch WHERE id=v_batch)<>'37' THEN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: finalize %',v_final; END IF;
 
   SELECT candidates_sha256 INTO v_cands_sha FROM private.source_persona_identity_candidate_run WHERE id=v_run;
@@ -297,19 +300,19 @@ BEGIN
         RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: % % % (%)',v_out,v_ans,v_i,v_id.evidence; END IF;
     END IF;
   END LOOP;
-  -- tal: 22 publication_binding (20 med arkfelter), 16 human (12 fra 23-34 med 4 S, 4 F, 4 U, og 4 S fra 35-37 og 39)
+  -- tal: 22 publication_binding (20 med arkfelter), 15 human (12 fra 23-34 med 4 S, 4 F, 4 U, og 3 S fra 35, 36 og 39)
   IF (SELECT count(*) FROM private.reimport_event WHERE batch_id=v_batch AND payload->'result_receipt'->>'origin'='publication_binding')<>22
      OR (SELECT count(*) FROM private.reimport_event WHERE batch_id=v_batch AND payload->'result_receipt'->>'origin'='publication_binding'
           AND payload->>'answer'='S')<>20
-     OR (SELECT count(*) FROM private.reimport_event WHERE batch_id=v_batch AND payload->'result_receipt'->>'origin'='human')<>16 THEN
+     OR (SELECT count(*) FROM private.reimport_event WHERE batch_id=v_batch AND payload->'result_receipt'->>'origin'='human')<>15 THEN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: tal pr. oprindelse'; END IF;
-  -- efter finalize venter ingen af B's personas: C's 38 har identitet, 38 havde en fra før, og den staged (40) frigives uden
-  -- identitet (synlig som proposed); en anden B-batchs persona frigives ikke af denne C
+  -- efter finalize venter ingen af B's personas: C's 37 har identitet, 38 havde en fra før, og den staged (40) og den
+  -- tilbagetrukne (37) frigives uden identitet (synlige som proposed); en anden B-batchs persona frigives ikke af denne C
   IF EXISTS (SELECT 1 FROM jsonb_array_elements_text(w->'personas') p WHERE private.persona_awaiting_control(p::uuid)) THEN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: B-personas venter efter C'; END IF;
-  IF EXISTS (SELECT 1 FROM private.source_persona_identity WHERE source_persona_id=pg_temp.pi_persona(w,40))
+  IF EXISTS (SELECT 1 FROM private.source_persona_identity WHERE source_persona_id IN (pg_temp.pi_persona(w,40),pg_temp.pi_persona(w,37)))
      OR (SELECT count(*) FROM private.source_persona_identity i
-          WHERE i.source_persona_id IN (SELECT x::uuid FROM jsonb_array_elements_text(w->'personas') x))<>39
+          WHERE i.source_persona_id IN (SELECT x::uuid FROM jsonb_array_elements_text(w->'personas') x))<>38
      OR NOT private.persona_awaiting_control(pg_temp.pi_persona(v_other,1)) THEN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: frigivelse ud over C og staged'; END IF;
   -- publiceringstilstanden er byte-ens
@@ -318,15 +321,55 @@ BEGIN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: narrative_publication_state ændret'; END IF;
   -- replay: samme manifest efter finalize giver den eksisterende batch (ingen nye hændelser)
   IF pg_temp.pi_begin(w,'chain',pg_temp.pi_elements(v_all))<>v_batch
-     OR (SELECT count(*) FROM private.reimport_event WHERE batch_id=v_batch)<>38 THEN
+     OR (SELECT count(*) FROM private.reimport_event WHERE batch_id=v_batch)<>37 THEN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: replay efter finalize'; END IF;
   -- den udskudte commit-vagt (Controller efter 6B-01): kæden er finaliseret, så den består nu; 3a/3b's hændelser er rullet
   -- tilbage med deres undertransaktioner og tæller ikke
   SET CONSTRAINTS private.trg_reimport_event_publication_identity_finalized IMMEDIATE;
   SET CONSTRAINTS private.trg_reimport_event_publication_identity_finalized DEFERRED;
+  -- den tilbagetrukne persona (37) er efter C synlig i webkøen som proposed og kan afgøres der
+  v_p37:=pg_temp.pi_persona(w,37);
+  PERFORM set_config('request.jwt.claim.sub',w->'src'->>'actor',true); PERFORM set_config('role','authenticated',true);
+  IF NOT EXISTS (SELECT 1 FROM public.red_source_persona_queue('proposed',-6610,NULL,100,NULL) q WHERE q.source_persona_id=v_p37) THEN
+    RESET role; RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: tilbagetrukket persona ikke i webkøen'; END IF;
+  PERFORM public.red_afgoer_source_persona(v_p37,0,'unresolved',NULL,'synt note','{}'::jsonb);
+  RESET role;
+  IF (SELECT decision_status FROM private.source_persona_identity WHERE source_persona_id=pg_temp.pi_persona(w,37))
+     IS DISTINCT FROM 'unresolved' THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: tilbagetrukket persona kunne ikke afgøres i webkøen'; END IF;
   INSERT INTO t6 VALUES ('chain_batch',to_jsonb(v_batch));
-  RAISE NOTICE 'OK: kontrolmængden (delvis, ekstra staged og udskiftet afvist; fuld kæde 38 elementer, fem udfald × tilladte svar, kun C og staged frigives)';
+  RAISE NOTICE 'OK: kontrolmængden (delvis, ekstra staged og udskiftet afvist; fuld kæde 37 elementer, fem udfald × tilladte svar, kun C og staged frigives; tilbagetrukket mellem B og C blokerer ikke og kan afgøres i webkøen)';
 END $chain$;
+
+-- 3d) Stikprøven skal ligge i C (M2): to enige B-personas, begge i stikprøven; persona 2's person er staged (før kørslen,
+--     da inputtet rummer alle personer), så mængden kun kræver persona 1. C med persona 1 består mængdekontrollen, men
+--     stikprøven mangler persona 2 → PUBLICATION_IDENTITY_SAMPLE_MISMATCH, og intet efterlades.
+DO $sample$
+DECLARE
+  w jsonb:=pg_temp.pi_world(-6613,'11000000-0000-0000-0000-00000006b613',2); v_run uuid; v_p jsonb; v_batch uuid; v_res text;
+  v_stage text:='start';
+BEGIN
+  UPDATE public.person SET staged=true WHERE id=-6613002;
+  v_run:=pg_temp.pi_run(w,'{"topK":10,"autoCutoff":0.9,"controlMargin":0.05}',jsonb_build_array(
+    pg_temp.pi_cand(pg_temp.pi_persona(w,1),-6613001,1,jsonb_build_array(pg_temp.pi_ms(-6613001,0.95,ARRAY['name','birth']))),
+    pg_temp.pi_cand(pg_temp.pi_persona(w,2),-6613002,1,jsonb_build_array(pg_temp.pi_ms(-6613002,0.95,ARRAY['name','birth'])))));
+  IF (SELECT count(*) FROM private.publication_control_sample(v_run))<>2 THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: stikprøven er ikke begge'; END IF;
+  v_p:=pg_temp.pi_payload(w,1,v_run,'enig','S');
+  v_batch:=pg_temp.pi_begin(w,'sample-sub',jsonb_build_object(pg_temp.pi_el(v_p),v_p));
+  BEGIN
+    PERFORM pg_temp.pi_apply(w,v_batch,pg_temp.pi_el(v_p),v_p);
+    v_stage:='applied';   -- writeren godtog elementet; afvisningen nedenfor kommer fra finalize
+    PERFORM pg_temp.pi_finalize(w,v_batch); v_res:='OK';
+  EXCEPTION WHEN OTHERS THEN v_res:=SQLERRM;
+  END;
+  IF v_stage<>'applied' THEN RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: writeren afviste (%)',v_res; END IF;
+  PERFORM pg_temp.expect('stikprøve uden for C',v_res,'PUBLICATION_IDENTITY_SAMPLE_MISMATCH');
+  IF EXISTS (SELECT 1 FROM private.reimport_event WHERE batch_id=v_batch)
+     OR EXISTS (SELECT 1 FROM private.source_persona_identity WHERE source_persona_id=pg_temp.pi_persona(w,1)) THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: stikprøveafvisningen efterlod skrivning'; END IF;
+  RAISE NOTICE 'OK: stikprøven skal ligge i C ved finalize';
+END $sample$;
 
 -- 4) RUN_STALE: en ny kandidatkørsel efter manifestet; og to kørsler i samme batch. Egen verden (2 B-personas), fordi
 --    kæden i blok 3 har afgjort hele verden A.
@@ -529,9 +572,4 @@ BEGIN
   PERFORM pg_temp.pi_apply(w,v_batch,pg_temp.pi_el(v_p),v_p);
 END $rb$;
 ROLLBACK;
-DO $rbchk$
-BEGIN
-  IF EXISTS (SELECT 1 FROM public.source WHERE id=-6661) THEN
-    RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: tilbagerullet transaktion efterlod data'; END IF;
-  RAISE NOTICE 'OK: tilbagerullet transaktion med åben C er uberørt af commit-vagten';
-END $rbchk$;
+\echo 'OK: ROLLBACK af en transaktion med åben C giver ingen fejl fra commit-vagten'

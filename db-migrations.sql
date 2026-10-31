@@ -30643,6 +30643,12 @@ GRANT EXECUTE ON FUNCTION public.red_apply_reimport_publication_identity(uuid,te
 -- (canonical_person_id), ikke gennem bindingsopslaget pr. persona: C's egne personas er bindingsefterprøvet af writeren,
 -- og finalize skal holde sig under prods statement_timeout. Mængder sammenlignes begge veje (ikke antal): en manglende
 -- persona og en ekstra (fx staged) persona afvises begge med PUBLICATION_IDENTITY_SET_MISMATCH.
+-- En persona, hvis B-binding ikke længere er published (fx trukket tilbage mellem B og C), kan C-writeren ikke skrive; den
+-- er ikke krævet (disposition) og frigives efter C af persona_awaiting_control til webkøen som proposed. Skrev C den alligevel
+-- (bindingen genpubliceret med nyt id; writeren har efterprøvet den aktuelle binding), tæller den med.
+-- Stikprøven (samme beregning som writerens, publication_identity_in_sample) skal ligge i C; ellers
+-- PUBLICATION_IDENTITY_SAMPLE_MISMATCH. Det følger normalt af den fulde mængde plus writerens tjek pr. element, men
+-- stikprøvens population udelukker hverken staged personas eller identiteter fra før C, så det efterprøves eksplicit.
 CREATE OR REPLACE FUNCTION private.verify_publication_identity_input(p_batch_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE v_source bigint; v_runs text[]; v_run private.source_persona_identity_candidate_run%ROWTYPE; v_latest uuid;
@@ -30675,14 +30681,24 @@ BEGIN
          AND be.batch_id IN (SELECT c.b::uuid FROM c)
          AND NOT coalesce(q.staged,false)
          AND (EXISTS (SELECT 1 FROM c WHERE c.p=be.payload->'result_receipt'->>'source_persona_id')
-              OR NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
-                              WHERE i.source_persona_id=(be.payload->'result_receipt'->>'source_persona_id')::uuid))
+              OR (NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
+                               WHERE i.source_persona_id=(be.payload->'result_receipt'->>'source_persona_id')::uuid)
+                  AND EXISTS (SELECT 1 FROM private.narrative_record_publication nb
+                               WHERE nb.id=(be.payload->>'binding_id')::uuid AND nb.status='published')))
     )
     (SELECT c.b,c.p FROM c EXCEPT SELECT req.b,req.p FROM req)
     UNION ALL
     (SELECT req.b,req.p FROM req EXCEPT SELECT c.b,c.p FROM c)
   ) THEN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_SET_MISMATCH';
+  END IF;
+  PERFORM private.publication_identity_in_sample(NULL,v_run.id);   -- beregner (eller genbruger) transaktionens stikprøve
+  IF EXISTS (SELECT s.source_persona_id FROM pg_temp.daa_publication_identity_sample s
+              WHERE s.run_id=v_run.id AND s.source_persona_id IS NOT NULL
+             EXCEPT
+             SELECT (e.payload->>'source_persona_id')::uuid FROM private.reimport_event e
+              WHERE e.batch_id=p_batch_id AND e.operation='publication_identity') THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_SAMPLE_MISMATCH';
   END IF;
 END $$;
 REVOKE ALL ON FUNCTION private.verify_publication_identity_input(uuid) FROM PUBLIC,anon,authenticated,service_role;
@@ -30691,12 +30707,15 @@ REVOKE ALL ON FUNCTION private.verify_publication_identity_input(uuid) FROM PUBL
 -- (eller aktiveret) i samme transaktion. Writer-rammen committer ellers hver apply for sig, og en delvis C uden finalize
 -- ville efterlade accepterede identiteter, som hverken mængdekontrollen eller stikprøven har set. Den udskudte constraint
 -- trigger kontrollerer ved commit; en tilbagerullet transaktion udløser den ikke. Kun operation publication_identity (ikke
--- B's publication_persona eller fortrydelsens reversal-hændelse). SECURITY DEFINER, fordi commit sker som authenticated.
+-- B's publication_persona eller fortrydelsens reversal-hændelse; WHEN-betingelsen filtrerer). SECURITY DEFINER, fordi commit
+-- sker som authenticated. reversed godtages også: fortrydelsen kræver en finaliseret batch, og en data-only restore af en
+-- base med en fortrudt C skal kunne indlæse dens hændelser. Kendt begrænsning: SET CONSTRAINTS ALL IMMEDIATE midt i C
+-- afviser C (her og allerede før i den udskudte EVIDENCE_IDENTITY_STATE_REQUIRED); runneren må ikke sætte det.
 CREATE OR REPLACE FUNCTION private.require_publication_identity_finalized()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
 BEGIN
-  IF NEW.operation='publication_identity'
-     AND NOT EXISTS (SELECT 1 FROM private.reimport_batch b WHERE b.id=NEW.batch_id AND b.status IN ('finalized','activated')) THEN
+  IF NOT EXISTS (SELECT 1 FROM private.reimport_batch b
+                  WHERE b.id=NEW.batch_id AND b.status IN ('finalized','activated','reversed')) THEN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_UNFINALIZED';
   END IF;
   RETURN NULL;

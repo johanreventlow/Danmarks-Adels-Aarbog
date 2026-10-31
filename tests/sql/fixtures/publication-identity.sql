@@ -32,6 +32,31 @@ BEGIN
   RETURN jsonb_build_object('src',v_src,'b_batch',v_batch,'posts',v_posts,'personas',v_personas);
 END $$;
 
+-- pi_world_split: som pi_world, men hver helpost i sin egen finaliserede B-batch (b_batches[i-1]), så en C over én persona
+-- dækker hele sin B-batchs kontrolmængde. b_batch er NULL; brug pi_payload med {"persona_batch_id": b_batches[i-1]}.
+CREATE OR REPLACE FUNCTION pg_temp.pi_world_split(p_base bigint, p_actor uuid, p_n int) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_src jsonb; v_posts jsonb:='[]'::jsonb; v_fx jsonb; v_el jsonb; v_batch uuid; v_batches jsonb:='[]'::jsonb;
+  v_personas jsonb:='[]'::jsonb; v_i int;
+BEGIN
+  v_src:=pg_temp.pp_source(p_base,p_actor);
+  FOR v_i IN 1..p_n LOOP
+    v_posts:=v_posts||jsonb_build_array(pg_temp.pp_post(v_src,'r'||v_i,p_base*1000-v_i));
+  END LOOP;
+  FOR v_i IN 1..p_n LOOP
+    v_fx:=v_posts->(v_i-1);
+    v_el:=jsonb_build_object('publication-persona:r'||v_i,pg_temp.pp_payload(v_src,v_fx));
+    v_batch:=pg_temp.pp_begin(v_src,'fixture-pub-a','B-'||p_base||'-'||v_i,v_el);
+    PERFORM pg_temp.pp_apply(v_src,v_batch,'publication-persona:r'||v_i,v_el->('publication-persona:r'||v_i));
+    PERFORM set_config('request.jwt.claim.sub',v_src->>'actor',true); PERFORM set_config('role','authenticated',true);
+    PERFORM public.red_finalize_reimport(v_batch);
+    RESET role;
+    v_batches:=v_batches||jsonb_build_array(v_batch);
+    v_personas:=v_personas||jsonb_build_array((SELECT e.payload->'result_receipt'->>'source_persona_id' FROM private.reimport_event e
+                                                WHERE e.batch_id=v_batch AND e.operation='publication_persona'));
+  END LOOP;
+  RETURN jsonb_build_object('src',v_src,'b_batch',NULL,'b_batches',v_batches,'posts',v_posts,'personas',v_personas);
+END $$;
+
 CREATE OR REPLACE FUNCTION pg_temp.pi_persona(p_world jsonb, p_i int) RETURNS uuid LANGUAGE sql AS $$
   SELECT (p_world->'personas'->>(p_i-1))::uuid
 $$;

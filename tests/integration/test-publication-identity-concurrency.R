@@ -5,20 +5,21 @@
 # RPostgres-forbindelse; en observatør ser ventetiderne med pg_blocking_pids og pg_locks.
 #
 # (a) C mod en tilbagetrækning (red_tilbagetraek_person_narrative_record) af samme record, begge rækkefølger:
-#   a1: C (apply) holder recorden; tilbagetrækningen venter på recordens række og lykkes, når C's COMMIT er afvist —
+#   a1: C (apply + finalize) holder recorden; tilbagetrækningen venter på recordens række og lykkes, når C committer —
 #       C ændrer ikke publiceringstilstanden (spec §4.3 pkt. 5: projektejeren kan trække en F tilbage efter C);
 #   a2: tilbagetrækningen holder recorden; C venter på recordens række og afvises med PUBLICATION_IDENTITY_BINDING_DRIFT.
 #   Ingen deadlock i nogen rækkefølge.
 # (b) C mod red_record_identity_candidates (eksklusiv kildelås):
-#   b1: C (apply) holder låsen; registreringen af en ny kørsel venter og lykkes, når C's COMMIT er afvist;
+#   b1: C (apply + finalize) holder låsen; registreringen af en ny kørsel venter og lykkes, når C committer;
 #   b2: registreringen holder låsen; C venter og afvises med PUBLICATION_IDENTITY_RUN_STALE.
+# (c) c1: C uden finalize holder recorden; tilbagetrækningen venter, holderens COMMIT afvises med
+#   PUBLICATION_IDENTITY_UNFINALIZED (udskudt constraint trigger), og tilbagetrækningen lykkes derefter uden identitet.
 #
 # Kræver en base som klausul-writer-testene: evidence-promotion-bootstrap, schema.sql, db-rls.sql,
 # 1939-v50-writer-bootstrap, reimport-writer-v2-bootstrap, (db-migrations.sql to gange, db-rls.sql).
 # Testen committer syntetiske fixtures (kilde -6640) og rydder dem ved start og slut, så den kan genkøres på samme base.
-# Codex 6B-01: finalize kræver hele B-batchens kontrolmængde, og en C-hændelse kan ikke committes uden finalize (udskudt
-# constraint trigger). a1 og b1 dækker én persona af fire, så holderens COMMIT afvises med PUBLICATION_IDENTITY_UNFINALIZED
-# og rulles tilbage; låsene, scenarierne prøver, tages af apply og holdes til og med det afviste COMMIT.
+# Codex 6B-01: finalize kræver hele B-batchens kontrolmængde, og en C-hændelse kan ikke committes uden finalize. Hver
+# persona ligger derfor i sin egen B-batch (pi_world_split), så en C over én persona er fuld og kan finaliseres og committes.
 # Køres fra repo-roden.
 
 required_pg <- c("PGDATABASE", "PGHOST", "PGPORT", "PGUSER", "PGPASSWORD")
@@ -193,13 +194,14 @@ holder_pid <- as.integer(scalar(holder, "SELECT pg_backend_pid()"))
 q <- function(value) DBI::dbQuoteLiteral(controller, value)
 
 # Verden: fire B-personas (alle svag: navn uden årstal) og kørsel 1.
-world <- psql_value(sprintf("SELECT pg_temp.pi_world(-6640,'%s',4)::text", actor))
+world <- psql_value(sprintf("SELECT pg_temp.pi_world_split(-6640,'%s',4)::text", actor))
 cfg <- '{"topK":10,"autoCutoff":0.9,"controlMargin":0.05}'
 cands <- psql_value(sprintf(paste0(
   "SELECT jsonb_agg(pg_temp.pi_cand(pg_temp.pi_persona(%s::jsonb,i),-6640000-i,1,",
   "jsonb_build_array(pg_temp.pi_ms(-6640000-i,0.95,ARRAY['name']))) ORDER BY i)::text FROM generate_series(1,4) i"), q(world)))
 run1 <- psql_value(sprintf("SELECT pg_temp.pi_run(%s::jsonb,%s::jsonb,%s::jsonb)::text", q(world), q(cfg), q(cands)))
-payload <- function(i, run) psql_value(sprintf("SELECT pg_temp.pi_payload(%s::jsonb,%d,'%s','svag','S')::text", q(world), i, run))
+payload <- function(i, run) psql_value(sprintf(paste0("SELECT pg_temp.pi_payload(%s::jsonb,%d,'%s','svag','S',",
+  "jsonb_build_object('persona_batch_id',%s::jsonb->'b_batches'->>%d))::text"), q(world), i, run, q(world), i - 1L))
 element <- function(p) psql_value(sprintf("SELECT pg_temp.pi_el(%s::jsonb)", q(p)))
 begin_batch <- function(tag, p) {
   psql_value(sprintf("SELECT pg_temp.pi_begin(%s::jsonb,'%s',pg_temp.pi_elements(jsonb_build_array(%s::jsonb)))::text",
@@ -214,6 +216,7 @@ commit_expect_unfinalized <- function(code) {
   try(suppressWarnings(DBI::dbRollback(holder)), silent = TRUE)
   expect_true(grepl("PUBLICATION_IDENTITY_UNFINALIZED", msg, fixed = TRUE), paste0(code, ": ", msg))
 }
+finalize_sql <- function(batch) sprintf("SELECT public.red_finalize_reimport('%s'::uuid)::text", batch)
 holder_begin <- function() {
   DBI::dbBegin(holder)
   DBI::dbGetQuery(holder, "SELECT set_config('request.jwt.claim.sub',$1,true)", params = list(actor))
@@ -236,17 +239,19 @@ withdraw_sql <- function(i, sha) {
   sprintf("SELECT public.red_tilbagetraek_person_narrative_record(%d,-6640,'r%d','%s')::text", -6640000L - i, i, sha)
 }
 
-# a1: C (apply) holder recorden r1; tilbagetrækningen venter på recordens række.
+# a1: C (apply + finalize) holder recorden r1; tilbagetrækningen venter på recordens række og lykkes efter C's commit.
 p1 <- payload(1, run1); batch_a1 <- begin_batch("conc-a1", p1); sha1 <- state_sha(1)
 holder_begin()
 invisible(scalar(holder, apply_sql(batch_a1, p1)))
 job <- launch_worker("pi_wd1", withdraw_sql(1, sha1))
 wait_blocked_by(observer, "pi_wd1", holder_pid)
 expect_true(waits_on_record_row(observer, "pi_wd1"), "PUBLICATION_IDENTITY_CONCURRENCY_A1_NOT_ON_RECORD")
-commit_expect_unfinalized("PUBLICATION_IDENTITY_CONCURRENCY_A1_COMMIT")
+invisible(scalar(holder, finalize_sql(batch_a1)))
+DBI::dbCommit(holder)
 result <- collect_worker(job)
 expect_true(identical(result$code, "OK"), paste0("PUBLICATION_IDENTITY_CONCURRENCY_A1_WITHDRAWAL: ", result$output))
-expect_true(nrow(identity_of(1)) == 0L, "PUBLICATION_IDENTITY_CONCURRENCY_A1_IDENTITY")
+id1 <- identity_of(1)
+expect_true(nrow(id1) == 1L && id1$decision_status == "accepted" && id1$version == 1L, "PUBLICATION_IDENTITY_CONCURRENCY_A1_IDENTITY")
 expect_true(identical(binding_status(1), "withdrawn"), "PUBLICATION_IDENTITY_CONCURRENCY_A1_BINDING")
 
 # a2: tilbagetrækningen holder recorden r2; C venter på recordens række og afvises.
@@ -261,7 +266,7 @@ result <- collect_worker(job)
 expect_true(identical(result$code, "PUBLICATION_IDENTITY_BINDING_DRIFT"), paste0("PUBLICATION_IDENTITY_CONCURRENCY_A2_C: ", result$output))
 expect_true(nrow(identity_of(2)) == 0L, "PUBLICATION_IDENTITY_CONCURRENCY_A2_WROTE")
 
-# b1: C holder den eksklusive kandidatlås; registreringen af kørsel 2 venter og lykkes, når C's COMMIT er afvist.
+# b1: C holder den eksklusive kandidatlås; registreringen af kørsel 2 venter og lykkes, når C (apply + finalize) committer.
 p3 <- payload(3, run1); batch_b1 <- begin_batch("conc-b1", p3)
 spec <- psql_value(sprintf(paste0("SELECT jsonb_build_object('mode','list','persona_ids',jsonb_agg(x ORDER BY x))::text ",
                                   "FROM jsonb_array_elements_text(%s::jsonb->'personas') x"), q(world)))
@@ -275,10 +280,11 @@ invisible(scalar(holder, apply_sql(batch_b1, p3)))
 job <- launch_worker("pi_reg1", register_sql('{"topK":10,"autoCutoff":0.9,"controlMargin":0.05,"v":2}'))
 wait_blocked_by(observer, "pi_reg1", holder_pid)
 expect_true(waits_on_advisory(observer, "pi_reg1"), "PUBLICATION_IDENTITY_CONCURRENCY_B1_NOT_ON_SOURCE_LOCK")
-commit_expect_unfinalized("PUBLICATION_IDENTITY_CONCURRENCY_B1_COMMIT")
+invisible(scalar(holder, finalize_sql(batch_b1)))
+DBI::dbCommit(holder)
 result <- collect_worker(job)
 expect_true(identical(result$code, "OK"), paste0("PUBLICATION_IDENTITY_CONCURRENCY_B1_REGISTRATION: ", result$output))
-expect_true(nrow(identity_of(3)) == 0L, "PUBLICATION_IDENTITY_CONCURRENCY_B1_IDENTITY")
+expect_true(nrow(identity_of(3)) == 1L, "PUBLICATION_IDENTITY_CONCURRENCY_B1_IDENTITY")
 run2 <- as.character(scalar(controller,
   "SELECT id::text FROM private.source_persona_identity_candidate_run WHERE source_id=-6640 ORDER BY run_seq DESC LIMIT 1"))
 expect_true(!identical(run2, run1), "PUBLICATION_IDENTITY_CONCURRENCY_B1_NO_NEW_RUN")
@@ -294,6 +300,22 @@ DBI::dbCommit(holder)
 result <- collect_worker(job)
 expect_true(identical(result$code, "PUBLICATION_IDENTITY_RUN_STALE"), paste0("PUBLICATION_IDENTITY_CONCURRENCY_B2_C: ", result$output))
 expect_true(nrow(identity_of(4)) == 0L, "PUBLICATION_IDENTITY_CONCURRENCY_B2_WROTE")
+
+# c1: C uden finalize (persona 4 mod kørsel 3, den seneste) holder recorden r4; tilbagetrækningen venter; holderens COMMIT
+# afvises af den udskudte vagt, mens låsen holdes, og tilbagetrækningen lykkes derefter; ingen identitet.
+run3 <- as.character(scalar(controller,
+  "SELECT id::text FROM private.source_persona_identity_candidate_run WHERE source_id=-6640 ORDER BY run_seq DESC LIMIT 1"))
+p4c <- payload(4, run3); batch_c1 <- begin_batch("conc-c1", p4c); sha4 <- state_sha(4)
+holder_begin()
+invisible(scalar(holder, apply_sql(batch_c1, p4c)))
+job <- launch_worker("pi_wd4", withdraw_sql(4, sha4))
+wait_blocked_by(observer, "pi_wd4", holder_pid)
+expect_true(waits_on_record_row(observer, "pi_wd4"), "PUBLICATION_IDENTITY_CONCURRENCY_C1_NOT_ON_RECORD")
+commit_expect_unfinalized("PUBLICATION_IDENTITY_CONCURRENCY_C1_COMMIT")
+result <- collect_worker(job)
+expect_true(identical(result$code, "OK"), paste0("PUBLICATION_IDENTITY_CONCURRENCY_C1_WITHDRAWAL: ", result$output))
+expect_true(nrow(identity_of(4)) == 0L, "PUBLICATION_IDENTITY_CONCURRENCY_C1_WROTE")
+expect_true(identical(binding_status(4), "withdrawn"), "PUBLICATION_IDENTITY_CONCURRENCY_C1_BINDING")
 
 cleanup_fixtures(controller)
 expect_true(as.integer(scalar(controller, "SELECT count(*) FROM public.source WHERE id=-6640")) == 0L, "PUBLICATION_IDENTITY_CONCURRENCY_CLEANUP")
