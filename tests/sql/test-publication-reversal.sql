@@ -41,12 +41,26 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN RETURN SQLERRM;
 END $$;
 
--- En finaliseret C-batch over de givne personas (svag, S), alle mod kørslen.
-CREATE FUNCTION pg_temp.pr_c(p_world jsonb, p_tag text, p_run uuid, p_from int, p_to int) RETURNS uuid LANGUAGE plpgsql AS $$
-DECLARE v_payloads jsonb:='[]'::jsonb; v_i int; v_p jsonb; v_batch uuid;
+-- Kandidatkørslen for en verden (svag, ét kandidatmedlem uden årstal); verden med kørslens id i nøglen 'run'. Inputtet
+-- rummer alle personer i basen (red_match_personer), så kørslerne registreres, efter at alle verdener og staged-markeringer
+-- findes; ellers giver finalize PUBLICATION_IDENTITY_INPUT_DRIFT.
+CREATE FUNCTION pg_temp.pr_run(w jsonb) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_c jsonb:='[]'::jsonb; v_i int; v_base bigint:=(w->'src'->>'source')::bigint;
+BEGIN
+  FOR v_i IN 1..jsonb_array_length(w->'personas') LOOP
+    v_c:=v_c||pg_temp.pi_cand(pg_temp.pi_persona(w,v_i),v_base*1000-v_i,1,
+                              jsonb_build_array(pg_temp.pi_ms(v_base*1000-v_i,0.95,ARRAY['name'])));
+  END LOOP;
+  RETURN w||jsonb_build_object('run',pg_temp.pi_run(w,'{"topK":10,"autoCutoff":0.9,"controlMargin":0.05}',v_c));
+END $$;
+
+-- En finaliseret C-batch over de givne personas (svag, S), alle mod verdenens kørsel. Codex 6B-01: finalize kræver hele
+-- B-batchens kontrolmængde, så personas uden for [from,to] skal være staged (disposition) eller have en identitet.
+CREATE FUNCTION pg_temp.pr_c(p_world jsonb, p_tag text, p_from int, p_to int) RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE v_payloads jsonb:='[]'::jsonb; v_i int; v_p jsonb; v_batch uuid; v_run uuid:=(p_world->>'run')::uuid;
 BEGIN
   FOR v_i IN p_from..p_to LOOP
-    v_payloads:=v_payloads||jsonb_build_array(pg_temp.pi_payload(p_world,v_i,p_run,'svag','S'));
+    v_payloads:=v_payloads||jsonb_build_array(pg_temp.pi_payload(p_world,v_i,v_run,'svag','S'));
   END LOOP;
   v_batch:=pg_temp.pi_begin(p_world,p_tag,pg_temp.pi_elements(v_payloads));
   FOR v_i IN p_from..p_to LOOP
@@ -69,31 +83,34 @@ BEGIN
   RAISE NOTICE 'OK: funktionsfladen';
 END $surface$;
 
--- 1) Verden: 9 B-personas (svag, ét kandidatmedlem uden årstal) og én kandidatkørsel.
+-- 1) Verdener, én pr. scenarie (Codex 6B-01: hver C dækker hele sin B-batch): fortrydelse (4 personas, den 4. staged),
+--    versionsdrift (2), manglende kvittering (1), to C-batches til afvisningerne (1 + 1) og en åben batch (1).
 CREATE TEMP TABLE t7(k text PRIMARY KEY, v jsonb);
 DO $world$
-DECLARE
-  w jsonb:=pg_temp.pi_world(-6710,'11000000-0000-0000-0000-00000006b710',9);
-  v_cfg jsonb:='{"topK":10,"autoCutoff":0.9,"controlMargin":0.05}'; v_c jsonb:='[]'::jsonb; v_i int; v_run uuid;
+DECLARE v_k text;
 BEGIN
-  FOR v_i IN 1..9 LOOP
-    v_c:=v_c||pg_temp.pi_cand(pg_temp.pi_persona(w,v_i),-6710000-v_i,1,
-                              jsonb_build_array(pg_temp.pi_ms(-6710000-v_i,0.95,ARRAY['name'])));
+  INSERT INTO t7 VALUES ('happy',pg_temp.pi_world(-6710,'11000000-0000-0000-0000-00000006b710',4)),
+    ('drift',pg_temp.pi_world(-6711,'11000000-0000-0000-0000-00000006b710',2)),
+    ('receipt',pg_temp.pi_world(-6712,'11000000-0000-0000-0000-00000006b710',1)),
+    ('x1',pg_temp.pi_world(-6713,'11000000-0000-0000-0000-00000006b710',1)),
+    ('x2',pg_temp.pi_world(-6714,'11000000-0000-0000-0000-00000006b710',1)),
+    ('open',pg_temp.pi_world(-6715,'11000000-0000-0000-0000-00000006b710',1));
+  UPDATE public.person SET staged=true WHERE id=-6710004;
+  FOR v_k IN SELECT k FROM t7 LOOP
+    UPDATE t7 SET v=pg_temp.pr_run(v) WHERE k=v_k;
   END LOOP;
-  v_run:=pg_temp.pi_run(w,v_cfg,v_c);
-  INSERT INTO t7 VALUES ('w',w),('run',to_jsonb(v_run));
-  RAISE NOTICE 'OK: verden (9 B-personas, én kørsel)';
+  RAISE NOTICE 'OK: verdener (fortrydelse, drift, kvittering, afvisninger)';
 END $world$;
 
 -- 2) Fortrydelse af C: identiteterne bliver superseded, version 2; ingen venter; batch og autorisation; ny fortrydelse afvises.
 DO $happy$
 DECLARE
-  w jsonb:=(SELECT v FROM t7 WHERE k='w'); v_run uuid:=(SELECT (v#>>'{}')::uuid FROM t7 WHERE k='run');
+  w jsonb:=(SELECT v FROM t7 WHERE k='happy');
   v_batch uuid; v_a1 uuid; v_a2 uuid; v_res jsonb; v_i int; v_id private.source_persona_identity%ROWTYPE; v_ev private.reimport_event%ROWTYPE;
 BEGIN
-  v_batch:=pg_temp.pr_c(w,'rev-ok',v_run,1,3);
-  -- C er finaliseret: personaerne venter ikke
-  IF EXISTS (SELECT 1 FROM generate_series(1,3) i WHERE private.persona_awaiting_control(pg_temp.pi_persona(w,i))) THEN
+  v_batch:=pg_temp.pr_c(w,'rev-ok',1,3);
+  -- C er finaliseret: personaerne venter ikke, heller ikke den staged (4), som C frigiver uden identitet
+  IF EXISTS (SELECT 1 FROM generate_series(1,4) i WHERE private.persona_awaiting_control(pg_temp.pi_persona(w,i))) THEN
     RAISE EXCEPTION 'PUBLICATION_REVERSAL_TEST_FAILED: venter før fortrydelse'; END IF;
   v_a1:=pg_temp.pr_auth(w,v_batch); v_a2:=pg_temp.pr_auth(w,v_batch);
   v_res:=pg_temp.pr_reverse(w,v_batch,v_a1);
@@ -110,7 +127,7 @@ BEGIN
     IF private.persona_awaiting_control(pg_temp.pi_persona(w,v_i)) THEN
       RAISE EXCEPTION 'PUBLICATION_REVERSAL_TEST_FAILED: % venter efter fortrydelse',v_i; END IF;
   END LOOP;
-  -- personaer uden for batchen er urørt
+  -- den staged persona uden for batchen er urørt (ingen identitet) og venter igen, da den fortrudte C ikke frigiver
   IF EXISTS (SELECT 1 FROM private.source_persona_identity WHERE source_persona_id=pg_temp.pi_persona(w,4))
      OR NOT private.persona_awaiting_control(pg_temp.pi_persona(w,4)) THEN
     RAISE EXCEPTION 'PUBLICATION_REVERSAL_TEST_FAILED: urørt persona'; END IF;
@@ -130,16 +147,16 @@ END $happy$;
 --    så resten af løkken allerede har kørt og skal rulles tilbage.
 DO $drift$
 DECLARE
-  w jsonb:=(SELECT v FROM t7 WHERE k='w'); v_run uuid:=(SELECT (v#>>'{}')::uuid FROM t7 WHERE k='run');
+  w jsonb:=(SELECT v FROM t7 WHERE k='drift');
   v_batch uuid; v_a uuid; v_last uuid; v_first uuid; v_last_i int; v_res text;
 BEGIN
-  v_batch:=pg_temp.pr_c(w,'rev-drift',v_run,4,5);
-  v_last:=greatest(pg_temp.pi_persona(w,4),pg_temp.pi_persona(w,5)); v_first:=least(pg_temp.pi_persona(w,4),pg_temp.pi_persona(w,5));
-  v_last_i:=CASE WHEN v_last=pg_temp.pi_persona(w,4) THEN 4 ELSE 5 END;
+  v_batch:=pg_temp.pr_c(w,'rev-drift',1,2);
+  v_last:=greatest(pg_temp.pi_persona(w,1),pg_temp.pi_persona(w,2)); v_first:=least(pg_temp.pi_persona(w,1),pg_temp.pi_persona(w,2));
+  v_last_i:=CASE WHEN v_last=pg_temp.pi_persona(w,1) THEN 1 ELSE 2 END;
   v_a:=pg_temp.pr_auth(w,v_batch);
   -- menneskelig afgørelse efter C (version 1 → 2)
   PERFORM set_config('request.jwt.claim.sub',w->'src'->>'actor',true);
-  PERFORM private.decide_source_persona_identity(v_last,-6710000-v_last_i,1,'accepted','{"basis":"web_detail","note":"t"}','human');
+  PERFORM private.decide_source_persona_identity(v_last,-6711000-v_last_i,1,'accepted','{"basis":"web_detail","note":"t"}','human');
   PERFORM pg_temp.expect('versionsdrift',pg_temp.pr_try(w,v_batch,v_a),'PUBLICATION_REVERSAL_VERSION_DRIFT');
   -- intet er ændret: den første persona er stadig version 1 accepted, batchen finalized, autorisationen udstedt
   IF (SELECT version FROM private.source_persona_identity WHERE source_persona_id=v_first)<>1
@@ -157,10 +174,10 @@ END $drift$;
 --     REVERSAL_INVALID (ikke VERSION_DRIFT), og intet skrives.
 DO $receipt$
 DECLARE
-  w jsonb:=(SELECT v FROM t7 WHERE k='w'); v_run uuid:=(SELECT (v#>>'{}')::uuid FROM t7 WHERE k='run');
+  w jsonb:=(SELECT v FROM t7 WHERE k='receipt');
   v_batch uuid; v_a uuid;
 BEGIN
-  v_batch:=pg_temp.pr_c(w,'rev-receipt',v_run,9,9);
+  v_batch:=pg_temp.pr_c(w,'rev-receipt',1,1);
   v_a:=pg_temp.pr_auth(w,v_batch);
   SET LOCAL session_replication_role=replica;
   UPDATE private.reimport_event SET payload=jsonb_set(payload,'{result_receipt}',(payload->'result_receipt')-'identity_version')
@@ -168,7 +185,7 @@ BEGIN
   SET LOCAL session_replication_role=origin;
   PERFORM pg_temp.expect('manglende kvittering',pg_temp.pr_try(w,v_batch,v_a),'REIMPORT_WRITER_REVERSAL_INVALID');
   IF (SELECT status FROM private.reimport_batch WHERE id=v_batch)<>'finalized'
-     OR (SELECT version FROM private.source_persona_identity WHERE source_persona_id=pg_temp.pi_persona(w,9))<>1 THEN
+     OR (SELECT version FROM private.source_persona_identity WHERE source_persona_id=pg_temp.pi_persona(w,1))<>1 THEN
     RAISE EXCEPTION 'PUBLICATION_REVERSAL_TEST_FAILED: manglende kvittering efterlod skrivning'; END IF;
   RAISE NOTICE 'OK: manglende kvittering giver REVERSAL_INVALID';
 END $receipt$;
@@ -176,36 +193,36 @@ END $receipt$;
 -- 4) Afvisninger: en B-batch, en fremmed autorisation, en åben batch, en udløbet autorisation.
 DO $reject$
 DECLARE
-  w jsonb:=(SELECT v FROM t7 WHERE k='w'); v_run uuid:=(SELECT (v#>>'{}')::uuid FROM t7 WHERE k='run');
+  w jsonb:=(SELECT v FROM t7 WHERE k='x1'); w2 jsonb:=(SELECT v FROM t7 WHERE k='x2'); wo jsonb:=(SELECT v FROM t7 WHERE k='open');
   v_b uuid:=(w->>'b_batch')::uuid; v_c uuid; v_other uuid; v_ab uuid; v_ac uuid; v_p jsonb; v_open uuid; v_n bigint;
 BEGIN
   -- B-batchen er finalized, så den kan autoriseres, men har kun publication_persona-hændelser
   v_ab:=pg_temp.pr_auth(w,v_b);
   v_n:=(SELECT count(*) FROM private.reimport_event WHERE batch_id=v_b);
   PERFORM pg_temp.expect('B-batch',pg_temp.pr_try(w,v_b,v_ab),'REIMPORT_WRITER_REVERSAL_INVALID');
-  -- Persona 9 hører til SAMME B-batch (alle ni personas er oprettet af den) og er ikke rørt af andre dele af testen:
-  -- afvisningen må ikke have ændret B-batchens hændelser eller forbrugt autorisationen.
+  -- Persona 1 hører til SAMME B-batch og er ikke rørt endnu: afvisningen må ikke have ændret B-batchens hændelser eller
+  -- forbrugt autorisationen.
   IF (SELECT status FROM private.reimport_batch WHERE id=v_b)<>'finalized'
      OR NOT EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=v_b AND e.operation='publication_persona'
-                     AND e.payload->'result_receipt'->>'source_persona_id'=pg_temp.pi_persona(w,9)::text)
+                     AND e.payload->'result_receipt'->>'source_persona_id'=pg_temp.pi_persona(w,1)::text)
      OR (SELECT count(*) FROM private.reimport_event WHERE batch_id=v_b)<>v_n
      OR EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=v_b AND e.operation<>'publication_persona')
      OR (SELECT status FROM private.reimport_authorization WHERE id=v_ab)<>'issued' THEN
     RAISE EXCEPTION 'PUBLICATION_REVERSAL_TEST_FAILED: B-afvisningen skrev'; END IF;
 
   -- autorisation for en anden batch
-  v_c:=pg_temp.pr_c(w,'rev-x1',v_run,6,6); v_other:=pg_temp.pr_c(w,'rev-x2',v_run,7,7);
-  v_ac:=pg_temp.pr_auth(w,v_other);
+  v_c:=pg_temp.pr_c(w,'rev-x1',1,1); v_other:=pg_temp.pr_c(w2,'rev-x2',1,1);
+  v_ac:=pg_temp.pr_auth(w2,v_other);
   PERFORM pg_temp.expect('fremmed autorisation',pg_temp.pr_try(w,v_c,v_ac),'REIMPORT_WRITER_REVERSAL_INVALID');
   -- ukendt batch
   PERFORM pg_temp.expect('ukendt batch',pg_temp.pr_try(w,gen_random_uuid(),v_ac),'REIMPORT_WRITER_REVERSAL_INVALID');
   -- ukendt autorisation
   PERFORM pg_temp.expect('ukendt autorisation',pg_temp.pr_try(w,v_c,gen_random_uuid()),'REIMPORT_WRITER_REVERSAL_INVALID');
   -- åben batch kan ikke autoriseres (red_authorize_reimport_reversal kræver finalized/activated)
-  v_p:=pg_temp.pi_payload(w,8,v_run,'svag','S');
-  v_open:=pg_temp.pi_begin(w,'rev-open',jsonb_build_object(pg_temp.pi_el(v_p),v_p));
+  v_p:=pg_temp.pi_payload(wo,1,(wo->>'run')::uuid,'svag','S');
+  v_open:=pg_temp.pi_begin(wo,'rev-open',jsonb_build_object(pg_temp.pi_el(v_p),v_p));
   BEGIN
-    PERFORM pg_temp.pr_auth(w,v_open);
+    PERFORM pg_temp.pr_auth(wo,v_open);
     RAISE EXCEPTION 'PUBLICATION_REVERSAL_TEST_FAILED: åben batch autoriseret';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM<>'REIMPORT_WRITER_REVERSAL_INVALID' THEN RAISE; END IF;
@@ -215,7 +232,7 @@ BEGIN
   UPDATE private.reimport_authorization SET expires_at=clock_timestamp()-interval '1 second' WHERE id=v_ac;
   PERFORM pg_temp.expect('udløbet',pg_temp.pr_try(w,v_c,v_ac),'REIMPORT_WRITER_REVERSAL_INVALID');
   IF (SELECT status FROM private.reimport_batch WHERE id=v_c)<>'finalized'
-     OR EXISTS (SELECT 1 FROM private.source_persona_identity i WHERE i.source_persona_id=pg_temp.pi_persona(w,6) AND i.version<>1) THEN
+     OR EXISTS (SELECT 1 FROM private.source_persona_identity i WHERE i.source_persona_id=pg_temp.pi_persona(w,1) AND i.version<>1) THEN
     RAISE EXCEPTION 'PUBLICATION_REVERSAL_TEST_FAILED: afvisning efterlod skrivning'; END IF;
   RAISE NOTICE 'OK: afvisninger (B-batch, fremmed og ukendt autorisation, åben batch, udløbet)';
 END $reject$;

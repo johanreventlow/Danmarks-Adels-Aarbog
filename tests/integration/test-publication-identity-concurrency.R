@@ -5,17 +5,19 @@
 # RPostgres-forbindelse; en observatør ser ventetiderne med pg_blocking_pids og pg_locks.
 #
 # (a) C mod en tilbagetrækning (red_tilbagetraek_person_narrative_record) af samme record, begge rækkefølger:
-#   a1: C (apply + finalize) holder recorden; tilbagetrækningen venter på recordens række og lykkes, når C committer —
+#   a1: C (apply) holder recorden; tilbagetrækningen venter på recordens række og lykkes, når C committer —
 #       C ændrer ikke publiceringstilstanden (spec §4.3 pkt. 5: projektejeren kan trække en F tilbage efter C);
 #   a2: tilbagetrækningen holder recorden; C venter på recordens række og afvises med PUBLICATION_IDENTITY_BINDING_DRIFT.
 #   Ingen deadlock i nogen rækkefølge.
 # (b) C mod red_record_identity_candidates (eksklusiv kildelås):
-#   b1: C holder låsen; registreringen af en ny kørsel venter og lykkes, når C committer;
+#   b1: C (apply) holder låsen; registreringen af en ny kørsel venter og lykkes, når C committer;
 #   b2: registreringen holder låsen; C venter og afvises med PUBLICATION_IDENTITY_RUN_STALE.
 #
 # Kræver en base som klausul-writer-testene: evidence-promotion-bootstrap, schema.sql, db-rls.sql,
 # 1939-v50-writer-bootstrap, reimport-writer-v2-bootstrap, (db-migrations.sql to gange, db-rls.sql).
 # Testen committer syntetiske fixtures (kilde -6640) og rydder dem ved start og slut, så den kan genkøres på samme base.
+# Codex 6B-01: finalize kræver hele B-batchens kontrolmængde, så hvert scenarie committer kun sin apply (én persona af
+# fire); låsene, scenarierne prøver, tages af apply. Finalize og mængdekontrollen dækkes i test-publication-identity.sql.
 # Køres fra repo-roden.
 
 required_pg <- c("PGDATABASE", "PGHOST", "PGPORT", "PGUSER", "PGPASSWORD")
@@ -227,14 +229,13 @@ withdraw_sql <- function(i, sha) {
   sprintf("SELECT public.red_tilbagetraek_person_narrative_record(%d,-6640,'r%d','%s')::text", -6640000L - i, i, sha)
 }
 
-# a1: C (apply + finalize) holder recorden r1; tilbagetrækningen venter på recordens række.
+# a1: C (apply) holder recorden r1; tilbagetrækningen venter på recordens række.
 p1 <- payload(1, run1); batch_a1 <- begin_batch("conc-a1", p1); sha1 <- state_sha(1)
 holder_begin()
 invisible(scalar(holder, apply_sql(batch_a1, p1)))
 job <- launch_worker("pi_wd1", withdraw_sql(1, sha1))
 wait_blocked_by(observer, "pi_wd1", holder_pid)
 expect_true(waits_on_record_row(observer, "pi_wd1"), "PUBLICATION_IDENTITY_CONCURRENCY_A1_NOT_ON_RECORD")
-invisible(scalar(holder, sprintf("SELECT public.red_finalize_reimport('%s'::uuid)::text", batch_a1)))
 DBI::dbCommit(holder)
 result <- collect_worker(job)
 expect_true(identical(result$code, "OK"), paste0("PUBLICATION_IDENTITY_CONCURRENCY_A1_WITHDRAWAL: ", result$output))
@@ -268,7 +269,6 @@ invisible(scalar(holder, apply_sql(batch_b1, p3)))
 job <- launch_worker("pi_reg1", register_sql('{"topK":10,"autoCutoff":0.9,"controlMargin":0.05,"v":2}'))
 wait_blocked_by(observer, "pi_reg1", holder_pid)
 expect_true(waits_on_advisory(observer, "pi_reg1"), "PUBLICATION_IDENTITY_CONCURRENCY_B1_NOT_ON_SOURCE_LOCK")
-invisible(scalar(holder, sprintf("SELECT public.red_finalize_reimport('%s'::uuid)::text", batch_b1)))
 DBI::dbCommit(holder)
 result <- collect_worker(job)
 expect_true(identical(result$code, "OK"), paste0("PUBLICATION_IDENTITY_CONCURRENCY_B1_REGISTRATION: ", result$output))

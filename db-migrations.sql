@@ -29475,6 +29475,9 @@ DECLARE
   v_binding_n bigint; v_binding_id uuid; v_narrative public.narrative%ROWTYPE;
   v_person_id bigint; v_persona uuid; v_persona_key text; v_receipt jsonb; v_hash text;
 BEGIN
+  -- Codex 6B-02: eksistens- og driftkontrollerne nedenfor skal læse efter låsene. Under REPEATABLE READ/SERIALIZABLE er
+  -- snapshottet taget før låsen, så en samtidig persona eller binding kunne være usynlig; kun READ COMMITTED godtages.
+  IF current_setting('transaction_isolation')<>'read committed' THEN RAISE EXCEPTION 'PUBLICATION_PERSONA_ISOLATION'; END IF;
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
   v_batch:=private.require_reimport_open_batch(p_batch_id);
@@ -29596,6 +29599,8 @@ CREATE INDEX IF NOT EXISTS reimport_event_publication_persona_receipt_idx
   ON private.reimport_event ((payload->'result_receipt'->>'source_persona_id')) WHERE operation='publication_persona';
 CREATE INDEX IF NOT EXISTS reimport_event_publication_identity_batch_idx
   ON private.reimport_event ((payload->>'persona_batch_id')) WHERE operation='publication_identity';
+-- Codex 6B-01: frigivelsen er pr. B-batch, fordi finalize af C (verify_publication_identity_input) kræver hele
+-- kontrolmængden; efter en finaliseret C er de eneste B-personas uden identitet de staged (spec §4.6: proposed efter C).
 CREATE OR REPLACE FUNCTION private.persona_awaiting_control(p_persona uuid)
 RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
   SELECT NOT EXISTS (SELECT 1 FROM private.source_persona_identity i WHERE i.source_persona_id=p_persona)
@@ -30477,6 +30482,9 @@ DECLARE
     'sheet_sha256','source_persona_id'];
   c_uuid constant text:='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
 BEGIN
+  -- (0) Codex 6B-02: kontrollen af seneste kørsel og bindingen skal læse efter kandidatlåsen. Under REPEATABLE READ/
+  -- SERIALIZABLE er snapshottet taget før låsen og kan godtage en forældet kørsel; kun READ COMMITTED godtages.
+  IF current_setting('transaction_isolation')<>'read committed' THEN RAISE EXCEPTION 'PUBLICATION_IDENTITY_ISOLATION'; END IF;
   -- (1)
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
@@ -30626,10 +30634,20 @@ GRANT EXECUTE ON FUNCTION public.red_apply_reimport_publication_identity(uuid,te
 -- Inputdrift ved finalize (Codex plan-r1 fund 4): kandidatinputtet genberegnes én gang pr. batch og skal stadig give
 -- kørslens input_sha256; batchen har præcis én kørsel, og den er stadig kildens seneste. Runneren kører alle apply-kald og
 -- finalize i én transaktion, så en afvigelse ruller hele C tilbage.
+-- Codex 6B-02: kun READ COMMITTED (snapshottet skal tages efter kandidatlåsen), som i writeren.
+-- Codex 6B-01 (spec §4.3 pkt. 4-6, §4.3.1): C skal omfatte HELE kontrolmængden for hver B-batch, den navngiver, så en
+-- delvis C hverken kan springe stikprøven over eller frigive de øvrige B-personas (persona_awaiting_control frigiver pr.
+-- B-batch). Kontrolmængden er B-batchens personas uden staged person (staged er en disposition, spec §4.6) og uden en
+-- identitet fra før C. Writeren kræver identitetsversion 0, så en identitet på en persona uden for C's hændelser er en
+-- eksisterende disposition, og en persona i C's hændelser havde ingen. Staged aflæses på den person, B-hændelsen bandt
+-- (canonical_person_id), ikke gennem bindingsopslaget pr. persona: C's egne personas er bindingsefterprøvet af writeren,
+-- og finalize skal holde sig under prods statement_timeout. Mængder sammenlignes begge veje (ikke antal): en manglende
+-- persona og en ekstra (fx staged) persona afvises begge med PUBLICATION_IDENTITY_SET_MISMATCH.
 CREATE OR REPLACE FUNCTION private.verify_publication_identity_input(p_batch_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE v_source bigint; v_runs text[]; v_run private.source_persona_identity_candidate_run%ROWTYPE; v_latest uuid;
 BEGIN
+  IF current_setting('transaction_isolation')<>'read committed' THEN RAISE EXCEPTION 'PUBLICATION_IDENTITY_ISOLATION'; END IF;
   SELECT b.source_id INTO v_source FROM private.reimport_batch b WHERE b.id=p_batch_id;
   SELECT array_agg(DISTINCT e.payload->>'candidate_run_id') INTO v_runs
     FROM private.reimport_event e WHERE e.batch_id=p_batch_id AND e.operation='publication_identity';
@@ -30644,6 +30662,27 @@ BEGIN
   END IF;
   IF private.reimport_canonical_json_sha256(private.identity_candidate_input(v_run.source_id,v_run.input_spec))<>v_run.input_sha256 THEN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_INPUT_DRIFT';
+  END IF;
+  IF EXISTS (
+    WITH c AS (
+      SELECT DISTINCT e.payload->>'persona_batch_id' AS b, e.payload->>'source_persona_id' AS p
+        FROM private.reimport_event e WHERE e.batch_id=p_batch_id AND e.operation='publication_identity'
+    ), req AS (
+      SELECT be.batch_id::text AS b, be.payload->'result_receipt'->>'source_persona_id' AS p
+        FROM private.reimport_event be
+        LEFT JOIN public.person q ON q.id=be.canonical_person_id
+       WHERE be.operation='publication_persona'
+         AND be.batch_id IN (SELECT c.b::uuid FROM c)
+         AND NOT coalesce(q.staged,false)
+         AND (EXISTS (SELECT 1 FROM c WHERE c.p=be.payload->'result_receipt'->>'source_persona_id')
+              OR NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
+                              WHERE i.source_persona_id=(be.payload->'result_receipt'->>'source_persona_id')::uuid))
+    )
+    (SELECT c.b,c.p FROM c EXCEPT SELECT req.b,req.p FROM req)
+    UNION ALL
+    (SELECT req.b,req.p FROM req EXCEPT SELECT c.b,c.p FROM c)
+  ) THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_SET_MISMATCH';
   END IF;
 END $$;
 REVOKE ALL ON FUNCTION private.verify_publication_identity_input(uuid) FROM PUBLIC,anon,authenticated,service_role;

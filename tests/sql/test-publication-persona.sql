@@ -193,3 +193,30 @@ BEGIN
 END $chain$;
 
 ROLLBACK;
+
+-- Codex 6B-02: B's writer kræver READ COMMITTED (eksistens- og driftkontrollerne skal læse efter låsene). SET TRANSACTION
+-- skal være transaktionens første sætning, så testen står i egne transaktioner; kontrollen står først i writeren.
+BEGIN;
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+DO $iso$
+DECLARE v_res text;
+BEGIN
+  BEGIN PERFORM private.write_publication_persona(gen_random_uuid(),'publication-persona:x','{}'::jsonb); v_res:='OK';
+  EXCEPTION WHEN OTHERS THEN v_res:=SQLERRM; END;
+  IF v_res IS DISTINCT FROM 'PUBLICATION_PERSONA_ISOLATION' THEN
+    RAISE EXCEPTION 'PUBLICATION_PERSONA_TEST_ISOLATION: repeatable read gav %',v_res; END IF;
+  RAISE NOTICE 'OK: REPEATABLE READ afvises af B';
+END $iso$;
+ROLLBACK;
+BEGIN;
+SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+DO $iso$
+DECLARE v_res text;
+BEGIN
+  BEGIN PERFORM public.red_apply_reimport_publication_persona(gen_random_uuid(),'publication-persona:x','{}'::jsonb); v_res:='OK';
+  EXCEPTION WHEN OTHERS THEN v_res:=SQLERRM; END;
+  IF v_res IS DISTINCT FROM 'PUBLICATION_PERSONA_ISOLATION' THEN
+    RAISE EXCEPTION 'PUBLICATION_PERSONA_TEST_ISOLATION: serializable gav %',v_res; END IF;
+  RAISE NOTICE 'OK: SERIALIZABLE afvises af B';
+END $iso$;
+ROLLBACK;
