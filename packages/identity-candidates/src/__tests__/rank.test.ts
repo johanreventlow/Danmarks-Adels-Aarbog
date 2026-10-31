@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { MatchFrame } from '@daa/core';
-import { rankCandidates, runConfig } from '../rank';
+import { rankCandidates, runConfig, parseControlMargin } from '../rank';
 
 const f = (id: string | number, nameKey: string, birth: number | null = null, sex: MatchFrame['sex'] = 'ukendt',
            death: number | null = null): MatchFrame => ({
@@ -55,13 +55,14 @@ describe('rankCandidates', () => {
   });
 
   test('enkeltperson: én member_scores-post med uafrundet score', () => {
-    const out = rankCandidates([f('p1', 'ludvig reventlow', 1848, 'ukendt', 1900)], [f(7, 'ludvig reventlow', 1848, 'mand', 1900)], { topK: 3, origins });
+    const out = rankCandidates([f('p1', 'ludvig reventlow', 1848)], [f(7, 'ludvig reventlowe', 1848)], { topK: 3, origins });
     const ms = out[0].basis.member_scores;
     expect(ms).toHaveLength(1);
     expect(ms[0].person_id).toBe(7);
-    expect(ms[0].signals).toEqual(expect.arrayContaining(['name', 'birth', 'death']));
-    expect(Number.isInteger(ms[0].person_id)).toBe(true);
-    expect(ms[0].score_raw).toBeGreaterThan(out[0].score - 0.0001);
+    expect(ms[0].signals).toEqual(['name', 'birth']);
+    expect(ms[0].score_raw).toBe(0.7929411764705883);
+    expect(out[0].score).toBe(0.7929);
+    expect(ms[0].score_raw).not.toBe(out[0].score);
   });
 
   test('klynge {A med årstal, B uden}: én række, klyngens score, hvert medlem med egen score og egne signaler', () => {
@@ -91,5 +92,17 @@ describe('runConfig', () => {
   });
   test('uden flag udelades controlMargin', () => {
     expect('controlMargin' in runConfig({ topK: 3, familyNameMin: 0.9 })).toBe(false);
+  });
+});
+
+describe('parseControlMargin', () => {
+  test('uden flag: undefined; gyldig værdi parses', () => {
+    expect(parseControlMargin(['generate'])).toBeUndefined();
+    expect(parseControlMargin(['--control-margin', '0.05'])).toBe(0.05);
+  });
+  test('sidste argument uden værdi, eller værdi uden for (0,1), kaster', () => {
+    expect(() => parseControlMargin(['generate', '--control-margin'])).toThrow();
+    expect(() => parseControlMargin(['--control-margin', '--top-k', '3'])).toThrow();
+    for (const v of ['0', '1', '-0.1', 'abc']) expect(() => parseControlMargin(['--control-margin', v])).toThrow();
   });
 });

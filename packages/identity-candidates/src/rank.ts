@@ -20,6 +20,16 @@ export function rankConfig(opts: Pick<RankOptions, 'evidensNormaliseret'>): Matc
 }
 
 // Kørselskonfiguration til kandidatfilen. controlMargin udelades uden flag (klassifikatoren fejler så lukket).
+// Parser --control-margin: undefined uden flag; kaster ved manglende/ugyldig værdi (CLI'en giver exit 2).
+export function parseControlMargin(argv: string[]): number | undefined {
+  const i = argv.indexOf('--control-margin');
+  if (i < 0) return undefined;
+  const raw = argv[i + 1];
+  const x = raw === undefined || raw.startsWith('--') ? NaN : Number(raw);
+  if (!(x > 0 && x < 1)) throw new Error('--control-margin skal ligge i (0,1)');
+  return x;
+}
+
 export function runConfig(o: { evidensNormaliseret?: boolean; topK: number; familyNameMin: number; controlMargin?: number }) {
   const { controlMargin, ...rest } = o;
   return { ...rankConfig({ evidensNormaliseret: o.evidensNormaliseret }), topK: rest.topK, familyNameMin: rest.familyNameMin,
