@@ -47,7 +47,11 @@ def _card_personas(control: dict) -> list[dict]:
     """Personas der får kort: ikke-staged med udfald != enig, samt stikprøven."""
     out = []
     for c in control["personas"]:
-        if c.get("not_staged") is not True:
+        if c.get("not_staged") is None:
+            raise SheetError("PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED")
+        if c.get("in_sample") and c.get("not_staged") is not True:
+            raise SheetError("PUBLICATION_CONTROL_SAMPLE_INVALID")
+        if c["not_staged"] is not True:
             continue
         if c.get("outcome") is None:
             raise SheetError("PUBLICATION_CONTROL_OUTCOME_MISSING")
@@ -78,12 +82,23 @@ def _card(i: int, n: int, c: dict, d: dict) -> list[str]:
         lines.append(f"#     bindingens egen score: {_score(p.get('score_raw'))} · signaler: {_ws(', '.join(map(str, p.get('signals') or [])))}")
     if not own:
         lines.append("#   BINDING: ikke blandt kandidaterne")
-    comps = [p for p in persons if p.get("role") == "competitor"][:3]
-    for k, p in enumerate(comps, 1):
+    oc = [p for p in persons if p.get("role") == "own_cluster"]
+    if own:
+        lines.append(f"#     egen klynge: {1 + len(oc)} medlem(mer), bindingspersonens rang i den: {_score(own[0].get('rank'))}")
+    clusters: dict = {}
+    for p in persons:
+        if p.get("role") == "competitor":
+            clusters.setdefault(p.get("rank"), []).append(p)
+    ordered = sorted(clusters.items(), key=lambda kv: (kv[0] is None, kv[0] if kv[0] is not None else 0))[:3]
+    for k, (_, members) in enumerate(ordered, 1):
+        members = sorted(members, key=lambda m: (-(m.get("score_raw") if m.get("score_raw") is not None else float("-inf")),
+                                                 m.get("person_id")))
+        p = dict(members[0], _others=len(members) - 1)
         lines.append(f"#   Konkurrent {k}: {_ws(p.get('navn'))} ({_years(p.get('foedt'), p.get('doed'))}) · person {p.get('person_id')} · "
                      f"titel {_ws(', '.join(map(str, p.get('titel') or [])))} · post {_ws(', '.join(p.get('record_labels') or []))}")
-        lines.append(f"#     klyngens score: {_score(p.get('cluster_score'))} · medlemmets egen score: {_score(p.get('score_raw'))}")
-    if not comps:
+        lines.append(f"#     klyngens score: {_score(p.get('cluster_score'))} · bedste medlems egen score: {_score(p.get('score_raw'))} · "
+                     f"øvrige medlemmer i klyngen: {p['_others']}")
+    if not ordered:
         lines.append("#   Ingen konkurrerende klynger")
     lines.append(f"P {c['source_persona_id']} {int(c['identity_version'])} : _ # ")
     lines.append("")
@@ -120,6 +135,8 @@ def parse_sheet(text: str) -> list[tuple[int, dict]]:
         m = P_RE.match(line)
         if not m:
             raise SheetError(f"PUBLICATION_SHEET_LINE_INVALID {n}")
+        if any(r[1]["pid"] == m["pid"] for r in res):
+            raise SheetError("PUBLICATION_SHEET_DUPLICATE_LINE")
         res.append((n, {"pid": m["pid"], "ver": int(m["ver"]), "tok": m["tok"][0],
                         "hint": int(m["hint"]) if m["hint"] else None}))
     return res
@@ -135,14 +152,22 @@ def build_manifest(control_bytes: bytes, sheets: list[tuple[str, bytes]], approv
         raise SheetError("PUBLICATION_SHEET_HASH_MISMATCH")
     rows_sha = _sha(control_bytes)
     by_pid = {c["source_persona_id"]: c for c in control["personas"]}
+    if len(by_pid) != len(control["personas"]):
+        raise SheetError("PUBLICATION_CONTROL_DUPLICATE_PERSONA")
+    if len(set(approved)) != len(approved) or len({_sha(b) for _, b in sheets}) != len(sheets):
+        raise SheetError("PUBLICATION_SHEET_DUPLICATE")
     answers: dict[str, tuple[str, int, dict]] = {}
     for (name, b), ok in zip(sheets, approved):
         sha = _sha(b)
         if sha != ok:
             raise SheetError("PUBLICATION_SHEET_HASH_MISMATCH")
         for n, row in parse_sheet(b.decode("utf-8")):
-            if row["pid"] in answers or row["pid"] not in by_pid:
+            if row["pid"] in answers:
+                raise SheetError("PUBLICATION_SHEET_DUPLICATE_LINE")
+            if row["pid"] not in by_pid:
                 raise SheetError("PUBLICATION_SHEET_PERSONA_UNKNOWN")
+            if row["hint"] is not None and row["hint"] == by_pid[row["pid"]].get("person_id"):
+                raise SheetError("PUBLICATION_SHEET_HINT_IS_BINDING")
             if row["ver"] != int(by_pid[row["pid"]]["identity_version"]):
                 raise SheetError("PUBLICATION_SHEET_VERSION_MISMATCH")
             answers[row["pid"]] = (sha, n, row)
@@ -155,13 +180,23 @@ def build_manifest(control_bytes: bytes, sheets: list[tuple[str, bytes]], approv
             raise SheetError("PUBLICATION_SAMPLE_FAILED")
     elements: dict[str, dict] = {}
     dispositions = []
+    existing_not_s = 0
     for pid in sorted(by_pid):
         c = by_pid[pid]
-        if c.get("not_staged") is not True:
+        if c.get("not_staged") is None:
+            raise SheetError("PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED")
+        if c["not_staged"] is False:
             dispositions.append({"source_persona_id": pid, "label": "staged_ikke_offentlig"})
             continue
         if not _is_new(c):
-            dispositions.append({"source_persona_id": pid, "label": "eksisterende_uaendret"})
+            d = {"source_persona_id": pid, "label": "allerede_persona"}
+            if pid in answers:
+                d["answer"] = answers[pid][2]["tok"]
+                d["sheet_sha256"] = answers[pid][0]
+                d["sheet_line"] = answers[pid][1]
+                if d["answer"] != "S":
+                    existing_not_s += 1
+            dispositions.append(d)
             continue
         if c.get("binding_status") != "published" or c.get("person_id") is None:
             raise SheetError("PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED")
@@ -182,7 +217,7 @@ def build_manifest(control_bytes: bytes, sheets: list[tuple[str, bytes]], approv
     manifest = {"elements": dict(sorted(elements.items())),
                 "expected_counts": {"person_creates": 0, "source_evidence": 0, "publication_identities": len(elements)},
                 "dispositions": dispositions}
-    return manifest, {"elements": len(elements), "dispositions": len(dispositions), "rows_sha256": rows_sha}
+    return manifest, {"elements": len(elements), "dispositions": len(dispositions), "rows_sha256": rows_sha, "existing_not_s": existing_not_s}
 
 
 def main() -> int:
@@ -222,11 +257,13 @@ def main() -> int:
         manifest, info = build_manifest(ctl_bytes, sheets, args.approved_sha256.split(","), args.persona_batch,
                                         args.candidates_sha256)
         text = json.dumps(manifest, sort_keys=True, ensure_ascii=False)
+        if out.exists():
+            raise SheetError("PUBLICATION_OUT_EXISTS")
         _write_new(out, text + "\n")
     except SheetError as exc:
         raise SystemExit(str(exc).split(" — ")[0])
     print(f"PUBLICATION_MANIFEST_OK elements={info['elements']} dispositions={info['dispositions']} "
-          f"rows_sha256={info['rows_sha256']} manifest_sha256={_sha((text + chr(10)).encode('utf-8'))}")
+          f"eksisterende_ikke_S={info['existing_not_s']} rows_sha256={info['rows_sha256']} manifest_sha256={_sha((text + chr(10)).encode('utf-8'))}")
     return 0
 
 
