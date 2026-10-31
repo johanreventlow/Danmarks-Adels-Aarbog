@@ -263,6 +263,7 @@ DECLARE
   v_run uuid; v_run2 uuid; v_cfg jsonb:='{"autoCutoff":0.9,"controlMargin":0.05,"topK":3}'; v_ids jsonb:='[]';
   v_ctl jsonb; v_ctl2 jsonb; v_sample uuid[]; v_expected uuid[]; v_det jsonb; v_pd jsonb; v_e jsonb;
   Q bigint:=-653900; R bigint:=-653901; v_nfx jsonb; v_n int; v_res text; v_given uuid[]:='{}'; v_ik uuid; v_iid uuid;
+  v_n1_narr bigint;
 BEGIN
   FOR v_i IN 1..30 LOOP
     v_key:=CASE v_i WHEN 28 THEN 'z' WHEN 29 THEN 'w' WHEN 30 THEN 'q' ELSE 's'||v_i END;
@@ -365,6 +366,31 @@ BEGIN
   -- deterministisk
   v_ctl2:=pg_temp.rpc(v_a,'red_publication_control',v_run);
   IF v_ctl2<>v_ctl THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: ikke deterministisk'; END IF;
+
+  -- N1 (final-fix-rereview): B-bindingsfilteret. En stikprøvepersona, hvis B-binding trækkes tilbage, og hvis record
+  -- genpubliceres med en ny binding til samme person, er stadig enig efter den aktuelle binding, men er ikke i populationen
+  -- (B-hændelsens binding er ikke published, som i finalize's kontrolmængde). Rulles tilbage (undertransaktion).
+  v_n:=array_position(v_bp,v_sample[1]);
+  BEGIN
+    UPDATE private.narrative_record_publication SET status='withdrawn' WHERE id=(v_fx[v_n]->>'binding')::uuid;
+    INSERT INTO public.narrative(subjekt_type,subjekt_id,source_id,side,tekst)
+      VALUES ('person',(v_fx[v_n]->>'person')::bigint,-6530,'1','Syntetisk tekst N1') RETURNING id INTO v_n1_narr;
+    INSERT INTO private.narrative_record_publication(narrative_id,source_record_id,record_label,citation_label,status)
+      VALUES (v_n1_narr,(v_fx[v_n]->>'record')::uuid,'Fixture N1','Fixture side 1','published');
+    IF (SELECT pb.binding_status FROM private.publication_persona_binding(v_sample[1]) pb)<>'published'
+       OR (SELECT pb.binding_id::text FROM private.publication_persona_binding(v_sample[1]) pb)=v_fx[v_n]->>'binding'
+       OR NOT private.publication_control_enig(v_sample[1],v_run) THEN
+      RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: N1-opsætning (genpubliceret binding er ikke aktiv og enig)'; END IF;
+    IF EXISTS (SELECT 1 FROM private.publication_sample_candidates(v_run) c WHERE c.source_persona_id=v_sample[1])
+       OR v_sample[1]=ANY(ARRAY(SELECT private.publication_control_sample(v_run)))
+       OR private.publication_control_in_sample(v_sample[1],v_run) THEN
+      RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: N1 persona med tilbagetrukket B-binding i stikprøvens population'; END IF;
+    RAISE EXCEPTION 'N1_RULLES_TILBAGE';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM<>'N1_RULLES_TILBAGE' THEN RAISE; END IF;
+  END;
+  IF NOT private.publication_control_in_sample(v_sample[1],v_run) THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: N1 blev ikke rullet tilbage'; END IF;
 
   -- 10 af de enige får identitet med publication_binding (5 i stikprøven, 5 udenfor), som C skriver dem (evidence med
   -- candidate_run_id = kørslen); stikprøven er den samme. En identitet uden kørslens id er »fra før C« og udelukkes (I1).

@@ -30470,9 +30470,10 @@ BEGIN
 END $$;
 
 -- Trin 6b (ceremoni C, spec §4.3 pkt. 4, §4.3.1): stikprøven for en kandidatkørsel, beregnet én gang pr. transaktion i en
--- writer-ejet midlertidig tabel (ON COMMIT DROP), så C ikke klassificerer hele populationen pr. element (O(n²)). Stikprøven
--- læser ikke identitetsrækker, så C's egne skrivninger flytter den ikke. En tabel med samme navn, som ikke ejes af
--- writerens rolle (fx oprettet af klienten før kaldet), godtages ikke.
+-- writer-ejet midlertidig tabel (ON COMMIT DROP), så C ikke klassificerer hele populationen pr. element (O(n²)). Populationen
+-- (publication_sample_candidates) udelukker identiteter fra før C, men ikke dem, en C over samme kørsel skriver, og en fortrudt
+-- publikationsidentitet tæller som ingen; C's egne skrivninger flytter den derfor ikke, og tabellen fastholder den inden for
+-- transaktionen. En tabel med samme navn, som ikke ejes af writerens rolle (fx oprettet af klienten før kaldet), godtages ikke.
 CREATE OR REPLACE FUNCTION private.publication_identity_in_sample(p_persona uuid,p_run uuid)
 RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE v_owner oid; v_found boolean;
@@ -30679,8 +30680,10 @@ GRANT EXECUTE ON FUNCTION public.red_apply_reimport_publication_identity(uuid,te
 -- er ikke krævet (disposition) og frigives efter C af persona_awaiting_control til webkøen som proposed. Skrev C den alligevel
 -- (bindingen genpubliceret med nyt id; writeren har efterprøvet den aktuelle binding), tæller den med.
 -- Stikprøven (samme beregning som writerens, publication_identity_in_sample) skal ligge i C; ellers
--- PUBLICATION_IDENTITY_SAMPLE_MISMATCH. Det følger normalt af den fulde mængde plus writerens tjek pr. element, men
--- stikprøvens population udelukker hverken staged personas eller identiteter fra før C, så det efterprøves eksplicit.
+-- PUBLICATION_IDENTITY_SAMPLE_MISMATCH. Det følger normalt af den fulde mængde plus writerens tjek pr. element: populationen
+-- har kontrolmængdens prædikater (ikke staged, B-binding published, ingen identitet fra før C; final-review I1). Det
+-- efterprøves alligevel eksplicit, fordi stikprøven beregnes ved første writerkald, og en ændring senere i C's transaktion
+-- (fx en tilbagetrækning af B-bindingen) kan tage en stikprøvepersona ud af kontrolmængden, så C kunne udelade den (test 3e).
 CREATE OR REPLACE FUNCTION private.verify_publication_identity_input(p_batch_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE v_source bigint; v_runs text[]; v_run private.source_persona_identity_candidate_run%ROWTYPE; v_latest uuid;
