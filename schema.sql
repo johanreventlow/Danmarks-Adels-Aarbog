@@ -17178,6 +17178,76 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION private.verify_publication_identity_input(uuid) FROM PUBLIC,anon,authenticated,service_role;
 
+-- Trin 6b (ceremoni C, spec §6 "Fortrydelse pr. fase"): fortrydelse af en publication_identity-batch. B fortrydes ikke her
+-- (source_persona er append-only; B fortrydes ved restore af B-dumpet). Hver af C's identiteter sættes til superseded gennem
+-- kernens reversal-oprindelse, men kun hvis personaens aktuelle identitetsversion stadig er den, C skrev; en senere
+-- afgørelse (fx en menneskelig) afviser hele fortrydelsen. Autorisationen kommer fra red_authorize_reimport_reversal.
+-- Kontrollerne er som i record_reimport_legacy_reversal; batchen skal være finalized og kun rumme publication_identity.
+CREATE OR REPLACE FUNCTION public.red_reverse_reimport_publication(p_batch_id uuid,p_authorization_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_actor uuid; v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE;
+  v_discovered_source_id bigint; v_discovered_profile_id text;
+  v_event private.reimport_event%ROWTYPE; v_persona uuid; v_expected integer; v_current integer; v_elements bigint:=0;
+  v_payload jsonb; v_sha text;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_actor:=private.require_reimport_writer_editor();
+  SELECT source_id,profile_id INTO v_discovered_source_id,v_discovered_profile_id FROM private.reimport_batch WHERE id=p_batch_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID'; END IF;
+  PERFORM private.lock_reimport_writer(v_discovered_source_id,v_discovered_profile_id);
+  -- Samme låserække som red_reverse_reimport: batch før autorisation.
+  SELECT * INTO v_batch FROM private.reimport_batch WHERE id=p_batch_id FOR UPDATE;
+  SELECT * INTO v_auth FROM private.reimport_authorization WHERE id=p_authorization_id FOR UPDATE;
+  IF v_batch.id IS NULL OR v_batch.source_id IS DISTINCT FROM v_discovered_source_id
+     OR v_batch.profile_id IS DISTINCT FROM v_discovered_profile_id OR v_batch.status<>'finalized'
+     OR v_auth.id IS NULL OR v_auth.operation<>'reversal' OR v_auth.status<>'issued'
+     OR v_auth.principal_id<>v_actor OR v_auth.expires_at<=clock_timestamp()
+     OR v_auth.database_identity IS DISTINCT FROM 'batch:'||p_batch_id::text
+     OR v_auth.source_id<>v_batch.source_id OR v_auth.profile_id<>v_batch.profile_id
+     OR v_auth.profile_sha256<>v_batch.profile_sha256
+     OR v_auth.manifest_sha256<>v_batch.manifest_sha256
+     OR v_auth.preview_sha256<>v_batch.preview_sha256 THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID';
+  END IF;
+  -- Kun publication_identity-hændelser (mindst én); en tidligere reversal-hændelse er også en afvigelse.
+  IF NOT EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=p_batch_id AND e.operation='publication_identity')
+     OR EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=p_batch_id
+                 AND e.operation IS DISTINCT FROM 'publication_identity') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID';
+  END IF;
+  -- Persona-rækkerne låses først i id-orden (kernens låseorden), så versionsvagten og kernen ser samme tilstand.
+  PERFORM 1 FROM private.source_persona sp
+   WHERE sp.id IN (SELECT (e.payload->>'source_persona_id')::uuid FROM private.reimport_event e
+                    WHERE e.batch_id=p_batch_id AND e.operation='publication_identity')
+   ORDER BY sp.id FOR UPDATE;
+  FOR v_event IN SELECT * FROM private.reimport_event e WHERE e.batch_id=p_batch_id AND e.operation='publication_identity'
+                  ORDER BY (e.payload->>'source_persona_id')::uuid LOOP
+    v_persona:=(v_event.payload->>'source_persona_id')::uuid;
+    IF jsonb_typeof(v_event.payload->'result_receipt'->'identity_version')<>'number' THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID';
+    END IF;
+    v_expected:=(v_event.payload->'result_receipt'->>'identity_version')::integer;
+    SELECT i.version INTO v_current FROM private.source_persona_identity i WHERE i.source_persona_id=v_persona FOR UPDATE;
+    IF v_current IS DISTINCT FROM v_expected THEN
+      RAISE EXCEPTION 'PUBLICATION_REVERSAL_VERSION_DRIFT';
+    END IF;
+    PERFORM private.decide_source_persona_identity(v_persona,NULL,v_current,'superseded',
+      jsonb_build_object('reversed_batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256),'reversal');
+    v_elements:=v_elements+1;
+  END LOOP;
+  UPDATE private.reimport_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=v_auth.id;
+  UPDATE private.reimport_batch SET status='reversed' WHERE id=p_batch_id;
+  v_payload:=jsonb_build_object('authorization_id',v_auth.id,'reversed_identities',v_elements);
+  v_sha:=private.reimport_canonical_json_sha256(v_payload);
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,payload,after_sha256)
+  VALUES(p_batch_id,'publication-identity-reversal:'||v_auth.id::text,'reversal',v_payload,v_sha);
+  RETURN jsonb_build_object('batch_id',p_batch_id,'status','reversed','reversed_identities',v_elements);
+END $$;
+REVOKE ALL ON FUNCTION public.red_reverse_reimport_publication(uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_reverse_reimport_publication(uuid,uuid) TO authenticated;
+
 -- Finalisering: receiptet læses fra payload->'result_receipt', hashen genberegnes, og hvert
 -- id efterprøves mod databasen (spec §5.2.1). Prædikatbetinget: kun ægteskaber har ny persona.
 CREATE OR REPLACE FUNCTION private.verify_relation_persona_receipts(p_batch_id uuid)

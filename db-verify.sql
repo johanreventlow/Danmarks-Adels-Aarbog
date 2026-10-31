@@ -3048,6 +3048,7 @@ DECLARE
     'public.red_revalider_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
     'public.red_reverse_1939_v50_reimport(uuid,uuid)'::regprocedure,
     'public.red_reverse_reimport(uuid,uuid)'::regprocedure,
+    'public.red_reverse_reimport_publication(uuid,uuid)'::regprocedure,
     'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)'::regprocedure,
     'public.red_saet_portraet(bigint,bigint)'::regprocedure,
     'public.red_samme_som(bigint,bigint)'::regprocedure,

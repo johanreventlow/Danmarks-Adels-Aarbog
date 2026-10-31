@@ -1310,6 +1310,7 @@ REVOKE ALL ON FUNCTION public.red_authorize_reimport(text,text,text,bigint,text,
   public.red_apply_reimport_relation_disposition(uuid,text,jsonb),
   public.red_finalize_reimport(uuid),public.red_reimport_batch_result(uuid,uuid),
   public.red_authorize_reimport_reversal(uuid,uuid,timestamptz),public.red_reverse_reimport(uuid,uuid),
+  public.red_reverse_reimport_publication(uuid,uuid),
   public.red_authorize_reimport_cutover(uuid,uuid,timestamptz),public.red_activate_reimport_batch(uuid,uuid),public.red_apply_reimport_canonical_delta(uuid,text,jsonb),
   public.red_lock_reimport_name_completion(text,bigint,text),public.red_authorize_reimport_name_completion(text,uuid,text,text,bigint,text,text,jsonb,jsonb),
   public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),public.red_begin_reimport_name_completion(uuid,text,uuid),
@@ -1331,7 +1332,7 @@ GRANT EXECUTE ON FUNCTION public.red_preflight_reimport_authorization(uuid,text,
   public.red_apply_reimport_relation_person_create(uuid,text,jsonb),
   public.red_apply_reimport_relation_disposition(uuid,text,jsonb),
   public.red_finalize_reimport(uuid),public.red_reimport_batch_result(uuid,uuid),
-  public.red_reverse_reimport(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid),public.red_apply_reimport_canonical_delta(uuid,text,jsonb),
+  public.red_reverse_reimport(uuid,uuid),public.red_reverse_reimport_publication(uuid,uuid),public.red_activate_reimport_batch(uuid,uuid),public.red_apply_reimport_canonical_delta(uuid,text,jsonb),
   public.red_lock_reimport_name_completion(text,bigint,text),public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb),
   public.red_begin_reimport_name_completion(uuid,text,uuid),public.red_apply_reimport_name_completion(uuid,text,jsonb),
   public.red_finalize_reimport_name_completion(uuid)
@@ -1629,7 +1630,8 @@ BEGIN
     ('public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb)'),
     ('public.red_reimport_batch_result(uuid,uuid)'),
     ('public.red_reverse_1939_v50_reimport(uuid,uuid)'),
-    ('public.red_reverse_reimport(uuid,uuid)');
+    ('public.red_reverse_reimport(uuid,uuid)'),
+    ('public.red_reverse_reimport_publication(uuid,uuid)');
 
   -- (c) VERSIONSBESTEMT. Maalt 2026-09-20: v1 aabner fire legacy-indgange, v2 aabner 13
   --     andre. En flad liste over begge ville acceptere et v2-grant paa en v1-base og
