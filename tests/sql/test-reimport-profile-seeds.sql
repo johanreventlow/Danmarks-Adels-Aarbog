@@ -33,7 +33,7 @@ BEGIN
   IF NOT private.validate_reimport_writer_config(r.writer_config) THEN RAISE EXCEPTION 'SEED_2018_20_STR_INVALID'; END IF;
   RAISE NOTICE 'seed 2018-20 source text revision profile OK';
 END $seed_2018_20_source_text_revision$;
--- Trin 6b: publikationsprofilen er klausulprofilens config med egen run-nøgle og extractor_version; ingen anden profils hash ændres.
+-- Trin 6b: publikationsprofilen er klausulprofilens config med egen run-nøgle, extractor_version og persona_key_prefix; ingen anden profils hash ændres.
 DO $profile_1939_publication$
 DECLARE r private.reimport_writer_profile%ROWTYPE; v_expected jsonb; v_clause jsonb; v_n int; k record;
 BEGIN
@@ -42,7 +42,7 @@ BEGIN
   SELECT * INTO r FROM private.reimport_writer_profile WHERE profile_id='daa-1939-publication-v1';
   IF r.source_id<>3 OR r.profile_version<>'publication-v1' THEN RAISE EXCEPTION 'PUBLICATION_REG_PROFILE_IDENTITY'; END IF;
   SELECT writer_config INTO v_clause FROM private.reimport_writer_profile WHERE profile_id='daa-1939-clause-evidence-v1';
-  v_expected:=(v_clause-'run_key_prefix'-'extractor_version')||'{"run_key_prefix":"reimport-publication:","extractor_version":"publication-v1"}'::jsonb;
+  v_expected:=(v_clause-'run_key_prefix'-'extractor_version')||'{"run_key_prefix":"reimport-publication:","extractor_version":"publication-v1","persona_key_prefix":"1939:"}'::jsonb;
   IF r.writer_config IS DISTINCT FROM v_expected THEN RAISE EXCEPTION 'PUBLICATION_REG_PROFILE_CONFIG'; END IF;
   IF r.profile_sha256<>private.reimport_canonical_json_sha256(r.writer_config) THEN RAISE EXCEPTION 'PUBLICATION_REG_PROFILE_SHA'; END IF;
   IF NOT private.validate_reimport_writer_config(r.writer_config) THEN RAISE EXCEPTION 'PUBLICATION_REG_PROFILE_INVALID'; END IF;
@@ -59,5 +59,19 @@ BEGIN
   END LOOP;
   RAISE NOTICE 'OK: publication profile';
 END $profile_1939_publication$;
+
+-- persona_key_prefix er valgfri, men skal være en ikke-tom streng
+DO $persona_key_prefix$
+DECLARE v_cfg jsonb;
+BEGIN
+  SELECT writer_config INTO v_cfg FROM private.reimport_writer_profile WHERE profile_id='daa-1939-publication-v1';
+  IF NOT private.validate_reimport_writer_config(v_cfg) OR NOT private.validate_reimport_writer_config(v_cfg-'persona_key_prefix') THEN
+    RAISE EXCEPTION 'PERSONA_KEY_PREFIX_VALID_REJECTED'; END IF;
+  IF private.validate_reimport_writer_config(v_cfg||'{"persona_key_prefix":""}'::jsonb)
+     OR private.validate_reimport_writer_config(v_cfg||'{"persona_key_prefix":1}'::jsonb)
+     OR private.validate_reimport_writer_config(v_cfg||'{"persona_key_prefix":null}'::jsonb) THEN
+    RAISE EXCEPTION 'PERSONA_KEY_PREFIX_INVALID_ACCEPTED'; END IF;
+  RAISE NOTICE 'OK: persona_key_prefix';
+END $persona_key_prefix$;
 
 ROLLBACK;

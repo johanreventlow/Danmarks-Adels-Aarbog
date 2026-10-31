@@ -1,14 +1,14 @@
 -- Trin 6b, Task 2: fixtures til publication_persona. Kald som ejer, før SET ROLE. Alt er syntetisk.
 --
 -- pp_source(p_base, p_actor): kilde p_base (negativ), rendition, kørsel, redaktør og to publikationsprofiler
---   (fixture-pub-a, fixture-pub-b; samme config som daa-1939-publication-v1, ét writer-lås-par hver).
+--   (fixture-pub-a, fixture-pub-b; fixture-pub-n er uden persona_key_prefix; samme config som daa-1939-publication-v1, ét writer-lås-par hver).
 -- pp_post(p_src, p_key, p_person, p_opts): en helpost 'person' (tegn 100-500) med én mention, en narrativ med publiceret
 --   binding og en person med præcis én person_external_id. p_opts: subs (antal underforekomster, 0/2),
 --   binding ('published' | 'draft' | 'withdrawn+published'), ext_ids (0 eller 1 person_external_id for kilden; PK (person,kilde) tillader ikke to).
 -- pp_payload(p_fx): writerens payload for et pp_post-resultat.
 
 CREATE OR REPLACE FUNCTION pg_temp.pp_source(p_base bigint, p_actor uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
-DECLARE v_run uuid:=gen_random_uuid(); v_rend uuid; v_cfg jsonb; v_sha text;
+DECLARE v_run uuid:=gen_random_uuid(); v_rend uuid; v_cfg jsonb; v_sha text; v_cfg_n jsonb; v_sha_n text;
 BEGIN
   INSERT INTO public.source(id,titel,udgave,aar,slags) VALUES (p_base,'Fixture pub '||p_base,'synthetic','1900','DAA-udgave');
   INSERT INTO auth.users(id,email) VALUES (p_actor,p_actor::text||'@6b.invalid') ON CONFLICT DO NOTHING;
@@ -20,11 +20,13 @@ BEGIN
   v_cfg:=jsonb_build_object('citation_label_template','Synthetic side {page_from}','extractor_version','publication-v1',
     'observation_extraction_method','clause_segment_v1','rendition_key','fixture-r1','rendition_kind','pdf_text_layer',
     'rendition_metadata',jsonb_build_object('edition','fixture'),'run_key_prefix','reimport-publication:',
-    'schema_version','clause-evidence-manifest-v1','text_form','raw','helpost_observation_kind','person');
+    'schema_version','clause-evidence-manifest-v1','text_form','raw','helpost_observation_kind','person','persona_key_prefix','1939:');
+  v_cfg_n:=v_cfg-'persona_key_prefix'; v_sha_n:=private.reimport_canonical_json_sha256(v_cfg_n);
   v_sha:=private.reimport_canonical_json_sha256(v_cfg);
   INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
-    VALUES (p_base,'fixture-pub-a','publication-v1',v_sha,v_cfg),(p_base,'fixture-pub-b','publication-v1',v_sha,v_cfg);
-  RETURN jsonb_build_object('source',p_base,'run',v_run,'rend',v_rend,'actor',p_actor,'profile_sha256',v_sha);
+    VALUES (p_base,'fixture-pub-a','publication-v1',v_sha,v_cfg),(p_base,'fixture-pub-b','publication-v1',v_sha,v_cfg),
+           (p_base,'fixture-pub-n','publication-v1',v_sha_n,v_cfg_n);  -- n: uden persona_key_prefix
+  RETURN jsonb_build_object('source',p_base,'run',v_run,'rend',v_rend,'actor',p_actor,'profile_sha256',v_sha,'profile_sha256_n',v_sha_n);
 END $$;
 
 CREATE OR REPLACE FUNCTION pg_temp.pp_occ(p_record uuid, p_src jsonb, p_key text, p_from int, p_to int, p_kind text, p_head text DEFAULT '')
@@ -94,7 +96,7 @@ BEGIN
   PERFORM set_config('role','service_role',true);
   v_auth:=public.red_authorize_reimport(v_msha,v_psha,
     jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,
-    (p_src->>'source')::bigint,p_profile,p_src->>'profile_sha256',
+    (p_src->>'source')::bigint,p_profile,CASE WHEN p_profile='fixture-pub-n' THEN p_src->>'profile_sha256_n' ELSE p_src->>'profile_sha256' END,
     jsonb_build_object('person_creates',0,'source_evidence',0,'publication_personas',(SELECT count(*) FROM jsonb_object_keys(p_elements))),
     p_elements,gen_random_uuid(),clock_timestamp()+interval '10 minutes');
   PERFORM set_config('role','authenticated',true);

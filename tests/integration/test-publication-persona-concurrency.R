@@ -12,7 +12,8 @@
 #
 # Kræver en frisk base som klausul-writer-testene: evidence-promotion-bootstrap, schema.sql, db-rls.sql,
 # 1939-v50-writer-bootstrap, reimport-writer-v2-bootstrap, (db-migrations.sql to gange, db-rls.sql).
-# Testen committer syntetiske fixtures (kilde -6220). Køres fra repo-roden.
+# Testen committer syntetiske fixtures (kilde -6220) og rydder dem ved start og slut, så den kan genkøres på samme base.
+# Køres fra repo-roden.
 
 required_pg <- c("PGDATABASE", "PGHOST", "PGPORT", "PGUSER", "PGPASSWORD")
 pg_values <- Sys.getenv(required_pg, unset = NA_character_)
@@ -114,9 +115,44 @@ wait_blocked_by <- function(observer, application_name, blocker_pid, timeout = 1
   }
 }
 
+# Rydder testens committede fixtures (kilde -6220, person -622001). Som superbruger uden triggere (evidensrækkerne er
+# append-only); rækkefølgen er uden betydning, når fremmednøgler er slået fra.
+cleanup_fixtures <- function(con) {
+  recs <- "SELECT id FROM private.source_record WHERE source_id=-6220"
+  obs <- paste0("SELECT o.id FROM private.source_observation o JOIN private.source_record_occurrence c ON c.id=o.occurrence_id ",
+                "JOIN private.source_rendition r ON r.id=c.rendition_id WHERE r.source_id=-6220")
+  rends <- "SELECT id FROM private.source_rendition WHERE source_id=-6220"
+  statements <- c(
+    "DELETE FROM private.reimport_event WHERE batch_id IN (SELECT id FROM private.reimport_batch WHERE source_id=-6220)",
+    "DELETE FROM private.reimport_batch WHERE source_id=-6220",
+    "DELETE FROM private.reimport_authorization WHERE source_id=-6220",
+    "DELETE FROM private.reimport_writer_profile WHERE source_id=-6220",
+    "DELETE FROM private.source_persona_mention WHERE persona_id IN (SELECT id FROM private.source_persona WHERE source_id=-6220)",
+    "DELETE FROM private.source_persona WHERE source_id=-6220",
+    paste0("DELETE FROM private.source_mention WHERE observation_id IN (", obs, ")"),
+    paste0("DELETE FROM private.source_record_anchor_event WHERE source_record_id IN (", recs, ")"),
+    paste0("DELETE FROM private.source_observation WHERE id IN (", obs, ")"),
+    paste0("DELETE FROM private.source_record_occurrence WHERE rendition_id IN (", rends, ")"),
+    paste0("DELETE FROM private.narrative_record_publication WHERE source_record_id IN (", recs, ")"),
+    "DELETE FROM private.source_record WHERE source_id=-6220",
+    "DELETE FROM private.source_rendition WHERE source_id=-6220",
+    "DELETE FROM private.extraction_run WHERE source_id=-6220",
+    "DELETE FROM public.narrative WHERE source_id=-6220",
+    "DELETE FROM public.person_external_id WHERE source_id=-6220",
+    "DELETE FROM public.person WHERE id=-622001",
+    "DELETE FROM public.source WHERE id=-6220")
+  DBI::dbBegin(con)
+  tryCatch({
+    DBI::dbExecute(con, "SET LOCAL session_replication_role=replica")
+    for (statement in statements) DBI::dbExecute(con, statement)
+    DBI::dbCommit(con)
+  }, error = function(error) { try(DBI::dbRollback(con), silent = TRUE); stop(error) })
+}
+
 controller <- connect("pp_controller")
 observer <- connect("pp_observer")
-on.exit({ DBI::dbDisconnect(controller); DBI::dbDisconnect(observer) }, add = TRUE)
+on.exit({ try(cleanup_fixtures(controller), silent = TRUE); DBI::dbDisconnect(controller); DBI::dbDisconnect(observer) }, add = TRUE)
+cleanup_fixtures(controller)
 
 src_json <- psql_value(sprintf("SELECT pg_temp.pp_source(-6220,'%s')::text", actor))
 fx_json <- psql_value(sprintf("SELECT pg_temp.pp_post(%s::jsonb,'cc',-622001)::text", DBI::dbQuoteLiteral(controller, src_json)))
@@ -177,5 +213,7 @@ expect_true(as.integer(scalar(controller, "SELECT count(*) FROM private.source_p
 expect_true(as.integer(scalar(controller, "SELECT count(*) FROM private.reimport_event WHERE batch_id=$1::uuid", list(batch_b))) == 0L,
             "PUBLICATION_PERSONA_CONCURRENCY_B_EVENT")
 
+cleanup_fixtures(controller)
+expect_true(as.integer(scalar(controller, "SELECT count(*) FROM public.source WHERE id=-6220")) == 0L, "PUBLICATION_PERSONA_CONCURRENCY_CLEANUP")
 cat(sprintf("OK: test-publication-persona-concurrency (%d assertions, %.1f s)\n", assertions,
             as.numeric(difftime(Sys.time(), started, units = "secs"))))

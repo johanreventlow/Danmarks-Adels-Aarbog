@@ -23,7 +23,7 @@ DO $pp$
 DECLARE
   v_src jsonb:=pg_temp.pp_source(-6210,'11000000-0000-0000-0000-00000006b201');
   v_hp jsonb; v_ma jsonb; v_am jsonb; v_out jsonb; v_md jsonb; v_bd1 jsonb; v_bd2 jsonb; v_bd3 jsonb; v_bd4 jsonb; v_se jsonb;
-  v_ex jsonb; v_ex2 jsonb; v_pi jsonb;
+  v_ex jsonb; v_ex2 jsonb; v_pi jsonb; v_mi jsonb; v_mm jsonb; v_ns jsonb; v_nt jsonb; v_nc jsonb; v_np jsonb; v_batch_n uuid; v_cname text;
   v_payload jsonb; v_els jsonb:='{}'::jsonb; v_batch uuid; v_receipt jsonb; v_state_before jsonb; v_persona uuid;
   v_event private.reimport_event%ROWTYPE; v_dummy_persona uuid; v_n bigint;
 BEGIN
@@ -42,6 +42,18 @@ BEGIN
   v_ex:=pg_temp.pp_post(v_src,'ex',-621011);
   v_ex2:=pg_temp.pp_post(v_src,'ex2',-621012);
   v_pi:=pg_temp.pp_post(v_src,'pi',-621013);
+  v_mi:=pg_temp.pp_post(v_src,'mi',-621014);
+  v_mm:=pg_temp.pp_post(v_src,'mm',-621015);
+  INSERT INTO private.source_mention(observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id)
+    VALUES ((v_mm->>'observation')::uuid,'person',20,25,rpad('',5,'x'),(v_src->>'run')::uuid);
+  v_ns:=pg_temp.pp_post(v_src,'ns',-621016); v_nt:=pg_temp.pp_post(v_src,'nt',-621017); v_nc:=pg_temp.pp_post(v_src,'nc',-621018);
+  v_np:=pg_temp.pp_post(v_src,'np',-621019);
+  -- narrativet afviger fra payloaden: anden person, anden type, anden kilde
+  INSERT INTO public.person(id,levende,privat,status) VALUES (-621020,false,false,'pp');
+  UPDATE public.narrative SET subjekt_id=-621020 WHERE id=(v_ns->>'narrative')::bigint;
+  UPDATE public.narrative SET subjekt_type='family' WHERE id=(v_nt->>'narrative')::bigint;
+  INSERT INTO public.source(id,titel,udgave,aar,slags) VALUES (-6219,'Fixture anden','synthetic','1900','DAA-udgave');
+  UPDATE public.narrative SET source_id=-6219 WHERE id=(v_nc->>'narrative')::bigint;
 
   -- "to published" kan kun opstå direkte i fixturen: den aktive-binding-index spærrer det ellers.
   DROP INDEX private.narrative_record_publication_active_record_uidx;
@@ -66,6 +78,10 @@ BEGIN
     pg_temp.el('pi'),pg_temp.pp_payload(v_src,v_pi)||jsonb_build_object('extra','x'),
     pg_temp.el('rm'),pg_temp.pp_payload(v_src,v_pi)||jsonb_build_object('source_record_key','rm','persona_key','1939:rm'),
     pg_temp.el('pi2'),pg_temp.pp_payload(v_src,v_pi)||jsonb_build_object('source_record_key','pi2'),
+    pg_temp.el('mi'),pg_temp.pp_payload(v_src,v_mi)||jsonb_build_object('mention_id',gen_random_uuid()),
+    pg_temp.el('mm'),pg_temp.pp_payload(v_src,v_mm),
+    pg_temp.el('ns'),pg_temp.pp_payload(v_src,v_ns), pg_temp.el('nt'),pg_temp.pp_payload(v_src,v_nt), pg_temp.el('nc'),pg_temp.pp_payload(v_src,v_nc),
+    pg_temp.el('pi4'),pg_temp.pp_payload(v_src,v_pi)||jsonb_build_object('source_record_key','pi4','persona_key','1940:pi4'),
     pg_temp.el('pi3'),pg_temp.pp_payload(v_src,v_pi)||jsonb_build_object('source_record_key','pi3','persona_key','1939:pi3','binding_status','draft'));
   v_batch:=pg_temp.pp_begin(v_src,'fixture-pub-a','main',v_els);
 
@@ -92,12 +108,17 @@ BEGIN
     RAISE EXCEPTION 'PUBLICATION_PERSONA_TEST_STATE_CHANGED'; END IF;
   RAISE NOTICE 'OK: happy_path, narrative_state_unchanged';
 
-  -- replay af samme element: UNIQUE(batch_id,element_id), ingen anden persona
+  -- replay af samme element: writeren afviser præcist med EXISTS (personaen findes), og reimport_event er bagstop
+  -- med UNIQUE(batch_id,element_id)
+  PERFORM pg_temp.expect_apply(v_src,v_batch,pg_temp.el('hp'),v_els->pg_temp.el('hp'),'PUBLICATION_PERSONA_EXISTS');
   BEGIN
-    PERFORM pg_temp.pp_apply(v_src,v_batch,pg_temp.el('hp'),v_els->pg_temp.el('hp'));
+    INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
+    VALUES (v_batch,pg_temp.el('hp'),'publication_persona','hp','{}'::jsonb,repeat('a',64));
     RAISE EXCEPTION 'PUBLICATION_PERSONA_TEST_REPLAY_ACCEPTED';
-  EXCEPTION WHEN unique_violation OR OTHERS THEN
-    IF SQLERRM LIKE 'PUBLICATION_PERSONA_TEST%' THEN RAISE; END IF;
+  EXCEPTION WHEN unique_violation THEN
+    GET STACKED DIAGNOSTICS v_cname=CONSTRAINT_NAME;
+    IF v_cname IS DISTINCT FROM 'reimport_event_batch_id_element_id_key' THEN
+      RAISE EXCEPTION 'PUBLICATION_PERSONA_TEST_REPLAY_WRONG_CONSTRAINT: %',v_cname; END IF;
   END;
   IF (SELECT count(*) FROM private.source_persona WHERE source_id=-6210 AND persona_key='1939:hp')<>1 THEN
     RAISE EXCEPTION 'PUBLICATION_PERSONA_TEST_REPLAY_DOUBLE'; END IF;
@@ -116,6 +137,15 @@ BEGIN
   PERFORM pg_temp.expect_apply(v_src,v_batch,pg_temp.el('bd2'),v_els->pg_temp.el('bd2'),'PUBLICATION_PERSONA_BINDING_DRIFT');
   PERFORM pg_temp.expect_apply(v_src,v_batch,pg_temp.el('bd3'),v_els->pg_temp.el('bd3'),'PUBLICATION_PERSONA_BINDING_DRIFT');
   PERFORM pg_temp.pp_apply(v_src,v_batch,pg_temp.el('bd4'),v_els->pg_temp.el('bd4'));  -- withdrawn + én published lykkes
+  PERFORM pg_temp.expect_apply(v_src,v_batch,pg_temp.el('mi'),v_els->pg_temp.el('mi'),'PUBLICATION_PERSONA_MENTION_DRIFT');  -- rigtig tekst-hash, forkert mention-id
+  PERFORM pg_temp.expect_apply(v_src,v_batch,pg_temp.el('mm'),v_els->pg_temp.el('mm'),'PUBLICATION_PERSONA_MENTION_DRIFT');  -- to mentions i helposten
+  PERFORM pg_temp.expect_apply(v_src,v_batch,pg_temp.el('ns'),v_els->pg_temp.el('ns'),'PUBLICATION_PERSONA_BINDING_DRIFT');  -- forkert subjekt_id
+  PERFORM pg_temp.expect_apply(v_src,v_batch,pg_temp.el('nt'),v_els->pg_temp.el('nt'),'PUBLICATION_PERSONA_BINDING_DRIFT');  -- forkert subjekt_type
+  PERFORM pg_temp.expect_apply(v_src,v_batch,pg_temp.el('nc'),v_els->pg_temp.el('nc'),'PUBLICATION_PERSONA_BINDING_DRIFT');  -- forkert kilde
+  PERFORM pg_temp.expect_apply(v_src,v_batch,pg_temp.el('pi4'),v_els->pg_temp.el('pi4'),'PUBLICATION_PERSONA_PAYLOAD_INVALID');  -- forkert persona-prefix
+  -- en profil uden persona_key_prefix kan ikke skrive personas, selv med en ellers korrekt payload
+  v_batch_n:=pg_temp.pp_begin(v_src,'fixture-pub-n','np',jsonb_build_object(pg_temp.el('np'),pg_temp.pp_payload(v_src,v_np)));
+  PERFORM pg_temp.expect_apply(v_src,v_batch_n,pg_temp.el('np'),pg_temp.pp_payload(v_src,v_np),'PUBLICATION_PERSONA_PAYLOAD_INVALID');
   PERFORM pg_temp.expect_apply(v_src,v_batch,pg_temp.el('se'),v_els->pg_temp.el('se'),'PUBLICATION_PERSONA_SUBJECT_INVALID');
   PERFORM pg_temp.expect_apply(v_src,v_batch,pg_temp.el('ex'),v_els->pg_temp.el('ex'),'PUBLICATION_PERSONA_EXISTS');
   PERFORM pg_temp.expect_apply(v_src,v_batch,pg_temp.el('ex2'),v_els->pg_temp.el('ex2'),'PUBLICATION_PERSONA_EXISTS');

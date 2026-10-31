@@ -29200,6 +29200,31 @@ BEGIN
 END $$;
 
 -- ===== trin 6b: publication-operationer =====
+-- Valgfri writer_config-nøgle persona_key_prefix (ikke-tom streng): persona-nøglens prefix for publication_persona.
+CREATE OR REPLACE FUNCTION private.validate_reimport_writer_config(p_writer_config jsonb)
+RETURNS boolean LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+  SELECT jsonb_typeof(p_writer_config)='object'
+    AND p_writer_config ?& ARRAY['citation_label_template','extractor_version','observation_extraction_method','rendition_key','rendition_kind','rendition_metadata','run_key_prefix','schema_version']
+    AND NOT EXISTS (SELECT 1 FROM jsonb_object_keys(p_writer_config) key
+                     WHERE key <> ALL(ARRAY['citation_label_template','extractor_version','observation_extraction_method','rendition_key','rendition_kind','rendition_metadata','run_key_prefix','schema_version','text_form','helpost_observation_kind','persona_key_prefix']))
+    AND NOT EXISTS (
+      SELECT 1 FROM unnest(ARRAY['run_key_prefix','schema_version','extractor_version','rendition_key','rendition_kind','observation_extraction_method']) key
+      WHERE jsonb_typeof(p_writer_config->key)<>'string' OR btrim(p_writer_config->>key)=''
+    )
+    AND (NOT p_writer_config ? 'text_form'
+         OR (jsonb_typeof(p_writer_config->'text_form')='string'
+             AND p_writer_config->>'text_form' IN ('raw','folded_projection@anywhere','folded_projection@page_header')))
+    AND (NOT p_writer_config ? 'helpost_observation_kind'
+         OR (jsonb_typeof(p_writer_config->'helpost_observation_kind')='string'
+             AND btrim(p_writer_config->>'helpost_observation_kind')<>''))
+    AND (NOT p_writer_config ? 'persona_key_prefix'
+         OR (jsonb_typeof(p_writer_config->'persona_key_prefix')='string'
+             AND p_writer_config->>'persona_key_prefix'<>''))
+    AND jsonb_typeof(p_writer_config->'rendition_metadata')='object'
+    AND jsonb_typeof(p_writer_config->'citation_label_template')='string'
+    AND (length(p_writer_config->>'citation_label_template')-length(replace(p_writer_config->>'citation_label_template','{page_from}','')))/length('{page_from}')=1
+    AND regexp_replace(p_writer_config->>'citation_label_template','\{page_from\}','', 'g') !~ '\{[^}]*\}';
+$$;
 -- Operationerne publication_persona og publication_identity i reimport_event, autorisationens, finalize'ens og
 -- batch-resultatets tællinger, og 1939's publikationsprofil (én profil for begge).
 DO $publication_operations$
@@ -29429,7 +29454,7 @@ INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version
 SELECT 3,'daa-1939-publication-v1','publication-v1',
   private.reimport_canonical_json_sha256(v.writer_config),v.writer_config
 FROM (VALUES (
-  '{"run_key_prefix":"reimport-publication:","schema_version":"clause-evidence-manifest-v1","extractor_version":"publication-v1","rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"clause_segment_v1","citation_label_template":"DAA 1939 side {page_from}","text_form":"raw","helpost_observation_kind":"person"}'::jsonb
+  '{"run_key_prefix":"reimport-publication:","schema_version":"clause-evidence-manifest-v1","extractor_version":"publication-v1","rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"clause_segment_v1","citation_label_template":"DAA 1939 side {page_from}","text_form":"raw","helpost_observation_kind":"person","persona_key_prefix":"1939:"}'::jsonb
 )) AS v(writer_config)
 WHERE EXISTS(SELECT 1 FROM public.source WHERE id=3)
 ON CONFLICT DO NOTHING;
@@ -29476,7 +29501,9 @@ BEGIN
      OR nullif(btrim(p_payload->>'source_record_key'),'') IS NULL
      OR (p_payload->>'source_id')::bigint<>v_batch.source_id
      OR p_element_id<>'publication-persona:'||(p_payload->>'source_record_key')
-     OR p_payload->>'persona_key'<>'1939:'||(p_payload->>'source_record_key') THEN
+     -- persona-nøglens prefix er editionsdata og bor i profilen; en profil uden prefix kan ikke skrive personas
+     OR coalesce(v_profile.writer_config->>'persona_key_prefix','')=''
+     OR p_payload->>'persona_key'<>(v_profile.writer_config->>'persona_key_prefix')||(p_payload->>'source_record_key') THEN
     RAISE EXCEPTION 'PUBLICATION_PERSONA_PAYLOAD_INVALID';
   END IF;
   v_person_id:=(p_payload->>'person_id')::bigint; v_persona_key:=p_payload->>'persona_key';
@@ -29489,7 +29516,7 @@ BEGIN
   PERFORM 1 FROM private.narrative_record_publication WHERE source_record_id=v_record.id ORDER BY id FOR UPDATE;
 
   -- Helposten (6a): præcis én mention i helpost-observationen, uændret siden målingen.
-  v_observation:=private.record_helpost_observation(v_record.id,'person');
+  v_observation:=private.record_helpost_observation(v_record.id,private.writer_config_helpost_kind(v_profile.writer_config));
   SELECT count(*),min(id::text)::uuid,min(verbatim_text) INTO v_mention_n,v_mention,v_mention_text
     FROM private.source_mention WHERE observation_id=v_observation;
   IF v_mention_n<>1 OR v_mention<>(p_payload->>'mention_id')::uuid
