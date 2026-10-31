@@ -341,25 +341,76 @@ BEGIN
   RAISE NOTICE 'OK: kontrolmængden (delvis, ekstra staged og udskiftet afvist; fuld kæde 37 elementer, fem udfald × tilladte svar, kun C og staged frigives; tilbagetrukket mellem B og C blokerer ikke og kan afgøres i webkøen)';
 END $chain$;
 
--- 3d) Stikprøven skal ligge i C (M2): to enige B-personas, begge i stikprøven; persona 2's person er staged (før kørslen,
---     da inputtet rummer alle personer), så mængden kun kræver persona 1. C med persona 1 består mængdekontrollen, men
---     stikprøven mangler persona 2 → PUBLICATION_IDENTITY_SAMPLE_MISMATCH, og intet efterlades.
+-- 3d) Stikprøven har finalize's prædikater (final-review I1): 21 enige B-personas; én, der ville have fået en af de 20
+--     laveste hashes, er staged (markeret før kørslen, da inputtet rummer alle personer). Den er ikke i stikprøven, nr. 21
+--     rykker ind, og C over de 20 ikke-staged gennemføres. Den staged frigives efter C uden identitet.
 DO $sample$
 DECLARE
-  w jsonb:=pg_temp.pi_world(-6613,'11000000-0000-0000-0000-00000006b613',2); v_run uuid; v_p jsonb; v_batch uuid; v_res text;
+  w jsonb:=pg_temp.pi_world(-6613,'11000000-0000-0000-0000-00000006b613',21); v_c jsonb:='[]'::jsonb; v_run uuid; v_i int;
+  v_k int; v_rank int; v_staged int; v_sample uuid[]; v_payloads jsonb:='[]'::jsonb; v_p jsonb; v_batch uuid; v_final jsonb;
+  v_cfg jsonb:='{"topK":10,"autoCutoff":0.9,"controlMargin":0.05}';
+BEGIN
+  FOR v_i IN 1..21 LOOP
+    v_c:=v_c||pg_temp.pi_cand(pg_temp.pi_persona(w,v_i),-6613000-v_i,1,jsonb_build_array(pg_temp.pi_ms(-6613000-v_i,0.95,ARRAY['name','birth'])));
+  END LOOP;
+  -- vælg en persona, der med kørslens hashes ligger blandt de 20 laveste af alle 21 (rækkefølgen afhænger af inputtet, der
+  -- afhænger af, hvem der er staged; derfor prøves kandidaterne én ad gangen i en undertransaktion)
+  FOR v_k IN 1..21 LOOP
+    BEGIN
+      UPDATE public.person SET staged=true WHERE id=-6613000-v_k;
+      v_run:=pg_temp.pi_run(w,v_cfg,v_c);
+      SELECT x.rk INTO v_rank FROM (
+        SELECT sp.id,row_number() OVER (ORDER BY encode(extensions.digest(convert_to('publication-sample-v1:'||r.input_sha256||':'||
+                 r.config_sha256||':'||sp.persona_key,'UTF8'),'sha256'),'hex') COLLATE "C") AS rk
+          FROM private.source_persona sp, private.source_persona_identity_candidate_run r
+         WHERE r.id=v_run AND sp.id IN (SELECT x::uuid FROM jsonb_array_elements_text(w->'personas') x)) x
+       WHERE x.id=pg_temp.pi_persona(w,v_k);
+      IF v_rank<=20 THEN v_staged:=v_k; EXIT; END IF;
+      RAISE EXCEPTION 'T6B_RETRY';
+    EXCEPTION WHEN raise_exception THEN
+      IF SQLERRM<>'T6B_RETRY' THEN RAISE; END IF;
+    END;
+  END LOOP;
+  IF v_staged IS NULL THEN RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: ingen staged kandidat blandt de 20 laveste'; END IF;
+  v_sample:=ARRAY(SELECT private.publication_control_sample(v_run));
+  IF cardinality(v_sample)<>20 OR pg_temp.pi_persona(w,v_staged)=ANY(v_sample)
+     OR EXISTS (SELECT 1 FROM generate_series(1,21) i WHERE i<>v_staged AND NOT pg_temp.pi_persona(w,i)=ANY(v_sample)) THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: stikprøven med staged (% stk.)',cardinality(v_sample); END IF;
+  FOR v_i IN 1..21 LOOP
+    CONTINUE WHEN v_i=v_staged;
+    v_payloads:=v_payloads||jsonb_build_array(pg_temp.pi_payload(w,v_i,v_run,'enig','S'));
+  END LOOP;
+  v_batch:=pg_temp.pi_begin(w,'sample-staged',pg_temp.pi_elements(v_payloads));
+  FOR v_i IN 0..jsonb_array_length(v_payloads)-1 LOOP
+    v_p:=v_payloads->v_i; PERFORM pg_temp.pi_apply(w,v_batch,pg_temp.pi_el(v_p),v_p);
+  END LOOP;
+  v_final:=pg_temp.pi_finalize(w,v_batch);
+  IF v_final->>'status'<>'finalized'
+     OR EXISTS (SELECT 1 FROM private.source_persona_identity WHERE source_persona_id=pg_temp.pi_persona(w,v_staged))
+     OR private.persona_awaiting_control(pg_temp.pi_persona(w,v_staged)) THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: C med staged uden for stikprøven %',v_final; END IF;
+  RAISE NOTICE 'OK: staged persona med lav hash er uden for stikprøven, og C gennemføres';
+END $sample$;
+
+-- 3e) Stikprøven skal ligge i C (M2-kontrollen ved finalize): to enige B-personas, begge i stikprøven. I samme transaktion
+--     beregner writeren stikprøven ved persona 1; derefter trækkes persona 2's binding tilbage, så kontrolmængden kun
+--     kræver persona 1. Mængdekontrollen består, men stikprøven mangler persona 2 → PUBLICATION_IDENTITY_SAMPLE_MISMATCH.
+DO $samplesub$
+DECLARE
+  w jsonb:=pg_temp.pi_world(-6614,'11000000-0000-0000-0000-00000006b614',2); v_run uuid; v_p jsonb; v_batch uuid; v_res text;
   v_stage text:='start';
 BEGIN
-  UPDATE public.person SET staged=true WHERE id=-6613002;
   v_run:=pg_temp.pi_run(w,'{"topK":10,"autoCutoff":0.9,"controlMargin":0.05}',jsonb_build_array(
-    pg_temp.pi_cand(pg_temp.pi_persona(w,1),-6613001,1,jsonb_build_array(pg_temp.pi_ms(-6613001,0.95,ARRAY['name','birth']))),
-    pg_temp.pi_cand(pg_temp.pi_persona(w,2),-6613002,1,jsonb_build_array(pg_temp.pi_ms(-6613002,0.95,ARRAY['name','birth'])))));
+    pg_temp.pi_cand(pg_temp.pi_persona(w,1),-6614001,1,jsonb_build_array(pg_temp.pi_ms(-6614001,0.95,ARRAY['name','birth']))),
+    pg_temp.pi_cand(pg_temp.pi_persona(w,2),-6614002,1,jsonb_build_array(pg_temp.pi_ms(-6614002,0.95,ARRAY['name','birth'])))));
   IF (SELECT count(*) FROM private.publication_control_sample(v_run))<>2 THEN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: stikprøven er ikke begge'; END IF;
   v_p:=pg_temp.pi_payload(w,1,v_run,'enig','S');
   v_batch:=pg_temp.pi_begin(w,'sample-sub',jsonb_build_object(pg_temp.pi_el(v_p),v_p));
   BEGIN
     PERFORM pg_temp.pi_apply(w,v_batch,pg_temp.pi_el(v_p),v_p);
-    v_stage:='applied';   -- writeren godtog elementet; afvisningen nedenfor kommer fra finalize
+    v_stage:='applied';   -- writeren godtog elementet og har beregnet stikprøven; afvisningen nedenfor kommer fra finalize
+    UPDATE private.narrative_record_publication SET status='withdrawn' WHERE id=(pg_temp.pi_post(w,2)->>'binding')::uuid;
     PERFORM pg_temp.pi_finalize(w,v_batch); v_res:='OK';
   EXCEPTION WHEN OTHERS THEN v_res:=SQLERRM;
   END;
@@ -369,7 +420,7 @@ BEGIN
      OR EXISTS (SELECT 1 FROM private.source_persona_identity WHERE source_persona_id=pg_temp.pi_persona(w,1)) THEN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: stikprøveafvisningen efterlod skrivning'; END IF;
   RAISE NOTICE 'OK: stikprøven skal ligge i C ved finalize';
-END $sample$;
+END $samplesub$;
 
 -- 4) RUN_STALE: en ny kandidatkørsel efter manifestet; og to kørsler i samme batch. Egen verden (2 B-personas), fordi
 --    kæden i blok 3 har afgjort hele verden A.

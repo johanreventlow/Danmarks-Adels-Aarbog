@@ -97,8 +97,11 @@ integer_3|generic_invariant|comment_spec_section|final-schema/top_level/integer_
 integer_3|profile|source_id|final-schema/top_level/integer_3/004
 citation_label|profile|citation_label_template|final-schema/top_level/citation_label/002
 integer_3|profile|source_id|final-schema/top_level/integer_3/005
-integer_3|generic_invariant|comment_step_number|final-schema/top_level/integer_3/006
-integer_3|generic_invariant|comment_step_number|final-schema/top_level/integer_3/007
+integer_3|profile|source_id|final-schema/top_level/integer_3/006
+citation_label|profile|citation_label_template|final-schema/top_level/citation_label/003
+integer_3|profile|source_id|final-schema/top_level/integer_3/007
+integer_3|generic_invariant|comment_step_number|final-schema/top_level/integer_3/008
+integer_3|generic_invariant|comment_step_number|final-schema/top_level/integer_3/009
 integer_3|generic_invariant|comment_step_number|final-schema/private.write_source_text_revision#1/integer_3/001
 integer_3|profile|source_id|final-migration/top_level/integer_3/001
 integer_3|profile|source_id|final-migration/top_level/integer_3/002

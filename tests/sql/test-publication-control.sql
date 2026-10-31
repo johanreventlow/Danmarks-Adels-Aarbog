@@ -341,12 +341,13 @@ BEGIN
   SELECT e INTO v_e FROM jsonb_array_elements(v_ctl->'personas') e WHERE e->>'source_persona_id'=v_bp[3]::text;
   IF NOT (v_e->>'not_staged')::boolean THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: not_staged'; END IF;
 
-  -- stikprøven: de 20 laveste hashes blandt de 25 enige B-personas (ikke de svage, ikke v50-lignende)
+  -- stikprøven: de 20 laveste hashes blandt de 25 enige B-personas (ikke de svage, ikke v50-lignende), uden den staged (2):
+  -- populationen har finalize's prædikater (final-review I1)
   SELECT array_agg(e->>'source_persona_id' ORDER BY e->>'source_persona_id')::uuid[] INTO v_sample
     FROM jsonb_array_elements(v_ctl->'personas') e WHERE (e->>'in_sample')::boolean;
   SELECT array_agg(x.id ORDER BY x.id) INTO v_expected FROM (
     SELECT sp.id FROM private.source_persona sp, private.source_persona_identity_candidate_run r
-     WHERE r.id=v_run AND sp.id=ANY(v_bp[1:25])
+     WHERE r.id=v_run AND sp.id=ANY(v_bp[1:25]) AND sp.id<>v_bp[2]
      ORDER BY encode(extensions.digest(convert_to('publication-sample-v1:'||r.input_sha256||':'||r.config_sha256||':'||sp.persona_key,'UTF8'),'sha256'),'hex') COLLATE "C"
      LIMIT 20) x;
   IF cardinality(v_sample)<>20 OR v_sample<>v_expected THEN
@@ -363,12 +364,14 @@ BEGIN
   v_ctl2:=pg_temp.rpc(v_a,'red_publication_control',v_run);
   IF v_ctl2<>v_ctl THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: ikke deterministisk'; END IF;
 
-  -- 10 af de enige får identitet med publication_binding (5 i stikprøven, 5 udenfor); stikprøven er den samme
+  -- 10 af de enige får identitet med publication_binding (5 i stikprøven, 5 udenfor), som C skriver dem (evidence med
+  -- candidate_run_id = kørslen); stikprøven er den samme. En identitet uden kørslens id er »fra før C« og udelukkes (I1).
   FOR v_i IN 1..25 LOOP
     IF (v_bp[v_i]=ANY(v_sample) AND cardinality(ARRAY(SELECT unnest(v_given) INTERSECT SELECT unnest(v_sample)))<5)
        OR (NOT v_bp[v_i]=ANY(v_sample) AND cardinality(ARRAY(SELECT unnest(v_given) EXCEPT SELECT unnest(v_sample)))<5) THEN
       v_res:=pg_temp.kerne(v_a,v_bp[v_i],-653000-v_i,0,'accepted',
-        jsonb_build_object('authority','narrative_record_publication','binding_id',v_fx[v_i]->>'binding'),'publication_binding');
+        jsonb_build_object('authority','narrative_record_publication','binding_id',v_fx[v_i]->>'binding','candidate_run_id',v_run),
+        'publication_binding');
       IF v_res<>'OK' THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: publication_binding for B-persona %: %',v_i,v_res; END IF;
       v_given:=v_given||v_bp[v_i];
     END IF;
@@ -392,13 +395,15 @@ BEGIN
   FOR v_i IN 1..2 LOOP
     PERFORM pg_temp.pc_cand(v_run2,v_np[v_i],-653100-v_i,1,jsonb_build_array(pg_temp.ms(-653100-v_i,0.95,ARRAY['name','birth'])));
   END LOOP;
+  -- de 10 identiteter ovenfor er skrevet over kørsel 1 og er dermed »fra før C« for kørsel 2 (I1): de er ikke i stikprøven
   v_ctl2:=pg_temp.rpc(v_a,'red_publication_control',v_run2);
-  IF (SELECT count(*) FROM jsonb_array_elements(v_ctl2->'personas') e WHERE (e->>'in_sample')::boolean)<>15
+  IF (SELECT count(*) FROM jsonb_array_elements(v_ctl2->'personas') e WHERE (e->>'in_sample')::boolean)
+       <>15-(SELECT count(*) FROM unnest(v_given) g WHERE g=ANY(v_bp[11:25]))
      OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_ctl2->'personas') e
                  WHERE e->>'outcome'='enig' AND e->>'source_persona_id'<>ALL(ARRAY[v_np[1]::text,v_np[2]::text])
-                   AND NOT (e->>'in_sample')::boolean) THEN
+                   AND (e->>'in_sample')::boolean=((e->>'source_persona_id')::uuid=ANY(v_given))) THEN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: færre end 20 enige'; END IF;
-  RAISE NOTICE 'OK: stikprøven (20 af 25, kun enige B-personas, deterministisk, uafhængig af identiteter; færre end 20 → alle)';
+  RAISE NOTICE 'OK: stikprøven (20 af 25, kun enige ikke-staged B-personas, deterministisk, uafhængig af C''s egne identiteter; færre end 20 → alle uden identitet fra før)';
 
   -- details: bindingspersonen med også når den ikke er repræsentant ('q') og ved ingen_kandidat ('z')
   -- titel: afklaret titel-faktum (matcherens kilde) og et ikke-afklaret, der ikke må vises

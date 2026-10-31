@@ -9749,8 +9749,11 @@ BEGIN
 END $$;
 
 -- Stikprøvens population (spec §4.3 pkt. 4): personas med kandidatrækker i kørslen, skrevet af et publication_persona-event
--- i en ikke-tilbagerullet batch (ikke de 8 v50-personas), med rækkefølgenøglen. Identitetsversionen indgår ikke, så
--- populationen flytter sig ikke, mens C skriver.
+-- i en ikke-tilbagerullet batch (ikke de 8 v50-personas), med rækkefølgenøglen. Samme prædikater som finalize's
+-- kontrolmængde (verify_publication_identity_input), så stikprøve, writer og finalize er enige (final-review I1): B-hændelsens
+-- person er ikke staged, B-bindingen er stadig published, og personaen har ingen identitet fra før C. En identitet, som en C
+-- over denne kørsel har skrevet (evidence.candidate_run_id = kørslen), tæller ikke som »fra før«, så populationen flytter
+-- sig ikke, mens C skriver.
 CREATE OR REPLACE FUNCTION private.publication_sample_candidates(p_run uuid)
 RETURNS TABLE(source_persona_id uuid, sample_hash text)
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
@@ -9766,8 +9769,14 @@ BEGIN
    WHERE r.id=p_run
      AND EXISTS (SELECT 1 FROM private.source_persona_identity_candidate c WHERE c.run_id=r.id AND c.source_persona_id=sp.id)
      AND EXISTS (SELECT 1 FROM private.reimport_event e JOIN private.reimport_batch b ON b.id=e.batch_id
+                   LEFT JOIN public.person q ON q.id=e.canonical_person_id
                   WHERE e.operation='publication_persona' AND e.payload->'result_receipt'->>'source_persona_id'=sp.id::text
-                    AND b.status<>'reversed');
+                    AND b.status<>'reversed'
+                    AND NOT coalesce(q.staged,false)
+                    AND EXISTS (SELECT 1 FROM private.narrative_record_publication nb
+                                 WHERE nb.id=(e.payload->>'binding_id')::uuid AND nb.status='published'))
+     AND NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
+                      WHERE i.source_persona_id=sp.id AND i.evidence->>'candidate_run_id' IS DISTINCT FROM p_run::text);
 END $$;
 
 CREATE OR REPLACE FUNCTION private.publication_control_enig(p_persona uuid, p_run uuid)
@@ -16980,7 +16989,7 @@ BEGIN
          p_payload||jsonb_build_object('result_receipt',v_receipt),v_hash);
   RETURN v_receipt;
 END $$;
-REVOKE ALL ON FUNCTION private.write_publication_persona(uuid,text,jsonb) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION private.write_publication_persona(uuid,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE OR REPLACE FUNCTION public.red_apply_reimport_publication_persona(p_batch_id uuid,p_element_id text,p_payload jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
