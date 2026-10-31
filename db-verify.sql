@@ -3033,6 +3033,8 @@ DECLARE
     'public.red_promote_relation_interpretations_batch(bigint,jsonb,text)'::regprocedure,
     'public.red_preview_reimport_cases(bigint,text,jsonb)'::regprocedure,
     'public.red_promote_interpretations_batch(jsonb,text)'::regprocedure,
+    'public.red_publication_control(uuid)'::regprocedure,
+    'public.red_publication_control_details(uuid)'::regprocedure,
     'public.red_publicer_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
     'public.red_publicer_personer(bigint[])'::regprocedure,
     'public.red_publicer_udgave(bigint)'::regprocedure,

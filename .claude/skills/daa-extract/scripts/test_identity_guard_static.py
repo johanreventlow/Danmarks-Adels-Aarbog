@@ -13,7 +13,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[4]
 KERNE = "private.decide_source_persona_identity("
-OPRINDELSER = ("human", "person_create", "legacy_match", "reversal", "family_corroboration", "relation_person_create")
+# Trin 6b: publication_binding (spec §4.3.1; decisions 2026-10-31). Kalderne write_publication_identity og
+# red_reverse_reimport_publication føjes til ALLOWLIST af de tasks, der indfører dem (ledger-ruling R2).
+OPRINDELSER = ("human", "person_create", "legacy_match", "reversal", "family_corroboration", "relation_person_create",
+               "publication_binding")
 CUTOVER = re.compile(r"-- BEGIN 5a-cutover.*?-- END 5a-cutover", re.S)
 # Eksakt allowlist (fil, omsluttende funktion, oprindelse) -> antal kald. Målt 2026-09-24.
 # En ny kalder kræver en ændring her OG en beslutning (spec §4.2) — aldrig bare en ny linje.

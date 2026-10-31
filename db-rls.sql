@@ -730,6 +730,8 @@ BEGIN
     'public.red_promote_relation_interpretations_batch(bigint,jsonb,text)',
     'public.red_preview_reimport_cases(bigint,text,jsonb)',
     'public.red_promote_interpretations_batch(jsonb,text)',
+    'public.red_publication_control(uuid)',
+    'public.red_publication_control_details(uuid)',
     'public.red_publicer_personer(bigint[])',
     'public.red_publicer_udgave(bigint)',
     'public.red_record_identity_candidates(jsonb,jsonb)',
