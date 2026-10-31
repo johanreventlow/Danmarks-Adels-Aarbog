@@ -35,7 +35,8 @@ task; tal og navne nedenfor er derfra. Planen præciserer fire punkter i specen 
   `-- ===== trin 6b: publication-operationer =====`; alle 6b-blokke ligger efter den, sidst i filen.
 - Ingen editionsnavngivne funktioner, tabeller eller operationer. Editionsdata ligger kun i profilrækker og manifester.
 - 2018-20 er uændret: eksisterende `reimport_writer_profile.profile_sha256`, 2018-20's identiteter og 5a's
-  kalibrering mod de 587 (top1/top3/tier-tal) er uændrede eller bedre.
+  kalibrering mod de 587 (top1/top3/tier-tal) er uændrede eller bedre, talt klyngebevidst (facit i rækkens
+  `samme_som`-klynge er et træf; generator 1.1's sammenfoldning gør den id-strikte optælling 1 lavere allerede før 6b).
 - Navne (præcis tekst):
   - operationer: `publication_persona`, `publication_identity`;
   - `expected_counts`-nøgler: `publication_personas`, `publication_identities`;
@@ -72,7 +73,8 @@ task; tal og navne nedenfor er derfra. Planen præciserer fire punkter i specen 
 - Lokal verifikation før push: hele det berørte CI-job køres lokalt (pg-jobbene, node-jobbet for
   `@daa/identity-candidates`, python-jobbet), ikke kun egne testfiler.
 - `controlMargin = 0.05` (Task 10: mindste fejlfri gitterværdi 0,02 plus ét trin;
-  `docs/evidensbaseret-genimport/identitet-6b-kalibrering.md`).
+  `docs/evidensbaseret-genimport/identitet-6b-kalibrering.md`). Foreløbig: spec §4.3 pkt. 7's andet ben (stand-in
+  efter runnerens prøvekørsel) køres i Task 15 step 2; den værdi, der dér er fejlfri, gælder for ceremoni C.
 
 ## Review Focus
 
@@ -611,7 +613,9 @@ Forudsætninger, der skal stå i 6c's delspec og være opfyldt (spec §5):
   `person.name` og at mindst `person.birth` eller `person.death` findes for de fleste (notér antal).
 - [ ] **Step 2:** Generatoren for kilde 3 i `list`-tilstand over de 561, `--top-k 5 --control-margin <Task 10> --year-fallback date_raw-v1`,
   registreret med `red_record_identity_candidates`. `red_publication_control` → fordelingen af udfald, stikprøven på
-  20 og kortantallet. Over 90 kort: stop (spec §4.3 pkt. 6).
+  20 og kortantallet. Over 90 kort: stop (spec §4.3 pkt. 6). Kalibreringens andet ben (spec §4.3 pkt. 7): kør Task 10's
+  gitter og negativkontrol (`calibrate-publication-control.sql` + negativkontrol-scriptet) på denne stand-in; er
+  `controlMargin = 0.05` ikke fejlfri her, gælder den mindste fejlfri værdi plus ét trin, og Global Constraints opdateres.
 - [ ] **Step 3:** Ark (øvelse: projektejeren udfylder et øvelsesark, eller alle kort `U` som teknisk prøve; notér hvad),
   manifest, apply og finalize. Kontrollér:
   - spec §7's færdigbevis-tal;
