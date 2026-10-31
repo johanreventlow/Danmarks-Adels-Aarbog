@@ -46,13 +46,17 @@ BOUND="${BOUND:-$SOURCE}"; [[ "$BOUND" =~ ^[0-9]+$ ]] || die "--bound-source ska
 [[ "$TOPK" =~ ^[0-9]+$ ]] && [ "$TOPK" -ge 2 ] || die "--top-k skal være ≥ 2"
 for m in $MARGINS; do [[ "$m" =~ ^0\.[0-9]+$ ]] || die "ugyldig gitterværdi: $m"; done
 case "${PGHOST:-}" in ""|/*|localhost|127.0.0.1) ;; *) die "PGHOST peger ikke på en lokal server" ;; esac
-unset PGDATABASE PGSERVICE
+[ -z "${PGHOSTADDR:-}" ] || die "PGHOSTADDR er sat; scriptet kører kun mod en lokal server"
+unset PGDATABASE PGSERVICE PGHOSTADDR
 if [ "$FORCE_CAL" -ne 1 ] && ! [[ "$DB" =~ _cal$ || "$DB" =~ _cal_ ]]; then
   die "$DB ligner ikke en kalibreringsbase (navn med _cal); brug en kopi eller --jeg-ved-det-er-en-kalibreringsbase"
 fi
 [ "$(psql -X -At -d postgres -c "select count(*) from pg_database where datname='$DB'")" = 1 ] || die "basen $DB findes ikke lokalt"
 
 DIR="${DIR:-$HOME/.private/kalibrering/$DB}"
+# Rettighederne sættes rekursivt nedenfor; kun en undermappe af ~/.private/ må rammes.
+case "$DIR" in "$HOME"/.private/?*) ;; *) die "--dir skal ligge under ~/.private/" ;; esac
+[[ "$DIR" != *..* ]] || die "--dir må ikke indeholde .."
 umask 077; mkdir -p "$DIR/neg"; chmod 700 "$DIR" "$DIR/neg"
 P() { psql -X -q -At -v ON_ERROR_STOP=1 -d "$DB" "$@"; }
 step() { [[ ",$STEPS," == *",$1,"* ]]; }
@@ -91,7 +95,9 @@ if step negative; then
   "$TSX" "$PKG/src/calibration-cli.ts" split --input "$DIR/input-fb.json" --pairs "$DIR/pairs.json" --out-dir "$DIR/neg"
   for NI in "$DIR"/neg/input-b??.json; do
     b="$(basename "$NI" .json)"; b="${b#input-}"
-    H="$(P -v input_file="$DIR/neg/input-$b.inner.json" -f "$SQL/calibration-input-hash.sql")"
+    # stderr til fil: en psql-fejl kan citere et uddrag af inputtet (persondata).
+    H="$(P -v input_file="$DIR/neg/input-$b.inner.json" -f "$SQL/calibration-input-hash.sql" 2>"$DIR/neg/hash-$b.err")" \
+      || die "hash for $b fejlede (se $DIR/neg/hash-$b.err)"
     [[ "$H" =~ ^[0-9a-f]{64}$ ]] || die "hash for $b mangler"
     jq --arg h "$H" '.input_sha256=$h' "$NI" > "$NI.tmp" && mv "$NI.tmp" "$NI" && rm -f "$DIR/neg/input-$b.inner.json"
     for m in $MARGINS; do
