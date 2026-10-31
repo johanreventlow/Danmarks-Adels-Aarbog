@@ -116,7 +116,7 @@ def build(ctl, det, tmp_path, tokens=None, mutate=None):
         approved.append(hashlib.sha256(b).hexdigest())
     if mutate:
         sheets = mutate(sheets)
-    return pis.build_manifest(cb, sheets, approved, BATCH, CAND)
+    return pis.build_manifest(cb, json.dumps(det).encode(), sheets, approved, BATCH, CAND)
 
 
 def test_aendret_arkbyte_giver_hashfejl(tmp_path):
@@ -172,7 +172,7 @@ def test_manglende_kort_afvises(tmp_path):
     files = pis.render(ctl, det, "x")
     b = "\n".join(l for l in fill(files[0][1], {}).splitlines() if not l.startswith("P ")).encode()
     with pytest.raises(SheetError, match="PUBLICATION_SHEET_CARDS_MISMATCH"):
-        pis.build_manifest(ctl_b, [("x-1.txt", b)], [hashlib.sha256(b).hexdigest()], BATCH, CAND)
+        pis.build_manifest(ctl_b, json.dumps(det).encode(), [("x-1.txt", b)], [hashlib.sha256(b).hexdigest()], BATCH, CAND)
 
 
 def run_cli(*a):
@@ -215,7 +215,7 @@ def test_cli_ende_til_ende(tmp_path):
     assert oct(sheet.stat().st_mode & 0o777) == "0o600"
     sheet.write_text(fill(sheet.read_text(), {}))
     sha = hashlib.sha256(sheet.read_bytes()).hexdigest()
-    r = run_cli("manifest", "--control", str(root / "ctl.json"), "--sheets", str(sheet), "--approved-sha256", sha,
+    r = run_cli("manifest", "--control", str(root / "ctl.json"), "--details", str(root / "det.json"), "--sheets", str(sheet), "--approved-sha256", sha,
                 "--persona-batch", BATCH, "--candidates-sha256", CAND, "--out", str(root / "m.json"), "--private-root", str(root))
     assert r.returncode == 0, r.stderr
     assert "elements=9" in r.stdout and "Testperson" not in r.stdout
@@ -254,7 +254,7 @@ def test_not_staged_null_fejler():
     with pytest.raises(SheetError, match="PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED"):
         pis.render(ctl, det, "x")
     with pytest.raises(SheetError, match="PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED"):
-        pis.build_manifest(json.dumps(ctl).encode(), [], [], BATCH, CAND)
+        pis.build_manifest(json.dumps(ctl).encode(), json.dumps(det).encode(), [], [], BATCH, CAND)
 
 
 def test_stikproeve_uden_not_staged_fejler():
@@ -270,7 +270,7 @@ def test_dublet_i_control_fejler(tmp_path):
     ctl["personas"].append(dict(ctl["personas"][0]))
     cb = json.dumps(ctl).encode()
     with pytest.raises(SheetError, match="PUBLICATION_CONTROL_DUPLICATE_PERSONA"):
-        pis.build_manifest(cb, [], [], BATCH, CAND)
+        pis.build_manifest(cb, json.dumps(det).encode(), [], [], BATCH, CAND)
 
 
 def test_hint_lig_bindingens_person_afvises(tmp_path):
@@ -293,7 +293,7 @@ def test_udfyldt_mangler_afvises(tmp_path):
     cb = json.dumps(ctl).encode()
     b = files[0][1].encode()   # ikke udfyldt: "_"
     with pytest.raises(SheetError, match="PUBLICATION_SHEET_LINE_INVALID"):
-        pis.build_manifest(cb, [("x-1.txt", b)], [hashlib.sha256(b).hexdigest()], BATCH, CAND)
+        pis.build_manifest(cb, json.dumps(det).encode(), [("x-1.txt", b)], [hashlib.sha256(b).hexdigest()], BATCH, CAND)
 
 
 def test_dubleret_ark_og_p_linje(tmp_path):
@@ -302,12 +302,12 @@ def test_dubleret_ark_og_p_linje(tmp_path):
     b = fill(pis.render(ctl, det, "x")[0][1], {}).encode()
     h = hashlib.sha256(b).hexdigest()
     with pytest.raises(SheetError, match="PUBLICATION_SHEET_DUPLICATE$"):
-        pis.build_manifest(cb, [("a", b), ("b", b)], [h, h], BATCH, CAND)
+        pis.build_manifest(cb, json.dumps(det).encode(), [("a", b), ("b", b)], [h, h], BATCH, CAND)
     lines = b.decode().splitlines()
     p_line = next(l for l in lines if l.startswith("P "))
     b2 = (b.decode() + p_line + "\n").encode()
     with pytest.raises(SheetError, match="PUBLICATION_SHEET_DUPLICATE_LINE"):
-        pis.build_manifest(cb, [("a", b2)], [hashlib.sha256(b2).hexdigest()], BATCH, CAND)
+        pis.build_manifest(cb, json.dumps(det).encode(), [("a", b2)], [hashlib.sha256(b2).hexdigest()], BATCH, CAND)
 
 
 def test_manifest_out_findes_allerede(tmp_path):
@@ -322,6 +322,42 @@ def test_manifest_out_findes_allerede(tmp_path):
     sheet.write_text(fill(sheet.read_text(), {}))
     sha = hashlib.sha256(sheet.read_bytes()).hexdigest()
     (root / "m.json").write_text("x")
-    r = run_cli("manifest", "--control", str(root / "ctl.json"), "--sheets", str(sheet), "--approved-sha256", sha,
+    r = run_cli("manifest", "--control", str(root / "ctl.json"), "--details", str(root / "det.json"), "--sheets", str(sheet), "--approved-sha256", sha,
                 "--persona-batch", BATCH, "--candidates-sha256", CAND, "--out", str(root / "m.json"), "--private-root", str(root))
     assert r.returncode != 0 and "PUBLICATION_OUT_EXISTS" in (r.stderr + r.stdout)
+
+
+# ---- Codex 6B-03 / 6B-05 ----
+def _mismatch(mut, via="render"):
+    ctl, det = make()
+    mut(ctl, det)
+    with pytest.raises(SheetError, match="PUBLICATION_SHEET_INPUT_MISMATCH"):
+        if via == "render":
+            pis.render(ctl, det, "x")
+        else:
+            pis.build_manifest(json.dumps(ctl).encode(), json.dumps(det).encode(), [], [], BATCH, CAND)
+
+
+MUTS = {
+    "kørsel": lambda c, d: d.update(candidate_run_id=pid(999)),
+    "kilde": lambda c, d: d.update(source_id=4),
+    "målperson": lambda c, d: d["personas"][0].update(person_id=202),
+    "bindingsid": lambda c, d: d["personas"][0].update(binding_id=pid(777)),
+    "bindingsstatus": lambda c, d: d["personas"][0].update(binding_status="draft"),
+    "udfald": lambda c, d: d["personas"][0].update(outcome={"outcome": "uenig"}),
+    "kortets_binding": lambda c, d: d["personas"][0]["persons"][0].update(person_id=202),
+    "persona_mangler": lambda c, d: d["personas"].pop(),
+    "persona_ekstra": lambda c, d: d["personas"].append(dict(d["personas"][0], source_persona_id=pid(888))),
+}
+
+
+@pytest.mark.parametrize("name", list(MUTS))
+@pytest.mark.parametrize("via", ["render", "manifest"])
+def test_control_og_details_skal_hoere_sammen(name, via):
+    _mismatch(MUTS[name], via)
+
+
+def test_manifest_afviser_91_kort(tmp_path):
+    ctl, det = make(n_weak=91, n_enig=0, n_sample=0, staged=0, existing=0)
+    with pytest.raises(SheetError, match="PUBLICATION_SHEET_TOO_MANY_CARDS"):
+        pis.build_manifest(json.dumps(ctl).encode(), json.dumps(det).encode(), [], [], BATCH, CAND)

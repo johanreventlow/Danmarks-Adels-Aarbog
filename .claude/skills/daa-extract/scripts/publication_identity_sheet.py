@@ -62,6 +62,34 @@ def _card_personas(control: dict) -> list[dict]:
     return out
 
 
+def check_inputs(control: dict, details: dict) -> None:
+    """Control og details skal høre til samme kørsel, kilde og binding, før noget vises eller bindes (Codex 6B-03).
+
+    Kortet viser details; manifestet binder control. Afviger de, kan en korrekt godkendt arkhash dække en anden
+    beslutningskontekst end den, mennesket så."""
+    for k in ("candidate_run_id", "source_id"):
+        if control.get(k) is None or control.get(k) != details.get(k):
+            raise SheetError("PUBLICATION_SHEET_INPUT_MISMATCH")
+    cps, dps = control.get("personas"), details.get("personas")
+    if not isinstance(cps, list) or not isinstance(dps, list):
+        raise SheetError("PUBLICATION_SHEET_INPUT_MISMATCH")
+    cmap = {c["source_persona_id"]: c for c in cps}
+    dmap = {d["source_persona_id"]: d for d in dps}
+    if len(cmap) != len(cps) or len(dmap) != len(dps) or set(cmap) != set(dmap):
+        raise SheetError("PUBLICATION_SHEET_INPUT_MISMATCH")
+    for pid, c in cmap.items():
+        d = dmap[pid]
+        for k in ("binding_id", "binding_status", "person_id"):
+            if c.get(k) != d.get(k):
+                raise SheetError("PUBLICATION_SHEET_INPUT_MISMATCH")
+        dout = d.get("outcome")
+        if c.get("outcome") != (dout.get("outcome") if isinstance(dout, dict) else None):
+            raise SheetError("PUBLICATION_SHEET_INPUT_MISMATCH")
+        own = [p for p in (d.get("persons") or []) if p.get("role") == "binding"]
+        if len(own) > 1 or any(p.get("person_id") != c.get("person_id") for p in own):
+            raise SheetError("PUBLICATION_SHEET_INPUT_MISMATCH")
+
+
 def _mix_key(pid: str) -> str:
     return hashlib.sha256(f"publication-sheet-v1:{pid}".encode()).hexdigest()
 
@@ -106,6 +134,7 @@ def _card(i: int, n: int, c: dict, d: dict) -> list[str]:
 
 
 def render(control: dict, details: dict, base: str) -> list[tuple[str, str]]:
+    check_inputs(control, details)
     cards = sorted(_card_personas(control), key=lambda c: _mix_key(c["source_persona_id"]))
     if len(cards) > MAX_CARDS:
         raise SheetError("PUBLICATION_SHEET_TOO_MANY_CARDS")
@@ -142,9 +171,10 @@ def parse_sheet(text: str) -> list[tuple[int, dict]]:
     return res
 
 
-def build_manifest(control_bytes: bytes, sheets: list[tuple[str, bytes]], approved: list[str], persona_batch: str,
-                   candidates_sha256: str) -> tuple[dict, dict]:
+def build_manifest(control_bytes: bytes, details_bytes: bytes, sheets: list[tuple[str, bytes]], approved: list[str],
+                   persona_batch: str, candidates_sha256: str) -> tuple[dict, dict]:
     control = json.loads(control_bytes.decode("utf-8"))
+    details = json.loads(details_bytes.decode("utf-8"))
     require_hex64(candidates_sha256, *approved)
     if not UUID_RE.match(persona_batch):
         raise SheetError("PUBLICATION_MANIFEST_BATCH_INVALID")
@@ -154,6 +184,9 @@ def build_manifest(control_bytes: bytes, sheets: list[tuple[str, bytes]], approv
     by_pid = {c["source_persona_id"]: c for c in control["personas"]}
     if len(by_pid) != len(control["personas"]):
         raise SheetError("PUBLICATION_CONTROL_DUPLICATE_PERSONA")
+    check_inputs(control, details)
+    if len(_card_personas(control)) > MAX_CARDS:
+        raise SheetError("PUBLICATION_SHEET_TOO_MANY_CARDS")
     if len(set(approved)) != len(approved) or len({_sha(b) for _, b in sheets}) != len(sheets):
         raise SheetError("PUBLICATION_SHEET_DUPLICATE")
     answers: dict[str, tuple[str, int, dict]] = {}
@@ -230,6 +263,7 @@ def main() -> int:
         p.add_argument("--out", required=True)
         p.add_argument("--private-root", default=str(Path.home() / ".private"))
     r.add_argument("--details", required=True)
+    m.add_argument("--details", required=True, help="samme details-JSON som arkene blev bygget af")
     m.add_argument("--sheets", nargs="+", required=True)
     m.add_argument("--approved-sha256", required=True, help="kommasepareret, i samme rækkefølge som --sheets")
     m.add_argument("--persona-batch", required=True)
@@ -254,7 +288,8 @@ def main() -> int:
             return 0
         out = check_private_path(Path(args.out), root)
         sheets = [(s, check_private_path(Path(s), root).read_bytes()) for s in args.sheets]
-        manifest, info = build_manifest(ctl_bytes, sheets, args.approved_sha256.split(","), args.persona_batch,
+        det_bytes = check_private_path(Path(args.details), root).read_bytes()
+        manifest, info = build_manifest(ctl_bytes, det_bytes, sheets, args.approved_sha256.split(","), args.persona_batch,
                                         args.candidates_sha256)
         text = json.dumps(manifest, sort_keys=True, ensure_ascii=False)
         if out.exists():
