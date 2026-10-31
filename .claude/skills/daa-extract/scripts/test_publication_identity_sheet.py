@@ -361,3 +361,44 @@ def test_manifest_afviser_91_kort(tmp_path):
     ctl, det = make(n_weak=91, n_enig=0, n_sample=0, staged=0, existing=0)
     with pytest.raises(SheetError, match="PUBLICATION_SHEET_TOO_MANY_CARDS"):
         pis.build_manifest(json.dumps(ctl).encode(), json.dumps(det).encode(), [], [], BATCH, CAND)
+
+
+# ---- tilbagetrukne bindinger (disposition) ----
+def _withdraw(ctl, det, i):
+    for o, extra in ((ctl["personas"][i], {}), (det["personas"][i], {})):
+        o.update(binding_status="none", binding_id=None, person_id=None, b_binding_id=pid(4242), b_binding_status="withdrawn")
+    ctl["personas"][i].update(outcome=None, not_staged=None)
+    det["personas"][i].update(outcome=None, persons=[])
+    return ctl["personas"][i]["source_persona_id"]
+
+
+def test_tilbagetrukket_binding_er_disposition(tmp_path):
+    ctl, det = make()
+    w = _withdraw(ctl, det, 0)
+    files = pis.render(ctl, det, "x")
+    assert w not in "".join(t for _, t in files)
+    man, info = build(ctl, det, tmp_path)
+    assert f"publication-identity:{w}" not in man["elements"]
+    assert {"source_persona_id": w, "label": "binding_tilbagetrukket"} in man["dispositions"]
+    assert info["binding_tilbagetrukket"] == 1
+    assert man["expected_counts"]["publication_identities"] == 8
+
+
+@pytest.mark.parametrize("bstat", [None, "published", "draft"])
+def test_none_uden_tilbagetraekning_fejler(bstat):
+    ctl, det = make()
+    _withdraw(ctl, det, 0)
+    ctl["personas"][0]["b_binding_status"] = det["personas"][0]["b_binding_status"] = bstat
+    with pytest.raises(SheetError, match="PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED"):
+        pis.render(ctl, det, "x")
+    with pytest.raises(SheetError, match="PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED"):
+        pis.build_manifest(json.dumps(ctl).encode(), json.dumps(det).encode(), [], [], BATCH, CAND)
+
+
+@pytest.mark.parametrize("k,v", [("b_binding_id", pid(1)), ("b_binding_status", "published")])
+def test_b_noegler_skal_vaere_ens(k, v):
+    ctl, det = make()
+    ctl["personas"][0][k] = pid(2) if k == "b_binding_id" else "withdrawn"
+    det["personas"][0][k] = v
+    with pytest.raises(SheetError, match="PUBLICATION_SHEET_INPUT_MISMATCH"):
+        pis.render(ctl, det, "x")

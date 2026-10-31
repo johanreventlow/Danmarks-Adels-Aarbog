@@ -43,10 +43,19 @@ def _is_new(c: dict) -> bool:
     return int(c.get("identity_version") or 0) == 0 and c.get("not_staged") is True
 
 
+def _withdrawn(c: dict) -> bool:
+    """Bindingen er trukket tilbage mellem B og C: ingen aktiv binding nu, og B-hændelsens binding er withdrawn.
+    Personaen er en disposition (afgøres efter C i webkøen), hverken kort eller element. Alle andre none-tilfælde
+    er uklare og fejler lukket."""
+    return c.get("binding_status") == "none" and c.get("b_binding_status") == "withdrawn"
+
+
 def _card_personas(control: dict) -> list[dict]:
     """Personas der får kort: ikke-staged med udfald != enig, samt stikprøven."""
     out = []
     for c in control["personas"]:
+        if _withdrawn(c):
+            continue
         if c.get("not_staged") is None:
             raise SheetError("PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED")
         if c.get("in_sample") and c.get("not_staged") is not True:
@@ -79,7 +88,7 @@ def check_inputs(control: dict, details: dict) -> None:
         raise SheetError("PUBLICATION_SHEET_INPUT_MISMATCH")
     for pid, c in cmap.items():
         d = dmap[pid]
-        for k in ("binding_id", "binding_status", "person_id"):
+        for k in ("binding_id", "binding_status", "person_id", "b_binding_id", "b_binding_status"):
             if c.get(k) != d.get(k):
                 raise SheetError("PUBLICATION_SHEET_INPUT_MISMATCH")
         dout = d.get("outcome")
@@ -214,8 +223,13 @@ def build_manifest(control_bytes: bytes, details_bytes: bytes, sheets: list[tupl
     elements: dict[str, dict] = {}
     dispositions = []
     existing_not_s = 0
+    withdrawn = 0
     for pid in sorted(by_pid):
         c = by_pid[pid]
+        if _withdrawn(c):
+            dispositions.append({"source_persona_id": pid, "label": "binding_tilbagetrukket"})
+            withdrawn += 1
+            continue
         if c.get("not_staged") is None:
             raise SheetError("PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED")
         if c["not_staged"] is False:
@@ -250,7 +264,8 @@ def build_manifest(control_bytes: bytes, details_bytes: bytes, sheets: list[tupl
     manifest = {"elements": dict(sorted(elements.items())),
                 "expected_counts": {"person_creates": 0, "source_evidence": 0, "publication_identities": len(elements)},
                 "dispositions": dispositions}
-    return manifest, {"elements": len(elements), "dispositions": len(dispositions), "rows_sha256": rows_sha, "existing_not_s": existing_not_s}
+    return manifest, {"elements": len(elements), "dispositions": len(dispositions), "rows_sha256": rows_sha, "existing_not_s": existing_not_s,
+                                                                  "binding_tilbagetrukket": withdrawn}
 
 
 def main() -> int:
@@ -298,7 +313,7 @@ def main() -> int:
     except SheetError as exc:
         raise SystemExit(str(exc).split(" — ")[0])
     print(f"PUBLICATION_MANIFEST_OK elements={info['elements']} dispositions={info['dispositions']} "
-          f"eksisterende_ikke_S={info['existing_not_s']} rows_sha256={info['rows_sha256']} manifest_sha256={_sha((text + chr(10)).encode('utf-8'))}")
+          f"eksisterende_ikke_S={info['existing_not_s']} binding_tilbagetrukket={info['binding_tilbagetrukket']} rows_sha256={info['rows_sha256']} manifest_sha256={_sha((text + chr(10)).encode('utf-8'))}")
     return 0
 
 

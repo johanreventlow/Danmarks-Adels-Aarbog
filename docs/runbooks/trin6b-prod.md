@@ -383,6 +383,11 @@ vises først i C's kontrolrapport.
 - Finalize kræver, at C's personamængde er lig B's kontrolmængde (`PUBLICATION_IDENTITY_SET_MISMATCH`). Staged
   aflæses fra B-hændelsens person, mens manifestet bruger den aktuelle binding; en afvigelse giver derfor
   `SET_MISMATCH`. At den er fraværende, skal bevises i C-øvelsen på stand-in'en, før prod.
+- En binding, der trækkes tilbage mellem B og C, er disposition `binding_tilbagetrukket` (control: `binding_status='none'`
+  og `b_binding_status='withdrawn'`): intet kort, intet element, talt i manifestets output. Personaen afgøres efter C i
+  webkøen. Alle andre `none`/uklare tilstande stopper stadig med `PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED`.
+- Runneren kører apply og finalize i én READ COMMITTED-transaktion og sætter aldrig `SET CONSTRAINTS ALL IMMEDIATE`.
+- Finalize kræver, at stikprøven ligger i C; ellers `PUBLICATION_IDENTITY_SAMPLE_MISMATCH`.
 - `publication_identity_sheet.py` kræver sammenhængende input: `render` og `manifest` tager begge
   `--control` og `--details` fra samme kørsel (`PUBLICATION_SHEET_INPUT_MISMATCH` ved afvigelse i kørsel, kilde,
   persona-mængde eller binding), og begge stopper ved over 90 kort (`PUBLICATION_SHEET_TOO_MANY_CARDS`).
