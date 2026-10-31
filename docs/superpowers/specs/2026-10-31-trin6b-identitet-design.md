@@ -1,6 +1,6 @@
 # Trin 6b: 1939's identitet — design
 
-**Status:** udkast, revideret efter Codex-runde 1 (§10). Brainstorm-spørgsmål sprunget over efter projektejerens ønske
+**Status:** GODKENDT af projektejeren 2026-10-31, efter Codex-runde 1 (§10); de 9 afgørelser i §8 godkendt. Brainstorm-spørgsmål sprunget over efter projektejerens ønske
 (2026-10-31); alle valg i dokumentet, der ikke står i den overordnede spec, er markeret *mit valg*.
 **Gren:** `docs/trin6b-spec` fra `main` (`6dcdee34`).
 **Overordnet spec:** `docs/superpowers/specs/2026-10-29-trin6-1939-gennem-kaeden-design.md` (§5 6b, §6 pkt. 1 og 8,
