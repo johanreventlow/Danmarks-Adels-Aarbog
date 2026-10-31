@@ -47,9 +47,11 @@ Samme form som den fælles gateway er sikret ved konstruktion, ikke ved fælles 
   meld det, hvis andre er aktive. Medlemsskrivninger kan ikke stoppes; de opdages af vagten nedenfor.
   - Pausen er fortrydelsens grænse. En restore af dumpet sletter alt, der er skrevet efter det. `fortryd-b` stopper
     derfor **før** restoren (`T6B_VINDUE_BRUDT`), hvis en tabel i `public`/`private` har ændret indhold siden dumpet,
-    ud over de rækker B selv skriver. Vagten er generel: et rækkeaftryk pr. tabel
+    ud over de rækker B selv skriver. Vagten er generel: et rækkeaftryk pr. tabel og sekvensernes stand
     (`~/.private/5ab-overfoersel/26-trin6b-vindue.sql`, bundet i GO), taget ved dumpet og igen før restoren. Den kender
-    ingen tidsstempler og intet ur. `k1` sammenlignes desuden med værdien fra dumpet.
+    ingen tidsstempler og intet ur. Kun `private.reimport_event_id_seq` sammenlignes ikke før restoren, fordi B selv
+    flytter den (dry-run og apply; sekvenser rulles ikke tilbage); i dumpets sandwich er den med. `k1` sammenlignes
+    desuden med værdien fra dumpet.
   - Når 6c's runner har skrevet, kan B ikke længere fortrydes (se Fortrydelse).
 - Runnerens faste værdier passer til `main`:
   - `T6B_BLOK`: blokkens sha, `38a83bca…`;
@@ -195,8 +197,13 @@ status i `private.reimport_batch` (profil `daa-1939-publication-v1`).
 | `dump` i tilstand `a` (`DUMP_6B_SKREVET_UNDER_DUMP`, `DUMP_6B_FORAELDRELOESE`, `DUMP_6B_TILSTAND_SKIFTEDE`) | `a`; læse-kun | Ingen gyldig kvittering. Find skriveren / de forældreløse rækker; tag `dump` igen |
 | B før apply-commit (fejl i dry-run, authorize eller apply; ingen `T6B_B_COMMITTED`-linje) | `a`; batchen rullet tilbage | Læs koden: `T6B_B_FEJL (<kode>; sidste trin: …)` og den fulde fejllinje (`Fejl:`/`Error:`/`!`) i `apply-b-*.out`; ret; `apply-b` igen med samme GO. Dumpet i tilstand `a` gælder i 12 timer fra `start_utc`; derefter et nyt `dump` |
 | Efter B's commit: `T6B_B_FEJL_EFTER_COMMIT`, `T6B_B_KONTROL_AFVIGER`, `T6B_B_PUBSTATE_AENDRET`, `T6B_B_KOE_VISER_NYE`, `T6B_B_REPLAY_STATUS`, `T6B_EFTER_B`, `T6B_K1_UAENDRET` | batchen `finalized` | Kør `maal`. Er den `b` og `k1` uændret, er B skrevet; undersøg kontrolfejlen bagefter. Viser kontrollen, at B skrev forkert, eller er `k1` ændret: **fortrydelsestilfælde**, `fortryd-b` (nedenfor). `fortryd-b` accepterer rå tilstand `b` også med afvigende tal (fx `afventer≠555`, hvor `maal` siger `ukendt`) |
-| `fortryd-b` før restoren (`GO_MISMATCH`, `T6B_FORTRYD_MAAL_MANGLER`/`_AENDRET`, `T6B_FORTRYD_C`, `T6B_FORTRYD_TILSTAND`, `T6B_K1_AENDRET_I_VINDUET`, `T6B_VINDUE_BRUDT`, `RESTORE_PRIVILEGES`, `T6B_FORTRYD_LAAS`) | uændret (`b`); intet skrevet, ingen markør | `T6B_VINDUE_BRUDT`: tabellerne står i `vindue-afvigende-tabeller.txt`. Restoren ville slette det skrevne; afgør, om det skal genskrives bagefter, eller om B i stedet rettes på anden vis. `T6B_FORTRYD_LAAS`: en anden session holder en lås i public/private eller står »idle in transaction«; vent, og kør igen |
-| `fortryd-b` under eller efter restoren (`T6B_FORTRYD_RESTORE_FEJL`, `T6B_FORTRYD_ANALYZE`/`_RLS`/`_NOTIFY`, `GRANTS_RECONCILE`, `SCHEMA_DEFAULT_ACL`, `T6B_FORTRYD_ACL`/`_DEFAULT_ACL`/`_KATALOG`/`_FORAELDRELOESE`/`_RESTORE_HASH`, `T6B_EFTER_FORTRYD`) | restoren er påbegyndt; markøren `fortryd-b-<dump-sha>.igang` findes; skema-defaults og grants kan være uafstemte | **Genoptag:** ret årsagen, og kør `fortryd-b` igen med samme GO. Med markøren springes tilstands- og vinduesvagten over. Er restore-hashen allerede dumpets, køres kun efterarbejdet (`vej=efterarbejde`); ellers køres restoren igen fra samme dump (`vej=restore`). Efterarbejdet er idempotent. Ved `T6B_FORTRYD_RESTORE_FEJL`: læs `restore.err.klasser` (kun klasser og antal); en ny, forstået og accepteret fejlklasse kræver en ny `T6B_RESTORE_FEJL` i runneren og en ny GO |
+| `fortryd-b` før restoren (`GO_MISMATCH`, `T6B_FORTRYD_MAAL_MANGLER`/`_AENDRET`, `T6B_FORTRYD_C`, `T6B_FORTRYD_TILSTAND`, `T6B_K1_AENDRET_I_VINDUET`, `RESTORE_PRIVILEGES`, `T6B_FORTRYD_LAAS`) | uændret (`b`); intet skrevet, ingen markør | `T6B_FORTRYD_LAAS`: en anden session holder en lås i public/private eller står »idle in transaction«; vent, og kør igen. `T6B_FORTRYD_MAAL_MANGLER`: kvitteringen er i et ældre format eller uden mål; B kan ikke fortrydes med den (se N7 under `apply-b`) |
+| `fortryd-b`: `T6B_VINDUE_BRUDT` | uændret (`b`); intet skrevet, ingen markør | Der er skrevet i prod efter dumpet (tabeller/sekvenser i `vindue-afvigende-tabeller.txt`). Runneren har **ingen vej forbi**: en restore ville slette det skrevne. Projektejeren (1) afgør, hvad skrivningen er, og om den kan undværes eller skal genskrives; (2) er B ikke kørt endnu, tages et nyt `dump` i tilstand `a`, og B køres derfra; (3) er B kørt, kræver en fortrydelse en beslutning: enten accepteres tabet (en ændret runner/vindue-SQL og dermed ny `go-fortryd`), eller B rettes på anden vis. Kør ikke `fortryd-b` igen i håb om et andet udfald |
+| `fortryd-b` under restoren (`T6B_FORTRYD_RESTORE_FEJL`, eller runneren afbrudt under `pg_restore`) | restoren er påbegyndt; markøren `fortryd-b-<dump-sha>.igang` har trin `restore_startet` (afbrudt) eller `restore_afsluttet` (fejlmængden ikke godkendt; restore-hash og vinduesaftryk efter restoren er gemt) | Ved `T6B_FORTRYD_RESTORE_FEJL` udskrives `T6B_FORTRYD_DIFF` (antal grants og katalogobjekter, der mangler/er ekstra; objektnavne i `katalog-afvigende-objekter.txt`) og klasserne i `restore.err.klasser`. Ret årsagen (fx en afhængighed uden for public/private), eller acceptér en ny, forstået fejlklasse ved at udvide mønsteret i runneren (ny `go-fortryd`). Kør så `fortryd-b`: restoren køres igen fra samme dump (`vej=restore genoptaget=1`). En ikke-godkendt fejlmængde kan ikke omgås ved at køre igen med samme GO |
+| `fortryd-b` efter godkendt restore (`T6B_FORTRYD_ANALYZE`/`_RLS`/`_NOTIFY`, `GRANTS_RECONCILE`, `SCHEMA_DEFAULT_ACL`, `T6B_FORTRYD_ACL`/`_DEFAULT_ACL`/`_KATALOG`/`_FORAELDRELOESE`/`_RESTORE_HASH`, `T6B_EFTER_FORTRYD`, `T6B_MARKOER_OMDOEB`) | markøren har trin `restore_godkendt`; skema-defaults og grants kan være uafstemte | Ret årsagen, og kør `fortryd-b` igen. Er restore-hashen dumpets, køres kun efterarbejdet (`vej=efterarbejde`); ellers restoren igen. Efterarbejdet er idempotent |
+| `fortryd-b` ved genoptagelse: `T6B_FORTRYD_SKREVET_EFTER_RESTORE` | markøren findes; basens restore-hash er hverken dumpets eller den, den afbrudte restore efterlod | Nogen har skrevet i prod efter den afbrudte restore (fx et medlem, mens appen var åben). En ny `--clean` ville slette det lydløst, så runneren stopper. Afgør skrivningen som ved `T6B_VINDUE_BRUDT`; der er ingen vej forbi uden en beslutning og en ændret runner (ny `go-fortryd`) |
+| `dump`, `apply-a`, `apply-b`, `go-a`, `go-b` med en markør: `T6B_FORTRYD_IGANG` | uændret | En fortrydelse er påbegyndt og ikke gennemført. Gennemfør `fortryd-b` først (`maal`, `go-fortryd` og `fortryd-b` er tilladt) |
+| `apply-b`: `T6B_FORTRYD_MAAL_MANGLER`/`_AENDRET` (N7) | `a`; intet skrevet | Kvitteringen fra skridt 8 har ikke gyldige fortrydelsesmål (ældre format, eller filerne er ændret). B køres ikke uden en mulig fortrydelse: tag `dump` igen i tilstand `a`, og tag `go-b` igen |
 | Målingens egne fejl (`maal_trin6b.sql fejlede`, `T6B_MAAL_FORM`, `MAAL_6B_UKENDT`) | uændret af fejlen selv | Efter et commit: læs batchens status og kør `maal` igen; før et commit: intet er skrevet |
 
 `GO_MISMATCH` viser den kode, filerne svarer til nu (lib's `expect_eq`, som i 6a). Koden binder indhold og er ikke en
@@ -225,10 +232,15 @@ hemmelighed. Brug den ikke uden at have tjekket, hvad der er ændret siden GO.
        (`T6B_VINDUE_BRUDT`). Begge tjekkes før restoren;
      - kræver, at forbindelsens bruger ejer alt i private+public (`RESTORE_PRIVILEGES`), og at ingen anden session
        holder en lås i public/private eller står »idle in transaction« (`T6B_FORTRYD_LAAS`);
-     - sætter markøren `fortryd-b-<dump-sha>.igang` og fjerner rollens skema-defaults;
+     - sætter markøren `fortryd-b-<dump-sha>.igang` (trin `restore_startet`) og fjerner rollens skema-defaults;
      - kører `pg_restore --clean --if-exists --no-owner --schema=private --schema=public`;
-     - kræver, at restorens fejlmængde er den accepterede (`T6B_RESTORE_FEJL`: 5 linjer, sha `620b9304…`; ellers
-       `T6B_FORTRYD_RESTORE_FEJL`);
+     - gemmer restore-hash og vinduesaftryk efter restoren i markøren;
+     - vurderer restorens fejl efter mønster, snævert: kun »cannot drop function … because other objects depend on it«
+       og »function … already exists with same argument types« for præcis `public.current_rolle()` og
+       `public.media_object_synlig_anon(text)`, hver højst én gang, og pg_restore's afsluttende advarsel med det
+       rigtige antal. Alt andet giver trin `restore_afsluttet` og `T6B_FORTRYD_RESTORE_FEJL`. Ellers sættes trin
+       `restore_godkendt`. Prods restore som `postgres` kan dermed gennemføre i én kørsel, hvis kun disse klasser
+       optræder;
      - genskaber skema-defaults fra kvitteringens mål;
      - kører ANALYZE og `db-rls.sql`;
      - afstemmer grants mod kvitteringens mål;
@@ -244,13 +256,40 @@ hemmelighed. Brug den ikke uden at have tjekket, hvad der er ændret siden GO.
      acl=som_dump katalog=som_dump restore_hash=…`. Markøren omdøbes til `.fuldfoert-…`.
   3. `maal` → `a`. B kan derefter køres igen fra skridt 9 med samme manifest og samme dump (ny batch), hvis dumpets
      `start_utc` højst er 12 timer gammel. Ellers tages et nyt `dump` i tilstand `a` (nu efter restoren), og
-     `go-b` tages igen.
+     `go-b` tages igen. **En ændret runner ændrer alle GO-koder:** er runneren (eller vindues-SQL'en) ændret, fx for
+     at acceptere en ny fejlklasse, kræver både en ny `apply-b` og en ny `fortryd-b` et nyt `go-b`/`go-fortryd`,
+     også med samme dump.
 
-  **Restoren kan ikke afbrydes af tidsgrænser.** Arkivet sætter selv `statement_timeout = 0` og `lock_timeout = 0`
-  (pg_dump's sessionshoved). Prods 2-minuttersgrænse gælder derfor ikke under restoren, og en `lock_timeout` fra
-  miljøet virker ikke. Holder en anden session en lås, venter restoren. I øvelsen ventede den 39,7 s bag en lås på
-  45 s og blev derefter korrekt (`T6B_FORTRYD_B_OK`). Derfor stopper `fortryd-b` før restoren på
-  `T6B_FORTRYD_LAAS`. En lås, der tages midt i restoren, giver venten, ikke en delvis restore.
+  **Genoptagelse (markøren).** Findes markøren, springes tilstands-, `k1`- og vinduesvagten over (B's rækker er helt
+  eller delvist væk). I stedet gælder:
+  - efterarbejdet alene (`vej=efterarbejde`) vælges **kun**, når trinnet er `restore_godkendt` **og** restore-hashen er
+    dumpets. En restore, der døde i post-data (indekser, FK'er, triggere), har data som dumpet, men ikke trinnet, og
+    køres derfor igen;
+  - ellers køres restoren igen (`vej=restore genoptaget=1`), men kun hvis basens restore-hash er dumpets eller den, den
+    afbrudte restore efterlod. En anden hash betyder en skrivning siden, og runneren stopper
+    (`T6B_FORTRYD_SKREVET_EFTER_RESTORE`);
+  - blev runneren selv afbrudt under `pg_restore` (fx dræbt), er der ingen efter-måling at sammenligne med. Restoren
+    køres så igen, og kvitteringen bærer `advarsel=afbrudt_under_restore_uden_efter_maal`. Genoptag straks i
+    skrivepausen;
+  - markøren omdøbes til `.fuldfoert-…`, først når alle efterkontroller er bestået. Mislykkes omdøbningen, stopper
+    runneren (`T6B_MARKOER_OMDOEB`). Mens den findes, afviser `dump`, `apply-a`, `apply-b`, `go-a` og `go-b` at køre
+    (`T6B_FORTRYD_IGANG`).
+
+  **Tidsgrænser og låse under restoren.** pg_restore sender selv `statement_timeout = 0`, `lock_timeout = 0`,
+  `idle_in_transaction_session_timeout = 0` og `transaction_timeout = 0` på sin forbindelse. Prods
+  2-minuttersgrænse annullerer den derfor ikke, og en `lock_timeout` fra miljøet virker ikke.
+  - Holder en anden session en lås, venter restoren **uden grænse**. I øvelsen ventede den 39,7 s bag en lås på 45 s
+    og blev derefter korrekt. Det samme gælder alle forespørgsler i låsekøen bag den.
+  - Derfor stopper `fortryd-b` før restoren på `T6B_FORTRYD_LAAS`. En lås, der tages mellem kontrollen og restoren,
+    kan stadig holde den. Står `fortryd-b` stille i restoren, ser operatøren i `pg_stat_activity` (kun pid,
+    `wait_event_type` og `state`) og afbryder den blokerende session eller restoren selv. En afbrudt restore er så
+    en delvis restore, og genoptagelsen ovenfor gælder.
+  - En delvis restore kan også komme af forbindelsestab, `kill` eller deadlock. Deadlock er mulig, fordi en
+    `DROP TABLE` også låser den refererede tabel. Fejlmængden fanger det (`T6B_FORTRYD_RESTORE_FEJL`), og
+    genoptagelsen kører restoren igen.
+  - I prod kan `pg_stat_activity.state` være NULL for andre rollers sessioner, hvis `postgres` ikke har
+    `pg_read_all_stats`. Så tæller idle-in-transaction-delen for lavt, mens låsedelen (`pg_locks`) fanger de sessioner,
+    der faktisk holder relationslåse. Efterprøv rollen i prod.
 
   **`db-rls.sql` alene er ikke nok efter en restore.** pg_dump skriver ACL'er relativt til `acldefault`, og rollens
   default-rettigheder virker på alt, restoren opretter. Det gælder begge veje:
@@ -394,6 +433,47 @@ Først blev det vist, at vinduesaftrykket er ens i tilstand `a` og `b`: B's egne
 | Endelig runner: `fortryd-b` → `apply-b` | `T6B_FORTRYD_B_OK … vej=restore genoptaget=0 restore_fejl=5 …`, restore 2,8 s, efterarbejde 3,8 s; derefter `T6B_APPLY_B_OK personas=555 identiteter=0`, `maal` `b` |
 
 `k1_hash` var `906c2a4d…` i alle målinger. Stand-in'en står i tilstand `b`.
+
+### Fix-runde 2 (2026-10-31): genoptagelsen binder restore-trin og vindue
+
+Reviewet af fix-runde 1 fandt fire ting:
+- genoptagelsen valgte efterarbejde alene på data-hashen, så en restore, der døde i post-data, aldrig blev kørt
+  igen (N1);
+- den kunne slette skrivninger efter en fejlet restore (N2);
+- fejlporten gjaldt kun første forsøg (N3);
+- en hængende markør spærrede ingenting (N4).
+
+Desuden manglede sekvenserne i vinduet (N6), og `apply-b` efterprøvede ikke fortrydelsesmålene (N7).
+
+Rettelserne:
+- markøren har trin;
+- restore-hash og aftryk efter restoren gemmes;
+- fejlmængden vurderes efter mønster;
+- en diff udskrives ved fejl;
+- markøren spærrer;
+- sekvenserne er med i vinduet;
+- `apply-b` kræver gyldige fortrydelsesmål.
+
+Øvet på `…_6b2`. Stand-in'en blev først bragt fra `b` til `a` med fix-runde 1's runner, så der kunne tages et dump i
+det nye format.
+
+| Skridt | Resultat |
+|---|---|
+| `dump` i `a` | `DUMP_6B_MAAL_OK vindue=cb019e50… tabeller=132` (98 tabeller + 34 sekvenser) `restore_hash=f674c4ab… katalog=61d260d4… foraeldreloese=0`, 4,6 s |
+| `apply-b` → `fortryd-b` (første version) | `STOPPORT: T6B_VINDUE_BRUDT`: `private.reimport_event_id_seq`. B flytter selv sekvensen (7068 → 8178: dry-run + apply). Sekvensen undtages derfor kun i sammenligningen før restoren |
+| `fortryd-b` (ren) → `apply-b` | `T6B_FORTRYD_B_OK … vej=restore genoptaget=0 restore_fejl=5 grants_afstemt=0\|16 acl=som_dump katalog=som_dump restore_hash=f674c4ab…`, restore 3,2 s; derefter `T6B_APPLY_B_OK personas=555 identiteter=0` |
+| N1, afbrudt efter data-sektionen (`DAA_FAULT=t6b_afbrudt_efter_data`: pre-data + data, ingen post-data) | `STOPPORT: FAULT_INJECTED`; markøren `trin=restore_startet`, intet efter-mål; 47 af 144 fremmednøgler |
+| N4, med markøren: `dump`, `go-b`, `apply-b`, `go-a` | alle `STOPPORT: T6B_FORTRYD_IGANG` |
+| N1, genoptagelse | `T6B_FORTRYD_B_OK … vej=restore genoptaget=1 restore_fejl=5 … restore_hash=f674c4ab… advarsel=afbrudt_under_restore_uden_efter_maal`; 144 fremmednøgler |
+| `apply-b` → N2: view uden for public/private afhænger af `public.bookmark` → `fortryd-b` | `T6B_FORTRYD_DIFF acl_mangler=16 acl_ekstra=0 katalog_mangler=4 katalog_ekstra=0 objekter=2`; `STOPPORT: T6B_FORTRYD_RESTORE_FEJL (… 9 linjer …)`; markøren `trin=restore_afsluttet`, gemt hash `b06e4227…` |
+| N2: view fjernet, ét bogmærke skrevet → `fortryd-b` | `STOPPORT: T6B_FORTRYD_SKREVET_EFTER_RESTORE`; ingen restore |
+| N2: bogmærket fjernet → `fortryd-b` | `T6B_FORTRYD_B_OK … vej=restore genoptaget=1 restore_fejl=5 … restore_hash=f674c4ab…` |
+| `apply-b` → N1 præcist: view afhænger af `public.slaegtsnavn_normaliser(text)` → `fortryd-b` | `T6B_FORTRYD_DIFF acl_mangler=15 … katalog_mangler=0 objekter=0`; `STOPPORT: T6B_FORTRYD_RESTORE_FEJL (… 7 linjer …)`; markøren `trin=restore_afsluttet` med gemt hash **= dumpets** (`f674c4ab…`) |
+| N1: afhængigheden fjernet → `fortryd-b` | `vej=restore genoptaget=1` (ikke `efterarbejde`, selv om data var dumpets), `restore_fejl=5`, `T6B_FORTRYD_B_OK` |
+| `apply-b` | `T6B_APPLY_B_OK personas=555 identiteter=0`; `maal` `b` |
+| N7: `go-fortryd` + `fortryd-b` med de to ældre kvitteringsformater | `STOPPORT: T6B_FORTRYD_MAAL_MANGLER (kvitteringen har ingen fortrydelsesmaal …)` og `(… vinduet uden sekvenser …)`; ingen Python-fejl |
+
+`k1_hash` var `906c2a4d…` i alle målinger. Stand-in'en står i `b`, uden markør og uden hjælpeskema.
 
 ## Efter ceremonierne
 
