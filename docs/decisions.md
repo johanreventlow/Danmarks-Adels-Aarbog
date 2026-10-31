@@ -2,6 +2,18 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: 6b's ceremoni C kan køres igen efter fortrydelse (2026-10-31)
+
+> Afsluttende review I2: efter `red_reverse_reimport_publication` gik personaerne før til den menneskelige webkø, og en
+> ny C døde på versionskonflikt. Projektejeren valgte genkørsel. En *fortrudt publikationsidentitet* er en
+> identitetsrække i `superseded`, hvis seneste overgang er fortrydelsen af en `publication_identity`-batch
+> (`private.publication_identity_reverted`: den fortrudte batch, dens reversal-hændelse og C's kvittering for den
+> forrige version). Den tæller som ingen identitet i køvagten, finalize's kontrolmængde og stikprøvens population. Den
+> eneste kerneændring er snæver: oprindelsen `publication_binding` godtager en version ≠ 0, når og kun når identiteten
+> er en fortrudt publikationsidentitet. C-writeren håndhæver det samme for alle udfald (også `human`/S/F/U). Har et
+> menneske afgjort personaen bagefter, er den ikke længere fortrudt, og C afviser den som enhver menneskelig identitet. Tilstandsmodel og andre kaldere er uændrede.
+> Spec §6; `db-migrations.sql` blok »trin 6b opfølgning: C kan genkøres efter fortrydelse«.
+
 ## NOTERET: 6b's identitetswriter kalder kernen med `human` direkte (2026-10-31)
 
 > 5a §4.2 siger, at oprindelsen `human` kun kommer fra `red_afgoer_source_persona`. I trin 6b skriver

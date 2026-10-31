@@ -23,7 +23,7 @@ indtil 6c's runner har kørt i prod; runbooken udvides med C i Task 15.
 - **Ceremoni B** skriver 1939's personas med profilen `daa-1939-publication-v1` gennem writerens kæde
   (authorize → begin → apply → finalize). Det er 555 `source_persona` og hver sin `primary`-mention i sin egen
   helpost. B skriver **ingen identitet**. Indtil C har kørt, er de 555 skjult i webkøen, og `red_afgoer_source_persona`
-  afviser dem.
+  afviser dem. Det samme gælder igen efter en fortrydelse af C, indtil C er kørt igen.
 
 Runneren er privat: `~/.private/5ab-overfoersel/26-trin6b.sh` med `26-trin6b-b.R` og 5c-2's `lib.zsh`/`koer.zsh`.
 Projektejeren kører alt, der rører prod, fra egen shell. AI-sessionen læser kun rapporter med tal, koder og hashes.
@@ -337,10 +337,19 @@ hemmelighed. Brug den ikke uden at have tjekket, hvad der er ændret siden GO.
   runnerens rækker ændrer aftrykket.
 - **Efter C, før promotion** (runbookens C-del, Task 15):
   - `public.red_reverse_reimport_publication` (autorisation med `red_authorize_reimport_reversal`) sætter C's
-    identiteter til `superseded` (version 2). De 8 eksisterende er urørte;
-  - personaerne går **ikke** tilbage i C-køen. En ny C-kørsel dør på `EVIDENCE_IDENTITY_VERSION_CONFLICT`, fordi C
-    kræver identitetsversion 0;
-  - de afgøres i den menneskelige webkø.
+    identiteter til `superseded` (version 2 efter den første C). De 8 eksisterende er urørte;
+  - **C kan køres igen** (projektejeren 2026-10-31, `docs/decisions.md`). En fortrudt publikationsidentitet tæller
+    som ingen identitet: personaerne venter igen på kontrol (skjult i webkøen, `red_afgoer_source_persona` afviser
+    med `IDENTITY_AWAITING_PUBLICATION_CONTROL`), indtil en ny C er finaliseret, eller et menneske har afgjort dem;
+  - den nye C bygges som den første: `red_publication_control` (samme eller ny kandidatkørsel) giver for hver persona
+    den aktuelle `identity_version` (fx 2) og `identity_reverted=true`, kortenes P-linjer bærer den version, og
+    manifestet sætter `expected_identity_version` til den. Over samme kørsel er stikprøven den samme som før
+    fortrydelsen. Writeren godtager en version ≠ 0 kun for en fortrudt publikationsidentitet; ellers
+    `EVIDENCE_IDENTITY_VERSION_CONFLICT`;
+  - en persona, som et menneske har afgjort efter fortrydelsen, er ikke længere fortrudt. Den er disposition
+    `allerede_persona` i manifestet, C afviser den med `EVIDENCE_IDENTITY_VERSION_CONFLICT`, og finalize kræver den
+    ikke;
+  - en C, der er kørt igen, kan fortrydes igen (version 4 osv.).
 - **Efter promotion:** 6c's fortrydelse gælder.
 
 **Kendte begrænsninger i fortrydelsen**
@@ -405,6 +414,9 @@ vises først i C's kontrolrapport.
   `PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED`. Stop og afgør; det er C's modstykke til `helpost_uegnet`.
 - `red_publication_control_details` og arkene rummer navne og leveår på kandidatpersoner, også levende konkurrenter.
   Filerne ligger kun under `~/.private/6b/` og sendes aldrig til en model.
+- Efter en fortrydelse af C (se Fortrydelse) bygges arket og manifestet på ny med det nye `red_publication_control`;
+  genbrug ikke control-, details- eller manifestfiler fra den fortrudte C, fordi deres versioner er 0.
+  `maal_trin6b.sql` tæller igen personaerne som `afventer`.
 - `publication_identity_sheet.py` kræver sammenhængende input: `render` og `manifest` tager begge
   `--control` og `--details` fra samme kørsel (`PUBLICATION_SHEET_INPUT_MISMATCH` ved afvigelse i kørsel, kilde,
   persona-mængde eller binding), og begge stopper ved over 90 kort (`PUBLICATION_SHEET_TOO_MANY_CARDS`).
