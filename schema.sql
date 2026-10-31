@@ -9952,12 +9952,21 @@ END $$;
 
 CREATE OR REPLACE FUNCTION private.identity_candidate_input(p_source_id bigint,p_input_spec jsonb)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
-DECLARE v_mode text; v_ids uuid[]; v_personas jsonb; v_match jsonb; v_persons jsonb;
+DECLARE v_mode text; v_ids uuid[]; v_personas jsonb; v_match jsonb; v_persons jsonb; v_year_fb boolean:=false; v_keys text[];
 BEGIN
+  IF jsonb_typeof(p_input_spec)<>'object' THEN RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID'; END IF;
   v_mode:=p_input_spec->>'mode';
-  IF jsonb_typeof(p_input_spec)<>'object' OR v_mode NOT IN ('undecided','list')
-     OR (v_mode='undecided' AND (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(p_input_spec) k)<>ARRAY['mode'])
-     OR (v_mode='list' AND ((SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(p_input_spec) k)<>ARRAY['mode','persona_ids']
+  -- Trin 6b: year_fallback (eneste værdi date_raw-v1) er tilvalgt i begge tilstande; uden nøglen er inputtet som før.
+  IF p_input_spec ? 'year_fallback' THEN
+    IF jsonb_typeof(p_input_spec->'year_fallback')<>'string' OR p_input_spec->>'year_fallback'<>'date_raw-v1' THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID';
+    END IF;
+    v_year_fb:=true;
+  END IF;
+  SELECT array_agg(k ORDER BY k) INTO v_keys FROM jsonb_object_keys(p_input_spec) k WHERE k<>'year_fallback';
+  IF v_mode IS NULL OR v_mode NOT IN ('undecided','list')
+     OR (v_mode='undecided' AND v_keys<>ARRAY['mode'])
+     OR (v_mode='list' AND (v_keys<>ARRAY['mode','persona_ids']
                             OR jsonb_typeof(p_input_spec->'persona_ids')<>'array'
                             OR jsonb_array_length(p_input_spec->'persona_ids')=0)) THEN
     RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID';
@@ -9998,6 +10007,19 @@ BEGIN
     RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID';   -- id uden for kilden eller ukendt
   END IF;
   v_match:=public.red_match_personer();
+  IF v_year_fb THEN
+    -- Årstal fra date_raw som reserve, kun for påstande uden date_min/date_max og med præcis ét forskelligt årstal.
+    SELECT jsonb_set(v_match,'{assertions}',coalesce((SELECT jsonb_agg(
+             CASE WHEN fb.yr IS NULL THEN e
+                  ELSE e || jsonb_build_object('date_min',fb.yr||'-01-01','date_max',fb.yr||'-12-31','date_origin','date_raw') END)
+             FROM jsonb_array_elements(v_match->'assertions') e
+             LEFT JOIN LATERAL (
+               SELECT min(m[1]) AS yr FROM public.assertion a,
+                      LATERAL regexp_matches(a.date_raw,'\m(1[0-9]{3}|20[0-9]{2})\M','g') m
+                WHERE a.id=(e->>'id')::bigint AND e->>'date_min' IS NULL AND e->>'date_max' IS NULL
+                HAVING count(DISTINCT m[1])=1) fb ON true),'[]'::jsonb))
+      INTO v_match;
+  END IF;
   -- Sortér hvert array efter elementets tekst: red_match_personer lover ingen orden.
   SELECT coalesce(jsonb_object_agg(k.key,(SELECT coalesce(jsonb_agg(e ORDER BY e::text COLLATE "C"),'[]'::jsonb)
                                            FROM jsonb_array_elements(k.value) e)),'{}'::jsonb)

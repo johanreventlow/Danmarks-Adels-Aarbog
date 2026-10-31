@@ -29820,3 +29820,84 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb) TO authenticated;
+
+-- ===== trin 6b: årstalsreserve fra date_raw i identitetsgeneratorens input =====
+CREATE OR REPLACE FUNCTION private.identity_candidate_input(p_source_id bigint,p_input_spec jsonb)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_mode text; v_ids uuid[]; v_personas jsonb; v_match jsonb; v_persons jsonb; v_year_fb boolean:=false; v_keys text[];
+BEGIN
+  IF jsonb_typeof(p_input_spec)<>'object' THEN RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID'; END IF;
+  v_mode:=p_input_spec->>'mode';
+  -- Trin 6b: year_fallback (eneste værdi date_raw-v1) er tilvalgt i begge tilstande; uden nøglen er inputtet som før.
+  IF p_input_spec ? 'year_fallback' THEN
+    IF jsonb_typeof(p_input_spec->'year_fallback')<>'string' OR p_input_spec->>'year_fallback'<>'date_raw-v1' THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID';
+    END IF;
+    v_year_fb:=true;
+  END IF;
+  SELECT array_agg(k ORDER BY k) INTO v_keys FROM jsonb_object_keys(p_input_spec) k WHERE k<>'year_fallback';
+  IF v_mode IS NULL OR v_mode NOT IN ('undecided','list')
+     OR (v_mode='undecided' AND v_keys<>ARRAY['mode'])
+     OR (v_mode='list' AND (v_keys<>ARRAY['mode','persona_ids']
+                            OR jsonb_typeof(p_input_spec->'persona_ids')<>'array'
+                            OR jsonb_array_length(p_input_spec->'persona_ids')=0)) THEN
+    RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID';
+  END IF;
+  IF v_mode='list' THEN
+    SELECT array_agg(DISTINCT e::uuid) INTO v_ids FROM jsonb_array_elements_text(p_input_spec->'persona_ids') e;
+    IF cardinality(v_ids)<>jsonb_array_length(p_input_spec->'persona_ids') THEN RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID'; END IF;
+  END IF;
+  -- Trin 5b: family_context kun når den findes, så 5a-personas har præcis samme form som før.
+  SELECT coalesce(jsonb_agg((to_jsonb(x)-'family_context')
+                            || CASE WHEN x.family_context IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('family_context',x.family_context) END
+                            ORDER BY x.source_persona_id COLLATE "C"),'[]'::jsonb) INTO v_personas FROM (
+    SELECT p.id::text AS source_persona_id,
+           coalesce(nm.v, men.v) AS name,
+           CASE WHEN nm.v IS NOT NULL THEN nm.origin WHEN men.v IS NOT NULL THEN 'mention' END AS name_origin,
+           b.v AS birth_raw, b.origin AS birth_origin, d.v AS death_raw, d.origin AS death_origin,
+           fctx.fc AS family_context
+      FROM private.source_persona p
+      LEFT JOIN private.source_persona_identity i ON i.source_persona_id=p.id
+      LEFT JOIN LATERAL (SELECT private.persona_family_context(p.id) AS fc) fctx ON true
+      LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
+                          WHERE ic.source_persona_id=p.id AND ic.predicate='person.name' AND ic.status IN ('accepted','proposed')
+                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.interpretation_key LIMIT 1) nm ON true
+      LEFT JOIN LATERAL (SELECT sm.verbatim_text v FROM private.source_persona_mention spm
+                          JOIN private.source_mention sm ON sm.id=spm.mention_id
+                          WHERE spm.persona_id=p.id AND sm.mention_kind='person' ORDER BY spm.ordinal LIMIT 1) men ON true
+      LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
+                          WHERE ic.source_persona_id=p.id AND ic.predicate='person.birth' AND ic.status IN ('accepted','proposed')
+                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.interpretation_key LIMIT 1) b ON true
+      LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
+                          WHERE ic.source_persona_id=p.id AND ic.predicate='person.death' AND ic.status IN ('accepted','proposed')
+                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.interpretation_key LIMIT 1) d ON true
+     WHERE p.source_id=p_source_id
+       AND ((v_mode='undecided' AND (i.source_persona_id IS NULL OR i.decision_status='proposed'))
+         OR (v_mode='list' AND p.id=ANY(v_ids)))
+  ) x;
+  IF v_mode='list' AND jsonb_array_length(v_personas)<>cardinality(v_ids) THEN
+    RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID';   -- id uden for kilden eller ukendt
+  END IF;
+  v_match:=public.red_match_personer();
+  IF v_year_fb THEN
+    -- Årstal fra date_raw som reserve, kun for påstande uden date_min/date_max og med præcis ét forskelligt årstal.
+    SELECT jsonb_set(v_match,'{assertions}',coalesce((SELECT jsonb_agg(
+             CASE WHEN fb.yr IS NULL THEN e
+                  ELSE e || jsonb_build_object('date_min',fb.yr||'-01-01','date_max',fb.yr||'-12-31','date_origin','date_raw') END)
+             FROM jsonb_array_elements(v_match->'assertions') e
+             LEFT JOIN LATERAL (
+               SELECT min(m[1]) AS yr FROM public.assertion a,
+                      LATERAL regexp_matches(a.date_raw,'\m(1[0-9]{3}|20[0-9]{2})\M','g') m
+                WHERE a.id=(e->>'id')::bigint AND e->>'date_min' IS NULL AND e->>'date_max' IS NULL
+                HAVING count(DISTINCT m[1])=1) fb ON true),'[]'::jsonb))
+      INTO v_match;
+  END IF;
+  -- Sortér hvert array efter elementets tekst: red_match_personer lover ingen orden.
+  SELECT coalesce(jsonb_object_agg(k.key,(SELECT coalesce(jsonb_agg(e ORDER BY e::text COLLATE "C"),'[]'::jsonb)
+                                           FROM jsonb_array_elements(k.value) e)),'{}'::jsonb)
+    INTO v_persons FROM jsonb_each(v_match) k WHERE jsonb_typeof(k.value)='array';
+  RETURN jsonb_build_object('personas',v_personas,'persons',v_persons,
+    'same_as',coalesce((SELECT jsonb_agg(jsonb_build_array(r.subjekt_id,r.objekt_id) ORDER BY r.subjekt_id,r.objekt_id)
+                          FROM public.relation r WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'),'[]'::jsonb));
+END $$;
+REVOKE ALL ON FUNCTION private.identity_candidate_input(bigint,jsonb) FROM PUBLIC,anon,authenticated;
