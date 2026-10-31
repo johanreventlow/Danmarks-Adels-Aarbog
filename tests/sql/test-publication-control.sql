@@ -432,4 +432,40 @@ BEGIN
   RAISE NOTICE 'OK: red_publication_control og red_publication_control_details';
 END $stikproeve$;
 
+-- 4) details: bindingspersonen filtreret bort af generatoren (ingen member_scores-post); dens samme_som-partner — også
+-- transitivt i en komponent med tre medlemmer — er egen klynge, ikke konkurrent (spec §4.3 pkt. 2, #248).
+DO $komponent$
+DECLARE
+  v_src jsonb:=pg_temp.pp_source(-6540,'11000000-0000-0000-0000-00000006b540');
+  v_a text:='11000000-0000-0000-0000-00000006b540';
+  v_f1 jsonb; v_f2 jsonb; v_p1 uuid; v_p2 uuid; v_run uuid; v_det jsonb; v_pd jsonb;
+  B1 bigint:=-654001; P1 bigint:=-654011; B2 bigint:=-654002; K21 bigint:=-654021; K22 bigint:=-654022; C bigint:=-654030;
+  v_roles jsonb;
+BEGIN
+  v_f1:=pg_temp.pp_post(v_src,'c1',B1); v_f2:=pg_temp.pp_post(v_src,'c2',B2);
+  INSERT INTO public.person(id,levende,privat,status) VALUES (P1,false,false,'pc'),(K21,false,false,'pc'),(K22,false,false,'pc'),(C,false,false,'pc');
+  -- c1: B1 ~ P1 (direkte); c2: B2 ~ K21 ~ K22 (K22 kun transitivt, relationen i den anden retning)
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
+    ('person',B1,'person',P1,'samme_som'),('person',B2,'person',K21,'samme_som'),('person',K22,'person',K21,'samme_som');
+  v_p1:=pg_temp.persona(-6540,(v_src->>'run')::uuid,'1939:c1',(v_f1->>'mention')::uuid);
+  v_p2:=pg_temp.persona(-6540,(v_src->>'run')::uuid,'1939:c2',(v_f2->>'mention')::uuid);
+  v_run:=pg_temp.pc_run(-6540,'{"autoCutoff":0.9,"controlMargin":0.05,"topK":3}','komp');
+  PERFORM pg_temp.pc_cand(v_run,v_p1,P1,1,jsonb_build_array(pg_temp.ms(P1,0.99,ARRAY['name','birth'])));
+  PERFORM pg_temp.pc_cand(v_run,v_p1,C,2,jsonb_build_array(pg_temp.ms(C,0.50,ARRAY['name'])));
+  PERFORM pg_temp.pc_cand(v_run,v_p2,K22,1,jsonb_build_array(pg_temp.ms(K22,0.99,ARRAY['name','birth'])));
+  PERFORM pg_temp.pc_cand(v_run,v_p2,C,2,jsonb_build_array(pg_temp.ms(C,0.50,ARRAY['name'])));
+  v_det:=pg_temp.rpc(v_a,'red_publication_control_details',v_run);
+  IF v_det ? 'error' THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: details %',v_det->>'error'; END IF;
+  SELECT e INTO v_pd FROM jsonb_array_elements(v_det->'personas') e WHERE e->>'source_persona_id'=v_p1::text;
+  SELECT jsonb_object_agg(e->>'person_id',e->>'role') INTO v_roles FROM jsonb_array_elements(v_pd->'persons') e;
+  IF v_roles<>jsonb_build_object(B1::text,'binding',P1::text,'own_cluster',C::text,'competitor')
+     OR v_pd->'outcome'->>'outcome' IS DISTINCT FROM 'ingen_kandidat' THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: direkte partner %',v_roles; END IF;
+  SELECT e INTO v_pd FROM jsonb_array_elements(v_det->'personas') e WHERE e->>'source_persona_id'=v_p2::text;
+  SELECT jsonb_object_agg(e->>'person_id',e->>'role') INTO v_roles FROM jsonb_array_elements(v_pd->'persons') e;
+  IF v_roles<>jsonb_build_object(B2::text,'binding',K22::text,'own_cluster',C::text,'competitor') THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: transitiv komponent %',v_roles; END IF;
+  RAISE NOTICE 'OK: details bruger bindingspersonens samme_som-komponent (direkte og transitivt)';
+END $komponent$;
+
 ROLLBACK;

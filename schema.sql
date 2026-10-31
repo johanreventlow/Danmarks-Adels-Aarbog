@@ -9852,11 +9852,13 @@ END $$;
 -- Kortarkets detaljer (spec §4.3 pkt. 5, kun til ~/.private/6b/): for bindingspersonen og alle personer i personaens
 -- kandidatrækker navn og leveår fra visningscachen, titel (afklaret titel-faktum som i matcherens input) og postreference;
 -- personaens navn, fødsel og død fra fortolkningerne. Opslaget går direkte på person-id'erne, uafhængigt af
--- repræsentantvalg og af, om generatoren filtrerede bindingspersonen bort. Rolle: binding | own_cluster | competitor.
+-- repræsentantvalg og af, om generatoren filtrerede bindingspersonen bort. Rolle: binding | own_cluster | competitor;
+-- own_cluster er bindingspersonens række og hele dens samme_som-komponent (transitiv, fra relation, ikke fra de
+-- medlemmer, der overlevede filtreringen; spec §4.3 pkt. 2), så en partner aldrig vises som konkurrent (#248).
 CREATE OR REPLACE FUNCTION public.red_publication_control_details(p_candidate_run_id uuid)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE v_run private.source_persona_identity_candidate_run%ROWTYPE; v_out jsonb:='[]'::jsonb;
-  v_pid uuid; v_pb record; v_o jsonb; v_own_row uuid; v_persons jsonb; v_proposed jsonb;
+  v_pid uuid; v_pb record; v_o jsonb; v_own_row uuid; v_persons jsonb; v_proposed jsonb; v_component bigint[];
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   SELECT * INTO v_run FROM private.source_persona_identity_candidate_run WHERE id=p_candidate_run_id;
@@ -9864,11 +9866,28 @@ BEGIN
   FOR v_pid IN SELECT private.publication_control_personas(p_candidate_run_id) LOOP
     SELECT * INTO v_pb FROM private.publication_persona_binding(v_pid);
     v_o:=CASE WHEN v_pb.binding_status='published' THEN private.publication_control_outcome(v_pid,p_candidate_run_id,v_pb.person_id) END;
+    v_component:=CASE WHEN v_pb.person_id IS NULL THEN '{}'::bigint[] ELSE ARRAY(
+      WITH RECURSIVE k(pid) AS (
+        SELECT v_pb.person_id
+        UNION
+        SELECT CASE WHEN r.subjekt_id=k.pid THEN r.objekt_id ELSE r.subjekt_id END
+          FROM k JOIN public.relation r ON r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+                                        AND (r.subjekt_id=k.pid OR r.objekt_id=k.pid))
+      SELECT k.pid FROM k) END;
+    -- egen række: den med bindingspersonen; er den filtreret bort, den med et andet medlem af komponenten
     SELECT min(c.id::text)::uuid INTO v_own_row
       FROM private.source_persona_identity_candidate c,
            jsonb_array_elements(CASE WHEN jsonb_typeof(c.basis->'member_scores')='array' THEN c.basis->'member_scores' ELSE '[]'::jsonb END) e
      WHERE c.run_id=p_candidate_run_id AND c.source_persona_id=v_pid AND v_pb.person_id IS NOT NULL
        AND jsonb_typeof(e->'person_id')='number' AND e->>'person_id'=v_pb.person_id::text;
+    IF v_own_row IS NULL THEN
+      SELECT min(c.id::text)::uuid INTO v_own_row
+        FROM private.source_persona_identity_candidate c,
+             jsonb_array_elements(CASE WHEN jsonb_typeof(c.basis->'member_scores')='array' THEN c.basis->'member_scores' ELSE '[]'::jsonb END) e
+       WHERE c.run_id=p_candidate_run_id AND c.source_persona_id=v_pid
+         AND jsonb_typeof(e->'person_id')='number' AND (e->>'person_id') ~ '^-?[0-9]{1,18}$'
+         AND (e->>'person_id')::bigint=ANY(v_component);
+    END IF;
     WITH m AS (
       SELECT (e->>'person_id')::bigint AS pid,c.id AS row_id,c.rank,c.score,(e->>'score_raw')::numeric AS s,e->'signals' AS sig
         FROM private.source_persona_identity_candidate c,
@@ -9877,9 +9896,14 @@ BEGIN
          AND jsonb_typeof(e->'person_id')='number' AND jsonb_typeof(e->'score_raw')='number'
       UNION ALL
       SELECT v_pb.person_id,NULL,NULL,NULL,NULL,NULL
-       WHERE v_pb.person_id IS NOT NULL AND v_own_row IS NULL
+       WHERE v_pb.person_id IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM private.source_persona_identity_candidate c,
+                           jsonb_array_elements(CASE WHEN jsonb_typeof(c.basis->'member_scores')='array' THEN c.basis->'member_scores' ELSE '[]'::jsonb END) e
+                          WHERE c.run_id=p_candidate_run_id AND c.source_persona_id=v_pid
+                            AND jsonb_typeof(e->'person_id')='number' AND e->>'person_id'=v_pb.person_id::text)
     ), q AS (
-      SELECT m.*,CASE WHEN m.pid=v_pb.person_id THEN 'binding' WHEN m.row_id=v_own_row THEN 'own_cluster' ELSE 'competitor' END AS role
+      SELECT m.*,CASE WHEN m.pid=v_pb.person_id THEN 'binding'
+                      WHEN m.row_id=v_own_row OR m.pid=ANY(v_component) THEN 'own_cluster' ELSE 'competitor' END AS role
         FROM m
     )
     SELECT coalesce(jsonb_agg(jsonb_build_object(
