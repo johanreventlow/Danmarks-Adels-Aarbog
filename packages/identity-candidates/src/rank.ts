@@ -7,7 +7,8 @@ export type Candidate = {
   source_persona_id: string; candidate_person_id: number; rank: number; score: number; tier: Tier;
   basis: { signals: string[]; name_origin: string; birth_origin: string | null; death_origin: string | null;
            family_partner?: boolean; ordinal_match?: boolean; corroboration_eligible?: boolean;
-           eligibility_reason?: string; cluster_members?: number[] };
+           eligibility_reason?: string; cluster_members?: number[];
+           member_scores: Array<{ person_id: number; score_raw: number; signals: string[] }> };
 };
 export type RankOptions = { topK: number; origins: Map<string, PersonaOrigin>; evidensNormaliseret?: boolean;
   families?: Map<string, FamilyContext>; clusters?: Map<number, number>; familyNameMin?: number };
@@ -16,6 +17,29 @@ export function rankConfig(opts: Pick<RankOptions, 'evidensNormaliseret'>): Matc
   // topK i buildScored sættes højt, så VI vælger top-K efter endelig score pr. persona.
   // Ingen forudvalg i buildScored (det sorterer efter standardscore og ville skæve den normaliserede rangering).
   return { ...defaultCfg(), topK: Number.MAX_SAFE_INTEGER, evidensNormaliseret: Boolean(opts.evidensNormaliseret) };
+}
+
+// Kørselskonfiguration til kandidatfilen. controlMargin udelades uden flag (klassifikatoren fejler så lukket).
+// Parser --control-margin: undefined uden flag; kaster ved manglende/ugyldig værdi (CLI'en giver exit 2).
+export function parseControlMargin(argv: string[]): number | undefined {
+  const i = argv.indexOf('--control-margin');
+  if (i < 0) return undefined;
+  const raw = argv[i + 1];
+  const x = raw === undefined || raw.startsWith('--') ? NaN : Number(raw);
+  if (!(x > 0 && x < 1)) throw new Error('--control-margin skal ligge i (0,1)');
+  return x;
+}
+
+// Generatorversionen ligger også i kørslens config: serverens kørselsnøgle (kilde, inputhash, confighash) rummer ikke
+// generator_version, så en ny generator på uændret input ellers ramte en ældre kørsel med et andet kandidatformat
+// (IDENTITY_CANDIDATE_RUN_CONFLICT; Codex 6B-04). Klassifikatoren læser kun autoCutoff/controlMargin/topK.
+export const GENERATOR_VERSION = 'identity-candidates-1.2';
+
+export function runConfig(o: { evidensNormaliseret?: boolean; topK: number; familyNameMin: number; controlMargin?: number }) {
+  const { controlMargin, ...rest } = o;
+  return { ...rankConfig({ evidensNormaliseret: o.evidensNormaliseret }), topK: rest.topK, familyNameMin: rest.familyNameMin,
+           generatorVersion: GENERATOR_VERSION,
+           ...(controlMargin === undefined ? {} : { controlMargin }) };
 }
 
 const round4 = (x: number) => Math.round(x * 10000) / 10000;
@@ -43,6 +67,8 @@ export function rankCandidates(personas: MatchFrame[], persons: MatchFrame[], op
       ordered = [...sorted.filter((p) => inFam.has(Number(p.bId))), ...sorted.filter((p) => !inFam.has(Number(p.bId)))];
     }
     const members = new Map<number, number[]>();
+    // Hvert medlems egen uafrundede score, opsamlet før sammenfoldningen.
+    const pairOf = new Map<number, ScoredPair & { s: number }>(sorted.map((p) => [Number(p.bId), p] as const));
     if (opts.clusters) {
       const seen = new Map<number, number>();
       ordered = ordered.filter((p) => {
@@ -69,11 +95,17 @@ export function rankCandidates(personas: MatchFrame[], persons: MatchFrame[], op
       const kunNavn = !p.birthKendt && !p.deathKendt;
       const tier: Tier = i === 0 && !kunNavn && p.s >= cfg.autoCutoff && margin >= cfg.ambiguityMargin ? 'auto'
         : p.s >= cfg.reviewCutoff ? 'review' : 'none';
-      const signals = ['name', ...(p.birthOverlap ? ['birth'] : []), ...(p.deathOverlap ? ['death'] : []), ...(p.sexEq ? ['sex'] : [])];
+      const sigOf = (q: ScoredPair) => ['name', ...(q.birthOverlap ? ['birth'] : []), ...(q.deathOverlap ? ['death'] : []), ...(q.sexEq ? ['sex'] : [])];
+      const signals = sigOf(p);
       const isPartner = fam ? fam.partners.includes(Number(p.bId)) : false;
       const eligible = Boolean(fam?.structureOk && i === 0 && fam.target === Number(p.bId) && p.nameSim >= (opts.familyNameMin ?? 0.9));
       const famTier: Tier = eligible ? 'auto' : tier === 'auto' ? 'review' : tier;
       const cl = (members.get(Number(p.bId)) ?? []).sort((a, b) => a - b);
+      const memberScores = (cl.length > 0 ? cl : [Number(p.bId)]).map((id) => {
+        const q = pairOf.get(id) ?? p;
+        const extra = [...(fam?.partners.includes(id) ? ['family_partner'] : []), ...(fam?.ordinalMatch.has(id) ? ['ordinal_match'] : [])];
+        return { person_id: id, score_raw: q.s, signals: [...sigOf(q), ...extra] };
+      });
       out.push({
         source_persona_id: pid, candidate_person_id: Number(p.bId), rank: i + 1, score: round4(Math.min(1, Math.max(0, p.s))),
         tier: fam ? famTier : tier,
@@ -81,7 +113,7 @@ export function rankCandidates(personas: MatchFrame[], persons: MatchFrame[], op
                  name_origin: origin.name ?? 'unknown', birth_origin: origin.birth, death_origin: origin.death,
                  ...(fam ? { family_partner: isPartner, ordinal_match: fam.ordinalMatch.has(Number(p.bId)),
                              corroboration_eligible: eligible, eligibility_reason: eligible ? 'ok' : (fam.structureOk ? 'name_or_rank' : fam.reason) } : {}),
-                 ...(cl.length > 1 ? { cluster_members: cl } : {}) },
+                 ...(cl.length > 1 ? { cluster_members: cl } : {}), member_scores: memberScores },
       });
     });
   }
