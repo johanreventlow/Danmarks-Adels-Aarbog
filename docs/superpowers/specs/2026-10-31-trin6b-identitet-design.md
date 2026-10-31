@@ -135,11 +135,13 @@ Pr. element (én helpost):
 - **Skriver:** `source_persona` og `source_persona_mention` (rolle `primary`). **Ingen identitet.** Nøglen er
   `'1939:' || source_record.record_key`, samme form som de 8 eksisterende (*mit valg*: én form inden for kilden;
   2018-20 bruger `record_key` alene).
-- **Id'er:** deterministiske (`private.deterministic_uuid` af persona-nøglen), som 5b's personas. Replay giver
-  `already_applied`.
+- **Id'er:** indholds-id (`private.content_uuid('source-persona', {source_id, persona_key})`), som 5b's personas
+  efter #151 (præciseret i planen; udkastet sagde `deterministic_uuid`). Replay giver `already_applied`.
 - **Webkøen:** personas uden identitet vises i dag som `proposed` i `red_source_persona_queue`. Mellem B og C må de
-  ikke afgøres der: køen udelader personas, hvis batch endnu ikke har fået en kontrolkørsel (filter på batchen,
-  generelt), og C afviser enhver persona, hvis identitetsversion ikke er 0.
+  ikke afgøres der. En persona venter på kontrol, når den ikke har en identitetsrække, er skrevet af en
+  `publication_persona`-batch, og ingen `finalized` `publication_identity`-batch navngiver den batch. Sådanne personas
+  er skjult i køen, og `red_afgoer_source_persona` afviser dem (præciseret i planen: kandidatkørslen alene lukker
+  ikke vinduet). C afviser desuden enhver persona, hvis identitetsversion ikke er 0.
 
 ### 4.3 Kontrol og identitet (ceremoni C, *mit valg* af anvendelse)
 
@@ -172,7 +174,7 @@ ikke må sende dem til en model (§4.6). De 8 eksisterende identiteter kontrolle
    - **ingen kandidat:** bindingspersonen er ikke blandt kandidaterne.
    Hver persona får præcis ét udfald.
 4. **enig** får identitet med oprindelsen `publication_binding` (§4.3.1). En blind stikprøve på 20 af de enige går
-   på arket uden svar (kontrolmodellen, overordnet §6 pkt. 1); én R eller U stopper C.
+   på arket uden svar (kontrolmodellen, overordnet §6 pkt. 1); ét F eller U stopper C.
 5. **svag, uenig, navnefælle, ingen kandidat** går på token-arket (højst ~30 kort pr. ark, overordnet §3 (d)). Kortet
    viser bindingens person og de konkurrerende klynger side om side med navn, leveår, titel og postreference
    (pkt. 16), med bindingspersonens egen score adskilt fra klyngens, fordi et forudfyldt ark før har skjult en
@@ -206,7 +208,9 @@ Den nye strukturelle oprindelse i `private.decide_source_persona_identity` efter
 `accepted`, version 0, ingen `basis`, `evidence.authority='narrative_record_publication'`; bindingen er publiceret og
 peger på målpersonen; personen har præcis én `person_external_id` for personaens kilde; personaens primære mention
 ligger i bindingens records gældende helpost (accepteret forankring), og ingen anden persona for kilden har en mention
-dér. S, F og U går gennem de eksisterende oprindelser (`human`, `unresolved`).
+dér. S, F og U skrives af samme writer gennem den eksisterende oprindelse `human` (`basis='human_sheet'`, med
+`reason` ved F og U). Writeren kalder kernen direkte, fordi `red_afgoer_source_persona` ikke kan sætte `reason`; den
+er dermed den anden serverkalder af `human` (præciseret i planen; `docs/decisions.md` 2026-10-31).
 
 ### 4.4 Generatoren: årstal fra `date_raw` (pkt. 16, *mit valg* af form)
 
