@@ -375,6 +375,17 @@ vises først i C's kontrolrapport.
   før marginen). Kalibreringens andet ben køres i Task 15 på stand-in'en efter 6c's runner med
   `packages/identity-candidates/scripts/calibrate-publication-control.sh`.
 - `T6B_DEFACL` skal være 0/0/0 før C, se skridt 1.
+- C's apply og finalize SKAL ligge i **én** transaktion. Databasen håndhæver det: en apply uden finalize i samme
+  transaktion afvises ved commit med `PUBLICATION_IDENTITY_UNFINALIZED`.
+- Writerne kræver `READ COMMITTED` (`PUBLICATION_PERSONA_ISOLATION` for B, `PUBLICATION_IDENTITY_ISOLATION` for C),
+  så kandidatlåsen og aktualitetskontrollen ser en frisk læsning. Runneren må ikke åbne transaktionen med et andet
+  isolationsniveau.
+- Finalize kræver, at C's personamængde er lig B's kontrolmængde (`PUBLICATION_IDENTITY_SET_MISMATCH`). Staged
+  aflæses fra B-hændelsens person, mens manifestet bruger den aktuelle binding; en afvigelse giver derfor
+  `SET_MISMATCH`. At den er fraværende, skal bevises i C-øvelsen på stand-in'en, før prod.
+- `publication_identity_sheet.py` kræver sammenhængende input: `render` og `manifest` tager begge
+  `--control` og `--details` fra samme kørsel (`PUBLICATION_SHEET_INPUT_MISMATCH` ved afvigelse i kørsel, kilde,
+  persona-mængde eller binding), og begge stopper ved over 90 kort (`PUBLICATION_SHEET_TOO_MANY_CARDS`).
 
 ## Øvelse (2026-10-31)
 
