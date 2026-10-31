@@ -20,8 +20,13 @@
 \if :{?source_id} \else \set source_id 3 \endif
 \if :{?profile_id} \else \set profile_id daa-1939-publication-v1 \endif
 BEGIN READ ONLY;
+-- Fejl højlydt (division med nul, exit ≠ 0) hvis profilen/kilden ikke findes eller profilen mangler persona_key_prefix,
+-- i stedet for et tomt, gyldigt manifest.
+SELECT 1/(SELECT count(*) FROM private.reimport_writer_profile
+           WHERE source_id=:source_id AND profile_id=:'profile_id'
+             AND coalesce(writer_config->>'persona_key_prefix','')<>'') AS ok \gset chk_
 WITH prof AS (
-  SELECT writer_config->>'persona_key_prefix' AS pfx, writer_config->>'helpost_observation_kind' AS kind
+  SELECT writer_config->>'persona_key_prefix' AS pfx, private.writer_config_helpost_kind(writer_config) AS kind
     FROM private.reimport_writer_profile
    WHERE source_id=:source_id AND profile_id=:'profile_id'
 ), rec AS (

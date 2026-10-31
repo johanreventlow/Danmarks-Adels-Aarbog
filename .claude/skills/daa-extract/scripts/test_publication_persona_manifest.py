@@ -70,6 +70,14 @@ BEGIN
   INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
     VALUES (r,(e->>'mention')::uuid,'primary',1);
   INSERT INTO private.source_record(source_id,record_key,record_kind,created_run_id) VALUES ({SRC},'p6','structural_context',(v->>'run')::uuid);
+  -- kilde 1 (2018-20) med en persona og en identitet, så k1_hash er målbar
+  INSERT INTO public.source(id,titel,udgave,aar,slags) VALUES (1,'Fixture 2018-20','synthetic','2018','DAA-udgave');
+  INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+    VALUES ('11000000-0000-0000-0000-00000006b2a1',1,'k1-run','fixture','fixture','fixture',repeat('1',64),'{{}}');
+  INSERT INTO private.source_persona(source_id,persona_key,created_run_id) VALUES (1,'k1a','11000000-0000-0000-0000-00000006b2a1')
+    RETURNING id INTO r;
+  INSERT INTO private.source_persona_identity_event(source_persona_id,decision_status,version,evidence) VALUES (r,'proposed',1,'{{"fixture":true}}');
+  INSERT INTO private.source_persona_identity(source_persona_id,decision_status,version,evidence) VALUES (r,'proposed',1,'{{"fixture":true}}');
   INSERT INTO public.person(id,levende,privat,status) VALUES (-621107,false,false,'pp');
   INSERT INTO public.person_external_id(person_id,source_id,linje,nr,record_key) VALUES (-621107,{SRC},'I',7,'p7');
 END $s$;
@@ -160,7 +168,40 @@ END $d$;
     assert (after["personas_k3"], after["identiteter_k3"], after["afventer"]) == ("4", "0", "3")
     assert (after["k1_personas"], after["k1_identiteter"], after["k1_hash"]) == \
         (before["k1_personas"], before["k1_identiteter"], before["k1_hash"])
+    assert (before["k1_personas"], before["k1_identiteter"]) == ("1", "1")
+    assert before["k1_hash"] != "d41d8cd98f00b204e9800998ecf8427e"  # ikke md5('')
     # efter B er alle tre allerede_persona, og manifestet er tomt
     m = _manifest(db)
     assert m["elements"] == {} and m["expected_counts"]["publication_personas"] == 0
     assert sum(x["label"] == "allerede_persona" for x in m["dispositions"]) == 4
+
+
+def test_k1_hash_changes_when_source_1_changes(db):
+    h0 = _maal(db)["k1_hash"]
+    # ny version af identiteten (lovlig skrivevej: identitetsrækken er en versioneret aktuel-række)
+    # ny identitetsversion: ny event-række (append-only) og state-rækken, i samme transaktion
+    new = ("DO $n$ DECLARE r uuid; u uuid:=gen_random_uuid(); t timestamptz:=now(); BEGIN "
+           "SELECT id INTO r FROM private.source_persona WHERE source_id=1; "
+           "INSERT INTO private.source_persona_identity_event(source_persona_id,decision_status,version,evidence,decided_by,"
+           "decided_by_name,decided_at) VALUES (r,'unresolved',2,'{\"x\":1}',u,'fixture',t); "
+           "UPDATE private.source_persona_identity SET version=2, decision_status='unresolved', evidence='{\"x\":1}', "
+           "decided_by=u, decided_by_name='fixture', decided_at=t WHERE source_persona_id=r; END $n$")
+    _must(_psql("-c", new, db=db), "identitet")
+    h1 = _maal(db)["k1_hash"]
+    assert h1 != h0
+    _must(_psql("-c", "INSERT INTO private.source_persona(source_id,persona_key,created_run_id) "
+                      "VALUES (1,'k1b','11000000-0000-0000-0000-00000006b2a1')", db=db), "persona")
+    m = _maal(db)
+    assert m["k1_hash"] not in (h0, h1) and m["k1_personas"] == "2"
+
+
+def test_wrong_profile_or_source_fails_loudly(db):
+    for source, profile in ((SRC, "findes-ikke"), (-1, PROFILE)):
+        p = _psql("-v", f"source_id={source}", "-v", f"profile_id={profile}", "-f", str(MANIFEST), db=db)
+        assert p.returncode != 0 and p.stdout.strip() == "", (source, profile)
+
+
+def test_maal_is_read_only_too(db):
+    sql = re.sub(r"--[^\n]*", "", MAAL.read_text(encoding="utf-8"))
+    assert "BEGIN READ ONLY" in sql and "ROLLBACK" in sql
+    assert not re.search(r"\b(INSERT|UPDATE|DELETE|ALTER|DROP|CREATE)\s", sql)
