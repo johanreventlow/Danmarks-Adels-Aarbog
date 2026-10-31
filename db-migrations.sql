@@ -18788,6 +18788,8 @@ DECLARE
     to_regprocedure('public.red_apply_reimport_clause_revision(uuid,text,jsonb)'),
     to_regprocedure('public.red_apply_reimport_source_text_revision(uuid,text,jsonb)'),
     to_regprocedure('public.red_apply_reimport_relation_persona(uuid,text,jsonb)'),
+    to_regprocedure('public.red_apply_reimport_publication_persona(uuid,text,jsonb)'),
+    to_regprocedure('public.red_apply_reimport_publication_identity(uuid,text,jsonb)'),
     to_regprocedure('public.red_apply_reimport_relation_person_create(uuid,text,jsonb)'),
     to_regprocedure('public.red_apply_reimport_relation_disposition(uuid,text,jsonb)'),
     'public.red_apply_reimport_person_create(uuid,text,jsonb)'::regprocedure,
@@ -18859,6 +18861,8 @@ DECLARE
     'public.red_preview_interpretation_promotions(jsonb)'::regprocedure,
     'public.red_preview_reimport_cases(bigint,text,jsonb)'::regprocedure,
     'public.red_promote_interpretations_batch(jsonb,text)'::regprocedure,
+    to_regprocedure('public.red_publication_control(uuid)'),
+    to_regprocedure('public.red_publication_control_details(uuid)'),
     'public.red_publicer_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
     'public.red_publicer_personer(bigint[])'::regprocedure,
     'public.red_publicer_udgave(bigint)'::regprocedure,
@@ -18872,6 +18876,7 @@ DECLARE
     'public.red_revalider_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
     'public.red_reverse_1939_v50_reimport(uuid,uuid)'::regprocedure,
     'public.red_reverse_reimport(uuid,uuid)'::regprocedure,
+    to_regprocedure('public.red_reverse_reimport_publication(uuid,uuid)'),
     'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)'::regprocedure,
     'public.red_saet_portraet(bigint,bigint)'::regprocedure,
     'public.red_samme_som(bigint,bigint)'::regprocedure,
@@ -29197,3 +29202,1632 @@ BEGIN
     p_payload->>'before_text_sha256',p_payload->>'after_text_sha256');
   RETURN v_receipt;
 END $$;
+
+-- ===== trin 6b: publication-operationer =====
+-- Valgfri writer_config-nøgle persona_key_prefix (ikke-tom streng): persona-nøglens prefix for publication_persona.
+CREATE OR REPLACE FUNCTION private.validate_reimport_writer_config(p_writer_config jsonb)
+RETURNS boolean LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+  SELECT jsonb_typeof(p_writer_config)='object'
+    AND p_writer_config ?& ARRAY['citation_label_template','extractor_version','observation_extraction_method','rendition_key','rendition_kind','rendition_metadata','run_key_prefix','schema_version']
+    AND NOT EXISTS (SELECT 1 FROM jsonb_object_keys(p_writer_config) key
+                     WHERE key <> ALL(ARRAY['citation_label_template','extractor_version','observation_extraction_method','rendition_key','rendition_kind','rendition_metadata','run_key_prefix','schema_version','text_form','helpost_observation_kind','persona_key_prefix']))
+    AND NOT EXISTS (
+      SELECT 1 FROM unnest(ARRAY['run_key_prefix','schema_version','extractor_version','rendition_key','rendition_kind','observation_extraction_method']) key
+      WHERE jsonb_typeof(p_writer_config->key)<>'string' OR btrim(p_writer_config->>key)=''
+    )
+    AND (NOT p_writer_config ? 'text_form'
+         OR (jsonb_typeof(p_writer_config->'text_form')='string'
+             AND p_writer_config->>'text_form' IN ('raw','folded_projection@anywhere','folded_projection@page_header')))
+    AND (NOT p_writer_config ? 'helpost_observation_kind'
+         OR (jsonb_typeof(p_writer_config->'helpost_observation_kind')='string'
+             AND btrim(p_writer_config->>'helpost_observation_kind')<>''))
+    AND (NOT p_writer_config ? 'persona_key_prefix'
+         OR (jsonb_typeof(p_writer_config->'persona_key_prefix')='string'
+             AND p_writer_config->>'persona_key_prefix'<>''))
+    AND jsonb_typeof(p_writer_config->'rendition_metadata')='object'
+    AND jsonb_typeof(p_writer_config->'citation_label_template')='string'
+    AND (length(p_writer_config->>'citation_label_template')-length(replace(p_writer_config->>'citation_label_template','{page_from}','')))/length('{page_from}')=1
+    AND regexp_replace(p_writer_config->>'citation_label_template','\{page_from\}','', 'g') !~ '\{[^}]*\}';
+$$;
+-- Operationerne publication_persona og publication_identity i reimport_event, autorisationens, finalize'ens og
+-- batch-resultatets tællinger, og 1939's publikationsprofil (én profil for begge).
+DO $publication_operations$
+BEGIN
+  PERFORM private.ensure_reimport_operations(ARRAY['publication_persona','publication_identity']);
+END $publication_operations$;
+CREATE OR REPLACE FUNCTION private.validate_reimport_authorization_payload(p_expected_counts jsonb,p_authorized_elements jsonb)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE v_person_creates bigint; v_source_evidence bigint; v_legacy_migrations bigint; v_clause_evidence bigint; v_interpretation_proposals bigint; v_clause_revisions bigint; v_relation_personas bigint; v_relation_person_creates bigint; v_relation_dispositions bigint; v_source_text_revisions bigint; v_publication_personas bigint; v_publication_identities bigint; v_authorized_count bigint;
+BEGIN
+  IF jsonb_typeof(p_expected_counts)<>'object' OR jsonb_typeof(p_authorized_elements)<>'object'
+     OR jsonb_typeof(p_expected_counts->'person_creates')<>'number'
+     OR jsonb_typeof(p_expected_counts->'source_evidence')<>'number'
+     OR coalesce(p_expected_counts->>'person_creates','') !~ '^[0-9]+$'
+     OR coalesce(p_expected_counts->>'source_evidence','') !~ '^[0-9]+$'
+     OR (p_expected_counts ? 'legacy_migrations' AND (jsonb_typeof(p_expected_counts->'legacy_migrations')<>'number' OR coalesce(p_expected_counts->>'legacy_migrations','') !~ '^[0-9]+$'))
+     OR (p_expected_counts ? 'clause_evidence' AND (jsonb_typeof(p_expected_counts->'clause_evidence')<>'number' OR coalesce(p_expected_counts->>'clause_evidence','') !~ '^[0-9]+$'))
+     OR (p_expected_counts ? 'interpretation_proposals' AND (jsonb_typeof(p_expected_counts->'interpretation_proposals')<>'number' OR coalesce(p_expected_counts->>'interpretation_proposals','') !~ '^[0-9]+$'))
+     OR (p_expected_counts ? 'clause_revisions' AND (jsonb_typeof(p_expected_counts->'clause_revisions')<>'number' OR coalesce(p_expected_counts->>'clause_revisions','') !~ '^[0-9]+$'))
+     OR (p_expected_counts ? 'relation_personas' AND (jsonb_typeof(p_expected_counts->'relation_personas')<>'number' OR coalesce(p_expected_counts->>'relation_personas','') !~ '^[0-9]+$'))
+     OR (p_expected_counts ? 'relation_person_creates' AND (jsonb_typeof(p_expected_counts->'relation_person_creates')<>'number' OR coalesce(p_expected_counts->>'relation_person_creates','') !~ '^[0-9]+$'))
+     OR (p_expected_counts ? 'relation_dispositions' AND (jsonb_typeof(p_expected_counts->'relation_dispositions')<>'number' OR coalesce(p_expected_counts->>'relation_dispositions','') !~ '^[0-9]+$'))
+     OR (p_expected_counts ? 'source_text_revision' AND (jsonb_typeof(p_expected_counts->'source_text_revision')<>'number' OR coalesce(p_expected_counts->>'source_text_revision','') !~ '^[0-9]+$'))
+     OR (p_expected_counts ? 'publication_personas' AND (jsonb_typeof(p_expected_counts->'publication_personas')<>'number' OR coalesce(p_expected_counts->>'publication_personas','') !~ '^[0-9]+$'))
+     OR (p_expected_counts ? 'publication_identities' AND (jsonb_typeof(p_expected_counts->'publication_identities')<>'number' OR coalesce(p_expected_counts->>'publication_identities','') !~ '^[0-9]+$'))
+     OR (SELECT count(*) FROM jsonb_object_keys(p_expected_counts)) NOT IN (2,3,4,5,6,7,8,9,10,11,12)
+     OR EXISTS(SELECT 1 FROM jsonb_object_keys(p_expected_counts) key WHERE key NOT IN ('person_creates','source_evidence','legacy_migrations','clause_evidence','interpretation_proposals','clause_revisions','relation_personas','relation_person_creates','relation_dispositions','source_text_revision','publication_personas','publication_identities')) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_AUTHORIZATION_INVALID';
+  END IF;
+  v_person_creates:=(p_expected_counts->>'person_creates')::bigint;
+  v_source_evidence:=(p_expected_counts->>'source_evidence')::bigint;
+  v_legacy_migrations:=coalesce((p_expected_counts->>'legacy_migrations')::bigint,0);
+  v_clause_evidence:=coalesce((p_expected_counts->>'clause_evidence')::bigint,0);
+  v_interpretation_proposals:=coalesce((p_expected_counts->>'interpretation_proposals')::bigint,0);
+  v_clause_revisions:=coalesce((p_expected_counts->>'clause_revisions')::bigint,0);
+  v_relation_personas:=coalesce((p_expected_counts->>'relation_personas')::bigint,0);
+  v_relation_person_creates:=coalesce((p_expected_counts->>'relation_person_creates')::bigint,0);
+  v_relation_dispositions:=coalesce((p_expected_counts->>'relation_dispositions')::bigint,0);
+  v_source_text_revisions:=coalesce((p_expected_counts->>'source_text_revision')::bigint,0);
+  v_publication_personas:=coalesce((p_expected_counts->>'publication_personas')::bigint,0);
+  v_publication_identities:=coalesce((p_expected_counts->>'publication_identities')::bigint,0);
+  SELECT count(*) INTO v_authorized_count FROM jsonb_object_keys(p_authorized_elements);
+  IF v_authorized_count<>(v_person_creates+v_source_evidence+v_legacy_migrations+v_clause_evidence+v_interpretation_proposals+v_clause_revisions+v_relation_personas+v_relation_person_creates+v_relation_dispositions+v_source_text_revisions+v_publication_personas+v_publication_identities)
+     OR EXISTS(SELECT 1 FROM jsonb_each(p_authorized_elements) element
+                WHERE jsonb_typeof(element.value)<>'object'
+                   OR (element.key !~ '^person-create:.+$' AND element.key !~ '^source-evidence:.+$' AND element.key !~ '^legacy-migration:.+$' AND element.key !~ '^clause-evidence:.+$' AND element.key !~ '^interpretation-proposal:.+$' AND element.key !~ '^clause-revision:.+$' AND element.key !~ '^relation-persona:.+$' AND element.key !~ '^relation-person-create:.+$' AND element.key !~ '^relation-disposition:.+$' AND element.key !~ '^source-text-revision:.+$' AND element.key !~ '^publication-persona:.+$' AND element.key !~ '^publication-identity:.+$'))
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^person-create:.+$')<>v_person_creates
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^source-evidence:.+$')<>v_source_evidence
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^legacy-migration:.+$')<>v_legacy_migrations
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^clause-evidence:.+$')<>v_clause_evidence
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^interpretation-proposal:.+$')<>v_interpretation_proposals
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^clause-revision:.+$')<>v_clause_revisions
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^relation-persona:.+$')<>v_relation_personas
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^relation-person-create:.+$')<>v_relation_person_creates
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^relation-disposition:.+$')<>v_relation_dispositions
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^source-text-revision:.+$')<>v_source_text_revisions
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^publication-persona:.+$')<>v_publication_personas
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^publication-identity:.+$')<>v_publication_identities THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_AUTHORIZATION_INVALID';
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_finalize_reimport(p_batch_id uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_batch private.reimport_batch%ROWTYPE; v_counts jsonb;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  PERFORM private.lock_reimport_writer(v_batch.source_id,v_batch.profile_id);
+  SELECT jsonb_build_object('person_creates',count(*) FILTER(WHERE operation='person_create'),'source_evidence',count(*) FILTER(WHERE operation='source_evidence'))
+         || CASE WHEN v_batch.expected_counts ? 'legacy_migrations'
+                 THEN jsonb_build_object('legacy_migrations',count(*) FILTER(WHERE operation='legacy_migration')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'clause_evidence'
+                 THEN jsonb_build_object('clause_evidence',count(*) FILTER(WHERE operation='clause_evidence')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'interpretation_proposals'
+                 THEN jsonb_build_object('interpretation_proposals',count(*) FILTER(WHERE operation='interpretation_proposal')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'clause_revisions'
+                 THEN jsonb_build_object('clause_revisions',count(*) FILTER(WHERE operation='clause_revision')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'relation_personas'
+                 THEN jsonb_build_object('relation_personas',count(*) FILTER(WHERE operation='relation_persona')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'relation_person_creates'
+                 THEN jsonb_build_object('relation_person_creates',count(*) FILTER(WHERE operation='relation_person_create')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'relation_dispositions'
+                 THEN jsonb_build_object('relation_dispositions',count(*) FILTER(WHERE operation='relation_disposition')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'source_text_revision'
+                 THEN jsonb_build_object('source_text_revision',count(*) FILTER(WHERE operation='source_text_revision')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'publication_personas'
+                 THEN jsonb_build_object('publication_personas',count(*) FILTER(WHERE operation='publication_persona')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'publication_identities'
+                 THEN jsonb_build_object('publication_identities',count(*) FILTER(WHERE operation='publication_identity')) ELSE '{}'::jsonb END
+    INTO v_counts FROM private.reimport_event WHERE batch_id=p_batch_id;
+  IF v_counts<>v_batch.expected_counts THEN RAISE EXCEPTION 'REIMPORT_WRITER_FINALIZE_COUNT_MISMATCH'; END IF;
+  IF v_batch.expected_counts ? 'relation_personas' THEN PERFORM private.verify_relation_persona_receipts(p_batch_id); END IF;
+  IF v_batch.expected_counts ? 'relation_person_creates' THEN PERFORM private.verify_relation_person_create_receipts(p_batch_id); END IF;
+  IF v_batch.expected_counts ? 'relation_dispositions' THEN PERFORM private.verify_relation_disposition_receipts(p_batch_id); END IF;
+  UPDATE private.reimport_batch SET status='finalized',observed_counts=v_counts,finalized_at=clock_timestamp() WHERE id=p_batch_id;
+  RETURN jsonb_build_object('batch_id',p_batch_id,'status','finalized','counts',v_counts);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_reimport_batch_result(p_authorization_id uuid,p_batch_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_authorization private.reimport_authorization%ROWTYPE;
+  v_batch private.reimport_batch%ROWTYPE;
+  v_actor uuid;
+  v_expected_person_creates bigint;
+  v_person_create_count bigint;
+  v_valid_person_create_count bigint;
+  v_distinct_record_key_count bigint;
+  v_distinct_element_id_count bigint;
+  v_distinct_person_id_count bigint;
+  v_expected_source_evidence bigint;
+  v_expected_legacy_migrations bigint; v_expected_clause_evidence bigint; v_expected_interpretation_proposals bigint; v_expected_clause_revisions bigint; v_expected_relation_personas bigint; v_expected_relation_person_creates bigint; v_expected_relation_dispositions bigint; v_expected_source_text_revisions bigint; v_expected_publication_personas bigint; v_expected_publication_identities bigint;
+  v_authorized_element_count bigint;
+  v_person_id_map jsonb;
+  v_discovered_source_id bigint;
+  v_discovered_profile_id text;
+  v_discovered_auth_source_id bigint;
+  v_discovered_auth_profile_id text;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN
+    RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED';
+  END IF;
+  v_actor:=private.require_reimport_writer_editor();
+  SELECT source_id,profile_id INTO v_discovered_source_id,v_discovered_profile_id
+    FROM private.reimport_batch WHERE id=p_batch_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID'; END IF;
+  SELECT source_id,profile_id INTO v_discovered_auth_source_id,v_discovered_auth_profile_id
+    FROM private.reimport_authorization WHERE id=p_authorization_id;
+  IF NOT FOUND OR v_discovered_auth_source_id IS DISTINCT FROM v_discovered_source_id OR v_discovered_auth_profile_id IS DISTINCT FROM v_discovered_profile_id THEN RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID'; END IF;
+  PERFORM private.lock_reimport_writer(v_discovered_source_id,v_discovered_profile_id);
+  SELECT * INTO v_authorization FROM private.reimport_authorization WHERE id=p_authorization_id FOR UPDATE;
+  IF NOT FOUND OR v_authorization.operation<>'reimport'
+     OR v_authorization.status<>'consumed' OR v_authorization.principal_id<>v_actor THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  SELECT * INTO v_batch FROM private.reimport_batch WHERE id=p_batch_id FOR UPDATE;
+  IF NOT FOUND
+     OR v_batch.source_id IS DISTINCT FROM v_discovered_source_id
+     OR v_batch.profile_id IS DISTINCT FROM v_discovered_profile_id
+     OR v_authorization.source_id IS DISTINCT FROM v_discovered_auth_source_id
+     OR v_authorization.profile_id IS DISTINCT FROM v_discovered_auth_profile_id
+     OR v_batch.principal_id<>v_actor
+     OR v_batch.source_id<>v_authorization.source_id
+     OR v_batch.profile_id<>v_authorization.profile_id
+     OR v_batch.profile_sha256<>v_authorization.profile_sha256
+     OR v_batch.manifest_sha256<>v_authorization.manifest_sha256
+     OR v_batch.preview_sha256<>v_authorization.preview_sha256 THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  IF v_batch.status='open' THEN
+    IF v_batch.authorization_id<>v_authorization.id THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+    END IF;
+    RETURN jsonb_build_object('batch_id',v_batch.id,'status','open','replayed',false,'person_id_map','{}'::jsonb) || private.relation_batch_results(v_batch.id);
+  END IF;
+  IF v_batch.status<>'finalized' OR v_batch.finalized_at IS NULL
+     OR v_batch.observed_counts IS DISTINCT FROM v_batch.expected_counts
+     OR jsonb_typeof(v_batch.expected_counts)<>'object'
+     OR coalesce(v_batch.expected_counts->>'person_creates','') !~ '^[0-9]+$'
+     OR coalesce(v_batch.expected_counts->>'source_evidence','') !~ '^[0-9]+$'
+     OR (v_batch.expected_counts ? 'legacy_migrations' AND (jsonb_typeof(v_batch.expected_counts->'legacy_migrations')<>'number' OR coalesce(v_batch.expected_counts->>'legacy_migrations','') !~ '^[0-9]+$'))
+     OR (v_batch.expected_counts ? 'clause_evidence' AND (jsonb_typeof(v_batch.expected_counts->'clause_evidence')<>'number' OR coalesce(v_batch.expected_counts->>'clause_evidence','') !~ '^[0-9]+$'))
+     OR (v_batch.expected_counts ? 'interpretation_proposals' AND (jsonb_typeof(v_batch.expected_counts->'interpretation_proposals')<>'number' OR coalesce(v_batch.expected_counts->>'interpretation_proposals','') !~ '^[0-9]+$'))
+     OR (v_batch.expected_counts ? 'clause_revisions' AND (jsonb_typeof(v_batch.expected_counts->'clause_revisions')<>'number' OR coalesce(v_batch.expected_counts->>'clause_revisions','') !~ '^[0-9]+$'))
+     OR (v_batch.expected_counts ? 'relation_personas' AND (jsonb_typeof(v_batch.expected_counts->'relation_personas')<>'number' OR coalesce(v_batch.expected_counts->>'relation_personas','') !~ '^[0-9]+$'))
+     OR (v_batch.expected_counts ? 'relation_person_creates' AND (jsonb_typeof(v_batch.expected_counts->'relation_person_creates')<>'number' OR coalesce(v_batch.expected_counts->>'relation_person_creates','') !~ '^[0-9]+$'))
+     OR (v_batch.expected_counts ? 'relation_dispositions' AND (jsonb_typeof(v_batch.expected_counts->'relation_dispositions')<>'number' OR coalesce(v_batch.expected_counts->>'relation_dispositions','') !~ '^[0-9]+$'))
+     OR (v_batch.expected_counts ? 'source_text_revision' AND (jsonb_typeof(v_batch.expected_counts->'source_text_revision')<>'number' OR coalesce(v_batch.expected_counts->>'source_text_revision','') !~ '^[0-9]+$'))
+     OR (v_batch.expected_counts ? 'publication_personas' AND (jsonb_typeof(v_batch.expected_counts->'publication_personas')<>'number' OR coalesce(v_batch.expected_counts->>'publication_personas','') !~ '^[0-9]+$'))
+     OR (v_batch.expected_counts ? 'publication_identities' AND (jsonb_typeof(v_batch.expected_counts->'publication_identities')<>'number' OR coalesce(v_batch.expected_counts->>'publication_identities','') !~ '^[0-9]+$'))
+     OR (SELECT count(*) FROM jsonb_object_keys(v_batch.expected_counts)) NOT IN (2,3,4,5,6,7,8,9,10,11,12)
+     OR EXISTS(SELECT 1 FROM jsonb_object_keys(v_batch.expected_counts) key WHERE key NOT IN ('person_creates','source_evidence','legacy_migrations','clause_evidence','interpretation_proposals','clause_revisions','relation_personas','relation_person_creates','relation_dispositions','source_text_revision','publication_personas','publication_identities')) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  v_expected_person_creates:=(v_batch.expected_counts->>'person_creates')::bigint;
+  v_expected_source_evidence:=(v_batch.expected_counts->>'source_evidence')::bigint;
+  v_expected_legacy_migrations:=coalesce((v_batch.expected_counts->>'legacy_migrations')::bigint,0);
+  v_expected_clause_evidence:=coalesce((v_batch.expected_counts->>'clause_evidence')::bigint,0);
+  v_expected_interpretation_proposals:=coalesce((v_batch.expected_counts->>'interpretation_proposals')::bigint,0);
+  v_expected_clause_revisions:=coalesce((v_batch.expected_counts->>'clause_revisions')::bigint,0);
+  v_expected_relation_personas:=coalesce((v_batch.expected_counts->>'relation_personas')::bigint,0);
+  v_expected_relation_person_creates:=coalesce((v_batch.expected_counts->>'relation_person_creates')::bigint,0);
+  v_expected_relation_dispositions:=coalesce((v_batch.expected_counts->>'relation_dispositions')::bigint,0);
+  v_expected_source_text_revisions:=coalesce((v_batch.expected_counts->>'source_text_revision')::bigint,0);
+  v_expected_publication_personas:=coalesce((v_batch.expected_counts->>'publication_personas')::bigint,0);
+  v_expected_publication_identities:=coalesce((v_batch.expected_counts->>'publication_identities')::bigint,0);
+  SELECT count(*) INTO v_authorized_element_count FROM jsonb_object_keys(v_authorization.authorized_elements);
+  IF v_authorized_element_count<>(v_expected_person_creates+v_expected_source_evidence+v_expected_legacy_migrations+v_expected_clause_evidence+v_expected_interpretation_proposals+v_expected_clause_revisions+v_expected_relation_personas+v_expected_relation_person_creates+v_expected_relation_dispositions+v_expected_source_text_revisions+v_expected_publication_personas+v_expected_publication_identities)
+     OR EXISTS(SELECT 1 FROM jsonb_each(v_authorization.authorized_elements) item
+                WHERE jsonb_typeof(item.value)<>'object'
+                   OR (item.key !~ '^person-create:' AND item.key !~ '^source-evidence:' AND item.key !~ '^legacy-migration:' AND item.key !~ '^clause-evidence:' AND item.key !~ '^interpretation-proposal:' AND item.key !~ '^clause-revision:' AND item.key !~ '^relation-persona:' AND item.key !~ '^relation-person-create:' AND item.key !~ '^relation-disposition:' AND item.key !~ '^source-text-revision:' AND item.key !~ '^publication-persona:' AND item.key !~ '^publication-identity:'))
+     OR EXISTS(SELECT 1 FROM jsonb_object_keys(v_authorization.authorized_elements) key
+                LEFT JOIN private.reimport_event event ON event.batch_id=v_batch.id AND event.element_id=key
+                WHERE event.id IS NULL)
+     OR EXISTS(SELECT 1 FROM private.reimport_event event
+                LEFT JOIN jsonb_object_keys(v_authorization.authorized_elements) key ON key=event.element_id
+                WHERE event.batch_id=v_batch.id AND event.operation IN ('person_create','source_evidence','legacy_migration','clause_evidence','interpretation_proposal','clause_revision','relation_persona','relation_person_create','relation_disposition','source_text_revision','publication_persona','publication_identity') AND key IS NULL) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  SELECT count(*),
+    count(*) FILTER (WHERE e.source_record_key IS NOT NULL AND e.source_record_key<>''
+      AND e.canonical_person_id IS NOT NULL AND e.canonical_person_id>0
+      AND e.element_id='person-create:'||e.source_record_key
+      AND e.payload->>'source_record_key'=e.source_record_key),
+    count(DISTINCT e.source_record_key),count(DISTINCT e.element_id),count(DISTINCT e.canonical_person_id),
+    coalesce(jsonb_object_agg(e.source_record_key,e.canonical_person_id ORDER BY e.element_id),'{}'::jsonb)
+  INTO v_person_create_count,v_valid_person_create_count,v_distinct_record_key_count,
+    v_distinct_element_id_count,v_distinct_person_id_count,v_person_id_map
+  FROM private.reimport_event e
+  WHERE e.batch_id=v_batch.id AND e.operation='person_create';
+  IF v_person_create_count<>v_expected_person_creates
+     OR v_valid_person_create_count<>v_person_create_count
+     OR v_distinct_record_key_count<>v_person_create_count
+     OR v_distinct_element_id_count<>v_person_create_count
+     OR v_distinct_person_id_count<>v_person_create_count THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
+  END IF;
+  RETURN jsonb_build_object('batch_id',v_batch.id,'status','finalized','replayed',true,'person_id_map',v_person_id_map) || private.relation_batch_results(v_batch.id);
+END $$;
+
+
+-- 1939's publikations-profil (trin 6b): én profil for persona- og identitets-operationerne. writer_config er
+-- klausul-profilens, med egen run-nøgle og extractor_version. Hash udledes af writer_config i SQL.
+INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
+SELECT 3,'daa-1939-publication-v1','publication-v1',
+  private.reimport_canonical_json_sha256(v.writer_config),v.writer_config
+FROM (VALUES (
+  '{"run_key_prefix":"reimport-publication:","schema_version":"clause-evidence-manifest-v1","extractor_version":"publication-v1","rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"clause_segment_v1","citation_label_template":"DAA 1939 side {page_from}","text_form":"raw","helpost_observation_kind":"person","persona_key_prefix":"1939:"}'::jsonb
+)) AS v(writer_config)
+WHERE EXISTS(SELECT 1 FROM public.source WHERE id=3)
+ON CONFLICT DO NOTHING;
+
+
+-- Trin 6b (ceremoni B): en source_persona uden identitet på hver publiceret 1939-helpost. Personaen bindes til helpostens
+-- ene mention; identiteten afgøres separat (publication_identity). Låserækken er record → publikationsrækker (spec §4.1).
+CREATE OR REPLACE FUNCTION private.write_publication_persona(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE
+  v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE; v_profile private.reimport_writer_profile%ROWTYPE;
+  v_record private.source_record%ROWTYPE; v_observation uuid; v_run uuid; v_run_key text;
+  v_mention_n bigint; v_mention uuid; v_mention_text text;
+  v_binding_n bigint; v_binding_id uuid; v_narrative public.narrative%ROWTYPE;
+  v_person_id bigint; v_persona uuid; v_persona_key text; v_receipt jsonb; v_hash text;
+BEGIN
+  -- Codex 6B-02: eksistens- og driftkontrollerne nedenfor skal læse efter låsene. Under REPEATABLE READ/SERIALIZABLE er
+  -- snapshottet taget før låsen, så en samtidig persona eller binding kunne være usynlig; kun READ COMMITTED godtages.
+  IF current_setting('transaction_isolation')<>'read committed' THEN RAISE EXCEPTION 'PUBLICATION_PERSONA_ISOLATION'; END IF;
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  PERFORM private.require_reimport_writer_editor();
+  PERFORM private.lock_reimport_writer(v_batch.source_id,v_batch.profile_id);
+  -- Nye personas ændrer kandidatinputtet: delt kildelås som i write_relation_persona.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-identity-candidates:'||v_batch.source_id::text,0));
+  SELECT * INTO v_auth FROM private.reimport_authorization WHERE id=v_batch.authorization_id;
+  SELECT * INTO v_profile FROM private.reimport_writer_profile
+   WHERE source_id=v_batch.source_id AND profile_id=v_batch.profile_id AND profile_sha256=v_batch.profile_sha256;
+  IF NOT FOUND OR v_auth.id IS NULL OR v_auth.source_id<>v_batch.source_id OR v_auth.profile_id<>v_batch.profile_id
+     OR v_auth.profile_sha256<>v_batch.profile_sha256
+     OR NOT v_auth.authorized_elements ? p_element_id
+     OR v_auth.authorized_elements->p_element_id IS DISTINCT FROM p_payload THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED';
+  END IF;
+  IF jsonb_typeof(p_payload)<>'object'
+     OR ARRAY(SELECT key FROM jsonb_object_keys(p_payload) key ORDER BY key COLLATE "C")
+        <> ARRAY['binding_id','binding_status','mention_id','mention_text_sha256','person_id','persona_key','source_id','source_record_key']
+     OR EXISTS (SELECT 1 FROM unnest(ARRAY['binding_id','binding_status','mention_id','mention_text_sha256','persona_key','source_record_key']) k
+                 WHERE jsonb_typeof(p_payload->k)<>'string')
+     OR jsonb_typeof(p_payload->'person_id')<>'number' OR jsonb_typeof(p_payload->'source_id')<>'number'
+     OR (p_payload->>'person_id') !~ '^-?[0-9]{1,18}$' OR (p_payload->>'source_id') !~ '^-?[0-9]{1,18}$'
+     OR coalesce(p_payload->>'binding_id','') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+     OR coalesce(p_payload->>'mention_id','') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+     OR coalesce(p_payload->>'mention_text_sha256','') !~ '^[0-9a-f]{64}$'
+     OR p_payload->>'binding_status'<>'published'
+     OR nullif(btrim(p_payload->>'source_record_key'),'') IS NULL
+     OR (p_payload->>'source_id')::bigint<>v_batch.source_id
+     OR p_element_id<>'publication-persona:'||(p_payload->>'source_record_key')
+     -- persona-nøglens prefix er editionsdata og bor i profilen; en profil uden prefix kan ikke skrive personas
+     OR coalesce(v_profile.writer_config->>'persona_key_prefix','')=''
+     OR p_payload->>'persona_key'<>(v_profile.writer_config->>'persona_key_prefix')||(p_payload->>'source_record_key') THEN
+    RAISE EXCEPTION 'PUBLICATION_PERSONA_PAYLOAD_INVALID';
+  END IF;
+  v_person_id:=(p_payload->>'person_id')::bigint; v_persona_key:=p_payload->>'persona_key';
+  v_binding_id:=(p_payload->>'binding_id')::uuid;
+
+  -- Låse før måling: recorden, derefter dens publikationsrækker i id-orden.
+  SELECT * INTO v_record FROM private.source_record
+   WHERE source_id=v_batch.source_id AND record_key=p_payload->>'source_record_key' FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'PUBLICATION_PERSONA_RECORD_MISSING'; END IF;
+  PERFORM 1 FROM private.narrative_record_publication WHERE source_record_id=v_record.id ORDER BY id FOR UPDATE;
+
+  -- Helposten (6a): præcis én mention i helpost-observationen, uændret siden målingen.
+  v_observation:=private.record_helpost_observation(v_record.id,private.writer_config_helpost_kind(v_profile.writer_config));
+  SELECT count(*),min(id::text)::uuid,min(verbatim_text) INTO v_mention_n,v_mention,v_mention_text
+    FROM private.source_mention WHERE observation_id=v_observation;
+  IF v_mention_n<>1 OR v_mention<>(p_payload->>'mention_id')::uuid
+     OR encode(digest(v_mention_text,'sha256'),'hex')<>p_payload->>'mention_text_sha256' THEN
+    RAISE EXCEPTION 'PUBLICATION_PERSONA_MENTION_DRIFT';
+  END IF;
+
+  -- Præcis én publiceret binding på recorden, den målte, på denne persons narrativ i batchens kilde.
+  SELECT count(*) INTO v_binding_n FROM private.narrative_record_publication
+   WHERE source_record_id=v_record.id AND status='published';
+  IF v_binding_n<>1 THEN RAISE EXCEPTION 'PUBLICATION_PERSONA_BINDING_DRIFT'; END IF;
+  SELECT n.* INTO v_narrative FROM private.narrative_record_publication b JOIN public.narrative n ON n.id=b.narrative_id
+   WHERE b.source_record_id=v_record.id AND b.status='published' AND b.id=v_binding_id;
+  IF NOT FOUND OR v_narrative.subjekt_type<>'person' OR v_narrative.subjekt_id<>v_person_id
+     OR v_narrative.source_id IS DISTINCT FROM v_batch.source_id THEN
+    RAISE EXCEPTION 'PUBLICATION_PERSONA_BINDING_DRIFT';
+  END IF;
+
+  IF (SELECT count(*) FROM public.person_external_id WHERE person_id=v_person_id AND source_id=v_batch.source_id)<>1 THEN
+    RAISE EXCEPTION 'PUBLICATION_PERSONA_SUBJECT_INVALID';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM private.source_persona WHERE source_id=v_batch.source_id AND persona_key=v_persona_key)
+     OR EXISTS (SELECT 1 FROM private.source_persona_mention spm
+                  JOIN private.source_mention sm ON sm.id=spm.mention_id
+                 WHERE sm.observation_id=v_observation) THEN
+    RAISE EXCEPTION 'PUBLICATION_PERSONA_EXISTS';
+  END IF;
+
+  v_run_key:=(v_profile.writer_config->>'run_key_prefix')||v_batch.manifest_sha256;
+  INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+  VALUES(v_batch.source_id,v_run_key,v_profile.writer_config->>'schema_version',v_profile.writer_config->>'extractor_version',
+         v_profile.profile_version,v_batch.manifest_sha256,jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256))
+  ON CONFLICT(source_id,run_key) DO NOTHING;
+  SELECT id INTO v_run FROM private.extraction_run
+   WHERE source_id=v_batch.source_id AND run_key=v_run_key AND schema_version=v_profile.writer_config->>'schema_version'
+     AND extractor_version=v_profile.writer_config->>'extractor_version' AND profile_version=v_profile.profile_version
+     AND input_sha256=v_batch.manifest_sha256
+     AND manifest=jsonb_build_object('batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256);
+  IF v_run IS NULL THEN RAISE EXCEPTION 'PUBLICATION_PERSONA_PAYLOAD_INVALID'; END IF;
+
+  v_persona:=private.content_uuid('source-persona',jsonb_build_object('source_id',v_batch.source_id,'persona_key',v_persona_key));
+  BEGIN
+    INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES(v_persona,v_batch.source_id,v_persona_key,v_run);
+  EXCEPTION WHEN unique_violation THEN
+    IF EXISTS (SELECT 1 FROM private.source_persona WHERE id=v_persona
+                AND (source_id,persona_key) IS DISTINCT FROM (v_batch.source_id,v_persona_key)) THEN
+      RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: source-persona';
+    END IF;
+    RAISE;
+  END;
+  INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES(v_persona,v_mention,'primary',1);
+
+  v_receipt:=jsonb_build_object('source_persona_id',v_persona,'mention_id',v_mention,'binding_id',v_binding_id,'person_id',v_person_id);
+  v_hash:=private.reimport_canonical_json_sha256(v_receipt);
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,canonical_person_id,payload,after_sha256)
+  VALUES(p_batch_id,p_element_id,'publication_persona',p_payload->>'source_record_key',v_person_id,
+         p_payload||jsonb_build_object('result_receipt',v_receipt),v_hash);
+  RETURN v_receipt;
+END $$;
+REVOKE ALL ON FUNCTION private.write_publication_persona(uuid,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION public.red_apply_reimport_publication_persona(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  RETURN private.write_publication_persona(p_batch_id,p_element_id,p_payload);
+END $$;
+REVOKE ALL ON FUNCTION public.red_apply_reimport_publication_persona(uuid,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_apply_reimport_publication_persona(uuid,text,jsonb) TO authenticated;
+
+-- Trin 6b Task 3: personas fra en publication_persona-batch venter på kontrol (skjult i køen, spærret for afgørelse).
+CREATE INDEX IF NOT EXISTS reimport_event_publication_persona_receipt_idx
+  ON private.reimport_event ((payload->'result_receipt'->>'source_persona_id')) WHERE operation='publication_persona';
+CREATE INDEX IF NOT EXISTS reimport_event_publication_identity_batch_idx
+  ON private.reimport_event ((payload->>'persona_batch_id')) WHERE operation='publication_identity';
+-- Codex 6B-01: frigivelsen er pr. B-batch, fordi finalize af C (verify_publication_identity_input) kræver hele
+-- kontrolmængden; efter en finaliseret C er de eneste B-personas uden identitet de staged (spec §4.6: proposed efter C).
+CREATE OR REPLACE FUNCTION private.persona_awaiting_control(p_persona uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+  SELECT NOT EXISTS (SELECT 1 FROM private.source_persona_identity i WHERE i.source_persona_id=p_persona)
+     AND EXISTS (
+       SELECT 1 FROM private.reimport_event b JOIN private.reimport_batch bb ON bb.id=b.batch_id
+        WHERE b.operation='publication_persona' AND b.payload->'result_receipt'->>'source_persona_id'=p_persona::text
+          AND bb.status<>'reversed'
+          AND NOT EXISTS (SELECT 1 FROM private.reimport_event c JOIN private.reimport_batch cb ON cb.id=c.batch_id
+                           WHERE c.operation='publication_identity' AND c.payload->>'persona_batch_id'=b.batch_id::text
+                             AND cb.status IN ('finalized','activated')));
+$$;
+REVOKE ALL ON FUNCTION private.persona_awaiting_control(uuid) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION red_source_persona_queue(
+  p_status text DEFAULT NULL, p_source_id bigint DEFAULT NULL,
+  p_cursor uuid DEFAULT NULL, p_page_size integer DEFAULT 50, p_mention_role text DEFAULT NULL
+) RETURNS TABLE(
+  source_persona_id uuid, source_id bigint, persona_key text,
+  decision_status text, version integer, canonical_person_id bigint, mention_count bigint,
+  best_tier text, reason text, mention_role text
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF p_status IS NOT NULL AND p_status NOT IN ('proposed','accepted','rejected','unresolved','superseded','new_person_needed',
+                                               'duplicate_unresolved') THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_STATUS_INVALID';
+  END IF;
+  -- Trin 5b: rollefilter (hovedperson/ægtefælle).
+  IF p_mention_role IS NOT NULL AND p_mention_role NOT IN ('primary','spouse') THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_STATUS_INVALID';
+  END IF;
+  RETURN QUERY
+  SELECT persona.id,persona.source_id,persona.persona_key,
+         coalesce(identity_state.decision_status,'proposed'),coalesce(identity_state.version,0),
+         identity_state.canonical_person_id,
+         (SELECT count(*) FROM private.source_persona_mention pm WHERE pm.persona_id=persona.id),
+         (SELECT c.tier FROM private.source_persona_identity_candidate c
+           WHERE c.source_persona_id=persona.id AND c.rank=1
+             AND c.run_id=(SELECT r.id FROM private.source_persona_identity_candidate_run r
+                            WHERE r.source_id=persona.source_id ORDER BY r.run_seq DESC LIMIT 1)),
+         coalesce(identity_state.evidence->>'reason',
+                  CASE WHEN identity_state.evidence->>'duplicate_binding'='rank' THEN 'duplicate_unresolved' END),
+         (SELECT spm.mention_role FROM private.source_persona_mention spm WHERE spm.persona_id=persona.id ORDER BY spm.ordinal LIMIT 1)
+    FROM private.source_persona persona
+    LEFT JOIN private.source_persona_identity identity_state ON identity_state.source_persona_id=persona.id
+   WHERE (p_source_id IS NULL OR persona.source_id=p_source_id)
+     AND (p_cursor IS NULL OR persona.id>p_cursor)
+     AND NOT private.persona_awaiting_control(persona.id)
+     AND (p_mention_role IS NULL OR EXISTS (SELECT 1 FROM private.source_persona_mention spm
+                                             WHERE spm.persona_id=persona.id AND spm.mention_role=p_mention_role))
+     AND (p_status IS NULL
+          OR (p_status='new_person_needed' AND identity_state.decision_status='unresolved'
+              AND identity_state.evidence->>'reason'='new_person_needed')
+          -- Dubletreglen (decisions 2026-10-25): accepteret til bedst rangerede, ægteskabet venter på redaktøren.
+          OR (p_status='duplicate_unresolved' AND identity_state.decision_status='accepted'
+              AND identity_state.evidence->>'duplicate_binding'='rank')
+          OR (p_status NOT IN ('new_person_needed','duplicate_unresolved')
+              AND coalesce(identity_state.decision_status,'proposed')=p_status))
+   ORDER BY persona.id
+   LIMIT greatest(1,least(coalesce(p_page_size,50),100));
+END $$;
+REVOKE ALL ON FUNCTION red_source_persona_queue(text,bigint,uuid,integer,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_source_persona_queue(text,bigint,uuid,integer,text) TO authenticated;
+
+CREATE OR REPLACE FUNCTION red_afgoer_source_persona(
+  p_source_persona_id uuid, p_expected_version integer, p_action text,
+  p_canonical_person_id bigint, p_note text, p_context jsonb DEFAULT '{}'::jsonb
+) RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_status text; v_basis text; v_evidence jsonb; v_cand record; v_source bigint; v_current_run uuid;
+  v_ctx jsonb:=coalesce(p_context,'{}'::jsonb); v_person bigint:=p_canonical_person_id;
+  -- record, ikke %ROWTYPE: kontroltabellerne oprettes i 5b-sektionen EFTER denne funktion, og plpgsql
+  -- binder %ROWTYPE ved CREATE.
+  v_smp record; v_seal record; v_pos text; v_dup jsonb; v_fam_pos text[]; v_bind text; v_fc jsonb;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  v_basis:=coalesce(v_ctx->>'basis','web_detail');
+  IF jsonb_typeof(v_ctx)<>'object'
+     OR EXISTS (SELECT 1 FROM jsonb_object_keys(v_ctx) k
+                 WHERE k NOT IN ('basis','candidate_id','run_id','sheet_sha256','rows_sha256','line','control_run_id','display_position',
+                                 'display_positions','deceased'))
+     OR (v_ctx ? 'candidate_id') <> (v_ctx ? 'run_id')
+     OR p_action NOT IN ('same','different','unresolved','new_person_needed')
+     OR nullif(btrim(p_note),'') IS NULL
+     OR (p_action<>'same' AND p_canonical_person_id IS NOT NULL)
+     OR v_basis NOT IN ('web_detail','human_sheet')
+     OR (v_basis='human_sheet' AND (coalesce(v_ctx->>'sheet_sha256','') !~ '^[0-9a-f]{64}$'
+                                   OR coalesce(v_ctx->>'rows_sha256','') !~ '^[0-9a-f]{64}$'
+                                   OR coalesce(v_ctx->>'line','') !~ '^[1-9][0-9]*$'))
+     -- Trin 5b 2b-ii (spec §5.4): afdød efter aldersreglen, kun på et arks new_person_needed.
+     OR (v_ctx ? 'deceased' AND (
+          p_action<>'new_person_needed' OR v_basis<>'human_sheet'
+       OR jsonb_typeof(v_ctx->'deceased')<>'object'
+       OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(v_ctx->'deceased') k)
+          <> ARRAY['clause_years','cutoff_year','rule']
+       OR v_ctx#>>'{deceased,rule}' IS DISTINCT FROM 'aarstal-120-v1'
+       OR v_ctx#>>'{deceased,cutoff_year}' IS DISTINCT FROM '1906'
+       OR jsonb_typeof(v_ctx#>'{deceased,clause_years}')<>'array'
+       OR jsonb_array_length(v_ctx#>'{deceased,clause_years}')=0
+       OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_ctx#>'{deceased,clause_years}') y
+                   WHERE jsonb_typeof(y)<>'number' OR (y#>>'{}') !~ '^[0-9]{4}$' OR (y#>>'{}')::int>1906))) THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_DECISION_INVALID';
+  END IF;
+  SELECT source_id INTO v_source FROM private.source_persona WHERE id=p_source_persona_id;
+  IF v_source IS NULL THEN RAISE EXCEPTION 'EVIDENCE_PERSONA_BASIS_REQUIRED'; END IF;
+  -- Delt kildelås: kandidatwriteren tager den eksklusivt (Task 2), så en ny kørsel ikke
+  -- kan indsættes mellem aktualitetskontrollen nedenfor og denne transaktions commit.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-identity-candidates:'||v_source::text,0));
+  -- Trin 6b: en publiceringspersona kan ikke afgøres, før identitetsbatchen er finaliseret.
+  IF private.persona_awaiting_control(p_source_persona_id) THEN RAISE EXCEPTION 'IDENTITY_AWAITING_PUBLICATION_CONTROL'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM private.source_persona_mention WHERE persona_id=p_source_persona_id) THEN
+    RAISE EXCEPTION 'EVIDENCE_PERSONA_BASIS_REQUIRED';
+  END IF;
+  v_status:=CASE p_action WHEN 'same' THEN 'accepted' WHEN 'different' THEN 'rejected' ELSE 'unresolved' END;
+  v_evidence:=jsonb_build_object('note',btrim(p_note),'action',p_action,'basis',v_basis);
+  IF p_action='new_person_needed' THEN v_evidence:=v_evidence||'{"reason":"new_person_needed"}'; END IF;
+
+  -- Trin 5b (spec §7.1): en stikprøvesag i en registreret, endnu ikke forseglet kørsel (hvis kandidatkørsel
+  -- stadig er den gældende) kan slet ikke afgøres — ellers kunne den afgøres uden om arket og »vaskes« bagefter.
+  IF EXISTS (SELECT 1 FROM private.identity_control_sample s JOIN private.identity_control_run r ON r.id=s.control_run_id
+              WHERE s.source_persona_id=p_source_persona_id
+                AND NOT EXISTS (SELECT 1 FROM private.identity_control_event e WHERE e.control_run_id=r.id)
+                AND r.candidate_run_id=(SELECT cr.id FROM private.source_persona_identity_candidate_run cr
+                                         WHERE cr.source_id=r.source_id ORDER BY cr.run_seq DESC LIMIT 1)) THEN
+    RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_NOT_SEALED';
+  END IF;
+  -- En sag i en forseglet, aktiv kontrolkørsel afgøres kun fra arket.
+  SELECT s.* INTO v_smp FROM private.identity_control_sample s
+   WHERE s.source_persona_id=p_source_persona_id
+     AND (SELECT e.status FROM private.identity_control_event e WHERE e.control_run_id=s.control_run_id ORDER BY e.seq DESC LIMIT 1)='sealed';
+  IF FOUND THEN
+    SELECT * INTO v_seal FROM private.identity_control_event WHERE control_run_id=v_smp.control_run_id AND status='sealed';
+    IF v_basis<>'human_sheet' OR v_ctx->>'control_run_id' IS DISTINCT FROM v_smp.control_run_id::text
+       OR v_ctx ? 'candidate_id' OR v_ctx->>'sheet_sha256' IS DISTINCT FROM v_seal.sheet_sha256
+       OR v_ctx->>'rows_sha256' IS DISTINCT FROM v_seal.rows_sha256
+       OR p_expected_version IS DISTINCT FROM v_smp.identity_version
+       OR (p_action='same' AND p_canonical_person_id IS NULL) <> (v_ctx ? 'display_position') THEN
+      RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID';
+    END IF;
+    v_evidence:=v_evidence||jsonb_build_object('control_run_id',v_smp.control_run_id);
+    IF v_ctx ? 'display_position' THEN
+      v_pos:=v_ctx->>'display_position';
+      IF v_pos !~ '^[1-3]$' OR NOT v_smp.mapping ? v_pos THEN RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID'; END IF;
+      SELECT c.id,c.run_id,c.rank,c.candidate_person_id INTO v_cand
+        FROM private.source_persona_identity_candidate c WHERE c.id=(v_smp.mapping->>v_pos)::uuid;
+      v_person:=v_cand.candidate_person_id;
+      v_evidence:=v_evidence||jsonb_build_object('candidate_id',v_cand.id,'run_id',v_cand.run_id,
+        'candidate_rank',v_cand.rank,'display_position',v_pos::int);
+    END IF;
+    -- Spec §23.4 (errata 2026-10-10): `1=2` — flere pladser er samme individ (dublet i basen). Stigende, uden
+    -- gentagelser, 2-3 pladser i mappingen, og den laveste er display_position i konteksten. Writeren ser aldrig
+    -- 'expected'; status afgør enigheden. Dubletparret gemmes til del 2's samme_som-arbejde.
+    -- Bindingen (decisions 2026-10-25, dubletreglen; retter pkt. 6) afhænger ikke af den blandede visningsplads:
+    -- den post, der står som partner i en familie med hovedpersonen, vinder; står ingen eller flere der, den bedst
+    -- rangerede kandidat, og evidensen markerer dubletten som uafklaret (ægteskabet bliver stående som forslag).
+    IF v_ctx ? 'display_positions' THEN
+      v_dup:=v_ctx->'display_positions';
+      IF NOT v_ctx ? 'display_position' OR jsonb_typeof(v_dup)<>'array' OR jsonb_array_length(v_dup) NOT BETWEEN 2 AND 3
+         OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_dup) e WHERE jsonb_typeof(e)<>'number' OR e::text !~ '^[1-3]$') THEN
+        RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID';
+      END IF;
+      IF v_dup->>0<>v_pos
+         OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(v_dup) WITH ORDINALITY e(v,o)
+                     WHERE NOT v_smp.mapping ? e.v OR (o>1 AND e.v::int<=(v_dup->>(o::int-2))::int)) THEN
+        RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID';
+      END IF;
+      -- En dublet skal være navnefæller efter udvælgelsens regel (§23.3 pkt. 3): samme visningsnavn eller fulde navn
+      -- som den laveste plads. Ellers kunne `1=2=3` altid tælle som enighed (final review I1).
+      IF EXISTS (SELECT 1 FROM jsonb_array_elements_text(v_dup) e
+                   JOIN private.source_persona_identity_candidate c ON c.id=(v_smp.mapping->>e)::uuid
+                   JOIN public.person p ON p.id=c.candidate_person_id,
+                   public.person f
+                  WHERE f.id=v_person
+                    AND NOT coalesce(lower(btrim(p.visning_navn))=lower(btrim(f.visning_navn)),false)
+                    AND NOT coalesce(lower(btrim(p.visning_fuldt_navn))=lower(btrim(f.visning_fuldt_navn)),false)) THEN
+        RAISE EXCEPTION 'IDENTITY_CONTROL_DUPLICATE_NOT_HOMONYM';
+      END IF;
+      v_fc:=private.persona_family_context(p_source_persona_id);
+      SELECT coalesce(array_agg(e.v ORDER BY e.v),'{}') INTO v_fam_pos FROM jsonb_array_elements_text(v_dup) e(v)
+        JOIN private.source_persona_identity_candidate c ON c.id=(v_smp.mapping->>e.v)::uuid
+       WHERE c.candidate_person_id IN (
+         SELECT pt::bigint FROM jsonb_array_elements(coalesce(v_fc->'families','[]'::jsonb)) f,
+                LATERAL jsonb_array_elements_text(f->'partners') pt);
+      IF cardinality(v_fam_pos)=1 THEN
+        v_bind:=v_fam_pos[1];
+      ELSE
+        SELECT e.v INTO v_bind FROM jsonb_array_elements_text(v_dup) e(v)
+          JOIN private.source_persona_identity_candidate c ON c.id=(v_smp.mapping->>e.v)::uuid
+         -- hovedpersonen selv vælges aldrig foran en anden post (review 2026-10-25, fund 3)
+         ORDER BY c.candidate_person_id IS NOT DISTINCT FROM private.spouse_principal_person(p_source_persona_id), c.rank, e.v::int
+         LIMIT 1;
+      END IF;
+      SELECT c.id,c.run_id,c.rank,c.candidate_person_id INTO v_cand
+        FROM private.source_persona_identity_candidate c WHERE c.id=(v_smp.mapping->>v_bind)::uuid;
+      v_person:=v_cand.candidate_person_id;
+      v_evidence:=v_evidence||jsonb_build_object('candidate_id',v_cand.id,'run_id',v_cand.run_id,
+        'candidate_rank',v_cand.rank,'display_position',v_bind::int,
+        'duplicate_binding',CASE WHEN cardinality(v_fam_pos)=1 THEN 'family' ELSE 'rank' END,
+        'duplicate_family_matches',CASE WHEN v_fc IS NULL THEN NULL ELSE cardinality(v_fam_pos) END);
+      v_evidence:=v_evidence||jsonb_build_object('display_positions',v_dup,'same_individual_person_ids',
+        (SELECT jsonb_agg(c.candidate_person_id ORDER BY e.o) FROM jsonb_array_elements_text(v_dup) WITH ORDINALITY e(v,o)
+           JOIN private.source_persona_identity_candidate c ON c.id=(v_smp.mapping->>e.v)::uuid));
+    END IF;
+  ELSIF v_ctx ? 'control_run_id' OR v_ctx ? 'display_position' OR v_ctx ? 'display_positions' THEN
+    RAISE EXCEPTION 'IDENTITY_CONTROL_SAMPLE_CONTEXT_INVALID';
+  ELSIF v_ctx ? 'candidate_id' THEN
+    SELECT c.id,c.run_id,c.rank,c.source_persona_id,c.candidate_person_id INTO v_cand
+      FROM private.source_persona_identity_candidate c WHERE c.id=(v_ctx->>'candidate_id')::uuid;
+    IF NOT FOUND OR v_cand.run_id<>(v_ctx->>'run_id')::uuid OR v_cand.source_persona_id<>p_source_persona_id
+       OR p_action<>'same' OR v_cand.candidate_person_id<>p_canonical_person_id THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_CANDIDATE_MISMATCH';
+    END IF;
+    SELECT r.id INTO v_current_run FROM private.source_persona_identity_candidate_run r
+     WHERE r.source_id=v_source ORDER BY r.run_seq DESC LIMIT 1;
+    IF v_current_run IS DISTINCT FROM v_cand.run_id THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_CANDIDATE_RUN_STALE'; END IF;
+    v_evidence:=v_evidence||jsonb_build_object('candidate_id',v_cand.id,'run_id',v_cand.run_id,'candidate_rank',v_cand.rank);
+  END IF;
+  IF p_action='same' AND v_person IS NULL THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_DECISION_INVALID'; END IF;
+  IF v_basis='human_sheet' THEN
+    v_evidence:=v_evidence||jsonb_build_object('sheet_sha256',v_ctx->>'sheet_sha256',
+      'rows_sha256',v_ctx->>'rows_sha256','line',(v_ctx->>'line')::int);
+  END IF;
+  IF v_ctx ? 'deceased' THEN v_evidence:=v_evidence||jsonb_build_object('deceased',v_ctx->'deceased'); END IF;
+  RETURN private.decide_source_persona_identity(p_source_persona_id,v_person,p_expected_version,v_status,v_evidence,'human');
+END $$;
+REVOKE ALL ON FUNCTION red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_afgoer_source_persona(uuid,integer,text,bigint,text,jsonb) TO authenticated;
+
+-- ===== trin 6b: årstalsreserve fra date_raw i identitetsgeneratorens input =====
+CREATE OR REPLACE FUNCTION private.identity_candidate_input(p_source_id bigint,p_input_spec jsonb)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_mode text; v_ids uuid[]; v_personas jsonb; v_match jsonb; v_persons jsonb; v_year_fb boolean:=false; v_keys text[];
+BEGIN
+  IF jsonb_typeof(p_input_spec)<>'object' THEN RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID'; END IF;
+  v_mode:=p_input_spec->>'mode';
+  -- Trin 6b: year_fallback (eneste værdi date_raw-v1) er tilvalgt i begge tilstande; uden nøglen er inputtet som før.
+  IF p_input_spec ? 'year_fallback' THEN
+    IF jsonb_typeof(p_input_spec->'year_fallback')<>'string' OR p_input_spec->>'year_fallback'<>'date_raw-v1' THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID';
+    END IF;
+    v_year_fb:=true;
+  END IF;
+  SELECT array_agg(k ORDER BY k) INTO v_keys FROM jsonb_object_keys(p_input_spec) k WHERE k<>'year_fallback';
+  IF v_mode IS NULL OR v_mode NOT IN ('undecided','list')
+     OR (v_mode='undecided' AND v_keys<>ARRAY['mode'])
+     OR (v_mode='list' AND (v_keys<>ARRAY['mode','persona_ids']
+                            OR jsonb_typeof(p_input_spec->'persona_ids')<>'array'
+                            OR jsonb_array_length(p_input_spec->'persona_ids')=0)) THEN
+    RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID';
+  END IF;
+  IF v_mode='list' THEN
+    SELECT array_agg(DISTINCT e::uuid) INTO v_ids FROM jsonb_array_elements_text(p_input_spec->'persona_ids') e;
+    IF cardinality(v_ids)<>jsonb_array_length(p_input_spec->'persona_ids') THEN RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID'; END IF;
+  END IF;
+  -- Trin 5b: family_context kun når den findes, så 5a-personas har præcis samme form som før.
+  SELECT coalesce(jsonb_agg((to_jsonb(x)-'family_context')
+                            || CASE WHEN x.family_context IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('family_context',x.family_context) END
+                            ORDER BY x.source_persona_id COLLATE "C"),'[]'::jsonb) INTO v_personas FROM (
+    SELECT p.id::text AS source_persona_id,
+           coalesce(nm.v, men.v) AS name,
+           CASE WHEN nm.v IS NOT NULL THEN nm.origin WHEN men.v IS NOT NULL THEN 'mention' END AS name_origin,
+           b.v AS birth_raw, b.origin AS birth_origin, d.v AS death_raw, d.origin AS death_origin,
+           fctx.fc AS family_context
+      FROM private.source_persona p
+      LEFT JOIN private.source_persona_identity i ON i.source_persona_id=p.id
+      LEFT JOIN LATERAL (SELECT private.persona_family_context(p.id) AS fc) fctx ON true
+      LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
+                          WHERE ic.source_persona_id=p.id AND ic.predicate='person.name' AND ic.status IN ('accepted','proposed')
+                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.interpretation_key LIMIT 1) nm ON true
+      LEFT JOIN LATERAL (SELECT sm.verbatim_text v FROM private.source_persona_mention spm
+                          JOIN private.source_mention sm ON sm.id=spm.mention_id
+                          WHERE spm.persona_id=p.id AND sm.mention_kind='person' ORDER BY spm.ordinal LIMIT 1) men ON true
+      LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
+                          WHERE ic.source_persona_id=p.id AND ic.predicate='person.birth' AND ic.status IN ('accepted','proposed')
+                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.interpretation_key LIMIT 1) b ON true
+      LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
+                          WHERE ic.source_persona_id=p.id AND ic.predicate='person.death' AND ic.status IN ('accepted','proposed')
+                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.interpretation_key LIMIT 1) d ON true
+     WHERE p.source_id=p_source_id
+       AND ((v_mode='undecided' AND (i.source_persona_id IS NULL OR i.decision_status='proposed'))
+         OR (v_mode='list' AND p.id=ANY(v_ids)))
+  ) x;
+  IF v_mode='list' AND jsonb_array_length(v_personas)<>cardinality(v_ids) THEN
+    RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID';   -- id uden for kilden eller ukendt
+  END IF;
+  v_match:=public.red_match_personer();
+  IF v_year_fb THEN
+    -- Årstal fra date_raw som reserve, kun for påstande uden date_min/date_max og med præcis ét forskelligt årstal.
+    SELECT jsonb_set(v_match,'{assertions}',coalesce((SELECT jsonb_agg(
+             CASE WHEN fb.yr IS NULL THEN e
+                  ELSE e || jsonb_build_object('date_min',fb.yr||'-01-01','date_max',fb.yr||'-12-31','date_origin','date_raw') END)
+             FROM jsonb_array_elements(v_match->'assertions') e
+             LEFT JOIN LATERAL (
+               SELECT min(m[1]) AS yr FROM public.assertion a,
+                      LATERAL regexp_matches(a.date_raw,'\m(1[0-9]{3}|20[0-9]{2})\M','g') m
+                WHERE a.id=(e->>'id')::bigint AND e->>'date_min' IS NULL AND e->>'date_max' IS NULL
+                HAVING count(DISTINCT m[1])=1) fb ON true),'[]'::jsonb))
+      INTO v_match;
+  END IF;
+  -- Sortér hvert array efter elementets tekst: red_match_personer lover ingen orden.
+  SELECT coalesce(jsonb_object_agg(k.key,(SELECT coalesce(jsonb_agg(e ORDER BY e::text COLLATE "C"),'[]'::jsonb)
+                                           FROM jsonb_array_elements(k.value) e)),'{}'::jsonb)
+    INTO v_persons FROM jsonb_each(v_match) k WHERE jsonb_typeof(k.value)='array';
+  RETURN jsonb_build_object('personas',v_personas,'persons',v_persons,
+    'same_as',coalesce((SELECT jsonb_agg(jsonb_build_array(r.subjekt_id,r.objekt_id) ORDER BY r.subjekt_id,r.objekt_id)
+                          FROM public.relation r WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'),'[]'::jsonb));
+END $$;
+REVOKE ALL ON FUNCTION private.identity_candidate_input(bigint,jsonb) FROM PUBLIC,anon,authenticated;
+
+-- ===== trin 6b: oprindelsen publication_binding og én klassifikator for publiceringskontrollen =====
+-- Kernen gendefineres fuldt (ny ELSIF-gren publication_binding, spec §4.3.1); hjælperne den bruger defineres i samme blok.
+CREATE OR REPLACE FUNCTION private.decide_source_persona_identity(
+  p_source_persona_id uuid,
+  p_canonical_person_id bigint,
+  p_expected_version integer,
+  p_decision_status text,
+  p_evidence jsonb,
+  p_origin text
+) RETURNS integer
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_actor uuid := auth.uid();
+  v_actor_name text;
+  v_current_version integer;
+  v_new_version integer;
+  v_decided_at timestamptz := clock_timestamp();
+  v_pb record;
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
+  END IF;
+  IF p_expected_version IS NULL OR p_expected_version<0 THEN
+    RAISE EXCEPTION 'EVIDENCE_EXPECTED_VERSION_REQUIRED';
+  END IF;
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text)
+    INTO v_actor_name FROM public.profiles WHERE id=v_actor;
+  IF v_actor_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
+  IF p_decision_status NOT IN ('accepted','rejected','unresolved','superseded')
+     OR (p_decision_status='accepted' AND p_canonical_person_id IS NULL)
+     OR (p_decision_status<>'accepted' AND p_canonical_person_id IS NOT NULL)
+     OR jsonb_typeof(p_evidence)<>'object' OR p_evidence='{}'::jsonb THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_DECISION_INVALID';
+  END IF;
+
+  -- Persona-rækken findes også før første state-række og er derfor den stabile
+  -- serialiseringslås for to samtidige initiale afgørelser.
+  PERFORM 1 FROM private.source_persona
+   WHERE id=p_source_persona_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PERSONA_NOT_FOUND'; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM private.source_persona_mention
+     WHERE persona_id=p_source_persona_id
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_PERSONA_BASIS_REQUIRED';
+  END IF;
+  SELECT version INTO v_current_version
+    FROM private.source_persona_identity
+   WHERE source_persona_id=p_source_persona_id FOR UPDATE;
+  v_current_version:=coalesce(v_current_version,0);
+  IF v_current_version<>p_expected_version THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected %, current %',
+      p_expected_version,v_current_version;
+  END IF;
+  -- Trin 5b (spec §6.2): lås gammelt og nyt mål — og ved family_corroboration også hovedpersonen —
+  -- i den totale orden (person → familie → medlemmer) før nogen efterprøvning eller skrivning.
+  PERFORM private.lock_family_rows(ARRAY(SELECT DISTINCT x FROM unnest(ARRAY[
+      (SELECT canonical_person_id FROM private.source_persona_identity WHERE source_persona_id=p_source_persona_id),
+      p_canonical_person_id,
+      CASE WHEN p_origin='family_corroboration' THEN private.spouse_principal_person(p_source_persona_id) END]) x
+    WHERE x IS NOT NULL ORDER BY 1));
+  -- Trin 5a-guard (#151): oprindelsen er strukturel. Kernen har ingen grants; kun
+  -- serverfunktioner kalder den, og hver oprindelse har sine egne krav.
+  IF p_origin='human' THEN
+    IF coalesce(p_evidence->>'basis','') NOT IN ('web_detail','human_sheet') THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
+  ELSIF p_origin='person_create' THEN
+    IF p_decision_status<>'accepted' OR p_expected_version<>0 OR NOT (p_evidence ? 'batch_id') OR p_evidence ? 'basis' THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
+    -- Kvitteringen beviser, at personen er oprettet af insert_person_with_receipt i DENNE
+    -- toptransaktion (xid8: epoke-sikker og ens i subtransaktioner); den forbruges én gang.
+    DELETE FROM private.person_create_receipt WHERE person_id=p_canonical_person_id AND xact_id=pg_current_xact_id();
+    IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_CREATE_RECEIPT_MISSING'; END IF;
+  ELSIF p_origin='legacy_match' THEN
+    -- 149b: den faste 1:1-kobling via person_external_id, efterprøvet her — ikke kun i writeren.
+    IF p_decision_status<>'accepted' OR p_expected_version<>0 OR p_evidence ? 'basis'
+       OR p_evidence->>'authority' IS DISTINCT FROM 'person_external_id'
+       OR (p_evidence->'person_external_id'->>'person_id')::bigint IS DISTINCT FROM p_canonical_person_id
+       OR (p_evidence->'person_external_id'->>'source_id')::bigint IS DISTINCT FROM
+          (SELECT sp.source_id FROM private.source_persona sp WHERE sp.id=p_source_persona_id)
+       OR (SELECT count(*) FROM public.person_external_id x
+            WHERE x.source_id=(p_evidence->'person_external_id'->>'source_id')::bigint
+              AND x.record_key=p_evidence->'person_external_id'->>'record_key')<>1
+       OR NOT EXISTS (SELECT 1 FROM public.person_external_id x
+            WHERE x.source_id=(p_evidence->'person_external_id'->>'source_id')::bigint
+              AND x.record_key=p_evidence->'person_external_id'->>'record_key' AND x.person_id=p_canonical_person_id)
+       OR (SELECT count(*) FROM public.person_external_id x
+            WHERE x.source_id=(p_evidence->'person_external_id'->>'source_id')::bigint AND x.person_id=p_canonical_person_id)<>1 THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
+  ELSIF p_origin='reversal' THEN
+    IF p_decision_status<>'superseded' OR NOT (p_evidence ? 'reversed_batch_id') OR p_evidence ? 'basis' THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
+  ELSIF p_origin='family_corroboration' THEN
+    PERFORM private.check_family_corroboration(p_source_persona_id,p_canonical_person_id,p_expected_version,
+                                                p_decision_status,p_evidence);
+  ELSIF p_origin='relation_person_create' THEN
+    -- Trin 5b 2b-ii (spec §6): kun en afdød-erklæret new_person_needed bliver til en ny person.
+    IF p_decision_status<>'accepted' OR p_evidence ? 'basis' OR NOT (p_evidence ? 'batch_id')
+       OR p_evidence->>'method' IS DISTINCT FROM 'relation-person-create-v1'
+       OR NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
+                       WHERE i.source_persona_id=p_source_persona_id AND i.decision_status='unresolved'
+                         AND i.evidence->>'reason'='new_person_needed' AND i.evidence ? 'deceased'
+                         AND i.evidence->'deceased'=p_evidence->'deceased') THEN
+      RAISE EXCEPTION 'RELATION_PERSON_CREATE_ORIGIN_INVALID';
+    END IF;
+    DELETE FROM private.person_create_receipt WHERE person_id=p_canonical_person_id AND xact_id=pg_current_xact_id();
+    IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_CREATE_RECEIPT_MISSING'; END IF;
+  ELSIF p_origin='publication_binding' THEN
+    -- Trin 6b (spec §4.3.1): personaen peger på personen, recordens publicerede narrativ handler om. Kernen efterprøver
+    -- selv strukturen (ikke kun writeren): bindingen er den, personaens primary-mention fører til via recordens gældende
+    -- helpost (helpost-slagsen = mention-observationens slags, så reglen er ikke udgavebundet), den er publiceret og
+    -- peger på målpersonen; personen har præcis én person_external_id for kilden; ingen anden persona har en mention i
+    -- helposten. Writeren holder låsen på bindingen; kernen låser personaen og målpersonen som ved de øvrige oprindelser.
+    IF p_decision_status<>'accepted' OR p_expected_version<>0 OR p_evidence ? 'basis'
+       OR p_evidence->>'authority' IS DISTINCT FROM 'narrative_record_publication'
+       OR coalesce(p_evidence->>'binding_id','') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+      RAISE EXCEPTION 'PUBLICATION_BINDING_ORIGIN_INVALID';
+    END IF;
+    SELECT * INTO v_pb FROM private.publication_persona_binding(p_source_persona_id);
+    IF v_pb.binding_status IS DISTINCT FROM 'published'
+       OR v_pb.binding_id IS DISTINCT FROM (p_evidence->>'binding_id')::uuid
+       OR v_pb.person_id IS DISTINCT FROM p_canonical_person_id
+       OR (SELECT count(*) FROM public.person_external_id x JOIN private.source_persona sp ON sp.source_id=x.source_id
+            WHERE sp.id=p_source_persona_id AND x.person_id=p_canonical_person_id)<>1
+       OR EXISTS (SELECT 1 FROM private.source_persona_mention spm JOIN private.source_mention sm ON sm.id=spm.mention_id
+                   WHERE sm.observation_id=v_pb.observation_id AND spm.persona_id<>p_source_persona_id) THEN
+      RAISE EXCEPTION 'PUBLICATION_BINDING_ORIGIN_INVALID';
+    END IF;
+  ELSE
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_ORIGIN_INVALID';
+  END IF;
+  v_new_version:=v_current_version+1;
+
+  -- Indholds-id (#151, spec §3): hændelsens id afledes af (persona, version) for alle oprindelser.
+  BEGIN
+    INSERT INTO private.source_persona_identity_event(
+      id,source_persona_id,canonical_person_id,decision_status,version,evidence,
+      decided_by,decided_by_name,decided_at
+    ) VALUES (
+      private.content_uuid('identity-event',jsonb_build_object('source_persona_id',p_source_persona_id,'version',v_new_version)),
+      p_source_persona_id,p_canonical_person_id,p_decision_status,v_new_version,
+      p_evidence,v_actor,v_actor_name,v_decided_at
+    );
+  EXCEPTION WHEN unique_violation THEN
+    IF EXISTS (SELECT 1 FROM private.source_persona_identity_event
+                WHERE id=private.content_uuid('identity-event',jsonb_build_object('source_persona_id',p_source_persona_id,'version',v_new_version))
+                  AND (source_persona_id,version) IS DISTINCT FROM (p_source_persona_id,v_new_version)) THEN
+      RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: identity-event';
+    END IF;
+    RAISE;
+  END;
+  INSERT INTO private.source_persona_identity(
+    source_persona_id,canonical_person_id,decision_status,version,evidence,
+    decided_by,decided_by_name,decided_at,updated_at
+  ) VALUES (
+    p_source_persona_id,p_canonical_person_id,p_decision_status,v_new_version,
+    p_evidence,v_actor,v_actor_name,v_decided_at,v_decided_at
+  )
+  ON CONFLICT(source_persona_id) DO UPDATE SET
+    canonical_person_id=excluded.canonical_person_id,
+    decision_status=excluded.decision_status,
+    version=excluded.version,
+    evidence=excluded.evidence,
+    decided_by=excluded.decided_by,
+    decided_by_name=excluded.decided_by_name,
+    decided_at=excluded.decided_at,
+    updated_at=excluded.updated_at;
+  RETURN v_new_version;
+END $$;
+REVOKE ALL ON FUNCTION private.decide_source_persona_identity(uuid,bigint,integer,text,jsonb,text) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Trin 6b (spec §4.3, §4.3.1): publiceringskontrollen. Bindingen findes fra personaens primary-mention → den record,
+-- hvis gældende helpost er mentionens observation (helpost-slagsen = observationens slags) → recordens aktive binding.
+-- binding_status: 'published' | 'draft' | 'none' (ingen entydig primary-mention, helpost eller aktiv binding).
+CREATE OR REPLACE FUNCTION private.publication_persona_binding(p_persona uuid)
+RETURNS TABLE(binding_id uuid, binding_status text, source_record_id uuid, observation_id uuid, person_id bigint, record_label text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_source bigint; v_n bigint; v_obs uuid; v_kind text; v_rec uuid; v_rec_n integer:=0; r record; v_b record;
+BEGIN
+  SELECT sp.source_id INTO v_source FROM private.source_persona sp WHERE sp.id=p_persona;
+  SELECT count(*),min(sm.observation_id::text)::uuid INTO v_n,v_obs
+    FROM private.source_persona_mention spm JOIN private.source_mention sm ON sm.id=spm.mention_id
+   WHERE spm.persona_id=p_persona AND spm.mention_role='primary';
+  IF v_source IS NULL OR v_n<>1 THEN
+    RETURN QUERY SELECT NULL::uuid,'none'::text,NULL::uuid,NULL::uuid,NULL::bigint,NULL::text; RETURN;
+  END IF;
+  SELECT ob.observation_kind INTO v_kind FROM private.source_observation ob WHERE ob.id=v_obs;
+  FOR r IN SELECT DISTINCT a.source_record_id AS rid
+             FROM private.source_observation ob
+             JOIN private.source_record_anchor_current a ON a.occurrence_id=ob.occurrence_id AND a.decision_status='accepted'
+             JOIN private.source_record rec ON rec.id=a.source_record_id AND rec.source_id=v_source
+            WHERE ob.id=v_obs LOOP
+    IF EXISTS (SELECT 1 FROM private.record_helpost_status(r.rid,v_kind) h WHERE h.status='ok' AND h.observation_id=v_obs) THEN
+      v_rec_n:=v_rec_n+1; v_rec:=r.rid;
+    END IF;
+  END LOOP;
+  IF v_rec_n<>1 THEN
+    RETURN QUERY SELECT NULL::uuid,'none'::text,NULL::uuid,v_obs,NULL::bigint,NULL::text; RETURN;
+  END IF;
+  SELECT count(*) INTO v_n FROM private.narrative_record_publication b WHERE b.source_record_id=v_rec AND b.status IN ('draft','published');
+  IF v_n<>1 THEN
+    RETURN QUERY SELECT NULL::uuid,'none'::text,v_rec,v_obs,NULL::bigint,NULL::text; RETURN;
+  END IF;
+  SELECT b.id,b.status,b.record_label,n.subjekt_type,n.subjekt_id INTO v_b
+    FROM private.narrative_record_publication b JOIN public.narrative n ON n.id=b.narrative_id
+   WHERE b.source_record_id=v_rec AND b.status IN ('draft','published');
+  RETURN QUERY SELECT v_b.id,v_b.status,v_rec,v_obs,CASE WHEN v_b.subjekt_type='person' THEN v_b.subjekt_id END,v_b.record_label;
+END $$;
+
+-- Én klassifikator for publiceringskontrollen (spec §4.3 pkt. 2-3). Læser de gemte kandidater for (kørsel, persona) og
+-- sammenligner bindingspersonens EGEN uafrundede score_raw (basis.member_scores) med den bedste anden post, ikke klyngens
+-- sammenfoldede score. Kørslens config skal have autoCutoff, controlMargin og topK ≥ 2; ellers, ved ukendt kørsel eller
+-- en kandidatrække uden gyldige member_scores, PUBLICATION_CONTROL_CONFIG_MISSING (fail-closed).
+-- Rækkefølge: ingen egen post → ingen_kandidat; anden klynge > egen → uenig; = egen → navnefaelle; egen klyngepartner ≥ egen
+-- → svag (partner_hoejere); ellers enig når egen ≥ autoCutoff, birth/death blandt egne signaler og egen − bedste konkurrent
+-- ≥ controlMargin (uden konkurrent er marginen uendelig); ellers svag med grunden under_auto, uden_aarstal eller
+-- under_margin. reason er NULL for de øvrige udfald; writeren sammenligner kun outcome. Optræder personen (urimeligt) i
+-- flere rækker, bruges dens bedste post.
+CREATE OR REPLACE FUNCTION private.publication_control_outcome(p_persona uuid, p_run uuid, p_person bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_cfg jsonb; v_auto numeric; v_margin numeric; v_own record; v_other record; v_partner record; v_comp record;
+  v_outcome text; v_reason text;
+BEGIN
+  SELECT r.config INTO v_cfg FROM private.source_persona_identity_candidate_run r WHERE r.id=p_run;
+  IF v_cfg IS NULL OR coalesce(jsonb_typeof(v_cfg->'autoCutoff'),'')<>'number'
+     OR coalesce(jsonb_typeof(v_cfg->'controlMargin'),'')<>'number'
+     OR coalesce(jsonb_typeof(v_cfg->'topK'),'')<>'number' OR (v_cfg->>'topK')::numeric<2 THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_CONFIG_MISSING';
+  END IF;
+  v_auto:=(v_cfg->>'autoCutoff')::numeric; v_margin:=(v_cfg->>'controlMargin')::numeric;
+  IF EXISTS (SELECT 1 FROM private.source_persona_identity_candidate c
+              WHERE c.run_id=p_run AND c.source_persona_id=p_persona
+                AND coalesce(jsonb_typeof(c.basis->'member_scores'),'')<>'array') THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_CONFIG_MISSING';
+  END IF;
+  IF EXISTS (SELECT 1 FROM private.source_persona_identity_candidate c, jsonb_array_elements(c.basis->'member_scores') e
+              WHERE c.run_id=p_run AND c.source_persona_id=p_persona
+                AND (coalesce(jsonb_typeof(e->'person_id'),'')<>'number' OR (e->>'person_id') !~ '^-?[0-9]{1,18}$'
+                     OR coalesce(jsonb_typeof(e->'score_raw'),'')<>'number' OR coalesce(jsonb_typeof(e->'signals'),'')<>'array'))
+     OR EXISTS (SELECT 1 FROM private.source_persona_identity_candidate c
+                 WHERE c.run_id=p_run AND c.source_persona_id=p_persona AND jsonb_array_length(c.basis->'member_scores')=0) THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_CONFIG_MISSING';
+  END IF;
+  SELECT c.id AS row_id,(e->>'score_raw')::numeric AS s,e->'signals' AS sig INTO v_own
+    FROM private.source_persona_identity_candidate c, jsonb_array_elements(c.basis->'member_scores') e
+   WHERE c.run_id=p_run AND c.source_persona_id=p_persona AND (e->>'person_id')::bigint=p_person
+   ORDER BY (e->>'score_raw')::numeric DESC,c.rank LIMIT 1;
+  SELECT (e->>'person_id')::bigint AS pid,(e->>'score_raw')::numeric AS s INTO v_comp
+    FROM private.source_persona_identity_candidate c, jsonb_array_elements(c.basis->'member_scores') e
+   WHERE c.run_id=p_run AND c.source_persona_id=p_persona AND (e->>'person_id')::bigint<>p_person
+   ORDER BY (e->>'score_raw')::numeric DESC,(e->>'person_id')::bigint LIMIT 1;
+  IF v_own.row_id IS NULL THEN
+    v_outcome:='ingen_kandidat';
+  ELSE
+    SELECT (e->>'person_id')::bigint AS pid,(e->>'score_raw')::numeric AS s INTO v_other
+      FROM private.source_persona_identity_candidate c, jsonb_array_elements(c.basis->'member_scores') e
+     WHERE c.run_id=p_run AND c.source_persona_id=p_persona AND c.id<>v_own.row_id AND (e->>'person_id')::bigint<>p_person
+     ORDER BY (e->>'score_raw')::numeric DESC,(e->>'person_id')::bigint LIMIT 1;
+    SELECT (e->>'person_id')::bigint AS pid,(e->>'score_raw')::numeric AS s INTO v_partner
+      FROM private.source_persona_identity_candidate c, jsonb_array_elements(c.basis->'member_scores') e
+     WHERE c.id=v_own.row_id AND (e->>'person_id')::bigint<>p_person
+     ORDER BY (e->>'score_raw')::numeric DESC,(e->>'person_id')::bigint LIMIT 1;
+    IF v_other.s IS NOT NULL AND v_other.s>v_own.s THEN
+      v_outcome:='uenig'; v_comp:=v_other;
+    ELSIF v_other.s IS NOT NULL AND v_other.s=v_own.s THEN
+      v_outcome:='navnefaelle'; v_comp:=v_other;
+    ELSIF v_partner.s IS NOT NULL AND v_partner.s>=v_own.s THEN
+      v_outcome:='svag'; v_reason:='partner_hoejere'; v_comp:=v_partner;
+    ELSIF v_own.s<v_auto THEN
+      v_outcome:='svag'; v_reason:='under_auto';
+    ELSIF NOT (v_own.sig ? 'birth' OR v_own.sig ? 'death') THEN
+      v_outcome:='svag'; v_reason:='uden_aarstal';
+    ELSIF v_comp.s IS NOT NULL AND v_own.s-v_comp.s<v_margin THEN
+      v_outcome:='svag'; v_reason:='under_margin';
+    ELSE
+      v_outcome:='enig';
+    END IF;
+  END IF;
+  RETURN jsonb_build_object('outcome',v_outcome,'reason',v_reason,'own_score',v_own.s,
+                            'competitor_score',v_comp.s,'competitor_person_id',v_comp.pid);
+END $$;
+
+-- Stikprøvens population (spec §4.3 pkt. 4): personas med kandidatrækker i kørslen, skrevet af et publication_persona-event
+-- i en ikke-tilbagerullet batch (ikke de 8 v50-personas), med rækkefølgenøglen. Samme prædikater som finalize's
+-- kontrolmængde (verify_publication_identity_input), så stikprøve, writer og finalize er enige (final-review I1): B-hændelsens
+-- person er ikke staged, B-bindingen er stadig published, og personaen har ingen identitet fra før C. En identitet, som en C
+-- over denne kørsel har skrevet (evidence.candidate_run_id = kørslen), tæller ikke som »fra før«, så populationen flytter
+-- sig ikke, mens C skriver.
+CREATE OR REPLACE FUNCTION private.publication_sample_candidates(p_run uuid)
+RETURNS TABLE(source_persona_id uuid, sample_hash text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM private.source_persona_identity_candidate_run r WHERE r.id=p_run) THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_CONFIG_MISSING';
+  END IF;
+  RETURN QUERY
+  SELECT sp.id,encode(extensions.digest(convert_to('publication-sample-v1:'||r.input_sha256||':'||r.config_sha256||':'||sp.persona_key,
+                                                   'UTF8'),'sha256'),'hex')
+    FROM private.source_persona_identity_candidate_run r
+    JOIN private.source_persona sp ON sp.source_id=r.source_id
+   WHERE r.id=p_run
+     AND EXISTS (SELECT 1 FROM private.source_persona_identity_candidate c WHERE c.run_id=r.id AND c.source_persona_id=sp.id)
+     AND EXISTS (SELECT 1 FROM private.reimport_event e JOIN private.reimport_batch b ON b.id=e.batch_id
+                   LEFT JOIN public.person q ON q.id=e.canonical_person_id
+                  WHERE e.operation='publication_persona' AND e.payload->'result_receipt'->>'source_persona_id'=sp.id::text
+                    AND b.status<>'reversed'
+                    AND NOT coalesce(q.staged,false)
+                    AND EXISTS (SELECT 1 FROM private.narrative_record_publication nb
+                                 WHERE nb.id=(e.payload->>'binding_id')::uuid AND nb.status='published'))
+     AND NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
+                      WHERE i.source_persona_id=sp.id AND i.evidence->>'candidate_run_id' IS DISTINCT FROM p_run::text);
+END $$;
+
+CREATE OR REPLACE FUNCTION private.publication_control_enig(p_persona uuid, p_run uuid)
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_pb record;
+BEGIN
+  SELECT * INTO v_pb FROM private.publication_persona_binding(p_persona);
+  RETURN v_pb.binding_status='published'
+     AND private.publication_control_outcome(p_persona,p_run,v_pb.person_id)->>'outcome'='enig';
+END $$;
+
+-- Den blinde stikprøve: de 20 enige B-personas med lavest nøgle (COLLATE "C"); færre end 20 enige → alle.
+CREATE OR REPLACE FUNCTION private.publication_control_sample(p_run uuid)
+RETURNS SETOF uuid LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  RETURN QUERY
+  SELECT c.source_persona_id FROM private.publication_sample_candidates(p_run) c
+   WHERE private.publication_control_enig(c.source_persona_id,p_run)
+   ORDER BY c.sample_hash COLLATE "C" LIMIT 20;
+END $$;
+
+-- Samme mængde som publication_control_sample, men pr. persona med tidligt stop: kun personas med lavere nøgle klassificeres,
+-- så writerens kald pr. element ikke koster hele populationen. false for personas, der ikke er enige eller ikke B-skrevne.
+CREATE OR REPLACE FUNCTION private.publication_control_in_sample(p_persona uuid, p_run uuid)
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE r record; v_n integer:=0;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM private.publication_sample_candidates(p_run) c WHERE c.source_persona_id=p_persona)
+     OR NOT private.publication_control_enig(p_persona,p_run) THEN
+    RETURN false;
+  END IF;
+  FOR r IN SELECT c.source_persona_id AS pid FROM private.publication_sample_candidates(p_run) c ORDER BY c.sample_hash COLLATE "C" LOOP
+    IF r.pid=p_persona THEN RETURN true; END IF;
+    IF private.publication_control_enig(r.pid,p_run) THEN
+      v_n:=v_n+1;
+      IF v_n>=20 THEN RETURN false; END IF;
+    END IF;
+  END LOOP;
+  RETURN false;
+END $$;
+
+-- Personas i en kandidatkørsel: kandidatrækkernes personas og, i list-tilstand, inputtets persona_ids (så personas uden
+-- kandidater kommer med som ingen_kandidat).
+CREATE OR REPLACE FUNCTION private.publication_control_personas(p_run uuid)
+RETURNS SETOF uuid LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  RETURN QUERY
+  SELECT x.pid FROM (
+    SELECT c.source_persona_id AS pid FROM private.source_persona_identity_candidate c WHERE c.run_id=p_run
+    UNION
+    SELECT e::uuid FROM private.source_persona_identity_candidate_run r,
+           jsonb_array_elements_text(CASE WHEN r.input_spec->>'mode'='list' AND jsonb_typeof(r.input_spec->'persona_ids')='array'
+                                          THEN r.input_spec->'persona_ids' ELSE '[]'::jsonb END) e
+     WHERE r.id=p_run) x
+   ORDER BY x.pid;
+END $$;
+
+REVOKE ALL ON FUNCTION private.publication_persona_binding(uuid),private.publication_control_outcome(uuid,uuid,bigint),
+  private.publication_sample_candidates(uuid),private.publication_control_enig(uuid,uuid),private.publication_control_sample(uuid),
+  private.publication_control_in_sample(uuid,uuid),private.publication_control_personas(uuid)
+  FROM PUBLIC,anon,authenticated,service_role;
+
+-- Kontrolarkets oversigt (spec §4.3 pkt. 3-5): ét element pr. persona i kørslen. Ingen tekst: kun id'er, status og udfald.
+CREATE OR REPLACE FUNCTION public.red_publication_control(p_candidate_run_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_run private.source_persona_identity_candidate_run%ROWTYPE; v_sample uuid[]; v_out jsonb:='[]'::jsonb;
+  v_pid uuid; v_pb record; v_o jsonb; v_b_binding_id uuid; v_b_binding_status text;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  SELECT * INTO v_run FROM private.source_persona_identity_candidate_run WHERE id=p_candidate_run_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_CONFIG_MISSING'; END IF;
+  v_sample:=ARRAY(SELECT private.publication_control_sample(p_candidate_run_id));
+  FOR v_pid IN SELECT private.publication_control_personas(p_candidate_run_id) LOOP
+    SELECT * INTO v_pb FROM private.publication_persona_binding(v_pid);
+    v_o:=CASE WHEN v_pb.binding_status='published' THEN private.publication_control_outcome(v_pid,p_candidate_run_id,v_pb.person_id) END;
+    -- B-hændelsens binding og dens aktuelle status, samme opslag som finalize's kontrolmængde (payload->>'binding_id' →
+    -- narrative_record_publication.status), så arket kan skelne en tilbagetrukket B-binding fra andre 'none'. NULL uden
+    -- B-hændelse (fx v50-personas).
+    v_b_binding_id:=NULL; v_b_binding_status:=NULL;
+    SELECT (e.payload->>'binding_id')::uuid,nb.status INTO v_b_binding_id,v_b_binding_status
+      FROM private.reimport_event e JOIN private.reimport_batch bb ON bb.id=e.batch_id
+      LEFT JOIN private.narrative_record_publication nb ON nb.id=(e.payload->>'binding_id')::uuid
+     WHERE e.operation='publication_persona' AND e.payload->'result_receipt'->>'source_persona_id'=v_pid::text
+       AND bb.status<>'reversed'
+     ORDER BY e.id LIMIT 1;
+    v_out:=v_out||jsonb_build_array(jsonb_build_object(
+      'source_persona_id',v_pid,
+      'identity_version',coalesce((SELECT i.version FROM private.source_persona_identity i WHERE i.source_persona_id=v_pid),0),
+      'binding_id',v_pb.binding_id,'binding_status',v_pb.binding_status,'person_id',v_pb.person_id,
+      'b_binding_id',v_b_binding_id,'b_binding_status',v_b_binding_status,
+      'outcome',v_o->>'outcome','reason',v_o->>'reason','in_sample',v_pid=ANY(v_sample),
+      'not_staged',(SELECT NOT coalesce(p.staged,false) FROM public.person p WHERE p.id=v_pb.person_id)));
+  END LOOP;
+  RETURN jsonb_build_object('candidate_run_id',v_run.id,'source_id',v_run.source_id,'personas',v_out);
+END $$;
+
+-- Kortarkets detaljer (spec §4.3 pkt. 5, kun til ~/.private/6b/): for bindingspersonen og alle personer i personaens
+-- kandidatrækker navn og leveår fra visningscachen, titel (afklaret titel-faktum som i matcherens input) og postreference;
+-- personaens navn, fødsel og død fra fortolkningerne. Opslaget går direkte på person-id'erne, uafhængigt af
+-- repræsentantvalg og af, om generatoren filtrerede bindingspersonen bort. Rolle: binding | own_cluster | competitor;
+-- own_cluster er bindingspersonens række og hele dens samme_som-komponent (transitiv, fra relation, ikke fra de
+-- medlemmer, der overlevede filtreringen; spec §4.3 pkt. 2), så en partner aldrig vises som konkurrent (#248).
+CREATE OR REPLACE FUNCTION public.red_publication_control_details(p_candidate_run_id uuid)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_run private.source_persona_identity_candidate_run%ROWTYPE; v_out jsonb:='[]'::jsonb;
+  v_pid uuid; v_pb record; v_o jsonb; v_own_row uuid; v_persons jsonb; v_proposed jsonb; v_component bigint[];
+  v_b_binding_id uuid; v_b_binding_status text;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  SELECT * INTO v_run FROM private.source_persona_identity_candidate_run WHERE id=p_candidate_run_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_CONFIG_MISSING'; END IF;
+  FOR v_pid IN SELECT private.publication_control_personas(p_candidate_run_id) LOOP
+    SELECT * INTO v_pb FROM private.publication_persona_binding(v_pid);
+    v_o:=CASE WHEN v_pb.binding_status='published' THEN private.publication_control_outcome(v_pid,p_candidate_run_id,v_pb.person_id) END;
+    -- B-hændelsens binding og dens aktuelle status, samme opslag som finalize's kontrolmængde (payload->>'binding_id' →
+    -- narrative_record_publication.status), så arket kan skelne en tilbagetrukket B-binding fra andre 'none'. NULL uden
+    -- B-hændelse (fx v50-personas).
+    v_b_binding_id:=NULL; v_b_binding_status:=NULL;
+    SELECT (e.payload->>'binding_id')::uuid,nb.status INTO v_b_binding_id,v_b_binding_status
+      FROM private.reimport_event e JOIN private.reimport_batch bb ON bb.id=e.batch_id
+      LEFT JOIN private.narrative_record_publication nb ON nb.id=(e.payload->>'binding_id')::uuid
+     WHERE e.operation='publication_persona' AND e.payload->'result_receipt'->>'source_persona_id'=v_pid::text
+       AND bb.status<>'reversed'
+     ORDER BY e.id LIMIT 1;
+    v_component:=CASE WHEN v_pb.person_id IS NULL THEN '{}'::bigint[] ELSE ARRAY(
+      WITH RECURSIVE k(pid) AS (
+        SELECT v_pb.person_id
+        UNION
+        SELECT CASE WHEN r.subjekt_id=k.pid THEN r.objekt_id ELSE r.subjekt_id END
+          FROM k JOIN public.relation r ON r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+                                        AND (r.subjekt_id=k.pid OR r.objekt_id=k.pid))
+      SELECT k.pid FROM k) END;
+    -- egen række: den med bindingspersonen; er den filtreret bort, den med et andet medlem af komponenten
+    SELECT min(c.id::text)::uuid INTO v_own_row
+      FROM private.source_persona_identity_candidate c,
+           jsonb_array_elements(CASE WHEN jsonb_typeof(c.basis->'member_scores')='array' THEN c.basis->'member_scores' ELSE '[]'::jsonb END) e
+     WHERE c.run_id=p_candidate_run_id AND c.source_persona_id=v_pid AND v_pb.person_id IS NOT NULL
+       AND jsonb_typeof(e->'person_id')='number' AND e->>'person_id'=v_pb.person_id::text;
+    IF v_own_row IS NULL THEN
+      SELECT min(c.id::text)::uuid INTO v_own_row
+        FROM private.source_persona_identity_candidate c,
+             jsonb_array_elements(CASE WHEN jsonb_typeof(c.basis->'member_scores')='array' THEN c.basis->'member_scores' ELSE '[]'::jsonb END) e
+       WHERE c.run_id=p_candidate_run_id AND c.source_persona_id=v_pid
+         AND jsonb_typeof(e->'person_id')='number' AND (e->>'person_id') ~ '^-?[0-9]{1,18}$'
+         AND (e->>'person_id')::bigint=ANY(v_component);
+    END IF;
+    WITH m AS (
+      SELECT (e->>'person_id')::bigint AS pid,c.id AS row_id,c.rank,c.score,(e->>'score_raw')::numeric AS s,e->'signals' AS sig
+        FROM private.source_persona_identity_candidate c,
+             jsonb_array_elements(CASE WHEN jsonb_typeof(c.basis->'member_scores')='array' THEN c.basis->'member_scores' ELSE '[]'::jsonb END) e
+       WHERE c.run_id=p_candidate_run_id AND c.source_persona_id=v_pid
+         AND jsonb_typeof(e->'person_id')='number' AND jsonb_typeof(e->'score_raw')='number'
+      UNION ALL
+      SELECT v_pb.person_id,NULL,NULL,NULL,NULL,NULL
+       WHERE v_pb.person_id IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM private.source_persona_identity_candidate c,
+                           jsonb_array_elements(CASE WHEN jsonb_typeof(c.basis->'member_scores')='array' THEN c.basis->'member_scores' ELSE '[]'::jsonb END) e
+                          WHERE c.run_id=p_candidate_run_id AND c.source_persona_id=v_pid
+                            AND jsonb_typeof(e->'person_id')='number' AND e->>'person_id'=v_pb.person_id::text)
+    ), q AS (
+      SELECT m.*,CASE WHEN m.pid=v_pb.person_id THEN 'binding'
+                      WHEN m.row_id=v_own_row OR m.pid=ANY(v_component) THEN 'own_cluster' ELSE 'competitor' END AS role
+        FROM m
+    )
+    SELECT coalesce(jsonb_agg(jsonb_build_object(
+             'person_id',q.pid,'role',q.role,'rank',q.rank,'cluster_score',q.score,'score_raw',q.s,'signals',q.sig,
+             'navn',coalesce(p.visning_fuldt_navn,p.visning_navn),'foedt',p.visning_foedt,'doed',p.visning_doed,
+             'titel',coalesce((SELECT jsonb_agg(a.vaerdi_tekst ORDER BY f.id,a.id)
+                                 FROM public.fact f
+                                 JOIN public.conclusion k ON k.target_type='fact' AND k.target_id=f.id AND k.status='afklaret'
+                                 JOIN public.assertion a ON a.id=k.valgt_assertion_id
+                                WHERE f.subjekt_type='person' AND f.subjekt_id=q.pid AND f.faktatype='titel'),'[]'::jsonb),
+             'record_labels',coalesce((SELECT jsonb_agg(b.record_label ORDER BY b.record_label COLLATE "C")
+                                         FROM public.narrative n
+                                         JOIN private.narrative_record_publication b ON b.narrative_id=n.id AND b.status='published'
+                                        WHERE n.subjekt_type='person' AND n.subjekt_id=q.pid),'[]'::jsonb))
+           ORDER BY (q.role<>'binding'),q.rank NULLS FIRST,q.pid),'[]'::jsonb)
+      INTO v_persons FROM q LEFT JOIN public.person p ON p.id=q.pid;
+    SELECT jsonb_build_object('name',nm.v,'birth',b.v,'death',d.v) INTO v_proposed
+      FROM (SELECT 1) one
+      LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v FROM private.interpretation_current ic
+                          WHERE ic.source_persona_id=v_pid AND ic.predicate='person.name' AND ic.status IN ('accepted','proposed')
+                          ORDER BY (ic.status='accepted') DESC,ic.confidence DESC NULLS LAST,ic.interpretation_key LIMIT 1) nm ON true
+      LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v FROM private.interpretation_current ic
+                          WHERE ic.source_persona_id=v_pid AND ic.predicate='person.birth' AND ic.status IN ('accepted','proposed')
+                          ORDER BY (ic.status='accepted') DESC,ic.confidence DESC NULLS LAST,ic.interpretation_key LIMIT 1) b ON true
+      LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v FROM private.interpretation_current ic
+                          WHERE ic.source_persona_id=v_pid AND ic.predicate='person.death' AND ic.status IN ('accepted','proposed')
+                          ORDER BY (ic.status='accepted') DESC,ic.confidence DESC NULLS LAST,ic.interpretation_key LIMIT 1) d ON true;
+    v_out:=v_out||jsonb_build_array(jsonb_build_object(
+      'source_persona_id',v_pid,'persona_key',(SELECT sp.persona_key FROM private.source_persona sp WHERE sp.id=v_pid),
+      'binding_id',v_pb.binding_id,'binding_status',v_pb.binding_status,'person_id',v_pb.person_id,'record_label',v_pb.record_label,
+      'b_binding_id',v_b_binding_id,'b_binding_status',v_b_binding_status,
+      'outcome',v_o,'proposed',v_proposed,'persons',v_persons));
+  END LOOP;
+  RETURN jsonb_build_object('candidate_run_id',v_run.id,'source_id',v_run.source_id,'personas',v_out);
+END $$;
+
+REVOKE ALL ON FUNCTION public.red_publication_control(uuid),public.red_publication_control_details(uuid) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_publication_control(uuid),public.red_publication_control_details(uuid) TO authenticated;
+
+
+-- ===== trin 6b: writer-operation publication_identity (ceremoni C) =====
+-- red_finalize_reimport i sin fulde seneste form (schema.sql) med inputdriftskontrollen for publication_identity.
+CREATE OR REPLACE FUNCTION public.red_finalize_reimport(p_batch_id uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_batch private.reimport_batch%ROWTYPE; v_counts jsonb;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  PERFORM private.lock_reimport_writer(v_batch.source_id,v_batch.profile_id);
+  SELECT jsonb_build_object('person_creates',count(*) FILTER(WHERE operation='person_create'),'source_evidence',count(*) FILTER(WHERE operation='source_evidence'))
+         || CASE WHEN v_batch.expected_counts ? 'legacy_migrations'
+                 THEN jsonb_build_object('legacy_migrations',count(*) FILTER(WHERE operation='legacy_migration')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'clause_evidence'
+                 THEN jsonb_build_object('clause_evidence',count(*) FILTER(WHERE operation='clause_evidence')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'interpretation_proposals'
+                 THEN jsonb_build_object('interpretation_proposals',count(*) FILTER(WHERE operation='interpretation_proposal')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'clause_revisions'
+                 THEN jsonb_build_object('clause_revisions',count(*) FILTER(WHERE operation='clause_revision')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'relation_personas'
+                 THEN jsonb_build_object('relation_personas',count(*) FILTER(WHERE operation='relation_persona')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'relation_person_creates'
+                 THEN jsonb_build_object('relation_person_creates',count(*) FILTER(WHERE operation='relation_person_create')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'relation_dispositions'
+                 THEN jsonb_build_object('relation_dispositions',count(*) FILTER(WHERE operation='relation_disposition')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'source_text_revision'
+                 THEN jsonb_build_object('source_text_revision',count(*) FILTER(WHERE operation='source_text_revision')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'publication_personas'
+                 THEN jsonb_build_object('publication_personas',count(*) FILTER(WHERE operation='publication_persona')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'publication_identities'
+                 THEN jsonb_build_object('publication_identities',count(*) FILTER(WHERE operation='publication_identity')) ELSE '{}'::jsonb END
+    INTO v_counts FROM private.reimport_event WHERE batch_id=p_batch_id;
+  IF v_counts<>v_batch.expected_counts THEN RAISE EXCEPTION 'REIMPORT_WRITER_FINALIZE_COUNT_MISMATCH'; END IF;
+  IF v_batch.expected_counts ? 'relation_personas' THEN PERFORM private.verify_relation_persona_receipts(p_batch_id); END IF;
+  IF v_batch.expected_counts ? 'relation_person_creates' THEN PERFORM private.verify_relation_person_create_receipts(p_batch_id); END IF;
+  IF v_batch.expected_counts ? 'relation_dispositions' THEN PERFORM private.verify_relation_disposition_receipts(p_batch_id); END IF;
+  -- Trin 6b: kandidatinputtet bag C's afgørelser er uændret (én genberegning pr. batch).
+  IF v_batch.expected_counts ? 'publication_identities' THEN PERFORM private.verify_publication_identity_input(p_batch_id); END IF;
+  UPDATE private.reimport_batch SET status='finalized',observed_counts=v_counts,finalized_at=clock_timestamp() WHERE id=p_batch_id;
+  RETURN jsonb_build_object('batch_id',p_batch_id,'status','finalized','counts',v_counts);
+END $$;
+
+-- Trin 6b (ceremoni C, spec §4.3 pkt. 4, §4.3.1): stikprøven for en kandidatkørsel, beregnet én gang pr. transaktion i en
+-- writer-ejet midlertidig tabel (ON COMMIT DROP), så C ikke klassificerer hele populationen pr. element (O(n²)). Stikprøven
+-- læser ikke identitetsrækker, så C's egne skrivninger flytter den ikke. En tabel med samme navn, som ikke ejes af
+-- writerens rolle (fx oprettet af klienten før kaldet), godtages ikke.
+CREATE OR REPLACE FUNCTION private.publication_identity_in_sample(p_persona uuid,p_run uuid)
+RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_owner oid; v_found boolean;
+BEGIN
+  SELECT c.relowner INTO v_owner FROM pg_catalog.pg_class c
+   WHERE c.relname='daa_publication_identity_sample' AND c.relnamespace=pg_catalog.pg_my_temp_schema();
+  v_found:=FOUND;
+  IF v_found AND v_owner IS DISTINCT FROM (SELECT r.oid FROM pg_catalog.pg_roles r WHERE r.rolname=current_user) THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_SAMPLE_MISMATCH: stikprøvetabellen ejes ikke af writeren';
+  END IF;
+  IF NOT v_found THEN
+    CREATE TEMP TABLE daa_publication_identity_sample(run_id uuid NOT NULL,source_persona_id uuid) ON COMMIT DROP;
+  END IF;
+  -- Rækken (kørsel, NULL) markerer, at kørslens stikprøve er beregnet i denne transaktion.
+  IF NOT EXISTS (SELECT 1 FROM pg_temp.daa_publication_identity_sample s WHERE s.run_id=p_run AND s.source_persona_id IS NULL) THEN
+    INSERT INTO pg_temp.daa_publication_identity_sample(run_id,source_persona_id)
+    SELECT p_run,x FROM private.publication_control_sample(p_run) x;
+    INSERT INTO pg_temp.daa_publication_identity_sample(run_id,source_persona_id) VALUES (p_run,NULL);
+  END IF;
+  RETURN EXISTS (SELECT 1 FROM pg_temp.daa_publication_identity_sample s WHERE s.run_id=p_run AND s.source_persona_id=p_persona);
+END $$;
+REVOKE ALL ON FUNCTION private.publication_identity_in_sample(uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Trin 6b (ceremoni C, spec §4.3 pkt. 4-6, §4.3.1): identiteten for en B-persona, bundet til dens publicerede C3-binding og
+-- efterprøvet mod den gemte kontrol. Rækkefølgen er bindende (plan Task 6): (1) kontrakt, batch, redaktør, writerlås,
+-- eksklusiv kandidatlås, autorisation, payloadform; (2) kørslen er kildens seneste med samme kandidater, og B-batchen er
+-- finaliseret og skrev personaen; (3) lås record → persona → recordens bindinger (kernen låser identitetsrækken og
+-- personen); (4) binding, helpost og subjekt under lås; (5) udfald og stikprøve; (6) kernen; (7) hændelse og kvittering.
+-- enig → oprindelsen publication_binding; S/F/U på de øvrige udfald → human med basis human_sheet (decisions 2026-10-31).
+CREATE OR REPLACE FUNCTION private.write_publication_identity(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE
+  v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE; v_profile private.reimport_writer_profile%ROWTYPE;
+  v_run private.source_persona_identity_candidate_run%ROWTYPE; v_latest uuid; v_record private.source_record%ROWTYPE;
+  v_persona uuid; v_person bigint; v_binding uuid; v_answer text; v_outcome text; v_pre record; v_pb record;
+  v_evidence jsonb; v_status text; v_target bigint; v_version integer; v_origin text; v_receipt jsonb;
+  c_keys constant text[]:=ARRAY['answer','binding_id','binding_status','candidate_run_id','candidates_sha256',
+    'expected_identity_version','outcome','person_id','persona_batch_id','rows_sha256','same_as_hint_person_id','sheet_line',
+    'sheet_sha256','source_persona_id'];
+  c_uuid constant text:='^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+BEGIN
+  -- (0) Codex 6B-02: kontrollen af seneste kørsel og bindingen skal læse efter kandidatlåsen. Under REPEATABLE READ/
+  -- SERIALIZABLE er snapshottet taget før låsen og kan godtage en forældet kørsel; kun READ COMMITTED godtages.
+  IF current_setting('transaction_isolation')<>'read committed' THEN RAISE EXCEPTION 'PUBLICATION_IDENTITY_ISOLATION'; END IF;
+  -- (1)
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_batch:=private.require_reimport_open_batch(p_batch_id);
+  PERFORM private.require_reimport_writer_editor();
+  PERFORM private.lock_reimport_writer(v_batch.source_id,v_batch.profile_id);
+  -- Eksklusiv kildelås: ingen ny kandidatkørsel kan registreres mellem efterprøvningen og commit.
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||v_batch.source_id::text,0));
+  SELECT * INTO v_auth FROM private.reimport_authorization WHERE id=v_batch.authorization_id;
+  SELECT * INTO v_profile FROM private.reimport_writer_profile
+   WHERE source_id=v_batch.source_id AND profile_id=v_batch.profile_id AND profile_sha256=v_batch.profile_sha256;
+  IF NOT FOUND OR v_auth.id IS NULL OR v_auth.source_id<>v_batch.source_id OR v_auth.profile_id<>v_batch.profile_id
+     OR v_auth.profile_sha256<>v_batch.profile_sha256
+     OR NOT v_auth.authorized_elements ? p_element_id
+     OR v_auth.authorized_elements->p_element_id IS DISTINCT FROM p_payload THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED';
+  END IF;
+  IF jsonb_typeof(p_payload)<>'object'
+     OR ARRAY(SELECT key FROM jsonb_object_keys(p_payload) key ORDER BY key COLLATE "C")<>c_keys
+     OR EXISTS (SELECT 1 FROM unnest(ARRAY['binding_id','binding_status','candidate_run_id','candidates_sha256','outcome',
+                                           'persona_batch_id','source_persona_id']) k
+                 WHERE jsonb_typeof(p_payload->k) IS DISTINCT FROM 'string')
+     OR coalesce(p_payload->>'binding_id','') !~ c_uuid OR coalesce(p_payload->>'candidate_run_id','') !~ c_uuid
+     OR coalesce(p_payload->>'persona_batch_id','') !~ c_uuid OR coalesce(p_payload->>'source_persona_id','') !~ c_uuid
+     OR coalesce(p_payload->>'candidates_sha256','') !~ '^[0-9a-f]{64}$'
+     OR p_payload->>'binding_status'<>'published'
+     OR p_payload->'expected_identity_version' IS DISTINCT FROM '0'::jsonb
+     OR jsonb_typeof(p_payload->'person_id') IS DISTINCT FROM 'number' OR (p_payload->>'person_id') !~ '^-?[0-9]{1,18}$'
+     OR p_payload->>'outcome' NOT IN ('enig','svag','uenig','navnefaelle','ingen_kandidat')
+     OR jsonb_typeof(p_payload->'answer') NOT IN ('null','string')
+     OR (jsonb_typeof(p_payload->'answer')='string' AND p_payload->>'answer' NOT IN ('S','F','U'))
+     -- enig: uden svar, eller S i stikprøven (F/U stopper arket før C); de øvrige udfald kræver S, F eller U
+     OR (p_payload->>'outcome'='enig' AND coalesce(p_payload->>'answer','S')<>'S')
+     OR (p_payload->>'outcome'<>'enig' AND p_payload->>'answer' IS NULL)
+     -- arkfelterne er null præcis når svaret er null; hintet kun ved S
+     OR (p_payload->>'answer' IS NULL AND (jsonb_typeof(p_payload->'sheet_sha256')<>'null' OR jsonb_typeof(p_payload->'rows_sha256')<>'null'
+                                           OR jsonb_typeof(p_payload->'sheet_line')<>'null'
+                                           OR jsonb_typeof(p_payload->'same_as_hint_person_id')<>'null'))
+     OR (p_payload->>'answer' IS NOT NULL AND (jsonb_typeof(p_payload->'sheet_sha256') IS DISTINCT FROM 'string'
+                                               OR jsonb_typeof(p_payload->'rows_sha256') IS DISTINCT FROM 'string'
+                                               OR coalesce(p_payload->>'sheet_sha256','') !~ '^[0-9a-f]{64}$'
+                                               OR coalesce(p_payload->>'rows_sha256','') !~ '^[0-9a-f]{64}$'
+                                               OR jsonb_typeof(p_payload->'sheet_line') IS DISTINCT FROM 'number'
+                                               OR coalesce(p_payload->>'sheet_line','') !~ '^[1-9][0-9]{0,8}$'))
+     OR jsonb_typeof(p_payload->'same_as_hint_person_id') NOT IN ('null','number')
+     OR (jsonb_typeof(p_payload->'same_as_hint_person_id')='number'
+         AND (p_payload->>'answer' IS DISTINCT FROM 'S' OR (p_payload->>'same_as_hint_person_id') !~ '^-?[0-9]{1,18}$'
+              OR p_payload->>'same_as_hint_person_id'=p_payload->>'person_id'
+              OR NOT EXISTS (SELECT 1 FROM public.person q WHERE q.id::text=p_payload->>'same_as_hint_person_id')))
+     OR p_element_id<>'publication-identity:'||(p_payload->>'source_persona_id') THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_PAYLOAD_INVALID';
+  END IF;
+  v_persona:=(p_payload->>'source_persona_id')::uuid; v_person:=(p_payload->>'person_id')::bigint;
+  v_binding:=(p_payload->>'binding_id')::uuid; v_answer:=p_payload->>'answer'; v_outcome:=p_payload->>'outcome';
+
+  -- (2) Kandidatkørslen er kildens seneste med de kandidater, arket blev bygget af; én kørsel pr. batch.
+  SELECT * INTO v_run FROM private.source_persona_identity_candidate_run WHERE id=(p_payload->>'candidate_run_id')::uuid;
+  SELECT r.id INTO v_latest FROM private.source_persona_identity_candidate_run r
+   WHERE r.source_id=v_batch.source_id ORDER BY r.run_seq DESC LIMIT 1;
+  IF v_run.id IS NULL OR v_run.source_id<>v_batch.source_id OR v_latest IS DISTINCT FROM v_run.id
+     OR v_run.candidates_sha256<>p_payload->>'candidates_sha256'
+     OR EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=p_batch_id AND e.operation='publication_identity'
+                  AND e.payload->>'candidate_run_id' IS DISTINCT FROM v_run.id::text) THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_RUN_STALE';
+  END IF;
+  -- Kørslen er i list-tilstand og omfatter personaen (en undecided-kørsels input ændres af C selv); B-batchen er
+  -- finaliseret, i kildens navn, og dens publication_persona-hændelse skrev personaen.
+  IF v_run.input_spec->>'mode' IS DISTINCT FROM 'list' OR NOT coalesce(v_run.input_spec->'persona_ids' ? v_persona::text,false)
+     OR NOT EXISTS (SELECT 1 FROM private.reimport_event e JOIN private.reimport_batch b ON b.id=e.batch_id
+                     WHERE e.batch_id=(p_payload->>'persona_batch_id')::uuid AND e.operation='publication_persona'
+                       AND e.payload->'result_receipt'->>'source_persona_id'=v_persona::text
+                       AND b.status='finalized' AND b.source_id=v_batch.source_id) THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_PAYLOAD_INVALID';
+  END IF;
+
+  -- (3) Låse: recorden først (som publiceringswriterne, så C og en tilbagetrækning serialiseres på recorden), derefter
+  -- personaen og recordens bindinger. Recorden findes uden lås og efterprøves under lås i (4).
+  SELECT * INTO v_pre FROM private.publication_persona_binding(v_persona);
+  IF v_pre.source_record_id IS NULL THEN RAISE EXCEPTION 'PUBLICATION_IDENTITY_BINDING_DRIFT'; END IF;
+  SELECT * INTO v_record FROM private.source_record WHERE id=v_pre.source_record_id AND source_id=v_batch.source_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'PUBLICATION_IDENTITY_BINDING_DRIFT'; END IF;
+  PERFORM 1 FROM private.source_persona WHERE id=v_persona AND source_id=v_batch.source_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'PUBLICATION_IDENTITY_PAYLOAD_INVALID'; END IF;
+  PERFORM 1 FROM private.narrative_record_publication WHERE source_record_id=v_record.id ORDER BY id FOR UPDATE;
+
+  -- (4) For alle svar og oprindelser: den primære mention ligger i recordens gældende helpost (profilens slags), bindingen
+  -- er recordens eneste publicerede og er payloadens, og subjektet er payloadens person.
+  SELECT * INTO v_pb FROM private.publication_persona_binding(v_persona);
+  IF v_pb.source_record_id IS DISTINCT FROM v_record.id OR v_pb.binding_status IS DISTINCT FROM 'published'
+     OR v_pb.binding_id IS DISTINCT FROM v_binding OR v_pb.person_id IS DISTINCT FROM v_person
+     OR NOT EXISTS (SELECT 1 FROM private.record_helpost_status(v_record.id,private.writer_config_helpost_kind(v_profile.writer_config)) h
+                     WHERE h.status='ok' AND h.observation_id=v_pb.observation_id)
+     OR (SELECT count(*) FROM private.narrative_record_publication b WHERE b.source_record_id=v_record.id AND b.status='published')<>1 THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_BINDING_DRIFT';
+  END IF;
+
+  -- (5) Udfaldet er klassifikatorens for de gemte kandidater; ved enig følger svaret stikprøven.
+  IF private.publication_control_outcome(v_persona,v_run.id,v_person)->>'outcome' IS DISTINCT FROM v_outcome THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_OUTCOME_MISMATCH';
+  END IF;
+  IF v_outcome='enig' AND private.publication_identity_in_sample(v_persona,v_run.id)<>(v_answer IS NOT NULL) THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_SAMPLE_MISMATCH';
+  END IF;
+
+  -- (6) Kernen med den forventede version (0); en anden version giver kernens EVIDENCE_IDENTITY_VERSION_CONFLICT.
+  v_evidence:=jsonb_build_object('binding_id',v_binding,'candidate_run_id',v_run.id,'candidates_sha256',v_run.candidates_sha256,
+    'outcome',v_outcome,'reimport_batch_id',p_batch_id,'persona_batch_id',p_payload->>'persona_batch_id')
+    || CASE WHEN v_answer IS NULL THEN '{}'::jsonb
+            ELSE jsonb_build_object('answer',v_answer,'sheet_sha256',p_payload->>'sheet_sha256','rows_sha256',p_payload->>'rows_sha256',
+                                    'line',(p_payload->>'sheet_line')::int) END
+    || CASE WHEN jsonb_typeof(p_payload->'same_as_hint_person_id')='number'
+            THEN jsonb_build_object('same_as_hint_person_id',(p_payload->>'same_as_hint_person_id')::bigint) ELSE '{}'::jsonb END;
+  IF v_outcome='enig' THEN
+    v_origin:='publication_binding'; v_status:='accepted'; v_target:=v_person;
+    v_evidence:=v_evidence||jsonb_build_object('authority','narrative_record_publication');
+    v_version:=private.decide_source_persona_identity(v_persona,v_target,(p_payload->>'expected_identity_version')::int,
+                                                      v_status,v_evidence,'publication_binding');
+  ELSE
+    v_origin:='human';
+    v_status:=CASE WHEN v_answer='S' THEN 'accepted' ELSE 'unresolved' END;
+    v_target:=CASE WHEN v_answer='S' THEN v_person END;
+    v_evidence:=v_evidence||jsonb_build_object('basis','human_sheet')
+      || CASE v_answer WHEN 'F' THEN jsonb_build_object('reason','publication_binding_disputed')
+                       WHEN 'U' THEN jsonb_build_object('reason','unknown') ELSE '{}'::jsonb END;
+    v_version:=private.decide_source_persona_identity(v_persona,v_target,(p_payload->>'expected_identity_version')::int,
+                                                      v_status,v_evidence,'human');
+  END IF;
+
+  -- (7) Hændelsen bærer persona_batch_id øverst (Task 3's frigivelse) og kvitteringen i result_receipt (fortrydelsen).
+  v_receipt:=jsonb_build_object('identity_version',v_version,'origin',v_origin,'decision_status',v_status);
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,canonical_person_id,payload,after_sha256)
+  VALUES(p_batch_id,p_element_id,'publication_identity',v_record.record_key,v_target,
+         p_payload||jsonb_build_object('result_receipt',v_receipt),
+         private.reimport_canonical_json_sha256(v_receipt||jsonb_build_object('source_persona_id',v_persona,'canonical_person_id',v_target)));
+  RETURN v_receipt;
+END $$;
+REVOKE ALL ON FUNCTION private.write_publication_identity(uuid,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION public.red_apply_reimport_publication_identity(p_batch_id uuid,p_element_id text,p_payload jsonb)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  RETURN private.write_publication_identity(p_batch_id,p_element_id,p_payload);
+END $$;
+REVOKE ALL ON FUNCTION public.red_apply_reimport_publication_identity(uuid,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_apply_reimport_publication_identity(uuid,text,jsonb) TO authenticated;
+
+-- Inputdrift ved finalize (Codex plan-r1 fund 4): kandidatinputtet genberegnes én gang pr. batch og skal stadig give
+-- kørslens input_sha256; batchen har præcis én kørsel, og den er stadig kildens seneste. Runneren kører alle apply-kald og
+-- finalize i én transaktion, så en afvigelse ruller hele C tilbage.
+-- Codex 6B-02: kun READ COMMITTED (snapshottet skal tages efter kandidatlåsen), som i writeren.
+-- Codex 6B-01 (spec §4.3 pkt. 4-6, §4.3.1): C skal omfatte HELE kontrolmængden for hver B-batch, den navngiver, så en
+-- delvis C hverken kan springe stikprøven over eller frigive de øvrige B-personas (persona_awaiting_control frigiver pr.
+-- B-batch). Kontrolmængden er B-batchens personas uden staged person (staged er en disposition, spec §4.6) og uden en
+-- identitet fra før C. Writeren kræver identitetsversion 0, så en identitet på en persona uden for C's hændelser er en
+-- eksisterende disposition, og en persona i C's hændelser havde ingen. Staged aflæses på den person, B-hændelsen bandt
+-- (canonical_person_id), ikke gennem bindingsopslaget pr. persona: C's egne personas er bindingsefterprøvet af writeren,
+-- og finalize skal holde sig under prods statement_timeout. Mængder sammenlignes begge veje (ikke antal): en manglende
+-- persona og en ekstra (fx staged) persona afvises begge med PUBLICATION_IDENTITY_SET_MISMATCH.
+-- En persona, hvis B-binding ikke længere er published (fx trukket tilbage mellem B og C), kan C-writeren ikke skrive; den
+-- er ikke krævet (disposition) og frigives efter C af persona_awaiting_control til webkøen som proposed. Skrev C den alligevel
+-- (bindingen genpubliceret med nyt id; writeren har efterprøvet den aktuelle binding), tæller den med.
+-- Stikprøven (samme beregning som writerens, publication_identity_in_sample) skal ligge i C; ellers
+-- PUBLICATION_IDENTITY_SAMPLE_MISMATCH. Det følger normalt af den fulde mængde plus writerens tjek pr. element, men
+-- stikprøvens population udelukker hverken staged personas eller identiteter fra før C, så det efterprøves eksplicit.
+CREATE OR REPLACE FUNCTION private.verify_publication_identity_input(p_batch_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_source bigint; v_runs text[]; v_run private.source_persona_identity_candidate_run%ROWTYPE; v_latest uuid;
+BEGIN
+  IF current_setting('transaction_isolation')<>'read committed' THEN RAISE EXCEPTION 'PUBLICATION_IDENTITY_ISOLATION'; END IF;
+  SELECT b.source_id INTO v_source FROM private.reimport_batch b WHERE b.id=p_batch_id;
+  SELECT array_agg(DISTINCT e.payload->>'candidate_run_id') INTO v_runs
+    FROM private.reimport_event e WHERE e.batch_id=p_batch_id AND e.operation='publication_identity';
+  IF v_runs IS NULL THEN RETURN; END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||v_source::text,0));
+  IF cardinality(v_runs)<>1 THEN RAISE EXCEPTION 'PUBLICATION_IDENTITY_RUN_STALE'; END IF;
+  SELECT * INTO v_run FROM private.source_persona_identity_candidate_run r WHERE r.id::text=v_runs[1];
+  SELECT r.id INTO v_latest FROM private.source_persona_identity_candidate_run r
+   WHERE r.source_id=v_source ORDER BY r.run_seq DESC LIMIT 1;
+  IF v_run.id IS NULL OR v_run.source_id<>v_source OR v_latest IS DISTINCT FROM v_run.id THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_RUN_STALE';
+  END IF;
+  IF private.reimport_canonical_json_sha256(private.identity_candidate_input(v_run.source_id,v_run.input_spec))<>v_run.input_sha256 THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_INPUT_DRIFT';
+  END IF;
+  IF EXISTS (
+    WITH c AS (
+      SELECT DISTINCT e.payload->>'persona_batch_id' AS b, e.payload->>'source_persona_id' AS p
+        FROM private.reimport_event e WHERE e.batch_id=p_batch_id AND e.operation='publication_identity'
+    ), req AS (
+      SELECT be.batch_id::text AS b, be.payload->'result_receipt'->>'source_persona_id' AS p
+        FROM private.reimport_event be
+        LEFT JOIN public.person q ON q.id=be.canonical_person_id
+       WHERE be.operation='publication_persona'
+         AND be.batch_id IN (SELECT c.b::uuid FROM c)
+         AND NOT coalesce(q.staged,false)
+         AND (EXISTS (SELECT 1 FROM c WHERE c.p=be.payload->'result_receipt'->>'source_persona_id')
+              OR (NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
+                               WHERE i.source_persona_id=(be.payload->'result_receipt'->>'source_persona_id')::uuid)
+                  AND EXISTS (SELECT 1 FROM private.narrative_record_publication nb
+                               WHERE nb.id=(be.payload->>'binding_id')::uuid AND nb.status='published')))
+    )
+    (SELECT c.b,c.p FROM c EXCEPT SELECT req.b,req.p FROM req)
+    UNION ALL
+    (SELECT req.b,req.p FROM req EXCEPT SELECT c.b,c.p FROM c)
+  ) THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_SET_MISMATCH';
+  END IF;
+  PERFORM private.publication_identity_in_sample(NULL,v_run.id);   -- beregner (eller genbruger) transaktionens stikprøve
+  IF EXISTS (SELECT s.source_persona_id FROM pg_temp.daa_publication_identity_sample s
+              WHERE s.run_id=v_run.id AND s.source_persona_id IS NOT NULL
+             EXCEPT
+             SELECT (e.payload->>'source_persona_id')::uuid FROM private.reimport_event e
+              WHERE e.batch_id=p_batch_id AND e.operation='publication_identity') THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_SAMPLE_MISMATCH';
+  END IF;
+END $$;
+REVOKE ALL ON FUNCTION private.verify_publication_identity_input(uuid) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Controller-beslutning efter Codex 6B-01: en publication_identity-hændelse kan kun committes, når dens batch er finaliseret
+-- (eller aktiveret) i samme transaktion. Writer-rammen committer ellers hver apply for sig, og en delvis C uden finalize
+-- ville efterlade accepterede identiteter, som hverken mængdekontrollen eller stikprøven har set. Den udskudte constraint
+-- trigger kontrollerer ved commit; en tilbagerullet transaktion udløser den ikke. Kun operation publication_identity (ikke
+-- B's publication_persona eller fortrydelsens reversal-hændelse; WHEN-betingelsen filtrerer). SECURITY DEFINER, fordi commit
+-- sker som authenticated. reversed godtages også: fortrydelsen kræver en finaliseret batch, og en data-only restore af en
+-- base med en fortrudt C skal kunne indlæse dens hændelser. Kendt begrænsning: SET CONSTRAINTS ALL IMMEDIATE midt i C
+-- afviser C (her og allerede før i den udskudte EVIDENCE_IDENTITY_STATE_REQUIRED); runneren må ikke sætte det.
+CREATE OR REPLACE FUNCTION private.require_publication_identity_finalized()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM private.reimport_batch b
+                  WHERE b.id=NEW.batch_id AND b.status IN ('finalized','activated','reversed')) THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_UNFINALIZED';
+  END IF;
+  RETURN NULL;
+END $$;
+REVOKE ALL ON FUNCTION private.require_publication_identity_finalized() FROM PUBLIC,anon,authenticated,service_role;
+DROP TRIGGER IF EXISTS trg_reimport_event_publication_identity_finalized ON private.reimport_event;
+CREATE CONSTRAINT TRIGGER trg_reimport_event_publication_identity_finalized
+  AFTER INSERT ON private.reimport_event
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW WHEN (NEW.operation='publication_identity')
+  EXECUTE FUNCTION private.require_publication_identity_finalized();
+
+
+-- ===== trin 6b: fortrydelse af publication_identity =====
+-- Trin 6b (ceremoni C, spec §6 "Fortrydelse pr. fase"): fortrydelse af en publication_identity-batch. B fortrydes ikke her
+-- (source_persona er append-only; B fortrydes ved restore af B-dumpet). Hver af C's identiteter sættes til superseded gennem
+-- kernens reversal-oprindelse, men kun hvis personaens aktuelle identitetsversion stadig er den, C skrev; en senere
+-- afgørelse (fx en menneskelig) afviser hele fortrydelsen. Autorisationen kommer fra red_authorize_reimport_reversal.
+-- Kontrollerne er som i record_reimport_legacy_reversal; batchen skal være finalized og kun rumme publication_identity.
+CREATE OR REPLACE FUNCTION public.red_reverse_reimport_publication(p_batch_id uuid,p_authorization_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_actor uuid; v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE;
+  v_discovered_source_id bigint; v_discovered_profile_id text;
+  v_event private.reimport_event%ROWTYPE; v_persona uuid; v_expected integer; v_current integer; v_elements bigint:=0;
+  v_payload jsonb; v_sha text;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
+  v_actor:=private.require_reimport_writer_editor();
+  SELECT source_id,profile_id INTO v_discovered_source_id,v_discovered_profile_id FROM private.reimport_batch WHERE id=p_batch_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID'; END IF;
+  PERFORM private.lock_reimport_writer(v_discovered_source_id,v_discovered_profile_id);
+  -- Samme låserække som red_reverse_reimport: batch før autorisation.
+  SELECT * INTO v_batch FROM private.reimport_batch WHERE id=p_batch_id FOR UPDATE;
+  SELECT * INTO v_auth FROM private.reimport_authorization WHERE id=p_authorization_id FOR UPDATE;
+  IF v_batch.id IS NULL OR v_batch.source_id IS DISTINCT FROM v_discovered_source_id
+     OR v_batch.profile_id IS DISTINCT FROM v_discovered_profile_id OR v_batch.status<>'finalized'
+     OR v_auth.id IS NULL OR v_auth.operation<>'reversal' OR v_auth.status<>'issued'
+     OR v_auth.principal_id<>v_actor OR v_auth.expires_at<=clock_timestamp()
+     OR v_auth.database_identity IS DISTINCT FROM 'batch:'||p_batch_id::text
+     OR v_auth.source_id<>v_batch.source_id OR v_auth.profile_id<>v_batch.profile_id
+     OR v_auth.profile_sha256<>v_batch.profile_sha256
+     OR v_auth.manifest_sha256<>v_batch.manifest_sha256
+     OR v_auth.preview_sha256<>v_batch.preview_sha256 THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID';
+  END IF;
+  -- Kun publication_identity-hændelser (mindst én); en tidligere reversal-hændelse er også en afvigelse.
+  IF NOT EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=p_batch_id AND e.operation='publication_identity')
+     OR EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=p_batch_id
+                 AND e.operation IS DISTINCT FROM 'publication_identity') THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID';
+  END IF;
+  -- Persona-rækkerne låses først i id-orden (kernens låseorden), så versionsvagten og kernen ser samme tilstand.
+  PERFORM 1 FROM private.source_persona sp
+   WHERE sp.id IN (SELECT (e.payload->>'source_persona_id')::uuid FROM private.reimport_event e
+                    WHERE e.batch_id=p_batch_id AND e.operation='publication_identity')
+   ORDER BY sp.id FOR UPDATE;
+  FOR v_event IN SELECT * FROM private.reimport_event e WHERE e.batch_id=p_batch_id AND e.operation='publication_identity'
+                  ORDER BY (e.payload->>'source_persona_id')::uuid LOOP
+    v_persona:=(v_event.payload->>'source_persona_id')::uuid;
+    IF jsonb_typeof(v_event.payload->'result_receipt'->'identity_version') IS DISTINCT FROM 'number' THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_REVERSAL_INVALID';
+    END IF;
+    v_expected:=(v_event.payload->'result_receipt'->>'identity_version')::integer;
+    SELECT i.version INTO v_current FROM private.source_persona_identity i WHERE i.source_persona_id=v_persona FOR UPDATE;
+    IF v_current IS DISTINCT FROM v_expected THEN
+      RAISE EXCEPTION 'PUBLICATION_REVERSAL_VERSION_DRIFT';
+    END IF;
+    PERFORM private.decide_source_persona_identity(v_persona,NULL,v_current,'superseded',
+      jsonb_build_object('reversed_batch_id',p_batch_id,'profile_sha256',v_batch.profile_sha256),'reversal');
+    v_elements:=v_elements+1;
+  END LOOP;
+  UPDATE private.reimport_authorization SET status='consumed',consumed_at=clock_timestamp() WHERE id=v_auth.id;
+  UPDATE private.reimport_batch SET status='reversed' WHERE id=p_batch_id;
+  v_payload:=jsonb_build_object('authorization_id',v_auth.id,'reversed_identities',v_elements);
+  v_sha:=private.reimport_canonical_json_sha256(v_payload);
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,payload,after_sha256)
+  VALUES(p_batch_id,'publication-identity-reversal:'||v_auth.id::text,'reversal',v_payload,v_sha);
+  RETURN jsonb_build_object('batch_id',p_batch_id,'status','reversed','reversed_identities',v_elements);
+END $$;
+REVOKE ALL ON FUNCTION public.red_reverse_reimport_publication(uuid,uuid) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_reverse_reimport_publication(uuid,uuid) TO authenticated;

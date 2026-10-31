@@ -2,6 +2,19 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: 6b's identitetswriter kalder kernen med `human` direkte (2026-10-31)
+
+> 5a §4.2 siger, at oprindelsen `human` kun kommer fra `red_afgoer_source_persona`. I trin 6b skriver
+> `publication_identity` også projektejerens S/F/U fra kortarket med `human` (`basis='human_sheet'`, arkets hash og
+> linje), fordi wrapperen ikke kan sætte `reason` (`publication_binding_disputed`, `unknown`) og afviser personas, der
+> venter på kontrol. Kernens krav til `human` er uændrede. Plan: `2026-10-31-trin6b-identitet.md` Task 6.
+
+## NOTERET: review-budget for delspec 6b overskredet med én Codex-runde på specen (2026-10-31)
+
+> B13-overskridelse. Projektejeren bad om et review af udkastet til delspec 6b
+> (`2026-10-31-trin6b-identitet-design.md`) før planen. Codex (`gpt-6.1-sol`): NO-GO, 11 fund, alle afvejet og
+> indarbejdet (specens §10). Budgettet for resten af 6b er uændret: én runde på spec+plan, én på diffen.
+
 ## BESLUTTET: I-84 parkeres i trin 6; B7 som deklareret tekstform pr. udgave (2026-10-29/30)
 
 > Projektejerens valg 2026-10-29 (I-84). B7 er mit valg i delspec 6a

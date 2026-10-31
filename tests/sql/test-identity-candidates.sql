@@ -301,3 +301,108 @@ BEGIN
   PERFORM dblink_exec('cc_setup',v_cleanup); PERFORM dblink_disconnect('cc_setup');
   RAISE NOTICE 'OK: samtidige identiske writer-kald giver samme kørsel og én run-række';
 END $identity_candidate_concurrent$;
+
+-- Trin 6b, Task 4: årstalsreserve fra assertion.date_raw, tilvalgt i input_spec.
+DO $identity_candidate_year_fallback$
+DECLARE
+  v_actor uuid := '11000000-0000-0000-0000-000000006b04';
+  v_run uuid := '22000000-0000-0000-0000-000000006b04';
+  v_p1 uuid := '88000000-0000-0000-0000-000000006b41';
+  v_spec jsonb := '{"mode":"undecided"}';
+  v_spec_fb jsonb := '{"mode":"undecided","year_fallback":"date_raw-v1"}';
+  v_in jsonb; v_fb jsonb; v_a jsonb; v_expected_plain jsonb; v_fact bigint; v_n int;
+BEGIN
+  BEGIN
+    INSERT INTO auth.users(id,email) VALUES (v_actor,'6b4@test.invalid');
+    INSERT INTO profiles(id,rolle,navn,email) VALUES (v_actor,'redaktion','6b4','6b4@test.invalid');
+    INSERT INTO person(id,levende,privat,status) VALUES (-987655401,false,false,'6b4');
+    INSERT INTO source(id,titel,import_key) VALUES (-987655401,'6b4','verify:6b4');
+    INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)
+      VALUES (v_run,-987655401,'6b4-run','1.0','verify','verify',repeat('9',64),'{}');
+    INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES (v_p1,-987655401,'6b4-p1',v_run);
+    INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-987655401,'person',-987655401,'fødsel') RETURNING id INTO v_fact;
+    INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,date_raw,date_min,date_max) VALUES
+      (-987655411,'fact',v_fact,'a','1750',NULL,NULL),
+      (-987655412,'fact',v_fact,'b','c. 1750',NULL,NULL),
+      (-987655413,'fact',v_fact,'c','12. Marts 1750',NULL,NULL),
+      (-987655414,'fact',v_fact,'d','1750 el. 1751',NULL,NULL),
+      (-987655415,'fact',v_fact,'e','17..',NULL,NULL),
+      (-987655416,'fact',v_fact,'f','1800','1760-01-01','1760-12-31'),
+      (-987655417,'fact',v_fact,'g','1750 og 1750',NULL,NULL),
+      (-987655418,'fact',v_fact,'h',NULL,NULL,NULL);
+    PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    SET LOCAL ROLE authenticated;
+
+    v_in := red_identity_candidate_input(-987655401,v_spec);
+    v_fb := red_identity_candidate_input(-987655401,v_spec_fb);
+    -- uden nøglen: ingen date_origin nogen steder og assertions præcis som red_match_personer leverer dem
+    IF v_in::text LIKE '%date_origin%' THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: date_origin uden year_fallback';
+    END IF;
+    SELECT coalesce(jsonb_agg(e ORDER BY e::text COLLATE "C"),'[]') INTO v_expected_plain
+      FROM jsonb_array_elements(red_match_personer()->'assertions') e;
+    IF v_in->'input'->'persons'->'assertions' IS DISTINCT FROM v_expected_plain THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: input uden year_fallback er ikke uændret';
+    END IF;
+    IF v_in->>'input_sha256'=v_fb->>'input_sha256' THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: year_fallback ændrede ikke hashen';
+    END IF;
+    IF v_fb->>'input_sha256'<>(red_identity_candidate_input(-987655401,v_spec_fb)->>'input_sha256')
+       OR v_fb->'input_spec'<>v_spec_fb THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: year_fallback-input er ikke deterministisk';
+    END IF;
+    -- list-tilstand tillader også nøglen
+    PERFORM red_identity_candidate_input(-987655401,
+      jsonb_build_object('mode','list','persona_ids',jsonb_build_array(v_p1),'year_fallback','date_raw-v1'));
+
+    FOR v_n IN SELECT unnest(ARRAY[-987655411,-987655412,-987655413]) LOOP
+      SELECT e INTO v_a FROM jsonb_array_elements(v_fb->'input'->'persons'->'assertions') e WHERE (e->>'id')::bigint=v_n;
+      IF v_a->>'date_min'<>'1750-01-01' OR v_a->>'date_max'<>'1750-12-31' OR v_a->>'date_origin'<>'date_raw' THEN
+        RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: reserve for % forkert (%)',v_n,v_a;
+      END IF;
+    END LOOP;
+    FOR v_n IN SELECT unnest(ARRAY[-987655414,-987655415,-987655418]) LOOP
+      SELECT e INTO v_a FROM jsonb_array_elements(v_fb->'input'->'persons'->'assertions') e WHERE (e->>'id')::bigint=v_n;
+      IF v_a->>'date_min' IS NOT NULL OR v_a->>'date_max' IS NOT NULL OR v_a ? 'date_origin' THEN
+        RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: % skulle ingen reserve have (%)',v_n,v_a;
+      END IF;
+    END LOOP;
+    -- samme årstal to gange = ét forskelligt årstal
+    SELECT e INTO v_a FROM jsonb_array_elements(v_fb->'input'->'persons'->'assertions') e WHERE (e->>'id')::bigint=-987655417;
+    IF v_a->>'date_min'<>'1750-01-01' OR v_a->>'date_origin'<>'date_raw' THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: ens årstal to gange skulle give reserve (%)',v_a;
+    END IF;
+    -- påstand med date_min sat er uændret
+    SELECT e INTO v_a FROM jsonb_array_elements(v_fb->'input'->'persons'->'assertions') e WHERE (e->>'id')::bigint=-987655416;
+    IF v_a->>'date_min'<>'1760-01-01' OR v_a->>'date_max'<>'1760-12-31' OR v_a ? 'date_origin' THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: påstand med date_min blev ændret (%)',v_a;
+    END IF;
+    -- alle øvrige elementer er byte-ens
+    IF (SELECT count(*) FROM jsonb_array_elements(v_fb->'input'->'persons'->'assertions') e
+         WHERE NOT e ? 'date_origin' AND NOT v_expected_plain @> jsonb_build_array(e))<>0 THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: ikke-reserve-påstande er ændret';
+    END IF;
+    IF v_fb->'input'->'personas'<>v_in->'input'->'personas' OR v_fb->'input'->'same_as'<>v_in->'input'->'same_as'
+       OR (v_fb->'input'->'persons')-'assertions'<>(v_in->'input'->'persons')-'assertions' THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: year_fallback rørte andet end assertions';
+    END IF;
+
+    -- ukendt værdi eller forkert type afvises
+    FOREACH v_a IN ARRAY ARRAY['"date_raw-v2"'::jsonb,'null'::jsonb,'1'::jsonb,'true'::jsonb] LOOP
+      BEGIN
+        PERFORM red_identity_candidate_input(-987655401,jsonb_build_object('mode','undecided','year_fallback',v_a));
+        RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: year_fallback % blev accepteret',v_a;
+      EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID' THEN RAISE; END IF; END;
+    END LOOP;
+    BEGIN
+      PERFORM red_identity_candidate_input(-987655401,'{"mode":"undecided","year_fallback":"date_raw-v1","x":1}');
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_TEST_FAILED: ekstra nøgle blev accepteret';
+    EXCEPTION WHEN OTHERS THEN IF SQLERRM<>'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID' THEN RAISE; END IF; END;
+
+    RAISE EXCEPTION 'ROLLBACK_6B4_YEAR_FALLBACK';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM='ROLLBACK_6B4_YEAR_FALLBACK' THEN
+      RAISE NOTICE 'OK: årstalsreserven fra date_raw er tilvalgt, entydig og lader alt andet være uændret';
+    ELSE RAISE; END IF;
+  END;
+END $identity_candidate_year_fallback$;

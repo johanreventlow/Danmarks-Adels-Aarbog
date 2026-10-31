@@ -2960,6 +2960,8 @@ DECLARE
     'public.red_apply_reimport_source_text_revision(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_relation_persona(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_publication_persona(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_publication_identity(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_relation_person_create(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_relation_disposition(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_person_create(uuid,text,jsonb)'::regprocedure,
@@ -3032,6 +3034,8 @@ DECLARE
     'public.red_promote_relation_interpretations_batch(bigint,jsonb,text)'::regprocedure,
     'public.red_preview_reimport_cases(bigint,text,jsonb)'::regprocedure,
     'public.red_promote_interpretations_batch(jsonb,text)'::regprocedure,
+    'public.red_publication_control(uuid)'::regprocedure,
+    'public.red_publication_control_details(uuid)'::regprocedure,
     'public.red_publicer_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
     'public.red_publicer_personer(bigint[])'::regprocedure,
     'public.red_publicer_udgave(bigint)'::regprocedure,
@@ -3044,6 +3048,7 @@ DECLARE
     'public.red_revalider_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
     'public.red_reverse_1939_v50_reimport(uuid,uuid)'::regprocedure,
     'public.red_reverse_reimport(uuid,uuid)'::regprocedure,
+    'public.red_reverse_reimport_publication(uuid,uuid)'::regprocedure,
     'public.red_revider_publiceret_person_narrative_record(bigint,bigint,text,text,text)'::regprocedure,
     'public.red_saet_portraet(bigint,bigint)'::regprocedure,
     'public.red_samme_som(bigint,bigint)'::regprocedure,
@@ -10452,3 +10457,37 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   RAISE NOTICE 'TRIN_B_DECISION_FAMILY_CHANGED_UNBOUND kunne ikke måles: %',SQLERRM;
 END $verify_trin_b_decision_family$;
+
+-- ===== Trin 6b: commit-vagten for publication_identity og reimport_event's partielle indekser =====
+-- Den udskudte constraint trigger (Codex 6B-01, controller): findes på private.reimport_event, er DEFERRABLE INITIALLY
+-- DEFERRED, filtrerer på operation og kalder den private SECURITY DEFINER-funktion, som ingen klientrolle kan kalde.
+-- De to partielle indekser bærer køvagtens og finalize's opslag.
+DO $verify_6b_commit_guard$
+DECLARE v_t record; f text:='private.require_publication_identity_finalized()';
+BEGIN
+  SELECT t.tgdeferrable,t.tginitdeferred,t.tgfoid,t.tgconstraint,t.tgenabled,pg_get_triggerdef(t.oid) AS def INTO v_t
+    FROM pg_trigger t
+   WHERE t.tgrelid='private.reimport_event'::regclass AND t.tgname='trg_reimport_event_publication_identity_finalized';
+  IF NOT FOUND OR to_regprocedure(f) IS NULL OR v_t.tgfoid<>to_regprocedure(f) OR v_t.tgconstraint=0
+     OR NOT v_t.tgdeferrable OR NOT v_t.tginitdeferred OR v_t.tgenabled<>'O'
+     OR position('AFTER INSERT ON private.reimport_event' IN v_t.def)=0
+     OR position('WHEN ((new.operation = ''publication_identity''::text))' IN v_t.def)=0 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6b commit-vagt trg_reimport_event_publication_identity_finalized %',coalesce(v_t.def,'mangler');
+  END IF;
+  IF NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid=to_regprocedure(f))
+     OR has_function_privilege('anon',f,'EXECUTE') OR has_function_privilege('authenticated',f,'EXECUTE')
+     OR has_function_privilege('service_role',f,'EXECUTE') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6b commit-vagtens funktion (security definer/ACL)';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+                  WHERE i.indrelid='private.reimport_event'::regclass AND c.relname='reimport_event_publication_persona_receipt_idx'
+                    AND pg_get_expr(i.indpred,i.indrelid)='(operation = ''publication_persona''::text)'
+                    AND pg_get_indexdef(i.indexrelid) LIKE '%((payload -> ''result_receipt''::text) ->> ''source_persona_id''::text)%')
+     OR NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+                     WHERE i.indrelid='private.reimport_event'::regclass AND c.relname='reimport_event_publication_identity_batch_idx'
+                       AND pg_get_expr(i.indpred,i.indrelid)='(operation = ''publication_identity''::text)'
+                       AND pg_get_indexdef(i.indexrelid) LIKE '%(payload ->> ''persona_batch_id''::text)%') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6b partielle indekser på reimport_event';
+  END IF;
+  RAISE NOTICE 'OK: trin 6b — commit-vagt (udskudt, operationsfiltreret) og partielle indekser på reimport_event';
+END $verify_6b_commit_guard$;

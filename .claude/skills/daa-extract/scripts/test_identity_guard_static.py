@@ -13,7 +13,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[4]
 KERNE = "private.decide_source_persona_identity("
-OPRINDELSER = ("human", "person_create", "legacy_match", "reversal", "family_corroboration", "relation_person_create")
+# Trin 6b: publication_binding (spec §4.3.1; decisions 2026-10-31). Kalderne write_publication_identity (Task 6) og
+# red_reverse_reimport_publication (Task 7, reversal) står i ALLOWLIST (ledger-ruling R2).
+OPRINDELSER = ("human", "person_create", "legacy_match", "reversal", "family_corroboration", "relation_person_create",
+               "publication_binding")
 CUTOVER = re.compile(r"-- BEGIN 5a-cutover.*?-- END 5a-cutover", re.S)
 # Eksakt allowlist (fil, omsluttende funktion, oprindelse) -> antal kald. Målt 2026-09-24.
 # En ny kalder kræver en ændring her OG en beslutning (spec §4.2) — aldrig bare en ny linje.
@@ -26,7 +29,7 @@ ALLOWLIST = {
     ("schema.sql", "red_corroborate_family_identities", "family_corroboration"): 1,
     # Trin 5b 2b-ii: ny oprindelse relation_person_create (hovedspec §8.4; decisions 2026-10-06 pkt. 3, ændret 2026-10-17).
     ("schema.sql", "write_relation_person_create", "relation_person_create"): 1,
-    ("db-migrations.sql", "red_afgoer_source_persona", "human"): 3,   # 2b-ii: kopi med deceased-konteksten; dubletreglen (2026-10-25)
+    ("db-migrations.sql", "red_afgoer_source_persona", "human"): 4,   # 2b-ii: kopi med deceased-konteksten; dubletreglen (2026-10-25); 6b Task 3: kø-vagten IDENTITY_AWAITING_PUBLICATION_CONTROL
     ("db-migrations.sql", "red_apply_1939_v50_person_create", "person_create"): 1,
     ("db-migrations.sql", "red_apply_reimport_person_create", "person_create"): 2,
     ("db-migrations.sql", "migrate_legacy_narrative_record", "legacy_match"): 1,
@@ -34,6 +37,15 @@ ALLOWLIST = {
     ("db-migrations.sql", "red_reverse_reimport", "reversal"): 1,
     ("db-migrations.sql", "red_corroborate_family_identities", "family_corroboration"): 1,
     ("db-migrations.sql", "write_relation_person_create", "relation_person_create"): 2,   # 2b-ii runde 2: kopi med titelværn og aktualitetstjek
+    # Trin 6b Task 6 (ledger-ruling R2; decisions 2026-10-31): C's writer kalder kernen med publication_binding (enig) og
+    # med human (arkets S/F/U, basis human_sheet) — den anden serverkalder af human ud over red_afgoer_source_persona.
+    ("schema.sql", "write_publication_identity", "publication_binding"): 1,
+    ("schema.sql", "write_publication_identity", "human"): 1,
+    ("db-migrations.sql", "write_publication_identity", "publication_binding"): 1,
+    ("db-migrations.sql", "write_publication_identity", "human"): 1,
+    # Trin 6b Task 7: fortrydelsen af C (superseded gennem reversal-oprindelsen, med versionsvagt).
+    ("schema.sql", "red_reverse_reimport_publication", "reversal"): 1,
+    ("db-migrations.sql", "red_reverse_reimport_publication", "reversal"): 1,
 }
 
 

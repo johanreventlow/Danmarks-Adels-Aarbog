@@ -116,7 +116,8 @@ BEGIN
     -- fast 1:1-kobling til person -987655032 for postnøglen 5a-R1 i kilden (til legacy_match)
     INSERT INTO public.person_external_id(person_id,source_id,record_key) VALUES (-987655032,-987655031,'5a-R1');
     FOR v_err IN SELECT unnest(ARRAY['human_fri','create_status','create_basis','create_uden_kvittering',
-                                     'legacy_forkert_person','legacy_uden_autoritet','reversal_uden','ukendt']) LOOP
+                                     'legacy_forkert_person','legacy_uden_autoritet','reversal_uden','ukendt',
+                                     'pb_status','pb_version','pb_basis','pb_autoritet','pb_uden_binding','pb_ukendt_binding']) LOOP
       BEGIN
         IF v_err='human_fri' THEN
           PERFORM private.decide_source_persona_identity(v_ps[5],-987655032,0,'accepted','{"basis":"fri tekst"}','human');
@@ -133,13 +134,33 @@ BEGIN
           PERFORM private.decide_source_persona_identity(v_ps[6],-987655032,0,'accepted','{"batch_id":"00000000-0000-0000-0000-000000000001"}','legacy_match');
         ELSIF v_err='reversal_uden' THEN
           PERFORM private.decide_source_persona_identity(v_ps[1],NULL,1,'superseded','{"note":"x"}','reversal');
+        -- Trin 6b: publication_binding — form og autoritet afvises, før bindingen slås op (strukturen: test-publication-control.sql)
+        ELSIF v_err='pb_status' THEN
+          PERFORM private.decide_source_persona_identity(v_ps[5],NULL,0,'unresolved',
+            '{"authority":"narrative_record_publication","binding_id":"00000000-0000-0000-0000-000000000001"}','publication_binding');
+        ELSIF v_err='pb_version' THEN   -- v_ps[1] har version 1 fra web-afgørelsen ovenfor
+          PERFORM private.decide_source_persona_identity(v_ps[1],-987655031,1,'accepted',
+            '{"authority":"narrative_record_publication","binding_id":"00000000-0000-0000-0000-000000000001"}','publication_binding');
+        ELSIF v_err='pb_basis' THEN
+          PERFORM private.decide_source_persona_identity(v_ps[5],-987655032,0,'accepted',
+            '{"authority":"narrative_record_publication","binding_id":"00000000-0000-0000-0000-000000000001","basis":"human_sheet"}','publication_binding');
+        ELSIF v_err='pb_autoritet' THEN
+          PERFORM private.decide_source_persona_identity(v_ps[5],-987655032,0,'accepted',
+            '{"authority":"person_external_id","binding_id":"00000000-0000-0000-0000-000000000001"}','publication_binding');
+        ELSIF v_err='pb_uden_binding' THEN
+          PERFORM private.decide_source_persona_identity(v_ps[5],-987655032,0,'accepted',
+            '{"authority":"narrative_record_publication","binding_id":"ikke-en-uuid"}','publication_binding');
+        ELSIF v_err='pb_ukendt_binding' THEN   -- velformet, men ingen publiceret binding (og ingen primary-mention)
+          PERFORM private.decide_source_persona_identity(v_ps[5],-987655032,0,'accepted',
+            '{"authority":"narrative_record_publication","binding_id":"00000000-0000-0000-0000-000000000001"}','publication_binding');
         ELSE
           PERFORM private.decide_source_persona_identity(v_ps[5],-987655032,0,'accepted','{"batch_id":"00000000-0000-0000-0000-000000000001"}','batch');
         END IF;
         RAISE EXCEPTION 'IDENTITY_DECISION_TEST_FAILED: kerne-% accepteret',v_err;
       EXCEPTION WHEN OTHERS THEN
-        IF SQLERRM IS DISTINCT FROM (CASE v_err WHEN 'ukendt' THEN 'EVIDENCE_IDENTITY_ORIGIN_INVALID'
-             WHEN 'create_uden_kvittering' THEN 'EVIDENCE_IDENTITY_CREATE_RECEIPT_MISSING'
+        IF SQLERRM IS DISTINCT FROM (CASE WHEN v_err LIKE 'pb\_%' THEN 'PUBLICATION_BINDING_ORIGIN_INVALID'
+             WHEN v_err='ukendt' THEN 'EVIDENCE_IDENTITY_ORIGIN_INVALID'
+             WHEN v_err='create_uden_kvittering' THEN 'EVIDENCE_IDENTITY_CREATE_RECEIPT_MISSING'
              ELSE 'EVIDENCE_IDENTITY_BASIS_REQUIRED' END) THEN RAISE; END IF;
       END;
     END LOOP;
