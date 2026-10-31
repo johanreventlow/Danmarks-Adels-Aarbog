@@ -77,7 +77,9 @@ END $$;
 DO $finalize$
 BEGIN
   PERFORM pg_temp.pub_batch('pp-ok','publication_persona','publication_personas','publication-persona:',2,2);
-  PERFORM pg_temp.pub_batch('pi-ok','publication_identity','publication_identities','publication-identity:',2,2);
+  -- publication_identity: tællingen stemmer, men finalize efterprøver derefter kandidatkørslen (Task 6); events uden
+  -- kørsel afvises. Tællingen ved en gyldig C-batch afprøves i test-publication-identity.sql (fuld kæde).
+  PERFORM pg_temp.expect_error($q$SELECT pg_temp.pub_batch('pi-ok','publication_identity','publication_identities','publication-identity:',2,2)$q$,'PUBLICATION_IDENTITY_RUN_STALE');
   -- ét forventet, men to events: finalize afviser. Fixturen autoriserer 1 element og indsætter 2 events.
   PERFORM pg_temp.expect_error($q$SELECT pg_temp.pub_batch('pp-bad','publication_persona','publication_personas','publication-persona:',1,2)$q$,'REIMPORT_WRITER_FINALIZE_COUNT_MISMATCH');
   PERFORM pg_temp.expect_error($q$SELECT pg_temp.pub_batch('pi-bad','publication_identity','publication_identities','publication-identity:',1,2)$q$,'REIMPORT_WRITER_FINALIZE_COUNT_MISMATCH');
