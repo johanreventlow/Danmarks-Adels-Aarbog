@@ -285,7 +285,16 @@ BEGIN
   IF v_run3<>v_run3_pre THEN RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: kørsel 3''s id'; END IF;
   BEGIN PERFORM pg_temp.pi_apply(w,v_batch,pg_temp.pi_el(v_p36),v_p36); v_res:='OK'; EXCEPTION WHEN OTHERS THEN v_res:=SQLERRM; END;
   PERFORM pg_temp.expect('to kørsler i én batch',v_res,'PUBLICATION_IDENTITY_RUN_STALE');
-  -- og finalize af en C-batch, hvis kørsel ikke længere er den seneste, afvises også (her: tællingen falder først)
+  -- og finalize af en C-batch afvises, hvis kørslen ikke længere er den seneste: element 36 anvendes mod kørsel 3
+  -- (den seneste), derefter registreres kørsel 4, og finalize afviser med RUN_STALE.
+  v_p36:=pg_temp.pi_payload(w,36,v_run3,'svag','S');
+  v_batch:=pg_temp.pi_begin(w,'st-3',jsonb_build_object(pg_temp.pi_el(v_p36),v_p36));
+  PERFORM pg_temp.pi_apply(w,v_batch,pg_temp.pi_el(v_p36),v_p36);
+  PERFORM pg_temp.pi_run(w,v_cfg||'{"v":4}',v_c);
+  BEGIN PERFORM pg_temp.pi_finalize(w,v_batch); v_res:='OK'; EXCEPTION WHEN OTHERS THEN v_res:=SQLERRM; END;
+  PERFORM pg_temp.expect('finalize efter ny kørsel',v_res,'PUBLICATION_IDENTITY_RUN_STALE');
+  IF (SELECT status FROM private.reimport_batch WHERE id=v_batch)='finalized' THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: batch finalized trods RUN_STALE'; END IF;
   RAISE NOTICE 'OK: RUN_STALE (ny kørsel efter manifestet; to kørsler i én batch)';
 END $stale$;
 

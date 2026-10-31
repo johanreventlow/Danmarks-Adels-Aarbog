@@ -153,18 +153,44 @@ BEGIN
   RAISE NOTICE 'OK: versionsdrift afviser hele fortrydelsen uden skrivning';
 END $drift$;
 
+-- 3b) Manglende kvittering: en publication_identity-hændelse uden identity_version giver den tilsigtede
+--     REVERSAL_INVALID (ikke VERSION_DRIFT), og intet skrives.
+DO $receipt$
+DECLARE
+  w jsonb:=(SELECT v FROM t7 WHERE k='w'); v_run uuid:=(SELECT (v#>>'{}')::uuid FROM t7 WHERE k='run');
+  v_batch uuid; v_a uuid;
+BEGIN
+  v_batch:=pg_temp.pr_c(w,'rev-receipt',v_run,9,9);
+  v_a:=pg_temp.pr_auth(w,v_batch);
+  SET LOCAL session_replication_role=replica;
+  UPDATE private.reimport_event SET payload=jsonb_set(payload,'{result_receipt}',(payload->'result_receipt')-'identity_version')
+   WHERE batch_id=v_batch AND operation='publication_identity';
+  SET LOCAL session_replication_role=origin;
+  PERFORM pg_temp.expect('manglende kvittering',pg_temp.pr_try(w,v_batch,v_a),'REIMPORT_WRITER_REVERSAL_INVALID');
+  IF (SELECT status FROM private.reimport_batch WHERE id=v_batch)<>'finalized'
+     OR (SELECT version FROM private.source_persona_identity WHERE source_persona_id=pg_temp.pi_persona(w,9))<>1 THEN
+    RAISE EXCEPTION 'PUBLICATION_REVERSAL_TEST_FAILED: manglende kvittering efterlod skrivning'; END IF;
+  RAISE NOTICE 'OK: manglende kvittering giver REVERSAL_INVALID';
+END $receipt$;
+
 -- 4) Afvisninger: en B-batch, en fremmed autorisation, en åben batch, en udløbet autorisation.
 DO $reject$
 DECLARE
   w jsonb:=(SELECT v FROM t7 WHERE k='w'); v_run uuid:=(SELECT (v#>>'{}')::uuid FROM t7 WHERE k='run');
-  v_b uuid:=(w->>'b_batch')::uuid; v_c uuid; v_other uuid; v_ab uuid; v_ac uuid; v_p jsonb; v_open uuid;
+  v_b uuid:=(w->>'b_batch')::uuid; v_c uuid; v_other uuid; v_ab uuid; v_ac uuid; v_p jsonb; v_open uuid; v_n bigint;
 BEGIN
   -- B-batchen er finalized, så den kan autoriseres, men har kun publication_persona-hændelser
   v_ab:=pg_temp.pr_auth(w,v_b);
+  v_n:=(SELECT count(*) FROM private.reimport_event WHERE batch_id=v_b);
   PERFORM pg_temp.expect('B-batch',pg_temp.pr_try(w,v_b,v_ab),'REIMPORT_WRITER_REVERSAL_INVALID');
+  -- Persona 9 hører til SAMME B-batch (alle ni personas er oprettet af den) og er ikke rørt af andre dele af testen:
+  -- afvisningen må ikke have ændret B-batchens hændelser eller forbrugt autorisationen.
   IF (SELECT status FROM private.reimport_batch WHERE id=v_b)<>'finalized'
-     OR EXISTS (SELECT 1 FROM private.source_persona_identity i JOIN private.source_persona sp ON sp.id=i.source_persona_id
-                 WHERE sp.id=ANY(ARRAY[pg_temp.pi_persona(w,1)]) AND i.version<>2) THEN
+     OR NOT EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=v_b AND e.operation='publication_persona'
+                     AND e.payload->'result_receipt'->>'source_persona_id'=pg_temp.pi_persona(w,9)::text)
+     OR (SELECT count(*) FROM private.reimport_event WHERE batch_id=v_b)<>v_n
+     OR EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=v_b AND e.operation<>'publication_persona')
+     OR (SELECT status FROM private.reimport_authorization WHERE id=v_ab)<>'issued' THEN
     RAISE EXCEPTION 'PUBLICATION_REVERSAL_TEST_FAILED: B-afvisningen skrev'; END IF;
 
   -- autorisation for en anden batch
