@@ -71,6 +71,8 @@ task; tal og navne nedenfor er derfra. Planen præciserer fire punkter i specen 
   øves med `ALTER DATABASE … SET statement_timeout='2min'`, ICU-locale og `ANALYZE` efter restore.
 - Lokal verifikation før push: hele det berørte CI-job køres lokalt (pg-jobbene, node-jobbet for
   `@daa/identity-candidates`, python-jobbet), ikke kun egne testfiler.
+- `controlMargin = 0.05` (Task 10: mindste fejlfri gitterværdi 0,02 plus ét trin;
+  `docs/evidensbaseret-genimport/identitet-6b-kalibrering.md`).
 
 ## Review Focus
 
