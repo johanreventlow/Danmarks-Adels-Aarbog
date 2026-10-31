@@ -14,7 +14,7 @@ binding, kontrolleret af generatoren (ceremoni C).
   - én SQL-klassifikator for kontrollens udfald, som writeren, arket og kalibreringen alle bruger;
   - webkø-filter og redaktørvagt for personas, der venter på kontrol;
   - årstalsreserve fra `date_raw` i generatorens input;
-  - en dedikeret fortrydelse for B og C.
+  - en dedikeret fortrydelse for C (B fortrydes ved restore af dumpet, fordi personas er append-only).
 - **Scripts (PR 2):** generatoren udskriver hvert klyngemedlems egen score; kalibrering mod 2018-20; B's manifest
   og målingen; C's kortark og manifest.
 - **Prod:** ceremoni A (DDL) og B (personas) nu. Ceremoni C er beskrevet her, men **blokeret**, indtil 6c's runner
@@ -52,10 +52,10 @@ task; tal og navne nedenfor er derfra. Planen præciserer fire punkter i specen 
     `RECORD_HELPOST_SUBOCCURRENCE_OUTSIDE` uændret.
   - C: `PUBLICATION_IDENTITY_PAYLOAD_INVALID`, `PUBLICATION_IDENTITY_RUN_STALE`,
     `PUBLICATION_IDENTITY_BINDING_DRIFT`, `PUBLICATION_IDENTITY_OUTCOME_MISMATCH`,
-    `PUBLICATION_IDENTITY_SAMPLE_MISMATCH`; versionskonflikt er kernens `EVIDENCE_IDENTITY_VERSION_CONFLICT`.
+    `PUBLICATION_IDENTITY_SAMPLE_MISMATCH`, `PUBLICATION_IDENTITY_INPUT_DRIFT`; versionskonflikt er kernens `EVIDENCE_IDENTITY_VERSION_CONFLICT`.
   - Kernen: `PUBLICATION_BINDING_ORIGIN_INVALID`. Klassifikatoren: `PUBLICATION_CONTROL_CONFIG_MISSING`.
   - Køvagten: `IDENTITY_AWAITING_PUBLICATION_CONTROL`.
-  - Fortrydelse: `PUBLICATION_REVERSAL_DEPENDENTS`, `PUBLICATION_REVERSAL_VERSION_DRIFT`; øvrige som
+  - Fortrydelse: `PUBLICATION_REVERSAL_VERSION_DRIFT`; øvrige som
     `REIMPORT_WRITER_REVERSAL_INVALID`.
   - Arket: `PUBLICATION_SHEET_TOO_MANY_CARDS` (over 90 kort), `PUBLICATION_SAMPLE_FAILED` (F eller U i stikprøven).
 - Id'er: indholds-id med `private.content_uuid('source-persona', {source_id, persona_key})` og
@@ -77,8 +77,9 @@ task; tal og navne nedenfor er derfra. Planen præciserer fire punkter i specen 
 1. **En record med to aktive bindinger, eller en `withdrawn` + en `published`:** B kræver præcis én `published`
    `narrative_record_publication` og afviser ellers med `PUBLICATION_PERSONA_BINDING_DRIFT`. En `withdrawn` ved
    siden af én `published` er tilladt. Testes i Task 2.
-2. **Bindingspersonens egen klyngepartner scorer højere end den selv:** udfaldet må ikke blive `enig` på partnerens
-   score. Klassifikatoren bruger kun bindingspersonens egen `member_scores`-post. Testes i Task 5 og Task 9.
+2. **Bindingspersonens egen klyngepartner scorer lige med eller højere end den selv:** udfaldet bliver `svag` med
+   grunden `partner_hoejere`, aldrig `enig` (spec §4.5). Klassifikatoren bruger bindingspersonens egen
+   `member_scores`-post og ser partnerne som konkurrenter. Testes i Task 5, Task 9 og Task 10.
 3. **En `web_detail`-afgørelse mellem B og C:** `red_afgoer_source_persona` afviser med
    `IDENTITY_AWAITING_PUBLICATION_CONTROL`. Lykkes en afgørelse alligevel (fx før A), afviser C elementet med
    `EVIDENCE_IDENTITY_VERSION_CONFLICT`, og manifestbyggeren lister personaen som disposition. Testes i Task 3 og 6.
@@ -197,9 +198,10 @@ Rækkefølgen i writeren er bindende:
 **Interfaces:**
 - Produces: `persona_awaiting_control` er sand, præcis når:
   - personaen har ingen `source_persona_identity`-række;
-  - `created_run_id` er kørslen for en batch med mindst ét `publication_persona`-event (`extraction_run.manifest
-    ->>'batch_id'`);
-  - ingen `finalized` batch har et `publication_identity`-event med `payload->>'persona_batch_id'` = den batch.
+  - et `publication_persona`-event i en batch, der ikke er `reversed`, har `payload->'result_receipt'->>
+    'source_persona_id'` = personaen (eventet, ikke `created_run_id`: kørslen kan genbruges på tværs af batches med
+    samme manifest, Codex plan-r1 fund 10);
+  - ingen `finalized` batch har et `publication_identity`-event med `payload->>'persona_batch_id'` = eventets batch.
 
   Ellers er den falsk. Alle andre personas er upåvirkede.
 
@@ -221,10 +223,16 @@ Rækkefølgen i writeren er bindende:
 - Modify: `db-migrations.sql`. Modify: `tests/sql/test-identity-candidates.sql`.
 
 **Interfaces:**
-- Produces: i `input->'persons'->'assertions'` får en påstand med `date_min IS NULL AND date_max IS NULL` og præcis
-  ét forskelligt årstal i `public.assertion.date_raw` (regex `\m(1[0-9]{3}|20[0-9]{2})\M`) værdierne
-  `date_min = 'YYYY-01-01'`, `date_max = 'YYYY-12-31'` og nøglen `date_origin = 'date_raw'`. Andre påstande er
-  byte-ens. Tilføjelsen sker før sorteringen af arrays.
+- Produces:
+  - reserven er **tilvalgt i `input_spec`**: nøglen `year_fallback` med eneste værdi `date_raw-v1` er tilladt i begge
+    tilstande. Uden nøglen er inputtet byte-ens med i dag, så eksisterende kandidat- og 5b-kontrolkørsler, der
+    genberegner deres hash (`red_register_identity_control_run`, `control_input_list_sha256`), ikke driver (Codex
+    plan-r1 fund 9);
+  - med nøglen får en påstand i `input->'persons'->'assertions'` med `date_min IS NULL AND date_max IS NULL` og præcis
+    ét forskelligt årstal i `public.assertion.date_raw` (regex `\m(1[0-9]{3}|20[0-9]{2})\M`) værdierne
+    `date_min = 'YYYY-01-01'`, `date_max = 'YYYY-12-31'` og nøglen `date_origin = 'date_raw'`. Andre påstande er
+    byte-ens. Tilføjelsen sker før sorteringen af arrays;
+  - `export-input.sql` får en variabel `year_fallback` (tom = uden).
 
 - [ ] **Step 1: Udvid testen** med påstande med `date_raw`:
   - `'1750'` → 1750;
@@ -233,7 +241,9 @@ Rækkefølgen i writeren er bindende:
   - `'1750 el. 1751'` → ingen;
   - `'17..'` → ingen;
   - en påstand med `date_min` sat → uændret.
-  - Assertér også, at `input_sha256` er deterministisk over to kald.
+  - Assertér også, at `input_sha256` er deterministisk over to kald, at inputtet **uden** `year_fallback` er byte-ens
+    med en hash taget før ændringen, og at en ukendt værdi (`date_raw-v2`) giver `IDENTITY_CANDIDATE_INPUT_SPEC_INVALID`.
+  - Kør `tests/sql/test-identity-control-run.sql` uændret: en forseglet 5b-kørsel har samme status før og efter.
 - [ ] **Step 2-4:** Kør (fejl) → implementér → kør (`OK`).
 - [ ] **Step 5:** Commit `feat(db): årstal fra date_raw som reserve i identitetsgeneratorens input`.
 
@@ -243,9 +253,10 @@ Rækkefølgen i writeren er bindende:
 - Modify: `schema.sql`:
   - `private.decide_source_persona_identity` (ca. linje 9416): ny `ELSIF p_origin='publication_binding'`-gren og lås
     af målpersonen som i dag;
-  - ny `private.publication_control_outcome(p_persona uuid, p_run uuid, p_person bigint) RETURNS text`;
+  - ny `private.publication_control_outcome(p_persona uuid, p_run uuid, p_person bigint) RETURNS jsonb`;
   - ny `private.publication_control_in_sample(p_persona uuid, p_run uuid) RETURNS boolean`;
-  - ny `public.red_publication_control(p_candidate_run_id uuid) RETURNS jsonb` (redaktion; GRANT `authenticated`;
+  - nye `public.red_publication_control(p_candidate_run_id uuid) RETURNS jsonb` og
+    `public.red_publication_control_details(p_candidate_run_id uuid) RETURNS jsonb` (redaktion; GRANT `authenticated`;
     i `db-verify.sql`'s liste).
 - Modify: `db-migrations.sql`. Create: `tests/sql/test-publication-control.sql`. Modify: `tests/sql/test-identity-decision.sql`
   (`ukendt`-løkken får `publication_binding`-tilfældene). Modify: `ci.yml`.
@@ -259,19 +270,34 @@ Rækkefølgen i writeren er bindende:
     observationens kind)` giver som `ok`;
   - ingen anden persona for kilden har en mention i den observation.
 - Klassifikatoren læser de gemte kandidater for `(p_run, p_persona)` og kørslens `config` (`autoCutoff`,
-  `controlMargin`; mangler `controlMargin`, kastes `PUBLICATION_CONTROL_CONFIG_MISSING`):
-  - **egen post:** kandidatrækken, hvis `basis->'member_scores'` har `person_id = p_person`. Egen score og egne
-    signaler er den posts. Findes ingen: `ingen_kandidat`;
-  - **konkurrent:** højeste `score` blandt de øvrige kandidatrækker for personaen (andre klynger). Uden konkurrent er
-    marginen uendelig;
-  - konkurrent > egen: `uenig`; konkurrent = egen: `navnefaelle`;
+  `controlMargin`, `topK`; mangler `controlMargin`, eller er `topK` < 2, kastes `PUBLICATION_CONTROL_CONFIG_MISSING`).
+  Alle sammenligninger bruger de **uafrundede** `score_raw`-værdier fra `member_scores` (Task 9); lighed er `=` på
+  dem (Codex plan-r1 fund 7):
+  - **egen post:** `member_scores`-posten med `person_id = p_person` i en af personaens kandidatrækker. Egen score og
+    egne signaler er den posts. Findes ingen: `ingen_kandidat`;
+  - **konkurrent:** højeste `score_raw` blandt alle **andre** `member_scores`-poster for personaen, både i andre
+    kandidatrækker (andre klynger) og i egen række (egne klyngepartnere). Uden konkurrent er marginen uendelig. Med
+    `topK` ≥ 2 ligger den bedste anden klynge altid i de gemte rækker, når egen række er rang 1;
+  - en anden klynges post > egen: `uenig`; lig egen: `navnefaelle`;
+  - en egen klyngepartner > egen eller lig egen: `svag` (kortet viser grunden `partner_hoejere`). Specen §4.5:
+    scorer partneren højere end bindingspersonen selv, bliver det et kort (Codex plan-r1 fund 6);
   - egen ≥ `autoCutoff`, mindst ét af `birth`/`death` i egne signaler og egen − konkurrent ≥ `controlMargin`: `enig`;
   - ellers `svag`.
-- Stikprøven: blandt `enig`-personas med identitetsversion 0 (ikke de 8 eksisterende) de 20 med lavest `sha256('publication-sample-v1:'||input_sha256||':'||config_sha256||
-  ':'||persona_key)` (`COLLATE "C"`); færre end 20 enige → alle.
+  - Funktionen returnerer `jsonb` `{outcome, reason, own_score, competitor_score, competitor_person_id}`; writeren
+    sammenligner kun `outcome`.
+- Stikprøven: blandt `enig`-personas, som et `publication_persona`-event har skrevet (ikke de 8 v50-personas), de 20
+  med lavest `sha256('publication-sample-v1:'||input_sha256||':'||config_sha256||':'||persona_key)` (`COLLATE "C"`);
+  færre end 20 enige → alle. Populationen afhænger ikke af identitetsversion, så den flytter sig ikke, mens C skriver
+  (Codex plan-r1 fund 2).
 - `red_publication_control(run)` returnerer for hver persona i kørslen: `source_persona_id`, `identity_version`,
-  `binding_id`, `binding_status`, `person_id` (bindingens), `outcome`, `in_sample`, og ikke-staged-flag. Ingen tekst.
-  Bindingen findes fra personaens `primary`-mention → recordens helpost → `published` binding.
+  `binding_id`, `binding_status`, `person_id` (bindingens), `outcome`, `reason`, `in_sample` og et ikke-staged-flag.
+  Ingen tekst. Bindingen findes fra personaens `primary`-mention → recordens helpost → `published` binding.
+- `red_publication_control_details(run)` returnerer til kortarket, kun til `~/.private/6b/`:
+  - for bindingspersonen og alle personer i konkurrerende klynger: navn, leveår fra visningscachen, titel og
+    postreference (record_label);
+  - personaens `proposed` navn, fødsel og død;
+  - opslaget går direkte på person-id'erne, uafhængigt af repræsentantvalg og af, om `buildScored` filtrerede
+    bindingspersonen bort (Codex plan-r1 fund 8).
 
 - [ ] **Step 1: Skriv tests:**
   - kernen: hver ugyldig variant (forkert status, version 1, `basis`, forkert autoritet, `draft`-binding, en anden
@@ -283,10 +309,20 @@ Rækkefølgen i writeren er bindende:
     - (c) konkurrent 0,97 → `uenig`;
     - (d) konkurrent lig egen → `navnefaelle`;
     - (e) personen findes ikke → `ingen_kandidat`;
-    - (f) **klyngepartneren 0,99 i samme række, egen 0,70** → ikke `enig` (Review Focus 2);
+    - (f) **klyngepartneren 0,99 i samme række, egen 0,70** → `svag`, grund `partner_hoejere` (Review Focus 2);
+    - (f2) klyngepartneren 0,99, egen 0,95 med årstal, ingen anden klynge → `svag`, grund `partner_hoejere`;
     - (g) margin lige under `controlMargin` → `svag`;
-    - (h) `config` uden `controlMargin` → `PUBLICATION_CONTROL_CONFIG_MISSING`;
-  - stikprøven er deterministisk, har højst 20 og kun `enig`.
+    - (g2) `score_raw` 0,89996 (afrundet 0,9) med `autoCutoff` 0,9 → ikke `enig`;
+    - (h) `config` uden `controlMargin`, eller `topK` 1 → `PUBLICATION_CONTROL_CONFIG_MISSING`;
+  - stikprøven er deterministisk, har højst 20 og kun `enig`. Med 25 enige: den er den samme før og efter, at 10 af
+    dem har fået identitet.
+  - `red_publication_control_details` giver bindingspersonens data, også når bindingspersonen ikke er
+    repræsentant, og ved `ingen_kandidat`.
+- Modify også: `.claude/skills/daa-extract/scripts/test_identity_guard_static.py`. Oprindelseslisten får
+  `publication_binding`, og allowlisten over kernens kaldere får `private.write_publication_identity` (med `human` og
+  `publication_binding`) og `public.red_reverse_reimport_publication` (med `reversal`). Migrationsantallet tælles
+  efter Task 3's gendefinition af `red_afgoer_source_persona`. Henvisning: decisions 2026-10-31 (Codex plan-r1 fund
+  11).
 - [ ] **Step 2-4:** Kør (fejl) → implementér → kør (`OK`).
 - [ ] **Step 5:** Commit `feat(db): oprindelsen publication_binding og én klassifikator for publiceringskontrollen`.
 
@@ -294,6 +330,7 @@ Rækkefølgen i writeren er bindende:
 
 **Files:**
 - Modify: `schema.sql`: `private.write_publication_identity(…)` og `public.red_apply_reimport_publication_identity(…)`;
+  `public.red_finalize_reimport` (inputdriften nedenfor);
   REVOKE/GRANT og `db-verify.sql`-liste som Task 2.
 - Modify: `db-migrations.sql`. Create: `tests/sql/test-publication-identity.sql`,
   `tests/integration/test-publication-identity-concurrency.R`. Modify: `ci.yml`.
@@ -323,14 +360,25 @@ Rækkefølgen i writeren er bindende:
   2. `candidate_run_id` er kildens seneste kørsel, og dens `candidates_sha256` er payloadens, ellers
      `PUBLICATION_IDENTITY_RUN_STALE`; `persona_batch_id` er en `finalized` batch, hvis `publication_persona`-event
      skrev personaen;
-  3. **lås** `source_persona … FOR UPDATE`, derefter bindingen `FOR UPDATE`; kernen låser selv identitetsrækken og
-     personen (`lock_family_rows`). Writeren låser ikke i anden rækkefølge;
-  4. bindingen er uændret (`id`, `status='published'`, subjekt = `person_id`), ellers `PUBLICATION_IDENTITY_BINDING_DRIFT`;
+  3. **lås** i denne orden: bindingens `source_record … FOR UPDATE` (record først, som publiceringswriterne i
+     `private.narrative_record_state(…, true)`, så C og en samtidig tilbagetrækning serialiseres på recorden, Codex
+     plan-r1 fund 3), derefter `source_persona … FOR UPDATE`, derefter bindingen `FOR UPDATE`. Kernen låser selv
+     identitetsrækken og personen (`lock_family_rows`). Writeren låser ikke i anden rækkefølge;
+  4. **for alle svar og oprindelser** (Codex plan-r1 fund 5):
+     - personaens `primary`-mention ligger i recordens helpost (`record_helpost_status(record, kind)` = `ok`);
+     - bindingen er recordens eneste `published` binding med `id = binding_id`;
+     - subjektet er `person_id`.
+
+     Ellers `PUBLICATION_IDENTITY_BINDING_DRIFT`;
   5. `publication_control_outcome(persona, run, person_id) = outcome`, ellers `PUBLICATION_IDENTITY_OUTCOME_MISMATCH`;
      `publication_control_in_sample` stemmer med `answer`'s tilstedeværelse ved `enig`, ellers
      `PUBLICATION_IDENTITY_SAMPLE_MISMATCH`;
   6. kernen med `expected_identity_version` (konflikt giver kernens kode);
   7. `reimport_event` med kvittering `identity_version`, `origin`, `decision_status`.
+- **Inputdrift** (Codex plan-r1 fund 4): `red_finalize_reimport` genberegner for en batch med
+  `publication_identity`-events `identity_candidate_input(kørslens source_id, kørslens input_spec)` og sammenligner med
+  kørslens `input_sha256`; afvigelse giver `PUBLICATION_IDENTITY_INPUT_DRIFT`. Runneren kører alle apply-kald og
+  finalize i **én transaktion**, så en drift ruller hele C tilbage. Én genberegning pr. batch, ikke pr. element.
 
 - [ ] **Step 1: Skriv tests** (fixture: B-batch fra Task 2, kandidatkørsel registreret med `red_record_identity_candidates`
   og `config.controlMargin`):
@@ -340,15 +388,25 @@ Rækkefølgen i writeren er bindende:
   - ny kandidatkørsel efter manifestet → `RUN_STALE`;
   - bindingen trukket tilbage efter manifestet → `BINDING_DRIFT`;
   - identitet allerede version 1 → `EVIDENCE_IDENTITY_VERSION_CONFLICT`;
+  - krydsning: to gyldige B-personas med hver sin binding; en payload med persona 1 og binding 2 afvises for
+    `S`, `F`, `U` og `enig` med `BINDING_DRIFT`;
+  - en `proposed` `person.name`-fortolkning ændres efter kandidatkørslen → finalize giver
+    `PUBLICATION_IDENTITY_INPUT_DRIFT`, og intet er skrevet efter rollback;
   - fuld kæde med `publication_identities` = n og finalize; bagefter er `persona_awaiting_control` falsk for B's
     personas;
   - `narrative_publication_state` for recorden er byte-ens før og efter.
+  - Samtidighed (R): C mod en tilbagetrækning (`red_tilbagetraek_person_narrative_record`) af samme record i to
+    sessioner, begge rækkefølger: ingen deadlock; den sidste fejler med `BINDING_DRIFT` eller `NARRATIVE_RECORD_STATE_STALE`.
   - Samtidighed (R): C holder den eksklusive kildelås og venter; `red_record_identity_candidates` i en anden session
     blokerer, og når C committer, lykkes kørslen. Omvendt rækkefølge giver C `RUN_STALE`.
 - [ ] **Step 2-4:** Kør (fejl) → implementér → kør (`OK`).
 - [ ] **Step 5:** Commit `feat(db): writer-operation publication_identity med efterprøvet afgørelsesmængde`.
 
-### Task 7: Fortrydelse af B og C
+### Task 7: Fortrydelse af C
+
+`source_persona` og `source_persona_mention` er append-only (`private.reject_evidence_mutation`, schema.sql:1098-1108).
+B kan derfor ikke fortrydes med en writer. B fortrydes ved **restore af B-dumpet** i det deklarerede vindue, som 6a's
+ceremoni B (Codex plan-r1 fund 1; spec §6 og §8 pkt. 9 rettet i samme commit). Denne task bygger kun C's fortrydelse.
 
 **Files:**
 - Modify: `schema.sql`: ny `public.red_reverse_reimport_publication(p_batch_id uuid, p_authorization_id uuid) RETURNS
@@ -357,26 +415,21 @@ Rækkefølgen i writeren er bindende:
 - Modify: `db-migrations.sql`, `db-verify.sql`. Create: `tests/sql/test-publication-reversal.sql`. Modify: `ci.yml`.
 
 **Interfaces:**
-- Batchen skal være `finalized` og må kun have `publication_persona`-events eller kun `publication_identity`-events;
-  ellers `REIMPORT_WRITER_REVERSAL_INVALID`. Autorisationskontroller som `record_reimport_legacy_reversal`
-  (schema.sql:5608).
-- **B:** pr. persona, under `FOR UPDATE`: findes nogen række, der refererer personaen, ud over dens egen
-  `source_persona_mention`, afvises hele fortrydelsen med `PUBLICATION_REVERSAL_DEPENDENTS`. Mængden af refererende
-  tabeller udledes af `pg_constraint` (FK'er til `private.source_persona`), ikke af en fast liste. Ellers slettes
-  mention-koblingen og personaen.
-- **C:** pr. event: hvis personaens aktuelle identitetsversion ikke er eventets version, afvises hele fortrydelsen med
-  `PUBLICATION_REVERSAL_VERSION_DRIFT`. Ellers kernen med `reversal` → `superseded` (`reversed_batch_id`).
-- Batchen bliver `reversed`, og der skrives et `reversal`-event.
+- Batchen skal være `finalized` og må kun have `publication_identity`-events; ellers `REIMPORT_WRITER_REVERSAL_INVALID`.
+  Autorisationskontrollerne er som i `record_reimport_legacy_reversal` (schema.sql:5608).
+- Pr. event, i persona-id-orden under `FOR UPDATE`: er personaens aktuelle identitetsversion ikke eventets version,
+  afvises hele fortrydelsen med `PUBLICATION_REVERSAL_VERSION_DRIFT`. Ellers kaldes kernen med `reversal` →
+  `superseded` (`reversed_batch_id`).
+- Batchen bliver `reversed`, og der skrives et `reversal`-event. Personaerne venter derefter igen på kontrol: Task 3's
+  betingelse kræver en `finalized` C-batch, og en `reversed` tæller ikke.
 
 - [ ] **Step 1: Skriv tests:**
-  - B uden afhængige → personas og mentions er væk, batchen er `reversed`;
-  - B efter en kandidatkørsel (kandidatrækker) → `DEPENDENTS`;
-  - B efter en fortolkning med `source_persona_id` → `DEPENDENTS`;
-  - C → identiteterne er `superseded`, version 2;
+  - C → identiteterne er `superseded`, version 2, og `persona_awaiting_control` er falsk (de har en identitetsrække);
   - C efter en senere menneskelig afgørelse → `VERSION_DRIFT`;
-  - en blandet batch → `REVERSAL_INVALID`.
+  - en B-batch → `REVERSAL_INVALID`;
+  - en anden fortrydelse af samme batch → `REVERSAL_INVALID`.
 - [ ] **Step 2-4:** Kør (fejl) → implementér → kør (`OK`).
-- [ ] **Step 5:** Commit `feat(db): fortrydelse af publication-batches med afhængigheds- og versionsvagt`.
+- [ ] **Step 5:** Commit `feat(db): fortrydelse af publication_identity-batches med versionsvagt`.
 
 ### Task 8: PR 1 samlet
 
@@ -394,12 +447,12 @@ Rækkefølgen i writeren er bindende:
 - Modify: `packages/identity-candidates/src/rank.ts`, `src/cli.ts`; Modify: `src/__tests__/rank.test.ts`.
 
 **Interfaces:**
-- `Candidate.basis.member_scores: Array<{ person_id: number; score: number; signals: string[] }>` på **hver**
-  kandidatrække: for en klynge alle medlemmer, der overlevede `buildScored`, med deres egen score (afrundet som
-  `score`) og egne signaler; for en enkeltperson én post. Opsamles før sammenfoldningen i `rank.ts:45-62`. Rang,
+- `Candidate.basis.member_scores: Array<{ person_id: number; score_raw: number; signals: string[] }>` på **hver**
+  kandidatrække: for en klynge alle medlemmer, der overlevede `buildScored`, med deres egen **uafrundede** score og
+  egne signaler; for en enkeltperson én post. Opsamles før sammenfoldningen i `rank.ts:45-62`. Rang,
   `score`, `tier` og øvrige `basis`-felter er uændrede.
-- CLI: `--control-margin <x>` (valgfri, i (0,1)) lægges i `config.controlMargin`; `config.autoCutoff` findes allerede
-  via `rankConfig`. `GENERATOR_VERSION` = `identity-candidates-1.2`.
+- CLI: `--control-margin <x>` (valgfri, i (0,1)) lægges i `config.controlMargin`; `config.autoCutoff` og `config.topK`
+  findes allerede via `rankConfig`/CLI. `--year-fallback date_raw-v1` sendes videre til `export-input.sql` (Task 4). `GENERATOR_VERSION` = `identity-candidates-1.2`.
 
 - [ ] **Step 1: Tests:**
   - en klynge {A 0,99 med årstal, B 0,70 uden} giver én række med score 0,99 og `member_scores` for begge med egne
@@ -420,11 +473,13 @@ Rækkefølgen i writeren er bindende:
 
 - [ ] **Step 1:** På en frisk stand-in med PR 1 anvendt: generatoren for kilde 1 i `list`-tilstand over de 587 kendte
   (`sql/export-truth.sql`), `--top-k 5`, registreret med `red_record_identity_candidates`, én kørsel pr.
-  gitterværdi for `controlMargin` ∈ {0,02, 0,05, 0,08, 0,10, 0,15, 0,20}.
+  gitterværdi for `controlMargin` ∈ {0,02, 0,05, 0,08, 0,10, 0,15, 0,20}, med `--year-fallback date_raw-v1`.
 - [ ] **Step 2:** Pr. gitterværdi med `publication_control_outcome`:
   - **rigtige:** antal `enig`, når bindingspersonen er facit;
   - **forkerte:** antal `enig`, når bindingspersonen er en hvilken som helst anden kandidatperson i top 5 uden for
-    facits klynge (kontrafaktisk).
+    facits klynge (kontrafaktisk);
+  - **forkerte med forkert klynge:** som før, men med en syntetisk `samme_som` mellem den forkerte bindingsperson og
+    facit, lagt i en kopi af inputtet. Udfaldet må heller ikke her blive `enig` (Codex plan-r1 fund 6).
 - [ ] **Step 3: Valget.** `controlMargin` er den mindste gitterværdi med 0 forkerte, plus ét trin. Er ingen værdi fri
   for fejl: stop og tag det op med projektejeren. Kortantallet indgår ikke i valget (spec §4.3 pkt. 7).
 - [ ] **Step 4:** 5a's `calibrate` på kørslen med den valgte værdi. Forventet: top1, top3 og tier-tal som 5a-beviset
@@ -441,6 +496,8 @@ Rækkefølgen i writeren er bindende:
 - Create: `.claude/skills/daa-extract/scripts/maal_trin6b.sql`.
 - Create: `.claude/skills/daa-extract/scripts/tests/test_publication_persona_manifest.py` (kører SQL'en mod en lokal
   fixturebase, som de øvrige SQL-scripttests).
+- Modify: `.github/workflows/ci.yml`: python-jobbets eksplicitte filliste (ca. linje 145) får testfilen (Codex plan-r1
+  fund 12).
 
 **Interfaces:**
 - Manifestet: `{elements: {"publication-persona:<key>": payload}, expected_counts: {person_creates:0, source_evidence:0,
@@ -472,9 +529,10 @@ Rækkefølgen i writeren er bindende:
 - Create: `.claude/skills/daa-extract/scripts/publication_identity_sheet.py` (mønster `identity_queue_sheet.py`,
   inklusive `check_private_path` og `_write_new`).
 - Create: `.claude/skills/daa-extract/scripts/tests/test_publication_identity_sheet.py`.
+- Modify: `.github/workflows/ci.yml`: python-jobbets filliste får testfilen.
 
 **Interfaces:**
-- `render --control <red_publication_control-json> --details <red_source_persona_detail-dump> --out <ark>`:
+- `render --control <red_publication_control-json> --details <red_publication_control_details-json> --out <ark>`:
   - ét kort pr. persona med udfald ≠ `enig` og pr. stikprøvepersona;
   - kortene for stikprøven blandes ind i de øvrige uden at vise udfaldet;
   - kortet viser bindingens person og op til 3 konkurrerende klynger med navn, leveår, titel og postreference;
@@ -510,7 +568,7 @@ Rækkefølgen i writeren er bindende:
 - Create: `docs/runbooks/trin6b-prod.md` (mønster `docs/runbooks/trin6a-prod.md`: forløb, varighed, stoppunkter,
   fortrydelse pr. fase efter spec §6).
 - Create (privat): `~/.private/6b/` med runner `26-trin6b.sh` (`maal`, `go-a`, `dump`, `apply-a`, `manifest`, `go-b`,
-  `apply-b`, `reverse-b`) og `26-trin6b-b.R` (dry-run, authorize som `service_role`, apply, replay), via 5c-2's
+  `apply-b`) og `26-trin6b-b.R` (dry-run, authorize som `service_role`, apply, replay), via 5c-2's
   `lib.zsh`/`koer.zsh`.
 
 - [ ] **Step 1:** Frisk stand-in fra seneste prod-dump (ICU, 2 min, `ANALYZE`). Ceremoni A → `T6B_APPLY_A_OK` og målingen
@@ -523,8 +581,8 @@ Rækkefølgen i writeren er bindende:
   - `narrative_publication_state`-hash for de 563 er uændret;
   - køen viser ingen af de 555;
   - `k1_hash` er uændret.
-- [ ] **Step 4: Fortrydelsesøvelse:** `reverse-b` → personas væk, målingen er `a` igen. Kør B igen → `b`. På en kopi:
-  registrér en kandidatkørsel og forsøg `reverse-b` → `PUBLICATION_REVERSAL_DEPENDENTS`.
+- [ ] **Step 4: Fortrydelsesøvelse:** restore af B-dumpet (taget i tilstand `a`) på stand-in'en, `db-rls.sql` bagefter →
+  målingen er `a`, og `k1_hash` er uændret. Kør B igen → `b` (samme manifest, ny batch).
 - [ ] **Step 5:** Commit runbooken `docs(runbooks): trin 6b ceremoni A og B`.
 
 ### Task 14: Codex-diffreview, prod A og B, status
@@ -549,7 +607,7 @@ Forudsætninger, der skal stå i 6c's delspec og være opfyldt (spec §5):
 
 - [ ] **Step 1:** Stand-in efter 6c's runner-øvelse: kontrollér, at de 561 ikke-staged personas har `proposed`
   `person.name` og at mindst `person.birth` eller `person.death` findes for de fleste (notér antal).
-- [ ] **Step 2:** Generatoren for kilde 3 i `list`-tilstand over de 561, `--top-k 5 --control-margin <Task 10>`,
+- [ ] **Step 2:** Generatoren for kilde 3 i `list`-tilstand over de 561, `--top-k 5 --control-margin <Task 10> --year-fallback date_raw-v1`,
   registreret med `red_record_identity_candidates`. `red_publication_control` → fordelingen af udfald, stikprøven på
   20 og kortantallet. Over 90 kort: stop (spec §4.3 pkt. 6).
 - [ ] **Step 3:** Ark (øvelse: projektejeren udfylder et øvelsesark, eller alle kort `U` som teknisk prøve; notér hvad),
@@ -572,3 +630,26 @@ Forudsætninger, der skal stå i 6c's delspec og være opfyldt (spec §5):
   publicering, dispositioner.
 - [ ] **Step 4:** `status.md`: 1939 »Identitet« → `produktionsverificeret` med dato; `database-current-state.md`;
   `changelog.md`. Commit `docs(status): 1939's identitet i prod (trin 6b)`.
+
+---
+
+## Reviewlog
+
+### Codex-runde på spec+plan (2026-10-31, `gpt-6.1-sol`, B13-runden): NO-GO, 12 fund
+
+Afvejning (Opus):
+
+| # | Alvor | Fund | Afvejning | Indarbejdet |
+|---|---|---|---|---|
+| 1 | BLOCKER | B-fortrydelsen kan ikke slette append-only personas | nødvendig; bekræftet (schema.sql:1098-1108) | Task 7 kun C; B ved restore (Task 13); spec §6, §8 pkt. 9 |
+| 2 | HIGH | Stikprøven flytter sig, mens C skriver | nødvendig | Task 5: populationen er B-skrevne `enig`, uafhængig af version |
+| 3 | HIGH | Låseinversion mellem C og publiceringswriteren | kendt begrænsning i den beskrevne form: publiceringswriteren låser recorden først, så der er ingen cyklus, når C også gør; ordenen er nu eksplicit | Task 6 trin 3 + tosessionstest |
+| 4 | HIGH | C ser ikke ændret kandidatinput | nødvendig | Task 6: finalize genberegner inputtet; apply+finalize i én transaktion |
+| 5 | HIGH | `human`-grenen kobler ikke persona og binding | nødvendig | Task 6 trin 4 for alle svar + krydsningstest |
+| 6 | HIGH | En bedre klyngepartner skjules | nødvendig (spec §4.5 siger kort) | Task 5: partner ≥ egen → `svag`; Task 10: negativ kontrol med forkert klynge |
+| 7 | HIGH | Afrunding og top-K gør udfaldet uefterprøveligt | nødvendig | Task 9 `score_raw`; Task 5 `topK` ≥ 2 og lighed på rå værdier |
+| 8 | HIGH | Kortarket mangler bindingspersonens data | nødvendig | Task 5 `red_publication_control_details`; Task 12 |
+| 9 | HIGH | Årstalsreserven ændrer 5b's forseglede kontrolgrundlag | nødvendig | Task 4: tilvalgt i `input_spec`; spec §4.4 |
+| 10 | HIGH | B → fortryd → B genbruger kørslens batch-id | forenkl: B fortrydes nu ved restore; køfilteret bygger desuden på eventets kvittering | Task 3 |
+| 11 | MEDIUM | 5a's statiske guard mangler | nødvendig | Task 5 (`test_identity_guard_static.py`) |
+| 12 | MEDIUM | Nye Python-tests kommer ikke med i CI | nødvendig | Task 11, Task 12 |

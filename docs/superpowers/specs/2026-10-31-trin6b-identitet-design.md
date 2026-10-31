@@ -217,7 +217,9 @@ er dermed den anden serverkalder af `human` (præciseret i planen; `docs/decisio
 Personasiden får årstal fra runnerens fortolkninger (§4.3). Personsiden mangler dem: uden årstal bliver de 239
 navnefæller kort. Inputtet (`private.identity_candidate_input`) får derfor årstal fra påstandens `date_raw` som
 reserve, når `date_min/max` mangler. Reglen er deterministisk, bærer oprindelsen `date_raw` i inputtet og vægtes ikke
-højere end parsede datoer. Dækningen måles i planen på stand-in'en, før reglen låses.
+højere end parsede datoer. Reserven er tilvalgt i `input_spec` (`year_fallback: date_raw-v1`), så eksisterende
+kandidat- og 5b-kontrolkørsler ikke driver (præciseret i planen). Dækningen måles i planen på stand-in'en, før reglen
+låses.
 
 ### 4.5 `samme_som` (*mit valg*)
 
@@ -275,10 +277,11 @@ Tre ceremonier i 6a's form (dump med ekstern kopi, kørsel fra projektejerens sh
   Udfyldningen kan tage dage. Driften mellem kandidatkørsel og skrivning fanges af writerens efterprøvning (§4.3.1);
   webkøens filter forhindrer afgørelser i mellemtiden.
 - **Fortrydelse pr. fase:**
-  - *efter B, før runneren:* `red_reverse_reimport` på B-batchen fjerner personas og mentions (ingen afhængige endnu);
-    restore af B-dumpet er nødudvejen;
-  - *efter runneren:* fortolkningerne refererer personaerne og er append-only, så B-reversalen afvises fra nu af.
-    Vinduet for at fortryde B lukker, når runneren skriver; det står i runbooken som en bevidst grænse;
+  - *efter B, før runneren:* restore af B-dumpet i det deklarerede vindue, som 6a's ceremoni B. `source_persona` og
+    `source_persona_mention` er append-only (`private.reject_evidence_mutation`), så en writer kan ikke slette dem
+    (rettet efter Codex' plan-runde; udkastet sagde `red_reverse_reimport`);
+  - *efter runneren:* fortolkningerne refererer personaerne og er append-only; B kan ikke længere fortrydes. Vinduet
+    lukker, når runneren skriver; det står i runbooken som en bevidst grænse;
   - *efter C, før promotion:* `reversal` sætter C's identiteter til `superseded`; de 8 eksisterende er urørte;
   - *efter promotion:* 6c's fortrydelse gælder.
 - Øvelse på en frisk stand-in med prods `statement_timeout` (2 min) før hvert GO.
@@ -314,7 +317,8 @@ Mine valg, som projektejeren bør se:
 6. 6b skriver ingen `samme_som` (§4.5).
 7. De 2 staged får persona, men ingen identitet i 6b; de 8 eksisterende identiteter ændres ikke (§4.6).
 8. Stopregel ved over 90 kort (§4.3).
-9. B kan kun fortrydes uden restore, indtil runneren har skrevet (§6).
+9. B fortrydes kun ved restore af dumpet, og kun indtil runneren har skrevet (§6; rettet efter Codex' plan-runde:
+   personas er append-only).
 
 ## 9. Uden for scope
 
@@ -342,3 +346,8 @@ Desuden ét eget fund (12). Afvejning (Opus):
 | 10 | MEDIUM | S havde to modstridende skrivekontrakter | nødvendig | §4.3 pkt. 5, §6 |
 | 11 | MEDIUM | `legacy_match`-guarden beskrevet forkert | rettelse af fakta | §2.2 |
 | 12 | (eget) | Webkøen viser de nye personas som `proposed` mellem B og C | nødvendig | §4.2, §6 |
+
+### Codex-runde på spec+plan (2026-10-31, `gpt-6.1-sol`, B13-runden): NO-GO, 12 fund
+
+Afvejning og indarbejdelse står i planens reviewlog (`2026-10-31-trin6b-identitet.md`, sidst). Ændringer i specen:
+§4.4 (reserven tilvalgt i `input_spec`), §6 og §8 pkt. 9 (B fortrydes kun ved restore).
