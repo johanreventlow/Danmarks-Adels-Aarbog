@@ -1,10 +1,8 @@
 import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { personaFrames, personFrames, udenAarstal, type MatchPayload, type PersonaExportRow } from './frames';
-import { rankCandidates, runConfig, parseControlMargin } from './rank';
+import { rankCandidates, runConfig, parseControlMargin, GENERATOR_VERSION } from './rank';
 import { clusterMap } from './family';
 import { calibrate } from './calibrate';
-
-const GENERATOR_VERSION = 'identity-candidates-1.2';
 
 function arg(name: string, required = true): string | undefined {
   const i = process.argv.indexOf(`--${name}`);

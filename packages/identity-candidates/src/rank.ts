@@ -30,9 +30,15 @@ export function parseControlMargin(argv: string[]): number | undefined {
   return x;
 }
 
+// Generatorversionen ligger også i kørslens config: serverens kørselsnøgle (kilde, inputhash, confighash) rummer ikke
+// generator_version, så en ny generator på uændret input ellers ramte en ældre kørsel med et andet kandidatformat
+// (IDENTITY_CANDIDATE_RUN_CONFLICT; Codex 6B-04). Klassifikatoren læser kun autoCutoff/controlMargin/topK.
+export const GENERATOR_VERSION = 'identity-candidates-1.2';
+
 export function runConfig(o: { evidensNormaliseret?: boolean; topK: number; familyNameMin: number; controlMargin?: number }) {
   const { controlMargin, ...rest } = o;
   return { ...rankConfig({ evidensNormaliseret: o.evidensNormaliseret }), topK: rest.topK, familyNameMin: rest.familyNameMin,
+           generatorVersion: GENERATOR_VERSION,
            ...(controlMargin === undefined ? {} : { controlMargin }) };
 }
 

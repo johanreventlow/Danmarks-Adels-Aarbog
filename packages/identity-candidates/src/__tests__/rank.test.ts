@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { MatchFrame } from '@daa/core';
-import { rankCandidates, runConfig, parseControlMargin } from '../rank';
+import { rankCandidates, runConfig, parseControlMargin, GENERATOR_VERSION } from '../rank';
 
 const f = (id: string | number, nameKey: string, birth: number | null = null, sex: MatchFrame['sex'] = 'ukendt',
            death: number | null = null): MatchFrame => ({
@@ -84,6 +84,14 @@ describe('rankCandidates', () => {
 });
 
 describe('runConfig', () => {
+  test('rummer generatorversionen, så en ny generator ikke kolliderer med en ældre kørsel (6B-04)', () => {
+    const c = runConfig({ topK: 3, familyNameMin: 0.9, controlMargin: 0.05 });
+    expect(c.generatorVersion).toBe(GENERATOR_VERSION);
+    expect(GENERATOR_VERSION).toBe('identity-candidates-1.2');
+    // en 1.1-config (uden nøglen) giver en anden confighash end 1.2 på samme øvrige indstillinger
+    const { generatorVersion, ...gammel } = c;
+    expect(JSON.stringify(gammel)).not.toBe(JSON.stringify(c));
+  });
   test('--control-margin når ind i config, sammen med autoCutoff og topK', () => {
     const c = runConfig({ topK: 3, familyNameMin: 0.9, controlMargin: 0.05 });
     expect(c.controlMargin).toBe(0.05);
