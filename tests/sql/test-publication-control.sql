@@ -313,7 +313,7 @@ BEGIN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: personaer i kørslen %',jsonb_array_length(v_ctl->'personas'); END IF;
   IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_ctl->'personas') e
               WHERE (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(e) k)
-                    <>ARRAY['binding_id','binding_status','identity_version','in_sample','not_staged','outcome','person_id','reason','source_persona_id']) THEN
+                    <>ARRAY['b_binding_id','b_binding_status','binding_id','binding_status','identity_version','in_sample','not_staged','outcome','person_id','reason','source_persona_id']) THEN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: nøgler'; END IF;
   SELECT e INTO v_e FROM jsonb_array_elements(v_ctl->'personas') e WHERE e->>'source_persona_id'=v_bp[28]::text;
   IF v_e->>'outcome' IS DISTINCT FROM 'ingen_kandidat' OR v_e->>'binding_status'<>'published' OR (v_e->>'person_id')::bigint<>-653028
@@ -321,6 +321,17 @@ BEGIN
   SELECT e INTO v_e FROM jsonb_array_elements(v_ctl->'personas') e WHERE e->>'source_persona_id'=v_bp[29]::text;
   IF v_e->>'binding_status' IS DISTINCT FROM 'none' OR v_e->'outcome'<>'null'::jsonb OR v_e->'binding_id'<>'null'::jsonb
      OR (v_e->>'in_sample')::boolean THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: w %',v_e; END IF;
+  -- B-hændelsens binding (samme opslag som finalize's kontrolmængde): 'w' er tilbagetrukket, en normal er published, og en
+  -- persona uden B-hændelse (v50-lignende) har ingen
+  IF v_e->>'b_binding_id' IS DISTINCT FROM v_fx[29]->>'binding' OR v_e->>'b_binding_status' IS DISTINCT FROM 'withdrawn' THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: w B-binding %',v_e; END IF;
+  SELECT e INTO v_e FROM jsonb_array_elements(v_ctl->'personas') e WHERE e->>'source_persona_id'=v_bp[3]::text;
+  IF v_e->>'binding_status' IS DISTINCT FROM 'published' OR v_e->>'b_binding_status' IS DISTINCT FROM 'published'
+     OR v_e->>'b_binding_id' IS DISTINCT FROM v_e->>'binding_id' OR v_e->>'b_binding_id' IS DISTINCT FROM v_fx[3]->>'binding' THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: normal B-binding %',v_e; END IF;
+  SELECT e INTO v_e FROM jsonb_array_elements(v_ctl->'personas') e WHERE e->>'source_persona_id'=v_np[1]::text;
+  IF v_e->'b_binding_id'<>'null'::jsonb OR v_e->'b_binding_status'<>'null'::jsonb THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: v50-lignende B-binding %',v_e; END IF;
   SELECT e INTO v_e FROM jsonb_array_elements(v_ctl->'personas') e WHERE e->>'source_persona_id'=v_bp[30]::text;
   IF v_e->>'outcome' IS DISTINCT FROM 'svag' OR v_e->>'reason' IS DISTINCT FROM 'partner_hoejere' THEN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: q %',v_e; END IF;
@@ -429,6 +440,15 @@ BEGIN
      OR v_pd->'persons'->0->>'role'<>'binding' THEN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: details ingen_kandidat %',v_pd; END IF;
   IF jsonb_array_length(v_det->'personas')<>32 THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: details antal'; END IF;
+  -- detaljerne bærer samme B-binding som oversigten
+  SELECT e INTO v_pd FROM jsonb_array_elements(v_det->'personas') e WHERE e->>'source_persona_id'=v_bp[29]::text;
+  IF v_pd->>'binding_status' IS DISTINCT FROM 'none' OR v_pd->>'b_binding_status' IS DISTINCT FROM 'withdrawn'
+     OR v_pd->>'b_binding_id' IS DISTINCT FROM v_fx[29]->>'binding' THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: details w B-binding %',v_pd; END IF;
+  SELECT e INTO v_pd FROM jsonb_array_elements(v_det->'personas') e WHERE e->>'source_persona_id'=v_bp[3]::text;
+  IF v_pd->>'binding_status' IS DISTINCT FROM 'published' OR v_pd->>'b_binding_status' IS DISTINCT FROM 'published'
+     OR v_pd->>'b_binding_id' IS DISTINCT FROM v_fx[3]->>'binding' THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: details normal B-binding %',v_pd; END IF;
   RAISE NOTICE 'OK: red_publication_control og red_publication_control_details';
 END $stikproeve$;
 

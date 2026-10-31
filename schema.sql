@@ -9834,7 +9834,7 @@ REVOKE ALL ON FUNCTION private.publication_persona_binding(uuid),private.publica
 CREATE OR REPLACE FUNCTION public.red_publication_control(p_candidate_run_id uuid)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE v_run private.source_persona_identity_candidate_run%ROWTYPE; v_sample uuid[]; v_out jsonb:='[]'::jsonb;
-  v_pid uuid; v_pb record; v_o jsonb;
+  v_pid uuid; v_pb record; v_o jsonb; v_b_binding_id uuid; v_b_binding_status text;
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   SELECT * INTO v_run FROM private.source_persona_identity_candidate_run WHERE id=p_candidate_run_id;
@@ -9843,10 +9843,21 @@ BEGIN
   FOR v_pid IN SELECT private.publication_control_personas(p_candidate_run_id) LOOP
     SELECT * INTO v_pb FROM private.publication_persona_binding(v_pid);
     v_o:=CASE WHEN v_pb.binding_status='published' THEN private.publication_control_outcome(v_pid,p_candidate_run_id,v_pb.person_id) END;
+    -- B-hændelsens binding og dens aktuelle status, samme opslag som finalize's kontrolmængde (payload->>'binding_id' →
+    -- narrative_record_publication.status), så arket kan skelne en tilbagetrukket B-binding fra andre 'none'. NULL uden
+    -- B-hændelse (fx v50-personas).
+    v_b_binding_id:=NULL; v_b_binding_status:=NULL;
+    SELECT (e.payload->>'binding_id')::uuid,nb.status INTO v_b_binding_id,v_b_binding_status
+      FROM private.reimport_event e JOIN private.reimport_batch bb ON bb.id=e.batch_id
+      LEFT JOIN private.narrative_record_publication nb ON nb.id=(e.payload->>'binding_id')::uuid
+     WHERE e.operation='publication_persona' AND e.payload->'result_receipt'->>'source_persona_id'=v_pid::text
+       AND bb.status<>'reversed'
+     ORDER BY e.id LIMIT 1;
     v_out:=v_out||jsonb_build_array(jsonb_build_object(
       'source_persona_id',v_pid,
       'identity_version',coalesce((SELECT i.version FROM private.source_persona_identity i WHERE i.source_persona_id=v_pid),0),
       'binding_id',v_pb.binding_id,'binding_status',v_pb.binding_status,'person_id',v_pb.person_id,
+      'b_binding_id',v_b_binding_id,'b_binding_status',v_b_binding_status,
       'outcome',v_o->>'outcome','reason',v_o->>'reason','in_sample',v_pid=ANY(v_sample),
       'not_staged',(SELECT NOT coalesce(p.staged,false) FROM public.person p WHERE p.id=v_pb.person_id)));
   END LOOP;
@@ -9863,6 +9874,7 @@ CREATE OR REPLACE FUNCTION public.red_publication_control_details(p_candidate_ru
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE v_run private.source_persona_identity_candidate_run%ROWTYPE; v_out jsonb:='[]'::jsonb;
   v_pid uuid; v_pb record; v_o jsonb; v_own_row uuid; v_persons jsonb; v_proposed jsonb; v_component bigint[];
+  v_b_binding_id uuid; v_b_binding_status text;
 BEGIN
   IF auth.uid() IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
   SELECT * INTO v_run FROM private.source_persona_identity_candidate_run WHERE id=p_candidate_run_id;
@@ -9870,6 +9882,16 @@ BEGIN
   FOR v_pid IN SELECT private.publication_control_personas(p_candidate_run_id) LOOP
     SELECT * INTO v_pb FROM private.publication_persona_binding(v_pid);
     v_o:=CASE WHEN v_pb.binding_status='published' THEN private.publication_control_outcome(v_pid,p_candidate_run_id,v_pb.person_id) END;
+    -- B-hændelsens binding og dens aktuelle status, samme opslag som finalize's kontrolmængde (payload->>'binding_id' →
+    -- narrative_record_publication.status), så arket kan skelne en tilbagetrukket B-binding fra andre 'none'. NULL uden
+    -- B-hændelse (fx v50-personas).
+    v_b_binding_id:=NULL; v_b_binding_status:=NULL;
+    SELECT (e.payload->>'binding_id')::uuid,nb.status INTO v_b_binding_id,v_b_binding_status
+      FROM private.reimport_event e JOIN private.reimport_batch bb ON bb.id=e.batch_id
+      LEFT JOIN private.narrative_record_publication nb ON nb.id=(e.payload->>'binding_id')::uuid
+     WHERE e.operation='publication_persona' AND e.payload->'result_receipt'->>'source_persona_id'=v_pid::text
+       AND bb.status<>'reversed'
+     ORDER BY e.id LIMIT 1;
     v_component:=CASE WHEN v_pb.person_id IS NULL THEN '{}'::bigint[] ELSE ARRAY(
       WITH RECURSIVE k(pid) AS (
         SELECT v_pb.person_id
@@ -9938,6 +9960,7 @@ BEGIN
     v_out:=v_out||jsonb_build_array(jsonb_build_object(
       'source_persona_id',v_pid,'persona_key',(SELECT sp.persona_key FROM private.source_persona sp WHERE sp.id=v_pid),
       'binding_id',v_pb.binding_id,'binding_status',v_pb.binding_status,'person_id',v_pb.person_id,'record_label',v_pb.record_label,
+      'b_binding_id',v_b_binding_id,'b_binding_status',v_b_binding_status,
       'outcome',v_o,'proposed',v_proposed,'persons',v_persons));
   END LOOP;
   RETURN jsonb_build_object('candidate_run_id',v_run.id,'source_id',v_run.source_id,'personas',v_out);
