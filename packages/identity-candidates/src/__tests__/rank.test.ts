@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { MatchFrame } from '@daa/core';
-import { rankCandidates } from '../rank';
+import { rankCandidates, runConfig } from '../rank';
 
 const f = (id: string | number, nameKey: string, birth: number | null = null, sex: MatchFrame['sex'] = 'ukendt',
            death: number | null = null): MatchFrame => ({
@@ -50,6 +50,46 @@ describe('rankCandidates', () => {
     const a = rankCandidates([f('p1', 'ludvig reventlow', 1848)], [f(7, 'ludvig reventlow', 1848)], { topK: 3, origins });
     const b = rankCandidates([f('p1', 'ludvig reventlow', 1848)], [f(7, 'ludvig reventlow', 1848)], { topK: 3, origins });
     expect(a).toEqual(b);
-    expect(a[0].basis).toEqual({ signals: ['name', 'birth'], name_origin: 'accepted_interpretation', birth_origin: 'accepted_interpretation', death_origin: null });
+    expect(a[0].basis).toEqual({ signals: ['name', 'birth'], name_origin: 'accepted_interpretation', birth_origin: 'accepted_interpretation', death_origin: null,
+      member_scores: [{ person_id: 7, score_raw: a[0].basis.member_scores[0].score_raw, signals: ['name', 'birth'] }] });
+  });
+
+  test('enkeltperson: én member_scores-post med uafrundet score', () => {
+    const out = rankCandidates([f('p1', 'ludvig reventlow', 1848, 'ukendt', 1900)], [f(7, 'ludvig reventlow', 1848, 'mand', 1900)], { topK: 3, origins });
+    const ms = out[0].basis.member_scores;
+    expect(ms).toHaveLength(1);
+    expect(ms[0].person_id).toBe(7);
+    expect(ms[0].signals).toEqual(expect.arrayContaining(['name', 'birth', 'death']));
+    expect(Number.isInteger(ms[0].person_id)).toBe(true);
+    expect(ms[0].score_raw).toBeGreaterThan(out[0].score - 0.0001);
+  });
+
+  test('klynge {A med årstal, B uden}: én række, klyngens score, hvert medlem med egen score og egne signaler', () => {
+    const persona = [f('p1', 'ludvig reventlow', 1848, 'ukendt', 1900)];
+    const persons = [f(7, 'ludvig reventlow', 1848, 'mand', 1900), f(8, 'ludvig reventlow', null, 'mand')];
+    const ud = rankCandidates(persona, persons, { topK: 3, origins, clusters: new Map([[7, 7], [8, 7]]) });
+    expect(ud).toHaveLength(1);
+    expect(ud[0].basis.cluster_members).toEqual([7, 8]);
+    const ms = ud[0].basis.member_scores;
+    expect(ms.map((m) => m.person_id)).toEqual([7, 8]);
+    const [a, b] = ms;
+    expect(a.signals).toEqual(expect.arrayContaining(['birth', 'death']));
+    expect(b.signals).not.toContain('birth');
+    expect(b.signals).not.toContain('death');
+    expect(a.score_raw).toBeGreaterThan(b.score_raw);
+    expect(ud[0].score).toBe(Math.round(Math.min(1, a.score_raw) * 10000) / 10000);
+    expect(b.score_raw).toBeLessThan(a.score_raw);
+  });
+});
+
+describe('runConfig', () => {
+  test('--control-margin når ind i config, sammen med autoCutoff og topK', () => {
+    const c = runConfig({ topK: 3, familyNameMin: 0.9, controlMargin: 0.05 });
+    expect(c.controlMargin).toBe(0.05);
+    expect(typeof c.autoCutoff).toBe('number');
+    expect(c.topK).toBe(3);
+  });
+  test('uden flag udelades controlMargin', () => {
+    expect('controlMargin' in runConfig({ topK: 3, familyNameMin: 0.9 })).toBe(false);
   });
 });

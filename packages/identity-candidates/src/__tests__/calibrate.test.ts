@@ -4,7 +4,8 @@ import type { Candidate } from '../rank';
 
 const c = (p: string, person: number, rank: number, tier: Candidate['tier']): Candidate => ({
   source_persona_id: p, candidate_person_id: person, rank, score: 0.8, tier,
-  basis: { signals: ['name'], name_origin: 'accepted_interpretation', birth_origin: null, death_origin: null },
+  basis: { signals: ['name'], name_origin: 'accepted_interpretation', birth_origin: null, death_origin: null,
+    member_scores: [{ person_id: person, score_raw: 0.8, signals: ['name'] }] },
 });
 
 describe('calibrate', () => {

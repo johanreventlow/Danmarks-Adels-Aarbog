@@ -1,10 +1,10 @@
 import { readFileSync, writeFileSync, chmodSync } from 'node:fs';
 import { personaFrames, personFrames, udenAarstal, type MatchPayload, type PersonaExportRow } from './frames';
-import { rankCandidates, rankConfig } from './rank';
+import { rankCandidates, runConfig } from './rank';
 import { clusterMap } from './family';
 import { calibrate } from './calibrate';
 
-const GENERATOR_VERSION = 'identity-candidates-1.1';
+const GENERATOR_VERSION = 'identity-candidates-1.2';
 
 function arg(name: string, required = true): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -34,10 +34,13 @@ if (cmd === 'generate') {
   const clusters = clusterMap(((exp.input as { same_as?: Array<[number, number]> }).same_as ?? []));
   const familyNameMin = Number(arg('family-name-min', false) ?? 0.9);
   if (!(familyNameMin > 0 && familyNameMin <= 1)) { console.error('--family-name-min skal ligge i (0,1]'); process.exit(2); }
+  const cmRaw = arg('control-margin', false);
+  const controlMargin = cmRaw === undefined ? undefined : Number(cmRaw);
+  if (controlMargin !== undefined && !(controlMargin > 0 && controlMargin < 1)) { console.error('--control-margin skal ligge i (0,1)'); process.exit(2); }
   const candidates = rankCandidates(frames, persons, { topK, origins, evidensNormaliseret, families, clusters, familyNameMin });
   const run = {
     source_id: sourceId, generator_version: GENERATOR_VERSION, input_spec: exp.input_spec,
-    input_sha256: exp.input_sha256, config: { ...rankConfig({ evidensNormaliseret }), topK, familyNameMin },
+    input_sha256: exp.input_sha256, config: runConfig({ evidensNormaliseret, topK, familyNameMin, controlMargin }),
   };
   const uden = frames.filter((f) => !f.nameKey).length;
   const out = arg('out')!;
