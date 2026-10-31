@@ -109,8 +109,18 @@ BEGIN
     pg_temp.pi_payload(w,23,v_run,'svag','F','{"same_as_hint_person_id":-6610926}')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
   PERFORM pg_temp.expect('hint = bindingspersonen',pg_temp.pi_try(w,'r-hs',
     pg_temp.pi_payload(w,23,v_run,'svag','S','{"same_as_hint_person_id":-6610023}')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
+  -- Trin 6b opfølgning (I2): versionen er et ikke-negativt heltal; en anden version end 0 kræver en fortrudt
+  -- publikationsidentitet (writerens vagt under personalåsen, kernens versionskode).
   PERFORM pg_temp.expect('version 1',pg_temp.pi_try(w,'r-v1',
-    pg_temp.pi_payload(w,23,v_run,'svag','S','{"expected_identity_version":1}')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
+    pg_temp.pi_payload(w,23,v_run,'svag','S','{"expected_identity_version":1}')),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
+  PERFORM pg_temp.expect('version som tekst',pg_temp.pi_try(w,'r-vt',
+    pg_temp.pi_payload(w,23,v_run,'svag','S','{"expected_identity_version":"0"}')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
+  PERFORM pg_temp.expect('negativ version',pg_temp.pi_try(w,'r-vn',
+    pg_temp.pi_payload(w,23,v_run,'svag','S','{"expected_identity_version":-1}')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
+  PERFORM pg_temp.expect('brøkversion',pg_temp.pi_try(w,'r-vf',
+    pg_temp.pi_payload(w,23,v_run,'svag','S','{"expected_identity_version":1.5}')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
+  PERFORM pg_temp.expect('null-version',pg_temp.pi_try(w,'r-v0',
+    pg_temp.pi_payload(w,23,v_run,'svag','S','{"expected_identity_version":null}')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
   PERFORM pg_temp.expect('elementid',pg_temp.pi_try(w,'r-el',pg_temp.pi_payload(w,23,v_run,'svag','S'),
     'publication-identity:'||pg_temp.pi_persona(w,24)),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
   PERFORM pg_temp.expect('fremmed B-batch',pg_temp.pi_try(w,'r-pb',
@@ -163,6 +173,10 @@ BEGIN
   PERFORM set_config('request.jwt.claim.sub',w->'src'->>'actor',true);
   PERFORM private.decide_source_persona_identity(pg_temp.pi_persona(w,38),-6610038,0,'accepted','{"basis":"web_detail","note":"t"}','human');
   PERFORM pg_temp.expect('version 1',pg_temp.pi_try(w,'r-vc',pg_temp.pi_payload(w,38,v_run,'svag','S')),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
+  -- og med den aktuelle version (1): en menneskelig identitet er ikke en fortrudt publikationsidentitet. Kernens human-
+  -- oprindelse har ingen versionsvagt, så writerens vagt er den, der afviser (trin 6b opfølgning, I2).
+  PERFORM pg_temp.expect('aktuel version på menneskelig identitet',pg_temp.pi_try(w,'r-vh',
+    pg_temp.pi_payload(w,38,v_run,'svag','S','{"expected_identity_version":1}')),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
 
   IF EXISTS (SELECT 1 FROM private.reimport_event e JOIN private.reimport_batch b ON b.id=e.batch_id
               WHERE b.source_id=-6610 AND e.operation='publication_identity')

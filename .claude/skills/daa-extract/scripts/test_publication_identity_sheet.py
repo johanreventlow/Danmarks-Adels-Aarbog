@@ -402,3 +402,80 @@ def test_b_noegler_skal_vaere_ens(k, v):
     det["personas"][0][k] = v
     with pytest.raises(SheetError, match="PUBLICATION_SHEET_INPUT_MISMATCH"):
         pis.render(ctl, det, "x")
+
+
+def _reverted(ctl, outcome, version=2, sample=False):
+    """Gør den første nye persona med udfaldet til en fortrudt publikationsidentitet (trin 6b opfølgning, I2)."""
+    c = next(c for c in ctl["personas"] if c["outcome"] == outcome and c["identity_version"] == 0 and c["not_staged"]
+             and bool(c["in_sample"]) == sample)
+    c["identity_version"] = version
+    c["identity_reverted"] = True
+    return c
+
+
+def test_fortrudt_identitet_bliver_element_med_aktuel_version(tmp_path):
+    ctl, det = make()
+    weak = _reverted(ctl, "svag")
+    enig = _reverted(ctl, "enig")
+    samp = _reverted(ctl, "enig", version=4, sample=True)
+    files = pis.render(ctl, det, "x")
+    text = "".join(t for _, t in files)
+    assert f"P {weak['source_persona_id']} 2 : _ #" in text and f"P {samp['source_persona_id']} 4 : _ #" in text
+    man, info = build(ctl, det, tmp_path)
+    els = man["elements"]
+    assert els[f"publication-identity:{weak['source_persona_id']}"]["expected_identity_version"] == 2
+    assert els[f"publication-identity:{weak['source_persona_id']}"]["answer"] == "S"
+    assert els[f"publication-identity:{enig['source_persona_id']}"]["expected_identity_version"] == 2
+    assert els[f"publication-identity:{enig['source_persona_id']}"]["answer"] is None
+    assert els[f"publication-identity:{samp['source_persona_id']}"]["expected_identity_version"] == 4
+    # de øvrige nye har stadig version 0; samme antal elementer som uden fortrydelse
+    assert {v["expected_identity_version"] for k, v in els.items()
+            if v["source_persona_id"] not in (weak["source_persona_id"], enig["source_persona_id"], samp["source_persona_id"])} == {0}
+    assert man["expected_counts"]["publication_identities"] == 9
+    assert all(d["source_persona_id"] not in (weak["source_persona_id"], enig["source_persona_id"]) for d in man["dispositions"])
+
+
+def test_fortrudt_identitet_med_forkert_version_paa_arket_afvises(tmp_path):
+    ctl, det = make()
+    weak = _reverted(ctl, "svag")
+
+    def mut(sh):
+        out = []
+        for n, b in sh:
+            out.append((n, b.replace(f"P {weak['source_persona_id']} 2 :".encode(), f"P {weak['source_persona_id']} 0 :".encode())))
+        return out
+    files = pis.render(ctl, det, "x")
+    sheets, approved = [], []
+    for n, t in files:
+        b = fill(t, {}).encode()
+        b = mut([(n, b)])[0][1]
+        sheets.append((n, b))
+        approved.append(hashlib.sha256(b).hexdigest())
+    with pytest.raises(SheetError, match="PUBLICATION_SHEET_VERSION_MISMATCH"):
+        pis.build_manifest(json.dumps(ctl).encode(), json.dumps(det).encode(), sheets, approved, BATCH, CAND)
+
+
+@pytest.mark.parametrize("flag", [False, None, "true"])
+def test_ikke_fortrudt_identitet_er_stadig_disposition(tmp_path, flag):
+    """En identitet med version > 0, som ikke er en fortrudt publikationsidentitet (fx menneskelig afgørelse efter
+    fortrydelsen), giver ikke et element; kun identity_reverted == True (bool) åbner for den aktuelle version."""
+    ctl, det = make()
+    weak = _reverted(ctl, "svag")
+    if flag is None:
+        del weak["identity_reverted"]
+    else:
+        weak["identity_reverted"] = flag
+    man, _ = build(ctl, det, tmp_path)
+    assert f"publication-identity:{weak['source_persona_id']}" not in man["elements"]
+    d = next(x for x in man["dispositions"] if x["source_persona_id"] == weak["source_persona_id"])
+    assert d["label"] == "allerede_persona" and d["answer"] == "S"
+    assert man["expected_counts"]["publication_identities"] == 8
+
+
+def test_fortrudt_staged_er_staged_disposition(tmp_path):
+    ctl, det = make()
+    st = next(c for c in ctl["personas"] if c["not_staged"] is False)
+    st["identity_version"], st["identity_reverted"] = 2, True
+    man, _ = build(ctl, det, tmp_path)
+    assert f"publication-identity:{st['source_persona_id']}" not in man["elements"]
+    assert next(x for x in man["dispositions"] if x["source_persona_id"] == st["source_persona_id"])["label"] == "staged_ikke_offentlig"

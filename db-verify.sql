@@ -10491,3 +10491,27 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: trin 6b — commit-vagt (udskudt, operationsfiltreret) og partielle indekser på reimport_event';
 END $verify_6b_commit_guard$;
+
+-- ===== Trin 6b opfølgning (I2): C kan genkøres efter fortrydelse =====
+-- Hjælperen for en fortrudt publikationsidentitet er privat (SECURITY DEFINER, ingen klientrolle kan kalde den), og de fem
+-- steder, der behandler den som »ingen identitet« eller godtager dens version, bruger den. En gammel definition (fx efter en
+-- delvis restore) ville give webkø-adfærden tilbage eller lade C afvise genkørslen.
+DO $verify_6b_rerun$
+DECLARE f text:='private.publication_identity_reverted(uuid)'; v_fn text;
+BEGIN
+  IF to_regprocedure(f) IS NULL OR NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid=to_regprocedure(f))
+     OR has_function_privilege('anon',f,'EXECUTE') OR has_function_privilege('authenticated',f,'EXECUTE')
+     OR has_function_privilege('service_role',f,'EXECUTE') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6b fortrudt publikationsidentitet: hjælperen (findes/security definer/ACL)';
+  END IF;
+  FOREACH v_fn IN ARRAY ARRAY['private.decide_source_persona_identity(uuid,bigint,integer,text,jsonb,text)',
+                              'private.persona_awaiting_control(uuid)','private.publication_sample_candidates(uuid)',
+                              'private.verify_publication_identity_input(uuid)','private.write_publication_identity(uuid,text,jsonb)',
+                              'public.red_publication_control(uuid)'] LOOP
+    IF to_regprocedure(v_fn) IS NULL
+       OR position('private.publication_identity_reverted(' IN (SELECT p.prosrc FROM pg_proc p WHERE p.oid=to_regprocedure(v_fn)))=0 THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6b fortrudt publikationsidentitet: % bruger ikke hjælperen',v_fn;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: trin 6b — fortrudt publikationsidentitet (hjælper privat; kerne, køvagt, stikprøve, finalize, writer, kontrol)';
+END $verify_6b_rerun$;

@@ -40,7 +40,10 @@ def _sha(b: bytes) -> str:
 
 
 def _is_new(c: dict) -> bool:
-    return int(c.get("identity_version") or 0) == 0 and c.get("not_staged") is True
+    """Personaen får et C-element: ikke staged og enten uden identitet (version 0) eller med en fortrudt
+    publikationsidentitet (identity_reverted, trin 6b opfølgning I2); så skriver C oven på den aktuelle version."""
+    v = int(c.get("identity_version") or 0)
+    return c.get("not_staged") is True and (v == 0 or c.get("identity_reverted") is True)
 
 
 def _withdrawn(c: dict) -> bool:
@@ -252,7 +255,7 @@ def build_manifest(control_bytes: bytes, details_bytes: bytes, sheets: list[tupl
             "answer": ans[2]["tok"] if ans else None,
             "binding_id": c["binding_id"], "binding_status": c["binding_status"],
             "candidate_run_id": control["candidate_run_id"], "candidates_sha256": candidates_sha256,
-            "expected_identity_version": 0, "outcome": c["outcome"], "person_id": c["person_id"],
+            "expected_identity_version": int(c.get("identity_version") or 0), "outcome": c["outcome"], "person_id": c["person_id"],
             "persona_batch_id": persona_batch,
             "rows_sha256": rows_sha if ans else None,
             "same_as_hint_person_id": ans[2]["hint"] if ans else None,

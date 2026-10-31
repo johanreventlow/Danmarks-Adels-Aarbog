@@ -313,7 +313,9 @@ BEGIN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: personaer i kørslen %',jsonb_array_length(v_ctl->'personas'); END IF;
   IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_ctl->'personas') e
               WHERE (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(e) k)
-                    <>ARRAY['b_binding_id','b_binding_status','binding_id','binding_status','identity_version','in_sample','not_staged','outcome','person_id','reason','source_persona_id']) THEN
+                    <>ARRAY['b_binding_id','b_binding_status','binding_id','binding_status','identity_reverted','identity_version','in_sample','not_staged','outcome','person_id','reason','source_persona_id']
+                 -- ingen fortrudte publikationsidentiteter her (trin 6b opfølgning, I2; dækket i test-publication-reversal.sql)
+                 OR e->'identity_reverted' IS DISTINCT FROM 'false'::jsonb) THEN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: nøgler'; END IF;
   SELECT e INTO v_e FROM jsonb_array_elements(v_ctl->'personas') e WHERE e->>'source_persona_id'=v_bp[28]::text;
   IF v_e->>'outcome' IS DISTINCT FROM 'ingen_kandidat' OR v_e->>'binding_status'<>'published' OR (v_e->>'person_id')::bigint<>-653028
