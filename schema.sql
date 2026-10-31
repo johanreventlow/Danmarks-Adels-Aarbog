@@ -17217,6 +17217,28 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION private.verify_publication_identity_input(uuid) FROM PUBLIC,anon,authenticated,service_role;
 
+-- Controller-beslutning efter Codex 6B-01: en publication_identity-hændelse kan kun committes, når dens batch er finaliseret
+-- (eller aktiveret) i samme transaktion. Writer-rammen committer ellers hver apply for sig, og en delvis C uden finalize
+-- ville efterlade accepterede identiteter, som hverken mængdekontrollen eller stikprøven har set. Den udskudte constraint
+-- trigger kontrollerer ved commit; en tilbagerullet transaktion udløser den ikke. Kun operation publication_identity (ikke
+-- B's publication_persona eller fortrydelsens reversal-hændelse). SECURITY DEFINER, fordi commit sker som authenticated.
+CREATE OR REPLACE FUNCTION private.require_publication_identity_finalized()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+BEGIN
+  IF NEW.operation='publication_identity'
+     AND NOT EXISTS (SELECT 1 FROM private.reimport_batch b WHERE b.id=NEW.batch_id AND b.status IN ('finalized','activated')) THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_UNFINALIZED';
+  END IF;
+  RETURN NULL;
+END $$;
+REVOKE ALL ON FUNCTION private.require_publication_identity_finalized() FROM PUBLIC,anon,authenticated,service_role;
+DROP TRIGGER IF EXISTS trg_reimport_event_publication_identity_finalized ON private.reimport_event;
+CREATE CONSTRAINT TRIGGER trg_reimport_event_publication_identity_finalized
+  AFTER INSERT ON private.reimport_event
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW WHEN (NEW.operation='publication_identity')
+  EXECUTE FUNCTION private.require_publication_identity_finalized();
+
 -- Trin 6b (ceremoni C, spec §6 "Fortrydelse pr. fase"): fortrydelse af en publication_identity-batch. B fortrydes ikke her
 -- (source_persona er append-only; B fortrydes ved restore af B-dumpet). Hver af C's identiteter sættes til superseded gennem
 -- kernens reversal-oprindelse, men kun hvis personaens aktuelle identitetsversion stadig er den, C skrev; en senere

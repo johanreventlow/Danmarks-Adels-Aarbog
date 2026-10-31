@@ -316,6 +316,14 @@ BEGIN
   IF private.narrative_publication_state(-6610001,-6610,'r1')::text<>v_state1::text
      OR private.narrative_publication_state(-6610026,-6610,'r26')::text<>v_state26::text THEN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: narrative_publication_state ændret'; END IF;
+  -- replay: samme manifest efter finalize giver den eksisterende batch (ingen nye hændelser)
+  IF pg_temp.pi_begin(w,'chain',pg_temp.pi_elements(v_all))<>v_batch
+     OR (SELECT count(*) FROM private.reimport_event WHERE batch_id=v_batch)<>38 THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: replay efter finalize'; END IF;
+  -- den udskudte commit-vagt (Controller efter 6B-01): kæden er finaliseret, så den består nu; 3a/3b's hændelser er rullet
+  -- tilbage med deres undertransaktioner og tæller ikke
+  SET CONSTRAINTS private.trg_reimport_event_publication_identity_finalized IMMEDIATE;
+  SET CONSTRAINTS private.trg_reimport_event_publication_identity_finalized DEFERRED;
   INSERT INTO t6 VALUES ('chain_batch',to_jsonb(v_batch));
   RAISE NOTICE 'OK: kontrolmængden (delvis, ekstra staged og udskiftet afvist; fuld kæde 38 elementer, fem udfald × tilladte svar, kun C og staged frigives)';
 END $chain$;
@@ -350,6 +358,14 @@ BEGIN
          ||jsonb_build_object('candidate_run_id',v_run3_pre,'candidates_sha256',private.reimport_canonical_json_sha256(v_c));
   v_batch:=pg_temp.pi_begin(w,'st-2',pg_temp.pi_elements(jsonb_build_array(v_p1,v_p2)));
   PERFORM pg_temp.pi_apply(w,v_batch,pg_temp.pi_el(v_p1),v_p1);
+  -- commit-vagten: st-2 er åben med en hændelse; kontrolleres den nu (som ved commit), afvises den
+  BEGIN
+    SET CONSTRAINTS private.trg_reimport_event_publication_identity_finalized IMMEDIATE;
+    v_res:='OK';
+  EXCEPTION WHEN OTHERS THEN v_res:=SQLERRM;
+  END;
+  SET CONSTRAINTS private.trg_reimport_event_publication_identity_finalized DEFERRED;
+  PERFORM pg_temp.expect('åben batch ved commit',v_res,'PUBLICATION_IDENTITY_UNFINALIZED');
   v_run3:=pg_temp.pi_run(w,v_cfg||'{"v":3}',v_c);
   IF v_run3<>v_run3_pre THEN RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: kørsel 3''s id'; END IF;
   BEGIN PERFORM pg_temp.pi_apply(w,v_batch,pg_temp.pi_el(v_p2),v_p2); v_res:='OK'; EXCEPTION WHEN OTHERS THEN v_res:=SQLERRM; END;
@@ -475,3 +491,47 @@ BEGIN
   RAISE NOTICE 'OK: SERIALIZABLE afvises af writer og finalize-efterprøvningen';
 END $iso$;
 ROLLBACK;
+
+-- 8) Controller efter Codex 6B-01: en C-hændelse kan ikke committes uden finalize i samme transaktion. Ægte COMMIT: verden,
+--    kørsel og én apply i én transaktion; COMMIT fejler med PUBLICATION_IDENTITY_UNFINALIZED, og intet er tilbage. En
+--    tilsvarende transaktion, der rulles tilbage, er uberørt af vagten.
+BEGIN;
+DO $unfin$
+DECLARE w jsonb:=pg_temp.pi_world(-6660,'11000000-0000-0000-0000-00000006b660',1); v_run uuid; v_p jsonb; v_batch uuid;
+BEGIN
+  v_run:=pg_temp.pi_run(w,'{"topK":10,"autoCutoff":0.9,"controlMargin":0.05}',
+    jsonb_build_array(pg_temp.pi_cand(pg_temp.pi_persona(w,1),-6660001,1,jsonb_build_array(pg_temp.pi_ms(-6660001,0.95,ARRAY['name'])))));
+  v_p:=pg_temp.pi_payload(w,1,v_run,'svag','S');
+  v_batch:=pg_temp.pi_begin(w,'unfin',jsonb_build_object(pg_temp.pi_el(v_p),v_p));
+  PERFORM pg_temp.pi_apply(w,v_batch,pg_temp.pi_el(v_p),v_p);
+END $unfin$;
+\echo 'Forventet: COMMIT nedenfor afvises med PUBLICATION_IDENTITY_UNFINALIZED'
+\set ON_ERROR_STOP off
+COMMIT;
+\set ON_ERROR_STOP on
+SELECT (:'LAST_ERROR_MESSAGE'='PUBLICATION_IDENTITY_UNFINALIZED'
+        AND NOT EXISTS (SELECT 1 FROM public.source WHERE id=-6660)
+        AND NOT EXISTS (SELECT 1 FROM public.person WHERE id=-6660001)) AS unfin_ok \gset
+\if :unfin_ok
+\echo 'OK: commit uden finalize afvises (PUBLICATION_IDENTITY_UNFINALIZED), intet tilbage'
+\else
+DO $f$ BEGIN RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: commit uden finalize blev ikke afvist rent'; END $f$;
+\endif
+
+BEGIN;
+DO $rb$
+DECLARE w jsonb:=pg_temp.pi_world(-6661,'11000000-0000-0000-0000-00000006b661',1); v_run uuid; v_p jsonb; v_batch uuid;
+BEGIN
+  v_run:=pg_temp.pi_run(w,'{"topK":10,"autoCutoff":0.9,"controlMargin":0.05}',
+    jsonb_build_array(pg_temp.pi_cand(pg_temp.pi_persona(w,1),-6661001,1,jsonb_build_array(pg_temp.pi_ms(-6661001,0.95,ARRAY['name'])))));
+  v_p:=pg_temp.pi_payload(w,1,v_run,'svag','S');
+  v_batch:=pg_temp.pi_begin(w,'rb',jsonb_build_object(pg_temp.pi_el(v_p),v_p));
+  PERFORM pg_temp.pi_apply(w,v_batch,pg_temp.pi_el(v_p),v_p);
+END $rb$;
+ROLLBACK;
+DO $rbchk$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.source WHERE id=-6661) THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: tilbagerullet transaktion efterlod data'; END IF;
+  RAISE NOTICE 'OK: tilbagerullet transaktion med åben C er uberørt af commit-vagten';
+END $rbchk$;
