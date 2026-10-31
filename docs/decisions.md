@@ -2,6 +2,12 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: review-budget for delspec 6b overskredet med én Codex-runde på specen (2026-10-31)
+
+> B13-overskridelse. Projektejeren bad om et review af udkastet til delspec 6b
+> (`2026-10-31-trin6b-identitet-design.md`) før planen. Codex (`gpt-6.1-sol`): NO-GO, 11 fund, alle afvejet og
+> indarbejdet (specens §10). Budgettet for resten af 6b er uændret: én runde på spec+plan, én på diffen.
+
 ## BESLUTTET: I-84 parkeres i trin 6; B7 som deklareret tekstform pr. udgave (2026-10-29/30)
 
 > Projektejerens valg 2026-10-29 (I-84). B7 er mit valg i delspec 6a

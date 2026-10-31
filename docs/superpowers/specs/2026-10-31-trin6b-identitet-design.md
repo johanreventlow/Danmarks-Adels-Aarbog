@@ -1,6 +1,6 @@
 # Trin 6b: 1939's identitet — design
 
-**Status:** udkast til projektejerens læsning. Brainstorm-spørgsmål sprunget over efter projektejerens ønske
+**Status:** udkast, revideret efter Codex-runde 1 (§10). Brainstorm-spørgsmål sprunget over efter projektejerens ønske
 (2026-10-31); alle valg i dokumentet, der ikke står i den overordnede spec, er markeret *mit valg*.
 **Gren:** `docs/trin6b-spec` fra `main` (`6dcdee34`).
 **Overordnet spec:** `docs/superpowers/specs/2026-10-29-trin6-1939-gennem-kaeden-design.md` (§5 6b, §6 pkt. 1 og 8,
@@ -19,7 +19,7 @@ postbindinger), reviewets `fable-koncept.md` pkt. 16 og `udestaaende-raa.md` pkt
    identitetsoprindelse) + generatorforbedringer, som enhver udgave bruger. Ingen editionsnavngiven overflade.
 4. **Værdi:** 1939's poster får en sporbar identitet i evidenslaget i stedet for kun C3's postbinding; navnefæller og
    uenigheder med `samme_som` lægges for projektejeren; enighed afgøres maskinelt.
-5. **Færdigbevis:** §8.
+5. **Færdigbevis:** §7.
 6. **Erstatter:** C3's postbinding (`existing_exact_binding`) som eneste bærer af 1939's identitet; den uvagtede
    antagelse, at `samme_som` er rigtig, fordi den findes.
 
@@ -60,8 +60,14 @@ helposter:
 | **Alle tre** | **0** |
 
 1939's `person_external_id.record_key` stammer fra den gamle indlæsning og har en anden form end evidenslagets
-`source_record.record_key`. Identitetskernens oprindelse `legacy_match` bygger på samme nøglelighed og afviser derfor
-også. »149b genbruges, hvor den gælder« (overordnet spec §5) gælder ingen 1939-post.
+`source_record.record_key`. Nøgleligheden håndhæves i 149b-writeren (`schema.sql:4063-4066`); identitetskernens
+`legacy_match` kræver kun, at den leverede eksterne nøgle er entydig og peger på målpersonen
+(`schema.sql:9488-9503`). »149b genbruges, hvor den gælder« (overordnet spec §5) gælder ingen 1939-post.
+
+En helpost med flere forankringer har én forankring med `person`-observationen og andre med records' øvrige
+observationer (fakta, ægteskaber); hver forekomst har præcis én topobservation. 6a's klausul-writer vælger helposten
+efter helpost-reglen. Trin 4's forslagswriter gør ikke: den kræver præcis én accepteret forankring
+(`schema.sql:4980-4983`) og afviser derfor 235 af de 584 (§5).
 
 ### 2.3 `samme_som` og navnefæller
 
@@ -95,12 +101,13 @@ også. »149b genbruges, hvor den gælder« (overordnet spec §5) gælder ingen 
 
 ## 3. Afgrænsning
 
-**Med:** persona + mention + identitet for de 555; en kontrol af alle 563 bindinger med generatoren; navnefæller og
-uenigheder til projektejeren; generatorens årstal fra rå tekst og kandidatvisning (pkt. 16); synlige dispositioner for
-alle rester i §2.4.
+**Med:** persona + mention for de 555; en kontrol af de 561 ikke-staged bindinger med generatoren; identitet for de
+553 nye ikke-staged; navnefæller og uenigheder til projektejeren; generatorens årstal fra `date_raw` og
+kandidatvisning (pkt. 16); synlige dispositioner for alle rester (§4.6).
 
-**Ikke med:** nye personer (de 16 `[NY]`: opret-benet, B4); sammenlægning af C3-dubletter; at skrive, ændre eller
-slette `samme_som`; relationspersonas (ægtefæller, børn: 6d); fortolkninger (6c); de 7 staged personers status.
+**Ikke med:** nye personer (de 16 `[NY]`: opret-benet, B4); sammenlægning og rettelse af C3-bindinger; at skrive,
+ændre eller slette `samme_som` eller publiceringsbindinger i ceremonien; at ændre de 8 eksisterende identiteter;
+relationspersonas (6d); fortolkninger og runneren (6c); de 7 staged personers status.
 
 ## 4. Design
 
@@ -110,7 +117,7 @@ En 1939-persona peger på den kilde 3-personrække, recordens publicerede narrat
 (`narrative_record_publication` → `narrative.subjekt_id`). Det følger af overordnet spec §6 pkt. 8 og er
 deterministisk for de 563. Sammenhængen med 2018-20 bæres af `samme_som`, ikke af identiteten.
 
-### 4.2 Ny indgang: elementoperation `publication_identity` (*mit valg*)
+### 4.2 Personas: elementoperation `publication_persona` (ceremoni B, *mit valg*)
 
 En ny elementoperation i den generelle reimport-writer (authorize → begin → apply → finalize, som 6a) i stedet for at
 løsne migreringen. Den udvidede migrering ville skulle opgive tre af sine sikringer, og den flytter publicering, som 6b
@@ -118,127 +125,170 @@ ikke skal røre.
 
 Pr. element (én helpost):
 
-- **Forudsætninger, efterprøvet i skrive-transaktionen:** recorden findes for kilden; den har præcis én
-  `person`-mention over sine accepterede forankringer (flere forankringer er tilladt); præcis én publiceret
+- **Lås:** recorden (`source_record … FOR UPDATE`) og derefter publiceringsbindingen, i den rækkefølge, før nogen
+  læsning, der afgør skrivningen.
+- **Forudsætninger, efterprøvet under låsen:** recorden findes for kilden; den har præcis én `person`-observation
+  blandt sine accepterede forankringer og præcis én mention i den (helpost-reglen fra 6a); præcis én publiceret
   `narrative_record_publication`; narrativets subjekt er en person med præcis én `person_external_id` for kilden;
-  ingen persona findes for recorden. Payloaden bærer hashes af mentionens tekst og bindingens id/status, så drift
-  afvises (som 149b).
-- **Skriver:** `source_persona` og `source_persona_mention` (rolle `primary`). **Ingen identitet** i dette trin
-  (§4.3 bestemmer den). Nøglen er `'1939:' || source_record.record_key`, samme form som de 8 eksisterende
-  (*mit valg*: én form inden for kilden; 2018-20 bruger `record_key` alene). Runnerens input kobler i dag persona og
-  record på `persona_key = record_key` (`export_43b_runner_input.R:59-66`); 6c skal koble gennem mentionen i stedet
-  (§5).
+  **ingen persona for kilden har en mention i recordens helpost** (ikke kun: ingen persona med samme nøgle). Payloaden
+  bærer hashes af mentionens tekst og af bindingens id og status; drift afvises (som 149b).
+- **Skriver:** `source_persona` og `source_persona_mention` (rolle `primary`). **Ingen identitet.** Nøglen er
+  `'1939:' || source_record.record_key`, samme form som de 8 eksisterende (*mit valg*: én form inden for kilden;
+  2018-20 bruger `record_key` alene).
 - **Id'er:** deterministiske (`private.deterministic_uuid` af persona-nøglen), som 5b's personas. Replay giver
   `already_applied`.
+- **Webkøen:** personas uden identitet vises i dag som `proposed` i `red_source_persona_queue`. Mellem B og C må de
+  ikke afgøres der: køen udelader personas, hvis batch endnu ikke har fået en kontrolkørsel (filter på batchen,
+  generelt), og C afviser enhver persona, hvis identitetsversion ikke er 0.
 
-Identiteten skrives af en ny strukturel oprindelse i `private.decide_source_persona_identity`:
-**`publication_binding`** (*mit valg* af navn). Kernen efterprøver selv, ikke kun writeren: `accepted`, version 0,
-ingen `basis`, `evidence.authority='narrative_record_publication'`, bindingen er publiceret og peger på målpersonen,
-personen har præcis én `person_external_id` for personaens kilde, og personaens primære mention ligger i bindingens
-record. Dermed står 1939's identitet med samme styrke som 149b's `legacy_match`, men bygget på det, 1939 faktisk har.
+### 4.3 Kontrol og identitet (ceremoni C, *mit valg* af anvendelse)
 
-### 4.3 Kontrol før identiteten (kontrolmodellen, *mit valg* af anvendelse)
-
-5a §3 pkt. 1 siger: ingen massegenbekræftelse. Det overholdes: mennesket ser kun uenigheder og en stikprøve.
-Maskinen kontrollerer alle.
+5a §3 pkt. 1 siger: ingen massegenbekræftelse. Det overholdes: mennesket ser kun uenigheder, svage sager og en
+stikprøve. Maskinen kontrollerer alle.
 
 **Rækkefølge (*mit valg*):** kontrollen kører først, når 6c's runner har lagt `proposed` navn, fødsel og død som
-fortolkninger på de 1939-personas (§2.3: uden dem sammenligner generatoren en hel post med et navn). Runneren
-kræver kun personas, ikke identitet; promotionen kræver identitet. Derfor: personas (6b, ceremoni B) → runneren
-(6c) → kontrol og identiteter (6b, ceremoni C) → kontrolmodel og promotion (6c). Fravalgt: at udlede navn og år af
-helposten med en ny regel i inputtet; det ville være en anden navnekilde end 2018-20's og en ny heuristik på rå OCR.
+fortolkninger på personaerne (§2.3: uden dem sammenligner generatoren en hel post med et navn). Runneren kræver kun
+personas, ikke identitet; promotionen kræver identitet. Derfor: personas (6b, B) → runneren (6c) → kontrol og
+identiteter (6b, C) → kontrolmodel og promotion (6c). Fravalgt: at udlede navn og år af helposten med en ny regel i
+inputtet; det ville være en anden navnekilde end 2018-20's og en ny heuristik på rå OCR.
 
-1. Generatoren (`packages/identity-candidates`) køres i `list`-tilstand på de 563 personas (de 555 nye + de 8),
-   og kandidaterne gemmes med `red_record_identity_candidates` (5a's vej, ingen ny writer).
-2. **Udfald pr. persona:**
-   - **enig:** top-1-klyngen er entydig (ingen anden klynge med samme score) og indeholder bindingens person;
-   - **uenig:** top-1-klyngen indeholder ikke bindingens person;
-   - **navnefælle:** to eller flere klynger deler top-1-score.
-3. **enig** får identitet med `publication_binding` (evidensen bærer kandidatkørslens id og rang). En blind stikprøve
-   på 20 af de enige går på arket uden svar (kontrolmodellen, overordnet §6 pkt. 1); én R eller U stopper.
-4. **uenig** og **navnefælle** går på token-arket (højst ~30 kort pr. ark, forudfyldt med bindingens person,
-   overordnet §3 (d)). Kortet viser bindingens person og den eller de konkurrerende klynger side om side med navn,
-   leveår, titel og postreference (pkt. 16, kandidatvisning), fordi et forudfyldt ark før har skjult en konkurrent
-   (#248). Svar:
-   - **S** (bindingen er rigtig): identitet med oprindelse `human`, `basis='human_sheet'`, målet er bindingens person.
-     Kortet kan desuden markere »og kandidat X er samme person« (en manglende `samme_som`); markeringen skrives kun
-     som note i evidensen og i kontrolrapporten, så en rigtig binding med manglende kobling ikke tvinges til F/U;
-   - **F** (bindingen er forkert): identitet `unresolved` med `reason='publication_binding_disputed'`; ingen anden
-     person vælges i 6b, og publiceringsbindingen røres ikke (sagen står synligt til en senere C3-rettelse);
+**Kontrolmængden:** de 561 ikke-staged bundne personas (de 553 nye + de 8). De 2 staged indgår ikke, fordi runneren
+ikke må sende dem til en model (§4.6). De 8 eksisterende identiteter kontrolleres, men ændres ikke (§4.6).
+
+1. Generatoren (`packages/identity-candidates`) køres i `list`-tilstand, og kandidaterne gemmes med
+   `red_record_identity_candidates` (5a's vej).
+2. **Bindingspersonens egen score afgør, ikke klyngens.** Generatoren folder kandidater i samme `samme_som`-klynge
+   sammen og beholder det bedste medlems score (`rank.ts:45-62`). Kontrollen må ikke bruge den sammenfoldede score:
+   ellers kan en 2018-20-partner med bedre årstal »bekræfte« en 1939-række, der selv matcher dårligt, og koblingen
+   bekræfter sig selv (cirkulært, mod overordnet §7). Generatoren udskriver derfor også bindingspersonens egen
+   score og signaler og, for hver konkurrerende klynge, dens bedste medlem. Fuldt komponentmedlemskab tages fra
+   inputtets `same_as`, ikke fra de medlemmer, der overlevede filtreringen.
+3. **Udfald pr. persona** (tærskler kalibreres i planen, se pkt. 7):
+   - **enig:** bindingspersonen selv har generatorens `auto`-tier, mindst ét årstalssignal ud over navnet, og en
+     margin til den bedste konkurrerende klynge på mindst den kalibrerede værdi;
+   - **svag:** bindingspersonen er bedst, men uden `auto`, uden årstalssignal eller under marginen;
+   - **uenig:** en anden klynge scorer højere end bindingspersonen selv;
+   - **navnefælle:** en anden klynge scorer lige med bindingspersonen;
+   - **ingen kandidat:** bindingspersonen er ikke blandt kandidaterne.
+   Hver persona får præcis ét udfald.
+4. **enig** får identitet med oprindelsen `publication_binding` (§4.3.1). En blind stikprøve på 20 af de enige går
+   på arket uden svar (kontrolmodellen, overordnet §6 pkt. 1); én R eller U stopper C.
+5. **svag, uenig, navnefælle, ingen kandidat** går på token-arket (højst ~30 kort pr. ark, overordnet §3 (d)). Kortet
+   viser bindingens person og de konkurrerende klynger side om side med navn, leveår, titel og postreference
+   (pkt. 16), med bindingspersonens egen score adskilt fra klyngens, fordi et forudfyldt ark før har skjult en
+   konkurrent (#248). Svar:
+   - **S** (bindingen er rigtig): identitet med oprindelsen `human`, `basis='human_sheet'`, med arkets og
+     rækkefilens hash og linjen (5a's arkvej). Kortet kan desuden markere »og kandidat X er samme person« (en
+     manglende `samme_som`); det skrives kun som note i evidensen og i kontrolrapporten;
+   - **F** (bindingen er forkert): identitet `unresolved` med `reason='publication_binding_disputed'`. Ingen anden
+     person vælges. Narrativet står publiceret på den udpegede person, som i dag; kontrolrapporten lister hver F, og
+     projektejeren kan straks trække publiceringen tilbage med den eksisterende
+     `red_tilbagetraek_person_narrative_record` uden for ceremonien. Rettelsen af selve bindingen er C3-arbejde;
    - **U** (ved ikke): `unresolved` med `reason='unknown'`.
-5. **Stopregel:** giver kontrollen over 90 kort (tre ark), stoppes der, og afgrænsningen tages op med projektejeren,
-   før noget skrives.
+6. **Stopregel:** over 90 kort (tre ark) i alt, eller en stikprøve med R/U, stopper C, før noget skrives, og
+   afgrænsningen tages op med projektejeren.
+7. **Kalibrering (planen):** tærsklerne for **enig** fastlægges på 2018-20's 587 kendte svar (5a §8.1) og på en
+   stand-in efter en prøvekørsel af runneren; kriteriet er 0 forkerte **enig** blandt de kendte. Ingen tærskel
+   vælges for at holde kortantallet nede.
 
 En persona uden accepteret identitet er udelukket fra 6c's promotion, som i dag.
 
-### 4.4 Generatoren: årstal fra rå tekst (pkt. 16, *mit valg* af form)
+#### 4.3.1 Oprindelsen `publication_binding` og C's indgang
+
+Identiteterne i C skrives af en ny elementoperation `publication_identity` i samme writer-kæde; autorisationen binder
+hele afgørelsesmængden. Payload pr. persona: persona-id, forventet identitetsversion 0, bindingens id og status,
+kandidatkørslens id og `candidates_sha256`, udfaldet, og for S/F/U arkets hash, rækkefilens hash og linjen. Writeren
+efterprøver under lås (persona → binding → personrække): at kandidatkørslen stadig er kildens seneste med samme
+konfiguration, at bindingen er uændret og publiceret, at versionen er 0, og at udfaldet stemmer med de gemte
+kandidater.
+
+Den nye strukturelle oprindelse i `private.decide_source_persona_identity` efterprøver selv, ikke kun writeren:
+`accepted`, version 0, ingen `basis`, `evidence.authority='narrative_record_publication'`; bindingen er publiceret og
+peger på målpersonen; personen har præcis én `person_external_id` for personaens kilde; personaens primære mention
+ligger i bindingens records gældende helpost (accepteret forankring), og ingen anden persona for kilden har en mention
+dér. S, F og U går gennem de eksisterende oprindelser (`human`, `unresolved`).
+
+### 4.4 Generatoren: årstal fra `date_raw` (pkt. 16, *mit valg* af form)
 
 Personasiden får årstal fra runnerens fortolkninger (§4.3). Personsiden mangler dem: uden årstal bliver de 239
 navnefæller kort. Inputtet (`private.identity_candidate_input`) får derfor årstal fra påstandens `date_raw` som
 reserve, når `date_min/max` mangler. Reglen er deterministisk, bærer oprindelsen `date_raw` i inputtet og vægtes ikke
-højere end parsede datoer. Dækningen måles i planen på stand-in'en, før reglen låses; giver den ikke et klart fald i
-navnefæller, er stopreglen (§4.3 pkt. 5) svaret.
+højere end parsede datoer. Dækningen måles i planen på stand-in'en, før reglen låses.
 
 ### 4.5 `samme_som` (*mit valg*)
 
 6b læser `samme_som` og skriver den ikke. »Afklaret« betyder en eksisterende `samme_som`-relation; invarianttriggeren
-sikrer, at den ikke modsiger en `ikke_samme_som`. `konfidens` bruges ikke (NULL på alle). Viser kontrollen, at en
-1939-persona hører til en anden klynge end sin `samme_som`-partners, er det et **uenig**-kort; projektejeren kan
-derefter selv rette koblingen med de eksisterende RPC'er (`red_fjern_samme_som`, `red_samme_som`) uden for ceremonien.
-De 93 uden kobling får ingen ny kobling i 6b; de tælles og vises i kontrolrapporten.
+sikrer, at den ikke modsiger en `ikke_samme_som`. `konfidens` bruges ikke (NULL på alle). Kontrollen ser på
+bindingspersonen selv (§4.3 pkt. 2); scorer partnerens klynge højere end den, eller tilhører personaen tydeligt en
+anden klynge, bliver det et kort. Projektejeren kan derefter selv rette koblingen med de eksisterende RPC'er
+(`red_fjern_samme_som`, `red_samme_som`) uden for ceremonien. De 93 uden kobling får ingen ny kobling i 6b.
 
-### 4.6 Dispositioner for resterne
+### 4.6 Dispositioner
 
-Ingen af resterne får persona i 6b. Hver vises i ceremoniens rapport med antal og grund:
+Hver vises i ceremoniens rapport med antal og grund:
 
-| Rest | Disposition |
-|---|---|
-| 16 `[NY]` | `opret_benet` (B4) |
-| 5 andre ubundne helposter | `c3_uafklaret` (grænsefejl/sammenlægning; listet pr. record) |
-| 8 records uden helpost | `ingen_helpost` |
-| 13 kilde 3-personer uden bundet narrativ | `ingen_postbinding` |
-| 2 bundne `staged` | får persona og identitet som de øvrige; `staged` ændres ikke (identiteten er privat) |
-| 2 `samme_som` mellem kilde 3-personer | vises i kontrolrapporten; ingen ændring |
+| Hvad | Persona (B) | Identitet (C) |
+|---|---|---|
+| 553 nye, ikke-staged | ja | efter kontrollen |
+| 2 bundne `staged` (963, 967) | ja | nej; disposition `staged_ikke_offentlig`. Runneren må ikke sende dem til en model (overordnet §6 pkt. 6); deres identitet afgøres, når de bliver offentlige, eller med et kort uden modeldata |
+| 8 eksisterende (v50) | findes | uændret; kontrolleres kun. Et udfald andet end **enig** kommer på arket som oplysning; en ændring kræver en særskilt, versionsbundet afgørelse uden for C |
+| 16 `[NY]` | nej | `opret_benet` (B4) |
+| 5 andre ubundne helposter | nej | `c3_uafklaret` (listet pr. record) |
+| 8 records uden helpost | nej | `ingen_helpost` |
+| 13 kilde 3-personer uden bundet narrativ | — | `ingen_postbinding` |
+| 2 `samme_som` mellem kilde 3-personer | — | vises i kontrolrapporten; ingen ændring |
 
 ## 5. Følger
 
-- Efter ceremoni B har 1939 en persona for hver bundet helpost, og 6c's runner kan køre på dem. Efter ceremoni C kan
-  promotionen binde til kilde 3-rækken. 6c's delspec skal rumme rækkefølgen runner → 6b C → promotion.
-- 6c's runner-input skal koble persona og record gennem den primære mention, ikke gennem `persona_key = record_key`
-  (§4.2), og vælge tilladte poster ud fra bindingens person (alle 563 er afdøde), ikke ud fra identiteten.
-- `private.identity_candidate_input` ændres (årstalsreserve); det rammer også 2018-20-kørsler. 5a's kalibrering mod de
-  587 genkøres i planen og må ikke falde.
-- Den nye oprindelse skal med i 5a's guard mod gamle veje (`decide_source_persona_identity`'s oprindelsesliste) og i
-  reversalen (`reversal` skal kunne sætte en `publication_binding`-identitet til `superseded`).
+- **6c's forudsætninger** (skal stå i 6c's delspec; C kan ikke køre uden dem):
+  - runnerens input kobler persona og record gennem den primære mention, ikke gennem `persona_key = record_key`
+    (`export_43b_runner_input.R:59-66`);
+  - runnerens input og trin 4's forslagswriter vælger helposten efter 6a's helpost-regel; i dag kræver writeren
+    præcis én accepteret forankring (`schema.sql:4980-4983`), og eksporten samler klausuler pr. `record_key`
+    (`export_43b_runner_input.R:88-103`). 235 af de 584 helposter har flere forankringer;
+  - tilladte poster vælges med hele gaten (afdød, ikke privat, ikke staged), ikke ud fra identiteten;
+  - rækkefølgen runner → 6b C → promotion.
+- `private.identity_candidate_input` ændres (årstalsreserve), og generatoren udskriver bindingspersonens egen score;
+  det rammer også 2018-20-kørsler. 5a's kalibrering mod de 587 genkøres i planen og må ikke falde.
+- Den nye oprindelse skal med i 5a's guard mod gamle veje og i reversalen (`reversal` skal kunne sætte en
+  `publication_binding`-identitet til `superseded`).
 
 ## 6. Prod
 
 Tre ceremonier i 6a's form (dump med ekstern kopi, kørsel fra projektejerens shell med `--jeg-mener-det` og GO,
 `maal` før og efter):
 
-- **A (DDL):** elementoperationen og dens reversal, den nye oprindelse, årstalsreserven i inputtet. Additiv; tal
-  uændrede.
-- **B (data):** `publication_identity`-batchen: 555 personas + mentions, ingen identitet.
+- **A (DDL):** de to elementoperationer og deres reversal, den nye oprindelse, årstalsreserven, webkøens filter.
+  Additiv; tal uændrede.
+- **B (data):** `publication_persona`: 555 personas + mentions, ingen identitet.
 - *(6c's runner kører her.)*
 - **C (data), efter runneren:**
   1. generatoren i `list`-tilstand mod prod (inputtet læses fra prod, kandidaterne skrives med
-     `red_record_identity_candidates`); arket bygges lokalt i en gitignoreret arbejdsmappe (alle 563 er afdøde;
-     arket sendes aldrig til en model) og udfyldes af projektejeren; arkets hash bindes;
-  2. identiteterne: `publication_binding` for enige + S, `unresolved` for F/U, i én transaktion med den bundne hash.
+     `red_record_identity_candidates`); arket bygges lokalt i en gitignoreret arbejdsmappe (kun afdøde, ikke-staged;
+     sendes aldrig til en model) og udfyldes af projektejeren; arkets hash bindes;
+  2. `publication_identity`: identiteterne i én batch med den bundne afgørelsesmængde (§4.3.1).
 
-  Udfyldningen kan tage dage; kandidatkørslen bindes af `input_sha256`, så drift i mellemtiden afvises.
-- **Fortrydelse:** personas uden identitet har ingen afhængige; `red_reverse_reimport` på batchen (den nye
-  elementoperation skal have sin gren i reversalen; bygges og øves i A). Identiteterne fortrydes med
-  `reversal`-oprindelsen. Nødudvej: restore af dumpet.
+  Udfyldningen kan tage dage. Driften mellem kandidatkørsel og skrivning fanges af writerens efterprøvning (§4.3.1);
+  webkøens filter forhindrer afgørelser i mellemtiden.
+- **Fortrydelse pr. fase:**
+  - *efter B, før runneren:* `red_reverse_reimport` på B-batchen fjerner personas og mentions (ingen afhængige endnu);
+    restore af B-dumpet er nødudvejen;
+  - *efter runneren:* fortolkningerne refererer personaerne og er append-only, så B-reversalen afvises fra nu af.
+    Vinduet for at fortryde B lukker, når runneren skriver; det står i runbooken som en bevidst grænse;
+  - *efter C, før promotion:* `reversal` sætter C's identiteter til `superseded`; de 8 eksisterende er urørte;
+  - *efter promotion:* 6c's fortrydelse gælder.
 - Øvelse på en frisk stand-in med prods `statement_timeout` (2 min) før hvert GO.
 
 ## 7. Færdigbevis
 
-- 555 nye personas, hver med én `primary`-mention i sin egen record; 0 dubletter; replay `already_applied`.
-- Hver af de 563 har enten `accepted` (oprindelse `publication_binding` eller `human`) eller `unresolved` med grund;
-  intet mål er en anden person end bindingens.
-- Kontroltal: enig/uenig/navnefælle, stikprøvens 20 (0 R/U), arkenes S/F/U, antal kort.
-- Generatorens dækning af årstal før og efter (personas og 1939-personer), og 5a-kalibreringen uændret eller bedre.
+- 555 nye personas, hver med én `primary`-mention i sin egen helpost; 0 records med to personas; replay
+  `already_applied`.
+- Hver af de 553 nye ikke-staged har enten `accepted` (`publication_binding` eller `human`) eller `unresolved` med
+  grund; intet mål er en anden person end bindingens. De 2 staged og de 8 eksisterende står som i §4.6.
+- Kontroltal: enig/svag/uenig/navnefælle/ingen kandidat, stikprøvens 20 (0 R/U), arkenes S/F/U, antal kort, antal F
+  og hvad der blev gjort med deres publicering.
+- Kalibrering: 0 forkerte **enig** blandt 2018-20's kendte svar; 5a-kalibreringen uændret eller bedre; årstals-
+  dækning før og efter.
 - Resterne i §4.6 talt og listet.
 - (a): kun de fælles operationer er brugt (tjekliste: writerens kæde, `decide_source_persona_identity`,
   `red_record_identity_candidates`, token-arket); ingen editionsnavngiven overflade.
@@ -248,21 +298,43 @@ Tre ceremonier i 6a's form (dump med ekstern kopi, kørsel fra projektejerens sh
 
 Mine valg, som projektejeren bør se:
 
-1. Ny elementoperation og ny oprindelse `publication_binding` i stedet for at løsne 149b (§4.2).
-2. Personas nu, identitet først efter 6c's runner (§4.3, rækkefølge); persona-nøglen `'1939:' || record_key` (§4.2).
-3. Maskinen kontrollerer alle 563; projektejeren ser kun uenigheder, navnefæller og en blind stikprøve på 20 (§4.3).
-4. **F** giver `unresolved`, aldrig en anden person; publiceringsbindingen røres ikke. **S** kan notere en manglende
-   `samme_som` uden at skrive den (§4.3).
+1. To nye elementoperationer (`publication_persona` i B, `publication_identity` i C) og en ny oprindelse
+   `publication_binding` i stedet for at løsne 149b (§4.2, §4.3.1).
+2. Personas nu, identitet først efter 6c's runner (§4.3); persona-nøglen `'1939:' || record_key` (§4.2).
+3. Maskinen kontrollerer de 561 ikke-staged; bindingspersonens egen score afgør, ikke klyngens; **enig** kræver
+   `auto`, årstal og margin, kalibreret til 0 forkerte på 2018-20's kendte svar. Projektejeren ser svage sager,
+   uenigheder, navnefæller, sager uden kandidat og en blind stikprøve på 20 (§4.3).
+4. **F** giver `unresolved`, aldrig en anden person; publiceringen står, men listes, og kan trækkes tilbage med den
+   eksisterende RPC. **S** kan notere en manglende `samme_som` uden at skrive den (§4.3).
 5. Årstal fra `date_raw` som reserve på personsiden (§4.4).
 6. 6b skriver ingen `samme_som` (§4.5).
-7. De 2 bundne `staged` får identitet; deres `staged` ændres ikke (§4.6).
+7. De 2 staged får persona, men ingen identitet i 6b; de 8 eksisterende identiteter ændres ikke (§4.6).
 8. Stopregel ved over 90 kort (§4.3).
+9. B kan kun fortrydes uden restore, indtil runneren har skrevet (§6).
 
 ## 9. Uden for scope
 
-Opret-benet (16 `[NY]`), C3-sammenlægninger og -rettelser, `samme_som`-rettelser i ceremonien, relationspersonas,
-fortolkninger, placement, læserfladen.
+Opret-benet (16 `[NY]`), C3-sammenlægninger og -rettelser, `samme_som`-rettelser og publiceringsændringer i
+ceremonien, relationspersonas, fortolkninger og runneren, placement, læserfladen.
 
 ## 10. Reviewlog
 
-(tom)
+### Codex-runde 1 på specen (2026-10-31, `gpt-6.1-sol`, efter projektejerens ønske): NO-GO, 11 fund
+
+Runden ligger uden for B13-budgettet (én runde på spec+plan); projektejeren bad om den. Plan-runden kører stadig.
+Desuden ét eget fund (12). Afvejning (Opus):
+
+| # | Alvor | Fund | Afvejning | Indarbejdet |
+|---|---|---|---|---|
+| 1 | BLOCKER | Klyngens score kan bekræfte en forkert `samme_som` cirkulært | nødvendig | §4.3 pkt. 2, §4.5 |
+| 2 | BLOCKER | Forslagswriteren og eksporten tåler ikke flere forankringer (235 helposter) | nødvendig; 6c-arbejde, men forudsætning for C | §2.2, §5 |
+| 3 | HIGH | »Enig« kan acceptere rent navnematch; intet udfald uden kandidat | nødvendig | §4.3 pkt. 3 og 7 |
+| 4 | HIGH | De 2 staged må ikke til runneren | nødvendig | §4.3, §4.6 |
+| 5 | HIGH | De 8 eksisterende identiteter passer ikke i C (version 0) | nødvendig | §4.6 |
+| 6 | HIGH | Ingen lås eller dubletvagt på recorden | nødvendig | §4.2, §4.3.1 |
+| 7 | HIGH | C har ingen indgang, der efterprøver afgørelsesmængden | nødvendig | §4.3.1 |
+| 8 | HIGH | B kan ikke fortrydes, når runneren har skrevet | nødvendig | §6 pr. fase |
+| 9 | HIGH | F efterlader narrativet publiceret på en omstridt person | forenkl: ingen ny mekanisme; listes, og den eksisterende tilbagetrækning bruges | §4.3 pkt. 5 |
+| 10 | MEDIUM | S havde to modstridende skrivekontrakter | nødvendig | §4.3 pkt. 5, §6 |
+| 11 | MEDIUM | `legacy_match`-guarden beskrevet forkert | rettelse af fakta | §2.2 |
+| 12 | (eget) | Webkøen viser de nye personas som `proposed` mellem B og C | nødvendig | §4.2, §6 |
