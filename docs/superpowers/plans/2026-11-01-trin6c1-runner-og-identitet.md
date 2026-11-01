@@ -91,7 +91,11 @@ spec §4.3 og plan Task 15-16 (`docs/superpowers/plans/2026-10-31-trin6b-identit
   `writer_config` = `daa-2018-20-interpretation-proposal-v1`'s med `helpost_observation_kind` `person` og 1939's
   rendition/citation-felter som `daa-1939-clause-evidence-v1`).
 - Create: `.claude/skills/daa-extract/references/reimport-profiles/daa-1939-interpretation-proposal-v1.json` (form som
-  2018-20-filen: `writer_config`, denylist, rollekort; `profile_sha256` = databasens kanoniske hash).
+  2018-20-filen; `profile_sha256` = databasens kanoniske hash). `persona_role_map` er udgaveneutral (prædikatpræfikser)
+  og kopieres med version `persona-role-1939-v1`. `no_counterpart_denylist` er erklæret udgavespecifik; den kopieres
+  som `nn-denylist-1939-v1`, fordi casefold dækker 1939's store forbogstaver (»Sønner«, »Døtre«), og piloten (Task 8
+  step 2) rapporterer antal `relation.*`-claims, der rammes af listen, og antal hele-strengs-antal, der slipper
+  igennem. Test: `4 Sønner` og `N. N.` afvises under 1939-profilen.
 - Modify: `db-migrations.sql`: blokken fra Global Constraints med funktionen og profilrækken (`ON CONFLICT DO NOTHING`).
 - Modify: `tests/sql/test-interpretation-proposal.sql`: nye tilfælde.
 - Modify: `tests/sql/test-interpretation-proposal-rerun.sql`: 2018-20-genafspilningen giver samme nøgler.
@@ -240,6 +244,9 @@ spec §4.3 og plan Task 15-16 (`docs/superpowers/plans/2026-10-31-trin6b-identit
 
 ### Task 7: Sandbox-gaten på den installerede codex-cli
 
+- [ ] **Step 0: Stop for projektejeren:** spec §8 pkt. 1 (restrisiko) og pkt. 2 (`trust`) skal være afgjort og skrevet
+  i specens §8 og `docs/decisions.md`, før noget sendes til en model. Vælges `scram-sha-256`, er omstillingen en
+  egen task før step 1 (`~/.pgpass`, alle lokale scripts og stand-in-runnere prøvekørt).
 - [ ] **Step 1:** Notér `codex --version` og at `gpt-5.6-terra` står i `~/.codex/models_cache.json`. Mangler modellen:
   stop (spec §4.2 pkt. 3).
 - [ ] **Step 2:** `gate-access-test.sh` med den udfyldte profil. Forventet: alle `naegtet`-linjer nægtet, psql nægtet,
@@ -279,7 +286,7 @@ Under `~/.private/6c1/` (0700). Stand-in: `createdb -T daa5ab_ddl_standin_202611
   PR 1-grenen (samme blok), øv igen. Ellers notér tallene; ingen ændring.
 - [ ] **Step 2:** Kortantal fordelt på udfald, inklusive de udelukkede posters personas (spec §4.7 pkt. 4), og antal
   sager, hvor partnerreglen afgør (`partner_hoejere`). Notér `OUTCOME_MISSING`-tilfældet (spec §4.7 pkt. 5).
-- [ ] **Step 3: Stop for projektejeren:** forelæg spec §8 pkt. 1 og, hvis kortene er over 90, pkt. 2, med tallene.
+- [ ] **Step 3: Stop for projektejeren:** forelæg spec §8 pkt. 3 og, hvis kortene er over 90, pkt. 4, med tallene.
   Afgørelserne skrives i specens §8 og i `docs/decisions.md`; ændrer de kode (partnerreglen), er det en DB-task på
   PR 1-grenen med test, før øvelsen køres igen.
 - [ ] **Step 4: Driftprøve for B:** sæt `levende=true` på én slægtning i en engangskopi efter dumpet; B's

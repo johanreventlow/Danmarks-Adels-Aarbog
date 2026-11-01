@@ -101,9 +101,9 @@ med den nye prompt (A6b-restens 10 poster afgøres i 6c-2).
    kildetekst).
 2. `gate-access-test.sh` og kanarien køres på den installerede codex-cli. Fejler et kald, tilføjes kun den sti, der
    er målt nødvendig (templatens egen regel). Versionen bindes i manifestet, som i dag.
-3. *Mit valg:* `trust` → `scram-sha-256` gennemføres ikke i 6c-1. Profilen spærrer socket og TCP til Postgres, og
-   adgangstesten beviser det før hvert rigtigt kald; skiftet ville ændre adgangen for alle lokale scripts og
-   ceremonier midt i trin 6. Står som kendt begrænsning med adgangstesten som værn.
+3. `trust` → `scram-sha-256` er projektejerens valg før piloten (§8 pkt. 2). Min anbefaling er at beholde `trust` i
+   6c-1: profilen spærrer socket og TCP til Postgres, og adgangstesten beviser det før hvert rigtigt kald; skiftet
+   ville ændre adgangen for alle lokale scripts og ceremonier midt i trin 6.
 4. `~/.codex/auth.json` forbliver læsbar for modellen (kendt restpunkt siden 2026-09-11); ingen ændring.
 
 ### 4.2 Prompt 1.1.0 og profilen `daa-1939-v2`
@@ -139,7 +139,7 @@ Politikken `exclusion-1939-v1` (*mit valg* af form) udelukker en post, hvis mind
 *Mit valg* af tekstregel: den strenge (63 udelukket, 500 tilladt), ikke den smalle (28/535). En person født 1915 er 111
 år i dag; en slægtning, der kun står i prosaen, findes ikke som person, og hverken `levende` eller en dødspåstand kan
 frikende den. Den smalle regel misser år, der står efter et navn eller en titel. Reglen er fail-closed og rejser tvivl,
-den afgør den ikke. Følgen for C står i §4.7 pkt. 4 og §8 pkt. 2.
+den afgør den ikke. Følgen for C står i §4.7 pkt. 4 og §8 pkt. 4.
 
 **Hvad reglerne ikke kan bevise (Codex fund 1).** Ingen af reglerne frikender en person, som kun står i prosaen uden
 årstal. Argumentet for, at tekstreglen alligevel dækker: DAA nævner en person i en stamtavle med fødselsdato
@@ -147,7 +147,7 @@ den afgør den ikke. Følgen for C står i §4.7 pkt. 4 og §8 pkt. 2.
 posten. Restrisikoen er en person nævnt uden dato eller med et årstal, OCR'en har ødelagt ud over den tolerante
 læsning. Samme risikoklasse blev accepteret for 2018-20's 488 poster med en svagere tekstregel (`f.` + år ≥ 1950).
 Positiv frikendelse af hver personomtale kræver navneudtræk, dvs. netop det modelkald, gaten skal beskytte; det er
-fravalgt. Restrisikoen forelægges projektejeren (§8 pkt. 3).
+fravalgt. Restrisikoen forelægges projektejeren (§8 pkt. 1).
 
 Ledgeren har samme form som 2018-20's: én række pr. record, `eligible` eller `excluded` med alle årsager, ingen tekst,
 ingen navne, regelfilens sha. Fravær er ikke tilladelse. Årsagskoderne er politikkens egne; Python-forbrugerne
@@ -216,10 +216,10 @@ C kører som designet i 6b §4.3 og §6, når B er i prod. 6c-1 lukker de punkte
    Generatoren falder tilbage på den primære mentions tekst (hele posten) og giver dem typisk `ingen kandidat` eller
    `svag`: de bliver kort. *Mit valg:* de går på arket som alle andre. Kortet viser bindingens person og postreferencen
    (6b §4.3 pkt. 5); mennesket afgør dem uden model. Kortantallet måles i øvelsen; stopreglen over 90 (6b §4.3 pkt. 6)
-   gælder, og overskrides den, forelægges tallet (§8 pkt. 2).
+   gælder, og overskrides den, forelægges tallet (§8 pkt. 4).
 5. Task 12's `OUTCOME_MISSING` for eksisterende personas med null-udfald afklares i øvelsen (fail-closed i dag).
 6. Kalibreringens andet ben (6b §4.3 pkt. 7) køres på stand-in'en efter forslagsingesten.
-7. **Partnerreglen** (6b-reviewets I3, spec »højere«, kode `≥`) afgøres af projektejeren efter kortmålingen (§8 pkt. 1).
+7. **Partnerreglen** (6b-reviewets I3, spec »højere«, kode `≥`) afgøres af projektejeren efter kortmålingen (§8 pkt. 3).
 
 ## 5. Følger
 
@@ -268,20 +268,29 @@ Skrivepause fra A-dumpet til B er skrevet. Tidsoverslag fra stand-in omregnes me
 
 ## 8. Afgørelser til projektejeren
 
-1. **Partnerreglen i C** (6b-review I3): når bindingspersonens egen `samme_som`-partner scorer *lige så højt* som den
+**Før piloten** (spec godkendt ≠ disse afgjort; plan Task 7 stopper for dem):
+
+1. **Restrisikoen i eligibility** (§4.3): en levende slægtning, der kun står i prosaen uden et årstal, som reglen kan
+   finde, kan nå modellen. Valgene er (a) at acceptere restrisikoen som for 2018-20, (b) en strengere grænse (årstal
+   ≥ 1900 et vilkårligt sted: 93 poster ramt i stedet for 60), eller (c) ingen modelkørsel for 1939 (så kan 6b's C ikke
+   køres som designet). *Min anbefaling:* (a), fordi DAA's form giver levende personer et årstal, og (b) kun flytter
+   grænsen uden at lukke hullet.
+2. **Lokal Postgres med `trust`** (§4.1 pkt. 3; review 35 P1 (2), som reviewet bad om før næste modelkørsel): (a)
+   behold `trust` med Seatbelt-profilens spærring af begge veje til Postgres og adgangstesten før hvert kald som
+   værn, eller (b) skift til `scram-sha-256` med `~/.pgpass` før piloten; det berører alle lokale scripts, CI-lignende
+   kørsler og ceremoniernes stand-ins. *Min anbefaling:* (a) i 6c-1, (b) som egen opgave efter trin 6. Argumentet for
+   (a) er mit eget og sparer arbejde; det er derfor lagt frem her og ikke afgjort af mig.
+
+**Efter øvelsen af C** (plan Task 9 stopper for dem, med tallene):
+
+3. **Partnerreglen i C** (6b-review I3): når bindingspersonens egen `samme_som`-partner scorer *lige så højt* som den
    selv, er udfaldet i dag `svag` (kort). Specen sagde »højere«. Med »højere« bliver de sager `enig` (maskinelt).
-   Målt antal forelægges efter øvelsen. *Min anbefaling:* behold `≥` (kort), medmindre tallet presser arket over 90;
-   lighed betyder, at generatoren ikke kan skelne de to rækker.
-2. **Over 90 kort:** viser øvelsen mere end 90 kort, især på grund af de udelukkede poster (§4.7 pkt. 4), er valgene
+   *Min anbefaling:* behold `≥` (kort), medmindre tallet presser arket over 90; lighed betyder, at generatoren ikke kan
+   skelne de to rækker.
+4. **Over 90 kort:** viser øvelsen mere end 90 kort, især på grund af de udelukkede poster (§4.7 pkt. 4), er valgene
    (a) flere ark (4 ark à ~30), (b) den smalle tekstregel (§4.3), som sender ~35 poster mere til modellen og giver
    færre kort, eller (c) at udelukkede poster står uafklarede uden kort til en senere runde. *Min anbefaling:* (a),
    fordi (b) sender tekst om mulige levende slægtninge til en model, og (c) efterlader personas uden identitet.
-
-3. **Restrisikoen i eligibility** (§4.3): en levende slægtning, der kun står i prosaen uden et årstal, som den
-   tolerante læsning kan finde, kan nå modellen. Valgene er (a) at acceptere restrisikoen som for 2018-20, (b) en
-   strengere grænse (årstal ≥ 1900 et vilkårligt sted: 93 poster ramt i stedet for 60), eller (c) ingen modelkørsel
-   for 1939 (så kan 6b's C ikke køres som designet). *Min anbefaling:* (a), fordi DAA's form giver levende personer et
-   årstal, og (b) kun flytter grænsen uden at lukke hullet.
 
 Alt andet i specen er mine valg og kan rettes ved godkendelsen.
 
@@ -298,7 +307,7 @@ Afvejning (Opus); fund 2-8 er bekræftet mod koden.
 
 | # | Alvor | Fund | Afvejning | Indarbejdet |
 |---|---|---|---|---|
-| 1 | BLOCKER | Eligibility beviser ikke, at prosaen er fri for levende slægtninge | delvis: hullet er reelt, men positiv frikendelse kræver modelkald; tolerant årstalslæsning tilføjet, restrisiko til projektejeren | §4.3, §8 pkt. 3 |
+| 1 | BLOCKER | Eligibility beviser ikke, at prosaen er fri for levende slægtninge | delvis: hullet er reelt, men positiv frikendelse kræver modelkald; tolerant årstalslæsning tilføjet, restrisiko til projektejeren | §4.3, §8 pkt. 1 |
 | 2 | HIGH | Hardkodet `'person'` bryder 2018-20 (`person_post`) | nødvendig (`schema.sql:3540-3542`) | §4.4 pkt. 1-2; plan Task 1, 4 |
 | 3 | HIGH | Forslagsmanifestet falder tilbage på kilde 1 | nødvendig (`build_43b_proposal_manifest.py:392`) | §4.4 pkt. 4; plan Task 2 |
 | 4 | HIGH | Ingen 1939-writerprofil til forslag | nødvendig | §4.4 pkt. 2; plan Task 1 |
