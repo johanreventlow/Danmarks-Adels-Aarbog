@@ -1,8 +1,9 @@
 # Runbook — trin 6c-1 i prod: ceremoni A (DDL) og B (1939's forslag)
 
 Spec: `docs/superpowers/specs/2026-11-01-trin6c1-runner-og-identitet-design.md` §4.4, §4.6, §6 og §7. Plan:
-`docs/superpowers/plans/2026-11-01-trin6c1-runner-og-identitet.md` Task 10. Ceremoni C (6b's identiteter) følger
-`docs/runbooks/trin6b-prod.md`, som 6b-planens Task 15 udvider; den køres først, når B her er i prod.
+`docs/superpowers/plans/2026-11-01-trin6c1-runner-og-identitet.md` Task 10. Ceremoni C (6b's identiteter, plan Task 9)
+står i afsnittet *Ceremoni C* nedenfor; den køres først, når B her er i prod, og er pr. 2026-11-01 stoppet ved
+projektejerens afgørelser.
 
 Kort sagt: **A** gør forslagswriteren i stand til at finde 1939's helpost, og **B** lægger modellens forslag til
 1939's ca. 500 poster i prod som private forslag (`proposed`). Ingen læser eller redaktør ser forslagene, før de er
@@ -243,10 +244,170 @@ status i `private.reimport_batch` (profil `daa-1939-interpretation-proposal-v1`)
   (decisions 2026-10-31).
 - **Efter afgørelse/promotion (6c-2):** 6c's egen fortrydelse gælder.
 
-## Ceremoni C
+## Ceremoni C (6b's identiteter)
 
-C kører som 6b-runbooken beskriver (`docs/runbooks/trin6b-prod.md`, udvidet af 6b-planens Task 15-16), når B er i
-prod og godkendt. 6c-1 lukker de punkter, 6b parkerede (spec §4.7); de øves på stand-in'en efter B (Task 9).
+**Status 2026-11-01: øvet til stoppunktet, ikke klar til prod.** Øvelsen (plan Task 9) stoppede på to regler, som
+projektejeren skal afgøre, før C kan øves færdig: **550 kort** mod grænsen 90 (6b §4.3 pkt. 6, 6c-1 §8 pkt. 4), og
+tre kald, der med 27× anslås over 60 s (afsnittet *Varighed for C*). `apply-c` og `reverse-c` er bygget, men **ikke
+øvet**. Afsnittet beskriver forløbet, som det skal køres, når afgørelserne er truffet og øvelsen er gentaget.
+
+Kort sagt: C giver hver af 6b's 553 nye 1939-personas en identitet. Maskinen kontrollerer alle 561 ikke-staged
+personas (de 553 + de 8 eksisterende) mod kandidatgeneratoren; de **enige** får identitet med oprindelsen
+`publication_binding`, og projektejeren afgør resten (og en blind stikprøve på 20 enige) på et kortark. Alle
+identiteterne skrives i én batch og én transaktion. De 2 staged og de 8 eksisterende får ingen identitet i C.
+
+Runneren er privat: `~/.private/5ab-overfoersel/28-trin6c1-c.sh` med `28-trin6c1-c.R` og 5c-2's `lib.zsh`/`koer.zsh`.
+Kandidatinput, kandidater, `details.json` og arkene rummer navne og ligger kun under `~/.private/6c1/c/` (0700/0600;
+prod: `~/.private/6c1/c/prod/kontrol-<tid>/`); ingen agent læser dem, og de sendes aldrig til en model.
+
+### Handlinger
+
+| Handling | Rører basen | Gør |
+|---|---|---|
+| `maal` | læser | `maal_trin6c1.sql`: `b` (`2774 494 8 555`) eller `c` (`afventer=0`) |
+| `go-control` | nej | binder commit, repo-filerne (generatoren, dens SQL, arkværktøjet, målingen), de private filer og ledgeren |
+| `control --jeg-mener-det --go X` | **skriver** én kandidatkørsel | kontrolmængden (`export-calibration-truth.sql -v facit=binding`, skal være 561) → generatorens input (`export-input.sql`, list, `year_fallback=date_raw-v1`) → `cli.ts generate --top-k 5 --control-margin 0.05` → `write-candidates.sql` (`red_record_identity_candidates`) → `red_publication_control` → fordeling, stikprøve, kort. Over 90 kort: `STOPPORT: T6C1_C_FOR_MANGE_KORT` (kørslen er registreret; intet andet skrevet). Skriver `DAA_T6C1_C_KONTROL=<kvittering>` |
+| `render` | læser | `red_publication_control` + `red_publication_control_details` i ét REPEATABLE READ-snapshot; control skal give samme bytes som ved `control`; `publication_identity_sheet.py render` → `ark-1..3.txt` (højst 30 kort hver), hashes udskrives |
+| `manifest-c --godkendt <sha,...>` | læser | arkenes hashes = de godkendte; B's batch (den ene finaliserede `publication_persona`-batch); `publication_identity_sheet.py manifest --details` med kørslens `candidates_sha256`; svar- og dispositionstal |
+| `go-c` | nej | binder også kvitteringen, `control.json`, `details.json`, arkene, manifestet og dets kvittering |
+| `apply-c --jeg-mener-det --go X` | **skriver** C | dry-run (rollback) → autorisation committet som `service_role` → begin + alle `red_apply_reimport_publication_identity` + `red_finalize_reimport` i **én READ COMMITTED-transaktion** (aldrig `SET CONSTRAINTS`) → kontroller → replay `already_applied` → `maal` = `c`. Skriver `DAA_T6C1_C_APPLY=<kvittering>` |
+| `go-reverse-c` | nej | binder apply-kvitteringen (C's batch) |
+| `reverse-c --jeg-mener-det --go X` | **skriver** | `red_authorize_reimport_reversal` (`service_role` med redaktørens claim) + `red_reverse_reimport_publication` i én transaktion → C's identiteter `superseded` → `maal` = `b` |
+| `oevelsesark` | nej | **kun stand-in**: udfylder de renderede ark teknisk (S på stikprøvens linjer, U på resten) uden at vise linjer; udskriver de nye hashes |
+
+Ukendte argumenter afvises; skrivende handlinger kræver `--jeg-mener-det --go <8 hex>`, og GO-koden binder
+ceremoniens navn (`6c1-c-control`, `6c1-c-apply`, `6c1-c-reverse`), så en kode aldrig gælder for en anden handling.
+En påbegyndt fortrydelse af 6b-B eller 6c-1-B spærrer alt ud over `maal`. Aktøren er den ene redaktionsprofil
+(prod: dens hash skal være `DAA_ACTOR_SHA256`); den skrives kun til en 0600-fil.
+
+### Forløb (projektejerens shell, prod)
+
+1. `koer.zsh 28-trin6c1-c.sh maal` → `b`, `k1` uændret, `T6C1_DEFACL` 0/0/0.
+2. `go-control` → `GO 6c1-C-control <kode>` → `control --jeg-mener-det --go <kode>`. Læs `T6C1_C_UDFALD`,
+   `T6C1_C_GRUNDE`, `T6C1_C_KORT`, `T6C1_C_KORT_LEDGER`. **Stop ved over 90 kort.** Kørslen er prods egen (spec §6
+   pkt. 2); arket fra stand-in'en kan ikke genbruges.
+3. `render` → `PUBLICATION_SHEET_OK ark-N.txt sha256=…`. Projektejeren udfylder arkene i mappen
+   (`S`, `S <person-id>`, `F`, `U`), gemmer og giver hver fils SHA-256.
+4. `manifest-c --godkendt <sha1,sha2,…>` (i arkenes rækkefølge). En F/U på en stikprøvelinje stopper med
+   `PUBLICATION_SAMPLE_FAILED` (6b §4.3 pkt. 6: C stopper).
+5. `go-c` → `GO 6c1-C <kode>` → `apply-c --jeg-mener-det --go <kode>`. Forventet `T6C1_C_TAL`, `T6C1_C_KONTROL
+   … afventer=0 … staged_i_koe=2 … eksisterende_uaendret=TRUE … pubstate_uaendret=TRUE`, `T6C1_C_REPLAY
+   already_applied`, `T6C1_APPLY_C_OK … tilstand=c`; `identiteter_k3` = 8 + antal accepterede.
+6. Kontrolrapporten (kun tal): udfald, stikprøve, S/F/U, antal F og hvad der blev gjort med deres publicering.
+
+Drift mellem `control` og `apply-c` fanges af writeren: en ny kandidatkørsel (`PUBLICATION_IDENTITY_RUN_STALE`; runneren
+tjekker det også før R), en tilbagetrukket eller flyttet binding (`PUBLICATION_IDENTITY_BINDING_DRIFT`,
+`…_SAMPLE_MISMATCH`), ændret kandidatinput (finalize: `PUBLICATION_IDENTITY_INPUT_DRIFT`). Alle ruller hele C tilbage.
+Udvejen er `control` igen og et nyt ark.
+
+### Stoppunkter for C
+
+| Hvor | Tilstand bagefter | Gør |
+|---|---|---|
+| `control`: `T6C1_C_TILSTAND`, `T6C1_K1_AENDRET`, `T6C1_C_DEFACL`, `T6C1_C_KONTROLMAENGDE` | `b`; intet skrevet | Tilstand eller kontrolmængde er ikke den forventede (561). Find ændringen |
+| `control`: `T6C1_C_INPUT`, `T6C1_C_GENERATOR`, `T6C1_C_REGISTRERING`, `T6C1_C_RUN_*` | `b`; højst en registreret kørsel | Koden står i linjen. En registreret kørsel er harmløs; næste `control` laver en ny |
+| `control`: `T6C1_C_FOR_MANGE_KORT` | `b`; kørslen registreret | 6b §4.3 pkt. 6: stop, projektejeren afgør afgrænsningen (6c-1 §8 pkt. 4) |
+| `render`: `T6C1_C_CONTROL_AENDRET`, `T6C1_C_RENDER (PUBLICATION_SHEET_TOO_MANY_CARDS)`, `PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED`, `…_OUTCOME_MISSING` | `b`; læse-kun | Basen er ændret siden `control` (kør `control` igen), eller arkværktøjets egne stop (6b-runbookens C-noter) |
+| `manifest-c`: `T6C1_C_GODKENDTE`, `T6C1_C_PERSONA_BATCH`, `PUBLICATION_SHEET_HASH_MISMATCH`, `PUBLICATION_SAMPLE_FAILED`, `PUBLICATION_SHEET_CARDS_MISMATCH` | `b`; læse-kun | Ark ændret efter godkendelsen, B-batchen ikke entydig, eller stikprøven fejlede (C stopper) |
+| `apply-c` før R: `T6C1_C_*_AENDRET`, `T6C1_C_ARK_AENDRET`, `T6C1_C_FOER`, `T6C1_C_RUN_STALE` | `b`; intet skrevet | En bundet fil er ændret, eller en nyere kørsel findes |
+| `apply-c` i R før commit (`T6C1_C_FEJL (<kode>; …)`) | `b`; rullet tilbage | Writerens/finalize's kode står i linjen (fuld linje i `apply-c-*.out`) |
+| Efter commit: `T6C1_C_FEJL_EFTER_COMMIT`, `T6C1_EFTER_C`, `T6C1_C_IDENTITETER` | C er committet | `maal`. Er C forkert: `go-reverse-c` → `reverse-c` |
+| `reverse-c`: `T6C1_C_REVERSE_FEJL` (`PUBLICATION_REVERSAL_VERSION_DRIFT`, `REIMPORT_WRITER_REVERSAL_INVALID`) | `c`; rullet tilbage | En identitet er ændret efter C (fx en menneskelig afgørelse): fortrydelsen afvises helt |
+
+### Varighed for C
+
+Målt 2026-11-01 på en kopi af `…_20261101204529_6c1r` (tilstand `b`, ICU, 2 min, `ANALYZE`); sekunder pr. sætning, målt
+på serveren (`clock_timestamp`) eller om én psql-proces. Faktorerne fra 6b-B (database-current-state §18): 27× blev
+målt over 555 små kald med hver sin rundtur, 3× over én tung sætning (manifestet). Planen og briefen bruger 27× for
+writer- og RPC-kald.
+
+| Sætning | Stand-in | ×3 | ×27 |
+|---|---|---|---|
+| Generatorens input (`red_identity_candidate_input`, 561 personas, `date_raw-v1`) | 9,6-9,7 s | 29 s | **259 s** |
+| `red_record_identity_candidates` (genberegner inputtet, 2.032 rækker) | 10,0-10,4 s | 30 s | **270 s** |
+| `red_publication_control` | 2,09-2,18 s | 6,5 s | 56-59 s |
+| `red_publication_control_details` | 12,6 s | 38 s | **341 s** |
+| C's første `enig`-element: stikprøven (`publication_control_sample`, 20 af 401) | 0,83 s (stedfortræder) | 2,5 s | 22 s |
+| Finalize: genberegning af kandidatinputtet (`identity_candidate_input` + hash) | 9,5-9,6 s (stedfortræder) | 29 s | **258 s** |
+| Generatoren (lokalt, ingen forbindelse) | 0,4-1,1 s | — | — |
+
+**Fund:** `identity_candidate_input` er den samme tunge funktion tre steder (eksport, registrering, finalize) og
+dominerer. Med 3× holder alle sætninger sig under 60 s; med 27× ligger fire over, og finalize ville overskride prods
+2 minutter **inde i C's transaktion** (så ruller hele C tilbage). Runneren hæver kun session-timeouten (15 min) for de
+læse-kun kald (kontrolmængde, input, control, details); `apply-c` kører med basens 2 min. Hvilken faktor der gælder,
+og om funktionen skal optimeres (en DB-task på PR 1-grenen), afgør projektejeren; øvelsen har ikke optimeret noget
+(briefen: stop ved over 60 s). Writer-kaldene pr. element og finalize som helhed er ikke målt, fordi `apply-c` ikke
+blev kørt; de to stedfortrædere er de dominerende dele af hhv. det første `enig`-element og finalize.
+
+### Fortrydelse af C
+
+- `go-reverse-c` → `GO 6c1-C-reverse <kode>` → `reverse-c --jeg-mener-det --go <kode>`: C's identiteter bliver
+  `superseded` (version + 1), batchen `reversed`, de 8 eksisterende og publiceringstilstanden er urørte, og de 555
+  venter igen på kontrol (`maal` = `b`, `2774 494 8 555`).
+- C køres derefter igen fra `control` (decisions 2026-10-31): en ny kørsel, nyt ark og nyt manifest. Genbrug ikke
+  control-, details-, ark- eller manifestfiler fra den fortrudte C; deres versioner er de gamle. Den nye C skriver
+  oven på den fortrudte identitets aktuelle version (`identity_reverted`).
+- B kan ikke fortrydes ved restore, når C er skrevet (`T6C1_FORTRYD_C`).
+
+### Øvelse til stoppunktet (2026-11-01, plan Task 9)
+
+Kopierne hedder `daa5ab_ddl_standin_<tid>_t9a`/`_t9b` (ikke `t6c1_t9_<tid>`, som briefen foreslog), fordi
+`setup_connection` kun forbinder til navne af formen `daa5ab_(ddl|data)_standin_<14 cifre>_<x>`; kalibreringens kopi
+hedder `t6c1_t9_<tid>_cal`, fordi kalibreringsscriptet kræver `_cal`. Originalen `…_20261101204529_6c1r` er urørt.
+
+1. **Udgangspunktet** (læse-kun på stand-in'en): 563 personas for kilde 3, alle med publiceret binding; 561 ikke-staged,
+   2 staged, 8 med identitet. Af de 561 har 397 et `proposed` `person.name`, 302 en fødsel, 296 en død, 356 fødsel
+   eller død, 274 navn og år; 74 har ingen forslag.
+2. **`control`** på `_t9a`: input `7f7838224237dabf…` (891 `date_raw`-påstande), `CANDIDATES_OK personas=561
+   uden_navn=0 kandidater=2032 rang1_tier={"none":148,"review":104,"auto":156}`, kørsel `candidates_sha256=a2e80259…`
+   (registreret to gange med samme indhold: samme kørsel). Udfald for de 561:
+
+   | Udfald | Antal | Grunde |
+   |---|---|---|
+   | enig | 31 | |
+   | svag | 273 | `partner_hoejere` 191, `under_auto` 64, `under_margin` 18, `uden_aarstal` 0 |
+   | navnefaelle | 51 | |
+   | uenig | 8 | |
+   | ingen_kandidat | 198 | |
+
+   **Kort: 550** (542 nye + 8 eksisterende; stikprøve 20) → `STOPPORT: T6C1_C_FOR_MANGE_KORT`. Efter ledgeren: 489 kort
+   fra `eligible` poster, 61 fra `excluded` (alle 61 uden forslag; 59 `ingen_kandidat`, 2 `svag`). Af de 74 uden forslag
+   giver 71 `ingen_kandidat` og 3 `svag`. `render` stoppede med `PUBLICATION_SHEET_TOO_MANY_CARDS`.
+3. **De 8 eksisterende** fik alle et udfald (3 `ingen_kandidat`, 3 `navnefaelle`, 2 `svag`), så
+   `PUBLICATION_CONTROL_OUTCOME_MISSING` (6b Task 12) blev ikke udløst; den rammer kun en persona, hvis binding ikke er
+   `published`. De 8 tæller med blandt de 550 som oplysningskort (`allerede_persona`).
+4. **Partnerreglen** (6c-1 §8 pkt. 3): af de 191 `partner_hoejere` er 177 lighed og 14 en partner med strengt højere
+   score. Skiftes `≥` til `>` alene, bliver ingen af de 177 `enig`: klassifikatorens margin regnes mod den bedste anden
+   post inklusive partneren, så lighed giver `under_margin` (læst af koden, ikke kørt). Regnes marginen kun mod andre
+   rækker, ville 105 af de 177 bestå (`autoCutoff` 106, årstal 161, margin 168) → 445 kort.
+5. **Kalibreringens andet ben** (6b §4.3 pkt. 7): `calibrate-publication-control.sh --db t6c1_t9_20261101212143_cal
+   --source 3 --facit binding --bound-source 3` (9 min 19 s). Facit = bindingens person for de 561 (cirkulært, som
+   2018-20's: tallene er en øvre grænse). 2.702 kontrafaktiske par; negativkontrollen 52 kopier × 6 = 312 kørsler,
+   2.540 par prøvet (162 ikke berørt), 951 med klyngerækken som rang 1 `auto`.
+
+   | `controlMargin` | rigtige | forkerte | forkerte med forkert klynge |
+   |---|---|---|---|
+   | 0,02 | 43 | 0 | 0 |
+   | **0,05** | **31** | **0** | **0** |
+   | 0,08 | 21 | 0 | 0 |
+   | 0,10 | 20 | 0 | 0 |
+   | 0,15 | 10 | 0 | 0 |
+   | 0,20 | 10 | 0 | 0 |
+
+   **`controlMargin = 0.05` er fejlfri også her** (mindste fejlfri 0,02 plus ét trin = 0,05; uændret). De kontrafaktiske
+   par stopper ved `uenig` 2.289, `navnefaelle` 392, `svag:under_auto` 13, `svag:partner_hoejere` 8. Facit-udfaldet
+   ved 0,05 er det samme som `control`'s (31 enig). Årstalsdækning for de 563: 45 uden reserve, 433 med `date_raw-v1`.
+6. **Driftprøven for B** (Review Focus 5, plan Task 9 step 4) på `_t9b` (`createdb -T …_6bm`): `dump` (foer) → `go-a`
+   → `apply-a` → `a` → `dump` (a) → `manifest-b` → `go-b`; derefter `levende=true` på én slægtning (family-medlem) til
+   hovedpersonen for en `eligible` post; `apply-b` → `T6C1_LEDGER foer records=592 eligible=498 excluded=94`,
+   `T6C1_LEDGER_DIFF records_afviger=2 kun_i_bundet=0 kun_i_ny=0 felter_afviger=-`,
+   `STOPPORT: T6C1_B_LEDGER_AFVIGER`; `maal` stadig `a`, 0 batches og 0 fortolkninger for kilde 3.
+
+**Ikke øvet** (venter på afgørelserne og en ny øvelse): `manifest-c`, `oevelsesark`, `go-c`, `apply-c` (dry-run,
+apply + finalize i én transaktion, kontrollerne af 6b §7's tal, `persona_awaiting_control` falsk for de 555, de 2
+staged synlige som `proposed`, de 8 urørte, `narrative_publication_state` for de 563 uændret), `reverse-c` →
+`superseded`, genkørslen efter fortrydelsen, `red_publication_control` efter en fortrydelse, og writer-/finalize-tiderne.
+`28-trin6c1-c.R` er syntakstjekket, ikke kørt.
 
 ## Forventede tal
 
@@ -301,8 +462,8 @@ rigtige SFTP-vej er 6b's kode, som kørte i prod 2026-11-01.
    `k1_forslag_hash` uændret i alle målinger. En kunstig 6b-markør i stand-in'ens `6b/`-mappe stoppede `apply-b` med
    `T6C1_6B_FORTRYD_IGANG`.
 
-Review Focus 5 (`levende` ændres i prod mellem dumpet og B) øves i Task 9 step 4 på stand-in'en. Runneren stopper da
-med `T6C1_B_LEDGER_AFVIGER`, før noget skrives.
+Review Focus 5 (`levende` ændres i prod mellem dumpet og B) blev øvet i Task 9 step 4 (afsnittet *Ceremoni C*, øvelsen
+pkt. 6): runneren stoppede med `T6C1_B_LEDGER_AFVIGER`, før noget blev skrevet.
 
 ## Efter ceremonierne
 
