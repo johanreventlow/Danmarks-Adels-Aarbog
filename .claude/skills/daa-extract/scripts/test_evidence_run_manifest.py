@@ -410,3 +410,20 @@ def test_run_evidence_refuses_a_ledger_from_another_edition(tmp_path, monkeypatc
                          policy=policy, profile_id=profile_id)
     assert rc == 1 and kaldt == [] and not (tmp_path / "o.json").exists()
     assert "LEDGER_POLICY_EDITION_MISMATCH" in capsys.readouterr().out
+
+
+def test_builder_default_flags_round_trip_through_check_contract(tmp_path, monkeypatch):
+    """Fund F2 (final-review): standard-`--dagsvaerk` (4.3b) gav et 1.4-manifest uden kodehash, som
+    runneren selv afviste (RUNNER_CODE_SHA_MISSING). Nye manifester binder altid koden."""
+    (tmp_path / "u.json").write_text(json.dumps(udvalg45()), encoding="utf-8")
+    (tmp_path / "l.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(evidence_runner, "codex_cli_version", lambda **k: "0.155.1")
+    monkeypatch.setattr("sys.argv", ["b", "--selection", str(tmp_path / "u.json"),
+                                     "--ledger", str(tmp_path / "l.json"),
+                                     "--out", str(tmp_path / "m.json"), "--restore-identity", "x"])
+    assert bm.main() == 0
+    m = json.loads((tmp_path / "m.json").read_text(encoding="utf-8"))
+    assert m["dagsvaerk"] == "4.3b" and m["runner_code_sha256"] == runner_code_sha256()
+    assert check_contract(m, schema_text=bm.SKEMA.read_text(encoding="utf-8"),
+                          runner_contract_version=evidence_runner.RUNNER_CONTRACT_VERSION,
+                          code_sha256=runner_code_sha256(), codex_cli_version="0.155.1") is None

@@ -152,7 +152,10 @@ def main() -> int:
         ledger_sha256=hashlib.sha256(Path(args.ledger).read_bytes()).hexdigest(),
         profil=profil,
         claims_schema_sha256=evidence_runner.sha256_text(SKEMA.read_text(encoding="utf-8")),
-        code_sha256=None if args.dagsvaerk == "4.3b" else runner_code_sha256(),
+        # Kontrakt 1.4: ethvert nyt manifest binder kørselskoden — også et med standard-dagsværket
+        # 4.3b, ellers afviser runneren det selv (RUNNER_CODE_SHA_MISSING). De historiske
+        # 4.3b-manifester er bygget og hashet; de genbygges ikke her.
+        code_sha256=runner_code_sha256(),
         codex_cli_version=evidence_runner.codex_cli_version(), source_id=source_id)
 
     out = Path(args.out)
