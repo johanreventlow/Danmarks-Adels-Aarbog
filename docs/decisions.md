@@ -2,6 +2,16 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: delspec 6c deles i 6c-1 (runner + 6b's identiteter) og 6c-2 (kontrol, rettelse, binding) (2026-11-01)
+
+> Projektejeren 2026-11-01: 6c deles i to, identiteterne først. **6c-1** kører runneren på 1939's tilladte poster,
+> lægger forslagene i prod og kører 6b's ceremoni C. **6c-2** rummer kontrolmodellen på 1939's forslag,
+> rettelsesvejen, bindingerne, vej B og A6b-resten for 2018-20 (overordnet spec §5 6c, §6 pkt. 2, 5 og 7). Rækkefølgen
+> i den overordnede spec er uændret; delingen justerer kun grænsen (»grænserne kan justeres i delspec'erne«). Hver
+> halvdel får sit eget B13-budget: 1 Codex-runde på spec+plan og 1 på diffen før prod. Begrundelse: én 6c ville samle
+> syv leverancer og en ceremoni fra 6b bag én spec, så intet kom i prod, før det hele var færdigt.
+> Delspec: `docs/superpowers/specs/2026-11-01-trin6c1-runner-og-identitet-design.md`.
+
 ## NOTERET: 6b's ceremoni C kan køres igen efter fortrydelse (2026-10-31)
 
 > Afsluttende review I2: efter `red_reverse_reimport_publication` gik personaerne før til den menneskelige webkø, og en
