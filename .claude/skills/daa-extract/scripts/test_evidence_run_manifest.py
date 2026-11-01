@@ -512,3 +512,28 @@ def test_1939_run_path_skips_excluded_and_drifted_records_before_the_eligible_on
     cachet = list((tmp_path / "c").glob("**/*.json"))
     assert len(cachet) == 1
     assert "BATCH_PENDING" in out and rc == 1
+
+
+def test_a_not_eligible_record_leaves_no_trace_before_the_guard(tmp_path, monkeypatch):
+    """run_record_guarded lover, at en record, der ikke må sendes, intet efterlader på disken. Driveren
+    byggede alligevel call-dir (med posttekst) og kørte gate-testen for den. Nu: ingen call-dir, ingen
+    gate og ingen tekst i bedømmelsesarket for de to; kun den eligible record kommer så langt."""
+    import subprocess
+    events = (Path(__file__).resolve().parent / "tests" / "fixtures" / "codex-exec"
+              / "turn-completed-with-usage.jsonl").read_text(encoding="utf-8")
+    gates = []
+    monkeypatch.setattr(subprocess, "run",
+                        lambda *a, **k: (gates.append(a[0]), subprocess.CompletedProcess(a, 0, "", ""))[1])
+    mapper = []
+    rigtig = evidence_runner.prepare_call_dir
+    import run_evidence_43b
+    monkeypatch.setattr(run_evidence_43b, "prepare_call_dir",
+                        lambda rec, *a, **k: (mapper.append(rec["record_key"]), rigtig(rec, *a, **k))[1])
+    rc, kaldt = _koersel(tmp_path, monkeypatch, noegler=("R-0", "R-1", "R-2"),
+                         policy="exclusion-1939-v1", profile_id="daa-1939-v2",
+                         udelukket={"R-0": ["principal_living"]}, drift=("R-1",),
+                         codex_stub=lambda: (events, json.dumps({"claims": []})))
+    assert mapper == ["R-2"] and len(gates) == 1 and len(kaldt) == 1
+    ark = {a["record_key"]: a for a in json.loads((tmp_path / "a.json").read_text(encoding="utf-8"))}
+    assert ark["R-0"]["klausuler"] == [] and ark["R-1"]["klausuler"] == []
+    assert ark["R-2"]["klausuler"] != []

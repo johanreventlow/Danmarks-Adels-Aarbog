@@ -154,6 +154,20 @@ def main() -> int:
         except evidence_runner.EligibilityError as exc:
             print(f"{exc} — stopper. Intet mere sendes.")
             return 1
+        try:
+            # Eligibility FØR call-dir: en record, der ikke må sendes, får ingen call-dir med sin tekst,
+            # ingen gate-kørsel og ingen tekst i bedømmelsesarket (run_record_guarded's løfte). Udfaldet
+            # er det samme synlige `not_eligible`, som run_record_guarded giver; den tjekker igen nedenfor.
+            evidence_runner.check_eligibility(ledger, key, canonical_record_input(rec))
+        except evidence_runner.EligibilityError:
+            resultater.append({
+                "record_key": key, "status": "failed", "error_kind": "not_eligible",
+                "antal_klausuler": len(rec["clauses"]), "antal_claims": 0, "praedikater": [],
+                "usage": {}, "afviste": [], "fra_cache": False,
+            })
+            print(f"  {key:10} failed  not_eligible — sendes ikke")
+            ark.append({"record_key": key, "udfald": "not_eligible", "klausuler": [], "claims": []})
+            continue
         with prepare_call_dir(rec, skema) as call_dir:
             profil_sti = call_dir / "gate.sb"
             profil_sti.write_text(build_gate_profile(call_dir=str(call_dir), home=home),
