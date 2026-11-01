@@ -8,6 +8,8 @@
 # `post_verbatim_text` er ankeret for `evidence_runner.canonical_record_input`
 # og SKAL være helpostens ordrette tekst — samme felt, som eligibility-eksporten
 # hasher. Divergerer de to, afviser værnet alt (eller bliver omgået).
+# Trin 6c-1: helposten vælges med writerens regel (--writer-profile bestemmer slagsen), og personaen er
+# helpostens primære mention.
 # Trin 6a: begge læser helpostens GÆLDENDE tekst gennem private.helpost_text_current
 # (tekstversionen efter en kildetekst-revision, ellers basisteksten). Klausulerne er
 # det aktuelle sæt, og sættet skal være skåret af netop den tekst (text_id), ellers
@@ -20,7 +22,7 @@ suppressPackageStartupMessages({ library(DBI); library(RPostgres); library(jsonl
 
 args <- commandArgs(trailingOnly = TRUE)
 flags <- args[grepl("^--", args)]
-allowed <- c("--source-id", "--output-dir")
+allowed <- c("--source-id", "--output-dir", "--writer-profile")
 if (any(!flags %in% allowed) || anyDuplicated(flags) || !all(allowed %in% flags)) {
   stop("EXPORT_CLI_INVALID", call. = FALSE)
 }
@@ -35,6 +37,7 @@ source(file.path(script_dir, "export_legacy_migration_candidates_helpers.R"))
 source_id <- suppressWarnings(as.integer(value("--source-id")))
 if (is.na(source_id) || source_id <= 0L) stop("EXPORT_CLI_INVALID", call. = FALSE)
 output_dir <- lmc_validate_output_dir(value("--output-dir"))
+writer_profile <- value("--writer-profile")
 out_path <- file.path(output_dir, "runner-input-v1.json")
 if (file.exists(out_path)) stop("EXPORT_OUTPUT_EXISTS", call. = FALSE)
 
@@ -45,49 +48,67 @@ con <- DBI::dbConnect(RPostgres::Postgres(),
 on.exit(DBI::dbDisconnect(con), add = TRUE)
 DBI::dbExecute(con, "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
 
-# Helposten: parent_observation_id IS NULL. Samme afgrænsning som
-# eligibility-eksporten bruger til sin hash — de to SKAL følges ad.
-posts <- DBI::dbGetQuery(con, "
-  SELECT sr.record_key, ob.id AS post_id, cur.verbatim_text AS post_text, cur.text_id::text AS text_id,
-         COALESCE(sp.id::text, '') AS persona_id
-    FROM private.source_record sr
-    JOIN private.source_record_anchor_current a ON a.source_record_id = sr.id
-                                               AND a.decision_status = 'accepted'
-    JOIN private.source_observation ob ON ob.occurrence_id = a.occurrence_id
-                                      AND ob.parent_observation_id IS NULL
-    CROSS JOIN LATERAL private.helpost_text_current(ob.id) cur
-    -- Personaen kobles på `persona_key`, som for 2018-20 ER record-nøglen (målt:
-    -- 587 af 587 matcher). Der er ingen FK fra source_persona til source_record.
-    -- FIRE records har ingen persona — 149b's `unresolved_text`. De får tom
-    -- persona_id, og preflighten afviser dem, fordi et person.*-claim så ikke kan
-    -- bindes til nogen.
-    LEFT JOIN LATERAL (
-      SELECT p.id FROM private.source_persona p
-       WHERE p.source_id = sr.source_id AND p.persona_key = sr.record_key
-       ORDER BY p.id LIMIT 1
-    ) sp ON TRUE
-   WHERE sr.source_id = $1
-   ORDER BY sr.record_key COLLATE \"C\"", params = list(source_id))
+# Helpost-slagsen læses fra writerprofilen (private.writer_config_helpost_kind), aldrig hardkodet:
+# 2018-20 er `person_post`, 1939 er `person`. Ukendt profil på kilden stopper eksporten.
+kinds <- DBI::dbGetQuery(con, "
+  SELECT DISTINCT private.writer_config_helpost_kind(writer_config) AS kind
+    FROM private.reimport_writer_profile
+   WHERE source_id = $1 AND profile_id = $2", params = list(source_id, writer_profile))
+if (nrow(kinds) != 1L) stop("EXPORT_WRITER_PROFILE_UNKNOWN", call. = FALSE)
+helpost_kind <- kinds$kind[[1L]]
 
+# Helposten vælges som writeren gør det (trin 6a/6c-1): private.record_helpost_status(record, slags).
+# En record kan have flere accepterede forekomster; helposten er den ene, hvis eneste topobservation har
+# helpost-slagsen. Rækkefølge og antal forankringer påvirker ikke valget. Kun records med mindst én
+# accepteret forankring eksporteres (som før). Status none udelader recorden (talt i
+# uden_helpost); ambiguous/outside (writerens RECORD_HELPOST_AMBIGUOUS / RECORD_HELPOST_SUBOCCURRENCE_OUTSIDE)
+# giver EXPORT_HELPOST_NOT_UNIQUE.
+# Personaen er helpostens `primary`-mention (som writeren); den samlede persona_id-liste tælles i R. Flere primære
+# personas udelader recorden (talt i uden_entydig_persona; final-review F6): 1939-ledgeren udelukker den alligevel
+# (no_published_persona), så hele eksporten skal ikke stoppe for den.
+# NB: eksporten tager DISTINCT persona, mens writeren tæller primær-mention-rækker (nuller ved <> 1 række); de kan
+# afvige, hvis samme persona har to primære mentions på helposten (udskudt, Task 4 minor 2).
+posts <- DBI::dbGetQuery(con, "
+  SELECT sr.record_key, h.status, h.observation_id AS post_id,
+         cur.verbatim_text AS post_text, cur.text_id::text AS text_id,
+         COALESCE((SELECT string_agg(DISTINCT spm.persona_id::text, ',')
+                     FROM private.source_mention sm
+                     JOIN private.source_persona_mention spm ON spm.mention_id = sm.id
+                                                            AND spm.mention_role = 'primary'
+                    WHERE sm.observation_id = h.observation_id), '') AS persona_ids
+    FROM private.source_record sr
+    CROSS JOIN LATERAL private.record_helpost_status(sr.id, $2) h
+    LEFT JOIN LATERAL private.helpost_text_current(h.observation_id) cur ON TRUE
+   WHERE sr.source_id = $1
+     AND EXISTS (SELECT 1 FROM private.source_record_anchor_current a
+                  WHERE a.source_record_id = sr.id AND a.decision_status = 'accepted')
+   ORDER BY sr.record_key COLLATE \"C\"", params = list(source_id, helpost_kind))
+
+# Klausulerne er det aktuelle sæt under den valgte helpost (ikke under alle rodobservationer).
 clauses <- DBI::dbGetQuery(con, "
   SELECT sr.record_key, ob.clause_ordinal AS ordinal, ob.verbatim_text,
          encode(extensions.digest(ob.verbatim_text, 'sha256'), 'hex') AS verbatim_sha256,
          ob.parent_text_id::text AS parent_text_id
     FROM private.source_record sr
-    JOIN private.source_record_anchor_current a ON a.source_record_id = sr.id
-                                               AND a.decision_status = 'accepted'
-    JOIN private.source_observation parent ON parent.occurrence_id = a.occurrence_id
-                                          AND parent.parent_observation_id IS NULL
-    JOIN private.clause_observation_current ob ON ob.parent_observation_id = parent.id
-   WHERE sr.source_id = $1
-   ORDER BY sr.record_key COLLATE \"C\", ob.clause_ordinal", params = list(source_id))
+    CROSS JOIN LATERAL private.record_helpost_status(sr.id, $2) h
+    JOIN private.clause_observation_current ob ON ob.parent_observation_id = h.observation_id
+   WHERE sr.source_id = $1 AND h.status = 'ok'
+   ORDER BY sr.record_key COLLATE \"C\", ob.clause_ordinal", params = list(source_id, helpost_kind))
 
 DBI::dbExecute(con, "ROLLBACK")
 if (nrow(posts) == 0L) stop("EXPORT_NO_ROWS", call. = FALSE)
 
 records <- list()
+n_no_helpost <- 0L
+n_ambiguous_persona <- 0L
 for (i in seq_len(nrow(posts))) {
   key <- posts$record_key[i]
+  # `none`: ingen helpost af profilens slags (fx strukturkontekst/krydshenvisning) -> ikke en modelpost; udeladt
+  # og talt (eligibility-ledgeren dækker stadig alle records). ambiguous/outside afvises (fail-closed).
+  if (identical(posts$status[i], "none")) { n_no_helpost <- n_no_helpost + 1L; next }
+  if (!identical(posts$status[i], "ok")) stop("EXPORT_HELPOST_NOT_UNIQUE", call. = FALSE)
+  pids <- strsplit(posts$persona_ids[i], ",", fixed = TRUE)[[1L]]
+  if (length(pids) > 1L) { n_ambiguous_persona <- n_ambiguous_persona + 1L; next }
   own <- clauses[clauses$record_key == key, , drop = FALSE]
   # Sættet skal være bundet til den eksporterede tekstversion (NA = basisteksten på begge sider).
   if (!all(vapply(own$parent_text_id, identical, logical(1), posts$text_id[i])))
@@ -98,7 +119,7 @@ for (i in seq_len(nrow(posts))) {
     verbatim_sha256 = jsonlite::unbox(own$verbatim_sha256[j])))
   records[[key]] <- list(
     record_key = jsonlite::unbox(key),
-    persona_id = jsonlite::unbox(posts$persona_id[i]),
+    persona_id = jsonlite::unbox(if (length(pids) == 1L) pids[[1L]] else ""),
     post_verbatim_text = jsonlite::unbox(posts$post_text[i]),
     clauses = cl)
 }
@@ -109,6 +130,7 @@ writeLines(jsonlite::toJSON(list(
   records = records), auto_unbox = FALSE, pretty = TRUE), out_path)
 Sys.chmod(out_path, "0600")
 
-cat(sprintf("RUNNER_INPUT_OK records=%d klausuler=%d uden_klausuler=%d\n",
-            length(records), nrow(clauses),
-            sum(vapply(records, function(r) length(r$clauses) == 0L, logical(1)))))
+cat(sprintf("RUNNER_INPUT_OK records=%d klausuler=%d uden_klausuler=%d uden_helpost=%d uden_entydig_persona=%d\n",
+            length(records), sum(vapply(records, function(r) length(r$clauses), integer(1))),
+            sum(vapply(records, function(r) length(r$clauses) == 0L, logical(1))),
+            n_no_helpost, n_ambiguous_persona))

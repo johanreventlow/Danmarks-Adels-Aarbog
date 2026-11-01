@@ -408,10 +408,37 @@ def test_cache_key_covers_schema_and_runner_version():
 
 
 def test_runner_contract_is_bumped_for_the_clause_set_key():
-    # 1.2 indførte klausulsættet; 1.3 (P1) bevarer nøglens felter.
-    assert evidence_runner.RUNNER_CONTRACT_VERSION == "evidence-runner-1.3"
-    assert evidence_runner.CACHE_KEY_FIELDS_BY_CONTRACT["evidence-runner-1.2"] \
-        == evidence_runner.CACHE_KEY_FIELDS
+    # 1.2 indførte klausulsættet; 1.3 (P1) og 1.4 (6c-1) bevarer nøglens felter.
+    assert evidence_runner.RUNNER_CONTRACT_VERSION == "evidence-runner-1.4"
+    for kontrakt in ("evidence-runner-1.2", "evidence-runner-1.3", "evidence-runner-1.4"):
+        assert evidence_runner.CACHE_KEY_FIELDS_BY_CONTRACT[kontrakt] \
+            == evidence_runner.CACHE_KEY_FIELDS
+
+
+def test_cache_key_1_3_vector_unchanged():
+    """2018-20's 1.3-cache skal kunne adresseres efter bump til 1.4: fast vektor, udledt
+    med den uændrede nøgleformel (felter i rækkefølge, \\x1f-adskilt, sha256)."""
+    ident = {"profile_id": "p", "profile_version": "1", "model": "m", "prompt_sha256": "a" * 64,
+             "record_key": "R-1", "record_input_sha256": "b" * 64, "clause_set_sha256": "c" * 64,
+             "claims_schema_sha256": "d" * 64, "runner_contract_version": "evidence-runner-1.3"}
+    assert ResponseCache.key(ident) == "7c8540df5d22b8a6b022394e550f8647a25a7dc56c773a4be0a5301731c3a333"
+
+
+@pytest.mark.parametrize("message", ["You've hit your usage limit.", "USAGE LIMIT reached"])
+def test_quota_without_type_is_quota_exhausted(message):
+    assert classify_failure(read_fixture("failure-quota-no-type.jsonl"), exit_code=1) \
+        == "quota_exhausted"
+    for error in ({"message": message}, message):
+        stream = json.dumps({"type": "turn.failed", "error": error})
+        assert classify_failure(stream, exit_code=1) == "quota_exhausted"
+
+
+@pytest.mark.parametrize("error", [{"message": "boom"}, "boom", {"kode": 42}, None,
+                                   {"type": "noget_andet", "message": "usage limit"}])
+def test_failed_without_type_or_quota_text_is_unknown(error):
+    stream = json.dumps({"type": "turn.failed", "error": error})
+    assert classify_failure(stream, exit_code=1) == "unknown"
+
 
 
 def test_a_12_answer_is_not_reused_under_13(tmp_path):
@@ -915,6 +942,86 @@ def test_an_excluded_row_must_carry_at_least_one_reason():
                                   "record_input_sha256": "f" * 64}})
     with pytest.raises(EligibilityError, match="LEDGER_REASON_REQUIRED"):
         load_ledger(ledger(records=rows))
+
+
+@pytest.mark.parametrize("politik,aarsag", [("exclusion-2018-20-v1", "principal_living"),
+                                            ("exclusion-1939-v1", "text_year_ge_1915")])
+def test_an_eligible_row_must_not_carry_a_reason(politik, aarsag):
+    """Fund F4 (final-review): `eligible` med en årsag er selvmodsigende — ledgeren siger både ja og
+    nej. Den modsatte kombination (excluded uden årsag) afvises af testen ovenfor."""
+    rows = {"I-42": {"status": "eligible", "reasons": [aarsag],
+                     "record_input_sha256": canonical_record_input(export())}}
+    with pytest.raises(EligibilityError, match="LEDGER_REASON_ON_ELIGIBLE"):
+        load_ledger(ledger(policy_version=politik, records=rows))
+    with pytest.raises(EligibilityError, match="LEDGER_REASON_ON_ELIGIBLE"):
+        check_eligibility(ledger(policy_version=politik, records=rows), "I-42",
+                          canonical_record_input(export()))
+
+
+REASONS_2018_20 = {"principal_living", "relative_living", "spouse_undated_marriage", "birth_year_text_filter"}
+REASONS_1939 = {"no_published_persona", "principal_living", "same_as_partner_living",
+                "relative_living", "text_year_ge_1915"}
+
+
+def test_the_reason_sets_are_per_policy():
+    """Trin 6c-1 Task 5: årsagerne er politikkens egne (spec 6c-1 §4.3, Codex fund 5)."""
+    assert {k: set(v) for k, v in evidence_runner.EXCLUSION_REASONS.items()} == {
+        "exclusion-2018-20-v1": REASONS_2018_20, "exclusion-1939-v1": REASONS_1939}
+
+
+def ledger_1939(**rows):
+    base = {"I-1": {"status": "eligible", "reasons": [], "record_input_sha256": "a" * 64},
+            "I-2": {"status": "excluded", "reasons": sorted(REASONS_1939), "record_input_sha256": "0" * 64}}
+    base.update(rows)
+    return ledger(policy_version="exclusion-1939-v1", records=base)
+
+
+def test_a_1939_ledger_loads():
+    assert load_ledger(ledger_1939())["policy_version"] == "exclusion-1939-v1"
+
+
+@pytest.mark.parametrize("aarsag", sorted(REASONS_2018_20 - REASONS_1939))
+def test_a_2018_20_reason_in_a_1939_ledger_is_rejected(aarsag):
+    rows = {"I-3": {"status": "excluded", "reasons": [aarsag], "record_input_sha256": "f" * 64}}
+    with pytest.raises(EligibilityError, match="LEDGER_REASON_UNKNOWN"):
+        load_ledger(ledger_1939(**rows))
+
+
+@pytest.mark.parametrize("aarsag", sorted(REASONS_1939 - REASONS_2018_20))
+def test_a_1939_reason_in_a_2018_20_ledger_is_rejected(aarsag):
+    rows = ledger_rows(**{"I-3": {"status": "excluded", "reasons": [aarsag], "record_input_sha256": "f" * 64}})
+    with pytest.raises(EligibilityError, match="LEDGER_REASON_UNKNOWN"):
+        load_ledger(ledger(records=rows))
+
+
+@pytest.mark.parametrize("politik", ["p", "exclusion-1939-v2", "exclusion-syntetisk-rehearsal", 7, ["exclusion-1939-v1"]])
+def test_an_unknown_policy_is_rejected(politik):
+    """En ledger fra en politik, koden ikke kender, kan ikke valideres — og er derfor ikke troværdig."""
+    with pytest.raises(EligibilityError, match="LEDGER_POLICY_UNKNOWN"):
+        load_ledger(ledger(policy_version=politik))
+
+
+@pytest.mark.parametrize("aarsag", sorted(REASONS_1939))
+def test_each_1939_rule_blocks_on_its_own(aarsag):
+    rows = {"I-4": {"status": "excluded", "reasons": [aarsag], "record_input_sha256": "a" * 64}}
+    with pytest.raises(EligibilityError, match="RECORD_EXCLUDED"):
+        check_eligibility(ledger_1939(**rows), "I-4", "a" * 64)
+    assert check_eligibility(ledger_1939(), "I-1", "a" * 64) == "eligible"
+
+
+@pytest.mark.parametrize("politik,udgave", [("exclusion-2018-20-v1", "2018-20"), ("exclusion-1939-v1", "1939")])
+def test_a_ledger_matches_its_own_edition(politik, udgave):
+    lg = ledger_1939() if politik == "exclusion-1939-v1" else ledger()
+    assert evidence_runner.check_ledger_edition(lg, udgave) is None
+
+
+@pytest.mark.parametrize("politik,udgave", [("exclusion-2018-20-v1", "1939"), ("exclusion-1939-v1", "2018-20"),
+                                            ("exclusion-1939-v1", None), ("exclusion-2018-20-v1", "syntetisk")])
+def test_a_ledger_from_another_edition_is_rejected(politik, udgave):
+    """Fix-runde 1: 2018-20's regler må ikke frikende 1939's poster (og omvendt); ukendt udgave = nej."""
+    lg = ledger_1939() if politik == "exclusion-1939-v1" else ledger()
+    with pytest.raises(EligibilityError, match="LEDGER_POLICY_EDITION_MISMATCH"):
+        evidence_runner.check_ledger_edition(lg, udgave)
 
 
 def test_reasons_must_come_from_the_closed_rule_set():

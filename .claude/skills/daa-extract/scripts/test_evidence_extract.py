@@ -432,3 +432,57 @@ def test_1939_profile_clause_rules_and_optional_page_keys(tmp_path):
         for bad in ("([", "", 5):
             with pytest.raises(ExtractionError, match="CLAUSE_RULES_INVALID"):
                 evidence_extract.validate_clause_rules(dict(rules, **{key: bad}))
+
+
+# --- Task 3 (trin 6c-1): prompt 1.1.0 og profilen daa-1939-v2 -------------------------------
+
+_FROZEN_PROFILE_HASHES = {
+    "daa-1939-v1": "b7f0a3cd912dd31f9d4b801a722b8373ad64015b65f289ab5a012c31141906eb",
+    "daa-2018-20-v1": "166869465584a67ed095d41ffd9d564968eac28bd86a930fb62a13839d701f0e",
+    "daa-2018-20-v2": "1268460d90e69a8fb80d3d1ae475879ba7aa002cf2718199af76a620902c77f1",
+}
+
+
+def test_existing_profiles_are_unchanged_by_the_1939_v2_addition():
+    profiles = json.loads(evidence_extract.PROFILES.read_text(encoding="utf-8"))["profiles"]
+    for profile_id, expected in _FROZEN_PROFILE_HASHES.items():
+        digest = hashlib.sha256(json.dumps(profiles[profile_id], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        assert digest == expected, profile_id
+
+
+def test_prompt_1_1_0_is_prompt_1_0_0_plus_added_sections_only():
+    import difflib
+    refs = evidence_extract.REFERENCES
+    old = (refs / "evidence-extract-prompt-1.0.0.md").read_text(encoding="utf-8").splitlines(keepends=True)
+    new = (refs / "evidence-extract-prompt-1.1.0.md").read_text(encoding="utf-8").splitlines(keepends=True)
+    ops = [op for op in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes() if op[0] != "equal"]
+    # kun headerens versionslinje (linje 1) må erstattes; alt andet er rene indsættelser
+    header = [op for op in ops if op[0] == "replace"]
+    assert all(tag in ("insert", "replace") for tag, *_ in ops)
+    assert len(header) == 1 and header[0][1:3] == (0, 1)
+    assert new[0].strip() == "<!-- evidence-extract-prompt-1.1.0"
+    inserts = [op for op in ops if op[0] == "insert"]
+    added = "".join(line for _, _, _, j1, j2 in inserts for line in new[j1:j2])
+    heads = [line for line in added.splitlines() if line.startswith("## ")]
+    assert heads == ["## Navn, titel og gods", "## »var † [dato], da …« er en grænse"]
+    assert "person.title" in added and "til " in added and "†" in added
+    assert "grænse" in added and "person.death" in added
+    assert "1939" not in added and "2018" not in added
+
+
+def test_daa_1939_v2_binds_prompt_1_1_0_and_mirrors_the_schema_settings():
+    profile = load_profile("daa-1939-v2")  # load_profile verificerer prompt-hashen
+    assert profile["version"] == "1.4.0" and profile["edition"] == "1939"
+    assert profile["model_id"] == "gpt-5.6-terra" and profile["escalation_model_id"] == "gpt-5.6-sol"
+    assert profile["prompt_file"] == "evidence-extract-prompt-1.1.0.md"
+    text = evidence_extract.resolve_prompt(profile["prompt_file"], profile["prompt_sha256"])
+    assert hashlib.sha256(text.encode("utf-8")).hexdigest() == profile["prompt_sha256"]
+    v1 = load_profile("daa-1939-v1")
+    keep = lambda p: {k: v for k, v in p.items() if k not in ("profile_id", "version", "prompt_version", "prompt_file", "prompt_sha256")}
+    assert keep(profile) == keep(v1)
+    ref = load_profile("daa-2018-20-v2")
+    for key in ("model_id", "escalation_model_id", "layout", "record_identity", "requires_human_go_for_change"):
+        assert profile[key] == ref[key]
+    assert profile["prompt_version"] != ref["prompt_version"]
+    with pytest.raises(ExtractionError, match="PROMPT_FILE_DRIFT"):
+        evidence_extract.resolve_prompt(profile["prompt_file"], "0" * 64)

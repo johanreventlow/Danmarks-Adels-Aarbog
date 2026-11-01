@@ -2804,6 +2804,10 @@ BEGIN
      OR v_def NOT LIKE '%interpretation_proposal_key_material_v2(%' THEN
     RAISE EXCEPTION 'FEJL: write_interpretation_proposal mangler genkørselskontrakten (S4-åbning, nøgle v2)';
   END IF;
+  -- Trin 6c-1: forslagswriteren vælger helposten med helpost-reglen, og slagsen læses fra writerprofilen.
+  IF v_def NOT LIKE '%record_helpost_observation(%' OR v_def NOT LIKE '%writer_config_helpost_kind(%' THEN
+    RAISE EXCEPTION 'FEJL: write_interpretation_proposal følger ikke helpost-reglen (record_helpost_observation/writer_config_helpost_kind)';
+  END IF;
   v_def:=pg_get_functiondef(to_regprocedure('private.write_clause_evidence(uuid,text,jsonb)'));
   IF v_def IS NULL OR v_def NOT LIKE '%private.clause_write_set(%' THEN
     RAISE EXCEPTION 'FEJL: write_clause_evidence skriver ikke via clause_write_set';

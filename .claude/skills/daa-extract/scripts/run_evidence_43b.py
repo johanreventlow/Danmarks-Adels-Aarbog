@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import evidence_extract
 import evidence_runner
 from build_43b_manifest import bundles_of, check_contract, runner_code_sha256
-from evidence_runner import (ResponseCache, build_gate_profile, build_gated_argv,
+from evidence_runner import (EligibilityError, ResponseCache, build_gate_profile, build_gated_argv,
                              canonical_record_input, load_ledger, prepare_call_dir,
                              run_record_guarded, sha256_text)
 
@@ -57,13 +57,21 @@ def main() -> int:
         print("MANIFEST_NOT_APPROVED — hashen er ikke den, der blev givet GO til.")
         return 1
 
-    runner_input = json.loads(Path(args.runner_input).read_text(encoding="utf-8"))["records"]
+    runner_input_doc = json.loads(Path(args.runner_input).read_text(encoding="utf-8"))
+    runner_input = runner_input_doc["records"]
     ledger = load_ledger(json.loads(Path(args.ledger).read_text(encoding="utf-8")))
     if hashlib.sha256(Path(args.ledger).read_bytes()).hexdigest() != manifest["eligibility_ledger_sha256"]:
         print("LEDGER_DRIFT — ledgeren er ikke den, manifestet blev godkendt med.")
         return 1
 
     profil = evidence_extract.load_profile(manifest["profile_id"])
+    # Ledgerens politik skal høre til profilens udgave (trin 6c-1): ellers kunne en 2018-20-ledger
+    # godkende 1939-poster efter 2018-20's regler.
+    try:
+        evidence_runner.check_ledger_edition(ledger, profil["edition"])
+    except EligibilityError as exc:
+        print(f"{exc} — ledgerens politik hører ikke til profilens udgave.")
+        return 1
     if profil["version"] != manifest["profile_version"]:
         print("PROFILE_DRIFT — profilversionen er ændret siden GO.")
         return 1
@@ -86,6 +94,19 @@ def main() -> int:
     if fejl:
         print(f"{fejl} — kørselsmiljøet er ikke det, der blev givet GO til. Intet sendes.")
         return 1
+    # Fund F1 (final-review): kilde og snapshot krydstjekkes FØR call-dir og ethvert kald. En record med
+    # samme nøgle og tekst i en anden kilde har samme input-hash; kun kilde-id'et skiller den ene kildes
+    # privatlivsafgørelse fra den andens. Historiske manifester (kontrakt <= 1.3, uden source_id) er
+    # allerede stoppet af RUNNER_CONTRACT_DRIFT ovenfor og beholder den opførsel.
+    if evidence_runner.contract_at_least(manifest["runner_contract_version"], (1, 4)):
+        kilder = (runner_input_doc.get("source_id"), ledger.get("source_id"), manifest.get("source_id"))
+        if not all(type(k) is int and k > 0 for k in kilder) or len(set(kilder)) != 1:
+            print("RUN_SOURCE_MISMATCH — runner-input, ledger og manifest er ikke fra samme kilde. Intet sendes.")
+            return 1
+        if ledger.get("restore_identity") != manifest.get("restore_identity") \
+                or not isinstance(manifest.get("restore_identity"), str):
+            print("RUN_RESTORE_IDENTITY_MISMATCH — ledgeren er ikke fra manifestets snapshot. Intet sendes.")
+            return 1
     skema = json.loads(skema_tekst)
     cache = ResponseCache(args.cache_dir)
     home = os.path.expanduser("~")
@@ -133,6 +154,20 @@ def main() -> int:
         except evidence_runner.EligibilityError as exc:
             print(f"{exc} — stopper. Intet mere sendes.")
             return 1
+        try:
+            # Eligibility FØR call-dir: en record, der ikke må sendes, får ingen call-dir med sin tekst,
+            # ingen gate-kørsel og ingen tekst i bedømmelsesarket (run_record_guarded's løfte). Udfaldet
+            # er det samme synlige `not_eligible`, som run_record_guarded giver; den tjekker igen nedenfor.
+            evidence_runner.check_eligibility(ledger, key, canonical_record_input(rec))
+        except evidence_runner.EligibilityError:
+            resultater.append({
+                "record_key": key, "status": "failed", "error_kind": "not_eligible",
+                "antal_klausuler": len(rec["clauses"]), "antal_claims": 0, "praedikater": [],
+                "usage": {}, "afviste": [], "fra_cache": False,
+            })
+            print(f"  {key:10} failed  not_eligible — sendes ikke")
+            ark.append({"record_key": key, "udfald": "not_eligible", "klausuler": [], "claims": []})
+            continue
         with prepare_call_dir(rec, skema) as call_dir:
             profil_sti = call_dir / "gate.sb"
             profil_sti.write_text(build_gate_profile(call_dir=str(call_dir), home=home),

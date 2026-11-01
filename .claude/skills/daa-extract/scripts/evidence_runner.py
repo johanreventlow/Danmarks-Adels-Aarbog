@@ -258,7 +258,9 @@ from pathlib import Path
 #: 1.3 (2026-09-28): et kald med værktøjsbrug fældes (`tool_use`, review 35, P1).  Et
 #:     1.2-svar kan være skrevet af et kald, der kørte en kommando; strømmen gemmes
 #:     ikke i cachen, så det kan ikke efterprøves og må ikke genbruges.
-RUNNER_CONTRACT_VERSION = "evidence-runner-1.3"
+#: 1.4 (2026-11-01): kvotefejl uden `error.type` klassificeres på teksten; nye manifester
+#:     binder `runner_code_sha256` og `source_id`.  Cache-nøglen er 1.3's.
+RUNNER_CONTRACT_VERSION = "evidence-runner-1.4"
 
 #: Modelpolitikken er frossen (decisions 2026-09-06, valg 1).
 ALLOWED_MODELS = ("gpt-5.6-terra", "gpt-5.6-sol")
@@ -303,8 +305,17 @@ CACHE_KEY_FIELDS_BY_CONTRACT = {
     "evidence-runner-1.0": _PRE_CLAUSE_SET_FIELDS,
     "evidence-runner-1.1": _PRE_CLAUSE_SET_FIELDS,
     "evidence-runner-1.2": CACHE_KEY_FIELDS,
-    RUNNER_CONTRACT_VERSION: CACHE_KEY_FIELDS,
+    # 1.3 og 1.4 registreres eksplicit: konstanten flytter sig, 2018-20's 1.3-cache skal
+    # stadig kunne adresseres. 1.4 ændrer ikke nøglen (kun kvoteklassifikation og binding).
+    "evidence-runner-1.3": CACHE_KEY_FIELDS,
+    "evidence-runner-1.4": CACHE_KEY_FIELDS,
 }
+
+
+def contract_at_least(version, minimum: tuple[int, int]) -> bool:
+    """`evidence-runner-M.N` >= (M, N). Ukendt form er ikke >= noget."""
+    m = re.fullmatch(r"evidence-runner-(\d+)\.(\d+)", version) if isinstance(version, str) else None
+    return bool(m) and (int(m.group(1)), int(m.group(2))) >= minimum
 
 #: Fejltyper aflæses af `turn.failed`'s `error.type`.  Ukendte former bliver
 #: `unknown` — aldrig stiltiende accepteret.
@@ -454,8 +465,14 @@ def classify_failure(jsonl: str, *, exit_code: int | None, timed_out: bool = Fal
     for event in _events(jsonl):
         if event.get("type") == "turn.failed":
             error = event.get("error")
-            if isinstance(error, dict):
+            if isinstance(error, dict) and error.get("type") is not None:
                 return _FAILURE_TYPES.get(error.get("type"), "unknown")
+            # CLI'en udsender kvotefejl uden `error.type` (eller med en ren streng):
+            # kun teksten bærer da årsagen.
+            message = error if isinstance(error, str) else (
+                error.get("message") if isinstance(error, dict) else None)
+            if isinstance(message, str) and "usage limit" in message.lower():
+                return "quota_exhausted"
             return "unknown"
     return "unknown"
 
@@ -711,14 +728,34 @@ def batch_status(record_states: Sequence[tuple[str, str]]) -> str:
 
 LEDGER_SCHEMA_VERSION = "evidence-eligibility-1.0"
 
-#: §9.2's fire regler.  Lukket sæt: en årsag uden for listen betyder, at ledgeren
-#: er skrevet af noget, denne kode ikke kender — og så er den ikke troværdig.
+#: Årsagerne pr. politik (ledgerens `policy_version`; trin 6c-1, spec §4.3, Codex fund 5).
+#: Lukkede sæt: en ukendt politik eller en årsag uden for politikkens sæt betyder, at
+#: ledgeren er skrevet af noget, denne kode ikke kender — og så er den ikke troværdig.
 EXCLUSION_REASONS = {
-    "principal_living",           # 1. hovedpersonen er levende eller uafklaret
-    "relative_living",            # 2. partner eller barn i samme family er levende
-    "spouse_undated_marriage",    # 3. partner uden dødsdato, vielse >=1950 eller udateret
-    "birth_year_text_filter",     # 4. teksten rummer "f." + fødselsår >=1950
+    # §9.2's fire regler (2018-20).
+    "exclusion-2018-20-v1": frozenset({
+        "principal_living",           # 1. hovedpersonen er levende eller uafklaret
+        "relative_living",            # 2. partner eller barn i samme family er levende
+        "spouse_undated_marriage",    # 3. partner uden dødsdato, vielse >=1950 eller udateret
+        "birth_year_text_filter",     # 4. teksten rummer "f." + fødselsår >=1950
+    }),
+    # Spec 6c-1 §4.3 (1939).
+    "exclusion-1939-v1": frozenset({
+        "no_published_persona",       # 1a. ingen entydig persona med published binding
+        "principal_living",           # 1b. bindingspersonen levende/privat/staged (NULL tæller)
+        "same_as_partner_living",     # 2. en samme_som-partner levende/privat
+        "relative_living",            # 3. et andet family-medlem levende
+        "text_year_ge_1915",          # 4. helposten rummer et årstal >=1915 (streng + OCR-tolerant)
+    }),
 }
+
+#: Politik → den udgave (ekstraktionsprofilens `edition`), den gælder for.  En ledger må kun
+#: bruges til en kørsel på sin egen udgave: 2018-20's regler frikender ikke 1939's poster.
+POLICY_EDITION = {
+    "exclusion-2018-20-v1": "2018-20",
+    "exclusion-1939-v1": "1939",
+}
+assert set(POLICY_EDITION) == set(EXCLUSION_REASONS)
 
 _LEDGER_FIELDS = ("schema_version", "policy_version", "rules_script_sha256",
                   "source_id", "restore_identity", "records")
@@ -747,6 +784,10 @@ def load_ledger(ledger: Mapping[str, Any]) -> dict:
             raise EligibilityError("LEDGER_INCOMPLETE")
     if ledger["schema_version"] != LEDGER_SCHEMA_VERSION:
         raise EligibilityError("LEDGER_SCHEMA_UNKNOWN")
+    policy = ledger["policy_version"]
+    if not isinstance(policy, str) or policy not in EXCLUSION_REASONS:
+        raise EligibilityError("LEDGER_POLICY_UNKNOWN")
+    allowed_reasons = EXCLUSION_REASONS[policy]
 
     records = ledger["records"]
     if not isinstance(records, Mapping):
@@ -763,13 +804,26 @@ def load_ledger(ledger: Mapping[str, Any]) -> dict:
         if status == "excluded" and not reasons:
             # En udelukkelse uden årsag kan ikke efterprøves af et menneske.
             raise EligibilityError("LEDGER_REASON_REQUIRED")
+        if status == "eligible" and reasons:
+            # Selvmodsigende række: ledgeren siger både ja og nej. Ingen af delene kan stoles på.
+            raise EligibilityError("LEDGER_REASON_ON_ELIGIBLE")
         for reason in reasons:
-            if reason not in EXCLUSION_REASONS:
+            if not isinstance(reason, str) or reason not in allowed_reasons:
                 raise EligibilityError("LEDGER_REASON_UNKNOWN")
         sha = row.get("record_input_sha256")
         if not isinstance(sha, str) or len(sha) != 64:
             raise EligibilityError("LEDGER_INCOMPLETE")
     return dict(ledger)
+
+
+def check_ledger_edition(ledger: Mapping[str, Any], edition: Any) -> None:
+    """Afvis en ledger, hvis politik ikke hører til kørslens udgave (profilens `edition`).
+
+    Fail-closed: en ukendt eller manglende udgave matcher ingen politik.
+    """
+    validated = load_ledger(ledger)
+    if POLICY_EDITION[validated["policy_version"]] != edition:
+        raise EligibilityError("LEDGER_POLICY_EDITION_MISMATCH")
 
 
 def check_eligibility(ledger: Mapping[str, Any], record_key: str,

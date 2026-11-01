@@ -80,7 +80,7 @@ rendition_sha <- digest::digest(file = rendition_path, algo = "sha256")
 writer_config <- paste0('{"citation_label_template":"Syntetisk side {page_from}",',
   '"extractor_version":"source-text-revision-v1","helpost_observation_kind":"person_post",',
   '"observation_extraction_method":"clause_segment_v1","rendition_key":"syntetisk-r1",',
-  '"rendition_kind":"pdf_text_layer","rendition_metadata":{"edition":"syntetisk","pdf_sha256":"',
+  '"rendition_kind":"pdf_text_layer","rendition_metadata":{"edition":"2018-20","pdf_sha256":"',
   strrep("a", 64L), '","pdftotext_version":"syntetisk 0.0"},',
   '"run_key_prefix":"reimport-source-text-revision:","schema_version":"source-text-revision-manifest-v1",',
   '"text_form":"folded_projection@page_header"}')
@@ -244,7 +244,7 @@ stopifnot(identical(replay$status, "already_applied"), identical(state(), after)
 #     netop den tekst (evidence_runner.check_clauses_within_post kræver delstrenge).
 runner_dir <- new_dir("runner-input")
 r <- run("Rscript", c(shQuote(file.path(scripts_dir, "export_43b_runner_input.R")), "--source-id", source_id,
-  "--output-dir", shQuote(runner_dir)))
+  "--writer-profile", profile_id, "--output-dir", shQuote(runner_dir)))
 if (r$status != 0L) stop("runner-input fejlede: ", r$out)
 stopifnot(!grepl("Alfa|Echo|Golf|Revisor", r$out))
 runner <- jsonlite::fromJSON(file.path(runner_dir, "runner-input-v1.json"), simplifyVector = FALSE)$records
@@ -257,7 +257,8 @@ for (k in names(runner)) for (cl in runner[[k]]$clauses)
 # (b) Eligibility-ledgeren: input_sha er hashen af den gældende tekst, og den følger runner-inputtet.
 elig_dir <- new_dir("eligibility")
 r <- run("Rscript", c(shQuote(file.path(scripts_dir, "export_model_eligibility.R")), "--source-id", source_id,
-  "--output-dir", shQuote(elig_dir), "--restore-identity", "t6a13-fixture"))
+  "--output-dir", shQuote(elig_dir), "--restore-identity", "t6a13-fixture",
+  "--policy", "exclusion-2018-20-v1", "--writer-profile", profile_id))
 if (r$status != 0L) stop("eligibility fejlede: ", r$out)
 stopifnot(!grepl("Alfa|Echo|Golf|Revisor", r$out))
 ledger <- jsonlite::fromJSON(file.path(elig_dir, "eligibility-ledger-v1.json"), simplifyVector = FALSE)$records
@@ -305,7 +306,7 @@ e(paste("INSERT INTO private.source_observation_text(observation_id,rendition_id
   "SELECT o.id,$2,1,o.verbatim_text||' x',o.char_from,o.char_to,true FROM private.source_observation o WHERE o.id=$1::uuid"),
   list(post[["I-3"]]$helpost, rend_id))
 unbound <- run("Rscript", c(shQuote(file.path(scripts_dir, "export_43b_runner_input.R")), "--source-id", source_id,
-  "--output-dir", shQuote(new_dir("runner-input-unbound"))))
+  "--writer-profile", profile_id, "--output-dir", shQuote(new_dir("runner-input-unbound"))))
 stopifnot(unbound$status != 0L, grepl("EXPORT_CLAUSE_SET_TEXT_MISMATCH", unbound$out, fixed = TRUE),
   !grepl("Alfa|Echo|Golf|Revisor", unbound$out), length(list.files(file.path(work_dir, "runner-input-unbound"))) == 0L)
 

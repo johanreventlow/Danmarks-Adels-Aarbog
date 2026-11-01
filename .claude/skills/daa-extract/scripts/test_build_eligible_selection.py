@@ -17,8 +17,8 @@ def rec(key, tekst="Født 1800.", persona=True):
             "clauses": [{"ordinal": 1, "verbatim_text": tekst, "verbatim_sha256": sha256_text(tekst)}]}
 
 
-def ledger(rows):
-    return {"schema_version": "evidence-eligibility-1.0", "policy_version": "p",
+def ledger(rows, policy="exclusion-2018-20-v1"):
+    return {"schema_version": "evidence-eligibility-1.0", "policy_version": policy,
             "rules_script_sha256": H, "source_id": "s", "restore_identity": "r", "records": rows}
 
 
@@ -35,6 +35,22 @@ def setup(*keys):
 def test_alle_eligible_i_kodepunkt_orden():
     records, rows = setup("V-2", "I-10", "I-9", "IV-1")
     assert eligible_keys(records, ledger(rows)) == ["I-10", "I-9", "IV-1", "V-2"]
+
+
+def test_en_1939_ledger_laeses():
+    """Trin 6c-1 Task 5: udvalget læser en exclusion-1939-v1-ledger med 1939's årsager."""
+    records, rows = setup("I-1", "I-2", "I-3")
+    rows["I-2"] = dict(row(records["I-2"], "excluded"), reasons=["no_published_persona"])
+    rows["I-3"] = dict(row(records["I-3"], "excluded"), reasons=["relative_living", "text_year_ge_1915"])
+    assert eligible_keys(records, ledger(rows, "exclusion-1939-v1")) == ["I-1"]
+
+
+def test_en_2018_20_aarsag_i_en_1939_ledger_afvises():
+    from evidence_runner import EligibilityError
+    records, rows = setup("I-1", "I-2")
+    rows["I-2"] = dict(row(records["I-2"], "excluded"), reasons=["spouse_undated_marriage"])
+    with pytest.raises(EligibilityError, match="LEDGER_REASON_UNKNOWN"):
+        eligible_keys(records, ledger(rows, "exclusion-1939-v1"))
 
 
 def test_excluded_kommer_ikke_med():
@@ -212,3 +228,138 @@ def test_cli_fejl_skriver_ingen_fil(tmp_path, monkeypatch, capsys):
     assert main() == 1
     assert not out.exists()
     assert "I-1:NO_CLAUSES" in capsys.readouterr().out
+
+
+# ---- Trin 6c-1 Task 6: pilotudvalg ----
+
+def pilot_setup(n=30):
+    records = {}
+    for i in range(n):
+        tekst = "Født 1800. " * (1 + i % 5) + "x" * (i % 7)
+        r = rec(f"I-{i:02d}", tekst)
+        if i % 3 == 0:  # flere klausuler
+            t2 = "Død 1850."
+            r["clauses"].append({"ordinal": 2, "verbatim_text": t2, "verbatim_sha256": sha256_text(t2)})
+            r["post_verbatim_text"] += " " + t2
+        records[r["record_key"]] = r
+    return records, {k: row(r) for k, r in records.items()}
+
+
+def test_uden_limit_har_det_gamle_noeglesaet_og_version():
+    records, rows = setup("I-1", "I-2")
+    u = build_selection(records, ledger(rows), "f" * 64, 25)
+    assert sorted(u) == ["bundter", "ikke_i_ledger", "ledger_sha256", "note", "record_input_sha256", "records",
+                         "strata_sha256", "strata_version", "uden_persona"]
+    assert u["strata_version"] == "eligible-all-v1" and u["strata_sha256"] == definition_sha256(25)
+
+
+def test_pilot_alle_valgte_i_praecis_et_bundt():
+    records, rows = pilot_setup(30)
+    u = build_selection(records, ledger(rows), "f" * 64, 4, limit=10, seed=7)
+    assert len(u["records"]) == 10 and u["records"] == sorted(u["records"])
+    flat = sum(u["bundter"].values(), [])
+    assert sorted(flat) == u["records"] and len(set(flat)) == 10
+    assert set(u["record_input_sha256"]) == set(u["records"])
+    assert u["seed"] == 7 and u["limit"] == 10 and u["strata_version"] == "eligible-pilot-v1"
+
+
+def test_pilot_samme_seed_samme_udvalg_og_andet_seed_kan_afvige():
+    records, rows = pilot_setup(30)
+    a = build_selection(records, ledger(rows), "f" * 64, 25, limit=8, seed=1)
+    b = build_selection(records, ledger(rows), "f" * 64, 25, limit=8, seed=1)
+    c = build_selection(records, ledger(rows), "f" * 64, 25, limit=8, seed=2)
+    assert a == b
+    assert a["records"] != c["records"] and a["strata_sha256"] != c["strata_sha256"]
+
+
+def test_pilot_repraesenterer_alle_ikke_tomme_strata():
+    records, rows = pilot_setup(30)
+    u = build_selection(records, ledger(rows), "f" * 64, 25, limit=4, seed=3)
+    assert len(u["eligible_pr_stratum"]) == 4
+    assert sorted(u["valgt_pr_stratum"]) == sorted(u["eligible_pr_stratum"])
+    assert sum(u["valgt_pr_stratum"].values()) == 4
+
+
+def test_pilot_med_alle_er_hele_mængden_og_ugyldig_limit_er_fejl():
+    records, rows = pilot_setup(12)
+    u = build_selection(records, ledger(rows), "f" * 64, 25, limit=12, seed=0)
+    assert u["records"] == sorted(records)
+    for bad in (0, 13, -1):
+        with pytest.raises(SelectionLedgerMismatch, match="SELECTION_LIMIT_INVALID"):
+            build_selection(records, ledger(rows), "f" * 64, 25, limit=bad, seed=0)
+
+
+def test_pilot_udvalget_kan_bygges_til_et_gyldigt_runner_manifest():
+    records, rows = pilot_setup(30)
+    u = build_selection(records, ledger(rows), "f" * 64, 4, limit=10, seed=7)
+    profil = {"profile_id": "p", "version": "1", "prompt_file": "x.md", "prompt_sha256": H,
+              "model_id": "m"}
+    m = build_manifest(u, dagsvaerk="test", restore_identity="r", ledger_sha256="f" * 64,
+                       profil=profil, claims_schema_sha256=H, code_sha256=H, codex_cli_version="0.0.0")
+    assert sum(bundles_of(m).values(), []) == m["records"] and len(m["records"]) == 10
+    verify_runner_manifest(m, m["manifest_sha256"])
+
+
+def test_main_uden_limit_er_byte_ens_med_foer_og_med_limit_skriver_pilot(tmp_path, capsys):
+    records, rows = pilot_setup(12)
+    ri, lg = tmp_path / "ri.json", tmp_path / "lg.json"
+    ri.write_text(json.dumps({"records": records}), encoding="utf-8")
+    lg.write_text(json.dumps(ledger(rows)), encoding="utf-8")
+    import sys
+    from unittest import mock
+    out1, out2 = tmp_path / "a.json", tmp_path / "b.json"
+    with mock.patch.object(sys, "argv", ["x", "--runner-input", str(ri), "--ledger", str(lg), "--out", str(out1)]):
+        assert main() == 0
+    with mock.patch.object(sys, "argv", ["x", "--runner-input", str(ri), "--ledger", str(lg), "--out", str(out2),
+                                         "--limit", "5", "--seed", "9"]):
+        assert main() == 0
+    gammel = json.loads(out1.read_text(encoding="utf-8"))
+    assert gammel["strata_version"] == "eligible-all-v1" and len(gammel["records"]) == 12
+    assert out1.read_text(encoding="utf-8") == json.dumps(
+        build_selection(records, ledger(rows), hashlib_sha(lg), 25), ensure_ascii=False, indent=2)
+    ny = json.loads(out2.read_text(encoding="utf-8"))
+    assert len(ny["records"]) == 5 and ny["seed"] == "9"
+    assert stat.S_IMODE(out2.stat().st_mode) == 0o600
+    assert "Født" not in capsys.readouterr().out
+
+
+def hashlib_sha(path):
+    import hashlib
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+# ---- fund F5 (final-review): --seed er en streng og kræver --limit ----
+
+def _cli(tmp_path, *extra):
+    import sys
+    from unittest import mock
+    records, rows = pilot_setup(12)
+    ri, lg = tmp_path / "ri.json", tmp_path / "lg.json"
+    ri.write_text(json.dumps({"records": records}), encoding="utf-8")
+    lg.write_text(json.dumps(ledger(rows)), encoding="utf-8")
+    out = tmp_path / "u.json"
+    with mock.patch.object(sys, "argv", ["x", "--runner-input", str(ri), "--ledger", str(lg),
+                                         "--out", str(out), *extra]):
+        return main(), out, records, rows, lg
+
+
+def test_cli_seed_er_en_streng_som_i_planen(tmp_path):
+    rc, out, records, rows, lg = _cli(tmp_path, "--limit", "5", "--seed", "6c1-pilot-v1")
+    assert rc == 0
+    u = json.loads(out.read_text(encoding="utf-8"))
+    assert u["seed"] == "6c1-pilot-v1" and len(u["records"]) == 5
+    assert u == build_selection(records, ledger(rows), hashlib_sha(lg), 25, limit=5, seed="6c1-pilot-v1")
+
+
+def test_cli_seed_uden_limit_er_fejl(tmp_path, capsys):
+    rc, out, *_ = _cli(tmp_path, "--seed", "6c1-pilot-v1")
+    assert rc == 1 and not out.exists()
+    assert "SELECTION_SEED_WITHOUT_LIMIT" in capsys.readouterr().out
+
+
+def test_cli_uden_limit_og_seed_er_byte_ens_med_main(tmp_path):
+    rc, out, records, rows, lg = _cli(tmp_path)
+    assert rc == 0
+    assert out.read_text(encoding="utf-8") == json.dumps(
+        build_selection(records, ledger(rows), hashlib_sha(lg), 25), ensure_ascii=False, indent=2)
+    assert json.loads(out.read_text(encoding="utf-8"))["strata_version"] == "eligible-all-v1"

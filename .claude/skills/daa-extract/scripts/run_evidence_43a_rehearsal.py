@@ -63,7 +63,7 @@ RECORD_INPUT_SHA = canonical_record_input(RECORD)
 def make_ledger(status="eligible", reasons=()):
     return {
         "schema_version": LEDGER_SCHEMA_VERSION,
-        "policy_version": "exclusion-syntetisk-rehearsal",
+        "policy_version": "exclusion-2018-20-v1",  # load_ledger kender kun politikker med et årsagssæt
         "rules_script_sha256": "0" * 64,
         "source_id": 1,
         "restore_identity": "syntetisk-ingen-database",
