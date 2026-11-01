@@ -378,6 +378,53 @@ BEGIN
   RAISE NOTICE 'OK: test_proposal_helpost_rule_errors';
 END $t$;
 
+-- Trin 6c-1 (spec §4.4, Review Focus 2): 1939's realistiske form. Profilen har helpost-slags 'person', helposten er
+-- en 'person'-observation med flere accepterede forankringer (helpost + underforekomster), personaen har en primary-
+-- mention på helposten, og et principal-claim skrives. Fixturens helpost er person_post; slagset ændres her som
+-- tabelejer (append-only-triggeren slås fra og til inden for den rullede transaktion). Samme resultat med
+-- forankringerne indsat i omvendt rækkefølge.
+CREATE FUNCTION pg_temp.rr_person_helpost(p_base bigint, p_actor uuid, p_reverse boolean) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE fx jsonb; r jsonb; v_h private.source_observation%ROWTYPE; v_claim jsonb; v_int private.interpretation%ROWTYPE;
+  v_persona uuid; v_bad int; v_n int;
+BEGIN
+  fx:=pg_temp.rr_fixture(p_base,p_actor);
+  ALTER TABLE private.source_observation DISABLE TRIGGER trg_source_observation_append_only;
+  UPDATE private.source_observation SET observation_kind='person' WHERE id=(fx->>'helpost')::uuid;
+  ALTER TABLE private.source_observation ENABLE TRIGGER trg_source_observation_append_only;
+  SELECT * INTO v_h FROM private.source_observation WHERE id=(fx->>'helpost')::uuid;
+  IF p_reverse THEN
+    PERFORM pg_temp.rr_extra_anchor(fx,'p-b','fact',v_h.char_from+3,v_h.char_to);
+    PERFORM pg_temp.rr_extra_anchor(fx,'p-a','marriage',v_h.char_from,v_h.char_from+2);
+  ELSE
+    PERFORM pg_temp.rr_extra_anchor(fx,'p-a','marriage',v_h.char_from,v_h.char_from+2);
+    PERFORM pg_temp.rr_extra_anchor(fx,'p-b','fact',v_h.char_from+3,v_h.char_to);
+  END IF;
+  SELECT spm.persona_id INTO v_persona FROM private.source_mention sm JOIN private.source_persona_mention spm ON spm.mention_id=sm.id
+   WHERE sm.observation_id=v_h.id AND spm.mention_role='primary';
+  IF v_persona IS NULL OR (SELECT count(*) FROM private.source_record_anchor_current WHERE source_record_id=(fx->'post'->>'record')::uuid
+        AND decision_status='accepted')<>3 THEN
+    RAISE EXCEPTION 'PROPOSAL_RERUN_TEST_FAILED: person-helpost-fixturen';
+  END IF;
+  v_claim:=jsonb_set(pg_temp.rr_claim(fx,'c1',1,'Anna Alfa'),'{persona_role}','"principal"');
+  r:=pg_temp.rr_propose(fx,jsonb_build_array(v_claim),'person-helpost-'||p_reverse::text,'{"helpost_observation_kind":"person"}');
+  SELECT * INTO v_int FROM private.interpretation_current WHERE interpretation_key=pg_temp.rr_key(r,'c1');
+  IF v_int.id IS NULL OR v_int.source_persona_id IS DISTINCT FROM v_persona THEN
+    RAISE EXCEPTION 'PROPOSAL_RERUN_TEST_FAILED: forslagets persona';
+  END IF;
+  SELECT count(*), count(*) FILTER (WHERE o.parent_observation_id IS DISTINCT FROM v_h.id) INTO v_n,v_bad
+    FROM private.interpretation_observation io JOIN private.source_observation o ON o.id=io.observation_id WHERE io.interpretation_id=v_int.id;
+  IF v_n<>1 OR v_bad<>0 THEN RAISE EXCEPTION 'PROPOSAL_RERUN_TEST_FAILED: klausuler under helposten (% / %)',v_n,v_bad; END IF;
+  RETURN jsonb_build_object('n',v_n,'status',v_int.status,'role_ok',true);
+END $$;
+DO $t$
+DECLARE a jsonb; b jsonb;
+BEGIN
+  a:=pg_temp.rr_person_helpost(-66851,'11000000-0000-0000-0000-00000006a851',false);
+  b:=pg_temp.rr_person_helpost(-66861,'11000000-0000-0000-0000-00000006a861',true);
+  IF a IS DISTINCT FROM b THEN RAISE EXCEPTION 'PROPOSAL_RERUN_TEST_FAILED: forankringsrækkefølge % %',a,b; END IF;
+  RAISE NOTICE 'OK: test_proposal_person_helpost_principal';
+END $t$;
+
 -- 2018-20 uændret: en post med én forankring og helpost-slags person_post (profilens standard) giver samme nøgle og
 -- nøglemateriale-hash som før ændringen (værdierne er taget fra en base med writeren fra main).
 DO $t$

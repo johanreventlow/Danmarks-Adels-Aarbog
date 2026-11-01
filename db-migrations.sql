@@ -31359,7 +31359,7 @@ CREATE OR REPLACE FUNCTION private.write_interpretation_proposal(p_batch_id uuid
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE
   v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE;
-  v_record private.source_record%ROWTYPE; v_occurrence uuid; v_parent uuid; v_persona uuid;
+  v_record private.source_record%ROWTYPE; v_parent uuid; v_persona uuid;
   v_run uuid; v_run_key text; v_run_manifest jsonb; v_claim jsonb; v_cited jsonb;
   v_predicate private.interpretation_predicate%ROWTYPE; v_interpretation uuid; v_key uuid;
   v_value_hash text; v_key_material_sha text; v_receipt_value_sha text;
