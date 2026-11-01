@@ -9625,6 +9625,12 @@ CREATE INDEX IF NOT EXISTS reimport_event_publication_persona_receipt_idx
   ON private.reimport_event ((payload->'result_receipt'->>'source_persona_id')) WHERE operation='publication_persona';
 CREATE INDEX IF NOT EXISTS reimport_event_publication_identity_batch_idx
   ON private.reimport_event ((payload->>'persona_batch_id')) WHERE operation='publication_identity';
+-- Trin 6b opfølgning (I2-review P1): køvagtens opslag af en finaliseret C pr. (B-batch, C-batch) og hjælperens opslag af
+-- fortrydelsens reversal-hændelse pr. batch.
+CREATE INDEX IF NOT EXISTS reimport_event_publication_identity_batch_pair_idx
+  ON private.reimport_event ((payload->>'persona_batch_id'),batch_id) WHERE operation='publication_identity';
+CREATE INDEX IF NOT EXISTS reimport_event_reversal_batch_idx
+  ON private.reimport_event (batch_id) WHERE operation='reversal';
 -- Trin 6b opfølgning (final-review I2; projektejeren 2026-10-31: genkørsel frem for webkø): en fortrudt
 -- publikationsidentitet er en identitetsrække, hvis aktuelle tilstand er superseded, og hvis seneste overgang er kernens
 -- reversal fra red_reverse_reimport_publication af en publication_identity-batch. Evidensen alene skelner ikke (den
@@ -9635,44 +9641,66 @@ CREATE INDEX IF NOT EXISTS reimport_event_publication_identity_batch_idx
 -- Afgør et menneske personaen bagefter, er den seneste overgang ikke fortrydelsen, og identiteten er en almindelig identitet.
 -- Køvagten, finalize's kontrolmængde, stikprøvens population og C-writeren (med den aktuelle version) behandler en fortrudt
 -- publikationsidentitet som »ingen identitet«, så C kan køres igen.
+-- PL/pgSQL frem for SQL: funktionen inlines ikke (SECURITY DEFINER), og en SQL-krop planlægges på ny ved hvert kald;
+-- PL/pgSQL genbruger planen i sessionen (I2-review P1: kaldes pr. persona i køvagten efter en fortrydelse).
 CREATE OR REPLACE FUNCTION private.publication_identity_reverted(p_persona uuid)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM private.source_persona_identity i
-      JOIN private.source_persona_identity_event ev ON ev.source_persona_id=i.source_persona_id AND ev.version=i.version
-      JOIN private.reimport_batch cb
-        ON cb.id=CASE WHEN i.evidence->>'reversed_batch_id' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-                      THEN (i.evidence->>'reversed_batch_id')::uuid END
-       AND cb.status='reversed'
-     WHERE i.source_persona_id=p_persona AND i.decision_status='superseded' AND i.canonical_person_id IS NULL
-       AND NOT i.evidence ? 'basis'
-       AND ev.decision_status='superseded' AND ev.canonical_person_id IS NULL AND ev.evidence=i.evidence
-       AND EXISTS (SELECT 1 FROM private.reimport_event c
-                    WHERE c.batch_id=cb.id AND c.operation='publication_identity'
-                      AND c.payload->>'source_persona_id'=p_persona::text
-                      AND c.payload->'result_receipt'->>'identity_version'=(i.version-1)::text)
-       AND EXISTS (SELECT 1 FROM private.reimport_event r
-                    WHERE r.batch_id=cb.id AND r.operation='reversal'
-                      AND r.element_id LIKE 'publication-identity-reversal:%'));
-$$;
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_i private.source_persona_identity%ROWTYPE; v_batch uuid;
+BEGIN
+  -- Trinvist med tidligt stop: en identitet, der ikke er superseded af en reversal, koster ét PK-opslag; resten slås op på
+  -- den fortrudte batch' id som konstant (unikt indeks for C-hændelsen), ikke som en join over reimport_event.
+  SELECT * INTO v_i FROM private.source_persona_identity i
+   WHERE i.source_persona_id=p_persona AND i.decision_status='superseded' AND i.canonical_person_id IS NULL
+     AND NOT i.evidence ? 'basis'
+     AND i.evidence->>'reversed_batch_id' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+  IF NOT FOUND THEN RETURN false; END IF;
+  v_batch:=(v_i.evidence->>'reversed_batch_id')::uuid;
+  RETURN EXISTS (SELECT 1 FROM private.source_persona_identity_event ev
+                  WHERE ev.source_persona_id=p_persona AND ev.version=v_i.version
+                    AND ev.decision_status='superseded' AND ev.canonical_person_id IS NULL AND ev.evidence=v_i.evidence)
+     AND EXISTS (SELECT 1 FROM private.reimport_batch cb WHERE cb.id=v_batch AND cb.status='reversed')
+     AND EXISTS (SELECT 1 FROM private.reimport_event c
+                  WHERE c.batch_id=v_batch AND c.element_id='publication-identity:'||p_persona::text
+                    AND c.operation='publication_identity' AND c.payload->>'source_persona_id'=p_persona::text
+                    AND c.payload->'result_receipt'->>'identity_version'=(v_i.version-1)::text)
+     AND EXISTS (SELECT 1 FROM private.reimport_event r
+                  WHERE r.batch_id=v_batch AND r.operation='reversal'
+                    AND r.element_id LIKE 'publication-identity-reversal:%');
+END $$;
 REVOKE ALL ON FUNCTION private.publication_identity_reverted(uuid) FROM PUBLIC,anon,authenticated,service_role;
 
 -- Codex 6B-01: frigivelsen er pr. B-batch, fordi finalize af C (verify_publication_identity_input) kræver hele
 -- kontrolmængden; efter en finaliseret C er de eneste B-personas uden identitet de staged (spec §4.6: proposed efter C).
 -- Trin 6b opfølgning (I2): en fortrudt publikationsidentitet tæller som ingen identitet. Den fortrudte C-batch er reversed
--- og frigiver ikke B-batchen, så personaen venter igen, indtil en ny C er finaliseret.
+-- og frigiver ikke B-batchen, så personaen venter igen, indtil en ny C er finaliseret. Trinvise IF'er i PL/pgSQL
+-- fastlægger rækkefølgen (PostgreSQL garanterer den ikke for AND/OR i SQL) og genbruger planerne i sessionen (en SQL-krop
+-- planlægges på ny ved hvert kald, da funktionen ikke inlines): uden en B-hændelse i en ikke-fortrudt batch venter
+-- personaen ikke (ét indeksopslag; alle ikke-B-personas); har den en identitet, der ikke er en fortrudt publikationsidentitet, venter den
+-- heller ikke (hjælperen stopper efter ét PK-opslag); kun ellers slås en finaliseret C op. Webkøen evaluerer vagten for
+-- hver persona, før statusfilter og LIMIT (I2-review P1). Den finaliserede C søges pr. batch i B-batchens kilde (C-writeren
+-- kræver samme kilde for B og C) med indekset (persona_batch_id, batch_id), så opslaget ikke gennemløber en fortrudt C's
+-- hændelser for hver persona.
 CREATE OR REPLACE FUNCTION private.persona_awaiting_control(p_persona uuid)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-  SELECT (NOT EXISTS (SELECT 1 FROM private.source_persona_identity i WHERE i.source_persona_id=p_persona)
-          OR private.publication_identity_reverted(p_persona))
-     AND EXISTS (
-       SELECT 1 FROM private.reimport_event b JOIN private.reimport_batch bb ON bb.id=b.batch_id
-        WHERE b.operation='publication_persona' AND b.payload->'result_receipt'->>'source_persona_id'=p_persona::text
-          AND bb.status<>'reversed'
-          AND NOT EXISTS (SELECT 1 FROM private.reimport_event c JOIN private.reimport_batch cb ON cb.id=c.batch_id
-                           WHERE c.operation='publication_identity' AND c.payload->>'persona_batch_id'=b.batch_id::text
-                             AND cb.status IN ('finalized','activated')));
-$$;
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM private.reimport_event b JOIN private.reimport_batch bb ON bb.id=b.batch_id
+                  WHERE b.operation='publication_persona' AND b.payload->'result_receipt'->>'source_persona_id'=p_persona::text
+                    AND bb.status<>'reversed') THEN
+    RETURN false;
+  END IF;
+  IF EXISTS (SELECT 1 FROM private.source_persona_identity i WHERE i.source_persona_id=p_persona) THEN
+    IF NOT private.publication_identity_reverted(p_persona) THEN RETURN false; END IF;
+  END IF;
+  RETURN EXISTS (
+    SELECT 1 FROM private.reimport_event b JOIN private.reimport_batch bb ON bb.id=b.batch_id
+     WHERE b.operation='publication_persona' AND b.payload->'result_receipt'->>'source_persona_id'=p_persona::text
+       AND bb.status<>'reversed'
+       AND NOT EXISTS (SELECT 1 FROM private.reimport_batch cb
+                        WHERE cb.status IN ('finalized','activated') AND cb.source_id=bb.source_id
+                          AND EXISTS (SELECT 1 FROM private.reimport_event c
+                                       WHERE c.operation='publication_identity' AND c.batch_id=cb.id
+                                         AND c.payload->>'persona_batch_id'=b.batch_id::text)));
+END $$;
 REVOKE ALL ON FUNCTION private.persona_awaiting_control(uuid) FROM PUBLIC,anon,authenticated,service_role;
 
 -- Trin 6b (spec §4.3, §4.3.1): publiceringskontrollen. Bindingen findes fra personaens primary-mention → den record,

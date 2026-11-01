@@ -10493,16 +10493,45 @@ BEGIN
 END $verify_6b_commit_guard$;
 
 -- ===== Trin 6b opfølgning (I2): C kan genkøres efter fortrydelse =====
--- Hjælperen for en fortrudt publikationsidentitet er privat (SECURITY DEFINER, ingen klientrolle kan kalde den), og de fem
--- steder, der behandler den som »ingen identitet« eller godtager dens version, bruger den. En gammel definition (fx efter en
--- delvis restore) ville give webkø-adfærden tilbage eller lade C afvise genkørslen.
+-- Hjælperen for en fortrudt publikationsidentitet er privat (SECURITY DEFINER, ingen klientrolle kan kalde den), og de seks
+-- steder, der behandler den som »ingen identitet« eller godtager dens version (kernen, køvagten, stikprøvens population,
+-- finalize, writeren og kontrollen), bruger den. En gammel definition (fx efter en delvis restore) ville give webkø-adfærden
+-- tilbage eller lade C afvise genkørslen. Hjælperens adfærd prøves uden skrivning (db-verify kører også i prod, hvor en
+-- skrivende probe ville flytte sekvenser): kroppen skal bære definitionens led, og den skal være falsk for en ukendt persona
+-- og for enhver identitet, der ikke er superseded. En udvandet hjælper (fx RETURN true eller RETURN false) fejler.
 DO $verify_6b_rerun$
-DECLARE f text:='private.publication_identity_reverted(uuid)'; v_fn text;
+DECLARE f text:='private.publication_identity_reverted(uuid)'; v_fn text; v_src text; v_led text;
 BEGIN
   IF to_regprocedure(f) IS NULL OR NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid=to_regprocedure(f))
      OR has_function_privilege('anon',f,'EXECUTE') OR has_function_privilege('authenticated',f,'EXECUTE')
      OR has_function_privilege('service_role',f,'EXECUTE') THEN
     RAISE EXCEPTION 'VERIFY_FAILED: 6b fortrudt publikationsidentitet: hjælperen (findes/security definer/ACL)';
+  END IF;
+  SELECT p.prosrc INTO v_src FROM pg_proc p WHERE p.oid=to_regprocedure(f);
+  FOREACH v_led IN ARRAY ARRAY['i.decision_status=''superseded''','cb.status=''reversed''','c.operation=''publication_identity''',
+                               'c.element_id=''publication-identity:''||p_persona::text',
+                               'c.payload->''result_receipt''->>''identity_version''=(v_i.version-1)::text',
+                               'r.operation=''reversal''','r.element_id LIKE ''publication-identity-reversal:%''',
+                               'ev.version=v_i.version','ev.evidence=v_i.evidence'] LOOP
+    IF position(v_led IN v_src)=0 THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6b fortrudt publikationsidentitet: hjælperen mangler leddet %',v_led;
+    END IF;
+  END LOOP;
+  IF private.publication_identity_reverted('00000000-0000-0000-0000-000000000000'::uuid)
+     OR EXISTS (SELECT 1 FROM private.source_persona_identity i
+                 WHERE i.decision_status<>'superseded' AND private.publication_identity_reverted(i.source_persona_id)) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6b fortrudt publikationsidentitet: hjælperen er sand for en ukendt eller ikke-superseded persona';
+  END IF;
+  -- I2-review P1: de to partielle indekser, som køvagtens og hjælperens opslag bruger (webkøen kalder køvagten pr. persona)
+  IF NOT EXISTS (SELECT 1 FROM pg_index x JOIN pg_class c ON c.oid=x.indexrelid
+                  WHERE x.indrelid='private.reimport_event'::regclass AND c.relname='reimport_event_publication_identity_batch_pair_idx'
+                    AND pg_get_expr(x.indpred,x.indrelid)='(operation = ''publication_identity''::text)'
+                    AND pg_get_indexdef(x.indexrelid) LIKE '%(((payload ->> ''persona_batch_id''::text)), batch_id)%')
+     OR NOT EXISTS (SELECT 1 FROM pg_index x JOIN pg_class c ON c.oid=x.indexrelid
+                     WHERE x.indrelid='private.reimport_event'::regclass AND c.relname='reimport_event_reversal_batch_idx'
+                       AND pg_get_expr(x.indpred,x.indrelid)='(operation = ''reversal''::text)'
+                       AND pg_get_indexdef(x.indexrelid) LIKE '%(batch_id)%') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6b fortrudt publikationsidentitet: køvagtens/hjælperens partielle indekser';
   END IF;
   FOREACH v_fn IN ARRAY ARRAY['private.decide_source_persona_identity(uuid,bigint,integer,text,jsonb,text)',
                               'private.persona_awaiting_control(uuid)','private.publication_sample_candidates(uuid)',
@@ -10513,5 +10542,5 @@ BEGIN
       RAISE EXCEPTION 'VERIFY_FAILED: 6b fortrudt publikationsidentitet: % bruger ikke hjælperen',v_fn;
     END IF;
   END LOOP;
-  RAISE NOTICE 'OK: trin 6b — fortrudt publikationsidentitet (hjælper privat; kerne, køvagt, stikprøve, finalize, writer, kontrol)';
+  RAISE NOTICE 'OK: trin 6b — fortrudt publikationsidentitet (hjælper privat og prøvet; kerne, køvagt, stikprøve, finalize, writer, kontrol; indekser)';
 END $verify_6b_rerun$;
