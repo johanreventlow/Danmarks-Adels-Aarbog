@@ -324,3 +324,30 @@ def test_legacy_med_frasortering_fejler_lukket(tmp_path, monkeypatch, capsys):
     assert _byg(tmp_path, monkeypatch, {"B": _rec("B", "", tekst)}, svar, mode="legacy") == 1
     assert "PRINCIPAL_UDEN_PERSONA_I_LEGACY 1" in capsys.readouterr().out
     assert not (tmp_path / "out.json").exists()
+
+
+# --- 1939-profilen (trin 6c-1) -------------------------------------------------
+
+PROFIL_1939 = PROFIL.with_name("daa-1939-interpretation-proposal-v1.json")
+
+
+@pytest.fixture(scope="module")
+def profil_1939() -> dict:
+    return json.loads(PROFIL_1939.read_text(encoding="utf-8"))
+
+
+def test_1939_profilen_er_2018_20s_med_egne_versioner_og_helpost(profil, profil_1939):
+    assert profil_1939["source_id"] == 3 and profil_1939["edition"] == "1939"
+    assert profil_1939["writer_config"]["helpost_observation_kind"] == "person"
+    assert profil_1939["no_counterpart_denylist"]["version"] == "nn-denylist-1939-v1"
+    assert profil_1939["persona_role_map"]["version"] == "persona-role-1939-v1"
+    for nøgle in ("unknown_person", "quantity_only"):
+        assert profil_1939["no_counterpart_denylist"][nøgle] == profil["no_counterpart_denylist"][nøgle]
+    for nøgle in ("principal", "other"):
+        assert profil_1939["persona_role_map"][nøgle] == profil["persona_role_map"][nøgle]
+    assert profil_1939["operation_settings"] == profil["operation_settings"]
+
+
+@pytest.mark.parametrize("raw", ["4 Sønner", "N. N.", "To Døtre", "Børn", "Ukendt"])
+def test_1939_h1_fanger_store_forbogstaver(profil_1939, raw):
+    assert uden_modpart(raw, profil_1939["no_counterpart_denylist"]) is True

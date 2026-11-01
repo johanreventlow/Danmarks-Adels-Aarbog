@@ -49,7 +49,7 @@ $$;
 
 -- Hele forslagskæden (autorisation → begin → apply → finalize) for fixturens record. Returnerer writerens svar, batch
 -- og den skrevne event-payload.
-CREATE FUNCTION pg_temp.rr_propose(fx jsonb, p_claims jsonb, p_nonce text) RETURNS jsonb LANGUAGE plpgsql AS $$
+CREATE FUNCTION pg_temp.rr_propose(fx jsonb, p_claims jsonb, p_nonce text, p_cfg jsonb DEFAULT '{}'::jsonb) RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE v_profile text:='t6-proposal-'||(fx->>'record_key'); v_config jsonb; v_sha text; v_auth uuid; v_batch uuid;
   v_result jsonb; v_payload jsonb; v_msha text:=encode(extensions.digest('t6:'||p_nonce,'sha256'),'hex');
   v_element text:='interpretation-proposal:'||(fx->>'record_key'); v_event jsonb;
@@ -58,6 +58,7 @@ BEGIN
     'observation_extraction_method','clause_segment_v1','rendition_key','fixture-r1','rendition_kind','pdf_text_layer',
     'rendition_metadata',jsonb_build_object('edition','fixture','pdf_sha256',repeat('a',64),'pdftotext_version','fixture 0.0'),
     'run_key_prefix','reimport-interpretation-proposal:','schema_version','interpretation-proposal-manifest-v1');
+  v_config:=v_config||p_cfg;
   v_sha:=private.reimport_canonical_json_sha256(v_config);
   INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
     VALUES((fx->>'source')::bigint,v_profile,'interpretation-proposal-v1',v_sha,v_config) ON CONFLICT DO NOTHING;
@@ -91,6 +92,23 @@ BEGIN
   r:=pg_temp.t5_apply(fx,pg_temp.t5_payload(fx,p_new,p_parts),p_nonce);
   SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   RETURN r;
+END $$;
+
+-- Trin 6c-1 (spec §4.4): ekstra accepterede forankringer af en anden slags indeni helpostens spænd, som 1939's poster
+-- har (helpost + sidehoved-/underforekomster). p_kind/p_inside styrer slags og om spændet ligger indeni helposten.
+CREATE FUNCTION pg_temp.rr_extra_anchor(fx jsonb, p_key text, p_kind text, p_from int, p_to int) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_occ uuid; v_h private.source_observation%ROWTYPE; v_rend uuid; v_run uuid:=(fx->'src'->>'run')::uuid;
+BEGIN
+  SELECT * INTO v_h FROM private.source_observation WHERE id=(fx->>'helpost')::uuid;
+  SELECT o.rendition_id INTO v_rend FROM private.source_record_occurrence o WHERE o.id=v_h.occurrence_id;
+  INSERT INTO private.source_record_occurrence(rendition_id,occurrence_key,page_from,page_to,char_from,char_to,verbatim_text,
+    physical_fingerprint,structural_fingerprint,extraction_run_id)
+  VALUES(v_rend,p_key,v_h.page_from,v_h.page_to,p_from,p_to,repeat('x',p_to-p_from),repeat('3',64),repeat('4',64),v_run) RETURNING id INTO v_occ;
+  INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,verbatim_text,quality_status,
+    extraction_method,extraction_run_id)
+  VALUES(v_occ,p_kind,v_h.page_from,v_h.page_to,p_from,p_to,repeat('x',p_to-p_from),'clear','fixture',v_run);
+  INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name)
+  VALUES(v_occ,(fx->'post'->>'record')::uuid,'accepted','{"fixture":true}'::jsonb,1,gen_random_uuid(),'fixture');
 END $$;
 
 -- Fixturen: t5-posten 'Anna Alfa. Gift med Bo Beta.' uden publicering og uden dødsbinding.
@@ -307,6 +325,73 @@ BEGIN
   PERFORM pg_temp.expect_error(format('SELECT pg_temp.rr_propose(%L::jsonb,%L::jsonb,%L)',fx,
     jsonb_build_array(pg_temp.rr_claim(fx,'c1',1,'Anna Alfa')),'replaced-2'),'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_EXISTS');
   RAISE NOTICE 'OK: test_s4_not_opened_by_text_replaced_after_revision';
+END $t$;
+
+-- Trin 6c-1 (spec §4.4): forslagswriteren vælger helposten med helpost-reglen og batchprofilens helpost-slags, ikke
+-- med »præcis én forankring«. En post med tre forankringer (helpost + to underforekomster indeni) accepteres, og
+-- nøglen er den samme som for en post med én forankring (nøglen afhænger ikke af forankringerne).
+DO $t$
+DECLARE fx jsonb; r jsonb; v_claim jsonb; v_h private.source_observation%ROWTYPE; v_int uuid; v_bad int;
+BEGIN
+  fx:=pg_temp.rr_fixture(-66801,'11000000-0000-0000-0000-00000006a801');
+  SELECT * INTO v_h FROM private.source_observation WHERE id=(fx->>'helpost')::uuid;
+  PERFORM pg_temp.rr_extra_anchor(fx,'extra-a','fact',v_h.char_from,v_h.char_from+2);
+  PERFORM pg_temp.rr_extra_anchor(fx,'extra-b','fact',v_h.char_from+3,v_h.char_to);
+  IF (SELECT count(*) FROM private.source_record_anchor_current WHERE source_record_id=(fx->'post'->>'record')::uuid
+        AND decision_status='accepted')<>3 THEN
+    RAISE EXCEPTION 'PROPOSAL_RERUN_TEST_FAILED: fixturen har ikke tre forankringer';
+  END IF;
+  v_claim:=pg_temp.rr_claim(fx,'c1',1,'Anna Alfa');
+  r:=pg_temp.rr_propose(fx,jsonb_build_array(v_claim),'helpost-3anchors');
+  IF pg_temp.rr_key(r,'c1') IS DISTINCT FROM private.interpretation_proposal_key((fx->>'source')::bigint,fx->>'record_key',
+       'person.name',v_claim->'cited_clauses',to_jsonb('Anna Alfa'::text)) THEN
+    RAISE EXCEPTION 'PROPOSAL_RERUN_TEST_FAILED: nøglen for en post med tre forankringer';
+  END IF;
+  SELECT i.id INTO v_int FROM private.interpretation_current i WHERE i.interpretation_key=pg_temp.rr_key(r,'c1');
+  SELECT count(*) INTO v_bad FROM private.interpretation_observation io JOIN private.source_observation o ON o.id=io.observation_id
+   WHERE io.interpretation_id=v_int AND o.parent_observation_id IS DISTINCT FROM v_h.id;
+  IF v_bad<>0 OR NOT EXISTS (SELECT 1 FROM private.interpretation_observation WHERE interpretation_id=v_int) THEN
+    RAISE EXCEPTION 'PROPOSAL_RERUN_TEST_FAILED: forslaget peger ikke på helpostens klausuler';
+  END IF;
+  RAISE NOTICE 'OK: test_proposal_helpost_rule_three_anchors';
+END $t$;
+
+-- To accepterede helposter af samme slags er flertydige; en underforekomst, der stikker ud, er afvist; og
+-- helpost-slags læses fra profilen (en profil med slags 'person' finder ingen helpost i en person_post-post).
+DO $t$
+DECLARE fx jsonb; v_h private.source_observation%ROWTYPE;
+BEGIN
+  fx:=pg_temp.rr_fixture(-66811,'11000000-0000-0000-0000-00000006a811');
+  SELECT * INTO v_h FROM private.source_observation WHERE id=(fx->>'helpost')::uuid;
+  PERFORM pg_temp.rr_extra_anchor(fx,'extra-c','person_post',v_h.char_to+10,v_h.char_to+20);
+  PERFORM pg_temp.expect_error(format('SELECT pg_temp.rr_propose(%L::jsonb,%L::jsonb,%L)',fx,
+    jsonb_build_array(pg_temp.rr_claim(fx,'c1',1,'Anna Alfa')),'helpost-ambig'),'RECORD_HELPOST_AMBIGUOUS');
+  fx:=pg_temp.rr_fixture(-66821,'11000000-0000-0000-0000-00000006a821');
+  SELECT * INTO v_h FROM private.source_observation WHERE id=(fx->>'helpost')::uuid;
+  PERFORM pg_temp.rr_extra_anchor(fx,'extra-d','fact',v_h.char_to-2,v_h.char_to+5);
+  PERFORM pg_temp.expect_error(format('SELECT pg_temp.rr_propose(%L::jsonb,%L::jsonb,%L)',fx,
+    jsonb_build_array(pg_temp.rr_claim(fx,'c1',1,'Anna Alfa')),'helpost-outside'),'RECORD_HELPOST_SUBOCCURRENCE_OUTSIDE');
+  fx:=pg_temp.rr_fixture(-66831,'11000000-0000-0000-0000-00000006a831');
+  PERFORM pg_temp.expect_error(format('SELECT pg_temp.rr_propose(%L::jsonb,%L::jsonb,%L,%L::jsonb)',fx,
+    jsonb_build_array(pg_temp.rr_claim(fx,'c1',1,'Anna Alfa')),'helpost-kind','{"helpost_observation_kind":"person"}'),
+    'RECORD_HELPOST_AMBIGUOUS');
+  RAISE NOTICE 'OK: test_proposal_helpost_rule_errors';
+END $t$;
+
+-- 2018-20 uændret: en post med én forankring og helpost-slags person_post (profilens standard) giver samme nøgle og
+-- nøglemateriale-hash som før ændringen (værdierne er taget fra en base med writeren fra main).
+DO $t$
+DECLARE fx jsonb; r jsonb; v_k uuid; v_m text;
+BEGIN
+  fx:=pg_temp.rr_fixture(-66841,'11000000-0000-0000-0000-00000006a841');
+  r:=pg_temp.rr_propose(fx,jsonb_build_array(pg_temp.rr_claim(fx,'c1',1,'Anna Alfa')),'helpost-2018-20');
+  v_k:=pg_temp.rr_key(r,'c1');
+  SELECT c->>'key_material_sha256' INTO v_m FROM jsonb_array_elements(r->'event'->'result_receipt'->'claims') c LIMIT 1;
+  IF v_k IS DISTINCT FROM '2626879c-8daf-5f20-b880-8287c8f19bcb'::uuid
+     OR v_m IS DISTINCT FROM '2626879c8daf3f2078808287c8f19bcb2fa1bb70645f0bb4300ef741b8bef800' THEN
+    RAISE EXCEPTION 'PROPOSAL_RERUN_TEST_FAILED: 2018-20-nøglen er ændret (% %)',v_k,v_m;
+  END IF;
+  RAISE NOTICE 'OK: test_proposal_2018_20_unchanged';
 END $t$;
 
 ROLLBACK;
