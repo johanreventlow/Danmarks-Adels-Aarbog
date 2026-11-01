@@ -110,8 +110,10 @@ med den nye prompt (A6b-restens 10 poster afgøres i 6c-2).
 ### 4.2 Prompt 1.1.0 og profilen `daa-1939-v2`
 
 1. **Prompt `evidence-extract-prompt-1.1.0.md`:** 1.0.0 plus de to besluttede regler: titler og »til <gods>« holdes ude
-   af `person.name` (de bærer `person.title` og ejerskab); »var †[dato], da …« er en dødsdato for den nævnte, ikke for
-   hovedpersonen. Ingen 1939-specifik tekst i prompten. Prompten er udgaveneutral; 2018-20's profil peger fortsat på
+   af `person.name` (de bærer `person.title` og ejerskab); »var †[dato], da …« siger kun, at personen senest
+   da var død (en grænse, ikke dødsdagen; kontrolmodel-kørslen 2018-20, I-7 og I-11), og giver derfor intet
+   `person.death`-claim (datoer gengives ordret, så grænsen kan ikke udtrykkes i værdien). Rettet 2026-11-01 under Task 3:
+   udkastet sagde »dødsdato for den nævnte«. Ingen 1939-specifik tekst i prompten. Prompten er udgaveneutral; 2018-20's profil peger fortsat på
    1.0.0.
 2. **Profilen `daa-1939-v2`** (ny version, `daa-1939-v1` bevares): prompt 1.1.0 med sha, model, skemaer som 2018-20.
 3. *Mit valg:* modellen er `gpt-5.6-terra`, samme som 2018-20's målte kørsel. Prompten ændres alligevel, men et

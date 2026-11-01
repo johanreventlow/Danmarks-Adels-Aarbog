@@ -167,7 +167,8 @@ spec §4.3 og plan Task 15-16 (`docs/superpowers/plans/2026-10-31-trin6b-identit
 - [ ] **Step 1:** Skriv de to regler i prompten (spec §4.2 pkt. 1), udgaveneutralt:
   - `person.name` indeholder kun navne; titler (»greve«, »komtesse«, »friherreinde« m.fl.) er `person.title`, og
     »til <gods>« er ikke en del af navnet;
-  - »var †[dato], da …« (eller tilsvarende bisætning) angiver en død for den nævnte person, ikke for hovedpersonen.
+  - »var †[dato], da …« (eller »var død [dato], da …«) siger kun, at personen senest da var død — en grænse, ikke
+    dødsdagen — og giver intet `person.death`-claim (spec §4.2 pkt. 1).
   Resten af 1.0.0 er byte-uændret (test: diff mod 1.0.0 er kun de to tilføjede afsnit).
 - [ ] **Step 2: Test:** profilen indlæses, `resolve_prompt` accepterer sha'en, `daa-1939-v1` og `daa-2018-20-v2` er
   uændrede (hardkodede sha'er fra `main`).
