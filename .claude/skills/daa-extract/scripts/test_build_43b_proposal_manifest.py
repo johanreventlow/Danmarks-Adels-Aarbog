@@ -349,6 +349,15 @@ def test_1939_profilen_er_2018_20s_med_egne_versioner_og_helpost(profil, profil_
     assert profil_1939["operation_settings"] == profil["operation_settings"]
 
 
+def test_1939_profilens_writer_config_hash_er_den_seedede(profil_1939):
+    """Fund F8 (final-review): filens writer_config skal give samme kanoniske hash som seedet i databasen
+    (tests/sql/test-reimport-profile-seeds.sql og test-interpretation-proposal.sql). Samme definition
+    som manifestbyggerens `profile_sha256`."""
+    assert sha256_text(json.dumps(profil_1939["writer_config"], ensure_ascii=False,
+                                  separators=(",", ":"), sort_keys=True)) \
+        == "c6131dcc9655fd74abeb3de787592ee76a7fa17944a9b525b41a38bdd7acd6dc"
+
+
 @pytest.mark.parametrize("raw", ["4 Sønner", "N. N.", "To Døtre", "Børn", "Ukendt"])
 def test_1939_h1_fanger_store_forbogstaver(profil_1939, raw):
     assert uden_modpart(raw, profil_1939["no_counterpart_denylist"]) is True
