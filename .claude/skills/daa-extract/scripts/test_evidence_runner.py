@@ -995,6 +995,21 @@ def test_each_1939_rule_blocks_on_its_own(aarsag):
     assert check_eligibility(ledger_1939(), "I-1", "a" * 64) == "eligible"
 
 
+@pytest.mark.parametrize("politik,udgave", [("exclusion-2018-20-v1", "2018-20"), ("exclusion-1939-v1", "1939")])
+def test_a_ledger_matches_its_own_edition(politik, udgave):
+    lg = ledger_1939() if politik == "exclusion-1939-v1" else ledger()
+    assert evidence_runner.check_ledger_edition(lg, udgave) is None
+
+
+@pytest.mark.parametrize("politik,udgave", [("exclusion-2018-20-v1", "1939"), ("exclusion-1939-v1", "2018-20"),
+                                            ("exclusion-1939-v1", None), ("exclusion-2018-20-v1", "syntetisk")])
+def test_a_ledger_from_another_edition_is_rejected(politik, udgave):
+    """Fix-runde 1: 2018-20's regler må ikke frikende 1939's poster (og omvendt); ukendt udgave = nej."""
+    lg = ledger_1939() if politik == "exclusion-1939-v1" else ledger()
+    with pytest.raises(EligibilityError, match="LEDGER_POLICY_EDITION_MISMATCH"):
+        evidence_runner.check_ledger_edition(lg, udgave)
+
+
 def test_reasons_must_come_from_the_closed_rule_set():
     rows = ledger_rows(**{"I-9": {"status": "excluded", "reasons": ["fordi-jeg-synes"],
                                   "record_input_sha256": "f" * 64}})

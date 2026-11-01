@@ -138,7 +138,8 @@ def test_4_3b_manifestets_hash_kan_genberegnes():
 
 
 def _koersel(tmp_path, monkeypatch, *, klausul="t", kode=None, codex="0.155.1",
-             noegler=("R-1",), codex_stub=None, policy="exclusion-2018-20-v1", udelukket=None):
+             noegler=("R-1",), codex_stub=None, policy="exclusion-2018-20-v1", udelukket=None,
+             profile_id="daa-2018-20-v1"):
     """Hele runnerens main med én record og en stub i stedet for modellen."""
     import run_evidence_43b
     def lav(k):
@@ -159,7 +160,7 @@ def _koersel(tmp_path, monkeypatch, *, klausul="t", kode=None, codex="0.155.1",
               "record_input_sha256": shas, "strata_version": "t", "strata_sha256": "s" * 64}
     m = build_manifest(udvalg, dagsvaerk="4.5", restore_identity="x",
                        ledger_sha256=hashlib.sha256((tmp_path / "ledger.json").read_bytes()).hexdigest(),
-                       profil=evidence_extract.load_profile("daa-2018-20-v1"),
+                       profil=evidence_extract.load_profile(profile_id),
                        claims_schema_sha256=evidence_runner.sha256_text(
                            bm.SKEMA.read_text(encoding="utf-8")),
                        code_sha256=kode or runner_code_sha256(), codex_cli_version="0.155.1")
@@ -383,7 +384,7 @@ def test_run_evidence_reads_a_1939_ledger(tmp_path, monkeypatch, capsys):
     """Trin 6c-1 Task 5: runneren læser en exclusion-1939-v1-ledger (årsagerne valideres mod politikken)
     og sender den eligible record; den udelukkede sendes ikke."""
     rc, kaldt = _koersel(tmp_path, monkeypatch, codex_stub=_kvote_stub(monkeypatch),
-                         policy="exclusion-1939-v1",
+                         policy="exclusion-1939-v1", profile_id="daa-1939-v2",
                          udelukket={"R-9": ["no_published_persona", "text_year_ge_1915"]})
     assert len(kaldt) == 1
     assert "STOP_QUOTA_EXHAUSTED ved R-1" in capsys.readouterr().out
@@ -392,9 +393,20 @@ def test_run_evidence_reads_a_1939_ledger(tmp_path, monkeypatch, capsys):
 def test_run_evidence_refuses_a_2018_20_reason_in_a_1939_ledger(tmp_path, monkeypatch):
     with pytest.raises(evidence_runner.EligibilityError, match="LEDGER_REASON_UNKNOWN"):
         _koersel(tmp_path, monkeypatch, codex_stub=_kvote_stub(monkeypatch),
-                 policy="exclusion-1939-v1", udelukket={"R-9": ["birth_year_text_filter"]})
+                 policy="exclusion-1939-v1", profile_id="daa-1939-v2",
+                 udelukket={"R-9": ["birth_year_text_filter"]})
 
 
 def test_run_evidence_refuses_an_unknown_policy(tmp_path, monkeypatch):
     with pytest.raises(evidence_runner.EligibilityError, match="LEDGER_POLICY_UNKNOWN"):
         _koersel(tmp_path, monkeypatch, codex_stub=_kvote_stub(monkeypatch), policy="p")
+
+
+@pytest.mark.parametrize("policy,profile_id", [("exclusion-1939-v1", "daa-2018-20-v1"),
+                                               ("exclusion-2018-20-v1", "daa-1939-v2")])
+def test_run_evidence_refuses_a_ledger_from_another_edition(tmp_path, monkeypatch, capsys, policy, profile_id):
+    """Fix-runde 1: ledgerens politik er bundet til profilens udgave; ingen model kaldes."""
+    rc, kaldt = _koersel(tmp_path, monkeypatch, codex_stub=_kvote_stub(monkeypatch),
+                         policy=policy, profile_id=profile_id)
+    assert rc == 1 and kaldt == [] and not (tmp_path / "o.json").exists()
+    assert "LEDGER_POLICY_EDITION_MISMATCH" in capsys.readouterr().out

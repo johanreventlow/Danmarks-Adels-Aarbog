@@ -80,7 +80,7 @@ rendition_sha <- digest::digest(file = rendition_path, algo = "sha256")
 writer_config <- paste0('{"citation_label_template":"Syntetisk side {page_from}",',
   '"extractor_version":"source-text-revision-v1","helpost_observation_kind":"person_post",',
   '"observation_extraction_method":"clause_segment_v1","rendition_key":"syntetisk-r1",',
-  '"rendition_kind":"pdf_text_layer","rendition_metadata":{"edition":"syntetisk","pdf_sha256":"',
+  '"rendition_kind":"pdf_text_layer","rendition_metadata":{"edition":"2018-20","pdf_sha256":"',
   strrep("a", 64L), '","pdftotext_version":"syntetisk 0.0"},',
   '"run_key_prefix":"reimport-source-text-revision:","schema_version":"source-text-revision-manifest-v1",',
   '"text_form":"folded_projection@page_header"}')

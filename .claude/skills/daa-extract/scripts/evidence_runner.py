@@ -749,6 +749,14 @@ EXCLUSION_REASONS = {
     }),
 }
 
+#: Politik → den udgave (ekstraktionsprofilens `edition`), den gælder for.  En ledger må kun
+#: bruges til en kørsel på sin egen udgave: 2018-20's regler frikender ikke 1939's poster.
+POLICY_EDITION = {
+    "exclusion-2018-20-v1": "2018-20",
+    "exclusion-1939-v1": "1939",
+}
+assert set(POLICY_EDITION) == set(EXCLUSION_REASONS)
+
 _LEDGER_FIELDS = ("schema_version", "policy_version", "rules_script_sha256",
                   "source_id", "restore_identity", "records")
 
@@ -803,6 +811,16 @@ def load_ledger(ledger: Mapping[str, Any]) -> dict:
         if not isinstance(sha, str) or len(sha) != 64:
             raise EligibilityError("LEDGER_INCOMPLETE")
     return dict(ledger)
+
+
+def check_ledger_edition(ledger: Mapping[str, Any], edition: Any) -> None:
+    """Afvis en ledger, hvis politik ikke hører til kørslens udgave (profilens `edition`).
+
+    Fail-closed: en ukendt eller manglende udgave matcher ingen politik.
+    """
+    validated = load_ledger(ledger)
+    if POLICY_EDITION[validated["policy_version"]] != edition:
+        raise EligibilityError("LEDGER_POLICY_EDITION_MISMATCH")
 
 
 def check_eligibility(ledger: Mapping[str, Any], record_key: str,

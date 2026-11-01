@@ -11,7 +11,10 @@
 #                         spouse_undated_marriage, birth_year_text_filter);
 #   exclusion-1939-v1     spec 6c-1 §4.3 (no_published_persona, principal_living,
 #                         same_as_partner_living, relative_living, text_year_ge_1915).
-# Andet → EXPORT_POLICY_UNKNOWN. Helposten vælges med writerens regel, som runner-inputtet
+# Andet → EXPORT_POLICY_UNKNOWN. Politikken er bundet til writerprofilens udgave
+# (writer_config.rendition_metadata.edition: 2018-20 ↔ exclusion-2018-20-v1, 1939 ↔ exclusion-1939-v1);
+# en anden eller manglende udgave → EXPORT_POLICY_EDITION_MISMATCH, så en udgaves poster aldrig afgøres
+# efter en anden udgaves regler. Helposten vælges med writerens regel, som runner-inputtet
 # (export_43b_runner_input.R): slagsen fra --writer-profile (private.writer_config_helpost_kind),
 # helposten med private.record_helpost_status(record, slags). Status `ok` giver input_sha over
 # helpostens gældende tekst; `none` (ingen helpost af slagsen, fx en strukturpost) giver en
@@ -43,7 +46,9 @@ value <- function(flag) {
 script_dir <- dirname(normalizePath(sub("^--file=", "", grep("^--file=", commandArgs(), value = TRUE)[1L])))
 source(file.path(script_dir, "export_legacy_migration_candidates_helpers.R"))  # lmc_validate_output_dir
 
-POLICIES <- c("exclusion-2018-20-v1", "exclusion-1939-v1")
+# Politik → den udgave (writer_config.rendition_metadata.edition), den gælder for.
+POLICY_EDITION <- c("exclusion-2018-20-v1" = "2018-20", "exclusion-1939-v1" = "1939")
+POLICIES <- names(POLICY_EDITION)
 POLICY_VERSION <- value("--policy")
 if (!nzchar(POLICY_VERSION)) stop("EXPORT_CLI_INVALID", call. = FALSE)
 if (!POLICY_VERSION %in% POLICIES) stop("EXPORT_POLICY_UNKNOWN", call. = FALSE)
@@ -75,7 +80,8 @@ DBI::dbExecute(con, "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY
 # Helpost-slagsen læses fra writerprofilen, aldrig hardkodet (2018-20: person_post, 1939: person).
 # Samme opslag og fejlkode som export_43b_runner_input.R.
 kinds <- DBI::dbGetQuery(con, "
-  SELECT DISTINCT private.writer_config_helpost_kind(writer_config) AS kind
+  SELECT DISTINCT private.writer_config_helpost_kind(writer_config) AS kind,
+         writer_config->'rendition_metadata'->>'edition' AS edition
     FROM private.reimport_writer_profile
    WHERE source_id = $1 AND profile_id = $2", params = list(source_id, writer_profile))
 if (nrow(kinds) != 1L) {
@@ -83,6 +89,10 @@ if (nrow(kinds) != 1L) {
   stop("EXPORT_WRITER_PROFILE_UNKNOWN", call. = FALSE)
 }
 helpost_kind <- kinds$kind[[1L]]
+if (!identical(kinds$edition[[1L]], unname(POLICY_EDITION[[POLICY_VERSION]]))) {
+  DBI::dbExecute(con, "ROLLBACK")
+  stop("EXPORT_POLICY_EDITION_MISMATCH", call. = FALSE)
+}
 
 # Fælles for begge politikker: én række pr. source record (ALLE records i kilden, også dem uden
 # forankring) med helpost-status og, ved `ok`, input_sha over helpostens gældende tekst.
@@ -196,6 +206,8 @@ spouse_risk AS (
 -- 4. tekstfilter: posten skriver 'f.' efterfulgt af et fødselsår >=1950.
 --    Mønsteret tillader op til 20 ikke-cifre mellem 'f.' og årstallet, fordi
 --    bogen skriver 'f. 12. Maj 1955' — ikke 'f. 1955'. En snæver \\s*-form fandt 0.
+--    NB (trin 6c-1): netop den form fanger mønsteret IKKE — '12.' er cifre, som
+--    [^0-9]{0,20} ikke tillader. Reglen er bevaret uændret for 2018-20's identitet med main.
 --    Den brede form fanger også FALSKE positiver som 'f. Bechs Legat, 1966' (hvor
 --    'f.' betyder *født* som pigenavn). Det er med vilje: §9.2 kalder selv reglen
 --    en MANUEL udelukkelse, så filteret skal rejse tvivlen, ikke afgøre den.
@@ -234,11 +246,13 @@ SELECT rec.record_key, rec.helpost_status,
 #      person_id NULL eller en binding til en anden record → no_published_persona. Bindingspersonen
 #      levende/privat ≠ false eller staged → principal_living. (staged læses som levende/privat:
 #      IS DISTINCT FROM false, så også NULL udelukker.)
-#   2. En afklaret samme_som-partner — en relation rolle='samme_som' person↔person i én af de to
-#      retninger, direkte (ikke transitivt) — er levende/privat ≠ false → same_as_partner_living.
-#   3. Et andet medlem af en family, hvor hovedpersonen eller en af dens samme_som-partnere er medlem,
-#      er levende ≠ false → relative_living. »Andet« = ikke hovedpersonen og ikke en af dens partnere
-#      (de læses af regel 1-2 med den strengere levende/privat-test).
+#   2. En afklaret samme_som-partner — en anden person i hovedpersonens samme_som-gruppe
+#      (public._samme_som_gruppe: hele komponenten over relation rolle='samme_som' person↔person, begge
+#      retninger, transitivt; gruppen indeholder hovedpersonen selv) — er levende/privat ≠ false
+#      → same_as_partner_living.
+#   3. Et andet medlem af en family, hvor et medlem af gruppen (hovedpersonen eller en partner) er medlem,
+#      er levende ≠ false → relative_living. »Andet« = uden for gruppen (gruppen læses af regel 1-2 med
+#      den strengere levende/privat-test).
 #   4. Tekst: helpostens gældende tekst indeholder et årstal ≥ 1915 → text_year_ge_1915. To dele, der
 #      tælles hver for sig (stdout):
 #      - streng: en delstreng 1[6-9][0-9]{2} med værdi ≥ 1915, også klistret til et ord. Skrevet som
@@ -272,27 +286,23 @@ principal_hit AS (
     FROM principal pr LEFT JOIN person p ON p.id = pr.person_id
    GROUP BY pr.record_key
 ),
-partners AS (
-  SELECT pr.record_key, r.objekt_id AS person_id
+circle AS (
+  SELECT pr.record_key, g.pid AS person_id
     FROM principal pr
-    JOIN relation r ON r.rolle = 'samme_som' AND r.subjekt_type = 'person' AND r.objekt_type = 'person'
-                   AND r.subjekt_id = pr.person_id
+    CROSS JOIN LATERAL public._samme_som_gruppe(pr.person_id) g
   UNION
-  SELECT pr.record_key, r.subjekt_id
-    FROM principal pr
-    JOIN relation r ON r.rolle = 'samme_som' AND r.subjekt_type = 'person' AND r.objekt_type = 'person'
-                   AND r.objekt_id = pr.person_id
+  SELECT record_key, person_id FROM principal
+),
+partners AS (
+  SELECT c.record_key, c.person_id
+    FROM circle c
+   WHERE NOT EXISTS (SELECT 1 FROM principal pr WHERE pr.record_key = c.record_key AND pr.person_id = c.person_id)
 ),
 same_as_hit AS (
   SELECT pa.record_key,
          bool_or(p.id IS NULL OR p.levende IS DISTINCT FROM FALSE OR p.privat IS DISTINCT FROM FALSE) AS hit
     FROM partners pa LEFT JOIN person p ON p.id = pa.person_id
    GROUP BY pa.record_key
-),
-circle AS (
-  SELECT record_key, person_id FROM principal
-  UNION
-  SELECT record_key, person_id FROM partners
 ),
 relative_hit AS (
   SELECT c.record_key, bool_or(p.id IS NULL OR p.levende IS DISTINCT FROM FALSE) AS hit
@@ -304,12 +314,14 @@ relative_hit AS (
                       WHERE c2.record_key = c.record_key AND c2.person_id = fm_rel.person_id)
    GROUP BY c.record_key
 ),
+-- En NULL-tekst fanges af strict_hit (~ på NULL er NULL → COALESCE TRUE). tolerant_hit kan ikke
+-- fange den: EXISTS over regexp_matches(NULL) giver ingen rækker og dermed FALSE.
 text_hit AS (
   SELECT h.record_key,
          COALESCE(h.verbatim_text ~ '19(1[5-9]|[2-9][0-9])', TRUE) AS strict_hit,
-         COALESCE(EXISTS (
+         EXISTS (
            SELECT 1 FROM regexp_matches(h.verbatim_text, '\\m([1lI][0-9OoSBlI]{3})\\M', 'g') m
-            WHERE translate(m[1], 'lIOoSB', '110058')::integer >= 1915), TRUE) AS tolerant_hit
+            WHERE translate(m[1], 'lIOoSB', '110058')::integer >= 1915) AS tolerant_hit
     FROM helpost h
 )
 SELECT rec.record_key, rec.helpost_status,

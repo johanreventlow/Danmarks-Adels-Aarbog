@@ -43,7 +43,8 @@ e("INSERT INTO public.profiles(id,email,rolle,navn) VALUES($1,'6c1-5-elig@exampl
 
 rand_source <- function() 166950000L + sample.int(800000L, 1L)
 
-new_source <- function(profile_id, helpost_kind) {
+# edition: writerprofilens rendition_metadata.edition (politikken er bundet til den); NULL = ingen udgave.
+new_source <- function(profile_id, helpost_kind, edition) {
   repeat { source_id <- rand_source(); if (nrow(q("SELECT 1 FROM public.source WHERE id=$1", list(source_id))) == 0L) break }
   e("INSERT INTO public.source(id,titel,udgave,slags) VALUES($1,'Syntetisk eligibility','synthetic','DAA-udgave')", list(source_id))
   run_id <- q("INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest) VALUES($1,$2,'fixture','fixture','fixture',$3,'{}') RETURNING id",
@@ -52,7 +53,8 @@ new_source <- function(profile_id, helpost_kind) {
     list(source_id, strrep("2", 64L)))$id[[1L]]
   cfg <- sprintf(paste0('{"citation_label_template":"Syntetisk side {page_from}","extractor_version":"fixture",',
     '"observation_extraction_method":"clause_segment_v1","rendition_key":"syntetisk-r1","rendition_kind":"pdf_text_layer",',
-    '"rendition_metadata":{},"run_key_prefix":"fixture:","schema_version":"fixture-v1"%s}'),
+    '"rendition_metadata":%s,"run_key_prefix":"fixture:","schema_version":"fixture-v1"%s}'),
+    if (is.null(edition)) "{}" else sprintf('{"edition":"%s"}', edition),
     if (is.null(helpost_kind)) "" else sprintf(',"helpost_observation_kind":"%s"', helpost_kind))
   sha <- q("SELECT private.reimport_canonical_json_sha256($1::jsonb) h", list(cfg))$h[[1L]]
   e("INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config) VALUES($1,$2,'fixture',$3,$4::jsonb)",
@@ -146,7 +148,7 @@ projection <- function(records) {
 
 # ==== A: 2018-20, exclusion-2018-20-v1 er uændret =====================================================
 P18 <- "daa-2018-20-interpretation-proposal-v1"
-sa <- new_source(P18, NULL)
+sa <- new_source(P18, NULL, "2018-20")
 txt_a <- function(k, extra = "") paste0("Syntetisk post ", k, " Alfa Bravo, f. 1801 i Proevested", extra, ".")
 a_rec <- function(k, extra = "") new_record(sa, k, list(list(key = "h", from = 0L, kind = "person_post", text = txt_a(k, extra), helpost = TRUE)),
   primary = list(list(on = "h", persona = k)))
@@ -158,7 +160,8 @@ a_rec("I-4"); p4 <- new_person(); ext_id("I-4", p4)
 new_family(list(list(p4, "partner"), list(new_person(levende = TRUE), "barn")))       # relative_living
 a_rec("I-5"); p5 <- new_person(); ext_id("I-5", p5)
 new_family(list(list(p5, "partner"), list(new_person(), "partner")))                  # spouse_undated_marriage
-a_rec("I-6", ", f. 12. Maj 1955"); ext_id("I-6", new_person())                       # birth_year_text_filter
+a_rec("I-6", ", f. 12. Maj 1955"); ext_id("I-6", new_person())                       # eligible: main's regel fanger IKKE
+# denne form ('12.' er cifre, som [^0-9]{0,20} ikke tillader) — eksisterende adfærd, bevaret for identitet med main.
 new_record(sa, "I-7", list()); ext_id("I-7", new_person())                     # ingen forankring -> intet input
 new_record(sa, "I-8", list())                                                        # ingen forankring, ingen person
 a_rec("I-9", ", f. 1950"); ext_id("I-9", new_person(levende = NA))                    # flere årsager
@@ -183,7 +186,7 @@ stopifnot(identical(la$records[["I-1"]]$status, "eligible"),
 
 # ==== B: 1939, exclusion-1939-v1 =======================================================================
 P39 <- "daa-1939-interpretation-proposal-v1"
-sb <- new_source(P39, "person")
+sb <- new_source(P39, "person", "1939")
 hp <- function(k, extra = "") paste0("Syntetisk helpost ", k, " Alfa Bravo, f. 1801 i Proevested; gift 1830", extra, ".")
 b_post <- function(k, extra = "", primary = TRUE) new_record(sb, k,
   list(list(key = "h", from = 0L, kind = "person", text = hp(k, extra), helpost = TRUE)),
@@ -231,6 +234,13 @@ new_family(list(list(q_fwd, "partner"), list(new_person(), "partner")))
 expect_b[["B-same-fwd"]] <- "same_as_partner_living"
 x <- b_bound("B-same-rev"); samme_som(new_person(privat = TRUE), x$person)
 expect_b[["B-same-rev"]] <- "same_as_partner_living"
+# Hele samme_som-gruppen: A (hovedpersonen) -> B <- C; kun C (to led væk) er levende.
+x <- b_bound("B-same-group"); b_mid <- new_person(); samme_som(x$person, b_mid); samme_som(new_person(levende = TRUE), b_mid)
+expect_b[["B-same-group"]] <- "same_as_partner_living"
+# ... og en slægtning til C (to led væk) tæller under regel 3.
+x <- b_bound("B-rel-group"); b_mid <- new_person(); c_far <- new_person(); samme_som(x$person, b_mid); samme_som(c_far, b_mid)
+new_family(list(list(c_far, "partner"), list(new_person(levende = TRUE), "barn")))
+expect_b[["B-rel-group"]] <- "relative_living"
 # 5. Slægtninge: direkte, og gennem samme_som-partnerens family (NULL tæller).
 x <- b_bound("B-rel"); new_family(list(list(x$person, "partner"), list(new_person(levende = TRUE), "barn")))
 expect_b[["B-rel"]] <- "relative_living"
@@ -290,12 +300,17 @@ expect_fail(eligibility(sb$id, "", P39, "c-policy-empty"), "EXPORT_CLI_INVALID")
 expect_fail(eligibility(sb$id, NULL, P39, "c-policy-missing"), "EXPORT_CLI_INVALID")
 expect_fail(eligibility(sb$id, "exclusion-1939-v1", NULL, "c-profile-missing"), "EXPORT_CLI_INVALID")
 expect_fail(eligibility(sb$id, "exclusion-1939-v1", "findes-ikke", "c-profile"), "EXPORT_WRITER_PROFILE_UNKNOWN")
-# Politikken følger ikke profilen: 2018-20's politik på 1939-kilden er tilladt, men 1939's årsager kommer ikke med.
-r21 <- eligibility(sb$id, "exclusion-2018-20-v1", P39, "c-other-policy")
-stopifnot(r21$status == 0L, !any(c("no_published_persona", "text_year_ge_1915") %in% unlist(lapply(ledger_of(r21)$records, `[[`, "reasons"))))
+# Politikken er bundet til profilens udgave: en anden udgaves politik, eller en profil uden udgave, afvises.
+expect_fail(eligibility(sb$id, "exclusion-2018-20-v1", P39, "c-other-policy"), "EXPORT_POLICY_EDITION_MISMATCH")
+expect_fail(eligibility(sa$id, "exclusion-1939-v1", P18, "c-other-policy-18"), "EXPORT_POLICY_EDITION_MISMATCH")
+for (ed in list(NULL, "syntetisk")) {
+  sx <- new_source("p", "person", ed)
+  b <- new_record(sx, "I-1", list(list(key = "h", from = 0L, kind = "person", text = hp("I-1"), helpost = TRUE)))
+  expect_fail(eligibility(sx$id, "exclusion-1939-v1", "p", paste0("c-edition-", ed %||% "none")), "EXPORT_POLICY_EDITION_MISMATCH")
+}
 
 fail_source <- function(tag, build, code) {
-  s <- new_source("p", "person")
+  s <- new_source("p", "person", "1939")
   build(s)
   expect_fail(eligibility(s$id, "exclusion-1939-v1", "p", tag), code)
 }
@@ -306,7 +321,7 @@ fail_source("c-outside", function(s) new_record(s, "I-1", list(
   list(key = "h", from = 0L, kind = "person", text = hp("I-1"), helpost = TRUE),
   list(key = "x", from = 500L, kind = "name", text = "Alfa Bravo", helpost = FALSE))), "EXPORT_HELPOST_NOT_UNIQUE")
 # To primære personas på helposten: ingen entydig hovedperson -> udelukket (ikke en fejl i ledgeren).
-sc <- new_source("p", "person")
+sc <- new_source("p", "person", "1939")
 two <- new_record(sc, "I-1", list(list(key = "h", from = 0L, kind = "person", text = hp("I-1"), helpost = TRUE)),
   primary = list(list(on = "h", persona = "1939:I-1"), list(on = "h", persona = "1939:I-1-b")))
 publish(sc, two, new_person())

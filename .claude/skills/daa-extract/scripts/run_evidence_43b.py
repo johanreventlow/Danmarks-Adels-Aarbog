@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import evidence_extract
 import evidence_runner
 from build_43b_manifest import bundles_of, check_contract, runner_code_sha256
-from evidence_runner import (ResponseCache, build_gate_profile, build_gated_argv,
+from evidence_runner import (EligibilityError, ResponseCache, build_gate_profile, build_gated_argv,
                              canonical_record_input, load_ledger, prepare_call_dir,
                              run_record_guarded, sha256_text)
 
@@ -64,6 +64,13 @@ def main() -> int:
         return 1
 
     profil = evidence_extract.load_profile(manifest["profile_id"])
+    # Ledgerens politik skal høre til profilens udgave (trin 6c-1): ellers kunne en 2018-20-ledger
+    # godkende 1939-poster efter 2018-20's regler.
+    try:
+        evidence_runner.check_ledger_edition(ledger, profil["edition"])
+    except EligibilityError as exc:
+        print(f"{exc} — ledgerens politik hører ikke til profilens udgave.")
+        return 1
     if profil["version"] != manifest["profile_version"]:
         print("PROFILE_DRIFT — profilversionen er ændret siden GO.")
         return 1
