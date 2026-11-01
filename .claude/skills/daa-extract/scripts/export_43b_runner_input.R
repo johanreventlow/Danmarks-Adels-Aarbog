@@ -63,7 +63,11 @@ helpost_kind <- kinds$kind[[1L]]
 # accepteret forankring eksporteres (som før). Status none udelader recorden (talt i
 # uden_helpost); ambiguous/outside (writerens RECORD_HELPOST_AMBIGUOUS / RECORD_HELPOST_SUBOCCURRENCE_OUTSIDE)
 # giver EXPORT_HELPOST_NOT_UNIQUE.
-# Personaen er helpostens `primary`-mention (som writeren); den samlede persona_id-liste tælles i R.
+# Personaen er helpostens `primary`-mention (som writeren); den samlede persona_id-liste tælles i R. Flere primære
+# personas udelader recorden (talt i uden_entydig_persona; final-review F6): 1939-ledgeren udelukker den alligevel
+# (no_published_persona), så hele eksporten skal ikke stoppe for den.
+# NB: eksporten tager DISTINCT persona, mens writeren tæller primær-mention-rækker (nuller ved <> 1 række); de kan
+# afvige, hvis samme persona har to primære mentions på helposten (udskudt, Task 4 minor 2).
 posts <- DBI::dbGetQuery(con, "
   SELECT sr.record_key, h.status, h.observation_id AS post_id,
          cur.verbatim_text AS post_text, cur.text_id::text AS text_id,
@@ -96,6 +100,7 @@ if (nrow(posts) == 0L) stop("EXPORT_NO_ROWS", call. = FALSE)
 
 records <- list()
 n_no_helpost <- 0L
+n_ambiguous_persona <- 0L
 for (i in seq_len(nrow(posts))) {
   key <- posts$record_key[i]
   # `none`: ingen helpost af profilens slags (fx strukturkontekst/krydshenvisning) -> ikke en modelpost; udeladt
@@ -103,7 +108,7 @@ for (i in seq_len(nrow(posts))) {
   if (identical(posts$status[i], "none")) { n_no_helpost <- n_no_helpost + 1L; next }
   if (!identical(posts$status[i], "ok")) stop("EXPORT_HELPOST_NOT_UNIQUE", call. = FALSE)
   pids <- strsplit(posts$persona_ids[i], ",", fixed = TRUE)[[1L]]
-  if (length(pids) > 1L) stop("EXPORT_PRIMARY_PERSONA_NOT_UNIQUE", call. = FALSE)
+  if (length(pids) > 1L) { n_ambiguous_persona <- n_ambiguous_persona + 1L; next }
   own <- clauses[clauses$record_key == key, , drop = FALSE]
   # Sættet skal være bundet til den eksporterede tekstversion (NA = basisteksten på begge sider).
   if (!all(vapply(own$parent_text_id, identical, logical(1), posts$text_id[i])))
@@ -125,7 +130,7 @@ writeLines(jsonlite::toJSON(list(
   records = records), auto_unbox = FALSE, pretty = TRUE), out_path)
 Sys.chmod(out_path, "0600")
 
-cat(sprintf("RUNNER_INPUT_OK records=%d klausuler=%d uden_klausuler=%d uden_helpost=%d\n",
-            length(records), nrow(clauses),
+cat(sprintf("RUNNER_INPUT_OK records=%d klausuler=%d uden_klausuler=%d uden_helpost=%d uden_entydig_persona=%d\n",
+            length(records), sum(vapply(records, function(r) length(r$clauses), integer(1))),
             sum(vapply(records, function(r) length(r$clauses) == 0L, logical(1))),
-            n_no_helpost))
+            n_no_helpost, n_ambiguous_persona))
