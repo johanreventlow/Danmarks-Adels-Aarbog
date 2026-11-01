@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-11-01 — Trin 6b i prod: publication-operationer (DDL) og 1939's 555 personas (data)
+
+Prod-kørsel efter `docs/runbooks/trin6b-prod.md`, repo `dcae5b34` (PR #285-#288), kørt af projektejeren med
+`~/.private/5ab-overfoersel/26-trin6b.sh`. To ceremonier; detaljer i `database-current-state.md` §18. Ceremoni C
+(identiteterne) venter på 6c's runner.
+
+- **Kode:** PR #285 (DB: publication-operationer, kontrol, C's fortrydelse, finalize-trigger), #286 (scripts:
+  manifest, B-runner), #287 (C kan genkøres efter fortrydelse; køvagten kalder kun fortrydelsestjekket for ventende
+  personas), #288 (slutøvelse på `main`: A, manifest 555, B 555/0, fortryd-b og B igen).
+- **Ceremoni A (GO 6b-A `3a36017a`):** dump før `daa-prod-20261101112742-6b.dump` (sha `075213af…`, ekstern
+  `7bf2937d…`); `T6B_APPLY_A_OK tilstand=a`, 16,3 s, 2018-20 uændret.
+- **Rådgiver:** kun de 5 forventede `authenticated`-fund på de nye `public.red_*`; ingen `anon`-fund, ingen nye tabeller.
+- **Ceremoni B (GO 6b-B `1c8aade5`):** manifest 555 elementer, indhold `36dfa422…` = øvelsens; dump før
+  `daa-prod-20261101122034-6b.dump` (sha `56f9a466…`, ekstern `56f905df…`); første kørsel stoppet af en SFTP-timeout
+  før databasen; anden kørsel `T6B_APPLY_B_OK personas=555 identiteter=0 status=finalized tilstand=b`, 143,4 s inkl.
+  dry-run; webkøen uændret (8), narrativernes publiceringsstatus uændret, replay `already_applied`; `T6B_MAAL_OK
+  tilstand=b`, `k1` uændret.
+- **Runbook:** dumpets `tabeller=` tæller tabeller og sekvenser (132, ikke 98); de målte prod-tider er indført.
+
 ## 2026-10-30 — Trin 6a i prod: helpost-regel og kildetekst-revision (DDL) og 1939's klausuler (data)
 
 Prod-kørsel efter `docs/runbooks/trin6a-prod.md`, repo `e9a289cf` (PR #281-#283), kørt af projektejeren med
