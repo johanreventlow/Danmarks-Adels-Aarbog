@@ -59,8 +59,9 @@ Undtagelse: hvor titlen juridisk er en del af efternavnet (tyske grene efter 191
 følger den med i navnet.
 
 En godsbetegnelse som »til Krenkerup« er heller aldrig en del af navnet. Den er et
-ejerskab og udtrækkes som `person.estate`, når godset er hovedpersonens. Står godset i klausulen, så lad det være
-uden for `person.name`; det ordrette navn bevares alligevel i klausulen.
+ejerskab og udtrækkes som `person.estate`, når godset er hovedpersonens. Står godset i
+klausulen, så lad det være uden for `person.name`; det ordrette navn bevares alligevel i
+klausulen.
 
 ## »var † [dato], da …« er en grænse
 
