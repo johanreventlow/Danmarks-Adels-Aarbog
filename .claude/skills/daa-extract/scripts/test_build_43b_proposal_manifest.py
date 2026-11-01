@@ -225,15 +225,16 @@ def _rec(key, persona, tekst):
             "clauses": [{"ordinal": 1, "verbatim_text": tekst, "verbatim_sha256": sha256_text(tekst)}]}
 
 
-def _byg(tmp_path, monkeypatch, records, svar, mode="current"):
+def _byg(tmp_path, monkeypatch, records, svar, mode="current", kontrakt="evidence-runner-1.3",
+         **ekstra):
     """Kører CLI'en over et komplet, syntetisk runner-manifest og en cache i den givne tilstand."""
     import build_43b_proposal_manifest as b
     from build_43b_manifest import manifest_sha256
     from evidence_runner import canonical_clause_set, canonical_record_input
     m = {"records": list(records), "bundter": {"bundt_01": list(records)},
          "profile_id": "p", "profile_version": "1", "model": "m", "prompt_sha256": "a" * 64,
-         "claims_schema_sha256": "b" * 64, "runner_contract_version": "evidence-runner-1.3",
-         "eligibility_ledger_sha256": "c" * 64}
+         "claims_schema_sha256": "b" * 64, "runner_contract_version": kontrakt,
+         "eligibility_ledger_sha256": "c" * 64, **ekstra}
     m["manifest_sha256"] = manifest_sha256(m)
     cache = tmp_path / "cache"
     cache.mkdir()
@@ -242,7 +243,7 @@ def _byg(tmp_path, monkeypatch, records, svar, mode="current"):
                  "record_input_sha256": canonical_record_input(rec),
                  "clause_set_sha256": canonical_clause_set(rec), "claims_schema_sha256": "b" * 64,
                  "runner_contract_version": (b.LEGACY_RUNNER_CONTRACT_VERSION if mode == "legacy"
-                                             else "evidence-runner-1.3")}
+                                             else kontrakt)}
         if mode == "current":
             ident["record_key"] = key
         b.cache_path(cache, ident, mode=mode).write_text(json.dumps(
@@ -351,3 +352,36 @@ def test_1939_profilen_er_2018_20s_med_egne_versioner_og_helpost(profil, profil_
 @pytest.mark.parametrize("raw", ["4 Sønner", "N. N.", "To Døtre", "Børn", "Ukendt"])
 def test_1939_h1_fanger_store_forbogstaver(profil_1939, raw):
     assert uden_modpart(raw, profil_1939["no_counterpart_denylist"]) is True
+
+
+# --- kontrakt 1.4: kilden følger runner-manifestet (trin 6c-1) -------------------
+
+def _enkel_byg(tmp_path, monkeypatch, **kw):
+    tekst = "Gift i Odense med Anna."
+    svar = {"A": [_claim("mention.place", "Odense", None)]}
+    return _byg(tmp_path, monkeypatch, {"A": _rec("A", "p-A", tekst)}, svar, **kw)
+
+
+def test_proposal_manifest_requires_source_for_14(tmp_path, monkeypatch, capsys):
+    assert _enkel_byg(tmp_path, monkeypatch, kontrakt="evidence-runner-1.4") == 1
+    assert "PROPOSAL_MANIFEST_SOURCE_MISSING" in capsys.readouterr().out
+    assert not (tmp_path / "out.json").exists()
+
+
+def test_proposal_manifest_source_mismatch(tmp_path, monkeypatch, capsys):
+    # PROFIL er 2018-20's writerprofil (kilde 1); manifestet siger kilde 3.
+    assert _enkel_byg(tmp_path, monkeypatch, kontrakt="evidence-runner-1.4", source_id=3) == 1
+    assert "PROPOSAL_MANIFEST_SOURCE_MISMATCH" in capsys.readouterr().out
+    assert not (tmp_path / "out.json").exists()
+
+
+def test_proposal_manifest_14_with_matching_source_builds(tmp_path, monkeypatch):
+    assert _enkel_byg(tmp_path, monkeypatch, kontrakt="evidence-runner-1.4", source_id=1) == 0
+    out = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+    assert out["source"]["id"] == 1
+
+
+def test_historical_manifest_without_source_keeps_default_1(tmp_path, monkeypatch):
+    """Manifester til og med 1.3 har ingen kilde og får standarden 1 som før."""
+    assert _enkel_byg(tmp_path, monkeypatch) == 0
+    assert json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))["source"]["id"] == 1

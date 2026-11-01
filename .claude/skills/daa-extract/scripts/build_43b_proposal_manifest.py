@@ -248,6 +248,15 @@ def main() -> int:
 
     runner_input = json.loads(Path(args.runner_input).read_text(encoding="utf-8"))["records"]
     profil = json.loads(Path(args.profile).read_text(encoding="utf-8"))
+    if evidence_runner.contract_at_least(runner_manifest.get("runner_contract_version"), (1, 4)):
+        # Nye manifester har ingen standardværdi for kilden (Codex fund 3).
+        if "source_id" not in runner_manifest:
+            print("PROPOSAL_MANIFEST_SOURCE_MISSING — runner-manifestet bærer ikke source_id.")
+            return 1
+        if runner_manifest["source_id"] != profil.get("source_id"):
+            print("PROPOSAL_MANIFEST_SOURCE_MISMATCH — runner-manifestets kilde afviger fra "
+                  "writerprofilens.")
+            return 1
     denylist = profil["no_counterpart_denylist"]
     rolle_map = profil["persona_role_map"]
     cache_dir = Path(args.cache_dir)

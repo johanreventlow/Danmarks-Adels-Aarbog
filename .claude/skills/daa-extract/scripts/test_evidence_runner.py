@@ -408,10 +408,42 @@ def test_cache_key_covers_schema_and_runner_version():
 
 
 def test_runner_contract_is_bumped_for_the_clause_set_key():
-    # 1.2 indførte klausulsættet; 1.3 (P1) bevarer nøglens felter.
-    assert evidence_runner.RUNNER_CONTRACT_VERSION == "evidence-runner-1.3"
-    assert evidence_runner.CACHE_KEY_FIELDS_BY_CONTRACT["evidence-runner-1.2"] \
-        == evidence_runner.CACHE_KEY_FIELDS
+    # 1.2 indførte klausulsættet; 1.3 (P1) og 1.4 (6c-1) bevarer nøglens felter.
+    assert evidence_runner.RUNNER_CONTRACT_VERSION == "evidence-runner-1.4"
+    for kontrakt in ("evidence-runner-1.2", "evidence-runner-1.3", "evidence-runner-1.4"):
+        assert evidence_runner.CACHE_KEY_FIELDS_BY_CONTRACT[kontrakt] \
+            == evidence_runner.CACHE_KEY_FIELDS
+
+
+def test_cache_key_1_3_vector_unchanged():
+    """2018-20's 1.3-cache skal kunne adresseres efter bump til 1.4: fast vektor, udledt
+    med den uændrede nøgleformel (felter i rækkefølge, \\x1f-adskilt, sha256)."""
+    ident = {"profile_id": "p", "profile_version": "1", "model": "m", "prompt_sha256": "a" * 64,
+             "record_key": "R-1", "record_input_sha256": "b" * 64, "clause_set_sha256": "c" * 64,
+             "claims_schema_sha256": "d" * 64, "runner_contract_version": "evidence-runner-1.3"}
+    assert ResponseCache.key(ident) == "7c8540df5d22b8a6b022394e550f8647a25a7dc56c773a4be0a5301731c3a333"
+
+
+@pytest.mark.parametrize("message", ["You've hit your usage limit.", "USAGE LIMIT reached"])
+def test_quota_without_type_is_quota_exhausted(message):
+    assert classify_failure(read_fixture("failure-quota-no-type.jsonl"), exit_code=1) \
+        == "quota_exhausted"
+    for error in ({"message": message}, message):
+        stream = json.dumps({"type": "turn.failed", "error": error})
+        assert classify_failure(stream, exit_code=1) == "quota_exhausted"
+
+
+@pytest.mark.parametrize("error", [{"message": "boom"}, "boom", {"kode": 42}, None,
+                                   {"type": "noget_andet", "message": "usage limit"}])
+def test_failed_without_type_or_quota_text_is_unknown(error):
+    stream = json.dumps({"type": "turn.failed", "error": error})
+    assert classify_failure(stream, exit_code=1) == "unknown"
+
+
+def test_run_evidence_stops_bundle_on_quota_without_type():
+    import run_evidence_43b
+    kind = classify_failure(read_fixture("failure-quota-no-type.jsonl"), exit_code=1)
+    assert run_evidence_43b.stop_reason(kind) == "STOP_QUOTA_EXHAUSTED"
 
 
 def test_a_12_answer_is_not_reused_under_13(tmp_path):

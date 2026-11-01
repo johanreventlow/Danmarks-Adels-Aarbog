@@ -52,7 +52,8 @@ def bundles_of(manifest: dict) -> dict[str, list[str]]:
 
 def build_manifest(udvalg: dict, *, dagsvaerk: str, restore_identity: str,
                    ledger_sha256: str, profil: dict, claims_schema_sha256: str,
-                   code_sha256: str | None = None, codex_cli_version: str | None = None) -> dict:
+                   code_sha256: str | None = None, codex_cli_version: str | None = None,
+                   source_id: int | None = None) -> dict:
     manifest = {
         "schema_version": "evidence-run-manifest-1.0",
         "status": "pending",
@@ -86,6 +87,8 @@ def build_manifest(udvalg: dict, *, dagsvaerk: str, restore_identity: str,
         manifest["bundt_2"] = udvalg["bundt_2"]
     if code_sha256 is not None:
         manifest["runner_code_sha256"] = code_sha256
+    if source_id is not None:
+        manifest["source_id"] = source_id
     if codex_cli_version is not None:
         manifest["codex_cli_version"] = codex_cli_version
     manifest["manifest_sha256"] = manifest_sha256(manifest)
@@ -110,6 +113,10 @@ def check_contract(manifest: dict, *, schema_text: str, runner_contract_version:
         return "CODEX_VERSION_UNBOUND"
     if "codex_cli_version" in manifest and codex_cli_version != manifest["codex_cli_version"]:
         return "CODEX_VERSION_DRIFT"
+    # Kontrakt 1.4: nye manifester binder altid kørselskoden (spec 6c-1 §4.4 pkt. 4).
+    if evidence_runner.contract_at_least(manifest["runner_contract_version"], (1, 4)) \
+            and "runner_code_sha256" not in manifest:
+        return "RUNNER_CODE_SHA_MISSING"
     return None
 
 
@@ -120,6 +127,9 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--restore-identity", required=True)
     ap.add_argument("--dagsvaerk", default="4.3b")
+    # Kilden følger runner-inputtet (`source_id` på toppen). Krævet for nye dagsværk;
+    # 4.3b/4.5-manifesterne blev bygget uden og beholder det.
+    ap.add_argument("--runner-input")
     # Genbindingen af 4.4 (2026-09-28) kører piloten om under profil v2 (klausulregler v3);
     # 4.3b/4.5 blev bygget uden flaget, så standarden står.
     ap.add_argument("--profile-id", default="daa-2018-20-v1")
@@ -128,13 +138,22 @@ def main() -> int:
     udvalg = json.loads(Path(args.selection).read_text(encoding="utf-8"))
     profil = evidence_extract.load_profile(args.profile_id)
     evidence_extract.resolve_prompt(profil["prompt_file"], profil["prompt_sha256"])
+    source_id = None
+    if args.runner_input:
+        source_id = json.loads(Path(args.runner_input).read_text(encoding="utf-8")).get("source_id")
+        if not isinstance(source_id, int) or isinstance(source_id, bool) or source_id <= 0:
+            print("RUNNER_INPUT_SOURCE_MISSING — runner-inputtet bærer ikke et source_id.")
+            return 1
+    elif args.dagsvaerk not in ("4.3b", "4.5"):
+        print("RUNNER_INPUT_SOURCE_MISSING — nye dagsværk kræver --runner-input.")
+        return 1
     manifest = build_manifest(
         udvalg, dagsvaerk=args.dagsvaerk, restore_identity=args.restore_identity,
         ledger_sha256=hashlib.sha256(Path(args.ledger).read_bytes()).hexdigest(),
         profil=profil,
         claims_schema_sha256=evidence_runner.sha256_text(SKEMA.read_text(encoding="utf-8")),
         code_sha256=None if args.dagsvaerk == "4.3b" else runner_code_sha256(),
-        codex_cli_version=evidence_runner.codex_cli_version())
+        codex_cli_version=evidence_runner.codex_cli_version(), source_id=source_id)
 
     out = Path(args.out)
     out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")

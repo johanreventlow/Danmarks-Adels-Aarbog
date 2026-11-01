@@ -42,6 +42,7 @@ rigtig kørsel.
 | `failure-schema-violation.jsonl` | `schema_violation` | Syntetisk. |
 | `failure-timeout.jsonl` | `timeout` | Syntetisk; timeout afgøres i øvrigt af sømmen, ikke af strømmen. |
 | `failure-unknown.jsonl` | `unknown` | Syntetisk — en `turn.failed` uden genkendelig `error.type`. |
+| `failure-quota-no-type.jsonl` | `quota_exhausted` | Syntetisk, formen fra produktionsfejlen: en `turn.failed`, hvis `error` mangler `type`, og kun `message` (»usage limit«) bærer kvotefejlen. Ingen kildetekst. |
 
 Bliver en af typerne observeret i en rigtig kørsel, så **erstat** filen og ret
 tabellen.

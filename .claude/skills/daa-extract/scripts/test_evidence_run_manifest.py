@@ -312,3 +312,35 @@ def test_driveren_stopper_ved_versionsskift_midt_i_bundtet(tmp_path, monkeypatch
     rc, kaldt = _koersel(tmp_path, monkeypatch, codex=lambda **k: next(svar))
     assert rc == 1 and kaldt == []
     assert "CODEX_VERSION_DRIFT før R-1" in capsys.readouterr().out
+
+
+def test_manifest_6c1_binds_code_and_source(tmp_path, monkeypatch):
+    (tmp_path / "ri.json").write_text(json.dumps({"source_id": 3, "records": {}}), encoding="utf-8")
+    m = _main_manifest(tmp_path, monkeypatch, "--runner-input", str(tmp_path / "ri.json"))
+    assert m["source_id"] == 3 and m["runner_contract_version"] == "evidence-runner-1.4"
+    assert len(m["runner_code_sha256"]) == 64
+
+
+def test_manifest_6c1_without_runner_input_is_refused(tmp_path, monkeypatch, capsys):
+    with pytest.raises(AssertionError):
+        _main_manifest(tmp_path, monkeypatch, "--dagsvaerk", "6c-1")
+    assert "RUNNER_INPUT_SOURCE_MISSING" in capsys.readouterr().out
+
+
+def test_runner_rejects_14_manifest_without_code_sha():
+    m = build_manifest(udvalg45(), dagsvaerk="6c-1", restore_identity="x", ledger_sha256="L",
+                       profil=PROFIL, claims_schema_sha256=evidence_runner.sha256_text(SKEMA),
+                       codex_cli_version="0.155.1", source_id=3)
+    assert "runner_code_sha256" not in m
+    assert check_contract(m, schema_text=SKEMA, runner_contract_version=m["runner_contract_version"],
+                          code_sha256="c" * 64, codex_cli_version="0.155.1") == "RUNNER_CODE_SHA_MISSING"
+
+
+def test_runner_accepts_13_manifest_without_code_sha():
+    m = build_manifest(udvalg45(), dagsvaerk="4.5", restore_identity="x", ledger_sha256="L",
+                       profil=PROFIL, claims_schema_sha256=evidence_runner.sha256_text(SKEMA),
+                       codex_cli_version="0.155.1")
+    m["runner_contract_version"] = "evidence-runner-1.3"
+    m["manifest_sha256"] = manifest_sha256(m)
+    assert check_contract(m, schema_text=SKEMA, runner_contract_version="evidence-runner-1.3",
+                          code_sha256="c" * 64, codex_cli_version="0.155.1") is None

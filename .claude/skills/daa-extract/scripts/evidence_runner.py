@@ -258,7 +258,9 @@ from pathlib import Path
 #: 1.3 (2026-09-28): et kald med værktøjsbrug fældes (`tool_use`, review 35, P1).  Et
 #:     1.2-svar kan være skrevet af et kald, der kørte en kommando; strømmen gemmes
 #:     ikke i cachen, så det kan ikke efterprøves og må ikke genbruges.
-RUNNER_CONTRACT_VERSION = "evidence-runner-1.3"
+#: 1.4 (2026-11-01): kvotefejl uden `error.type` klassificeres på teksten; nye manifester
+#:     binder `runner_code_sha256` og `source_id`.  Cache-nøglen er 1.3's.
+RUNNER_CONTRACT_VERSION = "evidence-runner-1.4"
 
 #: Modelpolitikken er frossen (decisions 2026-09-06, valg 1).
 ALLOWED_MODELS = ("gpt-5.6-terra", "gpt-5.6-sol")
@@ -303,8 +305,17 @@ CACHE_KEY_FIELDS_BY_CONTRACT = {
     "evidence-runner-1.0": _PRE_CLAUSE_SET_FIELDS,
     "evidence-runner-1.1": _PRE_CLAUSE_SET_FIELDS,
     "evidence-runner-1.2": CACHE_KEY_FIELDS,
-    RUNNER_CONTRACT_VERSION: CACHE_KEY_FIELDS,
+    # 1.3 og 1.4 registreres eksplicit: konstanten flytter sig, 2018-20's 1.3-cache skal
+    # stadig kunne adresseres. 1.4 ændrer ikke nøglen (kun kvoteklassifikation og binding).
+    "evidence-runner-1.3": CACHE_KEY_FIELDS,
+    "evidence-runner-1.4": CACHE_KEY_FIELDS,
 }
+
+
+def contract_at_least(version, minimum: tuple[int, int]) -> bool:
+    """`evidence-runner-M.N` >= (M, N). Ukendt form er ikke >= noget."""
+    m = re.fullmatch(r"evidence-runner-(\d+)\.(\d+)", version) if isinstance(version, str) else None
+    return bool(m) and (int(m.group(1)), int(m.group(2))) >= minimum
 
 #: Fejltyper aflæses af `turn.failed`'s `error.type`.  Ukendte former bliver
 #: `unknown` — aldrig stiltiende accepteret.
@@ -454,8 +465,14 @@ def classify_failure(jsonl: str, *, exit_code: int | None, timed_out: bool = Fal
     for event in _events(jsonl):
         if event.get("type") == "turn.failed":
             error = event.get("error")
-            if isinstance(error, dict):
+            if isinstance(error, dict) and error.get("type") is not None:
                 return _FAILURE_TYPES.get(error.get("type"), "unknown")
+            # CLI'en udsender kvotefejl uden `error.type` (eller med en ren streng):
+            # kun teksten bærer da årsagen.
+            message = error if isinstance(error, str) else (
+                error.get("message") if isinstance(error, dict) else None)
+            if isinstance(message, str) and "usage limit" in message.lower():
+                return "quota_exhausted"
             return "unknown"
     return "unknown"
 
