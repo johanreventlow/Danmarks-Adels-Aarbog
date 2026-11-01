@@ -41,8 +41,9 @@ ALLOWLIST = {
     # med human (arkets S/F/U, basis human_sheet) — den anden serverkalder af human ud over red_afgoer_source_persona.
     ("schema.sql", "write_publication_identity", "publication_binding"): 1,
     ("schema.sql", "write_publication_identity", "human"): 1,
-    ("db-migrations.sql", "write_publication_identity", "publication_binding"): 1,
-    ("db-migrations.sql", "write_publication_identity", "human"): 1,
+    # Trin 6b opfølgning (I2): kopi i blokken »C kan genkøres efter fortrydelse« (versionsvagt for fortrudte identiteter).
+    ("db-migrations.sql", "write_publication_identity", "publication_binding"): 2,
+    ("db-migrations.sql", "write_publication_identity", "human"): 2,
     # Trin 6b Task 7: fortrydelsen af C (superseded gennem reversal-oprindelsen, med versionsvagt).
     ("schema.sql", "red_reverse_reimport_publication", "reversal"): 1,
     ("db-migrations.sql", "red_reverse_reimport_publication", "reversal"): 1,

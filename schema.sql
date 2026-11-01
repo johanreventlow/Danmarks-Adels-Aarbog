@@ -9558,7 +9558,10 @@ BEGIN
     -- helpost (helpost-slagsen = mention-observationens slags, så reglen er ikke udgavebundet), den er publiceret og
     -- peger på målpersonen; personen har præcis én person_external_id for kilden; ingen anden persona har en mention i
     -- helposten. Writeren holder låsen på bindingen; kernen låser personaen og målpersonen som ved de øvrige oprindelser.
-    IF p_decision_status<>'accepted' OR p_expected_version<>0 OR p_evidence ? 'basis'
+    -- Version 0, eller (trin 6b opfølgning, I2) den aktuelle version af en fortrudt publikationsidentitet: versionen er
+    -- allerede lig den aktuelle (ovenfor), og identitetsrækken er låst, så vagten læser den tilstand, der overskrives.
+    IF p_decision_status<>'accepted' OR (p_expected_version<>0 AND NOT private.publication_identity_reverted(p_source_persona_id))
+       OR p_evidence ? 'basis'
        OR p_evidence->>'authority' IS DISTINCT FROM 'narrative_record_publication'
        OR coalesce(p_evidence->>'binding_id','') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
       RAISE EXCEPTION 'PUBLICATION_BINDING_ORIGIN_INVALID';
@@ -9622,19 +9625,82 @@ CREATE INDEX IF NOT EXISTS reimport_event_publication_persona_receipt_idx
   ON private.reimport_event ((payload->'result_receipt'->>'source_persona_id')) WHERE operation='publication_persona';
 CREATE INDEX IF NOT EXISTS reimport_event_publication_identity_batch_idx
   ON private.reimport_event ((payload->>'persona_batch_id')) WHERE operation='publication_identity';
+-- Trin 6b opfølgning (I2-review P1): køvagtens opslag af en finaliseret C pr. (B-batch, C-batch) og hjælperens opslag af
+-- fortrydelsens reversal-hændelse pr. batch.
+CREATE INDEX IF NOT EXISTS reimport_event_publication_identity_batch_pair_idx
+  ON private.reimport_event ((payload->>'persona_batch_id'),batch_id) WHERE operation='publication_identity';
+CREATE INDEX IF NOT EXISTS reimport_event_reversal_batch_idx
+  ON private.reimport_event (batch_id) WHERE operation='reversal';
+-- Trin 6b opfølgning (final-review I2; projektejeren 2026-10-31: genkørsel frem for webkø): en fortrudt
+-- publikationsidentitet er en identitetsrække, hvis aktuelle tilstand er superseded, og hvis seneste overgang er kernens
+-- reversal fra red_reverse_reimport_publication af en publication_identity-batch. Evidensen alene skelner ikke (den
+-- generelle red_reverse_reimport skriver samme form, {reversed_batch_id, profile_sha256}); kilden er batchen:
+-- evidence.reversed_batch_id er en reversed batch med fortrydelsens reversal-hændelse (elementprefix
+-- publication-identity-reversal:) og en publication_identity-hændelse for personaen, hvis kvitteringsversion er den aktuelle
+-- version minus én (den version, fortrydelsen satte superseded oven på); hændelseshistorikkens seneste række er den samme.
+-- Afgør et menneske personaen bagefter, er den seneste overgang ikke fortrydelsen, og identiteten er en almindelig identitet.
+-- Køvagten, finalize's kontrolmængde, stikprøvens population og C-writeren (med den aktuelle version) behandler en fortrudt
+-- publikationsidentitet som »ingen identitet«, så C kan køres igen.
+-- PL/pgSQL frem for SQL: funktionen inlines ikke (SECURITY DEFINER), og en SQL-krop planlægges på ny ved hvert kald;
+-- PL/pgSQL genbruger planen i sessionen (I2-review P1: kaldes pr. persona i køvagten efter en fortrydelse).
+CREATE OR REPLACE FUNCTION private.publication_identity_reverted(p_persona uuid)
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_i private.source_persona_identity%ROWTYPE; v_batch uuid;
+BEGIN
+  -- Trinvist med tidligt stop: en identitet, der ikke er superseded af en reversal, koster ét PK-opslag; resten slås op på
+  -- den fortrudte batch' id som konstant (unikt indeks for C-hændelsen), ikke som en join over reimport_event.
+  SELECT * INTO v_i FROM private.source_persona_identity i
+   WHERE i.source_persona_id=p_persona AND i.decision_status='superseded' AND i.canonical_person_id IS NULL
+     AND NOT i.evidence ? 'basis'
+     AND i.evidence->>'reversed_batch_id' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+  IF NOT FOUND THEN RETURN false; END IF;
+  v_batch:=(v_i.evidence->>'reversed_batch_id')::uuid;
+  RETURN EXISTS (SELECT 1 FROM private.source_persona_identity_event ev
+                  WHERE ev.source_persona_id=p_persona AND ev.version=v_i.version
+                    AND ev.decision_status='superseded' AND ev.canonical_person_id IS NULL AND ev.evidence=v_i.evidence)
+     AND EXISTS (SELECT 1 FROM private.reimport_batch cb WHERE cb.id=v_batch AND cb.status='reversed')
+     AND EXISTS (SELECT 1 FROM private.reimport_event c
+                  WHERE c.batch_id=v_batch AND c.element_id='publication-identity:'||p_persona::text
+                    AND c.operation='publication_identity' AND c.payload->>'source_persona_id'=p_persona::text
+                    AND c.payload->'result_receipt'->>'identity_version'=(v_i.version-1)::text)
+     AND EXISTS (SELECT 1 FROM private.reimport_event r
+                  WHERE r.batch_id=v_batch AND r.operation='reversal'
+                    AND r.element_id LIKE 'publication-identity-reversal:%');
+END $$;
+REVOKE ALL ON FUNCTION private.publication_identity_reverted(uuid) FROM PUBLIC,anon,authenticated,service_role;
+
 -- Codex 6B-01: frigivelsen er pr. B-batch, fordi finalize af C (verify_publication_identity_input) kræver hele
 -- kontrolmængden; efter en finaliseret C er de eneste B-personas uden identitet de staged (spec §4.6: proposed efter C).
+-- Trin 6b opfølgning (I2): en fortrudt publikationsidentitet tæller som ingen identitet. Den fortrudte C-batch er reversed
+-- og frigiver ikke B-batchen, så personaen venter igen, indtil en ny C er finaliseret. Trinvise IF'er i PL/pgSQL
+-- fastlægger rækkefølgen (PostgreSQL garanterer den ikke for AND/OR i SQL) og genbruger planerne i sessionen (en SQL-krop
+-- planlægges på ny ved hvert kald, da funktionen ikke inlines): uden en B-hændelse i en ikke-fortrudt batch venter
+-- personaen ikke (ét indeksopslag; alle ikke-B-personas); har den en identitet, der ikke er en fortrudt publikationsidentitet, venter den
+-- heller ikke (hjælperen stopper efter ét PK-opslag); kun ellers slås en finaliseret C op. Webkøen evaluerer vagten for
+-- hver persona, før statusfilter og LIMIT (I2-review P1). Den finaliserede C søges pr. batch i B-batchens kilde (C-writeren
+-- kræver samme kilde for B og C) med indekset (persona_batch_id, batch_id), så opslaget ikke gennemløber en fortrudt C's
+-- hændelser for hver persona.
 CREATE OR REPLACE FUNCTION private.persona_awaiting_control(p_persona uuid)
-RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-  SELECT NOT EXISTS (SELECT 1 FROM private.source_persona_identity i WHERE i.source_persona_id=p_persona)
-     AND EXISTS (
-       SELECT 1 FROM private.reimport_event b JOIN private.reimport_batch bb ON bb.id=b.batch_id
-        WHERE b.operation='publication_persona' AND b.payload->'result_receipt'->>'source_persona_id'=p_persona::text
-          AND bb.status<>'reversed'
-          AND NOT EXISTS (SELECT 1 FROM private.reimport_event c JOIN private.reimport_batch cb ON cb.id=c.batch_id
-                           WHERE c.operation='publication_identity' AND c.payload->>'persona_batch_id'=b.batch_id::text
-                             AND cb.status IN ('finalized','activated')));
-$$;
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM private.reimport_event b JOIN private.reimport_batch bb ON bb.id=b.batch_id
+                  WHERE b.operation='publication_persona' AND b.payload->'result_receipt'->>'source_persona_id'=p_persona::text
+                    AND bb.status<>'reversed') THEN
+    RETURN false;
+  END IF;
+  IF EXISTS (SELECT 1 FROM private.source_persona_identity i WHERE i.source_persona_id=p_persona) THEN
+    IF NOT private.publication_identity_reverted(p_persona) THEN RETURN false; END IF;
+  END IF;
+  RETURN EXISTS (
+    SELECT 1 FROM private.reimport_event b JOIN private.reimport_batch bb ON bb.id=b.batch_id
+     WHERE b.operation='publication_persona' AND b.payload->'result_receipt'->>'source_persona_id'=p_persona::text
+       AND bb.status<>'reversed'
+       AND NOT EXISTS (SELECT 1 FROM private.reimport_batch cb
+                        WHERE cb.status IN ('finalized','activated') AND cb.source_id=bb.source_id
+                          AND EXISTS (SELECT 1 FROM private.reimport_event c
+                                       WHERE c.operation='publication_identity' AND c.batch_id=cb.id
+                                         AND c.payload->>'persona_batch_id'=b.batch_id::text)));
+END $$;
 REVOKE ALL ON FUNCTION private.persona_awaiting_control(uuid) FROM PUBLIC,anon,authenticated,service_role;
 
 -- Trin 6b (spec §4.3, §4.3.1): publiceringskontrollen. Bindingen findes fra personaens primary-mention → den record,
@@ -9753,7 +9819,8 @@ END $$;
 -- kontrolmængde (verify_publication_identity_input), så stikprøve, writer og finalize er enige (final-review I1): B-hændelsens
 -- person er ikke staged, B-bindingen er stadig published, og personaen har ingen identitet fra før C. En identitet, som en C
 -- over denne kørsel har skrevet (evidence.candidate_run_id = kørslen), tæller ikke som »fra før«, så populationen flytter
--- sig ikke, mens C skriver.
+-- sig ikke, mens C skriver. En fortrudt publikationsidentitet (trin 6b opfølgning, I2) tæller som ingen identitet, så en ny C
+-- efter fortrydelsen får samme population som den fortrudte.
 CREATE OR REPLACE FUNCTION private.publication_sample_candidates(p_run uuid)
 RETURNS TABLE(source_persona_id uuid, sample_hash text)
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
@@ -9775,8 +9842,9 @@ BEGIN
                     AND NOT coalesce(q.staged,false)
                     AND EXISTS (SELECT 1 FROM private.narrative_record_publication nb
                                  WHERE nb.id=(e.payload->>'binding_id')::uuid AND nb.status='published'))
-     AND NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
-                      WHERE i.source_persona_id=sp.id AND i.evidence->>'candidate_run_id' IS DISTINCT FROM p_run::text);
+     AND (NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
+                       WHERE i.source_persona_id=sp.id AND i.evidence->>'candidate_run_id' IS DISTINCT FROM p_run::text)
+          OR private.publication_identity_reverted(sp.id));
 END $$;
 
 CREATE OR REPLACE FUNCTION private.publication_control_enig(p_persona uuid, p_run uuid)
@@ -9862,9 +9930,12 @@ BEGIN
      WHERE e.operation='publication_persona' AND e.payload->'result_receipt'->>'source_persona_id'=v_pid::text
        AND bb.status<>'reversed'
      ORDER BY e.id LIMIT 1;
+    -- identity_version er den aktuelle version (writerens expected_identity_version); identity_reverted (trin 6b opfølgning,
+    -- I2) siger, om den er en fortrudt publikationsidentitet, som C må skrive oven på.
     v_out:=v_out||jsonb_build_array(jsonb_build_object(
       'source_persona_id',v_pid,
       'identity_version',coalesce((SELECT i.version FROM private.source_persona_identity i WHERE i.source_persona_id=v_pid),0),
+      'identity_reverted',private.publication_identity_reverted(v_pid),
       'binding_id',v_pb.binding_id,'binding_status',v_pb.binding_status,'person_id',v_pb.person_id,
       'b_binding_id',v_b_binding_id,'b_binding_status',v_b_binding_status,
       'outcome',v_o->>'outcome','reason',v_o->>'reason','in_sample',v_pid=ANY(v_sample),
@@ -17000,9 +17071,10 @@ REVOKE ALL ON FUNCTION public.red_apply_reimport_publication_persona(uuid,text,j
 GRANT EXECUTE ON FUNCTION public.red_apply_reimport_publication_persona(uuid,text,jsonb) TO authenticated;
 
 -- Trin 6b (ceremoni C, spec §4.3 pkt. 4, §4.3.1): stikprøven for en kandidatkørsel, beregnet én gang pr. transaktion i en
--- writer-ejet midlertidig tabel (ON COMMIT DROP), så C ikke klassificerer hele populationen pr. element (O(n²)). Stikprøven
--- læser ikke identitetsrækker, så C's egne skrivninger flytter den ikke. En tabel med samme navn, som ikke ejes af
--- writerens rolle (fx oprettet af klienten før kaldet), godtages ikke.
+-- writer-ejet midlertidig tabel (ON COMMIT DROP), så C ikke klassificerer hele populationen pr. element (O(n²)). Populationen
+-- (publication_sample_candidates) udelukker identiteter fra før C, men ikke dem, en C over samme kørsel skriver, og en fortrudt
+-- publikationsidentitet tæller som ingen; C's egne skrivninger flytter den derfor ikke, og tabellen fastholder den inden for
+-- transaktionen. En tabel med samme navn, som ikke ejes af writerens rolle (fx oprettet af klienten før kaldet), godtages ikke.
 CREATE OR REPLACE FUNCTION private.publication_identity_in_sample(p_persona uuid,p_run uuid)
 RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE v_owner oid; v_found boolean;
@@ -17030,7 +17102,7 @@ REVOKE ALL ON FUNCTION private.publication_identity_in_sample(uuid,uuid) FROM PU
 -- efterprøvet mod den gemte kontrol. Rækkefølgen er bindende (plan Task 6): (1) kontrakt, batch, redaktør, writerlås,
 -- eksklusiv kandidatlås, autorisation, payloadform; (2) kørslen er kildens seneste med samme kandidater, og B-batchen er
 -- finaliseret og skrev personaen; (3) lås record → persona → recordens bindinger (kernen låser identitetsrækken og
--- personen); (4) binding, helpost og subjekt under lås; (5) udfald og stikprøve; (6) kernen; (7) hændelse og kvittering.
+-- personen) og versionsvagten (version 0, eller en fortrudt publikationsidentitets aktuelle version); (4) binding, helpost og subjekt under lås; (5) udfald og stikprøve; (6) kernen; (7) hændelse og kvittering.
 -- enig → oprindelsen publication_binding; S/F/U på de øvrige udfald → human med basis human_sheet (decisions 2026-10-31).
 CREATE OR REPLACE FUNCTION private.write_publication_identity(p_batch_id uuid,p_element_id text,p_payload jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
@@ -17073,7 +17145,8 @@ BEGIN
      OR coalesce(p_payload->>'persona_batch_id','') !~ c_uuid OR coalesce(p_payload->>'source_persona_id','') !~ c_uuid
      OR coalesce(p_payload->>'candidates_sha256','') !~ '^[0-9a-f]{64}$'
      OR p_payload->>'binding_status'<>'published'
-     OR p_payload->'expected_identity_version' IS DISTINCT FROM '0'::jsonb
+     OR jsonb_typeof(p_payload->'expected_identity_version') IS DISTINCT FROM 'number'
+     OR (p_payload->>'expected_identity_version') !~ '^(0|[1-9][0-9]{0,8})$'
      OR jsonb_typeof(p_payload->'person_id') IS DISTINCT FROM 'number' OR (p_payload->>'person_id') !~ '^-?[0-9]{1,18}$'
      OR p_payload->>'outcome' NOT IN ('enig','svag','uenig','navnefaelle','ingen_kandidat')
      OR jsonb_typeof(p_payload->'answer') NOT IN ('null','string')
@@ -17131,6 +17204,14 @@ BEGIN
   PERFORM 1 FROM private.source_persona WHERE id=v_persona AND source_id=v_batch.source_id FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'PUBLICATION_IDENTITY_PAYLOAD_INVALID'; END IF;
   PERFORM 1 FROM private.narrative_record_publication WHERE source_record_id=v_record.id ORDER BY id FOR UPDATE;
+  -- Trin 6b opfølgning (I2): forventet version 0, eller den aktuelle version af en fortrudt publikationsidentitet (C køres
+  -- igen efter fortrydelsen). Vagten gælder alle udfald: kernens human-oprindelse (S/F/U) har ingen versionsvagt. Persona-
+  -- rækken er låst, og alle identitetsskrivninger låser den først, så tilstanden kan ikke skifte før kernen.
+  IF (p_payload->>'expected_identity_version')::int<>0 AND NOT private.publication_identity_reverted(v_persona) THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected %, current % (ikke en fortrudt publikationsidentitet)',
+      p_payload->>'expected_identity_version',
+      coalesce((SELECT i.version FROM private.source_persona_identity i WHERE i.source_persona_id=v_persona),0);
+  END IF;
 
   -- (4) For alle svar og oprindelser: den primære mention ligger i recordens gældende helpost (profilens slags), bindingen
   -- er recordens eneste publicerede og er payloadens, og subjektet er payloadens person.
@@ -17151,7 +17232,8 @@ BEGIN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_SAMPLE_MISMATCH';
   END IF;
 
-  -- (6) Kernen med den forventede version (0); en anden version giver kernens EVIDENCE_IDENTITY_VERSION_CONFLICT.
+  -- (6) Kernen med den forventede version (0, eller en fortrudt publikationsidentitets aktuelle version); en anden version
+  -- giver kernens EVIDENCE_IDENTITY_VERSION_CONFLICT.
   v_evidence:=jsonb_build_object('binding_id',v_binding,'candidate_run_id',v_run.id,'candidates_sha256',v_run.candidates_sha256,
     'outcome',v_outcome,'reimport_batch_id',p_batch_id,'persona_batch_id',p_payload->>'persona_batch_id')
     || CASE WHEN v_answer IS NULL THEN '{}'::jsonb
@@ -17201,16 +17283,19 @@ GRANT EXECUTE ON FUNCTION public.red_apply_reimport_publication_identity(uuid,te
 -- delvis C hverken kan springe stikprøven over eller frigive de øvrige B-personas (persona_awaiting_control frigiver pr.
 -- B-batch). Kontrolmængden er B-batchens personas uden staged person (staged er en disposition, spec §4.6) og uden en
 -- identitet fra før C. Writeren kræver identitetsversion 0, så en identitet på en persona uden for C's hændelser er en
--- eksisterende disposition, og en persona i C's hændelser havde ingen. Staged aflæses på den person, B-hændelsen bandt
--- (canonical_person_id), ikke gennem bindingsopslaget pr. persona: C's egne personas er bindingsefterprøvet af writeren,
+-- eksisterende disposition, og en persona i C's hændelser havde ingen. Undtagelsen (trin 6b opfølgning, I2): en fortrudt
+-- publikationsidentitet tæller som ingen identitet, og writeren skriver oven på dens aktuelle version. Staged aflæses på
+-- den person, B-hændelsen bandt (canonical_person_id), ikke gennem bindingsopslaget pr. persona: C's egne personas er bindingsefterprøvet af writeren,
 -- og finalize skal holde sig under prods statement_timeout. Mængder sammenlignes begge veje (ikke antal): en manglende
 -- persona og en ekstra (fx staged) persona afvises begge med PUBLICATION_IDENTITY_SET_MISMATCH.
 -- En persona, hvis B-binding ikke længere er published (fx trukket tilbage mellem B og C), kan C-writeren ikke skrive; den
 -- er ikke krævet (disposition) og frigives efter C af persona_awaiting_control til webkøen som proposed. Skrev C den alligevel
 -- (bindingen genpubliceret med nyt id; writeren har efterprøvet den aktuelle binding), tæller den med.
 -- Stikprøven (samme beregning som writerens, publication_identity_in_sample) skal ligge i C; ellers
--- PUBLICATION_IDENTITY_SAMPLE_MISMATCH. Det følger normalt af den fulde mængde plus writerens tjek pr. element, men
--- stikprøvens population udelukker hverken staged personas eller identiteter fra før C, så det efterprøves eksplicit.
+-- PUBLICATION_IDENTITY_SAMPLE_MISMATCH. Det følger normalt af den fulde mængde plus writerens tjek pr. element: populationen
+-- har kontrolmængdens prædikater (ikke staged, B-binding published, ingen identitet fra før C; final-review I1). Det
+-- efterprøves alligevel eksplicit, fordi stikprøven beregnes ved første writerkald, og en ændring senere i C's transaktion
+-- (fx en tilbagetrækning af B-bindingen) kan tage en stikprøvepersona ud af kontrolmængden, så C kunne udelade den (test 3e).
 CREATE OR REPLACE FUNCTION private.verify_publication_identity_input(p_batch_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE v_source bigint; v_runs text[]; v_run private.source_persona_identity_candidate_run%ROWTYPE; v_latest uuid;
@@ -17243,8 +17328,9 @@ BEGIN
          AND be.batch_id IN (SELECT c.b::uuid FROM c)
          AND NOT coalesce(q.staged,false)
          AND (EXISTS (SELECT 1 FROM c WHERE c.p=be.payload->'result_receipt'->>'source_persona_id')
-              OR (NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
-                               WHERE i.source_persona_id=(be.payload->'result_receipt'->>'source_persona_id')::uuid)
+              OR ((NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
+                                WHERE i.source_persona_id=(be.payload->'result_receipt'->>'source_persona_id')::uuid)
+                   OR private.publication_identity_reverted((be.payload->'result_receipt'->>'source_persona_id')::uuid))
                   AND EXISTS (SELECT 1 FROM private.narrative_record_publication nb
                                WHERE nb.id=(be.payload->>'binding_id')::uuid AND nb.status='published')))
     )

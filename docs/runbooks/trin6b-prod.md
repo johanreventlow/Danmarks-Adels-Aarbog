@@ -23,7 +23,7 @@ indtil 6c's runner har kørt i prod; runbooken udvides med C i Task 15.
 - **Ceremoni B** skriver 1939's personas med profilen `daa-1939-publication-v1` gennem writerens kæde
   (authorize → begin → apply → finalize). Det er 555 `source_persona` og hver sin `primary`-mention i sin egen
   helpost. B skriver **ingen identitet**. Indtil C har kørt, er de 555 skjult i webkøen, og `red_afgoer_source_persona`
-  afviser dem.
+  afviser dem. Det samme gælder igen efter en fortrydelse af C, indtil C er kørt igen.
 
 Runneren er privat: `~/.private/5ab-overfoersel/26-trin6b.sh` med `26-trin6b-b.R` og 5c-2's `lib.zsh`/`koer.zsh`.
 Projektejeren kører alt, der rører prod, fra egen shell. AI-sessionen læser kun rapporter med tal, koder og hashes.
@@ -201,10 +201,11 @@ status i `private.reimport_batch` (profil `daa-1939-publication-v1`).
 | Efter B's commit: `T6B_B_FEJL_EFTER_COMMIT`, `T6B_B_KONTROL_AFVIGER`, `T6B_B_PUBSTATE_AENDRET`, `T6B_B_KOE_VISER_NYE`, `T6B_B_REPLAY_STATUS`, `T6B_EFTER_B`, `T6B_K1_UAENDRET` | batchen `finalized` | Kør `maal`. Er den `b` og `k1` uændret, er B skrevet; undersøg kontrolfejlen bagefter. Viser kontrollen, at B skrev forkert, eller er `k1` ændret: **fortrydelsestilfælde**, `fortryd-b` (nedenfor). `fortryd-b` accepterer rå tilstand `b` også med afvigende tal (fx `afventer≠555`, hvor `maal` siger `ukendt`) |
 | `fortryd-b` før markøren (`GO_MISMATCH`, `T6B_FORTRYD_ANDET_DUMP`, `T6B_FORTRYD_MAAL_MANGLER`/`_AENDRET`, kvitterings- og ekstern-kontrollen (`DUMP_6B_TILSTAND`, `DUMP_AENDRET`, `B1_EKSTERN_BYTES`, `B1_EKSTERN_SHA`, `SFTP_FEJL`), `T6B_FORTRYD_C`, `T6B_FORTRYD_TILSTAND`, `T6B_K1_AENDRET_I_VINDUET`, `T6B_VINDUE`-fejl, `RESTORE_PRIVILEGES`, `T6B_FORTRYD_LAAS`, `T6B_FORTRYD_MAALING`) | uændret; intet skrevet. Ved en genoptagelse (beslutning 3 eller genstart) står markøren uændret | `T6B_FORTRYD_LAAS`: en anden session holder en lås i public/private eller står »idle in transaction«; vent, og kør igen. `T6B_FORTRYD_ANDET_DUMP`: en påbegyndt fortrydelse af et andet dump findes; gennemfør den først. `T6B_FORTRYD_MAAL_MANGLER`: kvitteringen er i et ældre format eller uden mål |
 | `fortryd-b`: `T6B_VINDUE_BRUDT` | uændret (`b`); intet skrevet, ingen markør | Der er skrevet i prod efter dumpet (tabeller/sekvenser i `vindue-afvigende-tabeller.txt`). En restore ville slette det skrevne, og runneren har ingen vej forbi. Projektejeren afgør skrivningen: kan den undværes eller genskrives, eller skal B rettes på anden vis? En fortrydelse, der accepterer tabet, kræver en ændret runner/vindue-SQL og dermed en ny `go-fortryd`. Kør ikke `fortryd-b` igen i håb om et andet udfald |
-| `fortryd-b` efter markøren, før `pg_restore` (`T6B_FORTRYD_IGANG` gælder ikke her; `transfer_acl_fingerprint.sql fejlede`, `SCHEMA_DEFAULT_ACL`, `T6B_MARKOER_OMDOEB` ved række 1) | markøren har trin `restore_startet` og vinduet før restoren; skema-defaults kan være ryddet | Kør `fortryd-b` igen. Er markøren fra en **frisk** kørsel (rå `b`, vinduet som før restoren), er det beslutning 1: markøren lægges til side (`.forladt-…`) og den normale vej køres. En afbrudt **genoptaget** restore (beslutning 3) har nulstillet den gemte hash, og basen er ikke rå `b`: det ender i række 4 (`T6B_FORTRYD_UKLAR`) |
+| `fortryd-b` efter markøren, før `pg_restore` (`T6B_FORTRYD_IGANG` gælder ikke her; `transfer_acl_fingerprint.sql fejlede`, `SCHEMA_DEFAULT_ACL`, `T6B_MARKOER_OMDOEB` ved række 1) | markøren har trin `restore_startet` og vinduet før restoren; skema-defaults kan være ryddet | Kør `fortryd-b` igen **med de samme flag og den samme kode** som den afbrudte kørsel. Var den afbrudte kørsel en genstart (`--genstart-restore`), køres den igen med samme `--genstart-restore` og kode og gennemføres (N4). Ellers: er markøren fra en **frisk** kørsel (rå `b`, vinduet som før restoren), er det beslutning 1; den normale vej køres, og markøren beholdes, til `k1`- og vinduesvagterne er bestået (først da en kopi `.forladt-…`; G1). Stopper vagterne (fx `T6B_VINDUE_BRUDT`), står markøren stadig, så en genstart er mulig. En afbrudt **genoptaget** restore (beslutning 3) har nulstillet den gemte hash, og basen er ikke rå `b`: det ender i række 4 (`T6B_FORTRYD_UKLAR`) |
 | `fortryd-b` under/efter `pg_restore` (`T6B_FORTRYD_RESTORE_FEJL`, `T6B_RESTORE_FEJL_VURDERING` (markøren står på `restore_startet`: række 4), `T6B_FORTRYD_MAALING_EFTER_RESTORE`, `T6B_MARKOER_SKRIV`, fejl i diffen efter `RESTORE_FEJL`) | markøren har trin `restore_afsluttet` (fejlmængden eller exitstatus ikke godkendt; restore-hashen efter er gemt) eller stadig `restore_startet` (hashen efter kunne ikke måles) | Ved `T6B_FORTRYD_RESTORE_FEJL` udskrives `T6B_FORTRYD_DIFF` (antal grants og katalogobjekter, der mangler/er ekstra; objektnavne i `katalog-afvigende-objekter.txt`). Ret årsagen, eller acceptér en ny, forstået fejlklasse ved at udvide mønsteret i runneren (ny `go-fortryd`). Kør så `fortryd-b` igen: beslutning 3 restorer igen, hvis basen står, som den afbrudte restore efterlod den; ellers beslutning 4 |
 | `fortryd-b` efter godkendt restore (`T6B_FORTRYD_ANALYZE`/`_RLS`/`_NOTIFY`, `GRANTS_RECONCILE`, `SCHEMA_DEFAULT_ACL` i genskabelsen, `T6B_FORTRYD_ACL`/`_DEFAULT_ACL`/`_KATALOG`/`_FORAELDRELOESE`/`_RESTORE_HASH`, `T6B_EFTER_FORTRYD`, `T6B_K1_UAENDRET`, `T6B_MARKOER_OMDOEB`) | markøren har trin `restore_godkendt` med restore-hashen efter | Ret årsagen, og kør `fortryd-b` igen. Er restore-hashen dumpets, giver det beslutning 2 (kun efterarbejde). Er den ikke dumpets, men den gemte, giver det beslutning 3; ellers beslutning 4 |
-| `fortryd-b` ved genoptagelse: `T6B_FORTRYD_UKLAR` (beslutning 4) | markøren findes; intet er restoret i denne kørsel | Ingen af beslutningstabellens rækker 1-3 passer, eller en måling fejlede. `T6B_FORTRYD_UKLAR_DIFF` viser trinnet, antal vindueslinjer, der afviger fra dumpet, og om restore-hashen er dumpets eller den gemte. Typisk er der skrevet efter en afbrudt restore. Projektejeren afgør skrivningen. Den eneste udgang er `go-fortryd --genstart-restore` → `GO 6b-fortryd-B-genstart <kode>` → `fortryd-b --jeg-mener-det --go <kode> --genstart-restore`. Det er en bevidst accept af, at alt skrevet siden dumpet slettes |
+| `fortryd-b` ved genoptagelse: `T6B_FORTRYD_UKLAR` (beslutning 4) | markøren findes; intet er restoret i denne kørsel | Ingen af beslutningstabellens rækker 1-3 passer, eller en måling fejlede. `T6B_FORTRYD_UKLAR_DIFF` viser trinnet, antal vindueslinjer, der afviger fra dumpet, og om restore-hashen er dumpets eller den gemte. Typisk er der skrevet efter en afbrudt restore. Hver UKLAR skriver en episodekvittering (`DAA_T6B_UKLAR=…`: markørens sha og den målte restore-hash). Projektejeren afgør skrivningen ud fra netop den episodes diff. Den eneste udgang er `go-fortryd --genstart-restore` → `GO 6b-fortryd-B-genstart <kode>` → `fortryd-b --jeg-mener-det --go <kode> --genstart-restore`. Det er en bevidst accept af, at alt skrevet siden dumpet slettes |
+| `go-fortryd --genstart-restore` / `fortryd-b --genstart-restore`: `T6B_GENSTART_UDEN_MARKOER`, `T6B_GENSTART_UDEN_UKLAR`, `T6B_GENSTART_FORAELDET`, `T6B_GENSTART_BASEN_AENDRET` (G2) | uændret; intet restoret | Genstart-GO'en gælder én UKLAR-episode. Den kan ikke dannes uden en markør og en UKLAR-kvittering for dumpet (`_UDEN_MARKOER`/`_UDEN_UKLAR`). Den afvises, når en senere UKLAR-episode findes, eller når markøren er ændret uden for en genstart under episoden (`_FORAELDET`). Den afvises også, når basens restore-hash ikke længere er episodens (`_BASEN_AENDRET`): nogen har skrevet, efter projektejeren så diffen. Kør `fortryd-b` uden flag (ny UKLAR-episode med ny diff), afgør igen, og tag en ny `go-fortryd --genstart-restore` |
 | `dump`, `apply-a`, `apply-b`, `manifest`, `go-a`, `go-b` med en markør: `T6B_FORTRYD_IGANG` | uændret | En fortrydelse er påbegyndt og ikke gennemført. Gennemfør `fortryd-b` først (`maal`, `go-fortryd` og `fortryd-b` er tilladt) |
 | `apply-b`: `T6B_FORTRYD_MAAL_MANGLER`/`_AENDRET` | `a`; intet skrevet | Kvitteringen fra skridt 8 har ikke gyldige fortrydelsesmål (ældre format, eller filerne er ændret). B køres ikke uden en mulig fortrydelse: tag `dump` igen i tilstand `a`, og tag `go-b` igen |
 | Målingens egne fejl (`maal_trin6b.sql fejlede`, `T6B_MAAL_FORM`, `MAAL_6B_UKENDT`) | uændret af fejlen selv | Efter et commit: læs batchens status og kør `maal` igen; før et commit: intet er skrevet |
@@ -277,16 +278,27 @@ hemmelighed. Brug den ikke uden at have tjekket, hvad der er ændret siden GO.
 
   | # | Betingelse | Handling |
   |---|---|---|
-  | 1 | rå `maal` = `b`, og vinduet nu = vinduet gemt i markøren lige før restoren | Intet er restoret. Markøren lægges til side (`.forladt-…`), og den normale vej køres fra start med `k1`- og vinduesvagterne (`beslutning=1`) |
+  | 1 | rå `maal` = `b`, og vinduet nu = vinduet gemt i markøren lige før restoren | Intet er restoret. Den normale vej køres fra start med `k1`- og vinduesvagterne (`beslutning=1`). Markøren bliver liggende, til vagterne er bestået (derefter en kopi `.forladt-…`, og markøren skrives på ny før restoren). Stopper en vagt, står markøren uændret (G1) |
   | 2 | trin `restore_godkendt`, og restore-hashen nu = dumpets | Kun efterarbejde (`beslutning=2 vej=efterarbejde`) |
   | 3 | der er gemt en restore-hash efter restoren, og restore-hashen nu = den gemte | Restore igen fra samme dump. Markøren nulstilles **før** `pg_restore` til `restore_startet` med et nyt før-vindue (`beslutning=3`) |
   | 4 | alt andet, også enhver måling, der fejler (restore-hashen eller vinduet) | `STOPPORT: T6B_FORTRYD_UKLAR` med `T6B_FORTRYD_UKLAR_DIFF` (kun antal og flag), og **ingen** restore |
 
-  Udgangen fra række 4 er et eksplicit flag. `go-fortryd --genstart-restore` giver en anden GO-kode
-  (`GO_6B_FORTRYD_B_GENSTART_KODE`), som binder flaget. `fortryd-b --jeg-mener-det --go <kode> --genstart-restore`
-  restorer igen uanset tilstand (`beslutning=genstart`), og flaget accepteres kun, når en markør findes. **Det er
-  operatørens bevidste accept af, at alt skrevet i prod siden dumpet slettes.** Det er også udgangen, når en
-  skrivning efter en afbrudt restore skal opgives. Uden flaget er der ingen vej forbi række 4.
+  Udgangen fra række 4 er et eksplicit flag. **Det er operatørens bevidste accept af, at alt skrevet i prod siden
+  dumpet slettes.** Det er også udgangen, når en skrivning efter en afbrudt restore skal opgives. Uden flaget er der
+  ingen vej forbi række 4.
+  - Hver UKLAR skriver en episodekvittering, `uklar-<dump-sha>-<tid>.json` (`DAA_T6B_UKLAR`). Den indeholder
+    markørens sha og den målte restore-hash.
+  - `go-fortryd --genstart-restore` kræver en markør og den nyeste episodekvittering for dumpet. Den giver en anden
+    GO-kode (`GO_6B_FORTRYD_B_GENSTART_KODE`), der binder flaget **og episodekvitteringen**. En kode kan derfor ikke
+    dannes på forhånd, og en kode fra en tidligere episode afvises (`T6B_GENSTART_FORAELDET`).
+  - `fortryd-b --jeg-mener-det --go <kode> --genstart-restore` kræver, at basens restore-hash stadig er episodens
+    (`T6B_GENSTART_BASEN_AENDRET`). Først da restorer den igen (`beslutning=genstart`). Godkendelsen gælder altså
+    netop det, projektejeren så i episodens diff (G2).
+  - **En afbrudt genstart** (før eller under `pg_restore`, fx `FAULT`, `SCHEMA_DEFAULT_ACL` eller et
+    forbindelsestab) **køres igen med samme `--genstart-restore` og samme kode** (N4). Markøren bærer episodens
+    kvittering, så koden gælder stadig, så længe basens restore-hash er episodens. Blev restoren påbegyndt, er
+    hashen en anden (`T6B_GENSTART_BASEN_AENDRET`). Så køres `fortryd-b` uden flag, hvilket giver en ny episode og en
+    ny genstart-kode.
 
   Markøren omdøbes til `.fuldfoert-…`, først når alle efterkontroller er bestået. Mislykkes omdøbningen, stopper
   runneren (`T6B_MARKOER_OMDOEB`). Mens markøren findes, afviser `dump`, `apply-a`, `apply-b`, `manifest`, `go-a` og
@@ -303,9 +315,12 @@ hemmelighed. Brug den ikke uden at have tjekket, hvad der er ændret siden GO.
     og blev derefter korrekt. Det samme gælder alle forespørgsler i låsekøen bag den.
   - Derfor stopper `fortryd-b` før restoren på `T6B_FORTRYD_LAAS`. En lås, der tages mellem kontrollen og restoren,
     kan stadig holde den. Står `fortryd-b` stille i restoren, ser operatøren i `pg_stat_activity` (kun pid,
-    `wait_event_type` og `state`) og afbryder den blokerende session eller restorens backend med
-    `pg_terminate_backend`. pg_restore afslutter da med exitstatus ≠ 0, runneren lever og måler, og markøren går til
-    `restore_afsluttet` (beslutning 3). `pg_cancel_backend` afbryder **ikke** restoren; den springer kun den blokerede
+    `wait_event_type` og `state`) og afbryder med `pg_terminate_backend`. Udfaldet afhænger af, hvilken session det
+    rammer (N2):
+    - **den blokerende session:** låsen frigives, og restoren kører færdig. Typisk ender den med de kendte fejl efter
+      mønster, altså `restore_godkendt`, og fortrydelsen gennemføres i samme kørsel (ikke beslutning 3);
+    - **restorens egen backend:** pg_restore afslutter med exitstatus ≠ 0, runneren lever og måler, og markøren går
+      til `restore_afsluttet` (beslutning 3 ved næste kørsel). `pg_cancel_backend` afbryder **ikke** restoren; den springer kun den blokerede
     sætning over, og pg_restore fortsætter. **Tryk ikke Ctrl-C på runneren:** det dræber hele procesgruppen, også
     runneren, så markøren står på `restore_startet` uden efter-hash (række 4, en genstart-GO). Dræb heller ikke
     pg_restore-processen alene uden at afslutte backenden: en forældreløs backend kan blive i låsekøen, og så kan
@@ -337,13 +352,27 @@ hemmelighed. Brug den ikke uden at have tjekket, hvad der er ændret siden GO.
   runnerens rækker ændrer aftrykket.
 - **Efter C, før promotion** (runbookens C-del, Task 15):
   - `public.red_reverse_reimport_publication` (autorisation med `red_authorize_reimport_reversal`) sætter C's
-    identiteter til `superseded` (version 2). De 8 eksisterende er urørte;
-  - personaerne går **ikke** tilbage i C-køen. En ny C-kørsel dør på `EVIDENCE_IDENTITY_VERSION_CONFLICT`, fordi C
-    kræver identitetsversion 0;
-  - de afgøres i den menneskelige webkø.
+    identiteter til `superseded` (version 2 efter den første C). De 8 eksisterende er urørte;
+  - **C kan køres igen** (projektejeren 2026-10-31, `docs/decisions.md`). En fortrudt publikationsidentitet tæller
+    som ingen identitet: personaerne venter igen på kontrol (skjult i webkøen, `red_afgoer_source_persona` afviser
+    med `IDENTITY_AWAITING_PUBLICATION_CONTROL`), indtil en ny C er finaliseret. Det er den eneste udgang; 6b har
+    ingen menneskelig nødudgang;
+  - den nye C bygges som den første: `red_publication_control` (samme eller ny kandidatkørsel) giver for hver persona
+    den aktuelle `identity_version` (fx 2) og `identity_reverted=true`, kortenes P-linjer bærer den version, og
+    manifestet sætter `expected_identity_version` til den. Over samme kørsel er stikprøven den samme som før
+    fortrydelsen. Writeren godtager en version ≠ 0 kun for en fortrudt publikationsidentitet; ellers
+    `EVIDENCE_IDENTITY_VERSION_CONFLICT`;
+  - en persona, hvis identitet er ændret efter fortrydelsen (af en anden servervej end webkøen, som er spærret), er
+    ikke længere fortrudt. Den er disposition `allerede_persona` i manifestet, C afviser den med
+    `EVIDENCE_IDENTITY_VERSION_CONFLICT`, og finalize kræver den ikke. Det beskriver en tilstand, ikke en udgang;
+  - en C, der er kørt igen, kan fortrydes igen (version 4 osv.).
 - **Efter promotion:** 6c's fortrydelse gælder.
 
 **Kendte begrænsninger i fortrydelsen**
+
+- **Efter en fortrydelse af C er den eneste udgang en ny C.** Kan C ikke gennemføres igen (fx stopreglen over 90 kort,
+  en B-binding der driver, eller en stikprøve med F/U), forbliver personaerne skjulte i webkøen og spærrede for
+  `red_afgoer_source_persona`, indtil der tages en ny beslutning (fx en nødudgang).
 
 - **6c's runner skal respektere `fortryd-b-*.igang`.** Markøren spærrer kun i `26-trin6b.sh`. En runner, der skriver
   under en påbegyndt fortrydelse, ville ændre basen bag beslutningstabellen. Den ender så i række 4 (fejlsikkert),
@@ -395,16 +424,28 @@ vises først i C's kontrolrapport.
   webkøen. Alle andre `none`/uklare tilstande stopper stadig med `PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED`.
 - Runneren kører apply og finalize i én READ COMMITTED-transaktion og sætter aldrig `SET CONSTRAINTS ALL IMMEDIATE`.
 - Finalize kræver, at stikprøven ligger i C; ellers `PUBLICATION_IDENTITY_SAMPLE_MISMATCH`.
+- Fejlkontrakt for versionen (trin 6b opfølgning): et element med `expected_identity_version` ≠ 0 på en persona uden
+  en fortrudt publikationsidentitet giver `EVIDENCE_IDENTITY_VERSION_CONFLICT` (før genkørslen gav det
+  `PUBLICATION_IDENTITY_PAYLOAD_INVALID`). En version, der ikke er et ikke-negativt heltal, giver stadig
+  `PUBLICATION_IDENTITY_PAYLOAD_INVALID`.
 - Fire kald er umålte mod prods 2 minutter og skal måles i Task 15: `red_publication_control`,
   `red_publication_control_details`, C's første `enig`-element (stikprøven beregnes i writer-kaldet) og finalize's
-  genberegning af kandidatinputtet. Runneren sætter session-`statement_timeout` for C, som den gør for restore-hashen.
-- En tilbagetrækning efter `render` flytter stikprøven (den afhænger af bindingsstatus). Finalize giver så
-  `PUBLICATION_IDENTITY_SAMPLE_MISMATCH`; byg et nyt ark.
+  genberegning af kandidatinputtet. `red_publication_control` måles også efter en fortrydelse af C (hjælperen for
+  fortrudte identiteter kaldes pr. persona; syntetisk lokalt er hele kaldet ≈2,7 s for 500 personas, både med og uden
+  fortrydelse, så det er klassifikatoren og ikke hjælperen, der koster). Runneren sætter session-`statement_timeout` for C, som den gør for restore-hashen.
+- En tilbagetrækning efter `render` flytter stikprøven (den afhænger af bindingsstatus). Med et manifest fra før
+  tilbagetrækningen stopper **writeren** først (N3): `PUBLICATION_IDENTITY_BINDING_DRIFT` på den tilbagetrukne
+  stikprøvepersona, eller writerens `PUBLICATION_IDENTITY_SAMPLE_MISMATCH` på den persona, der nu er rykket ind i
+  stikprøven, alt efter elementrækkefølgen. Finalize's `SAMPLE_MISMATCH` nås kun ved en ændring inden for C's egen
+  transaktion. Udvejen er den samme: byg et nyt ark.
 - Helpost-drift mellem B og C (B-bindingen er stadig `published`, men bindingsopslaget giver `none`) blokerer C:
   personaen kræves af finalize, writeren kan ikke skrive den (`PUBLICATION_IDENTITY_BINDING_DRIFT`), og arket stopper med
   `PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED`. Stop og afgør; det er C's modstykke til `helpost_uegnet`.
 - `red_publication_control_details` og arkene rummer navne og leveår på kandidatpersoner, også levende konkurrenter.
   Filerne ligger kun under `~/.private/6b/` og sendes aldrig til en model.
+- Efter en fortrydelse af C (se Fortrydelse) bygges arket og manifestet på ny med det nye `red_publication_control`;
+  genbrug ikke control-, details- eller manifestfiler fra den fortrudte C, fordi deres versioner er 0.
+  `maal_trin6b.sql` tæller igen personaerne som `afventer`.
 - `publication_identity_sheet.py` kræver sammenhængende input: `render` og `manifest` tager begge
   `--control` og `--details` fra samme kørsel (`PUBLICATION_SHEET_INPUT_MISMATCH` ved afvigelse i kørsel, kilde,
   persona-mængde eller binding), og begge stopper ved over 90 kort (`PUBLICATION_SHEET_TOO_MANY_CARDS`).

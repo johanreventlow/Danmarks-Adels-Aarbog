@@ -138,10 +138,12 @@ Pr. element (én helpost):
 - **Id'er:** indholds-id (`private.content_uuid('source-persona', {source_id, persona_key})`), som 5b's personas
   efter #151 (præciseret i planen; udkastet sagde `deterministic_uuid`). Replay giver `already_applied`.
 - **Webkøen:** personas uden identitet vises i dag som `proposed` i `red_source_persona_queue`. Mellem B og C må de
-  ikke afgøres der. En persona venter på kontrol, når den ikke har en identitetsrække, er skrevet af en
-  `publication_persona`-batch, og ingen `finalized` `publication_identity`-batch navngiver den batch. Sådanne personas
+  ikke afgøres der. En persona venter på kontrol, når den ikke har en identitetsrække eller har en fortrudt
+  publikationsidentitet (§6), er skrevet af en `publication_persona`-batch, og ingen `finalized`
+  `publication_identity`-batch navngiver den batch. Sådanne personas
   er skjult i køen, og `red_afgoer_source_persona` afviser dem (præciseret i planen: kandidatkørslen alene lukker
-  ikke vinduet). C afviser desuden enhver persona, hvis identitetsversion ikke er 0.
+  ikke vinduet). C afviser desuden enhver persona, hvis identitetsversion ikke er 0, undtagen en fortrudt
+  publikationsidentitet (§6).
 
 ### 4.3 Kontrol og identitet (ceremoni C, *mit valg* af anvendelse)
 
@@ -198,14 +200,17 @@ En persona uden accepteret identitet er udelukket fra 6c's promotion, som i dag.
 #### 4.3.1 Oprindelsen `publication_binding` og C's indgang
 
 Identiteterne i C skrives af en ny elementoperation `publication_identity` i samme writer-kæde; autorisationen binder
-hele afgørelsesmængden. Payload pr. persona: persona-id, forventet identitetsversion 0, bindingens id og status,
+hele afgørelsesmængden. Payload pr. persona: persona-id, forventet identitetsversion 0 (eller den aktuelle version af en fortrudt
+publikationsidentitet, §6), bindingens id og status,
 kandidatkørslens id og `candidates_sha256`, udfaldet, og for S/F/U arkets hash, rækkefilens hash og linjen. Writeren
 efterprøver under lås (persona → binding → personrække): at kandidatkørslen stadig er kildens seneste med samme
-konfiguration, at bindingen er uændret og publiceret, at versionen er 0, og at udfaldet stemmer med de gemte
+konfiguration, at bindingen er uændret og publiceret, at versionen er 0 (eller en fortrudt publikationsidentitets, §6),
+og at udfaldet stemmer med de gemte
 kandidater.
 
 Den nye strukturelle oprindelse i `private.decide_source_persona_identity` efterprøver selv, ikke kun writeren:
-`accepted`, version 0, ingen `basis`, `evidence.authority='narrative_record_publication'`; bindingen er publiceret og
+`accepted`, version 0 (eller en fortrudt publikationsidentitets aktuelle version, §6), ingen `basis`,
+`evidence.authority='narrative_record_publication'`; bindingen er publiceret og
 peger på målpersonen; personen har præcis én `person_external_id` for personaens kilde; personaens primære mention
 ligger i bindingens records gældende helpost (accepteret forankring), og ingen anden persona for kilden har en mention
 dér. S, F og U skrives af samme writer gennem den eksisterende oprindelse `human` (`basis='human_sheet'`, med
@@ -282,7 +287,12 @@ Tre ceremonier i 6a's form (dump med ekstern kopi, kørsel fra projektejerens sh
     (rettet efter Codex' plan-runde; udkastet sagde `red_reverse_reimport`);
   - *efter runneren:* fortolkningerne refererer personaerne og er append-only; B kan ikke længere fortrydes. Vinduet
     lukker, når runneren skriver; det står i runbooken som en bevidst grænse;
-  - *efter C, før promotion:* `reversal` sætter C's identiteter til `superseded`; de 8 eksisterende er urørte;
+  - *efter C, før promotion:* `reversal` sætter C's identiteter til `superseded`; de 8 eksisterende er urørte. C kan
+    derefter køres igen: en fortrudt publikationsidentitet (aktuel tilstand `superseded`, seneste overgang er
+    fortrydelsen af en `publication_identity`-batch) tæller som ingen identitet, så personaerne igen venter på
+    kontrol, indtil en ny C er finaliseret. Det er den eneste udgang: mens de venter, er de skjult i webkøen, og
+    `red_afgoer_source_persona` afviser dem, så 6b har ingen menneskelig nødudgang. Den nye C skriver med den aktuelle
+    version i stedet for 0 (projektejeren 2026-10-31, `docs/decisions.md`);
   - *efter promotion:* 6c's fortrydelse gælder.
 - Øvelse på en frisk stand-in med prods `statement_timeout` (2 min) før hvert GO.
 
@@ -351,3 +361,10 @@ Desuden ét eget fund (12). Afvejning (Opus):
 
 Afvejning og indarbejdelse står i planens reviewlog (`2026-10-31-trin6b-identitet.md`, sidst). Ændringer i specen:
 §4.4 (reserven tilvalgt i `input_spec`), §6 og §8 pkt. 9 (B fortrydes kun ved restore).
+
+### Afsluttende review (2026-10-31)
+
+- I2 (afsluttende review): projektejeren valgte genkørsel frem for webkø. §6 (*efter C, før promotion*) og §4.2 er
+  rettet; den snævre kernevagt står i `docs/decisions.md` 2026-10-31.
+- I2-review D1/D2: den eneste udgang for en ventende persona er en ny C (controller-beslutning; ingen menneskelig
+  nødudgang i 6b), og §4.2's definition af at vente omfatter en fortrudt publikationsidentitet.
