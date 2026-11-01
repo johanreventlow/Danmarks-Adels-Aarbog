@@ -39,9 +39,15 @@ spec §4.3 og plan Task 15-16 (`docs/superpowers/plans/2026-10-31-trin6b-identit
   - politik: `exclusion-1939-v1`; 2018-20's er fortsat `exclusion-2018-20-v1`;
   - årsagskoder i ledgeren for 1939: `no_published_persona`, `principal_living`, `same_as_partner_living`,
     `relative_living`, `text_year_ge_1915`;
-  - måling: `T6C1_MAAL tilstand=<foer|a|b|c> forslag_k3=… poster_k3=… identiteter_k3=… afventer=… k1_forslag_hash=…`.
-- Fejlkoder (præcis tekst): eksport `EXPORT_HELPOST_NOT_UNIQUE`, `EXPORT_PRIMARY_PERSONA_NOT_UNIQUE`,
-  `EXPORT_POLICY_UNKNOWN`; runner `RUNNER_CODE_SHA_MISSING` (kontrakt ≥ 1.4 uden `runner_code_sha256`),
+  - måling: `T6C1_MAAL tilstand=<foer|a|b|c> forslag_k3=… poster_k3=… identiteter_k3=… afventer=… k1_forslag_hash=…`
+    (valgfri `-v publication_profile_id`, standard `daa-1939-publication-v1`).
+- Fejlkoder (præcis tekst; opdateret efter slutreview og fix-bølge 2026-11-01): eksport `EXPORT_HELPOST_NOT_UNIQUE`
+  (ambiguous/outside; `none` udelades og tælles som `uden_helpost`), `EXPORT_POLICY_UNKNOWN`,
+  `EXPORT_POLICY_EDITION_MISMATCH`, `EXPORT_WRITER_PROFILE_UNKNOWN`, `EXPORT_ROLE_NOT_RLS_BYPASS`,
+  `EXPORT_LEDGER_ROW_NOT_UNIQUE`; flere primære personas udelades og tælles som `uden_entydig_persona` (afløser
+  `EXPORT_PRIMARY_PERSONA_NOT_UNIQUE`); ledger `LEDGER_POLICY_UNKNOWN`, `LEDGER_POLICY_EDITION_MISMATCH`,
+  `LEDGER_REASON_ON_ELIGIBLE`; manifest `MANIFEST_SOURCE_MISMATCH`, `MANIFEST_RESTORE_IDENTITY_MISMATCH`; kørsel
+  `RUN_SOURCE_MISMATCH`, `RUN_RESTORE_IDENTITY_MISMATCH`; udvalg `SELECTION_LIMIT_INVALID`, `SELECTION_SEED_WITHOUT_LIMIT`; runner `RUNNER_CODE_SHA_MISSING` (kontrakt ≥ 1.4 uden `runner_code_sha256`),
   `PROPOSAL_MANIFEST_SOURCE_MISSING`, `PROPOSAL_MANIFEST_SOURCE_MISMATCH`, `RUNNER_INPUT_SOURCE_MISSING`
   (`build_43b_manifest.py --runner-input` er påkrævet for dagsværk ud over `4.3b`/`4.5`; Task 2 ruling); writerens helpost-fejl er 6a's `RECORD_HELPOST_AMBIGUOUS` /
   `RECORD_HELPOST_SUBOCCURRENCE_OUTSIDE` uændret.
@@ -186,7 +192,7 @@ spec §4.3 og plan Task 15-16 (`docs/superpowers/plans/2026-10-31-trin6b-identit
 **Interfaces:**
 - Produces: `runner-input-v1.json` uændret skema; pr. record helposten fra `private.record_helpost_observation(sr.id,
   'person')` og `persona_id` fra helpostens `primary`-mention. En record uden én helpost → `EXPORT_HELPOST_NOT_UNIQUE`;
-  flere primære personas → `EXPORT_PRIMARY_PERSONA_NOT_UNIQUE`. En record uden persona får tom `persona_id` som i dag.
+  flere primære personas → recorden udelades og tælles (fix-bølgen F6). En record uden persona får tom `persona_id` som i dag.
 
 - [ ] **Step 1: Test:** fixturen med tre forankringer giver én record med den rigtige helposts tekst og klausuler,
   uafhængigt af `ORDER BY` (kør med to rækkefølger); `persona_id` er personaen med nøgle `'1939:' || record_key`;
@@ -266,7 +272,8 @@ Under `~/.private/6c1/` (0700). Stand-in: `createdb -T daa5ab_ddl_standin_202611
   varigheden af hver af de to eksporter som ét statement (`\timing` eller tidsstempler); omregn med 3× (én stor læsning)
   og med 27× som øvre grænse. Over 60 s anslået med 27×: eksporten skal optimeres, før Task 10 (Codex diffrunde fund 5).
 - [ ] **Step 2: Pilot:** `build_eligible_selection.py --limit 30 --seed 6c1-pilot-v1`, `build_43b_manifest.py
-  --profile-id daa-1939-v2 --dagsvaerk 6c-1`, `run_evidence_43b.py`. Gaten (spec §4.5 pkt. 1) rapporteres med tal i
+  --profile-id daa-1939-v2 --dagsvaerk 6c-1 --runner-input <fil> --restore-identity <samme som ledgerens>`,
+  `run_evidence_43b.py`. Gaten (spec §4.5 pkt. 1) rapporteres med tal i
   `docs/evidensbaseret-genimport/runner-1939-pilot.md` (ingen claim-værdier). Fejler gaten: stop; prompt eller profil
   rettes i en ny task, før noget ingestes.
 - [ ] **Step 3: Fuld kørsel:** `build_eligible_selection.py` over alle `eligible`, bundter som 2018-20; pilotens svar
