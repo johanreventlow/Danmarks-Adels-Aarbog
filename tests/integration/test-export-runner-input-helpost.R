@@ -6,7 +6,7 @@
 #      det, scriptet på main (før Task 4) gav på samme fixture (hardkodet sha nedenfor).
 #   B  1939-lignende kilde (helpost-slags person, flere forankringer): helposten og dens klausuler vælges uafhængigt
 #      af forankringernes rækkefølge, og personaen er helpostens primære mention (ikke en lokal underforekomsts).
-#   C  fejlkoder: ingen/flere helposter (EXPORT_HELPOST_NOT_UNIQUE), flere primære personas
+#   C  fejlkoder: flere/udenfor-helposter (EXPORT_HELPOST_NOT_UNIQUE; ingen helpost = udeladt og talt), flere primære personas
 #      (EXPORT_PRIMARY_PERSONA_NOT_UNIQUE), ukendt profil (EXPORT_WRITER_PROFILE_UNKNOWN).
 #
 # Kræver en base som kildetekst-revisions-integrationen (schema + db-rls). Testen committer syntetiske fixtures;
@@ -116,7 +116,7 @@ for (k in c("I-1", "I-2", "I-3")) {
 }
 ra <- export("export_43b_runner_input.R", SOURCE_A, "daa-2018-20-interpretation-proposal-v1", "a")
 if (ra$status != 0L) stop("eksport A fejlede: ", substr(ra$out, 1L, 300L))
-stopifnot(grepl("RUNNER_INPUT_OK records=3 klausuler=3 uden_klausuler=0", ra$out, fixed = TRUE))
+stopifnot(grepl("RUNNER_INPUT_OK records=3 klausuler=3 uden_klausuler=0 uden_helpost=0", ra$out, fixed = TRUE))
 sha_a <- digest::digest(file = ra$path, algo = "sha256")
 if (!identical(sha_a, EXPECTED_A_SHA)) stop("2018-20-outputtet er ikke byte-ens med main (sha ", sha_a, ")")
 rec_a <- jsonlite::fromJSON(ra$path, simplifyVector = FALSE)$records
@@ -134,11 +134,13 @@ new_record(sb, "I-2", list(sub1(), sub2(), list(key = "h", from = 0L, kind = "pe
   primary = list(list(on = "h", persona = "1939:I-2"), list(on = "s1", persona = "1939:I-2-lokal")))
 # I-3: ingen persona -> tom persona_id.
 new_record(sb, "I-3", list(list(key = "h", from = 0L, kind = "person", text = hp("I-3"), helpost = TRUE), sub1()))
+# I-4: ingen helpost af slagsen (kun en strukturkontekst) -> udeladt og talt, ikke en fejl.
+new_record(sb, "I-4", list(list(key = "x", from = 0L, kind = "structural_context", text = hp("I-4"), helpost = FALSE)))
 rb <- export("export_43b_runner_input.R", sb$id, "daa-1939-interpretation-proposal-v1", "b")
 if (rb$status != 0L) stop("eksport B fejlede: ", substr(rb$out, 1L, 300L))
-stopifnot(grepl("RUNNER_INPUT_OK records=3 klausuler=3 uden_klausuler=0", rb$out, fixed = TRUE))
+stopifnot(grepl("RUNNER_INPUT_OK records=3 klausuler=3 uden_klausuler=0 uden_helpost=1", rb$out, fixed = TRUE))
 rec_b <- jsonlite::fromJSON(rb$path, simplifyVector = FALSE)$records
-stopifnot(identical(sort(names(rec_b)), c("I-1", "I-2", "I-3")))
+stopifnot(identical(sort(names(rec_b)), c("I-1", "I-2", "I-3")))  # I-4 udeladt
 for (k in names(rec_b)) {
   stopifnot(identical(rec_b[[k]]$post_verbatim_text, hp(k)), length(rec_b[[k]]$clauses) == 1L,
     identical(rec_b[[k]]$clauses[[1L]]$verbatim_text, hp(k)))
@@ -149,9 +151,10 @@ stopifnot(identical(rec_b[["I-3"]]$persona_id, ""))
 
 # ==== C: fejlkoder ====================================================================================
 expect_fail(export("export_43b_runner_input.R", sb$id, "findes-ikke", "c0"), "EXPORT_WRITER_PROFILE_UNKNOWN")
-# Slagsen følger profilen: 1939-posterne har ingen `person_post`-helpost, hvis profilen siger det.
+# Slagsen følger profilen: med default-slagsen person_post har ingen 1939-record en helpost -> alle udeladt (ingen fejl).
 e("INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config) SELECT source_id,'default-kind','fixture',private.reimport_canonical_json_sha256(writer_config - 'helpost_observation_kind'),writer_config - 'helpost_observation_kind' FROM private.reimport_writer_profile WHERE source_id=$1 AND profile_id='daa-1939-interpretation-proposal-v1'", list(sb$id))
-expect_fail(export("export_43b_runner_input.R", sb$id, "default-kind", "c1"), "EXPORT_HELPOST_NOT_UNIQUE")
+rk <- export("export_43b_runner_input.R", sb$id, "default-kind", "c1")
+stopifnot(rk$status == 0L, grepl("RUNNER_INPUT_OK records=0 klausuler=0 uden_klausuler=0 uden_helpost=4", rk$out, fixed = TRUE))
 
 fail_source <- function(tag, build, code) {
   s <- new_source(rand_source(), "p", "person")
@@ -166,9 +169,6 @@ fail_source("c2", function(s) new_record(s, "I-1", list(
 fail_source("c3", function(s) new_record(s, "I-1", list(
   list(key = "h", from = 0L, kind = "person", text = hp("I-1"), helpost = TRUE),
   list(key = "x", from = 500L, kind = "name", text = "Alfa Bravo", helpost = FALSE))), "EXPORT_HELPOST_NOT_UNIQUE")
-# Ingen helpost af slagsen.
-fail_source("c4", function(s) new_record(s, "I-1", list(
-  list(key = "x", from = 0L, kind = "name", text = hp("I-1"), helpost = FALSE))), "EXPORT_HELPOST_NOT_UNIQUE")
 # To primære personas på helposten.
 fail_source("c5", function(s) new_record(s, "I-1",
   list(list(key = "h", from = 0L, kind = "person", text = hp("I-1"), helpost = TRUE)),

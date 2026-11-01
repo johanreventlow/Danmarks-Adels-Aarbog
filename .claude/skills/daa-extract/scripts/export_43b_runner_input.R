@@ -60,8 +60,9 @@ helpost_kind <- kinds$kind[[1L]]
 # Helposten vælges som writeren gør det (trin 6a/6c-1): private.record_helpost_status(record, slags).
 # En record kan have flere accepterede forekomster; helposten er den ene, hvis eneste topobservation har
 # helpost-slagsen. Rækkefølge og antal forankringer påvirker ikke valget. Kun records med mindst én
-# accepteret forankring eksporteres (som før). Status none/ambiguous/outside (writerens
-# RECORD_HELPOST_AMBIGUOUS / RECORD_HELPOST_SUBOCCURRENCE_OUTSIDE) giver alle EXPORT_HELPOST_NOT_UNIQUE.
+# accepteret forankring eksporteres (som før). Status none udelader recorden (talt i
+# uden_helpost); ambiguous/outside (writerens RECORD_HELPOST_AMBIGUOUS / RECORD_HELPOST_SUBOCCURRENCE_OUTSIDE)
+# giver EXPORT_HELPOST_NOT_UNIQUE.
 # Personaen er helpostens `primary`-mention (som writeren); den samlede persona_id-liste tælles i R.
 posts <- DBI::dbGetQuery(con, "
   SELECT sr.record_key, h.status, h.observation_id AS post_id,
@@ -94,8 +95,12 @@ DBI::dbExecute(con, "ROLLBACK")
 if (nrow(posts) == 0L) stop("EXPORT_NO_ROWS", call. = FALSE)
 
 records <- list()
+n_no_helpost <- 0L
 for (i in seq_len(nrow(posts))) {
   key <- posts$record_key[i]
+  # `none`: ingen helpost af profilens slags (fx strukturkontekst/krydshenvisning) -> ikke en modelpost; udeladt
+  # og talt (eligibility-ledgeren dækker stadig alle records). ambiguous/outside afvises (fail-closed).
+  if (identical(posts$status[i], "none")) { n_no_helpost <- n_no_helpost + 1L; next }
   if (!identical(posts$status[i], "ok")) stop("EXPORT_HELPOST_NOT_UNIQUE", call. = FALSE)
   pids <- strsplit(posts$persona_ids[i], ",", fixed = TRUE)[[1L]]
   if (length(pids) > 1L) stop("EXPORT_PRIMARY_PERSONA_NOT_UNIQUE", call. = FALSE)
@@ -120,6 +125,7 @@ writeLines(jsonlite::toJSON(list(
   records = records), auto_unbox = FALSE, pretty = TRUE), out_path)
 Sys.chmod(out_path, "0600")
 
-cat(sprintf("RUNNER_INPUT_OK records=%d klausuler=%d uden_klausuler=%d\n",
+cat(sprintf("RUNNER_INPUT_OK records=%d klausuler=%d uden_klausuler=%d uden_helpost=%d\n",
             length(records), nrow(clauses),
-            sum(vapply(records, function(r) length(r$clauses) == 0L, logical(1)))))
+            sum(vapply(records, function(r) length(r$clauses) == 0L, logical(1))),
+            n_no_helpost))
