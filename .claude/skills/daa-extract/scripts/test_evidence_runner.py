@@ -944,6 +944,20 @@ def test_an_excluded_row_must_carry_at_least_one_reason():
         load_ledger(ledger(records=rows))
 
 
+@pytest.mark.parametrize("politik,aarsag", [("exclusion-2018-20-v1", "principal_living"),
+                                            ("exclusion-1939-v1", "text_year_ge_1915")])
+def test_an_eligible_row_must_not_carry_a_reason(politik, aarsag):
+    """Fund F4 (final-review): `eligible` med en årsag er selvmodsigende — ledgeren siger både ja og
+    nej. Den modsatte kombination (excluded uden årsag) afvises af testen ovenfor."""
+    rows = {"I-42": {"status": "eligible", "reasons": [aarsag],
+                     "record_input_sha256": canonical_record_input(export())}}
+    with pytest.raises(EligibilityError, match="LEDGER_REASON_ON_ELIGIBLE"):
+        load_ledger(ledger(policy_version=politik, records=rows))
+    with pytest.raises(EligibilityError, match="LEDGER_REASON_ON_ELIGIBLE"):
+        check_eligibility(ledger(policy_version=politik, records=rows), "I-42",
+                          canonical_record_input(export()))
+
+
 REASONS_2018_20 = {"principal_living", "relative_living", "spouse_undated_marriage", "birth_year_text_filter"}
 REASONS_1939 = {"no_published_persona", "principal_living", "same_as_partner_living",
                 "relative_living", "text_year_ge_1915"}

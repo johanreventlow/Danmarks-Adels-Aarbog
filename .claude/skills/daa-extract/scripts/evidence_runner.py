@@ -804,6 +804,9 @@ def load_ledger(ledger: Mapping[str, Any]) -> dict:
         if status == "excluded" and not reasons:
             # En udelukkelse uden årsag kan ikke efterprøves af et menneske.
             raise EligibilityError("LEDGER_REASON_REQUIRED")
+        if status == "eligible" and reasons:
+            # Selvmodsigende række: ledgeren siger både ja og nej. Ingen af delene kan stoles på.
+            raise EligibilityError("LEDGER_REASON_ON_ELIGIBLE")
         for reason in reasons:
             if not isinstance(reason, str) or reason not in allowed_reasons:
                 raise EligibilityError("LEDGER_REASON_UNKNOWN")
