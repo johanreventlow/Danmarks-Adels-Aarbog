@@ -1,8 +1,8 @@
 # Trin 6c-1: runneren på 1939 og 1939's identiteter — design
 
-**Status:** udkast. Projektejeren besluttede 2026-11-01 at dele 6c i to med identiteterne først og bad om bedste skøn
-uden afklarende spørgsmål. Valg, der ikke står i den overordnede spec, er markeret *mit valg*. Afgørelserne til
-projektejeren står i §8.
+**Status:** udkast, revideret efter Codex-runden på spec+plan (§10: NO-GO, 11 fund, afvejet og indarbejdet).
+Projektejeren besluttede 2026-11-01 at dele 6c i to med identiteterne først og bad om bedste skøn uden afklarende
+spørgsmål. Valg, der ikke står i den overordnede spec, er markeret *mit valg*. Afgørelserne til projektejeren står i §8.
 **Gren:** `docs/trin6c1-spec` fra `main` (`f928b1de`).
 **Overordnet spec:** `docs/superpowers/specs/2026-10-29-trin6-1939-gennem-kaeden-design.md` (§5 6c, §6 pkt. 1 og 6).
 **Delspec 6b:** `docs/superpowers/specs/2026-10-31-trin6b-identitet-design.md` (§4.3, §5 »6c's forudsætninger«, §6 C).
@@ -130,27 +130,47 @@ Politikken `exclusion-1939-v1` (*mit valg* af form) udelukker en post, hvis mind
    `levende`/`privat` ≠ `false` eller `staged`;
 2. en afklaret `samme_som`-partner til bindingspersonen er `levende`/`privat` ≠ `false`;
 3. en person i en family med bindingspersonen eller med en af dens partnere er `levende` ≠ `false`;
-4. **tekst:** et årstal ≥ 1915 står et vilkårligt sted i helpostens gældende tekst.
+4. **tekst:** et årstal ≥ 1915 står et vilkårligt sted i helpostens gældende tekst. Årstallet læses OCR-tolerant:
+   et firetegnsord, der begynder med `1` eller `l`/`I` og ellers kun består af cifre og de typiske OCR-forvekslinger
+   (`O`, `o`, `S`, `B`, `l`, `I`), tolkes med forvekslingerne rettet. Antallet, den tolerante læsning tilføjer, måles og
+   rapporteres.
 
 *Mit valg* af tekstregel: den strenge (63 udelukket, 500 tilladt), ikke den smalle (28/535). En person født 1915 er 111
 år i dag; en slægtning, der kun står i prosaen, findes ikke som person, og hverken `levende` eller en dødspåstand kan
 frikende den. Den smalle regel misser år, der står efter et navn eller en titel. Reglen er fail-closed og rejser tvivl,
 den afgør den ikke. Følgen for C står i §4.7 pkt. 4 og §8 pkt. 2.
 
+**Hvad reglerne ikke kan bevise (Codex fund 1).** Ingen af reglerne frikender en person, som kun står i prosaen uden
+årstal. Argumentet for, at tekstreglen alligevel dækker: DAA nævner en person i en stamtavle med fødselsdato
+(»f. …«) eller som afdød, og den eneste gruppe, der kan leve i dag, er født 1915 eller senere; deres årstal står i
+posten. Restrisikoen er en person nævnt uden dato eller med et årstal, OCR'en har ødelagt ud over den tolerante
+læsning. Samme risikoklasse blev accepteret for 2018-20's 488 poster med en svagere tekstregel (`f.` + år ≥ 1950).
+Positiv frikendelse af hver personomtale kræver navneudtræk, dvs. netop det modelkald, gaten skal beskytte; det er
+fravalgt. Restrisikoen forelægges projektejeren (§8 pkt. 3).
+
 Ledgeren har samme form som 2018-20's: én række pr. record, `eligible` eller `excluded` med alle årsager, ingen tekst,
-ingen navne, regelfilens sha. Fravær er ikke tilladelse.
+ingen navne, regelfilens sha. Fravær er ikke tilladelse. Årsagskoderne er politikkens egne; Python-forbrugerne
+(`evidence_runner.load_ledger` og udvalgsscripts) validerer dem pr. politik (Codex fund 5).
 
 ### 4.4 Runner-input og forslagswriter
 
-1. **Runner-inputtet** vælger helposten med `private.record_helpost_status` (6a's regel, samme som klausul-writeren og
-   `publication_persona_binding`) og personaen gennem helpostens primære mention. En post uden præcis én helpost eller
+1. **Runner-inputtet** vælger helposten med `private.record_helpost_observation` og udgavens helpost-slags fra
+   writerprofilen (`private.writer_config_helpost_kind`: `person` for 1939, standard `person_post` for 2018-20; Codex
+   fund 2), samme regel som klausul-writeren og personaen gennem helpostens primære mention. En post uden præcis én helpost eller
    uden præcis én primær persona afvises ved eksporten med en kode, ikke ved preflighten. Eligibility-ledgerens
    `input_sha` bruger samme helpost, så de to fortsat følges ad.
-2. **Forslagswriteren** (`write_interpretation_proposal`) vælger helposten med samme regel i stedet for »præcis én
-   forankring«. Alt andet er uændret: personaen gennem den primære mention, S4-spærren, kvitteringen, nøglen
+2. **Forslagswriteren** (`write_interpretation_proposal`) vælger helposten med samme regel og batchprofilens
+   helpost-slags i stedet for »præcis én forankring«. 1939 får sin egen writerprofil
+   `daa-1939-interpretation-proposal-v1` (kilde 3, `helpost_observation_kind` `person`, ellers som
+   `daa-2018-20-interpretation-proposal-v1`'s `writer_config`), seedet i `schema.sql`/`db-migrations.sql` og som fil
+   under `references/reimport-profiles/` med denylist og rollekort (Codex fund 4). Alt andet er uændret: personaen gennem den primære mention, S4-spærren, kvitteringen, nøglen
    (`private.interpretation_proposal_key`) og klausulregnskabet. For 2018-20's poster (én forankring) er udfaldet
    identisk; det bevises på en 2018-20-genafspilning i CI.
-3. DDL'en er additiv i virkning (en funktion erstattes) og går i prod som ceremoni A (§6).
+3. DDL'en er additiv i virkning (en funktion erstattes, en profilrække tilføjes) og går i prod som ceremoni A (§6).
+4. **Kilde og kode bindes** (Codex fund 3 og 8): runner-manifestet bærer `source_id` fra runner-inputtet, og
+   forslagsmanifestet kræver det (ingen standardværdi for nye manifester; historiske 2018-20-manifester genbygges som
+   i dag). Nye kørsler (kontrakt `evidence-runner-1.4`) kræver `runner_code_sha256` i manifestet; et manglende felt er
+   en fejl. Kontrakt 1.3 forbliver registreret, så 2018-20's cache kan læses (fund 6).
 
 ### 4.5 Pilot og fuld kørsel (lokalt, aldrig mod prod)
 
@@ -158,7 +178,8 @@ Modelkaldene kører på en maskine med en stand-in restoret fra A-dumpet (§6) o
 caches pr. record (runnerens cache), så den fulde kørsel genbruger pilotens svar.
 
 1. **Pilot, *mit valg*:** 30 poster, trukket deterministisk (seed i manifestet) og stratificeret på postlængde og
-   forankringsantal. Gate før den fulde kørsel, kun tal: dækning (0 fejlede poster efter genforsøg), andel afviste
+   forankringsantal, af samme udvalgsscript som den fulde kørsel (`build_eligible_selection.py` med `--limit` og
+   `--seed`), så alle 30 ligger i bundter, og bundterne dækker præcis udvalget (Codex fund 7). Gate før den fulde kørsel, kun tal: dækning (0 fejlede poster efter genforsøg), andel afviste
    claims højst som 2018-20's (203 af 3.961 rå), 0 `tool_use`, andel `person.name` med titelord 0, og et
    forslagsregnskab, der går op (rå − afviste − H1 − dubletter = skrevne). Ingen menneskelig læsning af claims:
    præcisionen måles af kontrollen i C (§4.7) og af kontrolmodellen i 6c-2. Fejler gaten, stopper planen, og
@@ -176,6 +197,11 @@ med den generelle writer gennem R-gatewayen. Før skrivningen i samme transaktio
 klausulsættets hash genberegnes mod prod og skal være lig manifestets (prod kan have ændret `levende` eller en
 kildetekst efter dumpet). Efter: et nøglet forslagsdigest (`interpretation_transfer_digests.sql`'s forslagsdel) lig
 stand-in'ens. Runneren nægter at skrive, hvis en 6b-fortrydelse er i gang (`~/.private/…/fortryd-b-*.igang`, 6b-ledgeren).
+
+**To minutter pr. statement (Codex fund 9).** Gatewayen kører hele batchen i én transaktion: autorisation, ét kald pr.
+post, finalize og digest er hver sit statement. Øvelsen måler maksimum pr. statement for hver af dem og omregner med
+27×. Er et anslået over 60 s, deles B i flere batches (hver med egen autorisation og finalize, samme manifest
+opdelt deterministisk) før GO.
 
 ### 4.7 6b's ceremoni C (6b-planens Task 15-16)
 
@@ -198,8 +224,9 @@ C kører som designet i 6b §4.3 og §6, når B er i prod. 6c-1 lukker de punkte
 
 - `write_interpretation_proposal` ændres for alle udgaver; 2018-20's genafspilning skal give identiske nøgler og
   kvitteringer.
-- `export_model_eligibility.R` og `export_43b_runner_input.R` får nye parametre; 2018-20's ledger og input er
-  byte-uændrede (regressionstest).
+- `export_model_eligibility.R` og `export_43b_runner_input.R` får nye parametre. For 2018-20 er afgørelser, årsager
+  og `input_sha` pr. record og runner-inputtet identiske (regressionstest); ledgerens `rules_script_sha256` ændres,
+  fordi scriptet ændres, og det er forventet provenance (Codex fund 10).
 - 6b's B kan ikke længere fortrydes, når B i 6c-1 har skrevet (fortolkningerne refererer personaerne og er
   append-only; 6b §6). Det står i runbooken.
 - Når C er skrevet, venter 6c-2 på kontrolmodellen. 1939's forslag ses ikke af `anon` og ikke i webkøen
@@ -212,7 +239,7 @@ Tre ceremonier i 6a's form: dump med ekstern kopi (B1), kørsel fra projektejere
 
 | Ceremoni | Indhold | Fortrydelse |
 |---|---|---|
-| **A (DDL)** | `write_interpretation_proposal` med helpost-reglen; `red_publication_control` optimeret | restore af A-dumpet i vinduet, som 6a/6b A |
+| **A (DDL)** | `write_interpretation_proposal` med helpost-reglen; writerprofilen `daa-1939-interpretation-proposal-v1`; `red_publication_control` optimeret, hvis målingen kræver det | restore af A-dumpet i vinduet, som 6a/6b A |
 | **B (data)** | ~500 posters forslag gennem writeren | restore af B-dumpet, så længe vinduet holder (ingen skrivning efter dumpet); forslag er append-only, så ingen writer kan slette dem |
 | **C (data)** | 6b's ceremoni C (kandidater, ark, `publication_identity`) | 6b's `reversal` → `superseded`; C kan genkøres (decisions 2026-10-31) |
 
@@ -249,6 +276,12 @@ Skrivepause fra A-dumpet til B er skrevet. Tidsoverslag fra stand-in omregnes me
    færre kort, eller (c) at udelukkede poster står uafklarede uden kort til en senere runde. *Min anbefaling:* (a),
    fordi (b) sender tekst om mulige levende slægtninge til en model, og (c) efterlader personas uden identitet.
 
+3. **Restrisikoen i eligibility** (§4.3): en levende slægtning, der kun står i prosaen uden et årstal, som den
+   tolerante læsning kan finde, kan nå modellen. Valgene er (a) at acceptere restrisikoen som for 2018-20, (b) en
+   strengere grænse (årstal ≥ 1900 et vilkårligt sted: 93 poster ramt i stedet for 60), eller (c) ingen modelkørsel
+   for 1939 (så kan 6b's C ikke køres som designet). *Min anbefaling:* (a), fordi DAA's form giver levende personer et
+   årstal, og (b) kun flytter grænsen uden at lukke hullet.
+
 Alt andet i specen er mine valg og kan rettes ved godkendelsen.
 
 ## 9. Uden for scope
@@ -258,4 +291,22 @@ de 8 uden helpost (ingen persona; opret-benet), de 2 staged (disposition som i 6
 
 ## 10. Reviewlog
 
-*(tom)*
+### Codex-runde på spec+plan (2026-11-01, `gpt-6.1-sol`, B13-runden): NO-GO, 11 fund
+
+Afvejning (Opus); fund 2-8 er bekræftet mod koden.
+
+| # | Alvor | Fund | Afvejning | Indarbejdet |
+|---|---|---|---|---|
+| 1 | BLOCKER | Eligibility beviser ikke, at prosaen er fri for levende slægtninge | delvis: hullet er reelt, men positiv frikendelse kræver modelkald; tolerant årstalslæsning tilføjet, restrisiko til projektejeren | §4.3, §8 pkt. 3 |
+| 2 | HIGH | Hardkodet `'person'` bryder 2018-20 (`person_post`) | nødvendig (`schema.sql:3540-3542`) | §4.4 pkt. 1-2; plan Task 1, 4 |
+| 3 | HIGH | Forslagsmanifestet falder tilbage på kilde 1 | nødvendig (`build_43b_proposal_manifest.py:392`) | §4.4 pkt. 4; plan Task 2 |
+| 4 | HIGH | Ingen 1939-writerprofil til forslag | nødvendig | §4.4 pkt. 2; plan Task 1 |
+| 5 | HIGH | Nye årsagskoder afvises af `load_ledger` | nødvendig (`evidence_runner.py:716-721`) | §4.3; plan Task 5 |
+| 6 | HIGH | Kontrakt 1.4 kan fjerne 1.3 fra cache-opslaget | nødvendig | §4.4 pkt. 4; plan Task 2 |
+| 7 | HIGH | `build_43b_selection --count 30` bundter kun 10 | nødvendig (`build_43b_selection.py:135-136`) | §4.5 pkt. 1; plan Task 6 |
+| 8 | HIGH | Standard-`--dagsvaerk` udelader runner-kodens sha | nødvendig (`build_43b_manifest.py:136`) | §4.4 pkt. 4; plan Task 2 |
+| 9 | HIGH | Intet bevis for 2 min pr. statement i B | nødvendig | §4.6; plan Task 10 |
+| 10 | MEDIUM | Byte-uændret 2018-20-ledger umulig (scriptets sha) | rettelse af formulering | §5; plan Task 5 |
+| 11 | MEDIUM | `run-tests.R` kører ikke `tests/integration` | nødvendig | plan Task 4-5 (pg-job som `test-reimport-source-text-revision.R`) |
+
+Codex bekræftede: writeren antager ikke andre steder én forankring; B → C følger 6b; S4 er forstået rigtigt.

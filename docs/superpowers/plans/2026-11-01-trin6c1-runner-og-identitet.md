@@ -28,20 +28,27 @@ spec §4.3 og plan Task 15-16 (`docs/superpowers/plans/2026-10-31-trin6b-identit
   der kan køres to gange. Blokken hedder `-- ===== trin 6c-1: forslagswriteren følger helpost-reglen =====` og ligger
   sidst i filen.
 - Ingen editionsnavngivne funktioner, tabeller eller operationer. Editionsdata kun i profiler, politikker og manifester.
-- 2018-20 er byte-uændret: dens eligibility-ledger, runner-input, forslagsnøgler og kvitteringer. Bevises med
-  regressionstests mod en 2018-20-fixture og på stand-in'en.
+- 2018-20 er uændret: runner-input byte-ens; ledgerens afgørelser, årsager og `input_sha` pr. record identiske
+  (`rules_script_sha256` ændres forventeligt); forslagsnøgler og kvitteringer byte-ens; kontrakt 1.3's cache læsbar.
+  Bevises med regressionstests mod en 2018-20-fixture og på stand-in'en.
 - Navne (præcis tekst):
   - prompt: `evidence-extract-prompt-1.1.0.md`;
   - profil: `daa-1939-v2` (version `1.4.0`, `edition` `1939`, `model_id` `gpt-5.6-terra`); `daa-1939-v1` bevares;
+  - writerprofil: `daa-1939-interpretation-proposal-v1` (kilde 3, `helpost_observation_kind` `person`);
+  - runner-kontrakt: `evidence-runner-1.4`; dagsværk for manifester: `6c-1`;
   - politik: `exclusion-1939-v1`; 2018-20's er fortsat `exclusion-2018-20-v1`;
   - årsagskoder i ledgeren for 1939: `no_published_persona`, `principal_living`, `same_as_partner_living`,
     `relative_living`, `text_year_ge_1915`;
   - måling: `T6C1_MAAL tilstand=<foer|a|b|c> forslag_k3=… poster_k3=… identiteter_k3=… afventer=… k1_forslag_hash=…`.
 - Fejlkoder (præcis tekst): eksport `EXPORT_HELPOST_NOT_UNIQUE`, `EXPORT_PRIMARY_PERSONA_NOT_UNIQUE`,
-  `EXPORT_POLICY_UNKNOWN`; writerens helpost-fejl er 6a's `RECORD_HELPOST_AMBIGUOUS` /
+  `EXPORT_POLICY_UNKNOWN`; runner `RUNNER_CODE_SHA_MISSING` (kontrakt ≥ 1.4 uden `runner_code_sha256`),
+  `PROPOSAL_MANIFEST_SOURCE_MISSING`, `PROPOSAL_MANIFEST_SOURCE_MISMATCH`; writerens helpost-fejl er 6a's `RECORD_HELPOST_AMBIGUOUS` /
   `RECORD_HELPOST_SUBOCCURRENCE_OUTSIDE` uændret.
-- Tekstreglen: `exclusion-1939-v1` udelukker en post, hvis helpostens gældende tekst indeholder et årstal
-  `1[6-9][0-9]{2}` med værdi ≥ 1915 (spec §4.3 pkt. 4).
+- Tekstreglen: `exclusion-1939-v1` udelukker en post, hvis helpostens gældende tekst indeholder et firetegnsord
+  `[1lI][0-9OoSBlI]{3}`, der efter rettelse (`l`,`I`→1, `O`,`o`→0, `S`→5, `B`→8) er et årstal ≥ 1915 (spec §4.3
+  pkt. 4). Antal poster, den tolerante læsning tilføjer ud over `1[6-9][0-9]{2}`, rapporteres.
+- Helpost-slags læses altid fra writerprofilen med `private.writer_config_helpost_kind(writer_config)`, aldrig
+  hardkodet.
 - Persondata:
   - Intet script eller output i repoet viser posttekst, claim-værdier eller navne; kun antal, nøgler og hashes.
   - Runner-input, cache, forslagsmanifest og C's ark ligger kun under `~/.private/6c1/` (0700/0600); ingen agent læser
@@ -72,13 +79,19 @@ spec §4.3 og plan Task 15-16 (`docs/superpowers/plans/2026-10-31-trin6b-identit
 
 ## PR 1 — database (gren `feat/trin6c1-db` fra `docs/trin6c1-spec`)
 
-### Task 1: Forslagswriteren følger helpost-reglen
+### Task 1: Forslagswriteren følger helpost-reglen; 1939's writerprofil
 
 **Files:**
 - Modify: `schema.sql` `private.write_interpretation_proposal` (ca. linje 4966-5010): erstat kravet om én accepteret
-  forankring og én topobservation med `private.record_helpost_observation(v_record.id, 'person')`; brug den returnerede
-  observation som `v_parent`. Lås som i dag (`FOR UPDATE` på recorden og helposten).
-- Modify: `db-migrations.sql`: blokken fra Global Constraints med funktionen.
+  forankring og én topobservation med `private.record_helpost_observation(v_record.id,
+  private.writer_config_helpost_kind(<batchprofilens writer_config>))` (mønster: klausul-writeren `schema.sql:4297-4300`);
+  brug den returnerede observation som `v_parent`. Lås som i dag (`FOR UPDATE` på recorden og helposten).
+- Modify: `schema.sql`: seed af `reimport_writer_profile` `daa-1939-interpretation-proposal-v1` (kilde 3;
+  `writer_config` = `daa-2018-20-interpretation-proposal-v1`'s med `helpost_observation_kind` `person` og 1939's
+  rendition/citation-felter som `daa-1939-clause-evidence-v1`).
+- Create: `.claude/skills/daa-extract/references/reimport-profiles/daa-1939-interpretation-proposal-v1.json` (form som
+  2018-20-filen: `writer_config`, denylist, rollekort; `profile_sha256` = databasens kanoniske hash).
+- Modify: `db-migrations.sql`: blokken fra Global Constraints med funktionen og profilrækken (`ON CONFLICT DO NOTHING`).
 - Modify: `tests/sql/test-interpretation-proposal.sql`: nye tilfælde.
 - Modify: `tests/sql/test-interpretation-proposal-rerun.sql`: 2018-20-genafspilningen giver samme nøgler.
 
@@ -89,8 +102,9 @@ spec §4.3 og plan Task 15-16 (`docs/superpowers/plans/2026-10-31-trin6b-identit
 - [ ] **Step 1: Test** (`BEGIN … ROLLBACK`, fixture med én record og tre forankringer, hvor helposten er i den anden):
   forslaget skrives, `interpretation_observation` peger på den anden forankrings klausuler, og nøglen er lig
   `private.interpretation_proposal_key(...)` for samme input. En record, hvor helpost-reglen giver `ambiguous`, giver
-  `RECORD_HELPOST_AMBIGUOUS`. En 2018-20-fixture med én forankring giver byte-ens kvittering med før-ændringen
-  (hardkodet sha taget fra `main`).
+  `RECORD_HELPOST_AMBIGUOUS`. En 2018-20-fixture med én forankring og helpost-slags `person_post` under profilen
+  `daa-2018-20-interpretation-proposal-v1` giver byte-ens kvittering med før-ændringen (hardkodet sha taget fra
+  `main`). 2018-20-profilernes `profile_sha256` er uændrede; den nye profils hash er lig filens.
 - [ ] **Step 2:** Kør mod en base med `schema.sql` fra `main`. Forventet: `REIMPORT_WRITER_CLAUSE_FOREIGN_POST`.
 - [ ] **Step 3:** Implementér i `schema.sql` og `db-migrations.sql`.
 - [ ] **Step 4:** Kør de to testfiler mod frisk `schema.sql` og mod `db-migrations.sql` kørt to gange, og hele
@@ -100,10 +114,17 @@ spec §4.3 og plan Task 15-16 (`docs/superpowers/plans/2026-10-31-trin6b-identit
 
 ## PR 2 — scripts (gren `feat/trin6c1-scripts` fra `feat/trin6c1-db`)
 
-### Task 2: Runneren kender codex' kvotefejl
+### Task 2: Runner-kontrakt 1.4: kvotefejl, kodebinding og kilde-id
 
 **Files:**
-- Modify: `.claude/skills/daa-extract/scripts/evidence_runner.py` `classify_failure` (linje 450-460).
+- Modify: `.claude/skills/daa-extract/scripts/evidence_runner.py` `classify_failure` (linje 450-460) og
+  `CACHE_KEY_FIELDS_BY_CONTRACT` (linje 302-306): `evidence-runner-1.3` registreres eksplicit (ikke gennem konstanten).
+- Modify: `build_43b_manifest.py`: `source_id` fra runner-inputtet i manifestet; `runner_code_sha256` altid med for
+  `--dagsvaerk` ≠ `4.3b` (historisk vej uændret).
+- Modify: `run_evidence_43b.py`: kontrakt ≥ 1.4 uden `runner_code_sha256` → `RUNNER_CODE_SHA_MISSING`.
+- Modify: `build_43b_proposal_manifest.py` (linje 392): `source_id` fra runner-manifestet; mangler det på et manifest
+  med kontrakt ≥ 1.4 → `PROPOSAL_MANIFEST_SOURCE_MISSING`; afviger det fra writerprofilens kilde →
+  `PROPOSAL_MANIFEST_SOURCE_MISMATCH`. Historiske manifester (≤ 1.3) beholder standardværdien 1.
 - Create: `.claude/skills/daa-extract/scripts/fixtures/failure-quota-no-type.jsonl` (kun en `turn.failed` med
   `error.message`, ingen kildetekst).
 - Modify: `.claude/skills/daa-extract/scripts/test_evidence_runner.py`.
@@ -116,11 +137,15 @@ spec §4.3 og plan Task 15-16 (`docs/superpowers/plans/2026-10-31-trin6b-identit
 
 - [ ] **Step 1: Test:** `test_quota_without_type_is_quota_exhausted` (fixturen → `quota_exhausted`);
   `test_failed_without_type_or_quota_text_is_unknown`; `test_run_evidence_stops_bundle_on_quota_without_type` (to
-  records, første giver fixturen → anden sendes ikke).
-- [ ] **Step 2:** Kør `python3 -m pytest .claude/skills/daa-extract/scripts/test_evidence_runner.py -q`. Forventet: 3 FAIL.
-- [ ] **Step 3:** Implementér; opdatér `CACHE_KEY_FIELDS_BY_CONTRACT` med 1.4.
+  records, første giver fixturen → anden sendes ikke); `test_cache_key_1_3_vector_unchanged` (fast 1.3-nøglevektor
+  fra `main`); `test_manifest_6c1_binds_code_and_source`; `test_runner_rejects_14_manifest_without_code_sha`;
+  `test_proposal_manifest_requires_source_for_14` og `..._source_mismatch`; den eksisterende historiske genbygning af
+  2018-20's forslagsmanifest giver samme hash som før.
+- [ ] **Step 2:** Kør `python3 -m pytest` på `test_evidence_runner.py`, `test_evidence_run_manifest.py` og
+  `test_build_43b_proposal_manifest.py`. Forventet: de nye FAIL.
+- [ ] **Step 3:** Implementér; `CACHE_KEY_FIELDS_BY_CONTRACT` får 1.3 og 1.4 som eksplicitte nøgler.
 - [ ] **Step 4:** Hele python-jobbets filliste (`ci.yml:156`). Forventet: PASS.
-- [ ] **Step 5:** Commit `fix(runner): codex' kvotefejl uden fejltype stopper bundtet`.
+- [ ] **Step 5:** Commit `feat(runner): kontrakt 1.4 — kvotefejl, kodebinding og kilde-id`.
 
 ### Task 3: Prompt 1.1.0 og profilen `daa-1939-v2`
 
@@ -158,8 +183,11 @@ spec §4.3 og plan Task 15-16 (`docs/superpowers/plans/2026-10-31-trin6b-identit
 
 - [ ] **Step 1: Test:** fixturen med tre forankringer giver én record med den rigtige helposts tekst og klausuler,
   uafhængigt af `ORDER BY` (kør med to rækkefølger); `persona_id` er personaen med nøgle `'1939:' || record_key`;
-  2018-20-fixturen giver byte-ens fil med `main`'s (hardkodet sha).
-- [ ] **Step 2-4:** Kør (FAIL) → implementér → kør hele r-jobbet (`Rscript run-tests.R`). Forventet: PASS.
+  2018-20-fixturen (helpost-slags `person_post`) giver byte-ens fil med `main`'s (hardkodet sha). Helpost-slagsen
+  læses fra en `--writer-profile`-parameter gennem `private.writer_config_helpost_kind`.
+- [ ] **Step 2-4:** Kør (FAIL) → implementér → kør testen i samme PostgreSQL-job som
+  `tests/integration/test-reimport-source-text-revision.R` (`ci.yml:522`; tilføj et `run:`-trin dér) og hele det job
+  lokalt. `Rscript run-tests.R` dækker ikke `tests/integration`. Forventet: PASS.
 - [ ] **Step 5:** Commit `fix(scripts): runner-input vælger helpost og persona som writeren`.
 
 ### Task 5: Eligibility-politikken `exclusion-1939-v1`
@@ -176,16 +204,25 @@ spec §4.3 og plan Task 15-16 (`docs/superpowers/plans/2026-10-31-trin6b-identit
 - Produces: `eligibility-ledger-v1.json` med `policy_version`, `rules_script_sha256` og pr. record `status` og
   `reasons` (årsagskoderne fra Global Constraints). Kun nøgler, koder og hashes.
 
+- Modify: `evidence_runner.py` `EXCLUSION_REASONS` → årsager pr. politik (`exclusion-2018-20-v1`: de fire eksisterende;
+  `exclusion-1939-v1`: koderne fra Global Constraints); `load_ledger` validerer mod ledgerens `policy_version`.
+
 - [ ] **Step 1: Test** (fixture med en 1939-record for hver regel + én tilladt): hver regel giver præcis sin årsag;
-  `s. 1923` udelukker; `1914` alene udelukker ikke; en post uden published binding giver `no_published_persona`;
-  `--policy exclusion-2018-20-v1` mod 2018-20-fixturen giver byte-ens ledger med `main`'s; ukendt politik giver
-  `EXPORT_POLICY_UNKNOWN`.
-- [ ] **Step 2-4:** FAIL → implementér → hele r-jobbet. Forventet: PASS.
+  `s. 1923` udelukker; `l923` og `19O5`→1905 tolkes som årstal (`l923` udelukker, `19O5` ikke); `1914` alene udelukker
+  ikke; en post uden published binding giver `no_published_persona`; `--policy exclusion-2018-20-v1` mod
+  2018-20-fixturen giver samme afgørelser, årsager og `input_sha` pr. record som `main`'s ledger; ukendt politik giver
+  `EXPORT_POLICY_UNKNOWN`. Python: `load_ledger` accepterer en 1939-ledger og afviser en 2018-20-årsag i en
+  1939-ledger; `build_eligible_selection.py` og `run_evidence_43b.py` læser en 1939-ledger.
+- [ ] **Step 2-4:** FAIL → implementér → R-testen i samme PostgreSQL-job som Task 4, plus python-jobbet. Forventet: PASS.
 - [ ] **Step 5:** Commit `feat(scripts): eligibility-politik for 1939 (exclusion-1939-v1)`.
 
-### Task 6: Målingen `maal_trin6c1.sql`
+### Task 6: Pilotudvalg og målingen `maal_trin6c1.sql`
 
 **Files:**
+- Modify: `build_eligible_selection.py`: `--limit N --seed S` vælger N `eligible` poster deterministisk, stratificeret
+  på (antal forankringer 1/≥2) × (postlængde under/over medianen), og deler dem i bundter, der dækker præcis
+  udvalget. Uden `--limit` er output byte-ens med i dag. Test i `test_build_eligible_selection.py`: alle 30 i præcis
+  ét bundt, samme seed → samme udvalg, strata repræsenteret.
 - Create: `.claude/skills/daa-extract/scripts/maal_trin6c1.sql` (læse-kun).
 - Create: `.claude/skills/daa-extract/scripts/test_maal_trin6c1.py` (mod lokal fixturebase); tilføj i `ci.yml:156`.
 
@@ -216,14 +253,16 @@ Under `~/.private/6c1/` (0700). Stand-in: `createdb -T daa5ab_ddl_standin_202611
 
 - [ ] **Step 1:** Ledger (`--policy exclusion-1939-v1`) og runner-input for kilde 3. Forventet ca. 500 `eligible` /
   63 `excluded` (spec §2.3); afviger det med mere end 5, stop og forklar.
-- [ ] **Step 2: Pilot:** `build_43b_selection.py --count 30` (seed i manifestet), `build_43b_manifest.py --profile-id
-  daa-1939-v2`, `run_evidence_43b.py`. Gaten (spec §4.5 pkt. 1) rapporteres med tal i
+- [ ] **Step 2: Pilot:** `build_eligible_selection.py --limit 30 --seed 6c1-pilot-v1`, `build_43b_manifest.py
+  --profile-id daa-1939-v2 --dagsvaerk 6c-1`, `run_evidence_43b.py`. Gaten (spec §4.5 pkt. 1) rapporteres med tal i
   `docs/evidensbaseret-genimport/runner-1939-pilot.md` (ingen claim-værdier). Fejler gaten: stop; prompt eller profil
   rettes i en ny task, før noget ingestes.
 - [ ] **Step 3: Fuld kørsel:** `build_eligible_selection.py` over alle `eligible`, bundter som 2018-20; pilotens svar
   kommer fra cachen. Kvotestop → vent og genoptag samme bundt; vedvarende fejl på én post → reservemanifest uden
   posten, talt.
-- [ ] **Step 4: Ingest:** `build_43b_proposal_manifest.py --profile daa-1939-v2 --cache-key current`; skriv
+- [ ] **Step 4: Ingest:** `build_43b_proposal_manifest.py --profile
+  .claude/skills/daa-extract/references/reimport-profiles/daa-1939-interpretation-proposal-v1.json --cache-key current`
+  (manifestets kilde = 3); skriv
   forventningen (elementer, claims pr. prædikat og rolle, citerede klausuler) før kørslen; dry-run → apply gennem
   R-gatewayen (mønster `~/.private/2018-20-overfoersel/04-proposal-apply-prod.R`); `db-verify.sql` på en engangskopi;
   kanonisk delta 0; `maal` → `b`; `k1_forslag_hash` uændret.
@@ -258,7 +297,9 @@ Under `~/.private/6c1/` (0700). Stand-in: `createdb -T daa5ab_ddl_standin_202611
   forslagsmanifestets, ledgerens og runner-manifestets hash.
 
 - [ ] **Step 1:** Frisk stand-in fra seneste prod-dump; A → `maal` `a`; B med manifestet fra Task 8 → `b`; digest lig
-  Task 8's; replay `already_applied`. Notér varigheder.
+  Task 8's; replay `already_applied`. Mål maksimum pr. statement for dry-run, autorisation, hvert writer-kald,
+  finalize og digest (`log_min_duration_statement=0` eller tidsstempler i gatewayen); omregn med 27×. Over 60 s
+  anslået: B deles i deterministiske delbatches (spec §4.6), og øvelsen gentages.
 - [ ] **Step 2:** Fortrydelse af B: restore af B-dumpet (taget i tilstand `a`) → `a`; B igen → `b`.
 - [ ] **Step 3:** Commit `docs(runbooks): trin 6c-1 ceremoni A og B`.
 
@@ -284,4 +325,5 @@ Under `~/.private/6c1/` (0700). Stand-in: `createdb -T daa5ab_ddl_standin_202611
 
 ## Reviewlog
 
-*(tom)*
+Codex-runden på spec+plan (2026-11-01, `gpt-6.1-sol`): NO-GO, 11 fund; afvejning og placering i specens §10. Planen
+rettet i Task 1, 2, 4, 5, 6, 8 og 10. Næste og sidste B13-runde er diffreviewet i Task 11.
