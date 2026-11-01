@@ -140,7 +140,7 @@ def test_4_3b_manifestets_hash_kan_genberegnes():
 def _koersel(tmp_path, monkeypatch, *, klausul="t", kode=None, codex="0.155.1",
              noegler=("R-1",), codex_stub=None, policy="exclusion-2018-20-v1", udelukket=None,
              profile_id="daa-2018-20-v1", input_source=1, ledger_source=1, manifest_source=1,
-             ledger_restore="x"):
+             ledger_restore="x", drift=()):
     """Hele runnerens main med én record og en stub i stedet for modellen.
 
     Kilde og snapshot står særskilt på runner-input, ledger og manifest (fund F1)."""
@@ -157,6 +157,9 @@ def _koersel(tmp_path, monkeypatch, *, klausul="t", kode=None, codex="0.155.1",
                           for k in noegler}}
     for k, aarsager in (udelukket or {}).items():
         ledger["records"][k] = {"status": "excluded", "reasons": list(aarsager), "record_input_sha256": "0" * 64}
+    for k in drift:
+        # Ledgeren godkendte et andet input end det, runner-inputtet nu bærer.
+        ledger["records"][k]["record_input_sha256"] = "f" * 64
     (tmp_path / "ledger.json").write_text(json.dumps(ledger), encoding="utf-8")
     (tmp_path / "input.json").write_text(json.dumps({"source_id": input_source, "records": recs}),
                                          encoding="utf-8")
@@ -174,9 +177,10 @@ def _koersel(tmp_path, monkeypatch, *, klausul="t", kode=None, codex="0.155.1",
     # CI har ingen Codex: versionen injiceres, så testen ikke afhænger af maskinen.
     monkeypatch.setattr(evidence_runner, "codex_cli_version",
                         codex if callable(codex) else (lambda **k: codex))
+    # `kaldt` får hele argv'et pr. kald, så en test kan se, hvilken record modellen fik.
     monkeypatch.setattr(evidence_runner, "run_codex",
-                        (lambda *a, **k: (kaldt.append(1), codex_stub())[1]) if codex_stub
-                        else (lambda *a, **k: kaldt.append(1)))
+                        (lambda *a, **k: (kaldt.append(a[0]), codex_stub())[1]) if codex_stub
+                        else (lambda *a, **k: kaldt.append(a[0])))
     monkeypatch.setattr("sys.argv", ["run", "--manifest", str(tmp_path / "m.json"),
                                      "--approved-sha256", m["manifest_sha256"],
                                      "--runner-input", str(tmp_path / "input.json"),
@@ -478,3 +482,33 @@ def test_runner_with_matching_source_and_snapshot_reaches_the_model(tmp_path, mo
     rc, kaldt = _koersel(tmp_path, monkeypatch, codex_stub=_kvote_stub(monkeypatch),
                          input_source=3, ledger_source=3, manifest_source=3)
     assert len(kaldt) == 1 and "STOP_QUOTA_EXHAUSTED ved R-1" in capsys.readouterr().out
+
+
+def test_1939_run_path_skips_excluded_and_drifted_records_before_the_eligible_one(tmp_path, monkeypatch, capsys):
+    """Fund F3 (final-review): 1939-vejen (exclusion-1939-v1 / daa-1939-v2). En udelukket record og en med
+    hash-drift står FØR den eligible i bundtet. Begge får et synligt `not_eligible`, modellen ser kun den
+    eligible record, og intet caches for de to."""
+    import subprocess
+    events = (Path(__file__).resolve().parent / "tests" / "fixtures" / "codex-exec"
+              / "turn-completed-with-usage.jsonl").read_text(encoding="utf-8")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""))
+    rc, kaldt = _koersel(tmp_path, monkeypatch, noegler=("R-0", "R-1", "R-2"),
+                         policy="exclusion-1939-v1", profile_id="daa-1939-v2",
+                         udelukket={"R-0": ["principal_living", "text_year_ge_1915"]}, drift=("R-1",),
+                         codex_stub=lambda: (events, json.dumps({"claims": []})))
+    out = capsys.readouterr().out
+    resultat = {r["record_key"]: r for r in json.loads((tmp_path / "o.json").read_text(encoding="utf-8"))["resultater"]}
+    assert list(resultat) == ["R-0", "R-1", "R-2"]
+    for k in ("R-0", "R-1"):
+        assert (resultat[k]["status"], resultat[k]["error_kind"]) == ("failed", "not_eligible")
+        assert resultat[k]["antal_claims"] == 0 and resultat[k]["usage"] == {}
+    assert resultat["R-2"]["status"] == "green" and resultat["R-2"]["error_kind"] is None
+    # Præcis ét kald, og prompten bærer den eligible record — ikke de to andre.
+    assert len(kaldt) == 1
+    prompt = "\n".join(map(str, kaldt[0]))
+    assert '"record_key": "R-2"' in prompt
+    assert '"record_key": "R-0"' not in prompt and '"record_key": "R-1"' not in prompt
+    # Cachen rummer kun den eligible records svar.
+    cachet = list((tmp_path / "c").glob("**/*.json"))
+    assert len(cachet) == 1
+    assert "BATCH_PENDING" in out and rc == 1
