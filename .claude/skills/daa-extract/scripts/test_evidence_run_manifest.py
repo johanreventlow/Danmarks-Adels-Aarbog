@@ -137,21 +137,24 @@ def test_4_3b_manifestets_hash_kan_genberegnes():
     assert manifest_sha256(m) == m["manifest_sha256"]
 
 
-def _koersel(tmp_path, monkeypatch, *, klausul="t", kode=None, codex="0.155.1"):
+def _koersel(tmp_path, monkeypatch, *, klausul="t", kode=None, codex="0.155.1",
+             noegler=("R-1",), codex_stub=None):
     """Hele runnerens main med én record og en stub i stedet for modellen."""
     import run_evidence_43b
-    rec = {"record_key": "R-1", "persona_id": "p", "post_verbatim_text": "t",
-           "clauses": [{"ordinal": 1, "verbatim_text": klausul,
-                        "verbatim_sha256": evidence_runner.sha256_text(klausul)}]}
+    def lav(k):
+        return {"record_key": k, "persona_id": "p", "post_verbatim_text": "t",
+                "clauses": [{"ordinal": 1, "verbatim_text": klausul,
+                             "verbatim_sha256": evidence_runner.sha256_text(klausul)}]}
+    recs = {k: lav(k) for k in noegler}
+    shas = {k: evidence_runner.canonical_record_input(r) for k, r in recs.items()}
     ledger = {"schema_version": evidence_runner.LEDGER_SCHEMA_VERSION, "policy_version": "p",
               "rules_script_sha256": "r" * 64, "source_id": 1, "restore_identity": "x",
-              "records": {"R-1": {"status": "eligible", "reasons": [],
-                                  "record_input_sha256": evidence_runner.canonical_record_input(rec)}}}
+              "records": {k: {"status": "eligible", "reasons": [], "record_input_sha256": shas[k]}
+                          for k in noegler}}
     (tmp_path / "ledger.json").write_text(json.dumps(ledger), encoding="utf-8")
-    (tmp_path / "input.json").write_text(json.dumps({"records": {"R-1": rec}}), encoding="utf-8")
-    udvalg = {"records": ["R-1"], "bundter": {"bundt_1": ["R-1"]},
-              "record_input_sha256": {"R-1": evidence_runner.canonical_record_input(rec)},
-              "strata_version": "t", "strata_sha256": "s" * 64}
+    (tmp_path / "input.json").write_text(json.dumps({"records": recs}), encoding="utf-8")
+    udvalg = {"records": list(noegler), "bundter": {"bundt_1": list(noegler)},
+              "record_input_sha256": shas, "strata_version": "t", "strata_sha256": "s" * 64}
     m = build_manifest(udvalg, dagsvaerk="4.5", restore_identity="x",
                        ledger_sha256=hashlib.sha256((tmp_path / "ledger.json").read_bytes()).hexdigest(),
                        profil=evidence_extract.load_profile("daa-2018-20-v1"),
@@ -163,7 +166,9 @@ def _koersel(tmp_path, monkeypatch, *, klausul="t", kode=None, codex="0.155.1"):
     # CI har ingen Codex: versionen injiceres, så testen ikke afhænger af maskinen.
     monkeypatch.setattr(evidence_runner, "codex_cli_version",
                         codex if callable(codex) else (lambda **k: codex))
-    monkeypatch.setattr(evidence_runner, "run_codex", lambda *a, **k: kaldt.append(1))
+    monkeypatch.setattr(evidence_runner, "run_codex",
+                        (lambda *a, **k: (kaldt.append(1), codex_stub())[1]) if codex_stub
+                        else (lambda *a, **k: kaldt.append(1)))
     monkeypatch.setattr("sys.argv", ["run", "--manifest", str(tmp_path / "m.json"),
                                      "--approved-sha256", m["manifest_sha256"],
                                      "--runner-input", str(tmp_path / "input.json"),
@@ -268,7 +273,8 @@ def _main_manifest(tmp_path, monkeypatch, *extra):
     monkeypatch.setattr("sys.argv", ["b", "--selection", str(tmp_path / "u.json"),
                                      "--ledger", str(tmp_path / "l.json"),
                                      "--out", str(tmp_path / "m.json"),
-                                     "--restore-identity", "daa44g_x", "--dagsvaerk", "4.5", *extra])
+                                     "--restore-identity", "daa44g_x",
+                                     *(extra if "--dagsvaerk" in extra else ("--dagsvaerk", "4.5", *extra))])
     assert bm.main() == 0
     return json.loads((tmp_path / "m.json").read_text(encoding="utf-8"))
 
@@ -344,3 +350,52 @@ def test_runner_accepts_13_manifest_without_code_sha():
     m["manifest_sha256"] = manifest_sha256(m)
     assert check_contract(m, schema_text=SKEMA, runner_contract_version="evidence-runner-1.3",
                           code_sha256="c" * 64, codex_cli_version="0.155.1") is None
+
+
+def test_manifest_6c1_binds_code_and_source(tmp_path, monkeypatch):
+    (tmp_path / "ri.json").write_text(json.dumps({"source_id": 3, "records": {}}), encoding="utf-8")
+    m = _main_manifest(tmp_path, monkeypatch, "--dagsvaerk", "6c-1",
+                       "--runner-input", str(tmp_path / "ri.json"))
+    assert m["dagsvaerk"] == "6c-1" and m["source_id"] == 3
+    assert m["runner_contract_version"] == "evidence-runner-1.4"
+    assert len(m["runner_code_sha256"]) == 64
+
+
+def test_manifest_6c1_without_runner_input_is_refused(tmp_path, monkeypatch, capsys):
+    with pytest.raises(AssertionError):
+        _main_manifest(tmp_path, monkeypatch, "--dagsvaerk", "6c-1")
+    assert "RUNNER_INPUT_SOURCE_MISSING" in capsys.readouterr().out
+
+
+def test_runner_rejects_14_manifest_without_code_sha():
+    m = build_manifest(udvalg45(), dagsvaerk="6c-1", restore_identity="x", ledger_sha256="L",
+                       profil=PROFIL, claims_schema_sha256=evidence_runner.sha256_text(SKEMA),
+                       codex_cli_version="0.155.1", source_id=3)
+    assert "runner_code_sha256" not in m
+    assert check_contract(m, schema_text=SKEMA, runner_contract_version=m["runner_contract_version"],
+                          code_sha256="c" * 64, codex_cli_version="0.155.1") == "RUNNER_CODE_SHA_MISSING"
+
+
+def test_runner_accepts_13_manifest_without_code_sha():
+    m = build_manifest(udvalg45(), dagsvaerk="4.5", restore_identity="x", ledger_sha256="L",
+                       profil=PROFIL, claims_schema_sha256=evidence_runner.sha256_text(SKEMA),
+                       codex_cli_version="0.155.1")
+    m["runner_contract_version"] = "evidence-runner-1.3"
+    m["manifest_sha256"] = manifest_sha256(m)
+    assert check_contract(m, schema_text=SKEMA, runner_contract_version="evidence-runner-1.3",
+                          code_sha256="c" * 64, codex_cli_version="0.155.1") is None
+
+
+def test_run_evidence_stops_bundle_on_quota_without_type(tmp_path, monkeypatch, capsys):
+    """Review Focus 3: en kvotefejl uden `error.type` midt i et bundt standser det —
+    record 2 sendes ikke og har intet cacheindslag."""
+    import subprocess
+    fixtur = (Path(__file__).resolve().parent / "tests" / "fixtures" / "codex-exec"
+              / "failure-quota-no-type.jsonl").read_text(encoding="utf-8")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""))
+    rc, kaldt = _koersel(tmp_path, monkeypatch, noegler=("R-1", "R-2"),
+                         codex_stub=lambda: (fixtur, ""))
+    out = capsys.readouterr().out
+    assert len(kaldt) == 1
+    assert "STOP_QUOTA_EXHAUSTED ved R-1" in out
+    assert not list((tmp_path / "c").glob("*.json"))

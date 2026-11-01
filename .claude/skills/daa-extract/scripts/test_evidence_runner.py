@@ -440,11 +440,6 @@ def test_failed_without_type_or_quota_text_is_unknown(error):
     assert classify_failure(stream, exit_code=1) == "unknown"
 
 
-def test_run_evidence_stops_bundle_on_quota_without_type():
-    import run_evidence_43b
-    kind = classify_failure(read_fixture("failure-quota-no-type.jsonl"), exit_code=1)
-    assert run_evidence_43b.stop_reason(kind) == "STOP_QUOTA_EXHAUSTED"
-
 
 def test_a_12_answer_is_not_reused_under_13(tmp_path):
     """P1: et 1.2-svar kan stamme fra et kald, der kørte en kommando.  Strømmen står
