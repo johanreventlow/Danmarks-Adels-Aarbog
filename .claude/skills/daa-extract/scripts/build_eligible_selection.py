@@ -29,6 +29,7 @@ from evidence_runner import (EligibilityError, RunnerError, canonical_clause_set
                              check_eligibility, load_ledger)
 
 STRATA_VERSION = "eligible-all-v1"
+PILOT_STRATA_VERSION = "eligible-pilot-v1"
 BUNDT = 25
 
 
@@ -90,8 +91,73 @@ def definition_sha256(size: int) -> str:
                                      separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def build_selection(records: dict, ledger: dict, ledger_sha256: str, size: int) -> dict:
+def _median(values: list[int]) -> float:
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    return float(ordered[mid]) if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def stratum_of(rec: dict, klausul_median: float, laengde_median: float) -> str:
+    return (("klausuler_hoej" if len(rec["clauses"]) > klausul_median else "klausuler_lav") + "|"
+            + ("laengde_hoej" if len(rec["post_verbatim_text"]) > laengde_median else "laengde_lav"))
+
+
+def pilot_definition_sha256(size: int, limit: int, seed: int) -> str:
+    definition = {"strata_version": PILOT_STRATA_VERSION, "bundle_size": size, "limit": limit, "seed": seed,
+                  "order": "python-str-codepoint", "filter": "ledger.status == eligible",
+                  "strata": "(antal klausuler <=/> median) x (posttekstlaengde <=/> median), median over eligible",
+                  "pick": "sha256(seed|record_key) stigende inden for stratum; rundgang over strata i navneorden"}
+    return hashlib.sha256(json.dumps(definition, sort_keys=True,
+                                     separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def pilot_pick(records: dict, keys: list[str], limit: int, seed: int) -> tuple[list[str], dict]:
+    if limit <= 0 or limit > len(keys):
+        raise SelectionLedgerMismatch(f"SELECTION_LIMIT_INVALID limit={limit} eligible={len(keys)}")
+    km = _median([len(records[k]["clauses"]) for k in keys])
+    lm = _median([len(records[k]["post_verbatim_text"]) for k in keys])
+    strata: dict[str, list[str]] = {}
+    for k in keys:
+        strata.setdefault(stratum_of(records[k], km, lm), []).append(k)
+    eligible_pr = {n: len(v) for n, v in sorted(strata.items())}
+    for bucket in strata.values():
+        bucket.sort(key=lambda k: (hashlib.sha256(f"{seed}|{k}".encode("utf-8")).hexdigest(), k))
+    navne = sorted(strata)
+    valgt: list[str] = []
+    i = 0
+    while len(valgt) < limit:
+        bucket = strata[navne[i % len(navne)]]
+        if bucket:
+            valgt.append(bucket.pop(0))
+        i += 1
+    return sorted(valgt), {"klausul_median": km, "laengde_median": lm, "eligible_pr_stratum": eligible_pr}
+
+
+def build_selection(records: dict, ledger: dict, ledger_sha256: str, size: int,
+                    limit: int | None = None, seed: int = 0) -> dict:
     keys = eligible_keys(records, ledger)
+    if limit is not None:
+        keys, info = pilot_pick(records, keys, limit, seed)
+        km, lm = info["klausul_median"], info["laengde_median"]
+        valgt_pr: dict[str, int] = {}
+        for k in keys:
+            n = stratum_of(records[k], km, lm)
+            valgt_pr[n] = valgt_pr.get(n, 0) + 1
+        return {
+            "strata_version": PILOT_STRATA_VERSION,
+            "strata_sha256": pilot_definition_sha256(size, limit, seed),
+            "ledger_sha256": ledger_sha256,
+            "seed": seed,
+            "limit": limit,
+            **info,
+            "valgt_pr_stratum": dict(sorted(valgt_pr.items())),
+            "records": keys,
+            "bundter": bundle(keys, size),
+            "record_input_sha256": {k: canonical_record_input(records[k]) for k in keys},
+            "uden_persona": [k for k in keys if not records[k]["persona_id"]],
+            "ikke_i_ledger": sorted(set(records) - set(ledger["records"])),
+            "note": "pilotudvalg af eligible poster, stratificeret og seedet (trin 6c-1)",
+        }
     return {
         "strata_version": STRATA_VERSION,
         "strata_sha256": definition_sha256(size),
@@ -111,13 +177,16 @@ def main() -> int:
     ap.add_argument("--ledger", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--bundle-size", type=int, default=BUNDT)
+    ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
     records = json.loads(Path(args.runner_input).read_text(encoding="utf-8"))["records"]
     ledger_bytes = Path(args.ledger).read_bytes()
     try:
         udvalg = build_selection(records, json.loads(ledger_bytes),
-                                 hashlib.sha256(ledger_bytes).hexdigest(), args.bundle_size)
+                                 hashlib.sha256(ledger_bytes).hexdigest(), args.bundle_size,
+                                 args.limit, args.seed)
     except (SelectionLedgerMismatch, EligibilityError) as exc:
         print(str(exc))
         return 1
