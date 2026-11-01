@@ -95,12 +95,15 @@ INSERT INTO private.interpretation(interpretation_key,version,source_id,source_p
          ('11000000-0000-0000-0000-00000006c1c2',1,{SRC},NULL,'property','fixture.predicate','{{"v":2}}','fixture',
           'deterministic',1,'proposed','fixture','{RUN}');
 -- profil og autorisation udelades: FK'erne springes over under replica-rollen
+-- e1: finaliseret (taeller); e0: aaben, dvs. ikke gennemfoert (taeller ikke, fund F9)
 INSERT INTO private.reimport_batch(id,authorization_id,manifest_sha256,preview_sha256,principal_id,status,expected_counts,source_id,profile_id,profile_sha256)
-  VALUES ('11000000-0000-0000-0000-00000006c1e1',gen_random_uuid(),repeat('b',64),repeat('c',64),gen_random_uuid(),'open','{{}}',{SRC},'fx-prop',repeat('a',64));
+  VALUES ('11000000-0000-0000-0000-00000006c1e1',gen_random_uuid(),repeat('b',64),repeat('c',64),gen_random_uuid(),'finalized','{{}}',{SRC},'fx-prop',repeat('a',64)),
+         ('11000000-0000-0000-0000-00000006c1e0',gen_random_uuid(),repeat('b',64),repeat('c',64),gen_random_uuid(),'open','{{}}',{SRC},'fx-prop',repeat('a',64));
 INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
   VALUES ('11000000-0000-0000-0000-00000006c1e1','e1','interpretation_proposal','r1','{{}}',repeat('d',64)),
          ('11000000-0000-0000-0000-00000006c1e1','e2','interpretation_proposal','r1','{{}}',repeat('d',64)),
-         ('11000000-0000-0000-0000-00000006c1e1','e3','interpretation_proposal','r2','{{}}',repeat('d',64));
+         ('11000000-0000-0000-0000-00000006c1e1','e3','interpretation_proposal','r2','{{}}',repeat('d',64)),
+         ('11000000-0000-0000-0000-00000006c1e0','e1','interpretation_proposal','r3','{{}}',repeat('d',64));
 """), "forslag")
 
 
@@ -142,3 +145,36 @@ def test_sql_er_laese_kun_og_viser_ingen_tekst():
     sql = MAAL.read_text(encoding="utf-8")
     assert "BEGIN READ ONLY" in sql and "ROLLBACK" in sql
     assert not re.search(r"\b(INSERT|UPDATE|DELETE)\s", re.sub(r"--[^\n]*", "", sql))
+
+
+def _maal(db) -> tuple:
+    out = _must(_psql("-v", f"source_id={SRC}", "-f", str(MAAL), db=db), "maal").strip()
+    g = LINE.fullmatch(out)
+    assert g, out
+    return g.groups()
+
+
+def _ident_batch(db, batch_id: str, status: str, profile_id: str) -> None:
+    _must(_psql(db=db, stdin=f"""
+SET session_replication_role = replica;
+INSERT INTO private.reimport_batch(id,authorization_id,manifest_sha256,preview_sha256,principal_id,status,expected_counts,source_id,profile_id,profile_sha256)
+  VALUES ('{batch_id}',gen_random_uuid(),repeat('b',64),repeat('c',64),gen_random_uuid(),'{status}','{{}}',{SRC},'{profile_id}',repeat('a',64));
+INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
+  VALUES ('{batch_id}','i1','publication_identity','r1','{{}}',repeat('d',64));
+"""), "ident-batch")
+
+
+def test_c_kraever_finaliseret_publication_identity_batch_med_publikationsprofilen(db):
+    """Fund F9 (final-review): c kræver en finaliseret/aktiveret batch med profilen daa-1939-publication-v1 og
+    en publication_identity-hændelse. En åben batch eller en anden profil giver ikke c. Kører efter b-testen
+    (modulets base har forslag, så udgangspunktet er b)."""
+    assert _maal(db)[0] == "b"
+    _ident_batch(db, "11000000-0000-0000-0000-00000006c1f1", "open", "daa-1939-publication-v1")
+    assert _maal(db)[0] == "b"
+    _ident_batch(db, "11000000-0000-0000-0000-00000006c1f2", "finalized", "en-anden-profil")
+    assert _maal(db)[0] == "b"
+    _ident_batch(db, "11000000-0000-0000-0000-00000006c1f3", "activated", "daa-1939-publication-v1")
+    c = _maal(db)
+    assert c[0] == "c"
+    # publication_identity-hændelser er ikke forslag: poster_k3 er uændret
+    assert c[2] == "2"
