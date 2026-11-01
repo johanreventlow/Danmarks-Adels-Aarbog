@@ -318,7 +318,7 @@ def test_main_uden_limit_er_byte_ens_med_foer_og_med_limit_skriver_pilot(tmp_pat
     assert out1.read_text(encoding="utf-8") == json.dumps(
         build_selection(records, ledger(rows), hashlib_sha(lg), 25), ensure_ascii=False, indent=2)
     ny = json.loads(out2.read_text(encoding="utf-8"))
-    assert len(ny["records"]) == 5 and ny["seed"] == 9
+    assert len(ny["records"]) == 5 and ny["seed"] == "9"
     assert stat.S_IMODE(out2.stat().st_mode) == 0o600
     assert "Født" not in capsys.readouterr().out
 
@@ -326,3 +326,40 @@ def test_main_uden_limit_er_byte_ens_med_foer_og_med_limit_skriver_pilot(tmp_pat
 def hashlib_sha(path):
     import hashlib
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+# ---- fund F5 (final-review): --seed er en streng og kræver --limit ----
+
+def _cli(tmp_path, *extra):
+    import sys
+    from unittest import mock
+    records, rows = pilot_setup(12)
+    ri, lg = tmp_path / "ri.json", tmp_path / "lg.json"
+    ri.write_text(json.dumps({"records": records}), encoding="utf-8")
+    lg.write_text(json.dumps(ledger(rows)), encoding="utf-8")
+    out = tmp_path / "u.json"
+    with mock.patch.object(sys, "argv", ["x", "--runner-input", str(ri), "--ledger", str(lg),
+                                         "--out", str(out), *extra]):
+        return main(), out, records, rows, lg
+
+
+def test_cli_seed_er_en_streng_som_i_planen(tmp_path):
+    rc, out, records, rows, lg = _cli(tmp_path, "--limit", "5", "--seed", "6c1-pilot-v1")
+    assert rc == 0
+    u = json.loads(out.read_text(encoding="utf-8"))
+    assert u["seed"] == "6c1-pilot-v1" and len(u["records"]) == 5
+    assert u == build_selection(records, ledger(rows), hashlib_sha(lg), 25, limit=5, seed="6c1-pilot-v1")
+
+
+def test_cli_seed_uden_limit_er_fejl(tmp_path, capsys):
+    rc, out, *_ = _cli(tmp_path, "--seed", "6c1-pilot-v1")
+    assert rc == 1 and not out.exists()
+    assert "SELECTION_SEED_WITHOUT_LIMIT" in capsys.readouterr().out
+
+
+def test_cli_uden_limit_og_seed_er_byte_ens_med_main(tmp_path):
+    rc, out, records, rows, lg = _cli(tmp_path)
+    assert rc == 0
+    assert out.read_text(encoding="utf-8") == json.dumps(
+        build_selection(records, ledger(rows), hashlib_sha(lg), 25), ensure_ascii=False, indent=2)
+    assert json.loads(out.read_text(encoding="utf-8"))["strata_version"] == "eligible-all-v1"

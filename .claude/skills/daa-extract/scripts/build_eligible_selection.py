@@ -102,7 +102,7 @@ def stratum_of(rec: dict, klausul_median: float, laengde_median: float) -> str:
             + ("laengde_hoej" if len(rec["post_verbatim_text"]) > laengde_median else "laengde_lav"))
 
 
-def pilot_definition_sha256(size: int, limit: int, seed: int) -> str:
+def pilot_definition_sha256(size: int, limit: int, seed: str) -> str:
     definition = {"strata_version": PILOT_STRATA_VERSION, "bundle_size": size, "limit": limit, "seed": seed,
                   "order": "python-str-codepoint", "filter": "ledger.status == eligible",
                   "strata": "(antal klausuler <=/> median) x (posttekstlaengde <=/> median), median over eligible",
@@ -111,7 +111,7 @@ def pilot_definition_sha256(size: int, limit: int, seed: int) -> str:
                                      separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def pilot_pick(records: dict, keys: list[str], limit: int, seed: int) -> tuple[list[str], dict]:
+def pilot_pick(records: dict, keys: list[str], limit: int, seed: str) -> tuple[list[str], dict]:
     if limit <= 0 or limit > len(keys):
         raise SelectionLedgerMismatch(f"SELECTION_LIMIT_INVALID limit={limit} eligible={len(keys)}")
     km = _median([len(records[k]["clauses"]) for k in keys])
@@ -134,7 +134,7 @@ def pilot_pick(records: dict, keys: list[str], limit: int, seed: int) -> tuple[l
 
 
 def build_selection(records: dict, ledger: dict, ledger_sha256: str, size: int,
-                    limit: int | None = None, seed: int = 0) -> dict:
+                    limit: int | None = None, seed: str = "0") -> dict:
     keys = eligible_keys(records, ledger)
     if limit is not None:
         keys, info = pilot_pick(records, keys, limit, seed)
@@ -178,15 +178,19 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     ap.add_argument("--bundle-size", type=int, default=BUNDT)
     ap.add_argument("--limit", type=int, default=None)
-    ap.add_argument("--seed", type=int, default=0)
+    # Seedet er en streng (planen bruger `6c1-pilot-v1`) og giver kun mening med --limit (fund F5).
+    ap.add_argument("--seed", type=str, default=None)
     args = ap.parse_args()
+    if args.seed is not None and args.limit is None:
+        print("SELECTION_SEED_WITHOUT_LIMIT — --seed vælger et pilotudvalg og kræver --limit.")
+        return 1
 
     records = json.loads(Path(args.runner_input).read_text(encoding="utf-8"))["records"]
     ledger_bytes = Path(args.ledger).read_bytes()
     try:
         udvalg = build_selection(records, json.loads(ledger_bytes),
                                  hashlib.sha256(ledger_bytes).hexdigest(), args.bundle_size,
-                                 args.limit, args.seed)
+                                 args.limit, "0" if args.seed is None else args.seed)
     except (SelectionLedgerMismatch, EligibilityError) as exc:
         print(str(exc))
         return 1
