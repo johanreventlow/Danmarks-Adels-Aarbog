@@ -6,17 +6,20 @@ indtil 6c's runner har kørt i prod; runbooken udvides med C i Task 15.
 
 - **Ceremoni A** lægger trin 6b's DDL i prod: blokken fra `-- ===== trin 6b: publication-operationer =====` til
   slutningen af `db-migrations.sql` og derefter `db-rls.sql`, i én transaktion. A er additiv:
-  - 18 nye funktioner, heraf 5 `public.red_*`, som `authenticated` kan kalde: de to elementoperationer
+  - 19 nye funktioner, heraf 5 `public.red_*`, som `authenticated` kan kalde: de to elementoperationer
     `red_apply_reimport_publication_persona` og `red_apply_reimport_publication_identity`, kontrollen
     `red_publication_control` og `red_publication_control_details` samt C's fortrydelse
-    `red_reverse_reimport_publication`. Den 18. er `private.require_publication_identity_finalized`, funktionen bag
+    `red_reverse_reimport_publication`. Opfølgningsblokken (#287) tilføjer `private.publication_identity_reverted`.
+    Den 19. er `private.require_publication_identity_finalized`, funktionen bag
     constraint-triggeren `trg_reimport_event_publication_identity_finalized` (på `private.reimport_event`, udskudt til
     commit; afviser apply uden finalize med `PUBLICATION_IDENTITY_UNFINALIZED`);
   - 8 eksisterende funktioner erstattes: `decide_source_persona_identity`, `identity_candidate_input`
     (årstalsreserven), `validate_reimport_authorization_payload`, `validate_reimport_writer_config`,
     `red_finalize_reimport`, `red_reimport_batch_result`, `red_source_persona_queue` (webkøens filter) og
     `red_afgoer_source_persona`;
-  - 2 indekser på `private.reimport_event`.
+  - 4 indekser på `private.reimport_event`: `reimport_event_publication_persona_receipt_idx`,
+    `reimport_event_publication_identity_batch_idx` og, fra opfølgningsblokken,
+    `reimport_event_publication_identity_batch_pair_idx` og `reimport_event_reversal_batch_idx`.
 
   A skriver kun én datarække: publikationsprofilen `daa-1939-publication-v1` i `private.reimport_writer_profile`.
   Ingen tal i målingen ændres.
@@ -56,7 +59,8 @@ Samme form som den fælles gateway er sikret ved konstruktion, ikke ved fælles 
     desuden med værdien fra dumpet.
   - Når 6c's runner har skrevet, kan B ikke længere fortrydes (se Fortrydelse).
 - Runnerens faste værdier passer til `main`:
-  - `T6B_BLOK`: blokkens sha, `38a83bca…`;
+  - `T6B_BLOK`: blokkens sha, `4a2912ca…` (main `7ed92afd`; blokken går til filens slutning og omfatter
+    opfølgningsblokken `-- ===== trin 6b opfølgning: C kan genkøres efter fortrydelse =====`);
   - `T6B_RLS`: `db-rls.sql`'s sha, `f517b2e5…`;
   - `T6B_PROFILE_SHA`: publikationsprofilens sha, `dfca126f…`;
   - `T6B_MANIFEST_CONTENT`: manifestets indholds-sha, `36dfa422…`.
@@ -218,9 +222,9 @@ hemmelighed. Brug den ikke uden at have tjekket, hvad der er ændret siden GO.
 - **Ceremoni A:** de tidligere funktionskroppe fra dumpet fra skridt 3. Det er ikke scriptet og ikke øvet; det
   bygges kun, hvis det bliver nødvendigt. Det kræver:
   - drop triggeren `trg_reimport_event_publication_identity_finalized` på `private.reimport_event` **først**, og derefter
-    de 18 nye funktioner (funktionen kan ikke droppes, så længe triggeren afhænger af den);
+    de 19 nye funktioner (funktionen kan ikke droppes, så længe triggeren afhænger af den);
   - genskab de 8 erstattede funktioner fra dumpet fra skridt 3, med deres REVOKE/GRANT;
-  - drop de 2 nye indekser;
+  - drop de 4 nye indekser;
   - tag stilling til profilrækken;
   - kør `db-rls.sql` fra commit'en før 6b.
 
@@ -614,6 +618,41 @@ Rettelserne:
 | `apply-b` | `T6B_APPLY_B_OK personas=555 identiteter=0`; `maal` `b` |
 
 `k1_hash` var `906c2a4d…` i alle målinger. Stand-in'en står i `b` uden markør.
+
+### Slutøvelse på `main` (2026-11-01)
+
+`main` = `7ed92afd` (#285, #286, #287). Runneren er `26-trin6b.sh` `3d1bcf8f…`, med `26-trin6b-b.R` `f60243a3…` og
+`26-trin6b-vindue.sql` `2acf65fd…`. `DAA_STANDIN_REPO` var en ren git-checkout af `main`, så GO-koderne binder
+commit'en. Opfølgningsblokken fra #287 er med i A's udtræk (blokken går til filens slutning), og det samme er de 4
+indekser.
+
+Stand-in: `daa5ab_ddl_standin_20261101101631_6bm`. Den er en frisk kopi af 6am2 (`createdb -T`, 1 s) med ICU
+(`i en-US`) og `statement_timeout` `2min`, kontrolleret fra runnerens forbindelse. `ANALYZE` tog 0,6 s.
+
+Pins: `T6B_BLOK` er ny (`4a2912ca…`). `T6B_RLS` (`f517b2e5…`), `T6B_PROFILE_SHA` (`dfca126f…`) og
+`T6B_MANIFEST_CONTENT` (`36dfa422…`) er uændrede og blev ramt.
+
+| Skridt | Resultat |
+|---|---|
+| `maal` | `foer`; `personas_k3=8 identiteter_k3=8 afventer=0`, `k1_personas=832 k1_identiteter=832 k1_hash=906c2a4d…`; `T6B_DEFACL` 0/0/0 |
+| `go-a` → `apply-a` uden dump | `STOPPORT: DUMP_6B_MANGLER` |
+| `dump` | `DUMP_6B_OK tilstand=foer` (15.292.845 bytes, 1,7 s), `EKSTERN_6B_OK … rundtur=ok` |
+| `apply-a` med forkert kode | `STOPPORT: GO_MISMATCH` |
+| `apply-a` | `B1_6B_OK`; `T6B_APPLY_A_OK tilstand=a personas_k3=8 identiteter_k3=8 afventer=0`, `k1` uændret, blok + `db-rls.sql` 0,2 s. Talt mod dumpet: 19 nye funktioner, 8 erstattede, 4 indekser og triggeren |
+| `maal` | `a`; `T6A_MAAL` uændret (12/2/t, 912/584/687/225/1, `k1_hash=2c530d0a…`) |
+| `db-verify.sql` på en kopi af stand-in'en i tilstand `a` (med `dblink`, som CI) | rc 0, 32 s; `OK: trin 6b — commit-vagt …` og `OK: trin 6b — fortrudt publikationsidentitet …`. Kopien er droppet |
+| `manifest` × 2 | `T6B_MANIFEST_OK elementer=555 allerede_persona=8 binding_uegnet=0 helpost_uegnet=0 ingen_bundet_narrativ=13 ingen_helpost=8 ingen_postbinding=21 staged_ikke_offentlig=2 indhold=36dfa4229cec847a`, ens fil (`842f9c80…`); 0,9-1,0 s |
+| `go-b` → `apply-b` med dumpet fra tilstand `foer` | `STOPPORT: DUMP_6B_TILSTAND` |
+| `dump` i `a` | `DUMP_6B_OK tilstand=a`; `DUMP_6B_MAAL_OK vindue=e581cfa8… tabeller=132 restore_hash=63afaa58… katalog=0f5f2e0d… foraeldreloese=0`, 4,6 s |
+| `apply-b` | `T6B_B_DRYRUN status=finalized` (2,2 s); `T6B_B_COMMITTED`; `T6B_B_KONTROL personas=555 primary_i_egen_helpost=555 helposter=555 identiteter=0 afventer=555 records_med_to_personas=0 personas_k3=563`; `T6B_B_PUBSTATE n=563 uaendret=TRUE`; `T6B_B_KOE foer=8 efter=8 nye_i_koeen=0`; `T6B_B_REPLAY already_applied samme_batch=TRUE`; `T6B_APPLY_B_OK personas=555 identiteter=0 sekunder=2.5 inkl_dryrun=5.4` |
+| `maal` | `b`; `personas_k3=563 identiteter_k3=8 afventer=555`, `k1` uændret |
+| `apply-b` igen | `STOPPORT: T6B_FOER_B` |
+| `go-fortryd` → `fortryd-b` med forkert kode | `STOPPORT: GO_MISMATCH` |
+| `fortryd-b` | `T6B_FORTRYD_B_OK tilstand=a … beslutning=ny vej=restore genoptaget=0 restore_fejl=5 grants_afstemt=0\|16 acl=som_dump katalog=som_dump restore_hash=63afaa58…`; restore 3,2 s, efterarbejde 4,0 s; 144 fremmednøgler; `T6A_MAAL` uændret |
+| `apply-b` igen (samme manifest, samme dump) | `T6B_APPLY_B_OK personas=555 identiteter=0 sekunder=2.1 inkl_dryrun=5.0`, alle kontroller som første gang |
+| `maal` | `b`, `k1` uændret, ingen markør |
+
+`k1_hash` var `906c2a4d…` i alle målinger. Stand-in'en står i `b`.
 
 ## Efter ceremonierne
 
