@@ -529,6 +529,48 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 18. Trin 6b ceremoni A og B: publication-operationer og 1939's personas — LIVE i prod (2026-11-01)
+
+**Procedure:** `docs/runbooks/trin6b-prod.md`, private scripts `~/.private/5ab-overfoersel/26-trin6b.sh`,
+`26-trin6b-b.R` og `26-trin6b-vindue.sql`. Repo `dcae5b34` (`main` med PR #285-#288). To ceremonier med hver sin GO,
+kørt af projektejeren. Ceremoni C (identiteterne) er ikke kørt; den venter på 6c's runner.
+
+- **Før:** `T6B_MAAL tilstand=foer personas_k3=8 identiteter_k3=8 afventer=0`, 2018-20 (`k1`) 832/832/`906c2a4d…`
+  (samme hash som slutøvelsens stand-in), 0,7 s; `T6B_DEFACL` 0/0/0.
+- **Ceremoni A (DDL, GO 6b-A `3a36017a`):** blokken fra `-- ===== trin 6b: publication-operationer =====` til
+  slutningen af `db-migrations.sql` (sha `4a2912ca…`, inkl. opfølgningsblokken fra #287) og `db-rls.sql` (`f517b2e5…`)
+  i én transaktion, derefter PostgREST genindlæst. 19 nye funktioner (5 `public.red_*`), 8 erstattede, 4 indekser og
+  constraint-triggeren `trg_reimport_event_publication_identity_finalized`. Data: kun profilrækken
+  `daa-1939-publication-v1`. Dump før: `daa-prod-20261101112742-6b.dump` (sha `075213af…`, ekstern `age`-kopi
+  `7bf2937d…`, rundtur ok). Kvittering: `T6B_APPLY_A_OK tilstand=a`, `k1` uændret, 16,3 s.
+- **Rådgiver (skridt 5):** Security Advisor i dashboardet efter A (intet før-billede; fundene holdt op mod blokkens
+  objekter, som ved 6a). Eneste fund på 6b-objekter er de 5 forventede `authenticated_security_definer_function_executable`
+  på `red_apply_reimport_publication_persona`, `red_apply_reimport_publication_identity`, `red_publication_control`,
+  `red_publication_control_details` og `red_reverse_reimport_publication`. Ingen `anon`-fund, ingen
+  `function_search_path_mutable`, intet på de private 6b-funktioner, ingen nye `rls_enabled_no_policy`. De erstattede
+  public-funktioner beholder deres grants (`CREATE OR REPLACE`).
+- **Ceremoni B (data, GO 6b-B `1c8aade5`):** manifest `T6B_MANIFEST_OK elementer=555 allerede_persona=8
+  binding_uegnet=0 helpost_uegnet=0 ingen_bundet_narrativ=13 ingen_helpost=8 ingen_postbinding=21
+  staged_ikke_offentlig=2`, indhold `36dfa422…` = øvelsens (3,0 s). Fortrydelsens dump i tilstand `a`:
+  `daa-prod-20261101122034-6b.dump` (sha `56f9a466…`, ekstern `56f905df…`, rundtur ok); mål `vindue=d1a2d48f…`,
+  132 linjer (98 tabeller + 34 sekvenser), `restore_hash=268deeaf…`, `katalog=0f5f2e0d…` (= slutøvelsens),
+  0 forældreløse. Første `apply-b` stoppede med `SFTP_FEJL` (timeout mod SFTP-serveren i den eksterne kontrol, før
+  databasen blev rørt); anden kørsel gennemført: `T6B_B_DRYRUN status=finalized`, `T6B_B_COMMITTED`,
+  `T6B_B_KONTROL personas=555 primary_i_egen_helpost=555 helposter=555 identiteter=0 afventer=555
+  records_med_to_personas=0 personas_k3=563`, `T6B_B_PUBSTATE n=563 uaendret=TRUE`, `T6B_B_KOE foer=8 efter=8
+  nye_i_koeen=0`, replay `already_applied samme_batch=TRUE`; `T6B_APPLY_B_OK tilstand=b`, `k1` uændret.
+  Efter: `T6B_MAAL_OK tilstand=b personas_k3=563 identiteter_k3=8 afventer=555`, `k1` 832/832/`906c2a4d…`.
+- **Læser og redaktør:** de 555 nye personas er skjult i webkøen, og `red_afgoer_source_persona` afviser dem, indtil C
+  har kørt. Læserfladen er uændret.
+- **Ydelse (prod mod slutøvelsens stand-in):** manifestet 3,0 s mod 0,9-1,0 s (ca. 3×); B's dry-run 71,5 s og
+  apply + finalize 70,4 s, i alt 143,4 s mod 5,2-5,6 s (ca. 27×); dump i tilstand `a` med mål 87 s + 17,5 s. Ingen
+  enkelt sætning nærmede sig `statement_timeout` på 2 min. Runbookens skøn (55×) var for højt for manifestet.
+- **Skrivepausen** sluttede, da projektejeren godkendte B (skridt 11).
+- **Fortryd:** B kun ved `fortryd-b` (restore af dumpet i tilstand `a`), og kun så længe intet andet er skrevet i
+  public/private siden dumpet (vinduesvagten stopper ellers med `T6B_VINDUE_BRUDT`) og 6c's runner ikke har skrevet.
+  A med de tidligere funktionskroppe fra A-dumpet (ikke scriptet; runbookens liste) eller restore af A-dumpet, hvis
+  intet andet er skrevet.
+
 ## 17. Trin 6a: helpost-regel, kildetekst-revision og 1939's klausuler — LIVE i prod (2026-10-30)
 
 **Procedure:** `docs/runbooks/trin6a-prod.md`, private scripts `~/.private/5ab-overfoersel/25-trin6a.sh` og

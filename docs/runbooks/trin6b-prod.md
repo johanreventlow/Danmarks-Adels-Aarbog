@@ -125,8 +125,9 @@ runnerens `DAA_`-linjer (`DAA_T6B_DUMP_FOER`, `DAA_T6B_DUMP_A` og `DAA_T6B_MANIF
      er prod en anden end stand-in'en, fx efter redaktionelle skrivninger efter 2026-10-30. Så stopper B her
      (`MANIFEST_SOM_OEVET`), og øvelsen gentages på et nyt dump.
 7. `go-b` → `GO_6B_B_KODE=<8 hex>`. Projektejeren skriver `GO 6b-B <kode>`. Koden binder også manifestet.
-8. `dump` igen → `DUMP_6B_OK tilstand=a …`, `DUMP_6B_MAAL_OK vindue=… tabeller=98 restore_hash=… katalog=…
-   foraeldreloese=0 …` og `DAA_T6B_DUMP_A=…`. Det er fortrydelsens dump.
+8. `dump` igen → `DUMP_6B_OK tilstand=a …`, `DUMP_6B_MAAL_OK vindue=… tabeller=132 restore_hash=… katalog=…
+   foraeldreloese=0 …` og `DAA_T6B_DUMP_A=…`. Det er fortrydelsens dump. `tabeller=` tæller vinduets linjer: 98 tabeller
+   og 34 sekvenser.
    - I tilstand `a` tager `dump` også fortrydelsens mål og lægger dem i kvitteringen (`<dump>.maal/`): grants og
      default-rettigheder, katalogfingeraftrykket, restore-hashen, antal forældreløse rækker (skal være 0, ellers
      `DUMP_6B_FORAELDRELOESE`) og `k1`. Fortrydelsen afstemmer mod netop disse, aldrig mod en måling taget ved sin
@@ -188,6 +189,11 @@ Forholdet mellem prod og stand-in er ikke målt på ny (ingen ekstra prod-berør
 deres tid tæller mod grænsen. Den største er manifestet, med et skøn på omkring det halve af grænsen. Overskrides
 grænsen alligevel, stopper skridtet med `STATEMENT_TIMEOUT` uden at skrive (manifestet og kontrollerne er læse-kun).
 For kontrollerne gælder det dog først **efter** B's commit (se Stoppunkter). Skønnene er ikke beviser.
+
+**Målt i prod 2026-11-01** (database-current-state §18): målingen 0,7-0,9 s; A 16,3 s; manifestet 3,0 s (ca. 3×);
+dump i tilstand `a` 87 s plus mål 17,5 s; B's dry-run 71,5 s og apply + finalize 70,4 s, i alt 143,4 s (ca. 27×).
+Faktoren afhænger altså af arbejdets form: B's mange små kald ligger nær 27×, én stor læsning nær 3×. Ingen sætning
+nærmede sig grænsen. Til C bruges de målte tal, ikke 55×.
 
 ## Stoppunkter
 

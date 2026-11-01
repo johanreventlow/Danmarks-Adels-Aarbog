@@ -6,7 +6,8 @@
 ## Aktivt programmål
 
 **Trin 6-spec'en:** 1939 gennem de samme operationer som 2018-20 (trin 6 nedenfor), i delspecs 6a-6e. 6a
-(klausuler og kildetekst-revision) er i prod 2026-10-30; næste er 6b (identitet). Status, modenhed pr. led og gates: [status.md](status.md). Sektionen her og status' »Aktivt programmål« skal
+(klausuler og kildetekst-revision) er i prod 2026-10-30; 6b's ceremoni A og B (1939's personas) er i prod
+2026-11-01, og 6b's identiteter (ceremoni C) venter på 6c's runner. Status, modenhed pr. led og gates: [status.md](status.md). Sektionen her og status' »Aktivt programmål« skal
 sige det samme.
 
 ## Styrende rækkefølge
