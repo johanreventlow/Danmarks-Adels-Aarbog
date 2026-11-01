@@ -3742,6 +3742,18 @@ FROM (VALUES (
 WHERE EXISTS(SELECT 1 FROM public.source WHERE id=3)
 ON CONFLICT DO NOTHING;
 
+-- 1939's forslagsprofil (trin 6c-1, spec 4.4): writer_config er 2018-20-forslagsprofilens med 1939's rendition,
+-- citationsskabelon og helpost-slags (som klausul-evidens-profilen). Filen daa-1939-interpretation-proposal-v1.json
+-- skal give samme writer_config og hash.
+INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
+SELECT 3,'daa-1939-interpretation-proposal-v1','1.0.0',
+  private.reimport_canonical_json_sha256(v.writer_config),v.writer_config
+FROM (VALUES (
+  '{"run_key_prefix":"reimport-interpretation-proposal:","schema_version":"interpretation-proposal-manifest-v1","extractor_version":"interpretation-proposal-v1","rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"observation_extraction_method":"clause_segment_v1","citation_label_template":"DAA 1939 side {page_from}","helpost_observation_kind":"person"}'::jsonb
+)) AS v(writer_config)
+WHERE EXISTS(SELECT 1 FROM public.source WHERE id=3)
+ON CONFLICT DO NOTHING;
+
 -- 1939's publikations-profil (trin 6b): én profil for persona- og identitets-operationerne. writer_config er
 -- klausul-profilens, med egen run-nøgle og extractor_version. Hash udledes af writer_config i SQL.
 INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
@@ -4967,7 +4979,7 @@ CREATE FUNCTION private.write_interpretation_proposal(p_batch_id uuid,p_element_
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE
   v_batch private.reimport_batch%ROWTYPE; v_auth private.reimport_authorization%ROWTYPE;
-  v_record private.source_record%ROWTYPE; v_occurrence uuid; v_parent uuid; v_persona uuid;
+  v_record private.source_record%ROWTYPE; v_parent uuid; v_persona uuid;
   v_run uuid; v_run_key text; v_run_manifest jsonb; v_claim jsonb; v_cited jsonb;
   v_predicate private.interpretation_predicate%ROWTYPE; v_interpretation uuid; v_key uuid;
   v_value_hash text; v_key_material_sha text; v_receipt_value_sha text;
@@ -4976,7 +4988,7 @@ DECLARE
   v_interpretation_row private.interpretation%ROWTYPE;
   v_before private.clause_disposition%ROWTYPE; v_written private.clause_disposition%ROWTYPE;
   v_observations jsonb; v_result_receipt jsonb;
-  v_text_id uuid; v_text_version integer; v_key_material text;
+  v_text_id uuid; v_text_version integer; v_key_material text; v_profile private.reimport_writer_profile%ROWTYPE;
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
@@ -4999,14 +5011,12 @@ BEGIN
   END IF;
   SELECT * INTO v_record FROM private.source_record WHERE source_id=v_batch.source_id AND record_key=p_payload->>'source_record_key' FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_INVALID'; END IF;
-  IF (SELECT count(*) FROM private.source_record_anchor_current WHERE source_record_id=v_record.id AND decision_status='accepted')<>1 THEN
-    RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_FOREIGN_POST';
-  END IF;
-  SELECT occurrence_id INTO v_occurrence FROM private.source_record_anchor_current WHERE source_record_id=v_record.id AND decision_status='accepted';
-  IF (SELECT count(*) FROM private.source_observation WHERE occurrence_id=v_occurrence AND parent_observation_id IS NULL)<>1 THEN
-    RAISE EXCEPTION 'REIMPORT_WRITER_CLAUSE_FOREIGN_POST';
-  END IF;
-  SELECT id INTO v_parent FROM private.source_observation WHERE occurrence_id=v_occurrence AND parent_observation_id IS NULL FOR UPDATE;
+  -- Helposten afgøres af den fælles regel (trin 6a, spec 4.2; trin 6c-1, spec 4.4): profilens helpost-slags, ikke
+  -- ankerantallet. Radlås på recorden ovenfor og på helpost-observationen her mod samtidige klausul-writes.
+  SELECT * INTO v_profile FROM private.reimport_writer_profile WHERE source_id=v_batch.source_id AND profile_id=v_batch.profile_id AND profile_sha256=v_batch.profile_sha256;
+  IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_PROPOSAL_INVALID'; END IF;
+  v_parent:=private.record_helpost_observation(v_record.id,private.writer_config_helpost_kind(v_profile.writer_config));
+  PERFORM 1 FROM private.source_observation WHERE id=v_parent FOR UPDATE;
   -- Helpostens gældende tekstversion (trin 6a): NULL = basisteksten (nøgle v1), ellers versionsnummeret (nøgle v2).
   SELECT c.text_id INTO v_text_id FROM private.helpost_text_current(v_parent) c;
   IF v_text_id IS NOT NULL THEN

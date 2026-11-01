@@ -208,4 +208,22 @@ BEGIN
   END IF;
 END $receipt_timezone$;
 
+-- Trin 6c-1: 1939's forslagsprofil. Profilens writer_config er filens (references/reimport-profiles/
+-- daa-1939-interpretation-proposal-v1.json), og hashen er databasens kanoniske hash (pinnet her; filen og denne
+-- literal skal ændres sammen). Rækken findes kun, hvis kilde 3 fandtes ved seedningen.
+DO $profil_1939$
+DECLARE v_cfg jsonb:='{"rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","run_key_prefix":"reimport-interpretation-proposal:","schema_version":"interpretation-proposal-manifest-v1","extractor_version":"interpretation-proposal-v1","rendition_metadata":{"edition":"1939"},"citation_label_template":"DAA 1939 side {page_from}","helpost_observation_kind":"person","observation_extraction_method":"clause_segment_v1"}';
+  v_row private.reimport_writer_profile%ROWTYPE;
+BEGIN
+  IF NOT private.validate_reimport_writer_config(v_cfg)
+     OR private.reimport_canonical_json_sha256(v_cfg)<>'c6131dcc9655fd74abeb3de787592ee76a7fa17944a9b525b41a38bdd7acd6dc'
+     OR private.writer_config_helpost_kind(v_cfg)<>'person' THEN
+    RAISE EXCEPTION 'PROPOSAL_PROFILE_1939_CONFIG';
+  END IF;
+  SELECT * INTO v_row FROM private.reimport_writer_profile WHERE source_id=3 AND profile_id='daa-1939-interpretation-proposal-v1';
+  IF FOUND AND (v_row.writer_config IS DISTINCT FROM v_cfg OR v_row.profile_sha256<>private.reimport_canonical_json_sha256(v_cfg)) THEN
+    RAISE EXCEPTION 'PROPOSAL_PROFILE_1939_ROW';
+  END IF;
+END $profil_1939$;
+
 ROLLBACK;

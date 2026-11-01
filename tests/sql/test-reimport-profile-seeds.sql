@@ -60,6 +60,24 @@ BEGIN
   RAISE NOTICE 'OK: publication profile';
 END $profile_1939_publication$;
 
+-- Trin 6c-1: 1939's forslagsprofil er 2018-20-forslagsprofilens config med 1939's rendition/citation og helpost-slags
+-- person (filen references/reimport-profiles/daa-1939-interpretation-proposal-v1.json giver samme config og hash).
+DO $seed_1939_proposal$
+DECLARE r private.reimport_writer_profile%ROWTYPE; v_n integer;
+BEGIN
+  SELECT count(*) INTO v_n FROM private.reimport_writer_profile WHERE profile_id='daa-1939-interpretation-proposal-v1';
+  IF v_n<>1 THEN RAISE EXCEPTION 'SEED_1939_PROPOSAL_ROW_COUNT: %', v_n; END IF;
+  SELECT * INTO r FROM private.reimport_writer_profile WHERE profile_id='daa-1939-interpretation-proposal-v1';
+  IF r.source_id<>3 OR r.profile_version<>'1.0.0' THEN RAISE EXCEPTION 'SEED_1939_PROPOSAL_IDENTITY'; END IF;
+  IF r.writer_config IS DISTINCT FROM '{"citation_label_template":"DAA 1939 side {page_from}","extractor_version":"interpretation-proposal-v1","helpost_observation_kind":"person","observation_extraction_method":"clause_segment_v1","rendition_key":"daa-1939-calamari-r6-clean","rendition_kind":"ocr_text","rendition_metadata":{"edition":"1939"},"run_key_prefix":"reimport-interpretation-proposal:","schema_version":"interpretation-proposal-manifest-v1"}'::jsonb THEN
+    RAISE EXCEPTION 'SEED_1939_PROPOSAL_CONFIG';
+  END IF;
+  IF r.profile_sha256<>private.reimport_canonical_json_sha256(r.writer_config)
+     OR r.profile_sha256<>'c6131dcc9655fd74abeb3de787592ee76a7fa17944a9b525b41a38bdd7acd6dc' THEN RAISE EXCEPTION 'SEED_1939_PROPOSAL_SHA: %', r.profile_sha256; END IF;
+  IF NOT private.validate_reimport_writer_config(r.writer_config) THEN RAISE EXCEPTION 'SEED_1939_PROPOSAL_INVALID'; END IF;
+  RAISE NOTICE 'seed 1939 proposal profile OK';
+END $seed_1939_proposal$;
+
 -- persona_key_prefix er valgfri, men skal være en ikke-tom streng
 DO $persona_key_prefix$
 DECLARE v_cfg jsonb;
