@@ -1,6 +1,7 @@
 # Trin 6c-1: runneren på 1939 og 1939's identiteter — design
 
-**Status:** udkast, revideret efter Codex-runden på spec+plan (§10: NO-GO, 11 fund, afvejet og indarbejdet).
+**Status:** GODKENDT af projektejeren 2026-11-01, efter Codex-runden på spec+plan (§10: NO-GO, 11 fund, afvejet og
+indarbejdet). §8 pkt. 1 og 2 afgjort samme dag: (a) og (a). Udførelse: subagent-drevet efter planen.
 Projektejeren besluttede 2026-11-01 at dele 6c i to med identiteterne først og bad om bedste skøn uden afklarende
 spørgsmål. Valg, der ikke står i den overordnede spec, er markeret *mit valg*. Afgørelserne til projektejeren står i §8.
 **Gren:** `docs/trin6c1-spec` fra `main` (`f928b1de`).
@@ -268,7 +269,7 @@ Skrivepause fra A-dumpet til B er skrevet. Tidsoverslag fra stand-in omregnes me
 
 ## 8. Afgørelser til projektejeren
 
-**Før piloten** (spec godkendt ≠ disse afgjort; plan Task 7 stopper for dem):
+**Før piloten** (afgjort af projektejeren 2026-11-01: pkt. 1 (a) og pkt. 2 (a), »som foreslået«):
 
 1. **Restrisikoen i eligibility** (§4.3): en levende slægtning, der kun står i prosaen uden et årstal, som reglen kan
    finde, kan nå modellen. Valgene er (a) at acceptere restrisikoen som for 2018-20, (b) en strengere grænse (årstal

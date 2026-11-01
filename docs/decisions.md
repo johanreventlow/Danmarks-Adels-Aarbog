@@ -12,6 +12,15 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > syv leverancer og en ceremoni fra 6b bag én spec, så intet kom i prod, før det hele var færdigt.
 > Delspec: `docs/superpowers/specs/2026-11-01-trin6c1-runner-og-identitet-design.md`.
 
+## BESLUTTET: 6c-1 — restrisikoen i 1939's eligibility accepteres; lokal Postgres beholder `trust` i 6c-1 (2026-11-01)
+
+> Projektejeren godkendte delspec 6c-1 og valgte anbefalingerne i §8 pkt. 1-2. **Eligibility:** politikken
+> `exclusion-1939-v1` (årstal ≥ 1915 hvor som helst i posten, streng + OCR-tolerant læsning; levende/privat/staged
+> hovedperson, `samme_som`-partner eller familiemedlem) er værnet. Restrisikoen — en levende slægtning nævnt i prosaen
+> uden et årstal, reglen kan finde — accepteres som for 2018-20's 488 poster. **`trust`:** den lokale Postgres skifter
+> ikke til `scram-sha-256` i 6c-1; Seatbelt-profilens spærring af socket og TCP og `gate-access-test.sh` før hvert
+> rigtigt kald er værnet (review 35 P1 (2) står åben som egen opgave efter trin 6).
+
 ## NOTERET: 6b's ceremoni C kan køres igen efter fortrydelse (2026-10-31)
 
 > Afsluttende review I2: efter `red_reverse_reimport_publication` gik personaerne før til den menneskelige webkø, og en
