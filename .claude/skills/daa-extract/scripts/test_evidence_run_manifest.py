@@ -139,8 +139,11 @@ def test_4_3b_manifestets_hash_kan_genberegnes():
 
 def _koersel(tmp_path, monkeypatch, *, klausul="t", kode=None, codex="0.155.1",
              noegler=("R-1",), codex_stub=None, policy="exclusion-2018-20-v1", udelukket=None,
-             profile_id="daa-2018-20-v1"):
-    """Hele runnerens main med én record og en stub i stedet for modellen."""
+             profile_id="daa-2018-20-v1", input_source=1, ledger_source=1, manifest_source=1,
+             ledger_restore="x"):
+    """Hele runnerens main med én record og en stub i stedet for modellen.
+
+    Kilde og snapshot står særskilt på runner-input, ledger og manifest (fund F1)."""
     import run_evidence_43b
     def lav(k):
         return {"record_key": k, "persona_id": "p", "post_verbatim_text": "t",
@@ -149,13 +152,14 @@ def _koersel(tmp_path, monkeypatch, *, klausul="t", kode=None, codex="0.155.1",
     recs = {k: lav(k) for k in noegler}
     shas = {k: evidence_runner.canonical_record_input(r) for k, r in recs.items()}
     ledger = {"schema_version": evidence_runner.LEDGER_SCHEMA_VERSION, "policy_version": policy,
-              "rules_script_sha256": "r" * 64, "source_id": 1, "restore_identity": "x",
+              "rules_script_sha256": "r" * 64, "source_id": ledger_source, "restore_identity": ledger_restore,
               "records": {k: {"status": "eligible", "reasons": [], "record_input_sha256": shas[k]}
                           for k in noegler}}
     for k, aarsager in (udelukket or {}).items():
         ledger["records"][k] = {"status": "excluded", "reasons": list(aarsager), "record_input_sha256": "0" * 64}
     (tmp_path / "ledger.json").write_text(json.dumps(ledger), encoding="utf-8")
-    (tmp_path / "input.json").write_text(json.dumps({"records": recs}), encoding="utf-8")
+    (tmp_path / "input.json").write_text(json.dumps({"source_id": input_source, "records": recs}),
+                                         encoding="utf-8")
     udvalg = {"records": list(noegler), "bundter": {"bundt_1": list(noegler)},
               "record_input_sha256": shas, "strata_version": "t", "strata_sha256": "s" * 64}
     m = build_manifest(udvalg, dagsvaerk="4.5", restore_identity="x",
@@ -163,7 +167,8 @@ def _koersel(tmp_path, monkeypatch, *, klausul="t", kode=None, codex="0.155.1",
                        profil=evidence_extract.load_profile(profile_id),
                        claims_schema_sha256=evidence_runner.sha256_text(
                            bm.SKEMA.read_text(encoding="utf-8")),
-                       code_sha256=kode or runner_code_sha256(), codex_cli_version="0.155.1")
+                       code_sha256=kode or runner_code_sha256(), codex_cli_version="0.155.1",
+                       source_id=manifest_source)
     (tmp_path / "m.json").write_text(json.dumps(m), encoding="utf-8")
     kaldt = []
     # CI har ingen Codex: versionen injiceres, så testen ikke afhænger af maskinen.
@@ -268,10 +273,10 @@ def test_a_manifest_must_bind_the_codex_version():
 
 # --- genbinding af 4.4: piloten om under profil v2 ------------------------------
 
-def _main_manifest(tmp_path, monkeypatch, *extra):
+def _main_manifest(tmp_path, monkeypatch, *extra, ledger=None):
     udvalg = udvalg45()
     (tmp_path / "u.json").write_text(json.dumps(udvalg), encoding="utf-8")
-    (tmp_path / "l.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "l.json").write_text(json.dumps(ledger) if ledger is not None else "{}", encoding="utf-8")
     monkeypatch.setattr(evidence_runner, "codex_cli_version", lambda **k: "0.155.1")
     monkeypatch.setattr("sys.argv", ["b", "--selection", str(tmp_path / "u.json"),
                                      "--ledger", str(tmp_path / "l.json"),
@@ -326,7 +331,8 @@ def test_driveren_stopper_ved_versionsskift_midt_i_bundtet(tmp_path, monkeypatch
 def test_manifest_6c1_binds_code_and_source(tmp_path, monkeypatch):
     (tmp_path / "ri.json").write_text(json.dumps({"source_id": 3, "records": {}}), encoding="utf-8")
     m = _main_manifest(tmp_path, monkeypatch, "--dagsvaerk", "6c-1",
-                       "--runner-input", str(tmp_path / "ri.json"))
+                       "--runner-input", str(tmp_path / "ri.json"),
+                       ledger={"source_id": 3, "restore_identity": "daa44g_x"})
     assert m["dagsvaerk"] == "6c-1" and m["source_id"] == 3
     assert m["runner_contract_version"] == "evidence-runner-1.4"
     assert len(m["runner_code_sha256"]) == 64
@@ -427,3 +433,48 @@ def test_builder_default_flags_round_trip_through_check_contract(tmp_path, monke
     assert check_contract(m, schema_text=bm.SKEMA.read_text(encoding="utf-8"),
                           runner_contract_version=evidence_runner.RUNNER_CONTRACT_VERSION,
                           code_sha256=runner_code_sha256(), codex_cli_version="0.155.1") is None
+
+
+# --- fund F1 (final-review): kilde og snapshot krydstjekkes før ethvert modelkald ---------------
+
+@pytest.mark.parametrize("ledger,kode", [
+    ({"source_id": 1, "restore_identity": "daa44g_x"}, "MANIFEST_SOURCE_MISMATCH"),
+    ({"restore_identity": "daa44g_x"}, "MANIFEST_SOURCE_MISMATCH"),
+    ({"source_id": True, "restore_identity": "daa44g_x"}, "MANIFEST_SOURCE_MISMATCH"),
+    ({"source_id": 3, "restore_identity": "daa44g_andet"}, "MANIFEST_RESTORE_IDENTITY_MISMATCH"),
+    ({"source_id": 3}, "MANIFEST_RESTORE_IDENTITY_MISMATCH"),
+    ([], "MANIFEST_SOURCE_MISMATCH"),
+])
+def test_manifest_builder_cross_checks_ledger_source_and_snapshot(tmp_path, monkeypatch, capsys, ledger, kode):
+    """Ledgeren skal være lavet af samme kilde som runner-inputtet og på det snapshot, CLI'en binder."""
+    (tmp_path / "ri.json").write_text(json.dumps({"source_id": 3, "records": {}}), encoding="utf-8")
+    with pytest.raises(AssertionError):
+        _main_manifest(tmp_path, monkeypatch, "--dagsvaerk", "6c-1",
+                       "--runner-input", str(tmp_path / "ri.json"), ledger=ledger)
+    assert kode in capsys.readouterr().out
+    assert not (tmp_path / "m.json").exists()
+
+
+@pytest.mark.parametrize("kilder,kode", [
+    # Samme record_key og tekst (dermed samme input-hash), men runner-inputtet er fra en anden kilde end
+    # ledgerens godkendelse: kilde 2's privatlivsafgørelse er ikke truffet.
+    (dict(input_source=2), "RUN_SOURCE_MISMATCH"),
+    # Ledgeren er fra en anden kilde, hvor den samme nøgle og tekst blev godkendt.
+    (dict(ledger_source=2), "RUN_SOURCE_MISMATCH"),
+    (dict(manifest_source=2), "RUN_SOURCE_MISMATCH"),
+    (dict(manifest_source=None), "RUN_SOURCE_MISMATCH"),
+    (dict(input_source=None), "RUN_SOURCE_MISMATCH"),
+    (dict(input_source=True, ledger_source=1, manifest_source=1), "RUN_SOURCE_MISMATCH"),
+    (dict(ledger_restore="andet-snapshot"), "RUN_RESTORE_IDENTITY_MISMATCH"),
+])
+def test_runner_refuses_mixed_sources_or_snapshots_before_any_call(tmp_path, monkeypatch, capsys, kilder, kode):
+    rc, kaldt = _koersel(tmp_path, monkeypatch, codex_stub=_kvote_stub(monkeypatch), **kilder)
+    assert rc == 1 and kaldt == [] and not (tmp_path / "o.json").exists()
+    assert not (tmp_path / "c").exists() or not list((tmp_path / "c").glob("*.json"))
+    assert kode in capsys.readouterr().out
+
+
+def test_runner_with_matching_source_and_snapshot_reaches_the_model(tmp_path, monkeypatch, capsys):
+    rc, kaldt = _koersel(tmp_path, monkeypatch, codex_stub=_kvote_stub(monkeypatch),
+                         input_source=3, ledger_source=3, manifest_source=3)
+    assert len(kaldt) == 1 and "STOP_QUOTA_EXHAUSTED ved R-1" in capsys.readouterr().out

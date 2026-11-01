@@ -57,7 +57,8 @@ def main() -> int:
         print("MANIFEST_NOT_APPROVED — hashen er ikke den, der blev givet GO til.")
         return 1
 
-    runner_input = json.loads(Path(args.runner_input).read_text(encoding="utf-8"))["records"]
+    runner_input_doc = json.loads(Path(args.runner_input).read_text(encoding="utf-8"))
+    runner_input = runner_input_doc["records"]
     ledger = load_ledger(json.loads(Path(args.ledger).read_text(encoding="utf-8")))
     if hashlib.sha256(Path(args.ledger).read_bytes()).hexdigest() != manifest["eligibility_ledger_sha256"]:
         print("LEDGER_DRIFT — ledgeren er ikke den, manifestet blev godkendt med.")
@@ -93,6 +94,19 @@ def main() -> int:
     if fejl:
         print(f"{fejl} — kørselsmiljøet er ikke det, der blev givet GO til. Intet sendes.")
         return 1
+    # Fund F1 (final-review): kilde og snapshot krydstjekkes FØR call-dir og ethvert kald. En record med
+    # samme nøgle og tekst i en anden kilde har samme input-hash; kun kilde-id'et skiller den ene kildes
+    # privatlivsafgørelse fra den andens. Historiske manifester (kontrakt <= 1.3, uden source_id) er
+    # allerede stoppet af RUNNER_CONTRACT_DRIFT ovenfor og beholder den opførsel.
+    if evidence_runner.contract_at_least(manifest["runner_contract_version"], (1, 4)):
+        kilder = (runner_input_doc.get("source_id"), ledger.get("source_id"), manifest.get("source_id"))
+        if not all(type(k) is int and k > 0 for k in kilder) or len(set(kilder)) != 1:
+            print("RUN_SOURCE_MISMATCH — runner-input, ledger og manifest er ikke fra samme kilde. Intet sendes.")
+            return 1
+        if ledger.get("restore_identity") != manifest.get("restore_identity") \
+                or not isinstance(manifest.get("restore_identity"), str):
+            print("RUN_RESTORE_IDENTITY_MISMATCH — ledgeren er ikke fra manifestets snapshot. Intet sendes.")
+            return 1
     skema = json.loads(skema_tekst)
     cache = ResponseCache(args.cache_dir)
     home = os.path.expanduser("~")

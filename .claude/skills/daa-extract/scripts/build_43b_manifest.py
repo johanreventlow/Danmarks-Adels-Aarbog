@@ -38,6 +38,11 @@ def runner_code_sha256(scripts_dir: Path = SCRIPTS) -> str:
     return h.hexdigest()
 
 
+def _same_id(value, expected: int) -> bool:
+    """Et kilde-id er et positivt heltal (ikke bool: True == 1 i Python) og lig det forventede."""
+    return type(value) is int and value > 0 and value == expected
+
+
 def manifest_sha256(manifest: dict) -> str:
     krop = {k: v for k, v in manifest.items() if k != "manifest_sha256"}
     return hashlib.sha256(json.dumps(krop, ensure_ascii=False, sort_keys=True,
@@ -143,6 +148,20 @@ def main() -> int:
         source_id = json.loads(Path(args.runner_input).read_text(encoding="utf-8")).get("source_id")
         if not isinstance(source_id, int) or isinstance(source_id, bool) or source_id <= 0:
             print("RUNNER_INPUT_SOURCE_MISSING — runner-inputtet bærer ikke et source_id.")
+            return 1
+        # Fund F1 (final-review): ledgeren skal være lavet af samme kilde som runner-inputtet og på det
+        # snapshot, manifestet binder. Ellers kan en anden kildes (eller et andet snapshots)
+        # privatlivsafgørelse godkende en record med samme nøgle og tekst. Fravær er uenighed.
+        try:
+            ledger_doc = json.loads(Path(args.ledger).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            ledger_doc = None
+        if not isinstance(ledger_doc, dict) or not _same_id(ledger_doc.get("source_id"), source_id):
+            print("MANIFEST_SOURCE_MISMATCH — ledgerens source_id er ikke runner-inputtets.")
+            return 1
+        restore = ledger_doc.get("restore_identity")
+        if not isinstance(restore, str) or restore != args.restore_identity:
+            print("MANIFEST_RESTORE_IDENTITY_MISMATCH — ledgerens restore_identity er ikke --restore-identity.")
             return 1
     elif args.dagsvaerk not in ("4.3b", "4.5"):
         print("RUNNER_INPUT_SOURCE_MISSING — nye dagsværk kræver --runner-input.")
