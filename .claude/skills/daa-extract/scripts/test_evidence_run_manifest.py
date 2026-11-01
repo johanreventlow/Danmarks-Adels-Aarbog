@@ -100,7 +100,7 @@ def test_runneren_kalder_ikke_modellen_ved_skemadrift(tmp_path, monkeypatch):
     rec = {"record_key": "R-1", "persona_id": "p", "post_verbatim_text": "t",
            "clauses": [{"ordinal": 1, "verbatim_text": "t",
                         "verbatim_sha256": evidence_runner.sha256_text("t")}]}
-    ledger = {"schema_version": evidence_runner.LEDGER_SCHEMA_VERSION, "policy_version": "p",
+    ledger = {"schema_version": evidence_runner.LEDGER_SCHEMA_VERSION, "policy_version": "exclusion-2018-20-v1",
               "rules_script_sha256": "r" * 64, "source_id": 1, "restore_identity": "x",
               "records": {"R-1": {"status": "eligible", "reasons": [],
                                   "record_input_sha256": evidence_runner.canonical_record_input(rec)}}}
@@ -138,7 +138,7 @@ def test_4_3b_manifestets_hash_kan_genberegnes():
 
 
 def _koersel(tmp_path, monkeypatch, *, klausul="t", kode=None, codex="0.155.1",
-             noegler=("R-1",), codex_stub=None):
+             noegler=("R-1",), codex_stub=None, policy="exclusion-2018-20-v1", udelukket=None):
     """Hele runnerens main med én record og en stub i stedet for modellen."""
     import run_evidence_43b
     def lav(k):
@@ -147,10 +147,12 @@ def _koersel(tmp_path, monkeypatch, *, klausul="t", kode=None, codex="0.155.1",
                              "verbatim_sha256": evidence_runner.sha256_text(klausul)}]}
     recs = {k: lav(k) for k in noegler}
     shas = {k: evidence_runner.canonical_record_input(r) for k, r in recs.items()}
-    ledger = {"schema_version": evidence_runner.LEDGER_SCHEMA_VERSION, "policy_version": "p",
+    ledger = {"schema_version": evidence_runner.LEDGER_SCHEMA_VERSION, "policy_version": policy,
               "rules_script_sha256": "r" * 64, "source_id": 1, "restore_identity": "x",
               "records": {k: {"status": "eligible", "reasons": [], "record_input_sha256": shas[k]}
                           for k in noegler}}
+    for k, aarsager in (udelukket or {}).items():
+        ledger["records"][k] = {"status": "excluded", "reasons": list(aarsager), "record_input_sha256": "0" * 64}
     (tmp_path / "ledger.json").write_text(json.dumps(ledger), encoding="utf-8")
     (tmp_path / "input.json").write_text(json.dumps({"records": recs}), encoding="utf-8")
     udvalg = {"records": list(noegler), "bundter": {"bundt_1": list(noegler)},
@@ -230,7 +232,7 @@ def test_guarden_afviser_fremmed_klausul_foer_kaldet(monkeypatch):
 
     def guard(rec):
         rec["persona_id"] = "p"
-        ledger = {"schema_version": evidence_runner.LEDGER_SCHEMA_VERSION, "policy_version": "p",
+        ledger = {"schema_version": evidence_runner.LEDGER_SCHEMA_VERSION, "policy_version": "exclusion-2018-20-v1",
                   "rules_script_sha256": "r" * 64, "source_id": 1, "restore_identity": "x",
                   "records": {"R-1": {"status": "eligible", "reasons": [],
                                       "record_input_sha256":
@@ -367,3 +369,32 @@ def test_run_evidence_stops_bundle_on_quota_without_type(tmp_path, monkeypatch, 
     assert len(kaldt) == 1
     assert "STOP_QUOTA_EXHAUSTED ved R-1" in out
     assert not list((tmp_path / "c").glob("*.json"))
+
+
+def _kvote_stub(monkeypatch):
+    import subprocess
+    fixtur = (Path(__file__).resolve().parent / "tests" / "fixtures" / "codex-exec"
+              / "failure-quota-no-type.jsonl").read_text(encoding="utf-8")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""))
+    return lambda: (fixtur, "")
+
+
+def test_run_evidence_reads_a_1939_ledger(tmp_path, monkeypatch, capsys):
+    """Trin 6c-1 Task 5: runneren læser en exclusion-1939-v1-ledger (årsagerne valideres mod politikken)
+    og sender den eligible record; den udelukkede sendes ikke."""
+    rc, kaldt = _koersel(tmp_path, monkeypatch, codex_stub=_kvote_stub(monkeypatch),
+                         policy="exclusion-1939-v1",
+                         udelukket={"R-9": ["no_published_persona", "text_year_ge_1915"]})
+    assert len(kaldt) == 1
+    assert "STOP_QUOTA_EXHAUSTED ved R-1" in capsys.readouterr().out
+
+
+def test_run_evidence_refuses_a_2018_20_reason_in_a_1939_ledger(tmp_path, monkeypatch):
+    with pytest.raises(evidence_runner.EligibilityError, match="LEDGER_REASON_UNKNOWN"):
+        _koersel(tmp_path, monkeypatch, codex_stub=_kvote_stub(monkeypatch),
+                 policy="exclusion-1939-v1", udelukket={"R-9": ["birth_year_text_filter"]})
+
+
+def test_run_evidence_refuses_an_unknown_policy(tmp_path, monkeypatch):
+    with pytest.raises(evidence_runner.EligibilityError, match="LEDGER_POLICY_UNKNOWN"):
+        _koersel(tmp_path, monkeypatch, codex_stub=_kvote_stub(monkeypatch), policy="p")

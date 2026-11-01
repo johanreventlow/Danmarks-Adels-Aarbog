@@ -257,7 +257,8 @@ for (k in names(runner)) for (cl in runner[[k]]$clauses)
 # (b) Eligibility-ledgeren: input_sha er hashen af den gældende tekst, og den følger runner-inputtet.
 elig_dir <- new_dir("eligibility")
 r <- run("Rscript", c(shQuote(file.path(scripts_dir, "export_model_eligibility.R")), "--source-id", source_id,
-  "--output-dir", shQuote(elig_dir), "--restore-identity", "t6a13-fixture"))
+  "--output-dir", shQuote(elig_dir), "--restore-identity", "t6a13-fixture",
+  "--policy", "exclusion-2018-20-v1", "--writer-profile", profile_id))
 if (r$status != 0L) stop("eligibility fejlede: ", r$out)
 stopifnot(!grepl("Alfa|Echo|Golf|Revisor", r$out))
 ledger <- jsonlite::fromJSON(file.path(elig_dir, "eligibility-ledger-v1.json"), simplifyVector = FALSE)$records

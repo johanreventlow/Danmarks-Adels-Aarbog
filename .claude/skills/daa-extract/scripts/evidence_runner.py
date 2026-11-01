@@ -728,13 +728,25 @@ def batch_status(record_states: Sequence[tuple[str, str]]) -> str:
 
 LEDGER_SCHEMA_VERSION = "evidence-eligibility-1.0"
 
-#: §9.2's fire regler.  Lukket sæt: en årsag uden for listen betyder, at ledgeren
-#: er skrevet af noget, denne kode ikke kender — og så er den ikke troværdig.
+#: Årsagerne pr. politik (ledgerens `policy_version`; trin 6c-1, spec §4.3, Codex fund 5).
+#: Lukkede sæt: en ukendt politik eller en årsag uden for politikkens sæt betyder, at
+#: ledgeren er skrevet af noget, denne kode ikke kender — og så er den ikke troværdig.
 EXCLUSION_REASONS = {
-    "principal_living",           # 1. hovedpersonen er levende eller uafklaret
-    "relative_living",            # 2. partner eller barn i samme family er levende
-    "spouse_undated_marriage",    # 3. partner uden dødsdato, vielse >=1950 eller udateret
-    "birth_year_text_filter",     # 4. teksten rummer "f." + fødselsår >=1950
+    # §9.2's fire regler (2018-20).
+    "exclusion-2018-20-v1": frozenset({
+        "principal_living",           # 1. hovedpersonen er levende eller uafklaret
+        "relative_living",            # 2. partner eller barn i samme family er levende
+        "spouse_undated_marriage",    # 3. partner uden dødsdato, vielse >=1950 eller udateret
+        "birth_year_text_filter",     # 4. teksten rummer "f." + fødselsår >=1950
+    }),
+    # Spec 6c-1 §4.3 (1939).
+    "exclusion-1939-v1": frozenset({
+        "no_published_persona",       # 1a. ingen entydig persona med published binding
+        "principal_living",           # 1b. bindingspersonen levende/privat/staged (NULL tæller)
+        "same_as_partner_living",     # 2. en samme_som-partner levende/privat
+        "relative_living",            # 3. et andet family-medlem levende
+        "text_year_ge_1915",          # 4. helposten rummer et årstal >=1915 (streng + OCR-tolerant)
+    }),
 }
 
 _LEDGER_FIELDS = ("schema_version", "policy_version", "rules_script_sha256",
@@ -764,6 +776,10 @@ def load_ledger(ledger: Mapping[str, Any]) -> dict:
             raise EligibilityError("LEDGER_INCOMPLETE")
     if ledger["schema_version"] != LEDGER_SCHEMA_VERSION:
         raise EligibilityError("LEDGER_SCHEMA_UNKNOWN")
+    policy = ledger["policy_version"]
+    if not isinstance(policy, str) or policy not in EXCLUSION_REASONS:
+        raise EligibilityError("LEDGER_POLICY_UNKNOWN")
+    allowed_reasons = EXCLUSION_REASONS[policy]
 
     records = ledger["records"]
     if not isinstance(records, Mapping):
@@ -781,7 +797,7 @@ def load_ledger(ledger: Mapping[str, Any]) -> dict:
             # En udelukkelse uden årsag kan ikke efterprøves af et menneske.
             raise EligibilityError("LEDGER_REASON_REQUIRED")
         for reason in reasons:
-            if reason not in EXCLUSION_REASONS:
+            if not isinstance(reason, str) or reason not in allowed_reasons:
                 raise EligibilityError("LEDGER_REASON_UNKNOWN")
         sha = row.get("record_input_sha256")
         if not isinstance(sha, str) or len(sha) != 64:

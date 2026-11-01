@@ -528,6 +528,14 @@ jobs:
           PGPASSWORD: postgres
           PGDATABASE: writer_1939
         run: Rscript tests/integration/test-export-runner-input-helpost.R
+      - name: Eligibility-politik pr. udgave (trin 6c-1 · Task 5)
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: writer_1939
+        run: Rscript tests/integration/test-export-model-eligibility-1939.R
       - name: Legacy migration writer SQL (149b)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-legacy-migration.sql

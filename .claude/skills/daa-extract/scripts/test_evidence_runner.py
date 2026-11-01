@@ -944,6 +944,57 @@ def test_an_excluded_row_must_carry_at_least_one_reason():
         load_ledger(ledger(records=rows))
 
 
+REASONS_2018_20 = {"principal_living", "relative_living", "spouse_undated_marriage", "birth_year_text_filter"}
+REASONS_1939 = {"no_published_persona", "principal_living", "same_as_partner_living",
+                "relative_living", "text_year_ge_1915"}
+
+
+def test_the_reason_sets_are_per_policy():
+    """Trin 6c-1 Task 5: årsagerne er politikkens egne (spec 6c-1 §4.3, Codex fund 5)."""
+    assert {k: set(v) for k, v in evidence_runner.EXCLUSION_REASONS.items()} == {
+        "exclusion-2018-20-v1": REASONS_2018_20, "exclusion-1939-v1": REASONS_1939}
+
+
+def ledger_1939(**rows):
+    base = {"I-1": {"status": "eligible", "reasons": [], "record_input_sha256": "a" * 64},
+            "I-2": {"status": "excluded", "reasons": sorted(REASONS_1939), "record_input_sha256": "0" * 64}}
+    base.update(rows)
+    return ledger(policy_version="exclusion-1939-v1", records=base)
+
+
+def test_a_1939_ledger_loads():
+    assert load_ledger(ledger_1939())["policy_version"] == "exclusion-1939-v1"
+
+
+@pytest.mark.parametrize("aarsag", sorted(REASONS_2018_20 - REASONS_1939))
+def test_a_2018_20_reason_in_a_1939_ledger_is_rejected(aarsag):
+    rows = {"I-3": {"status": "excluded", "reasons": [aarsag], "record_input_sha256": "f" * 64}}
+    with pytest.raises(EligibilityError, match="LEDGER_REASON_UNKNOWN"):
+        load_ledger(ledger_1939(**rows))
+
+
+@pytest.mark.parametrize("aarsag", sorted(REASONS_1939 - REASONS_2018_20))
+def test_a_1939_reason_in_a_2018_20_ledger_is_rejected(aarsag):
+    rows = ledger_rows(**{"I-3": {"status": "excluded", "reasons": [aarsag], "record_input_sha256": "f" * 64}})
+    with pytest.raises(EligibilityError, match="LEDGER_REASON_UNKNOWN"):
+        load_ledger(ledger(records=rows))
+
+
+@pytest.mark.parametrize("politik", ["p", "exclusion-1939-v2", "exclusion-syntetisk-rehearsal", 7, ["exclusion-1939-v1"]])
+def test_an_unknown_policy_is_rejected(politik):
+    """En ledger fra en politik, koden ikke kender, kan ikke valideres — og er derfor ikke troværdig."""
+    with pytest.raises(EligibilityError, match="LEDGER_POLICY_UNKNOWN"):
+        load_ledger(ledger(policy_version=politik))
+
+
+@pytest.mark.parametrize("aarsag", sorted(REASONS_1939))
+def test_each_1939_rule_blocks_on_its_own(aarsag):
+    rows = {"I-4": {"status": "excluded", "reasons": [aarsag], "record_input_sha256": "a" * 64}}
+    with pytest.raises(EligibilityError, match="RECORD_EXCLUDED"):
+        check_eligibility(ledger_1939(**rows), "I-4", "a" * 64)
+    assert check_eligibility(ledger_1939(), "I-1", "a" * 64) == "eligible"
+
+
 def test_reasons_must_come_from_the_closed_rule_set():
     rows = ledger_rows(**{"I-9": {"status": "excluded", "reasons": ["fordi-jeg-synes"],
                                   "record_input_sha256": "f" * 64}})

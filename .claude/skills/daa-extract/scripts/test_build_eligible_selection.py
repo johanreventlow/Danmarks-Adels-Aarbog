@@ -17,8 +17,8 @@ def rec(key, tekst="Født 1800.", persona=True):
             "clauses": [{"ordinal": 1, "verbatim_text": tekst, "verbatim_sha256": sha256_text(tekst)}]}
 
 
-def ledger(rows):
-    return {"schema_version": "evidence-eligibility-1.0", "policy_version": "p",
+def ledger(rows, policy="exclusion-2018-20-v1"):
+    return {"schema_version": "evidence-eligibility-1.0", "policy_version": policy,
             "rules_script_sha256": H, "source_id": "s", "restore_identity": "r", "records": rows}
 
 
@@ -35,6 +35,22 @@ def setup(*keys):
 def test_alle_eligible_i_kodepunkt_orden():
     records, rows = setup("V-2", "I-10", "I-9", "IV-1")
     assert eligible_keys(records, ledger(rows)) == ["I-10", "I-9", "IV-1", "V-2"]
+
+
+def test_en_1939_ledger_laeses():
+    """Trin 6c-1 Task 5: udvalget læser en exclusion-1939-v1-ledger med 1939's årsager."""
+    records, rows = setup("I-1", "I-2", "I-3")
+    rows["I-2"] = dict(row(records["I-2"], "excluded"), reasons=["no_published_persona"])
+    rows["I-3"] = dict(row(records["I-3"], "excluded"), reasons=["relative_living", "text_year_ge_1915"])
+    assert eligible_keys(records, ledger(rows, "exclusion-1939-v1")) == ["I-1"]
+
+
+def test_en_2018_20_aarsag_i_en_1939_ledger_afvises():
+    from evidence_runner import EligibilityError
+    records, rows = setup("I-1", "I-2")
+    rows["I-2"] = dict(row(records["I-2"], "excluded"), reasons=["spouse_undated_marriage"])
+    with pytest.raises(EligibilityError, match="LEDGER_REASON_UNKNOWN"):
+        eligible_keys(records, ledger(rows, "exclusion-1939-v1"))
 
 
 def test_excluded_kommer_ikke_med():
