@@ -138,8 +138,9 @@ Pr. element (én helpost):
 - **Id'er:** indholds-id (`private.content_uuid('source-persona', {source_id, persona_key})`), som 5b's personas
   efter #151 (præciseret i planen; udkastet sagde `deterministic_uuid`). Replay giver `already_applied`.
 - **Webkøen:** personas uden identitet vises i dag som `proposed` i `red_source_persona_queue`. Mellem B og C må de
-  ikke afgøres der. En persona venter på kontrol, når den ikke har en identitetsrække, er skrevet af en
-  `publication_persona`-batch, og ingen `finalized` `publication_identity`-batch navngiver den batch. Sådanne personas
+  ikke afgøres der. En persona venter på kontrol, når den ikke har en identitetsrække eller har en fortrudt
+  publikationsidentitet (§6), er skrevet af en `publication_persona`-batch, og ingen `finalized`
+  `publication_identity`-batch navngiver den batch. Sådanne personas
   er skjult i køen, og `red_afgoer_source_persona` afviser dem (præciseret i planen: kandidatkørslen alene lukker
   ikke vinduet). C afviser desuden enhver persona, hvis identitetsversion ikke er 0, undtagen en fortrudt
   publikationsidentitet (§6).
@@ -289,7 +290,8 @@ Tre ceremonier i 6a's form (dump med ekstern kopi, kørsel fra projektejerens sh
   - *efter C, før promotion:* `reversal` sætter C's identiteter til `superseded`; de 8 eksisterende er urørte. C kan
     derefter køres igen: en fortrudt publikationsidentitet (aktuel tilstand `superseded`, seneste overgang er
     fortrydelsen af en `publication_identity`-batch) tæller som ingen identitet, så personaerne igen venter på
-    kontrol, indtil en ny C er finaliseret, eller et menneske har afgjort dem. Den nye C skriver med den aktuelle
+    kontrol, indtil en ny C er finaliseret. Det er den eneste udgang: mens de venter, er de skjult i webkøen, og
+    `red_afgoer_source_persona` afviser dem, så 6b har ingen menneskelig nødudgang. Den nye C skriver med den aktuelle
     version i stedet for 0 (projektejeren 2026-10-31, `docs/decisions.md`);
   - *efter promotion:* 6c's fortrydelse gælder.
 - Øvelse på en frisk stand-in med prods `statement_timeout` (2 min) før hvert GO.
@@ -364,3 +366,5 @@ Afvejning og indarbejdelse står i planens reviewlog (`2026-10-31-trin6b-identit
 
 - I2 (afsluttende review): projektejeren valgte genkørsel frem for webkø. §6 (*efter C, før promotion*) og §4.2 er
   rettet; den snævre kernevagt står i `docs/decisions.md` 2026-10-31.
+- I2-review D1/D2: den eneste udgang for en ventende persona er en ny C (controller-beslutning; ingen menneskelig
+  nødudgang i 6b), og §4.2's definition af at vente omfatter en fortrudt publikationsidentitet.

@@ -10,8 +10,10 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > (`private.publication_identity_reverted`: den fortrudte batch, dens reversal-hændelse og C's kvittering for den
 > forrige version). Den tæller som ingen identitet i køvagten, finalize's kontrolmængde og stikprøvens population. Den
 > eneste kerneændring er snæver: oprindelsen `publication_binding` godtager en version ≠ 0, når og kun når identiteten
-> er en fortrudt publikationsidentitet. C-writeren håndhæver det samme for alle udfald (også `human`/S/F/U). Har et
-> menneske afgjort personaen bagefter, er den ikke længere fortrudt, og C afviser den som enhver menneskelig identitet. Tilstandsmodel og andre kaldere er uændrede.
+> er en fortrudt publikationsidentitet. C-writeren håndhæver det samme for alle udfald (også `human`/S/F/U). Den eneste
+> udgang for en ventende persona er en ny C (controller-beslutning efter I2-reviewet): mens den venter, er den skjult i
+> webkøen og spærret for `red_afgoer_source_persona`, så 6b har ingen menneskelig nødudgang. Kan C ikke gennemføres
+> igen, forbliver personaerne skjulte, indtil en ny beslutning tages. Tilstandsmodel og andre kaldere er uændrede.
 > Spec §6; `db-migrations.sql` blok »trin 6b opfølgning: C kan genkøres efter fortrydelse«.
 
 ## NOTERET: 6b's identitetswriter kalder kernen med `human` direkte (2026-10-31)

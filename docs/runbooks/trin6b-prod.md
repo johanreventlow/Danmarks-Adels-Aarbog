@@ -355,19 +355,24 @@ hemmelighed. Brug den ikke uden at have tjekket, hvad der er ændret siden GO.
     identiteter til `superseded` (version 2 efter den første C). De 8 eksisterende er urørte;
   - **C kan køres igen** (projektejeren 2026-10-31, `docs/decisions.md`). En fortrudt publikationsidentitet tæller
     som ingen identitet: personaerne venter igen på kontrol (skjult i webkøen, `red_afgoer_source_persona` afviser
-    med `IDENTITY_AWAITING_PUBLICATION_CONTROL`), indtil en ny C er finaliseret, eller et menneske har afgjort dem;
+    med `IDENTITY_AWAITING_PUBLICATION_CONTROL`), indtil en ny C er finaliseret. Det er den eneste udgang; 6b har
+    ingen menneskelig nødudgang;
   - den nye C bygges som den første: `red_publication_control` (samme eller ny kandidatkørsel) giver for hver persona
     den aktuelle `identity_version` (fx 2) og `identity_reverted=true`, kortenes P-linjer bærer den version, og
     manifestet sætter `expected_identity_version` til den. Over samme kørsel er stikprøven den samme som før
     fortrydelsen. Writeren godtager en version ≠ 0 kun for en fortrudt publikationsidentitet; ellers
     `EVIDENCE_IDENTITY_VERSION_CONFLICT`;
-  - en persona, som et menneske har afgjort efter fortrydelsen, er ikke længere fortrudt. Den er disposition
-    `allerede_persona` i manifestet, C afviser den med `EVIDENCE_IDENTITY_VERSION_CONFLICT`, og finalize kræver den
-    ikke;
+  - en persona, hvis identitet er ændret efter fortrydelsen (af en anden servervej end webkøen, som er spærret), er
+    ikke længere fortrudt. Den er disposition `allerede_persona` i manifestet, C afviser den med
+    `EVIDENCE_IDENTITY_VERSION_CONFLICT`, og finalize kræver den ikke. Det beskriver en tilstand, ikke en udgang;
   - en C, der er kørt igen, kan fortrydes igen (version 4 osv.).
 - **Efter promotion:** 6c's fortrydelse gælder.
 
 **Kendte begrænsninger i fortrydelsen**
+
+- **Efter en fortrydelse af C er den eneste udgang en ny C.** Kan C ikke gennemføres igen (fx stopreglen over 90 kort,
+  en B-binding der driver, eller en stikprøve med F/U), forbliver personaerne skjulte i webkøen og spærrede for
+  `red_afgoer_source_persona`, indtil der tages en ny beslutning (fx en nødudgang).
 
 - **6c's runner skal respektere `fortryd-b-*.igang`.** Markøren spærrer kun i `26-trin6b.sh`. En runner, der skriver
   under en påbegyndt fortrydelse, ville ændre basen bag beslutningstabellen. Den ender så i række 4 (fejlsikkert),
@@ -419,9 +424,15 @@ vises først i C's kontrolrapport.
   webkøen. Alle andre `none`/uklare tilstande stopper stadig med `PUBLICATION_CONTROL_BINDING_NOT_PUBLISHED`.
 - Runneren kører apply og finalize i én READ COMMITTED-transaktion og sætter aldrig `SET CONSTRAINTS ALL IMMEDIATE`.
 - Finalize kræver, at stikprøven ligger i C; ellers `PUBLICATION_IDENTITY_SAMPLE_MISMATCH`.
+- Fejlkontrakt for versionen (trin 6b opfølgning): et element med `expected_identity_version` ≠ 0 på en persona uden
+  en fortrudt publikationsidentitet giver `EVIDENCE_IDENTITY_VERSION_CONFLICT` (før genkørslen gav det
+  `PUBLICATION_IDENTITY_PAYLOAD_INVALID`). En version, der ikke er et ikke-negativt heltal, giver stadig
+  `PUBLICATION_IDENTITY_PAYLOAD_INVALID`.
 - Fire kald er umålte mod prods 2 minutter og skal måles i Task 15: `red_publication_control`,
   `red_publication_control_details`, C's første `enig`-element (stikprøven beregnes i writer-kaldet) og finalize's
-  genberegning af kandidatinputtet. Runneren sætter session-`statement_timeout` for C, som den gør for restore-hashen.
+  genberegning af kandidatinputtet. `red_publication_control` måles også efter en fortrydelse af C (hjælperen for
+  fortrudte identiteter kaldes pr. persona; syntetisk lokalt er hele kaldet ≈2,7 s for 500 personas, både med og uden
+  fortrydelse, så det er klassifikatoren og ikke hjælperen, der koster). Runneren sætter session-`statement_timeout` for C, som den gør for restore-hashen.
 - En tilbagetrækning efter `render` flytter stikprøven (den afhænger af bindingsstatus). Med et manifest fra før
   tilbagetrækningen stopper **writeren** først (N3): `PUBLICATION_IDENTITY_BINDING_DRIFT` på den tilbagetrukne
   stikprøvepersona, eller writerens `PUBLICATION_IDENTITY_SAMPLE_MISMATCH` på den persona, der nu er rykket ind i
