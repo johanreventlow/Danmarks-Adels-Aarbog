@@ -132,8 +132,9 @@ Politikken `exclusion-1939-v1` (*mit valg* af form) udelukker en post, hvis mind
 3. en person i en family med bindingspersonen eller med en af dens partnere er `levende` ≠ `false`;
 4. **tekst:** et årstal ≥ 1915 står et vilkårligt sted i helpostens gældende tekst. Årstallet læses OCR-tolerant:
    et firetegnsord, der begynder med `1` eller `l`/`I` og ellers kun består af cifre og de typiske OCR-forvekslinger
-   (`O`, `o`, `S`, `B`, `l`, `I`), tolkes med forvekslingerne rettet. Antallet, den tolerante læsning tilføjer, måles og
-   rapporteres.
+   (`O`, `o`, `S`, `B`, `l`, `I`), tolkes med forvekslingerne rettet. Reglen er foreningen af den tolerante læsning og
+   den strenge (`1[6-9][0-9]{2}` hvor som helst, også klistret til et ord). Målt på `_6bm`: den tolerante tilføjer 0
+   poster, og den strenge alene finder 60; foreningen beholder begge, så en ny OCR-variant ikke er afhængig af én af dem.
 
 *Mit valg* af tekstregel: den strenge (63 udelukket, 500 tilladt), ikke den smalle (28/535). En person født 1915 er 111
 år i dag; en slægtning, der kun står i prosaen, findes ikke som person, og hverken `levende` eller en dødspåstand kan

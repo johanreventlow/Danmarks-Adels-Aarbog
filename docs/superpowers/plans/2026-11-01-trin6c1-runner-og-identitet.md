@@ -46,7 +46,8 @@ spec §4.3 og plan Task 15-16 (`docs/superpowers/plans/2026-10-31-trin6b-identit
   `RECORD_HELPOST_SUBOCCURRENCE_OUTSIDE` uændret.
 - Tekstreglen: `exclusion-1939-v1` udelukker en post, hvis helpostens gældende tekst indeholder et firetegnsord
   `[1lI][0-9OoSBlI]{3}`, der efter rettelse (`l`,`I`→1, `O`,`o`→0, `S`→5, `B`→8) er et årstal ≥ 1915 (spec §4.3
-  pkt. 4). Antal poster, den tolerante læsning tilføjer ud over `1[6-9][0-9]{2}`, rapporteres.
+  pkt. 4), ELLER en delstreng `1[6-9][0-9]{2}` (også klistret til et ord) med værdi ≥ 1915. Målt på `_6bm`: 60 poster
+  (den tolerante del tilføjer 0); antal pr. del rapporteres i ledgerens tal.
 - Helpost-slags læses altid fra writerprofilen med `private.writer_config_helpost_kind(writer_config)`, aldrig
   hardkodet.
 - Persondata:
