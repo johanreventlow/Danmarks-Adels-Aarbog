@@ -42,7 +42,8 @@ spec §4.3 og plan Task 15-16 (`docs/superpowers/plans/2026-10-31-trin6b-identit
   - måling: `T6C1_MAAL tilstand=<foer|a|b|c> forslag_k3=… poster_k3=… identiteter_k3=… afventer=… k1_forslag_hash=…`.
 - Fejlkoder (præcis tekst): eksport `EXPORT_HELPOST_NOT_UNIQUE`, `EXPORT_PRIMARY_PERSONA_NOT_UNIQUE`,
   `EXPORT_POLICY_UNKNOWN`; runner `RUNNER_CODE_SHA_MISSING` (kontrakt ≥ 1.4 uden `runner_code_sha256`),
-  `PROPOSAL_MANIFEST_SOURCE_MISSING`, `PROPOSAL_MANIFEST_SOURCE_MISMATCH`; writerens helpost-fejl er 6a's `RECORD_HELPOST_AMBIGUOUS` /
+  `PROPOSAL_MANIFEST_SOURCE_MISSING`, `PROPOSAL_MANIFEST_SOURCE_MISMATCH`, `RUNNER_INPUT_SOURCE_MISSING`
+  (`build_43b_manifest.py --runner-input` er påkrævet for dagsværk ud over `4.3b`/`4.5`; Task 2 ruling); writerens helpost-fejl er 6a's `RECORD_HELPOST_AMBIGUOUS` /
   `RECORD_HELPOST_SUBOCCURRENCE_OUTSIDE` uændret.
 - Tekstreglen: `exclusion-1939-v1` udelukker en post, hvis helpostens gældende tekst indeholder et firetegnsord
   `[1lI][0-9OoSBlI]{3}`, der efter rettelse (`l`,`I`→1, `O`,`o`→0, `S`→5, `B`→8) er et årstal ≥ 1915 (spec §4.3
