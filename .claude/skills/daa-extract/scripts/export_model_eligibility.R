@@ -11,6 +11,7 @@
 #                         spouse_undated_marriage, birth_year_text_filter);
 #   exclusion-1939-v1     spec 6c-1 §4.3 (no_published_persona, principal_living,
 #                         same_as_partner_living, relative_living, text_year_ge_1915).
+# Eksporten kræver en rolle, der omgår RLS (ellers EXPORT_ROLE_NOT_RLS_BYPASS, ingen fil).
 # Andet → EXPORT_POLICY_UNKNOWN. Politikken er bundet til writerprofilens udgave
 # (writer_config.rendition_metadata.edition: 2018-20 ↔ exclusion-2018-20-v1, 1939 ↔ exclusion-1939-v1);
 # en anden eller manglende udgave → EXPORT_POLICY_EDITION_MISMATCH, så en udgaves poster aldrig afgøres
@@ -76,6 +77,16 @@ con <- DBI::dbConnect(RPostgres::Postgres(),
                       password = Sys.getenv("PGPASSWORD"))
 on.exit(DBI::dbDisconnect(con), add = TRUE)
 DBI::dbExecute(con, "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+
+# Rollen skal omgå RLS (superuser eller BYPASSRLS). person, family_member, relation og
+# _samme_som_gruppe (SECURITY INVOKER) læses under RLS; en rolle uden bypass ville se færre rækker,
+# så en levende slægtning eller samme_som-partner lydløst forsvandt (fail-open). Begge politikker.
+bypass <- DBI::dbGetQuery(con,
+  "SELECT (rolsuper OR rolbypassrls) AS ok FROM pg_roles WHERE rolname = current_user")
+if (nrow(bypass) != 1L || !isTRUE(bypass$ok[[1L]])) {
+  DBI::dbExecute(con, "ROLLBACK")
+  stop("EXPORT_ROLE_NOT_RLS_BYPASS", call. = FALSE)
+}
 
 # Helpost-slagsen læses fra writerprofilen, aldrig hardkodet (2018-20: person_post, 1939: person).
 # Samme opslag og fejlkode som export_43b_runner_input.R.

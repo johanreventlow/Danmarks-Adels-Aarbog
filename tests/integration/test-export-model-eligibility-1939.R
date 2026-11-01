@@ -328,4 +328,25 @@ publish(sc, two, new_person())
 rc <- eligibility(sc$id, "exclusion-1939-v1", "p", "c-two")
 stopifnot(rc$status == 0L, identical(unlist(ledger_of(rc)$records[["I-1"]]$reasons), "no_published_persona"))
 
+# Rollen skal omgå RLS: en login-rolle uden superuser/BYPASSRLS afvises, før noget læses (ingen fil).
+# Rollen er klyngebred; navnet er unikt for kørslen, og den droppes igen.
+norls <- paste0("t6c1_t5_norls_", format(Sys.time(), "%Y%m%d%H%M%S"), "_", sample.int(99999L, 1L))
+as_norls <- function() {
+  e(sprintf("CREATE ROLE %s LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD 'norls'", norls))
+  old_env <- Sys.getenv(c("PGUSER", "PGPASSWORD"), unset = NA)
+  on.exit({  # i en funktion, så rollen og miljøet ryddes op, også ved fejl
+    for (k in names(old_env)) if (is.na(old_env[[k]])) Sys.unsetenv(k) else do.call(Sys.setenv, as.list(old_env[k]))
+    e(sprintf("DROP ROLE IF EXISTS %s", norls))
+  })
+  Sys.setenv(PGUSER = norls, PGPASSWORD = "norls")
+  list(b = eligibility(sb$id, "exclusion-1939-v1", P39, "c-norls"),
+       a = eligibility(sa$id, "exclusion-2018-20-v1", P18, "c-norls-18"))
+}
+r_norls <- as_norls()
+stopifnot(nrow(q("SELECT 1 FROM pg_roles WHERE rolname=$1", list(norls))) == 0L)
+expect_fail(r_norls$b, "EXPORT_ROLE_NOT_RLS_BYPASS")
+expect_fail(r_norls$a, "EXPORT_ROLE_NOT_RLS_BYPASS")
+# ... og den normale rolle kører stadig.
+stopifnot(eligibility(sb$id, "exclusion-1939-v1", P39, "c-bypass")$status == 0L)
+
 cat("TEST_EXPORT_MODEL_ELIGIBILITY_1939_OK\n")
