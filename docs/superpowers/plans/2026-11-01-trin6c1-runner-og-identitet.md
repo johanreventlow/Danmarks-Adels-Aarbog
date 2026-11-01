@@ -262,7 +262,9 @@ Under `~/.private/6c1/` (0700). Stand-in: `createdb -T daa5ab_ddl_standin_202611
 `db-migrations.sql` og `db-rls.sql`, ICU, 2 min, `ANALYZE`.
 
 - [ ] **Step 1:** Ledger (`--policy exclusion-1939-v1`) og runner-input for kilde 3. Forventet ca. 500 `eligible` /
-  63 `excluded` (spec §2.3); afviger det med mere end 5, stop og forklar.
+  63 `excluded` (spec §2.3; samme_som som gruppe kan flytte lidt); afviger det med mere end 5, stop og forklar. Mål
+  varigheden af hver af de to eksporter som ét statement (`\timing` eller tidsstempler); omregn med 3× (én stor læsning)
+  og med 27× som øvre grænse. Over 60 s anslået med 27×: eksporten skal optimeres, før Task 10 (Codex diffrunde fund 5).
 - [ ] **Step 2: Pilot:** `build_eligible_selection.py --limit 30 --seed 6c1-pilot-v1`, `build_43b_manifest.py
   --profile-id daa-1939-v2 --dagsvaerk 6c-1`, `run_evidence_43b.py`. Gaten (spec §4.5 pkt. 1) rapporteres med tal i
   `docs/evidensbaseret-genimport/runner-1939-pilot.md` (ingen claim-værdier). Fejler gaten: stop; prompt eller profil
@@ -307,8 +309,8 @@ Under `~/.private/6c1/` (0700). Stand-in: `createdb -T daa5ab_ddl_standin_202611
   forslagsmanifestets, ledgerens og runner-manifestets hash.
 
 - [ ] **Step 1:** Frisk stand-in fra seneste prod-dump; A → `maal` `a`; B med manifestet fra Task 8 → `b`; digest lig
-  Task 8's; replay `already_applied`. Mål maksimum pr. statement for dry-run, autorisation, hvert writer-kald,
-  finalize og digest (`log_min_duration_statement=0` eller tidsstempler i gatewayen); omregn med 27×. Over 60 s
+  Task 8's; replay `already_applied`. Mål maksimum pr. statement for genberegningen af ledgeren og klausulsættet,
+  dry-run, autorisation, hvert writer-kald, finalize og digest (`log_min_duration_statement=0` eller tidsstempler i gatewayen); omregn med 27×. Over 60 s
   anslået: B deles i deterministiske delbatches (spec §4.6), og øvelsen gentages.
 - [ ] **Step 2:** Fortrydelse af B: restore af B-dumpet (taget i tilstand `a`) → `a`; B igen → `b`.
 - [ ] **Step 3:** Commit `docs(runbooks): trin 6c-1 ceremoni A og B`.
