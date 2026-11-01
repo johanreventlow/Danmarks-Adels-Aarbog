@@ -456,10 +456,17 @@ def test_prompt_1_1_0_is_prompt_1_0_0_plus_added_sections_only():
     old = (refs / "evidence-extract-prompt-1.0.0.md").read_text(encoding="utf-8").splitlines(keepends=True)
     new = (refs / "evidence-extract-prompt-1.1.0.md").read_text(encoding="utf-8").splitlines(keepends=True)
     ops = [op for op in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes() if op[0] != "equal"]
-    assert ops and all(tag == "insert" for tag, *_ in ops)
-    added = "".join(line for tag, _, _, j1, j2 in ops for line in new[j1:j2])
-    assert sum(1 for line in added.splitlines() if line.startswith("## ")) == 2
+    # kun headerens versionslinje (linje 1) må erstattes; alt andet er rene indsættelser
+    header = [op for op in ops if op[0] == "replace"]
+    assert all(tag in ("insert", "replace") for tag, *_ in ops)
+    assert len(header) == 1 and header[0][1:3] == (0, 1)
+    assert new[0].strip() == "<!-- evidence-extract-prompt-1.1.0"
+    inserts = [op for op in ops if op[0] == "insert"]
+    added = "".join(line for _, _, _, j1, j2 in inserts for line in new[j1:j2])
+    heads = [line for line in added.splitlines() if line.startswith("## ")]
+    assert heads == ["## Navn, titel og gods", "## Dødsfald i bisætninger"]
     assert "person.title" in added and "til " in added and "†" in added
+    assert "grænse" in added and "person.death" in added
     assert "1939" not in added and "2018" not in added
 
 

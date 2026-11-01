@@ -1,4 +1,5 @@
-<!-- evidence-extract-prompt-1.0.0
+<!-- evidence-extract-prompt-1.1.0
+     1.1.0 = 1.0.0 + de to sektioner »Navn, titel og gods« og »Dødsfald i bisætninger«.
      Record-scoped prompt til model-runneren (#147 dagsværk 4.3a).
      Frossen: rediger ikke ad hoc. En ændring kræver en ny version af BÅDE denne fil
      og profilens prompt_file/prompt_sha256, samt projektejerens GO.
@@ -63,11 +64,10 @@ uden for `person.name`; det ordrette navn bevares alligevel i klausulen.
 
 ## Dødsfald i bisætninger
 
-Står en dødsdato i en bisætning — typisk »X var † [dato], da …« eller en tilsvarende
-formulering — så tilhører dødsfaldet den person, som bisætningen nævner (X), ikke
-postens hovedperson. Udtræk derfor ikke et `person.death`-claim for hovedpersonen på
-grundlag af en sådan bisætning. Er det hovedpersonen selv, der er nævnt som død i
-bisætningen, gælder dødsfaldet naturligvis ham eller hende.
+»X var † [dato], da …« (og tilsvarende »var død [dato], da …«) siger, at X senest på den dato var
+død — ikke at X døde den dag. Datoen er en grænse, ikke en dødsdato. Udtræk derfor ikke et
+`person.death`-claim med den dato, hverken for X eller for postens hovedperson. Personens egentlige
+dødsdato står normalt et andet sted i posten og udtrækkes derfra som sædvanlig.
 
 ## Hvad du IKKE skal
 

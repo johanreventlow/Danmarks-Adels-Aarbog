@@ -1042,7 +1042,7 @@
       "text_form": "raw",
       "helpost_observation_kind": "person",
       "prompt_file": "evidence-extract-prompt-1.1.0.md",
-      "prompt_sha256": "a878d9d728985dd12419b6462f0db21f43c1c666e99bfac6740112e4fa076c96"
+      "prompt_sha256": "5371422ac32b6b5f19f3eae429b2ae5b69a551595090427bab30b40d5b21239d"
     }
   }
 }
