@@ -464,7 +464,7 @@ def test_prompt_1_1_0_is_prompt_1_0_0_plus_added_sections_only():
     inserts = [op for op in ops if op[0] == "insert"]
     added = "".join(line for _, _, _, j1, j2 in inserts for line in new[j1:j2])
     heads = [line for line in added.splitlines() if line.startswith("## ")]
-    assert heads == ["## Navn, titel og gods", "## Dødsfald i bisætninger"]
+    assert heads == ["## Navn, titel og gods", "## »var † [dato], da …« er en grænse"]
     assert "person.title" in added and "til " in added and "†" in added
     assert "grænse" in added and "person.death" in added
     assert "1939" not in added and "2018" not in added

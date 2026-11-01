@@ -1,5 +1,5 @@
 <!-- evidence-extract-prompt-1.1.0
-     1.1.0 = 1.0.0 + de to sektioner »Navn, titel og gods« og »Dødsfald i bisætninger«.
+     1.1.0 = 1.0.0 + de to sektioner »Navn, titel og gods« og »»var † [dato], da …« er en grænse«.
      Record-scoped prompt til model-runneren (#147 dagsværk 4.3a).
      Frossen: rediger ikke ad hoc. En ændring kræver en ny version af BÅDE denne fil
      og profilens prompt_file/prompt_sha256, samt projektejerens GO.
@@ -59,10 +59,10 @@ Undtagelse: hvor titlen juridisk er en del af efternavnet (tyske grene efter 191
 følger den med i navnet.
 
 En godsbetegnelse som »til Krenkerup« er heller aldrig en del af navnet. Den er et
-ejerskab og udtrækkes som `person.estate`. Står godset i klausulen, så lad det være
+ejerskab og udtrækkes som `person.estate`, når godset er hovedpersonens. Står godset i klausulen, så lad det være
 uden for `person.name`; det ordrette navn bevares alligevel i klausulen.
 
-## Dødsfald i bisætninger
+## »var † [dato], da …« er en grænse
 
 »X var † [dato], da …« (og tilsvarende »var død [dato], da …«) siger, at X senest på den dato var
 død — ikke at X døde den dag. Datoen er en grænse, ikke en dødsdato. Udtræk derfor ikke et
