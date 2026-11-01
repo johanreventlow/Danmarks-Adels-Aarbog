@@ -520,6 +520,14 @@ jobs:
           PGPASSWORD: postgres
           PGDATABASE: writer_1939
         run: Rscript tests/integration/test-reimport-source-text-revision.R
+      - name: Runner-input vælger helpost og persona (trin 6c-1 · Task 4)
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: writer_1939
+        run: Rscript tests/integration/test-export-runner-input-helpost.R
       - name: Legacy migration writer SQL (149b)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-legacy-migration.sql

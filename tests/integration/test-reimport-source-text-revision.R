@@ -244,7 +244,7 @@ stopifnot(identical(replay$status, "already_applied"), identical(state(), after)
 #     netop den tekst (evidence_runner.check_clauses_within_post kræver delstrenge).
 runner_dir <- new_dir("runner-input")
 r <- run("Rscript", c(shQuote(file.path(scripts_dir, "export_43b_runner_input.R")), "--source-id", source_id,
-  "--output-dir", shQuote(runner_dir)))
+  "--writer-profile", profile_id, "--output-dir", shQuote(runner_dir)))
 if (r$status != 0L) stop("runner-input fejlede: ", r$out)
 stopifnot(!grepl("Alfa|Echo|Golf|Revisor", r$out))
 runner <- jsonlite::fromJSON(file.path(runner_dir, "runner-input-v1.json"), simplifyVector = FALSE)$records
@@ -305,7 +305,7 @@ e(paste("INSERT INTO private.source_observation_text(observation_id,rendition_id
   "SELECT o.id,$2,1,o.verbatim_text||' x',o.char_from,o.char_to,true FROM private.source_observation o WHERE o.id=$1::uuid"),
   list(post[["I-3"]]$helpost, rend_id))
 unbound <- run("Rscript", c(shQuote(file.path(scripts_dir, "export_43b_runner_input.R")), "--source-id", source_id,
-  "--output-dir", shQuote(new_dir("runner-input-unbound"))))
+  "--writer-profile", profile_id, "--output-dir", shQuote(new_dir("runner-input-unbound"))))
 stopifnot(unbound$status != 0L, grepl("EXPORT_CLAUSE_SET_TEXT_MISMATCH", unbound$out, fixed = TRUE),
   !grepl("Alfa|Echo|Golf|Revisor", unbound$out), length(list.files(file.path(work_dir, "runner-input-unbound"))) == 0L)
 
