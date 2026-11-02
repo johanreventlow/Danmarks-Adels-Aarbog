@@ -471,3 +471,22 @@ pkt. 6): runneren stoppede med `T6C1_B_LEDGER_AFVIGER`, før noget blev skrevet.
 - `docs/changelog.md` og `status.md` (1939 »Extractor-runner« → `produktionsverificeret`, »Forslag og afgørelse« →
   forslag i prod).
 - Notér prod-tiderne for ledgerens genberegning, autorisationen og digestet her, så C's og 6c-2's skøn bygger på dem.
+
+## Prod-kørslen (2026-11-02)
+
+A og B er kørt i prod med de forventede tal (database-current-state §19). Målte prod-tider til C's og 6c-2's skøn:
+
+| Sætning | Prod | Stand-in | Forhold |
+|---|---|---|---|
+| `maal` | 2,2-2,9 s (hele processen) | 0,2-0,3 s (forespørgslen) | — |
+| A (blok + `db-rls.sql`) | 22,5 s (hele `apply-a`) | 0,1-0,2 s | — |
+| Ledgerens genberegning (hele processen) | 8,9 s / 6,6 s | 2,8-3,1 s | ca. 3× |
+| Klausulsættet | 1,56-1,66 s | 0,69 s | ca. 2,4× |
+| Autorisationen (1,7 MB payload) | 2,2-2,3 s | 0,69 s | ca. 3× |
+| Ét writer-kald, maks. af 494 | 1,10-1,38 s | 0,058 s | ca. 24× |
+| B's dry-run / apply + finalize | 257,7 s / 254,2 s | 10,1 s / 9,9-10,2 s | ca. 25× |
+| `ANALYZE`, 7 tabeller | 3,0 s i alt (maks. 0,87 s) | 0,05 s pr. tabel | ca. 17× |
+| Forslagsdigestet (efter `ANALYZE`) | 1,1 s | 0,1-0,3 s | ca. 4-10× |
+| Dump / dump i `a` med mål | 103,8 s / 94,8 s + 28,3 s | — | — |
+
+Faktorerne fra 6b-B holder: mange små kald ca. 25×, store enkeltforespørgsler ca. 3×.
