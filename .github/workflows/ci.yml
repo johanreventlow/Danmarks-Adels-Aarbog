@@ -565,6 +565,9 @@ jobs:
       - name: Personfakta med kilde SQL (5c-2/B11)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-person-facts.sql
+      - name: Forkert person rører hverken narrativ eller fakta SQL (6c-2)
+        env: {PGPASSWORD: postgres}
+        run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-persona-forkert-person.sql
       - name: Ordvindue, relation_person_create og disposition SQL (5b 2b-ii)
         env: {PGPASSWORD: postgres}
         run: |
