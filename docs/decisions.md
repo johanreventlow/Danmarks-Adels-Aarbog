@@ -15,7 +15,10 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > rettelse, begrænset til påstande som alene kilde 3 citerer og som er eneste mål for et datoforslag. **Retning 2's
 > ubekræftede identiteter** (ca. 440) behandles som alle andre; stikprøven på 20 stratificeres med 10 blandt dem. **Identitetsflytning** (kort 122 og
 > `P <id>`) flytter også postens narrativpublicering til den nye person, så prosa og fakta står samme sted; kan
-> narrativvejen ikke det uden ny DDL, falder 6c-2 tilbage til at udskyde flytningerne.
+> narrativvejen ikke det uden ny DDL, falder 6c-2 tilbage til at udskyde flytningerne. **Faldet til (c) samme
+> dag:** narrativvejen kræver accepterede placements, og kilde 3 har 0 (de kommer i 6d; målt i prod, Codex-runden på
+> spec+plan). Kort 122 og `P`-svar sætter identiteten `unresolved` med `ønsket_person_id`; narrativet bliver stående som
+> 6c-1's F; flytningen sker i 6d.
 
 ## BESLUTTET: 1939's identiteter (6b's C) — C3-bindingen er identiteten, kun konflikter på kort (retning 2) (2026-11-02)
 

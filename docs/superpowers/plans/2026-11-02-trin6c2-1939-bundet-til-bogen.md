@@ -8,13 +8,13 @@
 
 **Architecture:**
 - **PR 1 — basen** (to migrationsblokke): (a) set-baseret bindingstjek i `public_person_facts` (vej B); (b) en
-  deterministisk forslagsversion, en påstandsnøglet rettelsesvej med journal, identitetsflytning med narrativet, og
-  »højst én binding pr. påstand pr. kilde«.
+  deterministisk forslagsversion, en påstandsnøglet rettelsesvej med journal og »højst én gældende binding pr.
+  påstand«; en test, der låser, at »forkert person« (identitet → `unresolved`) ikke rører narrativ eller fakta.
 - **PR 2 — scripts:** kontrollens SQL får kildescope og to nye udfald; kontrolværktøjet v2 (stratificeret stikprøve,
   svar `B/D/V` pr. felt og `P` pr. persona, maskinsættet beregnes efter svarene); kortværktøjet pr. persona ind i
   repo'et; målingen `maal_trin6c2.sql` og vej B's tidsmåling.
 - **Øvelse** på en prod-dump-stand-in; **prod** i fire ceremonier fra projektejerens shell: (1) vej B, (2) basens
-  writere + kort 122, (3) datoversioner + linjeskift-rettelser, (4) kontrol → kort → anvend → opfølgningsrunde.
+  writere + kort 122, (3) datoversioner + linjeskift-rettelser, (4) kontrol → kort → anvend → slutmåling.
 - Afgørelserne skrives direkte i prod gennem ceremonien (som 6c-1's C), ikke gennem overførselspakken; derfor røres
   `transfer_pack.py` ikke (spec §4.6 pkt. 3).
 
@@ -29,7 +29,7 @@ GitHub Actions.
 - `schema.sql` er source of truth. Hver DB-ændring står i `schema.sql` og i én af to idempotente blokke sidst i
   `db-migrations.sql`, der kan køres to gange:
   - `-- ===== trin 6c-2a: set-baseret bindingstjek (vej B) =====`
-  - `-- ===== trin 6c-2b: forslagsversion, påstandsrettelse, identitetsflytning =====`
+  - `-- ===== trin 6c-2b: forslagsversion, påstandsrettelse, én binding pr. påstand =====`
   Ceremoni 1 anvender kun 6c-2a; ceremoni 2 kun 6c-2b (runneren udtrækker blokken mellem overskriften og næste
   `-- =====`).
 - Ingen editionsnavngivne funktioner, tabeller, udfald eller fejlkoder. Kilden kommer altid fra data
@@ -48,21 +48,21 @@ GitHub Actions.
     `oprettet_at`); RLS som `import_korrektion`;
   - RPC `public.red_ret_paastand(p_assertion_id bigint, p_forventet jsonb, p_grund text, p_interpretation_id uuid,
     p_dato jsonb DEFAULT NULL) RETURNS jsonb` og `public.red_paastand_historik(p_assertion_id bigint)`;
-  - RPC `public.red_flyt_persona_identitet(p_persona_id uuid, p_ny_person_id bigint, p_forventet_version integer,
-    p_grund jsonb) RETURNS jsonb` (`p_ny_person_id` NULL → `unresolved`);
+  - »forkert person« bruger den eksisterende `red_afgoer_source_persona(p_source_persona_id, p_expected_version,
+    'unresolved', NULL, p_note, p_context)` med `ønsket_person_id` og grund i konteksten; ingen ny RPC (spec §4.2);
   - nyt udfald i `validate_interpretation_promotion_items` og i klassifikationen: `ALREADY_BOUND_OTHER`; nyt udfald i
     klassifikationen: `TARGET_SHARED`;
   - kontrolværktøj `control_model_v2.py` (SEED `kontrolmodel-v2`, metode `human-sheet-kontrol-v2`, maskinmetode
     `machine-corroboration-v2`); kortværktøj `persona_kort.py` + `persona_kort.html` + `persona_kort_kontekst.sql`;
   - måling: `T6C2_MAAL tilstand=<foer|a|b|c|d> forslag_k=<n> match=<n> skrivemaade=<n> real_diff=<n>
-    accepteret_k=<n> bindinger_k=<n> rettelser=<n> flytninger=<n> k1_bindinger_hash=<sha256>` (`-v source_id`,
+    accepteret_k=<n> bindinger_k=<n> rettelser=<n> unresolved_fra_kort=<n> k1_bindinger_hash=<sha256>` (`-v source_id`,
     standard 3); vej B: `T6C2_VEJB person=<id> ms=<n>` pr. kald.
 - Fejlkoder (præcis tekst): `NORMALISERING_REGEL_UKENDT`, `NORMALISERING_PRAEDIKAT_UGYLDIG`,
   `NORMALISERING_UAENDRET`, `NORMALISERING_IKKE_PROPOSED`, `NORMALISERING_VERSION_KONFLIKT`,
   `NORMALISERING_KOERSEL_MANGLER`; `PAASTAND_ROLLE_FORBUDT`,
   `PAASTAND_DRIFT`, `PAASTAND_KILDE_DELT`, `PAASTAND_BINDING_BRYDES`, `PAASTAND_NAVN_FORKORTES`,
   `PAASTAND_GRUND_UGYLDIG`, `PAASTAND_VAERDI_UAENDRET`, `PAASTAND_FAKTATYPE_UGYLDIG`, `PAASTAND_FORSLAG_UOVERENS`;
-  `FLYT_MAAL_UDEN_KILDE`, `FLYT_PERSONA_HAR_BINDINGER`, `FLYT_SAMME_PERSON`; kontrol `PLAN_SCOPE_MANGLER`,
+  ceremoni `PERSONA_HAR_PROMOTIONER`; kontrol `PLAN_SCOPE_MANGLER`,
   `SHEET_V2_LINE_INVALID`, `SHEET_V2_UNDECIDED`, `SAMPLE_FAILED`.
 - `red_ret_paastand`'s værdi er aldrig fri: `bogen_har_ret` → forslagets aktuelle værdi (`p_interpretation_id`'s
   `interpretation_current`); `linjeskift-v1` → påstandens egen værdi med blanktegn samlet. Kun datoer tager `p_dato`
@@ -84,12 +84,14 @@ GitHub Actions.
 
 1. **En person med både 2018-20- og 1939-bindinger og en ugyldig binding imellem:** vej B giver præcis samme rækker
    og kildelinjer som i dag. Testes i Task 1 step 1 og på stand-in'en for alle personer i Task 9.
-2. **To personas med forslag, der matcher samme påstand** (kort 122 efter flytningen): kun den første binder; den
-   anden bliver `ALREADY_BOUND_OTHER`/`TARGET_SHARED`, og læseren viser postreferencen. Testes i Task 4 og Task 6.
+2. **To forslag (samme eller forskellige personas, enhver kilde) mod samme påstand:** ingen af dem binder i samme
+   kørsel (`TARGET_SHARED`); mod en påstand med en gyldig binding → `ALREADY_BOUND_OTHER`; læseren viser fortsat den
+   eksisterende postreference. Testes i Task 4 og Task 6.
 3. **»Bogen har ret« på et navn, hvor forslaget er en del af databasens navn** (titel eller gods ville forsvinde):
    afvises med `PAASTAND_NAVN_FORKORTES`; kortet tilbyder ikke `B`. Testes i Task 3 og Task 8.
-4. **En flytning, hvor personaens narrativ er publiceret, og målpersonen allerede har en anden persona:** narrativet
-   flytter, begge narrativer er synlige på målpersonen, intet bindes dobbelt. Testes i Task 5.
+4. **»Forkert person« på en persona, hvis post er publiceret** (kort 122, retning 2-origin): identiteten bliver
+   `unresolved`, narrativet står publiceret uændret, `public_person_facts` for den gamle person er uændret, og
+   personaens forslag klassificeres `NO_IDENTITY`. Testes i Task 5.
 5. **Projektejeren svarer `P` på en persona, hvis `MATCH`-felter ellers ville være bundet maskinelt:** ingen af
    personaens forslag får en afgørelse; maskinsættet er beregnet uden dem. Testes i Task 7.
 
@@ -177,73 +179,60 @@ GitHub Actions.
 - [ ] **Step 2:** FAIL. **Step 3:** Implementér. **Step 4:** `evidence-promotion-db` + testfilen efter migration ×2.
 - [ ] **Step 5:** Commit `feat(db): påstandsnøglet rettelse med journal (bogen_har_ret, linjeskift-v1)`.
 
-### Task 4: Højst én binding pr. påstand pr. kilde (blok 6c-2b)
+### Task 4: Højst én gældende binding pr. påstand (blok 6c-2b)
 
 **Files:** Modify: `schema.sql` `private.validate_interpretation_promotion_items` (10618; nyt `reason_code`
-`ALREADY_BOUND_OTHER` efter `ALREADY_PROMOTED`, når en anden fortolkning fra samme kilde har en gyldig binding på
-samme påstand, eller når to items i samme batch fra forskellige personas rammer samme påstand); `db-migrations.sql`
+`ALREADY_BOUND_OTHER` efter `ALREADY_PROMOTED`, når en anden fortolkning — fra enhver kilde — har en gyldig binding
+på samme påstand, eller når to forskellige fortolkninger i samme batch rammer samme påstand, uanset persona; læseren
+tæller på tværs af kilder, `schema.sql:20088-20091`); `db-migrations.sql`
 6c-2b; `tests/sql/test-evidence-promotion.sql`, `tests/sql/test-person-facts.sql`.
 
 - [ ] **Step 1: Test:** to personas fra kilde 3 med accepterede forslag mod samme påstand: første batch binder,
-  anden får `ALREADY_BOUND_OTHER`; samme to i én batch → begge `ALREADY_BOUND_OTHER`; en kilde 1-binding på samme
-  påstand blokerer ikke kilde 3 (pr. kilde); `public_person_facts` viser postreferencen for den bundne.
+  anden får `ALREADY_BOUND_OTHER`; samme to i én batch → begge `ALREADY_BOUND_OTHER`; to fortolkninger fra **samme**
+  persona i én batch → begge afvist; en kilde 1-binding på påstanden blokerer en kilde 3-binding; `public_person_facts`
+  viser postreferencen for den bundne; alle eksisterende tests i `evidence-promotion-db` grønne (prod: 0 påstande
+  med flere bindinger, målt 2026-11-02).
 - [ ] **Step 2:** FAIL. **Step 3:** Implementér. **Step 4:** `evidence-promotion-db` + `writer-1939-v50-db`.
-- [ ] **Step 5:** Commit `feat(db): højst én gældende binding pr. påstand pr. kilde`.
+- [ ] **Step 5:** Commit `feat(db): højst én gældende binding pr. påstand`.
 
-### Task 5: Identitetsflytning med narrativet (blok 6c-2b)
+### Task 5: »Forkert person« rører hverken narrativ eller fakta (kun test)
 
-**Files:** Modify: `schema.sql`: `red_flyt_persona_identitet`; `db-rls.sql`; `db-migrations.sql` 6c-2b. Create:
-`tests/sql/test-persona-flytning.sql`; Modify: `.github/workflows/ci.yml` (`narrative-record-contract-db` kører den
-nye fil).
+Fallback (c) (spec §4.2): ingen flytte-RPC; `P` og kort 122 sætter identiteten `unresolved` med den eksisterende
+`red_afgoer_source_persona` (`schema.sql:10247`). Narrativvejen kan ikke publicere på et mål uden placements
+(`schema.sql:13911-13936`, `:14030-14041`); kilde 3 har 0 (målt).
 
-Én transaktion, i denne rækkefølge (narrativvejen kræver, at identiteten peger på målet, før der kan publiceres der,
-og blokerer andre personer, mens en binding er aktiv — kortlagt 2026-11-02). `mutate_person_narrative_record` afviser
-et åbent ændringssæt (`NARRATIVE_RECORD_FOREIGN_CHANGE_SET`, `schema.sql:~15030`) og efterlader sit eget åbent;
-derfor nulstilles `app.change_set_id` og `app.change_seq` med `set_config(…, '', true)` før hvert indre kald (mønster
-`schema.sql:3128`). Hvert trin får sit eget ændringssæt; kvitteringen lister dem.
-1. Lås personaen; afvis `FLYT_SAMME_PERSON`; afvis `FLYT_MAAL_UDEN_KILDE`, hvis målet ikke har mindst én påstand
-   citeret af `source_persona.source_id`; afvis `FLYT_PERSONA_HAR_BINDINGER`, hvis en af personaens fortolkninger
-   har en gyldig binding (`assertion_binding_current`).
-2. Har postens record en aktiv (`published`) narrativbinding på den gamle person: `private.mutate_person_narrative_record
-   ('withdraw', <gammel>, …, <state_sha>)`.
-3. `private.decide_source_persona_identity(persona, p_ny_person_id, p_forventet_version, 'accepted'|'unresolved',
-   evidence med basis `human_sheet` + `p_grund`, 'human')`.
-4. Kun ved et mål og et tilbagetrukket narrativ: `upsert` med det tilbagetrukne narrativs tekst og `privat`, derefter
-   `publish`, på målpersonen. `P` alene (NULL): narrativet tilbagetrækkes **ikke**; kvitteringen siger
-   `narrativ_uaendret` (synligt i kørselsrapporten, spec §4.2 pkt. 1).
+**Files:** Create: `tests/sql/test-persona-forkert-person.sql`; Modify: `.github/workflows/ci.yml`
+(`narrative-record-contract-db` kører filen).
 
-**Interfaces:** Produces: kvittering `{persona_id, gammel_person, ny_person, identitet_version, narrativ:
-flyttet|uaendret|ingen, event_ids}`.
-
-- [ ] **Step 1: Test:** fixture med oversigtspost-persona publiceret på barnebarnet og målpersonen med sin egen
-  persona og publicerede post: efter flytningen peger identiteten og `publication_persona_binding` på målet; det gamle
-  narrativ er `withdrawn`, et nyt er `published` på målet med samme tekst og labels fra `narrative_record_labels`;
-  målet har to publicerede narrativer; `public_person_facts` for barnebarnet mister intet, der var bundet;
-  `NULL`-målet giver `unresolved` og `narrativ_uaendret`; de tre afvisninger; stale `p_forventet_version` →
-  `EVIDENCE_IDENTITY_VERSION_CONFLICT` og intet skrevet. En record med en anden principal-/co_principal-persona, hvis
-  identitet peger et andet sted: narrativets `upsert` på målet fejler (`NARRATIVE_RECORD_IDENTITY_AMBIGUOUS`/
-  `…_REQUIRED`), hele transaktionen ruller tilbage, og ceremonien tæller personaen som `flytning_afvist`. Læseren
-  (`bioVersions.ts`, én version pr. publiceret post sorteret efter udgave og postrækkefølge) viser målets to
-  1939-poster som to versioner.
-- [ ] **Step 2:** FAIL. **Step 3:** Implementér. **Step 4:** `narrative-record-contract-db` + testfilen efter
-  migration ×2. Fejler step 2-4 i narrativvejen af grunde, der kræver ændring af kontrakt v2: **stop for
-  projektejeren** (spec §8 pkt. 3: fald tilbage til (c)).
-- [ ] **Step 5:** Commit `feat(db): flyt en personas identitet sammen med postens narrativ`.
+- [ ] **Step 1: Test** (fixture: 1939-agtig persona med identitet origin `publication_binding` og publiceret narrativ
+  på person X, uden placements; ét `proposed` forslag): `red_afgoer_source_persona(…, 'unresolved', NULL, note,
+  {"basis":"human_sheet", "ønsket_person_id": Y, …})` lykkes med `expected_version`; identiteten er `unresolved`
+  med version + 1 og event; `narrative_record_publication` er stadig `published` på X; `narrative_record_state` for
+  X er ikke blokeret (den aktive binding bærer autoriteten); `public_person_facts(ARRAY[X])` uændret;
+  klassifikationen giver forslaget `NO_IDENTITY`. Stale version → `EVIDENCE_IDENTITY_VERSION_CONFLICT`. Kræver
+  `p_context` felter, der ikke passer til en kortafgørelse (fx stikprøvekontekst), noteres det præcise krav i
+  testen og i Task 7's SQL.
+- [ ] **Step 2:** Kør mod `main`'s schema. Forventet: grøn (ingen DDL). Er den rød: **stop for projektejeren** —
+  så kræver selv `unresolved` en ændring, og 6c-2 skal have en ny beslutning.
+- [ ] **Step 3:** Commit `test(db): forkert person sætter identiteten uafklaret uden at røre narrativ og fakta`.
 
 ## PR 2 — scripts (gren `feat/trin6c2-scripts` fra `feat/trin6c2-db`)
 
 ### Task 6: Kontrollens SQL: kildescope og to nye udfald
 
 **Files:** Modify: `.claude/skills/daa-extract/scripts/interpretation_control_classification.sql`,
-`interpretation_control_rows.sql`, `interpretation_promotion_targets.sql`: obligatorisk GUC `daa.control_src`
-(mangler → `RAISE EXCEPTION 'PLAN_SCOPE_MANGLER'`); filter `ic.source_id = current_setting('daa.control_src')::bigint`.
+`interpretation_control_rows.sql`, `interpretation_promotion_targets.sql`: **valgfri** GUC `daa.control_src`; sat →
+filter `ic.source_id = current_setting('daa.control_src')::bigint`; ikke sat → output byte-ens med i dag (v1-kaldere:
+`control_model.py`, `tests/sql/transfer-decide-bind.sh:57-60,143-144`, CI `ci.yml:222`). `control_model_v2.py`
+nægter at køre uden kildeparameter (`PLAN_SCOPE_MANGLER`) og sætter altid GUC'en.
 Klassifikationen får `ALREADY_BOUND_OTHER` (målet har en gyldig binding fra en anden fortolkning fra samme kilde)
-og `TARGET_SHARED` (to `MATCH` fra forskellige personas på samme påstand) før `MATCH`. Rækkeeksporten får
+og `TARGET_SHARED` (to forskellige fortolkninger med `MATCH` på samme påstand, uanset persona og kilde) før `MATCH`. Rækkeeksporten får
 `identity_outcome` (`source_persona_identity.evidence->>'outcome'`), `persona_id`, `identity_version` og
 `navn_forkortes` (bool, samme regel som `PAASTAND_NAVN_FORKORTES`). Modify: `tests/sql/test-interpretation-control-
 classification.sql`, `test-interpretation-promotion-targets.sql`; byte-ens-test for 2018-20 med `daa.control_src=1`.
 
-- [ ] **Step 1: Test:** uden GUC → `PLAN_SCOPE_MANGLER`; kilde 1 og 3 i samme fixture giver adskilte resultater;
+- [ ] **Step 1: Test:** uden GUC → byte-ens med `main` (hardkodet sha) og `transfer-decide-bind.sh` grøn; kilde 1 og 3
+  i samme fixture giver adskilte resultater med GUC;
   2018-20-fixturens klassifikation er byte-ens med `main`'s (hardkodet sha); de to nye udfald; rækkernes nye felter.
 - [ ] **Step 2-4:** FAIL → implementér → `evidence-promotion-db` + `python`. **Step 5:** Commit
   `feat(scripts): kontrollens SQL med kildescope, ALREADY_BOUND_OTHER og TARGET_SHARED`.
@@ -254,23 +243,23 @@ classification.sql`, `test-interpretation-promotion-targets.sql`; byte-ens-test 
 hjælpere fra `control_model.py`; v1 røres ikke); Modify: `.github/workflows/ci.yml` pytest-linjen.
 
 **Interfaces:**
-- `plan_run_v2(classification: dict, rows: list, *, exclude_personas: set[str], strata: dict[str,int]) -> dict`:
+- `plan_run_v2(classification: dict, rows: list, *, source_id: int, strata: dict[str,int]) -> dict`:
   menneskets rækker = `REAL_DIFF` ∪ `SKRIVEMAADE` ∪ stikprøve; stikprøven = 10 `MATCH` med `identity_outcome` ∈
   {`svag`,`ingen_kandidat`} + 10 blandt resten, sorteret med `_sample_key` under SEED `kontrolmodel-v2`; personas i
-  `exclude_personas` udelades helt (kort 122 og tidligere `P`). Kort 122 skal udelades af første runde: ellers
-  giver dens og Ditlevs egen personas `MATCH` på samme påstande `TARGET_SHARED`, og ingen af dem binder; i
-  opfølgningsrunden bliver overlappet `ALREADY_BOUND_OTHER`; færre end 10 i et stratum → resten fyldes fra det andet
+  færre end 10 i et stratum → resten fyldes fra det andet
   og tallet rapporteres. Skriver `plan.json` (+ `persona_ids`, `strata`), `rows-kontrol.json`, `machine-candidates.json`.
 - Ark v2: `F <interpretation_id> <ver> : B|D|V|_  # note` pr. felt; `P <persona_id> <identity_version> : -|P|P
   <person_id>` pr. persona. `parse_sheet_v2(text) -> (fields, personas)`; fejl `SHEET_V2_LINE_INVALID`,
   `SHEET_V2_UNDECIDED`, `SHEET_DUPLICATE`.
-- `apply_plan_v2(plan, sheet_text, *, sheet_sha256, hashes) -> dict` → `{flytninger: [...], rettelser: [...],
+- `apply_plan_v2(plan, sheet_text, *, sheet_sha256, hashes) -> dict` → `{unresolved: [...], rettelser: [...],
   afgoerelser: [...], maskine: [...]}`: stikprøvefelt ≠ `B` eller stikprøvepersona med `P` → `SAMPLE_FAILED`;
   `P`-personas' forslag udelades af alt (også maskinen); `B` på `navn_forkortes` → `SHEET_V2_LINE_INVALID`;
   mapping som spec §4.4 pkt. 7. Datorettelsers `p_dato` beregnes her med `validate.derive_date_info(date_raw)`
-  (`validate.py:623`-familien). `sql_v2(...)` skriver den samlede SQL i rækkefølgen flytninger → rettelser →
+  (`validate.py:623`-familien). `sql_v2(...)` skriver den samlede SQL i rækkefølgen `P`-identiteter → `unresolved` (med værnet: personaen har ingen
+  promotion af nogen måltype, ellers `PERSONA_HAR_PROMOTIONER`) → rettelser →
   afgørelser → maskinaccept med re-klassifikation i transaktionen; `verify_sql_v2(plan, applied)` kræver MATCH =
-  maskine ∪ stikprøve ∪ udtaget pga. `P`.
+  maskine ∪ stikprøve ∪ udtaget pga. `P` (planpartition), og at de bundne = maskine ∪ stikprøve ∪ `B`-rettede,
+  med alle `P`-personas' forslag `proposed` og ubundne (promotionssæt) — spec §4.4 pkt. 7.
 
 - [ ] **Step 1: Test** (syntetisk): stratificering 10/10 og opfyldning; `P` på en persona med maskine-MATCH fjerner
   dem; `D` på stikprøvefelt → `SAMPLE_FAILED`; `B` på `navn_forkortes` afvises; ark-round-trip; 2018-20's
@@ -293,7 +282,7 @@ kontekst.sql` med personaens felter, databasens værdier, forslagets værdier og
 ### Task 9: Målinger
 
 **Files:** Create: `maal_trin6c2.sql` (linjen fra Global Constraints; `tilstand`: `foer` = intet 6c-2,
-`a` = vej B, `b` = writere + kort 122, `c` = datoversioner, `d` = anvendt; `k1_bindinger_hash` = sha over alle kilde
+`a` = vej B, `b` = writere + kort 122 `unresolved`, `c` = datoversioner, `d` = anvendt; `k1_bindinger_hash` = sha over alle kilde
 1-bindingers id og gyldighed; med `-v liste=<fil>` skrives den nøglede liste (promotion-id, kilde, gyldig) til
 `~/.private/6c2/`, så en ændret hash kan diffes pr. binding — spec §7; målt 2026-11-02: 622 gyldige bindinger, ingen
 påstand med mere end én), `vejb_tid.sql` (læse-kun; tager `-v personer` og kalder fakta-kaldet som `anon` med
@@ -311,14 +300,15 @@ placement- eller publiceringstilstand — ellers `LINJESKIFT_TILSTAND_BEROERT` o
 - [ ] **Step 1: Vej B's lighed:** referencefunktionen fra Task 1 indlæses; for **alle** personer er gammel og ny
   mængde-lige. Notér de 10 tungeste personer (efter forventede 1939-bindinger: nuværende promotion-rækker + 1939-
   `MATCH`) i `~/.private/6c2/vejb-personer.txt`.
-- [ ] **Step 2: Ceremoni 2:** blok 6c-2b; kort 122's flytning med `red_flyt_persona_identitet` (persona-id fra C's
-  kontrol, mål 1054) → `narrativ=flyttet`.
+- [ ] **Step 2: Ceremoni 2:** blok 6c-2b; kort 122 → `red_afgoer_source_persona(…, 'unresolved', …)` med
+  `ønsket_person_id` 1054 (persona-id fra C's kontrol); narrativet uændret publiceret.
 - [ ] **Step 3: Ceremoni 3:** `red_normaliser_forslag` på alle kilde 3-datoforslag, hvor reglen ændrer værdien;
   `linjeskift_kandidater.sql` → `red_ret_paastand(…, 'linjeskift-v1', …)` på listen. Forventet: ~579 nye versioner;
   ≤ 70 rettelser; klassifikation ≈ §2.2-prognosen (MATCH ~1.025, rest-`SKRIVEMAADE` ~22). Afviger noget med > 10 %:
   stop og forklar.
-- [ ] **Step 4: Ceremoni 4 som øvelse:** plan (kort 122 i `exclude_personas`), kortark, et øvelsesark (alle
-  stikprøvefelter `B`, øvrige `V`, ét `P <id>`), apply, verify, bindinger, opfølgningsrunde. Derefter et ark med ét
+- [ ] **Step 4: Ceremoni 4 som øvelse:** plan, kortark, et øvelsesark (alle stikprøvefelter `B`, øvrige `V` bortset
+  fra mindst ét vellykket `B` på et `REAL_DIFF` og ét `P <id>`), apply, verify (begge kontrakter), bindinger,
+  slutmåling. Derefter et ark med ét
   `D` i stikprøven → `SAMPLE_FAILED` og intet skrevet.
 - [ ] **Step 5:** Mål hvert writer-/RPC-kald (omregn 27×) og hver stor læsning (3×). Over 60 s anslået: del i
   deterministiske delbatches og øv igen. `maal` efter hvert trin; `k1_bindinger_hash` uændret hele vejen.
@@ -341,22 +331,26 @@ ceremoniens dump); privat `~/.private/5ab-overfoersel/29-trin6c2.sh` (`maal`, `v
   B13's anden og sidste runde.
 - [ ] **Step 2:** Projektejerens ja → push og draft-PR'er; CI grøn; merge = projektejeren. Derefter slutøvelse af
   Task 11 step 1 på `main` (merge-commit, ikke grenens head) før ceremoni 1.
-- [ ] **Step 3:** `vejb` før (de 10 personer) → ceremoni 1 → `vejb` efter. Kriterium: median ≤ 1,0 s for hver af de
-  10. Ikke nået: **stop**; 6c-2 fortsætter ikke til ceremoni 2 (spec §4.1 pkt. 4). Projektejeren læser Security
+- [ ] **Step 3:** `vejb` før (de 10 personer) → ceremoni 1 → resultatstikprøve i prod: gammel og ny funktion
+  mængde-lige for de 10 personer + 20 tilfældige (referencefunktionen fra Task 1 i `pg_temp`, `SET LOCAL
+  statement_timeout='10min'` som vej A) → `vejb` efter. Kriterium: lighed og median ≤ 1,0 s for hver af de 10. Ikke nået: **stop**; 6c-2 fortsætter ikke til ceremoni 2 (spec §4.1 pkt. 4). Projektejeren læser Security
   Advisor.
 
 ### Task 13: Ceremoni 2 og 3
 
-- [ ] **Step 1:** Projektejeren bekræfter kort 122's mål (person-id) i GO'en. Ceremoni 2 (blok 6c-2b + flytningen) →
+- [ ] **Step 1:** Projektejeren bekræfter kort 122's `ønsket_person_id` (1054) i GO'en. Ceremoni 2 (blok 6c-2b +
+  kort 122 `unresolved`) →
   `maal` `b`; Security Advisor.
 - [ ] **Step 2:** Ceremoni 3 → `maal` `c`; tallene mod Task 10 step 3.
 
 ### Task 14: Ceremoni 4, læsertjek og status
 
 - [ ] **Step 1:** Kontrol i prod → kortark (lokal HTML under `~/.private/6c2/`) → projektejerens svar → flet → hash →
-  GO → anvend → `vejb` efter (≤ 1,0 s) → opfølgningsrunde for kort 122's persona og personas flyttet med `P <id>`.
+  GO → anvend → efter sidste skrivning: `vejb` (≤ 1,0 s) og nøglet bindingsafstemning; brud → stop og restore af
+  ceremoni 4's dump. Listen over `unresolved` med `ønsket_person_id` lægges i overleveringen til 6d.
 - [ ] **Step 2:** Browsertjek som `anon` mod prod (spec §7 (b)): en 1939-person uden 2018-20-modpart; en rettet værdi;
-  kort 122 på person 1054 med prosaen; de 10 tungeste.
+  barnebarnet (kort 122) uden 1939-fakta bundet gennem oversigtspost B, og 1054 med bundne fakta fra sin egen post;
+  de 10 tungeste.
 - [ ] **Step 3:** `status.md` (1939 »Forslag og afgørelse« og promotion med dato; tjekliste (a)),
   `database-current-state.md`, `changelog.md`. Commit `docs(trin6c2): 1939-fakta bundet til bogen i prod`.
 
@@ -364,4 +358,6 @@ ceremoniens dump); privat `~/.private/5ab-overfoersel/29-trin6c2.sh` (`maal`, `v
 
 ## Reviewlog
 
-Spec: builder-tjek og Fable-review (NO-GO, 14 fund) afvejet i specens §9. Næste: B13's Codex-runde på spec+plan.
+Spec: builder-tjek og Fable-review (NO-GO, 14 fund) afvejet i specens §9. B13's Codex-runde på spec+plan
+(2026-11-02, `gpt-6.1-sol`): NO-GO, 8 fund; afvejning i specens §10. Planen rettet i Task 4-7, 10, 12-14; Task 5 er
+nu en ren test (fallback (c)). Næste og sidste B13-runde er diffreviewet i Task 12.

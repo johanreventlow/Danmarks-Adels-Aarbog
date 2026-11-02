@@ -1,6 +1,6 @@
 # Trin 6c-2: 1939-fakta bundet til bogen — design
 
-**Status:** GODKENDT af projektejeren 2026-11-02; builder-tjek og Fable-review (§9) indarbejdet, §8 pkt. 1-3
+**Status:** GODKENDT af projektejeren 2026-11-02; fallback (c) for flytninger aktiveret samme dag efter Codex (§10); builder-tjek og Fable-review (§9) indarbejdet, §8 pkt. 1-3
 afgjort. Næste: plan, derefter B13's Codex-runde på spec+plan. Skrevet efter en afklaringsrunde med projektejeren
 (§3); valg, der ikke er projektejerens, er markeret *mit valg*.
 **Gren:** `docs/trin6c2-spec` fra `main` (`ded0404a`).
@@ -17,7 +17,7 @@ afgjort. Næste: plan, derefter B13's Codex-runde på spec+plan. Skrevet efter e
 2. **Værdikædeled:** forslag → afgørelse → promotion (trin 4's anden halvdel) for 1939, plus læserens fakta-kald
    (vej B).
 3. **Leverancetype:** generelle udvidelser (set-baseret bindingstjek, deterministisk version af et forslag,
-   rettelsesvej med eksplicit mål, identitetsflytning gennem kort), kortværktøjet ind i repo'et og ceremonier.
+   rettelsesvej med eksplicit mål, `unresolved` identitet gennem kort), kortværktøjet ind i repo'et og ceremonier.
    Ingen editionsnavngiven permanent overflade.
 4. **Værdi:** ca. 1.000 af 1939's navne, titler, fødsler og dødsfald skifter i læseren fra »fra den oprindelige
    import« til »DAA 1939, s. N · <post>« med link til posten; bogens værdi står, hvor projektejeren har valgt den.
@@ -113,43 +113,36 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
    vej B (flest promotion-rækker efter 1939's forventede bindinger) og er de samme ved alle målinger. Stand-in-tid
    er ikke bevis (memory »stand-in-tid er ikke prod-tid«); før/efter måles i prod i ceremonien.
    **Identisk resultat bevises på en prod-dump-stand-in** (ICU, memory »prod er ICU«) for alle personer, gammel mod
-   ny funktion; i prod sammenlignes en stikprøve (prods `statement_timeout` på 2 min forhindrer fuld sammenligning
+   ny funktion; i prod sammenlignes i ceremoni 1 en stikprøve (prods `statement_timeout` på 2 min forhindrer fuld sammenligning
    med den gamle, langsomme vej).
 4. Vej B går i prod som egen ceremoni før enhver 1939-binding. Kan målet ikke nås, stopper 6c-2 før bindingerne.
 
-### 4.2 Identitetsflytning (kort 122 og »forkert person«)
+### 4.2 »Forkert person« og kort 122 (fallback (c), aktiveret 2026-11-02)
 
-1. **Én vej** for begge: en kortafgørelse `P <person-id>` flytter personaens identitet til den angivne person;
-   `P` alene sætter den `unresolved` (ingen person). Begge går gennem `decide_source_persona_identity` som nye
-   versioner med `expected_version`; event-loggen bevarer den gamle identitet. **Målet skal være en række med
-   personaens egen kilde** (en person med påstande citeret af `source_persona.source_id`; for 1939 kilde 3),
-   håndhævet udgaveneutralt i writeren, *mit valg*: 1939's personas peger på
-   kilde 3-rækken (overordnet spec §6 pkt. 8), og en flytning til en 2018-20-række ville sammenligne 1939's værdier
-   med 2018-20's fakta, som 6c-2 ikke må rette. Findes ingen kilde 3-række for den rigtige person, svares `P` alene
-   (opret-benet).
-2. **Publiceringen følger med** (§8 pkt. 3, valg a): ved `P <id>` og kort 122 trækkes postens narrativpublicering
-   tilbage på den gamle person og publiceres på den nye gennem den eksisterende narrativvej, i samme ceremoni som
-   identitetsflytningen; læseren skal se prosaen og faktaene på samme person. Læseren viser kun en binding, hvis narrativets
-   subjekt er faktaets person (`public_person_facts`, `schema.sql:20107-20111`); en identitet på 1054 med en
-   publicering på barnebarnet giver derfor aldrig »bundet til bogen«. Writeren **afviser** en flytning, hvis personaen
-   har gældende bindinger (`assertion_binding_current` bliver tavst ugyldig ved personskifte, `:19883-19888`); i 6c-2
-   har 1939's personas ingen bindinger før §5 trin 5, så det rammer kun opfølgningsrunden.
-3. **Kort 122 køres før kontrollen** (§5 trin 2), så dens forslag klassificeres mod den rigtige person. Målt
-   2026-11-02 (prod, læse-kun): der findes præcis én kilde 3-række med navnet Ditlev og en kilde 3-citeret død med
-   1690 (person 1054); én anden persona har allerede identitet på den. Projektejeren bekræfter målet med
-   person-id i afgørelsen for kort 122.
-   **To personas på samme person** (målt: i dag har alle 560 personer præcis én 1939-persona; det opstår kun ved en
-   flytning): læseren dropper postreferencen, når to gældende bindinger rammer samme påstand (`bn.n_bind=1`,
-   `:20088-20091`). Regel, *mit valg*: **højst én gældende binding pr. påstand pr. kilde**, håndhævet i
-   promotion-valideringen (`validate_interpretation_promotion_items`, `:10618`) og som eget klassifikationsudfald
-   (`ALREADY_BOUND_OTHER`), der bliver `proposed` og tælles. Den persona, der allerede har identitet på personen
-   (normalt personens egen post), binder; den flyttede gør ikke. Test i `test-person-facts.sql`.
-4. »Forkert person« på et kort fryser **alle** personaens forslag i den kontrolrunde: **ingen afgørelse** skrives for
-   dem (de bliver `proposed`; kun identiteten ændres), så de kan klassificeres igen — `red_decide_interpretation`
-   kræver `proposed` (`:9375`), og der findes ingen generel genåbning. Også personaens automatiske `MATCH` trækkes ud
-   af maskinsættet (§4.4 pkt. 7). **Opfølgningsrunde, *mit valg*:** er der identiteter flyttet med `P <id>`, køres én lille kontrolrunde
-   mere i 6c-2 med kun de flyttede personas (samme værktøj, stikprøve kun hvis > 20 automatiske). `P` alene giver
-   ingen opfølgning; personaen står `unresolved` og tælles.
+**Hvorfor fallback:** narrativvejen kan kun publicere på en ny person, når recorden har accepterede record- og
+persona-placements med en accepteret identitet (`private.narrative_record_state`, `schema.sql:13911-13936`,
+`:14030-14041`). Målt i prod 2026-11-02: kilde 3 har **0** accepterede record-placements og **0** principal
+persona-placements (de kommer i 6d); alle 563 poster er publiceret. En tilbagetrækning kunne derfor ikke efterfølges
+af en publicering på målet. Codex-runden (B13, §10 fund 1) fandt det; §8 pkt. 3 forudså faldet til (c).
+
+1. **`P` og `P <person-id>`** (og kort 122) sætter personaens identitet til `unresolved` gennem den eksisterende
+   `red_decide_source_persona_identity` (origin `human`, `evidence.basis='human_sheet'`), med det ønskede mål
+   (`ønsket_person_id`, hvis angivet) og grunden i evidensen. Ingen ny RPC.
+2. **Narrativet bliver stående**, som 6c-1's F (decisions 2026-11-02): ingen tilbagetrækning. Flytningen af identitet
+   og narrativ til målet sker i 6d, når 1939's placements findes; listen over personas med `ønsket_person_id` er en
+   del af 6c-2's overlevering til 6d.
+3. Personaens forslag får **ingen afgørelse** og forbliver `proposed`; med identiteten `unresolved` klassificeres de
+   som `NO_IDENTITY` og bindes ikke — heller ikke maskinelt (§4.4 pkt. 7).
+4. **Kort 122** sættes `unresolved` i ceremoni 2, før kontrollen, så Ditlevs fakta ikke bindes til barnebarnet
+   gennem oversigtspost B. Ditlevs egne fakta (person 1054, målt: præcis én kilde 3-række med navnet og †1690) bindes
+   gennem hans egen post. Projektejeren bekræfter 1054 som `ønsket_person_id` i GO'en.
+5. **Værn:** ceremonien afviser en ændring, hvis personaen har en promotion af nogen måltype (assertion eller
+   familie); i 6c-2 har 1939's personas ingen før §5 trin 5.
+6. **Højst én gældende binding pr. påstand**, på tværs af kilder (som læseren tæller: `bn.n_bind=1`,
+   `schema.sql:20088-20091`; målt 2026-11-02: 622 gyldige bindinger, ingen påstand med mere end én). Håndhæves i
+   `validate_interpretation_promotion_items` (`:10618`) og som klassifikationsudfaldet `ALREADY_BOUND_OTHER`; to
+   forslag i samme kørsel mod samme påstand — uanset persona — giver `TARGET_SHARED`. Begge bliver `proposed` og
+   tælles. *Mit valg.*
 
 ### 4.3 Deterministisk version af datoforslag
 
@@ -202,11 +195,13 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
    persona:** `P` (forkert person) eller `P <person-id>`; det overtrumfer feltsvarene. Kortet viser kun svarfelter
    for `REAL_DIFF`, rest-`SKRIVEMAADE` og stikprøvens felter; personaens øvrige `MATCH`-felter vises som læse-kun
    kontekst uden svar. **Mapping:** stikprøvefelt: `B` → accepted (maskinelt), andet → stop; `REAL_DIFF`/`SKRIVEMAADE`:
-   `B` → rettelse + accepted, `D` → rejected, `V` → unresolved; `P` → ingen afgørelse for nogen af personaens
-   forslag, og personaens `MATCH` tages ud af maskinsættet. **Kontrolværktøjet får en v2**: `control_model.py`'s plan
+   `B` → rettelse + accepted, `D` → rejected, `V` → unresolved; `P` → identiteten `unresolved` (§4.2), ingen
+   afgørelse for nogen af personaens forslag, og personaens `MATCH` tages ud af maskinsættet. **Kontrolværktøjet får en v2**: `control_model.py`'s plan
    låser i dag maskinsættet før svarene, parseren kender kun `A|R|U`, og `machine_sql` kræver præcis stikprøven
    accepteret. v2: ny SEED, stratificeret trækning, maskinsættet beregnes igen efter svarene (minus `P`-personas), ny
-   parser for B/D/V/P, `verify-sql`'s invariant bliver »MATCH = maskine ∪ stikprøve ∪ udtaget pga. `P`«. Regression:
+   parser for B/D/V/P. To adskilte kontrakter (Codex §10 fund 7): **planpartitionen** — klassifikationens `MATCH` =
+   maskine ∪ stikprøve ∪ udtaget pga. `P`; og **promotionssættet** — de faktisk bundne = maskine ∪ stikprøve ∪
+   `B`-rettede, mens alle `P`-personas' forslag er `proposed` og ubundne. `verify-sql` tjekker begge. Regression:
    2018-20's plan genskabes byte-ens med v1-parametre. Svarreglerne står i kortets hjælpetekst; HTML
    viser aldrig maskinens klasse eller stikprøvemarkering. Kendt svækkelse: med kort pr. persona kan en persona, hvor
    alle felter stemmer, genkendes som stikprøve; blindheden er svagere end i C's identitetskort og accepteres.
@@ -257,16 +252,17 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
 
 Hver ceremoni med 5c-1-formen (B2): dump med ekstern kopi (B1), flag + GO-kode via projektejerens shell, måling før
 og efter. Rækkefølgen er bindende; byggeren kan samle trin i færre GO'er, hvis rækkefølgen bevares. Et stop i trin 4
-(stikprøven) ruller ikke trin 2-3 tilbage: identitetsflytningen, datoversionerne og linjeskift-rettelserne står og
-genbruges af den nye kontrolrunde.
+(stikprøven) ruller ikke trin 2-3 tilbage: kort 122's `unresolved`, datoversionerne og linjeskift-rettelserne står
+og genbruges af den nye kontrolrunde.
 
 1. **Vej B** (DDL) → mål i prod (§4.1).
-2. **DDL for 6c-2's writere** (version-writer, rettelsesvej inkl. linjeskift-rettelsen, publiceringens følge ved identitetsflytning) og
-   **kort 122's identitetsflytning**.
+2. **DDL for 6c-2's writere** (version-writer, rettelsesvej inkl. linjeskift-rettelsen, bindingsreglen) og
+   **kort 122 → `unresolved`** (§4.2 pkt. 4).
 3. **Datoversionerne** (§4.3) og **linjeskift-rettelserne** (§4.4 pkt. 4) skrives.
 4. **Kontrol:** klassifikation, kortark (lokal HTML), stikprøve; projektejerens svar flettes og hash-bindes.
-5. **Anvend:** identitetsflytninger fra kortene → rettelser → afgørelser → bindinger → genmåling af vej B.
-6. **Opfølgningsrunde** for personas flyttet med `P <id>` (§4.2 pkt. 4): trin 4-5 igen for kun dem; springes over ved 0.
+5. **Anvend:** `P`-identiteter → `unresolved` → rettelser → afgørelser → bindinger. Derefter, efter sidste
+   skrivning: vej B's tid for de 10 personer og den nøglede bindingsafstemning (Codex §10 fund 8); ét over 1,0 s →
+   stop og fortrydelse af ceremoni 4 (restore).
 
 ## 6. Mål, ikke-mål og anti-mål
 
@@ -279,7 +275,7 @@ nye promotionsregler (steder, embeder, godser); genkørsel af modellen; A6b-rest
 
 **Anti-mål:**
 - 1939 ændrer det, læseren ser som 2018-20's viden (rettelser kun på påstande, som kun kilde 3 citerer).
-- En rettelse eller identitetsflytning fjerner en binding uden at nogen ser det.
+- En rettelse eller identitetsændring fjerner en binding uden at nogen ser det.
 - »Bogen har ret« retter en forkert persons værdi (derfor »forkert person« pr. persona og grupperede kort).
 - Personsiden bliver langsommere end i dag eller nærmer sig `anon`'s grænse.
 - Mere end ~5 ark à ~30 personas.
@@ -291,10 +287,11 @@ nye promotionsregler (steder, embeder, godser); genkørsel af modellen; A6b-rest
 - **(b) Læseren** (browsertjek som `anon` mod prod):
   - en 1939-person uden 2018-20-modpart viser bundne 1939-fakta med »DAA 1939, s. N · <post>« og link;
   - en rettet værdi (»bogen har ret«) viser bogens værdi og er bundet;
-  - kort 122's persona viser Ditlevs 1939-fakta på Ditlev, ikke på barnebarnet;
+  - barnebarnet (kort 122) viser ingen 1939-fakta bundet gennem oversigtspost B; Ditlev (1054) viser sine bundne
+    1939-fakta gennem sin egen post;
   - fakta-kaldet for de 10 tungeste personer ≤ 1,0 s (median af 5) som `anon`.
 - **Tal i prod:** forslag pr. klasse før og efter §4.3; afgørelser (maskine/menneske, pr. svar); rettelser;
-  identitetsflytninger; bindinger; uafklarede pr. grund. Hver binding, der var gyldig før en ceremoni, er gyldig
+  identiteter sat `unresolved` (med `ønsket_person_id` til 6d); bindinger; uafklarede pr. grund. Hver binding, der var gyldig før en ceremoni, er gyldig
   efter (nøglet liste, ikke kun antal).
 - **Status:** `status.md`'s 1939-kolonne for »Forslag og afgørelse« og promotion hæves med dato.
 
@@ -304,8 +301,9 @@ nye promotionsregler (steder, embeder, godser); genkørsel af modellen; A6b-rest
    (§4.4 pkt. 4).
 2. **Retning 2's ubekræftede identiteter:** (b), projektejeren 2026-11-02 — behandles som alle andre, men stikprøven
    stratificeres (§4.4 pkt. 3).
-3. **Publiceringens følge ved identitetsflytning (§4.2 pkt. 2):** (a), projektejeren 2026-11-02. Planens første
-   opgave efterprøver, at den eksisterende narrativvej kan trække postens publicering tilbage på én person og
+3. **Publiceringens følge ved identitetsflytning:** (a), projektejeren 2026-11-02 — **faldet til (c) samme dag**:
+   1939 har ingen placements før 6d, så narrativet kan ikke publiceres på målet (§4.2, målt; Codex §10 fund 1).
+   Den oprindelige betingelse: planens første opgave efterprøver, at den eksisterende narrativvej kan trække postens publicering tilbage på én person og
    publicere den på en anden; kan den ikke uden ny DDL ud over 6c-2's, falder 6c-2 tilbage til (c), og
    projektejeren får besked før planen fortsætter. Valgmulighederne var: (a) narrativpubliceringen
    flyttes med: postens publicering trækkes tilbage på den gamle person og publiceres på den nye gennem den
@@ -336,3 +334,18 @@ Uafhængigt review (Fable-subagent, læse-kun, kode efterprøvet). Fund 1, 3, 5 
 | 12 | Regelnavn i `method`; arvede versioner | nødvendig | §4.3 pkt. 2 |
 | 13 | Tilstandshash kan rumme `date_raw` | gate-måling | §4.4 pkt. 4 |
 | 14 | Forkerte referencer | rettet | §1, §4.6 |
+
+## 10. Codex-runde (B13, spec+plan) 2026-11-02, `gpt-6.1-sol`: NO-GO, 8 fund — afvejet
+
+Afvejet af Opus (sessionen); fund 1 målt i prod (0 placements for kilde 3), fund 3 og 4 efterprøvet i koden.
+
+| # | Fund | Afvejning | Hvor |
+|---|---|---|---|
+| 1 | Narrativflytning kræver placements, som 1939 ikke har | nødvendig; fallback (c) aktiveret | §4.2, §8 pkt. 3 |
+| 2 | Kort 122 udelades efter kollisionsklassifikationen | løst af 1 (`unresolved` → `NO_IDENTITY` før kontrollen) | §4.2 pkt. 4 |
+| 3 | Obligatorisk kilde-GUC bryder v1-kaldere og CI | nødvendig; GUC valgfri, v1 byte-ens uden den | plan Task 6 |
+| 4 | Én binding pr. kilde beskytter ikke læserens tværkildetælling | nødvendig; global regel | §4.2 pkt. 6 |
+| 5 | Kollision kun på tværs af personas | nødvendig; pr. påstand uanset persona | §4.2 pkt. 6 |
+| 6 | Flytteværnet dækker ikke familiebindinger | bortfalder (ingen flytte-RPC); ceremoniens værn dækker alle måltyper | §4.2 pkt. 5 |
+| 7 | Plan- og promotionssæt blandet sammen | nødvendig | §4.4 pkt. 7 |
+| 8 | Prod-ækvivalens og slutmåling mangler | nødvendig | §4.1 pkt. 3, §5 trin 5 |
