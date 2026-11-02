@@ -1,6 +1,7 @@
 # Trin 6c-2: 1939-fakta bundet til bogen — design
 
-**Status:** UDKAST 2026-11-02, til projektejerens godkendelse; builder-tjek indarbejdet, §8 pkt. 1-2 afgjort. Skrevet efter en afklaringsrunde med projektejeren
+**Status:** UDKAST 2026-11-02, til projektejerens godkendelse; builder-tjek og Fable-review (§9) indarbejdet, §8 pkt.
+1-3 afgjort. Skrevet efter en afklaringsrunde med projektejeren
 (§3); valg, der ikke er projektejerens, er markeret *mit valg*.
 **Gren:** `docs/trin6c2-spec` fra `main` (`ded0404a`).
 **Overordnet spec:** `docs/superpowers/specs/2026-10-29-trin6-1939-gennem-kaeden-design.md` (§3, §5 6c, §6 pkt. 1, 2,
@@ -126,7 +127,9 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
    kilde 3-rækken (overordnet spec §6 pkt. 8), og en flytning til en 2018-20-række ville sammenligne 1939's værdier
    med 2018-20's fakta, som 6c-2 ikke må rette. Findes ingen kilde 3-række for den rigtige person, svares `P` alene
    (opret-benet).
-2. **Publiceringen følger med** — se §8 pkt. 3 (projektejerens). Læseren viser kun en binding, hvis narrativets
+2. **Publiceringen følger med** (§8 pkt. 3, valg a): ved `P <id>` og kort 122 trækkes postens narrativpublicering
+   tilbage på den gamle person og publiceres på den nye gennem den eksisterende narrativvej, i samme ceremoni som
+   identitetsflytningen; læseren skal se prosaen og faktaene på samme person. Læseren viser kun en binding, hvis narrativets
    subjekt er faktaets person (`public_person_facts`, `schema.sql:20107-20111`); en identitet på 1054 med en
    publicering på barnebarnet giver derfor aldrig »bundet til bogen«. Writeren **afviser** en flytning, hvis personaen
    har gældende bindinger (`assertion_binding_current` bliver tavst ugyldig ved personskifte, `:19883-19888`); i 6c-2
@@ -301,7 +304,10 @@ nye promotionsregler (steder, embeder, godser); genkørsel af modellen; A6b-rest
    (§4.4 pkt. 4).
 2. **Retning 2's ubekræftede identiteter:** (b), projektejeren 2026-11-02 — behandles som alle andre, men stikprøven
    stratificeres (§4.4 pkt. 3).
-3. **Publiceringens følge ved identitetsflytning (§4.2 pkt. 2) — ÅBEN, projektejerens:** (a) narrativpubliceringen
+3. **Publiceringens følge ved identitetsflytning (§4.2 pkt. 2):** (a), projektejeren 2026-11-02. Planens første
+   opgave efterprøver, at den eksisterende narrativvej kan trække postens publicering tilbage på én person og
+   publicere den på en anden; kan den ikke uden ny DDL ud over 6c-2's, falder 6c-2 tilbage til (c), og
+   projektejeren får besked før planen fortsætter. Valgmulighederne var: (a) narrativpubliceringen
    flyttes med: postens publicering trækkes tilbage på den gamle person og publiceres på den nye gennem den
    eksisterende narrativvej (prosaen for oversigtspost B flytter fra barnebarnets side til Ditlevs); (b) kun
    identiteten flyttes; publiceringen bliver, hvor den er, uoverensstemmelsen markeres synligt, og personaens
