@@ -565,7 +565,9 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   Efter: `T6C1_MAAL tilstand=c forslag_k3=2774 poster_k3=494 identiteter_k3=560 afventer=0`, `k1` uændret.
 - **F'et:** én persona (en oversigtspost om linje B, hvis tolkning er stamfaderen †1690, men hvis C3-binding peger på
   barnebarnet †1773) står `unresolved` med `reason='publication_binding_disputed'`. Narrativet er stadig publiceret
-  på barnebarnet; tilbagetrækning med `red_tilbagetraek_person_narrative_record` er projektejerens valg.
+  på barnebarnet. Projektejeren 2026-11-02: den bliver stående til 6c-2, hvor bindingen rettes (til stamfaderen eller
+  linjen) i stedet for at trække teksten tilbage (teksten nævner barnebarnet, og en tilbagetrækning skulle publiceres
+  igen bagefter).
 - **Fund til efter C:** 13 af de 576 personer med 1939-id har én `navn`-påstand med `vaerdi_tekst` NULL, så
   `visning_navn` er tom (publicerede, afdøde; fx person 1785); 10 stod på kortene. Rettes med nye navnepåstande
   (invariant 1). Oversigtsposter (»A) …«, »B) …«) nævner flere generationer, men fik én person ved indlæsningen.
