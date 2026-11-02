@@ -1,5 +1,6 @@
 -- 5c-2/B11 (spec 2026-10-29 §4.1, §7): public_person_facts og assertion_binding_current. Kører i writer-1939-jobbet.
 -- Trin 6c-2a (vej B, spec 2026-11-02 §4.1): rækkelighed med den frosne reference og ingen kald af enkeltopslaget pr. række.
+-- Trin 6c-2b: en anden fortolkning kan ikke bindes til en allerede bundet assertion (ALREADY_BOUND_OTHER).
 \set ON_ERROR_STOP on
 BEGIN;
 \ir fixtures/relation-5b.sql
@@ -249,8 +250,11 @@ BEGIN
     RAISE EXCEPTION 'PERSON_FACTS_TEST_FAILED: (f) hjælperen skal ikke se betingelse 3';
   END IF;
 
-  -- entydighed: to gyldige promotions på samme assertion ⇒ ingen binding og ingen dubletrækker
+  -- entydighed: en anden fortolkning mod en allerede bundet assertion afvises (trin 6c-2b, ALREADY_BOUND_OTHER), og
+  -- den bundne beholder sin postreference. Læserens krav om præcis én binding står som forsvar i dybden: to gyldige
+  -- promotions skrevet direkte som ejer ⇒ ingen binding og ingen dubletrækker.
   m:=pg_temp.fpf_bound(-2821,v_actor); SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  SELECT public_ref INTO v_ref FROM private.source_record WHERE id=(m->'post'->>'record')::uuid;
   v_int2:=gen_random_uuid();
   INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,
     predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id)
@@ -266,13 +270,44 @@ BEGIN
   RESET ROLE;
   SELECT ic.id INTO v_int2 FROM private.interpretation_current ic
    WHERE ic.interpretation_key=(SELECT interpretation_key FROM private.interpretation WHERE id=v_int2);
-  SET LOCAL ROLE authenticated;
   items:=jsonb_build_array(jsonb_build_object('interpretation_id',v_int2::text,'target_type','assertion',
     'target_id',(m->>'assertion')::bigint));
+  SET LOCAL ROLE authenticated;
   pv:=public.red_preview_interpretation_promotions(items);
-  PERFORM public.red_promote_interpretations_batch(items,pv->>'preview_hash');
-  PERFORM set_config('app.change_set_id','',true);
   RESET ROLE;
+  IF pv->'items'->0->>'reason_code' IS DISTINCT FROM 'ALREADY_BOUND_OTHER' THEN
+    RAISE EXCEPTION 'PERSON_FACTS_TEST_FAILED: anden fortolkning ikke afvist (%)',pv->'items'->0->>'reason_code';
+  END IF;
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    PERFORM public.red_promote_interpretations_batch(items,pv->>'preview_hash');
+    RAISE EXCEPTION 'PERSON_FACTS_TEST_FAILED: anden fortolkning blev bundet';
+  EXCEPTION WHEN OTHERS THEN
+    RESET ROLE;
+    IF SQLERRM IS DISTINCT FROM 'ALREADY_BOUND_OTHER' THEN RAISE; END IF;
+  END;
+  PERFORM set_config('app.change_set_id','',true);
+  IF (SELECT count(*) FROM private.interpretation_promotion WHERE target_type='assertion'
+        AND target_id=(m->>'assertion')::bigint)<>1 THEN
+    RAISE EXCEPTION 'PERSON_FACTS_TEST_FAILED: den afviste batch skrev';
+  END IF;
+  SELECT * INTO t FROM pg_temp.fpf_rows(-2821);
+  IF t.n<>1 OR t.n_bundet<>1 THEN RAISE EXCEPTION 'PERSON_FACTS_TEST_FAILED: afvist anden binding %',to_jsonb(t); END IF;
+  SET LOCAL ROLE anon;
+  SELECT * INTO r FROM public.public_person_facts(ARRAY[-2821]);
+  RESET ROLE;
+  IF r.record_ref IS DISTINCT FROM v_ref OR v_ref IS NULL THEN
+    RAISE EXCEPTION 'PERSON_FACTS_TEST_FAILED: den bundne mistede postreferencen %',to_jsonb(r);
+  END IF;
+  PERFORM pg_temp.fpf_equal(ARRAY[-2821]);
+  INSERT INTO private.interpretation_promotion(interpretation_id,rule_key,rule_version,target_type,target_id,evidence,
+    promoted_by,promoted_by_name)
+    VALUES (v_int2,'person-death-v1',1,'assertion',(m->>'assertion')::bigint,'{"fixture":"fpf to bindinger"}',
+      v_actor,'fixture');
+  IF NOT private.assertion_binding_current((m->>'promotion')::uuid)
+     OR NOT private.assertion_binding_current((SELECT id FROM private.interpretation_promotion WHERE interpretation_id=v_int2)) THEN
+    RAISE EXCEPTION 'PERSON_FACTS_TEST_FAILED: to promotions, begge skal være gyldige hver for sig';
+  END IF;
   SELECT * INTO t FROM pg_temp.fpf_rows(-2821);
   IF t.n<>1 OR t.n_bundet<>0 THEN RAISE EXCEPTION 'PERSON_FACTS_TEST_FAILED: to promotions %',to_jsonb(t); END IF;
   PERFORM pg_temp.fpf_equal(ARRAY[-2821]);

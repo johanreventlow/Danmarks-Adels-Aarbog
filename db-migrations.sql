@@ -32449,3 +32449,239 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION red_paastand_historik(bigint) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION red_paastand_historik(bigint) TO authenticated;
+
+-- Trin 6c-2b: højst én gældende binding pr. påstand. Validatoren får reason_code ALREADY_BOUND_OTHER efter
+-- EVIDENCE_PROMOTION_ALREADY_PROMOTED; hele funktionen gentages her ordret fra schema.sql (paritetsvagten).
+CREATE OR REPLACE FUNCTION private.validate_interpretation_promotion_items(
+  p_items jsonb,p_lock boolean DEFAULT false
+) RETURNS TABLE(
+  item_ordinal integer,interpretation_id uuid,target_type text,target_id bigint,
+  eligible boolean,rule_key text,rule_version integer,reason_code text
+)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF jsonb_typeof(p_items)<>'array' OR jsonb_array_length(p_items)=0 THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_ITEMS_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM jsonb_array_elements(p_items) AS element(item)
+     WHERE jsonb_typeof(element.item)<>'object'
+        OR (SELECT array_agg(key ORDER BY key)
+              FROM jsonb_object_keys(element.item) AS key)
+             IS DISTINCT FROM ARRAY['interpretation_id','target_id','target_type']
+        OR jsonb_typeof(element.item->'interpretation_id')<>'string'
+        OR coalesce(element.item->>'interpretation_id','') !~*
+             '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        OR jsonb_typeof(element.item->'target_type')<>'string'
+        OR element.item->>'target_type'<>'assertion'
+        OR jsonb_typeof(element.item->'target_id')<>'number'
+        OR coalesce(element.item->>'target_id','') !~ '^-?[0-9]+$'
+        OR length(element.item->>'target_id')>19
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_ITEMS_INVALID';
+  END IF;
+
+  -- Låseordenen følger de eksisterende writers: current fortolkning først
+  -- (red_decide_interpretation låser kun denne), derefter source_persona og
+  -- identity-state (red_decide_source_persona_identitys rækkefølge), så
+  -- append-only placement og til sidst kanonisk assertion/fact. De gennemsete
+  -- kanoniske writers tager ingen af de private låse, så der findes ingen
+  -- modsat cyklus i den relevante writerflade. Ukendte UUID'er bevares som
+  -- fail-closed output.
+  IF p_lock THEN
+    PERFORM 1
+      FROM private.interpretation interpretation
+     WHERE interpretation.id=ANY(ARRAY(
+       SELECT current_interpretation.id
+         FROM private.interpretation_current current_interpretation
+         JOIN private.interpretation requested
+           ON requested.interpretation_key=current_interpretation.interpretation_key
+        WHERE requested.id=ANY(ARRAY(
+          SELECT (element.item->>'interpretation_id')::uuid
+            FROM jsonb_array_elements(p_items) AS element(item)
+        ))
+     ))
+     ORDER BY interpretation.id FOR UPDATE;
+    PERFORM 1
+      FROM private.interpretation_promotion_rule_line rule_line
+     WHERE rule_line.predicate=ANY(ARRAY(
+       SELECT current_interpretation.predicate
+         FROM private.interpretation_current current_interpretation
+         JOIN private.interpretation requested
+           ON requested.interpretation_key=current_interpretation.interpretation_key
+        WHERE requested.id=ANY(ARRAY(
+          SELECT (element.item->>'interpretation_id')::uuid
+            FROM jsonb_array_elements(p_items) AS element(item)
+        ))
+     ))
+     ORDER BY rule_line.rule_key FOR UPDATE;
+    PERFORM 1
+      FROM private.source_persona persona
+     WHERE persona.id=ANY(ARRAY(
+       SELECT current_interpretation.source_persona_id
+         FROM private.interpretation_current current_interpretation
+         JOIN private.interpretation requested
+           ON requested.interpretation_key=current_interpretation.interpretation_key
+        WHERE requested.id=ANY(ARRAY(
+          SELECT (element.item->>'interpretation_id')::uuid
+            FROM jsonb_array_elements(p_items) AS element(item)
+        ))
+     ))
+     ORDER BY persona.id FOR UPDATE;
+    PERFORM 1
+      FROM private.source_persona_identity identity_state
+     WHERE identity_state.source_persona_id=ANY(ARRAY(
+       SELECT current_interpretation.source_persona_id
+         FROM private.interpretation_current current_interpretation
+         JOIN private.interpretation requested
+           ON requested.interpretation_key=current_interpretation.interpretation_key
+        WHERE requested.id=ANY(ARRAY(
+          SELECT (element.item->>'interpretation_id')::uuid
+            FROM jsonb_array_elements(p_items) AS element(item)
+        ))
+     ))
+     ORDER BY identity_state.source_persona_id FOR UPDATE;
+    PERFORM 1
+      FROM private.source_persona_placement placement
+     WHERE placement.source_persona_id=ANY(ARRAY(
+       SELECT current_interpretation.source_persona_id
+         FROM private.interpretation_current current_interpretation
+         JOIN private.interpretation requested
+           ON requested.interpretation_key=current_interpretation.interpretation_key
+        WHERE requested.id=ANY(ARRAY(
+          SELECT (element.item->>'interpretation_id')::uuid
+            FROM jsonb_array_elements(p_items) AS element(item)
+        ))
+     ))
+     ORDER BY placement.source_persona_id,placement.record_placement_id,placement.placement_role
+       FOR SHARE;
+    PERFORM 1
+      FROM public.assertion assertion
+     WHERE assertion.id=ANY(ARRAY(
+       SELECT (element.item->>'target_id')::bigint
+         FROM jsonb_array_elements(p_items) AS element(item)
+     ))
+     ORDER BY assertion.id FOR SHARE;
+    PERFORM 1
+      FROM public.fact fact
+     WHERE fact.id=ANY(ARRAY(
+       SELECT assertion.target_id
+         FROM public.assertion assertion
+        WHERE assertion.id=ANY(ARRAY(
+          SELECT (element.item->>'target_id')::bigint
+            FROM jsonb_array_elements(p_items) AS element(item)
+        )) AND assertion.target_type='fact'
+     ))
+     ORDER BY fact.id FOR SHARE;
+  END IF;
+
+  RETURN QUERY
+  WITH parsed AS (
+    SELECT ordinal::integer AS item_ordinal,
+           (element.item->>'interpretation_id')::uuid AS interpretation_id,
+           element.item->>'target_type' AS target_type,
+           (element.item->>'target_id')::bigint AS target_id,
+           count(*) OVER (
+             PARTITION BY (element.item->>'interpretation_id')::uuid,
+                          element.item->>'target_type',(element.item->>'target_id')::bigint
+           ) AS duplicate_count
+      FROM jsonb_array_elements(p_items) WITH ORDINALITY AS element(item,ordinal)
+  ), checked AS (
+    SELECT parsed.*,requested.id AS requested_id,current_interpretation.id AS current_id,
+           current_interpretation.status,current_interpretation.predicate,
+           current_interpretation.interpretation_kind,current_interpretation.value,
+           rule.rule_key,rule.rule_version,rule.expected_fact_type,rule.value_kind,
+           rule.requires_persona_identity,rule.requires_principal_placement,rule.bulk_eligible,
+           identity_state.canonical_person_id,
+           assertion.id AS assertion_id,assertion.vaerdi_tekst,assertion.date_raw,
+           fact.id AS fact_id,fact.subjekt_type,fact.subjekt_id,fact.faktatype,
+           EXISTS (
+             SELECT 1 FROM private.interpretation_observation observation
+              WHERE observation.interpretation_id=current_interpretation.id
+           ) AS has_observation,
+           EXISTS (
+             SELECT 1 FROM private.source_persona_placement_current placement
+              WHERE placement.source_persona_id=current_interpretation.source_persona_id
+                AND placement.decision_status='accepted'
+                AND placement.placement_role IN ('principal_member','co_principal')
+           ) AS has_principal_placement,
+           EXISTS (
+             SELECT 1 FROM private.interpretation_promotion promotion
+              WHERE promotion.interpretation_id=current_interpretation.id
+                AND promotion.target_type=parsed.target_type
+                AND promotion.target_id=parsed.target_id
+           ) AS already_promoted,
+           -- Trin 6c-2b: højst én gældende binding pr. påstand (læseren kræver præcis én, på tværs af kilder). En anden
+           -- fortolkning er en anden interpretation_key; versioner af samme nøgle er ikke »anden«. Kilde og persona
+           -- indgår ikke: en binding fra enhver kilde spærrer, og to nøgler i samme batch mod samme påstand afvises begge.
+           EXISTS (
+             SELECT 1 FROM private.interpretation_promotion other_promotion
+               JOIN private.interpretation other_interpretation
+                 ON other_interpretation.id=other_promotion.interpretation_id
+              WHERE other_promotion.target_type=parsed.target_type
+                AND other_promotion.target_id=parsed.target_id
+                AND other_interpretation.interpretation_key<>requested.interpretation_key
+                AND private.assertion_binding_current(other_promotion.id)
+           ) OR EXISTS (
+             SELECT 1 FROM parsed other_item
+               JOIN private.interpretation other_requested ON other_requested.id=other_item.interpretation_id
+              WHERE other_item.target_type=parsed.target_type
+                AND other_item.target_id=parsed.target_id
+                AND other_requested.interpretation_key<>requested.interpretation_key
+           ) AS already_bound_other
+      FROM parsed
+      LEFT JOIN private.interpretation requested ON requested.id=parsed.interpretation_id
+      LEFT JOIN private.interpretation_current current_interpretation
+        ON current_interpretation.interpretation_key=requested.interpretation_key
+      LEFT JOIN private.interpretation_promotion_rule_current rule
+        ON rule.predicate=current_interpretation.predicate
+       AND rule.interpretation_kind=current_interpretation.interpretation_kind
+       AND rule.target_type=parsed.target_type
+       AND rule.status='active'
+      LEFT JOIN private.source_persona_identity identity_state
+        ON identity_state.source_persona_id=current_interpretation.source_persona_id
+       AND identity_state.decision_status='accepted'
+      LEFT JOIN public.assertion assertion
+        ON assertion.id=parsed.target_id AND assertion.target_type='fact'
+      LEFT JOIN public.fact fact ON fact.id=assertion.target_id
+  )
+  SELECT validated.item_ordinal,validated.interpretation_id,validated.target_type,validated.target_id,
+         validated.reason_code IS NULL AS eligible,validated.rule_key,validated.rule_version,
+         validated.reason_code
+    FROM (
+      SELECT checked.*,
+        CASE
+          WHEN checked.requested_id IS NULL THEN 'EVIDENCE_INTERPRETATION_NOT_FOUND'
+          WHEN checked.current_id IS NULL OR checked.current_id<>checked.interpretation_id
+            THEN 'EVIDENCE_INTERPRETATION_NOT_CURRENT'
+          WHEN checked.status<>'accepted' THEN 'EVIDENCE_INTERPRETATION_NOT_ACCEPTED'
+          WHEN checked.rule_key IS NULL THEN 'EVIDENCE_PROMOTION_RULE_NOT_ACTIVE'
+          WHEN NOT checked.has_observation THEN 'EVIDENCE_INTERPRETATION_OBSERVATION_REQUIRED'
+          WHEN checked.requires_persona_identity AND checked.canonical_person_id IS NULL
+            THEN 'EVIDENCE_PROMOTION_IDENTITY_REQUIRED'
+          WHEN checked.requires_principal_placement AND NOT checked.has_principal_placement
+            THEN 'EVIDENCE_PROMOTION_PRINCIPAL_PLACEMENT_REQUIRED'
+          WHEN checked.assertion_id IS NULL OR checked.fact_id IS NULL THEN 'EVIDENCE_PROMOTION_TARGET_NOT_FOUND'
+          WHEN checked.requires_persona_identity
+             AND (checked.subjekt_type<>'person' OR checked.subjekt_id<>checked.canonical_person_id)
+            THEN 'EVIDENCE_PROMOTION_IDENTITY_MISMATCH'
+          WHEN checked.faktatype<>checked.expected_fact_type THEN 'EVIDENCE_PROMOTION_FACT_TYPE_MISMATCH'
+          WHEN checked.value_kind='text' AND lower(btrim(normalize(checked.value #>> '{}',NFC)))
+               IS DISTINCT FROM lower(btrim(normalize(checked.vaerdi_tekst,NFC)))
+            THEN 'EVIDENCE_PROMOTION_VALUE_MISMATCH'
+          WHEN checked.value_kind='date_raw' AND lower(btrim(normalize(checked.value #>> '{}',NFC)))
+               IS DISTINCT FROM lower(btrim(normalize(checked.date_raw,NFC)))
+            THEN 'EVIDENCE_PROMOTION_VALUE_MISMATCH'
+          WHEN jsonb_array_length(p_items)>1 AND NOT checked.bulk_eligible
+            THEN 'EVIDENCE_PROMOTION_BULK_NOT_ELIGIBLE'
+          WHEN checked.duplicate_count>1 THEN 'EVIDENCE_PROMOTION_DUPLICATE_ITEM'
+          WHEN checked.already_promoted THEN 'EVIDENCE_PROMOTION_ALREADY_PROMOTED'
+          WHEN checked.already_bound_other THEN 'ALREADY_BOUND_OTHER'
+          ELSE NULL
+        END AS reason_code
+      FROM checked
+    ) validated
+   ORDER BY validated.item_ordinal;
+END $$;
+REVOKE EXECUTE ON FUNCTION private.validate_interpretation_promotion_items(jsonb,boolean) FROM PUBLIC,anon,authenticated;

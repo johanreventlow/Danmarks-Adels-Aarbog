@@ -4704,12 +4704,18 @@ BEGIN
       (-987650041,'person',-987650041,'navn'),
       (-987650042,'person',-987650041,'titel'),
       (-987650043,'person',-987650041,'navn'),
-      (-987650044,'person',-987650042,'navn');
+      (-987650044,'person',-987650042,'navn'),
+      (-987650045,'person',-987650041,'navn'),
+      (-987650046,'person',-987650041,'navn'),
+      (-987650047,'person',-987650041,'navn');
     INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderlig) VALUES
       (-987650041,'fact',-987650041,'Anna Verify','gregoriansk',true),
       (-987650042,'fact',-987650042,'Anna Verify','gregoriansk',true),
       (-987650043,'fact',-987650043,'Anden tekst','gregoriansk',true),
-      (-987650044,'fact',-987650044,'Anna Verify','gregoriansk',true);
+      (-987650044,'fact',-987650044,'Anna Verify','gregoriansk',true),
+      (-987650045,'fact',-987650045,'Anna Verify','gregoriansk',true),
+      (-987650046,'fact',-987650046,'Anna Verify','gregoriansk',true),
+      (-987650047,'fact',-987650047,'Anna Verify','gregoriansk',true);
     INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) VALUES
       ('verify-name-no-bulk','verify.person.name.no_bulk'),
       ('verify-name-principal','verify.person.name.principal');
@@ -4896,7 +4902,17 @@ BEGIN
       RAISE EXCEPTION 'FEJL: promotion ændrede kanonisk genealogi';
     END IF;
 
-    -- To forskellige accepterede fortolkninger i én gyldig batch giver præcis
+    -- Trin 6c-2b: højst én gældende binding pr. påstand. En anden fortolkning mod den bundne påstand afvises.
+    SET LOCAL ROLE authenticated;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041)
+    ));
+    RESET ROLE;
+    IF v_preview->'items'->0->>'reason_code' IS DISTINCT FROM 'ALREADY_BOUND_OTHER' THEN
+      RAISE EXCEPTION 'FEJL: en anden fortolkning kunne bindes til en bundet påstand: %',v_preview;
+    END IF;
+
+    -- To forskellige accepterede fortolkninger i én gyldig batch (hver sin påstand) giver præcis
     -- to audit-links og én ny batch; de opretter ikke kanoniske rækker.
     SELECT count(*) INTO v_before_promotions FROM private.interpretation_promotion;
     SELECT count(*) INTO v_before_batches FROM private.interpretation_promotion_batch;
@@ -4905,12 +4921,12 @@ BEGIN
     SELECT count(*) INTO v_before_assertions FROM assertion;
     SET LOCAL ROLE authenticated;
     v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
-      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041),
-      jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650041)
+      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650045),
+      jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650046)
     ));
     PERFORM red_promote_interpretations_batch(jsonb_build_array(
-      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041),
-      jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650041)
+      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650045),
+      jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650046)
     ),v_preview->>'preview_hash');
     RESET ROLE;
     IF (SELECT count(*) FROM private.interpretation_promotion)<>v_before_promotions+2
@@ -4925,13 +4941,13 @@ BEGIN
     SELECT count(*) INTO v_before_batches FROM private.interpretation_promotion_batch;
     SET LOCAL ROLE authenticated;
     v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
-      jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041),
+      jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650047),
       jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650044)
     ));
     v_error:=NULL;
     BEGIN
       PERFORM red_promote_interpretations_batch(jsonb_build_array(
-        jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041),
+        jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650047),
         jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650044)
       ),v_preview->>'preview_hash');
     EXCEPTION WHEN others THEN v_error:=SQLERRM;

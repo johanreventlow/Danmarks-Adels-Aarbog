@@ -11149,7 +11149,25 @@ BEGIN
               WHERE promotion.interpretation_id=current_interpretation.id
                 AND promotion.target_type=parsed.target_type
                 AND promotion.target_id=parsed.target_id
-           ) AS already_promoted
+           ) AS already_promoted,
+           -- Trin 6c-2b: højst én gældende binding pr. påstand (læseren kræver præcis én, på tværs af kilder). En anden
+           -- fortolkning er en anden interpretation_key; versioner af samme nøgle er ikke »anden«. Kilde og persona
+           -- indgår ikke: en binding fra enhver kilde spærrer, og to nøgler i samme batch mod samme påstand afvises begge.
+           EXISTS (
+             SELECT 1 FROM private.interpretation_promotion other_promotion
+               JOIN private.interpretation other_interpretation
+                 ON other_interpretation.id=other_promotion.interpretation_id
+              WHERE other_promotion.target_type=parsed.target_type
+                AND other_promotion.target_id=parsed.target_id
+                AND other_interpretation.interpretation_key<>requested.interpretation_key
+                AND private.assertion_binding_current(other_promotion.id)
+           ) OR EXISTS (
+             SELECT 1 FROM parsed other_item
+               JOIN private.interpretation other_requested ON other_requested.id=other_item.interpretation_id
+              WHERE other_item.target_type=parsed.target_type
+                AND other_item.target_id=parsed.target_id
+                AND other_requested.interpretation_key<>requested.interpretation_key
+           ) AS already_bound_other
       FROM parsed
       LEFT JOIN private.interpretation requested ON requested.id=parsed.interpretation_id
       LEFT JOIN private.interpretation_current current_interpretation
@@ -11197,6 +11215,7 @@ BEGIN
             THEN 'EVIDENCE_PROMOTION_BULK_NOT_ELIGIBLE'
           WHEN checked.duplicate_count>1 THEN 'EVIDENCE_PROMOTION_DUPLICATE_ITEM'
           WHEN checked.already_promoted THEN 'EVIDENCE_PROMOTION_ALREADY_PROMOTED'
+          WHEN checked.already_bound_other THEN 'ALREADY_BOUND_OTHER'
           ELSE NULL
         END AS reason_code
       FROM checked

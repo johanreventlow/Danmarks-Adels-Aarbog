@@ -7,8 +7,8 @@
 -- regen_person_visning (red_edit_oplysning er allerede med under RED-8). 5c-2/B11 (blokken 5c2-b11): de offentlige
 -- læse-RPC'er og bindingshjælperen. Trin 6c-2a (vej B): værdisammenligningen binding_value_matches.
 -- Trin 6c-2b (forslagsversion): normaliser_dato_markoer_v1 og red_normaliser_forslag; (påstandsrettelse): saml_blanktegn_v1,
--- navn_forkortes, red_ret_paastand og red_paastand_historik.
--- I alt 13 + 17 + 3 + 3 + 1 + 6 = 43 linjer.
+-- navn_forkortes, red_ret_paastand og red_paastand_historik; (én binding pr. påstand): validate_interpretation_promotion_items.
+-- I alt 13 + 17 + 3 + 3 + 1 + 7 = 44 linjer.
 \set ON_ERROR_STOP on
 SELECT l FROM (
   SELECT p.oid::regprocedure::text||'|'||p.prosecdef||'|'||coalesce(array_to_string(p.proconfig,','),'')||'|'||
@@ -39,5 +39,5 @@ SELECT l FROM (
      -- 6c-2b
      ('private','normaliser_dato_markoer_v1'),('public','red_normaliser_forslag'),
      ('private','saml_blanktegn_v1'),('private','navn_forkortes'),('public','red_ret_paastand'),
-     ('public','red_paastand_historik'))) x
+     ('public','red_paastand_historik'),('private','validate_interpretation_promotion_items'))) x
  ORDER BY l COLLATE "C";
