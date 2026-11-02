@@ -246,8 +246,8 @@ status i `private.reimport_batch` (profil `daa-1939-interpretation-proposal-v1`)
 
 ## Ceremoni C (6b's identiteter)
 
-**Status 2026-11-02: retning 2 øvet hele vejen (afsnittet *Øvelse af retning 2*); klar til prod, når PR #293 er
-merget.** Den første øvelse (plan Task 9, 2026-11-01) stoppede ved 550 kort; projektejeren valgte retning 2 (delspec
+**Status 2026-11-02: kørt i prod (afsnittet *Prod-kørslen for C*; database-current-state §20).** Retning 2 var øvet
+hele vejen først (afsnittet *Øvelse af retning 2*). Den første øvelse (plan Task 9, 2026-11-01) stoppede ved 550 kort; projektejeren valgte retning 2 (delspec
 6c-1 §4.8, `docs/decisions.md` 2026-11-02). Prods faktor for C's tunge læsning er målt (2,3×, *Varighed for C*).
 
 Kort sagt: C giver hver af 6b's 553 nye 1939-personas en identitet. Maskinen kontrollerer alle 561 ikke-staged
@@ -293,13 +293,23 @@ stopper `apply-ddl` på `T6C1_R2_BLOK`; så opdateres `R2_BLOK` i runneren efter
 
 0. `go-ddl` → `GO 6c1-C-ddl <kode>` → `apply-ddl --jeg-mener-det --go <kode>` → `T6C1_R2_APPLY_DDL_OK foer=enig
    efter=auto funktioner_foer=… funktioner_efter=… tilstand=b`. Notér `funktioner_foer` (fortrydelsens mål).
+   Aftrykket dækker definitionerne **og** rettighederne (`proacl`), så det afviger altid fra stand-in'ens (ejeren er
+   `postgres` i prod, den lokale rolle på stand-in'en). Sammenlign definitionerne alene med den læse-kun
+   `koer.zsh 28-r2-aftryk.sh` (`definitioner=` skal være øvelsens `d098d380039e7895` efter DDL'en, `acl=` kun ejeren).
    Security Advisor bagefter: ingen nye fund (kun private funktioner, alle REVOKE'et).
 1. `koer.zsh 28-trin6c1-c.sh maal` → `b`, `k1` uændret, `T6C1_DEFACL` 0/0/0.
 2. `go-control` → `GO 6c1-C-control <kode>` → `control --jeg-mener-det --go <kode>`. Læs `T6C1_C_UDFALD`,
    `T6C1_C_GRUNDE`, `T6C1_C_KORT`, `T6C1_C_KORT_LEDGER`. Forventet som øvelsen: `input_sha256=7f783822…`, kort 124.
    **Stop ved over 125 kort.** Kørslen er prods egen (spec §6 pkt. 2); arket fra stand-in'en kan ikke genbruges.
-3. `render` → `PUBLICATION_SHEET_OK ark-N.txt sha256=…` (5 ark). Projektejeren udfylder arkene i mappen
-   (`S`, `S <person-id>`, `F`, `U`), gemmer og giver hver fils SHA-256. **Ethvert kort kan være et stikprøvekort,**
+3. `render` → `PUBLICATION_SHEET_OK ark-N.txt sha256=…` (5 ark). Arkene udfyldes ikke i hånden: tekstkortene viser
+   kun fornavn, år og en intern record-id og kan ikke afgøres af et menneske (2026-11-02). Brug kortværktøjet
+   (privat, uden for repo'et og GO-kæden): `koer.zsh 28-c-kort.sh kontekst` (læse-kun, ca. 10 s; bogens tekst omkring
+   posten, side, forældre/ægtefælle/børn) → åbn den udskrevne `kort.html` (lokal fil, aldrig publiceret) → svar →
+   *Gem svar-fil* → `koer.zsh 28-c-kort.sh flet ~/Downloads/c-svar-<details8>.json` → `GODKENDT=<sha,…>` (flyt
+   svarfilen ind under `kortvaerktoej/` bagefter; noter kan rumme navne). Svarregel: `S` når *bogens person* er
+   bindingspersonen (også uden at vide, hvem det er); `S <id>` er en frivillig note om en eksisterende samme person;
+   `F` kun når bogens person og bindingspersonen er to forskellige (at teksten nævner flere er ikke nok); `U` kun når
+   intet kan afgøres. **Ethvert kort kan være et stikprøvekort,**
    og kortene viser det ikke. Et F eller U på et stikprøvekort stopper hele C i næste skridt (det er meningen: det
    betyder, at bindingen alene ikke kan bære de automatiske). Er du i tvivl, så slå posten op i bogen i stedet for at
    svare U; arket kan rettes og få en ny hash, før manifestet bygges.
@@ -502,6 +512,28 @@ rigtige SFTP-vej er 6b's kode, som kørte i prod 2026-11-01.
 
 Review Focus 5 (`levende` ændres i prod mellem dumpet og B) blev øvet i Task 9 step 4 (afsnittet *Ceremoni C*, øvelsen
 pkt. 6): runneren stoppede med `T6C1_B_LEDGER_AFVIGER`, før noget blev skrevet.
+
+### Prod-kørslen for C (2026-11-02)
+
+Repo `c8d1e2a2`. Tallene står i database-current-state §20. DDL: `funktioner_foer=cf4bef04d86b774a`
+`funktioner_efter=517acdea94acad49` (prods; definitionerne `d098d380…` = øvelsens), 21,4 s. Control: 124 kort som
+øvelsen. Kortgennemgang med kortværktøjet: 123 S, 1 F, 0 U; stikprøven 20/20 S. `apply-c`: `accepteret=552`,
+`identiteter_k3=560`, `tilstand=c`.
+
+| Sætning | Prod | Stand-in (øvelse r2) | Forhold |
+|---|---|---|---|
+| `apply-ddl` (hele processen) | 21,4 s | 0,1-0,2 s (DDL'en) | — |
+| Generatorens input i `control` | 21,7 s | 9,9-10,0 s | 2,2× |
+| `red_record_identity_candidates` | 23,9 s (registreringen) | 10,5 s | 2,3× |
+| `red_publication_control` | 5,0-5,2 s | 2,5-2,6 s | 2× |
+| `red_publication_control_details` | 23,2 s | 11,7-12,2 s | 2× |
+| Writer-elementerne, 553, sum / maks. | 135 s / 2,6 s | ca. 5 s / 1,24 s | ca. 27× / 2× |
+| Finalize | 19,6 s | 9,6 s | 2× |
+| `apply-c` apply / i alt med dry-run | 159,2 s / 326,5 s | — / 34 s | ca. 10× |
+| `28-c-kort.sh kontekst` | 8-9 s | 4 s | 2× |
+
+Skønnet for det første automatiske element (31 s) var for højt: stikprøven beregnes på 2,6 s. Ingen sætning
+nærmede sig 2 min.
 
 ## Efter ceremonierne
 

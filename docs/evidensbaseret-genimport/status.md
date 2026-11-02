@@ -1,6 +1,6 @@
 # Evidensbaseret genimport — aktuel status
 
-**Snapshot 2026-11-02**, efter trin 6c-1's ceremoni A og B i prod (efter 6b's A og B, 6a, 5c-2 + B11, A6b, reviewets trin B, trin 5c-1 og helhedsreviewet
+**Snapshot 2026-11-02**, efter 6b's ceremoni C i prod, som afslutter trin 6c-1 (efter 6c-1's A og B, 6b's A og B, 6a, 5c-2 + B11, A6b, reviewets trin B, trin 5c-1 og helhedsreviewet
 af trin 1-5, [rapport](../reviews/2026-10-27-trin-1-5/rapport.md)). Dokumentet **overskrives** ved hvert trinskifte og hver
 prod-ændring; der skrives ikke tillæg (opdateringsreglen nederst). Det gamle dokument med tillæg til og med
 2026-10-27 står i [status-arkiv-til-2026-10-27.md](status-arkiv-til-2026-10-27.md).
@@ -13,9 +13,10 @@ delspecs 6a-6e ([spec](../superpowers/specs/2026-10-29-trin6-1939-gennem-kaeden-
 **6b's ceremoni A og B er i prod 2026-11-01:** 1939's 555 personas er skrevet, men har endnu
 ingen identitet. 6c er delt i 6c-1 (runneren på 1939 og 6b's ceremoni C) og 6c-2 (kontrol, rettelse, binding, vej B
 og resten af A6b) (decisions 2026-11-01). **6c-1's ceremoni A og B er i prod 2026-11-02:** modellens 2.774 forslag til
-494 af 1939's poster ligger som private `proposed`-fortolkninger. 6b's ceremoni C stoppede i øvelsen ved 550 kort;
-projektejeren valgte retning 2 (C3's binding bliver identiteten, kun konflikter og en stikprøve på kort), som er
-næste skridt. A6b's kildetekst og klausuler for 2018-20 (decisions 2026-10-28) og vej B (decisions 2026-10-29) ligger
+494 af 1939's poster ligger som private `proposed`-fortolkninger. **6b's ceremoni C er i prod 2026-11-02 efter
+retning 2** (C3's binding bliver identiteten; kun konflikter og en stikprøve på kort): 552 af de 553 nye personas har
+en accepteret identitet, én er `unresolved` (omstridt binding). Trin 6c-1 er dermed afsluttet; næste er 6c-2.
+A6b's kildetekst og klausuler for 2018-20 (decisions 2026-10-28) og vej B (decisions 2026-10-29) ligger
 i 6c-2.
 
 ## Samlet dom
@@ -24,7 +25,7 @@ Kernen holder: evidenslaget, den generelle writer og klausullaget er bevist på 
 Kæden kan **binde** det eksisterende til kilden, men har endnu ikke **oprettet** noget nyt på rigtige data (0 nye
 fakta, 0 nye personer; review 2-01). Læseren ser nu personens fakta med kilde, og 622 af de 6.473 offentlige
 fakta-rækker er bundet til bogens post (B11). For 2018-20 er trin 1-5 i prod. For 1939 er proveniens,
-narrativpublicering, klausuler, personas og modellens forslag i prod; resten er 6b's identiteter, 6c-2 og trin 6d-6e.
+narrativpublicering, klausuler, personas, identiteter og modellens forslag i prod; resten er 6c-2 og trin 6d-6e.
 
 ## Modenhed pr. værdikædeled
 
@@ -42,13 +43,13 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 | Forslag og afgørelse (trin 4) | `produktionsverificeret` 2026-10-05 (3.739 forslag, 676 afgørelser) | forslag `produktionsverificeret` 2026-11-02 (6c-1, GO 6c1-B `2a2ba22b`: 2.774 `proposed` på 494 poster, profil `daa-1939-interpretation-proposal-v1`; 433 klausuler `afventer_identitet`, 249 `fortolkning_foreslaaet`; kanonisk lag uændret). Afgørelse: ikke påbegyndt (6c-2) |
 | Promotion — binding | `produktionsverificeret` (trin 4: 622 bindinger til eksisterende assertions 2026-10-05; 5b: relationsbindinger 2026-10-25/26) | ikke påbegyndt |
 | Promotion — oprettelse (nye fakta, personer, familier) | `isoleret implementeret` (kun syntetisk bevist; 0 på rigtige data) | — |
-| Identitet (5a) | `produktionsverificeret` 2026-10-25 (GO 2) | personas `produktionsverificeret` 2026-11-01 (6b, GO 6b-B `1c8aade5`: 555 `source_persona` med hver sin `primary`-mention i egen helpost, profil `daa-1939-publication-v1`; skjult i webkøen). Identiteter (ceremoni C): `isoleret implementeret` (deployet ved 6b-A, ubrugt; øvelsen stoppede ved 550 kort, retning 2 valgt 2026-11-01) |
+| Identitet (5a) | `produktionsverificeret` 2026-10-25 (GO 2) | personas `produktionsverificeret` 2026-11-01 (6b, GO 6b-B `1c8aade5`: 555 `source_persona` med hver sin `primary`-mention i egen helpost, profil `daa-1939-publication-v1`; skjult i webkøen). Identiteter `produktionsverificeret` 2026-11-02 (6b's C efter retning 2, GO 6c1-C `df185473`: 553 elementer, 454 `publication_binding` inkl. stikprøven 20/20, 98 `human` S, 1 `human` F → `unresolved`; `afventer=0`; `database-current-state.md` §20). 13 af 1939's personer mangler navn (tom navnepåstand), rettes efter C |
 | Relationer (5b): ægtefæller, børneflokke, ægteskabsnumre | `produktionsverificeret` 2026-10-25 (GO 2); dubletregel, #240 og #248 rettet 2026-10-26. Rettelsesvejen for numre (#244) er `isoleret implementeret` (deployet, ubrugt) | ikke påbegyndt |
 | Placement og membership (5c-1) | `produktionsverificeret` 2026-10-27 (GO 150 `3e69560f`: 580 placements, 1167 ledger-dispositioner, 576 memberships, 530 revalideringer). V-82..V-92 står `unresolved` | ikke påbegyndt (trin 6) |
 | Læsere på placement/membership (5c-2) | `produktionsverificeret` 2026-10-29 (GO 5c2 `bb1678f9`: 1.113 koordinater, 530 fra placement, 583 legacy; diff mod legacy 37 felter = forventet, træparitet ok; browsertjek som anon) | — (kilde 3 vises fra legacy indtil trin 6) |
 | Læserflade: fakta med kildehenvisning (B11) | `produktionsverificeret` 2026-10-29 (6.473 fakta-rækker over alle offentlige personer: 622 bundet til bogens post, 5.765 fra importen, 86 uden kilde; 0 bindinger falder ud; PostgREST-gate og browsertjek som anon). Læserkaldet koster op til ~1,9 s pr. person mod anons 3 s (vej B) | — |
 | C3 reversal | — | `integreret ende-til-ende` (ikke udført i prod) |
-| Trin 6 (1939 gennem kæden) | — | 6a i prod 2026-10-30; 6b's A og B i prod 2026-11-01; 6c-1's A og B i prod 2026-11-02 (6b's C venter på retning 2); 6c-2 og 6d-6e ikke påbegyndt |
+| Trin 6 (1939 gennem kæden) | — | 6a i prod 2026-10-30; 6b's A og B i prod 2026-11-01; 6c-1 i prod 2026-11-02 (A, B og 6b's C efter retning 2); 6c-2 og 6d-6e ikke påbegyndt |
 | Trin 7a, 7b | ikke påbegyndt; ingen spec | ikke påbegyndt |
 
 ## Gates før trin 6 (fra reviewet)
@@ -71,9 +72,10 @@ Seneste restorepunkt: dumpet før 6c-1's ceremoni B, `daa-prod-20261102060018-6c
 `198712b4…`). Fortrydelse sker efter gate 8 som omformuleret 2026-10-27 (B1): en særskilt handling eller restore inden
 for et deklareret vindue. B1's betingelse er opfyldt for begge 6c-1-dumps: to kopier (lokalt og `age`-krypteret på
 projektejerens SFTP-server, sha `3f871040…` og `1eff634a…`), begge hashes noteret, rundtur gennemført og
-genkontrolleret ved skrivningen. 6c-1's forslag fortrydes kun ved `fortryd-b` (restore af B-dumpet), så længe intet
-andet er skrevet siden dumpet og 6b's ceremoni C ikke har skrevet; skrivepausen sluttede ved godkendelsen af B. 6c-1's
-DDL fortrydes ikke alene, efter at B har skrevet (runbook `trin6c1-prod.md`, Fortrydelse). 6b-B's restore-fortrydelse
+genkontrolleret ved skrivningen. 6b's ceremoni C har skrevet, så 6c-1's forslag kan ikke længere fortrydes ved
+restore af B-dumpet. C selv fortrydes uden restore med `reverse-c` (identiteterne `superseded`, tilstand `b`), og
+retning 2's DDL derefter særskilt med `fortryd-ddl` (runbook `trin6c1-prod.md`, Fortrydelse af C). 6c-1's DDL fra A
+fortrydes ikke alene, efter at B har skrevet. 6b-B's restore-fortrydelse
 er lukket, fordi forslagene refererer 6b's personas; 6b's og 6a's dumps ville nu også fjerne 6c-1. 5c-2 + B11
 fortrydes uden restore (revert af klient-PR #277; funktionerne bliver stående, ingen data er skrevet). A6b fortrydes
 ligeledes uden restore (`apply --tilbage`, ny revision tilbage til den gamle tekst); trin B's fire funktioner
