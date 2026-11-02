@@ -260,7 +260,8 @@ hjælpere fra `control_model.py`; v1 røres ikke); Modify: `.github/workflows/ci
 - `apply_plan_v2(plan, sheet_text, *, sheet_sha256, hashes) -> dict` → `{flytninger: [...], rettelser: [...],
   afgoerelser: [...], maskine: [...]}`: stikprøvefelt ≠ `B` eller stikprøvepersona med `P` → `SAMPLE_FAILED`;
   `P`-personas' forslag udelades af alt (også maskinen); `B` på `navn_forkortes` → `SHEET_V2_LINE_INVALID`;
-  mapping som spec §4.4 pkt. 7. `sql_v2(...)` skriver den samlede SQL i rækkefølgen flytninger → rettelser →
+  mapping som spec §4.4 pkt. 7. Datorettelsers `p_dato` beregnes her med `validate.derive_date_info(date_raw)`
+  (`validate.py:623`-familien). `sql_v2(...)` skriver den samlede SQL i rækkefølgen flytninger → rettelser →
   afgørelser → maskinaccept med re-klassifikation i transaktionen; `verify_sql_v2(plan, applied)` kræver MATCH =
   maskine ∪ stikprøve ∪ udtaget pga. `P`.
 
@@ -288,7 +289,8 @@ kontekst.sql` med personaens felter, databasens værdier, forslagets værdier og
 `a` = vej B, `b` = writere + kort 122, `c` = datoversioner, `d` = anvendt; `k1_bindinger_hash` = sha over alle kilde
 1-bindingers id og gyldighed), `vejb_tid.sql` (læse-kun; tager `-v personer` og kalder fakta-kaldet som `anon` med
 `\timing` 5 gange pr. person), `linjeskift_kandidater.sql` (læse-kun; præcis spec §4.4 pkt. 4's afgrænsning;
-udskriver kun antal og påstands-id'er), `test_maal_trin6c2.py`.
+udskriver kun antal og påstands-id'er; gate: ingen kandidats `date_raw` indgår i en familie-`state_sha256`,
+placement- eller publiceringstilstand — ellers `LINJESKIFT_TILSTAND_BEROERT` og ingen liste), `test_maal_trin6c2.py`.
 
 - [ ] **Step 1-4:** test på syntetisk base (linjeformat, tilstande, at kandidatlisten udelukker delte og bundne
   påstande) → implementér → `python`. **Step 5:** Commit `feat(scripts): målinger for 6c-2`.
