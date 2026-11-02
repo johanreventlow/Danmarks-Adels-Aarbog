@@ -1,6 +1,6 @@
 # Trin 6c-2: 1939-fakta bundet til bogen — design
 
-**Status:** UDKAST 2026-11-02, til projektejerens godkendelse. Skrevet efter en afklaringsrunde med projektejeren
+**Status:** UDKAST 2026-11-02, til projektejerens godkendelse; builder-tjek indarbejdet, §8 pkt. 1-2 afgjort. Skrevet efter en afklaringsrunde med projektejeren
 (§3); valg, der ikke er projektejerens, er markeret *mit valg*.
 **Gren:** `docs/trin6c2-spec` fra `main` (`ded0404a`).
 **Overordnet spec:** `docs/superpowers/specs/2026-10-29-trin6-1939-gennem-kaeden-design.md` (§3, §5 6c, §6 pkt. 1, 2,
@@ -154,12 +154,20 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
 2. **Automatisk:** `MATCH` accepteres og bindes (kontrolmodellen B8, overordnet spec §6 pkt. 1).
 3. **Kort til projektejeren:** alle `REAL_DIFF`; dato-`SKRIVEMAADE`, der er tilbage efter §4.3 (forventet ~22),
    *mit valg* — de er få og ligner reelle forskelle; og navne-`SKRIVEMAADE` (6). Plus en **blind stikprøve på 20**
-   blandt de automatiske `MATCH`.
+   blandt de automatiske `MATCH`, **stratificeret**, projektejeren 2026-11-02 (valg b): 10 trækkes blandt personas,
+   hvis identitet kom fra retning 2 uden generatorens bekræftelse (udfald `svag` eller `ingen_kandidat`, også fra
+   `excluded` poster), 10 blandt resten.
    **Stikprøvens regel, *mit valg*:** på et stikprøvefelt er `B` og `D` i orden (bogen og databasen siger det samme
    som forslaget); `V` og `P` er fejl. Én fejl stopper anvendelsen: ingen afgørelser, rettelser eller bindinger fra
    denne kontrolrunde skrives; årsagen findes, og en ny kontrolrunde med ny stikprøve og nyt GO køres. Ingen
    udvidelse til kort på alle `MATCH`.
-4. **De 70 datoer med linjeskift i importen** (§2.2): se §8 pkt. 1.
+4. **De 70 datoer med linjeskift i importen** (§2.2), projektejeren 2026-11-02 (valg c): 1939's egen påstand får en
+   deterministisk transskriptionsrettelse — mellemrum (inkl. linjeskift) i `date_raw` samles til ét og trimmes;
+   intet andet ændres. Afgrænsning: kun påstande, der er det eneste mål for et 1939-datoforslag, hvis version fra §4.3
+   bliver lig påstanden efter rettelsen; kun påstande, som alene kilde 3 citerer; ingen eksisterende gyldig binding
+   må blive ugyldig. Originalen i `import_korrektion` og `change_event` (B12-formen) med reglens navn og version.
+   Ingen kort; listen (påstands-id'er) er en del af GO-pakken. Strukturerede datoværdier (`date_min`/`date_max`)
+   genberegnes ikke, da kun mellemrum ændres; det verificeres.
 5. **`NO_FACT`, `NO_IDENTITY`, `AMBIGUOUS`** og forslag uden aktiv regel bliver `proposed` og tælles.
 6. **Kortene grupperes pr. persona**, *mit valg* (følger af §3 pkt. 3): navn, titel, fødsel og død for samme persona
    står samlet, med posttekst, side og familie, som C's kortværktøj. Højst ~30 personas pr. ark.
@@ -204,9 +212,9 @@ Hver ceremoni med 5c-1-formen (B2): dump med ekstern kopi (B1), flag + GO-kode v
 og efter. Rækkefølgen er bindende; byggeren kan samle trin i færre GO'er, hvis rækkefølgen bevares.
 
 1. **Vej B** (DDL) → mål i prod (§4.1).
-2. **DDL for 6c-2's writere** (version-writer, rettelsesvej, publiceringens følge ved identitetsflytning) og
+2. **DDL for 6c-2's writere** (version-writer, rettelsesvej inkl. linjeskift-rettelsen, publiceringens følge ved identitetsflytning) og
    **kort 122's identitetsflytning**.
-3. **Datoversionerne** (§4.3) skrives.
+3. **Datoversionerne** (§4.3) og **linjeskift-rettelserne** (§4.4 pkt. 4) skrives.
 4. **Kontrol:** klassifikation, kortark (lokal HTML), stikprøve; projektejerens svar flettes og hash-bindes.
 5. **Anvend:** identitetsflytninger fra kortene → rettelser → afgørelser → bindinger → genmåling af vej B.
 6. **Opfølgningsrunde** for personas flyttet med `P <id>` (§4.2 pkt. 4): trin 4-5 igen for kun dem; springes over ved 0.
@@ -241,19 +249,12 @@ nye promotionsregler (steder, embeder, godser); genkørsel af modellen; A6b-rest
   efter (nøglet liste, ikke kun antal).
 - **Status:** `status.md`'s 1939-kolonne for »Forslag og afgørelse« og promotion hæves med dato.
 
-## 8. Åbne punkter
+## 8. Afgjort i spec-runden og overladt til byggeren
 
-1. **De 70 datoer med linjeskift i importen** (projektejerens): (a) de bliver `proposed` og tælles (kontrolmodellen
-   som i dag; de vises fortsat »fra den oprindelige import«); (b) de kommer på kortene som »bogen har ret«-rettelser
-   af 1939's egen påstand (70 ekstra felter); (c) en deterministisk transskriptionsrettelse (linjeskift → mellemrum)
-   af 1939's egen påstand uden kort, med originalen i journalen. *Min anbefaling:* (c) — linjeskiftet er et
-   importartefakt i 1939's egen transskription, ikke en uenighed med bogen; men det er en rettelse uden menneskeligt
-   svar pr. felt, og overordnet spec §6 pkt. 2 forudsætter et svar.
-2. **Retning 2's identiteter, som generatoren ikke bekræftede** (projektejerens; ca. 440 med udfald `svag` eller
-   `ingen_kandidat`, heraf 61 fra `excluded` poster; decisions 2026-11-02: »så 6c-2 kan tage dem op«): (a) de
-   behandles som alle andre — `MATCH` bindes automatisk; (b) som (a), men stikprøven stratificeres, så 10 af de 20
-   trækkes blandt dem; (c) deres `MATCH` kommer på kort. *Min anbefaling:* (b). Et `MATCH` betyder, at modellens
-   læsning af posten giver samme værdi som den række, identiteten peger på; en forkert binding som kort 122 viser sig
-   som `REAL_DIFF` og havner på kort med »forkert person«. (c) ville give hundredvis af kort.
+1. **De 70 datoer med linjeskift i importen:** (c), projektejeren 2026-11-02 — deterministisk transskriptionsrettelse
+   (§4.4 pkt. 4).
+2. **Retning 2's ubekræftede identiteter:** (b), projektejeren 2026-11-02 — behandles som alle andre, men stikprøven
+   stratificeres (§4.4 pkt. 3).
 3. **Overladt til byggeren:** rettelsesvejens form (§4.5 pkt. 1); publiceringens følge ved identitetsflytning (§4.2
-   pkt. 2); vej B's tekniske form; antal GO'er; om `transfer_pack.py` generaliseres eller kaldes med kilde 3.
+   pkt. 2); vej B's tekniske form; antal GO'er; om `transfer_pack.py` generaliseres eller kaldes med kilde 3; om
+   versionswriteren kun rører de forslag, normaliseringen ændrer.

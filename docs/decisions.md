@@ -2,6 +2,19 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 6c-2's afgrænsning — A6b-resten bliver 6c-3; fjerde svar »forkert person«; linjeskift-rettelse uden kort (2026-11-02)
+
+> Projektejeren i spec-runden for 6c-2 (`docs/superpowers/specs/2026-11-02-trin6c2-1939-bundet-til-bogen-design.md`).
+> **Mål:** 1939-fakta bundet til bogen i læseren; fakta pr. udgave er fortsat 6e. **6c-3:** A6b-resten for 2018-20's
+> 10 poster skilles ud og kører efter 6c-2 med eget B13-budget; overordnet spec §6 pkt. 7's begrundelse (»hvor
+> runneren alligevel kører«) holder ikke, da runneren kørte i 6c-1. **`NO_FACT`** (personer uden navnepåstand m.fl.)
+> venter på opret-benet og står synligt uafklaret. **Fjerde svar** ud over overordnet spec §6 pkt. 2's tre: »forkert
+> person« (`P` / `P <person-id>`) pr. persona; kortene grupperes pr. persona, så en navnefælle-fejl kan ses på dato og
+> titel. **De 70 datoer med linjeskift i importens `date_raw`:** deterministisk transskriptionsrettelse (mellemrum
+> samles) af 1939's egen påstand uden kort, originalen i journalen — en afvigelse fra §6 pkt. 2's krav om et svar pr.
+> rettelse, begrænset til påstande som alene kilde 3 citerer og som er eneste mål for et datoforslag. **Retning 2's
+> ubekræftede identiteter** (ca. 440) behandles som alle andre; stikprøven på 20 stratificeres med 10 blandt dem.
+
 ## BESLUTTET: 1939's identiteter (6b's C) — C3-bindingen er identiteten, kun konflikter på kort (retning 2) (2026-11-02)
 
 > Øvelsen af 6b's ceremoni C gav 550 kort mod et loft på 90. Projektejeren valgte 2026-11-01 retning 2 blandt tre (ret
