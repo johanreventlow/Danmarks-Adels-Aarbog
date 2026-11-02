@@ -197,7 +197,10 @@ samme påstand, eller når to items i samme batch fra forskellige personas ramme
 nye fil).
 
 Én transaktion, i denne rækkefølge (narrativvejen kræver, at identiteten peger på målet, før der kan publiceres der,
-og blokerer andre personer, mens en binding er aktiv — kortlagt 2026-11-02):
+og blokerer andre personer, mens en binding er aktiv — kortlagt 2026-11-02). `mutate_person_narrative_record` afviser
+et åbent ændringssæt (`NARRATIVE_RECORD_FOREIGN_CHANGE_SET`, `schema.sql:~15030`) og efterlader sit eget åbent;
+derfor nulstilles `app.change_set_id` og `app.change_seq` med `set_config(…, '', true)` før hvert indre kald (mønster
+`schema.sql:3128`). Hvert trin får sit eget ændringssæt; kvitteringen lister dem.
 1. Lås personaen; afvis `FLYT_SAMME_PERSON`; afvis `FLYT_MAAL_UDEN_KILDE`, hvis målet ikke har mindst én påstand
    citeret af `source_persona.source_id`; afvis `FLYT_PERSONA_HAR_BINDINGER`, hvis en af personaens fortolkninger
    har en gyldig binding (`assertion_binding_current`).
@@ -217,7 +220,11 @@ flyttet|uaendret|ingen, event_ids}`.
   narrativ er `withdrawn`, et nyt er `published` på målet med samme tekst og labels fra `narrative_record_labels`;
   målet har to publicerede narrativer; `public_person_facts` for barnebarnet mister intet, der var bundet;
   `NULL`-målet giver `unresolved` og `narrativ_uaendret`; de tre afvisninger; stale `p_forventet_version` →
-  `EVIDENCE_IDENTITY_VERSION_CONFLICT` og intet skrevet.
+  `EVIDENCE_IDENTITY_VERSION_CONFLICT` og intet skrevet. En record med en anden principal-/co_principal-persona, hvis
+  identitet peger et andet sted: narrativets `upsert` på målet fejler (`NARRATIVE_RECORD_IDENTITY_AMBIGUOUS`/
+  `…_REQUIRED`), hele transaktionen ruller tilbage, og ceremonien tæller personaen som `flytning_afvist`. Læseren
+  (`bioVersions.ts`, én version pr. publiceret post sorteret efter udgave og postrækkefølge) viser målets to
+  1939-poster som to versioner.
 - [ ] **Step 2:** FAIL. **Step 3:** Implementér. **Step 4:** `narrative-record-contract-db` + testfilen efter
   migration ×2. Fejler step 2-4 i narrativvejen af grunde, der kræver ændring af kontrakt v2: **stop for
   projektejeren** (spec §8 pkt. 3: fald tilbage til (c)).
@@ -287,7 +294,9 @@ kontekst.sql` med personaens felter, databasens værdier, forslagets værdier og
 
 **Files:** Create: `maal_trin6c2.sql` (linjen fra Global Constraints; `tilstand`: `foer` = intet 6c-2,
 `a` = vej B, `b` = writere + kort 122, `c` = datoversioner, `d` = anvendt; `k1_bindinger_hash` = sha over alle kilde
-1-bindingers id og gyldighed), `vejb_tid.sql` (læse-kun; tager `-v personer` og kalder fakta-kaldet som `anon` med
+1-bindingers id og gyldighed; med `-v liste=<fil>` skrives den nøglede liste (promotion-id, kilde, gyldig) til
+`~/.private/6c2/`, så en ændret hash kan diffes pr. binding — spec §7; målt 2026-11-02: 622 gyldige bindinger, ingen
+påstand med mere end én), `vejb_tid.sql` (læse-kun; tager `-v personer` og kalder fakta-kaldet som `anon` med
 `\timing` 5 gange pr. person), `linjeskift_kandidater.sql` (læse-kun; præcis spec §4.4 pkt. 4's afgrænsning;
 udskriver kun antal og påstands-id'er; gate: ingen kandidats `date_raw` indgår i en familie-`state_sha256`,
 placement- eller publiceringstilstand — ellers `LINJESKIFT_TILSTAND_BEROERT` og ingen liste), `test_maal_trin6c2.py`.
@@ -330,7 +339,8 @@ ceremoniens dump); privat `~/.private/5ab-overfoersel/29-trin6c2.sh` (`maal`, `v
 
 - [ ] **Step 1:** Codex-runde på diffen af PR 1 + PR 2 (`gpt-6.1-sol`, read-only, `--glob '!work*/**'`); Opus afvejer.
   B13's anden og sidste runde.
-- [ ] **Step 2:** Projektejerens ja → push og draft-PR'er; CI grøn; merge = projektejeren.
+- [ ] **Step 2:** Projektejerens ja → push og draft-PR'er; CI grøn; merge = projektejeren. Derefter slutøvelse af
+  Task 11 step 1 på `main` (merge-commit, ikke grenens head) før ceremoni 1.
 - [ ] **Step 3:** `vejb` før (de 10 personer) → ceremoni 1 → `vejb` efter. Kriterium: median ≤ 1,0 s for hver af de
   10. Ikke nået: **stop**; 6c-2 fortsætter ikke til ceremoni 2 (spec §4.1 pkt. 4). Projektejeren læser Security
   Advisor.
@@ -344,7 +354,7 @@ ceremoniens dump); privat `~/.private/5ab-overfoersel/29-trin6c2.sh` (`maal`, `v
 ### Task 14: Ceremoni 4, læsertjek og status
 
 - [ ] **Step 1:** Kontrol i prod → kortark (lokal HTML under `~/.private/6c2/`) → projektejerens svar → flet → hash →
-  GO → anvend → `vejb` efter (≤ 1,0 s) → opfølgningsrunde for `P <id>`.
+  GO → anvend → `vejb` efter (≤ 1,0 s) → opfølgningsrunde for kort 122's persona og personas flyttet med `P <id>`.
 - [ ] **Step 2:** Browsertjek som `anon` mod prod (spec §7 (b)): en 1939-person uden 2018-20-modpart; en rettet værdi;
   kort 122 på person 1054 med prosaen; de 10 tungeste.
 - [ ] **Step 3:** `status.md` (1939 »Forslag og afgørelse« og promotion med dato; tjekliste (a)),
