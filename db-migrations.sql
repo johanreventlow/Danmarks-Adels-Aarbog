@@ -32088,6 +32088,8 @@ REVOKE ALL ON FUNCTION private.saml_blanktegn_v1(text) FROM PUBLIC,anon,authenti
 -- Trin 6c-2b (spec §4.5 pkt. 2): en rettelse må ikke forkorte et navn. Sand, når den nye værdi efter blanktegnssamling
 -- og små bogstaver er en ægte (kortere, ulig) delstreng af den gamle. NULL ind giver NULL; kaldere bruger IS TRUE.
 -- Reglen står kun her; red_ret_paastand og kontrolværktøjets rækkeeksport kalder begge denne funktion.
+-- Kendt begrænsning: lower() følger databasens collation (ICU i prod, libc/C i CI) for bl.a. ÆØÅ, samme begrænsning
+-- som binding_value_matches; Task 6's Python-udgave af reglen skal matche ICU-adfærden i prod.
 CREATE OR REPLACE FUNCTION private.navn_forkortes(p_gammel text, p_ny text)
 RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
   SELECT strpos(g,n)>0 AND length(n)<length(g)
@@ -32319,7 +32321,9 @@ BEGIN
        OR NOT (p_dato ?& ARRAY['date_min','date_max','date_qualifier'])
        OR jsonb_typeof(p_dato->'date_qualifier') NOT IN ('string','null')
        OR jsonb_typeof(p_dato->'date_min') NOT IN ('string','null')
-       OR jsonb_typeof(p_dato->'date_max') NOT IN ('string','null') THEN
+       OR jsonb_typeof(p_dato->'date_max') NOT IN ('string','null')
+       OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(p_dato) k)
+            IS DISTINCT FROM ARRAY['date_max','date_min','date_qualifier'] THEN
       RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG';
     END IF;
     BEGIN
@@ -32330,6 +32334,10 @@ BEGIN
     END;
     IF v_new_min>v_new_max THEN RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG'; END IF;
     v_new_qual := p_dato->>'date_qualifier';
+    -- The qualifiers validate.py:derive_date_info can produce (or none).
+    IF v_new_qual IS NOT NULL AND v_new_qual NOT IN ('before','after','between','about','floruit') THEN
+      RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG';
+    END IF;
   END IF;
 
   -- Source: exactly one citing source.
@@ -32347,6 +32355,17 @@ BEGIN
                        AND i.canonical_person_id=v_f.subjekt_id) THEN
     RAISE EXCEPTION 'PAASTAND_FORSLAG_UOVERENS';
   END IF;
+  -- One proposal corrects one assertion: no live correction (not undone, as red_paastand_historik defines it) and no
+  -- currently valid binding from any version of this proposal on another assertion. Choosing the first pairing is the
+  -- ceremony list's responsibility.
+  IF EXISTS (SELECT 1 FROM public.paastand_korrektion k JOIN private.interpretation q ON q.id=k.interpretation_id
+              WHERE q.interpretation_key=v_int.interpretation_key AND k.assertion_id<>v_a.id
+                AND NOT EXISTS (SELECT 1 FROM public.change_set rv WHERE rv.reverterer_id=k.change_set_id))
+     OR EXISTS (SELECT 1 FROM private.interpretation_promotion p JOIN private.interpretation q ON q.id=p.interpretation_id
+                 WHERE q.interpretation_key=v_int.interpretation_key AND p.target_type='assertion'
+                   AND p.target_id<>v_a.id AND private.assertion_binding_current(p.id)) THEN
+    RAISE EXCEPTION 'PAASTAND_FORSLAG_UOVERENS';
+  END IF;
   IF v_int.source_id IS DISTINCT FROM v_sources[1] THEN RAISE EXCEPTION 'PAASTAND_KILDE_DELT'; END IF;
 
   -- The new value is never free.
@@ -32355,6 +32374,10 @@ BEGIN
     IF nullif(btrim(v_new),'') IS NULL THEN RAISE EXCEPTION 'PAASTAND_FORSLAG_UOVERENS'; END IF;
   ELSE
     v_new := private.saml_blanktegn_v1(v_a.date_raw);
+    -- The collapsed value must equal the proposal exactly as binding validity defines equality.
+    IF NOT private.binding_value_matches('date_raw',v_int.value,NULL,v_new) THEN
+      RAISE EXCEPTION 'PAASTAND_FORSLAG_UOVERENS';
+    END IF;
   END IF;
   v_old := CASE v_value_kind WHEN 'text' THEN v_a.vaerdi_tekst ELSE v_a.date_raw END;
   IF v_new IS NOT DISTINCT FROM v_old OR nullif(v_new,'') IS NULL THEN

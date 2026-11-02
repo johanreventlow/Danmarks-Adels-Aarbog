@@ -189,6 +189,7 @@ DECLARE
   a_titel bigint; i_titel uuid; a_foed bigint; i_foed uuid; i_foed2 uuid; a_doed bigint; i_doed uuid;
   a_delt bigint; i_delt uuid; a_anden bigint; i_anden uuid; i_afvist uuid; i_person uuid; i_praed uuid;
   a_navn bigint; i_navn uuid; a_bund bigint; i_bund uuid; i_bund2 uuid; v_prom uuid; i_bryd uuid; a_koen bigint;
+  a_doed2 bigint; i_doed2 uuid;
   r jsonb; forv jsonb; v_cs bigint; n int; a record; k record; h record; v_dato jsonb;
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
@@ -225,6 +226,8 @@ BEGIN
   i_bund:=pg_temp.pr_forslag(v_s,v_post,v_run,'person.title','Kammerjunker');
   i_bryd:=pg_temp.pr_forslag(v_s,v_post,v_run,'person.title','Kammerherre');
   a_koen:=pg_temp.pr_fakta(v_p,'koen','text','mand',ARRAY[v_s]);
+  a_doed2:=pg_temp.pr_fakta(v_p,'død','date_raw',E'12. marts\n1750',ARRAY[v_s],'1750-03-12','1750-03-12');
+  i_doed2:=pg_temp.pr_forslag(v_s,v_post,v_run,'person.death','12. marts 1751');
   SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   i_foed2:=pg_temp.pr_afgoer(v_actor,i_foed,'accepted');
   i_afvist:=pg_temp.pr_afgoer(v_actor,i_afvist,'rejected');
@@ -267,10 +270,17 @@ BEGIN
   PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2);
   PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,'{"date_min":"1702-03-12"}');
   PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,
-    '{"date_min":"1702-13-40","date_max":"1702-03-12","date_qualifier":"exact"}');
+    '{"date_min":"1702-13-40","date_max":"1702-03-12","date_qualifier":null}');
   PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,
-    '{"date_min":"1702-03-13","date_max":"1702-03-12","date_qualifier":"exact"}');
+    '{"date_min":"1702-03-13","date_max":"1702-03-12","date_qualifier":null}');
   PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,'[]');
+  -- Kvalifikatoren skal være en, derive_date_info kan give (eller null); ingen ekstra nøgler.
+  PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,
+    '{"date_min":"1702-03-12","date_max":"1702-03-12","date_qualifier":"bogus"}');
+  PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,
+    '{"date_min":"1702-03-12","date_max":"1702-03-12","date_qualifier":"exact"}');
+  PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,
+    '{"date_min":"1702-03-12","date_max":"1702-03-12","date_qualifier":null,"calendar":"juliansk"}');
   PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_doed,pg_temp.pr_forventet(a_doed),'linjeskift-v1',i_doed,
     '{"date_min":null,"date_max":null,"date_qualifier":null}');
 
@@ -286,7 +296,7 @@ BEGIN
   PERFORM pg_temp.pr_fejl('PAASTAND_FORSLAG_UOVERENS',a_anden,forv,'bogen_har_ret',gen_random_uuid());
   PERFORM pg_temp.pr_fejl('PAASTAND_FORSLAG_UOVERENS',a_anden,forv,'bogen_har_ret',NULL);
   PERFORM pg_temp.pr_fejl('PAASTAND_FORSLAG_UOVERENS',a_foed,pg_temp.pr_forventet(a_foed),'bogen_har_ret',i_foed,
-    '{"date_min":"1702-03-12","date_max":"1702-03-12","date_qualifier":"exact"}');
+    '{"date_min":"1702-03-12","date_max":"1702-03-12","date_qualifier":null}');
 
   -- (g) Navn må ikke forkortes.
   PERFORM pg_temp.pr_fejl('PAASTAND_NAVN_FORKORTES',a_navn,pg_temp.pr_forventet(a_navn),'bogen_har_ret',i_navn);
@@ -362,6 +372,12 @@ BEGIN
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   -- Samme rettelse igen: værdien er allerede forslagets.
   PERFORM pg_temp.pr_fejl('PAASTAND_VAERDI_UAENDRET',a_titel,pg_temp.pr_forventet(a_titel),'bogen_har_ret',i_titel);
+  -- Et forslag retter kun én påstand: i_titel kan ikke også bruges på a_anden.
+  PERFORM pg_temp.pr_fejl('PAASTAND_FORSLAG_UOVERENS',a_anden,pg_temp.pr_forventet(a_anden),'bogen_har_ret',i_titel);
+  IF (SELECT vaerdi_tekst FROM assertion WHERE id=a_anden)<>'Justitsråd'
+     OR EXISTS (SELECT 1 FROM paastand_korrektion WHERE assertion_id=a_anden) THEN
+    RAISE EXCEPTION 'PAASTAND_TEST_EN_PAASTAND_SKREV';
+  END IF;
 
   -- (j) bogen_har_ret på fødsel med accepteret forslag: date_raw fra forslaget, grænser og kvalifikator fra p_dato.
   v_dato:='{"date_min":"1702-03-01","date_max":"1702-03-31","date_qualifier":"about"}';
@@ -390,6 +406,12 @@ BEGIN
     RAISE EXCEPTION 'PAASTAND_TEST_LINJESKIFT: % %',to_jsonb(a),r;
   END IF;
   PERFORM pg_temp.pr_fejl('PAASTAND_VAERDI_UAENDRET',a_doed,pg_temp.pr_forventet(a_doed),'linjeskift-v1',i_doed);
+  -- linjeskift-v1 kræver, at den samlede værdi er forslagets: '12. marts\n1750' mod '12. marts 1751' afvises.
+  PERFORM pg_temp.pr_fejl('PAASTAND_FORSLAG_UOVERENS',a_doed2,pg_temp.pr_forventet(a_doed2),'linjeskift-v1',i_doed2);
+  IF (SELECT date_raw FROM assertion WHERE id=a_doed2)<>E'12. marts\n1750'
+     OR EXISTS (SELECT 1 FROM paastand_korrektion WHERE assertion_id=a_doed2) THEN
+    RAISE EXCEPTION 'PAASTAND_TEST_LINJESKIFT_SKREV';
+  END IF;
 
   -- (l) Fortrydelse af titelrettelsen: påstanden og cachen tilbage; journalen bevares, historikken viser fortrydelsen.
   PERFORM set_config('app.change_set_id','',true);
@@ -406,7 +428,14 @@ BEGIN
   SELECT * INTO h FROM public.red_paastand_historik(a_titel);
   RESET ROLE;
   IF h.fortrudt IS NOT TRUE THEN RAISE EXCEPTION 'PAASTAND_TEST_FORTRYD_HISTORIK'; END IF;
-  IF (SELECT count(*) FROM paastand_korrektion)<>3 THEN RAISE EXCEPTION 'PAASTAND_TEST_ANTAL'; END IF;
+  -- Efter fortrydelsen er i_titel fri igen og kan bruges på a_anden.
+  r:=pg_temp.pr_ret(a_anden,pg_temp.pr_forventet(a_anden),'bogen_har_ret',i_titel);
+  IF (SELECT vaerdi_tekst FROM assertion WHERE id=a_anden)<>'Overhofmarskal' THEN
+    RAISE EXCEPTION 'PAASTAND_TEST_GENBRUG_EFTER_FORTRYD: %',r;
+  END IF;
+  -- ... og nu har den rettet a_anden, så a_titel afviser den.
+  PERFORM pg_temp.pr_fejl('PAASTAND_FORSLAG_UOVERENS',a_titel,pg_temp.pr_forventet(a_titel),'bogen_har_ret',i_titel);
+  IF (SELECT count(*) FROM paastand_korrektion)<>4 THEN RAISE EXCEPTION 'PAASTAND_TEST_ANTAL'; END IF;
 END $rettelse$;
 ROLLBACK;
 SELECT 'paastand_rettelse OK' AS result;
