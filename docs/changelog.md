@@ -12,6 +12,7 @@ Prod-kørsel efter `docs/runbooks/trin6c1-prod.md`, repo `20fc2278` (PR #290, #2
   `eligible` poster skete lokalt 2026-11-01 (pilot: `docs/evidensbaseret-genimport/runner-1939-pilot.md`).
 - **Ceremoni A (GO 6c1-A `9c69fec2`):** dump før `daa-prod-20261101221444-6c1.dump` (sha `198712b4…`, ekstern
   `1eff634a…`); `T6C1_APPLY_A_OK tilstand=a`, 22,5 s, 2018-20 uændret.
+- **Rådgiver:** intet fund på blokkens objekter (kun den private writer); øvrige fund er de kendte fra før.
 - **Ceremoni B (GO 6c1-B `2a2ba22b`):** manifest 494 elementer = øvelsens; dump før
   `daa-prod-20261102060018-6c1.dump` (sha `fc15557a…`, ekstern `3f871040…`); eligibility-ledgeren genberegnet mod prod
   før og efter skrivningen, byte-ens med den bundne; `T6C1_APPLY_B_OK forslag=2774 poster=494 status=finalized
