@@ -23,7 +23,7 @@
 5. **Færdigbevis:** §7.
 6. **Erstatter:** at 1939's fakta kun er bundet til importen fra august (citation uden post), og at
    `red_ret_ocr_felt` er den eneste rettelsesvej (fire felter, selvvalgt mål, spærret for 1939 af ankernøglen,
-   `docs/decisions.md` linje ~2596).
+   `docs/decisions.md` linje ~2622).
 
 ## 2. Målt udgangspunkt (prod, læse-kun, kun antal, 2026-11-02)
 
@@ -108,8 +108,12 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
 2. `assertion_binding_current` bevares som enkeltopslag (andre læsere), og begge går gennem samme udtryk, så de ikke
    kan glide fra hinanden (memory »konkurrerende definition degraderer lydløst«).
 3. **Mål, *mit valg*:** fakta-kaldet som `anon` for de 10 tungeste personer (målt på promotion-rækker) er højst
-   **1,0 s** i prod, median af 5 kald, både før og efter 1939's bindinger (§4.6). Stand-in-tid er ikke bevis
-   (memory »stand-in-tid er ikke prod-tid«); før/efter måles i prod i ceremonien.
+   **1,0 s** i prod, median af 5 kald, både før og efter 1939's bindinger (§4.6). De 10 personer fastlægges før
+   vej B (flest promotion-rækker efter 1939's forventede bindinger) og er de samme ved alle målinger. Stand-in-tid
+   er ikke bevis (memory »stand-in-tid er ikke prod-tid«); før/efter måles i prod i ceremonien.
+   **Identisk resultat bevises på en prod-dump-stand-in** (ICU, memory »prod er ICU«) for alle personer, gammel mod
+   ny funktion; i prod sammenlignes en stikprøve (prods `statement_timeout` på 2 min forhindrer fuld sammenligning
+   med den gamle, langsomme vej).
 4. Vej B går i prod som egen ceremoni før enhver 1939-binding. Kan målet ikke nås, stopper 6c-2 før bindingerne.
 
 ### 4.2 Identitetsflytning (kort 122 og »forkert person«)
@@ -122,16 +126,25 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
    kilde 3-rækken (overordnet spec §6 pkt. 8), og en flytning til en 2018-20-række ville sammenligne 1939's værdier
    med 2018-20's fakta, som 6c-2 ikke må rette. Findes ingen kilde 3-række for den rigtige person, svares `P` alene
    (opret-benet).
-2. **Publiceringen skal følge med.** For identiteter med origin `publication_binding` skal C3-publiceringens person og
-   identiteten pege på samme person efter flytningen, eller uoverensstemmelsen skal være synlig og blokere promotion
-   af personaens forslag. Hvordan (ny publiceringsversion, eller en markering) er byggerens valg (§8); tavs
-   uoverensstemmelse er ikke tilladt.
+2. **Publiceringen følger med** — se §8 pkt. 3 (projektejerens). Læseren viser kun en binding, hvis narrativets
+   subjekt er faktaets person (`public_person_facts`, `schema.sql:20107-20111`); en identitet på 1054 med en
+   publicering på barnebarnet giver derfor aldrig »bundet til bogen«. Writeren **afviser** en flytning, hvis personaen
+   har gældende bindinger (`assertion_binding_current` bliver tavst ugyldig ved personskifte, `:19883-19888`); i 6c-2
+   har 1939's personas ingen bindinger før §5 trin 5, så det rammer kun opfølgningsrunden.
 3. **Kort 122 køres før kontrollen** (§5 trin 2), så dens forslag klassificeres mod den rigtige person. Målt
    2026-11-02 (prod, læse-kun): der findes præcis én kilde 3-række med navnet Ditlev og en kilde 3-citeret død med
    1690 (person 1054); én anden persona har allerede identitet på den. Projektejeren bekræfter målet med
-   person-id i afgørelsen for kort 122; to personas på samme person (oversigtspost + egen post) er tilladt.
-4. »Forkert person« på et kort fryser **alle** personaens forslag i den kontrolrunde: ingen af dem bindes eller
-   rettes. **Opfølgningsrunde, *mit valg*:** er der identiteter flyttet med `P <id>`, køres én lille kontrolrunde
+   person-id i afgørelsen for kort 122.
+   **To personas på samme person** (målt: i dag har alle 560 personer præcis én 1939-persona; det opstår kun ved en
+   flytning): læseren dropper postreferencen, når to gældende bindinger rammer samme påstand (`bn.n_bind=1`,
+   `:20088-20091`). Regel, *mit valg*: **højst én gældende binding pr. påstand pr. kilde**, håndhævet i
+   promotion-valideringen (`validate_interpretation_promotion_items`, `:10618`) og som eget klassifikationsudfald
+   (`ALREADY_BOUND_OTHER`), der bliver `proposed` og tælles. Den persona, der allerede har identitet på personen
+   (normalt personens egen post), binder; den flyttede gør ikke. Test i `test-person-facts.sql`.
+4. »Forkert person« på et kort fryser **alle** personaens forslag i den kontrolrunde: **ingen afgørelse** skrives for
+   dem (de bliver `proposed`; kun identiteten ændres), så de kan klassificeres igen — `red_decide_interpretation`
+   kræver `proposed` (`:9375`), og der findes ingen generel genåbning. Også personaens automatiske `MATCH` trækkes ud
+   af maskinsættet (§4.4 pkt. 7). **Opfølgningsrunde, *mit valg*:** er der identiteter flyttet med `P <id>`, køres én lille kontrolrunde
    mere i 6c-2 med kun de flyttede personas (samme værktøj, stikprøve kun hvis > 20 automatiske). `P` alene giver
    ingen opfølgning; personaen står `unresolved` og tælles.
 
@@ -142,24 +155,31 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
    `extraction_run_id` og observationslinks kopieret (som `red_decide_interpretation`). Den gamle version bevares.
 2. **Normaliseringen er en lukket liste, *mit valg*:** værdien får fjernet én indledende markør fra listen
    `f.`, `†` (præcis de to, målt) med efterfølgende mellemrum, og mellemrum (inkl. linjeskift) samles til ét og
-   trimmes. Intet andet ændres. Reglen versioneres (navn + version i `decision_evidence`) og anvendes kun på
-   `person.birth`/`person.death`.
+   trimmes. Intet andet ændres. Reglen versioneres (navn + version i `method`, ikke i `decision_evidence`, som
+   overførslens digests læser som »afgjort«) og anvendes kun på `person.birth`/`person.death`.
+   `red_decide_interpretation` kopierer `derivation_kind`/`model_version`/`prompt_version` (`:9394-9396`), så den
+   accepterede version arver `deterministic` og modellens versioner; det er korrekt (værdien er modellens, kun
+   formen er normaliseret) og står sådan i evidensen.
 3. Det, der er `SKRIVEMAADE` efter normaliseringen, rapporteres med antal; reglen udvides ikke for at få tallet ned.
 4. Årsagen opstrøms (prompten skriver markøren) noteres som punkt til næste promptversion; **ingen genkørsel** af
    modellen i 6c-2.
 
 ### 4.4 Kontrol og kort
 
-1. Klassifikationen kører uændret (`interpretation_control_classification.sql`) efter §4.2 pkt. 3 og §4.3, afgrænset
-   til kilde 3.
+1. Klassifikationen kører efter §4.2 pkt. 3 og §4.3. **Kildeafgrænsning:** klassifikationen, rækkeeksporten og
+   målfindingen filtrerer i dag kun på status; 2018-20's resterende `proposed` (`SKRIVEMAADE`/`NO_FACT`) ville ryge
+   med i planen og stoppe `verify-sql`. De tre får et kildescope (GUC, `daa.src`-mønstret fra `transfer_pack.py`),
+   ellers uændrede; 2018-20's rest måles som gate før `plan`. §2.2's tal er målt med et kildefilter på
+   `ic.source_id`.
 2. **Automatisk:** `MATCH` accepteres og bindes (kontrolmodellen B8, overordnet spec §6 pkt. 1).
 3. **Kort til projektejeren:** alle `REAL_DIFF`; dato-`SKRIVEMAADE`, der er tilbage efter §4.3 (forventet ~22),
    *mit valg* — de er få og ligner reelle forskelle; og navne-`SKRIVEMAADE` (6). Plus en **blind stikprøve på 20**
    blandt de automatiske `MATCH`, **stratificeret**, projektejeren 2026-11-02 (valg b): 10 trækkes blandt personas,
-   hvis identitet kom fra retning 2 uden generatorens bekræftelse (udfald `svag` eller `ingen_kandidat`, også fra
-   `excluded` poster), 10 blandt resten.
-   **Stikprøvens regel, *mit valg*:** på et stikprøvefelt er `B` og `D` i orden (bogen og databasen siger det samme
-   som forslaget); `V` og `P` er fejl. Én fejl stopper anvendelsen: ingen afgørelser, rettelser eller bindinger fra
+   hvis identitet kom fra retning 2 uden generatorens bekræftelse (identitetens `evidence->>'outcome'` ∈ `svag`,
+   `ingen_kandidat`; poster fra `excluded` har ingen forslag og indgår ikke), 10 blandt resten.
+   **Stikprøvens regel, *mit valg*:** på et stikprøvefelt betyder `B` »bogen bekræfter forslagets værdi« og er i
+   orden; `D`, `V` og `P` er fejl (på et `MATCH` er forslag og database ens, så `D` betyder, at bogen siger noget
+   tredje). Én fejl stopper anvendelsen: ingen afgørelser, rettelser eller bindinger fra
    denne kontrolrunde skrives; årsagen findes, og en ny kontrolrunde med ny stikprøve og nyt GO køres. Ingen
    udvidelse til kort på alle `MATCH`.
 4. **Højst 70 datoer med linjeskift i importen** (§2.2; øvre grænse, afgrænsningen nedenfor kan gøre tallet mindre), projektejeren 2026-11-02 (valg c): 1939's egen påstand får en
@@ -167,14 +187,24 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
    intet andet ændres. Afgrænsning: kun påstande, der er det eneste mål for et 1939-datoforslag, hvis version fra §4.3
    bliver lig påstanden efter rettelsen; kun påstande, som alene forslagets egen kilde citerer (for 1939 kilde 3;
    udgaveneutralt håndhævet, ikke `source_id=3` i koden); ingen eksisterende gyldig binding
-   må blive ugyldig. Originalen i `import_korrektion` og `change_event` (B12-formen) med reglens navn og version.
-   Ingen kort; listen (påstands-id'er) er en del af GO-pakken. Strukturerede datoværdier (`date_min`/`date_max`)
-   genberegnes ikke, da kun mellemrum ændres; det verificeres.
+   må blive ugyldig. Originalen journaliseres som §4.5 pkt. 1 (påstandsnøglet journal + `change_event`) med reglens
+   navn og version. Ingen kort; listen (påstands-id'er) er en del af GO-pakken. Strukturerede datoværdier
+   (`date_min`/`date_max`) røres ikke, da kun mellemrum ændres; at de var udfyldt og er uændrede, måles før og
+   efter. Gate før GO: ingen tilstandshash (familie-`state_sha256`, placement, publicering) må indeholde de rettede
+   påstandes `date_raw` — måles.
 5. **`NO_FACT`, `NO_IDENTITY`, `AMBIGUOUS`** og forslag uden aktiv regel bliver `proposed` og tælles.
 6. **Kortene grupperes pr. persona**, *mit valg* (følger af §3 pkt. 3): navn, titel, fødsel og død for samme persona
    står samlet, med posttekst, side og familie, som C's kortværktøj. Højst ~30 personas pr. ark.
-7. **Svar pr. felt:** `B` (bogen har ret), `D` (databasen har ret), `V` (ved ikke). **Svar pr. persona:** `P`
-   (forkert person) eller `P <person-id>`; det overtrumfer feltsvarene. Svarreglerne står i kortets hjælpetekst; HTML
+7. **Svar pr. felt:** `B` (bogen bekræfter forslagets værdi), `D` (databasen har ret), `V` (ved ikke). **Svar pr.
+   persona:** `P` (forkert person) eller `P <person-id>`; det overtrumfer feltsvarene. Kortet viser kun svarfelter
+   for `REAL_DIFF`, rest-`SKRIVEMAADE` og stikprøvens felter; personaens øvrige `MATCH`-felter vises som læse-kun
+   kontekst uden svar. **Mapping:** stikprøvefelt: `B` → accepted (maskinelt), andet → stop; `REAL_DIFF`/`SKRIVEMAADE`:
+   `B` → rettelse + accepted, `D` → rejected, `V` → unresolved; `P` → ingen afgørelse for nogen af personaens
+   forslag, og personaens `MATCH` tages ud af maskinsættet. **Kontrolværktøjet får en v2**: `control_model.py`'s plan
+   låser i dag maskinsættet før svarene, parseren kender kun `A|R|U`, og `machine_sql` kræver præcis stikprøven
+   accepteret. v2: ny SEED, stratificeret trækning, maskinsættet beregnes igen efter svarene (minus `P`-personas), ny
+   parser for B/D/V/P, `verify-sql`'s invariant bliver »MATCH = maskine ∪ stikprøve ∪ udtaget pga. `P`«. Regression:
+   2018-20's plan genskabes byte-ens med v1-parametre. Svarreglerne står i kortets hjælpetekst; HTML
    viser aldrig maskinens klasse eller stikprøvemarkering. Kendt svækkelse: med kort pr. persona kan en persona, hvor
    alle felter stemmer, genkendes som stikprøve; blindheden er svagere end i C's identitetskort og accepteres.
 8. **Kortværktøjet ind i repo'et** under `.claude/skills/daa-extract/scripts/` (i dag `~/.private/5ab-overfoersel/
@@ -190,13 +220,20 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
      skrive-transaktionen (afvis ved drift);
    - målet må kun være citeret af kilde 3 (alle 100 er det i dag, §2.2);
    - dækker faktatyperne med aktive assertion-regler: navn, titel, fødsel, død (`byname` med);
-   - transskriptionsrettelse (B12): påstanden beholder sit id; originalen gemmes i `import_korrektion` og
-     `change_event`;
+   - transskriptionsrettelse (B12): påstanden beholder sit id; originalen gemmes i `change_event` og i en
+     **påstandsnøglet journal**. `import_korrektion` kan ikke bruges uændret: den er `UNIQUE (import_key, record_key,
+     felt)` med `felt` ∈ navn/foedsel/doed/koen/post (`schema.sql:158-172`), og 1939 har ingen `record_key`-anker.
+     Skemaændringen (ny tabel eller nøgleudvidelse) er byggerens valg; `red_ocr_historik` skal kunne vise den;
    - ingen tavse tab: en eksisterende gyldig binding på målet, der ville blive ugyldig, afviser rettelsen.
 2. **Ny værdi = forslagets værdi** (efter §4.3), *mit valg*, så bindingen er gyldig fra starten. Er bogens værdi en
    tredje, svarer projektejeren `V` med en note; der skrives ingen fri værdi i 6c-2.
-3. For datoer genberegnes `date_min`/`date_max`/kvalifikator fra den nye `date_raw` med den eksisterende
-   dato-parser; ændringer i strukturerede værdier måles og rapporteres for sig.
+   **Ingen rettelse, der forkorter et navn:** forslagene følger navnereglen (titel og »til <gods>« ude), importen
+   gør ikke. Er forslagets navn indeholdt i databasens (målt: 15 navne), ville `B` fjerne titel eller gods fra 1939's
+   påstand — et tab, ikke en transskriptionsrettelse (memory »kortere/renere kan være tab«). Rettelsesvejen afviser
+   `B` dér; kortet tilbyder kun `D`/`V` og forklarer hvorfor.
+3. For datoer beregnes `date_min`/`date_max`/kvalifikator af ceremoniens Python (`validate.py:derive_date_bounds`,
+   den eksisterende parser; der findes ingen i databasen) og sendes til writeren, som `red_ret_ocr_felt` modtager
+   dem i dag (`:2117-2118`); ændringer i strukturerede værdier måles og rapporteres for sig.
 4. Rettelsen sker **før** bindingen i samme ceremoni (overordnet spec §6 pkt. 2).
 
 ### 4.6 Afgørelse og binding
@@ -204,16 +241,21 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
 1. Afgørelser via `red_decide_interpretation` (`:9340`): `MATCH` og `B` → `accepted`; `D` → `rejected` med grunden
    `database_har_ret` i evidensen (uenigheden noteret; som 2018-20's `R` i `interpretation_decision_sheet.py`, så
    trin 4's semantik bevares); `V` og `P` → `unresolved` med grund.
-2. Bindinger via `red_preview_interpretations_promotions` / `red_promote_interpretations_batch` (`:10855`, `:10866`),
+2. Bindinger via `red_preview_interpretation_promotions` / `red_promote_interpretations_batch` (`:10855`, `:10866`),
    mål fra `interpretation_promotion_targets_scoped.sql` med `daa.transfer_scope` sat til de accepterede nøgler.
-3. Overførselspakken (`transfer_pack.py`, docstring »for 2018-20«, parameteriseret med `daa.src`) bruges med kilde 3
-   eller generaliseres; den får ikke et 1939-navn.
+3. **Overførselspakken antager version 1** (`transfer_pack.py:115,305,351`, `transfer_pack_export.sql:9`,
+   `interpretation_decision_fingerprint.sql:10`, `interpretation_transfer_digests.sql:5,35,47`); §4.3's version 2
+   ville give `PACK_METHOD_UNKNOWN`. Planen afgør, om afgørelserne går stand-in → pakke → prod (som 2018-20) eller
+   skrives direkte i prod gennem ceremonien (som 6c-1's C). Bruges pakken, generaliseres den (nøgle + aktuel
+   `proposed`-version) med regression på 2018-20; den får ikke et 1939-navn.
 4. Efter bindingen: vej B's mål (§4.1 pkt. 3) genmåles i prod.
 
 ## 5. Rækkefølge og ceremonier
 
 Hver ceremoni med 5c-1-formen (B2): dump med ekstern kopi (B1), flag + GO-kode via projektejerens shell, måling før
-og efter. Rækkefølgen er bindende; byggeren kan samle trin i færre GO'er, hvis rækkefølgen bevares.
+og efter. Rækkefølgen er bindende; byggeren kan samle trin i færre GO'er, hvis rækkefølgen bevares. Et stop i trin 4
+(stikprøven) ruller ikke trin 2-3 tilbage: identitetsflytningen, datoversionerne og linjeskift-rettelserne står og
+genbruges af den nye kontrolrunde.
 
 1. **Vej B** (DDL) → mål i prod (§4.1).
 2. **DDL for 6c-2's writere** (version-writer, rettelsesvej inkl. linjeskift-rettelsen, publiceringens følge ved identitetsflytning) og
@@ -259,6 +301,32 @@ nye promotionsregler (steder, embeder, godser); genkørsel af modellen; A6b-rest
    (§4.4 pkt. 4).
 2. **Retning 2's ubekræftede identiteter:** (b), projektejeren 2026-11-02 — behandles som alle andre, men stikprøven
    stratificeres (§4.4 pkt. 3).
-3. **Overladt til byggeren:** rettelsesvejens form (§4.5 pkt. 1); publiceringens følge ved identitetsflytning (§4.2
-   pkt. 2); vej B's tekniske form; antal GO'er; om `transfer_pack.py` generaliseres eller kaldes med kilde 3; om
+3. **Publiceringens følge ved identitetsflytning (§4.2 pkt. 2) — ÅBEN, projektejerens:** (a) narrativpubliceringen
+   flyttes med: postens publicering trækkes tilbage på den gamle person og publiceres på den nye gennem den
+   eksisterende narrativvej (prosaen for oversigtspost B flytter fra barnebarnets side til Ditlevs); (b) kun
+   identiteten flyttes; publiceringen bliver, hvor den er, uoverensstemmelsen markeres synligt, og personaens
+   forslag bindes ikke (Ditlevs fakta bindes alligevel gennem hans egen post); (c) kort 122 og `P <id>` tages ud af
+   6c-2; flyttede personas sættes `unresolved` med grund og rettes i en egen opgave.
+4. **Overladt til byggeren:** rettelsesvejens form og journalens skema (§4.5 pkt. 1); vej B's tekniske form; antal GO'er; om `transfer_pack.py` generaliseres eller kaldes med kilde 3; om
    versionswriteren kun rører de forslag, normaliseringen ændrer.
+
+## 9. Fable-review 2026-11-02: NO-GO, 14 fund — afvejet
+
+Uafhængigt review (Fable-subagent, læse-kun, kode efterprøvet). Fund 1, 3, 5 og 7 efterprøvet i koden af mig.
+
+| # | Fund | Afvejning | Hvor |
+|---|---|---|---|
+| 1 | To personas på samme påstand → læseren dropper postreferencen | nødvendig; målt: opstår kun ved flytning | §4.2 pkt. 3 |
+| 2 | `P` → `unresolved` gør opfølgningsrunden umulig | nødvendig | §4.2 pkt. 4, §4.4 pkt. 7 |
+| 3 | Overførselspakken antager version 1 | nødvendig | §4.6 pkt. 3 |
+| 4 | Kontrol-SQL har intet kildefilter | nødvendig | §4.4 pkt. 1 |
+| 5 | B/D-semantik dobbelt; værktøjet kan ikke udtrykke den | nødvendig; kontrolværktøj v2 | §4.4 pkt. 3 og 7 |
+| 6 | Publiceringens følge er ikke et byggervalg | nødvendig; til projektejeren | §8 pkt. 3 |
+| 7 | `import_korrektion` passer ikke 1939 | nødvendig | §4.5 pkt. 1 |
+| 8 | Ingen dato-parser i DB; inkonsistens §4.4/§4.5 | nødvendig | §4.4 pkt. 4, §4.5 pkt. 3 |
+| 9 | `B` på del/helhed-navne er tab | nødvendig | §4.5 pkt. 2 |
+| 10 | Stratum »excluded« har ingen forslag | forenkling | §4.4 pkt. 3 |
+| 11 | Vej B's »identisk« kan ikke måles i prod; stop ruller ikke tilbage | nødvendig | §4.1 pkt. 3, §5 |
+| 12 | Regelnavn i `method`; arvede versioner | nødvendig | §4.3 pkt. 2 |
+| 13 | Tilstandshash kan rumme `date_raw` | gate-måling | §4.4 pkt. 4 |
+| 14 | Forkerte referencer | rettet | §1, §4.6 |
