@@ -543,8 +543,10 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   uændret. Aftrykket dækker `pg_get_functiondef` **og** `proacl`; i prod ejer `postgres` funktionerne, på stand-in'en
   den lokale rolle, så tallene kan ikke sammenlignes med øvelsens (`1aaaf0d7…`/`597eab91…`). Læse-kun kontrol
   (`28-r2-aftryk.sh`): definitionerne alene `d098d380039e7895` = øvelsens, 6 funktioner, `acl=postgres=X/postgres`
-  (ingen `anon`/`authenticated`). `fortryd-ddl`'s mål i prod er `cf4bef04…`. Security Advisor: afventer
-  projektejerens bekræftelse.
+  (ingen `anon`/`authenticated`). `fortryd-ddl`'s mål i prod er `cf4bef04…`. Security Advisor (projektejeren, efter DDL og C): intet fund
+  nævner retning 2's seks private funktioner; fundene er de kendte fra §19 (11 `anon_security_definer_function_executable`
+  på læserfunktionerne, `authenticated_…` på `public.red_*`/`current_rolle`/`hist_*`, `rls_enabled_no_policy` på
+  eksisterende tabeller, `auth_leaked_password_protection`); ingen `function_search_path_mutable`.
 - **Control (GO 6c1-C-control `0e4e5cc4`):** kandidatkørsel `8d2ab8a4`, `input_sha256=7f783822…` (21,7 s),
   `candidates_sha256=a2e80259…`, 2.032 kandidatrækker, `control_sha256=871b21f8…`. Udfald som øvelsen: `enig` 31,
   `svag` 273 (191/64/18), `ingen_kandidat` 153, `uenig` 8 + `egen_ikke_kandidat` 45, `navnefaelle` 51; **124 kort**
