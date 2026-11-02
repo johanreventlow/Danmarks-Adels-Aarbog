@@ -127,7 +127,10 @@ af en publicering på målet. Codex-runden (B13, §10 fund 1) fandt det; §8 pkt
 
 1. **`P` og `P <person-id>`** (og kort 122) sætter personaens identitet til `unresolved` gennem den eksisterende
    `red_decide_source_persona_identity` (origin `human`, `evidence.basis='human_sheet'`), med det ønskede mål
-   (`ønsket_person_id`, hvis angivet) og grunden i evidensen. Ingen ny RPC.
+   (`ønsket_person_id`, hvis angivet) og grunden i noten i fast form `ønsket_person_id=<id>; grund=<tekst>`
+   (uden id: `grund=<tekst>`). Konteksten tillader ikke en `ønsket_person_id`-nøgle (målt i Task 5:
+   `EVIDENCE_IDENTITY_DECISION_INVALID`); den bærer kortarkets kvittering
+   `{"basis":"human_sheet","sheet_sha256","rows_sha256","line"}`. Ingen ny RPC og ingen DDL.
 2. **Narrativet bliver stående**, som 6c-1's F (decisions 2026-11-02): ingen tilbagetrækning. Flytningen af identitet
    og narrativ til målet sker i 6d, når 1939's placements findes; listen over personas med `ønsket_person_id` er en
    del af 6c-2's overlevering til 6d.

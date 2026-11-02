@@ -49,7 +49,9 @@ GitHub Actions.
   - RPC `public.red_ret_paastand(p_assertion_id bigint, p_forventet jsonb, p_grund text, p_interpretation_id uuid,
     p_dato jsonb DEFAULT NULL) RETURNS jsonb` og `public.red_paastand_historik(p_assertion_id bigint)`;
   - »forkert person« bruger den eksisterende `red_afgoer_source_persona(p_source_persona_id, p_expected_version,
-    'unresolved', NULL, p_note, p_context)` med `ønsket_person_id` og grund i konteksten; ingen ny RPC (spec §4.2);
+    'unresolved', NULL, p_note, p_context)` med `ønsket_person_id=<id>; grund=<tekst>` i `p_note` og kortkvitteringen
+    `{"basis":"human_sheet","sheet_sha256","rows_sha256","line"}` i `p_context` (konteksten afviser en
+    `ønsket_person_id`-nøgle, målt i Task 5); ingen ny RPC (spec §4.2);
   - nyt udfald i `validate_interpretation_promotion_items` og i klassifikationen: `ALREADY_BOUND_OTHER`; nyt udfald i
     klassifikationen: `TARGET_SHARED`;
   - kontrolværktøj `control_model_v2.py` (SEED `kontrolmodel-v2`, metode `human-sheet-kontrol-v2`, maskinmetode
