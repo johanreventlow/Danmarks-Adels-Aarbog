@@ -116,8 +116,9 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
 
 1. **Én vej** for begge: en kortafgørelse `P <person-id>` flytter personaens identitet til den angivne person;
    `P` alene sætter den `unresolved` (ingen person). Begge går gennem `decide_source_persona_identity` som nye
-   versioner med `expected_version`; event-loggen bevarer den gamle identitet. **Målet skal være en kilde 3-række**
-   (en person med påstande citeret af kilde 3), håndhævet i writeren, *mit valg*: 1939's personas peger på
+   versioner med `expected_version`; event-loggen bevarer den gamle identitet. **Målet skal være en række med
+   personaens egen kilde** (en person med påstande citeret af `source_persona.source_id`; for 1939 kilde 3),
+   håndhævet udgaveneutralt i writeren, *mit valg*: 1939's personas peger på
    kilde 3-rækken (overordnet spec §6 pkt. 8), og en flytning til en 2018-20-række ville sammenligne 1939's værdier
    med 2018-20's fakta, som 6c-2 ikke må rette. Findes ingen kilde 3-række for den rigtige person, svares `P` alene
    (opret-benet).
@@ -164,7 +165,8 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
 4. **De 70 datoer med linjeskift i importen** (§2.2), projektejeren 2026-11-02 (valg c): 1939's egen påstand får en
    deterministisk transskriptionsrettelse — mellemrum (inkl. linjeskift) i `date_raw` samles til ét og trimmes;
    intet andet ændres. Afgrænsning: kun påstande, der er det eneste mål for et 1939-datoforslag, hvis version fra §4.3
-   bliver lig påstanden efter rettelsen; kun påstande, som alene kilde 3 citerer; ingen eksisterende gyldig binding
+   bliver lig påstanden efter rettelsen; kun påstande, som alene forslagets egen kilde citerer (for 1939 kilde 3;
+   udgaveneutralt håndhævet, ikke `source_id=3` i koden); ingen eksisterende gyldig binding
    må blive ugyldig. Originalen i `import_korrektion` og `change_event` (B12-formen) med reglens navn og version.
    Ingen kort; listen (påstands-id'er) er en del af GO-pakken. Strukturerede datoværdier (`date_min`/`date_max`)
    genberegnes ikke, da kun mellemrum ændres; det verificeres.
@@ -173,7 +175,8 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
    står samlet, med posttekst, side og familie, som C's kortværktøj. Højst ~30 personas pr. ark.
 7. **Svar pr. felt:** `B` (bogen har ret), `D` (databasen har ret), `V` (ved ikke). **Svar pr. persona:** `P`
    (forkert person) eller `P <person-id>`; det overtrumfer feltsvarene. Svarreglerne står i kortets hjælpetekst; HTML
-   viser aldrig maskinens klasse eller stikprøvemarkering (blind stikprøve bevares).
+   viser aldrig maskinens klasse eller stikprøvemarkering. Kendt svækkelse: med kort pr. persona kan en persona, hvor
+   alle felter stemmer, genkendes som stikprøve; blindheden er svagere end i C's identitetskort og accepteres.
 8. **Kortværktøjet ind i repo'et** under `.claude/skills/daa-extract/scripts/` (i dag `~/.private/5ab-overfoersel/
    28-c-kort.sh` + `c-kort/`), generaliseret fra identitetskort til persona-kort med faktafelter. Round-trip-test
    (svarfil → tokenark → hash) med **syntetiske** fixtures; rigtige ark bliver i `~/.private`.
@@ -199,7 +202,8 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
 ### 4.6 Afgørelse og binding
 
 1. Afgørelser via `red_decide_interpretation` (`:9340`): `MATCH` og `B` → `accepted`; `D` → `rejected` med grunden
-   `database_har_ret` i evidensen (uenigheden noteret); `V` og `P` → `unresolved` med grund.
+   `database_har_ret` i evidensen (uenigheden noteret; som 2018-20's `R` i `interpretation_decision_sheet.py`, så
+   trin 4's semantik bevares); `V` og `P` → `unresolved` med grund.
 2. Bindinger via `red_preview_interpretations_promotions` / `red_promote_interpretations_batch` (`:10855`, `:10866`),
    mål fra `interpretation_promotion_targets_scoped.sql` med `daa.transfer_scope` sat til de accepterede nøgler.
 3. Overførselspakken (`transfer_pack.py`, docstring »for 2018-20«, parameteriseret med `daa.src`) bruges med kilde 3
