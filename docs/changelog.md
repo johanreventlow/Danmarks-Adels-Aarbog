@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-11-02 — Trin 6c-1 i prod: forslagswriteren følger helpost-reglen (DDL) og 1939's 2.774 forslag (data)
+
+Prod-kørsel efter `docs/runbooks/trin6c1-prod.md`, repo `20fc2278` (PR #290, #291), kørt af projektejeren med
+`~/.private/5ab-overfoersel/27-trin6c1.sh`. To ceremonier; detaljer i `database-current-state.md` §19. 6b's ceremoni C
+(identiteterne) venter på retning 2.
+
+- **Kode:** PR #290 (DB: forslagswriteren vælger helposten med helpost-reglen og profilens helpost-slags; profil
+  `daa-1939-interpretation-proposal-v1`), #291 (scripts: runnerens hygiejne, prompt 1.1.0 og profil `daa-1939-v2`,
+  eligibility-politikken `exclusion-1939-v1`, runner-inputtets eksport for 1939, målingen). Modelkørslen af de 500
+  `eligible` poster skete lokalt 2026-11-01 (pilot: `docs/evidensbaseret-genimport/runner-1939-pilot.md`).
+- **Ceremoni A (GO 6c1-A `9c69fec2`):** dump før `daa-prod-20261101221444-6c1.dump` (sha `198712b4…`, ekstern
+  `1eff634a…`); `T6C1_APPLY_A_OK tilstand=a`, 22,5 s, 2018-20 uændret.
+- **Rådgiver:** intet fund på blokkens objekter (kun den private writer); øvrige fund er de kendte fra før.
+- **Ceremoni B (GO 6c1-B `2a2ba22b`):** manifest 494 elementer = øvelsens; dump før
+  `daa-prod-20261102060018-6c1.dump` (sha `fc15557a…`, ekstern `3f871040…`); eligibility-ledgeren genberegnet mod prod
+  før og efter skrivningen, byte-ens med den bundne; `T6C1_APPLY_B_OK forslag=2774 poster=494 status=finalized
+  tilstand=b`, 254,2 s (525,9 s inkl. dry-run); kanonisk lag uændret; forslagsdigest `8eadf701…` = øvelsens; replay
+  `already_applied`; `T6C1_MAAL_OK tilstand=b`, `k1` uændret.
+- **Ydelse:** mange små writer-kald ca. 25× stand-in'en, store enkeltforespørgsler ca. 3× (som 6b-B).
+
 ## 2026-11-01 — Trin 6b i prod: publication-operationer (DDL) og 1939's 555 personas (data)
 
 Prod-kørsel efter `docs/runbooks/trin6b-prod.md`, repo `dcae5b34` (PR #285-#288), kørt af projektejeren med

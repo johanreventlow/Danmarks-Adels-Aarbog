@@ -529,6 +529,55 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 19. Trin 6c-1 ceremoni A og B: forslagswriteren følger helpost-reglen og 1939's forslag — LIVE i prod (2026-11-02)
+
+**Procedure:** `docs/runbooks/trin6c1-prod.md`, private scripts `~/.private/5ab-overfoersel/27-trin6c1.sh`,
+`27-trin6c1-b.R` og `27-trin6c1-vindue.sql`. Repo `20fc2278` (`main` med PR #290 og #291). To ceremonier med hver sin
+GO, kørt af projektejeren. 6b's ceremoni C (identiteterne) er ikke kørt; den venter på projektejerens retning 2
+(2026-11-01: C3's binding bliver identiteten; kun konflikter og en stikprøve på kort), som endnu ikke er bygget.
+
+- **Før:** `T6C1_MAAL tilstand=foer forslag_k3=0 poster_k3=0 identiteter_k3=8 afventer=555`, 2018-20's forslagsdigest
+  (`k1`) `a9e32b70…`, 2,2 s; `T6C1_DEFACL` 0/0/0.
+- **Ceremoni A (DDL, GO 6c1-A `9c69fec2`):** blokken fra `-- ===== trin 6c-1: forslagswriteren følger
+  helpost-reglen =====` til slutningen af `db-migrations.sql` (sha `20615bb6…`) og `db-rls.sql` (`f517b2e5…`) i én
+  transaktion, derefter PostgREST genindlæst. `private.write_interpretation_proposal` erstattet (helposten vælges med
+  helpost-reglen og profilens helpost-slags); data: kun profilrækken `daa-1939-interpretation-proposal-v1` (kilde 3,
+  sha `c6131dcc…`). Dump før: `daa-prod-20261101221444-6c1.dump` (sha `198712b4…`, ekstern `age`-kopi `1eff634a…`,
+  rundtur ok; 103,8 s). Kvittering: `T6C1_APPLY_A_OK tilstand=a tal=0,0,8,555`, `k1` uændret, 22,5 s.
+- **Rådgiver (skridt 5):** Security Advisor i dashboardet efter A (intet før-billede; fundene holdt op mod blokkens
+  objekter, som ved 6a og 6b). Blokken indeholder kun `private.write_interpretation_proposal` (privat skema, REVOKE'et
+  fra alle) og profilrækken; intet fund nævner dem. Fundene er de kendte: 11 `anon_security_definer_function_executable`
+  på læserfunktionerne (`entitet_offentlig`, `person_offentlig`, `public_person_facts` m.fl.), de forventede
+  `authenticated_security_definer_function_executable` på `public.red_*` og `current_rolle`/`hist_*`,
+  `rls_enabled_no_policy` på eksisterende tabeller (ingen ny tabel) og `auth_leaked_password_protection`. Ingen
+  `function_search_path_mutable`.
+- **Ceremoni B (data, GO 6c1-B `2a2ba22b`):** `manifest-b` gav øvelsens tal: 494 elementer, 2.774 forslag (2.127
+  `principal`, 647 `other`), 2.799 citater på 682 klausuler, ledger `cbed2e7f…`, klausulsæt `e8faa166…`, forslag
+  `64c6f6a1…`, indhold `9208596e…`, runner-manifest `6dc5be16…`; alle 25 prædikattal som runbookens. Fortrydelsens
+  dump i tilstand `a`: `daa-prod-20261102060018-6c1.dump` (sha `fc15557a…`, ekstern `3f871040…`, rundtur ok; 94,8 s);
+  mål `vindue=186bf8c5…`, 132 linjer, `restore_hash=77b1c196…`, `katalog=fccfbd55…`, 0 forældreløse (28,3 s).
+  `apply-b`: ledgeren genberegnet mod prod før dry-run og efter commit, begge byte-ens med den bundne
+  (`records=592 eligible=500 excluded=92`); klausulsættet genberegnet i dry-run, apply og replay (`e8faa166…`);
+  `T6C1_B_DRYRUN status=finalized`, `T6C1_B_COMMITTED`, `T6C1_B_KANONISK fact=7193->7193 assertion=9306->9306
+  uaendret=TRUE`, `T6C1_B_KONTROL koersler=1 forslag=2774 principal=2127 other=647 proposed_v1=2774 citater=2799
+  klausuler=682 poster=494`, dispositioner `afventer_identitet=433 fortolkning_foreslaaet=249`,
+  `T6C1_B_FORVENTNING som_skrevet=TRUE`, replay `already_applied`, forslagsdigest for kilde 3 n=2.774 `8eadf701…`
+  (= øvelsens); `T6C1_APPLY_B_OK tilstand=b tal=2774,494,8,555`.
+  Efter: `T6C1_MAAL_OK tilstand=b forslag_k3=2774 poster_k3=494 identiteter_k3=8 afventer=555`, `k1` uændret,
+  `T6C1_DEFACL` 0/0/0.
+- **Læser og redaktør:** forslagene er private (`proposed`) og vises ingen steder, før de afgøres (6c-2). Kanoniske
+  data er uændrede.
+- **Ydelse (prod mod slutøvelsens stand-in `…_6c1r`):** mange små writer-kald ca. 25× (dry-run 257,7 s mod 10,1 s;
+  apply + finalize 254,2 s mod 9,9-10,2 s; det langsomste writer-kald 1,4 s mod 0,058 s); store enkeltforespørgsler
+  ca. 3× (ledgerens genberegning 8,9 og 6,6 s for hele processen mod 2,8-3,1 s; autorisationen 2,2 s mod 0,69 s;
+  klausulsættet 1,6 s mod 0,69 s); `ANALYZE` af 7 tabeller i alt 3,0 s (maks. 0,87 s); digestet 1,1 s efter
+  `ANALYZE`. `apply-b` i alt ca. 9 min. Ingen enkelt sætning nærmede sig `statement_timeout` på 2 min. 6b-B's
+  faktorer (27× og 3×) holder.
+- **Skrivepausen** sluttede, da projektejeren godkendte B.
+- **Fortryd:** B kun ved `fortryd-b` (restore af dumpet i tilstand `a`), kun så længe intet andet er skrevet i
+  public/private siden dumpet (`T6C1_VINDUE_BRUDT`) og 6b's ceremoni C ikke har skrevet (`T6C1_FORTRYD_C`). 6b-B's
+  restore-fortrydelse er lukket nu, hvor B har skrevet. A kan efter B ikke fortrydes alene.
+
 ## 18. Trin 6b ceremoni A og B: publication-operationer og 1939's personas — LIVE i prod (2026-11-01)
 
 **Procedure:** `docs/runbooks/trin6b-prod.md`, private scripts `~/.private/5ab-overfoersel/26-trin6b.sh`,
