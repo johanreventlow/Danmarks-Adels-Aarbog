@@ -1,7 +1,7 @@
 # Trin 6c-2: 1939-fakta bundet til bogen — design
 
-**Status:** UDKAST 2026-11-02, til projektejerens godkendelse; builder-tjek og Fable-review (§9) indarbejdet, §8 pkt.
-1-3 afgjort. Skrevet efter en afklaringsrunde med projektejeren
+**Status:** GODKENDT af projektejeren 2026-11-02; builder-tjek og Fable-review (§9) indarbejdet, §8 pkt. 1-3
+afgjort. Næste: plan, derefter B13's Codex-runde på spec+plan. Skrevet efter en afklaringsrunde med projektejeren
 (§3); valg, der ikke er projektejerens, er markeret *mit valg*.
 **Gren:** `docs/trin6c2-spec` fra `main` (`ded0404a`).
 **Overordnet spec:** `docs/superpowers/specs/2026-10-29-trin6-1939-gennem-kaeden-design.md` (§3, §5 6c, §6 pkt. 1, 2,
