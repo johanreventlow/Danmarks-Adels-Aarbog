@@ -32489,6 +32489,19 @@ BEGIN
   -- kanoniske writers tager ingen af de private låse, så der findes ingen
   -- modsat cyklus i den relevante writerflade. Ukendte UUID'er bevares som
   -- fail-closed output.
+  -- Trin 6c-2b: mål-assertionen låses FOR NO KEY UPDATE (ikke FOR SHARE). To batches med hver sin nøgle mod samme
+  -- assertion skal serialiseres, ellers kan begge passere ALREADY_BOUND_OTHER og skrive hver sin binding; den anden
+  -- venter her, og RETURN QUERY nedenfor ser under READ COMMITTED (nyt snapshot pr. sætning) den førstes promotion.
+  -- I dag maskeres kapløbet af rule_line-låsen (FOR UPDATE), fordi hver faktatype har netop ét prædikat; det er
+  -- latent, så snart to prædikater deler expected_fact_type. NO KEY UPDATE blokerer ikke FK-indsættelser (KEY SHARE).
+  -- Kendt følge: tekstrevisions-writeren (write_source_text_revision) låser assertion FOR SHARE og derefter persona,
+  -- identitet og rivalnøgler; mod validatorens omvendte orden kan det i et teoretisk tilfælde give deadlock. Postgres
+  -- afbryder da den ene side med 40P01; intet skrives halvt.
+  -- Isolationsniveau: låsen lukker kapløbet under READ COMMITTED (redaktør-/PostgREST-vejen). Under REPEATABLE READ
+  -- (overførselspakkens trin 08, transfer_pack.py bind_sql, én skriver i en ceremoni) læser RETURN QUERY transaktionens
+  -- gamle snapshot og kan overse en samtidig batchs binding. Det hul dækkes af læserens n_bind=1-værn
+  -- (public_person_facts viser ingen binding ved flere) og af ceremoniens efterkontrol: ingen assertion må have mere
+  -- end én gældende binding. Under SERIALIZABLE afbryder Postgres i stedet den ene med 40001.
   IF p_lock THEN
     PERFORM 1
       FROM private.interpretation interpretation
@@ -32562,7 +32575,7 @@ BEGIN
        SELECT (element.item->>'target_id')::bigint
          FROM jsonb_array_elements(p_items) AS element(item)
      ))
-     ORDER BY assertion.id FOR SHARE;
+     ORDER BY assertion.id FOR NO KEY UPDATE;
     PERFORM 1
       FROM public.fact fact
      WHERE fact.id=ANY(ARRAY(
@@ -32624,6 +32637,8 @@ BEGIN
                 AND other_interpretation.interpretation_key<>requested.interpretation_key
                 AND private.assertion_binding_current(other_promotion.id)
            ) OR EXISTS (
+             -- Rivalen behøver ikke selv være gyldig: ethvert kendt element med en anden nøgle mod samme assertion
+             -- spærrer. Batchen er atomisk, så det påvirker kun previewets diagnose, ikke hvad der skrives.
              SELECT 1 FROM parsed other_item
                JOIN private.interpretation other_requested ON other_requested.id=other_item.interpretation_id
               WHERE other_item.target_type=parsed.target_type

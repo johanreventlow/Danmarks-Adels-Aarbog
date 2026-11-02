@@ -406,7 +406,8 @@ DECLARE
   s1 jsonb; s3 jsonb; p1 jsonb; p3a jsonb; p3b jsonb; r1 uuid; r3 uuid;
   a_a bigint; a_b bigint; a_c bigint; a_d bigint; a_e bigint; a_f bigint; a_g bigint; a_h bigint; a_x bigint;
   i_a1 uuid; i_a2 uuid; i_b1 uuid; i_b2 uuid; i_c1 uuid; i_c2 uuid; i_d1 uuid; i_d3 uuid; i_e1 uuid; i_e3 uuid;
-  i_f1 uuid; i_f2 uuid; i_g uuid; i_h_old uuid; i_h uuid; i_x uuid; v_v2 uuid;
+  i_f1 uuid; i_f2 uuid; i_g uuid; i_h_old uuid; i_h uuid; i_x uuid; v_v2 uuid; a_k bigint; i_k uuid; i_k_cur uuid;
+  v_version integer;
   v_err text; v_reasons text[]; n_batch bigint;
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
@@ -423,7 +424,7 @@ BEGIN
   a_c:=pg_temp.ebo_paastand(v_p,'1850'); a_d:=pg_temp.ebo_paastand(v_p,'1850');
   a_e:=pg_temp.ebo_paastand(v_p,'1850'); a_f:=pg_temp.ebo_paastand(v_p,'1850');
   a_g:=pg_temp.ebo_paastand(v_p,'1850'); a_h:=pg_temp.ebo_paastand(v_p,'1850');
-  a_x:=pg_temp.ebo_paastand(v_p,'1850');
+  a_x:=pg_temp.ebo_paastand(v_p,'1850'); a_k:=pg_temp.ebo_paastand(v_p,'1850');
   i_a1:=pg_temp.ebo_forslag(-4403,p3a,r3,'1850',v_actor); i_a2:=pg_temp.ebo_forslag(-4403,p3b,r3,'1850',v_actor);
   i_b1:=pg_temp.ebo_forslag(-4403,p3a,r3,'1850',v_actor); i_b2:=pg_temp.ebo_forslag(-4403,p3b,r3,'1850',v_actor);
   i_c1:=pg_temp.ebo_forslag(-4403,p3a,r3,'1850',v_actor); i_c2:=pg_temp.ebo_forslag(-4403,p3a,r3,'1850',v_actor);
@@ -432,6 +433,7 @@ BEGIN
   i_f1:=pg_temp.ebo_forslag(-4401,p1,r1,'1850',v_actor); i_f2:=pg_temp.ebo_forslag(-4403,p3a,r3,'1850',v_actor);
   i_g:=pg_temp.ebo_forslag(-4403,p3a,r3,'1850',v_actor);
   i_x:=pg_temp.ebo_forslag(-4403,p3b,r3,'1850',v_actor);
+  i_k:=pg_temp.ebo_forslag(-4403,p3a,r3,'1850',v_actor);
   -- i_h: den gældende version; i_h_old: den overhalede version 1 af samme nøgle.
   i_h:=pg_temp.ebo_forslag(-4403,p3a,r3,'1850',v_actor);
   SELECT supersedes_id INTO i_h_old FROM private.interpretation WHERE id=i_h;
@@ -527,9 +529,42 @@ BEGIN
     RAISE EXCEPTION 'EBO_TEST_FAILED: (7) to påstande i én batch';
   END IF;
 
+  -- (8) En ny accepteret version af en allerede bundet nøgle mod samme påstand er ikke »anden«. Bindingen på den gamle
+  -- version er ikke længere gældende (assertion_binding_current kræver den aktuelle version), og ALREADY_PROMOTED
+  -- gælder kun samme fortolkningsversion; den nye version er derfor gyldig (reason NULL) og kan binde på ny.
+  IF pg_temp.ebo_promote(pg_temp.ebo_items(jsonb_build_array(jsonb_build_array(i_k,a_k)))) IS NOT NULL THEN
+    RAISE EXCEPTION 'EBO_TEST_FAILED: første binding (8)';
+  END IF;
+  v_v2:=gen_random_uuid();
+  INSERT INTO private.interpretation(id,interpretation_key,version,supersedes_id,source_id,source_persona_id,
+    interpretation_kind,predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id)
+  SELECT v_v2,ic.interpretation_key,ic.version+1,ic.id,ic.source_id,ic.source_persona_id,ic.interpretation_kind,
+         ic.predicate,ic.value,ic.schema_version,ic.derivation_kind,ic.confidence,'proposed',ic.method,ic.extraction_run_id
+    FROM private.interpretation_current ic
+   WHERE ic.interpretation_key=(SELECT interpretation_key FROM private.interpretation WHERE id=i_k)
+  RETURNING version INTO v_version;
+  INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
+    VALUES (v_v2,(p3a->'clauses'->>0)::uuid,'supporting',1);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM set_config('app.change_set_id','',true);
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_decide_interpretation(v_v2,v_version,'accepted','{"basis":"ny version af samme noegle"}');
+  RESET ROLE;
+  PERFORM set_config('app.change_set_id','',true);
+  SELECT ic.id INTO i_k_cur FROM private.interpretation_current ic
+   WHERE ic.interpretation_key=(SELECT interpretation_key FROM private.interpretation WHERE id=i_k) AND ic.status='accepted';
+  IF i_k_cur IS NULL OR i_k_cur=i_k THEN RAISE EXCEPTION 'EBO_TEST_FIXTURE: ingen ny accepteret version (8)'; END IF;
+  v_reasons:=pg_temp.ebo_reasons(pg_temp.ebo_items(jsonb_build_array(jsonb_build_array(i_k_cur,a_k))));
+  IF v_reasons IS DISTINCT FROM ARRAY[NULL::text] THEN
+    RAISE EXCEPTION 'EBO_TEST_FAILED: (8) ny version af samme nøgle %',v_reasons;
+  END IF;
+  IF pg_temp.ebo_promote(pg_temp.ebo_items(jsonb_build_array(jsonb_build_array(i_k_cur,a_k)))) IS NOT NULL THEN
+    RAISE EXCEPTION 'EBO_TEST_FAILED: (8) genbinding af ny version';
+  END IF;
+
   -- Højst én gældende binding pr. påstand i hele fixturen.
   IF EXISTS (SELECT 1 FROM private.interpretation_promotion p
-              WHERE p.target_type='assertion' AND p.target_id IN (a_a,a_b,a_c,a_d,a_e,a_f,a_g,a_h,a_x)
+              WHERE p.target_type='assertion' AND p.target_id IN (a_a,a_b,a_c,a_d,a_e,a_f,a_g,a_h,a_x,a_k)
                 AND private.assertion_binding_current(p.id)
               GROUP BY p.target_id HAVING count(*)>1) THEN
     RAISE EXCEPTION 'EBO_TEST_FAILED: en påstand har flere gældende bindinger';
