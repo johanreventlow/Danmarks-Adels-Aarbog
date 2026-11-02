@@ -390,6 +390,11 @@ BEGIN
               WHERE NOT e ?& ARRAY['identity_outcome','persona_id','identity_version','navn_forkortes']) THEN
     RAISE EXCEPTION 'FEJL: nye felter mangler';
   END IF;
+  -- Task 7: rettelse_maal findes på alle rækker; fixturens påstande har ingen citation, så intet mål er entydigt
+  -- (positive tilfælde: tests/sql/test-control-model-v2.sh).
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(r) e WHERE NOT e ? 'rettelse_maal' OR e->'rettelse_maal' <> 'null'::jsonb) THEN
+    RAISE EXCEPTION 'FEJL: rettelse_maal uden citation';
+  END IF;
   SELECT e INTO x FROM jsonb_array_elements(r) e WHERE e->>'interpretation_id'='a4650000-0000-4000-8000-000000000301';
   IF x->>'identity_outcome' IS DISTINCT FROM 'svag' OR x->>'persona_id' IS DISTINCT FROM 'a4650000-0000-4000-8000-0000000001a1'
      OR (x->>'identity_version')::int IS DISTINCT FROM 1 OR x->'navn_forkortes' IS DISTINCT FROM 'false'::jsonb THEN
@@ -423,7 +428,7 @@ DECLARE r jsonb := current_setting('t6.rows')::jsonb;
 BEGIN
   IF jsonb_array_length(r) <> 10
      OR EXISTS (SELECT 1 FROM jsonb_array_elements(r) e
-                 WHERE e ?| ARRAY['identity_outcome','persona_id','identity_version','navn_forkortes']) THEN
+                 WHERE e ?| ARRAY['identity_outcome','persona_id','identity_version','navn_forkortes','rettelse_maal']) THEN
     RAISE EXCEPTION 'FEJL: rækker uden kildescope %',jsonb_array_length(r);
   END IF;
   IF encode(sha256(convert_to(current_setting('t6.rows'),'UTF8')),'hex') <> 'a2b8a1d903665bdb8e7d85fdc001b33f945be758f66b6aeed90589fbb1837de4' THEN
