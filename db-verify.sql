@@ -3027,6 +3027,7 @@ DECLARE
     'public.red_opret_person(text,text,boolean,text,text,text)'::regprocedure,
     'public.red_opret_story(text,bigint,text,text,bigint,bigint,bigint,bigint,date,date,text,text,boolean)'::regprocedure,
     'public.red_opret_union(bigint,bigint,text,integer)'::regprocedure,
+    'public.red_paastand_historik(bigint)'::regprocedure,
     'public.red_person_grid()'::regprocedure,
     'public.red_person_narrative_publication_history(bigint)'::regprocedure,
     'public.red_person_narrative_records(bigint)'::regprocedure,
@@ -3050,6 +3051,7 @@ DECLARE
     'public.red_reimport_batch_result(uuid,uuid)'::regprocedure,
     'public.red_relation(text,bigint,text,bigint,text,text)'::regprocedure,
     'public.red_ret_ocr_felt(bigint,text,text,text,text,jsonb,text,text)'::regprocedure,
+    'public.red_ret_paastand(bigint,jsonb,text,uuid,jsonb)'::regprocedure,
     'public.red_revalider_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
     'public.red_reverse_1939_v50_reimport(uuid,uuid)'::regprocedure,
     'public.red_reverse_reimport(uuid,uuid)'::regprocedure,
@@ -10567,3 +10569,42 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: trin 6c-1 retning 2 — publication_control_auto privat, publication_control_enig fjernet';
 END $verify_6c1_retning2$;
+
+-- ===== Trin 6c-2b: påstandsnøglet rettelse (spec 2026-11-02 §4.5) =====
+-- Journalen findes med RLS og uden klientadgang; de delte regler er private; RPC'erne er SECURITY DEFINER med
+-- search_path og kun for authenticated (rollegaten er inde i dem).
+DO $verify_6c2b_paastand$
+DECLARE v_role text; v_priv text; f text;
+BEGIN
+  IF to_regclass('public.paastand_korrektion') IS NULL
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='public.paastand_korrektion'::regclass) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6c-2b paastand_korrektion mangler eller har ikke RLS';
+  END IF;
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated'] LOOP
+    FOREACH v_priv IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE'] LOOP
+      IF has_table_privilege(v_role,'public.paastand_korrektion',v_priv) THEN
+        RAISE EXCEPTION 'VERIFY_FAILED: 6c-2b paastand_korrektion: % har %',v_role,v_priv;
+      END IF;
+    END LOOP;
+  END LOOP;
+  FOREACH f IN ARRAY ARRAY['private.saml_blanktegn_v1(text)','private.navn_forkortes(text,text)'] LOOP
+    IF to_regprocedure(f) IS NULL
+       OR has_function_privilege('anon',f,'EXECUTE') OR has_function_privilege('authenticated',f,'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6c-2b %: findes/ACL',f;
+    END IF;
+  END LOOP;
+  FOREACH f IN ARRAY ARRAY['public.red_ret_paastand(bigint,jsonb,text,uuid,jsonb)',
+                           'public.red_paastand_historik(bigint)'] LOOP
+    IF to_regprocedure(f) IS NULL OR NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid=to_regprocedure(f))
+       OR NOT EXISTS (SELECT 1 FROM pg_proc p, unnest(p.proconfig) c WHERE p.oid=to_regprocedure(f) AND c LIKE 'search_path=%')
+       OR has_function_privilege('anon',f,'EXECUTE') OR NOT has_function_privilege('authenticated',f,'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6c-2b %: findes/security definer/search_path/ACL',f;
+    END IF;
+  END LOOP;
+  IF private.saml_blanktegn_v1(E'12.\u00a0marts\n1702 ') IS DISTINCT FROM '12. marts 1702'
+     OR private.navn_forkortes('Ditlev Reventlow til X','Ditlev') IS NOT TRUE
+     OR private.navn_forkortes('Ditlev','Ditlev') IS NOT FALSE THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6c-2b blanktegns- eller navneregel';
+  END IF;
+  RAISE NOTICE 'OK: trin 6c-2b — paastand_korrektion (RLS, ingen klientadgang), regler private, RPC''er kun authenticated';
+END $verify_6c2b_paastand$;

@@ -28,7 +28,11 @@ BEGIN
     (E'død 1750', 'død 1750'),
     (E'ff. 1702', 'ff. 1702'),
     (E'1702', '1702'),
-    (E'f. f. 1702', 'f. 1702')) v(i,o)
+    (E'f. f. 1702', 'f. 1702'),
+    -- Trin 6c-2b: blanktegn samles med saml_blanktegn_v1 (eksplicit klasse, uafhængig af collation): hårdt mellemrum
+    -- efter markøren og inde i datoen, smalt hårdt mellemrum og afsnitsskift.
+    (E'f.\u00a012.\u00a0marts 1702', '12. marts 1702'),
+    (E'\u2020\u202f1750\u2029', '1750')) v(i,o)
   LOOP
     IF private.normaliser_dato_markoer_v1(r.i) IS DISTINCT FROM r.o THEN
       RAISE EXCEPTION 'NORMALISERING_TEST_REGEL: % gav % (ventede %)',r.i,private.normaliser_dato_markoer_v1(r.i),r.o;
