@@ -162,7 +162,7 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
    som forslaget); `V` og `P` er fejl. Én fejl stopper anvendelsen: ingen afgørelser, rettelser eller bindinger fra
    denne kontrolrunde skrives; årsagen findes, og en ny kontrolrunde med ny stikprøve og nyt GO køres. Ingen
    udvidelse til kort på alle `MATCH`.
-4. **De 70 datoer med linjeskift i importen** (§2.2), projektejeren 2026-11-02 (valg c): 1939's egen påstand får en
+4. **Højst 70 datoer med linjeskift i importen** (§2.2; øvre grænse, afgrænsningen nedenfor kan gøre tallet mindre), projektejeren 2026-11-02 (valg c): 1939's egen påstand får en
    deterministisk transskriptionsrettelse — mellemrum (inkl. linjeskift) i `date_raw` samles til ét og trimmes;
    intet andet ændres. Afgrænsning: kun påstande, der er det eneste mål for et 1939-datoforslag, hvis version fra §4.3
    bliver lig påstanden efter rettelsen; kun påstande, som alene forslagets egen kilde citerer (for 1939 kilde 3;

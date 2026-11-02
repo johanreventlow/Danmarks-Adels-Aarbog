@@ -8,7 +8,7 @@
 **Trin 6-spec'en:** 1939 gennem de samme operationer som 2018-20 (trin 6 nedenfor), i delspecs 6a-6e. 6a
 (klausuler og kildetekst-revision) er i prod 2026-10-30; 6b's ceremoni A og B (1939's personas) er i prod
 2026-11-01; 6c-1 (runneren på 1939: modellens 2.774 forslag, og 6b's ceremoni C efter retning 2: 1939's
-identiteter) er i prod 2026-11-02. Næste er 6c-2 (kontrol, rettelse, binding, vej B og resten af A6b). Status, modenhed pr. led og gates: [status.md](status.md). Sektionen her og status' »Aktivt programmål« skal
+identiteter) er i prod 2026-11-02. Næste er 6c-2 (kontrol, rettelse, binding og vej B for 1939) og derefter 6c-3 (resten af A6b; decisions 2026-11-02). Status, modenhed pr. led og gates: [status.md](status.md). Sektionen her og status' »Aktivt programmål« skal
 sige det samme.
 
 ## Styrende rækkefølge
