@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Persona-kort 1939</title>
+<style>
+:root {
+  --bg: #f6f4ef; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6860; --line: #dcd8ce;
+  --accent: #2f5d8a; --ok: #2e7d4f; --warn: #a3541c; --bad: #b3261e; --mark: #fde68a; --chip: #ece8de;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #161614; --panel: #22211e; --ink: #ecebe6; --muted: #a29f95; --line: #3a3833;
+    --accent: #8db6e0; --ok: #6fcf97; --warn: #e5a36b; --bad: #f2867d; --mark: #6b5310; --chip: #2e2c28; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif; }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line);
+  padding: 10px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+header h1 { font-size: 16px; margin: 0 8px 0 0; }
+.prog { flex: 1; min-width: 160px; height: 8px; background: var(--chip); border-radius: 4px; overflow: hidden; }
+.prog > div { height: 100%; background: var(--ok); width: 0; }
+button, input[type=text] { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 10px; }
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+.wrap { display: grid; grid-template-columns: 200px 1fr; gap: 16px; padding: 16px; max-width: 1400px; margin: 0 auto; }
+@media (max-width: 800px) { .wrap { grid-template-columns: 1fr; } nav.liste { max-height: 160px; } }
+nav.liste { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px;
+  max-height: calc(100vh - 90px); overflow: auto; position: sticky; top: 70px; align-self: start; }
+nav.liste a { display: flex; gap: 6px; align-items: center; padding: 2px 6px; border-radius: 4px; color: var(--ink);
+  font-size: 13px; cursor: pointer; }
+nav.liste a.cur { background: var(--chip); font-weight: 600; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line); flex: none; }
+.dot.klar { background: var(--ok); }
+main { min-width: 0; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
+h2 { margin: 0 0 4px; font-size: 18px; }
+h3 { margin: 0 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.navn { font-size: 17px; font-weight: 600; }
+.meta { color: var(--muted); font-size: 13px; }
+.side { font-weight: 600; color: var(--accent); }
+.tekst { white-space: pre-wrap; background: var(--bg); border-radius: 6px; padding: 10px 12px; margin-top: 8px;
+  max-height: 420px; overflow: auto; font-family: Georgia, serif; font-size: 15px; }
+.omkring { color: var(--muted); }
+.posten { background: var(--mark); outline: 2px solid var(--warn); border-radius: 3px; padding: 1px 2px; }
+.rel { font-size: 13px; margin-top: 4px; }
+.rel b { font-weight: 600; color: var(--muted); }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); text-transform: uppercase; }
+tr.laese td { color: var(--muted); }
+.knap { font-size: 15px; padding: 6px 14px; }
+.knap.on { color: var(--panel); background: var(--accent); border-color: var(--accent); }
+.knap.P.on { background: var(--bad); border-color: var(--bad); }
+.knap.B.on { background: var(--ok); border-color: var(--ok); }
+.knap.V.on { background: var(--warn); border-color: var(--warn); }
+.hjaelp li { margin: 4px 0; }
+.advar { color: var(--warn); }
+.nav { display: flex; gap: 8px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Persona-kort 1939</h1>
+  <span id="taeller" class="meta"></span>
+  <div class="prog"><div id="bar"></div></div>
+  <button id="hjaelpKnap">Vejledning</button>
+  <button id="gem">Gem svar-fil</button>
+  <label class="meta" style="cursor:pointer">Indlæs svar-fil <input id="indlaes" type="file" accept=".json" hidden></label>
+</header>
+<div class="wrap">
+  <nav class="liste" id="liste"></nav>
+  <main>
+    <div class="panel hjaelp" id="hjaelp" hidden>
+      <h3>Sådan svarer du</h3>
+      <ol>
+        <li><b>Først personen.</b> Handler 1939-posten om den person, den er knyttet til? Vælg <b>Rigtig person</b>. Er det en
+          anden, vælg <b>Forkert person</b>, og skriv evt. id på den rigtige person. Et personsvar skal altid vælges.</li>
+        <li><b>Så felterne.</b> <b>B</b>: bogen har ret, forslagets værdi er den rigtige. <b>D</b>: databasens værdi er den
+          rigtige. <b>V</b>: ved ikke. Er personen forkert, behøver felterne ikke besvares.</li>
+        <li>Felter uden svarknapper er kun kontekst. Hvor B ikke er tilbudt, står hvorfor.</li>
+        <li>Er du i tvivl, så slå op i bogen først. Svar gemmes i browseren, mens du arbejder; når alle personer er besvaret:
+          <b>Gem svar-fil</b>.</li>
+      </ol>
+    </div>
+    <div id="kort"></div>
+  </main>
+</div>
+<script>
+"use strict";
+const DATA = /*__DATA__*/null;
+const KEY = "persona-kort-" + DATA.plan_sha256 + "-" + DATA.side;
+let svar = { personas: {}, felter: {} };
+try {
+  const g = JSON.parse(localStorage.getItem(KEY) || "null");
+  if (g && g.personas && g.felter) svar = g;
+} catch (e) { /* ingen lokal lagring */ }
+let idx = 0;
+
+function gemLokalt() { try { localStorage.setItem(KEY, JSON.stringify(svar)); } catch (e) {} }
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") el.className = v; else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (v !== null && v !== undefined && v !== false) el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of kids.flat()) if (c !== null && c !== undefined && c !== false) el.append(c instanceof Node ? c : String(c));
+  return el;
+}
+const aar = (f, d) => `${f || "?"}–${d || "?"}`;
+const PRED = { "person.name": "Navn", "person.byname": "Tilnavn", "person.title": "Titel", "person.birth": "Født",
+  "person.death": "Død" };
+const pnavn = p => PRED[p] || p;
+function personLinje(p) { return `${p.navn || "?"} (${aar(p.foedt, p.doed)})`; }
+function liste(arr, max) {
+  arr = arr || [];
+  return arr.length ? arr.slice(0, max).map(personLinje).join(" · ") + (arr.length > max ? ` · … (${arr.length} i alt)` : "") : "—";
+}
+function personTok(k) { return svar.personas[k.persona_id]; }
+function erForkert(k) { return (personTok(k) || "").startsWith("P"); }
+function klar(k) {
+  if (!personTok(k)) return false;
+  return erForkert(k) || k.svar_felter.every(f => svar.felter[f.interpretation_id] && svar.felter[f.interpretation_id].tok);
+}
+function bogtekst(post) {
+  const v = post.vindue;
+  if (!v) return h("div", { class: "meta" }, "(ingen posttekst fundet)");
+  const postEl = h("span", { class: "posten" }, v.post || "");
+  const boks = h("div", { class: "tekst" }, h("span", { class: "omkring" }, v.foer ? v.foer + "\n\n" : ""), postEl,
+    h("span", { class: "omkring" }, v.efter ? "\n\n" + v.efter : ""));
+  requestAnimationFrame(() => { boks.scrollTop = Math.max(0, postEl.offsetTop - boks.offsetTop - 80); });
+  return h("div", {}, h("div", { class: "meta" },
+    "Bogteksten omkring posten. Posten er markeret; […] = tekst, der ikke er i databasen. Rul for mere."), boks);
+}
+function sider(post) {
+  const s = (post.sider || []).map(([a, b]) => a === b ? `${a}` : `${a}–${b}`);
+  return s.length ? `DAA 1939, side ${s.join(", ")}` : "side ukendt";
+}
+function saetPerson(k, tok) { svar.personas[k.persona_id] = tok; gemLokalt(); tegn(); }
+function saetFelt(k, f, tok) {
+  const gl = svar.felter[f.interpretation_id] || {};
+  svar.felter[f.interpretation_id] = { tok: gl.tok === tok ? "" : tok, note: gl.note || "" };
+  gemLokalt(); tegn();
+}
+function personSvar(k) {
+  const t = personTok(k) || "";
+  const id = t.startsWith("P ") ? t.slice(2) : "";
+  return h("div", { class: "panel" }, h("h3", {}, "Er det den rigtige person?"),
+    h("div", { class: "nav" },
+      h("button", { class: "knap" + (t === "-" ? " on" : ""), onclick: () => saetPerson(k, "-") }, "- Rigtig person"),
+      h("button", { class: "knap P" + (t.startsWith("P") ? " on" : ""), onclick: () => saetPerson(k, id ? "P " + id : "P") },
+        "P Forkert person"),
+      t.startsWith("P") ? h("input", { type: "text", placeholder: "id på den rigtige person (valgfri)", value: id,
+        onchange: e => { const v = e.target.value.trim(); saetPerson(k, /^-?[1-9][0-9]*$/.test(v) ? "P " + v : "P"); } }) : null),
+    personTok(k) ? null : h("div", { class: "advar" }, "Ikke besvaret endnu."));
+}
+function felttabel(k) {
+  const rows = [];
+  const alle = [...k.svar_felter.map(f => ({ ...f, svar: true })), ...k.kontekst_felter.map(f => ({ ...f, svar: false }))];
+  const orden = ["person.name", "person.byname", "person.title", "person.birth", "person.death"];
+  alle.sort((a, b) => (orden.indexOf(a.predicate) + 1 || 99) - (orden.indexOf(b.predicate) + 1 || 99));
+  for (const f of alle) {
+    if (!f.svar) {
+      rows.push(h("tr", { class: "laese" }, h("td", {}, pnavn(f.predicate)), h("td", {}, f.vaerdi ?? "—"),
+        h("td", {}, "(kontekst)"), h("td", {}, "")));
+      continue;
+    }
+    const s = (svar.felter[f.interpretation_id] || {}).tok || "";
+    const knap = t => h("button", { class: "knap " + t + (s === t ? " on" : ""), onclick: () => saetFelt(k, f, t) }, t);
+    rows.push(h("tr", {}, h("td", {}, pnavn(f.predicate)), h("td", {}, f.vaerdi ?? "—"), h("td", {}, f.db_vaerdi ?? "—"),
+      h("td", {}, f.b ? knap("B") : null, " ", knap("D"), " ", knap("V"),
+        f.b ? null : h("div", { class: "meta" }, f.b_aarsag),
+        h("input", { type: "text", placeholder: "note (valgfri)", value: (svar.felter[f.interpretation_id] || {}).note || "",
+          onchange: e => { const gl = svar.felter[f.interpretation_id] || { tok: "" };
+            svar.felter[f.interpretation_id] = { tok: gl.tok, note: e.target.value }; gemLokalt(); } }))));
+  }
+  return h("table", {}, h("tr", {}, h("th", {}, "Felt"), h("th", {}, "Bogens forslag"), h("th", {}, "Databasen"), h("th", {}, "Svar")),
+    ...rows);
+}
+function tegnListe() {
+  document.getElementById("liste").replaceChildren(...DATA.kort.map((k, i) => h("a", { class: i === idx ? "cur" : "",
+    onclick: () => { idx = i; tegn(); } }, h("span", { class: "dot" + (klar(k) ? " klar" : "") }), `Person ${k.nr}`)));
+  const n = DATA.kort.filter(klar).length;
+  document.getElementById("taeller").textContent = `${n} af ${DATA.kort.length} besvaret (side ${DATA.side}/${DATA.sider})`;
+  document.getElementById("bar").style.width = (100 * n / DATA.kort.length) + "%";
+}
+function tegn() {
+  const k = DATA.kort[idx], p = k.person || {};
+  document.getElementById("kort").replaceChildren(h("div", {},
+    h("div", { class: "panel" }, h("h2", {}, `Person ${k.nr} af ${DATA.kort.length}`),
+      h("div", { class: "navn" }, p.navn || "(navn mangler)"), h("div", { class: "meta" }, `${aar(p.foedt, p.doed)}${p.titel ? " · " + p.titel : ""}`),
+      h("div", { class: "rel" }, h("b", {}, "Forældre: "), liste(p.foraeldre, 4)),
+      h("div", { class: "rel" }, h("b", {}, "Ægtefælle: "), liste(p.partnere, 4)),
+      h("div", { class: "rel" }, h("b", {}, "Børn: "), liste(p.boern, 8))),
+    h("div", { class: "panel" }, h("h3", {}, "1939-posten"), h("div", { class: "side" }, sider(k.post)), bogtekst(k.post)),
+    personSvar(k),
+    h("div", { class: "panel" }, h("h3", {}, "Felter"), felttabel(k)),
+    h("div", { class: "nav" }, h("button", { onclick: () => gaa(-1) }, "←"), h("button", { onclick: () => gaa(1) }, "→"),
+      h("button", { onclick: naeste }, "Næste ubesvarede"))));
+  tegnListe();
+}
+function gaa(d) { idx = Math.max(0, Math.min(DATA.kort.length - 1, idx + d)); tegn(); window.scrollTo(0, 0); }
+function naeste() {
+  for (let j = 1; j <= DATA.kort.length; j++) { const i = (idx + j) % DATA.kort.length; if (!klar(DATA.kort[i])) { idx = i; tegn(); window.scrollTo(0, 0); return; } }
+  alert("Alle personer er besvaret. Klik »Gem svar-fil«.");
+}
+document.getElementById("hjaelpKnap").addEventListener("click", () => { const el = document.getElementById("hjaelp"); el.hidden = !el.hidden; });
+document.getElementById("gem").addEventListener("click", () => {
+  const mangler = DATA.kort.filter(k => !klar(k)).length;
+  if (mangler && !confirm(`${mangler} personer er ikke færdigt besvaret. Gem alligevel (til at fortsætte senere)?`)) return;
+  const ud = { plan_sha256: DATA.plan_sha256, svar: {
+    personas: Object.fromEntries(DATA.kort.filter(k => svar.personas[k.persona_id]).map(k => [k.persona_id, svar.personas[k.persona_id]])),
+    felter: Object.fromEntries(DATA.kort.flatMap(k => k.svar_felter).filter(f => (svar.felter[f.interpretation_id] || {}).tok)
+      .map(f => [f.interpretation_id, svar.felter[f.interpretation_id]])) } };
+  const a = h("a", { href: URL.createObjectURL(new Blob([JSON.stringify(ud, null, 1)], { type: "application/json" })),
+    download: `kort-svar-${DATA.plan_sha256.slice(0, 8)}-${DATA.side}.json` });
+  document.body.append(a); a.click(); a.remove();
+});
+document.getElementById("indlaes").addEventListener("change", async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const j = JSON.parse(await f.text());
+    if (j.plan_sha256 !== DATA.plan_sha256) { alert("Svar-filen hører til en anden plan."); return; }
+    Object.assign(svar.personas, (j.svar || {}).personas || {}); Object.assign(svar.felter, (j.svar || {}).felter || {});
+    gemLokalt(); tegn();
+  } catch (err) { alert("Kunne ikke læse svar-filen."); }
+});
+if (!Object.keys(svar.personas).length) document.getElementById("hjaelp").hidden = false;
+tegn();
+</script>
+</body>
+</html>

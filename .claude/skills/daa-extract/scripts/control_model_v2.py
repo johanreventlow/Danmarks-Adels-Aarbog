@@ -216,8 +216,11 @@ def sheet_order_v2(plan: dict) -> list[tuple[dict, list[dict]]]:
     return blokke
 
 
-def render_sheet_v2(plan: dict) -> str:
-    """Det tomme tokenark (kun id'er; ingen værdier, klasser eller stikprøvemarkering)."""
+def render_sheet_v2(plan: dict, personas: dict | None = None, fields: dict | None = None) -> str:
+    """Tokenarket. Uden svar: det tomme ark (kun id'er; ingen værdier, klasser eller stikprøvemarkering).
+    Med `personas` ({persona_id: '-'|'P'|'P <id>'}) og `fields` ({interpretation_id: (token, note)}) udfyldt af
+    kortværktøjet (`persona_kort.py flet`); manglende svar står som `_`. Eneste sted arkets linjeformat bor."""
+    personas, fields = personas or {}, fields or {}
     out = ["# KONTROL AF FORSLAG (v2)",
            "# Pr. felt efter kolonet: B = bogen bekræfter forslagets værdi, D = databasen har ret, V = ved ikke.",
            "# Pr. persona (skal besvares): - = rigtig person, P = forkert person, P <person-id> = forkert person,",
@@ -225,9 +228,11 @@ def render_sheet_v2(plan: dict) -> str:
            "# P overtrumfer felterne (de må stå som _). En note må følge efter '#' på en F-linje.",
            ""]
     for persona, felter in sheet_order_v2(plan):
-        out.append(f"P {persona['persona_id']} {persona['identity_version']} : _")
+        out.append(f"P {persona['persona_id']} {persona['identity_version']} : "
+                   f"{personas.get(persona['persona_id'], '_')}")
         for r in felter:
-            out.append(f"F {r['interpretation_id']} {r['version']} : _")
+            tok, note = fields.get(r["interpretation_id"], ("_", ""))
+            out.append(f"F {r['interpretation_id']} {r['version']} : {tok}" + (f" # {note}" if note else ""))
         out.append("")
     return "\n".join(out)
 
@@ -300,6 +305,33 @@ def _p_dato(value_text: str) -> dict:
     return {"date_min": info["date_min"], "date_max": info["date_max"], "date_qualifier": info["qualifier"]}
 
 
+def b_afvist_navn_eller_maal(r: dict) -> str | None:
+    """Årsagen til, at `B` ikke kan gives på et ikke-stikprøvefelt (navn_forkortes ikke false — NULL tæller med —
+    eller intet entydigt rettelsesmål); ellers None. Brugt af `apply_plan_v2` og af kortene."""
+    if r["navn_forkortes"] is not False:
+        return "navn_forkortes"
+    maal = r.get("rettelse_maal")
+    if not isinstance(maal, dict) or not isinstance(maal.get("assertion_id"), int):
+        return "intet_maal"
+    return None
+
+
+def dato_uden_graenser(r: dict) -> bool:
+    """Sand, hvis feltet er en dato, som parseren ikke kan afgrænse: en rettelse ville skrive NULL over grænserne."""
+    if r["predicate"] not in DATE_PREDICATES:
+        return False
+    p = _p_dato(r["value_text"])
+    return p["date_min"] is None and p["date_max"] is None
+
+
+def b_afvisning(r: dict, klasse: str) -> str | None:
+    """Hvorfor kortet ikke må tilbyde `B` på feltet (præcis de tilfælde, hvor `apply_plan_v2` afviser arket), ellers
+    None. Et stikprøvefelt (klasse MATCH) kræver B og afvises aldrig."""
+    if klasse == "MATCH":
+        return None
+    return b_afvist_navn_eller_maal(r) or ("dato_uden_graenser" if dato_uden_graenser(r) else None)
+
+
 def apply_plan_v2(plan: dict, sheet_text: str, *, sheet_sha256: str, hashes: dict) -> dict:
     """Arket → {unresolved, rettelser, afgoerelser, maskine}. Fail-closed: én fejl, intet resultat."""
     if not _hex64(sheet_sha256):
@@ -339,10 +371,10 @@ def apply_plan_v2(plan: dict, sheet_text: str, *, sheet_sha256: str, hashes: dic
         k = klasse[f.interpretation_id]
         if k != "MATCH" and f.token == "B":
             # Kortet tilbyder ikke B her; arket afvises, selv under en P-persona (spec §4.5 pkt. 2).
-            if r["navn_forkortes"] is not False:
+            aarsag = b_afvist_navn_eller_maal(r)
+            if aarsag == "navn_forkortes":
                 raise ControlError(f"SHEET_V2_LINE_INVALID line={f.line} navn_forkortes")
-            maal = r.get("rettelse_maal")
-            if not isinstance(maal, dict) or not isinstance(maal.get("assertion_id"), int):
+            if aarsag:
                 raise ControlError(f"SHEET_V2_LINE_INVALID line={f.line} intet entydigt mål")
         if r["persona_id"] in p_set:
             continue   # P overtrumfer: ingen afgørelse for nogen af personaens forslag
@@ -354,8 +386,7 @@ def apply_plan_v2(plan: dict, sheet_text: str, *, sheet_sha256: str, hashes: dic
         if f.token == "B":
             maal = r["rettelse_maal"]
             p_dato = _p_dato(r["value_text"]) if r["predicate"] in DATE_PREDICATES else None
-            if p_dato is not None and p_dato["date_min"] is None and p_dato["date_max"] is None:
-                # Parseren kan ikke afgrænse værdien: en rettelse ville skrive NULL over påstandens grænser.
+            if dato_uden_graenser(r):
                 raise ControlError(f"SHEET_V2_LINE_INVALID line={f.line} dato_uden_graenser")
             rettelser.append({"interpretation_id": f.interpretation_id, "version": f.version,
                               "assertion_id": maal["assertion_id"], "forventet": maal["forventet"],

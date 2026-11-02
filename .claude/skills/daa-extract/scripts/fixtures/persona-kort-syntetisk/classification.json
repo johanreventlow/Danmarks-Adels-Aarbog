@@ -1,0 +1,110 @@
+{
+ "items": [
+  {
+   "interpretation_id": "00000000-0000-4000-8000-000000000001",
+   "version": 1,
+   "predicate": "person.name",
+   "class": "MATCH",
+   "assertion_id": -1
+  },
+  {
+   "interpretation_id": "00000000-0000-4000-8000-000000000002",
+   "version": 1,
+   "predicate": "person.title",
+   "class": "MATCH",
+   "assertion_id": -2
+  },
+  {
+   "interpretation_id": "00000000-0000-4000-8000-000000000003",
+   "version": 1,
+   "predicate": "person.birth",
+   "class": "MATCH",
+   "assertion_id": -3
+  },
+  {
+   "interpretation_id": "00000000-0000-4000-8000-000000000004",
+   "version": 1,
+   "predicate": "person.death",
+   "class": "REAL_DIFF",
+   "assertion_id": null
+  },
+  {
+   "interpretation_id": "00000000-0000-4000-8000-000000000005",
+   "version": 1,
+   "predicate": "person.name",
+   "class": "REAL_DIFF",
+   "assertion_id": null
+  },
+  {
+   "interpretation_id": "00000000-0000-4000-8000-000000000006",
+   "version": 1,
+   "predicate": "person.birth",
+   "class": "SKRIVEMAADE",
+   "assertion_id": null
+  },
+  {
+   "interpretation_id": "00000000-0000-4000-8000-000000000007",
+   "version": 1,
+   "predicate": "person.death",
+   "class": "MATCH",
+   "assertion_id": -7
+  },
+  {
+   "interpretation_id": "00000000-0000-4000-8000-000000000008",
+   "version": 1,
+   "predicate": "person.name",
+   "class": "MATCH",
+   "assertion_id": -8
+  },
+  {
+   "interpretation_id": "00000000-0000-4000-8000-000000000009",
+   "version": 1,
+   "predicate": "person.death",
+   "class": "REAL_DIFF",
+   "assertion_id": null
+  },
+  {
+   "interpretation_id": "00000000-0000-4000-8000-000000000010",
+   "version": 1,
+   "predicate": "person.name",
+   "class": "MATCH",
+   "assertion_id": -10
+  },
+  {
+   "interpretation_id": "00000000-0000-4000-8000-000000000011",
+   "version": 1,
+   "predicate": "person.title",
+   "class": "REAL_DIFF",
+   "assertion_id": null
+  },
+  {
+   "interpretation_id": "00000000-0000-4000-8000-000000000012",
+   "version": 1,
+   "predicate": "person.name",
+   "class": "MATCH",
+   "assertion_id": -12
+  },
+  {
+   "interpretation_id": "00000000-0000-4000-8000-000000000013",
+   "version": 1,
+   "predicate": "person.death",
+   "class": "MATCH",
+   "assertion_id": -13
+  },
+  {
+   "interpretation_id": "00000000-0000-4000-8000-000000000014",
+   "version": 1,
+   "predicate": "person.name",
+   "class": "MATCH",
+   "assertion_id": -14
+  },
+  {
+   "interpretation_id": "00000000-0000-4000-8000-000000000015",
+   "version": 1,
+   "predicate": "person.birth",
+   "class": "MATCH",
+   "assertion_id": -15
+  }
+ ],
+ "counts": {}
+}

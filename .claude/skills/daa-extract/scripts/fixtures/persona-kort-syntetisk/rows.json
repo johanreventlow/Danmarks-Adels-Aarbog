@@ -1,0 +1,385 @@
+[
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000001",
+  "version": 1,
+  "record_key": "I-0001",
+  "predicate": "person.name",
+  "value_text": "Anders Testrup",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000001",
+  "identity_outcome": "enig",
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": null
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000002",
+  "version": 1,
+  "record_key": "I-0001",
+  "predicate": "person.title",
+  "value_text": "hofjægermester",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000001",
+  "identity_outcome": "enig",
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": null
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000003",
+  "version": 1,
+  "record_key": "I-0001",
+  "predicate": "person.birth",
+  "value_text": "1701",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000001",
+  "identity_outcome": "enig",
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": null
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000004",
+  "version": 1,
+  "record_key": "I-0001",
+  "predicate": "person.death",
+  "value_text": "1760",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000001",
+  "identity_outcome": "enig",
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1004,
+   "forventet": {
+    "fact_id": -2004,
+    "faktatype": "x",
+    "vaerdi_tekst": null,
+    "date_raw": "1759",
+    "valgt_assertion_id": -1004,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1700-01-01",
+    "date_max": "1700-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000005",
+  "version": 1,
+  "record_key": "I-0002",
+  "predicate": "person.name",
+  "value_text": "Birte Prøve",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000002",
+  "identity_outcome": "enig",
+  "identity_version": 1,
+  "navn_forkortes": true,
+  "rettelse_maal": {
+   "assertion_id": -1005,
+   "forventet": {
+    "fact_id": -2005,
+    "faktatype": "x",
+    "vaerdi_tekst": null,
+    "date_raw": "Birte Prøvegaard",
+    "valgt_assertion_id": -1005,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1700-01-01",
+    "date_max": "1700-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000006",
+  "version": 1,
+  "record_key": "I-0002",
+  "predicate": "person.birth",
+  "value_text": "12. marts 1702",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000002",
+  "identity_outcome": "enig",
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1006,
+   "forventet": {
+    "fact_id": -2006,
+    "faktatype": "x",
+    "vaerdi_tekst": null,
+    "date_raw": "12 marts 1702",
+    "valgt_assertion_id": -1006,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1700-01-01",
+    "date_max": "1700-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000007",
+  "version": 1,
+  "record_key": "I-0002",
+  "predicate": "person.death",
+  "value_text": "1770",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000002",
+  "identity_outcome": "enig",
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": null
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000008",
+  "version": 1,
+  "record_key": "I-0003",
+  "predicate": "person.name",
+  "value_text": "Carl Eksempel",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000003",
+  "identity_outcome": "enig",
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": null
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000009",
+  "version": 1,
+  "record_key": "I-0003",
+  "predicate": "person.death",
+  "value_text": "ca. 17??",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000003",
+  "identity_outcome": "enig",
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1009,
+   "forventet": {
+    "fact_id": -2009,
+    "faktatype": "x",
+    "vaerdi_tekst": null,
+    "date_raw": "1750",
+    "valgt_assertion_id": -1009,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1700-01-01",
+    "date_max": "1700-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000010",
+  "version": 1,
+  "record_key": "I-0004",
+  "predicate": "person.name",
+  "value_text": "Dorte Fiktivsen",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000004",
+  "identity_outcome": "enig",
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": null
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000011",
+  "version": 1,
+  "record_key": "I-0004",
+  "predicate": "person.title",
+  "value_text": "kammerherre",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000004",
+  "identity_outcome": "enig",
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": null
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000012",
+  "version": 1,
+  "record_key": "I-0005",
+  "predicate": "person.name",
+  "value_text": "Erik Opdigtet",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000005",
+  "identity_outcome": "svag",
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": null
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000013",
+  "version": 1,
+  "record_key": "I-0005",
+  "predicate": "person.death",
+  "value_text": "1790",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000005",
+  "identity_outcome": "svag",
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": null
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000014",
+  "version": 1,
+  "record_key": "I-0006",
+  "predicate": "person.name",
+  "value_text": "Frida Syntetica",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000006",
+  "identity_outcome": "enig",
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": null
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000015",
+  "version": 1,
+  "record_key": "I-0006",
+  "predicate": "person.birth",
+  "value_text": "1710",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000006",
+  "identity_outcome": "enig",
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": null
+ }
+]
