@@ -2,6 +2,23 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 1939's identiteter (6b's C) — C3-bindingen er identiteten, kun konflikter på kort (retning 2) (2026-11-02)
+
+> Øvelsen af 6b's ceremoni C gav 550 kort mod et loft på 90. Projektejeren valgte 2026-11-01 retning 2 blandt tre (ret
+> C's regler: ~445 kort; C3-binding som identitet; udskyd 1939's identiteter). **Automatisk** på den publicerede
+> C3-binding (oprindelsen `publication_binding`): `enig`, `svag` (alle årsager; `partner_hoejere` og `under_margin` er
+> målt til bindingspersonens egen `samme_som`-partner) og `ingen_kandidat` (ingen kandidatrækker). **Kort:** `uenig`,
+> `navnefaelle` og, efter måling og projektejerens valg 2026-11-02, de 45 personas med kandidatrækker, hvor
+> bindingspersonen ikke er med (klassificeres `uenig/egen_ikke_kandidat`). Stikprøven på 20 trækkes blandt de
+> automatiske; ét F/U stopper C. Loftet hæves til 125 (forventet 124). Konsekvens: ca. 440 personas, heriblandt de 61
+> fra `excluded` poster, får identitet på C3-bindingen fra august uden at generatoren bekræfter den; udfaldet står i
+> evidensen, så 6c-2 kan tage dem op. Delspec 6c-1 §4.8; 6b §4.3 pkt. 3-6 er ændret for 1939.
+
+## NOTERET: review-budget for 6c-1 overskredet med én Codex-runde på retning 2's diff (2026-11-02)
+
+> B13-overskridelse. Retning 2 ændrer C's klassifikator og writer efter, at 6c-1's to runder er brugt. Én Codex-runde
+> (`gpt-6.1-sol`, Opus afvejer) på diffen før prod.
+
 ## BESLUTTET: delspec 6c deles i 6c-1 (runner + 6b's identiteter) og 6c-2 (kontrol, rettelse, binding) (2026-11-01)
 
 > Projektejeren 2026-11-01: 6c deles i to, identiteterne først. **6c-1** kører runneren på 1939's tilladte poster,
