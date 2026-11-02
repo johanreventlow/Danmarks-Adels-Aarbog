@@ -220,11 +220,12 @@ def render_sheet_v2(plan: dict) -> str:
     """Det tomme tokenark (kun id'er; ingen værdier, klasser eller stikprøvemarkering)."""
     out = ["# KONTROL AF FORSLAG (v2)",
            "# Pr. felt efter kolonet: B = bogen bekræfter forslagets værdi, D = databasen har ret, V = ved ikke.",
-           "# Pr. persona: - = rigtig person, P = forkert person, P <person-id> = forkert person, rigtig er <id>.",
+           "# Pr. persona (skal besvares): - = rigtig person, P = forkert person, P <person-id> = forkert person,",
+           "# rigtig er <id>.",
            "# P overtrumfer felterne (de må stå som _). En note må følge efter '#' på en F-linje.",
            ""]
     for persona, felter in sheet_order_v2(plan):
-        out.append(f"P {persona['persona_id']} {persona['identity_version']} : -")
+        out.append(f"P {persona['persona_id']} {persona['identity_version']} : _")
         for r in felter:
             out.append(f"F {r['interpretation_id']} {r['version']} : _")
         out.append("")
@@ -352,10 +353,13 @@ def apply_plan_v2(plan: dict, sheet_text: str, *, sheet_sha256: str, hashes: dic
             continue
         if f.token == "B":
             maal = r["rettelse_maal"]
+            p_dato = _p_dato(r["value_text"]) if r["predicate"] in DATE_PREDICATES else None
+            if p_dato is not None and p_dato["date_min"] is None and p_dato["date_max"] is None:
+                # Parseren kan ikke afgrænse værdien: en rettelse ville skrive NULL over påstandens grænser.
+                raise ControlError(f"SHEET_V2_LINE_INVALID line={f.line} dato_uden_graenser")
             rettelser.append({"interpretation_id": f.interpretation_id, "version": f.version,
                               "assertion_id": maal["assertion_id"], "forventet": maal["forventet"],
-                              "p_dato": _p_dato(r["value_text"]) if r["predicate"] in DATE_PREDICATES else None,
-                              "line": f.line})
+                              "p_dato": p_dato, "graenser_foer": maal.get("graenser"), "line": f.line})
             afgoerelser.append({"interpretation_id": f.interpretation_id, "version": f.version, "klasse": k,
                                 "status": "accepted",
                                 "evidence": {**ev, "grund": "bogen_har_ret", "assertion_id": maal["assertion_id"]}})
@@ -381,6 +385,12 @@ def apply_plan_v2(plan: dict, sheet_text: str, *, sheet_sha256: str, hashes: dic
 
 # --- SQL'en -----------------------------------------------------------------------------------------------------------
 
+def datorettelser_graenser_aendret(applied: dict) -> int:
+    """Datorettelser, hvis date_min/date_max/date_qualifier ændres (påstandens grænser ved planen mod p_dato).
+    Ukendte grænser før tæller som ændret (fail-loud)."""
+    return sum(1 for r in applied["rettelser"] if r["p_dato"] is not None and r.get("graenser_foer") != r["p_dato"])
+
+
 def _jlit(obj) -> str:
     return _lit(json.dumps(obj, ensure_ascii=False, sort_keys=True))
 
@@ -389,6 +399,11 @@ def _uuid(s: str) -> str:
     if not re.fullmatch(UUID, s):
         raise ControlError("ID_INVALID")
     return f"'{s}'::uuid"
+
+
+def _rettelse_map(applied: dict) -> str:
+    """[[forslagets plan-id, rettelsens påstands-id], …] i id-orden."""
+    return json.dumps(sorted([r["interpretation_id"], int(r["assertion_id"])] for r in applied["rettelser"]))
 
 
 def _expected_bound(plan: dict, applied: dict) -> list[str]:
@@ -510,13 +525,21 @@ def sql_v2(plan: dict, applied: dict) -> str:
                 "true) \\g /dev/null",
                 "\\o /dev/null", f"\\i {TARGETS_SCOPED_SQL}", "\\o",
                 "DO $n$ DECLARE t jsonb := current_setting('daa.targets_scoped')::jsonb; faktisk jsonb; "
-                f"forventet jsonb := {_lit(json.dumps(bound))}::jsonb; BEGIN "
+                f"forventet jsonb := {_lit(json.dumps(bound))}::jsonb; "
+                f"r jsonb := {_lit(_rettelse_map(applied))}::jsonb; n int; BEGIN "
                 "SELECT coalesce(jsonb_agg(ni.supersedes_id::text ORDER BY ni.supersedes_id), '[]') "
                 "INTO faktisk FROM jsonb_array_elements(t->'items') x "
                 "JOIN private.interpretation ni ON ni.id = (x->>'interpretation_id')::uuid; "
                 "IF faktisk IS DISTINCT FROM forventet OR jsonb_array_length(t->'singleton_items') <> 0 THEN "
                 "RAISE EXCEPTION 'CONTROL_V2_TARGETS_MISMATCH faktisk=% forventet=%', "
-                "jsonb_array_length(faktisk), jsonb_array_length(forventet); END IF; END $n$;",
+                "jsonb_array_length(faktisk), jsonb_array_length(forventet); END IF; "
+                # Et rettet forslag bindes til netop den påstand, rettelsen skrev — ikke til en anden med samme værdi.
+                "SELECT count(*) INTO n FROM jsonb_array_elements(t->'items') x "
+                "JOIN private.interpretation ni ON ni.id = (x->>'interpretation_id')::uuid "
+                "JOIN jsonb_array_elements(r) m ON m->>0 = ni.supersedes_id::text "
+                "WHERE x->>'target_type' = 'assertion' AND (x->>'target_id')::bigint = (m->>1)::bigint; "
+                "IF n <> jsonb_array_length(r) THEN RAISE EXCEPTION 'CONTROL_V2_RETTELSE_MAAL_MISMATCH % af %', "
+                "n, jsonb_array_length(r); END IF; END $n$;",
                 "SET LOCAL ROLE authenticated;",
                 "DO $b$ DECLARE items jsonb := current_setting('daa.targets_scoped')::jsonb->'items'; p jsonb; BEGIN "
                 "PERFORM set_config('app.change_set_id','',true); "
@@ -532,26 +555,24 @@ def sql_v2(plan: dict, applied: dict) -> str:
                 f"WHERE q.supersedes_id IN ({ids}) AND private.assertion_binding_current(pr.id); "
                 f"IF n <> {len(bound)} THEN RAISE EXCEPTION 'CONTROL_V2_BIND_COUNT % af {len(bound)}', n; END IF; "
                 "END $c$;"]
-    out += ["COMMIT;",
+    # (6) Verifikationen i transaktionen (ejerrollen): en RAISE ruller hele ceremonien tilbage.
+    out += ["-- (6) verifikation før COMMIT", _verify_do(plan, applied),
+            "COMMIT;",
             f"\\echo 'CONTROL_V2_OK unresolved={len(applied['unresolved'])} rettelser={len(applied['rettelser'])} "
             f"afgoerelser={len(menneske)} stikproeve={len(stik)} maskine={len(applied['maskine'])} "
             f"bundet={len(bound)}'"]
     return "\n".join(out) + "\n"
 
 
-def verify_sql_v2(plan: dict, applied: dict) -> str:
-    """Læse-kun, EFTER ceremoniens COMMIT (bindingen sker i ceremonien; v1 verificerede mellem accept og binding).
-    Planpartitionen tjekkes her (Python); promotionssættet i SQL'en. Lister sammenlignes i uuid-orden (= Pythons
-    sortering af kanoniske små-bogstavs-uuid'er), uafhængigt af databasens collation."""
-    _check_partition(plan, applied)
+def _verify_do(plan: dict, applied: dict) -> str:
+    """Promotionssættet og P-personas som én DO-blok (ejerrollen: læser private.*). Bruges både i ceremonien før
+    COMMIT (en RAISE ruller hele ceremonien tilbage) og i `verify-sql` efter COMMIT. Lister sammenlignes i uuid-orden
+    (= Pythons sortering af kanoniske små-bogstavs-uuid'er), uafhængigt af databasens collation."""
     bound = _expected_bound(plan, applied)
     p_ids = sorted(u["persona_id"] for u in applied["unresolved"])
     for i in plan["universe_ids"] + p_ids:
         _uuid(i)
     return "\n".join([
-        "\\set ON_ERROR_STOP on",
-        "BEGIN;",
-        "SET TRANSACTION READ ONLY;",
         "DO $v$",
         f"DECLARE univ jsonb := {_lit(json.dumps(plan['universe_ids']))}::jsonb;",
         f"        forventet jsonb := {_lit(json.dumps(bound))}::jsonb;",
@@ -586,8 +607,15 @@ def verify_sql_v2(plan: dict, applied: dict) -> str:
         "  RAISE NOTICE 'CONTROL_V2_VERIFY_OK bundet=% p_personas=%', jsonb_array_length(faktisk),",
         "    jsonb_array_length(pp);",
         "END $v$;",
-        "ROLLBACK;",
-    ]) + "\n"
+    ])
+
+
+def verify_sql_v2(plan: dict, applied: dict) -> str:
+    """Læse-kun, uafhængig genkontrol EFTER ceremoniens COMMIT (samme DO-blok kørte også før COMMIT i ceremonien).
+    Planpartitionen tjekkes her (Python); promotionssættet i SQL'en."""
+    _check_partition(plan, applied)
+    return "\n".join(["\\set ON_ERROR_STOP on", "BEGIN;", "SET TRANSACTION READ ONLY;",
+                      _verify_do(plan, applied), "ROLLBACK;"]) + "\n"
 
 
 # --- CLI --------------------------------------------------------------------------------------------------------------
@@ -687,10 +715,9 @@ def main() -> int:
         _write(Path(args.out), sql.encode("utf-8"))
         tal = {s: sum(1 for x in applied["afgoerelser"] if x["klasse"] != "MATCH" and x["status"] == s)
                for s in ("accepted", "rejected", "unresolved")}
-        uden_graenser = sum(1 for r in applied["rettelser"] if r["p_dato"] is not None
-                            and r["p_dato"]["date_min"] is None and r["p_dato"]["date_max"] is None)
+        graenser_aendret = datorettelser_graenser_aendret(applied)
         print(f"SQL_V2_OK unresolved={len(applied['unresolved'])} rettelser={len(applied['rettelser'])} "
-              f"datorettelser_uden_graenser={uden_graenser} afgoerelser={json.dumps(tal, sort_keys=True)} "
+              f"datorettelser_graenser_aendret={graenser_aendret} afgoerelser={json.dumps(tal, sort_keys=True)} "
               f"stikprøve={len(plan['sample_ids'])} maskine={len(applied['maskine'])} "
               f"bundet={len(_expected_bound(plan, applied))}")
         return 0

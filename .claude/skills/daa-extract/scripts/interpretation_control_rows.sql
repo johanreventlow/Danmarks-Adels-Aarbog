@@ -12,9 +12,11 @@
 --                     NULL uden identitet eller navnepåstand; false for andre prædikater.
 --   rettelse_maal     målet for »bogen har ret« (red_ret_paastand, trin 6c-2 Task 7): den identificerede persons påstand
 --                     af regelens faktatype, som er citeret af præcis én kilde, og det er forslagets egen kilde
---                     (RPC'ens PAASTAND_KILDE_DELT-regel). Præcis én sådan påstand → {"assertion_id", "forventet"},
---                     hvor forventet er p_forventet, som kortet viser målet ({fact_id, faktatype, vaerdi_tekst,
---                     date_raw, valgt_assertion_id, citation_sources}); ingen eller flere → NULL (B tilbydes ikke).
+--                     (RPC'ens PAASTAND_KILDE_DELT-regel). Præcis én sådan påstand → {"assertion_id", "forventet",
+--                     "graenser"}, hvor forventet er p_forventet, som kortet viser målet ({fact_id, faktatype,
+--                     vaerdi_tekst, date_raw, valgt_assertion_id, citation_sources}), og graenser er påstandens
+--                     {date_min, date_max, date_qualifier} (kontrolværktøjet tæller rettelser, der ændrer dem);
+--                     ingen eller flere → NULL (B tilbydes ikke).
 --                     Indeholder påstandens værdi: rækkefilen er 0600 og læses aldrig, kun tælles.
 -- Uden GUC er outputtet byte-ens med før (de fem felter fjernes, og navn_forkortes/rettelse_maal beregnes ikke).
 WITH ctl AS (SELECT nullif(current_setting('daa.control_src', true), '') AS src),
@@ -59,7 +61,9 @@ maal0 AS (
   SELECT r.interpretation_id, a.id AS assertion_id,
          jsonb_build_object('fact_id', f.id, 'faktatype', f.faktatype, 'vaerdi_tekst', a.vaerdi_tekst,
                             'date_raw', a.date_raw, 'valgt_assertion_id', co.valgt_assertion_id,
-                            'citation_sources', to_jsonb(cs.src)) AS forventet
+                            'citation_sources', to_jsonb(cs.src)) AS forventet,
+         jsonb_build_object('date_min', a.date_min, 'date_max', a.date_max,
+                            'date_qualifier', a.date_qualifier) AS graenser
     FROM rows r
     JOIN private.interpretation_current ic ON ic.id = r.interpretation_id
     JOIN private.interpretation_promotion_rule_current pr
@@ -77,7 +81,8 @@ maal0 AS (
 maal AS (
   SELECT interpretation_id,
          CASE WHEN count(*) = 1
-              THEN jsonb_build_object('assertion_id', min(assertion_id), 'forventet', (array_agg(forventet))[1]) END
+              THEN jsonb_build_object('assertion_id', min(assertion_id), 'forventet', (array_agg(forventet))[1],
+                                      'graenser', (array_agg(graenser))[1]) END
            AS rettelse_maal
     FROM maal0 GROUP BY interpretation_id),
 rows2 AS (

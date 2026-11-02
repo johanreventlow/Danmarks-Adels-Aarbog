@@ -2,7 +2,9 @@
 # Trin 6c-2 Task 7: kontrolværktøjet v2 ende-til-ende på en syntetisk fixtur.
 # Eksport med kildescope → plan → tomt ark → udfyldt ark → sql → psql → verify-sql → psql, og de afviste veje:
 # P <person> der ikke findes, P <personaens nuværende person> og PERSONA_HAR_PROMOTIONER (SQL-sidens værn, før
-# identitetskaldet), B uden entydigt mål og SAMPLE_FAILED (værktøjet skriver ingen SQL).
+# identitetskaldet), B uden entydigt mål og SAMPLE_FAILED (værktøjet skriver ingen SQL), og saboterede ceremonier
+# (verifikationen før COMMIT og rettelsesmålet i bindingen afviser; intet committes). En note med ', \, $v$ og :actor
+# går byte-ens gennem psql.
 # $PGDATABASE SKAL være en ren base bygget med CI-opskriften (bootstrap + schema + rls + migrations + rls). Scriptet
 # opretter kopier ${PGDATABASE}_v2<løbenr>_<pid> og sletter kun dem, det selv har oprettet i denne kørsel
 # (CONTROL_V2_KEEP_DBS=1 beholder dem). Det sletter aldrig en base, det ikke selv har oprettet.
@@ -119,6 +121,11 @@ INSERT INTO conclusion(target_type,target_id,valgt_assertion_id)
 INSERT INTO citation(assertion_id,source_id)
   SELECT id,-4750 FROM assertion WHERE id BETWEEN -47591 AND -47511;
 INSERT INTO citation(assertion_id,source_id) VALUES (-47591,-4749);
+-- p4 har også navnet fra den anden kilde (samme faktum, databasens gamle værdi): rettelsens mål er stadig -47542, og
+-- efter rettelsen skal bindingen ramme -47542, ikke -47543.
+INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderlig) VALUES
+  (-47543,'fact',-47542,'Dorthe Testlow','gregoriansk',true);
+INSERT INTO citation(assertion_id,source_id) VALUES (-47543,-4749);
 INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,
   predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id)
   SELECT ('c4750000-0000-4000-8000-0000000003'||nn)::uuid,('c4750000-0000-4000-8000-0000000004'||nn)::uuid,1,-4750,
@@ -152,10 +159,11 @@ fill() {
   for kv in "$@"; do
     local k="${kv%%=*}" v="${kv#*=}"
     case "$k" in
-      p*) sed -i.bak "s/^P $(pid "${k#p}") \([0-9]*\) : -\$/P $(pid "${k#p}") \1 : $v/" "$dst" ;;
+      p*) sed -i.bak "s/^P $(pid "${k#p}") \([0-9]*\) : _\$/P $(pid "${k#p}") \1 : $v/" "$dst" ;;
       *)  sed -i.bak "s/^F $(iid "$k") \([0-9]*\) : _\$/F $(iid "$k") \1 : $v/" "$dst" ;;
     esac
   done
+  sed -i.bak 's/^\(P [^ ]* [0-9]*\) : _$/\1 : -/' "$dst"   # personas uden svar: rigtig person
   rm -f "$dst.bak"
 }
 sha() { "$PY" -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$1"; }
@@ -188,7 +196,8 @@ assert meta["counts"]["MATCH"] == 5 and meta["counts"]["REAL_DIFF"] == 5 and met
 m42 = rows[sys.argv[3]]["rettelse_maal"]
 assert m42 == {"assertion_id": -47542, "forventet": {"fact_id": -47542, "faktatype": "navn",
                "vaerdi_tekst": "Dorthe Testlow", "date_raw": None, "valgt_assertion_id": -47542,
-               "citation_sources": [-4750]}}, m42
+               "citation_sources": [-4750]},
+               "graenser": {"date_min": None, "date_max": None, "date_qualifier": None}}, m42
 assert rows[sys.argv[4]]["rettelse_maal"] is None   # citeret af to kilder: intet entydigt mål
 assert rows["c4750000-0000-4000-8000-000000000381"]["navn_forkortes"] is True
 PY
@@ -210,11 +219,24 @@ fill "$T/plan/tomt.txt" "$T/ark.txt" 11=D 42=B 51=D 61=B 72=D 81=V 91=D
 [ ! -e "$T/x.sql" ] || die "SQL skrevet trods SAMPLE_FAILED"
 echo "OK: værktøjet afviser B uden mål, B på navn_forkortes og en fejlet stikprøve uden at skrive SQL"
 
-fill "$T/plan/tomt.txt" "$T/ark.txt" "11=B" "42=B # bogen" 51=D 61=B 72=D "81=V # usikker" 91=D "p7=P -4760"
+fill "$T/plan/tomt.txt" "$T/ark.txt" "11=B" "42=B # bogen" 51=D 61=B 72=D 81=V 91=D "p7=P -4760"
+# Noten på 81 har ', \, $v$ og :actor; den skal stå byte-ens i evidensen efter psql.
+"$PY" - "$T/ark.txt" "$(iid 81)" <<'PY'
+import sys
+path, i = sys.argv[1], sys.argv[2]
+note = "it's a \\ back $v$ dollar :actor colon"
+lines = open(path, encoding="utf-8").read().split("\n")
+n = [k for k, x in enumerate(lines) if x.startswith(f"F {i} ") and x.endswith(" : V")]
+assert len(n) == 1
+lines[n[0]] += f" # {note}"
+open(path, "w", encoding="utf-8").write("\n".join(lines))
+PY
 SHA=$(sha "$T/ark.txt")
-cm sql --plan-dir "$T/plan" --sheet "$T/ark.txt" --approved-sha256 "$SHA" --out "$T/ud.sql" >/dev/null
+cm sql --plan-dir "$T/plan" --sheet "$T/ark.txt" --approved-sha256 "$SHA" --out "$T/ud.sql" > "$T/sqlok.txt"
+grep -q "datorettelser_graenser_aendret=1 " "$T/sqlok.txt" || die "datorettelser_graenser_aendret"
 cm verify-sql --plan-dir "$T/plan" --sheet "$T/ark.txt" --approved-sha256 "$SHA" --out "$T/verify.sql" >/dev/null
-q -d "$MAIN" -v actor="$A" -f "$T/ud.sql" > "$T/out.txt"
+q -d "$MAIN" -v actor="$A" -f "$T/ud.sql" > "$T/out.txt" 2> "$T/err.txt"
+grep -q "CONTROL_V2_VERIFY_OK bundet=6 p_personas=1" "$T/err.txt" || die "verifikationen i transaktionen"
 grep -q "CONTROL_V2_OK unresolved=1 rettelser=2 afgoerelser=5 stikproeve=1 maskine=3 bundet=6" "$T/out.txt" \
   || die "ceremonien: $(grep -o 'CONTROL_V2_OK.*' "$T/out.txt")"
 q -d "$MAIN" -f "$T/verify.sql" 2>&1 | grep -q "CONTROL_V2_VERIFY_OK bundet=6 p_personas=1" || die "verify-sql"
@@ -255,6 +277,18 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM private.interpretation_current WHERE source_persona_id='c4750000-0000-4000-8000-000000000107'
               AND status<>'proposed') THEN RAISE EXCEPTION 'FEJL: P-personaens forslag er afgjort'; END IF;
+  -- Noten med ', \, $v$ og :actor er byte-ens efter psql.
+  IF (SELECT decision_evidence->>'note' FROM private.interpretation_current
+       WHERE interpretation_key='c4750000-0000-4000-8000-000000000481')
+     IS DISTINCT FROM $q$it's a \ back $v$ dollar :actor colon$q$ THEN
+    RAISE EXCEPTION 'FEJL: noten er ikke byte-ens';
+  END IF;
+  -- Det rettede navn er bundet til den rettede påstand, ikke til den anden kildes påstand på samme faktum.
+  IF (SELECT array_agg(p.target_id) FROM private.interpretation_promotion p JOIN private.interpretation i
+        ON i.id=p.interpretation_id WHERE i.interpretation_key='c4750000-0000-4000-8000-000000000442'
+       AND private.assertion_binding_current(p.id)) IS DISTINCT FROM ARRAY[-47542::bigint] THEN
+    RAISE EXCEPTION 'FEJL: rettelsens binding';
+  END IF;
   -- Bindingerne: præcis de seks.
   SELECT count(*) INTO n FROM private.interpretation_promotion p JOIN private.interpretation i ON i.id=p.interpretation_id
    WHERE i.source_id=-4750 AND private.assertion_binding_current(p.id);
@@ -280,6 +314,33 @@ expect_sql_error "$NEG" "$T/n1.sql" "SHEET_V2_LINE_INVALID line=[0-9]* person=-9
 fill "$T/plan2/tomt.txt" "$T/ark.txt" 11=B 42=D 51=D 61=D 72=D 81=V 91=D "p7=P -4757"
 cm sql --plan-dir "$T/plan2" --sheet "$T/ark.txt" --approved-sha256 "$(sha "$T/ark.txt")" --out "$T/n2.sql" >/dev/null
 expect_sql_error "$NEG" "$T/n2.sql" "SHEET_V2_LINE_INVALID line=[0-9]* person=-4757 er personaens nuværende"
+# Saboterede ceremonier (rulles tilbage): verifikationen før COMMIT forventer ét bundet forslag for lidt, og
+# rettelsesmålet i bindingsporten peger på den anden kildes påstand.
+fill "$T/plan2/tomt.txt" "$T/ark.txt" 11=B 42=B 51=D 61=B 72=D 81=V 91=D
+"$PY" - "$S" "$T/plan2" "$T/ark.txt" "$T/s1.sql" "$T/s2.sql" <<'PY'
+import hashlib, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import control_model_v2 as v2
+plan, meta = v2._load_plan(Path(sys.argv[2]))
+data = Path(sys.argv[3]).read_bytes()
+a = v2.apply_plan_v2(plan, data.decode("utf-8"), sheet_sha256=hashlib.sha256(data).hexdigest(), hashes=meta)
+sql = v2.sql_v2(plan, a)
+blok = v2._verify_do(plan, a)
+assert sql.count(blok) == 1 and len(a["rettelser"]) == 2
+Path(sys.argv[4]).write_text(sql.replace(blok, v2._verify_do(plan, dict(a, rettelser=a["rettelser"][1:]))))
+kort = v2._lit(v2._rettelse_map(a))
+assert sql.count(kort) == 1 and "-47542" in kort
+Path(sys.argv[5]).write_text(sql.replace(kort, kort.replace("-47542", "-47543")))
+PY
+expect_sql_error "$NEG" "$T/s1.sql" "CONTROL_V2_PROMOTION_MISMATCH"
+expect_sql_error "$NEG" "$T/s2.sql" "CONTROL_V2_RETTELSE_MAAL_MISMATCH"
+q -d "$NEG" -A -t -c "SELECT (SELECT count(*) FROM private.interpretation_current WHERE source_id=-4750 AND status<>'proposed')
+                      || ' ' || (SELECT count(*) FROM paastand_korrektion) || ' ' || (SELECT vaerdi_tekst FROM assertion WHERE id=-47542)
+                      || ' ' || (SELECT decision_status FROM private.source_persona_identity
+                                  WHERE source_persona_id='c4750000-0000-4000-8000-000000000107')" \
+  | grep -qx "0 0 Dorthe Testlow accepted" || die "en saboteret ceremoni efterlod ændringer"
+echo "OK: saboterede ceremonier — verifikationen før COMMIT og rettelsesmålet afviser; intet committet"
 # Persona 7's MATCH (71) accepteres og bindes uden for kontrollen; P på personaen afvises derefter.
 cat > "$T/bind71.sql" <<'SQL'
 BEGIN;

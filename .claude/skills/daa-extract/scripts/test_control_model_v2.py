@@ -48,7 +48,9 @@ def row(n: int, *, persona: int, outcome: str | None = "enig", version: int = 1,
         r["rettelse_maal"] = {"assertion_id": -1000 - n,
                               "forventet": {"fact_id": -2000 - n, "faktatype": "død", "vaerdi_tekst": None,
                                             "date_raw": "1849", "valgt_assertion_id": -1000 - n,
-                                            "citation_sources": [SRC]}}
+                                            "citation_sources": [SRC]},
+                              "graenser": {"date_min": "1849-01-01", "date_max": "1849-12-31",
+                                           "date_qualifier": None}}
     return r
 
 
@@ -80,9 +82,9 @@ def udfyld(plan: dict, svar: dict[str, str] | None = None, persona_svar: dict[st
         if m:
             tok = svar.get(m[1], "B" if m[1] in plan["sample_ids"] else "D")
             line = f"F {m[1]} {m[2]} : {tok}"
-        m = re.match(r"^P (\S+) (\d+) : -$", line)
-        if m and m[1] in persona_svar:
-            line = f"P {m[1]} {m[2]} : {persona_svar[m[1]]}"
+        m = re.match(r"^P (\S+) (\d+) : _$", line)
+        if m:
+            line = f"P {m[1]} {m[2]} : {persona_svar.get(m[1], '-')}"
         ud.append(line)
     return "\n".join(ud) + "\n"
 
@@ -482,3 +484,77 @@ def test_cli_plan_uden_kilde_afvises(tmp_path):
     r = _cli("plan", "--classification", str(tmp_path / "k.json"), "--rows", str(tmp_path / "r.json"),
              "--out-dir", str(tmp_path / "plan"))
     assert r.returncode != 0 and not (tmp_path / "plan").exists()
+
+
+# --- fix-runde 1 ----------------------------------------------------------------------------------------------------
+
+def test_tomt_ark_kraever_svar_paa_hver_persona():
+    extra = [(item(7001, "REAL_DIFF"), row(7001, persona=7001))]
+    k, rows = bygge(10, 10, extra)
+    p = plan_af(k, rows)
+    tomt = v2.render_sheet_v2(p)
+    assert all(x.endswith(" : _") for x in tomt.splitlines() if x.startswith(("P ", "F ")))
+    p_linjer = [n for n, x in enumerate(tomt.splitlines(), 1) if x.startswith("P ")]
+    with pytest.raises(ControlError, match="SHEET_V2_UNDECIDED") as e:
+        v2.parse_sheet_v2(tomt)
+    assert set(p_linjer) <= set(map(int, str(e.value).split("lines=")[1].split(",")))
+    # Felterne udfyldt, men personas stadig _: fortsat uafgjort.
+    kun_felter = re.sub(r"(?m)^(F \S+ \d+) : _$", r"\1 : D", tomt)
+    with pytest.raises(ControlError, match="SHEET_V2_UNDECIDED"):
+        v2.parse_sheet_v2(kun_felter)
+
+
+def test_dato_B_uden_graenser_afvises_og_aendrede_graenser_taelles():
+    extra = [(item(7001, "REAL_DIFF"), row(7001, persona=7001, value="ukendt tid"))]
+    k, rows = bygge(10, 10, extra)
+    p = plan_af(k, rows)
+    with pytest.raises(ControlError, match=r"SHEET_V2_LINE_INVALID line=\d+ dato_uden_graenser"):
+        anvend(p, udfyld(p, {iid(7001): "B"}))
+    anvend(p, udfyld(p, {iid(7001): "D"}))
+    # 1850 mod påstandens 1849-grænser: ændret; 1849 → samme grænser: uændret; et navn tæller ikke.
+    extra = [(item(7001, "REAL_DIFF"), row(7001, persona=7001, value="1850")),
+             (item(7002, "REAL_DIFF"), row(7002, persona=7002, value="1849")),
+             (item(7003, "REAL_DIFF", predicate="person.name"),
+              row(7003, persona=7003, predicate="person.name", value="Testa"))]
+    k, rows = bygge(10, 10, extra)
+    p = plan_af(k, rows)
+    a = anvend(p, udfyld(p, {iid(7001): "B", iid(7002): "B", iid(7003): "B"}))
+    assert len(a["rettelser"]) == 3 and v2.datorettelser_graenser_aendret(a) == 1
+
+
+def test_verifikationen_koerer_i_transaktionen_foer_commit_som_ejer():
+    p, a = _plan_med_alt()
+    sql = v2.sql_v2(p, a)
+    blok = v2._verify_do(p, a)
+    assert blok in sql and blok in v2.verify_sql_v2(p, a)
+    i = sql.index(blok)
+    assert sql.index("CONTROL_V2_BIND_COUNT") < i < sql.index("COMMIT;")
+    foer = sql[:i]
+    assert foer.rindex("RESET ROLE;") > foer.rindex("SET LOCAL ROLE authenticated;")
+
+
+def test_bindingen_kraever_rettelsens_paastand_som_maal():
+    p, a = _plan_med_alt()
+    sql = v2.sql_v2(p, a)
+    assert "CONTROL_V2_RETTELSE_MAAL_MISMATCH" in sql
+    kort = json.dumps(sorted([r["interpretation_id"], r["assertion_id"]] for r in a["rettelser"]))
+    assert len(a["rettelser"]) == 2 and _lit_i(kort) in sql
+    gate = sql[sql.index("CONTROL_V2_TARGETS_MISMATCH"):]
+    assert gate.index("CONTROL_V2_RETTELSE_MAAL_MISMATCH") < gate.index("public.red_preview_interpretation_promotions(")
+
+
+def _lit_i(s: str) -> str:
+    return "'" + s.replace("'", "''") + "'"
+
+
+def test_note_med_saerlige_tegn_bevares_og_citeres():
+    note = "it's a \\ back $v$ dollar :actor colon"
+    extra = [(item(7001, "REAL_DIFF"), row(7001, persona=7001))]
+    k, rows = bygge(10, 10, extra)
+    p = plan_af(k, rows)
+    a = anvend(p, udfyld(p, {iid(7001): f"V # {note}"}))
+    ev = next(x["evidence"] for x in a["afgoerelser"] if x["interpretation_id"] == iid(7001))
+    assert ev["note"] == note
+    sql = v2.sql_v2(p, a)
+    linje = next(x for x in sql.splitlines() if iid(7001) in x and "red_decide_interpretation" in x)
+    assert "it''s a \\\\ back $v$ dollar :actor colon" in linje   # JSON-escapet backslash, fordoblet '
