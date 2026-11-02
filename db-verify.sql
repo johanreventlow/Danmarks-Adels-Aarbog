@@ -3016,6 +3016,7 @@ DECLARE
     'public.red_lock_1939_v50_name_completion(text)'::regprocedure,
     'public.red_lock_reimport_name_completion(text,bigint,text)'::regprocedure,
     'public.red_match_personer()'::regprocedure,
+    'public.red_normaliser_forslag(uuid,integer,text)'::regprocedure,
     'public.red_ocr_historik(text,text,text)'::regprocedure,
     'public.red_opdater_media(bigint,text,text,text,text)'::regprocedure,
     'public.red_opret_estate(text,text,bigint)'::regprocedure,

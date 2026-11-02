@@ -6,7 +6,8 @@
 -- Review-handling trin B (blokken review-trin-b): også preview_relation_promotions, red_slet_oplysning og
 -- regen_person_visning (red_edit_oplysning er allerede med under RED-8). 5c-2/B11 (blokken 5c2-b11): de offentlige
 -- læse-RPC'er og bindingshjælperen. Trin 6c-2a (vej B): værdisammenligningen binding_value_matches.
--- I alt 13 + 17 + 3 + 3 + 1 = 37 linjer.
+-- Trin 6c-2b (forslagsversion): normaliser_dato_markoer_v1 og red_normaliser_forslag.
+-- I alt 13 + 17 + 3 + 3 + 1 + 2 = 39 linjer.
 \set ON_ERROR_STOP on
 SELECT l FROM (
   SELECT p.oid::regprocedure::text||'|'||p.prosecdef||'|'||coalesce(array_to_string(p.proconfig,','),'')||'|'||
@@ -33,5 +34,7 @@ SELECT l FROM (
      ('private','assertion_binding_current'),('public','public_person_facts'),
      ('public','public_person_source_coordinates'),
      -- 6c-2a
-     ('private','binding_value_matches'))) x
+     ('private','binding_value_matches'),
+     -- 6c-2b
+     ('private','normaliser_dato_markoer_v1'),('public','red_normaliser_forslag'))) x
  ORDER BY l COLLATE "C";

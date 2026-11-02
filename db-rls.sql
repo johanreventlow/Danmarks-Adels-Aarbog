@@ -711,6 +711,7 @@ BEGIN
     'public.red_relation_disposition_input(bigint)',
     'public.red_ikke_samme_som(bigint,bigint)',
     'public.red_match_personer()',
+    'public.red_normaliser_forslag(uuid,integer,text)',
     'public.red_ocr_historik(text,text,text)',
     'public.red_opdater_media(bigint,text,text,text,text)',
     'public.red_opret_estate(text,text,bigint)',
