@@ -377,3 +377,11 @@ Afvejning (Opus); fund 2-8 er bekræftet mod koden.
 | 11 | MEDIUM | `run-tests.R` kører ikke `tests/integration` | nødvendig | plan Task 4-5 (pg-job som `test-reimport-source-text-revision.R`) |
 
 Codex bekræftede: writeren antager ikke andre steder én forankring; B → C følger 6b; S4 er forstået rigtigt.
+
+### Codex-runde på retning 2's diff (2026-11-02, `gpt-6.1-sol`, ekstra runde, B13-overskridelse): GO, 0 fund
+
+Diffen `20fc2278..e62c9064` (§4.8). Writer, stikprøve, finalize og ark er enige om stikprøve og svarkrav; migrationsblokkens
+seks funktioner er byte-ens med `schema.sql`, og en genkørsel efterlader ingen `publication_control_enig`; automatiske
+udfald går gennem kernens uændrede strukturkrav; stikprøven caches pr. transaktion, så writeren ikke beregner
+populationen pr. element. Codex kunne ikke afgøre C's tid for 561 personas statisk: det måles i øvelsen og med prods
+faktor fra `maal-input` (22,8 s i prod mod 10,0 s på stand-in'en, ca. 2,3×). Afvejning (Opus): intet at indarbejde.
