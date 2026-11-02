@@ -10548,3 +10548,21 @@ BEGIN
   END LOOP;
   RAISE NOTICE 'OK: trin 6b — fortrudt publikationsidentitet (hjælper privat og prøvet; kerne, køvagt, stikprøve, finalize, writer, kontrol; indekser)';
 END $verify_6b_rerun$;
+
+-- ===== Trin 6c-1 retning 2: de automatiske udfald (delspec 6c-1 §4.8) =====
+-- Hjælperen for de automatiske udfald (enig, svag, ingen_kandidat) findes, er SECURITY DEFINER med search_path og kan ikke
+-- kaldes af nogen klientrolle; den gamle enige-hjælper findes ikke længere.
+DO $verify_6c1_retning2$
+DECLARE f text:='private.publication_control_auto(uuid,uuid)';
+BEGIN
+  IF to_regprocedure(f) IS NULL OR NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid=to_regprocedure(f))
+     OR NOT EXISTS (SELECT 1 FROM pg_proc p, unnest(p.proconfig) c WHERE p.oid=to_regprocedure(f) AND c LIKE 'search_path=%')
+     OR has_function_privilege('anon',f,'EXECUTE') OR has_function_privilege('authenticated',f,'EXECUTE')
+     OR has_function_privilege('service_role',f,'EXECUTE') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6c-1 retning 2: % (findes/security definer/search_path/ACL)',f;
+  END IF;
+  IF to_regprocedure('private.publication_control_enig(uuid,uuid)') IS NOT NULL THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6c-1 retning 2: private.publication_control_enig findes stadig';
+  END IF;
+  RAISE NOTICE 'OK: trin 6c-1 retning 2 — publication_control_auto privat, publication_control_enig fjernet';
+END $verify_6c1_retning2$;

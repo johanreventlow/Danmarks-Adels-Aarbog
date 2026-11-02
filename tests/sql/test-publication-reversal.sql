@@ -41,26 +41,29 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN RETURN SQLERRM;
 END $$;
 
--- Kandidatkørslen for en verden (svag, ét kandidatmedlem uden årstal); verden med kørslens id i nøglen 'run'. Inputtet
--- rummer alle personer i basen (red_match_personer), så kørslerne registreres, efter at alle verdener og staged-markeringer
--- findes; ellers giver finalize PUBLICATION_IDENTITY_INPUT_DRIFT.
+-- Kandidatkørslen for en verden (uenig: verdenens konkurrent, person p_base*1000-999, scorer højere end bindingspersonen,
+-- så personaerne er kort med S/F/U og oprindelsen human; delspec 6c-1 §4.8); verden med kørslens id i nøglen 'run'.
+-- Inputtet rummer alle personer i basen (red_match_personer), så kørslerne registreres, efter at alle verdener,
+-- konkurrenter og staged-markeringer findes; ellers giver finalize PUBLICATION_IDENTITY_INPUT_DRIFT.
 CREATE FUNCTION pg_temp.pr_run(w jsonb) RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE v_c jsonb:='[]'::jsonb; v_i int; v_base bigint:=(w->'src'->>'source')::bigint;
 BEGIN
   FOR v_i IN 1..jsonb_array_length(w->'personas') LOOP
-    v_c:=v_c||pg_temp.pi_cand(pg_temp.pi_persona(w,v_i),v_base*1000-v_i,1,
+    v_c:=v_c||pg_temp.pi_cand(pg_temp.pi_persona(w,v_i),v_base*1000-999,1,
+                              jsonb_build_array(pg_temp.pi_ms(v_base*1000-999,0.99,ARRAY['name'])))
+            ||pg_temp.pi_cand(pg_temp.pi_persona(w,v_i),v_base*1000-v_i,2,
                               jsonb_build_array(pg_temp.pi_ms(v_base*1000-v_i,0.95,ARRAY['name'])));
   END LOOP;
   RETURN w||jsonb_build_object('run',pg_temp.pi_run(w,'{"topK":10,"autoCutoff":0.9,"controlMargin":0.05}',v_c));
 END $$;
 
--- En finaliseret C-batch over de givne personas (svag, S), alle mod verdenens kørsel. Codex 6B-01: finalize kræver hele
+-- En finaliseret C-batch over de givne personas (uenig, S), alle mod verdenens kørsel. Codex 6B-01: finalize kræver hele
 -- B-batchens kontrolmængde, så personas uden for [from,to] skal være staged (disposition) eller have en identitet.
 CREATE FUNCTION pg_temp.pr_c(p_world jsonb, p_tag text, p_from int, p_to int) RETURNS uuid LANGUAGE plpgsql AS $$
 DECLARE v_payloads jsonb:='[]'::jsonb; v_i int; v_p jsonb; v_batch uuid; v_run uuid:=(p_world->>'run')::uuid;
 BEGIN
   FOR v_i IN p_from..p_to LOOP
-    v_payloads:=v_payloads||jsonb_build_array(pg_temp.pi_payload(p_world,v_i,v_run,'svag','S'));
+    v_payloads:=v_payloads||jsonb_build_array(pg_temp.pi_payload(p_world,v_i,v_run,'uenig','S'));
   END LOOP;
   v_batch:=pg_temp.pi_begin(p_world,p_tag,pg_temp.pi_elements(v_payloads));
   FOR v_i IN p_from..p_to LOOP
@@ -130,14 +133,21 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN RESET role; RETURN SQLERRM;
 END $$;
 
--- Kandidatkørsel, hvor persona 1..p_enig er enige (eget medlem med fødselsår, ingen konkurrent) og resten svage.
+-- Kandidatkørsel, hvor persona 1..p_enig er enige (eget medlem med fødselsår, ingen konkurrent) og resten uenige
+-- (verdenens konkurrent scorer højere; kort, delspec 6c-1 §4.8).
 CREATE FUNCTION pg_temp.pr_run_mixed(w jsonb, p_enig int) RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE v_c jsonb:='[]'::jsonb; v_i int; v_base bigint:=(w->'src'->>'source')::bigint;
 BEGIN
   FOR v_i IN 1..jsonb_array_length(w->'personas') LOOP
-    v_c:=v_c||pg_temp.pi_cand(pg_temp.pi_persona(w,v_i),v_base*1000-v_i,1,
-                              jsonb_build_array(pg_temp.pi_ms(v_base*1000-v_i,0.95,
-                                CASE WHEN v_i<=p_enig THEN ARRAY['name','birth'] ELSE ARRAY['name'] END)));
+    IF v_i<=p_enig THEN
+      v_c:=v_c||pg_temp.pi_cand(pg_temp.pi_persona(w,v_i),v_base*1000-v_i,1,
+                                jsonb_build_array(pg_temp.pi_ms(v_base*1000-v_i,0.95,ARRAY['name','birth'])));
+    ELSE
+      v_c:=v_c||pg_temp.pi_cand(pg_temp.pi_persona(w,v_i),v_base*1000-999,1,
+                                jsonb_build_array(pg_temp.pi_ms(v_base*1000-999,0.99,ARRAY['name'])))
+              ||pg_temp.pi_cand(pg_temp.pi_persona(w,v_i),v_base*1000-v_i,2,
+                                jsonb_build_array(pg_temp.pi_ms(v_base*1000-v_i,0.95,ARRAY['name'])));
+    END IF;
   END LOOP;
   RETURN w||jsonb_build_object('run',pg_temp.pi_run(w,'{"topK":10,"autoCutoff":0.9,"controlMargin":0.05}',v_c));
 END $$;
@@ -167,11 +177,13 @@ BEGIN
     ('x1',pg_temp.pi_world(-6713,'11000000-0000-0000-0000-00000006b710',1)),
     ('x2',pg_temp.pi_world(-6714,'11000000-0000-0000-0000-00000006b710',1)),
     ('open',pg_temp.pi_world(-6715,'11000000-0000-0000-0000-00000006b710',1)),
-    -- trin 6b opfølgning (I2): genkørsel (persona 1 enig, 2-3 svage), menneske efter fortrydelse, fremmed superseded
+    -- trin 6b opfølgning (I2): genkørsel (persona 1 enig, 2-3 uenige), menneske efter fortrydelse, fremmed superseded
     ('rerun',pg_temp.pi_world(-6716,'11000000-0000-0000-0000-00000006b710',3)),
     ('human',pg_temp.pi_world(-6717,'11000000-0000-0000-0000-00000006b710',2)),
     ('other',pg_temp.pi_world_split(-6718,'11000000-0000-0000-0000-00000006b710',2));
   UPDATE public.person SET staged=true WHERE id=-6710004;
+  -- verdenernes konkurrenter (pr_run/pr_run_mixed), før kørslerne registreres
+  INSERT INTO public.person(id,levende,privat,status) SELECT (v->'src'->>'source')::bigint*1000-999,false,false,'pr' FROM t7;
   FOR v_k IN SELECT k FROM t7 WHERE k<>'rerun' LOOP
     UPDATE t7 SET v=pg_temp.pr_run(v) WHERE k=v_k;
   END LOOP;
@@ -303,7 +315,7 @@ BEGIN
   -- ukendt autorisation
   PERFORM pg_temp.expect('ukendt autorisation',pg_temp.pr_try(w,v_c,gen_random_uuid()),'REIMPORT_WRITER_REVERSAL_INVALID');
   -- åben batch kan ikke autoriseres (red_authorize_reimport_reversal kræver finalized/activated)
-  v_p:=pg_temp.pi_payload(wo,1,(wo->>'run')::uuid,'svag','S');
+  v_p:=pg_temp.pi_payload(wo,1,(wo->>'run')::uuid,'uenig','S');
   v_open:=pg_temp.pi_begin(wo,'rev-open',jsonb_build_object(pg_temp.pi_el(v_p),v_p));
   BEGIN
     PERFORM pg_temp.pr_auth(wo,v_open);
@@ -323,15 +335,15 @@ END $reject$;
 
 -- 5) Trin 6b opfølgning (I2): C → fortryd → personaerne venter igen → ny C med den aktuelle version → finalize; og en
 --    dobbelt fortrydelse med genkørsel. Persona 1 er enig og i stikprøven (oprindelsen publication_binding, kernens vagt);
---    2 og 3 er svage med S (human, writerens vagt).
+--    2 og 3 er uenige med S/F/U (human, writerens vagt).
 DO $rerun$
 DECLARE
   w jsonb:=(SELECT v FROM t7 WHERE k='rerun');
   v_c1 uuid; v_c2 uuid; v_c3 uuid; v_ctl jsonb; v_e jsonb; v_i int; v_id private.source_persona_identity%ROWTYPE;
   v_items0 jsonb; v_items jsonb;
 BEGIN
-  v_items0:='[{"i":1,"outcome":"enig","answer":"S","v":0},{"i":2,"outcome":"svag","answer":"S","v":0},
-              {"i":3,"outcome":"svag","answer":"F","v":0}]';
+  v_items0:='[{"i":1,"outcome":"enig","answer":"S","v":0},{"i":2,"outcome":"uenig","answer":"S","v":0},
+              {"i":3,"outcome":"uenig","answer":"F","v":0}]';
   -- stikprøven før C: persona 1 (den eneste enige)
   v_ctl:=pg_temp.pr_ctl(w);
   IF NOT (pg_temp.pr_ctl_e(v_ctl,pg_temp.pi_persona(w,1))->>'in_sample')::boolean THEN
@@ -345,7 +357,7 @@ BEGIN
                                                      OR private.persona_awaiting_control(pg_temp.pi_persona(w,i))) THEN
     RAISE EXCEPTION 'PUBLICATION_REVERSAL_TEST_FAILED: efter C1'; END IF;
   PERFORM pg_temp.expect('C oven på en finaliseret C',pg_temp.pr_cx_try(w,'rerun-x1',
-    '[{"i":2,"outcome":"svag","answer":"S","v":1}]'),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
+    '[{"i":2,"outcome":"uenig","answer":"S","v":1}]'),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
 
   PERFORM pg_temp.pr_reverse(w,v_c1,pg_temp.pr_auth(w,v_c1));
   -- efter fortrydelsen: version 2, fortrudt, venter; kontrollen viser den aktuelle version, identity_reverted og samme stikprøve
@@ -361,20 +373,20 @@ BEGIN
   -- en enig uden stikprøvesvar giver SAMPLE_MISMATCH (stikprøven er den samme som før)
   PERFORM pg_temp.expect('genkørsel med version 0',pg_temp.pr_cx_try(w,'rerun-x2',v_items0),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
   PERFORM pg_temp.expect('genkørsel uden persona 3',pg_temp.pr_cx_try(w,'rerun-x3',
-    '[{"i":1,"outcome":"enig","answer":"S","v":2},{"i":2,"outcome":"svag","answer":"S","v":2}]'),'PUBLICATION_IDENTITY_SET_MISMATCH');
+    '[{"i":1,"outcome":"enig","answer":"S","v":2},{"i":2,"outcome":"uenig","answer":"S","v":2}]'),'PUBLICATION_IDENTITY_SET_MISMATCH');
   PERFORM pg_temp.expect('genkørsel uden stikprøvesvar',pg_temp.pr_cx_try(w,'rerun-x4',
-    '[{"i":1,"outcome":"enig","answer":null,"v":2},{"i":2,"outcome":"svag","answer":"S","v":2},{"i":3,"outcome":"svag","answer":"S","v":2}]'),
+    '[{"i":1,"outcome":"enig","answer":null,"v":2},{"i":2,"outcome":"uenig","answer":"S","v":2},{"i":3,"outcome":"uenig","answer":"S","v":2}]'),
     'PUBLICATION_IDENTITY_SAMPLE_MISMATCH');
   PERFORM pg_temp.expect('genkørsel med forkert version',pg_temp.pr_cx_try(w,'rerun-x5',
-    '[{"i":1,"outcome":"enig","answer":"S","v":1},{"i":2,"outcome":"svag","answer":"S","v":2},{"i":3,"outcome":"svag","answer":"S","v":2}]'),
+    '[{"i":1,"outcome":"enig","answer":"S","v":1},{"i":2,"outcome":"uenig","answer":"S","v":2},{"i":3,"outcome":"uenig","answer":"S","v":2}]'),
     'EVIDENCE_IDENTITY_VERSION_CONFLICT');
   IF EXISTS (SELECT 1 FROM generate_series(1,3) i JOIN private.source_persona_identity x ON x.source_persona_id=pg_temp.pi_persona(w,i)
               WHERE x.version<>2) THEN
     RAISE EXCEPTION 'PUBLICATION_REVERSAL_TEST_FAILED: afviste genkørsler skrev'; END IF;
 
   -- genkørslen: samme kandidatkørsel, version 2
-  v_c2:=pg_temp.pr_cx(w,'rerun-c2','[{"i":1,"outcome":"enig","answer":"S","v":2},{"i":2,"outcome":"svag","answer":"S","v":2},
-                                     {"i":3,"outcome":"svag","answer":"U","v":2}]');
+  v_c2:=pg_temp.pr_cx(w,'rerun-c2','[{"i":1,"outcome":"enig","answer":"S","v":2},{"i":2,"outcome":"uenig","answer":"S","v":2},
+                                     {"i":3,"outcome":"uenig","answer":"U","v":2}]');
   FOR v_i IN 1..3 LOOP
     SELECT * INTO v_id FROM private.source_persona_identity WHERE source_persona_id=pg_temp.pi_persona(w,v_i);
     IF v_id.version<>3 OR v_id.decision_status<>(CASE WHEN v_i=3 THEN 'unresolved' ELSE 'accepted' END)
@@ -403,10 +415,10 @@ BEGIN
     IF SQLERRM<>'REIMPORT_WRITER_REVERSAL_INVALID' THEN RAISE; END IF;
   END;
   PERFORM pg_temp.expect('tredje kørsel med version 2',pg_temp.pr_cx_try(w,'rerun-x6',
-    '[{"i":1,"outcome":"enig","answer":"S","v":2},{"i":2,"outcome":"svag","answer":"S","v":2},{"i":3,"outcome":"svag","answer":"S","v":2}]'),
+    '[{"i":1,"outcome":"enig","answer":"S","v":2},{"i":2,"outcome":"uenig","answer":"S","v":2},{"i":3,"outcome":"uenig","answer":"S","v":2}]'),
     'EVIDENCE_IDENTITY_VERSION_CONFLICT');
-  v_c3:=pg_temp.pr_cx(w,'rerun-c3','[{"i":1,"outcome":"enig","answer":"S","v":4},{"i":2,"outcome":"svag","answer":"S","v":4},
-                                     {"i":3,"outcome":"svag","answer":"S","v":4}]');
+  v_c3:=pg_temp.pr_cx(w,'rerun-c3','[{"i":1,"outcome":"enig","answer":"S","v":4},{"i":2,"outcome":"uenig","answer":"S","v":4},
+                                     {"i":3,"outcome":"uenig","answer":"S","v":4}]');
   IF EXISTS (SELECT 1 FROM generate_series(1,3) i JOIN private.source_persona_identity x ON x.source_persona_id=pg_temp.pi_persona(w,i)
               WHERE x.version<>5 OR x.decision_status<>'accepted' OR private.persona_awaiting_control(x.source_persona_id))
      OR (SELECT status FROM private.reimport_batch WHERE id=v_c3)<>'finalized'
@@ -441,11 +453,11 @@ BEGIN
      OR NOT private.publication_identity_reverted(v_p2) OR NOT private.persona_awaiting_control(v_p2) THEN
     RAISE EXCEPTION 'PUBLICATION_REVERSAL_TEST_FAILED: tilstand efter menneskelig afgørelse %',v_e; END IF;
   PERFORM pg_temp.expect('menneske, forrige version',pg_temp.pr_cx_try(w,'human-x1',
-    '[{"i":1,"outcome":"svag","answer":"S","v":2},{"i":2,"outcome":"svag","answer":"S","v":2}]'),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
+    '[{"i":1,"outcome":"uenig","answer":"S","v":2},{"i":2,"outcome":"uenig","answer":"S","v":2}]'),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
   PERFORM pg_temp.expect('menneske, aktuel version',pg_temp.pr_cx_try(w,'human-x2',
-    '[{"i":1,"outcome":"svag","answer":"S","v":3},{"i":2,"outcome":"svag","answer":"S","v":2}]'),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
+    '[{"i":1,"outcome":"uenig","answer":"S","v":3},{"i":2,"outcome":"uenig","answer":"S","v":2}]'),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
   PERFORM pg_temp.expect('menneske, version 0',pg_temp.pr_cx_try(w,'human-x3',
-    '[{"i":1,"outcome":"svag","answer":"S","v":0},{"i":2,"outcome":"svag","answer":"S","v":2}]'),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
+    '[{"i":1,"outcome":"uenig","answer":"S","v":0},{"i":2,"outcome":"uenig","answer":"S","v":2}]'),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
   -- en senere reversal-oprindelse direkte i kernen med den fortrudte C1 som reversed_batch_id (version 4): batchen er fortrudt
   -- og navngiver personaen, men den seneste overgang er ikke fortrydelsen af C1's identitet (C1 skrev version 1, ikke 3)
   PERFORM private.decide_source_persona_identity(v_p1,NULL,3,'superseded',
@@ -453,8 +465,8 @@ BEGIN
   IF private.publication_identity_reverted(v_p1) OR private.persona_awaiting_control(v_p1) THEN
     RAISE EXCEPTION 'PUBLICATION_REVERSAL_TEST_FAILED: senere superseded mod C1 regnet som fortrudt'; END IF;
   PERFORM pg_temp.expect('senere superseded mod C1',pg_temp.pr_cx_try(w,'human-x4',
-    '[{"i":1,"outcome":"svag","answer":"S","v":4},{"i":2,"outcome":"svag","answer":"S","v":2}]'),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
-  v_c2:=pg_temp.pr_cx(w,'human-c2','[{"i":2,"outcome":"svag","answer":"S","v":2}]');
+    '[{"i":1,"outcome":"uenig","answer":"S","v":4},{"i":2,"outcome":"uenig","answer":"S","v":2}]'),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
+  v_c2:=pg_temp.pr_cx(w,'human-c2','[{"i":2,"outcome":"uenig","answer":"S","v":2}]');
   IF (SELECT version FROM private.source_persona_identity WHERE source_persona_id=v_p1)<>4
      OR (SELECT decision_status FROM private.source_persona_identity WHERE source_persona_id=v_p1)<>'superseded'
      OR (SELECT version FROM private.source_persona_identity WHERE source_persona_id=v_p2)<>3
@@ -472,7 +484,7 @@ DECLARE
   v_c1 uuid; v_p1 uuid:=pg_temp.pi_persona(w,1); v_p2 uuid:=pg_temp.pi_persona(w,2); v_res text; v_b2 jsonb;
 BEGIN
   v_b2:=jsonb_build_object('persona_batch_id',w->'b_batches'->>1);
-  v_c1:=pg_temp.pr_cx(w,'other-c1',jsonb_build_array(jsonb_build_object('i',1,'outcome','svag','answer','S','v',0,
+  v_c1:=pg_temp.pr_cx(w,'other-c1',jsonb_build_array(jsonb_build_object('i',1,'outcome','uenig','answer','S','v',0,
                                                        'o',jsonb_build_object('persona_batch_id',w->'b_batches'->>0))));
   PERFORM pg_temp.pr_reverse(w,v_c1,pg_temp.pr_auth(w,v_c1));
   IF NOT private.publication_identity_reverted(v_p1) THEN
@@ -485,7 +497,7 @@ BEGIN
   IF private.publication_identity_reverted(v_p2) OR private.persona_awaiting_control(v_p2) THEN
     RAISE EXCEPTION 'PUBLICATION_REVERSAL_TEST_FAILED: fremmed superseded regnet som fortrudt'; END IF;
   PERFORM pg_temp.expect('fremmed superseded i C',pg_temp.pr_cx_try(w,'other-x1',
-    jsonb_build_array(jsonb_build_object('i',2,'outcome','svag','answer','S','v',2,'o',v_b2))),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
+    jsonb_build_array(jsonb_build_object('i',2,'outcome','uenig','answer','S','v',2,'o',v_b2))),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
   BEGIN
     PERFORM private.decide_source_persona_identity(v_p2,-6718002,2,'accepted',
       jsonb_build_object('authority','narrative_record_publication','binding_id',pg_temp.pi_post(w,2)->>'binding'),'publication_binding');
@@ -500,7 +512,7 @@ BEGIN
   IF private.publication_identity_reverted(v_p2) THEN
     RAISE EXCEPTION 'PUBLICATION_REVERSAL_TEST_FAILED: opdigtet/B-batch regnet som fortrudt'; END IF;
   PERFORM pg_temp.expect('B-batch som reversed_batch_id',pg_temp.pr_cx_try(w,'other-x2',
-    jsonb_build_array(jsonb_build_object('i',2,'outcome','svag','answer','S','v',4,'o',v_b2))),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
+    jsonb_build_array(jsonb_build_object('i',2,'outcome','uenig','answer','S','v',4,'o',v_b2))),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
   -- persona 1 (ægte fortrudt) kan derimod skrives igen gennem kernen direkte, med den aktuelle version
   BEGIN
     PERFORM private.decide_source_persona_identity(v_p1,-6718001,2,'accepted',

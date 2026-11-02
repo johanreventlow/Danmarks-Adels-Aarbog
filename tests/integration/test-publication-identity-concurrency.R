@@ -193,14 +193,19 @@ cleanup_fixtures(controller)
 holder_pid <- as.integer(scalar(holder, "SELECT pg_backend_pid()"))
 q <- function(value) DBI::dbQuoteLiteral(controller, value)
 
-# Verden: fire B-personas (alle svag: navn uden årstal) og kørsel 1.
+# Verden: fire B-personas og kørsel 1. Alle er uenige (den næste personas person scorer højere end bindingspersonen), så
+# de er kort med S (delspec 6c-1 §4.8): automatiske udfald ville alle ligge i stikprøven, og en C over én persona kunne
+# ikke finaliseres.
 world <- psql_value(sprintf("SELECT pg_temp.pi_world_split(-6640,'%s',4)::text", actor))
 cfg <- '{"topK":10,"autoCutoff":0.9,"controlMargin":0.05}'
 cands <- psql_value(sprintf(paste0(
-  "SELECT jsonb_agg(pg_temp.pi_cand(pg_temp.pi_persona(%s::jsonb,i),-6640000-i,1,",
-  "jsonb_build_array(pg_temp.pi_ms(-6640000-i,0.95,ARRAY['name']))) ORDER BY i)::text FROM generate_series(1,4) i"), q(world)))
+  "SELECT jsonb_agg(c ORDER BY i,r)::text FROM generate_series(1,4) i, LATERAL (VALUES ",
+  "(1,pg_temp.pi_cand(pg_temp.pi_persona(%s::jsonb,i),-6640000-(i%%4+1),1,",
+  "jsonb_build_array(pg_temp.pi_ms(-6640000-(i%%4+1),0.99,ARRAY['name'])))),",
+  "(2,pg_temp.pi_cand(pg_temp.pi_persona(%s::jsonb,i),-6640000-i,2,",
+  "jsonb_build_array(pg_temp.pi_ms(-6640000-i,0.95,ARRAY['name']))))) x(r,c)"), q(world), q(world)))
 run1 <- psql_value(sprintf("SELECT pg_temp.pi_run(%s::jsonb,%s::jsonb,%s::jsonb)::text", q(world), q(cfg), q(cands)))
-payload <- function(i, run) psql_value(sprintf(paste0("SELECT pg_temp.pi_payload(%s::jsonb,%d,'%s','svag','S',",
+payload <- function(i, run) psql_value(sprintf(paste0("SELECT pg_temp.pi_payload(%s::jsonb,%d,'%s','uenig','S',",
   "jsonb_build_object('persona_batch_id',%s::jsonb->'b_batches'->>%d))::text"), q(world), i, run, q(world), i - 1L))
 element <- function(p) psql_value(sprintf("SELECT pg_temp.pi_el(%s::jsonb)", q(p)))
 begin_batch <- function(tag, p) {

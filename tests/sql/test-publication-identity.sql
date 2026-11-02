@@ -40,7 +40,9 @@ BEGIN
 END $surface$;
 
 -- 1) Verden A: 40 B-personas og én kandidatkørsel (list-tilstand) med de fem udfald.
---    1-22 enig · 23-25 svag (uden årstal) · 26-28 uenig · 29-31 navnefaelle · 32-34 ingen_kandidat · 35-40 svag (reserve)
+--    1-22 enig · 23-25 svag (uden årstal) · 26-28 uenig · 29-31 navnefaelle · 32 ingen_kandidat (ingen kandidatrækker) ·
+--    33-34 uenig/egen_ikke_kandidat (kun en anden person i rækkerne) · 35-40 svag (reserve).
+--    Automatiske (delspec 6c-1 §4.8): enig, svag og ingen_kandidat; kort: uenig og navnefaelle.
 DO $world$
 DECLARE
   w jsonb:=pg_temp.pi_world(-6610,'11000000-0000-0000-0000-00000006b610',40);
@@ -64,7 +66,9 @@ BEGIN
     ELSIF v_i BETWEEN 29 AND 31 THEN
       v_c:=v_c||pg_temp.pi_cand(v_p,v_k,1,jsonb_build_array(pg_temp.pi_ms(v_k,0.90,ARRAY['name','birth'])))
               ||pg_temp.pi_cand(v_p,v_own,2,jsonb_build_array(pg_temp.pi_ms(v_own,0.90,ARRAY['name','birth'])));
-    ELSIF v_i BETWEEN 32 AND 34 THEN
+    ELSIF v_i=32 THEN
+      NULL;   -- ingen kandidatrækker
+    ELSIF v_i BETWEEN 33 AND 34 THEN
       v_c:=v_c||pg_temp.pi_cand(v_p,v_k,1,jsonb_build_array(pg_temp.pi_ms(v_k,0.50,ARRAY['name'])));
     ELSE
       v_c:=v_c||pg_temp.pi_cand(v_p,v_own,1,jsonb_build_array(pg_temp.pi_ms(v_own,0.95,ARRAY['name'])));
@@ -75,14 +79,19 @@ BEGIN
   FOR v_i IN 1..40 LOOP
     IF private.publication_control_outcome(pg_temp.pi_persona(w,v_i),v_run,-6610000-v_i)->>'outcome' IS DISTINCT FROM
        (CASE WHEN v_i<=22 THEN 'enig' WHEN v_i<=25 THEN 'svag' WHEN v_i<=28 THEN 'uenig' WHEN v_i<=31 THEN 'navnefaelle'
-             WHEN v_i<=34 THEN 'ingen_kandidat' ELSE 'svag' END) THEN
+             WHEN v_i=32 THEN 'ingen_kandidat' WHEN v_i<=34 THEN 'uenig' ELSE 'svag' END) THEN
       RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: fixture-udfald for %',v_i; END IF;
   END LOOP;
-  IF (SELECT count(*) FROM private.publication_control_sample(v_run))<>20 THEN
-    RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: stikprøven er ikke 20'; END IF;
+  IF private.publication_control_outcome(pg_temp.pi_persona(w,33),v_run,-6610033)->>'reason' IS DISTINCT FROM 'egen_ikke_kandidat' THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: fixture-årsag for 33'; END IF;
+  -- stikprøven: 20 af de 31 automatiske (1-25, 32, 35-39; 40 er staged), aldrig uenig eller navnefaelle
+  IF (SELECT count(*) FROM private.publication_control_sample(v_run))<>20
+     OR EXISTS (SELECT 1 FROM private.publication_control_sample(v_run) s
+                 WHERE s<>ALL(ARRAY(SELECT pg_temp.pi_persona(w,i) FROM generate_series(1,39) i WHERE i<=25 OR i=32 OR i>=35))) THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: stikprøven er ikke 20 automatiske'; END IF;
   INSERT INTO t6 VALUES ('w',w),('other',v_other),('run',to_jsonb(v_run)),('cfg',v_cfg),('cands',v_c),
     ('sample',(SELECT jsonb_agg(s) FROM private.publication_control_sample(v_run) s));
-  RAISE NOTICE 'OK: verden A (40 B-personas, fem udfald, stikprøve 20 af 22 enige)';
+  RAISE NOTICE 'OK: verden A (40 B-personas, fem udfald, stikprøve 20 af 31 automatiske)';
 END $world$;
 
 -- 2) Afvisninger: hver i sin egen batch; ingen skriver noget.
@@ -98,7 +107,13 @@ BEGIN
 
   -- payloadens form
   PERFORM pg_temp.expect('ekstra nøgle',pg_temp.pi_try(w,'r-x',pg_temp.pi_payload(w,23,v_run,'svag','S','{"x":1}')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
-  PERFORM pg_temp.expect('svag uden svar',pg_temp.pi_try(w,'r-sn',pg_temp.pi_payload(w,23,v_run,'svag',NULL)),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
+  -- delspec 6c-1 §4.8: uenig og navnefaelle kræver et svar; de automatiske (enig, svag, ingen_kandidat) tager kun S eller intet
+  PERFORM pg_temp.expect('uenig uden svar',pg_temp.pi_try(w,'r-un',pg_temp.pi_payload(w,26,v_run,'uenig',NULL)),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
+  PERFORM pg_temp.expect('egen_ikke_kandidat uden svar',pg_temp.pi_try(w,'r-un2',pg_temp.pi_payload(w,33,v_run,'uenig',NULL)),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
+  PERFORM pg_temp.expect('navnefaelle uden svar',pg_temp.pi_try(w,'r-nn',pg_temp.pi_payload(w,29,v_run,'navnefaelle',NULL)),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
+  PERFORM pg_temp.expect('svag med F',pg_temp.pi_try(w,'r-sf',pg_temp.pi_payload(w,23,v_run,'svag','F')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
+  PERFORM pg_temp.expect('svag med U',pg_temp.pi_try(w,'r-su',pg_temp.pi_payload(w,23,v_run,'svag','U')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
+  PERFORM pg_temp.expect('ingen_kandidat med F',pg_temp.pi_try(w,'r-if',pg_temp.pi_payload(w,32,v_run,'ingen_kandidat','F')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
   PERFORM pg_temp.expect('enig med F',pg_temp.pi_try(w,'r-ef',pg_temp.pi_payload(w,s_in,v_run,'enig','F')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
   PERFORM pg_temp.expect('enig med U',pg_temp.pi_try(w,'r-eu',pg_temp.pi_payload(w,s_in,v_run,'enig','U')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
   PERFORM pg_temp.expect('arkfelt uden svar',pg_temp.pi_try(w,'r-as',
@@ -106,7 +121,7 @@ BEGIN
   PERFORM pg_temp.expect('svar uden arkfelt',pg_temp.pi_try(w,'r-sa',
     pg_temp.pi_payload(w,23,v_run,'svag','S','{"sheet_line":null}')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
   PERFORM pg_temp.expect('hint ved F',pg_temp.pi_try(w,'r-hf',
-    pg_temp.pi_payload(w,23,v_run,'svag','F','{"same_as_hint_person_id":-6610926}')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
+    pg_temp.pi_payload(w,26,v_run,'uenig','F','{"same_as_hint_person_id":-6610926}')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
   PERFORM pg_temp.expect('hint = bindingspersonen',pg_temp.pi_try(w,'r-hs',
     pg_temp.pi_payload(w,23,v_run,'svag','S','{"same_as_hint_person_id":-6610023}')),'PUBLICATION_IDENTITY_PAYLOAD_INVALID');
   -- Trin 6b opfølgning (I2): versionen er et ikke-negativt heltal; en anden version end 0 kræver en fortrudt
@@ -149,11 +164,19 @@ BEGIN
   -- stikprøven: enig i stikprøven uden S, enig uden for stikprøven med S
   PERFORM pg_temp.expect('stikprøve uden S',pg_temp.pi_try(w,'r-s1',pg_temp.pi_payload(w,s_in,v_run,'enig',NULL)),'PUBLICATION_IDENTITY_SAMPLE_MISMATCH');
   PERFORM pg_temp.expect('ikke-stikprøve med S',pg_temp.pi_try(w,'r-s2',pg_temp.pi_payload(w,s_out,v_run,'enig','S')),'PUBLICATION_IDENTITY_SAMPLE_MISMATCH');
+  -- det samme for de øvrige automatiske udfald (svag 23-25/35-36/39, ingen_kandidat 32), på den side af stikprøven, de
+  -- faldt på (stikprøven afhænger af kørslens inputhash)
+  FOREACH v_i IN ARRAY ARRAY[23,24,25,32,35,36,39] LOOP
+    PERFORM pg_temp.expect('automatisk '||v_i||CASE WHEN pg_temp.pi_persona(w,v_i)=ANY(v_sample) THEN ' i stikprøven uden S' ELSE ' uden for stikprøven med S' END,
+      pg_temp.pi_try(w,'r-sa'||v_i,pg_temp.pi_payload(w,v_i,v_run,CASE WHEN v_i=32 THEN 'ingen_kandidat' ELSE 'svag' END,
+                                                     CASE WHEN pg_temp.pi_persona(w,v_i)=ANY(v_sample) THEN NULL ELSE 'S' END)),
+      'PUBLICATION_IDENTITY_SAMPLE_MISMATCH');
+  END LOOP;
 
-  -- krydsning: persona 23 med binding (og person) 24, for S, F, U; og persona s_in (enig) med binding s_out
-  v_cross:=jsonb_build_object('binding_id',pg_temp.pi_post(w,24)->>'binding','person_id',(pg_temp.pi_post(w,24)->>'person')::bigint);
+  -- krydsning: persona 26 (uenig) med binding (og person) 27, for S, F, U; og persona s_in (enig) med binding s_out
+  v_cross:=jsonb_build_object('binding_id',pg_temp.pi_post(w,27)->>'binding','person_id',(pg_temp.pi_post(w,27)->>'person')::bigint);
   FOREACH v_ans IN ARRAY ARRAY['S','F','U'] LOOP
-    PERFORM pg_temp.expect('krydsning '||v_ans,pg_temp.pi_try(w,'r-k'||v_ans,pg_temp.pi_payload(w,23,v_run,'svag',v_ans,v_cross)),
+    PERFORM pg_temp.expect('krydsning '||v_ans,pg_temp.pi_try(w,'r-k'||v_ans,pg_temp.pi_payload(w,26,v_run,'uenig',v_ans,v_cross)),
       'PUBLICATION_IDENTITY_BINDING_DRIFT');
   END LOOP;
   PERFORM pg_temp.expect('krydsning enig',pg_temp.pi_try(w,'r-ke',pg_temp.pi_payload(w,s_in,v_run,'enig','S',
@@ -172,7 +195,8 @@ BEGIN
   -- identiteten er allerede version 1 (persona 38: en menneskelig afgørelse direkte i kernen)
   PERFORM set_config('request.jwt.claim.sub',w->'src'->>'actor',true);
   PERFORM private.decide_source_persona_identity(pg_temp.pi_persona(w,38),-6610038,0,'accepted','{"basis":"web_detail","note":"t"}','human');
-  PERFORM pg_temp.expect('version 1',pg_temp.pi_try(w,'r-vc',pg_temp.pi_payload(w,38,v_run,'svag','S')),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
+  -- (38 har nu en identitet fra før C og er dermed uden for stikprøven: automatisk uden svar; kernen afviser versionen)
+  PERFORM pg_temp.expect('version 1',pg_temp.pi_try(w,'r-vc',pg_temp.pi_payload(w,38,v_run,'svag',NULL)),'EVIDENCE_IDENTITY_VERSION_CONFLICT');
   -- og med den aktuelle version (1): en menneskelig identitet er ikke en fortrudt publikationsidentitet. Kernens human-
   -- oprindelse har ingen versionsvagt, så writerens vagt er den, der afviser (trin 6b opfølgning, I2).
   PERFORM pg_temp.expect('aktuel version på menneskelig identitet',pg_temp.pi_try(w,'r-vh',
@@ -187,6 +211,8 @@ BEGIN
 END $reject$;
 
 -- 3) Fuld kæde: 34 elementer (hvert udfald med hvert tilladt svar) og finalize; status, oprindelse og evidens pr. svar.
+--    Delspec 6c-1 §4.8: de automatiske (enig, svag, ingen_kandidat) får publication_binding uden svar, eller med S i
+--    stikprøven; uenig (også egen_ikke_kandidat, 33-34) og navnefaelle får human med S/F/U.
 --    Codex 6B-01: C skal omfatte HELE B-batchens kontrolmængde (ikke-staged personas uden identitet fra før C), ellers
 --    afviser finalize med PUBLICATION_IDENTITY_SET_MISMATCH og hele C rulles tilbage:
 --    3a) de 34 alene (35, 36 og 39 mangler) afvises; 3b) hele mængden plus en staged persona (40) afvises, og det gør
@@ -196,7 +222,8 @@ END $reject$;
 DO $chain$
 DECLARE
   w jsonb:=(SELECT v FROM t6 WHERE k='w'); v_run uuid:=(SELECT (v#>>'{}')::uuid FROM t6 WHERE k='run');
-  v_sample uuid[]:=(SELECT array_agg(x::uuid) FROM t6, jsonb_array_elements_text(v) x WHERE k='sample');
+  -- stikprøven nu: 37 (binding trukket tilbage) og 38 (identitet fra før) er ude af populationen siden blok 1
+  v_sample uuid[]:=ARRAY(SELECT private.publication_control_sample(v_run));
   v_payloads jsonb:='[]'::jsonb; v_rest jsonb:='[]'::jsonb; v_all jsonb; v_p40 jsonb; v_try jsonb; v_i int; v_k int;
   v_ans text; v_out text; v_p jsonb; v_batch uuid; v_final jsonb; v_rc jsonb; v_res text; v_tag text; v_other jsonb;
   v_id private.source_persona_identity%ROWTYPE; v_ev private.reimport_event%ROWTYPE; v_cands_sha text;
@@ -205,24 +232,28 @@ BEGIN
   v_other:=(SELECT v FROM t6 WHERE k='other');
   v_state1:=private.narrative_publication_state(-6610001,-6610,'r1');
   v_state26:=private.narrative_publication_state(-6610026,-6610,'r26');
+  IF cardinality(v_sample)<>20 THEN RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: stikprøven før kæden'; END IF;
   FOR v_i IN 1..34 LOOP
     v_out:=CASE WHEN v_i<=22 THEN 'enig' WHEN v_i<=25 THEN 'svag' WHEN v_i<=28 THEN 'uenig' WHEN v_i<=31 THEN 'navnefaelle'
-                ELSE 'ingen_kandidat' END;
-    v_ans:=CASE WHEN v_i<=22 THEN CASE WHEN pg_temp.pi_persona(w,v_i)=ANY(v_sample) THEN 'S' END
+                WHEN v_i=32 THEN 'ingen_kandidat' ELSE 'uenig' END;
+    v_ans:=CASE WHEN v_out IN ('enig','svag','ingen_kandidat') THEN CASE WHEN pg_temp.pi_persona(w,v_i)=ANY(v_sample) THEN 'S' END
+                WHEN v_i=33 THEN 'S' WHEN v_i=34 THEN 'F'
                 ELSE (ARRAY['S','F','U'])[((v_i-23)%3)+1] END;
     v_p:=pg_temp.pi_payload(w,v_i,v_run,v_out,v_ans,
            CASE WHEN v_i=29 THEN '{"same_as_hint_person_id":-6610929}'::jsonb ELSE '{}'::jsonb END);
     v_payloads:=v_payloads||jsonb_build_array(v_p);
   END LOOP;
-  -- resten af kontrolmængden: 35, 36 og 39 (svag uden årstal). 37's binding blev trukket tilbage i blok 2 (mellem B og C):
-  -- C kan ikke skrive den, og den er ikke krævet
+  -- resten af kontrolmængden: 35, 36 og 39 (svag uden årstal; S kun i stikprøven). 37's binding blev trukket tilbage i
+  -- blok 2 (mellem B og C): C kan ikke skrive den, og den er ikke krævet
   IF (SELECT status FROM private.narrative_record_publication WHERE id=(pg_temp.pi_post(w,37)->>'binding')::uuid)<>'withdrawn' THEN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: 37''s binding er ikke trukket tilbage'; END IF;
   FOREACH v_i IN ARRAY ARRAY[35,36,39] LOOP
-    v_rest:=v_rest||jsonb_build_array(pg_temp.pi_payload(w,v_i,v_run,'svag','S'));
+    v_rest:=v_rest||jsonb_build_array(pg_temp.pi_payload(w,v_i,v_run,'svag',
+                                                         CASE WHEN pg_temp.pi_persona(w,v_i)=ANY(v_sample) THEN 'S' END));
   END LOOP;
   v_all:=v_payloads||v_rest;
-  v_p40:=pg_temp.pi_payload(w,40,v_run,'svag','S');
+  -- 40 er staged og dermed uden for stikprøvens population: automatisk uden svar
+  v_p40:=pg_temp.pi_payload(w,40,v_run,'svag',NULL);
 
   -- 3a) delvis C (de 34): writeren godtager hvert element, finalize afviser mængden; intet efterlades
   v_batch:=pg_temp.pi_begin(w,'chain-partial',pg_temp.pi_elements(v_payloads));
@@ -289,7 +320,7 @@ BEGIN
        OR v_id.evidence->>'candidate_run_id'<>v_run::text OR v_id.evidence->>'candidates_sha256'<>v_cands_sha
        OR v_id.evidence->>'outcome'<>v_out OR v_rc->>'decision_status'<>v_id.decision_status THEN
       RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: kvittering/evidens for % (%)',v_i,v_rc; END IF;
-    IF v_out='enig' THEN
+    IF v_out IN ('enig','svag','ingen_kandidat') THEN
       -- oprindelse publication_binding: accepted på bindingspersonen, autoritet, ingen basis; arkfelterne kun i stikprøven
       IF v_rc->>'origin'<>'publication_binding' OR v_id.decision_status<>'accepted' OR v_id.canonical_person_id<>-6610000-v_i
          OR v_id.evidence->>'authority'<>'narrative_record_publication' OR v_id.evidence ? 'basis'
@@ -297,7 +328,9 @@ BEGIN
          OR (v_ans IS NULL AND (v_id.evidence ? 'sheet_sha256' OR v_id.evidence ? 'line'))
          OR (v_ans='S' AND (v_id.evidence->>'sheet_sha256'<>repeat('a',64) OR v_id.evidence->>'rows_sha256'<>repeat('b',64)
                             OR (v_id.evidence->>'line')::int<>v_i OR v_id.evidence->>'answer'<>'S')) THEN
-        RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: enig % (%)',v_i,v_id.evidence; END IF;
+        RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: automatisk % % (%)',v_out,v_i,v_id.evidence; END IF;
+      IF v_ans IS DISTINCT FROM (CASE WHEN pg_temp.pi_persona(w,v_i)=ANY(v_sample) THEN 'S' END) THEN
+        RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: automatisk % svar % uden for stikprøvereglen',v_i,v_ans; END IF;
     ELSE
       -- oprindelse human, basis human_sheet med arkets hash, rækkefilens hash og linjen
       IF v_rc->>'origin'<>'human' OR v_id.evidence->>'basis'<>'human_sheet' OR v_id.evidence ? 'authority'
@@ -314,11 +347,18 @@ BEGIN
         RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: % % % (%)',v_out,v_ans,v_i,v_id.evidence; END IF;
     END IF;
   END LOOP;
-  -- tal: 22 publication_binding (20 med arkfelter), 15 human (12 fra 23-34 med 4 S, 4 F, 4 U, og 3 S fra 35, 36 og 39)
-  IF (SELECT count(*) FROM private.reimport_event WHERE batch_id=v_batch AND payload->'result_receipt'->>'origin'='publication_binding')<>22
+  -- tal: 29 publication_binding (22 enige, 6 svage, 1 ingen_kandidat; stikprøvens 20 med arkfelter), 8 human (26-31 med
+  -- 2 S, 2 F, 2 U, og egen_ikke_kandidat 33 S og 34 F)
+  IF (SELECT count(*) FROM private.reimport_event WHERE batch_id=v_batch AND payload->'result_receipt'->>'origin'='publication_binding')<>29
      OR (SELECT count(*) FROM private.reimport_event WHERE batch_id=v_batch AND payload->'result_receipt'->>'origin'='publication_binding'
           AND payload->>'answer'='S')<>20
-     OR (SELECT count(*) FROM private.reimport_event WHERE batch_id=v_batch AND payload->'result_receipt'->>'origin'='human')<>15 THEN
+     OR (SELECT count(*) FROM private.reimport_event WHERE batch_id=v_batch AND payload->'result_receipt'->>'origin'='publication_binding'
+          AND payload->>'outcome' IN ('svag','ingen_kandidat') AND payload->>'answer' IS NULL)
+        <>7-(SELECT count(*) FROM unnest(v_sample) x WHERE x=ANY(ARRAY(SELECT pg_temp.pi_persona(w,i) FROM unnest(ARRAY[23,24,25,32,35,36,39]) i)))
+     OR (SELECT count(*) FROM private.reimport_event WHERE batch_id=v_batch AND payload->'result_receipt'->>'origin'='human')<>8
+     -- egen_ikke_kandidat med S: human, accepted på bindingspersonen
+     OR (SELECT decision_status FROM private.source_persona_identity WHERE source_persona_id=pg_temp.pi_persona(w,33))<>'accepted'
+     OR (SELECT evidence->>'outcome' FROM private.source_persona_identity WHERE source_persona_id=pg_temp.pi_persona(w,33))<>'uenig' THEN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: tal pr. oprindelse'; END IF;
   -- efter finalize venter ingen af B's personas: C's 37 har identitet, 38 havde en fra før, og den staged (40) og den
   -- tilbagetrukne (37) frigives uden identitet (synlige som proposed); en anden B-batchs persona frigives ikke af denne C
@@ -352,7 +392,7 @@ BEGIN
      IS DISTINCT FROM 'unresolved' THEN
     RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: tilbagetrukket persona kunne ikke afgøres i webkøen'; END IF;
   INSERT INTO t6 VALUES ('chain_batch',to_jsonb(v_batch));
-  RAISE NOTICE 'OK: kontrolmængden (delvis, ekstra staged og udskiftet afvist; fuld kæde 37 elementer, fem udfald × tilladte svar, kun C og staged frigives; tilbagetrukket mellem B og C blokerer ikke og kan afgøres i webkøen)';
+  RAISE NOTICE 'OK: kontrolmængden (delvis, ekstra staged og udskiftet afvist; fuld kæde 37 elementer, fem udfald × tilladte svar, automatiske på bindingen uden svar, kun C og staged frigives; tilbagetrukket mellem B og C blokerer ikke og kan afgøres i webkøen)';
 END $chain$;
 
 -- 3d) Stikprøven har finalize's prædikater (final-review I1): 21 enige B-personas; én, der ville have fået en af de 20
@@ -436,6 +476,69 @@ BEGIN
   RAISE NOTICE 'OK: stikprøven skal ligge i C ved finalize';
 END $samplesub$;
 
+-- 3f) Delspec 6c-1 §4.8: en svag og en ingen_kandidat uden for stikprøven får identitet på bindingen uden svar (accepted,
+--     publication_binding, ingen arkfelter). 38 enige + svag (39) + ingen_kandidat (40, ingen kandidatrækker). Stikprøvens
+--     rækkefølge afhænger af kørslens input- og konfigurationshash; konfigurationen vælges (uden registrering), så begge
+--     ligger uden for de 20 laveste, og kørslen registreres derefter med den.
+DO $auto$
+DECLARE
+  w jsonb:=pg_temp.pi_world(-6615,'11000000-0000-0000-0000-00000006b615',40); v_c jsonb:='[]'::jsonb; v_run uuid; v_i int; v_k int;
+  v_cfg jsonb; v_input text; v_spec jsonb; v_sample uuid[]; v_payloads jsonb:='[]'::jsonb; v_p jsonb; v_batch uuid; v_final jsonb;
+  v_id private.source_persona_identity%ROWTYPE; v_ev private.reimport_event%ROWTYPE; v_rc jsonb;
+BEGIN
+  FOR v_i IN 1..39 LOOP
+    v_c:=v_c||pg_temp.pi_cand(pg_temp.pi_persona(w,v_i),-6615000-v_i,1,jsonb_build_array(pg_temp.pi_ms(-6615000-v_i,0.95,
+           CASE WHEN v_i<=38 THEN ARRAY['name','birth'] ELSE ARRAY['name'] END)));
+  END LOOP;
+  SELECT jsonb_build_object('mode','list','persona_ids',jsonb_agg(x ORDER BY x)) INTO v_spec FROM jsonb_array_elements_text(w->'personas') x;
+  PERFORM set_config('request.jwt.claim.sub',w->'src'->>'actor',true); PERFORM set_config('role','authenticated',true);
+  v_input:=public.red_identity_candidate_input(-6615,v_spec)->>'input_sha256';
+  RESET role;
+  FOR v_k IN 1..60 LOOP
+    v_cfg:=jsonb_build_object('topK',10,'autoCutoff',0.9,'controlMargin',0.05,'v',v_k);
+    IF NOT EXISTS (
+      SELECT 1 FROM (
+        SELECT sp.id FROM private.source_persona sp
+         WHERE sp.id IN (SELECT x::uuid FROM jsonb_array_elements_text(w->'personas') x)
+         ORDER BY encode(extensions.digest(convert_to('publication-sample-v1:'||v_input||':'||
+                  private.reimport_canonical_json_sha256(v_cfg)||':'||sp.persona_key,'UTF8'),'sha256'),'hex') COLLATE "C" LIMIT 20) x
+       WHERE x.id IN (pg_temp.pi_persona(w,39),pg_temp.pi_persona(w,40))) THEN
+      EXIT;
+    END IF;
+    v_cfg:=NULL;
+  END LOOP;
+  IF v_cfg IS NULL THEN RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: ingen konfiguration med 39 og 40 uden for stikprøven'; END IF;
+  v_run:=pg_temp.pi_run(w,v_cfg,v_c);
+  IF private.publication_control_outcome(pg_temp.pi_persona(w,39),v_run,-6615039)->>'outcome' IS DISTINCT FROM 'svag'
+     OR private.publication_control_outcome(pg_temp.pi_persona(w,40),v_run,-6615040)->>'outcome' IS DISTINCT FROM 'ingen_kandidat' THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: fixture-udfald 39/40'; END IF;
+  v_sample:=ARRAY(SELECT private.publication_control_sample(v_run));
+  IF cardinality(v_sample)<>20 OR pg_temp.pi_persona(w,39)=ANY(v_sample) OR pg_temp.pi_persona(w,40)=ANY(v_sample) THEN
+    RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: stikprøven i 3f'; END IF;
+  FOR v_i IN 1..40 LOOP
+    v_payloads:=v_payloads||jsonb_build_array(pg_temp.pi_payload(w,v_i,v_run,
+      CASE WHEN v_i<=38 THEN 'enig' WHEN v_i=39 THEN 'svag' ELSE 'ingen_kandidat' END,
+      CASE WHEN pg_temp.pi_persona(w,v_i)=ANY(v_sample) THEN 'S' END));
+  END LOOP;
+  v_batch:=pg_temp.pi_begin(w,'auto',pg_temp.pi_elements(v_payloads));
+  FOR v_i IN 0..39 LOOP
+    v_p:=v_payloads->v_i; v_rc:=pg_temp.pi_apply(w,v_batch,pg_temp.pi_el(v_p),v_p);
+  END LOOP;
+  v_final:=pg_temp.pi_finalize(w,v_batch);
+  IF v_final->>'status'<>'finalized' THEN RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: 3f finalize %',v_final; END IF;
+  FOREACH v_i IN ARRAY ARRAY[39,40] LOOP
+    SELECT * INTO v_id FROM private.source_persona_identity WHERE source_persona_id=pg_temp.pi_persona(w,v_i);
+    SELECT * INTO v_ev FROM private.reimport_event WHERE batch_id=v_batch AND element_id='publication-identity:'||pg_temp.pi_persona(w,v_i);
+    IF v_id.version<>1 OR v_id.decision_status<>'accepted' OR v_id.canonical_person_id<>-6615000-v_i
+       OR v_id.evidence->>'authority'<>'narrative_record_publication' OR v_id.evidence ? 'basis' OR v_id.evidence ? 'answer'
+       OR v_id.evidence ? 'sheet_sha256' OR v_id.evidence->>'outcome'<>(CASE WHEN v_i=39 THEN 'svag' ELSE 'ingen_kandidat' END)
+       OR v_ev.payload->'result_receipt'->>'origin'<>'publication_binding' OR v_ev.payload->'answer'<>'null'::jsonb
+       OR v_ev.canonical_person_id<>-6615000-v_i THEN
+      RAISE EXCEPTION 'PUBLICATION_IDENTITY_TEST_FAILED: 3f automatisk % (%)',v_i,v_id.evidence; END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: svag og ingen_kandidat uden for stikprøven får publication_binding uden svar';
+END $auto$;
+
 -- 4) RUN_STALE: en ny kandidatkørsel efter manifestet; og to kørsler i samme batch. Egen verden (2 B-personas), fordi
 --    kæden i blok 3 har afgjort hele verden A.
 DO $stale$
@@ -504,8 +607,9 @@ BEGIN
          pg_temp.pi_cand(pg_temp.pi_persona(w,2),-6620002,1,jsonb_build_array(pg_temp.pi_ms(-6620002,0.95,ARRAY['name']))),
          pg_temp.pi_cand(pg_temp.pi_persona(w,3),-6620003,1,jsonb_build_array(pg_temp.pi_ms(-6620003,0.95,ARRAY['name']))));
   v_run:=pg_temp.pi_run(w,v_cfg,v_c);
+  -- tre automatiske, færre end 20: alle i stikprøven med S
   v_payloads:=jsonb_build_array(pg_temp.pi_payload(w,1,v_run,'enig','S'),pg_temp.pi_payload(w,2,v_run,'svag','S'),
-                                pg_temp.pi_payload(w,3,v_run,'svag','F'));
+                                pg_temp.pi_payload(w,3,v_run,'svag','S'));
   v_batch:=pg_temp.pi_begin(w,'drift',pg_temp.pi_elements(v_payloads));
   INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,predicate,value,
     schema_version,derivation_kind,confidence,status,method,extraction_run_id)
