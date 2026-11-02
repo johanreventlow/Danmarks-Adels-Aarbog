@@ -26,7 +26,8 @@ def pid(n):
 
 
 def make(n_weak=3, n_enig=6, n_sample=2, staged=1, existing=1):
-    """Syntetisk control + details. Personas: svage, enige (n_sample af dem i stikprøven), staged, eksisterende."""
+    """Syntetisk control + details. Personas: kortudfald (uenig; n_weak), enige (n_sample af dem i stikprøven), staged,
+    eksisterende (uenig). Delspec 6c-1 §4.8: kun uenig/navnefaelle og stikprøven får kort."""
     pers, det = [], []
     k = 0
 
@@ -49,13 +50,13 @@ def make(n_weak=3, n_enig=6, n_sample=2, staged=1, existing=1):
         return p
 
     for _ in range(n_weak):
-        add("svag")
+        add("uenig")
     for i in range(n_enig):
         add("enig", sample=i < n_sample)
     for _ in range(staged):
         add("enig", not_staged=False)
     for _ in range(existing):
-        add("svag", version=3)
+        add("uenig", version=3)
     return ({"candidate_run_id": RUN, "source_id": 3, "personas": pers},
             {"candidate_run_id": RUN, "source_id": 3, "personas": det})
 
@@ -81,21 +82,30 @@ def test_kortantal_og_blanding_deterministisk():
     b = pis.render(ctl, det, "x")
     assert a == b
     pids = [l.split()[1] for _, t in a for l in t.splitlines() if l.startswith("P ")]
-    # 3 svage + 1 eksisterende svag + 2 stikprøve = 6; staged og ikke-stikprøve-enige har ikke kort
+    # 3 uenige + 1 eksisterende uenig + 2 stikprøve = 6; staged og ikke-stikprøve-enige har ikke kort
     assert len(pids) == 6
     sample = [c["source_persona_id"] for c in ctl["personas"] if c["in_sample"]]
     assert all(s in pids for s in sample)
     # blandet: ikke alle stikprøvekort står sammen først/sidst i kontrolrækkefølge
     assert pids != sorted(pids, key=lambda p: (p in sample, p))
     text = "".join(t for _, t in a)
-    assert "svag" not in text and "enig" not in text   # udfaldet vises ikke
+    assert "svag" not in text and "enig" not in text and "navnefaelle" not in text   # udfaldet vises ikke
     assert text.count("#   Konkurrent ") == 18   # højst 3 pr. kort
 
 
-def test_over_90_kort_fejler():
-    ctl, det = make(n_weak=91, n_enig=0, n_sample=0)
+def test_over_125_kort_fejler():
+    ctl, det = make(n_weak=126, n_enig=0, n_sample=0, staged=0, existing=0)
     with pytest.raises(SheetError, match="PUBLICATION_SHEET_TOO_MANY_CARDS"):
         pis.render(ctl, det, "x")
+
+
+@pytest.mark.parametrize("n", [124, 125])
+def test_op_til_125_kort_er_ok(n):
+    """Delspec 6c-1 §4.8 pkt. 5: loftet er 125 (højst 30 pr. ark, dvs. 5 ark)."""
+    ctl, det = make(n_weak=n, n_enig=0, n_sample=0, staged=0, existing=0)
+    files = pis.render(ctl, det, "x")
+    assert [len(t.split("\nP ")) - 1 for _, t in files] == [30, 30, 30, 30, n - 120]
+    assert [f for f, _ in files] == [f"x-{i}.txt" for i in range(1, 6)]
 
 
 def test_hoejst_30_pr_fil():
@@ -139,8 +149,8 @@ def test_f_u_paa_stikproeve_stopper(tmp_path, tok):
 def test_manifest_noeglesaet_og_hint(tmp_path):
     ctl, det = make()
     sample = [c["source_persona_id"] for c in ctl["personas"] if c["in_sample"]]
-    weak = next(c["source_persona_id"] for c in ctl["personas"] if c["outcome"] == "svag" and c["identity_version"] == 0)
-    fvar = [c["source_persona_id"] for c in ctl["personas"] if c["outcome"] == "svag" and c["identity_version"] == 0][1]
+    weak = next(c["source_persona_id"] for c in ctl["personas"] if c["outcome"] == "uenig" and c["identity_version"] == 0)
+    fvar = [c["source_persona_id"] for c in ctl["personas"] if c["outcome"] == "uenig" and c["identity_version"] == 0][1]
     man, info = build(ctl, det, tmp_path, tokens={weak: "S 123", fvar: "F"})
     els = man["elements"]
     for k, v in els.items():
@@ -157,7 +167,7 @@ def test_manifest_noeglesaet_og_hint(tmp_path):
     s = els[f"publication-identity:{sample[0]}"]
     assert s["answer"] == "S" and len(s["sheet_sha256"]) == 64 and s["sheet_line"] >= 1
     assert s["rows_sha256"] == hashlib.sha256(json.dumps(ctl).encode()).hexdigest()
-    # 3 svage + 6 enige nye; staged og eksisterende er dispositioner
+    # 3 uenige + 6 enige nye; staged og eksisterende er dispositioner
     assert man["expected_counts"] == {"person_creates": 0, "source_evidence": 0, "publication_identities": 9}
     assert sorted(d["label"] for d in man["dispositions"]) == ["allerede_persona", "staged_ikke_offentlig"]
 
@@ -275,7 +285,7 @@ def test_dublet_i_control_fejler(tmp_path):
 
 def test_hint_lig_bindingens_person_afvises(tmp_path):
     ctl, det = make()
-    weak = next(c for c in ctl["personas"] if c["outcome"] == "svag" and c["identity_version"] == 0)
+    weak = next(c for c in ctl["personas"] if c["outcome"] == "uenig" and c["identity_version"] == 0)
     with pytest.raises(SheetError, match="PUBLICATION_SHEET_HINT_IS_BINDING"):
         build(ctl, det, tmp_path, tokens={weak["source_persona_id"]: f"S {weak['person_id']}"})
 
@@ -344,7 +354,7 @@ MUTS = {
     "målperson": lambda c, d: d["personas"][0].update(person_id=202),
     "bindingsid": lambda c, d: d["personas"][0].update(binding_id=pid(777)),
     "bindingsstatus": lambda c, d: d["personas"][0].update(binding_status="draft"),
-    "udfald": lambda c, d: d["personas"][0].update(outcome={"outcome": "uenig"}),
+    "udfald": lambda c, d: d["personas"][0].update(outcome={"outcome": "navnefaelle"}),
     "kortets_binding": lambda c, d: d["personas"][0]["persons"][0].update(person_id=202),
     "persona_mangler": lambda c, d: d["personas"].pop(),
     "persona_ekstra": lambda c, d: d["personas"].append(dict(d["personas"][0], source_persona_id=pid(888))),
@@ -357,8 +367,8 @@ def test_control_og_details_skal_hoere_sammen(name, via):
     _mismatch(MUTS[name], via)
 
 
-def test_manifest_afviser_91_kort(tmp_path):
-    ctl, det = make(n_weak=91, n_enig=0, n_sample=0, staged=0, existing=0)
+def test_manifest_afviser_126_kort(tmp_path):
+    ctl, det = make(n_weak=126, n_enig=0, n_sample=0, staged=0, existing=0)
     with pytest.raises(SheetError, match="PUBLICATION_SHEET_TOO_MANY_CARDS"):
         pis.build_manifest(json.dumps(ctl).encode(), json.dumps(det).encode(), [], [], BATCH, CAND)
 
@@ -415,7 +425,7 @@ def _reverted(ctl, outcome, version=2, sample=False):
 
 def test_fortrudt_identitet_bliver_element_med_aktuel_version(tmp_path):
     ctl, det = make()
-    weak = _reverted(ctl, "svag")
+    weak = _reverted(ctl, "uenig")
     enig = _reverted(ctl, "enig")
     samp = _reverted(ctl, "enig", version=4, sample=True)
     files = pis.render(ctl, det, "x")
@@ -437,7 +447,7 @@ def test_fortrudt_identitet_bliver_element_med_aktuel_version(tmp_path):
 
 def test_fortrudt_identitet_med_forkert_version_paa_arket_afvises(tmp_path):
     ctl, det = make()
-    weak = _reverted(ctl, "svag")
+    weak = _reverted(ctl, "uenig")
 
     def mut(sh):
         out = []
@@ -460,7 +470,7 @@ def test_ikke_fortrudt_identitet_er_stadig_disposition(tmp_path, flag):
     """En identitet med version > 0, som ikke er en fortrudt publikationsidentitet (fx menneskelig afgørelse efter
     fortrydelsen), giver ikke et element; kun identity_reverted == True (bool) åbner for den aktuelle version."""
     ctl, det = make()
-    weak = _reverted(ctl, "svag")
+    weak = _reverted(ctl, "uenig")
     if flag is None:
         del weak["identity_reverted"]
     else:
@@ -479,3 +489,72 @@ def test_fortrudt_staged_er_staged_disposition(tmp_path):
     man, _ = build(ctl, det, tmp_path)
     assert f"publication-identity:{st['source_persona_id']}" not in man["elements"]
     assert next(x for x in man["dispositions"] if x["source_persona_id"] == st["source_persona_id"])["label"] == "staged_ikke_offentlig"
+
+
+# ---- delspec 6c-1 §4.8 (retning 2): automatiske udfald uden kort ----
+def _add_auto(ctl, det, outcome, k, sample=False):
+    """Tilføj en ny persona med et automatisk udfald (svag/ingen_kandidat), som make's personas."""
+    p = pid(500 + k)
+    ctl["personas"].append({"source_persona_id": p, "identity_version": 0, "binding_id": pid(1500 + k), "binding_status": "published",
+                            "person_id": 5500 + k, "outcome": outcome, "reason": None, "in_sample": sample, "not_staged": True})
+    det["personas"].append({"source_persona_id": p, "persona_key": f"1939:a{k}", "binding_id": pid(1500 + k),
+                            "binding_status": "published", "person_id": 5500 + k, "record_label": f"Post a{k}",
+                            "outcome": {"outcome": outcome}, "proposed": {"name": f"Autoperson {k}", "birth": None, "death": None},
+                            "persons": [{"person_id": 5500 + k, "role": "binding", "rank": None, "cluster_score": None,
+                                         "score_raw": None, "signals": None, "navn": f"Autobinding {k}", "foedt": None,
+                                         "doed": None, "titel": [], "record_labels": [f"Post a{k}"]}]})
+    return p
+
+
+def test_svag_og_ingen_kandidat_uden_for_stikproeven_faar_intet_kort_men_et_element(tmp_path):
+    ctl, det = make()
+    svag = _add_auto(ctl, det, "svag", 1)
+    ingen = _add_auto(ctl, det, "ingen_kandidat", 2)
+    text = "".join(t for _, t in pis.render(ctl, det, "x"))
+    assert svag not in text and ingen not in text
+    man, _ = build(ctl, det, tmp_path)
+    for p, outcome in ((svag, "svag"), (ingen, "ingen_kandidat")):
+        e = man["elements"][f"publication-identity:{p}"]
+        assert e["outcome"] == outcome and e["answer"] is None
+        assert e["sheet_sha256"] is None and e["rows_sha256"] is None and e["sheet_line"] is None
+        assert e["same_as_hint_person_id"] is None
+    assert man["expected_counts"]["publication_identities"] == 11
+
+
+def test_uenig_og_navnefaelle_faar_kort(tmp_path):
+    ctl, det = make(n_weak=1, n_enig=0, n_sample=0, staged=0, existing=0)
+    nf = _add_auto(ctl, det, "navnefaelle", 3)
+    u = ctl["personas"][0]["source_persona_id"]
+    text = "".join(t for _, t in pis.render(ctl, det, "x"))
+    assert f"P {u} 0 : _ #" in text and f"P {nf} 0 : _ #" in text
+    man, _ = build(ctl, det, tmp_path, tokens={nf: "U"})
+    assert man["elements"][f"publication-identity:{nf}"]["answer"] == "U"
+    assert man["elements"][f"publication-identity:{u}"]["answer"] == "S"
+
+
+def test_svag_i_stikproeven_faar_kort_og_s(tmp_path):
+    ctl, det = make()
+    svag = _add_auto(ctl, det, "svag", 4, sample=True)
+    text = "".join(t for _, t in pis.render(ctl, det, "x"))
+    assert f"P {svag} 0 : _ #" in text
+    man, _ = build(ctl, det, tmp_path)
+    assert man["elements"][f"publication-identity:{svag}"]["answer"] == "S"
+    with pytest.raises(SheetError, match="PUBLICATION_SAMPLE_FAILED"):
+        build(ctl, det, tmp_path, tokens={svag: "F"})
+
+
+def test_render_cli_skriver_fem_ark(tmp_path):
+    """Loftet 125 giver op til 5 ark; alle ark-stier efterprøves under --private-root."""
+    root = tmp_path / "priv"
+    root.mkdir()
+    ctl, det = make(n_weak=125, n_enig=0, n_sample=0, staged=0, existing=0)
+    dump(root / "ctl.json", ctl)
+    dump(root / "det.json", det)
+    r = run_cli("render", "--control", str(root / "ctl.json"), "--details", str(root / "det.json"),
+                "--out", str(root / "k"), "--private-root", str(root))
+    assert r.returncode == 0, r.stderr
+    assert "files=5" in r.stdout and all((root / f"k-{i}.txt").exists() for i in range(1, 6))
+    (root / "k-1.txt").unlink()
+    r = run_cli("render", "--control", str(root / "ctl.json"), "--details", str(root / "det.json"),
+                "--out", str(root / "k"), "--private-root", str(root))
+    assert r.returncode != 0 and "PUBLICATION_OUT_EXISTS" in (r.stderr + r.stdout)

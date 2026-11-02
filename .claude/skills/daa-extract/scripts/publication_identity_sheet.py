@@ -1,8 +1,9 @@
 """Trin 6b, ceremoni C: kortark til den menneskelige identitetskontrol og manifest for publication_identity.
 
 `render` bygger kort af red_publication_control (--control) og red_publication_control_details (--details): ét kort pr.
-ikke-staged persona med udfald != enig og pr. stikprøvepersona. Stikprøvens kort blandes ind blandt de øvrige uden at vise
-udfaldet (ingen kort viser udfaldet). Højst 30 kort pr. fil, højst 90 i alt.
+ikke-staged persona med udfaldet uenig eller navnefaelle og pr. stikprøvepersona (delspec 6c-1 §4.8). De automatiske
+udfald (enig, svag, ingen_kandidat) uden for stikprøven får identitet på C3-bindingen uden kort. Stikprøvens kort blandes
+ind blandt de øvrige uden at vise udfaldet (ingen kort viser udfaldet). Højst 30 kort pr. fil, højst 125 i alt.
 `manifest` binder de udfyldte, godkendte ark til writer-payloads (private.write_publication_identity) og skriver et manifest
 med samme form som publication_persona_manifest.sql: {"elements","expected_counts","dispositions"}.
 Arkene og detaljerne rummer navne; filerne ligger kun under --private-root. Værktøjet printer kun antal og hashes."""
@@ -22,9 +23,10 @@ from identity_queue_sheet import _write_new, check_private_path  # noqa: E402
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 UUID_RE = re.compile(f"^{UUID}$")
 P_RE = re.compile(rf"^P (?P<pid>{UUID}) (?P<ver>[0-9]+) : (?P<tok>S(?: (?P<hint>-?[0-9]{{1,18}}))?|F|U)\s*#.*$")
-MAX_CARDS = 90
+MAX_CARDS = 125
 PER_FILE = 30
 OUTCOMES = ("enig", "svag", "uenig", "navnefaelle", "ingen_kandidat")
+CARD_OUTCOMES = ("uenig", "navnefaelle")   # kræver et svar; de øvrige er automatiske (delspec 6c-1 §4.8)
 
 
 def _ws(s) -> str:
@@ -54,7 +56,7 @@ def _withdrawn(c: dict) -> bool:
 
 
 def _card_personas(control: dict) -> list[dict]:
-    """Personas der får kort: ikke-staged med udfald != enig, samt stikprøven."""
+    """Personas der får kort: ikke-staged med udfaldet uenig eller navnefaelle, samt stikprøven (delspec 6c-1 §4.8)."""
     out = []
     for c in control["personas"]:
         if _withdrawn(c):
@@ -69,7 +71,7 @@ def _card_personas(control: dict) -> list[dict]:
             raise SheetError("PUBLICATION_CONTROL_OUTCOME_MISSING")
         if c["outcome"] not in OUTCOMES:
             raise SheetError("PUBLICATION_CONTROL_OUTCOME_INVALID")
-        if c["outcome"] != "enig" or c.get("in_sample"):
+        if c["outcome"] in CARD_OUTCOMES or c.get("in_sample"):
             out.append(c)
     return out
 
@@ -294,7 +296,7 @@ def main() -> int:
         if args.cmd == "render":
             det = json.loads(check_private_path(Path(args.details), root).read_bytes().decode("utf-8"))
             base = str(Path(args.out))
-            outs = [check_private_path(Path(f"{base}-{i}.txt"), root) for i in (1, 2, 3)]
+            outs = [check_private_path(Path(f"{base}-{i}.txt"), root) for i in range(1, -(-MAX_CARDS // PER_FILE) + 1)]
             files = render(json.loads(ctl_bytes.decode("utf-8")), det, base)
             for p in outs[:len(files)]:
                 if p.exists():
