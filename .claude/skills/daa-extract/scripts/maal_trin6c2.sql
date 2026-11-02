@@ -35,7 +35,7 @@
 -- version accepteret og relation_binding_state_sha256 lig den gemte state_sha256; andre måltyper = false.
 -- -v liste=<fil>: den nøglede liste over ALLE bindinger (alle kilder) skrives til filen som linjer
 --   '<promotion-id>|<kilde>|<t|f>', sorteret som hashen, så en ændret hash kan diffes pr. binding (spec §7).
---   Stien gives uden mellemrum (psql's \o tager variablen uden citationstegn).
+--   Stien gives uden mellemrum (psql's \o tager variablen uden citationstegn); en tom -v liste= skriver ingen liste.
 -- Gate (efter controllerens afgørelse): findes en påstand med mere end én gældende assertion-binding (alle kilder),
 -- stopper målingen med MAAL_FLERE_BINDINGER (kun antallet), før linjen eller listen skrives. Validatoren har under
 -- REPEATABLE READ et dokumenteret hul; denne efterkontrol dækker det.
@@ -131,7 +131,9 @@ SELECT CASE WHEN NOT :'vejb'::boolean THEN 'foer'
                             AND q.method='deterministisk-normalisering:dato-markoer-v1') THEN 'c'
             ELSE 'b' END AS tilstand \gset m_
 
-\if :{?liste}
+\if :{?liste} \else \set liste '' \endif
+SELECT :'liste'<>'' AS har_liste \gset
+\if :har_liste
 \o :liste
 SELECT :'m_liste' WHERE :'m_liste'<>'';
 \o

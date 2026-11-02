@@ -305,6 +305,8 @@ def test_k1_hash_og_den_noeglede_liste(db, tmp_path):
     finally:
         _sql(db, f"UPDATE public.assertion SET date_raw='5. juni 1700' WHERE id={A['k1']};")
     assert _maal(db)[9] == m[9]
+    # en tom -v liste= skriver ingen liste (heller ikke til stdout): stadig én linje
+    assert _maal(db, "liste=") == _maal(db)
 
 
 def test_flere_gyldige_bindinger_paa_en_paastand_stopper_maalingen(db):
