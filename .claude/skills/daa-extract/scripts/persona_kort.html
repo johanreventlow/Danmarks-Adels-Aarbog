@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Persona-kort 1939</title>
+<title>Persona-kort</title>
 <style>
 :root {
   --bg: #f6f4ef; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6860; --line: #dcd8ce;
@@ -62,7 +62,7 @@ tr.laese td { color: var(--muted); }
 </head>
 <body>
 <header>
-  <h1>Persona-kort 1939</h1>
+  <h1 id="titel">Persona-kort</h1>
   <span id="taeller" class="meta"></span>
   <div class="prog"><div id="bar"></div></div>
   <button id="hjaelpKnap">Vejledning</button>
@@ -75,7 +75,7 @@ tr.laese td { color: var(--muted); }
     <div class="panel hjaelp" id="hjaelp" hidden>
       <h3>Sådan svarer du</h3>
       <ol>
-        <li><b>Først personen.</b> Handler 1939-posten om den person, den er knyttet til? Vælg <b>Rigtig person</b>. Er det en
+        <li><b>Først personen.</b> Handler udgavens post om den person, den er knyttet til? Vælg <b>Rigtig person</b>. Er det en
           anden, vælg <b>Forkert person</b>, og skriv evt. id på den rigtige person. Et personsvar skal altid vælges.</li>
         <li><b>Så felterne.</b> <b>B</b>: bogen har ret, forslagets værdi er den rigtige. <b>D</b>: databasens værdi er den
           rigtige. <b>V</b>: ved ikke. Er personen forkert, behøver felterne ikke besvares.</li>
@@ -97,6 +97,7 @@ try {
   if (g && g.personas && g.felter) svar = g;
 } catch (e) { /* ingen lokal lagring */ }
 let idx = 0;
+document.getElementById("titel").textContent = document.title = "Persona-kort " + DATA.udgave;
 
 function gemLokalt() { try { localStorage.setItem(KEY, JSON.stringify(svar)); } catch (e) {} }
 function h(tag, attrs, ...kids) {
@@ -135,7 +136,7 @@ function bogtekst(post) {
 }
 function sider(post) {
   const s = (post.sider || []).map(([a, b]) => a === b ? `${a}` : `${a}–${b}`);
-  return s.length ? `DAA 1939, side ${s.join(", ")}` : "side ukendt";
+  return s.length ? `${DATA.udgave}, side ${s.join(", ")}` : "side ukendt";
 }
 function saetPerson(k, tok) { svar.personas[k.persona_id] = tok; gemLokalt(); tegn(); }
 function saetFelt(k, f, tok) {
@@ -193,7 +194,7 @@ function tegn() {
       h("div", { class: "rel" }, h("b", {}, "Forældre: "), liste(p.foraeldre, 4)),
       h("div", { class: "rel" }, h("b", {}, "Ægtefælle: "), liste(p.partnere, 4)),
       h("div", { class: "rel" }, h("b", {}, "Børn: "), liste(p.boern, 8))),
-    h("div", { class: "panel" }, h("h3", {}, "1939-posten"), h("div", { class: "side" }, sider(k.post)), bogtekst(k.post)),
+    h("div", { class: "panel" }, h("h3", {}, "Udgavens post"), h("div", { class: "side" }, sider(k.post)), bogtekst(k.post)),
     personSvar(k),
     h("div", { class: "panel" }, h("h3", {}, "Felter"), felttabel(k)),
     h("div", { class: "nav" }, h("button", { onclick: () => gaa(-1) }, "←"), h("button", { onclick: () => gaa(1) }, "→"),

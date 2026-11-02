@@ -88,6 +88,16 @@ def _db_vaerdi(r: dict, person: dict) -> str | None:
     return None
 
 
+def _vist_navn(x: dict) -> dict:
+    return {"navn": x.get("navn"), "foedt": x.get("foedt"), "doed": x.get("doed")}
+
+
+def _vist_person(p: dict) -> dict:
+    """Kun det, siden viser (dataminimering): ingen køn, levende-flag, udfald, status eller interne id'er."""
+    return {**_vist_navn(p), "titel": p.get("titel"),
+            **{n: [_vist_navn(x) for x in p.get(n) or []] for n in ("foraeldre", "partnere", "boern")}}
+
+
 def build_cards(plan: dict, kontekst: dict) -> list[dict]:
     """Kortene i arkets orden. Alle svarfelter har præcis de samme nøgler."""
     kt = (kontekst or {}).get("personas") or {}
@@ -104,7 +114,7 @@ def build_cards(plan: dict, kontekst: dict) -> list[dict]:
         for r in felter:
             klasse = "MATCH" if r["interpretation_id"] in sample else "ANDET"
             aarsag = v2.b_afvisning(r, klasse)
-            svar.append({"interpretation_id": r["interpretation_id"], "version": r["version"],
+            svar.append({"interpretation_id": r["interpretation_id"],
                          "predicate": r["predicate"], "vaerdi": r["value_text"],
                          "db_vaerdi": _db_vaerdi(r, person), "b": aarsag is None,
                          "b_aarsag": B_TEKST[aarsag] if aarsag else None})
@@ -113,10 +123,8 @@ def build_cards(plan: dict, kontekst: dict) -> list[dict]:
               "vaerdi": (forslag.get(m["interpretation_id"]) or {}).get("value_text")}
              for m in maskine.get(persona["persona_id"], [])), key=_felt_noegle)
         pl = (k.get("post") or {}).get("placering") or []
-        post = {"record_key": (k.get("post") or {}).get("record_key"),
-                "sider": sorted({(o["side_fra"], o["side_til"]) for o in pl}), "vindue": vindue(pl)}
-        kort.append({"nr": nr, "persona_id": persona["persona_id"], "identity_version": persona["identity_version"],
-                     "identitet": k.get("identitet"), "person": person, "post": post,
+        post = {"sider": sorted({(o["side_fra"], o["side_til"]) for o in pl}), "vindue": vindue(pl)}
+        kort.append({"nr": nr, "persona_id": persona["persona_id"], "person": _vist_person(person), "post": post,
                      "svar_felter": svar, "kontekst_felter": kontekst_felter})
     return kort
 
@@ -132,9 +140,11 @@ def render_pages(plan: dict, kontekst: dict, plan_sha256: str, max_personas: int
     dele = chunk_cards(build_cards(plan, kontekst), max_personas)
     sider = []
     for i, kort in enumerate(dele, 1):
-        data = {"plan_sha256": plan_sha256, "side": i, "sider": len(dele), "kort": kort}
-        js = json.dumps(data, ensure_ascii=False).replace("</", "<\\/").replace(" ", "\\u2028") \
-            .replace(" ", "\\u2029")
+        data = {"plan_sha256": plan_sha256, "udgave": (kontekst or {}).get("udgave") or "DAA", "side": i,
+                "sider": len(dele), "kort": kort}
+        # Hvert `<` som \u003c (gyldig JSON): hverken `</script>`, `<!--` eller `<script` kan åbne noget i siden.
+        js = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c").replace("\u2028", "\\u2028") \
+            .replace("\u2029", "\\u2029")
         sider.append(tpl.replace("/*__DATA__*/null", js))
     return sider
 

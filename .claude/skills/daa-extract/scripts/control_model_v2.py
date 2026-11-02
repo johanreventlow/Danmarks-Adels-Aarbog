@@ -370,10 +370,11 @@ def apply_plan_v2(plan: dict, sheet_text: str, *, sheet_sha256: str, hashes: dic
         r = rows[f.interpretation_id]
         k = klasse[f.interpretation_id]
         if k != "MATCH" and f.token == "B":
-            # Kortet tilbyder ikke B her; arket afvises, selv under en P-persona (spec §4.5 pkt. 2).
-            aarsag = b_afvist_navn_eller_maal(r)
-            if aarsag == "navn_forkortes":
-                raise ControlError(f"SHEET_V2_LINE_INVALID line={f.line} navn_forkortes")
+            # Kortet tilbyder ikke B her; arket afvises, selv under en P-persona (spec §4.5 pkt. 2). Samme prædikat
+            # (`b_afvisning`) som kortene og `flet` bruger: de tre afviser præcis de samme tilfælde.
+            aarsag = b_afvisning(r, k)
+            if aarsag == "navn_forkortes" or aarsag == "dato_uden_graenser":
+                raise ControlError(f"SHEET_V2_LINE_INVALID line={f.line} {aarsag}")
             if aarsag:
                 raise ControlError(f"SHEET_V2_LINE_INVALID line={f.line} intet entydigt mål")
         if r["persona_id"] in p_set:
@@ -386,8 +387,6 @@ def apply_plan_v2(plan: dict, sheet_text: str, *, sheet_sha256: str, hashes: dic
         if f.token == "B":
             maal = r["rettelse_maal"]
             p_dato = _p_dato(r["value_text"]) if r["predicate"] in DATE_PREDICATES else None
-            if dato_uden_graenser(r):
-                raise ControlError(f"SHEET_V2_LINE_INVALID line={f.line} dato_uden_graenser")
             rettelser.append({"interpretation_id": f.interpretation_id, "version": f.version,
                               "assertion_id": maal["assertion_id"], "forventet": maal["forventet"],
                               "p_dato": p_dato, "graenser_foer": maal.get("graenser"), "line": f.line})

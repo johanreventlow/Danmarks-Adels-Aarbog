@@ -125,6 +125,7 @@ def test_b_tilbydes_kun_hvor_apply_plan_v2_accepterer_den(planmappe):
     assert any(not f["b"] for f in felter) and any(f["b"] for f in felter)
     hashes = {"classification_sha256": "c" * 64, "sample_sha256": "d" * 64, "rows_kontrol_sha256": "e" * 64}
     arsag = {}
+    sample = set(plan["sample_ids"])
     for f in felter:
         if f["interpretation_id"] in plan["sample_ids"]:
             assert f["b"]            # stikprøvefelter skal kunne få B
@@ -133,14 +134,19 @@ def test_b_tilbydes_kun_hvor_apply_plan_v2_accepterer_den(planmappe):
         svar = {r["interpretation_id"]: ("B" if r["interpretation_id"] == f["interpretation_id"]
                                          else ("B" if r["interpretation_id"] in plan["sample_ids"] else "D"))
                 for r in plan["rows_kontrol"]}
-        tekst = v2.render_sheet_v2(plan, {p["persona_id"]: "-" for p in plan["personas"]},
-                                   {i: (t, "") for i, t in svar.items()})
-        try:
-            v2.apply_plan_v2(plan, tekst, sheet_sha256="a" * 64, hashes=hashes)
-            afvist = False
-        except ControlError as e:
-            afvist = "SHEET_V2_LINE_INVALID" in str(e)
-        assert afvist == (not f["b"]), f["interpretation_id"]
+        egen = next(r["persona_id"] for r in plan["rows_kontrol"] if r["interpretation_id"] == f["interpretation_id"])
+        har_stikproeve = any(r["persona_id"] == egen and r["interpretation_id"] in sample for r in plan["rows_kontrol"])
+        # Både med personaen som »-« og som »P«: B afvises ens (også en dato uden grænser under en P-persona).
+        for tok in ("-",) if har_stikproeve else ("-", "P"):
+            tekst = v2.render_sheet_v2(plan, {p["persona_id"]: (tok if p["persona_id"] == egen else "-")
+                                              for p in plan["personas"]},
+                                       {i: (t, "") for i, t in svar.items()})
+            try:
+                v2.apply_plan_v2(plan, tekst, sheet_sha256="a" * 64, hashes=hashes)
+                afvist = False
+            except ControlError as e:
+                afvist = "SHEET_V2_LINE_INVALID" in str(e)
+            assert afvist == (not f["b"]), (f["interpretation_id"], tok)
         if not f["b"]:
             arsag[f["interpretation_id"]] = f["b_aarsag"]
     # navn_forkortes sand, dato uden grænser, intet entydigt mål: tre forskellige forklaringer.
@@ -256,3 +262,68 @@ def test_kontekst_sql_er_laese_kun():
     kode = "\n".join(l for l in sql.splitlines() if not l.lstrip().startswith("--"))
     assert not re.search(r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT)\b", kode, re.I)
     assert ":'personas'" in sql
+
+
+# --- hærdning (fix round 1) ---------------------------------------------------------------------------------
+
+MUTATIONER = {
+    "navn_forkortes_sand": {"navn_forkortes": True},
+    "navn_forkortes_null": {"navn_forkortes": None},
+    "intet_maal": {"rettelse_maal": None},
+    "dato_uden_graenser": {"predicate": "person.death", "value_text": "ca. 17??"},
+}
+
+
+@pytest.mark.parametrize("navn", sorted(MUTATIONER))
+def test_stikproevefelt_kan_altid_faa_B(planmappe, navn):
+    import copy
+    plan, _ = v2._load_plan(planmappe)
+    plan = copy.deepcopy(plan)
+    sha = _plan_sha(planmappe)
+    hashes = {"classification_sha256": "c" * 64, "sample_sha256": "d" * 64, "rows_kontrol_sha256": "e" * 64}
+    for r in plan["rows_kontrol"]:
+        if r["interpretation_id"] in plan["sample_ids"]:
+            r.update(MUTATIONER[navn])
+            assert v2.b_afvisning(r, "MATCH") is None
+    kort = pk.build_cards(plan, _json(FIX / "kontekst.json"))
+    assert all(f["b"] for k in kort for f in k["svar_felter"] if f["interpretation_id"] in plan["sample_ids"])
+    tekst = pk.flet_sheet(plan, sha, [_svar(sha)])
+    applied = v2.apply_plan_v2(plan, tekst, sheet_sha256="a" * 64, hashes=hashes)
+    assert len(applied["afgoerelser"]) >= len(plan["sample_ids"])
+
+
+def test_siden_indeholder_kun_det_den_viser(planmappe):
+    plan, _ = v2._load_plan(planmappe)
+    kt = _json(FIX / "kontekst.json")
+    kort = pk.build_cards(plan, kt)
+    for k in kort:
+        assert set(k) == {"nr", "persona_id", "person", "post", "svar_felter", "kontekst_felter"}
+        assert set(k["person"]) == {"navn", "foedt", "doed", "titel", "foraeldre", "partnere", "boern"}
+        assert set(k["post"]) == {"sider", "vindue"}
+    html = pk.render_pages(plan, kt, _plan_sha(planmappe))[0]
+    for ord_ in ("udfald", "status", "koen", "levende", "record_key", "identity_version", '"identitet"'):
+        assert ord_ not in html, ord_
+
+
+def test_udgavelabel_kommer_fra_konteksten_ikke_fra_skabelonen(planmappe):
+    plan, _ = v2._load_plan(planmappe)
+    kt = _json(FIX / "kontekst.json")
+    html = pk.render_pages(plan, kt, _plan_sha(planmappe))[0]
+    assert "Syntetisk Udgave 1999" in html and "1939" not in html
+    assert "1939" not in (HERE / "persona_kort.html").read_text(encoding="utf-8")
+
+
+def test_indlejret_json_escaper_hvert_mindre_end_tegn(planmappe):
+    plan, _ = v2._load_plan(planmappe)
+    kt = _json(FIX / "kontekst.json")
+    kt["personas"]["11111111-0000-4000-8000-000000000001"]["person"]["navn"] = "a <!-- b <script>x</script> c"
+    html = pk.render_pages(plan, kt, _plan_sha(planmappe))[0]
+    data = html.split("const DATA = ", 1)[1].split(";\nconst KEY", 1)[0]
+    assert "<" not in data
+    assert json.loads(data)["kort"][0]["person"]["navn"] == "a <!-- b <script>x</script> c"
+    assert html.count("<script>") == 1 and "<!--" not in html
+
+
+def test_kontekst_sql_filtrerer_identitet_paa_accepteret():
+    sql = SQL.read_text(encoding="utf-8")
+    assert "spi.decision_status = 'accepted'" in sql

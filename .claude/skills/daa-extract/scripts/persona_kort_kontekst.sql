@@ -10,7 +10,8 @@ WITH pp AS (SELECT DISTINCT unnest(string_to_array(:'personas', ','))::uuid AS i
 ident AS (
   SELECT pp.id, spi.canonical_person_id AS person_id, spi.evidence->>'outcome' AS udfald,
          spi.decision_status AS status, spi.version
-    FROM pp LEFT JOIN private.source_persona_identity spi ON spi.source_persona_id = pp.id),
+    FROM pp LEFT JOIN private.source_persona_identity spi ON spi.source_persona_id = pp.id
+                                                          AND spi.decision_status = 'accepted'),
 pers AS (
   SELECT p.id, coalesce(nullif(btrim(p.visning_fuldt_navn),''), p.visning_navn) AS navn,
          nullif(btrim(p.visning_fuldt_navn),'') AS fuldt_navn, p.visning_foedt AS foedt, p.visning_doed AS doed,
@@ -67,7 +68,12 @@ plac AS (
                           AND o2.char_to > occ.char_from - 2000 AND o2.char_from < occ.char_to + 800))
                    ORDER BY occ.char_from) AS j
     FROM occ GROUP BY occ.pid)
-SELECT jsonb_build_object('personas', coalesce(jsonb_object_agg(i.id::text, jsonb_build_object(
+SELECT jsonb_build_object(
+  -- Udgavens navn til kortenes overskrift: kildens udgave/titel og år (fra personaernes forslag).
+  'udgave', (SELECT nullif(btrim(concat_ws(' ', coalesce(nullif(btrim(s.udgave),''), s.titel), s.aar)), '')
+               FROM public.source s WHERE s.id = (SELECT min(ic.source_id) FROM private.interpretation_current ic
+                                                   JOIN pp ON pp.id = ic.source_persona_id)),
+  'personas', coalesce(jsonb_object_agg(i.id::text, jsonb_build_object(
     'identitet', jsonb_build_object('person_id', i.person_id, 'udfald', i.udfald, 'status', i.status),
     'person', CASE WHEN x.id IS NULL THEN '{}'::jsonb ELSE jsonb_build_object(
         'navn', x.navn, 'fuldt_navn', x.fuldt_navn, 'foedt', x.foedt, 'doed', x.doed, 'titel', x.titel, 'koen', x.koen,
