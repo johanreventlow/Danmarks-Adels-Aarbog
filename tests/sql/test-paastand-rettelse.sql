@@ -189,7 +189,7 @@ DECLARE
   a_titel bigint; i_titel uuid; a_foed bigint; i_foed uuid; i_foed2 uuid; a_doed bigint; i_doed uuid;
   a_delt bigint; i_delt uuid; a_anden bigint; i_anden uuid; i_afvist uuid; i_person uuid; i_praed uuid;
   a_navn bigint; i_navn uuid; a_bund bigint; i_bund uuid; i_bund2 uuid; v_prom uuid; i_bryd uuid; a_koen bigint;
-  a_doed2 bigint; i_doed2 uuid;
+  a_doed2 bigint; i_doed2 uuid; a_bund_y bigint;
   r jsonb; forv jsonb; v_cs bigint; n int; a record; k record; h record; v_dato jsonb;
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
@@ -228,6 +228,7 @@ BEGIN
   a_koen:=pg_temp.pr_fakta(v_p,'koen','text','mand',ARRAY[v_s]);
   a_doed2:=pg_temp.pr_fakta(v_p,'død','date_raw',E'12. marts\n1750',ARRAY[v_s],'1750-03-12','1750-03-12');
   i_doed2:=pg_temp.pr_forslag(v_s,v_post,v_run,'person.death','12. marts 1751');
+  a_bund_y:=pg_temp.pr_fakta(v_p,'titel','text','Kancelliråd',ARRAY[v_s]);
   SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   i_foed2:=pg_temp.pr_afgoer(v_actor,i_foed,'accepted');
   i_afvist:=pg_temp.pr_afgoer(v_actor,i_afvist,'rejected');
@@ -274,6 +275,9 @@ BEGIN
   PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,
     '{"date_min":"1702-03-13","date_max":"1702-03-12","date_qualifier":null}');
   PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,'[]');
+  -- En skalar p_dato afvises af typetjekket, før nøglemængden læses.
+  PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,'5');
+  PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,'"x"');
   -- Kvalifikatoren skal være en, derive_date_info kan give (eller null); ingen ekstra nøgler.
   PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,
     '{"date_min":"1702-03-12","date_max":"1702-03-12","date_qualifier":"bogus"}');
@@ -304,6 +308,8 @@ BEGIN
   -- (h) En gyldig binding fra et andet forslag ville blive ugyldig.
   PERFORM pg_temp.pr_fejl('PAASTAND_BINDING_BRYDES',a_bund,pg_temp.pr_forventet(a_bund),'bogen_har_ret',i_bryd);
   IF NOT private.assertion_binding_current(v_prom) THEN RAISE EXCEPTION 'PAASTAND_TEST_BINDING_AENDRET'; END IF;
+  -- (h2) Engangsreglens bindingsdel: i_bund2 har en gældende binding på a_bund, så den kan ikke rette en anden påstand.
+  PERFORM pg_temp.pr_fejl('PAASTAND_FORSLAG_UOVERENS',a_bund_y,pg_temp.pr_forventet(a_bund_y),'bogen_har_ret',i_bund2);
 
   -- Ingen af de afviste kald har skrevet noget.
   IF EXISTS (SELECT 1 FROM paastand_korrektion)
@@ -313,6 +319,7 @@ BEGIN
   IF (SELECT vaerdi_tekst FROM assertion WHERE id=a_titel)<>'Kammerherre'
      OR (SELECT vaerdi_tekst FROM assertion WHERE id=a_navn)<>'Ditlev Reventlow til X'
      OR (SELECT vaerdi_tekst FROM assertion WHERE id=a_bund)<>'Kammerjunker'
+     OR (SELECT vaerdi_tekst FROM assertion WHERE id=a_bund_y)<>'Kancelliråd'
      OR (SELECT date_raw FROM assertion WHERE id=a_foed)<>'12. marts 1703' THEN
     RAISE EXCEPTION 'PAASTAND_TEST_AFVIST_AENDREDE';
   END IF;

@@ -32317,8 +32317,9 @@ BEGIN
   ELSIF p_grund='linjeskift-v1' THEN
     IF p_dato IS NOT NULL THEN RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG'; END IF;
   ELSE
-    IF p_dato IS NULL OR jsonb_typeof(p_dato)<>'object'
-       OR NOT (p_dato ?& ARRAY['date_min','date_max','date_qualifier'])
+    -- The type check stands alone: Postgres does not guarantee OR order, and jsonb_object_keys fails on a scalar.
+    IF p_dato IS NULL OR jsonb_typeof(p_dato)<>'object' THEN RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG'; END IF;
+    IF NOT (p_dato ?& ARRAY['date_min','date_max','date_qualifier'])
        OR jsonb_typeof(p_dato->'date_qualifier') NOT IN ('string','null')
        OR jsonb_typeof(p_dato->'date_min') NOT IN ('string','null')
        OR jsonb_typeof(p_dato->'date_max') NOT IN ('string','null')
