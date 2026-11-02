@@ -529,6 +529,52 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 20. 6b's ceremoni C efter retning 2: 1939's identiteter — LIVE i prod (2026-11-02)
+
+**Procedure:** `docs/runbooks/trin6c1-prod.md` »Ceremoni C«, private scripts `~/.private/5ab-overfoersel/28-trin6c1-c.sh`,
+`28-trin6c1-c.R` og `28-trin6c1-c-fortryd-ddl.sql`; kortværktøjet `28-c-kort.sh` med `c-kort/`. Repo `c8d1e2a2`
+(`main` med PR #293). Tre GO'er, kørt af projektejeren. Ingen dump (C fortrydes med `reverse-c`).
+
+- **Før:** `T6C1_MAAL tilstand=b forslag_k3=2774 poster_k3=494 identiteter_k3=8 afventer=555`, `k1` `a9e32b70…`.
+  Prods faktor for C's tunge læsning målt forinden (`maal-input`: 22,8 s mod 10,0 s, samme `input_sha256`).
+- **C's DDL (GO 6c1-C-ddl `9ec87157`):** blokken `-- ===== trin 6c-1 retning 2: …` til slutningen af
+  `db-migrations.sql` (sha `ccdfe4ac…`) + `db-rls.sql` i én transaktion, `NOTIFY pgrst`. `T6C1_R2_APPLY_DDL_OK
+  foer=enig efter=auto funktioner_foer=cf4bef04d86b774a funktioner_efter=517acdea94acad49 tilstand=b`, 21,4 s, `k1`
+  uændret. Aftrykket dækker `pg_get_functiondef` **og** `proacl`; i prod ejer `postgres` funktionerne, på stand-in'en
+  den lokale rolle, så tallene kan ikke sammenlignes med øvelsens (`1aaaf0d7…`/`597eab91…`). Læse-kun kontrol
+  (`28-r2-aftryk.sh`): definitionerne alene `d098d380039e7895` = øvelsens, 6 funktioner, `acl=postgres=X/postgres`
+  (ingen `anon`/`authenticated`). `fortryd-ddl`'s mål i prod er `cf4bef04…`. Security Advisor: afventer
+  projektejerens bekræftelse.
+- **Control (GO 6c1-C-control `0e4e5cc4`):** kandidatkørsel `8d2ab8a4`, `input_sha256=7f783822…` (21,7 s),
+  `candidates_sha256=a2e80259…`, 2.032 kandidatrækker, `control_sha256=871b21f8…`. Udfald som øvelsen: `enig` 31,
+  `svag` 273 (191/64/18), `ingen_kandidat` 153, `uenig` 8 + `egen_ikke_kandidat` 45, `navnefaelle` 51; **124 kort**
+  (119 nye + 5 eksisterende, stikprøve 20).
+- **Render og kortgennemgang:** 5 ark (`details_sha256=eee13550…`, 23,2 s). De renderede tekstkort kunne ikke afgøres
+  af et menneske (kun fornavn, »?–?«, intern record-id). Kortværktøjet (`28-c-kort.sh kontekst`, læse-kun, 8-9 s)
+  hentede for kortenes 124 bindinger og 461 personer: 1939-postens tekst, sidetal (496-598) og bogteksten omkring
+  posten (sammensat af renditionens forekomster), forældre/ægtefælle/børn og tekster fra andre udgaver, og byggede en
+  lokal HTML-side (ingen udfald eller stikprøve vist). `28-c-kort.sh flet` skrev svarene ind i arkenes P-linjer
+  (round-trip byte-ens med øvelsesarket på stand-in'en). Svar: 123 S (ingen `S <id>`), 1 F, 0 U.
+- **Manifest:** `elements=553 dispositions=8 eksisterende_ikke_S=0`, `rows_sha256` = control, svar `enig:-` 28,
+  `enig:S` 3, `svag:-` 260, `svag:S` 11, `ingen_kandidat:-` 146, `ingen_kandidat:S` 6, `navnefaelle:S` 48,
+  `uenig:S` 50, `uenig:F` 1; dispositioner `allerede_persona` 3 + `allerede_persona:S` 5. Stikprøven 20 af 20 S.
+- **C (GO 6c1-C `df185473`):** `T6C1_C_TAL elementer=553 publication_binding=454 human_S=98 human_F=1 human_U=0
+  accepteret=552 stikproeve=20 identitet_som_kvittering=553 anden_person=0`; `T6C1_C_KONTROL b_personas=555
+  afventer=0 staged=2 staged_i_koe=2 koe_foer=8 koe_efter=563 eksisterende=8 eksisterende_uaendret=TRUE
+  pubstate_n=563 pubstate_uaendret=TRUE`; replay `already_applied samme_batch=TRUE`; batch `2e6be372`.
+  Efter: `T6C1_MAAL tilstand=c forslag_k3=2774 poster_k3=494 identiteter_k3=560 afventer=0`, `k1` uændret.
+- **F'et:** én persona (en oversigtspost om linje B, hvis tolkning er stamfaderen †1690, men hvis C3-binding peger på
+  barnebarnet †1773) står `unresolved` med `reason='publication_binding_disputed'`. Narrativet er stadig publiceret
+  på barnebarnet; tilbagetrækning med `red_tilbagetraek_person_narrative_record` er projektejerens valg.
+- **Fund til efter C:** 13 af de 576 personer med 1939-id har én `navn`-påstand med `vaerdi_tekst` NULL, så
+  `visning_navn` er tom (publicerede, afdøde; fx person 1785); 10 stod på kortene. Rettes med nye navnepåstande
+  (invariant 1). Oversigtsposter (»A) …«, »B) …«) nævner flere generationer, men fik én person ved indlæsningen.
+- **Ydelse (prod mod øvelsen r2):** `apply-c` 159,2 s (dry-run 159,1 s; i alt 326,5 s) mod 34 s i alt; writer-elementerne
+  135 s i alt (maks. 2,6 s) mod ca. 5 s (ca. 27×); finalize 19,6 s mod 9,6 s (2×); det første automatiske element 2,6 s
+  (skønnet 31 s). Ingen sætning nærmede sig 2 min.
+- **Fortryd:** `go-reverse-c` → `reverse-c` (C's identiteter `superseded`, tilstand `b`); derefter C fra `control`.
+  Retning 2's DDL fortrydes kun i tilstand `b` med `fortryd-ddl`. B kan ikke længere fortrydes ved restore.
+
 ## 19. Trin 6c-1 ceremoni A og B: forslagswriteren følger helpost-reglen og 1939's forslag — LIVE i prod (2026-11-02)
 
 **Procedure:** `docs/runbooks/trin6c1-prod.md`, private scripts `~/.private/5ab-overfoersel/27-trin6c1.sh`,

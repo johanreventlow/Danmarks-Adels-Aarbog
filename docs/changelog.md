@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-11-02 — 6b's ceremoni C i prod efter retning 2: 1939's 553 personas har identitet
+
+Prod-kørsel efter `docs/runbooks/trin6c1-prod.md` »Ceremoni C«, repo `c8d1e2a2` (PR #293), kørt af projektejeren med
+`~/.private/5ab-overfoersel/28-trin6c1-c.sh`. Tre ceremonier (DDL, control, C); detaljer i `database-current-state.md`
+§20. Trin 6c-1 er dermed afsluttet.
+
+- **C's DDL (GO 6c1-C-ddl `9ec87157`):** retning 2's funktioner; `T6C1_R2_APPLY_DDL_OK foer=enig efter=auto`, 21,4 s.
+  Funktionsaftrykket afviger fra øvelsens, fordi det også dækker rettighederne (`proacl`), og ejeren er `postgres` i
+  prod mod den lokale rolle på stand-in'en; definitionerne alene er byte-ens med øvelsens (`d098d380…`).
+- **Control (GO 6c1-C-control `0e4e5cc4`):** kandidatkørsel `8d2ab8a4`, input og kandidater som øvelsen
+  (`7f783822…`, `a2e80259…`), 124 kort.
+- **Kortgennemgangen:** projektejeren afviste de renderede tekstark som ubrugelige (kun fornavn, »?–?« og en intern
+  record-id). Et lokalt kortværktøj uden for repo'et (`28-c-kort.sh`: læse-kun kontekst fra prod → HTML med bogens
+  tekst omkring posten, side, forældre/ægtefælle/børn; svarene flettes ind i de bundne ark) erstattede arbejdet i
+  tekstfilerne. Svar: 123 S, 1 F (en oversigtspost om linje B bundet til barnebarnet), 0 U; stikprøven 20 af 20 S.
+- **C (GO 6c1-C `df185473`):** 553 identiteter (454 `publication_binding`, 98 `human` S, 1 `human` F →
+  `unresolved`); `afventer=0`, `koe_efter=563`, eksisterende og publiceringstilstand uændret; replay
+  `already_applied`; `T6C1_APPLY_C_OK tilstand=c tal=2774,494,560,0`. 159 s (326 s inkl. dry-run).
+- **Fund:** 13 af 1939's 576 personer har en tom navnepåstand (navnet tabt ved den oprindelige indlæsning); 10 stod på
+  kortene. Rettes efter C med nye navnepåstande.
+
 ## 2026-11-02 — Trin 6c-1 i prod: forslagswriteren følger helpost-reglen (DDL) og 1939's 2.774 forslag (data)
 
 Prod-kørsel efter `docs/runbooks/trin6c1-prod.md`, repo `20fc2278` (PR #290, #291), kørt af projektejeren med
