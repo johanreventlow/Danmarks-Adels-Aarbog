@@ -19868,7 +19868,22 @@ GRANT EXECUTE ON FUNCTION public.public_family_sources(bigint[]) TO anon,authent
 -- har ingen tilstands-sha, og red_ret_ocr_felt retter værdien på samme assertion-id). Invarianterne er de samme som
 -- validate_interpretation_promotion_items' (identitet, faktatype, værdi), men mod promotionens GEMTE regelversion.
 -- Validatoren ændres ikke; test-person-facts.sql låser, at de to er enige.
+-- Trin 6c-2a (vej B): værdisammenligningen står ét sted, binding_value_matches, som både enkeltopslaget her og
+-- public_person_facts' set-baserede tjek bruger, så de ikke kan glide fra hinanden.
 -- ===================================================================================
+CREATE OR REPLACE FUNCTION private.binding_value_matches(p_value_kind text, p_interpretation_value jsonb,
+  p_vaerdi_tekst text, p_date_raw text)
+RETURNS boolean LANGUAGE sql IMMUTABLE SECURITY INVOKER SET search_path=pg_catalog AS $$
+  SELECT CASE p_value_kind
+           WHEN 'text' THEN lower(btrim(normalize(p_interpretation_value #>> '{}',NFC)))
+                            IS NOT DISTINCT FROM lower(btrim(normalize(p_vaerdi_tekst,NFC)))
+           WHEN 'date_raw' THEN lower(btrim(normalize(p_interpretation_value #>> '{}',NFC)))
+                            IS NOT DISTINCT FROM lower(btrim(normalize(p_date_raw,NFC)))
+           ELSE false
+         END
+$$;
+REVOKE ALL ON FUNCTION private.binding_value_matches(text,jsonb,text,text) FROM PUBLIC,anon,authenticated,service_role;
+
 CREATE OR REPLACE FUNCTION private.assertion_binding_current(p_promotion_id uuid)
 RETURNS boolean LANGUAGE sql STABLE SECURITY INVOKER SET search_path=pg_catalog AS $$
   SELECT EXISTS (
@@ -19886,13 +19901,7 @@ RETURNS boolean LANGUAGE sql STABLE SECURITY INVOKER SET search_path=pg_catalog 
        AND f.faktatype=r.expected_fact_type
        AND (NOT r.requires_persona_identity
             OR (i.canonical_person_id IS NOT NULL AND f.subjekt_type='person' AND f.subjekt_id=i.canonical_person_id))
-       AND CASE r.value_kind
-             WHEN 'text' THEN lower(btrim(normalize(cur.value #>> '{}',NFC)))
-                              IS NOT DISTINCT FROM lower(btrim(normalize(a.vaerdi_tekst,NFC)))
-             WHEN 'date_raw' THEN lower(btrim(normalize(cur.value #>> '{}',NFC)))
-                              IS NOT DISTINCT FROM lower(btrim(normalize(a.date_raw,NFC)))
-             ELSE false
-           END
+       AND private.binding_value_matches(r.value_kind,cur.value,a.vaerdi_tekst,a.date_raw)
   )
 $$;
 REVOKE ALL ON FUNCTION private.assertion_binding_current(uuid) FROM PUBLIC,anon,authenticated,service_role;
@@ -20042,6 +20051,10 @@ REVOKE ALL ON FUNCTION private.supersede_for_text_revision(uuid[],uuid,text,json
 -- supporting-observation med præcis én accepteret anchor i fortolkningens kilde, og recordens eneste publicerede
 -- narrativ hører til faktummets person og består publiceringsgaten. Ellers NULL (fail-closed). SECURITY DEFINER
 -- omgår RLS; persongaten er derfor i selve funktionen.
+-- Trin 6c-2a (vej B): bindingernes gyldighed afgøres for alle personens promotion-rækker i én mængdeoperation med
+-- assertion_binding_current's invarianter (aktuel accepteret version, gemt regel, faktatype, identitet og
+-- binding_value_matches); interpretation_current læses én gang for de berørte nøgler, ikke én gang pr. binding.
+-- Resultatet er rækkeligt med definitionen før 6c-2a (tests/sql/fixtures/public_person_facts_reference.sql).
 CREATE OR REPLACE FUNCTION public.public_person_facts(p_person_ids bigint[])
 RETURNS TABLE(person_id bigint, fact_id bigint, faktatype text, conclusion_status text, assertion_id bigint,
   chosen boolean, vaerdi_tekst text, date_raw text, date_min date, date_max date, date_qualifier text,
@@ -20059,22 +20072,40 @@ BEGIN
      WHERE fa.subjekt_type='person' AND fa.subjekt_id=ANY(p_person_ids)
        AND cn.status IN ('afklaret','omstridt')
        AND public.entitet_offentlig('person',fa.subjekt_id)
+  ), pr AS (
+    -- Personernes assertion-promotions med fortolkningsnøgle.
+    SELECT p.id,p.interpretation_id,p.target_id,p.rule_key,p.rule_version,q.interpretation_key
+      FROM private.interpretation_promotion p
+      JOIN private.interpretation q ON q.id=p.interpretation_id
+     WHERE p.target_type='assertion'
+       AND p.target_id IN (SELECT a.id FROM public.assertion a JOIN f ON a.target_type='fact' AND a.target_id=f.id)
+  ), cur AS (
+    -- interpretation_current én gang for de berørte nøgler (filteret på nøglen skubbes ind under DISTINCT ON).
+    SELECT ic.id,ic.interpretation_key,ic.status,ic.source_id,ic.source_persona_id,ic.value
+      FROM private.interpretation_current ic
+     WHERE ic.interpretation_key=ANY(ARRAY(SELECT pr.interpretation_key FROM pr))
   ), b AS (
-    -- Gældende bindinger pr. assertion med deres eneste record (betingelse 1, 2 og 4).
-    SELECT p.target_id AS assertion_id,p.id AS promotion_id,cur.source_id,
+    -- Gældende bindinger pr. assertion med deres eneste record (betingelse 1, 2 og 4); gyldigheden som
+    -- assertion_binding_current, for alle rækker på én gang.
+    SELECT pr.target_id AS assertion_id,pr.id AS promotion_id,cur.source_id,
            (SELECT array_agg(an.source_record_id)
               FROM private.interpretation_observation io
               JOIN private.source_observation o ON o.id=io.observation_id
               JOIN private.source_record_anchor_current an ON an.occurrence_id=o.occurrence_id AND an.decision_status='accepted'
-             WHERE io.interpretation_id=p.interpretation_id AND io.evidence_role='supporting') AS recs,
+             WHERE io.interpretation_id=pr.interpretation_id AND io.evidence_role='supporting') AS recs,
            (SELECT count(*) FROM private.interpretation_observation io
-             WHERE io.interpretation_id=p.interpretation_id AND io.evidence_role='supporting') AS n_support
-      FROM private.interpretation_promotion p
-      JOIN private.interpretation q ON q.id=p.interpretation_id
-      JOIN private.interpretation_current cur ON cur.interpretation_key=q.interpretation_key AND cur.id=p.interpretation_id
-     WHERE p.target_type='assertion'
-       AND p.target_id IN (SELECT a.id FROM public.assertion a JOIN f ON a.target_type='fact' AND a.target_id=f.id)
-       AND private.assertion_binding_current(p.id)
+             WHERE io.interpretation_id=pr.interpretation_id AND io.evidence_role='supporting') AS n_support
+      FROM pr
+      JOIN cur ON cur.interpretation_key=pr.interpretation_key AND cur.id=pr.interpretation_id AND cur.status='accepted'
+      JOIN private.interpretation_promotion_rule r ON r.rule_key=pr.rule_key AND r.rule_version=pr.rule_version
+      JOIN public.assertion ba ON ba.id=pr.target_id AND ba.target_type='fact'
+      JOIN public.fact bf ON bf.id=ba.target_id
+      LEFT JOIN private.source_persona_identity i
+        ON i.source_persona_id=cur.source_persona_id AND i.decision_status='accepted'
+     WHERE bf.faktatype=r.expected_fact_type
+       AND (NOT r.requires_persona_identity
+            OR (i.canonical_person_id IS NOT NULL AND bf.subjekt_type='person' AND bf.subjekt_id=i.canonical_person_id))
+       AND private.binding_value_matches(r.value_kind,cur.value,ba.vaerdi_tekst,ba.date_raw)
   ), bp AS (
     -- Betingelse 2 og 3: én record i fortolkningens kilde, én publiceret narrativ for den.
     SELECT b.assertion_id,sr.public_ref,nrp.id AS binding_id,nrp.narrative_id

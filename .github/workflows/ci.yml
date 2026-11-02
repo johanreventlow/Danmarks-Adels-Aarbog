@@ -400,8 +400,8 @@ jobs:
             psql -h localhost -U postgres -d reimport_schema_only_5ab -q -v ON_ERROR_STOP=1 -f "$f" >/dev/null; done
           psql -h localhost -U postgres -d reimport_schema_only_5ab -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-5ab-function-parity.sql > parity-5ab-schema.txt
           psql -h localhost -U postgres -d reimport_legacy_empty_153 -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-5ab-function-parity.sql > parity-5ab-upgraded.txt
-          test "$(wc -l < parity-5ab-schema.txt)" -eq 36 || { echo "5ab+RED-8+trin B+5c2-b11 parity: forventede 36 funktioner" >&2; exit 1; }
-          test "$(wc -l < parity-5ab-upgraded.txt)" -eq 36 || { echo "5ab+RED-8+trin B+5c2-b11 parity: forventede 36 funktioner (migreret)" >&2; exit 1; }
+          test "$(wc -l < parity-5ab-schema.txt)" -eq 37 || { echo "5ab+RED-8+trin B+5c2-b11+6c-2a parity: forventede 37 funktioner" >&2; exit 1; }
+          test "$(wc -l < parity-5ab-upgraded.txt)" -eq 37 || { echo "5ab+RED-8+trin B+5c2-b11+6c-2a parity: forventede 37 funktioner (migreret)" >&2; exit 1; }
           cmp parity-5ab-schema.txt parity-5ab-upgraded.txt
           # RED-8 (A3): kolonnerne i de 25 id-tabeller (inkl. identity) er ens i ren schema.sql-base og migreret base.
           psql -h localhost -U postgres -d reimport_schema_only_5ab -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-red8-column-parity.sql > parity-red8-schema.txt
