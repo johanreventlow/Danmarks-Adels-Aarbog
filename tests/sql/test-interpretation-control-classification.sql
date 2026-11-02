@@ -181,7 +181,7 @@ ROLLBACK;
 --   X -4651 død '1850' (-4661), navn 'Anna Testlow' (-4667); Y -4652 død '1851' (-4662);
 --   Z -4653 død '1852' (-4663), bundet gyldigt af B's nøgle 11;
 --   W -4654 død '1853' (-4664), bundet af B's nøgle 12, hvis persona derefter flyttes til -4656 (bindingen bliver ugyldig);
---   V -4655 navn 'Anna Testlow til Testholm' (-4665); -4656 flytmål uden fakta.
+--   V -4655 navn 'Anna Testlow til Testholm' (-4665) og 'Bent Testlow' (-4668); -4656 flytmål uden fakta.
 -- Forslag (n → kilde, persona, prædikat, værdi, forventet klasse):
 --   01 A pa1 death '1850'   TARGET_SHARED (02 matcher samme påstand fra en anden kilde)
 --   02 B pb1 death '1850'   TARGET_SHARED
@@ -189,8 +189,10 @@ ROLLBACK;
 --   04 A pa2 death ' 1851 ' TARGET_SHARED
 --   05 A pa3 death '1852'   ALREADY_BOUND_OTHER (11 har en gyldig binding på -4663)
 --   06 A pa4 death '1853'   MATCH (12's binding på -4664 er ikke længere gyldig)
---   07 A pa5 name 'Anna Testlow'   REAL_DIFF, navn_forkortes = true
+--   07 A pa5 name 'Anna Testlow'   REAL_DIFF, navn_forkortes = true (forkorter det ene af V's navne, ikke det andet)
 --   08 A pa1 name 'Anne Testlow'   REAL_DIFF, navn_forkortes = false
+--   09 A pa6 name 'Carl Testlow'   NO_IDENTITY, navn_forkortes = NULL (ingen identitet)
+--   10 A pa2 name 'Dorte Testlow'  NO_FACT, navn_forkortes = NULL (Y har ingen navnepåstand)
 --   11 B pb2 death '1852', 12 B pb3 death '1853': accepteres og bindes før klassifikationen (ikke proposed).
 -- ======================================================================================================================
 BEGIN;
@@ -226,10 +228,10 @@ INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,de
   SELECT ('a4650000-0000-4000-8000-0000000000'||k||'3')::uuid,('a4650000-0000-4000-8000-0000000000'||k||'5')::uuid,
          'accepted','{"basis":"kildescope46"}',1,'a4650000-0000-4000-8000-000000000001','fixture'
     FROM (VALUES ('a'),('b')) v(k);
--- Personaer: A pa1..pa5 (…01a1..01a5), B pb1..pb3 (…01b1..01b3), hver med sin mention.
+-- Personaer: A pa1..pa6 (…01a1..01a6; pa6 uden identitet), B pb1..pb3 (…01b1..01b3), hver med sin mention.
 CREATE TEMP TABLE ks_persona(p text, k text, s bigint) ON COMMIT DROP;
 INSERT INTO ks_persona VALUES ('a1','a',-4650),('a2','a',-4650),('a3','a',-4650),('a4','a',-4650),('a5','a',-4650),
-                              ('b1','b',-4659),('b2','b',-4659),('b3','b',-4659);
+                              ('a6','a',-4650),('b1','b',-4659),('b2','b',-4659),('b3','b',-4659);
 INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id)
   SELECT ('a4650000-0000-4000-8000-0000000001'||p)::uuid,s,'kildescope46-'||p,('a4650000-0000-4000-8000-0000000000'||k||'1')::uuid
     FROM ks_persona;
@@ -241,9 +243,10 @@ INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,or
     FROM ks_persona;
 INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES
   (-4661,'person',-4651,'død'),(-4667,'person',-4651,'navn'),(-4662,'person',-4652,'død'),(-4663,'person',-4653,'død'),
-  (-4664,'person',-4654,'død'),(-4665,'person',-4655,'navn');
+  (-4664,'person',-4654,'død'),(-4665,'person',-4655,'navn'),(-4668,'person',-4655,'navn');
 INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderlig) VALUES
-  (-4667,'fact',-4667,'Anna Testlow','gregoriansk',true),(-4665,'fact',-4665,'Anna Testlow til Testholm','gregoriansk',true);
+  (-4667,'fact',-4667,'Anna Testlow','gregoriansk',true),(-4665,'fact',-4665,'Anna Testlow til Testholm','gregoriansk',true),
+  (-4668,'fact',-4668,'Bent Testlow','gregoriansk',true);
 INSERT INTO assertion(id,target_type,target_id,date_raw,calendar,uforanderlig) VALUES
   (-4661,'fact',-4661,'1850','gregoriansk',true),(-4662,'fact',-4662,'1851','gregoriansk',true),
   (-4663,'fact',-4663,'1852','gregoriansk',true),(-4664,'fact',-4664,'1853','gregoriansk',true);
@@ -268,6 +271,7 @@ INSERT INTO private.interpretation(id,interpretation_key,version,source_id,sourc
     FROM (VALUES ('01','a1','person.death','1850'),('02','b1','person.death','1850'),('03','a2','person.death','1851'),
                  ('04','a2','person.death',' 1851 '),('05','a3','person.death','1852'),('06','a4','person.death','1853'),
                  ('07','a5','person.name','Anna Testlow'),('08','a1','person.name','Anne Testlow'),
+                 ('09','a6','person.name','Carl Testlow'),('10','a2','person.name','Dorte Testlow'),
                  ('11','b2','person.death','1852'),('12','b3','person.death','1853')) v(n,p,pred,v);
 INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
   SELECT i.id,('a4650000-0000-4000-8000-0000000000'||CASE WHEN i.source_id=-4659 THEN 'b' ELSE 'a' END||'4')::uuid,'supporting',1
@@ -308,7 +312,8 @@ DECLARE r jsonb := current_setting('daa.control_result')::jsonb;
         want jsonb := '{"a4650000-0000-4000-8000-000000000301":"TARGET_SHARED","a4650000-0000-4000-8000-000000000302":"TARGET_SHARED",
                         "a4650000-0000-4000-8000-000000000303":"TARGET_SHARED","a4650000-0000-4000-8000-000000000304":"TARGET_SHARED",
                         "a4650000-0000-4000-8000-000000000305":"ALREADY_BOUND_OTHER","a4650000-0000-4000-8000-000000000306":"MATCH",
-                        "a4650000-0000-4000-8000-000000000307":"REAL_DIFF","a4650000-0000-4000-8000-000000000308":"REAL_DIFF"}';
+                        "a4650000-0000-4000-8000-000000000307":"REAL_DIFF","a4650000-0000-4000-8000-000000000308":"REAL_DIFF",
+                        "a4650000-0000-4000-8000-000000000309":"NO_IDENTITY","a4650000-0000-4000-8000-000000000310":"NO_FACT"}';
         got jsonb := (SELECT jsonb_object_agg(i->>'interpretation_id',i->>'class') FROM jsonb_array_elements(r->'items') i);
 BEGIN
   IF got IS DISTINCT FROM want THEN RAISE EXCEPTION 'FEJL: klasser uden kildescope %',got; END IF;
@@ -338,7 +343,8 @@ BEGIN
      IS DISTINCT FROM ARRAY['a4650000-0000-4000-8000-000000000301','a4650000-0000-4000-8000-000000000303',
                             'a4650000-0000-4000-8000-000000000304','a4650000-0000-4000-8000-000000000305',
                             'a4650000-0000-4000-8000-000000000306','a4650000-0000-4000-8000-000000000307',
-                            'a4650000-0000-4000-8000-000000000308'] THEN
+                            'a4650000-0000-4000-8000-000000000308','a4650000-0000-4000-8000-000000000309',
+                            'a4650000-0000-4000-8000-000000000310'] THEN
     RAISE EXCEPTION 'FEJL: kildescope A %',r->'items';
   END IF;
   IF (r->'counts'->'person.death'->>'TARGET_SHARED')::int IS DISTINCT FROM 3
@@ -377,7 +383,7 @@ DO $$
 DECLARE r jsonb := current_setting('t6.rows')::jsonb;
         x jsonb;
 BEGIN
-  IF jsonb_array_length(r) <> 7 OR EXISTS (SELECT 1 FROM jsonb_array_elements(r) e WHERE e->>'record_key' <> 'KS-a') THEN
+  IF jsonb_array_length(r) <> 9 OR EXISTS (SELECT 1 FROM jsonb_array_elements(r) e WHERE e->>'record_key' <> 'KS-a') THEN
     RAISE EXCEPTION 'FEJL: rækker med kildescope A: %',jsonb_array_length(r);
   END IF;
   IF EXISTS (SELECT 1 FROM jsonb_array_elements(r) e
@@ -391,11 +397,23 @@ BEGIN
   END IF;
   SELECT e INTO x FROM jsonb_array_elements(r) e WHERE e->>'interpretation_id'='a4650000-0000-4000-8000-000000000303';
   IF x->>'identity_outcome' IS DISTINCT FROM 'ingen_kandidat' THEN RAISE EXCEPTION 'FEJL: række 03 %',x - 'cited'; END IF;
-  -- navn_forkortes: forslaget er en ægte delstreng af databasens navn (titel/gods ville forsvinde).
+  -- navn_forkortes: forslaget er en ægte delstreng af et af databasens navne (titel/gods ville forsvinde). Det gælder,
+  -- selv om personens andet navn ikke forkortes (07: sand over V's to navne).
   SELECT e INTO x FROM jsonb_array_elements(r) e WHERE e->>'interpretation_id'='a4650000-0000-4000-8000-000000000307';
   IF x->'navn_forkortes' IS DISTINCT FROM 'true'::jsonb THEN RAISE EXCEPTION 'FEJL: række 07 %',x - 'cited'; END IF;
   SELECT e INTO x FROM jsonb_array_elements(r) e WHERE e->>'interpretation_id'='a4650000-0000-4000-8000-000000000308';
   IF x->'navn_forkortes' IS DISTINCT FROM 'false'::jsonb THEN RAISE EXCEPTION 'FEJL: række 08 %',x - 'cited'; END IF;
+  -- NULL-vejen: ingen identitet (09; også uden udfald og version) og ingen navnepåstand (10).
+  SELECT e INTO x FROM jsonb_array_elements(r) e WHERE e->>'interpretation_id'='a4650000-0000-4000-8000-000000000309';
+  IF x->'navn_forkortes' IS DISTINCT FROM 'null'::jsonb OR x->'identity_outcome' IS DISTINCT FROM 'null'::jsonb
+     OR x->'identity_version' IS DISTINCT FROM 'null'::jsonb
+     OR x->>'persona_id' IS DISTINCT FROM 'a4650000-0000-4000-8000-0000000001a6' THEN
+    RAISE EXCEPTION 'FEJL: række 09 %',x - 'cited';
+  END IF;
+  SELECT e INTO x FROM jsonb_array_elements(r) e WHERE e->>'interpretation_id'='a4650000-0000-4000-8000-000000000310';
+  IF x->'navn_forkortes' IS DISTINCT FROM 'null'::jsonb OR x->>'identity_outcome' IS DISTINCT FROM 'ingen_kandidat' THEN
+    RAISE EXCEPTION 'FEJL: række 10 %',x - 'cited';
+  END IF;
 END $$;
 -- Rækkeeksporten uden kildescope: begge kilder, ingen nye felter, byte-ens med main's fil på samme fixtur.
 SELECT set_config('daa.control_src','',true) \g /dev/null
@@ -403,21 +421,48 @@ SELECT set_config('daa.control_src','',true) \g /dev/null
 DO $$
 DECLARE r jsonb := current_setting('t6.rows')::jsonb;
 BEGIN
-  IF jsonb_array_length(r) <> 8
+  IF jsonb_array_length(r) <> 10
      OR EXISTS (SELECT 1 FROM jsonb_array_elements(r) e
                  WHERE e ?| ARRAY['identity_outcome','persona_id','identity_version','navn_forkortes']) THEN
     RAISE EXCEPTION 'FEJL: rækker uden kildescope %',jsonb_array_length(r);
   END IF;
-  IF encode(sha256(convert_to(current_setting('t6.rows'),'UTF8')),'hex') <> '2414da9483730be43ba961dde912b5667f03668f3340044f6bcd5b8051fc1a35' THEN
+  IF encode(sha256(convert_to(current_setting('t6.rows'),'UTF8')),'hex') <> 'a2b8a1d903665bdb8e7d85fdc001b33f945be758f66b6aeed90589fbb1837de4' THEN
     RAISE EXCEPTION 'FEJL: rækkeeksporten uden kildescope er ikke byte-ens med main: %',
       encode(sha256(convert_to(current_setting('t6.rows'),'UTF8')),'hex');
+  END IF;
+END $$;
+-- Accepteret rival (fix-runde 1): kun 02 (kilde B) accepteres. Med kildescope A tæller den accepterede rival med, så 01
+-- er TARGET_SHARED, som målfindingen vil sige efter accept; uden kildescope er 01 MATCH som i dag (v1).
+SET LOCAL default_transaction_read_only = off;
+SET LOCAL ROLE authenticated;
+SELECT red_decide_interpretation('a4650000-0000-4000-8000-000000000302'::uuid,1,'accepted','{"basis":"kildescope46"}');
+RESET ROLE;
+SET LOCAL default_transaction_read_only = on;
+SELECT set_config('daa.control_src','-4650',true) \g /dev/null
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_control_classification.sql
+\o
+SELECT set_config('daa.control_src','',true) \g /dev/null
+DO $$ BEGIN
+  IF (SELECT i->>'class' FROM jsonb_array_elements(current_setting('daa.control_result')::jsonb->'items') i
+       WHERE i->>'interpretation_id'='a4650000-0000-4000-8000-000000000301') IS DISTINCT FROM 'TARGET_SHARED' THEN
+    RAISE EXCEPTION 'FEJL: 01 med accepteret rival og kildescope A %',current_setting('daa.control_result');
+  END IF;
+END $$;
+\o /dev/null
+\i .claude/skills/daa-extract/scripts/interpretation_control_classification.sql
+\o
+DO $$ BEGIN
+  IF (SELECT i->>'class'||' '||(i->>'assertion_id') FROM jsonb_array_elements(current_setting('daa.control_result')::jsonb->'items') i
+       WHERE i->>'interpretation_id'='a4650000-0000-4000-8000-000000000301') IS DISTINCT FROM 'MATCH -4661' THEN
+    RAISE EXCEPTION 'FEJL: 01 med accepteret rival uden kildescope %',current_setting('daa.control_result');
   END IF;
 END $$;
 -- Klassifikationens MATCH godkendes af RPC'en (efter accept), og dens nye klasser afvises af den med ALREADY_BOUND_OTHER.
 SET LOCAL default_transaction_read_only = off;
 SET LOCAL ROLE authenticated;
 SELECT red_decide_interpretation(('a4650000-0000-4000-8000-0000000003'||n)::uuid,1,'accepted','{"basis":"kildescope46"}')
-  FROM (VALUES ('01'),('02'),('05'),('06')) v(n);
+  FROM (VALUES ('01'),('05'),('06')) v(n);
 RESET ROLE;
 SELECT set_config('t6.cur',(SELECT jsonb_object_agg(right(interpretation_key::text,2),id)
                               FROM private.interpretation_current WHERE interpretation_key::text LIKE 'a4650000-%')::text,true) \g /dev/null
