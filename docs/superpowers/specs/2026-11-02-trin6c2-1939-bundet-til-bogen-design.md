@@ -116,15 +116,23 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
 
 1. **Én vej** for begge: en kortafgørelse `P <person-id>` flytter personaens identitet til den angivne person;
    `P` alene sætter den `unresolved` (ingen person). Begge går gennem `decide_source_persona_identity` som nye
-   versioner med `expected_version`; event-loggen bevarer den gamle identitet.
+   versioner med `expected_version`; event-loggen bevarer den gamle identitet. **Målet skal være en kilde 3-række**
+   (en person med påstande citeret af kilde 3), håndhævet i writeren, *mit valg*: 1939's personas peger på
+   kilde 3-rækken (overordnet spec §6 pkt. 8), og en flytning til en 2018-20-række ville sammenligne 1939's værdier
+   med 2018-20's fakta, som 6c-2 ikke må rette. Findes ingen kilde 3-række for den rigtige person, svares `P` alene
+   (opret-benet).
 2. **Publiceringen skal følge med.** For identiteter med origin `publication_binding` skal C3-publiceringens person og
    identiteten pege på samme person efter flytningen, eller uoverensstemmelsen skal være synlig og blokere promotion
    af personaens forslag. Hvordan (ny publiceringsversion, eller en markering) er byggerens valg (§8); tavs
    uoverensstemmelse er ikke tilladt.
-3. **Kort 122 køres før kontrollen** (§5 trin 2), så dens forslag klassificeres mod den rigtige person.
-4. »Forkert person« på et kort fryser **alle** personaens forslag: ingen af dem bindes eller rettes i 6c-2. Er
-   identiteten flyttet (`P <id>`), klassificeres personaens forslag igen mod den nye person i en senere kontrolrunde
-   (ikke i samme ark).
+3. **Kort 122 køres før kontrollen** (§5 trin 2), så dens forslag klassificeres mod den rigtige person. Målt
+   2026-11-02 (prod, læse-kun): der findes præcis én kilde 3-række med navnet Ditlev og en kilde 3-citeret død med
+   1690 (person 1054); én anden persona har allerede identitet på den. Projektejeren bekræfter målet med
+   person-id i afgørelsen for kort 122; to personas på samme person (oversigtspost + egen post) er tilladt.
+4. »Forkert person« på et kort fryser **alle** personaens forslag i den kontrolrunde: ingen af dem bindes eller
+   rettes. **Opfølgningsrunde, *mit valg*:** er der identiteter flyttet med `P <id>`, køres én lille kontrolrunde
+   mere i 6c-2 med kun de flyttede personas (samme værktøj, stikprøve kun hvis > 20 automatiske). `P` alene giver
+   ingen opfølgning; personaen står `unresolved` og tælles.
 
 ### 4.3 Deterministisk version af datoforslag
 
@@ -146,7 +154,11 @@ ordlyd; resten er del/helhed (ét ord mere eller mindre).
 2. **Automatisk:** `MATCH` accepteres og bindes (kontrolmodellen B8, overordnet spec §6 pkt. 1).
 3. **Kort til projektejeren:** alle `REAL_DIFF`; dato-`SKRIVEMAADE`, der er tilbage efter §4.3 (forventet ~22),
    *mit valg* — de er få og ligner reelle forskelle; og navne-`SKRIVEMAADE` (6). Plus en **blind stikprøve på 20**
-   blandt de automatiske `MATCH`; ét forkert svar i stikprøven stopper kørslen.
+   blandt de automatiske `MATCH`.
+   **Stikprøvens regel, *mit valg*:** på et stikprøvefelt er `B` og `D` i orden (bogen og databasen siger det samme
+   som forslaget); `V` og `P` er fejl. Én fejl stopper anvendelsen: ingen afgørelser, rettelser eller bindinger fra
+   denne kontrolrunde skrives; årsagen findes, og en ny kontrolrunde med ny stikprøve og nyt GO køres. Ingen
+   udvidelse til kort på alle `MATCH`.
 4. **De 70 datoer med linjeskift i importen** (§2.2): se §8 pkt. 1.
 5. **`NO_FACT`, `NO_IDENTITY`, `AMBIGUOUS`** og forslag uden aktiv regel bliver `proposed` og tælles.
 6. **Kortene grupperes pr. persona**, *mit valg* (følger af §3 pkt. 3): navn, titel, fødsel og død for samme persona
@@ -197,6 +209,7 @@ og efter. Rækkefølgen er bindende; byggeren kan samle trin i færre GO'er, hvi
 3. **Datoversionerne** (§4.3) skrives.
 4. **Kontrol:** klassifikation, kortark (lokal HTML), stikprøve; projektejerens svar flettes og hash-bindes.
 5. **Anvend:** identitetsflytninger fra kortene → rettelser → afgørelser → bindinger → genmåling af vej B.
+6. **Opfølgningsrunde** for personas flyttet med `P <id>` (§4.2 pkt. 4): trin 4-5 igen for kun dem; springes over ved 0.
 
 ## 6. Mål, ikke-mål og anti-mål
 
@@ -236,5 +249,11 @@ nye promotionsregler (steder, embeder, godser); genkørsel af modellen; A6b-rest
    af 1939's egen påstand uden kort, med originalen i journalen. *Min anbefaling:* (c) — linjeskiftet er et
    importartefakt i 1939's egen transskription, ikke en uenighed med bogen; men det er en rettelse uden menneskeligt
    svar pr. felt, og overordnet spec §6 pkt. 2 forudsætter et svar.
-2. **Overladt til byggeren:** rettelsesvejens form (§4.5 pkt. 1); publiceringens følge ved identitetsflytning (§4.2
+2. **Retning 2's identiteter, som generatoren ikke bekræftede** (projektejerens; ca. 440 med udfald `svag` eller
+   `ingen_kandidat`, heraf 61 fra `excluded` poster; decisions 2026-11-02: »så 6c-2 kan tage dem op«): (a) de
+   behandles som alle andre — `MATCH` bindes automatisk; (b) som (a), men stikprøven stratificeres, så 10 af de 20
+   trækkes blandt dem; (c) deres `MATCH` kommer på kort. *Min anbefaling:* (b). Et `MATCH` betyder, at modellens
+   læsning af posten giver samme værdi som den række, identiteten peger på; en forkert binding som kort 122 viser sig
+   som `REAL_DIFF` og havner på kort med »forkert person«. (c) ville give hundredvis af kort.
+3. **Overladt til byggeren:** rettelsesvejens form (§4.5 pkt. 1); publiceringens følge ved identitetsflytning (§4.2
    pkt. 2); vej B's tekniske form; antal GO'er; om `transfer_pack.py` generaliseres eller kaldes med kilde 3.
