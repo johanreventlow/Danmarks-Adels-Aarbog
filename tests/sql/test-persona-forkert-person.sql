@@ -9,9 +9,10 @@
 --   * tilladte nøgler er KUN basis, candidate_id, run_id, sheet_sha256, rows_sha256, line, control_run_id,
 --     display_position, display_positions, deceased. En nøgle som "ønsket_person_id" afvises med
 --     EVIDENCE_IDENTITY_DECISION_INVALID (afprøvet nedenfor). Y (den rette person) kan derfor IKKE ligge i
---     konteksten; den må stå i p_note (som bevares i evidensen).
+--     konteksten; den bæres i p_note i den faste form 'ønsket_person_id=<id>; grund=<tekst>' (eller 'grund=<tekst>'
+--     uden id), som bevares i evidensen.
 --   * p_note er påkrævet (ikke tom efter btrim).
---   * for et kortark: {"basis":"human_sheet","sheet_sha256":<64 hex>,"rows_sha256":<64 hex>,"line":<heltal >= 1>};
+--   * p_context er præcis {"basis":"human_sheet","sheet_sha256":<64 hex>,"rows_sha256":<64 hex>,"line":<JSON-heltal >= 1>};
 --     uden basis er standarden web_detail, som ikke kræver andre felter.
 --   * p_canonical_person_id SKAL være NULL for unresolved; p_expected_version = personaens aktuelle version.
 --   * ingen stikprøvekontekst (control_run_id/display_position(s)) og ingen candidate_id/run_id for en persona, der
@@ -107,6 +108,10 @@ BEGIN
     (SELECT id FROM private.source_persona_placement WHERE source_persona_id=v_persona);
   DELETE FROM private.source_persona_placement WHERE source_persona_id=v_persona;
   SET LOCAL session_replication_role = origin;
+  IF (SELECT count(*) FROM private.source_persona_placement WHERE source_persona_id=v_persona)<>0
+     OR EXISTS (SELECT 1 FROM private.source_persona_placement_decision d
+                 WHERE d.placement_id NOT IN (SELECT id FROM private.source_persona_placement)) THEN
+    RAISE EXCEPTION 'FORKERT_PERSON_TEST_FAILED: personaen har stadig placeringer, eller en række refererer en slettet placering'; END IF;
   v_hash:=private.narrative_record_state(v_x,(w->>'source')::bigint,w->>'record_key',true)->>'state_sha256';
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
   PERFORM set_config('app.change_set_id','',true);
@@ -162,7 +167,7 @@ BEGIN
 END $before$;
 
 -- Afgørelsen. Hver forsøg i sin egen blok; afviste forsøg efterlader ingenting.
-CREATE FUNCTION pg_temp.t5_decide(p_version int, p_ctx jsonb, p_note text DEFAULT 'forkert person, rigtig person er -6620001')
+CREATE FUNCTION pg_temp.t5_decide(p_version int, p_ctx jsonb, p_note text DEFAULT 'ønsket_person_id=-6620001; grund=forkert person')
 RETURNS text LANGUAGE plpgsql AS $$
 DECLARE v_persona uuid:=(SELECT (v#>>'{}')::uuid FROM t5 WHERE k='persona'); v_ret int;
 BEGIN
@@ -178,7 +183,7 @@ END $$;
 DO $decide$
 DECLARE
   v_persona uuid:=(SELECT (v#>>'{}')::uuid FROM t5 WHERE k='persona'); v_res text;
-  v_sheet jsonb:=jsonb_build_object('basis','human_sheet','sheet_sha256',repeat('a',64),'rows_sha256',repeat('b',64),'line','1');
+  v_sheet jsonb:=jsonb_build_object('basis','human_sheet','sheet_sha256',repeat('a',64),'rows_sha256',repeat('b',64),'line',1);
 BEGIN
   -- 1) Kontekstkravet: Y kan ikke stå i p_context (brief nævnte "ønsket_person_id"); nøglen afvises.
   v_res:=pg_temp.t5_decide(1,v_sheet||jsonb_build_object('ønsket_person_id',-6620001));
@@ -216,7 +221,7 @@ BEGIN
   SELECT * INTO i FROM private.source_persona_identity WHERE source_persona_id=v_persona;
   IF i.decision_status<>'unresolved' OR i.canonical_person_id IS NOT NULL OR i.version<>2
      OR i.evidence->>'action'<>'unresolved' OR i.evidence->>'basis'<>'human_sheet'
-     OR i.evidence->>'note' NOT LIKE '%-6620001%' OR i.evidence->>'sheet_sha256'<>repeat('a',64)
+     OR i.evidence->>'note' NOT LIKE 'ønsket_person_id=-6620001; grund=%' OR i.evidence->>'sheet_sha256'<>repeat('a',64)
      OR (i.evidence->>'line')::int<>1 OR i.decided_by IS NULL OR i.decided_at IS NULL THEN
     RAISE EXCEPTION 'FORKERT_PERSON_TEST_FAILED: identiteten efter afgørelsen: %',to_jsonb(i); END IF;
   SELECT * INTO e FROM private.source_persona_identity_event WHERE source_persona_id=v_persona AND version=2;
