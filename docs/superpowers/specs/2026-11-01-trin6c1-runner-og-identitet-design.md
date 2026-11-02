@@ -2,6 +2,8 @@
 
 **Status:** GODKENDT af projektejeren 2026-11-01, efter Codex-runden på spec+plan (§10: NO-GO, 11 fund, afvejet og
 indarbejdet). §8 pkt. 1 og 2 afgjort samme dag: (a) og (a). Udførelse: subagent-drevet efter planen.
+**Tillæg 2026-11-02 (retning 2):** øvelsen af C gav 550 kort; projektejeren valgte retning 2 (§4.8), som afgør §8
+pkt. 3 og 4 og ændrer 6b §4.3 pkt. 3-6 for 1939's C. A og B er i prod 2026-11-02.
 Projektejeren besluttede 2026-11-01 at dele 6c i to med identiteterne først og bad om bedste skøn uden afklarende
 spørgsmål. Valg, der ikke står i den overordnede spec, er markeret *mit valg*. Afgørelserne til projektejeren står i §8.
 **Gren:** `docs/trin6c1-spec` fra `main` (`f928b1de`).
@@ -224,6 +226,58 @@ C kører som designet i 6b §4.3 og §6, når B er i prod. 6c-1 lukker de punkte
 6. Kalibreringens andet ben (6b §4.3 pkt. 7) køres på stand-in'en efter forslagsingesten.
 7. **Partnerreglen** (6b-reviewets I3, spec »højere«, kode `≥`) afgøres af projektejeren efter kortmålingen (§8 pkt. 3).
 
+### 4.8 Tillæg 2026-11-02: retning 2 for C (C3-bindingen er identiteten)
+
+**Hvorfor.** Øvelsen af C som designet i 6b §4.3 gav 550 kort mod et loft på 90 (plan Task 9). Årsagerne er målt:
+191 `svag/partner_hoejere` er bindingspersonens egen `samme_som`-partner fra 2018-20 (det forventede tilfælde), og 164
+personas har intet navneforslag (61 fra `excluded` poster). Prompten er ikke årsagen (navnedækning 82 % mod 2018-20's
+55 %). Projektejeren valgte 2026-11-01 retning 2 blandt tre: C3's publicerede binding bliver identiteten, og generatoren
+bruges kun til at finde konkurrenter.
+
+**Målt på stand-in'en `…_t9a` (kandidatkørslen fra øvelsen, kun antal), 561 ikke-staged personas:**
+
+| Udfald (6b-klassifikator) | Antal | Konkurrent | Retning 2 |
+|---|---|---|---|
+| `enig` | 31 | — | automatisk |
+| `svag/partner_hoejere` | 191 | egen `samme_som`-partner | automatisk |
+| `svag/under_margin` | 18 | egen `samme_som`-partner i en anden række (alle 18 målt) | automatisk |
+| `svag/under_auto` | 64 | — | automatisk |
+| `ingen_kandidat` uden kandidatrækker | 153 | ingen | automatisk |
+| `ingen_kandidat` med kandidatrækker, bindingspersonen fraværende | 45 (42 med navneforslag) | anden person, score < 0,7 (44) eller 0,7-0,9 (1) | **kort** (projektejeren 2026-11-02) |
+| `navnefaelle` | 51 | anden person, lige score | kort |
+| `uenig` | 8 | anden person, højere score | kort |
+
+Kernens strukturkrav for oprindelsen `publication_binding` (`decide_source_persona_identity`: præcis ét
+`person_external_id` for kilden på bindingspersonen, ingen anden persona med mention i helposten) holder for alle 561
+(0 fejl begge veje). De blev før kun brugt på de enige.
+
+**Regler (erstatter 6b §4.3 pkt. 3-6 for C):**
+
+1. **Klassifikatoren:** findes der kandidatrækker for personaen, men er bindingspersonen ikke i nogen af dem, er udfaldet
+   `uenig` med `reason='egen_ikke_kandidat'` (en anden person scorer højere end bindingspersonen, der ikke er med).
+   `ingen_kandidat` betyder herefter kun: ingen kandidatrækker. De øvrige udfald og deres rækkefølge er uændrede.
+2. **Automatisk på bindingen** (`enig`, `svag` med alle årsager, `ingen_kandidat`): identitet med oprindelsen
+   `publication_binding`, `accepted`, uden svar. Evidensen bærer udfaldet som i dag (`outcome`), så 6c-2 kan finde dem,
+   der ikke blev bekræftet af generatoren. Kernens strukturkrav er uændrede og er værnet.
+3. **Kort** (`uenig` inkl. `egen_ikke_kandidat`, `navnefaelle`): S/F/U med oprindelsen `human` som i 6b §4.3 pkt. 5.
+4. **Stikprøven:** 20 blinde kort trukket med 6b's hashnøgle blandt de automatiske (ikke længere kun de enige), dvs.
+   overvejende `svag` og `ingen_kandidat`. Den prøver antagelsen »bindingen alene er rigtig«. Ét F eller U stopper C
+   (`PUBLICATION_SAMPLE_FAILED`), før noget skrives. 20 af 20 rigtige udelukker ikke en fejlrate op til ca. 14 % (95 %).
+   Stikprøvens S giver oprindelsen `publication_binding` som før.
+5. **Kortloftet** hæves fra 90 til 125 (højst 30 pr. ark, dvs. 5 ark). Forventet: 8 + 45 + 51 + 20 = 124. Over 125
+   stopper arket som før (`PUBLICATION_SHEET_TOO_MANY_CARDS`).
+6. **De 61 personas fra `excluded` poster** (§4.7 pkt. 4) følger reglerne ovenfor: uden navneforslag giver de typisk
+   `ingen_kandidat` og accepteres på C3-bindingen uden kort; giver klassifikatoren `uenig`/`navnefaelle`, får de kort.
+   Ingen af deres tekst har været hos en model.
+7. **§8 pkt. 3 og 4 er afgjort af retning 2:** partnerreglen (`≥`) bevares, men `svag` er automatisk, så den giver
+   ingen kort; over-90-reglen erstattes af pkt. 5.
+
+**Konsekvens for prod:** C får sin egen DDL-ceremoni (de ændrede funktioner) før dataceremonien. Retning 2 ændrer ingen
+læsevej; den planlagte læse-kun-måling af `identity_candidate_input` i prod afgør stadig faktoren for C's tider (§6).
+
+**Review-budget:** 6c-1's to B13-runder er brugt. Retning 2 får én ekstra Codex-runde på diffen (overskridelse noteret
+i `docs/decisions.md`).
+
 ## 5. Følger
 
 - `write_interpretation_proposal` ændres for alle udgaver; 2018-20's genafspilning skal give identiske nøgler og
@@ -284,7 +338,7 @@ Skrivepause fra A-dumpet til B er skrevet. Tidsoverslag fra stand-in omregnes me
    kørsler og ceremoniernes stand-ins. *Min anbefaling:* (a) i 6c-1, (b) som egen opgave efter trin 6. Argumentet for
    (a) er mit eget og sparer arbejde; det er derfor lagt frem her og ikke afgjort af mig.
 
-**Efter øvelsen af C** (plan Task 9 stopper for dem, med tallene):
+**Efter øvelsen af C** (plan Task 9 stopper for dem, med tallene). *Afgjort 2026-11-02 af retning 2 (§4.8 pkt. 7).*
 
 3. **Partnerreglen i C** (6b-review I3): når bindingspersonens egen `samme_som`-partner scorer *lige så højt* som den
    selv, er udfaldet i dag `svag` (kort). Specen sagde »højere«. Med »højere« bliver de sager `enig` (maskinelt).
@@ -323,3 +377,11 @@ Afvejning (Opus); fund 2-8 er bekræftet mod koden.
 | 11 | MEDIUM | `run-tests.R` kører ikke `tests/integration` | nødvendig | plan Task 4-5 (pg-job som `test-reimport-source-text-revision.R`) |
 
 Codex bekræftede: writeren antager ikke andre steder én forankring; B → C følger 6b; S4 er forstået rigtigt.
+
+### Codex-runde på retning 2's diff (2026-11-02, `gpt-6.1-sol`, ekstra runde, B13-overskridelse): GO, 0 fund
+
+Diffen `20fc2278..e62c9064` (§4.8). Writer, stikprøve, finalize og ark er enige om stikprøve og svarkrav; migrationsblokkens
+seks funktioner er byte-ens med `schema.sql`, og en genkørsel efterlader ingen `publication_control_enig`; automatiske
+udfald går gennem kernens uændrede strukturkrav; stikprøven caches pr. transaktion, så writeren ikke beregner
+populationen pr. element. Codex kunne ikke afgøre C's tid for 561 personas statisk: det måles i øvelsen og med prods
+faktor fra `maal-input` (22,8 s i prod mod 10,0 s på stand-in'en, ca. 2,3×). Afvejning (Opus): intet at indarbejde.

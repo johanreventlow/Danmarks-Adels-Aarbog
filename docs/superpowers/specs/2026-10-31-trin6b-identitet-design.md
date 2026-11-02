@@ -147,6 +147,11 @@ Pr. element (én helpost):
 
 ### 4.3 Kontrol og identitet (ceremoni C, *mit valg* af anvendelse)
 
+> **Ændret 2026-11-02 (retning 2):** for 1939's C erstattes pkt. 3-6 af delspec 6c-1 §4.8: C3-bindingen er
+> identiteten for `enig`, `svag` og `ingen_kandidat`; kun `uenig` (inkl. bindingspersonen fraværende blandt
+> kandidaterne) og `navnefaelle` plus en stikprøve på 20 af de automatiske går på kort; loftet er 125. Øvelsen af
+> designet nedenfor gav 550 kort (`docs/decisions.md` 2026-11-02).
+
 5a §3 pkt. 1 siger: ingen massegenbekræftelse. Det overholdes: mennesket ser kun uenigheder, svage sager og en
 stikprøve. Maskinen kontrollerer alle.
 

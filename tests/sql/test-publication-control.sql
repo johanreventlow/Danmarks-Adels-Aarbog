@@ -71,16 +71,21 @@ DO $surface$
 BEGIN
   IF to_regprocedure('private.publication_control_outcome(uuid,uuid,bigint)') IS NULL
      OR to_regprocedure('private.publication_control_in_sample(uuid,uuid)') IS NULL
+     OR to_regprocedure('private.publication_control_auto(uuid,uuid)') IS NULL
      OR to_regprocedure('public.red_publication_control(uuid)') IS NULL
      OR to_regprocedure('public.red_publication_control_details(uuid)') IS NULL THEN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: funktioner mangler'; END IF;
   IF has_function_privilege('authenticated','private.publication_control_outcome(uuid,uuid,bigint)','EXECUTE')
      OR has_function_privilege('authenticated','private.publication_control_in_sample(uuid,uuid)','EXECUTE')
+     OR has_function_privilege('authenticated','private.publication_control_auto(uuid,uuid)','EXECUTE')
      OR has_function_privilege('anon','public.red_publication_control(uuid)','EXECUTE')
      OR has_function_privilege('anon','public.red_publication_control_details(uuid)','EXECUTE')
      OR NOT has_function_privilege('authenticated','public.red_publication_control(uuid)','EXECUTE')
      OR NOT has_function_privilege('authenticated','public.red_publication_control_details(uuid)','EXECUTE') THEN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: rettigheder'; END IF;
+  -- delspec 6c-1 §4.8: den enige-hjælper er erstattet af publication_control_auto
+  IF to_regprocedure('private.publication_control_enig(uuid,uuid)') IS NOT NULL THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: publication_control_enig findes stadig'; END IF;
   RAISE NOTICE 'OK: funktionsfladen';
 END $surface$;
 
@@ -156,9 +161,9 @@ DECLARE
   v_p uuid[]:='{}'; v_i int; v_o jsonb; v_m uuid; v_obs uuid;
 BEGIN
   INSERT INTO public.person(id,levende,privat,status) VALUES (X,false,false,'pc'),(Y,false,false,'pc'),(Z,false,false,'pc');
-  -- 12 personas på én syntetisk observation (klassifikatoren læser kun kandidatrækkerne)
+  -- 13 personas på én syntetisk observation (klassifikatoren læser kun kandidatrækkerne)
   v_obs:=(pg_temp.pp_post(v_src,'kl',-652009)->>'observation')::uuid;
-  FOR v_i IN 1..12 LOOP
+  FOR v_i IN 1..13 LOOP
     INSERT INTO private.source_mention(observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id)
       VALUES (v_obs,'person',20+v_i,25+v_i,'xxxxx',(v_src->>'run')::uuid) RETURNING id INTO v_m;
     v_p:=v_p||pg_temp.persona(-6520,(v_src->>'run')::uuid,'kl'||v_i,v_m);
@@ -174,8 +179,10 @@ BEGIN
   -- (d) anden klynge lig egen
   PERFORM pg_temp.pc_cand(v_run,v_p[4],X,1,jsonb_build_array(pg_temp.ms(X,0.95,ARRAY['name','birth'])));
   PERFORM pg_temp.pc_cand(v_run,v_p[4],Y,2,jsonb_build_array(pg_temp.ms(Y,0.95,ARRAY['name'])));
-  -- (e) personen findes ikke blandt kandidaterne
+  -- (e) kandidatrækker, men personen findes ikke blandt dem (delspec 6c-1 §4.8 pkt. 1: uenig, egen_ikke_kandidat)
   PERFORM pg_temp.pc_cand(v_run,v_p[5],Y,1,jsonb_build_array(pg_temp.ms(Y,0.95,ARRAY['name','birth'])));
+  PERFORM pg_temp.pc_cand(v_run,v_p[5],Z,2,jsonb_build_array(pg_temp.ms(Z,0.60,ARRAY['name'])));
+  -- (e2) v_p[13]: ingen kandidatrækker overhovedet → ingen_kandidat
   -- (f) klyngepartneren 0,99 i samme række (repræsentant Z), egen 0,70
   PERFORM pg_temp.pc_cand(v_run,v_p[6],Z,1,jsonb_build_array(pg_temp.ms(Z,0.99,ARRAY['name','birth']),pg_temp.ms(X,0.70,ARRAY['name','birth'])));
   -- (f2) klyngepartneren 0,99, egen 0,95 med årstal, ingen anden klynge
@@ -206,8 +213,13 @@ BEGIN
   IF v_o->>'outcome' IS DISTINCT FROM 'navnefaelle' OR (v_o->>'competitor_person_id')::bigint<>Y THEN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: (d) %',v_o; END IF;
   v_o:=pg_temp.outcome(v_p[5],v_run,X);
-  IF v_o->>'outcome' IS DISTINCT FROM 'ingen_kandidat' OR v_o->'own_score'<>'null'::jsonb THEN
+  IF v_o<>jsonb_build_object('outcome','uenig','reason','egen_ikke_kandidat','own_score',NULL,'competitor_score',0.95,
+                             'competitor_person_id',Y) THEN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: (e) %',v_o; END IF;
+  v_o:=pg_temp.outcome(v_p[13],v_run,X);
+  IF v_o<>jsonb_build_object('outcome','ingen_kandidat','reason',NULL,'own_score',NULL,'competitor_score',NULL,
+                             'competitor_person_id',NULL) THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: (e2) %',v_o; END IF;
   v_o:=pg_temp.outcome(v_p[6],v_run,X);
   IF v_o->>'outcome' IS DISTINCT FROM 'svag' OR v_o->>'reason' IS DISTINCT FROM 'partner_hoejere' OR (v_o->>'own_score')::numeric<>0.70
      OR (v_o->>'competitor_person_id')::bigint<>Z THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: (f) %',v_o; END IF;
@@ -249,7 +261,7 @@ BEGIN
     VALUES (v_r2,v_p[1],X,1,0.95,'auto','{"signals":["name","birth"]}');
   IF pg_temp.outcome(v_p[1],v_r2,X)<>'{"error":"PUBLICATION_CONTROL_CONFIG_MISSING"}' THEN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: (h) række uden member_scores'; END IF;
-  RAISE NOTICE 'OK: klassifikatoren (a-g3, partner_hoejere, uafrundet score, konfiguration)';
+  RAISE NOTICE 'OK: klassifikatoren (a-g3, egen_ikke_kandidat, ingen_kandidat uden rækker, partner_hoejere, uafrundet score, konfiguration)';
 END $klassifikator$;
 
 -- 3) Stikprøven og red_publication_control / red_publication_control_details.
@@ -259,6 +271,7 @@ DECLARE
   v_a text:='11000000-0000-0000-0000-00000006b530';
   v_fx jsonb[]:='{}'; v_els jsonb:='{}'; v_batch uuid; v_receipt jsonb; v_i int; v_key text;
   v_bp uuid[]:='{}';  -- B-personas: 1..25 enige, 26..27 svage, 28 'z' uden kandidater, 29 'w' tilbagetrukket binding, 30 'q' ikke-repræsentant
+                      -- (svag); automatiske (delspec 6c-1 §4.8) er alle undtagen 29
   v_np uuid[]:='{}';  -- ikke-B-personas (v50-lignende), enige
   v_run uuid; v_run2 uuid; v_cfg jsonb:='{"autoCutoff":0.9,"controlMargin":0.05,"topK":3}'; v_ids jsonb:='[]';
   v_ctl jsonb; v_ctl2 jsonb; v_sample uuid[]; v_expected uuid[]; v_det jsonb; v_pd jsonb; v_e jsonb;
@@ -320,7 +333,7 @@ BEGIN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: nøgler'; END IF;
   SELECT e INTO v_e FROM jsonb_array_elements(v_ctl->'personas') e WHERE e->>'source_persona_id'=v_bp[28]::text;
   IF v_e->>'outcome' IS DISTINCT FROM 'ingen_kandidat' OR v_e->>'binding_status'<>'published' OR (v_e->>'person_id')::bigint<>-653028
-     OR (v_e->>'in_sample')::boolean THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: z %',v_e; END IF;
+     THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: z %',v_e; END IF;
   SELECT e INTO v_e FROM jsonb_array_elements(v_ctl->'personas') e WHERE e->>'source_persona_id'=v_bp[29]::text;
   IF v_e->>'binding_status' IS DISTINCT FROM 'none' OR v_e->'outcome'<>'null'::jsonb OR v_e->'binding_id'<>'null'::jsonb
      OR (v_e->>'in_sample')::boolean THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: w %',v_e; END IF;
@@ -344,31 +357,34 @@ BEGIN
   SELECT e INTO v_e FROM jsonb_array_elements(v_ctl->'personas') e WHERE e->>'source_persona_id'=v_bp[3]::text;
   IF NOT (v_e->>'not_staged')::boolean THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: not_staged'; END IF;
 
-  -- stikprøven: de 20 laveste hashes blandt de 25 enige B-personas (ikke de svage, ikke v50-lignende), uden den staged (2):
-  -- populationen har finalize's prædikater (final-review I1)
+  -- stikprøven (delspec 6c-1 §4.8 pkt. 4): de 20 laveste hashes blandt de automatiske B-personas (enige, svage og 'z' uden
+  -- kandidatrækker; ikke v50-lignende, ikke 'w' med tilbagetrukket binding), uden den staged (2): populationen har
+  -- finalize's prædikater (final-review I1)
   SELECT array_agg(e->>'source_persona_id' ORDER BY e->>'source_persona_id')::uuid[] INTO v_sample
     FROM jsonb_array_elements(v_ctl->'personas') e WHERE (e->>'in_sample')::boolean;
   SELECT array_agg(x.id ORDER BY x.id) INTO v_expected FROM (
     SELECT sp.id FROM private.source_persona sp, private.source_persona_identity_candidate_run r
-     WHERE r.id=v_run AND sp.id=ANY(v_bp[1:25]) AND sp.id<>v_bp[2]
+     WHERE r.id=v_run AND sp.id=ANY(v_bp[1:28]||v_bp[30]) AND sp.id<>v_bp[2]
      ORDER BY encode(extensions.digest(convert_to('publication-sample-v1:'||r.input_sha256||':'||r.config_sha256||':'||sp.persona_key,'UTF8'),'sha256'),'hex') COLLATE "C"
      LIMIT 20) x;
   IF cardinality(v_sample)<>20 OR v_sample<>v_expected THEN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: stikprøven (% stk.)',cardinality(v_sample); END IF;
-  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_ctl->'personas') e WHERE (e->>'in_sample')::boolean AND e->>'outcome'<>'enig') THEN
-    RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: stikprøve med ikke-enig'; END IF;
-  -- in_sample-funktionen stemmer med RPC'en for hver persona (false for ikke-enige og ikke-B)
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_ctl->'personas') e
+              WHERE (e->>'in_sample')::boolean AND e->>'outcome' NOT IN ('enig','svag','ingen_kandidat')) THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: stikprøve med ikke-automatisk'; END IF;
+  -- in_sample-funktionen stemmer med RPC'en for hver persona (false for ikke-automatiske og ikke-B)
   IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_ctl->'personas') e
               WHERE private.publication_control_in_sample((e->>'source_persona_id')::uuid,v_run)<>(e->>'in_sample')::boolean) THEN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: in_sample ≠ RPC'; END IF;
-  IF private.publication_control_in_sample(v_np[1],v_run) OR private.publication_control_in_sample(v_bp[26],v_run) THEN
-    RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: ikke-B/svag i stikprøven'; END IF;
+  IF private.publication_control_in_sample(v_np[1],v_run) OR private.publication_control_in_sample(v_bp[29],v_run)
+     OR private.publication_control_in_sample(v_bp[2],v_run) THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: ikke-B/tilbagetrukket/staged i stikprøven'; END IF;
   -- deterministisk
   v_ctl2:=pg_temp.rpc(v_a,'red_publication_control',v_run);
   IF v_ctl2<>v_ctl THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: ikke deterministisk'; END IF;
 
   -- N1 (final-fix-rereview): B-bindingsfilteret. En stikprøvepersona, hvis B-binding trækkes tilbage, og hvis record
-  -- genpubliceres med en ny binding til samme person, er stadig enig efter den aktuelle binding, men er ikke i populationen
+  -- genpubliceres med en ny binding til samme person, er stadig automatisk efter den aktuelle binding, men er ikke i populationen
   -- (B-hændelsens binding er ikke published, som i finalize's kontrolmængde). Rulles tilbage (undertransaktion).
   v_n:=array_position(v_bp,v_sample[1]);
   BEGIN
@@ -379,8 +395,8 @@ BEGIN
       VALUES (v_n1_narr,(v_fx[v_n]->>'record')::uuid,'Fixture N1','Fixture side 1','published');
     IF (SELECT pb.binding_status FROM private.publication_persona_binding(v_sample[1]) pb)<>'published'
        OR (SELECT pb.binding_id::text FROM private.publication_persona_binding(v_sample[1]) pb)=v_fx[v_n]->>'binding'
-       OR NOT private.publication_control_enig(v_sample[1],v_run) THEN
-      RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: N1-opsætning (genpubliceret binding er ikke aktiv og enig)'; END IF;
+       OR NOT private.publication_control_auto(v_sample[1],v_run) THEN
+      RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: N1-opsætning (genpubliceret binding er ikke aktiv og automatisk)'; END IF;
     IF EXISTS (SELECT 1 FROM private.publication_sample_candidates(v_run) c WHERE c.source_persona_id=v_sample[1])
        OR v_sample[1]=ANY(ARRAY(SELECT private.publication_control_sample(v_run)))
        OR private.publication_control_in_sample(v_sample[1],v_run) THEN
@@ -414,24 +430,48 @@ BEGIN
   IF (SELECT count(*) FROM jsonb_array_elements(v_ctl2->'personas') e WHERE (e->>'identity_version')::int=1)<>10 THEN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: identity_version'; END IF;
 
-  -- færre end 20 enige → alle enige er med (ny kørsel: kandidatrækker er append-only; B-personas 1-10 uden årstal)
-  v_run2:=pg_temp.pc_run(-6530,v_cfg,'stik-15',jsonb_build_object('mode','list','persona_ids',v_ids));
-  FOR v_i IN 1..25 LOOP
-    PERFORM pg_temp.pc_cand(v_run2,v_bp[v_i],-653000-v_i,1,
-      jsonb_build_array(pg_temp.ms(-653000-v_i,0.95,CASE WHEN v_i<=10 THEN ARRAY['name'] ELSE ARRAY['name','birth'] END)));
+  -- færre end 20 automatiske → alle automatiske er med (ny kørsel: kandidatrækker er append-only). B-personas 1-10 er uenige
+  -- (Q scorer højere), 11-12 navnefæller (R scorer lige), 13-25 enige, 26-27 svage, 28 'z' uden kandidatrækker, 30 'q' svag
+  -- (partner_hoejere). Stikprøven rummer derfor svage og ingen_kandidat, aldrig uenige eller navnefæller (delspec 6c-1 §4.8).
+  v_run2:=pg_temp.pc_run(-6530,v_cfg,'stik-17',jsonb_build_object('mode','list','persona_ids',v_ids));
+  FOR v_i IN 1..10 LOOP
+    PERFORM pg_temp.pc_cand(v_run2,v_bp[v_i],Q,1,jsonb_build_array(pg_temp.ms(Q,0.99,ARRAY['name','birth'])));
+    PERFORM pg_temp.pc_cand(v_run2,v_bp[v_i],-653000-v_i,2,jsonb_build_array(pg_temp.ms(-653000-v_i,0.95,ARRAY['name','birth'])));
   END LOOP;
+  FOR v_i IN 11..12 LOOP
+    PERFORM pg_temp.pc_cand(v_run2,v_bp[v_i],-653000-v_i,1,jsonb_build_array(pg_temp.ms(-653000-v_i,0.95,ARRAY['name','birth'])));
+    PERFORM pg_temp.pc_cand(v_run2,v_bp[v_i],R,2,jsonb_build_array(pg_temp.ms(R,0.95,ARRAY['name'])));
+  END LOOP;
+  FOR v_i IN 13..25 LOOP
+    PERFORM pg_temp.pc_cand(v_run2,v_bp[v_i],-653000-v_i,1,jsonb_build_array(pg_temp.ms(-653000-v_i,0.95,ARRAY['name','birth'])));
+  END LOOP;
+  FOR v_i IN 26..27 LOOP
+    PERFORM pg_temp.pc_cand(v_run2,v_bp[v_i],-653000-v_i,1,jsonb_build_array(pg_temp.ms(-653000-v_i,0.95,ARRAY['name'])));
+  END LOOP;
+  PERFORM pg_temp.pc_cand(v_run2,v_bp[30],Q,1,jsonb_build_array(pg_temp.ms(Q,0.99,ARRAY['name','birth']),pg_temp.ms(-653030,0.70,ARRAY['name'])));
   FOR v_i IN 1..2 LOOP
     PERFORM pg_temp.pc_cand(v_run2,v_np[v_i],-653100-v_i,1,jsonb_build_array(pg_temp.ms(-653100-v_i,0.95,ARRAY['name','birth'])));
   END LOOP;
   -- de 10 identiteter ovenfor er skrevet over kørsel 1 og er dermed »fra før C« for kørsel 2 (I1): de er ikke i stikprøven
   v_ctl2:=pg_temp.rpc(v_a,'red_publication_control',v_run2);
+  SELECT e INTO v_e FROM jsonb_array_elements(v_ctl2->'personas') e WHERE e->>'source_persona_id'=v_bp[1]::text;
+  IF v_e->>'outcome' IS DISTINCT FROM 'uenig' THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: kørsel 2 uenig %',v_e; END IF;
+  SELECT e INTO v_e FROM jsonb_array_elements(v_ctl2->'personas') e WHERE e->>'source_persona_id'=v_bp[11]::text;
+  IF v_e->>'outcome' IS DISTINCT FROM 'navnefaelle' THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: kørsel 2 navnefaelle %',v_e; END IF;
   IF (SELECT count(*) FROM jsonb_array_elements(v_ctl2->'personas') e WHERE (e->>'in_sample')::boolean)
-       <>15-(SELECT count(*) FROM unnest(v_given) g WHERE g=ANY(v_bp[11:25]))
+       <>17-(SELECT count(*) FROM unnest(v_given) g WHERE g=ANY(v_bp[13:25]))
+     -- en automatisk B-persona uden identitet fra før er med, præcis når den ikke fik en identitet over kørsel 1
      OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_ctl2->'personas') e
-                 WHERE e->>'outcome'='enig' AND e->>'source_persona_id'<>ALL(ARRAY[v_np[1]::text,v_np[2]::text])
-                   AND (e->>'in_sample')::boolean=((e->>'source_persona_id')::uuid=ANY(v_given))) THEN
-    RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: færre end 20 enige'; END IF;
-  RAISE NOTICE 'OK: stikprøven (20 af 25, kun enige ikke-staged B-personas, deterministisk, uafhængig af C''s egne identiteter; færre end 20 → alle uden identitet fra før)';
+                 WHERE e->>'outcome' IN ('enig','svag','ingen_kandidat')
+                   AND e->>'source_persona_id'<>ALL(ARRAY[v_np[1]::text,v_np[2]::text])
+                   AND (e->>'in_sample')::boolean=((e->>'source_persona_id')::uuid=ANY(v_given)))
+     OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_ctl2->'personas') e
+                 WHERE e->>'outcome' IN ('uenig','navnefaelle') AND (e->>'in_sample')::boolean)
+     OR NOT private.publication_control_in_sample(v_bp[26],v_run2) OR NOT private.publication_control_in_sample(v_bp[30],v_run2)
+     OR NOT private.publication_control_in_sample(v_bp[28],v_run2)
+     OR private.publication_control_in_sample(v_bp[1],v_run2) OR private.publication_control_in_sample(v_bp[11],v_run2) THEN
+    RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: færre end 20 automatiske'; END IF;
+  RAISE NOTICE 'OK: stikprøven (20 af 28 automatiske ikke-staged B-personas, deterministisk, uafhængig af C''s egne identiteter; færre end 20 → alle automatiske uden identitet fra før, med svag og ingen_kandidat, uden uenig og navnefaelle)';
 
   -- details: bindingspersonen med også når den ikke er repræsentant ('q') og ved ingen_kandidat ('z')
   -- titel: afklaret titel-faktum (matcherens kilde) og et ikke-afklaret, der ikke må vises
@@ -511,8 +551,11 @@ BEGIN
   IF v_det ? 'error' THEN RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: details %',v_det->>'error'; END IF;
   SELECT e INTO v_pd FROM jsonb_array_elements(v_det->'personas') e WHERE e->>'source_persona_id'=v_p1::text;
   SELECT jsonb_object_agg(e->>'person_id',e->>'role') INTO v_roles FROM jsonb_array_elements(v_pd->'persons') e;
+  -- bindingspersonen er ikke blandt kandidatrækkerne: uenig/egen_ikke_kandidat (delspec 6c-1 §4.8 pkt. 1); klassifikatoren
+  -- læser kun kandidatrækkerne, så konkurrenten er her samme_som-partneren P1, mens detaljerne viser den som egen klynge
   IF v_roles<>jsonb_build_object(B1::text,'binding',P1::text,'own_cluster',C::text,'competitor')
-     OR v_pd->'outcome'->>'outcome' IS DISTINCT FROM 'ingen_kandidat' THEN
+     OR v_pd->'outcome'->>'outcome' IS DISTINCT FROM 'uenig' OR v_pd->'outcome'->>'reason' IS DISTINCT FROM 'egen_ikke_kandidat'
+     OR (v_pd->'outcome'->>'competitor_person_id')::bigint IS DISTINCT FROM P1 THEN
     RAISE EXCEPTION 'PUBLICATION_CONTROL_TEST_FAILED: direkte partner %',v_roles; END IF;
   SELECT e INTO v_pd FROM jsonb_array_elements(v_det->'personas') e WHERE e->>'source_persona_id'=v_p2::text;
   SELECT jsonb_object_agg(e->>'person_id',e->>'role') INTO v_roles FROM jsonb_array_elements(v_pd->'persons') e;
