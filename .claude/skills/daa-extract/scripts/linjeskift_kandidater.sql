@@ -1,8 +1,19 @@
 -- Læse-kun kandidatliste til linjeskift-v1-rettelsen (spec 2026-11-02 §4.4 pkt. 4), til ceremoni 3's GO-pakke.
 -- Brug: psql -X -At -v ON_ERROR_STOP=1 [-v source_id=3] -f linjeskift_kandidater.sql
--- Udskrift (kun antal og påstands-id'er):
---   T6C2_LINJESKIFT antal=<n> delstreng_i_tilstand=<n>
---   <assertion_id>          én pr. linje, stigende
+-- Udskrift (kun antal, id'er og en hash; ingen værdier):
+--   T6C2_LINJESKIFT antal=<n> delstreng_i_tilstand=<n> forventet_sha256=<hex>
+--   <assertion_id>|<interpretation_id>   ét par pr. linje, stigende på assertion_id; interpretation_id er forslagets
+--                                        aktuelle version, som red_ret_paastand(…,'linjeskift-v1',p_interpretation_id)
+--                                        tager
+-- forventet_sha256 er sha256 over kandidaternes forventede tilstand med red_ret_paastand's seks p_forventet-nøgler,
+-- beregnet af linjeskift_forventet.sql (fælles snippet; se den for formen).
+--
+-- Runnerkontrakt (Task 11, ceremoni 3): GO-pakken bærer parlisten og forventet_sha256. I skrive-transaktionen, før
+-- første rettelse: sæt daa.linjeskift_ider til parlistens assertion_id'er, \ir linjeskift_forventet.sql, og RAISE,
+-- hvis daa.linjeskift_forventet_sha256 afviger fra GO-pakkens sha (drift i date_raw, vaerdi_tekst, faktum, valgt
+-- påstand eller citationsmængde siden listen). Kald derefter red_ret_paastand pr. par med p_forventet = elementets
+-- "forventet" fra daa.linjeskift_forventet (samme udtryk, intet genopbygget i runneren). Vagten virker uden at
+-- værdier forlader basen.
 -- Kilden kommer fra -v source_id (standard 3); den står aldrig fast i koden.
 -- Kræver 6c-2a og 6c-2b (binding_value_matches, saml_blanktegn_v1, paastand_korrektion); køres i ceremoni 3 efter §4.3.
 --
@@ -80,7 +91,7 @@ WITH regel AS (
    WHERE m.source_id=:source_id
    GROUP BY m.id HAVING count(*)=1
 ), kandidat AS (
-  SELECT e.assertion_id
+  SELECT e.assertion_id, e.id AS interpretation_id
     FROM eneste e
     JOIN public.assertion a ON a.id=e.assertion_id
    WHERE e.samlet_lig                                                           -- K3
@@ -109,7 +120,9 @@ WITH regel AS (
           AND NOT private.binding_value_matches(r.value_kind,cur.value,a.vaerdi_tekst,
                                                 private.saml_blanktegn_v1(a.date_raw)))
 )
-SELECT count(*) AS antal, coalesce(string_agg(k.assertion_id::text,',' ORDER BY k.assertion_id),'') AS ider
+SELECT count(*) AS antal, coalesce(string_agg(k.assertion_id::text,',' ORDER BY k.assertion_id),'') AS ider,
+       coalesce(string_agg(k.assertion_id::text||'|'||k.interpretation_id::text,E'\n' ORDER BY k.assertion_id),'')
+         AS par
   FROM kandidat k \gset m_
 
 SELECT set_config('daa.t6c2_lk_ider',:'m_ider',true) \g /dev/null
@@ -168,6 +181,9 @@ BEGIN
   END IF;
 END $gate$;
 
-SELECT format('T6C2_LINJESKIFT antal=%s delstreng_i_tilstand=%s',:'m_antal',:'m_delstreng');
-SELECT x FROM unnest(string_to_array(nullif(:'m_ider',''),',')::bigint[]) x ORDER BY x;
+SELECT set_config('daa.linjeskift_ider',:'m_ider',true) \g /dev/null
+\ir linjeskift_forventet.sql
+SELECT format('T6C2_LINJESKIFT antal=%s delstreng_i_tilstand=%s forventet_sha256=%s',:'m_antal',:'m_delstreng',
+              current_setting('daa.linjeskift_forventet_sha256'));
+SELECT :'m_par' WHERE :'m_par'<>'';
 ROLLBACK;
