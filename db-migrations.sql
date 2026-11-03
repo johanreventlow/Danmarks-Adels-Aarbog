@@ -32075,6 +32075,10 @@ REVOKE ALL ON FUNCTION public.public_person_facts(bigint[]) FROM PUBLIC,anon,aut
 GRANT EXECUTE ON FUNCTION public.public_person_facts(bigint[]) TO anon,authenticated;
 
 -- ===== trin 6c-2b: forslagsversion, påstandsrettelse, én binding pr. påstand =====
+DO $$ BEGIN IF to_regprocedure('private.binding_value_matches(text,jsonb,text,text)') IS NULL THEN RAISE EXCEPTION 'MIGRATION_6C2B_KRAEVER_6C2A'; END IF; END $$;
+-- Blokken kræver 6c-2a (vagten ovenfor): red_ret_paastand kalder private.binding_value_matches, som kun 6c-2a opretter.
+-- plpgsql slår kaldet op ved kørsel, så uden vagten ville blokken lykkes og først fejle ved den første rettelse.
+-- Vagten står kun her, ikke i schema.sql, som altid har begge.
 -- Trin 6c-2b: den fælles blanktegnsregel. Hver sammenhængende række af blanktegn (mellemrum, tabulator, linjeskift,
 -- vognretur, sideskift, lodret tabulator, hårdt mellemrum U+00A0, smalt mellemrum U+2009, smalt hårdt mellemrum U+202F,
 -- linje- og afsnitsskift U+2028/U+2029) bliver ét ASCII-mellemrum, og enderne trimmes. Klassen er eksplicit med vilje:
