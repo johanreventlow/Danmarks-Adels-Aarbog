@@ -288,8 +288,10 @@ def test_mapping_B_D_V():
     a = anvend(p, udfyld(p, {iid(7001): "B", iid(7002): "B # bogen", iid(7003): "D # db", iid(7004): "V # ?"}))
     ret = {r["interpretation_id"]: r for r in a["rettelser"]}
     assert set(ret) == {iid(7001), iid(7002)}
-    assert ret[iid(7002)]["p_dato"] == {"date_min": "1702-03-12", "date_max": "1702-03-12", "date_qualifier": None}
-    assert ret[iid(7001)]["p_dato"] == {"date_min": "1850-01-01", "date_max": "1850-12-31", "date_qualifier": None}
+    assert ret[iid(7002)]["p_dato"] == {"date_min": "1702-03-12", "date_max": "1702-03-12", "date_qualifier": None,
+                                        "date_certainty": None}
+    assert ret[iid(7001)]["p_dato"] == {"date_min": "1850-01-01", "date_max": "1850-12-31", "date_qualifier": None,
+                                        "date_certainty": None}
     assert ret[iid(7001)]["assertion_id"] == -1000 - 7001
     assert set(ret[iid(7001)]["forventet"]) == {"fact_id", "faktatype", "vaerdi_tekst", "date_raw",
                                                 "valgt_assertion_id", "citation_sources"}
@@ -409,6 +411,28 @@ def test_rettelsen_sender_p_dato_kun_for_datoer():
     dato = next(x for x in linjer if iid(7002) in x)
     assert titel.rstrip().endswith("'bogen_har_ret', '%s'::uuid, NULL) \\g /dev/null" % iid(7001))
     assert '"date_qualifier": "about"' in dato
+
+
+def test_datorettelsen_sender_date_certainty():
+    # validate.derive_date_info's certainty: 'uncertain' for kildens egen tvivl, ellers NULL (red_ret_paastand tager
+    # kun de to). Grænsetællingen ser fortsat kun på date_min/date_max/date_qualifier.
+    extra = [(item(7001, "REAL_DIFF"), row(7001, persona=7001, value="1849?")),
+             (item(7002, "REAL_DIFF"), row(7002, persona=7002, value="12. marts 1702"))]
+    k, rows = bygge(10, 10, extra)
+    p = plan_af(k, rows)
+    a = anvend(p, udfyld(p, {iid(7001): "B", iid(7002): "B"}))
+    linjer = [x for x in v2.sql_v2(p, a).splitlines() if "public.red_ret_paastand(" in x]
+    p_dato = {}
+    for n in (7001, 7002):
+        x = next(x for x in linjer if iid(n) in x)
+        m = re.search(r"'(\{\"date_certainty\"[^']*)'::jsonb\) \\g /dev/null$", x)
+        assert m, x
+        p_dato[n] = json.loads(m.group(1))
+    assert p_dato[7001] == {"date_certainty": "uncertain", "date_min": "1849-01-01", "date_max": "1849-12-31",
+                            "date_qualifier": None}
+    assert p_dato[7002] == {"date_certainty": None, "date_min": "1702-03-12", "date_max": "1702-03-12",
+                            "date_qualifier": None}
+    assert v2.datorettelser_graenser_aendret(a) == 1   # 1849? har påstandens 1849-grænser; kun 7002 ændrer dem
 
 
 def test_verify_sql_kontrakter():

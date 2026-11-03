@@ -300,9 +300,15 @@ def check_sheet_v2(plan: dict, fields: list[FieldAnswer], personas: list[Persona
 
 # --- anvendelsen ------------------------------------------------------------------------------------------------------
 
+GRAENSE_NOEGLER = ("date_min", "date_max", "date_qualifier")
+
+
 def _p_dato(value_text: str) -> dict:
+    """red_ret_paastand's p_dato fra validate.derive_date_info: grænserne, kvalifikatoren og date_certainty
+    ('uncertain' eller None — de eneste, parseren giver, og de eneste, RPC'en tager)."""
     info = validate.derive_date_info(value_text)
-    return {"date_min": info["date_min"], "date_max": info["date_max"], "date_qualifier": info["qualifier"]}
+    return {"date_min": info["date_min"], "date_max": info["date_max"], "date_qualifier": info["qualifier"],
+            "date_certainty": info["certainty"]}
 
 
 def b_afvist_navn_eller_maal(r: dict) -> str | None:
@@ -418,7 +424,8 @@ def apply_plan_v2(plan: dict, sheet_text: str, *, sheet_sha256: str, hashes: dic
 def datorettelser_graenser_aendret(applied: dict) -> int:
     """Datorettelser, hvis date_min/date_max/date_qualifier ændres (påstandens grænser ved planen mod p_dato).
     Ukendte grænser før tæller som ændret (fail-loud)."""
-    return sum(1 for r in applied["rettelser"] if r["p_dato"] is not None and r.get("graenser_foer") != r["p_dato"])
+    return sum(1 for r in applied["rettelser"] if r["p_dato"] is not None
+               and r.get("graenser_foer") != {k: r["p_dato"][k] for k in GRAENSE_NOEGLER})
 
 
 def _jlit(obj) -> str:
