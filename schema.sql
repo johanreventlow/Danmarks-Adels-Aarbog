@@ -9546,8 +9546,8 @@ REVOKE ALL ON TABLE paastand_korrektion FROM PUBLIC,anon,authenticated,service_r
 -- version, proposed eller accepted, for faktaets person via accepteret identitet, med et prædikat hvis aktive regel
 -- giver faktaets faktatype); linjeskift-v1 skriver påstandens egen date_raw med blanktegn samlet og kræver også det
 -- datoforslag, rettelsen tjener. Kun faktatyper med en aktiv assertion-regel kan rettes. Datotyper tager p_dato
--- ({date_min, date_max, date_qualifier}, beregnet af ceremoniens parser) ved bogen_har_ret; linjeskift-v1 og teksttyper
--- tager ingen p_dato. Påstanden skal være citeret af præcis én kilde, og forslaget skal komme fra den. En gyldig binding
+-- ({date_min, date_max, date_qualifier} og valgfrit date_certainty, beregnet af ceremoniens parser) ved bogen_har_ret;
+-- linjeskift-v1 og teksttyper tager ingen p_dato, og linjeskift-v1 rører ingen strukturerede datokolonner. Påstanden skal være citeret af præcis én kilde, og forslaget skal komme fra den. En gyldig binding
 -- på påstanden, som den nye værdi ville gøre ugyldig, afviser rettelsen. Visningscachen følger af trg_assertion_regen.
 CREATE OR REPLACE FUNCTION red_ret_paastand(
   p_assertion_id bigint,
@@ -9578,6 +9578,7 @@ DECLARE
   v_new_min date;
   v_new_max date;
   v_new_qual text;
+  v_new_cert text;
   v_foer jsonb;
   v_efter jsonb;
   v_cs bigint;
@@ -9649,11 +9650,14 @@ BEGIN
   ELSE
     -- The type check stands alone: Postgres does not guarantee OR order, and jsonb_object_keys fails on a scalar.
     IF p_dato IS NULL OR jsonb_typeof(p_dato)<>'object' THEN RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG'; END IF;
+    -- date_certainty is optional; every other key is required, and no other key is allowed. The typeof check on
+    -- date_certainty only runs when the key is present: jsonb_typeof(NULL) NOT IN (...) is NULL and would pass.
     IF NOT (p_dato ?& ARRAY['date_min','date_max','date_qualifier'])
        OR jsonb_typeof(p_dato->'date_qualifier') NOT IN ('string','null')
        OR jsonb_typeof(p_dato->'date_min') NOT IN ('string','null')
        OR jsonb_typeof(p_dato->'date_max') NOT IN ('string','null')
-       OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(p_dato) k)
+       OR (p_dato ? 'date_certainty' AND jsonb_typeof(p_dato->'date_certainty') NOT IN ('string','null'))
+       OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(p_dato - 'date_certainty') k)
             IS DISTINCT FROM ARRAY['date_max','date_min','date_qualifier'] THEN
       RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG';
     END IF;
@@ -9667,6 +9671,13 @@ BEGIN
     v_new_qual := p_dato->>'date_qualifier';
     -- The qualifiers validate.py:derive_date_info can produce (or none).
     IF v_new_qual IS NOT NULL AND v_new_qual NOT IN ('before','after','between','about','floruit') THEN
+      RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG';
+    END IF;
+    -- The certainty validate.py:derive_date_info can produce: 'uncertain' or none. A missing key gives NULL, as in
+    -- red_ret_ocr_felt (date_certainty=p_korrigeret->>'certainty'): the correction replaces the parsed reading of the
+    -- date, so a stale certainty must not survive it. The original stays in foer.
+    v_new_cert := p_dato->>'date_certainty';
+    IF v_new_cert IS NOT NULL AND v_new_cert<>'uncertain' THEN
       RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG';
     END IF;
   END IF;
@@ -9738,18 +9749,19 @@ BEGIN
   SELECT coalesce(pr.navn,pr.email,v_actor::text) INTO v_actor_navn FROM public.profiles pr WHERE pr.id=v_actor;
   v_actor_navn := coalesce(v_actor_navn,'ukendt');
   v_foer := jsonb_build_object('vaerdi_tekst',v_a.vaerdi_tekst,'date_raw',v_a.date_raw,'date_min',v_a.date_min,
-              'date_max',v_a.date_max,'date_qualifier',v_a.date_qualifier);
+              'date_max',v_a.date_max,'date_qualifier',v_a.date_qualifier,'date_certainty',v_a.date_certainty);
   v_cs := public.begin_change_set('red_ret_paastand',format('Paastand %s: %s',v_a.id,p_grund),'person',v_f.subjekt_id);
   IF v_value_kind='text' THEN
     UPDATE public.assertion SET vaerdi_tekst=v_new WHERE id=v_a.id;
   ELSIF p_grund='bogen_har_ret' THEN
-    UPDATE public.assertion SET date_raw=v_new,date_min=v_new_min,date_max=v_new_max,date_qualifier=v_new_qual
+    UPDATE public.assertion SET date_raw=v_new,date_min=v_new_min,date_max=v_new_max,date_qualifier=v_new_qual,
+           date_certainty=v_new_cert
      WHERE id=v_a.id;
   ELSE
     UPDATE public.assertion SET date_raw=v_new WHERE id=v_a.id;
   END IF;
   SELECT jsonb_build_object('vaerdi_tekst',a.vaerdi_tekst,'date_raw',a.date_raw,'date_min',a.date_min,
-           'date_max',a.date_max,'date_qualifier',a.date_qualifier)
+           'date_max',a.date_max,'date_qualifier',a.date_qualifier,'date_certainty',a.date_certainty)
     INTO v_efter FROM public.assertion a WHERE a.id=v_a.id;
   INSERT INTO public.paastand_korrektion(assertion_id,interpretation_id,grund,foer,efter,change_set_id,actor_id,actor_navn)
     VALUES (v_a.id,v_int.id,p_grund,v_foer,v_efter,v_cs,v_actor,v_actor_navn)

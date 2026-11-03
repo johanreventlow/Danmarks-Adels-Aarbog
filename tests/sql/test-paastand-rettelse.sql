@@ -8,8 +8,9 @@ BEGIN;
 \ir fixtures/relation-2a.sql
 
 -- Et afklaret faktum med én påstand, citeret af p_sources. p_kind er 'text' (vaerdi_tekst) eller 'date_raw'.
+-- p_certainty er datopåstandens date_certainty før rettelsen.
 CREATE FUNCTION pg_temp.pr_fakta(p_person bigint,p_faktatype text,p_kind text,p_value text,p_sources bigint[],
-  p_min date DEFAULT NULL,p_max date DEFAULT NULL) RETURNS bigint LANGUAGE plpgsql AS $$
+  p_min date DEFAULT NULL,p_max date DEFAULT NULL,p_certainty text DEFAULT NULL) RETURNS bigint LANGUAGE plpgsql AS $$
 DECLARE v_fact bigint; v_a bigint; s bigint;
 BEGIN
   INSERT INTO fact(subjekt_type,subjekt_id,faktatype) VALUES ('person',p_person,p_faktatype) RETURNING id INTO v_fact;
@@ -17,8 +18,9 @@ BEGIN
     INSERT INTO assertion(target_type,target_id,vaerdi_tekst,uforanderlig)
       VALUES ('fact',v_fact,p_value,true) RETURNING id INTO v_a;
   ELSE
-    INSERT INTO assertion(target_type,target_id,date_raw,date_min,date_max,date_qualifier,calendar,uforanderlig)
-      VALUES ('fact',v_fact,p_value,p_min,p_max,'exact','gregoriansk',true) RETURNING id INTO v_a;
+    INSERT INTO assertion(target_type,target_id,date_raw,date_min,date_max,date_qualifier,calendar,date_certainty,
+                          uforanderlig)
+      VALUES ('fact',v_fact,p_value,p_min,p_max,'exact','gregoriansk',p_certainty,true) RETURNING id INTO v_a;
   END IF;
   INSERT INTO conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('fact',v_fact,v_a,'afklaret');
   FOREACH s IN ARRAY p_sources LOOP
@@ -189,7 +191,7 @@ DECLARE
   a_titel bigint; i_titel uuid; a_foed bigint; i_foed uuid; i_foed2 uuid; a_doed bigint; i_doed uuid;
   a_delt bigint; i_delt uuid; a_anden bigint; i_anden uuid; i_afvist uuid; i_person uuid; i_praed uuid;
   a_navn bigint; i_navn uuid; a_bund bigint; i_bund uuid; i_bund2 uuid; v_prom uuid; i_bryd uuid; a_koen bigint;
-  a_doed2 bigint; i_doed2 uuid; a_bund_y bigint;
+  a_doed2 bigint; i_doed2 uuid; a_bund_y bigint; a_doed3 bigint; i_doed3 uuid;
   r jsonb; forv jsonb; v_cs bigint; n int; a record; k record; h record; v_dato jsonb;
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
@@ -209,9 +211,11 @@ BEGIN
 
   a_titel:=pg_temp.pr_fakta(v_p,'titel','text','Kammerherre',ARRAY[v_s]);
   i_titel:=pg_temp.pr_forslag(v_s,v_post,v_run,'person.title','Overhofmarskal');
-  a_foed:=pg_temp.pr_fakta(v_p,'fødsel','date_raw','12. marts 1703',ARRAY[v_s],'1703-03-12','1703-03-12');
+  -- Datopåstandene starter med date_certainty 'ambiguous', som rettelsen aldrig kan skrive: overskrevet, skrevet og
+  -- urørt kan skelnes.
+  a_foed:=pg_temp.pr_fakta(v_p,'fødsel','date_raw','12. marts 1703',ARRAY[v_s],'1703-03-12','1703-03-12','ambiguous');
   i_foed:=pg_temp.pr_forslag(v_s,v_post,v_run,'person.birth','12. marts 1702');
-  a_doed:=pg_temp.pr_fakta(v_p,'død','date_raw',E'12. marts\n1750',ARRAY[v_s],'1750-03-12','1750-03-12');
+  a_doed:=pg_temp.pr_fakta(v_p,'død','date_raw',E'12. marts\n1750',ARRAY[v_s],'1750-03-12','1750-03-12','ambiguous');
   i_doed:=pg_temp.pr_forslag(v_s,v_post,v_run,'person.death','12. marts 1750');
   a_delt:=pg_temp.pr_fakta(v_p,'titel','text','Etatsråd',ARRAY[v_s,-2863]);
   i_delt:=pg_temp.pr_forslag(v_s,v_post,v_run,'person.title','Konferensråd');
@@ -229,6 +233,8 @@ BEGIN
   a_doed2:=pg_temp.pr_fakta(v_p,'død','date_raw',E'12. marts\n1750',ARRAY[v_s],'1750-03-12','1750-03-12');
   i_doed2:=pg_temp.pr_forslag(v_s,v_post,v_run,'person.death','12. marts 1751');
   a_bund_y:=pg_temp.pr_fakta(v_p,'titel','text','Kancelliråd',ARRAY[v_s]);
+  a_doed3:=pg_temp.pr_fakta(v_p,'død','date_raw','12. marts 1760',ARRAY[v_s],'1760-03-12','1760-03-12','ambiguous');
+  i_doed3:=pg_temp.pr_forslag(v_s,v_post,v_run,'person.death','12. marts 1761?');
   SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
   i_foed2:=pg_temp.pr_afgoer(v_actor,i_foed,'accepted');
   i_afvist:=pg_temp.pr_afgoer(v_actor,i_afvist,'rejected');
@@ -287,6 +293,24 @@ BEGIN
     '{"date_min":"1702-03-12","date_max":"1702-03-12","date_qualifier":null,"calendar":"juliansk"}');
   PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_doed,pg_temp.pr_forventet(a_doed),'linjeskift-v1',i_doed,
     '{"date_min":null,"date_max":null,"date_qualifier":null}');
+  -- date_certainty er valgfri og skal være en, derive_date_info kan give ('uncertain'), eller null: 'certain' og
+  -- 'ambiguous' er gyldige i kolonnen, men parseren giver dem aldrig. Nøglen hedder date_certainty, ikke certainty.
+  PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,
+    '{"date_min":"1702-03-12","date_max":"1702-03-12","date_qualifier":null,"date_certainty":"certain"}');
+  PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,
+    '{"date_min":"1702-03-12","date_max":"1702-03-12","date_qualifier":null,"date_certainty":"ambiguous"}');
+  PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,
+    '{"date_min":"1702-03-12","date_max":"1702-03-12","date_qualifier":null,"date_certainty":"Uncertain"}');
+  PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,
+    '{"date_min":"1702-03-12","date_max":"1702-03-12","date_qualifier":null,"date_certainty":1}');
+  PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,
+    '{"date_min":"1702-03-12","date_max":"1702-03-12","date_qualifier":null,"date_certainty":["uncertain"]}');
+  PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,
+    '{"date_min":"1702-03-12","date_max":"1702-03-12","date_qualifier":null,"certainty":"uncertain"}');
+  PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_foed,forv,'bogen_har_ret',i_foed2,
+    '{"date_min":"1702-03-12","date_max":"1702-03-12","date_certainty":"uncertain"}');
+  PERFORM pg_temp.pr_fejl('PAASTAND_FAKTATYPE_UGYLDIG',a_doed,pg_temp.pr_forventet(a_doed),'linjeskift-v1',i_doed,
+    '{"date_certainty":"uncertain"}');
 
   -- (e) Kilde: påstanden citeret af to kilder; forslag fra en anden kilde end citationen.
   PERFORM pg_temp.pr_fejl('PAASTAND_KILDE_DELT',a_delt,pg_temp.pr_forventet(a_delt),'bogen_har_ret',i_delt);
@@ -320,7 +344,8 @@ BEGIN
      OR (SELECT vaerdi_tekst FROM assertion WHERE id=a_navn)<>'Ditlev Reventlow til X'
      OR (SELECT vaerdi_tekst FROM assertion WHERE id=a_bund)<>'Kammerjunker'
      OR (SELECT vaerdi_tekst FROM assertion WHERE id=a_bund_y)<>'Kancelliråd'
-     OR (SELECT date_raw FROM assertion WHERE id=a_foed)<>'12. marts 1703' THEN
+     OR (SELECT date_raw FROM assertion WHERE id=a_foed)<>'12. marts 1703'
+     OR (SELECT date_certainty FROM assertion WHERE id=a_foed) IS DISTINCT FROM 'ambiguous' THEN
     RAISE EXCEPTION 'PAASTAND_TEST_AFVIST_AENDREDE';
   END IF;
 
@@ -387,11 +412,14 @@ BEGIN
   END IF;
 
   -- (j) bogen_har_ret på fødsel med accepteret forslag: date_raw fra forslaget, grænser og kvalifikator fra p_dato.
+  -- Uden date_certainty i p_dato bliver kolonnen NULL (som red_ret_ocr_felt); originalen står i foer.
   v_dato:='{"date_min":"1702-03-01","date_max":"1702-03-31","date_qualifier":"about"}';
   r:=pg_temp.pr_ret(a_foed,pg_temp.pr_forventet(a_foed),'bogen_har_ret',i_foed2,v_dato);
   SELECT * INTO a FROM assertion WHERE id=a_foed;
   IF a.date_raw<>'12. marts 1702' OR a.date_min<>'1702-03-01' OR a.date_max<>'1702-03-31' OR a.date_qualifier<>'about'
-     OR a.calendar<>'gregoriansk' OR a.vaerdi_tekst IS NOT NULL
+     OR a.calendar<>'gregoriansk' OR a.vaerdi_tekst IS NOT NULL OR a.date_certainty IS NOT NULL
+     OR r->'foer'->>'date_certainty' IS DISTINCT FROM 'ambiguous'
+     OR r->'efter'->'date_certainty' IS DISTINCT FROM 'null'::jsonb
      OR r->'foer'->>'date_raw'<>'12. marts 1703' OR r->'foer'->>'date_min'<>'1703-03-12'
      OR r->'efter'->>'date_raw'<>'12. marts 1702' OR r->'efter'->>'date_min'<>'1702-03-01'
      OR r->'efter'->>'date_qualifier'<>'about' OR (r->>'change_set_id')::bigint=v_cs THEN
@@ -402,10 +430,13 @@ BEGIN
   v_prom:=pg_temp.pr_bind(i_foed2,a_foed);
   IF NOT private.assertion_binding_current(v_prom) THEN RAISE EXCEPTION 'PAASTAND_TEST_FOEDSEL_BINDING'; END IF;
 
-  -- (k) linjeskift-v1 på død: kun blanktegn i date_raw; grænser og kvalifikator uændrede.
+  -- (k) linjeskift-v1 på død: kun blanktegn i date_raw; grænser, kvalifikator og date_certainty uændrede.
   r:=pg_temp.pr_ret(a_doed,pg_temp.pr_forventet(a_doed),'linjeskift-v1',i_doed);
   SELECT * INTO a FROM assertion WHERE id=a_doed;
   IF a.date_raw<>'12. marts 1750' OR a.date_min<>'1750-03-12' OR a.date_max<>'1750-03-12' OR a.date_qualifier<>'exact'
+     OR a.date_certainty IS DISTINCT FROM 'ambiguous'
+     OR r->'foer'->>'date_certainty' IS DISTINCT FROM 'ambiguous'
+     OR r->'efter'->>'date_certainty' IS DISTINCT FROM 'ambiguous'
      OR r->'foer'->>'date_raw'<>E'12. marts\n1750' OR r->'efter'->>'date_raw'<>'12. marts 1750'
      OR r->'foer'->'date_min'<>r->'efter'->'date_min' OR r->'foer'->'date_max'<>r->'efter'->'date_max'
      OR (SELECT grund FROM paastand_korrektion WHERE id=(r->>'korrektion_id')::bigint)<>'linjeskift-v1'
@@ -418,6 +449,20 @@ BEGIN
   IF (SELECT date_raw FROM assertion WHERE id=a_doed2)<>E'12. marts\n1750'
      OR EXISTS (SELECT 1 FROM paastand_korrektion WHERE assertion_id=a_doed2) THEN
     RAISE EXCEPTION 'PAASTAND_TEST_LINJESKIFT_SKREV';
+  END IF;
+
+  -- (k2) bogen_har_ret med date_certainty i p_dato: kolonnen får værdien ('12. marts 1761?' giver 'uncertain' i
+  -- derive_date_info), og journalen bevarer den gamle.
+  r:=pg_temp.pr_ret(a_doed3,pg_temp.pr_forventet(a_doed3),'bogen_har_ret',i_doed3,
+    '{"date_min":"1761-03-12","date_max":"1761-03-12","date_qualifier":null,"date_certainty":"uncertain"}');
+  SELECT * INTO a FROM assertion WHERE id=a_doed3;
+  IF a.date_raw<>'12. marts 1761?' OR a.date_min<>'1761-03-12' OR a.date_max<>'1761-03-12' OR a.date_qualifier IS NOT NULL
+     OR a.date_certainty IS DISTINCT FROM 'uncertain'
+     OR r->'foer'->>'date_certainty' IS DISTINCT FROM 'ambiguous'
+     OR r->'efter'->>'date_certainty' IS DISTINCT FROM 'uncertain'
+     OR (SELECT efter->>'date_certainty' FROM paastand_korrektion WHERE id=(r->>'korrektion_id')::bigint)
+          IS DISTINCT FROM 'uncertain' THEN
+    RAISE EXCEPTION 'PAASTAND_TEST_DATE_CERTAINTY: % %',to_jsonb(a),r;
   END IF;
 
   -- (l) Fortrydelse af titelrettelsen: påstanden og cachen tilbage; journalen bevares, historikken viser fortrydelsen.
@@ -442,7 +487,7 @@ BEGIN
   END IF;
   -- ... og nu har den rettet a_anden, så a_titel afviser den.
   PERFORM pg_temp.pr_fejl('PAASTAND_FORSLAG_UOVERENS',a_titel,pg_temp.pr_forventet(a_titel),'bogen_har_ret',i_titel);
-  IF (SELECT count(*) FROM paastand_korrektion)<>4 THEN RAISE EXCEPTION 'PAASTAND_TEST_ANTAL'; END IF;
+  IF (SELECT count(*) FROM paastand_korrektion)<>5 THEN RAISE EXCEPTION 'PAASTAND_TEST_ANTAL'; END IF;
 END $rettelse$;
 ROLLBACK;
 SELECT 'paastand_rettelse OK' AS result;
