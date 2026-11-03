@@ -126,6 +126,11 @@ INSERT INTO citation(assertion_id,source_id) VALUES (-47591,-4749);
 INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderlig) VALUES
   (-47543,'fact',-47542,'Dorthe Testlow','gregoriansk',true);
 INSERT INTO citation(assertion_id,source_id) VALUES (-47543,-4749);
+-- Og et længere navn fra den anden kilde, som indeholder forslaget 'Dorte Testlow' (slutreview fix C): det er ikke
+-- rettelsens mål, så navn_forkortes vurderes mod -47542 alene og er falsk (som red_ret_paastand's port).
+INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderlig) VALUES
+  (-47544,'fact',-47542,'Dorte Testlow til Testholm','gregoriansk',true);
+INSERT INTO citation(assertion_id,source_id) VALUES (-47544,-4749);
 INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,
   predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id)
   SELECT ('c4750000-0000-4000-8000-0000000003'||nn)::uuid,('c4750000-0000-4000-8000-0000000004'||nn)::uuid,1,-4750,
@@ -199,7 +204,8 @@ assert m42 == {"assertion_id": -47542, "forventet": {"fact_id": -47542, "faktaty
                "citation_sources": [-4750]},
                "graenser": {"date_min": None, "date_max": None, "date_qualifier": None}}, m42
 assert rows[sys.argv[4]]["rettelse_maal"] is None   # citeret af to kilder: intet entydigt mål
-assert rows["c4750000-0000-4000-8000-000000000381"]["navn_forkortes"] is True
+assert rows["c4750000-0000-4000-8000-000000000381"]["navn_forkortes"] is True   # forkorter sit eget mål
+assert rows[sys.argv[3]]["navn_forkortes"] is False   # målet forkortes ikke; den anden kildes længere navn tæller ikke
 PY
 echo "OK: plan — stikprøve, klasser og rettelse_maal (entydigt / delt citation)"
 

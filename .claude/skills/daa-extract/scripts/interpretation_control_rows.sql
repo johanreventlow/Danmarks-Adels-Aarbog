@@ -7,9 +7,12 @@
 --   persona_id        forslagets persona (NULL uden persona)
 --   identity_outcome  personaidentitetens evidence->>'outcome' (generatorens udfald; NULL uden)
 --   identity_version  personaidentitetens aktuelle version (uanset status; NULL uden identitet)
---   navn_forkortes    kun person.name: sand, hvis forslaget ville forkorte et af den identificerede persons navne
---                     (private.navn_forkortes, samme regel som PAASTAND_NAVN_FORKORTES i red_ret_paastand);
---                     NULL uden identitet eller navnepåstand; false for andre prædikater.
+--   navn_forkortes    kun person.name: private.navn_forkortes, samme regel som PAASTAND_NAVN_FORKORTES i
+--                     red_ret_paastand. Har forslaget et rettelse_maal, vurderes reglen mod præcis målets værdi
+--                     (navn_forkortes(målets vaerdi_tekst, forslaget), som RPC'ens (gammel, ny)); en anden kildes
+--                     længere navn tæller ikke. Uden mål: sand, hvis forslaget ville forkorte et af den identificerede
+--                     persons navne (konservativt; B tilbydes alligevel ikke uden mål). NULL uden identitet eller
+--                     navnepåstand; false for andre prædikater.
 --   rettelse_maal     målet for »bogen har ret« (red_ret_paastand, trin 6c-2 Task 7): den identificerede persons påstand
 --                     af regelens faktatype, som er citeret af præcis én kilde, og det er forslagets egen kilde
 --                     (RPC'ens PAASTAND_KILDE_DELT-regel). Præcis én sådan påstand → {"assertion_id", "forventet",
@@ -41,7 +44,8 @@ rows AS (
    GROUP BY ic.id, ic.version, sr.record_key, ic.predicate, ic.value, ic.confidence, ic.source_persona_id,
             spi.evidence->>'outcome', spi.version),
 navn AS (
-  -- Kun med kildescope: navnereglen mod den identificerede persons påstande af regelens faktatype.
+  -- Kun med kildescope: navnereglen mod den identificerede persons påstande af regelens faktatype (bruges kun uden
+  -- rettelse_maal; med mål vurderes reglen mod målet i rows2).
   SELECT r.interpretation_id,
          bool_or(private.navn_forkortes(a.vaerdi_tekst, r.value_text)) AS navn_forkortes
     FROM rows r
@@ -86,7 +90,10 @@ maal AS (
            AS rettelse_maal
     FROM maal0 GROUP BY interpretation_id),
 rows2 AS (
-  SELECT r.*, CASE WHEN r.predicate = 'person.name' THEN n.navn_forkortes ELSE false END AS navn_forkortes,
+  SELECT r.*, CASE WHEN r.predicate <> 'person.name' THEN false
+                   WHEN m.rettelse_maal IS NOT NULL
+                   THEN private.navn_forkortes(m.rettelse_maal->'forventet'->>'vaerdi_tekst', r.value_text)
+                   ELSE n.navn_forkortes END AS navn_forkortes,
          m.rettelse_maal
     FROM rows r LEFT JOIN navn n USING (interpretation_id) LEFT JOIN maal m USING (interpretation_id))
 SELECT coalesce(jsonb_agg(CASE WHEN (SELECT src FROM ctl) IS NULL

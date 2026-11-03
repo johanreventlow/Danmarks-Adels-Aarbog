@@ -189,7 +189,7 @@ ROLLBACK;
 --   04 A pa2 death ' 1851 ' TARGET_SHARED
 --   05 A pa3 death '1852'   ALREADY_BOUND_OTHER (11 har en gyldig binding på -4663)
 --   06 A pa4 death '1853'   MATCH (12's binding på -4664 er ikke længere gyldig)
---   07 A pa5 name 'Anna Testlow'   REAL_DIFF, navn_forkortes = true (forkorter det ene af V's navne, ikke det andet)
+--   07 A pa5 name 'Anna Testlow'   REAL_DIFF, navn_forkortes = true (intet mål: forkorter det ene af V's navne)
 --   08 A pa1 name 'Anne Testlow'   REAL_DIFF, navn_forkortes = false
 --   09 A pa6 name 'Carl Testlow'   NO_IDENTITY, navn_forkortes = NULL (ingen identitet)
 --   10 A pa2 name 'Dorte Testlow'  NO_FACT, navn_forkortes = NULL (Y har ingen navnepåstand)
@@ -402,8 +402,9 @@ BEGIN
   END IF;
   SELECT e INTO x FROM jsonb_array_elements(r) e WHERE e->>'interpretation_id'='a4650000-0000-4000-8000-000000000303';
   IF x->>'identity_outcome' IS DISTINCT FROM 'ingen_kandidat' THEN RAISE EXCEPTION 'FEJL: række 03 %',x - 'cited'; END IF;
-  -- navn_forkortes: forslaget er en ægte delstreng af et af databasens navne (titel/gods ville forsvinde). Det gælder,
-  -- selv om personens andet navn ikke forkortes (07: sand over V's to navne).
+  -- navn_forkortes uden rettelsesmål (fixturen har ingen citationer): forslaget er en ægte delstreng af et af
+  -- databasens navne (titel/gods ville forsvinde). Det gælder, selv om personens andet navn ikke forkortes (07: sand
+  -- over V's to navne, konservativt). Med et mål vurderes kun målet (tests/sql/test-control-model-v2.sh, forslag 42).
   SELECT e INTO x FROM jsonb_array_elements(r) e WHERE e->>'interpretation_id'='a4650000-0000-4000-8000-000000000307';
   IF x->'navn_forkortes' IS DISTINCT FROM 'true'::jsonb THEN RAISE EXCEPTION 'FEJL: række 07 %',x - 'cited'; END IF;
   SELECT e INTO x FROM jsonb_array_elements(r) e WHERE e->>'interpretation_id'='a4650000-0000-4000-8000-000000000308';
