@@ -10,6 +10,7 @@ Modulets tests deler basen og koerer i filens raekkefoelge: tilstandstesten efte
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -23,6 +24,7 @@ ROOT = SCRIPTS.parents[3]
 MAAL = SCRIPTS / "maal_trin6c2.sql"
 LINJESKIFT = SCRIPTS / "linjeskift_kandidater.sql"
 FORVENTET = SCRIPTS / "linjeskift_forventet.sql"
+KANDIDAT_PAR = SCRIPTS / "linjeskift_kandidat_par.sql"
 VEJB = SCRIPTS / "vejb_tid.sql"
 DB = f"t6c2_t9_{os.getpid()}"
 
@@ -48,7 +50,8 @@ A = {"p1": -69001, "p2": -69002, "p3a": -69003, "p3b": -69004, "p4": -69005, "p5
 LINE = re.compile(r"T6C2_MAAL tilstand=(foer|a|b|c|d) forslag_k=(\d+) match=(\d+) skrivemaade=(\d+) real_diff=(\d+) "
                   r"accepteret_k=(\d+) bindinger_k=(\d+) rettelser=(\d+) unresolved_fra_kort=(\d+) "
                   r"k1_bindinger_hash=([0-9a-f]{64})")
-LK_LINE = re.compile(r"T6C2_LINJESKIFT antal=(\d+) delstreng_i_tilstand=(\d+) forventet_sha256=([0-9a-f]{64})")
+LK_LINE = re.compile(r"T6C2_LINJESKIFT antal=(\d+) delstreng_i_tilstand=(\d+) forventet_sha256=([0-9a-f]{64}) "
+                     r"graenser_udfyldt=(\d+) graenser_sha256=([0-9a-f]{64})")
 PAR = re.compile(r"(-?\d+)\|([0-9a-f-]{36})")
 VEJB_LINE = re.compile(r"T6C2_VEJB person=(-?\d+) ms=(\d+)")
 
@@ -147,6 +150,8 @@ _SETUP = (
     + _persona(_u(69300), K1, RUN_1, "t9:k1", PK)
     # paastande (date_raw for datoer, vaerdi_tekst for navn)
     + _date_fact(P[1], A["p1"], "fødsel", "12. marts\n1750", [SRC])
+    + f"UPDATE public.assertion SET date_min='1750-03-12',date_max='1750-03-12',date_qualifier='exact' "
+      f"WHERE id={A['p1']};\n"
     + _date_fact(P[2], A["p2"], "fødsel", "1. maj\n1760", [SRC, OTHER])
     + _date_fact(P[3], A["p3a"], "fødsel", "2. maj\n1761", [SRC])
     + _date_fact(P[3], A["p3b"], "fødsel", "2. maj  1761", [SRC])
@@ -216,10 +221,10 @@ def _skjul_writere(db: str, skjul: bool) -> None:
 
 
 def test_scripts_er_laese_kun_og_uden_fast_kilde():
-    for f in (MAAL, LINJESKIFT, VEJB, FORVENTET):
+    for f in (MAAL, LINJESKIFT, VEJB, FORVENTET, KANDIDAT_PAR):
         sql = f.read_text(encoding="utf-8")
         body = re.sub(r"--[^\n]*", "", sql)
-        if f is not FORVENTET:  # snippet'et koerer i kalderens transaktion
+        if f not in (FORVENTET, KANDIDAT_PAR):  # snippets koerer i kalderens transaktion
             assert "BEGIN READ ONLY" in sql and "ROLLBACK" in sql, f.name
         assert not re.search(r"\b(INSERT|UPDATE|DELETE|COPY)\s", body), f.name
         # kilden kommer fra -v source_id (standard 3), aldrig som literal i en forespoergsel
@@ -265,6 +270,16 @@ def test_tilstande_foer_a_b_c_d_og_k1_hashen_er_stabil(db):
              f"({A['p8']},'{_u(69408)}','linjeskift-v1','{{}}','{{}}',-69803);\n")
     c = _maal(db)
     assert c[0] == "c" and c[7] == "1"
+    # en afvisning eller en uafklaret afgørelse alene giver også d (P7's REAL_DIFF afgøres og fjernes igen)
+    for status in ("rejected", "unresolved"):
+        _sql(db, _interp(_u(69427), _u(69507), 2, SRC, _u(69107), "person.birth", "8. juni 1799", RUN_S,
+                         status=status, supersedes=_u(69407)))
+        try:
+            dx = _maal(db)
+            assert dx[:9] == ("d", "10", "4", "6", "0", "0", "0", "1", "1"), (status, dx)
+        finally:
+            _sql(db, f"DELETE FROM private.interpretation WHERE id='{_u(69427)}';")
+    assert _maal(db) == c
     # d: kildens navneforslag accepteres (afgørelsen alene giver d) og bindes
     _sql(db, _interp(_u(69429), _u(69509), 2, SRC, _u(69109), "person.name", "Anna", RUN_S, status="accepted",
                      supersedes=_u(69409)))
@@ -332,7 +347,7 @@ def _lk(db: str, source: int) -> subprocess.CompletedProcess:
     return _run(db, LINJESKIFT, f"source_id={source}")
 
 
-def _lk_full(db: str, source: int) -> tuple[tuple, list[tuple[int, str]], str]:
+def _lk_full(db: str, source: int) -> tuple[tuple, list[tuple[int, str]], str, tuple]:
     out = _must(_lk(db, source), "linjeskift").strip().splitlines()
     g = LK_LINE.fullmatch(out[0])
     assert g, out
@@ -343,26 +358,36 @@ def _lk_full(db: str, source: int) -> tuple[tuple, list[tuple[int, str]], str]:
         par.append((int(m.group(1)), m.group(2)))
     assert int(g.group(1)) == len(par)
     assert [a for a, _ in par] == sorted(a for a, _ in par)
-    return g.groups()[:2], par, g.group(3)
+    return g.groups()[:2], par, g.group(3), (g.group(4), g.group(5))
 
 
 def _lk_ok(db: str, source: int) -> tuple[tuple, list[int]]:
-    g, par, _ = _lk_full(db, source)
+    g, par, _, _ = _lk_full(db, source)
     return g, [a for a, _ in par]
 
 
-def _forventet_sha(db: str, ids: list[int]) -> str:
-    """Snippet'et direkte, som runneren bruger det: ids ind i GUC'en, sha ud."""
-    sql = (f"BEGIN READ ONLY;\nSELECT set_config('daa.linjeskift_ider','{','.join(map(str, ids))}',true) \\g /dev/null\n"
-           f"\\i {FORVENTET}\nSELECT current_setting('daa.linjeskift_forventet_sha256');\nROLLBACK;\n")
-    out = _must(_psql(db=db, stdin=sql), "forventet").strip()
+def _par(par: list[tuple[int, str]]) -> str:
+    return ",".join(f"{a}:{i}" for a, i in par)
+
+
+def _forventet(db: str, par: list[tuple[int, str]], *udtryk: str) -> list[str]:
+    """Snippet'et direkte, som runneren bruger det: par ind i GUC'en, GUC'er ud (udtryk efter eget valg)."""
+    sel = ",".join(udtryk) or "current_setting('daa.linjeskift_forventet_sha256')"
+    sql = (f"BEGIN READ ONLY;\nSELECT set_config('daa.linjeskift_par','{_par(par)}',true) \\g /dev/null\n"
+           f"\\i {FORVENTET}\nSELECT {sel};\nROLLBACK;\n")
+    return _must(_psql(db=db, stdin=sql), "forventet").strip().split("|")
+
+
+def _forventet_sha(db: str, par: list[tuple[int, str]]) -> str:
+    out = _forventet(db, par)[0]
     assert re.fullmatch(r"[0-9a-f]{64}", out), out
     return out
 
 
 def test_linjeskift_kandidater_afgraensning(db):
-    # kun P1: P2 delt citation, P3 to maal, P4 to forslag, P5 gyldig binding der ville brydes, P6 intet at rette,
-    # P7 ikke lig efter samling, P8 den anden kildes forslag, P10 intet at rette, P11 kun lig den raa vaerdi
+    # kun P1: P2 delt citation (to citerende kilder, K5), P3 to maal, P4 to forslag, P5 gyldig binding der ville
+    # brydes, P6 intet at rette, P7 ikke lig efter samling, P8 den anden kildes forslag, P10 intet at rette,
+    # P11 kun lig den raa vaerdi
     g, ids = _lk_ok(db, SRC)
     assert ids == [A["p1"]] and g == ("1", "0")
     # kilden er en parameter: for den anden kilde er P8 kandidat (kun citeret af den), P2 ikke
@@ -371,53 +396,90 @@ def test_linjeskift_kandidater_afgraensning(db):
 
 
 def test_linjeskift_par_og_forventet_sha(db):
-    # par: paastand og forslagets aktuelle version
-    _, par, sha = _lk_full(db, SRC)
-    assert par == [(A["p1"], _u(69401))]
-    _, par_o, _ = _lk_full(db, OTHER)
-    assert par_o == [(A["p8"], _u(69408))]
+    p1 = [(A["p1"], _u(69401))]
+    # par: paastand og forslagets aktuelle version; grænserne udfyldt for P1, ikke for P8
+    _, par, sha, gr = _lk_full(db, SRC)
+    assert par == p1 and gr[0] == "1"
+    _, par_o, _, gr_o = _lk_full(db, OTHER)
+    assert par_o == [(A["p8"], _u(69408))] and gr_o[0] == "0"
     # stabil over koersler, og lig snippet'et kaldt direkte (én definition)
-    assert _lk_full(db, SRC)[2] == sha == _forventet_sha(db, [A["p1"]])
-    # date_raw aendres (stadig kandidat): sha'en aendres
+    assert _lk_full(db, SRC)[2] == sha == _forventet_sha(db, p1)
+    # parret er hash-bundet: et andet interpretation_id giver en anden sha
+    assert _forventet_sha(db, [(A["p1"], _u(69402))]) != sha
+    # date_raw aendres (stadig kandidat): sha'en aendres, grænserne ikke
     _sql(db, f"UPDATE public.assertion SET date_raw=E'12. marts\\n\\n1750' WHERE id={A['p1']};")
     try:
-        _, par2, sha2 = _lk_full(db, SRC)
-        assert par2 == par and sha2 != sha
+        _, par2, sha2, gr2 = _lk_full(db, SRC)
+        assert par2 == par and sha2 != sha and gr2 == gr
     finally:
         _sql(db, f"UPDATE public.assertion SET date_raw=E'12. marts\\n1750' WHERE id={A['p1']};")
     assert _lk_full(db, SRC)[2] == sha
-    # citationsmaengden aendres: runnerens genberegning paa de samme id'er giver en anden sha
+    # citationsmaengden aendres: runnerens genberegning paa de samme par giver en anden sha
     _sql(db, f"INSERT INTO public.citation(id,assertion_id,source_id,side) VALUES (-69990,{A['p1']},{OTHER},'1');")
     try:
-        assert _forventet_sha(db, [A["p1"]]) != sha
+        assert _forventet_sha(db, p1) != sha
     finally:
         _sql(db, "DELETE FROM public.citation WHERE id=-69990;")
-    assert _forventet_sha(db, [A["p1"]]) == sha
+    assert _forventet_sha(db, p1) == sha
+    # grænserne aendres: graenser_sha256 aendres
+    _sql(db, f"UPDATE public.assertion SET date_max='1750-03-13' WHERE id={A['p1']};")
+    try:
+        assert _lk_full(db, SRC)[3] != gr
+    finally:
+        _sql(db, f"UPDATE public.assertion SET date_max='1750-03-12' WHERE id={A['p1']};")
     # ingen vaerdier i udskriften
     out = _must(_lk(db, SRC), "linjeskift")
     assert "marts" not in out and "1750" not in out
 
 
-def test_forventet_accepteres_af_red_ret_paastand(db):
-    """Elementets "forventet" fra snippet'et er præcis det p_forventet, RPC'en kræver (rulles tilbage)."""
+def test_forventet_citationskilder_stigende_og_i_sha(db):
+    """P2 citeres af to kilder (indsat SRC foer OTHER, mens OTHER < SRC): citation_sources er stigende, og sha'en er
+    sha256 over netop den jsonb-tekst."""
+    par = [(A["p2"], _u(69402))]
+    liste, sha = _forventet(db, par, "current_setting('daa.linjeskift_forventet')",
+                            "current_setting('daa.linjeskift_forventet_sha256')")
+    assert json.loads(liste)[0]["forventet"]["citation_sources"] == sorted([SRC, OTHER])
+    assert set(json.loads(liste)[0]) == {"assertion_id", "interpretation_id", "forventet"}
+    assert set(json.loads(liste)[0]["forventet"]) == {"fact_id", "faktatype", "vaerdi_tekst", "date_raw",
+                                                      "valgt_assertion_id", "citation_sources"}
+    assert sha == hashlib.sha256(liste.encode()).hexdigest()
+
+
+def test_kandidatlisten_genberegnes_af_snippet(db):
+    """Runnerens (a): linjeskift_kandidat_par.sql giver samme parliste som scriptet."""
+    sql = (f"BEGIN READ ONLY;\nSELECT set_config('daa.linjeskift_kilde','{SRC}',true) \\g /dev/null\n"
+           f"\\i {KANDIDAT_PAR}\nSELECT current_setting('daa.linjeskift_kandidat_par');\nROLLBACK;\n")
+    assert _must(_psql(db=db, stdin=sql), "kandidat_par").strip() == _par(_lk_full(db, SRC)[1])
+
+
+def test_forventet_accepteres_af_red_ret_paastand_og_graenser_uaendret(db):
+    """Elementets "forventet" er præcis det p_forventet, RPC'en kræver; efter rettelsen er grænserne uændrede og den
+    forventede tilstand en anden (rulles tilbage)."""
     sql = f"""
 \\set ON_ERROR_STOP on
 BEGIN;
 INSERT INTO auth.users(id,email) VALUES ('{ACTOR}','t9@invalid') ON CONFLICT DO NOTHING;
 INSERT INTO public.profiles(id,rolle,navn,email) VALUES ('{ACTOR}','redaktion','t9','t9@invalid') ON CONFLICT DO NOTHING;
-SELECT set_config('daa.linjeskift_ider','{A["p1"]}',true) \\g /dev/null
+SELECT set_config('daa.linjeskift_par','{A["p1"]}:{_u(69401)}',true) \\g /dev/null
 \\i {FORVENTET}
+SELECT current_setting('daa.linjeskift_graenser_sha256') AS g0, current_setting('daa.linjeskift_graenser_udfyldt') AS u0,
+       current_setting('daa.linjeskift_forventet_sha256') AS f0 \\gset
 SELECT set_config('request.jwt.claim.sub','{ACTOR}',true) \\g /dev/null
 SELECT set_config('app.change_set_id','',true) \\g /dev/null
 SET LOCAL ROLE authenticated;
-SELECT (public.red_ret_paastand({A["p1"]},current_setting('daa.linjeskift_forventet')::jsonb->0->'forventet',
-        'linjeskift-v1','{_u(69401)}')->>'assertion_id');
+SELECT (public.red_ret_paastand((e->>'assertion_id')::bigint,e->'forventet','linjeskift-v1',
+        (e->>'interpretation_id')::uuid)->>'assertion_id')
+  FROM (SELECT current_setting('daa.linjeskift_forventet')::jsonb->0 AS e) x;
 RESET ROLE;
 SELECT a.date_raw = '12. marts 1750' FROM public.assertion a WHERE a.id={A["p1"]};
+\\i {FORVENTET}
+SELECT current_setting('daa.linjeskift_graenser_sha256')=:'g0',
+       current_setting('daa.linjeskift_graenser_udfyldt')=:'u0' AND :'u0'='1',
+       current_setting('daa.linjeskift_forventet_sha256')<>:'f0';
 ROLLBACK;
 """
     out = _must(_psql(db=db, stdin=sql), "red_ret_paastand").strip().splitlines()
-    assert out == [str(A["p1"]), "t"], out
+    assert out == [str(A["p1"]), "t", "t|t|t"], out
     assert _lk_ok(db, SRC)[1] == [A["p1"]]
 
 
@@ -464,6 +526,28 @@ def test_linjeskift_tilstandsgate(db):
     finally:
         _sql(db, "DELETE FROM private.narrative_publication_event WHERE narrative_id=-69950;"
                  "DELETE FROM public.narrative WHERE id=-69950;")
+    assert _lk_ok(db, SRC)[1] == [A["p1"]]
+
+
+def test_linjeskift_publiceringsgate_bruger_recordens_kilde(db):
+    """Den beregnede publiceringstilstand kaldes med recordens kilde (sr.source_id). Narrativets source_id er her
+    sat til en anden kilde; med n.source_id ville opslaget fejle (NARRATIVE_RECORD_NOT_FOUND) i stedet for gaten.
+    Narrativteksten er lig kandidatens date_raw, saa tilstanden indeholder den som hel vaerdi."""
+    raw = "12. marts\\n1750"
+    _sql(db, "INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id) VALUES "
+             f"('{_u(69970)}',{SRC},'t9:post1','person_post','{RUN_S}');"
+             f"INSERT INTO public.narrative(id,subjekt_type,subjekt_id,source_id,tekst) VALUES (-69971,'person',{P[1]},"
+             f"{OTHER},E'{raw}');"
+             "INSERT INTO private.narrative_record_publication(narrative_id,source_record_id,record_label,citation_label,"
+             f"status) VALUES (-69971,'{_u(69970)}','t9','t9','published');")
+    try:
+        r = _lk(db, SRC)
+        assert r.returncode != 0 and "LINJESKIFT_TILSTAND_BEROERT" in r.stderr, r.stderr
+        assert "T6C2_LINJESKIFT" not in r.stdout
+    finally:
+        _sql(db, "DELETE FROM private.narrative_record_publication WHERE narrative_id=-69971;"
+                 "DELETE FROM public.narrative WHERE id=-69971;"
+                 f"DELETE FROM private.source_record WHERE id='{_u(69970)}';")
     assert _lk_ok(db, SRC)[1] == [A["p1"]]
 
 
