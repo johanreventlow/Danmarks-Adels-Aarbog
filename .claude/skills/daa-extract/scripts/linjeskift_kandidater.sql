@@ -17,7 +17,13 @@
 --       daa.linjeskift_forventet_sha256 afviger fra GO-pakkens sha (drift i par, date_raw, vaerdi_tekst, faktum, valgt
 --       påstand eller citationsmængde).
 -- Kald derefter red_ret_paastand(assertion_id, element->'forventet', 'linjeskift-v1', interpretation_id) pr. element
--- i daa.linjeskift_forventet (de seks nøgler uændret; intet genopbygget i runneren). Efter rettelserne, i samme
+-- i daa.linjeskift_forventet (de seks nøgler uændret; intet genopbygget i runneren). To krav pr. kald:
+--   (1) SELECT set_config('app.change_set_id','',true) \g /dev/null umiddelbart før HVERT red_ret_paastand-kald.
+--       begin_change_set genbruger et aktivt sæt; uden nulstillingen lander alle rettelserne i ét change_set, og én
+--       fortrydelse ville rulle dem alle tilbage.
+--   (2) Hver kvittering kasseres (\g /dev/null, eller PERFORM i en DO-blok): kvitteringens foer/efter bærer
+--       påstandens værdier.
+-- Efter rettelserne, i samme
 -- transaktion: \ir linjeskift_forventet.sql igen med samme par og RAISE, hvis daa.linjeskift_graenser_sha256 eller
 -- daa.linjeskift_graenser_udfyldt afviger fra GO-pakkens. Vagterne virker uden at værdier forlader basen.
 -- Kilden kommer fra -v source_id (standard 3); den står aldrig fast i koden.
