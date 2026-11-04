@@ -39,18 +39,20 @@ WITH acc AS (
     LEFT JOIN private.source_persona_identity spi
       ON spi.source_persona_id = ic.source_persona_id AND spi.decision_status = 'accepted'
    WHERE ic.status = 'accepted'
-), cand AS (
-  SELECT acc.interpretation_id, a.id AS assertion_id
-    FROM acc
-    JOIN public.fact f ON f.subjekt_type = 'person' AND f.subjekt_id = acc.pid
-                      AND f.faktatype = acc.expected_fact_type
-    JOIN public.assertion a ON a.target_type = 'fact' AND a.target_id = f.id
-   WHERE lower(btrim(normalize(acc.v, NFC))) = lower(btrim(normalize(
-           CASE acc.value_kind WHEN 'text' THEN a.vaerdi_tekst
-                               WHEN 'date_raw' THEN a.date_raw END, NFC)))
 ), matched AS (
   SELECT acc.*, count(cand.assertion_id) AS n_cand, min(cand.assertion_id) AS assertion_id
-    FROM acc LEFT JOIN cand USING (interpretation_id)
+    FROM acc
+    LEFT JOIN LATERAL (
+      -- Kandidaterne pr. fortolkning som LATERAL, ikke som en CTE joinet tilbage på acc: CTE'ernes rækkeskøn er 1, og
+      -- self-joinen blev en nested loop over acc × acc (kvadratisk i antal accepterede fortolkninger).
+      SELECT a.id AS assertion_id
+        FROM public.fact f
+        JOIN public.assertion a ON a.target_type = 'fact' AND a.target_id = f.id
+       WHERE f.subjekt_type = 'person' AND f.subjekt_id = acc.pid
+         AND f.faktatype = acc.expected_fact_type
+         AND lower(btrim(normalize(acc.v, NFC))) = lower(btrim(normalize(
+               CASE acc.value_kind WHEN 'text' THEN a.vaerdi_tekst
+                                   WHEN 'date_raw' THEN a.date_raw END, NFC)))) cand ON true
    GROUP BY acc.interpretation_id, acc.interpretation_key, acc.predicate, acc.v, acc.pid, acc.expected_fact_type,
             acc.value_kind, acc.requires_persona_identity, acc.requires_principal_placement,
             acc.bulk_eligible, acc.has_placement, acc.in_scope
@@ -68,8 +70,10 @@ WITH acc AS (
               WHEN EXISTS (SELECT 1 FROM private.interpretation_promotion op
                              JOIN private.interpretation oi ON oi.id = op.interpretation_id
                             WHERE op.target_type = 'assertion' AND op.target_id = m.assertion_id
-                              AND oi.interpretation_key <> m.interpretation_key
-                              AND private.assertion_binding_current(op.id)) THEN 'ALREADY_BOUND_OTHER'
+                              -- CASE: bindingstjekket først efter nøglesammenligningen (ellers i op's indeksfilter
+                              -- for fortolkningens egen binding).
+                              AND CASE WHEN oi.interpretation_key <> m.interpretation_key
+                                       THEN private.assertion_binding_current(op.id) ELSE false END) THEN 'ALREADY_BOUND_OTHER'
               WHEN NOT m.bulk_eligible THEN 'MATCH_SINGLETON'
               ELSE 'MATCH' END AS outcome
     FROM matched m
