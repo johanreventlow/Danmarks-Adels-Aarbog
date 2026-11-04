@@ -55,6 +55,11 @@ DATE_PREDICATES = frozenset({"person.birth", "person.death"})
 PREDICATE_ORDER = ("person.name", "person.byname", "person.title", "person.birth", "person.death")
 P_GRUND = "forkert person"
 RESET = "SELECT set_config('app.change_set_id','',true) \\g /dev/null"
+# Planner-statistik efter ceremoniens egne skrivninger (som ejerrolle, i transaktionen): uden den planlægges
+# re-klassifikationen og bindingstællingen mod tabelstatistik fra før tusindvis af nye versioner og promotions, og
+# tællingen ($c$) løb > 2 min på en prod-kopi (øvelsen 2026-11-04); med den ~8 s. Memory »restore uden
+# planner-statistik«.
+ANALYZE_SQL = "ANALYZE private.interpretation; ANALYZE private.interpretation_promotion;"
 
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 F_RE = re.compile(rf"^F (?P<id>{UUID}) (?P<ver>[1-9][0-9]*) : (?P<tok>[BDV_])\s*(?:#\s*(?P<note>.*))?$")
@@ -531,7 +536,7 @@ def sql_v2(plan: dict, applied: dict) -> str:
     accept = [match_by_id[a["interpretation_id"]] for a in stik] + [
         [m["interpretation_id"], m["version"], m["assertion_id"]] for m in applied["maskine"]]
     if accept:
-        out += ["-- (4) re-klassifikation",
+        out += ["-- (4) re-klassifikation", ANALYZE_SQL,
                 "\\o /dev/null", f"\\i {CLASSIFICATION_SQL}", "\\o",
                 "DO $m$ DECLARE r jsonb := current_setting('daa.control_result')::jsonb; "
                 f"f jsonb := {_lit(json.dumps(sorted(accept)))}::jsonb; n int; BEGIN "
@@ -586,7 +591,7 @@ def sql_v2(plan: dict, applied: dict) -> str:
                 "THEN RAISE EXCEPTION 'CONTROL_V2_BIND_NOT_ELIGIBLE'; END IF; "
                 "PERFORM set_config('app.change_set_id','',true); "
                 "PERFORM public.red_promote_interpretations_batch(items, p->>'preview_hash'); END $b$;",
-                "RESET ROLE;",
+                "RESET ROLE;", ANALYZE_SQL,
                 "DO $c$ DECLARE n int; BEGIN SELECT count(DISTINCT q.interpretation_key) INTO n "
                 "FROM private.interpretation_promotion pr JOIN private.interpretation q ON q.id = pr.interpretation_id "
                 f"WHERE q.supersedes_id IN ({ids}) AND private.assertion_binding_current(pr.id); "
