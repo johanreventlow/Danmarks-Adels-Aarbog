@@ -43,9 +43,16 @@ tal, koder og hashes; kortsiderne (posttekst) åbnes kun af projektejeren.
   (0600, sha'en tjekkes); den printes aldrig.
 - age-nøglen (`~/.private/age/daa-dump.key`) og SFTP-miljøet (`~/.private/sftp-dump.env`) som ved 6a-6c-1.
 - `~/.private/6c2/vejb-personer.txt`: de 10 tungeste personer (T10 step 1), ét id pr. linje.
-- **Ingen redigering i prod fra første dump til sidste ceremoni.** Hvert dump binder `max(change_set.id)`; `apply-*`
-  stopper med `DUMP_6C2_SKREVET_SIDEN`, hvis der er skrevet siden, og `fortryd` nægter restore, hvis andre end
-  ceremoniens aktør har skrevet (`T6C2_FORTRYD_FREMMEDE_AENDRINGER`).
+- **Ingen redigering i prod fra hvert dump til dets ceremoni, og fra ceremonien til den er godkendt** (så længe en
+  fortrydelse ved restore kan komme på tale). Hvert dump binder `max(change_set.id)`; `apply-*` stopper med
+  `DUMP_6C2_SKREVET_SIDEN`, hvis der er skrevet siden, og `fortryd` nægter restore, hvis andre end ceremoniens aktør har
+  skrevet (`T6C2_FORTRYD_FREMMEDE_AENDRINGER`). Mellem ceremoni 3b og ceremoni 4's dump (mens projektejeren besvarer
+  kortene, evt. i dagevis) er der ingen pause; ceremoni 4's egne værn (`MACHINE_NOT_MATCH`, versionsdrift, SQL'en
+  genereret byte-ens) fanger en mellemliggende skrivning.
+- **Slutøvelsen på `main`** køres gennem `koer.zsh` (stand-in: `DAA_ENV_FILE=<fil>`), så `DAA_T6C2_DUMP`/
+  `DAA_T6C2_KONTROL` går gennem dens linjefangst som i prod. Ændrer reviewet `db-migrations.sql` eller `db-rls.sql`,
+  tømmes `T6C2_BLOK_A`/`T6C2_BLOK_B`/`T6C2_RLS` i runneren før slutøvelsen (en udfyldt pin stopper ved afvigelse i
+  stedet for at blive lært), og de udskrevne `T6C2_FASTLAAS`-værdier skrives ind bagefter.
 
 ## Forløb (projektejerens shell)
 
@@ -115,7 +122,10 @@ før 3b aldrig kan bruges som fortrydelsesmål for ceremoni 4.
 
 ### Ceremoni 4 (kontrol v2)
 
-1. `dump` → `tilstand=c3b`.
+Dumpet tages **efter** svarene (skridt 5), ikke før `kort`: dumpet er kun fortrydelsesmålet for `apply-4`, og
+`apply-*` kræver et dump, der højst er 12 timer gammelt (`DUMP_6C2_FOR_GAMMELT`). Besvarelsen kan tage dage.
+
+1. `maal` → `c3b`.
 2. `kort` (læse-kun; tilstand `c3b`; ejer-tjek) → kontrolmappen `prod/6c2/kontrol-<stempel>/` med klassifikation og
    rækkeeksport (kildescope 3), planen (`control_model_v2.py plan`), et tomt ark, konteksten
    (`persona_kort_kontekst.sql`) og kortsiderne. → `T6C2_KORT_OK personas=… sider=… plan=…`, `PLAN_V2_OK …`,
@@ -126,14 +136,15 @@ før 3b aldrig kan bruges som fortrydelsesmål for ceremoni 4.
 4. `flet <svar-1.json> [<svar-2.json> …]` (lokalt) → `T6C2_FLET_OK svar=… ark_sha256=…`. Svarfilerne kopieres ind i
    kontrolmappen; arket valideres af kontrolværktøjet (ubesvarede, ukendte og dobbelte svar afvises). Arket kan kun
    flettes én gang pr. kontrolmappe; nye svar kræver en ny `kort`.
-5. `go-4` genererer ceremoniens SQL og den uafhængige verify fra plan + ark og binder kontrolmappens filer (plan,
+5. `dump` → `tilstand=c3b` (efter svarene; se ovenfor).
+6. `go-4` genererer ceremoniens SQL og den uafhængige verify fra plan + ark og binder kontrolmappens filer (plan,
    eksporter, kontekst, svar, ark, SQL, verify) → `GO 6c2-4 <kode>`.
-6. `apply-4 --jeg-mener-det --go <kode>`: tilstand `c3b`, ejer-tjek, SQL'en genereres igen og skal være byte-ens med
+7. `apply-4 --jeg-mener-det --go <kode>`: tilstand `c3b`, ejer-tjek, SQL'en genereres igen og skal være byte-ens med
    den bundne; ceremonien kører med `statement_timeout` 30 min på sessionen; derefter verify læse-kun.
    → `T6C2_APPLY_4_OK unresolved=… rettelser=… afgoerelser=… stikproeve=… maskine=… bundet=… verify=bundet=…`.
-7. `maal` → `d`; `vejb` → median ≤ 1.000 ms for hver af de 10; `overlevering` → `T6C2_OVERLEVERING_OK antal=… fil=…`
+8. `maal` → `d`; `vejb` → median ≤ 1.000 ms for hver af de 10; `overlevering` → `T6C2_OVERLEVERING_OK antal=… fil=…`
    (listen over 1939-personas, der står `unresolved` med `ønsket_person_id`, til 6d; kun id'er).
-8. Læsertjek som `anon` (spec §7 (b)) og status (plan Task 14).
+9. Læsertjek som `anon` (spec §7 (b)) og status (plan Task 14).
 
 ## Varighed og prods tidsgrænse
 
@@ -233,7 +244,8 @@ Normaliseringen: 574 kandidater, sha `acf348a5…`. Linjeskift: 70, påstandsmæ
 Tallene i `d` afhænger af projektejerens ark; øvelsesarket (alle stikprøvefelter `B`, øvrige `V`, ét `B` på et
 `REAL_DIFF`, én persona `P 1054`) gav `CONTROL_V2_OK unresolved=1 rettelser=1 afgoerelser=128 stikproeve=20
 maskine=1072 bundet=1093` og verify `bundet=1093 p_personas=1`. Planen: 150 felter (100 `REAL_DIFF` + 30
-`SKRIVEMAADE` + 20 stikprøve) på 120 personas.
+`SKRIVEMAADE` + 20 stikprøve) på 119-120 personas. Stikprøven trækkes efter forslagenes versions-id'er, og 3a opretter
+nye id'er ved hver kørsel; prods stikprøve er derfor ikke øvelsens, og antallet af personas kan variere lidt.
 
 ## Øvelse (2026-11-04, plan Task 10-11)
 
