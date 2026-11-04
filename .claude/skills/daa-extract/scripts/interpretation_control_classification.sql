@@ -43,15 +43,8 @@ WITH prop AS (
     LEFT JOIN private.source_persona_identity spi
       ON spi.source_persona_id = ic.source_persona_id AND spi.decision_status = 'accepted'
    WHERE ic.status = 'proposed'
-), kanon AS (
-  SELECT prop.interpretation_id, a.id AS assertion_id,
-         CASE prop.value_kind WHEN 'text' THEN a.vaerdi_tekst
-                              WHEN 'date_raw' THEN a.date_raw END AS k
-    FROM prop
-    JOIN public.fact f ON f.subjekt_type = 'person' AND f.subjekt_id = prop.pid
-                      AND f.faktatype = prop.expected_fact_type
-    JOIN public.assertion a ON a.target_type = 'fact' AND a.target_id = f.id
-), sammenlignet AS (
+), sammenlignet AS MATERIALIZED (
+  -- MATERIALIZED: ellers inlines den i klasse0's join og genberegnes pr. forslag (rækkeskøn 1 → nested loop).
   SELECT prop.interpretation_id,
          count(kanon.k) AS n_vaerdi,
          count(*) FILTER (WHERE lower(btrim(normalize(prop.v, NFC)))
@@ -63,7 +56,17 @@ WITH prop AS (
                  OR (regexp_replace(kanon.k, '[^0-9]+', '', 'g') <> ''
                      AND regexp_replace(kanon.k, '[^0-9]+', '', 'g')
                        = regexp_replace(prop.v, '[^0-9]+', '', 'g'))) AS skrivemaade
-    FROM prop LEFT JOIN kanon USING (interpretation_id)
+    FROM prop
+    LEFT JOIN LATERAL (
+      -- Personens påstande pr. forslag som LATERAL, ikke som en CTE joinet tilbage på prop: CTE'ernes rækkeskøn er 1,
+      -- og self-joinen blev en nested loop over prop × prop (kvadratisk; 27 s på en prod-kopi med 1939's forslag).
+      SELECT a.id AS assertion_id,
+             CASE prop.value_kind WHEN 'text' THEN a.vaerdi_tekst
+                                  WHEN 'date_raw' THEN a.date_raw END AS k
+        FROM public.fact f
+        JOIN public.assertion a ON a.target_type = 'fact' AND a.target_id = f.id
+       WHERE f.subjekt_type = 'person' AND f.subjekt_id = prop.pid
+         AND f.faktatype = prop.expected_fact_type) kanon ON true
    GROUP BY prop.interpretation_id
 ), klasse0 AS (
   SELECT p.interpretation_id, p.interpretation_key, p.version, p.predicate, p.in_scope,
@@ -100,15 +103,6 @@ WITH prop AS (
     LEFT JOIN private.source_persona_identity spi
       ON spi.source_persona_id = ic.source_persona_id AND spi.decision_status = 'accepted'
    WHERE ic.status = 'accepted' AND nullif(current_setting('daa.control_src', true), '') IS NOT NULL
-), rcand AS (
-  SELECT racc.interpretation_id, a.id AS assertion_id
-    FROM racc
-    JOIN public.fact f ON f.subjekt_type = 'person' AND f.subjekt_id = racc.pid
-                      AND f.faktatype = racc.expected_fact_type
-    JOIN public.assertion a ON a.target_type = 'fact' AND a.target_id = f.id
-   WHERE lower(btrim(normalize(racc.v, NFC))) = lower(btrim(normalize(
-           CASE racc.value_kind WHEN 'text' THEN a.vaerdi_tekst
-                                WHEN 'date_raw' THEN a.date_raw END, NFC)))
 ), rival AS (
   -- Målfindingens targets0-udfald MATCH/MATCH_SINGLETON: identitet, placement, præcis ét mål, ikke allerede
   -- promoveret dertil og ingen gældende binding fra en anden nøgle.
@@ -116,7 +110,17 @@ WITH prop AS (
     FROM (SELECT racc.interpretation_id, racc.interpretation_key, racc.pid, racc.requires_persona_identity,
                  racc.requires_principal_placement, racc.has_placement,
                  count(rcand.assertion_id) AS n_cand, min(rcand.assertion_id) AS assertion_id
-            FROM racc LEFT JOIN rcand USING (interpretation_id)
+            FROM racc
+            LEFT JOIN LATERAL (
+              -- LATERAL af samme grund som kanon ovenfor (ingen self-join over racc).
+              SELECT a.id AS assertion_id
+                FROM public.fact f
+                JOIN public.assertion a ON a.target_type = 'fact' AND a.target_id = f.id
+               WHERE f.subjekt_type = 'person' AND f.subjekt_id = racc.pid
+                 AND f.faktatype = racc.expected_fact_type
+                 AND lower(btrim(normalize(racc.v, NFC))) = lower(btrim(normalize(
+                       CASE racc.value_kind WHEN 'text' THEN a.vaerdi_tekst
+                                            WHEN 'date_raw' THEN a.date_raw END, NFC)))) rcand ON true
            GROUP BY racc.interpretation_id, racc.interpretation_key, racc.pid, racc.requires_persona_identity,
                     racc.requires_principal_placement, racc.has_placement) m
    WHERE m.requires_persona_identity AND m.pid IS NOT NULL
@@ -128,8 +132,10 @@ WITH prop AS (
      AND NOT EXISTS (SELECT 1 FROM private.interpretation_promotion op
                        JOIN private.interpretation oi ON oi.id = op.interpretation_id
                       WHERE op.target_type = 'assertion' AND op.target_id = m.assertion_id
-                        AND oi.interpretation_key <> m.interpretation_key
-                        AND private.assertion_binding_current(op.id))
+                        -- CASE: bindingstjekket køres først efter nøglesammenligningen (ellers i op's indeksfilter for
+                        -- rivalens egen binding: ~4 ms pr. rival).
+                        AND CASE WHEN oi.interpretation_key <> m.interpretation_key
+                                 THEN private.assertion_binding_current(op.id) ELSE false END)
 ), delt AS (
   -- Påstande, som to eller flere forskellige fortolkninger (alle kilder) ville binde: forslag, og med kildescope
   -- også accepterede rivaler.
