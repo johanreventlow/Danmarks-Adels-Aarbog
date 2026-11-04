@@ -2,6 +2,19 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: »højst én gældende binding pr. påstand« under samtidige REPEATABLE READ-kald — åben backlog + driftsregel (2026-11-04)
+
+> Codex-reviewet af 6c-2 (T12) fandt, at 6c-2's nye værn `ALREADY_BOUND_OTHER` (en påstand bindes kun af én
+> fortolkningsnøgle) kan omgås, når to transaktioner binder forskellige nøgler til samme påstand samtidig, og mindst
+> én kører `REPEATABLE READ`: låsen serialiserer kaldene, men fornyer ikke snapshottet, og unikhedsindekset dækker kun
+> (fortolkning, mål). `transfer_pack.py` (bindingstrinnet) vælger `REPEATABLE READ` og binder via batch-RPC'en, der
+> også kan kaldes af `authenticated`-redaktion; redaktørfladen kalder den ikke. Efterkontrollerne opdager kun
+> bagefter (`MAAL_FLERE_BINDINGER`). 6c-2's egen ceremoni (én session, `READ COMMITTED`) er ikke ramt, og værnet
+> fandtes ikke før 6c-2, så det er ikke en regression. **Projektejeren valgte:** åben backlog; rettes i en senere lille
+> PR (batch-RPC'en kræver `READ COMMITTED`, transferens bindingstrin tilpasses, to-sessionstest). **Driftsregel indtil
+> da:** ingen anden binding, overførsel eller redaktion mod de berørte fakta, mens en ceremoni eller en overførsel med
+> bindingstrin kører.
+
 ## BESLUTTET: 6c-2's afgrænsning — A6b-resten bliver 6c-3; fjerde svar »forkert person«; linjeskift-rettelse uden kort (2026-11-02)
 
 > Projektejeren i spec-runden for 6c-2 (`docs/superpowers/specs/2026-11-02-trin6c2-1939-bundet-til-bogen-design.md`).
