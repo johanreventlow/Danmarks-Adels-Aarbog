@@ -43,7 +43,8 @@ rows AS (
               ELSE ic.source_id = current_setting('daa.control_src')::bigint END
    GROUP BY ic.id, ic.version, sr.record_key, ic.predicate, ic.value, ic.confidence, ic.source_persona_id,
             spi.evidence->>'outcome', spi.version),
-navn AS (
+navn AS MATERIALIZED (
+  -- MATERIALIZED (navn og maal): ellers inlines de i rows2's join og genberegnes pr. række (rows' rækkeskøn er 1).
   -- Kun med kildescope: navnereglen mod den identificerede persons påstande af regelens faktatype (bruges kun uden
   -- rettelse_maal; med mål vurderes reglen mod målet i rows2).
   SELECT r.interpretation_id,
@@ -82,7 +83,7 @@ maal0 AS (
                                       WHERE c.assertion_id = a.id ORDER BY 1) AS src) cs
     LEFT JOIN public.conclusion co ON co.target_type = 'fact' AND co.target_id = f.id
    WHERE (SELECT src FROM ctl) IS NOT NULL AND cs.src = ARRAY[ic.source_id]),
-maal AS (
+maal AS MATERIALIZED (
   SELECT interpretation_id,
          CASE WHEN count(*) = 1
               THEN jsonb_build_object('assertion_id', min(assertion_id), 'forventet', (array_agg(forventet))[1],
