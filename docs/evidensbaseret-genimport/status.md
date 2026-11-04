@@ -12,11 +12,11 @@ delspecs 6a-6e ([spec](../superpowers/specs/2026-10-29-trin6-1939-gennem-kaeden-
 2026-10-30:** 1939's klausuler er skrevet, og kildetekst-revisionen er bygget og bevist, men ikke anvendt på prod-data.
 **6b's ceremoni A og B er i prod 2026-11-01:** 1939's 555 personas er skrevet, men har endnu
 ingen identitet. 6c er delt i 6c-1 (runneren på 1939 og 6b's ceremoni C) og 6c-2 (kontrol, rettelse, binding, vej B
-og resten af A6b) (decisions 2026-11-01). **6c-1's ceremoni A og B er i prod 2026-11-02:** modellens 2.774 forslag til
+og resten af A6b) (decisions 2026-11-01); A6b-resten er siden skilt ud som 6c-3 (decisions 2026-11-02). **6c-1's ceremoni A og B er i prod 2026-11-02:** modellens 2.774 forslag til
 494 af 1939's poster ligger som private `proposed`-fortolkninger. **6b's ceremoni C er i prod 2026-11-02 efter
 retning 2** (C3's binding bliver identiteten; kun konflikter og en stikprøve på kort): 552 af de 553 nye personas har
 en accepteret identitet, én er `unresolved` (omstridt binding). Trin 6c-1 er dermed afsluttet; næste er 6c-2.
-A6b's kildetekst og klausuler for 2018-20 (decisions 2026-10-28) og vej B (decisions 2026-10-29) ligger
+A6b's kildetekst og klausuler for 2018-20 (decisions 2026-10-28) ligger i 6c-3 (decisions 2026-11-02), vej B (decisions 2026-10-29)
 i 6c-2.
 
 ## Samlet dom
@@ -25,7 +25,7 @@ Kernen holder: evidenslaget, den generelle writer og klausullaget er bevist på 
 Kæden kan **binde** det eksisterende til kilden, men har endnu ikke **oprettet** noget nyt på rigtige data (0 nye
 fakta, 0 nye personer; review 2-01). Læseren ser nu personens fakta med kilde, og 622 af de 6.473 offentlige
 fakta-rækker er bundet til bogens post (B11). For 2018-20 er trin 1-5 i prod. For 1939 er proveniens,
-narrativpublicering, klausuler, personas, identiteter og modellens forslag i prod; resten er 6c-2 og trin 6d-6e.
+narrativpublicering, klausuler, personas, identiteter og modellens forslag i prod; resten er 6c-2, 6c-3 og trin 6d-6e.
 
 ## Modenhed pr. værdikædeled
 
@@ -49,7 +49,7 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 | Læsere på placement/membership (5c-2) | `produktionsverificeret` 2026-10-29 (GO 5c2 `bb1678f9`: 1.113 koordinater, 530 fra placement, 583 legacy; diff mod legacy 37 felter = forventet, træparitet ok; browsertjek som anon) | — (kilde 3 vises fra legacy indtil trin 6) |
 | Læserflade: fakta med kildehenvisning (B11) | `produktionsverificeret` 2026-10-29 (6.473 fakta-rækker over alle offentlige personer: 622 bundet til bogens post, 5.765 fra importen, 86 uden kilde; 0 bindinger falder ud; PostgREST-gate og browsertjek som anon). Læserkaldet koster op til ~1,9 s pr. person mod anons 3 s (vej B) | — |
 | C3 reversal | — | `integreret ende-til-ende` (ikke udført i prod) |
-| Trin 6 (1939 gennem kæden) | — | 6a i prod 2026-10-30; 6b's A og B i prod 2026-11-01; 6c-1 i prod 2026-11-02 (A, B og 6b's C efter retning 2); 6c-2 og 6d-6e ikke påbegyndt |
+| Trin 6 (1939 gennem kæden) | — | 6a i prod 2026-10-30; 6b's A og B i prod 2026-11-01; 6c-1 i prod 2026-11-02 (A, B og 6b's C efter retning 2); 6c-2 spec under godkendelse 2026-11-02; 6c-3 og 6d-6e ikke påbegyndt |
 | Trin 7a, 7b | ikke påbegyndt; ingen spec | ikke påbegyndt |
 
 ## Gates før trin 6 (fra reviewet)
@@ -62,7 +62,7 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 | A4 | Styringsdokumenter afstemt (1a-01, 1a-14) | gjort, samme gren |
 | A5 | C3-deployfil stoppet, røde R-tests arkiveret (1b-04, 1c-04/05) | gjort, samme gren |
 | A6 | Projektejeren læser de 13 `NOISE_RE`-linjer mod kilden (1d.3a-03) | gjort: 12 er prosa, der mangler i teksten (decisions 2026-10-27) |
-| A6b | `NOISE_RE` strammes, ny segmenteringsversion, de 12 linjer rettes ind i narrativer og klausuler i prod | gjort for narrativerne, i prod 2026-10-28 (GO a6b `5522a891`, PR #273; `database-current-state.md` §15): profil `2018-20-v2`, 10 narrativer revideret. Kildetekst og klausuler for de 11 poster følger i 6c-2 (decisions 2026-10-28; mekanismen bygget i 6a, I-84 parkeret) |
+| A6b | `NOISE_RE` strammes, ny segmenteringsversion, de 12 linjer rettes ind i narrativer og klausuler i prod | gjort for narrativerne, i prod 2026-10-28 (GO a6b `5522a891`, PR #273; `database-current-state.md` §15): profil `2018-20-v2`, 10 narrativer revideret. Kildetekst og klausuler for de 11 poster følger i 6c-3 (decisions 2026-10-28 og 2026-11-02; mekanismen bygget i 6a, I-84 parkeret) |
 | B | Én DDL-ceremoni: 1d.3b-01, 1d.1-03, 1d.1-02, 1d.1-04 (mål cachen først) | gjort, i prod 2026-10-28 (GO trinb `33f99750`; `database-current-state.md` §14), merget (PR #272) |
 
 ## Restorepunkt og fortrydelse

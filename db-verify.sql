@@ -3016,6 +3016,7 @@ DECLARE
     'public.red_lock_1939_v50_name_completion(text)'::regprocedure,
     'public.red_lock_reimport_name_completion(text,bigint,text)'::regprocedure,
     'public.red_match_personer()'::regprocedure,
+    'public.red_normaliser_forslag(uuid,integer,text)'::regprocedure,
     'public.red_ocr_historik(text,text,text)'::regprocedure,
     'public.red_opdater_media(bigint,text,text,text,text)'::regprocedure,
     'public.red_opret_estate(text,text,bigint)'::regprocedure,
@@ -3026,6 +3027,7 @@ DECLARE
     'public.red_opret_person(text,text,boolean,text,text,text)'::regprocedure,
     'public.red_opret_story(text,bigint,text,text,bigint,bigint,bigint,bigint,date,date,text,text,boolean)'::regprocedure,
     'public.red_opret_union(bigint,bigint,text,integer)'::regprocedure,
+    'public.red_paastand_historik(bigint)'::regprocedure,
     'public.red_person_grid()'::regprocedure,
     'public.red_person_narrative_publication_history(bigint)'::regprocedure,
     'public.red_person_narrative_records(bigint)'::regprocedure,
@@ -3049,6 +3051,7 @@ DECLARE
     'public.red_reimport_batch_result(uuid,uuid)'::regprocedure,
     'public.red_relation(text,bigint,text,bigint,text,text)'::regprocedure,
     'public.red_ret_ocr_felt(bigint,text,text,text,text,jsonb,text,text)'::regprocedure,
+    'public.red_ret_paastand(bigint,jsonb,text,uuid,jsonb)'::regprocedure,
     'public.red_revalider_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
     'public.red_reverse_1939_v50_reimport(uuid,uuid)'::regprocedure,
     'public.red_reverse_reimport(uuid,uuid)'::regprocedure,
@@ -4701,12 +4704,18 @@ BEGIN
       (-987650041,'person',-987650041,'navn'),
       (-987650042,'person',-987650041,'titel'),
       (-987650043,'person',-987650041,'navn'),
-      (-987650044,'person',-987650042,'navn');
+      (-987650044,'person',-987650042,'navn'),
+      (-987650045,'person',-987650041,'navn'),
+      (-987650046,'person',-987650041,'navn'),
+      (-987650047,'person',-987650041,'navn');
     INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderlig) VALUES
       (-987650041,'fact',-987650041,'Anna Verify','gregoriansk',true),
       (-987650042,'fact',-987650042,'Anna Verify','gregoriansk',true),
       (-987650043,'fact',-987650043,'Anden tekst','gregoriansk',true),
-      (-987650044,'fact',-987650044,'Anna Verify','gregoriansk',true);
+      (-987650044,'fact',-987650044,'Anna Verify','gregoriansk',true),
+      (-987650045,'fact',-987650045,'Anna Verify','gregoriansk',true),
+      (-987650046,'fact',-987650046,'Anna Verify','gregoriansk',true),
+      (-987650047,'fact',-987650047,'Anna Verify','gregoriansk',true);
     INSERT INTO private.interpretation_promotion_rule_line(rule_key,predicate) VALUES
       ('verify-name-no-bulk','verify.person.name.no_bulk'),
       ('verify-name-principal','verify.person.name.principal');
@@ -4893,7 +4902,17 @@ BEGIN
       RAISE EXCEPTION 'FEJL: promotion ændrede kanonisk genealogi';
     END IF;
 
-    -- To forskellige accepterede fortolkninger i én gyldig batch giver præcis
+    -- Trin 6c-2b: højst én gældende binding pr. påstand. En anden fortolkning mod den bundne påstand afvises.
+    SET LOCAL ROLE authenticated;
+    v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
+      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041)
+    ));
+    RESET ROLE;
+    IF v_preview->'items'->0->>'reason_code' IS DISTINCT FROM 'ALREADY_BOUND_OTHER' THEN
+      RAISE EXCEPTION 'FEJL: en anden fortolkning kunne bindes til en bundet påstand: %',v_preview;
+    END IF;
+
+    -- To forskellige accepterede fortolkninger i én gyldig batch (hver sin påstand) giver præcis
     -- to audit-links og én ny batch; de opretter ikke kanoniske rækker.
     SELECT count(*) INTO v_before_promotions FROM private.interpretation_promotion;
     SELECT count(*) INTO v_before_batches FROM private.interpretation_promotion_batch;
@@ -4902,12 +4921,12 @@ BEGIN
     SELECT count(*) INTO v_before_assertions FROM assertion;
     SET LOCAL ROLE authenticated;
     v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
-      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041),
-      jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650041)
+      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650045),
+      jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650046)
     ));
     PERFORM red_promote_interpretations_batch(jsonb_build_array(
-      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650041),
-      jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650041)
+      jsonb_build_object('interpretation_id',v_accepted_2,'target_type','assertion','target_id',-987650045),
+      jsonb_build_object('interpretation_id',v_accepted_3,'target_type','assertion','target_id',-987650046)
     ),v_preview->>'preview_hash');
     RESET ROLE;
     IF (SELECT count(*) FROM private.interpretation_promotion)<>v_before_promotions+2
@@ -4922,13 +4941,13 @@ BEGIN
     SELECT count(*) INTO v_before_batches FROM private.interpretation_promotion_batch;
     SET LOCAL ROLE authenticated;
     v_preview:=red_preview_interpretation_promotions(jsonb_build_array(
-      jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041),
+      jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650047),
       jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650044)
     ));
     v_error:=NULL;
     BEGIN
       PERFORM red_promote_interpretations_batch(jsonb_build_array(
-        jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650041),
+        jsonb_build_object('interpretation_id',v_accepted_principal,'target_type','assertion','target_id',-987650047),
         jsonb_build_object('interpretation_id',v_accepted_1,'target_type','assertion','target_id',-987650044)
       ),v_preview->>'preview_hash');
     EXCEPTION WHEN others THEN v_error:=SQLERRM;
@@ -10566,3 +10585,42 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: trin 6c-1 retning 2 — publication_control_auto privat, publication_control_enig fjernet';
 END $verify_6c1_retning2$;
+
+-- ===== Trin 6c-2b: påstandsnøglet rettelse (spec 2026-11-02 §4.5) =====
+-- Journalen findes med RLS og uden klientadgang; de delte regler er private; RPC'erne er SECURITY DEFINER med
+-- search_path og kun for authenticated (rollegaten er inde i dem).
+DO $verify_6c2b_paastand$
+DECLARE v_role text; v_priv text; f text;
+BEGIN
+  IF to_regclass('public.paastand_korrektion') IS NULL
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='public.paastand_korrektion'::regclass) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6c-2b paastand_korrektion mangler eller har ikke RLS';
+  END IF;
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated'] LOOP
+    FOREACH v_priv IN ARRAY ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE'] LOOP
+      IF has_table_privilege(v_role,'public.paastand_korrektion',v_priv) THEN
+        RAISE EXCEPTION 'VERIFY_FAILED: 6c-2b paastand_korrektion: % har %',v_role,v_priv;
+      END IF;
+    END LOOP;
+  END LOOP;
+  FOREACH f IN ARRAY ARRAY['private.saml_blanktegn_v1(text)','private.navn_forkortes(text,text)'] LOOP
+    IF to_regprocedure(f) IS NULL
+       OR has_function_privilege('anon',f,'EXECUTE') OR has_function_privilege('authenticated',f,'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6c-2b %: findes/ACL',f;
+    END IF;
+  END LOOP;
+  FOREACH f IN ARRAY ARRAY['public.red_ret_paastand(bigint,jsonb,text,uuid,jsonb)',
+                           'public.red_paastand_historik(bigint)'] LOOP
+    IF to_regprocedure(f) IS NULL OR NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid=to_regprocedure(f))
+       OR NOT EXISTS (SELECT 1 FROM pg_proc p, unnest(p.proconfig) c WHERE p.oid=to_regprocedure(f) AND c LIKE 'search_path=%')
+       OR has_function_privilege('anon',f,'EXECUTE') OR NOT has_function_privilege('authenticated',f,'EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6c-2b %: findes/security definer/search_path/ACL',f;
+    END IF;
+  END LOOP;
+  IF private.saml_blanktegn_v1(E'12.\u00a0marts\n1702 ') IS DISTINCT FROM '12. marts 1702'
+     OR private.navn_forkortes('Ditlev Reventlow til X','Ditlev') IS NOT TRUE
+     OR private.navn_forkortes('Ditlev','Ditlev') IS NOT FALSE THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6c-2b blanktegns- eller navneregel';
+  END IF;
+  RAISE NOTICE 'OK: trin 6c-2b — paastand_korrektion (RLS, ingen klientadgang), regler private, RPC''er kun authenticated';
+END $verify_6c2b_paastand$;

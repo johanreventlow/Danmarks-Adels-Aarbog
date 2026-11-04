@@ -18842,6 +18842,8 @@ DECLARE
     'public.red_lock_1939_v50_name_completion(text)'::regprocedure,
     'public.red_lock_reimport_name_completion(text,bigint,text)'::regprocedure,
     'public.red_match_personer()'::regprocedure,
+    -- 6c-2b: findes først efter blokken sidst i filen; to_regprocedure, så en opgradering fra før 6c-2b ikke fejler.
+    to_regprocedure('public.red_normaliser_forslag(uuid,integer,text)'),
     'public.red_ocr_historik(text,text,text)'::regprocedure,
     'public.red_opdater_media(bigint,text,text,text,text)'::regprocedure,
     'public.red_opret_estate(text,text,bigint)'::regprocedure,
@@ -18852,6 +18854,8 @@ DECLARE
     'public.red_opret_person(text,text,boolean,text,text,text)'::regprocedure,
     'public.red_opret_story(text,bigint,text,text,bigint,bigint,bigint,bigint,date,date,text,text,boolean)'::regprocedure,
     'public.red_opret_union(bigint,bigint,text,integer)'::regprocedure,
+    -- 6c-2b: findes først efter blokken sidst i filen; to_regprocedure som red_normaliser_forslag.
+    to_regprocedure('public.red_paastand_historik(bigint)'),
     'public.red_person_grid()'::regprocedure,
     'public.red_person_narrative_publication_history(bigint)'::regprocedure,
     'public.red_person_narrative_records(bigint)'::regprocedure,
@@ -18873,6 +18877,7 @@ DECLARE
     'public.red_reimport_batch_result(uuid,uuid)'::regprocedure,
     'public.red_relation(text,bigint,text,bigint,text,text)'::regprocedure,
     'public.red_ret_ocr_felt(bigint,text,text,text,text,jsonb,text,text)'::regprocedure,
+    to_regprocedure('public.red_ret_paastand(bigint,jsonb,text,uuid,jsonb)'),
     'public.red_revalider_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
     'public.red_reverse_1939_v50_reimport(uuid,uuid)'::regprocedure,
     'public.red_reverse_reimport(uuid,uuid)'::regprocedure,
@@ -31934,3 +31939,780 @@ BEGIN
   RETURN v_receipt;
 END $$;
 REVOKE ALL ON FUNCTION private.write_publication_identity(uuid,text,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
+-- ===== trin 6c-2a: set-baseret bindingstjek (vej B) =====
+-- Spec 2026-11-02-trin6c2-1939-bundet-til-bogen-design.md §4.1. public_person_facts afgør bindingernes gyldighed for
+-- alle personens promotion-rækker i én mængdeoperation (interpretation_current læses én gang for de berørte nøgler)
+-- i stedet for ét assertion_binding_current-kald pr. række. Værdisammenligningen står ét sted,
+-- private.binding_value_matches, som både enkeltopslaget og fakta-kaldet bruger. Rækkerne er uændrede
+-- (tests/sql/test-person-facts.sql mod den frosne reference). Kun CREATE OR REPLACE, REVOKE og GRANT: kan køres to
+-- gange. Ceremoni 1 anvender kun denne blok.
+CREATE OR REPLACE FUNCTION private.binding_value_matches(p_value_kind text, p_interpretation_value jsonb,
+  p_vaerdi_tekst text, p_date_raw text)
+RETURNS boolean LANGUAGE sql IMMUTABLE SECURITY INVOKER SET search_path=pg_catalog AS $$
+  SELECT CASE p_value_kind
+           WHEN 'text' THEN lower(btrim(normalize(p_interpretation_value #>> '{}',NFC)))
+                            IS NOT DISTINCT FROM lower(btrim(normalize(p_vaerdi_tekst,NFC)))
+           WHEN 'date_raw' THEN lower(btrim(normalize(p_interpretation_value #>> '{}',NFC)))
+                            IS NOT DISTINCT FROM lower(btrim(normalize(p_date_raw,NFC)))
+           ELSE false
+         END
+$$;
+REVOKE ALL ON FUNCTION private.binding_value_matches(text,jsonb,text,text) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION private.assertion_binding_current(p_promotion_id uuid)
+RETURNS boolean LANGUAGE sql STABLE SECURITY INVOKER SET search_path=pg_catalog AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM private.interpretation_promotion p
+      JOIN private.interpretation q ON q.id=p.interpretation_id
+      JOIN private.interpretation_current cur
+        ON cur.interpretation_key=q.interpretation_key AND cur.id=p.interpretation_id AND cur.status='accepted'
+      JOIN private.interpretation_promotion_rule r ON r.rule_key=p.rule_key AND r.rule_version=p.rule_version
+      JOIN public.assertion a ON a.id=p.target_id AND a.target_type='fact'
+      JOIN public.fact f ON f.id=a.target_id
+      LEFT JOIN private.source_persona_identity i
+        ON i.source_persona_id=cur.source_persona_id AND i.decision_status='accepted'
+     WHERE p.id=p_promotion_id AND p.target_type='assertion'
+       AND f.faktatype=r.expected_fact_type
+       AND (NOT r.requires_persona_identity
+            OR (i.canonical_person_id IS NOT NULL AND f.subjekt_type='person' AND f.subjekt_id=i.canonical_person_id))
+       AND private.binding_value_matches(r.value_kind,cur.value,a.vaerdi_tekst,a.date_raw)
+  )
+$$;
+REVOKE ALL ON FUNCTION private.assertion_binding_current(uuid) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION public.public_person_facts(p_person_ids bigint[])
+RETURNS TABLE(person_id bigint, fact_id bigint, faktatype text, conclusion_status text, assertion_id bigint,
+  chosen boolean, vaerdi_tekst text, date_raw text, date_min date, date_max date, date_qualifier text,
+  date_certainty text, source_id bigint, source_label text, side text, record_ref uuid, record_label text,
+  citation_label text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+#variable_conflict use_column
+BEGIN
+  IF public.narrative_record_contract_version()<2 OR p_person_ids IS NULL THEN RETURN; END IF;
+  RETURN QUERY
+  WITH f AS (
+    SELECT fa.id,fa.subjekt_id,fa.faktatype,cn.status,cn.valgt_assertion_id
+      FROM public.fact fa
+      JOIN public.conclusion cn ON cn.target_type='fact' AND cn.target_id=fa.id
+     WHERE fa.subjekt_type='person' AND fa.subjekt_id=ANY(p_person_ids)
+       AND cn.status IN ('afklaret','omstridt')
+       AND public.entitet_offentlig('person',fa.subjekt_id)
+  ), pr AS (
+    -- Personernes assertion-promotions med fortolkningsnøgle.
+    SELECT p.id,p.interpretation_id,p.target_id,p.rule_key,p.rule_version,q.interpretation_key
+      FROM private.interpretation_promotion p
+      JOIN private.interpretation q ON q.id=p.interpretation_id
+     WHERE p.target_type='assertion'
+       AND p.target_id IN (SELECT a.id FROM public.assertion a JOIN f ON a.target_type='fact' AND a.target_id=f.id)
+  ), cur AS (
+    -- interpretation_current én gang for de berørte nøgler (filteret på nøglen skubbes ind under DISTINCT ON).
+    SELECT ic.id,ic.interpretation_key,ic.status,ic.source_id,ic.source_persona_id,ic.value
+      FROM private.interpretation_current ic
+     WHERE ic.interpretation_key=ANY(ARRAY(SELECT pr.interpretation_key FROM pr))
+  ), b AS (
+    -- Gældende bindinger pr. assertion med deres eneste record (betingelse 1, 2 og 4); gyldigheden som
+    -- assertion_binding_current, for alle rækker på én gang.
+    SELECT pr.target_id AS assertion_id,pr.id AS promotion_id,cur.source_id,
+           (SELECT array_agg(an.source_record_id)
+              FROM private.interpretation_observation io
+              JOIN private.source_observation o ON o.id=io.observation_id
+              JOIN private.source_record_anchor_current an ON an.occurrence_id=o.occurrence_id AND an.decision_status='accepted'
+             WHERE io.interpretation_id=pr.interpretation_id AND io.evidence_role='supporting') AS recs,
+           (SELECT count(*) FROM private.interpretation_observation io
+             WHERE io.interpretation_id=pr.interpretation_id AND io.evidence_role='supporting') AS n_support
+      FROM pr
+      JOIN cur ON cur.interpretation_key=pr.interpretation_key AND cur.id=pr.interpretation_id AND cur.status='accepted'
+      JOIN private.interpretation_promotion_rule r ON r.rule_key=pr.rule_key AND r.rule_version=pr.rule_version
+      JOIN public.assertion ba ON ba.id=pr.target_id AND ba.target_type='fact'
+      JOIN public.fact bf ON bf.id=ba.target_id
+      LEFT JOIN private.source_persona_identity i
+        ON i.source_persona_id=cur.source_persona_id AND i.decision_status='accepted'
+     WHERE bf.faktatype=r.expected_fact_type
+       AND (NOT r.requires_persona_identity
+            OR (i.canonical_person_id IS NOT NULL AND bf.subjekt_type='person' AND bf.subjekt_id=i.canonical_person_id))
+       AND private.binding_value_matches(r.value_kind,cur.value,ba.vaerdi_tekst,ba.date_raw)
+  ), bp AS (
+    -- Betingelse 2 og 3: én record i fortolkningens kilde, én publiceret narrativ for den.
+    SELECT b.assertion_id,sr.public_ref,nrp.id AS binding_id,nrp.narrative_id
+      FROM b
+      JOIN private.source_record sr ON sr.id=b.recs[1] AND sr.source_id=b.source_id
+      JOIN private.narrative_record_publication nrp ON nrp.source_record_id=sr.id AND nrp.status='published'
+     WHERE b.n_support=1 AND cardinality(b.recs)=1
+       AND (SELECT count(*) FROM private.narrative_record_publication x
+             WHERE x.source_record_id=sr.id AND x.status='published')=1
+  ), bn AS (
+    -- Entydighed: præcis én gældende binding pr. assertion, ellers ingen.
+    SELECT a.id AS assertion_id,
+           (SELECT count(*) FROM b WHERE b.assertion_id=a.id) AS n_bind
+      FROM public.assertion a JOIN f ON a.target_type='fact' AND a.target_id=f.id
+  )
+  SELECT f.subjekt_id,f.id,f.faktatype,f.status,a.id,
+         coalesce(a.id=f.valgt_assertion_id,false),
+         a.vaerdi_tekst,a.date_raw,a.date_min,a.date_max,a.date_qualifier,a.date_certainty,
+         s.id,coalesce(s.udgave,s.titel),c.side,
+         lab.public_ref,lab.record_label,lab.citation_label
+    FROM f
+    JOIN public.assertion a ON a.target_type='fact' AND a.target_id=f.id
+    JOIN bn ON bn.assertion_id=a.id
+    LEFT JOIN public.citation c ON c.assertion_id=a.id
+    LEFT JOIN public.source s ON s.id=c.source_id
+    LEFT JOIN LATERAL (
+      SELECT bp.public_ref,ev.after_state #>> '{labels,record_label}' AS record_label,
+             ev.after_state #>> '{labels,citation_label}' AS citation_label
+        FROM bp
+        JOIN public.narrative n ON n.id=bp.narrative_id
+        JOIN LATERAL (SELECT e.after_state FROM private.narrative_publication_event e
+                       WHERE e.binding_id=bp.binding_id ORDER BY e.stream_version DESC,e.id DESC LIMIT 1) ev ON true
+       WHERE bp.assertion_id=a.id AND bn.n_bind=1
+         AND n.subjekt_type='person' AND n.subjekt_id=f.subjekt_id
+         AND public.person_daa_narrative_publication_allowed(n.id)
+    ) lab ON true
+   ORDER BY f.subjekt_id,f.id,a.id,c.id NULLS LAST;
+END $$;
+REVOKE ALL ON FUNCTION public.public_person_facts(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.public_person_facts(bigint[]) TO anon,authenticated;
+
+-- ===== trin 6c-2b: forslagsversion, påstandsrettelse, én binding pr. påstand =====
+DO $$ BEGIN IF to_regprocedure('private.binding_value_matches(text,jsonb,text,text)') IS NULL THEN RAISE EXCEPTION 'MIGRATION_6C2B_KRAEVER_6C2A'; END IF; END $$;
+-- Blokken kræver 6c-2a (vagten ovenfor): red_ret_paastand kalder private.binding_value_matches, som kun 6c-2a opretter.
+-- plpgsql slår kaldet op ved kørsel, så uden vagten ville blokken lykkes og først fejle ved den første rettelse.
+-- Vagten står kun her, ikke i schema.sql, som altid har begge.
+-- Trin 6c-2b: den fælles blanktegnsregel. Hver sammenhængende række af blanktegn (mellemrum, tabulator, linjeskift,
+-- vognretur, sideskift, lodret tabulator, hårdt mellemrum U+00A0, smalt mellemrum U+2009, smalt hårdt mellemrum U+202F,
+-- linje- og afsnitsskift U+2028/U+2029) bliver ét ASCII-mellemrum, og enderne trimmes. Klassen er eksplicit med vilje:
+-- \s følger databasens collation (ICU i prod, libc/C i CI), så forslag og påstand ellers kunne afvige byte for byte.
+-- Bruges af dato-markoer-v1, linjeskift-v1 (red_ret_paastand) og navn_forkortes.
+CREATE OR REPLACE FUNCTION private.saml_blanktegn_v1(p_value text)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+  SELECT btrim(regexp_replace(p_value,'[ \t\n\r\f\v\u00a0\u2009\u202f\u2028\u2029]+',' ','g'),' ') $$;
+REVOKE ALL ON FUNCTION private.saml_blanktegn_v1(text) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Trin 6c-2b (spec §4.5 pkt. 2): en rettelse må ikke forkorte et navn. Sand, når den nye værdi efter blanktegnssamling
+-- og små bogstaver er en ægte (kortere, ulig) delstreng af den gamle. NULL ind giver NULL; kaldere bruger IS TRUE.
+-- Reglen står kun her; red_ret_paastand og kontrolværktøjets rækkeeksport kalder begge denne funktion.
+-- Kendt begrænsning: lower() følger databasens collation (ICU i prod, libc/C i CI) for bl.a. ÆØÅ, samme begrænsning
+-- som binding_value_matches; Task 6's Python-udgave af reglen skal matche ICU-adfærden i prod.
+CREATE OR REPLACE FUNCTION private.navn_forkortes(p_gammel text, p_ny text)
+RETURNS boolean LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+  SELECT strpos(g,n)>0 AND length(n)<length(g)
+    FROM (SELECT lower(private.saml_blanktegn_v1(p_gammel)) AS g,lower(private.saml_blanktegn_v1(p_ny)) AS n) x $$;
+REVOKE ALL ON FUNCTION private.navn_forkortes(text,text) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Trin 6c-2b (spec 2026-11-02 §4.3): deterministisk version af et datoforslag. Reglen dato-markoer-v1 fjerner én
+-- indledende markør (`f.` eller `†`) og samler blanktegn; intet andet ændres. Reglen anvendes kun på person.birth og
+-- person.death. Navn og version står i method, ikke i decision_evidence. Blanktegn samles med saml_blanktegn_v1
+-- først, så markøren efterfølges af højst ét ASCII-mellemrum.
+CREATE OR REPLACE FUNCTION private.normaliser_dato_markoer_v1(p_value text)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+  SELECT btrim(regexp_replace(private.saml_blanktegn_v1(p_value),'^(f\.|\u2020) ?',''),' ') $$;
+REVOKE ALL ON FUNCTION private.normaliser_dato_markoer_v1(text) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION red_normaliser_forslag(
+  p_interpretation_id uuid,
+  p_expected_version integer,
+  p_regel text
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_current private.interpretation%ROWTYPE;
+  v_actor uuid := auth.uid();
+  v_run uuid;
+  v_old text;
+  v_new text;
+  v_new_id uuid := gen_random_uuid();
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
+  END IF;
+  IF p_regel IS DISTINCT FROM 'dato-markoer-v1' THEN
+    RAISE EXCEPTION 'NORMALISERING_REGEL_UKENDT';
+  END IF;
+  IF p_expected_version IS NULL OR p_expected_version<1 THEN
+    RAISE EXCEPTION 'EVIDENCE_EXPECTED_VERSION_REQUIRED';
+  END IF;
+  SELECT * INTO v_current FROM private.interpretation
+   WHERE id=p_interpretation_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_NOT_FOUND'; END IF;
+  IF v_current.status<>'proposed' THEN
+    RAISE EXCEPTION 'NORMALISERING_IKKE_PROPOSED';
+  END IF;
+  IF v_current.version<>p_expected_version OR EXISTS (
+    SELECT 1 FROM private.interpretation newer
+     WHERE newer.interpretation_key=v_current.interpretation_key
+       AND newer.version>v_current.version
+  ) THEN
+    RAISE EXCEPTION 'NORMALISERING_VERSION_KONFLIKT';
+  END IF;
+  IF v_current.predicate NOT IN ('person.birth','person.death')
+     OR jsonb_typeof(v_current.value)<>'string' THEN
+    RAISE EXCEPTION 'NORMALISERING_PRAEDIKAT_UGYLDIG';
+  END IF;
+  -- Ét extraction_run pr. ceremoni; den skal findes for forslagets kilde.
+  v_run := nullif(btrim(current_setting('daa.extraction_run_id',true)),'')::uuid;
+  IF v_run IS NULL OR NOT EXISTS (
+    SELECT 1 FROM private.extraction_run r
+     WHERE r.id=v_run AND r.source_id=v_current.source_id
+  ) THEN
+    RAISE EXCEPTION 'NORMALISERING_KOERSEL_MANGLER';
+  END IF;
+  v_old := v_current.value #>> '{}';
+  v_new := private.normaliser_dato_markoer_v1(v_old);
+  IF v_new IS NOT DISTINCT FROM v_old THEN
+    RAISE EXCEPTION 'NORMALISERING_UAENDRET';
+  END IF;
+  IF v_new='' THEN
+    RAISE EXCEPTION 'NORMALISERING_VAERDI_TOM';
+  END IF;
+
+  INSERT INTO private.interpretation(
+    id,interpretation_key,version,source_id,source_persona_id,
+    interpretation_kind,predicate,value,schema_version,derivation_kind,
+    confidence,status,method,model_version,prompt_version,extraction_run_id,
+    supersedes_id
+  ) VALUES (
+    v_new_id,v_current.interpretation_key,v_current.version+1,v_current.source_id,
+    v_current.source_persona_id,v_current.interpretation_kind,v_current.predicate,
+    to_jsonb(v_new),v_current.schema_version,'deterministic',
+    v_current.confidence,'proposed','deterministisk-normalisering:dato-markoer-v1',
+    v_current.model_version,v_current.prompt_version,v_run,v_current.id
+  );
+  INSERT INTO private.interpretation_observation(
+    interpretation_id,observation_id,evidence_role,ordinal
+  )
+  SELECT v_new_id,observation_id,evidence_role,ordinal
+    FROM private.interpretation_observation
+   WHERE interpretation_id=v_current.id;
+  RETURN jsonb_build_object('interpretation_id',v_new_id,'version',v_current.version+1,
+    'foer',v_old,'efter',v_new,'regel',p_regel);
+END $$;
+REVOKE ALL ON FUNCTION red_normaliser_forslag(uuid,integer,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_normaliser_forslag(uuid,integer,text) TO authenticated;
+
+-- Trin 6c-2b (spec 2026-11-02 §4.4 pkt. 4 og §4.5): påstandsnøglet journal over transskriptionsrettelser (B12). Én
+-- række pr. rettelse; påstanden beholder sit id, og originalen står i foer og i change_event (assertion-rækken logges
+-- af log_change under rettelsens change_set). Tabellen skrives kun af red_ret_paastand og aldrig opdateret eller
+-- slettet; den er bevidst ikke i version_pk_registry, så en fortrydelse af change_set'et ruller påstanden tilbage og
+-- lader journalrækken stå (red_paastand_historik viser den som fortrudt). Ingen FK til assertion: journalen skal ikke
+-- blokere sletning af en påstand (som import_korrektion). Klienter har ingen direkte adgang; læsevejen er
+-- red_paastand_historik.
+CREATE TABLE IF NOT EXISTS paastand_korrektion (
+  id                bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  assertion_id      bigint NOT NULL,
+  interpretation_id uuid,
+  grund             text NOT NULL CONSTRAINT paastand_korrektion_grund_check
+                      CHECK (grund IN ('bogen_har_ret','linjeskift-v1')),
+  foer              jsonb NOT NULL CONSTRAINT paastand_korrektion_foer_check CHECK (jsonb_typeof(foer)='object'),
+  efter             jsonb NOT NULL CONSTRAINT paastand_korrektion_efter_check CHECK (jsonb_typeof(efter)='object'),
+  change_set_id     bigint NOT NULL CONSTRAINT paastand_korrektion_change_set_fkey REFERENCES change_set(id),
+  actor_id          uuid,
+  actor_navn        text,
+  oprettet_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS paastand_korrektion_assertion_idx ON paastand_korrektion (assertion_id,id);
+ALTER TABLE paastand_korrektion ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE paastand_korrektion FROM PUBLIC,anon,authenticated,service_role;
+
+-- Retter én påstand på samme id. p_forventet er målet, som kortet viste det ({fact_id, faktatype, vaerdi_tekst,
+-- date_raw, valgt_assertion_id, citation_sources}); enhver afvigelse i skrive-transaktionen giver PAASTAND_DRIFT.
+-- Værdien er aldrig fri: bogen_har_ret skriver forslagets gældende værdi (p_interpretation_id skal være den gældende
+-- version, proposed eller accepted, for faktaets person via accepteret identitet, med et prædikat hvis aktive regel
+-- giver faktaets faktatype); linjeskift-v1 skriver påstandens egen date_raw med blanktegn samlet og kræver også det
+-- datoforslag, rettelsen tjener. Kun faktatyper med en aktiv assertion-regel kan rettes. Datotyper tager p_dato
+-- ({date_min, date_max, date_qualifier} og valgfrit date_certainty, beregnet af ceremoniens parser) ved bogen_har_ret;
+-- linjeskift-v1 og teksttyper tager ingen p_dato, og linjeskift-v1 rører ingen strukturerede datokolonner. Påstanden skal være citeret af præcis én kilde, og forslaget skal komme fra den. En gyldig binding
+-- på påstanden, som den nye værdi ville gøre ugyldig, afviser rettelsen. Visningscachen følger af trg_assertion_regen.
+CREATE OR REPLACE FUNCTION red_ret_paastand(
+  p_assertion_id bigint,
+  p_forventet jsonb,
+  p_grund text,
+  p_interpretation_id uuid,
+  p_dato jsonb DEFAULT NULL
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_actor uuid := auth.uid();
+  v_actor_navn text;
+  v_int private.interpretation%ROWTYPE;
+  v_a public.assertion%ROWTYPE;
+  v_f public.fact%ROWTYPE;
+  v_person bigint;
+  v_valgt bigint;
+  v_sources bigint[];
+  v_forv_sources bigint[];
+  v_forv_fact bigint;
+  v_forv_valgt bigint;
+  v_value_kind text;
+  v_n_kinds integer;
+  v_new text;
+  v_old text;
+  v_new_vaerdi text;
+  v_new_raw text;
+  v_new_min date;
+  v_new_max date;
+  v_new_qual text;
+  v_new_cert text;
+  v_foer jsonb;
+  v_efter jsonb;
+  v_cs bigint;
+  v_kid bigint;
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN
+    RAISE EXCEPTION 'PAASTAND_ROLLE_FORBUDT';
+  END IF;
+  IF p_grund IS NULL OR p_grund NOT IN ('bogen_har_ret','linjeskift-v1') THEN
+    RAISE EXCEPTION 'PAASTAND_GRUND_UGYLDIG';
+  END IF;
+
+  -- Lock order follows the promotion writer: interpretation, identity, then person and assertion/fact.
+  SELECT * INTO v_int FROM private.interpretation WHERE id=p_interpretation_id FOR SHARE;
+  IF v_int.id IS NOT NULL THEN
+    PERFORM 1 FROM private.source_persona_identity i WHERE i.source_persona_id=v_int.source_persona_id FOR SHARE;
+  END IF;
+  SELECT f.subjekt_id INTO v_person
+    FROM public.assertion a JOIN public.fact f ON f.id=a.target_id
+   WHERE a.id=p_assertion_id AND a.target_type='fact' AND f.subjekt_type='person';
+  IF v_person IS NOT NULL THEN
+    PERFORM 1 FROM public.person WHERE id=v_person FOR UPDATE;
+  END IF;
+  SELECT * INTO v_a FROM public.assertion WHERE id=p_assertion_id FOR UPDATE;
+  IF v_a.id IS NULL OR v_a.target_type IS DISTINCT FROM 'fact' THEN
+    RAISE EXCEPTION 'PAASTAND_DRIFT';
+  END IF;
+  SELECT * INTO v_f FROM public.fact WHERE id=v_a.target_id FOR SHARE;
+  IF v_f.id IS NULL OR v_f.subjekt_type IS DISTINCT FROM 'person' OR v_f.subjekt_id IS DISTINCT FROM v_person THEN
+    RAISE EXCEPTION 'PAASTAND_DRIFT';
+  END IF;
+
+  -- Drift: the target exactly as the card showed it.
+  SELECT c.valgt_assertion_id INTO v_valgt FROM public.conclusion c WHERE c.target_type='fact' AND c.target_id=v_f.id;
+  v_sources := ARRAY(SELECT DISTINCT c.source_id FROM public.citation c WHERE c.assertion_id=v_a.id ORDER BY 1);
+  IF p_forventet IS NULL OR jsonb_typeof(p_forventet)<>'object'
+     OR NOT (p_forventet ?& ARRAY['fact_id','faktatype','vaerdi_tekst','date_raw','valgt_assertion_id',
+                                   'citation_sources'])
+     OR jsonb_typeof(p_forventet->'citation_sources')<>'array' THEN
+    RAISE EXCEPTION 'PAASTAND_DRIFT';
+  END IF;
+  BEGIN
+    v_forv_fact := (p_forventet->>'fact_id')::bigint;
+    v_forv_valgt := (p_forventet->>'valgt_assertion_id')::bigint;
+    v_forv_sources := ARRAY(SELECT DISTINCT e::bigint
+                              FROM jsonb_array_elements_text(p_forventet->'citation_sources') e ORDER BY 1);
+  EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
+    RAISE EXCEPTION 'PAASTAND_DRIFT';
+  END;
+  IF v_forv_fact IS DISTINCT FROM v_f.id
+     OR (p_forventet->>'faktatype') IS DISTINCT FROM v_f.faktatype
+     OR (p_forventet->>'vaerdi_tekst') IS DISTINCT FROM v_a.vaerdi_tekst
+     OR (p_forventet->>'date_raw') IS DISTINCT FROM v_a.date_raw
+     OR v_forv_valgt IS DISTINCT FROM v_valgt
+     OR v_forv_sources IS DISTINCT FROM v_sources THEN
+    RAISE EXCEPTION 'PAASTAND_DRIFT';
+  END IF;
+
+  -- Fact type: only types with an active assertion rule; the rule table gives the value kind.
+  SELECT count(DISTINCT pp.value_kind),min(pp.value_kind) INTO v_n_kinds,v_value_kind
+    FROM private.interpretation_predicate_promotable pp WHERE pp.expected_fact_type=v_f.faktatype;
+  IF v_n_kinds<>1 OR v_value_kind NOT IN ('text','date_raw') THEN
+    RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG';
+  END IF;
+  IF v_value_kind='text' THEN
+    IF p_grund<>'bogen_har_ret' OR p_dato IS NOT NULL THEN RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG'; END IF;
+  ELSIF p_grund='linjeskift-v1' THEN
+    IF p_dato IS NOT NULL THEN RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG'; END IF;
+  ELSE
+    -- The type check stands alone: Postgres does not guarantee OR order, and jsonb_object_keys fails on a scalar.
+    IF p_dato IS NULL OR jsonb_typeof(p_dato)<>'object' THEN RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG'; END IF;
+    -- date_certainty is optional; every other key is required, and no other key is allowed. The typeof check on
+    -- date_certainty only runs when the key is present: jsonb_typeof(NULL) NOT IN (...) is NULL and would pass.
+    IF NOT (p_dato ?& ARRAY['date_min','date_max','date_qualifier'])
+       OR jsonb_typeof(p_dato->'date_qualifier') NOT IN ('string','null')
+       OR jsonb_typeof(p_dato->'date_min') NOT IN ('string','null')
+       OR jsonb_typeof(p_dato->'date_max') NOT IN ('string','null')
+       OR (p_dato ? 'date_certainty' AND jsonb_typeof(p_dato->'date_certainty') NOT IN ('string','null'))
+       OR (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(p_dato - 'date_certainty') k)
+            IS DISTINCT FROM ARRAY['date_max','date_min','date_qualifier'] THEN
+      RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG';
+    END IF;
+    BEGIN
+      v_new_min := (p_dato->>'date_min')::date;
+      v_new_max := (p_dato->>'date_max')::date;
+    EXCEPTION WHEN invalid_datetime_format OR datetime_field_overflow OR invalid_text_representation THEN
+      RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG';
+    END;
+    IF v_new_min>v_new_max THEN RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG'; END IF;
+    v_new_qual := p_dato->>'date_qualifier';
+    -- The qualifiers validate.py:derive_date_info can produce (or none).
+    IF v_new_qual IS NOT NULL AND v_new_qual NOT IN ('before','after','between','about','floruit') THEN
+      RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG';
+    END IF;
+    -- The certainty validate.py:derive_date_info can produce: 'uncertain' or none. A missing key gives NULL, as in
+    -- red_ret_ocr_felt (date_certainty=p_korrigeret->>'certainty'): the correction replaces the parsed reading of the
+    -- date, so a stale certainty must not survive it. The original stays in foer.
+    v_new_cert := p_dato->>'date_certainty';
+    IF v_new_cert IS NOT NULL AND v_new_cert<>'uncertain' THEN
+      RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG';
+    END IF;
+  END IF;
+
+  -- Source: exactly one citing source.
+  IF cardinality(v_sources)<>1 THEN RAISE EXCEPTION 'PAASTAND_KILDE_DELT'; END IF;
+
+  -- The proposal: current version, proposed or accepted, this person, a predicate whose active rule gives this type.
+  IF v_int.id IS NULL
+     OR v_int.status NOT IN ('proposed','accepted')
+     OR jsonb_typeof(v_int.value) IS DISTINCT FROM 'string'
+     OR NOT EXISTS (SELECT 1 FROM private.interpretation_current ic WHERE ic.id=v_int.id)
+     OR NOT EXISTS (SELECT 1 FROM private.interpretation_predicate_promotable pp
+                     WHERE pp.predicate=v_int.predicate AND pp.expected_fact_type=v_f.faktatype)
+     OR NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
+                     WHERE i.source_persona_id=v_int.source_persona_id AND i.decision_status='accepted'
+                       AND i.canonical_person_id=v_f.subjekt_id) THEN
+    RAISE EXCEPTION 'PAASTAND_FORSLAG_UOVERENS';
+  END IF;
+  -- One proposal corrects one assertion: no live correction (not undone, as red_paastand_historik defines it) and no
+  -- currently valid binding from any version of this proposal on another assertion. Choosing the first pairing is the
+  -- ceremony list's responsibility.
+  IF EXISTS (SELECT 1 FROM public.paastand_korrektion k JOIN private.interpretation q ON q.id=k.interpretation_id
+              WHERE q.interpretation_key=v_int.interpretation_key AND k.assertion_id<>v_a.id
+                AND NOT EXISTS (SELECT 1 FROM public.change_set rv WHERE rv.reverterer_id=k.change_set_id))
+     OR EXISTS (SELECT 1 FROM private.interpretation_promotion p JOIN private.interpretation q ON q.id=p.interpretation_id
+                 WHERE q.interpretation_key=v_int.interpretation_key AND p.target_type='assertion'
+                   AND p.target_id<>v_a.id AND private.assertion_binding_current(p.id)) THEN
+    RAISE EXCEPTION 'PAASTAND_FORSLAG_UOVERENS';
+  END IF;
+  IF v_int.source_id IS DISTINCT FROM v_sources[1] THEN RAISE EXCEPTION 'PAASTAND_KILDE_DELT'; END IF;
+
+  -- The new value is never free.
+  IF p_grund='bogen_har_ret' THEN
+    v_new := v_int.value #>> '{}';
+    IF nullif(btrim(v_new),'') IS NULL THEN RAISE EXCEPTION 'PAASTAND_FORSLAG_UOVERENS'; END IF;
+  ELSE
+    v_new := private.saml_blanktegn_v1(v_a.date_raw);
+    -- The collapsed value must equal the proposal exactly as binding validity defines equality.
+    IF NOT private.binding_value_matches('date_raw',v_int.value,NULL,v_new) THEN
+      RAISE EXCEPTION 'PAASTAND_FORSLAG_UOVERENS';
+    END IF;
+  END IF;
+  v_old := CASE v_value_kind WHEN 'text' THEN v_a.vaerdi_tekst ELSE v_a.date_raw END;
+  IF v_new IS NOT DISTINCT FROM v_old OR nullif(v_new,'') IS NULL THEN
+    RAISE EXCEPTION 'PAASTAND_VAERDI_UAENDRET';
+  END IF;
+  IF v_int.predicate='person.name' AND private.navn_forkortes(v_old,v_new) IS TRUE THEN
+    RAISE EXCEPTION 'PAASTAND_NAVN_FORKORTES';
+  END IF;
+  v_new_vaerdi := CASE v_value_kind WHEN 'text' THEN v_new ELSE v_a.vaerdi_tekst END;
+  v_new_raw := CASE v_value_kind WHEN 'text' THEN v_a.date_raw ELSE v_new END;
+
+  -- No silent loss: every currently valid binding on the target must still hold with the new value.
+  IF EXISTS (
+    SELECT 1
+      FROM private.interpretation_promotion p
+      JOIN private.interpretation q ON q.id=p.interpretation_id
+      JOIN private.interpretation_current cur
+        ON cur.interpretation_key=q.interpretation_key AND cur.id=p.interpretation_id
+      JOIN private.interpretation_promotion_rule r ON r.rule_key=p.rule_key AND r.rule_version=p.rule_version
+     WHERE p.target_type='assertion' AND p.target_id=v_a.id
+       AND private.assertion_binding_current(p.id)
+       AND NOT private.binding_value_matches(r.value_kind,cur.value,v_new_vaerdi,v_new_raw)
+  ) THEN
+    RAISE EXCEPTION 'PAASTAND_BINDING_BRYDES';
+  END IF;
+
+  SELECT coalesce(pr.navn,pr.email,v_actor::text) INTO v_actor_navn FROM public.profiles pr WHERE pr.id=v_actor;
+  v_actor_navn := coalesce(v_actor_navn,'ukendt');
+  v_foer := jsonb_build_object('vaerdi_tekst',v_a.vaerdi_tekst,'date_raw',v_a.date_raw,'date_min',v_a.date_min,
+              'date_max',v_a.date_max,'date_qualifier',v_a.date_qualifier,'date_certainty',v_a.date_certainty);
+  v_cs := public.begin_change_set('red_ret_paastand',format('Paastand %s: %s',v_a.id,p_grund),'person',v_f.subjekt_id);
+  IF v_value_kind='text' THEN
+    UPDATE public.assertion SET vaerdi_tekst=v_new WHERE id=v_a.id;
+  ELSIF p_grund='bogen_har_ret' THEN
+    UPDATE public.assertion SET date_raw=v_new,date_min=v_new_min,date_max=v_new_max,date_qualifier=v_new_qual,
+           date_certainty=v_new_cert
+     WHERE id=v_a.id;
+  ELSE
+    UPDATE public.assertion SET date_raw=v_new WHERE id=v_a.id;
+  END IF;
+  SELECT jsonb_build_object('vaerdi_tekst',a.vaerdi_tekst,'date_raw',a.date_raw,'date_min',a.date_min,
+           'date_max',a.date_max,'date_qualifier',a.date_qualifier,'date_certainty',a.date_certainty)
+    INTO v_efter FROM public.assertion a WHERE a.id=v_a.id;
+  INSERT INTO public.paastand_korrektion(assertion_id,interpretation_id,grund,foer,efter,change_set_id,actor_id,actor_navn)
+    VALUES (v_a.id,v_int.id,p_grund,v_foer,v_efter,v_cs,v_actor,v_actor_navn)
+    RETURNING id INTO v_kid;
+  RETURN jsonb_build_object('assertion_id',v_a.id,'grund',p_grund,'foer',v_foer,'efter',v_efter,
+    'change_set_id',v_cs,'korrektion_id',v_kid);
+END $$;
+REVOKE ALL ON FUNCTION red_ret_paastand(bigint,jsonb,text,uuid,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_ret_paastand(bigint,jsonb,text,uuid,jsonb) TO authenticated;
+
+-- Påstandens rettelser, nyeste først. fortrudt er sand, når rettelsens change_set senere er fortrudt.
+CREATE OR REPLACE FUNCTION red_paastand_historik(p_assertion_id bigint)
+RETURNS TABLE(korrektion_id bigint,change_set_id bigint,changed_at timestamptz,actor_navn text,grund text,
+  interpretation_id uuid,foer jsonb,efter jsonb,fortrudt boolean)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+#variable_conflict use_column
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN
+    RAISE EXCEPTION 'PAASTAND_ROLLE_FORBUDT';
+  END IF;
+  RETURN QUERY
+  SELECT k.id,k.change_set_id,cs.created_at,k.actor_navn,k.grund,k.interpretation_id,k.foer,k.efter,
+         EXISTS (SELECT 1 FROM public.change_set rv WHERE rv.reverterer_id=k.change_set_id)
+    FROM public.paastand_korrektion k JOIN public.change_set cs ON cs.id=k.change_set_id
+   WHERE k.assertion_id=p_assertion_id
+   ORDER BY k.id DESC;
+END $$;
+REVOKE ALL ON FUNCTION red_paastand_historik(bigint) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_paastand_historik(bigint) TO authenticated;
+
+-- Trin 6c-2b: højst én gældende binding pr. påstand. Validatoren får reason_code ALREADY_BOUND_OTHER efter
+-- EVIDENCE_PROMOTION_ALREADY_PROMOTED; hele funktionen gentages her ordret fra schema.sql (paritetsvagten).
+CREATE OR REPLACE FUNCTION private.validate_interpretation_promotion_items(
+  p_items jsonb,p_lock boolean DEFAULT false
+) RETURNS TABLE(
+  item_ordinal integer,interpretation_id uuid,target_type text,target_id bigint,
+  eligible boolean,rule_key text,rule_version integer,reason_code text
+)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF jsonb_typeof(p_items)<>'array' OR jsonb_array_length(p_items)=0 THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_ITEMS_INVALID';
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM jsonb_array_elements(p_items) AS element(item)
+     WHERE jsonb_typeof(element.item)<>'object'
+        OR (SELECT array_agg(key ORDER BY key)
+              FROM jsonb_object_keys(element.item) AS key)
+             IS DISTINCT FROM ARRAY['interpretation_id','target_id','target_type']
+        OR jsonb_typeof(element.item->'interpretation_id')<>'string'
+        OR coalesce(element.item->>'interpretation_id','') !~*
+             '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        OR jsonb_typeof(element.item->'target_type')<>'string'
+        OR element.item->>'target_type'<>'assertion'
+        OR jsonb_typeof(element.item->'target_id')<>'number'
+        OR coalesce(element.item->>'target_id','') !~ '^-?[0-9]+$'
+        OR length(element.item->>'target_id')>19
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_PROMOTION_ITEMS_INVALID';
+  END IF;
+
+  -- Låseordenen følger de eksisterende writers: current fortolkning først
+  -- (red_decide_interpretation låser kun denne), derefter source_persona og
+  -- identity-state (red_decide_source_persona_identitys rækkefølge), så
+  -- append-only placement og til sidst kanonisk assertion/fact. De gennemsete
+  -- kanoniske writers tager ingen af de private låse, så der findes ingen
+  -- modsat cyklus i den relevante writerflade. Ukendte UUID'er bevares som
+  -- fail-closed output.
+  -- Trin 6c-2b: mål-assertionen låses FOR NO KEY UPDATE (ikke FOR SHARE). To batches med hver sin nøgle mod samme
+  -- assertion skal serialiseres, ellers kan begge passere ALREADY_BOUND_OTHER og skrive hver sin binding; den anden
+  -- venter her, og RETURN QUERY nedenfor ser under READ COMMITTED (nyt snapshot pr. sætning) den førstes promotion.
+  -- I dag maskeres kapløbet af rule_line-låsen (FOR UPDATE), fordi hver faktatype har netop ét prædikat; det er
+  -- latent, så snart to prædikater deler expected_fact_type. NO KEY UPDATE blokerer ikke FK-indsættelser (KEY SHARE).
+  -- Kendt følge: tekstrevisions-writeren (write_source_text_revision) låser assertion FOR SHARE og derefter persona,
+  -- identitet og rivalnøgler; mod validatorens omvendte orden kan det i et teoretisk tilfælde give deadlock. Postgres
+  -- afbryder da den ene side med 40P01; intet skrives halvt.
+  -- Isolationsniveau: låsen lukker kapløbet under READ COMMITTED (redaktør-/PostgREST-vejen). Under REPEATABLE READ
+  -- (overførselspakkens trin 08, transfer_pack.py bind_sql, én skriver i en ceremoni) læser RETURN QUERY transaktionens
+  -- gamle snapshot og kan overse en samtidig batchs binding. Det hul dækkes af læserens n_bind=1-værn
+  -- (public_person_facts viser ingen binding ved flere) og af ceremoniens efterkontrol: ingen assertion må have mere
+  -- end én gældende binding. Under SERIALIZABLE afbryder Postgres i stedet den ene med 40001.
+  IF p_lock THEN
+    PERFORM 1
+      FROM private.interpretation interpretation
+     WHERE interpretation.id=ANY(ARRAY(
+       SELECT current_interpretation.id
+         FROM private.interpretation_current current_interpretation
+         JOIN private.interpretation requested
+           ON requested.interpretation_key=current_interpretation.interpretation_key
+        WHERE requested.id=ANY(ARRAY(
+          SELECT (element.item->>'interpretation_id')::uuid
+            FROM jsonb_array_elements(p_items) AS element(item)
+        ))
+     ))
+     ORDER BY interpretation.id FOR UPDATE;
+    PERFORM 1
+      FROM private.interpretation_promotion_rule_line rule_line
+     WHERE rule_line.predicate=ANY(ARRAY(
+       SELECT current_interpretation.predicate
+         FROM private.interpretation_current current_interpretation
+         JOIN private.interpretation requested
+           ON requested.interpretation_key=current_interpretation.interpretation_key
+        WHERE requested.id=ANY(ARRAY(
+          SELECT (element.item->>'interpretation_id')::uuid
+            FROM jsonb_array_elements(p_items) AS element(item)
+        ))
+     ))
+     ORDER BY rule_line.rule_key FOR UPDATE;
+    PERFORM 1
+      FROM private.source_persona persona
+     WHERE persona.id=ANY(ARRAY(
+       SELECT current_interpretation.source_persona_id
+         FROM private.interpretation_current current_interpretation
+         JOIN private.interpretation requested
+           ON requested.interpretation_key=current_interpretation.interpretation_key
+        WHERE requested.id=ANY(ARRAY(
+          SELECT (element.item->>'interpretation_id')::uuid
+            FROM jsonb_array_elements(p_items) AS element(item)
+        ))
+     ))
+     ORDER BY persona.id FOR UPDATE;
+    PERFORM 1
+      FROM private.source_persona_identity identity_state
+     WHERE identity_state.source_persona_id=ANY(ARRAY(
+       SELECT current_interpretation.source_persona_id
+         FROM private.interpretation_current current_interpretation
+         JOIN private.interpretation requested
+           ON requested.interpretation_key=current_interpretation.interpretation_key
+        WHERE requested.id=ANY(ARRAY(
+          SELECT (element.item->>'interpretation_id')::uuid
+            FROM jsonb_array_elements(p_items) AS element(item)
+        ))
+     ))
+     ORDER BY identity_state.source_persona_id FOR UPDATE;
+    PERFORM 1
+      FROM private.source_persona_placement placement
+     WHERE placement.source_persona_id=ANY(ARRAY(
+       SELECT current_interpretation.source_persona_id
+         FROM private.interpretation_current current_interpretation
+         JOIN private.interpretation requested
+           ON requested.interpretation_key=current_interpretation.interpretation_key
+        WHERE requested.id=ANY(ARRAY(
+          SELECT (element.item->>'interpretation_id')::uuid
+            FROM jsonb_array_elements(p_items) AS element(item)
+        ))
+     ))
+     ORDER BY placement.source_persona_id,placement.record_placement_id,placement.placement_role
+       FOR SHARE;
+    PERFORM 1
+      FROM public.assertion assertion
+     WHERE assertion.id=ANY(ARRAY(
+       SELECT (element.item->>'target_id')::bigint
+         FROM jsonb_array_elements(p_items) AS element(item)
+     ))
+     ORDER BY assertion.id FOR NO KEY UPDATE;
+    PERFORM 1
+      FROM public.fact fact
+     WHERE fact.id=ANY(ARRAY(
+       SELECT assertion.target_id
+         FROM public.assertion assertion
+        WHERE assertion.id=ANY(ARRAY(
+          SELECT (element.item->>'target_id')::bigint
+            FROM jsonb_array_elements(p_items) AS element(item)
+        )) AND assertion.target_type='fact'
+     ))
+     ORDER BY fact.id FOR SHARE;
+  END IF;
+
+  RETURN QUERY
+  WITH parsed AS (
+    SELECT ordinal::integer AS item_ordinal,
+           (element.item->>'interpretation_id')::uuid AS interpretation_id,
+           element.item->>'target_type' AS target_type,
+           (element.item->>'target_id')::bigint AS target_id,
+           count(*) OVER (
+             PARTITION BY (element.item->>'interpretation_id')::uuid,
+                          element.item->>'target_type',(element.item->>'target_id')::bigint
+           ) AS duplicate_count
+      FROM jsonb_array_elements(p_items) WITH ORDINALITY AS element(item,ordinal)
+  ), checked AS (
+    SELECT parsed.*,requested.id AS requested_id,current_interpretation.id AS current_id,
+           current_interpretation.status,current_interpretation.predicate,
+           current_interpretation.interpretation_kind,current_interpretation.value,
+           rule.rule_key,rule.rule_version,rule.expected_fact_type,rule.value_kind,
+           rule.requires_persona_identity,rule.requires_principal_placement,rule.bulk_eligible,
+           identity_state.canonical_person_id,
+           assertion.id AS assertion_id,assertion.vaerdi_tekst,assertion.date_raw,
+           fact.id AS fact_id,fact.subjekt_type,fact.subjekt_id,fact.faktatype,
+           EXISTS (
+             SELECT 1 FROM private.interpretation_observation observation
+              WHERE observation.interpretation_id=current_interpretation.id
+           ) AS has_observation,
+           EXISTS (
+             SELECT 1 FROM private.source_persona_placement_current placement
+              WHERE placement.source_persona_id=current_interpretation.source_persona_id
+                AND placement.decision_status='accepted'
+                AND placement.placement_role IN ('principal_member','co_principal')
+           ) AS has_principal_placement,
+           EXISTS (
+             SELECT 1 FROM private.interpretation_promotion promotion
+              WHERE promotion.interpretation_id=current_interpretation.id
+                AND promotion.target_type=parsed.target_type
+                AND promotion.target_id=parsed.target_id
+           ) AS already_promoted,
+           -- Trin 6c-2b: højst én gældende binding pr. påstand (læseren kræver præcis én, på tværs af kilder). En anden
+           -- fortolkning er en anden interpretation_key; versioner af samme nøgle er ikke »anden«. Kilde og persona
+           -- indgår ikke: en binding fra enhver kilde spærrer, og to nøgler i samme batch mod samme påstand afvises begge.
+           EXISTS (
+             SELECT 1 FROM private.interpretation_promotion other_promotion
+               JOIN private.interpretation other_interpretation
+                 ON other_interpretation.id=other_promotion.interpretation_id
+              WHERE other_promotion.target_type=parsed.target_type
+                AND other_promotion.target_id=parsed.target_id
+                AND other_interpretation.interpretation_key<>requested.interpretation_key
+                AND private.assertion_binding_current(other_promotion.id)
+           ) OR EXISTS (
+             -- Rivalen behøver ikke selv være gyldig: ethvert kendt element med en anden nøgle mod samme assertion
+             -- spærrer. Batchen er atomisk, så det påvirker kun previewets diagnose, ikke hvad der skrives.
+             SELECT 1 FROM parsed other_item
+               JOIN private.interpretation other_requested ON other_requested.id=other_item.interpretation_id
+              WHERE other_item.target_type=parsed.target_type
+                AND other_item.target_id=parsed.target_id
+                AND other_requested.interpretation_key<>requested.interpretation_key
+           ) AS already_bound_other
+      FROM parsed
+      LEFT JOIN private.interpretation requested ON requested.id=parsed.interpretation_id
+      LEFT JOIN private.interpretation_current current_interpretation
+        ON current_interpretation.interpretation_key=requested.interpretation_key
+      LEFT JOIN private.interpretation_promotion_rule_current rule
+        ON rule.predicate=current_interpretation.predicate
+       AND rule.interpretation_kind=current_interpretation.interpretation_kind
+       AND rule.target_type=parsed.target_type
+       AND rule.status='active'
+      LEFT JOIN private.source_persona_identity identity_state
+        ON identity_state.source_persona_id=current_interpretation.source_persona_id
+       AND identity_state.decision_status='accepted'
+      LEFT JOIN public.assertion assertion
+        ON assertion.id=parsed.target_id AND assertion.target_type='fact'
+      LEFT JOIN public.fact fact ON fact.id=assertion.target_id
+  )
+  SELECT validated.item_ordinal,validated.interpretation_id,validated.target_type,validated.target_id,
+         validated.reason_code IS NULL AS eligible,validated.rule_key,validated.rule_version,
+         validated.reason_code
+    FROM (
+      SELECT checked.*,
+        CASE
+          WHEN checked.requested_id IS NULL THEN 'EVIDENCE_INTERPRETATION_NOT_FOUND'
+          WHEN checked.current_id IS NULL OR checked.current_id<>checked.interpretation_id
+            THEN 'EVIDENCE_INTERPRETATION_NOT_CURRENT'
+          WHEN checked.status<>'accepted' THEN 'EVIDENCE_INTERPRETATION_NOT_ACCEPTED'
+          WHEN checked.rule_key IS NULL THEN 'EVIDENCE_PROMOTION_RULE_NOT_ACTIVE'
+          WHEN NOT checked.has_observation THEN 'EVIDENCE_INTERPRETATION_OBSERVATION_REQUIRED'
+          WHEN checked.requires_persona_identity AND checked.canonical_person_id IS NULL
+            THEN 'EVIDENCE_PROMOTION_IDENTITY_REQUIRED'
+          WHEN checked.requires_principal_placement AND NOT checked.has_principal_placement
+            THEN 'EVIDENCE_PROMOTION_PRINCIPAL_PLACEMENT_REQUIRED'
+          WHEN checked.assertion_id IS NULL OR checked.fact_id IS NULL THEN 'EVIDENCE_PROMOTION_TARGET_NOT_FOUND'
+          WHEN checked.requires_persona_identity
+             AND (checked.subjekt_type<>'person' OR checked.subjekt_id<>checked.canonical_person_id)
+            THEN 'EVIDENCE_PROMOTION_IDENTITY_MISMATCH'
+          WHEN checked.faktatype<>checked.expected_fact_type THEN 'EVIDENCE_PROMOTION_FACT_TYPE_MISMATCH'
+          WHEN checked.value_kind='text' AND lower(btrim(normalize(checked.value #>> '{}',NFC)))
+               IS DISTINCT FROM lower(btrim(normalize(checked.vaerdi_tekst,NFC)))
+            THEN 'EVIDENCE_PROMOTION_VALUE_MISMATCH'
+          WHEN checked.value_kind='date_raw' AND lower(btrim(normalize(checked.value #>> '{}',NFC)))
+               IS DISTINCT FROM lower(btrim(normalize(checked.date_raw,NFC)))
+            THEN 'EVIDENCE_PROMOTION_VALUE_MISMATCH'
+          WHEN jsonb_array_length(p_items)>1 AND NOT checked.bulk_eligible
+            THEN 'EVIDENCE_PROMOTION_BULK_NOT_ELIGIBLE'
+          WHEN checked.duplicate_count>1 THEN 'EVIDENCE_PROMOTION_DUPLICATE_ITEM'
+          WHEN checked.already_promoted THEN 'EVIDENCE_PROMOTION_ALREADY_PROMOTED'
+          WHEN checked.already_bound_other THEN 'ALREADY_BOUND_OTHER'
+          ELSE NULL
+        END AS reason_code
+      FROM checked
+    ) validated
+   ORDER BY validated.item_ordinal;
+END $$;
+REVOKE EXECUTE ON FUNCTION private.validate_interpretation_promotion_items(jsonb,boolean) FROM PUBLIC,anon,authenticated;

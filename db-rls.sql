@@ -711,6 +711,7 @@ BEGIN
     'public.red_relation_disposition_input(bigint)',
     'public.red_ikke_samme_som(bigint,bigint)',
     'public.red_match_personer()',
+    'public.red_normaliser_forslag(uuid,integer,text)',
     'public.red_ocr_historik(text,text,text)',
     'public.red_opdater_media(bigint,text,text,text,text)',
     'public.red_opret_estate(text,text,bigint)',
@@ -721,6 +722,7 @@ BEGIN
     'public.red_opret_person(text,text,boolean,text,text,text)',
     'public.red_opret_story(text,bigint,text,text,bigint,bigint,bigint,bigint,date,date,text,text,boolean)',
     'public.red_opret_union(bigint,bigint,text,integer)',
+    'public.red_paastand_historik(bigint)',
     'public.red_person_grid()',
     'public.red_person_narrative_publication_history(bigint)',
     'public.red_person_narrative_records(bigint)',
@@ -739,6 +741,7 @@ BEGIN
     'public.red_registrer_media_variant(bigint,text,text,text,bigint,integer,integer)',
     'public.red_relation(text,bigint,text,bigint,text,text)',
     'public.red_ret_ocr_felt(bigint,text,text,text,text,jsonb,text,text)',
+    'public.red_ret_paastand(bigint,jsonb,text,uuid,jsonb)',
     'public.red_saet_portraet(bigint,bigint)',
     'public.red_samme_som(bigint,bigint)',
     'public.red_seal_identity_control_run(uuid,text,text)',
@@ -896,6 +899,11 @@ GRANT SELECT ON TABLE public.import_korrektion TO authenticated;
 DROP POLICY IF EXISTS redaktion_read ON public.import_korrektion;
 CREATE POLICY redaktion_read ON public.import_korrektion FOR SELECT TO authenticated
   USING ((select public.current_rolle()) = 'redaktion');
+
+-- Trin 6c-2b: den påstandsnøglede rettelsesjournal. RLS på og ingen klientadgang overhovedet (heller ikke læsning):
+-- red_ret_paastand er eneste skrivevej og red_paastand_historik eneste læsevej, begge rolle-gated.
+ALTER TABLE public.paastand_korrektion ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.paastand_korrektion FROM PUBLIC, anon, authenticated, service_role;
 
 -- Grid-RPC'en er den eneste læseoverflade for kvalitetsarket. Den læser som ejer,
 -- men dens interne rolle-gate er stadig autoritativ; den delte fingerprint-helper er intern.
