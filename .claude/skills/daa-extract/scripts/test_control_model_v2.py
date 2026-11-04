@@ -158,6 +158,14 @@ def test_plan_kraever_kildescope():
         plan_af(k, uden)
 
 
+def test_dublet_raekke_for_samme_forslag_afvises_ved_planen():
+    # Et forslag forankret i to poster giver to rækker i eksporten; planen må ikke lade den sidste vinde.
+    k, rows = bygge(3, 3)
+    anden = dict(rows[0], record_key="I-9999")
+    with pytest.raises(ControlError, match=r"^PLAN_DUBLET_RAEKKE antal=1$"):
+        plan_af(k, rows + [anden])
+
+
 # --- arket v2 ---------------------------------------------------------------------------------------------------
 
 def test_ark_round_trip():
@@ -348,7 +356,7 @@ def _plan_med_alt():
 def test_sql_raekkefoelge_P_rettelser_afgoerelser_reklassifikation_maskine_binding():
     p, a = _plan_med_alt()
     sql = v2.sql_v2(p, a)
-    pos = [sql.index(s) for s in ("PERSONA_HAR_PROMOTIONER", "public.red_afgoer_source_persona(",
+    pos = [sql.index(s) for s in ("PLAN_KILDE_AFVIGER", "PERSONA_HAR_PROMOTIONER", "public.red_afgoer_source_persona(",
                                   "public.red_ret_paastand(", "public.red_decide_interpretation(",
                                   "interpretation_control_classification.sql", "MACHINE_NOT_MATCH",
                                   "machine-corroboration-v2", "interpretation_promotion_targets_scoped.sql",
@@ -396,6 +404,26 @@ def test_P_vaernet_og_personkontrollen_staar_foer_identitetskaldet():
     ctx = re.findall(r"'(\{\"basis\": \"human_sheet\"[^']*)'::jsonb", sql)
     assert len(ctx) == 2 and all(set(json.loads(c)) == {"basis", "sheet_sha256", "rows_sha256", "line"} for c in ctx)
     assert all(isinstance(json.loads(c)["line"], int) for c in ctx)
+
+
+def test_kildevaernet_staar_foer_foerste_skrivning_med_planens_kilde():
+    p, a = _plan_med_alt()
+    sql = v2.sql_v2(p, a)
+    blok = next(x for x in sql.splitlines() if "PLAN_KILDE_AFVIGER" in x)
+    assert blok.startswith("DO $k$") and blok.endswith("END $k$;")
+    assert f"IS DISTINCT FROM {SRC};" in blok and f"kilde={SRC} " in blok
+    assert "private.interpretation i" in blok and "private.source_persona sp" in blok
+    # Alle forslag, ceremonien rører (arkets felter og hele MATCH inkl. maskine og P-udtagne), og alle personas.
+    f = json.loads(re.search(r"f jsonb := '([^']*)'::jsonb", blok).group(1))
+    pp = json.loads(re.search(r"pp jsonb := '([^']*)'::jsonb", blok).group(1))
+    assert set(f) == {r["interpretation_id"] for r in p["rows_kontrol"]} | {m[0] for m in p["match"]}
+    assert set(pp) == set(p["persona_ids"]) and {u["persona_id"] for u in a["unresolved"]} <= set(pp)
+    start = sql.index(blok)
+    skriv = [m.start() for m in re.finditer(r"public\.red_\w+\(|SET LOCAL ROLE authenticated|ANALYZE ", sql)]
+    assert skriv and start < min(skriv)
+    # Kilden følger planen; den er aldrig fast.
+    anden = v2.sql_v2(dict(p, source_id=-4749), a)
+    assert "IS DISTINCT FROM -4749;" in anden and f"IS DISTINCT FROM {SRC};" not in anden
 
 
 def test_rettelsen_sender_p_dato_kun_for_datoer():

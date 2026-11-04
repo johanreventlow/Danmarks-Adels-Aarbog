@@ -140,6 +140,11 @@ def plan_run_v2(classification: dict, rows: list, *, source_id: int, strata: dic
         raise ControlError("PLAN_SCOPE_MANGLER rækkefilen er eksporteret uden daa.control_src")
     strata = _validate_strata(strata)
     items = _validate_items(classification)
+    # Én række pr. forslag: rækkefilen grupperer pr. postnøgle, så et forslag forankret i to poster gav to rækker, og
+    # den sidste ville stille og roligt vinde (kortets post, persona og mål).
+    dubletter = len(rows) - len({r["interpretation_id"] for r in rows})
+    if dubletter:
+        raise ControlError(f"PLAN_DUBLET_RAEKKE antal={dubletter}")
     by_id = {r["interpretation_id"]: r for r in rows}
 
     def raekke(i: dict) -> dict:
@@ -473,6 +478,28 @@ def _check_partition(plan: dict, applied: dict) -> None:
                            f"stikprøve={len(stik)} udtaget={len(udtaget)}")
 
 
+def _kilde_vaern(plan: dict, src: int) -> str:
+    """DO-blok (ejerrollen, læser private.*): rejser PLAN_KILDE_AFVIGER, hvis et forslag (arkets felter og alle MATCH:
+    stikprøve, maskine og P-udtagne) eller en persona i planen ikke findes med planens kilde. Ukendte id'er afviser
+    også (LEFT JOIN: source_id er da NULL)."""
+    ids = sorted({r["interpretation_id"] for r in plan["rows_kontrol"]} | {m[0] for m in plan["match"]}
+                 | {m["interpretation_id"] for m in plan["machine_candidates"]})
+    personas = sorted(set(plan["persona_ids"]) | {p["persona_id"] for p in plan["personas"]})
+    for i in ids + personas:
+        _uuid(i)
+    src = int(src)
+    return ("DO $k$ DECLARE f jsonb := " + _lit(json.dumps(ids)) + "::jsonb; "
+            "pp jsonb := " + _lit(json.dumps(personas)) + "::jsonb; n int; m int; BEGIN "
+            "SELECT count(*) INTO n FROM jsonb_array_elements_text(f) x "
+            "LEFT JOIN private.interpretation i ON i.id = x::uuid "
+            f"WHERE i.source_id IS DISTINCT FROM {src}; "
+            "SELECT count(*) INTO m FROM jsonb_array_elements_text(pp) x "
+            "LEFT JOIN private.source_persona sp ON sp.id = x::uuid "
+            f"WHERE sp.source_id IS DISTINCT FROM {src}; "
+            f"IF n <> 0 OR m <> 0 THEN RAISE EXCEPTION 'PLAN_KILDE_AFVIGER kilde={src} forslag=% personas=%', n, m; "
+            "END IF; END $k$;")
+
+
 def sql_v2(plan: dict, applied: dict) -> str:
     """Den samlede ceremoni-SQL i én transaktion (READ COMMITTED, standard)."""
     _check_partition(plan, applied)
@@ -484,7 +511,9 @@ def sql_v2(plan: dict, applied: dict) -> str:
            "SET LOCAL standard_conforming_strings=on;",
            f"SELECT set_config('daa.control_src', '{src}', true) \\g /dev/null",
            # Aktøren som i v1 (`machine_sql`): RPC'ernes rollegate læser request.jwt.claim.sub.
-           "SELECT set_config('request.jwt.claim.sub', :'actor', true) \\g /dev/null"]
+           "SELECT set_config('request.jwt.claim.sub', :'actor', true) \\g /dev/null",
+           # (0) Kildescope før første skrivning: hvert forslag og hver persona, ceremonien rører, hører til planens kilde.
+           _kilde_vaern(plan, src)]
 
     # (1) P-identiteter. Værnene læser private.* og kører som den forbundne rolle, før noget skrives.
     if applied["unresolved"]:

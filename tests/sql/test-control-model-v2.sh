@@ -347,6 +347,22 @@ q -d "$NEG" -A -t -c "SELECT (SELECT count(*) FROM private.interpretation_curren
                                   WHERE source_persona_id='c4750000-0000-4000-8000-000000000107')" \
   | grep -qx "0 0 Dorthe Testlow accepted" || die "en saboteret ceremoni efterlod ændringer"
 echo "OK: saboterede ceremonier — verifikationen før COMMIT og rettelsesmålet afviser; intet committet"
+# En plan, hvis kilde ikke er forslagenes og personaernes (plan.json's source_id er ikke hash-bundet): kildeværnet
+# afviser før første skrivning.
+rm -rf "$T/plan2k"; cp -R "$T/plan2" "$T/plan2k"
+"$PY" - "$T/plan2k/plan.json" <<'PY'
+import json, sys
+meta = json.load(open(sys.argv[1])); meta["source_id"] = -4749
+json.dump(meta, open(sys.argv[1], "w"))
+PY
+cm sql --plan-dir "$T/plan2k" --sheet "$T/ark.txt" --approved-sha256 "$(sha "$T/ark.txt")" --out "$T/k1.sql" >/dev/null
+expect_sql_error "$NEG" "$T/k1.sql" "PLAN_KILDE_AFVIGER kilde=-4749 forslag=[1-9][0-9]* personas=[1-9][0-9]*"
+q -d "$NEG" -A -t -c "SELECT (SELECT count(*) FROM private.interpretation_current WHERE source_id=-4750 AND status<>'proposed')
+                      || ' ' || (SELECT count(*) FROM paastand_korrektion) || ' ' || (SELECT vaerdi_tekst FROM assertion WHERE id=-47542)
+                      || ' ' || (SELECT decision_status FROM private.source_persona_identity
+                                  WHERE source_persona_id='c4750000-0000-4000-8000-000000000107')" \
+  | grep -qx "0 0 Dorthe Testlow accepted" || die "kildeværnet efterlod ændringer"
+echo "OK: kildeværnet — en plan med en anden kilde afvises med PLAN_KILDE_AFVIGER; intet skrevet"
 # Persona 7's MATCH (71) accepteres og bindes uden for kontrollen; P på personaen afvises derefter.
 cat > "$T/bind71.sql" <<'SQL'
 BEGIN;
