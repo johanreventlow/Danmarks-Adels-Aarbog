@@ -60,6 +60,7 @@
     "record_key": "I-0001",
     "placering": [
      {
+      "rendition_id": "22222222-0000-4000-8000-000000000001",
       "side_fra": 11,
       "side_til": 11,
       "fra": 100,
@@ -131,6 +132,7 @@
     "record_key": "I-0002",
     "placering": [
      {
+      "rendition_id": "22222222-0000-4000-8000-000000000001",
       "side_fra": 12,
       "side_til": 12,
       "fra": 100,
@@ -196,6 +198,7 @@
     "record_key": "I-0003",
     "placering": [
      {
+      "rendition_id": "22222222-0000-4000-8000-000000000001",
       "side_fra": 13,
       "side_til": 13,
       "fra": 100,
@@ -261,6 +264,7 @@
     "record_key": "I-0004",
     "placering": [
      {
+      "rendition_id": "22222222-0000-4000-8000-000000000001",
       "side_fra": 14,
       "side_til": 14,
       "fra": 100,
@@ -326,6 +330,7 @@
     "record_key": "I-0005",
     "placering": [
      {
+      "rendition_id": "22222222-0000-4000-8000-000000000001",
       "side_fra": 15,
       "side_til": 15,
       "fra": 100,
@@ -391,6 +396,7 @@
     "record_key": "I-0006",
     "placering": [
      {
+      "rendition_id": "22222222-0000-4000-8000-000000000001",
       "side_fra": 16,
       "side_til": 16,
       "fra": 100,

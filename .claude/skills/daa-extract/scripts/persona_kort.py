@@ -50,9 +50,15 @@ def _felt_noegle(f: dict):
 
 
 def vindue(placering: list) -> dict | None:
-    """Syr bogteksten omkring posten sammen af renditionens stykker; huller vises som ' […] '."""
+    """Syr bogteksten omkring posten sammen af renditionens stykker; huller vises som ' […] '.
+    Tegnpositioner fra to renditioner kan ikke sys sammen: flere end én rendition_id afvises (fail-closed)."""
     if not placering:
         return None
+    renditioner = {o.get("rendition_id") for o in placering}
+    if None in renditioner:
+        raise ControlError("KORT_RENDITION_MANGLER")   # kontekst fra før rendition_id kom med: lav den igen
+    if len(renditioner) > 1:
+        raise ControlError("KORT_FLERE_RENDITIONER")
     fra, til = min(o["fra"] for o in placering), max(o["til"] for o in placering)
     tegn: dict[int, str] = {}
     for o in placering:
@@ -77,11 +83,14 @@ def vindue(placering: list) -> dict | None:
 
 
 def _db_vaerdi(r: dict, person: dict) -> str | None:
+    """Målets værdi efter forslagets art: datoer viser date_raw, tekst vaerdi_tekst (samme skel som
+    `apply_plan_v2`'s p_dato: `v2.DATE_PREDICATES`). Uden den værdi: personens visningsværdi."""
     maal = r.get("rettelse_maal")
     if isinstance(maal, dict) and isinstance(maal.get("forventet"), dict):
         f = maal["forventet"]
-        if f.get("vaerdi_tekst") or f.get("date_raw"):
-            return f.get("vaerdi_tekst") or f.get("date_raw")
+        vaerdi = f.get("date_raw") if r["predicate"] in v2.DATE_PREDICATES else f.get("vaerdi_tekst")
+        if vaerdi:
+            return vaerdi
     for nogle in VISNING.get(r["predicate"], ()):
         if person.get(nogle):
             return person[nogle]

@@ -124,8 +124,8 @@
    "forventet": {
     "fact_id": -2005,
     "faktatype": "x",
-    "vaerdi_tekst": null,
-    "date_raw": "Birte Prøvegaard",
+    "vaerdi_tekst": "Birte Prøvegaard",
+    "date_raw": null,
     "valgt_assertion_id": -1005,
     "citation_sources": [
      3

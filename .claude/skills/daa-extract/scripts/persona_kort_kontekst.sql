@@ -60,6 +60,8 @@ plac AS (
   SELECT occ.pid, min(occ.record_key) AS record_key,
          jsonb_agg(jsonb_build_object('side_fra', occ.page_from, 'side_til', occ.page_to, 'fra', occ.char_from,
            'til', occ.char_to,
+           -- Renditionen: tegnpositionerne er kun sammenlignelige inden for én (persona_kort.py afviser flere).
+           'rendition_id', occ.rendition_id,
            -- Renditionens stykker i vinduet (2000 tegn før, 800 efter); persona_kort.py syr dem sammen.
            'stykker', (SELECT coalesce(jsonb_agg(jsonb_build_object('f', o2.char_from, 't', o2.verbatim_text)
                                                  ORDER BY o2.char_from), '[]')

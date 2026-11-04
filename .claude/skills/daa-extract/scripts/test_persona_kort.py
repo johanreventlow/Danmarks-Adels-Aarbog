@@ -327,3 +327,58 @@ def test_indlejret_json_escaper_hvert_mindre_end_tegn(planmappe):
 def test_kontekst_sql_filtrerer_identitet_paa_accepteret():
     sql = SQL.read_text(encoding="utf-8")
     assert "spi.decision_status = 'accepted'" in sql
+
+
+# --- fix-runde: renditioner og datoværdi ----------------------------------------------------------------------
+
+def test_kontekst_sql_leverer_rendition_id_pr_placering():
+    sql = SQL.read_text(encoding="utf-8")
+    plac = sql[sql.index("plac AS ("):sql.index("SELECT jsonb_build_object(\n  -- Udgavens")]
+    assert "'rendition_id', occ.rendition_id" in plac
+
+
+def test_placering_fra_flere_renditioner_afvises(planmappe):
+    import copy
+    plan, _ = v2._load_plan(planmappe)
+    kt = copy.deepcopy(_json(FIX / "kontekst.json"))
+    pl = kt["personas"]["11111111-0000-4000-8000-000000000001"]["post"]["placering"]
+    pl.append(dict(pl[0], rendition_id="22222222-0000-4000-8000-000000000002", fra=500, til=520))
+    with pytest.raises(ControlError, match=r"^KORT_FLERE_RENDITIONER$"):
+        pk.build_cards(plan, kt)
+    with pytest.raises(ControlError, match=r"^KORT_FLERE_RENDITIONER$"):
+        pk.render_pages(plan, kt, _plan_sha(planmappe))
+
+
+def test_placering_fra_een_rendition_er_uaendret():
+    stykker = [{"f": 60, "t": "x" * 40}, {"f": 100, "t": "Syntetisk posttekst her."}]
+    uden = [{"side_fra": 1, "side_til": 1, "fra": 100, "til": 124, "stykker": stykker},
+            {"side_fra": 1, "side_til": 1, "fra": 110, "til": 120, "stykker": stykker}]
+    med = [dict(o, rendition_id="22222222-0000-4000-8000-000000000001") for o in uden]
+    assert pk.vindue(med)["post"] == "Syntetisk posttekst her."
+    # Kontekst uden rendition_id (fra før feltet kom med) afvises i stedet for at blive syet sammen ukontrolleret.
+    with pytest.raises(pk.ControlError, match="KORT_RENDITION_MANGLER"):
+        pk.vindue(uden)
+
+
+def _maal_raekke(predicate: str, vaerdi_tekst, date_raw) -> dict:
+    return {"interpretation_id": "00000000-0000-4000-8000-000000000999", "predicate": predicate,
+            "rettelse_maal": {"assertion_id": -1, "forventet": {"fact_id": -2, "faktatype": "x",
+                                                                "vaerdi_tekst": vaerdi_tekst, "date_raw": date_raw,
+                                                                "valgt_assertion_id": -1, "citation_sources": [SRC]}}}
+
+
+def test_db_vaerdi_vaelger_felt_efter_forslagets_art():
+    person = {"navn": "Fiktiv Person", "titel": "Testtitel", "foedt": "1700", "doed": "1760"}
+    # Dato med begge kolonner udfyldt og forskellige: date_raw (det, rettelsen overskriver).
+    assert pk._db_vaerdi(_maal_raekke("person.death", "tekst i forkert kolonne", "1849"), person) == "1849"
+    assert pk._db_vaerdi(_maal_raekke("person.birth", "tekst i forkert kolonne", "12 marts 1702"), person) \
+        == "12 marts 1702"
+    # Tekst med begge kolonner udfyldt: vaerdi_tekst.
+    assert pk._db_vaerdi(_maal_raekke("person.title", "kammerherre", "1849"), person) == "kammerherre"
+    assert pk._db_vaerdi(_maal_raekke("person.name", "Fiktiv Testrup", "1849"), person) == "Fiktiv Testrup"
+    # Kun én kolonne udfyldt (velformet): som før.
+    assert pk._db_vaerdi(_maal_raekke("person.death", None, "1849"), person) == "1849"
+    assert pk._db_vaerdi(_maal_raekke("person.title", "kammerherre", None), person) == "kammerherre"
+    # Artens kolonne tom: personens visningsværdi, ikke den anden kolonne.
+    assert pk._db_vaerdi(_maal_raekke("person.death", "tekst", None), person) == "1760"
+    assert pk._db_vaerdi(_maal_raekke("person.title", None, "1849"), person) == "Testtitel"
