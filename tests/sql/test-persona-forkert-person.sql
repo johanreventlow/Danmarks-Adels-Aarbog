@@ -148,8 +148,11 @@ DECLARE
 BEGIN
   SELECT i->>'class' INTO v_class FROM jsonb_array_elements(current_setting('daa.control_result')::jsonb->'items') i
    WHERE (i->>'interpretation_id')::uuid=v_prop;
-  IF v_class NOT IN ('MATCH','MATCH_SINGLETON') THEN
-    RAISE EXCEPTION 'FORKERT_PERSON_TEST_FAILED: forslaget skal være et match før afgørelsen, var %',v_class; END IF;
+  -- Fixturens eneste påstand om X's død er bundet af verden 1. Med kontrollens globale bindingsregel (Task 6; samme
+  -- regel som ALREADY_BOUND_OTHER i validatoren) er forslaget derfor ALREADY_BOUND_OTHER; uden reglen (før Task 6) et
+  -- match. Testens pointe er, at »forkert person« gør en identitetsafhængig klasse til NO_IDENTITY, som afgøres før dem.
+  IF v_class NOT IN ('MATCH','MATCH_SINGLETON','ALREADY_BOUND_OTHER') THEN
+    RAISE EXCEPTION 'FORKERT_PERSON_TEST_FAILED: forslaget skal have en identitetsafhængig klasse før afgørelsen, var %',v_class; END IF;
   v_state:=private.narrative_record_state(v_x,(w->>'source')::bigint,w->>'record_key',false);
   IF v_state->>'blocking_reason' IS NOT NULL OR v_state->>'publication_status' IS DISTINCT FROM 'published' THEN
     RAISE EXCEPTION 'FORKERT_PERSON_TEST_FAILED: udgangstilstand %',v_state; END IF;
