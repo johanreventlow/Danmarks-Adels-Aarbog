@@ -58,7 +58,7 @@ WITH prop AS (
                        = regexp_replace(prop.v, '[^0-9]+', '', 'g'))) AS skrivemaade
     FROM prop
     LEFT JOIN LATERAL (
-      -- Personens påstande pr. forslag som LATERAL, ikke som en CTE joinet tilbage på prop: CTE'ernes rækkeskøn er 1,
+      -- Personens påstande pr. forslag som LATERAL, ikke som en CTE joinet tilbage på prop: prop-CTE'ens rækkeskøn var 1,
       -- og self-joinen blev en nested loop over prop × prop (kvadratisk; 27 s på en prod-kopi med 1939's forslag).
       SELECT a.id AS assertion_id,
              CASE prop.value_kind WHEN 'text' THEN a.vaerdi_tekst

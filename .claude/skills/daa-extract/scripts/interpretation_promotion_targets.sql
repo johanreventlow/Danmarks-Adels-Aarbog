@@ -43,7 +43,7 @@ WITH acc AS (
   SELECT acc.*, count(cand.assertion_id) AS n_cand, min(cand.assertion_id) AS assertion_id
     FROM acc
     LEFT JOIN LATERAL (
-      -- Kandidaterne pr. fortolkning som LATERAL, ikke som en CTE joinet tilbage på acc: CTE'ernes rækkeskøn er 1, og
+      -- Kandidaterne pr. fortolkning som LATERAL, ikke som en CTE joinet tilbage på acc: acc-CTE'ens rækkeskøn var 1, og
       -- self-joinen blev en nested loop over acc × acc (kvadratisk i antal accepterede fortolkninger).
       SELECT a.id AS assertion_id
         FROM public.fact f
