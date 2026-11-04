@@ -58,8 +58,13 @@ RESET = "SELECT set_config('app.change_set_id','',true) \\g /dev/null"
 # Planner-statistik efter ceremoniens egne skrivninger (som ejerrolle, i transaktionen): uden den planlægges
 # re-klassifikationen og bindingstællingen mod tabelstatistik fra før tusindvis af nye versioner og promotions, og
 # tællingen ($c$) løb > 2 min på en prod-kopi (øvelsen 2026-11-04); med den ~8 s. Memory »restore uden
-# planner-statistik«.
-ANALYZE_SQL = "ANALYZE private.interpretation; ANALYZE private.interpretation_promotion;"
+# planner-statistik«. ANALYZE uden ejerskab er kun en WARNING og et spring (ON_ERROR_STOP fanger det ikke), så
+# værnet kræver først, at rollen har ejerens rettigheder på begge tabeller (en stand-in som superbruger beviser intet
+# om prod).
+ANALYZE_SQL = ("DO $a$ BEGIN IF EXISTS (SELECT 1 FROM pg_class c WHERE c.oid IN ('private.interpretation'::regclass, "
+               "'private.interpretation_promotion'::regclass) AND NOT pg_has_role(current_user, c.relowner, 'USAGE')) "
+               "THEN RAISE EXCEPTION 'CONTROL_V2_ANALYZE_IKKE_EJER'; END IF; END $a$; "
+               "ANALYZE private.interpretation; ANALYZE private.interpretation_promotion;")
 
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 F_RE = re.compile(rf"^F (?P<id>{UUID}) (?P<ver>[1-9][0-9]*) : (?P<tok>[BDV_])\s*(?:#\s*(?P<note>.*))?$")
