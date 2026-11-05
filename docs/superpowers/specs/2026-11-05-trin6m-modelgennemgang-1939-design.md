@@ -64,6 +64,10 @@ Modellen svarer pr. forslag:
 | `BEGGE` | begge kan være rigtige (fx titler fra forskellige tidspunkter) |
 | `TVIVL` | kan ikke afgøres |
 
+Modellen ser postens sidebillede ved siden af OCR-teksten. `FORSLAG_FEJL` og `DB_FEJL` på navne, tal og stednavne
+kræver, at billedet støtter læsningen; ellers er svaret `TVIVL`. Øvelsen 5/11 havde kun OCR-teksten, så dens
+OCR-rettelser var kvalificerede gæt, ikke kontrol mod bogen. *Mit valg.*
+
 Modellen må desuden notere *manglende fakta* (et meningsbærende udsagn i posten uden forslag) som antal og ref; de
 skrives ikke i denne delspec (§5).
 
