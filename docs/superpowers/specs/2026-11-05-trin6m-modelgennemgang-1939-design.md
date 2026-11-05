@@ -201,9 +201,9 @@ rettelserne er i prod med proveniens (modellens forslag, projektejerens afgørel
 5. **Sidebilleder:** opløsning og beskæring pr. post (Calamari-sidekortet, `CALAMARI_R6_TO_PDF_V1`). Planens valg.
    Udgangspunkt: 6c-2's inputscript (sider fra occurrences + naboside med tekstbelæg, højst 4, 150 dpi).
 6. **De 13 narrativer uden record-binding:** hvilken skrivevej retter deres læsertekst. Planen måler.
-7. **Kørselsmekanisme og budget — projektejerens valg, ubesvaret.** Anbefaling: underagenter i Claude Code (Opus) som
-   i øvelsen; ingen ekstra nøgle, men læsegrænsen hviler på instruktionen. Alternativ: direkte API-kald (modellen ser
-   kun det tilsendte; stærkere grænse og proveniens; kræver API-nøgle og særskilt fakturering). Omfang: 592 poster med
-   sidebilleder og 2.774 forslag, i størrelsesordenen millioner tokens; planen regner det ud.
+7. **Kørselsmekanisme:** projektejeren valgte 5/11 underagenter i Claude Code (Opus) som i øvelsen; ingen ekstra
+   nøgle. Læsegrænsen hviler på instruktionen (kun inputfil og sidebilleder læses, kun svarfil skrives, svar til
+   sessionen kun antal), så briefen er en del af det, der reviewes. Fravalgt: direkte API-kald. Omfang: 592 poster
+   med sidebilleder og 2.774 forslag, i størrelsesordenen millioner tokens; planen regner det ud og deler i bidder.
 8. **Senere hændelsesudtræk af 1939** skal ligge efter B: `red_revider_publiceret_person_narrative_record` afviser et
    narrativ med afledte hændelser.
