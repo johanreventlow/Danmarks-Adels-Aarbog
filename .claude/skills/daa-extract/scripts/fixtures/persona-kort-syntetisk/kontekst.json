@@ -1,0 +1,419 @@
+{
+ "udgave": "Syntetisk Udgave 1999",
+ "personas": {
+  "11111111-0000-4000-8000-000000000001": {
+   "identitet": {
+    "person_id": -4801,
+    "udfald": "enig",
+    "status": "accepted"
+   },
+   "person": {
+    "navn": "Anders Testrup",
+    "foedt": "1700",
+    "doed": "1760",
+    "titel": "opdigtet titel",
+    "koen": "M",
+    "levende": false,
+    "foraeldre": [
+     {
+      "navn": "Opdigtet Fader",
+      "foedt": "1670",
+      "doed": "1730"
+     }
+    ],
+    "partnere": [
+     {
+      "navn": "Opdigtet Hustru",
+      "foedt": "1705",
+      "doed": "1775"
+     }
+    ],
+    "boern": []
+   },
+   "forslag": [
+    {
+     "interpretation_id": "00000000-0000-4000-8000-000000000001",
+     "version": 1,
+     "predicate": "person.name",
+     "value_text": "Anders Testrup"
+    },
+    {
+     "interpretation_id": "00000000-0000-4000-8000-000000000002",
+     "version": 1,
+     "predicate": "person.title",
+     "value_text": "hofjægermester"
+    },
+    {
+     "interpretation_id": "00000000-0000-4000-8000-000000000003",
+     "version": 1,
+     "predicate": "person.birth",
+     "value_text": "1701"
+    },
+    {
+     "interpretation_id": "00000000-0000-4000-8000-000000000004",
+     "version": 1,
+     "predicate": "person.death",
+     "value_text": "1760"
+    }
+   ],
+   "post": {
+    "record_key": "I-0001",
+    "placering": [
+     {
+      "rendition_id": "22222222-0000-4000-8000-000000000001",
+      "side_fra": 11,
+      "side_til": 11,
+      "fra": 100,
+      "til": 140,
+      "stykker": [
+       {
+        "f": 60,
+        "t": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+       },
+       {
+        "f": 100,
+        "t": "Anders Testrup var en syntetisk testperson."
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "11111111-0000-4000-8000-000000000002": {
+   "identitet": {
+    "person_id": -4802,
+    "udfald": "enig",
+    "status": "accepted"
+   },
+   "person": {
+    "navn": "Birte Prøvegaard",
+    "foedt": "1700",
+    "doed": "1760",
+    "titel": "opdigtet titel",
+    "koen": "M",
+    "levende": false,
+    "foraeldre": [
+     {
+      "navn": "Opdigtet Fader",
+      "foedt": "1670",
+      "doed": "1730"
+     }
+    ],
+    "partnere": [
+     {
+      "navn": "Opdigtet Hustru",
+      "foedt": "1705",
+      "doed": "1775"
+     }
+    ],
+    "boern": []
+   },
+   "forslag": [
+    {
+     "interpretation_id": "00000000-0000-4000-8000-000000000005",
+     "version": 1,
+     "predicate": "person.name",
+     "value_text": "Birte Prøve"
+    },
+    {
+     "interpretation_id": "00000000-0000-4000-8000-000000000006",
+     "version": 1,
+     "predicate": "person.birth",
+     "value_text": "12. marts 1702"
+    },
+    {
+     "interpretation_id": "00000000-0000-4000-8000-000000000007",
+     "version": 1,
+     "predicate": "person.death",
+     "value_text": "1770"
+    }
+   ],
+   "post": {
+    "record_key": "I-0002",
+    "placering": [
+     {
+      "rendition_id": "22222222-0000-4000-8000-000000000001",
+      "side_fra": 12,
+      "side_til": 12,
+      "fra": 100,
+      "til": 140,
+      "stykker": [
+       {
+        "f": 60,
+        "t": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+       },
+       {
+        "f": 100,
+        "t": "Birte Prøvegaard var en syntetisk testperson."
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "11111111-0000-4000-8000-000000000003": {
+   "identitet": {
+    "person_id": -4803,
+    "udfald": "enig",
+    "status": "accepted"
+   },
+   "person": {
+    "navn": "Carl Eksempel",
+    "foedt": "1700",
+    "doed": "1760",
+    "titel": "opdigtet titel",
+    "koen": "M",
+    "levende": false,
+    "foraeldre": [
+     {
+      "navn": "Opdigtet Fader",
+      "foedt": "1670",
+      "doed": "1730"
+     }
+    ],
+    "partnere": [
+     {
+      "navn": "Opdigtet Hustru",
+      "foedt": "1705",
+      "doed": "1775"
+     }
+    ],
+    "boern": []
+   },
+   "forslag": [
+    {
+     "interpretation_id": "00000000-0000-4000-8000-000000000008",
+     "version": 1,
+     "predicate": "person.name",
+     "value_text": "Carl Eksempel"
+    },
+    {
+     "interpretation_id": "00000000-0000-4000-8000-000000000009",
+     "version": 1,
+     "predicate": "person.death",
+     "value_text": "ca. 17??"
+    }
+   ],
+   "post": {
+    "record_key": "I-0003",
+    "placering": [
+     {
+      "rendition_id": "22222222-0000-4000-8000-000000000001",
+      "side_fra": 13,
+      "side_til": 13,
+      "fra": 100,
+      "til": 140,
+      "stykker": [
+       {
+        "f": 60,
+        "t": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+       },
+       {
+        "f": 100,
+        "t": "Carl Eksempel var en syntetisk testperson."
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "11111111-0000-4000-8000-000000000004": {
+   "identitet": {
+    "person_id": -4804,
+    "udfald": "enig",
+    "status": "accepted"
+   },
+   "person": {
+    "navn": "Dorte Fiktivsen",
+    "foedt": "1700",
+    "doed": "1760",
+    "titel": "opdigtet titel",
+    "koen": "M",
+    "levende": false,
+    "foraeldre": [
+     {
+      "navn": "Opdigtet Fader",
+      "foedt": "1670",
+      "doed": "1730"
+     }
+    ],
+    "partnere": [
+     {
+      "navn": "Opdigtet Hustru",
+      "foedt": "1705",
+      "doed": "1775"
+     }
+    ],
+    "boern": []
+   },
+   "forslag": [
+    {
+     "interpretation_id": "00000000-0000-4000-8000-000000000010",
+     "version": 1,
+     "predicate": "person.name",
+     "value_text": "Dorte Fiktivsen"
+    },
+    {
+     "interpretation_id": "00000000-0000-4000-8000-000000000011",
+     "version": 1,
+     "predicate": "person.title",
+     "value_text": "kammerherre"
+    }
+   ],
+   "post": {
+    "record_key": "I-0004",
+    "placering": [
+     {
+      "rendition_id": "22222222-0000-4000-8000-000000000001",
+      "side_fra": 14,
+      "side_til": 14,
+      "fra": 100,
+      "til": 140,
+      "stykker": [
+       {
+        "f": 60,
+        "t": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+       },
+       {
+        "f": 100,
+        "t": "Dorte Fiktivsen var en syntetisk testperson."
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "11111111-0000-4000-8000-000000000005": {
+   "identitet": {
+    "person_id": -4805,
+    "udfald": "enig",
+    "status": "accepted"
+   },
+   "person": {
+    "navn": "Erik Opdigtet",
+    "foedt": "1700",
+    "doed": "1760",
+    "titel": "opdigtet titel",
+    "koen": "M",
+    "levende": false,
+    "foraeldre": [
+     {
+      "navn": "Opdigtet Fader",
+      "foedt": "1670",
+      "doed": "1730"
+     }
+    ],
+    "partnere": [
+     {
+      "navn": "Opdigtet Hustru",
+      "foedt": "1705",
+      "doed": "1775"
+     }
+    ],
+    "boern": []
+   },
+   "forslag": [
+    {
+     "interpretation_id": "00000000-0000-4000-8000-000000000012",
+     "version": 1,
+     "predicate": "person.name",
+     "value_text": "Erik Opdigtet"
+    },
+    {
+     "interpretation_id": "00000000-0000-4000-8000-000000000013",
+     "version": 1,
+     "predicate": "person.death",
+     "value_text": "1790"
+    }
+   ],
+   "post": {
+    "record_key": "I-0005",
+    "placering": [
+     {
+      "rendition_id": "22222222-0000-4000-8000-000000000001",
+      "side_fra": 15,
+      "side_til": 15,
+      "fra": 100,
+      "til": 140,
+      "stykker": [
+       {
+        "f": 60,
+        "t": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+       },
+       {
+        "f": 100,
+        "t": "Erik Opdigtet var en syntetisk testperson."
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "11111111-0000-4000-8000-000000000006": {
+   "identitet": {
+    "person_id": -4806,
+    "udfald": "enig",
+    "status": "accepted"
+   },
+   "person": {
+    "navn": "Frida Syntetica",
+    "foedt": "1700",
+    "doed": "1760",
+    "titel": "opdigtet titel",
+    "koen": "M",
+    "levende": false,
+    "foraeldre": [
+     {
+      "navn": "Opdigtet Fader",
+      "foedt": "1670",
+      "doed": "1730"
+     }
+    ],
+    "partnere": [
+     {
+      "navn": "Opdigtet Hustru",
+      "foedt": "1705",
+      "doed": "1775"
+     }
+    ],
+    "boern": []
+   },
+   "forslag": [
+    {
+     "interpretation_id": "00000000-0000-4000-8000-000000000014",
+     "version": 1,
+     "predicate": "person.name",
+     "value_text": "Frida Syntetica"
+    },
+    {
+     "interpretation_id": "00000000-0000-4000-8000-000000000015",
+     "version": 1,
+     "predicate": "person.birth",
+     "value_text": "1710"
+    }
+   ],
+   "post": {
+    "record_key": "I-0006",
+    "placering": [
+     {
+      "rendition_id": "22222222-0000-4000-8000-000000000001",
+      "side_fra": 16,
+      "side_til": 16,
+      "fra": 100,
+      "til": 140,
+      "stykker": [
+       {
+        "f": 60,
+        "t": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+       },
+       {
+        "f": 100,
+        "t": "Frida Syntetica var en syntetisk testperson."
+       }
+      ]
+     }
+    ]
+   }
+  }
+ }
+}
