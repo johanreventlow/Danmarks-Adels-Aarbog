@@ -23,8 +23,7 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   direkte.
 > - Modellen foreslår; projektejeren afgør. Modellen skriver aldrig i et ark eller i databasen, og et
 >   modelforslag er ikke et `human`-svar.
-> - Forbehold, som projektejeren bekræfter før merge: oplysningen dækker også indgiftede ægtefæller og døtre gift ud
->   af slægten (andet efternavn), født 1915-1936.
+> - Projektejeren bekræftede (5/11), at oplysningen også dækker ægtefællerne i bogen.
 
 ## BESLUTTET: »højst én gældende binding pr. påstand« under samtidige REPEATABLE READ-kald — åben backlog + driftsregel (2026-11-04)
 
