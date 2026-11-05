@@ -2,6 +2,30 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: tekst fra DAA 1939 må sendes til en model som beslutningsstøtte — bogens personer lever ikke (2026-11-05)
+
+> Spørgsmålet opstod før 6c-2's ceremoni 4: 121 persona-kort med 150 felter skal besvares af projektejeren, og
+> projektejeren spurgte, om en model kan hjælpe. Invariant 8 og `CLAUDE.md` forbyder at sende arbejdsmappernes prosa
+> til en model, fordi den omtaler levende personer. DAA 1939 rummer personer født senest 1936.
+> **Projektejeren oplyser:** den ældste nulevende Reventlow er født i 1946, så ingen af bogens personer lever.
+> Databasen kan ikke vise det selv: på en prod-kopi (5/11) er `person.levende` false for alle 559 personer bundet til
+> 1939, men 28 af dem, født 1900 eller senere, har intet dødsfaktum (16 født 1915 eller senere, den yngste 1936).
+> Kilden er altså projektejerens viden, ikke data.
+>
+> **Beslutning:** tekst fra DAA 1939 (poster, posttekst, 1939-forslag og deres kontekst) må sendes til en model som
+> beslutningsstøtte. Afgrænsning:
+>
+> - Kun 1939-tekst og værdier om personer i 1939-bogen. Andre udgaver (2018-20, præsenslisten 2012-14) er uændret
+>   omfattet af invariant 8.
+> - Databasens værdier kan stamme fra senere udgaver. Kortenes familieliste kan derfor rumme personer født efter 1939
+>   (børn, børnebørn), som kan leve. Et modelinput bygges af et script, der kun medtager personer født senest 1939
+>   eller med dødsfaktum; andre udelades. Modellen læser kun det input, aldrig `~/.private` eller arbejdsmapperne
+>   direkte.
+> - Modellen foreslår; projektejeren afgør. Modellen skriver aldrig i et ark eller i databasen, og et
+>   modelforslag er ikke et `human`-svar.
+> - Forbehold, som projektejeren bekræfter før merge: oplysningen dækker også indgiftede ægtefæller og døtre gift ud
+>   af slægten (andet efternavn), født 1915-1936.
+
 ## BESLUTTET: »højst én gældende binding pr. påstand« under samtidige REPEATABLE READ-kald — åben backlog + driftsregel (2026-11-04)
 
 > Codex-reviewet af 6c-2 (T12) fandt, at 6c-2's nye værn `ALREADY_BOUND_OTHER` (en påstand bindes kun af én
