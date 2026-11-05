@@ -1,7 +1,8 @@
 # Trin 6m: modelgennemgang af 1939 — fakta og kildetekst mod bogen — design
 
 **Status:** UDKAST 2026-11-05 til projektejerens godkendelse. Projektejeren valgte at springe afklaringsrunden over;
-specen bygger på samtalen 5/11 (§3). Valg, der ikke er projektejerens, er markeret *mit valg*.
+specen bygger på samtalen 5/11 (§3). Valg, der ikke er projektejerens, er markeret *mit valg*. Projektejeren valgte
+5/11 vej (a) efter builder-check (§3 pkt. 6).
 **Gren:** `docs/trin6m-spec` fra `main` (`18f73dad`).
 **Overordnet spec:** `docs/superpowers/specs/2026-10-29-trin6-1939-gennem-kaeden-design.md` (§5).
 **Grundlag:** `docs/decisions.md` 2026-11-05 (1939-tekst må gå til en model som beslutningsstøtte; PR #298).
@@ -31,6 +32,8 @@ specen bygger på samtalen 5/11 (§3). Valg, der ikke er projektejerens, er mark
 | heraf i 6c-2's kontrolunivers (navn, titel, fødsel, død) | 1.248 |
 | heraf uden for (sted-omtaler, ægteskaber, embeder, godser, uddannelse, dåb, begravelse, rang m.fl.) | 1.526 |
 | Personer bundet til 1939 | 559; ingen har `levende`; 28 født efter 1900 mangler dødsfaktum |
+| 1939's narrativer med record-binding (`narrative_record_publication`) | 563 `published`; 13 uden binding |
+| 1939's narrativer med afledte hændelser (`haendelse`) | 0 |
 
 Bogens PDF ligger lokalt (gitignoreret) og kan give sidebilleder. `private.source_observation_text` har ingen rækker
 for 1939 på `_slut2`; hvor 1939's posttekst bor (occurrences og deres tekststykker, som kortenes vindue syr sammen),
@@ -47,6 +50,11 @@ Projektejeren gennemgik listen: forslagene rammer godt, og modellen fandt OCR-fe
    input.
 4. Gennemgangen skal dække både (A) de udtrukne fakta og (B) selve kildeteksten.
 5. Modellen foreslår; projektejeren afgør (decisions 2026-11-05).
+6. **Vej (a):** 6c-2 køres færdigt først (ceremoni 3a, 3b og 4 som planlagt; ceremoni 4's kort med modelforslag og
+   sidebilleder). Derefter retter spor B *læserteksten* (narrativet) uden at røre klausuler og forslag. Kildeteksten
+   rettes kun, hvor et faktum bygger på fejlen, og det afgøres sag for sag. Projektejerens svar fra 6c-2's ceremoni 4
+   skal stå. Fravalgt: (b) spor B før ceremoni 4 (6c-2 står stille i dagevis) og (c) spor B retter også kildeteksten
+   bredt (ceremoni 4-svarene på de rettede poster forsvinder).
 
 ## 4. Design
 
@@ -71,12 +79,27 @@ OCR-rettelser var kvalificerede gæt, ikke kontrol mod bogen. *Mit valg.*
 Modellen må desuden notere *manglende fakta* (et meningsbærende udsagn i posten uden forslag) som antal og ref; de
 skrives ikke i denne delspec (§5).
 
-**B. Kildetekst.** Hver af de 592 posters tekst holdes op mod bogens sidebillede. Modellen svarer pr. post med en liste
+**B. Tekst.** Hver af de 592 posters tekst holdes op mod bogens sidebillede. Modellen svarer pr. post med en liste
 af rettelser (tegnposition, nuværende tekst, bogens tekst, art: OCR-tegn, orddeling, manglende/overskydende tekst,
-grænse til nabopost) eller `OK`. *Mit valg:* sidebilledet er facit, ikke modellens sprogfornemmelse; en rettelse uden
-billedstøtte meldes som `TVIVL`.
+grænse til nabopost) eller `OK`, og markerer for hver rettelse, om et forslag bygger på den fejlbehæftede tekst.
+*Mit valg:* sidebilledet er facit, ikke modellens sprogfornemmelse; en rettelse uden billedstøtte meldes som `TVIVL`.
 
-**Rækkefølge:** B før A. En rettet kildetekst ændrer, hvad A skal holde forslagene op imod. *Mit valg.*
+Hvad en godkendt rettelse rammer (vej (a), §3 pkt. 6):
+
+1. **Læserteksten** (narrativet) rettes altid. Klausuler, forslag, afgørelser og bindinger rører sig ikke; 6a holder
+   læsertekst og kildetekst adskilt, så narrativet må afvige fra kildetekstens OCR.
+2. **Kildeteksten** rettes kun, når projektejeren på kortet vælger det for netop den rettelse. Kortet viser, hvad det
+   koster: en tekstrevision erstatter *alle* forslag på posten, også godkendte, endegyldigt, og nye forslag kræver ny
+   udtrækning for posten. Standardsvaret er »kun læsertekst«; et forslag, der bygger på fejlen, rettes i stedet i
+   spor A (`FORSLAG_FEJL`).
+3. **Grænse til nabopost** rettes ikke i 6m: rettelsesvejen afviser spændændringer (`TEXT_REVISION_SPAN_MISMATCH`).
+   Fundet parkeres med forstavelsen `GRÆNSEFEJL: ` til 6d. *Mit valg.*
+
+**Rækkefølge:** 6c-2 færdig → B → A. Gennemgangene kan køre parallelt, men B's ceremoni ligger før A's kort laves,
+fordi en sag-for-sag-tekstrevision erstatter postens forslag, og A's svar på dem ville gå tabt. *Mit valg.*
+
+**Relationsforslag** (sted-omtaler, ægteskaber, embeder m.fl., `interpretation_party`): modellen vurderer dem i spor A,
+men et fund registreres kun og gives videre til 6c-3/6d, som bygger relationerne. *Mit valg.*
 
 ### 4.2 Input og fortrolighed
 
@@ -108,8 +131,9 @@ med bogtekst og sidebillede, svar gemt lokalt, flettet til et tokenark) frem for
 
 | Afgørelse | Skrivevej |
 |---|---|
-| B-rettelse af kildetekst | `red_apply_reimport_source_text_revision` (6a): ny tekstversion, originalen bevares; klausulerne afledes igen, og RPC'en melder `binding_loss`/`parties_dropped` |
-| Narrativ følger kildeteksten | `red_revider_publiceret_person_narrative_record` |
+| B-rettelse af læsertekst (standard) | `red_revider_publiceret_person_narrative_record`: kræver status `published`, publiceringspolitik tilladt og ingen afledte hændelser (ellers `NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT`); 563 af 576 opfylder de to målte krav (§2) |
+| B-rettelse af læsertekst, narrativ uden record-binding (13) | planen måler vejen (§8 pkt. 6) |
+| B-rettelse af kildetekst (kun sag for sag) | `red_apply_reimport_source_text_revision` (6a): ny tekstversion, originalen bevares; postens forslag erstattes, og RPC'en melder `binding_loss`/`parties_dropped` |
 | `DB_FEJL` godkendt | `red_ret_paastand(…, 'bogen_har_ret', …)` som i 6c-2 |
 | `FORSLAG_FEJL` godkendt, forslaget `proposed` | ny version af forslaget med bogens læsning (se nedenfor) |
 | `FORSLAG_FEJL` godkendt, forslaget `accepted` | ny version + afgørelsen og bindingen flyttes (se nedenfor) |
@@ -125,10 +149,10 @@ renere. Det er ny DDL og kræver blok, ceremoni og øvelse som 6c-2's.
 Som 6c-2: runner i `~/.private`, stand-in-øvelse fra operatørens cwd, dump før hver skrivende ceremoni, GO-kode bundet
 til commit, filer og ark, `--jeg-mener-det`, prod kun fra projektejerens shell, fortrydelse fra dumpet.
 
-1. **B-ceremonien** (kildetekst) før A's kort laves. Tørkørsel på stand-in måler `binding_loss` og `parties_dropped`
-   pr. post. *Mit valg:* en rettelse, der ville miste en binding, som 6c-2 lavede, skrives ikke i B-ceremonien; den
-   meldes, og planen beskriver, hvordan bindingen genskabes (ny binding til den nye klausul i samme transaktion) eller
-   hvorfor rettelsen udskydes.
+1. **B-ceremonien** før A's kort laves: læsertekstrettelser og de kildetekstrevisioner, projektejeren har valgt sag
+   for sag. Tørkørsel på stand-in måler `binding_loss` og `parties_dropped` pr. valgt kildetekstrevision. *Mit valg:*
+   en kildetekstrevision, der ville miste en binding, som 6c-2 lavede, skrives ikke; den meldes, og planen beskriver,
+   hvordan bindingen genskabes (ny binding til den nye klausul i samme transaktion) eller hvorfor rettelsen udskydes.
 2. **A-ceremonien** (fakta) efter projektejerens kort, i én transaktion: forslagsversioner, påstandsrettelser og
    afgørelser, med efterkontrol som 6c-2's ceremoni 4.
 
@@ -140,7 +164,8 @@ rettelserne er i prod med proveniens (modellens forslag, projektejerens afgørel
 **Ikke-mål:**
 - Nye fakta fra *manglende fakta* (A) skrives ikke; de tælles og kan blive input til 6c-3/6d.
 - Andre udgaver end 1939 (2018-20 har levende personer; præsenslisten 2012-14).
-- Ny OCR af bogen. Renditionen er uforanderlig; rettelser er tekstversioner.
+- Ny OCR af bogen. Renditionen er uforanderlig; rettelser er narrativrevisioner og (sag for sag) tekstversioner.
+- Rettelse af grænser mellem poster (parkeres til 6d) og af relationsforslag (registreres til 6c-3/6d).
 - Et fjerde kortsvar »begge rigtige« til 6c-2's kort (backlog til 6c-3, hvis `BEGGE` viser sig hyppigt).
 
 **Anti-mål (gør specen til en fiasko, selv hvis den virker teknisk):**
@@ -174,3 +199,11 @@ rettelserne er i prod med proveniens (modellens forslag, projektejerens afgørel
 4. **Hvor 1939's posttekst bor** og hvordan en tekstrevision rammer den (occurrences, tekststykker, narrativ). Planen
    måler før design af B-ceremonien.
 5. **Sidebilleder:** opløsning og beskæring pr. post (Calamari-sidekortet, `CALAMARI_R6_TO_PDF_V1`). Planens valg.
+   Udgangspunkt: 6c-2's inputscript (sider fra occurrences + naboside med tekstbelæg, højst 4, 150 dpi).
+6. **De 13 narrativer uden record-binding:** hvilken skrivevej retter deres læsertekst. Planen måler.
+7. **Kørselsmekanisme og budget — projektejerens valg, ubesvaret.** Anbefaling: underagenter i Claude Code (Opus) som
+   i øvelsen; ingen ekstra nøgle, men læsegrænsen hviler på instruktionen. Alternativ: direkte API-kald (modellen ser
+   kun det tilsendte; stærkere grænse og proveniens; kræver API-nøgle og særskilt fakturering). Omfang: 592 poster med
+   sidebilleder og 2.774 forslag, i størrelsesordenen millioner tokens; planen regner det ud.
+8. **Senere hændelsesudtræk af 1939** skal ligge efter B: `red_revider_publiceret_person_narrative_record` afviser et
+   narrativ med afledte hændelser.
