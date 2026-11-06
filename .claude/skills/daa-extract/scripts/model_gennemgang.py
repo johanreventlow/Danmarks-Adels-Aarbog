@@ -185,14 +185,17 @@ def over_taerskel(a_grupper: int, b_grupper: int) -> bool:
 
 
 def grupper_b(b: list) -> list:
-    """Svarbare B-rettelser grupperet: `ocr`/`orddeling` på (art, fra, til), ellers én pr. rettelse.
+    """Svarbare B-rettelser grupperet: `ocr`/`orddeling` på (art, fra, til, billede), ellers én pr. rettelse.
+    Billedstøtten er en del af nøglen: ét gruppesvar må aldrig dække både set og tvivlsomme rettelser.
     Grænserettelser og rettelser på `kun_rapport`-poster er ikke svarbare og grupperes ikke."""
     grupper: dict = {}
     for r in b:
         if r["art"] == "graense" or r.get("kun_rapport"):
             continue
-        noegle = (r["art"], r["fra"], r["til"]) if r["art"] in GRUPPERBAR else ("enkelt", r["ref"])
-        grupper.setdefault(noegle, {"art": r["art"], "elementer": []})["elementer"].append(r["ref"])
+        noegle = ((r["art"], r["fra"], r["til"], r.get("billede")) if r["art"] in GRUPPERBAR
+                  else ("enkelt", r["ref"]))
+        grupper.setdefault(noegle, {"art": r["art"], "billede": r.get("billede"), "elementer": []})[
+            "elementer"].append(r["ref"])
     return [dict(g, gruppe=f"bg{i}") for i, g in enumerate(grupper.values(), 1)]
 
 
@@ -247,8 +250,10 @@ def saml(bidder: list, noegle: dict, svar_a: list, svar_b: list) -> dict:
             raise GennemgangError("SVAR_UGYLDIGT")
         if svar == "DB_FEJL" and "databasen" not in f:
             raise GennemgangError("SVAR_UGYLDIGT")
-        if svar in ("FORSLAG_FEJL", "DB_FEJL") and billede != "bekraefter":
-            raise GennemgangError("BILLEDSTOETTE_MANGLER")
+        if svar in ("OK", "FORSLAG_FEJL", "DB_FEJL") and billede != "bekraefter":
+            raise GennemgangError("BILLEDSTOETTE_MANGLER")   # uden billedstøtte er svaret TVIVL
+        if billede == "bekraefter" and not post["sider"]:
+            raise GennemgangError("BILLEDSTOETTE_MANGLER")   # posten har intet sidebillede at bekræfte med
         a_ud.append({"ref": ref, "post": post["post"], "felt": f["felt"], "vaerdi": f["vaerdi"],
                      "databasen": f.get("databasen"), "svar": svar,
                      "bogens_laesning": laesning if svar == "FORSLAG_FEJL" else None, "billede": billede,
@@ -256,7 +261,7 @@ def saml(bidder: list, noegle: dict, svar_a: list, svar_b: list) -> dict:
     if set_a != set(forslag):
         raise GennemgangError("SVAR_MANGLER")
 
-    b_ud, set_b, manglende, poster_ok = [], set(), 0, 0
+    b_ud, b_poster, set_b, manglende = [], [], set(), 0
     for x in (y for f in svar_b for y in _liste(f)):
         ref = x.get("post")
         if ref in set_b:
@@ -269,15 +274,19 @@ def saml(bidder: list, noegle: dict, svar_a: list, svar_b: list) -> dict:
         if (not isinstance(rettelser, list) or pbillede not in A_BILLEDE or not isinstance(mf, int)
                 or isinstance(mf, bool) or mf < 0):
             raise GennemgangError("SVAR_UGYLDIGT")
+        if pbillede == "modsiger" and not rettelser:
+            raise GennemgangError("SVAR_UGYLDIGT")
+        if pbillede == "bekraefter" and not post["sider"]:
+            raise GennemgangError("BILLEDSTOETTE_MANGLER")
         manglende += mf
-        poster_ok += not rettelser
+        b_poster.append({"post": ref, "billede": pbillede, "rettelser": len(rettelser), "manglende_fakta": mf})
         intervaller = []
         for i, r in enumerate(rettelser, 1):
             if (not isinstance(r, dict) or not _tekst(r.get("fra")) or not isinstance(r.get("til"), str)
                     or r.get("art") not in B_ART or r.get("billede") not in B_RETTELSE_BILLEDE
                     or not isinstance(r.get("rammer_forslag", []), list) or r.get("fra") == r.get("til")):
                 raise GennemgangError("SVAR_UGYLDIGT")
-            if pbillede == "ikke_fundet" and r["billede"] != "tvivl":
+            if (pbillede == "ikke_fundet" or not post["sider"]) and r["billede"] != "tvivl":
                 raise GennemgangError("BILLEDSTOETTE_MANGLER")
             egne = {f["ref"] for f in post["forslag"]}
             if any(fr not in egne for fr in r.get("rammer_forslag", [])):
@@ -297,12 +306,15 @@ def saml(bidder: list, noegle: dict, svar_a: list, svar_b: list) -> dict:
     ga, gb = grupper_a(a_ud), grupper_b(b_ud)
     taelling = {
         "a_ok": sum(1 for x in a_ud if x["svar"] == "OK"), "a_markeret": sum(1 for x in a_ud if x["svar"] != "OK"),
-        "b_poster_ok": poster_ok, "b_rettelser": len(b_ud), "a_grupper": len(ga), "b_grupper": len(gb),
+        # OK = ingen rettelser OG teksten set på sidebilledet; ellers er posten ikke kontrolleret mod bogen.
+        "b_poster_ok": sum(1 for x in b_poster if not x["rettelser"] and x["billede"] == "bekraefter"),
+        "b_poster_uverificeret": sum(1 for x in b_poster if x["billede"] == "ikke_fundet"),
+        "b_rettelser": len(b_ud), "a_grupper": len(ga), "b_grupper": len(gb),
         "graense": sum(1 for r in b_ud if r["art"] == "graense"),
         "tvivl": sum(1 for x in a_ud if x["svar"] == "TVIVL") + sum(1 for r in b_ud if r["billede"] == "tvivl"),
         "kun_rapport": sum(1 for r in b_ud if r["kun_rapport"] and r["art"] != "graense"),
         "manglende_fakta": manglende, "over_taerskel": int(over_taerskel(len(ga), len(gb)))}
-    return {"A": a_ud, "B": b_ud, "grupper_a": ga, "grupper_b": gb, "taelling": taelling,
+    return {"A": a_ud, "B": b_ud, "B_poster": b_poster, "grupper_a": ga, "grupper_b": gb, "taelling": taelling,
             "manifest_sha256": manifest(b_ud, gb)}
 
 
@@ -333,7 +345,7 @@ def cmd_saml(a) -> int:
     _skriv_json(ud / "samlet.json", s)
     t = s["taelling"]
     print("MG_SAML_OK " + " ".join(f"{k}={t[k]}" for k in (
-        "a_ok", "a_markeret", "b_poster_ok", "b_rettelser", "a_grupper", "b_grupper", "graense", "tvivl",
+        "a_ok", "a_markeret", "b_poster_ok", "b_poster_uverificeret", "b_rettelser", "a_grupper", "b_grupper", "graense", "tvivl",
         "kun_rapport", "manglende_fakta", "over_taerskel")) + f" manifest={s['manifest_sha256'][:8]}")
     return 3 if t["over_taerskel"] else 0
 

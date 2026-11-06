@@ -42,8 +42,9 @@ En JSON-liste med præcis ét element pr. forslags-ref i inputfilen (alle poster
 | `"TVIVL"` | kan ikke afgøres |
 
 `"billede"` er `"bekraefter"` (sidebilledet viser det, du siger), `"modsiger"` (sidebilledet viser noget andet end
-forslaget) eller `"ikke_fundet"` (stedet findes ikke på sidebillederne). `"FORSLAG_FEJL"` og `"DB_FEJL"` kræver
-`"bekraefter"`: kan du ikke se det på sidebilledet, er svaret `"TVIVL"`.
+forslaget) eller `"ikke_fundet"` (stedet findes ikke på sidebillederne). `"OK"`, `"FORSLAG_FEJL"` og `"DB_FEJL"`
+kræver `"bekraefter"`: kan du ikke se det på sidebilledet, er svaret `"TVIVL"`. Har posten ingen sidebilleder
+(`"sider": []`), er `"billede"` altid `"ikke_fundet"`.
 
 ## Spor B: hver posts tekst mod bogen → `{SVAR_B}`
 
@@ -64,7 +65,8 @@ En JSON-liste med præcis ét element pr. post (hver `"post"` præcis én gang):
   nabopostens grænse: posten begynder eller slutter forkert). Grænserettelser foretages ikke her, men meldes.
 - `"billede"` pr. rettelse: `"bekraefter"` (sidebilledet viser bogens tekst) eller `"tvivl"` (du kan ikke se det
   sikkert). Postens `"billede"` er `"bekraefter"`, `"modsiger"` eller `"ikke_fundet"` (posten står ikke på
-  sidebillederne; så er alle dens rettelser `"tvivl"`).
+  sidebillederne, eller den har ingen sidebilleder; så er alle dens rettelser `"tvivl"`). `"modsiger"` kræver mindst
+  én rettelse.
 - `"rammer_forslag"`: ref'erne på de forslag i samme post, der bygger på den fejlbehæftede tekst (ellers `[]`).
 - `"manglende_fakta"`: antal meningsbærende udsagn i posten (fx en udnævnelse, et ægteskab, et gods), som intet
   forslag dækker. Kun et tal.

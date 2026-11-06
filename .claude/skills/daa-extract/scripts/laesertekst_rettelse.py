@@ -48,7 +48,7 @@ def byg_kort(samlet: dict, bidder: list) -> list:
                 "billede": r["billede"], "grund": r.get("grund"), "rammer_forslag": len(r.get("rammer_forslag") or []),
                 "sider": [f"../sider/{s}" for s in p["sider"]], "svarbar": _svarbar(r)}
 
-    kort = [{"type": "gruppe", "gruppe": g["gruppe"], "art": g["art"],
+    kort = [{"type": "gruppe", "gruppe": g["gruppe"], "art": g["art"], "billede": g.get("billede"),
              "elementer": [raekke(b[ref]) for ref in g["elementer"]]} for g in samlet["grupper_b"]]
     rapport: dict = {}
     for r in samlet["B"]:

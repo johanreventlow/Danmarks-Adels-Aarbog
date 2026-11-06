@@ -107,7 +107,8 @@ function tegn() {
   for (const k of DATA.kort) {
     const p = h("div", { class: "panel" });
     if (k.type === "gruppe") {
-      p.append(h("h2", {}, `Gruppe ${k.gruppe}: ${k.art} · ${k.elementer.length} række(r)`));
+      p.append(h("h2", {}, `Gruppe ${k.gruppe}: ${k.art} · ${k.elementer.length} række(r)`,
+        k.billede === "tvivl" ? h("span", { class: "tvivl" }, " · modellen er i tvivl (ikke set på sidebilledet)") : ""));
       p.append(h("div", { class: "meta" }, "Svar for hele gruppen:"));
       p.append(knapper(() => svar.grupper[k.gruppe] || null,
         v => { if (v) svar.grupper[k.gruppe] = v; else delete svar.grupper[k.gruppe]; gem(); }, TEKST));

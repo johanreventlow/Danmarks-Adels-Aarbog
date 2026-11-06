@@ -378,3 +378,37 @@ def test_skriv_briefs_indsaetter_stier(tmp_path):
     t = stier[1].read_text(encoding="utf-8")
     assert str(tmp_path / "input-2.json") in t and str(tmp_path / "svar-B-2.json") in t
     assert "{INPUT}" not in t and stier[1].stat().st_mode & 0o077 == 0
+
+
+# --- review-fund efter Task 6: billedstøtte og tvivl holdes adskilt ---------------------------------------------
+
+def test_saml_ok_kraever_billedstoette(tmp_path):
+    for billede in ("modsiger", "ikke_fundet"):
+        a = [_a("p1-f1", billede=billede)] + [_a(r) for r in A_REFS[1:]]
+        assert _kode_af(lambda: _saml(tmp_path, a=a)) == "BILLEDSTOETTE_MANGLER"
+
+
+def test_saml_post_uden_rettelser_ikke_fundet_er_uverificeret(tmp_path):
+    s = _saml(tmp_path, b=[_b("p1", billede="ikke_fundet"), _b("p2")])
+    assert s["taelling"]["b_poster_ok"] == 1 and s["taelling"]["b_poster_uverificeret"] == 1
+    assert {x["post"]: x["billede"] for x in s["B_poster"]} == {"p1": "ikke_fundet", "p2": "bekraefter"}
+    # modsiger uden en eneste rettelse er selvmodsigende
+    assert _kode_af(lambda: _saml(tmp_path, b=[_b("p1", billede="modsiger"), _b("p2")])) == "SVAR_UGYLDIGT"
+
+
+def test_saml_post_uden_sidebilleder_kan_ikke_bekraefte(tmp_path):
+    e = eksport(placering=[])                     # p1 har ingen sider
+    a = [_a(r, svar="TVIVL", billede="ikke_fundet") for r in A_REFS]
+    b = [_b("p1", billede="ikke_fundet"), _b("p2")]
+    assert _saml(tmp_path, a=a, b=b, e=e)["taelling"]["b_poster_uverificeret"] == 1
+    assert _kode_af(lambda: _saml(tmp_path, a=[_a("p1-f1", svar="BEGGE")] + a[1:], b=b, e=e)) \
+        == "BILLEDSTOETTE_MANGLER"
+    assert _kode_af(lambda: _saml(tmp_path, a=a, b=[_b("p1"), _b("p2")], e=e)) == "BILLEDSTOETTE_MANGLER"
+
+
+def test_grupper_b_holder_tvivl_for_sig():
+    b = [{"ref": f"p{i}-r1", "post": f"p{i}", "art": "ocr", "fra": "rn", "til": "m", "kun_rapport": False,
+          "billede": "tvivl" if i == 3 else "bekraefter"} for i in (1, 2, 3)]
+    g = mg.grupper_b(b)
+    assert sorted(sorted(x["elementer"]) for x in g) == [["p1-r1", "p2-r1"], ["p3-r1"]]
+    assert {x["billede"] for x in g} == {"bekraefter", "tvivl"}
