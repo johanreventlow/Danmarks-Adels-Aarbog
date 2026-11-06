@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Læsertekst-kort</title>
+<style>
+:root {
+  --bg: #f6f4ef; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6860; --line: #dcd8ce;
+  --accent: #2f5d8a; --ok: #2e7d4f; --warn: #a3541c; --bad: #b3261e; --mark: #fde68a; --chip: #ece8de;
+  --del: #f6c9c4; --ins: #c9ebd2;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #161614; --panel: #22211e; --ink: #ecebe6; --muted: #a29f95; --line: #3a3833;
+    --accent: #8db6e0; --ok: #6fcf97; --warn: #e5a36b; --bad: #f2867d; --mark: #6b5310; --chip: #2e2c28;
+    --del: #5c2622; --ins: #1f4a2c; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif; }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line);
+  padding: 10px 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+header h1 { font-size: 16px; margin: 0 8px 0 0; }
+.prog { flex: 1; min-width: 160px; height: 8px; background: var(--chip); border-radius: 4px; overflow: hidden; }
+.prog > div { height: 100%; background: var(--ok); width: 0; }
+button { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 16px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
+h2 { margin: 0 0 6px; font-size: 17px; }
+.meta { color: var(--muted); font-size: 13px; }
+.tekst { font-family: Georgia, serif; font-size: 15px; background: var(--bg); border-radius: 6px; padding: 8px 10px;
+  margin: 6px 0; white-space: pre-wrap; }
+del { background: var(--del); text-decoration: line-through; }
+ins { background: var(--ins); text-decoration: none; }
+.element { border-top: 1px solid var(--line); padding: 8px 0; }
+.knapper { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+.knap.on { color: var(--panel); background: var(--accent); border-color: var(--accent); }
+.knap.N.on { background: var(--bad); border-color: var(--bad); }
+.knap.L.on { background: var(--ok); border-color: var(--ok); }
+.knap.K.on { background: var(--warn); border-color: var(--warn); }
+.rapport { color: var(--warn); font-size: 13px; }
+.tvivl { color: var(--warn); font-weight: 600; }
+.billeder img { max-width: 100%; border: 1px solid var(--line); margin-top: 6px; }
+.hjaelp li { margin: 3px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="titel">Læsertekst-kort</h1>
+  <div class="prog"><div id="prog"></div></div>
+  <span id="taeller" class="meta"></span>
+  <button id="hent">Hent svarfil</button>
+</header>
+<div class="wrap">
+  <div class="panel hjaelp">
+    <h2>Sådan svarer du</h2>
+    <p>Hver række er en rettelse, modellen foreslår til den tekst, læseren ser. <del>Rødt</del> er teksten nu,
+      <ins>grønt</ins> er modellens læsning af bogen. Se sidebilledet: det er facit. Modellens forslag er ikke valgt
+      på forhånd.</p>
+    <ul>
+      <li><b>L</b> — ret læserteksten som foreslået.</li>
+      <li><b>K</b> — ret læserteksten, og meld en kildetekst-sag til del 2 (et faktum bygger på fejlen). Kildeteksten
+        rettes ikke nu.</li>
+      <li><b>N</b> — afvis: teksten skal ikke rettes.</li>
+      <li><b>tomt</b> — intet svar: der sker ingenting. Er du i tvivl, så lad den stå tom.</li>
+    </ul>
+    <p>Et svar på en <b>gruppe</b> gælder alle dens rækker; en række kan tages ud af gruppen med sit eget svar.
+      Grænserækker (tekst, der hører til nabopostens grænse) parkeres til 6d og rettes ikke her; rækker på poster
+      markeret »kun rapport« rettes ikke her. De har ingen knapper.</p>
+  </div>
+  <div id="kort"></div>
+</div>
+<script>
+const DATA = /*__DATA__*/null;
+const KEY = `laesertekst-${DATA.manifest_sha256.slice(0, 16)}-${DATA.side}`;
+let svar = { grupper: {}, elementer: {} };
+try { const g = JSON.parse(localStorage.getItem(KEY) || "null"); if (g && g.grupper && g.elementer) svar = g; } catch (e) {}
+function gem() { try { localStorage.setItem(KEY, JSON.stringify(svar)); } catch (e) {} opdater(); }
+function h(tag, attr, ...born) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attr || {})) { if (k === "on") el.onclick = v; else el.setAttribute(k, v); }
+  for (const b of born) if (b != null) el.append(b);
+  return el;
+}
+function knapper(hent, saet, tekster) {
+  const boks = h("div", { class: "knapper" });
+  for (const t of ["L", "K", "N"]) {
+    const b = h("button", { class: `knap ${t}`, title: tekster[t] }, t);
+    b.onclick = () => { saet(hent() === t ? null : t); tegn(); };
+    if (hent() === t) b.classList.add("on");
+    boks.append(b);
+  }
+  return boks;
+}
+const TEKST = { L: "Ret læserteksten", K: "Ret læserteksten + kildetekst-sag til del 2", N: "Afvis" };
+function effektiv(k, e) { return svar.elementer[e.ref] || (k.type === "gruppe" ? svar.grupper[k.gruppe] : null) || null; }
+function opdater() {
+  let alle = 0, svaret = 0;
+  for (const k of DATA.kort) for (const e of k.elementer) if (e.svarbar) { alle++; if (effektiv(k, e)) svaret++; }
+  document.getElementById("taeller").textContent = `${svaret}/${alle} besvaret · side ${DATA.side}/${DATA.sider}`;
+  document.getElementById("prog").style.width = alle ? `${100 * svaret / alle}%` : "0";
+}
+function tegn() {
+  const rod = document.getElementById("kort");
+  rod.replaceChildren();
+  for (const k of DATA.kort) {
+    const p = h("div", { class: "panel" });
+    if (k.type === "gruppe") {
+      p.append(h("h2", {}, `Gruppe ${k.gruppe}: ${k.art} · ${k.elementer.length} række(r)`));
+      p.append(h("div", { class: "meta" }, "Svar for hele gruppen:"));
+      p.append(knapper(() => svar.grupper[k.gruppe] || null,
+        v => { if (v) svar.grupper[k.gruppe] = v; else delete svar.grupper[k.gruppe]; gem(); }, TEKST));
+    } else {
+      p.append(h("h2", {}, `Post ${k.post}: kun til orientering`));
+      p.append(h("div", { class: "rapport" }, k.grund === "graense"
+        ? "Grænse til nabopost: parkeres til 6d, rettes ikke her."
+        : "Posten er markeret »kun rapport«: rettes ikke her."));
+    }
+    for (const e of k.elementer) {
+      const r = h("div", { class: "element" });
+      r.append(h("div", { class: "meta" }, `${e.ref} · ${e.art} · billede: `,
+        h("span", { class: e.billede === "tvivl" ? "tvivl" : "" }, e.billede),
+        e.rammer_forslag ? ` · rammer ${e.rammer_forslag} forslag` : ""));
+      r.append(h("div", { class: "tekst" }, e.foer, h("del", {}, e.fra), h("ins", {}, e.til), e.efter));
+      r.append(h("div", { class: "meta" }, `Modellens grund: ${e.grund || "—"}`));
+      if (e.svarbar) {
+        r.append(h("div", { class: "meta" }, k.type === "gruppe" ? "Egen undtagelse fra gruppen:" : "Svar:"));
+        r.append(knapper(() => svar.elementer[e.ref] || null,
+          v => { if (v) svar.elementer[e.ref] = v; else delete svar.elementer[e.ref]; gem(); }, TEKST));
+      } else {
+        r.append(h("div", { class: "rapport" }, e.art === "graense" ? "parkeres til 6d" : "rettes ikke her"));
+      }
+      const bil = h("details", { class: "billeder" }, h("summary", {}, `Sidebillede (${e.sider.length})`));
+      for (const s of e.sider) bil.append(h("img", { src: s, loading: "lazy", alt: s }));
+      r.append(bil);
+      p.append(r);
+    }
+    rod.append(p);
+  }
+  opdater();
+}
+document.getElementById("titel").textContent = `Læsertekst-kort · ${DATA.udgave || ""}`;
+document.getElementById("hent").onclick = () => {
+  const ud = { manifest_sha256: DATA.manifest_sha256, side: DATA.side, svar };
+  const a = h("a", { href: URL.createObjectURL(new Blob([JSON.stringify(ud, null, 1)], { type: "application/json" })),
+    download: `laesertekst-svar-${DATA.manifest_sha256.slice(0, 8)}-${DATA.side}.json` });
+  document.body.append(a); a.click(); a.remove();
+};
+tegn();
+</script>
+</body>
+</html>
