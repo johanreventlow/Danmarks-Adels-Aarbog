@@ -334,9 +334,12 @@ def test_grupper_a_samler_samme_forslagsfejl():
     assert sorted(len(x["elementer"]) for x in mg.grupper_a(a)) == [1, 2]
 
 
-def test_taerskel_300_over_begge_spor():
-    assert mg.over_taerskel(200, 101) is True
-    assert mg.over_taerskel(200, 100) is False
+def test_taerskel_gaelder_kun_tekstsporet_i_del_1():
+    """Projektejeren 6/11 (efter piloten): del 1 retter kun læsertekst; faktapunkterne hører til del 2's kort og tæller
+    ikke med. Grænsen for B er projektejerens godkendte prognose (~530) med margen."""
+    assert mg.TAERSKEL_B == 600
+    assert mg.over_taerskel(1000, 600) is False
+    assert mg.over_taerskel(0, 601) is True
 
 
 def test_cli_saml_exit_3_over_taerskel(tmp_path, monkeypatch, capsys):
@@ -350,7 +353,7 @@ def test_cli_saml_exit_3_over_taerskel(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out.strip()
     assert re.fullmatch(r"MG_SAML_OK( [a-z_]+=[0-9]+)+ manifest=[0-9a-f]{8}", out), out
     assert "over_taerskel=0" in out and (tmp_path / "samlet.json").stat().st_mode & 0o077 == 0
-    monkeypatch.setattr(mg, "TAERSKEL", 0)
+    monkeypatch.setattr(mg, "TAERSKEL_B", -1)
     (tmp_path / "samlet.json").unlink()
     assert mg.main(["saml", "--ud", str(tmp_path)]) == 3
     assert "over_taerskel=1" in capsys.readouterr().out

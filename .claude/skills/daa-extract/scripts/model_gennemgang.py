@@ -142,7 +142,9 @@ def byg_input(eksport: dict, *, bid: int = 25,
 
 # --- briefs og sammenlægning (Task 4) ------------------------------------------------------------------------------
 
-TAERSKEL = 300
+#: Del 1 retter kun læsertekst (spor B); faktapunkterne (spor A) hører til del 2's kort (projektejeren 6/11 efter
+#: piloten: ~530 B-punkter godkendt; decisions 2026-11-06). Grænsen er en vagt mod overraskelser, ikke et mål.
+TAERSKEL_B = 600
 A_SVAR = {"OK", "FORSLAG_FEJL", "DB_FEJL", "BEGGE", "TVIVL"}
 A_BILLEDE = {"bekraefter", "modsiger", "ikke_fundet"}
 B_ART = {"ocr", "orddeling", "mangler", "overskydende", "graense"}
@@ -180,8 +182,8 @@ def _tekst(x) -> bool:
 
 
 def over_taerskel(a_grupper: int, b_grupper: int) -> bool:
-    """Spec §4.3.3 over begge spor: flere end TAERSKEL markerede elementer efter gruppering."""
-    return a_grupper + b_grupper > TAERSKEL
+    """Spec §4.3.3 pr. del: i del 1 tæller kun spor B's grupper (A-grupperne vises, men venter til del 2)."""
+    return b_grupper > TAERSKEL_B
 
 
 def grupper_b(b: list) -> list:
