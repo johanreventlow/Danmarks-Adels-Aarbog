@@ -140,6 +140,204 @@ def byg_input(eksport: dict, *, bid: int = 25,
     return bidder, noegle
 
 
+# --- briefs og sammenlægning (Task 4) ------------------------------------------------------------------------------
+
+TAERSKEL = 300
+A_SVAR = {"OK", "FORSLAG_FEJL", "DB_FEJL", "BEGGE", "TVIVL"}
+A_BILLEDE = {"bekraefter", "modsiger", "ikke_fundet"}
+B_ART = {"ocr", "orddeling", "mangler", "overskydende", "graense"}
+B_RETTELSE_BILLEDE = {"bekraefter", "tvivl"}
+GRUPPERBAR = {"ocr", "orddeling"}
+
+
+def skriv_briefs(skabelon: str, mappe: Path, bidder: int) -> list:
+    mappe = Path(mappe)
+    stier = []
+    for k in range(1, bidder + 1):
+        t = (skabelon.replace("{INPUT}", str(mappe / f"input-{k}.json"))
+             .replace("{SVAR_A}", str(mappe / f"svar-A-{k}.json"))
+             .replace("{SVAR_B}", str(mappe / f"svar-B-{k}.json"))
+             .replace("{SIDER}", str(mappe / "sider")))
+        p = mappe / f"brief-{k}.md"
+        p.write_text(t, encoding="utf-8")
+        os.chmod(p, 0o600)
+        stier.append(p)
+    return stier
+
+
+def _liste(sti: Path) -> list:
+    try:
+        data = _laes_json(sti)
+    except (OSError, ValueError):
+        raise GennemgangError("SVAR_UGYLDIGT")
+    if not isinstance(data, list) or not all(isinstance(x, dict) for x in data):
+        raise GennemgangError("SVAR_UGYLDIGT")
+    return data
+
+
+def _tekst(x) -> bool:
+    return isinstance(x, str) and x.strip() != ""
+
+
+def over_taerskel(a_grupper: int, b_grupper: int) -> bool:
+    """Spec §4.3.3 over begge spor: flere end TAERSKEL markerede elementer efter gruppering."""
+    return a_grupper + b_grupper > TAERSKEL
+
+
+def grupper_b(b: list) -> list:
+    """Svarbare B-rettelser grupperet: `ocr`/`orddeling` på (art, fra, til), ellers én pr. rettelse.
+    Grænserettelser og rettelser på `kun_rapport`-poster er ikke svarbare og grupperes ikke."""
+    grupper: dict = {}
+    for r in b:
+        if r["art"] == "graense" or r.get("kun_rapport"):
+            continue
+        noegle = (r["art"], r["fra"], r["til"]) if r["art"] in GRUPPERBAR else ("enkelt", r["ref"])
+        grupper.setdefault(noegle, {"art": r["art"], "elementer": []})["elementer"].append(r["ref"])
+    return [dict(g, gruppe=f"bg{i}") for i, g in enumerate(grupper.values(), 1)]
+
+
+def grupper_a(a: list) -> list:
+    """Markerede A-svar (alt andet end OK): `FORSLAG_FEJL` på (svar, felt, vaerdi, bogens_laesning), ellers én pr. svar."""
+    grupper: dict = {}
+    for x in a:
+        if x["svar"] == "OK":
+            continue
+        noegle = ((x["svar"], x["felt"], x["vaerdi"], x["bogens_laesning"]) if x["svar"] == "FORSLAG_FEJL"
+                  else ("enkelt", x["ref"]))
+        grupper.setdefault(noegle, {"svar": x["svar"], "elementer": []})["elementer"].append(x["ref"])
+    return [dict(g, gruppe=f"ag{i}") for i, g in enumerate(grupper.values(), 1)]
+
+
+def manifest(b: list, grupper: list) -> str:
+    """sha256 af den kanoniske JSON af alle B-rettelser og B-grupperne (Codex #2): ejersvar bindes til den."""
+    felter = ("ref", "post", "start", "slut", "fra", "til", "art", "billede")
+    kanon = {"b": [{k: r[k] for k in felter} for r in b], "grupper": grupper}
+    return _sha(json.dumps(kanon, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
+def _entydig(tekst: str, fra: str) -> int:
+    start = tekst.find(fra)
+    if start < 0 or tekst.find(fra, start + 1) >= 0:
+        raise GennemgangError("RETTELSE_IKKE_ENTYDIG")
+    return start
+
+
+def saml(bidder: list, noegle: dict, svar_a: list, svar_b: list) -> dict:
+    """Fail-closed sammenlægning af modelsvarene: hvert sendt forslag og hver post præcis én gang, kun gyldige
+    værdier, entydige og ikke-overlappende rettelser med halvåbne intervaller [start, slut) i postens tekst."""
+    poster = {p["post"]: p for b in bidder for p in b["poster"]}
+    forslag = {f["ref"]: (p, f) for p in poster.values() for f in p["forslag"]}
+    for ref, p in poster.items():
+        if noegle.get(ref, {}).get("tekst_sha256") != _sha(p["tekst"].encode("utf-8")):
+            raise GennemgangError("TEKST_DRIFT")
+
+    a_ud, set_a = [], set()
+    for x in (y for f in svar_a for y in _liste(f)):
+        ref = x.get("ref")
+        if ref in set_a:
+            raise GennemgangError("SVAR_DUBLET")
+        if ref not in forslag:
+            raise GennemgangError("SVAR_UKENDT_REF")
+        set_a.add(ref)
+        post, f = forslag[ref]
+        svar, billede, laesning = x.get("svar"), x.get("billede"), x.get("bogens_laesning")
+        if svar not in A_SVAR or billede not in A_BILLEDE:
+            raise GennemgangError("SVAR_UGYLDIGT")
+        if svar == "FORSLAG_FEJL" and not _tekst(laesning):
+            raise GennemgangError("SVAR_UGYLDIGT")
+        if svar == "DB_FEJL" and "databasen" not in f:
+            raise GennemgangError("SVAR_UGYLDIGT")
+        if svar in ("FORSLAG_FEJL", "DB_FEJL") and billede != "bekraefter":
+            raise GennemgangError("BILLEDSTOETTE_MANGLER")
+        a_ud.append({"ref": ref, "post": post["post"], "felt": f["felt"], "vaerdi": f["vaerdi"],
+                     "databasen": f.get("databasen"), "svar": svar,
+                     "bogens_laesning": laesning if svar == "FORSLAG_FEJL" else None, "billede": billede,
+                     "grund": x.get("grund")})
+    if set_a != set(forslag):
+        raise GennemgangError("SVAR_MANGLER")
+
+    b_ud, set_b, manglende, poster_ok = [], set(), 0, 0
+    for x in (y for f in svar_b for y in _liste(f)):
+        ref = x.get("post")
+        if ref in set_b:
+            raise GennemgangError("SVAR_DUBLET")
+        if ref not in poster:
+            raise GennemgangError("SVAR_UKENDT_REF")
+        set_b.add(ref)
+        post = poster[ref]
+        rettelser, pbillede, mf = x.get("rettelser"), x.get("billede"), x.get("manglende_fakta")
+        if (not isinstance(rettelser, list) or pbillede not in A_BILLEDE or not isinstance(mf, int)
+                or isinstance(mf, bool) or mf < 0):
+            raise GennemgangError("SVAR_UGYLDIGT")
+        manglende += mf
+        poster_ok += not rettelser
+        intervaller = []
+        for i, r in enumerate(rettelser, 1):
+            if (not isinstance(r, dict) or not _tekst(r.get("fra")) or not isinstance(r.get("til"), str)
+                    or r.get("art") not in B_ART or r.get("billede") not in B_RETTELSE_BILLEDE
+                    or not isinstance(r.get("rammer_forslag", []), list) or r.get("fra") == r.get("til")):
+                raise GennemgangError("SVAR_UGYLDIGT")
+            if pbillede == "ikke_fundet" and r["billede"] != "tvivl":
+                raise GennemgangError("BILLEDSTOETTE_MANGLER")
+            egne = {f["ref"] for f in post["forslag"]}
+            if any(fr not in egne for fr in r.get("rammer_forslag", [])):
+                raise GennemgangError("SVAR_UKENDT_REF")
+            start = _entydig(post["tekst"], r["fra"])
+            slut = start + len(r["fra"])
+            if any(start < s2 and s1 < slut for s1, s2 in intervaller):
+                raise GennemgangError("RETTELSE_OVERLAPPER")
+            intervaller.append((start, slut))
+            b_ud.append({"ref": f"{ref}-r{i}", "post": ref, "start": start, "slut": slut, "fra": r["fra"],
+                         "til": r["til"], "art": r["art"], "billede": r["billede"],
+                         "rammer_forslag": list(r.get("rammer_forslag", [])), "grund": r.get("grund"),
+                         "kun_rapport": post["kun_rapport"]})
+    if set_b != set(poster):
+        raise GennemgangError("SVAR_MANGLER")
+
+    ga, gb = grupper_a(a_ud), grupper_b(b_ud)
+    taelling = {
+        "a_ok": sum(1 for x in a_ud if x["svar"] == "OK"), "a_markeret": sum(1 for x in a_ud if x["svar"] != "OK"),
+        "b_poster_ok": poster_ok, "b_rettelser": len(b_ud), "a_grupper": len(ga), "b_grupper": len(gb),
+        "graense": sum(1 for r in b_ud if r["art"] == "graense"),
+        "tvivl": sum(1 for x in a_ud if x["svar"] == "TVIVL") + sum(1 for r in b_ud if r["billede"] == "tvivl"),
+        "kun_rapport": sum(1 for r in b_ud if r["kun_rapport"] and r["art"] != "graense"),
+        "manglende_fakta": manglende, "over_taerskel": int(over_taerskel(len(ga), len(gb)))}
+    return {"A": a_ud, "B": b_ud, "grupper_a": ga, "grupper_b": gb, "taelling": taelling,
+            "manifest_sha256": manifest(b_ud, gb)}
+
+
+def _bidder_i(ud: Path) -> list:
+    stier = sorted(Path(ud).glob("input-*.json"), key=lambda p: int(p.stem.split("-")[1]))
+    if not stier:
+        raise GennemgangError("INPUT_MANGLER")
+    return [_laes_json(p) for p in stier]
+
+
+def cmd_briefs(a) -> int:
+    bidder = _bidder_i(a.ud)
+    stier = skriv_briefs(Path(a.skabelon).read_text(encoding="utf-8"), a.ud, len(bidder))
+    print(f"MG_BRIEFS_OK briefs={len(stier)} skabelon={_sha(Path(a.skabelon).read_bytes())[:8]}")
+    return 0
+
+
+def cmd_saml(a) -> int:
+    ud = Path(a.ud)
+    bidder = _bidder_i(ud)
+    ks = [b["bid"] for b in bidder]
+    svar_a, svar_b = [ud / f"svar-A-{k}.json" for k in ks], [ud / f"svar-B-{k}.json" for k in ks]
+    if not all(p.exists() for p in svar_a + svar_b):
+        raise GennemgangError("SVAR_MANGLER")
+    if (ud / "samlet.json").exists():
+        raise GennemgangError("SAMLET_FINDES")
+    s = saml(bidder, _laes_json(ud / "noegle.json"), svar_a, svar_b)
+    _skriv_json(ud / "samlet.json", s)
+    t = s["taelling"]
+    print("MG_SAML_OK " + " ".join(f"{k}={t[k]}" for k in (
+        "a_ok", "a_markeret", "b_poster_ok", "b_rettelser", "a_grupper", "b_grupper", "graense", "tvivl",
+        "kun_rapport", "manglende_fakta", "over_taerskel")) + f" manifest={s['manifest_sha256'][:8]}")
+    return 3 if t["over_taerskel"] else 0
+
+
 def _skriv_json(sti: Path, data) -> None:
     sti.write_text(json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
     os.chmod(sti, 0o600)
@@ -196,9 +394,14 @@ def main(argv: list | None = None) -> int:
     i.add_argument("--pdf", type=Path, required=True)
     i.add_argument("--ud", type=Path, required=True)
     i.add_argument("--bid", type=int, default=25)
+    br = sub.add_parser("briefs")
+    br.add_argument("--ud", type=Path, required=True)
+    br.add_argument("--skabelon", type=Path, default=Path(__file__).parent / "model_gennemgang_brief.md")
+    sa = sub.add_parser("saml")
+    sa.add_argument("--ud", type=Path, required=True)
     a = ap.parse_args(argv)
     try:
-        return {"input": cmd_input}[a.cmd](a)
+        return {"input": cmd_input, "briefs": cmd_briefs, "saml": cmd_saml}[a.cmd](a)
     except GennemgangError as e:
         print(f"MG_FEJL {e}", file=sys.stderr)
         return 2
