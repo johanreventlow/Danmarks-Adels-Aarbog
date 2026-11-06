@@ -116,7 +116,9 @@ function tegn() {
       p.append(h("h2", {}, `Post ${k.post}: kun til orientering`));
       p.append(h("div", { class: "rapport" }, k.grund === "graense"
         ? "Grænse til nabopost: parkeres til 6d, rettes ikke her."
-        : "Posten er markeret »kun rapport«: rettes ikke her."));
+        : k.grund === "ikke_fundet"
+          ? "Modellen har ikke fundet posten på sidebilledet: teksten er ikke kontrolleret mod bogen. Rettes ikke her."
+          : "Posten er markeret »kun rapport«: rettes ikke her."));
     }
     for (const e of k.elementer) {
       const r = h("div", { class: "element" });

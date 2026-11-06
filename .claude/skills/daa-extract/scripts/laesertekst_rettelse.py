@@ -57,6 +57,9 @@ def byg_kort(samlet: dict, bidder: list) -> list:
             rapport.setdefault((r["post"], grund), []).append(raekke(r))
     kort += [{"type": "rapport", "post": post, "grund": grund, "elementer": el}
              for (post, grund), el in rapport.items()]
+    # Poster, modellen ikke fandt på sidebilledet, og som ingen rettelse har: projektejeren skal se dem (Codex 6).
+    kort += [{"type": "rapport", "post": x["post"], "grund": "ikke_fundet", "elementer": []}
+             for x in samlet.get("B_poster") or [] if x["billede"] == "ikke_fundet" and not x["rettelser"]]
     return kort
 
 
@@ -81,9 +84,16 @@ def flet_b(manifest: dict, svarfiler: list) -> str:
     grupper = {g["gruppe"]: g for g in manifest["grupper_b"]}
     g_svar: dict = {}
     e_svar: dict = {}
+    sider: set = set()
     for s in svarfiler:
         if not isinstance(s, dict) or s.get("manifest_sha256") != sha:
             raise GennemgangError("MANIFEST_MISMATCH")
+        side = s.get("side")
+        if not isinstance(side, int) or isinstance(side, bool) or side < 1:
+            raise GennemgangError("SVAR_UGYLDIGT")
+        if side in sider:   # en ældre og en nyere hentning af samme side: den ældre må ikke vinde (review Opus 1)
+            raise GennemgangError("SVAR_SIDE_DUBLET")
+        sider.add(side)
         sv = s.get("svar") or {}
         for kilde, maal, kendte in ((sv.get("grupper") or {}, g_svar, grupper), (sv.get("elementer") or {}, e_svar, b)):
             for ref, tok in kilde.items():
@@ -188,7 +198,25 @@ def anvend(bidder: list, noegle: dict, samlet: dict, ark_tekst: str) -> dict:
             ud[maal].append({"ref": r["ref"], "post": r["post"], "record_key": n["record_key"],
                              "person_id": n["person_id"], "narrative_id": n["narrative_id"],
                              "legacy_ref": n.get("legacy_ref"), "fra": r["fra"], "til": r["til"], "art": r["art"]})
+    revideret = {p["post"]: p["efter_sha256"] for p in ud["poster"]}
+    # Alle record-bundne narrativer efter ceremonien: de reviderede med efter-teksten, resten som ved eksporten.
+    ud["forventet"] = [{"record_key": n["record_key"], "sha256": revideret.get(ref, n["tekst_sha256"])}
+                       for ref, n in noegle.items() if n.get("type") == "post" and n.get("state_sha256")]
     return ud
+
+
+def _dollar_tag(krop: str) -> str:
+    """En dollar-tag, der ikke forekommer i kroppen (review Codex 7)."""
+    for i in range(1000):
+        tag = f"$t6m{i}$"
+        if tag not in krop:
+            return tag
+    raise GennemgangError("DOLLAR_TAG")
+
+
+def _do(krop: str) -> str:
+    tag = _dollar_tag(krop)
+    return f"DO {tag} {krop} {tag};"
 
 
 def _lit(s: str) -> str:
@@ -206,13 +234,24 @@ def sql_b(anvendt: dict, source_id: int) -> str:
     NARRATIVE_RECORD_STATE_STALE ved drift, og ON_ERROR_STOP ruller det hele tilbage). Aktør som 6c-2 (`-v actor`)."""
     if not isinstance(source_id, int) or isinstance(source_id, bool):
         raise GennemgangError("KILDE_UGYLDIG")
-    ud = ["\\set ON_ERROR_STOP on", "BEGIN;", "SET LOCAL standard_conforming_strings=on;",
+    for p in anvendt["poster"]:
+        if not SHA.match(p["state_sha256"] or "") or not SHA.match(p.get("foer_sha256") or ""):
+            raise GennemgangError("STATE_SHA_MANGLER")
+    # Værn før første skrivning (som den forbundne rolle): hver posts publicerede narrativ har i databasen præcis den
+    # tekst, rettelsen er regnet på — uafhængigt af de lokale filer (review Opus 3).
+    vals = ", ".join(f"({_lit(p['record_key'])}, {_lit(p['foer_sha256'])})" for p in anvendt["poster"])
+    vaern = _do(
+        "DECLARE n int; BEGIN SELECT count(*) INTO n FROM (VALUES " + vals + ") f(record_key, sha) "
+        "LEFT JOIN (SELECT sr.record_key, encode(extensions.digest(x.tekst, 'sha256'), 'hex') AS sha "
+        "FROM private.source_record sr JOIN private.narrative_record_publication b ON b.source_record_id = sr.id "
+        f"AND b.status = 'published' JOIN public.narrative x ON x.id = b.narrative_id WHERE sr.source_id = {source_id}) a "
+        "ON a.record_key = f.record_key WHERE a.sha IS DISTINCT FROM f.sha; "
+        "IF n <> 0 THEN RAISE EXCEPTION 'NARRATIVE_TEKST_DRIFT poster=%', n; END IF; END")
+    ud = ["\\set ON_ERROR_STOP on", "BEGIN;", "SET LOCAL standard_conforming_strings=on;", vaern,
           # RPC'ernes rollegate læser request.jwt.claim.sub (som 6c-2's ceremoni 4).
           "SELECT set_config('request.jwt.claim.sub', :'actor', true) \\g /dev/null",
           "SET LOCAL ROLE authenticated;"]
     for p in anvendt["poster"]:
-        if not SHA.match(p["state_sha256"] or ""):
-            raise GennemgangError("STATE_SHA_MANGLER")
         ud.append("SELECT set_config('app.change_set_id','',true) \\g /dev/null")
         ud.append(f"SELECT public.red_revider_publiceret_person_narrative_record({int(p['person_id'])}, {source_id}, "
                   f"{_lit(p['record_key'])}, {_lit(p['efter_tekst'])}, {_lit(p['state_sha256'])}) \\g /dev/null")
@@ -221,27 +260,34 @@ def sql_b(anvendt: dict, source_id: int) -> str:
 
 
 def verify_b_sql(anvendt: dict) -> str:
-    """Læse-kun efterkontrol: hver revideret posts publicerede narrativ har den forventede tekst-sha."""
+    """Læse-kun efterkontrol som mængde (review Opus 5): alle kildens publicerede, record-bundne narrativer har
+    præcis den forventede tekst-sha — de reviderede efter-teksten, alle andre eksportens — og ingen andre findes.
+    Printer `VERIFY_B poster=<reviderede> lig=<heraf rigtige> alle=<forventede> afvig=<afvigelser>`."""
     src = anvendt["source_id"]
     if not isinstance(src, int) or isinstance(src, bool):
         raise GennemgangError("KILDE_UGYLDIG")
-    rk = ", ".join(f"({_lit(p['record_key'])}, {_lit(p['efter_sha256'])})" for p in anvendt["poster"])
-    forventet = f"(VALUES {rk})" if rk else "(SELECT NULL::text, NULL::text WHERE false)"
+    rev = {p["record_key"] for p in anvendt["poster"]}
+    rk = ", ".join(f"({_lit(f['record_key'])}, {_lit(f['sha256'])}, {'true' if f['record_key'] in rev else 'false'})"
+                   for f in anvendt["forventet"])
+    forventet = f"(VALUES {rk})" if rk else "(SELECT NULL::text, NULL::text, NULL::boolean WHERE false)"
     optalt = " ".join([
-        "WITH forventet(record_key, sha) AS " + forventet + ",",
+        "WITH forventet(record_key, sha, revideret) AS " + forventet + ",",
         "faktisk AS (SELECT sr.record_key, encode(extensions.digest(n.tekst, 'sha256'), 'hex') AS sha",
         "FROM private.source_record sr",
         "JOIN private.narrative_record_publication b ON b.source_record_id = sr.id AND b.status = 'published'",
         f"JOIN public.narrative n ON n.id = b.narrative_id WHERE sr.source_id = {src})",
-        "SELECT count(*) AS poster, count(*) FILTER (WHERE a.sha = f.sha) AS lig",
-        "FROM forventet f LEFT JOIN faktisk a ON a.record_key = f.record_key"])
+        "SELECT count(*) FILTER (WHERE f.revideret) AS poster,",
+        "count(*) FILTER (WHERE f.revideret AND a.sha = f.sha) AS lig, count(f.record_key) AS alle,",
+        "count(*) FILTER (WHERE a.sha IS DISTINCT FROM f.sha) AS afvig",
+        "FROM forventet f FULL JOIN faktisk a ON a.record_key = f.record_key"])
+    vaern = _do("DECLARE o record; BEGIN SELECT * INTO o FROM (" + optalt + ") x; IF o.afvig <> 0 OR o.lig <> o.poster "
+                "THEN RAISE EXCEPTION 'VERIFY_B_AFVIGER poster=% lig=% afvig=%', o.poster, o.lig, o.afvig; END IF; END")
     return "\n".join([
         "-- Læse-kun efterkontrol af læsertekst-ceremonien (trin 6m del 1). Printer kun antal.",
         "\\set ON_ERROR_STOP on", "BEGIN;", "SET TRANSACTION READ ONLY;",
-        f"SELECT format('VERIFY_B poster=%s lig=%s', o.poster, o.lig) FROM ({optalt}) o;",
+        f"SELECT format('VERIFY_B poster=%s lig=%s alle=%s afvig=%s', o.poster, o.lig, o.alle, o.afvig) FROM ({optalt}) o;",
         # Værnet: en afvigelse fejler kørslen (exit ≠ 0), uafhængigt af klientens NOTICE-niveau.
-        f"DO $v$ DECLARE o record; BEGIN SELECT * INTO o FROM ({optalt}) x; IF o.lig <> o.poster THEN "
-        "RAISE EXCEPTION 'VERIFY_B_AFVIGER poster=% lig=%', o.poster, o.lig; END IF; END $v$;",
+        vaern,
         "ROLLBACK;"]) + "\n"
 
 
@@ -272,8 +318,16 @@ def cmd_flet(a) -> int:
     ud = Path(a.ud)
     if (ud / "ark-b.txt").exists():
         raise GennemgangError("ARK_FINDES")
+    if (ud / "svar-b").exists():
+        raise GennemgangError("SVAR_FINDES")
     samlet = mg._laes_json(ud / "samlet.json")
     ark = flet_b(samlet, [mg._laes_json(p) for p in a.svar])
+    # Projektejerens svar gemmes ordret: de er det autoritative grundlag, arket genberegnes af ved `sql`.
+    (ud / "svar-b").mkdir(mode=0o700)
+    for i, p in enumerate(a.svar, 1):
+        f = ud / "svar-b" / f"svar-{i:02d}.json"
+        f.write_bytes(Path(p).read_bytes())
+        os.chmod(f, 0o600)
     sha = _skriv(ud / "ark-b.txt", ark)
     t = list(laes_ark(ark)[1].values())
     print(f"LT_FLET_OK L={t.count('L')} K={t.count('K')} N={t.count('N')} ubesvaret={t.count('_')} ark_sha256={sha}")
@@ -286,8 +340,13 @@ def cmd_sql(a) -> int:
     if any((ud / f).exists() for f in filer):
         raise GennemgangError("SQL_FINDES")
     samlet = mg._laes_json(ud / "samlet.json")
-    anvendt = anvend(mg._bidder_i(ud), mg._laes_json(ud / "noegle.json"), samlet,
-                     (ud / "ark-b.txt").read_text(encoding="utf-8"))
+    ark = (ud / "ark-b.txt").read_text(encoding="utf-8")
+    svar = sorted((ud / "svar-b").glob("svar-*.json"))
+    if not svar:
+        raise GennemgangError("SVAR_MANGLER")
+    if flet_b(samlet, [mg._laes_json(p) for p in svar]) != ark:   # review Codex 2 / Opus 4
+        raise GennemgangError("ARK_AFVIGER_FRA_SVAR")
+    anvendt = anvend(mg._bidder_i(ud), mg._laes_json(ud / "noegle.json"), samlet, ark)
     src = anvendt["source_id"]
     if not anvendt["poster"]:
         raise GennemgangError("INGEN_RETTELSER")   # intet L/K på arket: ingen ceremoni

@@ -46,8 +46,8 @@ def opsaet(tmp_path, b_svar=None):
     return bidder, noegle, samlet
 
 
-def _svarfil(samlet, grupper=None, elementer=None):
-    return {"manifest_sha256": samlet["manifest_sha256"], "side": 1,
+def _svarfil(samlet, grupper=None, elementer=None, side=1):
+    return {"manifest_sha256": samlet["manifest_sha256"], "side": side,
             "svar": {"grupper": grupper or {}, "elementer": elementer or {}}}
 
 
@@ -132,9 +132,9 @@ def test_flet_afviser_forbudte_svar(tmp_path):
     assert _kode_af(lambda: lt.flet_b(samlet, [_svarfil(samlet, {}, {"p2-r2": "L"})])) == "SVAR_IKKE_TILLADT"
     assert _kode_af(lambda: lt.flet_b(samlet, [_svarfil(samlet, {}, {"p3-r1": "K"})])) == "SVAR_IKKE_TILLADT"
     assert _kode_af(lambda: lt.flet_b(samlet, [_svarfil(samlet, {"bg1": "X"})])) == "SVAR_UGYLDIGT"
-    to = [_svarfil(samlet, {}, {"p1-r1": "L"}), _svarfil(samlet, {}, {"p1-r1": "N"})]
+    to = [_svarfil(samlet, {}, {"p1-r1": "L"}), _svarfil(samlet, {}, {"p1-r1": "N"}, side=2)]
     assert _kode_af(lambda: lt.flet_b(samlet, to)) == "SVAR_KONFLIKT"
-    ens = [_svarfil(samlet, {}, {"p1-r1": "L"}), _svarfil(samlet, {}, {"p1-r1": "L"})]
+    ens = [_svarfil(samlet, {}, {"p1-r1": "L"}), _svarfil(samlet, {}, {"p1-r1": "L"}, side=2)]
     assert lt.flet_b(samlet, ens).splitlines()[1] == "R p1-r1 : L"
 
 
@@ -206,7 +206,8 @@ def test_sql_b_nulstiller_change_set_mellem_kald(tmp_path):
 
 def test_sql_b_citerer_apostrof():
     a = {"source_id": 3, "poster": [{"record_key": "R-1", "person_id": 1, "state_sha256": "a" * 64,
-                                     "efter_tekst": "O'Neill og \\n", "efter_sha256": "x", "rettelser": 1}]}
+                                     "foer_sha256": "b" * 64, "efter_tekst": "O'Neill og \\n", "efter_sha256": "x",
+                                     "rettelser": 1}]}
     sql = lt.sql_b(a, 3)
     assert "'O''Neill og \\n'" in sql and "E'" not in sql
     kald = [l for l in sql.splitlines() if "red_revider" in l][0]
@@ -306,3 +307,85 @@ def test_cli_sql_uden_rettelser(tmp_path, capsys):
     assert lt.main(["flet", "--ud", str(tmp_path), str(sv)]) == 0
     assert lt.main(["sql", "--ud", str(tmp_path)]) == 2
     assert "INGEN_RETTELSER" in capsys.readouterr().err and not (tmp_path / "apply-b.sql").exists()
+
+
+# --- review-fund (runde 2) -------------------------------------------------------------------------------------
+
+def test_flet_afviser_to_filer_for_samme_side(tmp_path):
+    """En gammel og en ny svarfil for samme side: den gamle må ikke vinde over en fortrudt række (Opus 1)."""
+    _, _, samlet = opsaet(tmp_path)
+    gammel = _svarfil(samlet, {"bg1": "L"})
+    ny = _svarfil(samlet, {})
+    assert _kode_af(lambda: lt.flet_b(samlet, [gammel, ny])) == "SVAR_SIDE_DUBLET"
+
+
+def test_cli_flet_gemmer_svarfilerne(tmp_path):
+    samlet = _cli_mappe(tmp_path)
+    sv = tmp_path / "svar.json"
+    sv.write_text(json.dumps(_svarfil(samlet, {"bg1": "L"})), encoding="utf-8")
+    assert lt.main(["flet", "--ud", str(tmp_path), str(sv)]) == 0
+    gemt = tmp_path / "svar-b" / "svar-01.json"
+    assert gemt.read_bytes() == sv.read_bytes() and gemt.stat().st_mode & 0o077 == 0
+
+
+def test_cli_sql_kraever_ark_lig_flet_af_svar(tmp_path, capsys):
+    """Et håndrettet ark (N/_ -> L) afvises: arket genberegnes af de gemte svar (Codex 2, Opus 4)."""
+    samlet = _cli_mappe(tmp_path)
+    sv = tmp_path / "svar.json"
+    sv.write_text(json.dumps(_svarfil(samlet, {}, {"p1-r1": "L"})), encoding="utf-8")
+    assert lt.main(["flet", "--ud", str(tmp_path), str(sv)]) == 0
+    ark = tmp_path / "ark-b.txt"
+    ark.write_text(ark.read_text(encoding="utf-8").replace("R p2-r1 : _", "R p2-r1 : L"), encoding="utf-8")
+    capsys.readouterr()
+    assert lt.main(["sql", "--ud", str(tmp_path)]) == 2
+    assert "ARK_AFVIGER_FRA_SVAR" in capsys.readouterr().err
+
+
+def test_sql_b_tjekker_grundteksten_i_databasen(tmp_path):
+    """Før første skrivning: hvert narrativs tekst i databasen skal have postens foer_sha256 (Opus 3)."""
+    a = lt.anvend(*_anvendt(tmp_path))
+    sql = lt.sql_b(a, 3)
+    vaern = sql[:sql.index("SET LOCAL ROLE authenticated;")]
+    assert "NARRATIVE_TEKST_DRIFT" in vaern
+    for p in a["poster"]:
+        assert p["foer_sha256"] in vaern and f"'{p['record_key']}'" in vaern
+
+
+def test_verify_b_daekker_alle_bundne_narrativer(tmp_path):
+    """Efterkontrollen er en mængde: også de urørte narrativer skal have eksportens tekst-sha (Opus 5)."""
+    bidder, noegle, samlet, ark = _anvendt(tmp_path)
+    a = lt.anvend(bidder, noegle, samlet, ark)
+    assert sorted(f["record_key"] for f in a["forventet"]) == ["R-1", "R-2", "R-3"]
+    sql = lt.verify_b_sql(a)
+    assert noegle["p3"]["tekst_sha256"] in sql                       # urørt (kun rapport)
+    assert noegle["p1"]["tekst_sha256"] not in sql                   # revideret: forventes efter-teksten
+    assert a["poster"][0]["efter_sha256"] in sql and "afvig=" in sql
+
+
+def test_dollar_tag_undgaar_kollision():
+    """Et record_key med $v$ må ikke kunne lukke DO-blokken (Codex 7)."""
+    body = "x $v$ y $t6m$ z"
+    tag = lt._dollar_tag(body)
+    assert tag.startswith("$") and tag.endswith("$") and tag not in body
+    a = {"source_id": 3, "poster": [{"record_key": "R-$v$-1", "person_id": 1, "state_sha256": "a" * 64,
+                                     "foer_sha256": "b" * 64, "efter_tekst": "x", "efter_sha256": "c" * 64,
+                                     "rettelser": 1}],
+         "forventet": [{"record_key": "R-$v$-1", "sha256": "c" * 64}]}
+    for sql in (lt.verify_b_sql(a), lt.sql_b(a, 3)):
+        do = [l for l in sql.splitlines() if l.startswith("DO ")]
+        assert do
+        for l in do:
+            tag = l.split()[1]
+            assert l.count(tag) == 2
+
+
+def test_kort_viser_poster_modellen_ikke_fandt(tmp_path):
+    """En post, modellen ikke fandt på sidebilledet, får et rapportkort, selv uden rettelser (Codex 6)."""
+    b = [{"post": "p1", "billede": "ikke_fundet", "manglende_fakta": 0, "rettelser": []},
+         {"post": "p2", "billede": "bekraefter", "manglende_fakta": 0, "rettelser": []},
+         {"post": "p3", "billede": "bekraefter", "manglende_fakta": 0, "rettelser": []}]
+    bidder, _, samlet = opsaet(tmp_path, b)
+    kort = lt.byg_kort(samlet, bidder)
+    assert [(k["type"], k["post"], k["grund"]) for k in kort] == [("rapport", "p1", "ikke_fundet")]
+    html = lt.render(kort, samlet["manifest_sha256"])[0]
+    assert "ikke fundet posten på sidebilledet" in html
