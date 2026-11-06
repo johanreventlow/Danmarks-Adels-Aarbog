@@ -289,6 +289,8 @@ def cmd_sql(a) -> int:
     anvendt = anvend(mg._bidder_i(ud), mg._laes_json(ud / "noegle.json"), samlet,
                      (ud / "ark-b.txt").read_text(encoding="utf-8"))
     src = anvendt["source_id"]
+    if not anvendt["poster"]:
+        raise GennemgangError("INGEN_RETTELSER")   # intet L/K på arket: ingen ceremoni
     sha = _skriv(ud / "apply-b.sql", sql_b(anvendt, src))
     _skriv(ud / "verify-b.sql", verify_b_sql(anvendt))
     mg._skriv_json(ud / "k-sager.json", anvendt["k_sager"])

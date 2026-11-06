@@ -335,14 +335,20 @@ def cmd_briefs(a) -> int:
 def cmd_saml(a) -> int:
     ud = Path(a.ud)
     bidder = _bidder_i(ud)
+    ud_fil = ud / "samlet.json"
+    if a.bid is not None:                       # pilot: kun én bid, egen udfil
+        bidder = [b for b in bidder if b["bid"] == a.bid]
+        if not bidder:
+            raise GennemgangError("BID_UGYLDIG")
+        ud_fil = ud / f"samlet-pilot-{a.bid}.json"
     ks = [b["bid"] for b in bidder]
     svar_a, svar_b = [ud / f"svar-A-{k}.json" for k in ks], [ud / f"svar-B-{k}.json" for k in ks]
     if not all(p.exists() for p in svar_a + svar_b):
         raise GennemgangError("SVAR_MANGLER")
-    if (ud / "samlet.json").exists():
+    if ud_fil.exists():
         raise GennemgangError("SAMLET_FINDES")
     s = saml(bidder, _laes_json(ud / "noegle.json"), svar_a, svar_b)
-    _skriv_json(ud / "samlet.json", s)
+    _skriv_json(ud_fil, s)
     t = s["taelling"]
     print("MG_SAML_OK " + " ".join(f"{k}={t[k]}" for k in (
         "a_ok", "a_markeret", "b_poster_ok", "b_poster_uverificeret", "b_rettelser", "a_grupper", "b_grupper", "graense", "tvivl",
@@ -411,6 +417,7 @@ def main(argv: list | None = None) -> int:
     br.add_argument("--skabelon", type=Path, default=Path(__file__).parent / "model_gennemgang_brief.md")
     sa = sub.add_parser("saml")
     sa.add_argument("--ud", type=Path, required=True)
+    sa.add_argument("--bid", type=int, default=None, help="pilot: kun denne bid, til samlet-pilot-<k>.json")
     a = ap.parse_args(argv)
     try:
         return {"input": cmd_input, "briefs": cmd_briefs, "saml": cmd_saml}[a.cmd](a)

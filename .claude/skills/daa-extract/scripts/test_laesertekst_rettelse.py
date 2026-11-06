@@ -296,3 +296,12 @@ def test_cli_sql(tmp_path, capsys):
     assert (tmp_path / "graensefejl.txt").read_text(encoding="utf-8").splitlines() == ["GRÆNSEFEJL: p2-r2 R-2"]
     assert lt.main(["sql", "--ud", str(tmp_path)]) == 2
     assert "SQL_FINDES" in capsys.readouterr().err
+
+
+def test_cli_sql_uden_rettelser(tmp_path, capsys):
+    samlet = _cli_mappe(tmp_path)
+    sv = tmp_path / "svar.json"
+    sv.write_text(json.dumps(_svarfil(samlet, {"bg1": "N"})), encoding="utf-8")
+    assert lt.main(["flet", "--ud", str(tmp_path), str(sv)]) == 0
+    assert lt.main(["sql", "--ud", str(tmp_path)]) == 2
+    assert "INGEN_RETTELSER" in capsys.readouterr().err and not (tmp_path / "apply-b.sql").exists()

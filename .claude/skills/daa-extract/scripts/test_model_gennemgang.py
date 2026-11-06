@@ -412,3 +412,23 @@ def test_grupper_b_holder_tvivl_for_sig():
     g = mg.grupper_b(b)
     assert sorted(sorted(x["elementer"]) for x in g) == [["p1-r1", "p2-r1"], ["p3-r1"]]
     assert {x["billede"] for x in g} == {"bekraefter", "tvivl"}
+
+
+def test_cli_saml_pilot_paa_een_bid(tmp_path, capsys):
+    """Piloten (Task 8 step 1): kun bid k samles, til samlet-pilot-<k>.json; den fulde saml kan køre bagefter."""
+    e = eksport()
+    e["poster"] = e["poster"][1:] * 2          # to poster uden forslag, to bidder à 1
+    bidder, noegle = mg.byg_input(e, bid=1)
+    for b in bidder:
+        mg._skriv_json(tmp_path / f"input-{b['bid']}.json", b)
+    mg._skriv_json(tmp_path / "noegle.json", noegle)
+    for k, post in ((1, "p1"), (2, "p2")):
+        (tmp_path / f"svar-A-{k}.json").write_text("[]", encoding="utf-8")
+        (tmp_path / f"svar-B-{k}.json").write_text(json.dumps([_b(post)]), encoding="utf-8")
+    (tmp_path / "svar-B-2.json").unlink()
+    assert mg.main(["saml", "--ud", str(tmp_path), "--bid", "1"]) == 0
+    assert "b_poster_ok=1" in capsys.readouterr().out
+    assert (tmp_path / "samlet-pilot-1.json").exists() and not (tmp_path / "samlet.json").exists()
+    (tmp_path / "svar-B-2.json").write_text(json.dumps([_b("p2")]), encoding="utf-8")
+    assert mg.main(["saml", "--ud", str(tmp_path)]) == 0
+    assert "b_poster_ok=2" in capsys.readouterr().out
