@@ -25,6 +25,10 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   filteret beskytter, er databaseværdier, der kan stamme fra senere udgaver.
 > - De 13 1939-narrativer uden record-binding kan ikke knyttes til en post (1939 har ingen placements før 6d) og går
 >   derfor ikke til modellen i del 1; de står i eksporten til del 2.
+> - **Grænsen for projektejerens gennemgang gælder pr. del** (projektejeren 6/11 efter piloten, ændrer spec §4.3.3):
+>   piloten (bid 1 af 24) gav 22 svarbare tekstrettelser og 7 markerede faktaforslag, dvs. ca. 530 + 170 punkter i
+>   alt. Del 1 retter kun læsertekst; faktapunkterne vises på del 2's kort og tæller ikke i del 1. Projektejeren
+>   godkendte ca. 530 tekstpunkter i flere omgange; vagten i `saml` er 600 B-grupper.
 
 ## BESLUTTET: tekst fra DAA 1939 må sendes til en model som beslutningsstøtte — bogens personer lever ikke (2026-11-05)
 

@@ -13,7 +13,7 @@ og kildetekst røres ikke (vej (a)); 6c-2's tal og 2018-20's bindinger (`k1`) er
 | eksport | læse-kun: poster, narrativer (med `state_sha256`), placering og forslag → ny gennemgangsmappe | nej |
 | input, briefs | modelinput i bidder à 25 poster med sidebilleder (150 dpi), én brief pr. bid | nej (lokalt) |
 | model | Opus-underagenter, højst 6 ad gangen; hver læser kun sin inputfil og sine sidebilleder og skriver kun `svar-A-k`/`svar-B-k` | nej (lokalt) |
-| saml | fail-closed sammenlægning; stop ved over 300 grupper (exit 3) | nej (lokalt) |
+| saml | fail-closed sammenlægning; stop ved over 600 B-grupper (exit 3; A-grupperne venter til del 2) | nej (lokalt) |
 | kort, flet, sql | projektejerens kort (L/K/N/tom) → ark bundet til manifestet → ceremoniens SQL | nej (lokalt) |
 | apply-b | `red_revider_publiceret_person_narrative_record` pr. post med eksportens `state_sha256`, i én transaktion | narrativ-revisioner |
 
@@ -74,7 +74,7 @@ Alle kommandoer køres fra `~/.private/5ab-overfoersel` (operatørens cwd) som
 | Linje | Betyder | Gør |
 |---|---|---|
 | `T6M_MAAL_UKENDT` / `…_TILSTAND` | basen er ikke i tilstand d med 6c-2's tal | stop; mål og spørg |
-| `T6M_OVER_TAERSKEL` | over 300 grupper efter gruppering | stop; vis projektejeren tallene |
+| `T6M_OVER_TAERSKEL` | over 600 B-grupper efter gruppering (decisions 2026-11-06) | stop; vis projektejeren tallene |
 | `SVAR_*`, `RETTELSE_*`, `BILLEDSTOETTE_MANGLER` (saml) | et modelsvar er ugyldigt | kør den bid igen med en ny underagent |
 | `MANIFEST_MISMATCH`, `SVAR_IKKE_TILLADT`, `SVAR_KONFLIKT` (flet/sql) | svarfil eller ark passer ikke til samlet | lav kort igen; aldrig håndrettelse af arket |
 | `T6M_NARRATIVER_AENDRET_SIDEN_DUMP` / `…_SIDEN_EKSPORT` | et 1939-narrativ er ændret efter dump/eksport | intet er skrevet; find ændringen, ny eksport |
