@@ -35,6 +35,19 @@ specen bygger på samtalen 5/11 (§3). Valg, der ikke er projektejerens, er mark
 | 1939's narrativer med record-binding (`narrative_record_publication`) | 563 `published`; 13 uden binding |
 | 1939's narrativer med afledte hændelser (`haendelse`) | 0 |
 
+**Genmålt 2026-11-06** (plan del 1, Task 0) på stand-in `_6m` = prod-kopi efter 6c-2's ceremoni 4 (tilstand d),
+læse-kun, kun antal:
+
+| Mål | Antal |
+|---|---|
+| 1939's source records / narrativer | 592 / 576 (163.155 tegn i de 563 bundne) |
+| Forslag | 2.774: 1.106 `accepted`, 1.551 `proposed`, 63 `rejected`, 54 `unresolved`; alle 2.774 knyttet til én post |
+| Bundne narrativer (`published`) | 563: 561 `publish_revision` tilladt, 2 kun `withdraw` (kun rapport); ingen `stale_published`, ingen blokering |
+| Narrativer uden binding | 13 (8 med legacy-ref); ingen kan knyttes til en post via personaernes identitet (1939 har ingen placements før 6d) |
+| Poster uden narrativ | 29 (modellen læser OCR-teksten; kun rapport) |
+| Narrativer tegn-identiske med postens OCR-vindue | 3 (27 efter mellemrumsnormalisering) |
+| Eksportens køretid (én læse-kun forespørgsel) | 1,45 s på stand-in |
+
 Bogens PDF ligger lokalt (gitignoreret) og kan give sidebilleder. `private.source_observation_text` har ingen rækker
 for 1939 på `_slut2`; hvor 1939's posttekst bor (occurrences og deres tekststykker, som kortenes vindue syr sammen),
 måler planen (§8 pkt. 4).
