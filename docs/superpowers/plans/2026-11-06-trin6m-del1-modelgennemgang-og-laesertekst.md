@@ -19,7 +19,9 @@ Opus-underagenter i Claude Code.
 **Opdeling (*mit valg*, rådgiverens forslag):** specen er delt i to planer. **Del 1 (denne):** værktøjet, hele
 modelkørslen (A og B), projektejerens B-kort og ceremonien for læsertekst. **Del 2 (senere plan):** A-kortene, ny DDL
 for en forslagsversion med menneskelig læsning (specens §4.4-hul), flytning af afgørelse og binding, og de
-kildetekstrevisioner, projektejeren vælger sag for sag (svaret `K` i del 1). Del 2 planlægges ud fra del 1's tal.
+kildetekstrevisioner, projektejeren vælger sag for sag (svaret `K` i del 1), samt skrivevejen for legacy-narrativer
+uden record-binding (spec §8.6; 13 på `_slut2`, Task 0 måler i prod-kopien). De gennemgås af modellen i del 1, og
+deres rettelser står i `legacy-sager.json` som input til del 2. Del 2 planlægges ud fra del 1's tal.
 
 ## Global Constraints
 
@@ -90,22 +92,28 @@ kildetekstrevisioner, projektejeren vælger sag for sag (svaret `K` i del 1). De
 **Interfaces:**
 - Produces: ét JSON-dokument på stdout:
   `{"udgave": str, "source_id": int, "poster": [{"record_key": str, "narrativ": {"person_id": int, "narrative_id": int,
-  "tekst": str, "status": str, "blokeret": str|null, "state_sha256": str} | null, "placering": [samme form som
+  "tekst": str, "status": str, "blokeret": str|null, "tilladte": [str], "state_sha256": str} | null, "legacy":
+  {"person_id": int, "legacy_ref": str, "tekst": str} | null, "placering": [samme form som
   persona_kort_kontekst.sql's plac], "forslag": [{"interpretation_id": str, "version": int, "predicate": str,
   "value_text": str, "status": str, "persona_id": str, "person_id": int|null}]}], "personer": {"<person_id>":
   {"navn","fuldt_navn","foedt","doed","titel"}}}`. Variabel `:src` (kilde-id).
-- `state_sha256` og `blokeret` kommer fra `private.narrative_record_state(person_id, :src, record_key, true)` og
-  `public.red_person_narrative_records`' `blocking_reason`; `person_id` på forslaget er personaens accepterede identitet.
+- `state_sha256` kommer fra `private.narrative_record_state(person_id, :src, record_key, false)` — **`false`**: med
+  `true` tager funktionen `FOR UPDATE` og `LOCK TABLE public.change_set`, hvilket en læse-kun transaktion afviser
+  (Codex #1; læse-RPC'en bruger selv `false`). `blokeret` og `tilladte` er `blocking_reason` og `allowed_actions` som
+  i `public.red_person_narrative_records`. `legacy` er narrativer uden record-binding (legacy-grenen i samme RPC).
+  `person_id` på forslaget er personaens accepterede identitet.
 
 - [ ] **Step 1: Skriv testen** `test_eksport_sql_er_laese_kun`: filen starter med `BEGIN;` + `SET TRANSACTION READ
   ONLY;`, slutter med `ROLLBACK;`, indeholder ingen af `INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|GRANT` (som
-  `test_persona_kort.test_kontekst_sql_er_laese_kun`), og bruger `:'src'`/`:src`.
+  `test_persona_kort.test_kontekst_sql_er_laese_kun`), bruger `:'src'`/`:src`, og kalder `narrative_record_state`
+  kun med `false` som sidste argument.
 - [ ] **Step 2:** `python3 -m pytest .claude/skills/daa-extract/scripts/test_model_gennemgang.py -q` → FAIL (filen findes ikke).
 - [ ] **Step 3:** Skriv SQL'en. Placering og stykker som i `persona_kort_kontekst.sql` (occ/plac), men pr. post (via
   `source_record_anchor_current` `accepted`) og for alle forslag i `private.interpretation_current` med `source_id=:src`
   (alle statusser).
 - [ ] **Step 4:** Testen → PASS. Kør på stand-in'en fra Task 0 (hovedsessionen, output til 0600-fil i `~/.private`,
-  tæl kun): `poster`=592, forslag i alt = Task 0's tal, narrativer = Task 0's tal.
+  tæl kun): kørslen lykkes i læse-kun transaktionen; `poster`=592, forslag i alt = Task 0's tal, narrativer og
+  legacy-narrativer = Task 0's tal.
 - [ ] **Step 5:** Commit: `feat(6m): læse-kun eksport af 1939's poster, narrativer og forslag`
 
 ### Task 3: Modelinput med filter og sidebilleder
@@ -130,8 +138,10 @@ sidevalgslogikken i briefen; implementeren læser ikke `~/.private`).
     forslag `p<n>-f<i>`. Bid: `{"udgave", "poster": [{"post", "tekst" (narrativets tekst, ellers OCR-vinduets post),
     "tekstkilde": "narrativ"|"ocr", "ocr_vindue", "sider", "kun_rapport": bool, "forslag": [{"ref", "felt",
     "vaerdi", "databasen" (kun navn/titel/fødsel/død, bundet og sikker), "status"}], "manuelle_forslag": int}]}`.
-    Nøgle: `{ref: {"type": "post", "record_key", "narrative_id", "state_sha256"} | {"type": "forslag",
-    "interpretation_id", "version"}}`.
+    Nøgle: `{ref: {"type": "post", "source_id", "record_key", "person_id", "narrative_id", "state_sha256",
+    "tekst_sha256", "skrivbar": bool, "legacy_ref": str|null} | {"type": "forslag", "interpretation_id", "version"}}`.
+    `skrivbar` = narrativ med status `published` og `"publish_revision"` i `tilladte` (Codex #4). Legacy-narrativer
+    sendes med deres egen tekst (`tekstkilde="legacy"`) og er `kun_rapport`; deres skrivevej er del 2's (se nedenfor).
   - CLI: `model_gennemgang.py input --eksport F --pdf P --ud D [--bid 25]` → `D/input-<k>.json`, `D/noegle.json`,
     `D/sider/s<p>.png` (alle 0600). Printer kun `MG_INPUT_OK poster= bidder= forslag= manuelle= sider= uden_billede=`.
 
@@ -141,7 +151,9 @@ sidevalgslogikken i briefen; implementeren læser ikke `~/.private`).
   - `test_forslag_om_usikker_person_gaar_uden_modelforslag` — forslaget optræder ikke i bidden; `manuelle_forslag`=1.
   - `test_databasevaerdi_kun_for_kontrolfelter_og_bundne` — sted-forslag har ingen `databasen`; ubundet navn heller ikke.
   - `test_ingen_interne_id_i_bidder` — ingen uuid (regex fra `control_model_v2.UUID`) og intet `person_id` i bid-JSON.
-  - `test_narrativ_uden_binding_er_kun_rapport` — `narrativ=None` eller `blokeret` ikke-null → `kun_rapport=True`.
+  - `test_kun_rapport_uden_publish_revision` — `tilladte=["withdraw"]` med `blokeret=None` → `kun_rapport=True`;
+    `status="stale_published"` → `kun_rapport=True`; legacy → tekst fra legacy, `kun_rapport=True`.
+  - `test_noegle_bærer_person_og_kilde` — postnøglen har `person_id`, `source_id`, `state_sha256`, `tekst_sha256`.
   - `test_vaelg_sider_altid_forekomst_og_belagt_nabo` — stub `sideord`; nabo med 10 % udelades, med 20 % tages; max 4.
   - `test_cli_printer_kun_tal` — stdout matcher `^MG_INPUT_OK( [a-z_]+=[0-9]+)+$`, `render_side` monkeypatchet.
 - [ ] **Step 2:** Kør → FAIL.
@@ -165,21 +177,30 @@ sidevalgslogikken i briefen; implementeren læser ikke `~/.private`).
   - `svar-B-<k>.json`: `[{"post": "p3", "billede": ..., "rettelser": [{"fra": str, "til": str, "art":
     "ocr"|"orddeling"|"mangler"|"overskydende"|"graense", "billede": "bekraefter"|"tvivl", "rammer_forslag": [ref],
     "grund": str}], "manglende_fakta": int}]`; `"rettelser": []` betyder OK. `manglende_fakta` (meningsbærende
-    udsagn uden forslag, spec §4.1 A) tælles kun og skrives ikke. `fra` skal forekomme præcis én gang i postens `tekst`.
+    udsagn uden forslag, spec §4.1 A) tælles kun og skrives ikke. `fra` skal være ikke-tom og forekomme præcis én gang i postens `tekst` (en indsættelse skrives
+    med nabo-ord i både `fra` og `til`; to ens fejl skrives med så meget kontekst, at hver er entydig). Modellen
+    regner ikke tegnpositioner; `saml` beregner dem (Codex #5, *mit valg*: modeller er upålidelige med offsets).
 - Produces:
   - `skriv_briefs(skabelon: str, mappe: Path, bidder: int) -> list[Path]` — `mappe/brief-<k>.md`.
   - `saml(bidder: list[dict], noegle: dict, svar_a: list[Path], svar_b: list[Path]) -> dict` →
-    `{"A": [...], "B": [...], "taelling": {...}}`; kaster `GennemgangError` med `SVAR_DUBLET`, `SVAR_MANGLER`,
+    `{"A": [...], "B": [...], "taelling": {...}, "manifest_sha256": str}`. Hver B-rettelse får en stabil ref
+    `p<n>-r<i>` og halvåbent interval `[start, slut)` mod postens `tekst_sha256`; `manifest_sha256` er sha256 af den
+    kanoniske JSON af alle B-rettelser (ref, post, start, slut, fra, til, art, billede) og grupperne (Codex #2); kaster `GennemgangError` med `SVAR_DUBLET`, `SVAR_MANGLER`,
     `SVAR_UKENDT_REF`, `SVAR_UGYLDIGT`, `RETTELSE_IKKE_ENTYDIG`, `RETTELSE_OVERLAPPER`, `BILLEDSTOETTE_MANGLER`.
   - `grupper_b(b: list[dict]) -> list[dict]` — nøgle `(art, fra, til)` for `ocr`/`orddeling`, ellers én pr. rettelse;
     `graense` grupperes ikke og tæller ikke med i tærsklen.
+  - `grupper_a(a: list[dict]) -> list[dict]` — markerede A-svar (alt andet end `OK`); nøgle `(svar, felt, vaerdi,
+    bogens_laesning)` for `FORSLAG_FEJL`, ellers én pr. svar. Tærsklen er `len(grupper_a) + len(grupper_b) > 300`
+    (spec §4.3.3 gælder begge spor; Codex #9).
   - CLI: `model_gennemgang.py saml --ud D` → `D/samlet.json` (0600); printer `MG_SAML_OK a_ok= a_markeret= b_poster_ok=
-    b_rettelser= b_grupper= graense= tvivl= over_taerskel=0|1`; ved `over_taerskel=1` exit 3 (stop, §4.3.3).
+    b_rettelser= a_grupper= b_grupper= graense= tvivl= over_taerskel=0|1 manifest=<sha8>`; ved `over_taerskel=1` exit 3 (stop, §4.3.3).
 
 - [ ] **Step 1: Skriv de fejlende tests** (én pr. fejlkode) plus:
   - `test_saml_ikke_fundet_kraever_tvivl` — `billede="ikke_fundet"` med `FORSLAG_FEJL` → `BILLEDSTOETTE_MANGLER`.
   - `test_grupper_b_samler_samme_ocr_par` — tre `ocr` `"rn"→"m"` på tre poster → én gruppe med 3 elementer.
-  - `test_taerskel_300_efter_gruppering` — 301 grupper → `over_taerskel=1`, exit 3; 300 → 0.
+  - `test_taerskel_300_over_begge_spor` — 200 A-grupper + 101 B-grupper → `over_taerskel=1`, exit 3; 300 → 0.
+  - `test_saml_beregner_interval_og_manifest` — `tekst[start:slut] == fra`; samme input to gange → samme
+    `manifest_sha256`; ændret `til` → anden.
   - `test_skabelon_naevner_alle_svarvaerdier` — skabelonen indeholder hver svarværdi, ordet »sidebillede« og
     sætningen om, at svaret til sessionen kun er antal.
 - [ ] **Step 2:** Kør → FAIL. **Step 3:** Implementér. **Step 4:** Kør → PASS.
@@ -198,7 +219,8 @@ sidevalgslogikken i briefen; implementeren læser ikke `~/.private`).
   - `byg_kort(samlet: dict, bidder: list[dict]) -> list[dict]` — én side pr. gruppe/post; hver række viser
     nuværende tekst med kontekst, rettelsen, art, billedstøtte, modellens grund og sidebilledets sti.
   - `render(kort: list[dict], input_sha256: str, pr_side: int = 40) -> list[str]` — HTML-sider.
-  - `flet_b(input_sha256: str, svarfiler: list[dict]) -> str` — ark: `# input <sha256>` og én linje pr. rettelse
+  - `flet_b(manifest: dict, svarfiler: list[dict]) -> str` — svarfiler og ark bærer `manifest_sha256` (kortene
+    indlejrer den); ark: `# manifest <sha256>` og én linje pr. rettelse
     `R <ref> : L|K|N|_` (L = ret læsertekst, K = ret læsertekst og meld kildetekst-sag til del 2, N = afvis, _ =
     ubesvaret = ingen handling).
   - CLI: `laesertekst_rettelse.py kort --ud D` → `D/kort-b/kort-<n>.html`; `flet --ud D SVAR...` → `D/ark-b.txt`
@@ -211,7 +233,10 @@ sidevalgslogikken i briefen; implementeren læser ikke `~/.private`).
   - `test_graense_og_kun_rapport_har_ingen_knapper`.
   - `test_vejledning_definerer_hvert_svar` — HTML indeholder forklaring af L, K, N og tomt.
   - `test_flet_gruppesvar_med_undtagelse` — gruppe-svar L, ét element N → arket har L for de andre, N for det ene.
-  - `test_flet_afviser_andet_input` — svarfil med andet `input_sha256` → `INPUT_MISMATCH`.
+  - `test_flet_afviser_andet_manifest` — svarfil med andet `manifest_sha256` → `MANIFEST_MISMATCH`.
+  - `test_flet_afviser_forbudte_svar` — svar på ukendt ref → `SVAR_UKENDT_REF`; L/K på en `graense`- eller
+    `kun_rapport`-række → `SVAR_IKKE_TILLADT`; ugyldigt token → `SVAR_UGYLDIGT`; samme ref med forskellige svar i to
+    filer → `SVAR_KONFLIKT` (Codex #6).
   - `test_flet_ark_findes` — anden flet i samme mappe → `ARK_FINDES`.
 - [ ] **Step 2:** Kør → FAIL. **Step 3:** Implementér (mønster: `persona_kort.html`/`persona_kort.py`'s render og
   `flet_sheet`, svar gemt lokalt i browseren og hentet som JSON). **Step 4:** Kør → PASS.
@@ -225,7 +250,8 @@ sidevalgslogikken i briefen; implementeren læser ikke `~/.private`).
 
 **Interfaces:**
 - Produces:
-  - `anvend(bidder, noegle, samlet, ark_tekst: str) -> dict` → `{"poster": [{"record_key", "person_id",
+  - `anvend(bidder, noegle, samlet, ark_tekst: str) -> dict` — genberegner `manifest_sha256` af `samlet` og kræver
+    arkets; samme afvisninger som `flet_b` (forsvar i dybden). → `{"poster": [{"record_key", "person_id",
     "state_sha256", "foer_sha256", "efter_tekst", "efter_sha256", "rettelser": int}], "k_sager": [...],
     "graense": [...]}`; kaster `RETTELSE_IKKE_ENTYDIG`/`RETTELSE_OVERLAPPER` igen mod den aktuelle tekst.
   - `sql_b(anvendt: dict, source_id: int) -> str` — én transaktion: rolle/aktør som 6c-2
@@ -234,7 +260,7 @@ sidevalgslogikken i briefen; implementeren læser ikke `~/.private`).
     tekst som sikkert SQL-literal (enkeltcitater fordoblet; ingen `E''`).
   - `verify_b_sql(anvendt: dict) -> str` — læse-kun: hver posts `narrative.tekst`-sha256 = `efter_sha256`; antal.
   - CLI: `laesertekst_rettelse.py sql --ud D` → `D/apply-b.sql`, `D/verify-b.sql`, `D/k-sager.json`,
-    `D/graensefejl.txt` (linjer med `GRÆNSEFEJL: `-forstavelse, kun ref og record_key); printer
+    `D/graensefejl.txt` (linjer med `GRÆNSEFEJL: `-forstavelse, kun ref og record_key), `D/legacy-sager.json`; printer
     `LT_SQL_OK poster= rettelser= k_sager= graense= sha256=`.
 
 - [ ] **Step 1: Skriv de fejlende tests:**
@@ -245,6 +271,8 @@ sidevalgslogikken i briefen; implementeren læser ikke `~/.private`).
   - `test_k_skrives_ikke_i_del_1` — K-rettelser ændrer læserteksten (som L) og står i `k_sager`; ingen
     kildetekst-RPC i SQL'en.
   - `test_kun_rapport_rores_ikke`.
+  - `test_anvend_afviser_aendret_samlet` — `til` ændret i `samlet` efter flet → `MANIFEST_MISMATCH`.
+  - `test_anvend_kraever_tekst_sha` — postens aktuelle tekst-sha ≠ nøglens `tekst_sha256` → `TEKST_DRIFT`.
 - [ ] **Step 2:** Kør → FAIL. **Step 3:** Implementér. **Step 4:** Kør → PASS.
 - [ ] **Step 5:** Commit: `feat(6m): ceremoni-SQL for læsertekst med state-sha-værn og verifikation`
 
@@ -258,9 +286,14 @@ sidevalgslogikken i briefen; implementeren læser ikke `~/.private`).
   eksport-, input-, samlet-, ark- og SQL-hash. Kun antal og hashes ud.
 - [ ] **Step 2:** Foreslå projektejeren præcise allow-regler for de læse-/lokale handlinger (aldrig præfiksregel);
   hans valg.
-- [ ] **Step 3:** Øvelse fra `~/.private` (operatørens cwd) på stand-in'en fra Task 0 med en syntetisk ark-fil (L på 3
-  rettelser): `apply-b` → `verify` grøn; `fortryd` fra dumpet → narrativerne er som før (sha). Mål sekunder pr. post.
-- [ ] **Step 4:** Skriv runbooken (rækkefølge, forventede linjer, fortrydelse, fryse) og commit:
+- [ ] **Step 3:** Øvelse fra `~/.private` (operatørens cwd) på stand-in'en fra Task 0 med en syntetisk ark-fil (L på
+  rettelser i mindst 20 poster), med runnerens aktør/rolle som i prod (`request.jwt.claim.sub`, rolle `redaktion`):
+  `apply-b` → `verify` grøn; `fortryd` fra dumpet → narrativerne er som før (sha).
+- [ ] **Step 4 (Codex #8):** Drift-øvelse: ændr ét narrativ på stand-in'en efter `sql`, kør `apply-b` → fejler med
+  `NARRATIVE_RECORD_STATE_STALE`, og også de poster, der blev kaldt før det ændrede, er uændrede (rollback). 
+- [ ] **Step 5 (Codex #8):** Timeout-gate: mål længste enkeltkald og hele transaktionen på stand-in; brug 6c-2's målte
+  prod/stand-in-forhold; kræv at længste kald × forhold < 60 s (halvdelen af prods 2 min). Ellers del ceremonien i bidder.
+- [ ] **Step 6:** Skriv runbooken (rækkefølge, forventede linjer, fortrydelse, fryse) og commit:
   `docs(runbook): trin 6m del 1 i prod`
 
 ### Task 8: Modelkørsel, projektejerens kort og ceremoni i prod
