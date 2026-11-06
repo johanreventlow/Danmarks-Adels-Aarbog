@@ -164,7 +164,8 @@ sidevalgslogikken i briefen; implementeren læser ikke `~/.private`).
     `billede="bekraefter"`.
   - `svar-B-<k>.json`: `[{"post": "p3", "billede": ..., "rettelser": [{"fra": str, "til": str, "art":
     "ocr"|"orddeling"|"mangler"|"overskydende"|"graense", "billede": "bekraefter"|"tvivl", "rammer_forslag": [ref],
-    "grund": str}]}]`; `"rettelser": []` betyder OK. `fra` skal forekomme præcis én gang i postens `tekst`.
+    "grund": str}], "manglende_fakta": int}]`; `"rettelser": []` betyder OK. `manglende_fakta` (meningsbærende
+    udsagn uden forslag, spec §4.1 A) tælles kun og skrives ikke. `fra` skal forekomme præcis én gang i postens `tekst`.
 - Produces:
   - `skriv_briefs(skabelon: str, mappe: Path, bidder: int) -> list[Path]` — `mappe/brief-<k>.md`.
   - `saml(bidder: list[dict], noegle: dict, svar_a: list[Path], svar_b: list[Path]) -> dict` →
