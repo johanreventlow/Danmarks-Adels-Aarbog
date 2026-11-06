@@ -4,9 +4,9 @@
   input --eksport F --pdf P --ud D [--bid 25]  -> D/input-<k>.json, D/noegle.json, D/sider/s<p>.png (alle 0600)
 
 Input kommer fra `model_gennemgang_eksport.sql` (læse-kun). Modellen får ingen interne id'er, kun ref'er (`p<n>` for
-en post, `p<n>-f<i>` for et forslag); nøglen bliver hos operatøren. Filter (decisions 2026-11-05, fail-closed): et
-forslag om en person, hvis databaseværdier ikke opfylder `sikker`, sendes ikke; det tælles som manuelt. Databasens
-værdi vises kun for kontrolfelterne (navn, titel, fødsel, død) og kun for bundne, sikre personer.
+en post, `p<n>-f<i>` for et forslag); nøglen bliver hos operatøren. Filter (decisions 2026-11-05 og 2026-11-06,
+fail-closed): databasens værdi vises kun for kontrolfelterne (navn, titel, fødsel, død) og kun for bundne personer, der
+opfylder `sikker`. Forslag om andre personer sendes uden databaseværdi (bogteksten om dem ser modellen alligevel).
 Generaliseret fra 6c-2's modelforslag.py (operatørens private kopi). Printer kun antal; filer skrives 0600.
 """
 from __future__ import annotations
@@ -18,6 +18,7 @@ import os
 import re
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Callable
 
@@ -115,18 +116,16 @@ def byg_input(eksport: dict, *, bid: int = 25,
                        "skrivbar": skrivbar, "legacy_ref": (leg or {}).get("legacy_ref") if not nar else None}
         occ = _occ_sider(p.get("placering") or [])
         sider = sidevaelger(occ, (vindue or {}).get("post") or tekst) if sidevaelger else occ
-        forslag, manuelle = [], 0
+        forslag, uden_db = [], 0
         for i, f in enumerate(p.get("forslag") or [], 1):
             fref = f"{ref}-f{i}"
             pid = f.get("person_id")
             person = personer.get(str(pid)) if pid is not None else None
-            manuel = pid is not None and not (person and sikker(person))
-            noegle[fref] = {"type": "forslag", "interpretation_id": f["interpretation_id"], "version": f["version"],
-                            "manuel": manuel}
-            if manuel:
-                manuelle += 1
-                continue
+            noegle[fref] = {"type": "forslag", "interpretation_id": f["interpretation_id"], "version": f["version"]}
             felt = {"ref": fref, "felt": f["predicate"], "vaerdi": f.get("value_text"), "status": f["status"]}
+            if pid is not None and not (person and sikker(person)):
+                uden_db += 1                 # filteret: ingen databaseværdi for personen
+                person = None
             if person is not None and f["predicate"] in VISNING:
                 db = _db_vaerdi(f["predicate"], person)
                 if db is not None:
@@ -134,7 +133,7 @@ def byg_input(eksport: dict, *, bid: int = 25,
             forslag.append(felt)
         poster.append({"post": ref, "tekst": tekst, "tekstkilde": kilde, "ocr_vindue": vindue,
                        "sider": [f"s{s}.png" for s in sider], "kun_rapport": not skrivbar, "forslag": forslag,
-                       "manuelle_forslag": manuelle})
+                       "uden_db": uden_db})
     bidder = [{"udgave": eksport.get("udgave"), "bid": k + 1, "poster": poster[i:i + bid]}
               for k, i in enumerate(range(0, len(poster), bid))]
     return bidder, noegle
@@ -185,14 +184,14 @@ def over_taerskel(a_grupper: int, b_grupper: int) -> bool:
 
 
 def grupper_b(b: list) -> list:
-    """Svarbare B-rettelser grupperet: `ocr`/`orddeling` på (art, fra, til, billede), ellers én pr. rettelse.
-    Billedstøtten er en del af nøglen: ét gruppesvar må aldrig dække både set og tvivlsomme rettelser.
+    """Svarbare B-rettelser grupperet: billedbekræftede `ocr`/`orddeling` på (art, fra, til), ellers én pr. rettelse.
+    En tvivlsrettelse (ikke set på sidebilledet) grupperes aldrig: hver kræver projektejerens eget klik.
     Grænserettelser og rettelser på `kun_rapport`-poster er ikke svarbare og grupperes ikke."""
     grupper: dict = {}
     for r in b:
         if r["art"] == "graense" or r.get("kun_rapport"):
             continue
-        noegle = ((r["art"], r["fra"], r["til"], r.get("billede")) if r["art"] in GRUPPERBAR
+        noegle = ((r["art"], r["fra"], r["til"]) if r["art"] in GRUPPERBAR and r.get("billede") == "bekraefter"
                   else ("enkelt", r["ref"]))
         grupper.setdefault(noegle, {"art": r["art"], "billede": r.get("billede"), "elementer": []})[
             "elementer"].append(r["ref"])
@@ -212,10 +211,16 @@ def grupper_a(a: list) -> list:
 
 
 def manifest(b: list, grupper: list) -> str:
-    """sha256 af den kanoniske JSON af alle B-rettelser og B-grupperne (Codex #2): ejersvar bindes til den."""
-    felter = ("ref", "post", "start", "slut", "fra", "til", "art", "billede")
+    """sha256 af den kanoniske JSON af alle B-rettelser og B-grupperne (Codex #2): ejersvar bindes til den. Hver
+    rettelse bærer postens record_key og tekst-sha, så et svar aldrig kan gælde en anden post (review Codex 1)."""
+    felter = ("ref", "post", "record_key", "tekst_sha256", "start", "slut", "fra", "til", "art", "billede")
     kanon = {"b": [{k: r[k] for k in felter} for r in b], "grupper": grupper}
     return _sha(json.dumps(kanon, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
+def _usynlig(s: str) -> bool:
+    """Styre- og formattegn (Cc/Cf, fx nul-bredde, retningsskift) kan ikke ses på kortet; linjeskift er tilladt."""
+    return any(unicodedata.category(ch) in ("Cc", "Cf") and ch != "\n" for ch in s)
 
 
 def _entydig(tekst: str, fra: str) -> int:
@@ -248,7 +253,7 @@ def saml(bidder: list, noegle: dict, svar_a: list, svar_b: list) -> dict:
             raise GennemgangError("SVAR_UGYLDIGT")
         if svar == "FORSLAG_FEJL" and not _tekst(laesning):
             raise GennemgangError("SVAR_UGYLDIGT")
-        if svar == "DB_FEJL" and "databasen" not in f:
+        if svar in ("DB_FEJL", "BEGGE") and "databasen" not in f:
             raise GennemgangError("SVAR_UGYLDIGT")
         if svar in ("OK", "FORSLAG_FEJL", "DB_FEJL") and billede != "bekraefter":
             raise GennemgangError("BILLEDSTOETTE_MANGLER")   # uden billedstøtte er svaret TVIVL
@@ -284,7 +289,8 @@ def saml(bidder: list, noegle: dict, svar_a: list, svar_b: list) -> dict:
         for i, r in enumerate(rettelser, 1):
             if (not isinstance(r, dict) or not _tekst(r.get("fra")) or not isinstance(r.get("til"), str)
                     or r.get("art") not in B_ART or r.get("billede") not in B_RETTELSE_BILLEDE
-                    or not isinstance(r.get("rammer_forslag", []), list) or r.get("fra") == r.get("til")):
+                    or not isinstance(r.get("rammer_forslag", []), list) or r.get("fra") == r.get("til")
+                    or _usynlig(r["til"])):
                 raise GennemgangError("SVAR_UGYLDIGT")
             if (pbillede == "ikke_fundet" or not post["sider"]) and r["billede"] != "tvivl":
                 raise GennemgangError("BILLEDSTOETTE_MANGLER")
@@ -296,7 +302,8 @@ def saml(bidder: list, noegle: dict, svar_a: list, svar_b: list) -> dict:
             if any(start < s2 and s1 < slut for s1, s2 in intervaller):
                 raise GennemgangError("RETTELSE_OVERLAPPER")
             intervaller.append((start, slut))
-            b_ud.append({"ref": f"{ref}-r{i}", "post": ref, "start": start, "slut": slut, "fra": r["fra"],
+            b_ud.append({"ref": f"{ref}-r{i}", "post": ref, "record_key": noegle[ref]["record_key"],
+                         "tekst_sha256": noegle[ref]["tekst_sha256"], "start": start, "slut": slut, "fra": r["fra"],
                          "til": r["til"], "art": r["art"], "billede": r["billede"],
                          "rammer_forslag": list(r.get("rammer_forslag", [])), "grund": r.get("grund"),
                          "kun_rapport": post["kun_rapport"]})
@@ -398,7 +405,7 @@ def cmd_input(a) -> int:
     _skriv_json(ud / "noegle.json", noegle)
     poster = [p for b in bidder for p in b["poster"]]
     print(f"MG_INPUT_OK poster={len(poster)} bidder={len(bidder)} "
-          f"forslag={sum(len(p['forslag']) for p in poster)} manuelle={sum(p['manuelle_forslag'] for p in poster)} "
+          f"forslag={sum(len(p['forslag']) for p in poster)} uden_db={sum(p['uden_db'] for p in poster)} "
           f"sider={len(sider)} uden_billede={sum(1 for p in poster if not p['sider'])}")
     return 0
 

@@ -216,7 +216,8 @@ def test_sql_b_citerer_apostrof():
 def test_anvend_afviser_overlap_mod_aktuel_tekst(tmp_path):
     bidder, noegle, samlet = opsaet(tmp_path)
     # en ekstra rettelse, der overlapper p1-r1, smugles ind efter saml; manifestet regnes om, så kun overlapvagten står
-    samlet["B"].insert(1, {"ref": "p1-r2", "post": "p1", "start": 10, "slut": 27, "fra": "Kammerjunkcr 1820",
+    samlet["B"].insert(1, {"ref": "p1-r2", "post": "p1", "record_key": "R-1",
+                           "tekst_sha256": samlet["B"][0]["tekst_sha256"], "start": 10, "slut": 27, "fra": "Kammerjunkcr 1820",
                            "til": "Kammerjunker 1821", "art": "mangler", "billede": "bekraefter", "rammer_forslag": [],
                            "grund": "g", "kun_rapport": False})
     samlet["grupper_b"] = mg.grupper_b(samlet["B"])

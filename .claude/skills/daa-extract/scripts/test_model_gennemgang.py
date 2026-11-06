@@ -17,7 +17,9 @@ def _kode(sql: str) -> str:
 def test_eksport_sql_er_laese_kun():
     sql = EKSPORT_SQL.read_text(encoding="utf-8")
     kode = [l for l in _kode(sql).splitlines() if l.strip()]
-    assert kode[0].strip() == "BEGIN;" and kode[1].strip() == "SET TRANSACTION READ ONLY;"
+    # Ét fast øjebliksbillede for hele eksporten: VOLATILE-funktioner ser ellers nyere commits (Codex 3).
+    assert kode[0].strip() == "BEGIN;"
+    assert kode[1].strip() == "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY;"
     assert kode[-1].strip() == "ROLLBACK;"
     assert not re.search(r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT)\b", "\n".join(kode), re.I)
     assert ":'src'" in sql or ":src" in sql
@@ -88,13 +90,17 @@ def test_sikker_doed_eller_foedt_senest_1939():
     assert mg.sikker({}) is False
 
 
-def test_forslag_om_usikker_person_gaar_uden_modelforslag():
-    bidder, noegle = mg.byg_input(eksport())
-    post = bidder[0]["poster"][0]
-    assert "Kammerherre" not in json.dumps(bidder, ensure_ascii=False)
-    assert post["manuelle_forslag"] == 1
-    manuelle = [v for v in noegle.values() if v["type"] == "forslag" and v.get("manuel")]
-    assert len(manuelle) == 1 and manuelle[0]["interpretation_id"].endswith("000000000004")
+def test_forslag_om_usikker_person_gaar_uden_dbvaerdi():
+    """Projektejeren 6/11: forslaget går til modellen (bogteksten ser den alligevel), men databasens værdi for en
+    person, der ikke opfylder filteret, sendes aldrig."""
+    e = eksport()
+    e["personer"]["2"]["titel"] = "Hemmelig Titel"
+    bidder, noegle = mg.byg_input(e)
+    felt = {f["ref"]: f for f in _alle_forslag(bidder)}
+    assert felt["p1-f4"]["vaerdi"] == "Kammerherre" and "databasen" not in felt["p1-f4"]
+    assert "Hemmelig Titel" not in json.dumps(bidder, ensure_ascii=False)
+    assert bidder[0]["poster"][0]["uden_db"] == 1
+    assert "manuel" not in json.dumps(noegle)
 
 
 def test_databasevaerdi_kun_for_kontrolfelter_og_bundne():
@@ -146,7 +152,7 @@ def test_noegle_baerer_person_og_kilde():
     assert p["state_sha256"] == "c" * 64
     assert p["tekst_sha256"] == hashlib.sha256("Testperson Alfa, f. 1801, død 1870.".encode()).hexdigest()
     assert noegle["p1-f1"] == {"type": "forslag", "interpretation_id": "aaaaaaaa-0000-4000-8000-000000000001",
-                               "version": 1, "manuel": False}
+                               "version": 1}
 
 
 def test_bidder_deles_efter_antal_poster():
@@ -181,7 +187,7 @@ def test_cli_printer_kun_tal(tmp_path, monkeypatch, capsys):
     assert mg.main(["input", "--eksport", str(f), "--pdf", str(tmp_path / "bog.pdf"), "--ud", str(ud)]) == 0
     out = capsys.readouterr().out.strip()
     assert re.fullmatch(r"MG_INPUT_OK( [a-z_]+=[0-9]+)+", out), out
-    assert "poster=2" in out and "manuelle=1" in out and "forslag=4" in out
+    assert "poster=2" in out and "uden_db=1" in out and "forslag=5" in out
     assert (ud / "input-1.json").exists() and (ud / "noegle.json").exists() and (ud / "sider" / "s10.png").exists()
     for p in [ud / "input-1.json", ud / "noegle.json"]:
         assert p.stat().st_mode & 0o077 == 0
@@ -192,7 +198,7 @@ def test_cli_printer_kun_tal(tmp_path, monkeypatch, capsys):
 # --- Task 4: brief-skabelon og fail-closed sammenlægning --------------------------------------------------------
 
 SKABELON = HERE / "model_gennemgang_brief.md"
-A_REFS = ["p1-f1", "p1-f2", "p1-f3", "p1-f5"]   # p1-f4 er manuel (person 2 er ikke sikker)
+A_REFS = ["p1-f1", "p1-f2", "p1-f3", "p1-f4", "p1-f5"]   # p1-f4: person 2 er ikke sikker -> uden databasen
 
 
 def _a(ref, svar="OK", billede="bekraefter", laesning=None):
@@ -231,7 +237,7 @@ def _kode_af(fn):
 def test_saml_alt_ok(tmp_path):
     s = _saml(tmp_path)
     t = s["taelling"]
-    assert (t["a_ok"], t["a_markeret"], t["b_poster_ok"], t["b_rettelser"]) == (4, 0, 2, 0)
+    assert (t["a_ok"], t["a_markeret"], t["b_poster_ok"], t["b_rettelser"]) == (5, 0, 2, 0)
     assert t["over_taerskel"] == 0 and re.fullmatch(r"[0-9a-f]{64}", s["manifest_sha256"])
 
 
@@ -248,8 +254,6 @@ def test_saml_svar_mangler(tmp_path):
 
 def test_saml_svar_ukendt_ref(tmp_path):
     assert _kode_af(lambda: _saml(tmp_path, a=[_a(r) for r in A_REFS] + [_a("p9-f1")])) == "SVAR_UKENDT_REF"
-    # det manuelle forslag har ikke været hos modellen og må ikke besvares
-    assert _kode_af(lambda: _saml(tmp_path, a=[_a(r) for r in A_REFS] + [_a("p1-f4")])) == "SVAR_UKENDT_REF"
     b = [_b("p1", [_r("f. 1801", "f. 1802", rammer=["p2-f1"])]), _b("p2")]
     assert _kode_af(lambda: _saml(tmp_path, b=b)) == "SVAR_UKENDT_REF"
 
@@ -312,8 +316,8 @@ def test_saml_beregner_interval_og_manifest(tmp_path):
 
 
 def test_grupper_b_samler_samme_ocr_par():
-    b = [{"ref": f"p{i}-r1", "post": f"p{i}", "art": "ocr", "fra": "rn", "til": "m", "kun_rapport": False}
-         for i in (1, 2, 3)]
+    b = [{"ref": f"p{i}-r1", "post": f"p{i}", "art": "ocr", "fra": "rn", "til": "m", "kun_rapport": False,
+          "billede": "bekraefter"} for i in (1, 2, 3)]
     b.append({"ref": "p4-r1", "post": "p4", "art": "mangler", "fra": "a", "til": "ab", "kun_rapport": False})
     b.append({"ref": "p5-r1", "post": "p5", "art": "graense", "fra": "x", "til": "y", "kun_rapport": False})
     b.append({"ref": "p6-r1", "post": "p6", "art": "ocr", "fra": "rn", "til": "m", "kun_rapport": True})
@@ -407,11 +411,33 @@ def test_saml_post_uden_sidebilleder_kan_ikke_bekraefte(tmp_path):
 
 
 def test_grupper_b_holder_tvivl_for_sig():
+    """Tvivlsrettelser grupperes aldrig, heller ikke med hinanden: hver kræver sit eget klik (Opus 2)."""
     b = [{"ref": f"p{i}-r1", "post": f"p{i}", "art": "ocr", "fra": "rn", "til": "m", "kun_rapport": False,
-          "billede": "tvivl" if i == 3 else "bekraefter"} for i in (1, 2, 3)]
+          "billede": "tvivl" if i >= 3 else "bekraefter"} for i in (1, 2, 3, 4)]
     g = mg.grupper_b(b)
-    assert sorted(sorted(x["elementer"]) for x in g) == [["p1-r1", "p2-r1"], ["p3-r1"]]
+    assert sorted(sorted(x["elementer"]) for x in g) == [["p1-r1", "p2-r1"], ["p3-r1"], ["p4-r1"]]
     assert {x["billede"] for x in g} == {"bekraefter", "tvivl"}
+
+
+def test_manifest_binder_postens_identitet_og_tekst(tmp_path):
+    """Samme stump på samme ref i en anden post (anden record_key/tekst) giver et andet manifest (Codex 1)."""
+    b = [_b("p1", [_r("død 1870", "d. 1870")]), _b("p2")]
+    s1 = _saml(tmp_path, b=b)
+    assert s1["B"][0]["record_key"] == "R-1" and re.fullmatch(r"[0-9a-f]{64}", s1["B"][0]["tekst_sha256"])
+    e = eksport()
+    e["poster"][0]["record_key"] = "R-99"
+    assert _saml(tmp_path, b=b, e=e)["manifest_sha256"] != s1["manifest_sha256"]
+
+
+@pytest.mark.parametrize("til", ["d.\u200b 1870", "d. 1870\x07", "d.\u202e 1870"])
+def test_saml_afviser_usynlige_tegn_i_til(tmp_path, til):
+    b = [_b("p1", [_r("død 1870", til.encode().decode("unicode_escape"))]), _b("p2")]
+    assert _kode_af(lambda: _saml(tmp_path, b=b)) == "SVAR_UGYLDIGT"
+
+
+def test_saml_begge_kraever_databasevaerdi(tmp_path):
+    a = [_a("p1-f3", svar="BEGGE")] + [_a(r) for r in A_REFS if r != "p1-f3"]   # sted-forslag: ingen databasen
+    assert _kode_af(lambda: _saml(tmp_path, a=a)) == "SVAR_UGYLDIGT"
 
 
 def test_cli_saml_pilot_paa_een_bid(tmp_path, capsys):

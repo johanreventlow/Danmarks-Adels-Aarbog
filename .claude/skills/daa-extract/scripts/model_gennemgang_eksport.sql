@@ -4,8 +4,9 @@
 -- Ét JSON-dokument ud. Rummer navne og bogtekst: skriv kun til en 0600-fil under ~/.private; læs aldrig, tæl.
 -- narrative_record_state kaldes med p_lock=false: med true tager den FOR UPDATE og LOCK TABLE public.change_set,
 -- hvilket en læse-kun transaktion afviser (spec-planens Codex #1; læse-RPC'en red_person_narrative_records gør ens).
+-- REPEATABLE READ: ét øjebliksbillede for hele eksporten, så tekst og state_sha256 hører sammen (review Codex 3).
 BEGIN;
-SET TRANSACTION READ ONLY;
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY;
 WITH rec AS (
   SELECT r.id, r.record_key FROM private.source_record r WHERE r.source_id = :src),
 occ AS (
