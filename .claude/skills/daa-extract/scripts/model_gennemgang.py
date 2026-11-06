@@ -218,9 +218,21 @@ def manifest(b: list, grupper: list) -> str:
     return _sha(json.dumps(kanon, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8"))
 
 
-def _usynlig(s: str) -> bool:
-    """Styre- og formattegn (Cc/Cf, fx nul-bredde, retningsskift) kan ikke ses på kortet; linjeskift er tilladt."""
-    return any(unicodedata.category(ch) in ("Cc", "Cf") and ch != "\n" for ch in s)
+#: Tegn, der vises tomme eller slet ikke: Hangul-/halvbreddefyld, variantvælgere, mongolske vælgere, CGJ m.fl.
+_IGNORERBARE = {0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x3164, 0xFFA0, *range(0x180B, 0x1810),
+                *range(0xFE00, 0xFE10), *range(0xE0100, 0xE01F0)}
+
+
+def _mistaenkelig(ch: str) -> bool:
+    kat = unicodedata.category(ch)
+    return ((kat in ("Cc", "Cf", "Co", "Cn", "Zl", "Zp") and ch != "\n") or (kat == "Zs" and ch != " ")
+            or ord(ch) in _IGNORERBARE)
+
+
+def _usynlig(til: str, fra: str = "") -> bool:
+    """Tegn, projektejeren ikke kan se på kortet (styre-, format-, private, ikke-tildelte, særlige mellemrum og
+    ignorerbare tegn), må ikke indføres af en rettelse; et tegn, der allerede står i den nuværende tekst, må blive."""
+    return any(_mistaenkelig(ch) and ch not in fra for ch in til)
 
 
 def _entydig(tekst: str, fra: str) -> int:
@@ -290,7 +302,7 @@ def saml(bidder: list, noegle: dict, svar_a: list, svar_b: list) -> dict:
             if (not isinstance(r, dict) or not _tekst(r.get("fra")) or not isinstance(r.get("til"), str)
                     or r.get("art") not in B_ART or r.get("billede") not in B_RETTELSE_BILLEDE
                     or not isinstance(r.get("rammer_forslag", []), list) or r.get("fra") == r.get("til")
-                    or _usynlig(r["til"])):
+                    or _usynlig(r["til"], r["fra"])):
                 raise GennemgangError("SVAR_UGYLDIGT")
             if (pbillede == "ikke_fundet" or not post["sider"]) and r["billede"] != "tvivl":
                 raise GennemgangError("BILLEDSTOETTE_MANGLER")

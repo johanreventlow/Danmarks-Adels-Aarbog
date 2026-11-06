@@ -458,3 +458,18 @@ def test_cli_saml_pilot_paa_een_bid(tmp_path, capsys):
     (tmp_path / "svar-B-2.json").write_text(json.dumps([_b("p2")]), encoding="utf-8")
     assert mg.main(["saml", "--ud", str(tmp_path)]) == 0
     assert "b_poster_ok=2" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("til", ["d.  1870", "d.ㅤ 1870", "d.  1870", "d.͏ 1870", "d. 1870"])
+def test_saml_afviser_flere_usynlige_tegn(tmp_path, til):
+    """Linjeseparator, fyldtegn, hårdt mellemrum, ignorerbare mærker og private tegn kan ikke ses på kortet."""
+    b = [_b("p1", [_r("død 1870", til)]), _b("p2")]
+    assert _kode_af(lambda: _saml(tmp_path, b=b)) == "SVAR_UGYLDIGT"
+
+
+def test_saml_tillader_usynligt_tegn_der_allerede_staar_i_teksten(tmp_path):
+    """Et hårdt mellemrum, der står i den nuværende tekst (OCR), må blive stående i rettelsen."""
+    e = eksport()
+    e["poster"][0]["narrativ"]["tekst"] = "Testperson Alfa, f. 1801, død 1870."
+    b = [_b("p1", [_r("død 1870", "d. 1870")]), _b("p2")]
+    assert _saml(tmp_path, b=b, e=e)["B"][0]["til"] == "d. 1870"
