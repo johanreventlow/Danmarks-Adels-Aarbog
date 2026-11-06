@@ -167,3 +167,132 @@ def test_flet_ark_findes(tmp_path, capsys):
     assert lt.main(["flet", "--ud", str(tmp_path), str(sv)]) == 0
     assert lt.main(["flet", "--ud", str(tmp_path), str(sv)]) == 2
     assert "ARK_FINDES" in capsys.readouterr().err
+
+
+# --- Task 6: ceremoniens SQL og verifikation ----------------------------------------------------------------------
+
+def _anvendt(tmp_path, grupper=None, elementer=None, b_svar=None):
+    bidder, noegle, samlet = opsaet(tmp_path, b_svar)
+    ark = lt.flet_b(samlet, [_svarfil(samlet, grupper if grupper is not None else {"bg1": "L"}, elementer)])
+    return bidder, noegle, samlet, ark
+
+
+def test_anvend_retter_teksten_og_binder_state(tmp_path):
+    bidder, noegle, samlet, ark = _anvendt(tmp_path)
+    a = lt.anvend(bidder, noegle, samlet, ark)
+    assert [p["record_key"] for p in a["poster"]] == ["R-1", "R-2"]
+    p1 = a["poster"][0]
+    assert p1["efter_tekst"] == "Alfa blev Kammerjunker 1820." and p1["rettelser"] == 1
+    assert p1["state_sha256"] == "1" * 64 and p1["person_id"] == 1
+    assert p1["foer_sha256"] == mg._sha(TEKST[1].encode()) and p1["efter_sha256"] == mg._sha(p1["efter_tekst"].encode())
+    assert [g["record_key"] for g in a["graense"]] == ["R-2"]
+
+
+def test_sql_b_bruger_eksportens_state_sha(tmp_path):
+    a = lt.anvend(*_anvendt(tmp_path))
+    sql = lt.sql_b(a, 3)
+    kald = [l for l in sql.splitlines() if "red_revider_publiceret_person_narrative_record(" in l]
+    assert len(kald) == 2
+    assert "'" + "1" * 64 + "'" in kald[0] and "'" + "2" * 64 + "'" in kald[1]
+    assert kald[0].startswith("SELECT public.red_revider_publiceret_person_narrative_record(1, 3, 'R-1', ")
+    assert sql.index("BEGIN;") < sql.index("request.jwt.claim.sub") < sql.index(kald[0]) < sql.index("COMMIT;")
+    assert "SET LOCAL ROLE authenticated;" in sql and "ON_ERROR_STOP on" in sql
+
+
+def test_sql_b_nulstiller_change_set_mellem_kald(tmp_path):
+    sql = lt.sql_b(lt.anvend(*_anvendt(tmp_path)), 3)
+    assert sql.count("set_config('app.change_set_id'") == sql.count("red_revider_publiceret_person_narrative_record(")
+
+
+def test_sql_b_citerer_apostrof():
+    a = {"source_id": 3, "poster": [{"record_key": "R-1", "person_id": 1, "state_sha256": "a" * 64,
+                                     "efter_tekst": "O'Neill og \\n", "efter_sha256": "x", "rettelser": 1}]}
+    sql = lt.sql_b(a, 3)
+    assert "'O''Neill og \\n'" in sql and "E'" not in sql
+    kald = [l for l in sql.splitlines() if "red_revider" in l][0]
+    assert kald.replace("''", "").count("'") % 2 == 0
+
+
+def test_anvend_afviser_overlap_mod_aktuel_tekst(tmp_path):
+    bidder, noegle, samlet = opsaet(tmp_path)
+    # en ekstra rettelse, der overlapper p1-r1, smugles ind efter saml; manifestet regnes om, så kun overlapvagten står
+    samlet["B"].insert(1, {"ref": "p1-r2", "post": "p1", "start": 10, "slut": 27, "fra": "Kammerjunkcr 1820",
+                           "til": "Kammerjunker 1821", "art": "mangler", "billede": "bekraefter", "rammer_forslag": [],
+                           "grund": "g", "kun_rapport": False})
+    samlet["grupper_b"] = mg.grupper_b(samlet["B"])
+    samlet["manifest_sha256"] = mg.manifest(samlet["B"], samlet["grupper_b"])
+    ark = lt.flet_b(samlet, [_svarfil(samlet, {g["gruppe"]: "L" for g in samlet["grupper_b"]})])
+    assert _kode_af(lambda: lt.anvend(bidder, noegle, samlet, ark)) == "RETTELSE_OVERLAPPER"
+
+
+def test_k_skrives_ikke_i_del_1(tmp_path):
+    a = lt.anvend(*_anvendt(tmp_path, {"bg1": "L"}, {"p1-r1": "K"}))
+    assert a["poster"][0]["efter_tekst"] == "Alfa blev Kammerjunker 1820."
+    assert [k["ref"] for k in a["k_sager"]] == ["p1-r1"] and a["k_sager"][0]["record_key"] == "R-1"
+    sql = lt.sql_b(a, 3)
+    assert "source_text" not in sql and "reimport" not in sql
+
+
+def test_kun_rapport_rores_ikke(tmp_path):
+    a = lt.anvend(*_anvendt(tmp_path))
+    assert "R-3" not in [p["record_key"] for p in a["poster"]]
+    assert "'R-3'" not in lt.sql_b(a, 3)
+    assert [k["ref"] for k in a["kun_rapport"]] == ["p3-r1"]
+
+
+def test_n_og_ubesvaret_rores_ikke(tmp_path):
+    a = lt.anvend(*_anvendt(tmp_path, {}, {"p1-r1": "N"}))
+    assert a["poster"] == []
+
+
+def test_anvend_afviser_aendret_samlet(tmp_path):
+    bidder, noegle, samlet, ark = _anvendt(tmp_path)
+    samlet["B"][0]["til"] = "Kammerjunkerinde"
+    assert _kode_af(lambda: lt.anvend(bidder, noegle, samlet, ark)) == "MANIFEST_MISMATCH"
+
+
+def test_anvend_afviser_ark_med_andet_manifest(tmp_path):
+    bidder, noegle, samlet, ark = _anvendt(tmp_path)
+    ark = ark.replace(samlet["manifest_sha256"], "0" * 64)
+    assert _kode_af(lambda: lt.anvend(bidder, noegle, samlet, ark)) == "MANIFEST_MISMATCH"
+
+
+def test_anvend_afviser_ark_med_forkerte_linjer(tmp_path):
+    bidder, noegle, samlet, ark = _anvendt(tmp_path)
+    assert _kode_af(lambda: lt.anvend(bidder, noegle, samlet, ark + "R p3-r1 : L\n")) == "SVAR_IKKE_TILLADT"
+    assert _kode_af(lambda: lt.anvend(bidder, noegle, samlet, ark + "R p9-r1 : L\n")) == "SVAR_UKENDT_REF"
+    assert _kode_af(lambda: lt.anvend(bidder, noegle, samlet, "\n".join(ark.splitlines()[:-1]))) == "SVAR_MANGLER"
+
+
+def test_anvend_kraever_tekst_sha(tmp_path):
+    bidder, noegle, samlet, ark = _anvendt(tmp_path)
+    bidder[0]["poster"][0]["tekst"] = TEKST[1] + " "
+    assert _kode_af(lambda: lt.anvend(bidder, noegle, samlet, ark)) == "TEKST_DRIFT"
+
+
+def test_verify_b_sql_er_laese_kun(tmp_path):
+    a = lt.anvend(*_anvendt(tmp_path))
+    sql = lt.verify_b_sql(a)
+    assert "SET TRANSACTION READ ONLY" in sql and "ROLLBACK;" in sql
+    kode = "\n".join(l for l in sql.splitlines() if not l.lstrip().startswith("--"))
+    assert not re.search(r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT)\b", kode, re.I)
+    for p in a["poster"]:
+        assert p["efter_sha256"] in sql
+    assert "VERIFY_B_AFVIGER" in sql and "source_id = 3" in sql
+
+
+def test_cli_sql(tmp_path, capsys):
+    samlet = _cli_mappe(tmp_path)
+    sv = tmp_path / "svar.json"
+    sv.write_text(json.dumps(_svarfil(samlet, {"bg1": "K"})), encoding="utf-8")
+    assert lt.main(["flet", "--ud", str(tmp_path), str(sv)]) == 0
+    capsys.readouterr()
+    assert lt.main(["sql", "--ud", str(tmp_path)]) == 0
+    out = capsys.readouterr().out.strip()
+    assert re.fullmatch(r"LT_SQL_OK poster=2 rettelser=2 k_sager=2 graense=1 legacy=0 kun_rapport=1 "
+                        r"sha256=[0-9a-f]{64}", out), out
+    for f in ["apply-b.sql", "verify-b.sql", "k-sager.json", "graensefejl.txt", "legacy-sager.json"]:
+        assert (tmp_path / f).stat().st_mode & 0o077 == 0, f
+    assert (tmp_path / "graensefejl.txt").read_text(encoding="utf-8").splitlines() == ["GRÆNSEFEJL: p2-r2 R-2"]
+    assert lt.main(["sql", "--ud", str(tmp_path)]) == 2
+    assert "SQL_FINDES" in capsys.readouterr().err

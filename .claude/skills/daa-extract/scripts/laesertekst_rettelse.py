@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -120,6 +121,130 @@ def laes_ark(tekst: str) -> tuple:
     return linjer[0][len("# manifest "):], svar
 
 
+# --- anvendelse og ceremoniens SQL (Task 6) ---------------------------------------------------------------------
+
+def anvend(bidder: list, noegle: dict, samlet: dict, ark_tekst: str) -> dict:
+    """Arket anvendt på postens aktuelle tekst. Forsvar i dybden: manifestet regnes om af samlet og skal være arkets;
+    arket skal dække præcis de svarbare rettelser; rettelser findes igen entydigt og uden overlap i den aktuelle tekst,
+    hvis sha skal være nøglens. L og K retter læserteksten; K meldes desuden som kildetekst-sag (skrives ikke her)."""
+    sha = samlet["manifest_sha256"]
+    if mg.manifest(samlet["B"], samlet["grupper_b"]) != sha or mg.grupper_b(samlet["B"]) != samlet["grupper_b"]:
+        raise GennemgangError("MANIFEST_MISMATCH")
+    ark_sha, svar = laes_ark(ark_tekst)
+    if ark_sha != sha:
+        raise GennemgangError("MANIFEST_MISMATCH")
+    b = {r["ref"]: r for r in samlet["B"]}
+    for ref in svar:
+        if ref not in b:
+            raise GennemgangError("SVAR_UKENDT_REF")
+        if not _svarbar(b[ref]):
+            raise GennemgangError("SVAR_IKKE_TILLADT")
+    if set(svar) != {ref for ref, r in b.items() if _svarbar(r)}:
+        raise GennemgangError("SVAR_MANGLER")
+
+    poster = _poster(bidder)
+    valgt: dict = {}
+    for r in samlet["B"]:
+        if svar.get(r["ref"]) in ("L", "K"):
+            valgt.setdefault(r["post"], []).append(r)
+    ud = {"source_id": None, "poster": [], "k_sager": [], "graense": [], "legacy": [], "kun_rapport": []}
+    for post_ref, rettelser in valgt.items():
+        n = noegle[post_ref]
+        tekst = poster[post_ref]["tekst"]
+        if mg._sha(tekst.encode("utf-8")) != n["tekst_sha256"]:
+            raise GennemgangError("TEKST_DRIFT")
+        if not n["skrivbar"]:
+            raise GennemgangError("SVAR_IKKE_TILLADT")
+        intervaller = []
+        for r in rettelser:
+            start = mg._entydig(tekst, r["fra"])
+            slut = start + len(r["fra"])
+            if (start, slut) != (r["start"], r["slut"]):
+                raise GennemgangError("RETTELSE_IKKE_ENTYDIG")
+            if any(start < s2 and s1 < slut for s1, s2, _ in intervaller):
+                raise GennemgangError("RETTELSE_OVERLAPPER")
+            intervaller.append((start, slut, r["til"]))
+        efter = tekst
+        for start, slut, til in sorted(intervaller, reverse=True):
+            efter = efter[:start] + til + efter[slut:]
+        ud["source_id"] = n["source_id"]
+        ud["poster"].append({"post": post_ref, "record_key": n["record_key"], "person_id": n["person_id"],
+                             "state_sha256": n["state_sha256"], "foer_sha256": n["tekst_sha256"],
+                             "efter_tekst": efter, "efter_sha256": mg._sha(efter.encode("utf-8")),
+                             "rettelser": len(rettelser)})
+        for r in rettelser:
+            if svar[r["ref"]] == "K":
+                ud["k_sager"].append({"ref": r["ref"], "post": post_ref, "record_key": n["record_key"],
+                                      "person_id": n["person_id"], "fra": r["fra"], "til": r["til"], "art": r["art"],
+                                      "forslag": [noegle[f]["interpretation_id"] for f in r.get("rammer_forslag", [])
+                                                  if f in noegle]})
+    for r in samlet["B"]:
+        n = noegle[r["post"]]
+        ud["source_id"] = ud["source_id"] or n["source_id"]
+        if r["art"] == "graense":
+            ud["graense"].append({"ref": r["ref"], "record_key": n["record_key"]})
+        elif r.get("kun_rapport"):
+            maal = "legacy" if n.get("legacy_ref") else "kun_rapport"
+            ud[maal].append({"ref": r["ref"], "post": r["post"], "record_key": n["record_key"],
+                             "person_id": n["person_id"], "narrative_id": n["narrative_id"],
+                             "legacy_ref": n.get("legacy_ref"), "fra": r["fra"], "til": r["til"], "art": r["art"]})
+    return ud
+
+
+def _lit(s: str) -> str:
+    """SQL-literal under standard_conforming_strings=on: kun ' fordobles; backslash er bogstavelig, ingen E''."""
+    if "\x00" in s:
+        raise GennemgangError("TEKST_UGYLDIG")
+    return "'" + s.replace("'", "''") + "'"
+
+
+SHA = re.compile(r"^[0-9a-f]{64}$")
+
+
+def sql_b(anvendt: dict, source_id: int) -> str:
+    """Ceremonien i én transaktion: pr. post en revision med eksportens state_sha256 (RPC'en kaster
+    NARRATIVE_RECORD_STATE_STALE ved drift, og ON_ERROR_STOP ruller det hele tilbage). Aktør som 6c-2 (`-v actor`)."""
+    if not isinstance(source_id, int) or isinstance(source_id, bool):
+        raise GennemgangError("KILDE_UGYLDIG")
+    ud = ["\\set ON_ERROR_STOP on", "BEGIN;", "SET LOCAL standard_conforming_strings=on;",
+          # RPC'ernes rollegate læser request.jwt.claim.sub (som 6c-2's ceremoni 4).
+          "SELECT set_config('request.jwt.claim.sub', :'actor', true) \\g /dev/null",
+          "SET LOCAL ROLE authenticated;"]
+    for p in anvendt["poster"]:
+        if not SHA.match(p["state_sha256"] or ""):
+            raise GennemgangError("STATE_SHA_MANGLER")
+        ud.append("SELECT set_config('app.change_set_id','',true) \\g /dev/null")
+        ud.append(f"SELECT public.red_revider_publiceret_person_narrative_record({int(p['person_id'])}, {source_id}, "
+                  f"{_lit(p['record_key'])}, {_lit(p['efter_tekst'])}, {_lit(p['state_sha256'])}) \\g /dev/null")
+    ud += ["RESET ROLE;", "COMMIT;"]
+    return "\n".join(ud) + "\n"
+
+
+def verify_b_sql(anvendt: dict) -> str:
+    """Læse-kun efterkontrol: hver revideret posts publicerede narrativ har den forventede tekst-sha."""
+    src = anvendt["source_id"]
+    if not isinstance(src, int) or isinstance(src, bool):
+        raise GennemgangError("KILDE_UGYLDIG")
+    rk = ", ".join(f"({_lit(p['record_key'])}, {_lit(p['efter_sha256'])})" for p in anvendt["poster"])
+    forventet = f"(VALUES {rk})" if rk else "(SELECT NULL::text, NULL::text WHERE false)"
+    optalt = " ".join([
+        "WITH forventet(record_key, sha) AS " + forventet + ",",
+        "faktisk AS (SELECT sr.record_key, encode(extensions.digest(n.tekst, 'sha256'), 'hex') AS sha",
+        "FROM private.source_record sr",
+        "JOIN private.narrative_record_publication b ON b.source_record_id = sr.id AND b.status = 'published'",
+        f"JOIN public.narrative n ON n.id = b.narrative_id WHERE sr.source_id = {src})",
+        "SELECT count(*) AS poster, count(*) FILTER (WHERE a.sha = f.sha) AS lig",
+        "FROM forventet f LEFT JOIN faktisk a ON a.record_key = f.record_key"])
+    return "\n".join([
+        "-- Læse-kun efterkontrol af læsertekst-ceremonien (trin 6m del 1). Printer kun antal.",
+        "\\set ON_ERROR_STOP on", "BEGIN;", "SET TRANSACTION READ ONLY;",
+        f"SELECT format('VERIFY_B poster=%s lig=%s', o.poster, o.lig) FROM ({optalt}) o;",
+        # Værnet: en afvigelse fejler kørslen (exit ≠ 0), uafhængigt af klientens NOTICE-niveau.
+        f"DO $v$ DECLARE o record; BEGIN SELECT * INTO o FROM ({optalt}) x; IF o.lig <> o.poster THEN "
+        "RAISE EXCEPTION 'VERIFY_B_AFVIGER poster=% lig=%', o.poster, o.lig; END IF; END $v$;",
+        "ROLLBACK;"]) + "\n"
+
+
 def _skriv(sti: Path, tekst: str) -> str:
     sti.write_text(tekst, encoding="utf-8")
     os.chmod(sti, 0o600)
@@ -155,6 +280,26 @@ def cmd_flet(a) -> int:
     return 0
 
 
+def cmd_sql(a) -> int:
+    ud = Path(a.ud)
+    filer = ["apply-b.sql", "verify-b.sql", "k-sager.json", "graensefejl.txt", "legacy-sager.json"]
+    if any((ud / f).exists() for f in filer):
+        raise GennemgangError("SQL_FINDES")
+    samlet = mg._laes_json(ud / "samlet.json")
+    anvendt = anvend(mg._bidder_i(ud), mg._laes_json(ud / "noegle.json"), samlet,
+                     (ud / "ark-b.txt").read_text(encoding="utf-8"))
+    src = anvendt["source_id"]
+    sha = _skriv(ud / "apply-b.sql", sql_b(anvendt, src))
+    _skriv(ud / "verify-b.sql", verify_b_sql(anvendt))
+    mg._skriv_json(ud / "k-sager.json", anvendt["k_sager"])
+    mg._skriv_json(ud / "legacy-sager.json", {"legacy": anvendt["legacy"], "kun_rapport": anvendt["kun_rapport"]})
+    _skriv(ud / "graensefejl.txt", "".join(f"GRÆNSEFEJL: {g['ref']} {g['record_key']}\n" for g in anvendt["graense"]))
+    print(f"LT_SQL_OK poster={len(anvendt['poster'])} rettelser={sum(p['rettelser'] for p in anvendt['poster'])} "
+          f"k_sager={len(anvendt['k_sager'])} graense={len(anvendt['graense'])} legacy={len(anvendt['legacy'])} "
+          f"kun_rapport={len(anvendt['kun_rapport'])} sha256={sha}")
+    return 0
+
+
 def main(argv: list | None = None) -> int:
     os.umask(0o077)
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -164,9 +309,11 @@ def main(argv: list | None = None) -> int:
     f = sub.add_parser("flet")
     f.add_argument("--ud", type=Path, required=True)
     f.add_argument("svar", type=Path, nargs="+")
+    s = sub.add_parser("sql")
+    s.add_argument("--ud", type=Path, required=True)
     a = ap.parse_args(argv)
     try:
-        return {"kort": cmd_kort, "flet": cmd_flet}[a.cmd](a)
+        return {"kort": cmd_kort, "flet": cmd_flet, "sql": cmd_sql}[a.cmd](a)
     except GennemgangError as e:
         print(f"LT_FEJL {e}", file=sys.stderr)
         return 2
