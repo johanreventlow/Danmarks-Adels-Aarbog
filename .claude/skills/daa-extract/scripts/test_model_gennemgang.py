@@ -473,3 +473,13 @@ def test_saml_tillader_usynligt_tegn_der_allerede_staar_i_teksten(tmp_path):
     e["poster"][0]["narrativ"]["tekst"] = "Testperson Alfa, f. 1801, død 1870."
     b = [_b("p1", [_r("død 1870", "d. 1870")]), _b("p2")]
     assert _saml(tmp_path, b=b, e=e)["B"][0]["til"] == "d. 1870"
+
+
+def test_saml_usynlige_tegn_taelles_og_styretegn_er_altid_forbudt(tmp_path):
+    """Et tegn fra den nuværende tekst må ikke mangfoldiggøres, og styre-/formattegn afvises, selv om de står i fra."""
+    e = eksport()
+    e["poster"][0]["narrativ"]["tekst"] = "Testperson Alfa, f. 1801, død 1870‮."
+    to_nbsp = [_b("p1", [_r("død 1870", "d.  1870")]), _b("p2")]
+    assert _kode_af(lambda: _saml(tmp_path, b=to_nbsp, e=e)) == "SVAR_UGYLDIGT"
+    bidi = [_b("p1", [_r("død 1870‮", "d. 1870‮")]), _b("p2")]
+    assert _kode_af(lambda: _saml(tmp_path, b=bidi, e=e)) == "SVAR_UGYLDIGT"

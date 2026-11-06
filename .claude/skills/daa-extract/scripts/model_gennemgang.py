@@ -19,6 +19,7 @@ import re
 import subprocess
 import sys
 import unicodedata
+from collections import Counter
 from pathlib import Path
 from typing import Callable
 
@@ -230,9 +231,14 @@ def _mistaenkelig(ch: str) -> bool:
 
 
 def _usynlig(til: str, fra: str = "") -> bool:
-    """Tegn, projektejeren ikke kan se på kortet (styre-, format-, private, ikke-tildelte, særlige mellemrum og
-    ignorerbare tegn), må ikke indføres af en rettelse; et tegn, der allerede står i den nuværende tekst, må blive."""
-    return any(_mistaenkelig(ch) and ch not in fra for ch in til)
+    """Tegn, projektejeren ikke kan se på kortet, må ikke indføres af en rettelse. Styre- og formattegn (Cc/Cf, fx
+    retningsskift) afvises altid; øvrige (særlige mellemrum, private, ignorerbare) må kun stå i `til` i højst samme
+    antal som i `fra` — så et hårdt mellemrum fra OCR kan blive stående, men ikke mangfoldiggøres."""
+    if any(unicodedata.category(ch) in ("Cc", "Cf") and ch != "\n" for ch in til):
+        return True
+    t_ = Counter(ch for ch in til if _mistaenkelig(ch))
+    f_ = Counter(ch for ch in fra if _mistaenkelig(ch))
+    return any(n > f_[ch] for ch, n in t_.items())
 
 
 def _entydig(tekst: str, fra: str) -> int:
