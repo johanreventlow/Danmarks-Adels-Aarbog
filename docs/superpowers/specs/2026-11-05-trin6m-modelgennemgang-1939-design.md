@@ -119,7 +119,8 @@ men et fund registreres kun og gives videre til 6c-3/6d, som bygger relationerne
 1. Et script bygger modelinputtet fra databasen og PDF'en: posttekst, sidebilleder for postens sider, forslag og
    (kun spor A's kontrolfelt) databasens værdi og personens familie. Filteret fra 6c-2-øvelsen gælder: en person med
    databaseværdier medtages kun, hvis databasen har en død for personen eller et fødselsår til og med 1939; ellers
-   udelades personen, og et forslag om netop den person går til projektejeren uden modelforslag.
+   udelades personen, og et forslag om netop den person går til projektejeren uden modelforslag. **Ændret
+   2026-11-06** (decisions): forslaget går til modellen, kun uden databasens værdi for personen.
 2. Modellen får ingen interne id'er, kun ref'er; nøglen bliver i `~/.private`.
 3. Modellen læser kun inputfilerne og skriver kun svarfilerne (0600 i `~/.private`); dens svar til sessionen er kun
    antal. Modellen skriver aldrig i et ark eller i databasen.

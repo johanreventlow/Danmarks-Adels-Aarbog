@@ -19,6 +19,12 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   kildetekstsagerne fra `K` og skrivevejen for narrativer uden record-binding.
 > - Modellen er Opus-underagenter i Claude Code under afgrænsningen i decisions 2026-11-05 (filter, ingen interne id'er,
 >   svar kun som antal). Modellen foreslår; projektejeren afgør.
+> - **Filteret gælder databasens værdier, ikke forslagene** (projektejeren 6/11, ændrer spec §4.2.1): 221 forslag om 111
+>   personer uden fødsels- og dødsår i databasen går til modellen *uden* databasens værdi for personen, i stedet for at
+>   gå udenom. Modellen læser alligevel bogens tekst om dem i spor B, og forslagene er udtrukket af samme tekst; det,
+>   filteret beskytter, er databaseværdier, der kan stamme fra senere udgaver.
+> - De 13 1939-narrativer uden record-binding kan ikke knyttes til en post (1939 har ingen placements før 6d) og går
+>   derfor ikke til modellen i del 1; de står i eksporten til del 2.
 
 ## BESLUTTET: tekst fra DAA 1939 må sendes til en model som beslutningsstøtte — bogens personer lever ikke (2026-11-05)
 
