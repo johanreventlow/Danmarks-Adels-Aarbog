@@ -184,7 +184,24 @@ def _fx(iid="i1", status="proposed", value="Carl Hansen", kind="property", gid=N
           "graenser": None, "value_kind": vk} if med_maal else None
     return {"interpretation_id": iid, "status": status, "gaeldende_id": gid or iid, "kind": kind, "predicate": pred,
             "value_text": value, "value_type": vt, "rettelse_maal": rm, "maal_bundet_af_anden": bundet,
-            "egen_binding": eb}
+            "egen_binding": eb,
+            "tidligere": {"status": status, "grund": None if status == "proposed" else "6c-2 grund",
+                          "decided_at": None if status == "proposed" else "2026-11-01T10:00:00+00:00"}}
+
+
+def _tsha(t: str) -> str:
+    import hashlib
+    return hashlib.sha256(t.encode("utf-8")).hexdigest()
+
+
+def _kontekst(refs) -> tuple[dict, list]:
+    """Del 1's post-nøgler og bidder for refs' poster (syntetisk tekst og sidebillede pr. post)."""
+    poster = sorted({r.rsplit("-", 1)[0] for r in refs})
+    noegle = {p: {"type": "post", "record_key": f"rk:{p}", "tekst_sha256": _tsha(f"Tekst for {p} <i>")}
+              for p in poster}
+    bidder = [{"udgave": "T", "bid": 1, "poster": [{"post": p, "tekst": f"Tekst for {p} <i>", "sider": [f"s{p}.png"],
+                                                    "forslag": []} for p in poster]}]
+    return noegle, bidder
 
 
 def _ar(ref="p1-f1", svar="FORSLAG_FEJL", felt="person.name", laes="Carl Hansen", vaerdi="Carl Hansen"):
@@ -192,8 +209,9 @@ def _ar(ref="p1-f1", svar="FORSLAG_FEJL", felt="person.name", laes="Carl Hansen"
 
 
 def _kl(a, f, ref="p1-f1", iid="i1", version=1):
-    return fr.klassificer([a], {ref: {"type": "forslag", "interpretation_id": iid, "version": version}},
-                          {"forslag": [f]})[0]
+    np, b = _kontekst([ref])
+    return fr.klassificer([a], {ref: {"type": "forslag", "interpretation_id": iid, "version": version}, **np},
+                          {"forslag": [f]}, b)[0]
 
 
 def test_saml_blanktegn_som_sql():
@@ -208,7 +226,10 @@ def test_manifest_a_stabil_og_foelsom():
     a2 = copy.deepcopy(a); a2[0]["bogens_laesning"] = "Carl Hanse"
     assert fr.manifest_a(k, a2) != base
     for mut in (lambda r: r.update(version=2), lambda r: r.update(klasse="BIND"),
-                lambda r: r["forventet"].update(fact_id=9)):
+                lambda r: r["forventet"].update(fact_id=9), lambda r: r["tidligere"].update(grund="anden grund"),
+                lambda r: r["tidligere"].update(status="rejected"), lambda r: r.update(sider=["s9.png"]),
+                lambda r: r.update(tekst_sha256="0" * 64), lambda r: r.update(record_key="rk:p9"),
+                lambda r: r.update(post="p9")):
         k2 = copy.deepcopy(k); mut(k2[0])
         assert fr.manifest_a(k2, a) != base
 
@@ -295,30 +316,81 @@ def test_drift_naar_gaeldende_id_aendret():
 
 def test_maal_mangler():
     with pytest.raises(fr.FaktaError) as e:
-        fr.klassificer([_ar()], {"p1-f1": {"interpretation_id": "ukendt", "version": 1}}, {"forslag": []})
+        fr.klassificer([_ar()], {"p1-f1": {"interpretation_id": "ukendt", "version": 1}}, {"forslag": []}, [])
     assert e.value.kode == "MAAL_MANGLER"
 
 
-def test_cli_printer_kun_tal(tmp_path):
+def test_klasse_baerer_kontekst_og_tidligere():
+    # hver klasse-række (også rapport) bærer posten, dens record_key og tekst-sha (noeglen), sidebillederne (bidden) og
+    # den tidligere afgørelse (mål-filen)
+    f = _fx(status="rejected")
+    for r in (_kl(_ar(laes="Carl Hans"), f), _kl(_ar(svar="BEGGE"), f)):
+        assert (r["post"], r["record_key"], r["tekst_sha256"], r["sider"]) == \
+            ("p1", "rk:p1", _tsha("Tekst for p1 <i>"), ["sp1.png"])
+        assert r["tidligere"] == {"status": "rejected", "grund": "6c-2 grund", "decided_at": "2026-11-01T10:00:00+00:00"}
+    assert _kl(_ar(svar="BEGGE"), f)["klasse"] == "RAPPORT"
+
+
+def test_klassificer_kraever_post():
+    np, b = _kontekst(["p1-f1"])
+    n = {"p1-f1": {"type": "forslag", "interpretation_id": "i1", "version": 1}}
+    for noegle, bidder in (({**n}, b), ({**n, **np}, []), ({**n, "p1": {**np["p1"], "type": "forslag"}}, b),
+                           ({**n, "p1": {**np["p1"], "tekst_sha256": None}}, b)):
+        with pytest.raises(fr.FaktaError) as e:
+            fr.klassificer([_ar()], noegle, {"forslag": [_fx()]}, bidder)
+        assert e.value.kode == "POST_MANGLER"
+
+
+def _cli_klasse_d(tmp_path):
     a = [_ar(laes="Carl Hans")]
+    np, b = _kontekst(["p1-f1"])
     (tmp_path / "samlet.json").write_text(json.dumps({"A": a}))
     (tmp_path / "noegle.json").write_text(json.dumps({"p1-f1": {"type": "forslag", "interpretation_id": "i1",
-                                                                  "version": 1}}))
+                                                                  "version": 1}, **np}))
+    (tmp_path / "input-1.json").write_text(json.dumps(b[0]))
     (tmp_path / "maal.json").write_text(json.dumps({"forslag": [_fx(status="proposed")]}))
-    p = subprocess.run(["python3", str(HERE / "faktaforslag_rettelse.py"), "klassificer", "--ud", str(tmp_path),
-                        "--maal", str(tmp_path / "maal.json")], capture_output=True, text=True, cwd=HERE)
+
+
+def test_cli_printer_kun_tal(tmp_path):
+    _cli_klasse_d(tmp_path)
+    p = subprocess.run(["python3", str(HERE / "faktaforslag_rettelse.py"), "klassificer", "--ud", str(tmp_path)],
+                       capture_output=True, text=True, cwd=HERE)
     assert p.returncode == 0, p.stderr
     assert re.match(r"^FF_KLASSE_OK( [a-z_]+=[0-9a-f]+)+$", p.stdout.strip())
     assert (os.stat(tmp_path / "a-klasser.json").st_mode & 0o777) == 0o600
+    assert json.loads((tmp_path / "a-klasser.json").read_text())["klasser"][0]["sider"] == ["sp1.png"]
+
+
+def test_cli_klassificer_laeser_kun_d_maal(tmp_path):
+    # mål læses kun fra D/maal.json: --maal er valgfri og skal pege på netop den fil
+    _cli_klasse_d(tmp_path)
+    anden = tmp_path / "anden"
+    anden.mkdir()
+    (anden / "maal.json").write_text((tmp_path / "maal.json").read_text())
+
+    def kor(*extra):
+        return subprocess.run(["python3", str(HERE / "faktaforslag_rettelse.py"), "klassificer", "--ud", str(tmp_path),
+                               *extra], capture_output=True, text=True, cwd=HERE)
+    p = kor("--maal", str(anden / "maal.json"))
+    assert p.returncode == 2 and "FF_FEJL MAAL_STI" in p.stderr
+    assert not (tmp_path / "a-klasser.json").exists()
+    assert kor("--maal", str(tmp_path / "maal.json")).returncode == 0
+    (tmp_path / "input-1.json").unlink()
+    (tmp_path / "a-klasser.json").unlink()
+    p = kor()
+    assert p.returncode == 2 and "FF_FEJL POST_MANGLER" in p.stderr
 
 
 # --- Task 4: A-kort og flet -------------------------------------------------------------------------------------
 
 def _krk(ref, klasse, felt="person.name", status="accepted", grund=None, iid=None, ny="Ny", maal_v="Gammel"):
+    post = ref.split("-")[0]
     return {"ref": ref, "klasse": klasse, "grund": grund, "interpretation_id": iid or f"i-{ref}", "version": 1,
             "status": status, "ny_vaerdi": ny, "assertion_id": 7 if klasse in ("BIND", "RET_OG_BIND") else None,
             "forventet": {"vaerdi_tekst": maal_v, "date_raw": maal_v} if klasse in ("BIND", "RET_OG_BIND") else None,
-            "p_dato": None, "ret_paastand": klasse == "RET_OG_BIND"}
+            "p_dato": None, "ret_paastand": klasse == "RET_OG_BIND", "post": post, "record_key": f"rk:{post}",
+            "tekst_sha256": _tsha(f"Tekst for {post} <i>"), "sider": [f"s{post}.png"],
+            "tidligere": {"status": "rejected", "grund": "fordi gammel afgørelse", "decided_at": "2026-01-01"}}
 
 
 def _a4(ref, felt="person.name"):
@@ -337,8 +409,7 @@ def _opsaet():
                                           "forslag": [{"ref": r["ref"]} for r in kl if r["ref"].startswith(p)]}
                                          for p in ("p1", "p2", "p3")]}]
     maal = {"forslag": [{"interpretation_id": r["interpretation_id"], "version": r["version"], "status": r["status"],
-                         "tidligere": {"status": "rejected", "grund": "fordi gammel afgørelse",
-                                      "decided_at": "2026-01-01"},
+                         "tidligere": {"status": "accepted", "grund": "MAALFILENS GRUND", "decided_at": "2026-02-02"},
                          "rettelse_maal": {"value_kind": "text", "forventet": {"vaerdi_tekst": "DBVAERDI",
                                                                                "date_raw": None}}}
                         for r in kl]}
@@ -365,7 +436,30 @@ def test_kort_viser_tidligere_afgoerelse():
     assert rk["sider"] == ["../sider/sp1.png"] and "Tekst for p1" in rk["tekst"]
     h = _html(kl, a, s, b, m)
     assert "afvist" in h and "fordi gammel afgørelse" in h and "retter databasens værdi" in h
-    assert "DBVAERDI" not in h
+    # den tidligere afgørelse er klasse-rækkens (manifest-bundet), ikke mål-filens
+    assert "DBVAERDI" not in h and "MAALFILENS GRUND" not in h
+
+
+def test_kort_afviser_kontekst_drift():
+    kl, a, s, b, m = _opsaet()
+    fr.byg_kort(kl, s, b, m)
+
+    def kode(b2=b, s2=s):
+        with pytest.raises(fr.FaktaError) as e:
+            fr.byg_kort(kl, s2, b2, m)
+        return e.value.kode
+    # postens tekst ændret efter klassifikationen
+    b2 = copy.deepcopy(b); b2[0]["poster"][0]["tekst"] += " ændret"
+    assert kode(b2) == "KONTEKST_AFVIGER"
+    # en anden posts sidebilleder
+    b2 = copy.deepcopy(b); b2[0]["poster"][0]["sider"] = list(b[0]["poster"][1]["sider"])
+    assert kode(b2) == "KONTEKST_AFVIGER"
+    # samlet.json peger kortet på en anden post
+    s2 = copy.deepcopy(s); next(r for r in s2["A"] if r["ref"] == "p1-f1")["post"] = "p2"
+    assert kode(s2=s2) == "KONTEKST_AFVIGER"
+    # også en rapport-række binder sin kontekst
+    b2 = copy.deepcopy(b); b2[0]["poster"][2]["tekst"] = "anden"
+    assert kode(b2) == "KONTEKST_AFVIGER"
 
 
 def test_kort_afviser_maal_drift():
@@ -502,7 +596,7 @@ def test_svarbare_kort_er_paa_side_1_i_ref_orden():
         a.append(_a4(ref))
     kl.append(_krk("p0-f9", "RET_OG_BIND", iid="iz"))
     a.append(_a4("p0-f9"))
-    b[0]["poster"].append({"post": "p0", "tekst": "t", "sider": [], "forslag": []})
+    b[0]["poster"].append({"post": "p0", "tekst": "Tekst for p0 <i>", "sider": ["sp0.png"], "forslag": []})
     m["forslag"].append({"interpretation_id": "iz", "version": 1, "status": "accepted",
                          "tidligere": {"status": "accepted", "grund": None},
                          "rettelse_maal": {"value_kind": "text", "forventet": {"vaerdi_tekst": "x"}}})
@@ -516,11 +610,14 @@ def test_svarbare_kort_er_paa_side_1_i_ref_orden():
 
 def test_kort_kraever_tidligere_og_post():
     kl, a, s, b, m = _opsaet()
-    m2 = copy.deepcopy(m)
-    for f in m2["forslag"]:
-        f["tidligere"] = None
+    kl2 = copy.deepcopy(kl)
+    for k in kl2:
+        k["tidligere"] = None
     with pytest.raises(fr.FaktaError) as e:
-        fr.byg_kort(kl, s, b, m2)
+        fr.byg_kort(kl2, s, b, m)
+    assert e.value.kode == "KLASSE_UGYLDIG"
+    with pytest.raises(fr.FaktaError) as e:
+        fr.byg_kort(kl, s, b, {"forslag": []})
     assert e.value.kode == "MAAL_MANGLER"
     with pytest.raises(fr.FaktaError) as e:
         fr.byg_kort(kl, s, [{"udgave": "T", "poster": []}], m)
@@ -940,7 +1037,8 @@ def test_apply_a_ende_til_ende(db5, tmp_path):
          for r, (_, _, f, v, b) in kort.items()]
     noegle = {r: {"type": "forslag", "interpretation_id": i, "version": ver} for r, (i, ver, *_) in kort.items()}
     maal = _maal_db(db5, [i for i, *_ in kort.values()])
-    kl = fr.klassificer(a, noegle, maal)
+    np, bidder = _kontekst(kort)
+    kl = fr.klassificer(a, {**noegle, **np}, maal, bidder)
     assert {k["ref"]: (k["klasse"], k["status"]) for k in kl} == {
         "q1-f1": ("VERSION", "proposed"), "q2-f1": ("BIND", "rejected"), "q3-f1": ("RET_OG_BIND", "accepted"),
         "q5-f1": ("BIND", "accepted")}
@@ -1049,7 +1147,8 @@ def test_binding_paa_andet_maal_spaerres_og_afvises_i_sql(db5, tmp_path):
     f = maal["forslag"][0]
     assert f["egen_binding"] == {"promotion_id": _v(836), "gyldig": True, "target_id": X6}
     assert f["rettelse_maal"]["assertion_id"] == Y6 and f["maal_bundet_af_anden"] is False
-    kl = fr.klassificer(a, noegle, maal)
+    np, bidder = _kontekst([ref])
+    kl = fr.klassificer(a, {**noegle, **np}, maal, bidder)
     assert [(k["klasse"], k["grund"]) for k in kl] == [("SPAERRET", "binding_paa_andet_maal")]
 
     # et håndlavet ark, der springer klassifikationen over (RET_OG_BIND på Y), afvises før første skrivning

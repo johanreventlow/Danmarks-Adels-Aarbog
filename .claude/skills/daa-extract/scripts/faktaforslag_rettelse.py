@@ -1,7 +1,8 @@
 """Trin 6m del 2: klassifikation af faktaforslag mod bogen og databasen (Task 3), A-kort og flet (Task 4) og
 ceremoniens SQL (Task 5: anvend_a, sql_a, verify_a_sql, CLI `sql`).
 
-Ren Python, ingen DB. Input: samlet.json (A), noegle.json og maal-JSON fra faktaforslag_maal.sql.
+Ren Python, ingen DB. Input: samlet.json (A), noegle.json, input-*.json (del 1's bidder) og D/maal.json fra
+faktaforslag_maal.sql.
 """
 from __future__ import annotations
 
@@ -43,14 +44,35 @@ def _norm(x: str | None) -> str | None:
     return unicodedata.normalize("NFC", x).strip(" ").lower()
 
 
-def _rapport(ref, noegle_r, grund, status=None, ny=None):
+def _rapport(ref, noegle_r, grund, status, ctx):
     return {"ref": ref, "klasse": "RAPPORT", "grund": grund, "interpretation_id": noegle_r["interpretation_id"],
-            "version": noegle_r["version"], "status": status, "ny_vaerdi": ny, "assertion_id": None,
-            "forventet": None, "p_dato": None, "ret_paastand": False}
+            "version": noegle_r["version"], "status": status, "ny_vaerdi": None, "assertion_id": None,
+            "forventet": None, "p_dato": None, "ret_paastand": False, **ctx}
 
 
-def klassificer(a: list[dict], noegle: dict, maal: dict) -> list[dict]:
+def _post_ref(r: dict) -> str:
+    return r.get("post") or r["ref"].rsplit("-", 1)[0]
+
+
+def _kontekst(r: dict, noegle: dict, poster: dict, f: dict) -> dict:
+    """Kortets kontekst, bundet i klasse-rækken (og dermed manifest_a): posten, dens record_key og tekst-sha fra
+    noeglen (del 1), sidebillederne fra bidden og forslagets tidligere afgørelse fra D/maal.json."""
+    post = _post_ref(r)
+    np, bp = noegle.get(post), poster.get(post)
+    if not isinstance(np, dict) or np.get("type") != "post" or not isinstance(bp, dict):
+        raise FaktaError("POST_MANGLER")
+    if not (isinstance(np.get("tekst_sha256"), str) and HEX64.fullmatch(np["tekst_sha256"])) \
+            or not isinstance(bp.get("sider"), list):
+        raise FaktaError("POST_MANGLER")
+    t = f.get("tidligere")
+    return {"post": post, "record_key": np.get("record_key"), "tekst_sha256": np["tekst_sha256"],
+            "sider": list(bp["sider"]),
+            "tidligere": {x: t.get(x) for x in ("status", "grund", "decided_at")} if isinstance(t, dict) else None}
+
+
+def klassificer(a: list[dict], noegle: dict, maal: dict, bidder: list) -> list[dict]:
     forslag = {f["interpretation_id"]: f for f in maal["forslag"]}
+    poster = _poster(bidder)
     ud = []
     for r in a:
         if r["svar"] == "OK":
@@ -61,13 +83,14 @@ def klassificer(a: list[dict], noegle: dict, maal: dict) -> list[dict]:
         f = forslag.get(iid)
         if f is None:
             raise FaktaError("MAAL_MANGLER")
+        ctx = _kontekst(r, noegle, poster, f)
         status = f["status"]
         svar, felt = r["svar"], r["felt"]
         if svar in ("BEGGE", "TVIVL"):
-            ud.append(_rapport(ref, n, svar, status))
+            ud.append(_rapport(ref, n, svar, status, ctx))
             continue
         if f["kind"] != "property" or felt.startswith(("relation.", "mention.", "event.")):
-            ud.append(_rapport(ref, n, "ikke_property", status))
+            ud.append(_rapport(ref, n, "ikke_property", status, ctx))
             continue
         if svar not in SVAR_RPC:
             raise FaktaError("UKENDT_SVAR")
@@ -76,7 +99,7 @@ def klassificer(a: list[dict], noegle: dict, maal: dict) -> list[dict]:
         def rk(klasse, grund=None, assertion_id=None, forventet=None, p_dato=None, ret=False):
             return {"ref": ref, "klasse": klasse, "grund": grund, "interpretation_id": iid,
                     "version": n["version"], "status": status, "ny_vaerdi": ny, "assertion_id": assertion_id,
-                    "forventet": forventet, "p_dato": p_dato, "ret_paastand": ret}
+                    "forventet": forventet, "p_dato": p_dato, "ret_paastand": ret, **ctx}
 
         # red_ret_forslag afviser begge (FORSLAG_ART_UGYLDIG, FORSLAG_STATUS_UGYLDIG): spærres her, før ny beregnes.
         if f.get("value_type") != "string":
@@ -88,7 +111,7 @@ def klassificer(a: list[dict], noegle: dict, maal: dict) -> list[dict]:
         if svar == "FORSLAG_FEJL":
             laes = r.get("bogens_laesning")
             if laes is None or not str(laes).strip():
-                ud.append(_rapport(ref, n, "uden_laesning", status))
+                ud.append(_rapport(ref, n, "uden_laesning", status, ctx))
                 continue
             ny = saml_blanktegn(laes)
         else:
@@ -158,7 +181,10 @@ def _poster(bidder: list) -> dict:
 
 
 def byg_kort(klasser: list, samlet: dict, bidder: list, maal: dict) -> list:
-    """Kort: oversigt (VERSION/BIND, uden knapper) først, så svarbare RET_OG_BIND, til sidst rapport-rækker."""
+    """Kort: oversigt (VERSION/BIND, uden knapper) først, så svarbare RET_OG_BIND, til sidst rapport-rækker.
+    Kortets kontekst (postens tekst og sidebilleder) skal være den, klasse-rækken bærer (KONTEKST_AFVIGER), og den
+    tidligere afgørelse kommer fra klasse-rækken; begge er bundet af manifest_a. Sidebilledernes PNG-indhold er ikke
+    hash-bundet (afledt deterministisk af PDF'en)."""
     a = {r["ref"]: r for r in samlet["A"]}
     poster = _poster(bidder)
     forslag = {f["interpretation_id"]: f for f in maal["forslag"]}
@@ -175,30 +201,35 @@ def byg_kort(klasser: list, samlet: dict, bidder: list, maal: dict) -> list:
                      "svarbar": False})
     for k in sorted(klasser, key=lambda x: x["ref"]):
         r = a[k["ref"]]
-        post = poster.get(r.get("post") or k["ref"].rsplit("-", 1)[0])
+        post = poster.get(_post_ref(r))
+        if post is None:
+            raise FaktaError("POST_MANGLER")
+        if (post.get("post") != k.get("post") or post.get("sider") != k.get("sider")
+                or hashlib.sha256(post["tekst"].encode("utf-8")).hexdigest() != k.get("tekst_sha256")):
+            raise FaktaError("KONTEKST_AFVIGER")
         if k["klasse"] == "RET_OG_BIND":
-            if post is None:
-                raise FaktaError("POST_MANGLER")
             f = forslag.get(k["interpretation_id"])
-            if f is None or not f.get("tidligere"):
+            if f is None:
                 raise FaktaError("MAAL_MANGLER")
-            # Den tidligere afgørelse kommer fra mål-filen: den skal være netop klasse-rækkens version og status.
+            # Mål-filen skal stadig være netop klasse-rækkens version og status.
             if f.get("version") != k["version"] or f.get("status") != k["status"]:
                 raise FaktaError("MAAL_DRIFT")
+            t = k.get("tidligere")
+            if not isinstance(t, dict):
+                raise FaktaError("KLASSE_UGYLDIG")
             # Databasens værdi fra klasse-rækkens forventet (bundet af manifest_a og ceremoniens PAASTAND_DRIFT), og
             # værditypen som anvend_a vælger den.
             fv = k.get("forventet")
             if not isinstance(fv, dict):
                 raise FaktaError("KLASSE_UGYLDIG")
             db = fv.get("date_raw") if r["felt"] in cm.DATE_PREDICATES else fv.get("vaerdi_tekst")
-            t = f["tidligere"]
             status = t.get("status")
             ret.append({"type": "ret", "svarbar": True, "ref": k["ref"], "felt": r["felt"], "svar": r.get("svar"),
                          "tekst": post["tekst"][:UDDRAG], "vaerdi": r.get("vaerdi"),
                          "bogens_laesning": k["ny_vaerdi"], "databasen": db,
                          "tidligere_status": status, "tidligere_tekst": STATUS_TEKST.get(status, status),
                          "tidligere_grund": t.get("grund"), "grund": r.get("grund"), "billede": r.get("billede"),
-                         "sider": [f"../sider/{s}" for s in post["sider"]]})
+                         "sider": [f"../sider/{s}" for s in k["sider"]]})
         elif k["klasse"] not in SVARBARE:
             rapport.append({"type": "rapport", "svarbar": False, "ref": k["ref"], "klasse": k["klasse"],
                          "grund": k["grund"], "felt": r["felt"], "vaerdi": r.get("vaerdi"),
@@ -715,7 +746,7 @@ def main(argv=None) -> int:
     sp = ap.add_subparsers(dest="cmd", required=True)
     k = sp.add_parser("klassificer")
     k.add_argument("--ud", required=True)
-    k.add_argument("--maal", required=True)
+    k.add_argument("--maal", help="valgfri; skal være D/maal.json (mål læses kun derfra)")
     kt = sp.add_parser("kort")
     kt.add_argument("--ud", required=True)
     sf = sp.add_parser("samlet-f")
@@ -736,11 +767,14 @@ def main(argv=None) -> int:
             return 2
     try:
         d = Path(args.ud)
+        if args.maal is not None and Path(args.maal).resolve() != (d / "maal.json").resolve():
+            raise FaktaError("MAAL_STI")
         samlet = json.loads((d / "samlet.json").read_text(encoding="utf-8"))
         noegle = json.loads((d / "noegle.json").read_text(encoding="utf-8"))
-        maal = json.loads(Path(args.maal).read_text(encoding="utf-8"))
+        maal = json.loads((d / "maal.json").read_text(encoding="utf-8"))
+        bidder = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(d.glob("input-*.json"))]
         a = samlet["A"]
-        kl = klassificer(a, noegle, maal)
+        kl = klassificer(a, noegle, maal, bidder)
         sha = manifest_a(kl, a)
     except FaktaError as e:
         print(f"FF_FEJL {e.kode}", file=sys.stderr)

@@ -230,8 +230,12 @@ spor B«.
   - `manifest_a(klasser: list[dict], a: list[dict]) -> str` — sha256 af kanonisk JSON over hver klasserække (alle
     felter ovenfor) forenet med A-rækkens `(svar, felt, vaerdi, bogens_laesning, billede)`, sorteret på ref. Køres
     `klasse-a` om efter kortene, ændres hashen, og ceremonien afviser (`MANIFEST_MISMATCH`).
-  - CLI: `faktaforslag_rettelse.py klassificer --ud D --maal F` → `D/a-klasser.json` (0600); printer
-    `FF_KLASSE_OK version= bind= ret_og_bind= spaerret= drift= rapport= manifest_a=<sha8>`.
+  - CLI: `faktaforslag_rettelse.py klassificer --ud D` (mål kun fra `D/maal.json`; et `--maal` skal være netop den fil,
+    ellers `MAAL_STI`) → `D/a-klasser.json` (0600); printer
+    `FF_KLASSE_OK version= bind= ret_og_bind= spaerret= drift= rapport= manifest_a=<sha8>`. Hver klasse-række bærer
+    kortets kontekst: `post`, `record_key`, `tekst_sha256` (noeglen), `sider` (bidden) og `tidligere` (status, grund,
+    decided_at); `kort` tager den tidligere afgørelse derfra og afviser en post, hvis tekst, navn eller sider afviger
+    (`KONTEKST_AFVIGER`). Sidebilledernes PNG-indhold er ikke hash-bundet (afledt deterministisk af PDF'en).
 
 - [ ] **Step 1: Skriv de fejlende tests** (syntetisk fixture, ingen rigtige navne):
   - `test_manifest_a_stabil_og_foelsom` — samme input → samme sha; ændret `bogens_laesning`, `version`, klasse eller
