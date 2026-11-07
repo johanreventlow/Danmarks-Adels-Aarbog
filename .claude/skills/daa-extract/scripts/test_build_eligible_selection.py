@@ -363,3 +363,36 @@ def test_cli_uden_limit_og_seed_er_byte_ens_med_main(tmp_path):
     assert out.read_text(encoding="utf-8") == json.dumps(
         build_selection(records, ledger(rows), hashlib_sha(lg), 25), ensure_ascii=False, indent=2)
     assert json.loads(out.read_text(encoding="utf-8"))["strata_version"] == "eligible-all-v1"
+
+
+def test_records_afgraenser_til_valgte_eligible():
+    records, rows = setup("I-1", "I-2", "I-3")
+    u = build_selection(records, ledger(rows), "f" * 64, 25, only=["I-3", "I-1"])
+    assert u["records"] == ["I-1", "I-3"] and list(u["record_input_sha256"]) == ["I-1", "I-3"]
+    assert len(u["records_filter_sha256"]) == 64
+    assert "records_filter_sha256" not in build_selection(records, ledger(rows), "f" * 64, 25)
+
+
+def test_records_med_excluded_eller_ukendt_record_afvises():
+    records, rows = setup("I-1", "I-2")
+    records["I-3"] = rec("I-3")
+    rows["I-3"] = row(records["I-3"], status="excluded")
+    for only in (["I-1", "I-3"], ["I-1", "I-9"]):
+        with pytest.raises(SelectionLedgerMismatch, match="SELECTION_RECORD_NOT_ELIGIBLE"):
+            build_selection(records, ledger(rows), "f" * 64, 25, only=only)
+
+
+def test_cli_records_fil(tmp_path, capsys):
+    rc, out, records, rows, lg = _cli(tmp_path)          # baseline findes
+    rf = tmp_path / "keys.json"
+    rf.write_text(json.dumps(sorted(records)[:3]), encoding="utf-8")
+    rc, out, *_ = _cli(tmp_path, "--records", str(rf))
+    assert rc == 0 and len(json.loads(out.read_text(encoding="utf-8"))["records"]) == 3
+    rows_ex = {k: (row(r, status="excluded") if k == sorted(records)[0] else row(r)) for k, r in records.items()}
+    lg.write_text(json.dumps(ledger(rows_ex)), encoding="utf-8")
+    import sys
+    from unittest import mock
+    with mock.patch.object(sys, "argv", ["x", "--runner-input", str(tmp_path / "ri.json"), "--ledger", str(lg),
+                                         "--out", str(tmp_path / "u2.json"), "--records", str(rf)]):
+        assert main() == 1
+    assert "SELECTION_RECORD_NOT_ELIGIBLE" in capsys.readouterr().out and not (tmp_path / "u2.json").exists()

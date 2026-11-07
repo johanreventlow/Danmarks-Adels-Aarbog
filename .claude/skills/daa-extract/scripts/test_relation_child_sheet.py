@@ -56,3 +56,23 @@ def test_beslutnings_sql_b_r_u():
 def test_ark_fejl(edit, code):
     with pytest.raises(SheetError, match=code):
         cs.decision_sql(cs.parse_sheet(edit(cs.render_sheet(ROWS))), ROWS, sheet_sha256="a" * 64, rows_sha256="b" * 64)
+
+
+def test_nogleafgraensning_udelader_raekker_uden_for_listen():
+    sub = cs.select_rows(ROWS, [K1, K3])
+    assert [r["interpretation_key"] for r in sub["rows"]] == [K1, K3]
+    t = cs.render_sheet(sub)
+    assert K1 in t and K2 not in t and "Ikke på arket: 1" in t
+    sql = cs.decision_sql(cs.parse_sheet(t), sub, sheet_sha256="a" * 64, rows_sha256=cs.selected_rows_sha256(sub))
+    assert sql.count("red_afgoer_relation_interpretation(") == 1 and K2 not in sql
+    assert cs.selected_rows_sha256(sub) != cs.selected_rows_sha256(ROWS)
+    assert "NULL" in sql                                   # børn kaldes med p_family_id NULL
+
+
+def test_nogleafgraensning_ukendt_nogle_og_fil():
+    with pytest.raises(SheetError, match="CHILD_KEY_UNKNOWN"):
+        cs.select_rows(ROWS, ["00000000-0000-0000-0000-0000000000ff"])
+    assert cs.load_keys(f"{K1}\n\n# x\n{K2} # y\n") == [K1, K2]
+    for bad in ("", "x\n", f"{K1}\n{K1}\n"):
+        with pytest.raises(SheetError, match="KEYS_FILE_INVALID"):
+            cs.load_keys(bad)
