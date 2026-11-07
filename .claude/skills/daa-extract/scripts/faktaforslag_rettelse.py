@@ -69,21 +69,30 @@ def klassificer(a: list[dict], noegle: dict, maal: dict) -> list[dict]:
         if f["kind"] != "property" or felt.startswith(("relation.", "mention.", "event.")):
             ud.append(_rapport(ref, n, "ikke_property", status))
             continue
+        if svar not in SVAR_RPC:
+            raise FaktaError("UKENDT_SVAR")
+        ny = None
+
+        def rk(klasse, grund=None, assertion_id=None, forventet=None, p_dato=None, ret=False):
+            return {"ref": ref, "klasse": klasse, "grund": grund, "interpretation_id": iid,
+                    "version": n["version"], "status": status, "ny_vaerdi": ny, "assertion_id": assertion_id,
+                    "forventet": forventet, "p_dato": p_dato, "ret_paastand": ret}
+
+        # red_ret_forslag afviser begge (FORSLAG_ART_UGYLDIG, FORSLAG_STATUS_UGYLDIG): spærres her, før ny beregnes.
+        if f.get("value_type") != "string":
+            ud.append(rk("SPAERRET", "vaerditype"))
+            continue
+        if status not in ("proposed",) + AFGJORT:
+            ud.append(rk("SPAERRET", "status"))
+            continue
         if svar == "FORSLAG_FEJL":
             laes = r.get("bogens_laesning")
             if laes is None or not str(laes).strip():
                 ud.append(_rapport(ref, n, "uden_laesning", status))
                 continue
             ny = saml_blanktegn(laes)
-        elif svar == "DB_FEJL":
-            ny = saml_blanktegn(f["value_text"])
         else:
-            raise FaktaError("UKENDT_SVAR")
-
-        def rk(klasse, grund=None, assertion_id=None, forventet=None, p_dato=None, ret=False):
-            return {"ref": ref, "klasse": klasse, "grund": grund, "interpretation_id": iid,
-                    "version": n["version"], "status": status, "ny_vaerdi": ny, "assertion_id": assertion_id,
-                    "forventet": forventet, "p_dato": p_dato, "ret_paastand": ret}
+            ny = saml_blanktegn(f["value_text"])
 
         if iid != f["gaeldende_id"]:
             ud.append(rk("DRIFT"))
@@ -99,6 +108,13 @@ def klassificer(a: list[dict], noegle: dict, maal: dict) -> list[dict]:
         if f.get("maal_bundet_af_anden"):
             ud.append(rk("SPAERRET", "bundet_af_anden"))
             continue
+        aid = maal_r["assertion_id"]
+        eb = f.get("egen_binding") or {}
+        # 6c-2 valgte bindingsmålet efter værdi blandt alle faktatypens påstande; ligger nøglens gyldige binding på en
+        # anden påstand end rettelse_maal, ville RET_OG_BIND flytte den, og den gamle påstand miste 1939 stille.
+        if eb.get("gyldig") and eb.get("target_id") != aid:
+            ud.append(rk("SPAERRET", "binding_paa_andet_maal"))
+            continue
         if felt == "person.name" and navn_forkortes(fv["vaerdi_tekst"], ny):
             ud.append(rk("SPAERRET", "navn_forkortes"))
             continue
@@ -107,9 +123,7 @@ def klassificer(a: list[dict], noegle: dict, maal: dict) -> list[dict]:
             continue
         maal_vaerdi = fv["date_raw"] if maal_r.get("value_kind") == "date_raw" else fv["vaerdi_tekst"]
         match = _norm(ny) == _norm(maal_vaerdi) and ny is not None
-        aid = maal_r["assertion_id"]
-        eb = f.get("egen_binding")
-        if match and eb and eb.get("gyldig"):
+        if match and eb.get("gyldig"):   # bindingen ligger på netop rettelse_maal (ellers spærret ovenfor)
             ud.append(rk("RAPPORT", "ALLEREDE_BUNDET"))
         elif match:
             ud.append(rk("BIND", assertion_id=aid, forventet=fv))
@@ -168,12 +182,18 @@ def byg_kort(klasser: list, samlet: dict, bidder: list, maal: dict) -> list:
             f = forslag.get(k["interpretation_id"])
             if f is None or not f.get("tidligere"):
                 raise FaktaError("MAAL_MANGLER")
-            m = f.get("rettelse_maal") or {}
-            fv = m.get("forventet") or k.get("forventet") or {}
-            db = fv.get("date_raw") if m.get("value_kind") == "date_raw" else fv.get("vaerdi_tekst")
+            # Den tidligere afgørelse kommer fra mål-filen: den skal være netop klasse-rækkens version og status.
+            if f.get("version") != k["version"] or f.get("status") != k["status"]:
+                raise FaktaError("MAAL_DRIFT")
+            # Databasens værdi fra klasse-rækkens forventet (bundet af manifest_a og ceremoniens PAASTAND_DRIFT), og
+            # værditypen som anvend_a vælger den.
+            fv = k.get("forventet")
+            if not isinstance(fv, dict):
+                raise FaktaError("KLASSE_UGYLDIG")
+            db = fv.get("date_raw") if r["felt"] in cm.DATE_PREDICATES else fv.get("vaerdi_tekst")
             t = f["tidligere"]
             status = t.get("status")
-            ret.append({"type": "ret", "svarbar": True, "ref": k["ref"], "felt": r["felt"],
+            ret.append({"type": "ret", "svarbar": True, "ref": k["ref"], "felt": r["felt"], "svar": r.get("svar"),
                          "tekst": post["tekst"][:UDDRAG], "vaerdi": r.get("vaerdi"),
                          "bogens_laesning": k["ny_vaerdi"], "databasen": db,
                          "tidligere_status": status, "tidligere_tekst": STATUS_TEKST.get(status, status),
@@ -266,6 +286,9 @@ K1_KILDE = 1
 TAG = "$t6m_"
 NULSTIL = "PERFORM set_config('app.change_set_id','',true);"
 FASER = ("version", "bind", "ret_og_bind")
+# psql's CONTEXT-linjer gengiver fejlende SQL-sætninger fra DO-blokkene, og de bærer værdier: aldrig på stderr.
+# RAISE-teksterne selv bærer kun koder, refs, kilde-id og antal.
+SKJUL_KONTEKST = "\\set SHOW_CONTEXT never"
 
 
 def _er_int(x) -> bool:
@@ -315,9 +338,10 @@ def _forventet_ok(fv) -> bool:
             and isinstance(fv["citation_sources"], list) and all(_er_int(c) for c in fv["citation_sources"]))
 
 
-def anvend_a(klasser: list, samlet: dict, noegle: dict, ark_tekst: str) -> dict:
+def anvend_a(klasser: list, samlet: dict, noegle: dict, ark_tekst: str, maal: dict | None = None) -> dict:
     """Arkets F-rækker, fail-closed. manifest_a genberegnes og skal være arkets; arket skal have præcis én linje pr.
-    svarbar ref (som flet_a skriver det). N og _ skrives ikke."""
+    svarbar ref (som flet_a skriver det). N og _ skrives ikke. ny_vaerdi skal være kildeværdien: FORSLAG_FEJL bogens
+    læsning; DB_FEJL forslagets værdi fra maal (når den gives)."""
     a = samlet["A"]
     ma = manifest_a(klasser, a)
     ark_ma, svar = _laes_ark(ark_tekst)
@@ -332,6 +356,7 @@ def anvend_a(klasser: list, samlet: dict, noegle: dict, ark_tekst: str) -> dict:
     if set(svar) != {r for r, k in klasse.items() if k["klasse"] in SVARBARE}:
         raise FaktaError("ARK_UGYLDIGT")
     arow = {r["ref"]: r for r in a}
+    forslag = {f["interpretation_id"]: f for f in maal["forslag"]} if maal is not None else None
     ud: dict = {f: [] for f in FASER}
     for ref in sorted(svar):
         if svar[ref] != "F":
@@ -349,6 +374,17 @@ def anvend_a(klasser: list, samlet: dict, noegle: dict, ark_tekst: str) -> dict:
         ny = k["ny_vaerdi"]
         if not isinstance(ny, str) or not ny or saml_blanktegn(ny) != ny:
             raise FaktaError("VAERDI_UGYLDIG")
+        if r["svar"] == "FORSLAG_FEJL":
+            kilde = r.get("bogens_laesning")
+        elif forslag is not None:
+            fm = forslag.get(k["interpretation_id"])
+            if fm is None:
+                raise FaktaError("MAAL_MANGLER")
+            kilde = fm.get("value_text")
+        else:
+            kilde = ny   # DB_FEJL uden mål-fil: ingen kildeværdi at sammenligne med
+        if not isinstance(kilde, str) or saml_blanktegn(kilde) != ny:
+            raise FaktaError("VAERDI_AFVIGER")
         rk = {"ref": ref, "interpretation_id": k["interpretation_id"], "version": k["version"], "status": k["status"],
               "ny_vaerdi": ny, "felt": r["felt"], "svar": r["svar"], "billede": r["billede"]}
         if k["klasse"] == "VERSION":
@@ -511,7 +547,7 @@ def sql_a(anvendt: dict, *, source_id: int, manifest_a: str, ark_sha256: str, k1
     f_ids = [r["interpretation_id"] for _, r in rows]
     src = source_id
 
-    out = ["\\set ON_ERROR_STOP on", "BEGIN;",
+    out = ["\\set ON_ERROR_STOP on", SKJUL_KONTEKST, "BEGIN;",
            # Værdier citeres kun ved fordobling af '; backslash er bogstavelig.
            "SET LOCAL standard_conforming_strings=on;",
            "SELECT set_config('request.jwt.claim.sub', :'actor', true) \\g /dev/null",
@@ -543,6 +579,18 @@ def sql_a(anvendt: dict, *, source_id: int, manifest_a: str, ark_sha256: str, k1
                 "ORDER BY 1) IS DISTINCT FROM ARRAY(SELECT DISTINCT ci.source_id FROM public.citation ci "
                 "WHERE ci.assertion_id = a.id ORDER BY 1); "
                 "IF n <> 0 THEN RAISE EXCEPTION 'PAASTAND_DRIFT afvigende=%', n; END IF; END $t6m_paastand$;"]
+    # Binding på andet mål: har en F-rækkes nøgle en gyldig assertion-binding, skal den ligge på rækkens påstand (VERSION
+    # har ingen: enhver gyldig binding afvises). Ellers ville RET_OG_BIND flytte bindingen og den gamle påstand miste
+    # sin 1939-citation stille (6c-2 valgte målet efter værdi blandt alle faktatypens påstande).
+    egne = [[r["interpretation_id"], r.get("assertion_id") if fase != "version" else None] for fase, r in rows]
+    out += ["-- (2) bindingsværn: en nøgles gyldige binding ligger på rækkens påstand, ellers intet",
+            "DO $t6m_andet$ DECLARE m jsonb := " + cm._jlit(egne) + "::jsonb; n int; BEGIN "
+            "SELECT count(DISTINCT card.interpretation_key) INTO n FROM jsonb_array_elements(m) e "
+            "JOIN private.interpretation card ON card.id = (e->>0)::uuid WHERE EXISTS (SELECT 1 "
+            "FROM private.interpretation_promotion p JOIN private.interpretation q ON q.id = p.interpretation_id "
+            "WHERE q.interpretation_key = card.interpretation_key AND p.target_type = 'assertion' "
+            "AND private.assertion_binding_current(p.id) AND p.target_id IS DISTINCT FROM (e->>1)::bigint); "
+            "IF n <> 0 THEN RAISE EXCEPTION 'T6M_BINDING_ANDET_MAAL afvigende=%', n; END IF; END $t6m_andet$;"]
     manifest = (f"jsonb_build_object('antal', {nf}, 'manifest_a', {_q(manifest_a)}, 'ark', {_q(ark_sha256)}, "
                 f"'k1_source_id', {k1_source_id}, 'foer_bindinger', b_foer, 'foer_k1_bindinger_hash', k1_foer, "
                 "'foer_bundne_f', n_bund)")
@@ -641,8 +689,8 @@ def verify_a_sql(anvendt: dict) -> str:
     """Læse-kun efterkontrol efter COMMIT: samme DO-blok som apply-a.sql's trin (6), med målingen før fra kørslens
     manifest; NOTICE-linjen bærer bindinger_k og k1_bindinger_hash til sammenligning med maal_trin6c2.sql."""
     _kontroller(anvendt, None)
-    return "\n".join(["\\set ON_ERROR_STOP on", "BEGIN;", "SET TRANSACTION READ ONLY;", _efter_do(anvendt),
-                      "ROLLBACK;"]) + "\n"
+    return "\n".join(["\\set ON_ERROR_STOP on", SKJUL_KONTEKST, "BEGIN;", "SET TRANSACTION READ ONLY;",
+                      _efter_do(anvendt), "ROLLBACK;"]) + "\n"
 
 
 def _skriv(sti: Path, tekst: str) -> str:
@@ -745,14 +793,16 @@ def _cmd_a(args) -> int:
 
 def _cmd_sql(d: Path, samlet: dict, kl: list, ma: str, source_id: int) -> int:
     """sql --ud D --source-id N: D/apply-a.sql, D/verify-a.sql og D/rapport-a.json (0600). Kun antal og en hash ud."""
+    maal = None
     if (d / "maal.json").exists():
-        if json.loads((d / "maal.json").read_text(encoding="utf-8")).get("source_id") != source_id:
+        maal = json.loads((d / "maal.json").read_text(encoding="utf-8"))
+        if maal.get("source_id") != source_id:
             raise FaktaError("KILDE_MISMATCH")
     noegle = json.loads((d / "noegle.json").read_text(encoding="utf-8"))
     ark_b = (d / "ark-a.txt").read_bytes()
     ark = ark_b.decode("utf-8")
     ark_sha = hashlib.sha256(ark_b).hexdigest()
-    an = anvend_a(kl, samlet, noegle, ark)
+    an = anvend_a(kl, samlet, noegle, ark, maal)
     apply_sql = sql_a(an, source_id=source_id, manifest_a=ma, ark_sha256=ark_sha)
     verify_sql = verify_a_sql(an)
     rapport = {"manifest_a": ma, "ark_sha256": ark_sha, "rapport": rapport_a(kl, samlet, ark)}

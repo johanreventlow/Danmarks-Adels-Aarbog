@@ -115,7 +115,9 @@ function tegn() {
       p.append(h("h2", {}, `${k.ref} · ${k.felt}`));
       p.append(h("div", { class: "tekst" }, k.tekst));
       p.append(raekke([
-        ["Forslagets værdi", k.vaerdi], ["Bogens læsning", k.bogens_laesning],
+        ["Forslagets værdi", k.vaerdi],
+        // DB_FEJL: det, der skrives, er forslagets egen værdi (bogen og forslaget er enige; databasen tager fejl).
+        [k.svar === "DB_FEJL" ? "Forslagets værdi (bogen og forslaget er enige)" : "Bogens læsning", k.bogens_laesning],
         ["Databasens værdi", k.databasen],
         ["Tidligere afgørelse", k.tidligere_tekst ? `${k.tidligere_tekst}${k.tidligere_grund ? ": " + k.tidligere_grund : ""}` : null],
         ["Modellens grund", k.grund], ["Billedstøtte", k.billede]]));

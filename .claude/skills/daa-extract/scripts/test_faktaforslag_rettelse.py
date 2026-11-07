@@ -149,7 +149,7 @@ def test_rettelse_maal_som_control_rows(db):
     assert by[_u(401)]["value_type"] == "string" and by[_u(401)]["kind"] == "property"
     # den accepterede fortolkning har en gyldig egen binding
     eb = _maal(db, [_u(415)])["forslag"][0]["egen_binding"]
-    assert eb == {"promotion_id": _u(615), "gyldig": True}
+    assert eb == {"promotion_id": _u(615), "gyldig": True, "target_id": -69602}
 
 
 def test_afgjort_forslag_har_stadig_maal(db):
@@ -178,12 +178,13 @@ import faktaforslag_rettelse as fr  # noqa: E402
 
 
 def _fx(iid="i1", status="proposed", value="Carl Hansen", kind="property", gid=None, maal_v="Carl Hansen",
-        pred="person.name", vk="text", bundet=False, eb=None, med_maal=True):
+        pred="person.name", vk="text", bundet=False, eb=None, med_maal=True, vt="string"):
     rm = {"assertion_id": 77, "forventet": {"fact_id": 5, "faktatype": "x", "vaerdi_tekst": maal_v, "date_raw": maal_v,
                                            "valgt_assertion_id": 77, "citation_sources": []},
           "graenser": None, "value_kind": vk} if med_maal else None
     return {"interpretation_id": iid, "status": status, "gaeldende_id": gid or iid, "kind": kind, "predicate": pred,
-            "value_text": value, "rettelse_maal": rm, "maal_bundet_af_anden": bundet, "egen_binding": eb}
+            "value_text": value, "value_type": vt, "rettelse_maal": rm, "maal_bundet_af_anden": bundet,
+            "egen_binding": eb}
 
 
 def _ar(ref="p1-f1", svar="FORSLAG_FEJL", felt="person.name", laes="Carl Hansen", vaerdi="Carl Hansen"):
@@ -215,8 +216,33 @@ def test_manifest_a_stabil_og_foelsom():
 def test_uaendret_og_allerede_bundet_er_rapport():
     r = _kl(_ar(laes="Carl  Hansen"), _fx(status="proposed"))
     assert (r["klasse"], r["grund"], r["ny_vaerdi"]) == ("RAPPORT", "UAENDRET", "Carl Hansen")
-    r = _kl(_ar(), _fx(status="accepted", eb={"promotion_id": 1, "gyldig": True}))
+    r = _kl(_ar(), _fx(status="accepted", eb={"promotion_id": 1, "gyldig": True, "target_id": 77}))
     assert (r["klasse"], r["grund"]) == ("RAPPORT", "ALLEREDE_BUNDET")
+
+
+def test_binding_paa_andet_maal_spaerres():
+    # nøglen er gyldigt bundet til påstand 99, rettelse_maal er 77: hverken ALLEREDE_BUNDET (værdien matcher 77) eller
+    # RET_OG_BIND (værdien afviger) må flytte bindingen
+    andet = {"promotion_id": 1, "gyldig": True, "target_id": 99}
+    for laes in ("Carl Hansen", "Carl Hansen-Testlow"):
+        r = _kl(_ar(laes=laes), _fx(status="accepted", eb=andet))
+        assert (r["klasse"], r["grund"], r["assertion_id"]) == ("SPAERRET", "binding_paa_andet_maal", None)
+    # gyldig binding på netop rettelse_maal: matcher → ALLEREDE_BUNDET, afviger → RET_OG_BIND (genbindes på 77)
+    egen = {"promotion_id": 1, "gyldig": True, "target_id": 77}
+    assert _kl(_ar(), _fx(status="accepted", eb=egen))["grund"] == "ALLEREDE_BUNDET"
+    r = _kl(_ar(laes="Carl Hansen-Testlow"), _fx(status="accepted", eb=egen))
+    assert (r["klasse"], r["assertion_id"]) == ("RET_OG_BIND", 77)
+    # en ugyldig binding på et andet mål spærrer ikke
+    r = _kl(_ar(laes="Carl Hansen-Testlow"), _fx(status="accepted", eb={**andet, "gyldig": False}))
+    assert (r["klasse"], r["assertion_id"]) == ("RET_OG_BIND", 77)
+
+
+def test_vaerditype_og_status_spaerres():
+    for svar in ("FORSLAG_FEJL", "DB_FEJL"):
+        r = _kl(_ar(svar=svar), _fx(status="accepted", value=None, vt="object"))
+        assert (r["klasse"], r["grund"], r["ny_vaerdi"]) == ("SPAERRET", "vaerditype", None)
+        r = _kl(_ar(svar=svar), _fx(status="superseded"))
+        assert (r["klasse"], r["grund"], r["ny_vaerdi"]) == ("SPAERRET", "status", None)
 
 
 def test_relation_og_begge_er_rapport():
@@ -310,7 +336,7 @@ def _opsaet():
     bidder = [{"udgave": "T", "poster": [{"post": p, "tekst": f"Tekst for {p} <i>", "sider": [f"s{p}.png"],
                                           "forslag": [{"ref": r["ref"]} for r in kl if r["ref"].startswith(p)]}
                                          for p in ("p1", "p2", "p3")]}]
-    maal = {"forslag": [{"interpretation_id": r["interpretation_id"],
+    maal = {"forslag": [{"interpretation_id": r["interpretation_id"], "version": r["version"], "status": r["status"],
                          "tidligere": {"status": "rejected", "grund": "fordi gammel afgørelse",
                                       "decided_at": "2026-01-01"},
                          "rettelse_maal": {"value_kind": "text", "forventet": {"vaerdi_tekst": "DBVAERDI",
@@ -334,10 +360,31 @@ def test_kort_viser_tidligere_afgoerelse():
     k = fr.byg_kort(kl, s, b, m)
     rk = next(x for x in k if x.get("ref") == "p1-f1")
     assert rk["tidligere_status"] == "rejected" and rk["tidligere_grund"] == "fordi gammel afgørelse"
-    assert rk["databasen"] == "DBVAERDI" and rk["bogens_laesning"] == "Ny" and rk["vaerdi"] == "Forslag"
+    # databasens værdi er klasse-rækkens forventet (manifest-bundet), ikke mål-filens
+    assert rk["databasen"] == "Gammel" and rk["bogens_laesning"] == "Ny" and rk["vaerdi"] == "Forslag"
     assert rk["sider"] == ["../sider/sp1.png"] and "Tekst for p1" in rk["tekst"]
     h = _html(kl, a, s, b, m)
     assert "afvist" in h and "fordi gammel afgørelse" in h and "retter databasens værdi" in h
+    assert "DBVAERDI" not in h
+
+
+def test_kort_afviser_maal_drift():
+    kl, a, s, b, m = _opsaet()
+    for felt, v in (("version", 2), ("status", "accepted")):
+        m2 = copy.deepcopy(m)
+        next(f for f in m2["forslag"] if f["interpretation_id"] == "i-p1-f1")[felt] = v
+        with pytest.raises(fr.FaktaError) as e:
+            fr.byg_kort(kl, s, b, m2)
+        assert e.value.kode == "MAAL_DRIFT"
+
+
+def test_kort_db_fejl_viser_forslagets_vaerdi():
+    kl, a, s, b, m = _opsaet()
+    next(r for r in a if r["ref"] == "p1-f2")["svar"] = "DB_FEJL"
+    k = fr.byg_kort(kl, s, b, m)
+    assert {x["ref"]: x["svar"] for x in k if x.get("svarbar")} == {"p1-f1": "FORSLAG_FEJL", "p1-f2": "DB_FEJL"}
+    h = _html(kl, a, s, b, m)
+    assert 'k.svar === "DB_FEJL" ? "Forslagets værdi (bogen og forslaget er enige)" : "Bogens læsning"' in h
 
 
 def test_rapport_og_spaerret_har_ingen_knapper():
@@ -456,7 +503,8 @@ def test_svarbare_kort_er_paa_side_1_i_ref_orden():
     kl.append(_krk("p0-f9", "RET_OG_BIND", iid="iz"))
     a.append(_a4("p0-f9"))
     b[0]["poster"].append({"post": "p0", "tekst": "t", "sider": [], "forslag": []})
-    m["forslag"].append({"interpretation_id": "iz", "tidligere": {"status": "accepted", "grund": None},
+    m["forslag"].append({"interpretation_id": "iz", "version": 1, "status": "accepted",
+                         "tidligere": {"status": "accepted", "grund": None},
                          "rettelse_maal": {"value_kind": "text", "forventet": {"vaerdi_tekst": "x"}}})
     k = fr.byg_kort(kl, {"A": a}, b, m)
     side1 = k[:40]
@@ -530,7 +578,9 @@ def _t5():
           _k5("p3-f3", "RET_OG_BIND", 6, "unresolved", "lensgreve", aid=-75, fv=_fv5(-75, "greve")),
           _k5("p4-f1", "RAPPORT", 7, "proposed", None, grund="BEGGE")]
     felter = {k["ref"]: k.pop("_felt") for k in kl}
-    a = [{"ref": r, "svar": "FORSLAG_FEJL", "felt": f, "vaerdi": f"VAERDI-{r}", "bogens_laesning": f"LAES-{r}",
+    ny = {k["ref"]: k["ny_vaerdi"] for k in kl}
+    a = [{"ref": r, "svar": "FORSLAG_FEJL", "felt": f, "vaerdi": f"VAERDI-{r}",
+          "bogens_laesning": ny[r] if ny[r] is not None else f"LAES-{r}",
           "billede": "bekraefter", "grund": "modellens grund"} for r, f in felter.items()]
     noegle = {k["ref"]: {"type": "forslag", "interpretation_id": k["interpretation_id"], "version": k["version"]}
               for k in kl}
@@ -674,9 +724,63 @@ def test_verify_a_er_laese_kun():
     kl, s, n, ark, ma = _t5()
     v = fr.verify_a_sql(fr.anvend_a(kl, s, n, ark))
     kode = [l for l in v.splitlines() if l.strip()]
-    assert kode[1] == "BEGIN;" and kode[2] == "SET TRANSACTION READ ONLY;" and kode[-1] == "ROLLBACK;"
+    assert kode[:4] == ["\\set ON_ERROR_STOP on", "\\set SHOW_CONTEXT never", "BEGIN;", "SET TRANSACTION READ ONLY;"]
+    assert kode[-1] == "ROLLBACK;"
     assert not re.search(r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT)\b|public\.red_", v)
     assert "T6M_VERIFY_A_OK" in v and "binding_value_matches" in v
+
+
+def test_sql_skjuler_kontekst_og_raise_baerer_ingen_vaerdier():
+    kl, s, n, ark, ma = _t5()
+    an = fr.anvend_a(kl, s, n, ark)
+    for sql in (fr.sql_a(an, source_id=T5_SRC, manifest_a=ma, ark_sha256="b" * 64), fr.verify_a_sql(an)):
+        kode = [l for l in sql.splitlines() if l.strip()]
+        assert kode[:3] == ["\\set ON_ERROR_STOP on", "\\set SHOW_CONTEXT never", "BEGIN;"]
+        # RAISE-teksterne: kun koder, refs, kilde-id, antal og hashes; ingen værdi fra kortene
+        for m in re.finditer(r"RAISE (?:EXCEPTION|NOTICE) '[^']*'(?:, [^;]*)?;", sql):
+            for v in ("Neill", "kammerherre", "1871", "jægermester", "OBrien", "greve"):
+                assert v not in m.group(0), m.group(0)
+
+
+def test_sql_a_bindingsvaern_foer_foerste_skrivning():
+    sql = _sql5()
+    b = _blok(sql, "T6M_BINDING_ANDET_MAAL")
+    m = json.loads(re.search(r"DECLARE m jsonb := '(\[[^']*\])'::jsonb", b).group(1))
+    # alle F-rækker; VERSION uden påstand (enhver gyldig binding afvises), ellers rækkens påstand
+    assert m == [[_uid(1), None], [_uid(2), -71], [_uid(3), -72], [_uid(4), -73]]
+    assert "q.interpretation_key = card.interpretation_key" in b and "assertion_binding_current(p.id)" in b
+    assert "p.target_id IS DISTINCT FROM (e->>1)::bigint" in b
+    assert sql.index("PAASTAND_DRIFT") < sql.index("T6M_BINDING_ANDET_MAAL") < sql.index(
+        "INSERT INTO private.extraction_run") < sql.index("red_ret_forslag(")
+
+
+def test_anvend_afviser_vaerdi_der_ikke_er_kildens():
+    def kode(kl, s, n, maal=None):
+        ma = fr.manifest_a(kl, s["A"])
+        ark = fr.flet_a(kl, ma, [fr.samlet_f(kl, ma), {"manifest_a": ma, "side": 1, "svar": {"p3-f1": "F"}}])
+        with pytest.raises(fr.FaktaError) as e:
+            fr.anvend_a(kl, s, n, ark, maal)
+        return e.value.kode
+    # FORSLAG_FEJL: ny_vaerdi skal være bogens læsning (afvigelsen bygget ind før manifest og flet)
+    kl, s, n, ark, ma = _t5()
+    kl[3]["ny_vaerdi"] = "13. marts 1871"
+    assert kode(kl, s, n) == "VAERDI_AFVIGER"
+    kl, s, n, ark, ma = _t5()
+    s["A"][1]["bogens_laesning"] = None
+    assert kode(kl, s, n) == "VAERDI_AFVIGER"
+    # DB_FEJL: ny_vaerdi skal være forslagets værdi i mål-filen (blanktegn samlet)
+    kl, s, n, ark, ma = _t5()
+    s["A"][1]["svar"] = "DB_FEJL"
+    s["A"][1]["bogens_laesning"] = "noget andet"
+    maal = {"forslag": [{"interpretation_id": k["interpretation_id"], "value_text": k["ny_vaerdi"]} for k in kl]}
+    ma = fr.manifest_a(kl, s["A"])
+    ark = fr.flet_a(kl, ma, [fr.samlet_f(kl, ma), {"manifest_a": ma, "side": 1, "svar": {"p3-f1": "F"}}])
+    maal["forslag"][1]["value_text"] = " kammerherre\n"
+    assert [r["ref"] for r in fr.anvend_a(kl, s, n, ark, maal)["bind"]] == ["p2-f1", "p2-f2"]
+    maal["forslag"][1]["value_text"] = "kammerjunker"
+    assert kode(kl, s, n, maal) == "VAERDI_AFVIGER"
+    maal["forslag"].pop(1)
+    assert kode(kl, s, n, maal) == "MAAL_MANGLER"
 
 
 def test_rapport_indeholder_ingen_vaerdier(tmp_path):
@@ -895,6 +999,75 @@ def test_apply_a_ende_til_ende(db5, tmp_path):
     r = kor(apply)
     assert r.returncode != 0 and "FORSLAG_DRIFT" in r.stderr
     assert _q5(db5, tael) == str(int(n0) + 7)
+
+
+# Binding på andet mål: nøglen er gyldigt bundet (fra 6c-2, valgt efter værdi) til påstand X, der også citeres af en
+# anden kilde, mens rettelse_maal er Y (den eneste påstand citeret af kilden alene). Egen kilde (S6), så
+# ende-til-ende-testens tal for S5 er uberørte.
+S6, P6, X6, Y6 = -6596, -65966, -659661, -659662
+RUN6 = _v(846)
+
+
+def _setup6() -> str:
+    s = (f"INSERT INTO public.source(id,titel,udgave,aar,slags) VALUES ({S6},'Fixture 6m6','synthetic','1939',"
+         f"'DAA-udgave');\n"
+         "INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,"
+         f"input_sha256,manifest) VALUES ('{RUN6}',{S6},'t6m6-s','fixture','fixture','fixture',repeat('1',64),'{{}}');\n"
+         f"INSERT INTO public.person(id,levende,privat,status) VALUES ({P6},false,false,'t6m6');\n")
+    s += t6._persona(_v(806), S6, RUN6, "t6m6:s1", P6)
+    s += t6._date_fact(P6, X6, "titel", "kammerjunker", [S6, K15], kind="text")
+    s += t6._date_fact(P6, Y6, "titel", "hofjunker", [S6], kind="text")
+    s += t6._interp(_v(816), _v(826), 1, S6, _v(806), "person.title", "kammerjunker", RUN6, status="accepted")
+    s += t6._promo(_v(836), _v(816), "person-title-v1", "assertion", X6, '{"fixture":"t6m6"}')
+    # hele kæden, promotionsvalideringen kræver: uden bindingsværnet ville ceremonien nå COMMIT
+    s += (f"INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256) "
+          f"VALUES ('{_v(706)}',{S6},'t6m6','fixture',repeat('1',64));\n"
+          f"INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id) "
+          f"VALUES ('{_v(716)}',{S6},'t6m6:r1','fixture','{RUN6}');\n"
+          f"INSERT INTO private.source_record_occurrence(id,rendition_id,occurrence_key,page_from,page_to,char_from,"
+          f"char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id) VALUES "
+          f"('{_v(726)}','{_v(706)}','o1',1,1,100,150,'tekst','f','f','{RUN6}');\n"
+          f"INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,"
+          f"version,decided_by,decided_by_name) VALUES ('{_v(726)}','{_v(716)}','accepted',"
+          f"'{{\"fixture\":true}}',1,'{ACT5}','fixture');\n"
+          f"INSERT INTO private.source_observation(id,occurrence_id,observation_kind,page_from,page_to,char_from,"
+          f"char_to,verbatim_text,quality_status,extraction_method,extraction_run_id) VALUES "
+          f"('{_v(736)}','{_v(726)}','clause',1,1,100,150,'klausul','clear','fixture','{RUN6}');\n"
+          f"INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) "
+          f"VALUES ('{_v(816)}','{_v(736)}','supporting',1);\n")
+    return s
+
+
+def test_binding_paa_andet_maal_spaerres_og_afvises_i_sql(db5, tmp_path):
+    import hashlib
+    t6._sql(db5, _setup6(), "setup6")
+    ref, iid = "q6-f1", _v(816)
+    a = [{"ref": ref, "svar": "FORSLAG_FEJL", "felt": "person.title", "vaerdi": "kammerjunker",
+          "bogens_laesning": "jægermester", "billede": "modsiger", "grund": "fixture"}]
+    noegle = {ref: {"type": "forslag", "interpretation_id": iid, "version": 1}}
+    maal = json.loads(_kor(db5, MAAL_SQL, f"SET daa.faktaforslag_ids = '{json.dumps([iid])}';\n", f"src={S6}"))
+    f = maal["forslag"][0]
+    assert f["egen_binding"] == {"promotion_id": _v(836), "gyldig": True, "target_id": X6}
+    assert f["rettelse_maal"]["assertion_id"] == Y6 and f["maal_bundet_af_anden"] is False
+    kl = fr.klassificer(a, noegle, maal)
+    assert [(k["klasse"], k["grund"]) for k in kl] == [("SPAERRET", "binding_paa_andet_maal")]
+
+    # et håndlavet ark, der springer klassifikationen over (RET_OG_BIND på Y), afvises før første skrivning
+    k = {**kl[0], "klasse": "RET_OG_BIND", "grund": None, "assertion_id": Y6,
+         "forventet": f["rettelse_maal"]["forventet"], "p_dato": None, "ret_paastand": True}
+    ma = fr.manifest_a([k], a)
+    ark = fr.flet_a([k], ma, [{"manifest_a": ma, "side": 1, "svar": {ref: "F"}}])
+    an = fr.anvend_a([k], {"A": a}, noegle, ark, maal)
+    apply = tmp_path / "apply-a.sql"
+    apply.write_text(fr.sql_a(an, source_id=S6, manifest_a=ma, ark_sha256=hashlib.sha256(ark.encode()).hexdigest()))
+    tael = ("SELECT (SELECT count(*) FROM private.interpretation)||'|'||(SELECT count(*) FROM private.extraction_run "
+            f"WHERE source_id={S6})||'|'||(SELECT vaerdi_tekst FROM public.assertion WHERE id={Y6})")
+    n0 = _q5(db5, tael + ";")
+    r = t6._psql("-v", f"actor={ACT5}", "-f", str(apply), db=db5)
+    assert r.returncode != 0 and "T6M_BINDING_ANDET_MAAL afvigende=1" in r.stderr, r.stderr[-800:]
+    assert "CONTEXT" not in r.stderr and "jægermester" not in r.stderr
+    assert _q5(db5, tael + ";") == n0 == f"{n0.split('|')[0]}|1|hofjunker"
+    assert _q5(db5, f"SELECT private.assertion_binding_current('{_v(836)}');") == "t"
 
 
 def _maal_db(db: str, ids: list[str]) -> dict:

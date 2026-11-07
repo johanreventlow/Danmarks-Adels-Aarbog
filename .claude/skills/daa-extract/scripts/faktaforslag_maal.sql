@@ -6,7 +6,9 @@
 -- citeret af præcis én kilde = forslagets egen; præcis ét kandidat-mål, ellers NULL), men uanset forslagets status.
 --   value_kind              regelens value_kind (private.interpretation_predicate_promotable), som binding_value_matches bruger
 --   maal_bundet_af_anden    målet har en gyldig assertion-binding fra en interpretation med en ANDEN nøgle
---   egen_binding            en assertion-promotion af netop dette interpretation-id (gyldig = assertion_binding_current)
+--   egen_binding            en assertion-promotion af netop dette interpretation-id (gyldig = assertion_binding_current;
+--                           en gyldig foretrækkes) med dens target_id; klassificer spærrer, hvis en gyldig binding
+--                           ligger på en anden påstand end rettelse_maal (6c-2 valgte målet efter værdi)
 --   gaeldende_id/_version   nøglens gældende række (interpretation_current)
 --   tidligere               rækkens egen status, grund (decision_evidence 'grund' eller 'basis') og decided_at
 BEGIN;
@@ -50,10 +52,11 @@ rows AS (
          CASE WHEN m.interpretation_id IS NULL THEN NULL
               ELSE jsonb_build_object('assertion_id', m.assertion_id, 'forventet', m.forventet,
                                       'graenser', m.graenser, 'value_kind', m.value_kind) END AS rettelse_maal,
-         (SELECT jsonb_build_object('promotion_id', p.id, 'gyldig', private.assertion_binding_current(p.id))
+         (SELECT jsonb_build_object('promotion_id', p.id, 'gyldig', private.assertion_binding_current(p.id),
+                                    'target_id', p.target_id)
             FROM private.interpretation_promotion p
            WHERE p.interpretation_id = f.interpretation_id AND p.target_type = 'assertion'
-           ORDER BY p.promoted_at DESC, p.id DESC LIMIT 1) AS egen_binding,
+           ORDER BY private.assertion_binding_current(p.id) DESC, p.promoted_at DESC, p.id DESC LIMIT 1) AS egen_binding,
          (m.interpretation_id IS NOT NULL AND EXISTS (
             SELECT 1 FROM private.interpretation_promotion p
               JOIN private.interpretation q ON q.id = p.interpretation_id
