@@ -69,6 +69,7 @@ echo "::endgroup::"
 echo "::group::Receipt-kontrakt og db-verify ($catalog_order)"
 psql -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-proposal.sql
 psql -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-normalisering.sql
+psql -v ON_ERROR_STOP=1 -f tests/sql/test-forslag-laesning.sql
 psql -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql
 echo "::endgroup::"
 
