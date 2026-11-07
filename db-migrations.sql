@@ -33657,6 +33657,7 @@ BEGIN
                WHERE x.outcome IN ('genfundet','genbundet')
                ORDER BY x.old_interpretation_key,x.old_promotion_id NULLS FIRST LOOP
     SELECT * INTO v_old FROM private.interpretation_current c WHERE c.interpretation_key=v_it.old_interpretation_key;
+    IF NOT FOUND THEN RAISE EXCEPTION 'AFSTEMNING_KAEDE_AFVIGER: %',v_it.old_interpretation_key; END IF;
     SELECT * INTO v_new FROM private.interpretation_current c WHERE c.interpretation_key=v_it.new_interpretation_key;
     IF NOT FOUND
        OR (v_it.outcome='genbundet' AND v_new.status<>'accepted')
