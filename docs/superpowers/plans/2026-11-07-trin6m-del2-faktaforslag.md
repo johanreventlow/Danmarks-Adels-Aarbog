@@ -114,8 +114,8 @@ spor B«.
 - Modify: `schema.sql` (efter `red_normaliser_forslag`, ca. linje 9518; og `red_decide_interpretation` 9368)
 - Modify: `db-migrations.sql` (ny blok `-- ===== trin 6m-a: forslagsversion med menneskelig læsning =====` sidst)
 - Modify: `db-verify.sql` (assert-blok 6m-a efter 6c-2b's, ca. 10589)
-- Modify: `tests/sql/inspect-5ab-function-parity.sql:40` (tilføj `('public','red_ret_forslag')` og
-  `('public','red_decide_interpretation')`; ret sumkommentaren øverst)
+- Modify: `tests/sql/inspect-5ab-function-parity.sql:40` (tilføj `('public','red_ret_forslag')`,
+  `('public','red_decide_interpretation')` og `('private','kontroller_forslag_binding_v1')`; ret sumkommentaren øverst)
 - Modify: `.github/workflows/ci.yml:407-408` (forventet antal paritetslinjer 44 → 47, også i fejlteksten)
 - Create: `tests/sql/test-forslag-laesning.sql` (skabelon: `tests/sql/test-interpretation-normalisering.sql`)
 - Modify: `tests/ci/interpretation-proposal-db.sh:71` (kør den nye test efter normaliseringstesten)
