@@ -32727,9 +32727,10 @@ REVOKE EXECUTE ON FUNCTION private.validate_interpretation_promotion_items(jsonb
 -- Trin 6m del 2 (blok 6m-a): en ny proposed-version af et faktaforslag med en menneskeligt læst værdi. Læsningen er
 -- ikke en afgørelse: rækken er proposed uden decided_* (interpretation_proposal_actor_check), så læseren, kortets
 -- grundlag og den gamle versions tilstand står i decision_evidence. Servernøglerne (laest_af, laest_af_navn, laest_at,
--- foer_status, foer_version, foer_bundet) lægges oven på kalderens evidens og kan ikke forfalskes. En uændret værdi er
--- kun tilladt som genåbning af et afgjort forslag. foer_bundet = den gamle version havde en gyldig assertion-binding;
--- så kræver den udskudte kontrol kontroller_forslag_binding_v1, at nøglen er accepteret og bundet igen ved COMMIT.
+-- foer_status, foer_version, foer_bundet, foer_maal) lægges oven på kalderens evidens og kan ikke forfalskes. En uændret
+-- værdi er kun tilladt som genåbning af et afgjort forslag. foer_maal = målene (assertion-id'er) for den gamle versions
+-- gyldige assertion-bindinger, foer_bundet = foer_maal er ikke tom; så kræver den udskudte kontrol
+-- kontroller_forslag_binding_v1, at nøglen er accepteret og bundet igen til et af de samme mål ved COMMIT.
 CREATE OR REPLACE FUNCTION red_ret_forslag(
   p_interpretation_id uuid,
   p_expected_version integer,
@@ -32744,6 +32745,7 @@ DECLARE
   v_run uuid;
   v_ny text;
   v_bundet boolean;
+  v_foer_maal jsonb;
   v_new_id uuid := gen_random_uuid();
 BEGIN
   IF v_actor IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN
@@ -32805,11 +32807,11 @@ BEGIN
   SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text)
     INTO v_actor_name FROM public.profiles WHERE id=v_actor;
   -- Måles før indsættelsen: bagefter er den gamle version ikke længere gældende, og bindingen er ugyldig.
-  v_bundet := EXISTS (
-    SELECT 1 FROM private.interpretation_promotion p
-     WHERE p.interpretation_id=v_current.id AND p.target_type='assertion'
-       AND private.assertion_binding_current(p.id)
-  );
+  SELECT coalesce(jsonb_agg(p.target_id ORDER BY p.target_id),'[]'::jsonb) INTO v_foer_maal
+    FROM private.interpretation_promotion p
+   WHERE p.interpretation_id=v_current.id AND p.target_type='assertion'
+     AND private.assertion_binding_current(p.id);
+  v_bundet := jsonb_array_length(v_foer_maal)>0;
 
   INSERT INTO private.interpretation(
     id,interpretation_key,version,source_id,source_persona_id,
@@ -32825,7 +32827,8 @@ BEGIN
     p_evidence || jsonb_build_object(
       'laest_af',v_actor,'laest_af_navn',coalesce(v_actor_name,v_actor::text),
       'laest_at',to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
-      'foer_status',v_current.status,'foer_version',v_current.version,'foer_bundet',v_bundet)
+      'foer_status',v_current.status,'foer_version',v_current.version,'foer_bundet',v_bundet,
+      'foer_maal',v_foer_maal)
   );
   INSERT INTO private.interpretation_observation(
     interpretation_id,observation_id,evidence_role,ordinal
@@ -32841,9 +32844,10 @@ GRANT EXECUTE ON FUNCTION red_ret_forslag(uuid,integer,text,jsonb) TO authentica
 
 -- Trin 6m del 2 (blok 6m-a): den udskudte kontrol. Fyrer (WHEN) kun for red_ret_forslag-rækker, hvis gamle version var
 -- bundet; afgørelsen bagefter har sin egen evidens uden foer_bundet og fyrer ikke. Ved COMMIT skal nøglens gældende
--- række være accepteret med en gyldig assertion-binding (assertion_binding_current kræver selv gældende og accepted),
--- så et enkeltstående kald ikke kan efterlade et fakta uden sin binding. SECURITY DEFINER: kontrollen fyrer ved COMMIT
--- som den rolle, der committer (authenticated), som ikke kan læse private.*.
+-- række være accepteret med en gyldig assertion-binding (assertion_binding_current kræver selv gældende og accepted) til
+-- et af de mål, den gamle version var bundet til (NEW.decision_evidence->'foer_maal', sat af serveren), så et
+-- enkeltstående kald ikke kan efterlade et fakta uden sin binding eller flytte bindingen til en anden påstand.
+-- SECURITY DEFINER: kontrollen fyrer ved COMMIT som den rolle, der committer (authenticated), som ikke kan læse private.*.
 CREATE OR REPLACE FUNCTION private.kontroller_forslag_binding_v1()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 BEGIN
@@ -32853,6 +32857,7 @@ BEGIN
       JOIN private.interpretation_promotion p ON p.interpretation_id=cur.id AND p.target_type='assertion'
      WHERE cur.interpretation_key=NEW.interpretation_key AND cur.status='accepted'
        AND private.assertion_binding_current(p.id)
+       AND p.target_id IN (SELECT m::bigint FROM jsonb_array_elements_text(NEW.decision_evidence->'foer_maal') m)
   ) THEN
     RAISE EXCEPTION 'FORSLAG_BINDING_TABT: %',NEW.interpretation_key;
   END IF;

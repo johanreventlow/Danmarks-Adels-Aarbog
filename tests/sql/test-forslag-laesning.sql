@@ -127,7 +127,7 @@ DECLARE
   v_p bigint:=-6801; v_s bigint:=-6801; m jsonb; v_post jsonb; v_run uuid; v_run2 uuid:=gen_random_uuid(); m2 jsonb;
   i_titel uuid; i_afvist uuid; i_afvist2 uuid; i_super uuid; i_rel uuid; i_obj uuid;
   a_bund bigint; i_bund uuid; i_bund2 uuid; a_ny bigint; i_ny uuid; i_ny2 uuid; a_alene bigint; i_alene uuid;
-  i_alene2 uuid; v_prom uuid; v_prom2 uuid;
+  i_alene2 uuid; v_prom uuid; v_prom2 uuid; a_b bigint; i_flyt uuid; v_prom_a uuid;
   r jsonb; v2 private.interpretation%ROWTYPE; v1 private.interpretation%ROWTYPE; ev jsonb:=pg_temp.fl_ev();
   v_new uuid; v_err text; v_ver integer; k text;
 BEGIN
@@ -232,7 +232,7 @@ BEGIN
 
   -- 8) En vellykket læsning af et proposed forslag. Evidensens servernøgler kan ikke forfalskes af kalderen.
   r:=pg_temp.fl_ret(i_titel,1,E' Overhofmarskal\nog  Hofmarskal ',
-    ev||'{"foer_bundet":true,"laest_af":"forfalsket","foer_status":"accepted","ekstra":"bevares"}');
+    ev||'{"foer_bundet":true,"foer_maal":[0],"laest_af":"forfalsket","foer_status":"accepted","ekstra":"bevares"}');
   SELECT * INTO v1 FROM private.interpretation WHERE id=i_titel;
   SELECT * INTO v2 FROM private.interpretation WHERE id=(r->>'interpretation_id')::uuid;
   IF (SELECT array_agg(x ORDER BY x) FROM jsonb_object_keys(r) x)
@@ -256,7 +256,8 @@ BEGIN
      OR v2.decision_evidence->>'laest_af'<>v_actor::text OR v2.decision_evidence->>'laest_af_navn'<>'5b fixture'
      OR v2.decision_evidence->>'laest_at' !~ '^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$'
      OR v2.decision_evidence->'foer_status'<>'"proposed"'::jsonb OR v2.decision_evidence->'foer_version'<>'1'::jsonb
-     OR v2.decision_evidence->'foer_bundet'<>'false'::jsonb OR v2.decision_evidence->>'ekstra'<>'bevares' THEN
+     OR v2.decision_evidence->'foer_bundet'<>'false'::jsonb OR v2.decision_evidence->'foer_maal'<>'[]'::jsonb
+     OR v2.decision_evidence->>'ekstra'<>'bevares' THEN
     RAISE EXCEPTION 'FORSLAG_TEST_EVIDENS: %',v2.decision_evidence;
   END IF;
   IF (SELECT array_agg(observation_id::text||'|'||evidence_role||'|'||ordinal ORDER BY ordinal)
@@ -305,7 +306,9 @@ BEGIN
     RESET ROLE;
     IF r->'genaabnet'<>'true'::jsonb OR r->>'foer_status'<>'accepted'
        OR (SELECT decision_evidence->'foer_bundet' FROM private.interpretation WHERE id=(r->>'interpretation_id')::uuid)
-          <>'true'::jsonb THEN
+          <>'true'::jsonb
+       OR (SELECT decision_evidence->'foer_maal' FROM private.interpretation WHERE id=(r->>'interpretation_id')::uuid)
+          IS DISTINCT FROM jsonb_build_array(a_bund) THEN
       RAISE EXCEPTION 'FORSLAG_TEST_FOER_BUNDET: %',r;
     END IF;
     SET LOCAL ROLE authenticated;
@@ -380,6 +383,36 @@ BEGIN
     IF SQLERRM NOT LIKE 'FORSLAG_BINDING_TABT%' THEN RAISE EXCEPTION 'FORSLAG_TEST_ANDEN_NOEGLE: %',SQLERRM; END IF;
   END;
   SET CONSTRAINTS ALL DEFERRED;
+
+  -- 14) Genåbnet, afgjort og genbundet i samme transaktion, men på en ANDEN påstand (B) end den, nøglen var bundet til
+  -- (A): A ville miste sin binding stille. Den udskudte kontrol kræver samme mål (foer_maal) og afviser.
+  a_b:=pg_temp.fl_fakta(v_p,'titel','Legationsråd',v_s);
+  SELECT cur.id,cur.version INTO i_flyt,v_ver FROM private.interpretation_current cur
+   WHERE cur.interpretation_key=(SELECT interpretation_key FROM private.interpretation WHERE id=i_bund2);
+  SELECT p.id INTO v_prom_a FROM private.interpretation_promotion p
+   WHERE p.interpretation_id=i_flyt AND p.target_type='assertion' AND p.target_id=a_bund
+     AND private.assertion_binding_current(p.id);
+  IF v_prom_a IS NULL OR v_ver<>4 THEN RAISE EXCEPTION 'FORSLAG_TEST_FIXTURE: A er ikke bundet (version %)',v_ver; END IF;
+  BEGIN
+    r:=pg_temp.fl_ret(i_flyt,v_ver,'Legationsråd',ev);
+    v_new:=pg_temp.fl_afgoer(v_actor,(r->>'interpretation_id')::uuid,'accepted','kort-6m-a');
+    v_prom2:=pg_temp.fl_bind(v_new,a_b);
+    IF NOT private.assertion_binding_current(v_prom2) OR private.assertion_binding_current(v_prom_a) THEN
+      RAISE EXCEPTION 'FORSLAG_TEST_FIXTURE: B ikke bundet';
+    END IF;
+    SET LOCAL ROLE authenticated;
+    SET CONSTRAINTS ALL IMMEDIATE;
+    RAISE EXCEPTION 'FORSLAG_TEST_NO_ERROR: bundet til andet mål';
+  EXCEPTION WHEN OTHERS THEN
+    RESET ROLE;
+    IF SQLERRM NOT LIKE 'FORSLAG_BINDING_TABT%' THEN RAISE EXCEPTION 'FORSLAG_TEST_ANDET_MAAL: %',SQLERRM; END IF;
+  END;
+  SET CONSTRAINTS ALL DEFERRED;
+  IF (SELECT id FROM private.interpretation_current WHERE interpretation_key=
+       (SELECT interpretation_key FROM private.interpretation WHERE id=i_bund2))<>i_flyt
+     OR NOT private.assertion_binding_current(v_prom_a) THEN
+    RAISE EXCEPTION 'FORSLAG_TEST_ANDET_MAAL_TILBAGERULNING';
+  END IF;
 END $laesning$;
 ROLLBACK;
 SELECT 'forslag_laesning OK' AS result;
