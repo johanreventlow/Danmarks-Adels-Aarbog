@@ -71,6 +71,9 @@ Alle forslag er lavet af `gpt-5.6-terra` med prompt-hash `d46cda80…` (trin 4's
   narrativbinding (en af 149b's fire `unresolved_text`).
 - Ingen af personerne er levende. Alle 10 poster er `eligible` under `exclusion-2018-20-v1` (ledger 591/488/103,
   samme regler som trin 4); I-84 er `excluded` (`spouse_undated_marriage`) og parkeret uanset.
+- **Drift i udelukkelsesgrundene (noteres, ikke 6c-3's sag):** fordelingen pr. regel er nu principal 47, relative 56,
+  spouse 68, text 2 mod trin 4's 46+4 / 13 / 62 / 2. Totalen 488/103 er uændret; skiftet i `relative_living`
+  skyldes sandsynligvis 5b's flere relationer. Ingen af de 10 er berørt.
 
 ### 2.4 Genbinding under 6c-2's vagt (statisk)
 
@@ -136,6 +139,11 @@ som de andre (0 afhængige).
 - **De 16 bindinger** skal hver ende i én af to tilstande: genbundet til en ny nøgles gældende, accepterede version
   mod *samme* mål, eller tilbagetrukket med projektejerens udtrykkelige svar på et kort. En tilbagetrækning er
   synlig i læseren som »fra den oprindelige import« (fakta) eller som en familie uden kildelinje.
+- **Hvor afgørelsen gemmes:** en tilbagetrækning kan ikke ligge på den gamle nøgle (den er `superseded`) og har ingen
+  ny nøgle. Udfaldet pr. binding (genbundet til ny nøgle / tilbagetrukket / åben) skrives derfor i ceremoniens
+  kvittering i basen, sammen med svarfilens hash, som GO'en binder, og med revisionskvitteringens
+  `expected_binding_loss` som den liste, der afstemmes imod. Kvitteringen er append-only og aktørbundet, ikke kun
+  en privat fil.
 - At modellen ikke genfinder en værdi, er et forventeligt udfald, ikke en fejl. Det går på kort med valget
   »tilbagetræk« eller »ved ikke« (bindingen falder ud, og sagen står åben i afstemningen).
 - **De 42 `proposed`** var uafklarede før og må være det bagefter. De afstemmes, men intet kræves.
@@ -163,7 +171,9 @@ kommer det som egen blok med egen DDL-ceremoni, og B13-budgettet gælder uændre
 
 1. **Øvelse først** (planens første opgave): revision → genkørsel → afgørelser → genbinding på stand-in'en, med
    prods 2-minutters grænse. Den skal vise §2.4 i praksis: hver af de 9 påstande og 7 familier kan genbindes til en ny
-   nøgle. Fejler den, kommer spec'en tilbage til projektejeren før anden opgave.
+   nøgle. Fejler den, kommer spec'en tilbage til projektejeren før anden opgave. Øvelsen bekræfter også, at prompten
+   bag `d46cda80…` kan hentes i præcis den version, og at 5b's partswriter godtager en modpart, hvis mention sidder
+   på en `erstattet` klausul (det mest sandsynlige sted, §4.7's »ingen DDL« kan vise sig forkert).
 2. **Runner:** ny privat runner efter 6c-2/6m-formen (`maal`, `dump`, `go`, `apply --jeg-mener-det --go`, `verify`,
    `fortryd`); præcise allow-regler for læse-trin og `go-*` (memory: runner-allowlist). Apply og fortryd kun i
    projektejerens shell.
