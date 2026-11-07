@@ -116,7 +116,7 @@ spor B«.
 - Modify: `db-verify.sql` (assert-blok 6m-a efter 6c-2b's, ca. 10589)
 - Modify: `tests/sql/inspect-5ab-function-parity.sql:40` (tilføj `('public','red_ret_forslag')` og
   `('public','red_decide_interpretation')`; ret sumkommentaren øverst)
-- Modify: `.github/workflows/ci.yml:407-408` (forventet antal paritetslinjer 44 → 46, også i fejlteksten)
+- Modify: `.github/workflows/ci.yml:407-408` (forventet antal paritetslinjer 44 → 47, også i fejlteksten)
 - Create: `tests/sql/test-forslag-laesning.sql` (skabelon: `tests/sql/test-interpretation-normalisering.sql`)
 - Modify: `tests/ci/interpretation-proposal-db.sh:71` (kør den nye test efter normaliseringstesten)
 
@@ -148,6 +148,10 @@ spor B«.
   FOR EACH ROW` på rækker med `method='menneske-laesning-v1'` og `decision_evidence->>'foer_bundet'='true'`: ved COMMIT
   skal nøglens gældende række være `accepted` med en gyldig assertion-binding (`assertion_binding_current`), ellers
   `FORSLAG_BINDING_TABT`. Et enkeltstående kald kan dermed ikke efterlade et fakta uden sin 1939-binding.
+  Triggerfunktionen `private.kontroller_forslag_binding_v1()` er `SECURITY DEFINER` med
+  `search_path=pg_catalog,public,private` (triggeren fyrer ved COMMIT som `authenticated`, der ikke kan læse
+  `private.*`), REVOKE fra PUBLIC/anon/authenticated/service_role; migrationen bruger `DROP TRIGGER IF EXISTS` +
+  `CREATE CONSTRAINT TRIGGER` (en constraint-trigger har ingen `OR REPLACE`).
 - `red_decide_interpretation`: `p_evidence->>'basis'='menneske-laesning-v1'` → `EVIDENCE_BASIS_RESERVED:
   menneske-laesning-v1` (som `source_text_revision`, linje 9368), så en afgørelse ikke kan efterligne læsningen.
 
@@ -157,17 +161,18 @@ spor B«.
 - [ ] **Step 2: Skriv testen** `tests/sql/test-forslag-laesning.sql` (fixture som normaliseringstestens): én blok pr.
   fejlkode i reglerne 1-7; en vellykket `proposed` (ny version, `method`, `derivation_kind`, `decided_by IS NULL`,
   evidensens nøgler, observationer kopieret, `extraction_run_id` = GUC'ens kørsel); en genåbning af `rejected` med
-  uændret værdi (`genaabnet=true`); en genåbning af en bundet `accepted` alene → `FORSLAG_BINDING_TABT` ved
-  `SET CONSTRAINTS ALL IMMEDIATE` (en BEGIN/ROLLBACK-fixture fyrer aldrig en udskudt trigger); samme genåbning efterfulgt
+  uændret værdi (`genaabnet=true`); en genåbning af en bundet `accepted` alene, kaldt som `authenticated`
+  med redaktør-claim → `FORSLAG_BINDING_TABT` (ikke `permission denied`) ved `SET CONSTRAINTS ALL IMMEDIATE` (en BEGIN/ROLLBACK-fixture fyrer aldrig en udskudt trigger); samme genåbning efterfulgt
   af afgørelse og genbinding → ingen fejl; anden kørsel
   med samme forventede version → `FORSLAG_VERSION_KONFLIKT`; `red_decide_interpretation` med reserveret basis afvist;
   en `relation`-fortolkning → `FORSLAG_ART_UGYLDIG`.
 - [ ] **Step 3:** Kør mod en frisk skema-base (`tests/ci/interpretation-proposal-db.sh`) → FAIL.
 - [ ] **Step 4:** Implementér i `schema.sql` og som idempotent blok i `db-migrations.sql` (hele
   `red_decide_interpretation` gentages i blokken); `db-verify.sql`: funktionen findes, ACL som `red_normaliser_forslag`
-  (linje 3019), og den reserverede basis afvises.
+  (linje 3019), den reserverede basis afvises, triggeren findes og er `DEFERRABLE INITIALLY DEFERRED`, og
+  triggerfunktionen har ingen EXECUTE for anon/authenticated.
 - [ ] **Step 5:** Kør testen, `db-verify.sql` og paritets-inspektionen på frisk skema og på en opgraderet base (CI's
-  `reimport_legacy_empty_153`-mønster, som allerede migrerer to gange) → PASS, paritet ens, 46 linjer.
+  `reimport_legacy_empty_153`-mønster, som allerede migrerer to gange) → PASS, paritet ens, 47 linjer.
 - [ ] **Step 6:** Commit: `feat(db): red_ret_forslag — forslagsversion med menneskelig læsning (blok 6m-a)`
 
 ### Task 2: Læse-kun mål-SQL
@@ -385,7 +390,7 @@ B13's plan-runde er kørt (nedenfor). Udførelse kræver projektejerens godkende
 udførelsesform.
 
 **Review-runde 1 (2026-11-07):** Codex `gpt-6.1-sol` gav NO-GO med 8 fund + 2 noter; Opus dømte 5 nødvendige
-(bindingstab ved enkeltkald, CI-paritet 44→46, `extraction_run_id`, bindingsbevis over to versioner, 13 narrativer som
+(bindingstab ved enkeltkald, CI-paritet 44→47 inkl. triggerfunktionen, `extraction_run_id`, bindingsbevis over to versioner, 13 narrativer som
 projektejerens beslutning) og 5 forenklede (manifest binder klasse og mål, drift-tjek for `BIND`, ét
 skriveværdi-begreb, `flet_a`'s input, `ALLEREDE_BUNDET`); alle indarbejdet efter projektejerens ja. Næste Codex-runde
 er på diffen før prod (Task 8 Step 1).
