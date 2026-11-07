@@ -284,3 +284,164 @@ def test_cli_printer_kun_tal(tmp_path):
     assert p.returncode == 0, p.stderr
     assert re.match(r"^FF_KLASSE_OK( [a-z_]+=[0-9a-f]+)+$", p.stdout.strip())
     assert (os.stat(tmp_path / "a-klasser.json").st_mode & 0o777) == 0o600
+
+
+# --- Task 4: A-kort og flet -------------------------------------------------------------------------------------
+
+def _krk(ref, klasse, felt="person.name", status="accepted", grund=None, iid=None, ny="Ny", maal_v="Gammel"):
+    return {"ref": ref, "klasse": klasse, "grund": grund, "interpretation_id": iid or f"i-{ref}", "version": 1,
+            "status": status, "ny_vaerdi": ny, "assertion_id": 7 if klasse in ("BIND", "RET_OG_BIND") else None,
+            "forventet": {"vaerdi_tekst": maal_v, "date_raw": maal_v} if klasse in ("BIND", "RET_OG_BIND") else None,
+            "p_dato": None, "ret_paastand": klasse == "RET_OG_BIND"}
+
+
+def _a4(ref, felt="person.name"):
+    return {"ref": ref, "svar": "FORSLAG_FEJL", "felt": felt, "vaerdi": "Forslag", "bogens_laesning": "Ny",
+            "billede": "bekraefter", "grund": "modellens grund <b>x</b>", "databasen": None, "post": ref.split("-")[0]}
+
+
+def _opsaet():
+    kl = [_krk("p1-f1", "RET_OG_BIND", status="rejected"), _krk("p1-f2", "RET_OG_BIND", felt="person.title"),
+          _krk("p2-f1", "VERSION", status="proposed"), _krk("p2-f2", "BIND", felt="person.title"),
+          _krk("p3-f1", "RAPPORT", grund="BEGGE"), _krk("p3-f2", "SPAERRET", grund="intet_maal"),
+          _krk("p3-f3", "DRIFT")]
+    a = [_a4(r["ref"], "person.title" if r["ref"] in ("p1-f2", "p2-f2") else "person.name") for r in kl]
+    samlet = {"A": a}
+    bidder = [{"udgave": "T", "poster": [{"post": p, "tekst": f"Tekst for {p} <i>", "sider": [f"s{p}.png"],
+                                          "forslag": [{"ref": r["ref"]} for r in kl if r["ref"].startswith(p)]}
+                                         for p in ("p1", "p2", "p3")]}]
+    maal = {"forslag": [{"interpretation_id": r["interpretation_id"],
+                         "tidligere": ({"status": "rejected", "grund": "fordi gammel afgørelse",
+                                        "decided_at": "2026-01-01"} if r["ref"] == "p1-f1" else None),
+                         "rettelse_maal": {"value_kind": "text", "forventet": {"vaerdi_tekst": "DBVAERDI",
+                                                                               "date_raw": None}}}
+                        for r in kl]}
+    return kl, a, samlet, bidder, maal
+
+
+def _html(kl, a, samlet, bidder, maal):
+    k = fr.byg_kort(kl, samlet, bidder, maal)
+    return "\n".join(fr.render(k, fr.manifest_a(kl, a)))
+
+
+def test_kort_er_ikke_forudfyldt():
+    h = _html(*_opsaet())
+    assert "checked" not in h and "selected" not in h
+
+
+def test_kort_viser_tidligere_afgoerelse():
+    kl, a, s, b, m = _opsaet()
+    k = fr.byg_kort(kl, s, b, m)
+    rk = next(x for x in k if x.get("ref") == "p1-f1")
+    assert rk["tidligere_status"] == "rejected" and rk["tidligere_grund"] == "fordi gammel afgørelse"
+    assert rk["databasen"] == "DBVAERDI" and rk["bogens_laesning"] == "Ny" and rk["vaerdi"] == "Forslag"
+    assert rk["sider"] == ["../sider/sp1.png"] and "Tekst for p1" in rk["tekst"]
+    h = _html(kl, a, s, b, m)
+    assert "afvist" in h and "fordi gammel afgørelse" in h and "retter databasens værdi" in h
+
+
+def test_rapport_og_spaerret_har_ingen_knapper():
+    kl, a, s, b, m = _opsaet()
+    k = fr.byg_kort(kl, s, b, m)
+    rap = [x for x in k if x["type"] == "rapport"]
+    assert {x["ref"] for x in rap} == {"p3-f1", "p3-f2", "p3-f3"}
+    assert all(not x["svarbar"] for x in rap)
+    assert "gives videre til 6c-3/6d" in _html(kl, a, s, b, m)
+
+
+def test_vejledning_definerer_hvert_svar():
+    h = _html(*_opsaet())
+    for t in ("<b>F</b>", "<b>N</b>", "<b>tomt</b>", "genåbner", "er du i tvivl, så lad den stå tom"):
+        assert t in h
+
+
+def test_kun_ret_og_bind_har_knapper():
+    kl, a, s, b, m = _opsaet()
+    k = fr.byg_kort(kl, s, b, m)
+    assert {x["ref"] for x in k if x.get("svarbar")} == {"p1-f1", "p1-f2"}
+    ov = next(x for x in k if x["type"] == "oversigt")
+    assert ov["felter"] == {"person.name": 1, "person.title": 1} and ov["antal"] == 2
+    h = _html(kl, a, s, b, m)
+    assert "omfattet af det samlede F (projektejeren 2026-11-07)" in h
+    assert "p2-f1" not in json.dumps([x for x in k if x.get("svarbar")])
+
+
+def test_html_escaper_indhold():
+    h = _html(*_opsaet())
+    assert "<b>x</b>" not in h.split("const DATA")[1]   # data ligger som JSON med < escapet
+    assert "\\u003cb>x\\u003c/b>" in h
+
+
+def _sv(ma, side, svar):
+    return {"manifest_a": ma, "side": side, "svar": svar}
+
+
+def test_flet_afviser():
+    kl, a, s, b, m = _opsaet()
+    ma = fr.manifest_a(kl, a)
+
+    def kode(*filer):
+        with pytest.raises(fr.FaktaError) as e:
+            fr.flet_a(kl, ma, list(filer))
+        return e.value.kode
+    assert kode(_sv("x" * 64, 1, {})) == "MANIFEST_MISMATCH"
+    assert kode(_sv(ma, 1, {"p9-f9": "F"})) == "SVAR_UKENDT_REF"
+    for ref in ("p3-f1", "p3-f2", "p3-f3"):
+        assert kode(_sv(ma, 1, {ref: "F"})) == "SVAR_IKKE_TILLADT"
+    assert kode(_sv(ma, 1, {"p1-f1": "X"})) == "SVAR_UGYLDIGT"
+    assert kode(_sv(ma, 1, {"p1-f1": "F"}), _sv(ma, 2, {"p1-f1": "N"})) == "SVAR_KONFLIKT"
+    assert kode(_sv(ma, 1, {"p1-f1": "F"}), _sv(ma, 1, {"p1-f2": "F"})) == "SVAR_SIDE_DUBLET"
+
+
+def test_flet_ark_findes(tmp_path):
+    kl, a, s, b, m = _opsaet()
+    (tmp_path / "a-klasser.json").write_text(json.dumps({"manifest_a": fr.manifest_a(kl, a), "klasser": kl}))
+    (tmp_path / "samlet.json").write_text(json.dumps(s))
+    (tmp_path / "ark-a.txt").write_text("x")
+    p = subprocess.run(["python3", str(HERE / "faktaforslag_rettelse.py"), "flet", "--ud", str(tmp_path), "x.json"],
+                       capture_output=True, text=True, cwd=HERE)
+    assert p.returncode == 2 and "FF_FEJL ARK_FINDES" in p.stderr
+
+
+def test_samlet_f_daekker_praecis_version_og_bind():
+    kl, a, s, b, m = _opsaet()
+    ma = fr.manifest_a(kl, a)
+    sf = fr.samlet_f(kl, ma)
+    assert sf["side"] == 1001 and sf["manifest_a"] == ma
+    assert sf["kilde"] == "projektejeren 2026-11-07: samlet F på VERSION og BIND"
+    assert sf["svar"] == {"p2-f1": "F", "p2-f2": "F"}
+    ark = fr.flet_a(kl, ma, [sf, _sv(ma, 1, {"p1-f1": "N"})])
+    assert ark.splitlines() == [f"# manifest_a {ma}", "A p1-f1 : N", "A p1-f2 : _", "A p2-f1 : F", "A p2-f2 : F"]
+
+
+def test_flet_afviser_samlet_svar_paa_ret_og_bind():
+    kl, a, s, b, m = _opsaet()
+    ma = fr.manifest_a(kl, a)
+    for fil in (_sv(ma, 1001, {"p1-f1": "F"}), _sv(ma, 1, {"p2-f1": "F"}), _sv(ma, 1, {"p2-f2": "F"})):
+        with pytest.raises(fr.FaktaError) as e:
+            fr.flet_a(kl, ma, [fil])
+        assert e.value.kode == "SVAR_IKKE_TILLADT"
+
+
+def test_cli_kort_samlet_f_flet(tmp_path):
+    kl, a, s, b, m = _opsaet()
+    ma = fr.manifest_a(kl, a)
+    (tmp_path / "a-klasser.json").write_text(json.dumps({"manifest_a": ma, "klasser": kl}))
+    (tmp_path / "samlet.json").write_text(json.dumps(s))
+    (tmp_path / "input-1.json").write_text(json.dumps(b[0]))
+    (tmp_path / "maal.json").write_text(json.dumps(m))
+
+    def kor(*args):
+        return subprocess.run(["python3", str(HERE / "faktaforslag_rettelse.py"), *args, ], capture_output=True,
+                              text=True, cwd=HERE)
+    p = kor("kort", "--ud", str(tmp_path))
+    assert p.returncode == 0, p.stderr
+    assert (os.stat(tmp_path / "kort-a" / "kort-1.html").st_mode & 0o777) == 0o600
+    p = kor("samlet-f", "--ud", str(tmp_path))
+    assert p.returncode == 0, p.stderr
+    assert (os.stat(tmp_path / "svar-a-1001.json").st_mode & 0o777) == 0o600
+    p = kor("flet", "--ud", str(tmp_path), str(tmp_path / "svar-a-1001.json"))
+    assert p.returncode == 0, p.stderr
+    assert re.match(r"^FF_FLET_OK( [a-z_0-9]+=[0-9a-f]+)+$", p.stdout.strip())
+    assert "Tekst" not in p.stdout
+    assert (os.stat(tmp_path / "ark-a.txt").st_mode & 0o777) == 0o600
