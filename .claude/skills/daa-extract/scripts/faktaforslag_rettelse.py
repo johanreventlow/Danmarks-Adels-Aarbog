@@ -429,7 +429,6 @@ def _efter_do(anvendt: dict) -> str:
     m = [[r["interpretation_id"], r["assertion_id"]] for fase, r in rows if fase != "version"]
     ret = [[r["assertion_id"], r["value_kind"], r["ny_vaerdi"]] for r in anvendt["ret_og_bind"]]
     nf, nb, nr = len(rows), len(m), len(ret)
-    nacc = sum(1 for _, r in rows if r["status"] == "accepted")
     return "\n".join([
         "DO $t6m_efter$",
         f"DECLARE f jsonb := {cm._jlit(f)}::jsonb;",
@@ -479,7 +478,7 @@ def _efter_do(anvendt: dict) -> str:
         f"  IF n <> {nb} THEN RAISE EXCEPTION 'T6M_BIND_EFTER_AFVIGER % af {nb}', n; END IF;",
         # Kildens gyldige bindinger og k1-hashen mod målingen før første skrivning.
         "  " + _bindinger_sql("v_src", "v_k1", "b_efter, k1_efter"),
-        f"  IF b_efter <> (mf->>'foer_bindinger')::bigint - {nacc} + {nb}",
+        f"  IF b_efter <> (mf->>'foer_bindinger')::bigint - (mf->>'foer_bundne_f')::bigint + {nb}",
         "     OR k1_efter IS DISTINCT FROM mf->>'foer_k1_bindinger_hash' THEN",
         "    RAISE EXCEPTION 'T6M_BINDINGER_AFVIGER foer=% efter=% k1_uaendret=%', mf->>'foer_bindinger', b_efter,",
         "      k1_efter IS NOT DISTINCT FROM mf->>'foer_k1_bindinger_hash'; END IF;",
@@ -507,10 +506,9 @@ def sql_a(anvendt: dict, *, source_id: int, manifest_a: str, ark_sha256: str, k1
     rows = _alle(anvendt)
     bindes = [r for fase, r in rows if fase != "version"]
     nf, nb, nr = len(rows), len(bindes), len(anvendt["ret_og_bind"])
-    nacc = sum(1 for _, r in rows if r["status"] == "accepted")
     kort = [{"id": r["interpretation_id"], "version": r["version"], "status": r["status"]} for _, r in rows]
     drift = [{"assertion_id": r["assertion_id"], "forventet": r["forventet"]} for r in bindes]
-    acc_ids = [r["interpretation_id"] for _, r in rows if r["status"] == "accepted"]
+    f_ids = [r["interpretation_id"] for _, r in rows]
     src = source_id
 
     out = ["\\set ON_ERROR_STOP on", "BEGIN;",
@@ -548,15 +546,17 @@ def sql_a(anvendt: dict, *, source_id: int, manifest_a: str, ark_sha256: str, k1
     manifest = (f"jsonb_build_object('antal', {nf}, 'manifest_a', {_q(manifest_a)}, 'ark', {_q(ark_sha256)}, "
                 f"'k1_source_id', {k1_source_id}, 'foer_bindinger', b_foer, 'foer_k1_bindinger_hash', k1_foer, "
                 "'foer_bundne_f', n_bund)")
+    # R9: foer_bundne_f måles (ikke antages): F-rækker (alle klasser), hvis nøgle nu har en gyldig assertion-binding.
+    # Efter skrivningen: kildens gyldige bindinger = før − foer_bundne_f + |bind ∪ ret_og_bind|.
     out += ["-- (2)+(3) måling før første skrivning og kørslen (ejerrollen); målingen gemmes i kørslens manifest",
-            "DO $t6m_koersel$ DECLARE a jsonb := " + cm._jlit(acc_ids) + "::jsonb; "
+            "DO $t6m_koersel$ DECLARE a jsonb := " + cm._jlit(f_ids) + "::jsonb; "
             f"v_src bigint := {src}; v_k1 bigint := {k1_source_id}; n_bund int; b_foer bigint; k1_foer text; r uuid; "
             "BEGIN "
-            "SELECT count(*) INTO n_bund FROM jsonb_array_elements_text(a) x WHERE EXISTS (SELECT 1 "
-            "FROM private.interpretation_promotion p WHERE p.interpretation_id = x::uuid AND p.target_type = 'assertion' "
+            "SELECT count(*) INTO n_bund FROM jsonb_array_elements_text(a) x "
+            "JOIN private.interpretation card ON card.id = x::uuid WHERE EXISTS (SELECT 1 "
+            "FROM private.interpretation_promotion p JOIN private.interpretation q ON q.id = p.interpretation_id "
+            "WHERE q.interpretation_key = card.interpretation_key AND p.target_type = 'assertion' "
             "AND private.assertion_binding_current(p.id)); "
-            f"IF n_bund <> {nacc} THEN RAISE EXCEPTION 'T6M_FOER_BINDING_AFVIGER bundne=% accepterede={nacc}', n_bund; "
-            "END IF; "
             + _bindinger_sql("v_src", "v_k1", "b_foer, k1_foer") + " "
             "INSERT INTO private.extraction_run(source_id,run_key,schema_version,extractor_version,profile_version,"
             "input_sha256,manifest) VALUES "

@@ -594,6 +594,14 @@ def test_sql_a_binder_genaabnet_accepted():
     assert "T6M_BIND_COUNT % af 3'" in sql
     m = _blok(sql, "T6M_MAAL_MISMATCH")
     assert re.search(rf'\["{_uid(2)}", -71\]', m)
+    # R9: bindinger før måles pr. nøgle over ALLE F-kort (også en accepted BIND uden gyldig binding), intet antages
+    k = _blok(sql, "INSERT INTO private.extraction_run")
+    a = json.loads(re.search(r"DECLARE a jsonb := '(\[[^']*\])'::jsonb", k).group(1))
+    assert a == [_uid(n) for n in (1, 2, 3, 4)]
+    assert "q.interpretation_key = card.interpretation_key" in k and "'foer_bundne_f', n_bund" in k
+    assert "T6M_FOER_BINDING_AFVIGER" not in sql
+    e = _blok(sql, "T6M_BINDINGER_AFVIGER")
+    assert "(mf->>'foer_bindinger')::bigint - (mf->>'foer_bundne_f')::bigint + 3" in e
 
 
 def test_sql_a_bruger_ikke_supersedes_id():
@@ -724,8 +732,8 @@ DB5 = f"t6m5_{time.strftime('%Y%m%d%H%M%S')}_{os.getpid()}"
 S5, K15 = -6595, 1
 RUN5, RUN51 = "14000000-0000-0000-0000-000000069901", "14000000-0000-0000-0000-000000069902"
 ACT5 = "14000000-0000-0000-0000-000000069904"
-P5 = {1: -65951, 2: -65952, 3: -65953, 4: -65954, 9: -65959}
-A5 = {2: -659502, 3: -659503, 4: -659504, 9: -659509}
+P5 = {1: -65951, 2: -65952, 3: -65953, 4: -65954, 5: -65955, 9: -65959}
+A5 = {2: -659502, 3: -659503, 4: -659504, 5: -659505, 9: -659509}
 
 
 def _v(n: int) -> str:
@@ -743,7 +751,7 @@ def _setup5() -> str:
          f"('{RUN51}',{K15},'t6m5-1','fixture','fixture','fixture',repeat('1',64),'{{}}');\n"
          "INSERT INTO public.person(id,levende,privat,status) VALUES "
          + ",".join(f"({p},false,false,'t6m5')" for p in P5.values()) + ";\n")
-    for n in (1, 2, 3, 4):
+    for n in (1, 2, 3, 4, 5):
         s += t6._persona(_v(100 + n), S5, RUN5, f"t6m5:s{n}", P5[n])
     s += t6._persona(_v(109), K15, RUN51, "t6m5:k1", P5[9])
     s += t6._date_fact(P5[2], A5[2], "titel", "kammerherre", [S5], kind="text")
@@ -751,6 +759,9 @@ def _setup5() -> str:
     s += f"UPDATE public.assertion SET date_min='1870-01-01',date_max='1870-12-31' WHERE id={A5[3]};\n"
     s += t6._date_fact(P5[4], A5[4], "navn", "Anna Testlow", [S5], kind="text")
     s += t6._date_fact(P5[9], A5[9], "fødsel", "5. juni 1700", [K15])
+    s += t6._date_fact(P5[5], A5[5], "titel", "hofjunker", [S5], kind="text")
+    # BIND fra accepted UDEN gyldig binding (R9): værdien matcher målet, ingen promotion
+    s += t6._interp(_v(405), _v(505), 1, S5, _v(105), "person.title", "hofjunker", RUN5, status="accepted")
     # VERSION: proposed version 1
     s += t6._interp(_v(401), _v(501), 1, S5, _v(101), "person.death", "1850", RUN5)
     # BIND: version 1 proposed, version 2 rejected (kortets række)
@@ -768,7 +779,7 @@ def _setup5() -> str:
     # kæden, promotionsvalideringen kræver: rendition, forekomst, post, accepteret anker, observation og kobling
     s += (f"INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256) "
           f"VALUES ('{_v(700)}',{S5},'t6m5','fixture',repeat('1',64));\n")
-    for n, iids in ((1, (401,)), (2, (402, 412)), (3, (403,))):
+    for n, iids in ((1, (401,)), (2, (402, 412)), (3, (403,)), (5, (405,))):
         s += (f"INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id) "
               f"VALUES ('{_v(710 + n)}',{S5},'t6m5:r{n}','fixture','{RUN5}');\n"
               f"INSERT INTO private.source_record_occurrence(id,rendition_id,occurrence_key,page_from,page_to,char_from,"
@@ -818,14 +829,17 @@ def test_apply_a_ende_til_ende(db5, tmp_path):
     import hashlib
     kort = {"q1-f1": (_v(401), 1, "person.death", "1850", "1851"),
             "q2-f1": (_v(412), 2, "person.title", "Kammerherre", "kammerherre"),
-            "q3-f1": (_v(403), 1, "person.death", "1870", "1871")}
+            "q3-f1": (_v(403), 1, "person.death", "1870", "1871"),
+            "q5-f1": (_v(405), 1, "person.title", "hofjunker", "hofjunker")}
     a = [{"ref": r, "svar": "FORSLAG_FEJL", "felt": f, "vaerdi": v, "bogens_laesning": b,
           "billede": "modsiger" if r == "q3-f1" else "bekraefter", "grund": "fixture"}
          for r, (_, _, f, v, b) in kort.items()]
     noegle = {r: {"type": "forslag", "interpretation_id": i, "version": ver} for r, (i, ver, *_) in kort.items()}
     maal = _maal_db(db5, [i for i, *_ in kort.values()])
     kl = fr.klassificer(a, noegle, maal)
-    assert {k["ref"]: k["klasse"] for k in kl} == {"q1-f1": "VERSION", "q2-f1": "BIND", "q3-f1": "RET_OG_BIND"}
+    assert {k["ref"]: (k["klasse"], k["status"]) for k in kl} == {
+        "q1-f1": ("VERSION", "proposed"), "q2-f1": ("BIND", "rejected"), "q3-f1": ("RET_OG_BIND", "accepted"),
+        "q5-f1": ("BIND", "accepted")}
     ma = fr.manifest_a(kl, a)
     ark = fr.flet_a(kl, ma, [fr.samlet_f(kl, ma), {"manifest_a": ma, "side": 1, "svar": {"q3-f1": "F"}}])
     ark_sha = hashlib.sha256(ark.encode()).hexdigest()
@@ -853,16 +867,21 @@ def test_apply_a_ende_til_ende(db5, tmp_path):
     r = kor(apply)
     assert r.returncode == 0, r.stderr[-1500:]
     assert r.stdout.strip().splitlines()[-1] == \
-        f"T6M_APPLY_A_OK versioner=3 rettelser=1 afgoerelser=2 bundet=2 sha256={ark_sha}"
-    assert "T6M_VERIFY_A_OK versioner=3 rettelser=1 afgoerelser=2 bundet=2 bindinger_k=3" in r.stderr
-    assert sorted(_bundne5(db5)) == sorted([f"{_v(504)}:{A5[4]}", f"{_v(503)}:{A5[3]}", f"{_v(502)}:{A5[2]}"])
+        f"T6M_APPLY_A_OK versioner=4 rettelser=1 afgoerelser=3 bundet=3 sha256={ark_sha}"
+    # før 2 (503, 504); foer_bundne_f målt 1 (kun 503; 505 var accepted men ubundet) → 2 − 1 + 3 = 4
+    assert "T6M_VERIFY_A_OK versioner=4 rettelser=1 afgoerelser=3 bundet=3 bindinger_k=4" in r.stderr
+    assert _q5(db5, "SELECT manifest->>'foer_bindinger'||'|'||(manifest->>'foer_bundne_f') FROM private.extraction_run "
+                    f"WHERE source_id={S5} AND run_key LIKE 'menneske-laesning-v1:%';") == "2|1"
+    assert sorted(_bundne5(db5)) == sorted([f"{_v(504)}:{A5[4]}", f"{_v(503)}:{A5[3]}", f"{_v(502)}:{A5[2]}",
+                                            f"{_v(505)}:{A5[5]}"])
     assert _q5(db5, f"SELECT date_raw||'|'||date_min||'|'||date_max FROM public.assertion WHERE id={A5[3]};") == \
         "1871|1871-01-01|1871-12-31"
     assert _q5(db5, "SELECT string_agg(interpretation_key::text||':'||version||':'||status||':'||(value#>>'{}'), ',' "
                     f"ORDER BY interpretation_key) FROM private.interpretation_current WHERE interpretation_key IN "
-                    f"('{_v(501)}','{_v(502)}','{_v(503)}');") == \
-        f"{_v(501)}:2:proposed:1851,{_v(502)}:4:accepted:kammerherre,{_v(503)}:3:accepted:1871"
-    assert _q5(db5, tael) == str(int(n0) + 5)
+                    f"('{_v(501)}','{_v(502)}','{_v(503)}','{_v(505)}');") == \
+        (f"{_v(501)}:2:proposed:1851,{_v(502)}:4:accepted:kammerherre,{_v(503)}:3:accepted:1871,"
+         f"{_v(505)}:3:accepted:hofjunker")
+    assert _q5(db5, tael) == str(int(n0) + 7)
 
     # verify-a.sql (læse-kun) er grøn, og bindinger_k/k1-hashen er maal_trin6c2.sql's
     r = kor(verify)
@@ -875,7 +894,7 @@ def test_apply_a_ende_til_ende(db5, tmp_path):
     # en genkørsel afvises før første skrivning (kortenes rækker er ikke længere gældende)
     r = kor(apply)
     assert r.returncode != 0 and "FORSLAG_DRIFT" in r.stderr
-    assert _q5(db5, tael) == str(int(n0) + 5)
+    assert _q5(db5, tael) == str(int(n0) + 7)
 
 
 def _maal_db(db: str, ids: list[str]) -> dict:
