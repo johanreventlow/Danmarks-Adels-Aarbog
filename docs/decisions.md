@@ -2,6 +2,34 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: trin 6m (modelgennemgang af 1939) indsættes mellem 6c-2 og 6c-3 (2026-11-06)
+
+> 6c-2 er i prod 2026-11-06 (tilstand d). Dens kort dækkede kun 150 af 1939's 2.774 forslag, og øvelsen 5/11 viste, at
+> en model finder OCR-fejl, der ellers kun findes ved at læse hele bogen (spec §1, §3).
+>
+> **Beslutning:** trin 6m indsættes i roadmappets trin 6 mellem 6c-2 og 6c-3
+> ([spec](superpowers/specs/2026-11-05-trin6m-modelgennemgang-1939-design.md), PR #299; plan del 1, PR #300).
+>
+> - **Vej (a)** (projektejeren 5/11): spor B retter *læserteksten* (narrativet) via
+>   `red_revider_publiceret_person_narrative_record`; klausuler, forslag, afgørelser og 6c-2's bindinger rører sig ikke.
+>   Kildeteksten rettes kun sag for sag (svaret `K`), fordi en tekstrevision erstatter alle postens forslag, også
+>   godkendte.
+> - **Del 1** (denne gren): værktøjet, hele modelkørslen (spor A og B), projektejerens B-kort og ceremonien for
+>   læsertekst. **Del 2** (senere plan): A-kortene, ny DDL for en forslagsversion med menneskelig læsning (spec §4.4),
+>   kildetekstsagerne fra `K` og skrivevejen for narrativer uden record-binding.
+> - Modellen er Opus-underagenter i Claude Code under afgrænsningen i decisions 2026-11-05 (filter, ingen interne id'er,
+>   svar kun som antal). Modellen foreslår; projektejeren afgør.
+> - **Filteret gælder databasens værdier, ikke forslagene** (projektejeren 6/11, ændrer spec §4.2.1): 221 forslag om 111
+>   personer uden fødsels- og dødsår i databasen går til modellen *uden* databasens værdi for personen, i stedet for at
+>   gå udenom. Modellen læser alligevel bogens tekst om dem i spor B, og forslagene er udtrukket af samme tekst; det,
+>   filteret beskytter, er databaseværdier, der kan stamme fra senere udgaver.
+> - De 13 1939-narrativer uden record-binding kan ikke knyttes til en post (1939 har ingen placements før 6d) og går
+>   derfor ikke til modellen i del 1; de står i eksporten til del 2.
+> - **Grænsen for projektejerens gennemgang gælder pr. del** (projektejeren 6/11 efter piloten, ændrer spec §4.3.3):
+>   piloten (bid 1 af 24) gav 22 svarbare tekstrettelser og 7 markerede faktaforslag, dvs. ca. 530 + 170 punkter i
+>   alt. Del 1 retter kun læsertekst; faktapunkterne vises på del 2's kort og tæller ikke i del 1. Projektejeren
+>   godkendte ca. 530 tekstpunkter i flere omgange; vagten i `saml` er 600 B-grupper.
+
 ## BESLUTTET: tekst fra DAA 1939 må sendes til en model som beslutningsstøtte — bogens personer lever ikke (2026-11-05)
 
 > Spørgsmålet opstod før 6c-2's ceremoni 4: 121 persona-kort med 150 felter skal besvares af projektejeren, og
