@@ -70,7 +70,10 @@ sha `d46cda80…`, i repoet). `relation_persona_input(1)` har 4 rækker uden for
    alt uden for nøglelisten, og en plan med et id uden for listen afvises (`AFGRAENSNING_LAEK`). Test i Task 5.
 4. **Svaret er givet på stand-in'en, men prods plan afviger** (anden klasse eller version for en nøgle). Forventet:
    `oversaet` stopper med `KORT_PROD_AFVIGER`; intet SQL. Test i Task 5.
-5. **Kvitteringen dækker ikke præcis revisionens mængder** (en binding mangler, en ekstra nøgle, `genbundet` mod et
+5. **Et faktakort og tilbagetrækningsarket modsiger hinanden** (B på et `REAL_DIFF`, der binder samme mål, og T på
+   den gamle binding). Forventet: T/V-arket bygges efter faktasvarene og viser ikke bindingen; kvitteringens
+   `genbundet` afledes af tilstanden. Test i Task 5 (`test_real_diff_b_fjerner_binding_fra_tilbagetraek`).
+6. **Kvitteringen dækker ikke præcis revisionens mængder** (en binding mangler, en ekstra nøgle, `genbundet` mod et
    andet mål eller med en ugyldig binding). Forventet: writeren afviser med `AFSTEMNING_MAENGDE_AFVIGER` /
    `AFSTEMNING_MAAL_AFVIGER` / `AFSTEMNING_BINDING_UGYLDIG`. Test i Task 3.
 
@@ -117,8 +120,11 @@ sha `d46cda80…`, i repoet). `relation_persona_input(1)` har 4 rækker uden for
   *ikke* er kandidat → som i dag (`unique_violation` re-raises).
 - `verify_relation_persona_receipts`: for `reused` kræves, at personaen findes, at dens `spouse`-mention ligger i
   samme forekomst, og at kandidatreglen holder; ellers som i dag.
-- `relation_derived_counts`: `spouse_personas_reused` tælles for sig; `spouse_personas`/`mentions` tæller kun
-  oprettede.
+- `relation_derived_counts`: nøglerne er uændrede (`test-relation-persona-writer.sql:59` sammenligner eksakt JSON, og
+  `red_reimport_batch_result` rapporterer dem; ingen finalize-sammenligning mod manifestet, målt 2026-11-07).
+  Kvitteringen for genbrug bærer `spouse_source_persona_id` (tælles i `spouse_personas`) og ingen `mention_id`
+  (`mentions` tæller kun nye); genbrug ses af `"reused": true` i kvitteringen. Funktionen ændres derfor ikke; fjern
+  den fra Files, hvis Step 4 bekræfter det.
 
 - [ ] **Step 1: Skriv testen** `test-relation-persona-reuse.sql`: fixture-post med ét ægteskab, bundet; revision
   (navnet samme sted) → ny nøgle → writer genbruger (persona-antal uændret, partsrække på ny nøgle, `reused`,
@@ -242,18 +248,29 @@ sha `d46cda80…`, i repoet). `relation_persona_input(1)` har 4 rækker uden for
   lig de forventede nye ægteskabsnøgler (`AEGTESKAB_MAENGDE_AFVIGER`) → `red_decide_relation_interpretations`;
   derefter `red_preview_relation_promotions` → `red_promote_relation_interpretations_batch` for alle genfundne
   relationer mod den gamle bindings familie. Forældre/børn-afgørelserne kommer fra Task 4's SQL.
-- `tilbagetraek-ark --afstemning <json> --out <fil>`: token-fil (memory: token-fil) med én linje pr. binding uden
-  genfundet nøgle: `T <ref> : T|V  # post, prædikat` (ref = gammel nøgle + promotion-mål, ingen værdier); `parse`
+- `tilbagetraek-ark --afstemning <json> --fakta-svar <svar.json> --relationssvar <fil> --out <fil>`: bygges *efter*
+  fakta- og relationssvarene. Den lister kun bindinger, der efter de svar stadig ikke får en ny binding mod samme mål
+  (fx et `REAL_DIFF` besvaret B, der retter påstanden og binder, fjerner bindingen fra listen). `genbundet` i
+  kvitteringen afledes af tilstanden efter bindingerne, aldrig af et svar; T er kun godkendelsen af resten. Token-fil
+  (memory: token-fil) med én linje pr. tilbageværende binding: `T <ref> : T|V  # post, prædikat` (ref = gammel nøgle + promotion-mål, ingen værdier); `parse`
   afviser ubesvarede linjer og ukendte refs (`TILBAGETRAEK_LINJE_UGYLDIG`). HTML-konteksten (posttekst, side) bygges
   lokalt i `~/.private/6c3/` som 6c-2's kort.
 - `kvittering-sql --afstemning <json> --svar <alle svar> --out <sql>`: ét kald til
   `private.write_text_revision_reconciliation` med alle items; `genbundet` slår `new_promotion_id` op i
-  transaktionen (nøgle + mål), ingen id'er i filen.
+  transaktionen (nøgle + mål), ingen id'er i filen. Udsender også en læse-kun **preflight** (`--preflight <sql>`),
+  der før første binding kontrollerer de forventede mængder og mål (nye nøgler findes med forventet status og klasse;
+  hvert forventet mål er den gamle bindings mål; tilbagetrækningerne er præcis resten); runneren kører den før
+  `control_model_v2.py sql`. En fejl i selve kvitteringen efter bindingerne er et deklareret stoppunkt → `fortryd`.
+- **Hash-kæden:** `oversaet` er deterministisk fra (`svar.json`, prods id-kort); GO binder `svar.json`, og
+  kvitteringens `context` gemmer både `svar_sha256` (GO-bundet) og det oversatte arks sha, som
+  `control_model_v2.py sql --approved-sha256` får.
 
 - [ ] **Step 1: Test** (syntetisk JSON, ingen DB): `test_ordinal_flyttet_er_ikke_genfundet`,
   `test_afgraens_fjerner_andre_noegler` og `AFGRAENSNING_LAEK`, `test_kortsvar_oversaet_roundtrip` (stand-in-id'er →
   nøgler → prod-id'er giver samme ark modulo id'er), `KORT_PROD_AFVIGER` ved anden klasse, `relationer-sql`
-  med forkert ægteskabsmængde → `AEGTESKAB_MAENGDE_AFVIGER`, kvitterings-SQL dækker hver binding præcis én gang.
+  med forkert ægteskabsmængde → `AEGTESKAB_MAENGDE_AFVIGER`, kvitterings-SQL dækker hver binding præcis én gang,
+  `test_real_diff_b_fjerner_binding_fra_tilbagetraek` (B på et `REAL_DIFF` mod samme mål → bindingen står ikke på
+  T/V-arket), preflighten afviser et forventet mål ≠ gammelt mål.
 - [ ] **Step 2-4:** FAIL → implementér → `python`-jobbet + `test_clause_readers.py` (repo-vide vagt; tilføj de nye
   filer til ALLOWED med begrundelse, hvis den kræver det).
 - [ ] **Step 5:** Commit `feat(scripts): afstemning efter kildetekst-revision`.
@@ -289,9 +306,10 @@ Under `~/.private/6c3/` (0700). Base: `c3b` + blok 6c-3a (`db-migrations.sql` ×
 - [ ] **Step 5: Afstemning og kort:** `tekstrevision_afstemning.sql` → udfald pr. nøgle; kontrolmodel
   (`interpretation_control_classification.sql`/`interpretation_control_rows.sql` med kilde 1) → `afgraens` →
   `control_model_v2.py plan --source-id 1 --strata-ubekraeftet 0 --strata-oevrige 20` → `persona_kort.py html`;
-  børneark og forælderark afgrænset; ikke-genfundne bindinger som kort med T/V (tilbagetræk / ved ikke).
-  Over 30 punkter: stop. **Projektejeren svarer** i browseren; `persona_kort.py flet` → `kortsvar`; relationsarkene
-  gemmes som de er. Svarfilerne hashes ved godkendelse (memory: hash-bind).
+  børneark og forælderark afgrænset. `MATCH`-felterne er stikprøve og mærkes på kortet »B = bogen og databasen er
+  enige« (6c-2's `SAMPLE_FAILED` kom af et D på ens værdier). Over 30 punkter: stop. **Projektejeren svarer** i
+  browseren; `persona_kort.py flet` → `kortsvar`; relationsarkene gemmes som de er. Derefter, i anden runde,
+  `tilbagetraek-ark` ud fra svarene, og projektejeren svarer T/V på de tilbageværende. Svarfilerne hashes ved godkendelse (memory: hash-bind).
 - [ ] **Step 6: Afgørelser og bindinger på `c3b`:** `control_model_v2.py sql` (ark fra `oversaet` mod `c3b` selv,
   som round-trip-prøve) → forælder-/børne-SQL → `relationer-sql` → `kvittering-sql`. Forventet: kvitteringen dækker
   58 nøgler og 16 bindinger; `public_person_facts`/`public_family_sources` for de berørte som før revisionen (bortset
@@ -309,7 +327,8 @@ Under `~/.private/6c3/` (0700). Base: `c3b` + blok 6c-3a (`db-migrations.sql` ×
 revisionsmanifest, afhængighedsfil, forslagsmanifest, partsmanifest, svarfiler (fakta, børn, forældre,
 tilbagetrækninger) og commit. `apply-data` kører: revision (R-kæden) → forslag (R-kæden, samme manifest som `c3b`) →
 parter → klassifikation i prod → `afgraens` → `plan` → `oversaet` (stop ved `KORT_PROD_AFVIGER`) →
-`control_model_v2.py sql` → forælder-/børne-SQL → `relationer-sql` → `kvittering-sql` → måling efter; hvert trin
+kvitteringens preflight → `control_model_v2.py sql` → forælder-/børne-SQL → `relationer-sql` → `kvittering-sql` →
+måling efter; hvert trin
 stopper ceremonien ved fejl, og trinnene efter revisionen kan genoptages uden at revidere igen.
 `docs/runbooks/trin6c3-prod.md` (mønster `trin6m-del2-prod.md`: rækkefølge,
 forventede linjer, vindue og frys, stoppunkter, fortrydelse). `docs/decisions.md`: BESLUTTET 2026-11-07 — 6c-3's
