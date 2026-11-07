@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-07 — trin 6m del 2 i prod: 1939's faktaforslag rettet efter bogen
+
+Plan og kode PR #303. Ny skrivevej `red_ret_forslag` (DDL 6m-a, GO `78b268f0`) giver et forslag en ny `proposed`-version
+med projektejerens læsning af bogen; bindingskontrollen er udskudt til commit, så genåbnede 6c-2-afgørelser genbindes
+i samme transaktion. Ceremoni A (GO `9b8c7c0b`): 93 forslagsversioner (VERSION 56, BIND 23, RET_OG_BIND 14),
+14 påstande rettet efter bogen, 37 afgørelser bundet; bindinger 1.106 → 1.136, rettelser 83 → 97, `k1` uændret,
+`verify-a` grøn. Trin 6m er afsluttet. Detaljer i `database-current-state.md` §22.
+
 ## 2026-11-07 — trin 6m del 1 i prod: 268 af 1939's narrativer rettet efter bogen
 
 Spec #299, plan #300, kode PR #301. En model (Opus-underagenter, decisions 2026-11-05) gennemgik alle 592 poster og

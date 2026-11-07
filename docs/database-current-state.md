@@ -529,6 +529,35 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 22. Trin 6m del 2: 1939's faktaforslag rettet efter bogen — LIVE i prod (2026-11-07)
+
+**Procedure:** `docs/runbooks/trin6m-del2-prod.md`, privat runner `~/.private/5ab-overfoersel/31-trin6m-del2.sh`. Repo
+`74bb00e7` (`main` med PR #303, merge-commit ved head `19fc05af`; blokkens sha `e191f1d4…`, `db-rls.sql` `e63c2182…`).
+To skrivende ceremonier (DDL 6m-a, så data A), kørt af projektejeren. Beslutning: decisions 2026-11-07.
+
+- **Før:** tilstand d efter del 1 (`25,0,0,0,1106,1106,83,1`, `k1` `d5bedf7d…`), `ddl_6ma=0`.
+- **Mål og klasser (læse-kun):** 241 markerede faktaforslag (`maal-a` sha `427c8541…`); `klasse-a` VERSION 56, BIND 23,
+  RET_OG_BIND 14, SPÆRRET 4, rapport 144 (= de foreløbige tal fra prod-kopien), manifest `2f0ce6c5…`. Projektejerens
+  samlede F (79, VERSION+BIND) og F på de 14 kort; ark `189d998e…`, `apply-a.sql` byte-ens med øvelsen på stand-in `_6m3`.
+- **Dump før DDL:** `daa-prod-20261107190023-6m2.dump` (sha `8b2f1231…`, age `f302b777…`, SFTP-rundtur ok).
+- **DDL (GO 6m2-DDL `78b268f0`):** `T6M2_APPLY_DDL_OK ddl_6ma=1 tilstand=d`, 16,9 s; `k1` uændret. Blokken opretter
+  ingen tabeller: `red_ret_forslag` (DEFINER, fast `search_path`, kun `authenticated`), `private.kontroller_forslag_binding_v1`
+  (låst for alle roller), ny `red_decide_interpretation` og constraint-triggeren `interpretation_forslag_binding`.
+  `get_advisors` ikke kørt (MCP'en var logget ind på en anden organisation); grant-sættet gennemgået statisk.
+- **Dump mellem DDL og A:** `daa-prod-20261107194057-6m2.dump` (sha `76b5c7e9…`, age `6ce12cac…`, SFTP-rundtur ok,
+  `ddl_6ma=1`) — restorepunktet for `fortryd`.
+- **Ceremoni A (GO 6m2-A `9b8c7c0b`):** ark `BIND:F=23 RET_OG_BIND:F=14 VERSION:F=56`, 93 kald til `red_ret_forslag`
+  og 14 til `red_ret_paastand`; `T6M2_APPLY_A_OK versioner=93 rettelser=14 afgoerelser=37 bundet=37 bindinger_k=1136`,
+  `vejb=t`, `tal=25,0,0,0,1136,1136,97,1`, 35,4 s. `bindinger_k` 1.106 → 1.136 (= 1.106 − 7 genåbnede + 37), rettelser
+  83 → 97, `k1` `d5bedf7d…` uændret. Uafhængig `verify-a`: `T6M_VERIFY_A_OK` med samme tal.
+- **Læseren:** projektejeren så tre stikprøver blandt RET_OG_BIND (person 956 navn, 1080 fødsel, 1228 titel): den viste
+  værdi er den godkendte nye værdi, bundet til bogens post med DAA 1939-side inden for kortets sider.
+  Sidefund: 1080's datogrænser er hele året 1746, fordi `validate.derive_date_info` ikke afgrænser formen
+  »8 Okt. 1746« (kun »8. okt. 1746«); den gamle påstand havde de samme grænser, og 7 af del 2's 9 rettede datoer har
+  årsgrænser. Omfanget for 1939's datoer er ikke målt.
+- **Fortrydelse:** `fortryd` (restore af dumpet mellem DDL og A), så `fortryd-ddl`; kun indtil der skrives noget nyt i
+  prod (runbookens »To ceremonier«).
+
 ## 21. Trin 6m del 1: 1939's læsertekst rettet efter bogen — LIVE i prod (2026-11-07)
 
 **Procedure:** `docs/runbooks/trin6m-del1-prod.md`, privat runner `~/.private/5ab-overfoersel/30-trin6m.sh`. Repo
