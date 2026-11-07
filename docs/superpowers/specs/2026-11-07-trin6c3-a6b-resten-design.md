@@ -1,7 +1,8 @@
 # Trin 6c-3: A6b-resten — 2018-20's kildetekst får de manglende linjer — design
 
-**Status:** UDKAST 2026-11-07, revideret efter Fable-review samme dag (§10: NO-GO → 12 fund, alle indarbejdet), til
-projektejerens godkendelse. Projektejeren sprang afklaringsrunden over og bad om bedste skøn efter måling (som ved
+**Status:** GODKENDT af projektejeren 2026-11-07 med alle anbefalinger i §8 (pkt. 1-6: ja); revideret efter
+Fable-review samme dag (§10: NO-GO → 12 fund, alle indarbejdet). Næste: plan, derefter B13's Codex-runde på
+spec+plan. Projektejeren sprang afklaringsrunden over og bad om bedste skøn efter måling (som ved
 6a); valg, der ikke er projektejerens, er markeret *mit valg*, og §8 samler det, kun projektejeren kan afgøre.
 **Gren:** `docs/trin6c3-spec` fra `main` (`e5a0f83b`).
 **Overordnet spec:** `docs/superpowers/specs/2026-10-29-trin6-1939-gennem-kaeden-design.md` (§4 mål, §5 6c, §6 pkt. 1,
