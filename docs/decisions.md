@@ -18,9 +18,10 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   tidligere afgørelse. Uden `F` står afgørelsen.
 > - **Samlet `F` for de klasser, der ikke ændrer databasens værdi** (svarfil side 1001): `VERSION` (forslaget får
 >   bogens læsning og forbliver `proposed`) og `BIND` (fakta, hvor databasen allerede siger det samme som bogen, får
->   1939 som kilde). Projektejeren ser kun kortene for `RET_OG_BIND`, hvor databasens værdi rettes. Foreløbige tal, målt på en
->   prod-kopi 7/11: VERSION 56, BIND 23, RET_OG_BIND 14, SPÆRRET 4 (navn forkortes 2, dato uden grænser 1, mål bundet
->   af anden 1), rapport 144. De genmåles mod prod, før svarfilen skrives.
+>   1939 som kilde). Projektejeren ser kun kortene for `RET_OG_BIND`, hvor databasens værdi rettes. Foreløbige tal,
+>   målt 7/11 på en prod-kopi fra 6/11 (før del 1's B-ceremoni; forslag uændret af den): VERSION 56, BIND 23,
+>   RET_OG_BIND 14, SPÆRRET 4 (navn forkortes 2, dato uden grænser 1, mål bundet af anden 1), rapport 144. De
+>   genmåles mod prod, før svarfilen skrives.
 > - **Registreres til 6c-3/6d uden skrivning:** relationer, omtaler og hændelser; `BEGGE` (62, heraf 41 titler; input
 >   til 6c-3's spørgsmål om et svar »begge rigtige«) og `TVIVL`.
 > - **Ændrer decisions 2026-11-06:** de 13 1939-narrativer uden record-binding og de 39 tekstrettelser uden

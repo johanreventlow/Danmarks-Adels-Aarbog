@@ -21,7 +21,7 @@ d): 1.106 af 1939's forslag er accepteret og bundet til eksisterende påstande, 
 (decisions 2026-10-29) er i prod med 6c-2's ceremoni 1. **6m del 1 er i prod 2026-11-07** (decisions 2026-11-06):
 en model har holdt alle 592 poster og 2.774 forslag op mod bogens sidebilleder, og 268 af 1939's narrativer er
 revideret med projektejerens 606 rettelser (`database-current-state.md` §21). **6m del 2 er i gang** (decisions 2026-11-07): plan og værktøj
-bygget på gren `feat/trin6m-del2` (A-kort, flet, `red_ret_forslag`), ikke i prod; prod-ceremonierne afventer. Næste: frisk prod-kopi og øvelse på stand-in, projektejerens samlede F og 14 kort, derefter ceremonierne (DDL 6m-a, så data). De 13 ubundne narrativer
+bygget på gren `feat/trin6m-del2` (A-kort, flet, `red_ret_forslag`), ikke i prod; prod-ceremonierne afventer. Næste: frisk prod-kopi og øvelse på stand-in, projektejerens samlede F og foreløbigt 14 kort, derefter ceremonierne (DDL 6m-a, så data). De 13 ubundne narrativer
 og 39 tekstrettelser uden læsertekst er flyttet til 6d. A6b's kildetekst og klausuler for 2018-20 (decisions
 2026-10-28) ligger i 6c-3 (decisions 2026-11-02).
 
