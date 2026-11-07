@@ -880,19 +880,41 @@ def test_anvend_afviser_vaerdi_der_ikke_er_kildens():
     assert kode(kl, s, n, maal) == "MAAL_MANGLER"
 
 
+def _t5_side1(ma):
+    return {"manifest_a": ma, "side": 1, "svar": {"p3-f1": "F", "p3-f2": "N"}}
+
+
+def _t5_d(d: Path, *, svarfiler: bool = True, ark: bool = True):
+    """D med _t5's klasser, samlet, noegle og (valgfrit) svarfilerne og arket, som samlet-f og flet skriver dem."""
+    kl, s, n, ark_t, ma = _t5()
+    (d / "a-klasser.json").write_text(json.dumps({"manifest_a": ma, "klasser": kl}))
+    (d / "samlet.json").write_text(json.dumps(s))
+    (d / "noegle.json").write_text(json.dumps(n))
+    if svarfiler:
+        (d / "svar-a-1001.json").write_text(json.dumps(fr.samlet_f(kl, ma), ensure_ascii=False, indent=1))
+        (d / "svar-a-1.json").write_text(json.dumps(_t5_side1(ma)))
+    if ark:
+        (d / "ark-a.txt").write_text(ark_t)
+    return kl, s, n, ark_t, ma
+
+
+def _svar_sha(d: Path, navne) -> str:
+    import hashlib
+    linjer = "".join(f"{hashlib.sha256((d / x).read_bytes()).hexdigest()}  {x}\n" for x in sorted(navne))
+    return hashlib.sha256(linjer.encode()).hexdigest()
+
+
 def test_rapport_indeholder_ingen_vaerdier(tmp_path):
-    kl, s, n, ark, ma = _t5()
-    (tmp_path / "a-klasser.json").write_text(json.dumps({"manifest_a": ma, "klasser": kl}))
-    (tmp_path / "samlet.json").write_text(json.dumps(s))
-    (tmp_path / "noegle.json").write_text(json.dumps(n))
-    (tmp_path / "ark-a.txt").write_text(ark)
+    kl, s, n, ark, ma = _t5_d(tmp_path)
 
     def kor(*extra):
         return subprocess.run(["python3", str(HERE / "faktaforslag_rettelse.py"), "sql", "--ud", str(tmp_path),
                                "--source-id", str(T5_SRC), *extra], capture_output=True, text=True, cwd=HERE)
     p = kor()
     assert p.returncode == 0, p.stderr
-    assert re.fullmatch(r"FF_SQL_OK version=1 bind=2 ret_og_bind=1 sha256=[0-9a-f]{64}", p.stdout.strip())
+    assert re.fullmatch(r"FF_SQL_OK version=1 bind=2 ret_og_bind=1 svar_sha256=[0-9a-f]{64} sha256=[0-9a-f]{64}",
+                        p.stdout.strip())
+    assert f"svar_sha256={_svar_sha(tmp_path, ['svar-a-1001.json', 'svar-a-1.json'])} " in p.stdout
     sha = p.stdout.strip().rsplit("=", 1)[1]
     import hashlib
     assert hashlib.sha256((tmp_path / "apply-a.sql").read_bytes()).hexdigest() == sha
@@ -922,6 +944,91 @@ def test_rapport_indeholder_ingen_vaerdier(tmp_path):
     assert kor().returncode == 0
     p = kor()
     assert p.returncode == 2 and "FF_FEJL SQL_FINDES" in p.stderr
+
+
+def _kor_cli(*args):
+    return subprocess.run(["python3", str(HERE / "faktaforslag_rettelse.py"), *args], capture_output=True, text=True,
+                          cwd=HERE)
+
+
+def test_flet_kopierer_svarfiler_og_sql_kraever_samme_ark(tmp_path):
+    import hashlib
+    d, ind = tmp_path / "D", tmp_path / "hentet"
+    d.mkdir(); ind.mkdir()
+    kl, s, n, ark, ma = _t5_d(d, svarfiler=False, ark=False)
+    assert _kor_cli("samlet-f", "--ud", str(d)).returncode == 0
+    kort_svar = ind / "faktaforslag-svar-1.json"   # kortets download, uden for D
+    kort_svar.write_text(json.dumps(_t5_side1(ma)))
+    p = _kor_cli("flet", "--ud", str(d), str(d / "svar-a-1001.json"), str(kort_svar))
+    assert p.returncode == 0, p.stderr
+    # kopien er byte-identisk og 0600; arket er det, svarfilerne giver
+    assert (d / "svar-a-1.json").read_bytes() == kort_svar.read_bytes()
+    assert (os.stat(d / "svar-a-1.json").st_mode & 0o777) == 0o600
+    assert (d / "ark-a.txt").read_text() == ark
+    p = _kor_cli("sql", "--ud", str(d), "--source-id", str(T5_SRC))
+    assert p.returncode == 0, p.stderr
+    assert f"svar_sha256={_svar_sha(d, ['svar-a-1.json', 'svar-a-1001.json'])} " in p.stdout
+    assert p.stdout.strip().rsplit("=", 1)[1] == hashlib.sha256((d / "apply-a.sql").read_bytes()).hexdigest()
+
+
+def test_sql_afviser_redigeret_ark(tmp_path):
+    # et N rettet til F i arket efter flet: arket er ikke længere det, svarfilerne giver
+    kl, s, n, ark, ma = _t5_d(tmp_path)
+    assert "A p3-f2 : N\n" in ark
+    (tmp_path / "ark-a.txt").write_text(ark.replace("A p3-f2 : N\n", "A p3-f2 : F\n"))
+    p = _kor_cli("sql", "--ud", str(tmp_path), "--source-id", str(T5_SRC))
+    assert p.returncode == 2 and "FF_FEJL ARK_AFVIGER" in p.stderr
+    for f in ("apply-a.sql", "verify-a.sql", "rapport-a.json"):
+        assert not (tmp_path / f).exists()
+    # også en svarfil, der ikke kom med i flet, eller en manglende svarfil
+    (tmp_path / "ark-a.txt").write_text(ark)
+    (tmp_path / "svar-a-2.json").write_text(json.dumps({"manifest_a": ma, "side": 2, "svar": {"p3-f3": "F"}}))
+    p = _kor_cli("sql", "--ud", str(tmp_path), "--source-id", str(T5_SRC))
+    assert p.returncode == 2 and "FF_FEJL ARK_AFVIGER" in p.stderr
+    (tmp_path / "svar-a-2.json").unlink()
+    (tmp_path / "svar-a-1.json").unlink()
+    p = _kor_cli("sql", "--ud", str(tmp_path), "--source-id", str(T5_SRC))
+    assert p.returncode == 2 and "FF_FEJL ARK_AFVIGER" in p.stderr
+    # en svarfil, hvis navn ikke er dens side
+    (tmp_path / "svar-a-3.json").write_text(json.dumps(_t5_side1(ma)))
+    p = _kor_cli("sql", "--ud", str(tmp_path), "--source-id", str(T5_SRC))
+    assert p.returncode == 2 and "FF_FEJL SVAR_UGYLDIGT" in p.stderr
+    assert not (tmp_path / "apply-a.sql").exists()
+
+
+def test_flet_afviser_anden_fil_for_samme_side(tmp_path):
+    kl, s, n, ark, ma = _t5_d(tmp_path, ark=False)
+    foer = (tmp_path / "svar-a-1.json").read_bytes()
+    andet = tmp_path / "andet.json"
+    andet.write_text(json.dumps({"manifest_a": ma, "side": 1, "svar": {"p3-f1": "N"}}))
+    p = _kor_cli("flet", "--ud", str(tmp_path), str(tmp_path / "svar-a-1001.json"), str(andet))
+    assert p.returncode == 2 and "FF_FEJL SVAR_SIDE_DUBLET" in p.stderr
+    assert (tmp_path / "svar-a-1.json").read_bytes() == foer and not (tmp_path / "ark-a.txt").exists()
+
+
+def test_flet_roerer_ikke_del_1s_svar_med_andre_versaler(tmp_path):
+    # del 1's modelsvar svar-A-<k>.json ligger i samme mappe; på et versal-ufølsomt filsystem er svar-a-1.json samme
+    # fil. flet afviser og lader den være.
+    kl, s, n, ark, ma = _t5_d(tmp_path, svarfiler=False, ark=False)
+    (tmp_path / "svar-A-1.json").write_text("[]")
+    assert _kor_cli("samlet-f", "--ud", str(tmp_path)).returncode == 0
+    kort_svar = tmp_path / "hentet.json"
+    kort_svar.write_text(json.dumps(_t5_side1(ma)))
+    p = _kor_cli("flet", "--ud", str(tmp_path), str(tmp_path / "svar-a-1001.json"), str(kort_svar))
+    assert p.returncode == 2 and "FF_FEJL SVAR_NAVN_KOLLISION" in p.stderr
+    assert (tmp_path / "svar-A-1.json").read_text() == "[]" and not (tmp_path / "ark-a.txt").exists()
+    assert sorted(x.name for x in tmp_path.iterdir() if x.name.lower().startswith("svar-a-")) == \
+        ["svar-A-1.json", "svar-a-1001.json"]
+    # også når begge navne findes side om side (versal-følsomt filsystem), uanset katalogets rækkefølge
+    navne = {x.name for x in tmp_path.iterdir()}
+    if "svar-a-1.json" not in navne:
+        try:
+            (tmp_path / "svar-a-1.json").open("x").close()
+        except FileExistsError:
+            return   # versal-ufølsomt: samme fil, dækket ovenfor
+        (tmp_path / "svar-a-1.json").write_bytes(kort_svar.read_bytes())
+        p = _kor_cli("flet", "--ud", str(tmp_path), str(tmp_path / "svar-a-1001.json"), str(kort_svar))
+        assert p.returncode == 2 and "FF_FEJL SVAR_NAVN_KOLLISION" in p.stderr
 
 
 # --- Task 5: apply-a.sql og verify-a.sql mod en lokal fixturebase ------------------------------------------------

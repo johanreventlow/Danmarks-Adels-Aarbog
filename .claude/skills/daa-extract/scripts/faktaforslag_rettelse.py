@@ -725,11 +725,76 @@ def verify_a_sql(anvendt: dict) -> str:
 
 
 def _skriv(sti: Path, tekst: str) -> str:
+    return _skriv_b(sti, tekst.encode("utf-8"))
+
+
+def _skriv_b(sti: Path, data: bytes) -> str:
     fd = os.open(sti, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(tekst)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(data)
     os.chmod(sti, 0o600)
-    return hashlib.sha256(tekst.encode("utf-8")).hexdigest()
+    return hashlib.sha256(data).hexdigest()
+
+
+# Arket skal være det, projektejerens svarfiler giver: flet kopierer hver svarfil uændret til D/svar-a-<side>.json
+# (samlet-f skriver selv svar-a-1001.json), og sql fletter alle D/svar-a-<side>.json igen og kræver arket byte for
+# byte (ARK_AFVIGER). svar_sha256 = sha256 over linjerne "<sha256(fil)>  <filnavn>\n" sorteret på filnavn (bytevis),
+# dvs. `shasum -a 256` af filerne i C-locale-rækkefølge; runneren binder den i GO-koden.
+SVAR_FIL = re.compile(r"svar-a-([1-9][0-9]*)\.json")
+
+
+def _svar_fil(d: Path, side: int) -> Path:
+    return d / f"svar-a-{side}.json"
+
+
+def _laes_svarfiler(d: Path) -> tuple[list, str]:
+    filer = sorted((p for p in d.iterdir() if SVAR_FIL.fullmatch(p.name)), key=lambda p: p.name.encode("utf-8"))
+    svar, linjer = [], []
+    for p in filer:
+        b = p.read_bytes()
+        try:
+            j = json.loads(b.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            raise FaktaError("SVAR_UGYLDIGT") from None
+        if not isinstance(j, dict) or not _er_int(j.get("side")) or p.name != _svar_fil(d, j["side"]).name:
+            raise FaktaError("SVAR_UGYLDIGT")
+        svar.append(j)
+        linjer.append(f"{hashlib.sha256(b).hexdigest()}  {p.name}\n")
+    return svar, hashlib.sha256("".join(linjer).encode("utf-8")).hexdigest()
+
+
+def _cmd_flet(d: Path, kl: list, ma: str, stier: list) -> int:
+    """Flet svarfilerne og kopiér hver uændret til D/svar-a-<side>.json. Findes en anden fil for samme side, afvises
+    (SVAR_SIDE_DUBLET); en fil, hvis navn kun afviger i store/små bogstaver (fx del 1's svar-A-<k>.json på et
+    versal-ufølsomt filsystem), afvises (SVAR_NAVN_KOLLISION) og røres ikke. Intet skrives ved en fejl."""
+    filer = []
+    for sti in stier:
+        b = Path(sti).read_bytes()
+        try:
+            filer.append((b, json.loads(b.decode("utf-8"))))
+        except (UnicodeDecodeError, ValueError):
+            raise FaktaError("SVAR_UGYLDIGT") from None
+    ark = flet_a(kl, ma, [j for _, j in filer])   # validerer bl.a. side (heltal >= 1, ingen dublet)
+    navne: dict = {}
+    for p in d.iterdir():
+        navne.setdefault(p.name.lower(), set()).add(p.name)
+    kopier = []
+    for b, j in filer:
+        maal = _svar_fil(d, j["side"])
+        findes = navne.get(maal.name.lower(), set())
+        if findes - {maal.name}:
+            raise FaktaError("SVAR_NAVN_KOLLISION")
+        if findes:
+            if maal.read_bytes() != b:
+                raise FaktaError("SVAR_SIDE_DUBLET")
+            continue   # samme fil (fx samlet-f's egen svar-a-1001.json)
+        kopier.append((maal, b))
+    for maal, b in kopier:
+        _skriv_b(maal, b)
+    sha = _skriv(d / "ark-a.txt", ark)
+    t = [l.rsplit(" ", 1)[1] for l in ark.splitlines()[1:]]
+    print(f"FF_FLET_OK f={t.count('F')} n={t.count('N')} ubesvaret={t.count('_')} ark_sha256={sha}")
+    return 0
 
 
 def _laes(ud: Path):
@@ -818,15 +883,13 @@ def _cmd_a(args) -> int:
         sha = _skriv(d / "svar-a-1001.json", json.dumps(sv, ensure_ascii=False, indent=1))
         print(f"FF_SAMLET_OK f={len(sv['svar'])} sha256={sha}")
     else:
-        ark = flet_a(kl, ma, [json.loads(Path(p).read_text(encoding="utf-8")) for p in args.svar])
-        sha = _skriv(d / "ark-a.txt", ark)
-        t = [l.rsplit(" ", 1)[1] for l in ark.splitlines()[1:]]
-        print(f"FF_FLET_OK f={t.count('F')} n={t.count('N')} ubesvaret={t.count('_')} ark_sha256={sha}")
+        return _cmd_flet(d, kl, ma, args.svar)
     return 0
 
 
 def _cmd_sql(d: Path, samlet: dict, kl: list, ma: str, source_id: int) -> int:
-    """sql --ud D --source-id N: D/apply-a.sql, D/verify-a.sql og D/rapport-a.json (0600). Kun antal og en hash ud."""
+    """sql --ud D --source-id N: D/apply-a.sql, D/verify-a.sql og D/rapport-a.json (0600). Kun antal og hashes ud.
+    Arket skal være netop flettet af D/svar-a-*.json (ARK_AFVIGER), før noget skrives."""
     maal = None
     if (d / "maal.json").exists():
         maal = json.loads((d / "maal.json").read_text(encoding="utf-8"))
@@ -834,6 +897,9 @@ def _cmd_sql(d: Path, samlet: dict, kl: list, ma: str, source_id: int) -> int:
             raise FaktaError("KILDE_MISMATCH")
     noegle = json.loads((d / "noegle.json").read_text(encoding="utf-8"))
     ark_b = (d / "ark-a.txt").read_bytes()
+    svarfiler, svar_sha = _laes_svarfiler(d)
+    if flet_a(kl, ma, svarfiler).encode("utf-8") != ark_b:
+        raise FaktaError("ARK_AFVIGER")
     ark = ark_b.decode("utf-8")
     ark_sha = hashlib.sha256(ark_b).hexdigest()
     an = anvend_a(kl, samlet, noegle, ark, maal)
@@ -844,7 +910,7 @@ def _cmd_sql(d: Path, samlet: dict, kl: list, ma: str, source_id: int) -> int:
     _skriv(d / "verify-a.sql", verify_sql)
     _skriv(d / "rapport-a.json", json.dumps(rapport, ensure_ascii=False, indent=1))
     print(f"FF_SQL_OK version={len(an['version'])} bind={len(an['bind'])} ret_og_bind={len(an['ret_og_bind'])} "
-          f"sha256={sha}")
+          f"svar_sha256={svar_sha} sha256={sha}")
     return 0
 
 

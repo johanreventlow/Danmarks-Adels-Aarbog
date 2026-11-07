@@ -278,7 +278,9 @@ spor B«.
     `A <ref> : F|N|_` (F = gør det, kortet beskriver; N = modellen tager fejl, intet skrives; _ = ubesvaret, intet
     skrives). Svarbare klasser: `VERSION`, `BIND` (kun via den samlede svarfil) og `RET_OG_BIND` (kun via kortene).
   - CLI: `kort --ud D` → `D/kort-a/kort-<n>.html`; `samlet-f --ud D` → `D/svar-a-1001.json` (0600); `flet --ud D SVAR...` → `D/ark-a.txt` (afviser eksisterende ark:
-    `ARK_FINDES`); kun antal og hashes.
+    `ARK_FINDES`) og en uændret kopi af hver svarfil i `D/svar-a-<side>.json` (0600; en anden fil for samme side:
+    `SVAR_SIDE_DUBLET`; et navn, der kun afviger i versaler, fx del 1's `svar-A-<k>.json`: `SVAR_NAVN_KOLLISION`); kun
+    antal og hashes.
 - Kortvejledning (fast tekst øverst): hvad F, N og tomt betyder; at F på et afgjort forslag genåbner 6c-2's afgørelse;
   »er du i tvivl, så lad den stå tom«; `RAPPORT`/`SPAERRET`/`DRIFT` står i en sektion uden knapper med forklaringen
   »gives videre til 6c-3/6d«.
@@ -332,7 +334,9 @@ spor B«.
     7. `COMMIT`; `\echo 'T6M_APPLY_A_OK versioner= rettelser= afgoerelser= bundet= sha256='`.
   - `verify_a_sql(anvendt) -> str` — læse-kun efterkontrol af samme tal og `vejb` som 6c-2.
   - CLI: `sql --ud D` → `D/apply-a.sql`, `D/verify-a.sql`, `D/rapport-a.json` (alle ikke-svarbare og N-rækker:
-    ref, klasse, grund, felt; ingen værdier); printer `FF_SQL_OK version= bind= ret_og_bind= sha256=`.
+    ref, klasse, grund, felt; ingen værdier); fletter først alle `D/svar-a-*.json` igen og kræver arket byte for byte
+    (`ARK_AFVIGER`, intet skrevet); printer `FF_SQL_OK version= bind= ret_og_bind= svar_sha256= sha256=`
+    (`svar_sha256` = sha256 over `shasum -a 256`-linjerne for svarfilerne sorteret på navn; til GO-koden).
 
 - [ ] **Step 1: Skriv de fejlende tests:**
   - `test_sql_a_raekkefoelge` — for en `ret_og_bind`: `red_ret_forslag` før `red_ret_paastand` før
