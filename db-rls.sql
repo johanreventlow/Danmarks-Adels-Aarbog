@@ -741,6 +741,7 @@ BEGIN
     'public.red_registrer_media_variant(bigint,text,text,text,bigint,integer,integer)',
     'public.red_relation(text,bigint,text,bigint,text,text)',
     'public.red_ret_ocr_felt(bigint,text,text,text,text,jsonb,text,text)',
+    'public.red_ret_forslag(uuid,integer,text,jsonb)',
     'public.red_ret_paastand(bigint,jsonb,text,uuid,jsonb)',
     'public.red_saet_portraet(bigint,bigint)',
     'public.red_samme_som(bigint,bigint)',

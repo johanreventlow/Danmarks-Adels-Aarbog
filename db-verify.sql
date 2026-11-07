@@ -3051,6 +3051,7 @@ DECLARE
     'public.red_reimport_batch_result(uuid,uuid)'::regprocedure,
     'public.red_relation(text,bigint,text,bigint,text,text)'::regprocedure,
     'public.red_ret_ocr_felt(bigint,text,text,text,text,jsonb,text,text)'::regprocedure,
+    'public.red_ret_forslag(uuid,integer,text,jsonb)'::regprocedure,
     'public.red_ret_paastand(bigint,jsonb,text,uuid,jsonb)'::regprocedure,
     'public.red_revalider_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
     'public.red_reverse_1939_v50_reimport(uuid,uuid)'::regprocedure,
@@ -10624,3 +10625,48 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: trin 6c-2b — paastand_korrektion (RLS, ingen klientadgang), regler private, RPC''er kun authenticated';
 END $verify_6c2b_paastand$;
+
+-- ===== Trin 6m-a: forslagsversion med menneskelig læsning =====
+-- red_ret_forslag findes som SECURITY DEFINER med search_path og kun for authenticated (som red_normaliser_forslag);
+-- triggerfunktionen er SECURITY DEFINER med search_path og kan ikke kaldes af nogen klientrolle; triggeren er en udskudt
+-- constraint-trigger på private.interpretation. red_decide_interpretation afviser grundlaget menneske-laesning-v1: prøvet
+-- med en midlertidig redaktør i en delttransaktion, der altid rulles tilbage (intet skrives; ingen sekvenser rykkes).
+DO $verify_6ma$
+DECLARE f text:='public.red_ret_forslag(uuid,integer,text,jsonb)'; t text:='private.kontroller_forslag_binding_v1()';
+  v_actor uuid:='00000000-0000-4000-8000-0000006a0a99'; v_err text;
+BEGIN
+  IF to_regprocedure(f) IS NULL OR NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid=to_regprocedure(f))
+     OR NOT EXISTS (SELECT 1 FROM pg_proc p, unnest(p.proconfig) c WHERE p.oid=to_regprocedure(f) AND c LIKE 'search_path=%')
+     OR has_function_privilege('anon',f,'EXECUTE') OR NOT has_function_privilege('authenticated',f,'EXECUTE')
+     OR has_function_privilege('service_role',f,'EXECUTE') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6m-a %: findes/security definer/search_path/ACL',f;
+  END IF;
+  IF to_regprocedure(t) IS NULL OR NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid=to_regprocedure(t))
+     OR NOT EXISTS (SELECT 1 FROM pg_proc p, unnest(p.proconfig) c WHERE p.oid=to_regprocedure(t) AND c LIKE 'search_path=%')
+     OR has_function_privilege('anon',t,'EXECUTE') OR has_function_privilege('authenticated',t,'EXECUTE')
+     OR has_function_privilege('service_role',t,'EXECUTE') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6m-a %: findes/security definer/search_path/ACL',t;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger g WHERE g.tgrelid='private.interpretation'::regclass
+                   AND g.tgname='interpretation_forslag_binding' AND g.tgconstraint<>0 AND g.tgdeferrable
+                   AND g.tginitdeferred AND g.tgenabled<>'D' AND g.tgfoid=to_regprocedure(t)) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6m-a triggeren interpretation_forslag_binding (findes/udskudt/funktion)';
+  END IF;
+  BEGIN
+    INSERT INTO auth.users(id,email) VALUES (v_actor,'verify-6ma@test.invalid') ON CONFLICT DO NOTHING;
+    INSERT INTO public.profiles(id,rolle,navn,email) VALUES (v_actor,'redaktion','Verify 6ma','verify-6ma@test.invalid')
+      ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+    PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+    BEGIN
+      PERFORM public.red_decide_interpretation(gen_random_uuid(),1,'accepted','{"basis":"menneske-laesning-v1"}');
+    EXCEPTION WHEN OTHERS THEN v_err:=SQLERRM;
+    END;
+    RAISE EXCEPTION 'VERIFY_6MA_ROLLBACK';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM<>'VERIFY_6MA_ROLLBACK' THEN RAISE; END IF;
+  END;
+  IF v_err IS NULL OR v_err NOT LIKE 'EVIDENCE_BASIS_RESERVED: menneske-laesning-v1%' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6m-a red_decide_interpretation afviser ikke menneske-laesning-v1: %',v_err;
+  END IF;
+  RAISE NOTICE 'OK: trin 6m-a — red_ret_forslag kun authenticated, kontrolfunktion privat, trigger udskudt, grundlaget reserveret';
+END $verify_6ma$;

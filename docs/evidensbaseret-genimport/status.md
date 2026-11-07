@@ -20,8 +20,9 @@ d): 1.106 af 1939's forslag er accepteret og bundet til eksisterende påstande, 
 13 i ceremoni 4), 25 forslag står tilbage (23 uden faktum, 2 uden identitet); kort 122 er `unresolved`. Vej B
 (decisions 2026-10-29) er i prod med 6c-2's ceremoni 1. **6m del 1 er i prod 2026-11-07** (decisions 2026-11-06):
 en model har holdt alle 592 poster og 2.774 forslag op mod bogens sidebilleder, og 268 af 1939's narrativer er
-revideret med projektejerens 606 rettelser (`database-current-state.md` §21). Næste er 6m del 2 (A-kortene:
-241 markerede faktaforslag, forslagsversion med menneskelig læsning, de 13 ubundne narrativer). A6b's kildetekst og klausuler for 2018-20 (decisions
+revideret med projektejerens 606 rettelser (`database-current-state.md` §21). **6m del 2 er i gang** (decisions 2026-11-07): plan og værktøj
+bygget på gren `feat/trin6m-del2` (A-kort, flet, `red_ret_forslag`), ikke i prod; prod-ceremonierne afventer. Næste: frisk prod-kopi og øvelse på stand-in, projektejerens samlede F og foreløbigt 14 kort, derefter ceremonierne (DDL 6m-a, så data). De 13 ubundne narrativer
+og 39 tekstrettelser uden læsertekst er flyttet til 6d. A6b's kildetekst og klausuler for 2018-20 (decisions
 2026-10-28) ligger i 6c-3 (decisions 2026-11-02).
 
 ## Samlet dom
@@ -54,7 +55,7 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 | Læsere på placement/membership (5c-2) | `produktionsverificeret` 2026-10-29 (GO 5c2 `bb1678f9`: 1.113 koordinater, 530 fra placement, 583 legacy; diff mod legacy 37 felter = forventet, træparitet ok; browsertjek som anon) | — (kilde 3 vises fra legacy indtil trin 6) |
 | Læserflade: fakta med kildehenvisning (B11) | `produktionsverificeret` 2026-10-29 (6.473 fakta-rækker over alle offentlige personer: 622 bundet til bogens post, 5.765 fra importen, 86 uden kilde; 0 bindinger falder ud; PostgREST-gate og browsertjek som anon). Læserkaldet koster op til ~1,9 s pr. person mod anons 3 s (vej B) | — |
 | C3 reversal | — | `integreret ende-til-ende` (ikke udført i prod) |
-| Trin 6 (1939 gennem kæden) | — | 6a i prod 2026-10-30; 6b's A og B i prod 2026-11-01; 6c-1 i prod 2026-11-02 (A, B og 6b's C efter retning 2); 6c-2 i prod 2026-11-06 (tilstand d); 6m del 1 i prod 2026-11-07 (268 narrativer revideret); 6m del 2 ikke påbegyndt; 6c-3 og 6d-6e ikke påbegyndt |
+| Trin 6 (1939 gennem kæden) | — | 6a i prod 2026-10-30; 6b's A og B i prod 2026-11-01; 6c-1 i prod 2026-11-02 (A, B og 6b's C efter retning 2); 6c-2 i prod 2026-11-06 (tilstand d); 6m del 1 i prod 2026-11-07 (268 narrativer revideret); 6m del 2 i gang (plan og værktøj bygget på gren feat/trin6m-del2; ikke i prod); 6c-3 og 6d-6e ikke påbegyndt |
 | Trin 7a, 7b | ikke påbegyndt; ingen spec | ikke påbegyndt |
 
 ## Gates før trin 6 (fra reviewet)

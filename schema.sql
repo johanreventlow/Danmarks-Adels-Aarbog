@@ -9368,6 +9368,11 @@ BEGIN
   IF p_evidence->>'basis'='source_text_revision' THEN
     RAISE EXCEPTION 'EVIDENCE_BASIS_RESERVED: source_text_revision';
   END IF;
+  -- Trin 6m del 2 (blok 6m-a): grundlaget er reserveret til red_ret_forslag, så en afgørelse ikke kan efterligne
+  -- den menneskelige læsning.
+  IF p_evidence->>'basis'='menneske-laesning-v1' THEN
+    RAISE EXCEPTION 'EVIDENCE_BASIS_RESERVED: menneske-laesning-v1';
+  END IF;
 
   SELECT * INTO v_current FROM private.interpretation
    WHERE id=p_interpretation_id FOR UPDATE;
@@ -9515,6 +9520,153 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION red_normaliser_forslag(uuid,integer,text) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION red_normaliser_forslag(uuid,integer,text) TO authenticated;
+
+-- Trin 6m del 2 (blok 6m-a): en ny proposed-version af et faktaforslag med en menneskeligt læst værdi. Læsningen er
+-- ikke en afgørelse: rækken er proposed uden decided_* (interpretation_proposal_actor_check), så læseren, kortets
+-- grundlag og den gamle versions tilstand står i decision_evidence. Servernøglerne (laest_af, laest_af_navn, laest_at,
+-- foer_status, foer_version, foer_bundet, foer_maal) lægges oven på kalderens evidens og kan ikke forfalskes. En uændret
+-- værdi er kun tilladt som genåbning af et afgjort forslag. foer_maal = målene (assertion-id'er) for den gamle versions
+-- gyldige assertion-bindinger, foer_bundet = foer_maal er ikke tom; så kræver den udskudte kontrol
+-- kontroller_forslag_binding_v1, at nøglen er accepteret og bundet igen til et af de samme mål ved COMMIT.
+CREATE OR REPLACE FUNCTION red_ret_forslag(
+  p_interpretation_id uuid,
+  p_expected_version integer,
+  p_vaerdi text,
+  p_evidence jsonb
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_current private.interpretation%ROWTYPE;
+  v_actor uuid := auth.uid();
+  v_actor_name text;
+  v_run uuid;
+  v_ny text;
+  v_bundet boolean;
+  v_foer_maal jsonb;
+  v_new_id uuid := gen_random_uuid();
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN
+    RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
+  END IF;
+  IF p_expected_version IS NULL OR p_expected_version<1 THEN
+    RAISE EXCEPTION 'EVIDENCE_EXPECTED_VERSION_REQUIRED';
+  END IF;
+  SELECT * INTO v_current FROM private.interpretation
+   WHERE id=p_interpretation_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_NOT_FOUND'; END IF;
+  IF v_current.version<>p_expected_version OR EXISTS (
+    SELECT 1 FROM private.interpretation newer
+     WHERE newer.interpretation_key=v_current.interpretation_key
+       AND newer.version>v_current.version
+  ) THEN
+    RAISE EXCEPTION 'FORSLAG_VERSION_KONFLIKT';
+  END IF;
+  IF v_current.status NOT IN ('proposed','accepted','rejected','unresolved') THEN
+    RAISE EXCEPTION 'FORSLAG_STATUS_UGYLDIG';
+  END IF;
+  IF v_current.interpretation_kind<>'property' OR jsonb_typeof(v_current.value)<>'string' THEN
+    RAISE EXCEPTION 'FORSLAG_ART_UGYLDIG';
+  END IF;
+  v_ny := private.saml_blanktegn_v1(p_vaerdi);
+  IF v_ny IS NULL OR v_ny='' THEN
+    RAISE EXCEPTION 'FORSLAG_VAERDI_TOM';
+  END IF;
+  IF v_current.status='proposed' AND v_ny IS NOT DISTINCT FROM (v_current.value #>> '{}') THEN
+    RAISE EXCEPTION 'FORSLAG_UAENDRET';
+  END IF;
+  -- Typen tjekkes for hver nøgle: ->> på en ikke-streng giver ellers en tekst, der kunne passere.
+  IF NOT coalesce(
+       jsonb_typeof(p_evidence)='object'
+       AND p_evidence->'basis'='"menneske-laesning-v1"'::jsonb
+       AND jsonb_typeof(p_evidence->'manifest_a_sha256')='string'
+       AND (p_evidence->>'manifest_a_sha256') ~ '^[0-9a-f]{64}$'
+       AND jsonb_typeof(p_evidence->'ark_sha256')='string'
+       AND (p_evidence->>'ark_sha256') ~ '^[0-9a-f]{64}$'
+       AND jsonb_typeof(p_evidence->'ref')='string'
+       AND btrim(p_evidence->>'ref')<>''
+       AND p_evidence->'svar' IN ('"FORSLAG_FEJL"'::jsonb,'"DB_FEJL"'::jsonb)
+       AND p_evidence->'billede' IN ('"bekraefter"'::jsonb,'"modsiger"'::jsonb,'"ikke_fundet"'::jsonb),
+       false) THEN
+    RAISE EXCEPTION 'FORSLAG_EVIDENS_UGYLDIG';
+  END IF;
+  -- Ét extraction_run pr. ceremoni; den skal findes for forslagets kilde. En ugyldig uuid er en manglende kørsel.
+  BEGIN
+    v_run := nullif(btrim(current_setting('daa.extraction_run_id',true)),'')::uuid;
+  EXCEPTION WHEN invalid_text_representation THEN
+    v_run := NULL;
+  END;
+  IF v_run IS NULL OR NOT EXISTS (
+    SELECT 1 FROM private.extraction_run r
+     WHERE r.id=v_run AND r.source_id=v_current.source_id
+  ) THEN
+    RAISE EXCEPTION 'FORSLAG_KOERSEL_MANGLER';
+  END IF;
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text)
+    INTO v_actor_name FROM public.profiles WHERE id=v_actor;
+  -- Måles før indsættelsen: bagefter er den gamle version ikke længere gældende, og bindingen er ugyldig.
+  SELECT coalesce(jsonb_agg(p.target_id ORDER BY p.target_id),'[]'::jsonb) INTO v_foer_maal
+    FROM private.interpretation_promotion p
+   WHERE p.interpretation_id=v_current.id AND p.target_type='assertion'
+     AND private.assertion_binding_current(p.id);
+  v_bundet := jsonb_array_length(v_foer_maal)>0;
+
+  INSERT INTO private.interpretation(
+    id,interpretation_key,version,source_id,source_persona_id,
+    interpretation_kind,predicate,value,schema_version,derivation_kind,
+    confidence,status,method,model_version,prompt_version,extraction_run_id,
+    supersedes_id,decision_evidence
+  ) VALUES (
+    v_new_id,v_current.interpretation_key,v_current.version+1,v_current.source_id,
+    v_current.source_persona_id,v_current.interpretation_kind,v_current.predicate,
+    to_jsonb(v_ny),v_current.schema_version,'human_judgement',
+    v_current.confidence,'proposed','menneske-laesning-v1',
+    v_current.model_version,v_current.prompt_version,v_run,v_current.id,
+    p_evidence || jsonb_build_object(
+      'laest_af',v_actor,'laest_af_navn',coalesce(v_actor_name,v_actor::text),
+      'laest_at',to_char(clock_timestamp() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+      'foer_status',v_current.status,'foer_version',v_current.version,'foer_bundet',v_bundet,
+      'foer_maal',v_foer_maal)
+  );
+  INSERT INTO private.interpretation_observation(
+    interpretation_id,observation_id,evidence_role,ordinal
+  )
+  SELECT v_new_id,observation_id,evidence_role,ordinal
+    FROM private.interpretation_observation
+   WHERE interpretation_id=v_current.id;
+  RETURN jsonb_build_object('interpretation_id',v_new_id,'version',v_current.version+1,
+    'foer_status',v_current.status,'genaabnet',v_current.status<>'proposed');
+END $$;
+REVOKE ALL ON FUNCTION red_ret_forslag(uuid,integer,text,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_ret_forslag(uuid,integer,text,jsonb) TO authenticated;
+
+-- Trin 6m del 2 (blok 6m-a): den udskudte kontrol. Fyrer (WHEN) kun for red_ret_forslag-rækker, hvis gamle version var
+-- bundet; afgørelsen bagefter har sin egen evidens uden foer_bundet og fyrer ikke. Ved COMMIT skal nøglens gældende
+-- række være accepteret med en gyldig assertion-binding (assertion_binding_current kræver selv gældende og accepted) til
+-- et af de mål, den gamle version var bundet til (NEW.decision_evidence->'foer_maal', sat af serveren), så et
+-- enkeltstående kald ikke kan efterlade et fakta uden sin binding eller flytte bindingen til en anden påstand.
+-- SECURITY DEFINER: kontrollen fyrer ved COMMIT som den rolle, der committer (authenticated), som ikke kan læse private.*.
+CREATE OR REPLACE FUNCTION private.kontroller_forslag_binding_v1()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  IF NEW.method='menneske-laesning-v1' AND NEW.decision_evidence->>'foer_bundet'='true' AND NOT EXISTS (
+    SELECT 1
+      FROM private.interpretation_current cur
+      JOIN private.interpretation_promotion p ON p.interpretation_id=cur.id AND p.target_type='assertion'
+     WHERE cur.interpretation_key=NEW.interpretation_key AND cur.status='accepted'
+       AND private.assertion_binding_current(p.id)
+       AND p.target_id IN (SELECT m::bigint FROM jsonb_array_elements_text(NEW.decision_evidence->'foer_maal') m)
+  ) THEN
+    RAISE EXCEPTION 'FORSLAG_BINDING_TABT: %',NEW.interpretation_key;
+  END IF;
+  RETURN NULL;
+END $$;
+REVOKE ALL ON FUNCTION private.kontroller_forslag_binding_v1() FROM PUBLIC,anon,authenticated,service_role;
+CREATE CONSTRAINT TRIGGER interpretation_forslag_binding
+  AFTER INSERT ON private.interpretation
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW
+  WHEN (NEW.method='menneske-laesning-v1' AND NEW.decision_evidence->>'foer_bundet'='true')
+  EXECUTE FUNCTION private.kontroller_forslag_binding_v1();
 
 -- Trin 6c-2b (spec 2026-11-02 §4.4 pkt. 4 og §4.5): påstandsnøglet journal over transskriptionsrettelser (B12). Én
 -- række pr. rettelse; påstanden beholder sit id, og originalen står i foer og i change_event (assertion-rækken logges
