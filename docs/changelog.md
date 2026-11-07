@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-07 — trin 6m del 1 i prod: 268 af 1939's narrativer rettet efter bogen
+
+Spec #299, plan #300, kode PR #301. En model (Opus-underagenter, decisions 2026-11-05) gennemgik alle 592 poster og
+2.774 forslag mod bogens sidebilleder; projektejeren godkendte 606 rettelser af læserteksten; ceremonien
+(GO 6m-B `2351fc44`) reviderede 268 narrativer med `state_sha256`-værn og efterkontrol over alle 563 bundne narrativer
+(`afvig=0`). Klausuler, forslag, afgørelser og bindinger er uændrede. Detaljer i `database-current-state.md` §21.
+
 ## 2026-11-02 — 6b's ceremoni C i prod efter retning 2: 1939's 553 personas har identitet
 
 Prod-kørsel efter `docs/runbooks/trin6c1-prod.md` »Ceremoni C«, repo `c8d1e2a2` (PR #293), kørt af projektejeren med

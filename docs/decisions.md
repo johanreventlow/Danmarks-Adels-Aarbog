@@ -29,6 +29,13 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   piloten (bid 1 af 24) gav 22 svarbare tekstrettelser og 7 markerede faktaforslag, dvs. ca. 530 + 170 punkter i
 >   alt. Del 1 retter kun læsertekst; faktapunkterne vises på del 2's kort og tæller ikke i del 1. Projektejeren
 >   godkendte ca. 530 tekstpunkter i flere omgange; vagten i `saml` er 600 B-grupper.
+> - **Samlet svar på de billedbekræftede rettelser** (projektejeren 7/11): efter at have godkendt alle 328 rettelser på
+>   kortside 1-8 (heraf 63 i tvivl, ingen afvist) besluttede projektejeren L på alle 224 rettelser, modellen så på
+>   sidebilledet, på side 9-15. Beslutningen ligger som én svarfil med sidenummer 1001 og kildenoten ved de øvrige
+>   svar, bundet af manifestet og GO-koden. Projektejeren besluttede samme dag L også på de 54 tvivlsrækker på
+>   side 9-15 (svarfil 1002), så alle 606 svarbare rettelser er L; tvivlsrækkerne er ikke kontrolleret mod
+>   sidebilledet af nogen, men på side 1-8 holdt alle 63 tvivlsrækker.
+>   Modellens forslag bliver kun til en rettelse gennem denne udtrykkelige beslutning, ikke af sig selv.
 
 ## BESLUTTET: tekst fra DAA 1939 må sendes til en model som beslutningsstøtte — bogens personer lever ikke (2026-11-05)
 

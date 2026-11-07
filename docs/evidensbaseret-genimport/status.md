@@ -1,6 +1,6 @@
 # Evidensbaseret genimport — aktuel status
 
-**Snapshot 2026-11-06**, efter 6c-2's ceremoni 4 i prod, som afslutter trin 6c-2 (efter 6c-1, 6b's A, B og C, 6a, 5c-2 + B11, A6b, reviewets trin B, trin 5c-1 og helhedsreviewet
+**Snapshot 2026-11-07**, efter 6m del 1 i prod (læsertekst rettet efter bogen) og 6c-2's ceremoni 4 (efter 6c-1, 6b's A, B og C, 6a, 5c-2 + B11, A6b, reviewets trin B, trin 5c-1 og helhedsreviewet
 af trin 1-5, [rapport](../reviews/2026-10-27-trin-1-5/rapport.md)). Dokumentet **overskrives** ved hvert trinskifte og hver
 prod-ændring; der skrives ikke tillæg (opdateringsreglen nederst). Det gamle dokument med tillæg til og med
 2026-10-27 står i [status-arkiv-til-2026-10-27.md](status-arkiv-til-2026-10-27.md).
@@ -18,8 +18,10 @@ retning 2** (C3's binding bliver identiteten; kun konflikter og en stikprøve p�
 en accepteret identitet, én er `unresolved` (omstridt binding). **6c-2 er i prod 2026-11-06** (ceremoni 1-4, tilstand
 d): 1.106 af 1939's forslag er accepteret og bundet til eksisterende påstande, 83 påstande rettet efter bogen (70 i 3b,
 13 i ceremoni 4), 25 forslag står tilbage (23 uden faktum, 2 uden identitet); kort 122 er `unresolved`. Vej B
-(decisions 2026-10-29) er i prod med 6c-2's ceremoni 1. **Næste er trin 6m** (modelgennemgang af 1939, decisions
-2026-11-06), del 1 i gang: læserteksten rettes efter bogen. A6b's kildetekst og klausuler for 2018-20 (decisions
+(decisions 2026-10-29) er i prod med 6c-2's ceremoni 1. **6m del 1 er i prod 2026-11-07** (decisions 2026-11-06):
+en model har holdt alle 592 poster og 2.774 forslag op mod bogens sidebilleder, og 268 af 1939's narrativer er
+revideret med projektejerens 606 rettelser (`database-current-state.md` §21). Næste er 6m del 2 (A-kortene:
+241 markerede faktaforslag, forslagsversion med menneskelig læsning, de 13 ubundne narrativer). A6b's kildetekst og klausuler for 2018-20 (decisions
 2026-10-28) ligger i 6c-3 (decisions 2026-11-02).
 
 ## Samlet dom
@@ -52,7 +54,7 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 | Læsere på placement/membership (5c-2) | `produktionsverificeret` 2026-10-29 (GO 5c2 `bb1678f9`: 1.113 koordinater, 530 fra placement, 583 legacy; diff mod legacy 37 felter = forventet, træparitet ok; browsertjek som anon) | — (kilde 3 vises fra legacy indtil trin 6) |
 | Læserflade: fakta med kildehenvisning (B11) | `produktionsverificeret` 2026-10-29 (6.473 fakta-rækker over alle offentlige personer: 622 bundet til bogens post, 5.765 fra importen, 86 uden kilde; 0 bindinger falder ud; PostgREST-gate og browsertjek som anon). Læserkaldet koster op til ~1,9 s pr. person mod anons 3 s (vej B) | — |
 | C3 reversal | — | `integreret ende-til-ende` (ikke udført i prod) |
-| Trin 6 (1939 gennem kæden) | — | 6a i prod 2026-10-30; 6b's A og B i prod 2026-11-01; 6c-1 i prod 2026-11-02 (A, B og 6b's C efter retning 2); 6c-2 i prod 2026-11-06 (tilstand d); 6m (modelgennemgang) del 1 i gang; 6c-3 og 6d-6e ikke påbegyndt |
+| Trin 6 (1939 gennem kæden) | — | 6a i prod 2026-10-30; 6b's A og B i prod 2026-11-01; 6c-1 i prod 2026-11-02 (A, B og 6b's C efter retning 2); 6c-2 i prod 2026-11-06 (tilstand d); 6m del 1 i prod 2026-11-07 (268 narrativer revideret); 6m del 2 ikke påbegyndt; 6c-3 og 6d-6e ikke påbegyndt |
 | Trin 7a, 7b | ikke påbegyndt; ingen spec | ikke påbegyndt |
 
 ## Gates før trin 6 (fra reviewet)
@@ -70,8 +72,9 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 
 ## Restorepunkt og fortrydelse
 
-Seneste restorepunkt: dumpet før 6c-2's ceremoni 4, `daa-prod-20261106075122-6c2.dump` (tilstand c3b; kvittering og
-fortrydelse i runbook `trin6c2-prod.md`). Før 6c-2: dumpet før 6c-1's ceremoni B, `daa-prod-20261102060018-6c1.dump` (sha `fc15557a…`, tilstand
+Seneste restorepunkt: dumpet før 6m del 1's ceremoni B, `daa-prod-20261107105651-6m.dump` (tilstand d; fortrydelse
+i runbook `trin6m-del1-prod.md`, kun indtil der skrives noget nyt i prod). Før det: dumpet før 6c-2's ceremoni 4,
+`daa-prod-20261106075122-6c2.dump` (tilstand c3b). Før 6c-2: dumpet før 6c-1's ceremoni B, `daa-prod-20261102060018-6c1.dump` (sha `fc15557a…`, tilstand
 `a`; `database-current-state.md` §19); dumpet før 6c-1's ceremoni A er `daa-prod-20261101221444-6c1.dump` (sha
 `198712b4…`). Fortrydelse sker efter gate 8 som omformuleret 2026-10-27 (B1): en særskilt handling eller restore inden
 for et deklareret vindue. B1's betingelse er opfyldt for begge 6c-1-dumps: to kopier (lokalt og `age`-krypteret på

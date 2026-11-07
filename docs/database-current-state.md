@@ -529,6 +529,28 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 21. Trin 6m del 1: 1939's læsertekst rettet efter bogen — LIVE i prod (2026-11-07)
+
+**Procedure:** `docs/runbooks/trin6m-del1-prod.md`, privat runner `~/.private/5ab-overfoersel/30-trin6m.sh`. Repo
+`23545c6b` (`main` med PR #301; to decisions-commits fulgte i en opfølgnings-PR). Én skrivende ceremoni, kørt af
+projektejeren. (6c-2's ceremonier 2026-11-05/06 mangler endnu deres afsnit her; se `docs/evidensbaseret-genimport/status.md`.)
+
+- **Før:** tilstand d (6c-2's tal `25,0,0,0,1106,1106,83,1`, `k1` `d5bedf7d…`), 1939-narrativernes hash `659b9242…`.
+- **Eksport (læse-kun, 10,9 s):** 592 poster, 2.774 forslag, 563 record-bundne narrativer (561 med `publish_revision`),
+  13 ubundne; sha `707a2732…`, byte-ens med stand-in'en.
+- **Modelgennemgang:** 24 Opus-underagenter à 25 poster med sidebilleder (88 sider, 150 dpi); 592/592 poster og
+  2.774/2.774 forslag besvaret. 651 tekstrettelser, 595 svarbare grupper, 142 i tvivl, 6 grænserettelser, 39 på poster
+  uden revisionsret; 241 markerede faktaforslag og 1.121 »manglende fakta« til del 2.
+- **Projektejerens svar:** 606 L (side 1-8 klikket enkeltvis, side 9-15 ved samlet beslutning; decisions 2026-11-06),
+  ark `1426cb0b…`, manifest `fc9651e2…`.
+- **Dump:** `daa-prod-20261107105651-6m.dump` (sha `dfc276e3…`, age `e3e6a66c…`, SFTP-rundtur ok), restore-hash
+  `2d5233f9…`, `change_set` max 2767.
+- **Ceremoni B (GO 6m-B `2351fc44`):** `red_revider_publiceret_person_narrative_record` pr. post med eksportens
+  `state_sha256`; `T6M_APPLY_B_OK poster=268 lig=268 alle=563 afvig=0 tal=25,0,0,0,1106,1106,83,1`, 34,9 s;
+  narrativernes hash `0fc9ccb6…` = øvelsens. Uafhængig `verify`: `VERIFY_B poster=268 lig=268 alle=563 afvig=0`.
+- **Læseren:** projektejeren så tre stikprøver (person 1044, 1366 og 1356) med de rettede tekster.
+- **Fortrydelse:** fra dumpet med apply-kvitteringen, kun indtil der skrives noget nyt i prod (runbookens »Fortrydelse«).
+
 ## 20. 6b's ceremoni C efter retning 2: 1939's identiteter — LIVE i prod (2026-11-02)
 
 **Procedure:** `docs/runbooks/trin6c1-prod.md` »Ceremoni C«, private scripts `~/.private/5ab-overfoersel/28-trin6c1-c.sh`,
