@@ -2,8 +2,8 @@
 -- eksisterende ægtefælle-persona som part på en ny nøgle efter en kildetekst-revision, når præcis én persona opfylder
 -- reglen (forældet nøgle med grundlaget source_text_revision, samme ægteskabsnummer, samme navn efter
 -- saml_blanktegn_v1, ingen ægtefællepart på en levende nøgle). Finalize (verify_relation_persona_receipts) efterprøver
--- genbruget adskilt. Kræver kontrakt v2 (reimport-writer-v2-bootstrap.sql). Alt syntetisk; én transaktion, rulles
--- tilbage.
+-- genbruget adskilt. Til sidst §4.7 pkt. 3: personaens kontekst efter genbruget. Kræver kontrakt v2
+-- (reimport-writer-v2-bootstrap.sql). Alt syntetisk; én transaktion, rulles tilbage.
 \set ON_ERROR_STOP on
 
 -- Hovedtransaktionen kører eksplicit READ COMMITTED, som revisions-writeren kræver.
@@ -477,6 +477,108 @@ BEGIN
     RAISE EXCEPTION 'RELATION_REUSE_TEST_FAILED: genbrug med år %',w;
   END IF;
   RAISE NOTICE 'OK: test_reuse_with_year';
+END $t$;
+
+-- §4.7 pkt. 3 (én part pr. persona): efter genbruget har personaen to ægtefælleparter, én på den forældede nøgle og én
+-- på den nye. persona_family_context og spouse_principal_person tæller kun parter på nøgler, der aktuelt er proposed
+-- eller accepted, og giver efter genbruget samme resultat som før revisionen. Mellem revisionen og genbruget har
+-- personaen ingen levende part og dermed ingen kontekst.
+-- test_context_after_reuse_bound: ægteskabet er afgjort og bundet før revisionen (som test_reuse_name_same_place).
+DO $t$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000006c3a09'; s jsonb; post jsonb; c jsonb; c2 jsonb; p jsonb; w jsonb;
+  v_old text:='Anna Alfa. Gift med Bo Beta. Datter Dora Delta.'; v_new text:='Anna Alfa. Gift med Bo Beta. Datter Dora.';
+  v_persona uuid; v_cl uuid[]; v_fc jsonb; v_hp bigint;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) VALUES (-66901,false,false,'6c3'),(-66902,false,false,'6c3');
+  s:=pg_temp.f5b_source(-66901);
+  post:=pg_temp.f5b_post(-66901,s,'T6-I',v_old,ARRAY['Anna Alfa.','Gift med Bo Beta.','Datter Dora Delta.'],-66901,v_actor);
+  PERFORM pg_temp.f2a_event_for_state((post->>'principal')::uuid);
+  c:=pg_temp.f5b_claim(-66901,s,'relation.marriage',(post->'clauses'->>1)::uuid,'Gift med Bo Beta.');
+  PERFORM pg_temp.t6_write(-66901,v_actor,pg_temp.t6_payload((post->'clauses'->>1)::uuid,c->>'key','Gift med Bo Beta.','Bo Beta'));
+  v_persona:=pg_temp.t6_spouse(c->>'key');
+  PERFORM pg_temp.t6_bind(-66901,-66901,-66902,v_persona,c->>'key',v_actor);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  v_fc:=private.persona_family_context(v_persona);
+  v_hp:=private.spouse_principal_person(v_persona);
+  IF v_fc IS NULL OR v_hp IS DISTINCT FROM -66901 OR jsonb_array_length(v_fc->'families')<>1
+     OR (v_fc->>'marriage_ordinal')::int<>1 OR (v_fc->>'spouse_identity_version')::int<>1 THEN
+    RAISE EXCEPTION 'RELATION_REUSE_TEST_FAILED: fixturens kontekst før revisionen % %',v_fc,v_hp;
+  END IF;
+
+  v_cl:=pg_temp.t6_revise(-66901,post,v_old,v_new,ARRAY['Anna Alfa.','Gift med Bo Beta.','Datter Dora.'],v_actor,'t6-i');
+  IF private.persona_family_context(v_persona) IS NOT NULL OR private.spouse_principal_person(v_persona) IS NOT NULL THEN
+    RAISE EXCEPTION 'RELATION_REUSE_TEST_FAILED: kontekst fra en forældet part % %',
+      private.persona_family_context(v_persona),private.spouse_principal_person(v_persona);
+  END IF;
+  c2:=pg_temp.f5b_claim(-66901,s,'relation.marriage',v_cl[2],'Gift med Bo Beta.');
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  w:=pg_temp.t6_write(-66901,v_actor,pg_temp.t6_payload(v_cl[2],c2->>'key','Gift med Bo Beta.','Bo Beta'));
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  IF w->'receipt'->'reused' IS DISTINCT FROM 'true'::jsonb OR pg_temp.t6_spouse(c2->>'key') IS DISTINCT FROM v_persona
+     OR (SELECT count(*) FROM private.interpretation_party_current
+          WHERE source_persona_id=v_persona AND party_role='spouse')<>2 THEN
+    RAISE EXCEPTION 'RELATION_REUSE_TEST_FAILED: fixturen genbrugte ikke %',w->'receipt';
+  END IF;
+  IF private.persona_family_context(v_persona) IS DISTINCT FROM v_fc THEN
+    RAISE EXCEPTION 'RELATION_REUSE_TEST_FAILED: persona_family_context efter genbrug % (før %)',
+      private.persona_family_context(v_persona),v_fc;
+  END IF;
+  IF private.spouse_principal_person(v_persona) IS DISTINCT FROM v_hp THEN
+    RAISE EXCEPTION 'RELATION_REUSE_TEST_FAILED: spouse_principal_person efter genbrug %',private.spouse_principal_person(v_persona);
+  END IF;
+  RAISE NOTICE 'OK: test_context_after_reuse_bound';
+END $t$;
+
+-- test_context_after_reuse_unbound: ægtefællens identitet er uafgjort, så webkøens detalje udleder en årsag. Efter
+-- genbruget er den den samme som før revisionen, ikke context_unavailable.
+DO $t$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000006c3a0a'; s jsonb; post jsonb; c jsonb; c2 jsonb; w jsonb;
+  v_old text:='Anna Alfa. Gift med Bo Beta. Datter Dora Delta.'; v_new text:='Anna Alfa. Gift med Bo Beta. Datter Dora.';
+  v_persona uuid; v_cl uuid[]; v_fc jsonb; v_hp bigint; d jsonb;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) VALUES (-67001,false,false,'6c3'),(-67002,false,false,'6c3');
+  s:=pg_temp.f5b_source(-67001);
+  post:=pg_temp.f5b_post(-67001,s,'T6-J',v_old,ARRAY['Anna Alfa.','Gift med Bo Beta.','Datter Dora Delta.'],-67001,v_actor);
+  PERFORM pg_temp.f2a_event_for_state((post->>'principal')::uuid);
+  PERFORM pg_temp.f5b_family(-67001,-67002,1);
+  c:=pg_temp.f5b_claim(-67001,s,'relation.marriage',(post->'clauses'->>1)::uuid,'Gift med Bo Beta.');
+  PERFORM pg_temp.t6_write(-67001,v_actor,pg_temp.t6_payload((post->'clauses'->>1)::uuid,c->>'key','Gift med Bo Beta.','Bo Beta'));
+  v_persona:=pg_temp.t6_spouse(c->>'key');
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  v_fc:=private.persona_family_context(v_persona);
+  v_hp:=private.spouse_principal_person(v_persona);
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  d:=red_source_persona_detail(v_persona);
+  RESET ROLE;
+  IF v_fc IS NULL OR v_hp IS DISTINCT FROM -67001 OR d->>'review_reason' IS DISTINCT FROM 'partner_not_candidate'
+     OR (d#>>'{family_context,marriage_ordinal}')::int IS DISTINCT FROM 1 THEN
+    RAISE EXCEPTION 'RELATION_REUSE_TEST_FAILED: fixturens detalje før revisionen % %',v_fc,d;
+  END IF;
+
+  v_cl:=pg_temp.t6_revise(-67001,post,v_old,v_new,ARRAY['Anna Alfa.','Gift med Bo Beta.','Datter Dora.'],v_actor,'t6-j');
+  c2:=pg_temp.f5b_claim(-67001,s,'relation.marriage',v_cl[2],'Gift med Bo Beta.');
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  w:=pg_temp.t6_write(-67001,v_actor,pg_temp.t6_payload(v_cl[2],c2->>'key','Gift med Bo Beta.','Bo Beta'));
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  IF w->'receipt'->'reused' IS DISTINCT FROM 'true'::jsonb OR pg_temp.t6_spouse(c2->>'key') IS DISTINCT FROM v_persona THEN
+    RAISE EXCEPTION 'RELATION_REUSE_TEST_FAILED: fixturen genbrugte ikke %',w->'receipt';
+  END IF;
+  IF private.persona_family_context(v_persona) IS DISTINCT FROM v_fc
+     OR private.spouse_principal_person(v_persona) IS DISTINCT FROM v_hp THEN
+    RAISE EXCEPTION 'RELATION_REUSE_TEST_FAILED: kontekst efter genbrug % % (før % %)',
+      private.persona_family_context(v_persona),private.spouse_principal_person(v_persona),v_fc,v_hp;
+  END IF;
+  SET LOCAL ROLE authenticated;
+  IF red_source_persona_detail(v_persona)->>'review_reason' IS DISTINCT FROM d->>'review_reason'
+     OR red_source_persona_detail(v_persona)->'family_context' IS DISTINCT FROM d->'family_context'
+     OR red_source_persona_detail(v_persona)->'principal_partners' IS DISTINCT FROM d->'principal_partners' THEN
+    RAISE EXCEPTION 'RELATION_REUSE_TEST_FAILED: detaljen efter genbrug %',red_source_persona_detail(v_persona);
+  END IF;
+  RESET ROLE;
+  RAISE NOTICE 'OK: test_context_after_reuse_unbound';
 END $t$;
 
 ROLLBACK;

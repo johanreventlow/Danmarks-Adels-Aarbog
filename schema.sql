@@ -18212,8 +18212,13 @@ REVOKE ALL ON FUNCTION private.relation_batch_results(uuid) FROM PUBLIC,anon,aut
 
 CREATE OR REPLACE FUNCTION private.persona_family_context(p_persona uuid)
 RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+  -- Trin 6c-3a (§4.7 pkt. 3): en genbrugt persona har også en part på den forældede nøgle; kun parter på nøgler, der
+  -- aktuelt er proposed eller accepted, tæller (samme filter som relation_persona_v3_input). Nøglens seneste version
+  -- læses via (nøgle, version)-indekset, ikke via det gældende view, som beregner hele tabellen.
   WITH sp AS (SELECT pc.interpretation_key,pc.marriage_ordinal FROM private.interpretation_party_current pc
-               WHERE pc.source_persona_id=p_persona AND pc.party_role='spouse'),
+                CROSS JOIN LATERAL (SELECT q.status FROM private.interpretation q WHERE q.interpretation_key=pc.interpretation_key
+                                     ORDER BY q.version DESC LIMIT 1) spc
+               WHERE pc.source_persona_id=p_persona AND pc.party_role='spouse' AND spc.status IN ('proposed','accepted')),
   pr AS (SELECT pc.source_persona_id FROM private.interpretation_party_current pc JOIN sp USING (interpretation_key)
           WHERE pc.party_role='principal'),
   pid AS (SELECT i.canonical_person_id,i.version,i.source_persona_id FROM private.source_persona_identity i
@@ -19163,10 +19168,14 @@ GRANT EXECUTE ON FUNCTION red_register_identity_control_run(uuid,text),red_ident
 -- ---------- Trin 5b, Task 8: family_corroboration (spec §6.2-6.3) ----------
 CREATE OR REPLACE FUNCTION private.spouse_principal_person(p_persona uuid)
 RETURNS bigint LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+  -- Trin 6c-3a (§4.7 pkt. 3): kun ægtefælleparter på nøgler, der aktuelt er proposed eller accepted (nøglens seneste
+  -- version via (nøgle, version)-indekset).
   SELECT i.canonical_person_id FROM private.interpretation_party_current sp
+    CROSS JOIN LATERAL (SELECT q.status FROM private.interpretation q WHERE q.interpretation_key=sp.interpretation_key
+                         ORDER BY q.version DESC LIMIT 1) spc
     JOIN private.interpretation_party_current pr ON pr.interpretation_key=sp.interpretation_key AND pr.party_role='principal'
     JOIN private.source_persona_identity i ON i.source_persona_id=pr.source_persona_id AND i.decision_status='accepted'
-   WHERE sp.source_persona_id=p_persona AND sp.party_role='spouse';
+   WHERE sp.source_persona_id=p_persona AND sp.party_role='spouse' AND spc.status IN ('proposed','accepted');
 $$;
 REVOKE ALL ON FUNCTION private.spouse_principal_person(uuid) FROM PUBLIC,anon,authenticated;
 
@@ -19405,6 +19414,7 @@ BEGIN
   -- ægteskabet venter på redaktøren, som maskinvejens FAMILY_CORROBORATION_DOUBLE_TARGET. Funktionen kaldes for hver
   -- kilderække i public_family_sources, så først et billigt opslag i personindekset (næsten altid tomt).
   -- Ægtefællens egen persona er én af personens accepterede; en rival kræver mindst to (v_nb).
+  -- Trin 6c-3a (§4.7 pkt. 2): en rival, hvis påstand er afvist eller forældet (superseded), tæller ikke.
   IF v_role='spouse' AND v_nb=2 THEN
     SELECT array_agg(i2.source_persona_id) INTO v_rivals FROM private.source_persona_identity i2
      WHERE i2.canonical_person_id=v_b AND i2.decision_status='accepted'
@@ -19420,7 +19430,7 @@ BEGIN
           WHERE spm.persona_id=ANY(v_rivals) AND spm.mention_role='spouse'
             AND NOT EXISTS (SELECT 1 FROM private.interpretation_party n WHERE n.interpretation_key=pp.interpretation_key
                               AND n.party_role='spouse' AND n.version>pp.version)
-            AND ic2.predicate='relation.marriage' AND ic2.status<>'rejected'
+            AND ic2.predicate='relation.marriage' AND ic2.status NOT IN ('rejected','superseded')
             AND o2.occurrence_id=(SELECT o.occurrence_id FROM private.interpretation_observation io
                                     JOIN private.source_observation o ON o.id=io.observation_id
                                    WHERE io.interpretation_id=v_i.id AND io.evidence_role='supporting' AND io.ordinal=1)) THEN

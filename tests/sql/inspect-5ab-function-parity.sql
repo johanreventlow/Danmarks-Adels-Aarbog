@@ -9,9 +9,9 @@
 -- Trin 6c-2b (forslagsversion): normaliser_dato_markoer_v1 og red_normaliser_forslag; (påstandsrettelse): saml_blanktegn_v1,
 -- navn_forkortes, red_ret_paastand og red_paastand_historik; (én binding pr. påstand): validate_interpretation_promotion_items.
 -- Trin 6m-a (forslagsversion med menneskelig læsning): red_ret_forslag, red_decide_interpretation (reserveret grundlag)
--- og kontroller_forslag_binding_v1. Trin 6c-3a (tekstrevision og relationer): verify_relation_persona_receipts
--- (write_relation_persona står allerede under 5ab).
--- I alt 13 + 17 + 3 + 3 + 1 + 7 + 3 + 1 = 48 linjer.
+-- og kontroller_forslag_binding_v1. Trin 6c-3a (tekstrevision og relationer): verify_relation_persona_receipts og
+-- spouse_principal_person (write_relation_persona, persona_family_context og relation_binding_state står allerede under 5ab).
+-- I alt 13 + 17 + 3 + 3 + 1 + 7 + 3 + 2 = 49 linjer.
 \set ON_ERROR_STOP on
 SELECT l FROM (
   SELECT p.oid::regprocedure::text||'|'||p.prosecdef||'|'||coalesce(array_to_string(p.proconfig,','),'')||'|'||
@@ -46,5 +46,5 @@ SELECT l FROM (
      -- 6m-a
      ('public','red_ret_forslag'),('public','red_decide_interpretation'),('private','kontroller_forslag_binding_v1'),
      -- 6c-3a
-     ('private','verify_relation_persona_receipts'))) x
+     ('private','verify_relation_persona_receipts'),('private','spouse_principal_person'))) x
  ORDER BY l COLLATE "C";
