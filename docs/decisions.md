@@ -2,6 +2,20 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: 1939's datoer uden punktum efter dagen får årsgrænser — åben backlog (2026-11-07)
+
+> Fundet ved 6m del 2's stikprøve (person 1080, »8 Okt. 1746«). `validate.derive_date_info` afgrænser kun formen
+> »8. okt. 1746« (punktum efter dagen); 1939's form »8 Okt. 1746« falder tilbage til hele året (`1746-01-01` –
+> `1746-12-31`). Teksten (`date_raw`) er rigtig; det er intervallet, søgning og sortering bruger, der er for groft.
+>
+> - **Målt** på en prod-kopi fra 7/11 (før 6m del 2's A, stand-in `_6m3`): af påstandene med `date_raw`, citeret af
+>   1939 (kilde 3), har 261 af 1.301 årsgrænser, heraf 187 hvor teksten har dag og måned. Kilde 1 (2018-20): 2 af 3.171.
+>   7 af 6m del 2's 9 rettede datoer har årsgrænser (den gamle påstand havde de samme).
+> - **Ikke en regression:** 6m har ikke ændret grænserne; de stammer fra 1939's import.
+> - **Retning (ikke besluttet):** parseren lærer 1939's form; grænserne rettes som en evidensbåret rettelse (ny
+>   påstand eller en ceremoni som 6c-2's), ikke ved direkte UPDATE (invariant 1). Placering i roadmapet afgøres af
+>   projektejeren.
+
 ## BESLUTTET: trin 6m del 2 — skriveveje for faktaforslag (2026-11-07)
 
 > Del 1 er i prod (decisions 2026-11-06). Del 2 skal give projektejerens læsning af bogen en vej ind i databasen for
