@@ -258,16 +258,21 @@ spor B«.
 
 **Interfaces:**
 - Produces:
-  - `byg_kort(klasser: list, samlet: dict, bidder: list, maal: dict) -> list[dict]` — én række pr. ref (ingen
-    gruppesvar; *mit valg*: 97 rækker, 2 grupper med to elementer). Rækken viser postens tekstuddrag, sidebilledets sti,
-    feltet, forslagets værdi, bogens læsning, databasens værdi, tidligere afgørelse (status + grund), modellens grund
-    og billedstøtte, og hvad `F` gør i netop den klasse.
+  - `byg_kort(klasser: list, samlet: dict, bidder: list, maal: dict) -> list[dict]` — kort med svarknapper kun for
+    `RET_OG_BIND` (ca. 15-19 rækker; ingen gruppesvar). Rækken viser postens tekstuddrag, sidebilledets sti, feltet,
+    forslagets værdi, bogens læsning, databasens værdi, tidligere afgørelse (status + grund), modellens grund og
+    billedstøtte, og at `F` retter databasens værdi. `VERSION` og `BIND` står i en oversigt uden knapper (antal pr.
+    felt) med teksten »omfattet af det samlede F (projektejeren 2026-11-07)«.
+  - `samlet_f(klasser: list[dict], manifest_a: str) -> dict` — projektejerens samlede beslutning som svarfil (som
+    del 1's side 1001): `{"manifest_a", "side": 1001, "kilde": "projektejeren 2026-11-07: samlet F på VERSION og BIND",
+    "svar": {ref: "F"}}` for præcis rækkerne i `VERSION ∪ BIND`. Runneren skriver den først, når projektejeren har set
+    `FF_KLASSE_OK`-tallene og sagt ja.
   - `render(kort, manifest_a: str, pr_side: int = 40) -> list[str]`.
   - `flet_a(klasser: list[dict], manifest_a: str, svarfiler: list[dict]) -> str` — kræver `manifest_a(klasser, …)` =
     svarfilernes manifest; tilladte refs og klasser læses af `klasser`; ark: `# manifest_a <sha256>` og én linje pr. ref
     `A <ref> : F|N|_` (F = gør det, kortet beskriver; N = modellen tager fejl, intet skrives; _ = ubesvaret, intet
-    skrives). Svarbare klasser: `VERSION`, `BIND`, `RET_OG_BIND`.
-  - CLI: `kort --ud D` → `D/kort-a/kort-<n>.html`; `flet --ud D SVAR...` → `D/ark-a.txt` (afviser eksisterende ark:
+    skrives). Svarbare klasser: `VERSION`, `BIND` (kun via den samlede svarfil) og `RET_OG_BIND` (kun via kortene).
+  - CLI: `kort --ud D` → `D/kort-a/kort-<n>.html`; `samlet-f --ud D` → `D/svar-a-1001.json` (0600); `flet --ud D SVAR...` → `D/ark-a.txt` (afviser eksisterende ark:
     `ARK_FINDES`); kun antal og hashes.
 - Kortvejledning (fast tekst øverst): hvad F, N og tomt betyder; at F på et afgjort forslag genåbner 6c-2's afgørelse;
   »er du i tvivl, så lad den stå tom«; `RAPPORT`/`SPAERRET`/`DRIFT` står i en sektion uden knapper med forklaringen
@@ -282,6 +287,11 @@ spor B«.
     `SPAERRET` eller `DRIFT` → `SVAR_IKKE_TILLADT`; ugyldigt token → `SVAR_UGYLDIGT`; samme ref med to svar →
     `SVAR_KONFLIKT`.
   - `test_flet_ark_findes`.
+  - `test_kun_ret_og_bind_har_knapper` — `VERSION`- og `BIND`-rækker har ingen knapper og står i oversigten.
+  - `test_samlet_f_daekker_praecis_version_og_bind` — svarfilen har F for hver `VERSION`/`BIND`-ref og ingen andre;
+    flettet med kortsvar giver arket F for dem, kortets svar for `RET_OG_BIND`, `_` for ubesvarede `RET_OG_BIND`.
+  - `test_flet_afviser_samlet_svar_paa_ret_og_bind` — en side-1001-fil med en `RET_OG_BIND`-ref → `SVAR_IKKE_TILLADT`;
+    et kortsvar på en `VERSION`/`BIND`-ref → `SVAR_IKKE_TILLADT`.
 - [ ] **Step 2:** Kør → FAIL. **Step 3:** Implementér (render/flet-mønster fra `laesertekst_rettelse.py`). **Step 4:**
   Kør → PASS.
 - [ ] **Step 5:** Commit: `feat(6m): A-kort og flet til projektejerens svar på faktaforslag`
@@ -342,7 +352,8 @@ spor B«.
 - Modify: `docs/evidensbaseret-genimport/status.md`
 
 - [ ] **Step 1:** Indførslen: `red_ret_forslag` som generel skrivevej for en menneskeligt godkendt forslagsværdi
-  (med udskudt bindingskontrol); genåbning af afgjorte kun ved udtrykkeligt F (projektejeren 2026-11-07);
+  (med udskudt bindingskontrol); genåbning af afgjorte kun ved udtrykkeligt F (projektejeren 2026-11-07),
+  som et samlet F for `VERSION`/`BIND` (svarfil side 1001) og kort for `RET_OG_BIND`;
   relationer/omtaler/hændelser, `BEGGE` (62, heraf 41 titler) og `TVIVL` registreres til 6c-3/6d; de 13 ubundne
   narrativer og de 39 tekstrettelser uden læsertekst flyttes til 6d efter projektejerens beslutning 2026-11-07 (målt:
   ingen skrivevej uden placements); 6d ejer dem, færdigbevis »de 13 har record-binding og er læst efter spor B«;
@@ -374,8 +385,9 @@ spor B«.
 - [ ] **Step 1:** Codex-runde på diffen før prod (B13: `gpt-6.1-sol`, Opus dømmer hvert fund). PR som kladde efter
   projektejerens ja; projektejeren merger; tjek `git merge-base --is-ancestor <head> main` efter merge.
 - [ ] **Step 2:** `dump` → `go-ddl` → projektejeren kører `apply-ddl` → verify grøn → advisors.
-- [ ] **Step 3:** `maal-a` (prod, læse-kun) → `klasse-a` → `kort-a`; projektejeren svarer → `flet-a` → `sql-a` → øvelse
-  på en frisk stand-in med det rigtige ark (Task 7 Step 3).
+- [ ] **Step 3:** `maal-a` (prod, læse-kun) → `klasse-a`; projektejeren ser tallene (`version=`, `bind=`,
+  `ret_og_bind=`) og bekræfter det samlede F → `samlet-f` → `kort-a`; projektejeren svarer på `RET_OG_BIND`-kortene →
+  `flet-a` → `sql-a` → øvelse på en frisk stand-in med det rigtige ark (Task 7 Step 3).
 - [ ] **Step 4:** `dump` → `go-a` → projektejeren kører `apply-a` → `verify-a` grøn → ledger; frysning ophæves.
 - [ ] **Step 5 (færdigbevis, spec §7 for spor A):** prod-antal nye forslagsversioner = arkets F; påstandsrettelser =
   F i `RET_OG_BIND`; afgørelser og nye gyldige bindinger = F i `BIND ∪ RET_OG_BIND`; 0 tabte bindinger
@@ -400,3 +412,7 @@ er på diffen før prod (Task 8 Step 1).
 1. Et `F` må genåbne en afgørelse fra 6c-2 (41 forslag: 7 accepterede, 28 afviste, 6 `unresolved`); kortet viser
    den tidligere afgørelse, og uden F står den.
 2. De 13 ubundne narrativer og de 39 tekstrettelser uden læsertekst flyttes til 6d.
+3. Fuld del 2 (ny RPC), ikke en minimal del 2 uden DDL. Samlet F på `VERSION` (56) og `BIND` (ca. 22): ingen af dem
+   ændrer en værdi, læseren ser (kun forslaget eller kildehenvisningen), og alle 97 er billedbekræftede. Projektejeren
+   ser kun kortene for `RET_OG_BIND` (ca. 15-19), hvor databasens værdi ændres. Bekræftes mod de faktiske tal i
+   Task 8 Step 3, før svarfilen skrives.
