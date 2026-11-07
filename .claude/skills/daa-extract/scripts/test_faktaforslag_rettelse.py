@@ -169,3 +169,118 @@ def test_afgjort_forslag_har_stadig_maal(db):
     assert by[_u(401)]["rettelse_maal"]["assertion_id"] == -69601
     # control_rows viser derimod ikke længere forslaget (kun proposed)
     assert _u(401) not in _control(db)
+
+
+# --- Task 3: klassifikation (ren Python) -------------------------------------------------------------------------------
+import copy  # noqa: E402
+
+import faktaforslag_rettelse as fr  # noqa: E402
+
+
+def _fx(iid="i1", status="proposed", value="Carl Hansen", kind="property", gid=None, maal_v="Carl Hansen",
+        pred="person.name", vk="text", bundet=False, eb=None, med_maal=True):
+    rm = {"assertion_id": 77, "forventet": {"fact_id": 5, "faktatype": "x", "vaerdi_tekst": maal_v, "date_raw": maal_v,
+                                           "valgt_assertion_id": 77, "citation_sources": []},
+          "graenser": None, "value_kind": vk} if med_maal else None
+    return {"interpretation_id": iid, "status": status, "gaeldende_id": gid or iid, "kind": kind, "predicate": pred,
+            "value_text": value, "rettelse_maal": rm, "maal_bundet_af_anden": bundet, "egen_binding": eb}
+
+
+def _ar(ref="p1-f1", svar="FORSLAG_FEJL", felt="person.name", laes="Carl Hansen", vaerdi="Carl Hansen"):
+    return {"ref": ref, "svar": svar, "felt": felt, "vaerdi": vaerdi, "bogens_laesning": laes, "billede": "bekraefter"}
+
+
+def _kl(a, f, ref="p1-f1", iid="i1", version=1):
+    return fr.klassificer([a], {ref: {"type": "forslag", "interpretation_id": iid, "version": version}},
+                          {"forslag": [f]})[0]
+
+
+def test_saml_blanktegn_som_sql():
+    assert fr.saml_blanktegn("  a  b\nc d e ") == "a b c d e"
+
+
+def test_manifest_a_stabil_og_foelsom():
+    a = [_ar(laes="Carl Hansen", vaerdi="Carl Hans")]
+    k = [_kl(a[0], _fx(status="accepted", value="Carl Hans", maal_v="Carl Hans"))]
+    base = fr.manifest_a(k, a)
+    assert fr.manifest_a(copy.deepcopy(k), copy.deepcopy(a)) == base
+    a2 = copy.deepcopy(a); a2[0]["bogens_laesning"] = "Carl Hanse"
+    assert fr.manifest_a(k, a2) != base
+    for mut in (lambda r: r.update(version=2), lambda r: r.update(klasse="BIND"),
+                lambda r: r["forventet"].update(fact_id=9)):
+        k2 = copy.deepcopy(k); mut(k2[0])
+        assert fr.manifest_a(k2, a) != base
+
+
+def test_uaendret_og_allerede_bundet_er_rapport():
+    r = _kl(_ar(laes="Carl  Hansen"), _fx(status="proposed"))
+    assert (r["klasse"], r["grund"], r["ny_vaerdi"]) == ("RAPPORT", "UAENDRET", "Carl Hansen")
+    r = _kl(_ar(), _fx(status="accepted", eb={"promotion_id": 1, "gyldig": True}))
+    assert (r["klasse"], r["grund"]) == ("RAPPORT", "ALLEREDE_BUNDET")
+
+
+def test_relation_og_begge_er_rapport():
+    r = _kl(_ar(felt="relation.marriage"), _fx(kind="relation", pred="relation.marriage"))
+    assert (r["klasse"], r["grund"], r["ny_vaerdi"]) == ("RAPPORT", "ikke_property", None)
+    r = _kl(_ar(svar="BEGGE", felt="person.title"), _fx())
+    assert (r["klasse"], r["grund"]) == ("RAPPORT", "BEGGE")
+    r = _kl(_ar(laes=None), _fx())
+    assert (r["klasse"], r["grund"]) == ("RAPPORT", "uden_laesning")
+
+
+def test_proposed_bliver_version():
+    assert _kl(_ar(laes="Carl Hans"), _fx(status="proposed"))["klasse"] == "VERSION"
+
+
+def test_afgjort_lig_bliver_bind():
+    r = _kl(_ar(laes="Hansen "), _fx(status="accepted", value="X", maal_v="hansen"))
+    assert (r["klasse"], r["assertion_id"], r["ret_paastand"]) == ("BIND", 77, False)
+    assert r["forventet"]["fact_id"] == 5
+
+
+def test_afgjort_ulig_bliver_ret_og_bind():
+    f = _fx(status="accepted", pred="person.death", value="1900", maal_v="1899")
+    r = _kl(_ar(felt="person.death", laes="12. marts 1900"), f)
+    assert r["klasse"] == "RET_OG_BIND" and r["ret_paastand"] is True
+    assert r["forventet"] and r["p_dato"]["date_min"] == "1900-03-12"
+
+
+def test_db_fejl_bruger_gaeldende_vaerdi():
+    r = _kl(_ar(svar="DB_FEJL", laes="noget andet"), _fx(status="accepted", value="Carl  Hansen", maal_v="Andet"))
+    assert r["ny_vaerdi"] == "Carl Hansen" and r["klasse"] == "RET_OG_BIND"
+
+
+def test_spaerret_grunde():
+    acc = dict(status="accepted")
+    g = {
+        "intet_maal": _kl(_ar(), _fx(**acc, med_maal=False)),
+        "bundet_af_anden": _kl(_ar(), _fx(**acc, bundet=True)),
+        "navn_forkortes": _kl(_ar(laes="Carl"), _fx(**acc, maal_v="Carl Hansen")),
+        "dato_uden_graenser": _kl(_ar(felt="person.birth", laes="ukendt"),
+                                  _fx(**acc, pred="person.birth", maal_v="1900")),
+    }
+    for grund, r in g.items():
+        assert (r["klasse"], r["grund"]) == ("SPAERRET", grund)
+
+
+def test_drift_naar_gaeldende_id_aendret():
+    assert _kl(_ar(), _fx(gid="i2", status="accepted"))["klasse"] == "DRIFT"
+
+
+def test_maal_mangler():
+    with pytest.raises(fr.FaktaError) as e:
+        fr.klassificer([_ar()], {"p1-f1": {"interpretation_id": "ukendt", "version": 1}}, {"forslag": []})
+    assert e.value.kode == "MAAL_MANGLER"
+
+
+def test_cli_printer_kun_tal(tmp_path):
+    a = [_ar(laes="Carl Hans")]
+    (tmp_path / "samlet.json").write_text(json.dumps({"A": a}))
+    (tmp_path / "noegle.json").write_text(json.dumps({"p1-f1": {"type": "forslag", "interpretation_id": "i1",
+                                                                  "version": 1}}))
+    (tmp_path / "maal.json").write_text(json.dumps({"forslag": [_fx(status="proposed")]}))
+    p = subprocess.run(["python3", str(HERE / "faktaforslag_rettelse.py"), "klassificer", "--ud", str(tmp_path),
+                        "--maal", str(tmp_path / "maal.json")], capture_output=True, text=True, cwd=HERE)
+    assert p.returncode == 0, p.stderr
+    assert re.match(r"^FF_KLASSE_OK( [a-z_]+=[0-9a-f]+)+$", p.stdout.strip())
+    assert (os.stat(tmp_path / "a-klasser.json").st_mode & 0o777) == 0o600
