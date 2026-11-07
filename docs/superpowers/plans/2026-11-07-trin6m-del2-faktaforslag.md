@@ -43,7 +43,7 @@ afgørelse → binding, med 6c-2's skriveveje (`red_ret_paastand`, `red_decide_i
 
 Alle 97 kortforslag er `property` med strengværdi og gældende version. De 7 `accepted` har hver én gyldig binding. Alle
 41 afgjorte har præcis én påstand af regelens faktatype for personen, citeret af præcis kilde 1939 (ingen
-`PAASTAND_KILDE_DELT`). Ved naiv sammenligning har ca. 22 af de 41 allerede databaseværdi = bogens læsning.
+`PAASTAND_KILDE_DELT`). Ved naiv sammenligning har ca. 22 af de 41 (målt 7/11 på prod-kopi: BIND 23) allerede databaseværdi = bogens læsning.
 
 Uden for kortene (kun rapport): 38 tekstrettelser på 14 poster uden narrativ og 1 på et narrativ, der kun må trækkes
 tilbage (`legacy-sager.json` `kun_rapport`); 6 grænsefejl (`graensefejl.txt`, til 6d); `k-sager.json` er tom (ingen
@@ -259,7 +259,7 @@ spor B«.
 **Interfaces:**
 - Produces:
   - `byg_kort(klasser: list, samlet: dict, bidder: list, maal: dict) -> list[dict]` — kort med svarknapper kun for
-    `RET_OG_BIND` (ca. 15-19 rækker; ingen gruppesvar). Rækken viser postens tekstuddrag, sidebilledets sti, feltet,
+    `RET_OG_BIND` (ca. 15-19 rækker; målt 7/11 på prod-kopi: 14, SPÆRRET 4; ingen gruppesvar). Rækken viser postens tekstuddrag, sidebilledets sti, feltet,
     forslagets værdi, bogens læsning, databasens værdi, tidligere afgørelse (status + grund), modellens grund og
     billedstøtte, og at `F` retter databasens værdi. `VERSION` og `BIND` står i en oversigt uden knapper (antal pr.
     felt) med teksten »omfattet af det samlede F (projektejeren 2026-11-07)«.
@@ -412,7 +412,7 @@ er på diffen før prod (Task 8 Step 1).
 1. Et `F` må genåbne en afgørelse fra 6c-2 (41 forslag: 7 accepterede, 28 afviste, 6 `unresolved`); kortet viser
    den tidligere afgørelse, og uden F står den.
 2. De 13 ubundne narrativer og de 39 tekstrettelser uden læsertekst flyttes til 6d.
-3. Fuld del 2 (ny RPC), ikke en minimal del 2 uden DDL. Samlet F på `VERSION` (56) og `BIND` (ca. 22): ingen af dem
+3. Fuld del 2 (ny RPC), ikke en minimal del 2 uden DDL. Samlet F på `VERSION` (56) og `BIND` (ca. 22; målt 7/11: 23): ingen af dem
    ændrer en værdi, læseren ser (kun forslaget eller kildehenvisningen), og alle 97 er billedbekræftede. Projektejeren
-   ser kun kortene for `RET_OG_BIND` (ca. 15-19), hvor databasens værdi ændres. Bekræftes mod de faktiske tal i
+   ser kun kortene for `RET_OG_BIND` (ca. 15-19; målt 7/11: 14), hvor databasens værdi ændres. Bekræftes mod de faktiske tal i
    Task 8 Step 3, før svarfilen skrives.

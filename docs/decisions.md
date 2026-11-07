@@ -18,13 +18,13 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   tidligere afgørelse. Uden `F` står afgørelsen.
 > - **Samlet `F` for de klasser, der ikke ændrer databasens værdi** (svarfil side 1001): `VERSION` (forslaget får
 >   bogens læsning og forbliver `proposed`) og `BIND` (fakta, hvor databasen allerede siger det samme som bogen, får
->   1939 som kilde). Projektejeren ser kun kortene for `RET_OG_BIND`, hvor databasens værdi rettes. Målt på en
+>   1939 som kilde). Projektejeren ser kun kortene for `RET_OG_BIND`, hvor databasens værdi rettes. Foreløbige tal, målt på en
 >   prod-kopi 7/11: VERSION 56, BIND 23, RET_OG_BIND 14, SPÆRRET 4 (navn forkortes 2, dato uden grænser 1, mål bundet
->   af anden 1), rapport 144. Tallene genmåles mod prod, før svarfilen skrives.
+>   af anden 1), rapport 144. De genmåles mod prod, før svarfilen skrives.
 > - **Registreres til 6c-3/6d uden skrivning:** relationer, omtaler og hændelser; `BEGGE` (62, heraf 41 titler; input
 >   til 6c-3's spørgsmål om et svar »begge rigtige«) og `TVIVL`.
-> - **Ændrer decisions 2026-11-06:** de 13 1939-narrativer uden record-binding og de 39 tekstrettelser på poster uden
->   læsertekst flyttes fra del 2 til **6d**. Målt: der er ingen skrivevej under kontrakt v2 uden placements
+> - **Ændrer decisions 2026-11-06:** de 13 1939-narrativer uden record-binding og de 39 tekstrettelser uden
+>   læsertekst at rette (38 på 14 poster uden narrativ, 1 på et narrativ, der kun må trækkes tilbage) flyttes fra del 2 til **6d**. Målt: der er ingen skrivevej under kontrakt v2 uden placements
 >   (`red_upsert_narrativ` afviser DAA-kilder med `NARRATIVE_RECORD_REQUIRED`), og 1939 får først placements i 6d.
 >   6d ejer dem; færdigbevis: »de 13 har record-binding og er læst efter spor B«.
 
@@ -50,7 +50,7 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   gå udenom. Modellen læser alligevel bogens tekst om dem i spor B, og forslagene er udtrukket af samme tekst; det,
 >   filteret beskytter, er databaseværdier, der kan stamme fra senere udgaver.
 > - De 13 1939-narrativer uden record-binding kan ikke knyttes til en post (1939 har ingen placements før 6d) og går
->   derfor ikke til modellen i del 1; de står i eksporten til del 2.
+>   derfor ikke til modellen i del 1; de står i eksporten til del 2 (flyttet til 6d 2026-11-07, se ovenfor).
 > - **Grænsen for projektejerens gennemgang gælder pr. del** (projektejeren 6/11 efter piloten, ændrer spec §4.3.3):
 >   piloten (bid 1 af 24) gav 22 svarbare tekstrettelser og 7 markerede faktaforslag, dvs. ca. 530 + 170 punkter i
 >   alt. Del 1 retter kun læsertekst; faktapunkterne vises på del 2's kort og tæller ikke i del 1. Projektejeren
