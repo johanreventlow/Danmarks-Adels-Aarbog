@@ -497,3 +497,387 @@ def test_cli_kort_uden_bidder_fejler(tmp_path):
     p = subprocess.run(["python3", str(HERE / "faktaforslag_rettelse.py"), "kort", "--ud", str(tmp_path)],
                        capture_output=True, text=True, cwd=HERE)
     assert p.returncode == 2 and "FF_FEJL POST_MANGLER" in p.stderr
+
+
+# --- Task 5: ceremoniens SQL (ren Python) -----------------------------------------------------------------------
+
+T5_SRC = 3
+
+
+def _uid(n: int) -> str:
+    return f"13000000-0000-0000-0000-{n:012d}"
+
+
+def _fv5(aid, vt=None, raw=None, ft="titel"):
+    return {"fact_id": aid, "faktatype": ft, "vaerdi_tekst": vt, "date_raw": raw, "valgt_assertion_id": aid,
+            "citation_sources": [T5_SRC]}
+
+
+def _k5(ref, klasse, n, status, ny, felt="person.title", aid=None, fv=None, p_dato=None, grund=None):
+    return {"ref": ref, "klasse": klasse, "grund": grund, "interpretation_id": _uid(n),
+            "version": 1 if status == "proposed" else 2, "status": status, "ny_vaerdi": ny, "assertion_id": aid,
+            "forventet": fv, "p_dato": p_dato, "ret_paastand": klasse == "RET_OG_BIND", "_felt": felt}
+
+
+def _t5():
+    kl = [_k5("p1-f1", "VERSION", 1, "proposed", "Carl O'Neill", felt="person.name"),
+          _k5("p2-f1", "BIND", 2, "accepted", "kammerherre", aid=-71, fv=_fv5(-71, "kammerherre")),
+          _k5("p2-f2", "BIND", 3, "rejected", "hofjægermester", aid=-72, fv=_fv5(-72, "Hofjægermester")),
+          _k5("p3-f1", "RET_OG_BIND", 4, "accepted", "12. marts 1871", felt="person.death", aid=-73,
+              fv=_fv5(-73, None, "1870", "død"), p_dato=fr.cm._p_dato("12. marts 1871")),
+          _k5("p3-f2", "RET_OG_BIND", 5, "rejected", "Ole O'Brien", felt="person.name", aid=-74,
+              fv=_fv5(-74, "Ole OBrien", None, "navn")),
+          _k5("p3-f3", "RET_OG_BIND", 6, "unresolved", "lensgreve", aid=-75, fv=_fv5(-75, "greve")),
+          _k5("p4-f1", "RAPPORT", 7, "proposed", None, grund="BEGGE")]
+    felter = {k["ref"]: k.pop("_felt") for k in kl}
+    a = [{"ref": r, "svar": "FORSLAG_FEJL", "felt": f, "vaerdi": f"VAERDI-{r}", "bogens_laesning": f"LAES-{r}",
+          "billede": "bekraefter", "grund": "modellens grund"} for r, f in felter.items()]
+    noegle = {k["ref"]: {"type": "forslag", "interpretation_id": k["interpretation_id"], "version": k["version"]}
+              for k in kl}
+    ma = fr.manifest_a(kl, a)
+    ark = fr.flet_a(kl, ma, [fr.samlet_f(kl, ma), {"manifest_a": ma, "side": 1, "svar": {"p3-f1": "F", "p3-f2": "N"}}])
+    return kl, {"A": a}, noegle, ark, ma
+
+
+def _sql5(**kw):
+    kl, s, n, ark, ma = _t5()
+    an = fr.anvend_a(kl, s, n, ark)
+    return fr.sql_a(an, source_id=T5_SRC, manifest_a=ma, ark_sha256="b" * 64, **kw)
+
+
+def _blok(sql: str, needle: str, tag: str = r"t6m_\w+") -> str:
+    bl = [m.group(0) for m in re.finditer(rf"DO (\${tag}\$).*?\1;", sql, re.S) if needle in m.group(0)]
+    assert len(bl) == 1, (needle, len(bl))
+    return bl[0]
+
+
+def test_sql_a_raekkefoelge():
+    sql = _sql5()
+    b = _blok(sql, _uid(4), r"t6m_r\d+")
+    i = [b.index(x) for x in ("public.red_ret_forslag(", "public.red_ret_paastand(", "public.red_decide_interpretation(")]
+    assert i == sorted(i)
+    assert "'bogen_har_ret'" in b and "'accepted'" in b and '"basis": "kort-6m-a"' in b
+    v = _blok(sql, _uid(1), r"t6m_r\d+")
+    assert "public.red_ret_forslag(" in v
+    assert "red_ret_paastand" not in v and "red_decide_interpretation" not in v
+    bi = _blok(sql, _uid(2), r"t6m_r\d+")
+    assert "red_ret_paastand" not in bi and "public.red_decide_interpretation(" in bi
+    # versionsfølgen: kortets version, så version+1 til afgørelsen
+    assert f"public.red_ret_forslag('{_uid(4)}'::uuid, 2," in b and "red_decide_interpretation(ny, 3," in b
+    # evidensen til red_ret_forslag bærer præcis T1's nøgler
+    ev = json.loads(re.search(r"red_ret_forslag\([^,]+, \d+, '[^']*', '(\{[^']*\})'::jsonb\)", b).group(1))
+    assert ev == {"basis": "menneske-laesning-v1", "manifest_a_sha256": _t5()[4], "ark_sha256": "b" * 64,
+                  "ref": "p3-f1", "svar": "FORSLAG_FEJL", "billede": "bekraefter"}
+
+
+def test_sql_a_nulstiller_change_set_foer_hvert_kald():
+    sql = _sql5()
+    rpc = re.findall(r"public\.red_\w+\(", sql)
+    reset = re.findall(r"set_config\('app\.change_set_id','',true\)", sql)
+    assert len(rpc) == len(reset) and len(rpc) == 4 + 3 + 1 + 2   # forslag×F + afgørelse×3 + rettelse×1 + preview/batch
+    foran = re.findall(r"PERFORM set_config\('app\.change_set_id','',true\); [^;]*?public\.red_\w+\(", sql)
+    assert len(foran) == len(rpc)
+
+
+def test_sql_a_citerer_apostrof():
+    sql = _sql5()
+    assert "'Carl O''Neill'" in sql
+    assert "O'Neill'" not in sql.replace("O''Neill'", "")
+
+
+def test_sql_a_binder_genaabnet_accepted():
+    sql = _sql5()
+    scope = next(l for l in sql.splitlines() if "daa.transfer_scope" in l)
+    for n in (2, 3, 4):
+        assert _uid(n) in scope
+    assert _uid(1) not in scope
+    assert "T6M_BIND_COUNT % af 3'" in sql
+    m = _blok(sql, "T6M_MAAL_MISMATCH")
+    assert re.search(rf'\["{_uid(2)}", -71\]', m)
+
+
+def test_sql_a_bruger_ikke_supersedes_id():
+    assert "supersedes_id" not in _sql5()
+
+
+def test_sql_a_drift_tjekker_bind_og_ret_og_bind():
+    sql = _sql5()
+    d = _blok(sql, "PAASTAND_DRIFT")
+    for aid in (-71, -72, -73):
+        assert re.search(rf'"assertion_id": {aid}\b', d)
+    assert "-74" not in d and "-75" not in d
+    k = _blok(sql, "FORSLAG_DRIFT kilde")
+    for n in (1, 2, 3, 4):
+        assert _uid(n) in k
+    # driften kontrolleres før første skrivning
+    assert sql.index("PAASTAND_DRIFT") < sql.index("INSERT INTO private.extraction_run") < sql.index("red_ret_forslag(")
+
+
+def test_anvend_afviser_aendret_samlet():
+    kl, s, n, ark, ma = _t5()
+    s2 = copy.deepcopy(s)
+    s2["A"][3]["bogens_laesning"] = "13. marts 1871"
+    with pytest.raises(fr.FaktaError) as e:
+        fr.anvend_a(kl, s2, n, ark)
+    assert e.value.kode == "MANIFEST_MISMATCH"
+
+
+def test_anvend_afviser_ark():
+    kl, s, n, ark, ma = _t5()
+
+    def kode(a, noegle=n):
+        with pytest.raises(fr.FaktaError) as e:
+            fr.anvend_a(kl, s, noegle, a)
+        return e.value.kode
+    assert kode(ark + "A p9-f9 : F\n") == "SVAR_UKENDT_REF"
+    assert kode(ark + "A p4-f1 : F\n") == "SVAR_IKKE_TILLADT"
+    assert kode(ark.replace("A p3-f1 : F", "A p3-f1 : X")) == "SVAR_UGYLDIGT"
+    assert kode(ark + "A p3-f1 : N\n") == "SVAR_KONFLIKT"
+    assert kode(ark.replace("A p3-f3 : _\n", "")) == "ARK_UGYLDIGT"
+    n2 = copy.deepcopy(n)
+    n2["p3-f1"]["version"] = 3
+    assert kode(ark, n2) == "NOEGLE_MISMATCH"
+
+
+def test_n_og_tomt_skrives_ikke():
+    kl, s, n, ark, ma = _t5()
+    an = fr.anvend_a(kl, s, n, ark)
+    assert set(an) == {"version", "bind", "ret_og_bind"}
+    assert [r["ref"] for r in an["version"]] == ["p1-f1"]
+    assert [r["ref"] for r in an["bind"]] == ["p2-f1", "p2-f2"]
+    assert [r["ref"] for r in an["ret_og_bind"]] == ["p3-f1"]
+    sql = fr.sql_a(an, source_id=T5_SRC, manifest_a=ma, ark_sha256="b" * 64)
+    for i in (5, 6, 7):
+        assert _uid(i) not in sql
+    assert "Ole O''Brien" not in sql and "lensgreve" not in sql
+    assert "T6M_APPLY_A_OK versioner=4 rettelser=1 afgoerelser=3 bundet=3 sha256=" + "b" * 64 in sql
+
+
+def test_sql_a_afviser_delt_kilde():
+    kl, s, n, ark, ma = _t5()
+    an = fr.anvend_a(kl, s, n, ark)
+    an["ret_og_bind"][0]["forventet"]["citation_sources"] = [T5_SRC, 9]
+    with pytest.raises(fr.FaktaError) as e:
+        fr.sql_a(an, source_id=T5_SRC, manifest_a=ma, ark_sha256="b" * 64)
+    assert e.value.kode == "KILDE_AFVIGER"
+
+
+def test_verify_a_er_laese_kun():
+    kl, s, n, ark, ma = _t5()
+    v = fr.verify_a_sql(fr.anvend_a(kl, s, n, ark))
+    kode = [l for l in v.splitlines() if l.strip()]
+    assert kode[1] == "BEGIN;" and kode[2] == "SET TRANSACTION READ ONLY;" and kode[-1] == "ROLLBACK;"
+    assert not re.search(r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT)\b|public\.red_", v)
+    assert "T6M_VERIFY_A_OK" in v and "binding_value_matches" in v
+
+
+def test_rapport_indeholder_ingen_vaerdier(tmp_path):
+    kl, s, n, ark, ma = _t5()
+    (tmp_path / "a-klasser.json").write_text(json.dumps({"manifest_a": ma, "klasser": kl}))
+    (tmp_path / "samlet.json").write_text(json.dumps(s))
+    (tmp_path / "noegle.json").write_text(json.dumps(n))
+    (tmp_path / "ark-a.txt").write_text(ark)
+
+    def kor(*extra):
+        return subprocess.run(["python3", str(HERE / "faktaforslag_rettelse.py"), "sql", "--ud", str(tmp_path),
+                               "--source-id", str(T5_SRC), *extra], capture_output=True, text=True, cwd=HERE)
+    p = kor()
+    assert p.returncode == 0, p.stderr
+    assert re.fullmatch(r"FF_SQL_OK version=1 bind=2 ret_og_bind=1 sha256=[0-9a-f]{64}", p.stdout.strip())
+    sha = p.stdout.strip().rsplit("=", 1)[1]
+    import hashlib
+    assert hashlib.sha256((tmp_path / "apply-a.sql").read_bytes()).hexdigest() == sha
+    for f in ("apply-a.sql", "verify-a.sql", "rapport-a.json"):
+        assert (os.stat(tmp_path / f).st_mode & 0o777) == 0o600
+    txt = (tmp_path / "rapport-a.json").read_text()
+    rap = json.loads(txt)
+
+    def noegler(o):
+        if isinstance(o, dict):
+            return set(o) | set().union(*(noegler(v) for v in o.values()))
+        if isinstance(o, list):
+            return set().union(set(), *(noegler(v) for v in o))
+        return set()
+    assert not noegler(rap) & {"vaerdi", "bogens_laesning", "ny_vaerdi", "forventet", "p_dato", "databasen"}
+    assert "VAERDI-" not in txt and "LAES-" not in txt and "O'Brien" not in txt and "lensgreve" not in txt
+    assert [r["ref"] for r in rap["rapport"]] == ["p3-f2", "p3-f3", "p4-f1"]
+    assert {r["ark"] for r in rap["rapport"]} == {"N", "_", None}
+    assert "Neill" not in p.stdout + p.stderr
+    # en anden kilde i maal.json afvises; en eksisterende apply-a.sql overskrives ikke
+    (tmp_path / "maal.json").write_text(json.dumps({"source_id": 4, "forslag": []}))
+    for f in ("apply-a.sql",):
+        (tmp_path / f).unlink()
+    p = kor()
+    assert p.returncode == 2 and "FF_FEJL KILDE_MISMATCH" in p.stderr
+    (tmp_path / "maal.json").unlink()
+    assert kor().returncode == 0
+    p = kor()
+    assert p.returncode == 2 and "FF_FEJL SQL_FINDES" in p.stderr
+
+
+# --- Task 5: apply-a.sql og verify-a.sql mod en lokal fixturebase ------------------------------------------------
+# Egen base (t6m5_<tid>_<pid>), oprettet og droppet af testen selv. Én VERSION (proposed), én BIND (rejected, version 2)
+# og én RET_OG_BIND (accepted med gyldig binding: genåbning under den udskudte kontrol). Kilde 1 har en binding
+# (k1-hashen), og kilden har en uberørt binding (tælleregnestykket).
+
+DB5 = f"t6m5_{time.strftime('%Y%m%d%H%M%S')}_{os.getpid()}"
+S5, K15 = -6595, 1
+RUN5, RUN51 = "14000000-0000-0000-0000-000000069901", "14000000-0000-0000-0000-000000069902"
+ACT5 = "14000000-0000-0000-0000-000000069904"
+P5 = {1: -65951, 2: -65952, 3: -65953, 4: -65954, 9: -65959}
+A5 = {2: -659502, 3: -659503, 4: -659504, 9: -659509}
+
+
+def _v(n: int) -> str:
+    return f"14000000-0000-0000-0000-{n:012d}"
+
+
+def _setup5() -> str:
+    run = ("INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,"
+           "input_sha256,manifest) VALUES ")
+    s = (f"INSERT INTO auth.users(id,email) VALUES ('{ACT5}','t6m5@test.invalid');\n"
+         f"INSERT INTO public.profiles(id,rolle,navn,email) VALUES ('{ACT5}','redaktion','t6m5','t6m5@test.invalid');\n"
+         f"INSERT INTO public.source(id,titel,udgave,aar,slags) VALUES ({S5},'Fixture 6m5','synthetic','1939',"
+         f"'DAA-udgave'),({K15},'Fixture 2018-20','synthetic','2018','DAA-udgave');\n"
+         + run + f"('{RUN5}',{S5},'t6m5-s','fixture','fixture','fixture',repeat('1',64),'{{}}'),"
+         f"('{RUN51}',{K15},'t6m5-1','fixture','fixture','fixture',repeat('1',64),'{{}}');\n"
+         "INSERT INTO public.person(id,levende,privat,status) VALUES "
+         + ",".join(f"({p},false,false,'t6m5')" for p in P5.values()) + ";\n")
+    for n in (1, 2, 3, 4):
+        s += t6._persona(_v(100 + n), S5, RUN5, f"t6m5:s{n}", P5[n])
+    s += t6._persona(_v(109), K15, RUN51, "t6m5:k1", P5[9])
+    s += t6._date_fact(P5[2], A5[2], "titel", "kammerherre", [S5], kind="text")
+    s += t6._date_fact(P5[3], A5[3], "død", "1870", [S5])
+    s += f"UPDATE public.assertion SET date_min='1870-01-01',date_max='1870-12-31' WHERE id={A5[3]};\n"
+    s += t6._date_fact(P5[4], A5[4], "navn", "Anna Testlow", [S5], kind="text")
+    s += t6._date_fact(P5[9], A5[9], "fødsel", "5. juni 1700", [K15])
+    # VERSION: proposed version 1
+    s += t6._interp(_v(401), _v(501), 1, S5, _v(101), "person.death", "1850", RUN5)
+    # BIND: version 1 proposed, version 2 rejected (kortets række)
+    s += t6._interp(_v(402), _v(502), 1, S5, _v(102), "person.title", "Kammerherre", RUN5)
+    s += t6._interp(_v(412), _v(502), 2, S5, _v(102), "person.title", "Kammerherre", RUN5, status="rejected",
+                    supersedes=_v(402))
+    # RET_OG_BIND: accepted og gyldigt bundet til A5[3]; bogen siger 1871
+    s += t6._interp(_v(403), _v(503), 1, S5, _v(103), "person.death", "1870", RUN5, status="accepted")
+    s += t6._promo(_v(603), _v(403), "person-death-v1", "assertion", A5[3], '{"fixture":"t6m5"}')
+    # uberørt binding i kilden og kilde 1's binding
+    s += t6._interp(_v(404), _v(504), 1, S5, _v(104), "person.name", "Anna Testlow", RUN5, status="accepted")
+    s += t6._promo(_v(604), _v(404), "person-name-v1", "assertion", A5[4], '{"fixture":"t6m5"}')
+    s += t6._interp(_v(409), _v(509), 1, K15, _v(109), "person.birth", "5. juni 1700", RUN51, status="accepted")
+    s += t6._promo(_v(609), _v(409), "person-birth-v1", "assertion", A5[9], '{"fixture":"t6m5"}')
+    # kæden, promotionsvalideringen kræver: rendition, forekomst, post, accepteret anker, observation og kobling
+    s += (f"INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256) "
+          f"VALUES ('{_v(700)}',{S5},'t6m5','fixture',repeat('1',64));\n")
+    for n, iids in ((1, (401,)), (2, (402, 412)), (3, (403,))):
+        s += (f"INSERT INTO private.source_record(id,source_id,record_key,record_kind,created_run_id) "
+              f"VALUES ('{_v(710 + n)}',{S5},'t6m5:r{n}','fixture','{RUN5}');\n"
+              f"INSERT INTO private.source_record_occurrence(id,rendition_id,occurrence_key,page_from,page_to,char_from,"
+              f"char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id) VALUES "
+              f"('{_v(720 + n)}','{_v(700)}','o{n}',1,1,{n * 100},{n * 100 + 50},'tekst','f','f','{RUN5}');\n"
+              f"INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,"
+              f"version,decided_by,decided_by_name) VALUES ('{_v(720 + n)}','{_v(710 + n)}','accepted',"
+              f"'{{\"fixture\":true}}',1,'{ACT5}','fixture');\n"
+              f"INSERT INTO private.source_observation(id,occurrence_id,observation_kind,page_from,page_to,char_from,"
+              f"char_to,verbatim_text,quality_status,extraction_method,extraction_run_id) VALUES "
+              f"('{_v(730 + n)}','{_v(720 + n)}','clause',1,1,{n * 100},{n * 100 + 50},'klausul','clear','fixture',"
+              f"'{RUN5}');\n")
+        for i in iids:
+            s += (f"INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,"
+                  f"ordinal) VALUES ('{_v(i)}','{_v(730 + n)}','supporting',1);\n")
+    return s
+
+
+@pytest.fixture(scope="module")
+def db5():
+    if shutil.which("psql") is None or subprocess.run(["psql", "-X", "-Atc", "select 1", "-d", "postgres"],
+                                                      capture_output=True).returncode != 0:
+        if os.environ.get("CI"):
+            pytest.fail("PostgreSQL er ikke tilgaengelig i CI")
+        pytest.skip("ingen lokal PostgreSQL")
+    t6._must(subprocess.run(["createdb", DB5], capture_output=True, text=True), "createdb")
+    try:
+        for f in ("tests/sql/evidence-promotion-bootstrap.sql", "schema.sql", "db-rls.sql"):
+            t6._must(t6._psql("-f", f, db=DB5), f)
+        t6._sql(DB5, _setup5(), "setup5")
+        yield DB5
+    finally:
+        subprocess.run(["dropdb", DB5], capture_output=True)  # kun basen, testen selv oprettede
+
+
+def _q5(db: str, sql: str) -> str:
+    return t6._must(t6._psql(db=db, stdin=sql), "forespørgsel").strip()
+
+
+def _bundne5(db: str) -> list:
+    return _q5(db, "SELECT string_agg(q.interpretation_key::text||':'||p.target_id, ',' ORDER BY p.target_id) "
+                   "FROM private.interpretation_promotion p JOIN private.interpretation q ON q.id=p.interpretation_id "
+                   f"WHERE q.source_id={S5} AND private.assertion_binding_current(p.id);").split(",")
+
+
+def test_apply_a_ende_til_ende(db5, tmp_path):
+    import hashlib
+    kort = {"q1-f1": (_v(401), 1, "person.death", "1850", "1851"),
+            "q2-f1": (_v(412), 2, "person.title", "Kammerherre", "kammerherre"),
+            "q3-f1": (_v(403), 1, "person.death", "1870", "1871")}
+    a = [{"ref": r, "svar": "FORSLAG_FEJL", "felt": f, "vaerdi": v, "bogens_laesning": b,
+          "billede": "modsiger" if r == "q3-f1" else "bekraefter", "grund": "fixture"}
+         for r, (_, _, f, v, b) in kort.items()]
+    noegle = {r: {"type": "forslag", "interpretation_id": i, "version": ver} for r, (i, ver, *_) in kort.items()}
+    maal = _maal_db(db5, [i for i, *_ in kort.values()])
+    kl = fr.klassificer(a, noegle, maal)
+    assert {k["ref"]: k["klasse"] for k in kl} == {"q1-f1": "VERSION", "q2-f1": "BIND", "q3-f1": "RET_OG_BIND"}
+    ma = fr.manifest_a(kl, a)
+    ark = fr.flet_a(kl, ma, [fr.samlet_f(kl, ma), {"manifest_a": ma, "side": 1, "svar": {"q3-f1": "F"}}])
+    ark_sha = hashlib.sha256(ark.encode()).hexdigest()
+    an = fr.anvend_a(kl, {"A": a}, noegle, ark)
+    apply = tmp_path / "apply-a.sql"
+    apply.write_text(fr.sql_a(an, source_id=S5, manifest_a=ma, ark_sha256=ark_sha))
+    verify = tmp_path / "verify-a.sql"
+    verify.write_text(fr.verify_a_sql(an))
+
+    def kor(f):
+        return t6._psql("-v", f"actor={ACT5}", "-f", str(f), db=db5)
+    foer = _bundne5(db5)
+    assert foer == [f"{_v(504)}:{A5[4]}", f"{_v(503)}:{A5[3]}"]
+    tael = "SELECT count(*) FROM private.interpretation;"
+    n0 = _q5(db5, tael)
+
+    # påstandsdrift på BIND-målet: intet skrives
+    _q5(db5, f"UPDATE public.assertion SET vaerdi_tekst='hofjægermester' WHERE id={A5[2]};")
+    r = kor(apply)
+    assert r.returncode != 0 and "PAASTAND_DRIFT" in r.stderr, r.stderr[-800:]
+    _q5(db5, f"UPDATE public.assertion SET vaerdi_tekst='kammerherre' WHERE id={A5[2]};")
+    assert _q5(db5, tael) == n0
+
+    # hovedvejen
+    r = kor(apply)
+    assert r.returncode == 0, r.stderr[-1500:]
+    assert r.stdout.strip().splitlines()[-1] == \
+        f"T6M_APPLY_A_OK versioner=3 rettelser=1 afgoerelser=2 bundet=2 sha256={ark_sha}"
+    assert "T6M_VERIFY_A_OK versioner=3 rettelser=1 afgoerelser=2 bundet=2 bindinger_k=3" in r.stderr
+    assert sorted(_bundne5(db5)) == sorted([f"{_v(504)}:{A5[4]}", f"{_v(503)}:{A5[3]}", f"{_v(502)}:{A5[2]}"])
+    assert _q5(db5, f"SELECT date_raw||'|'||date_min||'|'||date_max FROM public.assertion WHERE id={A5[3]};") == \
+        "1871|1871-01-01|1871-12-31"
+    assert _q5(db5, "SELECT string_agg(interpretation_key::text||':'||version||':'||status||':'||(value#>>'{}'), ',' "
+                    f"ORDER BY interpretation_key) FROM private.interpretation_current WHERE interpretation_key IN "
+                    f"('{_v(501)}','{_v(502)}','{_v(503)}');") == \
+        f"{_v(501)}:2:proposed:1851,{_v(502)}:4:accepted:kammerherre,{_v(503)}:3:accepted:1871"
+    assert _q5(db5, tael) == str(int(n0) + 5)
+
+    # verify-a.sql (læse-kun) er grøn, og bindinger_k/k1-hashen er maal_trin6c2.sql's
+    r = kor(verify)
+    assert r.returncode == 0, r.stderr[-1500:]
+    m = re.search(r"T6M_VERIFY_A_OK .* bindinger_k=(\d+) k1_bindinger_hash=([0-9a-f]{64}) vejb=t", r.stderr)
+    assert m, r.stderr[-800:]
+    mt = t6._must(t6._psql("-v", f"source_id={S5}", "-v", f"k1_source_id={K15}", "-f", str(t6.MAAL), db=db5), "maal")
+    assert f"bindinger_k={m.group(1)} " in mt and mt.strip().endswith(f"k1_bindinger_hash={m.group(2)}"), mt
+
+    # en genkørsel afvises før første skrivning (kortenes rækker er ikke længere gældende)
+    r = kor(apply)
+    assert r.returncode != 0 and "FORSLAG_DRIFT" in r.stderr
+    assert _q5(db5, tael) == str(int(n0) + 5)
+
+
+def _maal_db(db: str, ids: list[str]) -> dict:
+    pre = f"SET daa.faktaforslag_ids = '{json.dumps(ids)}';\n"
+    return json.loads(_kor(db, MAAL_SQL, pre, f"src={S5}"))
