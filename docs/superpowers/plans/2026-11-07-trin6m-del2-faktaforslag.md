@@ -50,7 +50,9 @@ tilbage (`legacy-sager.json` `kun_rapport`); 6 grænsefejl (`graensefejl.txt`, t
 kildetekstsager); 1.121 manglende fakta (antal). **De 13 narrativer uden record-binding** har ingen skrivevej:
 `red_upsert_narrativ` afviser DAA-kilder under kontrakt v2 (`NARRATIVE_RECORD_REQUIRED`, `schema.sql:6919`), og en
 record-binding kræver en post, som 1939 først får med 6d's placements (eksportens `ubundne_paa_en_post=0`). De
-udskydes til 6d. *Mit valg* (spec §8.6 overlod det til planen).
+flyttes til 6d sammen med de 39 tekstrettelser uden læsertekst: **projektejerens beslutning 2026-11-07** (ændrer
+decisions 2026-11-06, der lagde dem i del 2); 6d ejer dem, færdigbevis »de 13 har record-binding og er læst efter
+spor B«.
 
 ## Global Constraints
 
@@ -59,7 +61,10 @@ udskydes til 6d. *Mit valg* (spec §8.6 overlod det til planen).
 - En værdi er aldrig fri i ceremonien: `FORSLAG_FEJL` skriver `bogens_laesning` fra `samlet.json`, `DB_FEJL` skriver
   forslagets gældende værdi; begge bundet af `manifest_a` og arkets hash.
 - Genåbning af et afgjort forslag sker kun ved projektejerens udtrykkelige `F` på netop det kort, og kortet viser den
-  tidligere afgørelse (status og grund). Uden `F` står 6c-2's afgørelse (spec §3 pkt. 6).
+  tidligere afgørelse (status og grund). Uden `F` står 6c-2's afgørelse (spec §3 pkt. 6). Godkendt af projektejeren
+  2026-11-07.
+- Ét skriveværdi-begreb: `ny_vaerdi` = `saml_blanktegn_v1` af kildeværdien, beregnet i Python før klassifikation,
+  manifest og kort, og identisk med det, RPC'en skriver.
 - Relationer, omtaler og hændelser skrives ikke (spec §4.1); `interpretation_party` røres ikke.
 - En binding fra 6c-2 må ikke forsvinde stille: en genåbnet `accepted` genbindes i samme transaktion, eller intet
   skrives.
@@ -73,14 +78,15 @@ udskydes til 6d. *Mit valg* (spec §8.6 overlod det til planen).
 
 ## Review Focus
 
-1. **Forslaget eller påstanden har ændret sig mellem kort og ceremoni** (ny version, ny afgørelse, rettet påstand).
-   Forventet: `FORSLAG_VERSION_KONFLIKT` eller `PAASTAND_DRIFT`, hele transaktionen ruller tilbage. Test i Task 1
-   (`test-forslag-laesning.sql` konflikt) og øvelse i Task 7 Step 4.
+1. **Forslaget eller påstanden har ændret sig mellem kort og ceremoni** (ny version, ny afgørelse, rettet påstand),
+   eller klassifikationen er kørt om efter kortene. Forventet: `FORSLAG_VERSION_KONFLIKT`, `PAASTAND_DRIFT` (både
+   `BIND` og `RET_OG_BIND`) eller `MANIFEST_MISMATCH`; intet skrives. Test i Task 1, Task 3 og øvelse i Task 7 Step 4.
 2. **Bogens læsning kan ikke skrives som påstand** (navnet forkortes, dato kan ikke tolkes, målet er bundet af en
    anden fortolkning). Forventet: klassen `SPAERRET` med grund; kortet har ingen svarknap; intet SQL. Test i Task 3.
 3. **En genåbnet `accepted` mister sin binding** (den gamle binding er ugyldig, så snart den nye version er
-   gældende). Forventet: genbundet til samme påstand i samme transaktion; tælling i transaktionen fejler ellers. Test i
-   Task 5 og Task 7 Step 3.
+   gældende), også ved et enkeltstående RPC-kald uden for ceremonien. Forventet: genbundet i samme transaktion, ellers
+   afviser den udskudte kontrol ved COMMIT (`FORSLAG_BINDING_TABT`). Test i Task 1 (negativ, med rigtig commit) og
+   Task 7 Step 3 (positiv).
 4. **En `proposed`-række med ikke-tom `decision_evidence` læses som afgjort** af en eksisterende læser. Forventet:
    ingen læser antager det. Tjek i Task 1 Step 1 (grep-liste i ledgeren) og test i `test-forslag-laesning.sql`.
 5. **Forbudte svar i arket** (`F` på en rapport- eller `SPAERRET`-række, ukendt ref, andet manifest, samme ref med to
@@ -108,7 +114,9 @@ udskydes til 6d. *Mit valg* (spec §8.6 overlod det til planen).
 - Modify: `schema.sql` (efter `red_normaliser_forslag`, ca. linje 9518; og `red_decide_interpretation` 9368)
 - Modify: `db-migrations.sql` (ny blok `-- ===== trin 6m-a: forslagsversion med menneskelig læsning =====` sidst)
 - Modify: `db-verify.sql` (assert-blok 6m-a efter 6c-2b's, ca. 10589)
-- Modify: `tests/sql/inspect-5ab-function-parity.sql:40` (tilføj `('public','red_ret_forslag')`)
+- Modify: `tests/sql/inspect-5ab-function-parity.sql:40` (tilføj `('public','red_ret_forslag')` og
+  `('public','red_decide_interpretation')`; ret sumkommentaren øverst)
+- Modify: `.github/workflows/ci.yml:407-408` (forventet antal paritetslinjer 44 → 46, også i fejlteksten)
 - Create: `tests/sql/test-forslag-laesning.sql` (skabelon: `tests/sql/test-interpretation-normalisering.sql`)
 - Modify: `tests/ci/interpretation-proposal-db.sh:71` (kør den nye test efter normaliseringstesten)
 
@@ -131,10 +139,15 @@ udskydes til 6d. *Mit valg* (spec §8.6 overlod det til planen).
   7. `daa.extraction_run_id` peger på en `private.extraction_run` med forslagets `source_id`, ellers
      `FORSLAG_KOERSEL_MANGLER` (samme mønster som `red_normaliser_forslag`).
   8. Ny række: version+1, `status='proposed'`, `derivation_kind='human_judgement'`, `method='menneske-laesning-v1'`,
-     `value=to_jsonb(v_ny)`, `supersedes_id`=gammel, øvrige kolonner kopieret, `decided_*` NULL (påkrævet af
-     `interpretation_proposal_actor_check`), `decision_evidence = p_evidence || {laest_af, laest_af_navn, laest_at,
-     foer_status, foer_version}` (aktøren bor i evidensen, fordi en `proposed`-række ikke må bære `decided_*`).
-     Observationerne kopieres som i `red_normaliser_forslag`.
+     `value=to_jsonb(v_ny)`, `supersedes_id`=gammel, **`extraction_run_id = v_run`** (ceremoniens kørsel, ikke den
+     gamles), øvrige kolonner kopieret, `decided_*` NULL (påkrævet af `interpretation_proposal_actor_check`),
+     `decision_evidence = p_evidence || {laest_af, laest_af_navn, laest_at, foer_status, foer_version, foer_bundet}`
+     (aktøren bor i evidensen, fordi en `proposed`-række ikke må bære `decided_*`; `foer_bundet` = den gamle version
+     havde en gyldig assertion-binding). Observationerne kopieres som i `red_normaliser_forslag`.
+- Udskudt kontrol: `CREATE CONSTRAINT TRIGGER … AFTER INSERT ON private.interpretation DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW` på rækker med `method='menneske-laesning-v1'` og `decision_evidence->>'foer_bundet'='true'`: ved COMMIT
+  skal nøglens gældende række være `accepted` med en gyldig assertion-binding (`assertion_binding_current`), ellers
+  `FORSLAG_BINDING_TABT`. Et enkeltstående kald kan dermed ikke efterlade et fakta uden sin 1939-binding.
 - `red_decide_interpretation`: `p_evidence->>'basis'='menneske-laesning-v1'` → `EVIDENCE_BASIS_RESERVED:
   menneske-laesning-v1` (som `source_text_revision`, linje 9368), så en afgørelse ikke kan efterligne læsningen.
 
@@ -143,8 +156,10 @@ udskydes til 6d. *Mit valg* (spec §8.6 overlod det til planen).
   har tom evidens? Gør en det, rettes den i denne task, eller planen stoppes.
 - [ ] **Step 2: Skriv testen** `tests/sql/test-forslag-laesning.sql` (fixture som normaliseringstestens): én blok pr.
   fejlkode i reglerne 1-7; en vellykket `proposed` (ny version, `method`, `derivation_kind`, `decided_by IS NULL`,
-  evidensens nøgler, observationer kopieret); en genåbning af `rejected` med uændret værdi (`genaabnet=true`); en
-  genåbning af en bundet `accepted`, hvorefter `assertion_binding_current` for den gamle binding er falsk; anden kørsel
+  evidensens nøgler, observationer kopieret, `extraction_run_id` = GUC'ens kørsel); en genåbning af `rejected` med
+  uændret værdi (`genaabnet=true`); en genåbning af en bundet `accepted` alene → `FORSLAG_BINDING_TABT` ved
+  `SET CONSTRAINTS ALL IMMEDIATE` (en BEGIN/ROLLBACK-fixture fyrer aldrig en udskudt trigger); samme genåbning efterfulgt
+  af afgørelse og genbinding → ingen fejl; anden kørsel
   med samme forventede version → `FORSLAG_VERSION_KONFLIKT`; `red_decide_interpretation` med reserveret basis afvist;
   en `relation`-fortolkning → `FORSLAG_ART_UGYLDIG`.
 - [ ] **Step 3:** Kør mod en frisk skema-base (`tests/ci/interpretation-proposal-db.sh`) → FAIL.
@@ -152,7 +167,7 @@ udskydes til 6d. *Mit valg* (spec §8.6 overlod det til planen).
   `red_decide_interpretation` gentages i blokken); `db-verify.sql`: funktionen findes, ACL som `red_normaliser_forslag`
   (linje 3019), og den reserverede basis afvises.
 - [ ] **Step 5:** Kør testen, `db-verify.sql` og paritets-inspektionen på frisk skema og på en opgraderet base (CI's
-  `reimport_legacy_empty_153`-mønster) → PASS, paritet ens.
+  `reimport_legacy_empty_153`-mønster, som allerede migrerer to gange) → PASS, paritet ens, 46 linjer.
 - [ ] **Step 6:** Commit: `feat(db): red_ret_forslag — forslagsversion med menneskelig læsning (blok 6m-a)`
 
 ### Task 2: Læse-kun mål-SQL
@@ -164,7 +179,7 @@ udskydes til 6d. *Mit valg* (spec §8.6 overlod det til planen).
 **Interfaces:**
 - Input: GUC `daa.faktaforslag_ids` = JSON-array af interpretation-id'er; `-v src`.
 - Produces (stdout, ét JSON-dokument): `{"source_id", "forslag": [{"interpretation_id", "interpretation_key",
-  "version", "status", "kind", "predicate", "value_text", "value_type", "source_id", "person_id"|null,
+  "version", "status", "gaeldende_id", "gaeldende_version", "kind", "predicate", "value_text", "value_type", "source_id", "person_id"|null,
   "tidligere": {"status", "grund"|null, "decided_at"|null} (`grund` = `decision_evidence`'s `grund` eller `basis`,
   hvis den findes), "egen_binding": {"promotion_id", "gyldig"}|null,
   "rettelse_maal": {"assertion_id", "forventet", "graenser", "value_kind"}|null, "maal_bundet_af_anden": bool}]}`.
@@ -190,31 +205,41 @@ udskydes til 6d. *Mit valg* (spec §8.6 overlod det til planen).
   `control_model_v2._p_dato(value_text) -> dict` og navnereglen fra `control_model_v2.b_afvisning`.
 - Produces:
   - `class FaktaError(Exception)` med kode som streng.
-  - `manifest_a(a: list[dict], noegle: dict) -> str` — sha256 af kanonisk JSON over markerede A-rækker
-    `(ref, svar, felt, vaerdi, bogens_laesning, billede, interpretation_id, version)`, sorteret på ref.
+  - `saml_blanktegn(s: str) -> str` — Python-port af `private.saml_blanktegn_v1` (samme tegnklasse, `schema.sql:9415`);
+    `navn_forkortes(gammel: str, ny: str) -> bool` — port af `private.navn_forkortes` (`schema.sql:9423`).
+    ICU-`lower()` for ÆØÅ er en kendt begrænsning (som i SQL-kommentaren).
   - `klassificer(a: list[dict], noegle: dict, maal: dict) -> list[dict]` → én række pr. markeret ref:
     `{"ref", "klasse", "grund"|null, "interpretation_id", "version", "status", "ny_vaerdi"|null, "assertion_id"|null,
-    "forventet"|null, "p_dato"|null, "ret_paastand": bool}`. Klasser:
-    - `RAPPORT` — `BEGGE`, `TVIVL`, eller art ≠ `property`.
-    - `DRIFT` — version/status i mål ≠ nøglen (kun rapport; vises på kortet som »ændret siden gennemgangen«).
-    - `VERSION` — `FORSLAG_FEJL` på `proposed`; `ny_vaerdi` = `bogens_laesning`.
-    - `BIND` — afgjort; `ny_vaerdi` (FORSLAG_FEJL: `bogens_laesning`; DB_FEJL: gældende værdi) matcher målpåstanden
-      efter `binding_value_matches`' regel (lower, btrim, NFC); `ret_paastand=false`.
+    "forventet"|null, "p_dato"|null, "ret_paastand": bool}`. `ny_vaerdi` = `saml_blanktegn(kildeværdi)` (FORSLAG_FEJL:
+    `bogens_laesning`; DB_FEJL: gældende værdi) beregnes **før** klassen. Klasser:
+    - `RAPPORT` — `BEGGE`, `TVIVL`, art ≠ `property`; `UAENDRET` (`proposed` og `ny_vaerdi` = gældende værdi);
+      `ALLEREDE_BUNDET` (gyldig `egen_binding` og `ny_vaerdi` matcher målet).
+    - `DRIFT` — nøglens `interpretation_id` ≠ målets `gaeldende_id` (kun rapport; »ændret siden gennemgangen«).
+    - `VERSION` — `FORSLAG_FEJL` på `proposed`.
+    - `BIND` — afgjort; `ny_vaerdi` matcher målpåstanden efter `binding_value_matches`' regel (lower, btrim, NFC);
+      `ret_paastand=false`; `forventet` fra målet (til drift-kontrollen).
     - `RET_OG_BIND` — afgjort, matcher ikke; `ret_paastand=true`, `forventet` og (dato) `p_dato` fra målet.
-    - `SPAERRET` — afgjort uden `rettelse_maal`, `maal_bundet_af_anden`, navnet forkortes, eller datoen giver ingen
-      grænser (`control_model_v2.dato_uden_graenser`); `grund` = koden.
+    - `SPAERRET` — afgjort uden `rettelse_maal`, `maal_bundet_af_anden`, `navn_forkortes(målets værdi, ny_vaerdi)`,
+      eller datoen giver ingen grænser (`control_model_v2.dato_uden_graenser`); `grund` = koden.
+  - `manifest_a(klasser: list[dict], a: list[dict]) -> str` — sha256 af kanonisk JSON over hver klasserække (alle
+    felter ovenfor) forenet med A-rækkens `(svar, felt, vaerdi, bogens_laesning, billede)`, sorteret på ref. Køres
+    `klasse-a` om efter kortene, ændres hashen, og ceremonien afviser (`MANIFEST_MISMATCH`).
   - CLI: `faktaforslag_rettelse.py klassificer --ud D --maal F` → `D/a-klasser.json` (0600); printer
     `FF_KLASSE_OK version= bind= ret_og_bind= spaerret= drift= rapport= manifest_a=<sha8>`.
 
 - [ ] **Step 1: Skriv de fejlende tests** (syntetisk fixture, ingen rigtige navne):
-  - `test_manifest_a_stabil_og_foelsom` — samme input → samme sha; ændret `bogens_laesning` eller `version` → anden.
+  - `test_manifest_a_stabil_og_foelsom` — samme input → samme sha; ændret `bogens_laesning`, `version`, klasse eller
+    `forventet` → anden.
+  - `test_saml_blanktegn_som_sql` — dobbelt mellemrum, linjeskift, NBSP (U+00A0), U+202F → ét mellemrum, trimmet.
+  - `test_uaendret_og_allerede_bundet_er_rapport` — `proposed` med `bogens_laesning` »Carl  Hansen« og værdi »Carl
+    Hansen« → `RAPPORT`/`UAENDRET`; bundet `accepted`, der allerede matcher → `RAPPORT`/`ALLEREDE_BUNDET`.
   - `test_relation_og_begge_er_rapport` — `relation.marriage` med `FORSLAG_FEJL` og `BEGGE` på `person.title` → `RAPPORT`.
   - `test_proposed_bliver_version` / `test_afgjort_lig_bliver_bind` (»Hansen « mod »hansen«) /
     `test_afgjort_ulig_bliver_ret_og_bind` (med `forventet` og `p_dato` for `person.death`).
   - `test_db_fejl_bruger_gaeldende_vaerdi` — `ny_vaerdi` = forslagets værdi, ikke `bogens_laesning`.
   - `test_spaerret_grunde` — uden mål, mål bundet af anden, navn forkortes, dato uden grænser → `SPAERRET` med fire
     forskellige grunde.
-  - `test_drift_naar_version_aendret`.
+  - `test_drift_naar_gaeldende_id_aendret`.
   - `test_cli_printer_kun_tal` — stdout matcher `^FF_KLASSE_OK( [a-z_]+=[0-9a-f]+)+$`.
 - [ ] **Step 2:** Kør → FAIL. **Step 3:** Implementér. **Step 4:** Kør → PASS.
 - [ ] **Step 5:** Commit: `feat(6m): klassifikation af faktaforslag mod bogen og databasen`
@@ -233,7 +258,8 @@ udskydes til 6d. *Mit valg* (spec §8.6 overlod det til planen).
     feltet, forslagets værdi, bogens læsning, databasens værdi, tidligere afgørelse (status + grund), modellens grund
     og billedstøtte, og hvad `F` gør i netop den klasse.
   - `render(kort, manifest_a: str, pr_side: int = 40) -> list[str]`.
-  - `flet_a(manifest_a: str, svarfiler: list[dict]) -> str` — ark: `# manifest_a <sha256>` og én linje pr. ref
+  - `flet_a(klasser: list[dict], manifest_a: str, svarfiler: list[dict]) -> str` — kræver `manifest_a(klasser, …)` =
+    svarfilernes manifest; tilladte refs og klasser læses af `klasser`; ark: `# manifest_a <sha256>` og én linje pr. ref
     `A <ref> : F|N|_` (F = gør det, kortet beskriver; N = modellen tager fejl, intet skrives; _ = ubesvaret, intet
     skrives). Svarbare klasser: `VERSION`, `BIND`, `RET_OG_BIND`.
   - CLI: `kort --ud D` → `D/kort-a/kort-<n>.html`; `flet --ud D SVAR...` → `D/ark-a.txt` (afviser eksisterende ark:
@@ -267,16 +293,20 @@ udskydes til 6d. *Mit valg* (spec §8.6 overlod det til planen).
     arkets; samme afvisninger som `flet_a`. → `{"version": [...], "bind": [...], "ret_og_bind": [...]}` med kun F-rækker.
   - `sql_a(anvendt: dict, *, source_id: int, manifest_a: str, ark_sha256: str) -> str` — én transaktion:
     1. `\set ON_ERROR_STOP on`, `BEGIN`, `standard_conforming_strings=on`, aktør via `request.jwt.claim.sub` (`:'actor'`).
-    2. Kildeværn: hvert forslag har `source_id=src`, er gældende og har arkets version, ellers `FORSLAG_DRIFT`.
+    2. Kildeværn: hvert forslag har `source_id=src`, er gældende og har arkets version, ellers `FORSLAG_DRIFT`; og én
+       DO-blok for alle `BIND ∪ RET_OG_BIND`: målpåstandens `vaerdi_tekst`, `date_raw`, valgte påstand og
+       `citation_sources` = `forventet`, ellers `PAASTAND_DRIFT`.
     3. Én `private.extraction_run` (ejerrollen): `run_key='menneske-laesning-v1:'||<ark_sha256>`,
        `input_sha256=<manifest_a>`, `manifest={antal, manifest_a, ark}`; `daa.extraction_run_id` sat.
     4. `SET LOCAL ROLE authenticated`; pr. F-række én DO-blok med `set_config('app.change_set_id','',true)` før hvert
        RPC-kald: `red_ret_forslag` → (kun `ret_og_bind`) `red_ret_paastand(assertion, forventet, 'bogen_har_ret',
        ny_id, p_dato)` → (kun `bind`/`ret_og_bind`) `red_decide_interpretation(ny_id, version+1, 'accepted',
        {basis:'kort-6m-a', ref, ark_sha256})`.
-    5. Binding af `bind ∪ ret_og_bind` med 6c-2's scoped-mønster (`control_model_v2.sql_v2` trin 5:
-       `daa.transfer_scope`, `TARGETS_SCOPED_SQL`, hvert mål = rækkens `assertion_id`, preview eligible,
-       `red_promote_interpretations_batch`, tælling med `assertion_binding_current` = antal).
+    5. Binding af `bind ∪ ret_og_bind` med 6c-2's scoped-mønster (`daa.transfer_scope`, `TARGETS_SCOPED_SQL`,
+       preview eligible, `red_promote_interpretations_batch`), men beviset og målkoblingen nøgles på
+       `interpretation_key`, **ikke** `supersedes_id`: den accepterede række ligger to versioner efter kortets, og
+       mellemversionens id skabes først i transaktionen. Hver nøgles mål = rækkens `assertion_id`; tælling med
+       `assertion_binding_current` = antal.
     6. Verifikation før `COMMIT`: nye versioner = antal F; påstandsværdier = `ny_vaerdi` for `ret_og_bind`; 1939's
        gyldige bindinger = før − |accepted blandt F| + |bind ∪ ret_og_bind|; `k1_bindinger_hash` = Task 0's.
     7. `COMMIT`; `\echo 'T6M_APPLY_A_OK versioner= rettelser= afgoerelser= bundet= sha256='`.
@@ -291,11 +321,13 @@ udskydes til 6d. *Mit valg* (spec §8.6 overlod det til planen).
   - `test_sql_a_citerer_apostrof` — `O'Neill` → `'O''Neill'`.
   - `test_sql_a_binder_genaabnet_accepted` — en `accepted` i `bind` står i bindingsscope, og binding-tællingen
     forventer den.
+  - `test_sql_a_bruger_ikke_supersedes_id` — den genererede SQL indeholder ikke `supersedes_id`.
+  - `test_sql_a_drift_tjekker_bind_og_ret_og_bind` — drift-blokken nævner hver `BIND`- og `RET_OG_BIND`-påstand.
   - `test_anvend_afviser_aendret_samlet` — `bogens_laesning` ændret efter flet → `MANIFEST_MISMATCH`.
   - `test_n_og_tomt_skrives_ikke`.
   - `test_rapport_indeholder_ingen_vaerdier` — `rapport-a.json` har ingen `vaerdi`/`bogens_laesning`-nøgler.
-- [ ] **Step 2:** Kør → FAIL. **Step 3:** Implementér (genbrug `control_model_v2._jlit`, `_uuid`, `RESET`,
-  `ANALYZE_SQL`, `TARGETS_SCOPED_SQL`). **Step 4:** Kør → PASS.
+- [ ] **Step 2:** Kør → FAIL. **Step 3:** Implementér (genbrug kun `control_model_v2._jlit`, `_uuid`, `RESET`,
+  `ANALYZE_SQL`, `TARGETS_SCOPED_SQL`; ikke `sql_v2`'s bindingsbevis). **Step 4:** Kør → PASS.
 - [ ] **Step 5:** Commit: `feat(6m): ceremoni-SQL for faktaforslag — version, rettelse, afgørelse, binding`
 
 ### Task 6: Rapport og beslutninger
@@ -304,10 +336,12 @@ udskydes til 6d. *Mit valg* (spec §8.6 overlod det til planen).
 - Modify: `docs/decisions.md` (BESLUTTET 2026-11-07: del 2's skriveveje)
 - Modify: `docs/evidensbaseret-genimport/status.md`
 
-- [ ] **Step 1:** Indførslen: `red_ret_forslag` som generel skrivevej for en menneskeligt godkendt forslagsværdi;
-  genåbning af afgjorte kun ved udtrykkeligt F; relationer/omtaler/hændelser, `BEGGE` (62, heraf 41 titler) og `TVIVL`
-  registreres til 6c-3/6d; de 13 ubundne narrativer og de 39 tekstrettelser uden læsertekst udskydes til 6d (målt:
-  ingen skrivevej uden placements); kun antal.
+- [ ] **Step 1:** Indførslen: `red_ret_forslag` som generel skrivevej for en menneskeligt godkendt forslagsværdi
+  (med udskudt bindingskontrol); genåbning af afgjorte kun ved udtrykkeligt F (projektejeren 2026-11-07);
+  relationer/omtaler/hændelser, `BEGGE` (62, heraf 41 titler) og `TVIVL` registreres til 6c-3/6d; de 13 ubundne
+  narrativer og de 39 tekstrettelser uden læsertekst flyttes til 6d efter projektejerens beslutning 2026-11-07 (målt:
+  ingen skrivevej uden placements); 6d ejer dem, færdigbevis »de 13 har record-binding og er læst efter spor B«;
+  kun antal.
 - [ ] **Step 2:** status.md: 6m del 2 i gang.
 - [ ] **Step 3:** Commit: `docs(decisions): trin 6m del 2 — skriveveje for faktaforslag`
 
@@ -323,8 +357,9 @@ udskydes til 6d. *Mit valg* (spec §8.6 overlod det til planen).
 - [ ] **Step 3:** Syntetisk ark med F på alle svarbare (inkl. alle 7 `accepted`): `apply-a` → `verify-a` grøn, tal som
   Task 5 Step 6; `public_person_facts` for de berørte personer viser 1939 som kilde på de bundne fakta; `fortryd` →
   forslag, påstande og bindinger som før (mængde-sammenligning af id'er, ikke kun antal).
-- [ ] **Step 4:** Drift-øvelse: ret én målpåstand på stand-in'en efter `sql-a` → `apply-a` fejler med `PAASTAND_DRIFT`,
-  og intet er skrevet (rollback); afgør ét forslag efter `sql-a` → `FORSLAG_VERSION_KONFLIKT`.
+- [ ] **Step 4:** Drift-øvelse: ret én `RET_OG_BIND`- og én `BIND`-målpåstand på stand-in'en efter `sql-a` → `apply-a`
+  fejler med `PAASTAND_DRIFT`, og intet er skrevet (rollback); afgør ét forslag efter `sql-a` → `FORSLAG_DRIFT`;
+  kør `klasse-a` om efter `flet-a` → `MANIFEST_MISMATCH`.
 - [ ] **Step 5:** Timeout-gate: længste kald og hele transaktionen × 6c-2's prod/stand-in-forhold < 60 s.
 - [ ] **Step 6:** Runbook (rækkefølge, forventede linjer, fortrydelse, fryse) og commit:
   `docs(runbook): trin 6m del 2 i prod`
@@ -346,13 +381,17 @@ udskydes til 6d. *Mit valg* (spec §8.6 overlod det til planen).
 
 ## Efter planen
 
-Codex-runde på spec + plan (B13, `gpt-6.1-sol`, Opus dømmer hvert fund: nødvendig / forenkl / kendt begrænsning /
-afvis) før udførelse. Reviewer bedes især efterprøve de valg, der sparer arbejde: at relationer, `BEGGE`/`TVIVL` og de
-13 ubundne narrativer kun registreres, og at genåbning af afgjorte forslag er tilladt ved F.
+B13's plan-runde er kørt (nedenfor). Udførelse kræver projektejerens godkendelse af planen og valg af
+udførelsesform.
 
-## Åbent spørgsmål til projektejeren
+**Review-runde 1 (2026-11-07):** Codex `gpt-6.1-sol` gav NO-GO med 8 fund + 2 noter; Opus dømte 5 nødvendige
+(bindingstab ved enkeltkald, CI-paritet 44→46, `extraction_run_id`, bindingsbevis over to versioner, 13 narrativer som
+projektejerens beslutning) og 5 forenklede (manifest binder klasse og mål, drift-tjek for `BIND`, ét
+skriveværdi-begreb, `flet_a`'s input, `ALLEREDE_BUNDET`); alle indarbejdet efter projektejerens ja. Næste Codex-runde
+er på diffen før prod (Task 8 Step 1).
 
-Må et `F` på kortet genåbne en afgørelse fra 6c-2 (41 forslag: 7 accepterede, 28 afviste, 6 `unresolved`)? I ca. 22
-af dem siger databasen allerede det samme som bogen, og F tilføjer kun 1939 som kilde. I resten retter F også
-databasens værdi. Siger projektejeren nej, falder klasserne `BIND`/`RET_OG_BIND` væk, og kortene har kun de 56
-`VERSION`-rækker.
+## Projektejerens svar (2026-11-07)
+
+1. Et `F` må genåbne en afgørelse fra 6c-2 (41 forslag: 7 accepterede, 28 afviste, 6 `unresolved`); kortet viser
+   den tidligere afgørelse, og uden F står den.
+2. De 13 ubundne narrativer og de 39 tekstrettelser uden læsertekst flyttes til 6d.
