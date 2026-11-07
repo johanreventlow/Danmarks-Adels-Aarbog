@@ -28,6 +28,8 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   læsertekst at rette (38 på 14 poster uden narrativ, 1 på et narrativ, der kun må trækkes tilbage) flyttes fra del 2 til **6d**. Målt: der er ingen skrivevej under kontrakt v2 uden placements
 >   (`red_upsert_narrativ` afviser DAA-kilder med `NARRATIVE_RECORD_REQUIRED`), og 1939 får først placements i 6d.
 >   6d ejer dem; færdigbevis: »de 13 har record-binding og er læst efter spor B«.
+> - **I prod 2026-11-07** (PR #303, `database-current-state.md` §22): prod-målingen gav de samme tal som de foreløbige
+>   (VERSION 56, BIND 23, RET_OG_BIND 14, SPÆRRET 4, rapport 144); projektejeren svarede F på alle 14 kort.
 
 ## BESLUTTET: trin 6m (modelgennemgang af 1939) indsættes mellem 6c-2 og 6c-3 (2026-11-06)
 
