@@ -17317,7 +17317,7 @@ DECLARE
   v_record_key text; v_principal uuid; v_principal_n integer; v_spouse uuid; v_mention uuid; v_run uuid; v_run_key text;
   v_raw text; v_ordinal integer; v_year_ids uuid[]:='{}'; v_year_id uuid; v_pred text; v_year text; v_receipt jsonb;
   v_hash text; v_marriage boolean; v_from integer; v_to integer; v_name_from integer; v_name_to integer;
-  v_key text;
+  v_key text; v_reuse uuid[]:='{}';
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
@@ -17451,31 +17451,63 @@ BEGIN
     -- Indholds-id (#151, spec 2026-10-21-trin5ab-indholds-id-design.md §3): persona og omtale får id af deres
     -- naturlige nøgle; en eksisterende række med samme id og anden nøgle fejler lukket.
     v_key:=v_record_key||'#rel-marriage-'||(p_payload->>'post_offset')||'-'||(v_to-v_from);
-    v_spouse:=private.content_uuid('source-persona',jsonb_build_object('source_id',v_batch.source_id,'persona_key',v_key));
-    BEGIN
-      INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES (v_spouse,v_batch.source_id,v_key,v_run);
-    EXCEPTION WHEN unique_violation THEN
-      IF EXISTS (SELECT 1 FROM private.source_persona WHERE id=v_spouse
-                  AND (source_id,persona_key) IS DISTINCT FROM (v_batch.source_id,v_key)) THEN
-        RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: source-persona';
-      END IF;
-      RAISE;
-    END;
-    v_mention:=private.content_uuid('source-mention',jsonb_build_object('persona_id',v_spouse,'mention_role','spouse','ordinal',1));
-    BEGIN
-      INSERT INTO private.source_mention(id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id)
-        VALUES (v_mention,v_clause.id,'person',v_name_from,v_name_to,
-                substr(v_clause.verbatim_text,v_name_from+1,v_name_to-v_name_from),v_run);
-    EXCEPTION WHEN unique_violation THEN
-      IF EXISTS (SELECT 1 FROM private.source_mention WHERE id=v_mention)
-         AND NOT EXISTS (SELECT 1 FROM private.source_persona_mention WHERE mention_id=v_mention AND persona_id=v_spouse
-                          AND mention_role='spouse' AND ordinal=1) THEN
-        RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: source-mention';
-      END IF;
-      RAISE;
-    END;
-    INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
-      VALUES (v_spouse,v_mention,'spouse',1);
+    -- Trin 6c-3a (spec 2026-11-07-trin6c3-a6b-resten-design.md §4.7 pkt. 1): genbrug af ægtefælle-personaen efter en
+    -- kildetekst-revision. Kandidat = en persona, hvis gældende ægtefællepart ligger på en nøgle, hvis gældende version er
+    -- forældet af en tekstrevision (grundlaget source_text_revision), med samme ægteskabsnummer, en ægtefælle-mention i
+    -- samme forekomst med samme navn (lige efter saml_blanktegn_v1, sammenlignet her i basen) og ingen ægtefællepart på
+    -- en levende nøgle (gældende status proposed/accepted). Én kandidat: parten peger på den; ingen ny persona, ingen ny
+    -- mention, og kvitteringen får "reused": true. Ingen: oprettelse som før (samme indholds-id som en persona, der ikke
+    -- er kandidat, giver stadig unique_violation). Flere: fejl lukket. Finalize-kontrollen er adskilt
+    -- (verify_relation_persona_receipts).
+    SELECT coalesce(array_agg(DISTINCT pc.source_persona_id ORDER BY pc.source_persona_id),'{}') INTO v_reuse
+      FROM private.interpretation_party_current pc
+      JOIN private.interpretation_current ic ON ic.interpretation_key=pc.interpretation_key
+     WHERE pc.party_role='spouse' AND pc.source_persona_id IS NOT NULL AND pc.marriage_ordinal=v_ordinal
+       AND ic.source_id=v_batch.source_id AND ic.status='superseded'
+       AND ic.decision_evidence->>'basis'='source_text_revision'
+       AND EXISTS (SELECT 1 FROM private.source_persona_mention spm
+                     JOIN private.source_mention sm ON sm.id=spm.mention_id
+                     JOIN private.source_observation o ON o.id=sm.observation_id
+                    WHERE spm.persona_id=pc.source_persona_id AND spm.mention_role='spouse'
+                      AND o.occurrence_id=v_clause.occurrence_id
+                      AND private.saml_blanktegn_v1(sm.verbatim_text)
+                          =private.saml_blanktegn_v1(substr(v_clause.verbatim_text,v_name_from+1,v_name_to-v_name_from)))
+       AND NOT EXISTS (SELECT 1 FROM private.interpretation_party_current lp
+                         JOIN private.interpretation_current lc ON lc.interpretation_key=lp.interpretation_key
+                        WHERE lp.party_role='spouse' AND lp.source_persona_id=pc.source_persona_id
+                          AND lc.status IN ('proposed','accepted'));
+    IF cardinality(v_reuse)>1 THEN
+      RAISE EXCEPTION 'RELATION_PERSONA_REUSE_AMBIGUOUS: % kandidater',cardinality(v_reuse);
+    END IF;
+    IF cardinality(v_reuse)=1 THEN
+      v_spouse:=v_reuse[1];
+    ELSE
+      v_spouse:=private.content_uuid('source-persona',jsonb_build_object('source_id',v_batch.source_id,'persona_key',v_key));
+      BEGIN
+        INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES (v_spouse,v_batch.source_id,v_key,v_run);
+      EXCEPTION WHEN unique_violation THEN
+        IF EXISTS (SELECT 1 FROM private.source_persona WHERE id=v_spouse
+                    AND (source_id,persona_key) IS DISTINCT FROM (v_batch.source_id,v_key)) THEN
+          RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: source-persona';
+        END IF;
+        RAISE;
+      END;
+      v_mention:=private.content_uuid('source-mention',jsonb_build_object('persona_id',v_spouse,'mention_role','spouse','ordinal',1));
+      BEGIN
+        INSERT INTO private.source_mention(id,observation_id,mention_kind,char_from,char_to,verbatim_text,created_run_id)
+          VALUES (v_mention,v_clause.id,'person',v_name_from,v_name_to,
+                  substr(v_clause.verbatim_text,v_name_from+1,v_name_to-v_name_from),v_run);
+      EXCEPTION WHEN unique_violation THEN
+        IF EXISTS (SELECT 1 FROM private.source_mention WHERE id=v_mention)
+           AND NOT EXISTS (SELECT 1 FROM private.source_persona_mention WHERE mention_id=v_mention AND persona_id=v_spouse
+                            AND mention_role='spouse' AND ordinal=1) THEN
+          RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: source-mention';
+        END IF;
+        RAISE;
+      END;
+      INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
+        VALUES (v_spouse,v_mention,'spouse',1);
+    END IF;
     FOREACH v_pred IN ARRAY ARRAY['person.birth','person.death'] LOOP
       v_year:=p_payload->>(CASE v_pred WHEN 'person.birth' THEN 'birth_raw' ELSE 'death_raw' END);
       CONTINUE WHEN v_year IS NULL;
@@ -17516,6 +17548,8 @@ BEGIN
     'party_keys',(SELECT jsonb_agg(jsonb_build_array(pc.interpretation_key::text,pc.party_role,pc.version)
                                    ORDER BY pc.party_role COLLATE "C")
                     FROM private.interpretation_party_current pc WHERE pc.interpretation_key=v_interp.interpretation_key));
+  -- 6c-3a: kun en genbrugskvittering bærer nøglen (mention_id er NULL); øvrige kvitteringer er uændrede.
+  IF cardinality(v_reuse)=1 THEN v_receipt:=v_receipt||jsonb_build_object('reused',true); END IF;
   v_hash:=private.reimport_canonical_json_sha256(v_receipt);
   INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,payload,after_sha256)
   VALUES (p_batch_id,p_element_id,'relation_persona',v_record_key,
@@ -18042,6 +18076,10 @@ GRANT EXECUTE ON FUNCTION public.red_reverse_reimport_publication(uuid,uuid) TO 
 
 -- Finalisering: receiptet læses fra payload->'result_receipt', hashen genberegnes, og hvert
 -- id efterprøves mod databasen (spec §5.2.1). Prædikatbetinget: kun ægteskaber har ny persona.
+-- Trin 6c-3a (spec 2026-11-07-trin6c3-a6b-resten-design.md §4.7 pkt. 1): en genbrugskvittering ("reused": true, ingen
+-- mention_id) efterprøves for sig, adskilt fra writerens regel før skrivning: personaen findes, har en ægtefælle-mention
+-- i samme forekomst med samme navn som det nye spænd, en gældende ægtefællepart på en nøgle forældet af en tekstrevision
+-- med samme ægteskabsnummer, og dens eneste ægtefællepart på en levende nøgle er præcis den, batchen skrev.
 CREATE OR REPLACE FUNCTION private.verify_relation_persona_receipts(p_batch_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE e private.reimport_event%ROWTYPE; r jsonb; v_run uuid; v_key uuid;
@@ -18053,7 +18091,9 @@ BEGIN
     r:=e.payload->'result_receipt'; v_key:=(e.payload->>'interpretation_key')::uuid;
     IF r IS NULL OR private.reimport_canonical_json_sha256(r)<>e.after_sha256
        OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(r) k)
-          <>ARRAY['mention_id','party_keys','principal_source_persona_id','schema','spouse_source_persona_id','year_interpretation_ids']
+          <>ARRAY['mention_id','party_keys','principal_source_persona_id']
+            ||(CASE WHEN r ? 'reused' AND e.payload->>'predicate'='relation.marriage' THEN ARRAY['reused'] ELSE '{}'::text[] END)
+            ||ARRAY['schema','spouse_source_persona_id','year_interpretation_ids']
        OR r->>'schema'<>'relation-persona-receipt-v1' OR jsonb_typeof(r->'year_interpretation_ids')<>'array'
        OR NOT EXISTS (SELECT 1 FROM private.interpretation_party pc
                        WHERE pc.interpretation_key=v_key AND pc.party_role='principal' AND pc.origin_ref=p_batch_id
@@ -18068,11 +18108,42 @@ BEGIN
       RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_RECEIPT_INVALID: %',e.element_id;
     END IF;
     IF e.payload->>'predicate'='relation.marriage' THEN
-      IF NOT EXISTS (SELECT 1 FROM private.source_persona p WHERE p.id=(r->>'spouse_source_persona_id')::uuid AND p.created_run_id=v_run)
+      IF r ? 'reused' THEN
+        IF r->'reused' IS DISTINCT FROM 'true'::jsonb OR jsonb_typeof(r->'mention_id')<>'null'
+           OR NOT EXISTS (SELECT 1 FROM private.source_persona p WHERE p.id=(r->>'spouse_source_persona_id')::uuid)
+           -- ægtefælle-mention i den citerede klausuls forekomst, samme navn som det nye spænd
+           OR NOT EXISTS (SELECT 1 FROM private.source_observation c
+                            JOIN private.source_observation o ON o.occurrence_id=c.occurrence_id
+                            JOIN private.source_mention sm ON sm.observation_id=o.id
+                            JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='spouse'
+                           WHERE c.id=(e.payload->>'clause_observation_id')::uuid
+                             AND spm.persona_id=(r->>'spouse_source_persona_id')::uuid
+                             AND private.saml_blanktegn_v1(sm.verbatim_text)
+                                 =private.saml_blanktegn_v1(substr(c.verbatim_text,(e.payload->>'name_from')::integer+1,
+                                                                   (e.payload->>'name_to')::integer-(e.payload->>'name_from')::integer)))
+           -- en gældende ægtefællepart på en nøgle forældet af en tekstrevision, samme ægteskabsnummer
+           OR NOT EXISTS (SELECT 1 FROM private.interpretation_party_current pc
+                            JOIN private.interpretation_current ic ON ic.interpretation_key=pc.interpretation_key
+                           WHERE pc.party_role='spouse' AND pc.source_persona_id=(r->>'spouse_source_persona_id')::uuid
+                             AND pc.marriage_ordinal=(e.payload->>'marriage_ordinal')::integer
+                             AND ic.status='superseded' AND ic.decision_evidence->>'basis'='source_text_revision')
+           -- den eneste ægtefællepart på en levende nøgle er batchens egen part på påstanden
+           OR (SELECT jsonb_agg(jsonb_build_array(pc.interpretation_key::text,pc.origin_ref::text,pc.marriage_ordinal))
+                 FROM private.interpretation_party_current pc
+                 JOIN private.interpretation_current ic ON ic.interpretation_key=pc.interpretation_key
+                WHERE pc.party_role='spouse' AND pc.source_persona_id=(r->>'spouse_source_persona_id')::uuid
+                  AND ic.status IN ('proposed','accepted'))
+              IS DISTINCT FROM jsonb_build_array(jsonb_build_array(v_key::text,p_batch_id::text,
+                                                                   (e.payload->>'marriage_ordinal')::integer)) THEN
+          RAISE EXCEPTION 'RELATION_PERSONA_REUSE_RECEIPT_INVALID: %',e.element_id;
+        END IF;
+      ELSIF NOT EXISTS (SELECT 1 FROM private.source_persona p WHERE p.id=(r->>'spouse_source_persona_id')::uuid AND p.created_run_id=v_run)
          OR NOT EXISTS (SELECT 1 FROM private.source_mention m WHERE m.id=(r->>'mention_id')::uuid AND m.created_run_id=v_run
                          AND m.observation_id=(e.payload->>'clause_observation_id')::uuid
-                         AND m.char_from=(e.payload->>'name_from')::integer AND m.char_to=(e.payload->>'name_to')::integer)
-         OR NOT EXISTS (SELECT 1 FROM private.interpretation_party pc
+                         AND m.char_from=(e.payload->>'name_from')::integer AND m.char_to=(e.payload->>'name_to')::integer) THEN
+        RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_RECEIPT_INVALID: %',e.element_id;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM private.interpretation_party pc
                          WHERE pc.interpretation_key=v_key AND pc.party_role='spouse' AND pc.origin_ref=p_batch_id
                            AND pc.source_persona_id=(r->>'spouse_source_persona_id')::uuid
                            AND pc.marriage_ordinal=(e.payload->>'marriage_ordinal')::integer)
