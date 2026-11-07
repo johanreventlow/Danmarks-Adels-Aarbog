@@ -139,19 +139,29 @@ familier `FOR UPDATE` i hele batch-transaktionen (§5 pkt. 4).
 - **Fakta:** kontrolmodellen `control_model_v2.py` som i 6c-2 (overordnet spec §6 pkt. 1; trin 4 brugte v1).
   Øvelsen viser, at v2 klassificerer de 9 gamle værdier som trin 4 gjorde. `MATCH` accepteres maskinelt og bindes.
   Stikprøven er `min(20, n)` `MATCH`, i praksis dem alle (*mit valg*). `REAL_DIFF` går på kort.
-- **Parter først:** relationsafgørelser kræver parter på de nye nøgler. En `relation_persona`-batch, afgrænset til de
-  9 poster (`relation_persona_input` er kildebred i dag og skal afgrænses), skriver principal- og modparter, før nogen
-  relation afgøres.
-- **Ægteskaber (3):** parterne for ægteskaber er arkbundne i `relation-persona-2018-20-v3` (`sheet_sha256`,
-  `sheet_line`), så de 3 får kort ligesom forældre og børn. De 3 eksisterende ægtefælle-personas *genbruges* som
-  modpart på de nye nøgler via DDL-blokken (§4.7); ingen nye personas. Afgørelsen sker derefter med
-  `red_decide_relation_interpretations` (`family_structure`), maskinelt, når familiens tilstand er den samme.
-- **Forældre og børn (4):** genbesvares af projektejeren på kort (*mit valg*, se §8 pkt. 2) og afgøres med
-  `red_afgoer_relation_interpretation` med `p_family_id` (`human_sheet`). Kortfilen leverer de hashes, vejen kræver
-  (`sheet_sha256`, `rows_sha256`, `line`).
-- **Kortene** har 6c-2/6m's form: lokal HTML med posttekst, side og forældre, svar i en token-fil, der omsættes til de
-  ark-hashes, 5b's writere kræver. Forventet under 20 kort (3 ægteskaber, 4 forældre/børn, `REAL_DIFF`,
-  ikke-genfundne); over 30 stopper planen og spørger.
+- **Parter først:** relationsafgørelser kræver parter på de nye nøgler. En `relation_persona`-batch med profilen
+  `relation-persona-2018-20` (v1, deterministisk, intet ark — den, 5b brugte for alle 7), afgrænset til de nye nøgler
+  på de 9 poster (`relation_persona_input` er kildebred: 4 andre rækker i dag), skriver principal- og ægtefælleparter.
+  Forælderparten skrives af afgørelsen selv; en `child`-part findes ikke.
+- **Ægteskaber (3):** de 3 eksisterende ægtefælle-personas *genbruges* som part på de nye nøgler via DDL-blokken
+  (§4.7); ingen nye personas, ingen ny mention (partstriggeren kræver kun en ægtefælle-mention i samme forekomst, og
+  den gamle består). Afgørelsen sker maskinelt med `red_preview_relation_decisions` → `red_decide_relation_interpretations`
+  (`family_structure`), når familiens tilstand er den samme. Funktionen tager hele kilden; preview-mængden skal være
+  lig de forventede nye ægteskabsnøgler, ellers stop. Ingen kort.
+- **Børn (2):** genbesvares på kort (*mit valg*, se §8 pkt. 2) med `relation_child_sheet.py` (svar B/R/U), afgrænset
+  til de nye nøgler, og afgøres med `red_afgoer_relation_interpretation(key, version, 'same', NULL, …)`: familien
+  afledes af reglen; `p_family_id` afvises for børn.
+- **Forældre (2):** i 5b afgjort via kontrolkørslens forældrekort, som ikke gælder nye nøgler. De genbesvares på et nyt
+  forælderark (samme form som børnearket) og afgøres med `red_afgoer_relation_interpretation(key, version, 'same',
+  <familie>, …, {basis:'human_sheet', sheet_sha256, rows_sha256, line})`; familien skal være den eneste i
+  `relation_structural_candidates` og lig den gamle bindings mål.
+- **Binding af relationer:** `red_preview_relation_promotions` → `red_promote_relation_interpretations_batch` med den
+  gamle bindings familie pr. ny nøgle. `supersedes_promotion_id` dækker kun samme fortolkningsversion, så koblingen
+  gammel → ny binding ligger i afstemningskvitteringen (§4.4).
+- **Kortene:** fakta i 6c-2's kortform (`persona_kort.py`, svar B/D/V), børn og forældre i 5b's arkform. Forventet
+  under 25 punkter (op til 9 `MATCH`-stikprøve, `REAL_DIFF`, 4 relationer, ikke-genfundne); over 30 stopper planen og
+  spørger. Svarene nøgles på `interpretation_key` + version (række-id'er er tilfældige pr. base) og oversættes til
+  prods id'er i ceremonien.
 
 ### 4.4 Nøglet afstemning
 
@@ -196,13 +206,21 @@ viste, at to ting mangler:
 1. **Genbrug af en relations-persona efter tekstrevision.** `write_relation_persona` opretter altid ægtefælle-personaen
    med indholds-id af `post_offset` og længde. Står navnet samme sted, giver det samme id, og writeren fejler på
    `unique_violation`; flytter linjen navnet, opstår en ny dubletpersona uden identitet. Blokken lader writeren
-   genbruge den eksisterende persona som part på en ny nøgle, når den tidligere part sad på en nøgle, der er
-   `superseded` med grundlaget `source_text_revision`, og personaen står på samme post. Ellers fejler den lukket som
-   i dag.
-2. **#248-rivalvagten** (`red_decide_relation_interpretations`) tæller en rival, hvis dens seneste version ikke er
-   `rejected`; en `superseded` rival blokerer derfor den nye nøgle. Blokken lader `superseded` falde ud af
-   rivalmængden.
-3. **Afstemningskvitteringen** (§4.4), hvis §8 pkt. 6 vælger tabellen.
+   genbruge den eksisterende persona som part på en ny nøgle, når præcis én persona opfylder: ægtefællepart i samme
+   forekomst på en nøgle, hvis gældende version er `superseded` med grundlaget `source_text_revision`, samme
+   `marriage_ordinal`, og ikke ægtefællepart på en levende nøgle. Ingen kandidat → oprettelse som i dag; flere →
+   fejl lukket. Ved genbrug skrives ingen ny mention. `verify_relation_persona_receipts` (finalize) godtager en
+   genbrugt persona og en mention på en `erstattet` klausul i samme forekomst, og `relation_derived_counts` tæller
+   genbrug for sig.
+2. **#248-rivalvagten** (`private.relation_binding_state`) tæller en rival, hvis dens seneste version ikke er
+   `rejected`; en `superseded` rival ville derfor blokere. Vagten rammer ikke de 7 (ingen af personerne har to
+   accepterede personas), men rettes som generel følge af forældelsen: `superseded` falder ud.
+3. **Én part pr. persona antages to steder:** `persona_family_context` og `spouse_principal_person` slår
+   ægtefælleparter op uden statusfilter og giver NULL, når en genbrugt persona har to. De får samme filter som 6a gav
+   `relation_persona_v3_input` (partens nøgle `proposed` eller `accepted`).
+4. **Afstemningskvitteringen** (§4.4): ny append-only tabel efter `private.relation_reopen`'s mønster (aktør, kontekst,
+   append-only-trigger, RLS, ingen adgang for anon/authenticated/service_role) og en privat writer, som ceremonien
+   kalder med aktøren sat i transaktionen. Referencen til revisionen er `reimport_event`'s `(batch_id, element_id)`.
 
 Blokken går i prod i sin egen DDL-ceremoni før data-ceremonien, med pg-tests, opgraderingstest fra prods skema og
 db-verify. Den er generel (ingen udgavenavne) og bruges af enhver fremtidig tekstrevision med relationer.
@@ -219,9 +237,10 @@ db-verify. Den er generel (ingen udgavenavne) og bruges af enhver fremtidig teks
 3. **DDL-ceremonien:** dump (B1) → DDL-blokken + `db-rls.sql` i én transaktion → `NOTIFY pgrst` og advisors.
    Fortrydelse: `fortryd-ddl` fra et snapshot, så længe data-ceremonien ikke er kørt.
 4. **Data-ceremonien:** dump med B1 (to kopier, hash noteret) → genmåling (afhængighedsfil = den bundne) → revision
-   ×10 → overførsel af forslagene (9 poster) → `relation_persona`-batch (parter) → afgørelser (fakta maskinelt og fra
-   kort via `transfer_pack.py`; ægteskaber via `red_decide_relation_interpretations`; forældre/børn via
-   `red_afgoer_relation_interpretation`) → genbinding → afstemningskvittering → verify. GO binder manifest,
+   ×10 → overførsel af forslagene (9 poster) → `relation_persona`-batch (parter) → afgørelser og bindinger (fakta med
+   `control_model_v2.py`'s SQL; ægteskaber via `red_decide_relation_interpretations`; forældre/børn via
+   `red_afgoer_relation_interpretation`; relationsbindinger via `red_promote_relation_interpretations_batch`) →
+   afstemningskvittering → verify. GO binder manifest,
    afhængighedsfil, forslagsmanifest, partsmanifest og svarfil.
 5. **Vindue og frys:** fortrydelse af data-ceremonien er restore af dumpet (forældelse er endelig, 6a §4.4 pkt. 7).
    Fra dump til godkendt verify skrives intet andet i prod, heller ikke på 1939, og driftsreglen fra 2026-11-04
@@ -291,3 +310,8 @@ mig):
 | 10 | LOW | `BEGGE` er modellens markeringer, ikke projektejerens svar | rettet: §4.6 |
 | 11 | LOW | `FOR UPDATE`-låse rammer også læser-/bogmærkeskrivninger | rettet: §5 pkt. 5 |
 | 12 | LOW | Kontrolmodellens version ikke navngivet | rettet: §4.3 (v2, øvelsen sammenligner med v1) |
+
+**Kortlægning til planen (Opus, læse-kun, 2026-11-07), efter godkendelsen.** Rettede fire detaljer uden at ændre §8:
+ægteskabernes parter kom fra v1 uden ark (ægteskaber maskinelt, ingen kort); børn afgøres uden `p_family_id`;
+forældre fik et nyt ark, da kontrolkortene ikke gælder nye nøgler; DDL pkt. 1 omfatter også finalize-kontrollen,
+og pkt. 3 (én part pr. persona) er tilføjet. #248-vagten rammer ikke de 7, men rettes generelt.
