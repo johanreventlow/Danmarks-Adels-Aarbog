@@ -311,8 +311,8 @@ def _opsaet():
                                           "forslag": [{"ref": r["ref"]} for r in kl if r["ref"].startswith(p)]}
                                          for p in ("p1", "p2", "p3")]}]
     maal = {"forslag": [{"interpretation_id": r["interpretation_id"],
-                         "tidligere": ({"status": "rejected", "grund": "fordi gammel afgørelse",
-                                        "decided_at": "2026-01-01"} if r["ref"] == "p1-f1" else None),
+                         "tidligere": {"status": "rejected", "grund": "fordi gammel afgørelse",
+                                      "decided_at": "2026-01-01"},
                          "rettelse_maal": {"value_kind": "text", "forventet": {"vaerdi_tekst": "DBVAERDI",
                                                                                "date_raw": None}}}
                         for r in kl]}
@@ -445,3 +445,55 @@ def test_cli_kort_samlet_f_flet(tmp_path):
     assert re.match(r"^FF_FLET_OK( [a-z_0-9]+=[0-9a-f]+)+$", p.stdout.strip())
     assert "Tekst" not in p.stdout
     assert (os.stat(tmp_path / "ark-a.txt").st_mode & 0o777) == 0o600
+
+
+def test_svarbare_kort_er_paa_side_1_i_ref_orden():
+    kl, a, s, b, m = _opsaet()
+    for i in range(100):   # langt flere rapport-refs end pr_side; sorterer både før og efter p1/p2
+        ref = f"p{i % 3 + 1}-g{i:03d}"
+        kl.append(_krk(ref, "RAPPORT", grund="BEGGE", iid=f"ix{i}"))
+        a.append(_a4(ref))
+    kl.append(_krk("p0-f9", "RET_OG_BIND", iid="iz"))
+    a.append(_a4("p0-f9"))
+    b[0]["poster"].append({"post": "p0", "tekst": "t", "sider": [], "forslag": []})
+    m["forslag"].append({"interpretation_id": "iz", "tidligere": {"status": "accepted", "grund": None},
+                         "rettelse_maal": {"value_kind": "text", "forventet": {"vaerdi_tekst": "x"}}})
+    k = fr.byg_kort(kl, {"A": a}, b, m)
+    side1 = k[:40]
+    ret = [x["ref"] for x in k if x.get("svarbar")]
+    assert ret == ["p0-f9", "p1-f1", "p1-f2"] and [x["ref"] for x in side1 if x.get("svarbar")] == ret
+    assert k[0]["type"] == "oversigt"
+    assert all(x["type"] == "rapport" for x in k[4:])
+
+
+def test_kort_kraever_tidligere_og_post():
+    kl, a, s, b, m = _opsaet()
+    m2 = copy.deepcopy(m)
+    for f in m2["forslag"]:
+        f["tidligere"] = None
+    with pytest.raises(fr.FaktaError) as e:
+        fr.byg_kort(kl, s, b, m2)
+    assert e.value.kode == "MAAL_MANGLER"
+    with pytest.raises(fr.FaktaError) as e:
+        fr.byg_kort(kl, s, [{"udgave": "T", "poster": []}], m)
+    assert e.value.kode == "POST_MANGLER"
+
+
+def test_flet_afviser_forkert_svarform():
+    kl, a, s, b, m = _opsaet()
+    ma = fr.manifest_a(kl, a)
+    for fil in (_sv(ma, 1, ["p1-f1"]), _sv(ma, 1, {"p1-f1": ["F"]}), _sv(ma, 1, {"p1-f1": {"x": 1}}),
+                _sv(ma, 1, {"p1-f1": 1})):
+        with pytest.raises(fr.FaktaError) as e:
+            fr.flet_a(kl, ma, [fil])
+        assert e.value.kode == "SVAR_UGYLDIGT"
+
+
+def test_cli_kort_uden_bidder_fejler(tmp_path):
+    kl, a, s, b, m = _opsaet()
+    (tmp_path / "a-klasser.json").write_text(json.dumps({"manifest_a": fr.manifest_a(kl, a), "klasser": kl}))
+    (tmp_path / "samlet.json").write_text(json.dumps(s))
+    (tmp_path / "maal.json").write_text(json.dumps(m))
+    p = subprocess.run(["python3", str(HERE / "faktaforslag_rettelse.py"), "kort", "--ud", str(tmp_path)],
+                       capture_output=True, text=True, cwd=HERE)
+    assert p.returncode == 2 and "FF_FEJL POST_MANGLER" in p.stderr

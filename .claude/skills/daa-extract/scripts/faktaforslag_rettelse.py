@@ -147,36 +147,42 @@ def byg_kort(klasser: list, samlet: dict, bidder: list, maal: dict) -> list:
     a = {r["ref"]: r for r in samlet["A"]}
     poster = _poster(bidder)
     forslag = {f["interpretation_id"]: f for f in maal["forslag"]}
-    kort: list = []
+    oversigt: list = []
+    ret: list = []
+    rapport: list = []
     felter: dict = {}
     for k in klasser:
         if k["klasse"] in ("VERSION", "BIND"):
             felt = a[k["ref"]]["felt"]
             felter[felt] = felter.get(felt, 0) + 1
     if felter:
-        kort.append({"type": "oversigt", "antal": sum(felter.values()), "felter": dict(sorted(felter.items())),
+        oversigt.append({"type": "oversigt", "antal": sum(felter.values()), "felter": dict(sorted(felter.items())),
                      "svarbar": False})
     for k in sorted(klasser, key=lambda x: x["ref"]):
         r = a[k["ref"]]
         post = poster.get(r.get("post") or k["ref"].rsplit("-", 1)[0])
         if k["klasse"] == "RET_OG_BIND":
-            f = forslag.get(k["interpretation_id"]) or {}
+            if post is None:
+                raise FaktaError("POST_MANGLER")
+            f = forslag.get(k["interpretation_id"])
+            if f is None or not f.get("tidligere"):
+                raise FaktaError("MAAL_MANGLER")
             m = f.get("rettelse_maal") or {}
             fv = m.get("forventet") or k.get("forventet") or {}
             db = fv.get("date_raw") if m.get("value_kind") == "date_raw" else fv.get("vaerdi_tekst")
-            t = f.get("tidligere") or {}
-            status = t.get("status") or k.get("status")
-            kort.append({"type": "ret", "svarbar": True, "ref": k["ref"], "felt": r["felt"],
-                         "tekst": (post["tekst"][:UDDRAG] if post else ""), "vaerdi": r.get("vaerdi"),
+            t = f["tidligere"]
+            status = t.get("status")
+            ret.append({"type": "ret", "svarbar": True, "ref": k["ref"], "felt": r["felt"],
+                         "tekst": post["tekst"][:UDDRAG], "vaerdi": r.get("vaerdi"),
                          "bogens_laesning": k["ny_vaerdi"], "databasen": db,
                          "tidligere_status": status, "tidligere_tekst": STATUS_TEKST.get(status, status),
                          "tidligere_grund": t.get("grund"), "grund": r.get("grund"), "billede": r.get("billede"),
-                         "sider": [f"../sider/{s}" for s in (post["sider"] if post else [])]})
+                         "sider": [f"../sider/{s}" for s in post["sider"]]})
         elif k["klasse"] not in SVARBARE:
-            kort.append({"type": "rapport", "svarbar": False, "ref": k["ref"], "klasse": k["klasse"],
+            rapport.append({"type": "rapport", "svarbar": False, "ref": k["ref"], "klasse": k["klasse"],
                          "grund": k["grund"], "felt": r["felt"], "vaerdi": r.get("vaerdi"),
                          "bogens_laesning": r.get("bogens_laesning")})
-    return kort
+    return oversigt + ret + rapport
 
 
 def render(kort: list, manifest_a: str, pr_side: int = 40) -> list:
@@ -214,9 +220,14 @@ def flet_a(klasser: list, manifest_a: str, svarfiler: list) -> str:
             raise FaktaError("SVAR_SIDE_DUBLET")
         sider.add(side)
         tilladt = ("VERSION", "BIND") if side == SAMLET_SIDE else ("RET_OG_BIND",)
-        for ref, tok in (s.get("svar") or {}).items():
+        sv = s.get("svar") if s.get("svar") is not None else {}
+        if not isinstance(sv, dict):
+            raise FaktaError("SVAR_UGYLDIGT")
+        for ref, tok in sv.items():
             if ref not in klasse:
                 raise FaktaError("SVAR_UKENDT_REF")
+            if tok is not None and not isinstance(tok, str):
+                raise FaktaError("SVAR_UGYLDIGT")
             if tok in (None, "", "_"):
                 continue
             if tok not in TOKENS:
@@ -298,6 +309,8 @@ def _cmd_a(args) -> int:
     samlet, kl, ma = _laes(d)
     if args.cmd == "kort":
         bidder = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(d.glob("input-*.json"))]
+        if not bidder:
+            raise FaktaError("POST_MANGLER")
         maal = json.loads((d / "maal.json").read_text(encoding="utf-8"))
         kort = byg_kort(kl, samlet, bidder, maal)
         sider = render(kort, ma)
