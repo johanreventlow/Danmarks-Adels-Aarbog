@@ -79,7 +79,9 @@ sha `d46cda80…`, i repoet). `relation_persona_input(1)` har 4 rækker uden for
 
 ---
 
-### Før Task 1: B13's Codex-runde på spec+plan (hovedsessionen)
+### Før Task 1: B13's Codex-runde på spec+plan (hovedsessionen) — UDFØRT 2026-11-07
+
+NO-GO, 10 fund, alle indarbejdet i spec og plan (afvejning i spec §10). Ingen ny runde (budgettet).
 
 - [ ] Codex (`gpt-6.1-sol`, adversarial review af spec + denne plan; udeluk `work*/` i søgekommandoen). Opus afvejer
   hvert fund (nødvendig / forenkl / kendt begrænsning / afvis). Indarbejd, skriv reviewlog i spec §10 og en sektion
@@ -114,12 +116,16 @@ sha `d46cda80…`, i repoet). `relation_persona_input(1)` har 4 rækker uden for
 - Produces: genbrugsreglen i `write_relation_persona` (profil `relation-persona-2018-20` og senere): før
   `INSERT` af ægtefælle-personaen findes kandidater = personas med en `spouse`-part i samme forekomst på en nøgle,
   hvis gældende version er `superseded` med `decision_evidence->>'basis'='source_text_revision'`, samme
-  `marriage_ordinal` som payloaden, og uden `spouse`-part på en nøgle med gældende status `proposed`/`accepted`.
+  `marriage_ordinal` som payloaden, `private.saml_blanktegn_v1(<personaens spouse-mention verbatim_text>)` =
+  `private.saml_blanktegn_v1(<payloadens nye spænd>)` (samme navn; sammenlignes i basen), og uden `spouse`-part på en
+  nøgle med gældende status `proposed`/`accepted`.
   Én kandidat → partsrækken peger på den, ingen ny persona, ingen ny mention; kvitteringen får `"reused": true`.
   Ingen → som i dag. Flere → `RELATION_PERSONA_REUSE_AMBIGUOUS`. Samme indholds-id som en eksisterende persona, der
   *ikke* er kandidat → som i dag (`unique_violation` re-raises).
-- `verify_relation_persona_receipts`: for `reused` kræves, at personaen findes, at dens `spouse`-mention ligger i
-  samme forekomst, og at kandidatreglen holder; ellers som i dag.
+- `verify_relation_persona_receipts` (efter skrivning, adskilt fra reglen før): for `reused` kræves, at personaen
+  findes, at dens `spouse`-mention ligger i samme forekomst, at dens eneste `spouse`-part på en nøgle med gældende
+  status `proposed`/`accepted` er præcis den part, denne batch skrev, og at de øvrige led i reglen (forældet nøgle,
+  ordinal, navn) holder; ellers `RELATION_PERSONA_REUSE_RECEIPT_INVALID`.
 - `relation_derived_counts`: nøglerne er uændrede (`test-relation-persona-writer.sql:59` sammenligner eksakt JSON, og
   `red_reimport_batch_result` rapporterer dem; ingen finalize-sammenligning mod manifestet, målt 2026-11-07).
   Kvitteringen for genbrug bærer `spouse_source_persona_id` (tælles i `spouse_personas`) og ingen `mention_id`
@@ -129,8 +135,12 @@ sha `d46cda80…`, i repoet). `relation_persona_input(1)` har 4 rækker uden for
 - [ ] **Step 1: Skriv testen** `test-relation-persona-reuse.sql`: fixture-post med ét ægteskab, bundet; revision
   (navnet samme sted) → ny nøgle → writer genbruger (persona-antal uændret, partsrække på ny nøgle, `reused`,
   finalize grøn); revision hvor navnet flytter (andet `post_offset`) → genbrug via reglen; to forældede ægteskaber med
-  samme ordinal → `RELATION_PERSONA_REUSE_AMBIGUOUS`; uden revision (gammel nøgle `accepted`) → `unique_violation`
-  som i dag; forskellig ordinal → ingen genbrug (ny persona).
+  samme ordinal og samme navn → `RELATION_PERSONA_REUSE_AMBIGUOUS`; uden revision (gammel nøgle `accepted`) →
+  `unique_violation` som i dag; forskellig ordinal → ingen genbrug (ny persona);
+  `test_kun_andet_aegteskab_genfundet`: to forældede ægteskaber, kun det andet genfindes og får ordinal 1 → navnet
+  afviger fra ordinal 1-personaens → ingen genbrug af den (ny persona); en anden batch, der senere vil genbruge en
+  allerede genbrugt persona → ingen kandidat; finalize afviser en manipuleret kvittering
+  (`RELATION_PERSONA_REUSE_RECEIPT_INVALID`).
 - [ ] **Step 2:** Kør mod frisk skema (`psql -f schema.sql` + migrationer som CI-jobbet ved linje 604) → FAIL.
 - [ ] **Step 3:** Implementér i `schema.sql` og blokken.
 - [ ] **Step 4:** Testen, `tests/sql/test-relation-persona-writer.sql` og `tests/sql/test-source-text-revision.sql` →
@@ -144,6 +154,9 @@ sha `d46cda80…`, i repoet). `relation_persona_input(1)` har 4 rækker uden for
   `private.relation_binding_state` (linje med `ic2.status<>'rejected'`, ca. 19352); samme kroppe i blokken.
 - Modify: `tests/sql/test-relation-binding.sql` (#248-afsnittet ca. 849ff) og
   `tests/sql/test-relation-persona-reuse.sql`.
+- Modify: `tests/sql/inspect-5ab-function-parity.sql` — tilføj alle funktioner, blok 6c-3a ændrer eller opretter, som
+  ikke står der (mindst `persona_family_context`, `spouse_principal_person`, `verify_relation_persona_receipts`,
+  `write_text_revision_reconciliation`); ret sumkommentaren og ci.yml-antallet (Codex fund 10).
 
 **Interfaces:**
 - `persona_family_context` og `spouse_principal_person`: ægtefælleparter tælles kun, når partens nøgle har gældende
@@ -169,7 +182,7 @@ sha `d46cda80…`, i repoet). `relation_persona_input(1)` har 4 rækker uden for
 - Tabel (mønster `private.relation_reopen`, ca. 19519): `id bigint identity`, `revision_batch_id uuid`,
   `revision_element_id text` (FK `(batch_id, element_id)` → `private.reimport_event`), `old_interpretation_key uuid NOT
   NULL`, `old_promotion_id uuid NULL` (FK `interpretation_promotion`), `outcome text` CHECK i (`genbundet`,
-  `tilbagetrukket`, `aaben`, `genfundet`, `ikke_genfundet`), `new_interpretation_key uuid NULL`, `new_promotion_id
+  `tilbagetrukket`, `genfundet`, `ikke_genfundet`), `new_interpretation_key uuid NULL`, `new_promotion_id
   uuid NULL` (FK), `context jsonb NOT NULL` (objekt), `decided_by uuid NOT NULL`, `decided_by_name text NOT NULL`,
   `created_at`; UNIQUE `(old_interpretation_key, old_promotion_id) NULLS NOT DISTINCT`; append-only- og
   no-truncate-triggere med `private.reject_evidence_mutation()`; RLS; REVOKE fra PUBLIC/anon/authenticated/
@@ -180,17 +193,24 @@ sha `d46cda80…`, i repoet). `relation_persona_input(1)` har 4 rækker uden for
   1. Batchens events er `source_text_revision`; mængden af nøgler, de forældede, og mængden af `binding_loss`-
      promotions læses fra event-payloaden (feltnavnene læses i `write_source_text_revision` før testen skrives).
   2. `p_items` dækker hver forældet nøgle præcis én gang uden promotion (`genfundet`/`ikke_genfundet`) og hver
-     `binding_loss`-promotion præcis én gang (`genbundet`/`tilbagetrukket`/`aaben`); ellers
+     `binding_loss`-promotion præcis én gang (`genbundet`/`tilbagetrukket`); ellers
      `AFSTEMNING_MAENGDE_AFVIGER`.
-  3. `genbundet`: `new_promotion_id` har samme `target_type` og `target_id` som den gamle
-     (`AFSTEMNING_MAAL_AFVIGER`) og er gyldig nu (assertion: `assertion_binding_current`; family: prædikatet fra
-     `public_family_sources`/`text_revision_binding_set`) (`AFSTEMNING_BINDING_UGYLDIG`).
-  4. `tilbagetrukket`/`aaben` kræver `p_context` med `svar_sha256` (hex64) og `ref` pr. item
+  3. **Kæden** for `genbundet` og `genfundet` (Codex fund 4): `new_promotion_id` (kun `genbundet`) tilhører en version
+     af `new_interpretation_key` (`AFSTEMNING_KAEDE_AFVIGER`); den nye nøgles gældende version er `accepted`
+     (`genbundet`) eller ikke `rejected`/`superseded` (`genfundet`), har samme `source_id`, citerer en klausul i det
+     aktuelle sæt under den samme helpost som den gamle, har samme prædikat og samme persona (fakta) eller samme
+     principal-part (relationer) (`AFSTEMNING_KAEDE_AFVIGER`); samme `target_type` og `target_id` som den gamle
+     promotion (`AFSTEMNING_MAAL_AFVIGER`); bindingen er gyldig nu (assertion: `assertion_binding_current`; family:
+     prædikatet fra `text_revision_binding_set`) (`AFSTEMNING_BINDING_UGYLDIG`); hver ny nøgle og ny promotion
+     optræder højst én gang.
+  4. `tilbagetrukket` kræver pr. item `svar` i (`T`,`ved_ikke`) og `ref`, og `p_context` med `svar_sha256` (hex64)
      (`AFSTEMNING_SVAR_MANGLER`).
-  5. Returnerer `{genbundet, tilbagetrukket, aaben, genfundet, ikke_genfundet}` som antal.
+  5. Returnerer `{genbundet, tilbagetrukket, genfundet, ikke_genfundet}` som antal.
 
 - [ ] **Step 1: Test** med en revideret fixture (Task 1's): fuld, korrekt kvittering → antal; manglende binding,
-  ekstra nøgle, forkert mål, ugyldig binding og manglende svar → hver sin kode; UPDATE/DELETE/TRUNCATE afvist;
+  ekstra nøgle, forkert mål, ugyldig binding og manglende svar → hver sin kode;
+  `test_uvedkommende_promotion_samme_familie`: en eksisterende, gyldig promotion mod samme familie for en anden
+  relation angivet som `genbundet` → `AFSTEMNING_KAEDE_AFVIGER`; UPDATE/DELETE/TRUNCATE afvist;
   `authenticated` kan ikke kalde writeren.
 - [ ] **Step 2-4:** FAIL → implementér (+ `db-verify.sql`) → PASS; paritet; migrationen to gange på opgraderet base
   (`tests/sql/test-248-upgrade.sh`-mønsteret).
@@ -227,10 +247,14 @@ sha `d46cda80…`, i repoet). `relation_persona_input(1)` har 4 rækker uden for
 **Files:**
 - Create: `.claude/skills/daa-extract/scripts/tekstrevision_afstemning.sql` (læse-kun; `-v batch=<revisionens
   batch_id>`: pr. forældet nøgle og pr. ny nøgle på samme poster: nøgle, version, status, prædikat, persona,
-  modpart-persona, `marriage_ordinal`, `binding_loss`-promotion og mål; matchen gammel→ny beregnes her: fakta =
-  samme persona + prædikat og `binding_value_matches(regelens value_kind, ny værdi, målpåstandens vaerdi_tekst,
-  date_raw)` mod den gamle bindings påstand, ellers lighed af `saml_blanktegn_v1(værdi)`; relationer = samme
-  prædikat, principal, modpart og `marriage_ordinal`. Udskriver kun nøgler, udfald og hashes).
+  modpart-persona, `marriage_ordinal`, `binding_loss`-promotion og mål; matchen gammel→ny beregnes her med én
+  kontrakt pr. art (spec §4.4): fakta = samme persona + prædikat og `binding_value_matches(regelens value_kind, ny
+  værdi, målpåstandens vaerdi_tekst, date_raw)` mod den gamle bindings påstand; ægteskab = samme principal og
+  ægtefælle-persona og `relation_binding_state` → gammel familie (køres efter parterne); forælder = samme principal
+  og eneste `relation_structural_candidates`-familie = gammel familie (før afgørelsen; efter afgørelsen kontrolleres
+  den skrevne forælderpart); barn = samme principal og `relation_child_rule`'s familie = gammel familie; ubundne
+  `proposed` = samme persona + prædikat og `saml_blanktegn_v1`-lige værdier. Tvetydig → `ikke_genfundet`. Udskriver
+  kun nøgler, udfald og hashes. Tager `-v fase=foer_parter|efter_parter|efter_afgoerelser`).
 - Create: `tekstrevision_afstemning.py` med kommandoerne nedenfor og `test_tekstrevision_afstemning.py`.
 - Modify: ci.yml pytest-linjen.
 
@@ -239,20 +263,30 @@ sha `d46cda80…`, i repoet). `relation_persona_input(1)` har 4 rækker uden for
   beskåret til nøglelisten med genberegnede antal; `plan_run_v2` skal acceptere output (test); et id uden for listen
   i input efter beskæring → `AFGRAENSNING_LAEK`.
 - `kortsvar --plan-dir <c3b-plan> --ark <ark v2> --idkort <fil> --out <svar.json>`: ark v2's `F <id> <ver>`-linjer
-  oversat til `{interpretation_key, version, svar, note}` via stand-in'ens id→nøgle-kort
-  (`SELECT id, interpretation_key, version` i læse-kun SQL).
+  oversat til `{interpretation_key, version, svar, note, grundlag_sha256}` og `P`-linjerne til `{persona_key,
+  identity_version, svar}` via stand-in'ens id→nøgle-kort (`SELECT id, interpretation_key, version` og personaens
+  `persona_key`, i læse-kun SQL). `grundlag_sha256` = sha over et id-uafhængigt beslutningsgrundlag pr. felt fra
+  planens række: klasse, personaens kanoniske person, prædikat, rettelsesmålets påstand (som `(person, faktatype,
+  kilde)`, ikke id), forventet måltilstand og datogrænser (Codex fund 6). Et `P`-svar ≠ `-` → `KORT_P_STOPPER`
+  (identitetsændring hører ikke til ceremonien; Codex fund 7).
 - `oversaet --svar <svar.json> --plan-dir <prod-plan> --idkort <prod-idkort> --out <ark>`: nøglebaserede svar → ark
-  v2 med prods id'er; prods plan skal have samme nøgler, versioner og klasser som svarene (ellers
-  `KORT_PROD_AFVIGER`).
-- `relationer-sql --afstemning <json> --svar <relationssvar.json> --out <sql>`: ægteskaber: preview-mængden skal være
-  lig de forventede nye ægteskabsnøgler (`AEGTESKAB_MAENGDE_AFVIGER`) → `red_decide_relation_interpretations`;
+  v2 med prods id'er (felter og personas); prods plan skal have samme nøgler, versioner, klasser og
+  `grundlag_sha256` pr. felt og samme personas, ellers `KORT_PROD_AFVIGER`.
+- `relationer-sql --afstemning <json> --svar <relationssvar.json> --out <sql>`: ægteskaber: i samme transaktion
+  umiddelbart før afgørelsen sammenlignes nøglemængden i `private.relation_decision_set(1)->'items'` med de forventede
+  nye ægteskabsnøgler (mængde, ikke antal; preview-RPC'en fjerner `items`, Codex fund 8) (`AEGTESKAB_MAENGDE_AFVIGER`)
+  → `red_decide_relation_interpretations`;
   derefter `red_preview_relation_promotions` → `red_promote_relation_interpretations_batch` for alle genfundne
   relationer mod den gamle bindings familie. Forældre/børn-afgørelserne kommer fra Task 4's SQL.
+- `parter-logisk --manifest <relation_persona-manifest> --out <json>`: det logiske partsmanifest (pr. element:
+  record, ny nøgle, prædikat, `post_offset`, spændlængde, sha af værdien; ingen klausul-id'er). `parter-sammenlign
+  --forventet <json fra stand-in> --manifest <prods manifest>` → `PARTER_AFVIGER`, hvis prods udtræk ikke er logisk
+  lig (Codex fund 2). GO binder det logiske manifest; prods manifest udtrækkes i ceremonien.
 - `tilbagetraek-ark --afstemning <json> --fakta-svar <svar.json> --relationssvar <fil> --out <fil>`: bygges *efter*
   fakta- og relationssvarene. Den lister kun bindinger, der efter de svar stadig ikke får en ny binding mod samme mål
   (fx et `REAL_DIFF` besvaret B, der retter påstanden og binder, fjerner bindingen fra listen). `genbundet` i
   kvitteringen afledes af tilstanden efter bindingerne, aldrig af et svar; T er kun godkendelsen af resten. Token-fil
-  (memory: token-fil) med én linje pr. tilbageværende binding: `T <ref> : T|V  # post, prædikat` (ref = gammel nøgle + promotion-mål, ingen værdier); `parse`
+  (memory: token-fil) med én linje pr. tilbageværende binding: `T <ref> : T|V  # post, prædikat` (ref = gammel nøgle + promotion-mål, ingen værdier; begge svar giver `tilbagetrukket`, V med `svar='ved_ikke'`); `parse`
   afviser ubesvarede linjer og ukendte refs (`TILBAGETRAEK_LINJE_UGYLDIG`). HTML-konteksten (posttekst, side) bygges
   lokalt i `~/.private/6c3/` som 6c-2's kort.
 - `kvittering-sql --afstemning <json> --svar <alle svar> --out <sql>`: ét kald til
@@ -267,7 +301,9 @@ sha `d46cda80…`, i repoet). `relation_persona_input(1)` har 4 rækker uden for
 
 - [ ] **Step 1: Test** (syntetisk JSON, ingen DB): `test_ordinal_flyttet_er_ikke_genfundet`,
   `test_afgraens_fjerner_andre_noegler` og `AFGRAENSNING_LAEK`, `test_kortsvar_oversaet_roundtrip` (stand-in-id'er →
-  nøgler → prod-id'er giver samme ark modulo id'er), `KORT_PROD_AFVIGER` ved anden klasse, `relationer-sql`
+  nøgler → prod-id'er giver samme ark modulo id'er, med `-`-personalinjer), `KORT_PROD_AFVIGER` ved anden klasse og
+  ved samme klasse men andet rettelsesmål eller andre datogrænser, `KORT_P_STOPPER` ved `P` og `P <id>`,
+  `relationer-sql`
   med forkert ægteskabsmængde → `AEGTESKAB_MAENGDE_AFVIGER`, kvitterings-SQL dækker hver binding præcis én gang,
   `test_real_diff_b_fjerner_binding_fra_tilbagetraek` (B på et `REAL_DIFF` mod samme mål → bindingen står ikke på
   T/V-arket), preflighten afviser et forventet mål ≠ gammelt mål.
@@ -303,6 +339,7 @@ Under `~/.private/6c3/` (0700). Base: `c3b` + blok 6c-3a (`db-migrations.sql` ×
   (elementer, claims pr. prædikat) før kørslen.
 - [ ] **Step 4: Parter:** `relation_persona_input.sql` → `relation_persona_extract.py` (v1) → manifest filtreret til
   de nye nøgler på de 9 poster → `relation_persona_apply.sql`. Forventet: 3 genbrugte ægtefælle-personas, 0 nye.
+  `parter-logisk` gemmer det logiske manifest til GO.
 - [ ] **Step 5: Afstemning og kort:** `tekstrevision_afstemning.sql` → udfald pr. nøgle; kontrolmodel
   (`interpretation_control_classification.sql`/`interpretation_control_rows.sql` med kilde 1) → `afgraens` →
   `control_model_v2.py plan --source-id 1 --strata-ubekraeftet 0 --strata-oevrige 20` → `persona_kort.py html`;
@@ -324,9 +361,9 @@ Under `~/.private/6c3/` (0700). Base: `c3b` + blok 6c-3a (`db-migrations.sql` ×
 
 **Files:** privat `~/.private/5ab-overfoersel/32-trin6c3.sh` (via `lib.zsh`/`koer.zsh`): `maal`, `dump`, `go-ddl`,
 `apply-ddl`, `fortryd-ddl`, `go-data`, `apply-data`, `verify`, `go-fortryd`, `fortryd`; GO for data binder
-revisionsmanifest, afhængighedsfil, forslagsmanifest, partsmanifest, svarfiler (fakta, børn, forældre,
+revisionsmanifest, afhængighedsfil, forslagsmanifest, det logiske partsmanifest, svarfiler (fakta, børn, forældre,
 tilbagetrækninger) og commit. `apply-data` kører: revision (R-kæden) → forslag (R-kæden, samme manifest som `c3b`) →
-parter → klassifikation i prod → `afgraens` → `plan` → `oversaet` (stop ved `KORT_PROD_AFVIGER`) →
+partsudtræk i prod (v1) → `parter-sammenlign` → parter → klassifikation i prod → `afgraens` → `plan` → `oversaet` (stop ved `KORT_PROD_AFVIGER`) →
 kvitteringens preflight → `control_model_v2.py sql` → forælder-/børne-SQL → `relationer-sql` → `kvittering-sql` →
 måling efter; hvert trin
 stopper ceremonien ved fejl, og trinnene efter revisionen kan genoptages uden at revidere igen.

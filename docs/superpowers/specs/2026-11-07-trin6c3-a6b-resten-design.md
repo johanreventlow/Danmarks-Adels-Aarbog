@@ -146,8 +146,9 @@ familier `FOR UPDATE` i hele batch-transaktionen (§5 pkt. 4).
 - **Ægteskaber (3):** de 3 eksisterende ægtefælle-personas *genbruges* som part på de nye nøgler via DDL-blokken
   (§4.7); ingen nye personas, ingen ny mention (partstriggeren kræver kun en ægtefælle-mention i samme forekomst, og
   den gamle består). Afgørelsen sker maskinelt med `red_preview_relation_decisions` → `red_decide_relation_interpretations`
-  (`family_structure`), når familiens tilstand er den samme. Funktionen tager hele kilden; preview-mængden skal være
-  lig de forventede nye ægteskabsnøgler, ellers stop. Ingen kort.
+  (`family_structure`), når familiens tilstand er den samme. Funktionen tager hele kilden, og preview-RPC'en viser ikke
+  nøglerne; ceremonien sammenligner derfor `private.relation_decision_set(1)`'s nøglemængde med de forventede nye
+  ægteskabsnøgler i samme transaktion umiddelbart før afgørelsen, under frysen (Codex fund 8). Ingen kort.
 - **Børn (2):** genbesvares på kort (*mit valg*, se §8 pkt. 2) med `relation_child_sheet.py` (svar B/R/U), afgrænset
   til de nye nøgler, og afgøres med `red_afgoer_relation_interpretation(key, version, 'same', NULL, …)`: familien
   afledes af reglen; `p_family_id` afvises for børn.
@@ -169,12 +170,22 @@ familier `FOR UPDATE` i hele batch-transaktionen (§5 pkt. 4).
   én af to tilstande: genbundet til en ny nøgles gældende, accepterede version mod *samme* mål, eller tilbagetrukket
   med projektejerens udtrykkelige svar på et kort. En tilbagetrækning er synlig i læseren som »fra den oprindelige
   import« (fakta) eller som en familie uden kildelinje.
-- **»Genfundet«** betyder samme persona + prædikat + værdi efter kontrolmodellens normalisering, for relationer også
-  samme modpart og `marriage_ordinal`. Klausulordinalen kræves ikke: den flytter, når en linje indsættes.
+- **»Genfundet«** har én kontrakt pr. art (Codex fund 5); klausulordinalen kræves aldrig (den flytter, når en linje
+  indsættes):
+  - fakta: samme persona + prædikat, og den nye værdi matcher den gamle bindings påstand (`binding_value_matches`);
+  - ægteskab: samme principal, prædikat og ægtefælle-persona (efter genbrug, §4.7 pkt. 1), og `relation_binding_state`
+    peger på den gamle familie;
+  - forælder: samme principal og prædikat, og den eneste kandidat i `relation_structural_candidates` er den gamle
+    familie; efter afgørelsen kontrolleres den skrevne forælderpart;
+  - barn: samme principal og prædikat, og børnereglens afledte familie (`relation_child_rule`) er den gamle;
+  - ubundne `proposed`: samme persona + prædikat og `saml_blanktegn_v1`-lige værdier.
+  Tvetydige eller manglende kandidater er »ikke genfundet«.
 - **Alle 58 gamle nøgler** står på listen med udfald (genfundet → ny nøgle, eller ikke genfundet). Listen er beviset,
   ikke et antal.
 - At modellen ikke genfinder en værdi, er et forventeligt udfald, ikke en fejl. Det går på kort med valget
-  »tilbagetræk« eller »ved ikke« (bindingen falder ud, og sagen står åben i afstemningen).
+  »tilbagetræk« (T) eller »ved ikke« (V). Begge giver udfaldet `tilbagetrukket`, og bindingen falder ud; svaret står
+  i kvitteringen (`ved_ikke` for V). Der er intet åbent udfald, så kvitteringen er endelig, og en senere ny binding er
+  en ny, selvstændig afgørelse (Codex fund 9).
 - **Hvor afgørelsen gemmes:** en tilbagetrækning kan ikke ligge på den gamle nøgle (den er `superseded`) og har ingen
   ny nøgle. Udfaldet pr. binding skrives i en generel, append-only og aktørbundet afstemningskvittering i basen
   (DDL-blokken, §4.7), med svarfilens hash, som GO'en binder, og en reference til revisionsevent'et. Se §8 pkt. 6
@@ -189,6 +200,16 @@ sin egen batch, forslags-writeren kræver revisionsevent'et committet, før S4 �
 Mellem revisionens commit og genbindingens commit viser læseren de 9 fakta som »fra den oprindelige import«, og de 7
 familier mangler kildelinjen. Vinduet deklareres i runbooken, måles i øvelsen og skaleres med prod/stand-in-forholdet.
 Svarene på kortene ligger *før* ceremonien (fra stand-in'ens kørsel); ceremonien venter ikke på et menneske midt i.
+
+**Hvad der overføres, og hvad der beregnes i prod (Codex fund 2 og 6):**
+- Revisionsmanifestet og forslagsmanifestet bærer kun deterministiske nøgler og overføres som de er.
+- Partsmanifestet bærer klausul-id'er, der er tilfældige pr. base. Det udtrækkes derfor *i prod* af den
+  deterministiske v1-udtrækker efter forslagene; GO binder et logisk manifest fra stand-in'en (record, prædikat,
+  `post_offset`, spændlængde, hash af værdien), og prods udtræk skal være logisk lig, ellers stop.
+- Kortsvarene nøgles på `interpretation_key` + version og bindes sammen med et id-uafhængigt beslutningsgrundlag pr.
+  felt (persona-identitet, klasse, rettelsesmål, forventet måltilstand, datogrænser). I prod genberegnes grundlaget;
+  det skal være eksakt lig, ellers stop. Et persona-svar `P` på et kort er en identitetsændring og stopper ceremonien
+  før prod (Codex fund 7).
 
 ### 4.6 `BEGGE` registreres, bygges ikke (*mit valg*, se §8 pkt. 3)
 
@@ -208,10 +229,12 @@ viste, at to ting mangler:
    `unique_violation`; flytter linjen navnet, opstår en ny dubletpersona uden identitet. Blokken lader writeren
    genbruge den eksisterende persona som part på en ny nøgle, når præcis én persona opfylder: ægtefællepart i samme
    forekomst på en nøgle, hvis gældende version er `superseded` med grundlaget `source_text_revision`, samme
-   `marriage_ordinal`, og ikke ægtefællepart på en levende nøgle. Ingen kandidat → oprettelse som i dag; flere →
-   fejl lukket. Ved genbrug skrives ingen ny mention. `verify_relation_persona_receipts` (finalize) godtager en
-   genbrugt persona og en mention på en `erstattet` klausul i samme forekomst, og `relation_derived_counts` tæller
-   genbrug for sig.
+   `marriage_ordinal`, **samme ægtefællenavn** (personaens mention-tekst og det nye spænd er lige efter
+   `saml_blanktegn_v1`; sammenlignes i basen, Codex fund 1), og ikke ægtefællepart på en levende nøgle. Ingen kandidat
+   → oprettelse som i dag; flere → fejl lukket. Ved genbrug skrives ingen ny mention. Reglen før skrivning og
+   kontrollen i finalize (`verify_relation_persona_receipts`) er adskilte: finalize godtager præcis batchens egen nye
+   part på den genbrugte persona og afviser enhver anden levende anvendelse (Codex fund 3). `relation_derived_counts`'
+   nøgler er uændrede.
 2. **#248-rivalvagten** (`private.relation_binding_state`) tæller en rival, hvis dens seneste version ikke er
    `rejected`; en `superseded` rival ville derfor blokere. Vagten rammer ikke de 7 (ingen af personerne har to
    accepterede personas), men rettes som generel følge af forældelsen: `superseded` falder ud.
@@ -221,6 +244,11 @@ viste, at to ting mangler:
 4. **Afstemningskvitteringen** (§4.4): ny append-only tabel efter `private.relation_reopen`'s mønster (aktør, kontekst,
    append-only-trigger, RLS, ingen adgang for anon/authenticated/service_role) og en privat writer, som ceremonien
    kalder med aktøren sat i transaktionen. Referencen til revisionen er `reimport_event`'s `(batch_id, element_id)`.
+   Writeren kontrollerer hele kæden pr. item (Codex fund 4): den gamle nøgle og promotion er i revisionsevent'ets
+   mængder; den nye promotion tilhører den nye nøgle; den nye nøgles gældende version er `accepted`, i samme kilde,
+   citerer det nye klausulsæt under samme helpost, har samme prædikat og (fakta) samme persona eller (relationer) samme
+   principal; samme måltype og mål; bindingen er gyldig nu. `genfundet`-rækker kontrolleres på samme måde uden
+   promotion. Udfaldene er `genbundet`, `tilbagetrukket`, `genfundet` og `ikke_genfundet`.
 
 Blokken går i prod i sin egen DDL-ceremoni før data-ceremonien, med pg-tests, opgraderingstest fra prods skema og
 db-verify. Den er generel (ingen udgavenavne) og bruges af enhver fremtidig tekstrevision med relationer.
@@ -315,3 +343,19 @@ mig):
 ægteskabernes parter kom fra v1 uden ark (ægteskaber maskinelt, ingen kort); børn afgøres uden `p_family_id`;
 forældre fik et nyt ark, da kontrolkortene ikke gælder nye nøgler; DDL pkt. 1 omfatter også finalize-kontrollen,
 og pkt. 3 (én part pr. persona) er tilføjet. #248-vagten rammer ikke de 7, men rettes generelt.
+
+**Codex (`gpt-6.1-sol`), B13's runde på spec+plan, 2026-11-07:** NO-GO, 10 fund (6 HIGH). Kørt read-only fra en ren
+worktree uden `work*/`. Fund 2 og 8 efterprøvet i koden af mig; Opus-afvejning:
+
+| # | Alvor | Fund | Afgørelse |
+|---|---|---|---|
+| 1 | HIGH | Genbrug på ordinal alene kan vælge forkert ægtefælle | nødvendig: samme navn efter `saml_blanktegn_v1` (§4.7 pkt. 1) |
+| 2 | HIGH | Partsmanifestet bærer klausul-id'er (ikke portabelt) | nødvendig, forenklet: udtræk i prod, logisk lighed med stand-in (§4.5) |
+| 3 | HIGH | Finalize-kontrollen modsiger kandidatreglen | nødvendig: før- og efterregel adskilt (§4.7 pkt. 1) |
+| 4 | HIGH | Kvitteringen kan godkende en uvedkommende promotion | nødvendig: hele kæden kontrolleres (§4.7 pkt. 4) |
+| 5 | HIGH | Relationsmatch uhandlebar (forælderpart findes først efter afgørelse; børn uden part) | nødvendig: kontrakt pr. art (§4.4) |
+| 6 | HIGH | Oversættelsen binder ikke beslutningsgrundlaget | nødvendig: id-uafhængigt grundlag, eksakt lighed (§4.5) |
+| 7 | MEDIUM | Persona-svar (P) forsvinder i overførslen | nødvendig: P stopper før prod (§4.5) |
+| 8 | MEDIUM | Preview viser ikke nøglemængden | nødvendig: `relation_decision_set` i samme transaktion (§4.3) |
+| 9 | MEDIUM | `aaben` uden afslutning | forenklet: udgår; V = `tilbagetrukket` med `ved_ikke` (§4.4) |
+| 10 | LOW | Paritetslisten mangler ændrede funktioner | nødvendig: planens Task 2 |
