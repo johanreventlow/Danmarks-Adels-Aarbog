@@ -418,6 +418,43 @@ BEGIN
   RAISE NOTICE 'OK: test_reuse_with_year';
 END $t$;
 
+-- test_reuse_name_blanktegn: navnet i den gamle mention har et linjeskift og et dobbelt mellemrum (som når et navn krydser
+-- et sideskift og sidehoved-projektionen ændrer blanktegnene); det nye spænd har enkelte mellemrum. Navnereglen
+-- sammenligner efter saml_blanktegn_v1, så personaen genbruges. Uden blanktegnssamlingen var der ingen kandidat.
+DO $t$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-0000006c3a0b'; s jsonb; post jsonb; c jsonb; c2 jsonb; p jsonb; w jsonb;
+  v_old text:=E'Anna Alfa. Gift med Bo\nBo  Beta.'; v_new text:='Anna Alfa. Gift med Bo Bo Beta.';
+  v_persona uuid; v_cl uuid[]; v_n bigint;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) VALUES (-67201,false,false,'6c3');
+  s:=pg_temp.f5b_source(-67201);
+  post:=pg_temp.f5b_post(-67201,s,'T6-K',v_old,ARRAY['Anna Alfa.',E'Gift med Bo\nBo  Beta.'],-67201,v_actor);
+  PERFORM pg_temp.f2a_event_for_state((post->>'principal')::uuid);
+  c:=pg_temp.f5b_claim(-67201,s,'relation.marriage',(post->'clauses'->>1)::uuid,E'Gift med Bo\nBo  Beta.');
+  PERFORM pg_temp.t6_write(-67201,v_actor,
+    pg_temp.t6_payload((post->'clauses'->>1)::uuid,c->>'key',E'Gift med Bo\nBo  Beta.',E'Bo\nBo  Beta'));
+  v_persona:=pg_temp.t6_spouse(c->>'key');
+  IF (SELECT sm.verbatim_text FROM private.source_persona_mention spm JOIN private.source_mention sm ON sm.id=spm.mention_id
+       WHERE spm.persona_id=v_persona AND spm.mention_role='spouse')<>E'Bo\nBo  Beta' THEN
+    RAISE EXCEPTION 'RELATION_REUSE_TEST_FAILED: fixturens mention har ikke de oprindelige blanktegn';
+  END IF;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  v_cl:=pg_temp.t6_revise(-67201,post,v_old,v_new,ARRAY['Anna Alfa.','Gift med Bo Bo Beta.'],v_actor,'t6-k');
+  c2:=pg_temp.f5b_claim(-67201,s,'relation.marriage',v_cl[2],'Gift med Bo Bo Beta.');
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  p:=pg_temp.t6_payload(v_cl[2],c2->>'key','Gift med Bo Bo Beta.','Bo Bo Beta');
+  v_n:=pg_temp.t6_personas(-67201);
+  w:=pg_temp.t6_write(-67201,v_actor,p);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  IF pg_temp.t6_personas(-67201)<>v_n OR pg_temp.t6_spouse(c2->>'key') IS DISTINCT FROM v_persona
+     OR w->'receipt'->'reused' IS DISTINCT FROM 'true'::jsonb OR w->'receipt'->'mention_id'<>'null'::jsonb
+     OR (SELECT status FROM private.reimport_batch WHERE id=(w->>'batch')::uuid)<>'finalized' THEN
+    RAISE EXCEPTION 'RELATION_REUSE_TEST_FAILED: blanktegn i navnet genbrugte ikke %',w->'receipt';
+  END IF;
+  RAISE NOTICE 'OK: test_reuse_name_blanktegn';
+END $t$;
+
 -- §4.7 pkt. 3 (én part pr. persona): efter genbruget har personaen to ægtefælleparter, én på den forældede nøgle og én
 -- på den nye. persona_family_context og spouse_principal_person tæller kun parter på nøgler, der aktuelt er proposed
 -- eller accepted, og giver efter genbruget samme resultat som før revisionen. Mellem revisionen og genbruget har
