@@ -93,7 +93,8 @@ END $mid$;
 COMMIT;
 
 -- Session B: starter sin apply og finalize; denne session venter (højst 10 s), til B venter på netop kildelåsen, eller til B er
--- færdig. pg_locks fryses i transaktionen; pg_stat_clear_snapshot giver et nyt øjebliksbillede.
+-- færdig. pg_locks er live; det er pg_stat_*-visningerne der fryses i transaktionen, så pg_stat_clear_snapshot
+-- sikrer et friskt billede af dem.
 DO $b$
 DECLARE v_pid int; v_blocked boolean:=false; v_k bigint:=hashtextextended('daa-relation-persona-spouse:-67301',0); i int;
 BEGIN
@@ -146,7 +147,7 @@ BEGIN
       v_live,pg_temp.t6l('blocked'),coalesce(v_err,'ingen');
   END IF;
   IF pg_temp.t6l('blocked')<>'true' THEN
-    RAISE EXCEPTION 'RELATION_REUSE_LOCK_TEST_FAILED: session B ventede ikke på kildelåsen';
+    RAISE EXCEPTION 'RELATION_REUSE_LOCK_TEST_FAILED: session B ventede ikke på kildelåsen (B-fejl: %)',coalesce(v_err,'ingen');
   END IF;
   IF v_err IS NOT NULL OR v_spouse_b IS NULL OR v_spouse_b=pg_temp.t6l('persona')::uuid OR v_receipt ? 'reused'
      OR (SELECT status FROM private.reimport_batch WHERE id=pg_temp.t6l('batch_b')::uuid)<>'finalized' THEN
@@ -154,4 +155,37 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: test_reuse_lock (B ventede på kildelåsen og oprettede en ny persona efter A''s commit)';
 END $end$;
+-- Isolationsvagt (Codex 6C-3a): kildelåsen lukker kun kapløbet under READ COMMITTED (nyt snapshot pr. sætning). Under
+-- REPEATABLE READ er snapshottet taget før låsen, så writeren afviser i stedet; intet skrives. Vagten står først i writeren,
+-- så den færdige batch B bruges (den afvises før al anden kontrol).
+DO $iso$
+DECLARE v_err text; v_before bigint; v_after bigint; v_res text;
+BEGIN
+  SELECT (SELECT count(*) FROM private.reimport_event)+(SELECT count(*) FROM private.source_persona)
+         +(SELECT count(*) FROM private.interpretation_party) INTO v_before;
+  PERFORM dblink_connect('t6l_i',pg_temp.t6l('conn'));
+  FOREACH v_res IN ARRAY ARRAY['REPEATABLE READ','SERIALIZABLE'] LOOP
+    v_err:=NULL;
+    PERFORM dblink_exec('t6l_i','BEGIN ISOLATION LEVEL '||v_res);
+    PERFORM * FROM dblink('t6l_i',format('SELECT set_config(''request.jwt.claim.sub'',%L,true)',pg_temp.t6l('actor'))) AS t(x text);
+    PERFORM dblink_exec('t6l_i','SET LOCAL ROLE authenticated');
+    BEGIN
+      PERFORM * FROM dblink('t6l_i',format('SELECT public.red_apply_reimport_relation_persona(%L::uuid,%L,%L::jsonb)::text',
+        pg_temp.t6l('batch_b'),'relation-persona:'||pg_temp.t6l('key_b'),pg_temp.t6l('payload_b'))) AS t(x text);
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    END;
+    PERFORM dblink_exec('t6l_i','ROLLBACK');
+    IF v_err IS NULL OR v_err NOT LIKE '%RELATION_PERSONA_ISOLATION%' THEN
+      RAISE EXCEPTION 'RELATION_REUSE_LOCK_TEST_FAILED: % afvistes ikke med RELATION_PERSONA_ISOLATION (%)',v_res,coalesce(v_err,'ingen fejl');
+    END IF;
+  END LOOP;
+  PERFORM dblink_disconnect('t6l_i');
+  SELECT (SELECT count(*) FROM private.reimport_event)+(SELECT count(*) FROM private.source_persona)
+         +(SELECT count(*) FROM private.interpretation_party) INTO v_after;
+  IF v_after<>v_before THEN
+    RAISE EXCEPTION 'RELATION_REUSE_LOCK_TEST_FAILED: isolationsafvisningen skrev noget (% mod %)',v_before,v_after;
+  END IF;
+  RAISE NOTICE 'OK: test_isolation_guard (REPEATABLE READ og SERIALIZABLE afvises, intet skrevet)';
+END $iso$;
 \echo PASS test-relation-persona-reuse-lock

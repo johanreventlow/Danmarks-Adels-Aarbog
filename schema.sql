@@ -17319,6 +17319,10 @@ DECLARE
   v_hash text; v_marriage boolean; v_from integer; v_to integer; v_name_from integer; v_name_to integer;
   v_key text; v_reuse uuid[]:='{}';
 BEGIN
+  -- Codex 6C-3a: kandidatopslaget nedenfor skal læse efter kildelåsen. Under REPEATABLE READ/SERIALIZABLE er snapshottet
+  -- taget før låsen, så en konkurrerende batchs committede ægtefællepart kunne være usynlig og personaen genbruges to gange;
+  -- kun READ COMMITTED godtages.
+  IF current_setting('transaction_isolation')<>'read committed' THEN RAISE EXCEPTION 'RELATION_PERSONA_ISOLATION'; END IF;
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
   v_batch:=private.require_reimport_open_batch(p_batch_id);
