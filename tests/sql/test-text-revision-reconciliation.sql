@@ -380,6 +380,33 @@ BEGIN
   END;
 END $t$;
 
+-- Modsigende kvittering (regel 3): bindingen angives som tilbagetrukket, men den gamle nøgles genfundne nye nøgle har
+-- allerede en gyldig binding mod samme mål (døden mod samme assertion, ægteskabet mod samme familie). Afvises med kode og
+-- den gamle nøgle; intet skrives.
+DO $t$
+DECLARE v_ctx jsonb:=jsonb_build_object('svar_sha256',repeat('f',64)); v_case text; v_items jsonb; v_old text; v_err text;
+BEGIN
+  FOREACH v_case IN ARRAY ARRAY['assertion','familie'] LOOP
+    IF v_case='assertion' THEN
+      v_items:=pg_temp.t7_items('genbundet','tilbagetrukket'); v_old:=pg_temp.t7('death_old');
+    ELSE
+      v_items:=pg_temp.t7_items('tilbagetrukket','genbundet'); v_old:=pg_temp.t7('marriage_old');
+    END IF;
+    BEGIN
+      PERFORM pg_temp.t7_call(v_items,v_ctx);
+      v_err:='ingen fejl';
+    EXCEPTION WHEN OTHERS THEN v_err:=SQLERRM;
+    END;
+    IF v_err IS DISTINCT FROM 'AFSTEMNING_KAEDE_AFVIGER: '||v_old THEN
+      RAISE EXCEPTION 'RECONCILIATION_TEST_FAILED: test_tilbagetrukket_trods_binding (%) gav %',v_case,v_err;
+    END IF;
+    IF EXISTS (SELECT 1 FROM private.text_revision_reconciliation WHERE revision_batch_id=pg_temp.t7('batch')::uuid) THEN
+      RAISE EXCEPTION 'RECONCILIATION_TEST_FAILED: test_tilbagetrukket_trods_binding (%) efterlod rækker',v_case;
+    END IF;
+    RAISE NOTICE 'OK: test_tilbagetrukket_trods_binding (%)',v_case;
+  END LOOP;
+END $t$;
+
 -- Aktøren: uden aktør i transaktionen afvises kaldet.
 DO $t$
 DECLARE v_err text;
@@ -397,14 +424,26 @@ BEGIN
 END $t$;
 
 -- Tilbagetrækning (rulles tilbage): dødens binding trækkes tilbage med svaret ved_ikke; svar og ref står i rækkens
--- kontekst sammen med svarfilens hash. Forslaget genfindes her som et nyt forslag med samme prædikat (uden parter).
+-- kontekst sammen med svarfilens hash. Døden genfindes her som en ny, ubundet nøgle (en genfunden nøgle med binding mod
+-- samme assertion ville modsige tilbagetrækningen, jf. test_tilbagetrukket_trods_binding). Forslaget genfindes som et nyt
+-- forslag med samme prædikat (uden parter).
 DO $t$
 DECLARE r jsonb; v_ctx jsonb:=jsonb_build_object('svar_sha256',repeat('c',64),'basis','t7 fixture'); v_row record;
+  v_int uuid:=gen_random_uuid(); v_key uuid:=gen_random_uuid();
 BEGIN
   BEGIN
-    r:=pg_temp.t7_call(jsonb_set(pg_temp.t7_items('genbundet','tilbagetrukket'),'{2}',
+    INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,
+      predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id)
+    SELECT v_int,v_key,1,i.source_id,i.source_persona_id,i.interpretation_kind,i.predicate,i.value,i.schema_version,
+           i.derivation_kind,i.confidence,'proposed',i.method,i.extraction_run_id
+      FROM private.interpretation i WHERE i.id=pg_temp.t7('death_new_id')::uuid;
+    INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
+    SELECT v_int,observation_id,evidence_role,ordinal FROM private.interpretation_observation
+     WHERE interpretation_id=pg_temp.t7('death_new_id')::uuid;
+    r:=pg_temp.t7_call(jsonb_set(jsonb_set(pg_temp.t7_items('genbundet','tilbagetrukket'),'{2}',
       jsonb_build_object('old_interpretation_key',pg_temp.t7('proposed_old'),'outcome','genfundet',
-                         'new_interpretation_key',pg_temp.t7('proposed_new'))),v_ctx);
+                         'new_interpretation_key',pg_temp.t7('proposed_new'))),'{1,new_interpretation_key}',to_jsonb(v_key::text)),
+      v_ctx);
     IF r<>'{"genbundet":1,"tilbagetrukket":1,"genfundet":3,"ikke_genfundet":1}'::jsonb THEN
       RAISE EXCEPTION 'RECONCILIATION_TEST_FAILED: tilbagetrækning gav %',r;
     END IF;

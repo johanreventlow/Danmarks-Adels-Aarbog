@@ -17459,6 +17459,9 @@ BEGIN
     -- mention, og kvitteringen får "reused": true. Ingen: oprettelse som før (samme indholds-id som en persona, der ikke
     -- er kandidat, giver stadig unique_violation). Flere: fejl lukket. Finalize-kontrollen er adskilt
     -- (verify_relation_persona_receipts).
+    -- Kandidatopslaget serialiseres pr. kilde: lock_reimport_writer låser kun pr. (kilde, profil), og finalize ser kun egen
+    -- part. Efter låsen ser opslaget (READ COMMITTED, nyt snapshot) en konkurrerende batchs committede ægtefællepart.
+    PERFORM pg_advisory_xact_lock(hashtextextended('daa-relation-persona-spouse:'||v_batch.source_id::text,0));
     SELECT coalesce(array_agg(DISTINCT pc.source_persona_id ORDER BY pc.source_persona_id),'{}') INTO v_reuse
       FROM private.interpretation_party_current pc
       JOIN private.interpretation_current ic ON ic.interpretation_key=pc.interpretation_key
@@ -17508,6 +17511,7 @@ BEGIN
       INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal)
         VALUES (v_spouse,v_mention,'spouse',1);
     END IF;
+    -- Årfortolkninger skrives som ellers, også på en genbrugt persona (ny nøgle, ny kørsel).
     FOREACH v_pred IN ARRAY ARRAY['person.birth','person.death'] LOOP
       v_year:=p_payload->>(CASE v_pred WHEN 'person.birth' THEN 'birth_raw' ELSE 'death_raw' END);
       CONTINUE WHEN v_year IS NULL;
@@ -20916,6 +20920,21 @@ BEGIN
                       WHERE b.promotion_id=v_it.new_promotion_id) THEN
         RAISE EXCEPTION 'AFSTEMNING_BINDING_UGYLDIG: %',v_it.old_interpretation_key;
       END IF;
+    END IF;
+  END LOOP;
+
+  -- Regel 3, tilbagetrukket: en binding kan ikke trækkes tilbage, når den gamle nøgles genfundne nye nøgle allerede har en
+  -- gyldig binding mod samme mål (så er den genbundet, ikke tabt).
+  FOR v_it IN SELECT t.old_interpretation_key,p.target_type,p.target_id::text AS target_id,f.new_interpretation_key
+                FROM jsonb_to_recordset(p_items) t(old_interpretation_key uuid,old_promotion_id uuid,outcome text)
+                JOIN jsonb_to_recordset(p_items) f(old_interpretation_key uuid,outcome text,new_interpretation_key uuid)
+                  ON f.old_interpretation_key=t.old_interpretation_key AND f.outcome='genfundet'
+                JOIN private.interpretation_promotion p ON p.id=t.old_promotion_id
+               WHERE t.outcome='tilbagetrukket'
+               ORDER BY t.old_interpretation_key,t.old_promotion_id LOOP
+    IF EXISTS (SELECT 1 FROM private.text_revision_binding_set(ARRAY[v_it.new_interpretation_key]) b
+                WHERE b.target_type=v_it.target_type AND b.target_id=v_it.target_id) THEN
+      RAISE EXCEPTION 'AFSTEMNING_KAEDE_AFVIGER: %',v_it.old_interpretation_key;
     END IF;
   END LOOP;
 

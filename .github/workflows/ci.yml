@@ -636,6 +636,8 @@ jobs:
           Rscript tests/integration/test-source-text-revision-concurrency.R
           Rscript tests/integration/test-publication-persona-concurrency.R
           Rscript tests/integration/test-publication-identity-concurrency.R
+          # Trin 6c-3a: genbrug af ægtefælle-persona serialiseret pr. kilde (to sessioner via dblink; committer, derfor her).
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-persona-reuse-lock.sql
       - name: Klausul-writer SQL (#148 4.1c)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-clause-evidence-writer.sql
