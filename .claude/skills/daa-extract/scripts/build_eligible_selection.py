@@ -37,9 +37,15 @@ class SelectionLedgerMismatch(Exception):
     pass
 
 
-def eligible_keys(records: dict, ledger: dict) -> list[str]:
+def eligible_keys(records: dict, ledger: dict, only: list[str] | None = None) -> list[str]:
     validated = load_ledger(ledger)
     wanted = sorted(k for k, r in validated["records"].items() if r["status"] == "eligible")
+    if only is not None:
+        # Afgrænsning (6c-3): kun poster ledgeret kalder `eligible` må vælges; alt andet er en fejl, ikke et spring.
+        ikke = sorted(set(only) - set(wanted))
+        if ikke:
+            raise SelectionLedgerMismatch("SELECTION_RECORD_NOT_ELIGIBLE " + " ".join(ikke))
+        wanted = sorted(set(only))
     if not wanted:
         raise SelectionLedgerMismatch("SELECTION_LEDGER_MISMATCH NO_ELIGIBLE")
     fejl = []
@@ -133,9 +139,25 @@ def pilot_pick(records: dict, keys: list[str], limit: int, seed: str) -> tuple[l
     return sorted(valgt), {"klausul_median": km, "laengde_median": lm, "eligible_pr_stratum": eligible_pr}
 
 
+def _filter_info(only: list[str] | None) -> dict:
+    if only is None:
+        return {}
+    return {"records_filter_sha256": hashlib.sha256(json.dumps(sorted(set(only)), separators=(",", ":"))
+                                                    .encode("utf-8")).hexdigest()}
+
+
+def load_records_filter(path: Path) -> list[str]:
+    """`--records`: JSON-liste af record-nøgler, eller et objekt med `records` (fx et tidligere udvalg)."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    keys = data.get("records") if isinstance(data, dict) else data
+    if not isinstance(keys, list) or not keys or not all(isinstance(k, str) for k in keys):
+        raise SelectionLedgerMismatch("SELECTION_RECORDS_FILE_INVALID")
+    return keys
+
+
 def build_selection(records: dict, ledger: dict, ledger_sha256: str, size: int,
-                    limit: int | None = None, seed: str = "0") -> dict:
-    keys = eligible_keys(records, ledger)
+                    limit: int | None = None, seed: str = "0", only: list[str] | None = None) -> dict:
+    keys = eligible_keys(records, ledger, only)
     if limit is not None:
         keys, info = pilot_pick(records, keys, limit, seed)
         km, lm = info["klausul_median"], info["laengde_median"]
@@ -157,6 +179,7 @@ def build_selection(records: dict, ledger: dict, ledger_sha256: str, size: int,
             "uden_persona": [k for k in keys if not records[k]["persona_id"]],
             "ikke_i_ledger": sorted(set(records) - set(ledger["records"])),
             "note": "pilotudvalg af eligible poster, stratificeret og seedet (trin 6c-1)",
+            **_filter_info(only),
         }
     return {
         "strata_version": STRATA_VERSION,
@@ -168,6 +191,7 @@ def build_selection(records: dict, ledger: dict, ledger_sha256: str, size: int,
         "uden_persona": [k for k in keys if not records[k]["persona_id"]],
         "ikke_i_ledger": sorted(set(records) - set(ledger["records"])),
         "note": "alle eligible poster i ledgeret (decisions 2026-10-01)",
+        **_filter_info(only),
     }
 
 
@@ -180,6 +204,8 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=None)
     # Seedet er en streng (planen bruger `6c1-pilot-v1`) og giver kun mening med --limit (fund F5).
     ap.add_argument("--seed", type=str, default=None)
+    ap.add_argument("--records", default=None,
+                    help="JSON-liste af record-nøgler; kun disse tages med (kun eligible, ellers SELECTION_RECORD_NOT_ELIGIBLE)")
     args = ap.parse_args()
     if args.seed is not None and args.limit is None:
         print("SELECTION_SEED_WITHOUT_LIMIT — --seed vælger et pilotudvalg og kræver --limit.")
@@ -188,9 +214,10 @@ def main() -> int:
     records = json.loads(Path(args.runner_input).read_text(encoding="utf-8"))["records"]
     ledger_bytes = Path(args.ledger).read_bytes()
     try:
+        only = load_records_filter(Path(args.records)) if args.records else None
         udvalg = build_selection(records, json.loads(ledger_bytes),
                                  hashlib.sha256(ledger_bytes).hexdigest(), args.bundle_size,
-                                 args.limit, "0" if args.seed is None else args.seed)
+                                 args.limit, "0" if args.seed is None else args.seed, only)
     except (SelectionLedgerMismatch, EligibilityError) as exc:
         print(str(exc))
         return 1

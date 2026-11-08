@@ -6,6 +6,7 @@ Rækkefil og ark rummer navne og bogens tekst; værktøjet printer kun antal og 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -27,6 +28,36 @@ class Line:
     version: int
     tok: str
     note: str | None
+
+
+def load_keys(text: str) -> list[str]:
+    """Nøglefil: én interpretation_key pr. linje; tomme linjer og #-kommentarer springes over."""
+    keys = []
+    for raw in text.splitlines():
+        t = raw.split("#", 1)[0].strip()
+        if not t:
+            continue
+        if not re.fullmatch(UUID, t):
+            raise SheetError("KEYS_FILE_INVALID")
+        keys.append(t)
+    if not keys or len(set(keys)) != len(keys):
+        raise SheetError("KEYS_FILE_INVALID")
+    return keys
+
+
+def select_rows(rows: dict, keys: list[str]) -> dict:
+    """Afgræns rækkefilen til de valgte nøgler (rækkefølge som i filen). Ukendt nøgle → CHILD_KEY_UNKNOWN."""
+    by = {r["interpretation_key"] for r in rows["rows"]}
+    if any(k not in by for k in keys):
+        raise SheetError("CHILD_KEY_UNKNOWN")
+    wanted = set(keys)
+    return {**rows, "rows": [r for r in rows["rows"] if r["interpretation_key"] in wanted]}
+
+
+def selected_rows_sha256(rows: dict) -> str:
+    """Hash over de valgte rækker (kanonisk JSON, sorteret på nøgle)."""
+    rs = sorted(rows["rows"], key=lambda r: r["interpretation_key"])
+    return hashlib.sha256(json.dumps(rs, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def _ok_rows(rows: dict) -> dict[str, dict]:
@@ -169,6 +200,7 @@ def main() -> int:
     s = sub.add_parser("sql")
     for p in (r, s):
         p.add_argument("--rows", required=True)
+        p.add_argument("--interpretation-keys", default=None)
         p.add_argument("--private-root", default=str(Path.home() / ".private"))
     r.add_argument("--out", required=True)
     for a in ("--sheet", "--approved-sha256", "--expect-rows-sha256", "--decision-out"):
@@ -178,6 +210,9 @@ def main() -> int:
     try:
         rows_bytes = check_private_path(Path(args.rows), root).read_bytes()
         rows = json.loads(rows_bytes.decode("utf-8"))
+        subset = args.interpretation_keys is not None
+        if subset:
+            rows = select_rows(rows, load_keys(Path(args.interpretation_keys).read_text(encoding="utf-8")))
         if args.cmd == "render":
             text = render_sheet(rows)
             _write_private(check_private_path(Path(args.out), root), text)
@@ -188,6 +223,8 @@ def main() -> int:
         dout = check_private_path(Path(args.decision_out), root)
         sheet_bytes = check_private_path(Path(args.sheet), root).read_bytes()
         rows_sha, sheet_sha = verify_bound(rows_bytes, args.expect_rows_sha256, sheet_bytes, args.approved_sha256)
+        if subset:
+            rows_sha = selected_rows_sha256(rows)
         lines = parse_sheet(sheet_bytes.decode("utf-8"))
         sql = decision_sql(lines, rows, sheet_sha256=sheet_sha, rows_sha256=rows_sha)
         _write_private(dout, sql)
