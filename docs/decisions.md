@@ -14,7 +14,12 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >    build_1939_v2 (»struktur fra raw, prosa fra Calamari«). Fravalgt: raw.txt som ny rendition + validator på tværs af
 >    renditioner (ændring af proveniensmodellen).
 > 2. **Fællesstammen:** hver stammesektion bliver en entry i 1939's linjeskema; linjearket afgør dens linje.
-> 3. **37 records uden nummereret post** (stamfædre, uplacerede): ingen placement, `retained_legacy` med grund.
+> 3. **Records uden nummereret post — revideret samme dag** (godkendt på et forkert grundlag: 37 målt via Calamari-
+>    segmenteringen; den rettede scanner giver 83, heraf 57 med persona). Projektejerens nye svar: (a) **fællesstammens
+>    38** (stamfædrene, positioner som »I A.«) placeres med stammesektionen som gren, slægtled fra sektionens romertal og
+>    positionen som nummer; (b) **27 poster i grenene** uden nummer i Calamari (formentlig OCR-ødelagt nummer) går på
+>    kort med raw.txt's nummer som forslag; (c) **oversigtens 18** (»ikke kan anvises Plads«) får ingen placement,
+>    `retained_legacy` med grund.
 > 4. **Læseren:** `public_person_source_coordinates` bruger kun placementkoordinater for en kilde, når dens gældende
 >    placements er entydige på `(entry, printed_number)`; ellers legacy for hele kilden. 1939's numre er gruppelokale
 >    (53 numre deles af 389 poster), så 1939 vises som i dag indtil 6e; 2018-20 byte-ens.

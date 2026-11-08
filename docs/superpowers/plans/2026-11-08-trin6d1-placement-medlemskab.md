@@ -82,7 +82,9 @@ Målt i Task 0 (stand-in c3h; tal i `~/.private/6d1/maaling.txt`); beslutningen 
    kort. Calamari alene giver 5 linjer, 5 slægtled, 0 romertal og bruges ikke.
 1. **Fællesstammen:** de 2 stammesektioner (43 poster i raw) bliver entries; linjearket (Task 2) afgør deres linje.
 2. **Validatoren** ændres ikke (alle poster har en linje- eller stammeoverskrift foran ved 6).
-3. **Records uden nummereret post:** ingen placement, `retained_legacy`, grund `ingen_nummereret_post`. Gate A sagde 37
+3. **Records uden nummereret post (revideret 2026-11-08, `docs/decisions.md`):** stamme (38) placeres med position;
+   grenene (27) → kort med guidens nummer som forslag (reason `nummer_mangler_i_rendition`); oversigten (18) ingen
+   placement, `retained_legacy`, grund `ingen_nummereret_post`. Oprindeligt: ingen placement. Gate A sagde 37
    (29 med persona), målt via Calamari-segmenteringen; Task 1's rigtige kørsel giver **83 (57 med persona)**, i tråd med
    raw-v2's ~89 unummererede poster (stamfædre, oversigter). Beslutningen gælder uændret; tallet meldes i færdigbeviset.
 4. **Læseren:** variant (b) — kildeentydigheds-gaten i `public_person_source_coordinates` (Task 5). 1939: 53 numre deles
