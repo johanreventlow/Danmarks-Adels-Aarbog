@@ -2,6 +2,26 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: B6 bygges som afledt bekræftelse på komponentniveau, ikke som flere grundlag pr. medlemskab (2026-11-08)
+
+> Delspec 6d (`docs/superpowers/specs/2026-11-08-trin6d-placement-relationer-medlemskab-design.md` §5.4). Justerer
+> trin 6-specens §6 pkt. 3 (»et medlemskab kan have flere kildegrundlag … datamodellen afgøres i 6d«).
+>
+> - **Grund (målt på stand-in fra prod, Fable-review):** 1939's personas peger på kilde 3-personrækker (trin 6-specen
+>   §6 pkt. 8), mens de 458 medlemskaber, de kunne bekræfte, ligger på 2018-20-rækker i samme `samme_som`-komponent.
+>   Et medlemskab har PK `(person_id, lineage_id)`, og fem funktioner plus læseren læser dets ene `source_basis`. Et
+>   1939-grundlag på 2018-20-rækkens medlemskab ville kræve dem alle omskrevet og fortrydelse pr. grundlag.
+> - **Afgørelse (projektejeren):** hver udgave giver sin egen personrække medlemskab som i 5c-1; `corroborated`,
+>   `conflict` og `single` afledes af en læse-kun funktion over komponentens medlemskaber, kun gennem `samme_som` med
+>   `afklaret` konklusion. Promotionen får en vagt, så et medlemskab aldrig overskrives af en anden kildes grundlag.
+> - **Følge:** trin 6's færdigbevis (c) opfyldes, når mindst én komponent er `corroborated` (to kilder, samme linje);
+>   læservisningen af det hører til 6e.
+
+## NOTERET: review-budget for delspec 6d overskredet med én Fable-læsning af udkastet (2026-11-08)
+
+> Projektejeren bad om et review af udkastet. Fable (stående ja, memory) gav NO-GO med 10 fund, alle indarbejdet
+> (specens §11). Budgettet i spec-hovedet (1 Codex-runde på spec+plan, 1 på diffen) står uændret.
+
 ## BESLUTTET: 6c-3's modelsvar er sammensat pr. post af tre kørsler — godkendt af projektejeren, valg A (2026-11-08)
 
 > Det forslagsmanifest, data-ceremonien binder (`manifest_content_sha256` 95928243…, runner-manifest 5cc7f719…), er
