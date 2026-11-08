@@ -82,7 +82,9 @@ Målt i Task 0 (stand-in c3h; tal i `~/.private/6d1/maaling.txt`); beslutningen 
    kort. Calamari alene giver 5 linjer, 5 slægtled, 0 romertal og bruges ikke.
 1. **Fællesstammen:** de 2 stammesektioner (43 poster i raw) bliver entries; linjearket (Task 2) afgør deres linje.
 2. **Validatoren** ændres ikke (alle poster har en linje- eller stammeoverskrift foran ved 6).
-3. **37 records uden nummereret post** (29 med persona): ingen placement, `retained_legacy`, grund `ingen_nummereret_post`.
+3. **Records uden nummereret post:** ingen placement, `retained_legacy`, grund `ingen_nummereret_post`. Gate A sagde 37
+   (29 med persona), målt via Calamari-segmenteringen; Task 1's rigtige kørsel giver **83 (57 med persona)**, i tråd med
+   raw-v2's ~89 unummererede poster (stamfædre, oversigter). Beslutningen gælder uændret; tallet meldes i færdigbeviset.
 4. **Læseren:** variant (b) — kildeentydigheds-gaten i `public_person_source_coordinates` (Task 5). 1939: 53 numre deles
    af 389 poster, så 1939-rækkerne forbliver `legacy_external_id` indtil 6e; `expect_laeser_1939=uaendret`.
 5. **3 personas uden accepteret identitet:** record-placement, ingen persona-placement, intet medlemskab. Antallet af
@@ -160,9 +162,14 @@ Målt i Task 0 (stand-in c3h; tal i `~/.private/6d1/maaling.txt`); beslutningen 
   romertal kræver, at linjenavnet (normaliseret) er det samme som guidens; entry-koden er da guidens romertal, bundet
   til navnet. Guiden står kun som sporbarhed i `parsed.guide = {value, char_from, line_sha256}` (raw.txt's linje,
   ingen tekst) og i kørslens `guide_text_sha256`.
-- **Records:** en record knyttes til den Calamari-post, hvis spænd (nummerlinjen til næste post/overskrift) rummer
-  `char_from`, og via alignmentet til guide-posten (struktur og `guide_lokal_id`).
-- Pr.-post-årsager (→ `unresolved`): `overskrift_ikke_fundet:<niveau>`, `ikke_alignet`, `uden_post`,
+- **Records er posterne** (fix-runde 1, målt: 509 records begynder med et postnummer, 213 midt i en linje, fordi
+  Calamari ofte løber posterne sammen; 0 deler `char_from`): renditionens post = recorden selv, sorteret på `char_from`;
+  nummeret parses ved `char_from` med `^\s{0,6}\??\s{0,2}(\d{1,3})\s*([a-z]?)\s*[.,]\s`; intet nummer → `uden_post`.
+  Alignmentet er guide-poster mod nummererede records; header-vinduerne er renditionslinjerne mellem de alignede
+  naboers `char_from`. Calamari-postsegmenteringen bruges ikke i 1939-stien.
+- **Persona-vagt:** mere end én record med persona i samme fysiske post → alle `unresolved` (`flere_personas_i_post`);
+  records uden persona må dele postens koordinater.
+- Pr.-post-årsager (→ `unresolved`): `overskrift_ikke_fundet:<niveau>`, `ikke_alignet`, `uden_post`, `flere_personas_i_post`,
   `nr_ikke_fortloebende`, `slaegtled_ikke_monoton`, `gruppe_flere_familier`, `uenig:foraelder_generation`,
   `uenig:legacy_linje`, `uenig:legacy_nr` (kun hvor legacy-linjen ikke er `1939`). Kørselsinvarianter (alle skal være
   sande): `record_keys_unikke`, `section_path_nr_unik` (blandt `machine_ok`, pr. **fysisk post** = `post_char_from`: flere
