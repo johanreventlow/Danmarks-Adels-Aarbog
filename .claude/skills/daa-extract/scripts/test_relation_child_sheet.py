@@ -65,6 +65,8 @@ def test_nogleafgraensning_udelader_raekker_uden_for_listen():
     assert K1 in t and K2 not in t and "Ikke på arket: 1" in t
     sql = cs.decision_sql(cs.parse_sheet(t), sub, sheet_sha256="a" * 64, rows_sha256=cs.selected_rows_sha256(sub))
     assert sql.count("red_afgoer_relation_interpretation(") == 1 and K2 not in sql
+    # Hardkodet: ændres den kanoniske JSON eller rækkerne, skal tallet ændres bevidst.
+    assert cs.selected_rows_sha256(sub) == "714230dcc38f9dee279fa8cf50a0fdd9895a80ad43a1aeea9b917c1ff06ce856"
     assert cs.selected_rows_sha256(sub) != cs.selected_rows_sha256(ROWS)
     assert "NULL" in sql                                   # børn kaldes med p_family_id NULL
 

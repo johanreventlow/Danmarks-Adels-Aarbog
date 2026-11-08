@@ -108,7 +108,12 @@ def decision_sql(lines: list[Line], rows: dict, *, sheet_sha256: str, rows_sha25
     for l, r in todo:
         ctx = {"basis": "human_sheet", "sheet_sha256": sheet_sha256, "rows_sha256": rows_sha256, "line": r["row_no"]}
         note = sql_literal(f"forælderark {tag} række {r['row_no']}" + (f" — {l.note}" if l.note else ""))
-        action, fam = ("same", str(_unique_family(r))) if l.tok == "B" else ("rejected", "NULL")
+        action, fam = "rejected", "NULL"
+        if l.tok == "B":
+            f = _unique_family(r)
+            if type(f) is not int:
+                raise SheetError("PARENT_FAMILY_ID_INVALID")
+            action, fam = "same", str(f)
         sql.append(f"SELECT red_afgoer_relation_interpretation('{l.key}'::uuid, {l.version}, '{action}', {fam}, {note}, "
                    f"{sql_literal(json.dumps(ctx, sort_keys=True))}::jsonb) \\g /dev/null")
     sql.append("COMMIT;")

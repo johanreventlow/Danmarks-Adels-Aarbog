@@ -32,9 +32,28 @@ def test_render_forudfylder_b_kun_ved_entydig_familie():
     assert "rows_sha256: " + ps.selected_rows_sha256(ROWS) in t
 
 
+# Hardkodet: ændres arkformatet eller den kanoniske JSON, skal tallene ændres bevidst.
+SHEET_SHA = "1e4b49eab9871bf4f048f370dc60f252a3218dc745560363b9bb14e63dd3ef76"
+ROWS_SHA = "4880e24e76c30d6b421ea762eccdbbfad1522b6b5a5c8bc160513f4657eb3991"
+
+
+def test_hardkodede_hashes():
+    assert hashlib.sha256(ps.render_sheet(ROWS).encode()).hexdigest() == SHEET_SHA
+    assert ps.selected_rows_sha256(ROWS) == ROWS_SHA
+
+
+def test_family_id_skal_vaere_int():
+    for bad in ("7; DROP", True, 7.0):
+        rows = {**ROWS, "rows": [row(1, K1, [{**cand(7), "family_id": bad}])]}
+        t = ps.render_sheet(rows)
+        with pytest.raises(SheetError, match="PARENT_FAMILY_ID_INVALID"):
+            ps.decision_sql(ps.parse_sheet(t), rows, sheet_sha256="a" * 64, rows_sha256="b" * 64)
+
+
 def test_sql_round_trip_hardkodet_sha():
     t = ps.render_sheet(ROWS).replace(f"P {K2} 1 : U", f"P {K2} 1 : R")
-    sql = ps.decision_sql(ps.parse_sheet(t), ROWS, sheet_sha256="a" * 64, rows_sha256=ps.selected_rows_sha256(ROWS))
+    sql = ps.decision_sql(ps.parse_sheet(t), ROWS, sheet_sha256=SHEET_SHA, rows_sha256=ROWS_SHA)
+    assert f'"rows_sha256": "{ROWS_SHA}"' in sql and f"forælderark {SHEET_SHA[:12]}" in sql
     assert sql.count("red_afgoer_relation_interpretation(") == 2
     assert f"'{K1}'::uuid, 1, 'same', 7," in sql and f"'{K2}'::uuid, 1, 'rejected', NULL," in sql
     assert '"basis": "human_sheet"' in sql and '"line": 1' in sql and '"rows_sha256": "' in sql
