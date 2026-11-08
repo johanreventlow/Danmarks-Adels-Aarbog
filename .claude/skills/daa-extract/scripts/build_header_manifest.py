@@ -643,7 +643,7 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
                              ) -> dict[str, Any]:
     """1939: overskrifter fra guiden genfundet i renditionen mellem alignede naboposter.
 
-    records: {record_key, record_kind, page_from, char_from, legacy:{linje,nr}|None} (char_from =
+    records: {record_key, record_kind, persona (bool), page_from, char_from, legacy:{linje,nr}|None} (char_from =
     tidligste accepterede forekomst i renditionen). parents: {child, parent} record_keys."""
     _check_sha(rendition_bytes, profile.get('raw_text_sha256'), 'HEADER_RENDITION_SHA_MISMATCH')
     _check_sha(guide_bytes, profile.get('guide_text_sha256'), 'HEADER_GUIDE_SHA_MISMATCH')
@@ -728,6 +728,7 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
     starts = [p['char_from'] for p in r_posts]
     placements: list[dict[str, Any]] = []
     disagreements: list[dict[str, Any]] = []
+    persona_keys: set[str] = set()
     for rec in sorted(records, key=lambda r: r['record_key']):
         reasons: list[str] = []
         base = {
@@ -780,6 +781,19 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
                 disagreements.append({'record_key': rec['record_key'], 'field': 'legacy_nr'})
         placements.append({**base, 'status': 'unresolved' if reasons else 'machine_ok',
                            'reasons': reasons})
+        if rec.get('persona'):
+            persona_keys.add(rec['record_key'])
+
+    # hver persona-record er en egen person: flere i samme fysiske post = missed postgrænse
+    persona_posts: dict[int, list[dict[str, Any]]] = {}
+    for p in placements:
+        if p['record_key'] in persona_keys and p['post_char_from'] is not None:
+            persona_posts.setdefault(p['post_char_from'], []).append(p)
+    for members in persona_posts.values():
+        if len(members) > 1:
+            for p in members:
+                p['reasons'].append('flere_personas_i_post')
+                p['status'] = 'unresolved'
 
     by_key = {p['record_key']: p for p in placements}
     flagged: set[str] = set()

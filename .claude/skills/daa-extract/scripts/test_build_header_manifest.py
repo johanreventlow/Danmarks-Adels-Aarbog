@@ -447,6 +447,22 @@ class Test1939(unittest.TestCase):
         self.assertEqual(placement(m2, 'D')['status'], 'machine_ok')
         self.assertTrue(all(m2['invariants'].values()), m2['invariants'])
 
+    def test_flere_personas_i_post_er_unresolved(self):
+        rend = calamari(GUIDE)
+        a = dict(rec(rend, '1.  Anna', 'A'), persona=True)
+        a2 = dict(rec(rend, 'Boede paa', 'A2'), persona=True)
+        fact = dict(rec(rend, 'Boede paa', 'A-fakta', kind='fact'), persona=False)
+        others = [dict(r, persona=True) for r in records_for(rend)[1:]]
+        m = build39(records=[a, a2] + others)
+        for key in ('A', 'A2'):
+            self.assertEqual(placement(m, key)['status'], 'unresolved', key)
+            self.assertIn('flere_personas_i_post', placement(m, key)['reasons'], key)
+        self.assertEqual(placement(m, 'B')['status'], 'machine_ok')
+        m2 = build39(records=[a, fact] + others)
+        self.assertEqual(placement(m2, 'A')['status'], 'machine_ok')
+        self.assertEqual(placement(m2, 'A-fakta')['status'], 'machine_ok')
+        self.assertTrue(m2['invariants']['section_path_nr_unik'])
+
     def test_gruppe_flere_familier(self):
         parents = [{'child': 'B', 'parent': 'A'}, {'child': 'C', 'parent': 'E'}]
         m = build39(parents=parents)

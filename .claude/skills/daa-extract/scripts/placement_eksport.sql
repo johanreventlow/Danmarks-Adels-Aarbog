@@ -36,6 +36,13 @@ SELECT jsonb_build_object(
   'records', (SELECT coalesce(jsonb_agg(jsonb_build_object(
                 'record_key', f.record_key, 'record_kind', f.record_kind,
                 'page_from', f.page_from, 'char_from', f.char_from,
+                'persona', EXISTS (  -- primary-persona paa recordens helpost (rod-observation), uanset identitetsstatus
+                  SELECT 1 FROM private.source_record_anchor_current a
+                    JOIN private.source_observation ob ON ob.occurrence_id = a.occurrence_id
+                     AND ob.parent_observation_id IS NULL
+                    JOIN private.source_mention sm ON sm.observation_id = ob.id
+                    JOIN private.source_persona_mention spm ON spm.mention_id = sm.id AND spm.mention_role = 'primary'
+                   WHERE a.source_record_id = f.record_id AND a.decision_status = 'accepted'),
                 'legacy', (SELECT jsonb_build_object('linje', pe.linje, 'nr', pe.nr)
                              FROM rec_person rp
                              JOIN public.person_external_id pe ON pe.person_id = rp.person_id AND pe.source_id = :src
