@@ -2,6 +2,34 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 6c-3's genkørsel — de 10 % afviste claims accepteres, og det nye I-11-ægteskab udskydes (2026-11-08)
+
+> Fra Task 7's øvelse på stand-in'en (`daa5ab_ddl_standin_20261107211140_c3b` + blok 6c-3a). Modellen
+> (`gpt-5.6-terra`, prompt 1.0.0) dækkede 9/9 poster med 69 claims; runnerens kontraktværn afviste 7 (10,1 % mod
+> 2018-20's 5,1 %). Det er to mønstre: 4 × `mention.organization` (ukendt prædikat) og 3 × `person.name` afleveret
+> som objekt `{raw, normalized}` i stedet for tekst (I-17, I-89, I-9).
+>
+> - **Afviste claims (projektejerens valg 1):** accepteres. Af de 9 bundne fakta genfindes 6; de 3 andre (I-89 navn,
+>   I-9 navn, I-9 titel) trækkes tilbage via T/V-arket. De to navne-tab skyldes den afviste form. For læseren står
+>   navnene uændret, men som »fra den oprindelige import« i stedet for bundet til bogens post.
+> - **Nyt ægteskab på I-11 (valg A):** modellen fandt et ægteskab uden gammel nøgle (sandsynligvis i de genindsatte
+>   linjer). Det filtreres fra partsbatchen, så 6c-3 ikke opretter en ny ægtefælle-persona (specens §6). Forslaget
+>   står `proposed` uden parter og indgår derfor ikke i ceremoniens maskinelle ægteskabsmængde
+>   (`private.relation_decision_set` kræver parter). Det kan tages ind senere med de eksisterende trin
+>   (`relation_persona`-batch for nøglen → identitet for ægtefællen → afgørelse og binding), naturligt i 6d.
+>
+> Gate-afvigelsen er samme type som 6c-1's pilot (7,4 %, decisions 2026-11-01): afviste claims når aldrig basen.
+
+## NOTERET: forslagsbyggeren afviser navne afleveret som `{raw, normalized}` — åben backlog (2026-11-08)
+
+> Fundet i 6c-3's genkørsel (se ovenfor): 3 af 69 claims var `person.name` som objekt med rå og normaliseret form,
+> hvor kontrakten kræver tekst (`RUNNER_CLAIM_VALUE_INVALID`). Det kostede 2 genbindinger.
+>
+> - **Retning (ikke besluttet):** runnerens/forslagsbyggerens kontrakt accepterer formen og bruger den rå tekst,
+>   med test og review som kontraktændring. Alternativt strammes prompten.
+> - **Hvorfor det er værd at gøre:** fejlen er systematisk, ikke tilfældig, og rammer igen i 1939/6d og senere
+>   udgaver. Placering i roadmapet afgøres af projektejeren.
+
 ## NOTERET: review-budget for delspec 6c-3 overskredet med én Fable-læsning af specen (2026-11-07)
 
 > B13-overskridelse. Projektejeren bad om et review af udkastet til delspec 6c-3
