@@ -2,7 +2,7 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
-## ÅBEN: 6c-3's modelsvar er sammensat pr. post af tre kørsler — kræver projektejerens godkendelse før GO (2026-11-08)
+## BESLUTTET: 6c-3's modelsvar er sammensat pr. post af tre kørsler — godkendt af projektejeren, valg A (2026-11-08)
 
 > Det forslagsmanifest, data-ceremonien binder (`manifest_content_sha256` 95928243…, runner-manifest 5cc7f719…), er
 > ikke én modelkørsel. Det er sat sammen pr. post af tre kørsler med samme model (`gpt-5.6-terra`), prompt (1.0.0) og
@@ -25,11 +25,15 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > - **Argumentet for:** en binding genskabes kun, hvis den nye påstand matcher den gamle i SQL
 >   (`binding_value_matches`) og bogen stadig siger det (stikprøven). Udvælgelsen kan altså ikke skabe en binding, der
 >   ikke står i bogen. Den kan kun vælge mellem læsninger, hvor modellen fandt den.
-> - **Valgmuligheder før GO:** A) behold det sammensatte svar (klar, øvet på c3e/c3f/c3g). B) kørsel 1 alene
->   (kræver svar på dens T/V-ark med 6 linjer, en ny pakke og en ny generalprøve). C) én frisk kørsel af alle 9 poster,
->   brugt som den er (ca. 180.000 tokens og nye kort, T/V og generalprøve; viser samtidig stabiliteten). Hvis
->   genkørsel pr. post bliver normal praksis, bør reglen være et værktøj med fast kriterium, besluttet før kørslen
->   (Task 8-note 7).
+> - **Valgmuligheder, der blev forelagt:** A) behold det sammensatte svar (klar, øvet på c3e/c3f/c3g). B) kørsel 1
+>   alene (kræver svar på dens T/V-ark med 6 linjer, en ny pakke og en ny generalprøve). C) én frisk kørsel af alle 9
+>   poster, brugt som den er (ca. 180.000 tokens og nye kort, T/V og generalprøve; viser samtidig stabiliteten).
+> - **Afgørelse (projektejeren 8/11): A.** De fire ekstra bindinger er efterprøvet mod bogen. Navnene på I-89 og I-9
+>   blev besvaret B på faktakortet. I-44's forældre og I-11's børn blev godkendt på forælder- og børnearket, som de var
+>   forudfyldt. Projektejeren så derudover I-44's linje igen i kontekst-siden før afgørelsen. Ustabiliteten mellem
+>   kørslerne er et fund til 6d, ikke en grund til at genkøre her.
+> - **Fremover:** udvælgelsesreglen var valgt efter kørslerne. Bliver genkørsel pr. post normal praksis, skal reglen
+>   være et værktøj med et fast kriterium, besluttet før kørslen (Task 8-note 7).
 
 ## BESLUTTET: 6c-3's afgrænsning — specens §8 pkt. 1-6, `BEGGE` flyttet til opret-benet/6e (2026-11-07)
 
@@ -51,7 +55,7 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > - kortet viser bevidst ikke klassen, så mærket »B = bogen og databasen er enige« findes ikke. Vejledningen skal
 >   stå på kortet;
 > - genkørsel og sammensætning pr. post (cachekort + sammensæt) bør være et værktøj, hvis det bliver praksis (se
->   ÅBEN ovenfor);
+>   ovenfor);
 > - `relation_persona_input.sql` skal køres med `psql -q`, ellers kommer `SET`/`COMMIT` ind i JSON'en;
 >   `run_evidence_43b.py --out` er en fil, ikke en mappe.
 

@@ -1,8 +1,8 @@
 # Runbook: trin 6c-3 i prod — 2018-20's A6b-rest (tekstrevision og genbinding)
 
 Spec: `docs/superpowers/specs/2026-11-07-trin6c3-a6b-resten-design.md`. Plan: `docs/superpowers/plans/2026-11-07-trin6c3-a6b-resten.md`.
-Beslutninger: `docs/decisions.md` 2026-11-07 (afgrænsning) og 2026-11-08 (genkørsel, I-11 og den ÅBNE sammensætning pr.
-post, som skal godkendes før `go-data`).
+Beslutninger: `docs/decisions.md` 2026-11-07 (afgrænsning) og 2026-11-08 (genkørsel, I-11 og sammensætningen pr.
+post, godkendt som valg A).
 Runner: `~/.private/5ab-overfoersel/32-trin6c3.sh` med `32-trin6c3-b.R`, `32-trin6c3-maal.sql` og `32-trin6c3-rev.sql`
 (aldrig i repoet). Den kaldes via `/bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 32-trin6c3.sh <handling>` fra
 operatørens cwd. De bundne input ligger i `~/.private/6c3/prod-pakke/` (18 filer, 0600). Alle linjer er kun antal, nøgler
@@ -32,7 +32,7 @@ Hovedcheckouten skal være ren og stå på den commit, GO er bundet til (`main` 
 | 3 | advisors / grant-gennemgang | ingen nye fund (runneren har tjekket grants) |
 | 4 | `maal` | `tilstand=ddl` |
 | 5 | `dump` | `DUMP_6C3_OK tilstand=ddl` (data-dumpet; fortrydelsens grundlag) |
-| 6 | projektejeren afgør den ÅBNE sammensætning (decisions 2026-11-08) | A: pakken som den er. B/C: ny pakke + ny generalprøve først |
+| 6 | (afgjort 8/11: sammensætningen, valg A — pakken som den er) | — |
 | 7 | `go-data` | `forslagsmanifest=9592824354b4c926 sammensaetning=cf40e590… svar=4950a82d… tilbagetraek=974a389d…`, `GO_6C3_DATA_KODE=…` |
 | 8 | projektejeren `apply-data --jeg-mener-det --go <kode>` | se næste tabel |
 | 9 | `verify` | `T6C3_VERIFY_OK kvittering genbundet=14 genfundet=30 ikke_genfundet=28 tilbagetrukket=2 andre=049163332f678113` |
