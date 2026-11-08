@@ -364,6 +364,8 @@ def _scan_1939(text: str, gp: dict[str, Any], stamme_afsnit_level: str | None) -
     h_linje = h_slg = h_grp = None
     headers: list[dict[str, Any]] = []
     posts: list[dict[str, Any]] = []
+    visited: list[int] = []
+    snapshots: list[tuple[Any, Any, Any]] = []
 
     def guide_ref(i_from: int, i_to: int) -> dict[str, Any]:
         cf = _span(lines[i_from], bases[i_from])[0]
@@ -380,6 +382,8 @@ def _scan_1939(text: str, gp: dict[str, Any], stamme_afsnit_level: str | None) -
     i = 0
     while i < len(lines):
         line = lines[i]
+        visited.append(i)
+        snapshots.append((h_linje, h_slg, h_grp))
         m = gp['page_re'].match(line)
         if m:
             side_naerhed = gp['page_noise_window']
@@ -471,7 +475,26 @@ def _scan_1939(text: str, gp: dict[str, Any], stamme_afsnit_level: str | None) -
                 'h_linje': h_linje, 'h_slg': gid_slg, 'h_kuld': gid_kuld,
             })
         i += 1
-    return {'tab': tab, 'headers': headers, 'posts': posts}
+    return {'tab': tab, 'headers': headers, 'posts': posts, 'visited': visited, 'snapshots': snapshots}
+
+
+def _guide_v2_posts_1939(text: str) -> list[dict[str, Any]]:
+    """raw.txt's v2-poster (nummererede + stamfædre + oversigtsposter) i guide-orden."""
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        posts = segment._segment_1939_v2(text.splitlines(), segment.UDGAVE_PROFILER['1939-v2'])
+    out = [{'fra': p['linjer']['fra'], 'klasse': p.get('postklasse', 'nummereret'),
+            'lokal_id': p.get('lokal_id'), 'nr_label': p.get('nr_label')} for p in posts]
+    return sorted(out, key=lambda x: x['fra'])
+
+
+def _guide_state_at(guide: dict[str, Any], line: int) -> dict[str, Any]:
+    """Overskrifts-gid'er (linje, slægtled, kuld) gældende ved guide-linje `line`."""
+    k = bisect.bisect_right(guide['visited'], line) - 1
+    h_linje, h_slg, h_grp = guide['snapshots'][k] if k >= 0 else (None, None, None)
+    grp = guide['headers'][h_grp] if h_grp is not None else None
+    return {'h_linje': h_linje,
+            'h_slg': h_slg if h_slg is not None else (h_grp if grp and grp['level'] == 'slaegtled' else None),
+            'h_kuld': h_grp if grp and grp['level'] == 'kuld' else None}
 
 
 def _segmenter_lokal_ids_1939(text: str, gp: dict[str, Any]) -> list[str | None]:
@@ -680,6 +703,28 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
     align = _align_1939(g_posts, r_posts)
     rev_align = {r: g for g, r in align.items()}
 
+    # --- unummererede records: parres med v2-posterne i hullet mellem alignede nummererede records ---
+    v2_posts = _guide_v2_posts_1939(gtext)
+    unnum_recs = sorted((r for r in records if r['record_key'] in unnumbered),
+                        key=lambda r: (r['char_from'], r['record_key']))
+    aligned_r = sorted(rev_align)
+    aligned_from = [r_posts[k]['char_from'] for k in aligned_r]
+    gaps: dict[int, list[dict[str, Any]]] = {}
+    for r in unnum_recs:
+        gaps.setdefault(bisect.bisect_left(aligned_from, r['char_from']), []).append(r)
+    unnum_outcome: dict[str, dict[str, Any]] = {}
+    for g, rn in gaps.items():
+        lo = g_posts[rev_align[aligned_r[g - 1]]]['line'] if g > 0 else -1
+        hi = g_posts[rev_align[aligned_r[g]]]['line'] if g < len(aligned_r) else float('inf')
+        gn = [v for v in v2_posts if lo < v['fra'] < hi]
+        if len(rn) == len(gn):
+            for r, v in zip(rn, gn):
+                unnum_outcome[r['record_key']] = {'kind': v['klasse'], 'v2': v}
+        else:
+            for r in rn:
+                unnum_outcome[r['record_key']] = {'kind': 'uparret',
+                                                  'kandidater': [v['lokal_id'] for v in gn]}
+
     # --- genfind hver guide-overskrift i renditionen mellem alignede naboposter ---
     located: dict[int, dict[str, Any] | None] = {}
     used_from: set[int] = set()
@@ -757,23 +802,40 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
             'page': rec.get('page_from'), 'generation_local': None, 'generation_label_raw': None,
             'generation_global': None, 'kuld_label': None, 'section_path': [], 'header_ids': {},
             'record_kind': rec.get('record_kind'), 'post_char_from': None, 'guide_lokal_id': None,
+            'guide_nr_label': None, 'guide_kandidater': None,
         }
-        if rec['record_key'] in unnumbered:
-            placements.append({**base, 'status': 'unresolved', 'reasons': ['uden_post']})
+        outcome = unnum_outcome.get(rec['record_key'])
+        if rec['record_key'] in unnumbered and (outcome is None or outcome['kind'] != 'stamfader'):
+            kind = outcome['kind'] if outcome else 'uparret'
+            if kind == 'nummereret':
+                placements.append({**base, 'status': 'unresolved', 'reasons': ['nummer_tabt_i_rendition'],
+                                   'guide_nr_label': outcome['v2']['nr_label']})
+            elif kind == 'uparret' and rec.get('persona'):
+                placements.append({**base, 'status': 'unresolved', 'reasons': ['ikke_parret'],
+                                   'guide_kandidater': outcome.get('kandidater', [])})
+            else:
+                placements.append({**base, 'status': 'unresolved', 'reasons': ['uden_post']})
             continue
-        ri = post_index[rec['record_key']]
-        rpost = r_posts[ri]
+        if rec['record_key'] in unnumbered:        # parret med en stamfader: placeres uden nummer
+            rpost = {'nr': None, 'nr_label': None, 'char_from': rec['char_from']}
+            gi = None
+            gpost = {'lokal_id': outcome['v2']['lokal_id'],
+                     **_guide_state_at(guide, outcome['v2']['fra'])}
+        else:
+            ri = post_index[rec['record_key']]
+            rpost = r_posts[ri]
+            gi = rev_align.get(ri)
         line_i = max(bisect.bisect_right(rtab['bases'], rpost['char_from']) - 1, 0)
         base.update(printed_number=rpost['nr_label'], post_char_from=rpost['char_from'],
                     page=rtab['pages'][line_i] if rtab['pages'] and rtab['pages'][line_i] is not None
                     else rec.get('page_from'))
         if rec.get('persona'):
             persona_keys.add(rec['record_key'])
-        gi = rev_align.get(ri)
-        if gi is None:
+        if gi is None and rec['record_key'] not in unnumbered:
             placements.append({**base, 'status': 'unresolved', 'reasons': ['ikke_alignet']})
             continue
-        gpost = g_posts[gi]
+        if gi is not None:
+            gpost = g_posts[gi]
         base['guide_lokal_id'] = gpost['lokal_id']
         header_ids: dict[str, str] = {}
         parsed_of: dict[str, dict[str, Any]] = {}
@@ -797,12 +859,14 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
             kuld_label=parsed_of['kuld']['kuld'] if 'kuld' in parsed_of else None,
             section_path=list(header_ids.values()), header_ids=header_ids)
         reasons.extend(post_reasons.get(gi, []))
+        if gi is None and gpost['h_slg'] in falling:
+            reasons.append('slaegtled_ikke_monoton')
         legacy = rec.get('legacy')
         if legacy and legacy.get('linje') != '1939':
             if base['entry_code'] is not None and legacy.get('linje') != base['entry_code']:
                 reasons.append('uenig:legacy_linje')
                 disagreements.append({'record_key': rec['record_key'], 'field': 'legacy_linje'})
-            if legacy.get('nr') != rpost['nr']:
+            if rpost['nr'] is not None and legacy.get('nr') != rpost['nr']:
                 reasons.append('uenig:legacy_nr')
                 disagreements.append({'record_key': rec['record_key'], 'field': 'legacy_nr'})
         placements.append({**base, 'status': 'unresolved' if reasons else 'machine_ok',
@@ -825,7 +889,7 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
     hdrs = [(rank[kind_level[h['kind']]], kind_level[h['kind']], h) for h in headers]
     for p in placements:
         if p['post_char_from'] is None or any(r.startswith('overskrift_ikke_fundet') for r in p['reasons']) \
-                or 'ikke_alignet' in p['reasons']:
+                or p['guide_lokal_id'] is None:
             continue
         before = [(rk, lv, h) for rk, lv, h in hdrs if h['char_to'] <= p['post_char_from']]
         expected: dict[str, str] = {}
@@ -908,7 +972,12 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
         'invariants': invariants,
         'disagreements': sorted(disagreements, key=lambda d: (str(d['record_key']), d['field'])),
         'transfer': transfer,
-        'alignment': {'guide_posts': len(g_posts), 'rendition_posts': len(r_posts), 'uden_nummer': len(unnumbered), 'aligned': len(align)},
+        'alignment': {'guide_posts': len(g_posts), 'rendition_posts': len(r_posts), 'aligned': len(align),
+                      'unummererede': len(unnumbered),
+                      'parret_stamfader': sum(1 for v in unnum_outcome.values() if v['kind'] == 'stamfader'),
+                      'parret_nummereret': sum(1 for v in unnum_outcome.values() if v['kind'] == 'nummereret'),
+                      'parret_oversigt': sum(1 for v in unnum_outcome.values() if v['kind'] == 'oversigtspost'),
+                      'uparret': sum(1 for v in unnum_outcome.values() if v['kind'] == 'uparret')},
     }
 
 

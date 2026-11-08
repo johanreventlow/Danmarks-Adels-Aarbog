@@ -372,7 +372,8 @@ class Test1939(unittest.TestCase):
         guide = GUIDE[:6] + ['2.  Extra, f. 1601.'] + GUIDE[6:]
         rend = calamari(GUIDE)
         m = build39(guide=guide, rend=rend)
-        self.assertEqual(m['alignment'], {'guide_posts': 6, 'rendition_posts': 5, 'uden_nummer': 0, 'aligned': 5})
+        self.assertEqual(m['alignment'], {'guide_posts': 6, 'rendition_posts': 5, 'aligned': 5, 'unummererede': 0,
+                                      'parret_stamfader': 0, 'parret_nummereret': 0, 'parret_oversigt': 0, 'uparret': 0})
         self.assertTrue(all(p['status'] == 'machine_ok' for p in m['placements']), m['placements'])
         # en post kun i renditionen: recorden i den kan ikke føres til guiden
         rend2 = calamari(GUIDE)
@@ -572,7 +573,7 @@ class Test1939(unittest.TestCase):
             bhm.build_manifest_by_offset(rend, guide, dict(ok, guide_text_sha256='0' * 64), [], [])
 
     def test_offsets_renditionsabsolutte(self):
-        rend = ['﻿'[:0] + l for l in calamari(GUIDE)]
+        rend = ['Forord æøå'] + calamari(GUIDE)       # forskyder alle offsets
         text = '\n'.join(rend) + '\n'
         m = build39(rend=rend)
         self.assertEqual(len(m['headers']), 7)
@@ -593,6 +594,118 @@ class Test1939(unittest.TestCase):
         self.assertEqual(s['counts']['headers'], {'header_linje': 2, 'header_slaegtled': 3, 'header_kuld': 2})
         self.assertEqual(s['transfer']['linje'], {'guide': 2, 'genfundet': 2, 'ikke_genfundet': 0})
         self.assertNotIn('transfer', bhm.summary(build()))      # 2018-20-summary uændret
+
+
+# ---------------------------------------------------------------------------------------------
+# 1939: unummererede records parres med raw.txt's v2-poster (Task 1b)
+# ---------------------------------------------------------------------------------------------
+OVERSIGT = '      Personer af Navnet Reventlow, der ikke kan anvises Plads'
+GUIDE_U = [
+    '### PAGE 600 ###',
+    '                                   I',
+    '      Den testske Linje af 1500.',
+    '                          (S. 5).',
+    '                 Første Slægtled.',
+    'A n d e r s  T e s t e s e n ,  f. 1590.',
+    '    Boede paa Testrup.',
+    '                 Andet Slægtled.',
+    '1.  Bent, f. 1630.',
+    '2.  Carl, f. 1632.',
+]
+OVERSIGT_LINJER = [
+    '### PAGE 601 ###',
+    OVERSIGT,
+    'P e r  U d e n  P l a d s ,  f. 1700.',
+    'R a s m u s  U d e n ,  f. 1701.',
+]
+
+
+def unspace(guide):
+    """Calamari-form: ucentreret, og de adskilte bogstaver i navnesatserne er samlet."""
+    out = []
+    for l in guide:
+        t = l.strip()
+        if t.startswith(('A n d', 'P e r', 'R a s', 'S v e', 'T o r')):
+            t = ' '.join(x if x.startswith('f.') else x.replace(' ', '') for x in t.split('  '))
+        out.append(t)
+    return out
+
+
+def recs_u(rend, extra=()):
+    out = [rec(rend, '1.  Bent', 'B'), rec(rend, '2.  Carl', 'C')]
+    for needle, key in extra:
+        out.append(rec(rend, needle, key))
+    return out
+
+
+class Test1939Unummererede(unittest.TestCase):
+    def test_stamfader_placeres_uden_nummer(self):
+        rend = unspace(GUIDE_U)
+        self.assertIn('Anders Testesen, f. 1590.', rend)
+        m = build39(guide=GUIDE_U, rend=rend, records=recs_u(rend, [('Anders Testesen', 'S')]))
+        s = placement(m, 'S')
+        self.assertEqual((s['status'], s['reasons']), ('machine_ok', []))
+        self.assertIsNone(s['printed_number'])
+        self.assertEqual((s['entry_code'], s['generation_local'], s['guide_lokal_id']), ('I', 1, 'I.Første.U1'))
+        self.assertEqual(set(s['header_ids']), {'linje', 'slaegtled'})
+        self.assertEqual(placement(m, 'B')['generation_local'], 2)
+        self.assertTrue(all(m['invariants'].values()), m['invariants'])
+        self.assertEqual(m['alignment']['parret_stamfader'], 1)
+
+    def test_nummer_tabt_i_rendition(self):
+        rend = [l.replace('2.  Carl', 'Carl') for l in unspace(GUIDE_U)]
+        m = build39(guide=GUIDE_U, rend=rend, records=[rec(rend, '1.  Bent', 'B'),
+                    rec(rend, 'Carl, f. 1632', 'C'), rec(rend, 'Anders Testesen', 'S')])
+        c = placement(m, 'C')
+        self.assertEqual((c['status'], c['reasons']), ('unresolved', ['nummer_tabt_i_rendition']))
+        self.assertEqual(c['guide_nr_label'], '2')
+        self.assertIsNone(c['printed_number'])
+        self.assertEqual(placement(m, 'S')['status'], 'machine_ok')
+        self.assertEqual(m['alignment']['parret_nummereret'], 1)
+
+    def test_oversigtspost_er_uden_post(self):
+        guide = GUIDE_U + OVERSIGT_LINJER
+        rend = unspace(guide)
+        m = build39(guide=guide, rend=rend, records=recs_u(rend, [('Per Uden', 'O1'), ('Rasmus Uden', 'O2')]))
+        for key in ('O1', 'O2'):
+            self.assertEqual((placement(m, key)['status'], placement(m, key)['reasons']), ('unresolved', ['uden_post']))
+        self.assertEqual(m['alignment']['parret_oversigt'], 2)
+        self.assertEqual(placement(m, 'B')['status'], 'machine_ok')
+
+    def test_uparret_hul_med_og_uden_persona(self):
+        guide = GUIDE_U + OVERSIGT_LINJER[:3]            # kun én oversigtspost i guiden
+        rend = unspace(GUIDE_U + OVERSIGT_LINJER)        # men to i renditionen
+        recs = recs_u(rend, [('Per Uden', 'O1'), ('Rasmus Uden', 'O2')])
+        recs[2]['persona'] = True
+        m = build39(guide=guide, rend=rend, records=recs)
+        o1, o2 = placement(m, 'O1'), placement(m, 'O2')
+        self.assertEqual((o1['status'], o1['reasons']), ('unresolved', ['ikke_parret']))
+        self.assertEqual(o1['guide_kandidater'], ['Oversigt.Uplacerede.U1'])
+        self.assertEqual((o2['status'], o2['reasons']), ('unresolved', ['uden_post']))
+        self.assertEqual(m['alignment']['uparret'], 2)
+
+    def test_to_stamfaedre_samme_section_path_bryder_invariant(self):
+        guide = GUIDE_U[:5] + ['                                   I.', 'A n d e r s  T e s t e s e n ,  f. 1590.',
+                               '', '                      ' + BESKRIVELSE, 'S v e n d  T e s t e s e n ,  f. 1591.'] + GUIDE_U[7:]
+        rend = unspace(guide)
+        m = build39(guide=guide, rend=rend,
+                    records=recs_u(rend, [('Anders Testesen', 'S1'), ('Svend Testesen', 'S2')]))
+        s1, s2 = placement(m, 'S1'), placement(m, 'S2')
+        self.assertEqual((s1['status'], s2['status']), ('machine_ok', 'machine_ok'), (s1['reasons'], s2['reasons']))
+        self.assertEqual(s1['section_path'], s2['section_path'])
+        self.assertFalse(m['invariants']['section_path_nr_unik'])
+
+    def test_summary_uden_tekst(self):
+        guide = GUIDE_U + OVERSIGT_LINJER
+        rend = unspace(guide)
+        m = build39(guide=guide, rend=rend, records=recs_u(rend, [('Anders Testesen', 'S'), ('Per Uden', 'O1')]))
+        s = bhm.summary(m)
+        a = s['alignment']
+        for k in ('unummererede', 'parret_stamfader', 'parret_nummereret', 'parret_oversigt', 'uparret'):
+            self.assertIsInstance(a[k], int, k)
+        txt = repr(s)
+        for ord_ in ('Oversigt', 'Uplacerede', 'U1', 'Anders', 'Testesen', 'Uden'):
+            self.assertNotIn(ord_, txt)
 
 
 if __name__ == '__main__':
