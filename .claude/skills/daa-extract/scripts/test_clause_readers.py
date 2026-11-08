@@ -39,6 +39,8 @@ ALLOWED = {
     # Læser kun helposten (parent_observation_id IS NULL), ikke klausuler.
     ".claude/skills/daa-extract/scripts/export_clause_source_texts.R",
     ".claude/skills/daa-extract/scripts/export_model_eligibility.R",
+    # 6d-1 placement-eksport: læser kun helposten (parent_observation_id IS NULL) som recordens primary-persona, ikke klausuler.
+    ".claude/skills/daa-extract/scripts/placement_eksport.sql",
     # Kildetekst-revisionens afhængighedsfil (trin 6a): bestemmer det aktuelle sæt som writeren
     # (max clause_set_seq under helposten) og hasher det med private.clause_set_sha256; afhængighederne
     # læses gennem private.text_revision_dependents (clause_observation_current).

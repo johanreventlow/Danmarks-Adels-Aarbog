@@ -487,10 +487,13 @@ def _next_sig(lines: list[str], i: int) -> int | None:
     return j if j < len(lines) else None
 
 
+RECORD_NR_1939_RE = re.compile(r'^\s{0,6}\??\s{0,2}(\d{1,3})\s*([a-z]?)\s*[.,]\s')
+
+
 def _window_1939(tab: dict[str, Any], w0: int, w1: int) -> list[int]:
-    """Linjeindeks i [w0, w1) uden tomme linjer og sidemarkører."""
+    """Linjeindeks for linjer der skærer [w0, w1), uden tomme linjer og sidemarkører."""
     out = []
-    i = bisect.bisect_left(tab['bases'], w0)
+    i = max(bisect.bisect_right(tab['bases'], w0) - 1, 0)
     while i < len(tab['lines']) and tab['bases'][i] < w1:
         line = tab['lines'][i]
         if line.strip() and not segment.PAGE_RE.match(line):
@@ -652,9 +655,21 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
     levels = profile['levels']
     rtext, gtext = rendition_bytes.decode('utf-8'), guide_bytes.decode('utf-8')
     guide = _scan_1939(gtext, gp, stamme_level)
-    rend = _scan_1939(rtext, gp, stamme_level)
-    g_posts, r_posts, g_headers = guide['posts'], rend['posts'], guide['headers']
-    rtab = rend['tab']
+    g_posts, g_headers = guide['posts'], guide['headers']
+    rtab = _text_table(rtext)
+    # Renditionens "post" er recorden selv: en record begynder ved sin char_from med postnummeret.
+    r_posts: list[dict[str, Any]] = []
+    unnumbered: set[str] = set()
+    post_index: dict[str, int] = {}
+    for rec in sorted(records, key=lambda r: (r['char_from'], r['record_key'])):
+        m = RECORD_NR_1939_RE.match(rtext[rec['char_from']:rec['char_from'] + 40])
+        if m is None:
+            unnumbered.add(rec['record_key'])
+            continue
+        if not r_posts or r_posts[-1]['char_from'] != rec['char_from']:   # records på samme sted = én post
+            r_posts.append({'nr': int(m.group(1)), 'nr_label': m.group(1) + m.group(2),
+                            'char_from': rec['char_from']})
+        post_index[rec['record_key']] = len(r_posts) - 1
     align = _align_1939(g_posts, r_posts)
     rev_align = {r: g for g, r in align.items()}
 
@@ -669,11 +684,7 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
         prev = aligned_idx[pos - 1] if pos > 0 else None
         nxt = aligned_idx[pos] if pos < len(aligned_idx) else None
         w1 = rtab['size'] if nxt is None else r_posts[align[nxt]]['char_from']
-        if prev is None:
-            w0 = 0
-        else:
-            after = r_posts[align[prev]]['line'] + 1      # vinduet starter efter prev-postens nummerlinje
-            w0 = rtab['bases'][after] if after < len(rtab['bases']) else rtab['size']
+        w0 = 0 if prev is None else r_posts[align[prev]]['char_from']
         hit = _locate_1939(h, rtab, _window_1939(rtab, w0, w1), gp)
         if hit is None:
             located[h['gid']] = None
@@ -724,8 +735,7 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
         if p['h_slg'] in falling:
             post_reasons.setdefault(gi, []).append('slaegtled_ikke_monoton')
 
-    # --- records → poster (spænd: nummerlinjen til næste post) ---
-    starts = [p['char_from'] for p in r_posts]
+    # --- records → placeringer (struktur fra den alignede guide-post) ---
     placements: list[dict[str, Any]] = []
     disagreements: list[dict[str, Any]] = []
     persona_keys: set[str] = set()
@@ -737,12 +747,15 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
             'generation_global': None, 'kuld_label': None, 'section_path': [], 'header_ids': {},
             'record_kind': rec.get('record_kind'), 'post_char_from': None, 'guide_lokal_id': None,
         }
-        ri = bisect.bisect_right(starts, rec['char_from']) - 1
-        if ri < 0:
+        if rec['record_key'] in unnumbered:
             placements.append({**base, 'status': 'unresolved', 'reasons': ['uden_post']})
             continue
+        ri = post_index[rec['record_key']]
         rpost = r_posts[ri]
-        base.update(printed_number=rpost['nr_label'], page=rpost['page'], post_char_from=rpost['char_from'])
+        line_i = max(bisect.bisect_right(rtab['bases'], rpost['char_from']) - 1, 0)
+        base.update(printed_number=rpost['nr_label'], post_char_from=rpost['char_from'],
+                    page=rtab['pages'][line_i] if rtab['pages'] and rtab['pages'][line_i] is not None
+                    else rec.get('page_from'))
         gi = rev_align.get(ri)
         if gi is None:
             placements.append({**base, 'status': 'unresolved', 'reasons': ['ikke_alignet']})
@@ -861,7 +874,7 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
         'invariants': invariants,
         'disagreements': sorted(disagreements, key=lambda d: (str(d['record_key']), d['field'])),
         'transfer': transfer,
-        'alignment': {'guide_posts': len(g_posts), 'rendition_posts': len(r_posts), 'aligned': len(align)},
+        'alignment': {'guide_posts': len(g_posts), 'rendition_posts': len(r_posts), 'uden_nummer': len(unnumbered), 'aligned': len(align)},
     }
 
 

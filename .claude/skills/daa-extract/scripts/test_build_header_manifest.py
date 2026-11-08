@@ -314,8 +314,9 @@ class Test1939(unittest.TestCase):
                                          'kuld': {'guide': 2, 'genfundet': 2, 'ikke_genfundet': 0}})
 
     def test_record_efter_offset(self):
+        # postens koordinater er recordens egen char_from; to records på samme char_from deler dem lovligt
         rend = calamari(GUIDE)
-        recs = records_for(rend) + [rec(rend, 'Boede paa', 'A-fakta', kind='fact')]
+        recs = records_for(rend) + [dict(rec(rend, '1.  Anna', 'A-fakta', kind='fact'), persona=False)]
         m = build39(records=recs)
         a, fact = placement(m, 'A'), placement(m, 'A-fakta')
         for k in ('printed_number', 'section_path', 'post_char_from', 'entry_code', 'generation_local'):
@@ -323,6 +324,27 @@ class Test1939(unittest.TestCase):
         self.assertEqual(fact['record_kind'], 'fact')
         self.assertEqual(fact['status'], 'machine_ok')
         self.assertTrue(m['invariants']['section_path_nr_unik'])
+
+    def test_poster_uden_linjeskift(self):
+        rend = calamari(GUIDE)
+        k = rend.index('1.  Bent, f. 1630.')
+        rend[k:k + 2] = ['1.  Bent, f. 1630. 2.  Carl, f. 1632.']
+        m = build39(rend=rend)
+        b, c = placement(m, 'B'), placement(m, 'C')
+        self.assertEqual((b['printed_number'], c['printed_number']), ('1', '2'))
+        self.assertNotEqual(b['post_char_from'], c['post_char_from'])
+        self.assertEqual((b['status'], c['status']), ('machine_ok', 'machine_ok'), (b['reasons'], c['reasons']))
+        self.assertEqual((b['generation_local'], c['kuld_label']), (2, 'I'))
+        self.assertTrue(all(m['invariants'].values()), m['invariants'])
+
+    def test_record_uden_nummer_er_uden_post(self):
+        rend = calamari(GUIDE)
+        recs = records_for(rend) + [rec(rend, 'Boede paa', 'U')]
+        m = build39(records=recs)
+        u = placement(m, 'U')
+        self.assertEqual((u['status'], u['reasons']), ('unresolved', ['uden_post']))
+        self.assertIsNone(u['printed_number'])
+        self.assertEqual(placement(m, 'A')['status'], 'machine_ok')
 
     def test_overskrift_ikke_fundet_er_unresolved(self):
         rend = calamari(GUIDE)       # kun den første slægtledslinje fjernes (den anden står på side 501)
@@ -350,7 +372,7 @@ class Test1939(unittest.TestCase):
         guide = GUIDE[:6] + ['2.  Extra, f. 1601.'] + GUIDE[6:]
         rend = calamari(GUIDE)
         m = build39(guide=guide, rend=rend)
-        self.assertEqual(m['alignment'], {'guide_posts': 6, 'rendition_posts': 5, 'aligned': 5})
+        self.assertEqual(m['alignment'], {'guide_posts': 6, 'rendition_posts': 5, 'uden_nummer': 0, 'aligned': 5})
         self.assertTrue(all(p['status'] == 'machine_ok' for p in m['placements']), m['placements'])
         # en post kun i renditionen: recorden i den kan ikke føres til guiden
         rend2 = calamari(GUIDE)
@@ -450,8 +472,8 @@ class Test1939(unittest.TestCase):
     def test_flere_personas_i_post_er_unresolved(self):
         rend = calamari(GUIDE)
         a = dict(rec(rend, '1.  Anna', 'A'), persona=True)
-        a2 = dict(rec(rend, 'Boede paa', 'A2'), persona=True)
-        fact = dict(rec(rend, 'Boede paa', 'A-fakta', kind='fact'), persona=False)
+        a2 = dict(rec(rend, '1.  Anna', 'A2'), persona=True)       # samme fysiske post
+        fact = dict(rec(rend, '1.  Anna', 'A-fakta', kind='fact'), persona=False)
         others = [dict(r, persona=True) for r in records_for(rend)[1:]]
         m = build39(records=[a, a2] + others)
         for key in ('A', 'A2'):
