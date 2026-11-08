@@ -666,3 +666,128 @@ def test_stier_uden_for_private_root_afvises(tmp_path, capsys):
     assert ta.main(["noegler", "--afstemning", str(tmp_path / "a.json"), "--out", str(tmp_path / "k.txt"),
                     "--private-root", str(tmp_path / "andet")]) == 1
     assert capsys.readouterr().out.startswith("SHEET_PATH_NOT_PRIVATE")
+
+
+# --- fixrunde 1 -----------------------------------------------------------------------------------------------------
+
+def test_ubundet_relation_kraever_parterne():
+    """En ubunden relationsnøgle (ingen binding) følger kvitterings-writerens partsben: før parterne afventer den, og
+    en udskrift, der påstår genfundet med samme værdi men en anden principal-part, afvises (writeren ville afvise
+    kvitteringen efter bindingerne)."""
+    g = [gammel(1, art="ubundet_relation", predicate="relation.parent", persona=None, principal="I-9#p",
+                kandidater=[key(101)])]
+    n = [ny(101, predicate="relation.parent", persona=None, principal="I-9#p")]
+    assert afstemning(g, n, fase="foer_parter")["gamle"][0]["udfald"] == "afventer"
+    assert afstemning(g, n)["gamle"][0]["udfald"] == "genfundet"
+    ta.laes_afstemning(afstemning(g, n))
+    n_anden = [ny(101, predicate="relation.parent", persona=None, principal="I-10#p")]
+    with pytest.raises(ta.AfstemningError, match="AFSTEMNING_JSON_UGYLDIG"):
+        ta.laes_afstemning(afstemning(g, n_anden))
+    # Den rigtige udskrift (SQL'ens kontrakt kræver samme principal) har ingen kandidat: ikke genfundet.
+    g[0]["kandidater"] = []
+    assert afstemning(g, n_anden)["gamle"][0]["udfald"] == "ikke_genfundet"
+    # Ægteskab: samme principal, anden ægtefælle-part → afvist.
+    gm = [gammel(2, art="ubundet_relation", predicate="relation.marriage", persona=None, principal="I-9#p",
+                 modpart="I-9#rel-marriage-1-2", kandidater=[key(102)])]
+    nm = [ny(102, predicate="relation.marriage", persona=None, principal="I-9#p", modpart="I-9#rel-marriage-5-2")]
+    with pytest.raises(ta.AfstemningError, match="AFSTEMNING_JSON_UGYLDIG"):
+        ta.laes_afstemning(afstemning(gm, nm))
+
+
+def _match_base(idf, n_match):
+    k = _klassifikation([(idf(i), "MATCH") for i in range(1, n_match + 1)])
+    rows = [_row(idf(i), persona=per(i)) for i in range(1, n_match + 1)]
+    idk = {**_idkort([(idf(i), key(i)) for i in range(1, n_match + 1)],
+                     [(per(i), f"I-{i}#p", 10 + i) for i in range(1, n_match + 1)]),
+           "afgraenset": True, "noegler_sha256": "5" * 64}
+    return k, rows, idk
+
+
+def _plan_strata(tmp, navn, k, rows, oevrige):
+    d = tmp / navn
+    d.mkdir()
+    out = subprocess.run([sys.executable, CM_SCRIPT, "plan", "--classification", str(_skriv(d / "k.json", k)),
+                          "--rows", str(_skriv(d / "r.json", rows)), "--source-id", str(SRC),
+                          "--strata-ubekraeftet", "0", "--strata-oevrige", str(oevrige), "--out-dir", str(d / "plan")],
+                         capture_output=True, text=True)
+    assert out.returncode == 0, out.stdout + out.stderr
+    return d / "plan"
+
+
+@pytest.mark.parametrize("n_match,oevrige,kode", [(21, 20, "KORT_MATCH_OVER_GRAENSE"),
+                                                   (3, 2, "KORT_STIKPROEVE_IKKE_ALLE_MATCH")])
+def test_match_loft_og_maskinkandidater_stopper(tmp_path, capsys, n_match, oevrige, kode):
+    k, rows, idk = _match_base(sid, n_match)
+    pd = _plan_strata(tmp_path, "standin", k, rows, oevrige)
+    plan, _ = v2._load_plan(pd)
+    assert plan["machine_candidates"]           # plan_run_v2's udtryk for MATCH uden menneskeligt svar
+    ark = _besvar(plan, {r["interpretation_id"]: "B" for r in plan["rows_kontrol"]})
+    capsys.readouterr()
+    _kortsvar(tmp_path, pd, ark, idk, rc=1)
+    assert capsys.readouterr().out.startswith(kode)
+    # oversaet på prods plan stopper på samme måde (før sammenligningen).
+    kp, rowsp, idkp = _match_base(pid_, n_match)
+    pp = _plan_strata(tmp_path, "prod", kp, rowsp, oevrige)
+    with pytest.raises(ta.AfstemningError, match=kode):
+        plan_p, meta_p = v2._load_plan(pp)
+        ta.oversaet(fakta_svar(), plan_p, meta_p, idkp)
+
+
+def test_svar_med_maskinkandidater_eller_over_loftet_afvises():
+    g, n = fakta_post()
+    a = afstemning(g, n)
+    with pytest.raises(ta.AfstemningError, match="KORT_STIKPROEVE_IKKE_ALLE_MATCH"):
+        ta.forventet(a, fakta_svar(maskine=[key(101)]), rel_svar())
+    s = fakta_svar([(key(101), "MATCH", "B")])
+    s["plan"]["match"] = [[key(900 + i), 1] for i in range(21)]
+    with pytest.raises(ta.AfstemningError, match="KORT_MATCH_OVER_GRAENSE"):
+        ta.forventet(a, s, rel_svar())
+
+
+def test_tilbagetraek_html(tmp_path, capsys):
+    a, s, r = blandet_post()
+    a["gamle"][1]["record_key"] = "I-11"          # to poster: den tilbagetrukne titel ligger på I-11
+    r2 = rel_svar([(key(103), "relation.child", "R")])   # barnet afvises → også på arket
+    kontekst = {"contract": ta.KONTEKST_CONTRACT, "poster": [
+        {"element_id": "source-text-revision:I-9", "record_key": "I-9", "side_fra": 12, "side_til": 13,
+         "tekst": "Gift <med> A & \"B\"."},
+        {"element_id": "source-text-revision:I-11", "record_key": "I-11", "side_fra": 40, "side_til": 40,
+         "tekst": "Kammerherre <script>x</script>"}]}
+    for navn, obj in (("a.json", a), ("s.json", s), ("r.json", r2), ("k.json", kontekst)):
+        _skriv(tmp_path / navn, obj)
+    fl = ["--afstemning", str(tmp_path / "a.json"), "--fakta-svar", str(tmp_path / "s.json"), "--relationssvar",
+          str(tmp_path / "r.json"), "--private-root", str(tmp_path)]
+    capsys.readouterr()
+    assert ta.main(["tilbagetraek-ark", *fl, "--out", str(tmp_path / "tv.txt")]) == 0
+    assert ta.main(["tilbagetraek-html", *fl, "--kontekst", str(tmp_path / "k.json"),
+                    "--out", str(tmp_path / "tv.html")]) == 0
+    ud = capsys.readouterr().out
+    assert "Gift" not in ud and "Kammerherre" not in ud and "TILBAGETRAEK_HTML_OK linjer=2" in ud
+    h = (tmp_path / "tv.html").read_text()
+    sheet_refs = refs((tmp_path / "tv.txt").read_text())
+    assert sheet_refs == [ref(2, "assertion", 901), ref(3, "family", 77)]   # (post, prædikat, ref)-orden
+    assert re.findall(r'<section data-ref="([^"]+)">', h) == sheet_refs
+    assert "&lt;med&gt; A &amp; &quot;B&quot;." in h and "<med>" not in h and "<script>" not in h
+    assert "side 12–13" in h and "side 40" in h and "default-src 'none'" in h
+    assert (tmp_path / "tv.html").stat().st_mode & 0o777 == 0o600
+    grundlag = re.search(r"# grundlag_sha256: (\w+)", (tmp_path / "tv.txt").read_text())[1]
+    assert f"grundlag_sha256: {grundlag}" in h
+    # En post uden kontekst stopper.
+    _skriv(tmp_path / "k.json", {**kontekst, "poster": kontekst["poster"][:1]})
+    capsys.readouterr()
+    assert ta.main(["tilbagetraek-html", *fl, "--kontekst", str(tmp_path / "k.json"),
+                    "--out", str(tmp_path / "tv2.html")]) == 1
+    assert capsys.readouterr().out.startswith("TILBAGETRAEK_KONTEKST_MANGLER")
+
+
+def test_parter_logisk_hasher_aarene(tmp_path):
+    m = _manifest("cccccccc-0000-4000-8000-000000000001")
+    m["authorized_elements"][f"relation-persona:{key(1)}"]["birth_raw"] = "1850"
+    _skriv(tmp_path / "m.json", m)
+    _skriv(tmp_path / "in.json", _input("cccccccc-0000-4000-8000-000000000001"))
+    assert ta.main(["parter-logisk", "--manifest", str(tmp_path / "m.json"), "--input", str(tmp_path / "in.json"),
+                    "--out", str(tmp_path / "l.json"), "--private-root", str(tmp_path)]) == 0
+    lg = json.loads((tmp_path / "l.json").read_text())
+    assert "1850" not in json.dumps(lg) and "birth_raw" not in json.dumps(lg)
+    e1 = next(e for e in lg["elementer"] if e["interpretation_key"] == key(1))
+    assert re.fullmatch(r"[0-9a-f]{64}", e1["birth_sha256"]) and e1["death_sha256"] is None

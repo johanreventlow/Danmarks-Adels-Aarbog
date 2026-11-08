@@ -11,7 +11,9 @@
 --     afgørelsen har skrevet en forælderpart, skal den være den gamle nøgles, og relation_binding_state's familie den
 --     gamle (efter afgørelsen);
 --   barn: samme principal, og relation_child_rule's familie = den gamle;
---   ubundet (ingen binding i binding_loss): samme persona + prædikat og saml_blanktegn_v1-lige værdier.
+--   ubundet (ingen binding i binding_loss): samme persona + prædikat og saml_blanktegn_v1-lige værdier; for
+--     relationer (art ubundet_relation) desuden kvitterings-writerens partsben: samme principal-part og, for
+--     ægteskaber, samme ægtefælle-part (IS NOT DISTINCT FROM, som writeren) — og afventer før parterne.
 -- En kandidat er en ny nøgle på samme post med samme prædikat og art, hvis gældende status ikke er rejected eller
 -- superseded. Genfundet = præcis én kandidat, som ingen anden forældet nøgle også har; tvetydig eller ingen →
 -- ikke_genfundet; relationer i fase foer_parter → afventer. Pr. binding: ny_binding = den genfundne nye nøgle har en
@@ -90,6 +92,7 @@ WITH prm AS (
                 CASE cur.predicate WHEN 'relation.marriage' THEN 'aegteskab' WHEN 'relation.parent' THEN 'foraelder'
                                    WHEN 'relation.child' THEN 'barn' ELSE 'ukendt' END
               WHEN EXISTS (SELECT 1 FROM gb WHERE gb.key=k::uuid) THEN 'ukendt'
+              WHEN cur.interpretation_kind='relation' THEN 'ubundet_relation'
               ELSE 'ubundet' END AS art
     FROM ev
     CROSS JOIN LATERAL jsonb_array_elements_text(ev.sk) k
@@ -151,10 +154,13 @@ WITH prm AS (
 ), par AS (
   SELECT g.key AS gammel,n.key AS ny,
     (CASE g.art
+      -- Fail-closed: hver påstandsbinding skal have sin gba-række (promotion + regel + påstand) med en match.
       WHEN 'fakta' THEN n.persona_id=g.persona_id
-        AND NOT EXISTS (SELECT 1 FROM gba WHERE gba.key=g.key
-                         AND private.binding_value_matches(gba.value_kind,n.value,gba.vaerdi_tekst,gba.date_raw)
-                             IS NOT TRUE)
+        AND EXISTS (SELECT 1 FROM gba WHERE gba.key=g.key)
+        AND NOT EXISTS (SELECT 1 FROM gb WHERE gb.key=g.key AND gb.target_type='assertion'
+                         AND NOT EXISTS (SELECT 1 FROM gba WHERE gba.key=gb.key AND gba.target_id=gb.target_id
+                                          AND private.binding_value_matches(gba.value_kind,n.value,gba.vaerdi_tekst,
+                                                                            gba.date_raw) IS TRUE))
       WHEN 'aegteskab' THEN n.principal=g.principal AND n.spouse=g.spouse AND n.ordinal=g.ordinal
         AND NOT EXISTS (SELECT 1 FROM gb WHERE gb.key=g.key AND n.st_familie IS DISTINCT FROM gb.target_id)
       WHEN 'foraelder' THEN n.principal=g.principal AND n.foraelder_familie IS NOT NULL
@@ -164,6 +170,11 @@ WITH prm AS (
       WHEN 'barn' THEN n.principal=g.principal
         AND NOT EXISTS (SELECT 1 FROM gb WHERE gb.key=g.key AND n.barn_familie IS DISTINCT FROM gb.target_id)
       WHEN 'ubundet' THEN n.persona_id IS NOT DISTINCT FROM g.persona_id
+        AND CASE WHEN g.vt IS NULL OR n.vt IS NULL THEN g.value=n.value
+                 ELSE private.saml_blanktegn_v1(g.vt)=private.saml_blanktegn_v1(n.vt) END
+      WHEN 'ubundet_relation' THEN n.persona_id IS NOT DISTINCT FROM g.persona_id
+        AND n.principal IS NOT DISTINCT FROM g.principal
+        AND (g.predicate<>'relation.marriage' OR n.spouse IS NOT DISTINCT FROM g.spouse)
         AND CASE WHEN g.vt IS NULL OR n.vt IS NULL THEN g.value=n.value
                  ELSE private.saml_blanktegn_v1(g.vt)=private.saml_blanktegn_v1(n.vt) END
       ELSE false END) IS TRUE AS ok
@@ -181,10 +192,10 @@ WITH prm AS (
     FROM gv g
 ), udf2 AS (
   SELECT u.key,u.kandidater,
-         CASE WHEN (SELECT fase FROM prm)='foer_parter' AND g.art IN ('aegteskab','foraelder','barn') THEN 'afventer'
+         CASE WHEN (SELECT fase FROM prm)='foer_parter' AND g.art IN ('aegteskab','foraelder','barn','ubundet_relation') THEN 'afventer'
               WHEN u.n=1 AND (SELECT count(*) FROM okp o WHERE o.ny::text=u.ny1)=1 THEN 'genfundet'
               ELSE 'ikke_genfundet' END AS udfald,
-         CASE WHEN (SELECT fase FROM prm)='foer_parter' AND g.art IN ('aegteskab','foraelder','barn') THEN 'afventer_parter'
+         CASE WHEN (SELECT fase FROM prm)='foer_parter' AND g.art IN ('aegteskab','foraelder','barn','ubundet_relation') THEN 'afventer_parter'
               WHEN u.n=0 THEN 'ingen' WHEN u.n>1 THEN 'flere'
               WHEN (SELECT count(*) FROM okp o WHERE o.ny::text=u.ny1)>1 THEN 'delt' END AS grund,
          u.ny1

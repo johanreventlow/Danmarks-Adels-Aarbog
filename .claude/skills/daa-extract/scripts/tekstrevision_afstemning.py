@@ -20,6 +20,7 @@ Kommandoer (alle filer under `--private-root`, standard ~/.private; output 0600;
   parter-sammenlign prods manifest mod det logiske fra stand-in'en (PARTER_AFVIGER)
   tilbagetraek-ark T/V-arket over de bindinger, der efter fakta- og relationssvarene ikke genbindes
   tilbagetraek-tjek T/V-arket læst og kontrolleret (ubesvarede/ukendte linjer afvises)
+  tilbagetraek-html T/V-arkets kontekst (post, side, prædikat, posttekst) som lokal HTML-side (eneste sted med bogtekst)
   kvittering-sql   afstemningskvitteringen (ét kald til private.write_text_revision_reconciliation) + preflight
 
 Hash-kæden (spec §4.5): `oversaet` er deterministisk fra (svar.json, prods plan og id-kort); GO binder svar.json; kvit-
@@ -30,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import re
 from collections import Counter
@@ -53,11 +55,16 @@ RELATIONSSVAR_CONTRACT = "tekstrevision-relationssvar-v1"
 PARTER_CONTRACT = "tekstrevision-parter-logisk-v1"
 GRUNDLAG_CONTRACT = "tekstrevision-grundlag-v1"
 TILBAGETRAEK_CONTRACT = "tekstrevision-tilbagetraek-v1"
+KONTEKST_CONTRACT = "tekstrevision-tilbagetraek-kontekst-v1"
 KVITTERING_CONTRACT = "tekstrevision-kvittering-v1"
 
 FASER = ("foer_parter", "efter_parter", "efter_afgoerelser")
 RELATIONSARTER = ("aegteskab", "foraelder", "barn")
-ARTER = ("fakta", "ubundet", "ukendt") + RELATIONSARTER
+ARTER = ("fakta", "ubundet", "ubundet_relation", "ukendt") + RELATIONSARTER
+#: Arter, hvis kontrakt kræver parterne (relationer, også ubundne): afventer i fase foer_parter.
+AFVENTER_ARTER = RELATIONSARTER + ("ubundet_relation",)
+#: Global constraint (plan): stikprøven er alle MATCH (--strata-ubekraeftet 0 --strata-oevrige 20); flere → stop.
+MATCH_LOFT = 20
 UDFALD = ("genfundet", "ikke_genfundet", "afventer")
 #: Klassifikationens faste klasser (interpretation_control_classification.sql); de to nye kun, når de forekommer.
 BASIS_KLASSER = CLASSES
@@ -66,7 +73,6 @@ UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 T_RE = re.compile(rf"^T (?P<ref>(?P<key>{UUID})@(?P<type>assertion|family):(?P<id>-?[0-9]+)) : (?P<tok>\S+)"
                   r"(?:\s+#.*)?$")
 GRUNDLAG_RE = re.compile(r"^# grundlag_sha256: ([0-9a-f]{64})$", re.M)
-RESET = "SELECT set_config('app.change_set_id','',true) \\g /dev/null"
 
 
 class AfstemningError(RuntimeError):
@@ -101,12 +107,12 @@ def _int(x) -> int:
 
 def udled_udfald(gamle: list, fase: str) -> dict:
     """Udfaldet af kandidatmængderne, samme regel som SQL'en: præcis én kandidat, som ingen anden forældet nøgle også
-    har → genfundet; relationer før parterne → afventer; ellers ikke_genfundet (ingen, flere eller delt kandidat)."""
+    har → genfundet; relationer (også ubundne) før parterne → afventer; ellers ikke_genfundet (ingen, flere eller delt kandidat)."""
     krav = Counter(n for g in gamle for n in g["kandidater"])
     ud = {}
     for g in gamle:
         k = g["kandidater"]
-        if fase == "foer_parter" and g["art"] in RELATIONSARTER:
+        if fase == "foer_parter" and g["art"] in AFVENTER_ARTER:
             ud[g["interpretation_key"]] = ("afventer", None, "afventer_parter")
         elif len(k) == 1 and krav[k[0]] == 1:
             ud[g["interpretation_key"]] = ("genfundet", k[0], None)
@@ -145,6 +151,17 @@ def laes_afstemning(a, *, fase: str | None = None) -> dict:
             u, n, _ = udf[g["interpretation_key"]]
             if (g["udfald"], g.get("ny_noegle")) != (u, n):
                 raise fejl
+            # Kvitterings-writerens partsben (schema.sql, write_text_revision_reconciliation regel 3), her på
+            # persona_key'er: relationer samme principal-part (ægteskaber også ægtefælle-part), ellers samme persona.
+            # En udskrift, der påstår genfundet uden dem, ville først fejle i kvitteringen efter bindingerne.
+            if u == "genfundet":
+                nn = n_by[n]
+                if g["art"] in AFVENTER_ARTER:
+                    if nn["principal"] != g["principal"] or (g["predicate"] == "relation.marriage"
+                                                             and nn["modpart"] != g["modpart"]):
+                        raise fejl
+                elif nn["persona"] != g["persona"]:
+                    raise fejl
         fra_gamle = sorted((b["promotion_id"], g["interpretation_key"], b["target_type"], b["target_id"])
                            for g in gamle for b in g["bindinger"])
         fra_bind = sorted((b["promotion_id"], b["gammel_noegle"], b["target_type"], b["target_id"]) for b in bindinger)
@@ -177,8 +194,10 @@ def _laes_fakta(s) -> dict:
                 raise fejl
         if any(p["svar"] != "-" for p in s["personas"]):
             raise AfstemningError("KORT_P_STOPPER")
-        for k, _ in s["plan"]["maskine"]:
-            _uuid(k)
+        if len(s["plan"]["match"]) > MATCH_LOFT:
+            raise AfstemningError(f"KORT_MATCH_OVER_GRAENSE match={len(s['plan']['match'])} loft={MATCH_LOFT}")
+        if s["plan"]["maskine"]:
+            raise AfstemningError(f"KORT_STIKPROEVE_IKKE_ALLE_MATCH maskine={len(s['plan']['maskine'])}")
     except (KeyError, TypeError, ValueError):
         raise fejl from None
     return s
@@ -201,7 +220,7 @@ def _laes_rel(r) -> dict:
 
 
 def _skaebner(a: dict, fakta: dict, rel: dict) -> dict:
-    """Hvad der sker med hver ny nøgle efter svarene: bundet (MATCH/maskine), bundet_rettelse (B på REAL_DIFF eller
+    """Hvad der sker med hver ny nøgle efter svarene: bundet (MATCH, altid stikprøve), bundet_rettelse (B på REAL_DIFF eller
     SKRIVEMAADE: påstanden rettes, så bindes), afvist (D, R), uafklaret (V), accepteret (B på forælder/barn), forslag."""
     nye = {n["interpretation_key"]: n for n in a["nye"]}
     s = {}
@@ -215,11 +234,6 @@ def _skaebner(a: dict, fakta: dict, rel: dict) -> dict:
             s[f["interpretation_key"]] = "bundet"
         else:
             s[f["interpretation_key"]] = {"B": "bundet_rettelse", "D": "afvist", "V": "uafklaret"}[f["svar"]]
-    for k, ver in fakta["plan"]["maskine"]:
-        n = nye.get(k)
-        if n is None or n["version"] != ver or k in s:
-            raise AfstemningError("SVAR_NOEGLE_UKENDT")
-        s[k] = "bundet"
     for i in rel["items"]:
         n = nye.get(i["interpretation_key"])
         if n is None or n["version"] != i["version"] or n["predicate"] != i["predicate"]:
@@ -325,7 +339,7 @@ def tilbagetraek_ark(a: dict, fakta: dict, rel: dict) -> str:
            "# Hver linje er en kildehenvisning, læseren ser i dag, som efter dine svar på faktakortene og",
            "# relationsarkene ikke får en ny binding mod samme mål. Begge svar trækker henvisningen tilbage:",
            "#   T = tilbagetræk · V = ved ikke (kvitteres som »ved ikke«).",
-           "# Konteksten (posttekst og side) står på den lokale HTML-side.",
+           "# Konteksten (post, side, prædikat og posttekst) står på HTML-siden fra `tilbagetraek-html` (samme grundlag).",
            f"# grundlag_sha256: {grundlag}", "#"]
     out += [f"T {x['ref']} : _  # {x['record_key']}, {x['predicate']}" for x in rest]
     return "\n".join(out) + "\n"
@@ -351,6 +365,47 @@ def parse_tilbagetraek(text: str, a: dict, fakta: dict, rel: dict) -> dict:
     if set(svar) != {x["promotion_id"] for x in rest}:
         raise AfstemningError(f"TILBAGETRAEK_LINJER_MANGLER antal={len(rest) - len(svar)}")
     return svar
+
+
+def tilbagetraek_html(a: dict, fakta: dict, rel: dict, kontekst: dict) -> str:
+    """T/V-arkets kontekst som 6c-2's kort: én sektion pr. T-linje (samme refs og samme grundlag_sha256 som arket) med
+    post, side, prædikat og postens gældende tekst. Teksten kommer fra `tekstrevision_tilbagetraek_kontekst.sql`
+    (læse-kun); alt HTML-escapes, og siden henter intet udefra (CSP). Det eneste sted, bogtekst står i et af
+    værktøjets output: filen skrives 0600 under --private-root og læses af mennesket, aldrig af en model."""
+    rest, grundlag = _tilbage(a, fakta, rel)
+    if not isinstance(kontekst, dict) or kontekst.get("contract") != KONTEKST_CONTRACT \
+            or not isinstance(kontekst.get("poster"), list):
+        raise AfstemningError("TILBAGETRAEK_KONTEKST_UGYLDIG")
+    poster = {}
+    for x in kontekst["poster"]:
+        if not isinstance(x, dict) or x.get("record_key") in poster:
+            raise AfstemningError("TILBAGETRAEK_KONTEKST_UGYLDIG")
+        poster[x.get("record_key")] = x
+    mangler = {x["record_key"] for x in rest} - set(poster)
+    if mangler:
+        raise AfstemningError(f"TILBAGETRAEK_KONTEKST_MANGLER poster={len(mangler)}")
+    e = html.escape
+    ud = ["<!doctype html>", '<html lang="da"><head><meta charset="utf-8">',
+          "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\">",
+          "<title>Tilbagetrækningsarket (6c-3)</title>",
+          "<style>body{font-family:system-ui,sans-serif;max-width:60rem;margin:1rem auto;padding:0 1rem}"
+          "section{border-top:1px solid #999;padding:.5rem 0}.ref{font-family:monospace;font-size:.85rem}"
+          ".tekst{white-space:pre-wrap;background:#f4f4f4;padding:.5rem .75rem;border-radius:6px}</style>",
+          "</head><body>", "<h1>Tilbagetrækningsarket (6c-3)</h1>",
+          "<p>Hver sektion er én linje på token-arket (samme rækkefølge). Svar på arket: T = tilbagetræk, "
+          "V = ved ikke. Begge trækker kildehenvisningen tilbage.</p>",
+          f'<p class="ref">grundlag_sha256: {e(grundlag)} · linjer: {len(rest)}</p>']
+    for i, x in enumerate(rest, 1):
+        post = poster[x["record_key"]]
+        fra, til = post.get("side_fra"), post.get("side_til")
+        side = "side ukendt" if fra is None else f"side {fra}" if til in (None, fra) else f"side {fra}–{til}"
+        ud += [f'<section data-ref="{e(x["ref"])}">',
+               f'<h2>{i}. Post {e(str(x["record_key"]))} · {e(side)} · {e(x["predicate"])}</h2>',
+               f'<p class="ref">T {e(x["ref"])}</p>',
+               f'<div class="tekst">{e(str(post.get("tekst") or "(ingen posttekst fundet)"))}</div>',
+               "</section>"]
+    ud.append("</body></html>")
+    return "\n".join(ud) + "\n"
 
 
 # --- relationer-sql --------------------------------------------------------------------------------------------------
@@ -660,6 +715,17 @@ def grundlag_sha256(r: dict, klasse: str, person) -> str:
     return _sha(_canon(g).encode("utf-8"))
 
 
+def tjek_stikproeve(plan: dict) -> None:
+    """Global constraint: stikprøven er ALLE MATCH, højst 20. Med --strata-ubekraeftet 0 --strata-oevrige 20 giver
+    plan_run_v2 maskinkandidater (machine_candidates) netop, når der er flere end 20 MATCH; andre strata kan trække en
+    delmængde. Begge stopper: kun et menneskes B binder (ingen maskinel accept i 6c-3)."""
+    match = {m[0] for m in plan["match"]}
+    if len(match) > MATCH_LOFT:
+        raise AfstemningError(f"KORT_MATCH_OVER_GRAENSE match={len(match)} loft={MATCH_LOFT}")
+    if plan["machine_candidates"] or set(plan["sample_ids"]) != match:
+        raise AfstemningError(f"KORT_STIKPROEVE_IKKE_ALLE_MATCH maskine={len(plan['machine_candidates'])}")
+
+
 def _plan_noegler(plan: dict, imap: dict) -> dict:
     def kv(i):
         e = imap[i]
@@ -675,6 +741,7 @@ def _plan_noegler(plan: dict, imap: dict) -> dict:
 def _felt_grundlag(plan: dict, idk: dict) -> tuple[dict, dict, dict]:
     """Pr. planfelt: (nøgle, version, klasse, grundlag); personas som (persona_key, identity_version)."""
     tjek_plan_afgraenset(plan, idk)
+    tjek_stikproeve(plan)
     imap = {e["id"]: e for e in idk["interpretations"]}
     pmap = {p["id"]: p for p in idk["personas"]}
     klasse = _klasser(plan)
@@ -738,7 +805,7 @@ def oversaet(svar: dict, plan: dict, meta: dict, idk: dict) -> str:
 
 def parter_logisk(manifest: dict, inp: dict) -> dict:
     """Pr. element: record, ny nøgle, prædikat, post_offset, spændlængde, navnets placering i spændet, ægteskabsnummer,
-    klausulsættets (indholds)hash og værdiens hash. Ingen klausul-id'er (tilfældige pr. base; Codex fund 2)."""
+    klausulsættets (indholds)hash og hashes af værdien og af årene (ingen værdier). Ingen klausul-id'er (tilfældige pr. base; Codex fund 2)."""
     try:
         rows = {r["interpretation_key"]: r for r in inp["input"]}
         el = []
@@ -753,7 +820,8 @@ def parter_logisk(manifest: dict, inp: dict) -> dict:
                        "spaend": p["span_to"] - p["span_from"], "navn": navnet,
                        "marriage_ordinal": p["marriage_ordinal"], "clause_set_seq": p["clause_set_seq"],
                        "clause_set_sha256": p["clause_set_sha256"], "profile": p["profile"],
-                       "birth_raw": p["birth_raw"], "death_raw": p["death_raw"],
+                       "birth_sha256": None if p["birth_raw"] is None else _sha(p["birth_raw"].encode("utf-8")),
+                       "death_sha256": None if p["death_raw"] is None else _sha(p["death_raw"].encode("utf-8")),
                        "vaerdi_sha256": _sha((r["raw"] or "").encode("utf-8"))})
         counts = manifest["expected_counts"]
     except (KeyError, TypeError):
@@ -828,6 +896,7 @@ def main(argv: list | None = None) -> int:
     cmd("parter-sammenlign", "--forventet", "--manifest", "--input")
     cmd("tilbagetraek-ark", "--afstemning", "--fakta-svar", "--relationssvar", "--out")
     cmd("tilbagetraek-tjek", "--afstemning", "--fakta-svar", "--relationssvar", "--ark")
+    cmd("tilbagetraek-html", "--afstemning", "--fakta-svar", "--relationssvar", "--kontekst", "--out")
     cmd("kvittering-sql", "--afstemning", "--fakta-svar", "--relationssvar", "--tilbagetraek", "--oversat-ark",
         "--out", "--preflight")
     args = ap.parse_args(argv)
@@ -903,6 +972,11 @@ def main(argv: list | None = None) -> int:
                 print(f"PARTER_AFVIGER mangler={len(wset - hset)} ekstra={len(hset - wset)}")
                 return 1
             print(f"PARTER_OK elementer={len(have['elementer'])} elementer_sha256 {have['elementer_sha256']}")
+        elif args.cmd == "tilbagetraek-html":
+            a, s, r = _laes(args.afstemning, root), _laes(args.fakta_svar, root), _laes(args.relationssvar, root)
+            text = tilbagetraek_html(a, s, r, _laes(args.kontekst, root))
+            sha = _skriv_tekst(_p(args.out, root), text)
+            print(f"TILBAGETRAEK_HTML_OK linjer={len(_tilbage(a, s, r)[0])} sha256 {sha}")
         elif args.cmd in ("tilbagetraek-ark", "tilbagetraek-tjek"):
             a, s, r = _laes(args.afstemning, root), _laes(args.fakta_svar, root), _laes(args.relationssvar, root)
             if args.cmd == "tilbagetraek-ark":

@@ -46,6 +46,8 @@ ALLOWED = {
     # Trin 6c-3's afstemning: de nye nøgler er dem, der citerer helpostens aktuelle sæt (clause_observation_current
     # under revisionsevent'ets parent_observation_id); de forældede læses gennem eventets superseded_keys.
     ".claude/skills/daa-extract/scripts/tekstrevision_afstemning.sql",
+    # T/V-arkets HTML-kontekst: læser kun helposten (eventets parent_observation_id) og dens gældende tekst, ikke klausuler.
+    ".claude/skills/daa-extract/scripts/tekstrevision_tilbagetraek_kontekst.sql",
     # #150 placement-ceremonien: helposten som persona-placementens grundlag og identitetstjekket.
     ".claude/skills/daa-extract/scripts/fix_150_placement.sql",
     # Trin 6a's ceremonimåling: tæller bevidst klausulrækker i ALLE sæt (ikke kun det aktuelle), fordi den skal
