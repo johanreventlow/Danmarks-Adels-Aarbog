@@ -33735,3 +33735,97 @@ BEGIN
             FROM jsonb_to_recordset(p_items) x(outcome text));
 END $$;
 REVOKE ALL ON FUNCTION private.write_text_revision_reconciliation(uuid,jsonb,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
+-- ===== trin 6d-1: placement og medlemskab for flere kilder =====
+-- Spec 2026-11-08 trin 6d. Byte-ens kopier af schema.sql; CREATE OR REPLACE med uændrede signaturer (idempotent).
+
+-- Ny ledger-version for én legacy-række; uændret (disposition, placement, værdi-hash) giver ingen ny række.
+-- mapped kræver en gældende accepteret placement i legacy-rækkens kilde for netop denne post: enten bærer recorden
+-- legacy-rækkens record_key (2018-20), eller placementens gældende accepterede principal_member-persona har accepteret
+-- identitet til legacy-rækkens person (trin 6d-1: 1939's legacy-nøgler er ikke recordens nøgle).
+CREATE OR REPLACE FUNCTION private.record_legacy_disposition(p_person_id bigint,p_source_id bigint,p_disposition text,
+  p_placement_id uuid,p_evidence jsonb)
+RETURNS integer LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE v_key text; v_sha text; v_cur private.legacy_placement_disposition%ROWTYPE;
+BEGIN
+  SELECT record_key INTO v_key FROM public.person_external_id
+   WHERE person_id=p_person_id AND source_id=p_source_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'PLACEMENT_LEGACY_ROW_MISSING: %/%',p_person_id,p_source_id; END IF;
+  v_sha:=private.legacy_external_id_sha256(p_person_id,p_source_id);
+  IF p_placement_id IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM private.source_record_placement_current pc
+         JOIN private.source_record r ON r.id=pc.source_record_id
+        WHERE pc.id=p_placement_id AND pc.decision_status='accepted' AND r.source_id=p_source_id
+          AND (r.record_key IS NOT DISTINCT FROM v_key
+               OR EXISTS (SELECT 1 FROM private.source_persona_placement_current pp
+                            JOIN private.source_persona_identity i ON i.source_persona_id=pp.source_persona_id
+                             AND i.decision_status='accepted' AND i.canonical_person_id=p_person_id
+                           WHERE pp.record_placement_id=pc.id AND pp.decision_status='accepted'
+                             AND pp.placement_role='principal_member'))) THEN
+    RAISE EXCEPTION 'PLACEMENT_LEGACY_MAPPING_INVALID: %/%',p_person_id,p_source_id;
+  END IF;
+  SELECT * INTO v_cur FROM private.legacy_placement_disposition
+   WHERE person_id=p_person_id AND source_id=p_source_id ORDER BY version DESC LIMIT 1;
+  IF FOUND AND v_cur.disposition=p_disposition AND v_cur.placement_id IS NOT DISTINCT FROM p_placement_id
+     AND v_cur.legacy_sha256=v_sha THEN
+    RETURN v_cur.version;
+  END IF;
+  INSERT INTO private.legacy_placement_disposition(person_id,source_id,version,disposition,legacy_sha256,placement_id,
+    evidence,decided_by_name)
+    VALUES (p_person_id,p_source_id,coalesce(v_cur.version,0)+1,p_disposition,v_sha,p_placement_id,p_evidence,
+      coalesce(nullif(btrim(p_evidence->>'decided_by_name'),''),'placement-migration'));
+  RETURN coalesce(v_cur.version,0)+1;
+END $$;
+REVOKE ALL ON FUNCTION private.record_legacy_disposition(bigint,bigint,text,uuid,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Fremmer de egnede items under ét eget change_set: person_lineage_membership (member) og person_slaegt_membership
+-- (agnatic; gifte-ind får aldrig et item). source_basis = tilstanden + state_sha256 + source_id. Fail-closed ved drift
+-- eller konflikt. Rydder app.change_set_id før retur.
+-- Trin 6d-1: en anden kildes række (source_basis->>'source_id' ≠ p_source_id, også NULL) på et items (person, linje)
+-- eller (person, slægt) røres aldrig: forhåndstjek før det generelle konfliktstop, og atomisk i upserten (ON CONFLICT
+-- … WHERE samme kilde; 0 rækker → PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE og alt rulles tilbage).
+CREATE OR REPLACE FUNCTION public.red_promote_placement_memberships(p_source_id bigint,p_preview_sha256 text)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_set jsonb; i jsonb; v_basis jsonb; v_n integer:=0; v_rows bigint; v_foreign bigint;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_CHANGE_SET';
+  END IF;
+  v_set:=private.placement_membership_set(p_source_id);
+  IF v_set->>'preview_sha256' IS DISTINCT FROM p_preview_sha256 THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_PREVIEW_DRIFT'; END IF;
+  SELECT min((x->>'person_id')::bigint) INTO v_foreign FROM jsonb_array_elements(v_set->'items') x
+   WHERE EXISTS (SELECT 1 FROM public.person_lineage_membership l
+                  WHERE l.person_id=(x->>'person_id')::bigint AND l.lineage_id=(x->>'lineage_id')::bigint
+                    AND l.source_basis->>'source_id' IS DISTINCT FROM p_source_id::text)
+      OR EXISTS (SELECT 1 FROM public.person_slaegt_membership m
+                  WHERE m.person_id=(x->>'person_id')::bigint AND m.slaegt_id=(x->>'slaegt_id')::bigint
+                    AND m.source_basis->>'source_id' IS DISTINCT FROM p_source_id::text);
+  IF v_foreign IS NOT NULL THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE: %',v_foreign; END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_set->'items') x WHERE x->>'reason_code'='conflict') THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_CONFLICT';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_set->'items') x WHERE (x->>'eligible')::boolean) THEN RETURN 0; END IF;
+  PERFORM public.begin_change_set('placement_membership','placement-membership-v1 source '||p_source_id);
+  FOR i IN SELECT x FROM jsonb_array_elements(v_set->'items') x WHERE (x->>'eligible')::boolean LOOP
+    v_basis:=private.membership_state((i->>'persona_placement_id')::uuid)
+             ||jsonb_build_object('state_sha256',i->>'state_sha256','source_id',p_source_id);
+    INSERT INTO public.person_lineage_membership(person_id,lineage_id,role,source_basis)
+      VALUES ((i->>'person_id')::bigint,(i->>'lineage_id')::bigint,'member',v_basis)
+      ON CONFLICT (person_id,lineage_id) DO UPDATE SET role='member',source_basis=excluded.source_basis
+        WHERE person_lineage_membership.source_basis->>'source_id'=excluded.source_basis->>'source_id';
+    GET DIAGNOSTICS v_rows=ROW_COUNT;
+    IF v_rows=0 THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE: %',i->>'person_id'; END IF;
+    INSERT INTO public.person_slaegt_membership(person_id,slaegt_id,membership_kind,source_basis)
+      VALUES ((i->>'person_id')::bigint,(i->>'slaegt_id')::bigint,'agnatic',v_basis)
+      ON CONFLICT (person_id,slaegt_id) DO UPDATE SET membership_kind='agnatic',source_basis=excluded.source_basis
+        WHERE person_slaegt_membership.source_basis->>'source_id'=excluded.source_basis->>'source_id';
+    GET DIAGNOSTICS v_rows=ROW_COUNT;
+    IF v_rows=0 THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE: %',i->>'person_id'; END IF;
+    v_n:=v_n+1;
+  END LOOP;
+  PERFORM set_config('app.change_set_id','',true);
+  RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.red_promote_placement_memberships(bigint,text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_promote_placement_memberships(bigint,text) TO authenticated;
