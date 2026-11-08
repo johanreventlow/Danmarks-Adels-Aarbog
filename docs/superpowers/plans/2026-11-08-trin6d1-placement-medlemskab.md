@@ -60,11 +60,11 @@ diffen (Task 10 trin 1); Opus afvejer hvert fund (memory `opus-afvejer-codex-fun
 
 ## Review Focus
 
-1. **En post i fællesstammen før første blok-linje-overskrift** (`linje='Stamme'`). Den må ikke arve en senere grens
-   overskrift eller en gæt-entry: `unresolved` med `mangler_linje`, medmindre afgørelse 1 giver stammen en entry.
-   Låses af `test_stamme_uden_sektion_er_unresolved` i Task 1.
-2. **Oversigten »Personer af Navnet Reventlow, der ikke kan anvises Plads«.** Dens poster får aldrig placement:
-   `unresolved` med `uplaceret_oversigt`. Låses af `test_uplaceret_oversigt` i Task 1.
+1. **En guide-overskrift, der ikke genfindes i Calamari.** Posterne under den må ikke arve forrige overskrift af samme
+   niveau eller guidens værdi uden evidens: `unresolved` med `overskrift_ikke_fundet:<niveau>`. Låses af
+   `test_overskrift_ikke_fundet_er_unresolved` i Task 1.
+2. **Records uden nummereret post** (stamfædre, »Personer af Navnet Reventlow, der ikke kan anvises Plads«). De får
+   aldrig placement: `unresolved` med `uden_post`. Låses af `test_uden_post` i Task 1.
 3. **En `samme_som` uden `afklaret` konklusion** må ikke forbinde to komponenter. Låses af `$ikke_afklaret$` i Task 4.
 4. **En komponent med medlemskaber i to linjer** (2 findes i dag) er `conflict`, og intet skrives eller slettes.
    Låses af `$konflikt_uroert$` i Task 4 og ceremoniens POST (Task 7).
@@ -72,46 +72,40 @@ diffen (Task 10 trin 1); Opus afvejer hvert fund (memory `opus-afvejer-codex-fun
    gældende medlemskab). Ceremonien hasher 1939-rækkerne før/efter og sammenligner med afgørelse 4's forventning.
    Låses af `$laeser_1939$` i Task 5 og ceremoniens `PLC_POST_LAESER`.
 
-## Afgørelser før planen låses (Gate A, efter Task 0)
+## Afgørelser (Gate A, 2026-11-08 — projektejeren: ja til alle anbefalinger)
 
-Task 0 måler; projektejeren svarer i ét samlet valg med tallene foran sig (memory `vis-tab-foer-kortrunde`). Planen
-rettes efter svarene, før Codex-runden.
+Målt i Task 0 (stand-in c3h; tal i `~/.private/6d1/maaling.txt`); beslutningen står i `docs/decisions.md` 2026-11-08.
 
-1. **Fællesstammen** (spec §9 pkt. 2): N records før første blok-linje-overskrift, heraf N′ med en
-   `STAMME_SEKTION_1939_RE`-overskrift foran. Valg: (a) hver stammesektion bliver en entry med `canonical` til en
-   eksisterende linje; (b) stammen parkeres (`retained_legacy`, grund `stamme_uden_linje`) til opret-benet.
-2. **Validatoren:** ændres kun, hvis Task 0 viser records i en gren uden uankret `header_linje` foran. Ellers ingen ændring.
-3. **Unummererede poster** (stamfædre, oversigter fra `1939-v2`): antal records uden nummereret post; forslag: ingen
-   placement, `retained_legacy` med grund.
-4. **Læseren skifter i 6d-1, ikke i 6e.** Efter promotion giver `public_person_source_coordinates` for 1939-rækker
-   grenkode og **gruppelokalt** nummer i stedet for `1939`/globalt nummer, uden sektionsfelt. Task 0 tæller
-   `(gren, nr)`-kollisioner. Valg: (a) accepter mellemvisningen til 6e; (b) **generel gate i RPC'en (anbefalet):** en
-   kilde bruger placement-koordinater kun, når dens gældende placements er entydige på `(entry, printed_number)`;
-   ellers legacy for hele kilden — 2018-20 byte-ens, 1939 uændret til 6e; (c) træk 6e's sektionsfelt frem i 6d-1.
-5. **Personas uden accepteret identitet** (1 `unresolved` = kort 122, 2 uden identitetsrække). Forslag: deres records
-   får record-placement, men ingen persona-placement og intet medlemskab (som de 21 persona-løse); identitetstjekket
-   køres over de records, der får persona-placement. Spec §8's »563« bliver 560 persona-placements (spec-rettelse).
-   Task 0 viser, om en persona-placement på kort 122's record ville efterlade bindingen blokeret (5c-1 Review Focus 5).
+6. **Overskrifternes kilde:** raw.txt (`work_1939_stamtavle/raw.txt`, sha `efab316b528eafc60074c21c877590b31ab8e960cd1adc14f5c79bf01f12dab7`)
+   er guide og kontrol; overskrifterne skrives på Calamari-renditionen (sha `020123a3…`), hvor de genfindes mellem
+   samme naboposter (målt: linje 6/6, stamme 2/2, slægtled 44/48, beskrivelser 68/77, romertal 29/75). Ikke genfundne →
+   kort. Calamari alene giver 5 linjer, 5 slægtled, 0 romertal og bruges ikke.
+1. **Fællesstammen:** de 2 stammesektioner (43 poster i raw) bliver entries; linjearket (Task 2) afgør deres linje.
+2. **Validatoren** ændres ikke (alle poster har en linje- eller stammeoverskrift foran ved 6).
+3. **37 records uden nummereret post** (29 med persona): ingen placement, `retained_legacy`, grund `ingen_nummereret_post`.
+4. **Læseren:** variant (b) — kildeentydigheds-gaten i `public_person_source_coordinates` (Task 5). 1939: 53 numre deles
+   af 389 poster, så 1939-rækkerne forbliver `legacy_external_id` indtil 6e; `expect_laeser_1939=uaendret`.
+5. **3 personas uden accepteret identitet:** record-placement, ingen persona-placement, intet medlemskab; 560
+   persona-placements. Alle 563 bindinger er `published` og opslag via recordens nøgle virker; 0 kanoniske dubletter.
 
 ---
 
 ### Task 0: Måling, stand-in og Gate A (kun lokalt; ingen kode-commits)
 
-**Files:** noter i `~/.private/6d1/maaling.txt`; probe-scripts i `$CLAUDE_JOB_DIR/tmp`.
+**Files:** noter i `~/.private/6d1/maaling.txt`; probe-scripts i `$CLAUDE_JOB_DIR/tmp`. Målt på c3h (Gate A pkt. 6 i
+`docs/decisions.md`); frisk stand-in fra prod først i Task 9.
 
-- [ ] **Trin 1:** Frisk stand-in fra et prod-læsedump gennem runnerens `standin`-handling (`32-trin6c3.sh standin
-  <kvittering> 6d1a`), ICU-locale som prod; skabelonkopi `…_6d1t`. `ALTER DATABASE … SET statement_timeout='2min'`.
-- [ ] **Trin 2 (DB, kun antal):** genmål spec §2's tal; personas pr. `record_kind`/`mention_role` (forventet: alle 563
+- [x] **Trin 2 (DB, kun antal):** genmål spec §2's tal; personas pr. `record_kind`/`mention_role` (forventet: alle 563
   `primary` på helposten); `count(distinct canonical_person_id)` over de 560 accepterede identiteter (to personas med
   samme person giver `conflict` i `placement_membership_set`, og promotionen stopper på enhver konflikt); bindinger pr.
   record (via `narrative_record_publication` → `source_record`) og dermed antal publiceringer, placementerne gør
   `stale_published`; om kort 122's binding blokeres af en persona-placement (afgørelse 5). Revalideringens *tid* måles
   i Task 9's generalprøve. `(gren, nr)`-kollisioner kan først tælles efter trin 3.
-- [ ] **Trin 3 (tekst):** kør en engangsprobe, der kalder `segment._segment_1939` på renditionen og tæller overskrifter
+- [x] **Trin 3 (tekst):** kør en engangsprobe, der kalder `segment._segment_1939` på renditionen og tæller overskrifter
   pr. niveau, distinkte gren-/slægtled-/gruppelabels (labels er bogens strukturord, ingen navne — vis kun romertal og
   ordinaler), records pr. fase (stamme/gren), records uden `header_linje` foran tidligste forekomst, records uden
   nummereret post, `(gren, nr)`- og `(section_path, nr)`-kollisioner. stdout+stderr til fil.
-- [ ] **Trin 4: Gate A.** Vis projektejeren tallene og afgørelse 1-5 som ét samlet valg; skriv svarene ind i planen og
+- [x] **Trin 4: Gate A.** Vis projektejeren tallene og afgørelse 1-5 som ét samlet valg; skriv svarene ind i planen og
   `docs/decisions.md`; commit `docs(6d): plan-afgørelser efter måling`.
 - [ ] **Trin 5: Codex-runde** (`gpt-6.1-sol`) på spec+plan fra en eksport uden `work*/` (`git archive`,
   `--skip-git-repo-check`; udeluk `work*/` i selve søgekommandoen, memory `codex-soegning-pii-filnavne`). Opus dømmer
@@ -129,8 +123,11 @@ rettes efter svarene, før Codex-runden.
 
 **Interfaces:**
 - Header-profil (JSON): `{header_rule_version, raw_text_sha256, grammar: "2018-20"|"1939", record_matching:
-  "key_from_text"|"earliest_occurrence", levels: {<bogniveau>: <header-kind>}, stamme_afsnit_level: "slaegtled"|null}`.
-  `grammar` peger på `segment.UDGAVE_PROFILER[...]`; regexerne flyttes ikke ud af `segment.py`.
+  "key_from_text"|"earliest_occurrence", levels: {<bogniveau>: <header-kind>}, stamme_afsnit_level: "slaegtled"|null,
+  guide_text_sha256: <sha>|null}`. `grammar` peger på `segment.UDGAVE_PROFILER[...]`; regexerne flyttes ikke ud af
+  `segment.py`. 1939-profilen: `raw_text_sha256` = Calamari-renditionen (`020123a3588dacf80705a22fb021ab4f5da97b8de202e8664304ca01f9a6da37`),
+  `guide_text_sha256` = raw.txt (`efab316b528eafc60074c21c877590b31ab8e960cd1adc14f5c79bf01f12dab7`); begge tjekkes
+  (`HEADER_RENDITION_SHA_MISMATCH` / `HEADER_GUIDE_SHA_MISMATCH`).
 - `placement_eksport.sql` (`-v src=N`) → JSON `{entries:[code…], records:[{record_key, record_kind, page_from,
   char_from, legacy:{linje,nr}|null}], parents:[{child, parent}], counterparts:[{record_key, lineage_kode, source_id}]}`.
   `char_from` = tidligste accepterede forekomst med validatorens orden (`ORDER BY page_from, char_from, id LIMIT 1`,
@@ -138,29 +135,44 @@ rettes efter svarene, før Codex-runden.
   `family_member` / `person_external_id`), ikke via `record_key`. `counterparts` = 2018-20-linjen for hver afklaret
   `samme_som`-modpart til recordens kanoniske person. Ingen navne eller tekst.
 - `build_manifest(rendition_bytes, profile, legacy, parents=None)` — **uændret** for `grammar="2018-20"`.
-- `build_manifest_by_offset(rendition_bytes: bytes, profile: dict, records: list[dict], parents: list[dict]) -> dict`
-  med samme nøgler som 2018-20-manifestet (`headers`, `placements`, `invariants`, `disagreements`,
-  `header_rule_version`). Pr. placement desuden `record_kind` og `post_char_from`; `generation_global=None`;
-  `kuld_label` = gruppens romertal eller beskrivelses-slug; `section_path` = header-id'er gren → slægtled → gruppe.
-- 1939-scanning: samme tilstandsovergange som `segment._segment_1939` (linje-blok → `header_linje` med `roman`;
-  stammesektion → `header_linje` med `stamme_slug`; slægtled → `header_slaegtled` med `ordinal`, `label_raw`; afsnit-
-  romertal → `header_kuld`, i stammefasen → `header_slaegtled` når `stamme_afsnit_level="slaegtled"`;
-  gruppebeskrivelse → `header_kuld` kun når intet frisk romertal står foran). En record knyttes til den post, hvis
-  spænd (nummerlinjen til næste post/overskrift) rummer `char_from`.
-- Pr.-post-årsager (→ `unresolved`): `mangler_linje`, `umarkeret_slaegtled`, `uden_post`, `uplaceret_oversigt`,
+- `build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile: dict, records: list[dict],
+  parents: list[dict]) -> dict` med samme nøgler som 2018-20-manifestet (`headers`, `placements`, `invariants`,
+  `disagreements`, `header_rule_version`) plus `transfer` (pr. niveau: guide-antal, genfundet, ikke genfundet). Pr.
+  placement desuden `record_kind`, `post_char_from`, `guide_lokal_id`; `generation_global=None`; `kuld_label` = guidens
+  romertal eller beskrivelses-slug; `section_path` = header-id'er gren → slægtled → gruppe.
+- **Guide-scanning (raw.txt):** samme tilstandsovergange som `segment._segment_1939` (linje-blok → niveau `linje` med
+  `roman`; stammesektion → `linje` med `stamme_slug`, entry-kode `Stamme-<slug>`; slægtled → `slaegtled` med `ordinal`,
+  `label_raw`; afsnit-romertal → `kuld`, i stammefasen → `slaegtled` når `stamme_afsnit_level="slaegtled"`;
+  gruppebeskrivelse → `kuld` kun når intet frisk romertal står foran, ellers del af romertallets gruppe).
+- **Overførsel til Calamari:** begge tekster scannes for poster; postsekvenserne alignes på `nr_label` med
+  `difflib.SequenceMatcher(autojunk=False)` (deterministisk; målt 476/505). Hver guide-overskrift søges i Calamari-
+  linjerne mellem de alignede naboposter med niveauets matcher: linje = romertallet alene på linjen eller kort linje med
+  »Linje«; stamme = sluggens ord + »Linje«; slægtled = normaliseret linje (kun bogstaver, små) begynder med ordinalen og
+  indeholder `slægtled`, < 30 tegn; romertal = linjen er romertallet (± `.,`); beskrivelse = normaliseret
+  beskrivelse genfundet som delstreng af vinduet (længste fælles stykke ≥ max(15, 60 % af de første 60 tegn)). En
+  gruppe er genfundet, når romertallet **eller** beskrivelsen er. Genfundet → header med Calamari-linjens tegnspænd og
+  `verbatim_text` fra Calamari, `parsed` fra guiden. Flere kandidater i vinduet → ikke genfundet (aldrig gæt).
+- **Records:** en record knyttes til den Calamari-post, hvis spænd (nummerlinjen til næste post/overskrift) rummer
+  `char_from`, og via alignmentet til guide-posten (struktur og `guide_lokal_id`).
+- Pr.-post-årsager (→ `unresolved`): `overskrift_ikke_fundet:<niveau>`, `ikke_alignet`, `uden_post`,
   `nr_ikke_fortloebende`, `slaegtled_ikke_monoton`, `gruppe_flere_familier`, `uenig:foraelder_generation`,
   `uenig:legacy_linje`, `uenig:legacy_nr` (kun hvor legacy-linjen ikke er `1939`). Kørselsinvarianter (alle skal være
-  sande): `record_keys_unikke`, `section_path_nr_unik`, `en_overskrift_pr_gruppe`, `segmenter_paritet`.
-- CLI: `--header-profile` (default 2018-20-profilen), `--legacy-json` eller `--records-json` (gensidigt udelukkende);
-  `summary()` uændret.
+  sande): `record_keys_unikke`, `section_path_nr_unik` (blandt `machine_ok`), `en_overskrift_pr_gruppe`,
+  `segmenter_paritet` (guide-scannerens lokal_id'er = `_segment_1939(raw)`'s).
+- CLI: `--header-profile` (default 2018-20-profilen), `--guide-text` (kræves ved `guide_text_sha256`), `--legacy-json`
+  eller `--records-json` (gensidigt udelukkende); `summary()` uændret plus `transfer`.
 
 - [ ] **Trin 1: Skriv de fejlende tests** (syntetisk 1939-tekst, opdigtede navne):
   - `test_2018_20_byte_ens`: manifestet for den eksisterende 2018-20-fixture har samme `canonical_sha256` som før
     refaktoreringen (sha'en hardkodes i testen, målt før ændringen).
-  - `test_1939_niveauer`: linje-blok, slægtled, afsnit-romertal giver tre header-kinds; posten får `section_path` med
-    tre id'er, `generation_local`, `kuld_label`.
+  - `test_1939_niveauer`: centreret guide + ucentreret rendition (samme opdigtede poster): linje-blok, slægtled,
+    afsnit-romertal giver tre header-kinds med renditionens offsets; posten får `section_path` med tre id'er,
+    `generation_local`, `kuld_label`.
   - `test_record_efter_offset`: to records i samme post (person + fact) får samme `printed_number`/`section_path`.
-  - `test_stamme_uden_sektion_er_unresolved`, `test_uplaceret_oversigt`, `test_uden_post`.
+  - `test_overskrift_ikke_fundet_er_unresolved` (slægtledslinjen fjernet fra renditionen), `test_uden_post`,
+    `test_ikke_alignet` (en post kun i guiden), `test_to_kandidater_er_ikke_fundet`.
+  - `test_gruppe_via_beskrivelse` (romertallet mangler i renditionen, beskrivelsen findes → gruppen genfundet).
+  - `test_stammesektion_er_entry` (stammesektion → `header_linje`, entry-kode `Stamme-<slug>`).
   - `test_gruppebeskrivelse_efter_romertal_er_ikke_ny_overskrift` og `test_gruppebeskrivelse_alene_er_kuld`.
   - `test_nr_brud_og_slaegtled_fald`: brud giver årsagen på posten, ikke en falsk kørselsinvariant.
   - `test_gruppe_flere_familier` (parents-par fra to forældrefamilier i én gruppe).
@@ -173,9 +185,9 @@ rettes efter svarene, før Codex-runden.
 - [ ] **Trin 4:** pytest igen → alle grønne. **Prods 2018-20-manifest:** kør den refaktorerede scanner med
   2018-20-profilen på `work/raw_full.txt` + en frisk `fix_150_eksport.sql`-eksport (`-v src=1`) fra stand-in'en, og
   assert at `summary()['manifest_sha256']` = værdien i stand-in'ens `header-2018-20-v1`-`extraction_run` (fix_150
-  bandt den). Kør derefter 1939-eksporten mod stand-in'en og manifestet på den rigtige tekst
-  (output under `~/.private/6d1/`, stdout+stderr til fil); notér `summary()`'s tal i `maaling.txt`. Er en
-  kørselsinvariant falsk: stop og vis antallet.
+  bandt den). Kør derefter 1939-eksporten mod stand-in'en og manifestet på den rigtige tekst (`--guide-text
+  work_1939_stamtavle/raw.txt`; output under `~/.private/6d1/`, stdout+stderr til fil); notér `summary()`'s tal i
+  `maaling.txt`. Forventet omtrent Task 0's overførselstal; er en kørselsinvariant falsk: stop og vis antallet.
 - [ ] **Trin 5: Commit** `feat(6d): profilstyret overskriftsscanner med 1939-profil`.
 
 ### Task 2: Linjeskema-ark (grene → slægtslinjer)
@@ -188,7 +200,7 @@ rettes efter svarene, før Codex-runden.
 - `render(manifest, export) -> (ark_tekst, token_tekst)`: én linje pr. gren med fordelingen af modparternes
   2018-20-linjer (antal pr. `lineage_kode`) og forudfyldt forslag = flertalslinjen, når den har ≥ 80 % og ingen anden
   linje > 2; ellers intet forslag (memory `forudfyldt-ark-skjuler-konflikt`). Den eksisterende entry `VI` står med sin
-  nuværende `canonical` (lineage `(3,'VI')`).
+  nuværende `canonical` (lineage `(3,'VI')`). Stammesektionerne (`Stamme-<slug>`, Gate A pkt. 1) er linjer på arket.
 - Token-svar pr. gren: `C <lineage_kode>` (canonical), `A <kode>` (tilføj `historical_alias`), `P` (parkér), `S <kode>`
   (kilde 3-linje). `approvals(...) -> dict {sheet_sha256, entries:[{code, label_sha256, sort_order,
   canonical:{source_id,kode}|null, aliases:[…], parkeret:bool}]}`; ubesvarede linjer afvises.
@@ -252,12 +264,12 @@ rettes efter svarene, før Codex-runden.
   på stand-in'en (forventet < 1 s; 719 relationer).
 - [ ] **Trin 5: Commit** `feat(6d): afledt komponenttilstand for medlemskab (B6)`.
 
-### Task 5: Læserens koordinater (afhænger af afgørelse 4)
+### Task 5: Læserens koordinater kræver entydige placements pr. kilde (afgørelse 4b)
 
-**Files (kun ved 4b):** Modify `schema.sql` (`public_person_source_coordinates` `:3164`), migrationsblokken;
+**Files:** Modify `schema.sql` (`public_person_source_coordinates` `:3164`), migrationsblokken;
 Test: `tests/sql/test-person-source-coordinates.sql` (udvid).
 
-**Interfaces (4b):** samme signatur og kolonner. `m1` udvides med kildegaten: en kilde bruger placement-koordinater kun,
+**Interfaces:** samme signatur og kolonner. `m1` udvides med kildegaten: en kilde bruger placement-koordinater kun,
 når ingen to af dens gældende membership-placements deler `(scheme_entry_id, printed_number)`; ellers falder alle
 kildens rækker til legacy. Ingen udgavenavne.
 
@@ -265,8 +277,6 @@ kildens rækker til legacy. Ingen udgavenavne.
   `legacy_external_id`); `$laeser_entydig$` (entydig kilde → `placement`, som i dag); eksisterende tests uændrede.
 - [ ] **Trin 2-4:** kør → implementér → grøn; desuden 5c-2's paritetstest for 2018-20-rækkerne.
 - [ ] **Trin 5: Commit** `feat(6d): læserens koordinater kræver entydige placements pr. kilde`.
-- **Ved 4a eller 4c:** Task 5 udgår (4a) eller får egen spec-tilføjelse før implementering (4c). Ceremoniens
-  `expect_laeser_1939` sættes tilsvarende (Task 7).
 
 ### Task 6: Opgraderingstest og hele CI lokalt
 
@@ -319,7 +329,7 @@ kildens rækker til legacy. Ingen udgavenavne.
   3. `write_header_evidence` (run_key = `:header_rule_version`), `write_record_placement` for `machine_ok` + godkendte,
      `write_persona_placement` for records med præcis én `primary`-persona på helposten og accepteret identitet.
   4. Ledger for kildens 576 rækker: `mapped` hvor Task 3's identitetsvej holder, ellers `retained_legacy` med
-     `evidence.grund` ∈ {`ingen_placement`, `parkeret_gren`, `stamme_uden_linje`, `ingen_identitet`}. Andre kilders
+     `evidence.grund` ∈ {`ingen_placement`, `ingen_nummereret_post`, `parkeret_gren`, `ingen_identitet`}. Andre kilders
      rækker røres ikke.
   5. `ANALYZE` (memory `restore-uden-planner-statistik`); preview + promote memberships som redaktør; assert tom GUC.
   6. Revalidering: én `\gexec`-sætning pr. `stale_published` med `set_config('app.change_set_id','',true)` foran.

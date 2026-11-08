@@ -2,6 +2,27 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 6d-1's Gate A — 1939's overskrifter guides af raw.txt og forankres i Calamari-renditionen (2026-11-08)
+
+> Plan `docs/superpowers/plans/2026-11-08-trin6d1-placement-medlemskab.md`, Task 0 (stand-in c3h). Calamari-
+> renditionen, som 1939's records er forankret i, har mistet centreringen: segment.py's 1939-grammatik finder 5
+> linjeoverskrifter (I mangler), 5 slægtled og 0 gruppe-romertal (raw.txt: 6, 48, 75; stammen 43 poster under 2
+> sektioner). Overskrifternes tekst står der dog: søgt i vinduet mellem samme naboposter genfindes linje 6/6, stamme 2/2,
+> slægtled 44/48, gruppebeskrivelser 68/77, romertal 29/75. Projektejeren sagde ja til alle seks anbefalinger:
+> 1. **Kilde (6a):** raw.txt (sha `efab316b…`) er guide og kontrol; overskrifterne skrives som uankrede observationer på
+>    Calamari-renditionen, hvor de genfindes. Ikke genfundne → kort. Validatoren ændres ikke. Samme princip som
+>    build_1939_v2 (»struktur fra raw, prosa fra Calamari«). Fravalgt: raw.txt som ny rendition + validator på tværs af
+>    renditioner (ændring af proveniensmodellen).
+> 2. **Fællesstammen:** hver stammesektion bliver en entry i 1939's linjeskema; linjearket afgør dens linje.
+> 3. **37 records uden nummereret post** (stamfædre, uplacerede): ingen placement, `retained_legacy` med grund.
+> 4. **Læseren:** `public_person_source_coordinates` bruger kun placementkoordinater for en kilde, når dens gældende
+>    placements er entydige på `(entry, printed_number)`; ellers legacy for hele kilden. 1939's numre er gruppelokale
+>    (53 numre deles af 389 poster), så 1939 vises som i dag indtil 6e; 2018-20 byte-ens.
+> 5. **Tre personas uden accepteret identitet:** record-placement, ingen persona-placement eller medlemskab; 560
+>    persona-placements (spec §8 sagde 563).
+> 6. Task 0 måles på c3h i stedet for en frisk prod-kopi (`dump-kopi` læser prod og er ikke på allowlisten; 6c-3 rørte
+>    kun 2018-20). Frisk stand-in til generalprøven (Task 9).
+
 ## BESLUTTET: 6d deles i 6d-1, 6d-2 og 6d-3; medlemskab før relationer; 1939's »linje« er grenen (2026-11-08)
 
 > Delspec 6d godkendt med specens §3 og §9: 6d-1 (overskrifter, placement, revalidering, ledger, medlemskab og afledt

@@ -135,6 +135,13 @@ i §7. Koordinaterne i læseren (gruppe/sektion, udgavevælger) hører til 6e (t
 kontrolleres med `placement_header_violations`. Hvis grenen ikke har en overskrift før hver post i renditionen,
 kræver validatoren en ændring: det afgøres af Task 0.
 
+**Overskrifternes kilde (Gate A, 2026-11-08):** Calamari-renditionen, som records er forankret i, har mistet
+centreringen (segment.py finder 5 linjer, 5 slægtled, 0 gruppe-romertal; raw.txt 6, 48, 75). raw.txt er derfor guide og
+kontrol: hver af dens overskrifter søges i Calamari mellem samme naboposter og skrives som uankret observation på
+Calamari-renditionen, hvor den genfindes (målt: linje 6/6, stamme 2/2, slægtled 44/48, beskrivelser 68/77, romertal
+29/75; en gruppe er genfundet via romertal eller beskrivelse). Ikke genfundne → kort. Validatoren ændres ikke.
+Stammens 2 sektioner bliver entries. `docs/decisions.md` 2026-11-08.
+
 `build_header_manifest.py` får en **overskriftsscanner styret af profil**: profilen deklarerer mønstrene pr. niveau
 (regexer, ordtal) og »nærmeste foregående«-reglen; 2018-20's nuværende grammatik flyttes ind i 2018-20's profil
 uændret (byte-ens manifest som test). Det er ny kode i et generelt værktøj, ikke kun en profil. Scanneren kører
@@ -226,8 +233,9 @@ data-ceremoni, så læseren aldrig ser `stale_published`.
 
 ## 8. Færdigbevis (6d-1)
 
-- **Placement:** antal kilde 3-records med accepteret record-placement og persona-placement (forventet 563 med
-  persona); de 21 persona-løse med deres disposition; 0 placements uden overskrift; invariantbrud og kort talt.
+- **Placement:** antal kilde 3-records med accepteret record-placement og persona-placement (forventet 560 persona-
+  placements: de 3 personas uden accepteret identitet får kun record-placement, Gate A); de 21 persona-løse og de 37
+  records uden nummereret post med deres disposition; 0 placements uden overskrift; invariantbrud og kort talt.
 - **Publiceringer:** 0 `stale_published` for kilde 3 før og efter; antal revalideret.
 - **Ledger:** alle 576 legacy-rækker for kilde 3 har disposition; antal `mapped`/`retained_legacy`.
 - **B6 (trin 6 færdigbevis c, afledt):** antal komponenter `corroborated`, `conflict`, `single`; mindst én
@@ -242,6 +250,10 @@ data-ceremoni, så læseren aldrig ser `stale_published`.
 1. **Opdelingen:** ja til 6d-1/6d-2/6d-3, og at medlemskab/B6 rykker før relationerne (decisions 2026-11-08).
 2. **»Linje« i 1939:** grenen er entry i linjeskemaet; slægtled og gruppe står i `section_path`. Viser Task 0 en
    gren uden overskrift før posterne, kommer spørgsmålet tilbage til projektejeren før planen låses.
+3. **Gate A efter Task 0 (ja til alle anbefalinger):** overskrifter guidet af raw.txt og forankret i Calamari (5.1);
+   stammesektionerne er entries; 37 records uden nummereret post får ingen placement; læserens koordinat-RPC bruger kun
+   placementkoordinater for en kilde med entydige `(entry, nummer)` (1939 vises som i dag indtil 6e; §8's
+   2018-20-paritet suppleres med 1939-rækkernes hash, uændret); 560 persona-placements. `docs/decisions.md` 2026-11-08.
 
 ## 10. Plan-Task 0 (måling før planen låses)
 
