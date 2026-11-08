@@ -10670,3 +10670,56 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: trin 6m-a — red_ret_forslag kun authenticated, kontrolfunktion privat, trigger udskudt, grundlaget reserveret';
 END $verify_6ma$;
+
+-- Trin 6c-3a (spec 2026-11-07-trin6c3-a6b-resten-design.md §4.4 og §4.7 pkt. 4): afstemningskvitteringen er låst
+-- (RLS, append-only- og no-truncate-trigger, ingen tabeladgang), har sin entydighed og revisionsreference, og writeren
+-- er privat (security definer, fast search_path, ingen EXECUTE for anon/authenticated/service_role).
+DO $verify_6c3a$
+DECLARE r text; f text:='private.write_text_revision_reconciliation(uuid,jsonb,jsonb)';
+BEGIN
+  IF to_regclass('private.text_revision_reconciliation') IS NULL
+     OR NOT coalesce((SELECT relrowsecurity FROM pg_class WHERE oid='private.text_revision_reconciliation'::regclass),false)
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.text_revision_reconciliation'::regclass
+                     AND tgname='trg_text_revision_reconciliation_append_only'
+                     AND tgfoid='private.reject_evidence_mutation()'::regprocedure)
+     OR NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='private.text_revision_reconciliation'::regclass
+                     AND tgname='trg_text_revision_reconciliation_no_truncate'
+                     AND tgfoid='private.reject_evidence_mutation()'::regprocedure) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6c-3a afstemningstabel';
+  END IF;
+  -- Hvert ben er NOT EXISTS (aldrig NULL): en manglende constraint fejler i stedet for at give et NULL-ben, der lader
+  -- IF'en passere. pg_get_constraintdef udelader skemaet, når private er i search_path; begge former godtages.
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.text_revision_reconciliation'::regclass
+                  AND conname='text_revision_reconciliation_old_unique' AND contype='u'
+                  AND pg_get_constraintdef(oid)='UNIQUE NULLS NOT DISTINCT (old_interpretation_key, old_promotion_id)')
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.text_revision_reconciliation'::regclass
+                     AND conname='text_revision_reconciliation_event_fk' AND contype='f'
+                     AND pg_get_constraintdef(oid) IN (
+                       'FOREIGN KEY (revision_batch_id, revision_element_id) REFERENCES reimport_event(batch_id, element_id)',
+                       'FOREIGN KEY (revision_batch_id, revision_element_id) REFERENCES private.reimport_event(batch_id, element_id)'))
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.text_revision_reconciliation'::regclass AND contype='f'
+                     AND pg_get_constraintdef(oid) IN (
+                       'FOREIGN KEY (old_promotion_id) REFERENCES interpretation_promotion(id)',
+                       'FOREIGN KEY (old_promotion_id) REFERENCES private.interpretation_promotion(id)'))
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.text_revision_reconciliation'::regclass AND contype='f'
+                     AND pg_get_constraintdef(oid) IN (
+                       'FOREIGN KEY (new_promotion_id) REFERENCES interpretation_promotion(id)',
+                       'FOREIGN KEY (new_promotion_id) REFERENCES private.interpretation_promotion(id)'))
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='private.text_revision_reconciliation'::regclass
+                     AND conname='text_revision_reconciliation_shape_check' AND contype='c'
+                     AND pg_get_constraintdef(oid) LIKE '%ELSE false%') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6c-3a afstemningstabellens nøgler';
+  END IF;
+  FOREACH r IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_table_privilege(r,'private.text_revision_reconciliation','SELECT,INSERT,UPDATE,DELETE,TRUNCATE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6c-3a tabeladgang %',r;
+    END IF;
+  END LOOP;
+  IF to_regprocedure(f) IS NULL OR NOT coalesce((SELECT p.prosecdef FROM pg_proc p WHERE p.oid=to_regprocedure(f)),false)
+     OR NOT EXISTS (SELECT 1 FROM pg_proc p, unnest(p.proconfig) c WHERE p.oid=to_regprocedure(f) AND c LIKE 'search_path=%')
+     OR has_function_privilege('anon',f,'EXECUTE') OR has_function_privilege('authenticated',f,'EXECUTE')
+     OR has_function_privilege('service_role',f,'EXECUTE') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6c-3a %: findes/security definer/search_path/ACL',f;
+  END IF;
+  RAISE NOTICE 'OK: trin 6c-3a — afstemningskvitteringen er tilføj-kun og lukket, writeren er privat';
+END $verify_6c3a$;

@@ -905,6 +905,53 @@ BEGIN
 END $dobbeltmaal_menneskevej$;
 ROLLBACK;
 
+-- ---------- #248 efter forældelse (6c-3a, spec 2026-11-07-trin6c3-a6b-resten-design.md §4.7 pkt. 2) ----------
+-- En rival, hvis ægteskabspåstand er forældet af en kildetekst-revision, er ikke længere et dobbeltmål; en rival med
+-- en levende (proposed) påstand er det stadig.
+BEGIN;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+DO $dobbeltmaal_foraeldet$
+DECLARE v_actor uuid:='11000000-0000-0000-0000-000000248031'; s jsonb; p jsonb; c1 jsonb; c2 jsonb; sp1 uuid; sp2 uuid;
+  v_at timestamptz:=clock_timestamp(); v_id1 uuid;
+BEGIN
+  PERFORM pg_temp.f5b_actor(v_actor);
+  INSERT INTO person(id,levende,privat,status) SELECT g,false,false,'248' FROM generate_series(-24880,-24871) g;
+  s:=pg_temp.f5b_source(-24871);
+  p:=pg_temp.f5b_post(-24871,s,'N-3','Hoved N. g. 1° m. Navnefælle. g. 2° m. Navnefælle.',
+     ARRAY['Hoved N.','g. 1° m. Navnefælle.','g. 2° m. Navnefælle.'],-24871,v_actor);
+  PERFORM pg_temp.f2a_event_for_state((p->>'principal')::uuid);
+  c1:=pg_temp.f5b_claim(-24871,s,'relation.marriage',(p->'clauses'->>1)::uuid,'g. 1° m. Navnefælle.');
+  c2:=pg_temp.f5b_claim(-24871,s,'relation.marriage',(p->'clauses'->>2)::uuid,'g. 2° m. Navnefælle.');
+  sp1:=pg_temp.f5b_spouse(-24871,s,p,c1,(p->'clauses'->>1)::uuid,'Navnefælle',1);
+  sp2:=pg_temp.f5b_spouse(-24871,s,p,c2,(p->'clauses'->>2)::uuid,'Navnefælle',2);
+  INSERT INTO private.source_persona_identity_event(source_persona_id,canonical_person_id,decision_status,version,evidence,
+    decided_by,decided_by_name,decided_at)
+    VALUES (sp1,-24872,'accepted',1,'{"fixture":"248"}',v_actor,'fixture',v_at),(sp2,-24872,'accepted',1,'{"fixture":"248"}',v_actor,'fixture',v_at);
+  INSERT INTO private.source_persona_identity(source_persona_id,canonical_person_id,decision_status,version,evidence,
+    decided_by,decided_by_name,decided_at)
+    VALUES (sp1,-24872,'accepted',1,'{"fixture":"248"}',v_actor,'fixture',v_at),(sp2,-24872,'accepted',1,'{"fixture":"248"}',v_actor,'fixture',v_at);
+  PERFORM pg_temp.f5b_family(-24871,-24872,1);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  v_id1:=(c1->>'id')::uuid;
+  -- rivalen sp2 står på en proposed påstand: dobbeltmål som i dag
+  IF private.relation_binding_state(v_id1) IS NOT NULL THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: proposed rival giver en tilstand';
+  END IF;
+  -- revisionen forælder rivalens påstand (som forældelsen i revisions-writeren)
+  PERFORM private.supersede_for_text_revision(ARRAY[(c2->>'key')::uuid],v_actor,'fixture','{"fixture":"248"}');
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  IF (SELECT status FROM private.interpretation_current WHERE interpretation_key=(c2->>'key')::uuid)<>'superseded' THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: rivalens påstand er ikke forældet';
+  END IF;
+  IF private.relation_binding_state(v_id1) IS NULL
+     OR (private.relation_binding_state(v_id1)->>'counterpart_person_id')::bigint<>-24872 THEN
+    RAISE EXCEPTION 'RELATION_BINDING_TEST_FAILED: forældet rival blokerer %',private.relation_binding_state(v_id1);
+  END IF;
+  RAISE NOTICE 'OK: forældet rival er ikke et dobbeltmål';
+END $dobbeltmaal_foraeldet$;
+ROLLBACK;
+
 -- ---------- #248 rute A (spec §3.1, §5): genåbningens afvisninger ----------
 BEGIN;
 \ir fixtures/relation-5b.sql

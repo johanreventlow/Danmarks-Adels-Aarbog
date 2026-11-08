@@ -2,6 +2,13 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: review-budget for delspec 6c-3 overskredet med én Fable-læsning af specen (2026-11-07)
+
+> B13-overskridelse. Projektejeren bad om et review af udkastet til delspec 6c-3
+> (`2026-11-07-trin6c3-a6b-resten-design.md`) før planen. Fable: NO-GO, 12 fund (3 HIGH: komparatoren, ægteskabernes
+> genbinding kræver DDL, ingen kvitteringstabel), alle afvejet og indarbejdet (specens §10). Budgettet for resten af
+> 6c-3 er uændret: én Codex-runde på spec+plan, én på diffen.
+
 ## NOTERET: 1939's datoer uden punktum efter dagen får årsgrænser — åben backlog (2026-11-07)
 
 > Fundet ved 6m del 2's stikprøve (person 1080, »8 Okt. 1746«). `validate.derive_date_info` afgrænser kun formen
