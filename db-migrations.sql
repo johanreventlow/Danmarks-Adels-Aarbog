@@ -33882,3 +33882,71 @@ BEGIN
    ORDER BY comp.root;
 END $$;
 REVOKE ALL ON FUNCTION private.membership_component_states() FROM PUBLIC,anon,authenticated,service_role;
+
+-- 5c-2 (spec §4.2): læserens kildekoordinater. Én række pr. person_external_id-række. Har personen præcis én gældende
+-- membership (membership_is_current), hvis bundne record-placement hører til samme kilde, kommer linje, nr., slægtled og
+-- kuld fra placementen; ellers fra legacy-rækken. printed_number er de foranstillede cifre (sortering);
+-- printed_number_label er den trykte tekst (»15a«). SECURITY DEFINER omgår RLS; persongaten er i selve funktionen.
+-- Trin 6d-1 (afgørelse 4b): en kilde bruger placement-koordinater kun, når dens gældende membership-placements er
+-- entydige på (entry, trykt nummer); en placement uden trykt nummer tæller som ikke-entydig. Ellers falder alle
+-- kildens rækker til legacy.
+CREATE OR REPLACE FUNCTION public.public_person_source_coordinates()
+RETURNS TABLE(person_id bigint, source_id bigint, legacy_line_code text, printed_number integer,
+  printed_number_label text, generation_local integer, generation_global integer, kuld_label text,
+  provenance_kind text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+#variable_conflict use_column
+BEGIN
+  RETURN QUERY
+  WITH m AS (
+    -- Gældende memberships med deres bundne record-placement og dennes kilde.
+    SELECT plm.person_id,sr.source_id,rp.id AS rp_id,rp.scheme_entry_id,rp.printed_number
+      FROM public.person_lineage_membership plm
+      -- Castet er beskyttet: ét ugyldigt id i én række må ikke vælte RPC'en for alle læsere (rækken falder til legacy).
+      JOIN private.source_record_placement rp
+        ON rp.id=CASE WHEN plm.source_basis->>'record_placement_id'
+                           ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                      THEN (plm.source_basis->>'record_placement_id')::uuid END
+      JOIN private.source_record sr ON sr.id=rp.source_record_id
+     WHERE private.membership_is_current(plm.person_id,plm.lineage_id)
+  ), ks AS (
+    -- Kildegate: ingen to af kildens placements deler (entry, trykt nummer), og ingen mangler nummeret (count DISTINCT
+    -- ser to NULL som ens, derfor det særskilte NULL-filter). Placements tælles én gang, også med flere memberships.
+    SELECT d.source_id
+      FROM (SELECT DISTINCT m.source_id,m.rp_id,m.scheme_entry_id,m.printed_number FROM m) d
+     GROUP BY d.source_id
+    HAVING count(*)=count(DISTINCT (d.scheme_entry_id,d.printed_number))
+       AND count(*) FILTER (WHERE d.printed_number IS NULL)=0
+  ), m1 AS (
+    -- Entydighedsgate: præcis én pr. (person, kilde), i en kilde der består kildegaten.
+    SELECT m.person_id,m.source_id,min(m.rp_id::text)::uuid AS rp_id
+      FROM m JOIN ks ON ks.source_id=m.source_id
+     GROUP BY m.person_id,m.source_id HAVING count(*)=1
+  ), pl AS (
+    SELECT m1.person_id,m1.source_id,e.code,rp.printed_number,rp.generation_local,rp.generation_global,rp.kuld_label
+      FROM m1
+      JOIN private.source_record_placement rp ON rp.id=m1.rp_id
+      JOIN public.lineage_scheme_entry e ON e.id=rp.scheme_entry_id
+  )
+  SELECT x.person_id,x.source_id,
+         CASE WHEN pl.person_id IS NULL THEN x.linje ELSE pl.code END,
+         CASE WHEN pl.person_id IS NULL THEN x.nr ELSE substring(pl.printed_number from '^[0-9]+')::integer END,
+         CASE WHEN pl.person_id IS NULL THEN x.nr::text ELSE pl.printed_number END,
+         CASE WHEN pl.person_id IS NULL THEN x.slaegtled_lokal ELSE pl.generation_local END,
+         CASE WHEN pl.person_id IS NULL THEN x.slaegtled_gennem ELSE pl.generation_global END,
+         CASE WHEN pl.person_id IS NULL THEN x.kuld ELSE pl.kuld_label END,
+         CASE WHEN pl.person_id IS NULL THEN 'legacy_external_id' ELSE 'placement' END
+    FROM public.person_external_id x
+    LEFT JOIN pl ON pl.person_id=x.person_id AND pl.source_id=x.source_id
+   WHERE public.entitet_offentlig('person',x.person_id)
+  UNION ALL
+  -- En gældende placement uden legacy-række (målt 0) tabes ikke.
+  SELECT pl.person_id,pl.source_id,pl.code,substring(pl.printed_number from '^[0-9]+')::integer,pl.printed_number,
+         pl.generation_local,pl.generation_global,pl.kuld_label,'placement'
+    FROM pl
+   WHERE public.entitet_offentlig('person',pl.person_id)
+     AND NOT EXISTS (SELECT 1 FROM public.person_external_id x WHERE x.person_id=pl.person_id AND x.source_id=pl.source_id)
+   ORDER BY 1,2;
+END $$;
+REVOKE ALL ON FUNCTION public.public_person_source_coordinates() FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.public_person_source_coordinates() TO anon,authenticated;

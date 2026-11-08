@@ -3238,6 +3238,9 @@ GRANT EXECUTE ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,
 -- membership (membership_is_current), hvis bundne record-placement hører til samme kilde, kommer linje, nr., slægtled og
 -- kuld fra placementen; ellers fra legacy-rækken. printed_number er de foranstillede cifre (sortering);
 -- printed_number_label er den trykte tekst (»15a«). SECURITY DEFINER omgår RLS; persongaten er i selve funktionen.
+-- Trin 6d-1 (afgørelse 4b): en kilde bruger placement-koordinater kun, når dens gældende membership-placements er
+-- entydige på (entry, trykt nummer); en placement uden trykt nummer tæller som ikke-entydig. Ellers falder alle
+-- kildens rækker til legacy.
 CREATE OR REPLACE FUNCTION public.public_person_source_coordinates()
 RETURNS TABLE(person_id bigint, source_id bigint, legacy_line_code text, printed_number integer,
   printed_number_label text, generation_local integer, generation_global integer, kuld_label text,
@@ -3248,7 +3251,7 @@ BEGIN
   RETURN QUERY
   WITH m AS (
     -- Gældende memberships med deres bundne record-placement og dennes kilde.
-    SELECT plm.person_id,sr.source_id,rp.id AS rp_id
+    SELECT plm.person_id,sr.source_id,rp.id AS rp_id,rp.scheme_entry_id,rp.printed_number
       FROM public.person_lineage_membership plm
       -- Castet er beskyttet: ét ugyldigt id i én række må ikke vælte RPC'en for alle læsere (rækken falder til legacy).
       JOIN private.source_record_placement rp
@@ -3257,10 +3260,19 @@ BEGIN
                       THEN (plm.source_basis->>'record_placement_id')::uuid END
       JOIN private.source_record sr ON sr.id=rp.source_record_id
      WHERE private.membership_is_current(plm.person_id,plm.lineage_id)
+  ), ks AS (
+    -- Kildegate: ingen to af kildens placements deler (entry, trykt nummer), og ingen mangler nummeret (count DISTINCT
+    -- ser to NULL som ens, derfor det særskilte NULL-filter). Placements tælles én gang, også med flere memberships.
+    SELECT d.source_id
+      FROM (SELECT DISTINCT m.source_id,m.rp_id,m.scheme_entry_id,m.printed_number FROM m) d
+     GROUP BY d.source_id
+    HAVING count(*)=count(DISTINCT (d.scheme_entry_id,d.printed_number))
+       AND count(*) FILTER (WHERE d.printed_number IS NULL)=0
   ), m1 AS (
-    -- Entydighedsgate: præcis én pr. (person, kilde).
+    -- Entydighedsgate: præcis én pr. (person, kilde), i en kilde der består kildegaten.
     SELECT m.person_id,m.source_id,min(m.rp_id::text)::uuid AS rp_id
-      FROM m GROUP BY m.person_id,m.source_id HAVING count(*)=1
+      FROM m JOIN ks ON ks.source_id=m.source_id
+     GROUP BY m.person_id,m.source_id HAVING count(*)=1
   ), pl AS (
     SELECT m1.person_id,m1.source_id,e.code,rp.printed_number,rp.generation_local,rp.generation_global,rp.kuld_label
       FROM m1

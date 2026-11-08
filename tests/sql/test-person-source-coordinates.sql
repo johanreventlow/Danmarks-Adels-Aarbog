@@ -148,4 +148,118 @@ BEGIN
 
   RAISE NOTICE 'OK: public_person_source_coordinates';
 END $coordinates$;
+
+-- Trin 6d-1 (afgørelse 4b): kildegaten. En kilde bruger placement-koordinater kun, når dens gældende membership-
+-- placements er entydige på (entry, trykt nummer); et manglende nummer tæller som ikke-entydigt. Ellers falder alle
+-- kildens rækker til legacy.
+
+-- Kilde med entry 'I' og header-kørsel (som f6d_src i test-membership-component.sql).
+CREATE OR REPLACE FUNCTION pg_temp.fco_src(p_source bigint) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE f jsonb:=pg_temp.f150_source(p_source);
+BEGIN
+  PERFORM private.write_header_evidence(p_source,(f->>'rend')::uuid,pg_temp.f150_run(),
+    jsonb_build_array(pg_temp.f150_h('header_linje',500,'I DEN TESTSKE LINJE')));
+  RETURN f;
+END $$;
+
+-- Hovedperson-post (legacy nr p_nr) med record- og persona-placement på entry 'I' og trykt nummer p_printed (NULL:
+-- intet nummer, som 1939's stamfædre).
+CREATE OR REPLACE FUNCTION pg_temp.fco_place(f jsonb,p_key text,p_person bigint,p_nr int,p_printed text)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE p jsonb; v_obs uuid; v_rp uuid;
+BEGIN
+  p:=pg_temp.f150_post(f,p_key,p_person,p_nr,1);
+  v_obs:=private.header_observation_uuid((f->>'rend')::uuid,'header-2018-20-v1',500);
+  v_rp:=private.write_record_placement((p->>'record')::uuid,(f->>'entry')::bigint,
+    jsonb_strip_nulls(jsonb_build_object('printed_number',p_printed)),v_obs,
+    jsonb_build_object('rule_version','header-2018-20-v1','header_ids',jsonb_build_object('linje',v_obs)));
+  PERFORM private.write_persona_placement((p->>'principal')::uuid,v_rp,(p->>'helpost')::uuid,'{"rule":"test"}');
+END $$;
+
+-- Fremmer kildens egnede items som redaktør; returnerer antal fremmede.
+CREATE OR REPLACE FUNCTION pg_temp.fco_promote(f jsonb) RETURNS integer LANGUAGE plpgsql AS $$
+DECLARE v jsonb; v_n int;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',f->>'actor',true);
+  SET LOCAL ROLE authenticated;
+  v:=public.red_preview_placement_memberships((f->>'source')::bigint);
+  v_n:=public.red_promote_placement_memberships((f->>'source')::bigint,v->>'preview_sha256');
+  RESET ROLE;
+  PERFORM set_config('app.change_set_id','',true);
+  RETURN v_n;
+END $$;
+
+-- Én persons række i kilden; fejler hvis personen ikke har netop én gældende membership.
+CREATE OR REPLACE FUNCTION pg_temp.fco_row(f jsonb,p_person bigint) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE r jsonb; n int;
+BEGIN
+  IF NOT private.membership_is_current(p_person,(f->>'lineage')::bigint) THEN
+    RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: % har ingen gældende membership',p_person;
+  END IF;
+  SELECT count(*),min(r2::text)::jsonb INTO n,r FROM pg_temp.fco_rows(p_person) r2
+   WHERE (r2->>'source_id')::bigint=(f->>'source')::bigint;
+  IF n<>1 THEN RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: % har % rækker',p_person,n; END IF;
+  RETURN r;
+END $$;
+
+DO $laeser_entydig$
+DECLARE f jsonb; a jsonb; b jsonb;
+BEGIN
+  -- Entydig kilde (forskellige numre i samme entry) ⇒ placement, som i dag.
+  f:=pg_temp.fco_src(-5251);
+  PERFORM pg_temp.fco_place(f,'I-7',-525101,7,'7');
+  PERFORM pg_temp.fco_place(f,'I-8',-525102,8,'8a');
+  IF pg_temp.fco_promote(f)<>2 THEN RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: entydig: forventede 2 fremmede'; END IF;
+  a:=pg_temp.fco_row(f,-525101); b:=pg_temp.fco_row(f,-525102);
+  IF a->>'provenance_kind'<>'placement' OR a->>'printed_number_label'<>'7' OR (a->>'printed_number')::int<>7
+     OR b->>'provenance_kind'<>'placement' OR b->>'printed_number_label'<>'8a' OR (b->>'printed_number')::int<>8 THEN
+    RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: entydig % %',a,b;
+  END IF;
+  RAISE NOTICE 'OK: laeser_entydig';
+END $laeser_entydig$;
+
+DO $laeser_1939$
+DECLARE f jsonb; a jsonb; b jsonb; c jsonb; g jsonb;
+BEGIN
+  -- To placements i samme entry med samme nummer ⇒ alle kildens rækker legacy, også en tredje med eget nummer.
+  f:=pg_temp.fco_src(-5261);
+  PERFORM pg_temp.fco_place(f,'I-3',-526101,3,'3');
+  PERFORM pg_temp.fco_place(f,'I-3b',-526102,30,'3');
+  PERFORM pg_temp.fco_place(f,'I-4',-526103,4,'4');
+  IF pg_temp.fco_promote(f)<>3 THEN RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: 1939: forventede 3 fremmede'; END IF;
+  a:=pg_temp.fco_row(f,-526101); b:=pg_temp.fco_row(f,-526102); c:=pg_temp.fco_row(f,-526103);
+  IF a->>'provenance_kind'<>'legacy_external_id' OR a->>'printed_number_label'<>'3'
+     OR b->>'provenance_kind'<>'legacy_external_id' OR b->>'printed_number_label'<>'30'
+     OR c->>'provenance_kind'<>'legacy_external_id' OR c->>'printed_number_label'<>'4' THEN
+    RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: 1939 % % %',a,b,c;
+  END IF;
+  -- Gaten er pr. kilde: en entydig kilde ved siden af beholder placement.
+  g:=pg_temp.fco_src(-5262);
+  PERFORM pg_temp.fco_place(g,'I-3',-526201,3,'3');
+  IF pg_temp.fco_promote(g)<>1 THEN RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: 1939: nabokilde ikke fremmet'; END IF;
+  a:=pg_temp.fco_row(g,-526201);
+  IF a->>'provenance_kind'<>'placement' THEN RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: 1939 nabokilde %',a; END IF;
+  RAISE NOTICE 'OK: laeser_1939';
+END $laeser_1939$;
+
+DO $laeser_null_nummer$
+DECLARE f jsonb; a jsonb; b jsonb;
+BEGIN
+  -- Én placement uden trykt nummer (stamfader) ⇒ hele kilden legacy, også den nummererede.
+  f:=pg_temp.fco_src(-5271);
+  PERFORM pg_temp.fco_place(f,'I-0',-527101,1,NULL);
+  PERFORM pg_temp.fco_place(f,'I-2',-527102,2,'2');
+  IF pg_temp.fco_promote(f)<>2 THEN RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: null_nummer: forventede 2 fremmede'; END IF;
+  IF (SELECT rp.printed_number FROM public.person_lineage_membership plm
+        JOIN private.source_record_placement rp ON rp.id=(plm.source_basis->>'record_placement_id')::uuid
+       WHERE plm.person_id=-527101) IS NOT NULL THEN
+    RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: null_nummer: forudsætning: placementen skal mangle nummer';
+  END IF;
+  a:=pg_temp.fco_row(f,-527101); b:=pg_temp.fco_row(f,-527102);
+  IF a->>'provenance_kind'<>'legacy_external_id' OR a->>'printed_number_label'<>'1'
+     OR b->>'provenance_kind'<>'legacy_external_id' OR b->>'printed_number_label'<>'2' THEN
+    RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: null_nummer % %',a,b;
+  END IF;
+  RAISE NOTICE 'OK: laeser_null_nummer';
+END $laeser_null_nummer$;
 ROLLBACK;
