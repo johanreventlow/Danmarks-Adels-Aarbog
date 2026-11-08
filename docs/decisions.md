@@ -18,8 +18,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > 4. **Læseren:** `public_person_source_coordinates` bruger kun placementkoordinater for en kilde, når dens gældende
 >    placements er entydige på `(entry, printed_number)`; ellers legacy for hele kilden. 1939's numre er gruppelokale
 >    (53 numre deles af 389 poster), så 1939 vises som i dag indtil 6e; 2018-20 byte-ens.
-> 5. **Tre personas uden accepteret identitet:** record-placement, ingen persona-placement eller medlemskab; 560
->    persona-placements (spec §8 sagde 563).
+> 5. **Tre personas uden accepteret identitet:** record-placement, ingen persona-placement eller medlemskab. Antallet af
+>    persona-placements beregnes af manifestet (højst 534: 29 personas sidder på records uden nummereret post; rettet
+>    efter Codex r1 #1 — »560« var en regnefejl). De 29 får intet 1939-medlemskab i 6d-1.
 > 6. Task 0 måles på c3h i stedet for en frisk prod-kopi (`dump-kopi` læser prod og er ikke på allowlisten; 6c-3 rørte
 >    kun 2018-20). Frisk stand-in til generalprøven (Task 9).
 

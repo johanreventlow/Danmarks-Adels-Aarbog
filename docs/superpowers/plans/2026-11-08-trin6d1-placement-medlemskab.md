@@ -85,8 +85,10 @@ Målt i Task 0 (stand-in c3h; tal i `~/.private/6d1/maaling.txt`); beslutningen 
 3. **37 records uden nummereret post** (29 med persona): ingen placement, `retained_legacy`, grund `ingen_nummereret_post`.
 4. **Læseren:** variant (b) — kildeentydigheds-gaten i `public_person_source_coordinates` (Task 5). 1939: 53 numre deles
    af 389 poster, så 1939-rækkerne forbliver `legacy_external_id` indtil 6e; `expect_laeser_1939=uaendret`.
-5. **3 personas uden accepteret identitet:** record-placement, ingen persona-placement, intet medlemskab; 560
-   persona-placements. Alle 563 bindinger er `published` og opslag via recordens nøgle virker; 0 kanoniske dubletter.
+5. **3 personas uden accepteret identitet:** record-placement, ingen persona-placement, intet medlemskab. Antallet af
+   persona-placements er **ikke** 560 (Codex r1 #1): 29 personas sidder på de 37 records uden nummereret post, så højst
+   534; det forventede tal = |nummereret post ∩ ikke parkeret gren ∩ accepteret placement ∩ accepteret identitet|,
+   beregnet af Task 1's manifest og fastlåst i runneren. Alle 563 bindinger er `published` og opslag via recordens nøgle virker; 0 kanoniske dubletter.
 
 ---
 
@@ -163,7 +165,9 @@ Målt i Task 0 (stand-in c3h; tal i `~/.private/6d1/maaling.txt`); beslutningen 
 - Pr.-post-årsager (→ `unresolved`): `overskrift_ikke_fundet:<niveau>`, `ikke_alignet`, `uden_post`,
   `nr_ikke_fortloebende`, `slaegtled_ikke_monoton`, `gruppe_flere_familier`, `uenig:foraelder_generation`,
   `uenig:legacy_linje`, `uenig:legacy_nr` (kun hvor legacy-linjen ikke er `1939`). Kørselsinvarianter (alle skal være
-  sande): `record_keys_unikke`, `section_path_nr_unik` (blandt `machine_ok`), `en_overskrift_pr_gruppe`,
+  sande): `record_keys_unikke`, `section_path_nr_unik` (blandt `machine_ok`, pr. **fysisk post** = `post_char_from`: flere
+  records i samme post deler lovligt koordinater; to forskellige poster med samme `(section_path, nr)` bryder),
+  `en_overskrift_pr_gruppe`,
   `segmenter_paritet` (guide-scannerens lokal_id'er = `_segment_1939(raw)`'s).
 - CLI: `--header-profile` (default 2018-20-profilen), `--guide-text` (kræves ved `guide_text_sha256`), `--legacy-json`
   eller `--records-json` (gensidigt udelukkende); `summary()` uændret plus `transfer`.
@@ -230,14 +234,22 @@ Målt i Task 0 (stand-in c3h; tal i `~/.private/6d1/maaling.txt`); beslutningen 
 - `record_legacy_disposition` (samme signatur): `mapped` er også gyldig, når der findes en gældende accepteret
   `principal_member`-persona-placement på `p_placement_id`, hvis personas accepterede identitet har
   `canonical_person_id = p_person_id`. Den gamle `record_key`-vej er uændret. Ellers `PLACEMENT_LEGACY_MAPPING_INVALID`.
-- `red_promote_placement_memberships` (samme signatur): før hver indsættelse — findes en række på
-  `(person_id, lineage_id)` eller `(person_id, slaegt_id)`, hvis `source_basis->>'source_id'` ikke er `p_source_id`
-  (også NULL) → `PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE`; intet skrives.
+- `red_promote_placement_memberships` (samme signatur), to ændringer (Codex r1 #4, #6):
+  1. **Før** det generelle konfliktstop (`PLACEMENT_MEMBERSHIP_CONFLICT`): findes for et item en række på
+     `(person_id, lineage_id)` eller `(person_id, slaegt_id)`, hvis `source_basis->>'source_id'` ikke er
+     `p_source_id::text` (også NULL) → `PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE`; intet skrives.
+  2. **Atomisk i skrivningen:** begge upserts får `ON CONFLICT … DO UPDATE … WHERE <tabel>.source_basis->>'source_id'
+     = excluded.source_basis->>'source_id'`; `GET DIAGNOSTICS` 0 rækker → `PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE`
+     (dækker en anden kildes række indsat mellem forhåndstjek og skrivning). Ingen tosessionstest (ceremonien kører i
+     én session; Opus-dom »forenklet«).
 
 - [ ] **Trin 1: Fejlende tests:** `$ledger_via_identitet$` (record_key ≠ legacy-nøgle, identitet = personen → mapped);
   `$ledger_anden_person$` og `$ledger_identitet_ikke_accepteret$` → `PLACEMENT_LEGACY_MAPPING_INVALID`;
   `$ledger_noegle_uaendret$` (den gamle vej virker); `$fremmed_kilde$` (eksisterende medlemskab med kilde 1 på samme
-  `(person, linje)` → `PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE`, 0 rækker ændret); `$fremmed_kilde_null$`.
+  `(person, linje)` → `PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE`, ikke `…_CONFLICT`, 0 rækker ændret); `$fremmed_kilde_null$`;
+  `$fremmed_kilde_i_skrivning$` (testens midlertidige AFTER INSERT-trigger på `person_lineage_membership` indsætter en
+  kilde 1-række i `person_slaegt_membership` for samme person; slægts-upserten rammer den → 0 rækker →
+  `PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE`, transaktionen rulles tilbage; triggeren droppes i testen).
 - [ ] **Trin 2:** `env -u PGOPTIONS psql -v ON_ERROR_STOP=1 -f tests/sql/test-placement-writer.sql` (og membership)
   → de nye fejler.
 - [ ] **Trin 3:** Implementér, kopiér byte-ens til migrationsblokken.
@@ -302,7 +314,9 @@ kildens rækker til legacy. Ingen udgavenavne.
 
 **Files:**
 - Create: `.claude/skills/daa-extract/scripts/placement_ceremoni.sql` (kildeparametriseret; model:
-  `fix_150_placement.sql`, som fryses), `maal_trin6d1.sql` (faser `foer|ddl|data` + tal), `test_maal_trin6d1.py`
+  `fix_150_placement.sql`, som fryses), `maal_trin6d1.sql` (faser `foer|ddl|data` + tal; printer i hver fase `KOORD_2018_20=<md5>` over
+  `public_person_source_coordinates()`-rækkerne med `source_id<>3` i fast orden; runneren stopper, hvis `ddl` eller
+  `data` afviger fra `foer`), `test_maal_trin6d1.py`
   (som `test_maal_trin6c1.py`)
 - Test: `tests/sql/test-placement-ceremoni.sh` + `tests/sql/fixtures/manifest-6d1.json`, `mapping-6d1.json`
   (syntetisk mini-kilde gennem hele ceremonien); tilføj til `ci.yml` efter `test-150-ceremoni.sh`
@@ -314,7 +328,8 @@ kildens rækker til legacy. Ingen udgavenavne.
 - psql-variabler: `actor src go manifest_path manifest_sha mapping_path mapping_sha approvals_path approvals_sha
   rendition_sha header_rule_version expect_headers expect_entries expect_placements expect_persona_placements
   expect_bindings expect_published expect_revalidated expect_ledger_mapped expect_ledger_retained expect_memberships
-  expect_corroborated expect_conflict expect_laeser_1939` (sidste ∈ `uaendret|placement`).
+  expect_corroborated expect_conflict expect_laeser_1939 expect_koord_2018_20` (`expect_laeser_1939` ∈
+  `uaendret|placement`; `expect_koord_2018_20` = baseline-hashen fra `maal foer`).
 - **Bindinger og tilstande slås op via recorden, aldrig via legacy-rækken:** `private.narrative_record_publication b
   JOIN private.source_record sr ON sr.id=b.source_record_id` (kilde `src`), og `narrative_record_state(n.subjekt_id,
   sr.source_id, sr.record_key)` / `red_revalider_person_narrative_record(n.subjekt_id, sr.source_id, sr.record_key, …)`
@@ -332,8 +347,9 @@ kildens rækker til legacy. Ingen udgavenavne.
      `:expect_published` publiceret,
      0 `stale_published`; mappingen dækker hver `entry_code` i de poster, der skrives.
   2. Linjeskema under change_set `placement_lineage_scheme`: nye `lineage_scheme_entry` (kode, label, sort_order) og
-     `lineage_scheme_entry_lineage` (`canonical` + `historical_alias`); linjen slås op på `(source_id, kode)`;
-     `lineage_of_entry` lykkes for alle kildens entries; ryd GUC.
+     `lineage_scheme_entry_lineage` (`canonical` + `historical_alias`) **kun for ikke-parkerede grene**; linjen slås op
+     på `(source_id, kode)`; `lineage_of_entry` lykkes for alle kildens entries; ryd GUC. En parkeret gren får ingen
+     entry, og dens records udelukkes fra placement-, persona- og medlemskabssættet (Codex r1 #2).
   3. `write_header_evidence` (run_key = `:header_rule_version`), `write_record_placement` for `machine_ok` + godkendte,
      `write_persona_placement` for records med præcis én `primary`-persona på helposten og accepteret identitet.
   4. Ledger for kildens 576 rækker: `mapped` hvor Task 3's identitetsvej holder, ellers `retained_legacy` med
@@ -341,11 +357,14 @@ kildens rækker til legacy. Ingen udgavenavne.
      rækker røres ikke.
   5. `ANALYZE` (memory `restore-uden-planner-statistik`); preview + promote memberships som redaktør; assert tom GUC.
   6. Revalidering: én `\gexec`-sætning pr. `stale_published` med `set_config('app.change_set_id','',true)` foran.
+  Timeout (Codex r1 #5): ceremonien kører under sin egen `SET LOCAL statement_timeout='15min'` (som 5c-1 i prod);
+  prods 2-minuttersgrænse gælder ikke ceremoniens sætninger, kun læserne (Task 9 trin 3).
   7. `PLC_POST_*`: 0 `stale_published` og samme publicerede; uændret eligibility pr. post; ledger-antal = forventede og
      `is_current`; `placement_header_violations(src)=0`; `placement_membership_not_current()=0`; komponenttal =
      `expect_corroborated`/`expect_conflict`; **2018-20-paritet** (hash før = efter over kilde 1's placements,
      medlemskaber, publiceringstilstand og `public_person_source_coordinates`-rækker med `source_id<>src`, plus
-     fix_150's fem læsere); `PLC_POST_LAESER` (1939-rækkernes hash uændret ved `uaendret`, ellers alle `placement`).
+     fix_150's fem læsere) **og** koordinat-hashen = `:expect_koord_2018_20` (baseline taget af `maal_trin6d1.sql` i
+     fasen `foer`, dvs. før DDL; Codex r1 #7); `PLC_POST_LAESER` (1939-rækkernes hash uændret ved `uaendret`, ellers alle `placement`).
 
 - [ ] **Trin 1: Fejlende test** (mini-kilde: to grene, 4 records, 3 publicerede, 1 `unresolved`, 1 parkeret gren, en
   modpart i kilde 1): `$fuld_koersel$` (PLC_OK, 0 stale, ledger 3 mapped + 1 retained, 1 `corroborated`); genkørsel →
@@ -353,7 +372,9 @@ kildens rækker til legacy. Ingen udgavenavne.
   persona med `unresolved` identitet → record-placement, ingen persona-placement, binding stadig `published`;
   bindingens record_key ≠ legacy-rækkens → revalideres alligevel (`$binding_via_record$`);
   `$fortryd_en_post$` (membership-reversal → placements `superseded` via `red_decide_*` → revalidering → ledger) ender
-  `published` og 0 stale; `$paritet_2018_20$` (en bevidst ændring af en kilde 1-række får POST til at fejle).
+  `published` og 0 stale; `$paritet_2018_20$` (en bevidst ændring af en kilde 1-række får POST til at fejle);
+  `$parkeret_gren$` (en parkeret gren med ellers `machine_ok`-records: ingen entry, ingen placement, ledger
+  `retained_legacy`/`parkeret_gren`, PLC_OK).
 - [ ] **Trin 2-4:** kør (fejl) → implementér ceremoni + `maal_trin6d1.sql` + pytest → grønne.
 - [ ] **Trin 5: Commit** `feat(6d): data-ceremoni for placement og medlemskab pr. kilde`.
 
@@ -368,12 +389,15 @@ kildens rækker til legacy. Ingen udgavenavne.
   stand-in'en): højst ~30 pr. ark; flere → flere ark. Konfliktkort viser begge udgavers gren/linje og nummer, intet navn
   ud over det, bogen trykker på kortet (memory `kortark-kraever-kontekst-html`: lokal HTML under `~/.private/6d1/`).
 - Godkendelige årsager (som fix_150's `uenig:kuld`-liste): `nr_ikke_fortloebende`, `slaegtled_ikke_monoton`,
-  `gruppe_flere_familier`. `mangler_linje`, `uden_post`, `uplaceret_oversigt` kan ikke godkendes.
+  `gruppe_flere_familier`. `overskrift_ikke_fundet:*`, `ikke_alignet`, `uden_post` kan ikke godkendes.
+- **Svarformat 1939** (Codex r1 #8): stikprøvesvar `<slægtled> <romertal|->` fra PDF'en som i dag. Sammenligningen
+  bruger `kuld_label`, når det er et romertal, og ellers guidens romertal (`parsed.guide.value`, kun kontrol, aldrig
+  evidens); ingen forudfyldning.
   Konfliktkort registreres (svar → `docs/decisions.md`-backlog), skriver intet i 6d-1 (spec §5.4).
 - 2018-20-tilstanden (default) er uændret.
 
 - [ ] **Trin 1-4:** fejlende tests (strata dækker alle `record_kind`; ikke-godkendelig årsag i svarene → afvist; 2018-20
-  default byte-ens) → implementér → grønne.
+  default byte-ens; render → svar → approvals for en romertalsgruppe og en beskrivelsesgruppe) → implementér → grønne.
 - [ ] **Trin 5: Projektejeren** tjekker de 20 mod PDF'en og svarer på kortene (spec §6 pkt. 2-3). Én afvigelse i
   stikprøven stopper og går tilbage til Task 1. Arkenes og token-filernes sha bindes i GO.
 - [ ] **Trin 6: Commit** `feat(6d): kontrolark med 1939-strata og konfliktkort`.
@@ -392,8 +416,9 @@ kildens rækker til legacy. Ingen udgavenavne.
   vindue`; kendte følger (læserens 1939-rækker efter afgørelse 4); fortrydelse = restore + `db-rls.sql`; manuel
   fortrydelse pr. post som `$fortryd_en_post$`.
 - [ ] **Trin 3: Generalprøve** fra operatørens cwd (memory `oev-fra-operatoerens-cwd`) på en frisk kopi af `…_6d1t`
-  med `statement_timeout='2min'`: hele runbooken; rækkediff (kun spec §5's tabeller + `change_set`/`change_event`);
-  2018-20-paritet; maks. tid pr. sætning og samlet varighed fra `\timing`-filen; `public_person_source_coordinates`
+  med `statement_timeout='2min'` (læserne; ceremonien sætter selv 15 min): hele runbooken; rækkediff (kun spec §5's
+  tabeller + `change_set`/`change_event`); 2018-20-paritet; maks. tid pr. sætning og samlet varighed fra
+  `\timing`-filen — stop, hvis den langsomste sætning × prod/stand-in-forholdet (fra `maal`) > 15 min; `public_person_source_coordinates`
   og personsiden som anon for de tungeste personer (< 3 s med margen, memory `anon-timeout-3s-public-facts`).
 - [ ] **Trin 4: Negativer:** forkert GO, manglende flag, gentaget `data` (fase), manipuleret identitet →
   `PLC_PRE_IDENTITY` uden skrivning; ændret mapping-ark efter GO → sha-fejl.

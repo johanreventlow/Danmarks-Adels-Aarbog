@@ -173,7 +173,9 @@ ark (trin 6-specen §3 (d)).
 **Revalidering:** hver publicering, der bliver `stale_published`, revalideres i samme transaktion som placementerne
 accepteres, med 5c-1's blok (§4.5 der: `red_revalider_person_narrative_record`, `\gexec`, GUC-rydning,
 `SET LOCAL statement_timeout`). Forbetingelse: identitetspersonen = bindingens person for hver berørt publicering.
-Efterbetingelse: 0 `stale_published` for kilde 3. Prod-tid måles mod 2-minuttersgrænsen pr. sætning.
+Efterbetingelse: 0 `stale_published` for kilde 3. Ceremonien kører under sin egen `SET LOCAL statement_timeout='15min'`
+(som 5c-1 i prod); generalprøvens langsomste sætning × prod/stand-in-forholdet skal ligge under 15 min. Prods
+2-minuttersgrænse gælder læserne (Codex r1 #5).
 
 **Ledger:** `record_legacy_disposition` udvides generelt: `mapped` er også gyldig, når legacy-rækkens person er det
 accepterede kanoniske mål for en persona med accepteret persona-placement på placementens record (koblingen via
@@ -233,8 +235,10 @@ data-ceremoni, så læseren aldrig ser `stale_published`.
 
 ## 8. Færdigbevis (6d-1)
 
-- **Placement:** antal kilde 3-records med accepteret record-placement og persona-placement (forventet 560 persona-
-  placements: de 3 personas uden accepteret identitet får kun record-placement, Gate A); de 21 persona-løse og de 37
+- **Placement:** antal kilde 3-records med accepteret record-placement og persona-placement (persona-placements =
+  |nummereret post ∩ ikke parkeret gren ∩ accepteret placement ∩ accepteret identitet|, højst 534 — 29 personas
+  sidder på records uden nummereret post, og de 3 uden accepteret identitet får kun record-placement; Gate A, Codex
+  r1 #1); de 21 persona-løse og de 37
   records uden nummereret post med deres disposition; 0 placements uden overskrift; invariantbrud og kort talt.
 - **Publiceringer:** 0 `stale_published` for kilde 3 før og efter; antal revalideret.
 - **Ledger:** alle 576 legacy-rækker for kilde 3 har disposition; antal `mapped`/`retained_legacy`.
@@ -253,7 +257,8 @@ data-ceremoni, så læseren aldrig ser `stale_published`.
 3. **Gate A efter Task 0 (ja til alle anbefalinger):** overskrifter guidet af raw.txt og forankret i Calamari (5.1);
    stammesektionerne er entries; 37 records uden nummereret post får ingen placement; læserens koordinat-RPC bruger kun
    placementkoordinater for en kilde med entydige `(entry, nummer)` (1939 vises som i dag indtil 6e; §8's
-   2018-20-paritet suppleres med 1939-rækkernes hash, uændret); 560 persona-placements. `docs/decisions.md` 2026-11-08.
+   2018-20-paritet suppleres med 1939-rækkernes hash, uændret, og en baseline af 2018-20-koordinaterne taget før DDL);
+   persona-placements beregnet af manifestet (højst 534). `docs/decisions.md` 2026-11-08.
 
 ## 10. Plan-Task 0 (måling før planen låses)
 
@@ -287,3 +292,17 @@ af mig i koden og på stand-in'en.
 | 8 | HØJ | Præcis én `canonical` pr. entry; VI er `canonical` | nødvendig: 5.2 |
 | 9 | MIDDEL | Maskinel accept uden 1939-invarianter; flere forekomster pr. record | nødvendig: invarianter i 5.3, tidligste forekomst |
 | 10 | MIDDEL | `samme_som`-statusfilter; 6d-3's afhængighed overdrevet | nødvendig: filter i 5.4; §3 indsnævret |
+
+**Codex `gpt-6.1-sol`, 2026-11-08 (B13-runden på spec+plan, efter Gate A):** NO-GO, 8 fund; Opus-dom, projektejeren ja
+til alle 8.
+
+| # | Alvor | Fund | Afgørelse |
+|---|---|---|---|
+| 1 | BLOKERENDE | 560 persona-placements uforeneligt med Gate A (29 personas uden nummereret post) | nødvendig: tallet beregnes af manifestet, højst 534 (§8) |
+| 2 | BLOKERENDE | Parkeret gren kan ikke passere `lineage_of_entry` | nødvendig: ingen entry, records udelukkes, ledger `parkeret_gren` |
+| 3 | HØJ | Koordinatunikhed afviser flere records i samme post | nødvendig: unikhed pr. fysisk post |
+| 4 | HØJ | Forhåndstjek beskytter ikke mod samtidig promotion | forenklet: atomisk `ON CONFLICT … WHERE source_id`, ingen tosessionstest |
+| 5 | HØJ | 15 min i ceremonien gør 2-minutsbeviset tomt | forenklet: 15 min (som 5c-1); generalprøven måler mod 15 min × forhold; 2 min gælder læserne (5.3) |
+| 6 | MIDDEL | Fremmed-kilde-fejlen nås ikke (konflikt-stop først) | nødvendig: tjek fremmed kilde først |
+| 7 | MIDDEL | Paritet tages efter DDL | nødvendig: baseline før DDL i målescriptet |
+| 8 | MIDDEL | Kontrolarket kan ikke besvare beskrivelsesgrupper | forenklet: svar med romertal fra PDF, sammenlign med guidens romertal (kun kontrol) |
