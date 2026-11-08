@@ -89,6 +89,7 @@ røres ikke.
 | `T6C3_AFSTEMNING_AFVIGER`, `…RAEKKER_AFVIGER`, `KORT_PROD_AFVIGER`, `T6C3_PREFLIGHT…` | parterne står, intet afgjort | fortryd |
 | `T6C3_FAKTA_FEJL` / `…FORAELDRE…` / `…BOERN…` / `…RELATIONER…` | den fejlede fil er rullet tilbage, de tidligere står | `maal`; `apply-data` igen (genoptager fra tilstanden med den gemte `gen.json`) eller fortryd |
 | `T6C3_KVITTERING` | alle bindinger står, ingen kvittering | `apply-data` igen; ellers fortryd |
+| `T6C3_EFTER_<trin> (tilstand; tal …)` eller `T6C3_DATA_TILSTAND_UKENDT` | trinnet er committet, men tallene passer ikke til den fastlåste tilstand | genoptagelse afvises (runneren kender ikke tilstanden); `fortryd` (bruger den rå tilstand) |
 | `T6C3_FORTRYD_IGANG` | en fortrydelse er påbegyndt | gennemfør `fortryd` med samme dump |
 
 Genoptagelse blev afprøvet på c3g fra `parter`, `fakta` og `boern` (stand-in-krogen `DAA_T6C3_TEST_STOP`, kun stand-in).
@@ -98,6 +99,7 @@ Genoptagelse blev afprøvet på c3g fra `parter`, `fakta` og `boern` (stand-in-k
 `DAA_T6C3_DUMP=<kvittering> koer.zsh 32-trin6c3.sh go-fortryd` → projektejeren `fortryd --jeg-mener-det --go <kode>`.
 Kræver ingen fremmede change_sets siden dumpet og ingen andre sessioner med låse. Efter: ACL, default-ACL, katalog og
 restore-hash som dumpet, `andre` uændret (`T6C3_FORTRYD_OK`). Afprøvet på c3f (DDL og data) og c3g (data).
+DDL-fortrydelsen er kun kørt på c3f, før værdierne var fastlåst.
 
 ## Generalprøverne 8/11
 
