@@ -2,6 +2,14 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 6d deles i 6d-1, 6d-2 og 6d-3; medlemskab før relationer; 1939's »linje« er grenen (2026-11-08)
+
+> Delspec 6d godkendt med specens §3 og §9: 6d-1 (overskrifter, placement, revalidering, ledger, medlemskab og afledt
+> B6), 6d-2 (personas for de 21 records uden, de 13 narrativer, identitetsflytningerne, de 39 tekstrettelser), 6d-3
+> (relationer; børn på placementkoordinater). Justerer trin 6-specens §5's interne rækkefølge: medlemskab/B6 rykker
+> før relationerne, fordi færdigbevis (c) kun afhænger af placement og medlemskab. 1939's grene er entries i
+> linjeskemaet; slægtled og gruppe står i `section_path`. Læserens visning af 1939-koordinaterne hører til 6e.
+
 ## BESLUTTET: B6 bygges som afledt bekræftelse på komponentniveau, ikke som flere grundlag pr. medlemskab (2026-11-08)
 
 > Delspec 6d (`docs/superpowers/specs/2026-11-08-trin6d-placement-relationer-medlemskab-design.md` §5.4). Justerer

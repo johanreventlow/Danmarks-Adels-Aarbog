@@ -1,8 +1,8 @@
-# Delspec 6d — placement, relationer og medlemskab for 1939 (UDKAST, revideret efter Fable-review)
+# Delspec 6d — placement, relationer og medlemskab for 1939
 
-**Status:** udkast 2026-11-08, ikke godkendt. Projektejeren bad om udkastet uden forudgående spørgsmål. Fable-review
-samme dag (§11: NO-GO, 10 fund, indarbejdet). B6-modellen er afgjort af projektejeren (afledt bekræftelse,
-decisions 2026-11-08). Mine valg er markeret *mit valg*; de åbne spørgsmål står i §9.
+**Status:** godkendt af projektejeren 2026-11-08 (§9 pkt. 1-2 ja). Fable-review samme dag (§11: NO-GO, 10 fund,
+indarbejdet). B6-modellen er afgjort af projektejeren (afledt bekræftelse, decisions 2026-11-08). Mine valg er
+markeret *mit valg*.
 **Overordnet spec:** `docs/superpowers/specs/2026-10-29-trin6-1939-gennem-kaeden-design.md` §5 (6d), §6 pkt. 3 (B6)
 og pkt. 8 (hvor 1939 hører hjemme), §8 (færdigbevis b og c).
 **Forudgående mekanisme:** 5c-1 (`docs/superpowers/specs/2026-10-26-trin5c-placement-membership-design.md`), 5b
@@ -237,11 +237,11 @@ data-ceremoni, så læseren aldrig ser `stale_published`.
 - **Tid:** `public_person_source_coordinates` og personsiden for de tungeste personer som anon under 3 s med margen.
 - **Status:** rækken »Placement og membership (5c-1)« for 1939 hæves til `produktionsverificeret`.
 
-## 9. Åbne spørgsmål til projektejeren
+## 9. Projektejerens afgørelser (2026-11-08)
 
-1. **Opdelingen:** godkender du 6d-1/6d-2/6d-3, og at medlemskab/B6 rykker før relationerne?
-2. **Hvad er »linje« i 1939?** Mit forslag: grenen er entry i linjeskemaet; slægtled og gruppe står i `section_path`.
-   Task 0 viser fordelingen.
+1. **Opdelingen:** ja til 6d-1/6d-2/6d-3, og at medlemskab/B6 rykker før relationerne (decisions 2026-11-08).
+2. **»Linje« i 1939:** grenen er entry i linjeskemaet; slægtled og gruppe står i `section_path`. Viser Task 0 en
+   gren uden overskrift før posterne, kommer spørgsmålet tilbage til projektejeren før planen låses.
 
 ## 10. Plan-Task 0 (måling før planen låses)
 
