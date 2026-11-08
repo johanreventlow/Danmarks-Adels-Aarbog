@@ -2,6 +2,59 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## ÅBEN: 6c-3's modelsvar er sammensat pr. post af tre kørsler — kræver projektejerens godkendelse før GO (2026-11-08)
+
+> Det forslagsmanifest, data-ceremonien binder (`manifest_content_sha256` 95928243…, runner-manifest 5cc7f719…), er
+> ikke én modelkørsel. Det er sat sammen pr. post af tre kørsler med samme model (`gpt-5.6-terra`), prompt (1.0.0) og
+> runner-manifest. Hvert valgt svar er et uredigeret modelsvar fra cachen, og alle har været gennem kortene
+> (stikprøve 10 × B, 3 × D) og T/V-arket.
+>
+> - **Hvem afgjorde hvad:** projektejeren godkendte 8/11 en genkørsel af de 5 poster med tab, efter T/V-arket fra
+>   kørsel 1 viste 6 tilbagetrækninger. *Reglen for at vælge mellem kørslerne* afgjorde hovedsessionen selv
+>   (»Ruling« i SDD-ledgeren). Den er ikke forelagt projektejeren. Reglen er: pr. post vælges den kørsel, der
+>   genfinder flest gamle bindinger, og derefter flest ubundne gamle nøgler.
+> - **Valget** (`~/.private/6c3/model-final/sammensaetning.json`, cache-nøgle og fil-sha pr. post): kørsel 1 (alle
+>   9 poster) for I-17, I-18, I-32, I-33 og III-37; kørsel 2 (5 poster) for I-44, I-89 og I-9; kørsel 3 (2 poster)
+>   for I-11.
+> - **Hvad det betyder i tal:** kørsel 1 alene giver 10 genbundne og 6 tilbagetrukne kildehenvisninger. Det sammensatte
+>   svar giver 14 genbundne og 2 tilbagetrukne. De fire, der kommer tilbage, er I-11's børn, I-44's forældre og
+>   navnene på I-89 og I-9. I-9's titel og III-37's børn tabes i alle tre kørsler.
+> - **Indvendingen:** at vælge den kørsel, der stemmer bedst med den gamle import, belønner overensstemmelse med de
+>   gamle data. Det svarer til at plukke de bedste resultater. Prod får et bedre tal, end én kørsel ville give.
+>   Variationen mellem kørslerne viser samtidig, at modellens læsning af disse poster ikke er stabil.
+> - **Argumentet for:** en binding genskabes kun, hvis den nye påstand matcher den gamle i SQL
+>   (`binding_value_matches`) og bogen stadig siger det (stikprøven). Udvælgelsen kan altså ikke skabe en binding, der
+>   ikke står i bogen. Den kan kun vælge mellem læsninger, hvor modellen fandt den.
+> - **Valgmuligheder før GO:** A) behold det sammensatte svar (klar, øvet på c3e/c3f/c3g). B) kørsel 1 alene
+>   (kræver svar på dens T/V-ark med 6 linjer, en ny pakke og en ny generalprøve). C) én frisk kørsel af alle 9 poster,
+>   brugt som den er (ca. 180.000 tokens og nye kort, T/V og generalprøve; viser samtidig stabiliteten). Hvis
+>   genkørsel pr. post bliver normal praksis, bør reglen være et værktøj med fast kriterium, besluttet før kørslen
+>   (Task 8-note 7).
+
+## BESLUTTET: 6c-3's afgrænsning — specens §8 pkt. 1-6, `BEGGE` flyttet til opret-benet/6e (2026-11-07)
+
+> Delspec 6c-3 (`docs/superpowers/specs/2026-11-07-trin6c3-a6b-resten-design.md`) godkendt med anbefalingerne:
+> genkørsel med den oprindelige model og prompt (pkt. 1); de 4 forælder/barn-afgørelser genbesvares på kort (2);
+> `BEGGE` (fakta, der både er rettelse og ny oplysning) flyttes fra 6c-3 til opret-benet/6e (3); I-84 forbliver
+> parkeret (4); DDL-blok 6c-3a med genbrug af ægtefælle-persona, så de 3 ægteskaber genbindes (5); afstemningen
+> kvitteres i en ny generel tabel (`private.text_revision_reconciliation`) i samme blok (6).
+
+## NOTERET: værktøjsrettelser fra 6c-3's kortrunde — åben backlog (2026-11-08)
+
+> Fra Task 7's kort- og T/V-runder. Ingen af dem påvirker prod-ceremonien, som kun genbruger svarene. De gør næste
+> kortrunde (6d) lettere:
+>
+> - forælderarket mangler kontekst: HTML-siden med post, side, barn og familiens forældre og børn (nr = `row_no`)
+>   blev bygget privat og bør være et repo-værktøj;
+> - T/V-siden skal vise den gamle påstand (familie med navne) og sige »bogen siger det stadig; modellen udtrak det
+>   ikke«;
+> - kortet viser bevidst ikke klassen, så mærket »B = bogen og databasen er enige« findes ikke. Vejledningen skal
+>   stå på kortet;
+> - genkørsel og sammensætning pr. post (cachekort + sammensæt) bør være et værktøj, hvis det bliver praksis (se
+>   ÅBEN ovenfor);
+> - `relation_persona_input.sql` skal køres med `psql -q`, ellers kommer `SET`/`COMMIT` ind i JSON'en;
+>   `run_evidence_43b.py --out` er en fil, ikke en mappe.
+
 ## NOTERET: manuel indtastning af en påstand efter bogen, når modellen ikke udtrækker den — åben backlog (2026-11-08)
 
 > Fundet i 6c-3's genkørsel (Task 7). Efter tekstrevisionen kan en binding kun genskabes, hvis modellens nye
