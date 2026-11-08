@@ -88,6 +88,10 @@ rettes efter svarene, før Codex-runden.
    `(gren, nr)`-kollisioner. Valg: (a) accepter mellemvisningen til 6e; (b) **generel gate i RPC'en (anbefalet):** en
    kilde bruger placement-koordinater kun, når dens gældende placements er entydige på `(entry, printed_number)`;
    ellers legacy for hele kilden — 2018-20 byte-ens, 1939 uændret til 6e; (c) træk 6e's sektionsfelt frem i 6d-1.
+5. **Personas uden accepteret identitet** (1 `unresolved` = kort 122, 2 uden identitetsrække). Forslag: deres records
+   får record-placement, men ingen persona-placement og intet medlemskab (som de 21 persona-løse); identitetstjekket
+   køres over de records, der får persona-placement. Spec §8's »563« bliver 560 persona-placements (spec-rettelse).
+   Task 0 viser, om en persona-placement på kort 122's record ville efterlade bindingen blokeret (5c-1 Review Focus 5).
 
 ---
 
@@ -98,12 +102,16 @@ rettes efter svarene, før Codex-runden.
 - [ ] **Trin 1:** Frisk stand-in fra et prod-læsedump gennem runnerens `standin`-handling (`32-trin6c3.sh standin
   <kvittering> 6d1a`), ICU-locale som prod; skabelonkopi `…_6d1t`. `ALTER DATABASE … SET statement_timeout='2min'`.
 - [ ] **Trin 2 (DB, kun antal):** genmål spec §2's tal; personas pr. `record_kind`/`mention_role` (forventet: alle 563
-  `primary` på helposten); `(gren, nr)`-kollisioner kan først tælles efter trin 3.
+  `primary` på helposten); `count(distinct canonical_person_id)` over de 560 accepterede identiteter (to personas med
+  samme person giver `conflict` i `placement_membership_set`, og promotionen stopper på enhver konflikt); bindinger pr.
+  record (via `narrative_record_publication` → `source_record`) og dermed antal publiceringer, placementerne gør
+  `stale_published`; om kort 122's binding blokeres af en persona-placement (afgørelse 5). Revalideringens *tid* måles
+  i Task 9's generalprøve. `(gren, nr)`-kollisioner kan først tælles efter trin 3.
 - [ ] **Trin 3 (tekst):** kør en engangsprobe, der kalder `segment._segment_1939` på renditionen og tæller overskrifter
   pr. niveau, distinkte gren-/slægtled-/gruppelabels (labels er bogens strukturord, ingen navne — vis kun romertal og
   ordinaler), records pr. fase (stamme/gren), records uden `header_linje` foran tidligste forekomst, records uden
   nummereret post, `(gren, nr)`- og `(section_path, nr)`-kollisioner. stdout+stderr til fil.
-- [ ] **Trin 4: Gate A.** Vis projektejeren tallene og afgørelse 1-4 som ét samlet valg; skriv svarene ind i planen og
+- [ ] **Trin 4: Gate A.** Vis projektejeren tallene og afgørelse 1-5 som ét samlet valg; skriv svarene ind i planen og
   `docs/decisions.md`; commit `docs(6d): plan-afgørelser efter måling`.
 - [ ] **Trin 5: Codex-runde** (`gpt-6.1-sol`) på spec+plan fra en eksport uden `work*/` (`git archive`,
   `--skip-git-repo-check`; udeluk `work*/` i selve søgekommandoen, memory `codex-soegning-pii-filnavne`). Opus dømmer
@@ -162,7 +170,10 @@ rettes efter svarene, før Codex-runden.
 - [ ] **Trin 2:** `/usr/bin/python3 -m pytest .claude/skills/daa-extract/scripts/test_build_header_manifest.py -q` →
   de nye fejler, de gamle er grønne.
 - [ ] **Trin 3: Implementér** profilerne, dispatch og `build_manifest_by_offset`; eksport-SQL'en. Ingen netværk, ingen model.
-- [ ] **Trin 4:** pytest igen → alle grønne. Kør eksporten mod stand-in'en og manifestet på den rigtige tekst
+- [ ] **Trin 4:** pytest igen → alle grønne. **Prods 2018-20-manifest:** kør den refaktorerede scanner med
+  2018-20-profilen på `work/raw_full.txt` + en frisk `fix_150_eksport.sql`-eksport (`-v src=1`) fra stand-in'en, og
+  assert at `summary()['manifest_sha256']` = værdien i stand-in'ens `header-2018-20-v1`-`extraction_run` (fix_150
+  bandt den). Kør derefter 1939-eksporten mod stand-in'en og manifestet på den rigtige tekst
   (output under `~/.private/6d1/`, stdout+stderr til fil); notér `summary()`'s tal i `maaling.txt`. Er en
   kørselsinvariant falsk: stop og vis antallet.
 - [ ] **Trin 5: Commit** `feat(6d): profilstyret overskriftsscanner med 1939-profil`.
@@ -286,6 +297,11 @@ kildens rækker til legacy. Ingen udgavenavne.
   rendition_sha header_rule_version expect_headers expect_entries expect_placements expect_persona_placements
   expect_bindings expect_published expect_revalidated expect_ledger_mapped expect_ledger_retained expect_memberships
   expect_corroborated expect_conflict expect_laeser_1939` (sidste ∈ `uaendret|placement`).
+- **Bindinger og tilstande slås op via recorden, aldrig via legacy-rækken:** `private.narrative_record_publication b
+  JOIN private.source_record sr ON sr.id=b.source_record_id` (kilde `src`), og `narrative_record_state(n.subjekt_id,
+  sr.source_id, sr.record_key)` / `red_revalider_person_narrative_record(n.subjekt_id, sr.source_id, sr.record_key, …)`
+  med recordens nøgle. fix_150's `person_external_id.record_key`-opslag rammer kun 8/576 kilde 3-rækker.
+  Personen pr. record kommer fra den accepterede identitet.
 - Kvittering: `\echo PLC_OK entries=… headers=… placements=… persona=… ledger_mapped=… memberships=… revalideret=…
   corroborated=… conflict=…`.
 - Rækkefølge (én transaktion, `SET LOCAL statement_timeout='15min'` + assert; aktør via `request.jwt.claim.sub`;
@@ -293,13 +309,15 @@ kildens rækker til legacy. Ingen udgavenavne.
   1. `PLC_PRE_*`: rolle; DDL til stede (Task 3-5's kroppe); tom `app.change_set_id`; fase = 0 placements for `src`;
      manifestets `header_rule_version` = `:header_rule_version` og alle kørselsinvarianter sande; manifest-, mapping- og
      approvals-sha = de GO-bundne; præcis én rendition med `rendition_sha`; identitet = binding for alle `:expect_bindings`
-     bindinger (fix_150's materialiserede form, `fix150_pi`-mønstret med `ANALYZE`); `:expect_published` publiceret,
+     bindinger på records, der får persona-placement (afgørelse 5; fix_150's materialiserede form, `fix150_pi`-mønstret
+     med `ANALYZE`); ingen to personas, der får placement, har samme `canonical_person_id` (`PLC_PRE_SAME_PERSON`);
+     `:expect_published` publiceret,
      0 `stale_published`; mappingen dækker hver `entry_code` i de poster, der skrives.
   2. Linjeskema under change_set `placement_lineage_scheme`: nye `lineage_scheme_entry` (kode, label, sort_order) og
      `lineage_scheme_entry_lineage` (`canonical` + `historical_alias`); linjen slås op på `(source_id, kode)`;
      `lineage_of_entry` lykkes for alle kildens entries; ryd GUC.
   3. `write_header_evidence` (run_key = `:header_rule_version`), `write_record_placement` for `machine_ok` + godkendte,
-     `write_persona_placement` for records med præcis én `primary`-persona på helposten.
+     `write_persona_placement` for records med præcis én `primary`-persona på helposten og accepteret identitet.
   4. Ledger for kildens 576 rækker: `mapped` hvor Task 3's identitetsvej holder, ellers `retained_legacy` med
      `evidence.grund` ∈ {`ingen_placement`, `parkeret_gren`, `stamme_uden_linje`, `ingen_identitet`}. Andre kilders
      rækker røres ikke.
@@ -314,6 +332,8 @@ kildens rækker til legacy. Ingen udgavenavne.
 - [ ] **Trin 1: Fejlende test** (mini-kilde: to grene, 4 records, 3 publicerede, 1 `unresolved`, 1 parkeret gren, en
   modpart i kilde 1): `$fuld_koersel$` (PLC_OK, 0 stale, ledger 3 mapped + 1 retained, 1 `corroborated`); genkørsel →
   `PLC_PRE_FASE`; identitet ≠ binding → `PLC_PRE_IDENTITY` uden skrivning; mapping mangler en gren → `PLC_PRE_MAPPING`;
+  persona med `unresolved` identitet → record-placement, ingen persona-placement, binding stadig `published`;
+  bindingens record_key ≠ legacy-rækkens → revalideres alligevel (`$binding_via_record$`);
   `$fortryd_en_post$` (membership-reversal → placements `superseded` via `red_decide_*` → revalidering → ledger) ender
   `published` og 0 stale; `$paritet_2018_20$` (en bevidst ændring af en kilde 1-række får POST til at fejle).
 - [ ] **Trin 2-4:** kør (fejl) → implementér ceremoni + `maal_trin6d1.sql` + pytest → grønne.
