@@ -7,7 +7,8 @@ under ~/.private). Token-filen har ét svar pr. gren: `L <gren> : <svar>`. Svar 
   A <kode>  tilføj historical_alias (kilde 1)         P         parkér grenen (hverken canonical eller alias)
 Præcis én af C/S/P pr. gren; A må følge C/S. Forslag (forudfyldt `C <kode>`) gives kun ved flertalslinje >= 80 % og
 ingen anden linje > 2 (memory forudfyldt-ark-skjuler-konflikt); ellers står svaret tomt. Eksisterende entries
-(`VI`) står fast som `C VI` (betyder her kilde 3) og kan ikke ændres. `approvals` binder token-filen til arkets sha og afviser
+(`VI`) står fast som `S VI` og kan ikke ændres. `C` betyder altid kilde 1, `S` altid kilde 3; alias må ikke
+være lig canonical eller gentages. `approvals` binder token-filen til arkets sha og afviser
 ubesvarede linjer; den bærer kun label_sha256 (ingen tekst). stdout printer kun koder og tal.
 """
 from __future__ import annotations
@@ -54,9 +55,9 @@ def _header(m: dict, code: str) -> dict | None:
     return None
 
 
-def _label_sha(h: dict | None) -> str | None:
+def _label_sha(h: dict | None, code: str) -> str:
     if h is None:
-        return None
+        raise SheetError(f'LABEL_MANGLER {code}')
     return h.get('verbatim_sha256') or hashlib.sha256(h['verbatim_text'].encode('utf-8')).hexdigest()
 
 
@@ -85,20 +86,22 @@ def _existing(ex: dict) -> set[str]:
 
 def render(m: dict, ex: dict) -> tuple[str, str]:
     dist = distribution(m, ex)
+    existing = _existing(ex)
     ark = ['# ============ GRENE I 1939 -> SLÆGTLINJER (#150 trin 6d-1) ============',
            '# Én linje pr. gren: antal modparter pr. 2018-20-linje (kode=antal) og grenens label.',
            '# Forslag gives kun ved flertalslinje >= 80 % og ingen anden linje > 2. Eksisterende entries står fast.']
     tok = ['# ============ SVAR: GRENE -> SLÆGTLINJER ============',
            '# Skriv svaret efter kolonet på hver »L«-linje. Alt med »#« er information.',
-           '#   C <kode> = canonical 2018-20-linje · S <kode> = canonical linje i 1939 · A <kode> = tilføj alias · P = parkér',
+           '#   C <kode> = canonical 2018-20-linje (kilde 1) · S <kode> = canonical linje i 1939 (kilde 3) · A <kode> = tilføj alias · P = parkér',
            '#   Flere dele adskilles med komma, fx »C II, A III«. Præcis én af C/S/P pr. gren.']
     for code in _entries(m, ex):
         h, cnt = _header(m, code), dist[code]
-        label = h['verbatim_text'] if h else '?'
+        _label_sha(h, code)
+        label = h['verbatim_text']
         fordeling = ', '.join(f'{k}={n}' for k, n in sorted(cnt.items(), key=lambda kv: (-kv[1], kv[0]))) or 'ingen modparter'
         ark.append(f'# {code} ({label}): {fordeling}')
-        if code in _existing(ex):
-            ans = f'C {code}'
+        if code in existing:
+            ans = f'S {code}'
             ark[-1] += ' [eksisterende entry, står fast]'
         else:
             ans = f'C {suggestion(cnt)}' if suggestion(cnt) else ''
@@ -114,7 +117,7 @@ def summary(m: dict, ex: dict) -> str:
     return f'ARK_OK grene={len(dist)} forslag={n}'
 
 
-def _parse(ans: str, code: str, fixed: bool) -> tuple[dict | None, list[dict], bool]:
+def _parse(ans: str) -> tuple[dict | None, list[dict], bool]:
     parts = [x.strip() for x in ans.split(',')]
     if not ans.strip():
         raise SheetError('SHEET_UNANSWERED')
@@ -136,6 +139,10 @@ def _parse(ans: str, code: str, fixed: bool) -> tuple[dict | None, list[dict], b
             canonical = {'source_id': DIST_SOURCE if mm['t'] == 'C' else OWN_SOURCE, 'kode': mm['kode']}
     if parkeret and aliases or (canonical is None and not parkeret):
         raise SheetError('SHEET_TOKEN_NOT_ALLOWED')
+    kodes = [al['kode'] for al in aliases]
+    if len(set(kodes)) != len(kodes) or (canonical and canonical['source_id'] == DIST_SOURCE
+                                         and canonical['kode'] in kodes):
+        raise SheetError('SHEET_TOKEN_NOT_ALLOWED')
     return canonical, aliases, parkeret
 
 
@@ -146,7 +153,7 @@ def approvals(text: str, m: dict, ex: dict, sheet_sha256: str) -> dict:
     codes = _entries(m, ex)
     answers: dict[str, str] = {}
     for raw in text.splitlines():
-        if not raw.startswith('L '):
+        if not raw.strip() or raw.startswith('#'):
             continue
         mm = L_RE.match(raw)
         if mm is None or mm['code'] not in codes or mm['code'] in answers:
@@ -158,17 +165,18 @@ def approvals(text: str, m: dict, ex: dict, sheet_sha256: str) -> dict:
     if set(answers) != set(codes):
         raise SheetError('SHEET_LINES_MISSING')
     entries = []
+    existing = _existing(ex)
     for i, c in enumerate(codes, 1):
-        fixed = c in _existing(ex)
-        if fixed:   # eksisterende entry: kun den faste linje `C <kode>`, som betyder kilde 3
-            if answers[c] != f'C {c}':
+        if c in existing:   # eksisterende entry: kun den faste linje `S <kode>` (kilde 3)
+            if answers[c] != f'S {c}':
                 raise SheetError('SHEET_TOKEN_NOT_ALLOWED')
             canonical, aliases, parkeret = {'source_id': OWN_SOURCE, 'kode': c}, [], False
         else:
-            canonical, aliases, parkeret = _parse(answers[c], c, fixed)
-        entries.append({'code': c, 'label_sha256': _label_sha(_header(m, c)), 'sort_order': i,
+            canonical, aliases, parkeret = _parse(answers[c])
+        entries.append({'code': c, 'label_sha256': _label_sha(_header(m, c), c), 'sort_order': i,
                         'canonical': canonical, 'aliases': aliases, 'parkeret': parkeret})
-    return {'sheet_sha256': sheet_sha256, 'entries': entries}
+    return {'sheet_sha256': sheet_sha256, 'token_sha256': hashlib.sha256(text.encode('utf-8')).hexdigest(),
+            'entries': entries}
 
 
 def main() -> int:
@@ -204,7 +212,9 @@ def main() -> int:
     except SheetError as exc:
         print(str(exc).split(' ')[0])
         return 1
-    print(f"APPROVALS_OK grene={len(res['entries'])} parkeret={sum(e['parkeret'] for e in res['entries'])}")
+    kan = Counter((e['canonical']['source_id'], e['canonical']['kode']) for e in res['entries'] if e['canonical'])
+    print(f"APPROVALS_OK grene={len(res['entries'])} parkeret={sum(e['parkeret'] for e in res['entries'])}"
+          f" delt_canonical={sum(1 for n in kan.values() if n > 1)}")
     return 0
 
 

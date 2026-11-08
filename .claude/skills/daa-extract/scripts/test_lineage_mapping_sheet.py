@@ -60,7 +60,7 @@ class TestRender(unittest.TestCase):
 
     def test_vi_bevares(self):
         _, tok = lms.render(manifest(), export())
-        self.assertIn('L VI : C VI', tok.splitlines())
+        self.assertIn('L VI : S VI', tok.splitlines())
 
     def test_grenrækkefølge_giver_sort_order(self):
         ark, tok = lms.render(manifest(), export())
@@ -102,7 +102,7 @@ class TestApprovals(unittest.TestCase):
         self.assertEqual(by['VI']['label_sha256'], hashlib.sha256('Linje Dd'.encode()).hexdigest())
 
     def test_vi_kan_ikke_aendres(self):
-        bad = answered(self.tok, {'II': 'P', 'III': 'P', 'Stamme-alfa': 'P'}).replace('L VI : C VI', 'L VI : P')
+        bad = answered(self.tok, {'II': 'P', 'III': 'P', 'Stamme-alfa': 'P'}).replace('L VI : S VI', 'L VI : P')
         with self.assertRaises(SheetError) as e:
             lms.approvals(bad, self.m, self.ex, self.sha)
         self.assertEqual(str(e.exception).split()[0], 'SHEET_TOKEN_NOT_ALLOWED')
@@ -118,6 +118,75 @@ class TestApprovals(unittest.TestCase):
         with self.assertRaises(SheetError) as e:
             lms.approvals(ok, self.m, self.ex, 'f' * 64)
         self.assertEqual(str(e.exception).split()[0], 'SHEET_SHA_MISMATCH')
+
+    def _ok(self):
+        return answered(self.tok, {'II': 'P', 'III': 'P', 'Stamme-alfa': 'P'})
+
+    def _fejl(self, text, code, sha=None):
+        with self.assertRaises(SheetError) as e:
+            lms.approvals(text, self.m, self.ex, sha or self.sha)
+        self.assertEqual(str(e.exception).split()[0], code)
+
+    def test_vi_c_afvises(self):
+        self._fejl(self._ok().replace('L VI : S VI', 'L VI : C VI'), 'SHEET_TOKEN_NOT_ALLOWED')
+
+    def test_alias_uden_canonical_og_alias_regler(self):
+        self._fejl(answered(self.tok, {'II': 'A X', 'III': 'P', 'Stamme-alfa': 'P'}), 'SHEET_TOKEN_NOT_ALLOWED')
+        self._fejl(answered(self.tok, {'II': 'C X, A X', 'III': 'P', 'Stamme-alfa': 'P'}), 'SHEET_TOKEN_NOT_ALLOWED')
+        self._fejl(answered(self.tok, {'II': 'C Y, A X, A X', 'III': 'P', 'Stamme-alfa': 'P'}), 'SHEET_TOKEN_NOT_ALLOWED')
+
+    def test_dobbelt_l_linje_og_vildfarne_linjer(self):
+        self._fejl(self._ok() + 'L II : P\n', 'SHEET_LINE_INVALID')
+        self._fejl(self._ok() + 'C II\n', 'SHEET_LINE_INVALID')
+
+    def test_ark_sha_linje(self):
+        no_sha = '\n'.join(l for l in self._ok().splitlines() if not l.startswith('# ark-sha256'))
+        self._fejl(no_sha, 'SHEET_SHA_MISMATCH')
+        self._fejl(self._ok().replace(self.sha, 'a' * 64), 'SHEET_SHA_MISMATCH')
+
+    def test_token_sha_med(self):
+        txt = self._ok()
+        self.assertEqual(lms.approvals(txt, self.m, self.ex, self.sha)['token_sha256'],
+                         hashlib.sha256(txt.encode()).hexdigest())
+
+    def test_gren_uden_label_afvises_ved_render(self):
+        m = manifest()
+        m['headers'] = [h for h in m['headers'] if h['parsed'].get('roman') != 'III']
+        with self.assertRaises(SheetError) as e:
+            lms.render(m, self.ex)
+        self.assertEqual(str(e.exception).split()[0], 'LABEL_MANGLER')
+
+    def test_cli_rundtur(self):
+        import contextlib, io, json, tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / 'priv'
+            root.mkdir(mode=0o700)
+            (root / 'm.json').write_text(json.dumps(self.m))
+            (root / 'e.json').write_text(json.dumps(self.ex))
+            base = ['--manifest', str(root / 'm.json'), '--export', str(root / 'e.json'), '--private-root', str(root)]
+
+            def run(argv):
+                buf = io.StringIO()
+                old = sys.argv
+                sys.argv = ['x'] + argv
+                try:
+                    with contextlib.redirect_stdout(buf):
+                        rc = lms.main()
+                finally:
+                    sys.argv = old
+                return rc, buf.getvalue().strip()
+            rc, out = run(['render'] + base + ['--out-ark', str(root / 'a.txt'), '--out-token', str(root / 't.txt')])
+            self.assertEqual((rc, out), (0, 'ARK_OK grene=5 forslag=1'))
+            tok = answered((root / 't.txt').read_text(), {'II': 'P', 'III': 'P', 'Stamme-alfa': 'P'})
+            (root / 't.txt').write_text(tok)
+            sha = hashlib.sha256((root / 'a.txt').read_bytes()).hexdigest()
+            rc, out = run(['approvals'] + base + ['--ark', str(root / 'a.txt'), '--token', str(root / 't.txt'),
+                                                  '--approved-ark-sha256', sha, '--out', str(root / 'o.json')])
+            self.assertEqual((rc, out), (0, 'APPROVALS_OK grene=5 parkeret=3 delt_canonical=0'))
+            res = json.loads((root / 'o.json').read_text())
+            self.assertEqual(res['sheet_sha256'], sha)
+            self.assertEqual(res['token_sha256'], hashlib.sha256(tok.encode()).hexdigest())
 
     def test_stdout_uden_navne(self):
         s = lms.summary(self.m, self.ex)
