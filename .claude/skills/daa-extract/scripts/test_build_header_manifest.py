@@ -1,6 +1,8 @@
-import os, sys, unittest
+import hashlib, json, os, sys, unittest
+from unittest import mock
 sys.path.insert(0, os.path.dirname(__file__))
 import build_header_manifest as bhm
+import segment
 from build_source_evidence_manifest import project_rendition
 
 ENTRIES = ['I', 'II']
@@ -193,6 +195,325 @@ class TestHeaderManifest(unittest.TestCase):
             self.assertNotIn(ord_, s)
         self.assertEqual(bhm.summary(m)['counts']['headers'], {'header_linje': 2, 'header_slaegtled': 3,
                                                              'header_kuld': 2, 'header_aegteskab': 1})
+
+
+class Test2018_20ByteEns(unittest.TestCase):
+    def test_2018_20_byte_ens(self):
+        # sha'erne er målt FØR profil-refaktoreringen på de eksisterende fixtures
+        self.assertEqual(bhm.canonical_sha256(build()),
+                         'cce8d831e9d3f9e086e4c212f35ed7f682085f6f914d2daf2d0224b4cc33b852')
+        parents = [{'child': 'I-1a', 'parent': 'I-1'}, {'child': 'I-2', 'parent': 'I-1'},
+                   {'child': 'I-3', 'parent': 'I-2'}, {'child': 'II-1', 'parent': 'I-3'}]
+        m = bhm.build_manifest(rendition(*BASIS), {'entry_codes': ENTRIES}, LEGACY, parents)
+        self.assertEqual(bhm.canonical_sha256(m),
+                         '1b77949a09cfbe0f0999d73c95137727c15ee9cee5f4c86850e21406d557e0af')
+
+    def test_profilfiler(self):
+        d = os.path.join(os.path.dirname(__file__), '..', 'references', 'header-profiles')
+        p18 = bhm.load_header_profile(os.path.join(d, 'header-2018-20-v1.json'))
+        p39 = bhm.load_header_profile(os.path.join(d, 'header-1939-v1.json'))
+        self.assertEqual((p18['grammar'], p18['guide_text_sha256']), ('2018-20', None))
+        self.assertEqual(p39['raw_text_sha256'], '020123a3588dacf80705a22fb021ab4f5da97b8de202e8664304ca01f9a6da37')
+        self.assertEqual(p39['guide_text_sha256'], 'efab316b528eafc60074c21c877590b31ab8e960cd1adc14f5c79bf01f12dab7')
+        self.assertEqual((p39['record_matching'], p39['stamme_afsnit_level']), ('earliest_occurrence', 'slaegtled'))
+        with self.assertRaises(bhm.HeaderManifestError):      # 1939 kræver guiden
+            bhm.build_manifest(rendition(*BASIS), p39, LEGACY)
+
+
+# ---------------------------------------------------------------------------------------------
+# 1939: centreret guide + ucentreret rendition (opdigtede personer)
+# ---------------------------------------------------------------------------------------------
+BESKRIVELSE = 'Anna Reventlows Børn med Bodil Opdigt:'
+GUIDE = [
+    '### PAGE 500 ###',
+    '                                   I',
+    '      Den testske Linje af 1500.',
+    '                          (S. 5).',
+    '                 Første Slægtled.',
+    '1.  Anna, f. 1600.',
+    '    Boede paa Testrup.',
+    '                 Andet Slægtled.',
+    '                                   I.',
+    '                      ' + BESKRIVELSE,
+    '1.  Bent, f. 1630.',
+    '2.  Carl, f. 1632.',
+    '                                   II.',
+    '3.  Dora, f. 1640.',
+    '### PAGE 501 ###',
+    '                                   II',
+    '      Den prøvende Linje af 1600.',
+    '                          (S. 9).',
+    '                 Første Slægtled.',
+    '1.  Erik, f. 1650.',
+]
+PROFILE_1939 = {
+    'header_rule_version': 'header-1939-v1', 'raw_text_sha256': None, 'grammar': '1939',
+    'record_matching': 'earliest_occurrence', 'stamme_afsnit_level': 'slaegtled',
+    'levels': {'linje': 'header_linje', 'slaegtled': 'header_slaegtled', 'kuld': 'header_kuld'},
+    'guide_text_sha256': None,
+}
+
+
+def calamari(lines):
+    return [l.strip() for l in lines]
+
+
+def rec(rend_lines, needle, key, kind='person', legacy=None):
+    """needle: postens navn (»1.  Anna« → 'Anna', findes som nummerlinjen) eller en tekst midt i en post."""
+    import re
+    text = '\n'.join(rend_lines) + '\n'
+    m = re.search(r'^\d+[a-z]?\.\s+' + re.escape(needle.split()[-1].rstrip(',')), text, re.M) \
+        if re.match(r'^\d', needle) else None
+    return {'record_key': key, 'record_kind': kind, 'page_from': 500,
+            'char_from': m.start() if m else text.index(needle), 'legacy': legacy}
+
+
+def records_for(rend_lines):
+    out = [rec(rend_lines, '1.  Anna', 'A'), rec(rend_lines, '1.  Bent', 'B'),
+           rec(rend_lines, '2.  Carl', 'C'), rec(rend_lines, '3.  Dora', 'D'),
+           rec(rend_lines, '1.  Erik', 'E')]
+    return out
+
+
+def build39(guide=GUIDE, rend=None, records=None, parents=(), profile=PROFILE_1939):
+    rend = calamari(guide) if rend is None else rend
+    records = records_for(rend) if records is None else records
+    return bhm.build_manifest_by_offset(rendition(*rend), rendition(*guide), profile, records, list(parents))
+
+
+def without(lines, *needles):
+    return [l for l in lines if not any(n == l.strip() for n in needles)]
+
+
+class Test1939(unittest.TestCase):
+    def test_1939_niveauer(self):
+        m = build39()
+        self.assertEqual(m['header_rule_version'], 'header-1939-v1')
+        kinds = sorted(h['kind'] for h in m['headers'])
+        self.assertEqual(kinds, ['header_kuld'] * 2 + ['header_linje'] * 2 + ['header_slaegtled'] * 3)
+        b = placement(m, 'B')
+        self.assertEqual(b['entry_code'], 'I')
+        self.assertEqual(b['generation_local'], 2)
+        self.assertEqual(b['generation_label_raw'], 'Andet')
+        self.assertIsNone(b['generation_global'])
+        self.assertEqual(b['kuld_label'], 'I')
+        self.assertEqual(b['status'], 'machine_ok', b['reasons'])
+        self.assertEqual(len(b['section_path']), 3)
+        self.assertEqual(b['section_path'], [b['header_ids'][k] for k in ('linje', 'slaegtled', 'kuld')])
+        self.assertEqual(b['guide_lokal_id'], 'I.Andet.I.1')
+        self.assertEqual(b['record_kind'], 'person')
+        a = placement(m, 'A')
+        self.assertEqual((a['generation_local'], a['kuld_label'], set(a['header_ids'])), (1, None, {'linje', 'slaegtled'}))
+        self.assertEqual(placement(m, 'E')['entry_code'], 'II')
+        self.assertEqual((placement(m, 'E')['page'], b['page']), (501, 500))
+        self.assertTrue(all(m['invariants'].values()), m['invariants'])
+        self.assertEqual(set(m['invariants']), {'record_keys_unikke', 'section_path_nr_unik',
+                                                'en_overskrift_pr_gruppe', 'segmenter_paritet'})
+        self.assertEqual(m['transfer'], {'linje': {'guide': 2, 'genfundet': 2, 'ikke_genfundet': 0},
+                                         'slaegtled': {'guide': 3, 'genfundet': 3, 'ikke_genfundet': 0},
+                                         'kuld': {'guide': 2, 'genfundet': 2, 'ikke_genfundet': 0}})
+
+    def test_record_efter_offset(self):
+        rend = calamari(GUIDE)
+        recs = records_for(rend) + [rec(rend, 'Boede paa', 'A-fakta', kind='fact')]
+        m = build39(records=recs)
+        a, fact = placement(m, 'A'), placement(m, 'A-fakta')
+        for k in ('printed_number', 'section_path', 'post_char_from', 'entry_code', 'generation_local'):
+            self.assertEqual(a[k], fact[k], k)
+        self.assertEqual(fact['record_kind'], 'fact')
+        self.assertEqual(fact['status'], 'machine_ok')
+        self.assertTrue(m['invariants']['section_path_nr_unik'])
+
+    def test_overskrift_ikke_fundet_er_unresolved(self):
+        rend = calamari(GUIDE)       # kun den første slægtledslinje fjernes (den anden står på side 501)
+        rend.remove('Første Slægtled.')
+        m = build39(rend=rend)
+        a = placement(m, 'A')
+        self.assertEqual(a['status'], 'unresolved')
+        self.assertEqual(a['reasons'], ['overskrift_ikke_fundet:slaegtled'])
+        self.assertIsNone(a['generation_local'])
+        self.assertEqual(placement(m, 'B')['status'], 'machine_ok')
+        self.assertEqual(m['transfer']['slaegtled']['ikke_genfundet'], 1)
+        self.assertTrue(all(m['invariants'].values()))
+
+    def test_uden_post(self):
+        rend = calamari(GUIDE)
+        recs = records_for(rend) + [{'record_key': 'X', 'record_kind': 'person', 'page_from': 500,
+                                     'char_from': 3, 'legacy': None}]
+        m = build39(records=recs)
+        self.assertEqual(placement(m, 'X')['reasons'], ['uden_post'])
+        self.assertEqual(placement(m, 'X')['status'], 'unresolved')
+        self.assertIsNone(placement(m, 'X')['printed_number'])
+
+    def test_ikke_alignet(self):
+        # en post kun i guiden: ingen record peger på den, øvrige placeringer er uændrede
+        guide = GUIDE[:6] + ['2.  Extra, f. 1601.'] + GUIDE[6:]
+        rend = calamari(GUIDE)
+        m = build39(guide=guide, rend=rend)
+        self.assertEqual(m['alignment'], {'guide_posts': 6, 'rendition_posts': 5, 'aligned': 5})
+        self.assertTrue(all(p['status'] == 'machine_ok' for p in m['placements']), m['placements'])
+        # en post kun i renditionen: recorden i den kan ikke føres til guiden
+        rend2 = calamari(GUIDE)
+        rend2.insert(rend2.index('1.  Erik, f. 1650.'), '9.  Gert, f. 1700.')
+        recs = records_for(rend2) + [rec(rend2, '9.  Gert', 'G')]
+        m2 = build39(rend=rend2, records=recs)
+        self.assertEqual(placement(m2, 'G')['reasons'], ['ikke_alignet'])
+        self.assertEqual(placement(m2, 'E')['status'], 'machine_ok')
+
+    def test_to_kandidater_er_ikke_fundet(self):
+        rend = calamari(GUIDE)
+        k = rend.index('Andet Slægtled.')
+        rend.insert(k, 'Andet Slægtled.')
+        m = build39(rend=rend)
+        self.assertEqual(placement(m, 'B')['reasons'], ['overskrift_ikke_fundet:slaegtled'])
+        self.assertEqual(placement(m, 'A')['status'], 'machine_ok')
+
+    def test_gruppe_via_beskrivelse(self):
+        rend = calamari(GUIDE)
+        k = rend.index('I.')
+        del rend[k]
+        m = build39(rend=rend)
+        b = placement(m, 'B')
+        self.assertEqual(b['status'], 'machine_ok', b['reasons'])
+        self.assertEqual(b['kuld_label'], 'Anna-Reventlows-Børn-med-Bodil-Opdigt')
+        kuld = next(h for h in m['headers'] if h['element_id'] == b['header_ids']['kuld'])
+        self.assertEqual(kuld['verbatim_text'], BESKRIVELSE)
+        self.assertEqual(kuld['parsed']['guide']['value'], 'I')      # guidens romertal kun som sporbarhed
+        self.assertEqual(len(kuld['parsed']['guide']['line_sha256']), 64)
+        self.assertNotIn('Anna', json.dumps(kuld['parsed']['guide']))
+
+    def test_linje_uden_romertal_kraever_samme_navn(self):
+        rend = calamari(GUIDE)
+        rend.remove('I')
+        m = build39(rend=rend)
+        a = placement(m, 'A')
+        self.assertEqual((a['status'], a['entry_code']), ('machine_ok', 'I'))
+        linje = next(h for h in m['headers'] if h['element_id'] == a['header_ids']['linje'])
+        self.assertEqual(linje['parsed']['found_via'], 'navn')
+        self.assertEqual(linje['verbatim_text'], 'Den testske Linje af 1500.')
+        rend2 = [('Den atter testske Linje af 1500.' if l.startswith('Den testske') else l) for l in rend]
+        m2 = build39(rend=rend2)
+        self.assertEqual(placement(m2, 'A')['reasons'], ['overskrift_ikke_fundet:linje'])
+        self.assertIsNone(placement(m2, 'A')['entry_code'])
+
+    def test_stammesektion_er_entry(self):
+        guide = ['### PAGE 499 ###',
+                 '                          Den ældre testske Linje.',
+                 '                                   I',
+                 '1.  Urd, f. 1500.'] + GUIDE
+        recs = records_for(calamari(guide)) + [rec(calamari(guide), '1.  Urd', 'U')]
+        m = build39(guide=guide, records=recs)
+        u = placement(m, 'U')
+        self.assertEqual(u['status'], 'machine_ok', u['reasons'])
+        self.assertEqual(u['entry_code'], 'Stamme-ældre-testske')
+        self.assertEqual(u['generation_local'], 1)          # romertallet er slægtleddet i stammen
+        self.assertEqual(u['guide_lokal_id'], 'Stamme-ældre-testske.I.1')
+        self.assertNotIn('kuld', u['header_ids'])
+        linje = next(h for h in m['headers'] if h['element_id'] == u['header_ids']['linje'])
+        self.assertEqual(linje['kind'], 'header_linje')
+        self.assertEqual(linje['parsed']['stamme_slug'], 'ældre-testske')
+        self.assertEqual(next(h for h in m['headers'] if h['element_id'] == u['header_ids']['slaegtled'])['kind'],
+                         'header_slaegtled')
+        self.assertTrue(all(m['invariants'].values()), m['invariants'])
+
+    def test_gruppebeskrivelse_efter_romertal_er_ikke_ny_overskrift(self):
+        m = build39()
+        self.assertEqual(len([h for h in m['headers'] if h['kind'] == 'header_kuld']), 2)   # I og II, ikke 3
+        self.assertEqual(placement(m, 'B')['kuld_label'], 'I')
+
+    def test_gruppebeskrivelse_alene_er_kuld(self):
+        guide = without(GUIDE, 'I.')
+        m = build39(guide=guide)
+        b = placement(m, 'B')
+        self.assertEqual(b['status'], 'machine_ok', b['reasons'])
+        self.assertEqual(b['kuld_label'], 'Anna-Reventlows-Børn-med-Bodil-Opdigt')
+        self.assertEqual(b['guide_lokal_id'], 'I.Andet.Anna-Reventlows-Børn-med-Bodil-Opdigt.1')
+        self.assertEqual(len([h for h in m['headers'] if h['kind'] == 'header_kuld']), 2)
+        self.assertTrue(m['invariants']['segmenter_paritet'])
+
+    def test_nr_brud_og_slaegtled_fald(self):
+        guide = [l.replace('2.  Carl', '4.  Carl') for l in GUIDE]
+        m = build39(guide=guide)
+        self.assertEqual(placement(m, 'C')['reasons'], ['nr_ikke_fortloebende'])
+        self.assertEqual(placement(m, 'B')['status'], 'machine_ok')
+        self.assertEqual(placement(m, 'D')['status'], 'machine_ok')     # første post i ny gruppe
+        self.assertTrue(all(m['invariants'].values()), m['invariants'])
+        # slægtled-fald i samme linje: Første efter Andet
+        guide2 = GUIDE[:14] + ['                 Første Slægtled.', '2.  Frida, f. 1660.'] + GUIDE[14:]
+        rend2 = calamari(guide2)
+        recs = records_for(rend2) + [rec(rend2, '2.  Frida', 'F')]
+        m2 = build39(guide=guide2, records=recs)
+        self.assertEqual(placement(m2, 'F')['reasons'], ['slaegtled_ikke_monoton'])
+        self.assertEqual(placement(m2, 'D')['status'], 'machine_ok')
+        self.assertTrue(all(m2['invariants'].values()), m2['invariants'])
+
+    def test_gruppe_flere_familier(self):
+        parents = [{'child': 'B', 'parent': 'A'}, {'child': 'C', 'parent': 'E'}]
+        m = build39(parents=parents)
+        for key in ('B', 'C'):
+            self.assertIn('gruppe_flere_familier', placement(m, key)['reasons'], key)
+            self.assertEqual(placement(m, key)['status'], 'unresolved')
+        for key in ('A', 'D', 'E'):
+            self.assertEqual(placement(m, key)['status'], 'machine_ok', key)
+        same = build39(parents=[{'child': 'B', 'parent': 'A'}, {'child': 'C', 'parent': 'A'}])
+        self.assertEqual(placement(same, 'B')['status'], 'machine_ok')
+
+    def test_foraelder_generation_og_legacy(self):
+        m = build39(parents=[{'child': 'D', 'parent': 'B'}])         # samme slægtled → brud
+        self.assertIn('uenig:foraelder_generation', placement(m, 'D')['reasons'])
+        rend = calamari(GUIDE)
+        recs = records_for(rend)
+        recs[1]['legacy'] = {'linje': 'II', 'nr': 7}
+        recs[2]['legacy'] = {'linje': '1939', 'nr': 7}                # '1939' er ikke en linje: ingen sammenligning
+        m2 = build39(records=recs)
+        self.assertEqual(placement(m2, 'B')['reasons'], ['uenig:legacy_linje', 'uenig:legacy_nr'])
+        self.assertEqual(placement(m2, 'C')['status'], 'machine_ok')
+        self.assertIn({'record_key': 'B', 'field': 'legacy_nr'}, m2['disagreements'])
+
+    def test_segmenter_paritet(self):
+        self.assertTrue(build39()['invariants']['segmenter_paritet'])
+        orig = segment._segment_1939
+
+        def afvigende(lines, profile):
+            posts = orig(lines, profile)
+            posts[0]['lokal_id'] = 'X.Y.1'
+            return posts
+        with mock.patch.object(segment, '_segment_1939', afvigende):
+            self.assertFalse(build39()['invariants']['segmenter_paritet'])
+
+    def test_sha_vagter(self):
+        rend = rendition(*calamari(GUIDE))
+        guide = rendition(*GUIDE)
+        ok = dict(PROFILE_1939, raw_text_sha256=hashlib.sha256(rend).hexdigest(),
+                  guide_text_sha256=hashlib.sha256(guide).hexdigest())
+        bhm.build_manifest_by_offset(rend, guide, ok, [], [])
+        with self.assertRaisesRegex(bhm.HeaderManifestError, 'HEADER_RENDITION_SHA_MISMATCH'):
+            bhm.build_manifest_by_offset(rend, guide, dict(ok, raw_text_sha256='0' * 64), [], [])
+        with self.assertRaisesRegex(bhm.HeaderManifestError, 'HEADER_GUIDE_SHA_MISMATCH'):
+            bhm.build_manifest_by_offset(rend, guide, dict(ok, guide_text_sha256='0' * 64), [], [])
+
+    def test_offsets_renditionsabsolutte(self):
+        rend = ['﻿'[:0] + l for l in calamari(GUIDE)]
+        text = '\n'.join(rend) + '\n'
+        m = build39(rend=rend)
+        self.assertEqual(len(m['headers']), 7)
+        for h in m['headers']:
+            self.assertEqual(project_rendition(text[h['char_from']:h['char_to']])[0], h['verbatim_text'])
+            self.assertFalse(text[h['char_from']].isspace())
+            self.assertFalse(text[h['char_to'] - 1].isspace())
+            self.assertEqual(h['element_id'], f"header:{h['char_from']}")
+        linje = next(h for h in m['headers'] if h['kind'] == 'header_linje')
+        self.assertEqual(linje['verbatim_text'], 'I Den testske Linje af 1500.')
+        self.assertEqual((linje['page_from'], linje['page_to']), (500, 500))
+
+    def test_summary_uden_tekst(self):
+        s = bhm.summary(build39())
+        txt = repr(s)
+        for ord_ in ('Anna', 'Bodil', 'Opdigt', 'testske', 'prøvende', 'Testrup', 'Reventlow'):
+            self.assertNotIn(ord_, txt)
+        self.assertEqual(s['counts']['headers'], {'header_linje': 2, 'header_slaegtled': 3, 'header_kuld': 2})
+        self.assertEqual(s['transfer']['linje'], {'guide': 2, 'genfundet': 2, 'ikke_genfundet': 0})
+        self.assertNotIn('transfer', bhm.summary(build()))      # 2018-20-summary uændret
 
 
 if __name__ == '__main__':

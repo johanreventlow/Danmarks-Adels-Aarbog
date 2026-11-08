@@ -1,0 +1,13 @@
+{
+  "header_rule_version": "header-1939-v1",
+  "raw_text_sha256": "020123a3588dacf80705a22fb021ab4f5da97b8de202e8664304ca01f9a6da37",
+  "grammar": "1939",
+  "record_matching": "earliest_occurrence",
+  "levels": {
+    "linje": "header_linje",
+    "slaegtled": "header_slaegtled",
+    "kuld": "header_kuld"
+  },
+  "stamme_afsnit_level": "slaegtled",
+  "guide_text_sha256": "efab316b528eafc60074c21c877590b31ab8e960cd1adc14f5c79bf01f12dab7"
+}
