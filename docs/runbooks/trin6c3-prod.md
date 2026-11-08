@@ -24,7 +24,7 @@ Hovedcheckouten skal være ren og stå på den commit, GO er bundet til (`main` 
 
 ## Rækkefølge
 
-| Trin | Handling | Forventet (generalprøven c3g 8/11) |
+| Trin | Handling | Forventet (generalprøverne c3g og c3h 8/11) |
 |---|---|---|
 | 0 | `maal` | `T6C3_MAAL_OK tilstand=foer`, `andre=049163332f67…`, `REV_MAAL … fakta_9_bundet=9 … familiekilder_7=7` |
 | 1 | `dump` | `DUMP_6C3_OK tilstand=foer`, `EKSTERN_6C3_OK … rundtur=ok`, `DUMP_6C3_MAAL_OK … vindue=… vindue_linjer=134`, `DAA_T6C3_DUMP=…` (B1: hash i `database-current-state.md`) |
@@ -78,8 +78,10 @@ restore-hashes. Det sammenlignes med basen nu:
   16 tabeller/sekvenser, alle i `private` (forslag, fortolkninger, promotions, reimport-hændelser, kvitteringen).
   Hele `public` sammenlignes altså eksakt.
 
-Vagten koster én læsning af basen (stand-in 2-3 s af `DUMP_6C3_MAAL_OK`'s sekunder) ved hvert `dump`, `apply-*` og
-`fortryd`. Den gælder kun prod mod prod (samme base), så den har ingen fastlåst hash.
+Vagten koster én læsning af basen ved hvert `dump`, `apply-*` og `fortryd`: målt 2,6 s på `c3h`, med prod-faktoren
+13-27 ca. 35-70 s pr. læsning, i alt ca. 2-5 minutter over de fire læsninger (to dump, to apply). Hver tabel er sin
+egen sætning, og sessionen har `LAES_TIMEOUT`. Vagten gælder kun prod mod prod (samme base), så den har ingen
+fastlåst hash.
 
 Data-vinduet er ca. 70 s på stand-in. Med prod-faktoren fra 6c-2 (≈27) bliver det ca. 30 minutter, mest
 rækkeeksporten (≈19 min) og `fakta.sql` (≈8 min). Begge ligger under 30 minutter. Stand-in-tid er ikke prod-tid, så
@@ -134,5 +136,7 @@ DDL-fortrydelsen er kun kørt på c3f, før værdierne var fastlåst.
   indsat efter data-dumpet → `apply-data` stoppede med `T6C3_VINDUE_BRUDT_FOER_DATA` (kun `public.bookmark`, tilstand
   stadig `ddl`); fjernet → data kørte med samme tal som `c3g`; et bogmærke indsat efter data → `fortryd` stoppede med
   `T6C3_VINDUE_BRUDT` (ingen restore, ingen markør, tilstand `faerdig`); fjernet → fortryd-data `T6C3_FORTRYD_OK`
-  (`sammenligning=data`), og fortryd-DDL `T6C3_FORTRYD_OK` (`sammenligning=ddl`). Genoptagelse med vagten
-  (`sammenligning=data` i `apply-data`) er ikke kørt for sig; den bruger samme sammenligning som fortryd-data.
+  (`sammenligning=data`), og fortryd-DDL `T6C3_FORTRYD_OK` (`sammenligning=ddl`). Genoptagelse med vagten: data
+  stoppet efter `rev` og efter `fakta` (`DAA_T6C3_TEST_STOP`), begge genoptaget med `T6C3_VINDUE_OK
+  sammenligning=data` og samme slutresultat (`tal=1,58,10,75,15,1395,13,4,1,3,16,74`, kvittering 14/30/28/2); derefter
+  fortryd-data `T6C3_FORTRYD_OK`. `c3h` står i tilstand `ddl`.
