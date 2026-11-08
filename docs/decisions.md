@@ -15,11 +15,13 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >    renditioner (ændring af proveniensmodellen).
 > 2. **Fællesstammen:** hver stammesektion bliver en entry i 1939's linjeskema; linjearket afgør dens linje.
 > 3. **Records uden nummereret post — revideret samme dag** (godkendt på et forkert grundlag: 37 målt via Calamari-
->    segmenteringen; den rettede scanner giver 83, heraf 57 med persona). Projektejerens nye svar: (a) **fællesstammens
->    38** (stamfædrene, positioner som »I A.«) placeres med stammesektionen som gren, slægtled fra sektionens romertal og
->    positionen som nummer; (b) **27 poster i grenene** uden nummer i Calamari (formentlig OCR-ødelagt nummer) går på
->    kort med raw.txt's nummer som forslag; (c) **oversigtens 18** (»ikke kan anvises Plads«) får ingen placement,
->    `retained_legacy` med grund.
+>    segmenteringen). Målt mod raw.txt's 1939-v2-segmentering er de 83 records uden nummer i Calamari: 18 oversigtsposter,
+>    18 stamfædre (17 i grenene, 1 i stammen; uden nummer i bogen selv), 4 med OCR-ødelagt nummer og 43 uparrede (17 med
+>    persona). Et første genspørgsmål antog fejlagtigt, at stammens 38 var stamfædre (raw: 43 nummererede stammeposter);
+>    projektejerens endelige svar på de rettede præmisser: **stamfædrene placeres uden nummer** (gren, slægtled og
+>    gruppe fra overskrifterne; maskinelt kun med én stamfader i gruppen, ellers kort); **de 4 og de 17 uparrede med
+>    persona går på kort** med raw.txt's forslag; **oversigtens 18 og de 26 uparrede uden persona** får ingen placement
+>    (`retained_legacy` med grund).
 > 4. **Læseren:** `public_person_source_coordinates` bruger kun placementkoordinater for en kilde, når dens gældende
 >    placements er entydige på `(entry, printed_number)`; ellers legacy for hele kilden. 1939's numre er gruppelokale
 >    (53 numre deles af 389 poster), så 1939 vises som i dag indtil 6e; 2018-20 byte-ens.
