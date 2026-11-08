@@ -10457,6 +10457,15 @@ BEGIN
       RAISE EXCEPTION 'VERIFY_FAILED: 150 membership-funktion %',f;
     END IF;
   END LOOP;
+  -- Trin 6d-1 (B6 afledt): komponenttilstanden er privat; ingen API-rolle må kalde den.
+  IF to_regprocedure('private.membership_component_states()') IS NULL THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6d-1 mangler private.membership_component_states()';
+  END IF;
+  FOREACH r IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_function_privilege(r,'private.membership_component_states()','EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6d-1 membership_component_states eksekverbar for %',r;
+    END IF;
+  END LOOP;
   -- Helbred (spec §4.4): promoverede memberships, hvis tilstand er ændret siden; 5c-2's læsere filtrerer på gældende.
   RAISE NOTICE 'PLACEMENT_MEMBERSHIP_NOT_CURRENT n=%',private.placement_membership_not_current();
   RAISE NOTICE 'OK: #150 — legacy-ledger, private placement-skrivefunktioner, slaegt versioneret';

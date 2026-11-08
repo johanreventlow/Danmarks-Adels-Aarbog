@@ -33829,3 +33829,56 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.red_promote_placement_memberships(bigint,text) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_promote_placement_memberships(bigint,text) TO authenticated;
+
+-- Trin 6d-1 (B6, afledt): medlemskabstilstanden pr. identitetskomponent. Komponent = lukningen over person↔person-
+-- samme_som med afklaret konklusion (egen rekursion; _samme_som_gruppe filtrerer ikke på status); component_root =
+-- mindste person-id. Kun gældende medlemskaber (membership_is_current) tæller; kilde = source_basis->>'source_id'.
+-- state: conflict (≥ 2 linjer), corroborated (1 linje, ≥ 2 kilder), single (1 linje, 1 kilde), none (intet gældende
+-- medlemskab). same_source_duplicate: to gældende medlemskaber fra samme kilde i komponenten (et fund, ikke en
+-- bekræftelse). Kun komponenter med mindst ét gældende medlemskab eller mindst to personer. Skriver intet.
+CREATE OR REPLACE FUNCTION private.membership_component_states()
+RETURNS TABLE(component_root bigint,members bigint[],state text,lineage_ids bigint[],source_ids bigint[],
+  same_source_duplicate boolean)
+LANGUAGE plpgsql STABLE SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  RETURN QUERY
+  WITH RECURSIVE e AS (
+    SELECT r.subjekt_id AS a,r.objekt_id AS b
+      FROM public.relation r
+      JOIN public.conclusion c ON c.target_type='relation' AND c.target_id=r.id AND c.status='afklaret'
+     WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+  ), u AS (
+    SELECT e.a,e.b FROM e UNION SELECT e.b,e.a FROM e
+  ), reach(start,pid) AS (
+    SELECT u.a,u.a FROM u
+    UNION
+    SELECT reach.start,u.b FROM reach JOIN u ON u.a=reach.pid
+  ), m AS (
+    SELECT l.person_id,l.lineage_id,(l.source_basis->>'source_id')::bigint AS source_id
+      FROM public.person_lineage_membership l
+     WHERE l.source_basis ? 'persona_placement_id' AND private.membership_is_current(l.person_id,l.lineage_id)
+  ), node AS (
+    SELECT reach.start AS pid,min(reach.pid) AS root FROM reach GROUP BY reach.start
+    UNION
+    SELECT m.person_id,m.person_id FROM m WHERE NOT EXISTS (SELECT 1 FROM u WHERE u.a=m.person_id)
+  ), comp AS (
+    SELECT node.root,array_agg(node.pid ORDER BY node.pid) AS member_ids FROM node GROUP BY node.root
+  ), st AS (
+    SELECT node.root,array_agg(DISTINCT m.lineage_id ORDER BY m.lineage_id) AS lin,
+           coalesce(array_agg(DISTINCT m.source_id ORDER BY m.source_id) FILTER (WHERE m.source_id IS NOT NULL),
+             '{}') AS src,
+           count(m.source_id)>count(DISTINCT m.source_id) AS dup
+      FROM node JOIN m ON m.person_id=node.pid
+     GROUP BY node.root
+  )
+  SELECT comp.root,comp.member_ids,
+         CASE WHEN st.root IS NULL THEN 'none'
+              WHEN cardinality(st.lin)>=2 THEN 'conflict'
+              WHEN cardinality(st.src)>=2 THEN 'corroborated'
+              ELSE 'single' END,
+         coalesce(st.lin,'{}'),coalesce(st.src,'{}'),coalesce(st.dup,false)
+    FROM comp LEFT JOIN st ON st.root=comp.root
+   WHERE st.root IS NOT NULL OR cardinality(comp.member_ids)>=2
+   ORDER BY comp.root;
+END $$;
+REVOKE ALL ON FUNCTION private.membership_component_states() FROM PUBLIC,anon,authenticated,service_role;
