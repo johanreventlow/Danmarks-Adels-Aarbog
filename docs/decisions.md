@@ -2,6 +2,105 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 6c-3's modelsvar er sammensat pr. post af tre kørsler — godkendt af projektejeren, valg A (2026-11-08)
+
+> Det forslagsmanifest, data-ceremonien binder (`manifest_content_sha256` 95928243…, runner-manifest 5cc7f719…), er
+> ikke én modelkørsel. Det er sat sammen pr. post af tre kørsler med samme model (`gpt-5.6-terra`), prompt (1.0.0) og
+> runner-manifest. Hvert valgt svar er et uredigeret modelsvar fra cachen, og alle har været gennem kortene
+> (stikprøve 10 × B, 3 × D) og T/V-arket.
+>
+> - **Hvem afgjorde hvad:** projektejeren godkendte 8/11 en genkørsel af de 5 poster med tab, efter T/V-arket fra
+>   kørsel 1 viste 6 tilbagetrækninger. *Reglen for at vælge mellem kørslerne* afgjorde hovedsessionen selv
+>   (»Ruling« i SDD-ledgeren). Den er ikke forelagt projektejeren. Reglen er: pr. post vælges den kørsel, der
+>   genfinder flest gamle bindinger, og derefter flest ubundne gamle nøgler.
+> - **Valget** (`~/.private/6c3/model-final/sammensaetning.json`, cache-nøgle og fil-sha pr. post): kørsel 1 (alle
+>   9 poster) for I-17, I-18, I-32, I-33 og III-37; kørsel 2 (5 poster) for I-44, I-89 og I-9; kørsel 3 (2 poster)
+>   for I-11.
+> - **Hvad det betyder i tal:** kørsel 1 alene giver 10 genbundne og 6 tilbagetrukne kildehenvisninger. Det sammensatte
+>   svar giver 14 genbundne og 2 tilbagetrukne. De fire, der kommer tilbage, er I-11's børn, I-44's forældre og
+>   navnene på I-89 og I-9. I-9's titel og III-37's børn tabes i alle tre kørsler.
+> - **Indvendingen:** at vælge den kørsel, der stemmer bedst med den gamle import, belønner overensstemmelse med de
+>   gamle data. Det svarer til at plukke de bedste resultater. Prod får et bedre tal, end én kørsel ville give.
+>   Variationen mellem kørslerne viser samtidig, at modellens læsning af disse poster ikke er stabil.
+> - **Argumentet for:** en binding genskabes kun, hvis den nye påstand matcher den gamle i SQL
+>   (`binding_value_matches`) og bogen stadig siger det (stikprøven). Udvælgelsen kan altså ikke skabe en binding, der
+>   ikke står i bogen. Den kan kun vælge mellem læsninger, hvor modellen fandt den.
+> - **Valgmuligheder, der blev forelagt:** A) behold det sammensatte svar (klar, øvet på c3e/c3f/c3g). B) kørsel 1
+>   alene (kræver svar på dens T/V-ark med 6 linjer, en ny pakke og en ny generalprøve). C) én frisk kørsel af alle 9
+>   poster, brugt som den er (ca. 180.000 tokens og nye kort, T/V og generalprøve; viser samtidig stabiliteten).
+> - **Afgørelse (projektejeren 8/11): A.** De fire ekstra bindinger er efterprøvet mod bogen. Navnene på I-89 og I-9
+>   blev besvaret B på faktakortet. I-44's forældre og I-11's børn blev godkendt på forælder- og børnearket, som de var
+>   forudfyldt. Projektejeren så derudover I-44's linje igen i kontekst-siden før afgørelsen. Ustabiliteten mellem
+>   kørslerne er et fund til 6d, ikke en grund til at genkøre her.
+> - **Fremover:** udvælgelsesreglen var valgt efter kørslerne. Bliver genkørsel pr. post normal praksis, skal reglen
+>   være et værktøj med et fast kriterium, besluttet før kørslen (Task 8-note 7).
+
+## BESLUTTET: 6c-3's afgrænsning — specens §8 pkt. 1-6, `BEGGE` flyttet til opret-benet/6e (2026-11-07)
+
+> Delspec 6c-3 (`docs/superpowers/specs/2026-11-07-trin6c3-a6b-resten-design.md`) godkendt med anbefalingerne:
+> genkørsel med den oprindelige model og prompt (pkt. 1); de 4 forælder/barn-afgørelser genbesvares på kort (2);
+> `BEGGE` (fakta, der både er rettelse og ny oplysning) flyttes fra 6c-3 til opret-benet/6e (3); I-84 forbliver
+> parkeret (4); DDL-blok 6c-3a med genbrug af ægtefælle-persona, så de 3 ægteskaber genbindes (5); afstemningen
+> kvitteres i en ny generel tabel (`private.text_revision_reconciliation`) i samme blok (6).
+
+## NOTERET: værktøjsrettelser fra 6c-3's kortrunde — åben backlog (2026-11-08)
+
+> Fra Task 7's kort- og T/V-runder. Ingen af dem påvirker prod-ceremonien, som kun genbruger svarene. De gør næste
+> kortrunde (6d) lettere:
+>
+> - forælderarket mangler kontekst: HTML-siden med post, side, barn og familiens forældre og børn (nr = `row_no`)
+>   blev bygget privat og bør være et repo-værktøj;
+> - T/V-siden skal vise den gamle påstand (familie med navne) og sige »bogen siger det stadig; modellen udtrak det
+>   ikke«;
+> - kortet viser bevidst ikke klassen, så mærket »B = bogen og databasen er enige« findes ikke. Vejledningen skal
+>   stå på kortet;
+> - genkørsel og sammensætning pr. post (cachekort + sammensæt) bør være et værktøj, hvis det bliver praksis (se
+>   ovenfor);
+> - `relation_persona_input.sql` skal køres med `psql -q`, ellers kommer `SET`/`COMMIT` ind i JSON'en;
+>   `run_evidence_43b.py --out` er en fil, ikke en mappe.
+
+## NOTERET: manuel indtastning af en påstand efter bogen, når modellen ikke udtrækker den — åben backlog (2026-11-08)
+
+> Fundet i 6c-3's genkørsel (Task 7). Efter tekstrevisionen kan en binding kun genskabes, hvis modellens nye
+> læsning af posten indeholder samme påstand. To påstande kom ikke med i nogen af tre kørsler, selvom bogen stadig
+> siger dem: I-9's titel (påstand 379) og III-37's børn (familie 157). Projektejeren trak dem tilbage (T); faktum og
+> familie står uændret, men uden kildelinje til 2018-20-posten.
+>
+> - **Behov:** en redaktør skriver påstanden ind efter bogen (prædikat, værdi, citeret klausul) som en
+>   menneskelæsning, der derefter afgøres og bindes som en modelpåstand, med samme proveniens som 6m del 2's
+>   `menneske-laesning-v1` (`red_ret_forslag`), som kun kan rette et eksisterende forslag.
+> - **Første brug:** de to tilbagetrukne henvisninger fra 6c-3 kan genskabes.
+> - **Retning (ikke besluttet):** ny skrivevej eller udvidelse af `red_ret_forslag`; placering i roadmapet afgøres af
+>   projektejeren.
+
+## BESLUTTET: 6c-3's genkørsel — de 10 % afviste claims accepteres, og det nye I-11-ægteskab udskydes (2026-11-08)
+
+> Fra Task 7's øvelse på stand-in'en (`daa5ab_ddl_standin_20261107211140_c3b` + blok 6c-3a). Modellen
+> (`gpt-5.6-terra`, prompt 1.0.0) dækkede 9/9 poster med 69 claims; runnerens kontraktværn afviste 7 (10,1 % mod
+> 2018-20's 5,1 %). Det er to mønstre: 4 × `mention.organization` (ukendt prædikat) og 3 × `person.name` afleveret
+> som objekt `{raw, normalized}` i stedet for tekst (I-17, I-89, I-9).
+>
+> - **Afviste claims (projektejerens valg 1):** accepteres. Af de 9 bundne fakta genfindes 6; de 3 andre (I-89 navn,
+>   I-9 navn, I-9 titel) trækkes tilbage via T/V-arket. De to navne-tab skyldes den afviste form. For læseren står
+>   navnene uændret, men som »fra den oprindelige import« i stedet for bundet til bogens post.
+> - **Nyt ægteskab på I-11 (valg A):** modellen fandt et ægteskab uden gammel nøgle (sandsynligvis i de genindsatte
+>   linjer). Det filtreres fra partsbatchen, så 6c-3 ikke opretter en ny ægtefælle-persona (specens §6). Forslaget
+>   står `proposed` uden parter og indgår derfor ikke i ceremoniens maskinelle ægteskabsmængde
+>   (`private.relation_decision_set` kræver parter). Det kan tages ind senere med de eksisterende trin
+>   (`relation_persona`-batch for nøglen → identitet for ægtefællen → afgørelse og binding), naturligt i 6d.
+>
+> Gate-afvigelsen er samme type som 6c-1's pilot (7,4 %, decisions 2026-11-01): afviste claims når aldrig basen.
+
+## NOTERET: forslagsbyggeren afviser navne afleveret som `{raw, normalized}` — åben backlog (2026-11-08)
+
+> Fundet i 6c-3's genkørsel (se ovenfor): 3 af 69 claims var `person.name` som objekt med rå og normaliseret form,
+> hvor kontrakten kræver tekst (`RUNNER_CLAIM_VALUE_INVALID`). Det kostede 2 genbindinger.
+>
+> - **Retning (ikke besluttet):** runnerens/forslagsbyggerens kontrakt accepterer formen og bruger den rå tekst,
+>   med test og review som kontraktændring. Alternativt strammes prompten.
+> - **Hvorfor det er værd at gøre:** fejlen er systematisk, ikke tilfældig, og rammer igen i 1939/6d og senere
+>   udgaver. Placering i roadmapet afgøres af projektejeren.
+
 ## NOTERET: review-budget for delspec 6c-3 overskredet med én Fable-læsning af specen (2026-11-07)
 
 > B13-overskridelse. Projektejeren bad om et review af udkastet til delspec 6c-3
