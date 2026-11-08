@@ -378,7 +378,9 @@ efter projektejerens ja.
 
 ### Task 9: Codex-diffreview, prod og status
 
-- [ ] **Step 1:** B13's anden Codex-runde på hele diffen; Opus afvejer; rettelser i nye commits.
+- [x] **Step 1:** B13's anden Codex-runde på hele diffen; Opus afvejer; rettelser i nye commits. *Udført 2026-11-08:
+  NO-GO, 2 fund (spec §10): fund 1 rettet i runneren (vinduesvagten, generalprøvet på `c3h`), fund 2 kendt begrænsning
+  til før 6m's K-sager.*
 - [ ] **Step 2:** PR 1 og PR 2 merget (projektejeren). `main` rent i hovedcheckouten.
 - [ ] **Step 3: DDL-ceremonien:** `maal` → `dump` → `go-ddl` → projektejeren `apply-ddl --jeg-mener-det --go <kode>` →
   `NOTIFY pgrst` → advisors/grant-gennemgang.
@@ -396,3 +398,4 @@ efter projektejerens ja.
 
 - Oprydning af `c3a`, `c3b`, `c3c` kun efter måling og projektejerens ja.
 - Næste delspec: 6d.
+- Før 6m's K-sager: ret kvitteringswriterens tilbagetræk-vagt (spec §10, diffrundens fund 2).

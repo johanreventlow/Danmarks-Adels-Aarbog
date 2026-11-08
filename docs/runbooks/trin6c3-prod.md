@@ -3,8 +3,8 @@
 Spec: `docs/superpowers/specs/2026-11-07-trin6c3-a6b-resten-design.md`. Plan: `docs/superpowers/plans/2026-11-07-trin6c3-a6b-resten.md`.
 Beslutninger: `docs/decisions.md` 2026-11-07 (afgrænsning) og 2026-11-08 (genkørsel, I-11 og sammensætningen pr.
 post, godkendt som valg A).
-Runner: `~/.private/5ab-overfoersel/32-trin6c3.sh` med `32-trin6c3-b.R`, `32-trin6c3-maal.sql` og `32-trin6c3-rev.sql`
-(aldrig i repoet). Den kaldes via `/bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 32-trin6c3.sh <handling>` fra
+Runner: `~/.private/5ab-overfoersel/32-trin6c3.sh` med `32-trin6c3-b.R`, `32-trin6c3-maal.sql`, `32-trin6c3-rev.sql` og
+`32-trin6c3-vindue.sql` (aldrig i repoet). Den kaldes via `/bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 32-trin6c3.sh <handling>` fra
 operatørens cwd. De bundne input ligger i `~/.private/6c3/prod-pakke/` (18 filer, 0600). Alle linjer er kun antal, nøgler
 og hashes. Prod-skrivning (`apply-*`, `fortryd`) sker kun i projektejerens shell med `--jeg-mener-det --go <kode>`.
 Hovedcheckouten skal være ren og stå på den commit, GO er bundet til (`main` efter merge).
@@ -27,11 +27,11 @@ Hovedcheckouten skal være ren og stå på den commit, GO er bundet til (`main` 
 | Trin | Handling | Forventet (generalprøven c3g 8/11) |
 |---|---|---|
 | 0 | `maal` | `T6C3_MAAL_OK tilstand=foer`, `andre=049163332f67…`, `REV_MAAL … fakta_9_bundet=9 … familiekilder_7=7` |
-| 1 | `dump` | `DUMP_6C3_OK tilstand=foer`, `EKSTERN_6C3_OK … rundtur=ok`, `DAA_T6C3_DUMP=…` (B1: hash i `database-current-state.md`) |
-| 2 | `go-ddl` → projektejeren `apply-ddl --jeg-mener-det --go <kode>` | `T6C3_APPLY_DDL_OK tilstand=ddl blok=1e8d9553eb3806df` |
+| 1 | `dump` | `DUMP_6C3_OK tilstand=foer`, `EKSTERN_6C3_OK … rundtur=ok`, `DUMP_6C3_MAAL_OK … vindue=… vindue_linjer=134`, `DAA_T6C3_DUMP=…` (B1: hash i `database-current-state.md`) |
+| 2 | `go-ddl` → projektejeren `apply-ddl --jeg-mener-det --go <kode>` | `T6C3_VINDUE_OK sammenligning=eksakt linjer=134`, `T6C3_APPLY_DDL_OK tilstand=ddl blok=1e8d9553eb3806df` |
 | 3 | advisors / grant-gennemgang | ingen nye fund (runneren har tjekket grants) |
 | 4 | `maal` | `tilstand=ddl` |
-| 5 | `dump` | `DUMP_6C3_OK tilstand=ddl` (data-dumpet; fortrydelsens grundlag) |
+| 5 | `dump` | `DUMP_6C3_OK tilstand=ddl`, `vindue_linjer=136` (data-dumpet; fortrydelsens grundlag) |
 | 6 | (afgjort 8/11: sammensætningen, valg A — pakken som den er) | — |
 | 7 | `go-data` | `forslagsmanifest=9592824354b4c926 sammensaetning=cf40e590… svar=4950a82d… tilbagetraek=974a389d…`, `GO_6C3_DATA_KODE=…` |
 | 8 | projektejeren `apply-data --jeg-mener-det --go <kode>` | se næste tabel |
@@ -42,6 +42,7 @@ Hovedcheckouten skal være ren og stå på den commit, GO er bundet til (`main` 
 
 | Linje | Betydning |
 |---|---|
+| `T6C3_VINDUE_OK sammenligning=eksakt linjer=136` | intet i `public`/`private` er ændret siden data-dumpet (ved genoptagelse: `sammenligning=data`) |
 | `T6C3_DEPS_OK sha=aac2372c901aa514` (0,5 s) | afhængighedsfilen genmålt = den bundne |
 | `T6C3_B_APPLY rev operationer=10 status=finalized` (2,2 s) | revisionen: 58 nøgler `superseded`, 10 tekstversioner |
 | `T6C3_LEDGER foer sha=22080ca1c79fab7a` (1,4 s) | eligibility-ledgeren efter revisionen = den bundne |
@@ -65,6 +66,20 @@ Frys fra `dump` (trin 1) til `verify` (trin 9): ingen andre skrivninger i prod, 
 læsere med redaktørrolle (spec §5 pkt. 5). Runneren kontrollerer det selv: `change_set` må ikke vokse mellem dump og
 `apply-*`, og ved genoptagelse må der ikke være fremmede change_sets. `andre` (kilde 1's øvrige forslag) skal være
 uændret hele vejen.
+
+Medlemmers skrivninger (bogmærker, nye tilmeldinger med en `profiles`-række) opretter intet change_set og kan ikke
+stoppes. En restore af dumpet ville slette dem lydløst (Codex' diffreview 8/11, fund 1). Derfor tager `dump` et
+**vinduesaftryk**: én linje pr. tabel og sekvens i `public`/`private` (antal + hash, ingen indhold), målt mellem de to
+restore-hashes. Det sammenlignes med basen nu:
+
+- før `apply-ddl` og før en første `apply-data` eksakt (alt skal være som ved dumpet; ellers `dump` igen);
+- ved genoptagelse af `apply-data` og i `fortryd` før restoren, undtagen de tabeller/sekvenser, ceremonien selv ændrer.
+  Listerne er målt på `c3h` og fastlåst i runneren: DDL ændrer kun kvitteringstabellen og dens sekvens; data ændrer
+  16 tabeller/sekvenser, alle i `private` (forslag, fortolkninger, promotions, reimport-hændelser, kvitteringen).
+  Hele `public` sammenlignes altså eksakt.
+
+Vagten koster én læsning af basen (stand-in 2-3 s af `DUMP_6C3_MAAL_OK`'s sekunder) ved hvert `dump`, `apply-*` og
+`fortryd`. Den gælder kun prod mod prod (samme base), så den har ingen fastlåst hash.
 
 Data-vinduet er ca. 70 s på stand-in. Med prod-faktoren fra 6c-2 (≈27) bliver det ca. 30 minutter, mest
 rækkeeksporten (≈19 min) og `fakta.sql` (≈8 min). Begge ligger under 30 minutter. Stand-in-tid er ikke prod-tid, så
@@ -90,7 +105,11 @@ røres ikke.
 | `T6C3_FAKTA_FEJL` / `…FORAELDRE…` / `…BOERN…` / `…RELATIONER…` | den fejlede fil er rullet tilbage, de tidligere står | `maal`; `apply-data` igen (genoptager fra tilstanden med den gemte `gen.json`) eller fortryd |
 | `T6C3_KVITTERING` | alle bindinger står, ingen kvittering | `apply-data` igen; ellers fortryd |
 | `T6C3_EFTER_<trin> (tilstand; tal …)` eller `T6C3_DATA_TILSTAND_UKENDT` | trinnet er committet, men tallene passer ikke til den fastlåste tilstand | genoptagelse afvises (runneren kender ikke tilstanden); `fortryd` (bruger den rå tilstand) |
-| `T6C3_FORTRYD_IGANG` | en fortrydelse er påbegyndt | gennemfør `fortryd` med samme dump |
+| `T6C3_VINDUE_BRUDT_FOER_DDL` / `…_FOER_DATA` | intet kørt | noget er skrevet siden dumpet (se `afvigende.txt`: kun tabelnavne). Afklar hvad; `dump` igen og ny GO |
+| `T6C3_VINDUE_BRUDT_GENOPTAG` | ceremonien er delvist committet | andet end ceremonien har skrevet i vinduet. Genoptag ikke; afklar med `afvigende.txt`, før der vælges `fortryd` (som så stopper på samme vagt) |
+| `T6C3_VINDUE_BRUDT` (fortryd) | intet restoret, ingen markør | en restore ville slette skrivninger efter dumpet (typisk `public.bookmark`/`public.profiles`). Projektejeren afgør: enten bliver ceremonien stående, eller skrivningerne genskabes manuelt efter en restore, der så kræver en beslutning uden for runneren. Runneren har ingen tilsidesættelse |
+| `T6C3_VINDUE_MANGLER` | uændret | dumpet er taget med en runner uden vinduesaftryk; `dump` igen |
+| `T6C3_FORTRYD_IGANG` | en fortrydelse er påbegyndt | gennemfør `fortryd` med samme dump. *Kendt mangel:* runneren afviser i dag alle handlinger undtagen `maal`, mens markøren ligger, også `fortryd` selv; markøren (`fortryd-<dump16>.igang`) skal flyttes manuelt efter `maal`, før fortrydelsen kan gentages |
 
 Genoptagelse blev afprøvet på c3g fra `parter`, `fakta` og `boern` (stand-in-krogen `DAA_T6C3_TEST_STOP`, kun stand-in).
 
@@ -110,3 +129,10 @@ DDL-fortrydelsen er kun kørt på c3f, før værdierne var fastlåst.
   tallene fastlåses); publiceringshashen afhænger af `TimeZone` (runneren kører UTC begge steder).
 - `c3g` (`daa5ab_ddl_standin_20261108154822_c3g`): hele forløbet med alle værdier fastlåst (ingen `T6C3_FASTLAAS`),
   genoptagelse fra tre tilstande, `verify` og fortryd-data.
+- `c3h` (`daa5ab_ddl_standin_20261108164526_c3h`, efter Codex' diffreview): vinduesvagten. DDL → fortryd-DDL og DDL →
+  data → fortryd-data målte ceremoniernes egne tabeller (fastlåst). Derefter, med listerne fastlåst: et bogmærke
+  indsat efter data-dumpet → `apply-data` stoppede med `T6C3_VINDUE_BRUDT_FOER_DATA` (kun `public.bookmark`, tilstand
+  stadig `ddl`); fjernet → data kørte med samme tal som `c3g`; et bogmærke indsat efter data → `fortryd` stoppede med
+  `T6C3_VINDUE_BRUDT` (ingen restore, ingen markør, tilstand `faerdig`); fjernet → fortryd-data `T6C3_FORTRYD_OK`
+  (`sammenligning=data`), og fortryd-DDL `T6C3_FORTRYD_OK` (`sammenligning=ddl`). Genoptagelse med vagten
+  (`sammenligning=data` i `apply-data`) er ikke kørt for sig; den bruger samme sammenligning som fortryd-data.

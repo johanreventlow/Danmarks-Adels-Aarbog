@@ -359,3 +359,12 @@ worktree uden `work*/`. Fund 2 og 8 efterprøvet i koden af mig; Opus-afvejning:
 | 8 | MEDIUM | Preview viser ikke nøglemængden | nødvendig: `relation_decision_set` i samme transaktion (§4.3) |
 | 9 | MEDIUM | `aaben` uden afslutning | forenklet: udgår; V = `tilbagetrukket` med `ved_ikke` (§4.4) |
 | 10 | LOW | Paritetslisten mangler ændrede funktioner | nødvendig: planens Task 2 |
+
+**Codex (`gpt-6.1-sol`), B13's runde på diffen (#305 + #307) og runbooken, 2026-11-08:** NO-GO, 2 fund. Kørt read-only
+fra en ren worktree ved `678b6698` uden `work*/`; runneren selv var ikke med (bedømt ud fra runbooken). Opus-afvejning,
+nøglepåstandene efterprøvet:
+
+| # | Alvor | Fund | Afgørelse |
+|---|---|---|---|
+| 1 | HIGH | Frysen og fortrydelsens vagter ser kun `change_set`; bogmærker og tilmeldinger skrives uden, så en restore sletter dem lydløst (6b havde en generel vindues-vagt, 6c-2 og 6c-3 ikke) | nødvendig, forenklet: rækkeaftryk pr. tabel/sekvens ved dump, sammenlignet før `apply-*` og før restoren; kun ceremoniens egne tabeller (målt) undtaget. I runneren, ingen DDL. Generalprøvet på `c3h` med to negativtest (runbookens stoppunkter) |
+| 2 | MEDIUM | `write_text_revision_reconciliation`'s tilbagetræk-vagt ser kun den nye nøgle, inputtet selv kalder `genfundet`; en anden ny nøgle med gyldig binding mod samme mål opdages ikke (testen `test-text-revision-reconciliation.sql:429-447` forventer succes) | kendt begrænsning for 6c-3: writeren har `REVOKE ALL` (også `service_role`); eneste kalder er den genererede kvitterings-SQL, som stopper på `fremmed_binding`. Skal rettes, før en ny kalder bruger writeren (6m's K-sager, §7): writeren finder selv alle gældende nye nøgler på samme post og prædikat, og testen vendes. DDL-blokken (`1e8d9553…`) er uændret |
