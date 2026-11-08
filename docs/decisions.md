@@ -372,6 +372,10 @@ tekstrettelsesvej«. Kortlægningen og en læse-kun måling på en genskabt kopi
    afhængige fortolkninger forældede. Trin 6 skal alligevel kunne gøre forældet; mekanismen bygges én gang dér.
 3. **Kendt følge:** efter A6b er `narrative.tekst` ≠ helpostens `verbatim_text` for de 10 poster, indtil trin 6 retter
    kildeteksten. En genkørsel af 149b's komparator vil vise dem. III-129 røres ikke.
+   *Omformuleret efter 6c-3 (i prod 2026-11-08):* revisionen har givet de 10 poster nye tekstversioner med de manglende
+   linjer, så helpostens gældende tekst (`helpost_text_current`) følger narrativet (byte-ens med generalprøverne; ikke
+   målt særskilt i prod). Narrativ ≠ *forekomstens* `verbatim_text` består som kendt, begrundet følge (forekomsten
+   ændres bevidst ikke, 6a R13-b), så 149b's komparator viser fortsat de 10.
 4. **Review-budget (B13):** to Codex-runder i stedet for én — planen fik NO-GO i runde 1 (6 fund, rettet), og diffen
    reviewes før prod.
 

@@ -381,18 +381,20 @@ efter projektejerens ja.
 - [x] **Step 1:** B13's anden Codex-runde på hele diffen; Opus afvejer; rettelser i nye commits. *Udført 2026-11-08:
   NO-GO, 2 fund (spec §10): fund 1 rettet i runneren (vinduesvagten, generalprøvet på `c3h`), fund 2 kendt begrænsning
   til før 6m's K-sager.*
-- [ ] **Step 2:** PR 1 og PR 2 merget (projektejeren). `main` rent i hovedcheckouten.
-- [ ] **Step 3: DDL-ceremonien:** `maal` → `dump` → `go-ddl` → projektejeren `apply-ddl --jeg-mener-det --go <kode>` →
+- [x] **Step 2:** PR 1 og PR 2 merget (projektejeren). `main` rent i hovedcheckouten.
+- [x] **Step 3: DDL-ceremonien:** `maal` → `dump` → `go-ddl` → projektejeren `apply-ddl --jeg-mener-det --go <kode>` →
   `NOTIFY pgrst` → advisors/grant-gennemgang.
-- [ ] **Step 4: Data-ceremonien:** genmål (afhængighedsfil = den bundne; ellers stop) → `dump` (B1: to kopier, hash i
+- [x] **Step 4: Data-ceremonien:** genmål (afhængighedsfil = den bundne; ellers stop) → `dump` (B1: to kopier, hash i
   `database-current-state.md`) → `go-data` → projektejeren `apply-data --jeg-mener-det --go <kode>` → `verify`.
-- [ ] **Step 5:** Tre stikprøver som anon i læserfladen: et genbundet faktum (»DAA 2018-20 · <post>«) og en genbundet
+- [x] **Step 5:** Tre stikprøver som anon i læserfladen: et genbundet faktum (»DAA 2018-20 · <post>«) og en genbundet
   familie med kildelinje.
-- [ ] **Step 6: Færdigbevis** (spec §6) i `docs/evidensbaseret-genimport/kildetekst-revision-6c3-prod.md` (kun antal
+- [x] **Step 6: Færdigbevis** (spec §6) i `docs/evidensbaseret-genimport/kildetekst-revision-6c3-prod.md` (kun antal
   og nøgler): tekst og klausuler; kvitteringens 58 + 16; ingen nye ægtefælle-personas; narrativ-hashene; læseren.
   `status.md` (rækken »Kildetekst-revision« for 2018-20 → `produktionsverificeret`; aktivt programmål → 6d),
   `database-current-state.md` (ny §), `changelog.md`, decisions 2026-10-28 pkt. 3's kendte følge omformuleret.
   Commit og docs-PR som kladde.
+- *Udført 2026-11-08 (Step 2-6):* DDL GO `432b5680`, data GO `1b94d057`, `verify` grøn (14/30/28/2); stikprøverne som
+  anon via API (ikke browser); færdigbevis `docs/evidensbaseret-genimport/kildetekst-revision-6c3-prod.md`.
 
 ## Efter planen
 
