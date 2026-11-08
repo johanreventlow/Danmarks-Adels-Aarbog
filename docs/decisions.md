@@ -2,6 +2,20 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: manuel indtastning af en påstand efter bogen, når modellen ikke udtrækker den — åben backlog (2026-11-08)
+
+> Fundet i 6c-3's genkørsel (Task 7). Efter tekstrevisionen kan en binding kun genskabes, hvis modellens nye
+> læsning af posten indeholder samme påstand. To påstande kom ikke med i nogen af tre kørsler, selvom bogen stadig
+> siger dem: I-9's titel (påstand 379) og III-37's børn (familie 157). Projektejeren trak dem tilbage (T); faktum og
+> familie står uændret, men uden kildelinje til 2018-20-posten.
+>
+> - **Behov:** en redaktør skriver påstanden ind efter bogen (prædikat, værdi, citeret klausul) som en
+>   menneskelæsning, der derefter afgøres og bindes som en modelpåstand, med samme proveniens som 6m del 2's
+>   `menneske-laesning-v1` (`red_ret_forslag`), som kun kan rette et eksisterende forslag.
+> - **Første brug:** de to tilbagetrukne henvisninger fra 6c-3 kan genskabes.
+> - **Retning (ikke besluttet):** ny skrivevej eller udvidelse af `red_ret_forslag`; placering i roadmapet afgøres af
+>   projektejeren.
+
 ## BESLUTTET: 6c-3's genkørsel — de 10 % afviste claims accepteres, og det nye I-11-ægteskab udskydes (2026-11-08)
 
 > Fra Task 7's øvelse på stand-in'en (`daa5ab_ddl_standin_20261107211140_c3b` + blok 6c-3a). Modellen
