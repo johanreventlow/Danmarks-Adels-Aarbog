@@ -64,6 +64,8 @@ SELECT jsonb_build_object(
                      JOIN public.relation rel ON rel.rolle = 'samme_som'
                       AND rel.subjekt_type = 'person' AND rel.objekt_type = 'person'
                       AND rp.person_id IN (rel.subjekt_id, rel.objekt_id)
+                     JOIN public.conclusion cn ON cn.target_type = 'relation' AND cn.target_id = rel.id
+                      AND cn.status = 'afklaret'   -- kun afklarede samme_som
                      JOIN public.person_external_id pe
                        ON pe.person_id = CASE WHEN rel.subjekt_id = rp.person_id THEN rel.objekt_id ELSE rel.subjekt_id END
                       AND pe.source_id <> :src AND pe.linje IS NOT NULL)

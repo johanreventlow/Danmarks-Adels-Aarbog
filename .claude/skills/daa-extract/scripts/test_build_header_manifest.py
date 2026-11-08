@@ -485,6 +485,47 @@ class Test1939(unittest.TestCase):
         self.assertEqual(placement(m2, 'A-fakta')['status'], 'machine_ok')
         self.assertTrue(m2['invariants']['section_path_nr_unik'])
 
+    def test_overskrift_paa_postlinje_er_ikke_fundet(self):
+        rend = calamari(GUIDE)
+        k = rend.index('Første Slægtled.')
+        rend[k:k + 2] = ['Første Slægtled. 1.  Anna, f. 1600.']
+        m = build39(rend=rend)
+        a = placement(m, 'A')
+        self.assertEqual((a['status'], a['reasons']), ('unresolved', ['overskrift_ikke_fundet:slaegtled']))
+        self.assertTrue(all('Anna' not in h['verbatim_text'] for h in m['headers']))
+        self.assertEqual(placement(m, 'B')['status'], 'machine_ok')
+
+    def test_naermeste_overskrift_selvtjek(self):
+        # kuld-romertallet står FØR slægtledsoverskriften i renditionen: den nærmeste kuld-overskrift
+        # annulleres af den senere slægtledsoverskrift, men header_ids ville pege på den
+        rend = calamari(GUIDE)
+        i, j = rend.index('Andet Slægtled.'), rend.index('I.')
+        rend[i], rend[j] = rend[j], rend[i]
+        m = build39(rend=rend)
+        b = placement(m, 'B')
+        self.assertEqual(b['status'], 'unresolved')
+        self.assertIn('uenig:naermeste_overskrift', b['reasons'])
+        self.assertIn({'record_key': 'B', 'field': 'naermeste_overskrift'}, m['disagreements'])
+        self.assertEqual(placement(build39(), 'B')['status'], 'machine_ok')
+
+    def test_persona_guard_ogsaa_for_ikke_alignede(self):
+        rend = calamari(GUIDE)
+        rend.insert(rend.index('1.  Erik, f. 1650.'), '9.  Gert, f. 1700.')
+        g1 = dict(rec(rend, '9.  Gert', 'G1'), persona=True)
+        g2 = dict(rec(rend, '9.  Gert', 'G2'), persona=True)
+        m = build39(rend=rend, records=records_for(rend) + [g1, g2])
+        for key in ('G1', 'G2'):
+            self.assertEqual(placement(m, key)['reasons'], ['ikke_alignet', 'flere_personas_i_post'])
+
+    def test_guide_value_uden_tekst(self):
+        m = build39()
+        for h in m['headers']:
+            v = h['parsed']['guide']['value']
+            self.assertTrue(v is None or isinstance(v, int) or v in ('I', 'II'), v)
+        ms = build39(guide=['### PAGE 499 ###', '                          Den ældre testske Linje.',
+                            '                                   I', '1.  Urd, f. 1500.'] + GUIDE)
+        self.assertNotIn('testske', json.dumps([h['parsed']['guide'] for h in ms['headers']]))
+
     def test_gruppe_flere_familier(self):
         parents = [{'child': 'B', 'parent': 'A'}, {'child': 'C', 'parent': 'E'}]
         m = build39(parents=parents)

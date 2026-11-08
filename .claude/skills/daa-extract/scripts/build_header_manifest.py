@@ -490,6 +490,13 @@ def _next_sig(lines: list[str], i: int) -> int | None:
 RECORD_NR_1939_RE = re.compile(r'^\s{0,6}\??\s{0,2}(\d{1,3})\s*([a-z]?)\s*[.,]\s')
 
 
+def _record_inside_line(tab: dict[str, Any], i: int, rec_starts: list[int]) -> bool:
+    """Starter en record midt i linjen (efter linjestart)? Så deler en overskrift linje med posttekst."""
+    base = tab['bases'][i]
+    k = bisect.bisect_right(rec_starts, base)
+    return k < len(rec_starts) and rec_starts[k] < base + len(tab['lines'][i])
+
+
 def _window_1939(tab: dict[str, Any], w0: int, w1: int) -> list[int]:
     """Linjeindeks for linjer der skærer [w0, w1), uden tomme linjer og sidemarkører."""
     out = []
@@ -618,12 +625,11 @@ def _locate_beskrivelse_1939(h: dict[str, Any], tab: dict[str, Any], idxs: list[
     return {'i_from': i_from, 'i_to': i_to, 'parsed': {'kuld': slug, 'found_via': 'beskrivelse'}}
 
 
-def _guide_value(h: dict[str, Any]) -> str | None:
-    if h['level'] == 'linje':
-        return h['roman'] if h['roman'] is not None else h['stamme_slug']
+def _guide_value(h: dict[str, Any]) -> str | int | None:
+    """Sporbarhedsværdi uden tekst: romertal (linje/kuld) eller ordinaltal (slægtled), ellers None."""
     if h['level'] == 'slaegtled':
-        return h['label']
-    return h['roman'] if h['roman'] is not None else h['slug']
+        return h['ordinal']
+    return h['roman']
 
 
 def _align_1939(g_posts: list[dict[str, Any]], r_posts: list[dict[str, Any]]) -> dict[int, int]:
@@ -661,6 +667,7 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
     r_posts: list[dict[str, Any]] = []
     unnumbered: set[str] = set()
     post_index: dict[str, int] = {}
+    rec_starts = sorted({r['char_from'] for r in records})
     for rec in sorted(records, key=lambda r: (r['char_from'], r['record_key'])):
         m = RECORD_NR_1939_RE.match(rtext[rec['char_from']:rec['char_from'] + 40])
         if m is None:
@@ -685,7 +692,11 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
         nxt = aligned_idx[pos] if pos < len(aligned_idx) else None
         w1 = rtab['size'] if nxt is None else r_posts[align[nxt]]['char_from']
         w0 = 0 if prev is None else r_posts[align[prev]]['char_from']
-        hit = _locate_1939(h, rtab, _window_1939(rtab, w0, w1), gp)
+        idxs = [i for i in _window_1939(rtab, w0, w1) if not _record_inside_line(rtab, i, rec_starts)]
+        hit = _locate_1939(h, rtab, idxs, gp)
+        if hit is not None and any(_record_inside_line(rtab, i, rec_starts)
+                                   for i in range(hit['i_from'], hit['i_to'] + 1)):
+            hit = None
         if hit is None:
             located[h['gid']] = None
             continue
@@ -756,6 +767,8 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
         base.update(printed_number=rpost['nr_label'], post_char_from=rpost['char_from'],
                     page=rtab['pages'][line_i] if rtab['pages'] and rtab['pages'][line_i] is not None
                     else rec.get('page_from'))
+        if rec.get('persona'):
+            persona_keys.add(rec['record_key'])
         gi = rev_align.get(ri)
         if gi is None:
             placements.append({**base, 'status': 'unresolved', 'reasons': ['ikke_alignet']})
@@ -794,8 +807,6 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
                 disagreements.append({'record_key': rec['record_key'], 'field': 'legacy_nr'})
         placements.append({**base, 'status': 'unresolved' if reasons else 'machine_ok',
                            'reasons': reasons})
-        if rec.get('persona'):
-            persona_keys.add(rec['record_key'])
 
     # hver persona-record er en egen person: flere i samme fysiske post = missed postgrænse
     persona_posts: dict[int, list[dict[str, Any]]] = {}
@@ -807,6 +818,29 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
             for p in members:
                 p['reasons'].append('flere_personas_i_post')
                 p['status'] = 'unresolved'
+
+    # selvtjek mod DB's nærmeste-regel (private.placement_header_violations) over manifestets egne overskrifter
+    rank = {level: n for n, level in enumerate(('linje', 'slaegtled', 'kuld'), 1)}
+    kind_level = {kind: level for level, kind in levels.items()}
+    hdrs = [(rank[kind_level[h['kind']]], kind_level[h['kind']], h) for h in headers]
+    for p in placements:
+        if p['post_char_from'] is None or any(r.startswith('overskrift_ikke_fundet') for r in p['reasons']) \
+                or 'ikke_alignet' in p['reasons']:
+            continue
+        before = [(rk, lv, h) for rk, lv, h in hdrs if h['char_to'] <= p['post_char_from']]
+        expected: dict[str, str] = {}
+        for lv in rank:
+            cand = [(rk, h) for rk, l2, h in before if l2 == lv]
+            if not cand:
+                continue
+            rk, near = max(cand, key=lambda x: x[1]['char_from'])
+            if any(rk2 < rk and h2['char_from'] > near['char_from'] for rk2, _l, h2 in before):
+                continue
+            expected[lv] = near['element_id']
+        if expected != p['header_ids']:
+            p['reasons'].append('uenig:naermeste_overskrift')
+            p['status'] = 'unresolved'
+            disagreements.append({'record_key': p['record_key'], 'field': 'naermeste_overskrift'})
 
     by_key = {p['record_key']: p for p in placements}
     flagged: set[str] = set()
