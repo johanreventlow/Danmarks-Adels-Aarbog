@@ -151,7 +151,13 @@ Målt i Task 0 (stand-in c3h; tal i `~/.private/6d1/maaling.txt`); beslutningen 
   indeholder `slægtled`, < 30 tegn; romertal = linjen er romertallet (± `.,`); beskrivelse = normaliseret
   beskrivelse genfundet som delstreng af vinduet (længste fælles stykke ≥ max(15, 60 % af de første 60 tegn)). En
   gruppe er genfundet, når romertallet **eller** beskrivelsen er. Genfundet → header med Calamari-linjens tegnspænd og
-  `verbatim_text` fra Calamari, `parsed` fra guiden. Flere kandidater i vinduet → ikke genfundet (aldrig gæt).
+  `verbatim_text` fra Calamari. Flere kandidater i vinduet → ikke genfundet (aldrig gæt).
+- **Værdier kun fra det, Calamari viser** (beviset skal kunne efterprøves i basens rendition): `parsed` udledes af
+  Calamari-linjen, ikke af guiden. Er gruppen kun genfundet via beskrivelsen, er `kuld_label` beskrivelses-sluggen (som
+  `segment._segment_1939` gør, når romertallet mangler), aldrig guidens romertal. En linjeoverskrift genfundet uden
+  romertal kræver, at linjenavnet (normaliseret) er det samme som guidens; entry-koden er da guidens romertal, bundet
+  til navnet. Guiden står kun som sporbarhed i `parsed.guide = {value, char_from, line_sha256}` (raw.txt's linje,
+  ingen tekst) og i kørslens `guide_text_sha256`.
 - **Records:** en record knyttes til den Calamari-post, hvis spænd (nummerlinjen til næste post/overskrift) rummer
   `char_from`, og via alignmentet til guide-posten (struktur og `guide_lokal_id`).
 - Pr.-post-årsager (→ `unresolved`): `overskrift_ikke_fundet:<niveau>`, `ikke_alignet`, `uden_post`,
@@ -171,7 +177,9 @@ Målt i Task 0 (stand-in c3h; tal i `~/.private/6d1/maaling.txt`); beslutningen 
   - `test_record_efter_offset`: to records i samme post (person + fact) får samme `printed_number`/`section_path`.
   - `test_overskrift_ikke_fundet_er_unresolved` (slægtledslinjen fjernet fra renditionen), `test_uden_post`,
     `test_ikke_alignet` (en post kun i guiden), `test_to_kandidater_er_ikke_fundet`.
-  - `test_gruppe_via_beskrivelse` (romertallet mangler i renditionen, beskrivelsen findes → gruppen genfundet).
+  - `test_gruppe_via_beskrivelse` (romertallet mangler i renditionen, beskrivelsen findes → gruppen genfundet,
+    `kuld_label` = beskrivelses-slug, guidens romertal kun i `parsed.guide`).
+  - `test_linje_uden_romertal_kraever_samme_navn` (navn afviger → ikke genfundet).
   - `test_stammesektion_er_entry` (stammesektion → `header_linje`, entry-kode `Stamme-<slug>`).
   - `test_gruppebeskrivelse_efter_romertal_er_ikke_ny_overskrift` og `test_gruppebeskrivelse_alene_er_kuld`.
   - `test_nr_brud_og_slaegtled_fald`: brud giver årsagen på posten, ikke en falsk kørselsinvariant.
