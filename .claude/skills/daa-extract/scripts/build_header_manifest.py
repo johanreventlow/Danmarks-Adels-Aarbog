@@ -709,21 +709,27 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
                         key=lambda r: (r['char_from'], r['record_key']))
     aligned_r = sorted(rev_align)
     aligned_from = [r_posts[k]['char_from'] for k in aligned_r]
-    gaps: dict[int, list[dict[str, Any]]] = {}
+    # records på samme char_from er én fysisk post (som for de nummererede)
+    unnum_posts: dict[int, list[dict[str, Any]]] = {}
     for r in unnum_recs:
-        gaps.setdefault(bisect.bisect_left(aligned_from, r['char_from']), []).append(r)
+        unnum_posts.setdefault(r['char_from'], []).append(r)
+    gaps: dict[int, list[list[dict[str, Any]]]] = {}
+    for cf, group in unnum_posts.items():
+        gaps.setdefault(bisect.bisect_left(aligned_from, cf), []).append(group)
     unnum_outcome: dict[str, dict[str, Any]] = {}
     for g, rn in gaps.items():
         lo = g_posts[rev_align[aligned_r[g - 1]]]['line'] if g > 0 else -1
         hi = g_posts[rev_align[aligned_r[g]]]['line'] if g < len(aligned_r) else float('inf')
         gn = [v for v in v2_posts if lo < v['fra'] < hi]
         if len(rn) == len(gn):
-            for r, v in zip(rn, gn):
-                unnum_outcome[r['record_key']] = {'kind': v['klasse'], 'v2': v}
+            for group, v in zip(rn, gn):
+                for r in group:
+                    unnum_outcome[r['record_key']] = {'kind': v['klasse'], 'v2': v}
         else:
-            for r in rn:
-                unnum_outcome[r['record_key']] = {'kind': 'uparret',
-                                                  'kandidater': [v['lokal_id'] for v in gn]}
+            for group in rn:
+                for r in group:
+                    unnum_outcome[r['record_key']] = {'kind': 'uparret',
+                                                      'kandidater': [v['lokal_id'] or v['nr_label'] for v in gn]}
 
     # --- genfind hver guide-overskrift i renditionen mellem alignede naboposter ---
     located: dict[int, dict[str, Any] | None] = {}
@@ -805,8 +811,8 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
             'guide_nr_label': None, 'guide_kandidater': None,
         }
         outcome = unnum_outcome.get(rec['record_key'])
-        if rec['record_key'] in unnumbered and (outcome is None or outcome['kind'] != 'stamfader'):
-            kind = outcome['kind'] if outcome else 'uparret'
+        if rec['record_key'] in unnumbered and outcome['kind'] != 'stamfader':
+            kind = outcome['kind']
             if kind == 'nummereret':
                 placements.append({**base, 'status': 'unresolved', 'reasons': ['nummer_tabt_i_rendition'],
                                    'guide_nr_label': outcome['v2']['nr_label']})
@@ -889,7 +895,7 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
     hdrs = [(rank[kind_level[h['kind']]], kind_level[h['kind']], h) for h in headers]
     for p in placements:
         if p['post_char_from'] is None or any(r.startswith('overskrift_ikke_fundet') for r in p['reasons']) \
-                or p['guide_lokal_id'] is None:
+                or any(r in p['reasons'] for r in ('ikke_alignet', 'uden_post', 'ikke_parret', 'nummer_tabt_i_rendition')):
             continue
         before = [(rk, lv, h) for rk, lv, h in hdrs if h['char_to'] <= p['post_char_from']]
         expected: dict[str, str] = {}
@@ -973,11 +979,11 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
         'disagreements': sorted(disagreements, key=lambda d: (str(d['record_key']), d['field'])),
         'transfer': transfer,
         'alignment': {'guide_posts': len(g_posts), 'rendition_posts': len(r_posts), 'aligned': len(align),
-                      'unummererede': len(unnumbered),
-                      'parret_stamfader': sum(1 for v in unnum_outcome.values() if v['kind'] == 'stamfader'),
-                      'parret_nummereret': sum(1 for v in unnum_outcome.values() if v['kind'] == 'nummereret'),
-                      'parret_oversigt': sum(1 for v in unnum_outcome.values() if v['kind'] == 'oversigtspost'),
-                      'uparret': sum(1 for v in unnum_outcome.values() if v['kind'] == 'uparret')},
+                      'unummererede': len(unnum_posts), 'unummererede_records': len(unnumbered),
+                      **{key: len({r['char_from'] for r in unnum_recs
+                                  if unnum_outcome[r['record_key']]['kind'] == kind})
+                         for key, kind in (('parret_stamfader', 'stamfader'), ('parret_nummereret', 'nummereret'),
+                                           ('parret_oversigt', 'oversigtspost'), ('uparret', 'uparret'))}},
     }
 
 

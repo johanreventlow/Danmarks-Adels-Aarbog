@@ -372,7 +372,7 @@ class Test1939(unittest.TestCase):
         guide = GUIDE[:6] + ['2.  Extra, f. 1601.'] + GUIDE[6:]
         rend = calamari(GUIDE)
         m = build39(guide=guide, rend=rend)
-        self.assertEqual(m['alignment'], {'guide_posts': 6, 'rendition_posts': 5, 'aligned': 5, 'unummererede': 0,
+        self.assertEqual(m['alignment'], {'guide_posts': 6, 'rendition_posts': 5, 'aligned': 5, 'unummererede': 0, 'unummererede_records': 0,
                                       'parret_stamfader': 0, 'parret_nummereret': 0, 'parret_oversigt': 0, 'uparret': 0})
         self.assertTrue(all(p['status'] == 'machine_ok' for p in m['placements']), m['placements'])
         # en post kun i renditionen: recorden i den kan ikke føres til guiden
@@ -683,6 +683,42 @@ class Test1939Unummererede(unittest.TestCase):
         self.assertEqual(o1['guide_kandidater'], ['Oversigt.Uplacerede.U1'])
         self.assertEqual((o2['status'], o2['reasons']), ('unresolved', ['uden_post']))
         self.assertEqual(m['alignment']['uparret'], 2)
+
+    def test_unummererede_samme_char_from_er_een_post(self):
+        rend = unspace(GUIDE_U)
+        recs = recs_u(rend, [('Anders Testesen', 'S1'), ('Anders Testesen', 'S2')])
+        m = build39(guide=GUIDE_U, rend=rend, records=recs)
+        s1, s2 = placement(m, 'S1'), placement(m, 'S2')
+        for x in (s1, s2):
+            self.assertEqual((x['status'], x['reasons'], x['printed_number']), ('machine_ok', [], None))
+        self.assertEqual(s1['post_char_from'], s2['post_char_from'])
+        a = m['alignment']
+        self.assertEqual((a['unummererede'], a['unummererede_records'], a['parret_stamfader']), (1, 2, 1))
+        for r in recs[2:]:
+            r['persona'] = True
+        m2 = build39(guide=GUIDE_U, rend=rend, records=recs)
+        for key in ('S1', 'S2'):
+            self.assertEqual(placement(m2, key)['reasons'], ['flere_personas_i_post'])
+
+    def test_selvtjek_ogsaa_for_stamme_post_uden_afsnit(self):
+        guide = ['### PAGE 499 ###', '                          Den ældre testske Linje.',
+                 '                 Første Slægtled.', '1.  Urd, f. 1500.']
+        rend = calamari(guide)
+        m = build39(guide=guide, rend=rend, records=[rec(rend, '1.  Urd', 'U')])
+        u = placement(m, 'U')
+        self.assertIsNone(u['guide_lokal_id'])
+        self.assertEqual((u['status'], u['reasons']), ('machine_ok', []))
+        rend2 = [rend[0], rend[2], rend[1], rend[3]]       # slægtled FØR linjen: nærmeste-reglen brydes
+        m2 = build39(guide=guide, rend=rend2, records=[rec(rend2, '1.  Urd', 'U')])
+        self.assertIn('uenig:naermeste_overskrift', placement(m2, 'U')['reasons'])
+
+    def test_kandidater_uden_none(self):
+        guide = GUIDE_U + OVERSIGT_LINJER[:3]
+        rend = unspace(GUIDE_U + OVERSIGT_LINJER)
+        recs = recs_u(rend, [('Per Uden', 'O1'), ('Rasmus Uden', 'O2')])
+        recs[2]['persona'] = True
+        m = build39(guide=guide, rend=rend, records=recs)
+        self.assertNotIn(None, placement(m, 'O1')['guide_kandidater'])
 
     def test_to_stamfaedre_samme_section_path_bryder_invariant(self):
         guide = GUIDE_U[:5] + ['                                   I.', 'A n d e r s  T e s t e s e n ,  f. 1590.',
