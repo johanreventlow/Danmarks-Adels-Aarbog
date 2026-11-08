@@ -529,6 +529,35 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 23. Trin 6c-3: 2018-20's A6b-rest (tekstrevision og genbinding) — LIVE i prod (2026-11-08)
+
+**Procedure:** `docs/runbooks/trin6c3-prod.md`, privat runner `~/.private/5ab-overfoersel/32-trin6c3.sh` (med
+`32-trin6c3-vindue.sql`). Repo `bdcb4184` (`main` med PR #305, #307 og #308; blokkens sha `1e8d9553…`, `db-rls.sql`
+`e63c2182…`). To skrivende ceremonier, kørt af projektejeren. Færdigbevis:
+`docs/evidensbaseret-genimport/kildetekst-revision-6c3-prod.md`.
+
+- **Før:** `tilstand=foer` (`andre=049163332f67…`, personas 1.395), som prod-dumpet `890d7f49…` generalprøverne er
+  lavet fra.
+- **Dump før DDL (B1):** `daa-prod-20261108183045-6c3.dump`, 18.400.483 bytes, sha
+  `9f3d72f6afd0b649aa7ab9d15cf70c1521bfcb7a362da5e356045048b65ef415`; age
+  `fb421c1f36efa5af778fa4f05ab643824e90867a01e403e9a18c76e596a157fe` (SFTP, rundtur ok).
+- **DDL 6c-3a (GO `432b5680`):** `T6C3_APPLY_DDL_OK tilstand=ddl`, 11,9 s. Ny tabel `private.text_revision_reconciliation`
+  (append-only, RLS, ingen grants) og writeren `private.write_text_revision_reconciliation`; ændret
+  `write_relation_persona`, `relation_binding_state`, `verify_relation_persona_receipts`, `persona_family_context`,
+  `spouse_principal_person` (alle DEFINER, fast `search_path`, ingen EXECUTE for API-roller). `get_advisors` ikke kørt
+  (MCP'en på en anden organisation); grants kontrolleret af runneren i prod, lint på stand-in `c3h`.
+- **Dump før data (B1, fortrydelsens grundlag):** `daa-prod-20261108184046-6c3.dump`, 18.430.410 bytes, sha
+  `d22ffbfae5a93de727400138fb32b4b6429035ce96f0f1f8b9750f7ae1832a24`; age
+  `f1ad7f6c3d91c5837530046b0d624a6f948a9bac28e960a9910b87ed63a3950e` (SFTP, rundtur ok).
+- **Data (GO `1b94d057`):** revision (10 tekstversioner, 58 nøgler `superseded`) → 75 nye forslag → parter (3
+  ægtefælle-personas genbrugt, 0 nye) → afstemning → kontrol (afgrænset til de 75) → 13 faktaafgørelser, 4
+  forælder-, 1 barn-, 3 ægteskabsafgørelser → 16 nye promotions → kvittering 74 rækker. `tal=1,58,10,75,15,1395,13,4,1,3,16,74`,
+  168 s. `verify`: `genbundet=14 genfundet=30 ikke_genfundet=28 tilbagetrukket=2`, `andre` uændret.
+- **Læseren:** fakta bundet 9 → 8 (1 tilbagetrukket vises som import), familiekilder 7 → 6; narrativ- og
+  publiceringshash uændrede. Anon-stikprøver via API: 8 fakta med »DAA 2018-20 · <post>«, alle 6 familier med kildelinje.
+- **Fortrydelse:** `fortryd` med data-dumpet (restore), så `fortryd` med DDL-dumpet; kun så længe intet andet er skrevet
+  i prod (vinduesvagten stopper ellers).
+
 ## 22. Trin 6m del 2: 1939's faktaforslag rettet efter bogen — LIVE i prod (2026-11-07)
 
 **Procedure:** `docs/runbooks/trin6m-del2-prod.md`, privat runner `~/.private/5ab-overfoersel/31-trin6m-del2.sh`. Repo

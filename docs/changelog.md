@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-08 — trin 6c-3 i prod: 2018-20's A6b-rest, kildetekst og genbinding
+
+Spec og plan i PR #305, kode PR #305 (DB-blok 6c-3a) og #307 (afstemningsværktøjet), runbook og beslutninger PR #308.
+Codex' diffreview gav 2 fund: vinduesvagten er tilføjet i den private runner (bogmærker og tilmeldinger kan ikke
+længere slettes lydløst af en fortrydelse), og kvitteringswriterens tilbagetræk-vagt er en kendt begrænsning til før
+6m's K-sager. DDL (GO `432b5680`) og data (GO `1b94d057`): 10 tekstversioner, 58 nøgler forældet, 75 nye forslag,
+16 bindinger kvitteret som 14 genbundet og 2 tilbagetrukket; ingen nye personas, narrativerne uændrede. Trin 6c er
+afsluttet. Detaljer i `database-current-state.md` §23 og `evidensbaseret-genimport/kildetekst-revision-6c3-prod.md`.
+
 ## 2026-11-07 — trin 6m del 2 i prod: 1939's faktaforslag rettet efter bogen
 
 Plan og kode PR #303. Ny skrivevej `red_ret_forslag` (DDL 6m-a, GO `78b268f0`) giver et forslag en ny `proposed`-version
