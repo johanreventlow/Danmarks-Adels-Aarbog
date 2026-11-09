@@ -482,6 +482,18 @@ def _scan_1939(text: str, gp: dict[str, Any], stamme_afsnit_level: str | None) -
                                 desc_i=kb + 1, usikker=False)
                 i += forbrug
                 continue
+            kr = next((k for k in range(i, i + forbrug - 1) if gp['afsnit_re'].match(lines[k])), None)
+            if kr is not None and not afsnit_frisk and not str(linje or '').startswith(pre_label or '\0'):
+                # Samme deling uden for stammen (PDF 519): prosa + »II.« + beskrivelse uden tom linje er for
+                # segmenteren én beskrivelse (afsnit = slug, uændret); overskriftssporet giver gruppen romertallet
+                # og beskrivelsen efter det, prosaen foran ignoreres.
+                afsnit = slug
+                tekst = segment.norm(' '.join(lines[k].strip() for k in range(kr + 1, i + forbrug)))
+                h_grp = add('kuld', kr, i + forbrug - 1,
+                            roman=segment._normaliser_romertal_1939(gp['afsnit_re'].match(lines[kr]).group(1), gp),
+                            slug=slug, desc_norm=_letters(tekst), desc_i=kr + 1, usikker=False)
+                i += forbrug
+                continue
             tekst = segment.norm(' '.join(lines[k].strip() for k in range(i, i + forbrug)))
             if not afsnit_frisk:
                 afsnit = slug

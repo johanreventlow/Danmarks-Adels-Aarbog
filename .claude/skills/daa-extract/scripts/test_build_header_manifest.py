@@ -880,6 +880,24 @@ class Test1939Oversigtszoner(unittest.TestCase):
         self.assertTrue(m['invariants']['gruppekort_daekker_overskriftsaarsager'])
         self.assertEqual(placement(m, 'V')['status'], 'machine_ok')
 
+    def test_romertal_slugt_af_beskrivelsen(self):
+        """PDF 519: prosa + »II.« + beskrivelse uden tom linje læses af segmenteren som én beskrivelse
+        (afsnit-slug »…-II-Ditlev-…«). Overskriftssporet deler den: romertallet er gruppens, beskrivelsen følger."""
+        guide = GUIDE[:12] + ['    Boede paa Testrup og ejede siden Testholm.', '                                   II.',
+                              '                      Carl Reventlows Børn med Ellen Opdigt:'] + GUIDE[13:]
+        rend = calamari(guide)
+        m = build39(guide=guide, rend=rend)
+        d = placement(m, 'D')
+        self.assertEqual((d['status'], d['kuld_label']), ('machine_ok', 'II'), d['reasons'])
+        self.assertIn('II', d['guide_lokal_id'])                    # segmenterens lokal_id er uændret
+        self.assertTrue(all(m['invariants'].values()), m['invariants'])
+        rend2 = [l for l in rend if l != 'II.']                    # romertallet tabt i Calamari: beskrivelsen bærer
+        m2 = build39(guide=guide, rend=rend2, records=records_for(rend2))
+        d2 = placement(m2, 'D')
+        self.assertEqual(d2['kuld_label'], 'Carl-Reventlows-Børn-med-Ellen-Opdigt')
+        kuld = next(h for h in m2['headers'] if h['element_id'] == d2['header_ids']['kuld'])
+        self.assertEqual(kuld['parsed']['guide']['value'], 'II')    # kontrolværdien til stikprøven
+
     def test_profilfilen_har_to_zoner(self):
         d = os.path.join(os.path.dirname(__file__), '..', 'references', 'header-profiles')
         p39 = bhm.load_header_profile(os.path.join(d, 'header-1939-v1.json'))
