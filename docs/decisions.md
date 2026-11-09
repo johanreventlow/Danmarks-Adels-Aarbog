@@ -2,9 +2,22 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: biografilæseren med alle personer og den direkte narrativlæsning ligger allerede om 3 s — åben backlog (2026-11-09)
+
+> Målt i 6d-2a's Task 0 som anon på stand-in `…_6d1c` (prod + 6d-1, efter `ANALYZE`; median af 3):
+> `public_person_bio_source_versions_v2` med alle personer (feedets form, `web/src/data/feedAux.ts`) ≈ 3080 ms;
+> `select` på `public.narrative`, 1000 rækker pr. side ≈ 3000-3100 ms (RLS kalder publiceringsvagten pr. række).
+> Anon-grænsen i prod er 3 s, og 6d-1 målte prod 2,5-2,7 gange langsommere end stand-in'en for koordinat-RPC'en —
+> feedets biografikald fejler derfor sandsynligvis allerede i prod. Ikke målt i prod endnu (kun i projektejerens
+> shell). **Projektejerens valg:** uden for 6d-2a; 6d-2a's budget er relativt (højst +10 %, spec rev. 4 §4.1).
+> Næste skridt: én læsemåling i prod; derefter en løsning (fx feedet sender kun de viste personer, eller vagtens
+> tilstandssammenligning gøres billigere), så den er klar før 6e.
+
 ## BESLUTTET: 6d-2 deles i 6d-2a og 6d-2b; oversigtsomtaler vises ikke som biografi (2026-11-09)
 
-> Delspec `docs/superpowers/specs/2026-11-09-trin6d2a-oversigtsregel-identitet-design.md` (godkendt, rev. 3).
+> Delspec `docs/superpowers/specs/2026-11-09-trin6d2a-oversigtsregel-identitet-design.md` (godkendt, rev. 3; rev. 4
+> efter Codex-runden: reglen beregnes live i biografilæseren uden gemt markering, narrativ-RLS uændret, relativt
+> tidsbudget — projektejerens valg 2026-11-09).
 >
 > - **Opdeling:** 6d-2a = oversigtsreglen, retningen i `samme_som`, 1014's kobling og tre oversigtspersonas'
 >   identitet. 6d-2b = binding af de viste tekster (149b's migration kræver `record_key`, som kun 8 af 1939's 576

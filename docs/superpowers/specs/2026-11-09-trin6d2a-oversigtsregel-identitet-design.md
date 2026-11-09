@@ -1,6 +1,7 @@
 # Delspec 6d-2a — oversigtsreglen og 1939's resterende identitetssager
 
-**Status:** godkendt af projektejeren 2026-11-09 (revision 3). Brainstorm med projektejeren; to bygherre-tjek (Opus) på revision 1 og 2
+**Status:** godkendt af projektejeren 2026-11-09 (revision 3); revision 4 efter Codex-runden, projektejerens to valg
+godkendt samme dag (§10). Brainstorm med projektejeren; to bygherre-tjek (Opus) på revision 1 og 2
 (§10). Projektejeren delte 6d-2 i **6d-2a** (denne spec) og **6d-2b** (kildetekst og binding, §9). Projektejerens
 afgørelser står i §3; mine valg er markeret *mit valg*.
 **Overordnet spec:** `docs/superpowers/specs/2026-11-08-trin6d-placement-relationer-medlemskab-design.md` §3 og §7,
@@ -88,28 +89,39 @@ prod-kopi i plan-Task 0 med §4.1's endelige definition.
 - *P*'s komponent (kun `samme_som` med `afklaret` konklusion, uanset retning) indeholder en *anden* person *Q*, der
   har et, **og** *Q* er offentlig (`entitet_offentlig`) og har en *K*-biografi, som læseren må se. *(Mit valg: ellers
   ville *P*'s tekst forsvinde uden erstatning — anti-målet i §5.)*
+- Stien fra *P* til *Q* går kun gennem offentlige personer (*P* selv undtaget). *(Rev. 4, Codex-fund 8: anon ser kun
+  relationer med offentlige endepunkter, så appen kan kun folde *P* ind i *Q*'s kort ad en offentlig sti.)*
 
-**Virkning (§3 pkt. 9).** En oversigtsomtale vises ikke som biografi: den udelades af de læserkald, der leverer
-biografitekst (`public_person_bio_source_versions_v2` og den direkte narrativlæsning under anon-/auth-RLS). Kald, der
-kun bruger vagten til *kildelinjer* på fakta og familier (`public_person_facts`, `public_family_sources`) og
-hændelsers synlighed (`haendelse`-politikken), er uændrede. Hvordan det adskilles fra den fælles vagt
-`person_daa_narrative_publication_allowed`, er bygherrens valg (fx en særskilt biografivagt), men faktalæsernes
-resultat skal være byte-ens før/efter. Narrativ, binding, record og publiceringshændelser ændres ikke (§3 pkt. 3).
+*Q*'s egen *K*-narrativ kan aldrig selv være en oversigtsomtale (*Q* har medlemskabet, som *P* mangler), så reglen
+kræver ingen rekursion over narrativer.
 
-**Form (*mit valg*).** En vedligeholdt, afledt markering (fx en privat tabel over oversigtsomtaler), ikke et
-komponentopslag pr. række: `membership_component_states()` bygger hele identitetsgrafen ved hvert kald. Markeringen
-opdateres i samme transaktion, når en af dens indgange ændres: en `samme_som`-relation eller dens konklusion
-(`red_samme_som` indsætter relationen før den afklarede konklusion), et linjemedlemskab, og personens offentlighed.
-Den skal kunne genberegnes fra bunden og sammenlignes med den vedligeholdte (paritetstest). Den er reversibel: fjernes
-en kobling eller et medlemskab, vises teksten igen.
+**Virkning (§3 pkt. 9).** En oversigtsomtale vises ikke som biografi: den udelades af biografilæseren
+`public_person_bio_source_versions_v2` — under kontrakt v2 appens eneste vej til biografitekst
+(`web/src/data/public.ts:231-246`, `mobile/src/data/load.ts:283`, `web/src/data/feedAux.ts`). **Narrativ-RLS ændres
+ikke** *(rev. 4, projektejeren 2026-11-09)*: teksten er publiceret bogtekst og ikke hemmelig; reglen styrer, hvad der
+præsenteres som biografi, ikke adgang. Et filter i RLS ville desuden skjule hændelser (`haendelse`-politikken kræver,
+at narrativet er læsbart, `db-rls.sql:498`, `:593`) og koste tid pr. række. Kald, der kun bruger vagten til
+*kildelinjer* på fakta og familier (`public_person_facts`, `public_family_sources`) og hændelsers synlighed, er
+uændrede; faktalæsernes resultat er byte-ens før/efter. Narrativ, binding, record og publiceringshændelser ændres ikke
+(§3 pkt. 3).
 
-**Tidsbudget.** Ingen af disse anon-kald må blive langsommere end 10 % mod målingen før DDL'en, og alle skal være under
-3 s med margen: `public_person_bio_source_versions_v2` for den største personmængde, feedet sender
-(`web/src/data/feedAux.ts`); den direkte narrativlæsning; `public_person_facts` og `public_family_sources` for de
-tungeste personer; `haendelse`-læsningen side for side; koordinat-RPC'en.
+**Form (*mit valg*, rev. 4).** Reglen beregnes **live** i biografilæseren af én privat funktion over de forespurgte
+personer — ingen gemt markering, ingen triggere. Den er dermed altid i takt med sine indgange (komponent, medlemskab,
+offentlighed, publiceringsvagt) og automatisk reversibel. Billig forfiltrering uden funktionskald (*P* har en kant;
+*Q* ≠ *P* i komponenten har en medlemskabsrække og en narrativ i *K*) før de dyre kald (`membership_is_current`,
+`person_daa_narrative_publication_allowed`); ingen `MATERIALIZED`-CTE'er (de taber indeksene). *Begrundelse:* Task 0
+målte live-beregningen for alle personer til ca. 135 ms med samme mængde (10), mens Codex-runden viste, at en gemt
+markering kræver triggere på reglens fulde afhængighedslukning (placements, beslutninger, slægtsmedlemskab, hele
+publiceringstilstanden) og en samtidighedskontrakt — kode, der kan blive forældet uden at nogen ser det.
+
+**Tidsbudget** *(rev. 4, projektejeren 2026-11-09)*. Ingen af disse anon-kald må blive mere end 10 % langsommere end
+målingen før DDL'en (median af 3, samme base): `public_person_bio_source_versions_v2` for den største personmængde,
+feedet sender (`web/src/data/feedAux.ts`); `public_person_facts` og `public_family_sources` for de tungeste personer;
+koordinat-RPC'en. At biografilæseren med alle personer og den direkte narrativlæsning allerede ligger omkring 3 s på
+stand-in'en *før* 6d-2a, er backlog (`docs/decisions.md`), ikke en del af 6d-2a.
 
 **Redaktøren** ser stadig teksten; *mit valg:* redaktørens narrativvisning får en markering af, at teksten er en
-oversigtsomtale og derfor ikke vises som biografi (formen er bygherrens).
+oversigtsomtale og derfor ikke vises som biografi (formen er bygherrens; den bruger samme funktion).
 
 ### 4.2 Retningen i `samme_som` (generel regel i skrivevejen)
 
@@ -119,7 +131,8 @@ eller en `person_external_id`-række i *K*, foreslås *A* → *B* (*A* alias). A
 sinks, G4 alias er allerede sink, cyklus) den retning, gælder redaktørens retning; afvises også den, afvises
 koblingen som i dag. Kan data ikke afgøre retningen, gælder redaktørens. Målet er, at en oversigtsperson ikke bliver
 det direkte mål for en detaljepersons kobling; komponentens sink (som appen viser) styres ikke af reglen, og
-læservirkningen sikres af §4.1 uanset retning. Tests: begge retninger på et oversigts-/detaljepar, en
+læservirkningen sikres af §4.1 uanset retning. **Idempotens** *(rev. 4, Codex-fund 12)*: findes kanten allerede i
+én af de to retninger, returneres den uændret før retningsvalget (ingen ny audit eller evidens). Tests: begge retninger på et oversigts-/detaljepar, en
 oversigtsperson, der allerede er alias for en 2018-20-person (G3-tilfældet), et 2018-20-par og et par uden placering
 (uændret adfærd).
 
@@ -145,34 +158,40 @@ narrativflytning bortfalder).
 - Ingen kildetekst-rettelser og ingen grænserettelser (6d-2b).
 - Fakta, familiekilder og hændelser uændrede (§3 pkt. 9).
 - 2018-20 uændret: placements, medlemskaber, publiceringer og koordinater byte-ens; reglens mængde for kilde 1 er tom
-  (målt; genmåles i Task 0, ellers stop og spørg).
+  (målt; genmålt i Task 0: tom).
 - Ingen læserændring ud over, hvilke 1939-biografier der vises (koordinater, udgavevælger: 6e).
 - Identitet på tværs af udgaverne for personer uden 1939-detaljepost (fx 1849↔210, 960↔211) og den redaktionelle
   sammenlægning af dubletterne er backlog.
 - **Anti-mål:** en oversigtsstump, der stadig står som biografi på en person med fuld post; en tekst, der er den eneste
-  om en person, og som forsvinder; en ny kobling, der giver en karantæneret komponent; et anon-kald over 3 s.
+  om en person, og som forsvinder; en ny kobling, der giver en karantæneret komponent; et anon-kald, der bliver mere
+end 10 % langsommere.
 
 ## 6. Vejen til prod
 
 Som 6d-1 i mindre skala: privat runner, dump før hver skrivende ceremoni (B1 + age-kopi), frys, vinduesvagt, GO pr.
 ceremoni, fortryd ved restore, generalprøve fra operatørens cwd på en stand-in fra en frisk prod-`dump-kopi`.
-- **DDL-ceremoni:** markeringen og dens vedligeholdelse, biografilæsernes brug af den, retningsreglen (§4.2) og
-  `db-rls.sql`, i én transaktion; markeringen fyldes fra bunden i samme transaktion.
+- **DDL-ceremoni:** regelfunktionen, biografilæserens brug af den, redaktørens RPC, retningsreglen (§4.2) og
+  `db-rls.sql`, i én transaktion.
 - **Data-ceremoni:** 1014's kobling og de tre identiteter efter kortsvarene; pinnes på indhold (person-id'er og record
-  keys, der findes i prod før ceremonien, kortsvarenes hash); aldrig id'er oprettet af ceremonien. Er
+  keys, der findes i prod før ceremonien) og på et hashet **kortmanifest** *(rev. 4, Codex-fund 9)*: for hvert kort
+  persona-id og -nøgle, forventet identitetsstatus og -version, kandidatens person-id, sha over den viste
+  oversigtstekst og kandidatposten samt handlingen; svarfilen refererer manifestets sha, og ceremonien efterprøver
+  førtilstandene under lås. Identiteterne skrives gennem `red_afgoer_source_persona` med `basis=human_sheet` og uden
+  kandidat-id (Task 0: ingen kandidatkørsel kræves, ingen af personaerne er i en kontrolstikprøve) *(Codex-fund 10)*;
+  ceremonien efterlader en kvittering, også ved nul skrivninger. Aldrig id'er oprettet af ceremonien. Er
   `begin_change_set` åben for hele transaktionen, nulstilles `app.change_set_id` mellem kaldene (kendt mønster).
 - **Mål før/efter:** reglens mængde, synlige 1939-biografier som anon, faktalæsernes resultat (hash), KOORD- og
   paritetshashes som 6d-1, og tidsbudgettets kald (§4.1).
 
 ## 7. Overladt til bygherren
 
-Markeringens tabel- og triggerform (inden for §4.1); hvordan biografivagten adskilles fra den fælles vagt;
-funktionsnavne og signaturer; redaktørmarkeringens form; kortformen; testopdelingen.
+Regelfunktionens forespørgselsform (inden for §4.1's tidsbudget); funktionsnavne og signaturer; redaktørmarkeringens form; kortformen; testopdelingen.
 
 ## 8. Færdigbevis
 
-- **Regel:** markeringen = genberegningen fra bunden; mængden målt i prod før og efter (forventet 10 narrativer, 9
-  synlige før; 11, hvis 1014 kobles); 0 af dem leveret som biografi til anon efter; narrativ, binding og record findes.
+- **Regel:** regelfunktionens mængde målt i prod før og efter (forventet 10 narrativer, 9 synlige før; 11 efter
+  1014's kobling, stadig 9 synlige — 1014 er staged); 0 af dem leveret som biografi til anon efter; narrativ,
+  binding og record findes.
 - **Reversibilitet** (stand-in): fjern én kobling → teksten vises igen; kobl igen → skjult; tilbagetræk et medlemskab
   på *Q* → *P*'s tekst vises igen.
 - **Uberørte:** de 6 *ja/ja* og de 522 *ja/nej* vises som før; Henning vises; `public_person_facts` og
@@ -214,3 +233,21 @@ relationen før konklusionen → §4.1 Form; (4) retningsreglen mod G3/G4 → §
 har ingen person, og decisions nævner tre oversigtspersonas → §2, §4.4; (6) vagten bruges også til faktakildelinjer
 og hændelser → §3 pkt. 9, §4.1 Virkning; 6d-2b må ikke binde oversigtsomtaler → §9; (7) ændringen af decisions B var
 ikke registreret → §1 pkt. 7, §3 pkt. 8.
+
+**Revision 4 — Codex-runde på spec+plan (`gpt-6.1-sol`, 2026-11-09; 12 fund, NO-GO; Opus afvejede).** Task 0 målte
+først: reglens mængde 10/9/kilde 1 tom som forventet; live-beregning for alle personer ≈ 135 ms med samme mængde
+(+4 % på biografilæseren); biografilæseren med alle personer og den direkte narrativlæsning ligger allerede omkring
+3 s på stand-in'en før 6d-2a. Afvejning:
+- **Fund 1-5** (gemt markering: samtidighed, ufuldstændig triggerdækning af medlemskabs- og publiceringstilstanden,
+  »én gang pr. transaktion« uspecificeret, POST læser før deferred refresh): reelle mod rev. 3's form → **bortfalder**
+  ved live-beregning (§4.1 Form; projektejerens valg).
+- **Fund 6** (spec krævede filter i narrativ-RLS; det ville skjule hændelser): reelt → **narrativ-RLS uændret**
+  (§4.1 Virkning; projektejerens valg).
+- **Fund 7** (tidskrav uopfyldeligt): → relativt budget (+10 %); 3 s-niveauet før 6d-2a er backlog (projektejerens
+  valg).
+- **Fund 8** (skjult mellemled; appens karantæne): sti kun gennem offentlige personer (§4.1 Definition; mængden
+  uændret 10); appens øvrige karantæneårsager er en kendt begrænsning — Task 7 efterprøver de berørte komponenter
+  gennem `collapseSameAs` på stand-in-data.
+- **Fund 9** (hash bandt kun svarene): kortmanifest (§6). **Fund 10** (skrivevej, kvittering ved nul skrivninger):
+  §6. **Fund 11** (GO bandt ikke alle artefakter; ekstern dump ikke efterprøvet før hver skrivning): planens Task 7.
+  **Fund 12** (idempotens ved vendt retning): §4.2.
