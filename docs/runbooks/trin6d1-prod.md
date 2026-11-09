@@ -6,7 +6,8 @@ Spec: `docs/superpowers/specs/2026-11-08-trin6d-placement-relationer-medlemskab-
 Runner: `~/.private/5ab-overfoersel/33-trin6d1.sh` med `33-trin6d1-vindue.sql` (aldrig i repoet). Den kaldes via
 `/bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 33-trin6d1.sh <handling>` fra operatørens cwd. De bundne input ligger
 i `~/.private/6d1/` (7 filer, 0600, sha'erne fastlåst i runneren): `manifest1939.json`, `linje-approvals2.json`,
-`linjeark2.txt`, `linjeark2-token.txt`, `approvals1939.json` (efter `cf3ef35a`; den forrige er `approvals1939.f1.json`),
+`linjeark2.txt`, `linjeark2-token.txt` (genrenderet 9/11 efter Codex' fund 2 med de uændrede svar; de forrige er
+`*.f1.*`), `approvals1939.json` (efter `cf3ef35a`; den forrige er `approvals1939.f1.json`),
 `svar-model2.json`, `kort-undtagelser.txt`. Runneren tjekker også kæden mellem dem (mapping → linjeark og token;
 approvals → manifest, modelsvar og kort-token; manifestets regelversion og invarianter). Alle linjer er kun antal,
 koder og hashes. Prod-skrivning (`apply-*`, `fortryd`) sker kun i projektejerens shell med `--jeg-mener-det --go
@@ -34,7 +35,7 @@ koder og hashes. Prod-skrivning (`apply-*`, `fortryd`) sker kun i projektejerens
 | 3 | advisors (`get_advisors` security + performance, læse-kun) | ingen nye fund ud over de kendte |
 | 4 | `maal` | `fase=ddl … corroborated=0 conflict=2`, KOORD-hashes uændrede |
 | 5 | `dump` | `DUMP_6D1_OK tilstand=ddl` (data-dumpet; fortrydelsens grundlag) |
-| 6 | `go-data` | `manifest=5e09d1ecc37e2615 mapping=767c49d3c7bdbbb0 approvals=860038261115b6cb kort=aa8ee91437deac93`, `GO_6D1_DATA_KODE=…` |
+| 6 | `go-data` | `manifest=5e09d1ecc37e2615 mapping=89cbc9e132e61be8 approvals=860038261115b6cb kort=aa8ee91437deac93`, `GO_6D1_DATA_KODE=…` |
 | 7 | projektejeren `apply-data --jeg-mener-det --go <kode>` | se næste tabel |
 | 8 | `verify` | `T6D1_VERIFY_OK tal=8,528,528,528,48,528,563,0,441,3`, `T6D1_ANON_KOORD … ms=…` |
 | 9 | `anon` | 3 målinger efter (forventet ≈1,45-1,57 s; færdigbevisets før/efter) |
@@ -157,3 +158,13 @@ uændret (`T6D1_FORTRYD_OK`). Manuel fortrydelse af én persons medlemskab: 5c-1
 - `6d1c` (`daa5ab_ddl_standin_20261109142426_6d1c`, samme dump): den rene vej med alle værdier fastlåst — `dump` →
   `apply-ddl` → `dump` → `apply-data` (samme tal) → fortryd-data → vinduet målt eksakt mod foer-dumpet (`-`) →
   fortryd-DDL `T6D1_FORTRYD_OK tilstand=foer` (2 funktioner droppet). `6d1c` står i fase `foer`.
+
+## Codex-review 9/11 (Task 10 trin 1)
+
+`gpt-6.1-sol` over hele grenens diff: NO-GO med tre fund, alle dømt nødvendige af Opus og rettet efter projektejerens
+ja: linjearket kontrolleres mod det aktuelle manifest (`0677d50c`, `SHEET_STALE`), kortsvarene bindes til opslaget
+(`d6ef694c`, `KORT_OPSLAG_AENDRET`/`KORT_SVAR_SIDE`; `approvals` kræver nu `--records-json` og `--rendition-text`), og
+slægtledskort bekræfter fraværet af en gruppe, når kuld undtages (`8d83de12`). Målt på de aktuelle filer: de 57
+genbrugte modelsvar har byte-ens opslag; ingen poster har kuld-undtagelsen; linjearket fra 8/11 afveg kun i tre
+fordelingstal (+1). Arket er genrenderet med de samme svar (mappingens entries uændrede, ny pin `89cbc9e1…`);
+`approvals1939.json` genberegnes byte-ens. Den rene stand-in `6d1c` gav derefter samme tal (`PLC_OK` uændret).
