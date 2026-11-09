@@ -70,6 +70,21 @@ Tallene er ceremoniens egne på stand-in'en, men hvert er sammenholdt med en kil
 | headers 138, entries 8, published 563 | manifest, mapping, `maal` i fase ddl (afledes også af runneren og sammenlignes) |
 | corroborated 441, conflict 3 | kun ceremoniens tal; konflikterne er gennemgået (decisions 2026-11-09) |
 
+Genberegningen af de placerede records (til færdigbeviset): en record placeres, når den er `machine_ok`, eller når
+alle dens gruppekort står i `approvals1939.json`'s `gruppekort` og dens øvrige årsager (ud over
+`overskrift_ikke_fundet:*`) enten er ingen eller dækket af en record-godkendelse i `approvals`:
+
+```python
+S = {p['record_key'] for p in m['placements'] if p['status'] == 'machine_ok' or (
+       all(c['id'] in gk for c in p.get('gruppekort') or []) and
+       (not [r for r in p['reasons'] if not r.startswith('overskrift_ikke_fundet:')] or p['record_key'] in ak))}
+# m = manifest1939.json; gk = {g['id'] for g in a['gruppekort']}; ak = {x['record_key'] for x in a['approvals']}
+```
+
+**Efter Codex-review og merge:** `T6D1_BLOK` (og `T6D1_RLS`) genpinnes, hvis reviewet rører DDL-blokken eller
+`db-rls.sql`; ændres `placement_ceremoni.sql`, køres data-generalprøven igen. Alle `go-*` laves på ny efter merge
+(commit indgår i koden), og hovedcheckouten skal stå på `main`.
+
 Afviger `maal` i trin 0 (`MAAL_6D1_UKENDT`), er prod ændret siden dumpet `1653c8f7…`: ny `dump-kopi`, ny `standin`,
 generalprøven igen, fastlås igen. Prod røres ikke.
 
@@ -80,8 +95,10 @@ Frys fra `dump` (trin 1) til `verify` (trin 8): ingen redaktionelle skrivninger 
 skal være eksakt som ved dumpet før `apply-ddl` og `apply-data`. I `fortryd` undtages kun ceremoniens egne
 tabeller/sekvenser (målt på `6d1a`):
 
-- DDL: `public.change_event_id_seq public.change_set_id_seq public.lineage_scheme_entry_id_seq` (DDL'en ændrer ingen
-  tabel; sekvenserne rykkes af en tilbagerullet data-ceremoni).
+- DDL: `public.change_event_id_seq public.change_set_id_seq public.lineage_scheme_entry_id_seq`. Målt på den rene
+  stand-in `6d1c` giver DDL → data → fortryd-data intet ud over foer-dumpet (`-`); de tre sekvenser undtages bevidst,
+  fordi en tilbagerullet data-ceremoni rykker dem (`6d1a`), og fortryd-DDL ellers ikke kunne køre bagefter. Tabellerne
+  sammenlignes stadig; kun `nextval` uden committede rækker skjules.
 - Data: 18 tabeller/sekvenser: `private.extraction_run`, `legacy_placement_disposition`,
   `narrative_publication_event`, `source_observation`, `source_persona_placement(_decision)`,
   `source_record_occurrence`, `source_record_placement(_decision)`, `public.change_event(_id_seq)`,
@@ -115,7 +132,11 @@ uændret (`T6D1_FORTRYD_OK`). Manuel fortrydelse af én persons medlemskab: 5c-1
 
 - 1939's rækker i `public_person_source_coordinates` forbliver `legacy_external_id` til 6e (afgørelse 4: 1939 har
   ikke entydige `(entry, nummer)`); `KOORD_SRC` er uændret.
-- Koordinat-RPC'en bliver ≈2,5× langsommere (decisions 2026-11-09 pkt. 4; accepteret, rettes i 6e).
+- Koordinat-RPC'en bliver ≈2,5× langsommere (decisions 2026-11-09 pkt. 4; accepteret, rettes i 6e). Web henter den
+  i to sider (1113 rækker); hver side er sin egen sætning under anon-grænsen på 3 s, men indlæsningen venter på
+  begge. Overskrider et kald grænsen, fanger web fejlen (`console.warn '[loadModel] public_person_source_coordinates
+  utilgængelig — linjer/kilder degraderet'`), og læseren viser personer uden linje- og kildekoordinater. Prod-dagens
+  stikprøve i browseren: en 2018-20-person viser sin linje og sit nummer, og konsollen har ingen sådan advarsel.
 - Én ny `conflict`-komponent (137↔937) registreres som konfliktkort; intet skrives om den.
 - 64 records placeres ikke: 37 uden nummereret post (heraf 27 i oversigtszonerne), 24 uden accepteret identitet, de
   ubesvarede/afviste kort og henvisningsposten.
@@ -132,4 +153,7 @@ uændret (`T6D1_FORTRYD_OK`). Manuel fortrydelse af én persons medlemskab: 5c-1
 - `6d1b` (`daa5ab_ddl_standin_20261109141130_6d1b`, samme dump): lokal før-måling af anon-tiden (225 ms); DDL; en
   placeret persona fik ny accepteret identitet → `PLC_PRE_MEMBERSHIP_OVERLAP` (erstatningspersonen havde
   medlemskab), med en person uden medlemskab → `PLC_PRE_IDENTITY n=1`; begge uden skrivning (fase `ddl`). `6d1b` er
-  manipuleret og bruges ikke igen.
+  manipuleret (`decided_by_name='generalproeve'`) og må aldrig bruges som kilde til noget.
+- `6d1c` (`daa5ab_ddl_standin_20261109142426_6d1c`, samme dump): den rene vej med alle værdier fastlåst — `dump` →
+  `apply-ddl` → `dump` → `apply-data` (samme tal) → fortryd-data → vinduet målt eksakt mod foer-dumpet (`-`) →
+  fortryd-DDL `T6D1_FORTRYD_OK tilstand=foer` (2 funktioner droppet). `6d1c` står i fase `foer`.
