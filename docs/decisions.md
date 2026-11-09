@@ -2,6 +2,34 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 6d-1's kort besvares af en model mod PDF-siden; projektejeren ser undtagelser og 5 stikprøver (2026-11-09)
+
+> Ændrer kortrundens udførelse i beslutningen nedenfor (samme dag). Projektejeren: »bruge sonnet eller opus til disse,
+> for at minimere mit arbejde med at genlæse ting« (præcedens: 6m's modelgennemgang og beslutningen 2026-11-05 om
+> 1939-tekst til en model). Grundlaget før kortene, efter to rettelser i manifestet: (1) 1939's legacy-nøgler for gren
+> VI er et løbenummer i bogens orden, ikke gruppens trykte nummer, så 26 falske `uenig:legacy_nr` forsvandt (391
+> maskinelt godkendte, 201 uafklarede); (2) overskrifternes sider var Calamari-sider, mens databasens forekomster i
+> samme rendition bruger PDF-sider — nu `CALAMARI_R6_TO_PDF_V1` i profilen, 592/592 sider = recordens `page_from`.
+> Kortene (81): 20 blinde stikprøver; **18 gruppekort** for 98 poster (13 gruppe-romertal, 5 slægtled; ikke 19/121 —
+> stamme-rettelserne flyttede tallene); 32 strukturkort; **nye:** 6 stammegruppe-kort (23 poster, beskrivelse i
+> fællesstammen uden nyt romertal: slægtleddet bekræftes, ellers forbliver posterne uafklarede) og 5 nummerkort (nummeret
+> springer i guiden). 45 poster får ingen placement (44 `uden_post`, 1 barn i forælderens slægtled).
+>
+> **Beslutning:**
+> - **Opus læser PDF-siden** (sidebilleder af `Dansk Adels Aarbog - Reventlow 1939.pdf`, s. 496-598) og besvarer hvert
+>   kort **blindt**: inputtet rummer ikke guidens værdi, maskinens slægtled/gruppe eller legacy-tal. Svaret rummer den
+>   ordret læste linje og en sikkerhed. Inputtet bygges af et script i en jobmappe; modellen læser aldrig `~/.private`
+>   eller `work*/`.
+> - **Enighed** mellem modellens læsning og guiden/maskinen godkender kortet. **Uenighed eller ulæselig side** → en kort
+>   undtagelsesliste til projektejeren (side, spørgsmål, modellens læsning, guidens værdi); hans svar afgør kortet.
+>   Projektejeren slår desuden **5 tilfældige af stikprøvens enige poster** op. En afvigelse i stikprøven, som han
+>   bekræfter, stopper og går tilbage til Task 1 (som før); modellens fejllæsning alene stopper ikke.
+> - **Evidensen siger, hvem der læste:** placements fra model-godkendte kort får basis `model_page_review` med model og
+>   briefens sha i `human_review`-feltet (`reviewer_kind`), projektejerens svar `human_group_review`. DB-feltnavnet
+>   `human_header_levels` bevares (nærmeste-reglens undtagelse læser det); niveauet er bekræftet mod den trykte side,
+>   uanset læser.
+> - Kortfladen bliver undtagelseslisten (lokal HTML) i stedet for 6c-1-kortsiden med 81 kort.
+
 ## BESLUTTET: 6d-1's kortrunde — gruppekort for 19 manglende overskrifter og nærmeste-reglens undtagelse (2026-11-09)
 
 > Plan `docs/superpowers/plans/2026-11-08-trin6d1-placement-medlemskab.md` (Task 3b, 1c, 7 r2, 8). 121 personposter står
