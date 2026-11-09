@@ -2,6 +2,22 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 6d-1's kortrunde — gruppekort for 19 manglende overskrifter og nærmeste-reglens undtagelse (2026-11-09)
+
+> Plan `docs/superpowers/plans/2026-11-08-trin6d1-placement-medlemskab.md` (Task 3b, 1c, 7 r2, 8). 121 personposter står
+> under 19 overskrifter (14 grupper, 5 slægtled), som raw.txt kender, men Calamari-renditionen ikke har. Projektejeren
+> valgte **19 gruppekort**: han bekræfter mod PDF'en overskriftens værdi (romertal/ordinal), og bekræftelsen er
+> evidensen for det niveau (basis `human_group_review`, som 5c-1's gruppegodkendelser; guidens linje-hash følger med).
+> Det ændrer Gate A's regel »værdier kun fra Calamari« for netop disse poster: værdien kommer fra projektejerens
+> læsning af siden. Konsekvens i DB: `private.placement_header_violations` springer nærmeste-tjekket over for præcis
+> det bekræftede niveau, når placementens evidens har `human_header_levels` med niveauet og `header_ids` ikke angiver
+> et id for det (linje kan aldrig undtages; lavere niveauer tjekkes stadig). Målt: uden undtagelsen ville databasens
+> nærmeste-regel give 64 af de 121 poster den forrige gruppes eller det forrige slægtleds overskrift (55 slægtled, 9
+> grupper). db-verify tæller placements med menneskelige niveauer. Fravalgt: at forankre en bekræftet overskrift i
+> renditionen ved posthullet (fabrikeret evidens) og at angive den forrige overskrift (forkert evidens). Desuden: **32
+> poster med ukendt struktur** (17 uparrede, 4 OCR-tabte numre, 11 uden nummer-match) kommer på kort med nærmeste
+> Calamari-overskrifter og projektejerens nummer fra PDF'en.
+
 ## BESLUTTET: 6d-1's Gate A — 1939's overskrifter guides af raw.txt og forankres i Calamari-renditionen (2026-11-08)
 
 > Plan `docs/superpowers/plans/2026-11-08-trin6d1-placement-medlemskab.md`, Task 0 (stand-in c3h). Calamari-
