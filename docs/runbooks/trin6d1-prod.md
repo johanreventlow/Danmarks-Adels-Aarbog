@@ -91,7 +91,7 @@ generalprøven igen, fastlås igen. Prod røres ikke.
 
 ## Vindue og frys
 
-Frys fra `dump` (trin 1) til `verify` (trin 8): ingen redaktionelle skrivninger i prod. Runneren kontrollerer:
+Frys fra `dump` (trin 1) til `verify` (trin 8): ingen redaktionelle skrivninger i prod. **Fortryd kun under en meldt frys:** vinduestjekket står lige før markøren, men fra det til restoren (ACL-trin og selve restoren, sekunder til minutter) kan et medlems bogmærke eller tilmelding stadig nå at blive skrevet og så slettes (kendt begrænsning, runnerreview 9/11 fund 2; gælder også 32). Runneren kontrollerer:
 `change_set` må ikke vokse mellem dump og `apply-*`, og vinduesaftrykket (én linje pr. tabel/sekvens, antal + hash)
 skal være eksakt som ved dumpet før `apply-ddl` og `apply-data`. I `fortryd` undtages kun ceremoniens egne
 tabeller/sekvenser (målt på `6d1a`):
@@ -113,18 +113,22 @@ tabeller/sekvenser (målt på `6d1a`):
 | `DDL_6D1 fejlede` | rullet tilbage | ret årsagen; ny GO |
 | `T6D1_DATA_FASE` / `T6D1_DATA_FAERDIG` | intet kørt | data kræver fase ddl med de fastlåste tal; gentaget data stopper her, før ceremoniens `PLC_PRE_FASE` |
 | `T6D1_CEREMONI_FEJL (PLC_PRE_…)` | intet skrevet | prod afviger fra stand-in'en: ny `dump-kopi` og generalprøve |
-| `T6D1_CEREMONI_FEJL (PLC_WRITE_…/PLC_MID_…/PLC_POST_…)` | alt rullet tilbage, men sekvenserne er rykket | næste `apply-data` stopper på `T6D1_VINDUE_BRUDT_FOER_DATA` (kun `…_seq`): `dump` igen og ny GO (bevist på `6d1a` 9/11) |
+| `T6D1_CEREMONI_FEJL (… ); IKKE committet (fase ddl)` | runneren har målt fasen efter fejlen: alt rullet tilbage, men sekvenserne er rykket | næste `apply-data` stopper på `T6D1_VINDUE_BRUDT_FOER_DATA` (kun `…_seq`): `dump` igen og ny GO (bevist på `6d1a` 9/11) |
+| `T6D1_CEREMONI_FEJL_EFTER_COMMIT` | committet (fase data); fejlen kom efter COMMIT (fx forbindelsesbrud under slut-optællingerne) | `verify`; ellers `fortryd` |
+| `T6D1_CEREMONI_UAFKLARET` | fasen kunne ikke måles efter fejlen | `maal` før alt andet |
 | `T6D1_CEREMONI_INGEN_OK` | rc 0 uden `PLC_OK` | `maal`; se ceremoni-mappen |
 | `T6D1_EFTER_DATA` / `T6D1_EFTER_DATA_STALE` | committet, tallene passer ikke | `fortryd` (bruger rå fase) |
 | `T6D1_VINDUE_BRUDT_FOER_DDL` / `…_FOER_DATA` | intet kørt | noget er skrevet siden dumpet (`afvigende.txt`: kun navne); afklar, `dump` igen, ny GO |
 | `T6D1_VINDUE_BRUDT` (fortryd) | intet restoret, ingen markør | en restore ville slette skrivninger efter dumpet (typisk `public.bookmark`); projektejeren afgør, runneren har ingen tilsidesættelse |
+| `T6D1_FORTRYD_CS_IKKE_CEREMONIENS` / `T6D1_FORTRYD_CS_EFTER_DDL` | intet restoret, ingen markør | change_sets siden dumpet, som ikke er ceremoniens (også projektejerens egne rettelser): en restore ville slette dem; projektejeren afgør |
+| `T6D1_FORTRYD_DDL_UKENDT_OBJEKT` / `T6D1_FORTRYD_KATALOG_AENDRET` | intet droppet/restoret | kataloget rummer andet end 6d-1's to nye funktioner (DDL) eller er ændret siden data-dumpet |
 | `T6D1_PAKKE_SHA` / `T6D1_PAKKE_KAEDE` | intet kørt | en bundet fil er ændret efter GO |
 | `T6D1_FORTRYD_IGANG` | en fortrydelse er påbegyndt | som 6c-3: gennemfør med samme dump; markøren flyttes manuelt efter `maal` |
 
 ## Fortrydelse
 
 `DAA_T6D1_DUMP=<kvittering> koer.zsh 33-trin6d1.sh go-fortryd` → projektejeren `fortryd --jeg-mener-det --go <kode>`.
-Data = restore af data-dumpet (fase ddl); DDL = katalogdiffens nye funktioner droppes + restore af foer-dumpet +
+Fortrydelsen kræver, at alle change_sets efter dumpet er ceremoniens egne (ét linjeskema-anker `placement-ceremoni (GO …)`, ét medlemskab og revalideringer, alle med transaktionens `created_at`; efter foer-dumpet: ingen), og at kataloget er uændret siden data-dumpet. Data = restore af data-dumpet (fase ddl); DDL = katalogdiffens nye funktioner droppes + restore af foer-dumpet +
 `db-rls.sql` (kun efter data er fortrudt). Efter: ACL, default-ACL, katalog og restore-hash som dumpet, KOORD
 uændret (`T6D1_FORTRYD_OK`). Manuel fortrydelse af én persons medlemskab: 5c-1's `red_reverse_placement_membership`
 (komponenttilstanden genberegnes).
@@ -168,3 +172,13 @@ slægtledskort bekræfter fraværet af en gruppe, når kuld undtages (`8d83de12`
 genbrugte modelsvar har byte-ens opslag; ingen poster har kuld-undtagelsen; linjearket fra 8/11 afveg kun i tre
 fordelingstal (+1). Arket er genrenderet med de samme svar (mappingens entries uændrede, ny pin `89cbc9e1…`);
 `approvals1939.json` genberegnes byte-ens. Den rene stand-in `6d1c` gav derefter samme tal (`PLC_OK` uændret).
+
+**Runnerreview 9/11.** `gpt-6.1-sol` over `33-trin6d1.sh` (+ `lib.zsh`, sammenlignet med 32): NO-GO med fire fund,
+dømt af Opus og rettet efter projektejerens ja (kun i den private runner): (1) fortrydelsen godtog change_sets fra
+ceremoniens egen aktør → kræver nu, at de er ceremoniens (`T6D1_FORTRYD_CS_*`) og at kataloget er uændret; (2)
+vinduestjekket flyttet lige før markøren, resten kendt begrænsning (ovenfor); (3) DDL-fortrydelsen droppede alle nye
+funktioner → fastlåst liste med præcis de to; (4) en fejl efter ceremoniens COMMIT blev meldt som tilbagerulning →
+fasen måles og meldes. Prøvet på `6d1c`: egen rettelse efter data → `T6D1_FORTRYD_CS_IKKE_CEREMONIENS` uden markør,
+fjernet → fortryd OK; ceremoni med fejl før COMMIT → »IKKE committet (fase ddl)«, efter COMMIT →
+`T6D1_CEREMONI_FEJL_EFTER_COMMIT` (fase data) og fortryd-data OK; fremmed funktion → `T6D1_FORTRYD_DDL_UKENDT_OBJEKT`
+uden drop, fjernet → fortryd-DDL OK (2 funktioner); til sidst en fuld ren kørsel med samme tal. `6d1c` står i fase data.
