@@ -2,6 +2,33 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 1939's nedstigningsoversigter er oversigtszoner uden placement; 4 dubletpersoner er åben backlog (2026-11-09)
+
+> Opdaget af projektejeren: PDF 496-510 (trykt s. 7-21) forklarer sammenhængen mellem linjerne i kort form med
+> henvisninger til detaljeposten (»Cay Friedrich … (se S. 75)«). Målt mod siderne rummer afsnittet tre slags tekst:
+> **fællesstammen** (A holstenske, B ældre meklenborgske: ægte detaljeposter for middelalderens slægtled, kun her),
+> **to nedstigningsoversigter** (PDF 504 »Fra ovennævnte Joachim …« til 505 »… ugift 1773.«; PDF 508 »En Sønnesøn (?)
+> af Henning …« til 510 »… Mandsstammen i 1773.«, inkl. C's Gallentin-indledning) og intet andet. Oversigternes
+> nummererede punkter (»1. Geheimeraad Ditlev«) havde narret alignmentet: guidens Stamme-ældre-meklenborgske.VI.1/VI.2
+> blev parret med to oversigtspunkter (machine_ok), mens de ægte Henrik og Henning stod `ikke_alignet`.
+>
+> **A (gjort, 6d-1):** profilen `header-1939-v1.json` får `oversigtszoner` (to ankerpar, hvert entydigt i både Calamari
+> og raw.txt, fail-closed `HEADER_OVERSIGTSZONE_ANKER`). Records, der begynder i en zone, får `unresolved` med
+> `['uden_post', 'oversigtszone']` (ingen placement; ledger `ingen_nummereret_post`, ceremonien uændret) og indgår
+> hverken i alignmentet eller hulparringen; guidens v2-oversigtsposter i zonen (Oversigt.Indledning.U1-U7) fjernes fra
+> hullerne. En parret stamfader uden guidens slægtledsoverskrift (PDF 505: B's »I.« er »1.« i raw.txt og tabt i
+> Calamari) får et gruppekort med v2-segmenteringens slægtled. Manifestet efter: 27 records i zonerne (8 med persona),
+> 414 machine_ok / 178 unresolved, 21 gruppekort, 20 strukturkort, alle invarianter sande. Kortrunden bygges om.
+>
+> **B (åben backlog — ikke 6d-1):** fire 1939-personer er oprettet alene fra en oversigtsomtale og dublerer personen
+> fra detaljeposten (målt på stand-in c3h, prod-kopi 8/11): **991↔995** Iven †1569 (PDF 512), **992↔996** Sivert
+> (PDF 513), **1017↔1071** Detlev †1783 (PDF 520), **978↔1136** Frederik til Neudorf / Friedrich †1728 (PDF 532).
+> Oprydning via evidenskæden: oversigtspersonaens identitet peges om til detaljepostens person, og den overflødige
+> person udgår (redaktionel sammenlægning; 1017 har historik i C0-efterkørslen). Desuden tre oversigtspersonas uden
+> accepteret identitet (Ditlev †1664, Cay Friedrich †1762, Ditlev †1690) kan bindes til detaljepostens person. Ikke
+> dublet: 1849 Henning (levede 1456-94) findes kun i oversigten; sønnen »se S. 39« er 960. Sidehenvisningerne i
+> oversigterne er det stærkeste bevis ved parringen. evidenspas_v2 (7/2026) fangede 7 andre oversigtsdubletter.
+
 ## BESLUTTET: 6d-1's kort besvares af en model mod PDF-siden; projektejeren ser undtagelser og 5 stikprøver (2026-11-09)
 
 > Ændrer kortrundens udførelse i beslutningen nedenfor (samme dag). Projektejeren: »bruge sonnet eller opus til disse,
