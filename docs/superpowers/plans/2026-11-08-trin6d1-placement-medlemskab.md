@@ -114,7 +114,7 @@ Målt i Task 0 (stand-in c3h; tal i `~/.private/6d1/maaling.txt`); beslutningen 
   nummereret post, `(gren, nr)`- og `(section_path, nr)`-kollisioner. stdout+stderr til fil.
 - [x] **Trin 4: Gate A.** Vis projektejeren tallene og afgørelse 1-5 som ét samlet valg; skriv svarene ind i planen og
   `docs/decisions.md`; commit `docs(6d): plan-afgørelser efter måling`.
-- [ ] **Trin 5: Codex-runde** (`gpt-6.1-sol`) på spec+plan fra en eksport uden `work*/` (`git archive`,
+- [x] **Trin 5: Codex-runde** (`gpt-6.1-sol`) på spec+plan fra en eksport uden `work*/` (`git archive`,
   `--skip-git-repo-check`; udeluk `work*/` i selve søgekommandoen, memory `codex-soegning-pii-filnavne`). Opus dømmer
   hvert fund (nødvendig / forenkl / kendt begrænsning / afvis); indarbejd efter projektejerens ja; log i spec §11;
   commit `docs(6d): plan efter Codex-runde`.
@@ -182,7 +182,7 @@ Målt i Task 0 (stand-in c3h; tal i `~/.private/6d1/maaling.txt`); beslutningen 
 - CLI: `--header-profile` (default 2018-20-profilen), `--guide-text` (kræves ved `guide_text_sha256`), `--legacy-json`
   eller `--records-json` (gensidigt udelukkende); `summary()` uændret plus `transfer`.
 
-- [ ] **Trin 1: Skriv de fejlende tests** (syntetisk 1939-tekst, opdigtede navne):
+- [x] **Trin 1: Skriv de fejlende tests** (syntetisk 1939-tekst, opdigtede navne):
   - `test_2018_20_byte_ens`: manifestet for den eksisterende 2018-20-fixture har samme `canonical_sha256` som før
     refaktoreringen (sha'en hardkodes i testen, målt før ændringen).
   - `test_1939_niveauer`: centreret guide + ucentreret rendition (samme opdigtede poster): linje-blok, slægtled,
@@ -201,16 +201,16 @@ Målt i Task 0 (stand-in c3h; tal i `~/.private/6d1/maaling.txt`); beslutningen 
   - `test_segmenter_paritet`: scannerens lokal_id'er (`linje.slaegtled.afsnit.nr`) = `_segment_1939`'s i samme orden;
     en bevidst afvigelse giver `segmenter_paritet=False`.
   - `test_offsets_renditionsabsolutte` (1939) og `test_summary_uden_tekst` (1939).
-- [ ] **Trin 2:** `/usr/bin/python3 -m pytest .claude/skills/daa-extract/scripts/test_build_header_manifest.py -q` →
+- [x] **Trin 2:** `/usr/bin/python3 -m pytest .claude/skills/daa-extract/scripts/test_build_header_manifest.py -q` →
   de nye fejler, de gamle er grønne.
-- [ ] **Trin 3: Implementér** profilerne, dispatch og `build_manifest_by_offset`; eksport-SQL'en. Ingen netværk, ingen model.
-- [ ] **Trin 4:** pytest igen → alle grønne. **Prods 2018-20-manifest:** kør den refaktorerede scanner med
+- [x] **Trin 3: Implementér** profilerne, dispatch og `build_manifest_by_offset`; eksport-SQL'en. Ingen netværk, ingen model.
+- [x] **Trin 4:** pytest igen → alle grønne. **Prods 2018-20-manifest:** kør den refaktorerede scanner med
   2018-20-profilen på `work/raw_full.txt` + en frisk `fix_150_eksport.sql`-eksport (`-v src=1`) fra stand-in'en, og
   assert at `summary()['manifest_sha256']` = værdien i stand-in'ens `header-2018-20-v1`-`extraction_run` (fix_150
   bandt den). Kør derefter 1939-eksporten mod stand-in'en og manifestet på den rigtige tekst (`--guide-text
   work_1939_stamtavle/raw.txt`; output under `~/.private/6d1/`, stdout+stderr til fil); notér `summary()`'s tal i
   `maaling.txt`. Forventet omtrent Task 0's overførselstal; er en kørselsinvariant falsk: stop og vis antallet.
-- [ ] **Trin 5: Commit** `feat(6d): profilstyret overskriftsscanner med 1939-profil`.
+- [x] **Trin 5: Commit** `feat(6d): profilstyret overskriftsscanner med 1939-profil`.
 
 ### Task 2: Linjeskema-ark (grene → slægtslinjer)
 
@@ -227,11 +227,11 @@ Målt i Task 0 (stand-in c3h; tal i `~/.private/6d1/maaling.txt`); beslutningen 
   (kilde 3-linje). `approvals(...) -> dict {sheet_sha256, entries:[{code, label_sha256, sort_order,
   canonical:{source_id,kode}|null, aliases:[…], parkeret:bool}]}`; ubesvarede linjer afvises.
 
-- [ ] **Trin 1: Fejlende tests:** forslag ved klart flertal; intet forslag ved 70/30; `VI` bevares; ubesvaret linje →
+- [x] **Trin 1: Fejlende tests:** forslag ved klart flertal; intet forslag ved 70/30; `VI` bevares; ubesvaret linje →
   fejl; `P` giver `parkeret=true` og `canonical=null`; output indeholder ingen navne (kun koder og antal).
-- [ ] **Trin 2-4:** kør (fejl) → implementér → kør (grøn). Render arket for stand-in'en til `~/.private/6d1/`.
-- [ ] **Trin 5: Projektejeren** svarer på token-filen (spec §6 pkt. 1). Arkets sha bindes i GO.
-- [ ] **Trin 6: Commit** `feat(6d): ark for 1939's grene til slægtslinjer`.
+- [x] **Trin 2-4:** kør (fejl) → implementér → kør (grøn). Render arket for stand-in'en til `~/.private/6d1/`.
+- [x] **Trin 5: Projektejeren** svarer på token-filen (spec §6 pkt. 1). Arkets sha bindes i GO.
+- [x] **Trin 6: Commit** `feat(6d): ark for 1939's grene til slægtslinjer`.
 
 ### Task 3: Ledger via identitet og vagt mod fremmed kilde i promotionen
 
@@ -253,18 +253,18 @@ Målt i Task 0 (stand-in c3h; tal i `~/.private/6d1/maaling.txt`); beslutningen 
      (dækker en anden kildes række indsat mellem forhåndstjek og skrivning). Ingen tosessionstest (ceremonien kører i
      én session; Opus-dom »forenklet«).
 
-- [ ] **Trin 1: Fejlende tests:** `$ledger_via_identitet$` (record_key ≠ legacy-nøgle, identitet = personen → mapped);
+- [x] **Trin 1: Fejlende tests:** `$ledger_via_identitet$` (record_key ≠ legacy-nøgle, identitet = personen → mapped);
   `$ledger_anden_person$` og `$ledger_identitet_ikke_accepteret$` → `PLACEMENT_LEGACY_MAPPING_INVALID`;
   `$ledger_noegle_uaendret$` (den gamle vej virker); `$fremmed_kilde$` (eksisterende medlemskab med kilde 1 på samme
   `(person, linje)` → `PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE`, ikke `…_CONFLICT`, 0 rækker ændret); `$fremmed_kilde_null$`;
   `$fremmed_kilde_i_skrivning$` (testens midlertidige AFTER INSERT-trigger på `person_lineage_membership` indsætter en
   kilde 1-række i `person_slaegt_membership` for samme person; slægts-upserten rammer den → 0 rækker →
   `PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE`, transaktionen rulles tilbage; triggeren droppes i testen).
-- [ ] **Trin 2:** `env -u PGOPTIONS psql -v ON_ERROR_STOP=1 -f tests/sql/test-placement-writer.sql` (og membership)
+- [x] **Trin 2:** `env -u PGOPTIONS psql -v ON_ERROR_STOP=1 -f tests/sql/test-placement-writer.sql` (og membership)
   → de nye fejler.
-- [ ] **Trin 3:** Implementér, kopiér byte-ens til migrationsblokken.
-- [ ] **Trin 4:** Begge testfiler + `tests/sql/run-db-verify-disposable.sql` → grønne.
-- [ ] **Trin 5: Commit** `feat(6d): ledger mapped via identitet og vagt mod fremmed kilde`.
+- [x] **Trin 3:** Implementér, kopiér byte-ens til migrationsblokken.
+- [x] **Trin 4:** Begge testfiler + `tests/sql/run-db-verify-disposable.sql` → grønne.
+- [x] **Trin 5: Commit** `feat(6d): ledger mapped via identitet og vagt mod fremmed kilde`.
 
 ### Task 4: Afledt B6 — komponenttilstand for medlemskab
 
@@ -285,14 +285,14 @@ Målt i Task 0 (stand-in c3h; tal i `~/.private/6d1/maaling.txt`); beslutningen 
   `none`. `same_source_duplicate` = to medlemskaber fra samme kilde i komponenten (vises som fund, ikke bekræftelse).
   Kun komponenter med mindst ét medlemskab eller mindst to personer returneres.
 
-- [ ] **Trin 1: Fejlende test** (opdigtede personer, negative id'er): `$bekraeftet$` (kilde 1 og 3, samme linje);
+- [x] **Trin 1: Fejlende test** (opdigtede personer, negative id'er): `$bekraeftet$` (kilde 1 og 3, samme linje);
   `$konflikt_uroert$` (to linjer → `conflict`, tabellerne uændret); `$enkelt$`; `$ikke_afklaret$` (`samme_som` med
   `omstridt` konklusion splitter komponenten); `$samme_kilde_dublet$` (to kilde 3-personer → `single`,
   `same_source_duplicate=true`); `$ikke_gaeldende$` (identitet omafgjort → medlemskabet tæller ikke); `$acl$` (anon og
   authenticated kan ikke kalde den).
-- [ ] **Trin 2-4:** kør (fejl) → implementér + migrationsblok + db-verify → testen og db-verify grønne. Mål kørselstiden
+- [x] **Trin 2-4:** kør (fejl) → implementér + migrationsblok + db-verify → testen og db-verify grønne. Mål kørselstiden
   på stand-in'en (forventet < 1 s; 719 relationer).
-- [ ] **Trin 5: Commit** `feat(6d): afledt komponenttilstand for medlemskab (B6)`.
+- [x] **Trin 5: Commit** `feat(6d): afledt komponenttilstand for medlemskab (B6)`.
 
 ### Task 5: Læserens koordinater kræver entydige placements pr. kilde (afgørelse 4b)
 
@@ -303,22 +303,22 @@ Test: `tests/sql/test-person-source-coordinates.sql` (udvid).
 når ingen to af dens gældende membership-placements deler `(scheme_entry_id, printed_number)`; ellers falder alle
 kildens rækker til legacy. Ingen udgavenavne.
 
-- [ ] **Trin 1: Fejlende tests:** `$laeser_1939$` (to placements i samme entry med samme nummer → begge kildens rækker
+- [x] **Trin 1: Fejlende tests:** `$laeser_1939$` (to placements i samme entry med samme nummer → begge kildens rækker
   `legacy_external_id`); `$laeser_entydig$` (entydig kilde → `placement`, som i dag); eksisterende tests uændrede.
-- [ ] **Trin 2-4:** kør → implementér → grøn; desuden 5c-2's paritetstest for 2018-20-rækkerne.
-- [ ] **Trin 5: Commit** `feat(6d): læserens koordinater kræver entydige placements pr. kilde`.
+- [x] **Trin 2-4:** kør → implementér → grøn; desuden 5c-2's paritetstest for 2018-20-rækkerne.
+- [x] **Trin 5: Commit** `feat(6d): læserens koordinater kræver entydige placements pr. kilde`.
 
 ### Task 6: Opgraderingstest og hele CI lokalt
 
 **Files:** Create `tests/sql/test-6d1-upgrade.sh` (kopi af `tests/sql/test-150-upgrade.sh`).
 
-- [ ] **Trin 1:** Byg fra `git merge-base origin/main HEAD`, kør nye `db-migrations.sql` + `db-rls.sql` to gange, assert
+- [x] **Trin 1:** Byg fra `git merge-base origin/main HEAD`, kør nye `db-migrations.sql` + `db-rls.sql` to gange, assert
   at Task 3-5's funktioner har de nye kroppe (`pg_get_functiondef`-sha = `schema.sql`'s), kør Task 3-5's testfiler og
   `run-db-verify-disposable.sql`; slut med `echo UPGRADE_OK` (memory `signaturaendring-kraever-opgraderingstest`).
-- [ ] **Trin 2:** Kør den og `test-150-upgrade.sh` → `UPGRADE_OK` fra begge.
-- [ ] **Trin 3:** Hele CI-jobbet lokalt: alle PostgreSQL-jobs, python-jobbet, R-suiten, node (core/feed/web/mobil m.
+- [x] **Trin 2:** Kør den og `test-150-upgrade.sh` → `UPGRADE_OK` fra begge.
+- [x] **Trin 3:** Hele CI-jobbet lokalt: alle PostgreSQL-jobs, python-jobbet, R-suiten, node (core/feed/web/mobil m.
   `tsc --noEmit`) (memory `koer-hele-ci-jobbet-lokalt`). Forventet: alt grønt.
-- [ ] **Trin 4: Commit** `test(6d): opgraderingstest fra prods skema`.
+- [x] **Trin 4: Commit** `test(6d): opgraderingstest fra prods skema`.
 
 ### Task 7: Data-ceremoniens SQL og målescript
 
@@ -376,7 +376,7 @@ kildens rækker til legacy. Ingen udgavenavne.
      fix_150's fem læsere) **og** koordinat-hashen = `:expect_koord_2018_20` (baseline taget af `maal_trin6d1.sql` i
      fasen `foer`, dvs. før DDL; Codex r1 #7); `PLC_POST_LAESER` (1939-rækkernes hash uændret ved `uaendret`, ellers alle `placement`).
 
-- [ ] **Trin 1: Fejlende test** (mini-kilde: to grene, 4 records, 3 publicerede, 1 `unresolved`, 1 parkeret gren, en
+- [x] **Trin 1: Fejlende test** (mini-kilde: to grene, 4 records, 3 publicerede, 1 `unresolved`, 1 parkeret gren, en
   modpart i kilde 1): `$fuld_koersel$` (PLC_OK, 0 stale, ledger 3 mapped + 1 retained, 1 `corroborated`); genkørsel →
   `PLC_PRE_FASE`; identitet ≠ binding → `PLC_PRE_IDENTITY` uden skrivning; mapping mangler en gren → `PLC_PRE_MAPPING`;
   persona med `unresolved` identitet → record-placement, ingen persona-placement, binding stadig `published`;
@@ -385,10 +385,15 @@ kildens rækker til legacy. Ingen udgavenavne.
   `published` og 0 stale; `$paritet_2018_20$` (en bevidst ændring af en kilde 1-række får POST til at fejle);
   `$parkeret_gren$` (en parkeret gren med ellers `machine_ok`-records: ingen entry, ingen placement, ledger
   `retained_legacy`/`parkeret_gren`, PLC_OK).
-- [ ] **Trin 2-4:** kør (fejl) → implementér ceremoni + `maal_trin6d1.sql` + pytest → grønne.
-- [ ] **Trin 5: Commit** `feat(6d): data-ceremoni for placement og medlemskab pr. kilde`.
+- [x] **Trin 2-4:** kør (fejl) → implementér ceremoni + `maal_trin6d1.sql` + pytest → grønne.
+- [x] **Trin 5: Commit** `feat(6d): data-ceremoni for placement og medlemskab pr. kilde`.
 
 ### Task 8: Kontrolark for 1939's placements
+
+> **Ændret 2026-11-09 (decisions samme dag):** kortene besvares af Opus mod PDF-sidebilleder i stedet for af
+> projektejeren. Implementeret i `placement_kort_1939.py` (job → model → undtagelser → approvals, kontrakt v3 med
+> `reviewer`), ikke i `placement_control_sheet.py` (2018-20 uændret). 81 kort: K 20, GK 18, SK 32, SG 6, NK 5.
+> Projektejeren får undtagelser + 5 V-kontroller. Status: modul + ceremoni-kontrakt committet; pilot kører.
 
 **Files:** Modify `.claude/skills/daa-extract/scripts/placement_control_sheet.py` + `test_placement_control_sheet.py`.
 
