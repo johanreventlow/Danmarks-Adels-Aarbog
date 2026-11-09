@@ -10,9 +10,10 @@ oversigtspersonas' identitet afgøres.
 - **Live regel (DDL, spec rev. 4):** én privat funktion `private.overview_mention_narratives(p_person_ids bigint[])`
   beregner reglen for de forespurgte personer ved hvert kald — ingen gemt markering, ingen triggere. Ingen skrivning
   til narrativ, binding eller publiceringshændelser.
-- **Én læser:** `public.public_person_bio_source_versions_v2` udelader narrativer, funktionen returnerer. Det er det
-  eneste kald, der leverer 1939-biografitekst under kontrakt v2 (`web/src/data/public.ts:231-246`,
-  `mobile/src/data/load.ts:283`); faktalæserne, hændelserne og narrativ-RLS bruger den fælles vagt og røres ikke.
+- **To biografilæsere:** `public.public_person_bio_source_versions_v2` (web, `web/src/data/public.ts:231-246`,
+  `feedAux.ts`) og den ældre `public.public_person_bio_source_versions` (mobil, `mobile/src/data/publicBioVersions.ts:49`
+  — opdaget under Task 2; planen nævnte kun v2) udelader begge narrativer, funktionen returnerer, beregnet én gang pr.
+  kald. Faktalæserne, hændelserne og narrativ-RLS bruger den fælles vagt og røres ikke.
 - **Retning:** `public.red_samme_som` vender kanten, når data kan afgøre den, og falder tilbage til redaktørens retning,
   hvis G3/G4 (`schema.sql:7495-7504`) ville afvise.
 - **Prod:** én DDL- og én data-ceremoni gennem en privat runner efter 6d-1's mønster.
