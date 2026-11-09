@@ -56,7 +56,7 @@ run() {
     -v mapping_file_sha="${MFSHA:-$(sha "$mp")}" -v approvals_file_sha="${AFSHA:-$(sha "$ap")}" \
     -v approvals_path="$ap" -v approvals_sha="$(sha "$ap")" -v go=deadbeef \
     -v rendition_sha="${RSHA:-$(printf '2%.0s' {1..64})}" \
-    -v header_rule_version="${RULE:-header-test-6d1-v1}" \
+    -v header_rule_version="${RULE:-header-test-6d1-v1}" -v helpost_kind="${HKIND-person}" \
     -v expect_headers=6 -v expect_human_levels="${E_HUM:-0}" -v expect_entries="${E_ENT:-3}" -v expect_placements="${E_PL:-3}" \
     -v expect_persona_placements="${E_PP:-3}" -v expect_bindings="${E_BIND:-3}" -v expect_published=3 \
     -v expect_revalidated="${E_REVAL:-3}" -v expect_ledger_mapped="${E_MAP:-3}" -v expect_ledger_retained="${E_RET:-1}" \
@@ -203,6 +203,10 @@ E_RET=2 nej "$N" ant2 PLC_PRE_LEDGER
 E_KOORD=$(printf '0%.0s' {1..32}) nej "$N" koord PLC_POST_KOORD
 E_LAES=placement nej "$N" laes1 PLC_POST_LAESER
 E_LAES=ukendt nej "$N" laes2 PLC_PRE_ARGS
+HKIND= nej "$N" hk1 PLC_PRE_ARGS
+# Forkert helpost-type: ingen forekomst har den som eneste top-observation → ingen helpost (p2's under-forekomst
+# med `fact`-rod tæller ikke som helpost med typen `person`).
+HKIND=person_post nej "$N" hk2 'PLC_PRE_RECORDS helpost'
 
 # Identitet ≠ binding (p2 peger nu på en anden person) → PLC_PRE_IDENTITY uden skrivning.
 ident "${db}_ident" p2 accepted -161099

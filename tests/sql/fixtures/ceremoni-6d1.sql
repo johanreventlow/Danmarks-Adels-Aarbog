@@ -153,6 +153,19 @@ BEGIN
   PERFORM pg_temp.c6d1_post(s,'s1',-161008,8000);
   PERFORM pg_temp.c6d1_post(s,'s2',-161009,8500);
   PERFORM pg_temp.c6d1_post(s,'u1',-161010,9500);
+  -- p2 har desuden en accepteret under-forekomst med sin egen rod-observation (`fact`) inde i helpostens tegnspænd,
+  -- som 1939's fakta-, ægteskabs- og relationsforekomster (generalprøven 9/11: 228 records). Helposten er stadig
+  -- forekomsten, hvis eneste top-observation har helpost-typen (private.record_helpost_status).
+  WITH r AS (SELECT id FROM private.source_record WHERE source_id=-1610 AND record_key='p2'),
+  o AS (INSERT INTO private.source_record_occurrence(rendition_id,occurrence_key,page_from,page_to,char_from,char_to,
+          verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id)
+        VALUES ((s->>'rend')::uuid,'occ-p2-fakta',10,10,2022,2029,'f. 1600',repeat('5',64),repeat('6',64),(s->>'run')::uuid)
+        RETURNING id),
+  a AS (INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name)
+        SELECT o.id,r.id,'accepted','{"fixture":"6d1 underforekomst"}',1,v_actor,'fixture' FROM o,r RETURNING occurrence_id)
+  INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,
+    verbatim_text,quality_status,extraction_method,extraction_run_id)
+  SELECT occurrence_id,'fact',10,10,2022,2029,'f. 1600','clear','fixture',(s->>'run')::uuid FROM a;
   INSERT INTO public.person_external_id(person_id,source_id,linje,nr,record_key)
     VALUES (-161001,-1610,'I',1,'p1'),(-161002,-1610,'I',1,'x-2'),(-161003,-1610,'II',1,'x-3'),(-161004,-1610,'II',3,NULL);
   PERFORM pg_temp.c6d1_narrativ(-161001,-1610,'p1');

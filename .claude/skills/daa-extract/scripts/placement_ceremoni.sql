@@ -7,8 +7,10 @@
 -- ledger_mapped=… memberships=… revalideret=… corroborated=… conflict=… human_levels=…`.
 --
 -- Records slås op på source_record.record_key (manifestets nøgle). Personen pr. record er den accepterede identitet for
--- recordens eneste primary-persona på helposten (den eneste rod-observation i recordens accepterede forekomst; typen
--- er profilens helpost_observation_kind — `person` i 1939, `person_post` i 2018-20 — og tjekkes derfor ikke her).
+-- recordens eneste primary-persona på helposten. Helposten findes med skemaets regel private.record_helpost_status
+-- (status ok): den accepterede forekomst, hvis eneste top-observation har profilens helpost_observation_kind
+-- (argumentet helpost_kind — `person` i 1939, `person_post` i 2018-20); recordens øvrige accepterede forekomster
+-- (1939's fakta-, ægteskabs- og relationsforekomster med egne rod-observationer) ligger inde i dens tegnspænd.
 -- Bindinger og publiceringstilstande slås op via recorden (narrative_record_publication → source_record), aldrig via
 -- person_external_id.record_key, som kun i 2018-20 svarer til recordens nøgle.
 --
@@ -29,7 +31,7 @@
 --   -v manifest_path=<fil> -v manifest_sha=<sha256 af filen> -v mapping_path=<fil> -v mapping_sha=<arkets sheet_sha256>
 --   -v mapping_token_sha=<token_sha256> -v mapping_file_sha=<sha256 af mapping-filen>
 --   -v approvals_path=<fil> -v approvals_sha=<GO-bundet sha256 af filen> -v approvals_file_sha=<sha256 af filen>
---   -v rendition_sha=<renditionens content_sha256> -v header_rule_version=<regelversion>
+--   -v rendition_sha=<renditionens content_sha256> -v header_rule_version=<regelversion> -v helpost_kind=<observationstype>
 --   -v expect_headers=N -v expect_human_levels=N -v expect_entries=N -v expect_placements=N -v expect_persona_placements=N -v expect_bindings=N
 --   -v expect_published=N -v expect_revalidated=N -v expect_ledger_mapped=N -v expect_ledger_retained=N
 --   -v expect_memberships=N -v expect_corroborated=N -v expect_conflict=N -v expect_laeser_1939=<uaendret|placement>
@@ -54,7 +56,7 @@ SELECT set_config('request.jwt.claim.sub', :'actor', true), set_config('plc.src'
        set_config('plc.approvals_sha', :'approvals_sha', true), set_config('plc.rendition_sha', :'rendition_sha', true),
        set_config('plc.mapping_file_sha', :'mapping_file_sha', true),
        set_config('plc.approvals_file_sha', :'approvals_file_sha', true),
-       set_config('plc.rule', :'header_rule_version', true),
+       set_config('plc.rule', :'header_rule_version', true), set_config('plc.helpost_kind', :'helpost_kind', true),
        set_config('plc.expect', json_build_object('headers', :'expect_headers'::int, 'entries', :'expect_entries'::int,
          'human', :'expect_human_levels'::int,
          'placements', :'expect_placements'::int, 'persona', :'expect_persona_placements'::int,
@@ -178,7 +180,7 @@ DECLARE v_src bigint:=current_setting('plc.src')::bigint; e jsonb:=current_setti
   c_uden_nummer constant text[]:=ARRAY['uden_post','ikke_parret','nummer_tabt_i_rendition'];
 BEGIN
   IF e->>'laeser' NOT IN ('uaendret','placement') OR coalesce(e->>'koord','') !~ '^[0-9a-f]{32}$'
-     OR btrim(v_rule)='' OR btrim(current_setting('plc.go'))='' THEN
+     OR btrim(v_rule)='' OR btrim(current_setting('plc.go'))='' OR btrim(current_setting('plc.helpost_kind'))='' THEN
     RAISE EXCEPTION 'PLC_PRE_ARGS';
   END IF;
   IF public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'PLC_PRE_ROLE'; END IF;
@@ -447,11 +449,10 @@ BEGIN
   UPDATE plc_rec SET skriv=true WHERE kandidat AND parkeret IS FALSE;
   -- Helpost og hovedperson-persona (materialiseret med statistik, jf. fix_150's anker-view-plan).
   CREATE TEMP TABLE plc_helpost ON COMMIT DROP AS
-  SELECT sr.id AS record_id, o.id AS obs
-    FROM private.source_record sr
-    JOIN private.source_record_anchor_current ac ON ac.source_record_id=sr.id AND ac.decision_status='accepted'
-    JOIN private.source_observation o ON o.occurrence_id=ac.occurrence_id AND o.parent_observation_id IS NULL
-   WHERE sr.source_id=v_src;
+  -- Skemaets helpost-regel (status ok); none/ambiguous/outside giver ingen række, altså n_helpost=0 (fail-closed).
+  SELECT f.record_id, hs.observation_id AS obs
+    FROM plc_rec f, LATERAL private.record_helpost_status(f.record_id, current_setting('plc.helpost_kind')) hs
+   WHERE hs.status='ok';
   ANALYZE plc_helpost;
   CREATE TEMP TABLE plc_primary ON COMMIT DROP AS
   SELECT h.record_id, spm.persona_id, i2.decision_status, i2.canonical_person_id
