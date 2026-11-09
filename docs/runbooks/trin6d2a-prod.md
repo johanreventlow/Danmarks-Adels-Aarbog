@@ -107,10 +107,21 @@ spænd er målestøj (data ændrer ikke biografien).
   før 6d-2a**. Den hentes fra git ved merge-basen `94517497` og efterprøves mod sha `e63c2182…` (= 6d-1's). Grenens
   udgave allow-lister `red_overview_mentions`, som fortrydelsen netop har fjernet.
 - Vinduesvagten kører lige før markøren: et bogmærke e.l. efter dumpet stopper fortrydelsen uden markør.
+- Vagten har to lag:
+  - **Mod dumpet:** sammenlignes med undtagelser for de tabeller, ceremonien selv skriver.
+  - **Mod aftrykket efter ceremonien:** fortryd-data kræver desuden, at hele basen er lig det aftryk, runneren
+    gemmer lige efter ceremoniens COMMIT (`T6D2A_VINDUE_EFTER_GEMT`). Det gemmes også ved
+    `T6D2A_CEREMONI_FEJL_EFTER_COMMIT`. Derved fanges skrivninger, der ikke laver en change_set, fx en
+    identitetsafgørelse efter ceremonien (`T6D2A_VINDUE_BRUDT_EFTER_CEREMONI`).
+
+`verify` udskriver `T6D2A_VERIFY_OK` efter datatjekkene og måler først derefter tidsbudgettet. Et
+`T6D2A_ANON_BUDGET_BRUDT` her betyder, at data er i orden, men at et kald er over grænsen. Kør `anon` igen op til to
+gange (biografilæseren med alle personer svinger ±8 % uden ændringer). Er bruddet vedvarende, beslutter
+projektejeren, om der skal fortrydes.
 
 ## Generalprøven 10/11
 
-Begge stand-ins er kopier af `6d1c` (prod efter 6d-1). En generalprøve fra en frisk prod-`dump-kopi` udestår, se
+Alle stand-ins er kopier af `6d1c` (prod efter 6d-1). En generalprøve fra en frisk prod-`dump-kopi` udestår, se
 nedenfor.
 
 - `6d2aa` (`daa5ab_ddl_standin_20261109231326_6d2aa`), iteration:
@@ -129,6 +140,16 @@ nedenfor.
     blev fjernet → fortryd-data `T6D2A_FORTRYD_OK tilstand=ddl` → fortryd-DDL `T6D2A_FORTRYD_OK tilstand=foer`
     (3 funktioner droppet).
   - Ændret svarfil → `T6D2A_PAKKE_SHA`. Filen blev lagt tilbage, og sha'en er efterprøvet. `6d2ab` står i fase `foer`.
+- `6d2ac` (`daa5ab_ddl_standin_20261109233713_6d2ac`), fejlvejene (runneren midlertidigt ændret og lagt tilbage,
+  sha'en efterprøvet):
+  - Fejl før COMMIT: `T6D2A_CEREMONI_FEJL (T6D2A_POST_REGEL regel=11 (forventet 12)); IKKE committet (fase ddl)`.
+    En ny `apply-data` uden nyt dump gav `T6D2A_VINDUE_BRUDT_FOER_DATA` (præcis de fem sekvenser). Fortryd-DDL lige
+    derefter gav `T6D2A_FORTRYD_OK tilstand=foer`, hvilket bekræfter DDL-undtagelsen.
+  - Fejl efter COMMIT (en ekstra sætning efter ceremonien): `T6D2A_VINDUE_EFTER_GEMT`,
+    `T6D2A_CEREMONI_FEJL_EFTER_COMMIT … (fase data)`. Derefter gav `verify` `T6D2A_VERIFY_OK tal=11,9,0,1,0,0`.
+  - En identitetsrække blev ændret efter ceremonien. Den gamle vagt sagde OK (`sammenligning=data`), men
+    `T6D2A_VINDUE_BRUDT_EFTER_CEREMONI` stoppede fortrydelsen uden markør. Ændringen blev rullet tilbage → fortryd-data
+    `T6D2A_FORTRYD_OK tilstand=ddl`. `6d2ac` står i fase `ddl`.
 - **Appens sammenlægning** (Codex-fund 8; `collapseSameAs` fra `packages/core` på anon-data fra en prod-kopi med DDL
   og data):
   - 715 afklarede kanter og 9 karantænegrupper, både før og efter.
