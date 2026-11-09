@@ -862,6 +862,44 @@ class Test1939Kort(unittest.TestCase):
         self.assertTrue(m['invariants']['gruppekort_daekker_overskriftsaarsager'])
         self.assertEqual(m['kort']['gruppekort'], 1)
 
+    STAMME2 = ['### PAGE 499 ###', '                          Den ældre testske Linje.',
+               '                                   I', '1.  Urd, f. 1500.',
+               '                          Den yngre testske Linje.', '1.  Ole, f. 1520.',
+               '                                   II', '2.  Ulf, f. 1530.']
+
+    def test_stammesektion_nulstiller_slaegtled(self):
+        guide = self.STAMME2
+        rend = calamari(guide)
+        recs = lambda r: [rec(r, '1.  Urd', 'U'), rec(r, '1.  Ole', 'O'), rec(r, '2.  Ulf', 'V')]
+        m = build39(guide=guide, rend=rend, records=recs(rend))          # romertallene findes
+        o = placement(m, 'O')
+        self.assertNotIn('slaegtled', o['header_ids'])
+        self.assertEqual(o['gruppekort'], [])
+        self.assertEqual(o['reasons'], ['overskrift_ikke_fundet:slaegtled'])    # guiden har intet slægtled for Ole
+        self.assertEqual(placement(m, 'U')['status'], 'machine_ok')
+        self.assertEqual(placement(m, 'V')['status'], 'machine_ok')
+        rend2 = calamari(guide)
+        rend2.remove('I')                                                # I mangler: kun Urd får kortet
+        m2 = build39(guide=guide, rend=rend2, records=recs(rend2))
+        self.assertEqual([c['guide_value'] for c in placement(m2, 'U')['gruppekort']], [1])
+        self.assertEqual(placement(m2, 'O')['gruppekort'], [])
+        self.assertEqual(placement(m2, 'O')['human_header_levels'], [])
+        self.assertEqual(placement(m2, 'V')['gruppekort'], [])           # II findes
+        self.assertEqual(placement(m2, 'V')['status'], 'machine_ok')
+
+    def test_stamme_post_efter_beskrivelse_med_fundet_romertal(self):
+        guide = ['### PAGE 499 ###', '                          Den ældre testske Linje.',
+                 '                                   I', '1.  Urd, f. 1500.', '',
+                 '                      ' + BESKRIVELSE, '2.  Ulf, f. 1530.']
+        rend = calamari(guide)
+        m = build39(guide=guide, rend=rend, records=[rec(rend, '1.  Urd', 'U'), rec(rend, '2.  Ulf', 'V')])
+        v = placement(m, 'V')
+        self.assertEqual((v['status'], v['reasons']), ('machine_ok', []))
+        self.assertEqual(set(v['header_ids']), {'linje', 'slaegtled', 'kuld'})
+        self.assertEqual(v['generation_local'], 1)
+        self.assertEqual(v['kuld_label'], 'Anna-Reventlows-Børn-med-Bodil-Opdigt')
+
+
     def test_kort_summary_uden_tekst(self):
         rend = calamari(GUIDE)
         rend.remove('I.')

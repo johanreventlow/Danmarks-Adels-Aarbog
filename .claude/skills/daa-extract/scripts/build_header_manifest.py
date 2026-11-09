@@ -419,6 +419,8 @@ def _scan_1939(text: str, gp: dict[str, Any], stamme_afsnit_level: str | None) -
                 afsnit_frisk = False
                 h_linje = add('linje', i, i, roman=None, stamme_slug=slug, entry_code=linje, name_norm=None)
                 h_grp = None
+                if h_slg is not None and headers[h_slg].get('stamme_roman'):
+                    h_slg = None                 # stammens romertal gælder kun inden for sektionen (som afsnit=None)
                 i += 1
                 continue
 
@@ -468,8 +470,7 @@ def _scan_1939(text: str, gp: dict[str, Any], stamme_afsnit_level: str | None) -
             pm, _usikker = post_start
             afsnit_frisk = False
             nr_label = pm.group(2) + pm.group(3)
-            gid_slg = h_slg if h_slg is not None else (
-                h_grp if h_grp is not None and headers[h_grp]['level'] == 'slaegtled' else None)
+            gid_slg = h_slg
             gid_kuld = h_grp if h_grp is not None and headers[h_grp]['level'] == 'kuld' else None
             posts.append({
                 'nr': int(pm.group(2)), 'nr_label': nr_label, 'page': pages[i], 'line': i,
@@ -496,7 +497,7 @@ def _guide_state_at(guide: dict[str, Any], line: int) -> dict[str, Any]:
     h_linje, h_slg, h_grp = guide['snapshots'][k] if k >= 0 else (None, None, None)
     grp = guide['headers'][h_grp] if h_grp is not None else None
     return {'h_linje': h_linje,
-            'h_slg': h_slg if h_slg is not None else (h_grp if grp and grp['level'] == 'slaegtled' else None),
+            'h_slg': h_slg,
             'h_kuld': h_grp if grp and grp['level'] == 'kuld' else None}
 
 
@@ -1005,7 +1006,7 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
         'segmenter_paritet': [p['lokal_id'] for p in g_posts] == _segmenter_lokal_ids_1939(gtext, gp),
         # hver manglende slægtleds-/kuld-overskrift har et gruppekort (linje har intet kort)
         'gruppekort_daekker_overskriftsaarsager': all(
-            lv in {c['niveau'] for c in p['gruppekort']}
+            lv in {c['niveau'] for c in p['gruppekort']} and lv in p['human_header_levels']
             for p in placements for r in p['reasons'] if r.startswith('overskrift_ikke_fundet:')
             for lv in [r.split(':', 1)[1]] if lv in ('slaegtled', 'kuld')),
     }
