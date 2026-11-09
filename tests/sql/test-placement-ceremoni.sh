@@ -98,7 +98,7 @@ UPDATE private.source_persona_identity i SET canonical_person_id=$4,decision_sta
 COMMIT;
 SQL
 }
-for c in go neg ident unres appr same overlap park udenpost parit fortsat stale gruppe blandet struktur usikker model; do createdb -T "$db" "${db}_$c"; done
+for c in go neg ident unres appr same overlap park udenpost staged parit fortsat stale gruppe blandet struktur usikker model; do createdb -T "$db" "${db}_$c"; done
 events_p2() { v "$1" "SELECT count(*) FROM private.narrative_publication_event e JOIN private.narrative_record_publication b ON b.id=e.binding_id
   JOIN private.source_record sr ON sr.id=b.source_record_id WHERE sr.source_id=-1610 AND sr.record_key='p2'"; }
 ev0=$(events_p2 "$db")
@@ -256,6 +256,34 @@ appr "$tmp/m-uden.json" "$tmp/a-uden.json" '[]'
 MF="$tmp/m-uden.json" AP_="$tmp/a-uden.json" ok "${db}_udenpost" udenpost
 [ "$(ledger "${db}_udenpost")" = "retained_legacy:ingen_nummereret_post,mapped:,mapped:,mapped:" ] \
   || fail "udenpost: ledger $(ledger "${db}_udenpost")"
+
+# Generalprøven 9/11: en publiceret biografi for en staged person (publication_allowed=false) på en record, ceremonien
+# ikke placerer (prods 963/967 i 1939's oversigtszone), stopper ikke ceremonien; på en record, den placerer, gør den.
+v "${db}_staged" "UPDATE public.person SET staged=true WHERE id=-161003" >/dev/null
+# Prods tilstand opstod ved kontrakt-cutover'ens baseline-hændelse, der fangede den staged tilstand; en revalidering
+# afvises (NARRATIVE_RECORD_PUBLICATION_POLICY_BLOCKED). Emuleret i den syntetiske base: p3's seneste hændelse får den
+# aktuelle tilstand som after_state (triggerne kun slået fra i denne transaktion).
+q -d "${db}_staged" >/dev/null <<'SQL'
+BEGIN;
+ALTER TABLE private.narrative_publication_event DISABLE TRIGGER USER;
+WITH s AS (SELECT private.narrative_publication_state(-161003,-1610,'p3') AS s),
+     e AS (SELECT ev.id FROM private.narrative_publication_event ev
+             JOIN private.narrative_record_publication b ON b.id=ev.binding_id
+             JOIN private.source_record r ON r.id=b.source_record_id AND r.source_id=-1610 AND r.record_key='p3'
+            ORDER BY ev.stream_version DESC, ev.created_at DESC, ev.id DESC LIMIT 1)
+UPDATE private.narrative_publication_event ev SET after_state=s.s,
+       after_state_sha256=encode(extensions.digest(s.s::text,'sha256'),'hex')
+  FROM s, e WHERE ev.id=e.id;
+ALTER TABLE private.narrative_publication_event ENABLE TRIGGER USER;
+COMMIT;
+SQL
+[ "$(v "${db}_staged" "SELECT private.narrative_record_state(-161003,-1610,'p3')#>>'{publication_state,publication_policy,publication_allowed}'")" = "false" ] \
+  || fail "staged: publication_allowed"
+[ "$(pub "${db}_staged")" = "3/0" ] || fail "staged: fixture $(pub "${db}_staged")"
+nej "${db}_staged" staged1 PLC_PRE_PUBLISHED
+jvar "$M" "$tmp/m-staged.json" '[p.update(status="unresolved",entry_code=None,printed_number=None,section_path=[],header_ids={},reasons=["uden_post"],post_char_from=None) for p in d["placements"] if p["record_key"]=="p3"]'
+appr "$tmp/m-staged.json" "$tmp/a-staged.json" '[]'
+MF="$tmp/m-staged.json" AP_="$tmp/a-staged.json" E_BIND=2 nej "${db}_staged" staged2 'PLC_PRE_PLACEMENTS n=2'
 
 # $paritet_2018_20$: en bevidst ændring af en modpartsrække midt i ceremonien får POST til at fejle.
 q -d "${db}_parit" >/dev/null <<'SQL'

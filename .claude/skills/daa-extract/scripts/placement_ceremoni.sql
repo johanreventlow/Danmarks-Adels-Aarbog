@@ -535,14 +535,17 @@ BEGIN
   END IF;
   SELECT count(*) INTO v_n FROM plc_bind_all b JOIN plc_rec f ON f.record_id=b.record_id WHERE f.persona;
   IF v_n<>(e->>'bindings')::bigint THEN RAISE EXCEPTION 'PLC_PRE_BINDINGS n=%', v_n; END IF;
-  -- Publiceringstilstand før: præcis de forventede publicerede, alle tilladte, ingen forældede.
+  -- Publiceringstilstand før: præcis de forventede publicerede, ingen forældede, og alle publicerede på records, der
+  -- placeres (dem revalideringen rører), er tilladte. En publiceret biografi for en staged person på en record, der
+  -- ikke placeres (prods 963/967 i 1939's oversigtszone, baseline ved kontrakt-cutover), røres ikke og står uændret.
   INSERT INTO plc_binding
   SELECT b.binding_id, b.record_id, b.record_key, b.person_id, s->>'publication_status', s->>'eligibility_status',
          (s->>'blocking_reason') IS NOT NULL
     FROM plc_bind_all b, LATERAL private.narrative_record_state(b.person_id, v_src, b.record_key) s;
   IF (SELECT count(*) FROM plc_binding WHERE status='published')<>(e->>'published')::bigint
      OR EXISTS (SELECT 1 FROM plc_binding WHERE status='stale_published')
-     OR EXISTS (SELECT 1 FROM plc_binding b, LATERAL private.narrative_record_state(b.person_id, v_src, b.record_key) s
+     OR EXISTS (SELECT 1 FROM plc_binding b JOIN plc_rec f ON f.record_id=b.record_id AND f.skriv,
+                       LATERAL private.narrative_record_state(b.person_id, v_src, b.record_key) s
                  WHERE b.status='published'
                    AND (NOT coalesce((s#>>'{publication_state,publication_policy,publication_allowed}')::boolean,false)
                         OR s->>'published_text_sha256' IS NULL)) THEN
