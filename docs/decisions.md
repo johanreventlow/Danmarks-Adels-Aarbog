@@ -17,8 +17,15 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > `['uden_post', 'oversigtszone']` (ingen placement; ledger `ingen_nummereret_post`, ceremonien uændret) og indgår
 > hverken i alignmentet eller hulparringen; guidens v2-oversigtsposter i zonen (Oversigt.Indledning.U1-U7) fjernes fra
 > hullerne. En parret stamfader uden guidens slægtledsoverskrift (PDF 505: B's »I.« er »1.« i raw.txt og tabt i
-> Calamari) får et gruppekort med v2-segmenteringens slægtled. Manifestet efter: 27 records i zonerne (8 med persona),
-> 414 machine_ok / 178 unresolved, 21 gruppekort, 20 strukturkort, alle invarianter sande. Kortrunden bygges om.
+> Calamari) får et gruppekort med v2-segmenteringens slægtled. En stammegruppe, der kun er en beskrivelse (PDF 503:
+> »VII C. / Lyder Reventlows Søn:«), får gruppekort med beskrivelsens slug som værdi og besvares J/N af projektejeren.
+> Manifestet efter: 27 records i zonerne (8 med persona), 414 machine_ok / 178 unresolved, 21 gruppekort, 20
+> strukturkort, alle invarianter sande. Kortrunden bygges om (57 kort genbruger modelsvaret, 9 er nye).
+>
+> **Følge:** af de 8 personas i zonerne har 7 en detaljepost andetsteds. Den ottende, **1849 Henning (levede
+> 1456-94)**, står kun i oversigten på PDF 508 og får ingen 1939-placement og intet 1939-medlemskab. Det er ikke nyt:
+> før zonerne lå hans record som strukturkort (`ikke_parret`), forudfyldt N efter Gate A pkt. 3. Personen består med
+> sine påstande; en placering som stammeperson kan tages op senere.
 >
 > **B (åben backlog — ikke 6d-1):** fire 1939-personer er oprettet alene fra en oversigtsomtale og dublerer personen
 > fra detaljeposten (målt på stand-in c3h, prod-kopi 8/11): **991↔995** Iven †1569 (PDF 512), **992↔996** Sivert
