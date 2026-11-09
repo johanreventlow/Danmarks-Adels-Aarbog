@@ -3172,6 +3172,60 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION private.membership_component_states() FROM PUBLIC,anon,authenticated,service_role;
 
+-- Trin 6d-2a: oversigtsomtaler (live, ingen gemt tilstand). En kilde-K-narrativ for P er en oversigtsomtale, når P
+-- ikke har et gældende linjemedlemskab med source_basis.source_id=K, og P's komponent (samme_som med afklaret
+-- konklusion, begge retninger; stien kun gennem offentlige personer) har en anden person Q med et gældende K-medlemskab,
+-- som er offentlig og har en K-narrativ, publiceringsgaten tillader. detail_person_id = mindste Q. Kilder = slags
+-- 'DAA-udgave'. Billig forfiltrering uden funktionskald før de dyre kald; ingen MATERIALIZED på de store mængder.
+CREATE OR REPLACE FUNCTION private.overview_mention_narratives(p_person_ids bigint[])
+RETURNS TABLE(narrative_id bigint, person_id bigint, source_id bigint, detail_person_id bigint)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+#variable_conflict use_column
+BEGIN
+  RETURN QUERY
+  WITH RECURSIVE pn AS (
+    SELECT n.id AS nid,n.subjekt_id AS p,n.source_id AS k
+      FROM public.narrative n
+      JOIN public.source s ON s.id=n.source_id AND s.slags='DAA-udgave'
+     WHERE n.subjekt_type='person' AND n.subjekt_id=ANY(p_person_ids)
+  ), e AS (
+    SELECT r.subjekt_id AS a,r.objekt_id AS b
+      FROM public.relation r
+      JOIN public.conclusion c ON c.target_type='relation' AND c.target_id=r.id AND c.status='afklaret'
+     WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+  ), u AS MATERIALIZED (
+    SELECT e.a,e.b FROM e UNION SELECT e.b,e.a FROM e
+  ), reach(nid,k,p,pid) AS (
+    SELECT pn.nid,pn.k,pn.p,pn.p FROM pn WHERE EXISTS (SELECT 1 FROM u WHERE u.a=pn.p)
+    UNION
+    SELECT reach.nid,reach.k,reach.p,u.b FROM reach JOIN u ON u.a=reach.pid WHERE public.person_offentlig(u.b)
+  ), pairs AS (
+    SELECT DISTINCT reach.nid,reach.k,reach.p,reach.pid AS q FROM reach
+     WHERE reach.pid<>reach.p
+       AND EXISTS (SELECT 1 FROM public.person_lineage_membership krow
+                    WHERE krow.person_id=reach.pid AND (krow.source_basis->>'source_id')::bigint=reach.k
+                      AND krow.source_basis ? 'persona_placement_id')
+       AND EXISTS (SELECT 1 FROM public.narrative qn
+                    WHERE qn.subjekt_type='person' AND qn.subjekt_id=reach.pid AND qn.source_id=reach.k)
+  ), hits AS (
+    SELECT pairs.nid,pairs.p,pairs.k,pairs.q FROM pairs
+     WHERE NOT EXISTS (SELECT 1 FROM public.person_lineage_membership krow
+                        WHERE krow.person_id=pairs.p AND (krow.source_basis->>'source_id')::bigint=pairs.k
+                          AND krow.source_basis ? 'persona_placement_id'
+                          AND private.membership_is_current(krow.person_id,krow.lineage_id))
+       AND public.person_offentlig(pairs.q)
+       AND EXISTS (SELECT 1 FROM public.person_lineage_membership krow
+                    WHERE krow.person_id=pairs.q AND (krow.source_basis->>'source_id')::bigint=pairs.k
+                      AND krow.source_basis ? 'persona_placement_id'
+                      AND private.membership_is_current(krow.person_id,krow.lineage_id))
+       AND EXISTS (SELECT 1 FROM public.narrative qn
+                    WHERE qn.subjekt_type='person' AND qn.subjekt_id=pairs.q AND qn.source_id=pairs.k
+                      AND public.person_daa_narrative_publication_allowed(qn.id))
+  )
+  SELECT hits.nid,hits.p,hits.k,min(hits.q) FROM hits GROUP BY hits.nid,hits.p,hits.k;
+END $$;
+REVOKE ALL ON FUNCTION private.overview_mention_narratives(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
+
 CREATE OR REPLACE FUNCTION public.red_preview_placement_memberships(p_source_id bigint)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 BEGIN

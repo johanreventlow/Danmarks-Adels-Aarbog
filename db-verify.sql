@@ -10478,6 +10478,15 @@ BEGIN
       RAISE EXCEPTION 'VERIFY_FAILED: 6d-1 membership_component_states eksekverbar for %',r;
     END IF;
   END LOOP;
+  -- Trin 6d-2a: oversigtsreglen er privat; ingen API-rolle må kalde den.
+  IF to_regprocedure('private.overview_mention_narratives(bigint[])') IS NULL THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6d-2a mangler private.overview_mention_narratives(bigint[])';
+  END IF;
+  FOREACH r IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_function_privilege(r,'private.overview_mention_narratives(bigint[])','EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6d-2a overview_mention_narratives eksekverbar for %',r;
+    END IF;
+  END LOOP;
   -- Helbred (spec §4.4): promoverede memberships, hvis tilstand er ændret siden; 5c-2's læsere filtrerer på gældende.
   RAISE NOTICE 'PLACEMENT_MEMBERSHIP_NOT_CURRENT n=%',private.placement_membership_not_current();
   RAISE NOTICE 'OK: #150 — legacy-ledger, private placement-skrivefunktioner, slaegt versioneret';
