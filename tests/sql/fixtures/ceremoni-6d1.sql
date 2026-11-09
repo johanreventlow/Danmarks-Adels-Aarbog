@@ -6,7 +6,8 @@
 --   Kilde -1610 (kilden, der placeres): stamtavle-schema med den eksisterende entry VI (sort_order 1 som i prod;
 --     mappingen flytter den til 3; canonical til linjen (-1610,'VI')), fire records p1-p4 (tegn 1000/2000/3000/4000) med hovedperson-persona og accepteret identitet til
 --     -161001..-161004; p1-p3 publiceret, p4 uden biografi. Legacy-rækkernes record_key er p1, x-2, x-3 og NULL (kun p1
---     svarer til recorden, som i 1939). -161001 samme_som -161101 (afklaret) → komponenten bliver corroborated.
+--     svarer til recorden, som i 1939). Desuden kortposterne g1-g3, s1-s2 og u1 (tegn 6000-9500, personer -161005..
+--     -161010, uden legacy-række og biografi; se manifest-6d1.json). -161001 samme_som -161101 (afklaret) → komponenten bliver corroborated.
 --     Helposten har typen `person` som 1939-profilerne (helpost_observation_kind); modpartens har `person_post`.
 --   Ledger: modpartens rækker har 5c-1's form (k1 mapped, k2 retained_legacy); kildens har ingen (testen tilføjer
 --     5c-1's v1 retained_legacy i et eget scenarie).
@@ -144,6 +145,14 @@ BEGIN
   PERFORM pg_temp.c6d1_post(s,'p2',-161002,2000);
   PERFORM pg_temp.c6d1_post(s,'p3',-161003,3000);
   PERFORM pg_temp.c6d1_post(s,'p4',-161004,4000);
+  -- Kortposterne (runde 2): gruppekort g1-g3 (kuld II mangler i renditionen), strukturkort s1-s2 og en stammegruppe
+  -- uden nyt romertal (u1). Ingen legacy-række og ingen biografi, så ledger- og publiceringstallene er uændrede.
+  PERFORM pg_temp.c6d1_post(s,'g1',-161005,6000);
+  PERFORM pg_temp.c6d1_post(s,'g2',-161006,7000);
+  PERFORM pg_temp.c6d1_post(s,'g3',-161007,7500);
+  PERFORM pg_temp.c6d1_post(s,'s1',-161008,8000);
+  PERFORM pg_temp.c6d1_post(s,'s2',-161009,8500);
+  PERFORM pg_temp.c6d1_post(s,'u1',-161010,9500);
   INSERT INTO public.person_external_id(person_id,source_id,linje,nr,record_key)
     VALUES (-161001,-1610,'I',1,'p1'),(-161002,-1610,'I',1,'x-2'),(-161003,-1610,'II',1,'x-3'),(-161004,-1610,'II',3,NULL);
   PERFORM pg_temp.c6d1_narrativ(-161001,-1610,'p1');

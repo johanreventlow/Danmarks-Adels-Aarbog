@@ -18,10 +18,10 @@ jget() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1],encodi
 jvar() { python3 -I -c 'import json,sys
 d=json.load(open(sys.argv[1],encoding="utf-8")); exec(sys.argv[3])
 open(sys.argv[2],"w",encoding="utf-8").write(json.dumps(d,ensure_ascii=False,indent=1)+"\n")' "$1" "$2" "$3"; }
-# appr <manifest> <ud> <godkendelser som JSON-liste>
+# appr <manifest> <ud> <godkendelser som JSON-liste> [gruppekort som JSON-liste]  (godkendelseskontrakt v2)
 appr() { python3 -I -c 'import json,sys
-open(sys.argv[2],"w",encoding="utf-8").write(json.dumps({"manifest_sha256":sys.argv[1],"approvals":json.loads(sys.argv[3])})+"\n")' \
-  "$(sha "$1")" "$2" "$3"; }
+open(sys.argv[2],"w",encoding="utf-8").write(json.dumps({"manifest_sha256":sys.argv[1],"approvals":json.loads(sys.argv[3]),
+  "gruppekort":json.loads(sys.argv[4])})+"\n")' "$(sha "$1")" "$2" "$3" "${4:-[]}"; }
 
 createdb "$db"
 for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql tests/sql/1939-v50-writer-bootstrap.sql; do
@@ -53,7 +53,7 @@ run() {
     -v approvals_path="$ap" -v approvals_sha="$(sha "$ap")" -v go=deadbeef \
     -v rendition_sha="${RSHA:-$(printf '2%.0s' {1..64})}" \
     -v header_rule_version="${RULE:-header-test-6d1-v1}" \
-    -v expect_headers=5 -v expect_entries="${E_ENT:-3}" -v expect_placements="${E_PL:-3}" \
+    -v expect_headers=6 -v expect_human_levels="${E_HUM:-0}" -v expect_entries="${E_ENT:-3}" -v expect_placements="${E_PL:-3}" \
     -v expect_persona_placements="${E_PP:-3}" -v expect_bindings="${E_BIND:-3}" -v expect_published=3 \
     -v expect_revalidated="${E_REVAL:-3}" -v expect_ledger_mapped="${E_MAP:-3}" -v expect_ledger_retained="${E_RET:-1}" \
     -v expect_memberships="${E_MEM:-3}" -v expect_corroborated=1 -v expect_conflict=0 \
@@ -94,7 +94,7 @@ UPDATE private.source_persona_identity i SET canonical_person_id=$4,decision_sta
 COMMIT;
 SQL
 }
-for c in go neg ident unres appr same overlap park udenpost parit fortsat stale; do createdb -T "$db" "${db}_$c"; done
+for c in go neg ident unres appr same overlap park udenpost parit fortsat stale gruppe blandet struktur usikker; do createdb -T "$db" "${db}_$c"; done
 events_p2() { v "$1" "SELECT count(*) FROM private.narrative_publication_event e JOIN private.narrative_record_publication b ON b.id=e.binding_id
   JOIN private.source_record sr ON sr.id=b.source_record_id WHERE sr.source_id=-1610 AND sr.record_key='p2'"; }
 ev0=$(events_p2 "$db")
@@ -102,7 +102,7 @@ ev0=$(events_p2 "$db")
 # $fuld_koersel$: linjeskema, overskrifter, 3 placements, ledger 3 mapped + 1 retained, 3 medlemskaber (1 corroborated),
 # 3 revalideret, 0 stale; 2018-20-koordinaterne og kildens egne læserrækker (gaten: I/1 to gange) uændrede.
 ok "${db}_go" go
-grep -q '^PLC_OK entries=3 headers=5 placements=3 persona=3 ledger_mapped=3 memberships=3 revalideret=3 corroborated=1 conflict=0$' \
+grep -q '^PLC_OK entries=3 headers=6 placements=3 persona=3 ledger_mapped=3 memberships=3 revalideret=3 corroborated=1 conflict=0 human_levels=0$' \
   "$tmp/go.out" || fail "kvittering: $(grep PLC_OK "$tmp/go.out" || tail -3 "$tmp/go.out")"
 [ "$(pub "${db}_go")" = "3/0" ] || fail "publicering efter: $(pub "${db}_go")"
 [ "$(ledger "${db}_go")" = "retained_legacy:ingen_placement,mapped:,mapped:,mapped:" ] || fail "ledger: $(ledger "${db}_go")"
@@ -272,5 +272,65 @@ ok "${db}_fortsat" fortsat
 v "${db}_stale" "UPDATE public.narrative SET privat=true WHERE subjekt_type='person' AND subjekt_id=-161003 AND source_id=-1610" >/dev/null
 [ "$(pub "${db}_stale")" = "2/1" ] || fail "stale: fixture $(pub "${db}_stale")"
 nej "${db}_stale" stale PLC_PRE_PUBLISHED
+
+# --- Runde 2: gruppekort og strukturkort (godkendelseskontrakt v2) ---
+KORT='[{"id":"kuld:9000","value":"II"}]'
+rp() { v "$1" "SELECT concat_ws('|',e.code,pc.printed_number,pc.generation_local,pc.generation_label_raw,pc.kuld_label,
+  cardinality(pc.section_path),pc.evidence->>'basis',coalesce(pc.evidence->>'human_header_levels','-'),
+  (pc.evidence->'header_ids') ? 'kuld',jsonb_array_length(coalesce(pc.evidence#>'{human_review,gruppekort}','[]')))
+  FROM private.source_record_placement_current pc JOIN private.source_record r ON r.id=pc.source_record_id
+  JOIN public.lineage_scheme_entry e ON e.id=pc.scheme_entry_id WHERE r.source_id=-1610 AND r.record_key='$2'"; }
+plc() { v "$1" "SELECT string_agg(r.record_key,',' ORDER BY r.record_key) FROM private.source_record_placement rp
+  JOIN private.source_record r ON r.id=rp.source_record_id WHERE r.source_id=-1610"; }
+
+# gruppe: to poster under ét godkendt gruppekort (kuld II mangler; kuld I står foran) → kuld_label = værdien, nærmeste-
+# reglen undtager kuld, human_levels 2. g3 har også uenig:legacy_nr uden record-approval → skrives ikke.
+appr "$M" "$tmp/a-gruppe.json" '[]' "$KORT"
+AP_="$tmp/a-gruppe.json" E_PL=5 E_PP=5 E_MEM=5 E_HUM=2 ok "${db}_gruppe" gruppe
+grep -q ' human_levels=2$' "$tmp/gruppe.out" || fail "gruppe: kvittering $(grep PLC_OK "$tmp/gruppe.out")"
+[ "$(plc "${db}_gruppe")" = "g1,g2,p1,p2,p3" ] || fail "gruppe: placements $(plc "${db}_gruppe")"
+[ "$(rp "${db}_gruppe" g1)" = 'II|1|1|Første|II|2|human_group_review|["kuld"]|f|1' ] || fail "gruppe: g1 $(rp "${db}_gruppe" g1)"
+[ "$(v "${db}_gruppe" "SELECT private.placement_header_violations(-1610)||'/'||private.placement_human_header_levels(-1610)")" = "0/2" ] \
+  || fail "gruppe: nærmeste/human"
+# gruppe_blandet: med record-approval for g3 skrives den også.
+appr "$M" "$tmp/a-blandet.json" '[{"record_key":"g3"}]' "$KORT"
+AP_="$tmp/a-blandet.json" E_PL=6 E_PP=6 E_MEM=6 E_HUM=3 ok "${db}_blandet" blandet
+[ "$(rp "${db}_blandet" g3)" = 'II|3|1|Første|II|2|human_group_review|["kuld"]|f|1' ] || fail "blandet: g3 $(rp "${db}_blandet" g3)"
+
+# struktur: ikke_parret-post med record-approval og nummer → nærmeste overskrifter (linje II, slægtled 1, kuld I).
+appr "$M" "$tmp/a-struktur.json" '[{"record_key":"s1","printed_number":"7"}]'
+AP_="$tmp/a-struktur.json" E_PL=4 E_PP=4 E_MEM=4 ok "${db}_struktur" struktur
+[ "$(rp "${db}_struktur" s1)" = 'II|7|1|Første|I|3|human_group_review|-|t|0' ] || fail "struktur: s1 $(rp "${db}_struktur" s1)"
+
+# stamme_generation_usikker: record-approval uden nummer = manifestets værdier.
+appr "$M" "$tmp/a-usikker.json" '[{"record_key":"u1"}]'
+AP_="$tmp/a-usikker.json" E_PL=4 E_PP=4 E_MEM=4 ok "${db}_usikker" usikker
+[ "$(rp "${db}_usikker" u1)" = 'II|5|1|Første|I|3|human_group_review|-|t|0' ] || fail "usikker: u1 $(rp "${db}_usikker" u1)"
+
+# Negativer (runde 2) på neg-basen.
+appr "$M" "$tmp/a-kort-forkert.json" '[]' '[{"id":"kuld:9000","value":"III"}]'
+AP_="$tmp/a-kort-forkert.json" nej "$N" kort1 PLC_PRE_GRUPPEKORT
+appr "$M" "$tmp/a-kort-ukendt.json" '[]' '[{"id":"kuld:1","value":"II"}]'
+AP_="$tmp/a-kort-ukendt.json" nej "$N" kort2 PLC_PRE_GRUPPEKORT
+appr "$M" "$tmp/a-kort-dublet.json" '[]' '[{"id":"kuld:9000","value":"II"},{"id":"kuld:9000","value":"II"}]'
+AP_="$tmp/a-kort-dublet.json" nej "$N" kort3 PLC_PRE_GRUPPEKORT
+appr "$M" "$tmp/a-unik.json" '[{"record_key":"s1","printed_number":"7"},{"record_key":"s2","printed_number":"7"}]'
+AP_="$tmp/a-unik.json" E_PL=5 E_PP=5 E_MEM=5 nej "$N" unik PLC_PRE_UNIK
+appr "$M" "$tmp/a-s1-uden-nr.json" '[{"record_key":"s1"}]'
+AP_="$tmp/a-s1-uden-nr.json" nej "$N" struk1 PLC_PRE_APPROVALS
+appr "$M" "$tmp/a-u1-nr.json" '[{"record_key":"u1","printed_number":"9"}]'
+AP_="$tmp/a-u1-nr.json" nej "$N" usik1 PLC_PRE_APPROVALS
+appr "$M" "$tmp/a-g1-record.json" '[{"record_key":"g1"}]' "$KORT"
+AP_="$tmp/a-g1-record.json" nej "$N" kort4 PLC_PRE_APPROVALS
+appr "$M" "$tmp/a-g3-uden-kort.json" '[{"record_key":"g3"}]'
+AP_="$tmp/a-g3-uden-kort.json" nej "$N" kort5 PLC_PRE_APPROVALS
+# human_id_brud: et bekræftet niveau har også et id → stop før skrivning.
+jvar "$M" "$tmp/m-human-id.json" 'd["placements"][4]["header_ids"]["kuld"]="header:4500"'
+appr "$tmp/m-human-id.json" "$tmp/a-human-id.json" '[]' "$KORT"
+MF="$tmp/m-human-id.json" AP_="$tmp/a-human-id.json" E_PL=5 E_PP=5 E_MEM=5 E_HUM=2 nej "$N" humanid PLC_PRE_HUMAN
+AP_="$tmp/a-gruppe.json" E_PL=5 E_PP=5 E_MEM=5 E_HUM=1 nej "$N" hum1 PLC_PRE_HUMAN_LEVELS
+jvar "$M" "$tmp/m-inv4.json" 'del d["invariants"]["gruppekort_daekker_overskriftsaarsager"]'
+appr "$tmp/m-inv4.json" "$tmp/a-inv4.json" '[]'
+MF="$tmp/m-inv4.json" AP_="$tmp/a-inv4.json" nej "$N" inv3 PLC_PRE_INVARIANTS
 
 echo PLACEMENT_CEREMONI_TEST_OK

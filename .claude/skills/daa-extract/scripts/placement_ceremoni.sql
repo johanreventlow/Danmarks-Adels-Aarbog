@@ -4,7 +4,7 @@
 -- kildens publicerede biografier, så læseren aldrig ser `stale_published`. Kildeparametriseret; nævner ingen udgave.
 -- Fejlkoder PLC_PRE_* (intet skrevet), PLC_WRITE_*/PLC_MID_* (under skrivningen), PLC_POST_* (efterbetingelser);
 -- enhver fejl ruller hele transaktionen tilbage. Kvittering: `PLC_OK entries=… headers=… placements=… persona=…
--- ledger_mapped=… memberships=… revalideret=… corroborated=… conflict=…`.
+-- ledger_mapped=… memberships=… revalideret=… corroborated=… conflict=… human_levels=…`.
 --
 -- Records slås op på source_record.record_key (manifestets nøgle). Personen pr. record er den accepterede identitet for
 -- recordens eneste primary-persona på helposten (den eneste rod-observation i recordens accepterede forekomst; typen
@@ -17,13 +17,20 @@
 --   manifest  (build_header_manifest.py): {header_rule_version, headers[], placements[], invariants{4}}
 --   mapping   (lineage_mapping_sheet.py approvals): {sheet_sha256, token_sha256, entries:[{code, label_sha256,
 --             sort_order, canonical:{source_id,kode}|null, aliases:[{source_id,kode}], parkeret}]}
---   approvals (kontrolarkets godkendelser): {manifest_sha256, approvals:[{record_key, printed_number?}]}
+--   approvals (kontrolarkets godkendelser, kontrakt v2): {manifest_sha256, approvals:[{record_key, printed_number?}],
+--             gruppekort:[{id, value}]}
+-- Gruppekort (decisions 2026-11-09): en overskrift, som guiden kender, men renditionen ikke har, bekræftes af
+-- projektejeren mod den trykte side; value skal være lig guide_value. En post under kort er skrivbar, når alle dens
+-- kort er godkendt og dens øvrige årsager er ingen eller godkendt med en record-approval. Værdien (kuld_label eller
+-- generation_local/-label) kommer fra kortet; evidensen bærer human_header_levels (manifestets liste) og human_review.
+-- Strukturkort (ikke_parret, nummer_tabt_i_rendition, ikke_alignet): record-approval med nummer; placementen bruger
+-- manifestets nærmeste overskrifter (naermeste_*). stamme_generation_usikker godkendes uden nummer (manifestets værdier).
 -- Brug: psql -X -At -v ON_ERROR_STOP=1 -v actor=<uuid> -v src=<kilde> -v go=<GO-kode>
 --   -v manifest_path=<fil> -v manifest_sha=<sha256 af filen> -v mapping_path=<fil> -v mapping_sha=<arkets sheet_sha256>
 --   -v mapping_token_sha=<token_sha256> -v mapping_file_sha=<sha256 af mapping-filen>
 --   -v approvals_path=<fil> -v approvals_sha=<GO-bundet sha256 af filen> -v approvals_file_sha=<sha256 af filen>
 --   -v rendition_sha=<renditionens content_sha256> -v header_rule_version=<regelversion>
---   -v expect_headers=N -v expect_entries=N -v expect_placements=N -v expect_persona_placements=N -v expect_bindings=N
+--   -v expect_headers=N -v expect_human_levels=N -v expect_entries=N -v expect_placements=N -v expect_persona_placements=N -v expect_bindings=N
 --   -v expect_published=N -v expect_revalidated=N -v expect_ledger_mapped=N -v expect_ledger_retained=N
 --   -v expect_memberships=N -v expect_corroborated=N -v expect_conflict=N -v expect_laeser_1939=<uaendret|placement>
 --   -v expect_koord_2018_20=<KOORD_2018_20 fra maal_trin6d1.sql i fase foer> -f placement_ceremoni.sql
@@ -49,6 +56,7 @@ SELECT set_config('request.jwt.claim.sub', :'actor', true), set_config('plc.src'
        set_config('plc.approvals_file_sha', :'approvals_file_sha', true),
        set_config('plc.rule', :'header_rule_version', true),
        set_config('plc.expect', json_build_object('headers', :'expect_headers'::int, 'entries', :'expect_entries'::int,
+         'human', :'expect_human_levels'::int,
          'placements', :'expect_placements'::int, 'persona', :'expect_persona_placements'::int,
          'bindings', :'expect_bindings'::int, 'published', :'expect_published'::int,
          'revalidated', :'expect_revalidated'::int, 'ledger_mapped', :'expect_ledger_mapped'::int,
@@ -61,11 +69,14 @@ SELECT :'m'::text AS m_text, :'mp'::text AS mp_text, :'a'::text AS a_text;
 SELECT set_config('plc.navn', 'placement-ceremoni (GO '||current_setting('plc.go')||')', true) \g /dev/null
 
 -- Recordsættet: én række pr. manifest-placement med recorden, helposten, hovedperson-personaen og dens identitet.
--- skriv = record-placement (machine_ok eller godkendt, gren ikke parkeret); persona = også persona-placement.
+-- skriv = record-placement (machine_ok eller godkendt/kortdækket, gren ikke parkeret); persona = også persona-placement.
 CREATE TEMP TABLE plc_rec (record_key text PRIMARY KEY, p jsonb NOT NULL, ap jsonb, entry_code text, parkeret boolean,
   record_id uuid, n_helpost integer, helpost uuid, n_primary integer, persona_id uuid, identity_status text,
   person_id bigint, skriv boolean NOT NULL DEFAULT false, persona boolean NOT NULL DEFAULT false, basis text,
-  entry_id bigint, rp uuid, pp uuid) ON COMMIT DROP;
+  entry_id bigint, rp uuid, pp uuid,
+  -- kandidat = skrivbar bortset fra parkering; hids/vals = placementens header_ids og værdier (efter kort/strukturkort);
+  -- human = evidensens human_header_levels (kun gruppekort-poster); review = evidensens human_review.
+  kandidat boolean NOT NULL DEFAULT false, hids jsonb, vals jsonb, human jsonb, review jsonb) ON COMMIT DROP;
 -- Linjeskemaets plan: én række pr. mapping-entry.
 CREATE TEMP TABLE plc_entry (code text PRIMARY KEY, e jsonb NOT NULL, parkeret boolean NOT NULL, eksisterende bigint,
   label text, sort_order integer, canonical_lineage bigint, alias_lineages bigint[]) ON COMMIT DROP;
@@ -154,10 +165,14 @@ DO $pre$
 DECLARE v_src bigint:=current_setting('plc.src')::bigint; e jsonb:=current_setting('plc.expect')::jsonb;
   v_rule text:=current_setting('plc.rule'); i plc_input%ROWTYPE; m jsonb; mp jsonb; a jsonb; v_n bigint;
   v_scheme bigint; v_slaegt bigint; rr record; v_lin bigint; v_ids bigint[];
-  c_invariants constant text[]:=ARRAY['en_overskrift_pr_gruppe','record_keys_unikke','section_path_nr_unik',
-                                      'segmenter_paritet'];
+  c_invariants constant text[]:=ARRAY['en_overskrift_pr_gruppe','gruppekort_daekker_overskriftsaarsager',
+                                      'record_keys_unikke','section_path_nr_unik','segmenter_paritet'];
   c_godkendelige constant text[]:=ARRAY['nr_ikke_fortloebende','slaegtled_ikke_monoton','gruppe_flere_familier',
-                                        'uenig:legacy_nr','uenig:legacy_linje','nummer_tabt_i_rendition'];
+                                        'uenig:legacy_nr','uenig:legacy_linje','nummer_tabt_i_rendition','ikke_parret',
+                                        'ikke_alignet','stamme_generation_usikker'];
+  c_struktur constant text[]:=ARRAY['ikke_parret','nummer_tabt_i_rendition','ikke_alignet'];
+  v_gk jsonb; v_o text[]; v_r text[]; v_struct boolean; v_kort_ok boolean; v_kand boolean; v_hids jsonb; v_vals jsonb;
+  v_entry text; v_kort jsonb; v_c jsonb; v_val text;
   c_uden_nummer constant text[]:=ARRAY['uden_post','ikke_parret','nummer_tabt_i_rendition'];
 BEGIN
   IF e->>'laeser' NOT IN ('uaendret','placement') OR coalesce(e->>'koord','') !~ '^[0-9a-f]{32}$'
@@ -219,23 +234,31 @@ BEGIN
     RAISE EXCEPTION 'PLC_PRE_RENDITION';
   END IF;
 
-  -- Godkendelserne (kontrolarkets svar): hører til manifestet; hver godkendt post er unresolved, har en linjeoverskrift,
-  -- og alle dens årsager er godkendelige; nummer_tabt_i_rendition kræver et nummer i svaret, ellers må intet angives.
+  -- Godkendelserne (kontrolarkets svar, kontrakt v2): hører til manifestet; record-approvals pr. nøgle højst én og for
+  -- en nøgle i manifestet (reglerne pr. post står i planløkken nedenfor).
+  v_gk:=coalesce(a->'gruppekort','[]'::jsonb);
   IF a->>'manifest_sha256' IS DISTINCT FROM current_setting('plc.manifest_sha') OR jsonb_typeof(a->'approvals')<>'array'
      OR (SELECT count(*) FROM jsonb_array_elements(a->'approvals') x)
-          <>(SELECT count(DISTINCT x->>'record_key') FROM jsonb_array_elements(a->'approvals') x) THEN
+          <>(SELECT count(DISTINCT x->>'record_key') FROM jsonb_array_elements(a->'approvals') x)
+     OR EXISTS (SELECT 1 FROM jsonb_array_elements(a->'approvals') x
+                 WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements(m->'placements') p WHERE p->>'record_key'=x->>'record_key')) THEN
     RAISE EXCEPTION 'PLC_PRE_APPROVALS';
   END IF;
-  FOR rr IN SELECT x AS ap, (SELECT p FROM jsonb_array_elements(m->'placements') p WHERE p->>'record_key'=x->>'record_key') AS p
-             FROM jsonb_array_elements(a->'approvals') x LOOP
-    IF rr.p IS NULL OR rr.p->>'status'<>'unresolved' OR coalesce(rr.p#>>'{header_ids,linje}','')=''
-       OR jsonb_array_length(coalesce(rr.p->'reasons','[]'))=0
-       OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(rr.p->'reasons') k WHERE k<>ALL(c_godkendelige))
-       OR (rr.p->'reasons' ? 'nummer_tabt_i_rendition'
-           AND (jsonb_typeof(rr.ap->'printed_number') IS DISTINCT FROM 'string' OR btrim(rr.ap->>'printed_number')=''))
-       OR (NOT rr.p->'reasons' ? 'nummer_tabt_i_rendition' AND rr.ap ? 'printed_number'
-           AND jsonb_typeof(rr.ap->'printed_number')<>'null') THEN
-      RAISE EXCEPTION 'PLC_PRE_APPROVALS %', rr.ap->>'record_key';
+  -- Gruppekortene: hvert id højst én gang, findes i manifestet (med én guide-værdi), og projektejerens værdi fra siden
+  -- er lig guidens (det er kontrollen); slægtled er et heltal.
+  IF jsonb_typeof(v_gk)<>'array'
+     OR (SELECT count(*) FROM jsonb_array_elements(v_gk) x)<>(SELECT count(DISTINCT x->>'id') FROM jsonb_array_elements(v_gk) x) THEN
+    RAISE EXCEPTION 'PLC_PRE_GRUPPEKORT';
+  END IF;
+  FOR rr IN SELECT x AS gk FROM jsonb_array_elements(v_gk) x LOOP
+    SELECT count(DISTINCT (k->'guide_value')::text||'|'||coalesce(k->>'niveau','')), min(k::text)::jsonb INTO v_n, v_kort
+      FROM jsonb_array_elements(m->'placements') p, jsonb_array_elements(coalesce(p->'gruppekort','[]'::jsonb)) k
+     WHERE k->>'id'=rr.gk->>'id';
+    IF v_n<>1 OR jsonb_typeof(rr.gk->'value') NOT IN ('string','number')
+       OR v_kort->>'niveau' NOT IN ('slaegtled','kuld')
+       OR (rr.gk->'value')#>>'{}' IS DISTINCT FROM (v_kort->'guide_value')#>>'{}'
+       OR (v_kort->>'niveau'='slaegtled' AND (rr.gk->'value')#>>'{}' !~ '^[0-9]+$') THEN
+      RAISE EXCEPTION 'PLC_PRE_GRUPPEKORT %', rr.gk->>'id';
     END IF;
   END LOOP;
 
@@ -320,8 +343,74 @@ BEGIN
   IF EXISTS (SELECT 1 FROM plc_rec WHERE record_id IS NULL) THEN
     RAISE EXCEPTION 'PLC_PRE_RECORDS n=%', (SELECT count(*) FROM plc_rec WHERE record_id IS NULL);
   END IF;
-  -- Mappingen dækker hver gren i de poster, der kan skrives (machine_ok eller godkendt).
-  IF EXISTS (SELECT 1 FROM plc_rec f WHERE (f.p->>'status'='machine_ok' OR f.ap IS NOT NULL)
+  -- Planen pr. post. Årsagerne deles i overskriftsårsager (overskrift_ikke_fundet:<niveau>, kun dækket af godkendte
+  -- gruppekort) og øvrige (dækket af en record-approval efter reglerne). En record-approval kræver en unresolved post med
+  -- mindst én øvrig årsag, alle godkendelige; strukturposter kræver et nummer og en nærmeste linjeoverskrift, andre
+  -- poster må ikke angive nummer og skal have en linjeoverskrift. En approval, der ikke gør posten skrivbar, stopper.
+  FOR rr IN SELECT * FROM plc_rec ORDER BY record_key COLLATE "C" LOOP
+    v_o:=ARRAY(SELECT split_part(k,':',2) FROM jsonb_array_elements_text(coalesce(rr.p->'reasons','[]'::jsonb)) k
+                WHERE k LIKE 'overskrift_ikke_fundet:%');
+    v_r:=ARRAY(SELECT k FROM jsonb_array_elements_text(coalesce(rr.p->'reasons','[]'::jsonb)) k
+                WHERE k NOT LIKE 'overskrift_ikke_fundet:%');
+    v_struct:=v_r && c_struktur;
+    IF rr.ap IS NOT NULL AND (rr.p->>'status' IS DISTINCT FROM 'unresolved' OR cardinality(v_r)=0
+       OR NOT v_r <@ c_godkendelige
+       OR (v_struct AND (jsonb_typeof(rr.ap->'printed_number') IS DISTINCT FROM 'string'
+                         OR btrim(rr.ap->>'printed_number')='' OR coalesce(rr.p#>>'{naermeste_header_ids,linje}','')=''))
+       OR (NOT v_struct AND ((rr.ap ? 'printed_number' AND jsonb_typeof(rr.ap->'printed_number')<>'null')
+                             OR coalesce(rr.p#>>'{header_ids,linje}','')=''))) THEN
+      RAISE EXCEPTION 'PLC_PRE_APPROVALS %', rr.record_key;
+    END IF;
+    v_kort_ok:=NOT EXISTS (SELECT 1 FROM unnest(v_o) lv
+                            WHERE lv NOT IN ('slaegtled','kuld')
+                               OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(rr.p->'gruppekort','[]'::jsonb)) k
+                                               WHERE k->>'niveau'=lv
+                                                 AND EXISTS (SELECT 1 FROM jsonb_array_elements(v_gk) g WHERE g->>'id'=k->>'id')));
+    v_kand:=rr.p->>'status'='machine_ok'
+            OR (rr.p->>'status'='unresolved' AND cardinality(v_o)+cardinality(v_r)>0 AND v_kort_ok
+                AND (cardinality(v_r)=0 OR rr.ap IS NOT NULL));
+    IF rr.ap IS NOT NULL AND NOT v_kand THEN RAISE EXCEPTION 'PLC_PRE_APPROVALS virker ikke %', rr.record_key; END IF;
+    IF NOT v_kand THEN CONTINUE; END IF;
+    IF v_struct THEN
+      v_hids:=rr.p->'naermeste_header_ids';
+      v_entry:=rr.p->>'naermeste_entry_code';
+      v_vals:=jsonb_build_object('printed_number',rr.ap->>'printed_number',
+        'generation_local',rr.p->'naermeste_generation_local','generation_global',NULL,
+        'generation_label_raw',(SELECT h#>'{parsed,label_raw}' FROM jsonb_array_elements(m->'headers') h
+                                 WHERE h->>'element_id'=v_hids->>'slaegtled'),
+        'kuld_label',rr.p->'naermeste_kuld_label',
+        'section_path',to_jsonb(ARRAY(SELECT v_hids->>lv FROM unnest(ARRAY['linje','slaegtled','kuld']) WITH ORDINALITY u(lv,o)
+                                       WHERE v_hids ? lv ORDER BY o)));
+    ELSE
+      v_hids:=rr.p->'header_ids';
+      v_entry:=rr.p->>'entry_code';
+      v_vals:=jsonb_build_object('printed_number',rr.p->'printed_number','generation_local',rr.p->'generation_local',
+        'generation_global',rr.p->'generation_global','generation_label_raw',rr.p->'generation_label_raw',
+        'kuld_label',rr.p->'kuld_label','section_path',coalesce(rr.p->'section_path','[]'::jsonb));
+      v_kort:='[]'::jsonb;
+      FOR v_c IN SELECT k FROM jsonb_array_elements(coalesce(rr.p->'gruppekort','[]'::jsonb)) k LOOP
+        SELECT g->'value'#>>'{}' INTO v_val FROM jsonb_array_elements(v_gk) g WHERE g->>'id'=v_c->>'id';
+        IF v_val IS NULL THEN CONTINUE; END IF;
+        IF v_c->>'niveau'='kuld' THEN
+          v_vals:=v_vals||jsonb_build_object('kuld_label',v_val);
+        ELSE
+          v_vals:=v_vals||jsonb_build_object('generation_local',v_val::integer,'generation_label_raw',v_val);
+        END IF;
+        v_kort:=v_kort||jsonb_build_array(jsonb_build_object('id',v_c->>'id','value',v_val,
+                                                             'guide_line_sha256',v_c->>'guide_line_sha256'));
+      END LOOP;
+      IF jsonb_array_length(v_kort)>0 THEN
+        UPDATE plc_rec SET human=coalesce(rr.p->'human_header_levels','[]'::jsonb),
+               review=jsonb_build_object('gruppekort',v_kort,'approvals_sha256',current_setting('plc.approvals_sha'))
+         WHERE record_key=rr.record_key;
+      END IF;
+    END IF;
+    UPDATE plc_rec SET kandidat=true, entry_code=v_entry, hids=v_hids, vals=v_vals,
+           basis=CASE WHEN rr.p->>'status'='machine_ok' THEN 'machine' ELSE 'human_group_review' END
+     WHERE record_key=rr.record_key;
+  END LOOP;
+  -- Mappingen dækker hver gren i de poster, der kan skrives.
+  IF EXISTS (SELECT 1 FROM plc_rec f WHERE f.kandidat
                AND (f.entry_code IS NULL OR NOT EXISTS (SELECT 1 FROM plc_entry x WHERE x.code=f.entry_code))) THEN
     RAISE EXCEPTION 'PLC_PRE_MAPPING gren mangler';
   END IF;
@@ -330,8 +419,7 @@ BEGIN
     RAISE EXCEPTION 'PLC_PRE_ENTRIES';
   END IF;
   UPDATE plc_rec f SET parkeret=x.parkeret FROM plc_entry x WHERE x.code=f.entry_code;
-  UPDATE plc_rec SET skriv=true, basis=CASE WHEN p->>'status'='machine_ok' THEN 'machine' ELSE 'human_group_review' END
-   WHERE (p->>'status'='machine_ok' OR ap IS NOT NULL) AND parkeret IS FALSE;
+  UPDATE plc_rec SET skriv=true WHERE kandidat AND parkeret IS FALSE;
   -- Helpost og hovedperson-persona (materialiseret med statistik, jf. fix_150's anker-view-plan).
   CREATE TEMP TABLE plc_helpost ON COMMIT DROP AS
   SELECT sr.id AS record_id, o.id AS obs
@@ -363,14 +451,37 @@ BEGIN
   -- Overskrifterne: hver skrevet post har en linjeoverskrift (header_linje i manifestet), og dens header_ids peger på
   -- manifestets overskrifter.
   IF jsonb_array_length(m->'headers')<>(e->>'headers')::int
-     OR EXISTS (SELECT 1 FROM plc_rec f WHERE f.skriv AND (coalesce(f.p#>>'{header_ids,linje}','')=''
-                  OR jsonb_typeof(f.p->'header_ids')<>'object'
+     OR EXISTS (SELECT 1 FROM plc_rec f WHERE f.skriv AND (jsonb_typeof(f.hids) IS DISTINCT FROM 'object'
+                  OR coalesce(f.hids->>'linje','')=''
                   OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(m->'headers') h
-                                  WHERE h->>'element_id'=f.p#>>'{header_ids,linje}' AND h->>'kind'='header_linje')
-                  OR EXISTS (SELECT 1 FROM jsonb_each_text(f.p->'header_ids') k
+                                  WHERE h->>'element_id'=f.hids->>'linje' AND h->>'kind'='header_linje')
+                  OR EXISTS (SELECT 1 FROM jsonb_each_text(f.hids) k
                               WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements(m->'headers') h
                                                  WHERE h->>'element_id'=k.value)))) THEN
     RAISE EXCEPTION 'PLC_PRE_HEADERS';
+  END IF;
+  -- Menneskebekræftede niveauer: kun slaegtled/kuld, aldrig også et id i header_ids, og hvert godkendt korts niveau er
+  -- med; en post uden godkendt kort har ingen (ellers ville nærmeste-reglens undtagelse gælde uden evidens).
+  IF EXISTS (SELECT 1 FROM plc_rec f WHERE f.skriv AND (
+               (f.human IS NULL AND jsonb_array_length(coalesce(f.p->'human_header_levels','[]'::jsonb))<>0)
+               OR (f.human IS NOT NULL AND (jsonb_typeof(f.human)<>'array' OR jsonb_array_length(f.human)=0
+                   OR EXISTS (SELECT 1 FROM jsonb_array_elements(f.human) x
+                               WHERE jsonb_typeof(x)<>'string' OR x#>>'{}' NOT IN ('slaegtled','kuld')
+                                  OR f.hids ? (x#>>'{}'))
+                   OR EXISTS (SELECT 1 FROM jsonb_array_elements(f.review->'gruppekort') g
+                               JOIN jsonb_array_elements(f.p->'gruppekort') k ON k->>'id'=g->>'id'
+                              WHERE NOT f.human ? (k->>'niveau')))))) THEN
+    RAISE EXCEPTION 'PLC_PRE_HUMAN';
+  END IF;
+  IF (SELECT count(*) FROM plc_rec WHERE skriv AND human IS NOT NULL)<>(e->>'human')::bigint THEN
+    RAISE EXCEPTION 'PLC_PRE_HUMAN_LEVELS n=%', (SELECT count(*) FROM plc_rec WHERE skriv AND human IS NOT NULL);
+  END IF;
+  -- Unikhed over alt, der skrives (maskinelle og godkendte): med nummer højst én pr. (gren, slægtled, gruppe, nummer);
+  -- uden nummer (stamfædre) højst én pr. (gren, slægtled, gruppe).
+  IF EXISTS (SELECT 1 FROM plc_rec WHERE skriv
+              GROUP BY entry_code, vals->>'generation_local', vals->>'kuld_label', vals->>'printed_number'
+             HAVING count(*)>1) THEN
+    RAISE EXCEPTION 'PLC_PRE_UNIK';
   END IF;
   -- Ingen to personas, der får placement, peger på samme person (promotionen ville se en konflikt).
   IF (SELECT count(*) FROM plc_rec WHERE persona)<>(SELECT count(DISTINCT person_id) FROM plc_rec WHERE persona) THEN
@@ -511,17 +622,17 @@ BEGIN
   IF v_n<>(e->>'headers')::int THEN RAISE EXCEPTION 'PLC_WRITE_HEADERS n=%', v_n; END IF;
   FOR r IN SELECT * FROM plc_rec WHERE skriv ORDER BY record_key COLLATE "C" LOOP
     v_ids:='{}'::jsonb;
-    FOR k IN SELECT jsonb_object_keys(r.p->'header_ids') LOOP
+    FOR k IN SELECT jsonb_object_keys(r.hids) LOOP
       v_ids:=v_ids||jsonb_build_object(k, private.header_observation_uuid(v_rend, v_key,
-               split_part(r.p#>>ARRAY['header_ids',k], ':', 2)::integer));
+               split_part(r.hids->>k, ':', 2)::integer));
     END LOOP;
-    -- Et godkendt nummer (nummer_tabt_i_rendition) erstatter manifestets.
-    v_vals:=CASE WHEN jsonb_typeof(r.ap->'printed_number')='string'
-                 THEN r.p||jsonb_build_object('printed_number',r.ap->>'printed_number') ELSE r.p END;
+    v_vals:=r.vals;
     v_ev:=jsonb_build_object('rule_version',v_key,'header_ids',v_ids,'basis',r.basis,'record_key',r.record_key,
       'manifest_sha256',current_setting('plc.manifest_sha'),'mapping_sha256',current_setting('plc.mapping_sha'),
       'mapping_token_sha256',current_setting('plc.mapping_token_sha'),'approvals_sha256',current_setting('plc.approvals_sha'),
-      'go',current_setting('plc.go'),'decided_by_name',v_navn);
+      'go',current_setting('plc.go'),'decided_by_name',v_navn)
+      ||CASE WHEN r.human IS NULL THEN '{}'::jsonb
+             ELSE jsonb_build_object('human_header_levels',r.human,'human_review',r.review) END;
     UPDATE plc_rec SET rp=private.write_record_placement(r.record_id, r.entry_id, v_vals, (v_ids->>'linje')::uuid, v_ev)
      WHERE record_key=r.record_key;
   END LOOP;
@@ -645,6 +756,9 @@ BEGIN
     RAISE EXCEPTION 'PLC_POST_MEMBERSHIPS';
   END IF;
   IF private.placement_header_violations(v_src)<>0 THEN RAISE EXCEPTION 'PLC_POST_NEAREST'; END IF;
+  IF private.placement_human_header_levels(v_src)<>(e->>'human')::bigint THEN
+    RAISE EXCEPTION 'PLC_POST_HUMAN_LEVELS n=%', private.placement_human_header_levels(v_src);
+  END IF;
   -- Linjerækkefølgen: hver af kildens entries har mappingens sort_order (og ingen entry står uden for mappingen).
   IF EXISTS (SELECT 1 FROM public.lineage_scheme s JOIN public.lineage_scheme_entry le ON le.scheme_id=s.id
                LEFT JOIN plc_entry x ON x.code=le.code AND NOT x.parkeret
@@ -694,6 +808,7 @@ SELECT count(*) AS g_placements FROM private.source_record_placement rp JOIN pri
 SELECT count(*) AS g_persona FROM private.source_persona_placement pp JOIN private.source_record_placement rp ON rp.id=pp.record_placement_id
   JOIN private.source_record r ON r.id=rp.source_record_id WHERE r.source_id=:src \gset
 SELECT count(*) AS g_mapped FROM private.legacy_placement_disposition_current WHERE source_id=:src AND disposition='mapped' \gset
+SELECT private.placement_human_header_levels(:src) AS g_human \gset
 SELECT count(*) FILTER (WHERE state='corroborated') AS g_cor, count(*) FILTER (WHERE state='conflict') AS g_con
   FROM private.membership_component_states() \gset
-\echo PLC_OK entries=:g_entries headers=:g_headers placements=:g_placements persona=:g_persona ledger_mapped=:g_mapped memberships=:g_promoted revalideret=:g_reval corroborated=:g_cor conflict=:g_con
+\echo PLC_OK entries=:g_entries headers=:g_headers placements=:g_placements persona=:g_persona ledger_mapped=:g_mapped memberships=:g_promoted revalideret=:g_reval corroborated=:g_cor conflict=:g_con human_levels=:g_human
