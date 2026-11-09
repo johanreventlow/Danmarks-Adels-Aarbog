@@ -2,14 +2,16 @@
 -- (identitet_ceremoni.sql): kun antal og hashes, ingen id'er, navne eller tekst.
 -- Brug: psql -X -At -v ON_ERROR_STOP=1 [-v src=3] -v par_a=<person> -v par_b=<person> -f maal_trin6d2a.sql
 -- Én linje:
---   T6D2A_MAAL fase=<foer|ddl|data> regel=<n|na> synlige_oversigt=<n|na> kanter_par=<0|1> unresolved=<n>
+--   T6D2A_MAAL fase=<foer|ddl|data> regel=<n|na> synlige_anon=<n|na> bio_oversigt=<n|na> kanter_par=<0|1> unresolved=<n>
 --     uden_identitet=<n> KOORD_2018_20=<md5> KOORD_SRC=<md5> FAKTA=<md5> BIO=<md5>
 --   fase               foer  DDL'en er ikke kørt (private.overview_mention_narratives findes ikke)
 --                      ddl   DDL på plads, ceremoniens kvittering findes ikke
 --                      data  ceremoniens kvittering (change_set 'identitet_ceremoni', summary 'T6D2A_OK …') findes;
 --                            den skrives også ved fire N, så fasen siger »ceremonien er kørt«, ikke »der er skrevet«
 --   regel              antal rækker reglen private.overview_mention_narratives giver for alle personer (na i foer)
---   synlige_oversigt   hvor mange af reglens narrativer biografilæseren v2 stadig viser som anon (skal være 0 efter DDL)
+--   synlige_anon       hvor mange af reglens narrativer anon stadig kan læse direkte (SELECT … FROM public.narrative som anon;
+--                      narrativ-RLS er bevidst uændret, så tallet er ikke 0)
+--   bio_oversigt       hvor mange af reglens narrativer biografilæseren v2 stadig leverer som anon (skal være 0 efter DDL)
 --   kanter_par         antal samme_som-kanter mellem par_a og par_b, begge retninger (0 eller 1)
 --   unresolved         kildens personas, hvis identitet er unresolved
 --   uden_identitet     kildens personas uden identitetsrække
@@ -26,7 +28,8 @@
 BEGIN READ ONLY;
 SET LOCAL statement_timeout = '15min';
 SELECT to_regprocedure('private.overview_mention_narratives(bigint[])') IS NOT NULL AS ddl,
-       EXISTS (SELECT 1 FROM public.change_set WHERE operation='identitet_ceremoni' AND summary LIKE 'T6D2A\_OK %') AS kvit \gset
+       EXISTS (SELECT 1 FROM public.change_set WHERE operation='identitet_ceremoni' AND summary LIKE 'T6D2A\_OK %'
+                 AND subjekt_type='source' AND subjekt_id=:src) AS kvit \gset
 SELECT CASE WHEN NOT :'ddl'::boolean THEN 'foer' WHEN :'kvit'::boolean THEN 'data' ELSE 'ddl' END AS fase \gset
 SELECT count(*) FILTER (WHERE i.decision_status='unresolved') AS unresolved,
        count(*) FILTER (WHERE i.source_persona_id IS NULL) AS uden_identitet
@@ -46,14 +49,15 @@ SELECT count(*) AS regel,
   FROM private.overview_mention_narratives(ARRAY(SELECT id FROM public.person)) o
   JOIN public.narrative n ON n.id=o.narrative_id \gset m_
 SET LOCAL ROLE anon;
-SELECT count(*) AS synlige
-  FROM jsonb_to_recordset(:'m_rj'::jsonb) r(p bigint,n bigint,s bigint,t text)
- WHERE EXISTS (SELECT 1 FROM public.public_person_bio_source_versions_v2(ARRAY[r.p]) b
-                WHERE b.source_id=r.s AND b.narrative_text=r.t) \gset m_
+SELECT count(*) FILTER (WHERE EXISTS (SELECT 1 FROM public.public_person_bio_source_versions_v2(ARRAY[r.p]) b
+                                        WHERE b.source_id=r.s AND b.narrative_text=r.t)) AS bio,
+       count(*) FILTER (WHERE EXISTS (SELECT 1 FROM public.narrative nn WHERE nn.id=r.n)) AS anon
+  FROM jsonb_to_recordset(:'m_rj'::jsonb) r(p bigint,n bigint,s bigint,t text) \gset m_
 RESET ROLE;
 \else
 \set m_regel na
-\set m_synlige na
+\set m_bio na
+\set m_anon na
 \endif
 SET LOCAL ROLE anon;
 SELECT md5(coalesce(string_agg(x,E'\n' ORDER BY x COLLATE "C"),'')) AS fakta
@@ -73,6 +77,6 @@ SELECT md5(coalesce(string_agg(concat_ws('|',quote_nullable(c.person_id),quote_n
          quote_nullable(c.generation_local),quote_nullable(c.generation_global),quote_nullable(c.kuld_label),
          quote_nullable(c.provenance_kind)),E'\n' ORDER BY c.person_id,c.source_id) FILTER (WHERE c.source_id=:src),'')) AS k_src
   FROM public.public_person_source_coordinates() c \gset
-SELECT format('T6D2A_MAAL fase=%s regel=%s synlige_oversigt=%s kanter_par=%s unresolved=%s uden_identitet=%s KOORD_2018_20=%s KOORD_SRC=%s FAKTA=%s BIO=%s',
-              :'fase',:'m_regel',:'m_synlige',:'m_kanter_par',:'m_unresolved',:'m_uden_identitet',:'k_andre',:'k_src',:'fakta',:'bio');
+SELECT format('T6D2A_MAAL fase=%s regel=%s synlige_anon=%s bio_oversigt=%s kanter_par=%s unresolved=%s uden_identitet=%s KOORD_2018_20=%s KOORD_SRC=%s FAKTA=%s BIO=%s',
+              :'fase',:'m_regel',:'m_anon',:'m_bio',:'m_kanter_par',:'m_unresolved',:'m_uden_identitet',:'k_andre',:'k_src',:'fakta',:'bio');
 ROLLBACK;

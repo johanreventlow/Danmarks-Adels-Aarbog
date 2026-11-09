@@ -3,7 +3,7 @@
 -- (red_samme_som) eller en kildepersona-identitet (red_afgoer_source_persona, 'same', basis human_sheet); et N skriver
 -- intet for kortet. Kildeparametriseret; nævner hverken udgaver, kilde-id'er eller person-id'er i logikken.
 -- Kvittering: en change_set uden hændelser, skrevet SIDST (også ved nul skrivninger):
---   operation 'identitet_ceremoni', summary `T6D2A_OK kanter=<n> identiteter=<n> regel=<n>`; ceremonien udskriver samme linje.
+--   operation 'identitet_ceremoni' med kilden som subjekt (subjekt_type 'source'; PRE_FASE og målingens fase=data filtrerer på den), summary `T6D2A_OK kanter=<n> identiteter=<n> regel=<n>`; ceremonien udskriver samme linje.
 -- Fejlkoder: T6D2A_PRE_* (intet skrevet), T6D2A_POST_* (efterbetingelser; alt rulles tilbage). Alle fejl ruller hele
 -- transaktionen tilbage.
 --   PRE_ARGS/TIMEOUT/ROLE/DDL/GUC  argumenter, 15 min-grænse, redaktionsrolle (via -v actor), DDL fra Task 3-5, ingen
@@ -97,7 +97,9 @@ BEGIN
        OR v_n.sha IS DISTINCT FROM p_k#>>'{kandidat,tekst_sha256}' THEN RETURN 'kandidattekst'; END IF;
   END IF;
   IF v_h='samme_som' THEN
-    v_alias:=(p_k->>'alias_person_id')::bigint; v_obj:=(p_k->>'objekt_person_id')::bigint;
+    v_alias:=(p_k->>'alias_person_id')::bigint;
+    -- Ved A er objektet svarpersonen (det er dét par, der skrives), ellers manifestets objekt.
+    v_obj:=CASE WHEN p_svar='A' THEN p_person ELSE (p_k->>'objekt_person_id')::bigint END;
     IF v_alias IS NULL OR v_obj IS NULL OR v_alias=v_obj THEN RETURN 'kobling'; END IF;
     IF p_svar<>'A' AND v_obj<>v_cand THEN RETURN 'objekt er ikke kandidaten'; END IF;
     SELECT staged INTO v_staged FROM public.person WHERE id=v_alias;
@@ -108,8 +110,10 @@ BEGIN
     IF v_kant IS DISTINCT FROM (p_k#>>'{forventet_foer,samme_som_kant}')::boolean OR v_kant THEN RETURN 'kant'; END IF;
     -- Oversigtsomtalen og dens kontekst: de viste tekster er uændrede.
     IF NOT EXISTS (SELECT 1 FROM public.narrative n WHERE n.id=(p_k#>>'{oversigt,narrative_id}')::bigint
+                      AND n.subjekt_type='person' AND n.subjekt_id=v_alias AND n.source_id=v_src
                       AND pg_temp.t6_sha(n.tekst)=p_k#>>'{oversigt,tekst_sha256}') THEN RETURN 'oversigtstekst'; END IF;
     IF NOT EXISTS (SELECT 1 FROM public.narrative n WHERE n.id=(p_k#>>'{oversigt,kontekst_narrative_id}')::bigint
+                      AND n.subjekt_type='person' AND n.source_id=v_src
                       AND pg_temp.t6_sha(n.tekst)=p_k#>>'{oversigt,kontekst_tekst_sha256}') THEN RETURN 'kontekst'; END IF;
   ELSIF v_h='identitet' THEN
     IF coalesce(p_k->>'source_persona_id','') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
@@ -146,7 +150,8 @@ BEGIN
   END IF;
   IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN RAISE EXCEPTION 'T6D2A_PRE_GUC'; END IF;
   -- Fase: kvitteringen findes ikke (genkørsel stopper her; en kørsel med fire N skriver også kvitteringen).
-  IF EXISTS (SELECT 1 FROM public.change_set WHERE operation='identitet_ceremoni' AND summary LIKE 'T6D2A\_OK %') THEN
+  IF EXISTS (SELECT 1 FROM public.change_set WHERE operation='identitet_ceremoni' AND summary LIKE 'T6D2A\_OK %'
+              AND subjekt_type='source' AND subjekt_id=v_src) THEN
     RAISE EXCEPTION 'T6D2A_PRE_FASE';
   END IF;
   -- Filerne er de GO-bundne (psql's `cat` fjerner én afsluttende linjeskift).
@@ -184,6 +189,11 @@ BEGIN
   UPDATE t6_kort SET person=CASE svar WHEN 'A' THEN svar_person ELSE (k#>>'{kandidat,person_id}')::bigint END;
   -- Lås: samme mutationslås som red_samme_som, og identitets-/personarækkerne, som identitetskortene vedrører.
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  -- Kvitteringen efterprøves igen under låsen (en samtidig ceremoni kan have committet siden første tjek).
+  IF EXISTS (SELECT 1 FROM public.change_set WHERE operation='identitet_ceremoni' AND summary LIKE 'T6D2A\_OK %'
+              AND subjekt_type='source' AND subjekt_id=v_src) THEN
+    RAISE EXCEPTION 'T6D2A_PRE_FASE';
+  END IF;
   PERFORM 1 FROM private.source_persona_identity
     WHERE source_persona_id IN (SELECT (k->>'source_persona_id')::uuid FROM t6_kort WHERE handling='identitet'
                                    AND k->>'source_persona_id' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') FOR UPDATE;
@@ -252,8 +262,10 @@ BEGIN
   END IF;
   -- Kvitteringen skrives sidst: en change_set uden hændelser (også ved nul skrivninger).
   IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN RAISE EXCEPTION 'T6D2A_POST_GUC'; END IF;
-  v_cs:=public.begin_change_set('identitet_ceremoni',format('T6D2A_OK kanter=%s identiteter=%s regel=%s',v_kanter,v_ident,v_regel));
+  v_cs:=public.begin_change_set('identitet_ceremoni',format('T6D2A_OK kanter=%s identiteter=%s regel=%s',v_kanter,v_ident,v_regel),
+    'source',v_src);
   PERFORM set_config('app.change_set_id','',true);
 END $write$;
 COMMIT;
-SELECT summary FROM public.change_set WHERE operation='identitet_ceremoni' AND summary LIKE 'T6D2A\_OK %' ORDER BY id DESC LIMIT 1;
+SELECT summary FROM public.change_set WHERE operation='identitet_ceremoni' AND summary LIKE 'T6D2A\_OK %'
+   AND subjekt_type='source' AND subjekt_id=:src ORDER BY id DESC LIMIT 1;

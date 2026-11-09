@@ -99,7 +99,7 @@ guard() { v "$1" "SELECT md5((private.placement_membership_set($SRC)->'items')::
      FROM private.source_persona sp JOIN private.source_persona_identity i ON i.source_persona_id=sp.id AND i.decision_status='accepted'
     WHERE sp.source_id=$SRC AND sp.persona_key IN ('I-2','I-3'))"; }
 
-for c in go mix n; do createdb -T "$db" "${db}_$c"; done
+for c in go mix n kant; do createdb -T "$db" "${db}_$c"; done
 f0=$(maal "$db")
 [ "$(felt "$db" fase)" = "ddl" ] || fail "fase før: $f0"
 [ "$(felt "$db" regel)" = "0" ] && [ "$(felt "$db" unresolved)" = "1" ] && [ "$(felt "$db" uden_identitet)" = "2" ] \
@@ -147,6 +147,14 @@ MF="$tmp/m-a-uden-id.json" SV="$tmp/a-uden-id.txt" nej "$db" svar-a-uden-id PRE_
 svar "$tmp/a-ukendt.txt" "K1 J" "K2 J" "K3 J" "K4 A -999"
 jvar "$tmp/m-alle-j.json" "$tmp/m-a-ukendt.json" 'd["svar_sha256"]="'"$(sha "$tmp/a-ukendt.txt")"'"'
 MF="$tmp/m-a-ukendt.json" SV="$tmp/a-ukendt.txt" nej "$db" svar-a-ukendt-person PRE_MANIFEST
+# A på en kobling: det er parret alias↔svarperson, der efterprøves (ikke manifestets objekt).
+svar "$tmp/a-alias.txt" "K1 A -620105" "K2 J" "K3 J" "K4 J"
+jvar "$tmp/m-alle-j.json" "$tmp/m-a-alias.json" 'd["svar_sha256"]="'"$(sha "$tmp/a-alias.txt")"'"'
+MF="$tmp/m-a-alias.json" SV="$tmp/a-alias.txt" nej "$db" svar-a-alias PRE_MANIFEST
+q -d "${db}_kant" -c "INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES ('person',-620105,'person',-620102,'samme_som')" >/dev/null
+MF="$tmp/m-blandet.json" SV="$tmp/blandet.txt" E_K=1 E_I=2 E_R=1 nej "${db}_kant" svar-a-kant PRE_MANIFEST
+grep -q 'kort K1 (kobling)' "$tmp/svar-a-alias.out" || fail "svar-a-alias: årsag"
+grep -q 'kort K1 (kant)' "$tmp/svar-a-kant.out" || fail "svar-a-kant: årsag"
 # Efterbetingelserne: forkerte forventninger ruller alt tilbage.
 E_R=0 nej "$db" post-regel T6D2A_POST_REGEL
 E_K=0 nej "$db" post-kanter T6D2A_POST_KVITTERING
@@ -158,7 +166,7 @@ E_I=2 nej "$db" post-identiteter T6D2A_POST_KVITTERING
 ok "${db}_go" go
 grep -qx 'T6D2A_OK kanter=1 identiteter=3 regel=1' "$tmp/go.out" || fail "kvittering: $(cat "$tmp/go.out" | tail -3)"
 [ "$(felt "${db}_go" fase)" = "data" ] || fail "fase efter: $(maal "${db}_go")"
-[ "$(felt "${db}_go" regel)" = "1" ] && [ "$(felt "${db}_go" synlige_oversigt)" = "0" ] \
+[ "$(felt "${db}_go" regel)" = "1" ] && [ "$(felt "${db}_go" bio_oversigt)" = "0" ] && [ "$(felt "${db}_go" synlige_anon)" = "1" ] \
   && [ "$(felt "${db}_go" kanter_par)" = "1" ] && [ "$(felt "${db}_go" unresolved)" = "0" ] \
   && [ "$(felt "${db}_go" uden_identitet)" = "0" ] || fail "mål efter: $(maal "${db}_go")"
 [ "$(felt "${db}_go" KOORD_2018_20)" = "$K0" ] && [ "$(felt "${db}_go" KOORD_SRC)" = "$KS0" ] || fail "koordinater ændret"
@@ -171,6 +179,8 @@ grep -qx 'T6D2A_OK kanter=1 identiteter=3 regel=1' "$tmp/go.out" || fail "kvitte
   || fail "kant"
 [ "$(v "${db}_go" "SELECT count(*) FROM public.change_set WHERE operation='identitet_ceremoni' AND summary='T6D2A_OK kanter=1 identiteter=3 regel=1'")" = 1 ] \
   || fail "kvitteringspost"
+[ "$(v "${db}_go" "SELECT count(*) FROM public.change_set WHERE operation='identitet_ceremoni' AND subjekt_type='source' AND subjekt_id=$SRC")" = 1 ] \
+  || fail "kvitteringen er ikke knyttet til kilden"
 [ "$(v "${db}_go" "SELECT count(*) FROM public.change_event e JOIN public.change_set c ON c.id=e.change_set_id WHERE c.operation='identitet_ceremoni'")" = 0 ] \
   || fail "kvitteringen har hændelser"
 [ "$(v "${db}_go" "SELECT coalesce(nullif(current_setting('app.change_set_id',true),''),'tom')")" = tom ] || fail "app.change_set_id ryddet"

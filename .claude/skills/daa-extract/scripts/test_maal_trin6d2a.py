@@ -21,10 +21,10 @@ CEREMONI = SCRIPTS / "identitet_ceremoni.sql"
 SRC = -6420
 ANDEN = -6421
 DB = f"t6d2a_t6_maal_{os.getpid()}"
-LINE = re.compile(r"T6D2A_MAAL fase=(foer|ddl|data) regel=(\d+|na) synlige_oversigt=(\d+|na) kanter_par=([01]) "
+LINE = re.compile(r"T6D2A_MAAL fase=(foer|ddl|data) regel=(\d+|na) synlige_anon=(\d+|na) bio_oversigt=(\d+|na) kanter_par=([01]) "
                   r"unresolved=(\d+) uden_identitet=(\d+) KOORD_2018_20=([0-9a-f]{32}) KOORD_SRC=([0-9a-f]{32}) "
                   r"FAKTA=([0-9a-f]{32}) BIO=([0-9a-f]{32})")
-FELTER = ("fase", "regel", "synlige", "kanter_par", "unresolved", "uden_identitet", "koord", "koord_src", "fakta", "bio")
+FELTER = ("fase", "regel", "anon", "bio_oversigt", "kanter_par", "unresolved", "uden_identitet", "koord", "koord_src", "fakta", "bio")
 
 
 def _psql(*args: str, db: str | None = None, stdin: str | None = None) -> subprocess.CompletedProcess:
@@ -109,20 +109,55 @@ LANGUAGE sql STABLE AS $$ SELECT NULL::bigint,NULL::bigint,NULL::integer,NULL::i
 def test_foer_ddl_data_og_taellingerne(db):
     gem = _foer(db, paa=True)
     foer = _maal(db)
-    assert foer["fase"] == "foer" and foer["regel"] == "na" and foer["synlige"] == "na"
+    assert foer["fase"] == "foer" and foer["regel"] == "na" and foer["anon"] == "na" and foer["bio_oversigt"] == "na"
     _foer(db, paa=False)
     _must(_psql(db=db, stdin=gem["def"] + ";"), "gendan laeser")
     ddl = _maal(db)
-    assert ddl["fase"] == "ddl" and ddl["regel"] == "0" and ddl["synlige"] == "0"
+    assert ddl["fase"] == "ddl" and ddl["regel"] == "0" and ddl["anon"] == "0" and ddl["bio_oversigt"] == "0"
     assert ddl["unresolved"] == "1" and ddl["uden_identitet"] == "1" and ddl["kanter_par"] == "0"
     # kvitteringen (ogsaa ved fire N) flytter fasen til data; den roerer ikke hashes eller taellinger
-    _must(_psql("-c", "INSERT INTO public.change_set(operation,summary) VALUES "
-                      "('identitet_ceremoni','T6D2A_OK kanter=0 identiteter=0 regel=0')", db=db), "kvittering")
+    kv = "INSERT INTO public.change_set(operation,summary,subjekt_type,subjekt_id) VALUES " \
+         "('identitet_ceremoni','T6D2A_OK kanter=0 identiteter=0 regel=0','source',%d)"
+    _must(_psql("-c", kv % ANDEN, db=db), "kvittering for en anden kilde")
+    assert _maal(db)["fase"] == "ddl"  # en anden kildes kvittering tæller ikke
+    _must(_psql("-c", kv % SRC, db=db), "kvittering")
     data = _maal(db)
     assert data["fase"] == "data"
     assert {k: v for k, v in data.items() if k != "fase"} == {k: v for k, v in ddl.items() if k != "fase"}
     assert foer["koord"] == ddl["koord"] == data["koord"] and foer["koord_src"] == data["koord_src"]
     assert foer["fakta"] == ddl["fakta"] and _maal(db) == data
+
+
+_RULE = "private.overview_mention_narratives(bigint[])"
+
+
+def _def(db, sig: str) -> str:
+    return _must(_psql("-c", f"SELECT pg_get_functiondef('{sig}'::regprocedure)", db=db), "def").strip() + ";"
+
+
+def test_positiv_kontrol_for_anon_og_bio_tallene(db):
+    """Reglen stubbes til at pege paa fixturens narrativ: anon kan laese den direkte (synlige_anon=1), mens den rigtige
+    laeser udelader den (bio_oversigt=0). Erstattes laeseren af en stub, der ignorerer reglen, leverer den teksten, og
+    bio_oversigt=1: taelleren kan altsaa vaere forskellig fra 0."""
+    regel_def, laeser_def = _def(db, _RULE), _def(db, _READER)
+    try:
+        _must(_psql(db=db, stdin="""CREATE OR REPLACE FUNCTION private.overview_mention_narratives(p_person_ids bigint[])
+RETURNS TABLE(narrative_id bigint, person_id bigint, source_id bigint, detail_person_id bigint)
+LANGUAGE sql STABLE AS $$ SELECT n.id,n.subjekt_id,n.source_id,-1::bigint FROM public.narrative n
+  WHERE n.subjekt_type='person' AND n.subjekt_id=ANY(p_person_ids) $$;"""), "regelstub")
+        normal = _maal(db)
+        assert normal["regel"] == "1" and normal["anon"] == "1" and normal["bio_oversigt"] == "0"
+        _must(_psql(db=db, stdin="""CREATE OR REPLACE FUNCTION public.public_person_bio_source_versions_v2(p_person_ids bigint[])
+RETURNS TABLE(person_id bigint, source_id bigint, source_year integer, record_order integer, source_record_ref uuid,
+  source_label text, record_label text, narrative_text text, citation_label text, provenance_kind text)
+LANGUAGE sql STABLE AS $$ SELECT n.subjekt_id,n.source_id,NULL::integer,NULL::integer,NULL::uuid,NULL::text,NULL::text,
+  n.tekst,NULL::text,NULL::text FROM public.narrative n WHERE n.subjekt_id=ANY(p_person_ids) $$;"""), "laeserstub")
+        laekket = _maal(db)
+        assert laekket["regel"] == "1" and laekket["anon"] == "1" and laekket["bio_oversigt"] == "1"
+    finally:
+        _must(_psql(db=db, stdin=regel_def), "gendan regel")
+        _must(_psql(db=db, stdin=laeser_def), "gendan laeser")
+    assert _maal(db)["regel"] == "0"
 
 
 def test_kanter_par_taeller_begge_retninger(db):
