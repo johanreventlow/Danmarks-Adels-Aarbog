@@ -240,6 +240,58 @@ class TestApprovals(unittest.TestCase):
             self.run_(sv, {'SK:S2': '4'})
 
 
+class TestHtmlOgFlet(unittest.TestCase):
+    def setUp(self):
+        self.m = manifest()
+        self.cards = pk.kort_1939(self.m, k=4)
+        # S2 uden anden læsning, S3 læst uden nummer (oversigtspunkt), K:A uenig
+        self.sv = svar_for(self.cards, **{'SK:S3': {'nr': 'B)'}, 'K:A': {'slaegtled': 2}})
+        self.vd = pk.vurderinger(self.cards, self.sv)
+
+    def test_forslag_kun_for_strukturkort(self):
+        tok = pk.render_token(self.cards, self.vd, self.sv)
+        self.assertIn('U SK:S3 : N', tok)
+        self.assertIn('# SK:S3: forudfyldt N — unummereret post eller oversigtspunkt', tok)
+        self.assertIn('U SK:S2 : N', tok)                     # nummer, men ingen anden læsning: forudfyldt N
+        self.assertIn('U K:A : \n', tok)                       # stikprøven: projektejeren svarer
+        self.assertEqual(pk.render_token(self.cards, self.vd).count(': N'), 0)   # uden svar: intet forslag
+
+    def test_html_har_spoergsmaal_og_binder_tokenfilen(self):
+        tok = pk.render_token(self.cards, self.vd, self.sv)
+        ops = pk.opslag(self.m, self.cards, records(self.m), RENDITION)
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / 'sider').mkdir()
+            (Path(d) / 'sider' / 'side-500.png').write_bytes(b'x')
+            h = pk.render_html(self.cards, self.vd, self.sv, ops, Path(d), tok)
+        data = json.loads(h.split('const DATA=', 1)[1].split('; const KEY', 1)[0])
+        self.assertEqual(data['token_sha256'], pk._sha(tok.encode('utf-8')))
+        k = next(x for x in data['kort'] if x['linje'] == 'U K:A')
+        self.assertIn('Maskinen har placeret den: slægtled 1, ingen gruppe-romertal', k['sp']['tekst'])
+        self.assertEqual(k['sp']['knapper'][0][0], '1 -')
+        self.assertEqual(k['sider'], [500])
+        s3 = next(x for x in data['kort'] if x['linje'] == 'U SK:S3')
+        self.assertEqual((s3['forudfyldt'], s3['begrundelse'][:11]), ('N', 'unummereret'))
+        self.assertEqual(sum(x['art'] == 'V' for x in data['kort']), len(pk.v_poster(self.cards, self.vd)))
+
+    def test_flet(self):
+        tok = pk.render_token(self.cards, self.vd, self.sv)
+        keys = [l.split(' : ')[0] for l in tok.splitlines() if l[:2] in ('U ', 'V ')]
+        svar = {k: ('1 -' if k == 'U K:A' else 'J' if k.startswith('V ') else 'N') for k in keys}
+        ud = pk.flet(tok, {'token_sha256': pk._sha(tok.encode('utf-8')), 'svar': svar}, self.cards)
+        self.assertIn('U K:A : 1 -', ud)
+        self.assertEqual([l for l in ud.splitlines() if not l[:2] in ('U ', 'V ')],
+                         [l for l in tok.splitlines() if not l[:2] in ('U ', 'V ')])   # kun tokens ændret
+        res = pk.approvals_1939(self.m, self.cards, self.sv, ud, manifest_sha256='m', kontrol={})
+        self.assertNotIn('S3', [a['record_key'] for a in res['approvals']])
+        with self.assertRaisesRegex(SheetError, 'KORT_SVAR_ANDEN_TOKENFIL'):
+            pk.flet(tok, {'token_sha256': 'x', 'svar': svar}, self.cards)
+        with self.assertRaisesRegex(SheetError, 'SHEET_TOKEN_NOT_ALLOWED'):
+            pk.flet(tok, {'token_sha256': pk._sha(tok.encode('utf-8')), 'svar': dict(svar, **{'U K:A': 'ja'})},
+                    self.cards)
+        with self.assertRaisesRegex(SheetError, 'SHEET_UNANSWERED'):
+            pk.flet(tok, {'token_sha256': pk._sha(tok.encode('utf-8')), 'svar': {}}, self.cards)
+
+
 class TestJob(unittest.TestCase):
     def test_jobmappe(self):
         m = manifest()

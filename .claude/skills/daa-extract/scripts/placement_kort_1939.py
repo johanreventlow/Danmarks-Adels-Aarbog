@@ -17,6 +17,7 @@ godkendelseskontrakt v3 til placement_ceremoni.sql.
 Underkommandoer:
   job          manifest + records + rendition + PDF -> jobmappe (opslag.json, brief.md, sider/*.png) til modellen
   undtagelser  modelsvarene -> token-fil (U-/V-linjer) + lokal HTML med sidebillederne (under ~/.private)
+  flet         HTML-sidens svarfil (kort-svar.json) -> tokens i token-filen
   approvals    modelsvar + besvaret token-fil -> approvals.json (kontrakt v3)
 Jobmappen må ikke ligge under ~/.private eller i et git-repo; modellen læser kun den. Værktøjet printer kun tal og sha.
 """
@@ -326,16 +327,30 @@ def v_poster(cards: list[dict], vd: dict[str, str], seed: int = SEED) -> list[st
     return [x for x in enige if x in valgt]
 
 
-SVARFORM = {'K': '<slægtled> <romertal|->', 'GK': '<værdi> eller N', 'SK': '<nr> eller N', 'SG': '<slægtled> eller N',
-            'NK': 'J eller N'}
 U_RE = re.compile(r'^U (?P<id>\S+) : ?(?P<tok>.*)$')
 V_RE = re.compile(r'^V (?P<id>\S+) : ?(?P<tok>.*)$')
+TOKEN_FORM = {'K': re.compile(r'^\d+ ([IVXLC]+|-)$'), 'GK': re.compile(r'^([IVXLC]+|\d+|N)$'),
+              'SK': re.compile(r'^(\d+[a-z]?|N)$'), 'SG': re.compile(r'^(\d+|N)$'), 'NK': re.compile(r'^[JN]$'),
+              'V': re.compile(r'^[JN]$')}
 
 
-def render_token(cards: list[dict], vd: dict[str, str], seed: int = SEED) -> str:
+def forslag(card: dict, s: dict) -> tuple[str, str] | None:
+    """Forudfyldt svar på et undtagelseskort (token, begrundelse) eller None (projektejeren skal svare).
+    Strukturkort placeres ikke i 6d-1, når modellen ikke læste et almindeligt nummer (unummereret post eller
+    oversigtspunkt, Gate A) eller læste en anden gruppe/slægtled end de fundne nærmeste overskrifter (overskriften
+    mangler i Calamari; posten ville miste den)."""
+    if card['type'] != 'SK':
+        return None
+    nr = _norm_nr(s.get('nr'))
+    if nr in (None, '-') or not NR_RE.match(nr):
+        return 'N', 'unummereret post eller oversigtspunkt — placeres ikke (Gate A)'
+    return 'N', 'står under en overskrift, som mangler i Calamari — ville miste sin gruppe/sit slægtled (opfølgning)'
+
+
+def render_token(cards: list[dict], vd: dict[str, str], svar: list[dict] | None = None, seed: int = SEED) -> str:
+    by = _svar_map(svar, cards) if svar is not None else {}
     out = ['# ============ 6d-1 KORT 1939: UNDTAGELSER OG KONTROL ============',
-           '# Slå hver linje op i HTML-filen ved siden af (sidebillede, modellens læsning, guidens værdi). Skriv kun efter',
-           '# kolonet; alt med »#« er information. Svarformer:',
+           '# Besvares i HTML-siden ved siden af; `flet` skriver svarene her. Alt med »#« er information. Svarformer:',
            '#   U K:…  <slægtled> <romertal|->   (det, der står i bogen; afviger det fra maskinen, stopper kørslen)',
            '#   U GK:… værdien fra siden (romertal / slægtledstal) eller N = lad posterne stå uafklarede',
            '#   U SK:… postens trykte nummer (posten står under de viste overskrifter) eller N',
@@ -343,7 +358,13 @@ def render_token(cards: list[dict], vd: dict[str, str], seed: int = SEED) -> str
            '#   V …    J = maskinens slægtled og gruppe passer med PDF\'en · N = afviger (stopper kørslen)']
     us = [c for c in cards if vd[c['kort_id']] != 'enig']
     out.append(f'# {len(us)} undtagelser')
-    out += [f"U {c['kort_id']} : " for c in us]
+    for c in us:
+        f = forslag(c, by[c['kort_id']]) if by else None
+        if f:
+            out.append(f"# {c['kort_id']}: forudfyldt {f[0]} — {f[1]}")
+            out.append(f"U {c['kort_id']} : {f[0]}")
+        else:
+            out.append(f"U {c['kort_id']} : ")
     vs = v_poster(cards, vd, seed)
     out.append(f'# {len(vs)} stikprøvekontroller af modellens enige svar')
     out += [f'V {x} : ' for x in vs]
@@ -354,37 +375,153 @@ def _img(jobdir: Path, side: int) -> str:
     return (jobdir / 'sider' / f'side-{side:03d}.png').as_uri()
 
 
+def _placering(f: dict) -> str:
+    dele = []
+    if 'slaegtled' in f:
+        dele.append('slægtled ' + ('?' if f['slaegtled'] is None else str(f['slaegtled'])))
+    if 'gruppe' in f:
+        g = f['gruppe']
+        dele.append('ingen gruppe-romertal' if g == '-' else ('gruppe ?' if g is None else f'gruppe {g}'))
+    if 'nr' in f:
+        dele.append('nummer ' + ('?' if f['nr'] is None else str(f['nr'])))
+    return ', '.join(dele)
+
+
+def _spoergsmaal(c: dict, art: str, o: dict) -> dict:
+    """Kortets spørgsmål i klart sprog og svarmulighederne (knapper → token)."""
+    f = c['forventet']
+    find = f"Find posten på PDF-side {o['side']}, der begynder »{o['start_tekst'][:60]}…«."
+    if art == 'V':
+        return {'tekst': f"{find} Står den i bogen sådan: {_placering(f)}?",
+                'hjaelp': 'Slægtled = nærmeste »N. Slægtled« over posten (i fællesstammen: romertallet over afsnittet). '
+                          'Gruppe = romertallet over posten inden for slægtleddet.',
+                'knapper': [['J', 'Ja, det passer'], ['N', 'Nej, det afviger']], 'felt': None}
+    if c['type'] == 'K':
+        return {'tekst': f"{find} Maskinen har placeret den: {_placering(f)}. Passer det med bogen?",
+                'hjaelp': 'Modellen kunne ikke afgøre det sikkert (se dens note). Svarer du nej, skriv hvad der står; '
+                          'en afvigelse stopper kørslen og sendes tilbage til scanneren.',
+                'knapper': [[f"{f['slaegtled']} {f['gruppe']}", 'Ja, det passer']],
+                'felt': {'label': 'Nej — det der står: slægtled og romertal (fx »6 -« eller »5 II«)', 'form': 'K'}}
+    if c['type'] == 'GK':
+        v = next(iter(f.values()))
+        hvad = 'gruppe-romertal' if c['niveau'] == 'kuld' else 'slægtled'
+        return {'tekst': f"{find} Står den under {hvad} {v}?",
+                'hjaelp': 'Ja godkender overskriften for alle kortets poster; nej lader dem stå uafklarede.',
+                'knapper': [[str(v), 'Ja'], ['N', 'Nej / kan ikke se det']], 'felt': None}
+    if c['type'] == 'SK':
+        return {'tekst': f"{find} Skal posten placeres i 6d-1? Nærmeste fundne overskrifter: {_placering(f)}.",
+                'hjaelp': 'Forudfyldt »ingen placering« (se begrundelsen). Skift kun, hvis posten faktisk står under '
+                          'de viste overskrifter med et almindeligt nummer.',
+                'knapper': [['N', 'Ingen placering (forudfyldt)']],
+                'felt': {'label': 'Placér med postens trykte nummer', 'form': 'SK'}}
+    if c['type'] == 'NK':
+        return {'tekst': f"{find} Har den det trykte nummer {f['nr']}?",
+                'hjaelp': 'Guiden har et spring i nummereringen her.', 'knapper': [['J', 'Ja'], ['N', 'Nej']], 'felt': None}
+    return {'tekst': f"{find} Står den i slægtled {f.get('slaegtled')}?", 'hjaelp': '',
+            'knapper': [[str(f.get('slaegtled')), 'Ja'], ['N', 'Nej']], 'felt': None}
+
+
+HTML_TPL = r"""<!doctype html><html lang="da"><head><meta charset="utf-8"><title>6d-1 kort 1939</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"><style>
+:root{--bg:#fff;--fg:#1d1d1f;--mut:#666;--box:#f4f4f6;--acc:#1f5fbf;--ok:#1d7a3a;--line:#ddd}
+@media (prefers-color-scheme: dark){:root{--bg:#161618;--fg:#eee;--mut:#aaa;--box:#232327;--acc:#7fb0ff;--ok:#6fd08c;--line:#333}}
+body{background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,sans-serif;margin:0 auto;max-width:1150px;padding:16px}
+header{position:sticky;top:0;background:var(--bg);padding:8px 0;border-bottom:1px solid var(--line);z-index:2;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.q{font-size:19px;font-weight:600;margin:10px 0}.h{color:var(--mut);font-size:14px}.box{background:var(--box);border-radius:8px;padding:10px 12px;margin:8px 0}
+button{font:inherit;padding:7px 12px;border-radius:7px;border:1px solid var(--line);background:var(--box);color:var(--fg);cursor:pointer;margin:3px}
+button.valgt{background:var(--acc);color:#fff;border-color:var(--acc)}input{font:inherit;padding:6px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--fg);width:9em}
+img{max-width:100%;border:1px solid var(--line);margin:4px 0}.svar{color:var(--ok);font-weight:600}code{background:var(--box);padding:1px 4px;border-radius:4px}
+</style></head><body>
+<header><b>6d-1 kort 1939</b><span id="pos"></span><span id="frem" class="h"></span>
+<button onclick="gaa(-1)">← Forrige</button><button onclick="gaa(1)">Næste →</button><button onclick="naeste()">Næste ubesvarede</button>
+<button onclick="gem()"><b>Gem svar</b></button></header><main id="kort"></main>
+<p class="h">Taster: ← → bladrer · 1/2 vælger knap · svarene gemmes i browseren, og »Gem svar« henter filen <code>kort-svar.json</code> til Overførsler.</p>
+<script>
+const DATA=/*__DATA__*/null; const KEY='6d1-kort-'+DATA.token_sha256; let svar={}, i=0;
+try{svar=JSON.parse(localStorage.getItem(KEY)||'{}')||{}}catch(e){svar={}}
+for(const k of DATA.kort){if(!(k.linje in svar)&&k.forudfyldt)svar[k.linje]=k.forudfyldt}
+function husk(){try{localStorage.setItem(KEY,JSON.stringify(svar))}catch(e){}}
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function saet(t){svar[DATA.kort[i].linje]=t;husk();tegn()}
+function gaa(d){i=Math.max(0,Math.min(DATA.kort.length-1,i+d));tegn();scrollTo(0,0)}
+function naeste(){for(let j=1;j<=DATA.kort.length;j++){const n=(i+j)%DATA.kort.length;if(!svar[DATA.kort[n].linje]){i=n;tegn();scrollTo(0,0);return}}alert('Alle kort er besvaret — tryk »Gem svar«.')}
+function felt(){const k=DATA.kort[i],v=document.getElementById('fv').value.trim();const re=new RegExp(k.sp.felt.re);if(!re.test(v)){alert('Formen passer ikke: '+k.sp.felt.label);return}saet(v)}
+function tegn(){const k=DATA.kort[i],m=k.model,a=svar[k.linje]||'';let h='';
+ h+=`<div class="h">${esc(k.art==='V'?'Kontrol af en enig stikprøve':'Undtagelse')} · ${esc(k.kort_id)} · ${k.poster} post(er)</div>`;
+ h+=`<div class="q">${esc(k.sp.tekst)}</div><div class="h">${esc(k.sp.hjaelp)}</div>`;
+ if(k.begrundelse)h+=`<div class="box">Forslag: ${esc(k.begrundelse)}</div>`;
+ h+='<div>'+k.sp.knapper.map((b,n)=>`<button class="${a===b[0]?'valgt':''}" onclick="saet('${esc(b[0])}')">${n+1}. ${esc(b[1])}</button>`).join('');
+ if(k.sp.felt)h+=` <span>${esc(k.sp.felt.label)}: <input id="fv" value="${esc(k.sp.knapper.some(b=>b[0]===a)?'':a)}"> <button onclick="felt()">Brug</button></span>`;
+ h+='</div>'+(a?`<div>Dit svar: <span class="svar">${esc(a)}</span></div>`:'<div class="h">Ikke besvaret</div>');
+ h+=`<div class="box"><b>Modellen læste</b> (sikkerhed ${esc(m.sikkerhed)}): slægtled ${esc(m.slaegtled??'?')}, gruppe ${esc(m.gruppe??'?')}, nummer ${esc(m.nr??'?')}`;
+ for(const [f,l] of [['slaegtled_linje','slægtledslinje'],['gruppe_linje','gruppelinje'],['nr_linje','postens linje'],['note','note']])if(m[f])h+=`<br><span class="h">${l}:</span> ${esc(m[f])}`;
+ h+='</div>';
+ k.sider.forEach((s,n)=>{h+=`<div class="h">PDF-side ${s}</div><img loading="lazy" src="${esc(k.uris[n])}">`});
+ document.getElementById('kort').innerHTML=h;
+ document.getElementById('pos').textContent=`Kort ${i+1}/${DATA.kort.length}`;
+ document.getElementById('frem').textContent=`${DATA.kort.filter(x=>svar[x.linje]).length} besvaret`}
+function gem(){const mangler=DATA.kort.filter(x=>!svar[x.linje]).length;if(mangler&&!confirm(mangler+' kort er ikke besvaret. Gem alligevel?'))return;
+ const b=new Blob([JSON.stringify({token_sha256:DATA.token_sha256,svar},null,1)],{type:'application/json'});
+ const u=URL.createObjectURL(b),l=document.createElement('a');l.href=u;l.download='kort-svar.json';document.body.appendChild(l);l.click();l.remove()}
+document.addEventListener('keydown',e=>{if(e.target.tagName==='INPUT'){if(e.key==='Enter')felt();return}
+ if(e.key==='ArrowRight')gaa(1);else if(e.key==='ArrowLeft')gaa(-1);else if(/^[1-9]$/.test(e.key)){const b=DATA.kort[i].sp.knapper[+e.key-1];if(b)saet(b[0])}});
+tegn();
+</script></body></html>
+"""
+
+
 def render_html(cards: list[dict], vd: dict[str, str], svar: list[dict], ops: list[dict], jobdir: Path,
-                seed: int = SEED) -> str:
+                token_text: str, seed: int = SEED) -> str:
+    """Interaktiv lokal side: ét kort ad gangen med et eksplicit spørgsmål og svarknapper; »Gem svar« henter en
+    JSON, som `flet` skriver ind i token-filen (bundet til token-filens sha)."""
     by = _svar_map(svar, cards)
     op = {o['kort_id']: o for o in ops}
-    vs = set(v_poster(cards, vd, seed))
-    rows = [c for c in cards if vd[c['kort_id']] != 'enig'] + [c for c in cards if c['kort_id'] in vs]
-    e = html.escape
-    parts = ['<!doctype html><meta charset="utf-8"><title>6d-1 kort 1939</title><style>',
-             'body{font:15px system-ui;margin:16px;max-width:1100px}section{border-top:2px solid #888;padding:12px 0}',
-             'img{max-width:100%;border:1px solid #ccc;margin:4px 0}code{background:#eee;padding:1px 4px}',
-             'table{border-collapse:collapse}td{padding:2px 8px;vertical-align:top}</style>',
-             f'<h1>6d-1 kort 1939: {sum(1 for c in cards if vd[c["kort_id"]] != "enig")} undtagelser, {len(vs)} kontroller</h1>',
-             '<p>Svar i token-filen (<code>U</code>/<code>V</code>-linjerne). Sidebillederne er PDF-siderne.</p>']
-    for c in rows:
+    pre = {m['id']: m['tok'].strip() for m in (U_RE.match(l) for l in token_text.splitlines()) if m and m['tok'].strip()}
+    grund = {mm[1]: mm[2] for mm in (re.match(r'^# (\S+): forudfyldt \S+ — (.*)$', l) for l in token_text.splitlines()) if mm}
+    vs = v_poster(cards, vd, seed)
+    rows = [('U', c) for c in cards if vd[c['kort_id']] != 'enig'] + [('V', c) for c in cards if c['kort_id'] in vs]
+    data = []
+    for art, c in rows:
         o, s = op[c['kort_id']], by[c['kort_id']]
-        art = 'V' if c['kort_id'] in vs else 'U'
-        parts.append(f"<section><h2>{art} {e(c['kort_id'])} — {e(vd[c['kort_id']])}</h2><table>")
-        parts.append(f"<tr><td>Side</td><td>{o['side']} · gren {e(str(o['gren']))} · {len(c['poster'])} post(er)</td></tr>")
-        parts.append(f"<tr><td>Posten begynder</td><td>{e(o['start_tekst'])}</td></tr>")
-        parts.append(f"<tr><td>Svarform</td><td><code>{e(SVARFORM[c['type']] if art == 'U' else 'J eller N')}</code></td></tr>")
-        parts.append(f"<tr><td>Maskine/guide</td><td>{e(json.dumps(c['forventet'], ensure_ascii=False))}</td></tr>")
-        laest = {f: s.get(f) for f in ('slaegtled', 'gruppe', 'nr')}
-        parts.append(f"<tr><td>Modellen læste</td><td>{e(json.dumps(laest, ensure_ascii=False))} "
-                     f"(sikkerhed {e(str(s.get('sikkerhed')))})</td></tr>")
-        for f in ('slaegtled_linje', 'gruppe_linje', 'nr_linje', 'note'):
-            if s.get(f):
-                parts.append(f"<tr><td>{f}</td><td>{e(str(s[f]))}</td></tr>")
-        parts.append('</table>')
-        parts += [f'<div>PDF-side {sd}</div><img loading="lazy" src="{_img(jobdir, sd)}">' for sd in o['sider']]
-        parts.append('</section>')
-    return '\n'.join(parts) + '\n'
+        sp = _spoergsmaal(c, art, o)
+        if sp['felt']:
+            sp['felt']['re'] = TOKEN_FORM[sp['felt']['form']].pattern
+        sider = [x for x in range(o['side'] - 2, o['side'] + 1) if (jobdir / 'sider' / f'side-{x:03d}.png').exists()]
+        data.append({'linje': f"{art} {c['kort_id']}", 'art': art, 'kort_id': c['kort_id'], 'poster': len(c['poster']),
+                     'sp': sp, 'forudfyldt': pre.get(c['kort_id']) if art == 'U' else None,
+                     'begrundelse': grund.get(c['kort_id']) if art == 'U' else None,
+                     'model': {k: s.get(k) for k in ('slaegtled', 'gruppe', 'nr', 'sikkerhed', 'slaegtled_linje',
+                                                     'gruppe_linje', 'nr_linje', 'note')},
+                     'sider': sider, 'uris': [_img(jobdir, x) for x in sider]})
+    payload = {'token_sha256': _sha(token_text.encode('utf-8')), 'kort': data}
+    return HTML_TPL.replace('/*__DATA__*/null', json.dumps(payload, ensure_ascii=False).replace('</', '<\\/'))
+
+
+def flet(token_text: str, svar_json: dict, cards: list[dict]) -> str:
+    """Skriver HTML-sidens svar ind i token-filen: kun tokens på U-/V-linjerne ændres, og kun i den form, linjens
+    korttype tillader; svarfilen skal høre til netop denne token-fil."""
+    if svar_json.get('token_sha256') != _sha(token_text.encode('utf-8')):
+        raise SheetError('KORT_SVAR_ANDEN_TOKENFIL')
+    sv = svar_json.get('svar') or {}
+    typ = {c['kort_id']: c['type'] for c in cards}
+    lines = token_text.split('\n')
+    seen = set()
+    for n, line in enumerate(lines):
+        m = U_RE.match(line) or V_RE.match(line)
+        if not m:
+            continue
+        key = f"{line[0]} {m['id']}"
+        seen.add(key)
+        tok = str(sv.get(key, '')).strip()
+        if not tok:
+            raise SheetError(f'SHEET_UNANSWERED {key}')
+        form = TOKEN_FORM['V' if line[0] == 'V' else typ[m['id']]]
+        if not form.match(tok):
+            raise SheetError(f'SHEET_TOKEN_NOT_ALLOWED {key}')
+        lines[n] = f"{line[0]} {m['id']} : {tok}"
+    if set(sv) - seen:
+        raise SheetError('KORT_SVAR_UKENDT')
+    return '\n'.join(lines)
 
 
 # --- approvals ---------------------------------------------------------------------------------------------------
@@ -560,6 +697,15 @@ def main(argv: list[str] | None = None) -> int:
         x.add_argument('--svar', required=True)
     u.add_argument('--out-token', required=True)
     u.add_argument('--out-html', required=True)
+    u.add_argument('--pdf')
+    f = sub.add_parser('flet')
+    f.add_argument('--manifest', required=True)
+    f.add_argument('--jobdir', required=True)
+    f.add_argument('--private-root', default=str(Path.home() / '.private'))
+    f.add_argument('--k', type=int, default=20)
+    f.add_argument('--seed', type=int, default=SEED)
+    f.add_argument('--token', required=True)
+    f.add_argument('--html-svar', required=True)
     a.add_argument('--token', required=True)
     a.add_argument('--approved-token-sha256', required=True)
     a.add_argument('--model', required=True)
@@ -578,14 +724,24 @@ def main(argv: list[str] | None = None) -> int:
                   + ' ' + ' '.join(f'{t}={n}' for t, n in res['pr_type'].items()))
             return 0
         cards = kort_1939(m, args.k, args.seed)
+        if args.cmd == 'flet':
+            tpath = check_private_path(Path(args.token), root)
+            ud = flet(tpath.read_text(encoding='utf-8'), _load_json(Path(args.html_svar)), cards)
+            _write_private(tpath, ud)
+            print(f"FLET_OK token_sha256={_sha(ud.encode('utf-8'))}")
+            return 0
         svar_b = Path(args.svar).read_bytes()
         svar = json.loads(svar_b.decode('utf-8'))
         vd = vurderinger(cards, svar)
         if args.cmd == 'undtagelser':
             ops = _load_json(jobdir / 'opslag.json')
-            tok = render_token(cards, vd, args.seed)
+            if args.pdf:
+                render_pages(Path(args.pdf), sorted({x for o in ops for x in range(o['side'] - 2, o['side'] + 1)
+                                                     if x >= 1}), jobdir / 'sider')
+            tok = render_token(cards, vd, svar, args.seed)
             _write_private(check_private_path(Path(args.out_token), root), tok)
-            _write_private(check_private_path(Path(args.out_html), root), render_html(cards, vd, svar, ops, jobdir, args.seed))
+            _write_private(check_private_path(Path(args.out_html), root),
+                           render_html(cards, vd, svar, ops, jobdir, tok, args.seed))
             c = {k: list(vd.values()).count(k) for k in ('enig', 'uenig', 'ulaeselig', 'ingen_anden')}
             print('UNDTAGELSER_OK ' + ' '.join(f'{k}={v}' for k, v in c.items())
                   + f' kontrol={len(v_poster(cards, vd, args.seed))} token_sha256={_sha(tok.encode("utf-8"))}')
