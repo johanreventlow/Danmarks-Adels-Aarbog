@@ -10487,6 +10487,15 @@ BEGIN
       RAISE EXCEPTION 'VERIFY_FAILED: 6d-2a overview_mention_narratives eksekverbar for %',r;
     END IF;
   END LOOP;
+  -- Trin 6d-2a: retningsreglen i samme_som er privat; ingen API-rolle må kalde den.
+  IF to_regprocedure('private.samme_som_data_direction(bigint,bigint)') IS NULL THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6d-2a mangler private.samme_som_data_direction(bigint,bigint)';
+  END IF;
+  FOREACH r IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_function_privilege(r,'private.samme_som_data_direction(bigint,bigint)','EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6d-2a samme_som_data_direction eksekverbar for %',r;
+    END IF;
+  END LOOP;
   -- Helbred (spec §4.4): promoverede memberships, hvis tilstand er ændret siden; 5c-2's læsere filtrerer på gældende.
   RAISE NOTICE 'PLACEMENT_MEMBERSHIP_NOT_CURRENT n=%',private.placement_membership_not_current();
   RAISE NOTICE 'OK: #150 — legacy-ledger, private placement-skrivefunktioner, slaegt versioneret';

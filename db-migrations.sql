@@ -34346,3 +34346,88 @@ BEGIN
      AND NOT (narrative.id=ANY(v_ov));
 END
 $$;
+
+-- Trin 6d-2a: retningen af en samme_som-kobling, når data kan afgøre den. Gældende medlemskab i kilde K = en
+-- person_lineage_membership-række med persona-placement-grundlag, source_id=K og private.membership_is_current.
+-- »Optræder i K« = accepteret persona-identitet i K eller en person_external_id-række i K. For hver kilde, hvor præcis
+-- én af de to har gældende K-medlemskab, og den anden optræder i K uden et, foreslås (den uden, den med). Giver alle
+-- sådanne kilder samme retning, returneres den; peger de modsat, eller er der ingen, returneres ingen række.
+CREATE OR REPLACE FUNCTION private.samme_som_data_direction(p_a bigint,p_b bigint)
+RETURNS TABLE(alias_id bigint, objekt_id bigint)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+#variable_conflict use_column
+BEGIN
+  RETURN QUERY
+  WITH cur AS (
+    SELECT DISTINCT m.person_id AS pid,(m.source_basis->>'source_id')::bigint AS sid
+      FROM public.person_lineage_membership m
+     WHERE m.person_id IN (p_a,p_b) AND m.source_basis ? 'persona_placement_id'
+       AND private.membership_is_current(m.person_id,m.lineage_id)
+  ), app AS (
+    SELECT sp.source_id AS sid,i.canonical_person_id AS pid
+      FROM private.source_persona_identity i
+      JOIN private.source_persona sp ON sp.id=i.source_persona_id
+     WHERE i.decision_status='accepted' AND i.canonical_person_id IN (p_a,p_b)
+    UNION
+    SELECT e.source_id,e.person_id FROM public.person_external_id e WHERE e.person_id IN (p_a,p_b)
+  ), props AS (
+    SELECT DISTINCT p_b AS al,p_a AS ob
+      FROM cur WHERE cur.pid=p_a
+       AND NOT EXISTS (SELECT 1 FROM cur c2 WHERE c2.pid=p_b AND c2.sid=cur.sid)
+       AND EXISTS (SELECT 1 FROM app WHERE app.pid=p_b AND app.sid=cur.sid)
+    UNION
+    SELECT p_a,p_b
+      FROM cur WHERE cur.pid=p_b
+       AND NOT EXISTS (SELECT 1 FROM cur c2 WHERE c2.pid=p_a AND c2.sid=cur.sid)
+       AND EXISTS (SELECT 1 FROM app WHERE app.pid=p_a AND app.sid=cur.sid)
+  )
+  SELECT props.al,props.ob FROM props WHERE (SELECT count(*) FROM props)=1;
+END $$;
+REVOKE ALL ON FUNCTION private.samme_som_data_direction(bigint,bigint) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Opret et redaktionelt identitets-link. Tynd, evidens-komplet wrapper ovenpå invariant-triggeren.
+-- Idempotent i begge retninger (FØR retningsvalg og change_set → ingen tom audit ved gentagelse, heller ikke hvis
+-- medlemskaberne er ændret siden). Retningen vælges af data (private.samme_som_data_direction), når den kan, og når
+-- triggerens G3/G4-vagter ikke ville afvise den; ellers gælder redaktørens retning.
+CREATE OR REPLACE FUNCTION red_samme_som(p_alias_id bigint, p_objekt_id bigint)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_rel bigint; v_ass bigint; v_alias bigint:=p_alias_id; v_obj bigint:=p_objekt_id; v_x bigint; v_y bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  PERFORM private.guard_identity_mutation_snapshot();
+  PERFORM private.lock_identity_people(ARRAY[p_alias_id, p_objekt_id]);
+  -- Idempotens (begge retninger) FØR retningsvalg og begin_change_set.
+  SELECT id INTO v_rel FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
+    AND ((subjekt_id=p_alias_id AND objekt_id=p_objekt_id) OR (subjekt_id=p_objekt_id AND objekt_id=p_alias_id))
+    ORDER BY id LIMIT 1;
+  IF v_rel IS NOT NULL THEN RETURN v_rel; END IF;
+  -- Kontradiktions-guard (tværudgave-spec §4): parret må ikke samtidig være markeret
+  -- ikke_samme_som. At skifte mening er to versionerede trin (fjern afvisningen først).
+  IF EXISTS (SELECT 1 FROM relation WHERE rolle='ikke_samme_som' AND subjekt_type='person' AND objekt_type='person'
+             AND subjekt_id=least(p_alias_id,p_objekt_id) AND objekt_id=greatest(p_alias_id,p_objekt_id)) THEN
+    RAISE EXCEPTION 'samme_som: parret (%,%) er markeret ikke_samme_som — fjern afvisningen først', p_alias_id, p_objekt_id;
+  END IF;
+  -- Retning efter data; forhåndstjek som rene SELECTs med samme betingelser som triggerens G3/G4 (triggeren afgør).
+  SELECT d.alias_id, d.objekt_id INTO v_x, v_y FROM private.samme_som_data_direction(p_alias_id, p_objekt_id) d;
+  IF v_x IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
+                     AND subjekt_id=v_x AND objekt_id<>v_y)
+     AND NOT EXISTS (SELECT 1 FROM relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
+                     AND objekt_id=v_x) THEN
+    v_alias:=v_x; v_obj:=v_y;
+  END IF;
+  PERFORM begin_change_set('red_samme_som',
+    format('Markerede person %s som samme som %s', v_alias, v_obj), 'person', v_obj);
+  -- Triggeren validerer G0/G3/G4/G5 på denne INSERT.
+  INSERT INTO relation(subjekt_type, subjekt_id, objekt_type, objekt_id, rolle)
+    VALUES ('person', v_alias, 'person', v_obj, 'samme_som')
+    RETURNING id INTO v_rel;
+  INSERT INTO assertion(target_type, target_id, vaerdi_tekst)
+    VALUES ('relation', v_rel, 'samme_som')
+    RETURNING id INTO v_ass;
+  INSERT INTO conclusion(target_type, target_id, valgt_assertion_id, status, blaastemplet_af)
+    VALUES ('relation', v_rel, v_ass, 'afklaret',
+            'redaktionel identitetssammenkædning');
+  RETURN v_rel;
+END $$;

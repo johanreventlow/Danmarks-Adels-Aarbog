@@ -241,6 +241,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-placement-membership.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-membership-component.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-overview-mention.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-samme-som-retning.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-person-source-coordinates.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-paastand-rettelse.sql
           bash tests/sql/test-150-ceremoni.sh ci150_ceremoni
