@@ -809,6 +809,8 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
             'generation_global': None, 'kuld_label': None, 'section_path': [], 'header_ids': {},
             'record_kind': rec.get('record_kind'), 'post_char_from': None, 'guide_lokal_id': None,
             'guide_nr_label': None, 'guide_kandidater': None,
+            'gruppekort': [], 'human_header_levels': [], 'naermeste_header_ids': None,
+            'naermeste_entry_code': None, 'naermeste_generation_local': None, 'naermeste_kuld_label': None,
         }
         outcome = unnum_outcome.get(rec['record_key'])
         if rec['record_key'] in unnumbered and outcome['kind'] != 'stamfader':
@@ -845,6 +847,7 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
         base['guide_lokal_id'] = gpost['lokal_id']
         header_ids: dict[str, str] = {}
         parsed_of: dict[str, dict[str, Any]] = {}
+        cards: list[dict[str, Any]] = []
         for level, gid in (('linje', gpost['h_linje']), ('slaegtled', gpost['h_slg']),
                            ('kuld', gpost['h_kuld'])):
             if gid is None:
@@ -854,6 +857,11 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
             header = located.get(gid)
             if header is None:
                 reasons.append(f'overskrift_ikke_fundet:{level}')
+                if level != 'linje':           # gruppekort: guide-overskriften, uden tekst
+                    gh = g_headers[gid]
+                    cards.append({'id': f"{level}:{gh['guide']['char_from']}", 'niveau': level,
+                                  'guide_value': _guide_value(gh), 'guide_char_from': gh['guide']['char_from'],
+                                  'guide_line_sha256': gh['guide']['line_sha256']})
                 continue
             header_ids[level] = header['element_id']
             parsed_of[level] = header['parsed']
@@ -864,6 +872,7 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
             generation_label_raw=slg['label_raw'] if slg else None,
             kuld_label=parsed_of['kuld']['kuld'] if 'kuld' in parsed_of else None,
             section_path=list(header_ids.values()), header_ids=header_ids)
+        base['gruppekort'] = cards
         reasons.extend(post_reasons.get(gi, []))
         if gi is None and gpost['h_slg'] in falling:
             reasons.append('slaegtled_ikke_monoton')
@@ -893,12 +902,10 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
     rank = {level: n for n, level in enumerate(('linje', 'slaegtled', 'kuld'), 1)}
     kind_level = {kind: level for level, kind in levels.items()}
     hdrs = [(rank[kind_level[h['kind']]], kind_level[h['kind']], h) for h in headers]
-    for p in placements:
-        if p['post_char_from'] is None or any(r.startswith('overskrift_ikke_fundet') for r in p['reasons']) \
-                or any(r in p['reasons'] for r in ('ikke_alignet', 'uden_post', 'ikke_parret', 'nummer_tabt_i_rendition')):
-            continue
-        before = [(rk, lv, h) for rk, lv, h in hdrs if h['char_to'] <= p['post_char_from']]
-        expected: dict[str, str] = {}
+    def db_expected(post_from: int) -> dict[str, tuple[str, dict[str, Any]]]:
+        """DB-reglens forventede overskrift pr. niveau ved post_from (nærmeste foregående; højere niveau efter annullerer)."""
+        before = [(rk, lv, h) for rk, lv, h in hdrs if h['char_to'] <= post_from]
+        out: dict[str, tuple[str, dict[str, Any]]] = {}
         for lv in rank:
             cand = [(rk, h) for rk, l2, h in before if l2 == lv]
             if not cand:
@@ -906,8 +913,37 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
             rk, near = max(cand, key=lambda x: x[1]['char_from'])
             if any(rk2 < rk and h2['char_from'] > near['char_from'] for rk2, _l, h2 in before):
                 continue
-            expected[lv] = near['element_id']
-        if expected != p['header_ids']:
+            out[lv] = (near['element_id'], near)
+        return out
+
+    rec_char = {r['record_key']: r['char_from'] for r in records}
+    for p in placements:
+        is_kort = any(r in p['reasons'] for r in ('ikke_alignet', 'ikke_parret', 'nummer_tabt_i_rendition'))
+        post_from = p['post_char_from'] if p['post_char_from'] is not None else (
+            rec_char[p['record_key']] if is_kort else None)
+        if post_from is None:
+            continue
+        expected = db_expected(post_from)
+        if is_kort:
+            if 'linje' in expected:              # strukturkort: nærmeste overskrifter efter DB-reglen
+                p['naermeste_header_ids'] = {lv: eid for lv, (eid, _h) in expected.items()}
+                p['naermeste_entry_code'] = expected['linje'][1]['parsed']['entry_code']
+                if 'slaegtled' in expected:
+                    p['naermeste_generation_local'] = expected['slaegtled'][1]['parsed']['ordinal']
+                if 'kuld' in expected:
+                    p['naermeste_kuld_label'] = expected['kuld'][1]['parsed']['kuld']
+            continue
+        if any(r in p['reasons'] for r in ('uden_post',)):
+            continue
+        missing = {r.split(':', 1)[1] for r in p['reasons'] if r.startswith('overskrift_ikke_fundet:')}
+        if missing - {c['niveau'] for c in p['gruppekort']}:
+            continue                              # linje (eller guide uden overskrift) mangler: ingen selvtjek
+        human = set(missing)
+        if missing:
+            # bekræftede niveauer annullerer intet; et lavere niveau uden id, som DB-reglen tildeler, er også bekræftet
+            human |= {lv for lv in ('slaegtled', 'kuld') if lv not in p['header_ids'] and lv in expected}
+            p['human_header_levels'] = [lv for lv in ('slaegtled', 'kuld') if lv in human]
+        if {lv: eid for lv, (eid, _h) in expected.items() if lv not in human} != p['header_ids']:
             p['reasons'].append('uenig:naermeste_overskrift')
             p['status'] = 'unresolved'
             disagreements.append({'record_key': p['record_key'], 'field': 'naermeste_overskrift'})
@@ -978,6 +1014,11 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
         'invariants': invariants,
         'disagreements': sorted(disagreements, key=lambda d: (str(d['record_key']), d['field'])),
         'transfer': transfer,
+        'kort': {'gruppekort': len({c['id'] for p in placements for c in p['gruppekort']}),
+                 'gruppekort_poster': sum(1 for p in placements if p['gruppekort']),
+                 'strukturkort_poster': sum(1 for p in placements if any(
+                     r in p['reasons'] for r in ('ikke_alignet', 'ikke_parret', 'nummer_tabt_i_rendition'))),
+                 'strukturkort_med_linje': sum(1 for p in placements if p['naermeste_header_ids'] is not None)},
         'alignment': {'guide_posts': len(g_posts), 'rendition_posts': len(r_posts), 'aligned': len(align),
                       'unummererede': len(unnum_posts), 'unummererede_records': len(unnumbered),
                       **{key: len({r['char_from'] for r in unnum_recs
@@ -1010,6 +1051,7 @@ def summary(manifest: dict[str, Any]) -> dict[str, Any]:
     if 'transfer' in manifest:      # 1939: kun tal
         result['transfer'] = manifest['transfer']
         result['alignment'] = manifest['alignment']
+        result['kort'] = manifest['kort']
     return result
 
 

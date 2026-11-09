@@ -744,5 +744,112 @@ class Test1939Unummererede(unittest.TestCase):
             self.assertNotIn(ord_, txt)
 
 
+class Test1939Kort(unittest.TestCase):
+    """Task 1c: felter til gruppekort og strukturkort."""
+
+    def test_gruppekort_deler_id(self):
+        rend = calamari(GUIDE)
+        rend.remove('I.')
+        rend.remove(BESKRIVELSE)                      # kuld I findes hverken som romertal eller beskrivelse
+        m = build39(rend=rend)
+        b, c = placement(m, 'B'), placement(m, 'C')
+        self.assertEqual(b['reasons'], ['overskrift_ikke_fundet:kuld'])
+        self.assertEqual(len(b['gruppekort']), 1)
+        card = b['gruppekort'][0]
+        self.assertEqual((card['niveau'], card['guide_value']), ('kuld', 'I'))
+        self.assertTrue(card['id'].startswith('kuld:'))
+        self.assertEqual(card['id'], f"kuld:{card['guide_char_from']}")
+        self.assertEqual(len(card['guide_line_sha256']), 64)
+        self.assertEqual(c['gruppekort'], b['gruppekort'])
+        self.assertEqual(placement(m, 'A')['gruppekort'], [])
+        self.assertEqual(placement(m, 'D')['gruppekort'], [])
+        self.assertEqual(m['kort']['gruppekort'], 1)
+        self.assertEqual(m['kort']['gruppekort_poster'], 2)
+
+    def test_gruppekort_selvtjek_paa_fundne_niveauer(self):
+        # kuld I mangler; slægtled Tredje findes, men Andet står senere (nærmere posten) i renditionen
+        guide = GUIDE[:8] + ['                 Tredje Slægtled.'] + GUIDE[8:]
+        rend = calamari(guide)
+        rend.remove('I.')
+        rend.remove(BESKRIVELSE)
+        m = build39(guide=guide, rend=rend)
+        b = placement(m, 'B')
+        self.assertEqual(b['reasons'], ['overskrift_ikke_fundet:kuld'])       # korrekt orden: ingen uenighed
+        self.assertEqual(b['human_header_levels'], ['kuld'])
+        i, j = rend.index('Andet Slægtled.'), rend.index('Tredje Slægtled.')
+        rend[i], rend[j] = rend[j], rend[i]
+        m2 = build39(guide=guide, rend=rend)
+        self.assertIn('uenig:naermeste_overskrift', placement(m2, 'B')['reasons'])
+
+    def test_kuld_bevares_under_manglende_slaegtled(self):
+        rend = calamari(GUIDE)
+        rend.remove('Andet Slægtled.')
+        m = build39(rend=rend)
+        b = placement(m, 'B')
+        self.assertEqual(b['reasons'], ['overskrift_ikke_fundet:slaegtled'])
+        self.assertEqual(set(b['header_ids']), {'linje', 'kuld'})
+        self.assertEqual([c['niveau'] for c in b['gruppekort']], ['slaegtled'])
+        self.assertEqual(b['gruppekort'][0]['guide_value'], 2)
+        self.assertEqual(b['human_header_levels'], ['slaegtled'])
+        self.assertNotIn('uenig:naermeste_overskrift', b['reasons'])
+
+    def test_human_levels_omfatter_lavere_niveau(self):
+        # slægtled mangler, og posten har ingen kuld i guiden; en fundet kuld-overskrift fra et ældre slægtled
+        # er stadig den nærmeste efter DB-reglen -> kuld skal også være bekræftet
+        guide = GUIDE[:12] + ['3.  Dora, f. 1640.', '                 Tredje Slægtled.',
+                              '4.  Frida, f. 1660.'] + GUIDE[14:]
+        rend = calamari(guide)
+        rend.remove('Tredje Slægtled.')
+        recs = records_for(rend) + [rec(rend, '4.  Frida', 'F')]
+        m = build39(guide=guide, rend=rend, records=recs)
+        f = placement(m, 'F')
+        self.assertEqual(f['reasons'], ['overskrift_ikke_fundet:slaegtled'])
+        self.assertEqual(f['human_header_levels'], ['slaegtled', 'kuld'])
+        self.assertEqual(set(f['header_ids']), {'linje'})
+        self.assertEqual(placement(m, 'A')['human_header_levels'], [])
+
+    def test_strukturkort_naermeste(self):
+        rend = calamari(GUIDE)
+        k = rend.index('3.  Dora, f. 1640.')
+        rend[k] = 'Dora, f. 1640.'                    # nummeret tabt
+        recs = [rec(rend, '1.  Anna', 'A'), rec(rend, '1.  Bent', 'B'), rec(rend, '2.  Carl', 'C'),
+                rec(rend, 'Dora, f. 1640', 'D'), rec(rend, '1.  Erik', 'E')]
+        m = build39(guide=GUIDE, rend=rend, records=recs)
+        d = placement(m, 'D')
+        self.assertEqual(d['reasons'], ['nummer_tabt_i_rendition'])
+        b = placement(m, 'B')
+        self.assertEqual(set(d['naermeste_header_ids']), {'linje', 'slaegtled', 'kuld'})
+        self.assertEqual(d['naermeste_entry_code'], 'I')
+        self.assertEqual(d['naermeste_generation_local'], 2)
+        self.assertEqual(d['naermeste_kuld_label'], 'II')
+        self.assertEqual(d['naermeste_header_ids']['linje'], b['header_ids']['linje'])
+        self.assertIsNone(b['naermeste_header_ids'])
+        self.assertEqual(m['kort']['strukturkort_poster'], 1)
+        self.assertEqual(m['kort']['strukturkort_med_linje'], 1)
+
+    def test_strukturkort_uden_linje(self):
+        rend = calamari(GUIDE)
+        rend2 = ['9.  Gert, f. 1700.'] + rend              # en post (ikke alignet) før alle overskrifter
+        recs = [dict(r, char_from=r['char_from'] + len(rend2[0]) + 1) for r in records_for(rend)]
+        recs.append(rec(rend2, '9.  Gert', 'G'))
+        m = build39(rend=rend2, records=recs)
+        g = placement(m, 'G')
+        self.assertEqual(g['reasons'], ['ikke_alignet'])
+        for k in ('naermeste_header_ids', 'naermeste_entry_code', 'naermeste_generation_local',
+                  'naermeste_kuld_label'):
+            self.assertIsNone(g[k], k)
+        self.assertEqual(m['kort']['strukturkort_poster'], 1)
+        self.assertEqual(m['kort']['strukturkort_med_linje'], 0)
+
+    def test_kort_summary_uden_tekst(self):
+        rend = calamari(GUIDE)
+        rend.remove('I.')
+        rend.remove(BESKRIVELSE)
+        s = bhm.summary(build39(rend=rend))
+        self.assertEqual(s['kort'], {'gruppekort': 1, 'gruppekort_poster': 2,
+                                     'strukturkort_poster': 0, 'strukturkort_med_linje': 0})
+        self.assertNotIn('Anna', repr(s))
+
+
 if __name__ == '__main__':
     unittest.main()
