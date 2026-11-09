@@ -1,6 +1,6 @@
 # Delspec 6d-2a — oversigtsreglen og 1939's resterende identitetssager
 
-**Status:** udkast 2026-11-09, revision 3. Brainstorm med projektejeren; to bygherre-tjek (Opus) på revision 1 og 2
+**Status:** godkendt af projektejeren 2026-11-09 (revision 3). Brainstorm med projektejeren; to bygherre-tjek (Opus) på revision 1 og 2
 (§10). Projektejeren delte 6d-2 i **6d-2a** (denne spec) og **6d-2b** (kildetekst og binding, §9). Projektejerens
 afgørelser står i §3; mine valg er markeret *mit valg*.
 **Overordnet spec:** `docs/superpowers/specs/2026-11-08-trin6d-placement-relationer-medlemskab-design.md` §3 og §7,

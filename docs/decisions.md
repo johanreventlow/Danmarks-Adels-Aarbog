@@ -2,6 +2,23 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 6d-2 deles i 6d-2a og 6d-2b; oversigtsomtaler vises ikke som biografi (2026-11-09)
+
+> Delspec `docs/superpowers/specs/2026-11-09-trin6d2a-oversigtsregel-identitet-design.md` (godkendt, rev. 3).
+>
+> - **Opdeling:** 6d-2a = oversigtsreglen, retningen i `samme_som`, 1014's kobling og tre oversigtspersonas'
+>   identitet. 6d-2b = binding af de viste tekster (149b's migration kræver `record_key`, som kun 8 af 1939's 576
+>   legacy-rækker har), 1939-profil til kildetekst-revision (38 rettelser), grænsemekanisme (6 grænsefejl). Grund:
+>   to bygherre-tjek viste, at 2b kræver ny DDL i tre skriveveje.
+> - **Oversigtsreglen (projektejeren):** en 1939-tekst vises ikke som biografi, når personen selv er uden gældende
+>   1939-medlemskab, og komponenten har en anden, offentlig person med et og en synlig tekst. Maskinel, afledt,
+>   automatisk og reversibel; skjult er ikke slettet; fakta og hændelser beholder kildelinjen. Er oversigtens tekst
+>   den eneste om personen (Henning 1849), vises den.
+> - **Retning:** redaktøren vælger *om*, systemet vælger *retningen*, når data kan afgøre den.
+> - **Ændrer decisions 2026-11-07:** færdigbeviset »de 13 har record-binding« erstattes af 6d-2a §8 og 6d-2b.
+> - **Ændrer decisions 2026-11-09 B:** dubletternes læservirkning løses af reglen (de fire par er allerede koblet via
+>   deres 2018-20-person); den redaktionelle sammenlægning (identitet peget om, person udgår) bliver backlog.
+
 ## NOTERET: 6d-1 i prod — ledger via identitet, afledt B6 og afgørelse 4 som bygget (2026-11-09)
 
 > Kørt i prod 2026-11-09 (GO `c8f09536` og `79609895`; færdigbevis `evidensbaseret-genimport/placement-6d1-prod.md`).
