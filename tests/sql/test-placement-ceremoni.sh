@@ -18,10 +18,14 @@ jget() { python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1],encodi
 jvar() { python3 -I -c 'import json,sys
 d=json.load(open(sys.argv[1],encoding="utf-8")); exec(sys.argv[3])
 open(sys.argv[2],"w",encoding="utf-8").write(json.dumps(d,ensure_ascii=False,indent=1)+"\n")' "$1" "$2" "$3"; }
-# appr <manifest> <ud> <godkendelser som JSON-liste> [gruppekort som JSON-liste]  (godkendelseskontrakt v2)
+# appr <manifest> <ud> <godkendelser som JSON-liste> [gruppekort som JSON-liste] [kontrol som JSON]  (kontrakt v3;
+# reviewer er "human", hvor posten/kortet ikke selv angiver en)
 appr() { python3 -I -c 'import json,sys
-open(sys.argv[2],"w",encoding="utf-8").write(json.dumps({"manifest_sha256":sys.argv[1],"approvals":json.loads(sys.argv[3]),
-  "gruppekort":json.loads(sys.argv[4])})+"\n")' "$(sha "$1")" "$2" "$3" "${4:-[]}"; }
+ap,gk=json.loads(sys.argv[3]),json.loads(sys.argv[4])
+for x in ap+gk: x.setdefault("reviewer","human")
+d={"manifest_sha256":sys.argv[1],"approvals":ap,"gruppekort":gk}
+if sys.argv[5]: d["kontrol"]=json.loads(sys.argv[5])
+open(sys.argv[2],"w",encoding="utf-8").write(json.dumps(d)+"\n")' "$(sha "$1")" "$2" "$3" "${4:-[]}" "${5:-}"; }
 
 createdb "$db"
 for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql tests/sql/1939-v50-writer-bootstrap.sql; do
@@ -94,7 +98,7 @@ UPDATE private.source_persona_identity i SET canonical_person_id=$4,decision_sta
 COMMIT;
 SQL
 }
-for c in go neg ident unres appr same overlap park udenpost parit fortsat stale gruppe blandet struktur usikker; do createdb -T "$db" "${db}_$c"; done
+for c in go neg ident unres appr same overlap park udenpost parit fortsat stale gruppe blandet struktur usikker model; do createdb -T "$db" "${db}_$c"; done
 events_p2() { v "$1" "SELECT count(*) FROM private.narrative_publication_event e JOIN private.narrative_record_publication b ON b.id=e.binding_id
   JOIN private.source_record sr ON sr.id=b.source_record_id WHERE sr.source_id=-1610 AND sr.record_key='p2'"; }
 ev0=$(events_p2 "$db")
@@ -307,7 +311,33 @@ appr "$M" "$tmp/a-usikker.json" '[{"record_key":"u1"}]'
 AP_="$tmp/a-usikker.json" E_PL=4 E_PP=4 E_MEM=4 ok "${db}_usikker" usikker
 [ "$(rp "${db}_usikker" u1)" = 'II|5|1|Første|I|3|human_group_review|-|t|0' ] || fail "usikker: u1 $(rp "${db}_usikker" u1)"
 
+# model: gruppekortet er læst af en model mod PDF-siden (decisions 2026-11-09) → basis model_page_review, evidensen
+# bærer reviewer_kind og modelkontrollen; et menneskeligt record-svar oven på et modelkort giver human_group_review/blandet.
+KONTROL='{"model":"claude-opus-5-5","brief_sha256":"b1","svar_sha256":"s1"}'
+MKORT=$(python3 -I -c 'import json,sys; k=json.loads(sys.argv[1]); [x.__setitem__("reviewer","model") for x in k]; print(json.dumps(k))' "$KORT")
+appr "$M" "$tmp/a-model.json" '[{"record_key":"g3"}]' "$MKORT" "$KONTROL"
+AP_="$tmp/a-model.json" E_PL=6 E_PP=6 E_MEM=6 E_HUM=3 ok "${db}_model" model
+[ "$(rp "${db}_model" g1)" = 'II|1|1|Første|II|2|model_page_review|["kuld"]|f|1' ] || fail "model: g1 $(rp "${db}_model" g1)"
+[ "$(v "${db}_model" "SELECT pc.evidence->>'reviewer_kind'||'/'||(pc.evidence#>>'{kontrol,model}')||'/'||(pc.evidence#>>'{human_review,gruppekort,0,reviewer}')
+   FROM private.source_record_placement_current pc JOIN private.source_record r ON r.id=pc.source_record_id
+  WHERE r.source_id=-1610 AND r.record_key='g1'")" = "model/claude-opus-5-5/model" ] || fail "model: g1-evidens"
+[ "$(v "${db}_model" "SELECT pc.evidence->>'basis'||'/'||(pc.evidence->>'reviewer_kind')
+   FROM private.source_record_placement_current pc JOIN private.source_record r ON r.id=pc.source_record_id
+  WHERE r.source_id=-1610 AND r.record_key='g3'")" = "human_group_review/blandet" ] || fail "model: g3 blandet"
+[ "$(v "${db}_model" "SELECT count(*) FROM private.source_record_placement_current pc JOIN private.source_record r
+   ON r.id=pc.source_record_id WHERE r.source_id=-1610 AND r.record_key IN ('p1','p2','p3') AND pc.evidence ? 'reviewer_kind'")" = "0" ] \
+  || fail "model: maskinelle placements har reviewer_kind"
+
 # Negativer (runde 2) på neg-basen.
+appr "$M" "$tmp/a-model-uden-kontrol.json" '[]' "$MKORT"
+AP_="$tmp/a-model-uden-kontrol.json" nej "$N" kontrol1 PLC_PRE_KONTROL
+appr "$M" "$tmp/a-model-tom-kontrol.json" '[]' "$MKORT" '{"model":"claude-opus-5-5","brief_sha256":"","svar_sha256":"s1"}'
+AP_="$tmp/a-model-tom-kontrol.json" nej "$N" kontrol2 PLC_PRE_KONTROL
+appr "$M" "$tmp/a-reviewer-ukendt.json" '[{"record_key":"u1","reviewer":"robot"}]'
+AP_="$tmp/a-reviewer-ukendt.json" nej "$N" rev1 PLC_PRE_REVIEWER
+python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); del d["approvals"][0]["reviewer"]; open(sys.argv[2],"w").write(json.dumps(d)+"\n")' \
+  "$tmp/a-usikker.json" "$tmp/a-reviewer-mangler.json"
+AP_="$tmp/a-reviewer-mangler.json" nej "$N" rev2 PLC_PRE_REVIEWER
 appr "$M" "$tmp/a-kort-forkert.json" '[]' '[{"id":"kuld:9000","value":"III"}]'
 AP_="$tmp/a-kort-forkert.json" nej "$N" kort1 PLC_PRE_GRUPPEKORT
 appr "$M" "$tmp/a-kort-ukendt.json" '[]' '[{"id":"kuld:1","value":"II"}]'

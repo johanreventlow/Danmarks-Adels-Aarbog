@@ -2,7 +2,8 @@
  "manifest_sha256": "4fafde948d00e31faf75caa9c0eb00609fbdb6972a3836e162c14a5615034a14",
  "approvals": [
   {
-   "record_key": "p4"
+   "record_key": "p4",
+   "reviewer": "human"
   }
  ],
  "gruppekort": []

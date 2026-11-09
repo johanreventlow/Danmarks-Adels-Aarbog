@@ -17,8 +17,8 @@
 --   manifest  (build_header_manifest.py): {header_rule_version, headers[], placements[], invariants{4}}
 --   mapping   (lineage_mapping_sheet.py approvals): {sheet_sha256, token_sha256, entries:[{code, label_sha256,
 --             sort_order, canonical:{source_id,kode}|null, aliases:[{source_id,kode}], parkeret}]}
---   approvals (kontrolarkets godkendelser, kontrakt v2): {manifest_sha256, approvals:[{record_key, printed_number?}],
---             gruppekort:[{id, value}]}
+--   approvals (kontrolarkets godkendelser, kontrakt v3): {manifest_sha256, approvals:[{record_key, printed_number?, reviewer}],
+--             gruppekort:[{id, value, reviewer}], kontrol?:{model, brief_sha256, svar_sha256}}; reviewer = model|human.
 -- Gruppekort (decisions 2026-11-09): en overskrift, som guiden kender, men renditionen ikke har, bekræftes af
 -- projektejeren mod den trykte side; value skal være lig guide_value. En post under kort er skrivbar, når alle dens
 -- kort er godkendt og dens øvrige årsager er ingen eller godkendt med en record-approval. Værdien (kuld_label eller
@@ -76,7 +76,9 @@ CREATE TEMP TABLE plc_rec (record_key text PRIMARY KEY, p jsonb NOT NULL, ap jso
   entry_id bigint, rp uuid, pp uuid,
   -- kandidat = skrivbar bortset fra parkering; hids/vals = placementens header_ids og værdier (efter kort/strukturkort);
   -- human = evidensens human_header_levels (kun gruppekort-poster); review = evidensens human_review.
-  kandidat boolean NOT NULL DEFAULT false, hids jsonb, vals jsonb, human jsonb, review jsonb) ON COMMIT DROP;
+  kandidat boolean NOT NULL DEFAULT false, hids jsonb, vals jsonb, human jsonb, review jsonb,
+  -- rev = evidensens læser (reviewer_kind model|human|blandet, og modelkontrollen når en model læste).
+  rev jsonb) ON COMMIT DROP;
 -- Linjeskemaets plan: én række pr. mapping-entry.
 CREATE TEMP TABLE plc_entry (code text PRIMARY KEY, e jsonb NOT NULL, parkeret boolean NOT NULL, eksisterende bigint,
   label text, sort_order integer, canonical_lineage bigint, alias_lineages bigint[]) ON COMMIT DROP;
@@ -172,7 +174,7 @@ DECLARE v_src bigint:=current_setting('plc.src')::bigint; e jsonb:=current_setti
                                         'ikke_alignet','stamme_generation_usikker'];
   c_struktur constant text[]:=ARRAY['ikke_parret','nummer_tabt_i_rendition','ikke_alignet'];
   v_gk jsonb; v_o text[]; v_r text[]; v_struct boolean; v_kort_ok boolean; v_kand boolean; v_hids jsonb; v_vals jsonb;
-  v_entry text; v_kort jsonb; v_c jsonb; v_val text;
+  v_entry text; v_kort jsonb; v_c jsonb; v_val text; v_rev text[]; v_rv text;
   c_uden_nummer constant text[]:=ARRAY['uden_post','ikke_parret','nummer_tabt_i_rendition'];
 BEGIN
   IF e->>'laeser' NOT IN ('uaendret','placement') OR coalesce(e->>'koord','') !~ '^[0-9a-f]{32}$'
@@ -234,7 +236,7 @@ BEGIN
     RAISE EXCEPTION 'PLC_PRE_RENDITION';
   END IF;
 
-  -- Godkendelserne (kontrolarkets svar, kontrakt v2): hører til manifestet; record-approvals pr. nøgle højst én og for
+  -- Godkendelserne (kontrolarkets svar, kontrakt v3): hører til manifestet; record-approvals pr. nøgle højst én og for
   -- en nøgle i manifestet (reglerne pr. post står i planløkken nedenfor).
   v_gk:=coalesce(a->'gruppekort','[]'::jsonb);
   IF a->>'manifest_sha256' IS DISTINCT FROM current_setting('plc.manifest_sha') OR jsonb_typeof(a->'approvals')<>'array'
@@ -261,6 +263,20 @@ BEGIN
       RAISE EXCEPTION 'PLC_PRE_GRUPPEKORT %', rr.gk->>'id';
     END IF;
   END LOOP;
+  -- Læseren (decisions 2026-11-09): hver godkendelse og hvert kort siger, om en model (mod PDF-siden) eller
+  -- projektejeren læste; har en model læst noget, beskriver kontrol-objektet kørslen (model, briefens og svarenes sha).
+  IF EXISTS (SELECT 1 FROM (SELECT x FROM jsonb_array_elements(a->'approvals') x UNION ALL
+                            SELECT x FROM jsonb_array_elements(v_gk) x) y
+              WHERE jsonb_typeof(y.x->'reviewer') IS DISTINCT FROM 'string' OR y.x->>'reviewer' NOT IN ('model','human')) THEN
+    RAISE EXCEPTION 'PLC_PRE_REVIEWER';
+  END IF;
+  IF EXISTS (SELECT 1 FROM (SELECT x FROM jsonb_array_elements(a->'approvals') x UNION ALL
+                            SELECT x FROM jsonb_array_elements(v_gk) x) y WHERE y.x->>'reviewer'='model')
+     AND (jsonb_typeof(a->'kontrol') IS DISTINCT FROM 'object'
+          OR EXISTS (SELECT 1 FROM unnest(ARRAY['model','brief_sha256','svar_sha256']) f
+                      WHERE jsonb_typeof(a->'kontrol'->f) IS DISTINCT FROM 'string' OR btrim(a->'kontrol'->>f)='')) THEN
+    RAISE EXCEPTION 'PLC_PRE_KONTROL';
+  END IF;
 
   -- Mappingen (linjearkets afgørelser) og kildens stamtavle-schema.
   SELECT count(*), min(id), min(slaegt_id) INTO v_n, v_scheme, v_slaegt FROM public.lineage_scheme
@@ -371,6 +387,7 @@ BEGIN
                 AND (cardinality(v_r)=0 OR rr.ap IS NOT NULL));
     IF rr.ap IS NOT NULL AND NOT v_kand THEN RAISE EXCEPTION 'PLC_PRE_APPROVALS virker ikke %', rr.record_key; END IF;
     IF NOT v_kand THEN CONTINUE; END IF;
+    v_rev:=CASE WHEN rr.ap IS NULL THEN '{}'::text[] ELSE ARRAY[rr.ap->>'reviewer'] END;
     IF v_struct THEN
       v_hids:=rr.p->'naermeste_header_ids';
       v_entry:=rr.p->>'naermeste_entry_code';
@@ -389,15 +406,16 @@ BEGIN
         'kuld_label',rr.p->'kuld_label','section_path',coalesce(rr.p->'section_path','[]'::jsonb));
       v_kort:='[]'::jsonb;
       FOR v_c IN SELECT k FROM jsonb_array_elements(coalesce(rr.p->'gruppekort','[]'::jsonb)) k LOOP
-        SELECT g->'value'#>>'{}' INTO v_val FROM jsonb_array_elements(v_gk) g WHERE g->>'id'=v_c->>'id';
+        SELECT g->'value'#>>'{}', g->>'reviewer' INTO v_val, v_rv FROM jsonb_array_elements(v_gk) g WHERE g->>'id'=v_c->>'id';
         IF v_val IS NULL THEN CONTINUE; END IF;
+        v_rev:=v_rev||v_rv;
         IF v_c->>'niveau'='kuld' THEN
           v_vals:=v_vals||jsonb_build_object('kuld_label',v_val);
         ELSE
           v_vals:=v_vals||jsonb_build_object('generation_local',v_val::integer,'generation_label_raw',v_val);
         END IF;
         v_kort:=v_kort||jsonb_build_array(jsonb_build_object('id',v_c->>'id','value',v_val,
-                                                             'guide_line_sha256',v_c->>'guide_line_sha256'));
+                                                             'guide_line_sha256',v_c->>'guide_line_sha256','reviewer',v_rv));
       END LOOP;
       IF jsonb_array_length(v_kort)>0 THEN
         UPDATE plc_rec SET human=coalesce(rr.p->'human_header_levels','[]'::jsonb),
@@ -405,8 +423,15 @@ BEGIN
          WHERE record_key=rr.record_key;
       END IF;
     END IF;
+    -- basis: maskinel; model_page_review når kun en model har læst; ellers human_group_review (læseren står i rev).
     UPDATE plc_rec SET kandidat=true, entry_code=v_entry, hids=v_hids, vals=v_vals,
-           basis=CASE WHEN rr.p->>'status'='machine_ok' THEN 'machine' ELSE 'human_group_review' END
+           basis=CASE WHEN rr.p->>'status'='machine_ok' THEN 'machine'
+                      WHEN cardinality(v_rev)>0 AND v_rev<@ARRAY['model'] THEN 'model_page_review'
+                      ELSE 'human_group_review' END,
+           rev=CASE WHEN rr.p->>'status'='machine_ok' THEN NULL
+                    ELSE jsonb_build_object('reviewer_kind',CASE WHEN v_rev<@ARRAY['model'] THEN 'model'
+                                                                 WHEN v_rev<@ARRAY['human'] THEN 'human' ELSE 'blandet' END)
+                         ||CASE WHEN 'model'=ANY(v_rev) THEN jsonb_build_object('kontrol',a->'kontrol') ELSE '{}'::jsonb END END
      WHERE record_key=rr.record_key;
   END LOOP;
   -- Mappingen dækker hver gren i de poster, der kan skrives.
@@ -632,7 +657,8 @@ BEGIN
       'mapping_token_sha256',current_setting('plc.mapping_token_sha'),'approvals_sha256',current_setting('plc.approvals_sha'),
       'go',current_setting('plc.go'),'decided_by_name',v_navn)
       ||CASE WHEN r.human IS NULL THEN '{}'::jsonb
-             ELSE jsonb_build_object('human_header_levels',r.human,'human_review',r.review) END;
+             ELSE jsonb_build_object('human_header_levels',r.human,'human_review',r.review) END
+      ||coalesce(r.rev,'{}'::jsonb);
     UPDATE plc_rec SET rp=private.write_record_placement(r.record_id, r.entry_id, v_vals, (v_ids->>'linje')::uuid, v_ev)
      WHERE record_key=r.record_key;
   END LOOP;
