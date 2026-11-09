@@ -950,6 +950,45 @@ class Test1939Kort(unittest.TestCase):
         self.assertEqual(v['kuld_label'], 'Anna-Reventlows-Børn-med-Bodil-Opdigt')
 
 
+    def test_stamme_romertal_med_bogstav(self):
+        # Fællesstammen deler en generation i familiegrupper: »II A.«, »II B.« = slægtled II, gruppe A/B, hver med sin
+        # beskrivelse og sine numre fra 1. Bogstavlinjen er stammens slægtledsoverskrift (ordinal fra romertallet,
+        # label_raw med bogstavet); beskrivelsen er gruppen. Uden dette arvede posterne det forrige romertal (I).
+        besk2 = 'Bent Reventlows Børn med Dorte Opdigt:'
+        guide = ['### PAGE 499 ###', '                          Den ældre testske Linje.',
+                 '                                   I', '1.  Urd, f. 1500.', '',
+                 '                                 II A.', '                      ' + BESKRIVELSE, '1.  Ulf, f. 1530.',
+                 '    Boede paa Testrup og ejede siden Testholm.', '',
+                 '                                 II B.', '                      ' + besk2, '1.  Uffe, f. 1531.',
+                 '    Boede paa Testrup og ejede siden Testholm.', '2.  Ulla, f. 1533.']
+        rend = calamari(guide)
+        recs = lambda r: [rec(r, '1.  Urd', 'U'), rec(r, '1.  Ulf', 'V'), rec(r, '1.  Uffe', 'W'), rec(r, '2.  Ulla', 'X')]
+        m = build39(guide=guide, rend=rend, records=recs(rend))
+        for key in 'VWX':
+            p = placement(m, key)
+            self.assertEqual((p['status'], p['generation_local']), ('machine_ok', 2), (key, p['reasons']))
+        self.assertNotEqual(placement(m, 'V')['kuld_label'], placement(m, 'W')['kuld_label'])
+        self.assertEqual(placement(m, 'W')['kuld_label'], placement(m, 'X')['kuld_label'])
+        slg = [h for h in m['headers'] if h['kind'] == 'header_slaegtled']
+        self.assertEqual([(h['parsed']['ordinal'], h['parsed']['label_raw']) for h in slg],
+                         [(1, 'I'), (2, 'II A'), (2, 'II B')])
+        self.assertTrue(all(m['invariants'].values()), m['invariants'])
+        # uden tom linje før bogstavlinjen læser segmenteren postens sidste prosalinje + »II A.« + beskrivelsen som én
+        # beskrivelse; delingen finder bogstavlinjen inde i den (4 af bogens 8 bogstavoverskrifter står sådan)
+        g3 = [('    Boede paa Testrup. — Sønner: II B.' if k == 4 else l) for k, l in enumerate(guide)]
+        r3 = calamari(g3)
+        m3 = build39(guide=g3, rend=r3, records=recs(r3))
+        for key in 'VWX':
+            self.assertEqual((placement(m3, key)['status'], placement(m3, key)['generation_local']), ('machine_ok', 2), key)
+        self.assertTrue(all(m3['invariants'].values()), m3['invariants'])
+        # bogstavlinjen mangler i Calamari → gruppekort på slægtleddet (guidens værdi 2)
+        rend2 = calamari(guide)
+        rend2.remove('II A.')
+        m2 = build39(guide=guide, rend=rend2, records=recs(rend2))
+        v = placement(m2, 'V')
+        self.assertEqual(v['reasons'], ['overskrift_ikke_fundet:slaegtled'])
+        self.assertEqual([(c['niveau'], c['guide_value']) for c in v['gruppekort']], [('slaegtled', 2)])
+
     def test_stamme_beskrivelse_efter_post_er_usikker(self):
         guide = ['### PAGE 499 ###', '                          Den ældre testske Linje.',
                  '                                   I', '1.  Urd, f. 1500.', '',

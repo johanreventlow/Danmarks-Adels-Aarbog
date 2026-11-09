@@ -38,6 +38,8 @@ from ordinals import ordinal_to_int
 from rendition_occurrences_1939 import CALAMARI_R6_TO_PDF_V1, _map_pdf_page
 
 PAGE_MAPS = {'CALAMARI_R6_TO_PDF_V1': CALAMARI_R6_TO_PDF_V1}
+# Fællesstammens romertal med familiebogstav (»IV A.«), centreret som stammens øvrige romertal.
+STAMME_BOGSTAV_1939_RE = re.compile(r'^\s{10,}([IVXLivxl]{1,6})\s+([A-D])\.?\s*$')
 
 HEADER_RULE_VERSION = 'header-2018-20-v1'
 LEVELS = ('linje', 'slaegtled', 'kuld', 'aegteskab')
@@ -461,6 +463,25 @@ def _scan_1939(text: str, gp: dict[str, Any], stamme_afsnit_level: str | None) -
         beskrivelse = segment._gruppebeskrivelse_1939(lines, i, gp)
         if beskrivelse:
             slug, forbrug = beskrivelse
+            kb = next((k for k in range(i, i + forbrug - 1) if STAMME_BOGSTAV_1939_RE.match(lines[k])), None)
+            if (kb is not None and stamme_afsnit_level == 'slaegtled'
+                    and str(linje or '').startswith(pre_label or '\0')):
+                # Segmenteren læser »IV A.« + beskrivelsen (evt. med postens sidste prosalinje foran, når der ikke
+                # står en tom linje) som én beskrivelse (afsnit = slug, uændret nedenfor); overskriftssporet deler
+                # den: bogstavlinjen er stammens slægtled, linjerne efter den er gruppen, prosaen foran ignoreres.
+                mb = STAMME_BOGSTAV_1939_RE.match(lines[kb])
+                roman = segment._normaliser_romertal_1939(mb.group(1).upper(), gp)
+                h_slg = add('slaegtled', kb, kb, label=roman, ordinal=_roman_value_1939(roman), stamme_roman=True,
+                            bogstav=mb.group(2))
+                h_grp = None
+                posts_since_roman = 0
+                tekst = segment.norm(' '.join(lines[k].strip() for k in range(kb + 1, i + forbrug)))
+                if not afsnit_frisk:
+                    afsnit = slug
+                    h_grp = add('kuld', kb + 1, i + forbrug - 1, roman=None, slug=slug, desc_norm=_letters(tekst),
+                                desc_i=kb + 1, usikker=False)
+                i += forbrug
+                continue
             tekst = segment.norm(' '.join(lines[k].strip() for k in range(i, i + forbrug)))
             if not afsnit_frisk:
                 afsnit = slug
@@ -614,6 +635,18 @@ def _locate_1939(h: dict[str, Any], tab: dict[str, Any], idxs: list[int], gp: di
         if c is None:
             return None
         return hit(c, c, {'ordinal': h['ordinal'], 'label_raw': h['label'], 'gennem': None})
+
+    if level == 'slaegtled' and h.get('bogstav'):
+        cands = []
+        for i in idxs:
+            mb = STAMME_BOGSTAV_1939_RE.match(' ' * 10 + lines[i].strip())
+            if mb and roman_of(mb) == h['label'] and mb.group(2) == h['bogstav']:
+                cands.append(i)
+        c = _single(cands)
+        if c is None:
+            return None
+        return hit(c, c, {'ordinal': h['ordinal'], 'label_raw': f"{h['label']} {h['bogstav']}", 'gennem': None,
+                          'roman': h['label']})
 
     # romertal-grupper (kuld, eller stammens slægtled-romertal) og gruppebeskrivelser
     roman = h['label'] if level == 'slaegtled' else h['roman']
