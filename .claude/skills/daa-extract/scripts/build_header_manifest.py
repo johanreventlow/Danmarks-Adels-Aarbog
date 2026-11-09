@@ -35,6 +35,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import segment
 from build_source_evidence_manifest import project_rendition
 from ordinals import ordinal_to_int
+from rendition_occurrences_1939 import CALAMARI_R6_TO_PDF_V1, _map_pdf_page
+
+PAGE_MAPS = {'CALAMARI_R6_TO_PDF_V1': CALAMARI_R6_TO_PDF_V1}
 
 HEADER_RULE_VERSION = 'header-2018-20-v1'
 LEVELS = ('linje', 'slaegtled', 'kuld', 'aegteskab')
@@ -698,6 +701,15 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
     guide = _scan_1939(gtext, gp, stamme_level)
     g_posts, g_headers = guide['posts'], guide['headers']
     rtab = _text_table(rtext)
+    if profile.get('page_map') is not None:
+        # Calamari-sider -> PDF-sider: databasens forekomster i renditionen bruger PDF-sider, så overskrifter og
+        # placeringer skal også (rendition_occurrences_1939.CALAMARI_R6_TO_PDF_V1, verificeret mod PDF'en 9/11).
+        pmap = PAGE_MAPS.get(profile['page_map'])
+        if pmap is None:
+            raise HeaderManifestError('HEADER_PAGE_MAP_UNKNOWN')
+        cache: dict[int, int] = {}
+        rtab['pages'] = [None if p is None else cache.setdefault(p, _map_pdf_page(p, 'calamari', pmap))
+                         for p in rtab['pages']]
     # Renditionens "post" er recorden selv: en record begynder ved sin char_from med postnummeret.
     r_posts: list[dict[str, Any]] = []
     unnumbered: set[str] = set()

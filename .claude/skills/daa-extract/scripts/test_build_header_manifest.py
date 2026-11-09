@@ -1,4 +1,5 @@
 import hashlib, json, os, sys, unittest
+from pathlib import Path
 from unittest import mock
 sys.path.insert(0, os.path.dirname(__file__))
 import build_header_manifest as bhm
@@ -574,6 +575,23 @@ class Test1939(unittest.TestCase):
         self.assertIn({'record_key': 'C', 'field': 'legacy_nr'}, m['disagreements'])
         for key in 'ABD':
             self.assertEqual(placement(m, key)['status'], 'machine_ok', key)
+
+    def test_sidekort_giver_pdf_sider(self):
+        # Calamari-renditionens sidemarkører er Calamari-sider; databasens forekomster i renditionen bruger PDF-sider
+        # (CALAMARI_R6_TO_PDF_V1). Overskrifter og placeringer skal bruge samme sidesystem.
+        rend = [('### PAGE 0005 ###' if l.startswith('### PAGE') else l) for l in calamari(GUIDE)]
+        m = build39(rend=rend, profile=dict(PROFILE_1939, page_map='CALAMARI_R6_TO_PDF_V1'))
+        self.assertEqual({h['page_from'] for h in m['headers']} | {h['page_to'] for h in m['headers']}, {500})
+        self.assertEqual({p['page'] for p in m['placements']}, {500})
+        u = build39(rend=rend)                                 # uden kort: renditionens egne sidetal
+        self.assertEqual({h['page_from'] for h in u['headers']}, {5})
+        with self.assertRaisesRegex(bhm.HeaderManifestError, 'HEADER_PAGE_MAP_UNKNOWN'):
+            build39(rend=rend, profile=dict(PROFILE_1939, page_map='UKENDT'))
+
+    def test_profilfilen_har_sidekortet(self):
+        prof = json.loads((Path(bhm.__file__).parent.parent / 'references' / 'header-profiles'
+                           / 'header-1939-v1.json').read_text(encoding='utf-8'))
+        self.assertEqual(prof['page_map'], 'CALAMARI_R6_TO_PDF_V1')
 
     def test_legacy_uden_linje_er_ingen_legacy(self):
         # person_external_id uden linje/nr giver {'linje': None, 'nr': None}: det er ingen legacy, ikke uenighed.
