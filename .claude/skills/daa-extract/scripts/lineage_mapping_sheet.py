@@ -42,7 +42,11 @@ def _entries(m: dict, ex: dict) -> list[str]:
     for c in ex.get('entries', []):
         if c not in seen:
             seen.append(c)
-    return seen
+    # bogens orden: rang efter grenens header_linje (char_from); gren uden header sidst (render afviser den alligevel)
+    def pos(c: str) -> float:
+        h = _header(m, c)
+        return h['char_from'] if h else float('inf')
+    return sorted(seen, key=lambda c: (pos(c), seen.index(c)))
 
 
 def _header(m: dict, code: str) -> dict | None:
@@ -87,6 +91,7 @@ def _existing(ex: dict) -> set[str]:
 def render(m: dict, ex: dict) -> tuple[str, str]:
     dist = distribution(m, ex)
     existing = _existing(ex)
+    order = {c: i for i, c in enumerate(dist, 1)}
     ark = ['# ============ GRENE I 1939 -> SLÆGTLINJER (#150 trin 6d-1) ============',
            '# Én linje pr. gren: antal modparter pr. 2018-20-linje (kode=antal) og grenens label.',
            '# Forslag gives kun ved flertalslinje >= 80 % og ingen anden linje > 2. Eksisterende entries står fast.']
@@ -99,7 +104,7 @@ def render(m: dict, ex: dict) -> tuple[str, str]:
         _label_sha(h, code)
         label = h['verbatim_text']
         fordeling = ', '.join(f'{k}={n}' for k, n in sorted(cnt.items(), key=lambda kv: (-kv[1], kv[0]))) or 'ingen modparter'
-        ark.append(f'# {code} ({label}): {fordeling}')
+        ark.append(f'# {code} (rækkefølge {order[code]}; {label}): {fordeling}')
         if code in existing:
             ans = f'S {code}'
             ark[-1] += ' [eksisterende entry, står fast]'

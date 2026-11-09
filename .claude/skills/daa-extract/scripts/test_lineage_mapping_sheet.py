@@ -70,6 +70,25 @@ class TestRender(unittest.TestCase):
         self.assertEqual([e['sort_order'] for e in res['entries']], [1, 2, 3, 4, 5])
 
 
+class TestRaekkefoelge(unittest.TestCase):
+    def test_sort_order_er_bogens_orden(self):
+        m = manifest()
+        pos = {'IV': 50, 'I': 10, 'III': 40, 'II': 30, 'Stamme-alfa': 90, 'VI': 70}
+        for h in m['headers']:
+            pr = h['parsed']
+            h['char_from'] = pos[pr.get('roman') or f"Stamme-{pr['stamme_slug']}"]
+        m['headers'].append(hdr(50, {'roman': 'IV'}, 'Linje Ff'))
+        m['placements'].append(pl('IV-1', 'IV'))
+        m['placements'].insert(0, pl('VI-0', 'VI'))   # VI optræder først i placements, men står sent i bogen
+        ex = export()
+        ark, tok = lms.render(m, ex)
+        sha = hashlib.sha256(ark.encode()).hexdigest()
+        res = lms.approvals(answered(tok, {c: 'P' for c in ('II', 'III', 'IV', 'Stamme-alfa')}), m, ex, sha)
+        self.assertEqual([(e['code'], e['sort_order']) for e in res['entries']],
+                         [('I', 1), ('II', 2), ('III', 3), ('IV', 4), ('VI', 5), ('Stamme-alfa', 6)])
+        self.assertIn('(rækkefølge 5;', ark)
+
+
 class TestApprovals(unittest.TestCase):
     def setUp(self):
         self.m, self.ex = manifest(), export()
