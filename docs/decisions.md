@@ -63,6 +63,18 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   `human_header_levels` bevares (nærmeste-reglens undtagelse læser det); niveauet er bekræftet mod den trykte side,
 >   uanset læser.
 > - Kortfladen bliver undtagelseslisten (lokal HTML) i stedet for 6c-1-kortsiden med 81 kort.
+>
+> **Resultat (9/11, efter oversigtszonerne og rettelsen af slugte romertal; tallene ovenfor er forældede):** 66 kort
+> (20 K, 21 GK, 20 SK, 5 NK; ingen SG). Opus enig på 54; projektejeren besvarede 12 undtagelser og 5 kontroller
+> (alle J, ingen afvigelse). Approvals: 15 record-godkendelser + 21 gruppekort (35 model, 1 projektejer: Dr. Lyders
+> beskrivelsesgruppe). **529 af 592 records placeres** (414 maskinelt, 115 via kort). Uden placement: 27 i
+> oversigtszonerne, 26 `uden_post` (Gate A), 7 unummererede ægte stammeposter (PDF 499, 506 »III. Af den tredje
+> Slægtsfølge …«, 541), 3 under en overskrift, Calamari har tabt (PDF 508, 532, 533).
+>
+> **Opfølgning (åben backlog):** de 7 unummererede stammeposter og de 3 under tabte overskrifter kan placeres i et
+> senere skridt (strukturkortet kræver et trykt nummer; overskriften skal forankres). Projektejerens spørgsmål om
+> fællesstammens model blev afklaret mod bogen: romertallet er slægtleddet (PDF 506 »den tredje Slægtsfølge«,
+> henvisningerne »— Sønner: VI.«), mens linjerne trykker »Ottende Slægtled.« + gruppe-romertal (PDF 520).
 
 ## BESLUTTET: 6d-1's kortrunde — gruppekort for 19 manglende overskrifter og nærmeste-reglens undtagelse (2026-11-09)
 
