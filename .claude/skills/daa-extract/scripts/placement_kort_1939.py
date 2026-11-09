@@ -265,13 +265,26 @@ def render_pages(pdf: Path, pages: list[int], outdir: Path, dpi: int = 150) -> N
         Path(f'{prefix}.png').rename(dst)
 
 
+def _opslag_tekst(ops: list[dict]) -> str:
+    return json.dumps(ops, ensure_ascii=False, indent=1) + '\n'
+
+
+def kontroller_opslag(m: dict, cards: list[dict], records: list[dict], rendition: str, fil: bytes) -> list[dict]:
+    """Opslaget, det aktuelle manifest giver, skal være byte-ens med jobbets opslag.json (det modellen besvarede);
+    ellers hører svarene til et andet grundlag (Codex 9/11 fund 1)."""
+    ops = opslag(m, cards, records, rendition)
+    if _opslag_tekst(ops).encode('utf-8') != fil:
+        raise SheetError('KORT_OPSLAG_AENDRET')
+    return ops
+
+
 def build_job(m: dict, records: list[dict], rendition: str, pdf: Path | None, jobdir: Path,
               k: int = 20, seed: int = SEED) -> dict:
     cards = kort_1939(m, k, seed)
     ops = opslag(m, cards, records, rendition)
     jobdir.mkdir(parents=True, exist_ok=True)
     (jobdir / 'brief.md').write_text(BRIEF, encoding='utf-8')
-    (jobdir / 'opslag.json').write_text(json.dumps(ops, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
+    (jobdir / 'opslag.json').write_text(_opslag_tekst(ops), encoding='utf-8')
     if pdf is not None:
         render_pages(pdf, sorted({s for o in ops for s in o['sider']}), jobdir / 'sider')
     return {'kort': len(cards), 'pr_type': {t: sum(c['type'] == t for c in cards) for t in KORT_TYPER},
@@ -600,7 +613,13 @@ def _human(card: dict, tok: str) -> Any:
 
 
 def approvals_1939(m: dict, cards: list[dict], svar: list[dict], token_text: str, *, manifest_sha256: str,
-                   kontrol: dict, seed: int = SEED) -> dict:
+                   kontrol: dict, seed: int = SEED, ops: list[dict] | None = None) -> dict:
+    if ops is not None:
+        # Hvert fundet svar er læst på en af kortets sider (det blinde opslag modellen fik).
+        sider = {o['kort_id']: o['sider'] for o in ops}
+        for s in svar:
+            if s.get('fundet', True) and s.get('kort_id') in sider and s.get('side') not in sider[s['kort_id']]:
+                raise SheetError(f"KORT_SVAR_SIDE {s['kort_id']}")
     vd = vurderinger(cards, svar)
     by_svar = _svar_map(svar, cards)
     u, v = _parse_token(token_text, cards, vd, seed)
@@ -726,6 +745,8 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument('--approved-token-sha256', required=True)
     a.add_argument('--model', required=True)
     a.add_argument('--out', required=True)
+    a.add_argument('--records-json', required=True)
+    a.add_argument('--rendition-text', required=True)
     args = ap.parse_args(argv)
     root = Path(args.private_root)
     try:
@@ -762,13 +783,16 @@ def main(argv: list[str] | None = None) -> int:
             print('UNDTAGELSER_OK ' + ' '.join(f'{k}={v}' for k, v in c.items())
                   + f' kontrol={len(v_poster(cards, vd, args.seed))} token_sha256={_sha(tok.encode("utf-8"))}')
             return 0
+        records = _load_json(check_private_path(Path(args.records_json), root))['records']
+        rendition = Path(args.rendition_text).read_text(encoding='utf-8')
+        ops = kontroller_opslag(m, cards, records, rendition, (jobdir / 'opslag.json').read_bytes())
         tb = check_private_path(Path(args.token), root).read_bytes()
         if _sha(tb) != args.approved_token_sha256:
             raise SheetError('SHEET_SHA_MISMATCH')
         kontrol = {'model': args.model, 'brief_sha256': _sha(BRIEF.encode('utf-8')), 'svar_sha256': _sha(svar_b),
                    'token_sha256': _sha(tb), 'opslag_sha256': _sha((jobdir / 'opslag.json').read_bytes())}
         res = approvals_1939(m, cards, svar, tb.decode('utf-8'), manifest_sha256=_sha(mpath.read_bytes()),
-                             kontrol=kontrol, seed=args.seed)
+                             kontrol=kontrol, seed=args.seed, ops=ops)
         _write_private(check_private_path(Path(args.out), root), json.dumps(res, ensure_ascii=False, sort_keys=True) + '\n')
     except SheetError as exc:
         print(str(exc))

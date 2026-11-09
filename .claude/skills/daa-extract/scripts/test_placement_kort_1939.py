@@ -355,6 +355,33 @@ class TestJob(unittest.TestCase):
             self.assertEqual(len(ops), 13)
             self.assertNotIn('forventet', (job / 'opslag.json').read_text(encoding='utf-8'))
 
+    def test_svar_bundet_til_opslaget(self):
+        # Codex 9/11 fund 1: svarene skal høre til det opslag, modellen fik. Et manifest, hvor en post er flyttet til en
+        # anden side, giver et andet opslag → KORT_OPSLAG_AENDRET; et svar fra en side uden for kortets sider afvises.
+        import copy
+        m = manifest()
+        cards = pk.kort_1939(m, k=4)
+        with tempfile.TemporaryDirectory() as d:
+            job = Path(d) / 'job'
+            pk.build_job(m, records(m), RENDITION, None, job, k=4)
+            fil = (job / 'opslag.json').read_bytes()
+            ops = pk.kontroller_opslag(m, cards, records(m), RENDITION, fil)
+            self.assertEqual(len(ops), len(cards))
+            flyttet = copy.deepcopy(m)
+            next(p for p in flyttet['placements'] if p['record_key'] == 'S3')['page'] = 600
+            with self.assertRaisesRegex(SheetError, 'KORT_OPSLAG_AENDRET'):
+                pk.kontroller_opslag(flyttet, pk.kort_1939(flyttet, k=4), records(flyttet), RENDITION, fil)
+        sv = svar_for(cards)
+        for s in sv:
+            o = next(x for x in ops if x['kort_id'] == s['kort_id'])
+            s['side'] = o['side']
+        tok = pk.render_token(cards, pk.vurderinger(cards, sv))
+        tok = '\n'.join(l + ('4' if l.startswith('U ') else 'J' if l.startswith('V ') else '') for l in tok.splitlines()) + '\n'
+        pk.approvals_1939(m, cards, sv, tok, manifest_sha256='m', kontrol={}, ops=ops)
+        sv[0]['side'] = 999
+        with self.assertRaisesRegex(SheetError, 'KORT_SVAR_SIDE'):
+            pk.approvals_1939(m, cards, sv, tok, manifest_sha256='m', kontrol={}, ops=ops)
+
 
 if __name__ == '__main__':
     unittest.main()
