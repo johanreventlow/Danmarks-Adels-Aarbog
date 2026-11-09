@@ -157,8 +157,15 @@ def kort_1939(m: dict, k: int = 20, seed: int = SEED) -> list[dict]:
         felt = 'gruppe' if c['niveau'] == 'kuld' else 'slaegtled'
         if felt == 'gruppe' and not _roman(c['guide_value']):
             felt = 'beskrivelse'                   # stammegruppe uden romertal: kun projektejerens J/N
+        forventet: dict[str, Any] = {felt: c['guide_value']}       # niveauets felt først (_human, approvals)
+        if c['niveau'] == 'slaegtled' and any(
+                'kuld' in (by[k].get('human_header_levels') or [])
+                and not any(x['niveau'] == 'kuld' for x in by[k].get('gruppekort') or []) for k in g['poster']):
+            # Kuld undtages også (build_header_manifest: DB-reglen ville tildele forrige slægtleds gruppe); fraværet af
+            # en gruppe skal da bekræftes på samme kort (Codex 9/11 fund 3).
+            forventet['gruppe'] = '-'
         out.append({'kort_id': f'GK:{cid}', 'type': 'GK', 'opslag': g['poster'][0], 'poster': g['poster'],
-                    'gk_id': cid, 'niveau': c['niveau'], 'forventet': {felt: c['guide_value']}})
+                    'gk_id': cid, 'niveau': c['niveau'], 'forventet': forventet})
     for p in order:
         if p['status'] != 'unresolved' or not set(p['reasons']) & set(STRUKTUR):
             continue

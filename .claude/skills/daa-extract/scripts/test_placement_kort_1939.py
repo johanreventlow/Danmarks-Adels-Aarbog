@@ -97,6 +97,21 @@ def card(cards, kid):
     return next(c for c in cards if c['kort_id'] == kid)
 
 
+class TestKuldUndtagelse(unittest.TestCase):
+    def test_slaegtledskort_kontrollerer_gruppen_naar_kuld_undtages(self):
+        # Codex 9/11 fund 3: et manglende slægtled lægger også `kuld` i human_header_levels (DB-reglen ville tildele
+        # forrige slægtleds gruppe); fraværet af en gruppe skal da bekræftes på kortet (`-`), ikke kun slægtleddet.
+        m = manifest()
+        next(p for p in m['placements'] if p['record_key'] == 'G3')['human_header_levels'] = ['slaegtled', 'kuld']
+        cards = pk.kort_1939(m, k=4)
+        c = card(cards, f'GK:{GKS}')
+        self.assertEqual(list(c['forventet'].items()), [('slaegtled', 2), ('gruppe', '-')])   # niveauet først
+        self.assertEqual(pk.vurder(c, {'fundet': True, 'sikkerhed': 'hoej', 'slaegtled': 2, 'gruppe': '-'}), 'enig')
+        self.assertEqual(pk.vurder(c, {'fundet': True, 'sikkerhed': 'hoej', 'slaegtled': 2, 'gruppe': 'IX'}), 'uenig')
+        # Uden undtagelsen er kortet uændret.
+        self.assertEqual(card(pk.kort_1939(manifest(), k=4), f'GK:{GKS}')['forventet'], {'slaegtled': 2})
+
+
 class TestKort(unittest.TestCase):
     def setUp(self):
         self.m = manifest()
