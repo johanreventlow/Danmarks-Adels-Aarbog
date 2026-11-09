@@ -2,6 +2,34 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 6d-1's generalprøve — helpost-regel, henvisningspost uden placement, staged biografier og læsertid (2026-11-09)
+
+> Generalprøven på en stand-in fra prod-dumpet `1653c8f7…` (9/11) fandt tre fejl i ceremonien og to forhold, som
+> projektejeren afgjorde.
+>
+> 1. **Helposten følger skemaets regel** (`be4001dc`). 1939's records har accepterede under-forekomster (fakta,
+>    ægteskaber, relationer) med egne rod-observationer, så »den eneste rod-observation« fandtes ikke for 228 records.
+>    Ceremonien bruger nu `private.record_helpost_status` med profilens helpost-type (`helpost_kind=person`).
+> 2. **En henvisningspost placeres ikke** (`cf3ef35a`, projektejerens valg). Kortrunden modelgodkendte en
+>    `cross_reference`-post (PDF 539, nr. 2 i gruppe III), som ingen personpost har. `approvals_1939` springer
+>    `cross_reference` og `structural_context` over; kortene er uændrede. 528 records placeres i stedet for 529.
+>    Henvisningerne tages op med dubletpersonerne i 6d-2/6d-3.
+> 3. **Staged biografier uden for placeringen stopper ikke ceremonien** (`c32b414d`). Personerne 963 og 967 (staged
+>    siden C0) har publicerede biografier, hvis baseline ved kontrakt-cutover fangede den blokerede tilstand; deres
+>    records ligger i oversigtszonen. Kravet om tilladt publicering gælder kun records, der placeres.
+> 4. **Læsertiden accepteres i 6d-1; 6e gør koordinat-RPC'en billigere** (projektejerens valg).
+>    `public_person_source_coordinates` kalder `membership_is_current` pr. medlemskab (≈0,5 ms), og 6d-1 tilføjer 528:
+>    som anon 225 → 580 ms på stand-in, i prod målt 563-612 ms før (faktor 2,5-2,7), forventet ≈1,45-1,57 s efter,
+>    to kald pr. indlæsning (1113 rækker, sider à 1000), anon-grænse 3 s. 1939's rækker vises som legacy til 6e og
+>    giver intet output for prisen. 6e, der alligevel omskriver RPC'en, skal gøre den billigere, før en ny udgave
+>    lægges på; alternativet (kildegaten før aktualitetstjekket) ændrer læserens regel og blev fravalgt nu.
+>
+> **Åben backlog (konfliktkort, spec §6 pkt. 3):** komponenten 137↔937 (`samme_som` afklaret) bliver `conflict`:
+> 2018-20 linje II nr. 1 (slægtled 1, linjens stamfader), 1939 Stamme-holstenske nr. 3 (slægtled 4), som mappingen
+> fører til linje I. Sandsynligvis en linjegrundlægger, der står sidst i stammen og først i grenen. 6d-1 skriver
+> intet om den; projektejeren afgør senere. De to andre konflikter fandtes før (178: 2018-20 III/IV, 1939 bekræfter
+> IV; 255: kun 2018-20).
+
 ## BESLUTTET: 1939's nedstigningsoversigter er oversigtszoner uden placement; 4 dubletpersoner er åben backlog (2026-11-09)
 
 > Opdaget af projektejeren: PDF 496-510 (trykt s. 7-21) forklarer sammenhængen mellem linjerne i kort form med
