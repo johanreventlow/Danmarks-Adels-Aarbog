@@ -49,6 +49,9 @@ NR_RE = re.compile(r'^\d+[a-z]?$')
 LEAD_NR = re.compile(r'^\s*\??\s*\d+[a-z]?\s*[.,]\s*')
 START_LEN = 160
 KORT_TYPER = ('K', 'GK', 'SK', 'SG', 'NK')
+# Records uden personpost (helpost) kan ikke placeres af ceremonien; de godkendes aldrig (generalprøven 9/11:
+# en henvisningspost fik et strukturkort; projektejeren valgte ingen placement). Kortene vises stadig.
+IKKE_PLACERBAR = ('cross_reference', 'structural_context')
 
 
 def _sha(b: bytes) -> str:
@@ -627,7 +630,7 @@ def approvals_1939(m: dict, cards: list[dict], svar: list[dict], token_text: str
                 rec_kort.setdefault(key, {})[c['type']] = c['kort_id']
     appr = []
     for p in sorted(m['placements'], key=lambda q: q['record_key']):
-        if p['status'] != 'unresolved':
+        if p['status'] != 'unresolved' or p['record_kind'] in IKKE_PLACERBAR:
             continue
         o = {r.split(':', 1)[1] for r in p['reasons'] if r.startswith('overskrift_ikke_fundet:')}
         r = [x for x in p['reasons'] if not x.startswith('overskrift_ikke_fundet:')]

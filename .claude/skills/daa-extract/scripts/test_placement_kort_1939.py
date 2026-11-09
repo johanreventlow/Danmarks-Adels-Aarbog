@@ -193,6 +193,18 @@ class TestApprovals(unittest.TestCase):
         self.assertEqual(ap['G2'], {'record_key': 'G2', 'reviewer': 'model'})
         self.assertEqual(res['kontrol'], self.kontrol)
 
+    def test_henvisning_og_strukturpost_kan_ikke_godkendes(self):
+        # Generalprøven 9/11: en henvisningspost (cross_reference) har ingen personpost, så ceremonien kan ikke
+        # placere den; projektejeren valgte ingen placement. Kortene (og token-filen) er uændrede.
+        for p in self.m['placements']:
+            if p['record_key'] == 'S3':
+                p['record_kind'] = 'cross_reference'
+            if p['record_key'] == 'S4':
+                p['record_kind'] = 'structural_context'
+        self.assertEqual(pk.kort_1939(self.m, k=4), self.cards)
+        res = self.run_(svar_for(self.cards), {'SK:S2': '4'})
+        self.assertEqual(sorted(a['record_key'] for a in res['approvals']), ['G2', 'N1', 'S1', 'S2', 'U1', 'U2'])
+
     def test_projektejerens_N_lader_poster_staa(self):
         sv = svar_for(self.cards, **{f'GK:{GKID}': {'gruppe': 'IV'}, 'SG:header:1390': {'slaegtled': 4}})
         res = self.run_(sv, {f'GK:{GKID}': 'N', 'SG:header:1390': 'N', 'SK:S2': 'N'})
