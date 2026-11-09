@@ -219,7 +219,8 @@ For hvert opslag: find posten på siden (eller nederst på siden før, hvis den 
 
 1. `slaegtled` (heltal): nærmeste overskrift »N. Slægtled« (fx »Tredie Slægtled« = 3) over posten inden for grenen.
    I fællesstammen, hvor afsnittene har romertal i stedet for slægtled-overskrifter, er det romertallet over afsnittet
-   omregnet til tal (III = 3). `null`, hvis du ikke kan afgøre det.
+   omregnet til tal (III = 3). Står der et bogstav efter romertallet (»IV A.«), er slægtleddet stadig romertallet
+   (4); bogstavet er ikke et gruppe-romertal. `null`, hvis du ikke kan afgøre det.
 2. `gruppe`: romertallet (I, II, III …), der står som gruppeoverskrift over posten *inden for samme slægtled*, eller `-`,
    hvis der ikke står noget romertal mellem slægtled-overskriften og posten. En beskrivende linje uden romertal (fx »Børn
    af …«) tæller ikke. `null`, hvis du ikke kan afgøre det.
