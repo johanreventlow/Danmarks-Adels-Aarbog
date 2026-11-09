@@ -163,6 +163,22 @@ class TestApprovals(unittest.TestCase):
         self._fejl(no_sha, 'SHEET_SHA_MISMATCH')
         self._fejl(self._ok().replace(self.sha, 'a' * 64), 'SHEET_SHA_MISMATCH')
 
+    def test_forældet_ark_afvises(self):
+        # Codex 9/11 fund 2: arket skal være det, det aktuelle manifest renderer; ellers har projektejeren godkendt en
+        # anden rækkefølge eller fordeling end den, approvals bruger.
+        import copy
+        ok = self._ok()
+        flyttet = copy.deepcopy(self.m)
+        flyttet['placements'][0]['entry_code'] = None                 # fordelingen ændres (I: 10 → 9)
+        with self.assertRaises(SheetError) as e:
+            lms.approvals(ok, flyttet, self.ex, self.sha)
+        self.assertEqual(str(e.exception).split()[0], 'SHEET_STALE')
+        byttet = copy.deepcopy(self.m)
+        byttet['headers'][0]['char_from'], byttet['headers'][1]['char_from'] = 2, 1   # rækkefølgen ændres
+        with self.assertRaises(SheetError) as e:
+            lms.approvals(ok, byttet, self.ex, self.sha)
+        self.assertEqual(str(e.exception).split()[0], 'SHEET_STALE')
+
     def test_token_sha_med(self):
         txt = self._ok()
         self.assertEqual(lms.approvals(txt, self.m, self.ex, self.sha)['token_sha256'],

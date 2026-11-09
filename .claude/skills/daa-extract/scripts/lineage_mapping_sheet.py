@@ -155,6 +155,10 @@ def approvals(text: str, m: dict, ex: dict, sheet_sha256: str) -> dict:
     shas = [SHA_RE.match(l)['sha'] for l in text.splitlines() if SHA_RE.match(l)]
     if shas != [sheet_sha256]:
         raise SheetError('SHEET_SHA_MISMATCH')
+    # Det godkendte ark skal være det, det aktuelle manifest og eksporten renderer (rækkefølge, fordeling, labels);
+    # ellers har projektejeren besvaret et andet grundlag end det, approvals bygger på (Codex 9/11 fund 2).
+    if hashlib.sha256(render(m, ex)[0].encode('utf-8')).hexdigest() != sheet_sha256:
+        raise SheetError('SHEET_STALE')
     codes = _entries(m, ex)
     answers: dict[str, str] = {}
     for raw in text.splitlines():
