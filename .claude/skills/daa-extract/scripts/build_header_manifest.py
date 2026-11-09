@@ -439,8 +439,11 @@ def _scan_1939(text: str, gp: dict[str, Any], stamme_afsnit_level: str | None) -
             afsnit = segment._normaliser_romertal_1939(m.group(1), gp)
             afsnit_frisk = True
             if stamme_afsnit_level == 'slaegtled' and str(linje or '').startswith(pre_label or '\0'):
-                h_grp = add('slaegtled', i, i, label=afsnit, ordinal=_roman_value_1939(afsnit),
+                # stammens romertal er slægtleddet: det ligger i slægtleds-sporet, så en senere kuld-beskrivelse
+                # (der erstatter h_grp) ikke fjerner det
+                h_slg = add('slaegtled', i, i, label=afsnit, ordinal=_roman_value_1939(afsnit),
                             stamme_roman=True)
+                h_grp = None
             else:
                 h_grp = add('kuld', i, i, roman=afsnit, slug=None, desc_norm=None, desc_i=None)
             i += 1
@@ -1000,6 +1003,11 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
         'en_overskrift_pr_gruppe': collisions == 0
         and len({h['element_id'] for h in headers}) == len(headers),
         'segmenter_paritet': [p['lokal_id'] for p in g_posts] == _segmenter_lokal_ids_1939(gtext, gp),
+        # hver manglende slægtleds-/kuld-overskrift har et gruppekort (linje har intet kort)
+        'gruppekort_daekker_overskriftsaarsager': all(
+            lv in {c['niveau'] for c in p['gruppekort']}
+            for p in placements for r in p['reasons'] if r.startswith('overskrift_ikke_fundet:')
+            for lv in [r.split(':', 1)[1]] if lv in ('slaegtled', 'kuld')),
     }
     transfer = {}
     for level in GUIDE_LEVELS_1939:

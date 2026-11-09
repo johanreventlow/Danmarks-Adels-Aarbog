@@ -308,7 +308,8 @@ class Test1939(unittest.TestCase):
         self.assertEqual((placement(m, 'E')['page'], b['page']), (501, 500))
         self.assertTrue(all(m['invariants'].values()), m['invariants'])
         self.assertEqual(set(m['invariants']), {'record_keys_unikke', 'section_path_nr_unik',
-                                                'en_overskrift_pr_gruppe', 'segmenter_paritet'})
+                                                'en_overskrift_pr_gruppe', 'segmenter_paritet',
+                                                'gruppekort_daekker_overskriftsaarsager'})
         self.assertEqual(m['transfer'], {'linje': {'guide': 2, 'genfundet': 2, 'ikke_genfundet': 0},
                                          'slaegtled': {'guide': 3, 'genfundet': 3, 'ikke_genfundet': 0},
                                          'kuld': {'guide': 2, 'genfundet': 2, 'ikke_genfundet': 0}})
@@ -840,6 +841,26 @@ class Test1939Kort(unittest.TestCase):
             self.assertIsNone(g[k], k)
         self.assertEqual(m['kort']['strukturkort_poster'], 1)
         self.assertEqual(m['kort']['strukturkort_med_linje'], 0)
+
+    def test_slaegtled_mangler_men_kuld_fundet_giver_gruppekort(self):
+        # stammen: romertallet er slægtleddet; en beskrivelse efter en post åbner en kuld-gruppe UNDER det
+        guide = ['### PAGE 499 ###', '                          Den ældre testske Linje.',
+                 '                                   I', '1.  Urd, f. 1500.', '',
+                 '                      ' + BESKRIVELSE, '2.  Ulf, f. 1530.']
+        rend = calamari(guide)
+        rend.remove('I')                       # slægtledsoverskriften mangler; kuld-beskrivelsen findes
+        recs = [rec(rend, '1.  Urd', 'U'), rec(rend, '2.  Ulf', 'V')]
+        m = build39(guide=guide, rend=rend, records=recs)
+        v = placement(m, 'V')
+        self.assertEqual(v['reasons'], ['overskrift_ikke_fundet:slaegtled'])
+        self.assertEqual(set(v['header_ids']), {'linje', 'kuld'})
+        self.assertEqual([c['niveau'] for c in v['gruppekort']], ['slaegtled'])
+        self.assertEqual(v['gruppekort'][0]['guide_value'], 1)
+        self.assertEqual(v['human_header_levels'], ['slaegtled'])
+        self.assertNotIn('uenig:naermeste_overskrift', v['reasons'])
+        self.assertEqual(placement(m, 'U')['gruppekort'], v['gruppekort'])
+        self.assertTrue(m['invariants']['gruppekort_daekker_overskriftsaarsager'])
+        self.assertEqual(m['kort']['gruppekort'], 1)
 
     def test_kort_summary_uden_tekst(self):
         rend = calamari(GUIDE)
