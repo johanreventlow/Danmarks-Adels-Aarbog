@@ -713,6 +713,39 @@ def _align_1939(g_posts: list[dict[str, Any]], r_posts: list[dict[str, Any]]) ->
     return pairs
 
 
+def _v2_slaegtled_ordinal(lokal_id: str | None) -> int | None:
+    """Slægtleddet i en v2-lokal_id (»Stamme-x.I.U1« → 1, »I.Første.U1« → 1); None hvis det ikke kan læses."""
+    parts = (lokal_id or '').split('.')
+    if len(parts) < 3:
+        return None
+    value = _roman_value_1939(parts[1])
+    return value if value is not None else ordinal_to_int(parts[1])
+
+
+def _oversigtszoner(text: str, zoner: list[dict[str, Any]]) -> list[tuple[int, int]]:
+    """Nedstigningsoversigternes tegnintervaller [start, slut) i `text`.
+
+    Hvert anker er en ordfølge, der skal forekomme præcis én gang (vilkårligt mellemrum/linjeskift mellem ordene);
+    slut-ankeret er inklusivt og skal ligge efter start-ankeret. Ellers HEADER_OVERSIGTSZONE_ANKER (fail-closed)."""
+    out = []
+    for z in zoner:
+        hits = []
+        for anker in (z['start'], z['slut']):
+            pat = re.compile(r'\s+'.join(re.escape(w) for w in anker.split()))
+            found = list(pat.finditer(text))
+            if len(found) != 1:
+                raise HeaderManifestError('HEADER_OVERSIGTSZONE_ANKER')
+            hits.append(found[0])
+        if hits[1].start() <= hits[0].start():
+            raise HeaderManifestError('HEADER_OVERSIGTSZONE_ANKER')
+        out.append((hits[0].start(), hits[1].end()))
+    return out
+
+
+def _i_zone(char_from: int, zoner: list[tuple[int, int]]) -> bool:
+    return any(a <= char_from < b for a, b in zoner)
+
+
 def _check_sha(data: bytes, expected: str | None, code: str) -> None:
     if expected is not None and hashlib.sha256(data).hexdigest() != expected:
         raise HeaderManifestError(code)
@@ -743,12 +776,22 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
         cache: dict[int, int] = {}
         rtab['pages'] = [None if p is None else cache.setdefault(p, _map_pdf_page(p, 'calamari', pmap))
                          for p in rtab['pages']]
+    # Nedstigningsoversigter (1939: PDF 504-505 og 508-510) nævner personer i kort form, som har en detaljepost senere
+    # i bogen. Deres nummererede punkter (»1. Geheimeraad Ditlev«) må hverken indgå i alignmentet eller i
+    # hulparringen; records, der begynder i en zone, får ingen placement (decisions 2026-11-08 Gate A pkt. 3).
+    zoner_spec = profile.get('oversigtszoner') or []
+    r_zoner = _oversigtszoner(rtext, zoner_spec)
+    g_zoner = _oversigtszoner(gtext, zoner_spec)
     # Renditionens "post" er recorden selv: en record begynder ved sin char_from med postnummeret.
     r_posts: list[dict[str, Any]] = []
     unnumbered: set[str] = set()
+    in_zone: set[str] = set()
     post_index: dict[str, int] = {}
     rec_starts = sorted({r['char_from'] for r in records})
     for rec in sorted(records, key=lambda r: (r['char_from'], r['record_key'])):
+        if _i_zone(rec['char_from'], r_zoner):
+            in_zone.add(rec['record_key'])
+            continue
         m = RECORD_NR_1939_RE.match(rtext[rec['char_from']:rec['char_from'] + 40])
         if m is None:
             unnumbered.add(rec['record_key'])
@@ -757,11 +800,13 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
             r_posts.append({'nr': int(m.group(1)), 'nr_label': m.group(1) + m.group(2),
                             'char_from': rec['char_from']})
         post_index[rec['record_key']] = len(r_posts) - 1
-    align = _align_1939(g_posts, r_posts)
+    g_keep = [gi for gi, p in enumerate(g_posts) if not _i_zone(p['char_from'], g_zoner)]
+    align = {g_keep[a]: b for a, b in _align_1939([g_posts[gi] for gi in g_keep], r_posts).items()}
     rev_align = {r: g for g, r in align.items()}
 
     # --- unummererede records: parres med v2-posterne i hullet mellem alignede nummererede records ---
-    v2_posts = _guide_v2_posts_1939(gtext)
+    gbases = guide['tab']['bases']
+    v2_posts = [v for v in _guide_v2_posts_1939(gtext) if not _i_zone(gbases[v['fra']], g_zoner)]
     unnum_recs = sorted((r for r in records if r['record_key'] in unnumbered),
                         key=lambda r: (r['char_from'], r['record_key']))
     aligned_r = sorted(rev_align)
@@ -882,6 +927,9 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
             'gruppekort': [], 'human_header_levels': [], 'naermeste_header_ids': None,
             'naermeste_entry_code': None, 'naermeste_generation_local': None, 'naermeste_kuld_label': None,
         }
+        if rec['record_key'] in in_zone:
+            placements.append({**base, 'status': 'unresolved', 'reasons': ['uden_post', 'oversigtszone']})
+            continue
         outcome = unnum_outcome.get(rec['record_key'])
         if rec['record_key'] in unnumbered and outcome['kind'] != 'stamfader':
             kind = outcome['kind']
@@ -923,6 +971,18 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
             if gid is None:
                 if level != 'kuld':
                     reasons.append(f'overskrift_ikke_fundet:{level}')
+                    v2 = (outcome or {}).get('v2') if gi is None else None
+                    ordinal = _v2_slaegtled_ordinal(v2['lokal_id']) if level == 'slaegtled' and v2 else None
+                    if ordinal is not None:
+                        # stamfader uden guidens slægtledsoverskrift (PDF 505: »I.« læst som »1.«): v2-segmenteringen
+                        # kender slægtleddet; gruppekortet lader det bekræfte mod siden
+                        i = v2['fra']
+                        ref = {'char_from': _span(guide['tab']['lines'][i], gbases[i])[0],
+                               'line_sha256': hashlib.sha256(segment.norm(guide['tab']['lines'][i].strip())
+                                                             .encode('utf-8')).hexdigest()}
+                        cards.append({'id': f"slaegtled:{ref['char_from']}", 'niveau': 'slaegtled',
+                                      'guide_value': ordinal, 'guide_char_from': ref['char_from'],
+                                      'guide_line_sha256': ref['line_sha256']})
                 continue
             header = located.get(gid)
             if header is None:
@@ -1098,6 +1158,7 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
                  'strukturkort_med_linje': sum(1 for p in placements if p['naermeste_header_ids'] is not None)},
         'alignment': {'guide_posts': len(g_posts), 'rendition_posts': len(r_posts), 'aligned': len(align),
                       'unummererede': len(unnum_posts), 'unummererede_records': len(unnumbered),
+                      'oversigtszone_records': len(in_zone),
                       **{key: len({r['char_from'] for r in unnum_recs
                                   if unnum_outcome[r['record_key']]['kind'] == kind})
                          for key, kind in (('parret_stamfader', 'stamfader'), ('parret_nummereret', 'nummereret'),

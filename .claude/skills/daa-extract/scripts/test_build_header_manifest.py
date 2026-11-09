@@ -375,7 +375,7 @@ class Test1939(unittest.TestCase):
         rend = calamari(GUIDE)
         m = build39(guide=guide, rend=rend)
         self.assertEqual(m['alignment'], {'guide_posts': 6, 'rendition_posts': 5, 'aligned': 5, 'unummererede': 0, 'unummererede_records': 0,
-                                      'parret_stamfader': 0, 'parret_nummereret': 0, 'parret_oversigt': 0, 'uparret': 0})
+                                      'oversigtszone_records': 0, 'parret_stamfader': 0, 'parret_nummereret': 0, 'parret_oversigt': 0, 'uparret': 0})
         self.assertTrue(all(p['status'] == 'machine_ok' for p in m['placements']), m['placements'])
         # en post kun i renditionen: recorden i den kan ikke føres til guiden
         rend2 = calamari(GUIDE)
@@ -793,6 +793,98 @@ class Test1939Unummererede(unittest.TestCase):
         txt = repr(s)
         for ord_ in ('Oversigt', 'Uplacerede', 'U1', 'Anders', 'Testesen', 'Uden'):
             self.assertNotIn(ord_, txt)
+
+
+# ---------------------------------------------------------------------------------------------
+# 1939: nedstigningsoversigter (PDF 504-505, 508-510) — kortposter, der dublerer en senere detaljepost
+# ---------------------------------------------------------------------------------------------
+GUIDE_Z = GUIDE[:14] + [
+    '    Oversigt over Doras Efterslægt:',
+    '          1. Frode, f. 1700 (se S. 9).',
+    '          2. Gorm, f. 1702 (se S. 9).',
+    '    Saa langt oversigten.',
+] + GUIDE[14:]
+ZONE = {'navn': 'test', 'start': 'Oversigt over Doras', 'slut': 'Saa langt oversigten.'}
+
+
+def profile_z(*zoner):
+    return {**PROFILE_1939, 'oversigtszoner': list(zoner)}
+
+
+class Test1939Oversigtszoner(unittest.TestCase):
+    def _recs(self, rend):
+        return records_for(rend) + [rec(rend, '1.  Frode', 'F'), rec(rend, '2.  Gorm', 'G')]
+
+    def test_poster_i_zonen_faar_ingen_placement(self):
+        rend = calamari(GUIDE_Z)
+        m = build39(guide=GUIDE_Z, rend=rend, records=self._recs(rend), profile=profile_z(ZONE))
+        for key in ('F', 'G'):
+            p = placement(m, key)
+            self.assertEqual((p['status'], p['reasons']), ('unresolved', ['uden_post', 'oversigtszone']))
+            self.assertEqual((p['entry_code'], p['printed_number'], p['section_path']), (None, None, []))
+        base = build39()
+        for key in 'ABCDE':
+            self.assertEqual(placement(m, key)['status'], 'machine_ok', key)
+            self.assertEqual(placement(m, key)['guide_lokal_id'], placement(base, key)['guide_lokal_id'], key)
+        self.assertEqual(m['alignment']['oversigtszone_records'], 2)
+        self.assertEqual(m['alignment']['aligned'], base['alignment']['aligned'])
+        self.assertTrue(all(m['invariants'].values()), m['invariants'])
+
+    def test_uden_zoner_parres_oversigtens_numre(self):
+        """Regressionen fra PDF 508: uden zonen bliver oversigtens »1.«/»2.« til nummererede poster."""
+        rend = calamari(GUIDE_Z)
+        m = build39(guide=GUIDE_Z, rend=rend, records=self._recs(rend))
+        self.assertNotIn('oversigtszone', [r for p in m['placements'] for r in p['reasons']])
+        self.assertEqual(m['alignment']['oversigtszone_records'], 0)
+        self.assertEqual(m['alignment']['rendition_posts'], 7)
+
+    def test_ankre_skal_vaere_entydige_og_ordnede(self):
+        rend = calamari(GUIDE_Z)
+        for zone in ({**ZONE, 'start': 'Findes ikke'}, {**ZONE, 'slut': 'f.'},
+                     {**ZONE, 'start': 'Saa langt oversigten.', 'slut': 'Oversigt over Doras'}):
+            with self.assertRaises(bhm.HeaderManifestError) as cm:
+                build39(guide=GUIDE_Z, rend=rend, records=self._recs(rend), profile=profile_z(zone))
+            self.assertEqual(str(cm.exception), 'HEADER_OVERSIGTSZONE_ANKER')
+
+    def test_ankre_taaler_linjeskift_og_spatiering(self):
+        rend = [l.replace('Oversigt over Doras Efterslægt:', 'Oversigt over\nDoras  Efterslægt:') for l in calamari(GUIDE_Z)]
+        m = build39(guide=GUIDE_Z, rend=rend, records=self._recs(rend), profile=profile_z(ZONE))
+        self.assertEqual(placement(m, 'F')['reasons'], ['uden_post', 'oversigtszone'])
+
+    def test_zonen_fjerner_guidens_v2_oversigtsposter_fra_hullet(self):
+        guide = GUIDE_U + OVERSIGT_LINJER
+        rend = unspace(guide)
+        zone = {'navn': 'u', 'start': 'Personer af Navnet Reventlow', 'slut': 'f. 1701.'}
+        m = build39(guide=guide, rend=rend, profile=profile_z(zone),
+                    records=recs_u(rend, [('Anders Testesen', 'S'), ('Per Uden', 'O1'), ('Rasmus Uden', 'O2')]))
+        for key in ('O1', 'O2'):
+            self.assertEqual(placement(m, key)['reasons'], ['uden_post', 'oversigtszone'])
+        self.assertEqual(placement(m, 'S')['status'], 'machine_ok')
+        self.assertEqual((m['alignment']['parret_oversigt'], m['alignment']['parret_stamfader']), (0, 1))
+
+    def test_stamfader_uden_guidens_slaegtled_faar_gruppekort(self):
+        """PDF 505: B's »I.« er OCR-læst som »1.« i raw.txt og tabt i Calamari. v2 kender slægtleddet (I.U1), guidens
+        scanner har ingen overskrift → gruppekort med v2's værdi, så niveauet kan bekræftes mod siden."""
+        guide = ['### PAGE 499 ###', '                          Den ældre testske Linje.', '                                1.',
+                 '   U r d  T e s t e s e n ,  f. 1500, var Ridder.', '', '                                   II',
+                 '1.  Ulf, f. 1530.', '2.  Uffe, f. 1531.']
+        rend = unspace(calamari(guide))
+        rend[3] = 'Urd Testesen, f. 1500, var Ridder.'
+        m = build39(guide=guide, rend=rend, records=[rec(rend, 'Urd Testesen', 'S'), rec(rend, '1.  Ulf', 'V'),
+                                                     rec(rend, '2.  Uffe', 'W')])
+        s = placement(m, 'S')
+        self.assertEqual((s['status'], s['reasons'], s['guide_lokal_id']),
+                         ('unresolved', ['overskrift_ikke_fundet:slaegtled'], 'Stamme-ældre-testske.I.U1'))
+        self.assertEqual([(c['niveau'], c['guide_value']) for c in s['gruppekort']], [('slaegtled', 1)])
+        self.assertEqual(s['human_header_levels'], ['slaegtled'])
+        self.assertTrue(m['invariants']['gruppekort_daekker_overskriftsaarsager'])
+        self.assertEqual(placement(m, 'V')['status'], 'machine_ok')
+
+    def test_profilfilen_har_to_zoner(self):
+        d = os.path.join(os.path.dirname(__file__), '..', 'references', 'header-profiles')
+        p39 = bhm.load_header_profile(os.path.join(d, 'header-1939-v1.json'))
+        self.assertEqual([z['navn'] for z in p39['oversigtszoner']],
+                         ['holstenske-yngre-nedstigning', 'meklenborgske-nedstigning-og-gallentin'])
 
 
 class Test1939Kort(unittest.TestCase):
