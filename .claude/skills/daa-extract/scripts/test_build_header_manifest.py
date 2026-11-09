@@ -547,9 +547,41 @@ class Test1939(unittest.TestCase):
         recs[1]['legacy'] = {'linje': 'II', 'nr': 7}
         recs[2]['legacy'] = {'linje': '1939', 'nr': 7}                # '1939' er ikke en linje: ingen sammenligning
         m2 = build39(records=recs)
-        self.assertEqual(placement(m2, 'B')['reasons'], ['uenig:legacy_linje', 'uenig:legacy_nr'])
+        self.assertEqual(placement(m2, 'B')['reasons'], ['uenig:legacy_linje'])
         self.assertEqual(placement(m2, 'C')['status'], 'machine_ok')
-        self.assertIn({'record_key': 'B', 'field': 'legacy_nr'}, m2['disagreements'])
+        self.assertIn({'record_key': 'B', 'field': 'legacy_linje'}, m2['disagreements'])
+
+    def test_legacy_nr_er_loebenummer(self):
+        # 1939's legacy-nøgler for en linje (fx VI-514 …) er et løbenummer i bogens orden, ikke gruppens trykte nummer:
+        # stigende løbenumre er enighed, selv om de trykte numre (1, 1, 2, 3) er gruppelokale.
+        rend = calamari(GUIDE)
+        recs = records_for(rend)
+        for r, nr in zip(recs[:4], (514, 515, 516, 517)):
+            r['legacy'] = {'linje': 'I', 'nr': nr}
+        m = build39(records=recs)
+        for key in 'ABCD':
+            self.assertEqual(placement(m, key)['status'], 'machine_ok', placement(m, key)['reasons'])
+        self.assertEqual(m['disagreements'], [])
+
+    def test_legacy_nr_brud_i_raekkefoelgen(self):
+        # Et løbenummer, der ikke stiger i forhold til forrige post med samme legacy-linje, er uenighed (kun den post).
+        rend = calamari(GUIDE)
+        recs = records_for(rend)
+        for r, nr in zip(recs[:4], (514, 516, 515, 517)):
+            r['legacy'] = {'linje': 'I', 'nr': nr}
+        m = build39(records=recs)
+        self.assertEqual(placement(m, 'C')['reasons'], ['uenig:legacy_nr'])
+        self.assertIn({'record_key': 'C', 'field': 'legacy_nr'}, m['disagreements'])
+        for key in 'ABD':
+            self.assertEqual(placement(m, key)['status'], 'machine_ok', key)
+
+    def test_legacy_uden_linje_er_ingen_legacy(self):
+        # person_external_id uden linje/nr giver {'linje': None, 'nr': None}: det er ingen legacy, ikke uenighed.
+        rend = calamari(GUIDE)
+        recs = records_for(rend)
+        recs[1]['legacy'] = {'linje': None, 'nr': None}
+        m = build39(records=recs)
+        self.assertEqual(placement(m, 'B')['status'], 'machine_ok', placement(m, 'B')['reasons'])
 
     def test_segmenter_paritet(self):
         self.assertTrue(build39()['invariants']['segmenter_paritet'])

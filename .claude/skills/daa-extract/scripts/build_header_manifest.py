@@ -809,6 +809,19 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
         if p['h_slg'] in falling:
             post_reasons.setdefault(gi, []).append('slaegtled_ikke_monoton')
 
+    # --- legacy-løbenumre: 1939's legacy-nøgle for en linje (fx VI-514) tæller poster i bogens orden og er ikke
+    # gruppens trykte nummer; uenighed = et løbenummer, der ikke stiger i forhold til forrige post med samme linje ---
+    legacy_nr_brud: set[str] = set()
+    forrige_nr: dict[str, Any] = {}
+    for rec in sorted(records, key=lambda r: (r['char_from'], r['record_key'])):
+        lg = rec.get('legacy') or {}
+        if lg.get('linje') in (None, '1939') or lg.get('nr') is None:
+            continue
+        prev = forrige_nr.get(lg['linje'])
+        if prev is not None and not lg['nr'] > prev:
+            legacy_nr_brud.add(rec['record_key'])
+        forrige_nr[lg['linje']] = lg['nr']
+
     # --- records → placeringer (struktur fra den alignede guide-post) ---
     placements: list[dict[str, Any]] = []
     disagreements: list[dict[str, Any]] = []
@@ -891,11 +904,11 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
         if gi is None and gpost['h_slg'] in falling:
             reasons.append('slaegtled_ikke_monoton')
         legacy = rec.get('legacy')
-        if legacy and legacy.get('linje') != '1939':
+        if legacy and legacy.get('linje') not in (None, '1939'):
             if base['entry_code'] is not None and legacy.get('linje') != base['entry_code']:
                 reasons.append('uenig:legacy_linje')
                 disagreements.append({'record_key': rec['record_key'], 'field': 'legacy_linje'})
-            if rpost['nr'] is not None and legacy.get('nr') != rpost['nr']:
+            if rec['record_key'] in legacy_nr_brud:
                 reasons.append('uenig:legacy_nr')
                 disagreements.append({'record_key': rec['record_key'], 'field': 'legacy_nr'})
         placements.append({**base, 'status': 'unresolved' if reasons else 'machine_ok',
