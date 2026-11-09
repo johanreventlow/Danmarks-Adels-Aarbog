@@ -238,9 +238,10 @@ Test: `tests/sql/test-overview-mention.sql` (udvid).
   refererer manifestets sha. Ceremonien efterprøver hver førtilstand under lås (version, status, tekst-sha) og
   afbryder med `T6D2A_PRE_MANIFEST` ved afvigelse.
 - `maal_trin6d2a.sql` printer én linje: `T6D2A_MAAL fase=<foer|ddl|data> regel=<n> synlige_oversigt=<n>
-  kanter_1014=<0|1> unresolved=<n> uden_identitet=<n> KOORD_2018_20=<md5> KOORD_SRC=<md5> FAKTA=<md5> BIO=<md5>`
+  kanter_par=<0|1> unresolved=<n> uden_identitet=<n> KOORD_2018_20=<md5> KOORD_SRC=<md5> FAKTA=<md5> BIO=<md5>`
   (`FAKTA` = md5 over `public_person_facts` + `public_family_sources` for alle offentlige personer; `BIO` = md5 over
-  v2-læseren). `fase=ddl`, når `private.overview_mention_narratives` findes; `data`, når ceremoniens kvittering
+  v2-læseren; `kanter_par` = antal samme_som-kanter mellem `-v par_a`/`-v par_b`, begge retninger, uden person-id'er i
+  scriptet; `regel`/`synlige_oversigt` er `na` i `foer`). `fase=ddl`, når `private.overview_mention_narratives` findes; `data`, når ceremoniens kvittering
   findes (registreres også ved fire `N`, Codex-fund 10).
 - Ceremonien: én transaktion; for hvert kort med `J`/`A` en kobling eller identitet; nulstil `app.change_set_id`
   mellem kaldene; POST: `unresolved=0` og `uden_identitet=0` bortset fra registrerede `N`; `FAKTA` og `KOORD_2018_20`
