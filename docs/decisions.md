@@ -2,6 +2,24 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: 6d-1 i prod — ledger via identitet, afledt B6 og afgørelse 4 som bygget (2026-11-09)
+
+> Kørt i prod 2026-11-09 (GO `c8f09536` og `79609895`; færdigbevis `evidensbaseret-genimport/placement-6d1-prod.md`).
+> Tre valg fra spec'en (§5.3, §5.4, afgørelse 4) står nu som bygget:
+>
+> 1. **Ledgeren kobler via identitet.** `record_legacy_disposition` godtager `mapped`, når legacy-rækkens person er det
+>    accepterede kanoniske mål for en persona med accepteret persona-placement på placementens record — ikke via
+>    postnøgle. 528 `mapped`. En uændret disposition får ingen ny version, så de 48 `retained_legacy` beholder 5c-1's
+>    version 1; planens grund er kontrolleret i transaktionen, men ikke gemt. Skal grunden kunne læses senere, skal en
+>    ny version skrives bevidst (ikke 6d-1).
+> 2. **B6 er en læse-kun funktion.** `private.membership_component_states()` afleder `corroborated`/`conflict`/
+>    `single`/`none` pr. `samme_som`-komponent (kun `afklaret`). Efter 6d-1: 441 / 3 / 212 / 224. Trin 6's færdigbevis
+>    (c) er dermed opfyldt i data; læservisningen er 6e.
+> 3. **Afgørelse 4 (læseren uændret for 1939):** `public_person_source_coordinates` bruger kun placement for en kilde,
+>    når dens placements er entydige på `(entry, printed_number)`. 1939's numre er gruppelokale, så læserens
+>    1939-rækker er byte-ens (`KOORD_SRC` uændret); prisen er ≈1,25 s for RPC'en som anon (før ≈0,55 s), accepteret
+>    til 6e (decisions 2026-11-09 pkt. 4).
+
 ## BESLUTTET: 6d-1's generalprøve — helpost-regel, henvisningspost uden placement, staged biografier og læsertid (2026-11-09)
 
 > Generalprøven på en stand-in fra prod-dumpet `1653c8f7…` (9/11) fandt tre fejl i ceremonien og to forhold, som
