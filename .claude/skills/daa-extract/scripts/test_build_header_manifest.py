@@ -852,7 +852,7 @@ class Test1939Kort(unittest.TestCase):
         recs = [rec(rend, '1.  Urd', 'U'), rec(rend, '2.  Ulf', 'V')]
         m = build39(guide=guide, rend=rend, records=recs)
         v = placement(m, 'V')
-        self.assertEqual(v['reasons'], ['overskrift_ikke_fundet:slaegtled'])
+        self.assertEqual(v['reasons'], ['overskrift_ikke_fundet:slaegtled', 'stamme_generation_usikker'])
         self.assertEqual(set(v['header_ids']), {'linje', 'kuld'})
         self.assertEqual([c['niveau'] for c in v['gruppekort']], ['slaegtled'])
         self.assertEqual(v['gruppekort'][0]['guide_value'], 1)
@@ -894,11 +894,31 @@ class Test1939Kort(unittest.TestCase):
         rend = calamari(guide)
         m = build39(guide=guide, rend=rend, records=[rec(rend, '1.  Urd', 'U'), rec(rend, '2.  Ulf', 'V')])
         v = placement(m, 'V')
-        self.assertEqual((v['status'], v['reasons']), ('machine_ok', []))
+        self.assertEqual((v['status'], v['reasons']), ('unresolved', ['stamme_generation_usikker']))
         self.assertEqual(set(v['header_ids']), {'linje', 'slaegtled', 'kuld'})
         self.assertEqual(v['generation_local'], 1)
         self.assertEqual(v['kuld_label'], 'Anna-Reventlows-Børn-med-Bodil-Opdigt')
 
+
+    def test_stamme_beskrivelse_efter_post_er_usikker(self):
+        guide = ['### PAGE 499 ###', '                          Den ældre testske Linje.',
+                 '                                   I', '1.  Urd, f. 1500.', '',
+                 '                      ' + BESKRIVELSE, '1.  Ulf, f. 1530.', '2.  Uffe, f. 1531.']
+        rend = calamari(guide)
+        recs = [rec(rend, '1.  Urd', 'U'), rec(rend, '1.  Ulf', 'V'), rec(rend, '2.  Uffe', 'W')]
+        m = build39(guide=guide, rend=rend, records=recs)
+        self.assertEqual(placement(m, 'U')['status'], 'machine_ok')
+        for key in ('V', 'W'):
+            self.assertEqual(placement(m, key)['reasons'], ['stamme_generation_usikker'], key)
+            self.assertEqual(placement(m, key)['status'], 'unresolved')
+        # beskrivelsen lige efter romertallet: uændret
+        g2 = ['### PAGE 499 ###', '                          Den ældre testske Linje.',
+              '                                   I', '                      ' + BESKRIVELSE, '1.  Urd, f. 1500.']
+        r2 = calamari(g2)
+        m2 = build39(guide=g2, rend=r2, records=[rec(r2, '1.  Urd', 'U')])
+        self.assertEqual((placement(m2, 'U')['status'], placement(m2, 'U')['reasons']), ('machine_ok', []))
+        # grene (ikke stamme): beskrivelse efter post er uændret machine_ok
+        self.assertEqual(placement(build39(), 'B')['status'], 'machine_ok')
 
     def test_kort_summary_uden_tekst(self):
         rend = calamari(GUIDE)

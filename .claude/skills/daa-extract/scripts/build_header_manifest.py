@@ -362,6 +362,7 @@ def _scan_1939(text: str, gp: dict[str, Any], stamme_afsnit_level: str | None) -
     afsnit_frisk = False
     side_naerhed = 0
     h_linje = h_slg = h_grp = None
+    posts_since_roman = 0          # poster under det nuværende stamme-romertal
     headers: list[dict[str, Any]] = []
     posts: list[dict[str, Any]] = []
     visited: list[int] = []
@@ -407,6 +408,7 @@ def _scan_1939(text: str, gp: dict[str, Any], stamme_afsnit_level: str | None) -
             h_linje = add('linje', i, i + 1, roman=linje, stamme_slug=None, entry_code=linje,
                           name_norm=_letters(lines[i + 1]))
             h_slg = h_grp = None
+            posts_since_roman = 0
             i += forbrug
             continue
 
@@ -421,6 +423,7 @@ def _scan_1939(text: str, gp: dict[str, Any], stamme_afsnit_level: str | None) -
                 h_grp = None
                 if h_slg is not None and headers[h_slg].get('stamme_roman'):
                     h_slg = None                 # stammens romertal gælder kun inden for sektionen (som afsnit=None)
+                posts_since_roman = 0
                 i += 1
                 continue
 
@@ -446,6 +449,7 @@ def _scan_1939(text: str, gp: dict[str, Any], stamme_afsnit_level: str | None) -
                 h_slg = add('slaegtled', i, i, label=afsnit, ordinal=_roman_value_1939(afsnit),
                             stamme_roman=True)
                 h_grp = None
+                posts_since_roman = 0
             else:
                 h_grp = add('kuld', i, i, roman=afsnit, slug=None, desc_norm=None, desc_i=None)
             i += 1
@@ -457,8 +461,11 @@ def _scan_1939(text: str, gp: dict[str, Any], stamme_afsnit_level: str | None) -
             tekst = segment.norm(' '.join(lines[k].strip() for k in range(i, i + forbrug)))
             if not afsnit_frisk:
                 afsnit = slug
+                # stammen: en beskrivelse efter poster under romertallet uden nyt romertal kan være samme eller næste
+                # generation (romertal tabt i OCR) -> generationen er usikker
+                usikker = (str(linje or '').startswith(pre_label or '\0') and posts_since_roman >= 1)
                 h_grp = add('kuld', i, i + forbrug - 1, roman=None, slug=slug,
-                            desc_norm=_letters(tekst), desc_i=i)
+                            desc_norm=_letters(tekst), desc_i=i, usikker=usikker)
             elif h_grp is not None and headers[h_grp]['level'] == 'kuld':
                 headers[h_grp].update(slug=slug, desc_norm=_letters(tekst), desc_i=i,
                                       desc_to=i + forbrug - 1)
@@ -469,6 +476,7 @@ def _scan_1939(text: str, gp: dict[str, Any], stamme_afsnit_level: str | None) -
         if post_start:
             pm, _usikker = post_start
             afsnit_frisk = False
+            posts_since_roman += 1
             nr_label = pm.group(2) + pm.group(3)
             gid_slg = h_slg
             gid_kuld = h_grp if h_grp is not None and headers[h_grp]['level'] == 'kuld' else None
@@ -878,6 +886,8 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
             section_path=list(header_ids.values()), header_ids=header_ids)
         base['gruppekort'] = cards
         reasons.extend(post_reasons.get(gi, []))
+        if gpost['h_kuld'] is not None and g_headers[gpost['h_kuld']].get('usikker'):
+            reasons.append('stamme_generation_usikker')
         if gi is None and gpost['h_slg'] in falling:
             reasons.append('slaegtled_ikke_monoton')
         legacy = rec.get('legacy')
