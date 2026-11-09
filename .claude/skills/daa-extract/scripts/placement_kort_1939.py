@@ -29,8 +29,11 @@ import json
 import random
 import re
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from decision_sheet_core import SheetError
 from spouse_exception_sheet import _write_private, check_private_path
