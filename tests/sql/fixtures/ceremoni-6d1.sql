@@ -3,8 +3,8 @@
 --   Kilde -1611 (modpart, »tidligere udgave«): slægt f6d1 med linjerne (-1611,'I') og (-1611,'II'), stamtavle-schema med
 --     entries I og II (canonical), én placeret og promoveret hovedperson -161101 (record k1) med publiceret biografi
 --     og én person -161102 med kun en legacy-række.
---   Kilde -1610 (kilden, der placeres): stamtavle-schema med den eksisterende entry VI (canonical til linjen
---     (-1610,'VI')), fire records p1-p4 (tegn 1000/2000/3000/4000) med hovedperson-persona og accepteret identitet til
+--   Kilde -1610 (kilden, der placeres): stamtavle-schema med den eksisterende entry VI (sort_order 1 som i prod;
+--     mappingen flytter den til 3; canonical til linjen (-1610,'VI')), fire records p1-p4 (tegn 1000/2000/3000/4000) med hovedperson-persona og accepteret identitet til
 --     -161001..-161004; p1-p3 publiceret, p4 uden biografi. Legacy-rækkernes record_key er p1, x-2, x-3 og NULL (kun p1
 --     svarer til recorden, som i 1939). -161001 samme_som -161101 (afklaret) → komponenten bliver corroborated.
 --     Helposten har typen `person` som 1939-profilerne (helpost_observation_kind); modpartens har `person_post`.
@@ -136,7 +136,7 @@ BEGIN
   INSERT INTO public.lineage_scheme(slaegt_id,source_id,kind,label) VALUES (v_slaegt,-1610,'stamtavle','6d1 kilde')
     RETURNING id INTO v_scheme;
   INSERT INTO public.lineage_scheme_entry(scheme_id,slaegt_id,code,label,sort_order)
-    VALUES (v_scheme,v_slaegt,'VI','VI. Den eksisterende Testlinje',6) RETURNING id INTO e_vi;
+    VALUES (v_scheme,v_slaegt,'VI','VI. Den eksisterende Testlinje',1) RETURNING id INTO e_vi;
   INSERT INTO public.lineage_scheme_entry_lineage(entry_id,lineage_id,slaegt_id,relation_kind)
     VALUES (e_vi,l_vi,v_slaegt,'canonical');
   s:=s||jsonb_build_object('source',-1610,'actor',v_actor,'entry',e_vi);

@@ -25,10 +25,11 @@ open(sys.argv[2],"w",encoding="utf-8").write(json.dumps({"manifest_sha256":sys.a
 
 createdb "$db"
 for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql tests/sql/1939-v50-writer-bootstrap.sql; do
-  q -d "$db" -f "$f" >/dev/null 2>&1; done
-q -d "$db" -c 'BEGIN' -f tests/sql/reimport-writer-v2-bootstrap.sql -c 'COMMIT' >/dev/null 2>&1
-q -d "$db" -f db-rls.sql >/dev/null 2>&1
-(cd $F && q -d "$db" -f ceremoni-6d1.sql >/dev/null 2>&1) || fail "fixture"
+  q -d "$db" -f "$f" >/dev/null 2>&1 || fail "opsætning: $f"; done
+q -d "$db" -c 'BEGIN' -f tests/sql/reimport-writer-v2-bootstrap.sql -c 'COMMIT' >/dev/null 2>&1 \
+  || fail "opsætning: tests/sql/reimport-writer-v2-bootstrap.sql"
+q -d "$db" -f db-rls.sql >/dev/null 2>&1 || fail "opsætning: db-rls.sql (anden gang)"
+(cd $F && q -d "$db" -f ceremoni-6d1.sql >/dev/null 2>&1) || fail "opsætning: fixtures/ceremoni-6d1.sql"
 [ "$(v "$db" "SELECT public.narrative_record_contract_version()")" = "2" ] || fail "kontrakt v2"
 
 M=$F/manifest-6d1.json; MP=$F/mapping-6d1.json; AP=$F/approvals-6d1.json
@@ -45,10 +46,12 @@ KSRC=$(felt "$db" KOORD_SRC)
 # run <base> <mærke>: ceremonien med standardforventningerne (fuld kørsel); overstyr med E_*=… / MF= / MP= / AP= foran.
 run() {
   local mf=${MF:-$M} mp=${MPF:-$MP} ap=${AP_:-$tmp/ingen.json}
-  env -u PGOPTIONS psql -X -At -v ON_ERROR_STOP=1 -d "$1" -v actor=a6d10000-0000-0000-0000-0000000006d1 -v src=-1610 \
+  env -u PGOPTIONS psql -X -At -v ON_ERROR_STOP=1 -d "${CONN:-$1}" -v actor=a6d10000-0000-0000-0000-0000000006d1 -v src=-1610 \
     -v manifest_path="$mf" -v manifest_sha="${MSHA:-$(sha "$mf")}" \
     -v mapping_path="$mp" -v mapping_sha="$(jget "$mp" sheet_sha256)" -v mapping_token_sha="${TSHA:-$(jget "$mp" token_sha256)}" \
-    -v approvals_path="$ap" -v approvals_sha="$(sha "$ap")" -v go=deadbeef -v rendition_sha="$(printf '2%.0s' {1..64})" \
+    -v mapping_file_sha="${MFSHA:-$(sha "$mp")}" -v approvals_file_sha="${AFSHA:-$(sha "$ap")}" \
+    -v approvals_path="$ap" -v approvals_sha="$(sha "$ap")" -v go=deadbeef \
+    -v rendition_sha="${RSHA:-$(printf '2%.0s' {1..64})}" \
     -v header_rule_version="${RULE:-header-test-6d1-v1}" \
     -v expect_headers=5 -v expect_entries="${E_ENT:-3}" -v expect_placements="${E_PL:-3}" \
     -v expect_persona_placements="${E_PP:-3}" -v expect_bindings="${E_BIND:-3}" -v expect_published=3 \
@@ -91,7 +94,7 @@ UPDATE private.source_persona_identity i SET canonical_person_id=$4,decision_sta
 COMMIT;
 SQL
 }
-for c in go neg ident unres appr same overlap park udenpost parit fortsat; do createdb -T "$db" "${db}_$c"; done
+for c in go neg ident unres appr same overlap park udenpost parit fortsat stale; do createdb -T "$db" "${db}_$c"; done
 events_p2() { v "$1" "SELECT count(*) FROM private.narrative_publication_event e JOIN private.narrative_record_publication b ON b.id=e.binding_id
   JOIN private.source_record sr ON sr.id=b.source_record_id WHERE sr.source_id=-1610 AND sr.record_key='p2'"; }
 ev0=$(events_p2 "$db")
@@ -109,7 +112,7 @@ grep -q '^PLC_OK entries=3 headers=5 placements=3 persona=3 ledger_mapped=3 memb
 [ "$(v "${db}_go" "SELECT string_agg(e.code||':'||e.sort_order||':'||(SELECT string_agg(l.kode||'/'||el.relation_kind,'+' ORDER BY el.relation_kind)
        FROM public.lineage_scheme_entry_lineage el JOIN public.lineage l ON l.id=el.lineage_id WHERE el.entry_id=e.id),',' ORDER BY e.code)
        FROM public.lineage_scheme s JOIN public.lineage_scheme_entry e ON e.scheme_id=s.id WHERE s.source_id=-1610")" \
-  = "I:1:I/canonical+II/historical_alias,II:2:II/canonical,VI:6:VI/canonical" ] || fail "linjeskema"
+  = "I:1:I/canonical+II/historical_alias,II:2:II/canonical,VI:3:VI/canonical" ] || fail "linjeskema (VI flyttet 1→3)"
 [ "$(v "${db}_go" "SELECT state FROM private.membership_component_states() WHERE -161001=ANY(members)")" = "corroborated" ] \
   || fail "komponent"
 # $binding_via_record$: p2's legacy-nøgle er x-2, men bindingen revalideres via recorden.
@@ -164,8 +167,16 @@ jvar "$MP" "$tmp/mp-vi.json" 'd["entries"][2]["canonical"]={"source_id":-1611,"k
 MPF="$tmp/mp-vi.json" nej "$N" mp2 PLC_PRE_MAPPING
 jvar "$MP" "$tmp/mp-label.json" 'd["entries"][0]["label_sha256"]="0"*64'
 MPF="$tmp/mp-label.json" nej "$N" mp3 PLC_PRE_MAPPING
-jvar "$MP" "$tmp/mp-sort.json" 'd["entries"][1]["sort_order"]=6'
-MPF="$tmp/mp-sort.json" nej "$N" mp4 PLC_PRE_MAPPING
+jvar "$MP" "$tmp/mp-sort.json" 'd["entries"][1]["sort_order"]=3'
+MPF="$tmp/mp-sort.json" nej "$N" mp4 'PLC_PRE_MAPPING label/sort_order'
+jvar "$MP" "$tmp/mp-uden-vi.json" 'd["entries"]=[e for e in d["entries"] if e["code"]!="VI"]'
+MPF="$tmp/mp-uden-vi.json" E_ENT=3 nej "$N" mp6 'PLC_PRE_MAPPING eksisterende mangler'
+jvar "$MP" "$tmp/mp-negsort.json" 'd["entries"][2]["sort_order"]=-1'
+MPF="$tmp/mp-negsort.json" nej "$N" mp7 'PLC_PRE_MAPPING label/sort_order'
+MFSHA=$(printf x | shasum -a 256 | cut -c1-64) nej "$N" fil1 PLC_PRE_MAPPING_FIL
+AFSHA=$(printf x | shasum -a 256 | cut -c1-64) nej "$N" fil2 PLC_PRE_APPROVALS_FIL
+RSHA=$(printf '3%.0s' {1..64}) nej "$N" rend PLC_PRE_RENDITION
+CONN="dbname=$N options=-capp.change_set_id=5" nej "$N" guc PLC_PRE_GUC
 jvar "$MP" "$tmp/mp-alias.json" 'd["entries"][0]["aliases"]=[{"source_id":-1611,"kode":"XX"}]'
 MPF="$tmp/mp-alias.json" nej "$N" mp5 PLC_PRE_MAPPING
 appr "$M" "$tmp/a-nr.json" '[{"record_key":"p4","printed_number":"9"}]'
@@ -256,5 +267,10 @@ ok "${db}_fortsat" fortsat
 [ "$(ledger "${db}_fortsat")" = "retained_legacy:,mapped:,mapped:,mapped:" ] || fail "fortsat: ledger $(ledger "${db}_fortsat")"
 [ "$(v "${db}_fortsat" "SELECT string_agg(version::text,',' ORDER BY person_id) FROM private.legacy_placement_disposition_current
        WHERE source_id=-1610")" = "1,2,2,2" ] || fail "fortsat: versioner"
+
+# En forældet publicering før ceremonien (p3's biografi gjort privat → ny tilstand) → PLC_PRE_PUBLISHED.
+v "${db}_stale" "UPDATE public.narrative SET privat=true WHERE subjekt_type='person' AND subjekt_id=-161003 AND source_id=-1610" >/dev/null
+[ "$(pub "${db}_stale")" = "2/1" ] || fail "stale: fixture $(pub "${db}_stale")"
+nej "${db}_stale" stale PLC_PRE_PUBLISHED
 
 echo PLACEMENT_CEREMONI_TEST_OK

@@ -20,7 +20,8 @@
 --   approvals (kontrolarkets godkendelser): {manifest_sha256, approvals:[{record_key, printed_number?}]}
 -- Brug: psql -X -At -v ON_ERROR_STOP=1 -v actor=<uuid> -v src=<kilde> -v go=<GO-kode>
 --   -v manifest_path=<fil> -v manifest_sha=<sha256 af filen> -v mapping_path=<fil> -v mapping_sha=<arkets sheet_sha256>
---   -v mapping_token_sha=<token_sha256> -v approvals_path=<fil> -v approvals_sha=<sha256 af filen>
+--   -v mapping_token_sha=<token_sha256> -v mapping_file_sha=<sha256 af mapping-filen>
+--   -v approvals_path=<fil> -v approvals_sha=<GO-bundet sha256 af filen> -v approvals_file_sha=<sha256 af filen>
 --   -v rendition_sha=<renditionens content_sha256> -v header_rule_version=<regelversion>
 --   -v expect_headers=N -v expect_entries=N -v expect_placements=N -v expect_persona_placements=N -v expect_bindings=N
 --   -v expect_published=N -v expect_revalidated=N -v expect_ledger_mapped=N -v expect_ledger_retained=N
@@ -30,6 +31,8 @@
 -- expect_bindings = bindinger på records, der får persona-placement; expect_published = kildens publicerede bindinger;
 -- expect_revalidated = publicerede bindinger på records, der får record-placement; expect_corroborated/expect_conflict =
 -- komponenttal i hele basen efter ceremonien (membership_component_states).
+-- Linjerækkefølgen: mappingens sort_order (bogens orden) gælder for alle ikke-parkerede entries, også eksisterende;
+-- kildens eksisterende entries skal alle stå i mappingen og flyttes til mappingens plads i linjeskemaets change_set.
 \set QUIET on
 \set ON_ERROR_STOP on
 \set m `cat :'manifest_path'`
@@ -42,6 +45,8 @@ SELECT set_config('request.jwt.claim.sub', :'actor', true), set_config('plc.src'
        set_config('plc.go', :'go', true), set_config('plc.manifest_sha', :'manifest_sha', true),
        set_config('plc.mapping_sha', :'mapping_sha', true), set_config('plc.mapping_token_sha', :'mapping_token_sha', true),
        set_config('plc.approvals_sha', :'approvals_sha', true), set_config('plc.rendition_sha', :'rendition_sha', true),
+       set_config('plc.mapping_file_sha', :'mapping_file_sha', true),
+       set_config('plc.approvals_file_sha', :'approvals_file_sha', true),
        set_config('plc.rule', :'header_rule_version', true),
        set_config('plc.expect', json_build_object('headers', :'expect_headers'::int, 'entries', :'expect_entries'::int,
          'placements', :'expect_placements'::int, 'persona', :'expect_persona_placements'::int,
@@ -182,6 +187,15 @@ BEGIN
   -- Filerne er de GO-bundne: indholdet har den bundne sha (psql's `cat` fjerner én afsluttende linjeskift), arkets og
   -- token-filens sha står i mappingen, og godkendelserne hører til manifestet.
   SELECT * INTO i FROM plc_input;
+  -- Mapping- og godkendelsesfilerne selv (ikke kun arkets/token-filens sha): runnerens måling af filernes bytes.
+  IF current_setting('plc.mapping_file_sha') NOT IN (encode(extensions.digest(i.mp_text,'sha256'),'hex'),
+                                                     encode(extensions.digest(i.mp_text||E'\n','sha256'),'hex')) THEN
+    RAISE EXCEPTION 'PLC_PRE_MAPPING_FIL';
+  END IF;
+  IF current_setting('plc.approvals_file_sha') NOT IN (encode(extensions.digest(i.a_text,'sha256'),'hex'),
+                                                       encode(extensions.digest(i.a_text||E'\n','sha256'),'hex')) THEN
+    RAISE EXCEPTION 'PLC_PRE_APPROVALS_FIL';
+  END IF;
   IF current_setting('plc.manifest_sha') NOT IN (encode(extensions.digest(i.m_text,'sha256'),'hex'),
                                                  encode(extensions.digest(i.m_text||E'\n','sha256'),'hex'))
      OR current_setting('plc.approvals_sha') NOT IN (encode(extensions.digest(i.a_text,'sha256'),'hex'),
@@ -268,25 +282,33 @@ BEGIN
         END IF;
       EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'PLC_PRE_MAPPING eksisterende %', rr.code;
       END;
-      UPDATE plc_entry SET canonical_lineage=v_lin, alias_lineages='{}' WHERE code=rr.code;
+      UPDATE plc_entry SET canonical_lineage=v_lin, alias_lineages='{}',
+             sort_order=CASE WHEN jsonb_typeof(rr.e->'sort_order')='number' AND rr.e->>'sort_order' ~ '^[0-9]+$'
+                             THEN (rr.e->>'sort_order')::integer END
+       WHERE code=rr.code;
       CONTINUE;
     END IF;
-    -- Ny entry: labelen er grenens linjeoverskrift i manifestet med arkets label-hash; sort_order kolliderer ikke.
+    -- Ny entry: labelen er grenens linjeoverskrift i manifestet med arkets label-hash.
     UPDATE plc_entry SET canonical_lineage=v_lin, alias_lineages=coalesce(v_ids,'{}'),
-           sort_order=CASE WHEN jsonb_typeof(rr.e->'sort_order')='number' THEN (rr.e->>'sort_order')::integer END,
+           sort_order=CASE WHEN jsonb_typeof(rr.e->'sort_order')='number' AND rr.e->>'sort_order' ~ '^[0-9]+$'
+                           THEN (rr.e->>'sort_order')::integer END,
            label=(SELECT min(h->>'verbatim_text') FROM jsonb_array_elements(m->'headers') h
                    WHERE h->>'kind'='header_linje' AND h#>>'{parsed,entry_code}'=rr.code
                      AND h->>'verbatim_sha256'=rr.e->>'label_sha256'
                      AND h->>'verbatim_sha256'=encode(extensions.digest(h->>'verbatim_text','sha256'),'hex'))
      WHERE code=rr.code;
   END LOOP;
-  IF EXISTS (SELECT 1 FROM plc_entry WHERE NOT parkeret AND eksisterende IS NULL
-               AND (label IS NULL OR btrim(label)='' OR sort_order IS NULL OR sort_order<0))
-     OR EXISTS (SELECT 1 FROM plc_entry x WHERE NOT x.parkeret AND x.eksisterende IS NULL
-                  AND (EXISTS (SELECT 1 FROM public.lineage_scheme_entry le WHERE le.scheme_id=v_scheme AND le.sort_order=x.sort_order)
-                       OR EXISTS (SELECT 1 FROM plc_entry y WHERE y.code<>x.code AND NOT y.parkeret AND y.eksisterende IS NULL
-                                    AND y.sort_order=x.sort_order))) THEN
+  -- Nye entries har en label; alle ikke-parkerede (også eksisterende) har et heltal >= 0 som sort_order, unikt inden
+  -- for mappingen (DB'ens nuværende værdier flyttes i linjeskemaets skridt); hver eksisterende entry står i mappingen.
+  IF EXISTS (SELECT 1 FROM plc_entry WHERE NOT parkeret AND eksisterende IS NULL AND (label IS NULL OR btrim(label)=''))
+     OR EXISTS (SELECT 1 FROM plc_entry WHERE NOT parkeret AND (sort_order IS NULL OR sort_order<0))
+     OR (SELECT count(*) FROM plc_entry WHERE NOT parkeret)
+          <>(SELECT count(DISTINCT sort_order) FROM plc_entry WHERE NOT parkeret) THEN
     RAISE EXCEPTION 'PLC_PRE_MAPPING label/sort_order';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.lineage_scheme_entry le WHERE le.scheme_id=v_scheme
+               AND NOT EXISTS (SELECT 1 FROM plc_entry x WHERE x.eksisterende=le.id AND NOT x.parkeret)) THEN
+    RAISE EXCEPTION 'PLC_PRE_MAPPING eksisterende mangler';
   END IF;
 
   -- Recordsættet. Hver manifest-nøgle findes som record i kilden.
@@ -338,10 +360,13 @@ BEGIN
   IF EXISTS (SELECT 1 FROM plc_rec WHERE skriv AND n_primary>1) THEN RAISE EXCEPTION 'PLC_PRE_PERSONA'; END IF;
   -- Persona-placement kun for præcis én primary-persona med accepteret identitet (afgørelse 5).
   UPDATE plc_rec SET persona=true WHERE skriv AND n_primary=1 AND person_id IS NOT NULL;
-  -- Overskrifterne: hver skrevet post har en linjeoverskrift, og dens header_ids peger på manifestets overskrifter.
+  -- Overskrifterne: hver skrevet post har en linjeoverskrift (header_linje i manifestet), og dens header_ids peger på
+  -- manifestets overskrifter.
   IF jsonb_array_length(m->'headers')<>(e->>'headers')::int
      OR EXISTS (SELECT 1 FROM plc_rec f WHERE f.skriv AND (coalesce(f.p#>>'{header_ids,linje}','')=''
                   OR jsonb_typeof(f.p->'header_ids')<>'object'
+                  OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(m->'headers') h
+                                  WHERE h->>'element_id'=f.p#>>'{header_ids,linje}' AND h->>'kind'='header_linje')
                   OR EXISTS (SELECT 1 FROM jsonb_each_text(f.p->'header_ids') k
                               WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements(m->'headers') h
                                                  WHERE h->>'element_id'=k.value)))) THEN
@@ -434,10 +459,18 @@ SELECT pg_temp.plc_paritet('foer') \g /dev/null
 -- Skrivning 1: linjeskemaet under eget change_set (nye entries + canonical/historical_alias; parkerede grene får ingen).
 DO $linje$
 DECLARE v_src bigint:=current_setting('plc.src')::bigint; v_scheme bigint; v_slaegt bigint; r record; v_entry bigint;
-  v_lin bigint; v_n integer:=0;
+  v_lin bigint; v_n integer:=0; v_off integer;
 BEGIN
   SELECT id, slaegt_id INTO v_scheme, v_slaegt FROM public.lineage_scheme WHERE source_id=v_src AND kind='stamtavle';
   PERFORM public.begin_change_set('placement_lineage_scheme', current_setting('plc.navn')||': linjeskema for kilde '||v_src);
+  -- Eksisterende entries flyttes til mappingens sort_order før de nye indsættes. UNIQUE(scheme_id,sort_order) kan ikke
+  -- udskydes og sort_order>=0, så i to faser: først over både nuværende og planlagte værdier, så til de endelige.
+  SELECT greatest(coalesce((SELECT max(sort_order) FROM public.lineage_scheme_entry WHERE scheme_id=v_scheme),0),
+                  coalesce((SELECT max(sort_order) FROM plc_entry WHERE NOT parkeret),0))+1 INTO v_off;
+  UPDATE public.lineage_scheme_entry le SET sort_order=v_off+x.sort_order
+    FROM plc_entry x WHERE x.eksisterende=le.id AND le.sort_order<>x.sort_order;
+  UPDATE public.lineage_scheme_entry le SET sort_order=x.sort_order
+    FROM plc_entry x WHERE x.eksisterende=le.id AND le.sort_order<>x.sort_order;
   FOR r IN SELECT * FROM plc_entry WHERE NOT parkeret AND eksisterende IS NULL ORDER BY sort_order LOOP
     INSERT INTO public.lineage_scheme_entry(scheme_id,slaegt_id,code,label,sort_order)
       VALUES (v_scheme,v_slaegt,r.code,r.label,r.sort_order) RETURNING id INTO v_entry;
@@ -537,7 +570,7 @@ ANALYZE public.person_lineage_membership, public.person_slaegt_membership, publi
 -- Skrivning 4: revalidering. Én klientdrevet sætning pr. forældet publicering, slået op via recorden;
 -- app.change_set_id ryddes før hvert kald. Tilstands-sha'en læses som ejer, sætningerne køres som redaktør.
 CREATE TEMP TABLE plc_reval ON COMMIT DROP AS
-SELECT row_number() OVER (ORDER BY b.record_key COLLATE "C", b.binding_id) AS ord,
+SELECT row_number() OVER (ORDER BY b.record_key COLLATE "C", b.binding_id) AS ord, b.binding_id,
        format('SELECT set_config(%L,%L,true), public.red_revalider_person_narrative_record(%s,%s,%L,%L)',
               'app.change_set_id', '', b.person_id, :src, b.record_key, s->>'state_sha256') AS stmt
   FROM plc_binding b, LATERAL private.narrative_record_state(b.person_id, :src, b.record_key) s
@@ -558,10 +591,15 @@ DO $post$
 DECLARE v_src bigint:=current_setting('plc.src')::bigint; e jsonb:=current_setting('plc.expect')::jsonb; v_n bigint;
 BEGIN
   IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN RAISE EXCEPTION 'PLC_POST_GUC'; END IF;
-  -- Revalideret = de publicerede bindinger på records, der fik placement.
+  -- Revalideret = præcis de publicerede bindinger på records, der fik placement (som mængde, ikke kun antal: hver af
+  -- dem blev stale og revalideret, og ingen andre).
   IF current_setting('plc.reval')::bigint<>(e->>'revalidated')::bigint
-     OR current_setting('plc.reval')::bigint<>(SELECT count(*) FROM plc_binding b JOIN plc_rec f ON f.record_id=b.record_id
-                                                WHERE b.status='published' AND f.skriv) THEN
+     OR EXISTS ((SELECT binding_id FROM plc_reval)
+                EXCEPT (SELECT b.binding_id FROM plc_binding b JOIN plc_rec f ON f.record_id=b.record_id
+                         WHERE b.status='published' AND f.skriv))
+     OR EXISTS ((SELECT b.binding_id FROM plc_binding b JOIN plc_rec f ON f.record_id=b.record_id
+                  WHERE b.status='published' AND f.skriv)
+                EXCEPT (SELECT binding_id FROM plc_reval)) THEN
     RAISE EXCEPTION 'PLC_POST_REVALIDATED n=%', current_setting('plc.reval');
   END IF;
   -- Publiceringer: samme publicerede, ingen forældede, uændret eligibility pr. binding, ingen nye blokeringer.
@@ -607,6 +645,12 @@ BEGIN
     RAISE EXCEPTION 'PLC_POST_MEMBERSHIPS';
   END IF;
   IF private.placement_header_violations(v_src)<>0 THEN RAISE EXCEPTION 'PLC_POST_NEAREST'; END IF;
+  -- Linjerækkefølgen: hver af kildens entries har mappingens sort_order (og ingen entry står uden for mappingen).
+  IF EXISTS (SELECT 1 FROM public.lineage_scheme s JOIN public.lineage_scheme_entry le ON le.scheme_id=s.id
+               LEFT JOIN plc_entry x ON x.code=le.code AND NOT x.parkeret
+              WHERE s.source_id=v_src AND s.kind='stamtavle' AND le.sort_order IS DISTINCT FROM x.sort_order) THEN
+    RAISE EXCEPTION 'PLC_POST_SORT_ORDER';
+  END IF;
   -- Komponenttilstande i hele basen (konflikter skrives eller slettes aldrig af ceremonien).
   IF (SELECT count(*) FROM private.membership_component_states() WHERE state='corroborated')<>(e->>'corroborated')::bigint
      OR (SELECT count(*) FROM private.membership_component_states() WHERE state='conflict')<>(e->>'conflict')::bigint THEN
@@ -634,7 +678,7 @@ BEGIN
                      WHERE c.source_id=v_src AND c.provenance_kind='placement')
         OR EXISTS (SELECT 1 FROM public.public_person_source_coordinates() c
                     JOIN public.person_lineage_membership l ON l.person_id=c.person_id
-                     AND l.source_basis->>'source_id'=v_src::text
+                     AND l.source_basis->>'source_id'=v_src::text AND private.membership_is_current(l.person_id,l.lineage_id)
                    WHERE c.source_id=v_src AND c.provenance_kind<>'placement'
                      AND public.entitet_offentlig('person',c.person_id)) THEN
     RAISE EXCEPTION 'PLC_POST_LAESER placement';
