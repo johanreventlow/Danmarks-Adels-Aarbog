@@ -303,5 +303,92 @@ BEGIN
   END LOOP;
 END $acl$;
 
+-- ===== Task 2: biografilæseren =====
+CREATE OR REPLACE FUNCTION pg_temp.bio_persons(p_ids bigint[]) RETURNS text LANGUAGE sql AS $$
+  SELECT coalesce(string_agg(b.person_id::text,',' ORDER BY b.person_id),'')
+    FROM public.public_person_bio_source_versions_v2(p_ids) b
+$$;
+
+DO $bio_skjult$
+DECLARE f jsonb:=pg_temp.f6d_src(-6301);
+BEGIN
+  PERFORM pg_temp.ov_member(f,'I-1',-630101,1);
+  PERFORM pg_temp.ov_mention(-630102,-6301);
+  PERFORM pg_temp.f6d_same(-630102,-630101,'afklaret');
+  IF pg_temp.bio_persons(ARRAY[-630101,-630102]) IS DISTINCT FROM '-630101' THEN
+    RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: bio_skjult [%]',pg_temp.bio_persons(ARRAY[-630101,-630102]);
+  END IF;
+  IF pg_temp.bio_persons(ARRAY[-630102])<>'' THEN RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: bio_skjult P alene'; END IF;
+END $bio_skjult$;
+
+DO $bio_reversibel$
+DECLARE f jsonb:=pg_temp.f6d_src(-6311); v_rel bigint;
+BEGIN
+  PERFORM pg_temp.ov_member(f,'I-1',-631101,1);
+  PERFORM pg_temp.ov_mention(-631102,-6311);
+  v_rel:=pg_temp.f6d_same(-631102,-631101,'afklaret');
+  IF pg_temp.bio_persons(ARRAY[-631102])<>'' THEN RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: bio_reversibel skjult'; END IF;
+  UPDATE public.conclusion SET status='omstridt' WHERE target_type='relation' AND target_id=v_rel;
+  IF pg_temp.bio_persons(ARRAY[-631101,-631102]) IS DISTINCT FROM '-631102,-631101'
+     AND pg_temp.bio_persons(ARRAY[-631101,-631102]) IS DISTINCT FROM '-631101,-631102' THEN
+    RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: bio_reversibel tilbage [%]',pg_temp.bio_persons(ARRAY[-631101,-631102]);
+  END IF;
+END $bio_reversibel$;
+
+DO $fakta_uroert$
+DECLARE v_def text;
+BEGIN
+  -- Faktalæserne og familiekilderne må ikke kende reglen: deres kroppe nævner den ikke, og deres resultat er
+  -- det samme med og uden en regel-udløsende kant.
+  FOR v_def IN SELECT pg_get_functiondef(p) FROM unnest(ARRAY[
+      'public.public_person_facts(bigint[])','public.public_family_sources(bigint[])']::regprocedure[]) p LOOP
+    IF v_def LIKE '%overview_mention%' THEN RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: fakta_uroert funktion kender reglen'; END IF;
+  END LOOP;
+END $fakta_uroert$;
+
+DO $fakta_uroert_data$
+DECLARE f jsonb:=pg_temp.f6d_src(-6321); v_rel bigint; v_before text; v_after text;
+BEGIN
+  PERFORM pg_temp.ov_member(f,'I-1',-632101,1);
+  PERFORM pg_temp.ov_mention(-632102,-6321);
+  v_rel:=pg_temp.f6d_same(-632102,-632101,'omstridt');
+  SELECT md5(coalesce((SELECT string_agg(to_jsonb(x)::text,'|' ORDER BY to_jsonb(x)::text) FROM public.public_person_facts(ARRAY[-632101,-632102]) x),'')
+          ||coalesce((SELECT string_agg(to_jsonb(y)::text,'|' ORDER BY to_jsonb(y)::text) FROM public.public_family_sources(ARRAY[-632101,-632102]) y),''))
+    INTO v_before;
+  UPDATE public.conclusion SET status='afklaret' WHERE target_type='relation' AND target_id=v_rel;
+  IF pg_temp.ov(ARRAY[-632102])='' THEN RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: fakta_uroert regel ikke udløst'; END IF;
+  SELECT md5(coalesce((SELECT string_agg(to_jsonb(x)::text,'|' ORDER BY to_jsonb(x)::text) FROM public.public_person_facts(ARRAY[-632101,-632102]) x),'')
+          ||coalesce((SELECT string_agg(to_jsonb(y)::text,'|' ORDER BY to_jsonb(y)::text) FROM public.public_family_sources(ARRAY[-632101,-632102]) y),''))
+    INTO v_after;
+  IF v_before IS DISTINCT FROM v_after THEN RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: fakta ændret af reglen'; END IF;
+END $fakta_uroert_data$;
+
+DO $haendelse_uroert$
+DECLARE f jsonb:=pg_temp.f6d_src(-6331); np bigint; v_h int; v_n int;
+BEGIN
+  PERFORM pg_temp.ov_member(f,'I-1',-633101,1);
+  np:=pg_temp.ov_mention(-633102,-6331);
+  INSERT INTO public.haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul,feed_status)
+    VALUES ('person',-633102,np,'t6d2a-h1','opdigtet klausul','interessant');
+  PERFORM pg_temp.f6d_same(-633102,-633101,'afklaret');
+  IF pg_temp.ov(ARRAY[-633102])='' THEN RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: haendelse regel ikke udløst'; END IF;
+  SET LOCAL ROLE anon;
+  SELECT count(*) INTO v_h FROM public.haendelse WHERE narrative_id=np;
+  SELECT count(*) INTO v_n FROM public.narrative WHERE id=np;
+  RESET ROLE;
+  IF v_h<>1 OR v_n<>1 THEN RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: haendelse/narrativ som anon % %',v_h,v_n; END IF;
+END $haendelse_uroert$;
+
+DO $henning$
+DECLARE f jsonb:=pg_temp.f6d_src(-6341);
+BEGIN
+  PERFORM pg_temp.ov_member(f,'I-1',-634101,1);
+  PERFORM pg_temp.ov_mention(-634102,-6341);       -- ingen kant: P er ikke en oversigtsomtale
+  IF pg_temp.bio_persons(ARRAY[-634101,-634102]) IS DISTINCT FROM '-634102,-634101'
+     AND pg_temp.bio_persons(ARRAY[-634101,-634102]) IS DISTINCT FROM '-634101,-634102' THEN
+    RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: henning [%]',pg_temp.bio_persons(ARRAY[-634101,-634102]);
+  END IF;
+END $henning$;
+
 \echo OVERVIEW_MENTION_TEST_OK
 ROLLBACK;

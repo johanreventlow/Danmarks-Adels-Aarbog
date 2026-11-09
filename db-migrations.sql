@@ -34077,3 +34077,272 @@ BEGIN
   SELECT hits.nid,hits.p,hits.k,min(hits.q) FROM hits GROUP BY hits.nid,hits.p,hits.k;
 END $$;
 REVOKE ALL ON FUNCTION private.overview_mention_narratives(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION public.public_person_bio_source_versions_v2(
+  p_person_ids bigint[]
+) RETURNS TABLE(
+  person_id bigint,
+  source_id bigint,
+  source_year integer,
+  record_order integer,
+  source_record_ref uuid,
+  source_label text,
+  record_label text,
+  narrative_text text,
+  citation_label text,
+  provenance_kind text
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  -- Trin 6d-2a: oversigtsomtaler (private.overview_mention_narratives) beregnes ÉN gang pr. kald og udelades i alle grene.
+  v_ov bigint[]:=ARRAY(SELECT o.narrative_id FROM private.overview_mention_narratives(p_person_ids) o);
+BEGIN
+  IF public.narrative_record_contract_version()<2 THEN
+    RETURN QUERY
+    WITH public_rows AS (
+      SELECT narrative.subjekt_id AS row_person_id,
+             narrative.source_id AS row_source_id,
+             source.aar::integer AS row_source_year,
+             (labels #>> '{record_order}')::integer AS row_record_order,
+             record.public_ref AS row_source_record_ref,
+             coalesce(
+               nullif(btrim(source.udgave),''),
+               nullif(btrim(source.titel),''),'DAA-udgave'
+             ) AS row_source_label,
+             binding.record_label AS row_record_label,
+             narrative.tekst AS row_narrative_text,
+             binding.citation_label AS row_citation_label,
+             'source_record'::text AS row_provenance_kind,
+             0 AS row_kind
+        FROM public.narrative narrative
+        JOIN public.source source
+          ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+        JOIN private.narrative_record_publication binding
+          ON binding.narrative_id=narrative.id AND binding.status='published'
+        JOIN private.source_record record ON record.id=binding.source_record_id
+        CROSS JOIN LATERAL private.narrative_record_labels(record.id)
+          AS label_state(labels)
+       WHERE narrative.subjekt_type='person'
+         AND narrative.subjekt_id=ANY(p_person_ids)
+         AND public.person_daa_narrative_publication_allowed(narrative.id)
+         AND NOT (narrative.id=ANY(v_ov))
+      UNION ALL
+      SELECT narrative.subjekt_id,narrative.source_id,source.aar::integer,NULL::integer,
+             NULL::uuid,
+             coalesce(
+               nullif(btrim(source.udgave),''),
+               nullif(btrim(source.titel),''),'DAA-udgave'
+             ),
+             'Overgangsdata'::text,narrative.tekst,
+             coalesce(nullif(btrim(narrative.side),''),'')::text,
+             'legacy_narrative'::text,1
+        FROM public.narrative narrative
+        JOIN public.source source
+          ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+       WHERE narrative.subjekt_type='person'
+         AND narrative.subjekt_id=ANY(p_person_ids)
+         AND public.person_daa_narrative_publication_allowed(narrative.id)
+         AND NOT (narrative.id=ANY(v_ov))
+         AND NOT EXISTS (
+           SELECT 1 FROM private.narrative_record_publication binding
+            WHERE binding.narrative_id=narrative.id
+         )
+    )
+    SELECT row_person_id,row_source_id,row_source_year,row_record_order,
+           row_source_record_ref,row_source_label,row_record_label,
+           row_narrative_text,row_citation_label,row_provenance_kind
+      FROM public_rows
+     ORDER BY row_source_year DESC NULLS LAST,row_source_id,row_kind,
+              row_record_order NULLS LAST,row_record_label,row_source_record_ref;
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  WITH public_rows AS (
+    SELECT (event.after_state #>> '{target,person_id}')::bigint AS row_person_id,
+           (event.after_state #>> '{target,source_id}')::bigint AS row_source_id,
+           (event.after_state #>> '{source,source_year}')::integer AS row_source_year,
+           (event.after_state #>> '{labels,record_order}')::integer AS row_record_order,
+           (event.after_state #>> '{target,source_record_ref}')::uuid
+             AS row_source_record_ref,
+           event.after_state #>> '{source,source_label}' AS row_source_label,
+           event.after_state #>> '{labels,record_label}' AS row_record_label,
+           event.after_state #>> '{narrative,text}' AS row_narrative_text,
+           event.after_state #>> '{labels,citation_label}' AS row_citation_label,
+           'source_record'::text AS row_provenance_kind,
+           0 AS row_kind,
+           (event.after_state #>> '{target,source_record_ref}')::uuid
+             AS row_stable_tiebreak
+      FROM public.narrative narrative
+      JOIN public.source source
+        ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+      JOIN private.narrative_record_publication binding
+        ON binding.narrative_id=narrative.id AND binding.status='published'
+      JOIN LATERAL (
+        SELECT publication_event.after_state
+          FROM private.narrative_publication_event publication_event
+         WHERE publication_event.binding_id=binding.id
+         ORDER BY publication_event.stream_version DESC,publication_event.id DESC
+         LIMIT 1
+      ) event ON true
+     WHERE narrative.subjekt_type='person'
+       AND narrative.subjekt_id=ANY(p_person_ids)
+       AND public.person_daa_narrative_publication_allowed(narrative.id)
+       AND NOT (narrative.id=ANY(v_ov))
+    UNION ALL
+    SELECT (event.after_state #>> '{target,person_id}')::bigint,
+           (event.after_state #>> '{target,source_id}')::bigint,
+           (event.after_state #>> '{source,source_year}')::integer,
+           NULL::integer,NULL::uuid,
+           event.after_state #>> '{source,source_label}',
+           'Overgangsdata'::text,
+           event.after_state #>> '{narrative,text}',
+           (event.after_state #>> '{source,source_label}')
+             ||CASE
+                 WHEN nullif(event.after_state #>> '{narrative,side}','') IS NULL
+                   THEN ''
+                 ELSE ', s. '||(event.after_state #>> '{narrative,side}')
+               END,
+           'legacy_narrative'::text,1,legacy.legacy_publication_ref
+      FROM public.narrative narrative
+      JOIN public.source source
+        ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+      JOIN private.narrative_legacy_publication legacy
+        ON legacy.narrative_id=narrative.id
+       AND legacy.status='grandfathered_publication'
+      JOIN private.narrative_publication_event event
+        ON event.id=legacy.latest_event_id
+     WHERE narrative.subjekt_type='person'
+       AND narrative.subjekt_id=ANY(p_person_ids)
+       AND public.person_daa_narrative_publication_allowed(narrative.id)
+       AND NOT (narrative.id=ANY(v_ov))
+  )
+  SELECT row_person_id,row_source_id,row_source_year,row_record_order,
+         row_source_record_ref,row_source_label,row_record_label,
+         row_narrative_text,row_citation_label,row_provenance_kind
+    FROM public_rows
+   ORDER BY row_source_year DESC NULLS LAST,row_source_id,row_kind,
+            row_record_order NULLS LAST,row_record_label,row_source_record_ref,
+            row_stable_tiebreak;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION public.public_person_bio_source_versions(
+  p_person_ids bigint[]
+) RETURNS TABLE(
+  person_id bigint,
+  record_ref uuid,
+  source_label text,
+  record_label text,
+  narrative_text text,
+  citation_label text,
+  provenance_kind text
+)
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  -- Trin 6d-2a: som v2-læseren (ÉN beregning pr. kald).
+  v_ov bigint[]:=ARRAY(SELECT o.narrative_id FROM private.overview_mention_narratives(p_person_ids) o);
+BEGIN
+  IF public.narrative_record_contract_version()<2 THEN
+    RETURN QUERY
+    SELECT narrative.subjekt_id,binding.record_ref,
+           coalesce(
+             nullif(btrim(source.udgave),''),
+             nullif(btrim(source.titel),''),'DAA-udgave'
+           ),
+           binding.record_label,narrative.tekst,binding.citation_label,
+           'source_record'::text
+      FROM public.narrative narrative
+      JOIN public.person person ON person.id=narrative.subjekt_id
+      JOIN public.source source
+        ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+      JOIN private.narrative_record_publication binding
+        ON binding.narrative_id=narrative.id AND binding.status='published'
+     WHERE narrative.subjekt_type='person'
+       AND narrative.subjekt_id=ANY(p_person_ids)
+       AND coalesce(narrative.privat,false)=false
+       AND person.levende=false
+       AND coalesce(person.privat,false)=false
+       AND coalesce(person.staged,false)=false
+       AND public.person_daa_narrative_publication_allowed(narrative.id)
+       AND NOT (narrative.id=ANY(v_ov))
+    UNION ALL
+    SELECT narrative.subjekt_id,NULL::uuid,
+           coalesce(
+             nullif(btrim(source.udgave),''),
+             nullif(btrim(source.titel),''),'DAA-udgave'
+           ),
+           'Overgangsdata'::text,narrative.tekst,
+           coalesce(nullif(btrim(narrative.side),''),'')::text,
+           'legacy_narrative'::text
+      FROM public.narrative narrative
+      JOIN public.person person ON person.id=narrative.subjekt_id
+      JOIN public.source source
+        ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+     WHERE narrative.subjekt_type='person'
+       AND narrative.subjekt_id=ANY(p_person_ids)
+       AND coalesce(narrative.privat,false)=false
+       AND person.levende=false
+       AND coalesce(person.privat,false)=false
+       AND coalesce(person.staged,false)=false
+       AND public.person_daa_narrative_publication_allowed(narrative.id)
+       AND NOT (narrative.id=ANY(v_ov))
+       AND NOT EXISTS (
+         SELECT 1 FROM private.narrative_record_publication binding
+          WHERE binding.narrative_id=narrative.id
+       );
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  SELECT narrative.subjekt_id,binding.record_ref,
+         event.after_state #>> '{source,source_label}',
+         event.after_state #>> '{labels,record_label}',
+         event.after_state #>> '{narrative,text}',
+         event.after_state #>> '{labels,citation_label}',
+         'source_record'::text
+    FROM public.narrative narrative
+    JOIN public.source source
+      ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+    JOIN private.narrative_record_publication binding
+      ON binding.narrative_id=narrative.id AND binding.status='published'
+    JOIN LATERAL (
+      SELECT publication_event.after_state
+        FROM private.narrative_publication_event publication_event
+       WHERE publication_event.binding_id=binding.id
+       ORDER BY publication_event.stream_version DESC,publication_event.id DESC
+       LIMIT 1
+    ) event ON true
+   WHERE narrative.subjekt_type='person'
+     AND narrative.subjekt_id=ANY(p_person_ids)
+     AND public.person_daa_narrative_publication_allowed(narrative.id)
+     AND NOT (narrative.id=ANY(v_ov))
+  UNION ALL
+  SELECT narrative.subjekt_id,NULL::uuid,
+         event.after_state #>> '{source,source_label}',
+         'Overgangsdata'::text,
+         event.after_state #>> '{narrative,text}',
+         coalesce(nullif(event.after_state #>> '{narrative,side}',''),'')::text,
+         'legacy_narrative'::text
+    FROM public.narrative narrative
+    JOIN public.source source
+      ON source.id=narrative.source_id AND source.slags='DAA-udgave'
+    JOIN private.narrative_legacy_publication legacy
+      ON legacy.narrative_id=narrative.id
+     AND legacy.status='grandfathered_publication'
+    JOIN private.narrative_publication_event event
+      ON event.id=legacy.latest_event_id
+   WHERE narrative.subjekt_type='person'
+     AND narrative.subjekt_id=ANY(p_person_ids)
+     AND public.person_daa_narrative_publication_allowed(narrative.id)
+     AND NOT (narrative.id=ANY(v_ov));
+END
+$$;

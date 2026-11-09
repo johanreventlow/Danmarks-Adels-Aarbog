@@ -16656,6 +16656,9 @@ STABLE
 SECURITY DEFINER
 SET search_path=pg_catalog
 AS $$
+DECLARE
+  -- Trin 6d-2a: oversigtsomtaler (private.overview_mention_narratives) beregnes ÉN gang pr. kald og udelades i alle grene.
+  v_ov bigint[]:=ARRAY(SELECT o.narrative_id FROM private.overview_mention_narratives(p_person_ids) o);
 BEGIN
   IF public.narrative_record_contract_version()<2 THEN
     RETURN QUERY
@@ -16685,6 +16688,7 @@ BEGIN
        WHERE narrative.subjekt_type='person'
          AND narrative.subjekt_id=ANY(p_person_ids)
          AND public.person_daa_narrative_publication_allowed(narrative.id)
+         AND NOT (narrative.id=ANY(v_ov))
       UNION ALL
       SELECT narrative.subjekt_id,narrative.source_id,source.aar::integer,NULL::integer,
              NULL::uuid,
@@ -16701,6 +16705,7 @@ BEGIN
        WHERE narrative.subjekt_type='person'
          AND narrative.subjekt_id=ANY(p_person_ids)
          AND public.person_daa_narrative_publication_allowed(narrative.id)
+         AND NOT (narrative.id=ANY(v_ov))
          AND NOT EXISTS (
            SELECT 1 FROM private.narrative_record_publication binding
             WHERE binding.narrative_id=narrative.id
@@ -16746,6 +16751,7 @@ BEGIN
      WHERE narrative.subjekt_type='person'
        AND narrative.subjekt_id=ANY(p_person_ids)
        AND public.person_daa_narrative_publication_allowed(narrative.id)
+       AND NOT (narrative.id=ANY(v_ov))
     UNION ALL
     SELECT (event.after_state #>> '{target,person_id}')::bigint,
            (event.after_state #>> '{target,source_id}')::bigint,
@@ -16772,6 +16778,7 @@ BEGIN
      WHERE narrative.subjekt_type='person'
        AND narrative.subjekt_id=ANY(p_person_ids)
        AND public.person_daa_narrative_publication_allowed(narrative.id)
+       AND NOT (narrative.id=ANY(v_ov))
   )
   SELECT row_person_id,row_source_id,row_source_year,row_record_order,
          row_source_record_ref,row_source_label,row_record_label,
@@ -16799,6 +16806,9 @@ STABLE
 SECURITY DEFINER
 SET search_path=pg_catalog
 AS $$
+DECLARE
+  -- Trin 6d-2a: som v2-læseren (ÉN beregning pr. kald).
+  v_ov bigint[]:=ARRAY(SELECT o.narrative_id FROM private.overview_mention_narratives(p_person_ids) o);
 BEGIN
   IF public.narrative_record_contract_version()<2 THEN
     RETURN QUERY
@@ -16822,6 +16832,7 @@ BEGIN
        AND coalesce(person.privat,false)=false
        AND coalesce(person.staged,false)=false
        AND public.person_daa_narrative_publication_allowed(narrative.id)
+       AND NOT (narrative.id=ANY(v_ov))
     UNION ALL
     SELECT narrative.subjekt_id,NULL::uuid,
            coalesce(
@@ -16842,6 +16853,7 @@ BEGIN
        AND coalesce(person.privat,false)=false
        AND coalesce(person.staged,false)=false
        AND public.person_daa_narrative_publication_allowed(narrative.id)
+       AND NOT (narrative.id=ANY(v_ov))
        AND NOT EXISTS (
          SELECT 1 FROM private.narrative_record_publication binding
           WHERE binding.narrative_id=narrative.id
@@ -16871,6 +16883,7 @@ BEGIN
    WHERE narrative.subjekt_type='person'
      AND narrative.subjekt_id=ANY(p_person_ids)
      AND public.person_daa_narrative_publication_allowed(narrative.id)
+     AND NOT (narrative.id=ANY(v_ov))
   UNION ALL
   SELECT narrative.subjekt_id,NULL::uuid,
          event.after_state #>> '{source,source_label}',
@@ -16888,7 +16901,8 @@ BEGIN
       ON event.id=legacy.latest_event_id
    WHERE narrative.subjekt_type='person'
      AND narrative.subjekt_id=ANY(p_person_ids)
-     AND public.person_daa_narrative_publication_allowed(narrative.id);
+     AND public.person_daa_narrative_publication_allowed(narrative.id)
+     AND NOT (narrative.id=ANY(v_ov));
 END
 $$;
 
