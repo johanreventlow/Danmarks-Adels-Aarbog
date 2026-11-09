@@ -1,0 +1,44 @@
+{
+ "sheet_sha256": "667944628e0a742ed9e2ce78fa9139754bbbacc9210756da2cd223bee9bf3858",
+ "token_sha256": "3f21335e87357c5cd8bc3868922ed16ba0feab457a446f7ec47dd12cc1b73f90",
+ "entries": [
+  {
+   "code": "I",
+   "label_sha256": "451624f82dded4b0ae32f73aeea3a73f2dcfd69be338d2b6caaccb17ae8966fa",
+   "sort_order": 1,
+   "canonical": {
+    "source_id": -1611,
+    "kode": "I"
+   },
+   "aliases": [
+    {
+     "source_id": -1611,
+     "kode": "II"
+    }
+   ],
+   "parkeret": false
+  },
+  {
+   "code": "II",
+   "label_sha256": "f9c8cddde6b72514d724899686af823f53a6994cdf747632088d8b544621a892",
+   "sort_order": 2,
+   "canonical": {
+    "source_id": -1611,
+    "kode": "II"
+   },
+   "aliases": [],
+   "parkeret": false
+  },
+  {
+   "code": "VI",
+   "label_sha256": "cf3431056c7387c509153ba3af7650e7ee5157d2021fe78998195489f9610dbf",
+   "sort_order": 3,
+   "canonical": {
+    "source_id": -1610,
+    "kode": "VI"
+   },
+   "aliases": [],
+   "parkeret": false
+  }
+ ]
+}
