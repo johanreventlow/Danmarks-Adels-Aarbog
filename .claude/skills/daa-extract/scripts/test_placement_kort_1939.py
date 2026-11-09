@@ -279,14 +279,14 @@ class TestHtmlOgFlet(unittest.TestCase):
     def setUp(self):
         self.m = manifest()
         self.cards = pk.kort_1939(self.m, k=4)
-        # S2 uden anden læsning, S3 læst uden nummer (oversigtspunkt), K:A uenig
+        # S2 uden anden læsning, S3 læst uden nummer (unummereret post), K:A uenig
         self.sv = svar_for(self.cards, **{'SK:S3': {'nr': 'B)'}, 'K:A': {'slaegtled': 2}})
         self.vd = pk.vurderinger(self.cards, self.sv)
 
     def test_forslag_kun_for_strukturkort(self):
         tok = pk.render_token(self.cards, self.vd, self.sv)
         self.assertIn('U SK:S3 : N', tok)
-        self.assertIn('# SK:S3: forudfyldt N — unummereret post eller oversigtspunkt', tok)
+        self.assertIn('# SK:S3: forudfyldt N — unummereret post — kan ikke placeres uden trykt nummer', tok)
         self.assertIn('U SK:S2 : N', tok)                     # nummer, men ingen anden læsning: forudfyldt N
         self.assertIn('U K:A : \n', tok)                       # stikprøven: projektejeren svarer
         self.assertEqual(pk.render_token(self.cards, self.vd).count(': N'), 0)   # uden svar: intet forslag

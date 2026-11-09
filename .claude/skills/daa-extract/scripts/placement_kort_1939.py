@@ -340,14 +340,14 @@ TOKEN_FORM = {'K': re.compile(r'^\d+ ([IVXLC]+|-)$'), 'GK': re.compile(r'^([IVXL
 
 def forslag(card: dict, s: dict) -> tuple[str, str] | None:
     """Forudfyldt svar på et undtagelseskort (token, begrundelse) eller None (projektejeren skal svare).
-    Strukturkort placeres ikke i 6d-1, når modellen ikke læste et almindeligt nummer (unummereret post eller
-    oversigtspunkt, Gate A) eller læste en anden gruppe/slægtled end de fundne nærmeste overskrifter (overskriften
-    mangler i Calamari; posten ville miste den)."""
+    Strukturkort placeres ikke i 6d-1, når modellen ikke læste et almindeligt nummer (unummereret post, fx en
+    stammeperson uden nummer; oversigtspunkterne er taget ud af oversigtszonerne) eller læste en anden
+    gruppe/slægtled end de fundne nærmeste overskrifter (overskriften mangler i Calamari; posten ville miste den)."""
     if card['type'] != 'SK':
         return None
     nr = _norm_nr(s.get('nr'))
     if nr in (None, '-') or not NR_RE.match(nr):
-        return 'N', 'unummereret post eller oversigtspunkt — placeres ikke (Gate A)'
+        return 'N', 'unummereret post — kan ikke placeres uden trykt nummer i 6d-1 (Gate A; opfølgning)'
     return 'N', 'står under en overskrift, som mangler i Calamari — ville miste sin gruppe/sit slægtled (opfølgning)'
 
 
