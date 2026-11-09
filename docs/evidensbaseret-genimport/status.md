@@ -1,6 +1,6 @@
 # Evidensbaseret genimport — aktuel status
 
-**Snapshot 2026-11-07**, efter 6m del 2 i prod (faktaforslag rettet efter bogen), 6m del 1 (læsertekst rettet efter bogen) og 6c-2's ceremoni 4 (efter 6c-1, 6b's A, B og C, 6a, 5c-2 + B11, A6b, reviewets trin B, trin 5c-1 og helhedsreviewet
+**Snapshot 2026-11-09**, efter 6d-1 i prod (1939's placements og medlemskaber), 6c-3 (2018-20's A6b-rest), 6m del 2 (faktaforslag rettet efter bogen), 6m del 1 (læsertekst rettet efter bogen) og 6c-2's ceremoni 4 (efter 6c-1, 6b's A, B og C, 6a, 5c-2 + B11, A6b, reviewets trin B, trin 5c-1 og helhedsreviewet
 af trin 1-5, [rapport](../reviews/2026-10-27-trin-1-5/rapport.md)). Dokumentet **overskrives** ved hvert trinskifte og hver
 prod-ændring; der skrives ikke tillæg (opdateringsreglen nederst). Det gamle dokument med tillæg til og med
 2026-10-27 står i [status-arkiv-til-2026-10-27.md](status-arkiv-til-2026-10-27.md).
@@ -26,9 +26,12 @@ markerede forslag bogens læsning (VERSION 56, BIND 23, RET_OG_BIND 14), rettet 
 afgørelser; bindinger 1.106 → 1.136, rettelser 83 → 97. Trin 6m er dermed afsluttet. **6c-3 er i prod 2026-11-08**
 (PR #305/#307/#308, `database-current-state.md` §23, [færdigbevis](kildetekst-revision-6c3-prod.md)): A6b's kildetekst
 og klausuler for 2018-20 er rettet med kildetekst-revisionen (10 tekstversioner, 58 nøgler forældet, 75 nye forslag),
-og de 16 kildehenvisninger er kvitteret som 14 genbundet og 2 tilbagetrukket. Trin 6c er dermed afsluttet; **næste
-delspec er 6d** (placement, relationer og medlemskab). De 13 ubundne narrativer og 39 tekstrettelser uden læsertekst
-er flyttet til 6d.
+og de 16 kildehenvisninger er kvitteret som 14 genbundet og 2 tilbagetrukket. Trin 6c er dermed afsluttet. **6d-1 er
+i prod 2026-11-09** (PR #310, `database-current-state.md` §24, [færdigbevis](placement-6d1-prod.md)): 528 af 1939's
+592 records er placeret med bogens egne koordinater, 528 linjemedlemskaber ligger på 1939-personerne, ledgeren har 528
+`mapped` og 48 `retained_legacy`, og 441 `samme_som`-komponenter er bekræftet af begge udgaver (afledt B6). Læseren
+viser 1939 fra legacy indtil 6e. **Næste delspecs er 6d-2** (personas for de 21 records uden, de 13 ubundne
+narrativer, identitetsflytningerne og de 39 tekstrettelser uden læsertekst) **og 6d-3** (relationer).
 
 ## Samlet dom
 
@@ -36,7 +39,8 @@ Kernen holder: evidenslaget, den generelle writer og klausullaget er bevist på 
 Kæden kan **binde** det eksisterende til kilden, men har endnu ikke **oprettet** noget nyt på rigtige data (0 nye
 fakta, 0 nye personer; review 2-01). Læseren ser nu personens fakta med kilde, og 622 af de 6.473 offentlige
 fakta-rækker er bundet til bogens post (B11). For 2018-20 er trin 1-5 i prod. For 1939 er proveniens,
-narrativpublicering, klausuler, personas, identiteter, modellens forslag og 6c-2/6m's afgørelser og bindinger i prod; resten er trin 6d-6e.
+narrativpublicering, klausuler, personas, identiteter, modellens forslag, 6c-2/6m's afgørelser og bindinger samt
+6d-1's placements og medlemskaber i prod; resten er 6d-2, 6d-3 og 6e.
 
 ## Modenhed pr. værdikædeled
 
@@ -56,11 +60,11 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 | Promotion — oprettelse (nye fakta, personer, familier) | `isoleret implementeret` (kun syntetisk bevist; 0 på rigtige data) | — |
 | Identitet (5a) | `produktionsverificeret` 2026-10-25 (GO 2) | personas `produktionsverificeret` 2026-11-01 (6b, GO 6b-B `1c8aade5`: 555 `source_persona` med hver sin `primary`-mention i egen helpost, profil `daa-1939-publication-v1`; skjult i webkøen). Identiteter `produktionsverificeret` 2026-11-02 (6b's C efter retning 2, GO 6c1-C `df185473`: 553 elementer, 454 `publication_binding` inkl. stikprøven 20/20, 98 `human` S, 1 `human` F → `unresolved`; `afventer=0`; `database-current-state.md` §20). 13 af 1939's personer mangler navn (tom navnepåstand), rettes efter C |
 | Relationer (5b): ægtefæller, børneflokke, ægteskabsnumre | `produktionsverificeret` 2026-10-25 (GO 2); dubletregel, #240 og #248 rettet 2026-10-26. Rettelsesvejen for numre (#244) er `isoleret implementeret` (deployet, ubrugt) | ikke påbegyndt |
-| Placement og membership (5c-1) | `produktionsverificeret` 2026-10-27 (GO 150 `3e69560f`: 580 placements, 1167 ledger-dispositioner, 576 memberships, 530 revalideringer). V-82..V-92 står `unresolved` | ikke påbegyndt (trin 6) |
+| Placement og membership (5c-1) | `produktionsverificeret` 2026-10-27 (GO 150 `3e69560f`: 580 placements, 1167 ledger-dispositioner, 576 memberships, 530 revalideringer). V-82..V-92 står `unresolved` | `produktionsverificeret` 2026-11-09 (6d-1, GO `79609895`: 528 record- og 528 persona-placements af 592 records, 138 overskrifter, ledger 528 `mapped` + 48 `retained_legacy`, 528 memberships, 528 revalideringer, 0 stale; B6 441 `corroborated`, 3 `conflict`; [færdigbevis](placement-6d1-prod.md)) |
 | Læsere på placement/membership (5c-2) | `produktionsverificeret` 2026-10-29 (GO 5c2 `bb1678f9`: 1.113 koordinater, 530 fra placement, 583 legacy; diff mod legacy 37 felter = forventet, træparitet ok; browsertjek som anon) | — (kilde 3 vises fra legacy indtil trin 6) |
 | Læserflade: fakta med kildehenvisning (B11) | `produktionsverificeret` 2026-10-29 (6.473 fakta-rækker over alle offentlige personer: 622 bundet til bogens post, 5.765 fra importen, 86 uden kilde; 0 bindinger falder ud; PostgREST-gate og browsertjek som anon). Læserkaldet koster op til ~1,9 s pr. person mod anons 3 s (vej B) | — |
 | C3 reversal | — | `integreret ende-til-ende` (ikke udført i prod) |
-| Trin 6 (1939 gennem kæden) | — | 6a i prod 2026-10-30; 6b's A og B i prod 2026-11-01; 6c-1 i prod 2026-11-02 (A, B og 6b's C efter retning 2); 6c-2 i prod 2026-11-06 (tilstand d); 6m del 1 i prod 2026-11-07 (268 narrativer revideret); 6m del 2 i prod 2026-11-07 (93 forslagsversioner, 14 påstandsrettelser, 37 bindinger); 6c-3 i prod 2026-11-08 (2018-20's A6b-rest: 14 genbundet, 2 tilbagetrukket); 6d-6e ikke påbegyndt |
+| Trin 6 (1939 gennem kæden) | — | 6a i prod 2026-10-30; 6b's A og B i prod 2026-11-01; 6c-1 i prod 2026-11-02 (A, B og 6b's C efter retning 2); 6c-2 i prod 2026-11-06 (tilstand d); 6m del 1 i prod 2026-11-07 (268 narrativer revideret); 6m del 2 i prod 2026-11-07 (93 forslagsversioner, 14 påstandsrettelser, 37 bindinger); 6c-3 i prod 2026-11-08 (2018-20's A6b-rest: 14 genbundet, 2 tilbagetrukket); 6d-1 i prod 2026-11-09 (528 placements og medlemskaber); 6d-2, 6d-3 og 6e ikke påbegyndt |
 | Trin 7a, 7b | ikke påbegyndt; ingen spec | ikke påbegyndt |
 
 ## Gates før trin 6 (fra reviewet)

@@ -529,6 +529,34 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 24. Trin 6d-1: 1939's placements og medlemskaber — LIVE i prod (2026-11-09)
+
+**Procedure:** `docs/runbooks/trin6d1-prod.md`, privat runner `~/.private/5ab-overfoersel/33-trin6d1.sh` (med
+`33-trin6d1-vindue.sql`). Repo `997a033c` (`main` med PR #310; blokkens sha `217b3f44…`, `db-rls.sql` `e63c2182…`).
+To skrivende ceremonier, kørt af projektejeren. Færdigbevis: `docs/evidensbaseret-genimport/placement-6d1-prod.md`.
+
+- **Før:** `fase=foer`, ledger 576 `retained_legacy`, 563 publicerede, `KOORD_2018_20=99a5a2de04b1b9219631a1e53b53d415`,
+  `KOORD_SRC=2136dfc066fd41d789ea32a7405239f9` (som prod-dumpet `1653c8f7…`, generalprøvens grundlag).
+- **Dump før DDL (B1):** `daa-prod-20261109160931-6d1.dump`, 18.543.034 bytes, sha
+  `9cb986029ab735cd06316b9d87d522e1fcb6e45be660fb5b47e542bdb8d17d18`; age
+  `cd91ec4ed8d3696426c0715bd9ed293b0f832af4eee1e76186a54f3a168009ed` (SFTP, rundtur ok).
+- **DDL 6d-1 (GO `c8f09536`):** `T6D1_APPLY_DDL_OK tilstand=ddl`, 14,0 s. Nye `private.membership_component_states()`
+  og `private.placement_human_header_levels(bigint)`; ændret `record_legacy_disposition` (mapped via identitet),
+  `placement_header_violations`, `red_promote_placement_memberships` (vagt mod fremmed kildes grundlag) og
+  `public_person_source_coordinates` (placement kun ved entydige `(entry, printed_number)` pr. kilde). Grant-matrix
+  `---------xxx`; alle fast `search_path`. `get_advisors` ikke kørt (MCP'en på en anden organisation).
+- **Dump før data (B1, fortrydelsens grundlag):** `daa-prod-20261109162937-6d1.dump`, 18.549.753 bytes, sha
+  `9e628a58462063856efea2eb82a47bc54003ae92d7117d9303535827d117b460`; age
+  `0748e114d01ff9c7c95256191544d991564c4478b0a1d17c20b5e996de8f562c` (SFTP, rundtur ok).
+- **Data (GO `79609895`):** `placement_ceremoni.sql` (src=3) i én transaktion: linjeskema 8 entries, 138 overskrifter,
+  528 record- og 528 persona-placements, ledger 528 `mapped` + 48 `retained_legacy`, 528 linjemedlemskaber, 528
+  revalideret. `tal=8,528,528,528,48,528,563,0,441,3`, 129 s (langsomste sætning 21,6 s). `verify` grøn.
+- **Læseren:** 2018-20's og 1939's koordinatrækker byte-ens (1939 vises fra legacy indtil 6e). Koordinat-RPC'en som
+  anon 526-574 ms → 1.231-1.285 ms.
+- **B6:** 441 `corroborated` (to kilder, samme linje), 3 `conflict` (åben backlog).
+- **Fortrydelse:** `fortryd` med data-dumpet (restore), så med DDL-dumpet; kun under meldt frys og så længe intet andet
+  er skrevet (vinduesvagten stopper ellers).
+
 ## 23. Trin 6c-3: 2018-20's A6b-rest (tekstrevision og genbinding) — LIVE i prod (2026-11-08)
 
 **Procedure:** `docs/runbooks/trin6c3-prod.md`, privat runner `~/.private/5ab-overfoersel/32-trin6c3.sh` (med

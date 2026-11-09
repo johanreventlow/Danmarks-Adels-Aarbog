@@ -411,11 +411,11 @@ kildens rækker til legacy. Ingen udgavenavne.
   Konfliktkort registreres (svar → `docs/decisions.md`-backlog), skriver intet i 6d-1 (spec §5.4).
 - 2018-20-tilstanden (default) er uændret.
 
-- [ ] **Trin 1-4:** fejlende tests (strata dækker alle `record_kind`; ikke-godkendelig årsag i svarene → afvist; 2018-20
+- [x] **Trin 1-4:** fejlende tests (strata dækker alle `record_kind`; ikke-godkendelig årsag i svarene → afvist; 2018-20
   default byte-ens; render → svar → approvals for en romertalsgruppe og en beskrivelsesgruppe) → implementér → grønne.
-- [ ] **Trin 5: Projektejeren** tjekker de 20 mod PDF'en og svarer på kortene (spec §6 pkt. 2-3). Én afvigelse i
+- [x] **Trin 5: Projektejeren** tjekker de 20 mod PDF'en og svarer på kortene (spec §6 pkt. 2-3). Én afvigelse i
   stikprøven stopper og går tilbage til Task 1. Arkenes og token-filernes sha bindes i GO.
-- [ ] **Trin 6: Commit** `feat(6d): kontrolark med 1939-strata og konfliktkort`.
+- [x] **Trin 6: Commit** `feat(6d): kontrolark med 1939-strata og konfliktkort`.
 
 ### Task 9: Runner, runbook og generalprøve
 
@@ -424,31 +424,31 @@ kildens rækker til legacy. Ingen udgavenavne.
 - Privat: `~/.private/5ab-overfoersel/33-trin6d1.sh` (kopi af `32-trin6c3.sh` med vinduesvagt; handlinger
   `go|standin|maal|dump|advisors|ddl|data|vindue`), `33-trin6d1-vindue.sql`
 
-- [ ] **Trin 1: Runner:** fastlåste indholdsafledte forventninger (Task 0-8's tal), GO binder DDL-blokkens sha,
+- [x] **Trin 1: Runner:** fastlåste indholdsafledte forventninger (Task 0-8's tal), GO binder DDL-blokkens sha,
   scripts, manifest, mapping-ark, kontrolark og token-filer; afviser ukendte argumenter og kræver `--jeg-mener-det`
   (memory `prod-wrapper-skal-kraeve-flag`); dump-vagt; rækkeaftryk pr. tabel før og efter (vinduesvagt med negativtest).
-- [ ] **Trin 2: Runbook:** `go → maal(foer) → dump → advisors → ddl → maal(ddl) → advisors → dump → data → maal(data) →
+- [x] **Trin 2: Runbook:** `go → maal(foer) → dump → advisors → ddl → maal(ddl) → advisors → dump → data → maal(data) →
   vindue`; kendte følger (læserens 1939-rækker efter afgørelse 4); fortrydelse = restore + `db-rls.sql`; manuel
   fortrydelse pr. post som `$fortryd_en_post$`.
-- [ ] **Trin 3: Generalprøve** fra operatørens cwd (memory `oev-fra-operatoerens-cwd`) på en frisk kopi af `…_6d1t`
+- [x] **Trin 3: Generalprøve** fra operatørens cwd (memory `oev-fra-operatoerens-cwd`) på en frisk kopi af `…_6d1t`
   med `statement_timeout='2min'` (læserne; ceremonien sætter selv 15 min): hele runbooken; rækkediff (kun spec §5's
   tabeller + `change_set`/`change_event`); 2018-20-paritet; maks. tid pr. sætning og samlet varighed fra
   `\timing`-filen — stop, hvis den langsomste sætning × prod/stand-in-forholdet (fra `maal`) > 15 min; `public_person_source_coordinates`
   og personsiden som anon for de tungeste personer (< 3 s med margen, memory `anon-timeout-3s-public-facts`).
-- [ ] **Trin 4: Negativer:** forkert GO, manglende flag, gentaget `data` (fase), manipuleret identitet →
+- [x] **Trin 4: Negativer:** forkert GO, manglende flag, gentaget `data` (fase), manipuleret identitet →
   `PLC_PRE_IDENTITY` uden skrivning; ændret mapping-ark efter GO → sha-fejl.
-- [ ] **Trin 5: Commit** `docs(6d): runbook for 6d-1 i prod` (runneren committes ikke).
+- [x] **Trin 5: Commit** `docs(6d): runbook for 6d-1 i prod` (runneren committes ikke).
 
 ### Task 10: Review, prod og færdigbevis
 
-- [ ] **Trin 1:** Codex `gpt-6.1-sol` over hele grenens diff (eksport uden `work*/`); Opus dømmer; ret kun det godkendte
+- [x] **Trin 1:** Codex `gpt-6.1-sol` over hele grenens diff (eksport uden `work*/`); Opus dømmer; ret kun det godkendte
   efter projektejerens ja; hele CI lokalt igen.
-- [ ] **Trin 2:** Spørg om push og draft-PR; CI på PR'en grøn.
-- [ ] **Trin 3: Prod** i projektejerens shell efter runbooken (DDL-GO, data-GO); AI'en læser kvitteringer og mål.
-- [ ] **Trin 4: Færdigbevis** (spec §8) i `docs/evidensbaseret-genimport/status.md` og changelog: placements (record,
+- [x] **Trin 2:** Spørg om push og draft-PR; CI på PR'en grøn.
+- [x] **Trin 3: Prod** i projektejerens shell efter runbooken (DDL-GO, data-GO); AI'en læser kvitteringer og mål.
+- [x] **Trin 4: Færdigbevis** (spec §8) i `docs/evidensbaseret-genimport/status.md` og changelog: placements (record,
   persona) og de 21 persona-løse med disposition; 0 placements uden overskrift; kort og invariantbrud talt; 0
   `stale_published` før/efter og antal revalideret; ledger `mapped`/`retained_legacy` (576 i alt); komponenter
   `corroborated`/`conflict`/`single` og én `corroborated` vist med begge kilders medlemskab (SQL); 2018-20-hashes
   byte-ens; anon-tider; status-rækken »Placement og membership (5c-1)« for 1939 → `produktionsverificeret`.
-- [ ] **Trin 5:** `docs/decisions.md`: ledger via identitet, afledt B6-funktion, afgørelse 4; commit
+- [x] **Trin 5:** `docs/decisions.md`: ledger via identitet, afledt B6-funktion, afgørelse 4; commit
   `docs(6d): færdigbevis for 6d-1 i prod`.

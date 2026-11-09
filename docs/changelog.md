@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-09 — trin 6d-1 i prod: 1939's placements og medlemskaber
+
+Spec, plan, kode, runbook og beslutninger i PR #310 (generalprøve på stand-in fra prod-dumpet `1653c8f7…`, Codex-runde
+på diffen og på den private runner). DDL (GO `c8f09536`) og data (GO `79609895`): 138 overskrifter fra bogen som
+observationer, linjeskema med 8 grene, 528 af 1939's 592 records placeret med bogens egne koordinater (414 maskinelt,
+114 via kort), 528 linjemedlemskaber på 1939-personerne, ledgeren 528 `mapped` + 48 `retained_legacy`, 528
+publiceringer revalideret og 0 `stale`. Afledt B6: 441 komponenter bekræftet af begge udgaver. 2018-20 og læserens
+1939-rækker er byte-ens; koordinat-RPC'en tager nu ≈1,25 s som anon (før ≈0,55 s; 6e retter). Detaljer i
+`database-current-state.md` §24 og `evidensbaseret-genimport/placement-6d1-prod.md`.
+
 ## 2026-11-08 — trin 6c-3 i prod: 2018-20's A6b-rest, kildetekst og genbinding
 
 Spec og plan i PR #305, kode PR #305 (DB-blok 6c-3a) og #307 (afstemningsværktøjet), runbook og beslutninger PR #308.
