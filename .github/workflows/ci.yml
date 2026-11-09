@@ -621,6 +621,9 @@ jobs:
       - name: Opgradering fra prods skema (trin 6d-1 · placement og medlemskab)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         run: bash tests/sql/test-6d1-upgrade.sh ci6d1_upgrade 7df5b48c
+      - name: Opgradering fra prods skema (trin 6d-2a · oversigtsomtaler og samme_som-retning)
+        env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
+        run: bash tests/sql/test-6d2a-upgrade.sh ci6d2a_upgrade 94517497
       - name: Kildetekst-revision · migrationer to gange og to samtidige sessioner (trin 6a)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres, PGDATABASE: ci6a_text_revision}
         run: |
