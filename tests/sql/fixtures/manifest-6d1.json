@@ -1,0 +1,459 @@
+{
+ "header_rule_version": "header-test-6d1-v1",
+ "headers": [
+  {
+   "element_id": "header:100",
+   "kind": "header_linje",
+   "char_from": 100,
+   "char_to": 123,
+   "page_from": 10,
+   "page_to": 10,
+   "verbatim_text": "I. Den første Testlinje",
+   "verbatim_sha256": "451624f82dded4b0ae32f73aeea3a73f2dcfd69be338d2b6caaccb17ae8966fa",
+   "parsed": {
+    "roman": "I",
+    "stamme_slug": null,
+    "entry_code": "I",
+    "found_via": "roman"
+   }
+  },
+  {
+   "element_id": "header:200",
+   "kind": "header_slaegtled",
+   "char_from": 200,
+   "char_to": 215,
+   "page_from": 10,
+   "page_to": 10,
+   "verbatim_text": "Første Slægtled",
+   "verbatim_sha256": "eda596a59352dd113fdc4183b2b5f1e0fcc75bfde9a4eb50a8766e7a963ae4ea",
+   "parsed": {
+    "ordinal": 1,
+    "label_raw": "Første",
+    "gennem": null
+   }
+  },
+  {
+   "element_id": "header:1500",
+   "kind": "header_slaegtled",
+   "char_from": 1500,
+   "char_to": 1514,
+   "page_from": 10,
+   "page_to": 10,
+   "verbatim_text": "Andet Slægtled",
+   "verbatim_sha256": "09c45a08ddaf5d3fec3d5e4fe44de38299a18cbeb4c444d42feaf7c984d8c5a3",
+   "parsed": {
+    "ordinal": 2,
+    "label_raw": "Andet",
+    "gennem": null
+   }
+  },
+  {
+   "element_id": "header:2500",
+   "kind": "header_linje",
+   "char_from": 2500,
+   "char_to": 2523,
+   "page_from": 10,
+   "page_to": 10,
+   "verbatim_text": "II. Den anden Testlinje",
+   "verbatim_sha256": "f9c8cddde6b72514d724899686af823f53a6994cdf747632088d8b544621a892",
+   "parsed": {
+    "roman": "II",
+    "stamme_slug": null,
+    "entry_code": "II",
+    "found_via": "roman"
+   }
+  },
+  {
+   "element_id": "header:2600",
+   "kind": "header_slaegtled",
+   "char_from": 2600,
+   "char_to": 2615,
+   "page_from": 10,
+   "page_to": 10,
+   "verbatim_text": "Første Slægtled",
+   "verbatim_sha256": "eda596a59352dd113fdc4183b2b5f1e0fcc75bfde9a4eb50a8766e7a963ae4ea",
+   "parsed": {
+    "ordinal": 1,
+    "label_raw": "Første",
+    "gennem": null
+   }
+  },
+  {
+   "element_id": "header:4500",
+   "kind": "header_kuld",
+   "char_from": 4500,
+   "char_to": 4501,
+   "page_from": 10,
+   "page_to": 10,
+   "verbatim_text": "I",
+   "verbatim_sha256": "a83dd0ccbffe39d071cc317ddf6e97f5c6b1c87af91919271f9fa140b0508c6c",
+   "parsed": {
+    "kuld": "I",
+    "found_via": "roman"
+   }
+  }
+ ],
+ "placements": [
+  {
+   "record_key": "p1",
+   "record_kind": "person_post",
+   "entry_code": "I",
+   "printed_number": "1",
+   "generation_local": 1,
+   "generation_label_raw": "Første",
+   "generation_global": null,
+   "kuld_label": null,
+   "section_path": [
+    "header:100",
+    "header:200"
+   ],
+   "header_ids": {
+    "linje": "header:100",
+    "slaegtled": "header:200"
+   },
+   "status": "machine_ok",
+   "reasons": [],
+   "post_char_from": 1000,
+   "guide_lokal_id": "g-p1",
+   "guide_nr_label": "1",
+   "guide_kandidater": null,
+   "page": 10,
+   "gruppekort": [],
+   "human_header_levels": [],
+   "naermeste_header_ids": null,
+   "naermeste_entry_code": null,
+   "naermeste_generation_local": null,
+   "naermeste_kuld_label": null
+  },
+  {
+   "record_key": "p2",
+   "record_kind": "person_post",
+   "entry_code": "I",
+   "printed_number": "1",
+   "generation_local": 2,
+   "generation_label_raw": "Andet",
+   "generation_global": null,
+   "kuld_label": null,
+   "section_path": [
+    "header:100",
+    "header:1500"
+   ],
+   "header_ids": {
+    "linje": "header:100",
+    "slaegtled": "header:1500"
+   },
+   "status": "machine_ok",
+   "reasons": [],
+   "post_char_from": 2000,
+   "guide_lokal_id": "g-p2",
+   "guide_nr_label": "1",
+   "guide_kandidater": null,
+   "page": 10,
+   "gruppekort": [],
+   "human_header_levels": [],
+   "naermeste_header_ids": null,
+   "naermeste_entry_code": null,
+   "naermeste_generation_local": null,
+   "naermeste_kuld_label": null
+  },
+  {
+   "record_key": "p3",
+   "record_kind": "person_post",
+   "entry_code": "II",
+   "printed_number": "1",
+   "generation_local": 1,
+   "generation_label_raw": "Første",
+   "generation_global": null,
+   "kuld_label": null,
+   "section_path": [
+    "header:2500",
+    "header:2600"
+   ],
+   "header_ids": {
+    "linje": "header:2500",
+    "slaegtled": "header:2600"
+   },
+   "status": "machine_ok",
+   "reasons": [],
+   "post_char_from": 3000,
+   "guide_lokal_id": "g-p3",
+   "guide_nr_label": "1",
+   "guide_kandidater": null,
+   "page": 10,
+   "gruppekort": [],
+   "human_header_levels": [],
+   "naermeste_header_ids": null,
+   "naermeste_entry_code": null,
+   "naermeste_generation_local": null,
+   "naermeste_kuld_label": null
+  },
+  {
+   "record_key": "p4",
+   "record_kind": "person_post",
+   "entry_code": "II",
+   "printed_number": "3",
+   "generation_local": 1,
+   "generation_label_raw": "Første",
+   "generation_global": null,
+   "kuld_label": null,
+   "section_path": [
+    "header:2500",
+    "header:2600"
+   ],
+   "header_ids": {
+    "linje": "header:2500",
+    "slaegtled": "header:2600"
+   },
+   "status": "unresolved",
+   "reasons": [
+    "nr_ikke_fortloebende"
+   ],
+   "post_char_from": 4000,
+   "guide_lokal_id": "g-p4",
+   "guide_nr_label": "3",
+   "guide_kandidater": null,
+   "page": 10,
+   "gruppekort": [],
+   "human_header_levels": [],
+   "naermeste_header_ids": null,
+   "naermeste_entry_code": null,
+   "naermeste_generation_local": null,
+   "naermeste_kuld_label": null
+  },
+  {
+   "record_key": "g1",
+   "record_kind": "person_post",
+   "entry_code": "II",
+   "printed_number": "1",
+   "generation_local": 1,
+   "generation_label_raw": "Første",
+   "generation_global": null,
+   "kuld_label": null,
+   "section_path": [
+    "header:2500",
+    "header:2600"
+   ],
+   "header_ids": {
+    "linje": "header:2500",
+    "slaegtled": "header:2600"
+   },
+   "status": "unresolved",
+   "reasons": [
+    "overskrift_ikke_fundet:kuld"
+   ],
+   "post_char_from": 6000,
+   "guide_lokal_id": "g-g1",
+   "guide_nr_label": "1",
+   "guide_kandidater": null,
+   "page": 10,
+   "gruppekort": [
+    {
+     "id": "kuld:9000",
+     "niveau": "kuld",
+     "guide_value": "II",
+     "guide_char_from": 9000,
+     "guide_line_sha256": "e5e795c2433c5885edd0761483f38c6c1aa906fcfcb7f429e0978059963de133"
+    }
+   ],
+   "human_header_levels": [
+    "kuld"
+   ],
+   "naermeste_header_ids": null,
+   "naermeste_entry_code": null,
+   "naermeste_generation_local": null,
+   "naermeste_kuld_label": null
+  },
+  {
+   "record_key": "g2",
+   "record_kind": "person_post",
+   "entry_code": "II",
+   "printed_number": "2",
+   "generation_local": 1,
+   "generation_label_raw": "Første",
+   "generation_global": null,
+   "kuld_label": null,
+   "section_path": [
+    "header:2500",
+    "header:2600"
+   ],
+   "header_ids": {
+    "linje": "header:2500",
+    "slaegtled": "header:2600"
+   },
+   "status": "unresolved",
+   "reasons": [
+    "overskrift_ikke_fundet:kuld"
+   ],
+   "post_char_from": 7000,
+   "guide_lokal_id": "g-g2",
+   "guide_nr_label": "2",
+   "guide_kandidater": null,
+   "page": 10,
+   "gruppekort": [
+    {
+     "id": "kuld:9000",
+     "niveau": "kuld",
+     "guide_value": "II",
+     "guide_char_from": 9000,
+     "guide_line_sha256": "e5e795c2433c5885edd0761483f38c6c1aa906fcfcb7f429e0978059963de133"
+    }
+   ],
+   "human_header_levels": [
+    "kuld"
+   ],
+   "naermeste_header_ids": null,
+   "naermeste_entry_code": null,
+   "naermeste_generation_local": null,
+   "naermeste_kuld_label": null
+  },
+  {
+   "record_key": "g3",
+   "record_kind": "person_post",
+   "entry_code": "II",
+   "printed_number": "3",
+   "generation_local": 1,
+   "generation_label_raw": "Første",
+   "generation_global": null,
+   "kuld_label": null,
+   "section_path": [
+    "header:2500",
+    "header:2600"
+   ],
+   "header_ids": {
+    "linje": "header:2500",
+    "slaegtled": "header:2600"
+   },
+   "status": "unresolved",
+   "reasons": [
+    "overskrift_ikke_fundet:kuld",
+    "uenig:legacy_nr"
+   ],
+   "post_char_from": 7500,
+   "guide_lokal_id": "g-g3",
+   "guide_nr_label": "3",
+   "guide_kandidater": null,
+   "page": 10,
+   "gruppekort": [
+    {
+     "id": "kuld:9000",
+     "niveau": "kuld",
+     "guide_value": "II",
+     "guide_char_from": 9000,
+     "guide_line_sha256": "e5e795c2433c5885edd0761483f38c6c1aa906fcfcb7f429e0978059963de133"
+    }
+   ],
+   "human_header_levels": [
+    "kuld"
+   ],
+   "naermeste_header_ids": null,
+   "naermeste_entry_code": null,
+   "naermeste_generation_local": null,
+   "naermeste_kuld_label": null
+  },
+  {
+   "record_key": "s1",
+   "record_kind": "person_post",
+   "entry_code": null,
+   "printed_number": null,
+   "generation_local": null,
+   "generation_label_raw": null,
+   "generation_global": null,
+   "kuld_label": null,
+   "section_path": [],
+   "header_ids": {},
+   "status": "unresolved",
+   "reasons": [
+    "ikke_parret"
+   ],
+   "post_char_from": null,
+   "guide_lokal_id": "g-s1",
+   "guide_nr_label": null,
+   "guide_kandidater": null,
+   "page": 10,
+   "gruppekort": [],
+   "human_header_levels": [],
+   "naermeste_header_ids": {
+    "linje": "header:2500",
+    "slaegtled": "header:2600",
+    "kuld": "header:4500"
+   },
+   "naermeste_entry_code": "II",
+   "naermeste_generation_local": 1,
+   "naermeste_kuld_label": "I"
+  },
+  {
+   "record_key": "s2",
+   "record_kind": "person_post",
+   "entry_code": null,
+   "printed_number": "8",
+   "generation_local": null,
+   "generation_label_raw": null,
+   "generation_global": null,
+   "kuld_label": null,
+   "section_path": [],
+   "header_ids": {},
+   "status": "unresolved",
+   "reasons": [
+    "ikke_alignet"
+   ],
+   "post_char_from": 8500,
+   "guide_lokal_id": "g-s2",
+   "guide_nr_label": "8",
+   "guide_kandidater": null,
+   "page": 10,
+   "gruppekort": [],
+   "human_header_levels": [],
+   "naermeste_header_ids": {
+    "linje": "header:2500",
+    "slaegtled": "header:2600",
+    "kuld": "header:4500"
+   },
+   "naermeste_entry_code": "II",
+   "naermeste_generation_local": 1,
+   "naermeste_kuld_label": "I"
+  },
+  {
+   "record_key": "u1",
+   "record_kind": "person_post",
+   "entry_code": "II",
+   "printed_number": "5",
+   "generation_local": 1,
+   "generation_label_raw": "Første",
+   "generation_global": null,
+   "kuld_label": "I",
+   "section_path": [
+    "header:2500",
+    "header:2600",
+    "header:4500"
+   ],
+   "header_ids": {
+    "linje": "header:2500",
+    "slaegtled": "header:2600",
+    "kuld": "header:4500"
+   },
+   "status": "unresolved",
+   "reasons": [
+    "stamme_generation_usikker"
+   ],
+   "post_char_from": 9500,
+   "guide_lokal_id": "g-u1",
+   "guide_nr_label": "5",
+   "guide_kandidater": null,
+   "page": 10,
+   "gruppekort": [],
+   "human_header_levels": [],
+   "naermeste_header_ids": null,
+   "naermeste_entry_code": null,
+   "naermeste_generation_local": null,
+   "naermeste_kuld_label": null
+  }
+ ],
+ "invariants": {
+  "record_keys_unikke": true,
+  "section_path_nr_unik": true,
+  "en_overskrift_pr_gruppe": true,
+  "segmenter_paritet": true,
+  "gruppekort_daekker_overskriftsaarsager": true
+ },
+ "disagreements": []
+}

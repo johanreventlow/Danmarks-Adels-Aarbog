@@ -144,6 +144,135 @@ BEGIN
   END;
 END $mapped_kraever_egen_placement$;
 
+-- Trin 6d-1 (afgørelse 1): mapped via identitet. 1939's legacy-nøgler er ikke recordens nøgle; mapped er gyldig, når
+-- placementens accepterede principal_member-persona har accepteret identitet til netop legacy-rækkens person.
+-- Fælles opsætning: post med legacy-nøgle ≠ record_key og en accepteret record-placement (uden persona-placement).
+CREATE OR REPLACE FUNCTION pg_temp.f6d_ledger(p_source bigint,p_person bigint) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE f jsonb:=pg_temp.f150_source(p_source); p jsonb; v_obs uuid; v_rp uuid;
+BEGIN
+  p:=pg_temp.f150_post(f,'I-1',p_person,1,1);
+  UPDATE public.person_external_id SET record_key='legacy-'||abs(p_person) WHERE person_id=p_person AND source_id=p_source;
+  PERFORM private.write_header_evidence(p_source,(f->>'rend')::uuid,pg_temp.f150_run(),
+    jsonb_build_array(pg_temp.f150_h('header_linje',500,'I DEN TESTSKE LINJE')));
+  v_obs:=private.header_observation_uuid((f->>'rend')::uuid,'header-2018-20-v1',500);
+  v_rp:=private.write_record_placement((p->>'record')::uuid,(f->>'entry')::bigint,'{"printed_number":"1"}',v_obs,
+    jsonb_build_object('rule_version','header-2018-20-v1','header_ids',jsonb_build_object('linje',v_obs)));
+  RETURN f||jsonb_build_object('post',p,'rp',v_rp);
+END $$;
+
+DO $ledger_via_identitet$
+DECLARE f jsonb:=pg_temp.f6d_ledger(-1527,-152701); v_rp uuid; v_err text;
+BEGIN
+  v_rp:=(f->>'rp')::uuid;
+  -- Uden persona-placement er der ingen vej (nøglerne er forskellige).
+  BEGIN
+    PERFORM private.record_legacy_disposition(-152701,-1527,'mapped',v_rp,'{"basis":"test"}');
+    RAISE EXCEPTION 'PLACEMENT_WRITER_TEST_FAILED: mapped uden nøgle og uden persona-placement godtaget';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'PLACEMENT_LEGACY_MAPPING_INVALID%' THEN RAISE; END IF;
+  END;
+  PERFORM private.write_persona_placement((f#>>'{post,principal}')::uuid,v_rp,(f#>>'{post,helpost}')::uuid,'{"rule":"test"}');
+  IF private.record_legacy_disposition(-152701,-1527,'mapped',v_rp,'{"basis":"test"}')<>1
+     OR (SELECT disposition||'/'||placement_id::text FROM private.legacy_placement_disposition
+          WHERE person_id=-152701 AND source_id=-1527 AND version=1)<>'mapped/'||v_rp::text THEN
+    RAISE EXCEPTION 'PLACEMENT_WRITER_TEST_FAILED: mapped via identitet afvist';
+  END IF;
+  -- Samme person, men legacy-rækken i en anden kilde: placementen hører ikke til den kilde.
+  PERFORM pg_temp.f5b_source(-1520);
+  INSERT INTO public.person_external_id(person_id,source_id,linje,nr,record_key,slaegtled_lokal)
+    VALUES (-152701,-1520,'I',1,'legacy-anden-kilde',1);
+  BEGIN
+    PERFORM private.record_legacy_disposition(-152701,-1520,'mapped',v_rp,'{"basis":"test"}');
+    RAISE EXCEPTION 'PLACEMENT_WRITER_TEST_FAILED: mapped via identitet på tværs af kilder godtaget';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'PLACEMENT_LEGACY_MAPPING_INVALID%' THEN RAISE; END IF;
+  END;
+END $ledger_via_identitet$;
+
+DO $ledger_anden_person$
+DECLARE f jsonb:=pg_temp.f6d_ledger(-1528,-152801); q jsonb; v_rp uuid; v_err text; v_mention uuid; v_sp uuid;
+BEGIN
+  v_rp:=(f->>'rp')::uuid;
+  PERFORM private.write_persona_placement((f#>>'{post,principal}')::uuid,v_rp,(f#>>'{post,helpost}')::uuid,'{"rule":"test"}');
+  -- En anden person med egen legacy-række i kilden; placementens persona er identificeret som -152801, ikke -152802.
+  q:=pg_temp.f150_post(f,'I-2',-152802,2,1);
+  UPDATE public.person_external_id SET record_key='legacy-152802' WHERE person_id=-152802 AND source_id=-1528;
+  BEGIN
+    PERFORM private.record_legacy_disposition(-152802,-1528,'mapped',v_rp,'{"basis":"test"}');
+    RAISE EXCEPTION 'PLACEMENT_WRITER_TEST_FAILED: mapped til en placement for en anden person godtaget';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'PLACEMENT_LEGACY_MAPPING_INVALID%' THEN RAISE; END IF;
+  END;
+  -- En ikke-principal persona-placement (ægtefælle på samme post) med accepteret identitet til -152802 giver heller
+  -- ingen vej (som f150_placed's ægtefælle).
+  SELECT mention_id INTO v_mention FROM private.source_persona_mention WHERE persona_id=(f#>>'{post,principal}')::uuid;
+  INSERT INTO private.source_persona(source_id,persona_key,created_run_id) VALUES (-1528,'I-1-spouse',(f->>'run')::uuid)
+    RETURNING id INTO v_sp;
+  INSERT INTO private.source_persona_mention(persona_id,mention_id,mention_role,ordinal) VALUES (v_sp,v_mention,'spouse',1);
+  INSERT INTO private.source_persona_identity(source_persona_id,canonical_person_id,decision_status,version,evidence,
+    decided_by,decided_by_name,decided_at) VALUES (v_sp,-152802,'accepted',1,'{"fixture":"6d"}',(f->>'actor')::uuid,'fixture',now());
+  INSERT INTO private.source_persona_placement(source_persona_id,record_placement_id,placement_role,basis_observation_id,
+    initial_status)
+    VALUES (v_sp,v_rp,'mentioned_spouse',(f#>>'{post,helpost}')::uuid,'accepted') RETURNING id INTO v_sp;
+  INSERT INTO private.source_persona_placement_decision(placement_id,version,decision_status,evidence,decision_origin,
+    decided_by_name) VALUES (v_sp,1,'accepted','{"fixture":"6d"}','migration','fixture');
+  BEGIN
+    PERFORM private.record_legacy_disposition(-152802,-1528,'mapped',v_rp,'{"basis":"test"}');
+    RAISE EXCEPTION 'PLACEMENT_WRITER_TEST_FAILED: mapped via en ikke-principal persona-placement godtaget';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'PLACEMENT_LEGACY_MAPPING_INVALID%' THEN RAISE; END IF;
+  END;
+  IF EXISTS (SELECT 1 FROM private.legacy_placement_disposition WHERE person_id=-152802) THEN
+    RAISE EXCEPTION 'PLACEMENT_WRITER_TEST_FAILED: afvist mapping skrev en ledger-række';
+  END IF;
+END $ledger_anden_person$;
+
+DO $ledger_identitet_ikke_accepteret$
+DECLARE f jsonb:=pg_temp.f6d_ledger(-1529,-152901); v_rp uuid; v_pp uuid; v_err text;
+BEGIN
+  v_rp:=(f->>'rp')::uuid;
+  v_pp:=private.write_persona_placement((f#>>'{post,principal}')::uuid,v_rp,(f#>>'{post,helpost}')::uuid,'{"rule":"test"}');
+  -- Identiteten afgøres igen som afvist (ejer-skrivning som i membership-testen).
+  UPDATE private.source_persona_identity SET decision_status='rejected',canonical_person_id=NULL,version=2
+   WHERE source_persona_id=(f#>>'{post,principal}')::uuid;
+  BEGIN
+    PERFORM private.record_legacy_disposition(-152901,-1529,'mapped',v_rp,'{"basis":"test"}');
+    RAISE EXCEPTION 'PLACEMENT_WRITER_TEST_FAILED: mapped via ikke-accepteret identitet godtaget';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'PLACEMENT_LEGACY_MAPPING_INVALID%' THEN RAISE; END IF;
+  END;
+  -- Identiteten accepteret igen, men persona-placementen er ikke længere gældende accepteret.
+  UPDATE private.source_persona_identity SET decision_status='accepted',canonical_person_id=-152901,version=3
+   WHERE source_persona_id=(f#>>'{post,principal}')::uuid;
+  PERFORM set_config('request.jwt.claim.sub',f->>'actor',true);
+  SET LOCAL ROLE authenticated;
+  PERFORM red_decide_source_persona_placement(v_pp,1,'superseded','{"basis":"test"}');
+  RESET ROLE;
+  BEGIN
+    PERFORM private.record_legacy_disposition(-152901,-1529,'mapped',v_rp,'{"basis":"test"}');
+    RAISE EXCEPTION 'PLACEMENT_WRITER_TEST_FAILED: mapped via afløst persona-placement godtaget';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'PLACEMENT_LEGACY_MAPPING_INVALID%' THEN RAISE; END IF;
+  END;
+END $ledger_identitet_ikke_accepteret$;
+
+DO $ledger_noegle_uaendret$
+DECLARE f jsonb:=pg_temp.f150_source(-1519); p jsonb; v_obs uuid; v_rp uuid;
+BEGIN
+  -- Den gamle vej: legacy-nøglen = recordens nøgle, ingen persona-placement og identiteten afvist → stadig mapped.
+  p:=pg_temp.f150_post(f,'I-1',-151901,1,1);
+  UPDATE private.source_persona_identity SET decision_status='rejected',canonical_person_id=NULL,version=2
+   WHERE source_persona_id=(p->>'principal')::uuid;
+  PERFORM private.write_header_evidence(-1519,(f->>'rend')::uuid,pg_temp.f150_run(),
+    jsonb_build_array(pg_temp.f150_h('header_linje',500,'I DEN TESTSKE LINJE')));
+  v_obs:=private.header_observation_uuid((f->>'rend')::uuid,'header-2018-20-v1',500);
+  v_rp:=private.write_record_placement((p->>'record')::uuid,(f->>'entry')::bigint,'{"printed_number":"1"}',v_obs,
+    jsonb_build_object('rule_version','header-2018-20-v1','header_ids',jsonb_build_object('linje',v_obs)));
+  IF private.record_legacy_disposition(-151901,-1519,'mapped',v_rp,'{"basis":"test"}')<>1 THEN
+    RAISE EXCEPTION 'PLACEMENT_WRITER_TEST_FAILED: nøglevejen virker ikke længere';
+  END IF;
+END $ledger_noegle_uaendret$;
+
 DO $entry_lineage$
 DECLARE f jsonb:=pg_temp.f150_source(-1525); v_l2 bigint; v_err text;
 BEGIN

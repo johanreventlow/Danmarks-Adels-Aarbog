@@ -12,7 +12,10 @@
 -- og kontroller_forslag_binding_v1. Trin 6c-3a (tekstrevision og relationer): verify_relation_persona_receipts,
 -- spouse_principal_person og write_text_revision_reconciliation (write_relation_persona, persona_family_context og
 -- relation_binding_state står allerede under 5ab).
--- I alt 13 + 17 + 3 + 3 + 1 + 7 + 3 + 3 = 50 linjer.
+-- Trin 6d-1 (blokken trin 6d-1): record_legacy_disposition, red_promote_placement_memberships,
+-- membership_component_states, placement_header_violations og placement_human_header_levels
+-- (public_person_source_coordinates står allerede under 5c2-b11).
+-- I alt 13 + 17 + 3 + 3 + 1 + 7 + 3 + 3 + 5 = 55 linjer.
 \set ON_ERROR_STOP on
 SELECT l FROM (
   SELECT p.oid::regprocedure::text||'|'||p.prosecdef||'|'||coalesce(array_to_string(p.proconfig,','),'')||'|'||
@@ -48,5 +51,9 @@ SELECT l FROM (
      ('public','red_ret_forslag'),('public','red_decide_interpretation'),('private','kontroller_forslag_binding_v1'),
      -- 6c-3a
      ('private','verify_relation_persona_receipts'),('private','spouse_principal_person'),
-     ('private','write_text_revision_reconciliation'))) x
+     ('private','write_text_revision_reconciliation'),
+     -- 6d-1
+     ('private','record_legacy_disposition'),('public','red_promote_placement_memberships'),
+     ('private','membership_component_states'),('private','placement_header_violations'),
+     ('private','placement_human_header_levels'))) x
  ORDER BY l COLLATE "C";

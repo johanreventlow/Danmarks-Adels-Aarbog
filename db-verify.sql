@@ -3710,7 +3710,7 @@ END $slaegt_verify$;
 
 -- ===== #150 trin 5c-1: placement-header som strukturel forekomst (sti ii) og nærmeste-reglen =====
 DO $placement_header_150_verify$
-DECLARE v_source bigint; v_n bigint;
+DECLARE v_source bigint; v_n bigint; v_human bigint:=0; r text;
 BEGIN
   IF (SELECT count(*) FROM private.vocab WHERE scheme='observation_kind'
        AND code IN ('header_linje','header_slaegtled','header_kuld','header_aegteskab'))<>4 THEN
@@ -3724,11 +3724,23 @@ BEGIN
      OR has_function_privilege('authenticated','private.placement_header_violations(bigint)','EXECUTE') THEN
     RAISE EXCEPTION 'FEJL: placement_header_violations er API-eksekverbar';
   END IF;
-  FOR v_source IN SELECT DISTINCT r.source_id FROM private.source_record_placement_current pc
-                    JOIN private.source_record r ON r.id=pc.source_record_id WHERE pc.decision_status='accepted' LOOP
+  -- Trin 6d-1 (decisions 2026-11-09): tælleren for menneskebekræftede overskriftsniveauer er privat.
+  IF to_regprocedure('private.placement_human_header_levels(bigint)') IS NULL THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6d-1 mangler private.placement_human_header_levels(bigint)';
+  END IF;
+  FOREACH r IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_function_privilege(r,'private.placement_human_header_levels(bigint)','EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6d-1 placement_human_header_levels eksekverbar for %',r;
+    END IF;
+  END LOOP;
+  FOR v_source IN SELECT DISTINCT sr.source_id FROM private.source_record_placement_current pc
+                    JOIN private.source_record sr ON sr.id=pc.source_record_id WHERE pc.decision_status='accepted' LOOP
     v_n:=private.placement_header_violations(v_source);
     IF v_n<>0 THEN RAISE EXCEPTION 'FEJL: PLACEMENT_HEADER_VIOLATIONS source=% n=%',v_source,v_n; END IF;
+    v_human:=v_human+private.placement_human_header_levels(v_source);
   END LOOP;
+  -- Helbred, ikke fejl: placements hvis nærmeste-tjek er undtaget for et menneskebekræftet niveau.
+  RAISE NOTICE 'PLACEMENT_HUMAN_HEADER_LEVELS n=%',v_human;
   RAISE NOTICE 'OK: placement-header sti ii og nærmeste-reglen';
 END $placement_header_150_verify$;
 
@@ -10455,6 +10467,15 @@ BEGIN
       'private.placement_membership_not_current()','private.placement_membership_set(bigint)'] LOOP
     IF to_regprocedure(f) IS NULL OR has_function_privilege('authenticated',f,'EXECUTE') THEN
       RAISE EXCEPTION 'VERIFY_FAILED: 150 membership-funktion %',f;
+    END IF;
+  END LOOP;
+  -- Trin 6d-1 (B6 afledt): komponenttilstanden er privat; ingen API-rolle må kalde den.
+  IF to_regprocedure('private.membership_component_states()') IS NULL THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6d-1 mangler private.membership_component_states()';
+  END IF;
+  FOREACH r IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_function_privilege(r,'private.membership_component_states()','EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6d-1 membership_component_states eksekverbar for %',r;
     END IF;
   END LOOP;
   -- Helbred (spec §4.4): promoverede memberships, hvis tilstand er ændret siden; 5c-2's læsere filtrerer på gældende.

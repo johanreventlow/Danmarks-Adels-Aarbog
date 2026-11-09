@@ -1,6 +1,9 @@
-import os, sys, unittest
+import hashlib, json, os, sys, unittest
+from pathlib import Path
+from unittest import mock
 sys.path.insert(0, os.path.dirname(__file__))
 import build_header_manifest as bhm
+import segment
 from build_source_evidence_manifest import project_rendition
 
 ENTRIES = ['I', 'II']
@@ -193,6 +196,945 @@ class TestHeaderManifest(unittest.TestCase):
             self.assertNotIn(ord_, s)
         self.assertEqual(bhm.summary(m)['counts']['headers'], {'header_linje': 2, 'header_slaegtled': 3,
                                                              'header_kuld': 2, 'header_aegteskab': 1})
+
+
+class Test2018_20ByteEns(unittest.TestCase):
+    def test_2018_20_byte_ens(self):
+        # sha'erne er målt FØR profil-refaktoreringen på de eksisterende fixtures
+        self.assertEqual(bhm.canonical_sha256(build()),
+                         'cce8d831e9d3f9e086e4c212f35ed7f682085f6f914d2daf2d0224b4cc33b852')
+        parents = [{'child': 'I-1a', 'parent': 'I-1'}, {'child': 'I-2', 'parent': 'I-1'},
+                   {'child': 'I-3', 'parent': 'I-2'}, {'child': 'II-1', 'parent': 'I-3'}]
+        m = bhm.build_manifest(rendition(*BASIS), {'entry_codes': ENTRIES}, LEGACY, parents)
+        self.assertEqual(bhm.canonical_sha256(m),
+                         '1b77949a09cfbe0f0999d73c95137727c15ee9cee5f4c86850e21406d557e0af')
+
+    def test_profilfiler(self):
+        d = os.path.join(os.path.dirname(__file__), '..', 'references', 'header-profiles')
+        p18 = bhm.load_header_profile(os.path.join(d, 'header-2018-20-v1.json'))
+        p39 = bhm.load_header_profile(os.path.join(d, 'header-1939-v1.json'))
+        self.assertEqual((p18['grammar'], p18['guide_text_sha256']), ('2018-20', None))
+        self.assertEqual(p39['raw_text_sha256'], '020123a3588dacf80705a22fb021ab4f5da97b8de202e8664304ca01f9a6da37')
+        self.assertEqual(p39['guide_text_sha256'], 'efab316b528eafc60074c21c877590b31ab8e960cd1adc14f5c79bf01f12dab7')
+        self.assertEqual((p39['record_matching'], p39['stamme_afsnit_level']), ('earliest_occurrence', 'slaegtled'))
+        with self.assertRaises(bhm.HeaderManifestError):      # 1939 kræver guiden
+            bhm.build_manifest(rendition(*BASIS), p39, LEGACY)
+
+
+# ---------------------------------------------------------------------------------------------
+# 1939: centreret guide + ucentreret rendition (opdigtede personer)
+# ---------------------------------------------------------------------------------------------
+BESKRIVELSE = 'Anna Reventlows Børn med Bodil Opdigt:'
+GUIDE = [
+    '### PAGE 500 ###',
+    '                                   I',
+    '      Den testske Linje af 1500.',
+    '                          (S. 5).',
+    '                 Første Slægtled.',
+    '1.  Anna, f. 1600.',
+    '    Boede paa Testrup.',
+    '                 Andet Slægtled.',
+    '                                   I.',
+    '                      ' + BESKRIVELSE,
+    '1.  Bent, f. 1630.',
+    '2.  Carl, f. 1632.',
+    '                                   II.',
+    '3.  Dora, f. 1640.',
+    '### PAGE 501 ###',
+    '                                   II',
+    '      Den prøvende Linje af 1600.',
+    '                          (S. 9).',
+    '                 Første Slægtled.',
+    '1.  Erik, f. 1650.',
+]
+PROFILE_1939 = {
+    'header_rule_version': 'header-1939-v1', 'raw_text_sha256': None, 'grammar': '1939',
+    'record_matching': 'earliest_occurrence', 'stamme_afsnit_level': 'slaegtled',
+    'levels': {'linje': 'header_linje', 'slaegtled': 'header_slaegtled', 'kuld': 'header_kuld'},
+    'guide_text_sha256': None,
+}
+
+
+def calamari(lines):
+    return [l.strip() for l in lines]
+
+
+def rec(rend_lines, needle, key, kind='person', legacy=None):
+    """needle: postens navn (»1.  Anna« → 'Anna', findes som nummerlinjen) eller en tekst midt i en post."""
+    import re
+    text = '\n'.join(rend_lines) + '\n'
+    m = re.search(r'^\d+[a-z]?\.\s+' + re.escape(needle.split()[-1].rstrip(',')), text, re.M) \
+        if re.match(r'^\d', needle) else None
+    return {'record_key': key, 'record_kind': kind, 'page_from': 500,
+            'char_from': m.start() if m else text.index(needle), 'legacy': legacy}
+
+
+def records_for(rend_lines):
+    out = [rec(rend_lines, '1.  Anna', 'A'), rec(rend_lines, '1.  Bent', 'B'),
+           rec(rend_lines, '2.  Carl', 'C'), rec(rend_lines, '3.  Dora', 'D'),
+           rec(rend_lines, '1.  Erik', 'E')]
+    return out
+
+
+def build39(guide=GUIDE, rend=None, records=None, parents=(), profile=PROFILE_1939):
+    rend = calamari(guide) if rend is None else rend
+    records = records_for(rend) if records is None else records
+    return bhm.build_manifest_by_offset(rendition(*rend), rendition(*guide), profile, records, list(parents))
+
+
+def without(lines, *needles):
+    return [l for l in lines if not any(n == l.strip() for n in needles)]
+
+
+class Test1939(unittest.TestCase):
+    def test_1939_niveauer(self):
+        m = build39()
+        self.assertEqual(m['header_rule_version'], 'header-1939-v1')
+        kinds = sorted(h['kind'] for h in m['headers'])
+        self.assertEqual(kinds, ['header_kuld'] * 2 + ['header_linje'] * 2 + ['header_slaegtled'] * 3)
+        b = placement(m, 'B')
+        self.assertEqual(b['entry_code'], 'I')
+        self.assertEqual(b['generation_local'], 2)
+        self.assertEqual(b['generation_label_raw'], 'Andet')
+        self.assertIsNone(b['generation_global'])
+        self.assertEqual(b['kuld_label'], 'I')
+        self.assertEqual(b['status'], 'machine_ok', b['reasons'])
+        self.assertEqual(len(b['section_path']), 3)
+        self.assertEqual(b['section_path'], [b['header_ids'][k] for k in ('linje', 'slaegtled', 'kuld')])
+        self.assertEqual(b['guide_lokal_id'], 'I.Andet.I.1')
+        self.assertEqual(b['record_kind'], 'person')
+        a = placement(m, 'A')
+        self.assertEqual((a['generation_local'], a['kuld_label'], set(a['header_ids'])), (1, None, {'linje', 'slaegtled'}))
+        self.assertEqual(placement(m, 'E')['entry_code'], 'II')
+        self.assertEqual((placement(m, 'E')['page'], b['page']), (501, 500))
+        self.assertTrue(all(m['invariants'].values()), m['invariants'])
+        self.assertEqual(set(m['invariants']), {'record_keys_unikke', 'section_path_nr_unik',
+                                                'en_overskrift_pr_gruppe', 'segmenter_paritet',
+                                                'gruppekort_daekker_overskriftsaarsager'})
+        self.assertEqual(m['transfer'], {'linje': {'guide': 2, 'genfundet': 2, 'ikke_genfundet': 0},
+                                         'slaegtled': {'guide': 3, 'genfundet': 3, 'ikke_genfundet': 0},
+                                         'kuld': {'guide': 2, 'genfundet': 2, 'ikke_genfundet': 0}})
+
+    def test_record_efter_offset(self):
+        # postens koordinater er recordens egen char_from; to records på samme char_from deler dem lovligt
+        rend = calamari(GUIDE)
+        recs = records_for(rend) + [dict(rec(rend, '1.  Anna', 'A-fakta', kind='fact'), persona=False)]
+        m = build39(records=recs)
+        a, fact = placement(m, 'A'), placement(m, 'A-fakta')
+        for k in ('printed_number', 'section_path', 'post_char_from', 'entry_code', 'generation_local'):
+            self.assertEqual(a[k], fact[k], k)
+        self.assertEqual(fact['record_kind'], 'fact')
+        self.assertEqual(fact['status'], 'machine_ok')
+        self.assertTrue(m['invariants']['section_path_nr_unik'])
+
+    def test_poster_uden_linjeskift(self):
+        rend = calamari(GUIDE)
+        k = rend.index('1.  Bent, f. 1630.')
+        rend[k:k + 2] = ['1.  Bent, f. 1630. 2.  Carl, f. 1632.']
+        m = build39(rend=rend)
+        b, c = placement(m, 'B'), placement(m, 'C')
+        self.assertEqual((b['printed_number'], c['printed_number']), ('1', '2'))
+        self.assertNotEqual(b['post_char_from'], c['post_char_from'])
+        self.assertEqual((b['status'], c['status']), ('machine_ok', 'machine_ok'), (b['reasons'], c['reasons']))
+        self.assertEqual((b['generation_local'], c['kuld_label']), (2, 'I'))
+        self.assertTrue(all(m['invariants'].values()), m['invariants'])
+
+    def test_record_uden_nummer_er_uden_post(self):
+        rend = calamari(GUIDE)
+        recs = records_for(rend) + [rec(rend, 'Boede paa', 'U')]
+        m = build39(records=recs)
+        u = placement(m, 'U')
+        self.assertEqual((u['status'], u['reasons']), ('unresolved', ['uden_post']))
+        self.assertIsNone(u['printed_number'])
+        self.assertEqual(placement(m, 'A')['status'], 'machine_ok')
+
+    def test_overskrift_ikke_fundet_er_unresolved(self):
+        rend = calamari(GUIDE)       # kun den første slægtledslinje fjernes (den anden står på side 501)
+        rend.remove('Første Slægtled.')
+        m = build39(rend=rend)
+        a = placement(m, 'A')
+        self.assertEqual(a['status'], 'unresolved')
+        self.assertEqual(a['reasons'], ['overskrift_ikke_fundet:slaegtled'])
+        self.assertIsNone(a['generation_local'])
+        self.assertEqual(placement(m, 'B')['status'], 'machine_ok')
+        self.assertEqual(m['transfer']['slaegtled']['ikke_genfundet'], 1)
+        self.assertTrue(all(m['invariants'].values()))
+
+    def test_uden_post(self):
+        rend = calamari(GUIDE)
+        recs = records_for(rend) + [{'record_key': 'X', 'record_kind': 'person', 'page_from': 500,
+                                     'char_from': 3, 'legacy': None}]
+        m = build39(records=recs)
+        self.assertEqual(placement(m, 'X')['reasons'], ['uden_post'])
+        self.assertEqual(placement(m, 'X')['status'], 'unresolved')
+        self.assertIsNone(placement(m, 'X')['printed_number'])
+
+    def test_ikke_alignet(self):
+        # en post kun i guiden: ingen record peger på den, øvrige placeringer er uændrede
+        guide = GUIDE[:6] + ['2.  Extra, f. 1601.'] + GUIDE[6:]
+        rend = calamari(GUIDE)
+        m = build39(guide=guide, rend=rend)
+        self.assertEqual(m['alignment'], {'guide_posts': 6, 'rendition_posts': 5, 'aligned': 5, 'unummererede': 0, 'unummererede_records': 0,
+                                      'oversigtszone_records': 0, 'parret_stamfader': 0, 'parret_nummereret': 0, 'parret_oversigt': 0, 'uparret': 0})
+        self.assertTrue(all(p['status'] == 'machine_ok' for p in m['placements']), m['placements'])
+        # en post kun i renditionen: recorden i den kan ikke føres til guiden
+        rend2 = calamari(GUIDE)
+        rend2.insert(rend2.index('1.  Erik, f. 1650.'), '9.  Gert, f. 1700.')
+        recs = records_for(rend2) + [rec(rend2, '9.  Gert', 'G')]
+        m2 = build39(rend=rend2, records=recs)
+        self.assertEqual(placement(m2, 'G')['reasons'], ['ikke_alignet'])
+        self.assertEqual(placement(m2, 'E')['status'], 'machine_ok')
+
+    def test_to_kandidater_er_ikke_fundet(self):
+        rend = calamari(GUIDE)
+        k = rend.index('Andet Slægtled.')
+        rend.insert(k, 'Andet Slægtled.')
+        m = build39(rend=rend)
+        self.assertEqual(placement(m, 'B')['reasons'], ['overskrift_ikke_fundet:slaegtled'])
+        self.assertEqual(placement(m, 'A')['status'], 'machine_ok')
+
+    def test_gruppe_via_beskrivelse(self):
+        rend = calamari(GUIDE)
+        k = rend.index('I.')
+        del rend[k]
+        m = build39(rend=rend)
+        b = placement(m, 'B')
+        self.assertEqual(b['status'], 'machine_ok', b['reasons'])
+        self.assertEqual(b['kuld_label'], 'Anna-Reventlows-Børn-med-Bodil-Opdigt')
+        kuld = next(h for h in m['headers'] if h['element_id'] == b['header_ids']['kuld'])
+        self.assertEqual(kuld['verbatim_text'], BESKRIVELSE)
+        self.assertEqual(kuld['parsed']['guide']['value'], 'I')      # guidens romertal kun som sporbarhed
+        self.assertEqual(len(kuld['parsed']['guide']['line_sha256']), 64)
+        self.assertNotIn('Anna', json.dumps(kuld['parsed']['guide']))
+
+    def test_linje_uden_romertal_kraever_samme_navn(self):
+        rend = calamari(GUIDE)
+        rend.remove('I')
+        m = build39(rend=rend)
+        a = placement(m, 'A')
+        self.assertEqual((a['status'], a['entry_code']), ('machine_ok', 'I'))
+        linje = next(h for h in m['headers'] if h['element_id'] == a['header_ids']['linje'])
+        self.assertEqual(linje['parsed']['found_via'], 'navn')
+        self.assertEqual(linje['verbatim_text'], 'Den testske Linje af 1500.')
+        rend2 = [('Den atter testske Linje af 1500.' if l.startswith('Den testske') else l) for l in rend]
+        m2 = build39(rend=rend2)
+        self.assertEqual(placement(m2, 'A')['reasons'], ['overskrift_ikke_fundet:linje'])
+        self.assertIsNone(placement(m2, 'A')['entry_code'])
+
+    def test_stammesektion_er_entry(self):
+        guide = ['### PAGE 499 ###',
+                 '                          Den ældre testske Linje.',
+                 '                                   I',
+                 '1.  Urd, f. 1500.'] + GUIDE
+        recs = records_for(calamari(guide)) + [rec(calamari(guide), '1.  Urd', 'U')]
+        m = build39(guide=guide, records=recs)
+        u = placement(m, 'U')
+        self.assertEqual(u['status'], 'machine_ok', u['reasons'])
+        self.assertEqual(u['entry_code'], 'Stamme-ældre-testske')
+        self.assertEqual(u['generation_local'], 1)          # romertallet er slægtleddet i stammen
+        self.assertEqual(u['guide_lokal_id'], 'Stamme-ældre-testske.I.1')
+        self.assertNotIn('kuld', u['header_ids'])
+        linje = next(h for h in m['headers'] if h['element_id'] == u['header_ids']['linje'])
+        self.assertEqual(linje['kind'], 'header_linje')
+        self.assertEqual(linje['parsed']['stamme_slug'], 'ældre-testske')
+        self.assertEqual(next(h for h in m['headers'] if h['element_id'] == u['header_ids']['slaegtled'])['kind'],
+                         'header_slaegtled')
+        self.assertTrue(all(m['invariants'].values()), m['invariants'])
+
+    def test_gruppebeskrivelse_efter_romertal_er_ikke_ny_overskrift(self):
+        m = build39()
+        self.assertEqual(len([h for h in m['headers'] if h['kind'] == 'header_kuld']), 2)   # I og II, ikke 3
+        self.assertEqual(placement(m, 'B')['kuld_label'], 'I')
+
+    def test_gruppebeskrivelse_alene_er_kuld(self):
+        guide = without(GUIDE, 'I.')
+        m = build39(guide=guide)
+        b = placement(m, 'B')
+        self.assertEqual(b['status'], 'machine_ok', b['reasons'])
+        self.assertEqual(b['kuld_label'], 'Anna-Reventlows-Børn-med-Bodil-Opdigt')
+        self.assertEqual(b['guide_lokal_id'], 'I.Andet.Anna-Reventlows-Børn-med-Bodil-Opdigt.1')
+        self.assertEqual(len([h for h in m['headers'] if h['kind'] == 'header_kuld']), 2)
+        self.assertTrue(m['invariants']['segmenter_paritet'])
+
+    def test_nr_brud_og_slaegtled_fald(self):
+        guide = [l.replace('2.  Carl', '4.  Carl') for l in GUIDE]
+        m = build39(guide=guide)
+        self.assertEqual(placement(m, 'C')['reasons'], ['nr_ikke_fortloebende'])
+        self.assertEqual(placement(m, 'B')['status'], 'machine_ok')
+        self.assertEqual(placement(m, 'D')['status'], 'machine_ok')     # første post i ny gruppe
+        self.assertTrue(all(m['invariants'].values()), m['invariants'])
+        # slægtled-fald i samme linje: Første efter Andet
+        guide2 = GUIDE[:14] + ['                 Første Slægtled.', '2.  Frida, f. 1660.'] + GUIDE[14:]
+        rend2 = calamari(guide2)
+        recs = records_for(rend2) + [rec(rend2, '2.  Frida', 'F')]
+        m2 = build39(guide=guide2, records=recs)
+        self.assertEqual(placement(m2, 'F')['reasons'], ['slaegtled_ikke_monoton'])
+        self.assertEqual(placement(m2, 'D')['status'], 'machine_ok')
+        self.assertTrue(all(m2['invariants'].values()), m2['invariants'])
+
+    def test_flere_personas_i_post_er_unresolved(self):
+        rend = calamari(GUIDE)
+        a = dict(rec(rend, '1.  Anna', 'A'), persona=True)
+        a2 = dict(rec(rend, '1.  Anna', 'A2'), persona=True)       # samme fysiske post
+        fact = dict(rec(rend, '1.  Anna', 'A-fakta', kind='fact'), persona=False)
+        others = [dict(r, persona=True) for r in records_for(rend)[1:]]
+        m = build39(records=[a, a2] + others)
+        for key in ('A', 'A2'):
+            self.assertEqual(placement(m, key)['status'], 'unresolved', key)
+            self.assertIn('flere_personas_i_post', placement(m, key)['reasons'], key)
+        self.assertEqual(placement(m, 'B')['status'], 'machine_ok')
+        m2 = build39(records=[a, fact] + others)
+        self.assertEqual(placement(m2, 'A')['status'], 'machine_ok')
+        self.assertEqual(placement(m2, 'A-fakta')['status'], 'machine_ok')
+        self.assertTrue(m2['invariants']['section_path_nr_unik'])
+
+    def test_overskrift_paa_postlinje_er_ikke_fundet(self):
+        rend = calamari(GUIDE)
+        k = rend.index('Første Slægtled.')
+        rend[k:k + 2] = ['Første Slægtled. 1.  Anna, f. 1600.']
+        m = build39(rend=rend)
+        a = placement(m, 'A')
+        self.assertEqual((a['status'], a['reasons']), ('unresolved', ['overskrift_ikke_fundet:slaegtled']))
+        self.assertTrue(all('Anna' not in h['verbatim_text'] for h in m['headers']))
+        self.assertEqual(placement(m, 'B')['status'], 'machine_ok')
+
+    def test_naermeste_overskrift_selvtjek(self):
+        # kuld-romertallet står FØR slægtledsoverskriften i renditionen: den nærmeste kuld-overskrift
+        # annulleres af den senere slægtledsoverskrift, men header_ids ville pege på den
+        rend = calamari(GUIDE)
+        i, j = rend.index('Andet Slægtled.'), rend.index('I.')
+        rend[i], rend[j] = rend[j], rend[i]
+        m = build39(rend=rend)
+        b = placement(m, 'B')
+        self.assertEqual(b['status'], 'unresolved')
+        self.assertIn('uenig:naermeste_overskrift', b['reasons'])
+        self.assertIn({'record_key': 'B', 'field': 'naermeste_overskrift'}, m['disagreements'])
+        self.assertEqual(placement(build39(), 'B')['status'], 'machine_ok')
+
+    def test_persona_guard_ogsaa_for_ikke_alignede(self):
+        rend = calamari(GUIDE)
+        rend.insert(rend.index('1.  Erik, f. 1650.'), '9.  Gert, f. 1700.')
+        g1 = dict(rec(rend, '9.  Gert', 'G1'), persona=True)
+        g2 = dict(rec(rend, '9.  Gert', 'G2'), persona=True)
+        m = build39(rend=rend, records=records_for(rend) + [g1, g2])
+        for key in ('G1', 'G2'):
+            self.assertEqual(placement(m, key)['reasons'], ['ikke_alignet', 'flere_personas_i_post'])
+
+    def test_guide_value_uden_tekst(self):
+        m = build39()
+        for h in m['headers']:
+            v = h['parsed']['guide']['value']
+            self.assertTrue(v is None or isinstance(v, int) or v in ('I', 'II'), v)
+        ms = build39(guide=['### PAGE 499 ###', '                          Den ældre testske Linje.',
+                            '                                   I', '1.  Urd, f. 1500.'] + GUIDE)
+        self.assertNotIn('testske', json.dumps([h['parsed']['guide'] for h in ms['headers']]))
+
+    def test_gruppe_flere_familier(self):
+        parents = [{'child': 'B', 'parent': 'A'}, {'child': 'C', 'parent': 'E'}]
+        m = build39(parents=parents)
+        for key in ('B', 'C'):
+            self.assertIn('gruppe_flere_familier', placement(m, key)['reasons'], key)
+            self.assertEqual(placement(m, key)['status'], 'unresolved')
+        for key in ('A', 'D', 'E'):
+            self.assertEqual(placement(m, key)['status'], 'machine_ok', key)
+        same = build39(parents=[{'child': 'B', 'parent': 'A'}, {'child': 'C', 'parent': 'A'}])
+        self.assertEqual(placement(same, 'B')['status'], 'machine_ok')
+
+    def test_foraelder_generation_og_legacy(self):
+        m = build39(parents=[{'child': 'D', 'parent': 'B'}])         # samme slægtled → brud
+        self.assertIn('uenig:foraelder_generation', placement(m, 'D')['reasons'])
+        rend = calamari(GUIDE)
+        recs = records_for(rend)
+        recs[1]['legacy'] = {'linje': 'II', 'nr': 7}
+        recs[2]['legacy'] = {'linje': '1939', 'nr': 7}                # '1939' er ikke en linje: ingen sammenligning
+        m2 = build39(records=recs)
+        self.assertEqual(placement(m2, 'B')['reasons'], ['uenig:legacy_linje'])
+        self.assertEqual(placement(m2, 'C')['status'], 'machine_ok')
+        self.assertIn({'record_key': 'B', 'field': 'legacy_linje'}, m2['disagreements'])
+
+    def test_legacy_nr_er_loebenummer(self):
+        # 1939's legacy-nøgler for en linje (fx VI-514 …) er et løbenummer i bogens orden, ikke gruppens trykte nummer:
+        # stigende løbenumre er enighed, selv om de trykte numre (1, 1, 2, 3) er gruppelokale.
+        rend = calamari(GUIDE)
+        recs = records_for(rend)
+        for r, nr in zip(recs[:4], (514, 515, 516, 517)):
+            r['legacy'] = {'linje': 'I', 'nr': nr}
+        m = build39(records=recs)
+        for key in 'ABCD':
+            self.assertEqual(placement(m, key)['status'], 'machine_ok', placement(m, key)['reasons'])
+        self.assertEqual(m['disagreements'], [])
+
+    def test_legacy_nr_brud_i_raekkefoelgen(self):
+        # Et løbenummer, der ikke stiger i forhold til forrige post med samme legacy-linje, er uenighed (kun den post).
+        rend = calamari(GUIDE)
+        recs = records_for(rend)
+        for r, nr in zip(recs[:4], (514, 516, 515, 517)):
+            r['legacy'] = {'linje': 'I', 'nr': nr}
+        m = build39(records=recs)
+        self.assertEqual(placement(m, 'C')['reasons'], ['uenig:legacy_nr'])
+        self.assertIn({'record_key': 'C', 'field': 'legacy_nr'}, m['disagreements'])
+        for key in 'ABD':
+            self.assertEqual(placement(m, key)['status'], 'machine_ok', key)
+
+    def test_sidekort_giver_pdf_sider(self):
+        # Calamari-renditionens sidemarkører er Calamari-sider; databasens forekomster i renditionen bruger PDF-sider
+        # (CALAMARI_R6_TO_PDF_V1). Overskrifter og placeringer skal bruge samme sidesystem.
+        rend = [('### PAGE 0005 ###' if l.startswith('### PAGE') else l) for l in calamari(GUIDE)]
+        m = build39(rend=rend, profile=dict(PROFILE_1939, page_map='CALAMARI_R6_TO_PDF_V1'))
+        self.assertEqual({h['page_from'] for h in m['headers']} | {h['page_to'] for h in m['headers']}, {500})
+        self.assertEqual({p['page'] for p in m['placements']}, {500})
+        u = build39(rend=rend)                                 # uden kort: renditionens egne sidetal
+        self.assertEqual({h['page_from'] for h in u['headers']}, {5})
+        with self.assertRaisesRegex(bhm.HeaderManifestError, 'HEADER_PAGE_MAP_UNKNOWN'):
+            build39(rend=rend, profile=dict(PROFILE_1939, page_map='UKENDT'))
+
+    def test_profilfilen_har_sidekortet(self):
+        prof = json.loads((Path(bhm.__file__).parent.parent / 'references' / 'header-profiles'
+                           / 'header-1939-v1.json').read_text(encoding='utf-8'))
+        self.assertEqual(prof['page_map'], 'CALAMARI_R6_TO_PDF_V1')
+
+    def test_legacy_uden_linje_er_ingen_legacy(self):
+        # person_external_id uden linje/nr giver {'linje': None, 'nr': None}: det er ingen legacy, ikke uenighed.
+        rend = calamari(GUIDE)
+        recs = records_for(rend)
+        recs[1]['legacy'] = {'linje': None, 'nr': None}
+        m = build39(records=recs)
+        self.assertEqual(placement(m, 'B')['status'], 'machine_ok', placement(m, 'B')['reasons'])
+
+    def test_segmenter_paritet(self):
+        self.assertTrue(build39()['invariants']['segmenter_paritet'])
+        orig = segment._segment_1939
+
+        def afvigende(lines, profile):
+            posts = orig(lines, profile)
+            posts[0]['lokal_id'] = 'X.Y.1'
+            return posts
+        with mock.patch.object(segment, '_segment_1939', afvigende):
+            self.assertFalse(build39()['invariants']['segmenter_paritet'])
+
+    def test_sha_vagter(self):
+        rend = rendition(*calamari(GUIDE))
+        guide = rendition(*GUIDE)
+        ok = dict(PROFILE_1939, raw_text_sha256=hashlib.sha256(rend).hexdigest(),
+                  guide_text_sha256=hashlib.sha256(guide).hexdigest())
+        bhm.build_manifest_by_offset(rend, guide, ok, [], [])
+        with self.assertRaisesRegex(bhm.HeaderManifestError, 'HEADER_RENDITION_SHA_MISMATCH'):
+            bhm.build_manifest_by_offset(rend, guide, dict(ok, raw_text_sha256='0' * 64), [], [])
+        with self.assertRaisesRegex(bhm.HeaderManifestError, 'HEADER_GUIDE_SHA_MISMATCH'):
+            bhm.build_manifest_by_offset(rend, guide, dict(ok, guide_text_sha256='0' * 64), [], [])
+
+    def test_offsets_renditionsabsolutte(self):
+        rend = ['Forord æøå'] + calamari(GUIDE)       # forskyder alle offsets
+        text = '\n'.join(rend) + '\n'
+        m = build39(rend=rend)
+        self.assertEqual(len(m['headers']), 7)
+        for h in m['headers']:
+            self.assertEqual(project_rendition(text[h['char_from']:h['char_to']])[0], h['verbatim_text'])
+            self.assertFalse(text[h['char_from']].isspace())
+            self.assertFalse(text[h['char_to'] - 1].isspace())
+            self.assertEqual(h['element_id'], f"header:{h['char_from']}")
+        linje = next(h for h in m['headers'] if h['kind'] == 'header_linje')
+        self.assertEqual(linje['verbatim_text'], 'I Den testske Linje af 1500.')
+        self.assertEqual((linje['page_from'], linje['page_to']), (500, 500))
+
+    def test_summary_uden_tekst(self):
+        s = bhm.summary(build39())
+        txt = repr(s)
+        for ord_ in ('Anna', 'Bodil', 'Opdigt', 'testske', 'prøvende', 'Testrup', 'Reventlow'):
+            self.assertNotIn(ord_, txt)
+        self.assertEqual(s['counts']['headers'], {'header_linje': 2, 'header_slaegtled': 3, 'header_kuld': 2})
+        self.assertEqual(s['transfer']['linje'], {'guide': 2, 'genfundet': 2, 'ikke_genfundet': 0})
+        self.assertNotIn('transfer', bhm.summary(build()))      # 2018-20-summary uændret
+
+
+# ---------------------------------------------------------------------------------------------
+# 1939: unummererede records parres med raw.txt's v2-poster (Task 1b)
+# ---------------------------------------------------------------------------------------------
+OVERSIGT = '      Personer af Navnet Reventlow, der ikke kan anvises Plads'
+GUIDE_U = [
+    '### PAGE 600 ###',
+    '                                   I',
+    '      Den testske Linje af 1500.',
+    '                          (S. 5).',
+    '                 Første Slægtled.',
+    'A n d e r s  T e s t e s e n ,  f. 1590.',
+    '    Boede paa Testrup.',
+    '                 Andet Slægtled.',
+    '1.  Bent, f. 1630.',
+    '2.  Carl, f. 1632.',
+]
+OVERSIGT_LINJER = [
+    '### PAGE 601 ###',
+    OVERSIGT,
+    'P e r  U d e n  P l a d s ,  f. 1700.',
+    'R a s m u s  U d e n ,  f. 1701.',
+]
+
+
+def unspace(guide):
+    """Calamari-form: ucentreret, og de adskilte bogstaver i navnesatserne er samlet."""
+    out = []
+    for l in guide:
+        t = l.strip()
+        if t.startswith(('A n d', 'P e r', 'R a s', 'S v e', 'T o r')):
+            t = ' '.join(x if x.startswith('f.') else x.replace(' ', '') for x in t.split('  '))
+        out.append(t)
+    return out
+
+
+def recs_u(rend, extra=()):
+    out = [rec(rend, '1.  Bent', 'B'), rec(rend, '2.  Carl', 'C')]
+    for needle, key in extra:
+        out.append(rec(rend, needle, key))
+    return out
+
+
+class Test1939Unummererede(unittest.TestCase):
+    def test_stamfader_placeres_uden_nummer(self):
+        rend = unspace(GUIDE_U)
+        self.assertIn('Anders Testesen, f. 1590.', rend)
+        m = build39(guide=GUIDE_U, rend=rend, records=recs_u(rend, [('Anders Testesen', 'S')]))
+        s = placement(m, 'S')
+        self.assertEqual((s['status'], s['reasons']), ('machine_ok', []))
+        self.assertIsNone(s['printed_number'])
+        self.assertEqual((s['entry_code'], s['generation_local'], s['guide_lokal_id']), ('I', 1, 'I.Første.U1'))
+        self.assertEqual(set(s['header_ids']), {'linje', 'slaegtled'})
+        self.assertEqual(placement(m, 'B')['generation_local'], 2)
+        self.assertTrue(all(m['invariants'].values()), m['invariants'])
+        self.assertEqual(m['alignment']['parret_stamfader'], 1)
+
+    def test_nummer_tabt_i_rendition(self):
+        rend = [l.replace('2.  Carl', 'Carl') for l in unspace(GUIDE_U)]
+        m = build39(guide=GUIDE_U, rend=rend, records=[rec(rend, '1.  Bent', 'B'),
+                    rec(rend, 'Carl, f. 1632', 'C'), rec(rend, 'Anders Testesen', 'S')])
+        c = placement(m, 'C')
+        self.assertEqual((c['status'], c['reasons']), ('unresolved', ['nummer_tabt_i_rendition']))
+        self.assertEqual(c['guide_nr_label'], '2')
+        self.assertIsNone(c['printed_number'])
+        self.assertEqual(placement(m, 'S')['status'], 'machine_ok')
+        self.assertEqual(m['alignment']['parret_nummereret'], 1)
+
+    def test_oversigtspost_er_uden_post(self):
+        guide = GUIDE_U + OVERSIGT_LINJER
+        rend = unspace(guide)
+        m = build39(guide=guide, rend=rend, records=recs_u(rend, [('Per Uden', 'O1'), ('Rasmus Uden', 'O2')]))
+        for key in ('O1', 'O2'):
+            self.assertEqual((placement(m, key)['status'], placement(m, key)['reasons']), ('unresolved', ['uden_post']))
+        self.assertEqual(m['alignment']['parret_oversigt'], 2)
+        self.assertEqual(placement(m, 'B')['status'], 'machine_ok')
+
+    def test_uparret_hul_med_og_uden_persona(self):
+        guide = GUIDE_U + OVERSIGT_LINJER[:3]            # kun én oversigtspost i guiden
+        rend = unspace(GUIDE_U + OVERSIGT_LINJER)        # men to i renditionen
+        recs = recs_u(rend, [('Per Uden', 'O1'), ('Rasmus Uden', 'O2')])
+        recs[2]['persona'] = True
+        m = build39(guide=guide, rend=rend, records=recs)
+        o1, o2 = placement(m, 'O1'), placement(m, 'O2')
+        self.assertEqual((o1['status'], o1['reasons']), ('unresolved', ['ikke_parret']))
+        self.assertEqual(o1['guide_kandidater'], ['Oversigt.Uplacerede.U1'])
+        self.assertEqual((o2['status'], o2['reasons']), ('unresolved', ['uden_post']))
+        self.assertEqual(m['alignment']['uparret'], 2)
+
+    def test_unummererede_samme_char_from_er_een_post(self):
+        rend = unspace(GUIDE_U)
+        recs = recs_u(rend, [('Anders Testesen', 'S1'), ('Anders Testesen', 'S2')])
+        m = build39(guide=GUIDE_U, rend=rend, records=recs)
+        s1, s2 = placement(m, 'S1'), placement(m, 'S2')
+        for x in (s1, s2):
+            self.assertEqual((x['status'], x['reasons'], x['printed_number']), ('machine_ok', [], None))
+        self.assertEqual(s1['post_char_from'], s2['post_char_from'])
+        a = m['alignment']
+        self.assertEqual((a['unummererede'], a['unummererede_records'], a['parret_stamfader']), (1, 2, 1))
+        for r in recs[2:]:
+            r['persona'] = True
+        m2 = build39(guide=GUIDE_U, rend=rend, records=recs)
+        for key in ('S1', 'S2'):
+            self.assertEqual(placement(m2, key)['reasons'], ['flere_personas_i_post'])
+
+    def test_selvtjek_ogsaa_for_stamme_post_uden_afsnit(self):
+        guide = ['### PAGE 499 ###', '                          Den ældre testske Linje.',
+                 '                 Første Slægtled.', '1.  Urd, f. 1500.']
+        rend = calamari(guide)
+        m = build39(guide=guide, rend=rend, records=[rec(rend, '1.  Urd', 'U')])
+        u = placement(m, 'U')
+        self.assertIsNone(u['guide_lokal_id'])
+        self.assertEqual((u['status'], u['reasons']), ('machine_ok', []))
+        rend2 = [rend[0], rend[2], rend[1], rend[3]]       # slægtled FØR linjen: nærmeste-reglen brydes
+        m2 = build39(guide=guide, rend=rend2, records=[rec(rend2, '1.  Urd', 'U')])
+        self.assertIn('uenig:naermeste_overskrift', placement(m2, 'U')['reasons'])
+
+    def test_kandidater_uden_none(self):
+        guide = GUIDE_U + OVERSIGT_LINJER[:3]
+        rend = unspace(GUIDE_U + OVERSIGT_LINJER)
+        recs = recs_u(rend, [('Per Uden', 'O1'), ('Rasmus Uden', 'O2')])
+        recs[2]['persona'] = True
+        m = build39(guide=guide, rend=rend, records=recs)
+        self.assertNotIn(None, placement(m, 'O1')['guide_kandidater'])
+
+    def test_to_stamfaedre_samme_section_path_bryder_invariant(self):
+        guide = GUIDE_U[:5] + ['                                   I.', 'A n d e r s  T e s t e s e n ,  f. 1590.',
+                               '', '                      ' + BESKRIVELSE, 'S v e n d  T e s t e s e n ,  f. 1591.'] + GUIDE_U[7:]
+        rend = unspace(guide)
+        m = build39(guide=guide, rend=rend,
+                    records=recs_u(rend, [('Anders Testesen', 'S1'), ('Svend Testesen', 'S2')]))
+        s1, s2 = placement(m, 'S1'), placement(m, 'S2')
+        self.assertEqual((s1['status'], s2['status']), ('machine_ok', 'machine_ok'), (s1['reasons'], s2['reasons']))
+        self.assertEqual(s1['section_path'], s2['section_path'])
+        self.assertFalse(m['invariants']['section_path_nr_unik'])
+
+    def test_summary_uden_tekst(self):
+        guide = GUIDE_U + OVERSIGT_LINJER
+        rend = unspace(guide)
+        m = build39(guide=guide, rend=rend, records=recs_u(rend, [('Anders Testesen', 'S'), ('Per Uden', 'O1')]))
+        s = bhm.summary(m)
+        a = s['alignment']
+        for k in ('unummererede', 'parret_stamfader', 'parret_nummereret', 'parret_oversigt', 'uparret'):
+            self.assertIsInstance(a[k], int, k)
+        txt = repr(s)
+        for ord_ in ('Oversigt', 'Uplacerede', 'U1', 'Anders', 'Testesen', 'Uden'):
+            self.assertNotIn(ord_, txt)
+
+
+# ---------------------------------------------------------------------------------------------
+# 1939: nedstigningsoversigter (PDF 504-505, 508-510) — kortposter, der dublerer en senere detaljepost
+# ---------------------------------------------------------------------------------------------
+GUIDE_Z = GUIDE[:14] + [
+    '    Oversigt over Doras Efterslægt:',
+    '          1. Frode, f. 1700 (se S. 9).',
+    '          2. Gorm, f. 1702 (se S. 9).',
+    '    Saa langt oversigten.',
+] + GUIDE[14:]
+ZONE = {'navn': 'test', 'start': 'Oversigt over Doras', 'slut': 'Saa langt oversigten.'}
+
+
+def profile_z(*zoner):
+    return {**PROFILE_1939, 'oversigtszoner': list(zoner)}
+
+
+class Test1939Oversigtszoner(unittest.TestCase):
+    def _recs(self, rend):
+        return records_for(rend) + [rec(rend, '1.  Frode', 'F'), rec(rend, '2.  Gorm', 'G')]
+
+    def test_poster_i_zonen_faar_ingen_placement(self):
+        rend = calamari(GUIDE_Z)
+        m = build39(guide=GUIDE_Z, rend=rend, records=self._recs(rend), profile=profile_z(ZONE))
+        for key in ('F', 'G'):
+            p = placement(m, key)
+            self.assertEqual((p['status'], p['reasons']), ('unresolved', ['uden_post', 'oversigtszone']))
+            self.assertEqual((p['entry_code'], p['printed_number'], p['section_path']), (None, None, []))
+        base = build39()
+        for key in 'ABCDE':
+            self.assertEqual(placement(m, key)['status'], 'machine_ok', key)
+            self.assertEqual(placement(m, key)['guide_lokal_id'], placement(base, key)['guide_lokal_id'], key)
+        self.assertEqual(m['alignment']['oversigtszone_records'], 2)
+        self.assertEqual(m['alignment']['aligned'], base['alignment']['aligned'])
+        self.assertTrue(all(m['invariants'].values()), m['invariants'])
+
+    def test_uden_zoner_parres_oversigtens_numre(self):
+        """Regressionen fra PDF 508: uden zonen bliver oversigtens »1.«/»2.« til nummererede poster."""
+        rend = calamari(GUIDE_Z)
+        m = build39(guide=GUIDE_Z, rend=rend, records=self._recs(rend))
+        self.assertNotIn('oversigtszone', [r for p in m['placements'] for r in p['reasons']])
+        self.assertEqual(m['alignment']['oversigtszone_records'], 0)
+        self.assertEqual(m['alignment']['rendition_posts'], 7)
+
+    def test_ankre_skal_vaere_entydige_og_ordnede(self):
+        rend = calamari(GUIDE_Z)
+        for zone in ({**ZONE, 'start': 'Findes ikke'}, {**ZONE, 'slut': 'f.'},
+                     {**ZONE, 'start': 'Saa langt oversigten.', 'slut': 'Oversigt over Doras'}):
+            with self.assertRaises(bhm.HeaderManifestError) as cm:
+                build39(guide=GUIDE_Z, rend=rend, records=self._recs(rend), profile=profile_z(zone))
+            self.assertEqual(str(cm.exception), 'HEADER_OVERSIGTSZONE_ANKER')
+
+    def test_ankre_taaler_linjeskift_og_spatiering(self):
+        rend = [l.replace('Oversigt over Doras Efterslægt:', 'Oversigt over\nDoras  Efterslægt:') for l in calamari(GUIDE_Z)]
+        m = build39(guide=GUIDE_Z, rend=rend, records=self._recs(rend), profile=profile_z(ZONE))
+        self.assertEqual(placement(m, 'F')['reasons'], ['uden_post', 'oversigtszone'])
+
+    def test_zonen_fjerner_guidens_v2_oversigtsposter_fra_hullet(self):
+        guide = GUIDE_U + OVERSIGT_LINJER
+        rend = unspace(guide)
+        zone = {'navn': 'u', 'start': 'Personer af Navnet Reventlow', 'slut': 'f. 1701.'}
+        m = build39(guide=guide, rend=rend, profile=profile_z(zone),
+                    records=recs_u(rend, [('Anders Testesen', 'S'), ('Per Uden', 'O1'), ('Rasmus Uden', 'O2')]))
+        for key in ('O1', 'O2'):
+            self.assertEqual(placement(m, key)['reasons'], ['uden_post', 'oversigtszone'])
+        self.assertEqual(placement(m, 'S')['status'], 'machine_ok')
+        self.assertEqual((m['alignment']['parret_oversigt'], m['alignment']['parret_stamfader']), (0, 1))
+
+    def test_stamfader_uden_guidens_slaegtled_faar_gruppekort(self):
+        """PDF 505: B's »I.« er OCR-læst som »1.« i raw.txt og tabt i Calamari. v2 kender slægtleddet (I.U1), guidens
+        scanner har ingen overskrift → gruppekort med v2's værdi, så niveauet kan bekræftes mod siden."""
+        guide = ['### PAGE 499 ###', '                          Den ældre testske Linje.', '                                1.',
+                 '   U r d  T e s t e s e n ,  f. 1500, var Ridder.', '', '                                   II',
+                 '1.  Ulf, f. 1530.', '2.  Uffe, f. 1531.']
+        rend = unspace(calamari(guide))
+        rend[3] = 'Urd Testesen, f. 1500, var Ridder.'
+        m = build39(guide=guide, rend=rend, records=[rec(rend, 'Urd Testesen', 'S'), rec(rend, '1.  Ulf', 'V'),
+                                                     rec(rend, '2.  Uffe', 'W')])
+        s = placement(m, 'S')
+        self.assertEqual((s['status'], s['reasons'], s['guide_lokal_id']),
+                         ('unresolved', ['overskrift_ikke_fundet:slaegtled'], 'Stamme-ældre-testske.I.U1'))
+        self.assertEqual([(c['niveau'], c['guide_value']) for c in s['gruppekort']], [('slaegtled', 1)])
+        self.assertEqual(s['human_header_levels'], ['slaegtled'])
+        self.assertTrue(m['invariants']['gruppekort_daekker_overskriftsaarsager'])
+        self.assertEqual(placement(m, 'V')['status'], 'machine_ok')
+
+    def test_romertal_slugt_af_beskrivelsen(self):
+        """PDF 519: prosa + »II.« + beskrivelse uden tom linje læses af segmenteren som én beskrivelse
+        (afsnit-slug »…-II-Ditlev-…«). Overskriftssporet deler den: romertallet er gruppens, beskrivelsen følger."""
+        guide = GUIDE[:12] + ['    Boede paa Testrup og ejede siden Testholm.', '                                   II.',
+                              '                      Carl Reventlows Børn med Ellen Opdigt:'] + GUIDE[13:]
+        rend = calamari(guide)
+        m = build39(guide=guide, rend=rend)
+        d = placement(m, 'D')
+        self.assertEqual((d['status'], d['kuld_label']), ('machine_ok', 'II'), d['reasons'])
+        self.assertIn('II', d['guide_lokal_id'])                    # segmenterens lokal_id er uændret
+        self.assertTrue(all(m['invariants'].values()), m['invariants'])
+        rend2 = [l for l in rend if l != 'II.']                    # romertallet tabt i Calamari: beskrivelsen bærer
+        m2 = build39(guide=guide, rend=rend2, records=records_for(rend2))
+        d2 = placement(m2, 'D')
+        self.assertEqual(d2['kuld_label'], 'Carl-Reventlows-Børn-med-Ellen-Opdigt')
+        kuld = next(h for h in m2['headers'] if h['element_id'] == d2['header_ids']['kuld'])
+        self.assertEqual(kuld['parsed']['guide']['value'], 'II')    # kontrolværdien til stikprøven
+
+    def test_profilfilen_har_to_zoner(self):
+        d = os.path.join(os.path.dirname(__file__), '..', 'references', 'header-profiles')
+        p39 = bhm.load_header_profile(os.path.join(d, 'header-1939-v1.json'))
+        self.assertEqual([z['navn'] for z in p39['oversigtszoner']],
+                         ['holstenske-yngre-nedstigning', 'meklenborgske-nedstigning-og-gallentin'])
+
+
+class Test1939Kort(unittest.TestCase):
+    """Task 1c: felter til gruppekort og strukturkort."""
+
+    def test_gruppekort_deler_id(self):
+        rend = calamari(GUIDE)
+        rend.remove('I.')
+        rend.remove(BESKRIVELSE)                      # kuld I findes hverken som romertal eller beskrivelse
+        m = build39(rend=rend)
+        b, c = placement(m, 'B'), placement(m, 'C')
+        self.assertEqual(b['reasons'], ['overskrift_ikke_fundet:kuld'])
+        self.assertEqual(len(b['gruppekort']), 1)
+        card = b['gruppekort'][0]
+        self.assertEqual((card['niveau'], card['guide_value']), ('kuld', 'I'))
+        self.assertTrue(card['id'].startswith('kuld:'))
+        self.assertEqual(card['id'], f"kuld:{card['guide_char_from']}")
+        self.assertEqual(len(card['guide_line_sha256']), 64)
+        self.assertEqual(c['gruppekort'], b['gruppekort'])
+        self.assertEqual(placement(m, 'A')['gruppekort'], [])
+        self.assertEqual(placement(m, 'D')['gruppekort'], [])
+        self.assertEqual(m['kort']['gruppekort'], 1)
+        self.assertEqual(m['kort']['gruppekort_poster'], 2)
+
+    def test_gruppekort_selvtjek_paa_fundne_niveauer(self):
+        # kuld I mangler; slægtled Tredje findes, men Andet står senere (nærmere posten) i renditionen
+        guide = GUIDE[:8] + ['                 Tredje Slægtled.'] + GUIDE[8:]
+        rend = calamari(guide)
+        rend.remove('I.')
+        rend.remove(BESKRIVELSE)
+        m = build39(guide=guide, rend=rend)
+        b = placement(m, 'B')
+        self.assertEqual(b['reasons'], ['overskrift_ikke_fundet:kuld'])       # korrekt orden: ingen uenighed
+        self.assertEqual(b['human_header_levels'], ['kuld'])
+        i, j = rend.index('Andet Slægtled.'), rend.index('Tredje Slægtled.')
+        rend[i], rend[j] = rend[j], rend[i]
+        m2 = build39(guide=guide, rend=rend)
+        self.assertIn('uenig:naermeste_overskrift', placement(m2, 'B')['reasons'])
+
+    def test_kuld_bevares_under_manglende_slaegtled(self):
+        rend = calamari(GUIDE)
+        rend.remove('Andet Slægtled.')
+        m = build39(rend=rend)
+        b = placement(m, 'B')
+        self.assertEqual(b['reasons'], ['overskrift_ikke_fundet:slaegtled'])
+        self.assertEqual(set(b['header_ids']), {'linje', 'kuld'})
+        self.assertEqual([c['niveau'] for c in b['gruppekort']], ['slaegtled'])
+        self.assertEqual(b['gruppekort'][0]['guide_value'], 2)
+        self.assertEqual(b['human_header_levels'], ['slaegtled'])
+        self.assertNotIn('uenig:naermeste_overskrift', b['reasons'])
+
+    def test_human_levels_omfatter_lavere_niveau(self):
+        # slægtled mangler, og posten har ingen kuld i guiden; en fundet kuld-overskrift fra et ældre slægtled
+        # er stadig den nærmeste efter DB-reglen -> kuld skal også være bekræftet
+        guide = GUIDE[:12] + ['3.  Dora, f. 1640.', '                 Tredje Slægtled.',
+                              '4.  Frida, f. 1660.'] + GUIDE[14:]
+        rend = calamari(guide)
+        rend.remove('Tredje Slægtled.')
+        recs = records_for(rend) + [rec(rend, '4.  Frida', 'F')]
+        m = build39(guide=guide, rend=rend, records=recs)
+        f = placement(m, 'F')
+        self.assertEqual(f['reasons'], ['overskrift_ikke_fundet:slaegtled'])
+        self.assertEqual(f['human_header_levels'], ['slaegtled', 'kuld'])
+        self.assertEqual(set(f['header_ids']), {'linje'})
+        self.assertEqual(placement(m, 'A')['human_header_levels'], [])
+
+    def test_strukturkort_naermeste(self):
+        rend = calamari(GUIDE)
+        k = rend.index('3.  Dora, f. 1640.')
+        rend[k] = 'Dora, f. 1640.'                    # nummeret tabt
+        recs = [rec(rend, '1.  Anna', 'A'), rec(rend, '1.  Bent', 'B'), rec(rend, '2.  Carl', 'C'),
+                rec(rend, 'Dora, f. 1640', 'D'), rec(rend, '1.  Erik', 'E')]
+        m = build39(guide=GUIDE, rend=rend, records=recs)
+        d = placement(m, 'D')
+        self.assertEqual(d['reasons'], ['nummer_tabt_i_rendition'])
+        b = placement(m, 'B')
+        self.assertEqual(set(d['naermeste_header_ids']), {'linje', 'slaegtled', 'kuld'})
+        self.assertEqual(d['naermeste_entry_code'], 'I')
+        self.assertEqual(d['naermeste_generation_local'], 2)
+        self.assertEqual(d['naermeste_kuld_label'], 'II')
+        self.assertEqual(d['naermeste_header_ids']['linje'], b['header_ids']['linje'])
+        self.assertIsNone(b['naermeste_header_ids'])
+        self.assertEqual(m['kort']['strukturkort_poster'], 1)
+        self.assertEqual(m['kort']['strukturkort_med_linje'], 1)
+
+    def test_strukturkort_uden_linje(self):
+        rend = calamari(GUIDE)
+        rend2 = ['9.  Gert, f. 1700.'] + rend              # en post (ikke alignet) før alle overskrifter
+        recs = [dict(r, char_from=r['char_from'] + len(rend2[0]) + 1) for r in records_for(rend)]
+        recs.append(rec(rend2, '9.  Gert', 'G'))
+        m = build39(rend=rend2, records=recs)
+        g = placement(m, 'G')
+        self.assertEqual(g['reasons'], ['ikke_alignet'])
+        for k in ('naermeste_header_ids', 'naermeste_entry_code', 'naermeste_generation_local',
+                  'naermeste_kuld_label'):
+            self.assertIsNone(g[k], k)
+        self.assertEqual(m['kort']['strukturkort_poster'], 1)
+        self.assertEqual(m['kort']['strukturkort_med_linje'], 0)
+
+    def test_slaegtled_mangler_men_kuld_fundet_giver_gruppekort(self):
+        # stammen: romertallet er slægtleddet; en beskrivelse efter en post åbner en kuld-gruppe UNDER det
+        guide = ['### PAGE 499 ###', '                          Den ældre testske Linje.',
+                 '                                   I', '1.  Urd, f. 1500.', '',
+                 '                      ' + BESKRIVELSE, '2.  Ulf, f. 1530.']
+        rend = calamari(guide)
+        rend.remove('I')                       # slægtledsoverskriften mangler; kuld-beskrivelsen findes
+        recs = [rec(rend, '1.  Urd', 'U'), rec(rend, '2.  Ulf', 'V')]
+        m = build39(guide=guide, rend=rend, records=recs)
+        v = placement(m, 'V')
+        self.assertEqual(v['reasons'], ['overskrift_ikke_fundet:slaegtled', 'stamme_generation_usikker'])
+        self.assertEqual(set(v['header_ids']), {'linje', 'kuld'})
+        self.assertEqual([c['niveau'] for c in v['gruppekort']], ['slaegtled'])
+        self.assertEqual(v['gruppekort'][0]['guide_value'], 1)
+        self.assertEqual(v['human_header_levels'], ['slaegtled'])
+        self.assertNotIn('uenig:naermeste_overskrift', v['reasons'])
+        self.assertEqual(placement(m, 'U')['gruppekort'], v['gruppekort'])
+        self.assertTrue(m['invariants']['gruppekort_daekker_overskriftsaarsager'])
+        self.assertEqual(m['kort']['gruppekort'], 1)
+
+    STAMME2 = ['### PAGE 499 ###', '                          Den ældre testske Linje.',
+               '                                   I', '1.  Urd, f. 1500.',
+               '                          Den yngre testske Linje.', '1.  Ole, f. 1520.',
+               '                                   II', '2.  Ulf, f. 1530.']
+
+    def test_stammesektion_nulstiller_slaegtled(self):
+        guide = self.STAMME2
+        rend = calamari(guide)
+        recs = lambda r: [rec(r, '1.  Urd', 'U'), rec(r, '1.  Ole', 'O'), rec(r, '2.  Ulf', 'V')]
+        m = build39(guide=guide, rend=rend, records=recs(rend))          # romertallene findes
+        o = placement(m, 'O')
+        self.assertNotIn('slaegtled', o['header_ids'])
+        self.assertEqual(o['gruppekort'], [])
+        self.assertEqual(o['reasons'], ['overskrift_ikke_fundet:slaegtled'])    # guiden har intet slægtled for Ole
+        self.assertEqual(placement(m, 'U')['status'], 'machine_ok')
+        self.assertEqual(placement(m, 'V')['status'], 'machine_ok')
+        rend2 = calamari(guide)
+        rend2.remove('I')                                                # I mangler: kun Urd får kortet
+        m2 = build39(guide=guide, rend=rend2, records=recs(rend2))
+        self.assertEqual([c['guide_value'] for c in placement(m2, 'U')['gruppekort']], [1])
+        self.assertEqual(placement(m2, 'O')['gruppekort'], [])
+        self.assertEqual(placement(m2, 'O')['human_header_levels'], [])
+        self.assertEqual(placement(m2, 'V')['gruppekort'], [])           # II findes
+        self.assertEqual(placement(m2, 'V')['status'], 'machine_ok')
+
+    def test_stamme_post_efter_beskrivelse_med_fundet_romertal(self):
+        guide = ['### PAGE 499 ###', '                          Den ældre testske Linje.',
+                 '                                   I', '1.  Urd, f. 1500.', '',
+                 '                      ' + BESKRIVELSE, '2.  Ulf, f. 1530.']
+        rend = calamari(guide)
+        m = build39(guide=guide, rend=rend, records=[rec(rend, '1.  Urd', 'U'), rec(rend, '2.  Ulf', 'V')])
+        v = placement(m, 'V')
+        self.assertEqual((v['status'], v['reasons']), ('unresolved', ['stamme_generation_usikker']))
+        self.assertEqual(set(v['header_ids']), {'linje', 'slaegtled', 'kuld'})
+        self.assertEqual(v['generation_local'], 1)
+        self.assertEqual(v['kuld_label'], 'Anna-Reventlows-Børn-med-Bodil-Opdigt')
+
+
+    def test_stamme_romertal_med_bogstav(self):
+        # Fællesstammen deler en generation i familiegrupper: »II A.«, »II B.« = slægtled II, gruppe A/B, hver med sin
+        # beskrivelse og sine numre fra 1. Bogstavlinjen er stammens slægtledsoverskrift (ordinal fra romertallet,
+        # label_raw med bogstavet); beskrivelsen er gruppen. Uden dette arvede posterne det forrige romertal (I).
+        besk2 = 'Bent Reventlows Børn med Dorte Opdigt:'
+        guide = ['### PAGE 499 ###', '                          Den ældre testske Linje.',
+                 '                                   I', '1.  Urd, f. 1500.', '',
+                 '                                 II A.', '                      ' + BESKRIVELSE, '1.  Ulf, f. 1530.',
+                 '    Boede paa Testrup og ejede siden Testholm.', '',
+                 '                                 II B.', '                      ' + besk2, '1.  Uffe, f. 1531.',
+                 '    Boede paa Testrup og ejede siden Testholm.', '2.  Ulla, f. 1533.']
+        rend = calamari(guide)
+        recs = lambda r: [rec(r, '1.  Urd', 'U'), rec(r, '1.  Ulf', 'V'), rec(r, '1.  Uffe', 'W'), rec(r, '2.  Ulla', 'X')]
+        m = build39(guide=guide, rend=rend, records=recs(rend))
+        for key in 'VWX':
+            p = placement(m, key)
+            self.assertEqual((p['status'], p['generation_local']), ('machine_ok', 2), (key, p['reasons']))
+        self.assertNotEqual(placement(m, 'V')['kuld_label'], placement(m, 'W')['kuld_label'])
+        self.assertEqual(placement(m, 'W')['kuld_label'], placement(m, 'X')['kuld_label'])
+        slg = [h for h in m['headers'] if h['kind'] == 'header_slaegtled']
+        self.assertEqual([(h['parsed']['ordinal'], h['parsed']['label_raw']) for h in slg],
+                         [(1, 'I'), (2, 'II A'), (2, 'II B')])
+        self.assertTrue(all(m['invariants'].values()), m['invariants'])
+        # uden tom linje før bogstavlinjen læser segmenteren postens sidste prosalinje + »II A.« + beskrivelsen som én
+        # beskrivelse; delingen finder bogstavlinjen inde i den (4 af bogens 8 bogstavoverskrifter står sådan)
+        g3 = [('    Boede paa Testrup. — Sønner: II B.' if k == 4 else l) for k, l in enumerate(guide)]
+        r3 = calamari(g3)
+        m3 = build39(guide=g3, rend=r3, records=recs(r3))
+        for key in 'VWX':
+            self.assertEqual((placement(m3, key)['status'], placement(m3, key)['generation_local']), ('machine_ok', 2), key)
+        self.assertTrue(all(m3['invariants'].values()), m3['invariants'])
+        # bogstavlinjen mangler i Calamari → gruppekort på slægtleddet (guidens værdi 2)
+        rend2 = calamari(guide)
+        rend2.remove('II A.')
+        m2 = build39(guide=guide, rend=rend2, records=recs(rend2))
+        v = placement(m2, 'V')
+        self.assertEqual(v['reasons'], ['overskrift_ikke_fundet:slaegtled'])
+        self.assertEqual([(c['niveau'], c['guide_value']) for c in v['gruppekort']], [('slaegtled', 2)])
+        # beskrivelsen mangler i Calamari → gruppekort på gruppen med beskrivelsens slug som værdi (intet romertal)
+        rend4 = calamari(guide)
+        rend4.remove(BESKRIVELSE)
+        m4 = build39(guide=guide, rend=rend4, records=recs(rend4))
+        v4 = placement(m4, 'V')
+        self.assertEqual(v4['reasons'], ['overskrift_ikke_fundet:kuld'])
+        self.assertEqual([(c['niveau'], c['guide_value']) for c in v4['gruppekort']],
+                         [('kuld', 'Anna-Reventlows-Børn-med-Bodil-Opdigt')])
+
+    def test_stamme_beskrivelse_efter_post_er_usikker(self):
+        guide = ['### PAGE 499 ###', '                          Den ældre testske Linje.',
+                 '                                   I', '1.  Urd, f. 1500.', '',
+                 '                      ' + BESKRIVELSE, '1.  Ulf, f. 1530.', '2.  Uffe, f. 1531.']
+        rend = calamari(guide)
+        recs = [rec(rend, '1.  Urd', 'U'), rec(rend, '1.  Ulf', 'V'), rec(rend, '2.  Uffe', 'W')]
+        m = build39(guide=guide, rend=rend, records=recs)
+        self.assertEqual(placement(m, 'U')['status'], 'machine_ok')
+        for key in ('V', 'W'):
+            self.assertEqual(placement(m, key)['reasons'], ['stamme_generation_usikker'], key)
+            self.assertEqual(placement(m, key)['status'], 'unresolved')
+        # beskrivelsen lige efter romertallet: uændret
+        g2 = ['### PAGE 499 ###', '                          Den ældre testske Linje.',
+              '                                   I', '                      ' + BESKRIVELSE, '1.  Urd, f. 1500.']
+        r2 = calamari(g2)
+        m2 = build39(guide=g2, rend=r2, records=[rec(r2, '1.  Urd', 'U')])
+        self.assertEqual((placement(m2, 'U')['status'], placement(m2, 'U')['reasons']), ('machine_ok', []))
+        # grene (ikke stamme): beskrivelse efter post er uændret machine_ok
+        self.assertEqual(placement(build39(), 'B')['status'], 'machine_ok')
+
+    def test_kort_summary_uden_tekst(self):
+        rend = calamari(GUIDE)
+        rend.remove('I.')
+        rend.remove(BESKRIVELSE)
+        s = bhm.summary(build39(rend=rend))
+        self.assertEqual(s['kort'], {'gruppekort': 1, 'gruppekort_poster': 2,
+                                     'strukturkort_poster': 0, 'strukturkort_med_linje': 0})
+        self.assertNotIn('Anna', repr(s))
 
 
 if __name__ == '__main__':

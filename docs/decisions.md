@@ -2,6 +2,181 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 6d-1's generalprøve — helpost-regel, henvisningspost uden placement, staged biografier og læsertid (2026-11-09)
+
+> Generalprøven på en stand-in fra prod-dumpet `1653c8f7…` (9/11) fandt tre fejl i ceremonien og to forhold, som
+> projektejeren afgjorde.
+>
+> 1. **Helposten følger skemaets regel** (`be4001dc`). 1939's records har accepterede under-forekomster (fakta,
+>    ægteskaber, relationer) med egne rod-observationer, så »den eneste rod-observation« fandtes ikke for 228 records.
+>    Ceremonien bruger nu `private.record_helpost_status` med profilens helpost-type (`helpost_kind=person`).
+> 2. **En henvisningspost placeres ikke** (`cf3ef35a`, projektejerens valg). Kortrunden modelgodkendte en
+>    `cross_reference`-post (PDF 539, nr. 2 i gruppe III), som ingen personpost har. `approvals_1939` springer
+>    `cross_reference` og `structural_context` over; kortene er uændrede. 528 records placeres i stedet for 529.
+>    Henvisningerne tages op med dubletpersonerne i 6d-2/6d-3.
+> 3. **Staged biografier uden for placeringen stopper ikke ceremonien** (`c32b414d`). Personerne 963 og 967 (staged
+>    siden C0) har publicerede biografier, hvis baseline ved kontrakt-cutover fangede den blokerede tilstand; deres
+>    records ligger i oversigtszonen. Kravet om tilladt publicering gælder kun records, der placeres.
+> 4. **Læsertiden accepteres i 6d-1; 6e gør koordinat-RPC'en billigere** (projektejerens valg).
+>    `public_person_source_coordinates` kalder `membership_is_current` pr. medlemskab (≈0,5 ms), og 6d-1 tilføjer 528:
+>    som anon 225 → 580 ms på stand-in, i prod målt 563-612 ms før (faktor 2,5-2,7), forventet ≈1,45-1,57 s efter,
+>    to kald pr. indlæsning (1113 rækker, sider à 1000), anon-grænse 3 s. 1939's rækker vises som legacy til 6e og
+>    giver intet output for prisen. 6e, der alligevel omskriver RPC'en, skal gøre den billigere, før en ny udgave
+>    lægges på; alternativet (kildegaten før aktualitetstjekket) ændrer læserens regel og blev fravalgt nu.
+>
+> **Åben backlog (konfliktkort, spec §6 pkt. 3):** komponenten 137↔937 (`samme_som` afklaret) bliver `conflict`:
+> 2018-20 linje II nr. 1 (slægtled 1, linjens stamfader), 1939 Stamme-holstenske nr. 3 (slægtled 4), som mappingen
+> fører til linje I. Sandsynligvis en linjegrundlægger, der står sidst i stammen og først i grenen. 6d-1 skriver
+> intet om den; projektejeren afgør senere. De to andre konflikter fandtes før (178: 2018-20 III/IV, 1939 bekræfter
+> IV; 255: kun 2018-20).
+
+## BESLUTTET: 1939's nedstigningsoversigter er oversigtszoner uden placement; 4 dubletpersoner er åben backlog (2026-11-09)
+
+> Opdaget af projektejeren: PDF 496-510 (trykt s. 7-21) forklarer sammenhængen mellem linjerne i kort form med
+> henvisninger til detaljeposten (»Cay Friedrich … (se S. 75)«). Målt mod siderne rummer afsnittet tre slags tekst:
+> **fællesstammen** (A holstenske, B ældre meklenborgske: ægte detaljeposter for middelalderens slægtled, kun her),
+> **to nedstigningsoversigter** (PDF 504 »Fra ovennævnte Joachim …« til 505 »… ugift 1773.«; PDF 508 »En Sønnesøn (?)
+> af Henning …« til 510 »… Mandsstammen i 1773.«, inkl. C's Gallentin-indledning) og intet andet. Oversigternes
+> nummererede punkter (»1. Geheimeraad Ditlev«) havde narret alignmentet: guidens Stamme-ældre-meklenborgske.VI.1/VI.2
+> blev parret med to oversigtspunkter (machine_ok), mens de ægte Henrik og Henning stod `ikke_alignet`.
+>
+> **A (gjort, 6d-1):** profilen `header-1939-v1.json` får `oversigtszoner` (to ankerpar, hvert entydigt i både Calamari
+> og raw.txt, fail-closed `HEADER_OVERSIGTSZONE_ANKER`). Records, der begynder i en zone, får `unresolved` med
+> `['uden_post', 'oversigtszone']` (ingen placement; ledger `ingen_nummereret_post`, ceremonien uændret) og indgår
+> hverken i alignmentet eller hulparringen; guidens v2-oversigtsposter i zonen (Oversigt.Indledning.U1-U7) fjernes fra
+> hullerne. En parret stamfader uden guidens slægtledsoverskrift (PDF 505: B's »I.« er »1.« i raw.txt og tabt i
+> Calamari) får et gruppekort med v2-segmenteringens slægtled. En stammegruppe, der kun er en beskrivelse (PDF 503:
+> »VII C. / Lyder Reventlows Søn:«), får gruppekort med beskrivelsens slug som værdi og besvares J/N af projektejeren.
+> Manifestet efter: 27 records i zonerne (8 med persona), 414 machine_ok / 178 unresolved, 21 gruppekort, 20
+> strukturkort, alle invarianter sande. Kortrunden bygges om (57 kort genbruger modelsvaret, 9 er nye).
+>
+> **Følge:** af de 8 personas i zonerne har 7 en detaljepost andetsteds. Den ottende, **1849 Henning (levede
+> 1456-94)**, står kun i oversigten på PDF 508 og får ingen 1939-placement og intet 1939-medlemskab. Det er ikke nyt:
+> før zonerne lå hans record som strukturkort (`ikke_parret`), forudfyldt N efter Gate A pkt. 3. Personen består med
+> sine påstande; en placering som stammeperson kan tages op senere.
+>
+> **B (åben backlog — ikke 6d-1):** fire 1939-personer er oprettet alene fra en oversigtsomtale og dublerer personen
+> fra detaljeposten (målt på stand-in c3h, prod-kopi 8/11): **991↔995** Iven †1569 (PDF 512), **992↔996** Sivert
+> (PDF 513), **1017↔1071** Detlev †1783 (PDF 520), **978↔1136** Frederik til Neudorf / Friedrich †1728 (PDF 532).
+> Oprydning via evidenskæden: oversigtspersonaens identitet peges om til detaljepostens person, og den overflødige
+> person udgår (redaktionel sammenlægning; 1017 har historik i C0-efterkørslen). Desuden tre oversigtspersonas uden
+> accepteret identitet (Ditlev †1664, Cay Friedrich †1762, Ditlev †1690) kan bindes til detaljepostens person. Ikke
+> dublet: 1849 Henning (levede 1456-94) findes kun i oversigten; sønnen »se S. 39« er 960. Sidehenvisningerne i
+> oversigterne er det stærkeste bevis ved parringen. evidenspas_v2 (7/2026) fangede 7 andre oversigtsdubletter.
+
+## BESLUTTET: 6d-1's kort besvares af en model mod PDF-siden; projektejeren ser undtagelser og 5 stikprøver (2026-11-09)
+
+> Ændrer kortrundens udførelse i beslutningen nedenfor (samme dag). Projektejeren: »bruge sonnet eller opus til disse,
+> for at minimere mit arbejde med at genlæse ting« (præcedens: 6m's modelgennemgang og beslutningen 2026-11-05 om
+> 1939-tekst til en model). Grundlaget før kortene, efter to rettelser i manifestet: (1) 1939's legacy-nøgler for gren
+> VI er et løbenummer i bogens orden, ikke gruppens trykte nummer, så 26 falske `uenig:legacy_nr` forsvandt (391
+> maskinelt godkendte, 201 uafklarede); (2) overskrifternes sider var Calamari-sider, mens databasens forekomster i
+> samme rendition bruger PDF-sider — nu `CALAMARI_R6_TO_PDF_V1` i profilen, 592/592 sider = recordens `page_from`.
+> Kortene (81): 20 blinde stikprøver; **18 gruppekort** for 98 poster (13 gruppe-romertal, 5 slægtled; ikke 19/121 —
+> stamme-rettelserne flyttede tallene); 32 strukturkort; **nye:** 6 stammegruppe-kort (23 poster, beskrivelse i
+> fællesstammen uden nyt romertal: slægtleddet bekræftes, ellers forbliver posterne uafklarede) og 5 nummerkort (nummeret
+> springer i guiden). 45 poster får ingen placement (44 `uden_post`, 1 barn i forælderens slægtled).
+>
+> **Beslutning:**
+> - **Opus læser PDF-siden** (sidebilleder af `Dansk Adels Aarbog - Reventlow 1939.pdf`, s. 496-598) og besvarer hvert
+>   kort **blindt**: inputtet rummer ikke guidens værdi, maskinens slægtled/gruppe eller legacy-tal. Svaret rummer den
+>   ordret læste linje og en sikkerhed. Inputtet bygges af et script i en jobmappe; modellen læser aldrig `~/.private`
+>   eller `work*/`.
+> - **Enighed** mellem modellens læsning og guiden/maskinen godkender kortet. **Uenighed eller ulæselig side** → en kort
+>   undtagelsesliste til projektejeren (side, spørgsmål, modellens læsning, guidens værdi); hans svar afgør kortet.
+>   Projektejeren slår desuden **5 tilfældige af stikprøvens enige poster** op. En afvigelse i stikprøven, som han
+>   bekræfter, stopper og går tilbage til Task 1 (som før); modellens fejllæsning alene stopper ikke.
+> - **Evidensen siger, hvem der læste:** placements fra model-godkendte kort får basis `model_page_review` med model og
+>   briefens sha i `human_review`-feltet (`reviewer_kind`), projektejerens svar `human_group_review`. DB-feltnavnet
+>   `human_header_levels` bevares (nærmeste-reglens undtagelse læser det); niveauet er bekræftet mod den trykte side,
+>   uanset læser.
+> - Kortfladen bliver undtagelseslisten (lokal HTML) i stedet for 6c-1-kortsiden med 81 kort.
+>
+> **Resultat (9/11, efter oversigtszonerne og rettelsen af slugte romertal; tallene ovenfor er forældede):** 66 kort
+> (20 K, 21 GK, 20 SK, 5 NK; ingen SG). Opus enig på 54; projektejeren besvarede 12 undtagelser og 5 kontroller
+> (alle J, ingen afvigelse). Approvals: 15 record-godkendelser + 21 gruppekort (35 model, 1 projektejer: Dr. Lyders
+> beskrivelsesgruppe). **529 af 592 records placeres** (414 maskinelt, 115 via kort). Uden placement: 27 i
+> oversigtszonerne, 26 `uden_post` (Gate A), 7 unummererede ægte stammeposter (PDF 499, 506 »III. Af den tredje
+> Slægtsfølge …«, 541), 3 under en overskrift, Calamari har tabt (PDF 508, 532, 533).
+>
+> **Opfølgning (åben backlog):** de 7 unummererede stammeposter og de 3 under tabte overskrifter kan placeres i et
+> senere skridt (strukturkortet kræver et trykt nummer; overskriften skal forankres). Projektejerens spørgsmål om
+> fællesstammens model blev afklaret mod bogen: romertallet er slægtleddet (PDF 506 »den tredje Slægtsfølge«,
+> henvisningerne »— Sønner: VI.«), mens linjerne trykker »Ottende Slægtled.« + gruppe-romertal (PDF 520).
+
+## BESLUTTET: 6d-1's kortrunde — gruppekort for 19 manglende overskrifter og nærmeste-reglens undtagelse (2026-11-09)
+
+> Plan `docs/superpowers/plans/2026-11-08-trin6d1-placement-medlemskab.md` (Task 3b, 1c, 7 r2, 8). 121 personposter står
+> under 19 overskrifter (14 grupper, 5 slægtled), som raw.txt kender, men Calamari-renditionen ikke har. Projektejeren
+> valgte **19 gruppekort**: han bekræfter mod PDF'en overskriftens værdi (romertal/ordinal), og bekræftelsen er
+> evidensen for det niveau (basis `human_group_review`, som 5c-1's gruppegodkendelser; guidens linje-hash følger med).
+> Det ændrer Gate A's regel »værdier kun fra Calamari« for netop disse poster: værdien kommer fra projektejerens
+> læsning af siden. Konsekvens i DB: `private.placement_header_violations` springer nærmeste-tjekket over for præcis
+> det bekræftede niveau, når placementens evidens har `human_header_levels` med niveauet og `header_ids` ikke angiver
+> et id for det (linje kan aldrig undtages; lavere niveauer tjekkes stadig). Målt: uden undtagelsen ville databasens
+> nærmeste-regel give 64 af de 121 poster den forrige gruppes eller det forrige slægtleds overskrift (55 slægtled, 9
+> grupper). db-verify tæller placements med menneskelige niveauer. Fravalgt: at forankre en bekræftet overskrift i
+> renditionen ved posthullet (fabrikeret evidens) og at angive den forrige overskrift (forkert evidens). Desuden: **32
+> poster med ukendt struktur** (17 uparrede, 4 OCR-tabte numre, 11 uden nummer-match) kommer på kort med nærmeste
+> Calamari-overskrifter og projektejerens nummer fra PDF'en.
+
+## BESLUTTET: 6d-1's Gate A — 1939's overskrifter guides af raw.txt og forankres i Calamari-renditionen (2026-11-08)
+
+> Plan `docs/superpowers/plans/2026-11-08-trin6d1-placement-medlemskab.md`, Task 0 (stand-in c3h). Calamari-
+> renditionen, som 1939's records er forankret i, har mistet centreringen: segment.py's 1939-grammatik finder 5
+> linjeoverskrifter (I mangler), 5 slægtled og 0 gruppe-romertal (raw.txt: 6, 48, 75; stammen 43 poster under 2
+> sektioner). Overskrifternes tekst står der dog: søgt i vinduet mellem samme naboposter genfindes linje 6/6, stamme 2/2,
+> slægtled 44/48, gruppebeskrivelser 68/77, romertal 29/75. Projektejeren sagde ja til alle seks anbefalinger:
+> 1. **Kilde (6a):** raw.txt (sha `efab316b…`) er guide og kontrol; overskrifterne skrives som uankrede observationer på
+>    Calamari-renditionen, hvor de genfindes. Ikke genfundne → kort. Validatoren ændres ikke. Samme princip som
+>    build_1939_v2 (»struktur fra raw, prosa fra Calamari«). Fravalgt: raw.txt som ny rendition + validator på tværs af
+>    renditioner (ændring af proveniensmodellen).
+> 2. **Fællesstammen:** hver stammesektion bliver en entry i 1939's linjeskema; linjearket afgør dens linje.
+> 3. **Records uden nummereret post — revideret samme dag** (godkendt på et forkert grundlag: 37 målt via Calamari-
+>    segmenteringen). Målt mod raw.txt's 1939-v2-segmentering er de 83 records uden nummer i Calamari: 18 oversigtsposter,
+>    18 stamfædre (17 i grenene, 1 i stammen; uden nummer i bogen selv), 4 med OCR-ødelagt nummer og 43 uparrede (17 med
+>    persona). Et første genspørgsmål antog fejlagtigt, at stammens 38 var stamfædre (raw: 43 nummererede stammeposter);
+>    projektejerens endelige svar på de rettede præmisser: **stamfædrene placeres uden nummer** (gren, slægtled og
+>    gruppe fra overskrifterne; maskinelt kun med én stamfader i gruppen, ellers kort); **de 4 og de 17 uparrede med
+>    persona går på kort** med raw.txt's forslag; **oversigtens 18 og de 26 uparrede uden persona** får ingen placement
+>    (`retained_legacy` med grund).
+> 4. **Læseren:** `public_person_source_coordinates` bruger kun placementkoordinater for en kilde, når dens gældende
+>    placements er entydige på `(entry, printed_number)`; ellers legacy for hele kilden. 1939's numre er gruppelokale
+>    (53 numre deles af 389 poster), så 1939 vises som i dag indtil 6e; 2018-20 byte-ens.
+> 5. **Tre personas uden accepteret identitet:** record-placement, ingen persona-placement eller medlemskab. Antallet af
+>    persona-placements beregnes af manifestet (højst 534: 29 personas sidder på records uden nummereret post; rettet
+>    efter Codex r1 #1 — »560« var en regnefejl). De 29 får intet 1939-medlemskab i 6d-1.
+> 6. Task 0 måles på c3h i stedet for en frisk prod-kopi (`dump-kopi` læser prod og er ikke på allowlisten; 6c-3 rørte
+>    kun 2018-20). Frisk stand-in til generalprøven (Task 9).
+
+## BESLUTTET: 6d deles i 6d-1, 6d-2 og 6d-3; medlemskab før relationer; 1939's »linje« er grenen (2026-11-08)
+
+> Delspec 6d godkendt med specens §3 og §9: 6d-1 (overskrifter, placement, revalidering, ledger, medlemskab og afledt
+> B6), 6d-2 (personas for de 21 records uden, de 13 narrativer, identitetsflytningerne, de 39 tekstrettelser), 6d-3
+> (relationer; børn på placementkoordinater). Justerer trin 6-specens §5's interne rækkefølge: medlemskab/B6 rykker
+> før relationerne, fordi færdigbevis (c) kun afhænger af placement og medlemskab. 1939's grene er entries i
+> linjeskemaet; slægtled og gruppe står i `section_path`. Læserens visning af 1939-koordinaterne hører til 6e.
+
+## BESLUTTET: B6 bygges som afledt bekræftelse på komponentniveau, ikke som flere grundlag pr. medlemskab (2026-11-08)
+
+> Delspec 6d (`docs/superpowers/specs/2026-11-08-trin6d-placement-relationer-medlemskab-design.md` §5.4). Justerer
+> trin 6-specens §6 pkt. 3 (»et medlemskab kan have flere kildegrundlag … datamodellen afgøres i 6d«).
+>
+> - **Grund (målt på stand-in fra prod, Fable-review):** 1939's personas peger på kilde 3-personrækker (trin 6-specen
+>   §6 pkt. 8), mens de 458 medlemskaber, de kunne bekræfte, ligger på 2018-20-rækker i samme `samme_som`-komponent.
+>   Et medlemskab har PK `(person_id, lineage_id)`, og fem funktioner plus læseren læser dets ene `source_basis`. Et
+>   1939-grundlag på 2018-20-rækkens medlemskab ville kræve dem alle omskrevet og fortrydelse pr. grundlag.
+> - **Afgørelse (projektejeren):** hver udgave giver sin egen personrække medlemskab som i 5c-1; `corroborated`,
+>   `conflict` og `single` afledes af en læse-kun funktion over komponentens medlemskaber, kun gennem `samme_som` med
+>   `afklaret` konklusion. Promotionen får en vagt, så et medlemskab aldrig overskrives af en anden kildes grundlag.
+> - **Følge:** trin 6's færdigbevis (c) opfyldes, når mindst én komponent er `corroborated` (to kilder, samme linje);
+>   læservisningen af det hører til 6e.
+
+## NOTERET: review-budget for delspec 6d overskredet med én Fable-læsning af udkastet (2026-11-08)
+
+> Projektejeren bad om et review af udkastet. Fable (stående ja, memory) gav NO-GO med 10 fund, alle indarbejdet
+> (specens §11). Budgettet i spec-hovedet (1 Codex-runde på spec+plan, 1 på diffen) står uændret.
+
 ## BESLUTTET: 6c-3's modelsvar er sammensat pr. post af tre kørsler — godkendt af projektejeren, valg A (2026-11-08)
 
 > Det forslagsmanifest, data-ceremonien binder (`manifest_content_sha256` 95928243…, runner-manifest 5cc7f719…), er

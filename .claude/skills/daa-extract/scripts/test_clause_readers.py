@@ -39,6 +39,8 @@ ALLOWED = {
     # Læser kun helposten (parent_observation_id IS NULL), ikke klausuler.
     ".claude/skills/daa-extract/scripts/export_clause_source_texts.R",
     ".claude/skills/daa-extract/scripts/export_model_eligibility.R",
+    # 6d-1 placement-eksport: læser kun helposten (parent_observation_id IS NULL) som recordens primary-persona, ikke klausuler.
+    ".claude/skills/daa-extract/scripts/placement_eksport.sql",
     # Kildetekst-revisionens afhængighedsfil (trin 6a): bestemmer det aktuelle sæt som writeren
     # (max clause_set_seq under helposten) og hasher det med private.clause_set_sha256; afhængighederne
     # læses gennem private.text_revision_dependents (clause_observation_current).
@@ -50,6 +52,9 @@ ALLOWED = {
     ".claude/skills/daa-extract/scripts/tekstrevision_tilbagetraek_kontekst.sql",
     # #150 placement-ceremonien: helposten som persona-placementens grundlag og identitetstjekket.
     ".claude/skills/daa-extract/scripts/fix_150_placement.sql",
+    # 6d-1 placement-ceremonien (kildeparametriseret efterfølger): kun helposten (parent_observation_id IS NULL) som
+    # persona-placementens grundlag og identitetstjekket, ikke klausuler.
+    ".claude/skills/daa-extract/scripts/placement_ceremoni.sql",
     # Trin 6a's ceremonimåling: tæller bevidst klausulrækker i ALLE sæt (ikke kun det aktuelle), fordi den skal
     # vise, at ceremonierne hverken tilføjer eller fjerner rækker for 2018-20, og at 1939 får præcis ét sæt.
     ".claude/skills/daa-extract/scripts/maal_trin6a.sql",

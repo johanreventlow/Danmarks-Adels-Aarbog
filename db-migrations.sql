@@ -33735,3 +33735,290 @@ BEGIN
             FROM jsonb_to_recordset(p_items) x(outcome text));
 END $$;
 REVOKE ALL ON FUNCTION private.write_text_revision_reconciliation(uuid,jsonb,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
+-- ===== trin 6d-1: placement og medlemskab for flere kilder =====
+-- Spec 2026-11-08 trin 6d. Byte-ens kopier af schema.sql; CREATE OR REPLACE med uændrede signaturer (idempotent).
+
+-- Ny ledger-version for én legacy-række; uændret (disposition, placement, værdi-hash) giver ingen ny række.
+-- mapped kræver en gældende accepteret placement i legacy-rækkens kilde for netop denne post: enten bærer recorden
+-- legacy-rækkens record_key (2018-20), eller placementens gældende accepterede principal_member-persona har accepteret
+-- identitet til legacy-rækkens person (trin 6d-1: 1939's legacy-nøgler er ikke recordens nøgle).
+CREATE OR REPLACE FUNCTION private.record_legacy_disposition(p_person_id bigint,p_source_id bigint,p_disposition text,
+  p_placement_id uuid,p_evidence jsonb)
+RETURNS integer LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+DECLARE v_key text; v_sha text; v_cur private.legacy_placement_disposition%ROWTYPE;
+BEGIN
+  SELECT record_key INTO v_key FROM public.person_external_id
+   WHERE person_id=p_person_id AND source_id=p_source_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'PLACEMENT_LEGACY_ROW_MISSING: %/%',p_person_id,p_source_id; END IF;
+  v_sha:=private.legacy_external_id_sha256(p_person_id,p_source_id);
+  IF p_placement_id IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM private.source_record_placement_current pc
+         JOIN private.source_record r ON r.id=pc.source_record_id
+        WHERE pc.id=p_placement_id AND pc.decision_status='accepted' AND r.source_id=p_source_id
+          AND (r.record_key IS NOT DISTINCT FROM v_key
+               OR EXISTS (SELECT 1 FROM private.source_persona_placement_current pp
+                            JOIN private.source_persona_identity i ON i.source_persona_id=pp.source_persona_id
+                             AND i.decision_status='accepted' AND i.canonical_person_id=p_person_id
+                           WHERE pp.record_placement_id=pc.id AND pp.decision_status='accepted'
+                             AND pp.placement_role='principal_member'))) THEN
+    RAISE EXCEPTION 'PLACEMENT_LEGACY_MAPPING_INVALID: %/%',p_person_id,p_source_id;
+  END IF;
+  SELECT * INTO v_cur FROM private.legacy_placement_disposition
+   WHERE person_id=p_person_id AND source_id=p_source_id ORDER BY version DESC LIMIT 1;
+  IF FOUND AND v_cur.disposition=p_disposition AND v_cur.placement_id IS NOT DISTINCT FROM p_placement_id
+     AND v_cur.legacy_sha256=v_sha THEN
+    RETURN v_cur.version;
+  END IF;
+  INSERT INTO private.legacy_placement_disposition(person_id,source_id,version,disposition,legacy_sha256,placement_id,
+    evidence,decided_by_name)
+    VALUES (p_person_id,p_source_id,coalesce(v_cur.version,0)+1,p_disposition,v_sha,p_placement_id,p_evidence,
+      coalesce(nullif(btrim(p_evidence->>'decided_by_name'),''),'placement-migration'));
+  RETURN coalesce(v_cur.version,0)+1;
+END $$;
+REVOKE ALL ON FUNCTION private.record_legacy_disposition(bigint,bigint,text,uuid,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Fremmer de egnede items under ét eget change_set: person_lineage_membership (member) og person_slaegt_membership
+-- (agnatic; gifte-ind får aldrig et item). source_basis = tilstanden + state_sha256 + source_id. Fail-closed ved drift
+-- eller konflikt. Rydder app.change_set_id før retur.
+-- Trin 6d-1: en anden kildes række (source_basis->>'source_id' ≠ p_source_id, også NULL) på et items (person, linje)
+-- eller (person, slægt) røres aldrig: forhåndstjek før det generelle konfliktstop, og atomisk i upserten (ON CONFLICT
+-- … WHERE samme kilde; 0 rækker → PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE og alt rulles tilbage).
+CREATE OR REPLACE FUNCTION public.red_promote_placement_memberships(p_source_id bigint,p_preview_sha256 text)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_set jsonb; i jsonb; v_basis jsonb; v_n integer:=0; v_rows bigint; v_foreign bigint;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_CHANGE_SET';
+  END IF;
+  v_set:=private.placement_membership_set(p_source_id);
+  IF v_set->>'preview_sha256' IS DISTINCT FROM p_preview_sha256 THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_PREVIEW_DRIFT'; END IF;
+  SELECT min((x->>'person_id')::bigint) INTO v_foreign FROM jsonb_array_elements(v_set->'items') x
+   WHERE EXISTS (SELECT 1 FROM public.person_lineage_membership l
+                  WHERE l.person_id=(x->>'person_id')::bigint AND l.lineage_id=(x->>'lineage_id')::bigint
+                    AND l.source_basis->>'source_id' IS DISTINCT FROM p_source_id::text)
+      OR EXISTS (SELECT 1 FROM public.person_slaegt_membership m
+                  WHERE m.person_id=(x->>'person_id')::bigint AND m.slaegt_id=(x->>'slaegt_id')::bigint
+                    AND m.source_basis->>'source_id' IS DISTINCT FROM p_source_id::text);
+  IF v_foreign IS NOT NULL THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE: %',v_foreign; END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_set->'items') x WHERE x->>'reason_code'='conflict') THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_CONFLICT';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_set->'items') x WHERE (x->>'eligible')::boolean) THEN RETURN 0; END IF;
+  PERFORM public.begin_change_set('placement_membership','placement-membership-v1 source '||p_source_id);
+  FOR i IN SELECT x FROM jsonb_array_elements(v_set->'items') x WHERE (x->>'eligible')::boolean LOOP
+    v_basis:=private.membership_state((i->>'persona_placement_id')::uuid)
+             ||jsonb_build_object('state_sha256',i->>'state_sha256','source_id',p_source_id);
+    INSERT INTO public.person_lineage_membership(person_id,lineage_id,role,source_basis)
+      VALUES ((i->>'person_id')::bigint,(i->>'lineage_id')::bigint,'member',v_basis)
+      ON CONFLICT (person_id,lineage_id) DO UPDATE SET role='member',source_basis=excluded.source_basis
+        WHERE person_lineage_membership.source_basis->>'source_id'=excluded.source_basis->>'source_id';
+    GET DIAGNOSTICS v_rows=ROW_COUNT;
+    IF v_rows=0 THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE: %',i->>'person_id'; END IF;
+    INSERT INTO public.person_slaegt_membership(person_id,slaegt_id,membership_kind,source_basis)
+      VALUES ((i->>'person_id')::bigint,(i->>'slaegt_id')::bigint,'agnatic',v_basis)
+      ON CONFLICT (person_id,slaegt_id) DO UPDATE SET membership_kind='agnatic',source_basis=excluded.source_basis
+        WHERE person_slaegt_membership.source_basis->>'source_id'=excluded.source_basis->>'source_id';
+    GET DIAGNOSTICS v_rows=ROW_COUNT;
+    IF v_rows=0 THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE: %',i->>'person_id'; END IF;
+    v_n:=v_n+1;
+  END LOOP;
+  PERFORM set_config('app.change_set_id','',true);
+  RETURN v_n;
+END $$;
+REVOKE ALL ON FUNCTION public.red_promote_placement_memberships(bigint,text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_promote_placement_memberships(bigint,text) TO authenticated;
+
+-- Trin 6d-1 (B6, afledt): medlemskabstilstanden pr. identitetskomponent. Komponent = lukningen over person↔person-
+-- samme_som med afklaret konklusion (egen rekursion; _samme_som_gruppe filtrerer ikke på status); component_root =
+-- mindste person-id. Kun gældende medlemskaber (membership_is_current) tæller; kilde = source_basis->>'source_id'.
+-- state: conflict (≥ 2 linjer), corroborated (1 linje, ≥ 2 kilder), single (1 linje, 1 kilde), none (intet gældende
+-- medlemskab). same_source_duplicate: to gældende medlemskaber fra samme kilde i komponenten (et fund, ikke en
+-- bekræftelse). Kun komponenter med mindst ét gældende medlemskab eller mindst to personer. Skriver intet.
+CREATE OR REPLACE FUNCTION private.membership_component_states()
+RETURNS TABLE(component_root bigint,members bigint[],state text,lineage_ids bigint[],source_ids bigint[],
+  same_source_duplicate boolean)
+LANGUAGE plpgsql STABLE SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  RETURN QUERY
+  WITH RECURSIVE e AS (
+    SELECT r.subjekt_id AS a,r.objekt_id AS b
+      FROM public.relation r
+      JOIN public.conclusion c ON c.target_type='relation' AND c.target_id=r.id AND c.status='afklaret'
+     WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+  ), u AS (
+    SELECT e.a,e.b FROM e UNION SELECT e.b,e.a FROM e
+  ), reach(start,pid) AS (
+    SELECT u.a,u.a FROM u
+    UNION
+    SELECT reach.start,u.b FROM reach JOIN u ON u.a=reach.pid
+  ), m AS (
+    SELECT l.person_id,l.lineage_id,(l.source_basis->>'source_id')::bigint AS source_id
+      FROM public.person_lineage_membership l
+     WHERE l.source_basis ? 'persona_placement_id' AND private.membership_is_current(l.person_id,l.lineage_id)
+  ), node AS (
+    SELECT reach.start AS pid,min(reach.pid) AS root FROM reach GROUP BY reach.start
+    UNION
+    SELECT m.person_id,m.person_id FROM m WHERE NOT EXISTS (SELECT 1 FROM u WHERE u.a=m.person_id)
+  ), comp AS (
+    SELECT node.root,array_agg(node.pid ORDER BY node.pid) AS member_ids FROM node GROUP BY node.root
+  ), st AS (
+    SELECT node.root,array_agg(DISTINCT m.lineage_id ORDER BY m.lineage_id) AS lin,
+           coalesce(array_agg(DISTINCT m.source_id ORDER BY m.source_id) FILTER (WHERE m.source_id IS NOT NULL),
+             '{}') AS src,
+           count(m.source_id)>count(DISTINCT m.source_id) AS dup
+      FROM node JOIN m ON m.person_id=node.pid
+     GROUP BY node.root
+  )
+  SELECT comp.root,comp.member_ids,
+         CASE WHEN st.root IS NULL THEN 'none'
+              WHEN cardinality(st.lin)>=2 THEN 'conflict'
+              WHEN cardinality(st.src)>=2 THEN 'corroborated'
+              ELSE 'single' END,
+         coalesce(st.lin,'{}'),coalesce(st.src,'{}'),coalesce(st.dup,false)
+    FROM comp LEFT JOIN st ON st.root=comp.root
+   WHERE st.root IS NOT NULL OR cardinality(comp.member_ids)>=2
+   ORDER BY comp.root;
+END $$;
+REVOKE ALL ON FUNCTION private.membership_component_states() FROM PUBLIC,anon,authenticated,service_role;
+
+-- 5c-2 (spec §4.2): læserens kildekoordinater. Én række pr. person_external_id-række. Har personen præcis én gældende
+-- membership (membership_is_current), hvis bundne record-placement hører til samme kilde, kommer linje, nr., slægtled og
+-- kuld fra placementen; ellers fra legacy-rækken. printed_number er de foranstillede cifre (sortering);
+-- printed_number_label er den trykte tekst (»15a«). SECURITY DEFINER omgår RLS; persongaten er i selve funktionen.
+-- Trin 6d-1 (afgørelse 4b): en kilde bruger placement-koordinater kun, når dens gældende membership-placements er
+-- entydige på (entry, trykt nummer); en placement uden trykt nummer tæller som ikke-entydig. Ellers falder alle
+-- kildens rækker til legacy.
+CREATE OR REPLACE FUNCTION public.public_person_source_coordinates()
+RETURNS TABLE(person_id bigint, source_id bigint, legacy_line_code text, printed_number integer,
+  printed_number_label text, generation_local integer, generation_global integer, kuld_label text,
+  provenance_kind text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+#variable_conflict use_column
+BEGIN
+  RETURN QUERY
+  WITH m AS (
+    -- Gældende memberships med deres bundne record-placement og dennes kilde.
+    SELECT plm.person_id,sr.source_id,rp.id AS rp_id,rp.scheme_entry_id,rp.printed_number
+      FROM public.person_lineage_membership plm
+      -- Castet er beskyttet: ét ugyldigt id i én række må ikke vælte RPC'en for alle læsere (rækken falder til legacy).
+      JOIN private.source_record_placement rp
+        ON rp.id=CASE WHEN plm.source_basis->>'record_placement_id'
+                           ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                      THEN (plm.source_basis->>'record_placement_id')::uuid END
+      JOIN private.source_record sr ON sr.id=rp.source_record_id
+     WHERE private.membership_is_current(plm.person_id,plm.lineage_id)
+  ), ks AS (
+    -- Kildegate: ingen to af kildens placements deler (entry, trykt nummer), og ingen mangler nummeret (count DISTINCT
+    -- ser to NULL som ens, derfor det særskilte NULL-filter). Placements tælles én gang, også med flere memberships.
+    SELECT d.source_id
+      FROM (SELECT DISTINCT m.source_id,m.rp_id,m.scheme_entry_id,m.printed_number FROM m) d
+     GROUP BY d.source_id
+    HAVING count(*)=count(DISTINCT (d.scheme_entry_id,d.printed_number))
+       AND count(*) FILTER (WHERE d.printed_number IS NULL)=0
+  ), m1 AS (
+    -- Entydighedsgate: præcis én pr. (person, kilde), i en kilde der består kildegaten.
+    SELECT m.person_id,m.source_id,min(m.rp_id::text)::uuid AS rp_id
+      FROM m JOIN ks ON ks.source_id=m.source_id
+     GROUP BY m.person_id,m.source_id HAVING count(*)=1
+  ), pl AS (
+    SELECT m1.person_id,m1.source_id,e.code,rp.printed_number,rp.generation_local,rp.generation_global,rp.kuld_label
+      FROM m1
+      JOIN private.source_record_placement rp ON rp.id=m1.rp_id
+      JOIN public.lineage_scheme_entry e ON e.id=rp.scheme_entry_id
+  )
+  SELECT x.person_id,x.source_id,
+         CASE WHEN pl.person_id IS NULL THEN x.linje ELSE pl.code END,
+         CASE WHEN pl.person_id IS NULL THEN x.nr ELSE substring(pl.printed_number from '^[0-9]+')::integer END,
+         CASE WHEN pl.person_id IS NULL THEN x.nr::text ELSE pl.printed_number END,
+         CASE WHEN pl.person_id IS NULL THEN x.slaegtled_lokal ELSE pl.generation_local END,
+         CASE WHEN pl.person_id IS NULL THEN x.slaegtled_gennem ELSE pl.generation_global END,
+         CASE WHEN pl.person_id IS NULL THEN x.kuld ELSE pl.kuld_label END,
+         CASE WHEN pl.person_id IS NULL THEN 'legacy_external_id' ELSE 'placement' END
+    FROM public.person_external_id x
+    LEFT JOIN pl ON pl.person_id=x.person_id AND pl.source_id=x.source_id
+   WHERE public.entitet_offentlig('person',x.person_id)
+  UNION ALL
+  -- En gældende placement uden legacy-række (målt 0) tabes ikke.
+  SELECT pl.person_id,pl.source_id,pl.code,substring(pl.printed_number from '^[0-9]+')::integer,pl.printed_number,
+         pl.generation_local,pl.generation_global,pl.kuld_label,'placement'
+    FROM pl
+   WHERE public.entitet_offentlig('person',pl.person_id)
+     AND NOT EXISTS (SELECT 1 FROM public.person_external_id x WHERE x.person_id=pl.person_id AND x.source_id=pl.source_id)
+   ORDER BY 1,2;
+END $$;
+REVOKE ALL ON FUNCTION public.public_person_source_coordinates() FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.public_person_source_coordinates() TO anon,authenticated;
+
+-- #150 trin 5c-1 (spec §4.1): nærmeste-reglen for accepterede sti ii-placements i én kilde. For hvert niveau
+-- (linje > slægtled > kuld > ægteskab) er den forventede overskrift den nærmeste foregående i placementens
+-- header-kørsel og rendition, medmindre en overskrift af højere niveau står efter den. evidence.header_ids skal
+-- svare præcis (intet opfundet, intet udeladt), og linje-id'et skal være header_observation_id. Returnerer antal brud.
+-- Trin 6d-1 (decisions 2026-11-09): et niveau i den gældende afgørelses evidence.human_header_levels (projektejerens
+-- bekræftelse mod den trykte side; overskriften findes ikke i renditionen) springes over, når header_ids ikke angiver
+-- et id for det. Fejllukket: linje, et ukendt niveau, en ikke-liste, et ikke-tekstelement eller et id på et bekræftet
+-- niveau er brud. Lavere niveauer tjekkes som før (et manglende niveau annullerer intet).
+CREATE OR REPLACE FUNCTION private.placement_header_violations(p_source_id bigint)
+RETURNS bigint LANGUAGE sql STABLE SET search_path=pg_catalog,public,private AS $$
+  WITH lv(level,kind,rank) AS (
+    VALUES ('linje','header_linje',1),('slaegtled','header_slaegtled',2),('kuld','header_kuld',3),
+           ('aegteskab','header_aegteskab',4)
+  ), p AS (
+    SELECT pc.id,pc.header_observation_id,pc.evidence->'header_ids' AS ids,
+           pc.evidence->'human_header_levels' AS human,ho.extraction_run_id AS run,
+           hocc.rendition_id AS rend,
+           (SELECT occ.char_from FROM private.source_record_anchor_current a
+              JOIN private.source_record_occurrence occ ON occ.id=a.occurrence_id
+             WHERE a.source_record_id=pc.source_record_id AND a.decision_status='accepted'
+               AND occ.rendition_id=hocc.rendition_id
+             ORDER BY occ.char_from LIMIT 1) AS post_from
+      FROM private.source_record_placement_current pc
+      JOIN private.source_record r ON r.id=pc.source_record_id AND r.source_id=p_source_id
+      JOIN private.source_observation ho ON ho.id=pc.header_observation_id
+      JOIN private.source_record_occurrence hocc ON hocc.id=ho.occurrence_id
+     WHERE pc.decision_status='accepted' AND ho.observation_kind='header_linje'
+  ), h AS (
+    SELECT p.id AS pid,o.id AS oid,lv.level,lv.rank,o.char_from
+      FROM p
+      JOIN private.source_observation o ON o.extraction_run_id=p.run
+      JOIN private.source_record_occurrence occ ON occ.id=o.occurrence_id AND occ.rendition_id=p.rend
+                                              AND occ.extraction_run_id=p.run
+      JOIN lv ON lv.kind=o.observation_kind
+     -- Kun strukturelle (uankrede) overskrifter, der slutter før posten (Codex r1 #4).
+     WHERE occ.char_to<=p.post_from
+       AND NOT EXISTS (SELECT 1 FROM private.source_record_anchor_event ev WHERE ev.occurrence_id=occ.id)
+  ), nearest AS (
+    SELECT DISTINCT ON (h.pid,h.level) h.* FROM h ORDER BY h.pid,h.level,h.char_from DESC
+  ), expected AS (
+    SELECT n.pid,n.level,n.oid FROM nearest n
+     WHERE NOT EXISTS (SELECT 1 FROM h x WHERE x.pid=n.pid AND x.rank<n.rank AND x.char_from>n.char_from)
+  )
+  SELECT count(*) FROM p
+   WHERE p.post_from IS NULL OR p.ids IS NULL OR jsonb_typeof(p.ids)<>'object'
+      OR p.ids->>'linje' IS DISTINCT FROM p.header_observation_id::text
+      OR EXISTS (SELECT 1 FROM jsonb_object_keys(p.ids) k WHERE k NOT IN (SELECT level FROM lv))
+      -- jsonb_array_elements kun på en liste (OR kortslutter ikke garanteret), derfor CASE.
+      OR (p.human IS NOT NULL AND CASE WHEN jsonb_typeof(p.human)<>'array' THEN true ELSE EXISTS (
+            SELECT 1 FROM jsonb_array_elements(p.human) x
+             WHERE jsonb_typeof(x)<>'string'
+                OR (x#>>'{}') NOT IN (SELECT level FROM lv WHERE lv.rank>1)
+                OR p.ids->>(x#>>'{}') IS NOT NULL) END)
+      OR EXISTS (SELECT 1 FROM lv
+                  WHERE NOT (coalesce(p.human @> jsonb_build_array(lv.level),false) AND p.ids->>lv.level IS NULL)
+                    AND (p.ids->>lv.level) IS DISTINCT FROM
+                        (SELECT e.oid::text FROM expected e WHERE e.pid=p.id AND e.level=lv.level));
+$$;
+REVOKE ALL ON FUNCTION private.placement_header_violations(bigint) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Trin 6d-1 (decisions 2026-11-09): antal gældende accepterede placements i kilden med en ikke-tom
+-- evidence.human_header_levels (menneskebekræftede overskriftsniveauer). Læse-kun; db-verify melder tallet.
+CREATE OR REPLACE FUNCTION private.placement_human_header_levels(p_source_id bigint)
+RETURNS bigint LANGUAGE sql STABLE SET search_path=pg_catalog,public,private AS $$
+  SELECT count(*) FROM private.source_record_placement_current pc
+    JOIN private.source_record r ON r.id=pc.source_record_id AND r.source_id=p_source_id
+   WHERE pc.decision_status='accepted'
+     AND CASE WHEN jsonb_typeof(pc.evidence->'human_header_levels')='array'
+              THEN jsonb_array_length(pc.evidence->'human_header_levels')>0 ELSE false END;
+$$;
+REVOKE ALL ON FUNCTION private.placement_human_header_levels(bigint) FROM PUBLIC,anon,authenticated,service_role;

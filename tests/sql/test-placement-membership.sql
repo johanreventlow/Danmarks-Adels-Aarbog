@@ -130,9 +130,10 @@ BEGIN
   END;
   PERFORM set_config('app.change_set_id','',true);
   RESET ROLE;
-  -- En membership, en anden kilde ejer → konflikt, intet skrives.
+  -- En membership i samme kilde, som en anden placement ejer → konflikt, intet skrives. (En anden kildes række er
+  -- PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE; se $fremmed_kilde$.)
   INSERT INTO public.person_lineage_membership(person_id,lineage_id,role,source_basis)
-    VALUES (-153301,(f->>'lineage')::bigint,'member','{"basis":"redaktør"}');
+    VALUES (-153301,(f->>'lineage')::bigint,'member','{"basis":"redaktør","source_id":-1533}');
   SET LOCAL ROLE authenticated;
   v:=public.red_preview_placement_memberships(-1533);
   IF (v#>>'{items,0,reason_code}')<>'conflict' THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_TEST_FAILED: konflikt ikke vist'; END IF;
@@ -147,6 +148,106 @@ BEGIN
     RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_TEST_FAILED: konflikt skrev slægtsmedlemskab';
   END IF;
 END $vagter$;
+
+-- Trin 6d-1 (Codex r1 #4, #6): promotionen rører aldrig en anden kildes membership-række. Forhåndstjek før det
+-- generelle konfliktstop, og atomisk i selve upserten.
+DO $fremmed_kilde$
+DECLARE f jsonb:=pg_temp.f150_placed(-1534,-153401); v jsonb; v_err text; v_before jsonb;
+BEGIN
+  INSERT INTO public.person_lineage_membership(person_id,lineage_id,role,source_basis)
+    VALUES (-153401,(f->>'lineage')::bigint,'member','{"basis":"2018-20","source_id":1}');
+  SELECT source_basis INTO v_before FROM public.person_lineage_membership WHERE person_id=-153401;
+  PERFORM set_config('request.jwt.claim.sub',f->>'actor',true);
+  SET LOCAL ROLE authenticated;
+  v:=public.red_preview_placement_memberships(-1534);
+  BEGIN
+    PERFORM public.red_promote_placement_memberships(-1534,v->>'preview_sha256');
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_TEST_FAILED: en anden kildes linjemedlemskab overskrevet';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE%' THEN RAISE; END IF;
+  END;
+  RESET ROLE;
+  IF (SELECT source_basis FROM public.person_lineage_membership WHERE person_id=-153401) IS DISTINCT FROM v_before
+     OR (SELECT count(*) FROM public.person_lineage_membership WHERE person_id=-153401)<>1
+     OR EXISTS (SELECT 1 FROM public.person_slaegt_membership WHERE person_id=-153401) THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_TEST_FAILED: fremmed kilde ændrede rækker';
+  END IF;
+  -- Også en anden kildes slægtsmedlemskab alene stopper promotionen.
+  DELETE FROM public.person_lineage_membership WHERE person_id=-153401;
+  INSERT INTO public.person_slaegt_membership(person_id,slaegt_id,membership_kind,source_basis)
+    VALUES (-153401,(f->>'slaegt')::bigint,'agnatic','{"basis":"2018-20","source_id":1}');
+  SET LOCAL ROLE authenticated;
+  v:=public.red_preview_placement_memberships(-1534);
+  BEGIN
+    PERFORM public.red_promote_placement_memberships(-1534,v->>'preview_sha256');
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_TEST_FAILED: en anden kildes slægtsmedlemskab overskrevet';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE%' THEN RAISE; END IF;
+  END;
+  RESET ROLE;
+  IF EXISTS (SELECT 1 FROM public.person_lineage_membership WHERE person_id=-153401)
+     OR (SELECT source_basis->>'source_id' FROM public.person_slaegt_membership WHERE person_id=-153401)<>'1' THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_TEST_FAILED: fremmed slægtskilde ændrede rækker';
+  END IF;
+END $fremmed_kilde$;
+
+DO $fremmed_kilde_null$
+DECLARE f jsonb:=pg_temp.f150_placed(-1535,-153501); v jsonb; v_err text;
+BEGIN
+  -- En række uden source_id (fx redaktørskrevet) er ikke kildens egen.
+  INSERT INTO public.person_lineage_membership(person_id,lineage_id,role,source_basis)
+    VALUES (-153501,(f->>'lineage')::bigint,'founder','{"basis":"redaktør"}');
+  PERFORM set_config('request.jwt.claim.sub',f->>'actor',true);
+  SET LOCAL ROLE authenticated;
+  v:=public.red_preview_placement_memberships(-1535);
+  BEGIN
+    PERFORM public.red_promote_placement_memberships(-1535,v->>'preview_sha256');
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_TEST_FAILED: række uden kilde overskrevet';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE%' THEN RAISE; END IF;
+  END;
+  RESET ROLE;
+  IF (SELECT role||'/'||source_basis::text FROM public.person_lineage_membership WHERE person_id=-153501)
+       <>'founder/{"basis": "redaktør"}'
+     OR EXISTS (SELECT 1 FROM public.person_slaegt_membership WHERE person_id=-153501) THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_TEST_FAILED: række uden kilde ændret';
+  END IF;
+END $fremmed_kilde_null$;
+
+-- En anden kildes slægtsrække, der opstår mellem forhåndstjekket og skrivningen (simuleret af en midlertidig trigger
+-- på linjetabellen), må ikke overskrives: slægts-upserten rammer 0 rækker → FOREIGN_SOURCE, alt rulles tilbage.
+CREATE OR REPLACE FUNCTION pg_temp.f6d_samtidig_fremmed() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.person_id=-153601 THEN
+    INSERT INTO public.person_slaegt_membership(person_id,slaegt_id,membership_kind,source_basis)
+      VALUES (NEW.person_id,(NEW.source_basis->>'slaegt_id')::bigint,'agnatic','{"basis":"samtidig","source_id":1}');
+  END IF;
+  RETURN NULL;
+END $$;
+
+DO $fremmed_kilde_i_skrivning$
+DECLARE f jsonb:=pg_temp.f150_placed(-1536,-153601); v jsonb; v_err text;
+BEGIN
+  CREATE TRIGGER trg_f6d_samtidig_fremmed AFTER INSERT ON public.person_lineage_membership
+    FOR EACH ROW EXECUTE FUNCTION pg_temp.f6d_samtidig_fremmed();
+  PERFORM set_config('request.jwt.claim.sub',f->>'actor',true);
+  SET LOCAL ROLE authenticated;
+  v:=public.red_preview_placement_memberships(-1536);
+  IF NOT (v#>>'{items,0,eligible}')::boolean THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_TEST_FAILED: ikke egnet %',v; END IF;
+  BEGIN
+    PERFORM public.red_promote_placement_memberships(-1536,v->>'preview_sha256');
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_TEST_FAILED: samtidig fremmed slægtsrække overskrevet';
+  EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_err=MESSAGE_TEXT;
+    IF v_err NOT LIKE 'PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE%' THEN RAISE; END IF;
+  END;
+  RESET ROLE;
+  DROP TRIGGER trg_f6d_samtidig_fremmed ON public.person_lineage_membership;
+  IF EXISTS (SELECT 1 FROM public.person_lineage_membership WHERE person_id=-153601)
+     OR EXISTS (SELECT 1 FROM public.person_slaegt_membership WHERE person_id=-153601)
+     OR btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_TEST_FAILED: skrivningen blev ikke rullet tilbage';
+  END IF;
+END $fremmed_kilde_i_skrivning$;
 
 DO $acl$
 BEGIN

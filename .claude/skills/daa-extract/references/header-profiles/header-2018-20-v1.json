@@ -1,0 +1,14 @@
+{
+  "header_rule_version": "header-2018-20-v1",
+  "raw_text_sha256": "2dd5cf8408943ccc50ac4d89dcbd08ac3b49a90fdabd1ddcbd7b22d218026563",
+  "grammar": "2018-20",
+  "record_matching": "key_from_text",
+  "levels": {
+    "linje": "header_linje",
+    "slaegtled": "header_slaegtled",
+    "kuld": "header_kuld",
+    "aegteskab": "header_aegteskab"
+  },
+  "stamme_afsnit_level": null,
+  "guide_text_sha256": null
+}
