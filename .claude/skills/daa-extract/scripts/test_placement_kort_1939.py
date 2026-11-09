@@ -240,6 +240,41 @@ class TestApprovals(unittest.TestCase):
             self.run_(sv, {'SK:S2': '4'})
 
 
+class TestGruppebeskrivelse(unittest.TestCase):
+    """Fællesstammens gruppe er en beskrivelse uden romertal (PDF 503: »VII C. / Lyder Reventlows Søn:«). Kortet kan
+    kun bekræftes af projektejeren (J/N); værdien er guidens slug, som ceremonien kræver."""
+    def setUp(self):
+        self.m = manifest()
+        gkb = {'id': 'kuld:6000', 'niveau': 'kuld', 'guide_value': 'Lyder-Testsens-Søn', 'guide_char_from': 6000,
+               'guide_line_sha256': 'z'}
+        self.m['placements'].append(pl('B1', 1550, entry='Stamme-test', nr=None, gen=7,
+                                       ids={'linje': L2, 'slaegtled': T1}, status='unresolved',
+                                       reasons=['overskrift_ikke_fundet:kuld'], gruppekort=[gkb],
+                                       human_header_levels=['kuld'], page=503))
+        self.cards = pk.kort_1939(self.m, k=4)
+        self.c = card(self.cards, 'GK:kuld:6000')
+
+    def test_kort_og_vurdering(self):
+        self.assertEqual(self.c['forventet'], {'beskrivelse': 'Lyder-Testsens-Søn'})
+        sv = svar_for(self.cards)
+        self.assertEqual(pk.vurderinger(self.cards, sv)['GK:kuld:6000'], 'ingen_anden')
+        sp = pk._spoergsmaal(self.c, 'U', {'side': 503, 'start_tekst': 'Dr. Testo'})
+        self.assertIn('»Lyder Testsens Søn«', sp['tekst'])
+        self.assertEqual([k[0] for k in sp['knapper']], ['J', 'N'])
+
+    def test_J_godkender_med_guidens_slug(self):
+        sv = svar_for(self.cards)
+        ta = TestApprovals()
+        ta.m, ta.cards, ta.kontrol = self.m, self.cards, {}
+        res = ta.run_(sv, {'SK:S2': '4', 'GK:kuld:6000': 'J'})
+        self.assertIn(('kuld:6000', 'Lyder-Testsens-Søn', 'human'),
+                      [(g['id'], g['value'], g['reviewer']) for g in res['gruppekort']])
+        res_n = ta.run_(sv, {'SK:S2': '4', 'GK:kuld:6000': 'N'})
+        self.assertNotIn('kuld:6000', [g['id'] for g in res_n['gruppekort']])
+        with self.assertRaises(SheetError):
+            ta.run_(sv, {'SK:S2': '4', 'GK:kuld:6000': 'III'})
+
+
 class TestHtmlOgFlet(unittest.TestCase):
     def setUp(self):
         self.m = manifest()

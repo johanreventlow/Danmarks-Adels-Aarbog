@@ -691,9 +691,13 @@ def _locate_beskrivelse_1939(h: dict[str, Any], tab: dict[str, Any], idxs: list[
     if second.size >= need:
         return None                      # to steder: aldrig gæt
     i_from, i_to = owner[best.b], owner[best.b + best.size - 1]
+    return {'i_from': i_from, 'i_to': i_to,
+            'parsed': {'kuld': _beskrivelse_slug(lines, i_from, i_to), 'found_via': 'beskrivelse'}}
+
+
+def _beskrivelse_slug(lines: list[str], i_from: int, i_to: int) -> str:
     tekst = segment.norm(' '.join(lines[k].strip() for k in range(i_from, i_to + 1)))
-    slug = re.sub(r'[^\wÆØÅæøå]+', '-', tekst.rstrip(':'), flags=re.UNICODE).strip('-')
-    return {'i_from': i_from, 'i_to': i_to, 'parsed': {'kuld': slug, 'found_via': 'beskrivelse'}}
+    return re.sub(r'[^\wÆØÅæøå]+', '-', tekst.rstrip(':'), flags=re.UNICODE).strip('-')
 
 
 def _guide_value(h: dict[str, Any]) -> str | int | None:
@@ -989,8 +993,13 @@ def build_manifest_by_offset(rendition_bytes: bytes, guide_bytes: bytes, profile
                 reasons.append(f'overskrift_ikke_fundet:{level}')
                 if level != 'linje':           # gruppekort: guide-overskriften, uden tekst
                     gh = g_headers[gid]
+                    value = _guide_value(gh)
+                    if value is None and level == 'kuld' and gh.get('desc_i') is not None:
+                        # fællesstammens gruppe er en beskrivelse uden romertal (»VII C. / Lyder Reventlows Søn:«):
+                        # værdien er beskrivelsens slug, som en fundet beskrivelsesoverskrift ville have givet
+                        value = _beskrivelse_slug(guide['tab']['lines'], gh['desc_i'], gh['line_to'])
                     cards.append({'id': f"{level}:{gh['guide']['char_from']}", 'niveau': level,
-                                  'guide_value': _guide_value(gh), 'guide_char_from': gh['guide']['char_from'],
+                                  'guide_value': value, 'guide_char_from': gh['guide']['char_from'],
                                   'guide_line_sha256': gh['guide']['line_sha256']})
                 continue
             header_ids[level] = header['element_id']

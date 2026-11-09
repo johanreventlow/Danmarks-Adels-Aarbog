@@ -1080,6 +1080,14 @@ class Test1939Kort(unittest.TestCase):
         v = placement(m2, 'V')
         self.assertEqual(v['reasons'], ['overskrift_ikke_fundet:slaegtled'])
         self.assertEqual([(c['niveau'], c['guide_value']) for c in v['gruppekort']], [('slaegtled', 2)])
+        # beskrivelsen mangler i Calamari → gruppekort på gruppen med beskrivelsens slug som værdi (intet romertal)
+        rend4 = calamari(guide)
+        rend4.remove(BESKRIVELSE)
+        m4 = build39(guide=guide, rend=rend4, records=recs(rend4))
+        v4 = placement(m4, 'V')
+        self.assertEqual(v4['reasons'], ['overskrift_ikke_fundet:kuld'])
+        self.assertEqual([(c['niveau'], c['guide_value']) for c in v4['gruppekort']],
+                         [('kuld', 'Anna-Reventlows-Børn-med-Bodil-Opdigt')])
 
     def test_stamme_beskrivelse_efter_post_er_usikker(self):
         guide = ['### PAGE 499 ###', '                          Den ældre testske Linje.',

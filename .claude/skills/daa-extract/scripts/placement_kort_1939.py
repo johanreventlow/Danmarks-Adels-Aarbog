@@ -152,6 +152,8 @@ def kort_1939(m: dict, k: int = 20, seed: int = SEED) -> list[dict]:
     for cid, g in sorted(cards.items(), key=lambda kv: kv[1]['c']['guide_char_from']):
         c = g['c']
         felt = 'gruppe' if c['niveau'] == 'kuld' else 'slaegtled'
+        if felt == 'gruppe' and not _roman(c['guide_value']):
+            felt = 'beskrivelse'                   # stammegruppe uden romertal: kun projektejerens J/N
         out.append({'kort_id': f'GK:{cid}', 'type': 'GK', 'opslag': g['poster'][0], 'poster': g['poster'],
                     'gk_id': cid, 'niveau': c['niveau'], 'forventet': {felt: c['guide_value']}})
     for p in order:
@@ -302,6 +304,8 @@ def _laest(s: dict, felt: str) -> Any:
 
 def vurder(card: dict, s: dict) -> str:
     """enig | uenig | ulaeselig | ingen_anden (kortet har ingen anden læsning for et felt)."""
+    if 'beskrivelse' in card['forventet']:
+        return 'ingen_anden'                       # briefen beder ikke modellen om gruppebeskrivelser
     if not s.get('fundet') or s.get('sikkerhed') not in SIKKERHED or s.get('sikkerhed') == 'lav':
         return 'ulaeselig'
     if any(v is None for v in card['forventet'].values()):
@@ -329,7 +333,7 @@ def v_poster(cards: list[dict], vd: dict[str, str], seed: int = SEED) -> list[st
 
 U_RE = re.compile(r'^U (?P<id>\S+) : ?(?P<tok>.*)$')
 V_RE = re.compile(r'^V (?P<id>\S+) : ?(?P<tok>.*)$')
-TOKEN_FORM = {'K': re.compile(r'^\d+ ([IVXLC]+|-)$'), 'GK': re.compile(r'^([IVXLC]+|\d+|N)$'),
+TOKEN_FORM = {'K': re.compile(r'^\d+ ([IVXLC]+|-)$'), 'GK': re.compile(r'^([IVXLC]+|\d+|J|N)$'),
               'SK': re.compile(r'^(\d+[a-z]?|N)$'), 'SG': re.compile(r'^(\d+|N)$'), 'NK': re.compile(r'^[JN]$'),
               'V': re.compile(r'^[JN]$')}
 
@@ -402,6 +406,11 @@ def _spoergsmaal(c: dict, art: str, o: dict) -> dict:
                           'en afvigelse stopper kørslen og sendes tilbage til scanneren.',
                 'knapper': [[f"{f['slaegtled']} {f['gruppe']}", 'Ja, det passer']],
                 'felt': {'label': 'Nej — det der står: slægtled og romertal (fx »6 -« eller »5 II«)', 'form': 'K'}}
+    if c['type'] == 'GK' and 'beskrivelse' in f:
+        besk = f['beskrivelse'].replace('-', ' ')
+        return {'tekst': f"{find} Står den under gruppebeskrivelsen »{besk}« (fællesstammens gruppe uden romertal)?",
+                'hjaelp': 'Ja godkender gruppen for alle kortets poster; nej lader dem stå uafklarede.',
+                'knapper': [['J', 'Ja'], ['N', 'Nej / kan ikke se det']], 'felt': None}
     if c['type'] == 'GK':
         v = next(iter(f.values()))
         hvad = 'gruppe-romertal' if c['niveau'] == 'kuld' else 'slægtled'
@@ -575,6 +584,10 @@ def _human(card: dict, tok: str) -> Any:
         if int(tok) != f['slaegtled']:
             raise SheetError(f"KORT_ANDEN_VAERDI {card['kort_id']} (skriv N: 6d-1 kan kun bekræfte)")
         return True
+    if t == 'GK' and 'beskrivelse' in f:
+        if tok != 'J':
+            raise SheetError(f"KORT_ANDEN_VAERDI {card['kort_id']} (svar J eller N)")
+        return True
     if t == 'GK':
         val = int(tok) if card['niveau'] == 'slaegtled' and tok.isdigit() else _norm_gruppe(tok)
         if val is None or str(val) != str(next(iter(f.values()))):
@@ -603,7 +616,7 @@ def approvals_1939(m: dict, cards: list[dict], svar: list[dict], token_text: str
         else:
             afg[kid] = (_human(c, u[kid]), 'human')
     gk = {c['gk_id']: c for c in cards if c['type'] == 'GK'}
-    gruppekort = [{'id': gid, 'value': c['forventet'].get('gruppe', c['forventet'].get('slaegtled')),
+    gruppekort = [{'id': gid, 'value': next(iter(c['forventet'].values())),
                    'reviewer': afg[c['kort_id']][1]}
                   for gid, c in gk.items() if afg[c['kort_id']][0] is not None]
     ok_gk = {g['id'] for g in gruppekort}
