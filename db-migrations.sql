@@ -33950,3 +33950,75 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.public_person_source_coordinates() FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.public_person_source_coordinates() TO anon,authenticated;
+
+-- #150 trin 5c-1 (spec §4.1): nærmeste-reglen for accepterede sti ii-placements i én kilde. For hvert niveau
+-- (linje > slægtled > kuld > ægteskab) er den forventede overskrift den nærmeste foregående i placementens
+-- header-kørsel og rendition, medmindre en overskrift af højere niveau står efter den. evidence.header_ids skal
+-- svare præcis (intet opfundet, intet udeladt), og linje-id'et skal være header_observation_id. Returnerer antal brud.
+-- Trin 6d-1 (decisions 2026-11-09): et niveau i den gældende afgørelses evidence.human_header_levels (projektejerens
+-- bekræftelse mod den trykte side; overskriften findes ikke i renditionen) springes over, når header_ids ikke angiver
+-- et id for det. Fejllukket: linje, et ukendt niveau, en ikke-liste, et ikke-tekstelement eller et id på et bekræftet
+-- niveau er brud. Lavere niveauer tjekkes som før (et manglende niveau annullerer intet).
+CREATE OR REPLACE FUNCTION private.placement_header_violations(p_source_id bigint)
+RETURNS bigint LANGUAGE sql STABLE SET search_path=pg_catalog,public,private AS $$
+  WITH lv(level,kind,rank) AS (
+    VALUES ('linje','header_linje',1),('slaegtled','header_slaegtled',2),('kuld','header_kuld',3),
+           ('aegteskab','header_aegteskab',4)
+  ), p AS (
+    SELECT pc.id,pc.header_observation_id,pc.evidence->'header_ids' AS ids,
+           pc.evidence->'human_header_levels' AS human,ho.extraction_run_id AS run,
+           hocc.rendition_id AS rend,
+           (SELECT occ.char_from FROM private.source_record_anchor_current a
+              JOIN private.source_record_occurrence occ ON occ.id=a.occurrence_id
+             WHERE a.source_record_id=pc.source_record_id AND a.decision_status='accepted'
+               AND occ.rendition_id=hocc.rendition_id
+             ORDER BY occ.char_from LIMIT 1) AS post_from
+      FROM private.source_record_placement_current pc
+      JOIN private.source_record r ON r.id=pc.source_record_id AND r.source_id=p_source_id
+      JOIN private.source_observation ho ON ho.id=pc.header_observation_id
+      JOIN private.source_record_occurrence hocc ON hocc.id=ho.occurrence_id
+     WHERE pc.decision_status='accepted' AND ho.observation_kind='header_linje'
+  ), h AS (
+    SELECT p.id AS pid,o.id AS oid,lv.level,lv.rank,o.char_from
+      FROM p
+      JOIN private.source_observation o ON o.extraction_run_id=p.run
+      JOIN private.source_record_occurrence occ ON occ.id=o.occurrence_id AND occ.rendition_id=p.rend
+                                              AND occ.extraction_run_id=p.run
+      JOIN lv ON lv.kind=o.observation_kind
+     -- Kun strukturelle (uankrede) overskrifter, der slutter før posten (Codex r1 #4).
+     WHERE occ.char_to<=p.post_from
+       AND NOT EXISTS (SELECT 1 FROM private.source_record_anchor_event ev WHERE ev.occurrence_id=occ.id)
+  ), nearest AS (
+    SELECT DISTINCT ON (h.pid,h.level) h.* FROM h ORDER BY h.pid,h.level,h.char_from DESC
+  ), expected AS (
+    SELECT n.pid,n.level,n.oid FROM nearest n
+     WHERE NOT EXISTS (SELECT 1 FROM h x WHERE x.pid=n.pid AND x.rank<n.rank AND x.char_from>n.char_from)
+  )
+  SELECT count(*) FROM p
+   WHERE p.post_from IS NULL OR p.ids IS NULL OR jsonb_typeof(p.ids)<>'object'
+      OR p.ids->>'linje' IS DISTINCT FROM p.header_observation_id::text
+      OR EXISTS (SELECT 1 FROM jsonb_object_keys(p.ids) k WHERE k NOT IN (SELECT level FROM lv))
+      -- jsonb_array_elements kun på en liste (OR kortslutter ikke garanteret), derfor CASE.
+      OR (p.human IS NOT NULL AND CASE WHEN jsonb_typeof(p.human)<>'array' THEN true ELSE EXISTS (
+            SELECT 1 FROM jsonb_array_elements(p.human) x
+             WHERE jsonb_typeof(x)<>'string'
+                OR (x#>>'{}') NOT IN (SELECT level FROM lv WHERE lv.rank>1)
+                OR p.ids->>(x#>>'{}') IS NOT NULL) END)
+      OR EXISTS (SELECT 1 FROM lv
+                  WHERE NOT (coalesce(p.human @> jsonb_build_array(lv.level),false) AND p.ids->>lv.level IS NULL)
+                    AND (p.ids->>lv.level) IS DISTINCT FROM
+                        (SELECT e.oid::text FROM expected e WHERE e.pid=p.id AND e.level=lv.level));
+$$;
+REVOKE ALL ON FUNCTION private.placement_header_violations(bigint) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Trin 6d-1 (decisions 2026-11-09): antal gældende accepterede placements i kilden med en ikke-tom
+-- evidence.human_header_levels (menneskebekræftede overskriftsniveauer). Læse-kun; db-verify melder tallet.
+CREATE OR REPLACE FUNCTION private.placement_human_header_levels(p_source_id bigint)
+RETURNS bigint LANGUAGE sql STABLE SET search_path=pg_catalog,public,private AS $$
+  SELECT count(*) FROM private.source_record_placement_current pc
+    JOIN private.source_record r ON r.id=pc.source_record_id AND r.source_id=p_source_id
+   WHERE pc.decision_status='accepted'
+     AND CASE WHEN jsonb_typeof(pc.evidence->'human_header_levels')='array'
+              THEN jsonb_array_length(pc.evidence->'human_header_levels')>0 ELSE false END;
+$$;
+REVOKE ALL ON FUNCTION private.placement_human_header_levels(bigint) FROM PUBLIC,anon,authenticated,service_role;

@@ -59,9 +59,11 @@ BEGIN
 END $$;
 
 -- Accepteret v1 (migration) med reglens header-id'er i evidence.
-CREATE OR REPLACE FUNCTION pg_temp.f150_accept(p_placement uuid,p_header_ids jsonb) RETURNS void LANGUAGE sql AS $$
+-- p_extra flettes ind i evidence (trin 6d-1: human_header_levels).
+CREATE OR REPLACE FUNCTION pg_temp.f150_accept(p_placement uuid,p_header_ids jsonb,p_extra jsonb DEFAULT '{}')
+RETURNS void LANGUAGE sql AS $$
   INSERT INTO private.source_record_placement_decision(placement_id,version,decision_status,evidence,decision_origin,decided_by_name)
-    VALUES (p_placement,1,'accepted',jsonb_build_object('rule_version','header-2018-20-v1','header_ids',p_header_ids),
+    VALUES (p_placement,1,'accepted',jsonb_build_object('rule_version','header-2018-20-v1','header_ids',p_header_ids)||p_extra,
       'migration','150 fixture');
 $$;
 
@@ -214,6 +216,149 @@ BEGIN
     RAISE EXCEPTION 'PLACEMENT_HEADER_TEST_FAILED: overskrift, der overlapper posten, regnet som nærmeste';
   END IF;
 END $anker_og_overlap$;
+
+-- Trin 6d-1 (decisions 2026-11-09): et menneskebekræftet overskriftsniveau (evidence.human_header_levels) uden id i
+-- header_ids undtages fra nærmeste-tjekket for netop det niveau. Linje kan aldrig undtages; lavere niveauer tjekkes.
+-- Fixturen: linje ved 100, en tidligere gruppes kuld ved 200, posten ved 1000; postens egen kuld står ikke i renditionen.
+DO $menneske_niveau_undtaget$
+DECLARE f jsonb; v_l uuid; v_p uuid; r uuid; h uuid;
+BEGIN
+  f:=pg_temp.f150_setup(-1513); r:=(f#>>'{src,rend}')::uuid; h:=(f->>'hrun')::uuid;
+  v_l:=pg_temp.f150_header(r,h,'header_linje',100,'I DEN TESTSKE LINJE');
+  PERFORM pg_temp.f150_header(r,h,'header_kuld',200,'I');
+  v_p:=pg_temp.f150_place(f,v_l);
+  PERFORM pg_temp.f150_accept(v_p,jsonb_build_object('linje',v_l));
+  IF private.placement_header_violations(-1513)<>1 THEN
+    RAISE EXCEPTION 'PLACEMENT_HEADER_TEST_FAILED: udeladt kuld uden menneskeligt niveau ikke talt (%)',
+      private.placement_header_violations(-1513);
+  END IF;
+  f:=pg_temp.f150_setup(-1514); r:=(f#>>'{src,rend}')::uuid; h:=(f->>'hrun')::uuid;
+  v_l:=pg_temp.f150_header(r,h,'header_linje',100,'I DEN TESTSKE LINJE');
+  PERFORM pg_temp.f150_header(r,h,'header_kuld',200,'I');
+  v_p:=pg_temp.f150_place(f,v_l);
+  PERFORM pg_temp.f150_accept(v_p,jsonb_build_object('linje',v_l),'{"human_header_levels":["kuld"]}');
+  IF private.placement_header_violations(-1514)<>0 THEN
+    RAISE EXCEPTION 'PLACEMENT_HEADER_TEST_FAILED: menneskebekræftet kuld talt som brud (%)',
+      private.placement_header_violations(-1514);
+  END IF;
+END $menneske_niveau_undtaget$;
+
+DO $menneske_niveau_med_id_er_brud$
+DECLARE f jsonb; v_l uuid; v_k uuid; v_p uuid; r uuid; h uuid;
+BEGIN
+  f:=pg_temp.f150_setup(-1515); r:=(f#>>'{src,rend}')::uuid; h:=(f->>'hrun')::uuid;
+  v_l:=pg_temp.f150_header(r,h,'header_linje',100,'I DEN TESTSKE LINJE');
+  v_k:=pg_temp.f150_header(r,h,'header_kuld',200,'I');
+  -- Selv den nærmeste kuld-overskrifts id er et brud, når niveauet samtidig er menneskebekræftet.
+  v_p:=pg_temp.f150_place(f,v_l);
+  PERFORM pg_temp.f150_accept(v_p,jsonb_build_object('linje',v_l,'kuld',v_k),'{"human_header_levels":["kuld"]}');
+  IF private.placement_header_violations(-1515)<>1 THEN
+    RAISE EXCEPTION 'PLACEMENT_HEADER_TEST_FAILED: id på et menneskebekræftet niveau ikke talt (%)',
+      private.placement_header_violations(-1515);
+  END IF;
+END $menneske_niveau_med_id_er_brud$;
+
+DO $linje_kan_ikke_undtages$
+DECLARE f jsonb; v_l uuid; v_p uuid; r uuid; h uuid;
+BEGIN
+  f:=pg_temp.f150_setup(-1516); r:=(f#>>'{src,rend}')::uuid; h:=(f->>'hrun')::uuid;
+  v_l:=pg_temp.f150_header(r,h,'header_linje',100,'I DEN TESTSKE LINJE');
+  v_p:=pg_temp.f150_place(f,v_l);
+  PERFORM pg_temp.f150_accept(v_p,jsonb_build_object('linje',v_l),'{"human_header_levels":["linje"]}');
+  IF private.placement_header_violations(-1516)<>1 THEN
+    RAISE EXCEPTION 'PLACEMENT_HEADER_TEST_FAILED: linje som menneskeligt niveau ikke talt (%)',
+      private.placement_header_violations(-1516);
+  END IF;
+END $linje_kan_ikke_undtages$;
+
+DO $lavere_niveau_tjekkes_stadig$
+DECLARE f jsonb; v_l uuid; v_k_old uuid; v_k_new uuid; v_p uuid; r uuid; h uuid;
+BEGIN
+  f:=pg_temp.f150_setup(-1517); r:=(f#>>'{src,rend}')::uuid; h:=(f->>'hrun')::uuid;
+  v_l:=pg_temp.f150_header(r,h,'header_linje',100,'I DEN TESTSKE LINJE');
+  v_k_old:=pg_temp.f150_header(r,h,'header_kuld',200,'I');
+  v_k_new:=pg_temp.f150_header(r,h,'header_kuld',300,'II');
+  -- Slægtled er menneskebekræftet, men kuld er ikke den nærmeste → stadig ét brud.
+  v_p:=pg_temp.f150_place(f,v_l);
+  PERFORM pg_temp.f150_accept(v_p,jsonb_build_object('linje',v_l,'kuld',v_k_old),'{"human_header_levels":["slaegtled"]}');
+  IF private.placement_header_violations(-1517)<>1 THEN
+    RAISE EXCEPTION 'PLACEMENT_HEADER_TEST_FAILED: lavere niveau under menneskeligt slægtled ikke tjekket (%)',
+      private.placement_header_violations(-1517);
+  END IF;
+  -- Kontrol: med den nærmeste kuld er samme placement korrekt.
+  f:=pg_temp.f150_setup(-1518); r:=(f#>>'{src,rend}')::uuid; h:=(f->>'hrun')::uuid;
+  v_l:=pg_temp.f150_header(r,h,'header_linje',100,'I DEN TESTSKE LINJE');
+  PERFORM pg_temp.f150_header(r,h,'header_kuld',200,'I');
+  v_k_new:=pg_temp.f150_header(r,h,'header_kuld',300,'II');
+  v_p:=pg_temp.f150_place(f,v_l);
+  PERFORM pg_temp.f150_accept(v_p,jsonb_build_object('linje',v_l,'kuld',v_k_new),'{"human_header_levels":["slaegtled"]}');
+  IF private.placement_header_violations(-1518)<>0 THEN
+    RAISE EXCEPTION 'PLACEMENT_HEADER_TEST_FAILED: korrekt kuld under menneskeligt slægtled talt som brud (%)',
+      private.placement_header_violations(-1518);
+  END IF;
+END $lavere_niveau_tjekkes_stadig$;
+
+-- Fejllukket: en human_header_levels, der ikke er en liste af kendte niveauer, er et brud (aldrig en undtagelse).
+DO $menneske_niveau_ugyldig_form$
+DECLARE f jsonb; v_l uuid; v_p uuid; r uuid; h uuid; v_bad jsonb; i int:=0;
+BEGIN
+  FOREACH v_bad IN ARRAY ARRAY['"kuld"','null','[1]','["gruppe"]','{"kuld":true}']::jsonb[] LOOP
+    i:=i+1;
+    f:=pg_temp.f150_setup(-1530-i); r:=(f#>>'{src,rend}')::uuid; h:=(f->>'hrun')::uuid;
+    v_l:=pg_temp.f150_header(r,h,'header_linje',100,'I DEN TESTSKE LINJE');
+    v_p:=pg_temp.f150_place(f,v_l);
+    PERFORM pg_temp.f150_accept(v_p,jsonb_build_object('linje',v_l),jsonb_build_object('human_header_levels',v_bad));
+    IF private.placement_header_violations(-1530-i)<>1 THEN
+      RAISE EXCEPTION 'PLACEMENT_HEADER_TEST_FAILED: ugyldig human_header_levels % ikke talt (%)',
+        v_bad,private.placement_header_violations(-1530-i);
+    END IF;
+  END LOOP;
+END $menneske_niveau_ugyldig_form$;
+
+DO $taelling$
+DECLARE f jsonb; v_src jsonb; v_l uuid; v_p uuid; v_post jsonb; r uuid; h uuid; v_actor uuid; k text; v_ev jsonb;
+BEGIN
+  f:=pg_temp.f150_setup(-1519); r:=(f#>>'{src,rend}')::uuid; h:=(f->>'hrun')::uuid; v_src:=f->'src';
+  v_actor:=(f->>'actor')::uuid;
+  v_l:=pg_temp.f150_header(r,h,'header_linje',100,'I DEN TESTSKE LINJE');
+  -- I-1 (fra setup): accepteret, ["kuld"] → tæller.
+  v_p:=pg_temp.f150_place(f,v_l);
+  PERFORM pg_temp.f150_accept(v_p,jsonb_build_object('linje',v_l),'{"human_header_levels":["kuld"]}');
+  -- I-2..I-4: accepteret med to niveauer (tæller), tom liste (tæller ikke), uden nøgle (tæller ikke).
+  FOREACH k IN ARRAY ARRAY['I-2','I-3','I-4'] LOOP
+    v_post:=pg_temp.f5b_post(-1519,v_src,k,'Berta Testesen, f. 1601.',ARRAY['Berta Testesen'],NULL,v_actor);
+    v_p:=pg_temp.f150_place(jsonb_set(f,'{post}',v_post),v_l);
+    v_ev:=CASE k WHEN 'I-2' THEN '{"human_header_levels":["slaegtled","kuld"]}'
+                 WHEN 'I-3' THEN '{"human_header_levels":[]}' ELSE '{}' END;
+    PERFORM pg_temp.f150_accept(v_p,jsonb_build_object('linje',v_l),v_ev);
+  END LOOP;
+  -- I-5: accepteret med ["kuld"], men gældende afgørelse er superseded → tæller ikke.
+  v_post:=pg_temp.f5b_post(-1519,v_src,'I-5','Carl Testesen, f. 1602.',ARRAY['Carl Testesen'],NULL,v_actor);
+  v_p:=pg_temp.f150_place(jsonb_set(f,'{post}',v_post),v_l);
+  PERFORM pg_temp.f150_accept(v_p,jsonb_build_object('linje',v_l),'{"human_header_levels":["kuld"]}');
+  INSERT INTO private.source_record_placement_decision(placement_id,version,decision_status,evidence,decision_origin,
+    decided_by,decided_by_name)
+    VALUES (v_p,2,'superseded','{"human_header_levels":["kuld"],"fixture":"6d1"}','redaction',v_actor,'150 fixture');
+  -- I-6: foreslået (ikke accepteret) med ["kuld"] → tæller ikke.
+  v_post:=pg_temp.f5b_post(-1519,v_src,'I-6','Dorte Testesen, f. 1603.',ARRAY['Dorte Testesen'],NULL,v_actor);
+  INSERT INTO private.source_record_placement(source_record_id,scheme_entry_id,header_observation_id,initial_status)
+    VALUES ((v_post->>'record')::uuid,(f->>'entry')::bigint,v_l,'proposed') RETURNING id INTO v_p;
+  INSERT INTO private.source_record_placement_decision(placement_id,version,decision_status,evidence,decision_origin,decided_by_name)
+    VALUES (v_p,1,'proposed','{"header_ids":{},"human_header_levels":["kuld"]}','migration','150 fixture');
+  IF private.placement_human_header_levels(-1519)<>2 THEN
+    RAISE EXCEPTION 'PLACEMENT_HEADER_TEST_FAILED: placement_human_header_levels=% (forventet 2)',
+      private.placement_human_header_levels(-1519);
+  END IF;
+  -- En anden kildes menneskelige niveauer tælles ikke med.
+  IF private.placement_human_header_levels(-1514)<>1 OR private.placement_human_header_levels(-1501)<>0 THEN
+    RAISE EXCEPTION 'PLACEMENT_HEADER_TEST_FAILED: placement_human_header_levels ikke kildeafgrænset';
+  END IF;
+  IF has_function_privilege('anon','private.placement_human_header_levels(bigint)','EXECUTE')
+     OR has_function_privilege('authenticated','private.placement_human_header_levels(bigint)','EXECUTE')
+     OR has_function_privilege('service_role','private.placement_human_header_levels(bigint)','EXECUTE') THEN
+    RAISE EXCEPTION 'PLACEMENT_HEADER_TEST_FAILED: placement_human_header_levels er API-eksekverbar';
+  END IF;
+END $taelling$;
 
 \echo PLACEMENT_HEADER_TEST_OK
 ROLLBACK;
