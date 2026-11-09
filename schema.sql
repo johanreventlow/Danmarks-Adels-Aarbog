@@ -3226,6 +3226,17 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION private.overview_mention_narratives(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
 
+-- Trin 6d-2a: redaktørens læsning af oversigtsomtaler. Tynd indpakning af den private regel; kun redaktionsrollen.
+CREATE OR REPLACE FUNCTION public.red_overview_mentions(p_person_ids bigint[])
+RETURNS TABLE(narrative_id bigint, detail_person_id bigint)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+  IF public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'REDAKTION_REQUIRED'; END IF;
+  RETURN QUERY SELECT o.narrative_id,o.detail_person_id FROM private.overview_mention_narratives(p_person_ids) o;
+END $$;
+REVOKE ALL ON FUNCTION public.red_overview_mentions(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_overview_mentions(bigint[]) TO authenticated;
+
 CREATE OR REPLACE FUNCTION public.red_preview_placement_memberships(p_source_id bigint)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 BEGIN

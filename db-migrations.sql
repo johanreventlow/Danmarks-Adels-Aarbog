@@ -18835,6 +18835,7 @@ DECLARE
     to_regprocedure('public.red_preview_placement_memberships(bigint)'),
     to_regprocedure('public.red_promote_placement_memberships(bigint,text)'),
     to_regprocedure('public.red_reverse_placement_membership(bigint,bigint,text)'),
+    to_regprocedure('public.red_overview_mentions(bigint[])'),
     to_regprocedure('public.red_relation_disposition_input(bigint)'),
     to_regprocedure('public.red_identity_control_sample(uuid)'),
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
@@ -34431,3 +34432,14 @@ BEGIN
             'redaktionel identitetssammenkædning');
   RETURN v_rel;
 END $$;
+
+-- Trin 6d-2a: redaktørens læsning af oversigtsomtaler. Tynd indpakning af den private regel; kun redaktionsrollen.
+CREATE OR REPLACE FUNCTION public.red_overview_mentions(p_person_ids bigint[])
+RETURNS TABLE(narrative_id bigint, detail_person_id bigint)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+BEGIN
+  IF public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'REDAKTION_REQUIRED'; END IF;
+  RETURN QUERY SELECT o.narrative_id,o.detail_person_id FROM private.overview_mention_narratives(p_person_ids) o;
+END $$;
+REVOKE ALL ON FUNCTION public.red_overview_mentions(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_overview_mentions(bigint[]) TO authenticated;

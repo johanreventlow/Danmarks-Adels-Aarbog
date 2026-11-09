@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchPersonNarrativeRecords, mapNarrativeRecordRows, mapNarrativer } from '../redaktionRead';
+import { fetchOverviewMentionSources, fetchOverviewMentions, fetchPersonNarrativeRecords, mapNarrativeRecordRows, mapNarrativer } from '../redaktionRead';
 import { supabase } from '../../supabase';
 
 vi.mock('../../supabase', () => ({
@@ -130,5 +130,51 @@ describe('narrative record read-adapter', () => {
       records: [{ sourceId: 19, recordKey: 'V-152', allowedActions: ['create_draft'] }],
       legacyPublications: [{ status: 'legacy_active', allowedActions: ['withdraw_legacy'] }],
     });
+  });
+});
+
+describe('fetchOverviewMentions', () => {
+  it('kalder red_overview_mentions og mapper narrative_id til detail_person_id', async () => {
+    (supabase.rpc as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: [{ narrative_id: 11, detail_person_id: 4 }, { narrative_id: 12, detail_person_id: 9 }], error: null,
+    });
+    const out = await fetchOverviewMentions([3, 5]);
+    expect(supabase.rpc).toHaveBeenCalledWith('red_overview_mentions', { p_person_ids: [3, 5] });
+    expect([...out.entries()]).toEqual([[11, 4], [12, 9]]);
+  });
+  it('kalder ikke RPC ved tom liste', async () => {
+    const out = await fetchOverviewMentions([]);
+    expect(out.size).toBe(0);
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+  it('kaster ved RPC-fejl og ved ugyldigt svar', async () => {
+    (supabase.rpc as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ data: null, error: { message: 'REDAKTION_REQUIRED' } });
+    await expect(fetchOverviewMentions([3])).rejects.toThrow('REDAKTION_REQUIRED');
+    (supabase.rpc as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ data: [{ narrative_id: 'x', detail_person_id: 1 }], error: null });
+    await expect(fetchOverviewMentions([3])).rejects.toThrow('OVERVIEW_MENTIONS_RESPONSE_INVALID');
+  });
+});
+
+describe('fetchOverviewMentionSources', () => {
+  it('oversætter markerede narrativer til source_id for personen', async () => {
+    (supabase.rpc as ReturnType<typeof vi.fn>).mockResolvedValue({ data: [{ narrative_id: 11, detail_person_id: 4 }], error: null });
+    const result = {
+      data: [
+        { id: 10, source_id: 1, side: null, tekst: 'a', privat: false, source: null },
+        { id: 11, source_id: 2, side: null, tekst: 'b', privat: false, source: null },
+      ], error: null,
+    };
+    const chain: any = {};
+    for (const m of ['select', 'eq', 'order']) chain[m] = vi.fn(() => chain);
+    chain.then = (resolve: (v: unknown) => unknown) => resolve(result);
+    (supabase.from as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    const out = await fetchOverviewMentionSources(5);
+    expect([...out.entries()]).toEqual([[2, 4]]);
+  });
+  it('henter ikke narrativer, når intet er markeret', async () => {
+    (supabase.rpc as ReturnType<typeof vi.fn>).mockResolvedValue({ data: [], error: null });
+    const out = await fetchOverviewMentionSources(5);
+    expect(out.size).toBe(0);
+    expect(supabase.from).not.toHaveBeenCalled();
   });
 });

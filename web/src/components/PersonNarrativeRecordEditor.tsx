@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Change } from '../data/redaktionWrite';
 import {
+  fetchOverviewMentionSources,
   fetchPersonNarrativeRecords,
   type LegacyNarrativePublication,
   type PersonNarrativeRecord,
@@ -79,6 +80,8 @@ export function PersonNarrativeRecordEditor({ personId, onChange }: Props) {
   const [legacyWithdrawal, setLegacyWithdrawal] = useState<LegacyNarrativePublication | null>(null);
   const [legacyReason, setLegacyReason] = useState('');
   const [legacyConfirmed, setLegacyConfirmed] = useState(false);
+  // source_id -> detail_person_id for udgaver, hvor personens tekst er en oversigtsomtale (kun mærke).
+  const [overview, setOverview] = useState<Map<number, number>>(new Map());
   const currentPersonId = useRef(personId);
   currentPersonId.current = personId;
 
@@ -107,6 +110,17 @@ export function PersonNarrativeRecordEditor({ personId, onChange }: Props) {
     });
     return () => { current = false; };
   }, [load]);
+
+  useEffect(() => {
+    let current = true;
+    setOverview(new Map());
+    fetchOverviewMentionSources(personId).then((marks) => {
+      if (current) setOverview(marks);
+    }).catch((e) => {
+      console.warn('Oversigtsmærker kunne ikke hentes', e);
+    });
+    return () => { current = false; };
+  }, [personId]);
 
   const records = useMemo(() => sortRecords(read?.records ?? []), [read]);
 
@@ -211,6 +225,7 @@ export function PersonNarrativeRecordEditor({ personId, onChange }: Props) {
             <div>{record.sourceLabel}</div>
             <div>{record.citationLabel}</div>
             <div>{statusLabel[record.status]}</div>
+            {overview.has(record.sourceId) ? <div role="note">Oversigtsomtale — vises ikke som biografi (detaljepost: person {overview.get(record.sourceId)})</div> : null}
             {record.blockingReason ? <div role="status">{record.blockingReason}</div> : null}
             {editable ? (
               <textarea

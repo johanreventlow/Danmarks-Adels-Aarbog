@@ -390,5 +390,42 @@ BEGIN
   END IF;
 END $henning$;
 
+DO $red_rpc$
+DECLARE f jsonb:=pg_temp.f6d_src(-6351); nq bigint; np bigint; v_actor uuid; v_plain uuid:='a1500000-0000-0000-0000-000000006351';
+        v_n int; v_narr bigint; v_det bigint; v_err text;
+BEGIN
+  nq:=pg_temp.ov_member(f,'I-1',-635101,1);
+  np:=pg_temp.ov_mention(-635102,-6351);
+  PERFORM pg_temp.f6d_same(-635102,-635101,'afklaret');
+  v_actor:=(f->>'actor')::uuid;
+  INSERT INTO auth.users(id,email) VALUES (v_plain,v_plain::text||'@6d.invalid') ON CONFLICT DO NOTHING;
+  -- redaktion: præcis grundtilfældets række (kun den markerede narrativ; Q's egen narrativ er ikke markeret)
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  SELECT count(*),min(narrative_id),min(detail_person_id) INTO v_n,v_narr,v_det
+    FROM public.red_overview_mentions(ARRAY[-635101,-635102]);
+  RESET ROLE;
+  IF v_n<>1 OR v_narr<>np OR v_det<>-635101 THEN
+    RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: red_rpc redaktion % % %',v_n,v_narr,v_det;
+  END IF;
+  -- authenticated uden redaktionsrolle: REDAKTION_REQUIRED
+  PERFORM set_config('request.jwt.claim.sub',v_plain::text,true);
+  SET LOCAL ROLE authenticated;
+  v_err:=NULL;
+  BEGIN PERFORM * FROM public.red_overview_mentions(ARRAY[-635102]); EXCEPTION WHEN OTHERS THEN v_err:=SQLERRM; END;
+  RESET ROLE;
+  IF v_err IS DISTINCT FROM 'REDAKTION_REQUIRED' THEN
+    RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: red_rpc uden rolle [%]',v_err;
+  END IF;
+  -- anon: ingen adgang (permission denied)
+  SET LOCAL ROLE anon;
+  v_err:=NULL;
+  BEGIN PERFORM * FROM public.red_overview_mentions(ARRAY[-635102]); EXCEPTION WHEN OTHERS THEN v_err:=SQLERRM; END;
+  RESET ROLE;
+  IF v_err IS NULL OR v_err NOT LIKE 'permission denied%' THEN
+    RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: red_rpc anon [%]',v_err;
+  END IF;
+END $red_rpc$;
+
 \echo OVERVIEW_MENTION_TEST_OK
 ROLLBACK;
