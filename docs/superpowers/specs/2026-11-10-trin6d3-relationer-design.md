@@ -49,6 +49,11 @@ Genmåles i plan-Task 0. Kun antal og person-id'er for afdøde.
 - **Familieopslag:** hovedpersonens familier (`persona_family_context`, `schema.sql:18464`, eksakt person-id): 264 af
   271 ægteskaber har præcis én familie med samme ordinal, og den har en ægtefælle; 5 hovedpersoner har ingen familie;
   2 har familier, men ingen med ordinalen. Intet ægteskab lander i en familie uden ægtefælle.
+- **Overslag over den maskinelle population** (eligibility-kontraktens tællebetingelser tilnærmet pr. hovedperson):
+  **≈220** kandidater til maskinel accept, **38** hvor hovedpersonens antal ægteskabsforslag ≠ antal familier (kort),
+  **13** der ikke kan bindes (6 med to klausuler, 5 uden familie, 2 uden ordinal). Navnetjek og foldning (§2.2)
+  trækker yderligere fra; realistisk antal bundne ægteskaber er ca. 200-250. Task 0 måler det præcist med den rigtige
+  kontrakt.
 
 ### 2.2 5b's udtræk på 1939's tekst
 
@@ -87,6 +92,13 @@ ikke koblet til tvillingens ægtefælle, får personen to ægtefæller: 2018-20'
 kandidater (hovedperson koblet, ægtefælle ikke, tvillingen har mindst én ægtefælle). Tallet er en øvre grænse.
 Navnene er stikprøvevis åbenlyst den samme person (titel og »til <gods>« i 1939-navnet), men nogle tvillinger har
 flere ægtefæller, så kandidaten er ikke givet.
+
+**Empirisk prøve** (core's `collapseSameAs` + `buildModel` på stand-in'ens personer, familier og 719 `samme_som`,
+scratchpad-script): i dag har 1065's komponent (kanonisk 18) to ægtefæller, 598 »Joachim Diedrich von Dewitz« og 1537
+»Oberst … til Løitmark«; Gabel (815) og Hahn (816) har hver to ægtemænd, Conrad (392) og 1791. Med de hypotetiske
+kanter `1537 → 598` og `1791 → 392`: 18 har én ægtefælle, 815 og 816 hver én ægtemand, 0 nye karantæner.
+Panelet viser ægtefæller fra `spousesBy` (`DetailPanel.tsx:67`), der deduplikerer på (id, navn); `p2_name` er altid
+`null` (`web/src/data/model.ts:127`), så navnet er den kanoniske persons.
 
 ### 2.5 Læserens familiekilde
 
@@ -161,13 +173,18 @@ published binding med hovedpersonen som subjekt og tilladt narrativ. **De 6 ægt
 **Ikke-mål**
 
 - Nye personer, familier eller familiemedlemmer (opret-benet, B4). Et ægteskab uden familie (5 hovedpersoner uden
-  familie, 2 uden ordinal) får en synlig disposition, ikke en ny familie. 5b's `person_create`-gren bruges ikke på 1939.
+  familie, 2 uden ordinal) får ikke en ny familie. 5b's `person_create`-gren bruges ikke på 1939.
+- **»Synlig disposition« er ikke en ny skrivning.** Der findes ingen writer for et partsløst relationsforslag:
+  `relation_disposition_state` (`schema.sql:20454`) gælder kun klausuldispositioner `afventer_identitet`, hvis
+  relationsforslag allerede har parter med identitet. Forslag, 6d-3 ikke binder, står `proposed`; runnerens
+  `maal`/`verify` tæller dem pr. årsag med nøgle (`interpretation_key`), og `status.md` registrerer dem som kendt
+  begrænsning. Ingen editionsnavngiven årsagskode gemmes i basen (*mit valg*).
 - `relation-child-v2` på placementkoordinater og en menneskelig gren i børnebindingen. De 4 børneforslag står
-  `proposed` med synlig disposition (`kraever_boerneregel_1939`) og tælles i færdigbeviset (*mit valg*, ændrer 6d-spec
-  §7; registreres i decisions ved godkendelse). Anti-målet nedenfor gælder dermed ikke for dem: de bliver ikke
-  accepteret uden binding.
-- 5b's `person_create`-gren, også for 2018-20: I-11 (familie uden ægtefælle) og II-35 (ingen familie) får synlig
-  disposition som 1939's 7 (*mit valg*).
+  `proposed` og tælles i færdigbeviset med årsagen »børnereglen læser 1939's syntetiske koordinater« (*mit valg*,
+  ændrer 6d-spec §7; registreres i decisions ved godkendelse). Anti-målet nedenfor gælder dermed ikke for dem: de
+  bliver ikke accepteret uden binding.
+- 5b's `person_create`-gren, også for 2018-20: I-11 (familie uden ægtefælle) og II-35 (ingen familie) står `proposed`
+  og tælles som 1939's 7 (*mit valg*).
 - `mention.person` (17), at gøre 1939 internt perfekt, og at rette 1939 efter 2018-20.
 - 1939-koordinaterne i læseren og en udgavevælger for familier (6e).
 
@@ -201,13 +218,13 @@ published binding med hovedpersonen som subjekt og tilladt narrativ. **De 6 ægt
    ad 2a's vej: `red_afgoer_relation_interpretation` (`schema.sql:18864`) med kandidat fra
    `relation_structural_candidates` (`:18838`), som kræver en accepteret primary-persona fra samme kilde på
    modpartens eksakte medlemsrække og præcis én kandidat; Task 0 måler kandidatdækningen for de 6, og manglende eller
-   flertydige kandidater får disposition (Codex fund 1). De 4 børn får disposition (§4); ingen maskinel børneregel
-   på kilde 3. De 6 ægteskaber med to klausuler får disposition (`flere_klausuler`; usynlige i læseren, §2.5).
+   flertydige kandidater står `proposed` (Codex fund 1). De 4 børn står `proposed` (§4); ingen maskinel børneregel
+   på kilde 3. De 6 ægteskaber med to klausuler står `proposed` (usynlige i læseren selv med binding, §2.5).
 5. **Afstemning gennem læsergaten:** hver planlagt binding afstemmes nøglet gennem hele `public_family_sources`'
    gate efter ceremonien (som anon); en binding, der er gyldig, men usynlig, er et fund, ikke et færdigbevis
    (Codex fund 2).
 6. **2018-20's partsløse ægteskaber:** I-103 og V-159 køres med 2018-20's v3-profil i samme ceremoni; I-11 og II-35
-   får disposition (§4).
+   står `proposed` (§4).
 
 ### 5.2 Spor D
 
@@ -240,7 +257,12 @@ modpart vises ikke; en ukendt modpart (ikke i aliaskortet) sammenlignes uændret
 ### 5.4 Spor O (1791)
 
 *Min anbefaling (projektejerens valg, §9):* `red_samme_som(1791 → 392)`, komponentens sink (1198 er selv alias for
-392, §2.6); skrives samme ceremoni som spor D og med samme forudsætningstjek. Begrundelse: 1791 er et stykke af Conrads post (narrativet 94 % i
+392, §2.6); skrives samme ceremoni som spor D og med samme forudsætningstjek.
+**Følge, der ikke stod i projektejerens valg:** læseren henter fakta for alle fysiske medlemmer af komponenten
+(`web/src/data/personMembers.ts`, `public_person_facts`), så 1791's to legacy-fakta (`navn` »fyenske Rytterreg.)«
+og `død` 21 Juli 1708) vil stå i Conrads faktaliste som »fra den oprindelige import«. Planen afgør i Task 0, om
+`navn`-faktummet kan fjernes med `red_slet_oplysning` (importerede påstande kan være spærret, invariant 1), og viser
+projektejeren resultatet før ceremonien. Begrundelse: 1791 er et stykke af Conrads post (narrativet 94 % i
 1198's post; samme dødsdag); i læseren folder 742/743 sammen med 540/541, fordi ægtefællerne allerede kanoniserer til
 815/816, så Gabel og Hahn får én ægtemand. Det er en eksisterende redaktørhandling, kan fortrydes og sletter
 intet. Ulempe: »fyenske Rytterreg.)« bliver et alias-navn under Conrad, og 742/743 består som dubletfamilier.
