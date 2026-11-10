@@ -206,12 +206,23 @@ published binding med hovedpersonen som subjekt og tilladt narrativ. **De 6 ægt
    Profilen adskiller **navneregel** og **tilladte prædikater med payloadform**: v3-grenen afviser i dag andet end
    ægteskaber (`schema.sql:17595`), så 1939-profilen skal eksplicit tillade `relation.parent` med v1's payloadform
    (Codex fund 9).
+   **Foldningen gælder også ægteskabsnummeret (Codex runde 2, fund 1).** `relation_marriage_ordinals` (`:17472`)
+   nummererer postens ægteskaber efter positionen af det eneste ordnede ordvindue (`relation_ordered_windows`) i den
+   ufoldede tekst; uden vindue bliver positionen NULL og sorteres sidst, og writeren genbruger og kontrollerer
+   nummeret (`:17674`, `:17681`). Målt: **59 af 1939's 271 ægteskaber har ingen position** (57 forekomster), og i
+   **11 poster med flere ægteskaber** kan nummereringen derfor være forkert, så kandidatfamilien bliver forkert. Profilens
+   foldning skal bruges i positions- og nummerberegningen med tilbageføring til originalens positioner, og 2018-20's
+   numre skal være uændrede (regression). Bevis: poster med flere ægteskaber og blandet orddeling. §2.1's 264
+   ordinaltræf er målt med de nuværende, muligvis forkerte numre.
 2. **Udtræk.** Målet er, at de 160 linjeskift-sager bliver elementer. De 13 med sidemarkør eller afkortning parkeres
    synligt, medmindre foldningen også dækker sidemarkøren (byggerens valg, men tallet rapporteres).
 3. **Identitet.** Ægtefællens persona får kandidater blandt hovedpersonens 1939-familiers partnere. Maskinel accept
-   følger **hele** 5b's eksisterende eligibility-kontrakt (`private.check_family_corroboration`, `schema.sql:19435`:
-   entydig familie med ordinal, postens ægteskabsantal = personens familieantal, ingen `omstridt`/`formodet`
-   konfidens, intet dobbeltmål) med blind stikprøve, ikke kun »ordinal + navn« (Codex fund 7). Task 0 måler
+   følger **hele** 5b's eksisterende eligibility-kontrakt (`red_corroborate_family_identities` →
+   `decide_source_persona_identity` → `private.check_family_corroboration`, `schema.sql:19576`, `:10319`, `:19435`:
+   postens ægteskabsantal = personens familieantal, ordinalvalg ved flere familier (ved én familie kræves intet
+   ordinalmatch, `:19490`), ingen `omstridt`/`formodet` konfidens, intet dobbeltmål, kandidatmålet = familiens eksakte
+   legacy-partner, navnetærskel, stikprøve og eksklusioner) med blind stikprøve, ikke kun »ordinal + navn« (Codex
+   fund 7, runde 1+2). Task 0 måler
    populationen og afvisningsårsagerne før kortrunden; resten på kort.
 4. **Afgørelse og binding.** Ægteskaber som 2b-i: `red_decide_relation_interpretations` (kun `relation.marriage`,
    `schema.sql:19785`) og `red_promote_relation_interpretations_batch` med `structural_family`. **Forældre** går
@@ -256,43 +267,51 @@ modpart vises ikke; en ukendt modpart (ikke i aliaskortet) sammenlignes uændret
 
 ### 5.4 Spor O (1791)
 
-*Min anbefaling (projektejerens valg, §9):* `red_samme_som(1791 → 392)`, komponentens sink (1198 er selv alias for
-392, §2.6); skrives samme ceremoni som spor D og med samme forudsætningstjek.
-**Følge, der ikke stod i projektejerens valg:** læseren henter fakta for alle fysiske medlemmer af komponenten
-(`web/src/data/personMembers.ts`, `public_person_facts`), så 1791's to legacy-fakta (`navn` »fyenske Rytterreg.)«
-og `død` 21 Juli 1708) vil stå i Conrads faktaliste som »fra den oprindelige import«. Planen afgør i Task 0, om
-`navn`-faktummet kan fjernes med `red_slet_oplysning` (importerede påstande kan være spærret, invariant 1), og viser
-projektejeren resultatet før ceremonien. Begrundelse: 1791 er et stykke af Conrads post (narrativet 94 % i
-1198's post; samme dødsdag); i læseren folder 742/743 sammen med 540/541, fordi ægtefællerne allerede kanoniserer til
-815/816, så Gabel og Hahn får én ægtemand. Det er en eksisterende redaktørhandling, kan fortrydes og sletter
-intet. Ulempe: »fyenske Rytterreg.)« bliver et alias-navn under Conrad, og 742/743 består som dubletfamilier.
-*Alternativ:* slette 742, 743 og 1791 (måling og samtykke først; `red_slet_person_preview` viser blokeringer). Det
-fjerner 1823/1824's eneste familier og deres datoer bliver familieløse. 1795 afgøres på kort: levn → samme behandling
-mod den person, kortet peger på, eller stå.
+1791 er et stykke af Conrads post (narrativet 94 % i 1198's post; samme dødsdag). To veje, begge eksisterende
+redaktørhandlinger, der kan fortrydes og ikke sletter noget:
+
+- **(a) `red_samme_som(1791 → 392)`** (projektejerens første valg, §9). Komponentens sink er 392 (1198 er alias for
+  392, §2.6). I læseren folder 742/743 sammen med 540/541, og Gabel og Hahn får én ægtemand (empirisk prøve, §2.4).
+  **Følge, opdaget efter valget:** læseren henter fakta for alle fysiske medlemmer af komponenten
+  (`web/src/data/personMembers.ts`, `public_person_facts`), så 1791's `navn` »fyenske Rytterreg.)« og `død` står i
+  Conrads faktaliste som »fra den oprindelige import«. De kan ikke fjernes: begge påstande er `uforanderlig=true`, og
+  `red_slet_oplysning` afviser importerede påstande (`schema.sql:6736`; målt på stand-in'en).
+- **(b) `red_set_privat(1791, true)`** (`schema.sql:6821`; *min nye anbefaling*). `person_offentlig` udelukker private
+  personer, og `family_offentlig` skjuler en familie, når et medlem ikke er offentligt; det kaskaderer til fakta,
+  relationer og narrativer. 1791, dens to fakta og familierne 742/743 forsvinder for læseren. 1823/1824 (alias for
+  815/816) består med deres datoer. Empirisk prøve (core's collapse uden 1791 og 742/743): Gabel og Hahn har hver én
+  ægtemand (Conrad), 0 nye karantæner. Ingen `samme_som`, så Conrads komponent røres ikke, og collapse kan ikke
+  karantænere på en skjult tvilling (1791 har ingen kanter). Fortrydes med `red_set_privat(1791, false)`.
+  Ulempe: 1791 og 742/743 består i redaktørens visning som dubletter; `privat` betyder i skemaet »manuel skjulning«
+  (`schema.sql:128`), ikke GDPR-privat, så brugen er inden for flagets formål.
+
+Projektejeren afgør (a) eller (b) (§9). 1795 afgøres på kort: levn → samme behandling, eller stå.
 
 ## 6. Prod og fortrydelse
 
 - **DDL-blok:** profildata + writerens opslag + evt. hjælpefunktioner; idempotent i `db-migrations.sql`,
   `schema.sql` opdateres, `db-verify.sql` asserter 2018-20-profilernes uændrede opførsel. `get_advisors` efter DDL.
 - **Dataceremoni:** runner i `~/.private/5ab-overfoersel/` med `maal/apply/verify/fortryd --jeg-mener-det`, som
-  6d-1/6d-2b. Rækkefølge: spor D og O, så spor R. Persona- og mention-id'er er **indholdsafledte**
-  (`content_uuid`, `schema.sql:17735`, `:17745`), mens batch-, autorisations-, kørsels- og versions-id'er og
-  `samme_som`-relationernes id'er er tilfældige pr. kørsel (Codex fund 10). Pins og afstemning går på indhold
-  (`interpretation_key`, `record_key`, `family_id`, person-id-par), aldrig på tilfældige id'er.
-- **Fortrydelse:** 5b's fortrydelse var *restore-only* (5b-spec §13; der findes ingen writer-reversal for
-  relationspersonas, kun `red_reverse_reimport_publication`/`red_reverse_reimport_cases` for andre batchtyper).
-  Restore i prod er ikke trofast (memory: anon-grants via default privileges, nye DDL-objekter består, bogmærker og
-  tilmeldinger forsvinder lydløst). Planen skal derfor vælge: (a) restore med vindues-vagt pr. tabel og katalogdiff,
-  som 6c-2, eller (b) en fortrydelse, der kun rører ceremoniens egne rækker (nøglet på indhold).
-  - **Spor D og O:** (b) med `red_fjern_samme_som` (`schema.sql:7695`). `red_samme_som` returnerer et eksisterende
-    link (begge retninger) uden at skrive (`:7658-7662`), og fjernelsen sletter relationens evidens (`:7705-7706`).
-    Kvitteringen binder derfor pr. par: førbillede (intet link), faktisk relation-id og retning, og »oprettet af denne
-    ceremoni«; fortrydelsen rører kun links med det mærke og aldrig et genbrugt link (Codex fund 6).
-  - **Spor R:** **restore-only**, som 5b (§13 dér), med skrivepause fra backup til `VERIFY_OK`, vindues-vagt pr.
-    tabel og katalogdiff (6c-2's form). En accepteret relationsfortolkning kan ikke genafgøres via normal-RPC'en
-    (`schema.sql:9609`), og genåbning kræver et faktisk familieskift (`:19912-19920`); fremadrettet rettelse er
-    driftens vej for enkeltsager, ikke ceremoniens fortrydelse (Codex fund 5).
-  Planen beviser begge veje på stand-in før prod.
+  6d-1/6d-2b. Rækkefølge: spor D og O, så spor R. Indholdsafledte id'er (`content_uuid`): persona og mention
+  (`schema.sql:17735`, `:17745`) og identitetskandidatkørsler (`:11317`). Tilfældige pr. kørsel: batch-,
+  autorisations- og versions-id'er, change_sets og `samme_som`-relationernes id'er (Codex fund 10, runde 1+2). Pins
+  og afstemning går på indhold (`interpretation_key`, `record_key`, `family_id`, person-id-par).
+- **Fortrydelse: ét regime for ceremonien (Codex runde 2, fund 2).** 5b's fortrydelse var *restore-only* (5b-spec
+  §13): der findes ingen writer-reversal for relationspersonas, en accepteret relationsfortolkning kan ikke genafgøres
+  via normal-RPC'en (`schema.sql:9609`), og genåbning kræver et faktisk familieskift (`:19912-19920`). Derfor:
+  - **Ceremoniens `fortryd` = restore** af dumpet taget umiddelbart **før spor D** (altså før alle tre spor), med
+    skrivepause fra dump til `VERIFY_OK`, vindues-vagt pr. tabel og katalogdiff (6c-2's form; memory: restore er ikke
+    trofast, bogmærker og tilmeldinger forsvinder lydløst). Der er ingen deltilstande: fejler et spor, fortrydes hele
+    ceremonien.
+  - **Efter `VERIFY_OK`** er der ingen restore. Enkeltsager rettes fremad som drift: et D-link fjernes med
+    `red_fjern_samme_som` (`:7695`), O fortrydes med sin modhandling, og en relationsidentitet rettes med kernens
+    menneskelige oprindelse. Fjernelsen af et D-link sletter **al** relationens evidens (`:7165`), så den er kun
+    tilladt for et link, ceremonien beviseligt oprettede, og hvis evidensen er uændret siden kvitteringen (Codex
+    runde 2, fund 3). Mærket »oprettet af denne ceremoni« etableres **i samme transaktion** som skrivningen: runneren
+    tager `samme_som_mutation`-låsen (`pg_advisory_xact_lock(hashtext('samme_som_mutation'))`, samme som RPC'en,
+    `:7655`), tjekker førbilledet (intet link i nogen retning), kalder `red_samme_som` og gemmer relation-id, faktisk
+    retning, change_set og evidensens efterbillede i kvitteringen.
+  Planen beviser restore-fortrydelsen og én drift-fjernelse på stand-in før prod.
 - **Web:** spor L deployes med Vercel **før** DB-ceremonien (læserrettelsen er harmløs uden 1939-bindinger, og
   anti-målet kræver, at bindingerne er synlige fra første øjeblik).
 - Stand-in: en frisk restore af prod efter 6d-2b (ICU, `statement_timeout` 2 min som prod).
@@ -317,8 +336,10 @@ undtagelser og en stikprøve.
 ## 9. Projektejerens valg (2026-11-10)
 
 1. **Spor D er med i 6d-3** (≤44 kort uden forudfyldning).
-2. **1791 kobles til Conrad** med `red_samme_som(1791 → 392)` (Conrads komponents sink; 1198 → 392); 742/743 består som dubletfamilier. Det tæller som
-   »ryddet« i decisions 2026-11-10's forstand: læseren viser ikke længere 1791 som ægtemand.
+2. **1791: genåbnet efter Codex runde 2.** Første valg var `samme_som` → Conrad. Efter valget viste det sig, at
+   1791's uforanderlige `navn`- og `død`-fakta så står i Conrads faktaliste (§5.4 a). Ny anbefaling: `red_set_privat`
+   (§5.4 b). Afventer projektejeren. Begge veje tæller som »ryddet« i decisions 2026-11-10's forstand: læseren viser
+   ikke længere 1791 som ægtemand.
 3. **Spor L er med i 6d-3** og deployes før dataceremonien.
 
 ## 10. Reviewlog
@@ -347,5 +368,19 @@ MINOR.** Afvejet af Opus mod koden og stand-in'en; alle nødvendige.
 | 9 | Profil skal adskille prædikater | nødvendig (efterprøvet `:17595`) | §5.1.1 |
 | 10 | Persona/mention-id'er er indholdsafledte | nødvendig (efterprøvet `:17735`) | §6 |
 
-Review-budgettet (B13) har ét Codex-review tilbage: diffen før prod. Planen gennemgås ikke af Codex, medmindre
-projektejeren beder om det.
+**Efterprøvning efter runde 1 (Opus, rådgiver):** empirisk collapse-prøve (§2.4), overslag over maskinpopulationen
+(§2.1), »synlig disposition« er ikke en skrivning (§4), 1791's fakta i Conrads faktaliste (§5.4).
+
+**Codex-runde 2 (2026-11-10, `gpt-6.1-sol`, ud over budgettet på projektejerens anmodning): NO-GO.** Runde 1: 7
+LUKKET, 3 DELVIST (5, 6, 10). 4 nye MAJOR, afvejet af Opus; alle nødvendige.
+
+| # | Fund | Afvejning | Ændring |
+|---|---|---|---|
+| 1 | Foldning mangler i ægteskabsnummeret | nødvendig; målt 59/271 uden position, 11 poster i risiko (`:17472`) | §5.1.1 |
+| 2 | Én ceremoni, to fortrydelsesregimer | nødvendig | §6: ét regime, restore af dump før D |
+| 3 | Oprettet-mærket beviser ikke sikker fjernelse | nødvendig (efterprøvet `:7165`) | §6: mærke i samme transaktion + evidens-efterbillede |
+| 4 | 1791's fakta kan ikke slettes | nødvendig; målt: `uforanderlig=true` (`:6736`) | §5.4: ny vej (b) `red_set_privat`, empirisk prøvet; §9 genåbnet |
+| R1-10 | Kandidatkørsler er også indholdsafledte | nødvendig (`:11317`) | §6 |
+| R1-7 | Én familie kræver intet ordinalmatch; overslaget er ikke hele kontrakten | nødvendig | §5.1.3 |
+
+Review-budgettet (B13) har ét Codex-review tilbage: diffen før prod.
