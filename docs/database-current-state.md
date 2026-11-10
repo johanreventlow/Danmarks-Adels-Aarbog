@@ -549,11 +549,13 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   `T6D2A_FOER_DDL` (fase allerede `ddl`) uden at skrive.
 - **Efter DDL:** `fase=ddl regel=10 synlige_anon=9 bio_oversigt=0`, KOORD og FAKTA uændrede, BIO `de88b746…`.
   `T6D2A_ANON_BUDGET_BRUDT` på `bio_alle` (25.123 og 24.858 ms i to kørsler; stand-in'erne viste +2-8 %). Personsidens
-  kald (én persons id'er) leverer stadig biografien som anon. Projektejeren valgte at fortsætte (decisions 2026-11-10).
-- **Advisors** (dashboardet, projektejeren): eneste nye fund er `authenticated_security_definer_function_executable`
-  på `red_overview_mentions` (forventet, som de øvrige `red_*`). De to nye `private`-funktioner er ikke kaldbare udefra.
-  `anon`-fundene er de 11 kendte offentlige læsere; ingen nye tabeller (ingen nye `rls_enabled_no_policy`).
-  `auth_leaked_password_protection` er en kendt Auth-indstilling uden for 6d-2a.
+  kald (én persons id'er) er ikke timet; projektejeren så personsider komme frem (≈4-6 s, ikke bekræftet som anon).
+  Projektejeren valgte at fortsætte (decisions 2026-11-10).
+- **Advisors** (dashboardet, projektejeren, kun *security*; *performance* ikke set): ingen før-liste at diffe mod, så
+  vurderingen bygger på DDL'ens objekter. Blandt dem optræder kun `red_overview_mentions`
+  (`authenticated_security_definer_function_executable`, forventet som de øvrige `red_*`); de to nye `private`-funktioner
+  optræder ikke. `anon`-fundene er 11 offentlige læsere (to af dem, biografilæserne, ændret af DDL'en, var anon-kaldbare
+  før); DDL'en oprettede ingen tabeller. `auth_leaked_password_protection` er en Auth-indstilling uden for 6d-2a.
 - **Dump før data (B1, fortrydelsens grundlag):** `daa-prod-20261110135430-6d2a.dump`, 19.456.941 bytes, sha
   `07b86122de69102a23c77747d2c401f45d1f0200824aecb7f74147b62952e997`; age
   `f968648926ab7ee365f4cb7809ca407deb1a7dd4ea63d7e1b58eec868d45d033` (SFTP, rundtur ok; første forsøg `SFTP_FEJL`
