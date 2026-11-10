@@ -529,6 +529,28 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 26. Trin 6d-2b: fire forkert tilskrevne 1939-tekster trukket tilbage — LIVE i prod (2026-11-10)
+
+**Grundlag:** decisions 2026-11-10 (6d-2b indsnævret). Ingen DDL. Den eksisterende redaktørhandling
+`red_tilbagetraek_legacy_narrative` blev kaldt fire gange i én transaktion af den private runner
+`~/.private/5ab-overfoersel/35-trin6d2b.sh` (sha `c994eae27592f64f…`; trin `maal`, `apply --jeg-mener-det`, `verify`,
+`fortryd --jeg-mener-det`). Aktøren er projektejerens redaktørkonto (`b2/aktoer.txt`, hash-verificeret). Sessionen kørte
+alle trin efter projektejerens udtrykkelige ønske.
+
+- **Fastlåst indhold:** narrativ 598 (person 929), 603 (934), 1165 (1791) og 1169 (1795), hver med tekstens sha256 og
+  status `grandfathered_publication`. 1939's synlige narrativer (`person_daa_narrative_publication_allowed`) var før 569
+  (id-mængde sha `298d147c…`), forventet efter 565 (`b39c08c0…`). Prod svarede præcis det ved `maal`.
+- **Generalprøve** på stand-in `daa5ab_ddl_standin_20261110171715_6d2b` (kopi af `6d2afb` = prod efter 6d-2a): apply →
+  verify → en anden apply afvist (`T6D2B_FOER_VIS`) → fortryd (samme 569-mængde) → apply → verify. To fejl fanget og
+  rettet før prod: `SELECT SELECT` i plpgsql og `NARRATIVE_RECORD_FOREIGN_CHANGE_SET` (change_set nulstilles mellem
+  kaldene).
+- **Prod:** `T6D2B_MAAL_OK` → `T6D2B_APPLY_OK` → `T6D2B_VERIFY_OK`: de fire står som `withdrawn`, 4 aktuelle
+  `legacy_withdrawn`-events (begrundelse `6d-2b: …`), 565 synlige med den forventede mængde. Transaktionen tjekkede også,
+  at der kom præcis 4 change_sets.
+- **Fortrydelse:** `35-trin6d2b.sh fortryd --jeg-mener-det` (bevist på stand-in) fortryder de fire aktuelle events med
+  `red_fortryd_person_narrative_publication_event`. Teksterne er ikke slettet.
+- **Ikke rettet her (6d-3):** levnspersonen 1791 er stadig offentlig og står som `partner` i familie 742 og 743.
+
 ## 25. Trin 6d-2a: oversigtsreglen og 1939's sidste identitetssager — LIVE i prod (2026-11-10)
 
 **Procedure:** `docs/runbooks/trin6d2a-prod.md`, privat runner `~/.private/5ab-overfoersel/34-trin6d2a.sh` (sha

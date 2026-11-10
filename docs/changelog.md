@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-10 — trin 6d-2b i prod: fire forkert tilskrevne 1939-tekster trukket tilbage
+
+6d-2b blev indsnævret (decisions 2026-11-10). De tre mekanismer fra 6d-2a §9 ville næsten intet ændre for læseren, så
+de fire synlige 1939-tekster uden egen post er i stedet trukket tilbage med den eksisterende redaktørhandling: 929
+(mest Dosos post), 934 (en omtale i Hartvigs post), 1791 (et stykke af Conrads post) og 1795 (navnløs). Synlige
+1939-narrativer 569 → 565. Ingen DDL; generalprøve inkl. fortrydelse på stand-in. De 38 tekstrettelser, de 6
+grænsefejl og afstemningswriterens fejl er kendte begrænsninger. Levnspersonen 1791's to partnerskaber og de 29
+records uden narrativbinding går til 6d-3. Detaljer i `database-current-state.md` §26.
+
 ## 2026-11-10 — trin 6d-2a i prod: oversigtsreglen og 1939's sidste identitetssager
 
 Spec, plan, kode og runbook i PR #312 (slut-generalprøve på stand-in `6d2ae` fra prod-dump-kopien `975285af…`,
