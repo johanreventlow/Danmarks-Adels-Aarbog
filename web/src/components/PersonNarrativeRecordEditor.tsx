@@ -169,6 +169,9 @@ export function PersonNarrativeRecordEditor({ personId, onChange }: Props) {
     }
   }, [load, onChange, personId, texts]);
 
+  const overviewNote = (sourceId: number) => overview.has(sourceId)
+    ? <div role="note">Oversigtsomtale — vises ikke som biografi (detaljepost: person {overview.get(sourceId)})</div>
+    : null;
   const openLegacyWithdrawal = (legacy: LegacyNarrativePublication) => {
     setLegacyWithdrawal(legacy);
     setLegacyReason('');
@@ -225,7 +228,7 @@ export function PersonNarrativeRecordEditor({ personId, onChange }: Props) {
             <div>{record.sourceLabel}</div>
             <div>{record.citationLabel}</div>
             <div>{statusLabel[record.status]}</div>
-            {overview.has(record.sourceId) ? <div role="note">Oversigtsomtale — vises ikke som biografi (detaljepost: person {overview.get(record.sourceId)})</div> : null}
+            {overviewNote(record.sourceId)}
             {record.blockingReason ? <div role="status">{record.blockingReason}</div> : null}
             {editable ? (
               <textarea
@@ -258,6 +261,7 @@ export function PersonNarrativeRecordEditor({ personId, onChange }: Props) {
         {read.legacyPublications.map((legacy) => (
           <article key={legacy.legacyPublicationRef} aria-label="Overgangsbiografi">
             <p>{legacy.text}</p>
+            {legacy.sourceId !== null ? overviewNote(legacy.sourceId) : null}
             <div>{legacy.status === 'legacy_active' ? 'Aktiv overgangsbiografi' : 'Tilbagetrukket overgangsbiografi'}</div>
             {legacy.blockingReason ? <div role="status">{legacy.blockingReason}</div> : null}
             {legacy.allowedActions.includes('withdraw_legacy') ? <button type="button" disabled={busy === legacy.legacyPublicationRef} onClick={() => openLegacyWithdrawal(legacy)}>Tag biografi ned</button> : null}

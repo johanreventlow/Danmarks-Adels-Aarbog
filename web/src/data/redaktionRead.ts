@@ -352,6 +352,8 @@ export type PersonNarrativeRecord = {
 
 export type LegacyNarrativePublication = {
   legacyPublicationRef: string;
+  sourceId: number | null;
+  narrativeId: number;
   status: 'legacy_active' | 'legacy_withdrawn';
   stateSha256: string;
   text: string;
@@ -372,6 +374,7 @@ type RawNarrativeRecordRow = {
   record_key: unknown;
   source_record_ref: unknown;
   legacy_publication_ref: unknown;
+  narrative_id: unknown;
   record_label: unknown;
   citation_label: unknown;
   narrative_text: unknown;
@@ -453,6 +456,8 @@ export function mapNarrativeRecordRows(rows: RawNarrativeRecordRow[]): PersonNar
       if (status == null || actions.some((action) => action !== 'withdraw_legacy')) return recordContractError();
       legacyPublications.push({
         legacyPublicationRef: requiredString(row.legacy_publication_ref),
+        sourceId: row.source_id == null ? null : requiredPositiveInt(row.source_id),
+        narrativeId: requiredPositiveInt(row.narrative_id),
         status,
         stateSha256: requiredString(row.state_sha256),
         text: requiredString(row.narrative_text),

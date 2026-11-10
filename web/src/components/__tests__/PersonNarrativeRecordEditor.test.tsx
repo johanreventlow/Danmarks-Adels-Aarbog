@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { PersonNarrativeRecordEditor } from '../PersonNarrativeRecordEditor';
 import { fetchOverviewMentionSources, fetchPersonNarrativeRecords } from '../../data/redaktionRead';
@@ -24,6 +24,8 @@ const record = (overrides: Record<string, unknown> = {}) => ({
 
 const legacy = (overrides: Record<string, unknown> = {}) => ({
   legacyPublicationRef: 'legacy-1',
+  sourceId: 19,
+  narrativeId: 501,
   status: 'legacy_active',
   stateSha256: 'b'.repeat(64),
   text: 'Bevaret overgangstekst',
@@ -241,4 +243,24 @@ test('RPC-fejl på oversigtsmærket giver intet mærke og editoren vises', async
   expect(screen.queryByText(/Oversigtsomtale —/)).toBeNull();
   expect(screen.queryByRole('alert')).toBeNull();
   warn.mockRestore();
+});
+
+test('overgangsbiografi får oversigtsmærket, når dens source_id er en oversigtskilde', async () => {
+  (fetchOverviewMentionSources as ReturnType<typeof vi.fn>).mockResolvedValue(new Map([[19, 7]]));
+  (fetchPersonNarrativeRecords as ReturnType<typeof vi.fn>).mockResolvedValue({
+    records: [],
+    legacyPublications: [
+      legacy(),
+      legacy({ legacyPublicationRef: 'legacy-2', sourceId: 20, narrativeId: 502 }),
+      legacy({ legacyPublicationRef: 'legacy-3', sourceId: null, narrativeId: 503 }),
+    ],
+  });
+
+  render(<PersonNarrativeRecordEditor personId={5} onChange={vi.fn()} />);
+
+  const cards = await screen.findAllByRole('article', { name: 'Overgangsbiografi' });
+  expect(cards).toHaveLength(3);
+  expect(within(cards[0]).getByRole('note').textContent).toBe('Oversigtsomtale — vises ikke som biografi (detaljepost: person 7)');
+  expect(within(cards[1]).queryByRole('note')).toBeNull();
+  expect(within(cards[2]).queryByRole('note')).toBeNull();
 });

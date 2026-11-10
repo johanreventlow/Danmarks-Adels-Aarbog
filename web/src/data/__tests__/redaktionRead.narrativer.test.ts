@@ -61,6 +61,7 @@ const legacyRow = (overrides: Record<string, unknown> = {}) => ({
     record_key: null,
     source_record_ref: null,
     legacy_publication_ref: 'f6f58094-9ed2-4723-ac21-7c0ba25f2cf9',
+    narrative_id: 501,
     publication_status: 'published',
     narrative_text: 'Bevaret overgangstekst',
     allowed_actions: ['withdraw_legacy'],
@@ -88,12 +89,21 @@ describe('narrative record read-adapter', () => {
     }]);
     expect(mapped.legacyPublications).toEqual([{
       legacyPublicationRef: 'f6f58094-9ed2-4723-ac21-7c0ba25f2cf9',
+      sourceId: 19,
+      narrativeId: 501,
       status: 'legacy_active',
       stateSha256: 'a'.repeat(64),
       text: 'Bevaret overgangstekst',
       allowedActions: ['withdraw_legacy'],
       blockingReason: null,
     }]);
+  });
+
+  it('legacy-række: source_id NULL giver sourceId null; ugyldig narrative_id er kontraktfejl', () => {
+    expect(mapNarrativeRecordRows([legacyRow({ source_id: null })]).legacyPublications[0]).toMatchObject({ sourceId: null, narrativeId: 501 });
+    expect(() => mapNarrativeRecordRows([legacyRow({ narrative_id: null })])).toThrow('NARRATIVE_RECORD_EDITOR_RESPONSE_INVALID');
+    expect(() => mapNarrativeRecordRows([legacyRow({ narrative_id: 'x' })])).toThrow('NARRATIVE_RECORD_EDITOR_RESPONSE_INVALID');
+    expect(() => mapNarrativeRecordRows([legacyRow({ source_id: 0 })])).toThrow('NARRATIVE_RECORD_EDITOR_RESPONSE_INVALID');
   });
 
   it('maps server record blocking and legacy publication statuses to the explicit client states', () => {
