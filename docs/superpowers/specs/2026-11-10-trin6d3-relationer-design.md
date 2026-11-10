@@ -1,7 +1,7 @@
 # Delspec 6d-3 — 1939's relationer (ægteskaber, forældre, børn) og oprydning efter legacy-importen
 
-**Status:** udkast 2026-11-10, ikke godkendt. Projektejeren sprang brainstormens spørgsmål over (»spring
-spørgsmålene over«); valgene nedenfor er *mit valg*, indtil projektejeren har svaret på §9.
+**Status:** udkast 2026-11-10, afventer projektejerens godkendelse af dokumentet. Projektejeren sprang
+brainstormens spørgsmål over og har besvaret §9's tre valg (alle som anbefalet). Øvrige valg er markeret *mit valg*.
 **Overordnet spec:** `docs/superpowers/specs/2026-10-29-trin6-1939-gennem-kaeden-design.md` §3 (læseroplevelsen),
 §5 (6d's rækkefølge, pkt. 3 relationer), §6 pkt. 8 (1939 hører hjemme på kilde 3-rækken; sammenhængen bæres af
 afklaret `samme_som`; ingen nye familier eller familiemedlemmer), §8 (færdigbevis).
@@ -250,11 +250,12 @@ undtagelser og en stikprøve.
    viser én ægtefælle; Conrads ægtefæller viser én ægtemand.
 4. `status.md`'s relationsrække for 1939 hæves til `produktionsverificeret`.
 
-## 9. Projektejerens valg (åbne)
+## 9. Projektejerens valg (2026-11-10)
 
-1. Spor D med i 6d-3 (≤44 kort), eller backlog?
-2. 1791: `samme_som` → Conrad (anbefalet) eller sletning af 742/743/1791?
-3. Spor L i 6d-3 (anbefalet) eller i 6e?
+1. **Spor D er med i 6d-3** (≤44 kort uden forudfyldning).
+2. **1791 kobles til Conrad** med `red_samme_som(1791 → 1198)`; 742/743 består som dubletfamilier. Det tæller som
+   »ryddet« i decisions 2026-11-10's forstand: læseren viser ikke længere 1791 som ægtemand.
+3. **Spor L er med i 6d-3** og deployes før dataceremonien.
 
 ## 10. Reviewlog
 
