@@ -42,7 +42,12 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   af rapporten.
 > - **Flyttes til 6d-3's måling:** de 29 records uden narrativbinding (sider 498-539; 21 uden persona, 8 uden helpost),
 >   som 6d-1-spec'en §7 lagde i 6d-2 og 6d-2a ikke nævnte. 6d-3 afgør, om relationerne kræver personas for dem.
->   Desuden levnspersonen 1791, som har 2 familiemedlemskaber, og de skjulte dubletter 1135 (af 1130) og 940 (af 1810).
+>   Desuden de skjulte dubletter 1135 (af 1130) og 940 (af 1810).
+> - **6d-3 skal rydde op i levnspersonerne** (ikke kun måle): en tilbagetrækning skjuler kun teksten, ikke personen.
+>   1791 er offentlig og står som `partner` i familie 742 (med 1823) og 743 (med 1824). Formodentlig er det Conrads
+>   (1198) to ægteskaber, så læseren ser »fyenske Rytterreg.)« som ægtefælle. 6d-3 bygger 1939's ægteskaber om og skal
+>   flytte eller fjerne de to partnerskaber og afgøre, hvad der bliver af personen og dens 2 fakta. Afgøres 1795 som
+>   et levn, gælder det samme for den (offentlig, 1 faktum, ingen familier).
 > - **Ændrer** 6d-2a §9 og decisions 2026-11-07 (færdigbeviset »de 13 har record-binding«): af de 13 bindes ingen. 5
 >   er oversigtsomtaler under reglen, de synlige forkerte trækkes tilbage efter kortene, og de skjulte står som ovenfor.
 
