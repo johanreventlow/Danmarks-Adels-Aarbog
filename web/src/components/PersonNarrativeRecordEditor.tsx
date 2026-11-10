@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Change } from '../data/redaktionWrite';
 import {
-  fetchOverviewMentionSources,
-  fetchOverviewMentions,
+  fetchOverviewMarks,
   fetchPersonNarrativeRecords,
   type LegacyNarrativePublication,
   type PersonNarrativeRecord,
@@ -119,9 +118,9 @@ export function PersonNarrativeRecordEditor({ personId, onChange }: Props) {
     let current = true;
     setOverview(new Map());
     setOverviewNarratives(new Map());
-    Promise.all([fetchOverviewMentionSources(personId), fetchOverviewMentions([personId])]).then(([marks, byNarrative]) => {
+    fetchOverviewMarks(personId).then(({ bySource, byNarrative }) => {
       if (current) {
-        setOverview(marks);
+        setOverview(bySource);
         setOverviewNarratives(byNarrative);
       }
     }).catch((e) => {

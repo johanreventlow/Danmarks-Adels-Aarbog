@@ -2,9 +2,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { PersonNarrativeRecordEditor } from '../PersonNarrativeRecordEditor';
-import { fetchOverviewMentionSources, fetchOverviewMentions, fetchPersonNarrativeRecords } from '../../data/redaktionRead';
+import { fetchOverviewMarks, fetchPersonNarrativeRecords } from '../../data/redaktionRead';
 
-vi.mock('../../data/redaktionRead', () => ({ fetchPersonNarrativeRecords: vi.fn(), fetchOverviewMentionSources: vi.fn(), fetchOverviewMentions: vi.fn() }));
+vi.mock('../../data/redaktionRead', () => ({ fetchPersonNarrativeRecords: vi.fn(), fetchOverviewMarks: vi.fn() }));
 
 const record = (overrides: Record<string, unknown> = {}) => ({
   sourceId: 2018,
@@ -36,8 +36,7 @@ const legacy = (overrides: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  (fetchOverviewMentionSources as ReturnType<typeof vi.fn>).mockResolvedValue(new Map());
-  (fetchOverviewMentions as ReturnType<typeof vi.fn>).mockResolvedValue(new Map());
+  (fetchOverviewMarks as ReturnType<typeof vi.fn>).mockResolvedValue({ bySource: new Map(), byNarrative: new Map() });
 });
 
 test('sorterer sources nyeste først og recordkort efter side før record key', async () => {
@@ -227,17 +226,17 @@ test('viser oversigtsmærke kun på kildens markerede narrativ', async () => {
     ],
     legacyPublications: [],
   });
-  (fetchOverviewMentionSources as ReturnType<typeof vi.fn>).mockResolvedValue(new Map([[2018, 77]]));
+  (fetchOverviewMarks as ReturnType<typeof vi.fn>).mockResolvedValue({ bySource: new Map([[2018, 77]]), byNarrative: new Map([[900, 77]]) });
   render(<PersonNarrativeRecordEditor personId={5} onChange={vi.fn()} />);
   expect(await screen.findByText('Oversigtsomtale — vises ikke som biografi (detaljepost: person 77)')).toBeTruthy();
   expect(screen.getAllByText(/Oversigtsomtale —/)).toHaveLength(1);
-  expect(fetchOverviewMentionSources).toHaveBeenCalledWith(5);
+  expect(fetchOverviewMarks).toHaveBeenCalledWith(5);
 });
 
 test('RPC-fejl på oversigtsmærket giver intet mærke og editoren vises', async () => {
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   (fetchPersonNarrativeRecords as ReturnType<typeof vi.fn>).mockResolvedValue({ records: [record({ recordLabel: 'Kildepost 20' })], legacyPublications: [] });
-  (fetchOverviewMentionSources as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('REDAKTION_REQUIRED'));
+  (fetchOverviewMarks as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('REDAKTION_REQUIRED'));
   render(<PersonNarrativeRecordEditor personId={5} onChange={vi.fn()} />);
   expect(await screen.findByRole('article', { name: /Kildepost 20/ })).toBeTruthy();
   await waitFor(() => expect(warn).toHaveBeenCalled());
@@ -247,8 +246,7 @@ test('RPC-fejl på oversigtsmærket giver intet mærke og editoren vises', async
 });
 
 test('overgangsbiografi får oversigtsmærket på sin egen narrativ, ikke på udgaven', async () => {
-  (fetchOverviewMentionSources as ReturnType<typeof vi.fn>).mockResolvedValue(new Map([[19, 7]]));
-  (fetchOverviewMentions as ReturnType<typeof vi.fn>).mockResolvedValue(new Map([[501, 7]]));
+  (fetchOverviewMarks as ReturnType<typeof vi.fn>).mockResolvedValue({ bySource: new Map([[19, 7]]), byNarrative: new Map([[501, 7]]) });
   (fetchPersonNarrativeRecords as ReturnType<typeof vi.fn>).mockResolvedValue({
     records: [],
     legacyPublications: [
@@ -268,5 +266,5 @@ test('overgangsbiografi får oversigtsmærket på sin egen narrativ, ikke på ud
   expect(within(cards[1]).queryByRole('note')).toBeNull();
   expect(within(cards[2]).queryByRole('note')).toBeNull();
   expect(within(cards[3]).queryByRole('note')).toBeNull();
-  expect(fetchOverviewMentions).toHaveBeenCalledWith([5]);
+  expect(fetchOverviewMarks).toHaveBeenCalledTimes(1);
 });

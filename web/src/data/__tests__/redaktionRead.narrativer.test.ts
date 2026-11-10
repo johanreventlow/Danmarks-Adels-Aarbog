@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchOverviewMentionSources, fetchOverviewMentions, fetchPersonNarrativeRecords, mapNarrativeRecordRows, mapNarrativer } from '../redaktionRead';
+import { fetchOverviewMarks, fetchOverviewMentionSources, fetchOverviewMentions, fetchPersonNarrativeRecords, mapNarrativeRecordRows, mapNarrativer } from '../redaktionRead';
 import { supabase } from '../../supabase';
 
 vi.mock('../../supabase', () => ({
@@ -180,6 +180,11 @@ describe('fetchOverviewMentionSources', () => {
     (supabase.from as ReturnType<typeof vi.fn>).mockReturnValue(chain);
     const out = await fetchOverviewMentionSources(5);
     expect([...out.entries()]).toEqual([[2, 4]]);
+    (supabase.rpc as ReturnType<typeof vi.fn>).mockClear();
+    const marks = await fetchOverviewMarks(5);
+    expect([...marks.bySource.entries()]).toEqual([[2, 4]]);
+    expect([...marks.byNarrative.entries()]).toEqual([[11, 4]]);
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
   });
   it('henter ikke narrativer, når intet er markeret', async () => {
     (supabase.rpc as ReturnType<typeof vi.fn>).mockResolvedValue({ data: [], error: null });

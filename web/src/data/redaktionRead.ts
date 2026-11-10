@@ -510,14 +510,20 @@ export async function fetchOverviewMentions(personIds: number[]): Promise<Map<nu
 // v2-editoren viser kildeposter (nøglet på source_id), ikke narrativ-id'er: oversæt de markerede narrativer til
 // source_id (source_id -> detail_person_id). Én narrativ pr. (person, udgave), så mærket gælder udgavens poster.
 export async function fetchOverviewMentionSources(personId: number): Promise<Map<number, number>> {
-  const mentions = await fetchOverviewMentions([personId]);
-  const out = new Map<number, number>();
-  if (mentions.size === 0) return out;
+  return (await fetchOverviewMarks(personId)).bySource;
+}
+
+// Ét RPC-kald, to opslag: v2-kildeposter mærkes pr. source_id, overgangsbiografier pr. egen narrativ (der kan være
+// flere overgangsnarrativer for samme kilde). Begge afledes af samme svar, så de ikke kan modsige hinanden.
+export async function fetchOverviewMarks(personId: number): Promise<{ bySource: Map<number, number>; byNarrative: Map<number, number> }> {
+  const byNarrative = await fetchOverviewMentions([personId]);
+  const bySource = new Map<number, number>();
+  if (byNarrative.size === 0) return { bySource, byNarrative };
   for (const n of await fetchNarrativer('person', personId)) {
-    const detail = mentions.get(n.id);
-    if (detail !== undefined && n.sourceId !== null) out.set(n.sourceId, detail);
+    const detail = byNarrative.get(n.id);
+    if (detail !== undefined && n.sourceId !== null) bySource.set(n.sourceId, detail);
   }
-  return out;
+  return { bySource, byNarrative };
 }
 
 // --- Hændelses-tidslinje (levende feed fase 2) ---
