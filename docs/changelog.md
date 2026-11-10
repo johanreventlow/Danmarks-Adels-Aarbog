@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-10 — trin 6d-2a i prod: oversigtsreglen og 1939's sidste identitetssager
+
+Spec, plan, kode og runbook i PR #312 (slut-generalprøve på stand-in `6d2ae` fra prod-dump-kopien `975285af…`,
+Codex-review af grenen og runneren). DDL (GO `41981aa8`): tre nye funktioner, ændrede biografilæsere og
+`red_samme_som`. Data (GO `fb102458`): `samme_som` 1014 → 1048 og identitet for tre oversigtspersonas i én transaktion
+(`T6D2A_OK kanter=1 identiteter=3 regel=11`). Fakta og koordinater uændrede; ingen ny biografi leveret til
+oversigtspersoner. Tidsbudgettet blev brudt for biografilæseren med alle personer (12,7 → ≈25 s; personsidens kald
+209-487 ms som anon), accepteret af projektejeren (decisions 2026-11-10). Detaljer i `database-current-state.md` §25.
+
 ## 2026-11-09 — trin 6d-1 i prod: 1939's placements og medlemskaber
 
 Spec, plan, kode, runbook og beslutninger i PR #310 (generalprøve på stand-in fra prod-dumpet `1653c8f7…`, Codex-runde
