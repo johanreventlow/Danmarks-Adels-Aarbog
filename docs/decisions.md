@@ -27,6 +27,11 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   familier eller `samme_som` og berører ikke relationerne.
 > - **Fortrydelse:** ét regime — restore af dump taget før spor D, fra ethvert præfiks af ceremonien; efter
 >   `VERIFY_OK` almindelig redigering, ingen selektiv ceremoni-fortrydelse.
+> - **Ændret i plan-Task 0 (projektejerens valg 2026-11-10): kilde 1 udgår af 6d-3.** v3-reglen giver I-103 `I`
+>   (`intet_navn`) og V-159 `U` (`flere_klausuler`); arket tillader kun `I`/`U`, så ingen persona kan oprettes, og
+>   V-159 ville fejle læsergatens `n_support=1`. Alle 4 partsløse 2018-20-ægteskaber står `proposed` med årsag;
+>   kilde 1 er byte-ens før og efter (spec §5.1.6). D-kandidaterne er målt til 42 hos 41 personer (specens 44 var en
+>   øvre grænse).
 
 ## BESLUTTET: 6d-2b indsnævres til at trække forkert tilskrevne 1939-tekster tilbage; resten bliver kendte begrænsninger (2026-11-10)
 

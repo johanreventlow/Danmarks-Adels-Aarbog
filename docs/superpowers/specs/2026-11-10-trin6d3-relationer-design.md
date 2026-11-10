@@ -149,7 +149,7 @@ published binding med hovedpersonen som subjekt og tilladt narrativ. **De 6 ægt
 
 | Spor | Indhold |
 |---|---|
-| **R — relationer** | 5b-vejen på kilde 3 og I-11: relationspersonas → identitet → afgørelse → strukturel binding |
+| **R — relationer** | 5b-vejen på kilde 3: relationspersonas → identitet → afgørelse → strukturel binding (kilde 1's 4 partsløse står `proposed`, §5.1.6) |
 | **D — dobbelt ægtefælle** | `samme_som` mellem 1939's ægtefællerække og tvillingens ægtefælle, hvor kortet bekræfter det |
 | **L — læseren** | familiekilden slår modparten op kanonisk |
 | **O — oprydning** | 1791 (og 1795, hvis kortet afgør den som levn) |
@@ -183,7 +183,7 @@ published binding med hovedpersonen som subjekt og tilladt narrativ. **De 6 ægt
   `proposed` og tælles i færdigbeviset med årsagen »børnereglen læser 1939's syntetiske koordinater« (*mit valg*,
   ændrer 6d-spec §7; registreres i decisions ved godkendelse). Anti-målet nedenfor gælder dermed ikke for dem: de
   bliver ikke accepteret uden binding.
-- 5b's `person_create`-gren, også for 2018-20: I-11 (familie uden ægtefælle) og II-35 (ingen familie) står `proposed`
+- 5b's `person_create`-gren, også for 2018-20: kilde 1's 4 partsløse (I-11, II-35, I-103, V-159; §5.1.6) står `proposed`
   og tælles som 1939's 7 (*mit valg*).
 - `mention.person` (17), at gøre 1939 internt perfekt, og at rette 1939 efter 2018-20.
 - 1939-koordinaterne i læseren og en udgavevælger for familier (6e).
@@ -234,8 +234,11 @@ published binding med hovedpersonen som subjekt og tilladt narrativ. **De 6 ægt
 5. **Afstemning gennem læsergaten:** hver planlagt binding afstemmes nøglet gennem hele `public_family_sources`'
    gate efter ceremonien (som anon); en binding, der er gyldig, men usynlig, er et fund, ikke et færdigbevis
    (Codex fund 2).
-6. **2018-20's partsløse ægteskaber:** I-103 og V-159 køres med 2018-20's v3-profil i samme ceremoni; I-11 og II-35
-   står `proposed` (§4).
+6. **2018-20's partsløse ægteskaber:** alle 4 står `proposed`; kilde 1 skrives ikke i 6d-3. *Ændret 2026-11-10
+   (plan-Task 0, projektejerens valg):* v3-reglen på kilde 1 giver I-103 `I` (`intet_navn`) og V-159 `U`
+   (`flere_klausuler`); arket tillader for begge kun `I`/`U`, så ingen persona kan oprettes, og V-159 ville desuden
+   fejle læsergatens `n_support=1`. Årsagerne registreres pr. nøgle (I-103 `intet_navn`, V-159 `flere_klausuler`,
+   I-11 og II-35 som §2.1). Kilde 1's numre, bindinger og familiekilder er byte-ens før og efter.
 
 ### 5.2 Spor D
 
@@ -362,7 +365,7 @@ undtagelser og en stikprøve.
 **Byggertjek 2026-11-10 (Opus, frisk kontekst):** 6 spørgsmål, efterprøvet mod koden og stand-in'en.
 1. Børnebindingen kræver `relation-child-v1` → efterprøvet (`schema.sql:19599-19604`); børnene får disposition (§4).
 2. §9's valg → forelagt projektejeren.
-3. 2018-20's 4 partsløse ægteskaber → målt (§2.7); 2 bindes, 2 får disposition.
+3. 2018-20's 4 partsløse ægteskaber → målt (§2.7); 2 bindes, 2 får disposition. *Ændret i plan-Task 0: alle 4 står `proposed` (§5.1.6).*
 4. Familie uden ægtefælle → målt: 0 af 1939's 271 (§2.1).
 5. »Ingen af dem« på D-kort → skrives ikke i basen (§5.2).
 6. Deployrækkefølge → spor L før ceremonien (§6).

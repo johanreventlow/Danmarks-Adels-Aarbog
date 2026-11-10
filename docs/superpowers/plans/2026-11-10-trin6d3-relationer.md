@@ -42,7 +42,8 @@ trin 1); Opus afvejer hvert fund. Projektejeren har frigivet budgettet 2026-11-1
   `private.relation_persona_profile`/`reimport_writer_profile`; ingen `source_id = 3`, `'1939'` eller `'2018-20'` i
   funktionskroppe eller i scripts' logik (kun i profilfiler/-rækker).
 - **2018-20 uændret:** `relation_marriage_ordinals`, `relation_binding_state` og `public_family_sources` giver
-  byte-ens resultat for kilde 1 før og efter DDL'en (md5 i opgraderingstesten og `maal`).
+  byte-ens resultat for kilde 1 før og efter DDL'en og ceremonien (md5 i `maal` på stand-in og prod; kilde 1 skrives
+  ikke i 6d-3, spec §5.1.6).
 - **Ingen opret-ben:** ingen `person_create`, ingen nye familier/familiemedlemmer, ingen ny dispositionsskrivning;
   ubundne forslag står `proposed` og tælles pr. årsag (spec §4).
 - **Rækkefølge i dataceremonien:** D, O, så R; ændres `samme_som` efter R's kandidatkørsel, genberegnes kandidater og
@@ -81,22 +82,23 @@ trin 1); Opus afvejer hvert fund. Projektejeren har frigivet budgettet 2026-11-1
 Noter, prober, kort og svar i `~/.private/6d3/` (0600). Stand-in: frisk restore af prod efter 6d-2b
 (`daa5ab_ddl_standin_<ts>_6d3a`), oprettet fra projektejerens `dump-kopi`.
 
-- [ ] **Trin 1: Genmål spec §2** på stand-in'en (samme forespørgsler; scratchpad `6d3/pp.sql`): 281/271/6/4,
-  `principal_ok`, familieklasser (333; 226/62/2/9/34), 44 D-kandidater, retning (237/290), 59 uden position,
-  gate-tal (281 består; 6 `n_support=2`), 1791/1795/933/935/940/1135. Afvigelse → stop og forelæg.
-- [ ] **Trin 2: v3-udtrækket på 1939 uden foldning:** `relation_persona_v3_input(3)` → `relation_persona_extract_v3`
-  (lokalt, ingen skrivning); tæl elementer og parkeringer pr. årsag. Det er nulpunktet for Task 4.
-- [ ] **Trin 3: Forældrenes kandidater:** `private.relation_structural_candidates` for de 6 → antal med præcis én
-  kandidat; resten står `proposed`. Samme måling for kilde 1: gældende `relation.parent` `proposed` med præcis én
-  strukturel kandidat (dem `red_register_identity_control_run` ville tage med som forældrekort, `schema.sql:19295`);
-  forventet 0 efter 6c-3. Over 0 → stop og forelæg (Codex plan-r2 fund 1).
-- [ ] **Trin 3b: Kilde 1's to nøgler:** slå `interpretation_key` (UUID) op for I-103's og V-159's partsløse
-  `relation.marriage` via `record_key` → `~/.private/6d3/k1-nye.json` (postnøgle → UUID); sha'en bindes i GO
-  (Codex plan-r2 fund 2).
-- [ ] **Trin 4: Browsertjek som anon mod prod** (læsning): 2 af de 44 (fx 1065/18) viser to ægtefæller; Gabel (815)
-  viser to ægtemænd. Skærmbilleder i `~/.private/6d3/`.
-- [ ] **Trin 5: Vis tabet før kortene** (memory: vis tab før kortrunde): tal for D (44 kandidater, heraf med >1
-  tvillingægtefælle), O (1791; 1795's tekst mod bogen), forventet R-population. Ét samlet valg.
+- [x] **Trin 1: Genmål spec §2** (2026-11-10, stand-in `daa5ab_ddl_standin_20261110214451_6d3a` fra prods
+  `dump-kopi` sha `f10943f4…`): alt som spec §2 (281/271/6/4, `principal_ok`, 333 familier, 62/9/34, retning 237/237
+  og 2 ikke-alias hovedpersoner, 59 uden position, gate 265/6, 1791-topologi og de skjulte). Én definitionsafvigelse,
+  samme tal på den gamle stand-in (ingen drift): **42 D-kandidater hos 41 personer** (hovedperson koblet, ægtefælle
+  ikke, tvillingens familie uden for 1939 har en ægtefælle) mod specens øvre grænse 44/43; 35 har én
+  tvillingægtefælle, 7 har to. Klasse 226/2 måles som 228/0 med komponent-sink.
+- [x] **Trin 2: v3-udtrækket på 1939 uden foldning** (271 ægteskaber): S 77, D 7, N 6; U 181 (`navn_uklart` 67,
+  `intet_vindue` 54, `partner_ligner` 46, `navn_afkortet` 7, `flere_klausuler` 6, `nummer_modsiger_bog` 1).
+  Nulpunktet for Task 4.
+- [x] **Trin 3: Forældrenes kandidater:** kilde 3's 6 har 0 i dag, fordi principal-parten først sættes af
+  persona-batchen; simuleret med postens primary-persona: 1 af 6 med præcis én kandidat, 5 uden; de 4 børn uden.
+  Genmåles efter Task 6 trin 1. Kilde 1: 1 forældreforslag, 0 kandidater.
+- [x] ~~Trin 3b~~ udgår: kilde 1 skrives ikke i 6d-3 (projektejerens valg 2026-11-10, spec §5.1.6): v3 giver I-103
+  `I`/`intet_navn` og V-159 `U`/`flere_klausuler`, og arket tillader kun `I`/`U`.
+- [x] **Trin 4:** erstattet af `collapseSameAs`/`buildModel` på stand-in'ens data (= prod): 18 har to ægtefæller
+  (598/1537), 815 og 816 hver to ægtemænd (392/1791), 0 karantæner. Browsertjekket som anon sker i Task 9 trin 4.
+- [x] **Trin 5: Tabet vist** og godkendt 2026-11-10: D 42 kort, O 1791 + kort for 1795, R som trin 2-3; kilde 1 ude.
 - [ ] **Trin 6: D/O-kort** (lokal HTML, flettet ind i token-arket; memory: kortark kræver kontekst + HTML): pr. kandidat
   1939-ægtefællens navn, datoer, posttekst og side mod *alle* tvillingens ægtefæller (navn, datoer, familie-id);
   ingen forudfyldning. Svar `S <n>` / `I` (ingen af dem). Kort for 1795: `P` (privat) / `B` (bevar). Manifest =
@@ -108,7 +110,8 @@ Noter, prober, kort og svar i `~/.private/6d3/` (0600). Stand-in: frisk restore 
   opgraderingsbaser), 1 (commit-grænser listet + ét ekstra afbrudspunkt; intet fuldt katalog-/ACL-aftryk). Rettet
   i Task 2, 3, 5-9 (»Codex plan-fund n«). Smal runde 2 på rettelserne: NO-GO, 3 MAJOR, alle nødvendige med enkel
   løsning (kilde 1 via eksisterende `mode=list` + måling af forældrekort; `K1_NYE` på UUID og promotion-definition;
-  profilnøgle `(profile, source_id)` + shelltest-fixtures). Rettet (»plan-r2 fund n«). Ingen runde 3 på planen;
+  profilnøgle `(profile, source_id)` + shelltest-fixtures). Rettet (»plan-r2 fund n«); kilde 1-delen udgik senere
+  i trin 3b. Ingen runde 3 på planen;
   næste Codex-runde er diffen (Task 9).
 
 ### Task 1: Spor L — kildefiltre med kanonisk modpart
@@ -248,16 +251,11 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
 (Task 7's SQL køres i en øvelsestransaktion, eller midlertidigt med samme kald).
 
 - [ ] **Trin 1: Persona-batch** med 1939-profilen: `relation_persona_input.sql -v source_id=3` → Task 4's udtræk →
-  `relation_persona_apply.sql -v source_id=3 -v profile_file=…/relation-persona-1939.json`. Tæl personas.
-  Samme trin for kilde 1 med 2018-20's v3-profil, begrænset til I-103 og V-159 (spec §5.1.6; I-11 og II-35 står
-  `proposed`) via `relation_persona_v3_input(1)` filtreret på `record_key`.
-- [ ] **Trin 2: Kandidater og kontrol.** Kilde 3: `packages/identity-candidates/sql/export-input.sql -v source_id=3 -v mode=undecided`.
-  Kilde 1: `-v source_id=1 -v mode=list -v personas=<de to persona-id'er fra trin 1>` (eksisterende afgrænsning;
-  ingen andre kilde 1-personas kommer med). Begge → `npm run cli -w @daa/identity-candidates -- generate --source-id <3|1> --top-k 10 --family-name-min 0.95` →
-  `write-candidates.sql` → `red_register_identity_control_run`; kilde 1-kørslens forældrekort skal være 0 (Task 0
-  trin 3), og dens persona-population præcis de to (ellers stop). De to følger resten af kæden (korroboration/kort →
-  afgørelse → binding) som kilde 3 (Codex plan-fund 4, plan-r2 fund 1). Tæl kort (homonymer + K=20 + forældre +
-  kilde 1's to).
+  `relation_persona_apply.sql -v source_id=3 -v profile_file=…/relation-persona-1939.json`. Tæl personas. Kilde 1
+  køres ikke (spec §5.1.6). Genmål forældrenes kandidater (Task 0 trin 3).
+- [ ] **Trin 2: Kandidater og kontrol** (kun kilde 3): `packages/identity-candidates/sql/export-input.sql -v source_id=3 -v mode=undecided`
+  → `npm run cli -w @daa/identity-candidates -- generate --source-id 3 --top-k 10 --family-name-min 0.95` →
+  `write-candidates.sql` → `red_register_identity_control_run`. Tæl kort (homonymer + K=20 + forældre).
 - [ ] **Trin 3: Mål maskinpopulationen** som `red_corroborate_family_identities` vil se den (dry-run i rullet-tilbage
   transaktion efter et forseglet testark): accepteret / afvist pr. årsag. Forelæg projektejeren tallene og
   kortomfanget før kortene (memory: vis tab før kortrunde).
@@ -294,14 +292,13 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
 - O: `red_set_privat(1791, true)` (og 1795 ved `P`) efter førtjek (`privat=false`, familier 742/743 uændrede);
   `T6D3_O_OK privat=<n>`.
 - `maal_trin6d3.sql` printer én linje: `T6D3_MAAL fase=<foer|ddl|d|o|r> forslag_k3=<m/p/c> bundne_k3=<n> samme_som=<n>
-  dobbelt=<n> privat_1791=<0|1> uden_position=<n> K1_ORD=<md5> K1_BIND=<md5> K1_NYE=<nøgler> FAMKILDER=<md5>`
-  (`dobbelt` = de 44 klassers tæller fra spec §2.4; `K1_ORD`/`K1_BIND` = kilde 1's numre og bindingstilstande for
-  de bindinger, der fandtes ved `foer` (nøglemængden fastlåses i `foer`-filen); »bundet« = promotion findes, den
-  promoverede version er den aktuelt accepterede, og gemt state-hash = genberegnet `relation_binding_state`-hash
-  (samme definition som `schema.sql:20891`; en ikke-NULL `relation_binding_state` alene betyder kun »kan bindes«);
-  `K1_NYE` = sorterede `interpretation_key`-UUID'er for kilde 1-bindinger uden for `foer`-mængden, krævet = præcis
-  de to UUID'er i `k1-nye.json` (Task 0 trin 3b) efter `r` og tom før (Codex plan-fund 4, plan-r2 fund 2);
-  `FAMKILDER` = `public_family_sources` som anon for alle offentlige familier; tom mængde bag en md5 → fejl).
+  dobbelt=<n> privat_1791=<0|1> uden_position=<n> K1_ORD=<md5> K1_BIND=<md5> FAMKILDER=<md5>`
+  (`dobbelt` = de 42 kandidaters tæller fra Task 0 trin 1; `K1_ORD`/`K1_BIND` = kilde 1's numre og bundne
+  forslag med tilstand, hvor »bundet« = promotion findes, den promoverede version er den aktuelt accepterede, og
+  gemt state-hash = genberegnet `relation_binding_state`-hash (samme definition som `schema.sql:20891`; en
+  ikke-NULL `relation_binding_state` alene betyder kun »kan bindes«; Codex plan-r2 fund 2). Kilde 1 skrives ikke i
+  6d-3, så begge er byte-ens i alle faser (spec §5.1.6). `FAMKILDER` = `public_family_sources` som anon for alle
+  offentlige familier; tom mængde bag en md5 → fejl).
 
 - [ ] **Trin 1: Fejlende tests:** målescriptets format; D på en lokal base med opdigtede personer: `S` → link med
   1939-rækken som alias; `I` → intet skrevet; forkert svar-sha → `T6D3_PRE_SHA`; eksisterende link før ceremonien →
@@ -349,7 +346,7 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
 - [ ] **Trin 3: Prod** i projektejerens shell efter runbooken; AI'en læser kvitteringer og mål.
 - [ ] **Trin 4: Færdigbevis** (spec §8) i `status.md` (relationsrækken for 1939 → `produktionsverificeret`),
   `database-current-state.md` og changelog: elementer, parkeringer pr. årsag, identiteter (maskine/kort), afgørelser,
-  bindinger; D-links; 1791 privat; ubundne `proposed` pr. årsag med nøgle; kilde 1's `K1_ORD`/`K1_BIND` uændret for
-  de eksisterende bindinger og `K1_NYE` = I-103's og V-159's UUID'er (`k1-nye.json`); browsertjek som anon
+  bindinger; D-links; 1791 privat; ubundne `proposed` pr. årsag med nøgle (inkl. kilde 1's 4 partsløse, spec
+  §5.1.6); kilde 1's `K1_ORD`/`K1_BIND`/`FAMKILDER` uændret; browsertjek som anon
   (»DAA 1939« på et ægteskab hos en sammenfoldet person; én ægtefælle hos et D-par; Gabel/Hahn én ægtemand).
 - [ ] **Trin 5:** `docs/decisions.md`: noter 6d-3 i prod; commit `docs(6d): færdigbevis for 6d-3 i prod`.
