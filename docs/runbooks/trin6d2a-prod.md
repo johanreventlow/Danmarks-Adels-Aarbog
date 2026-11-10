@@ -197,6 +197,13 @@ projektejeren, om der skal fortrydes.
     - En eksisterende funktion ændret efter `apply-ddl` → `T6D2A_FORTRYD_KATALOG_AENDRET_EFTER_DDL`; lagt tilbage → OK.
     - En åben `ALTER FUNCTION` på en funktion, blokken erstatter → `apply-ddl` stopper på `lock_timeout` og melder
       `rullet tilbage (maalt: fase foer)`. Fejlkoden vises som `UKENDT_FEJL_SE_…` (lock timeout har ingen kode).
+  - De sidste fire fejlveje (runneren midlertidigt ændret pr. forsøg og lagt tilbage, sha efterprøvet):
+    - `DDL_6D2A_FEJL_EFTER_COMMIT` (fase ddl målt). Første forsøg viste, at katalogaftrykket da manglede, så fortryd-DDL
+      kun gav `T6D2A_ADVARSEL …` (fallback prøvet, OK). Rettet: fejlvejen gemmer nu også aftrykket → anden kørsel
+      `T6D2A_KATALOG_EFTER_DDL_GEMT`, fortryd-DDL `T6D2A_KATALOG_OK`. Runneren er derefter sha `0d22fd46…`.
+    - `DDL_6D2A_UAFKLARET` (fasemålingen gav intet brugbart).
+    - `T6D2A_VINDUE_EFTER_IKKE_GEMT` (ceremonien committet, det tidlige aftryk fejlede) → fortryd stoppede med
+      `T6D2A_VINDUE_EFTER_MANGLER` uden markør; aftrykket genskabt (kun øvelse) → fortryd-data og fortryd-DDL OK, fase `foer`.
   - Overgangsbiografierne (B5), målt med blokken i en tilbagerullet transaktion: 10 oversigtsnarrativer, heraf 4
     overgangsbiografier, som nu får mærket på deres egen narrativ; 0 umarkerede overgangstekster deler kilde med en
     markeret. Alle 11 aktive overgangsrækker har narrativ-id og kilde (kontrakten afviser ellers hele kortet).
