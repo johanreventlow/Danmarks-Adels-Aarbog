@@ -178,6 +178,23 @@ projektejeren, om der skal fortrydes.
   - Restorens fejl er de fire kendte (`current_rolle`, `media_object_synlig_anon`) + advarslen (`restore_fejl=5`).
   - Ingen fastlåst værdi afveg; runneren var da sha `ac7cbd0d…`. Codex-reviewet (Task 8) ændrede den bagefter;
     `6d2ad` gælder ikke længere som slut-generalprøve (se `6d2ae`).
+- `6d2ae` (`daa5ab_ddl_standin_20261110115549_6d2ae`), slut-generalprøven efter Codex-reviewet, fra samme
+  `dump-kopi`; ceremoni og runner som ved commit `9646032f` (runner sha `2653e743…`); senere commits ændrer kun web og
+  docs:
+  - Hovedvejen: `maal` (= prod) → `anon` → `dump` → `apply-ddl` (`T6D2A_KATALOG_EFTER_DDL_GEMT`) → `anon` (OK) →
+    `dump` → `apply-data` (`T6D2A_OK kanter=1 identiteter=3 regel=11`, 14,3 s, `T6D2A_VINDUE_EFTER_GEMT`) → `verify`
+    (OK, budget OK) → fortryd-data → fortryd-DDL (`T6D2A_KATALOG_OK sammenligning=efter_ddl`) → fase `foer`, BIO
+    `3177a5d1…`.
+  - Fejlvejene, alle uden skrivning, restore eller markør, hvor intet skulle ske:
+    - Genkørt `apply-data` på et ddl-dump, en ceremoni allerede har committet på → `T6D2A_VINDUE_EFTER_FINDES`.
+    - Fortryd-data på et dump uden ceremoni → `T6D2A_VINDUE_INGEN_CEREMONI`, sammenlignet som DDL, OK.
+    - Fortryd-data i fase `data` uden aftryk → `T6D2A_VINDUE_EFTER_MANGLER`. (Opstod ved en runnerfejl, som
+      generalprøven fandt og som er rettet; aftrykket blev genskabt med vinduets SQL, og fortrydelsen gik igennem.)
+    - Fejl lige efter COMMIT (runneren midlertidigt ændret, sha efterprøvet bagefter) → det tidlige aftryk forfremmet
+      (`T6D2A_VINDUE_EFTER_GEMT`) → fortryd-data OK.
+    - En eksisterende funktion ændret efter `apply-ddl` → `T6D2A_FORTRYD_KATALOG_AENDRET_EFTER_DDL`; lagt tilbage → OK.
+    - En åben `ALTER FUNCTION` på en funktion, blokken erstatter → `apply-ddl` stopper på `lock_timeout` og melder
+      `rullet tilbage (maalt: fase foer)`. Fejlkoden vises som `UKENDT_FEJL_SE_…` (lock timeout har ingen kode).
 - **Appens sammenlægning** (Codex-fund 8; `collapseSameAs` fra `packages/core` på anon-data fra en prod-kopi med DDL
   og data):
   - 715 afklarede kanter og 9 karantænegrupper, både før og efter.
@@ -194,4 +211,5 @@ projektejeren, om der skal fortrydes.
 4. Uafhængig review (Codex) af runneren og grenen: 12 fund → 8 rettet (runner: manglende aftryk, genkørsel på
    samme dump, DDL-fejlens fase, aftryk før måling, katalog efter DDL; gren: låse i ceremonien, mærket på
    overgangsbiografier, faktatesten), 4 afvist/kendt begrænsning.
-5. Ny slut-generalprøve (`6d2ae`) på samme `dump-kopi` med de rettede filer, inkl. fejlvejene for de nye vagter.
+5. ~~Ny slut-generalprøve (`6d2ae`)~~ grøn 10/11 inkl. fejlvejene. Codex' to kontrolrunder af rettelserne fandt
+   yderligere 4 + 1 fund (låserækkefølge, mærket pr. narrativ, aftryk ved fejl, ét kald); alle rettet.
