@@ -47,8 +47,8 @@ Genmåles i plan-Task 0. Kun antal og person-id'er for afdøde.
 - **Postformer:** forslagene ligger på 231 records: 113 ægteskaber på `person`-records, 64 på `marriage`, 65 på
   `relationship`, 29 på `fact`. Alle records har en persona.
 - **Familieopslag:** hovedpersonens familier (`persona_family_context`, `schema.sql:18464`, eksakt person-id): 264 af
-  271 ægteskaber har en familie med samme ordinal; 5 hovedpersoner har ingen familie; 2 har familier, men ingen med
-  ordinalen.
+  271 ægteskaber har præcis én familie med samme ordinal, og den har en ægtefælle; 5 hovedpersoner har ingen familie;
+  2 har familier, men ingen med ordinalen. Intet ægteskab lander i en familie uden ægtefælle.
 
 ### 2.2 5b's udtræk på 1939's tekst
 
@@ -116,8 +116,12 @@ næsten alle. Mobilen viser ikke familiekilder.
   (`schema.sql:17589-17596`, `:17641`); udtrækkerne har dem som konstanter (`relation_persona_extract*.py`).
 - Børneflok-reglen `relation_child_rule` (`schema.sql:18553`) læser `person_external_id.linje/nr/kuld/slaegtled`,
   for 1939 de syntetiske koordinater.
-- **I-11 (2018-20):** kilde 1 har 4 `relation.marriage` `proposed` uden parter, heriblandt I-11's (decisions
-  2026-11-08).
+- **Børnebindingen:** `relation_binding_state` (`schema.sql:19599-19604`) giver kun en binding for
+  `relation.child`, når afgørelsens `method` er `relation-child-v1`, og reglen består ved læsning. En kortafgørelse
+  alene giver derfor ingen binding og ingen synlig kilde for de 4 børneforslag.
+- **I-11 (2018-20):** kilde 1 har 4 `relation.marriage` `proposed` uden parter (decisions 2026-11-08): I-103 og V-159
+  har én familie med ordinalen og en ægtefælle; I-11's familie med ordinalen har ingen ægtefælle; II-35 har ingen
+  familie.
 
 ## 3. Opdeling (*mit valg*)
 
@@ -150,8 +154,12 @@ næsten alle. Mobilen viser ikke familiekilder.
 
 - Nye personer, familier eller familiemedlemmer (opret-benet, B4). Et ægteskab uden familie (5 hovedpersoner uden
   familie, 2 uden ordinal) får en synlig disposition, ikke en ny familie. 5b's `person_create`-gren bruges ikke på 1939.
-- `relation-child-v2` på placementkoordinater. Med 4 børneforslag er en ny regel dyrere end kort (*mit valg*,
-  ændrer 6d-spec §7; registreres i decisions ved godkendelse).
+- `relation-child-v2` på placementkoordinater og en menneskelig gren i børnebindingen. De 4 børneforslag står
+  `proposed` med synlig disposition (`kraever_boerneregel_1939`) og tælles i færdigbeviset (*mit valg*, ændrer 6d-spec
+  §7; registreres i decisions ved godkendelse). Anti-målet nedenfor gælder dermed ikke for dem: de bliver ikke
+  accepteret uden binding.
+- 5b's `person_create`-gren, også for 2018-20: I-11 (familie uden ægtefælle) og II-35 (ingen familie) får synlig
+  disposition som 1939's 7 (*mit valg*).
 - `mention.person` (17), at gøre 1939 internt perfekt, og at rette 1939 efter 2018-20.
 - 1939-koordinaterne i læseren og en udgavevælger for familier (6e).
 
@@ -175,14 +183,17 @@ næsten alle. Mobilen viser ikke familiekilder.
 3. **Identitet.** Ægtefællens persona får kandidater blandt hovedpersonens 1939-familiers partnere. Entydig familie
    med ordinal + navnematch → maskinel accept (5b's kontrolmodel med blind stikprøve); resten på kort.
 4. **Afgørelse og binding.** Som 2b-i: `red_decide_relation_interpretations` og
-   `red_promote_relation_interpretations_batch` med `structural_family`. Forældre og børn (10) går på kort; ingen
-   maskinel børneregel på kilde 3.
-5. **I-11** og de øvrige 3 partsløse 2018-20-ægteskaber køres med 2018-20's v3-profil i samme ceremoni.
+   `red_promote_relation_interpretations_batch` med `structural_family`. De 6 forældre går på kort; de 4 børn får
+   disposition (§4); ingen maskinel børneregel på kilde 3.
+5. **2018-20's partsløse ægteskaber:** I-103 og V-159 køres med 2018-20's v3-profil i samme ceremoni; I-11 og II-35
+   får disposition (§4).
 
 ### 5.2 Spor D
 
 For hver af de ≤44 kandidater viser kortet 1939-ægtefællen (navn, datoer, posttekst, side) mod *alle* tvillingens
-ægtefæller. Projektejeren svarer: samme som ægtefælle *n* / ingen af dem. »Samme« skrives med den eksisterende
+ægtefæller. Projektejeren svarer: samme som ægtefælle *n* / ingen af dem. »Ingen af dem« skrives ikke i basen
+(ingen `red_ikke_samme_som`); svaret står i kortarket og ceremoniens manifest (*mit valg*: én skrivetype færre at
+fortryde). »Samme« skrives med den eksisterende
 `red_samme_som(alias=1939-række, objekt=2018-20-række)` (`schema.sql:7650`), så retningen følger de 237
 eksisterende. Ingen forudfyldning. Spor D kan køres før spor R, fordi identiteten i R peger på 1939-rækken
 uafhængigt af `samme_som`.
@@ -218,7 +229,8 @@ mod den person, kortet peger på, eller stå.
   (b) for spor D og O (`samme_som` fjernes med `red_fjern_samme_som`, `schema.sql:7695`) og for spor R 5b's egen
   regel: rettelse fremad gennem kernens menneskelige oprindelse (`red_afgoer_source_persona`, afløste parter), restore
   kun som nødbremse med skrivepause fra backup til `VERIFY_OK`. Planen beviser fortrydelsen på stand-in før prod.
-- **Web:** spor L deployes med Vercel efter DB-ceremonien (læserrettelsen er harmløs uden 1939-bindinger).
+- **Web:** spor L deployes med Vercel **før** DB-ceremonien (læserrettelsen er harmløs uden 1939-bindinger, og
+  anti-målet kræver, at bindingerne er synlige fra første øjeblik).
 - Stand-in: en frisk restore af prod efter 6d-2b (ICU, `statement_timeout` 2 min som prod).
 
 ## 7. Kort
@@ -226,7 +238,7 @@ mod den person, kortet peger på, eller stå.
 Én kortrunde, lokal HTML med posttekst, side, forældre og familiens øvrige medlemmer (memory: kort kræver kontekst;
 værktøjsnoten fra 6c-3 om forælderarket bygges som repo-værktøj her). Før kortene: tab vist i tal og ét samlet valg
 (memory: vis tab før kortrunde). Forventet omfang: ≤44 D-kort, ægteskaber uden entydig familie/navn (≥7 + parkerede
-efter foldning), 10 forældre/børn, 1795. Model mod PDF-siden må forbehandle (6d-1's form), projektejeren ser
+efter foldning), 6 forældre, 1795. Model mod PDF-siden må forbehandle (6d-1's form), projektejeren ser
 undtagelser og en stikprøve.
 
 ## 8. Færdigbevis
@@ -246,4 +258,10 @@ undtagelser og en stikprøve.
 
 ## 10. Reviewlog
 
-(tom)
+**Byggertjek 2026-11-10 (Opus, frisk kontekst):** 6 spørgsmål, efterprøvet mod koden og stand-in'en.
+1. Børnebindingen kræver `relation-child-v1` → efterprøvet (`schema.sql:19599-19604`); børnene får disposition (§4).
+2. §9's valg → forelagt projektejeren.
+3. 2018-20's 4 partsløse ægteskaber → målt (§2.7); 2 bindes, 2 får disposition.
+4. Familie uden ægtefælle → målt: 0 af 1939's 271 (§2.1).
+5. »Ingen af dem« på D-kort → skrives ikke i basen (§5.2).
+6. Deployrækkefølge → spor L før ceremonien (§6).
