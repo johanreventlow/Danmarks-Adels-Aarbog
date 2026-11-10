@@ -187,19 +187,24 @@ BEGIN
   END LOOP;
   IF EXISTS (SELECT 1 FROM t6_kort WHERE svar='?') THEN RAISE EXCEPTION 'T6D2A_PRE_SVAR kort uden svar'; END IF;
   UPDATE t6_kort SET person=CASE svar WHEN 'A' THEN svar_person ELSE (k#>>'{kandidat,person_id}')::bigint END;
-  -- Lås: samme mutationslås som red_samme_som, og identitets-/personarækkerne, som identitetskortene vedrører.
+  -- Lås-rækkefølge: advisory → person → source_persona → source_persona_identity (persona før identitet som red_afgoer_source_persona).
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
   -- Kvitteringen efterprøves igen under låsen (en samtidig ceremoni kan have committet siden første tjek).
   IF EXISTS (SELECT 1 FROM public.change_set WHERE operation='identitet_ceremoni' AND summary LIKE 'T6D2A\_OK %'
               AND subjekt_type='source' AND subjekt_id=v_src) THEN
     RAISE EXCEPTION 'T6D2A_PRE_FASE';
   END IF;
-  PERFORM 1 FROM private.source_persona_identity
-    WHERE source_persona_id IN (SELECT (k->>'source_persona_id')::uuid FROM t6_kort WHERE handling='identitet'
-                                   AND k->>'source_persona_id' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') FOR UPDATE;
+  -- Personrækkerne (alias + objekt for samme_som-kortene) låses, så staged-tjekket i t6_tjek ikke kan ændre sig før COMMIT.
+  PERFORM 1 FROM public.person
+    WHERE id IN (SELECT (k->>'alias_person_id')::bigint FROM t6_kort WHERE handling='samme_som' AND k->>'alias_person_id' IS NOT NULL
+                 UNION SELECT person FROM t6_kort WHERE handling='samme_som' AND person IS NOT NULL)
+    ORDER BY id FOR UPDATE;
   PERFORM 1 FROM private.source_persona
     WHERE id IN (SELECT (k->>'source_persona_id')::uuid FROM t6_kort WHERE handling='identitet'
                     AND k->>'source_persona_id' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') FOR UPDATE;
+  PERFORM 1 FROM private.source_persona_identity
+    WHERE source_persona_id IN (SELECT (k->>'source_persona_id')::uuid FROM t6_kort WHERE handling='identitet'
+                                   AND k->>'source_persona_id' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') FOR UPDATE;
   -- Førtilstanden for hvert kort (også N-kort: manifestet er ét øjebliksbillede).
   FOR r IN SELECT * FROM t6_kort ORDER BY ord LOOP
     v_why:=pg_temp.t6_tjek(r.k,r.svar,r.person);
