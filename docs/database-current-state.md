@@ -549,8 +549,8 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   `T6D2A_FOER_DDL` (fase allerede `ddl`) uden at skrive.
 - **Efter DDL:** `fase=ddl regel=10 synlige_anon=9 bio_oversigt=0`, KOORD og FAKTA uændrede, BIO `de88b746…`.
   `T6D2A_ANON_BUDGET_BRUDT` på `bio_alle` (25.123 og 24.858 ms i to kørsler; stand-in'erne viste +2-8 %). Personsidens
-  kald (én persons id'er) er ikke timet; projektejeren så personsider komme frem (≈4-6 s, ikke bekræftet som anon).
-  Projektejeren valgte at fortsætte (decisions 2026-11-10).
+  kald (én persons id'er) målt efter data som anon i browseren (`/person/134`): 339, 209 og 487 ms, alle `200`; hele
+  siden 5,62 s. Projektejeren valgte at fortsætte (decisions 2026-11-10).
 - **Advisors** (dashboardet, projektejeren, kun *security*; *performance* ikke set): ingen før-liste at diffe mod, så
   vurderingen bygger på DDL'ens objekter. Blandt dem optræder kun `red_overview_mentions`
   (`authenticated_security_definer_function_executable`, forventet som de øvrige `red_*`); de to nye `private`-funktioner

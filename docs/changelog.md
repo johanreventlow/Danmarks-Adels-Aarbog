@@ -7,7 +7,7 @@ Codex-review af grenen og runneren). DDL (GO `41981aa8`): tre nye funktioner, æ
 `red_samme_som`. Data (GO `fb102458`): `samme_som` 1014 → 1048 og identitet for tre oversigtspersonas i én transaktion
 (`T6D2A_OK kanter=1 identiteter=3 regel=11`). Fakta og koordinater uændrede; ingen ny biografi leveret til
 oversigtspersoner. Tidsbudgettet blev brudt for biografilæseren med alle personer (12,7 → ≈25 s; personsidens kald
-ikke timet), accepteret af projektejeren (decisions 2026-11-10). Detaljer i `database-current-state.md` §25.
+209-487 ms som anon), accepteret af projektejeren (decisions 2026-11-10). Detaljer i `database-current-state.md` §25.
 
 ## 2026-11-09 — trin 6d-1 i prod: 1939's placements og medlemskaber
 

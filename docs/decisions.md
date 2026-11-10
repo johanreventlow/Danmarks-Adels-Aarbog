@@ -11,10 +11,10 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > `T6D2A_ANON_BUDGET_BRUDT`, runbookens stoppunkt før data.
 >
 > - **Hvorfor accepteret:** feedets kald med alle personer lå allerede over anon's 3 s før 6d-2a (fejlede i prod,
->   2026-11-09-noten). Personsidens kald (én persons foldede id'er, `web/src/data/public.ts`) er **ikke timet**:
->   projektejeren åbnede personsider og så dem komme frem, træge (≈4-6 s i alt), men uden at det er bekræftet, at det
->   var som anon, eller målt pr. kald. Antagelsen er, at den ekstra tid ligger i den del af
->   `private.overview_mention_narratives`, der vokser med antal id'er (koden: én gang pr. kald over de givne personer).
+>   2026-11-09-noten). Personsidens kald (én persons foldede id'er, `web/src/data/public.ts`) er **målt i prod efter
+>   data**: projektejeren, logget ud (anon), `/person/134` (1048's kort), browserens netværksfane: tre kald af
+>   `public_person_bio_source_versions_v2` på 339, 209 og 487 ms, alle `200`; hele siden 5,62 s (alle sidens kald).
+>   Den ekstra tid ligger altså i den del af `private.overview_mention_narratives`, der vokser med antal id'er.
 >   Fortryd-DDL (restore under frys) blev vurderet ikke at ændre noget, brugerne mærker.
 > - **Uforklaret:** samme DDL gav +2-8 % på stand-in'erne (6d2ab-6d2ae, efter `ANALYZE`), men +97 % i prod.
 >   Generalprøven forudsagde det altså ikke. En rettelse skal først genskabe fordoblingen lokalt (fx stand-in uden
@@ -25,8 +25,8 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   opdateres ved ændret `samme_som`/medlemskab, i stedet for at beregnes over hele `samme_som`-grafen i hvert kald
 >   (ændrer rev. 4's »live uden gemt markering« — kræver ny beslutning); (2) feedet henter kun biografier for de
 >   viste personer; (3) `EXPLAIN` i prod af planen for `bio_alle` (plan-forskel prod ↔ stand-in).
-> - **Vagt indtil da:** første skridt er at time personsidens biografikald som anon i prod (privat vindue,
->   netværksfanen) — det giver også basis. Derefter ser hvert senere trins `anon`-måling på personsidens kald; nærmer det sig anon's 3 s,
+> - **Vagt indtil da:** basis for personsidens biografikald som anon er 209-487 ms (ovenfor). Hvert senere trins
+>   `anon`-måling ser på personsidens kald; nærmer det sig anon's 3 s,
 >   forsvinder biografien lydløst, og optimeringen rykker frem. Prod-runnere bør derfor måle et enkelt-persons
 >   biografikald ud over `bio_alle`.
 
