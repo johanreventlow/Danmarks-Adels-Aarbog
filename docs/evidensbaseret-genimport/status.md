@@ -1,6 +1,6 @@
 # Evidensbaseret genimport — aktuel status
 
-**Snapshot 2026-11-09**, efter 6d-1 i prod (1939's placements og medlemskaber), 6c-3 (2018-20's A6b-rest), 6m del 2 (faktaforslag rettet efter bogen), 6m del 1 (læsertekst rettet efter bogen) og 6c-2's ceremoni 4 (efter 6c-1, 6b's A, B og C, 6a, 5c-2 + B11, A6b, reviewets trin B, trin 5c-1 og helhedsreviewet
+**Snapshot 2026-11-10**, efter 6d-2a i prod (oversigtsreglen og 1939's sidste identitetssager), 6d-1 (1939's placements og medlemskaber), 6c-3 (2018-20's A6b-rest), 6m del 2 (faktaforslag rettet efter bogen), 6m del 1 (læsertekst rettet efter bogen) og 6c-2's ceremoni 4 (efter 6c-1, 6b's A, B og C, 6a, 5c-2 + B11, A6b, reviewets trin B, trin 5c-1 og helhedsreviewet
 af trin 1-5, [rapport](../reviews/2026-10-27-trin-1-5/rapport.md)). Dokumentet **overskrives** ved hvert trinskifte og hver
 prod-ændring; der skrives ikke tillæg (opdateringsreglen nederst). Det gamle dokument med tillæg til og med
 2026-10-27 står i [status-arkiv-til-2026-10-27.md](status-arkiv-til-2026-10-27.md).
@@ -30,8 +30,13 @@ og de 16 kildehenvisninger er kvitteret som 14 genbundet og 2 tilbagetrukket. Tr
 i prod 2026-11-09** (PR #310, `database-current-state.md` §24, [færdigbevis](placement-6d1-prod.md)): 528 af 1939's
 592 records er placeret med bogens egne koordinater, 528 linjemedlemskaber ligger på 1939-personerne, ledgeren har 528
 `mapped` og 48 `retained_legacy`, og 441 `samme_som`-komponenter er bekræftet af begge udgaver (afledt B6). Læseren
-viser 1939 fra legacy indtil 6e. **Næste delspecs er 6d-2** (personas for de 21 records uden, de 13 ubundne
-narrativer, identitetsflytningerne og de 39 tekstrettelser uden læsertekst) **og 6d-3** (relationer).
+viser 1939 fra legacy indtil 6e. 6d-2 er delt i 6d-2a og 6d-2b (decisions 2026-11-09). **6d-2a er i prod
+2026-11-10** (PR #312, `database-current-state.md` §25): oversigtsreglen gælder i biografilæserne (en 1939-tekst, der
+kun omtaler personen i en nedstigningsoversigt, vises ikke som biografi, når komponenten har detaljepersonens tekst),
+`samme_som` får retning efter data, 1014 er koblet til 1048, og de tre sidste oversigtspersonas har identitet
+(`unresolved` 1 → 0, uden identitet 2 → 0). Biografilæseren med alle personer blev 12,7 → ≈25 s (accepteret;
+optimering udskudt til før projektets afslutning, decisions 2026-11-10). **Næste delspecs er 6d-2b** (binding af de
+viste tekster, 1939-profil til kildetekst-revisionen, grænsemekanismen) **og 6d-3** (relationer).
 
 ## Samlet dom
 
@@ -40,7 +45,7 @@ Kæden kan **binde** det eksisterende til kilden, men har endnu ikke **oprettet*
 fakta, 0 nye personer; review 2-01). Læseren ser nu personens fakta med kilde, og 622 af de 6.473 offentlige
 fakta-rækker er bundet til bogens post (B11). For 2018-20 er trin 1-5 i prod. For 1939 er proveniens,
 narrativpublicering, klausuler, personas, identiteter, modellens forslag, 6c-2/6m's afgørelser og bindinger samt
-6d-1's placements og medlemskaber i prod; resten er 6d-2, 6d-3 og 6e.
+6d-1's placements og medlemskaber og 6d-2a's oversigtsregel og identiteter i prod; resten er 6d-2b, 6d-3 og 6e.
 
 ## Modenhed pr. værdikædeled
 
@@ -64,7 +69,7 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 | Læsere på placement/membership (5c-2) | `produktionsverificeret` 2026-10-29 (GO 5c2 `bb1678f9`: 1.113 koordinater, 530 fra placement, 583 legacy; diff mod legacy 37 felter = forventet, træparitet ok; browsertjek som anon) | — (kilde 3 vises fra legacy indtil trin 6) |
 | Læserflade: fakta med kildehenvisning (B11) | `produktionsverificeret` 2026-10-29 (6.473 fakta-rækker over alle offentlige personer: 622 bundet til bogens post, 5.765 fra importen, 86 uden kilde; 0 bindinger falder ud; PostgREST-gate og browsertjek som anon). Læserkaldet koster op til ~1,9 s pr. person mod anons 3 s (vej B) | — |
 | C3 reversal | — | `integreret ende-til-ende` (ikke udført i prod) |
-| Trin 6 (1939 gennem kæden) | — | 6a i prod 2026-10-30; 6b's A og B i prod 2026-11-01; 6c-1 i prod 2026-11-02 (A, B og 6b's C efter retning 2); 6c-2 i prod 2026-11-06 (tilstand d); 6m del 1 i prod 2026-11-07 (268 narrativer revideret); 6m del 2 i prod 2026-11-07 (93 forslagsversioner, 14 påstandsrettelser, 37 bindinger); 6c-3 i prod 2026-11-08 (2018-20's A6b-rest: 14 genbundet, 2 tilbagetrukket); 6d-1 i prod 2026-11-09 (528 placements og medlemskaber); 6d-2, 6d-3 og 6e ikke påbegyndt |
+| Trin 6 (1939 gennem kæden) | — | 6a i prod 2026-10-30; 6b's A og B i prod 2026-11-01; 6c-1 i prod 2026-11-02 (A, B og 6b's C efter retning 2); 6c-2 i prod 2026-11-06 (tilstand d); 6m del 1 i prod 2026-11-07 (268 narrativer revideret); 6m del 2 i prod 2026-11-07 (93 forslagsversioner, 14 påstandsrettelser, 37 bindinger); 6c-3 i prod 2026-11-08 (2018-20's A6b-rest: 14 genbundet, 2 tilbagetrukket); 6d-1 i prod 2026-11-09 (528 placements og medlemskaber); 6d-2a i prod 2026-11-10 (oversigtsregel, 1014 → 1048, 3 identiteter); 6d-2b, 6d-3 og 6e ikke påbegyndt |
 | Trin 7a, 7b | ikke påbegyndt; ingen spec | ikke påbegyndt |
 
 ## Gates før trin 6 (fra reviewet)

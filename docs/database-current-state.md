@@ -529,6 +529,47 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 25. Trin 6d-2a: oversigtsreglen og 1939's sidste identitetssager — LIVE i prod (2026-11-10)
+
+**Procedure:** `docs/runbooks/trin6d2a-prod.md`, privat runner `~/.private/5ab-overfoersel/34-trin6d2a.sh` (sha
+`0d22fd46…`, med `34-trin6d2a-vindue.sql`). Repo `ca4edb4e` (`main` med PR #312; blokkens sha `dfaaf9dacebdcac2…`,
+`db-rls.sql` `16ac093b…`). To skrivende ceremonier, kørt af projektejeren; læsetrinnene kørt af sessionen.
+
+- **Før:** `fase=foer kanter_par=0 unresolved=1 uden_identitet=2`, `KOORD_2018_20=99a5a2de04b1b9219631a1e53b53d415`,
+  `KOORD_SRC=2136dfc066fd41d789ea32a7405239f9`, BIO `3177a5d1…` (= slut-generalprøven). Tidsbudgettets basis som anon
+  (median af 3): `bio_alle` 12.679 ms, koordinater 1.253 ms, `public_person_facts` 134-160 ms, `public_family_sources`
+  93-117 ms.
+- **Dump før DDL (B1):** `daa-prod-20261110131506-6d2a.dump`, 19.449.033 bytes, sha
+  `69cc587194d05f1226982d14cfa180870b376d82e2c7cc7eaf44d82f467b6305`; age
+  `0bbe53a0393daea3b3a867a5ca14846e0cb41b6b412e9597442aa2eeed5319f0` (SFTP, rundtur ok).
+- **DDL (GO `41981aa8`):** `T6D2A_APPLY_DDL_OK tilstand=ddl blok=dfaaf9dacebdcac2`, 24,7 s; katalogaftryk
+  `8d269e5ee1150960`. Nye `private.overview_mention_narratives(bigint[])`, `private.samme_som_data_direction(bigint,bigint)`
+  og `public.red_overview_mentions(bigint[])` (kun `authenticated`); ændrede `public_person_bio_source_versions(_v2)` og
+  `red_samme_som`. Claude Code flyttede kommandoen i baggrunden efter 120 s; en anden kørsel imens stoppede på
+  `T6D2A_FOER_DDL` (fase allerede `ddl`) uden at skrive.
+- **Efter DDL:** `fase=ddl regel=10 synlige_anon=9 bio_oversigt=0`, KOORD og FAKTA uændrede, BIO `de88b746…`.
+  `T6D2A_ANON_BUDGET_BRUDT` på `bio_alle` (25.123 og 24.858 ms i to kørsler; stand-in'erne viste +2-8 %). Personsidens
+  kald (én persons id'er) leverer stadig biografien som anon. Projektejeren valgte at fortsætte (decisions 2026-11-10).
+- **Advisors** (dashboardet, projektejeren): eneste nye fund er `authenticated_security_definer_function_executable`
+  på `red_overview_mentions` (forventet, som de øvrige `red_*`). De to nye `private`-funktioner er ikke kaldbare udefra.
+  `anon`-fundene er de 11 kendte offentlige læsere; ingen nye tabeller (ingen nye `rls_enabled_no_policy`).
+  `auth_leaked_password_protection` er en kendt Auth-indstilling uden for 6d-2a.
+- **Dump før data (B1, fortrydelsens grundlag):** `daa-prod-20261110135430-6d2a.dump`, 19.456.941 bytes, sha
+  `07b86122de69102a23c77747d2c401f45d1f0200824aecb7f74147b62952e997`; age
+  `f968648926ab7ee365f4cb7809ca407deb1a7dd4ea63d7e1b58eec868d45d033` (SFTP, rundtur ok; første forsøg `SFTP_FEJL`
+  »Connection closed«, genkørt).
+- **Data (GO `fb102458`):** `identitet_ceremoni.sql` (src=3) i én transaktion: `T6D2A_OK kanter=1 identiteter=3
+  regel=11`, 14 sætninger, langsomste 37,2 s, i alt 105,3 s; `T6D2A_APPLY_DATA_OK fase=data tal=11,9,0,1,0,0
+  fakta=uaendret bio_aendret=nej`; vinduesaftryk efter ceremonien `6b58ffd3d3dec892`.
+- **Verify:** `T6D2A_VERIFY_OK tal=11,9,0,1,0,0`, KOORD og FAKTA som ddl-dumpet, BIO `de88b746…`. Budgettet stadig brudt
+  på `bio_alle` alene (25.941 ms); de øvrige kald inden for.
+- **Karantænetjek (B1, decisions 2026-11-10):** prod-dump-kopi `b5b4dd9d…` på stand-in `6d2afb` (samme `maal` som prod);
+  appens `collapseSameAs` på anon-data: 715 afklarede kanter, 9 karantænegrupper (som før). De 11 oversigtspar: 9
+  synlige oversigtspersoner foldes ind i detaljepersonens kort, 967 og 1014 er `staged` (intet anon-kort), 1048's kort
+  er 134; ingen detaljeperson i karantæne. Alle 11 detaljepersoner leverer én kilde 3-biografi som anon.
+- **Fortrydelse:** `fortryd` med data-dumpet (restore), så med DDL-dumpet; kun under meldt frys og så længe intet andet
+  er skrevet (vinduesvagten stopper ellers).
+
 ## 24. Trin 6d-1: 1939's placements og medlemskaber — LIVE i prod (2026-11-09)
 
 **Procedure:** `docs/runbooks/trin6d1-prod.md`, privat runner `~/.private/5ab-overfoersel/33-trin6d1.sh` (med
