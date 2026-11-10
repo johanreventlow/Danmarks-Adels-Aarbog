@@ -6,6 +6,29 @@
 BEGIN;
 \ir fixtures/relation-5b.sql
 \ir fixtures/placement-150.sql
+\ir fixtures/relation-2a.sql
+
+-- Ét bundet og publiceret ægteskab i egen kilde p_base: personer p_base (hovedperson) og p_base-1 (ægtefælle).
+CREATE OR REPLACE FUNCTION pg_temp.f2a_bound(p_base bigint,p_actor uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE s jsonb; m jsonb; pv jsonb; items jsonb;
+BEGIN
+  INSERT INTO person(id,levende,privat,status) VALUES (p_base,false,false,'2a'),(p_base-1,false,false,'2a');
+  s:=pg_temp.f5b_source(p_base);
+  m:=pg_temp.f2a_marriage(p_base,s,'B'||p_base,p_base,p_base-1,p_actor,1,1);
+  PERFORM pg_temp.f2a_publish(p_base,s,m->'post',p_base,p_actor,'Anna Alfa. Gift med Bo Beta.');
+  PERFORM set_config('request.jwt.claim.sub',p_actor::text,true);
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_decisions(p_base);
+  PERFORM red_decide_relation_interpretations(p_base,pv->>'set_sha256');
+  RESET ROLE;
+  SELECT jsonb_agg(jsonb_build_object('interpretation_id',ic.id::text,'family_id',(m->>'family')::bigint)) INTO items
+    FROM private.interpretation_current ic WHERE ic.interpretation_key=(m->'claim'->>'key')::uuid;
+  SET LOCAL ROLE authenticated;
+  pv:=red_preview_relation_promotions(p_base,items);
+  PERFORM red_promote_relation_interpretations_batch(p_base,items,pv->>'preview_sha256');
+  RESET ROLE;
+  RETURN m||jsonb_build_object('source',s);
+END $$;
 
 -- Kilde med header-kørsel. Uden p_lineage får kilden egen slægt og linje (f150_source); med p_lineage får den et
 -- stamtavle-schema, hvis entry 'I' er canonical for den givne linje (en anden udgave af samme slægt).
@@ -346,23 +369,6 @@ BEGIN
   END LOOP;
 END $fakta_uroert$;
 
-DO $fakta_uroert_data$
-DECLARE f jsonb:=pg_temp.f6d_src(-6321); v_rel bigint; v_before text; v_after text;
-BEGIN
-  PERFORM pg_temp.ov_member(f,'I-1',-632101,1);
-  PERFORM pg_temp.ov_mention(-632102,-6321);
-  v_rel:=pg_temp.f6d_same(-632102,-632101,'omstridt');
-  SELECT md5(coalesce((SELECT string_agg(to_jsonb(x)::text,'|' ORDER BY to_jsonb(x)::text) FROM public.public_person_facts(ARRAY[-632101,-632102]) x),'')
-          ||coalesce((SELECT string_agg(to_jsonb(y)::text,'|' ORDER BY to_jsonb(y)::text) FROM public.public_family_sources(ARRAY[-632101,-632102]) y),''))
-    INTO v_before;
-  UPDATE public.conclusion SET status='afklaret' WHERE target_type='relation' AND target_id=v_rel;
-  IF pg_temp.ov(ARRAY[-632102])='' THEN RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: fakta_uroert regel ikke udløst'; END IF;
-  SELECT md5(coalesce((SELECT string_agg(to_jsonb(x)::text,'|' ORDER BY to_jsonb(x)::text) FROM public.public_person_facts(ARRAY[-632101,-632102]) x),'')
-          ||coalesce((SELECT string_agg(to_jsonb(y)::text,'|' ORDER BY to_jsonb(y)::text) FROM public.public_family_sources(ARRAY[-632101,-632102]) y),''))
-    INTO v_after;
-  IF v_before IS DISTINCT FROM v_after THEN RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: fakta ændret af reglen'; END IF;
-END $fakta_uroert_data$;
-
 DO $haendelse_uroert$
 DECLARE f jsonb:=pg_temp.f6d_src(-6331); np bigint; v_h int; v_n int;
 BEGIN
@@ -426,6 +432,57 @@ BEGIN
     RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: red_rpc anon [%]',v_err;
   END IF;
 END $red_rpc$;
+
+-- Sidst: fakta- og familielæserne returnerer intet ved kontrakt 1 (derfor var den tidligere test tom). Kontrakt 2
+-- stubbes her og først her (som test-person-facts.sql), så de øvrige blokke kører uændret på kontrakt 1; redaktions-RPC'erne,
+-- der er lukket før cutover, åbnes for authenticated i denne transaktion, så familiefixturen kan publicere. Alt rulles tilbage.
+CREATE OR REPLACE FUNCTION public.narrative_record_contract_version() RETURNS integer
+  LANGUAGE sql STABLE SECURITY INVOKER SET search_path=pg_catalog AS $c$ SELECT 2 $c$;
+DO $aabn$
+DECLARE p regprocedure;
+BEGIN
+  FOR p IN SELECT oid::regprocedure FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname LIKE 'red\_%' LOOP
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated',p);
+  END LOOP;
+END $aabn$;
+
+DO $fakta_uroert_data$
+DECLARE f jsonb:=pg_temp.f6d_src(-6321); v_rel bigint; v_before text; v_after text; v_actor uuid:='11000000-0000-0000-0000-0000006d2a01';
+  m jsonb; v_fam bigint; v_nf int; v_ns int; v_fact bigint;
+BEGIN
+  PERFORM pg_temp.ov_member(f,'I-1',-632101,1);
+  PERFORM pg_temp.ov_mention(-632102,-6321);
+  -- Offentlige fakta på begge personer (afklaret konklusion), så faktalæseren har noget at returnere.
+  FOR v_fact IN SELECT unnest(ARRAY[-632101,-632102]) LOOP
+    WITH fa AS (INSERT INTO public.fact(subjekt_type,subjekt_id,faktatype) VALUES ('person',v_fact,'navn') RETURNING id),
+         asr AS (INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst,uforanderlig)
+                   SELECT 'fact',fa.id,'Opdigtet navn '||v_fact,true FROM fa RETURNING id,target_id)
+    INSERT INTO public.conclusion(target_type,target_id,valgt_assertion_id,status)
+      SELECT 'fact',asr.target_id,asr.id,'afklaret' FROM asr;
+  END LOOP;
+  -- Et bundet og publiceret ægteskab giver en familie med kilde til familielæseren.
+  PERFORM pg_temp.f5b_actor(v_actor);
+  m:=pg_temp.f2a_bound(-6324,v_actor);
+  v_fam:=(m->>'family')::bigint;
+  v_rel:=pg_temp.f6d_same(-632102,-632101,'omstridt');
+  SELECT md5(coalesce((SELECT string_agg(to_jsonb(x)::text,'|' ORDER BY to_jsonb(x)::text) FROM public.public_person_facts(ARRAY[-632101,-632102]) x),'')
+          ||coalesce((SELECT string_agg(to_jsonb(y)::text,'|' ORDER BY to_jsonb(y)::text) FROM public.public_family_sources(ARRAY[v_fam]) y),''))
+    INTO v_before;
+  SELECT count(*) INTO v_nf FROM public.public_person_facts(ARRAY[-632101,-632102]);
+  SELECT count(*) INTO v_ns FROM public.public_family_sources(ARRAY[v_fam]);
+  IF v_nf<2 OR v_ns<1 THEN RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: fakta_uroert tomt grundlag (fakta %, familiekilder %)',v_nf,v_ns; END IF;
+  -- Reglen (kontrakt 1: privat-flag-gaten) udløses på kontrakt 1; læserne måles på kontrakt 2.
+  CREATE OR REPLACE FUNCTION public.narrative_record_contract_version() RETURNS integer
+    LANGUAGE sql STABLE SECURITY INVOKER SET search_path=pg_catalog AS $c$ SELECT 1 $c$;
+  UPDATE public.conclusion SET status='afklaret' WHERE target_type='relation' AND target_id=v_rel;
+  IF pg_temp.ov(ARRAY[-632102])='' THEN RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: fakta_uroert regel ikke udløst'; END IF;
+  CREATE OR REPLACE FUNCTION public.narrative_record_contract_version() RETURNS integer
+    LANGUAGE sql STABLE SECURITY INVOKER SET search_path=pg_catalog AS $c$ SELECT 2 $c$;
+  SELECT md5(coalesce((SELECT string_agg(to_jsonb(x)::text,'|' ORDER BY to_jsonb(x)::text) FROM public.public_person_facts(ARRAY[-632101,-632102]) x),'')
+          ||coalesce((SELECT string_agg(to_jsonb(y)::text,'|' ORDER BY to_jsonb(y)::text) FROM public.public_family_sources(ARRAY[v_fam]) y),''))
+    INTO v_after;
+  IF v_before IS DISTINCT FROM v_after THEN RAISE EXCEPTION 'OVERVIEW_MENTION_TEST_FAILED: fakta ændret af reglen'; END IF;
+END $fakta_uroert_data$;
 
 \echo OVERVIEW_MENTION_TEST_OK
 ROLLBACK;
