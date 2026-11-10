@@ -96,12 +96,18 @@ stand-in og over anon's 3 s allerede før 6d-2a; feedets biografikald fejler i p
 |---|---|---|
 | `MAAL_6D2A_UKENDT` i trin 0 | prod er ændret siden generalprøven | ny `dump-kopi`, ny `standin`, generalprøve igen |
 | `T6D2A_VINDUE_BRUDT_FOER_*` | prod er skrevet siden dumpet | intet kørt; tag `dump` igen |
+| `DDL_6D2A fejlede (…); rullet tilbage (maalt: fase foer)` | intet ændret (fasen er målt, ikke antaget) | ret årsagen; `dump` er stadig gyldigt |
+| `DDL_6D2A_FEJL_EFTER_COMMIT` | blokken er committet (fase ddl), fejlen kom bagefter | `maal` + `anon`, eller fortryd-DDL |
+| `DDL_6D2A_UAFKLARET` / `T6D2A_CEREMONI_UAFKLARET` | fasen kunne ikke måles | `maal` før noget andet |
 | `T6D2A_EFTER_DDL_FAKTA` | DDL'en ændrede faktalæserne | fortryd-DDL (nedenfor) |
 | `T6D2A_ANON_BUDGET_BRUDT` | et kald er over budget | stop før data; kør `anon` igen (støj?), ellers fortryd-DDL |
 | `T6D2A_CEREMONI_FEJL (T6D2A_PRE_…)` | intet skrevet (fase ddl) | prod afviger fra manifestet: nyt kort/manifest, ingen genkørsel |
 | `T6D2A_CEREMONI_FEJL (T6D2A_POST_…)` | rullet tilbage (fase ddl); sekvenserne kan være rykket | `dump` igen før næste `apply-data` |
 | `T6D2A_CEREMONI_FEJL_EFTER_COMMIT` | committet (fase data) | `verify`, eller fortryd-data |
 | `T6D2A_DATA_FAERDIG` | ceremonien er kørt | `verify` |
+| `T6D2A_VINDUE_EFTER_FINDES` i `apply-data` | en ceremoni har allerede committet på dette ddl-dump (og er fortrudt) | intet kørt; `dump` igen |
+| `T6D2A_VINDUE_EFTER_MANGLER` i fortryd | basen står i data, men aftrykket efter ceremonien mangler | intet restoret; stop og vurdér med Claude |
+| `T6D2A_FORTRYD_KATALOG_AENDRET_EFTER_DDL` | en funktion er ændret efter `apply-ddl` | intet restoret; restoren ville rulle den tilbage |
 
 ## Fortrydelse (kun under meldt frys)
 
@@ -118,8 +124,13 @@ stand-in og over anon's 3 s allerede før 6d-2a; feedets biografikald fejler i p
   - **Mod dumpet:** sammenlignes med undtagelser for de tabeller, ceremonien selv skriver.
   - **Mod aftrykket efter ceremonien:** fortryd-data kræver desuden, at hele basen er lig det aftryk, runneren
     gemmer lige efter ceremoniens COMMIT (`T6D2A_VINDUE_EFTER_GEMT`). Det gemmes også ved
-    `T6D2A_CEREMONI_FEJL_EFTER_COMMIT`. Derved fanges skrivninger, der ikke laver en change_set, fx en
-    identitetsafgørelse efter ceremonien (`T6D2A_VINDUE_BRUDT_EFTER_CEREMONI`).
+    `T6D2A_CEREMONI_FEJL_EFTER_COMMIT` (taget før fasemålingen, så hullet er sekunder). Derved fanges skrivninger,
+    der ikke laver en change_set, fx en identitetsafgørelse efter ceremonien (`T6D2A_VINDUE_BRUDT_EFTER_CEREMONI`).
+  - Mangler aftrykket, og basen står i `ddl` (ingen ceremoni committet), sammenlignes som DDL
+    (`T6D2A_VINDUE_INGEN_CEREMONI`). Står den i `data`, stopper fortrydelsen (`T6D2A_VINDUE_EFTER_MANGLER`).
+- Fortryd-DDL kræver desuden kataloget lig aftrykket, `apply-ddl` gemte (`T6D2A_KATALOG_EFTER_DDL_GEMT` →
+  `T6D2A_KATALOG_OK sammenligning=efter_ddl`): restoren ville ellers lydløst rulle en senere ændring af en eksisterende
+  funktion tilbage.
 
 `verify` udskriver `T6D2A_VERIFY_OK` efter datatjekkene og måler først derefter tidsbudgettet. Et
 `T6D2A_ANON_BUDGET_BRUDT` her betyder, at data er i orden, men at et kald er over grænsen. Kør `anon` igen op til to
@@ -165,7 +176,8 @@ projektejeren, om der skal fortrydes.
     foer-dumpet → fortryd-DDL → `T6D2A_FORTRYD_OK tilstand=foer` (3 funktioner droppet); `maal` derefter = før-tallene,
     BIO-hash tilbage på `3177a5d1…`.
   - Restorens fejl er de fire kendte (`current_rolle`, `media_object_synlig_anon`) + advarslen (`restore_fejl=5`).
-  - Ingen fastlåst værdi afveg; runneren er uændret (sha `ac7cbd0d…`).
+  - Ingen fastlåst værdi afveg; runneren var da sha `ac7cbd0d…`. Codex-reviewet (Task 8) ændrede den bagefter;
+    `6d2ad` gælder ikke længere som slut-generalprøve (se `6d2ae`).
 - **Appens sammenlægning** (Codex-fund 8; `collapseSameAs` fra `packages/core` på anon-data fra en prod-kopi med DDL
   og data):
   - 715 afklarede kanter og 9 karantænegrupper, både før og efter.
@@ -178,5 +190,8 @@ projektejeren, om der skal fortrydes.
 
 1. ~~Prod-læsetrin (`maal`, `anon`, `dump-kopi`)~~ kørt 10/11; tal ovenfor.
 2. ~~Generalprøve på frisk `dump-kopi`~~ `6d2ad` grøn 10/11.
-3. Projektejerens valg om biografilæserens 13 s (rettes før eller efter 6d-2a).
-4. Uafhængig review af runneren og grenen (Task 8) før GO i prod.
+3. ~~Projektejerens valg om biografilæserens 13 s~~ 10/11: efter 6d-2a, som næste opgave.
+4. Uafhængig review (Codex) af runneren og grenen: 12 fund → 8 rettet (runner: manglende aftryk, genkørsel på
+   samme dump, DDL-fejlens fase, aftryk før måling, katalog efter DDL; gren: låse i ceremonien, mærket på
+   overgangsbiografier, faktatesten), 4 afvist/kendt begrænsning.
+5. Ny slut-generalprøve (`6d2ae`) på samme `dump-kopi` med de rettede filer, inkl. fejlvejene for de nye vagter.
