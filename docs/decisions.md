@@ -23,7 +23,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   forældede (601, 607, 704, 977) og tabe 7 bindinger. 6c-3's afstemningswriter har desuden en kendt fejl, der skal
 >   rettes før en ny kalder (6c-3-spec, Codex-fund 2).
 >
-> **Projektejerens valg 2026-11-10:** 6d-2b bliver smal, og derefter følger 6d-3.
+> **Projektejerens valg 2026-11-10:** 6d-2b bliver smal, og derefter følger 6d-3. Projektejeren godkendte alle fire
+> kort (»fundene er korrekte, teksterne skal trækkes tilbage«). **I prod 2026-11-10** (`database-current-state.md` §26):
+> fire tilbagetrukket, synlige 1939-narrativer 569 → 565.
 >
 > - **Indhold:** de forkert tilskrevne 1939-tekster, som læseren ser i dag, trækkes tilbage med den eksisterende
 >   redaktørhandling (`red_tilbagetraek_legacy_narrative`, redaktionens narrativredigering). Kandidaterne er 1791
