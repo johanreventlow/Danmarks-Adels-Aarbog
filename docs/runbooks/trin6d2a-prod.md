@@ -57,7 +57,9 @@ ren og stå på den commit, GO er bundet til (`main` efter merge). **Begge** GO-
 
 **Tid.** Ceremonien er én sætning på 15,8 s på stand-in (FAKTA og reglen beregnes før og efter i transaktionen).
 Med den værste skrive-faktor, der er målt (6c-2: ≈27), giver det ≈7 min, under ceremoniens 15 min. `maal` tager
-≈10 s på stand-in (FAKTA over alle offentlige personer dominerer). Prods `statement_timeout` (2 min) gælder ikke:
+≈10 s på stand-in (FAKTA over alle offentlige personer dominerer). **Målt i prod (fase foer): `maal` 34,2 s mod
+10,2 s på stand-in = læsefaktor ≈3,4** (6d-1: 2,5-2,7). Ceremonien ventes derfor ≈1 min i prod; selv faktor 27
+holder under 15 min. Prods `statement_timeout` (2 min) gælder ikke:
 runneren sætter sin egen læsegrænse, og ceremonien sætter `15min` lokalt.
 
 **Tidsbudgettet** (spec §4.1 rev. 4). `anon` måler biografilæseren v2 med alle anon-synlige personer
