@@ -41,10 +41,15 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > - **Kendte begrænsninger (ikke i trin 6):** de 38 tekstrettelser, de 6 grænsefejl og rettelsen af afstemningswriteren.
 >   Trin 6's færdigbevis (a) kræver de samme operationer som 2018-20, og grænsemekanismen findes heller ikke dér. Vision'en
 >   gør det ikke til et mål at gøre 1939 internt perfekt. Rettelsen på narrativ 632 (person 963, staged) trækkes kun ud
->   af rapporten.
+>   af rapporten. *Billigere delvej (Codex-review 2026-11-10, fund 1):* de 13 rettelser af samme længde på 6 poster
+>   med helpost (p9, p10, p11, p50, p68, p82) har ikke offset-problemet. Den eksisterende writer accepterer `raw`
+>   (`schema.sql:3735`, `:4906`); kun Python-værktøjet mangler en raw-profil og et rettelsesmanifest
+>   (`reimport_profile.py:299` kræver i dag foldet projektion), og 6m's offsets skal genfindes i helpostens tekst.
+>   Ingen af posterne har læsertekst, så delvejen står i backloggen og ikke i trin 6.
 > - **Flyttes til 6d-3's måling:** de 29 records uden narrativbinding (sider 498-539; 21 uden persona, 8 uden helpost),
 >   som 6d-1-spec'en §7 lagde i 6d-2 og 6d-2a ikke nævnte. 6d-3 afgør, om relationerne kræver personas for dem.
->   Desuden de skjulte dubletter 1135 (af 1130) og 940 (af 1810).
+>   Desuden de skjulte dubletter 1135 (af 1130) og 940 (af 1810) samt de skjulte 933 og 935 (staged, uden
+>   publicering), hvis tekst er den samme omtale i Hartvigs (931) post som 934's (Codex-review fund 2).
 > - **6d-3 skal rydde op i levnspersonerne** (ikke kun måle): en tilbagetrækning skjuler kun teksten, ikke personen.
 >   1791 er offentlig og står som `partner` i familie 742 (med 1823) og 743 (med 1824). Formodentlig er det Conrads
 >   (1198) to ægteskaber, så læseren ser »fyenske Rytterreg.)« som ægtefælle. 6d-3 bygger 1939's ægteskaber om og skal
