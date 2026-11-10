@@ -2,6 +2,32 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 6d-3's afgrænsning — 5b-vejen på 1939 med profil som data, dobbelt ægtefælle, læserrettelse og 1791 skjult (2026-11-10)
+
+> Delspec 6d-3 (`docs/superpowers/specs/2026-11-10-trin6d3-relationer-design.md`) godkendt af projektejeren efter
+> byggertjek og tre Codex-runder (budgettet overskredet med to runder; projektejeren frigav det for dagen).
+>
+> - **Spor R:** 1939's ægteskaber og forældre går gennem 5b's eksisterende RPC'er og writere. Writerens profiler
+>   (i dag literalerne `relation-persona-2018-20-v1..v3`) bliver data; 1939 får én profil med foldning af linjeskift,
+>   orddelinger og sidemarkører, også i beregningen af ægteskabsnummeret. Ægtefællens identitet er 1939's
+>   legacy-række (trin 6-specen §6 pkt. 8). Maskinel accept følger 5b's hele eligibility-kontrakt.
+> - **Spor D (projektejerens valg):** ≤44 kort, hvor en sammenfoldet person viser samme ægtefælle to gange;
+>   »samme« skrives med `red_samme_som`, »ingen af dem« skrives ikke i basen.
+> - **Spor L (projektejerens valg):** læserens familiekilde slår modparten op kanonisk for ægteskab, forælder og
+>   børn; deployes før dataceremonien.
+> - **Spor O (projektejerens valg, ændret efter Codex runde 2):** 1791 skjules med `red_set_privat`, ikke
+>   `samme_som` til Conrad, fordi 1791's uforanderlige `navn`- og `død`-fakta så ville stå i Conrads faktaliste.
+>   742/743's vielser findes med samme datoer på 540/541.
+> - **Ændrer 6d-spec §7:** ingen `relation-child-v2`; 1939's 4 børneforslag står `proposed`, fordi børnebindingen
+>   kræver `relation-child-v1`, som læser 1939's syntetiske koordinater. Ingen `person_create`: 1939's 7 ægteskaber
+>   uden familie/ordinal og 2018-20's I-11 og II-35 står `proposed`. De 6 ægteskaber med to klausuler står `proposed`
+>   (læserens gate kræver én). Forslag, der ikke bindes, tælles pr. årsag i runneren og `status.md`; ingen ny
+>   dispositionsskrivning.
+> - **Lukket fra 6d-2b's arv:** de 29 records uden narrativbinding har 0 relationsforslag; 933/935/940/1135 har ingen
+>   familier eller `samme_som` og berører ikke relationerne.
+> - **Fortrydelse:** ét regime — restore af dump taget før spor D, fra ethvert præfiks af ceremonien; efter
+>   `VERIFY_OK` almindelig redigering, ingen selektiv ceremoni-fortrydelse.
+
 ## BESLUTTET: 6d-2b indsnævres til at trække forkert tilskrevne 1939-tekster tilbage; resten bliver kendte begrænsninger (2026-11-10)
 
 > Målt 2026-11-10 på stand-in `daa5ab_ddl_standin_20261110150105_6d2afb` (= prod efter 6d-2a). 6d-2a §9 beskrev

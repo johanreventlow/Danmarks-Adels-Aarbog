@@ -1,7 +1,7 @@
 # Delspec 6d-3 — 1939's relationer (ægteskaber, forældre, børn) og oprydning efter legacy-importen
 
-**Status:** udkast 2026-11-10, afventer projektejerens godkendelse af dokumentet. Projektejeren sprang
-brainstormens spørgsmål over og har besvaret §9's tre valg (alle som anbefalet). Øvrige valg er markeret *mit valg*.
+**Status:** **godkendt af projektejeren 2026-11-10** (decisions samme dato) efter byggertjek og Codex-runde 1-3
+(§10). Projektejeren besvarede §9's valg; øvrige valg er markeret *mit valg*.
 **Overordnet spec:** `docs/superpowers/specs/2026-10-29-trin6-1939-gennem-kaeden-design.md` §3 (læseroplevelsen),
 §5 (6d's rækkefølge, pkt. 3 relationer), §6 pkt. 8 (1939 hører hjemme på kilde 3-rækken; sammenhængen bæres af
 afklaret `samme_som`; ingen nye familier eller familiemedlemmer), §8 (færdigbevis).
