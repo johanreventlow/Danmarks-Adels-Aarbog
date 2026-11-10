@@ -71,6 +71,11 @@ støj. Anon's 3 s løftes til 120 s under målingen. Kald over 3 s meldes som
 stand-in *før* 6d-2a, og det er backlog (decisions 2026-11-09). Selve 6d-2a lagde +2-8 % til på stand-in, og det
 spænd er målestøj (data ændrer ikke biografien).
 
+**Prods basis (fase `foer`, målt 10/11):** `bio_alle 13053 ms`, `koordinater 1414`, `facts_199 438`, `facts_289 179`,
+`facts_529 175`, `famsrc_298 79`, `famsrc_309 74`, `famsrc_364 74`. Biografilæseren med alle personer er altså ≈4,5 ×
+stand-in og over anon's 3 s allerede før 6d-2a; feedets biografikald fejler i prod i dag. Det er ikke en følge af
+6d-2a, og budgettet sammenligner med prods egen basis.
+
 ## Fastlåste værdier og deres uafhængige kilder
 
 - `T6D2A_BLOK=dfaaf9dacebdcac2…` = blokken skåret fra `db-migrations.sql` på grenen; `T6D2A_RLS=16ac093b…` =
@@ -123,8 +128,7 @@ projektejeren, om der skal fortrydes.
 
 ## Generalprøven 10/11
 
-Alle stand-ins er kopier af `6d1c` (prod efter 6d-1). En generalprøve fra en frisk prod-`dump-kopi` udestår, se
-nedenfor.
+`6d2aa`-`6d2ac` er kopier af `6d1c` (prod efter 6d-1); `6d2ad` er en frisk prod-`dump-kopi` (10/11).
 
 - `6d2aa` (`daa5ab_ddl_standin_20261109231326_6d2aa`), iteration:
   - Kørt: `maal` → `anon` → `dump` → forkert GO (`GO_MISMATCH`) → `apply-ddl` → `anon` → `dump` → `apply-data`
@@ -152,6 +156,16 @@ nedenfor.
   - En identitetsrække blev ændret efter ceremonien. Den gamle vagt sagde OK (`sammenligning=data`), men
     `T6D2A_VINDUE_BRUDT_EFTER_CEREMONI` stoppede fortrydelsen uden markør. Ændringen blev rullet tilbage → fortryd-data
     `T6D2A_FORTRYD_OK tilstand=ddl`. `6d2ac` står i fase `ddl`.
+- `6d2ad` (`daa5ab_ddl_standin_20261110064713_6d2ad`), slut-generalprøven fra prods `dump-kopi`
+  (`daa-prod-20261110064333-6d2a-kopi.dump`, sha `975285af…`), kørt fra repo-roden med commit `356dc20a`:
+  - `standin` (restore 3,9 s) → `maal` (fase `foer`, samme tal og KOORD som prod) → `anon` (basis) → `dump` →
+    `go-ddl` → `apply-ddl` (0,2 s) → `anon` (OK) → `dump` → `maal` (`10 9 0 0 1 2`) → `go-data` → `apply-data`
+    (`T6D2A_OK kanter=1 identiteter=3 regel=11`, 14,3 s, `fakta=uaendret bio_aendret=nej`) → `verify` (OK, budget OK).
+  - fortryd-data → `T6D2A_FORTRYD_OK tilstand=ddl tal=10,9,0,0,1,2` (vagt `data` + `efter_ceremoni`) → `--saet` på
+    foer-dumpet → fortryd-DDL → `T6D2A_FORTRYD_OK tilstand=foer` (3 funktioner droppet); `maal` derefter = før-tallene,
+    BIO-hash tilbage på `3177a5d1…`.
+  - Restorens fejl er de fire kendte (`current_rolle`, `media_object_synlig_anon`) + advarslen (`restore_fejl=5`).
+  - Ingen fastlåst værdi afveg; runneren er uændret (sha `ac7cbd0d…`).
 - **Appens sammenlægning** (Codex-fund 8; `collapseSameAs` fra `packages/core` på anon-data fra en prod-kopi med DDL
   og data):
   - 715 afklarede kanter og 9 karantænegrupper, både før og efter.
@@ -162,7 +176,7 @@ nedenfor.
 
 ## Udestår før prod
 
-1. Projektejeren kører i sin shell (læse-kun): `maal`, `anon` (i fase `foer`, hvilket også er prod-målingen af
-   biografilæseren med alle personer) og `dump-kopi`.
-2. Generalprøve på `standin <dump-kopi-kvittering> <suffiks>` fra operatørens cwd: hele rækkefølgen og begge
-   fortrydelser. Afviger noget fra tabellerne ovenfor, rettes runneren/forventningerne før prod.
+1. ~~Prod-læsetrin (`maal`, `anon`, `dump-kopi`)~~ kørt 10/11; tal ovenfor.
+2. ~~Generalprøve på frisk `dump-kopi`~~ `6d2ad` grøn 10/11.
+3. Projektejerens valg om biografilæserens 13 s (rettes før eller efter 6d-2a).
+4. Uafhængig review af runneren og grenen (Task 8) før GO i prod.
