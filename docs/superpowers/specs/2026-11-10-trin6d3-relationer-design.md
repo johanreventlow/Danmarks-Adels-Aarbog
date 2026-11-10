@@ -282,8 +282,17 @@ redaktørhandlinger, der kan fortrydes og ikke sletter noget:
   815/816) består med deres datoer. Empirisk prøve (core's collapse uden 1791 og 742/743): Gabel og Hahn har hver én
   ægtemand (Conrad), 0 nye karantæner. Ingen `samme_som`, så Conrads komponent røres ikke, og collapse kan ikke
   karantænere på en skjult tvilling (1791 har ingen kanter). Fortrydes med `red_set_privat(1791, false)`.
-  Ulempe: 1791 og 742/743 består i redaktørens visning som dubletter; `privat` betyder i skemaet »manuel skjulning«
-  (`schema.sql:128`), ikke GDPR-privat, så brugen er inden for flagets formål.
+  **Tabsafstemning (Codex runde 3, fund 2):** `family` er læsbar, men familiefakta følger `family_offentlig`
+  (`db-rls.sql:119`, `:260`, `:469`), så 742/743's `vielse` bliver usynlige. De har samme datoer som 540/541's
+  (21 Juli 1667, 1 Maj 1681; 540/541 har desuden sted 730); intet indhold forsvinder for læseren. 1823/1824's
+  persondatoer består. Ingen af de fire vielser er bundet til bogen.
+  **RLS-tro prøve (fund 4):** `family_member` filtreres pr. person (`db-rls.sql:462`), så læseren får 742/743 som
+  unioner med 1823/1824 og `p2=null` (`web/src/data/model.ts:126`). Prøven gentaget med det input (kun 1791's
+  rækker fjernet): Gabel og Hahn har hver én ægtemand, 0 nye karantæner.
+  Ulempe: 1791 og 742/743 består i redaktørens visning som dubletter. `privat` er skemaets »GDPR: MANUEL skjulning«
+  (`schema.sql:128`); brugen her er manuel skjulning af et importlevn, ikke en GDPR-sag, og den ændrer ingen
+  RLS-regel (invariant 8 uændret). Placements, B6-tilstand, kandidatinput og narrativets `withdrawn` påvirkes ikke
+  (`schema.sql:3040`, `:3382`, `:9538`, `:14849`; Codex runde 3).
 
 **Projektejeren valgte (b)** (§9). Spor O har dermed ingen `samme_som` og påvirker ikke spor R's kandidatinput; det
 skrives stadig før R (§6). 1795 afgøres på kort: levn → samme behandling (`red_set_privat`), eller stå.
@@ -302,17 +311,23 @@ skrives stadig før R (§6). 1795 afgøres på kort: levn → samme behandling (
   via normal-RPC'en (`schema.sql:9609`), og genåbning kræver et faktisk familieskift (`:19912-19920`). Derfor:
   - **Ceremoniens `fortryd` = restore** af dumpet taget umiddelbart **før spor D** (altså før alle tre spor), med
     skrivepause fra dump til `VERIFY_OK`, vindues-vagt pr. tabel og katalogdiff (6c-2's form; memory: restore er ikke
-    trofast, bogmærker og tilmeldinger forsvinder lydløst). Der er ingen deltilstande: fejler et spor, fortrydes hele
-    ceremonien.
-  - **Efter `VERIFY_OK`** er der ingen restore. Enkeltsager rettes fremad som drift: et D-link fjernes med
-    `red_fjern_samme_som` (`:7695`), O fortrydes med sin modhandling, og en relationsidentitet rettes med kernens
-    menneskelige oprindelse. Fjernelsen af et D-link sletter **al** relationens evidens (`:7165`), så den er kun
-    tilladt for et link, ceremonien beviseligt oprettede, og hvis evidensen er uændret siden kvitteringen (Codex
-    runde 2, fund 3). Mærket »oprettet af denne ceremoni« etableres **i samme transaktion** som skrivningen: runneren
-    tager `samme_som_mutation`-låsen (`pg_advisory_xact_lock(hashtext('samme_som_mutation'))`, samme som RPC'en,
-    `:7655`), tjekker førbilledet (intet link i nogen retning), kalder `red_samme_som` og gemmer relation-id, faktisk
-    retning, change_set og evidensens efterbillede i kvitteringen.
-  Planen beviser restore-fortrydelsen og én drift-fjernelse på stand-in før prod.
+    trofast, bogmærker og tilmeldinger forsvinder lydløst). Fejler et spor, fortrydes hele ceremonien.
+  - **Afbrudte tilstande (Codex runde 3, fund 3):** sporene committer hver for sig (D, O, R's batches), så ceremonien
+    kan stoppe efter D, efter D+O eller midt i R. 6c-2's restore-vagt forventer én afsluttet tilstand
+    (`docs/runbooks/trin6c2-prod.md:215`); 6d-3's vagt skal i stedet acceptere ethvert **præfiks** af ceremoniens egne
+    skrivninger (nøglet på ceremoniens change_sets og kvitteringer, også når aktøren er den samme som i drift) og
+    intet andet siden dumpet. Planen fastlægger transaktionsgrænserne og øver restore efter D, efter D+O og midt i R.
+    `begin_change_set` genbruger et aktivt sæt (`schema.sql:9175`); runneren nulstiller `app.change_set_id` mellem
+    kald, der skal have hvert sit sæt. Runneren kører som redaktion med `request.jwt.claim.sub` sat (`:6535`).
+  - **Spor L** rulles ikke tilbage af en DB-restore og skal ikke: læserrettelsen er korrekt uden 1939-bindinger.
+  - **Efter `VERIFY_OK`** er der ingen ceremoni-fortrydelse. Enkeltsager er almindeligt redaktørarbejde under
+    kernens regler (`red_fjern_samme_som`, `red_set_privat`, menneskelig identitetsafgørelse), med de samme
+    samtidighedsvilkår som al anden redigering; 6d-3 lover ikke en selektiv fortrydelse (*forenklet efter Codex
+    runde 3, fund 1*: en sikker selektiv sletning ville kræve, at alle evidens-writers fulgte samme låseprotokol,
+    `schema.sql:6687`, `:7165`). Kvitteringen gemmer pr. D-par førbillede (intet link), relation-id, faktisk retning
+    og change_set som revisionsspor; førbillede og skrivning sker i samme transaktion under
+    `samme_som_mutation`-låsen (re-entrant med RPC'ens egen, `:7655`).
+  Planen beviser restore-fortrydelsen fra alle tre afbrydelsestilstande på stand-in før prod.
 - **Web:** spor L deployes med Vercel **før** DB-ceremonien (læserrettelsen er harmløs uden 1939-bindinger, og
   anti-målet kræver, at bindingerne er synlige fra første øjeblik).
 - Stand-in: en frisk restore af prod efter 6d-2b (ICU, `statement_timeout` 2 min som prod).
@@ -383,4 +398,15 @@ LUKKET, 3 DELVIST (5, 6, 10). 4 nye MAJOR, afvejet af Opus; alle nødvendige.
 | R1-10 | Kandidatkørsler er også indholdsafledte | nødvendig (`:11317`) | §6 |
 | R1-7 | Én familie kræver intet ordinalmatch; overslaget er ikke hele kontrakten | nødvendig | §5.1.3 |
 
-Review-budgettet (B13) har ét Codex-review tilbage: diffen før prod.
+**Codex-runde 3 (2026-11-10, `gpt-6.1-sol`, smal: kun §5.4 b og §6; projektejeren har frigivet budgettet for
+dagen): A NO-GO, B NO-GO; 3 MAJOR + 1 MINOR.** Afvejet af Opus:
+
+| # | Fund | Afvejning | Ændring |
+|---|---|---|---|
+| 1 | Selektiv D-fjernelse efter `VERIFY_OK` kan slette samtidig evidens | forenkl: ingen selektiv ceremoni-fortrydelse efter `VERIFY_OK`; drift er almindelig redigering | §6 |
+| 2 | 742/743's `vielse` skjules uden afstemning | nødvendig; målt: samme datoer på 540/541, intet tab | §5.4 b |
+| 3 | Restore fra afbrudte fler-spors tilstande | nødvendig | §6: præfiks-vagt, øvelse efter D, D+O og midt i R |
+| 4 | Collapse-prøven brugte ikke RLS' input | nødvendig; gentaget med RLS-tro input, samme resultat | §5.4 b |
+
+Codex fandt ingen følger for placements, B6, kandidatinput, narrativstatus eller GDPR-regler. Næste Codex-review:
+planen og derefter diffen før prod.
