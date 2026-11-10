@@ -285,7 +285,8 @@ redaktørhandlinger, der kan fortrydes og ikke sletter noget:
   Ulempe: 1791 og 742/743 består i redaktørens visning som dubletter; `privat` betyder i skemaet »manuel skjulning«
   (`schema.sql:128`), ikke GDPR-privat, så brugen er inden for flagets formål.
 
-Projektejeren afgør (a) eller (b) (§9). 1795 afgøres på kort: levn → samme behandling, eller stå.
+**Projektejeren valgte (b)** (§9). Spor O har dermed ingen `samme_som` og påvirker ikke spor R's kandidatinput; det
+skrives stadig før R (§6). 1795 afgøres på kort: levn → samme behandling (`red_set_privat`), eller stå.
 
 ## 6. Prod og fortrydelse
 
@@ -336,10 +337,9 @@ undtagelser og en stikprøve.
 ## 9. Projektejerens valg (2026-11-10)
 
 1. **Spor D er med i 6d-3** (≤44 kort uden forudfyldning).
-2. **1791: genåbnet efter Codex runde 2.** Første valg var `samme_som` → Conrad. Efter valget viste det sig, at
-   1791's uforanderlige `navn`- og `død`-fakta så står i Conrads faktaliste (§5.4 a). Ny anbefaling: `red_set_privat`
-   (§5.4 b). Afventer projektejeren. Begge veje tæller som »ryddet« i decisions 2026-11-10's forstand: læseren viser
-   ikke længere 1791 som ægtemand.
+2. **1791 markeres privat** med `red_set_privat(1791, true)` (§5.4 b; projektejerens valg efter Codex runde 2,
+   der afløser første valg, `samme_som` → Conrad, fordi 1791's uforanderlige fakta da ville stå i Conrads faktaliste).
+   Det tæller som »ryddet« i decisions 2026-11-10's forstand: læseren viser ikke længere 1791 som ægtemand.
 3. **Spor L er med i 6d-3** og deployes før dataceremonien.
 
 ## 10. Reviewlog
