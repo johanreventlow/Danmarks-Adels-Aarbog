@@ -258,7 +258,9 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
   `write-candidates.sql` → `red_register_identity_control_run`. Tæl kort (homonymer + K=20 + forældre).
 - [ ] **Trin 3: Mål maskinpopulationen** som `red_corroborate_family_identities` vil se den (dry-run i rullet-tilbage
   transaktion efter et forseglet testark): accepteret / afvist pr. årsag. Forelæg projektejeren tallene og
-  kortomfanget før kortene (memory: vis tab før kortrunde).
+  kortomfanget før kortene (memory: vis tab før kortrunde), side om side med spec §2.1's overslag (≈220 maskinelle,
+  200-250 bundne) og Task 0 trin 2's v3-nulpunkt (S 77, `partner_ligner` 46, `navn_uklart` 67, `intet_vindue` 54).
+  Store R-kortmængder forelægges som valg (stikprøve/undtagelser), aldrig som fuldt ark.
 - [ ] **Trin 4: Forælderarkets kontekst** (6c-3's værktøjsnote): `relation_parent_rows.sql` udvides med post-
   tekst, side, barnets navn/datoer og familiens forældre og børn (i dag kun nøgler og id'er, :13-26; Codex plan-fund
   7); rækkefilens sha indgår fortsat i arkets hash-binding. `relation_parent_sheet.py render --html` viser
