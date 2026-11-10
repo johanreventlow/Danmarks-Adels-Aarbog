@@ -2,6 +2,33 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 6d-2a's brud på tidsbudgettet accepteres; biografilæserens fart udskydes til før projektets afslutning (2026-11-10)
+
+> **Målt i prod** (runner 34, `anon`, median af 3, samme base): `bio_alle` 12.679 ms i fase `foer` → 25.123 og
+> 24.858 ms efter DDL'en (to kørsler) → 25.941 ms efter data (`verify`). Øvrige kald inden for budgettet (`facts_289`
+> og `facts_529` lå over i første/anden DDL-kørsel, men DDL'en rører ikke faktalæserne, FAKTA er uændret, og begge
+> var inden for ved `verify`: støj). Spec rev. 4 §4.1's grænse er max(basis × 1,10; basis + 20 ms) →
+> `T6D2A_ANON_BUDGET_BRUDT`, runbookens stoppunkt før data.
+>
+> - **Hvorfor accepteret:** kun feedets kald med alle personer er ramt, og det lå allerede over anon's 3 s før 6d-2a
+>   (fejlede i prod i dag, 2026-11-09-noten). Personsidens kald (én persons foldede id'er, `web/src/data/public.ts`)
+>   leverer stadig biografien som anon — det beviser, at det holder sig under 3 s; den ekstra tid ligger i den del af
+>   `private.overview_mention_narratives`, der vokser med antal id'er. Projektejeren åbnede personsider som anon:
+>   biografien kommer, siden er træg (≈4-6 s i alt, ikke målt pr. kald). Fortryd-DDL (restore under frys) ville ikke
+>   ændre noget, brugerne mærker.
+> - **Uforklaret:** samme DDL gav +2-8 % på stand-in'erne (6d2ab-6d2ae, efter `ANALYZE`), men +97 % i prod.
+>   Generalprøven forudsagde det altså ikke. En rettelse skal først genskabe fordoblingen lokalt (fx stand-in uden
+>   `ANALYZE`), ellers beviser en lokal måling intet.
+> - **Projektejerens valg 2026-11-10:** 6d-2a's data går i prod trods bruddet (valg B frem for fortryd-DDL), og
+>   optimeringen flyttes fra »næste opgave« (2026-11-09-noten) til **før projektets afslutning**.
+> - **Kandidater, når den tages:** (1) oversigtsomtalerne (10 narrativer i alt) gemmes som afledt projektion, der
+>   opdateres ved ændret `samme_som`/medlemskab, i stedet for at beregnes over hele `samme_som`-grafen i hvert kald
+>   (ændrer rev. 4's »live uden gemt markering« — kræver ny beslutning); (2) feedet henter kun biografier for de
+>   viste personer; (3) `EXPLAIN` i prod af planen for `bio_alle` (plan-forskel prod ↔ stand-in).
+> - **Vagt indtil da:** hvert senere trins `anon`-måling ser på personsidens kald; nærmer det sig anon's 3 s,
+>   forsvinder biografien lydløst, og optimeringen rykker frem. Prod-runnere bør derfor måle et enkelt-persons
+>   biografikald ud over `bio_alle`.
+
 ## NOTERET: biografilæseren med alle personer og den direkte narrativlæsning ligger allerede om 3 s — åben backlog (2026-11-09)
 
 > Målt i 6d-2a's Task 0 som anon på stand-in `…_6d1c` (prod + 6d-1, efter `ANALYZE`; median af 3):
@@ -15,7 +42,8 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >
 > **Målt i prod 2026-11-10** (projektejerens shell, før 6d-2a): `bio_alle` 13.053 ms (≈4,5 × stand-in'en; koordinater
 > 1.414 ms). Feedets biografikald fejler altså i prod i dag. **Projektejerens valg 2026-11-10:** 6d-2a går i prod
-> først; biografilæserens hastighed er næste opgave bagefter.
+> først; biografilæserens hastighed er næste opgave bagefter. *Ændret samme dag: udskudt til før projektets
+> afslutning (beslutningen ovenfor).*
 
 ## NOTERET: 6d-2a's kendte begrænsning — appens karantæne kan skjule både oversigt og detaljepost (2026-11-10)
 
