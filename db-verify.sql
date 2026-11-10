@@ -3031,6 +3031,7 @@ DECLARE
     'public.red_person_grid()'::regprocedure,
     'public.red_person_narrative_publication_history(bigint)'::regprocedure,
     'public.red_person_narrative_records(bigint)'::regprocedure,
+    'public.red_overview_mentions(bigint[])'::regprocedure,
     'public.red_preflight_1939_v50_name_completion(uuid,uuid,text,jsonb)'::regprocedure,
     'public.red_preflight_reimport_authorization(uuid,text,text)'::regprocedure,
     'public.red_preflight_reimport_name_completion(uuid,uuid,text,jsonb)'::regprocedure,
@@ -10476,6 +10477,33 @@ BEGIN
   FOREACH r IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
     IF has_function_privilege(r,'private.membership_component_states()','EXECUTE') THEN
       RAISE EXCEPTION 'VERIFY_FAILED: 6d-1 membership_component_states eksekverbar for %',r;
+    END IF;
+  END LOOP;
+  -- Trin 6d-2a: oversigtsreglen er privat; ingen API-rolle må kalde den.
+  IF to_regprocedure('private.overview_mention_narratives(bigint[])') IS NULL THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6d-2a mangler private.overview_mention_narratives(bigint[])';
+  END IF;
+  FOREACH r IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_function_privilege(r,'private.overview_mention_narratives(bigint[])','EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6d-2a overview_mention_narratives eksekverbar for %',r;
+    END IF;
+  END LOOP;
+  -- Trin 6d-2a: redaktørens læsning af oversigtsomtaler: kun authenticated (rollegaten i kroppen).
+  IF to_regprocedure('public.red_overview_mentions(bigint[])') IS NULL THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6d-2a mangler public.red_overview_mentions(bigint[])';
+  END IF;
+  IF has_function_privilege('anon','public.red_overview_mentions(bigint[])','EXECUTE')
+     OR has_function_privilege('service_role','public.red_overview_mentions(bigint[])','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_overview_mentions(bigint[])','EXECUTE') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6d-2a red_overview_mentions ACL';
+  END IF;
+  -- Trin 6d-2a: retningsreglen i samme_som er privat; ingen API-rolle må kalde den.
+  IF to_regprocedure('private.samme_som_data_direction(bigint,bigint)') IS NULL THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6d-2a mangler private.samme_som_data_direction(bigint,bigint)';
+  END IF;
+  FOREACH r IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_function_privilege(r,'private.samme_som_data_direction(bigint,bigint)','EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6d-2a samme_som_data_direction eksekverbar for %',r;
     END IF;
   END LOOP;
   -- Helbred (spec §4.4): promoverede memberships, hvis tilstand er ændret siden; 5c-2's læsere filtrerer på gældende.

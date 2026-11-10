@@ -352,6 +352,8 @@ export type PersonNarrativeRecord = {
 
 export type LegacyNarrativePublication = {
   legacyPublicationRef: string;
+  sourceId: number | null;
+  narrativeId: number;
   status: 'legacy_active' | 'legacy_withdrawn';
   stateSha256: string;
   text: string;
@@ -372,6 +374,7 @@ type RawNarrativeRecordRow = {
   record_key: unknown;
   source_record_ref: unknown;
   legacy_publication_ref: unknown;
+  narrative_id: unknown;
   record_label: unknown;
   citation_label: unknown;
   narrative_text: unknown;
@@ -453,6 +456,8 @@ export function mapNarrativeRecordRows(rows: RawNarrativeRecordRow[]): PersonNar
       if (status == null || actions.some((action) => action !== 'withdraw_legacy')) return recordContractError();
       legacyPublications.push({
         legacyPublicationRef: requiredString(row.legacy_publication_ref),
+        sourceId: row.source_id == null ? null : requiredPositiveInt(row.source_id),
+        narrativeId: requiredPositiveInt(row.narrative_id),
         status,
         stateSha256: requiredString(row.state_sha256),
         text: requiredString(row.narrative_text),
@@ -482,6 +487,43 @@ export async function fetchPersonNarrativeRecords(personId: number): Promise<Per
   if (error) throw new Error(error.message);
   if (!Array.isArray(data)) throw new Error('NARRATIVE_RECORD_EDITOR_RESPONSE_INVALID');
   return mapNarrativeRecordRows(data as RawNarrativeRecordRow[]);
+}
+
+// Trin 6d-2a: oversigtsomtaler. En narrativ for P er en oversigtsomtale, når P's tekst allerede står i en
+// detaljepost Q for samme udgave (samme_som). Læseren udelader den; redaktøren ser den, men med et mærke.
+// RPC'en er redaktion-only (REDAKTION_REQUIRED) og returnerer kun de markerede narrativer.
+export async function fetchOverviewMentions(personIds: number[]): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  if (personIds.length === 0) return out;
+  const { data, error } = await supabase.rpc('red_overview_mentions', { p_person_ids: personIds });
+  if (error) throw new Error(error.message);
+  if (!Array.isArray(data)) throw new Error('OVERVIEW_MENTIONS_RESPONSE_INVALID');
+  for (const row of data as { narrative_id: unknown; detail_person_id: unknown }[]) {
+    if (!Number.isSafeInteger(row?.narrative_id) || !Number.isSafeInteger(row?.detail_person_id)) {
+      throw new Error('OVERVIEW_MENTIONS_RESPONSE_INVALID');
+    }
+    out.set(row.narrative_id as number, row.detail_person_id as number);
+  }
+  return out;
+}
+
+// v2-editoren viser kildeposter (nøglet på source_id), ikke narrativ-id'er: oversæt de markerede narrativer til
+// source_id (source_id -> detail_person_id). Én narrativ pr. (person, udgave), så mærket gælder udgavens poster.
+export async function fetchOverviewMentionSources(personId: number): Promise<Map<number, number>> {
+  return (await fetchOverviewMarks(personId)).bySource;
+}
+
+// Ét RPC-kald, to opslag: v2-kildeposter mærkes pr. source_id, overgangsbiografier pr. egen narrativ (der kan være
+// flere overgangsnarrativer for samme kilde). Begge afledes af samme svar, så de ikke kan modsige hinanden.
+export async function fetchOverviewMarks(personId: number): Promise<{ bySource: Map<number, number>; byNarrative: Map<number, number> }> {
+  const byNarrative = await fetchOverviewMentions([personId]);
+  const bySource = new Map<number, number>();
+  if (byNarrative.size === 0) return { bySource, byNarrative };
+  for (const n of await fetchNarrativer('person', personId)) {
+    const detail = byNarrative.get(n.id);
+    if (detail !== undefined && n.sourceId !== null) bySource.set(n.sourceId, detail);
+  }
+  return { bySource, byNarrative };
 }
 
 // --- Hændelses-tidslinje (levende feed fase 2) ---

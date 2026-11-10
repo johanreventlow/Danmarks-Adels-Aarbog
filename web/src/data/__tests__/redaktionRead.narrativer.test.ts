@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchPersonNarrativeRecords, mapNarrativeRecordRows, mapNarrativer } from '../redaktionRead';
+import { fetchOverviewMarks, fetchOverviewMentionSources, fetchOverviewMentions, fetchPersonNarrativeRecords, mapNarrativeRecordRows, mapNarrativer } from '../redaktionRead';
 import { supabase } from '../../supabase';
 
 vi.mock('../../supabase', () => ({
@@ -61,6 +61,7 @@ const legacyRow = (overrides: Record<string, unknown> = {}) => ({
     record_key: null,
     source_record_ref: null,
     legacy_publication_ref: 'f6f58094-9ed2-4723-ac21-7c0ba25f2cf9',
+    narrative_id: 501,
     publication_status: 'published',
     narrative_text: 'Bevaret overgangstekst',
     allowed_actions: ['withdraw_legacy'],
@@ -88,12 +89,21 @@ describe('narrative record read-adapter', () => {
     }]);
     expect(mapped.legacyPublications).toEqual([{
       legacyPublicationRef: 'f6f58094-9ed2-4723-ac21-7c0ba25f2cf9',
+      sourceId: 19,
+      narrativeId: 501,
       status: 'legacy_active',
       stateSha256: 'a'.repeat(64),
       text: 'Bevaret overgangstekst',
       allowedActions: ['withdraw_legacy'],
       blockingReason: null,
     }]);
+  });
+
+  it('legacy-række: source_id NULL giver sourceId null; ugyldig narrative_id er kontraktfejl', () => {
+    expect(mapNarrativeRecordRows([legacyRow({ source_id: null })]).legacyPublications[0]).toMatchObject({ sourceId: null, narrativeId: 501 });
+    expect(() => mapNarrativeRecordRows([legacyRow({ narrative_id: null })])).toThrow('NARRATIVE_RECORD_EDITOR_RESPONSE_INVALID');
+    expect(() => mapNarrativeRecordRows([legacyRow({ narrative_id: 'x' })])).toThrow('NARRATIVE_RECORD_EDITOR_RESPONSE_INVALID');
+    expect(() => mapNarrativeRecordRows([legacyRow({ source_id: 0 })])).toThrow('NARRATIVE_RECORD_EDITOR_RESPONSE_INVALID');
   });
 
   it('maps server record blocking and legacy publication statuses to the explicit client states', () => {
@@ -130,5 +140,56 @@ describe('narrative record read-adapter', () => {
       records: [{ sourceId: 19, recordKey: 'V-152', allowedActions: ['create_draft'] }],
       legacyPublications: [{ status: 'legacy_active', allowedActions: ['withdraw_legacy'] }],
     });
+  });
+});
+
+describe('fetchOverviewMentions', () => {
+  it('kalder red_overview_mentions og mapper narrative_id til detail_person_id', async () => {
+    (supabase.rpc as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: [{ narrative_id: 11, detail_person_id: 4 }, { narrative_id: 12, detail_person_id: 9 }], error: null,
+    });
+    const out = await fetchOverviewMentions([3, 5]);
+    expect(supabase.rpc).toHaveBeenCalledWith('red_overview_mentions', { p_person_ids: [3, 5] });
+    expect([...out.entries()]).toEqual([[11, 4], [12, 9]]);
+  });
+  it('kalder ikke RPC ved tom liste', async () => {
+    const out = await fetchOverviewMentions([]);
+    expect(out.size).toBe(0);
+    expect(supabase.rpc).not.toHaveBeenCalled();
+  });
+  it('kaster ved RPC-fejl og ved ugyldigt svar', async () => {
+    (supabase.rpc as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ data: null, error: { message: 'REDAKTION_REQUIRED' } });
+    await expect(fetchOverviewMentions([3])).rejects.toThrow('REDAKTION_REQUIRED');
+    (supabase.rpc as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ data: [{ narrative_id: 'x', detail_person_id: 1 }], error: null });
+    await expect(fetchOverviewMentions([3])).rejects.toThrow('OVERVIEW_MENTIONS_RESPONSE_INVALID');
+  });
+});
+
+describe('fetchOverviewMentionSources', () => {
+  it('oversætter markerede narrativer til source_id for personen', async () => {
+    (supabase.rpc as ReturnType<typeof vi.fn>).mockResolvedValue({ data: [{ narrative_id: 11, detail_person_id: 4 }], error: null });
+    const result = {
+      data: [
+        { id: 10, source_id: 1, side: null, tekst: 'a', privat: false, source: null },
+        { id: 11, source_id: 2, side: null, tekst: 'b', privat: false, source: null },
+      ], error: null,
+    };
+    const chain: any = {};
+    for (const m of ['select', 'eq', 'order']) chain[m] = vi.fn(() => chain);
+    chain.then = (resolve: (v: unknown) => unknown) => resolve(result);
+    (supabase.from as ReturnType<typeof vi.fn>).mockReturnValue(chain);
+    const out = await fetchOverviewMentionSources(5);
+    expect([...out.entries()]).toEqual([[2, 4]]);
+    (supabase.rpc as ReturnType<typeof vi.fn>).mockClear();
+    const marks = await fetchOverviewMarks(5);
+    expect([...marks.bySource.entries()]).toEqual([[2, 4]]);
+    expect([...marks.byNarrative.entries()]).toEqual([[11, 4]]);
+    expect(supabase.rpc).toHaveBeenCalledTimes(1);
+  });
+  it('henter ikke narrativer, når intet er markeret', async () => {
+    (supabase.rpc as ReturnType<typeof vi.fn>).mockResolvedValue({ data: [], error: null });
+    const out = await fetchOverviewMentionSources(5);
+    expect(out.size).toBe(0);
+    expect(supabase.from).not.toHaveBeenCalled();
   });
 });

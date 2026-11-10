@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { PersonNarrativeRecordEditor } from '../PersonNarrativeRecordEditor';
-import { fetchPersonNarrativeRecords } from '../../data/redaktionRead';
+import { fetchOverviewMarks, fetchPersonNarrativeRecords } from '../../data/redaktionRead';
 
-vi.mock('../../data/redaktionRead', () => ({ fetchPersonNarrativeRecords: vi.fn() }));
+vi.mock('../../data/redaktionRead', () => ({ fetchPersonNarrativeRecords: vi.fn(), fetchOverviewMarks: vi.fn() }));
 
 const record = (overrides: Record<string, unknown> = {}) => ({
   sourceId: 2018,
@@ -24,6 +24,8 @@ const record = (overrides: Record<string, unknown> = {}) => ({
 
 const legacy = (overrides: Record<string, unknown> = {}) => ({
   legacyPublicationRef: 'legacy-1',
+  sourceId: 19,
+  narrativeId: 501,
   status: 'legacy_active',
   stateSha256: 'b'.repeat(64),
   text: 'Bevaret overgangstekst',
@@ -32,7 +34,10 @@ const legacy = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  (fetchOverviewMarks as ReturnType<typeof vi.fn>).mockResolvedValue({ bySource: new Map(), byNarrative: new Map() });
+});
 
 test('sorterer sources nyeste først og recordkort efter side før record key', async () => {
   (fetchPersonNarrativeRecords as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -211,4 +216,55 @@ test('stale state beholder lokal tekst og henter ny servertilstand uden automati
       action: 'save_draft', tekst: 'Ny servertekst', expectedStateSha256: 'c'.repeat(64),
     }),
   }), 'Gem kladde');
+});
+
+test('viser oversigtsmærke kun på kildens markerede narrativ', async () => {
+  (fetchPersonNarrativeRecords as ReturnType<typeof vi.fn>).mockResolvedValue({
+    records: [
+      record({ recordKey: 'M', recordLabel: 'Markeret', text: 'Omtale' }),
+      record({ sourceId: 1939, sourceYear: 1939, sourceLabel: 'DAA 1939', recordKey: 'A', recordLabel: 'Anden', citationLabel: 'DAA 1939, s. 1' }),
+    ],
+    legacyPublications: [],
+  });
+  (fetchOverviewMarks as ReturnType<typeof vi.fn>).mockResolvedValue({ bySource: new Map([[2018, 77]]), byNarrative: new Map([[900, 77]]) });
+  render(<PersonNarrativeRecordEditor personId={5} onChange={vi.fn()} />);
+  expect(await screen.findByText('Oversigtsomtale — vises ikke som biografi (detaljepost: person 77)')).toBeTruthy();
+  expect(screen.getAllByText(/Oversigtsomtale —/)).toHaveLength(1);
+  expect(fetchOverviewMarks).toHaveBeenCalledWith(5);
+});
+
+test('RPC-fejl på oversigtsmærket giver intet mærke og editoren vises', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  (fetchPersonNarrativeRecords as ReturnType<typeof vi.fn>).mockResolvedValue({ records: [record({ recordLabel: 'Kildepost 20' })], legacyPublications: [] });
+  (fetchOverviewMarks as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('REDAKTION_REQUIRED'));
+  render(<PersonNarrativeRecordEditor personId={5} onChange={vi.fn()} />);
+  expect(await screen.findByRole('article', { name: /Kildepost 20/ })).toBeTruthy();
+  await waitFor(() => expect(warn).toHaveBeenCalled());
+  expect(screen.queryByText(/Oversigtsomtale —/)).toBeNull();
+  expect(screen.queryByRole('alert')).toBeNull();
+  warn.mockRestore();
+});
+
+test('overgangsbiografi får oversigtsmærket på sin egen narrativ, ikke på udgaven', async () => {
+  (fetchOverviewMarks as ReturnType<typeof vi.fn>).mockResolvedValue({ bySource: new Map([[19, 7]]), byNarrative: new Map([[501, 7]]) });
+  (fetchPersonNarrativeRecords as ReturnType<typeof vi.fn>).mockResolvedValue({
+    records: [],
+    legacyPublications: [
+      legacy(),
+      legacy({ legacyPublicationRef: 'legacy-2', sourceId: 20, narrativeId: 502 }),
+      legacy({ legacyPublicationRef: 'legacy-3', sourceId: null, narrativeId: 503 }),
+      // Samme kilde som den markerede, men en anden narrativ: intet mærke.
+      legacy({ legacyPublicationRef: 'legacy-4', sourceId: 19, narrativeId: 504 }),
+    ],
+  });
+
+  render(<PersonNarrativeRecordEditor personId={5} onChange={vi.fn()} />);
+
+  const cards = await screen.findAllByRole('article', { name: 'Overgangsbiografi' });
+  expect(cards).toHaveLength(4);
+  expect(within(cards[0]).getByRole('note').textContent).toBe('Oversigtsomtale — vises ikke som biografi (detaljepost: person 7)');
+  expect(within(cards[1]).queryByRole('note')).toBeNull();
+  expect(within(cards[2]).queryByRole('note')).toBeNull();
+  expect(within(cards[3]).queryByRole('note')).toBeNull();
+  expect(fetchOverviewMarks).toHaveBeenCalledTimes(1);
 });

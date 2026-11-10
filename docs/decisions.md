@@ -2,6 +2,48 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: biografilæseren med alle personer og den direkte narrativlæsning ligger allerede om 3 s — åben backlog (2026-11-09)
+
+> Målt i 6d-2a's Task 0 som anon på stand-in `…_6d1c` (prod + 6d-1, efter `ANALYZE`; median af 3):
+> `public_person_bio_source_versions_v2` med alle personer (feedets form, `web/src/data/feedAux.ts`) ≈ 3080 ms;
+> `select` på `public.narrative`, 1000 rækker pr. side ≈ 3000-3100 ms (RLS kalder publiceringsvagten pr. række).
+> Anon-grænsen i prod er 3 s, og 6d-1 målte prod 2,5-2,7 gange langsommere end stand-in'en for koordinat-RPC'en —
+> feedets biografikald fejler derfor sandsynligvis allerede i prod. Ikke målt i prod endnu (kun i projektejerens
+> shell). **Projektejerens valg:** uden for 6d-2a; 6d-2a's budget er relativt (højst +10 %, spec rev. 4 §4.1).
+> Næste skridt: én læsemåling i prod; derefter en løsning (fx feedet sender kun de viste personer, eller vagtens
+> tilstandssammenligning gøres billigere), så den er klar før 6e.
+>
+> **Målt i prod 2026-11-10** (projektejerens shell, før 6d-2a): `bio_alle` 13.053 ms (≈4,5 × stand-in'en; koordinater
+> 1.414 ms). Feedets biografikald fejler altså i prod i dag. **Projektejerens valg 2026-11-10:** 6d-2a går i prod
+> først; biografilæserens hastighed er næste opgave bagefter.
+
+## NOTERET: 6d-2a's kendte begrænsning — appens karantæne kan skjule både oversigt og detaljepost (2026-11-10)
+
+> Codex-review af grenen (fund B1, = spec rev. 4 fund 8): reglen tæller kun offentlige personer på stien, men appens
+> `collapseSameAs` kan sætte en komponent i karantæne af andre grunde. Gør den det for en komponent med en
+> oversigtsomtale, mister oversigtspersonen sin biografi i læseren uden at få detaljepersonens i stedet. Målt på en
+> prod-kopi med 6d-2a: ingen af de 11 komponenter er i karantæne (9 karantænegrupper før = efter). Færdigbeviset i prod
+> gentager karantænetjekket; en fremtidig ændring af karantænereglerne skal tage hensyn til reglen.
+
+## BESLUTTET: 6d-2 deles i 6d-2a og 6d-2b; oversigtsomtaler vises ikke som biografi (2026-11-09)
+
+> Delspec `docs/superpowers/specs/2026-11-09-trin6d2a-oversigtsregel-identitet-design.md` (godkendt, rev. 3; rev. 4
+> efter Codex-runden: reglen beregnes live i biografilæseren uden gemt markering, narrativ-RLS uændret, relativt
+> tidsbudget — projektejerens valg 2026-11-09).
+>
+> - **Opdeling:** 6d-2a = oversigtsreglen, retningen i `samme_som`, 1014's kobling og tre oversigtspersonas'
+>   identitet. 6d-2b = binding af de viste tekster (149b's migration kræver `record_key`, som kun 8 af 1939's 576
+>   legacy-rækker har), 1939-profil til kildetekst-revision (38 rettelser), grænsemekanisme (6 grænsefejl). Grund:
+>   to bygherre-tjek viste, at 2b kræver ny DDL i tre skriveveje.
+> - **Oversigtsreglen (projektejeren):** en 1939-tekst vises ikke som biografi, når personen selv er uden gældende
+>   1939-medlemskab, og komponenten har en anden, offentlig person med et og en synlig tekst. Maskinel, afledt,
+>   automatisk og reversibel; skjult er ikke slettet; fakta og hændelser beholder kildelinjen. Er oversigtens tekst
+>   den eneste om personen (Henning 1849), vises den.
+> - **Retning:** redaktøren vælger *om*, systemet vælger *retningen*, når data kan afgøre den.
+> - **Ændrer decisions 2026-11-07:** færdigbeviset »de 13 har record-binding« erstattes af 6d-2a §8 og 6d-2b.
+> - **Ændrer decisions 2026-11-09 B:** dubletternes læservirkning løses af reglen (de fire par er allerede koblet via
+>   deres 2018-20-person); den redaktionelle sammenlægning (identitet peget om, person udgår) bliver backlog.
+
 ## NOTERET: 6d-1 i prod — ledger via identitet, afledt B6 og afgørelse 4 som bygget (2026-11-09)
 
 > Kørt i prod 2026-11-09 (GO `c8f09536` og `79609895`; færdigbevis `evidensbaseret-genimport/placement-6d1-prod.md`).

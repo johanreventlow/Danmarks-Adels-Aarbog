@@ -726,6 +726,7 @@ BEGIN
     'public.red_person_grid()',
     'public.red_person_narrative_publication_history(bigint)',
     'public.red_person_narrative_records(bigint)',
+    'public.red_overview_mentions(bigint[])',
     'public.red_preview_interpretation_promotions(jsonb)',
     'public.red_preview_relation_decisions(bigint)',
     'public.red_preview_relation_promotions(bigint,jsonb)',
