@@ -12,6 +12,18 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > shell). **Projektejerens valg:** uden for 6d-2a; 6d-2a's budget er relativt (højst +10 %, spec rev. 4 §4.1).
 > Næste skridt: én læsemåling i prod; derefter en løsning (fx feedet sender kun de viste personer, eller vagtens
 > tilstandssammenligning gøres billigere), så den er klar før 6e.
+>
+> **Målt i prod 2026-11-10** (projektejerens shell, før 6d-2a): `bio_alle` 13.053 ms (≈4,5 × stand-in'en; koordinater
+> 1.414 ms). Feedets biografikald fejler altså i prod i dag. **Projektejerens valg 2026-11-10:** 6d-2a går i prod
+> først; biografilæserens hastighed er næste opgave bagefter.
+
+## NOTERET: 6d-2a's kendte begrænsning — appens karantæne kan skjule både oversigt og detaljepost (2026-11-10)
+
+> Codex-review af grenen (fund B1, = spec rev. 4 fund 8): reglen tæller kun offentlige personer på stien, men appens
+> `collapseSameAs` kan sætte en komponent i karantæne af andre grunde. Gør den det for en komponent med en
+> oversigtsomtale, mister oversigtspersonen sin biografi i læseren uden at få detaljepersonens i stedet. Målt på en
+> prod-kopi med 6d-2a: ingen af de 11 komponenter er i karantæne (9 karantænegrupper før = efter). Færdigbeviset i prod
+> gentager karantænetjekket; en fremtidig ændring af karantænereglerne skal tage hensyn til reglen.
 
 ## BESLUTTET: 6d-2 deles i 6d-2a og 6d-2b; oversigtsomtaler vises ikke som biografi (2026-11-09)
 

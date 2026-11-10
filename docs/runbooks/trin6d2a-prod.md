@@ -106,7 +106,8 @@ stand-in og over anon's 3 s allerede før 6d-2a; feedets biografikald fejler i p
 | `T6D2A_CEREMONI_FEJL_EFTER_COMMIT` | committet (fase data) | `verify`, eller fortryd-data |
 | `T6D2A_DATA_FAERDIG` | ceremonien er kørt | `verify` |
 | `T6D2A_VINDUE_EFTER_FINDES` i `apply-data` | en ceremoni har allerede committet på dette ddl-dump (og er fortrudt) | intet kørt; `dump` igen |
-| `T6D2A_VINDUE_EFTER_MANGLER` i fortryd | basen står i data, men aftrykket efter ceremonien mangler | intet restoret; stop og vurdér med Claude |
+| `T6D2A_VINDUE_EFTER_IKKE_GEMT` | ceremonien er committet, men aftrykket kunne ikke tages lige efter fejlen | `verify`; en senere fortrydelse stopper med `…_MANGLER` |
+| `T6D2A_VINDUE_EFTER_MANGLER` i fortryd | basen står i data, men aftrykket efter ceremonien mangler | intet restoret; stop og vurdér med Claude (genskab IKKE aftrykket i hånden i prod: det ville godkende skrivninger efter ceremonien) |
 | `T6D2A_FORTRYD_KATALOG_AENDRET_EFTER_DDL` | en funktion er ændret efter `apply-ddl` | intet restoret; restoren ville rulle den tilbage |
 
 ## Fortrydelse (kun under meldt frys)
@@ -189,12 +190,16 @@ projektejeren, om der skal fortrydes.
     - Genkørt `apply-data` på et ddl-dump, en ceremoni allerede har committet på → `T6D2A_VINDUE_EFTER_FINDES`.
     - Fortryd-data på et dump uden ceremoni → `T6D2A_VINDUE_INGEN_CEREMONI`, sammenlignet som DDL, OK.
     - Fortryd-data i fase `data` uden aftryk → `T6D2A_VINDUE_EFTER_MANGLER`. (Opstod ved en runnerfejl, som
-      generalprøven fandt og som er rettet; aftrykket blev genskabt med vinduets SQL, og fortrydelsen gik igennem.)
+      generalprøven fandt og som er rettet; aftrykket blev genskabt med vinduets SQL, og fortrydelsen gik igennem. Kun
+      en øvelseshandling: på stand-in'en var ingen skrevet siden ceremonien.)
     - Fejl lige efter COMMIT (runneren midlertidigt ændret, sha efterprøvet bagefter) → det tidlige aftryk forfremmet
       (`T6D2A_VINDUE_EFTER_GEMT`) → fortryd-data OK.
     - En eksisterende funktion ændret efter `apply-ddl` → `T6D2A_FORTRYD_KATALOG_AENDRET_EFTER_DDL`; lagt tilbage → OK.
     - En åben `ALTER FUNCTION` på en funktion, blokken erstatter → `apply-ddl` stopper på `lock_timeout` og melder
       `rullet tilbage (maalt: fase foer)`. Fejlkoden vises som `UKENDT_FEJL_SE_…` (lock timeout har ingen kode).
+  - Overgangsbiografierne (B5), målt med blokken i en tilbagerullet transaktion: 10 oversigtsnarrativer, heraf 4
+    overgangsbiografier, som nu får mærket på deres egen narrativ; 0 umarkerede overgangstekster deler kilde med en
+    markeret. Alle 11 aktive overgangsrækker har narrativ-id og kilde (kontrakten afviser ellers hele kortet).
 - **Appens sammenlægning** (Codex-fund 8; `collapseSameAs` fra `packages/core` på anon-data fra en prod-kopi med DDL
   og data):
   - 715 afklarede kanter og 9 karantænegrupper, både før og efter.
