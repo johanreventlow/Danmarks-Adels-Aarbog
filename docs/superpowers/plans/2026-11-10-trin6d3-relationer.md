@@ -111,7 +111,8 @@ Noter, prober, kort og svar i `~/.private/6d3/` (0600). Stand-in: frisk restore 
   `foraelderKilder(kilder, ider, parentId: string, canon): FamilieKilde[]`,
   `boerneKilder(kilder, ider, focusId: string, canon): FamilieKilde[]`, hvor
   `FamilieIder = ReturnType<typeof familieIderForPerson>`. Modpart normaliseres som `canon[id] ?? id` (decimalstreng).
-- Consumes: `model.canonicalIdById` (`web/src/data/model.ts`).
+- Consumes: `model.canonicalIdById` (valgfri på `Model`, `packages/core/src/types.ts:178`; sat i
+  `web/src/data/model.ts:159`) → `DetailPanel` sender `model.canonicalIdById ?? {}`.
 
 - [ ] **Trin 1: Fejlende tests (core):** `aegteskab_alias_modpart` (modpart = alias-id, `spouseId` = kanonisk → 1
   kilde); `aegteskab_alias_to_familier` (to familier, én pr. udgave, samme kanoniske ægtefælle → begge kilder under
