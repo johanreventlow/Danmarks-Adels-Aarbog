@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildModel } from '../buildModel';
-import { bigintTekst, familieIderForPerson, kildeLinje, mapFamilieKilder } from '../familieKilder';
+import { aegteskabsKilder, bigintTekst, boerneKilder, familieIderForPerson, foraelderKilder, kildeLinje, mapFamilieKilder,
+  type FamilieKilde } from '../familieKilder';
 import type { AppPerson } from '../types';
 
 const persons: AppPerson[] = ['1', '2', '3', '4'].map((id) => ({
@@ -78,5 +79,58 @@ describe('kildeLinje og mapFamilieKilder', () => {
     expect(bigintTekst(42)).toBe('42');
     expect(bigintTekst(1.5)).toBeNull();
     expect(bigintTekst('')).toBeNull();
+  });
+});
+
+// Trin 6d-3 spor L: modparten i en binding er postens person-id (fx 1939's alias-række); modellen viser kanoniske
+// id'er efter samme_som-sammenfoldningen. Filtrene slår modparten op kanonisk (canon[id] ?? id).
+describe('kildefiltre med kanonisk modpart', () => {
+  const k = (x: Partial<FamilieKilde>): FamilieKilde => ({
+    familyId: '10', slags: 'aegteskab', counterpartPersonId: '2', sourceRecordRef: null,
+    sourceLabel: 'DAA X', recordLabel: 'Post 1', citationLabel: '', ...x,
+  });
+  // Kanoniske 1 og 2; -2 er 1939's alias for 2, -1 alias for 1. Familie 10 (2018-20) og 11 (1939) er begge parrets
+  // efter sammenfoldningen; 12 er 1's ægteskab med 4.
+  const m = buildModel({ persons, unions: [
+    { id: 'f10', p1: '1', p2: '2', p2_name: null, year: null },
+    { id: 'f11', p1: '1', p2: '2', p2_name: null, year: null },
+    { id: 'f12', p1: '1', p2: '4', p2_name: null, year: null },
+    { id: 'f20', p1: '4', p2: null, p2_name: null, year: null },
+  ], parentChild: [{ child: '3', parent: '1', union: 'f10' }, { child: '3', parent: '2', union: 'f10' },
+    { child: '1', parent: '4', union: 'f20' }] });
+  const canon: Record<string, string> = { '-1': '1', '-2': '2', '1': '1', '2': '2' };
+  it('aegteskab_alias_modpart: modparten er alias for den viste ægtefælle', () => {
+    const ider = familieIderForPerson(m.indexes, '1');
+    expect(aegteskabsKilder([k({ familyId: '11', counterpartPersonId: '-2' })], ider, '2', '1', canon)).toHaveLength(1);
+  });
+  it('aegteskab_alias_to_familier: én kilde pr. udgave under samme kanoniske ægtefælle', () => {
+    const ider = familieIderForPerson(m.indexes, '1');
+    const kilder = [k({ familyId: '10', counterpartPersonId: '2', sourceLabel: 'DAA 2018-20' }),
+      k({ familyId: '11', counterpartPersonId: '-2', sourceLabel: 'DAA 1939' })];
+    expect(aegteskabsKilder(kilder, ider, '2', '1', canon).map((x) => x.sourceLabel)).toEqual(['DAA 2018-20', 'DAA 1939']);
+    expect(aegteskabsKilder(kilder, ider, '4', '1', canon)).toEqual([]);
+  });
+  it('aegteskab_anden_families_modpart: kanonisk match, men familien er ikke parrets', () => {
+    const ider = familieIderForPerson(m.indexes, '1');
+    expect(aegteskabsKilder([k({ familyId: '12', counterpartPersonId: '-2' })], ider, '2', '1', canon)).toEqual([]);
+  });
+  it('aegteskab_modpart_er_fokus_alias: modparten er alias for personen selv', () => {
+    const ider = familieIderForPerson(m.indexes, '1');
+    expect(aegteskabsKilder([k({ familyId: '11', counterpartPersonId: '-1' })], ider, '2', '1', canon)).toHaveLength(1);
+  });
+  it('foraelder_alias: modparten er alias for forælderen', () => {
+    const ider = familieIderForPerson(m.indexes, '3');
+    expect(foraelderKilder([k({ slags: 'foraelder', counterpartPersonId: '-2' })], ider, '2', canon)).toHaveLength(1);
+    expect(foraelderKilder([k({ slags: 'foraelder', counterpartPersonId: '-2' })], ider, '1', canon)).toEqual([]);
+  });
+  it('boern_alias: modparten er alias for fokuspersonen', () => {
+    const ider = familieIderForPerson(m.indexes, '1');
+    expect(boerneKilder([k({ slags: 'boern', counterpartPersonId: '-1' })], ider, '1', canon)).toHaveLength(1);
+    expect(boerneKilder([k({ slags: 'boern', counterpartPersonId: '-2' })], ider, '1', canon)).toEqual([]);
+  });
+  it('ukendt_modpart: id uden for canon sammenlignes uændret, ingen fejl', () => {
+    const ider = familieIderForPerson(m.indexes, '1');
+    expect(aegteskabsKilder([k({ counterpartPersonId: '999' })], ider, '2', '1', {})).toEqual([]);
+    expect(aegteskabsKilder([k({ counterpartPersonId: '2' })], ider, '2', '1', {})).toHaveLength(1);
   });
 });

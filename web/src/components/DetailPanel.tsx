@@ -9,7 +9,10 @@ import { childrenOf, parentsOf } from '../data/model';
 import { pickPortrait, withUrl } from '../data/media';
 import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
-import { familieIderForPerson, kildeLinje, lifeJourney, type BioSourceVersion, type FamilieKilde } from '@daa/core';
+import {
+  aegteskabsKilder as aegteskabsKilderFor, boerneKilder as boerneKilderFor, familieIderForPerson,
+  foraelderKilder as foraelderKilderFor, kildeLinje, lifeJourney, type BioSourceVersion, type FamilieKilde,
+} from '@daa/core';
 import { fetchFamilySources } from '../data/familySources';
 import { NarrativRenderer } from './NarrativRenderer';
 import { PersonFakta } from './PersonFakta';
@@ -48,19 +51,12 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
   if (!p) return null;
   const familieIder = familieIderForPerson(model.indexes, focusId);
   const versionerForKilde = detail?.bioVersions ?? [];
-  // Ægteskabskilder for én ægtefælle: familien skal være deres fælles, og modparten ægtefællen eller personen selv.
-  const aegteskabsKilder = (spouseId: string | null) => {
-    const fam = new Set(familieIder.aegteskaber.filter((a) => a.spouseId === spouseId).map((a) => a.familyId));
-    return familieKilder.filter((k) => k.slags === 'aegteskab' && fam.has(k.familyId)
-      && (k.counterpartPersonId === spouseId || k.counterpartPersonId === focusId));
-  };
-  // Forælderkilden hører kun til den forælder, påstanden handler om (aldrig ved begge; spec §5.2). 2b-iii: en
-  // børnekilde fra forælderens post vises hos barnet på samme måde (modparten er forælderen).
-  const foraelderKilder = (parentId: string) => familieKilder.filter((k) => (k.slags === 'foraelder' || k.slags === 'boern')
-    && familieIder.foraeldreFamilier.includes(k.familyId) && k.counterpartPersonId === parentId);
-  // Trin 5b 2b-iii: børneflokkens kilde hos forælderen (modparten er forælderen selv).
-  const boerneKilder = familieKilder.filter((k) => k.slags === 'boern'
-    && familieIder.boerneFamilier.includes(k.familyId) && k.counterpartPersonId === focusId);
+  // Kildefiltrene bor i core (6d-3 spor L): modparten slås op kanonisk, så en kilde fra en sammenfoldet
+  // udgaves post (fx 1939's alias-række) vises hos den kanoniske person.
+  const canon = model.canonicalIdById ?? {};
+  const aegteskabsKilder = (spouseId: string | null) => aegteskabsKilderFor(familieKilder, familieIder, spouseId, focusId, canon);
+  const foraelderKilder = (parentId: string) => foraelderKilderFor(familieKilder, familieIder, parentId, canon);
+  const boerneKilder = boerneKilderFor(familieKilder, familieIder, focusId, canon);
   // Samme ægteskab kan være bundet fra flere udgaver/poster; nøglen skal derfor også bære kilden.
   const kildeNøgle = (k: FamilieKilde) => [k.familyId, k.slags, k.counterpartPersonId, k.sourceLabel, k.sourceRecordRef ?? k.recordLabel].join('|');
   const parents = parentsOf(model, focusId);

@@ -36,8 +36,8 @@ const kilde = (k: Partial<FamilieKilde>): FamilieKilde => ({
   sourceLabel: 'DAA X', recordLabel: 'Post 1', citationLabel: '', ...k,
 });
 const noop = () => {};
-const vis = () => render(
-  <DetailPanel model={model} focusId="1" detail={detail} onPick={noop} backName={null} onBack={noop}
+const vis = (m: Model = model) => render(
+  <DetailPanel model={m} focusId="1" detail={detail} onPick={noop} backName={null} onBack={noop}
     onFocusTree={noop} onRelate={noop} isMe={false} onToggleMe={noop} isBookmarked={false} onToggleBookmark={noop} geoLoading={false} />,
 );
 
@@ -95,5 +95,23 @@ describe('DetailPanel — familiekilder', () => {
     await screen.findByText('Person 2 ›');
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByText('Kilde: DAA X · Post 7')).toBeNull();
+  });
+  // Trin 6d-3 spor L: modparten er postens person-id (fx 1939's alias-række 98 for ægtefælle 2 og 97 for
+  // forælder 5); modellens canonicalIdById fører dem til de viste personer.
+  it('viser kilder, hvis modpart er alias for den viste ægtefælle eller forælder', async () => {
+    kilder = [kilde({ counterpartPersonId: '98', recordLabel: 'Post 11' }),
+      kilde({ familyId: '20', slags: 'foraelder', counterpartPersonId: '97', recordLabel: 'Post 12' })];
+    vis({ ...model, canonicalIdById: { '98': '2', '97': '5' } } as Model);
+    await screen.findByText('Kilde: DAA X · Post 11');
+    expect(screen.getAllByText('Kilde: DAA X · Post 11')).toHaveLength(1);
+    expect(screen.getByText('Person 5 ›').closest('span')?.textContent).toContain('Kilde: DAA X · Post 12');
+    expect(screen.getByText('Person 6 ›').closest('span')?.textContent).not.toContain('Kilde:');
+  });
+  it('uden canonicalIdById vises en alias-modpart ikke', async () => {
+    kilder = [kilde({ counterpartPersonId: '98', recordLabel: 'Post 11' })];
+    vis();
+    await screen.findByText('Person 2 ›');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText('Kilde: DAA X · Post 11')).toBeNull();
   });
 });
