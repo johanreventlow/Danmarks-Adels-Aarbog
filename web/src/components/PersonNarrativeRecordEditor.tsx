@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Change } from '../data/redaktionWrite';
 import {
   fetchOverviewMentionSources,
+  fetchOverviewMentions,
   fetchPersonNarrativeRecords,
   type LegacyNarrativePublication,
   type PersonNarrativeRecord,
@@ -82,6 +83,9 @@ export function PersonNarrativeRecordEditor({ personId, onChange }: Props) {
   const [legacyConfirmed, setLegacyConfirmed] = useState(false);
   // source_id -> detail_person_id for udgaver, hvor personens tekst er en oversigtsomtale (kun mærke).
   const [overview, setOverview] = useState<Map<number, number>>(new Map());
+  // narrative_id -> detail_person_id: overgangsbiografier mærkes på deres egen narrativ, ikke på udgaven (der kan være
+  // flere overgangsnarrativer for samme kilde, og kun den markerede er en oversigtsomtale).
+  const [overviewNarratives, setOverviewNarratives] = useState<Map<number, number>>(new Map());
   const currentPersonId = useRef(personId);
   currentPersonId.current = personId;
 
@@ -114,8 +118,12 @@ export function PersonNarrativeRecordEditor({ personId, onChange }: Props) {
   useEffect(() => {
     let current = true;
     setOverview(new Map());
-    fetchOverviewMentionSources(personId).then((marks) => {
-      if (current) setOverview(marks);
+    setOverviewNarratives(new Map());
+    Promise.all([fetchOverviewMentionSources(personId), fetchOverviewMentions([personId])]).then(([marks, byNarrative]) => {
+      if (current) {
+        setOverview(marks);
+        setOverviewNarratives(byNarrative);
+      }
     }).catch((e) => {
       console.warn('Oversigtsmærker kunne ikke hentes', e);
     });
@@ -169,8 +177,8 @@ export function PersonNarrativeRecordEditor({ personId, onChange }: Props) {
     }
   }, [load, onChange, personId, texts]);
 
-  const overviewNote = (sourceId: number) => overview.has(sourceId)
-    ? <div role="note">Oversigtsomtale — vises ikke som biografi (detaljepost: person {overview.get(sourceId)})</div>
+  const overviewNote = (detail: number | undefined) => detail !== undefined
+    ? <div role="note">Oversigtsomtale — vises ikke som biografi (detaljepost: person {detail})</div>
     : null;
   const openLegacyWithdrawal = (legacy: LegacyNarrativePublication) => {
     setLegacyWithdrawal(legacy);
@@ -228,7 +236,7 @@ export function PersonNarrativeRecordEditor({ personId, onChange }: Props) {
             <div>{record.sourceLabel}</div>
             <div>{record.citationLabel}</div>
             <div>{statusLabel[record.status]}</div>
-            {overviewNote(record.sourceId)}
+            {overviewNote(overview.get(record.sourceId))}
             {record.blockingReason ? <div role="status">{record.blockingReason}</div> : null}
             {editable ? (
               <textarea
@@ -261,7 +269,7 @@ export function PersonNarrativeRecordEditor({ personId, onChange }: Props) {
         {read.legacyPublications.map((legacy) => (
           <article key={legacy.legacyPublicationRef} aria-label="Overgangsbiografi">
             <p>{legacy.text}</p>
-            {legacy.sourceId !== null ? overviewNote(legacy.sourceId) : null}
+            {overviewNote(overviewNarratives.get(legacy.narrativeId))}
             <div>{legacy.status === 'legacy_active' ? 'Aktiv overgangsbiografi' : 'Tilbagetrukket overgangsbiografi'}</div>
             {legacy.blockingReason ? <div role="status">{legacy.blockingReason}</div> : null}
             {legacy.allowedActions.includes('withdraw_legacy') ? <button type="button" disabled={busy === legacy.legacyPublicationRef} onClick={() => openLegacyWithdrawal(legacy)}>Tag biografi ned</button> : null}

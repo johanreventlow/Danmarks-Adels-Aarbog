@@ -2,9 +2,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { PersonNarrativeRecordEditor } from '../PersonNarrativeRecordEditor';
-import { fetchOverviewMentionSources, fetchPersonNarrativeRecords } from '../../data/redaktionRead';
+import { fetchOverviewMentionSources, fetchOverviewMentions, fetchPersonNarrativeRecords } from '../../data/redaktionRead';
 
-vi.mock('../../data/redaktionRead', () => ({ fetchPersonNarrativeRecords: vi.fn(), fetchOverviewMentionSources: vi.fn() }));
+vi.mock('../../data/redaktionRead', () => ({ fetchPersonNarrativeRecords: vi.fn(), fetchOverviewMentionSources: vi.fn(), fetchOverviewMentions: vi.fn() }));
 
 const record = (overrides: Record<string, unknown> = {}) => ({
   sourceId: 2018,
@@ -37,6 +37,7 @@ const legacy = (overrides: Record<string, unknown> = {}) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   (fetchOverviewMentionSources as ReturnType<typeof vi.fn>).mockResolvedValue(new Map());
+  (fetchOverviewMentions as ReturnType<typeof vi.fn>).mockResolvedValue(new Map());
 });
 
 test('sorterer sources nyeste først og recordkort efter side før record key', async () => {
@@ -245,22 +246,27 @@ test('RPC-fejl på oversigtsmærket giver intet mærke og editoren vises', async
   warn.mockRestore();
 });
 
-test('overgangsbiografi får oversigtsmærket, når dens source_id er en oversigtskilde', async () => {
+test('overgangsbiografi får oversigtsmærket på sin egen narrativ, ikke på udgaven', async () => {
   (fetchOverviewMentionSources as ReturnType<typeof vi.fn>).mockResolvedValue(new Map([[19, 7]]));
+  (fetchOverviewMentions as ReturnType<typeof vi.fn>).mockResolvedValue(new Map([[501, 7]]));
   (fetchPersonNarrativeRecords as ReturnType<typeof vi.fn>).mockResolvedValue({
     records: [],
     legacyPublications: [
       legacy(),
       legacy({ legacyPublicationRef: 'legacy-2', sourceId: 20, narrativeId: 502 }),
       legacy({ legacyPublicationRef: 'legacy-3', sourceId: null, narrativeId: 503 }),
+      // Samme kilde som den markerede, men en anden narrativ: intet mærke.
+      legacy({ legacyPublicationRef: 'legacy-4', sourceId: 19, narrativeId: 504 }),
     ],
   });
 
   render(<PersonNarrativeRecordEditor personId={5} onChange={vi.fn()} />);
 
   const cards = await screen.findAllByRole('article', { name: 'Overgangsbiografi' });
-  expect(cards).toHaveLength(3);
+  expect(cards).toHaveLength(4);
   expect(within(cards[0]).getByRole('note').textContent).toBe('Oversigtsomtale — vises ikke som biografi (detaljepost: person 7)');
   expect(within(cards[1]).queryByRole('note')).toBeNull();
   expect(within(cards[2]).queryByRole('note')).toBeNull();
+  expect(within(cards[3]).queryByRole('note')).toBeNull();
+  expect(fetchOverviewMentions).toHaveBeenCalledWith([5]);
 });
