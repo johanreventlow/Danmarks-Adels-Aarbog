@@ -2,6 +2,50 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 6d-2b indsnævres til at trække forkert tilskrevne 1939-tekster tilbage; resten bliver kendte begrænsninger (2026-11-10)
+
+> Målt 2026-11-10 på stand-in `daa5ab_ddl_standin_20261110150105_6d2afb` (= prod efter 6d-2a). 6d-2a §9 beskrev
+> 6d-2b som tre nye mekanismer: binding af de viste tekster, 1939-profil til kildetekst-revision og grænsemekanisme.
+> Målingen viser, at de næsten intet ændrer for læseren:
+>
+> - **Binding af de viste tekster:** 13 af 1939's 576 narrativer er ubundne (8 `grandfathered_publication`, 5
+>   staged uden publicering). 5 er oversigtsomtaler (974, 977, 1013, 1014, 1802), som ikke må bindes (6d-2a §9). Ingen
+>   af de 8 andre har en ledig post. Deres tekst står helt eller delvist i en post, der allerede er bundet til en anden
+>   person (andel af narrativets tegn i posten: 1791 → 1198's post 94 %; 934, 933 og 935 → 931's 100 %; 929 → 930's 69 %;
+>   1135 → 1130's 100 %; 940 → 1810's 56 %; 1795 bedst 64 %). 149b's migration passer heller ikke: den opretter en ny
+>   persona fra `person_external_id.record_key`, og 1939's eksterne nøgler er gamle uuid'er, ikke `record-…`-nøgler.
+> - **De 38 tekstrettelser** (6m, `kun_rapport`): 14 af de 15 poster har hverken narrativ, persona eller placement, og
+>   10 ligger i oversigtszonerne. 8 er normaliseringer (4 sidemarkører, 4 orddelinger), ikke fejl i bogen; 7 ligger på
+>   poster uden helpost (p83, p235, p278). 23 ændrer længden, og under 1939's `raw`-tekstform giver det enten
+>   `CLAUSE_EVIDENCE_RENDITION_SPAN_INVALID` eller lydløst forskudte klausul-offsets (`schema.sql:4570-4577`).
+> - **De 6 grænsefejl:** der findes ingen writer, der flytter tekst mellem records (afvist anker, anker v2,
+>   `source_record_revision_event`), heller ikke for 2018-20. En sådan writer ville gøre 4 publicerede narrativer
+>   forældede (601, 607, 704, 977) og tabe 7 bindinger. 6c-3's afstemningswriter har desuden en kendt fejl, der skal
+>   rettes før en ny kalder (6c-3-spec, Codex-fund 2).
+>
+> **Projektejerens valg 2026-11-10:** 6d-2b bliver smal, og derefter følger 6d-3.
+>
+> - **Indhold:** de forkert tilskrevne 1939-tekster, som læseren ser i dag, trækkes tilbage med den eksisterende
+>   redaktørhandling (`red_tilbagetraek_legacy_narrative`, redaktionens narrativredigering). Kandidaterne er 1791
+>   (navnet er et tekststykke fra Conrads post), 934 (en omtale i Hartvigs post), 929 (for det meste Dosos post) og
+>   1795 (22 tegn, intet navn). Projektejeren afgør hvert tilfælde på et lokalt kortark med bogposten ved siden af. En
+>   tilbagetrækning skjuler teksten uden at slette den og kan fortrydes (`red_fortryd_person_narrative_publication_event`
+>   dækker `legacy_withdrawn`). 929 og 934 beholder deres tekst fra 2018-20 gennem `samme_som`. Ingen DDL, ingen ceremoni.
+> - **Roadmap:** trin 6, led publicering, midlertidig legacy-afvikling. Værdi: læseren ser ikke længere en anden
+>   persons tekst under et forkert navn. Erstatter 6d-2a §9's tre mekanismer. Review-budget: ingen kodeændring, intet
+>   review.
+> - **Færdigbevis:** hver tilbagetrukket henvisning har status `withdrawn` i prod med et `legacy_withdrawn`-event.
+>   Biografilæseren leverer ikke længere teksten til anon. De øvrige 1939-narrativer er uændrede.
+> - **Kendte begrænsninger (ikke i trin 6):** de 38 tekstrettelser, de 6 grænsefejl og rettelsen af afstemningswriteren.
+>   Trin 6's færdigbevis (a) kræver de samme operationer som 2018-20, og grænsemekanismen findes heller ikke dér. Vision'en
+>   gør det ikke til et mål at gøre 1939 internt perfekt. Rettelsen på narrativ 632 (person 963, staged) trækkes kun ud
+>   af rapporten.
+> - **Flyttes til 6d-3's måling:** de 29 records uden narrativbinding (sider 498-539; 21 uden persona, 8 uden helpost),
+>   som 6d-1-spec'en §7 lagde i 6d-2 og 6d-2a ikke nævnte. 6d-3 afgør, om relationerne kræver personas for dem.
+>   Desuden levnspersonen 1791, som har 2 familiemedlemskaber, og de skjulte dubletter 1135 (af 1130) og 940 (af 1810).
+> - **Ændrer** 6d-2a §9 og decisions 2026-11-07 (færdigbeviset »de 13 har record-binding«): af de 13 bindes ingen. 5
+>   er oversigtsomtaler under reglen, de synlige forkerte trækkes tilbage efter kortene, og de skjulte står som ovenfor.
+
 ## BESLUTTET: 6d-2a's brud på tidsbudgettet accepteres; biografilæserens fart udskydes til før projektets afslutning (2026-11-10)
 
 > **Målt i prod** (runner 34, `anon`, median af 3, samme base): `bio_alle` 12.679 ms i fase `foer` → 25.123 og
