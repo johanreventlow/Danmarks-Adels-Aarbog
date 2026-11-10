@@ -64,7 +64,8 @@ trin 1); Opus afvejer hvert fund. Projektejeren har frigivet budgettet 2026-11-1
 1. **En post med flere ægteskaber, hvor et tidligt står over en orddeling eller sidemarkør.** Nummeret skal følge
    tekstens rækkefølge, ikke sende det tidlige ægteskab sidst. Låses af `$fold_ordinal_blandet$` (Task 3).
 2. **2018-20's eksisterende bindinger og numre.** DDL'en må ikke flytte et eneste nummer eller ugyldiggøre en
-   binding (ellers forsvinder 241 kilder). Låses af `$kilde1_uaendret$` (Task 3) og md5-tjekket i Task 5.
+   binding (ellers forsvinder 241 kilder). Låses af `$kilde1_uaendret$` (Task 3) og `K1_*`-md5 på stand-in'en med
+   prod-data (Task 5 trin 2; ikke-tom mængde krævet).
 3. **Sammenfoldet person med samme ægtefælle i to udgavers familier.** Én ægtefælle-linje med begge kilder; en
    modpart, der ikke findes i modellen (skjult/privat), giver ingen fejl og ingen kilde. Låses af
    `aegteskab_alias_to_familier` og `ukendt_modpart` (Task 1).
@@ -96,8 +97,11 @@ Noter, prober, kort og svar i `~/.private/6d3/` (0600). Stand-in: frisk restore 
   ingen forudfyldning. Svar `S <n>` / `I` (ingen af dem). Kort for 1795: `P` (privat) / `B` (bevar). Manifest =
   kanonisk JSON pr. kort (person-id'er, førtilstand: ingen `samme_som` for 1939-ægtefællen, tvillingens
   ægtefællemængde, tekst-sha); svarfilen refererer manifestets sha.
-- [ ] **Trin 7: Codex `gpt-6.1-sol` på denne plan** (kør `codex-companion.mjs task --fresh` direkte; udeluk `work*/`).
-  Opus afvejer; ret planen; commit `docs(6d): Codex-runde på 6d-3-planen`.
+- [x] **Trin 7: Codex `gpt-6.1-sol` på denne plan** (kørt 2026-11-10 før trin 1-6, efter projektejerens ønske):
+  NO-GO, 9 MAJOR. Opus-afvejning, godkendt af projektejeren: nødvendig 3, 4, 5, 6, 7, 9; forenklet 2 (kun
+  `--profile`, ingen særskilt vej for maskinelle personas), 8 (kilde 1-md5 på stand-in i stedet for tomme
+  opgraderingsbaser), 1 (commit-grænser listet + ét ekstra afbrudspunkt; intet fuldt katalog-/ACL-aftryk). Rettet
+  i Task 2, 3, 5-9 (»Codex plan-fund n«).
 
 ### Task 1: Spor L — kildefiltre med kanonisk modpart
 
@@ -130,7 +134,11 @@ Noter, prober, kort og svar i `~/.private/6d3/` (0600). Stand-in: frisk restore 
 
 **Files:**
 - Modify: `schema.sql` (ny tabel efter `reimport_writer_profile`-seeds ~:3950; `private.write_relation_persona`
-  :17554-17700), `db-migrations.sql` (ny blok), `db-rls.sql` (tabellen privat, ingen grants)
+  :17554-17700), `db-migrations.sql` (ny blok), `db-rls.sql` (tabellen privat, ingen grants), `db-verify.sql:10376`
+  (tekstinspektionen efter `relation-persona-2018-20-v3` i writerens krop erstattes af asserts over profilrækkerne
+  og af, at writeren slår op i `relation_persona_profile`; Codex plan-fund 5)
+- Modify: testhjælperen `pg_temp.f5b_profile` (`tests/sql/fixtures/relation-5b.sql:95`, brugt af alle 5b-testene) (indsætter en syntetisk `relation_persona_profile`-
+  række for testens negative kilde, fx −5201/−5341; produktionskontrollen svækkes ikke; Codex plan-fund 6)
 - Modify: `.claude/skills/daa-extract/scripts/relation_persona_apply.sql`, `relation_batch_apply.sql`,
   `transfer_5ab_step_profile.sql` (literalerne → `-v profile_file`)
 - Create: `.claude/skills/daa-extract/profiles/relation-persona-2018-20.json`, `relation-persona-1939.json`
@@ -151,7 +159,8 @@ Noter, prober, kort og svar i `~/.private/6d3/` (0600). Stand-in: frisk restore 
   `$profil_forkert_kilde$` (1939-profil på kilde 1-batch) → afvist; `$praedikat_uden_form$` (`relation.child` på
   1939-profil) → afvist; `$parent_v1_form_1939$` (forælder med v1-payload på 1939-profil) → skrevet.
 - [ ] **Trin 2: Kør** → FAIL. **Trin 3: Implementér** tabel, seeds og writerens opslag; scripts læser profilfilen.
-- [ ] **Trin 4: Kør** de nye og de eksisterende writer-tests (v1/v2/v3/reuse) → PASS uændret.
+- [ ] **Trin 4: Kør** de nye og de eksisterende writer-tests (v1/v2/v3/reuse) → PASS; testenes asserts er uændrede,
+  kun hjælperens profilrække er ny. `run-db-verify-disposable.sql` → PASS med den nye profil-assert.
 - [ ] **Trin 5: Commit** `feat(db): relationsprofiler som data (6d-3)`.
 
 ### Task 3: Tekstfoldning i ordvindue og ægteskabsnummer
@@ -164,16 +173,20 @@ Noter, prober, kort og svar i `~/.private/6d3/` (0600). Stand-in: frisk restore 
 
 **Interfaces:**
 - Produces: `private.relation_text_form(p_source_id bigint) RETURNS text` (`'raw'` hvis kilden har en raw-profil i
-  `relation_persona_profile`, ellers `'folded'`); `private.relation_ordered_windows(p_text text, p_raw text, p_text_form text DEFAULT 'folded')`
-  med samme returkolonner som i dag. Ved `raw` sammenlignes på en foldet projektion (linjeskift → mellemrum,
-  `-\n` → intet, linjer `### PAGE nnnn ###` → intet), og vinduets positioner føres tilbage til originalteksten.
-  `relation_marriage_ordinals` og writerens spændtjek kalder med `relation_text_form(kilden)`.
+  `relation_persona_profile`, ellers `'folded'`); ny `private.relation_ordered_windows(p_text text, p_raw text, p_text_form text)`
+  (ingen default) med samme returkolonner som i dag. Den eksisterende 2-arg-funktion bliver en tynd indpakning, der
+  kalder 3-arg med `'folded'` (en default ville give en ekstra overload ved siden af den gamle i opgraderet prod;
+  Codex plan-fund 3); begge får `REVOKE` som i dag. Ved `raw` sammenlignes på en foldet projektion (linjeskift →
+  mellemrum, `-\n` → intet, linjer `### PAGE nnnn ###` → intet), og vinduets positioner føres tilbage til
+  originalteksten. `relation_marriage_ordinals` og writerens spændtjek (:17478, :17649-17650 og migrationernes
+  kopier) kalder 3-arg med `relation_text_form(kilden)`.
 - Fixture-format: `[{"id","text","raw","text_form","w_from","w_to"}]`; Python-tvillingen (Task 4) asserter de samme.
 
 - [ ] **Trin 1: Fejlende tests:** `$fold_linjeskift$`, `$fold_orddeling$`, `$fold_sidemarkoer$` (fixture-tilfælde
   giver præcis ét vindue med originalens positioner); `$fold_ordinal_blandet$` (opdigtet post med 3 ægteskaber, det
   første over en orddeling → numrene 1, 2, 3 i tekstrækkefølge); `$kilde1_uaendret$` (`folded` giver samme vinduer
-  som før for de eksisterende v2-testtilfælde).
+  som før for de eksisterende v2-testtilfælde); `$to_arg_indpakning$` (2-arg = 3-arg med `'folded'`; præcis to
+  overloads i `pg_proc`).
 - [ ] **Trin 2: Kør** → FAIL. **Trin 3: Implementér.** **Trin 4: Kør** + `test-relation-persona-v2.sql`, `-v3.sql`,
   `test-marriage-ordinal-correction.sql`, `test-relation-family-context.sql` → PASS.
 - [ ] **Trin 5:** På stand-in'en (lokal kopi): 1939's ægteskaber uden position 59 → tal; kilde 1's
@@ -205,10 +218,13 @@ Noter, prober, kort og svar i `~/.private/6d3/` (0600). Stand-in: frisk restore 
 **Files:** Create `tests/sql/test-6d3-upgrade.sh` (kopi af `tests/sql/test-6d1-upgrade.sh`).
 
 - [ ] **Trin 1:** Byg fra `git merge-base origin/main HEAD`; kør nye `db-migrations.sql` + `db-rls.sql` to gange;
-  assert funktionskroppe = `schema.sql` (`pg_get_functiondef`-sha), tabellens ACL (ingen anon/authenticated),
-  seeds; md5 over kilde 1's `relation_marriage_ordinals`, `relation_binding_state` og `public_family_sources` før =
-  efter; kør Task 2-3's testfiler og `run-db-verify-disposable.sql`; `echo UPGRADE_OK`.
-- [ ] **Trin 2:** Kør den og `test-6d1-upgrade.sh` → `UPGRADE_OK` fra begge.
+  assert funktionskroppe = `schema.sql` (`pg_get_functiondef`-sha), præcis to overloads af
+  `relation_ordered_windows`, tabellens ACL (ingen anon/authenticated), seeds; kør Task 2-3's testfiler og
+  `run-db-verify-disposable.sql`; `echo UPGRADE_OK`. Ingen kilde 1-md5 her: opgraderingsbaserne er tomme, så md5
+  ville sammenligne tomt med tomt (Codex plan-fund 8).
+- [ ] **Trin 2:** Kør den og `test-6d1-upgrade.sh` → `UPGRADE_OK` fra begge. **Kilde 1 uændret** bevises på
+  stand-in'en med prod-data: `maal_trin6d3.sql` før og efter DDL'en → `K1_ORD`, `K1_BIND`, `FAMKILDER` ens, og
+  antallene bag dem er ikke nul (241 kilder; ellers fejler målingen).
 - [ ] **Trin 3:** Hele CI-jobbet lokalt (alle PostgreSQL-jobs, python, R-suiten, node med `tsc --noEmit`) → grønt
   (memory: kør hele CI-jobbet lokalt).
 - [ ] **Trin 4: Commit** `test(6d): opgraderingstest for 6d-3`.
@@ -222,18 +238,29 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
   `relation_persona_apply.sql -v source_id=3 -v profile_file=…/relation-persona-1939.json`. Tæl personas.
   Samme trin for kilde 1 med 2018-20's v3-profil, begrænset til I-103 og V-159 (spec §5.1.6; I-11 og II-35 står
   `proposed`) via `relation_persona_v3_input(1)` filtreret på `record_key`.
-- [ ] **Trin 2: Kandidater og kontrol:** `packages/identity-candidates/sql/export-input.sql -v source_id=3 -v mode=undecided`
-  → `npm run cli -w @daa/identity-candidates -- generate --source-id 3 --top-k 10 --family-name-min 0.95` →
-  `write-candidates.sql` → `red_register_identity_control_run`. Tæl kort (homonymer + K=20 + forældre).
+- [ ] **Trin 2: Kandidater og kontrol** for kilde 3 og for kilde 1's to personas: `packages/identity-candidates/sql/export-input.sql -v source_id=<3|1> -v mode=undecided`
+  → `npm run cli -w @daa/identity-candidates -- generate --source-id <3|1> --top-k 10 --family-name-min 0.95` →
+  `write-candidates.sql` → `red_register_identity_control_run`. For kilde 1 afgrænses kontrolkørslen til de to
+  nye personas (I-103, V-159); andre uafgjorte kilde 1-personas, der måtte stå i eksporten, røres ikke og tælles
+  (afvigelse fra 0 → stop og forelæg). De to følger resten af kæden (korroboration/kort → afgørelse → binding) som
+  kilde 3 (Codex plan-fund 4). Tæl kort (homonymer + K=20 + forældre + kilde 1's to).
 - [ ] **Trin 3: Mål maskinpopulationen** som `red_corroborate_family_identities` vil se den (dry-run i rullet-tilbage
   transaktion efter et forseglet testark): accepteret / afvist pr. årsag. Forelæg projektejeren tallene og
   kortomfanget før kortene (memory: vis tab før kortrunde).
-- [ ] **Trin 4: Forælderarkets kontekst** (6c-3's værktøjsnote): `relation_parent_sheet.py render --html` med post,
-  side, barn, familiens forældre og børn; test i `test_relation_parent_sheet.py`
-  (`test_render_html_has_context`). Commit `feat(udtraek): forælderarket viser kontekst som HTML (6d-3)`.
-- [ ] **Trin 5: R-kort:** kontrolark (`identity_control_sheet.py`), ægteskabsark for ikke-maskinelle
-  (`relation_marriage_sheet_v3.py`), forælderark; lokal HTML, flettet ind i ét token-ark; projektejeren svarer;
-  sha på ark og svar.
+- [ ] **Trin 4: Forælderarkets kontekst** (6c-3's værktøjsnote): `relation_parent_rows.sql` udvides med post-
+  tekst, side, barnets navn/datoer og familiens forældre og børn (i dag kun nøgler og id'er, :13-26; Codex plan-fund
+  7); rækkefilens sha indgår fortsat i arkets hash-binding. `relation_parent_sheet.py render --html` viser
+  konteksten; test i `test_relation_parent_sheet.py` (`test_render_html_has_context`) på en rækkefil i den
+  udvidede kontrakt (opdigtede personer) og en SQL-test, der kører `relation_parent_rows.sql` på en fixture-base.
+  Commit `feat(udtraek): forælderarket viser kontekst som HTML (6d-3)`.
+- [ ] **Trin 5: Ægteskabsarket læser profilen:** `relation_marriage_sheet_v3.py` får `--profile <profilfil>` i
+  stedet for den importerede `PROFILE` (:16, :144); uden flaget er adfærden 2018-20-v3 byte-ens
+  (`test_default_profile_unchanged`); med 1939-profilen bærer persona-manifestet 1939-profilen
+  (`test_profile_1939_manifest`). Arket bruges kun til de parkerede, ikke-maskinelle ægteskaber; maskinelle
+  personas går ad kontrolarket (Codex plan-fund 2). Commit `feat(udtraek): ægteskabsark v3 læser profil (6d-3)`.
+- [ ] **Trin 6: R-kort:** kontrolark (`identity_control_sheet.py`), ægteskabsark for ikke-maskinelle
+  (`relation_marriage_sheet_v3.py --profile`), forælderark; lokal HTML, flettet ind i ét token-ark; projektejeren
+  svarer; sha på ark og svar.
 
 ### Task 7: Dataceremoniens SQL og målescript
 
@@ -245,20 +272,25 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
 
 **Interfaces:**
 - D: tager manifest + svar (JSON) og deres sha. Pr. `S <n>` i én transaktion: `pg_advisory_xact_lock(hashtext('samme_som_mutation'))`,
-  efterprøv førtilstand (ingen `samme_som` for 1939-ægtefællen i nogen retning; tvillingens ægtefællemængde = manifest),
-  ellers `T6D3_PRE_MANIFEST`; `red_samme_som(1939-række, mål)`; assert faktisk retning (1939-rækken er alias) og
+  efterprøv førtilstand for alle kort før første mutation (ingen `samme_som` for 1939-ægtefællen i nogen retning;
+  tvillingens ægtefællemængde = manifest; kortets tekst-sha genberegnet fra basen = manifest; Codex plan-fund 9),
+  ellers `T6D3_PRE_MANIFEST` og intet skrevet; `red_samme_som(1939-række, mål)`; assert faktisk retning (1939-rækken er alias) og
   komponent-sink; nulstil `app.change_set_id` mellem kald. Kvittering pr. par i en change_set med kilden som subjekt:
   relation-id, retning, change_set. `T6D3_D_OK links=<n> ingen=<n>`.
 - O: `red_set_privat(1791, true)` (og 1795 ved `P`) efter førtjek (`privat=false`, familier 742/743 uændrede);
   `T6D3_O_OK privat=<n>`.
 - `maal_trin6d3.sql` printer én linje: `T6D3_MAAL fase=<foer|ddl|d|o|r> forslag_k3=<m/p/c> bundne_k3=<n> samme_som=<n>
-  dobbelt=<n> privat_1791=<0|1> uden_position=<n> K1_ORD=<md5> K1_BIND=<md5> FAMKILDER=<md5>` (`dobbelt` = de 44
-  klassers tæller fra spec §2.4; `K1_*` = kilde 1's numre og bindingstilstande; `FAMKILDER` = `public_family_sources`
-  som anon for alle offentlige familier).
+  dobbelt=<n> privat_1791=<0|1> uden_position=<n> K1_ORD=<md5> K1_BIND=<md5> K1_NYE=<nøgler> FAMKILDER=<md5>`
+  (`dobbelt` = de 44 klassers tæller fra spec §2.4; `K1_ORD`/`K1_BIND` = kilde 1's numre og bindingstilstande for
+  de bindinger, der fandtes ved `foer` (nøglemængden fastlåses i `foer`-filen); `K1_NYE` = sorterede
+  `interpretation_key`s for kilde 1-bindinger uden for den mængde, krævet = præcis {I-103, V-159} efter `r` og tom
+  før (Codex plan-fund 4); `FAMKILDER` = `public_family_sources` som anon for alle offentlige familier; tom mængde bag
+  en md5 → fejl).
 
 - [ ] **Trin 1: Fejlende tests:** målescriptets format; D på en lokal base med opdigtede personer: `S` → link med
   1939-rækken som alias; `I` → intet skrevet; forkert svar-sha → `T6D3_PRE_SHA`; eksisterende link før ceremonien →
-  `T6D3_PRE_MANIFEST` og intet skrevet; gentaget kørsel → `T6D3_PRE_FASE`; O: privat sat, `family_offentlig(742)` falsk.
+  `T6D3_PRE_MANIFEST` og intet skrevet; ændret posttekst for ét kort → `T6D3_PRE_MANIFEST`, intet skrevet for
+  nogen kort; tvillingen har fået en ekstra ægtefælle → `T6D3_PRE_MANIFEST`, intet skrevet; gentaget kørsel → `T6D3_PRE_FASE`; O: privat sat, `family_offentlig(742)` falsk.
 - [ ] **Trin 2-4:** kør (FAIL) → implementér → PASS.
 - [ ] **Trin 5: Commit** `feat(6d): D/O-ceremoni og målescript for 6d-3`.
 
@@ -274,7 +306,10 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
 - [ ] **Trin 1: Runner:** GO binder sha over DDL-blok, alle SQL-/Python-artefakter, profilfiler, manifester, svar,
   runner, vinduesvagt og commit. Dump + ekstern kopi før `apply-d`; vinduesvagten accepterer ethvert **præfiks** af
   ceremoniens egne skrivninger (D, D+O, D+O+R-delmængde, nøglet på ceremoniens change_sets og batches) og intet andet,
-  også fra samme aktør (spec §6).
+  også fra samme aktør (spec §6). R's commit-grænser listes eksplicit i vinduesvagten (Codex plan-fund 1):
+  `reimport_writer_profile`-rækken (autocommit, `relation_persona_apply.sql:7-9`), autorisationen (egen
+  transaktion, :14-20), batchen (:22-30), og `transfer_5ab_step_*`'s COMMIT før kvitteringsfilen
+  (`transfer_5ab_step_end.sql:8-18`).
 - [ ] **Trin 2: Runbook:** `vercel-deploy (L, efter merge) → maal → anon → dump → dump-kopi → go-ddl → apply-ddl →
   maal → anon → dump → dump-kopi → go-data → apply-d → apply-o → apply-r → verify → anon`, stoppunkter og fortryd
   under meldt frys. L rulles ikke tilbage.
@@ -282,8 +317,9 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
   `anon`-tiden for `public_family_sources` ≤ +10 % (Review Focus 5); `collapseSameAs`/`buildModel` på stand-in'ens
   anon-data: de bekræftede D-par og Gabel/Hahn har én ægtefælle, 0 nye karantæner; læsergaten afstemt pr. planlagt
   binding (spec §5.1.5).
-- [ ] **Trin 4: Fortryd fra præfiks** på tre stand-ins: efter `apply-d`, efter `apply-o`, midt i `apply-r` (afbrudt
-  efter persona-batchen) → restore → `maal` = `foer`-linjen.
+- [ ] **Trin 4: Fortryd fra præfiks** på fire stand-ins: efter `apply-d`, efter `apply-o`, midt i `apply-r` efter
+  autorisationen før batchen, og midt i `apply-r` efter persona-batchen → vinduesvagten godkender præfikset →
+  restore → `maal` = `foer`-linjen, `db-verify` grøn, `anon` som før.
 - [ ] **Trin 5: Negativer:** forkert GO, manglende flag, gentaget `apply-d`, ændret svarfil, fremmed skrivning i
   vinduet.
 - [ ] **Trin 6: Commit** `docs(6d): runbook for 6d-3 i prod` (runneren committes ikke).
@@ -297,6 +333,7 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
 - [ ] **Trin 3: Prod** i projektejerens shell efter runbooken; AI'en læser kvitteringer og mål.
 - [ ] **Trin 4: Færdigbevis** (spec §8) i `status.md` (relationsrækken for 1939 → `produktionsverificeret`),
   `database-current-state.md` og changelog: elementer, parkeringer pr. årsag, identiteter (maskine/kort), afgørelser,
-  bindinger; D-links; 1791 privat; ubundne `proposed` pr. årsag med nøgle; kilde 1's md5 uændret; browsertjek som anon
+  bindinger; D-links; 1791 privat; ubundne `proposed` pr. årsag med nøgle; kilde 1's `K1_ORD`/`K1_BIND` uændret for
+  de eksisterende bindinger og `K1_NYE` = {I-103, V-159}; browsertjek som anon
   (»DAA 1939« på et ægteskab hos en sammenfoldet person; én ægtefælle hos et D-par; Gabel/Hahn én ægtemand).
 - [ ] **Trin 5:** `docs/decisions.md`: noter 6d-3 i prod; commit `docs(6d): færdigbevis for 6d-3 i prod`.
