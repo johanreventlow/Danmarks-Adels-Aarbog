@@ -107,3 +107,56 @@ def test_identitetsscript_P_bruger_raekkefilens_version_og_deceased():
 def test_P_N_skriver_intet():
     sql = sh.identity_sql(sh.parse_sheet(sheet(p="N")), rows(), sheet_sha256="c" * 64, rows_sha256="d" * 64)
     assert SP not in sql
+
+
+# --- Trin 6d-3: arket læser profilen ----------------------------------------------------------------------------------
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+P_1939 = HERE.parent / "profiles" / "relation-persona-1939.json"
+GOLDEN = HERE / "fixtures" / "relation-sheet-v3-default-golden.json"
+
+
+def test_default_profile_unchanged():
+    # Facit = HEAD-kodens (før 6d-3) output for denne fixture, fanget én gang og gemt; ikke en ny kørsel af koden.
+    gold = json.loads(GOLDEN.read_text(encoding="utf-8"))
+    lines = sh.parse_sheet(sheet(extra1=" navn: »Ida komtesse Dal«"))
+    assert sh.render_sheet(rows()) == gold["render"]
+    assert sh.persona_manifest(lines, rows(), sheet_sha256="c" * 64) == gold["manifest"]
+    assert sh.identity_sql(lines, rows(), sheet_sha256="c" * 64, rows_sha256="d" * 64) == gold["identity_sql"]
+    # og med 2018-20-profilfilen eksplicit
+    from relation_persona_extract_v3 import load_profile
+    p = load_profile(HERE.parent / "profiles" / "relation-persona-2018-20.json")
+    assert sh.render_sheet(rows(), p) == gold["render"]
+    assert sh.persona_manifest(lines, rows(), sheet_sha256="c" * 64, profile=p) == gold["manifest"]
+
+
+def raw_rows():
+    t = "Gift 1890 med Ida Bran-\ndenburg, f. 1801."
+    return {"contract": "relation-persona-v3-input", "source_id": 3, "deceased_cutoff_year": 1906,
+            "rows": [mrow(K1, t, "Gift med Ida Brandenburg")], "redecide_rows": []}
+
+
+def test_profile_1939_manifest():
+    from relation_persona_extract_v3 import load_profile
+    p = load_profile(P_1939)
+    r = raw_rows()
+    # standardprofilen (folded): orddelingen giver intet vindue; 1939-profilen (raw): D-forslag
+    assert sh.propose(r["rows"][0], 1906)["reason"] == "intet_vindue"
+    assert "(intet_vindue)" in sh.render_sheet(r)
+    out = sh.render_sheet(r, p)
+    assert "Forslag: D (aldersregel)" in out
+    lines = sh.parse_sheet(f"M {K1} 1 : D\n")
+    m = sh.persona_manifest(lines, r, sheet_sha256="c" * 64, profile=p)
+    e = m["authorized_elements"]["relation-persona:" + K1]
+    assert e["profile"] == "relation-persona-1939-v1" and e["name_basis"] == "rule"
+    t = r["rows"][0]["clauses"][0]["verbatim_text"]
+    assert t[e["name_from"]:e["name_to"]] == "Ida Bran-\ndenburg"
+    # uden profil afvises D (reglen finder intet vindue)
+    with pytest.raises(SheetError, match="SHEET_TOKEN_NOT_ALLOWED"):
+        sh.persona_manifest(lines, r, sheet_sha256="c" * 64)
+
+
+def test_profile_uden_v3_aegteskabsform_afvises():
+    with pytest.raises(SheetError, match="PROFILE_MARRIAGE_FORM_INVALID"):
+        sh.render_sheet(rows(), {"relation_profile": "x", "predicate_forms": {"relation.marriage": "v1"}, "text_form": "folded"})

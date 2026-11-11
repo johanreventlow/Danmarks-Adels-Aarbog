@@ -2,6 +2,8 @@
   "profile_id": "relation-persona-1939",
   "profile_version": "relation-persona-v1",
   "relation_profile": "relation-persona-1939-v1",
+  "predicate_forms": {"relation.marriage": "v3", "relation.parent": "v1"},
+  "text_form": "raw",
   "writer_config": {
     "citation_label_template": "DAA 1939 side {page_from}",
     "extractor_version": "relation-persona-v1",

@@ -21,8 +21,54 @@ def _words(s: str):
     return [(m.start(), m.end(), m.group(0).lower()) for m in WORD.finditer(s)]
 
 
-def windows(text: str, raw: str) -> list[tuple[int, int]]:
-    """Alle minimale vinduer i text, der rummer raw's ord i rækkefølge (0-baseret, eksklusiv slut)."""
+# Trin 6d-3: foldning af rå tekst (SQL-tvilling: private.relation_fold_raw_text; fælles tilfælde i
+# tests/fixtures/relation-fold-cases.json). Eksplicitte tegnklasser som i SQL.
+_LETTER = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]")
+_LOWER = re.compile(r"[a-zß-öø-ÿ]")
+_PAGE_MARK = re.compile(r"### PAGE [0-9]+ ###(?=[ \t]*(?:[\r\n]|$))")
+
+
+def fold_raw_text(t: str) -> tuple[str, list[int]]:
+    """(foldet tekst, origin) hvor origin[k] er originalens 0-baserede position for det foldede tegn k.
+    Et skift er et løb af mellemrum/tabulator, linjeskift (LF/CR/CRLF) og sidemarkørlinjer (»### PAGE n ###« alene
+    på sin linje) med mindst ét linjeskift eller én sidemarkør; skiftet bliver ét mellemrum. Et skift efter »-«
+    fjernes; står et bogstav før bindestregen og et lille bogstav efter, er det en orddeling og »-« fjernes også.
+    Mellemrum uden skift bevares."""
+    out: list[str] = []
+    org: list[int] = []
+    i, n, line_start = 0, len(t), True
+    while i < n:
+        j, brk, ls = i, False, line_start
+        while j < n:
+            ch = t[j]
+            if ch in "\r\n":
+                brk, ls, j = True, True, j + 1
+            elif ch in " \t":
+                j += 1
+            elif ls and ch == "#":
+                m = _PAGE_MARK.match(t, j)
+                if not m:
+                    break
+                brk, ls, j = True, False, m.end()
+            else:
+                break
+        if j == i:
+            out.append(t[i]); org.append(i); line_start = False; i += 1
+        elif not brk:
+            for k in range(i, j):
+                out.append(t[k]); org.append(k)
+            line_start, i = ls, j
+        else:
+            if out and out[-1] == "-":
+                if len(out) >= 2 and _LETTER.fullmatch(out[-2]) and j < n and _LOWER.fullmatch(t[j]):
+                    out.pop(); org.pop()
+            else:
+                out.append(" "); org.append(i)
+            line_start, i = ls, j
+    return "".join(out), org
+
+
+def _windows_core(text: str, raw: str) -> list[tuple[int, int]]:
     tw, rw = _words(text), [w for _, _, w in _words(raw)]
     if not tw or not rw:
         return []
@@ -40,6 +86,19 @@ def windows(text: str, raw: str) -> list[tuple[int, int]]:
         if k == len(rw):
             found[j] = i
     return sorted((tw[s][0], tw[e][1]) for e, s in found.items())
+
+
+def windows(text: str, raw: str, text_form: str = "folded") -> list[tuple[int, int]]:
+    """Alle minimale vinduer i text, der rummer raw's ord i rækkefølge (0-baseret, eksklusiv slut).
+    text_form 'folded' = teksten sammenlignes som den er; 'raw' = tekst og nål foldes først, og positionerne føres
+    tilbage til originalen (SQL-tvilling: private.relation_ordered_windows(text, raw, text_form))."""
+    if text_form == "folded":
+        return _windows_core(text, raw)
+    if text_form != "raw":
+        raise ValueError(f"RELATION_TEXT_FORM_INVALID: {text_form}")
+    ft, org = fold_raw_text(text)
+    fr, _ = fold_raw_text(raw)
+    return [(org[a], org[b - 1] + 1) for a, b in _windows_core(ft, fr)]
 
 
 PARTICLES = {"von", "de", "af", "du", "la", "van", "zu", "der", "den"}

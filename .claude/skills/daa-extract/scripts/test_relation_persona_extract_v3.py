@@ -10,7 +10,7 @@ import relation_persona_extract_v3 as v3
 
 def row(text, raw, partners=(), principal=1, ordinal=1, key="k1"):
     return {"interpretation_key": key, "interpretation_version": 1, "predicate": "relation.marriage", "raw": raw,
-            "record_key": "II-1", "marriage_ordinal": ordinal, "supporting_count": 1, "principal_ok": principal is not None,
+            "record_key": "II-1", "occurrence_id": "occ-II-1", "marriage_ordinal": ordinal, "supporting_count": 1, "principal_ok": principal is not None,
             "principal_person_id": principal, "principal_partners": list(partners), "post_text": "Anna A. " + text,
             "clauses": [{"observation_id": "o1", "clause_set_seq": 1, "clause_set_sha256": "a" * 64,
                          "verbatim_text": text, "post_char_from": 8, "post_char_to": 8 + len(text)}]}
@@ -255,3 +255,221 @@ def test_nummer_modsiger_bog():
     t = "g. 2° m. Bo Beta, f. 1801."
     assert v3.propose(row(t, t, ordinal=1), 1906)["reason"] == "nummer_modsiger_bog"
     assert v3.propose(row(t, t, ordinal=2), 1906)["reason"] != "nummer_modsiger_bog"
+
+
+# --- Trin 6d-3: profilen som data (CLI --profile) --------------------------------------------------------------------
+import hashlib
+import subprocess
+import sys
+
+SCRIPT = Path(__file__).parent / "relation_persona_extract_v3.py"
+PROFILES = Path(__file__).resolve().parents[1] / "profiles"
+P_2018 = PROFILES / "relation-persona-2018-20.json"
+P_1939 = PROFILES / "relation-persona-1939.json"
+
+
+def other_row(predicate, raw, text, key, record="II-9", post_from=40):
+    r = row(text, raw, key=key)
+    r.update(predicate=predicate, marriage_ordinal=None, record_key=record)
+    r["clauses"][0].update(post_char_from=post_from, post_char_to=post_from + len(text))
+    return r
+
+
+V1_KEYS = ("interpretation_key", "interpretation_version", "predicate", "raw", "record_key", "occurrence_id", "marriage_ordinal",
+           "supporting_count", "clauses", "principal_ok")
+
+
+def v1_of(r):
+    """v1-inputtets række (red_relation_persona_input): uden hovedperson-id, partnere og posttekst."""
+    return {k: r[k] for k in V1_KEYS}
+
+
+def run_cli(tmp_path, v1_rows, *extra, v3_rows=None, cutoff=1906, name="m.json", expect_ok=True, claimed="auto"):
+    inp = tmp_path / "in.json"
+    doc = {"input": v1_rows}
+    if claimed is not None:
+        doc["input_sha256"] = v3.canonical_sha256(v1_rows) if claimed == "auto" else claimed
+    inp.write_text(json.dumps(doc), encoding="utf-8")
+    args = ["--input", str(inp), "--out", str(tmp_path / name)]
+    if v3_rows is not None:
+        i3 = tmp_path / "in3.json"
+        i3.write_text(json.dumps({"contract": "relation-persona-v3-input", "source_id": 1, "deceased_cutoff_year": cutoff,
+                                  "rows": v3_rows, "redecide_rows": []}), encoding="utf-8")
+        args += ["--v3-input", str(i3)]
+    r = subprocess.run([sys.executable, str(SCRIPT), *args, *extra], capture_output=True, text=True)
+    if not expect_ok:
+        assert r.returncode != 0 and not (tmp_path / name).exists()
+        return r.stderr
+    assert r.returncode == 0, r.stderr
+    return (tmp_path / name).read_bytes(), r.stdout
+
+
+def test_profile_1939_parent_v1_payload(tmp_path):
+    parent = other_row("relation.parent", "Datter af Ole Beta", "Anna, Datter af Ole Beta, f. 1801.", "p1")
+    body, _ = run_cli(tmp_path, [parent], "--profile", str(P_1939))        # ingen v3-prædikater i rækkerne: v3-input ikke nødvendigt
+    e = json.loads(body)["authorized_elements"]["relation-persona:p1"]
+    assert e["profile"] == "relation-persona-1939-v1" and e["predicate"] == "relation.parent"
+    assert "name_basis" not in e and "sheet_sha256" not in e and "sheet_line" not in e   # v1-form, ingen v3-nøgler
+    assert e["name_from"] is None and e["name_to"] is None and e["marriage_ordinal"] is None
+    t = parent["clauses"][0]["verbatim_text"]
+    assert t[e["span_from"]:e["span_to"]] == "Datter af Ole Beta" and e["post_offset"] == 40 + e["span_from"]
+
+
+def test_profile_1939_child_parked(tmp_path):
+    child = other_row("relation.child", "Datter Dora", "Datter Dora, f. 1830.", "c1")
+    body, out = run_cli(tmp_path, [child], "--profile", str(P_1939))
+    assert json.loads(body)["authorized_elements"] == {}
+    assert '"praedikat_ikke_i_profil": 1' in out
+
+
+def test_profile_1939_marriage_v3_over_raw_text(tmp_path):
+    t = "Gift 1890 med Ida Bran-\ndenburg, f. 1801."   # orddeling i klausulen: raw-tekstform finder vinduet
+    m_row = row(t, "Gift med Ida Brandenburg", key="m1")
+    m = m_row
+    body, _ = run_cli(tmp_path, [v1_of(m)], "--profile", str(P_1939), v3_rows=[m_row])
+    e = json.loads(body)["authorized_elements"]["relation-persona:m1"]
+    assert e["profile"] == "relation-persona-1939-v1" and e["name_basis"] == "rule" and e["sheet_line"] == 1
+    v3_sha = hashlib.sha256((tmp_path / "in3.json").read_bytes()).hexdigest()
+    assert e["sheet_sha256"] == v3_sha
+    mf = json.loads(body)
+    assert mf["v3_input_file_sha256"] == v3_sha and mf["v1_input_file_sha256"] == hashlib.sha256((tmp_path / "in.json").read_bytes()).hexdigest()
+    assert mf["input_sha256"] == v3.canonical_sha256([v1_of(m_row)])
+    assert t[e["name_from"]:e["name_to"]] == "Ida Bran-\ndenburg"   # originalens positioner, over orddelingen
+    # samme tekst med 2018-20-profilen (folded): intet vindue, parkeret
+    body2, out2 = run_cli(tmp_path, [v1_of(m)], v3_rows=[m], name="m2.json")
+    assert json.loads(body2)["authorized_elements"] == {} and "intet_vindue" in out2
+
+
+U1, U2, U3, U4 = (f"00000000-0000-0000-0000-00000000000{c}" for c in "1234")
+
+
+def mixed_rows():
+    """Opdigtede ægteskaber: S, D, N, partner_ligner, flere_partnere, titel_i_navn, intet_vindue (alle med partnere)."""
+    return [
+        row("Gift 1890 med Ida Dal, f. 1801.", "Gift med Ida Dal", [partner(7, "Ida Dal")], key="00000000-0000-0000-0000-000000000001"),
+        row("Gift 1850 med Eva von Fik.", "Gift med Eva von Fik", key="00000000-0000-0000-0000-000000000002", ordinal=2),
+        row("Gift 1950 med Bo Gro.", "Gift med Bo Gro", key="00000000-0000-0000-0000-000000000003", ordinal=3),
+        # partner_ligner: ligner en eksisterende partner uden at ramme (kun ét fælles kerneord)
+        row("Gift 1890 med Eva Fik.", "Gift med Eva Fik", [partner(7, "Ida Fik")], key="00000000-0000-0000-0000-000000000004"),
+        # flere_partnere: to partnere rammer, ingen afgørende
+        row("Gift 1890 med Eva Fik.", "Gift med Eva Fik",
+            [partner(7, "Eva Fik", ordinal=1, fam=3), partner(8, "Eva Fik", ordinal=3, fam=4)],
+            key="00000000-0000-0000-0000-000000000005", ordinal=2),
+        row("Gift 1890 med Komtesse Ida Dal.", "Gift med Komtesse Ida Dal", key="00000000-0000-0000-0000-000000000006"),
+        row("Gift 1890 med Ida Dal.", "Gift med Ulla Dal", key="00000000-0000-0000-0000-000000000007"),
+    ]
+
+
+def sheet_flow_manifest(rows, cutoff, sha, profile=None):
+    """Arkflowet for real: render -> parse -> validér -> persona-manifest med alle forslag uændrede."""
+    import relation_marriage_sheet_v3 as sh
+    rows3 = {"rows": rows, "deceased_cutoff_year": cutoff, "redecide_rows": []}
+    text = sh.render_sheet(rows3, profile)
+    lines = sh.parse_sheet(text)
+    m_props, _ = sh.check_sheet(lines, rows3, profile)
+    return m_props, sh.persona_manifest(lines, rows3, sheet_sha256=sha, profile=profile)
+
+
+def raw_mixed_rows():
+    """Rå 1939-tekst: orddeling, linjeskift, sidemarkør og CRLF + partnerregler (uden dubletter)."""
+    return [
+        row("Gift 1890 med Ida Bran-\ndenburg, f. 1801.", "Gift med Ida Brandenburg", key="00000000-0000-0000-0000-000000000001"),
+        row("Gift 1890 med Eva\r\nvon Fik, f. 1801.", "Gift med Eva von Fik", [partner(7, "Eva Fik")],
+            key="00000000-0000-0000-0000-000000000002"),
+        row("Gift 1950 med Bo\n### PAGE 12 ###\nGro.", "Gift med Bo Gro", key="00000000-0000-0000-0000-000000000003", ordinal=2),
+        row("Gift 1890 med Eva Fik.", "Gift med Eva Fik", [partner(7, "Ida Fik")], key="00000000-0000-0000-0000-000000000004"),
+        row("Gift 1890 med Eva Fik.", "Gift med Eva Fik",
+            [partner(7, "Eva Fik", ordinal=1, fam=3), partner(8, "Eva Fik", ordinal=3, fam=4)],
+            key="00000000-0000-0000-0000-000000000005", ordinal=2),
+    ]
+
+
+@pytest.mark.parametrize("profile_file,rows_fn", [(P_2018, mixed_rows), (P_1939, raw_mixed_rows)])
+def test_cli_lig_arkflowet_og_parkerer_partnerregler(tmp_path, profile_file, rows_fn):
+    rows = rows_fn()
+    body, out = run_cli(tmp_path, [v1_of(r) for r in rows], "--profile", str(profile_file), v3_rows=rows)
+    got = json.loads(body)
+    v3_sha = hashlib.sha256((tmp_path / "in3.json").read_bytes()).hexdigest()
+    props, expected = sheet_flow_manifest(rows, 1906, v3_sha, v3.load_profile(profile_file))
+    assert {"partner_ligner", "flere_partnere"} <= {p["reason"] for p in props}
+    assert got["authorized_elements"] == expected["authorized_elements"]
+    assert got["expected_counts"] == expected["expected_counts"]
+    # partner_ligner og flere_partnere er parkeret, ikke elementer
+    assert "relation-persona:00000000-0000-0000-0000-000000000004" not in got["authorized_elements"]
+    assert "relation-persona:00000000-0000-0000-0000-000000000005" not in got["authorized_elements"]
+    assert '"partner_ligner": 1' in out and '"flere_partnere": 1' in out
+    if profile_file == P_1939:   # rå tekst giver elementer (ikke intet_vindue)
+        assert "relation-persona:00000000-0000-0000-0000-000000000001" in got["authorized_elements"]
+
+
+def test_cli_parkerer_dubletter(tmp_path):
+    # Bevidst forskel fra arket (se kommentaren i extract_rows): to ægteskaber på samme post, samme offset og
+    # spændlængde parkeres begge. Derfor er tilfældet udeladt fra parity-testen ovenfor.
+    t = "Gift 1890 med Ida Dal, f. 1801."
+    a = row(t, "Gift med Ida Dal", key="00000000-0000-0000-0000-00000000000a")
+    b = row(t, "Gift med Ida Dal", key="00000000-0000-0000-0000-00000000000b", ordinal=2)
+    body, out = run_cli(tmp_path, [v1_of(a), v1_of(b)], v3_rows=[a, b])
+    assert json.loads(body)["authorized_elements"] == {} and '"dublet": 2' in out
+
+
+FIX = Path(__file__).parent / "fixtures"
+
+
+def test_cli_default_golden(tmp_path):
+    # Fast facit for standardprofilen: inputfilerne og det forventede manifest ligger i fixtures/ (opdigtede personer).
+    out = tmp_path / "m.json"
+    r = subprocess.run([sys.executable, str(SCRIPT), "--input", str(FIX / "relation-extract-v1-input.json"),
+                        "--v3-input", str(FIX / "relation-extract-v3-input.json"), "--out", str(out)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert out.read_bytes() == (FIX / "relation-extract-default-golden.json").read_bytes()
+
+
+@pytest.mark.parametrize("field,value", [("supporting_count", 2), ("record_key", "II-2"), ("occurrence_id", "occ-andet"),
+                                         ("interpretation_version", 2), ("predicate", "relation.child"), ("raw", "Gift med Ida"),
+                                         ("marriage_ordinal", 5), ("clauses", []), ("principal_ok", False)])
+def test_join_felt_afvigelse_afvises(tmp_path, field, value):
+    rows = mixed_rows()[:2]
+    v1 = [v1_of(r) for r in rows]
+    bad = [{**rows[0], field: value}] + rows[1:]
+    assert "INPUT_ROW_MISMATCH" in run_cli(tmp_path, v1, v3_rows=bad, expect_ok=False)
+
+
+@pytest.mark.parametrize("field", ["supporting_count", "record_key", "occurrence_id"])
+def test_join_felt_mangler_afvises(tmp_path, field):
+    rows = mixed_rows()[:2]
+    v1 = [v1_of(r) for r in rows]
+    v3_missing = [{k: v for k, v in rows[0].items() if k != field}] + rows[1:]
+    assert "INPUT_ROW_MISMATCH" in run_cli(tmp_path, v1, v3_rows=v3_missing, expect_ok=False)
+    v1_missing = [{k: v for k, v in v1[0].items() if k != field}] + v1[1:]
+    assert "INPUT_ROW_MISMATCH" in run_cli(tmp_path, v1_missing, v3_rows=rows, expect_ok=False, name="y.json")
+
+
+def test_v1_input_sha_kontrolleres(tmp_path):
+    rows = mixed_rows()[:2]
+    v1 = [v1_of(r) for r in rows]
+    assert "V1_INPUT_SHA_MISMATCH" in run_cli(tmp_path, v1, v3_rows=rows, claimed="f" * 64, expect_ok=False)
+    body, _ = run_cli(tmp_path, v1, v3_rows=rows, claimed=None, name="n.json")      # ikke oplyst: feltet udelades
+    assert "input_sha256" not in json.loads(body) and "v1_input_file_sha256" in json.loads(body)
+
+
+def test_default_profile_unchanged(tmp_path):
+    rows = mixed_rows()
+    v1 = [v1_of(r) for r in rows]
+    default, _ = run_cli(tmp_path, v1, v3_rows=rows, name="d.json")
+    withfile, _ = run_cli(tmp_path, v1, "--profile", str(P_2018), v3_rows=rows, name="f.json")
+    assert default == withfile
+    got = json.loads(default)
+    assert got["authorized_elements"] and all(e["profile"] == "relation-persona-2018-20-v3"
+                                              for e in got["authorized_elements"].values())
+
+
+def test_fail_closed_input(tmp_path):
+    rows = mixed_rows()[:3]
+    v1 = [v1_of(r) for r in rows]
+    assert "V3_INPUT_REQUIRED" in run_cli(tmp_path, v1, expect_ok=False)                        # v3-prædikat, ingen v3-input
+    assert "V3_ROW_MISSING" in run_cli(tmp_path, v1, v3_rows=rows[:2], expect_ok=False)          # v1-række uden v3-række
+    extra = row("Gift 1890 med Ida Dal.", "Gift med Ida Dal", key="00000000-0000-0000-0000-0000000000ff")
+    assert "V1_ROW_MISSING" in run_cli(tmp_path, v1, v3_rows=rows + [extra], expect_ok=False)    # v3-række uden v1-række
+    changed = [{**rows[0], "raw": "Gift med Ida"}] + rows[1:]
+    assert "INPUT_ROW_MISMATCH" in run_cli(tmp_path, v1, v3_rows=changed, expect_ok=False)       # rækkerne afviger

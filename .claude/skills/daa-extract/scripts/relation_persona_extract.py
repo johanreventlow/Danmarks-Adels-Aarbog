@@ -58,7 +58,7 @@ def _name(raw: str):
     return start, start + len(name)
 
 
-def extract_rows(rows: list[dict]) -> tuple[dict, dict]:
+def extract_rows(rows: list[dict], profile: str = PROFILE) -> tuple[dict, dict]:
     parked: Counter = Counter()
     candidates: dict[str, dict] = {}
     for r in rows:
@@ -81,7 +81,7 @@ def extract_rows(rows: list[dict]) -> tuple[dict, dict]:
                    "clause_set_sha256": c["clause_set_sha256"], "death_raw": None,
                    "interpretation_key": r["interpretation_key"], "interpretation_version": r["interpretation_version"],
                    "marriage_ordinal": None, "name_from": None, "name_to": None,
-                   "post_offset": c["post_char_from"] + span_from, "predicate": r["predicate"], "profile": PROFILE,
+                   "post_offset": c["post_char_from"] + span_from, "predicate": r["predicate"], "profile": profile,
                    "span_from": span_from, "span_to": span_from + len(raw)}
         if r["predicate"] == "relation.marriage":
             if r["marriage_ordinal"] is None:

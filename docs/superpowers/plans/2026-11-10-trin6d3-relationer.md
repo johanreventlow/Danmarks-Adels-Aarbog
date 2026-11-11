@@ -235,13 +235,22 @@ Noter, prober, kort og svar i `~/.private/6d3/` (0600). Stand-in: frisk restore 
   profilen: ægteskaber med v3's navneregel, forældre med v1's payloadform (intet navn), børn parkeres
   `praedikat_ikke_i_profil`.
 
-- [ ] **Trin 1: Fejlende tests:** `test_fold_fixture` (alle tilfælde i `relation-fold-cases.json` giver SQL'ens
+- [x] **Trin 1: Fejlende tests:** `test_fold_fixture` (alle tilfælde i `relation-fold-cases.json` giver SQL'ens
   vinduer); `test_profile_1939_parent_v1_payload`; `test_profile_1939_child_parked`; `test_default_profile_unchanged`
   (eksisterende v3-manifest for en fixture er byte-ens).
-- [ ] **Trin 2-4:** kør (FAIL) → implementér → PASS (hele `scripts`-pytest).
-- [ ] **Trin 5:** Lokalt på stand-in'ens input (Task 0 trin 2): elementer og parkeringer pr. årsag med foldning.
+- [x] **Trin 2-4:** kør (FAIL) → implementér → PASS (hele `scripts`-pytest).
+- [x] **Trin 5:** Lokalt på stand-in'ens input (Task 0 trin 2): elementer og parkeringer pr. årsag med foldning.
   Mål: de 160 linjeskift-sager er elementer. Noter tallene.
-- [ ] **Trin 6: Commit** `feat(udtraek): relationsudtrækket læser profil og folder 1939's tekst (6d-3)`.
+  **Målt 2026-11-11** (kopi af stand-in'en + DDL, ICU; CLI `--input` v1 + `--v3-input` v3 + 1939-profilen): ægteskaber
+  (271) elementer **110** (nulpunkt 90); parkeret `navn_uklart` 89, `partner_ligner` 52, `navn_afkortet` 8,
+  `intet_vindue` 6 (nulpunkt 54), `flere_klausuler` 6; forældre 5 elementer + 1 `ikke_ordret`; børn 4
+  `praedikat_ikke_i_profil`. Foldningen giver 48 flere vinduer, men kun 20 flere elementer: resten parkeres af
+  navnereglerne og går til ægteskabsarket (Task 6 trin 3 forelægger omfanget). Codex-runde (NO-GO, 3 MAJOR + 1 MINOR):
+  ægteskaber afgøres fra v3-inputtet med partnerne (fail-closed sammenkobling på alle fælles felter); ægteskabsarket
+  læser profilen (Task 6 trin 5 rykket hertil, samme commit, fordi arket og udtrækkets paritetstest afhænger af hinanden);
+  begge inputfilers sha i manifestet og serverens `input_sha256` genberegnet (ceremonien hash-binder manifestfilen;
+  databasebinding af input er som i 2018-20's v1-flow en kendt begrænsning); CLI'en parkerer dubletter bevidst.
+- [x] **Trin 6: Commit** `feat(udtraek): relationsudtrækket læser profil og folder 1939's tekst (6d-3)`.
 
 ### Task 5: Opgraderingstest og hele CI lokalt
 
@@ -281,7 +290,7 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
   konteksten; test i `test_relation_parent_sheet.py` (`test_render_html_has_context`) på en rækkefil i den
   udvidede kontrakt (opdigtede personer) og en SQL-test, der kører `relation_parent_rows.sql` på en fixture-base.
   Commit `feat(udtraek): forælderarket viser kontekst som HTML (6d-3)`.
-- [ ] **Trin 5: Ægteskabsarket læser profilen:** `relation_marriage_sheet_v3.py` får `--profile <profilfil>` i
+- [x] **Trin 5: Ægteskabsarket læser profilen** (udført i Task 4's commit, 2026-11-11): `relation_marriage_sheet_v3.py` får `--profile <profilfil>` i
   stedet for den importerede `PROFILE` (:16, :144); uden flaget er adfærden 2018-20-v3 byte-ens
   (`test_default_profile_unchanged`); med 1939-profilen bærer persona-manifestet 1939-profilen
   (`test_profile_1939_manifest`). Arket bruges kun til de parkerede, ikke-maskinelle ægteskaber; maskinelle

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from decision_sheet_core import SheetError, require_hex64, sql_literal, verify_bound
 from relation_marriage_sheet import _ws
-from relation_persona_extract_v3 import PROFILE, RULE, NameOverrideError, propose, propose_redecide
+from relation_persona_extract_v3 import RULE, NameOverrideError, load_profile, propose, propose_redecide
 from spouse_exception_sheet import _write_private, check_private_path
 
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -37,11 +37,21 @@ class Line:
     line: int
 
 
+def _profile(profile: dict | None) -> dict:
+    """Profilen (6d-3): relation_profile, predicate_forms og text_form læses fra profilfilen (load_profile); uden
+    profil gælder standardprofilen (2018-20-v3), så arket opfører sig som hidtil. Arket kender kun ægteskaber (v3)."""
+    p = profile if profile is not None else load_profile(None)
+    if p["predicate_forms"].get("relation.marriage") != "v3":
+        raise SheetError("PROFILE_MARRIAGE_FORM_INVALID")
+    return p
+
+
 def _cutoff(rows: dict) -> int:
     return int(rows["deceased_cutoff_year"])
 
 
-def render_sheet(rows: dict) -> str:
+def render_sheet(rows: dict, profile: dict | None = None) -> str:
+    tf = _profile(profile)["text_form"]
     cutoff = _cutoff(rows)
     out = ["# ÆGTESKABSARK v3 (trin 5b 2b-ii runde 2)",
            "# S = samme som forslagets partner · D = ny person, afdød efter bogen (alle årstal senest grænseåret)",
@@ -52,7 +62,7 @@ def render_sheet(rows: dict) -> str:
            "# Ret kun undtagelser. En note må følge efter '#'. Gem, og giv hashen i chatten.", ""]
     n = len(rows["rows"])
     for i, r in enumerate(rows["rows"], 1):
-        p = propose(r, cutoff)
+        p = propose(r, cutoff, text_form=tf)
         text = r["clauses"][0]["verbatim_text"] if r["clauses"] else ""
         out += [f"## ÆGTESKAB {i}/{n} · post {r.get('record_key') or '?'}", f"#   Bogen: »{_ws(text)}«"]
         if "name_from" in p:
@@ -98,7 +108,8 @@ def parse_sheet(text: str) -> list[Line]:
     return lines
 
 
-def check_sheet(lines: list[Line], rows: dict) -> tuple[list[dict], list[dict]]:
+def check_sheet(lines: list[Line], rows: dict, profile: dict | None = None) -> tuple[list[dict], list[dict]]:
+    tf = _profile(profile)["text_form"]
     cutoff = _cutoff(rows)
     m_lines = [l for l in lines if l.kind == "M"]
     p_lines = [l for l in lines if l.kind == "P"]
@@ -112,7 +123,7 @@ def check_sheet(lines: list[Line], rows: dict) -> tuple[list[dict], list[dict]]:
         if l.navn is not None and l.tok not in ("S", "D", "N"):
             raise SheetError(f"SHEET_NAME_INVALID line={l.line}")
         try:
-            p = propose(r, cutoff, name_override=l.navn)
+            p = propose(r, cutoff, name_override=l.navn, text_form=tf)
         except NameOverrideError:
             raise SheetError(f"SHEET_NAME_INVALID line={l.line}") from None
         if l.tok not in ALLOWED[p["tok"]]:
@@ -127,9 +138,10 @@ def check_sheet(lines: list[Line], rows: dict) -> tuple[list[dict], list[dict]]:
     return m_props, p_props
 
 
-def persona_manifest(lines: list[Line], rows: dict, *, sheet_sha256: str) -> dict:
+def persona_manifest(lines: list[Line], rows: dict, *, sheet_sha256: str, profile: dict | None = None) -> dict:
     require_hex64(sheet_sha256)
-    m_props, _ = check_sheet(lines, rows)
+    prof = _profile(profile)
+    m_props, _ = check_sheet(lines, rows, prof)
     elements = {}
     for l, r, p in zip([l for l in lines if l.kind == "M"], rows["rows"], m_props):
         if l.tok not in ("S", "D", "N"):
@@ -141,15 +153,15 @@ def persona_manifest(lines: list[Line], rows: dict, *, sheet_sha256: str) -> dic
             "interpretation_key": r["interpretation_key"], "interpretation_version": r["interpretation_version"],
             "marriage_ordinal": r["marriage_ordinal"], "name_basis": p["name_basis"], "name_from": p["name_from"],
             "name_to": p["name_to"], "post_offset": c["post_char_from"] + p["span_from"], "predicate": "relation.marriage",
-            "profile": PROFILE, "sheet_line": l.line, "sheet_sha256": sheet_sha256,
+            "profile": prof["relation_profile"], "sheet_line": l.line, "sheet_sha256": sheet_sha256,
             "span_from": p["span_from"], "span_to": p["span_to"]}
     return {"expected_counts": {"person_creates": 0, "source_evidence": 0, "relation_personas": len(elements)},
             "authorized_elements": dict(sorted(elements.items()))}
 
 
-def identity_sql(lines: list[Line], rows: dict, *, sheet_sha256: str, rows_sha256: str) -> str:
+def identity_sql(lines: list[Line], rows: dict, *, sheet_sha256: str, rows_sha256: str, profile: dict | None = None) -> str:
     require_hex64(sheet_sha256, rows_sha256)
-    m_props, p_props = check_sheet(lines, rows)
+    m_props, p_props = check_sheet(lines, rows, _profile(profile))
     cutoff = _cutoff(rows)
     m_todo = [(l, p) for l, p in zip([l for l in lines if l.kind == "M"], m_props) if l.tok in ("S", "D", "N")]
     p_todo = [(l, p) for l, p in zip([l for l in lines if l.kind == "P"], p_props) if l.tok == "D"]
@@ -188,6 +200,7 @@ def main() -> int:
     r = sub.add_parser("render")
     s = sub.add_parser("sql")
     for p in (r, s):
+        p.add_argument("--profile", help="profilfil (profiles/relation-persona-*.json); uden: standardprofilen")
         p.add_argument("--rows", required=True)
         p.add_argument("--private-root", default=str(Path.home() / ".private"))
     r.add_argument("--out", required=True)
@@ -196,6 +209,10 @@ def main() -> int:
     args = ap.parse_args()
     root = Path(args.private_root)
     try:
+        try:
+            profile = _profile(load_profile(args.profile))
+        except (ValueError, KeyError, OSError):
+            raise SheetError("PROFILE_FILE_INVALID") from None
         rows_path = check_private_path(Path(args.rows), root)
         rows_bytes = rows_path.read_bytes()
         rows = json.loads(rows_bytes.decode("utf-8"))
@@ -203,11 +220,11 @@ def main() -> int:
             raise SheetError("ROWS_CONTRACT_INVALID")
         if args.cmd == "render":
             out = check_private_path(Path(args.out), root)
-            _write_private(out, render_sheet(rows))
+            _write_private(out, render_sheet(rows, profile))
             c = {t: 0 for t in "SDNIU"}
             cp = {t: 0 for t in "DNU"}
             for row in rows["rows"]:
-                c[propose(row, _cutoff(rows))["tok"]] += 1
+                c[propose(row, _cutoff(rows), text_form=profile["text_form"])["tok"]] += 1
             for q in rows.get("redecide_rows", []):
                 cp[propose_redecide(q, _cutoff(rows))["tok"]] += 1
             print(f"ARK_OK s={c['S']} d={c['D']} n={c['N']} i={c['I']} u={c['U']} p_d={cp['D']} p_n={cp['N']} p_u={cp['U']}")
@@ -217,8 +234,8 @@ def main() -> int:
         sheet_bytes = check_private_path(Path(args.sheet), root).read_bytes()
         rows_sha, sheet_sha = verify_bound(rows_bytes, args.expect_rows_sha256, sheet_bytes, args.approved_sha256)
         lines = parse_sheet(sheet_bytes.decode("utf-8"))
-        manifest = persona_manifest(lines, rows, sheet_sha256=sheet_sha)
-        ident = identity_sql(lines, rows, sheet_sha256=sheet_sha, rows_sha256=rows_sha)
+        manifest = persona_manifest(lines, rows, sheet_sha256=sheet_sha, profile=profile)
+        ident = identity_sql(lines, rows, sheet_sha256=sheet_sha, rows_sha256=rows_sha, profile=profile)
         _write_private(mout, json.dumps(manifest, sort_keys=True, ensure_ascii=False) + "\n")
         _write_private(iout, ident)
     except SheetError as exc:
