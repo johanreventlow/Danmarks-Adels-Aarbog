@@ -348,12 +348,19 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
   6d-3, så begge er byte-ens i alle faser (spec §5.1.6). `FAMKILDER` = `public_family_sources` som anon for alle
   offentlige familier; tom mængde bag en md5 → fejl).
 
-- [ ] **Trin 1: Fejlende tests:** målescriptets format; D på en lokal base med opdigtede personer: `S` → link med
+- [x] **Trin 1: Fejlende tests:** målescriptets format; D på en lokal base med opdigtede personer: `S` → link med
   1939-rækken som alias; `I` → intet skrevet; forkert svar-sha → `T6D3_PRE_SHA`; eksisterende link før ceremonien →
   `T6D3_PRE_MANIFEST` og intet skrevet; ændret posttekst for ét kort → `T6D3_PRE_MANIFEST`, intet skrevet for
   nogen kort; tvillingen har fået en ekstra ægtefælle → `T6D3_PRE_MANIFEST`, intet skrevet; gentaget kørsel → `T6D3_PRE_FASE`; O: privat sat, `family_offentlig(742)` falsk.
-- [ ] **Trin 2-4:** kør (FAIL) → implementér → PASS.
-- [ ] **Trin 5: Commit** `feat(6d): D/O-ceremoni og målescript for 6d-3`.
+- [x] **Trin 2-4:** kør (FAIL) → implementér → PASS.
+- [x] **Trin 5: Commit** `feat(6d): D/O-ceremoni og målescript for 6d-3`.
+
+  **Udført 2026-11-11.** Med projektejerens rigtige kort på en frisk stand-in-kopi med DDL'en: alle 42 tekst-sha'er og
+  førtilstande matchede → `T6D3_D_OK links=42 ingen=0`; O → `T6D3_O_OK privat=2`; genkørsel af D → `T6D3_PRE_FASE`.
+  Målelinjer: foer `uden_position=59`, ddl/d/o `=10`; `samme_som` 720 → 762, `dobbelt` 42 → 0, `privat_1791` 0 → 1;
+  `K1_ORD=1857a95c…`, `K1_BIND=9e0db348…` ens i alle faser. R-øvelse på `t6d3t6_r` (decide 68, bind 69): læseren som anon
+  viser DAA 1939 på 68 ægteskaber + 1 forælder, 2018-20 uændret (241/11/7). D's ordning af klausuler er
+  `record_key COLLATE "C"`; tekst-sha'en bygger på `relation_persona_input` og gælder derfor kun før R (D før R).
 
 ### Task 8: Runner, runbook og generalprøve
 
