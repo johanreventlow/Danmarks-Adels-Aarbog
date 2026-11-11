@@ -61,6 +61,9 @@ ALLOWED = {
     # 6d-3's forælderark (rækkefil v2): klausulerne læses kun gennem fortolkningslinks (supporting), som kun kan pege på
     # det aktuelle sæt (trigger); parent_observation_id bruges kun til at finde helpostens gældende tekst.
     ".claude/skills/daa-extract/scripts/relation_parent_rows.sql",
+    # 6d-3's D-ceremoni: klausulernes id kommer fra private.relation_persona_input (clause_observation_current, det
+    # aktuelle sæt); parent_observation_id bruges kun til at gå fra klausulen op til helpostens primære persona.
+    ".claude/skills/daa-extract/scripts/samme_som_kort_ceremoni.sql",
     # Ingen databaselæsning: kontrakter, manifester og ark bygget af eksporterede data.
     ".claude/skills/daa-extract/scripts/build_43b_judgement_sheet.py",
     ".claude/skills/daa-extract/scripts/build_43b_proposal_manifest.py",
