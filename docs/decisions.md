@@ -117,6 +117,17 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   forsvinder biografien lydløst, og optimeringen rykker frem. Prod-runnere bør derfor måle et enkelt-persons
 >   biografikald ud over `bio_alle`.
 
+## NOTERET: samme par i flere familier efter sammenfoldningen — stamtræet ikke tjekket, åben backlog (2026-11-11)
+
+> Fundet under 6d-3's D-kort (spec §2.4): når både 1939-hovedpersonen og -ægtefællen er koblet med `samme_som` til
+> et 2018-20-par, står parret som flere familier (fx 2018-20's familie + én fra hver af de to 1939-poster). Målt med
+> core's `collapseSameAs`/`buildModel` på stand-in'ens data (= prod): **225 par med mere end én familie** (3 med tre).
+> Tilstanden stammer fra 1939-importen; 6d-3 ændrer ikke tallet. Personpanelet viser hver ægtefælle og hvert barn én
+> gang. **Ikke tjekket:** stamtræ og kolonner, der traverserer unionerne (`childrenByUnion`), kan vise parret to gange
+> med børnene delt mellem familierne. **Projektejerens valg:** uden for 6d-3. Næste skridt: browsertjek af et par i
+> stamtræ/kolonner; viser det dubletter, er rettelsen sandsynligvis i projektionen (forene unioner med samme kanoniske
+> par), ikke i data.
+
 ## NOTERET: biografilæseren med alle personer og den direkte narrativlæsning ligger allerede om 3 s — åben backlog (2026-11-09)
 
 > Målt i 6d-2a's Task 0 som anon på stand-in `…_6d1c` (prod + 6d-1, efter `ANALYZE`; median af 3):

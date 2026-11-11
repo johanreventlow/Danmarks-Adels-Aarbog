@@ -100,6 +100,13 @@ kanter `1537 → 598` og `1791 → 392`: 18 har én ægtefælle, 815 og 816 hver
 Panelet viser ægtefæller fra `spousesBy` (`DetailPanel.tsx:67`), der deduplikerer på (id, navn); `p2_name` er altid
 `null` (`web/src/data/model.ts:127`), så navnet er den kanoniske persons.
 
+**Samme par i flere familier (målt 2026-11-11, uden for 6d-3):** klassen »ja/ja/ja« ovenfor er netop 1939-familier,
+der efter sammenfoldningen har samme kanoniske par som en 2018-20-familie. Modellen har i dag **225 par med mere end
+én familie** (3 med tre); 6d-3 ændrer ikke tallet (D-kortene lægger kun en familie til eksisterende par, fx 3 → 4 med
+tre). Panelet viser hver ægtefælle og hvert barn én gang (`spousesBy` på (id, navn), `childIdx` er et Set), så den
+dobbelte ægtefælle, D retter, er den eneste synlige virkning dér. Stamtræ og kolonner traverserer unionerne
+(`childrenByUnion`) og er ikke tjekket for parret vist to gange; det står i backloggen (`docs/decisions.md`).
+
 ### 2.5 Læserens familiekilde
 
 `public_family_sources` (`schema.sql:20712`) returnerer `counterpart_person_id` fra bindingens tilstand.
