@@ -291,14 +291,42 @@ Runneren er nu `608af06a…` (før `2b9de946…`, backup `36-trin6d3.sh.foer-cod
 - Læserskrivninger i appen: kun bogmærker (bevidst klik, web og mobil); ingen skrivning ved login eller åbning, ingen
   trigger på `auth.users`. Frysbeskeden skal derfor nævne bogmærker og tilmeldinger.
 
-## Udestår før prod
+## Slut-generalprøve og prod 11/11
 
-1. Prod-læsetrin `dump-kopi` (projektejerens shell; auto-mode-klassifikatoren afviser den som [Production Reads]) og
+**Slut-generalprøve (trin 3b):** PR #315 merget som `6d77d46d` (forælder `103f5d57`, CI 7/7 grøn efter én rettelse af
+klausullæsernes tilladelsesliste). Kørt fra en ren worktree af `6d77d46d` på stand-in
+`daa5ab_ddl_standin_20261111191901_slut` fra prods `dump-kopi` 11/11: `maal` → `anon` → `dump` → `apply-ddl` →
+`maal` → `anon` → `dump` → D → O → R → `verify`. Alle linjer som tabellen, ingen `T6D3_FASTLAAS`, intet stop.
+
+**Prod** (projektejerens shell, hovedcheckouten på `main` = `6d77d46d`, ren; runner `608af06a…`):
+
+| Trin | Resultat |
+|---|---|
+| 0 | Vercel: production-deployet af `6d77d46` er Ready (projektejeren) |
+| 1-3 | `maal` = `foer`-linjen inkl. K1 og `FAMKILDER=b217ebfd…`; `anon`-basis (`bio_alle` 13,2 s som ved 6d-2a); foer-dump `daa-prod-20261111204138-6d3.dump` (`1b3ef5a0…`, restore-hash `b23c1de6…`, 136 vindueslinjer, SFTP-rundtur OK) |
+| 4 | GO `56074c10`: `T6D3_VINDUE_OK mod=dump`, `T6D3_EFTER_DDL_GEMT vindue=c0defeaf…`, `T6D3_APPLY_DDL_OK blok=bf3e402b… seed=4:f87b9679…`, 18,2 s |
+| 5 | `get_advisors` ikke muligt (MCP'en ser ikke DAA-projektet). Statisk: tabellen har RLS og ingen rettigheder; alle 9 funktioner har `search_path` og `REVOKE`; runnerens grant-matrix alle `-` |
+| 6-7 | `maal` fase `ddl` (`uden_position=10`). Første `anon`: `T6D3_ANON_BUDGET_BRUDT` på `famsrc_364` (100 mod grænsen 93 ms), mens de andre faldt (fx `famsrc_298` 128 → 76): prod-støj. Genmålt OK (77 ms) |
+| 8 | ddl-dump `daa-prod-20261111213132-6d3.dump` (`9990f0d9…`, restore-hash `5ed3f37a…`, vindue `c0defeaf…`, 137 linjer) |
+| 10-13 | Frys meldt. GO `b43349c9`: D `links=42 ingen=0` (9 s), O `privat=2` (2 s), R i replay 115 / 1096 / 22 / passed / 46 / 68 / 69 (330 s); kæden 9 aftryk uden fremmed skrivning |
+| 14 | `T6D3_VERIFY_OK tal=203/5/4,69,762,0,1,10`, K1 uændret, familiekilder `06e71a11…` (som på alle stand-ins); budget OK (1939-familierne 70-121 ms mod 2018-20's 128) |
+| 15 | Frys ophævet. Browsertjek som anon OK: »DAA 1939« på ægteskaber hos 81 og 612; D-par 88/97/99/133 én ægtefælle; 815/816 én ægtemand; 1791/1795 ikke synlige |
+
+Fundet ved trin 15: 612 har stadig to ægtemænd, fordi 1939-hovedpersonen 955 ikke er koblet til 2018-20's 75
+(ægtefællen 1474 → 612 er). Det omvendte af D's tilfælde, fra før 6d-3; backlog i `decisions.md` 2026-11-11.
+
+Oprydning efter prod (mål først, spørg før sletning): stand-ins `g1`-`g6` og `slut`, `t6d3t8_stab`, worktrees
+`wt-6d3` og `wt-merge`, `~/.private/6d3/t8`, `~/.private/6d3/kortsvar.json.bak`, runner-backuppen
+`36-trin6d3.sh.foer-codex-r1-20261111` og karantænen nedenfor (frist 2026-12-11).
+
+## Udestår før prod (historik)
+
+1. ~~Prod-læsetrin `dump-kopi`~~ udført 11/11 (se ovenfor). Prod-læsetrin `dump-kopi` (projektejerens shell; auto-mode-klassifikatoren afviser den som [Production Reads]) og
    slut-generalprøve på den (trin 3b). Afviger prods `maal` fra `foer`-linjen, er prod ændret siden 10/11, og pakken
    skal måles igen.
 2. ~~Codex-review af hele grenens diff og af runneren~~ udført 11/11 (se ovenfor). Slut-generalprøven skal køre med
    runner `608af06a…`.
-3. Push, draft-PR, CI, merge, Vercel (Task 9 trin 2).
+3. ~~Push, draft-PR, CI, merge, Vercel~~ udført 11/11 (PR #315).
 4. ~~Hovedcheckouten skal være ren~~ 11/11: de 23 usporede CI-uddatafiler (622 516 bytes) er flyttet til
    `~/TypeScript/_karantaene/danmarksadelsaarbog-20261111-ci-uddata/` (frist 2026-12-11) efter projektejerens ja.
 5. ~~Budgettet for 1939-familierne~~ afgjort 11/11 (Claudes anbefaling, projektejerens ja): målt mod den tungeste 2018-20-familie (se tidsbudgettet). På
