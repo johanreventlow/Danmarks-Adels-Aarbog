@@ -117,6 +117,17 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   forsvinder biografien lydløst, og optimeringen rykker frem. Prod-runnere bør derfor måle et enkelt-persons
 >   biografikald ud over `bio_alle`.
 
+## BESLUTTET: 6d-3's kortomfang — kontrol, forælder og en diagnostisk stikprøve af de parkerede ægteskaber (2026-11-11)
+
+> Målt på stand-in (prod-data + 6d-3's DDL + D/O): af 1939's 271 ægteskaber parkerer v3's navneregel 161 i udtrækket
+> (`navn_uklart` 89, `partner_ligner` 52, `navn_afkortet` 8, `intet_vindue` 6, `flere_klausuler` 6); 110 bliver personas,
+> 68 er maskinelt egnede, 22 af dem i den blinde kontrolstikprøve; 42 er ikke egnede (`name_or_rank` 22,
+> `count_mismatch` 20). Specens overslag (≈220 maskinelle) holdt ikke. **Projektejerens valg:** kort for kontrollen (22)
+> og forælderen (1) samt en lagdelt stikprøve på 20 parkerede ægteskaber; stikprøven er diagnostisk og binder intet i
+> 6d-3. Fravalgt: det fulde kortsæt (≈226 kort, jf. memory »ingen flere fulde afgørelsesark«) og kun de nødvendige
+> kort uden stikprøve. **Opfølgning (åben backlog):** en 1939-variant af navnereglen, målt på stikprøvens svar, så en
+> større del af de 161 kan gå maskinelt.
+
 ## NOTERET: samme par i flere familier efter sammenfoldningen — stamtræet ikke tjekket, åben backlog (2026-11-11)
 
 > Fundet under 6d-3's D-kort (spec §2.4): når både 1939-hovedpersonen og -ægtefællen er koblet med `samme_som` til

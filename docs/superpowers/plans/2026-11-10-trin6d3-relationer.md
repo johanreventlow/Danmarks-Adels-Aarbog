@@ -277,17 +277,26 @@ Noter, prober, kort og svar i `~/.private/6d3/` (0600). Stand-in: frisk restore 
 Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 2-3's DDL + D/O fra kortsvarene
 (Task 7's SQL køres i en øvelsestransaktion, eller midlertidigt med samme kald).
 
-- [ ] **Trin 1: Persona-batch** med 1939-profilen: `relation_persona_input.sql -v source_id=3` → Task 4's udtræk →
+- [x] **Trin 1: Persona-batch** med 1939-profilen: `relation_persona_input.sql -v source_id=3` → Task 4's udtræk →
   `relation_persona_apply.sql -v source_id=3 -v profile_file=…/relation-persona-1939.json`. Tæl personas. Kilde 1
   køres ikke (spec §5.1.6). Genmål forældrenes kandidater (Task 0 trin 3).
-- [ ] **Trin 2: Kandidater og kontrol** (kun kilde 3): `packages/identity-candidates/sql/export-input.sql -v source_id=3 -v mode=undecided`
+- [x] **Trin 2: Kandidater og kontrol** (kun kilde 3): `packages/identity-candidates/sql/export-input.sql -v source_id=3 -v mode=undecided`
   → `npm run cli -w @daa/identity-candidates -- generate --source-id 3 --top-k 10 --family-name-min 0.95` →
   `write-candidates.sql` → `red_register_identity_control_run`. Tæl kort (homonymer + K=20 + forældre).
-- [ ] **Trin 3: Mål maskinpopulationen** som `red_corroborate_family_identities` vil se den (dry-run i rullet-tilbage
+- [x] **Trin 3: Mål maskinpopulationen** som `red_corroborate_family_identities` vil se den (dry-run i rullet-tilbage
   transaktion efter et forseglet testark): accepteret / afvist pr. årsag. Forelæg projektejeren tallene og
   kortomfanget før kortene (memory: vis tab før kortrunde), side om side med spec §2.1's overslag (≈220 maskinelle,
   200-250 bundne) og Task 0 trin 2's v3-nulpunkt (S 77, `partner_ligner` 46, `navn_uklart` 67, `intet_vindue` 54).
   Store R-kortmængder forelægges som valg (stikprøve/undtagelser), aldrig som fuldt ark.
+  **Målt 2026-11-11** på stand-in `t6d3t6_r` (Task 0's base + DDL + D/O: 42 `samme_som`, 1791 og 1795 private):
+  persona-batch 115 elementer → 110 nye personas (563 → 673); kandidatkørsel (undecided, top-k 10, navnetærskel 0,95;
+  årstalsreserven ændrer intet) rang 1: 68 `ok`/auto, 22 `name_or_rank`, 20 `count_mismatch`; kontrolkørsel: 22
+  stikprøvekort, 0 eksklusioner, 1 forælderkort. Maskinelt bundet, hvis kontrollen består: **46**; med kontrolkortene
+  68. Specens overslag (≈220) forudsatte, at udtrækket gav personas for næsten alle 271; v3's navneregel parkerer 161.
+  **Projektejerens valg (2026-11-11): valg 2** — kort for kontrol (22) og forælder (1) plus en lagdelt stikprøve på 20
+  af de 161 parkerede (proportionalt pr. årsag, mindst 1 pr. årsag, deterministisk efter md5 af
+  `interpretation_key`). Stikprøven er diagnostisk (grundlag for en 1939-variant af navnereglen efter 6d-3) og giver
+  ingen bindinger i 6d-3; de 42 ikke-egnede og de 161 parkerede står `proposed` og tælles pr. årsag.
 - [ ] **Trin 4: Forælderarkets kontekst** (6c-3's værktøjsnote): `relation_parent_rows.sql` udvides med post-
   tekst, side, barnets navn/datoer og familiens forældre og børn (i dag kun nøgler og id'er, :13-26; Codex plan-fund
   7); rækkefilens sha indgår fortsat i arkets hash-binding. `relation_parent_sheet.py render --html` viser
