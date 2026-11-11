@@ -371,26 +371,41 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
   ark → korroboration → afgørelse → binding → forælderark) med fastlåste sha'er.
 - Create: `docs/runbooks/trin6d3-prod.md`.
 
-- [ ] **Trin 1: Runner:** GO binder sha over DDL-blok, alle SQL-/Python-artefakter, profilfiler, manifester, svar,
+- [x] **Trin 1: Runner:** GO binder sha over DDL-blok, alle SQL-/Python-artefakter, profilfiler, manifester, svar,
   runner, vinduesvagt og commit. Dump + ekstern kopi før `apply-d`; vinduesvagten accepterer ethvert **præfiks** af
   ceremoniens egne skrivninger (D, D+O, D+O+R-delmængde, nøglet på ceremoniens change_sets og batches) og intet andet,
   også fra samme aktør (spec §6). R's commit-grænser listes eksplicit i vinduesvagten (Codex plan-fund 1):
   `reimport_writer_profile`-rækken (autocommit, `relation_persona_apply.sql:7-9`), autorisationen (egen
   transaktion, :14-20), batchen (:22-30), og `transfer_5ab_step_*`'s COMMIT før kvitteringsfilen
   (`transfer_5ab_step_end.sql:8-18`).
-- [ ] **Trin 2: Runbook:** `vercel-deploy (L, efter merge) → maal → anon → dump → dump-kopi → go-ddl → apply-ddl →
+- [x] **Trin 2: Runbook:** `vercel-deploy (L, efter merge) → maal → anon → dump → dump-kopi → go-ddl → apply-ddl →
   maal → anon → dump → dump-kopi → go-data → apply-d → apply-o → apply-r → verify → anon`, stoppunkter og fortryd
   under meldt frys. L rulles ikke tilbage.
 - [ ] **Trin 3: Generalprøve** fra operatørens cwd på en stand-in fra en frisk `dump-kopi`: hele rækkefølgen;
   `anon`-tiden for `public_family_sources` ≤ +10 % (Review Focus 5); `collapseSameAs`/`buildModel` på stand-in'ens
   anon-data: de bekræftede D-par og Gabel/Hahn har én ægtefælle, 0 nye karantæner; læsergaten afstemt pr. planlagt
   binding (spec §5.1.5).
-- [ ] **Trin 4: Fortryd fra præfiks** på fire stand-ins: efter `apply-d`, efter `apply-o`, midt i `apply-r` efter
+- [x] **Trin 4: Fortryd fra præfiks** på fire stand-ins: efter `apply-d`, efter `apply-o`, midt i `apply-r` efter
   autorisationen før batchen, og midt i `apply-r` efter persona-batchen → vinduesvagten godkender præfikset →
   restore → `maal` = `foer`-linjen, `db-verify` grøn, `anon` som før.
-- [ ] **Trin 5: Negativer:** forkert GO, manglende flag, gentaget `apply-d`, ændret svarfil, fremmed skrivning i
+- [x] **Trin 5: Negativer:** forkert GO, manglende flag, gentaget `apply-d`, ændret svarfil, fremmed skrivning i
   vinduet.
-- [ ] **Trin 6: Commit** `docs(6d): runbook for 6d-3 i prod` (runneren committes ikke).
+- [x] **Trin 6: Commit** `docs(6d): runbook for 6d-3 i prod` (runneren committes ikke).
+
+  **Udført 2026-11-11** på stand-ins fra prods `dump-kopi` 10/11 (`g1` iteration, `g2` capture, `g3` replay med alt
+  fastlåst); detaljer i `docs/runbooks/trin6d3-prod.md` »Generalprøven 11/11«. Afvigelser fra planen:
+  - Vinduesvagten er en kæde af fulde aftryk (hvert skridt kræver basen lig forrige skridts aftryk og tager sit eget
+    efter commit eller fejl) i stedet for undtagelseslister pr. commit-grænse. Den dækker også R's grænser
+    (profil, autorisation, batch, kandidater, kontrolkørsel, kontrolarkets to transaktioner, korroboration, afgørelse,
+    binding), uden at de skal opregnes. Ingen genoptagelse: ethvert fejlet skridt efter en commit fortrydes til
+    ddl-dumpet (rådgiverens anbefaling; konsekvensen er meldt frys fra `apply-d` til `verify`).
+  - R's skridt kører i replay mod generalprøvens items (prod genberegner og sammenligner, før RPC'en kaldes).
+  - Tidsbudgettets kald over alle familier sammenlignes pr. returneret kilde (R tilføjer 69 kilder; +27 % absolut på
+    stand-in, uændret pr. kilde); tre familier med en ny 1939-kilde er lagt til de tunge.
+  - `db-verify.sql` køres ikke mod prod-kopier (kræver dblink og skriver testdata); fortrydelsens bevis er runnerens
+    lighedstjek mod dumpet.
+  Trin 3 udestår i sin endelige form: slut-generalprøven på en frisk `dump-kopi` (prod-læsning i projektejerens
+  shell).
 
 ### Task 9: Review, prod og færdigbevis
 
