@@ -297,7 +297,7 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
   af de 161 parkerede (proportionalt pr. årsag, mindst 1 pr. årsag, deterministisk efter md5 af
   `interpretation_key`). Stikprøven er diagnostisk (grundlag for en 1939-variant af navnereglen efter 6d-3) og giver
   ingen bindinger i 6d-3; de 42 ikke-egnede og de 161 parkerede står `proposed` og tælles pr. årsag.
-- [ ] **Trin 4: Forælderarkets kontekst** (6c-3's værktøjsnote): `relation_parent_rows.sql` udvides med post-
+- [x] **Trin 4: Forælderarkets kontekst** (6c-3's værktøjsnote): `relation_parent_rows.sql` udvides med post-
   tekst, side, barnets navn/datoer og familiens forældre og børn (i dag kun nøgler og id'er, :13-26; Codex plan-fund
   7); rækkefilens sha indgår fortsat i arkets hash-binding. `relation_parent_sheet.py render --html` viser
   konteksten; test i `test_relation_parent_sheet.py` (`test_render_html_has_context`) på en rækkefil i den

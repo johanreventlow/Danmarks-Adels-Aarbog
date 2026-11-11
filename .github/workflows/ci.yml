@@ -592,6 +592,7 @@ jobs:
           bash tests/sql/test-relation-marriage-sheet-v3.sh ci5b_2bii_sheet
           bash tests/sql/test-relation-child-sheet.sh ci5b_2bii_sheet
           bash tests/sql/test-relation-ordinal-sheet.sh ci5b_2bii_sheet
+          bash tests/sql/test-relation-parent-rows.sh ci5b_2bii_sheet
           psql -q -v ON_ERROR_STOP=1 -d ci5b_2bii_sheet -f tests/sql/test-marriage-ordinal-lock.sql >/dev/null
           bash tests/sql/test-indholds-id-determinism.sh ci_det
           bash tests/sql/test-transfer-5ab-digests.sh ci_dg5ab
