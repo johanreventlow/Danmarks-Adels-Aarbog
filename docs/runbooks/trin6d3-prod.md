@@ -110,7 +110,9 @@ og O også. D, O og R kan køres igen på samme ddl-dump, fordi alt er determini
 - biografilæseren med alle personer;
 - `public_person_facts` for 199/529/289;
 - `public_family_sources` for 309/298/364 (6d-2a's tunge, 2018-20) og for 386/390/392. Alle 69 nye kilder lander
-  i hver sin 1939-familie (0 → 1 kilde, målt før-base mod `g2`); de tre er nogle af dem.
+  i hver sin 1939-familie (0 → 1 kilde, målt før-base mod `g2`); de tre er nogle af dem. Før R returnerer de
+  intet, så deres egen basis er ingen målestok. De holdes i stedet op mod den tungeste 2018-20-familie med kilder:
+  max(basis × 1,10; basis + 20 ms), udskrevet som `famsrc_386=15/17(2018)` (projektejerens valg 11/11).
 
 Kaldet over alle offentlige familier (`famsrc_alle`) vokser med antallet af kilder: R tilføjer 69, så 259 bliver
 til 328 kilder og tiden går fra 1100 til 1400 ms på stand-in. Det sammenlignes derfor som µs pr. returneret kilde
@@ -235,10 +237,10 @@ worktree af commit `3eab65d1` som `DAA_STANDIN_REPO`.
 2. Codex-review af hele grenens diff og af runneren (Task 9 trin 1), **før** slut-generalprøven: i 6d-2a ændrede
    reviewet runneren og gjorde generalprøven ugyldig.
 3. Push, draft-PR, CI, merge, Vercel (Task 9 trin 2).
-4. **Hovedcheckouten skal være ren**: `go-*` stopper med `REPO_DIRTY` ved usporede filer. I repo-roden ligger 23
-   usporede CI-uddatafiler (`parity-*.txt`, `reimport*.out/json`, 622 KB). De skal flyttes (karantæne, målt først)
-   efter projektejerens ja.
-5. **Budgettet for 1939-familierne** (386/390/392): de går fra 0 til 1 kilde og fra 10 til 14-17 ms på stand-in.
-   Prods familiekald er målt til ≈5 × stand-in, så +35-40 ms i prod vil overskride max(basis × 1,10; basis + 20 ms).
-   `verify` vil da melde `T6D3_ANON_BUDGET_BRUDT`, efter at data er committet. Projektejeren beslutter før prod, om
-   de tre kald skal være informative (kaldet laver mere arbejde, fordi der nu er en kilde) eller bindende.
+4. ~~Hovedcheckouten skal være ren~~ 11/11: de 23 usporede CI-uddatafiler (622 516 bytes) er flyttet til
+   `~/TypeScript/_karantaene/danmarksadelsaarbog-20261111-ci-uddata/` (frist 2026-12-11) efter projektejerens ja.
+5. ~~Budgettet for 1939-familierne~~ afgjort 11/11: målt mod den tungeste 2018-20-familie (se tidsbudgettet). På
+   `g4`: 15-17 ms mod 2018-20's 17 ms.
+6. ~~Prods `dump-kopi`~~ taget 11/11 (`daa-prod-20261111173657-6d3-kopi.dump`, sha `5bb41f2d…`, 123 s). `maal` =
+   generalprøvens `foer`-linje inkl. K1 og FAMKILDER (`b217ebfd…`), 22,7 s (læsefaktor ≈2). Prod er uændret siden
+   10/11.
