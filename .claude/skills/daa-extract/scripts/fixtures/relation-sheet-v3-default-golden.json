@@ -1,0 +1,53 @@
+{
+ "identity_sql": "\\set ON_ERROR_STOP on\nBEGIN;\nSET LOCAL standard_conforming_strings=on;\nSET LOCAL TimeZone='UTC';\nSET LOCAL search_path=pg_catalog,public,private;\nSELECT source_persona_id AS p1 FROM private.interpretation_party_current WHERE interpretation_key='11111111-1111-1111-1111-111111111111' AND party_role='spouse' AND source_persona_id IS NOT NULL \\gset\nSELECT source_persona_id AS p2 FROM private.interpretation_party_current WHERE interpretation_key='22222222-2222-2222-2222-222222222222' AND party_role='spouse' AND source_persona_id IS NOT NULL \\gset\nSELECT set_config('request.jwt.claim.sub', :'actor', true) IS NOT NULL AS ok \\g /dev/null\nSET LOCAL ROLE authenticated;\nSELECT red_afgoer_source_persona(:'p1'::uuid, 0, 'same', 7, 'ark v3 cccccccccccc linje 1', '{\"basis\": \"human_sheet\", \"line\": 1, \"rows_sha256\": \"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\", \"sheet_sha256\": \"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}'::jsonb) \\g /dev/null\nSELECT red_afgoer_source_persona(:'p2'::uuid, 0, 'new_person_needed', NULL, 'ark v3 cccccccccccc linje 2', '{\"basis\": \"human_sheet\", \"deceased\": {\"clause_years\": [1890], \"cutoff_year\": 1906, \"rule\": \"aarstal-120-v1\"}, \"line\": 2, \"rows_sha256\": \"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\", \"sheet_sha256\": \"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}'::jsonb) \\g /dev/null\nSELECT red_afgoer_source_persona('33333333-3333-3333-3333-333333333333'::uuid, 1, 'new_person_needed', NULL, 'ark v3 cccccccccccc linje 3 — erstatter version 1', '{\"basis\": \"human_sheet\", \"deceased\": {\"clause_years\": [1314], \"cutoff_year\": 1906, \"rule\": \"aarstal-120-v1\"}, \"line\": 3, \"rows_sha256\": \"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\", \"sheet_sha256\": \"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"}'::jsonb) \\g /dev/null\nCOMMIT;\n",
+ "manifest": {
+  "authorized_elements": {
+   "relation-persona:11111111-1111-1111-1111-111111111111": {
+    "birth_raw": null,
+    "clause_observation_id": "44444444-4444-4444-4444-444444444444",
+    "clause_set_seq": 1,
+    "clause_set_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "death_raw": null,
+    "interpretation_key": "11111111-1111-1111-1111-111111111111",
+    "interpretation_version": 1,
+    "marriage_ordinal": 1,
+    "name_basis": "sheet",
+    "name_from": 14,
+    "name_to": 30,
+    "post_offset": 8,
+    "predicate": "relation.marriage",
+    "profile": "relation-persona-2018-20-v3",
+    "sheet_line": 1,
+    "sheet_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "span_from": 0,
+    "span_to": 39
+   },
+   "relation-persona:22222222-2222-2222-2222-222222222222": {
+    "birth_raw": null,
+    "clause_observation_id": "44444444-4444-4444-4444-444444444444",
+    "clause_set_seq": 1,
+    "clause_set_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "death_raw": null,
+    "interpretation_key": "22222222-2222-2222-2222-222222222222",
+    "interpretation_version": 1,
+    "marriage_ordinal": 1,
+    "name_basis": "rule",
+    "name_from": 14,
+    "name_to": 21,
+    "post_offset": 8,
+    "predicate": "relation.marriage",
+    "profile": "relation-persona-2018-20-v3",
+    "sheet_line": 2,
+    "sheet_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "span_from": 0,
+    "span_to": 40
+   }
+  },
+  "expected_counts": {
+   "person_creates": 0,
+   "relation_personas": 2,
+   "source_evidence": 0
+  }
+ },
+ "render": "# ÆGTESKABSARK v3 (trin 5b 2b-ii runde 2)\n# S = samme som forslagets partner · D = ny person, afdød efter bogen (alle årstal senest grænseåret)\n# N = ny person, kan ikke erklæres afdød (oprettes ikke nu) · I = intet navn i bogen · U = uafklaret\n# Er navnet forkert afsluttet, så skriv efter svaret:  navn: »navnet præcis som i bogen«\n#   (det skal begynde, hvor forslaget begynder). D/N kræver et navn uden titel.\n# P-linjer: D = opret den afdøde ægtefælle (ny afgørelse med dødsoplysning) · N/U = lad stå.\n# Ret kun undtagelser. En note må følge efter '#'. Gem, og giv hashen i chatten.\n\n## ÆGTESKAB 1/2 · post II-1\n#   Bogen: »Gift 1890 med Ida komtesse Dal til Ørum.«\n#   Ægtefællens navn: »Ida komtesse Dal«\n#   Hovedpersonens partnere: Ida Dal (?–?) · familie 3 · nr. 2\n#   OBS: nr. i bogen 1 ≠ nr. i familien 2 — bekræft bevidst\n#   Årstal i klausulen: 1890 · grænse 1906\n#   Forslag: S (partnermatch)\nM 11111111-1111-1111-1111-111111111111 1 : S\n\n## ÆGTESKAB 2/2 · post II-1\n#   Bogen: »Gift 1890 med Ole Dal, datter af Ole Dal.«\n#   Ægtefællens navn: »Ole Dal«\n#   Hovedpersonens partnere: (ingen)\n#   Årstal i klausulen: 1890 · grænse 1906\n#   Hele posten: »Anna A. Gift 1890 med Ole Dal, datter af Ole Dal.«\n#   Gælder et senere årstal i posten ægtefællen? Så svar N.\n#   Forslag: D (aldersregel)\nM 22222222-2222-2222-2222-222222222222 1 : D\n\n## GENAFGØRELSE 1 · post II-9, s. 9\n#   Tidligere afgørelse: web_detail · note: »kø«\n#   Ægtefællens navn: »Gro von Hak«\n#   Klausulen: »Gift 1314 med Gro von Hak.«\n#   Hele posten: »Carl C. Gift 1314 med Gro von Hak.«\n#   Årstal i klausulen: 1314 · grænse 1906\n#   Gælder et senere årstal i posten ægtefællen? Så svar N.\n#   Forslag: D (aldersregel)\nP 33333333-3333-3333-3333-333333333333 1 : D\n\n"
+}

@@ -115,3 +115,72 @@ def test_ark_med_rows_hash_der_ikke_matcher_afvises():
 def test_ukendt_nogle_i_noglefil_afvises(tmp_path):
     with pytest.raises(SheetError, match="CHILD_KEY_UNKNOWN"):
         cs.select_rows(ROWS, [K1, "00000000-0000-0000-0000-0000000000ff"])
+
+
+# --- 6d-3: kontekst (v2-rækkefil, opdigtede personer) ---------------------------------------------------------------
+
+def person(pid, navn, foedt, doed=None, levende=False):
+    return {"person_id": pid, "navn": navn, "foedt": foedt, "doed": doed, "levende": levende}
+
+
+POST = "Ib Delta, f. 1830. Søn af Ole <Delta> & Eva Delta."
+CLAUSE = "Søn af Ole <Delta> & Eva Delta."
+V2_ROWS = {"contract": "relation-parent-sheet-input-v2", "source_id": 1, "rows": [
+    {"row_no": 1, "interpretation_key": K1, "interpretation_version": 1, "principal_persona_id": P1,
+     "principal": person(5, "Ib Delta", "1830", "1900"), "record_key": "V-2", "post_text": POST,
+     "clauses": [{"text": CLAUSE, "page_from": 10, "page_to": 10, "post_char_from": 19, "post_char_to": 50}],
+     "candidates": [{"family_id": 7, "counterpart_persona_id": P1, "counterpart_person_id": 1,
+                     "partners": [person(1, "Ole Delta", "1801", "1870"), person(2, "Eva <Delta>", "1803")],
+                     "children": [person(5, "Ib Delta", "1830", "1900"), person(6, "Ida Delta", "1832", levende=True)]}]},
+    {"row_no": 2, "interpretation_key": K2, "interpretation_version": 1, "principal_persona_id": P1,
+     "principal": person(9, "Kai Delta", None), "record_key": "V-3", "post_text": "Kai Delta. Søn af en ukendt.",
+     "clauses": [{"text": "Søn af en ukendt.", "page_from": 10, "page_to": 11, "post_char_from": 0, "post_char_to": 3}],
+     "candidates": []}]}
+
+
+def test_render_html_has_context():
+    h = ps.render_html(V2_ROWS)
+    # posttekst, side, nøgle, barn, familie med forældre og børn
+    assert "Ib Delta (1830–1900)" in h and "post V-2" in h and "side 10" in h and "side 10–11" in h
+    assert "<mark>Søn af Ole &lt;Delta&gt; &amp; Eva Delta.</mark>" in h
+    assert "Ole Delta (1801–1870)" in h and "Eva &lt;Delta&gt; (1803–)" in h
+    assert "Familie 7" in h and "Ida Delta (1832–) · levende" in h and '<li class="me">Ib Delta (1830–1900)</li>' in h
+    assert "Ingen familie-kandidat" in h  # række 2
+    # forkerte offsets: klausulen markeres ikke blindt; teksten vises stadig escaped
+    assert "<mark>Kai" not in h and "Søn af en ukendt." in h
+    # intet rå markup fra data, ingen eksterne ressourcer, mørk tilstand
+    assert "<Delta>" not in h and "http://" not in h and "https://" not in h and "src=" not in h
+    assert "prefers-color-scheme:dark" in h and "default-src 'none'" in h
+    assert ps.selected_rows_sha256(V2_ROWS) in h
+
+
+def test_render_html_kraever_v2():
+    with pytest.raises(SheetError, match="ROWS_CONTEXT_MISSING"):
+        ps.render_html(ROWS)
+
+
+def test_v2_ark_binder_stadig_til_rows_sha_og_viser_barnet():
+    t = ps.render_sheet(V2_ROWS)
+    assert "barn: Ib Delta (1830–1900) · post V-2" in t
+    assert f"P {K1} 1 : B" in t and f"P {K2} 1 : U" in t
+    assert "rows_sha256: " + ps.selected_rows_sha256(V2_ROWS) in t
+    # kontekst ændret → rows-hash ændret → ark bygget over de gamle rækker afvises
+    other = json.loads(json.dumps(V2_ROWS)); other["rows"][0]["post_text"] += " x"
+    with pytest.raises(SheetError, match="ROWS_HASH_MISMATCH"):
+        ps.sheet_rows(ps.parse_sheet(t), t, other)
+
+
+def test_cli_html_v2_og_v1_afvises(tmp_path):
+    root = tmp_path / ".private"
+    root.mkdir()
+    keys_f = tmp_path / "keys.txt"
+    keys_f.write_text(f"{K1}\n", encoding="utf-8")
+    for name, data, code in (("v2", V2_ROWS, 0), ("v1", ROWS, 1)):
+        rows_f = root / f"{name}.json"
+        rows_f.write_text(json.dumps(data), encoding="utf-8")
+        args = ["render", "--rows", str(rows_f), "--private-root", str(root), "--interpretation-keys", str(keys_f),
+                "--out", str(root / f"{name}.txt"), "--html", str(root / f"{name}.html")]
+        assert ps.main(args) == code
+    h = (root / "v2.html").read_text(encoding="utf-8")
+    assert "Ole Delta" in h and K2 not in h and not (root / "v1.html").exists() and not (root / "v1.txt").exists()
+    assert oct((root / "v2.html").stat().st_mode & 0o777) == "0o600"

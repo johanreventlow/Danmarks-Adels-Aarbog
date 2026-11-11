@@ -11215,7 +11215,9 @@ BEGIN
       LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
                           WHERE ic.source_persona_id=p.id AND ic.predicate='person.name' AND ic.status IN ('accepted','proposed')
                           ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.interpretation_key LIMIT 1) nm ON true
-      LEFT JOIN LATERAL (SELECT sm.verbatim_text v FROM private.source_persona_mention spm
+      -- 6d-3: et mention-navn på en raw-kilde sendes foldet til matcheren (orddeling/sidemarkør fjernet); ellers ordret.
+      LEFT JOIN LATERAL (SELECT private.relation_name_compare_text(p_source_id,sm.verbatim_text) v
+                           FROM private.source_persona_mention spm
                           JOIN private.source_mention sm ON sm.id=spm.mention_id
                           WHERE spm.persona_id=p.id AND sm.mention_kind='person' ORDER BY spm.ordinal LIMIT 1) men ON true
       LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
@@ -17434,19 +17436,77 @@ REVOKE ALL ON TABLE private.clause_observation_current FROM PUBLIC,anon,authenti
 -- Ord = løb af den eksplicitte klasse [0-9A-Za-zÀ-ÖØ-öø-ÿ] (ikke \w, som afhænger af lc_ctype),
 -- sammenlignet med lower(). 0-baserede tegnpositioner, w_to eksklusiv. Python-tvillingen:
 -- relation_persona_extract_v2.windows.
+-- Trin 6d-3 (spec §2.2, §5.1.1): tekstformen er en parameter. 'folded' er den uændrede regel. 'raw' (kildens tekst
+-- bevarer linjeskift, orddelinger og sidemarkører) sammenligner på en foldet projektion af både teksten og påstanden
+-- (private.relation_fold_raw_text) og fører vinduet tilbage til originalens positioner: w_from = originalpositionen af
+-- vinduets første tegn, w_to = originalpositionen af dets sidste tegn + 1. En ukendt tekstform afvises. Den 2-arg-
+-- funktion er 'folded' (ingen default, så der findes præcis to overloads). Fælles tilfælde med Python-tvillingen:
+-- tests/fixtures/relation-fold-cases.json.
 -- ===================================================================================
-CREATE OR REPLACE FUNCTION private.relation_ordered_windows(p_text text,p_raw text)
+-- Foldningen af rå tekst; origin[k] er originalens 0-baserede position for det foldede tegn k (1-baseret array).
+-- Et skift er et løb af mellemrum/tabulator, linjeskift (LF, CR, CRLF) og sidemarkørlinjer (»### PAGE <cifre> ###« alene
+-- på sin linje, evt. indrykket), som rummer mindst ét linjeskift eller én sidemarkør. Mellemrum uden skift bevares.
+-- Et skift efter »-« fjernes: står et bogstav før bindestregen og et lille bogstav efter skiftet, er det en orddeling,
+-- og bindestregen fjernes også (»Bran-\ndenburg« → »Brandenburg«); ellers er bindestregen ægte og bevares
+-- (»Holm-\nKrage« → »Holm-Krage«, »1735-\n50« → »1735-50«). Ethvert andet skift bliver ét mellemrum.
+CREATE OR REPLACE FUNCTION private.relation_fold_raw_text(p_text text,OUT folded text,OUT origin integer[])
+RETURNS record LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+DECLARE c text[]:=string_to_array(p_text,NULL); n int:=coalesce(cardinality(c),0);
+  o text[]:='{}'; i int:=1; j int; k int; m int; brk boolean; ls boolean:=true; l boolean; mk text[];
+BEGIN
+  origin:='{}';
+  WHILE i<=n LOOP
+    j:=i; brk:=false; l:=ls;
+    LOOP
+      EXIT WHEN j>n;
+      IF c[j]=chr(10) OR c[j]=chr(13) THEN brk:=true; l:=true; j:=j+1;
+      ELSIF c[j]=' ' OR c[j]=chr(9) THEN j:=j+1;
+      ELSIF l AND c[j]='#' THEN
+        mk:=regexp_match(substr(p_text,j),'^(### PAGE [0-9]+ ###)[ '||chr(9)||']*(['||chr(10)||chr(13)||']|$)');
+        EXIT WHEN mk IS NULL;
+        brk:=true; l:=false; j:=j+char_length(mk[1]);
+      ELSE EXIT;
+      END IF;
+    END LOOP;
+    IF j=i THEN
+      o:=o||c[i]; origin:=origin||(i-1); ls:=false; i:=i+1;
+    ELSIF NOT brk THEN
+      FOR k IN i..j-1 LOOP o:=o||c[k]; origin:=origin||(k-1); END LOOP;
+      ls:=l; i:=j;
+    ELSE
+      m:=cardinality(o);
+      IF m>=1 AND o[m]='-' THEN
+        IF m>=2 AND o[m-1] ~ '^[A-Za-zÀ-ÖØ-öø-ÿ]$' AND j<=n AND c[j] ~ '^[a-zß-öø-ÿ]$' THEN
+          o:=o[1:m-1]; origin:=origin[1:m-1];
+        END IF;
+      ELSE
+        o:=o||' '::text; origin:=origin||(i-1);
+      END IF;
+      ls:=l; i:=j;
+    END IF;
+  END LOOP;
+  folded:=array_to_string(o,'');
+END $$;
+REVOKE ALL ON FUNCTION private.relation_fold_raw_text(text) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION private.relation_ordered_windows(p_text text,p_raw text,p_text_form text)
 RETURNS TABLE(w_from integer,w_to integer) LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
 DECLARE tw text[]:='{}'; tf int[]:='{}'; tt int[]:='{}'; rw text[]; n int:=0; pos int; mlen int; i int; j int; k int;
-  ends int[]:='{}'; starts int[]:='{}';
+  ends int[]:='{}'; starts int[]:='{}'; v_text text:=p_text; v_raw text:=p_raw; v_origin int[];
 BEGIN
+  IF p_text_form='raw' THEN
+    SELECT f.folded,f.origin INTO v_text,v_origin FROM private.relation_fold_raw_text(p_text) f;
+    SELECT f.folded INTO v_raw FROM private.relation_fold_raw_text(p_raw) f;
+  ELSIF p_text_form<>'folded' THEN
+    RAISE EXCEPTION 'RELATION_TEXT_FORM_INVALID: %',p_text_form;
+  END IF;
   LOOP
-    pos:=regexp_instr(p_text,'[0-9A-Za-zÀ-ÖØ-öø-ÿ]+',1,n+1);
+    pos:=regexp_instr(v_text,'[0-9A-Za-zÀ-ÖØ-öø-ÿ]+',1,n+1);
     EXIT WHEN pos=0;
-    mlen:=char_length((regexp_match(substr(p_text,pos),'^[0-9A-Za-zÀ-ÖØ-öø-ÿ]+'))[1]);
-    n:=n+1; tw:=tw||lower(substr(p_text,pos,mlen)); tf:=tf||(pos-1); tt:=tt||(pos-1+mlen);
+    mlen:=char_length((regexp_match(substr(v_text,pos),'^[0-9A-Za-zÀ-ÖØ-öø-ÿ]+'))[1]);
+    n:=n+1; tw:=tw||lower(substr(v_text,pos,mlen)); tf:=tf||(pos-1); tt:=tt||(pos-1+mlen);
   END LOOP;
-  SELECT array_agg(lower(m[1])) INTO rw FROM regexp_matches(p_raw,'([0-9A-Za-zÀ-ÖØ-öø-ÿ]+)','g') m;
+  SELECT array_agg(lower(m[1])) INTO rw FROM regexp_matches(v_raw,'([0-9A-Za-zÀ-ÖØ-öø-ÿ]+)','g') m;
   IF rw IS NULL OR n=0 THEN RETURN; END IF;
   FOR i IN 1..n LOOP
     CONTINUE WHEN tw[i]<>rw[1];
@@ -17459,23 +17519,60 @@ BEGIN
     IF k>array_length(rw,1) THEN starts:=starts||i; ends:=ends||j; END IF;
   END LOOP;
   -- Minimale vinduer: for hver slutposition kun det med senest start.
-  RETURN QUERY
-    SELECT tf[max(u.s)], tt[u.e] FROM unnest(starts,ends) AS u(s,e) GROUP BY u.e ORDER BY 1;
+  IF v_origin IS NULL THEN
+    RETURN QUERY
+      SELECT tf[max(u.s)], tt[u.e] FROM unnest(starts,ends) AS u(s,e) GROUP BY u.e ORDER BY 1;
+  ELSE
+    RETURN QUERY
+      SELECT v_origin[tf[max(u.s)]+1], v_origin[tt[u.e]]+1 FROM unnest(starts,ends) AS u(s,e) GROUP BY u.e ORDER BY 1;
+  END IF;
 END $$;
+REVOKE ALL ON FUNCTION private.relation_ordered_windows(text,text,text) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION private.relation_ordered_windows(p_text text,p_raw text)
+RETURNS TABLE(w_from integer,w_to integer) LANGUAGE sql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+  SELECT w.w_from,w.w_to FROM private.relation_ordered_windows(p_text,p_raw,'folded') w
+$$;
 REVOKE ALL ON FUNCTION private.relation_ordered_windows(text,text) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Trin 6d-3 (spec §5.1.1): kildens tekstform. 'raw', når kilden har en raw-profil i relation_persona_profile, ellers
+-- 'folded'; aldrig NULL. Har en kilde både raw- og folded-rækker, vinder 'raw': raw-foldningen er identitet på tekst
+-- uden linjeskift og sidemarkører, mens 'folded' på rå tekst taber vinduer. plpgsql, så tabellen (oprettet længere nede
+-- ved writeren) ikke skal findes, når funktionen oprettes.
+CREATE OR REPLACE FUNCTION private.relation_text_form(p_source_id bigint)
+RETURNS text LANGUAGE plpgsql STABLE SET search_path=pg_catalog,private AS $$
+BEGIN
+  RETURN CASE WHEN EXISTS (SELECT 1 FROM private.relation_persona_profile pp
+                            WHERE pp.source_id=p_source_id AND pp.text_form='raw') THEN 'raw' ELSE 'folded' END;
+END $$;
+REVOKE ALL ON FUNCTION private.relation_text_form(bigint) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Trin 6d-3 (Codex-fund på Task 3): sammenligningsformen for et navn fra en mention. Mentionen gemmes ordret (med
+-- originalens orddeling/sidemarkør og positioner); når navne sammenlignes eller sendes til kandidatmatcheren, bruges på en
+-- raw-kilde den foldede form (relation_fold_raw_text), ellers teksten uændret. Bruges symmetrisk på begge sider.
+CREATE OR REPLACE FUNCTION private.relation_name_compare_text(p_source_id bigint,p_text text)
+RETURNS text LANGUAGE plpgsql STABLE SET search_path=pg_catalog,private AS $$
+BEGIN
+  IF p_text IS NULL OR private.relation_text_form(p_source_id)<>'raw' THEN RETURN p_text; END IF;
+  RETURN (private.relation_fold_raw_text(p_text)).folded;
+END $$;
+REVOKE ALL ON FUNCTION private.relation_name_compare_text(bigint,text) FROM PUBLIC,anon,authenticated,service_role;
 
 -- Trin 5b (#151): serverens ægteskabsnummer. Rang efter (post_offset, spændlængde,
 -- interpretation_key) over ALLE ikke-afviste ægteskabspåstande i posten — også dem,
 -- udtrækket parkerer — så numrene ikke flytter sig mellem kørsler (spec §5.1).
 -- #244: positionen er starten af det eneste minimale ordnede ordvindue (som skriverens spændtjek), ikke strpos:
 -- en påstand, der springer en parentes over, står ikke ordret i klausulen. Uden præcis ét vindue: NULL (sidst).
+-- Trin 6d-3 (spec §5.1.1): vinduet søges i kildens tekstform (relation_text_form), så en orddeling eller sidemarkør i et
+-- tidligt ægteskab på en raw-kilde ikke sender det sidst; positionen er originalens.
 CREATE OR REPLACE FUNCTION private.relation_marriage_ordinals(p_occurrence uuid)
 RETURNS TABLE(interpretation_key uuid, marriage_ordinal integer, post_offset integer)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
   WITH m AS (
     SELECT ic.interpretation_key, ic.value->>'raw' AS raw,
            co.post_char_from+(SELECT CASE WHEN count(*)=1 THEN min(w.w_from) END
-                                FROM private.relation_ordered_windows(co.verbatim_text,ic.value->>'raw') w) AS post_offset
+                                FROM private.relation_ordered_windows(co.verbatim_text,ic.value->>'raw',
+                                                                      private.relation_text_form(ic.source_id)) w) AS post_offset
       FROM private.interpretation_current ic
       JOIN private.interpretation_observation io ON io.interpretation_id=ic.id AND io.evidence_role='supporting' AND io.ordinal=1
       JOIN private.clause_observation_current co ON co.id=io.observation_id
@@ -17551,6 +17648,31 @@ END $$;
 REVOKE ALL ON FUNCTION red_relation_persona_input(bigint) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION red_relation_persona_input(bigint) TO authenticated;
 
+-- Trin 6d-3 (spec §5.1.1): relationspersona-writerens profiler er data. Pr. (profil, kilde): de tilladte prædikater
+-- med deres payloadform (v1 = ordret spænd; v2 = det entydige ordvindue; v3 = ordvindue + arkets proveniens, kun
+-- ægteskaber) og kildens tekstform ('folded' eller 'raw'). Writeren afviser RELATION_PERSONA_PROFILE_INVALID uden række
+-- for (profil, batchens kilde) eller uden form for prædikatet. Seeds er data; de indsættes kun, når kilden findes.
+CREATE TABLE IF NOT EXISTS private.relation_persona_profile (
+  profile text NOT NULL CHECK (btrim(profile)<>''),
+  source_id bigint NOT NULL,
+  predicate_forms jsonb NOT NULL CHECK (jsonb_typeof(predicate_forms)='object' AND predicate_forms<>'{}'::jsonb
+    AND NOT jsonb_path_exists(predicate_forms,'$.keyvalue() ? (!(@.key == "relation.marriage" || @.key == "relation.child" || @.key == "relation.parent") || !(@.value == "v1" || @.value == "v2" || @.value == "v3"))')),
+  text_form text NOT NULL CHECK (text_form IN ('folded','raw')),
+  PRIMARY KEY (profile,source_id)
+);
+ALTER TABLE private.relation_persona_profile ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.relation_persona_profile FROM PUBLIC,anon,authenticated,service_role;
+INSERT INTO private.relation_persona_profile(profile,source_id,predicate_forms,text_form)
+SELECT v.profile,v.source_id,v.predicate_forms,v.text_form
+FROM (VALUES
+  ('relation-persona-2018-20-v1',1::bigint,'{"relation.marriage":"v1","relation.child":"v1","relation.parent":"v1"}'::jsonb,'folded'),
+  ('relation-persona-2018-20-v2',1::bigint,'{"relation.marriage":"v2"}'::jsonb,'folded'),
+  ('relation-persona-2018-20-v3',1::bigint,'{"relation.marriage":"v3"}'::jsonb,'folded'),
+  ('relation-persona-1939-v1',3::bigint,'{"relation.marriage":"v3","relation.parent":"v1"}'::jsonb,'raw')
+) AS v(profile,source_id,predicate_forms,text_form)
+WHERE EXISTS(SELECT 1 FROM public.source s WHERE s.id=v.source_id)
+ON CONFLICT DO NOTHING;
+
 CREATE OR REPLACE FUNCTION private.write_relation_persona(p_batch_id uuid,p_element_id text,p_payload jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE
@@ -17560,7 +17682,7 @@ DECLARE
   v_record_key text; v_principal uuid; v_principal_n integer; v_spouse uuid; v_mention uuid; v_run uuid; v_run_key text;
   v_raw text; v_ordinal integer; v_year_ids uuid[]:='{}'; v_year_id uuid; v_pred text; v_year text; v_receipt jsonb;
   v_hash text; v_marriage boolean; v_from integer; v_to integer; v_name_from integer; v_name_to integer;
-  v_key text; v_reuse uuid[]:='{}';
+  v_key text; v_reuse uuid[]:='{}'; v_form text;
 BEGIN
   -- Codex 6C-3a: kandidatopslaget nedenfor skal læse efter kildelåsen. Under REPEATABLE READ/SERIALIZABLE er snapshottet
   -- taget før låsen, så en konkurrerende batchs committede ægtefællepart kunne være usynlig og personaen genbruges to gange;
@@ -17579,6 +17701,14 @@ BEGIN
      OR v_auth.authorized_elements->p_element_id IS DISTINCT FROM p_payload THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED';
   END IF;
+  -- Trin 6d-3 (spec §5.1.1): profilen er data. Formen for (profil, batchens kilde, prædikat) styrer nøglesæt,
+  -- proveniens og spændregel; uden række eller uden form for prædikatet afvises elementet.
+  SELECT pp.predicate_forms->>(p_payload->>'predicate') INTO v_form
+    FROM private.relation_persona_profile pp
+   WHERE pp.profile=p_payload->>'profile' AND pp.source_id=v_batch.source_id;
+  IF v_form IS NULL OR v_form NOT IN ('v1','v2','v3') THEN
+    RAISE EXCEPTION 'RELATION_PERSONA_PROFILE_INVALID';
+  END IF;
   v_marriage:=p_payload->>'predicate'='relation.marriage';
   IF jsonb_typeof(p_payload)<>'object'
      OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(p_payload) k)
@@ -17586,14 +17716,12 @@ BEGIN
              ARRAY['birth_raw','clause_observation_id','clause_set_seq','clause_set_sha256','death_raw','interpretation_key',
                    'interpretation_version','marriage_ordinal','name_from','name_to','post_offset','predicate','profile',
                    'span_from','span_to']
-             || CASE WHEN p_payload->>'profile'='relation-persona-2018-20-v3'
+             || CASE WHEN v_form='v3'
                      THEN ARRAY['name_basis','sheet_line','sheet_sha256'] ELSE '{}'::text[] END) k)
      OR p_element_id<>'relation-persona:'||coalesce(p_payload->>'interpretation_key','')
      OR coalesce(p_payload->>'predicate','') NOT IN ('relation.marriage','relation.child','relation.parent')
-     OR coalesce(p_payload->>'profile','') NOT IN ('relation-persona-2018-20-v1','relation-persona-2018-20-v2',
-                                                   'relation-persona-2018-20-v3')
      -- v3 (2b-ii runde 2, spec §17.7): arkets proveniens; kun ægteskaber
-     OR (p_payload->>'profile'='relation-persona-2018-20-v3' AND (
+     OR (v_form='v3' AND (
            NOT v_marriage OR coalesce(p_payload->>'name_basis','') NOT IN ('rule','sheet')
            OR coalesce(p_payload->>'sheet_sha256','') !~ '^[0-9a-f]{64}$'
            OR jsonb_typeof(p_payload->'sheet_line')<>'number' OR (p_payload->>'sheet_line') !~ '^[1-9][0-9]*$'))
@@ -17638,16 +17766,18 @@ BEGIN
   END IF;
 
   v_raw:=v_interp.value->>'raw';
-  IF p_payload->>'profile'='relation-persona-2018-20-v1' THEN
+  IF v_form='v1' THEN
     IF v_to-v_from<>char_length(v_raw)
        OR substr(v_clause.verbatim_text,v_from+1,v_to-v_from)<>v_raw
        OR (char_length(v_clause.verbatim_text)-char_length(replace(v_clause.verbatim_text,v_raw,'')))/char_length(v_raw)<>1 THEN
       RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_SPAN_INVALID';
     END IF;
   ELSE
-    -- v2/v3 (2b-ii errata §15.1, runde 2 §17.7): det eneste minimale ordnede ordvindue.
-    IF (SELECT count(*) FROM private.relation_ordered_windows(v_clause.verbatim_text,v_raw))<>1
-       OR NOT EXISTS (SELECT 1 FROM private.relation_ordered_windows(v_clause.verbatim_text,v_raw) w
+    -- v2/v3 (2b-ii errata §15.1, runde 2 §17.7): det eneste minimale ordnede ordvindue, i kildens tekstform (6d-3).
+    IF (SELECT count(*) FROM private.relation_ordered_windows(v_clause.verbatim_text,v_raw,
+                                                              private.relation_text_form(v_batch.source_id)))<>1
+       OR NOT EXISTS (SELECT 1 FROM private.relation_ordered_windows(v_clause.verbatim_text,v_raw,
+                                                                     private.relation_text_form(v_batch.source_id)) w
                        WHERE w.w_from=v_from AND w.w_to=v_to) THEN
       RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_SPAN_INVALID';
     END IF;
@@ -17720,8 +17850,10 @@ BEGIN
                      JOIN private.source_observation o ON o.id=sm.observation_id
                     WHERE spm.persona_id=pc.source_persona_id AND spm.mention_role='spouse'
                       AND o.occurrence_id=v_clause.occurrence_id
-                      AND private.saml_blanktegn_v1(sm.verbatim_text)
-                          =private.saml_blanktegn_v1(substr(v_clause.verbatim_text,v_name_from+1,v_name_to-v_name_from)))
+                      -- 6d-3: på en raw-kilde sammenlignes den foldede form (begge sider), så en fjernet orddeling genbruger.
+                      AND private.saml_blanktegn_v1(private.relation_name_compare_text(v_batch.source_id,sm.verbatim_text))
+                          =private.saml_blanktegn_v1(private.relation_name_compare_text(v_batch.source_id,
+                             substr(v_clause.verbatim_text,v_name_from+1,v_name_to-v_name_from))))
        AND NOT EXISTS (SELECT 1 FROM private.interpretation_party_current lp
                          JOIN private.interpretation_current lc ON lc.interpretation_key=lp.interpretation_key
                         WHERE lp.party_role='spouse' AND lp.source_persona_id=pc.source_persona_id
@@ -18333,8 +18465,9 @@ GRANT EXECUTE ON FUNCTION public.red_reverse_reimport_publication(uuid,uuid) TO 
 -- med samme ægteskabsnummer, og dens eneste ægtefællepart på en levende nøgle er præcis den, batchen skrev.
 CREATE OR REPLACE FUNCTION private.verify_relation_persona_receipts(p_batch_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE e private.reimport_event%ROWTYPE; r jsonb; v_run uuid; v_key uuid;
+DECLARE e private.reimport_event%ROWTYPE; r jsonb; v_run uuid; v_key uuid; v_source bigint;
 BEGIN
+  SELECT b.source_id INTO v_source FROM private.reimport_batch b WHERE b.id=p_batch_id;
   SELECT er.id INTO v_run FROM private.extraction_run er JOIN private.reimport_batch b ON b.id=p_batch_id
    WHERE er.source_id=b.source_id AND er.schema_version='relation-persona-v1' AND er.input_sha256=b.manifest_sha256
      AND er.manifest=jsonb_build_object('batch_id',p_batch_id);
@@ -18369,9 +18502,11 @@ BEGIN
                             JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='spouse'
                            WHERE c.id=(e.payload->>'clause_observation_id')::uuid
                              AND spm.persona_id=(r->>'spouse_source_persona_id')::uuid
-                             AND private.saml_blanktegn_v1(sm.verbatim_text)
-                                 =private.saml_blanktegn_v1(substr(c.verbatim_text,(e.payload->>'name_from')::integer+1,
-                                                                   (e.payload->>'name_to')::integer-(e.payload->>'name_from')::integer)))
+                             -- 6d-3: samme sammenligningsform som writerens genbrugstjek (foldet på en raw-kilde)
+                             AND private.saml_blanktegn_v1(private.relation_name_compare_text(v_source,sm.verbatim_text))
+                                 =private.saml_blanktegn_v1(private.relation_name_compare_text(v_source,
+                                    substr(c.verbatim_text,(e.payload->>'name_from')::integer+1,
+                                           (e.payload->>'name_to')::integer-(e.payload->>'name_from')::integer))))
            -- en gældende ægtefællepart på en nøgle forældet af en tekstrevision, samme ægteskabsnummer
            OR NOT EXISTS (SELECT 1 FROM private.interpretation_party_current pc
                             JOIN private.interpretation_current ic ON ic.interpretation_key=pc.interpretation_key

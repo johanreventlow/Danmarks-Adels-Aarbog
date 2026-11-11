@@ -2,6 +2,37 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 6d-3's afgrænsning — 5b-vejen på 1939 med profil som data, dobbelt ægtefælle, læserrettelse og 1791 skjult (2026-11-10)
+
+> Delspec 6d-3 (`docs/superpowers/specs/2026-11-10-trin6d3-relationer-design.md`) godkendt af projektejeren efter
+> byggertjek og tre Codex-runder (budgettet overskredet med to runder; projektejeren frigav det for dagen).
+>
+> - **Spor R:** 1939's ægteskaber og forældre går gennem 5b's eksisterende RPC'er og writere. Writerens profiler
+>   (i dag literalerne `relation-persona-2018-20-v1..v3`) bliver data; 1939 får én profil med foldning af linjeskift,
+>   orddelinger og sidemarkører, også i beregningen af ægteskabsnummeret. Ægtefællens identitet er 1939's
+>   legacy-række (trin 6-specen §6 pkt. 8). Maskinel accept følger 5b's hele eligibility-kontrakt.
+> - **Spor D (projektejerens valg):** ≤44 kort, hvor en sammenfoldet person viser samme ægtefælle to gange;
+>   »samme« skrives med `red_samme_som`, »ingen af dem« skrives ikke i basen.
+> - **Spor L (projektejerens valg):** læserens familiekilde slår modparten op kanonisk for ægteskab, forælder og
+>   børn; deployes før dataceremonien.
+> - **Spor O (projektejerens valg, ændret efter Codex runde 2):** 1791 skjules med `red_set_privat`, ikke
+>   `samme_som` til Conrad, fordi 1791's uforanderlige `navn`- og `død`-fakta så ville stå i Conrads faktaliste.
+>   742/743's vielser findes med samme datoer på 540/541.
+> - **Ændrer 6d-spec §7:** ingen `relation-child-v2`; 1939's 4 børneforslag står `proposed`, fordi børnebindingen
+>   kræver `relation-child-v1`, som læser 1939's syntetiske koordinater. Ingen `person_create`: 1939's 7 ægteskaber
+>   uden familie/ordinal og 2018-20's I-11 og II-35 står `proposed`. De 6 ægteskaber med to klausuler står `proposed`
+>   (læserens gate kræver én). Forslag, der ikke bindes, tælles pr. årsag i runneren og `status.md`; ingen ny
+>   dispositionsskrivning.
+> - **Lukket fra 6d-2b's arv:** de 29 records uden narrativbinding har 0 relationsforslag; 933/935/940/1135 har ingen
+>   familier eller `samme_som` og berører ikke relationerne.
+> - **Fortrydelse:** ét regime — restore af dump taget før spor D, fra ethvert præfiks af ceremonien; efter
+>   `VERIFY_OK` almindelig redigering, ingen selektiv ceremoni-fortrydelse.
+> - **Ændret i plan-Task 0 (projektejerens valg 2026-11-10): kilde 1 udgår af 6d-3.** v3-reglen giver I-103 `I`
+>   (`intet_navn`) og V-159 `U` (`flere_klausuler`); arket tillader kun `I`/`U`, så ingen persona kan oprettes, og
+>   V-159 ville fejle læsergatens `n_support=1`. Alle 4 partsløse 2018-20-ægteskaber står `proposed` med årsag;
+>   kilde 1 er byte-ens før og efter (spec §5.1.6). D-kandidaterne er målt til 42 hos 41 personer (specens 44 var en
+>   øvre grænse).
+
 ## BESLUTTET: 6d-2b indsnævres til at trække forkert tilskrevne 1939-tekster tilbage; resten bliver kendte begrænsninger (2026-11-10)
 
 > Målt 2026-11-10 på stand-in `daa5ab_ddl_standin_20261110150105_6d2afb` (= prod efter 6d-2a). 6d-2a §9 beskrev
@@ -85,6 +116,41 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   `anon`-måling ser på personsidens kald; nærmer det sig anon's 3 s,
 >   forsvinder biografien lydløst, og optimeringen rykker frem. Prod-runnere bør derfor måle et enkelt-persons
 >   biografikald ud over `bio_alle`.
+
+## BESLUTTET: 6d-3's kortomfang — kontrol, forælder og en diagnostisk stikprøve af de parkerede ægteskaber (2026-11-11)
+
+> Målt på stand-in (prod-data + 6d-3's DDL + D/O): af 1939's 271 ægteskaber parkerer v3's navneregel 161 i udtrækket
+> (`navn_uklart` 89, `partner_ligner` 52, `navn_afkortet` 8, `intet_vindue` 6, `flere_klausuler` 6); 110 bliver personas,
+> 68 er maskinelt egnede, 22 af dem i den blinde kontrolstikprøve; 42 er ikke egnede (`name_or_rank` 22,
+> `count_mismatch` 20). Specens overslag (≈220 maskinelle) holdt ikke. **Projektejerens valg:** kort for kontrollen (22)
+> og forælderen (1) samt en lagdelt stikprøve på 20 parkerede ægteskaber; stikprøven er diagnostisk og binder intet i
+> 6d-3. Fravalgt: det fulde kortsæt (≈226 kort, jf. memory »ingen flere fulde afgørelsesark«) og kun de nødvendige
+> kort uden stikprøve. **Opfølgning (åben backlog):** en 1939-variant af navnereglen, målt på stikprøvens svar, så en
+> større del af de 161 kan gå maskinelt.
+> **Stikprøvens svar (2026-11-11):** 19 af 20 er rigtige match, som v3's navneregel parkerede på grund af 1939's
+> navneform (»til <gods>« i legacy-navnet, titler foran og inde i navnet, rester af sidemarkør/orddeling inde i linjen,
+> navnepartikler, omlyd); 1 påstand er selv forkert. Grundlag for opfølgningen; detaljer i planens Task 6.
+
+## NOTERET: samme par i flere familier efter sammenfoldningen — stamtræet ikke tjekket, åben backlog (2026-11-11)
+
+> Fundet under 6d-3's D-kort (spec §2.4): når både 1939-hovedpersonen og -ægtefællen er koblet med `samme_som` til
+> et 2018-20-par, står parret som flere familier (fx 2018-20's familie + én fra hver af de to 1939-poster). Målt med
+> core's `collapseSameAs`/`buildModel` på stand-in'ens data (= prod): **225 par med mere end én familie** (3 med tre).
+> Tilstanden stammer fra 1939-importen; 6d-3 ændrer ikke tallet. Personpanelet viser hver ægtefælle og hvert barn én
+> gang. **Ikke tjekket:** stamtræ og kolonner, der traverserer unionerne (`childrenByUnion`), kan vise parret to gange
+> med børnene delt mellem familierne. **Projektejerens valg:** uden for 6d-3. Næste skridt: browsertjek af et par i
+> stamtræ/kolonner; viser det dubletter, er rettelsen sandsynligvis i projektionen (forene unioner med samme kanoniske
+> par), ikke i data.
+
+## NOTERET: den fælles 5ab-runner sender ikke `profile_file` — åben backlog (2026-11-11)
+
+> Fundet i Codex' review af 6d-3 (fund 4). Efter 6d-3 kræver `relation_persona_apply.sql`, `relation_batch_apply.sql`
+> og `transfer_5ab_step_disposition.sql`/`_profile.sql` en `-v profile_file=<profil>` (relationsprofiler som data).
+> Repo'ets kald og tests sender den; det gør den private fælles runner (`lib.zsh`'s persona- og ark-stier) ikke. 6d-3's
+> egen runner bruger ikke de stier. **Konsekvens:** en senere ceremoni gennem den fælles runner stopper med
+> `RELATION_PROFILE_FILE_REQUIRED` før skrivning (fail-closed). **Projektejerens valg:** udskudt; rettes, når den
+> fælles runner bruges næste gang (profilfilen bindes da også i GO og replay). Begrundelsen er, at intet skrives
+> forkert; at det også sparer en ny generalprøve af `lib.zsh` nu, er nævnt åbent.
 
 ## NOTERET: biografilæseren med alle personer og den direkte narrativlæsning ligger allerede om 3 s — åben backlog (2026-11-09)
 

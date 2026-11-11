@@ -10373,12 +10373,52 @@ BEGIN
      OR NOT private.relation_name_has_title('Ida komtesse Dal') OR private.relation_name_has_title('Eva von Fik') THEN
     RAISE EXCEPTION 'VERIFY_RELATION_TITLE_WORDS';
   END IF;
-  IF position('relation-persona-2018-20-v3' IN pg_get_functiondef('private.write_relation_persona(uuid,text,jsonb)'::regprocedure))=0
+  -- Trin 6d-3 (plan Task 2, Codex plan-fund 5): v3 er en form i profildata; writeren slår profilen op og bærer ingen
+  -- profilnavne. Profilrækkerne kontrolleres i $verify_relation_persona_profile$ nedenfor.
+  IF position('relation_persona_profile' IN pg_get_functiondef('private.write_relation_persona(uuid,text,jsonb)'::regprocedure))=0
+     OR position('RELATION_PERSONA_PROFILE_INVALID' IN pg_get_functiondef('private.write_relation_persona(uuid,text,jsonb)'::regprocedure))=0
+     OR position('relation-persona-2018-20' IN pg_get_functiondef('private.write_relation_persona(uuid,text,jsonb)'::regprocedure))>0
      OR position('RELATION_PERSON_CREATE_NAME_TITLE' IN pg_get_functiondef('private.write_relation_person_create(uuid,text,jsonb)'::regprocedure))=0 THEN
     RAISE EXCEPTION 'VERIFY_RELATION_V3_WRITERS';
   END IF;
   RAISE NOTICE 'OK: 5b 2b-ii runde 2 — titelliste og writer v3';
 END $verify_relation_v3$;
+
+-- Trin 6d-3 (spec §5.1.1): relationsprofilerne er data. Tabellen er privat og låst til de tre prædikater og tre
+-- former; findes en seed-kilde, står dens profiler med netop de aftalte former og tekstform (en frisk base har
+-- hverken kilde 1 eller 3, og seeds indsættes kun, når kilden findes).
+DO $verify_relation_persona_profile$
+DECLARE r record; v_role text;
+BEGIN
+  IF to_regclass('private.relation_persona_profile') IS NULL
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.relation_persona_profile'::regclass)
+     OR (SELECT array_agg(a.attname::text ORDER BY a.attnum) FROM pg_index i
+           JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=ANY(i.indkey)
+          WHERE i.indrelid='private.relation_persona_profile'::regclass AND i.indisprimary)
+        IS DISTINCT FROM ARRAY['profile','source_id'] THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6d-3 relationsprofiltabel';
+  END IF;
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_table_privilege(v_role,'private.relation_persona_profile','SELECT,INSERT,UPDATE,DELETE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6d-3 relationsprofiler tabeladgang %',v_role;
+    END IF;
+  END LOOP;
+  FOR r IN SELECT * FROM (VALUES
+      ('relation-persona-2018-20-v1',1::bigint,'{"relation.marriage":"v1","relation.child":"v1","relation.parent":"v1"}'::jsonb,'folded'),
+      ('relation-persona-2018-20-v2',1::bigint,'{"relation.marriage":"v2"}'::jsonb,'folded'),
+      ('relation-persona-2018-20-v3',1::bigint,'{"relation.marriage":"v3"}'::jsonb,'folded'),
+      ('relation-persona-1939-v1',3::bigint,'{"relation.marriage":"v3","relation.parent":"v1"}'::jsonb,'raw'))
+      AS v(profile,source_id,predicate_forms,text_form)
+  LOOP
+    IF EXISTS (SELECT 1 FROM public.source WHERE id=r.source_id)
+       AND NOT EXISTS (SELECT 1 FROM private.relation_persona_profile pp
+                        WHERE pp.profile=r.profile AND pp.source_id=r.source_id
+                          AND pp.predicate_forms=r.predicate_forms AND pp.text_form=r.text_form) THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6d-3 relationsprofil % for kilde %',r.profile,r.source_id;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'OK: 6d-3 relationsprofiler (tabel, adgang, seeds for de kilder, basen har)';
+END $verify_relation_persona_profile$;
 
 -- #244 (spec §7.1-§7.2, §5): rettelsestabellen er låst, origin-constraintet har tre værdier, og funktionerne findes.
 DO $verify_244$

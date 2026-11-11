@@ -40,6 +40,38 @@ export function familieIderForPerson(
   return { aegteskaber, foraeldreFamilier: [...foraeldreFamilier].sort(), boerneFamilier: [...boerneFamilier].sort() };
 }
 
+// Trin 6d-3 spor L: kildefiltrene til detaljepanelet. Bindingens modpart er postens eget person-id (fx 1939's
+// alias-række), mens modellen efter samme_som-sammenfoldningen viser kanoniske id'er; modparten slås derfor op
+// kanonisk (canon[id] ?? id). Familien skal stadig være én af de viste — et kanonisk match alene giver ingen kilde.
+export type FamilieIder = ReturnType<typeof familieIderForPerson>;
+const kanonisk = (canon: Record<string, string>, id: string): string => canon[id] ?? id;
+
+// Ægteskabskilder for én ægtefælle: familien skal være deres fælles, og modparten ægtefællen eller personen selv.
+export function aegteskabsKilder(kilder: FamilieKilde[], ider: FamilieIder, spouseId: string | null, focusId: string,
+  canon: Record<string, string>): FamilieKilde[] {
+  const fam = new Set(ider.aegteskaber.filter((a) => a.spouseId === spouseId).map((a) => a.familyId));
+  return kilder.filter((k) => {
+    if (k.slags !== 'aegteskab' || !fam.has(k.familyId)) return false;
+    const mod = kanonisk(canon, k.counterpartPersonId);
+    return mod === spouseId || mod === focusId;
+  });
+}
+
+// Forælderkilden hører kun til den forælder, påstanden handler om (aldrig ved begge; spec 5b §5.2). 2b-iii: en
+// børnekilde fra forælderens post vises hos barnet på samme måde (modparten er forælderen).
+export function foraelderKilder(kilder: FamilieKilde[], ider: FamilieIder, parentId: string,
+  canon: Record<string, string>): FamilieKilde[] {
+  return kilder.filter((k) => (k.slags === 'foraelder' || k.slags === 'boern')
+    && ider.foraeldreFamilier.includes(k.familyId) && kanonisk(canon, k.counterpartPersonId) === parentId);
+}
+
+// Trin 5b 2b-iii: børneflokkens kilde hos forælderen (modparten er forælderen selv).
+export function boerneKilder(kilder: FamilieKilde[], ider: FamilieIder, focusId: string,
+  canon: Record<string, string>): FamilieKilde[] {
+  return kilder.filter((k) => k.slags === 'boern'
+    && ider.boerneFamilier.includes(k.familyId) && kanonisk(canon, k.counterpartPersonId) === focusId);
+}
+
 export function kildeLinje(k: FamilieKilde): string {
   return `Kilde: ${k.sourceLabel} · ${k.recordLabel}`;
 }

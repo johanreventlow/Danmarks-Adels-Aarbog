@@ -1,0 +1,152 @@
+{
+ "input": [
+  {
+   "clauses": [
+    {
+     "clause_set_seq": 1,
+     "clause_set_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "observation_id": "o1",
+     "post_char_from": 8,
+     "post_char_to": 39,
+     "verbatim_text": "Gift 1890 med Ida Dal, f. 1801."
+    }
+   ],
+   "interpretation_key": "00000000-0000-0000-0000-000000000001",
+   "interpretation_version": 1,
+   "marriage_ordinal": 1,
+   "occurrence_id": "occ-II-1",
+   "predicate": "relation.marriage",
+   "principal_ok": true,
+   "raw": "Gift med Ida Dal",
+   "record_key": "II-1",
+   "supporting_count": 1
+  },
+  {
+   "clauses": [
+    {
+     "clause_set_seq": 1,
+     "clause_set_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "observation_id": "o1",
+     "post_char_from": 8,
+     "post_char_to": 34,
+     "verbatim_text": "Gift 1850 med Eva von Fik."
+    }
+   ],
+   "interpretation_key": "00000000-0000-0000-0000-000000000002",
+   "interpretation_version": 1,
+   "marriage_ordinal": 2,
+   "occurrence_id": "occ-II-1",
+   "predicate": "relation.marriage",
+   "principal_ok": true,
+   "raw": "Gift med Eva von Fik",
+   "record_key": "II-1",
+   "supporting_count": 1
+  },
+  {
+   "clauses": [
+    {
+     "clause_set_seq": 1,
+     "clause_set_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "observation_id": "o1",
+     "post_char_from": 8,
+     "post_char_to": 29,
+     "verbatim_text": "Gift 1950 med Bo Gro."
+    }
+   ],
+   "interpretation_key": "00000000-0000-0000-0000-000000000003",
+   "interpretation_version": 1,
+   "marriage_ordinal": 3,
+   "occurrence_id": "occ-II-1",
+   "predicate": "relation.marriage",
+   "principal_ok": true,
+   "raw": "Gift med Bo Gro",
+   "record_key": "II-1",
+   "supporting_count": 1
+  },
+  {
+   "clauses": [
+    {
+     "clause_set_seq": 1,
+     "clause_set_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "observation_id": "o1",
+     "post_char_from": 8,
+     "post_char_to": 30,
+     "verbatim_text": "Gift 1890 med Eva Fik."
+    }
+   ],
+   "interpretation_key": "00000000-0000-0000-0000-000000000004",
+   "interpretation_version": 1,
+   "marriage_ordinal": 1,
+   "occurrence_id": "occ-II-1",
+   "predicate": "relation.marriage",
+   "principal_ok": true,
+   "raw": "Gift med Eva Fik",
+   "record_key": "II-1",
+   "supporting_count": 1
+  },
+  {
+   "clauses": [
+    {
+     "clause_set_seq": 1,
+     "clause_set_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "observation_id": "o1",
+     "post_char_from": 8,
+     "post_char_to": 30,
+     "verbatim_text": "Gift 1890 med Eva Fik."
+    }
+   ],
+   "interpretation_key": "00000000-0000-0000-0000-000000000005",
+   "interpretation_version": 1,
+   "marriage_ordinal": 2,
+   "occurrence_id": "occ-II-1",
+   "predicate": "relation.marriage",
+   "principal_ok": true,
+   "raw": "Gift med Eva Fik",
+   "record_key": "II-1",
+   "supporting_count": 1
+  },
+  {
+   "clauses": [
+    {
+     "clause_set_seq": 1,
+     "clause_set_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "observation_id": "o1",
+     "post_char_from": 8,
+     "post_char_to": 39,
+     "verbatim_text": "Gift 1890 med Komtesse Ida Dal."
+    }
+   ],
+   "interpretation_key": "00000000-0000-0000-0000-000000000006",
+   "interpretation_version": 1,
+   "marriage_ordinal": 1,
+   "occurrence_id": "occ-II-1",
+   "predicate": "relation.marriage",
+   "principal_ok": true,
+   "raw": "Gift med Komtesse Ida Dal",
+   "record_key": "II-1",
+   "supporting_count": 1
+  },
+  {
+   "clauses": [
+    {
+     "clause_set_seq": 1,
+     "clause_set_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "observation_id": "o1",
+     "post_char_from": 8,
+     "post_char_to": 30,
+     "verbatim_text": "Gift 1890 med Ida Dal."
+    }
+   ],
+   "interpretation_key": "00000000-0000-0000-0000-000000000007",
+   "interpretation_version": 1,
+   "marriage_ordinal": 1,
+   "occurrence_id": "occ-II-1",
+   "predicate": "relation.marriage",
+   "principal_ok": true,
+   "raw": "Gift med Ulla Dal",
+   "record_key": "II-1",
+   "supporting_count": 1
+  }
+ ],
+ "input_sha256": "0906502132ddbe6f4a9e42c6668bfc783c712115905aeb43d96b6c1bfd1d9226"
+}

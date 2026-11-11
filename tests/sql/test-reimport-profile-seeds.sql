@@ -92,4 +92,21 @@ BEGIN
   RAISE NOTICE 'OK: persona_key_prefix';
 END $persona_key_prefix$;
 
+-- Trin 6d-3 (spec §5.1.1): relationsprofilerne seedes for kilde 1 og 3 med netop de aftalte former og tekstform.
+DO $seed_relation_persona_profiles$
+DECLARE v_n integer;
+BEGIN
+  SELECT count(*) INTO v_n FROM private.relation_persona_profile WHERE source_id IN (1,3);
+  IF v_n<>4 THEN RAISE EXCEPTION 'SEED_RELATION_PROFILE_ROW_COUNT: %', v_n; END IF;
+  IF (SELECT jsonb_object_agg(profile||'@'||source_id,jsonb_build_object('forms',predicate_forms,'text_form',text_form))
+        FROM private.relation_persona_profile WHERE source_id IN (1,3))
+     IS DISTINCT FROM '{"relation-persona-2018-20-v1@1":{"forms":{"relation.marriage":"v1","relation.child":"v1","relation.parent":"v1"},"text_form":"folded"},
+                       "relation-persona-2018-20-v2@1":{"forms":{"relation.marriage":"v2"},"text_form":"folded"},
+                       "relation-persona-2018-20-v3@1":{"forms":{"relation.marriage":"v3"},"text_form":"folded"},
+                       "relation-persona-1939-v1@3":{"forms":{"relation.marriage":"v3","relation.parent":"v1"},"text_form":"raw"}}'::jsonb THEN
+    RAISE EXCEPTION 'SEED_RELATION_PROFILE_VALUES';
+  END IF;
+  RAISE NOTICE 'seed relation persona profiles OK';
+END $seed_relation_persona_profiles$;
+
 ROLLBACK;
