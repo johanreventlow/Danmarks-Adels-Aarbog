@@ -3,7 +3,7 @@
 -- nøgles: observation, fra-version, aktørerne som persona_key og de citerende fortolkninger som <key>#<version>. Ved match
 -- skrives manifestet til :manifest (kalderen har umask 077) og relation_batch_apply.sql køres med det (writerens to
 -- transaktioner; fejlkrogen fault=after_authorize ligger mellem dem). 0 elementer ⇒ ingen batch.
--- Brug: psql -v src=<kilde> -v mode=capture|replay -v items=<sti> -v manifest=<sti> [-v fault=after_authorize]
+-- Brug: psql -v src=<kilde> -v mode=capture|replay -v items=<sti> -v manifest=<sti> -v profile_file=<sti> [-v fault=after_authorize]
 --       -f transfer_5ab_step_disposition.sql
 \set t5_step disposition
 \if :{?manifest}

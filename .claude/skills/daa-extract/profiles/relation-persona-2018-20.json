@@ -1,0 +1,15 @@
+{
+  "profile_id": "relation-persona-2018-20",
+  "profile_version": "relation-persona-v1",
+  "relation_profile": "relation-persona-2018-20-v3",
+  "writer_config": {
+    "citation_label_template": "DAA 2018-20 s. {page_from}",
+    "extractor_version": "relation-persona-v1",
+    "observation_extraction_method": "relation_persona_extract",
+    "rendition_key": "relation-persona",
+    "rendition_kind": "pdf_text_layer",
+    "rendition_metadata": {},
+    "run_key_prefix": "relation-persona",
+    "schema_version": "relation-persona-v1"
+  }
+}

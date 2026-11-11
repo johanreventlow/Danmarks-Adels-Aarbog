@@ -1270,6 +1270,15 @@ ALTER TABLE private.reimport_name_completion_result ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON private.reimport_writer_profile,private.reimport_authorization,
   private.reimport_batch,private.reimport_event,private.reimport_name_completion_result
   FROM PUBLIC,anon,authenticated,service_role;
+-- Trin 6d-3: relationspersona-writerens profiler (data) er private; ingen API-rolle har adgang.
+DO $relation_persona_profile_acl$
+BEGIN
+  IF to_regclass('private.relation_persona_profile') IS NOT NULL THEN
+    ALTER TABLE private.relation_persona_profile ENABLE ROW LEVEL SECURITY;
+    REVOKE ALL ON TABLE private.relation_persona_profile FROM PUBLIC,anon,authenticated,service_role;
+  END IF;
+END
+$relation_persona_profile_acl$;
 REVOKE ALL ON FUNCTION private.reject_reimport_writer_mutation(),
   private.require_reimport_writer_editor(),private.require_reimport_open_batch(uuid),
   private.lock_reimport_writer(bigint,text),

@@ -7,8 +7,12 @@ db=${1:?database}
 actor=11000000-0000-0000-0000-0000002b0611
 root=$(mktemp -d); chmod 700 "$root"; trap 'rm -rf "$root"' EXIT
 sd=.claude/skills/daa-extract/scripts
+pf=.claude/skills/daa-extract/profiles/relation-persona-2018-20.json
 q() { env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$db" "$@"; }
 q -f tests/sql/fixtures/relation-marriage-v3.sql >/dev/null
+# Trin 6d-3: relationsprofilerne er data pr. (profil, kilde); testkilden registrerer arkets profil.
+q -c "INSERT INTO private.relation_persona_profile(profile,source_id,predicate_forms,text_form)
+  VALUES ('relation-persona-2018-20-v3',-22601,'{\"relation.marriage\":\"v3\"}','folded') ON CONFLICT DO NOTHING" >/dev/null
 PGCLIENTENCODING=UTF8 env -u PGOPTIONS psql -X -Atq -v ON_ERROR_STOP=1 -v actor="$actor" -v source=-22601 -d "$db" \
   -f $sd/relation_v3_rows.sql > "$root/rows.json"
 [ "$(python3 $sd/relation_marriage_sheet_v3.py render --rows "$root/rows.json" --out "$root/ark.txt" --private-root "$root")" \
@@ -17,7 +21,7 @@ rows_sha=$(shasum -a 256 "$root/rows.json" | cut -d' ' -f1); ark_sha=$(shasum -a
 [ "$(python3 $sd/relation_marriage_sheet_v3.py sql --rows "$root/rows.json" --sheet "$root/ark.txt" --approved-sha256 "$ark_sha" \
      --expect-rows-sha256 "$rows_sha" --manifest-out "$root/m.json" --identity-out "$root/i.sql" --private-root "$root")" \
   = "SQL_OK manifest=2 identitet=3" ]
-q -v actor="$actor" -v source_id=-22601 -v manifest_file="$root/m.json" -f $sd/relation_persona_apply.sql >/dev/null
+q -v actor="$actor" -v source_id=-22601 -v manifest_file="$root/m.json" -v profile_file="$pf" -f $sd/relation_persona_apply.sql >/dev/null
 q -v actor="$actor" -f "$root/i.sql" >/dev/null
 q -At <<SQL | grep -qx 't'
 SELECT (SELECT count(*) FROM private.source_persona_identity i JOIN private.source_persona p ON p.id=i.source_persona_id
@@ -32,7 +36,7 @@ SQL
 # relation_person_create for D-linjen og P-linjen
 q -At -c "SELECT private.relation_person_create_input(-22601)::text" > "$root/pc.json"
 [ "$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["authorized_elements"]))' "$root/pc.json")" = 2 ]
-q -v actor="$actor" -v source_id=-22601 -v manifest_file="$root/pc.json" -v operation=relation_person_create \
+q -v actor="$actor" -v source_id=-22601 -v manifest_file="$root/pc.json" -v operation=relation_person_create -v profile_file="$pf" \
   -f $sd/relation_batch_apply.sql >/dev/null
 q -At <<SQL | grep -qx 't'
 SELECT (SELECT count(*) FROM private.source_persona_identity i JOIN private.source_persona p ON p.id=i.source_persona_id

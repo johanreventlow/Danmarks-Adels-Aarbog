@@ -6,6 +6,21 @@ CREATE OR REPLACE FUNCTION pg_temp.f5b_actor(p_actor uuid) RETURNS void LANGUAGE
     ON CONFLICT DO NOTHING;
 $$;
 
+-- Trin 6d-3: relationsprofilerne er data pr. (profil, kilde). En testkilde får 2018-20-profilernes former, så testene
+-- skriver som før; produktionsrækkerne for kilde 1/3 røres ikke. Rækkerne skrives, når kilden oprettes (f5b_source), som
+-- seeds står i prod før enhver kæde, og igen idempotent af f5b_profile for kilder oprettet på anden vis. Ældre baser
+-- uden tabellen springes over.
+CREATE OR REPLACE FUNCTION pg_temp.f5b_relation_profiles(p_source bigint) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  IF to_regclass('private.relation_persona_profile') IS NOT NULL THEN
+    INSERT INTO private.relation_persona_profile(profile,source_id,predicate_forms,text_form)
+      VALUES ('relation-persona-2018-20-v1',p_source,'{"relation.marriage":"v1","relation.child":"v1","relation.parent":"v1"}','folded'),
+             ('relation-persona-2018-20-v2',p_source,'{"relation.marriage":"v2"}','folded'),
+             ('relation-persona-2018-20-v3',p_source,'{"relation.marriage":"v3"}','folded')
+      ON CONFLICT DO NOTHING;
+  END IF;
+END $$;
+
 CREATE OR REPLACE FUNCTION pg_temp.f5b_source(p_source bigint) RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE v_run uuid:=gen_random_uuid(); v_rend uuid:=gen_random_uuid();
 BEGIN
@@ -14,6 +29,7 @@ BEGIN
     VALUES (v_run,p_source,'5b-'||v_run::text,'fixture','fixture','fixture',repeat('1',64),'{}');
   INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256,metadata)
     VALUES (v_rend,p_source,'5b-r-'||v_run::text,'pdf_text_layer',repeat('2',64),'{}');
+  PERFORM pg_temp.f5b_relation_profiles(p_source);
   RETURN jsonb_build_object('run',v_run,'rend',v_rend);
 END $$;
 
@@ -98,6 +114,7 @@ DECLARE v_cfg jsonb:='{"citation_label_template":"DAA 5b s. {page_from}","extrac
 BEGIN
   INSERT INTO private.reimport_writer_profile(source_id,profile_id,profile_version,profile_sha256,writer_config)
     VALUES (p_source,'relation-5b','relation-persona-v1',private.reimport_canonical_json_sha256(v_cfg),v_cfg);
+  PERFORM pg_temp.f5b_relation_profiles(p_source);
   RETURN jsonb_build_object('profile_id','relation-5b','profile_sha256',private.reimport_canonical_json_sha256(v_cfg));
 END $$;
 

@@ -16,7 +16,8 @@ uh() { qa "$1" -v src=-25001 -f $S/transfer_5ab_untouched_hash.sql; }
 # step <db> <skridt> <mode> <items> [-v …]: stdout (én STEP_OK-linje) gemmes også i all.out; stderr i step.err.
 step() {
   local db=$1 name=$2 mode=$3 items=$4; shift 4
-  env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$db" -v src=-25001 -v actor="${STEP_ACTOR-$ACTOR}" -v mode="$mode" -v items="$items" "$@" \
+  env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$db" -v src=-25001 -v actor="${STEP_ACTOR-$ACTOR}" -v mode="$mode" -v items="$items" \
+    -v profile_file=.claude/skills/daa-extract/profiles/relation-persona-2018-20.json "$@" \
     -f $S/transfer_5ab_step_$name.sql 2>"$tmp/step.err" | tee -a "$tmp/all.out"
 }
 # step_fails <kode> <db> <skridt> <mode> <items> […]: skridtet skal fejle med netop den kode.
@@ -189,6 +190,19 @@ j=json.load(open(sys.argv[1])); x=dict(j[0]); x.update(interpretation_key="00000
   prev_a=$tmp/a-$name.dg; prev_b=$tmp/b-$name.dg
   echo "st_capture_replay $name OK ($oa)" | sed -E 's/ items_sha256=[0-9a-f]+//'
 done
+# st_profile_drift (Codex 6d-3 T2): A har profilrækken fra capture; en profilfil med samme profil-id, men anden
+# konfiguration eller version, afvises før COMMIT, uden items-fil og uden ændrede digests.
+dg "$A" > "$tmp/pd0.dg"
+for mut in cfg ver; do
+  python3 -I -c 'import json,sys; p=json.load(open(sys.argv[1])); m=sys.argv[3]
+if m=="cfg": p["writer_config"]["citation_label_template"]+=" (ændret)"
+else: p["profile_version"]+="-ændret"
+json.dump(p,open(sys.argv[2],"w"),ensure_ascii=False)' .claude/skills/daa-extract/profiles/relation-persona-2018-20.json "$tmp/pd-$mut.json" $mut
+  step_fails STEP_PROFILE_FILE_DRIFT "$A" profile capture "$tmp/pd-$mut.items" -v profile_file="$tmp/pd-$mut.json"
+  [ -e "$tmp/pd-$mut.items" ] && fail "st_profile_drift: items-fil skrevet ($mut)"
+done
+dg "$A" > "$tmp/pd1.dg"; [ -z "$(dgcmp "$tmp/pd0.dg" "$tmp/pd1.dg")" ] || fail "st_profile_drift: digests ændret"
+echo "st_profile_drift OK"
 # st_pack_replay: pakken genspilles på C via løkken classify → replay → classify. Efter bind »glemmes« logføringen (afbrud
 # mellem COMMIT og loggen): classify giver da ALREADY_APPLIED uden skrivning. Til sidst er intet skridt tilbage.
 TS validate --pack "$PACK" | grep -q '^PACK_OK steps=5 ' || fail "st_pack_replay: pakken er ugyldig"

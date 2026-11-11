@@ -578,7 +578,7 @@ jobs:
       - name: Ordvindue, relation_person_create og disposition SQL (5b 2b-ii)
         env: {PGPASSWORD: postgres}
         run: |
-          for t in test-relation-persona-v2 test-relation-person-create test-relation-disposition test-relation-persona-v3 test-relation-person-create-v3 test-relation-child test-marriage-ordinal-correction test-content-uuid; do
+          for t in test-relation-persona-v2 test-relation-person-create test-relation-disposition test-relation-persona-v3 test-relation-person-create-v3 test-relation-child test-marriage-ordinal-correction test-content-uuid test-relation-persona-profile; do
             psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/$t.sql; done
       - name: Ægteskabsark ende til ende (5b 2b-ii)
         env: {PGHOST: localhost, PGUSER: postgres, PGPASSWORD: postgres}

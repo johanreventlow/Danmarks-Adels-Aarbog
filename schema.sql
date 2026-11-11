@@ -17551,6 +17551,31 @@ END $$;
 REVOKE ALL ON FUNCTION red_relation_persona_input(bigint) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION red_relation_persona_input(bigint) TO authenticated;
 
+-- Trin 6d-3 (spec §5.1.1): relationspersona-writerens profiler er data. Pr. (profil, kilde): de tilladte prædikater
+-- med deres payloadform (v1 = ordret spænd; v2 = det entydige ordvindue; v3 = ordvindue + arkets proveniens, kun
+-- ægteskaber) og kildens tekstform ('folded' eller 'raw'). Writeren afviser RELATION_PERSONA_PROFILE_INVALID uden række
+-- for (profil, batchens kilde) eller uden form for prædikatet. Seeds er data; de indsættes kun, når kilden findes.
+CREATE TABLE IF NOT EXISTS private.relation_persona_profile (
+  profile text NOT NULL CHECK (btrim(profile)<>''),
+  source_id bigint NOT NULL,
+  predicate_forms jsonb NOT NULL CHECK (jsonb_typeof(predicate_forms)='object' AND predicate_forms<>'{}'::jsonb
+    AND NOT jsonb_path_exists(predicate_forms,'$.keyvalue() ? (!(@.key == "relation.marriage" || @.key == "relation.child" || @.key == "relation.parent") || !(@.value == "v1" || @.value == "v2" || @.value == "v3"))')),
+  text_form text NOT NULL CHECK (text_form IN ('folded','raw')),
+  PRIMARY KEY (profile,source_id)
+);
+ALTER TABLE private.relation_persona_profile ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.relation_persona_profile FROM PUBLIC,anon,authenticated,service_role;
+INSERT INTO private.relation_persona_profile(profile,source_id,predicate_forms,text_form)
+SELECT v.profile,v.source_id,v.predicate_forms,v.text_form
+FROM (VALUES
+  ('relation-persona-2018-20-v1',1::bigint,'{"relation.marriage":"v1","relation.child":"v1","relation.parent":"v1"}'::jsonb,'folded'),
+  ('relation-persona-2018-20-v2',1::bigint,'{"relation.marriage":"v2"}'::jsonb,'folded'),
+  ('relation-persona-2018-20-v3',1::bigint,'{"relation.marriage":"v3"}'::jsonb,'folded'),
+  ('relation-persona-1939-v1',3::bigint,'{"relation.marriage":"v3","relation.parent":"v1"}'::jsonb,'raw')
+) AS v(profile,source_id,predicate_forms,text_form)
+WHERE EXISTS(SELECT 1 FROM public.source s WHERE s.id=v.source_id)
+ON CONFLICT DO NOTHING;
+
 CREATE OR REPLACE FUNCTION private.write_relation_persona(p_batch_id uuid,p_element_id text,p_payload jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
 DECLARE
@@ -17560,7 +17585,7 @@ DECLARE
   v_record_key text; v_principal uuid; v_principal_n integer; v_spouse uuid; v_mention uuid; v_run uuid; v_run_key text;
   v_raw text; v_ordinal integer; v_year_ids uuid[]:='{}'; v_year_id uuid; v_pred text; v_year text; v_receipt jsonb;
   v_hash text; v_marriage boolean; v_from integer; v_to integer; v_name_from integer; v_name_to integer;
-  v_key text; v_reuse uuid[]:='{}';
+  v_key text; v_reuse uuid[]:='{}'; v_form text;
 BEGIN
   -- Codex 6C-3a: kandidatopslaget nedenfor skal læse efter kildelåsen. Under REPEATABLE READ/SERIALIZABLE er snapshottet
   -- taget før låsen, så en konkurrerende batchs committede ægtefællepart kunne være usynlig og personaen genbruges to gange;
@@ -17579,6 +17604,14 @@ BEGIN
      OR v_auth.authorized_elements->p_element_id IS DISTINCT FROM p_payload THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_ELEMENT_NOT_AUTHORIZED';
   END IF;
+  -- Trin 6d-3 (spec §5.1.1): profilen er data. Formen for (profil, batchens kilde, prædikat) styrer nøglesæt,
+  -- proveniens og spændregel; uden række eller uden form for prædikatet afvises elementet.
+  SELECT pp.predicate_forms->>(p_payload->>'predicate') INTO v_form
+    FROM private.relation_persona_profile pp
+   WHERE pp.profile=p_payload->>'profile' AND pp.source_id=v_batch.source_id;
+  IF v_form IS NULL OR v_form NOT IN ('v1','v2','v3') THEN
+    RAISE EXCEPTION 'RELATION_PERSONA_PROFILE_INVALID';
+  END IF;
   v_marriage:=p_payload->>'predicate'='relation.marriage';
   IF jsonb_typeof(p_payload)<>'object'
      OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(p_payload) k)
@@ -17586,14 +17619,12 @@ BEGIN
              ARRAY['birth_raw','clause_observation_id','clause_set_seq','clause_set_sha256','death_raw','interpretation_key',
                    'interpretation_version','marriage_ordinal','name_from','name_to','post_offset','predicate','profile',
                    'span_from','span_to']
-             || CASE WHEN p_payload->>'profile'='relation-persona-2018-20-v3'
+             || CASE WHEN v_form='v3'
                      THEN ARRAY['name_basis','sheet_line','sheet_sha256'] ELSE '{}'::text[] END) k)
      OR p_element_id<>'relation-persona:'||coalesce(p_payload->>'interpretation_key','')
      OR coalesce(p_payload->>'predicate','') NOT IN ('relation.marriage','relation.child','relation.parent')
-     OR coalesce(p_payload->>'profile','') NOT IN ('relation-persona-2018-20-v1','relation-persona-2018-20-v2',
-                                                   'relation-persona-2018-20-v3')
      -- v3 (2b-ii runde 2, spec §17.7): arkets proveniens; kun ægteskaber
-     OR (p_payload->>'profile'='relation-persona-2018-20-v3' AND (
+     OR (v_form='v3' AND (
            NOT v_marriage OR coalesce(p_payload->>'name_basis','') NOT IN ('rule','sheet')
            OR coalesce(p_payload->>'sheet_sha256','') !~ '^[0-9a-f]{64}$'
            OR jsonb_typeof(p_payload->'sheet_line')<>'number' OR (p_payload->>'sheet_line') !~ '^[1-9][0-9]*$'))
@@ -17638,7 +17669,7 @@ BEGIN
   END IF;
 
   v_raw:=v_interp.value->>'raw';
-  IF p_payload->>'profile'='relation-persona-2018-20-v1' THEN
+  IF v_form='v1' THEN
     IF v_to-v_from<>char_length(v_raw)
        OR substr(v_clause.verbatim_text,v_from+1,v_to-v_from)<>v_raw
        OR (char_length(v_clause.verbatim_text)-char_length(replace(v_clause.verbatim_text,v_raw,'')))/char_length(v_raw)<>1 THEN
