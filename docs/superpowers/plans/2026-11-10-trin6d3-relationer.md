@@ -99,7 +99,12 @@ Noter, prober, kort og svar i `~/.private/6d3/` (0600). Stand-in: frisk restore 
 - [x] **Trin 4:** erstattet af `collapseSameAs`/`buildModel` på stand-in'ens data (= prod): 18 har to ægtefæller
   (598/1537), 815 og 816 hver to ægtemænd (392/1791), 0 karantæner. Browsertjekket som anon sker i Task 9 trin 4.
 - [x] **Trin 5: Tabet vist** og godkendt 2026-11-10: D 42 kort, O 1791 + kort for 1795, R som trin 2-3; kilde 1 ude.
-- [ ] **Trin 6: D/O-kort** (lokal HTML, flettet ind i token-arket; memory: kortark kræver kontekst + HTML): pr. kandidat
+- [x] **Trin 6: D/O-kort** — besvaret 2026-11-11: 43 kort, D 42 × `S`, 0 × `I`; O1 (1795) `P`. Valgmulighederne
+  er kanoniske personer (en ægtefælle registreret flere gange = ét valg; D24/D26/D40 havde aliasvalg i første
+  manifest, rettet; svarene var de kanoniske og er præget om til manifest v2 med sporbarhed). Manifest v2 sha256
+  `85ead8a7b7e03c3d67342eda16aaf7e733d14a1743efe6bc5d92eb9eebb9ce9d`; flettet svarfil sha256
+  `f4b05011d4148c701e50d1bd7a58d34e3698c8a580e0dc4ae0d380d9c1099000` (privat, aldrig i repo'et). Oprindelig opgave:
+  D/O-kort (lokal HTML, flettet ind i token-arket; memory: kortark kræver kontekst + HTML): pr. kandidat
   1939-ægtefællens navn, datoer, posttekst og side mod *alle* tvillingens ægtefæller (navn, datoer, familie-id);
   ingen forudfyldning. Svar `S <n>` / `I` (ingen af dem). Kort for 1795: `P` (privat) / `B` (bevar). Manifest =
   kanonisk JSON pr. kort (person-id'er, førtilstand: ingen `samme_som` for 1939-ægtefællen, tvillingens
@@ -129,17 +134,17 @@ Noter, prober, kort og svar i `~/.private/6d3/` (0600). Stand-in: frisk restore 
 - Consumes: `model.canonicalIdById` (valgfri på `Model`, `packages/core/src/types.ts:178`; sat i
   `web/src/data/model.ts:159`) → `DetailPanel` sender `model.canonicalIdById ?? {}`.
 
-- [ ] **Trin 1: Fejlende tests (core):** `aegteskab_alias_modpart` (modpart = alias-id, `spouseId` = kanonisk → 1
+- [x] **Trin 1: Fejlende tests (core):** `aegteskab_alias_modpart` (modpart = alias-id, `spouseId` = kanonisk → 1
   kilde); `aegteskab_alias_to_familier` (to familier, én pr. udgave, samme kanoniske ægtefælle → begge kilder under
   den ene ægtefælle); `aegteskab_anden_families_modpart` (kanonisk match, men familien er ikke parrets → 0);
   `foraelder_alias` (modpart alias for `parentId` → 1); `boern_alias` (modpart alias for fokuspersonen → 1);
   `ukendt_modpart` (id ikke i `canon` → sammenlignes uændret, ingen fejl).
-- [ ] **Trin 2: Kør** `env -u NODE_OPTIONS npm run test -w @daa/core` → FAIL (funktionerne findes ikke).
-- [ ] **Trin 3: Implementér** de tre funktioner; `DetailPanel` kalder dem med `model.canonicalIdById` (adfærd
+- [x] **Trin 2: Kør** `env -u NODE_OPTIONS npm run test -w @daa/core` → FAIL (funktionerne findes ikke).
+- [x] **Trin 3: Implementér** de tre funktioner; `DetailPanel` kalder dem med `model.canonicalIdById` (adfærd
   uændret for ikke-sammenfoldede personer).
-- [ ] **Trin 4: Web-test:** `DetailPanel.familieKilder.test.tsx` får et tilfælde med alias-modpart, der vises. Kør
+- [x] **Trin 4: Web-test:** `DetailPanel.familieKilder.test.tsx` får et tilfælde med alias-modpart, der vises. Kør
   core- og web-suiterne → PASS; `tsc --noEmit` for web.
-- [ ] **Trin 5: Commit** `feat(web): familiekilder slår modparten op kanonisk (6d-3 spor L)`.
+- [x] **Trin 5: Commit** `feat(web): familiekilder slår modparten op kanonisk (6d-3 spor L)`.
 
 ### Task 2: Relationsprofiler som data
 
