@@ -257,7 +257,7 @@ projektejeren sagde ja til dommen 11/11.
 |---|---|---|
 | 1 (P0) fremmed skrivning optages i kæden | rettet | tabelsæt pr. skridt (se vinduesvagten); `T6D3_FREMMED_SKRIVNING` |
 | 2 (P0) hul mellem fortrydelsens kontrol og restore | forbedret + kendt begrænsning | vagten igen lige før markør og restore; restsekunderne dækkes kun af frysen |
-| 3 (P0) `rollback-preflight.sql` ubundet af GO | rettet | i `GO_PRIVATE_FILES`; den eneste kørte fil uden binding (alle `-f`-/`lines_sql`-stier gennemgået) |
+| 3 (P0) `rollback-preflight.sql` ubundet af GO | rettet | i `GO_PRIVATE_FILES` (står i GO-hashlisten, `bcd9e123…`). Repo-filer (også `\ir`-includes og Python-imports som `decision_sheet_core.py`) er bundet af GO'ens commit + ren checkout. Private filer: `lib.zsh`-funktionerne, runneren når, er fulgt transitivt; de øvrige private SQL-filer (`kanonisk-dele.sql`, `koe-detaljer.sql`, `expected-new-relations.txt`) nås ikke. `$RT/$NAME` er dump-rundturen (data) |
 | 4 (P1) fælles runner sender ikke `profile_file` | udskudt | fail-closed, rører ikke 6d-3; backlog i `decisions.md` 2026-11-11 |
 | 5 (P1) målefejl lige efter DDL-commit | kendt begrænsning | stoppunkt ovenfor; DDL'en kan stå uden skade |
 | 6 (P2) budget pr. kilde skjuler samlet tid | afvist | læseren kalder pr. familie; se tidsbudgettet |
@@ -277,6 +277,14 @@ Runneren er nu `608af06a…` (før `2b9de946…`, backup `36-trin6d3.sh.foer-cod
   mod 20).
   - Fortryd-data fra fuld R: vagten to gange (`mod=r-bind:ok`), restore-hash `5ed3f37a…`, `maal` = `ddl`.
   - Fortryd-DDL bagefter: katalogdiffen præcis tabellen og de 4 funktioner, restore-hash `b23c1de6…`, `maal` = `foer`.
+  - Fejlvejen med de nye sæt (rådgiverens krav: kun `ok` var prøvet): `dump` → DDL → `dump` → D → O → `apply-r` med
+    `DAA_T6D3_TEST_FAULT=efter_autorisation`. Fejl-aftrykket afviger fra O's (writer-profil + autorisation) og kom i
+    kæden (`n=3 skridt=r-persona status=fejl`) uden falsk alarm; fortryd OK (vagten to gange, `5ed3f37a…`). `g6`
+    står i fase `ddl`.
+- Ikke prøvet: `T6D3_VINDUE_BRUDT_SIDST` (en skrivning under fortrydelsens egne kontroller) har ingen negativtest. Vejen
+  ud af `T6D3_FREMMED_SKRIVNING` (fortryd i hånden og genskab rækken) er ikke øvet; `g5` står i netop den tilstand.
+- Læserskrivninger i appen: kun bogmærker (bevidst klik, web og mobil); ingen skrivning ved login eller åbning, ingen
+  trigger på `auth.users`. Frysbeskeden skal derfor nævne bogmærker og tilmeldinger.
 
 ## Udestår før prod
 
