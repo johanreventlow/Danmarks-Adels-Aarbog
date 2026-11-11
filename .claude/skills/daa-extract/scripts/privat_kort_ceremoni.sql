@@ -126,6 +126,9 @@ BEGIN
     END IF;
     IF r.svar='P' THEN UPDATE t6d3_kort SET objekt=(r.k->>'person_id')::bigint WHERE ord=r.ord; END IF;
   END LOOP;
+  -- Codex T7 fund 1: familiemedlemskabet fryses til COMMIT (SHARE blokerer andres INSERT/UPDATE/DELETE, også
+  -- red_slet_familie_link, der ikke tager person- eller familielåse); ceremonien varer sekunder under meldt frys.
+  LOCK TABLE public.family_member IN SHARE MODE;
   -- Lås personerne (den skjulte og O-kortenes) og familierne; efterprøv kvitteringen igen under låsen.
   PERFORM 1 FROM public.person WHERE id=v_skjul
        OR id IN (SELECT (k->>'person_id')::bigint FROM t6d3_kort WHERE handling='privat') ORDER BY id FOR UPDATE;
@@ -140,6 +143,16 @@ BEGIN
   IF EXISTS (SELECT 1 FROM unnest(v_fids) f WHERE NOT EXISTS (SELECT 1 FROM public.family_member fm
                WHERE fm.family_id=f AND fm.person_id=v_skjul AND fm.rolle='partner')) THEN
     v_fejl:=v_fejl||'familier (skjul_person er ikke partner)'::text;
+  END IF;
+  -- Codex T7 fund 2: familielisten skal være præcis alle familier (enhver rolle) for de personer, der skjules —
+  -- den obligatoriske og O-kortenes P-personer; en ekstra eller manglende familie stopper før første mutation.
+  IF EXISTS (SELECT f FROM unnest(v_fids) f
+             EXCEPT SELECT fm.family_id FROM public.family_member fm
+              WHERE fm.person_id=v_skjul OR fm.person_id IN (SELECT objekt FROM t6d3_kort WHERE handling='privat' AND objekt IS NOT NULL))
+     OR EXISTS (SELECT fm.family_id FROM public.family_member fm
+              WHERE fm.person_id=v_skjul OR fm.person_id IN (SELECT objekt FROM t6d3_kort WHERE handling='privat' AND objekt IS NOT NULL)
+             EXCEPT SELECT f FROM unnest(v_fids) f) THEN
+    v_fejl:=v_fejl||'familier (mængden svarer ikke til de skjultes familier)'::text;
   END IF;
   v_md5:=pg_temp.t6d3_familie_md5(v_fids);
   IF v_md5<>current_setting('t6d3.familie_md5') THEN v_fejl:=v_fejl||format('familier (beregnet %s)',v_md5); END IF;

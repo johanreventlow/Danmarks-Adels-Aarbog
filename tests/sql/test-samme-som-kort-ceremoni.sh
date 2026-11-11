@@ -90,14 +90,14 @@ d() {
   local mf=${MF:-$tmp/m.json} sv=${SV:-$tmp/go.json}
   env -u PGOPTIONS psql -X -At -v ON_ERROR_STOP=1 -d "$1" -v actor=$ACTOR \
     -v manifest_path="$mf" -v manifest_sha="${MSHA:-$(sha "$mf")}" -v svar_path="$sv" -v svar_sha="${SSHA:-$(sha "$sv")}" \
-    -f $S/samme_som_kort_ceremoni.sql > "$tmp/$2.out" 2>&1
+    ${LT:+-c "SET lock_timeout='$LT'"} -f $S/samme_som_kort_ceremoni.sql > "$tmp/$2.out" 2>&1
 }
 o() {
   local mf=${MF:-$tmp/m.json} sv=${SV:-$tmp/go.json}
   env -u PGOPTIONS psql -X -At -v ON_ERROR_STOP=1 -d "$1" -v actor=$ACTOR \
     -v manifest_path="$mf" -v manifest_sha="${MSHA:-$(sha "$mf")}" -v svar_path="$sv" -v svar_sha="${SSHA:-$(sha "$sv")}" \
     -v skjul_person=-630160 -v familier="${FAM:-$FAMILIER}" -v familie_md5="${FMD5X:-$FMD5}" \
-    -f $S/privat_kort_ceremoni.sql > "$tmp/$2.out" 2>&1
+    ${LT:+-c "SET lock_timeout='$LT'"} -f $S/privat_kort_ceremoni.sql > "$tmp/$2.out" 2>&1
 }
 kode() { grep -o 'T6D3_[A-Z_0-9]*' "$tmp/$1.out" | head -1; }
 state() { v "$1" "SELECT (SELECT count(*) FROM public.relation WHERE rolle='samme_som')||'/'||(SELECT count(*) FROM public.change_set)||'/'||
@@ -108,7 +108,7 @@ nej() {  # nej <d|o> <base> <mærke> <kode>: afvist med koden, intet skrevet
   grep -q "$c" "$tmp/$t.out" || fail "$t: forventede $c, fik $(kode "$t") $(grep -m1 ERROR "$tmp/$t.out" || true)"
   [ "$(state "$b")" = "$s0" ] || fail "$t: afvisningen skrev"
 }
-for c in go alias tekst tvilling; do createdb -T "$db" "${db}_$c"; done
+for c in go alias tekst tvilling laas; do createdb -T "$db" "${db}_$c"; done
 S0=$(state "$db")
 
 # ---- Negative scenarier på basen ----
@@ -163,9 +163,30 @@ REL=$(sed -n 's/.* relation=\([0-9]*\) .*/\1/p' "$tmp/go.out"); CS=$(sed -n 's/.
   || fail "go: kvitteringen har hændelser"
 nej d "${db}_go" go-igen T6D3_PRE_FASE
 
+# ---- Codex T7 fund 1: en samtidig skrivelås på family_member får ceremonien til at vente (her: lock_timeout) ----
+laas() {  # laas <d|o> <base> <mærke>: en anden session holder ROW EXCLUSIVE på family_member; ceremonien må ikke skrive
+  local fn=$1 b=$2 t=$3 s0; s0=$(state "$b")
+  env -u PGOPTIONS psql -X -q -d "$b" -c "BEGIN; LOCK TABLE public.family_member IN ROW EXCLUSIVE MODE; SELECT pg_sleep(6); ROLLBACK;" >/dev/null 2>&1 &
+  local bg=$!; sleep 1
+  if LT=2s $fn "$b" "$t"; then wait $bg; fail "$t: skrev trods samtidig skrivelås"; fi
+  wait $bg
+  grep -q 'lock timeout' "$tmp/$t.out" || fail "$t: forventede lock timeout, fik $(grep -m1 ERROR "$tmp/$t.out" || true)"
+  [ "$(state "$b")" = "$s0" ] || fail "$t: skrev"
+}
+laas d "${db}_laas" d-laas
+
 # ---- O: skjult person og O1 (P) sat privat; familierne skjult; genkørsel stoppes ----
 FMD5X=$(printf '0%.0s' {1..32}) nej o "${db}_go" o-familie-md5 T6D3_PRE_MANIFEST
 grep -q "familier (beregnet $FMD5)" "$tmp/o-familie-md5.out" || fail "o-familie-md5: årsag"
+# Codex T7 fund 2: familielisten skal være præcis de skjultes familier (manglende eller ekstra familie stoppes).
+FAM=-6321 FMD5X=$(FAMILIER=-6321 famd5 "${db}_go") nej o "${db}_go" o-familie-mangler T6D3_PRE_MANIFEST
+grep -q 'mængden svarer ikke' "$tmp/o-familie-mangler.out" || fail "o-familie-mangler: årsag"
+createdb -T "${db}_go" "${db}_oekstra"
+v "${db}_oekstra" "INSERT INTO public.family_member(family_id,person_id,rolle) VALUES (-6301,-630160,'barn')" >/dev/null
+nej o "${db}_oekstra" o-familie-ekstra T6D3_PRE_MANIFEST
+grep -q 'mængden svarer ikke' "$tmp/o-familie-ekstra.out" || fail "o-familie-ekstra: årsag"
+createdb -T "${db}_go" "${db}_olaas"
+laas o "${db}_olaas" o-laas
 o "${db}_go" o || fail "o: $(kode o) $(grep -m1 ERROR "$tmp/o.out" || true)"
 [ "$(cat "$tmp/o.out")" = 'T6D3_O_OK privat=2' ] || fail "o: uddata $(cat "$tmp/o.out")"
 [ "$(v "${db}_go" "SELECT string_agg(id::text,',' ORDER BY id) FROM public.person WHERE privat")" = "-630160,-630150" ] || fail "o: privat"

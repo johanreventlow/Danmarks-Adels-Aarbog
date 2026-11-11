@@ -143,6 +143,9 @@ BEGIN
   END LOOP;
   -- Lås: samme_som-mutationer serialiseres (re-entrant med red_samme_som's egen); kvitteringen efterprøves igen.
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  -- Codex T7 fund 1: tvillingemængden afhænger af family_member; medlemskabet fryses til COMMIT (SHARE blokerer
+  -- andres skrivning, også red_slet_familie_link uden person-/familielås). Ceremonien varer sekunder under frys.
+  LOCK TABLE public.family_member IN SHARE MODE;
   IF EXISTS (SELECT 1 FROM public.change_set WHERE operation='samme_som_kort_ceremoni' AND summary LIKE 'T6D3\_D\_OK %'
               AND subjekt_type='source' AND subjekt_id=v_src) THEN
     RAISE EXCEPTION 'T6D3_PRE_FASE';
