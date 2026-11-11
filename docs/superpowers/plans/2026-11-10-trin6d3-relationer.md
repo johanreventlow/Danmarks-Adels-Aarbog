@@ -404,8 +404,10 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
     stand-in, uændret pr. kilde); tre familier med en ny 1939-kilde er lagt til de tunge.
   - `db-verify.sql` køres ikke mod prod-kopier (kræver dblink og skriver testdata); fortrydelsens bevis er runnerens
     lighedstjek mod dumpet.
+  - Rådgiverens review samme dag: fejlgrenene (O-før-fejl, R-skridtfejl) prøvet på `g4`; budgetfamilierne rettet til
+    1939-familier, der faktisk får en kilde; katalogaftryk i DDL-fejlgrenen.
   Trin 3 udestår i sin endelige form: slut-generalprøven på en frisk `dump-kopi` (prod-læsning i projektejerens
-  shell).
+  shell), efter Codex på runneren.
 
 ### Task 9: Review, prod og færdigbevis
 

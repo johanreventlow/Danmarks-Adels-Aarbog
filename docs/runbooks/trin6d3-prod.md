@@ -63,8 +63,10 @@ og O også. D, O og R kan køres igen på samme ddl-dump, fordi alt er determini
 
 - **Meldt frys i prod fra `apply-d` til `verify` er færdig** (≈5-10 min). Ingen bogmærker, ingen redigeringer, heller
   ikke projektejerens egne. En fremmed skrivning stopper næste skridt og også fortrydelsen.
-- **Slut-generalprøve på en frisk `dump-kopi` samme dag som prod**, kørt umiddelbart før `go-data` med samme commit og
-  pakke.
+- **Slut-generalprøve på en frisk `dump-kopi` samme dag som prod** (trin 3b), med samme commit og pakke som prod. Den
+  tages i fase `foer`, før `go-ddl`, så hele rækkefølgen (også DDL'en og `anon`-basis) øves på den. Drift mellem
+  kopien og data-ceremonien fanges af runnerens førtjek: D/O's manifestkontrol, R's byte-sammenligning af input
+  (`T6D3_R_DRIFT`) og replay-skridtenes items. Alle stopper før skridtets skrivning.
 
 ## Rækkefølge
 
@@ -74,12 +76,12 @@ og O også. D, O og R kan køres igen på samme ddl-dump, fordi alt er determini
 | 1 | `maal` | `T6D3_MAAL fase=foer ddl=f forslag_k3=271/6/4 bundne_k3=0 samme_som=720 dobbelt=42 privat_1791=0 uden_position=59 K1_ORD=1857a95c… K1_BIND=9e0db348…` |
 | 2 | `anon` | `T6D3_ANON_BASIS …` (basis gemt privat; `bio_alle` er over 3 s allerede før 6d-3, kendt backlog) |
 | 3 | `dump` | `DUMP_6D3_OK tilstand=foer`, `EKSTERN_6D3_OK … rundtur=ok`, `DUMP_6D3_MAAL_OK … vindue_linjer=136` |
+| 3b | slut-generalprøve: `dump-kopi` → `standin <kvittering> <suffiks>` → trin 1-4 og 6-8, 11-14 på stand-in'en (`DAA_STANDIN_DB`, `DAA_ENV_FILE`) fra en checkout af den mergede commit | alle linjer som her; ingen `T6D3_FASTLAAS`; stop ved enhver afvigelse |
 | 4 | `go-ddl` → projektejeren `apply-ddl --jeg-mener-det --go <kode>` | `T6D3_VINDUE_OK mod=dump`, `T6D3_EFTER_DDL_GEMT …`, `T6D3_APPLY_DDL_OK tilstand=ddl blok=bf3e402b06f11ff2 seed=4:f87b9679…` |
 | 5 | advisors (`get_advisors` security + performance, læse-kun) | ingen nye fund ud over de kendte |
 | 6 | `maal` | `fase=ddl ddl=t … uden_position=10`, K1 og FAMKILDER som trin 1 |
 | 7 | `anon` | `T6D3_ANON_BUDGET fase=ddl … OK` |
 | 8 | `dump` | `DUMP_6D3_OK tilstand=ddl … vindue_linjer=137` (fortrydelsens grundlag) |
-| 9 | slut-generalprøve: `dump-kopi` → `standin` → trin 1-8 og 11-14 på stand-in'en | alle linjer som her; ingen `T6D3_FASTLAAS` |
 | 10 | **frys meldt** | |
 | 11 | `go-data` → projektejeren `apply-d --jeg-mener-det --go <kode>` | `T6D3_KAEDE n=1 skridt=d status=ok`, `T6D3_D_OK links=42 ingen=0`, `T6D3_APPLY_D_OK fase=d tal=271/6/4,0,762,0,0,10` |
 | 12 | `apply-o …` (samme kode) | `T6D3_VINDUE_OK mod=d:ok`, `T6D3_KAEDE n=2 skridt=o status=ok`, `T6D3_O_OK privat=2`, `T6D3_APPLY_O_OK fase=o tal=271/6/4,0,762,0,1,10` |
@@ -107,8 +109,8 @@ og O også. D, O og R kan køres igen på samme ddl-dump, fordi alt er determini
 
 - biografilæseren med alle personer;
 - `public_person_facts` for 199/529/289;
-- `public_family_sources` for 309/298/364 og for 13/44/91. De tre sidste er familier, der efter R har både en
-  2018-20- og en 1939-kilde.
+- `public_family_sources` for 309/298/364 (6d-2a's tunge, 2018-20) og for 386/390/392. Alle 69 nye kilder lander
+  i hver sin 1939-familie (0 → 1 kilde, målt før-base mod `g2`); de tre er nogle af dem.
 
 Kaldet over alle offentlige familier (`famsrc_alle`) vokser med antallet af kilder: R tilføjer 69, så 259 bliver
 til 328 kilder og tiden går fra 1100 til 1400 ms på stand-in. Det sammenlignes derfor som µs pr. returneret kilde
@@ -212,11 +214,31 @@ worktree af commit `3eab65d1` som `DAA_STANDIN_REPO`.
   - De 42 D-kort (41 hovedpersoner, én med to kort) mister hver præcis den dobbelte ægtefælle.
   - Gabel/Hahn (815/816) går fra 2 til 1 ægtemand, og 1791 er usynlig for anon.
   - Læsergaten passer: kilderne stiger med præcis 69 (259 → 328).
+- `g4` (`daa5ab_ddl_standin_20261111163901_g4`), runnerens fejlgrene (efter rådgiverens review). Først sattes
+  budgetfamilierne til 386/390/392, og fejlgrenen `DDL_6D3_FEJL_EFTER_COMMIT` gemmer nu også katalogaftrykket.
+  - **O-før-fejl:** 1795 sat privat før ddl-dumpet. D gik igennem, og O stoppede med
+    `T6D3_PRE_MANIFEST kort O1 (privat)` uden at skrive (kæden fik `o fejl`).
+  - **Genkørsler afvist:** `apply-o` → `T6D3_O_KAEDE`; `apply-r` → `T6D3_R_FASE`.
+  - **Fortryd:** OK fra præfikset `d ok, o fejl`.
+  - **R-skridtfejl:** `fault=before_commit` på `decide` (`DAA_T6D3_TEST_STEP_FAULT=decide`) gav
+    `T6D3_R_FEJL (decide: STEP_FAULT)`. Aftrykket var lig korroborationens (rullet tilbage), og fortryd gik OK.
+  - **Ren vej:** D → O → R → `verify` OK.
+    - Tidsbudget: 2018-20-kaldene og `famsrc_alle` pr. kilde er uændrede (4214/4323 µs).
+    - De tre 1939-familier gik fra 10 til 14-17 ms, inden for støjgulvet (+20 ms).
+    - Fejlteksten ved en ceremonifejl skelner nu mellem fase `ddl` (intet committet: dump igen) og senere (fortryd).
 
 ## Udestår før prod
 
 1. Prod-læsetrin `dump-kopi` (projektejerens shell; auto-mode-klassifikatoren afviser den som [Production Reads]) og
-   slut-generalprøve på den (trin 9). Afviger prods `maal` fra `foer`-linjen, er prod ændret siden 10/11, og pakken
+   slut-generalprøve på den (trin 3b). Afviger prods `maal` fra `foer`-linjen, er prod ændret siden 10/11, og pakken
    skal måles igen.
-2. Codex-review af hele grenens diff og af runneren (Task 9 trin 1).
+2. Codex-review af hele grenens diff og af runneren (Task 9 trin 1), **før** slut-generalprøven: i 6d-2a ændrede
+   reviewet runneren og gjorde generalprøven ugyldig.
 3. Push, draft-PR, CI, merge, Vercel (Task 9 trin 2).
+4. **Hovedcheckouten skal være ren**: `go-*` stopper med `REPO_DIRTY` ved usporede filer. I repo-roden ligger 23
+   usporede CI-uddatafiler (`parity-*.txt`, `reimport*.out/json`, 622 KB). De skal flyttes (karantæne, målt først)
+   efter projektejerens ja.
+5. **Budgettet for 1939-familierne** (386/390/392): de går fra 0 til 1 kilde og fra 10 til 14-17 ms på stand-in.
+   Prods familiekald er målt til ≈5 × stand-in, så +35-40 ms i prod vil overskride max(basis × 1,10; basis + 20 ms).
+   `verify` vil da melde `T6D3_ANON_BUDGET_BRUDT`, efter at data er committet. Projektejeren beslutter før prod, om
+   de tre kald skal være informative (kaldet laver mere arbejde, fordi der nu er en kilde) eller bindende.
