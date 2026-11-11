@@ -11,7 +11,8 @@
 identiteter) er i prod 2026-11-02; 6c-2 (kontrol, rettelse, binding og vej B for 1939) 2026-11-06; 6m (1939 holdt op
 mod bogen) 2026-11-07; 6c-3 (resten af A6b for 2018-20) 2026-11-08; 6d-1 (1939's placements og medlemskaber)
 2026-11-09; 6d-2a (oversigtsreglen og 1939's sidste identitetssager) 2026-11-10; 6d-2b (indsnævret: fire forkert
-tilskrevne tekster trukket tilbage, decisions 2026-11-10) 2026-11-10. Næste er 6d-3 (relationer). Status, modenhed pr. led og gates: [status.md](status.md). Sektionen her og status' »Aktivt programmål« skal
+tilskrevne tekster trukket tilbage, decisions 2026-11-10) 2026-11-10; 6d-3 (1939's relationer, dobbelt ægtefælle,
+1791 skjult) 2026-11-11. Næste er 6e. Status, modenhed pr. led og gates: [status.md](status.md). Sektionen her og status' »Aktivt programmål« skal
 sige det samme.
 
 ## Styrende rækkefølge
