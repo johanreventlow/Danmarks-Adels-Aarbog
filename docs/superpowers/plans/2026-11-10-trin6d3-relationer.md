@@ -176,13 +176,13 @@ Noter, prober, kort og svar i `~/.private/6d3/` (0600). Stand-in: frisk restore 
 - Profilfil (JSON): `{"profile_id","profile_version","relation_profile","writer_config":{…,"citation_label_template":…}}`;
   2018-20-filen gengiver de nuværende literaler byte-ens (`"DAA 2018-20 s. {page_from}"`, `pdf_text_layer`).
 
-- [ ] **Trin 1: Fejlende tests** (`test-relation-persona-profile.sql`): `$profil_ukendt$` → `RELATION_PERSONA_PROFILE_INVALID`;
+- [x] **Trin 1: Fejlende tests** (`test-relation-persona-profile.sql`): `$profil_ukendt$` → `RELATION_PERSONA_PROFILE_INVALID`;
   `$profil_forkert_kilde$` (1939-profil på kilde 1-batch) → afvist; `$praedikat_uden_form$` (`relation.child` på
   1939-profil) → afvist; `$parent_v1_form_1939$` (forælder med v1-payload på 1939-profil) → skrevet.
-- [ ] **Trin 2: Kør** → FAIL. **Trin 3: Implementér** tabel, seeds og writerens opslag; scripts læser profilfilen.
-- [ ] **Trin 4: Kør** de nye og de eksisterende writer-tests (v1/v2/v3/reuse) → PASS; testenes asserts er uændrede,
+- [x] **Trin 2: Kør** → FAIL. **Trin 3: Implementér** tabel, seeds og writerens opslag; scripts læser profilfilen.
+- [x] **Trin 4: Kør** de nye og de eksisterende writer-tests (v1/v2/v3/reuse) → PASS; testenes asserts er uændrede,
   kun hjælperens profilrække er ny. `run-db-verify-disposable.sql` → PASS med den nye profil-assert.
-- [ ] **Trin 5: Commit** `feat(db): relationsprofiler som data (6d-3)`.
+- [x] **Trin 5: Commit** `feat(db): relationsprofiler som data (6d-3)`.
 
 ### Task 3: Tekstfoldning i ordvindue og ægteskabsnummer
 
@@ -203,16 +203,25 @@ Noter, prober, kort og svar i `~/.private/6d3/` (0600). Stand-in: frisk restore 
   kopier) kalder 3-arg med `relation_text_form(kilden)`.
 - Fixture-format: `[{"id","text","raw","text_form","w_from","w_to"}]`; Python-tvillingen (Task 4) asserter de samme.
 
-- [ ] **Trin 1: Fejlende tests:** `$fold_linjeskift$`, `$fold_orddeling$`, `$fold_sidemarkoer$` (fixture-tilfælde
+- [x] **Trin 1: Fejlende tests:** `$fold_linjeskift$`, `$fold_orddeling$`, `$fold_sidemarkoer$` (fixture-tilfælde
   giver præcis ét vindue med originalens positioner); `$fold_ordinal_blandet$` (opdigtet post med 3 ægteskaber, det
   første over en orddeling → numrene 1, 2, 3 i tekstrækkefølge); `$kilde1_uaendret$` (`folded` giver samme vinduer
   som før for de eksisterende v2-testtilfælde); `$to_arg_indpakning$` (2-arg = 3-arg med `'folded'`; præcis to
   overloads i `pg_proc`).
-- [ ] **Trin 2: Kør** → FAIL. **Trin 3: Implementér.** **Trin 4: Kør** + `test-relation-persona-v2.sql`, `-v3.sql`,
+- [x] **Trin 2: Kør** → FAIL. **Trin 3: Implementér.** **Trin 4: Kør** + `test-relation-persona-v2.sql`, `-v3.sql`,
   `test-marriage-ordinal-correction.sql`, `test-relation-family-context.sql` → PASS.
-- [ ] **Trin 5:** På stand-in'en (lokal kopi): 1939's ægteskaber uden position 59 → tal; kilde 1's
+- [x] **Trin 5:** På stand-in'en (lokal kopi): 1939's ægteskaber uden position 59 → tal; kilde 1's
   `relation_marriage_ordinals` md5 uændret. Noter tallene.
-- [ ] **Trin 6: Commit** `feat(db): tekstfoldning i relationernes ordvindue og ægteskabsnummer (6d-3)`.
+  **Målt 2026-11-11** (kopi af stand-in'en `…_6d3a` + DDL): 1939's ægteskaber uden position **59 → 10**; kilde 1
+  uændret (ægteskabsnumre 248 rækker `daa14961…`, bindingstilstand 281 `d46cd448…`, familiekilder 259 `aab432fb…`).
+  Codex-runde på Task 3 (NO-GO, 1 MAJOR + 1 MINOR, begge rettet): navne fra raw-kilder sammenlignes foldet
+  (`relation_name_compare_text` i kandidatinput, genbrugstjek og kvitteringskontrol; mentionen gemmes ordret);
+  paritetslisten 55 → 61. Konsekvens målt: kandidatinputtet for kilde 3 ændres for 178 af 563 eksisterende personas
+  (kun `name`, alle `name_origin=mention`); kilde 1 uændret. Den gemte kilde 3-kørsel `8d2ab8a4…` (2026-11-02) kan
+  derfor ikke genverificeres efter DDL'en; det sker kun ved finalize af en ny publiceringsidentitetsbatch, ingen batch
+  er åben, og Task 6 trin 2 laver en ny kørsel, der afløser den. Ingen ny publiceringsidentitet på den gamle kørsel
+  mellem DDL- og dataceremonien.
+- [x] **Trin 6: Commit** `feat(db): tekstfoldning i relationernes ordvindue og ægteskabsnummer (6d-3)`.
 
 ### Task 4: Udtrækket læser profilen
 

@@ -34572,9 +34572,11 @@ BEGIN
       RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_SPAN_INVALID';
     END IF;
   ELSE
-    -- v2/v3 (2b-ii errata §15.1, runde 2 §17.7): det eneste minimale ordnede ordvindue.
-    IF (SELECT count(*) FROM private.relation_ordered_windows(v_clause.verbatim_text,v_raw))<>1
-       OR NOT EXISTS (SELECT 1 FROM private.relation_ordered_windows(v_clause.verbatim_text,v_raw) w
+    -- v2/v3 (2b-ii errata §15.1, runde 2 §17.7): det eneste minimale ordnede ordvindue, i kildens tekstform (6d-3).
+    IF (SELECT count(*) FROM private.relation_ordered_windows(v_clause.verbatim_text,v_raw,
+                                                              private.relation_text_form(v_batch.source_id)))<>1
+       OR NOT EXISTS (SELECT 1 FROM private.relation_ordered_windows(v_clause.verbatim_text,v_raw,
+                                                                     private.relation_text_form(v_batch.source_id)) w
                        WHERE w.w_from=v_from AND w.w_to=v_to) THEN
       RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_PERSONA_SPAN_INVALID';
     END IF;
@@ -34647,8 +34649,10 @@ BEGIN
                      JOIN private.source_observation o ON o.id=sm.observation_id
                     WHERE spm.persona_id=pc.source_persona_id AND spm.mention_role='spouse'
                       AND o.occurrence_id=v_clause.occurrence_id
-                      AND private.saml_blanktegn_v1(sm.verbatim_text)
-                          =private.saml_blanktegn_v1(substr(v_clause.verbatim_text,v_name_from+1,v_name_to-v_name_from)))
+                      -- 6d-3: på en raw-kilde sammenlignes den foldede form (begge sider), så en fjernet orddeling genbruger.
+                      AND private.saml_blanktegn_v1(private.relation_name_compare_text(v_batch.source_id,sm.verbatim_text))
+                          =private.saml_blanktegn_v1(private.relation_name_compare_text(v_batch.source_id,
+                             substr(v_clause.verbatim_text,v_name_from+1,v_name_to-v_name_from))))
        AND NOT EXISTS (SELECT 1 FROM private.interpretation_party_current lp
                          JOIN private.interpretation_current lc ON lc.interpretation_key=lp.interpretation_key
                         WHERE lp.party_role='spouse' AND lp.source_persona_id=pc.source_persona_id
@@ -34735,3 +34739,331 @@ BEGIN
   RETURN jsonb_build_object('result_receipt_sha256',v_hash,'spouse_source_persona_id',v_spouse);
 END $$;
 REVOKE ALL ON FUNCTION private.write_relation_persona(uuid,text,jsonb) FROM PUBLIC,anon,authenticated;
+
+-- Trin 6d-3 (spec §2.2, §5.1.1): tekstfoldning. Ordvinduet får tekstformen som parameter ('folded' = den uændrede regel;
+-- 'raw' = sammenligning på en foldet projektion med tilbageføring til originalens positioner). Den 2-arg-funktion bliver
+-- en tynd indpakning med 'folded' (ingen default, så præcis to overloads også i en opgraderet base). Kildens tekstform
+-- slås op i relation_persona_profile; ægteskabsnummeret og writerens spændtjek (ovenfor) bruger den. Kroppene er
+-- byte-ens med schema.sql. Funktionen plpgsql→sql for 2-arg er en CREATE OR REPLACE (samme signatur og returtype).
+-- Foldningen af rå tekst; origin[k] er originalens 0-baserede position for det foldede tegn k (1-baseret array).
+-- Et skift er et løb af mellemrum/tabulator, linjeskift (LF, CR, CRLF) og sidemarkørlinjer (»### PAGE <cifre> ###« alene
+-- på sin linje, evt. indrykket), som rummer mindst ét linjeskift eller én sidemarkør. Mellemrum uden skift bevares.
+-- Et skift efter »-« fjernes: står et bogstav før bindestregen og et lille bogstav efter skiftet, er det en orddeling,
+-- og bindestregen fjernes også (»Bran-\ndenburg« → »Brandenburg«); ellers er bindestregen ægte og bevares
+-- (»Holm-\nKrage« → »Holm-Krage«, »1735-\n50« → »1735-50«). Ethvert andet skift bliver ét mellemrum.
+CREATE OR REPLACE FUNCTION private.relation_fold_raw_text(p_text text,OUT folded text,OUT origin integer[])
+RETURNS record LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+DECLARE c text[]:=string_to_array(p_text,NULL); n int:=coalesce(cardinality(c),0);
+  o text[]:='{}'; i int:=1; j int; k int; m int; brk boolean; ls boolean:=true; l boolean; mk text[];
+BEGIN
+  origin:='{}';
+  WHILE i<=n LOOP
+    j:=i; brk:=false; l:=ls;
+    LOOP
+      EXIT WHEN j>n;
+      IF c[j]=chr(10) OR c[j]=chr(13) THEN brk:=true; l:=true; j:=j+1;
+      ELSIF c[j]=' ' OR c[j]=chr(9) THEN j:=j+1;
+      ELSIF l AND c[j]='#' THEN
+        mk:=regexp_match(substr(p_text,j),'^(### PAGE [0-9]+ ###)[ '||chr(9)||']*(['||chr(10)||chr(13)||']|$)');
+        EXIT WHEN mk IS NULL;
+        brk:=true; l:=false; j:=j+char_length(mk[1]);
+      ELSE EXIT;
+      END IF;
+    END LOOP;
+    IF j=i THEN
+      o:=o||c[i]; origin:=origin||(i-1); ls:=false; i:=i+1;
+    ELSIF NOT brk THEN
+      FOR k IN i..j-1 LOOP o:=o||c[k]; origin:=origin||(k-1); END LOOP;
+      ls:=l; i:=j;
+    ELSE
+      m:=cardinality(o);
+      IF m>=1 AND o[m]='-' THEN
+        IF m>=2 AND o[m-1] ~ '^[A-Za-zÀ-ÖØ-öø-ÿ]$' AND j<=n AND c[j] ~ '^[a-zß-öø-ÿ]$' THEN
+          o:=o[1:m-1]; origin:=origin[1:m-1];
+        END IF;
+      ELSE
+        o:=o||' '::text; origin:=origin||(i-1);
+      END IF;
+      ls:=l; i:=j;
+    END IF;
+  END LOOP;
+  folded:=array_to_string(o,'');
+END $$;
+REVOKE ALL ON FUNCTION private.relation_fold_raw_text(text) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION private.relation_ordered_windows(p_text text,p_raw text,p_text_form text)
+RETURNS TABLE(w_from integer,w_to integer) LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+DECLARE tw text[]:='{}'; tf int[]:='{}'; tt int[]:='{}'; rw text[]; n int:=0; pos int; mlen int; i int; j int; k int;
+  ends int[]:='{}'; starts int[]:='{}'; v_text text:=p_text; v_raw text:=p_raw; v_origin int[];
+BEGIN
+  IF p_text_form='raw' THEN
+    SELECT f.folded,f.origin INTO v_text,v_origin FROM private.relation_fold_raw_text(p_text) f;
+    SELECT f.folded INTO v_raw FROM private.relation_fold_raw_text(p_raw) f;
+  ELSIF p_text_form<>'folded' THEN
+    RAISE EXCEPTION 'RELATION_TEXT_FORM_INVALID: %',p_text_form;
+  END IF;
+  LOOP
+    pos:=regexp_instr(v_text,'[0-9A-Za-zÀ-ÖØ-öø-ÿ]+',1,n+1);
+    EXIT WHEN pos=0;
+    mlen:=char_length((regexp_match(substr(v_text,pos),'^[0-9A-Za-zÀ-ÖØ-öø-ÿ]+'))[1]);
+    n:=n+1; tw:=tw||lower(substr(v_text,pos,mlen)); tf:=tf||(pos-1); tt:=tt||(pos-1+mlen);
+  END LOOP;
+  SELECT array_agg(lower(m[1])) INTO rw FROM regexp_matches(v_raw,'([0-9A-Za-zÀ-ÖØ-öø-ÿ]+)','g') m;
+  IF rw IS NULL OR n=0 THEN RETURN; END IF;
+  FOR i IN 1..n LOOP
+    CONTINUE WHEN tw[i]<>rw[1];
+    j:=i; k:=2;
+    WHILE k<=array_length(rw,1) LOOP
+      j:=j+1;
+      EXIT WHEN j>n;
+      IF tw[j]=rw[k] THEN k:=k+1; END IF;
+    END LOOP;
+    IF k>array_length(rw,1) THEN starts:=starts||i; ends:=ends||j; END IF;
+  END LOOP;
+  -- Minimale vinduer: for hver slutposition kun det med senest start.
+  IF v_origin IS NULL THEN
+    RETURN QUERY
+      SELECT tf[max(u.s)], tt[u.e] FROM unnest(starts,ends) AS u(s,e) GROUP BY u.e ORDER BY 1;
+  ELSE
+    RETURN QUERY
+      SELECT v_origin[tf[max(u.s)]+1], v_origin[tt[u.e]]+1 FROM unnest(starts,ends) AS u(s,e) GROUP BY u.e ORDER BY 1;
+  END IF;
+END $$;
+REVOKE ALL ON FUNCTION private.relation_ordered_windows(text,text,text) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION private.relation_ordered_windows(p_text text,p_raw text)
+RETURNS TABLE(w_from integer,w_to integer) LANGUAGE sql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+  SELECT w.w_from,w.w_to FROM private.relation_ordered_windows(p_text,p_raw,'folded') w
+$$;
+REVOKE ALL ON FUNCTION private.relation_ordered_windows(text,text) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Trin 6d-3 (spec §5.1.1): kildens tekstform. 'raw', når kilden har en raw-profil i relation_persona_profile, ellers
+-- 'folded'; aldrig NULL. Har en kilde både raw- og folded-rækker, vinder 'raw': raw-foldningen er identitet på tekst
+-- uden linjeskift og sidemarkører, mens 'folded' på rå tekst taber vinduer. plpgsql, så tabellen (oprettet længere nede
+-- ved writeren) ikke skal findes, når funktionen oprettes.
+CREATE OR REPLACE FUNCTION private.relation_text_form(p_source_id bigint)
+RETURNS text LANGUAGE plpgsql STABLE SET search_path=pg_catalog,private AS $$
+BEGIN
+  RETURN CASE WHEN EXISTS (SELECT 1 FROM private.relation_persona_profile pp
+                            WHERE pp.source_id=p_source_id AND pp.text_form='raw') THEN 'raw' ELSE 'folded' END;
+END $$;
+REVOKE ALL ON FUNCTION private.relation_text_form(bigint) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Ægteskabsnummeret i kildens tekstform (byte-ens med schema.sql).
+CREATE OR REPLACE FUNCTION private.relation_marriage_ordinals(p_occurrence uuid)
+RETURNS TABLE(interpretation_key uuid, marriage_ordinal integer, post_offset integer)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,private AS $$
+  WITH m AS (
+    SELECT ic.interpretation_key, ic.value->>'raw' AS raw,
+           co.post_char_from+(SELECT CASE WHEN count(*)=1 THEN min(w.w_from) END
+                                FROM private.relation_ordered_windows(co.verbatim_text,ic.value->>'raw',
+                                                                      private.relation_text_form(ic.source_id)) w) AS post_offset
+      FROM private.interpretation_current ic
+      JOIN private.interpretation_observation io ON io.interpretation_id=ic.id AND io.evidence_role='supporting' AND io.ordinal=1
+      JOIN private.clause_observation_current co ON co.id=io.observation_id
+     WHERE ic.predicate='relation.marriage' AND ic.status<>'rejected' AND co.occurrence_id=p_occurrence)
+  SELECT m.interpretation_key,
+         (row_number() OVER (ORDER BY m.post_offset NULLS LAST,char_length(m.raw),m.interpretation_key::text COLLATE "C"))::integer,
+         m.post_offset
+    FROM m;
+$$;
+REVOKE ALL ON FUNCTION private.relation_marriage_ordinals(uuid) FROM PUBLIC,anon,authenticated;
+
+-- Trin 6d-3 (Codex-fund på Task 3): sammenligningsformen for et navn fra en mention. Mentionen gemmes ordret (med
+-- originalens orddeling/sidemarkør og positioner); når navne sammenlignes eller sendes til kandidatmatcheren, bruges på en
+-- raw-kilde den foldede form (relation_fold_raw_text), ellers teksten uændret. Bruges symmetrisk på begge sider.
+CREATE OR REPLACE FUNCTION private.relation_name_compare_text(p_source_id bigint,p_text text)
+RETURNS text LANGUAGE plpgsql STABLE SET search_path=pg_catalog,private AS $$
+BEGIN
+  IF p_text IS NULL OR private.relation_text_form(p_source_id)<>'raw' THEN RETURN p_text; END IF;
+  RETURN (private.relation_fold_raw_text(p_text)).folded;
+END $$;
+REVOKE ALL ON FUNCTION private.relation_name_compare_text(bigint,text) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Kandidatinputtet sender et mention-navn på en raw-kilde foldet til matcheren (byte-ens med schema.sql).
+CREATE OR REPLACE FUNCTION private.identity_candidate_input(p_source_id bigint,p_input_spec jsonb)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private,extensions AS $$
+DECLARE v_mode text; v_ids uuid[]; v_personas jsonb; v_match jsonb; v_persons jsonb; v_year_fb boolean:=false; v_keys text[];
+BEGIN
+  IF jsonb_typeof(p_input_spec)<>'object' THEN RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID'; END IF;
+  v_mode:=p_input_spec->>'mode';
+  -- Trin 6b: year_fallback (eneste værdi date_raw-v1) er tilvalgt i begge tilstande; uden nøglen er inputtet som før.
+  IF p_input_spec ? 'year_fallback' THEN
+    IF jsonb_typeof(p_input_spec->'year_fallback')<>'string' OR p_input_spec->>'year_fallback'<>'date_raw-v1' THEN
+      RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID';
+    END IF;
+    v_year_fb:=true;
+  END IF;
+  SELECT array_agg(k ORDER BY k) INTO v_keys FROM jsonb_object_keys(p_input_spec) k WHERE k<>'year_fallback';
+  IF v_mode IS NULL OR v_mode NOT IN ('undecided','list')
+     OR (v_mode='undecided' AND v_keys<>ARRAY['mode'])
+     OR (v_mode='list' AND (v_keys<>ARRAY['mode','persona_ids']
+                            OR jsonb_typeof(p_input_spec->'persona_ids')<>'array'
+                            OR jsonb_array_length(p_input_spec->'persona_ids')=0)) THEN
+    RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID';
+  END IF;
+  IF v_mode='list' THEN
+    SELECT array_agg(DISTINCT e::uuid) INTO v_ids FROM jsonb_array_elements_text(p_input_spec->'persona_ids') e;
+    IF cardinality(v_ids)<>jsonb_array_length(p_input_spec->'persona_ids') THEN RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID'; END IF;
+  END IF;
+  -- Trin 5b: family_context kun når den findes, så 5a-personas har præcis samme form som før.
+  SELECT coalesce(jsonb_agg((to_jsonb(x)-'family_context')
+                            || CASE WHEN x.family_context IS NULL THEN '{}'::jsonb ELSE jsonb_build_object('family_context',x.family_context) END
+                            ORDER BY x.source_persona_id COLLATE "C"),'[]'::jsonb) INTO v_personas FROM (
+    SELECT p.id::text AS source_persona_id,
+           coalesce(nm.v, men.v) AS name,
+           CASE WHEN nm.v IS NOT NULL THEN nm.origin WHEN men.v IS NOT NULL THEN 'mention' END AS name_origin,
+           b.v AS birth_raw, b.origin AS birth_origin, d.v AS death_raw, d.origin AS death_origin,
+           fctx.fc AS family_context
+      FROM private.source_persona p
+      LEFT JOIN private.source_persona_identity i ON i.source_persona_id=p.id
+      LEFT JOIN LATERAL (SELECT private.persona_family_context(p.id) AS fc) fctx ON true
+      LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
+                          WHERE ic.source_persona_id=p.id AND ic.predicate='person.name' AND ic.status IN ('accepted','proposed')
+                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.interpretation_key LIMIT 1) nm ON true
+      -- 6d-3: et mention-navn på en raw-kilde sendes foldet til matcheren (orddeling/sidemarkør fjernet); ellers ordret.
+      LEFT JOIN LATERAL (SELECT private.relation_name_compare_text(p_source_id,sm.verbatim_text) v
+                           FROM private.source_persona_mention spm
+                          JOIN private.source_mention sm ON sm.id=spm.mention_id
+                          WHERE spm.persona_id=p.id AND sm.mention_kind='person' ORDER BY spm.ordinal LIMIT 1) men ON true
+      LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
+                          WHERE ic.source_persona_id=p.id AND ic.predicate='person.birth' AND ic.status IN ('accepted','proposed')
+                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.interpretation_key LIMIT 1) b ON true
+      LEFT JOIN LATERAL (SELECT ic.value #>> '{}' v, ic.status||'_interpretation' origin FROM private.interpretation_current ic
+                          WHERE ic.source_persona_id=p.id AND ic.predicate='person.death' AND ic.status IN ('accepted','proposed')
+                          ORDER BY (ic.status='accepted') DESC, ic.confidence DESC NULLS LAST, ic.interpretation_key LIMIT 1) d ON true
+     WHERE p.source_id=p_source_id
+       AND ((v_mode='undecided' AND (i.source_persona_id IS NULL OR i.decision_status='proposed'))
+         OR (v_mode='list' AND p.id=ANY(v_ids)))
+  ) x;
+  IF v_mode='list' AND jsonb_array_length(v_personas)<>cardinality(v_ids) THEN
+    RAISE EXCEPTION 'IDENTITY_CANDIDATE_INPUT_SPEC_INVALID';   -- id uden for kilden eller ukendt
+  END IF;
+  v_match:=public.red_match_personer();
+  IF v_year_fb THEN
+    -- Årstal fra date_raw som reserve, kun for påstande uden date_min/date_max og med præcis ét forskelligt årstal.
+    SELECT jsonb_set(v_match,'{assertions}',coalesce((SELECT jsonb_agg(
+             CASE WHEN fb.yr IS NULL THEN e
+                  ELSE e || jsonb_build_object('date_min',fb.yr||'-01-01','date_max',fb.yr||'-12-31','date_origin','date_raw') END)
+             FROM jsonb_array_elements(v_match->'assertions') e
+             LEFT JOIN LATERAL (
+               SELECT min(m[1]) AS yr FROM public.assertion a,
+                      LATERAL regexp_matches(a.date_raw,'\m(1[0-9]{3}|20[0-9]{2})\M','g') m
+                WHERE a.id=(e->>'id')::bigint AND e->>'date_min' IS NULL AND e->>'date_max' IS NULL
+                HAVING count(DISTINCT m[1])=1) fb ON true),'[]'::jsonb))
+      INTO v_match;
+  END IF;
+  -- Sortér hvert array efter elementets tekst: red_match_personer lover ingen orden.
+  SELECT coalesce(jsonb_object_agg(k.key,(SELECT coalesce(jsonb_agg(e ORDER BY e::text COLLATE "C"),'[]'::jsonb)
+                                           FROM jsonb_array_elements(k.value) e)),'{}'::jsonb)
+    INTO v_persons FROM jsonb_each(v_match) k WHERE jsonb_typeof(k.value)='array';
+  RETURN jsonb_build_object('personas',v_personas,'persons',v_persons,
+    'same_as',coalesce((SELECT jsonb_agg(jsonb_build_array(r.subjekt_id,r.objekt_id) ORDER BY r.subjekt_id,r.objekt_id)
+                          FROM public.relation r WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'),'[]'::jsonb));
+END $$;
+REVOKE ALL ON FUNCTION private.identity_candidate_input(bigint,jsonb) FROM PUBLIC,anon,authenticated;
+
+-- Finalize-kontrollen af genbrugskvitteringer sammenligner navne som writeren (byte-ens med schema.sql).
+CREATE OR REPLACE FUNCTION private.verify_relation_persona_receipts(p_batch_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE e private.reimport_event%ROWTYPE; r jsonb; v_run uuid; v_key uuid; v_source bigint;
+BEGIN
+  SELECT b.source_id INTO v_source FROM private.reimport_batch b WHERE b.id=p_batch_id;
+  SELECT er.id INTO v_run FROM private.extraction_run er JOIN private.reimport_batch b ON b.id=p_batch_id
+   WHERE er.source_id=b.source_id AND er.schema_version='relation-persona-v1' AND er.input_sha256=b.manifest_sha256
+     AND er.manifest=jsonb_build_object('batch_id',p_batch_id);
+  FOR e IN SELECT * FROM private.reimport_event WHERE batch_id=p_batch_id AND operation='relation_persona' ORDER BY id LOOP
+    r:=e.payload->'result_receipt'; v_key:=(e.payload->>'interpretation_key')::uuid;
+    IF r IS NULL OR private.reimport_canonical_json_sha256(r)<>e.after_sha256
+       OR (SELECT array_agg(k ORDER BY k COLLATE "C") FROM jsonb_object_keys(r) k)
+          <>ARRAY['mention_id','party_keys','principal_source_persona_id']
+            ||(CASE WHEN r ? 'reused' AND e.payload->>'predicate'='relation.marriage' THEN ARRAY['reused'] ELSE '{}'::text[] END)
+            ||ARRAY['schema','spouse_source_persona_id','year_interpretation_ids']
+       OR r->>'schema'<>'relation-persona-receipt-v1' OR jsonb_typeof(r->'year_interpretation_ids')<>'array'
+       OR NOT EXISTS (SELECT 1 FROM private.interpretation_party pc
+                       WHERE pc.interpretation_key=v_key AND pc.party_role='principal' AND pc.origin_ref=p_batch_id
+                         AND pc.source_persona_id=(r->>'principal_source_persona_id')::uuid)
+       OR NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
+                       WHERE i.source_persona_id=(r->>'principal_source_persona_id')::uuid AND i.decision_status='accepted')
+       -- party_keys = præcis de parter, batchen skrev for påstanden (Codex plan-r1 fund 4)
+       OR r->'party_keys' IS DISTINCT FROM (SELECT jsonb_agg(jsonb_build_array(pc.interpretation_key::text,pc.party_role,pc.version)
+                                                   ORDER BY pc.party_role COLLATE "C")
+                                              FROM private.interpretation_party pc
+                                             WHERE pc.interpretation_key=v_key AND pc.origin_ref=p_batch_id) THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_RECEIPT_INVALID: %',e.element_id;
+    END IF;
+    IF e.payload->>'predicate'='relation.marriage' THEN
+      IF r ? 'reused' THEN
+        IF r->'reused' IS DISTINCT FROM 'true'::jsonb OR jsonb_typeof(r->'mention_id')<>'null'
+           OR NOT EXISTS (SELECT 1 FROM private.source_persona p WHERE p.id=(r->>'spouse_source_persona_id')::uuid)
+           -- ægtefælle-mention i den citerede klausuls forekomst, samme navn som det nye spænd
+           OR NOT EXISTS (SELECT 1 FROM private.source_observation c
+                            JOIN private.source_observation o ON o.occurrence_id=c.occurrence_id
+                            JOIN private.source_mention sm ON sm.observation_id=o.id
+                            JOIN private.source_persona_mention spm ON spm.mention_id=sm.id AND spm.mention_role='spouse'
+                           WHERE c.id=(e.payload->>'clause_observation_id')::uuid
+                             AND spm.persona_id=(r->>'spouse_source_persona_id')::uuid
+                             -- 6d-3: samme sammenligningsform som writerens genbrugstjek (foldet på en raw-kilde)
+                             AND private.saml_blanktegn_v1(private.relation_name_compare_text(v_source,sm.verbatim_text))
+                                 =private.saml_blanktegn_v1(private.relation_name_compare_text(v_source,
+                                    substr(c.verbatim_text,(e.payload->>'name_from')::integer+1,
+                                           (e.payload->>'name_to')::integer-(e.payload->>'name_from')::integer))))
+           -- en gældende ægtefællepart på en nøgle forældet af en tekstrevision, samme ægteskabsnummer
+           OR NOT EXISTS (SELECT 1 FROM private.interpretation_party_current pc
+                            JOIN private.interpretation_current ic ON ic.interpretation_key=pc.interpretation_key
+                           WHERE pc.party_role='spouse' AND pc.source_persona_id=(r->>'spouse_source_persona_id')::uuid
+                             AND pc.marriage_ordinal=(e.payload->>'marriage_ordinal')::integer
+                             AND ic.status='superseded' AND ic.decision_evidence->>'basis'='source_text_revision')
+           -- den eneste ægtefællepart på en levende nøgle er batchens egen part på påstanden
+           OR (SELECT jsonb_agg(jsonb_build_array(pc.interpretation_key::text,pc.origin_ref::text,pc.marriage_ordinal))
+                 FROM private.interpretation_party_current pc
+                 JOIN private.interpretation_current ic ON ic.interpretation_key=pc.interpretation_key
+                WHERE pc.party_role='spouse' AND pc.source_persona_id=(r->>'spouse_source_persona_id')::uuid
+                  AND ic.status IN ('proposed','accepted'))
+              IS DISTINCT FROM jsonb_build_array(jsonb_build_array(v_key::text,p_batch_id::text,
+                                                                   (e.payload->>'marriage_ordinal')::integer)) THEN
+          RAISE EXCEPTION 'RELATION_PERSONA_REUSE_RECEIPT_INVALID: %',e.element_id;
+        END IF;
+      ELSIF NOT EXISTS (SELECT 1 FROM private.source_persona p WHERE p.id=(r->>'spouse_source_persona_id')::uuid AND p.created_run_id=v_run)
+         OR NOT EXISTS (SELECT 1 FROM private.source_mention m WHERE m.id=(r->>'mention_id')::uuid AND m.created_run_id=v_run
+                         AND m.observation_id=(e.payload->>'clause_observation_id')::uuid
+                         AND m.char_from=(e.payload->>'name_from')::integer AND m.char_to=(e.payload->>'name_to')::integer) THEN
+        RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_RECEIPT_INVALID: %',e.element_id;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM private.interpretation_party pc
+                         WHERE pc.interpretation_key=v_key AND pc.party_role='spouse' AND pc.origin_ref=p_batch_id
+                           AND pc.source_persona_id=(r->>'spouse_source_persona_id')::uuid
+                           AND pc.marriage_ordinal=(e.payload->>'marriage_ordinal')::integer)
+         -- årene: præcis ét pr. ikke-NULL år i payloaden, og præcis alle runnens årfortolkninger for personaen,
+         -- hver med rigtigt prædikat og citation af den autoriserede klausul (Codex plan-r1 fund 4)
+         OR jsonb_array_length(r->'year_interpretation_ids')
+            <>(e.payload->>'birth_raw' IS NOT NULL)::int+(e.payload->>'death_raw' IS NOT NULL)::int
+         OR r->'year_interpretation_ids' IS DISTINCT FROM coalesce((SELECT jsonb_agg(i.id::text ORDER BY i.id::text COLLATE "C")
+                                                                     FROM private.interpretation i
+                                                                    WHERE i.extraction_run_id=v_run
+                                                                      AND i.source_persona_id=(r->>'spouse_source_persona_id')::uuid),'[]'::jsonb)
+         OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(r->'year_interpretation_ids') y
+                     WHERE NOT EXISTS (SELECT 1 FROM private.interpretation i
+                                         JOIN private.interpretation_observation io ON io.interpretation_id=i.id
+                                          AND io.observation_id=(e.payload->>'clause_observation_id')::uuid AND io.evidence_role='supporting'
+                                        WHERE i.id=y::uuid AND i.predicate IN ('person.birth','person.death')
+                                          AND i.status='proposed' AND i.version=1)) THEN
+        RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_RECEIPT_INVALID: %',e.element_id;
+      END IF;
+    ELSIF jsonb_typeof(r->'spouse_source_persona_id')<>'null' OR jsonb_typeof(r->'mention_id')<>'null'
+          OR r->'year_interpretation_ids'<>'[]'::jsonb THEN
+      RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_RECEIPT_INVALID: %',e.element_id;
+    END IF;
+  END LOOP;
+  -- Batchglobal distinct-kontrol: hvert ny id i præcis ét receipt.
+  IF EXISTS (SELECT 1 FROM (
+       SELECT x FROM private.reimport_event ev,   -- 'ev', ikke 'e': e er løkkevariablen
+         LATERAL (SELECT ev.payload->'result_receipt'->>'spouse_source_persona_id' x
+                  UNION ALL SELECT ev.payload->'result_receipt'->>'mention_id'
+                  UNION ALL SELECT y FROM jsonb_array_elements_text(ev.payload->'result_receipt'->'year_interpretation_ids') y) ids
+        WHERE ev.batch_id=p_batch_id AND ev.operation='relation_persona' AND x IS NOT NULL
+        GROUP BY x HAVING count(*)>1) d) THEN
+    RAISE EXCEPTION 'REIMPORT_WRITER_RELATION_RECEIPT_INVALID: dublet';
+  END IF;
+END $$;
+REVOKE ALL ON FUNCTION private.verify_relation_persona_receipts(uuid) FROM PUBLIC,anon,authenticated;

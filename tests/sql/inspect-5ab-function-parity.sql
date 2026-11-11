@@ -15,7 +15,10 @@
 -- Trin 6d-1 (blokken trin 6d-1): record_legacy_disposition, red_promote_placement_memberships,
 -- membership_component_states, placement_header_violations og placement_human_header_levels
 -- (public_person_source_coordinates står allerede under 5c2-b11).
--- I alt 13 + 17 + 3 + 3 + 1 + 7 + 3 + 3 + 5 = 55 linjer.
+-- Trin 6d-3 (blokken trin 6d-3): tekstfoldningen relation_fold_raw_text, relation_text_form,
+-- relation_name_compare_text, begge overloads af relation_ordered_windows og relation_marriage_ordinals
+-- (write_relation_persona, identity_candidate_input og verify_relation_persona_receipts står allerede ovenfor).
+-- I alt 13 + 17 + 3 + 3 + 1 + 7 + 3 + 3 + 5 + 6 = 61 linjer.
 \set ON_ERROR_STOP on
 SELECT l FROM (
   SELECT p.oid::regprocedure::text||'|'||p.prosecdef||'|'||coalesce(array_to_string(p.proconfig,','),'')||'|'||
@@ -55,5 +58,8 @@ SELECT l FROM (
      -- 6d-1
      ('private','record_legacy_disposition'),('public','red_promote_placement_memberships'),
      ('private','membership_component_states'),('private','placement_header_violations'),
-     ('private','placement_human_header_levels'))) x
+     ('private','placement_human_header_levels'),
+     -- 6d-3
+     ('private','relation_fold_raw_text'),('private','relation_text_form'),('private','relation_name_compare_text'),
+     ('private','relation_ordered_windows'),('private','relation_marriage_ordinals'))) x
  ORDER BY l COLLATE "C";
