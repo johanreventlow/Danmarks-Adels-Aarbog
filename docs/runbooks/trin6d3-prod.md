@@ -58,11 +58,23 @@ commit eller fejl. Markøren `igang` står fra før skridtet skriver, til aftryk
 det seneste aftryk og ingen markør. Den accepterer altså ethvert præfiks af ceremoniens egne skrivninger og intet
 andet (spec §6).
 
+Et nyt aftryk kommer kun i kæden, hvis det afviger fra det forrige i skridtets **målte tabeller** og ingen andre
+(Codex' fund 1, 11/11). D må ændre `assertion`, `change_event`, `change_set`, `conclusion`, `relation` og
+`private.identity_mutation_generation`; O kun `change_event`, `change_set` og `person`; R kun sine `private.*`-tabeller
+(målt ens på `g2` og `g4`). En læsers bogmærke eller tilmelding (`public.bookmark`, `profiles`) mellem to skridt eller
+mellem et skridts commit og dets aftryk stopper derfor runneren (`T6D3_FREMMED_SKRIVNING`). Markøren bliver stående,
+så fortryd også stopper i stedet for at slette skrivningen.
+
 **Ingen genoptagelse.** Fejler et skridt efter en commit, er eneste vej at fortryde til ddl-dumpet, og så forsvinder D
 og O også. D, O og R kan køres igen på samme ddl-dump, fordi alt er deterministisk og bundet. Derfor gælder to krav:
 
 - **Meldt frys i prod fra `apply-d` til `verify` er færdig** (≈5-10 min). Ingen bogmærker, ingen redigeringer, heller
   ikke projektejerens egne. En fremmed skrivning stopper næste skridt og også fortrydelsen.
+  - **Kendt begrænsning:** vagten er et aftryk, ikke en lås. Under fortryd tjekkes den igen lige før restoren
+    (Codex' fund 2), men en skrivning i de få sekunder derefter (ACL-aftryk, default-ACL, restorens start) går tabt
+    ved restoren. Det, der kan gå tabt, er et bogmærke eller en tilmelding. Kun den meldte frys dækker det hul.
+    En redaktørs skrivning i en af ceremoniens egne tabeller under frysen ses ikke af tabelsættene. Change_set-tjekket
+    før R fanger den kun, hvis den har en anden aktør.
 - **Slut-generalprøve på en frisk `dump-kopi` samme dag som prod** (trin 3b), med samme commit og pakke som prod. Den
   tages i fase `foer`, før `go-ddl`, så hele rækkefølgen (også DDL'en og `anon`-basis) øves på den. Drift mellem
   kopien og data-ceremonien fanges af runnerens førtjek: D/O's manifestkontrol, R's byte-sammenligning af input
@@ -116,7 +128,10 @@ og O også. D, O og R kan køres igen på samme ddl-dump, fordi alt er determini
 
 Kaldet over alle offentlige familier (`famsrc_alle`) vokser med antallet af kilder: R tilføjer 69, så 259 bliver
 til 328 kilder og tiden går fra 1100 til 1400 ms på stand-in. Det sammenlignes derfor som µs pr. returneret kilde
-(4228 før, 4212 efter). Læseren kalder aldrig funktionen med alle familier, kun med én persons familier.
+(4228 før, 4212 efter). Læseren kalder aldrig funktionen med alle familier, kun med én persons familier
+(`DetailPanel` → `fetchFamilySources`). Derfor er µs pr. kilde et kapacitetsmål, og læserens ventetid måles af
+kaldene pr. familie (Codex' fund 6 afvist 11/11). Støjgulvet (+20 ms) gælder kun millisekund-kaldene; µs-nøglen
+holdes kun op mod basis × 1,10 (Codex' fund 7: gulvet blev før lagt til i µs).
 
 ## Fastlåste værdier og deres kilder
 
@@ -141,6 +156,9 @@ til 328 kilder og tiden går fra 1100 til 1400 ms på stand-in. Det sammenlignes
 | `T6D3_R_DRIFT (<fil>)` | basens genskabte input afviger fra pakkens (før skridtets skrivning) | D, O og tidligere R-skridt er committet: fortryd til ddl-dumpet; undersøg afvigelsen på en `dump-kopi` |
 | `DDL_6D3 fejlede …; rullet tilbage` | intet ændret (målt) | ret årsagen; `dump` er stadig gyldigt |
 | `DDL_6D3_FEJL_EFTER_COMMIT` | blokken er committet; aftrykket efter DDL'en er gemt | `maal` + `anon`, eller fortryd-DDL |
+| `T6D3_VINDUE fejlede` / katalogfejl lige efter `apply-ddl` (forbindelsen tabt efter commit) | blokken kan være committet uden aftryk; fortryd-DDL mangler sit grundlag (Codex' fund 5, kendt begrænsning) | stop; `maal`. Står DDL'en (`ddl=t`), skader den intet: den tilføjer kun profiltabellen og funktioner. Ingen data-ceremoni på den; vurdér med Claude. Målt 11/11: DDL'en ændrer ingen eksisterende rækker (foer-aftryk mod efter-DDL: kun profiltabellen), så rækkeaftrykket kan genskabes mod foer-dumpet, men katalogaftrykket kan ikke |
+| `T6D3_FREMMED_SKRIVNING (<skridt> …: <tabeller>)` | en fremmed skrivning mellem forrige aftryk og skridtets aftryk (fx `public.bookmark`); skridtet selv er committet | intet mere køres; markøren står, så fortryd stopper (`T6D3_KAEDE_IGANG`). Stop og vurdér med Claude: notér den fremmede række, fortryd i hånden og genskab rækken, eller bevar den. Aftrykket ligger som `fremmed-<n>-<skridt>-<tid>.txt` |
+| `T6D3_VINDUE_BRUDT_SIDST` | en skrivning under fortrydelsens egne kontroller | intet restoret, ingen markør; som `T6D3_VINDUE_BRUDT` |
 | `T6D3_EFTER_DDL_FAMKILDER` | DDL'en ændrede familiekilderne | fortryd-DDL |
 | `T6D3_ANON_BUDGET_BRUDT` (trin 7) | et kald er over budget | stop før data; `anon` igen (støj?), ellers fortryd-DDL |
 | `T6D3_CEREMONI_FEJL (d\|o: T6D3_PRE_…)` | intet skrevet, men kæden har et `fejl`-aftryk | `dump` igen (ny kæde) eller fortryd; prod afviger fra manifestet: nyt kort, ingen genkørsel |
@@ -157,7 +175,8 @@ til 328 kilder og tiden går fra 1100 til 1400 ms på stand-in. Det sammenlignes
   - alle change_sets siden dumpet fra ceremoniens aktør;
   - kataloget som i ddl-dumpet.
 
-  Restoren efterprøves mod dumpets restore-hash, ACL, default-ACL, katalog, målelinje, K1 og FAMKILDER. Kædens mappe
+  Vagten tages igen lige før markøren og restoren (`T6D3_VINDUE_BRUDT_SIDST`; for fortryd-DDL mod aftrykket efter
+  `apply-ddl`). Restoren efterprøves mod dumpets restore-hash, ACL, default-ACL, katalog, målelinje, K1 og FAMKILDER. Kædens mappe
   omdøbes til `data-<dump>.fortrudt-<tid>`, så D-O-R kan køres igen på samme ddl-dump.
 - **DDL** (kun efter fortryd-data, basen i fase `ddl`): `koer.zsh --saet DAA_T6D3_DUMP=<foer-dumpets kvittering>` →
   `go-fortryd` → `fortryd`. Kræver:
@@ -229,13 +248,43 @@ worktree af commit `3eab65d1` som `DAA_STANDIN_REPO`.
     - De tre 1939-familier gik fra 10 til 14-17 ms, inden for støjgulvet (+20 ms).
     - Fejlteksten ved en ceremonifejl skelner nu mellem fase `ddl` (intet committet: dump igen) og senere (fortryd).
 
+## Codex-reviewet 11/11 og efterprøvningen
+
+Codex (gpt-6.1-sol, high) gennemgik grenens diff og runneren: 7 fund. Opus afvejede dem mod koden og målingerne;
+projektejeren sagde ja til dommen 11/11.
+
+| Fund | Dom | Hvad |
+|---|---|---|
+| 1 (P0) fremmed skrivning optages i kæden | rettet | tabelsæt pr. skridt (se vinduesvagten); `T6D3_FREMMED_SKRIVNING` |
+| 2 (P0) hul mellem fortrydelsens kontrol og restore | forbedret + kendt begrænsning | vagten igen lige før markør og restore; restsekunderne dækkes kun af frysen |
+| 3 (P0) `rollback-preflight.sql` ubundet af GO | rettet | i `GO_PRIVATE_FILES`; den eneste kørte fil uden binding (alle `-f`-/`lines_sql`-stier gennemgået) |
+| 4 (P1) fælles runner sender ikke `profile_file` | udskudt | fail-closed, rører ikke 6d-3; backlog i `decisions.md` 2026-11-11 |
+| 5 (P1) målefejl lige efter DDL-commit | kendt begrænsning | stoppunkt ovenfor; DDL'en kan stå uden skade |
+| 6 (P2) budget pr. kilde skjuler samlet tid | afvist | læseren kalder pr. familie; se tidsbudgettet |
+| 7 (P2) støjgulv i forkert enhed | rettet | µs-nøglen kun × 1,10 |
+
+Runneren er nu `608af06a…` (før `2b9de946…`, backup `36-trin6d3.sh.foer-codex-r1-20261111`); `rollback-preflight.sql`
+`bcd9e123…`. Begge stand-ins er taget fra prods `dump-kopi` 11/11 og kørt fra worktree `3eab65d1`:
+
+- `g5` (`daa5ab_ddl_standin_20261111180942_g5`), negativtest af fund 1: `dump` → `apply-ddl` → `dump` → `apply-d` →
+  `apply-o` gik igennem uden falsk alarm. Derefter `apply-r` med `DAA_T6D3_TEST_FREMMED=r-control`: et bogmærke
+  indsat mellem kontrolskridtets commit og dets aftryk gav
+  `T6D3_FREMMED_SKRIVNING (r-control ok: 1 noegler uden for skridtets maalte saet: public.bookmark …)`.
+  `fortryd` → `T6D3_KAEDE_IGANG`, intet restoret, og bogmærket er bevaret. `g5` står midt i R med markør og må ikke
+  bruges.
+- `g6` (`daa5ab_ddl_standin_20261111181631_g6`), ren vej med de nye vagter: `anon` → `dump` → `apply-ddl` → `anon`
+  (OK) → `dump` → D → O → R (alle 7 skridt i sættene, 125 s) → `verify` (OK, budget OK; 1939-familierne 17-19 ms
+  mod 20).
+  - Fortryd-data fra fuld R: vagten to gange (`mod=r-bind:ok`), restore-hash `5ed3f37a…`, `maal` = `ddl`.
+  - Fortryd-DDL bagefter: katalogdiffen præcis tabellen og de 4 funktioner, restore-hash `b23c1de6…`, `maal` = `foer`.
+
 ## Udestår før prod
 
 1. Prod-læsetrin `dump-kopi` (projektejerens shell; auto-mode-klassifikatoren afviser den som [Production Reads]) og
    slut-generalprøve på den (trin 3b). Afviger prods `maal` fra `foer`-linjen, er prod ændret siden 10/11, og pakken
    skal måles igen.
-2. Codex-review af hele grenens diff og af runneren (Task 9 trin 1), **før** slut-generalprøven: i 6d-2a ændrede
-   reviewet runneren og gjorde generalprøven ugyldig.
+2. ~~Codex-review af hele grenens diff og af runneren~~ udført 11/11 (se ovenfor). Slut-generalprøven skal køre med
+   runner `608af06a…`.
 3. Push, draft-PR, CI, merge, Vercel (Task 9 trin 2).
 4. ~~Hovedcheckouten skal være ren~~ 11/11: de 23 usporede CI-uddatafiler (622 516 bytes) er flyttet til
    `~/TypeScript/_karantaene/danmarksadelsaarbog-20261111-ci-uddata/` (frist 2026-12-11) efter projektejerens ja.
