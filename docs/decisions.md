@@ -41,9 +41,14 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > Fundet ved 6d-3's browsertjek: 612 (Mette von Rantzau) viser to ægtemænd, 2018-20's 75 (»Nicolaus von Reventlow«,
 > familie 45) og 1939's 955 (»Claus [Reventlow] til Gaarz«, familie 392). Ægtefællens 1939-række 1474 → 612 var koblet
 > før 6d-3; hovedpersonen 955 har ingen `samme_som` (Claus = kortform af Nicolaus). D-kortene dækkede kun »hovedperson
-> koblet, ægtefælle ikke«. 6d-3 ændrede ikke tilstanden, men gav ægteskabet sin 1939-kilde. **Næste skridt:** mål på en
-> stand-in, hvor mange 1939-hovedpersoner der er ukoblede, mens deres ægtefælle er koblet; derefter kort eller
-> redaktionel `samme_som` (her 955 → 75, projektejerens afgørelse). Hænger sammen med 1939-navnereglen (»til <gods>«)
+> koblet, ægtefælle ikke«. 6d-3 ændrede ikke tilstanden, men gav ægteskabet sin 1939-kilde. Årsagen: D's `p39`
+> (personer med egen 1939-post, `person_external_id`) rummer kun hovedpersoner; 1939's ægtefællerækker har ingen
+> ekstern nøgle, så definitionen kunne kun se det ene tilfælde.
+> **Målt 2026-11-11** (stand-in `…_slut` = prod efter 6d-3; D's tvillingregel med rollerne byttet): 9 familier, heraf
+> 742/743 = 1791 (privat via O). **7 kandidater** (1939-familie: hovedperson → 2018-20-kandidat): 392: 955 → 75,
+> 395: 960 → 210, 438: 1036 → 112, 515: 1156 → 282, 638: 1376 → 312, 740: 1787 → 236, 748: 1803 → 290.
+> **Næste skridt:** projektejerens afgørelse pr. par, som redaktionel `samme_som` (955 → 75 tages af projektejeren) eller
+> en lille kortrunde. Hænger sammen med 1939-navnereglen (»til <gods>«)
 > og de 60 personer, der efter 6d-3 stadig har to eller flere ægtefæller (98 → 60).
 
 ## BESLUTTET: 6d-2b indsnævres til at trække forkert tilskrevne 1939-tekster tilbage; resten bliver kendte begrænsninger (2026-11-10)
