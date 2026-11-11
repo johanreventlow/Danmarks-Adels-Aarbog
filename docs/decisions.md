@@ -142,6 +142,16 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > stamtræ/kolonner; viser det dubletter, er rettelsen sandsynligvis i projektionen (forene unioner med samme kanoniske
 > par), ikke i data.
 
+## NOTERET: den fælles 5ab-runner sender ikke `profile_file` — åben backlog (2026-11-11)
+
+> Fundet i Codex' review af 6d-3 (fund 4). Efter 6d-3 kræver `relation_persona_apply.sql`, `relation_batch_apply.sql`
+> og `transfer_5ab_step_disposition.sql`/`_profile.sql` en `-v profile_file=<profil>` (relationsprofiler som data).
+> Repo'ets kald og tests sender den; det gør den private fælles runner (`lib.zsh`'s persona- og ark-stier) ikke. 6d-3's
+> egen runner bruger ikke de stier. **Konsekvens:** en senere ceremoni gennem den fælles runner stopper med
+> `RELATION_PROFILE_FILE_REQUIRED` før skrivning (fail-closed). **Projektejerens valg:** udskudt; rettes, når den
+> fælles runner bruges næste gang (profilfilen bindes da også i GO og replay). Begrundelsen er, at intet skrives
+> forkert; at det også sparer en ny generalprøve af `lib.zsh` nu, er nævnt åbent.
+
 ## NOTERET: biografilæseren med alle personer og den direkte narrativlæsning ligger allerede om 3 s — åben backlog (2026-11-09)
 
 > Målt i 6d-2a's Task 0 som anon på stand-in `…_6d1c` (prod + 6d-1, efter `ANALYZE`; median af 3):
