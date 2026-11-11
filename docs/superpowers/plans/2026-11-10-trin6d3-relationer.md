@@ -256,17 +256,21 @@ Noter, prober, kort og svar i `~/.private/6d3/` (0600). Stand-in: frisk restore 
 
 **Files:** Create `tests/sql/test-6d3-upgrade.sh` (kopi af `tests/sql/test-6d1-upgrade.sh`).
 
-- [ ] **Trin 1:** Byg fra `git merge-base origin/main HEAD`; kør nye `db-migrations.sql` + `db-rls.sql` to gange;
+- [x] **Trin 1:** Byg fra `git merge-base origin/main HEAD`; kør nye `db-migrations.sql` + `db-rls.sql` to gange;
   assert funktionskroppe = `schema.sql` (`pg_get_functiondef`-sha), præcis to overloads af
   `relation_ordered_windows`, tabellens ACL (ingen anon/authenticated), seeds; kør Task 2-3's testfiler og
   `run-db-verify-disposable.sql`; `echo UPGRADE_OK`. Ingen kilde 1-md5 her: opgraderingsbaserne er tomme, så md5
   ville sammenligne tomt med tomt (Codex plan-fund 8).
-- [ ] **Trin 2:** Kør den og `test-6d1-upgrade.sh` → `UPGRADE_OK` fra begge. **Kilde 1 uændret** bevises på
+- [x] **Trin 2:** Kør den og `test-6d1-upgrade.sh` → `UPGRADE_OK` fra begge. **Kilde 1 uændret** bevises på
   stand-in'en med prod-data: `maal_trin6d3.sql` før og efter DDL'en → `K1_ORD`, `K1_BIND`, `FAMKILDER` ens, og
   antallene bag dem er ikke nul (241 kilder; ellers fejler målingen).
-- [ ] **Trin 3:** Hele CI-jobbet lokalt (alle PostgreSQL-jobs, python, R-suiten, node med `tsc --noEmit`) → grønt
+- [x] **Trin 3:** Hele CI-jobbet lokalt (alle PostgreSQL-jobs, python, R-suiten, node med `tsc --noEmit`) → grønt
   (memory: kør hele CI-jobbet lokalt).
-- [ ] **Trin 4: Commit** `test(6d): opgraderingstest for 6d-3`.
+- [x] **Trin 4: Commit** `test(6d): opgraderingstest for 6d-3`.
+  **Udført 2026-11-11:** `test-6d3-upgrade.sh` (base `aafbbcfb`) → UPGRADE_OK, også genkørt af forælderen; 6d-1 og 6d-2a
+  → UPGRADE_OK. Kilde 1 på stand-in'en før/efter den endelige DDL: `K1_ORD` 248 `daa14961…`, `K1_BIND` 281 `d46cd448…`,
+  `FAMKILDER` 259 `aab432fb…`, alle ens. Hele CI lokalt grønt (node, R 3930, python, alle PostgreSQL-jobs) undtagen den
+  kendte lokale `test_segment_1939`-OCR-test, der i CI springes over.
 
 ### Task 6: R på stand-in op til kortene
 
