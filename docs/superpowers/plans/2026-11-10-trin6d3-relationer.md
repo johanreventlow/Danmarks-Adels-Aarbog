@@ -381,7 +381,7 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
 - [x] **Trin 2: Runbook:** `vercel-deploy (L, efter merge) → maal → anon → dump → dump-kopi → go-ddl → apply-ddl →
   maal → anon → dump → dump-kopi → go-data → apply-d → apply-o → apply-r → verify → anon`, stoppunkter og fortryd
   under meldt frys. L rulles ikke tilbage.
-- [ ] **Trin 3: Generalprøve** fra operatørens cwd på en stand-in fra en frisk `dump-kopi`: hele rækkefølgen;
+- [x] **Trin 3: Generalprøve** fra operatørens cwd på en stand-in fra en frisk `dump-kopi`: hele rækkefølgen;
   `anon`-tiden for `public_family_sources` ≤ +10 % (Review Focus 5); `collapseSameAs`/`buildModel` på stand-in'ens
   anon-data: de bekræftede D-par og Gabel/Hahn har én ægtefælle, 0 nye karantæner; læsergaten afstemt pr. planlagt
   binding (spec §5.1.5).
@@ -411,14 +411,14 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
 
 ### Task 9: Review, prod og færdigbevis
 
-- [ ] **Trin 1:** Codex `gpt-6.1-sol` over hele grenens diff (eksport uden `work*/`); Opus dømmer; ret det godkendte
+- [x] **Trin 1:** Codex `gpt-6.1-sol` over hele grenens diff (eksport uden `work*/`); Opus dømmer; ret det godkendte
   efter projektejerens ja; hele CI lokalt igen.
-- [ ] **Trin 2:** Spørg om push og draft-PR; CI grøn; projektejeren merger; Vercel deployer L; browsertjek som anon
+- [x] **Trin 2:** Spørg om push og draft-PR; CI grøn; projektejeren merger; Vercel deployer L; browsertjek som anon
   (ingen ændring uden 1939-bindinger).
-- [ ] **Trin 3: Prod** i projektejerens shell efter runbooken; AI'en læser kvitteringer og mål.
-- [ ] **Trin 4: Færdigbevis** (spec §8) i `status.md` (relationsrækken for 1939 → `produktionsverificeret`),
+- [x] **Trin 3: Prod** i projektejerens shell efter runbooken; AI'en læser kvitteringer og mål.
+- [x] **Trin 4: Færdigbevis** (spec §8) i `status.md` (relationsrækken for 1939 → `produktionsverificeret`),
   `database-current-state.md` og changelog: elementer, parkeringer pr. årsag, identiteter (maskine/kort), afgørelser,
   bindinger; D-links; 1791 privat; ubundne `proposed` pr. årsag med nøgle (inkl. kilde 1's 4 partsløse, spec
   §5.1.6); kilde 1's `K1_ORD`/`K1_BIND`/`FAMKILDER` uændret; browsertjek som anon
   (»DAA 1939« på et ægteskab hos en sammenfoldet person; én ægtefælle hos et D-par; Gabel/Hahn én ægtemand).
-- [ ] **Trin 5:** `docs/decisions.md`: noter 6d-3 i prod; commit `docs(6d): færdigbevis for 6d-3 i prod`.
+- [x] **Trin 5:** `docs/decisions.md`: noter 6d-3 i prod; commit `docs(6d): færdigbevis for 6d-3 i prod`.

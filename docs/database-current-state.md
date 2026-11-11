@@ -529,6 +529,39 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 27. Trin 6d-3: 1939's relationer, dobbelt ægtefælle og 1791 — LIVE i prod (2026-11-11)
+
+**Grundlag:** decisions 2026-11-10 (6d-3's afgrænsning), spec `2026-11-10-trin6d3-relationer-design.md`, runbook
+`docs/runbooks/trin6d3-prod.md`. PR #315 merget som `6d77d46d`. Privat runner `~/.private/5ab-overfoersel/36-trin6d3.sh`
+(sha `608af06a…`) med bundet pakke `~/.private/6d3/prod-pakke/`; R i **replay** mod generalprøvens items. Projektejeren
+kørte alle trin i sin shell (klassifikatoren afviser også læsetrin mod prod); sessionen læste kvitteringerne.
+
+- **DDL** (GO `56074c10`): `private.relation_persona_profile` (4 seeds `4:f87b9679…`, RLS, ingen rettigheder til
+  PUBLIC/anon/authenticated/service_role), tekstfoldning (`relation_fold_raw_text`, `relation_ordered_windows`,
+  `relation_text_form`, `relation_name_compare_text`) og ægteskabsnummer; 9 funktioner, alle med `search_path` og
+  `REVOKE`. 1939's ægteskaber uden position 59 → 10. `get_advisors` kunne ikke køres (MCP'en ser ikke DAA-projektet);
+  RLS, `search_path` og grants er tjekket statisk og af runneren (`T6D3_GRANTS` alle `-`).
+- **Data** (GO `b43349c9`, under meldt frys): D 42 `samme_som` (`links=42 ingen=0`, dobbelt 42 → 0, `samme_som`
+  720 → 762); O `privat=2` (1791 og 1795); R: persona-batch 115 elementer, kandidater 1096, kontrol 22 kort (passed),
+  korroboration 46, afgørelser 68, bindinger **69** (68 ægteskaber + 1 forælder). Forslag for kilde 3 (ægteskab/forælder/
+  barn) 271/6/4 → 203/5/4 `proposed`.
+- **Ubundne ægteskaber pr. årsag** (af 271): parkeret i udtrækket 161 (`navn_uklart` 89, `partner_ligner` 52,
+  `navn_afkortet` 8, `intet_vindue` 6, `flere_klausuler` 6); ikke egnede efter kandidatkørslen 42 (`name_or_rank` 22,
+  `count_mismatch` 20). Børn 4 (`praedikat_ikke_i_profil`, kræver `relation-child-v1`). En stikprøve på 20 af de 161
+  viste 19 rigtige match (grundlag for en 1939-navneregel, backlog).
+- **Uændret:** kilde 1's `K1_ORD` `1857a95c…` og `K1_BIND` `9e0db348…` i alle faser; familiekilderne
+  `b217ebfd…` → `06e71a11…` (præcis som på alle stand-ins).
+- **Vagten** er en kæde af fulde aftryk, hvor hvert skridt kun må ændre sine målte tabeller (9 aftryk, ingen fremmed
+  skrivning). Fortrydelsens grundlag er ddl-dumpet `daa-prod-20261111213132-6d3.dump` (restore-hash `5ed3f37a…`) og
+  foer-dumpet `daa-prod-20261111204138-6d3.dump` (`b23c1de6…`). Efter `VERIFY_OK` er rettelser almindelig redigering.
+- **Tid i prod:** DDL 18 s, D 9 s, O 2 s, R 330 s. Tidsbudget OK; første `anon` efter DDL brød på `famsrc_364`
+  (100 mod 93 ms, prod-støj), genmålt OK (77 ms).
+- **Browsertjek som anon** (projektejeren): »DAA 1939« på ægteskaber hos sammenfoldede personer (81, 612); D-par 88,
+  97, 99, 133 med én ægtefælle; 815/816 én ægtemand; 1791/1795 ikke synlige.
+- **Fundet ved browsertjekket:** 612 viser stadig to ægtemænd, fordi 1939-hovedpersonen 955 (»Claus [Reventlow] til
+  Gaarz«) ikke er koblet til 2018-20's 75 (Nicolaus), mens ægtefællen 1474 → 612 er. Det omvendte af D's tilfælde;
+  før 6d-3, backlog (decisions 2026-11-11).
+
 ## 26. Trin 6d-2b: fire forkert tilskrevne 1939-tekster trukket tilbage — LIVE i prod (2026-11-10)
 
 **Grundlag:** decisions 2026-11-10 (6d-2b indsnævret). Ingen DDL. Den eksisterende redaktørhandling

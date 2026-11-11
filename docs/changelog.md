@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-11 — trin 6d-3 i prod: 1939's ægteskaber bundet, dobbelt ægtefælle rettet, 1791 skjult
+
+1939's relationer er gået gennem 5b-vejen med writerens profil som data (DDL: profiltabel, tekstfoldning,
+ægteskabsnummer). 69 strukturelle bindinger for kilde 3 (68 ægteskaber, 46 maskinelt + 22 kontrolkort, og 1 forælder);
+42 `samme_som` fra D-kortene fjerner den dobbelte ægtefælle (42 → 0); 1791 og 1795 er private. Kilde 1 (2018-20) er
+uændret (K1-hashes ens i alle faser). Spor L (familiekilden slår modparten op kanonisk) blev deployet før ceremonien.
+Codex-reviewet af runneren gav tre rettelser før prod (tabelsæt pr. kædeskridt, vagt før restore, preflight bundet af
+GO). Slut-generalprøve fra den mergede commit og prod gik igennem uden stop; browsertjek som anon OK. Ubundne forslag og
+fundet »hovedperson ukoblet, ægtefælle koblet« (Claus/Nicolaus) er backlog. Detaljer i `database-current-state.md` §27.
+
 ## 2026-11-10 — trin 6d-2b i prod: fire forkert tilskrevne 1939-tekster trukket tilbage
 
 6d-2b blev indsnævret (decisions 2026-11-10). De tre mekanismer fra 6d-2a §9 ville næsten intet ændre for læseren, så
