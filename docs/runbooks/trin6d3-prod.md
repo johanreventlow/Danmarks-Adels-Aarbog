@@ -283,6 +283,11 @@ Runneren er nu `608af06a…` (før `2b9de946…`, backup `36-trin6d3.sh.foer-cod
     står i fase `ddl`.
 - Ikke prøvet: `T6D3_VINDUE_BRUDT_SIDST` (en skrivning under fortrydelsens egne kontroller) har ingen negativtest. Vejen
   ud af `T6D3_FREMMED_SKRIVNING` (fortryd i hånden og genskab rækken) er ikke øvet; `g5` står i netop den tilstand.
+  **Bevidst (Claudes anbefaling, projektejerens ja 11/11):** vejen ud kræver, at kæden rettes, hvilket ikke må ske i
+  hånden i prod, altså en ny runner-handling (ny GO, ny review-runde, ny generalprøve). Et stop i R skader ikke
+  læserne: R skriver kun i `private.*` (målt), så læserne ser tilstanden efter O, som er en planlagt fase. Handlingen
+  bygges, hvis det sker. Den skal kræve, at basen kun afviger fra `fremmed-…`-aftrykket i de fremmede nøgler, og at
+  de er lig kædens forrige aftryk (rækken fjernet med ejerens accept); derefter genskabes rækken efter fortryd.
 - Læserskrivninger i appen: kun bogmærker (bevidst klik, web og mobil); ingen skrivning ved login eller åbning, ingen
   trigger på `auth.users`. Frysbeskeden skal derfor nævne bogmærker og tilmeldinger.
 
