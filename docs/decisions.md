@@ -127,6 +127,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > 6d-3. Fravalgt: det fulde kortsæt (≈226 kort, jf. memory »ingen flere fulde afgørelsesark«) og kun de nødvendige
 > kort uden stikprøve. **Opfølgning (åben backlog):** en 1939-variant af navnereglen, målt på stikprøvens svar, så en
 > større del af de 161 kan gå maskinelt.
+> **Stikprøvens svar (2026-11-11):** 19 af 20 er rigtige match, som v3's navneregel parkerede på grund af 1939's
+> navneform (»til <gods>« i legacy-navnet, titler foran og inde i navnet, rester af sidemarkør/orddeling inde i linjen,
+> navnepartikler, omlyd); 1 påstand er selv forkert. Grundlag for opfølgningen; detaljer i planens Task 6.
 
 ## NOTERET: samme par i flere familier efter sammenfoldningen — stamtræet ikke tjekket, åben backlog (2026-11-11)
 

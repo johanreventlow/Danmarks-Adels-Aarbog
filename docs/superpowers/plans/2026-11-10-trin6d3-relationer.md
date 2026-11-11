@@ -308,9 +308,19 @@ Ingen kode-commits ud over værktøjet i trin 4. Stand-in: Task 0's base + Task 
   (`test_default_profile_unchanged`); med 1939-profilen bærer persona-manifestet 1939-profilen
   (`test_profile_1939_manifest`). Arket bruges kun til de parkerede, ikke-maskinelle ægteskaber; maskinelle
   personas går ad kontrolarket (Codex plan-fund 2). Commit `feat(udtraek): ægteskabsark v3 læser profil (6d-3)`.
-- [ ] **Trin 6: R-kort:** kontrolark (`identity_control_sheet.py`), ægteskabsark for ikke-maskinelle
+- [x] **Trin 6: R-kort:** kontrolark (`identity_control_sheet.py`), ægteskabsark for ikke-maskinelle
   (`relation_marriage_sheet_v3.py --profile`), forælderark; lokal HTML, flettet ind i ét token-ark; projektejeren
   svarer; sha på ark og svar.
+
+  **Udført 2026-11-11** på stand-in `t6d3t6_r`: én HTML over to hash-bundne tekstark (privat værktøj `kort6.py`); 43 kort
+  besvaret (svarfil sha `65ea8c32…`): kontrolarket 22 ægtefællekort (7 × 1, 11 × 2, 4 × 3; ingen X/N/U) + forældrekortet
+  A, flettet ark sha `22b1cd51…` (rækkefil `a6f60b53…`) → kontrollen `passed`, korroboration 46 → **68 accepterede
+  ægtefælleidentiteter**, 1 forælder `accepted`. Forælderarket: 4 forslag med hovedperson, 0 strukturelle kandidater →
+  ingen kort; de står `proposed`. Stikprøven (20 parkerede, ark sha `7be570f3…`): 19 × S (rigtige match, fejlagtigt
+  parkeret), 1 × U (påstanden selv forkert). Fejlgrupper til en 1939-navneregel: »til <gods>« og ejerår i legacy-navnet
+  (alle `partner_ligner`), titler foran navnet, Baron/Greve inde i navnet, sidemarkør og »- «-orddeling inde i linjen
+  (undtagelse »Geheime- og«), navnepartikler (vom) og omlyd. Datafund: datoer med indbygget linjeskift; én forkert
+  påstand (dødsdato læst som vielsesdato, nr. 2 for 1°).
 
 ### Task 7: Dataceremoniens SQL og målescript
 
