@@ -23,12 +23,14 @@ linjer med tal, koder og hashes. Kortsiden (posttekst, også om levende personer
 
 - `main` er checket ud rent i `/Users/johanreventlow/TypeScript/danmarksadelsaarbog` (i prod bruger `lib.zsh` altid
   den mappe). Koden er på `main` fra PR #322 (`743787f3`). GO-koderne binder commit'en og de bundne repo-filer
-  (`db-migrations.sql`, `db-rls.sql`, `db-verify.sql`, målingen, kandidat-SQL'en, kontrollens SQL og værktøjer,
-  kortværktøjet, fingeraftrykkene). Hovedmappen deles med andre sessioner: tjek `git status` og `git branch
+  (`db-migrations.sql`, `db-rls.sql`, `db-verify.sql`, målingen, kandidat-SQL'en, kontrollens SQL og værktøjer med
+  alt, de inkluderer eller importerer, kortværktøjet, fingeraftrykkene). Hovedmappen deles med andre sessioner: tjek `git status` og `git branch
   --show-current` før hver GO (memory »shared-workdir branch-race«).
 - Runneren har fastlåst blokkens og `db-rls.sql`'s sha (`DATO_BLOK` `a030a85f…`, `DATO_RLS` `a21d5034…`), kandidat-
   listen (565, `NORM_SHA` `f1e6d2e3…`), målingens tal i alle fire tilstande og de tabelsæt, ceremonierne må ændre
-  (`VINDUE_N`, `VINDUE_K`). I prod stopper runneren med `DATO_IKKE_FASTLAAST`, hvis en værdi mangler. Ændres en bundet
+  (`VINDUE_N`, `VINDUE_K`) med rækkeantallets ændring pr. tabel (`VINDUE_N_DELTA` = `extraction_run:+1
+  interpretation:+565 interpretation_observation:+565`; `VINDUE_K_DELTA` = `interpretation:+509
+  interpretation_observation:+509 interpretation_promotion:+509 interpretation_promotion_batch:+1`). I prod stopper runneren med `DATO_IKKE_FASTLAAST`, hvis en værdi mangler. Ændres en bundet
   fil efter øvelsen (fx efter Codex' diffreview), tømmes den berørte pin, og øvelsen køres igen på en frisk stand-in.
 - **Forbindelsens rolle** er Supabase's `postgres` via Session pooleren (`~/.Renviron`). Den skal eje alt i
   private+public (fortrydelsen) og især `private.interpretation` og `private.interpretation_promotion` (ceremoni `k` kører
@@ -36,10 +38,16 @@ linjer med tal, koder og hashes. Kortsiden (posttekst, også om levende personer
 - `DAA_EXPECTED_TARGET` står i `prod/go-env.txt`. Aktøren læses fra `b2/aktoer.txt` (0600, sha'en tjekkes) og printes
   aldrig. age-nøglen (`~/.private/age/daa-dump.key`) og SFTP-miljøet (`~/.private/sftp-dump.env`) som ved 6c-2.
 - **Ingen redigering i prod fra hvert dump til dets ceremoni, og fra ceremonien til den er godkendt.** Vinduesvagten
-  håndhæver det: dumpet tager et rækkeaftryk af alle tabeller i public/private (`38-dato-vindue.sql`: tabel, antal,
+  kontrollerer det: dumpet tager et rækkeaftryk af alle tabeller i public/private (`38-dato-vindue.sql`: tabel, antal,
   sha). `apply-*` kræver basens rækker lig dumpets aftryk. Lige efter hver skrivning tages et nyt aftryk, som kun må
-  afvige i ceremoniens målte tabeller; ellers bliver markøren `skridt-<dump>.igang` stående, og `fortryd` stopper (så en
-  restore aldrig sletter fx en læsers bogmærke). Sekvenser sammenlignes ikke.
+  afvige i ceremoniens målte tabeller og med det målte rækkedelta; ellers bliver markøren `skridt-<dump>.igang`
+  stående, og `fortryd` stopper. Sekvenser sammenlignes ikke.
+- **Kendte begrænsninger (Codex 12/11, afvejet):**
+  - Vagten fanger skrivninger frem til sit sidste aftryk i `fortryd`. En læserskrivning (bogmærke, tilmelding) i
+    sekunderne mellem det aftryk og restorens drop af tabellen går tabt uden at blive opdaget (som 6d-3). Kør `fortryd`
+    på et stille tidspunkt, og notér aftrykkets køretid ved første prod-dump (`DUMP_DATO_MAAL_OK … sekunder=`).
+  - Rækkedeltaet fanger en ekstra række (fx en afgørelse, redaktøren selv træffer under ceremonien), men ikke en
+    opdatering på stedet med uændret rækkeantal i ceremoniens tabeller. Redigér ikke under en ceremoni.
 
 ## Forløb (projektejerens shell)
 
@@ -140,12 +148,14 @@ Alle `STOPPORT:`-linjer stopper uden at skrive yderligere. Hvor langt man er nå
 | Før en skrivning (`GO_MISMATCH`, `DUMP_DATO_MANGLER`, `DUMP_DATO_TILSTAND`, `DUMP_DATO_FOR_GAMMELT`, `B1_EKSTERN_*`, `DATO_FOER_*`, `DATO_VINDUE_BRUDT_FOER_*`, `DATO_BLOK`, `DATO_RLS`, `DATO_EJER`, `DATO_N_KOERT`, `DATO_K_KOERT`) | uændret; intet skrevet | Ret årsagen (nyt `dump` i rette tilstand, ny GO, hvis filer er ændret) og kør skridtet igen. `DATO_VINDUE_BRUDT_FOER_*` betyder, at prod er skrevet siden dumpet: tag dumpet igen |
 | `DATO_IKKE_FASTLAAST`, `MAAL_DATO_UKENDT` | uændret | Runneren mangler en øvet værdi, eller prods tal er ikke stand-in'ens. Ingen prod-kørsel; find forskellen (fx en redaktørs afgørelse i kilde 1 siden 12/11) og øv igen på en frisk stand-in |
 | I en ceremonis transaktion (`DDL_DATO fejlede`, `CEREMONI_N/K fejlede`; koden står i linjen, fx `NORMALISER_GO_DRIFT`, `MACHINE_NOT_MATCH`, `PLAN_KILDE_AFVIGER`) | rullet tilbage; runneren har kontrolleret, at rækkerne er dumpets, og fjernet markøren | Basen har ændret sig siden GO, eller arket afviser. Ny `forbered-n`/`kort` og ny GO |
-| `DATO_FEJL_MED_AENDRINGER` | rullet tilbage, men rækker afviger fra dumpet; markøren står | Nogen har skrevet under ceremonien. Projektejeren afgør; ingen restore uden at fjerne markøren bevidst |
+| `DATO_FEJL_MED_AENDRINGER` | psql meldte fejl, og basen afviger fra dumpet ud over skridtets målte ændringer (eller den rå tilstand er ikke skridtets); markøren står | Udfaldet er uafklaret, og noget andet end ceremonien har skrevet. Projektejeren afgør; ingen restore uden at fjerne markøren bevidst |
 | `go-k`: `DATO_GEN_SQL (SAMPLE_FAILED)` | uændret | Et stikprøvesvar er ikke `B`. Spec §4.2 pkt. 4: del 1 stopper; projektejeren afgør, om der skal undersøges, før en ny `kort` |
 | `forbered-n` (`DATO_NORM_*`), `kort` (`DATO_PLAN_*`, `DATO_KONTROL_EKSPORT_*`, `DATO_KORT_HTML`), `flet` (`DATO_FLET (<kode>)`, `DATO_ARK_FINDES`) | uændret; læse-kun | Ret og kør igen; nye svar kræver en ny `kort`. `DATO_PLAN_TAL` betyder, at klassifikationen ikke er øvelsens: stop og forklar |
+| `CEREMONI_N/K meldte fejl … udfaldet er uafklaret` efterfulgt af `DATO_COMMIT_AFSTEMT` | committet (psql mistede fx forbindelsen efter COMMIT) | Intet at gøre: runneren har afstemt aftrykket (kun skridtets tabeller, præcis det målte delta, målingens rå tilstand = skridtets) og fortsætter som ved succes. Øvet 12/11 for både `n` og `k` |
+| Markøren står, `maal` viser `raa=` = skridtets tilstand, men `efter-<skridt>-<dump>.txt` mangler (fx forbindelsen døde, også under afstemningen) | committet; ingen godkendt efter-aftryk | Kør `maal` og `verify` (tilladt, mens markøren står). Tag et aftryk med `38-dato-vindue.sql`, kontrollér, at det kun afviger fra dumpets `vindue.txt` i `VINDUE_x` med præcis `VINDUE_x_DELTA`, gem det som `efter-<skridt>-<dump>.txt`, og flyt markøren væk (som under »Fremmed skrivning«) |
 | Efter commit: `DDL_DATO_NOTIFY` | DDL committet | Kør `maal`; står den i `ddl`: kør `NOTIFY pgrst, 'reload schema'` manuelt og fortsæt |
 | Efter commit: `DATO_EFTER_*`, `DATO_EFTER_DDL_VERIFY`, `DATO_VERIFY_K`, `DATO_BINDINGER_TABT`, `DATO_BINDINGER_NYE` | ceremonien er committet | Kør `maal`. Forkerte tal, fejlende verify eller en tabt binding: **fortrydelsestilfælde** (nedenfor) |
-| Efter commit: `DATO_FREMMED_SKRIVNING` | ceremonien er committet; aftrykket viser en skrivning uden for ceremoniens tabeller; markøren står | `fortryd` stopper (`DATO_MARKOER`), for en restore ville slette den fremmede skrivning. Projektejeren afgør (se »Fremmed skrivning« nedenfor) |
+| Efter commit: `DATO_FREMMED_SKRIVNING` | ceremonien er committet; aftrykket viser en skrivning uden for ceremoniens tabeller eller et andet rækkedelta; markøren står | `fortryd` stopper (`DATO_MARKOER`), for en restore ville slette den fremmede skrivning. Projektejeren afgør (se »Fremmed skrivning« nedenfor) |
 | `vejb` efter `k`: `VEJB_OVER_GRAENSEN` / `VEJB_KOLD_FEJL` | `k` er committet | Stop; `fortryd` med n-dumpet |
 | `fortryd`: `DATO_MARKOER`, `DATO_FORTRYD_TILSTAND`, `DATO_VINDUE_BRUDT*`, `DATO_FORTRYD_FREMMEDE_AENDRINGER`, `DATO_FORTRYD_KATALOG_AENDRET`, `DATO_FORTRYD_LAAS`, `DATO_FORTRYD_EFTER_MANGLER` | uændret; ingen restore | Nogen har skrevet siden ceremonien, eller basen står ikke lige efter den. Projektejeren afgør |
 | `fortryd`: `DATO_FORTRYD_RESTORE_FEJL` eller en efterkontrol (`DATO_FORTRYD_ACL`, `_KATALOG`, `_RESTORE_HASH`, `_VINDUE`, `DATO_EFTER_FORTRYD`) | restoren er kørt; markøren `fortryd-<dump>.igang` står | Alle handlinger ud over `maal`, `vejb` og `verify` er spærret. Undersøg `restore.err`; markøren flyttes kun efter projektejerens afgørelse |
@@ -222,7 +232,14 @@ Stand-in `daa5ab_ddl_standin_20261112154600_dato` (prod-dump 12/11 b9a0503d), ru
   `foer` → `ddl` → `n` → `k` med tallene i tabellen ovenfor, `verify` (`tabt:0,nye:509`) og `vejb` (største median 287
   ms; 0 kolde fejl). Kilde 3 (1939) er uændret: `post_foedsel=299 post_doed=272` både før og efter. Derefter en bevidst
   forkert `M_K` → `maal` = `ukendt`, og `fortryd` (k → n) lykkedes alligevel (rå tilstand); pinnen sat tilbage; kæden
-  fortrudt til `foer`. Runnerens sha efter øvelsen: `737f7b23…`.
+  fortrudt til `foer`. Runnerens sha dengang: `737f7b23…` (afløst, se næste punkt).
+- Efter Codex' diffreview (12/11, NO-GO med 4 fund, afvejet af Opus): GO binder nu også de transitive filer
+  (`interpretation_promotion_targets.sql`, `interpretation_decision_sheet.py`, `decision_sheet_core.py`,
+  `clause_ledger.py`); rækkedeltaet pr. tabel er fastlåst; et skridt, psql melder fejl på, afstemmes i stedet for at
+  blive kaldt rullet tilbage; restorens vindue står som kendt begrænsning. Øvet: `DAA_DATO_TEST_UAFKLARET=n` og `=k` →
+  `DATO_COMMIT_AFSTEMT` og derefter `DATO_APPLY_*_OK`; `DAA_DATO_TEST_FREMMED=k-afgoerelse` (en redaktørafgørelse i k's
+  egne tabeller) → `DATO_FREMMED_SKRIVNING (… interpretation:+510 …)`, markøren står, `go-fortryd` stopper. Nyt
+  slutgennemløb med alle pins: samme tal som ovenfor, `vejb` 284 ms, kilde 3 uændret. Runnerens sha: `8d923049…`.
 - Fund under øvelsen: `SAMPLE_FAILED` kommer allerede ved `go-k` (SQL-genereringen afviser arket), ikke i ceremonien.
   Kortets rækkeeksport tager 43-46 s lokalt for kilde 1 (6c-2's kilde 3: 4 s); den er det langsomste læsetrin.
 
