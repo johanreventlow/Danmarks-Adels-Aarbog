@@ -9,6 +9,8 @@ import {
   defaultCfg,
   evalPrecisionRecall,
   pairsToCsv,
+  buildScored,
+  finalScore,
   type MatchFrame,
   type ScoredPair,
 } from '../matchUdgaver';
@@ -188,5 +190,32 @@ describe('kalibrerings-harness (§3.5)', () => {
     expect(lines).toHaveLength(2);
     expect(lines[1]).toContain('a1,b1,');
     expect(lines[1]).toContain('auto');
+  });
+});
+
+describe('top-K-beskæring bruger samme score som slutrangeringen', () => {
+  const fr = (id: number | string, birth: number | null, death: number | null): MatchFrame => ({
+    id, nameKey: 'johann', birthMin: birth, birthMax: birth, deathMin: death, deathMax: death, sex: 'ukendt',
+  });
+  const a = [fr('A', 1700, 1770)];
+  // ti kandidater: fødsel passer, død modsiger; kandidat 99: ukendt fødsel, død passer.
+  const b = [...Array.from({ length: 10 }, (_, i) => fr(i + 1, 1700, 1800)), fr(99, null, 1770)];
+
+  test('evidensNormaliseret: kandidat 99 overlever beskæringen og får topscore', () => {
+    const cfg = { ...defaultCfg(), topK: 10, evidensNormaliseret: true };
+    const scored = buildScored(a, b, cfg);
+    expect(scored).toHaveLength(10);
+    expect(scored.map((p) => p.bId)).toContain(99);
+    const ranked = assignTiers(scored, cfg).sort((p, q) => (q.score ?? 0) - (p.score ?? 0));
+    expect(ranked[0].bId).toBe(99);
+    expect(near(ranked[0].score!, 1)).toBe(true);
+    expect(near(finalScore(ranked[0], cfg), ranked[0].score!)).toBe(true);
+  });
+
+  test('uden evidensNormaliseret: uændret vægtet-sum-beskæring (99 beskæres som før)', () => {
+    const cfg = { ...defaultCfg(), topK: 10 };
+    const scored = buildScored(a, b, cfg);
+    expect(scored).toHaveLength(10);
+    expect(scored.map((p) => p.bId)).not.toContain(99);
   });
 });
