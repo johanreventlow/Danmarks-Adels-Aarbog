@@ -96,8 +96,8 @@ test('person uden prosa viser fakta med bundet kilde', async ({ page }) => {
   await page.goto('/person/3');
   await expect(page.getByText('Fakta', { exact: true })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('1780', { exact: true })).toBeVisible();
-  await expect(page.getByText('bundet til bogens post')).toBeVisible();
   await expect(page.getByText('DAA 2012-14, s. 12 · II-3')).toBeVisible();
+  await expect(page.getByText('bundet til bogens post')).toHaveCount(0);
   const ids = (kald.facts[0] as { p_person_ids: unknown[] }).p_person_ids.map(String);
   expect(ids).toContain('3');
 });
