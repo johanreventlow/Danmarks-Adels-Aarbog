@@ -150,7 +150,9 @@ alle udgaver), hvis en række en dag får flere.
   (OCR-rettelser som 1073's). Er den valgte påstand en redaktørbeslutning uden udgavens egen kilde (392's »Conrad«
   med fritekst »DAA 1939« på en 2018-20-række), viser udgavens linje udgavens egen påstand (»Conrad de Reventlow ·
   DAA 2018-20, V-1«), og den anden udgaves form står som note efter §5.3. Redaktionens valg ses i personens navn
-  (overskrift, søgning, træ via `visning_*`), ikke som »redaktionen« i fakta-blokken. Ikke-valgte påstande fra
+  (overskrift, søgning, træ via `visning_*`) **uden nogen markering** — navnet står der bare; læseren får ikke at vide,
+at redaktionen har valgt, og ser ikke »redaktionen« i fakta-blokken. Normalt følger valget nyeste udgave; en
+redaktionel afvigelse er sjælden (projektejeren 2026-11-12). Ikke-valgte påstande fra
   udgaven vises fortsat som »andre udsagn«. Plan-Task 0 måler, hvilke af de 17 redaktørpåstande (§5.1) der falder i
   hver gruppe; tvivlstilfælde forelægges projektejeren.
 - **Sammenlægning inden for udgaven:** rækker fra flere personrækker i samme udgave med samme faktatype og ens værdi
