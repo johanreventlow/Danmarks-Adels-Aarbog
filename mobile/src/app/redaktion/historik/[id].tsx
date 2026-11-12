@@ -54,19 +54,19 @@ export default function HistorikSkaerm() {
   }, [pending, poster, startFortryd]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+    <View style={{ flex: 1, backgroundColor: Colors.surfaceGround }}>
       <TopBar title="Ændringshistorik" />
       {status === 'loading' ? <ActivityIndicator style={{ marginTop: 40 }} /> : null}
       {status === 'error' ? <Body color={Colors.danger} style={{ padding: 16 }}>{fejl}</Body> : null}
       {status === 'ready' ? (
         <ScrollView contentContainerStyle={{ paddingBottom: 28 }}>
           {poster.length === 0 ? (
-            <Body color={Colors.textMuted} style={{ padding: 16 }}>Ingen ændringer registreret.</Body>
+            <Body color={Colors.inkMuted} style={{ padding: 16 }}>Ingen ændringer registreret.</Body>
           ) : null}
           {poster.map((post) => (
             <View key={post.id} style={[styles.kort, post.reverteret && styles.kortReverteret]}>
               <Body size={14}>{post.resume}</Body>
-              <Mono size={11} color={Colors.textMuted} style={{ marginTop: 4 }}>
+              <Mono size={11} color={Colors.inkMuted} style={{ marginTop: 4 }}>
                 {post.hvem} · {post.hvornaar}
               </Mono>
               {!post.reverteret ? (
@@ -74,7 +74,7 @@ export default function HistorikSkaerm() {
                   <BtnLabel color={Colors.danger}>Fortryd</BtnLabel>
                 </Pressable>
               ) : (
-                <Mono size={10} color={Colors.textMuted} style={{ marginTop: 8 }}>Fortrudt</Mono>
+                <Mono size={10} color={Colors.inkMuted} style={{ marginTop: 8 }}>Fortrudt</Mono>
               )}
             </View>
           ))}
@@ -82,10 +82,10 @@ export default function HistorikSkaerm() {
           <View style={styles.doedeSektion}>
             <Serif size={18} style={{ marginBottom: 8 }}>Døde links ({doede.length})</Serif>
             {doede.length === 0 ? (
-              <Body size={13} color={Colors.textMuted}>Ingen.</Body>
+              <Body size={13} color={Colors.inkMuted}>Ingen.</Body>
             ) : (
               doede.map((d, i) => (
-                <Mono key={i} size={11} color={Colors.textMuted} style={{ marginBottom: 4 }}>
+                <Mono key={i} size={11} color={Colors.inkMuted} style={{ marginBottom: 4 }}>
                   {d.kilde} → {d.maalType}:{d.maalId}
                 </Mono>
               ))
@@ -105,7 +105,7 @@ export default function HistorikSkaerm() {
 
 const styles = StyleSheet.create({
   kort: {
-    backgroundColor: Colors.paperCard,
+    backgroundColor: Colors.surfaceRaised,
     marginHorizontal: 16,
     marginTop: 12,
     padding: 12,

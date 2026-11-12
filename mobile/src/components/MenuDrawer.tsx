@@ -55,7 +55,7 @@ export function MenuDrawer({ visible, onClose }: { visible: boolean; onClose: ()
       <Animated.View
         style={[{
           position: 'absolute', top: 0, bottom: 0, left: 0, width: DRAWER_W,
-          backgroundColor: Colors.paperBg, borderRightWidth: 1, borderRightColor: Border.light,
+          backgroundColor: Colors.surfaceGround, borderRightWidth: 1, borderRightColor: Border.light,
         }, drawerStyle]}>
         <ScrollView contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: insets.bottom + 20 }}>
           {/* Slægt-header */}
@@ -63,7 +63,7 @@ export function MenuDrawer({ visible, onClose }: { visible: boolean; onClose: ()
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 11 }}>
               <CrestRing letter="R" size={38} />
               <View>
-                <Kicker size={8} color={Colors.textMuted2}>Slægt</Kicker>
+                <Kicker size={8} color={Colors.inkMuted}>Slægt</Kicker>
                 <Serif size={22} style={{ lineHeight: 22 }}>Reventlow</Serif>
               </View>
             </View>
@@ -76,12 +76,12 @@ export function MenuDrawer({ visible, onClose }: { visible: boolean; onClose: ()
           <View style={{ paddingVertical: 8 }}>
             {NAV.map((n) => (
               <Pressable key={n.no} onPress={() => go(n.href)} style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 12, paddingHorizontal: 22 }}>
-                <Serif size={15} italic color={Colors.gold} style={{ width: 22, fontFamily: Fonts.serifItalic }}>{n.no}</Serif>
+                <Serif size={15} italic color={Colors.goldInk} style={{ width: 22, fontFamily: Fonts.serifItalic }}>{n.no}</Serif>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Serif size={19} style={{ lineHeight: 20 }}>{n.title}</Serif>
-                  <Body size={11} color={Colors.textSecondary2}>{n.sub}</Body>
+                  <Body size={11} color={Colors.inkMuted}>{n.sub}</Body>
                 </View>
-                <Serif size={16} color={Colors.textMuted2}>›</Serif>
+                <Serif size={16} color={Colors.inkMuted}>›</Serif>
               </Pressable>
             ))}
           </View>

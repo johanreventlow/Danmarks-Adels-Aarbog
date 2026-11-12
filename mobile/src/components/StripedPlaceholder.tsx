@@ -31,14 +31,14 @@ export function StripedPlaceholder({
       <Svg width="100%" height="100%" style={StyleSheet.absoluteFill}>
         <Defs>
           <Pattern id="stripe" width={18} height={18} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-            <Rect width={18} height={18} fill="#ece4d6" />
+            <Rect width={18} height={18} fill={Colors.surfaceSunken} />
             <Line x1={4.5} y1={0} x2={4.5} y2={18} stroke="#e2d8c8" strokeWidth={9} />
           </Pattern>
         </Defs>
         <Rect x={0} y={0} width="100%" height="100%" fill="url(#stripe)" rx={radius} />
       </Svg>
       {label ? (
-        <Mono size={8.5} color={Colors.textSecondary2} style={{ fontFamily: Fonts.mono }}>
+        <Mono size={8.5} color={Colors.inkMuted} style={{ fontFamily: Fonts.mono }}>
           {label}
         </Mono>
       ) : null}

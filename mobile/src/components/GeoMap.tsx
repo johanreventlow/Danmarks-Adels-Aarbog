@@ -34,7 +34,7 @@ function buildHtml(points: GeoPoint[], mode: 'mini' | 'explorer'): string {
   return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <script src="https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.js" integrity="${MAPLIBRE_JS_SRI}" crossorigin="anonymous"></script>
 <link href="https://unpkg.com/maplibre-gl@${MAPLIBRE_VERSION}/dist/maplibre-gl.css" integrity="${MAPLIBRE_CSS_SRI}" crossorigin="anonymous" rel="stylesheet" />
-<style>html,body,#map{margin:0;padding:0;height:100%;width:100%;background:${Colors.paperBg}}</style>
+<style>html,body,#map{margin:0;padding:0;height:100%;width:100%;background:${Colors.surfaceGround}}</style>
 </head><body><div id="map"></div><script>
   // escape </script>-breakout + linjeseparatorer i WebView-HTML (review 27 S1)
   const POINTS = ${JSON.stringify(points).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029')};
@@ -53,14 +53,14 @@ function buildHtml(points: GeoPoint[], mode: 'mini' | 'explorer'): string {
       cluster: true, clusterRadius: 50, clusterMaxZoom: 14,
     });
     map.addLayer({ id: 'clusters', type: 'circle', source: 'geo-points', filter: ['has','point_count'],
-      paint: { 'circle-color': '${Colors.bordeaux}', 'circle-opacity': 0.85,
+      paint: { 'circle-color': Colors.bordeaux, 'circle-opacity': 0.85,
         'circle-radius': ['step', ['get','point_count'], 14, 5, 18, 20, 24] } });
     map.addLayer({ id: 'cluster-count', type: 'symbol', source: 'geo-points', filter: ['has','point_count'],
       layout: { 'text-field': '{point_count_abbreviated}', 'text-size': 11 },
       paint: { 'text-color': '#fff' } });
     map.addLayer({ id: 'unclustered-point', type: 'circle', source: 'geo-points', filter: ['!',['has','point_count']],
-      paint: { 'circle-color': '${Colors.bordeaux}', 'circle-radius': 7,
-        'circle-stroke-width': 2, 'circle-stroke-color': '${Colors.paperBg}' } });
+      paint: { 'circle-color': Colors.bordeaux, 'circle-radius': 7,
+        'circle-stroke-width': 2, 'circle-stroke-color': Colors.surfaceGround } });
     map.on('click', 'clusters', (e) => {
       const f = e.features[0]; const id = f.properties.cluster_id;
       map.getSource('geo-points').getClusterExpansionZoom(id).then((zoom) => {
@@ -108,7 +108,7 @@ export function GeoMap({
         source={{ html }}
         onMessage={handleMessage}
         scrollEnabled={false}
-        style={{ backgroundColor: Colors.paperBg }}
+        style={{ backgroundColor: Colors.surfaceGround }}
       />
     </View>
   );
@@ -120,6 +120,6 @@ const styles = StyleSheet.create({
     borderRadius: Radius.card,
     overflow: 'hidden',
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(34,31,26,0.1)',
+    borderColor: Colors.line,
   },
 });

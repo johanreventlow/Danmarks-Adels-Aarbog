@@ -42,20 +42,20 @@ export function ForaeldrePaastandePanel({ personId, onChange, sammeSom, reloadKe
 
   return (
     <View style={{ marginTop: 12, borderWidth: 1, borderColor: omstridt ? Colors.bordeaux : Border.light,
-      borderRadius: Radius.card, padding: 12, backgroundColor: omstridt ? Colors.bordeauxFillLight : Colors.paperCard }}>
-      <Mono size={9} color={omstridt ? Colors.bordeaux : Colors.textMuted} style={{ letterSpacing: 1, marginBottom: 8 }}>
+      borderRadius: Radius.card, padding: 12, backgroundColor: omstridt ? Colors.bordeauxTint : Colors.surfaceRaised }}>
+      <Mono size={9} color={omstridt ? Colors.bordeaux : Colors.inkMuted} style={{ letterSpacing: 1, marginBottom: 8 }}>
         {omstridt ? 'FORÆLDREFAMILIE · KONKURRERENDE PÅSTANDE' : 'FORÆLDREFAMILIE'}
       </Mono>
       {(slot?.paastande ?? []).map((pp) => (
         <View key={pp.assertionId} style={{ paddingTop: 8, marginTop: 8, borderTopWidth: 1, borderTopColor: Border.light }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Mono size={9} color={Colors.textMuted} style={{ backgroundColor: Colors.paperBg, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 }}>{pp.udgave ?? 'redaktionel'}</Mono>
+            <Mono size={9} color={Colors.inkMuted} style={{ backgroundColor: Colors.surfaceGround, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 }}>{pp.udgave ?? 'redaktionel'}</Mono>
             <Body size={13} style={{ flex: 1 }}>
               {pp.foraeldre.map((f) => f.navn).join(' & ') || '(ukendt familie)'}
               {pp.valgt ? <Body size={13} color={Colors.bordeaux}>{'  ✓ valgt'}</Body> : null}
             </Body>
           </View>
-          {pp.side ? <Mono size={10} color={Colors.textMuted2} style={{ marginTop: 2 }}>{pp.side}</Mono> : null}
+          {pp.side ? <Mono size={10} color={Colors.inkMuted} style={{ marginTop: 2 }}>{pp.side}</Mono> : null}
           {pp.valgt ? null : (
             <Pressable onPress={() => vaelg(pp.assertionId)}
               style={{ alignSelf: 'flex-start', marginTop: 6, paddingVertical: 7, paddingHorizontal: 13, borderRadius: Radius.field, backgroundColor: Colors.bordeaux }}>
@@ -67,8 +67,8 @@ export function ForaeldrePaastandePanel({ personId, onChange, sammeSom, reloadKe
       {importable.map((r) => (
         <View key={r.fraId} style={{ paddingTop: 8, marginTop: 8, borderTopWidth: 1, borderTopColor: Border.light }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Mono size={9} color={Colors.gold} style={{ backgroundColor: Colors.paperBg, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 }}>{r.fam.udgave ?? 'anden udgave'}</Mono>
-            <Body size={13} color={Colors.textMuted} style={{ flex: 1 }}>{r.fam.foraeldre.map((f) => f.navn).join(' & ') || '(ukendt familie)'}</Body>
+            <Mono size={9} color={Colors.goldInk} style={{ backgroundColor: Colors.surfaceGround, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 }}>{r.fam.udgave ?? 'anden udgave'}</Mono>
+            <Body size={13} color={Colors.inkMuted} style={{ flex: 1 }}>{r.fam.foraeldre.map((f) => f.navn).join(' & ') || '(ukendt familie)'}</Body>
           </View>
           <Pressable onPress={() => importer(r.fam)}
             style={{ alignSelf: 'flex-start', marginTop: 6, paddingVertical: 7, paddingHorizontal: 13, borderRadius: Radius.field, borderWidth: 1, borderColor: Colors.bordeaux }}>
@@ -78,7 +78,7 @@ export function ForaeldrePaastandePanel({ personId, onChange, sammeSom, reloadKe
       ))}
       {omstridt ? (
         <View style={{ marginTop: 10 }}>
-          <Mono size={9} color={Colors.textMuted} style={{ marginBottom: 5 }}>TILLID VED VALG</Mono>
+          <Mono size={9} color={Colors.inkMuted} style={{ marginBottom: 5 }}>TILLID VED VALG</Mono>
           <KonfidensVaelger vaerdi={konfidens} onVael={setKonfidens} />
         </View>
       ) : null}

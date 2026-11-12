@@ -21,14 +21,14 @@ export function RelTilfoejSheet({ scratch, onClose, onGem }: {
         <TextInput
           style={editorStyles.addInput}
           placeholder="Rolle (valgfri)"
-          placeholderTextColor={Colors.textMuted2}
+          placeholderTextColor={Colors.inkMuted}
           value={rolle}
           onChangeText={setRolle}
         />
         <TextInput
           style={[editorStyles.addInput, { marginTop: 8 }]}
           placeholder="Periode (valgfri)"
-          placeholderTextColor={Colors.textMuted2}
+          placeholderTextColor={Colors.inkMuted}
           value={periode}
           onChangeText={setPeriode}
         />

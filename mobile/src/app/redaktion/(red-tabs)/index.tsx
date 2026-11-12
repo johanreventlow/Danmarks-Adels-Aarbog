@@ -31,28 +31,28 @@ export default function Dashboard() {
   }, [session]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+    <View style={{ flex: 1, backgroundColor: Colors.surfaceGround }}>
       <ScrollView contentContainerStyle={{ padding: 18 }}>
-        <Kicker color={Colors.gold}>DANMARKS ADELS AARBOG</Kicker>
+        <Kicker color={Colors.goldInk}>DANMARKS ADELS AARBOG</Kicker>
         <Serif size={34} style={{ marginBottom: 16 }}>Redaktion</Serif>
 
-        <View style={[styles.card, { backgroundColor: Colors.ink }]}>
+        <View style={[styles.card, { backgroundColor: Colors.surfaceInverse }]}>
           {session ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <InitialBadge name={session.user?.email ?? '?'} size={40} bg={Colors.bordeaux} color="#fff" />
               <View style={{ flex: 1 }}>
-                <Body color={Colors.paperBg}>{session.user?.email}</Body>
-                <Mono size={9} color={Colors.textMuted3}>{rolle.toUpperCase()}</Mono>
+                <Body color={Colors.inkOnInverse}>{session.user?.email}</Body>
+                <Mono size={9} color={Colors.inkMutedOnInverse}>{rolle.toUpperCase()}</Mono>
               </View>
             </View>
           ) : (
             <Pressable onPress={() => setLoginOpen(true)}>
-              <Serif size={18} color={Colors.paperBg}>Log ind for at redigere</Serif>
+              <Serif size={18} color={Colors.inkOnInverse}>Log ind for at redigere</Serif>
             </Pressable>
           )}
           <View style={styles.divider} />
           <View style={styles.rowBetween}>
-            <Mono size={11} color={dryRun ? Colors.textMuted3 : '#c0392b'}>
+            <Mono size={11} color={dryRun ? Colors.inkMutedOnInverse : Colors.live}>
               {dryRun ? 'Dry-run · skriver ikke' : 'LIVE · skriver til basen'}
             </Mono>
             <Switch value={dryRun} onValueChange={setDryRun} />
@@ -61,7 +61,7 @@ export default function Dashboard() {
 
         {session && konflikter.length ? (
           <>
-            <Mono size={9.5} color={Colors.textMuted} style={{ marginTop: 8, marginBottom: 6 }}>
+            <Mono size={9.5} color={Colors.inkMuted} style={{ marginTop: 8, marginBottom: 6 }}>
               TIL GENNEMSYN · {konflikter.length} UENIGE FELTER
             </Mono>
             {konflikter.map((k) => {
@@ -72,7 +72,7 @@ export default function Dashboard() {
                   <InitialBadge name={navn} size={32} />
                   <View style={{ flex: 1, marginLeft: 10 }}>
                     <Serif size={16}>{navn}</Serif>
-                    <Mono size={9} color={Colors.textMuted}>uenige kilder · {k.felt}</Mono>
+                    <Mono size={9} color={Colors.inkMuted}>uenige kilder · {k.felt}</Mono>
                   </View>
                 </Pressable>
               );
@@ -82,14 +82,14 @@ export default function Dashboard() {
 
         {session && konfliktFejl ? (
           <View style={styles.konfliktFejl}>
-            <Mono size={9.5} color={Colors.liveRoed} style={{ marginBottom: 4 }}>TIL GENNEMSYN · FEJL</Mono>
+            <Mono size={9.5} color={Colors.live} style={{ marginBottom: 4 }}>TIL GENNEMSYN · FEJL</Mono>
             <Mono size={11} color={Colors.danger}>
               Kunne ikke hente konflikt-køen. Tom kø her betyder IKKE “ingen konflikter” — prøv igen.
             </Mono>
           </View>
         ) : null}
 
-        <Mono size={9.5} color={Colors.textMuted} style={{ marginTop: 12, marginBottom: 6 }}>
+        <Mono size={9.5} color={Colors.inkMuted} style={{ marginTop: 12, marginBottom: 6 }}>
           ENTITETER I BASEN
         </Mono>
         <View style={styles.grid}>
@@ -115,11 +115,11 @@ const styles = StyleSheet.create({
   card: { borderRadius: Radius.card, padding: 16, marginBottom: 12 },
   divider: { height: 1, backgroundColor: 'rgba(244,239,230,0.14)', marginVertical: 12 },
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  konfliktRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f8ecef',
+  konfliktRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.bordeauxTint,
     borderWidth: 1, borderColor: 'rgba(136,26,51,0.2)', borderRadius: 13, padding: 12, marginBottom: 7 },
-  konfliktFejl: { backgroundColor: Colors.konfliktFlade, borderWidth: 1, borderColor: Colors.liveRoed,
+  konfliktFejl: { backgroundColor: Colors.dangerTint, borderWidth: 1, borderColor: Colors.live,
     borderRadius: 13, padding: 12, marginTop: 8, marginBottom: 7 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
-  cell: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
+  cell: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light,
     borderRadius: 13, padding: 14, minWidth: '47%' },
 });

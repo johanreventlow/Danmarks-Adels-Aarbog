@@ -44,11 +44,11 @@ export function LoginSheet({ visible, onClose }: { visible: boolean; onClose: ()
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(34,31,26,0.4)' },
-  sheet: { backgroundColor: Colors.paperBg, borderTopLeftRadius: Radius.sheet,
+  sheet: { backgroundColor: Colors.surfaceGround, borderTopLeftRadius: Radius.sheet,
     borderTopRightRadius: Radius.sheet, padding: 20, paddingBottom: 36 },
   handle: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2,
     backgroundColor: Border.medium, marginBottom: 14 },
-  input: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
+  input: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light,
     borderRadius: Radius.field, padding: 12, marginBottom: 10, fontFamily: Fonts.sans, fontSize: 15 },
   btn: { backgroundColor: Colors.bordeaux, borderRadius: Radius.field, padding: 14, alignItems: 'center' },
 });

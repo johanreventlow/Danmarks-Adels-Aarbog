@@ -118,13 +118,13 @@ export default function SammenlignUdgaver() {
       {status === 'error' ? <Body color={Colors.danger} style={{ padding: 24 }}>{fejl}</Body> : null}
       {status === 'ready' ? (
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
-          <Body size={13} color={Colors.textMuted} style={{ marginBottom: 8 }}>Ny udgave (matches mod resten af basen):</Body>
+          <Body size={13} color={Colors.inkMuted} style={{ marginBottom: 8 }}>Ny udgave (matches mod resten af basen):</Body>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 4 }}>
             {[...sources].sort((a, b) => (b.aar ?? 0) - (a.aar ?? 0)).map((src) => {
               const aktiv = src.id === nyKildeId;
               return (
                 <Pressable key={src.id} style={[s.chip, aktiv && s.chipAktiv]} onPress={() => setNyKildeId(src.id)}>
-                  <Mono size={12} color={aktiv ? '#fff' : Colors.textSecondary}>{kildeLabel(src)}</Mono>
+                  <Mono size={12} color={aktiv ? '#fff' : Colors.inkSecondary}>{kildeLabel(src)}</Mono>
                 </Pressable>
               );
             })}
@@ -133,7 +133,7 @@ export default function SammenlignUdgaver() {
           {fejl ? <Mono size={11} color={Colors.bordeaux} style={{ marginTop: 8 }}>{fejl}</Mono> : null}
 
           {f ? (
-            <Body size={13} color={Colors.textMuted} style={{ marginTop: 12 }}>
+            <Body size={13} color={Colors.inkMuted} style={{ marginTop: 12 }}>
               {f.afklaret} af {f.total} afklaret · {f.staerke} stærke · {f.gennemse} til gennemsyn · {f.formodetNye} formodet nye
             </Body>
           ) : null}
@@ -152,7 +152,7 @@ export default function SammenlignUdgaver() {
                         <Body size={13} color={Colors.bordeaux}>{k.tier === 'auto' ? '★ stærk' : 'gennemse'}</Body>
                         {'  '}{(k.score ?? 0).toFixed(3)} — {visning(b)}
                       </Body>
-                      <Mono size={11} color={Colors.textMuted} style={{ marginTop: 3 }}>
+                      <Mono size={11} color={Colors.inkMuted} style={{ marginTop: 3 }}>
                         navn {k.nameSim.toFixed(2)} · fødsel {k.birthOverlap ? '✓' : '—'} · død {k.deathOverlap ? '✓' : '—'} · køn {k.sexEq ? '✓' : '✗'}
                       </Mono>
                       <View style={s.knapper}>
@@ -172,14 +172,14 @@ export default function SammenlignUdgaver() {
           })}
 
           {aabne.length === 0 ? (
-            <Body color={Colors.textMuted} style={{ marginTop: 16 }}>Ingen åbne kandidater at gennemgå.</Body>
+            <Body color={Colors.inkMuted} style={{ marginTop: 16 }}>Ingen åbne kandidater at gennemgå.</Body>
           ) : null}
 
           {formodetNye.length > 0 ? (
             <View style={s.nyeSektion}>
               <Serif size={15} style={{ marginBottom: 6 }}>{formodetNye.length} formodet nye — ingen handling nødvendig</Serif>
               {formodetNye.map((p) => (
-                <Mono key={p.aId} size={11} color={Colors.textMuted} style={{ marginBottom: 3 }}>{visning(byId.get(p.aId))}</Mono>
+                <Mono key={p.aId} size={11} color={Colors.inkMuted} style={{ marginBottom: 3 }}>{visning(byId.get(p.aId))}</Mono>
               ))}
             </View>
           ) : null}
@@ -196,11 +196,11 @@ export default function SammenlignUdgaver() {
 }
 
 const s = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: Colors.paperBg },
-  chip: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
+  wrap: { flex: 1, backgroundColor: Colors.surfaceGround },
+  chip: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light,
     borderRadius: Radius.chip, paddingVertical: 7, paddingHorizontal: 12 },
   chipAktiv: { backgroundColor: Colors.bordeaux, borderColor: Colors.bordeaux },
-  kort: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
+  kort: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light,
     borderRadius: Radius.card, padding: 14, marginTop: 12 },
   kand: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: Border.light },
   knapper: { flexDirection: 'row', gap: 8, marginTop: 8 },

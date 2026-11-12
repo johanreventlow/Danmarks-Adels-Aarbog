@@ -15,7 +15,7 @@ export function MediaGallery({ media, mediaUris, mediaThumbUris = {}, onVaelg, o
   onGenopret: (m: PersonMedia) => void;
 }) {
   if (!media.length) {
-    return <Mono size={9} color={Colors.textMuted2} style={{ marginBottom: 8 }}>— intet materiale endnu</Mono>;
+    return <Mono size={9} color={Colors.inkMuted} style={{ marginBottom: 8 }}>— intet materiale endnu</Mono>;
   }
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 9, marginBottom: 10 }}>
@@ -28,20 +28,20 @@ export function MediaGallery({ media, mediaUris, mediaThumbUris = {}, onVaelg, o
                 style={[styles.mediaThumb, m.uploadStatus === 'fjernet' && styles.fjernet]} contentFit="cover" />
             ) : (
               <View style={[styles.mediaThumb, styles.dokument, m.uploadStatus === 'fjernet' && styles.fjernet]}>
-                <Mono size={22} color={Colors.textMuted}>▤</Mono><Mono size={8} color={Colors.textMuted}>{m.slags || 'dokument'}</Mono>
+                <Mono size={22} color={Colors.inkMuted}>▤</Mono><Mono size={8} color={Colors.inkMuted}>{m.slags || 'dokument'}</Mono>
               </View>
             )}
           </Pressable>
-          <Mono size={8} color={Colors.textMuted} numberOfLines={1} style={{ marginTop: 3 }}>
+          <Mono size={8} color={Colors.inkMuted} numberOfLines={1} style={{ marginTop: 3 }}>
             {m.slags}{m.uploadStatus !== 'klar' ? ` · ${m.uploadStatus}` : ''}
             {m.maaPubliceres ? '' : ' · ej publiceret'}
           </Mono>
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 3 }}>
             {m.uploadStatus === 'fjernet' ? (
-              <Pressable onPress={() => onGenopret(m)}><Mono size={8} color={Colors.konklusionGroen}>Genopret</Mono></Pressable>
+              <Pressable onPress={() => onGenopret(m)}><Mono size={8} color={Colors.success}>Genopret</Mono></Pressable>
             ) : <>
               <Pressable disabled={!m.relationId} onPress={() => onFjern(m)}>
-                <Mono size={8} color={m.relationId ? Colors.textSecondary2 : Colors.textMuted3}>Fjern</Mono>
+                <Mono size={8} color={m.relationId ? Colors.inkMuted : Colors.inkMuted}>Fjern</Mono>
               </Pressable>
             </>}
           </View>
@@ -52,7 +52,7 @@ export function MediaGallery({ media, mediaUris, mediaThumbUris = {}, onVaelg, o
 }
 
 const styles = StyleSheet.create({
-  mediaThumb: { width: 96, height: 96, borderRadius: 10, backgroundColor: Colors.beige2 },
+  mediaThumb: { width: 96, height: 96, borderRadius: 10, backgroundColor: Colors.surfaceSunken },
   dokument: { alignItems: 'center', justifyContent: 'center', gap: 3 },
   fjernet: { opacity: 0.45 },
 });

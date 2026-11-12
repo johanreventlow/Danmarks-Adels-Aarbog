@@ -288,13 +288,13 @@ export default function PersonEditor() {
   const datoeFor = (pid: string) => ({ foedsel: redaktionModel?.byId?.[pid]?.born ?? null, doed: redaktionModel?.byId?.[pid]?.died ?? null });
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+    <View style={{ flex: 1, backgroundColor: Colors.surfaceGround }}>
       <TopBar title={person.name} />
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         <View style={{ alignItems: 'center', marginBottom: 16 }}>
-          <InitialBadge name={person.name} size={56} bg="#f8ecef" />
+          <InitialBadge name={person.name} size={56} bg={Colors.bordeauxTint} />
           <Serif size={25} style={{ marginTop: 8 }}>{person.name}</Serif>
-          <Mono size={9} color={Colors.textMuted}>id {String(person.id)} · {ev?.koen ?? '—'}</Mono>
+          <Mono size={9} color={Colors.inkMuted}>id {String(person.id)} · {ev?.koen ?? '—'}</Mono>
           <Pressable onPress={() => router.push(`/redaktion/historik/${id}` as never)} style={{ marginTop: 6 }}>
             <BtnLabel size={12.5} color={Colors.bordeaux}>📜 Historik</BtnLabel>
           </Pressable>
@@ -304,16 +304,16 @@ export default function PersonEditor() {
             slå LIVE til lige hvor man skriver (in-app-nav til personer = plan 2). */}
         <View style={[editorStyles.skrivemode, dryRun ? editorStyles.skrivemodeDry : editorStyles.skrivemodeLive]}>
           <View style={{ flex: 1 }}>
-            <Mono size={8} color={Colors.textMuted}>SKRIVEMODE (HELE SESSIONEN)</Mono>
-            <Mono size={11} color={dryRun ? Colors.textSecondary2 : Colors.liveRoed}>
+            <Mono size={8} color={Colors.inkMuted}>SKRIVEMODE (HELE SESSIONEN)</Mono>
+            <Mono size={11} color={dryRun ? Colors.inkMuted : Colors.live}>
               {dryRun ? 'Dry-run · skriver ikke' : 'LIVE · skriver til basen'}
             </Mono>
           </View>
           <Switch
             value={dryRun}
             onValueChange={setDryRun}
-            thumbColor={dryRun ? Colors.textMuted2 : Colors.liveRoed}
-            trackColor={{ false: Colors.konfliktFlade, true: Colors.beige3 }}
+            thumbColor={dryRun ? Colors.inkMuted : Colors.live}
+            trackColor={{ false: Colors.dangerTint, true: Colors.surfaceSunken }}
           />
         </View>
 
@@ -332,8 +332,8 @@ export default function PersonEditor() {
                   payload: { privat: nyVaerdi },
                 });
               }}
-              thumbColor={privat ? Colors.bordeaux : Colors.textMuted2}
-              trackColor={{ false: Colors.beige3, true: Colors.bordeauxFillLight2 }}
+              thumbColor={privat ? Colors.bordeaux : Colors.inkMuted}
+              trackColor={{ false: Colors.surfaceSunken, true: Colors.bordeauxFillLight2 }}
             />
           </View>
           <Pressable
@@ -345,8 +345,8 @@ export default function PersonEditor() {
         </View>
 
         {/* "Forældre ukendt"-markering (docs/reviews/25): kilden forbinder ikke opad → kandidat-kolonne. */}
-        <View style={{ marginBottom: 12, borderWidth: 1, borderColor: markering ? Colors.bordeauxFillLight2 : Border.light, borderRadius: Radius.card, padding: 12, backgroundColor: markering ? '#faf1dc' : Colors.paperCard }}>
-          <Mono size={9} color={Colors.gold} style={{ marginBottom: 8, letterSpacing: 9 * 0.12, textTransform: 'uppercase' }}>Forældre ukendt — kilden forbinder ikke opad</Mono>
+        <View style={{ marginBottom: 12, borderWidth: 1, borderColor: markering ? Colors.bordeauxFillLight2 : Border.light, borderRadius: Radius.card, padding: 12, backgroundColor: markering ? '#faf1dc' : Colors.surfaceRaised }}>
+          <Mono size={9} color={Colors.goldInk} style={{ marginBottom: 8, letterSpacing: 9 * 0.12, textTransform: 'uppercase' }}>Forældre ukendt — kilden forbinder ikke opad</Mono>
           {markering ? (
             <Body size={12.5} style={{ marginBottom: 8, lineHeight: 17 }}>
               Markeret: {markering.grade === GRADE_FORAELDER_UKENDT ? 'forælder findes, men ukendt' : 'ingen forbindelse angivet'}{markering.kilde ? ` · kilde: ${markering.kilde}` : ''}.
@@ -354,17 +354,17 @@ export default function PersonEditor() {
           ) : null}
           <View style={{ flexDirection: 'row', gap: 6, marginBottom: 8 }}>
             {[GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE].map((g) => (
-              <Pressable key={g} onPress={() => setMarkGrade(g)} style={{ flex: 1, paddingVertical: 7, borderRadius: Radius.field, borderWidth: 1.5, borderColor: markGrade === g ? Colors.bordeaux : Border.light, backgroundColor: markGrade === g ? Colors.bordeauxFillLight2 : Colors.paperCard, alignItems: 'center' }}>
-                <Mono size={9} color={markGrade === g ? Colors.bordeaux : Colors.textMuted}>{g === GRADE_FORAELDER_UKENDT ? 'FORÆLDER UKENDT' : 'INGEN FORBINDELSE'}</Mono>
+              <Pressable key={g} onPress={() => setMarkGrade(g)} style={{ flex: 1, paddingVertical: 7, borderRadius: Radius.field, borderWidth: 1.5, borderColor: markGrade === g ? Colors.bordeaux : Border.light, backgroundColor: markGrade === g ? Colors.bordeauxFillLight2 : Colors.surfaceRaised, alignItems: 'center' }}>
+                <Mono size={9} color={markGrade === g ? Colors.bordeaux : Colors.inkMuted}>{g === GRADE_FORAELDER_UKENDT ? 'FORÆLDER UKENDT' : 'INGEN FORBINDELSE'}</Mono>
               </Pressable>
             ))}
           </View>
-          <TextInput value={markKilde} onChangeText={setMarkKilde} placeholder="Kilde (fx DAA 1939 s.97)" placeholderTextColor={Colors.textMuted2}
-            style={{ fontSize: 13, paddingHorizontal: 10, paddingVertical: 8, borderRadius: Radius.field, borderWidth: 1, borderColor: Border.light, backgroundColor: Colors.paperCard, color: Colors.ink, marginBottom: 8 }} />
+          <TextInput value={markKilde} onChangeText={setMarkKilde} placeholder="Kilde (fx DAA 1939 s.97)" placeholderTextColor={Colors.inkMuted}
+            style={{ fontSize: 13, paddingHorizontal: 10, paddingVertical: 8, borderRadius: Radius.field, borderWidth: 1, borderColor: Border.light, backgroundColor: Colors.surfaceRaised, color: Colors.ink, marginBottom: 8 }} />
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <Pressable onPress={() => setPending({ art: 'markerForaeldreUkendt', subjektType: 'person', subjektId: id!, vaerdi: markGrade, kildeFritekst: markKilde.trim() || undefined })}
               style={{ flex: 1, paddingVertical: 9, borderRadius: Radius.field, backgroundColor: Colors.bordeaux, alignItems: 'center' }}>
-              <BtnLabel color={Colors.paperCard}>{markering ? 'Opdatér markering' : 'Markér'}</BtnLabel>
+              <BtnLabel color={Colors.inkOnInverse}>{markering ? 'Opdatér markering' : 'Markér'}</BtnLabel>
             </Pressable>
             {markering ? (
               <Pressable onPress={() => setPending({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: id!, factId: String(markering.factId) })}
@@ -386,11 +386,11 @@ export default function PersonEditor() {
           const facts = ev?.felter[felt] ?? [];
           return (
             <View key={felt} style={{ marginBottom: 6 }}>
-              <Mono size={9} color={Colors.gold} style={{ marginTop: 6, marginBottom: 4 }}>
+              <Mono size={9} color={Colors.goldInk} style={{ marginTop: 6, marginBottom: 4 }}>
                 {(FELT_LABEL[felt] ?? felt).toUpperCase()}
               </Mono>
               {facts.length === 0 ? (
-                <Mono size={9} color={Colors.textMuted2} style={{ marginBottom: 8 }}>— ingen oplysninger</Mono>
+                <Mono size={9} color={Colors.inkMuted} style={{ marginBottom: 8 }}>— ingen oplysninger</Mono>
               ) : (
                 facts.map((fe) => (
                   <FaktaKort key={fe.factId} felt={felt} evidens={fe} hideFeltLabel onAction={onAction} />
@@ -402,7 +402,7 @@ export default function PersonEditor() {
                   <TextInput
                     style={personEditorSheetStyles.addInput}
                     placeholder={`Ny ${FELT_LABEL[felt] ?? felt}…`}
-                    placeholderTextColor={Colors.textMuted2}
+                    placeholderTextColor={Colors.inkMuted}
                     value={addScratch.vaerdi}
                     onChangeText={(v) => setAddScratch((s) => ({ ...s, vaerdi: v }))}
                     autoFocus
@@ -410,7 +410,7 @@ export default function PersonEditor() {
                   <TextInput
                     style={personEditorSheetStyles.addInput}
                     placeholder="Kilde (valgfri)"
-                    placeholderTextColor={Colors.textMuted2}
+                    placeholderTextColor={Colors.inkMuted}
                     value={addScratch.kilde}
                     onChangeText={(v) => setAddScratch((s) => ({ ...s, kilde: v }))}
                   />
@@ -427,7 +427,7 @@ export default function PersonEditor() {
                       <BtnLabel color="#fff">Opret</BtnLabel>
                     </Pressable>
                     <Pressable style={personEditorSheetStyles.addAnnuller} onPress={() => setAddFelt(null)}>
-                      <BtnLabel color={Colors.textMuted}>Annullér</BtnLabel>
+                      <BtnLabel color={Colors.inkMuted}>Annullér</BtnLabel>
                     </Pressable>
                   </View>
                 </View>
@@ -445,7 +445,7 @@ export default function PersonEditor() {
 
         {/* Køn (redigerbart — arbejdsværdi, ikke et fact) */}
         <View style={{ marginBottom: 6 }}>
-          <Mono size={9} color={Colors.gold} style={{ marginTop: 6, marginBottom: 4 }}>KØN</Mono>
+          <Mono size={9} color={Colors.goldInk} style={{ marginTop: 6, marginBottom: 4 }}>KØN</Mono>
           <View style={{ flexDirection: 'row', gap: 8 }}>
             {(['mand', 'kvinde', 'ukendt'] as const).map((k) => {
               const aktiv = (ev?.koen ?? 'ukendt') === k;
@@ -453,7 +453,7 @@ export default function PersonEditor() {
                 <Pressable key={k}
                   style={[personEditorSheetStyles.koenPille, aktiv && personEditorSheetStyles.koenPilleAktiv]}
                   onPress={() => setPending({ art: 'fakta', subjektType: 'person', subjektId: id!, felt: 'koen', vaerdi: k })}>
-                  <BtnLabel size={12} color={aktiv ? '#fff' : Colors.textSecondary2}>{k}</BtnLabel>
+                  <BtnLabel size={12} color={aktiv ? '#fff' : Colors.inkMuted}>{k}</BtnLabel>
                 </Pressable>
               );
             })}
@@ -474,11 +474,11 @@ export default function PersonEditor() {
           }} />
 
         <View style={editorStyles.narrativSektion}>
-          <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 7 }}>MINIHISTORIER · ALLE STATUSSER</Mono>
+          <Mono size={10} color={Colors.inkMuted} style={{ marginBottom: 7 }}>MINIHISTORIER · ALLE STATUSSER</Mono>
           {stories.map((story) => (
             <View key={story.id} style={editorStyles.storyCard}>
               <Serif size={17}>{story.titel || 'Historie uden titel'}</Serif>
-              <Body size={13} color={Colors.textSecondary} style={{ marginTop: 3 }}>{story.tekst}</Body>
+              <Body size={13} color={Colors.inkSecondary} style={{ marginTop: 3 }}>{story.tekst}</Body>
               <View style={editorStyles.storyStatusRow}>
                 {(['kladde', 'klar', 'publiceret', 'arkiveret'] as const).map((status) => {
                   const aktiv = story.status === status;
@@ -486,7 +486,7 @@ export default function PersonEditor() {
                     style={[personEditorSheetStyles.koenPille, aktiv && personEditorSheetStyles.koenPilleAktiv]}
                     onPress={() => setPending({ art: 'setStoryStatus', subjektType: 'person', subjektId: id!,
                       storyId: story.id, storyStatus: status })}>
-                    <BtnLabel size={9} color={aktiv ? '#fff' : Colors.textSecondary2}>{status}</BtnLabel>
+                    <BtnLabel size={9} color={aktiv ? '#fff' : Colors.inkMuted}>{status}</BtnLabel>
                   </Pressable>;
                 })}
                 <Pressable style={editorStyles.storyEditButton} onPress={() => setStoryEditor({
@@ -500,14 +500,14 @@ export default function PersonEditor() {
               </View>
             </View>
           ))}
-          {!stories.length ? <Mono size={9} color={Colors.textMuted}>Ingen historier endnu.</Mono> : null}
+          {!stories.length ? <Mono size={9} color={Colors.inkMuted}>Ingen historier endnu.</Mono> : null}
         </View>
 
         <NarrativEditor subjektType="person" subjektId={id!} media={media} mediaThumbUris={mediaThumbUris} />
 
         {/* Materiale (mediehåndtering Slice 0g+0h) */}
         <View style={editorStyles.narrativSektion}>
-          <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 6 }}>Materiale</Mono>
+          <Mono size={10} color={Colors.inkMuted} style={{ marginBottom: 6 }}>Materiale</Mono>
           <MediaGallery
             media={media}
             mediaUris={mediaUris}
@@ -536,14 +536,14 @@ export default function PersonEditor() {
               {/* ÆGTEFÆLLER + BØRN (redigerbart, pr. union) */}
               {familie.somPartner.map((u) => (
                 <View key={u.familyId}>
-                  <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>ÆGTEFÆLLE ({u.type})</Mono>
+                  <Mono size={9} color={Colors.goldInk} style={editorStyles.relLabel}>ÆGTEFÆLLE ({u.type})</Mono>
                   {u.partnere.map((pt) => (
                     <FamilieEditRad key={pt.personId} label={pt.navn} aar={pt.aar} konfidens={pt.konfidens}
                       onOpen={() => router.push(`/redaktion/person/${pt.personId}` as never)}
                       onKonfidens={(k) => setPending({ art: 'setFamilieKonfidens', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: pt.personId, rolle: 'partner', konfidens: k })}
                       onSlet={() => setPending({ art: 'sletFamilieLink', subjektType: 'person', subjektId: id!, familyId: u.familyId, personId: pt.personId, rolle: 'partner' })} />
                   ))}
-                  <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>BØRN</Mono>
+                  <Mono size={9} color={Colors.goldInk} style={editorStyles.relLabel}>BØRN</Mono>
                   {u.boern.map((b, i) => {
                     const opOrdinal = nudgeOrdinal(u.boern, i, 'op');
                     const nedOrdinal = nudgeOrdinal(u.boern, i, 'ned');
@@ -569,7 +569,7 @@ export default function PersonEditor() {
               {/* FORÆLDRE (somBarn) — forældre read-only; konfidens+slet redigerbart */}
               {familie.somBarn.map((sb) => (
                 <View key={sb.familyId}>
-                  <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>FORÆLDRE{sb.rolle !== 'barn' ? ` · ${sb.rolle}` : ''}</Mono>
+                  <Mono size={9} color={Colors.goldInk} style={editorStyles.relLabel}>FORÆLDRE{sb.rolle !== 'barn' ? ` · ${sb.rolle}` : ''}</Mono>
                   {sb.foraeldre.map((f) => <PersonRad key={f.personId} pid={f.personId} navn={f.navn} />)}
                   <View style={personEditorSheetStyles.relEditRad}>
                     <KonfidensVaelger vaerdi={sb.konfidens}
@@ -585,12 +585,12 @@ export default function PersonEditor() {
               ))}
 
               {/* HVERV (redigerbart) */}
-              <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>HVERV</Mono>
+              <Mono size={9} color={Colors.goldInk} style={editorStyles.relLabel}>HVERV</Mono>
               {relationer.filter((r) => r.art === 'hverv' || r.art === 'event').map((r) => (
                 <View key={r.relationId} style={personEditorSheetStyles.relEditRad}>
                   <View style={{ flex: 1 }}>
                     <Body size={13}>{r.navn}{r.rolle ? ` · ${r.rolle}` : ''}</Body>
-                    {r.periode ? <Mono size={9} color={Colors.textMuted}>{r.periode}</Mono> : null}
+                    {r.periode ? <Mono size={9} color={Colors.inkMuted}>{r.periode}</Mono> : null}
                   </View>
                   {/* Kun hverv (organisation) er redigerbart; historical_event vises read-only
                       (cycle 06 NEW1 — undgå utilsigtet sletning af event-evidens uden for scope). */}
@@ -606,12 +606,12 @@ export default function PersonEditor() {
               </Pressable>
 
               {/* GODSER (redigerbart) */}
-              <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>GODSER</Mono>
+              <Mono size={9} color={Colors.goldInk} style={editorStyles.relLabel}>GODSER</Mono>
               {relationer.filter((r) => r.art === 'gods').map((r) => (
                 <View key={r.relationId} style={personEditorSheetStyles.relEditRad}>
                   <View style={{ flex: 1 }}>
                     <Body size={13}>{r.navn}{r.rolle ? ` · ${r.rolle}` : ''}</Body>
-                    {r.periode ? <Mono size={9} color={Colors.textMuted}>{r.periode}</Mono> : null}
+                    {r.periode ? <Mono size={9} color={Colors.inkMuted}>{r.periode}</Mono> : null}
                   </View>
                   <Pressable onPress={() => setPending({ art: 'sletRelation', subjektType: 'person', subjektId: id!, relationId: String(r.relationId) })}>
                     <Mono size={9} color={Colors.danger}>🗑</Mono>
@@ -623,12 +623,12 @@ export default function PersonEditor() {
               </Pressable>
 
               {/* SAMME PERSON (identitets-links) */}
-              <Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>SAMME PERSON</Mono>
+              <Mono size={9} color={Colors.goldInk} style={editorStyles.relLabel}>SAMME PERSON</Mono>
               {sammeSom.map((l) => (
                 <View key={l.relationId} style={personEditorSheetStyles.relEditRad}>
                   <View style={{ flex: 1 }}>
                     <Body size={13}>{redaktionModel?.byId?.[l.modpartId]?.name ?? `#${l.modpartId}`}</Body>
-                    <Mono size={9} color={Colors.textMuted}>{l.retning === 'alias' ? 'denne foldes ind i' : 'foldes ind i denne'}</Mono>
+                    <Mono size={9} color={Colors.inkMuted}>{l.retning === 'alias' ? 'denne foldes ind i' : 'foldes ind i denne'}</Mono>
                   </View>
                   <Pressable onPress={() => setPending({ art: 'fjernSammeSom', subjektType: 'person', subjektId: id!, relationId: l.relationId })}>
                     <Mono size={9} color={Colors.danger}>🗑</Mono>
@@ -639,8 +639,8 @@ export default function PersonEditor() {
                 <Mono size={9} color={Colors.bordeaux}>+ Marker som samme person</Mono>
               </Pressable>
 
-              {kld.length ? (<><Mono size={9} color={Colors.gold} style={editorStyles.relLabel}>KILDER</Mono>
-                {kld.map((s, i) => <View key={i} style={editorStyles.sekRad}><Body size={13}>{s.work}</Body><Mono size={9} color={Colors.textMuted}>{s.ref}</Mono></View>)}</>) : null}
+              {kld.length ? (<><Mono size={9} color={Colors.goldInk} style={editorStyles.relLabel}>KILDER</Mono>
+                {kld.map((s, i) => <View key={i} style={editorStyles.sekRad}><Body size={13}>{s.work}</Body><Mono size={9} color={Colors.inkMuted}>{s.ref}</Mono></View>)}</>) : null}
             </View>
           );
         })() : null}
@@ -846,19 +846,19 @@ function StoryEditorSheet({ draft, sources, onChange, onClose, onGem }: {
         <View style={storySheetStyles.sheet}>
           <View style={storySheetStyles.header}>
             <Serif size={21}>{draft.storyId == null ? 'Ny minihistorie' : `Redigér historie #${draft.storyId}`}</Serif>
-            <Pressable onPress={onClose}><BtnLabel color={Colors.textMuted}>Luk</BtnLabel></Pressable>
+            <Pressable onPress={onClose}><BtnLabel color={Colors.inkMuted}>Luk</BtnLabel></Pressable>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled">
             <TextInput style={storySheetStyles.input} value={draft.titel} placeholder="Titel (valgfri)"
-              placeholderTextColor={Colors.textMuted2} onChangeText={(titel) => onChange({ ...draft, titel })} />
+              placeholderTextColor={Colors.inkMuted} onChangeText={(titel) => onChange({ ...draft, titel })} />
             <TextInput style={[storySheetStyles.input, storySheetStyles.textarea]} value={draft.tekst}
-              placeholder="Omskriv til cirka 40–90 ord" placeholderTextColor={Colors.textMuted2}
+              placeholder="Omskriv til cirka 40–90 ord" placeholderTextColor={Colors.inkMuted}
               multiline textAlignVertical="top" onChangeText={(tekst) => onChange({ ...draft, tekst })} />
-            <Mono size={8.5} color={Colors.textMuted}>{ord} ord · vejledende norm 40–90</Mono>
+            <Mono size={8.5} color={Colors.inkMuted}>{ord} ord · vejledende norm 40–90</Mono>
             <View style={storySheetStyles.datoGrid}>
               {([['dateMin', 'Dato min'], ['dateMax', 'Dato max'], ['dateQualifier', 'Kvalifikator'], ['dateRaw', 'Dato som skrevet']] as const).map(([key, label]) => (
                 <TextInput key={key} style={[storySheetStyles.input, storySheetStyles.datoInput]}
-                  value={draft[key]} placeholder={label} placeholderTextColor={Colors.textMuted2}
+                  value={draft[key]} placeholder={label} placeholderTextColor={Colors.inkMuted}
                   onChangeText={(value) => onChange({ ...draft, [key]: value })} />
               ))}
             </View>
@@ -867,7 +867,7 @@ function StoryEditorSheet({ draft, sources, onChange, onClose, onGem }: {
               <Switch value={draft.privat} onValueChange={(privat) => onChange({ ...draft, privat })}
                 trackColor={{ false: Border.light, true: Colors.bordeaux }} />
             </View>
-            <Mono size={9} color={Colors.gold} style={{ marginTop: 10 }}>KILDER</Mono>
+            <Mono size={9} color={Colors.goldInk} style={{ marginTop: 10 }}>KILDER</Mono>
             {draft.kilder.map((k, index) => (
               <View key={`${k.sourceId}-${index}`} style={storySheetStyles.kildeCard}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 5 }}>
@@ -875,12 +875,12 @@ function StoryEditorSheet({ draft, sources, onChange, onClose, onGem }: {
                     const aktiv = Number(source.id) === k.sourceId;
                     return <Pressable key={source.id} onPress={() => setKilde(index, { sourceId: Number(source.id) })}
                       style={[storySheetStyles.sourcePill, aktiv && storySheetStyles.sourcePillActive]}>
-                      <BtnLabel size={9} color={aktiv ? '#fff' : Colors.textSecondary2}>{source.titel || source.udgave || `#${source.id}`}</BtnLabel>
+                      <BtnLabel size={9} color={aktiv ? '#fff' : Colors.inkMuted}>{source.titel || source.udgave || `#${source.id}`}</BtnLabel>
                     </Pressable>;
                   })}
                 </ScrollView>
                 <TextInput style={storySheetStyles.input} value={k.side} placeholder="Side"
-                  placeholderTextColor={Colors.textMuted2} onChangeText={(side) => setKilde(index, { side })} />
+                  placeholderTextColor={Colors.inkMuted} onChangeText={(side) => setKilde(index, { side })} />
                 <Pressable onPress={() => onChange({ ...draft, kilder: draft.kilder.filter((_, i) => i !== index) })}>
                   <BtnLabel size={10} color={Colors.bordeaux}>Fjern kilde</BtnLabel>
                 </Pressable>
@@ -902,11 +902,11 @@ function StoryEditorSheet({ draft, sources, onChange, onClose, onGem }: {
 
 const storySheetStyles = StyleSheet.create({
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(34,31,26,0.4)' },
-  sheet: { maxHeight: '88%', backgroundColor: Colors.paperBg, borderTopLeftRadius: Radius.sheet,
+  sheet: { maxHeight: '88%', backgroundColor: Colors.surfaceGround, borderTopLeftRadius: Radius.sheet,
     borderTopRightRadius: Radius.sheet, borderWidth: 1, borderColor: Border.light, padding: 18, paddingBottom: 34 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   input: { borderWidth: 1, borderColor: Border.light, borderRadius: Radius.field,
-    backgroundColor: Colors.paperCard, color: Colors.ink, paddingHorizontal: 10, paddingVertical: 9, marginBottom: 7 },
+    backgroundColor: Colors.surfaceRaised, color: Colors.ink, paddingHorizontal: 10, paddingVertical: 9, marginBottom: 7 },
   textarea: { minHeight: 116 },
   datoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 9 },
   datoInput: { width: '48%', marginBottom: 0 },
@@ -947,12 +947,12 @@ const editorStyles = StyleSheet.create({
     borderTopColor: Border.light,
   },
   storyStatusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8, alignItems: 'center' },
-  storyCard: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
+  storyCard: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light,
     borderRadius: Radius.card, padding: 11, marginBottom: 8 },
   storyEditButton: { borderWidth: 1, borderColor: Colors.bordeaux, borderRadius: Radius.field,
     paddingHorizontal: 9, paddingVertical: 5 },
   addForm: {
-    backgroundColor: Colors.paperCard,
+    backgroundColor: Colors.surfaceRaised,
     borderWidth: 1,
     borderColor: Border.light,
     borderRadius: Radius.field,
@@ -970,12 +970,12 @@ const editorStyles = StyleSheet.create({
     marginBottom: 14,
   },
   skrivemodeDry: {
-    backgroundColor: Colors.paperCard,
+    backgroundColor: Colors.surfaceRaised,
     borderColor: Border.light,
   },
   skrivemodeLive: {
-    backgroundColor: Colors.konfliktFlade,
-    borderColor: Colors.liveRoed,
+    backgroundColor: Colors.dangerTint,
+    borderColor: Colors.live,
   },
   relSektion: {
     marginTop: 16,

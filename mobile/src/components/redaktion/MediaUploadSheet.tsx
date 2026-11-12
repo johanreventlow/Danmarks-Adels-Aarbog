@@ -106,17 +106,17 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
             ? <Image source={{ uri: dedup.existing.thumbUrl }} style={styles.preview} contentFit="cover" />
             : picked ? <Image source={{ uri: picked.uri }} style={styles.preview} contentFit="cover" /> : null}
           <Pressable style={styles.addAnnuller} onPress={vaelg} disabled={busy}>
-            <BtnLabel color={Colors.textSecondary2}>{picked ? 'Vælg andet billede' : 'Vælg billede fra bibliotek'}</BtnLabel>
+            <BtnLabel color={Colors.inkMuted}>{picked ? 'Vælg andet billede' : 'Vælg billede fra bibliotek'}</BtnLabel>
           </Pressable>
           {fejl ? <Mono size={10} color={Colors.bordeaux} style={{ marginTop: 8 }}>{fejl}</Mono> : null}
-          {besked ? <Mono size={10} color={Colors.konklusionGroen} style={{ marginTop: 8 }}>{besked}</Mono> : null}
+          {besked ? <Mono size={10} color={Colors.success} style={{ marginTop: 8 }}>{besked}</Mono> : null}
           {dedup ? (() => {
             const decision = decideMediaDedup(dedup.existing, dedup.alreadyLinked);
             return <View style={styles.dedupBox}>
               <Serif size={18}>{decision.kind === 'klar-link' ? 'Billedet findes allerede'
                 : decision.kind === 'fjernet' ? 'Billedet ligger i papirkurven'
                   : decision.kind === 'kladde' ? 'Afbrudt upload fundet' : 'Eksisterende billede fundet'}</Serif>
-              <Body size={12} color={Colors.textSecondary2} style={{ marginTop: 4 }}>
+              <Body size={12} color={Colors.inkMuted} style={{ marginTop: 4 }}>
                 {dedup.existing.titel || '(uden titel)'} · #{dedup.existing.id}
               </Body>
               {decision.kind === 'klar-link' ? <>
@@ -145,30 +145,30 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
               </Body>}
               <Pressable style={[styles.addAnnuller, busy && styles.disabled]} disabled={busy}
                 onPress={() => { setDedup(null); setBesked(null); }}>
-                <BtnLabel color={Colors.textMuted}>Tilbage</BtnLabel>
+                <BtnLabel color={Colors.inkMuted}>Tilbage</BtnLabel>
               </Pressable>
             </View>;
           })() : picked ? <>
-            <Mono size={9} color={Colors.gold} style={{ marginTop: 14, marginBottom: 6 }}>SLAGS</Mono>
+            <Mono size={9} color={Colors.goldInk} style={{ marginTop: 14, marginBottom: 6 }}>SLAGS</Mono>
             <View style={styles.chips}>{MEDIA_SLAGS.map((s) => (
               <Pressable key={s} style={[styles.chip, slags === s && styles.chipAktiv]} onPress={() => setSlags(s)}>
-                <BtnLabel size={11} color={slags === s ? '#fff' : Colors.textSecondary2}>{s}</BtnLabel>
+                <BtnLabel size={11} color={slags === s ? '#fff' : Colors.inkMuted}>{s}</BtnLabel>
               </Pressable>
             ))}</View>
-            <TextInput style={styles.input} placeholder="Titel" placeholderTextColor={Colors.textMuted2} value={titel} onChangeText={setTitel} />
-            <TextInput style={styles.input} placeholder="Kunstner" placeholderTextColor={Colors.textMuted2} value={kunstner} onChangeText={setKunstner} />
-            <TextInput style={styles.input} placeholder="Datering" placeholderTextColor={Colors.textMuted2} value={datering} onChangeText={setDatering} />
-            <Mono size={9} color={Colors.gold} style={{ marginTop: 14, marginBottom: 6 }}>RETTIGHEDSSTATUS</Mono>
+            <TextInput style={styles.input} placeholder="Titel" placeholderTextColor={Colors.inkMuted} value={titel} onChangeText={setTitel} />
+            <TextInput style={styles.input} placeholder="Kunstner" placeholderTextColor={Colors.inkMuted} value={kunstner} onChangeText={setKunstner} />
+            <TextInput style={styles.input} placeholder="Datering" placeholderTextColor={Colors.inkMuted} value={datering} onChangeText={setDatering} />
+            <Mono size={9} color={Colors.goldInk} style={{ marginTop: 14, marginBottom: 6 }}>RETTIGHEDSSTATUS</Mono>
             <View style={styles.chips}>{RETTIGHED_STATUS.map((s) => (
               <Pressable key={s} style={[styles.chip, rettighederStatus === s && styles.chipAktiv]} onPress={() => setRettighederStatus(s)}>
-                <BtnLabel size={9.5} color={rettighederStatus === s ? '#fff' : Colors.textSecondary2}>{s}</BtnLabel>
+                <BtnLabel size={9.5} color={rettighederStatus === s ? '#fff' : Colors.inkMuted}>{s}</BtnLabel>
               </Pressable>
             ))}</View>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12 }}>
               <Body size={13} style={{ marginRight: 8, flex: 1 }}>Må publiceres (rettigheder afklaret)</Body>
               <Switch value={maaPubliceres} onValueChange={setMaaPubliceres}
-                thumbColor={maaPubliceres ? Colors.bordeaux : Colors.textMuted2}
-                trackColor={{ false: Colors.beige3, true: Colors.bordeauxFillLight2 }} />
+                thumbColor={maaPubliceres ? Colors.bordeaux : Colors.inkMuted}
+                trackColor={{ false: Colors.surfaceSunken, true: Colors.bordeauxFillLight2 }} />
             </View>
             <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
               <Pressable style={styles.addOpret} onPress={async () => {
@@ -197,7 +197,7 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
                 finally { setBusy(false); }
               }} disabled={busy}><BtnLabel color="#fff">{busy ? 'Behandler…' : 'Gem'}</BtnLabel></Pressable>
               <Pressable style={[styles.addAnnuller, busy && styles.disabled]} disabled={busy} onPress={onClose}>
-                <BtnLabel color={Colors.textMuted}>Annullér</BtnLabel>
+                <BtnLabel color={Colors.inkMuted}>Annullér</BtnLabel>
               </Pressable>
             </View>
           </> : null}
@@ -209,13 +209,13 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
 
 const styles = StyleSheet.create({
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(34,31,26,0.4)' },
-  modalSheet: { maxHeight: '92%', backgroundColor: Colors.paperBg, borderTopLeftRadius: Radius.sheet, borderTopRightRadius: Radius.sheet, borderTopWidth: 1, borderColor: Border.light },
+  modalSheet: { maxHeight: '92%', backgroundColor: Colors.surfaceGround, borderTopLeftRadius: Radius.sheet, borderTopRightRadius: Radius.sheet, borderTopWidth: 1, borderColor: Border.light },
   preview: { width: 120, height: 120, borderRadius: 10, marginBottom: 12, alignSelf: 'center' },
   chips: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
   chip: { borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.chip, paddingHorizontal: 12, paddingVertical: 6 },
   chipAktiv: { backgroundColor: Colors.bordeaux, borderColor: Colors.bordeaux },
   input: { backgroundColor: '#fff', borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.field, paddingHorizontal: 10, paddingVertical: 8, marginTop: 10, fontFamily: 'HankenGrotesk_400Regular', fontSize: 14, color: Colors.ink },
-  addOpret: { backgroundColor: Colors.konklusionGroen, borderRadius: Radius.field, paddingHorizontal: 16, paddingVertical: 8 },
+  addOpret: { backgroundColor: Colors.success, borderRadius: Radius.field, paddingHorizontal: 16, paddingVertical: 8 },
   addAnnuller: { borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.field, paddingHorizontal: 16, paddingVertical: 8, alignSelf: 'flex-start' },
   dedupBox: { borderWidth: 1, borderColor: Border.light, borderRadius: Radius.field, padding: 14, gap: 10 },
   disabled: { opacity: 0.5 },

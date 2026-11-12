@@ -35,7 +35,7 @@ export default function SlaegtNarrativ() {
   if (rolle !== 'redaktion') return <CenterMsg title={titel}>Kræver redaktør-rolle.</CenterMsg>;
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+    <View style={{ flex: 1, backgroundColor: Colors.surfaceGround }}>
       <TopBar title={titel} />
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         <Serif size={22} style={{ marginBottom: 4 }}>{titel}</Serif>
@@ -45,8 +45,8 @@ export default function SlaegtNarrativ() {
         <NarrativEditor subjektType={subjektType} subjektId={subjektId} media={media} mediaThumbUris={mediaThumbUris} />
 
         {erLinje && (
-          <View style={{ marginTop: 20, paddingTop: 16, borderTopWidth: 1, borderTopColor: Colors.beige2 }}>
-            <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 6 }}>Materiale</Mono>
+          <View style={{ marginTop: 20, paddingTop: 16, borderTopWidth: 1, borderTopColor: Colors.surfaceSunken }}>
+            <Mono size={10} color={Colors.inkMuted} style={{ marginBottom: 6 }}>Materiale</Mono>
             <MaterialeSektion objektType="lineage" objektId={subjektId} onMediaChange={setMedia} />
           </View>
         )}

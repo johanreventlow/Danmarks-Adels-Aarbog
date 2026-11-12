@@ -66,7 +66,7 @@ function VariantA({ model, insets }: { model: Model; insets: { bottom: number } 
   const setFocus = useStore((s) => s.setFocus);
   const view = useMemo(() => (focusId ? treeFocusA(model, focusId) : null), [model, focusId]);
   if (!view || !view.focus) {
-    return <View style={{ padding: 24 }}><Kicker color={Colors.textMuted}>Vælg en linje eller person.</Kicker></View>;
+    return <View style={{ padding: 24 }}><Kicker color={Colors.inkMuted}>Vælg en linje eller person.</Kicker></View>;
   }
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: insets.bottom + 80 }}>
@@ -74,7 +74,7 @@ function VariantA({ model, insets }: { model: Model; insets: { bottom: number } 
       {view.grandparent ? (
         <>
           <Pressable style={styles.grandPill} onPress={() => setFocus(view.grandparent!.id)}>
-            <Mono size={13} color={Colors.textMuted}>▲</Mono>
+            <Mono size={13} color={Colors.inkMuted}>▲</Mono>
             <Serif size={15} color="#5a5246">{view.grandparent.name}</Serif>
           </Pressable>
           <Connector height={14} />
@@ -85,9 +85,9 @@ function VariantA({ model, insets }: { model: Model; insets: { bottom: number } 
           <Pressable style={styles.parentCard} onPress={() => setFocus(view.parent!.id)}>
             <View style={styles.parentAvatar}><Serif size={18} color={Colors.bordeaux}>{initial(view.parent.name)}</Serif></View>
             <View>
-              <Kicker size={8.5} color={Colors.gold} style={{ letterSpacing: 8.5 * 0.12 }}>Forælder ▲</Kicker>
+              <Kicker size={8.5} color={Colors.goldInk} style={{ letterSpacing: 8.5 * 0.12 }}>Forælder ▲</Kicker>
               <Serif size={19} style={{ marginTop: 1, lineHeight: 20 }}>{view.parent.name}</Serif>
-              {view.parent.years ? <Mono size={10} color={Colors.textMuted} style={{ marginTop: 2 }}>{view.parent.years}</Mono> : null}
+              {view.parent.years ? <Mono size={10} color={Colors.inkMuted} style={{ marginTop: 2 }}>{view.parent.years}</Mono> : null}
             </View>
           </Pressable>
           <Connector height={18} />
@@ -100,7 +100,7 @@ function VariantA({ model, insets }: { model: Model; insets: { bottom: number } 
         ))}
       </ScrollView>
       {view.spouseName ? (
-        <Serif size={15} italic color={Colors.textSecondary2} style={{ textAlign: 'center', marginTop: 10, fontFamily: Fonts.serifItalic }}>⚭ gift med {view.spouseName}</Serif>
+        <Serif size={15} italic color={Colors.inkMuted} style={{ textAlign: 'center', marginTop: 10, fontFamily: Fonts.serifItalic }}>⚭ gift med {view.spouseName}</Serif>
       ) : null}
       {view.children.length ? (
         <>
@@ -111,7 +111,7 @@ function VariantA({ model, insets }: { model: Model; insets: { bottom: number } 
               <Pressable key={c.id} style={styles.childCard} onPress={() => setFocus(c.id)}>
                 <View style={styles.childAvatar}><Serif size={17} color={Colors.bordeaux}>{initial(c.name)}</Serif></View>
                 <Serif size={18} style={{ marginTop: 9, lineHeight: 19 }}>{c.name}</Serif>
-                {c.years ? <Mono size={9.5} color={Colors.textMuted} style={{ marginTop: 3 }}>{c.years}</Mono> : null}
+                {c.years ? <Mono size={9.5} color={Colors.inkMuted} style={{ marginTop: 3 }}>{c.years}</Mono> : null}
               </Pressable>
             ))}
           </ScrollView>
@@ -163,7 +163,7 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
 
   return (
     <View style={{ flex: 1, paddingTop: 8 }}>
-      <Mono size={9.5} color={Colors.textMuted} style={{ paddingHorizontal: 16, paddingBottom: 4, letterSpacing: 9.5 * 0.12, textTransform: 'uppercase' }}>
+      <Mono size={9.5} color={Colors.inkMuted} style={{ paddingHorizontal: 16, paddingBottom: 4, letterSpacing: 9.5 * 0.12, textTransform: 'uppercase' }}>
         ◂ aner · fokus · efterkommere ▸
       </Mono>
       <ScrollView
@@ -176,11 +176,11 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
       >
         {cols.map((col) => (
           <View key={col.key} style={{ width: 166 }}>
-            <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.1, textTransform: 'uppercase', paddingBottom: 2, marginBottom: col.candidate ? 2 : 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Border.light }}>
+            <Mono size={9} color={Colors.goldInk} style={{ letterSpacing: 9 * 0.1, textTransform: 'uppercase', paddingBottom: 2, marginBottom: col.candidate ? 2 : 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Border.light }}>
               {col.label}
             </Mono>
             {col.candidate && col.candidateNote ? (
-              <Mono size={8.5} color={Colors.textMuted2} style={{ marginBottom: 8, lineHeight: 11 }}>{col.candidateNote}</Mono>
+              <Mono size={8.5} color={Colors.inkMuted} style={{ marginBottom: 8, lineHeight: 11 }}>{col.candidateNote}</Mono>
             ) : null}
             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: insets.bottom + 90 }}>
             {col.candidate ? (
@@ -188,7 +188,7 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
                 {Object.entries(col.kuldGroups ?? {}).map(([kuld, people]) => (
                   <View key={kuld} style={{ gap: 8 }}>
                     {kuld !== '—' ? (
-                      <Mono size={8} color={Colors.textMuted3} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase' }}>Kuld {kuld}</Mono>
+                      <Mono size={8} color={Colors.inkMuted} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase' }}>Kuld {kuld}</Mono>
                     ) : null}
                     {people.map((p) => (
                       <Pressable key={p.id} onPress={() => setFocus(p.id)} style={styles.bCardFallback}>
@@ -196,15 +196,15 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
                           <View style={styles.bAvatar}><Serif size={15} color={Colors.bordeaux}>{initial(p.name)}</Serif></View>
                           <View style={{ flex: 1, minWidth: 0 }}>
                             <Serif size={16} style={{ lineHeight: 17 }} numberOfLines={2}>{p.name}</Serif>
-                            {p.years ? <Mono size={9} color={Colors.textMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
-                            <Mono size={8} color={Colors.gold} style={{ letterSpacing: 8 * 0.06, textTransform: 'uppercase', marginTop: 2 }}>muligt slægtled</Mono>
+                            {p.years ? <Mono size={9} color={Colors.inkMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
+                            <Mono size={8} color={Colors.goldInk} style={{ letterSpacing: 8 * 0.06, textTransform: 'uppercase', marginTop: 2 }}>muligt slægtled</Mono>
                           </View>
                         </View>
                       </Pressable>
                     ))}
                   </View>
                 ))}
-                {col.kilde ? <Mono size={8} color={Colors.textMuted3} style={{ marginTop: 4, lineHeight: 11 }}>Kilde: {col.kilde}</Mono> : null}
+                {col.kilde ? <Mono size={8} color={Colors.inkMuted} style={{ marginTop: 4, lineHeight: 11 }}>Kilde: {col.kilde}</Mono> : null}
               </>
             ) : col.people.map((p) => {
               const sel = p.id === col.selectedId;
@@ -220,13 +220,13 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
                     <View style={styles.bAvatar}><Serif size={15} color={Colors.bordeaux}>{initial(p.name)}</Serif></View>
                     <View style={{ flex: 1, minWidth: 0 }}>
                       <Serif size={16} style={{ lineHeight: 17 }} numberOfLines={2}>{p.name}</Serif>
-                      {p.years ? <Mono size={9} color={Colors.textMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
+                      {p.years ? <Mono size={9} color={Colors.inkMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
                     </View>
                     {canDesc ? <Serif size={16} color="#bcae93">›</Serif> : null}
                   </View>
                   {sel ? (
                     <Pressable onPress={() => router.push(`/person/${p.id}`)} style={styles.bOpenBtn}>
-                      <BtnLabel size={11.5} color={Colors.paperCard}>Åbn profil ›</BtnLabel>
+                      <BtnLabel size={11.5} color={Colors.inkOnInverse}>Åbn profil ›</BtnLabel>
                     </Pressable>
                   ) : null}
                 </Pressable>
@@ -234,18 +234,18 @@ function VariantB({ model, insets }: { model: Model; insets: { bottom: number } 
             })}
             {col.unconnectedChildren && col.unconnectedChildren.length > 0 ? (
               <View style={{ marginTop: 4, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: Border.light }}>
-                <Mono size={8} color={Colors.textMuted3} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase', marginBottom: 6 }}>Uforbundne — placeret efter slægtled, ikke forældreskab</Mono>
+                <Mono size={8} color={Colors.inkMuted} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase', marginBottom: 6 }}>Uforbundne — placeret efter slægtled, ikke forældreskab</Mono>
                 {col.unconnectedChildren.map((group) => (
                   <View key={group.grade} style={{ gap: 8, marginBottom: 6 }}>
-                    <Mono size={9} color={Colors.textMuted2} style={{ lineHeight: 12 }}>{group.note}</Mono>
+                    <Mono size={9} color={Colors.inkMuted} style={{ lineHeight: 12 }}>{group.note}</Mono>
                     {group.people.map(({ person, kilde }) => (
                       <Pressable key={person.id} onPress={() => setFocus(person.id)} style={styles.bCardFallback}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                           <View style={styles.bAvatar}><Serif size={14} color={Colors.bordeaux}>{initial(person.name)}</Serif></View>
                           <View style={{ flex: 1, minWidth: 0 }}>
                             <Serif size={15} style={{ lineHeight: 16 }} numberOfLines={2}>{person.name}</Serif>
-                            {person.years ? <Mono size={8.5} color={Colors.textMuted} style={{ marginTop: 1 }}>{person.years}</Mono> : null}
-                            {kilde ? <Mono size={7.5} color={Colors.textMuted3} style={{ marginTop: 2 }}>Kilde: {kilde}</Mono> : null}
+                            {person.years ? <Mono size={8.5} color={Colors.inkMuted} style={{ marginTop: 1 }}>{person.years}</Mono> : null}
+                            {kilde ? <Mono size={7.5} color={Colors.inkMuted} style={{ marginTop: 2 }}>Kilde: {kilde}</Mono> : null}
                           </View>
                         </View>
                       </Pressable>
@@ -409,7 +409,7 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
                           <View style={styles.snapAvatar}><Serif size={14} color={Colors.bordeaux}>{initial(p.name)}</Serif></View>
                           <View style={{ flex: 1, minWidth: 0 }}>
                             <Serif size={17} style={{ lineHeight: 17 }} numberOfLines={1}>{p.name}</Serif>
-                            {p.years ? <Mono size={9} color={Colors.textMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
+                            {p.years ? <Mono size={9} color={Colors.inkMuted} style={{ marginTop: 2 }}>{p.years}</Mono> : null}
                           </View>
                         </View>
                         {p.title ? <BtnLabel size={10.5} color={Colors.bordeaux} numberOfLines={1} style={{ marginTop: 7, fontFamily: Fonts.sansMedium }}>{p.title}</BtnLabel> : null}
@@ -450,11 +450,11 @@ function VariantC({ model, activeLinje, linjeByPerson, linjeNavn }: { model: Mod
       ) : null}
       {/* Top-overlay */}
       <View style={styles.snapTop} pointerEvents="none">
-        <Mono size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.16, textTransform: 'uppercase' }}>
+        <Mono size={9} color={Colors.goldInk} style={{ letterSpacing: 9 * 0.16, textTransform: 'uppercase' }}>
           Gen {gen}{linje ? ` · ${linjeNavn[linje] ?? `Linje ${linje}`}` : ''}
         </Mono>
         <View style={{ flex: 1 }} />
-        {focusPerson ? <Serif size={13} italic color={Colors.textMuted} numberOfLines={1} style={{ maxWidth: 155, fontFamily: Fonts.serifItalic }}>{focusPerson.name}</Serif> : null}
+        {focusPerson ? <Serif size={13} italic color={Colors.inkMuted} numberOfLines={1} style={{ maxWidth: 155, fontFamily: Fonts.serifItalic }}>{focusPerson.name}</Serif> : null}
       </View>
       {/* Bund-hjælpetekst */}
       <Mono size={8} color="#bcae93" style={styles.snapHint} pointerEvents="none">
@@ -478,13 +478,13 @@ function Segment({ label, active, onPress }: { label: string; active: boolean; o
 function LinjeChip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={[styles.linjeChip, active ? styles.linjeChipActive : styles.linjeChipIdle]}>
-      <BtnLabel size={12} color={active ? Colors.paperCard : Colors.textSecondary2}>{label}</BtnLabel>
+      <BtnLabel size={12} color={active ? Colors.inkOnInverse : Colors.inkMuted}>{label}</BtnLabel>
     </Pressable>
   );
 }
 
 function CenterKicker({ text, style }: { text: string; style?: object }) {
-  return <Kicker size={9.5} color={Colors.textMuted2} style={[{ textAlign: 'center', letterSpacing: 9.5 * 0.14 }, style]}>{text}</Kicker>;
+  return <Kicker size={9.5} color={Colors.inkMuted} style={[{ textAlign: 'center', letterSpacing: 9.5 * 0.14 }, style]}>{text}</Kicker>;
 }
 
 function Connector({ height, style }: { height: number; style?: object }) {
@@ -497,53 +497,53 @@ function SiblingCard({ person, childCount, selected, onFocus, onOpen }: { person
       {selected ? <Mono size={8} color={Colors.bordeaux} style={{ position: 'absolute', top: 11, right: 12, letterSpacing: 0.8 }}>I FOKUS</Mono> : null}
       <View style={styles.sibAvatar}><Serif size={26} color={Colors.bordeaux}>{initial(person.name)}</Serif></View>
       <Serif size={23} style={{ marginTop: 12, lineHeight: 24 }}>{person.name}</Serif>
-      {person.years ? <Mono size={10.5} color={Colors.textMuted} style={{ marginTop: 4 }}>{person.years}</Mono> : null}
+      {person.years ? <Mono size={10.5} color={Colors.inkMuted} style={{ marginTop: 4 }}>{person.years}</Mono> : null}
       {person.title ? <BtnLabel size={12} color={Colors.bordeaux} style={{ marginTop: 6, fontFamily: Fonts.sansMedium }}>{person.title}</BtnLabel> : null}
-      {childCount ? <Mono size={11} color={Colors.textSecondary2} style={{ marginTop: 8 }}>↓ {childCount} {childCount === 1 ? 'barn' : 'børn'}</Mono> : null}
-      {selected ? <Pressable onPress={onOpen} style={styles.openBtn}><BtnLabel size={12} color={Colors.paperCard}>Åbn profil ›</BtnLabel></Pressable> : null}
+      {childCount ? <Mono size={11} color={Colors.inkMuted} style={{ marginTop: 8 }}>↓ {childCount} {childCount === 1 ? 'barn' : 'børn'}</Mono> : null}
+      {selected ? <Pressable onPress={onOpen} style={styles.openBtn}><BtnLabel size={12} color={Colors.inkOnInverse}>Åbn profil ›</BtnLabel></Pressable> : null}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  head: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 4, backgroundColor: Colors.paperBg, zIndex: 20 },
-  segment: { flexDirection: 'row', backgroundColor: Colors.beige3, borderRadius: 11, padding: 3, gap: 3 },
+  head: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 4, backgroundColor: Colors.surfaceGround, zIndex: 20 },
+  segment: { flexDirection: 'row', backgroundColor: Colors.surfaceSunken, borderRadius: 11, padding: 3, gap: 3 },
   seg: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 8 },
-  segActive: { backgroundColor: Colors.paperCard, ...Shadow.card },
+  segActive: { backgroundColor: Colors.surfaceRaised, ...Shadow.card },
   linjeRow: { gap: 7, paddingVertical: 10, paddingRight: 16 },
   linjeChip: { paddingHorizontal: 13, paddingVertical: 6, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth },
   linjeChipActive: { backgroundColor: Colors.bordeaux, borderColor: Colors.bordeaux },
-  linjeChipIdle: { backgroundColor: Colors.beige, borderColor: Border.light },
+  linjeChipIdle: { backgroundColor: Colors.surfaceSunken, borderColor: Border.light },
   connector: { width: 1, backgroundColor: 'rgba(34,31,26,0.22)', alignSelf: 'center', marginVertical: 5 },
-  grandPill: { alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.beige2, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(34,31,26,0.07)', borderRadius: 20, paddingVertical: 7, paddingHorizontal: 14, opacity: 0.78, marginTop: 6 },
-  parentCard: { alignSelf: 'center', maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.paperCard, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.light, borderRadius: 14, paddingVertical: 11, paddingLeft: 12, paddingRight: 16, ...Shadow.card },
-  parentAvatar: { width: 42, height: 42, borderRadius: Radius.round, backgroundColor: Colors.beige2, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.faint, alignItems: 'center', justifyContent: 'center' },
+  grandPill: { alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.surfaceSunken, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(34,31,26,0.07)', borderRadius: 20, paddingVertical: 7, paddingHorizontal: 14, opacity: 0.78, marginTop: 6 },
+  parentCard: { alignSelf: 'center', maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.surfaceRaised, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.light, borderRadius: 14, paddingVertical: 11, paddingLeft: 12, paddingRight: 16, ...Shadow.card },
+  parentAvatar: { width: 42, height: 42, borderRadius: Radius.round, backgroundColor: Colors.surfaceSunken, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.faint, alignItems: 'center', justifyContent: 'center' },
   sibCard: { width: 178, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 15, borderWidth: 1.5 },
-  sibCardIdle: { backgroundColor: Colors.paperCard, borderColor: Border.light, ...Shadow.card },
-  sibCardSelected: { backgroundColor: Colors.paperCard, borderColor: Colors.bordeaux, ...Shadow.cardSelected },
+  sibCardIdle: { backgroundColor: Colors.surfaceRaised, borderColor: Border.light, ...Shadow.card },
+  sibCardSelected: { backgroundColor: Colors.surfaceRaised, borderColor: Colors.bordeaux, ...Shadow.cardSelected },
   sibAvatar: { width: 62, height: 62, borderRadius: Radius.round, backgroundColor: '#f4ece0', borderWidth: StyleSheet.hairlineWidth, borderColor: Border.faint, alignItems: 'center', justifyContent: 'center' },
   openBtn: { marginTop: 13, alignSelf: 'flex-start', backgroundColor: Colors.bordeaux, borderRadius: 9, paddingVertical: 8, paddingHorizontal: 14 },
-  childCard: { width: 138, backgroundColor: Colors.paperCard, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.light, borderRadius: 13, padding: 13, ...Shadow.card },
-  childAvatar: { width: 40, height: 40, borderRadius: Radius.round, backgroundColor: Colors.beige2, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.faint, alignItems: 'center', justifyContent: 'center' },
+  childCard: { width: 138, backgroundColor: Colors.surfaceRaised, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.light, borderRadius: 13, padding: 13, ...Shadow.card },
+  childAvatar: { width: 40, height: 40, borderRadius: Radius.round, backgroundColor: Colors.surfaceSunken, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.faint, alignItems: 'center', justifyContent: 'center' },
   // Variant B
   bCard: { borderRadius: 12, padding: 12, borderWidth: 1.5 },
-  bCardIdle: { backgroundColor: Colors.paperCard, borderColor: Border.light, ...Shadow.card },
-  bCardSelected: { backgroundColor: Colors.paperCard, borderColor: Colors.bordeaux, ...Shadow.cardSelected },
+  bCardIdle: { backgroundColor: Colors.surfaceRaised, borderColor: Border.light, ...Shadow.card },
+  bCardSelected: { backgroundColor: Colors.surfaceRaised, borderColor: Colors.bordeaux, ...Shadow.cardSelected },
   // Fallback-ring (ubevist generations-nabo): dæmpet gul kant+baggrund, adskiller sig klart fra
   // bevist parentsOf-kæde (bCardIdle/bCardSelected) — spejler web (Folgesvend.tsx §Kolonner).
   bCardFallback: { borderRadius: 12, padding: 12, borderWidth: 1.5, borderStyle: 'dashed', borderColor: Colors.gold, backgroundColor: '#faf1dc' },
   bAvatar: { width: 34, height: 34, borderRadius: Radius.round, backgroundColor: '#f4ece0', borderWidth: StyleSheet.hairlineWidth, borderColor: Border.faint, alignItems: 'center', justifyContent: 'center' },
   bOpenBtn: { marginTop: 10, backgroundColor: Colors.bordeaux, borderRadius: 8, paddingVertical: 7, alignItems: 'center' },
   // Variant C
-  snapContainer: { flex: 1, overflow: 'hidden', backgroundColor: Colors.paperBg },
+  snapContainer: { flex: 1, overflow: 'hidden', backgroundColor: Colors.surfaceGround },
   spineSeg: { position: 'absolute', left: '50%', marginLeft: -0.75, bottom: 0, width: 1.5, height: GAP_V, backgroundColor: 'rgba(34,31,26,0.13)' },
   routeSeg: { width: 2, marginLeft: -1, backgroundColor: Colors.bordeaux }, // rød rute-tråd-segment
   wayBadge: { position: 'absolute', left: 0, right: 0, top: '50%', marginTop: -94 - FRAME_NUDGE, alignItems: 'center' },
-  wayPill: { backgroundColor: Colors.paperCard, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(136,26,51,0.30)', borderRadius: 14, paddingVertical: 5, paddingHorizontal: 12, ...Shadow.card },
+  wayPill: { backgroundColor: Colors.surfaceRaised, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(136,26,51,0.30)', borderRadius: 14, paddingVertical: 5, paddingHorizontal: 12, ...Shadow.card },
   snapSpacer: { width: CARD_W, height: CARD_H },
-  snapCard: { width: CARD_W, height: CARD_H, backgroundColor: Colors.paperCard, borderWidth: 1.5, borderColor: Border.medium, borderRadius: 15, paddingHorizontal: 14, justifyContent: 'center', ...Shadow.card },
+  snapCard: { width: CARD_W, height: CARD_H, backgroundColor: Colors.surfaceRaised, borderWidth: 1.5, borderColor: Border.medium, borderRadius: 15, paddingHorizontal: 14, justifyContent: 'center', ...Shadow.card },
   snapCardMe: { borderColor: Colors.bordeaux, borderWidth: 2 }, // mig-kortet: rød ring
-  snapAvatar: { width: 34, height: 34, borderRadius: Radius.round, backgroundColor: Colors.beige2, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.faint, alignItems: 'center', justifyContent: 'center' },
+  snapAvatar: { width: 34, height: 34, borderRadius: Radius.round, backgroundColor: Colors.surfaceSunken, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.faint, alignItems: 'center', justifyContent: 'center' },
   // marginTop = -(højde/2) - FRAME_NUDGE; nudge løfter rammen op så det centrerede kort lander inni den.
   snapFrame: { position: 'absolute', left: '50%', top: '50%', width: 166, height: 118, marginLeft: -83 + FRAME_NUDGE_X, marginTop: -59 - FRAME_NUDGE, borderWidth: 1.5, borderColor: Colors.bordeaux, borderRadius: 18 },
   snapTop: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 9, paddingBottom: 16 },

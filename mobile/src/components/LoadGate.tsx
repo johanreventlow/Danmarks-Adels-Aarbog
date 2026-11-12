@@ -33,9 +33,9 @@ export function LoadGate({ children }: { children: React.ReactNode }) {
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.paperBg },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surfaceGround },
   banner: {
-    backgroundColor: Colors.bordeauxFillLight,
+    backgroundColor: Colors.bordeauxTint,
     paddingVertical: 5,
     alignItems: 'center',
   },

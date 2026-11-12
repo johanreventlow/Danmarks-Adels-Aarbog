@@ -1,45 +1,23 @@
-// Design tokens — direkte fra design/README.md §6 (hi-fi, endelige værdier).
-// Genskab præcist: farver, fonte, radier, skygger, animationer.
+// Design tokens. Farverne kommer fra den fælles @daa/theme (designsystemets tokens.json,
+// webredesign fase 1); fonte, radier, skygger og animationer står herunder.
+import { color } from '@daa/theme';
 
+// De gamle navne (paperBg, paperCard, beige*, textSecondary*, textMuted*, liveRoed, konklusion*,
+// konfliktFlade, bordeauxFillLight) er fjernet; se @daa/theme for reglerne (fx gold kun som pynt,
+// goldInk til etiketter). Uden token endnu, bevaret uændret: bordeauxFillLight2, goldLight som
+// flade, sandbox.
 export const Colors = {
-  // Bordeaux (primær) — accenter, aktive states, knapper, navne-links
-  bordeaux: '#881A33',
-  bordeauxFillLight: '#f8ecef',
+  ...color,
   bordeauxFillLight2: '#f4e2e6',
-  // Blæk (tekst) — overskrifter, primær tekst; også mørke kort
-  ink: '#221f1a',
-  // Tekst sekundær
-  textSecondary: '#3d382f',
-  textSecondary2: '#6f675b',
-  // Tekst dæmpet — mono-labels, årstal
-  textMuted: '#9a8f78',
-  textMuted2: '#a99f8c',
-  textMuted3: '#b0a691',
-  // Guld — kickers, "fælles ane", dekorativ
-  gold: '#b9a06a',
   goldLight: '#e7c98f',
-  // Papir
-  paperBg: '#f4efe6',
-  paperCard: '#fbf8f1',
-  // Beige — sekundære kort, badges, segment-spor
-  beige: '#efe7d7',
-  beige2: '#ece4d6',
-  beige3: '#e6ddcc',
   // Sandkasse-bg (uden for telefon)
   sandbox: '#e7e3da',
-  // Fejl/slet — bordeaux-rød (handoff §Design tokens)
-  danger: '#8a2b2b',
-  // Redaktion-status (handoff §Design tokens)
-  konklusionGroen: '#1f5b3a',
-  konklusionFlade: '#eaf3ec',
-  liveRoed: '#c0392b',
-  konfliktFlade: '#f2dede',
 } as const;
 
 // Ramme/separator-farver — rgba(34,31,26,.08–.14)
 export const Border = {
   faint: 'rgba(34,31,26,0.08)',
-  light: 'rgba(34,31,26,0.10)',
+  light: color.line,
   medium: 'rgba(34,31,26,0.14)',
 } as const;
 

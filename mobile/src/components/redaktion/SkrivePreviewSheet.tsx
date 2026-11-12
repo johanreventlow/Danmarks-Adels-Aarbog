@@ -56,7 +56,7 @@ export function SkrivePreviewSheet({ change, onClose, onApplied, onError }: {
         </Serif>
         <ScrollView style={{ maxHeight: 220 }}>
           <View style={styles.code}>
-            <Mono size={11} color={Colors.paperBg}>
+            <Mono size={11} color={Colors.inkOnInverse}>
               {call ? describeCall(call) : '(intet kald)'}
             </Mono>
           </View>
@@ -65,7 +65,7 @@ export function SkrivePreviewSheet({ change, onClose, onApplied, onError }: {
           <Mono size={11} color={Colors.bordeaux} style={{ marginTop: 8 }}>{fejl}</Mono>
         ) : null}
         {status === 'ok' ? (
-          <Mono size={11} color={Colors.konklusionGroen} style={{ marginTop: 8 }}>
+          <Mono size={11} color={Colors.success} style={{ marginTop: 8 }}>
             {'✓ '}{dryRun ? 'Forhåndsvist' : 'Udført'}
           </Mono>
         ) : null}
@@ -78,7 +78,7 @@ export function SkrivePreviewSheet({ change, onClose, onApplied, onError }: {
         </Pressable>
         {status !== 'busy' ? (
           <Pressable style={styles.cancelBtn} onPress={onClose}>
-            <BtnLabel color={Colors.textSecondary}>Annullér</BtnLabel>
+            <BtnLabel color={Colors.inkSecondary}>Annullér</BtnLabel>
           </Pressable>
         ) : null}
       </View>
@@ -92,7 +92,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(34,31,26,0.4)',
   },
   sheet: {
-    backgroundColor: Colors.paperBg,
+    backgroundColor: Colors.surfaceGround,
     borderTopLeftRadius: Radius.sheet,
     borderTopRightRadius: Radius.sheet,
     padding: 20,
@@ -101,7 +101,7 @@ const styles = StyleSheet.create({
     borderColor: Border.light,
   },
   code: {
-    backgroundColor: Colors.ink,
+    backgroundColor: Colors.surfaceInverse,
     borderRadius: 8,
     padding: 12,
     marginBottom: 6,

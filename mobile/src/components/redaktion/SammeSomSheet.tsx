@@ -22,17 +22,17 @@ export function SammeSomSheet({ redigeret, valgt, kanoniskId, onByt, prognose, o
       <Pressable style={editorStyles.modalBackdrop} onPress={onClose} />
       <View style={editorStyles.modalSheet}>
         <Serif size={20} style={{ marginBottom: 12 }}>Samme person</Serif>
-        <Mono size={9} color={Colors.gold} style={{ marginBottom: 4 }}>KANONISK (beholdes)</Mono>
+        <Mono size={9} color={Colors.goldInk} style={{ marginBottom: 4 }}>KANONISK (beholdes)</Mono>
         <Body size={15} style={{ marginBottom: 10 }}>{kanonisk.navn}</Body>
-        <Mono size={9} color={Colors.gold} style={{ marginBottom: 4 }}>FOLDES IND I OVENSTÅENDE</Mono>
+        <Mono size={9} color={Colors.goldInk} style={{ marginBottom: 4 }}>FOLDES IND I OVENSTÅENDE</Mono>
         <Body size={15} style={{ marginBottom: 12 }}>{alias.navn}</Body>
         <Pressable style={{ paddingVertical: 6, marginBottom: 8 }} onPress={onByt}>
           <Mono size={10} color={Colors.bordeaux}>⇅ Byt retning</Mono>
         </Pressable>
         {prognose.status === 'afventer' ? (
-          <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 10, lineHeight: 14 }}>Tjekker eksisterende koblinger…</Mono>
+          <Mono size={10} color={Colors.inkMuted} style={{ marginBottom: 10, lineHeight: 14 }}>Tjekker eksisterende koblinger…</Mono>
         ) : prognose.status === 'ukendt' ? (
-          <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 10, lineHeight: 14 }}>
+          <Mono size={10} color={Colors.inkMuted} style={{ marginBottom: 10, lineHeight: 14 }}>
             Kunne ikke hente de eksisterende koblinger, så det vides ikke, om personerne foldes. Linket kan stadig gemmes.
           </Mono>
         ) : !prognose.folder ? (

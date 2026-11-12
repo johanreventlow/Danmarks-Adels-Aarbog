@@ -24,19 +24,19 @@ export default function AboutScreen() {
       <LoadGate>
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 22, paddingBottom: 40 }}>
           <Serif size={34} style={{ lineHeight: 35 }}>Slægten {SLAEGT}</Serif>
-          <Mono size={10} color={Colors.textMuted} style={{ marginTop: 8, letterSpacing: 10 * 0.1, textTransform: 'uppercase' }}>
+          <Mono size={10} color={Colors.inkMuted} style={{ marginTop: 8, letterSpacing: 10 * 0.1, textTransform: 'uppercase' }}>
             Indledning til stamtavlen · Danmarks Adels Aarbog
           </Mono>
           <View style={styles.rule} />
 
           {sections == null ? (
-            <Body size={13} color={Colors.textSecondary2}>Henter…</Body>
+            <Body size={13} color={Colors.inkMuted}>Henter…</Body>
           ) : sections.length === 0 ? (
             <View style={styles.placeholder}>
-              <Body size={13} color={Colors.textSecondary2} style={{ lineHeight: 13 * 1.5 }}>
+              <Body size={13} color={Colors.inkMuted} style={{ lineHeight: 13 * 1.5 }}>
                 Ingen slægts-narrativ registreret endnu. Indledningen indlæses fra stamtavlen.
               </Body>
-              <Mono size={9} color={Colors.gold} style={{ marginTop: 9, letterSpacing: 9 * 0.1, textTransform: 'uppercase' }}>
+              <Mono size={9} color={Colors.goldInk} style={{ marginTop: 9, letterSpacing: 9 * 0.1, textTransform: 'uppercase' }}>
                 Indlæses fra stamtavlen
               </Mono>
             </View>
@@ -62,6 +62,6 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(34,31,26,0.2)',
     borderRadius: Radius.field,
     padding: 16,
-    backgroundColor: Colors.paperCard,
+    backgroundColor: Colors.surfaceRaised,
   },
 });

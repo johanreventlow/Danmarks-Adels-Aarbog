@@ -25,14 +25,14 @@ export function UnionTypeSheet({ partner, onClose, onGem }: {
             <Pressable key={t}
               style={[editorStyles.koenPille, valgtType === t && editorStyles.koenPilleAktiv]}
               onPress={() => setValgtType(t)}>
-              <BtnLabel size={11} color={valgtType === t ? '#fff' : Colors.textSecondary2}>{t}</BtnLabel>
+              <BtnLabel size={11} color={valgtType === t ? '#fff' : Colors.inkMuted}>{t}</BtnLabel>
             </Pressable>
           ))}
         </View>
         <TextInput
           style={editorStyles.addInput}
           placeholder="Ordinal (valgfri, fx 1)"
-          placeholderTextColor={Colors.textMuted2}
+          placeholderTextColor={Colors.inkMuted}
           value={ordinalTekst}
           onChangeText={setOrdinalTekst}
           keyboardType="numeric"

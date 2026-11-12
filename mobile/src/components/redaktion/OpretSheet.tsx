@@ -26,7 +26,7 @@ function Pille({ valgt, label, onPress }: { valgt: boolean; label: string; onPre
   return (
     <Pressable onPress={onPress}
       style={[styles.pille, valgt && styles.pilleAktiv]}>
-      <Mono size={11} color={valgt ? Colors.paperBg : Colors.textSecondary}>{label}</Mono>
+      <Mono size={11} color={valgt ? Colors.inkOnInverse : Colors.inkSecondary}>{label}</Mono>
     </Pressable>
   );
 }
@@ -115,13 +115,13 @@ export function OpretSheet({ visible, onClose }: { visible: boolean; onClose: ()
         ) : (
           <ScrollView style={{ maxHeight: 460 }}>
             <Serif size={20} style={{ marginBottom: 12 }}>Ny {TYPER.find((t) => t.key === type)!.label.toLowerCase()}</Serif>
-            <Mono size={9} color={Colors.gold}>{navnLabel.toUpperCase()} *</Mono>
+            <Mono size={9} color={Colors.goldInk}>{navnLabel.toUpperCase()} *</Mono>
             <TextInput style={pickerSheetStyles.input} value={navn} onChangeText={setNavn}
-              placeholder={navnLabel} placeholderTextColor={Colors.textMuted} autoFocus />
+              placeholder={navnLabel} placeholderTextColor={Colors.inkMuted} autoFocus />
 
             {type === 'person' ? (
               <>
-                <Mono size={9} color={Colors.gold} style={{ marginTop: 10 }}>KØN</Mono>
+                <Mono size={9} color={Colors.goldInk} style={{ marginTop: 10 }}>KØN</Mono>
                 <View style={styles.pilleRad}>
                   {KOEN.map((k) => <Pille key={k} label={k} valgt={koen === k} onPress={() => setKoen(koen === k ? null : k)} />)}
                 </View>
@@ -129,27 +129,27 @@ export function OpretSheet({ visible, onClose }: { visible: boolean; onClose: ()
                   <Body size={13}>Nulevende</Body>
                   <Switch value={levende} onValueChange={setLevende} />
                 </View>
-                <Mono size={9} color={Colors.gold} style={{ marginTop: 6 }}>FØDT</Mono>
+                <Mono size={9} color={Colors.goldInk} style={{ marginTop: 6 }}>FØDT</Mono>
                 <TextInput style={pickerSheetStyles.input} value={foedt} onChangeText={setFoedt}
-                  placeholder="fx 1700" placeholderTextColor={Colors.textMuted} />
-                <Mono size={9} color={Colors.gold} style={{ marginTop: 6 }}>DØD</Mono>
+                  placeholder="fx 1700" placeholderTextColor={Colors.inkMuted} />
+                <Mono size={9} color={Colors.goldInk} style={{ marginTop: 6 }}>DØD</Mono>
                 <TextInput style={pickerSheetStyles.input} value={doed} onChangeText={setDoed}
-                  placeholder="fx 1755" placeholderTextColor={Colors.textMuted} />
-                <Mono size={9} color={Colors.gold} style={{ marginTop: 6 }}>TITEL</Mono>
+                  placeholder="fx 1755" placeholderTextColor={Colors.inkMuted} />
+                <Mono size={9} color={Colors.goldInk} style={{ marginTop: 6 }}>TITEL</Mono>
                 <TextInput style={pickerSheetStyles.input} value={titel} onChangeText={setTitel}
-                  placeholder="fx greve" placeholderTextColor={Colors.textMuted} />
+                  placeholder="fx greve" placeholderTextColor={Colors.inkMuted} />
               </>
             ) : (
               <>
-                <Mono size={9} color={Colors.gold} style={{ marginTop: 10 }}>SLAGS</Mono>
+                <Mono size={9} color={Colors.goldInk} style={{ marginTop: 10 }}>SLAGS</Mono>
                 <View style={styles.pilleRad}>
                   {slagsListe.map((s) => <Pille key={s} label={s} valgt={slags === s} onPress={() => setSlags(slags === s ? null : s)} />)}
                 </View>
                 {type === 'kilde' ? (
                   <>
-                    <Mono size={9} color={Colors.gold} style={{ marginTop: 6 }}>UDGAVE</Mono>
+                    <Mono size={9} color={Colors.goldInk} style={{ marginTop: 6 }}>UDGAVE</Mono>
                     <TextInput style={pickerSheetStyles.input} value={udgave} onChangeText={setUdgave}
-                      placeholder="fx DAA 2018-20" placeholderTextColor={Colors.textMuted} />
+                      placeholder="fx DAA 2018-20" placeholderTextColor={Colors.inkMuted} />
                     <View style={styles.switchRad}>
                       <Body size={13}>Eksternt værk</Body>
                       <Switch value={ekstern} onValueChange={setEkstern} />
@@ -164,7 +164,7 @@ export function OpretSheet({ visible, onClose }: { visible: boolean; onClose: ()
               <BtnLabel color="#fff">Gennemse & opret</BtnLabel>
             </Pressable>
             <Pressable style={styles.cancel} onPress={nulstil}>
-              <BtnLabel color={Colors.textSecondary}>Tilbage</BtnLabel>
+              <BtnLabel color={Colors.inkSecondary}>Tilbage</BtnLabel>
             </Pressable>
           </ScrollView>
         )}
@@ -176,10 +176,10 @@ export function OpretSheet({ visible, onClose }: { visible: boolean; onClose: ()
 }
 
 const styles = StyleSheet.create({
-  sheet: { backgroundColor: Colors.paperBg, borderTopLeftRadius: Radius.sheet, borderTopRightRadius: Radius.sheet,
+  sheet: { backgroundColor: Colors.surfaceGround, borderTopLeftRadius: Radius.sheet, borderTopRightRadius: Radius.sheet,
     padding: 20, paddingBottom: 36, borderTopWidth: 1, borderColor: Border.light },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
-  cell: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light, borderRadius: 13,
+  cell: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light, borderRadius: 13,
     padding: 18, minWidth: '47%', alignItems: 'center' },
   pilleRad: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
   pille: { borderWidth: 1, borderColor: Border.medium, borderRadius: 14, paddingVertical: 5, paddingHorizontal: 11 },

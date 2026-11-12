@@ -7,9 +7,9 @@ import { Colors } from '../theme/tokens';
 // tidligere hver havde deres egen kopi (person-editor, entitetsliste, objekt-materiale).
 export function CenterMsg({ title, children }: { title: string; children: string }) {
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+    <View style={{ flex: 1, backgroundColor: Colors.surfaceGround }}>
       <TopBar title={title} />
-      <Body color={Colors.textMuted} style={{ padding: 24 }}>{children}</Body>
+      <Body color={Colors.inkMuted} style={{ padding: 24 }}>{children}</Body>
     </View>
   );
 }

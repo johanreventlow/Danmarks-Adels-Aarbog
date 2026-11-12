@@ -62,16 +62,16 @@ export default function EntitetListe() {
   if (redaktionStatus !== 'ready') return <CenterMsg title={titel}>Henter…</CenterMsg>;
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+    <View style={{ flex: 1, backgroundColor: Colors.surfaceGround }}>
       <TopBar title={titel} />
-      <TextInput style={styles.input} placeholder="Søg…" placeholderTextColor={Colors.textMuted}
+      <TextInput style={styles.input} placeholder="Søg…" placeholderTextColor={Colors.inkMuted}
         value={query} onChangeText={setQuery} autoCorrect={false} />
       {type === 'medie' && aux ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.koeer}>
         {([['alle', 'Alle'], ['rettigheder', 'Rettigheder'], ['loese', 'Løse'], ['strandede', 'Strandede'], ['papirkurv', 'Papirkurv']] as const).map(([key, label]) => {
           const aktiv = mediaKoe === key;
           const antal = key === 'alle' ? aux.medieListe.length : aux.medieKoeTaellere[key];
           return <Pressable key={key} onPress={() => setMediaKoe(key)} style={[styles.koe, aktiv && styles.koeAktiv]}>
-            <Mono size={8.5} color={aktiv ? '#fff' : Colors.textSecondary2}>{label} ({antal})</Mono>
+            <Mono size={8.5} color={aktiv ? '#fff' : Colors.inkMuted}>{label} ({antal})</Mono>
           </Pressable>;
         })}
       </ScrollView> : null}
@@ -79,7 +79,7 @@ export default function EntitetListe() {
         {/* gods/vaaben: tappbar → minimal materiale-skærm (Slice 0h). Øvrige typer har stadig
             ingen detail-editor (D1). Konstant for hele listen — beregnes én gang, ikke pr. række. */}
         {filtered.length === 0 ? (
-          <Body color={Colors.textMuted}>Ingen {titel.toLowerCase()}.</Body>
+          <Body color={Colors.inkMuted}>Ingen {titel.toLowerCase()}.</Body>
         ) : (
           filtered.map((r) => {
             const erBillede = type === 'medie' && r.mimeType?.startsWith('image/') === true && !!mediaThumbUris[r.id] && !!mediaUris[r.id];
@@ -88,10 +88,10 @@ export default function EntitetListe() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 {type === 'medie' ? erBillede
                   ? <Image source={{ uri: mediaThumbUris[r.id] }} style={styles.thumb} contentFit="cover" />
-                  : <View style={[styles.thumb, styles.dokument]}><Mono size={18} color={Colors.textMuted}>▤</Mono></View>
+                  : <View style={[styles.thumb, styles.dokument]}><Mono size={18} color={Colors.inkMuted}>▤</Mono></View>
                   : null}
                 <View style={{ flex: 1 }}><Serif size={16}>{r.titel}{erTappbar ? ' ↗' : ''}</Serif>
-                  {r.under ? <Mono size={9} color={Colors.textMuted}>{r.under}</Mono> : null}</View>
+                  {r.under ? <Mono size={9} color={Colors.inkMuted}>{r.under}</Mono> : null}</View>
               </View>
             </Pressable>;
           })
@@ -102,14 +102,14 @@ export default function EntitetListe() {
 }
 
 const styles = StyleSheet.create({
-  input: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
+  input: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light,
     borderRadius: Radius.field, marginHorizontal: 16, marginTop: 8, paddingHorizontal: 12, paddingVertical: 9,
     fontFamily: 'HankenGrotesk_400Regular', fontSize: 14 },
-  row: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
+  row: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light,
     borderRadius: Radius.field, padding: 12, marginBottom: 7 },
   koeer: { gap: 6, paddingHorizontal: 16, paddingTop: 10 },
   koe: { borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.chip, paddingHorizontal: 10, paddingVertical: 6 },
   koeAktiv: { backgroundColor: Colors.bordeaux, borderColor: Colors.bordeaux },
-  thumb: { width: 44, height: 44, borderRadius: Radius.field, backgroundColor: Colors.beige2 },
+  thumb: { width: 44, height: 44, borderRadius: Radius.field, backgroundColor: Colors.surfaceSunken },
   dokument: { alignItems: 'center', justifyContent: 'center' },
 });

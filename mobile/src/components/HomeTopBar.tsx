@@ -54,7 +54,7 @@ export function HomeTopBar({
         <BookmarkIcon width={17} height={19} />
         {savedCount > 0 ? (
           <View style={{ position: 'absolute', top: 4, right: 4, minWidth: 14, height: 14, paddingHorizontal: 3, borderRadius: 8, backgroundColor: Colors.bordeaux, alignItems: 'center', justifyContent: 'center' }}>
-            <Mono size={8} color={Colors.paperBg}>{savedCount}</Mono>
+            <Mono size={8} color={Colors.inkOnInverse}>{savedCount}</Mono>
           </View>
         ) : null}
       </Pressable>

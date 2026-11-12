@@ -64,7 +64,7 @@ export default function RelateScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'stretch', gap: 10 }}>
           <PersonField label={a?.name} init={a ? a.name[0]?.toUpperCase() : '?'} onPress={() => setPicking('A')} />
           <View style={{ justifyContent: 'center' }}>
-            <Serif size={20} italic color={Colors.gold} style={{ fontFamily: Fonts.serifItalic }}>&</Serif>
+            <Serif size={20} italic color={Colors.goldInk} style={{ fontFamily: Fonts.serifItalic }}>&</Serif>
           </View>
           <PersonField label={b?.name} init={b ? b.name[0]?.toUpperCase() : '?'} onPress={() => setPicking('B')} />
         </View>
@@ -72,15 +72,15 @@ export default function RelateScreen() {
         {/* Resultat-kort */}
         {rel ? (
           <View style={styles.result}>
-            <Mono size={9.5} color={Colors.goldLight} style={{ letterSpacing: 9.5 * 0.16, textTransform: 'uppercase' }}>Slægtskab</Mono>
-            <Serif size={25} color={Colors.paperBg} style={{ marginTop: 7, lineHeight: 27, textAlign: 'center' }}>{rel.label}</Serif>
+            <Mono size={9.5} color={Colors.goldOnInverse} style={{ letterSpacing: 9.5 * 0.16, textTransform: 'uppercase' }}>Slægtskab</Mono>
+            <Serif size={25} color={Colors.inkOnInverse} style={{ marginTop: 7, lineHeight: 27, textAlign: 'center' }}>{rel.label}</Serif>
             {rel.found && rel.lines[0]?.aner.length ? (
-              <Body size={12.5} color="#cabfa9" style={{ marginTop: 8 }}>
+              <Body size={12.5} color={Colors.inkMutedOnInverse} style={{ marginTop: 8 }}>
                 {rel.lines[0].multiplicitet > 1 ? 'Fælles aner' : 'Fælles ane'}: {rel.lines[0].aner.join(' · ')}
               </Body>
             ) : null}
             {rel.found && rel.lines[0]?.usikker ? (
-              <Body size={11.5} color={Colors.goldLight} style={{ marginTop: 7, textAlign: 'center' }}>
+              <Body size={11.5} color={Colors.goldOnInverse} style={{ marginTop: 7, textAlign: 'center' }}>
                 ⚠ Forbindelsen går gennem et {konfTekst(rel.lines[0].weakestKonfidens)} led
               </Body>
             ) : null}
@@ -92,7 +92,7 @@ export default function RelateScreen() {
           </View>
         ) : (
           <View style={styles.resultEmpty}>
-            <Body size={13} color={Colors.textMuted}>Vælg to personer for at finde slægtskabet.</Body>
+            <Body size={13} color={Colors.inkMuted}>Vælg to personer for at finde slægtskabet.</Body>
           </View>
         )}
 
@@ -104,7 +104,7 @@ export default function RelateScreen() {
               <View key={l.lcaId} style={styles.alsoRow}>
                 <Serif size={14} style={{ flex: 1, lineHeight: 16 }}>{l.label}</Serif>
                 {l.usikker ? <Mono size={8} color={Colors.bordeaux} style={{ flexShrink: 0, textTransform: 'uppercase', letterSpacing: 0.5 }}>{konfTekst(l.weakestKonfidens)}</Mono> : null}
-                <Body size={11} color={Colors.textMuted} style={{ flexShrink: 0 }}>via {l.aner.join(' · ')}</Body>
+                <Body size={11} color={Colors.inkMuted} style={{ flexShrink: 0 }}>via {l.aner.join(' · ')}</Body>
               </View>
             ))}
           </View>
@@ -125,9 +125,9 @@ export default function RelateScreen() {
                     <View style={[styles.stepCard, s.isLca ? styles.stepCardLca : styles.stepCardNormal]}>
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Serif size={17} style={{ lineHeight: 18 }}>{s.name}</Serif>
-                        {s.years ? <Mono size={9.5} color={Colors.textMuted} style={{ marginTop: 2 }}>{s.years}</Mono> : null}
+                        {s.years ? <Mono size={9.5} color={Colors.inkMuted} style={{ marginTop: 2 }}>{s.years}</Mono> : null}
                       </View>
-                      {s.isLca ? <Mono size={8} color={Colors.gold} style={{ letterSpacing: 0.6, textTransform: 'uppercase' }}>Fælles ane</Mono> : null}
+                      {s.isLca ? <Mono size={8} color={Colors.goldInk} style={{ letterSpacing: 0.6, textTransform: 'uppercase' }}>Fælles ane</Mono> : null}
                     </View>
                   </View>
                   {i < rel.steps.length - 1 ? (
@@ -173,7 +173,7 @@ const styles = StyleSheet.create({
   meShortcut: {
     alignItems: 'center',
     marginBottom: 12,
-    backgroundColor: Colors.bordeauxFillLight,
+    backgroundColor: Colors.bordeauxTint,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(136,26,51,0.2)',
     borderRadius: Radius.field,
@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
   },
   field: {
     flex: 1,
-    backgroundColor: Colors.paperCard,
+    backgroundColor: Colors.surfaceRaised,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Border.light,
     borderRadius: 14,
@@ -190,19 +190,19 @@ const styles = StyleSheet.create({
     ...Shadow.card,
   },
   fieldAvatar: {
-    width: 48, height: 48, borderRadius: Radius.round, backgroundColor: Colors.beige2,
+    width: 48, height: 48, borderRadius: Radius.round, backgroundColor: Colors.surfaceSunken,
     borderWidth: StyleSheet.hairlineWidth, borderColor: Border.faint, alignItems: 'center', justifyContent: 'center',
   },
-  result: { marginTop: 18, backgroundColor: Colors.ink, borderRadius: 14, paddingVertical: 18, paddingHorizontal: 18, alignItems: 'center' },
-  resultEmpty: { marginTop: 18, backgroundColor: Colors.paperCard, borderRadius: 14, padding: 18, alignItems: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: Border.light },
-  alsoBox: { marginTop: 14, backgroundColor: Colors.paperCard, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.light },
+  result: { marginTop: 18, backgroundColor: Colors.surfaceInverse, borderRadius: 14, paddingVertical: 18, paddingHorizontal: 18, alignItems: 'center' },
+  resultEmpty: { marginTop: 18, backgroundColor: Colors.surfaceRaised, borderRadius: 14, padding: 18, alignItems: 'center', borderWidth: StyleSheet.hairlineWidth, borderColor: Border.light },
+  alsoBox: { marginTop: 14, backgroundColor: Colors.surfaceRaised, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.light },
   alsoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 5 },
   stepRow: { flexDirection: 'row', alignItems: 'center', gap: 13, paddingVertical: 3 },
   dotCol: { width: 26, alignItems: 'center' },
   dot: { width: 11, height: 11, borderRadius: Radius.round, borderWidth: 2 },
   stepCard: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 11, paddingVertical: 10, paddingHorizontal: 13, borderWidth: StyleSheet.hairlineWidth },
-  stepCardNormal: { backgroundColor: Colors.paperCard, borderColor: Border.light },
+  stepCardNormal: { backgroundColor: Colors.surfaceRaised, borderColor: Border.light },
   stepCardLca: { backgroundColor: '#f3ecdb', borderColor: 'rgba(185,160,106,0.5)' },
-  stepArrow: { marginLeft: 12, width: 2, height: 9, backgroundColor: 'rgba(34,31,26,0.18)' },
+  stepArrow: { marginLeft: 12, width: 2, height: 9, backgroundColor: Colors.lineStrong },
   stepLink: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 });

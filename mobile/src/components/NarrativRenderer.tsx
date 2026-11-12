@@ -105,7 +105,7 @@ export function NarrativRenderer(props: {
           const lightboxIndex = lightboxIndexByBlock[i];
           const mediumUri = mediumUris[String(b.maalId)] ?? largeUris[String(b.maalId)];
           if (lightboxIndex == null || !mediumUri) {
-            return <Body key={i} size={size} color={Colors.textMuted} style={styles.mediaFallback}>{b.label || '[billede]'}</Body>;
+            return <Body key={i} size={size} color={Colors.inkMuted} style={styles.mediaFallback}>{b.label || '[billede]'}</Body>;
           }
           const row = mediaRowById.get(String(b.maalId));
           const cap = b.label || (row?.titel as string | undefined) || '';
@@ -114,7 +114,7 @@ export function NarrativRenderer(props: {
               <Pressable onPress={() => setLightbox(lightboxIndex)}>
                 <Image source={{ uri: mediumUri }} style={styles.mediaImage} contentFit="cover" />
               </Pressable>
-              {cap ? <Body size={(size ?? 14) - 2} color={Colors.textMuted} style={styles.mediaCaption}>{cap}</Body> : null}
+              {cap ? <Body size={(size ?? 14) - 2} color={Colors.inkMuted} style={styles.mediaCaption}>{cap}</Body> : null}
             </View>
           );
         }
@@ -133,11 +133,11 @@ export function NarrativRenderer(props: {
 
 const styles = StyleSheet.create({
   link: { color: Colors.bordeaux, textDecorationLine: 'underline' },
-  linkInaktiv: { color: Colors.textMuted },
+  linkInaktiv: { color: Colors.inkMuted },
   heading: { marginTop: 10, marginBottom: 4 },
   paragraph: { marginBottom: 8 },
   mediaBlock: { marginVertical: 10 },
-  mediaImage: { width: '100%', aspectRatio: 4 / 3, borderRadius: 10, backgroundColor: Colors.beige2 },
+  mediaImage: { width: '100%', aspectRatio: 4 / 3, borderRadius: 10, backgroundColor: Colors.surfaceSunken },
   mediaCaption: { marginTop: 4 },
   mediaFallback: { marginVertical: 6, fontStyle: 'italic' },
 });

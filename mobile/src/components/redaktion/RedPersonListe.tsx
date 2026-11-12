@@ -52,17 +52,17 @@ export function RedPersonListe() {
   // Rolle-guard EFTER alle hooks (konsistent m. [type]/menu auth-state; cycle 05 M2).
   if (rolle !== 'redaktion')
     return (
-      <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+      <View style={{ flex: 1, backgroundColor: Colors.surfaceGround }}>
         <TopBar title="Personer" showBack={false} />
-        <Body color={Colors.textMuted} style={{ padding: 24 }}>Kræver redaktør-rolle.</Body>
+        <Body color={Colors.inkMuted} style={{ padding: 24 }}>Kræver redaktør-rolle.</Body>
       </View>
     );
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+    <View style={{ flex: 1, backgroundColor: Colors.surfaceGround }}>
       <TopBar title="Personer" showBack={false} />
       <View style={styles.header}>
-        <TextInput style={styles.input} placeholder="Søg navn…" placeholderTextColor={Colors.textMuted}
+        <TextInput style={styles.input} placeholder="Søg navn…" placeholderTextColor={Colors.inkMuted}
           value={query} onChangeText={setQuery} autoCorrect={false} />
         <View style={styles.sortRow}>
           <SortPill label="A–Å" active={sort === 'alpha'} onPress={() => setSort('alpha')} />
@@ -75,7 +75,7 @@ export function RedPersonListe() {
               return (
                 <Pressable key={l.label} onPress={() => setActiveLetter(l.key)}
                   style={[styles.letterChip, active && styles.letterChipActive]}>
-                  <Mono size={10} color={active ? Colors.paperBg : Colors.textSecondary2}>{l.label}</Mono>
+                  <Mono size={10} color={active ? Colors.inkOnInverse : Colors.inkMuted}>{l.label}</Mono>
                 </Pressable>
               );
             })}
@@ -85,7 +85,7 @@ export function RedPersonListe() {
 
       {fejl ? (
         <View style={{ padding: 24 }}>
-          <Mono size={11} color={Colors.liveRoed}>Kunne ikke hente personer. Tom liste her betyder IKKE "ingen personer".</Mono>
+          <Mono size={11} color={Colors.live}>Kunne ikke hente personer. Tom liste her betyder IKKE "ingen personer".</Mono>
         </View>
       ) : (
         <SectionList
@@ -96,13 +96,13 @@ export function RedPersonListe() {
           keyboardShouldPersistTaps="handled"
           renderSectionHeader={({ section }) =>
             section.title ? (
-              <View style={styles.sectionHeader}><Serif size={15} color={Colors.gold}>{section.title}</Serif></View>
+              <View style={styles.sectionHeader}><Serif size={15} color={Colors.goldInk}>{section.title}</Serif></View>
             ) : null
           }
           renderItem={({ item }) => (
             <PersonRow item={item} tag={skjult.get(item.id)} onPress={() => router.push(`/redaktion/person/${item.id}` as never)} />
           )}
-          ListEmptyComponent={<View style={{ padding: 24 }}><Body color={Colors.textMuted}>Ingen personer.</Body></View>}
+          ListEmptyComponent={<View style={{ padding: 24 }}><Body color={Colors.inkMuted}>Ingen personer.</Body></View>}
         />
       )}
     </View>
@@ -112,7 +112,7 @@ export function RedPersonListe() {
 function SortPill({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
     <Pressable onPress={onPress} style={[styles.sortPill, active && styles.sortPillActive]}>
-      <BtnLabel size={11} color={active ? Colors.paperBg : Colors.textSecondary2}>{label}</BtnLabel>
+      <BtnLabel size={11} color={active ? Colors.inkOnInverse : Colors.inkMuted}>{label}</BtnLabel>
     </Pressable>
   );
 }
@@ -120,10 +120,10 @@ function SortPill({ label, active, onPress }: { label: string; active: boolean; 
 function PersonRow({ item, tag, onPress }: { item: SearchItem; tag?: 'levende' | 'privat'; onPress: () => void }) {
   return (
     <Pressable style={styles.row} onPress={onPress}>
-      <InitialBadge name={item.name} size={40} bg={Colors.beige2} />
+      <InitialBadge name={item.name} size={40} bg={Colors.surfaceSunken} />
       <View style={{ flex: 1, minWidth: 0 }}>
         <Serif size={18} style={{ lineHeight: 19 }}>{item.name}</Serif>
-        {item.years ? <Mono size={10} color={Colors.textMuted}>{item.years}</Mono> : null}
+        {item.years ? <Mono size={10} color={Colors.inkMuted}>{item.years}</Mono> : null}
       </View>
       {tag ? (
         <View style={styles.tag}><Mono size={8} color={Colors.bordeaux}>{tag.toUpperCase()}</Mono></View>
@@ -134,15 +134,15 @@ function PersonRow({ item, tag, onPress }: { item: SearchItem; tag?: 'levende' |
 
 const styles = StyleSheet.create({
   header: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 6, gap: 8 },
-  input: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
+  input: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light,
     borderRadius: Radius.field, paddingHorizontal: 12, paddingVertical: 9, fontFamily: 'HankenGrotesk_400Regular', fontSize: 15 },
   sortRow: { flexDirection: 'row', gap: 8 },
   sortPill: { borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.chip, paddingHorizontal: 14, paddingVertical: 5 },
   sortPillActive: { backgroundColor: Colors.bordeaux, borderColor: Colors.bordeaux },
   letterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
-  letterChip: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: Radius.badge, backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light },
+  letterChip: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: Radius.badge, backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light },
   letterChipActive: { backgroundColor: Colors.bordeaux, borderColor: Colors.bordeaux },
-  sectionHeader: { backgroundColor: Colors.paperBg, paddingHorizontal: 16, paddingVertical: 4 },
+  sectionHeader: { backgroundColor: Colors.surfaceGround, paddingHorizontal: 16, paddingVertical: 4 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 9 },
-  tag: { backgroundColor: Colors.bordeauxFillLight, borderRadius: Radius.badge, paddingHorizontal: 6, paddingVertical: 3 },
+  tag: { backgroundColor: Colors.bordeauxTint, borderRadius: Radius.badge, paddingHorizontal: 6, paddingVertical: 3 },
 });

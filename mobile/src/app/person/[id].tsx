@@ -75,7 +75,7 @@ export default function PersonScreen() {
       <View style={{ flex: 1 }}>
         <TopBar title="Person" />
         <View style={{ padding: 24 }}>
-          <Body color={Colors.textMuted}>Personen blev ikke fundet.</Body>
+          <Body color={Colors.inkMuted}>Personen blev ikke fundet.</Body>
         </View>
       </View>
     );
@@ -132,16 +132,16 @@ export default function PersonScreen() {
           )}
           <View style={{ flex: 1, minWidth: 0, paddingTop: 4 }}>
             <Serif size={30} style={{ lineHeight: 30 }}>{person.name}</Serif>
-            {person.years ? <Mono size={11} color={Colors.textMuted} style={{ marginTop: 7 }}>{person.years}</Mono> : null}
+            {person.years ? <Mono size={11} color={Colors.inkMuted} style={{ marginTop: 7 }}>{person.years}</Mono> : null}
             <View style={styles.badgeRow}>
               {isMe ? (
                 <View style={[styles.badge, { backgroundColor: Colors.bordeaux }]}>
-                  <BtnLabel size={11} color={Colors.paperCard} style={{ fontFamily: Fonts.sansBold }}>★ Dig</BtnLabel>
+                  <BtnLabel size={11} color={Colors.inkOnInverse} style={{ fontFamily: Fonts.sansBold }}>★ Dig</BtnLabel>
                 </View>
               ) : null}
               {linjer.map((lk) => (
-                <View key={lk} style={[styles.badge, styles.badgeBordered, { backgroundColor: Colors.beige2 }]}>
-                  <Mono size={10} color={Colors.textSecondary2} style={{ letterSpacing: 0 }}>{aux?.linjeNavn[lk] ?? `Linje ${lk}`}</Mono>
+                <View key={lk} style={[styles.badge, styles.badgeBordered, { backgroundColor: Colors.surfaceSunken }]}>
+                  <Mono size={10} color={Colors.inkMuted} style={{ letterSpacing: 0 }}>{aux?.linjeNavn[lk] ?? `Linje ${lk}`}</Mono>
                 </View>
               ))}
               {person.title ? (
@@ -151,7 +151,7 @@ export default function PersonScreen() {
               ) : null}
             </View>
             {proveniens ? (
-              <Body size={11} color={Colors.textMuted} style={{ marginTop: 9, lineHeight: 11 * 1.45 }}>
+              <Body size={11} color={Colors.inkMuted} style={{ marginTop: 9, lineHeight: 11 * 1.45 }}>
                 Optræder i Aarbogen som {proveniens}.
               </Body>
             ) : null}
@@ -161,10 +161,10 @@ export default function PersonScreen() {
         {/* Barn af — inline Cormorant */}
         {parents.length ? (
           <View style={styles.barnAf}>
-            <Kicker size={9} color={Colors.gold} style={{ letterSpacing: 9 * 0.1 }}>Barn af</Kicker>
+            <Kicker size={9} color={Colors.goldInk} style={{ letterSpacing: 9 * 0.1 }}>Barn af</Kicker>
             {parents.map((p, i) => (
               <View key={p.id} style={styles.inlineItem}>
-                {i > 0 ? <Serif size={16} italic color={Colors.gold} style={{ fontFamily: Fonts.serifItalic }}>&</Serif> : null}
+                {i > 0 ? <Serif size={16} italic color={Colors.goldInk} style={{ fontFamily: Fonts.serifItalic }}>&</Serif> : null}
                 <Serif size={17} color={Colors.bordeaux} onPress={() => router.push(`/person/${p.id}`)}>{p.name} ›</Serif>
               </View>
             ))}
@@ -178,14 +178,14 @@ export default function PersonScreen() {
               <View style={styles.badgeRow}>
                 {bioVersions.map((version, index) => (
                   <Pressable key={version.recordRef ?? `${version.sourceLabel}:${index}`} onPress={() => setSelectedBioVersion({ personId: person.id, index })}>
-                    <Mono size={10} color={index === bioVersionIdx ? Colors.bordeaux : Colors.textMuted}>
+                    <Mono size={10} color={index === bioVersionIdx ? Colors.bordeaux : Colors.inkMuted}>
                       {version.sourceLabel} · {version.provenanceKind === 'source_record' ? version.recordLabel : 'overgangsdata'}
                     </Mono>
                   </Pressable>
                 ))}
               </View>
             ) : null}
-            <NarrativRenderer tekst={activeBio} size={14} color={Colors.textSecondary}
+            <NarrativRenderer tekst={activeBio} size={14} color={Colors.inkSecondary}
               style={{ lineHeight: 14 * 1.55 }}
               numberOfLines={bioExpanded ? undefined : BIO_CLAMP_LINES} />
             {bioLong ? (
@@ -213,11 +213,11 @@ export default function PersonScreen() {
         {/* ⚭ gift med — inline Cormorant kursiv */}
         {spouses.length ? (
           <View style={styles.block}>
-            <Serif size={16} italic color={Colors.textSecondary2} style={{ lineHeight: 16 * 1.5, fontFamily: Fonts.serifItalic }}>
+            <Serif size={16} italic color={Colors.inkMuted} style={{ lineHeight: 16 * 1.5, fontFamily: Fonts.serifItalic }}>
               {'⚭ gift med  '}
               {spouses.map((sp, i) => (
                 <Serif key={i} size={16} italic={!sp.id}
-                  color={sp.id ? Colors.bordeaux : Colors.textSecondary2}
+                  color={sp.id ? Colors.bordeaux : Colors.inkMuted}
                   style={{ fontFamily: sp.id ? Fonts.serifSemi : Fonts.serifItalic }}
                   onPress={sp.id ? () => router.push(`/person/${sp.id}`) : undefined}>
                   {i > 0 ? '· ' : ''}{sp.name}{sp.id ? ' ›' : ''}
@@ -257,12 +257,12 @@ export default function PersonScreen() {
           <Section title="Embeder, rang & hverv">
             {offices.slice(0, 10).map((o, i) => (
               <View key={i} style={styles.officeRow}>
-                <Body size={13.5} color={Colors.textSecondary} style={{ flex: 1, lineHeight: 13.5 * 1.3 }}>{o.label}</Body>
-                {o.period ? <Mono size={10} color={Colors.textMuted}>{o.period}</Mono> : null}
+                <Body size={13.5} color={Colors.inkSecondary} style={{ flex: 1, lineHeight: 13.5 * 1.3 }}>{o.label}</Body>
+                {o.period ? <Mono size={10} color={Colors.inkMuted}>{o.period}</Mono> : null}
               </View>
             ))}
             {offices.length > 10 ? (
-              <Body size={12} color={Colors.textMuted} style={{ marginTop: 8 }}>+ {offices.length - 10} flere hverv</Body>
+              <Body size={12} color={Colors.inkMuted} style={{ marginTop: 8 }}>+ {offices.length - 10} flere hverv</Body>
             ) : null}
           </Section>
         ) : null}
@@ -274,7 +274,7 @@ export default function PersonScreen() {
               {estates.map((e, i) => (
                 <View key={i} style={styles.tag}>
                   <Serif size={16}>{e.navn}</Serif>
-                  {e.period ? <Mono size={9.5} color={Colors.textMuted} style={{ marginLeft: 6 }}>{e.period}</Mono> : null}
+                  {e.period ? <Mono size={9.5} color={Colors.inkMuted} style={{ marginLeft: 6 }}>{e.period}</Mono> : null}
                 </View>
               ))}
             </View>
@@ -289,7 +289,7 @@ export default function PersonScreen() {
                 <Pressable key={String(m.id)} onPress={() => setLightbox(lightboxItems.findIndex((x) => x.id === String(m.id)))}>
                   <Image
                     source={{ uri: thumbUri }}
-                    style={{ width: 108, height: 108, borderRadius: 10, backgroundColor: Colors.beige2 }}
+                    style={{ width: 108, height: 108, borderRadius: 10, backgroundColor: Colors.surfaceSunken }}
                     contentFit="cover"
                     transition={150}
                   />
@@ -303,7 +303,7 @@ export default function PersonScreen() {
                   <StripedPlaceholder key={t} label={t} style={{ flex: 1, aspectRatio: 1 }} />
                 ))}
               </View>
-              <Body size={11.5} color={Colors.textMuted} style={{ marginTop: 8 }}>
+              <Body size={11.5} color={Colors.inkMuted} style={{ marginTop: 8 }}>
                 Billedmateriale tilknyttes efterhånden som det digitaliseres.
               </Body>
             </>
@@ -318,9 +318,9 @@ export default function PersonScreen() {
                 <Serif size={18} color={Colors.bordeaux}>§</Serif>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Body size={13.5} color={Colors.ink} style={{ fontFamily: Fonts.sansSemi, lineHeight: 13.5 * 1.25 }}>{s.work}</Body>
-                  {s.ref ? <Mono size={10.5} color={Colors.textMuted} style={{ marginTop: 2 }}>{s.ref}</Mono> : null}
+                  {s.ref ? <Mono size={10.5} color={Colors.inkMuted} style={{ marginTop: 2 }}>{s.ref}</Mono> : null}
                 </View>
-                <BtnLabel size={11} color={Colors.gold}>trykt værk</BtnLabel>
+                <BtnLabel size={11} color={Colors.goldInk}>trykt værk</BtnLabel>
               </View>
             ))}
           </Section>
@@ -332,13 +332,13 @@ export default function PersonScreen() {
             <BtnLabel size={13} color={Colors.ink}>Vis i stamtræ</BtnLabel>
           </Pressable>
           <Pressable style={[styles.action, styles.actionPrimary]} onPress={() => { useStore.setState({ relA: person.id }); router.push('/relate'); }}>
-            <BtnLabel size={13} color={Colors.paperCard}>Slægtskab</BtnLabel>
+            <BtnLabel size={13} color={Colors.inkOnInverse}>Slægtskab</BtnLabel>
           </Pressable>
         </View>
         {meId == null || isMe ? (
           <View style={{ marginTop: 10, paddingHorizontal: 22 }}>
             <Pressable style={[styles.meToggle, isMe && styles.meToggleActive]} onPress={() => setMe(isMe ? null : person.id)}>
-              <BtnLabel size={13} color={isMe ? Colors.bordeaux : Colors.textSecondary}>
+              <BtnLabel size={13} color={isMe ? Colors.bordeaux : Colors.inkSecondary}>
                 {isMe ? '★ Dette er dig — fjern markering' : 'Det er mig i slægten'}
               </BtnLabel>
             </Pressable>
@@ -381,7 +381,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: Radius.round,
-    backgroundColor: Colors.beige2,
+    backgroundColor: Colors.surfaceSunken,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Border.faint,
     alignItems: 'center',
@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
   tag: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.paperCard,
+    backgroundColor: Colors.surfaceRaised,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Border.light,
     borderRadius: 9,
@@ -416,7 +416,7 @@ const styles = StyleSheet.create({
   },
   action: { flex: 1, borderRadius: Radius.field, paddingVertical: 13, alignItems: 'center' },
   actionPrimary: { backgroundColor: Colors.bordeaux },
-  actionSecondary: { backgroundColor: Colors.beige2, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.light },
+  actionSecondary: { backgroundColor: Colors.surfaceSunken, borderWidth: StyleSheet.hairlineWidth, borderColor: Border.light },
   meToggle: { borderWidth: 1.5, borderColor: Border.medium, borderRadius: Radius.field, paddingVertical: 12, alignItems: 'center' },
-  meToggleActive: { borderColor: Colors.bordeaux, backgroundColor: Colors.bordeauxFillLight },
+  meToggleActive: { borderColor: Colors.bordeaux, backgroundColor: Colors.bordeauxTint },
 });

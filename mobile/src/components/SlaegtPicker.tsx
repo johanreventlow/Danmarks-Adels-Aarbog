@@ -34,7 +34,7 @@ export function SlaegtPicker({
               <BtnLabel size={13} color={Colors.bordeaux}>Luk</BtnLabel>
             </Pressable>
           </View>
-          <Body size={12} color={Colors.textMuted} style={{ marginBottom: 12 }}>
+          <Body size={12} color={Colors.inkMuted} style={{ marginBottom: 12 }}>
             Hver ny slægt lægges til som sit eget datasæt. Slægtskab kan findes på tværs.
           </Body>
           <ScrollView contentContainerStyle={{ gap: 8 }}>
@@ -44,12 +44,12 @@ export function SlaegtPicker({
                 disabled={!sl.active}
                 onPress={onClose}
                 style={[styles.row, sl.active ? styles.rowActive : styles.rowComing]}>
-                <View style={[styles.crest, { backgroundColor: sl.active ? Colors.bordeaux : Colors.beige2 }]}>
-                  <Serif size={17} color={sl.active ? Colors.paperBg : '#bcae93'}>{sl.crest}</Serif>
+                <View style={[styles.crest, { backgroundColor: sl.active ? Colors.bordeaux : Colors.surfaceSunken }]}>
+                  <Serif size={17} color={sl.active ? Colors.inkOnInverse : '#bcae93'}>{sl.crest}</Serif>
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Serif size={20} style={{ lineHeight: 21 }}>{sl.name}</Serif>
-                  <Body size={11.5} color={Colors.textSecondary2} style={{ marginTop: 1 }}>{sl.sub}</Body>
+                  <Body size={11.5} color={Colors.inkMuted} style={{ marginTop: 1 }}>{sl.sub}</Body>
                 </View>
                 {sl.active ? (
                   <Mono size={9} color={Colors.bordeaux} style={{ letterSpacing: 0.7, textTransform: 'uppercase' }}>aktiv</Mono>
@@ -68,7 +68,7 @@ export function SlaegtPicker({
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(20,17,13,0.4)', justifyContent: 'flex-end' },
   sheet: {
-    backgroundColor: Colors.paperBg,
+    backgroundColor: Colors.surfaceGround,
     borderTopLeftRadius: Radius.sheet,
     borderTopRightRadius: Radius.sheet,
     maxHeight: '74%',
@@ -78,7 +78,7 @@ const styles = StyleSheet.create({
   },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 13, borderRadius: 13, paddingVertical: 13, paddingHorizontal: 15, borderWidth: 1.5 },
-  rowActive: { backgroundColor: Colors.bordeauxFillLight, borderColor: Colors.bordeaux },
-  rowComing: { backgroundColor: Colors.paperCard, borderColor: Border.light, opacity: 0.7 },
+  rowActive: { backgroundColor: Colors.bordeauxTint, borderColor: Colors.bordeaux },
+  rowComing: { backgroundColor: Colors.surfaceRaised, borderColor: Border.light, opacity: 0.7 },
   crest: { width: 38, height: 38, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
 });

@@ -47,7 +47,7 @@ export default function SearchScreen() {
           <TextInput
             style={styles.input}
             placeholder="Søg navn…"
-            placeholderTextColor={Colors.textMuted}
+            placeholderTextColor={Colors.inkMuted}
             value={query}
             onChangeText={setQuery}
             autoCorrect={false}
@@ -70,7 +70,7 @@ export default function SearchScreen() {
                     style={[styles.letterChip, active && styles.letterChipActive]}>
                     <Mono
                       size={10}
-                      color={active ? Colors.paperBg : Colors.textSecondary2}
+                      color={active ? Colors.inkOnInverse : Colors.inkMuted}
                       style={{ letterSpacing: 0 }}>
                       {l.label}
                     </Mono>
@@ -91,7 +91,7 @@ export default function SearchScreen() {
           renderSectionHeader={({ section }) =>
             section.title ? (
               <View style={styles.sectionHeader}>
-                <Serif size={15} color={Colors.gold}>{section.title}</Serif>
+                <Serif size={15} color={Colors.goldInk}>{section.title}</Serif>
               </View>
             ) : null
           }
@@ -100,7 +100,7 @@ export default function SearchScreen() {
           )}
           ListEmptyComponent={
             <View style={{ padding: 24, alignItems: 'center' }}>
-              <Body color={Colors.textMuted}>Ingen personer fundet.</Body>
+              <Body color={Colors.inkMuted}>Ingen personer fundet.</Body>
             </View>
           }
         />
@@ -120,7 +120,7 @@ function SortPill({
 }) {
   return (
     <Pressable onPress={onPress} style={[styles.sortPill, active && styles.sortPillActive]}>
-      <BtnLabel size={11} color={active ? Colors.paperBg : Colors.textSecondary2}>{label}</BtnLabel>
+      <BtnLabel size={11} color={active ? Colors.inkOnInverse : Colors.inkMuted}>{label}</BtnLabel>
     </Pressable>
   );
 }
@@ -128,10 +128,10 @@ function SortPill({
 function PersonRow({ item, onPress }: { item: SearchItem; onPress: () => void }) {
   return (
     <Pressable style={styles.row} onPress={onPress}>
-      <InitialBadge name={item.name} size={40} bg={Colors.beige2} />
+      <InitialBadge name={item.name} size={40} bg={Colors.surfaceSunken} />
       <View style={{ flex: 1, minWidth: 0 }}>
         <Serif size={18} style={{ lineHeight: 19 }}>{item.name}</Serif>
-        {item.years ? <Mono size={10} color={Colors.textMuted}>{item.years}</Mono> : null}
+        {item.years ? <Mono size={10} color={Colors.inkMuted}>{item.years}</Mono> : null}
       </View>
       <Serif size={18} color="#bcae93">›</Serif>
     </Pressable>
@@ -141,7 +141,7 @@ function PersonRow({ item, onPress }: { item: SearchItem; onPress: () => void })
 const styles = StyleSheet.create({
   header: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 8 },
   input: {
-    backgroundColor: Colors.paperCard,
+    backgroundColor: Colors.surfaceRaised,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Border.medium,
     borderRadius: Radius.field,
@@ -156,7 +156,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: Radius.chip,
-    backgroundColor: Colors.beige,
+    backgroundColor: Colors.surfaceSunken,
   },
   sortPillActive: { backgroundColor: Colors.bordeaux },
   letterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 3, marginTop: 12 },
@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
   },
   letterChipActive: { backgroundColor: Colors.bordeaux },
   sectionHeader: {
-    backgroundColor: Colors.paperBg,
+    backgroundColor: Colors.surfaceGround,
     paddingHorizontal: 18,
     paddingTop: 7,
     paddingBottom: 3,

@@ -228,7 +228,7 @@ export default function HomeScreen() {
 
   return (
     <LoadGate>
-      <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+      <View style={{ flex: 1, backgroundColor: Colors.surfaceGround }}>
         <HomeTopBar
           onMenu={() => setDrawerOpen(true)}
           onBookmarks={() => router.push('/bogmaerker')}
@@ -263,7 +263,7 @@ function Hero({ counts: c, onSkift }: { counts: ReturnType<typeof counts>; onSki
         <Image source={require('../../../assets/daf-logo.png')} style={{ width: 60, height: 60 }} contentFit="contain" />
       </Rise>
       <Rise index={1}>
-        <Kicker size={9.5} color={Colors.gold} style={{ letterSpacing: 9.5 * 0.22, marginTop: 12 }}>
+        <Kicker size={9.5} color={Colors.goldInk} style={{ letterSpacing: 9.5 * 0.22, marginTop: 12 }}>
           Danmarks Adels Aarbog
         </Kicker>
       </Rise>
@@ -290,7 +290,7 @@ function Counter({ value, label }: { value: number; label: string }) {
   return (
     <View style={{ alignItems: 'center' }}>
       <Serif size={24} color={Colors.bordeaux} style={{ lineHeight: 24 }}>{value}</Serif>
-      <Mono size={8} color={Colors.textMuted2} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase', marginTop: 3 }}>{label}</Mono>
+      <Mono size={8} color={Colors.inkMuted} style={{ letterSpacing: 8 * 0.08, textTransform: 'uppercase', marginTop: 3 }}>{label}</Mono>
     </View>
   );
 }
@@ -302,7 +302,7 @@ function Footer({ state }: { state: 'appending' | 'done' | 'more' }) {
   if (state === 'done') {
     return (
       <View style={{ paddingVertical: 24, paddingHorizontal: 24, alignItems: 'center' }}>
-        <Mono size={8.5} color={Colors.textMuted2} style={{ letterSpacing: 8.5 * 0.14, textTransform: 'uppercase', textAlign: 'center' }}>
+        <Mono size={8.5} color={Colors.inkMuted} style={{ letterSpacing: 8.5 * 0.14, textTransform: 'uppercase', textAlign: 'center' }}>
           Du har mødt hele slægten i dag — udforsk registeret
         </Mono>
       </View>
@@ -311,7 +311,7 @@ function Footer({ state }: { state: 'appending' | 'done' | 'more' }) {
   return (
     <View style={{ paddingVertical: 24, paddingHorizontal: 24, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
       <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: '#c3b79d' }} />
-      <Mono size={8.5} color={Colors.textMuted2} style={{ letterSpacing: 8.5 * 0.14, textTransform: 'uppercase' }}>
+      <Mono size={8.5} color={Colors.inkMuted} style={{ letterSpacing: 8.5 * 0.14, textTransform: 'uppercase' }}>
         {state === 'appending' ? 'Henter flere blade …' : 'Henter flere blade fra slægten'}
       </Mono>
       <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: '#c3b79d' }} />

@@ -30,7 +30,7 @@ export function TopBar({ title, showBack = true }: { title: string; showBack?: b
 
 const styles = StyleSheet.create({
   wrap: {
-    backgroundColor: Colors.paperBg,
+    backgroundColor: Colors.surfaceGround,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Border.light,
   },
