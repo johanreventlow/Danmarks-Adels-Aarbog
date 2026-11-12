@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPersonFacts, FAKTA_UDELADT, type PublicPersonFactRow } from '../personFacts';
+import { buildPersonFacts, factSource, factValue, FAKTA_UDELADT, type PublicPersonFactRow } from '../personFacts';
 
 let next = 1;
 const row = (o: Partial<PublicPersonFactRow> = {}): PublicPersonFactRow => {
@@ -75,6 +75,10 @@ describe('buildPersonFacts', () => {
     ]);
   });
 
+  it('bundet med teknisk record_label viser ikke nøglen', () => {
+    const [f] = buildPersonFacts([row({ record_ref: 'r', record_label: 'record-07565168-b903-4444-9189-43d62d5c6ed6', citation_label: 'DAA 1939, s. 541' })]);
+    expect(f.chosen?.source.label).toBe('DAA 1939, s. 541');
+  });
   it('bundet uden citation_label bruger udgaven foran posten', () => {
     const [f] = buildPersonFacts([row({ record_ref: 'r', record_label: 'III-37', citation_label: '' })]);
     expect(f.chosen?.source.label).toBe('DAA 2018-20 · III-37');
@@ -106,5 +110,64 @@ describe('buildPersonFacts', () => {
     const v = buildPersonFacts([a, dup, { ...a, side: '2' }]);
     expect(v).toHaveLength(1);
     expect([v[0].chosen, ...v[0].others].map((s) => s?.source.label)).toEqual(['DAA 1939, s. 1', 'DAA 1939, s. 2']);
+  });
+
+  it('viser vaerdi_tekst og date_raw én gang, når de er ens', () => {
+    const [v] = buildPersonFacts([row({ vaerdi_tekst: '15. febr. 1878.', date_raw: '15. febr. 1878.' })]);
+    expect(v.chosen?.value).toBe('15. febr. 1878.');
+    const [w] = buildPersonFacts([row({ vaerdi_tekst: 'a', date_raw: 'b' })]);
+    expect(w.chosen?.value).toBe('a, b');
+  });
+
+  it('ledende *, † eller ⚭ fjernes i visningen; tegn inde i værdien bevares (spec §5.8)', () => {
+    expect(factValue(row({ vaerdi_tekst: null, date_raw: '* 1749' }))).toBe('1749');
+    expect(factValue(row({ vaerdi_tekst: '† ung', date_raw: null }))).toBe('ung');
+    expect(factValue(row({ vaerdi_tekst: '⚭ 1700', date_raw: null }))).toBe('1700');
+    expect(factValue(row({ vaerdi_tekst: '*1749', date_raw: null }))).toBe('1749');
+    expect(factValue(row({ vaerdi_tekst: 'ca. *1700', date_raw: null }))).toBe('ca. *1700');
+    // tegnet fjernes før sammenligningen, så samme tekst ikke vises to gange
+    expect(factValue(row({ vaerdi_tekst: '* 1749', date_raw: '1749' }))).toBe('1749');
+    expect(factValue(row({ vaerdi_tekst: '†', date_raw: null }))).toBe('—');
+  });
+
+  it('date_raw vises ikke igen, når vaerdi_tekst slutter med den og den er mere end et årstal (afgørelse 13)', () => {
+    expect(factValue(row({ vaerdi_tekst: 'hjemmedøbt 10. febr. 1922', date_raw: '10. febr. 1922' }))).toBe('hjemmedøbt 10. febr. 1922');
+    expect(factValue(row({ vaerdi_tekst: 'hjemmedøbt 10. febr. 1922.', date_raw: '10. febr. 1922' }))).toBe('hjemmedøbt 10. febr. 1922.');
+    // et rent årstal kan være et tilfælde → begge vises
+    expect(factValue(row({ vaerdi_tekst: 'døbt i kirken opført 1845', date_raw: '1845' }))).toBe('døbt i kirken opført 1845, 1845');
+    expect(factValue(row({ vaerdi_tekst: 'døbt 5. sept. 1845 eller 1846', date_raw: '1846' }))).toBe('døbt 5. sept. 1845 eller 1846, 1846');
+    // står datoen inde i teksten (ikke til sidst), vises begge
+    expect(factValue(row({ vaerdi_tekst: 'døbt 5. sept. 1845 i Vesterborg Kirke', date_raw: '5. sept. 1845' })))
+      .toBe('døbt 5. sept. 1845 i Vesterborg Kirke, 5. sept. 1845');
+    // kun ved ordgrænse: »5. sept. 1845« er ikke slutningen af »15. sept. 1845«
+    expect(factValue(row({ vaerdi_tekst: 'døbt 15. sept. 1845', date_raw: '5. sept. 1845' }))).toBe('døbt 15. sept. 1845, 5. sept. 1845');
+    // tjekket sker efter en omformning af hver del (opløsning af relative datoer)
+    const opl = (v: string) => v.replace('s.å.', '1922');
+    expect(factValue(row({ vaerdi_tekst: 'hjemmedøbt 10. febr. 1922', date_raw: '10. febr. s.å.' }), opl)).toBe('hjemmedøbt 10. febr. 1922');
+  });
+
+  it('C1: et betydningsbærende tegn i date_raw (»?«, parentes) fjernes aldrig ved dobbelttjekket', () => {
+    expect(factValue(row({ vaerdi_tekst: 'døbt 21. april 1644', date_raw: '21. april 1644?' }))).toBe('døbt 21. april 1644, 21. april 1644?');
+    expect(factValue(row({ vaerdi_tekst: 'døbt 21. april 1644', date_raw: '21. april 1644)' }))).toBe('døbt 21. april 1644, 21. april 1644)');
+    expect(factValue(row({ vaerdi_tekst: 'døbt 21. april 1644?', date_raw: '21. april 1644' }))).toBe('døbt 21. april 1644?, 21. april 1644');
+    // ender teksten med netop »…?«, er datofeltet dobbelt
+    expect(factValue(row({ vaerdi_tekst: 'døbt 21. april 1644?', date_raw: '21. april 1644?' }))).toBe('døbt 21. april 1644?');
+    // afsluttende punktum, komma og mellemrum er stadig kun skrivemåde
+    expect(factValue(row({ vaerdi_tekst: 'døbt 21. april 1644.', date_raw: '21. april 1644, ' }))).toBe('døbt 21. april 1644.');
+  });
+
+  it('kildeetiketten viser »<udgave>, s. N« (også intervaller) (spec §5.8)', () => {
+    const bundet = (citation_label: string) =>
+      factSource(row({ record_ref: 'r', record_label: 'record-07565168-b903-4444-9189-43d62d5c6ed6', citation_label })).label;
+    expect(bundet('DAA 1939 side 532')).toBe('DAA 1939, s. 532');
+    expect(bundet('DAA 1939 side 125-126')).toBe('DAA 1939, s. 125-126');
+    expect(bundet('DAA 2018-20, s. 201-202')).toBe('DAA 2018-20, s. 201-202');
+    expect(factSource(row({ record_ref: 'r', record_label: 'I-32', citation_label: 'DAA 1939 side 7' })).label).toBe('DAA 1939, s. 7 · I-32');
+    expect(factSource(row({ source_label: 'DAA 1939 side 532' })).label).toBe('DAA 1939, s. 532');
+    // kun den første » side« efter udgaven får komma
+    expect(factSource(row({ source_label: 'DAA 1939 side 12 og side 14' })).label).toBe('DAA 1939, s. 12 og s. 14');
+    expect(factSource(row({ source_label: 'Optegnelser om Inderside 12' })).label).toBe('Optegnelser om Inderside 12');
+    // kun formen » side <tal>«
+    expect(factSource(row({ source_label: 'Kirkebog, side B' })).label).toBe('Kirkebog, side B');
   });
 });

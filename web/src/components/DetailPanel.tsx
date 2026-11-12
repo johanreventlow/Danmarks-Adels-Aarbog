@@ -1,6 +1,6 @@
 // ---- Person-detalje (højre panel) ----
 // Udtrukket fra Folgesvend.tsx (review 27 W-K1) — samme komponent, blot flyttet fil.
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useState, type CSSProperties } from 'react';
 import { T } from '../theme';
 import { Link } from '../Link';
 import { personPath } from '../data/nav';
@@ -9,9 +9,11 @@ import { childrenOf, parentsOf } from '../data/model';
 import { pickPortrait, withUrl } from '../data/media';
 import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
+import { erTekniskLinje } from '../data/lineage';
 import {
-  aegteskabsKilder as aegteskabsKilderFor, boerneKilder as boerneKilderFor, familieIderForPerson,
-  foraelderKilder as foraelderKilderFor, kildeLinje, lifeJourney, type BioSourceVersion, type FamilieKilde,
+  aegteskabsKilder as aegteskabsKilderFor, boerneKilder as boerneKilderFor, byggUdgaveFakta, byggUdgaveVaelger,
+  familieIderForPerson, foraelderKilder as foraelderKilderFor, kildeLinje, lifeJourney, udgaveForRaekker,
+  udgaverMedFakta, type BioSourceVersionV2, type FamilieKilde, type UdgaveChip,
 } from '@daa/core';
 import { fetchFamilySources } from '../data/familySources';
 import { NarrativRenderer } from './NarrativRenderer';
@@ -31,10 +33,30 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
   // portræt + galleri bliver ÉT navigerbart sæt (portræt først), så pil-tasterne bladrer gennem
   // alle personens billeder uanset hvilket der blev klikket på.
   const [lightbox, setLightbox] = useState<number | null>(null);
-  // Udgave-versionsvælger (§7.18): index i detail.bioVersions, nulstillet når man skifter person
-  // (ny focusId) — ellers ville et tidligere valgt ældre-udgave-valg lække over på næste person.
-  const [bioVersionIdx, setBioVersionIdx] = useState(0);
-  useEffect(() => { setBioVersionIdx(0); }, [focusId]);
+  // Udgavevælger (6e-1, spec §5.5): ÉN chip-liste styrer både biografien og fakta-udgaven. Læserens valg er
+  // bundet til personen og chippens identitet (art, udgave, post) — ikke til detalje-objektet, så en genhentning for
+  // samme person (fx når geo ankommer) bevarer valget. Findes chippen ikke i de aktuelle data, gælder standarden,
+  // uden at valget glemmes; en ny person giver altid standarden. Afledt, ikke nulstillet i en effekt.
+  const [valg, setValg] = useState<{ focusId: string; noegle: string } | null>(null);
+  // Nyt focusId nulstiller valget (også ved A → B → A); justeret under render, ikke i en effekt.
+  const [valgFokus, setValgFokus] = useState(focusId);
+  if (valgFokus !== focusId) {
+    setValgFokus(focusId);
+    setValg(null);
+  }
+  const faktaInput = detail?.faktaInput ?? null;
+  const udgaver = model.udgaver ?? [];
+  const vaelger = byggUdgaveVaelger(detail?.bioVersions ?? [], udgaver, faktaInput ? udgaverMedFakta(faktaInput) : []);
+  const valgtFundet = valg && valg.focusId === focusId ? vaelger.chips.findIndex((c) => chipNoegle(c) === valg.noegle) : -1;
+  const valgtIdx = valgtFundet >= 0 ? valgtFundet : vaelger.standard;
+  const vaelgChip = (idx: number) => {
+    const c = vaelger.chips[idx];
+    if (c) setValg({ focusId, noegle: chipNoegle(c) });
+  };
+  const aktivChip: UdgaveChip | null = vaelger.chips[valgtIdx] ?? null;
+  // En chip fra en ukendt udgave (fx »label:…« uden udgaveoplysninger) filtrerer intet: alt vises som i dag.
+  const valgtUdgave = aktivChip && udgaver.some((u) => u.sourceId === aktivChip.sourceId) ? aktivChip.sourceId : null;
+  const faktaVisning = faktaInput ? byggUdgaveFakta(faktaInput, valgtUdgave) : null;
   // Trin 5b 2a (spec §5.2): kilder på ægteskab og forældrelinje. Hentes pr. person; et svar for en
   // tidligere person ignoreres. Fejl giver [] i datalaget, så panelet aldrig brydes. Afhænger af
   // model.indexes, ikke model: et nyt modelobjekt (fx når geo ankommer) skal ikke hente kilderne igen.
@@ -50,7 +72,6 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
   const p = model.byId[focusId];
   if (!p) return null;
   const familieIder = familieIderForPerson(model.indexes, focusId);
-  const versionerForKilde = detail?.bioVersions ?? [];
   // Kildefiltrene bor i core (6d-3 spor L): modparten slås op kanonisk, så en kilde fra en sammenfoldet
   // udgaves post (fx 1939's alias-række) vises hos den kanoniske person.
   const canon = model.canonicalIdById ?? {};
@@ -62,7 +83,9 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
   const parents = parentsOf(model, focusId);
   const spouses = (model.indexes.spousesBy[focusId] ?? []);
   const children = childrenOf(model, focusId);
-  const linjer = model.lineage?.byPerson[focusId] ?? [];
+  // Tekniske linjenøgler (legacy-source:…, lineage.ts) vises aldrig (spec §5.7) — ellers faldt hovedet tilbage
+  // til »Linje <nøgle>«.
+  const linjer = (model.lineage?.byPerson[focusId] ?? []).filter((lk) => !erTekniskLinje(lk));
   // Bog-nummeret ("Linje II, nr. 4") vinder; citation-proveniensen udfylder kun for personer bogen
   // ikke gav et opslag — typisk ægtefæller, der ellers stod helt uden kilde.
   const sources = model.sourcesBy?.[focusId]?.length ? model.sourcesBy[focusId] : (detail?.sources ?? []);
@@ -73,6 +96,26 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
   const lightboxItems = withUrl([portrait, ...gallery]);
   // Proveniens: er personen foldet af flere DAA-poster (samme_som), vis hvilke linjer/numre.
   const mergedFrom = p.mergedFrom ?? [];
+  // Godser (spec §5.8): kun dem, hvis personrække hører til den valgte udgave, eller hvis udgave ikke kendes.
+  // Rækkens udgave som for fakta (§5.1): fakta-rækkernes udgave, ellers personrækkens eksterne nøgle.
+  const raekkeUdgave = faktaInput ? udgaveForRaekker(faktaInput) : {};
+  const godsUdgave = (personId: string): string | null => {
+    if (!faktaInput) return null;
+    const r = raekkeUdgave[personId];
+    if (r !== undefined) return r;
+    const ext = faktaInput.udgaveForPersonRaekke[personId];
+    return ext != null && udgaver.some((u) => u.sourceId === ext) ? ext : null;
+  };
+  const godser = (detail?.estates ?? [])
+    .filter((e) => { const u = godsUdgave(e.personId); return valgtUdgave == null || u == null || u === valgtUdgave; })
+    .filter((e, i, alle) => alle.findIndex((x) => x.id === e.id) === i);
+  // »Tidligere udgave« kun når den aktive chips udgave er ældre end standardens (årstal); ukendt år → ingen etiket.
+  const standardChip = vaelger.chips[vaelger.standard] ?? null;
+  const chipAar = (c: UdgaveChip): number | null => udgaver.find((u) => u.sourceId === c.sourceId)?.aar
+    ?? (c.art === 'post' ? (c.version as Partial<BioSourceVersionV2>).sourceYear ?? null : null);
+  const aktivAar = aktivChip ? chipAar(aktivChip) : null;
+  const standardAar = standardChip ? chipAar(standardChip) : null;
+  const tidligereUdgave = aktivAar != null && standardAar != null && aktivAar < standardAar;
   const proveniens =
     mergedFrom.length > 1
       ? mergedFrom
@@ -139,42 +182,36 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
                 {i > 0 && <span style={{ fontFamily: T.serif, fontSize: 16, fontStyle: 'italic', color: T.gold }}>&amp;</span>}
                 <Link href={personPath(pa.id)} onNavigate={() => onPick(pa.id)} style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: T.bordeaux }}>{pa.name} ›</Link>
                 {foraelderKilder(pa.id).map((k) => (
-                  <KildeLinjeVisning key={kildeNøgle(k)} kilde={k} versions={versionerForKilde} onVaelg={setBioVersionIdx} />
+                  <KildeLinjeVisning key={kildeNøgle(k)} kilde={k} chips={vaelger.chips} onVaelg={vaelgChip} />
                 ))}
               </span>
             ))}
           </div>
         )}
 
-        {/* Udgave-versionsvælger (§7.18): kun vist når personen har mere end én offentlig
-            DAA-udgave-bio (fx foldet 1939 + 2018-20-post) — ellers uændret enkelt-visning. */}
-        {(() => {
-          const versions = detail?.bioVersions ?? [];
-          const active = versions[bioVersionIdx] ?? versions[0];
-          const bioText = active?.narrativeText ?? detail?.bio ?? '';
-          if (!bioText) return null;
+        {/* Udgavevælger + biografi (6e-1, spec §5.5): chips pr. biografipost og pr. udgave med fakta uden
+            biografi. Kun én chip → ingen vælger. Ingen biografi i nogen udgave → et lille udgaveskift over fakta. */}
+        {vaelger.form !== 'skift' && (() => {
+          const bioText = aktivChip
+            ? (aktivChip.art === 'post' ? aktivChip.version.narrativeText : '')
+            : (detail?.bio ?? '');
+          const visChips = vaelger.form === 'chips';
+          if (!bioText && !visChips) return null;
           return (
             <div style={{ marginTop: 14 }}>
-              {versions.length > 1 && (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 9 }}>
-                  {versions.map((v, i) => (
-                    <div key={v.recordRef ?? `${v.sourceLabel}:${v.recordLabel}:${i}`} onClick={() => setBioVersionIdx(i)} style={{
-                      fontFamily: T.mono, fontSize: 10.5, fontWeight: 600, cursor: 'pointer',
-                      color: i === bioVersionIdx ? T.paper : T.muted,
-                      background: i === bioVersionIdx ? T.bordeaux : T.beige,
-                      border: '1px solid rgba(34,31,26,.12)', padding: '4px 9px', borderRadius: 6,
-                    }}>
-                      {v.sourceLabel}{v.provenanceKind === 'source_record' ? ` · ${v.recordLabel}` : ' · overgangsdata'}
-                    </div>
-                  ))}
-                </div>
+              {visChips && (
+                <UdgaveKnapper chips={vaelger.chips} valgt={valgtIdx} onVaelg={vaelgChip} style={{ marginBottom: 9 }} />
               )}
-              {versions.length > 1 && bioVersionIdx > 0 && (
+              {visChips && tidligereUdgave && (
                 <div style={{ fontFamily: T.sans, fontSize: 11.5, color: T.muted2, marginBottom: 5 }}>Tidligere udgave</div>
               )}
-              <div style={{ fontSize: 15, lineHeight: 1.55, color: '#3d382f' }}>
-                <NarrativRenderer tekst={bioText} onPickPerson={onPick} linkColor={T.bordeaux} inactiveColor={T.muted2} />
-              </div>
+              {bioText ? (
+                <div style={{ fontSize: 15, lineHeight: 1.55, color: '#3d382f' }}>
+                  <NarrativRenderer tekst={bioText} onPickPerson={onPick} linkColor={T.bordeaux} inactiveColor={T.muted2} />
+                </div>
+              ) : (
+                <div style={{ fontFamily: T.sans, fontSize: 13, color: T.muted3 }}>Ingen biografi fra denne udgave</div>
+              )}
             </div>
           );
         })()}
@@ -201,7 +238,7 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
                 {i > 0 && <span style={{ color: T.gold }}>· </span>}
                 {sp.id ? <Link href={personPath(sp.id)} onNavigate={() => onPick(sp.id!)} style={{ fontWeight: 600, fontStyle: 'normal', color: T.bordeaux }}>{sp.name} ›</Link> : <span>{sp.name}</span>}
                 {aegteskabsKilder(sp.id).map((k) => (
-                  <KildeLinjeVisning key={kildeNøgle(k)} kilde={k} versions={versionerForKilde} onVaelg={setBioVersionIdx} />
+                  <KildeLinjeVisning key={kildeNøgle(k)} kilde={k} chips={vaelger.chips} onVaelg={vaelgChip} />
                 ))}
               </span>
             ))}
@@ -215,17 +252,20 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
               {children.map((c) => (
                 <Link key={c.id} href={personPath(c.id)} onNavigate={() => onPick(c.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 9, padding: '6px 11px 6px 7px' }}>
                   <div style={{ width: 26, height: 26, borderRadius: '50%', background: T.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 12, fontWeight: 600, color: T.bordeaux }}>{initials(c.name)}</div>
-                  <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600 }}>{c.name.split(' ')[0]}</span>
+                  <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600 }}>{c.born != null ? `${c.name.split(' ')[0]} · ${c.born}` : c.name.split(' ')[0]}</span>
                 </Link>
               ))}
             </div>
             {boerneKilder.map((k) => (
-              <KildeLinjeVisning key={kildeNøgle(k)} kilde={k} versions={versionerForKilde} onVaelg={setBioVersionIdx} />
+              <KildeLinjeVisning key={kildeNøgle(k)} kilde={k} chips={vaelger.chips} onVaelg={vaelgChip} />
             ))}
           </>
         )}
 
-        {detail && <PersonFakta facts={detail.facts} error={detail.factsError} />}
+        {vaelger.form === 'skift' && (
+          <UdgaveKnapper chips={vaelger.chips} valgt={valgtIdx} onVaelg={vaelgChip} style={{ marginTop: 18 }} />
+        )}
+        {detail && <PersonFakta visning={faktaVisning} error={detail.factsError} />}
 
         {detail && detail.offices.length > 0 && (
           <>
@@ -241,12 +281,12 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
           </>
         )}
 
-        {detail && detail.estates.length > 0 && (
+        {godser.length > 0 && (
           <>
             <Label>Godser &amp; besiddelser</Label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
-              {detail.estates.map((e, i) => (
-                <span key={e.id + i} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 8, padding: '6px 10px', fontFamily: T.serif, fontSize: 15, fontWeight: 600, color: T.ink }}>⌂ {e.navn}</span>
+              {godser.map((e) => (
+                <span key={e.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 8, padding: '6px 10px', fontFamily: T.serif, fontSize: 15, fontWeight: 600, color: T.ink }}>⌂ {e.navn}</span>
               ))}
             </div>
           </>
@@ -304,12 +344,38 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
   );
 }
 
-// Kildelinjen »Kilde: ‹udgave› · ‹post›«. Er posten en af personens egne viste versioner, vælger et klik
-// den version; ellers (fx forælderens post) er linjen ren tekst.
-function KildeLinjeVisning({ kilde, versions, onVaelg }: {
-  kilde: FamilieKilde; versions: BioSourceVersion[]; onVaelg: (idx: number) => void;
+// En chips identitet på tværs af genhentninger: art, udgave og post (postens ref, ellers etiketten).
+function chipNoegle(c: UdgaveChip): string {
+  return c.art === 'post' ? `post:${c.sourceId}:${c.version.recordRef ?? c.label}` : `udgave:${c.sourceId}`;
+}
+
+// Udgavevælgerens knapper. Etiketten er chippens (core har allerede fjernet tekniske postnøgler).
+function UdgaveKnapper({ chips, valgt, onVaelg, style }: {
+  chips: UdgaveChip[]; valgt: number; onVaelg: (idx: number) => void; style?: CSSProperties;
 }) {
-  const idx = kilde.sourceRecordRef ? versions.findIndex((v) => v.recordRef === kilde.sourceRecordRef) : -1;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, ...style }}>
+      {chips.map((c, i) => (
+        <button key={`${c.art}:${c.sourceId}:${i}`} type="button" aria-pressed={i === valgt} onClick={() => onVaelg(i)} style={{
+          fontFamily: T.mono, fontSize: 10.5, fontWeight: 600, cursor: 'pointer',
+          color: i === valgt ? T.paper : T.muted,
+          background: i === valgt ? T.bordeaux : T.beige,
+          border: '1px solid rgba(34,31,26,.12)', padding: '4px 9px', borderRadius: 6,
+        }}>
+          {c.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Kildelinjen »Kilde: ‹udgave› · ‹post›«. Er posten en af personens egne biografiposter, vælger et klik
+// den chip; ellers (fx forælderens post) er linjen ren tekst.
+function KildeLinjeVisning({ kilde, chips, onVaelg }: {
+  kilde: FamilieKilde; chips: UdgaveChip[]; onVaelg: (idx: number) => void;
+}) {
+  const idx = kilde.sourceRecordRef
+    ? chips.findIndex((c) => c.art === 'post' && c.version.recordRef === kilde.sourceRecordRef) : -1;
   const stil = { display: 'block', fontFamily: T.sans, fontSize: 11.5, fontStyle: 'normal' as const, color: T.muted2 };
   return idx >= 0
     ? <button type="button" onClick={() => onVaelg(idx)} style={{ ...stil, background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}>{kildeLinje(kilde)}</button>

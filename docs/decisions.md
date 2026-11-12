@@ -2,6 +2,49 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 6e's læserflade — valgt udgave forrest, den anden som note (visning C); justerer trin 6-spec'ens §3 pkt. 5 og §8 (b) (2026-11-12)
+
+> Delspec 6e (`docs/superpowers/specs/2026-11-12-trin6e-laeserflade-design.md`) godkendt af projektejeren efter
+> brainstorm med skitser, byggertjek og to Codex-runder (projektejerens ja til flere runder i sessionen).
+>
+> - **Visning C:** udgavevælgeren styrer biografi, fakta og linjer; hver oplysning står én gang i den valgte udgaves ord
+>   og kilde; den anden udgave nævnes som »✓ også i DAA 1939«, »DAA 1939 skriver: …« eller »Kun i DAA 1939: …«.
+>   **Justerer trin 6-spec'ens §3 pkt. 5** (der lod 2018-20-visningen vise kun 2018-20's fakta = skitse A): A skjuler
+>   enighed og uenighed mellem udgaverne, og målarkitekturen kræver, at projektionen ikke skjuler uenighed.
+> - **Justerer trin 6-spec'ens §8 (b):** 1939's kildeetiket er »linje, slægtled, nr.« fra placement, ikke »s. N · nr. x«
+>   (1939's numre er gruppelokale). Etiketten skrives som **ny publiceringshændelse** i en ceremoni (afgørelse 7: »så
+>   ligger det fast«), også for de 35 uplacerede med tom postdel via en lille schema-ændring (afgørelse 10).
+> - **Bøgernes ord og redaktionens valg adskilles** (afgørelse 9): fakta-blokken viser hver udgaves egne ord; navnet
+>   øverst er redaktionens valg, uden markering. Normalt følger det nyeste udgave.
+> - **Ziesendorf:** linjeskemaets OCR-etiket for 1939's III rettes i 6e-2's ceremoni (afgørelse 8).
+> - **Opdeling:** 6e-1 er klient-only (web); 6e-2 er DDL + ceremoni + web. Mobilen er backlog.
+
+## NOTERET: åben backlog fra 6e's brainstorm og review (2026-11-12)
+
+> 1. **Godsnormalisering:** godsnavne varierer mellem udgaverne og har OCR-fejl (»Kain« skal være »Kalø«). 6e viser
+>    hver udgaves godser for sig.
+> 2. **Mulige fejlkoblinger** fundet under målingen: komponent 527 (to fødselsår, 1743/1745) og komponent 66 (personerne
+>    1257 og 1410). Skal vurderes af projektejeren; 6e ændrer ingen koblinger.
+> 3. **Mobilen** deler ikke `buildPersonFacts` og får ikke 6e's læserflade; paritet når mobilen går i prod.
+> 4. **Kildekobling i Redaktion** (godkendt): redaktørens fire faktawritere (`red_tilfoej_oplysning`, `red_opret_fakta`,
+>    `red_edit_oplysning`, `red_upsert_fakta`) gemmer altid `source_id = NULL` og kilden som fritekst. Redaktøren skal
+>    vælge kilden fra listen. Målt: 17 offentlige påstande; 13 fritekster navngiver en udgave, 6 med side, så de gamle
+>    kan kobles mekanisk. Hører til søge- og koblingsværktøjet efter trin 6.
+> 5. **OCR-rettelser gemt som påstande:** projektejerens navnerettelser fra juli 2026 på 1939-personer (1073, 1117,
+>    1123, 1353, 1770) er OCR-rettelser, ikke nye påstande; de blev skrevet før `red_ret_ocr_felt`. Vurderes sammen
+>    med punkt 4.
+> 6. **Redaktionelt visningsnavn:** redaktionens navnevalg bør være en beslutning på identiteten (komponenten) med
+>    begrundelse og historik, adskilt fra påstandene. I dag må det låne en kilde og sidde på én personrække (Conrad 392:
+>    »Conrad« med fritekst »DAA 1939«). Evt. adelspatentets »Conrad Comte de Reventlow« som navneform (ny faktatype).
+> 7. **Testrest:** et ikke-valgt overhoved-udsagn på person 476 har kildeteksten »Redaktionelt udpeget (præsensliste
+>    v1-test)«. Tjekkes mod prod og fjernes, hvis det er en testrest.
+> 9. **Relative datoer uden for personens fakta** (projektejeren 2026-11-12: »fx borgerlig og kirkelig vielse eller
+>    andre lignende tilfælde der hænger sammen«): 6e-1 opløser dåb←fødsel og begravelse←død (spec §5.4a). Ikke opløst:
+>    vielse (familiefaktum, 8 relative af 478; borgerlig/kirkelig vielse hænger sammen), embedernes periode (46 relative
+>    af 1.256, fx »s.å.« om det foregående embede). Kræver bogens rækkefølge eller en eksplicit reference pr. påstand.
+> 8. **Redaktørens visning af kildeløse fakta i læseren** (spec'ens §9 pkt. 4): ikke afgjort; »Tilføjet af
+>    redaktionen« gør redaktionen for synlig. Alternativer måles senere.
+
 ## BESLUTTET: 6d-3's afgrænsning — 5b-vejen på 1939 med profil som data, dobbelt ægtefælle, læserrettelse og 1791 skjult (2026-11-10)
 
 > Delspec 6d-3 (`docs/superpowers/specs/2026-11-10-trin6d3-relationer-design.md`) godkendt af projektejeren efter

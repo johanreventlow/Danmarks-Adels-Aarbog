@@ -70,6 +70,7 @@ export type RawSource = {
   slags: string | null;
   titel: string | null;
   udgave: string | null;
+  aar?: number | null;
   ekstern: string | null;
 };
 export type RawRelation = {

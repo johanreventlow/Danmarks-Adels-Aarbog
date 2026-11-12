@@ -1,6 +1,7 @@
 // B11 (spec 2026-10-29-5c2-b11-laeserflade-design.md §4.4): fakta-sektionen i persondetaljen. Rækkerne kommer fra
 // public_person_facts (én pr. påstand og citation); her grupperes de pr. faktum, ordnes og får deres kildevisning:
 // bundet til bogens post (trin 4-binding), fra den oprindelige import (citation), eller ingen registreret kilde.
+import { visbarPostEtiket } from './recordLabel';
 
 export type PublicPersonFactRow = {
   person_id: number | string;
@@ -39,28 +40,70 @@ export const FAKTA_UDELADT = ['forældrefamilie', 'forældre_ukendt'];
 const FAKTA_RAEKKEFOELGE = ['navn', 'tilnavn', 'fødsel', 'dåb', 'titel', 'dekoration', 'adling', 'floruit',
   'klosterindgang', 'overhoved', 'død', 'dødsårsag', 'begravelse'];
 
-const typeRank = (t: string) => {
+// Intern genbrug i editionFacts.ts; bevidst ikke eksporteret fra index.ts.
+export const typeRank = (t: string) => {
   const i = FAKTA_RAEKKEFOELGE.indexOf(t);
   return i === -1 ? FAKTA_RAEKKEFOELGE.length : i;
 };
 
-function factValue(r: PublicPersonFactRow): string {
-  const parts = [r.vaerdi_tekst, r.date_raw].filter((x): x is string => !!x && x.trim() !== '');
+// Spec §5.8 (projektejeren 2026-11-12): et ledende *, † eller ⚭ fjernes — typen (»Født«, »Død«) siger det allerede.
+const udenLedendeTegn = (v: string | null) => (v == null ? null : v.replace(/^\s*[*†⚭]\s*/u, ''));
+
+// `date_raw` er dobbelt, når den er lig `vaerdi_tekst`, eller når `vaerdi_tekst` SLUTTER med den (efter mellemrum og
+// afsluttende tegnsætning, ved en ordgrænse) og den er mere end et årstal — fx »hjemmedøbt 10. febr. 1922« +
+// »10. febr. 1922« (spec §5.8 »Dobbelt værdi«, afgørelse 13). Et rent årstal kan være et tilfælde (»kirken opført
+// 1845« + »1845«, »1845 eller 1846« + »1846«), så begge vises. Tjekket sker efter `del` (opløsning, §5.4a).
+// Kun mellemrum og . , ; : er skrivemåde i halen; »?«, parenteser o.l. bærer betydning og fjernes aldrig — ellers
+// forsvandt »21. april 1644?« bag »døbt 21. april 1644« (final review C1).
+const udenHale = (v: string) => v.trim().replace(/[\s.,;:]+$/u, '');
+const slutterMed = (tekst: string, del: string) => {
+  const t = udenHale(tekst), d = udenHale(del);
+  if (!d || !/\p{L}/u.test(d) || !t.endsWith(d)) return false;
+  const foer = t[t.length - d.length - 1];
+  return foer == null || !/[\p{L}\p{N}]/u.test(foer);
+};
+
+// Er `date_raw` en gentagelse af `vaerdi_tekst` (lig den eller dens afslutning)? Samme regel som i factValue.
+export const datoErDobbelt = (tekst: string, dato: string) => dato.trim() === tekst.trim() || slutterMed(tekst, dato);
+
+// Den rå værdi med ledende tegn fjernet; null for tom.
+export const visDel = (v: string | null) => {
+  const u = udenLedendeTegn(v);
+  return u == null || u.trim() === '' ? null : u;
+};
+
+export function factValue(r: PublicPersonFactRow, del: (v: string) => string = (v) => v): string {
+  const vis = (v: string | null) => {
+    const u = visDel(v);
+    return u == null ? null : del(u);
+  };
+  const tekst = vis(r.vaerdi_tekst);
+  const dato = vis(r.date_raw);
+  const dateRaw = dato && tekst && datoErDobbelt(tekst, dato) ? null : dato;
+  const parts = [tekst, dateRaw].filter((x): x is string => !!x && x.trim() !== '');
   return parts.length ? parts.join(', ') : '—';
 }
 
-function factSource(r: PublicPersonFactRow): PersonFactSource {
+// Spec §5.8: kildeetiketter viser »<udgave>, s. N«; 1939's bundne etiketter siger »DAA 1939 side 532«.
+// Kun den første » side N« efter udgaven får komma: »DAA 1939 side 12 og side 14« → »DAA 1939, s. 12 og s. 14«.
+const SIDE = String.raw`side\s+(\d+(?:\s*[-–]\s*\d+)?)(?!\d)`;
+const sideForm = (label: string) => label
+  .replace(new RegExp(String.raw`,?\s+` + SIDE, 'u'), ', s. $1')
+  .replace(new RegExp(String.raw`(?<=\s)` + SIDE, 'gu'), 's. $1');
+
+export function factSource(r: PublicPersonFactRow): PersonFactSource {
   if (r.record_ref) {
     // citation_label bærer allerede udgave og side (»DAA 2018-20, s. 45«); record_label er posten (»I-32«).
-    const label = [r.citation_label || r.source_label, r.record_label].filter(Boolean).join(' · ');
-    return { kind: 'bundet', label, recordRef: r.record_ref };
+    const label = [r.citation_label || r.source_label, visbarPostEtiket(r.record_label)].filter(Boolean).join(' · ');
+    return { kind: 'bundet', label: sideForm(label), recordRef: r.record_ref };
   }
   if (r.source_label) {
-    return { kind: 'import', label: r.side ? `${r.source_label}, s. ${r.side}` : r.source_label, recordRef: null };
+    return { kind: 'import', label: sideForm(r.side ? `${r.source_label}, s. ${r.side}` : r.source_label), recordRef: null };
   }
   return { kind: 'ingen', label: 'Kilde ikke registreret', recordRef: null };
 }
 
+// Forældet i web — brug faktaInput/byggUdgaveFakta (editionFacts.ts). Bevares for planens kompatibilitet.
 export function buildPersonFacts(rows: PublicPersonFactRow[]): PersonFactView[] {
   const seen = new Set<string>();
   const byFact = new Map<string, { first: PublicPersonFactRow; rows: PublicPersonFactRow[] }>();

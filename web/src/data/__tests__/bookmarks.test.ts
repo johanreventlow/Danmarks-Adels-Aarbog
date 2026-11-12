@@ -178,6 +178,18 @@ describe('buildBookmarkList', () => {
     expect(byLinje['Uden linje']).toEqual(['3']);
   });
 
+  it('tekniske linjenøgler (legacy-source:) bliver aldrig en gruppe eller en overskrift', () => {
+    const m = makeModel([reventlow, ahlefeldt], {
+      '1': ['legacy-source:3:II', 'I'],
+      '2': ['legacy-source:3:IV'],
+    }, { I: 'Den holstenske linje' });
+    const groups = buildBookmarkList(['1', '2'], m, 'linje');
+    expect(groups.map((g) => [g.linje, g.navn, g.people.map((p) => p.id)])).toEqual([
+      ['I', 'Den holstenske linje', ['1']],
+      ['Uden linje', 'Uden linje', ['2']],
+    ]);
+  });
+
   it('person uden linje-kode havner i "Uden linje"-gruppe sidst', () => {
     const groups = buildBookmarkList(['3', '1'], model, 'linje');
     expect(groups[groups.length - 1].linje).toBe('Uden linje');

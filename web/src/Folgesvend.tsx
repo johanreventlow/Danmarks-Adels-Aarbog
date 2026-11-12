@@ -28,6 +28,7 @@ import PresensView from './components/PresensView';
 import { ArmsView } from './components/ArmsView';
 import { AboutView } from './components/AboutView';
 import type { TreeSearchBundle } from './components/TreeSearch';
+import { synligeLinjer } from './data/lineage';
 import { THEMES, themeOfMode, labelOfMode, parseFolgesvendPath, pathForMode, detailOpenFor, type Mode, personPath } from './data/nav';
 import { SearchIcon } from './components/primitives';
 import { T } from './theme';
@@ -185,7 +186,7 @@ export default function Folgesvend() {
     const members = personMemberIds(focusId, model?.byId[focusId]);
     // Ingen bog-nummer (typisk en ægtefælle) → hent proveniens fra citationerne i stedet.
     const manglerBogNummer = !(model?.sourcesBy?.[focusId]?.length);
-    fetchPersonDetail(focusId, members, manglerBogNummer).then(
+    fetchPersonDetail(focusId, members, manglerBogNummer, model ? { udgaver: model.udgaver ?? [], udgaveForPersonRaekke: model.udgaveForPersonRaekke ?? {} } : undefined).then(
       (next) => { if (current) setDetail(next); },
       (e) => { if (current) setDetailError(String((e as Error)?.message ?? e)); },
     );
@@ -193,7 +194,7 @@ export default function Folgesvend() {
   }, [focusId, model]);
 
   const persons = model?.persons ?? [];
-  const linjeList = model?.lineage?.list ?? [];
+  const linjeList = useMemo(() => synligeLinjer(model?.lineage?.list ?? []), [model]);
   // Browse-listen (§9.1) + gren-filter (§9.2) — al logik i buildBrowse (ren + testet).
   // bmOnly (§4/§9.e) filtrerer kilde-personerne til bogmærkede før browse-logikken. bmDep gør at
   // et bogmærke-toggle KUN re-kører browse når filteret faktisk er tændt (ellers stabil null).

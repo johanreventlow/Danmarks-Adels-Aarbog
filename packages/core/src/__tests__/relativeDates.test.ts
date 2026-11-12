@@ -1,0 +1,189 @@
+import { describe, it, expect } from 'vitest';
+import { erRelativDato, indeholderDato, oploesRelativDato, relativReferenceStatus } from '../relativeDates';
+
+describe('erRelativDato', () => {
+  it('genkender s.m., s.d., s.å./s.a. og »samme …« uanset versaler og mellemrum', () => {
+    for (const v of ['29. s.m.', '29 s. m.', '15 s. M.', 'hjemmedøbt 6. febr. s.å.', '3. maj s. A.', 's.d.', 's. D.',
+      '6. febr. s.a.', 'død samme Maaned', 'samme dag', 'samme år', '15\ns. M.']) {
+      expect(erRelativDato(v), v).toBe(true);
+    }
+  });
+
+  it('initialer og forkortelseskæder er ikke relative (review 7b fund 1)', () => {
+    for (const v of ['i S. M. Kirke', 'begr. i S. M. Kirke 30. juli 1708', 'R.S.A.O.', 'S.M.O.', 'K.S.D.', 'S.D.-kors',
+      'p.s.d.', 'Hans S. A.', 'R. af D.S.A.O.']) {
+      expect(erRelativDato(v), v).toBe(false);
+    }
+    // men 1939's OCR og et månedsnavn lige foran er stadig relative
+    for (const v of ['15 s. M.', '6. febr.s.å.', 'begr. 30.s.m.', 'begr. i S. M. Kirke 30. s.m.']) expect(erRelativDato(v), v).toBe(true);
+  });
+
+  it('almindelige datoer, »s.st.« og ord der blot begynder med s er ikke relative', () => {
+    for (const v of ['29. maj 1700', '21 April 1644', 'i Kiel s.st.', 's. Andersen', 'Hans. M. Kirke', '1749', '']) {
+      expect(erRelativDato(v), v).toBe(false);
+    }
+  });
+});
+
+describe('oploesRelativDato', () => {
+  it('opløser ud fra referencen og bevarer resten af teksten', () => {
+    expect(oploesRelativDato('15 s. M.', '3. Maj 1700')).toBe('15 maj 1700');
+    expect(oploesRelativDato('29. s.m.', '21. april 1644')).toBe('29. april 1644');
+    expect(oploesRelativDato('hjemmedøbt 6. febr. s.å.', '21 April 1644')).toBe('hjemmedøbt 6. febr. 1644');
+    expect(oploesRelativDato('s.d.', '3. maj 1700')).toBe('3. maj 1700');
+    expect(oploesRelativDato('6. febr. s.å. i Slesvig Domkirke', 'april 1644')).toBe('6. febr. 1644 i Slesvig Domkirke');
+    expect(oploesRelativDato('29. s.m.', 'april 1644')).toBe('29. april 1644');
+    expect(oploesRelativDato('6. febr. s.å.', '1644')).toBe('6. febr. 1644');
+    expect(oploesRelativDato('3. maj s. A.', 'Kiel, 3 Jan. 1700')).toBe('3. maj 1700');
+    expect(oploesRelativDato('begr. samme måned', '3. maj 1700')).toBe('begr. maj 1700');
+    // to relative led i samme tekst opløses begge
+    expect(oploesRelativDato('hjemmedøbt 6. febr. s.å. og fremstillet 1. marts s.å.', '21. jan. 1644'))
+      .toBe('hjemmedøbt 6. febr. 1644 og fremstillet 1. marts 1644');
+    // »30.s.m.« uden mellemrum får et
+    expect(oploesRelativDato('begr. 30.s.m.', '21. juli 1708')).toBe('begr. 30. juli 1708');
+  });
+
+  it('referencen må gentage samme dato (vaerdi_tekst + date_raw)', () => {
+    expect(oploesRelativDato('29. s.m.', 'Sandbjerg 21. april 1644, 21. april 1644')).toBe('29. april 1644');
+  });
+
+  it('kan ikke opløses: mangler, mangler den nødvendige del, er selv relativ, usikker eller flertydig', () => {
+    expect(oploesRelativDato('29. s.m.', '1644')).toBeNull();
+    expect(oploesRelativDato('29. s.m.', null)).toBeNull();
+    expect(oploesRelativDato('29. s.m.', '5. s.m.')).toBeNull();
+    expect(oploesRelativDato('s.d.', 'april 1644')).toBeNull();
+    expect(oploesRelativDato('s.å.', 'ung')).toBeNull();
+    expect(oploesRelativDato('s.å.', '')).toBeNull();
+    // usikker reference giver ikke en sikker dato (mit valg)
+    expect(oploesRelativDato('6. febr. s.å.', 'ca. 1644')).toBeNull();
+    expect(oploesRelativDato('6. febr. s.å.', 'o. 1644')).toBeNull();
+    expect(oploesRelativDato('6. febr. s.å.', '1644?')).toBeNull();
+    expect(oploesRelativDato('6. febr. s.å.', 'før 1644')).toBeNull();
+    expect(oploesRelativDato('29. s.m.', '21.-22. april 1644')).toBeNull();
+    expect(oploesRelativDato('6. febr. s.å.', '1643 eller 1644')).toBeNull();
+    // to forskellige datoer i referencen
+    expect(oploesRelativDato('29. s.m.', '21. april 1644, 21. maj 1644')).toBeNull();
+    expect(oploesRelativDato('6. febr. s.å.', '1643, 1644')).toBeNull();
+    // en ikke-relativ værdi returneres uændret
+    expect(oploesRelativDato('29. maj 1700', null)).toBe('29. maj 1700');
+  });
+});
+
+describe('oploesRelativDato: forkortelser og referencer med flere datoer (review 7b fund 1-2)', () => {
+  it('forkortelseskæder ændres aldrig til en dato', () => {
+    expect(oploesRelativDato('begr. i S. M. Kirke 30. juli 1708', '21. juli 1708')).toBe('begr. i S. M. Kirke 30. juli 1708');
+    expect(oploesRelativDato('begr. i S. M. Kirke 30. s.m.', '21. juli 1708')).toBe('begr. i S. M. Kirke 30. juli 1708');
+    expect(oploesRelativDato('R.S.A.O.', '21. juli 1708')).toBe('R.S.A.O.');
+    expect(oploesRelativDato('K.S.D., S.D.-kors og p.s.d.', '21. juli 1708')).toBe('K.S.D., S.D.-kors og p.s.d.');
+    expect(oploesRelativDato('Hans S. A.', '21. juli 1708')).toBe('Hans S. A.');
+    expect(oploesRelativDato('begr. i R.S.A.O. kirke s.d.', '21. juli 1708')).toBe('begr. i R.S.A.O. kirke 21. juli 1708');
+  });
+
+  it('en reference med to måneder eller en skråstreg opløses ikke', () => {
+    expect(oploesRelativDato('29. s.m.', '21. april/1. maj 1644')).toBeNull();
+    expect(oploesRelativDato('s.d.', '21. april/1. maj 1644')).toBeNull();
+    expect(oploesRelativDato('29. s.m.', '21. april, 1. maj 1644')).toBeNull();
+    expect(oploesRelativDato('6. febr. s.å.', '1644/45')).toBeNull();
+    expect(oploesRelativDato('29. s.m.', '21./22. april 1644')).toBeNull();
+    expect(oploesRelativDato('29. s.m.', '21. april (1. maj) 1644')).toBeNull();
+    expect(oploesRelativDato('6. maj s.å.', '1644 el. 45')).toBeNull();
+    // to dage med ét år, eller et andet år i parentes (review 7b runde 2)
+    expect(oploesRelativDato('s.d.', '21., 22. april 1644')).toBeNull();
+    expect(oploesRelativDato('s.d.', '21. og 22. april 1644')).toBeNull();
+    expect(oploesRelativDato('6. febr. s.å.', '1644 (45)')).toBeNull();
+    expect(oploesRelativDato('6. febr. s.å.', '1644/45')).toBeNull();
+    // kontrol: én dato, gentaget, er stadig entydig
+    expect(oploesRelativDato('s.d.', 'Sandbjerg 21. april 1644, 21. april 1644')).toBe('21. april 1644');
+  });
+});
+
+describe('oploesRelativDato: flertydighed og umulige datoer', () => {
+  it('et led, der kan henvise til en tidligere dato i samme tekst med andet resultat, opløses ikke', () => {
+    // »s.d.« efter bisættelsen = bisættelsens dag, ikke dødsdagen
+    expect(oploesRelativDato('bisat 5. april s.å. og begravet s.d.', '31. marts 1928')).toBeNull();
+    // »27. s.m.« efter en eksplicit dato i en anden måned
+    expect(oploesRelativDato('bisat 27. s.m., begravet 19. sept. 1924, 27. s.m.', '22. nov. 1922')).toBeNull();
+    // »s.m.« efter »5. april s.å.« når referencen er marts
+    expect(oploesRelativDato('bisat 5. april s.å., begravet 9. s.m.', '31. marts 1928')).toBeNull();
+    // et eksplicit år uden måned foran »s.m.«
+    expect(oploesRelativDato('1644, døbt 29. s.m.', '21. april 1644')).toBeNull();
+  });
+
+  it('kæden giver samme resultat som referencen → opløses', () => {
+    expect(oploesRelativDato('bisat 27. s.m. og begravet 29. s.m.', '22. jan. 1923'))
+      .toBe('bisat 27. januar 1923 og begravet 29. januar 1923');
+    expect(oploesRelativDato('hjemmedøbt 10. febr. 1922, fremstillet 10. april s.å.', '12. jan. 1922'))
+      .toBe('hjemmedøbt 10. febr. 1922, fremstillet 10. april 1922');
+    expect(oploesRelativDato('bisat 5. marts s.å., derefter bisat 1746', '7. jan. 1743'))
+      .toBe('bisat 5. marts 1743, derefter bisat 1746');
+  });
+
+  it('ikkeFoerReference: en opløst dato før referencen (dåb før fødsel) opløses ikke', () => {
+    expect(oploesRelativDato('fremstillet, 25. juli s.å.', '28. nov. 1883')).toBe('fremstillet, 25. juli 1883');
+    expect(oploesRelativDato('fremstillet, 25. juli s.å.', '28. nov. 1883', { ikkeFoerReference: true })).toBeNull();
+    expect(oploesRelativDato('15. s.m.', '21. april 1644', { ikkeFoerReference: true })).toBeNull();
+    expect(oploesRelativDato('21. s.m.', '21. april 1644', { ikkeFoerReference: true })).toBe('21. april 1644');
+    expect(oploesRelativDato('6. maj s.å.', '21. april 1644', { ikkeFoerReference: true })).toBe('6. maj 1644');
+    expect(oploesRelativDato('s.d.', '21. april 1644', { ikkeFoerReference: true })).toBe('21. april 1644');
+  });
+});
+
+describe('relativReferenceStatus', () => {
+  it('skelner manglende, relativ, usikker og flertydig reference', () => {
+    expect(relativReferenceStatus('21. april 1644')).toBe('ok');
+    expect(relativReferenceStatus('1644')).toBe('ok');
+    expect(relativReferenceStatus(null)).toBe('mangler');
+    expect(relativReferenceStatus('ung')).toBe('mangler');
+    expect(relativReferenceStatus('5. s.m.')).toBe('relativ');
+    expect(relativReferenceStatus('ca. 1644')).toBe('usikker');
+    expect(relativReferenceStatus('1643, 1644')).toBe('flertydig');
+    expect(relativReferenceStatus('21. april, 1. maj 1644')).toBe('flertydig');
+    expect(relativReferenceStatus('1644/45')).toBe('usikker');
+  });
+});
+
+describe('slutrettelser (final review 6e-1)', () => {
+  it('C2: S.M./S.D./S.Å./S.A. med versaler direkte efter et dagnummer er relative', () => {
+    for (const v of ['29. S.M.', '29 S. M.', '15. S. M.', '5. S.D.', '5 S. D.', '3. S.Å.', '3. S.A.']) {
+      expect(erRelativDato(v), v).toBe(true);
+    }
+    expect(oploesRelativDato('29. S.M.', '21. april 1644')).toBe('29. april 1644');
+    expect(oploesRelativDato('døbt 29 S. M.', '21 April 1644')).toBe('døbt 29 april 1644');
+    // initialreglen gælder stadig uden dagnummer foran
+    for (const v of ['Hans S. A.', 'i S. M. Kirke', 'begr. i S. M. Kirke 30. juli 1708', 'S.M.O.', 'nr. 3 S.M.O.', '1644 S.D.']) {
+      expect(erRelativDato(v), v).toBe(false);
+    }
+  });
+
+  it('C5: ekstra dagnumre uden punktum gør referencen flertydig', () => {
+    expect(oploesRelativDato('s.d.', '21 og 22 april 1644')).toBeNull();
+    expect(oploesRelativDato('29. s.m.', '21, 22 April 1644')).toBeNull();
+    expect(relativReferenceStatus('21 og 22 april 1644')).toBe('flertydig');
+    // kontrol: 1939's form uden punktum er stadig én dato
+    expect(oploesRelativDato('s.d.', '21 April 1644')).toBe('21. april 1644');
+    expect(oploesRelativDato('s.d.', 'Sandbjerg 21 April 1644, 21. april 1644')).toBe('21. april 1644');
+  });
+
+  it('C6: ugyldige kalenderdatoer opløses ikke', () => {
+    expect(oploesRelativDato('31. s.m.', '21. april 1644')).toBeNull();
+    expect(oploesRelativDato('30. s.m.', '1. febr. 1645')).toBeNull();
+    expect(oploesRelativDato('29. febr. s.å.', '1. jan. 1645')).toBeNull();
+    expect(oploesRelativDato('31. juni s.å.', '1. jan. 1645')).toBeNull();
+    expect(oploesRelativDato('32. s.m.', '1. jan. 1645')).toBeNull();
+    // skudår (år delelig med 4) og gyldige månedsslutninger
+    expect(oploesRelativDato('29. febr. s.å.', '1. jan. 1644')).toBe('29. febr. 1644');
+    expect(oploesRelativDato('29. s.m.', '1. febr. 1644')).toBe('29. februar 1644');
+    expect(oploesRelativDato('30. s.m.', '21. april 1644')).toBe('30. april 1644');
+    // en ugyldig reference giver hverken »s.d.« eller noget andet
+    expect(oploesRelativDato('s.d.', '31. april 1644')).toBeNull();
+    expect(oploesRelativDato('6. maj s.å.', '30. febr. 1644')).toBeNull();
+    expect(relativReferenceStatus('31. april 1644')).toBe('ugyldig');
+  });
+
+  it('C3-hjælper: indeholderDato genkender en dato, et årstal eller et relativt led', () => {
+    for (const v of ['hjemmedøbt 10. febr. 1922', 'bisat 5. april s.å. og begravet', 'døbt 1644', 'døbt 10. febr.', 'døbt 29. s.m.']) {
+      expect(indeholderDato(v), v).toBe(true);
+    }
+    for (const v of ['i Slesvig Domkirke', 'hjemmedøbt', '']) expect(indeholderDato(v), v).toBe(false);
+  });
+});

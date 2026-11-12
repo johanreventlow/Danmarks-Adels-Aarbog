@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../supabase';
 import { compareDanish } from '@daa/core';
 import type { Model, ModelPerson } from './types';
+import { erTekniskLinje } from './lineage';
 
 export interface BookmarkRepository {
   list(): Promise<string[]>;
@@ -151,8 +152,9 @@ export function buildBookmarkList(
   const grouped = new Map<string, ModelPerson[]>();
   const uden: ModelPerson[] = [];
   for (const p of people) {
-    const codes = byPerson[p.id];
-    const kode = codes && codes.length > 0 ? codes[0] : null;
+    // tekniske linjenøgler (legacy-source:…) bliver aldrig en gruppe/overskrift (spec §5.7, final review C7)
+    const codes = (byPerson[p.id] ?? []).filter((k) => !erTekniskLinje(k));
+    const kode = codes.length > 0 ? codes[0] : null;
     if (kode == null) { uden.push(p); continue; }
     if (!grouped.has(kode)) grouped.set(kode, []);
     grouped.get(kode)!.push(p);

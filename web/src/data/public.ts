@@ -3,7 +3,8 @@
 // viser en tom-tilstand frem for at vælte siden — men breakage er ikke HELT tavst (console).
 import { supabase } from '../supabase';
 import type { Model } from './types';
-import { pickPreferredBio, buildBioSourceVersions, mapPublicBioSourceVersionsV2 as mapCorePublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, buildPersonFacts, type BioSourceVersion, type BioSourceVersionV2, type NarrativeCand, type PersonFactView, type PublicPersonFactRow, type RaaCitationRow, type SourceRef } from '@daa/core';
+import { pickPreferredBio, buildBioSourceVersions, mapPublicBioSourceVersionsV2 as mapCorePublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, buildPersonFacts, FAKTA_UDELADT, type BioSourceVersion, type BioSourceVersionV2, type NarrativeCand, type PersonFactView, type PublicPersonFactRow, type RaaCitationRow, type SourceRef, type Udgave, type UdgaveFaktaInput } from '@daa/core';
+import { SLUKKET_ENIGHED } from './udgaver';
 import { fetchPersonMedia, fetchObjectMedia, type MediaItem } from './media';
 
 // Rå narrativ-række med source-join (PostgREST embedded resource).
@@ -167,7 +168,7 @@ export async function resolveOrgEstateNames(orgIds: number[], estIds: number[]):
 }
 
 export type PersonOffice = { label: string; period: string };
-export type PersonEstate = { id: string; navn: string };
+export type PersonEstate = { id: string; navn: string; personId: string };
 // bioVersions: alle offentlige DAA-udgave-versioner af biografien, nyeste først (§7.18
 // versionsvælger). bio er altid = bioVersions[0]?.tekst (bagudkompatibel — mobile og øvrige
 // kaldere der kun læser .bio er upåvirkede).
@@ -175,11 +176,12 @@ export type PersonEstate = { id: string; navn: string };
 // bog-nummer (person_external_id) — se hentKilder nedenfor.
 // facts/factsError (B11, spec 2026-10-29 §4.3-4.4): personens fakta med kilde fra public_person_facts; en fejl dér
 // sætter factsError, så sektionen siger det i stedet for at stå tom, mens resten af detaljen vises.
-export type PersonDetailData = { bio: string; bioVersions: BioSourceVersion[]; offices: PersonOffice[]; estates: PersonEstate[]; media: MediaItem[]; sources: SourceRef[]; facts: PersonFactView[]; factsError: boolean };
+// facts: forældet i web — brug faktaInput/byggUdgaveFakta (bevares for planens kompatibilitet).
+export type PersonDetailData = { bio: string; bioVersions: BioSourceVersion[]; offices: PersonOffice[]; estates: PersonEstate[]; media: MediaItem[]; sources: SourceRef[]; facts: PersonFactView[]; factsError: boolean; faktaInput: UdgaveFaktaInput | null };
 
-type RawPersonRel = { objekt_type: string; objekt_id: number; rolle: string | null; periode_raw: string | null };
+type RawPersonRel = { subjekt_id: number | string; objekt_type: string; objekt_id: number; rolle: string | null; periode_raw: string | null };
 
-export const TOM_PERSONDETALJE: PersonDetailData = { bio: '', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false };
+export const TOM_PERSONDETALJE: PersonDetailData = { bio: '', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null };
 
 // Proveniens for personer UDEN bog-nummer (de 627 ægtefæller): fact → assertion → citation →
 // source. Tre flade opslag, fordi assertion.target_id er polymorf og derfor uden FK at neste på.
@@ -203,11 +205,41 @@ async function fetchProveniens(numIds: number[]): Promise<SourceRef[]> {
   return perPerson[String(numIds[0])] ?? [];
 }
 
+// Embede-etiket: »rolle · organisation«, men organisationen udelades når den (uden forskel på store/små
+// bogstaver) blot gentager rollen.
+function embedeLabel(rolle: string | null, org: string | undefined): string {
+  const r = rolle ?? '';
+  const o = org && r && org.toLocaleLowerCase('da') === r.toLocaleLowerCase('da') ? '' : org;
+  return [r, o].filter(Boolean).join(' · ');
+}
+
+// Redaktørens egen kildetekst (citation uden source_id) for valgte påstande uden kilde og uden bogpost.
+// Enhver fejl giver {} — fakta vises stadig; det er ikke en faktafejl. Typer, fakta-visningen udelader
+// (forældrefamilie, forældre_ukendt), udløser intet opslag: personsiden må ikke betale for dem.
+async function fetchFritekstKilde(rows: PublicPersonFactRow[]): Promise<Record<string, string[]>> {
+  const ids = [...new Set(rows
+    .filter((r) => r.chosen === true && r.source_id == null && !r.record_ref && !FAKTA_UDELADT.includes(r.faktatype))
+    .map((r) => r.assertion_id))];
+  if (!ids.length) return {};
+  try {
+    const res = await supabase.from('citation').select('assertion_id,citat_tekst').is('source_id', null).in('assertion_id', ids as number[]);
+    if (res.error) return {};
+    const ud: Record<string, string[]> = {};
+    for (const c of (res.data ?? []) as unknown as { assertion_id: number | string; citat_tekst: string | null }[]) {
+      if (!c.citat_tekst || !c.citat_tekst.trim()) continue;
+      (ud[String(c.assertion_id)] ??= []).push(c.citat_tekst);
+    }
+    return ud;
+  } catch {
+    return {};
+  }
+}
+
 // memberIds: for en samme_som-foldet person, alle medlems-id'er i gruppen — narrativ + relationer
 // unioneres over dem (spec §8). Uden memberIds (ikke-foldet) = kun personens eget id.
 // hentKilder: kun sandt når personen mangler bog-nummer, så de ~1129 hovedposter ikke betaler for
 // tre ekstra opslag de alligevel ikke bruger.
-export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder = false): Promise<PersonDetailData> {
+export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder = false, udgaveKontekst?: { udgaver: Udgave[]; udgaveForPersonRaekke: Record<string, string> }): Promise<PersonDetailData> {
   const empty = TOM_PERSONDETALJE;
   const ids = memberIds && memberIds.length ? memberIds : [id];
   const numIds = ids.map(Number).filter((n) => !Number.isNaN(n));
@@ -236,7 +268,7 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
         : supabase.from('narrative').select('id,subjekt_id,tekst,source_id,source:source_id(slags,aar,udgave)')
           .eq('subjekt_type', 'person').in('subjekt_id', numIds)
           .eq('privat', false).order('id', { ascending: true }),
-      getAll<RawPersonRel>(() => supabase.from('relation').select('objekt_type,objekt_id,rolle,periode_raw')
+      getAll<RawPersonRel>(() => supabase.from('relation').select('subjekt_id,objekt_type,objekt_id,rolle,periode_raw')
         .eq('subjekt_type', 'person').in('subjekt_id', numIds).in('objekt_type', ['organisation', 'estate'])),
       // Portræt/materiale: union over foldede medlems-id'er (afbildet person→media). RLS-gatet.
       fetchPersonMedia(numIds),
@@ -292,24 +324,37 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
       : bioVersions[0]?.narrativeText ?? '';
     const orgIds = rels.filter((r) => r.objekt_type === 'organisation').map((r) => r.objekt_id);
     const estIds = rels.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);
-    const { org: orgNavn, estate: estNavn } = await resolveOrgEstateNames(orgIds, estIds);
+    // Navne og redaktørens kildetekster i samme bølge (ingen ekstra seriel rundtur for personsiden).
+    const [{ org: orgNavn, estate: estNavn }, fritekstKilde] = await Promise.all([
+      resolveOrgEstateNames(orgIds, estIds),
+      factRows ? fetchFritekstKilde(factRows) : Promise.resolve({} as Record<string, string[]>),
+    ]);
     // Dedup ved union over foldede medlemmer: samme embede/gods fra to medlems-poster → én.
     const offices = dedupBy(
       rels.filter((r) => r.objekt_type === 'organisation').map((r) => ({
-        label: [r.rolle, orgNavn.get(String(r.objekt_id))].filter(Boolean).join(' · ') || `#${r.objekt_id}`,
+        label: embedeLabel(r.rolle, orgNavn.get(String(r.objekt_id))) || `#${r.objekt_id}`,
         period: r.periode_raw ?? '',
       })),
       (o) => `${o.label}|${o.period}`,
     );
     const estates = dedupBy(
       rels.filter((r) => r.objekt_type === 'estate').map((r) => ({
-        id: String(r.objekt_id), navn: estNavn.get(String(r.objekt_id)) || `#${r.objekt_id}`,
+        id: String(r.objekt_id), navn: estNavn.get(String(r.objekt_id)) || `#${r.objekt_id}`, personId: String(r.subjekt_id),
       })),
-      (e) => e.id,
+      (e) => `${e.personId}|${e.id}`,
     );
     const sources = hentKilder ? await fetchProveniens(numIds) : [];
-    const facts = factRows ? buildPersonFacts(factRows) : [];
-    return { bio, bioVersions, offices, estates, media, sources, facts, factsError: factRows === null };
+    const facts = factRows ? buildPersonFacts(factRows) : []; // forældet i web — brug faktaInput/byggUdgaveFakta
+    const faktaInput: UdgaveFaktaInput | null = factRows
+      ? {
+        rows: factRows,
+        udgaver: udgaveKontekst?.udgaver ?? [],
+        udgaveForPersonRaekke: udgaveKontekst?.udgaveForPersonRaekke ?? {},
+        fritekstKilde,
+        slukketEnighed: SLUKKET_ENIGHED,
+      }
+      : null;
+    return { bio, bioVersions, offices, estates, media, sources, facts, factsError: factRows === null, faktaInput };
   }, empty, 'fetchPersonDetail');
 }
 

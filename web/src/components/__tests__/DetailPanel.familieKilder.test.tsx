@@ -24,11 +24,14 @@ const model = buildModel({
     { child: '7', parent: '1', union: 'f10' }, { child: '7', parent: '2', union: 'f10' }],
 }) as unknown as Model;
 
+// 6e-1: versionerne bærer v2-felterne (udgave og år), så vælgerens standard er den nyeste udgave (DAA Y).
+const v2 = (sourceId: number, sourceYear: number, recordRef: string) =>
+  ({ personId: 1, sourceId, sourceYear, recordOrder: null, sourceRecordRef: recordRef });
 const detail: PersonDetailData = {
-  bio: 'Ny tekst.', offices: [], estates: [], media: [], sources: [], facts: [], factsError: false,
+  bio: 'Ny tekst.', offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null,
   bioVersions: [
-    { recordRef: 'r0', sourceLabel: 'DAA Y', recordLabel: 'Post 0', narrativeText: 'Ny tekst.', citationLabel: '', provenanceKind: 'source_record' },
-    { recordRef: 'r1', sourceLabel: 'DAA X', recordLabel: 'Post 1', narrativeText: 'Gammel tekst.', citationLabel: '', provenanceKind: 'source_record' },
+    { recordRef: 'r0', sourceLabel: 'DAA Y', recordLabel: 'Post 0', narrativeText: 'Ny tekst.', citationLabel: '', provenanceKind: 'source_record', ...v2(2, 2018, 'r0') },
+    { recordRef: 'r1', sourceLabel: 'DAA X', recordLabel: 'Post 1', narrativeText: 'Gammel tekst.', citationLabel: '', provenanceKind: 'source_record', ...v2(1, 1939, 'r1') },
   ],
 };
 const kilde = (k: Partial<FamilieKilde>): FamilieKilde => ({

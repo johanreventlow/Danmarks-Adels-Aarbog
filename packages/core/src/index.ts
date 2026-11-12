@@ -8,7 +8,14 @@ export * from './bioVersions';
 export * from './relationship';
 export * from './collapseSameAs';
 export * from './placementCoordinates';
-export * from './personFacts';
+export { FAKTA_UDELADT, buildPersonFacts } from './personFacts';
+export type { PublicPersonFactRow, PersonFactSource, PersonFactStatement, PersonFactView } from './personFacts';
+export { byggUdgaveFakta, udgaveForRaekker, udgaverMedFakta } from './editionFacts';
+export type { KunIUdgave, Udgave, UdgaveFaktaInput, UdgaveFaktaLinje, UdgaveFaktaVisning, UdgaveNote } from './editionFacts';
+export * from './editionSelector';
+export * from './factEquality';
+export { erRelativDato, oploesRelativDato } from './relativeDates';
+export type { OploesValg } from './relativeDates';
 export * from './sammeSomPreflight';
 export * from './buildFamilyGraph';
 export * from './buildGeo';
@@ -26,6 +33,7 @@ export * from './presensListe';
 export * from './ocrKvalitet';
 export * from './physicalPersonIds';
 export * from './familieKilder';
+export * from './recordLabel';
 export { KONFIDENS_VALUES, KONFIDENS_RANK } from './types';
 export type {
   RawExtId,
