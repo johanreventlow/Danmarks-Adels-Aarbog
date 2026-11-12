@@ -363,9 +363,42 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
 // udgaver (edition-faner, Slice C3) — pickPreferredBio (samme selector som person-bio) vælger én
 // pr. subjekt (nyeste DAA-udgave). lineageNavn bærer overskriften pr. linje-afsnit; "Generelt" har
 // ingen (null) og vises altid FØRST, linjer derefter i lineage.kode-orden.
-export type AboutSection = { lineageNavn: string | null; tekst: string };
+// lineageKode kobler et linjeafsnit til modellens linjeliste (model.lineage.list[].linje).
+// kilde er udgavens etiket efter samme regel som udgavevælgeren (data/udgaver.ts: udgave ?? titel),
+// så indledningen og personsiden nævner udgaven ens; aar står ved siden af.
+export type AboutSection = { lineageNavn: string | null; lineageKode: string | null; tekst: string; kilde: string | null; aar: number | null };
 
-type RawAboutRow = { id: number; subjekt_type: string; subjekt_id: number; source_id: number | null; tekst: string | null; source: { slags: string | null; aar: number | null; udgave: string | null } | null };
+type RawAboutSource = { slags: string | null; titel?: string | null; aar: number | null; udgave: string | null };
+export type RawAboutRow = { id: number; subjekt_type: string; subjekt_id: number; source_id: number | null; tekst: string | null; source: RawAboutSource | null };
+export type RawAboutLineage = { id: number; navn: string | null; kode: string };
+
+// Ren: narrativ-rækker + linjer → afsnit. "Generelt" (slaegt) først, linjer i kode-orden.
+export function byggAboutSections(rows: RawAboutRow[], lineageRows: RawAboutLineage[]): AboutSection[] {
+  const candsByKey = new Map<string, NarrativeCand[]>();
+  const sourceById = new Map<number, RawAboutSource>();
+  for (const r of rows) {
+    const key = `${r.subjekt_type}:${r.subjekt_id}`;
+    const cand: NarrativeCand = { narrativeId: r.id, tekst: r.tekst, sourceId: r.source_id, slags: r.source?.slags ?? null, aar: r.source?.aar ?? null, udgave: r.source?.udgave ?? null };
+    if (r.source_id != null && r.source) sourceById.set(r.source_id, r.source);
+    const list = candsByKey.get(key);
+    if (list) list.push(cand); else candsByKey.set(key, [cand]);
+  }
+  const kildeAf = (c: NarrativeCand) => {
+    const s = c.sourceId != null ? sourceById.get(c.sourceId) : undefined;
+    return { kilde: s ? (s.udgave ?? s.titel ?? null) : null, aar: s?.aar ?? null };
+  };
+
+  const sections: AboutSection[] = [];
+  const slaegtCands = [...candsByKey.entries()].find(([key]) => key.startsWith('slaegt:'))?.[1];
+  const slaegtBedst = slaegtCands ? pickPreferredBio(slaegtCands) : null;
+  if (slaegtBedst?.tekst) sections.push({ lineageNavn: null, lineageKode: null, tekst: slaegtBedst.tekst, ...kildeAf(slaegtBedst) });
+  for (const l of lineageRows) {
+    const cands = candsByKey.get(`lineage:${l.id}`);
+    const best = cands ? pickPreferredBio(cands) : null;
+    if (best?.tekst) sections.push({ lineageNavn: l.navn ?? `Linje ${l.kode}`, lineageKode: l.kode, tekst: best.tekst, ...kildeAf(best) });
+  }
+  return sections;
+}
 
 export function fetchAbout(): Promise<AboutSection[]> {
   return safe(async () => {
@@ -375,29 +408,11 @@ export function fetchAbout(): Promise<AboutSection[]> {
     const [narr, lin] = await Promise.all([
       // privat filtreres i query (matcher fetchPersonDetail/fetchEstateInfo); RLS gater også
       // privat for anon+auth — empirisk verificeret mod prod 2026-07-12.
-      supabase.from('narrative').select('id,subjekt_type,subjekt_id,source_id,tekst,source:source_id(slags,aar,udgave)').in('subjekt_type', ['slaegt', 'lineage']).eq('privat', false),
+      supabase.from('narrative').select('id,subjekt_type,subjekt_id,source_id,tekst,source:source_id(slags,titel,aar,udgave)').in('subjekt_type', ['slaegt', 'lineage']).eq('privat', false),
       supabase.from('lineage').select('id,navn,kode').order('kode', { ascending: true }),
     ]);
     const rows = (orThrow(narr, 'fetchAbout/narrative') ?? []) as unknown as RawAboutRow[];
-    const lineageRows = (orThrow(lin, 'fetchAbout/lineage') ?? []) as { id: number; navn: string | null; kode: string }[];
-
-    const candsByKey = new Map<string, NarrativeCand[]>();
-    for (const r of rows) {
-      const key = `${r.subjekt_type}:${r.subjekt_id}`;
-      const cand: NarrativeCand = { narrativeId: r.id, tekst: r.tekst, sourceId: r.source_id, slags: r.source?.slags ?? null, aar: r.source?.aar ?? null, udgave: r.source?.udgave ?? null };
-      const list = candsByKey.get(key);
-      if (list) list.push(cand); else candsByKey.set(key, [cand]);
-    }
-
-    const sections: AboutSection[] = [];
-    const slaegtCands = [...candsByKey.entries()].find(([key]) => key.startsWith('slaegt:'))?.[1];
-    const slaegtBedst = slaegtCands ? pickPreferredBio(slaegtCands) : null;
-    if (slaegtBedst?.tekst) sections.push({ lineageNavn: null, tekst: slaegtBedst.tekst });
-    for (const l of lineageRows) {
-      const cands = candsByKey.get(`lineage:${l.id}`);
-      const best = cands ? pickPreferredBio(cands) : null;
-      if (best?.tekst) sections.push({ lineageNavn: l.navn ?? `Linje ${l.kode}`, tekst: best.tekst });
-    }
-    return sections;
+    const lineageRows = (orThrow(lin, 'fetchAbout/lineage') ?? []) as RawAboutLineage[];
+    return byggAboutSections(rows, lineageRows);
   }, [], 'fetchAbout');
 }
