@@ -43,6 +43,7 @@ export function byggUdgaveVaelger(
   const medPost = new Set<string>();
 
   for (const v of versioner) {
+    if (v.narrativeText.trim() === '') continue;
     const sourceId = versionSourceId(v, udgaver);
     medPost.add(sourceId);
     const aar = aarFor.get(sourceId) ?? (v as Partial<BioSourceVersionV2>).sourceYear ?? null;
@@ -76,5 +77,8 @@ export function byggUdgaveVaelger(
 
   const chips = intern.map((i) => i.chip);
   const form = chips.length <= 1 ? 'ingen' : chips.some((c) => c.art === 'post') ? 'chips' : 'skift';
-  return { chips, standard: 0, form };
+  // Standard: første chip i nyeste udgave med en post; ellers første chip (udgave-chip).
+  const foersteMedPost = chips.findIndex((c) => c.art === 'post');
+  const standard = foersteMedPost >= 0 ? foersteMedPost : 0;
+  return { chips, standard, form };
 }

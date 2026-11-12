@@ -77,4 +77,41 @@ describe('byggUdgaveVaelger', () => {
     expect(r.chips[0].label).toBe('DAA 2018-20 · overgangsdata');
     expect(r.chips[0].sourceId).toBe('3');
   });
+
+  it('nyeste udgave uden biografi: standard er den ældre udgaves post', () => {
+    const r = byggUdgaveVaelger([v(1, '1939-post', 'tekst')], udgaver, ['1', '3']);
+    expect(r.chips[0]).toEqual({ art: 'udgave', sourceId: '3', label: 'DAA 2018-20' });
+    expect(r.chips[r.standard].art).toBe('post');
+    expect(r.chips[r.standard].sourceId).toBe('1');
+    expect(r.standard).toBe(1);
+    expect(r.form).toBe('chips');
+  });
+
+  it('tom biografitekst tæller ikke som post', () => {
+    const r = byggUdgaveVaelger([v(3, 'V-1', '   ')], udgaver, ['3']);
+    expect(r.chips).toEqual([{ art: 'udgave', sourceId: '3', label: 'DAA 2018-20' }]);
+    expect(r.form).toBe('ingen');
+  });
+
+  it('sourceYear bruges når udgavens aar er ukendt; ukendt år sidst', () => {
+    const ukendt: Udgave[] = [
+      { sourceId: '1', label: 'A', aar: null },
+      { sourceId: '2', label: 'B', aar: null },
+      { sourceId: '3', label: 'C', aar: null },
+    ];
+    const a = { ...v(1, 'x', 'a', 'A'), sourceYear: 1900 };
+    const b = { ...v(2, 'x', 'b', 'B'), sourceYear: 2000 };
+    const c = v(3, 'x', 'c', 'C');
+    const r = byggUdgaveVaelger([c, a, b], ukendt, []);
+    expect(r.chips.map((x) => x.sourceId)).toEqual(['2', '1', '3']);
+  });
+
+  it('samme år: lavere numerisk sourceId først', () => {
+    const lige: Udgave[] = [
+      { sourceId: '10', label: 'A', aar: 2000 },
+      { sourceId: '9', label: 'B', aar: 2000 },
+    ];
+    const r = byggUdgaveVaelger([v(10, 'x', 'a', 'A'), v(9, 'x', 'b', 'B')], lige, []);
+    expect(r.chips.map((x) => x.sourceId)).toEqual(['9', '10']);
+  });
 });
