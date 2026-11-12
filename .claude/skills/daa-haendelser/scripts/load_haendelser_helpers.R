@@ -1,5 +1,27 @@
 # Rene, DB-frie helpers til load_haendelser.R.
 
+HAENDELSER_USAGE <- "brug: load_haendelser.R clean.json (--dry-run | --jeg-mener-det)"
+
+# Loaderen skriver til prod (SUPABASE_* fra ~/.Renviron). Som de øvrige prod-skrivere
+# kræver skrivning derfor --jeg-mener-det; --dry-run ruller transaktionen tilbage.
+# Præcis ét af de to flag skal angives, så en kørsel aldrig skriver ved en forglemmelse.
+parse_load_haendelser_args <- function(argv) {
+  flags <- argv[startsWith(argv, "--")]
+  unknown <- setdiff(flags, c("--dry-run", "--jeg-mener-det"))
+  if (length(unknown))
+    stop("Ukendt argument: ", paste(unknown, collapse = ", "), "\n", HAENDELSER_USAGE, call. = FALSE)
+  dry_run <- "--dry-run" %in% flags
+  skriv <- "--jeg-mener-det" %in% flags
+  if (dry_run && skriv)
+    stop("--dry-run og --jeg-mener-det udelukker hinanden.\n", HAENDELSER_USAGE, call. = FALSE)
+  if (!dry_run && !skriv)
+    stop("--jeg-mener-det er obligatorisk for at skrive til prod (ellers --dry-run).\n",
+         HAENDELSER_USAGE, call. = FALSE)
+  positional <- argv[!startsWith(argv, "--")]
+  if (length(positional) != 1L) stop(HAENDELSER_USAGE, call. = FALSE)
+  list(path = positional[[1L]], dry_run = dry_run)
+}
+
 normaliser_date_raw <- function(x) {
   if (is.null(x) || length(x) == 0L || is.na(x) || !nzchar(trimws(x))) return(NA_character_)
   tolower(trimws(gsub("\\s+", " ", as.character(x))))
