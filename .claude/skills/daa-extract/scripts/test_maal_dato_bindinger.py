@@ -196,16 +196,16 @@ def test_tilstande_foer_ddl_n_k_og_hashen(db):
                      method=V2, supersedes=_u(79410)))
     n = _maal(db)
     assert n[:10] == ("n", "1", "2", "1", "0", "0", "0", "0", "0", "1"), n
-    # k: afgørelsen kopierer method; den er accepteret, men endnu ikke bundet
+    # k: afgørelsen kopierer method (versioner_v2 tæller alle rækker: nu to); den er accepteret, men endnu ikke bundet
     _sql(db, _interp(_u(79430), _u(79510), 3, SRC, _u(79110), "person.death", "10. maj 1770", RUN_S, status="accepted",
                      method=V2, supersedes=_u(79420)))
     k = _maal(db)
-    assert k[:10] == ("k", "1", "1", "1", "0", "1", "0", "0", "0", "1"), k
+    assert k[:10] == ("k", "2", "1", "1", "0", "1", "0", "0", "0", "1"), k
     assert k[10] == ddl[10]
     # bundet: en ny gyldig binding giver bundet_v2=1, alle_bindinger=2 og en ny hash
     _sql(db, _promo(_u(79630), _u(79430), "person-death-v1", A["p10"]))
     b = _maal(db)
-    assert b[:10] == ("k", "1", "1", "1", "0", "1", "1", "0", "0", "2"), b
+    assert b[:10] == ("k", "2", "1", "1", "0", "1", "1", "0", "0", "2"), b
     assert b[10] == _hash([p5, (A["p10"], _u(79510))]) and b[10] != k[10]
     # den anden kildes bindinger tæller ikke i kildens bundet_v2, men indgår i alle_bindinger
     o = _maal(db, OTHER)
@@ -250,3 +250,121 @@ def test_post_taeller_kun_raekker_med_record_label(db):
     assert (o[7], o[8]) == ("1", "0"), o
     out = _must(_psql("-v", f"source_id={SRC}", "-f", str(MAAL), db=db), "maal")
     assert "r1" not in out and "marts" not in out
+
+
+# ---- låsning mod drift fra private.assertion_binding_current ----
+
+def _norm(t: str) -> str:
+    return " ".join(t.split())
+
+
+def _function_from_where(sql: str, last: bool) -> str:
+    start_pat = "CREATE OR REPLACE FUNCTION private.assertion_binding_current("
+    i = sql.rindex(start_pat) if last else sql.index(start_pat)
+    j = sql.index("REVOKE ALL ON FUNCTION private.assertion_binding_current", i)
+    m = re.search(r"SELECT 1\s+(FROM .*?)\s*\)\s*\$\$", sql[i:j], re.S)
+    assert m, "assertion_binding_current har aendret form"
+    return _norm(m.group(1).replace("p.id=p_promotion_id AND", ""))
+
+
+@pytest.mark.parametrize("fil,last", [("schema.sql", False), ("db-migrations.sql", True)])
+def test_gyldighedsreglen_er_ordret_funktionens_from_where(fil, last):
+    krop = _function_from_where((ROOT / fil).read_text(encoding="utf-8"), last)
+    assert krop in _norm(MAAL.read_text(encoding="utf-8")), fil
+
+
+def test_red_decide_interpretation_kopierer_method():
+    sql = (ROOT / "schema.sql").read_text(encoding="utf-8")
+    i = sql.index("CREATE OR REPLACE FUNCTION red_decide_interpretation(")
+    j = sql.index("CREATE OR REPLACE FUNCTION", i + 10)
+    assert "p_decision_status,v_current.method" in _norm(sql[i:j]).replace(", ", ",")
+
+
+# ---- fixture-paritet: én binding pr. ugyldighedsgren ----
+
+def _gren(n: int, *, faktatype: str = "fødsel", raw: str = "1. jan 1800", kind: str = "date_raw", rule: str = "person-birth-v1",
+          rule_ver: int | str = 1, status: str = "accepted", identity: str = "ok", a_target: str = "fact",
+          fact_raw: str | None = None, predicate: str = "person.birth", p_target: str = "assertion",
+          nyere_afvist: bool = False) -> str:
+    pers, aid = -8000 - n, -80000 - n
+    persona, iid, key, promo = _u(80100 + n), _u(80400 + n), _u(80500 + n), _u(80600 + n)
+    out = f"INSERT INTO public.person(id,levende,privat,status) VALUES ({pers},false,false,'t3'),({pers - 500},false,false,'t3');\n"
+    out += (f"INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES ('{persona}',{SRC},'t3:g{n}','{RUN_S}');\n")
+    if identity != "none":
+        canon = pers if identity == "ok" else pers - 500
+        out += (f"INSERT INTO private.source_persona_identity(source_persona_id,canonical_person_id,decision_status,version,evidence,"
+                f"decided_by,decided_by_name,decided_at) VALUES ('{persona}',{canon},'accepted',1,'{{\"fixture\":\"t3\"}}','{ACTOR}','fixture',now());\n")
+    out += _fact(pers, aid, faktatype, fact_raw if fact_raw is not None else raw, SRC, kind=kind)
+    if a_target != "fact":
+        out += f"UPDATE public.assertion SET target_type='{a_target}' WHERE id={aid};\n"
+    out += _interp(iid, key, 1, SRC, persona, predicate, raw, RUN_S, status=status)
+    if nyere_afvist:
+        out += _interp(_u(80700 + n), key, 2, SRC, persona, predicate, raw, RUN_S, status="rejected", supersedes=iid)
+    rk = "NULL,NULL" if rule is None else f"'{rule}',{rule_ver}"
+    out += (f"INSERT INTO private.interpretation_promotion(id,interpretation_id,rule_key,rule_version,target_type,target_id,evidence,"
+            f"promoted_by,promoted_by_name) VALUES ('{promo}','{iid}',{rk},'{p_target}',{aid},'{{\"fixture\":\"t3\"}}','{ACTOR}','fixture');\n")
+    return out
+
+
+# (nummer, gren, gyldig)
+GRENE = [
+    (1, {}, True),
+    (2, dict(faktatype="navn", raw="Anna", kind="text", rule="person-name-v1", predicate="person.name"), True),
+    (3, dict(nyere_afvist=True), False),            # fortolkningen er ikke længere aktuel
+    (4, dict(status="proposed"), False),            # aktuel, men ikke accepted
+    (5, dict(rule_ver=99), False),                  # regel-join mangler
+    (6, dict(rule=None), False),                    # ingen regel
+    (7, dict(a_target="relation"), False),          # påstandens target_type er ikke 'fact'
+    (8, dict(faktatype="død"), False),              # faktatypen afviger fra reglens
+    (9, dict(identity="none"), False),              # identitet kræves, men mangler
+    (10, dict(identity="anden"), False),            # identiteten peger på et andet subjekt
+    (11, dict(fact_raw="2. jan 1800"), False),      # værdien matcher ikke
+    (12, dict(p_target="person"), False),           # promotionens target_type er ikke 'assertion'
+]
+
+PARITET = ("SELECT count(*), encode(sha256(convert_to(coalesce(string_agg(p.target_id::text||':'||q.interpretation_key::text,"
+           "E'\\n' ORDER BY p.target_id,q.interpretation_key),''),'UTF8')),'hex') "
+           "FROM private.interpretation_promotion p JOIN private.interpretation q ON q.id=p.interpretation_id "
+           "WHERE p.target_type='assertion' AND private.assertion_binding_current(p.id)")
+
+
+def test_maengdereglen_giver_samme_antal_og_hash_som_funktionen_pr_promotion(db):
+    _sql(db, "".join(_gren(n, **kw) for n, kw, _ in GRENE))
+    for n, _, gyldig in GRENE:
+        r = _must(_psql("-c", f"SELECT private.assertion_binding_current('{_u(80600 + n)}')", db=db), "fn").strip()
+        assert r == ("t" if gyldig else "f"), n
+    antal, hsh = _must(_psql("-c", PARITET, db=db), "paritet").strip().split("|")
+    m = _maal(db)
+    assert (m[9], m[10]) == (antal, hsh)
+    assert int(antal) >= 2 + sum(1 for *_, g in GRENE if g)
+
+
+def _maal_liste(db: str) -> list[str]:
+    r = _psql("-v", f"source_id={SRC}", "-v", "liste=1", "-f", str(MAAL), db=db)
+    return _must(r, "maal liste").strip().split("\n")
+
+
+def test_liste_giver_de_linjer_hashen_er_taget_over(db):
+    ud = _maal_liste(db)
+    g = LINE.fullmatch(ud[0])
+    assert g
+    linjer = ud[1:]
+    assert len(linjer) == int(g.group(10))
+    assert hashlib.sha256("\n".join(linjer).encode()).hexdigest() == g.group(11)
+    assert all(re.fullmatch(r"-?\d+:[0-9a-f-]{36}", x) for x in linjer)
+    # uden liste er outputtet præcis én linje
+    assert "\n" not in _must(_psql("-v", f"source_id={SRC}", "-f", str(MAAL), db=db), "maal").strip()
+
+
+def test_v2_version_afloest_af_ikke_v2_giver_ikke_ddl(db):
+    kilde, run = -7392, "12000000-0000-0000-0000-000000079003"
+    _sql(db, f"INSERT INTO public.source(id,titel,udgave,aar,slags) VALUES ({kilde},'Fixture tredje','synthetic','1902','DAA-udgave');\n"
+             f"INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,input_sha256,manifest)"
+             f" VALUES ('{run}',{kilde},'t3-3','fixture','fixture','fixture',repeat('1',64),'{{}}');\n"
+             f"INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES ('{_u(79300)}',{kilde},'t3:x','{run}');\n"
+             + _interp(_u(79701), _u(79801), 1, kilde, _u(79300), "person.birth", "1. jan 1800", run, method=V2))
+    assert _maal(db, kilde)[:2] == ("n", "1")
+    _sql(db, _interp(_u(79702), _u(79801), 2, kilde, _u(79300), "person.birth", "1. jan 1800", run, status="rejected",
+                     method="fixture", supersedes=_u(79701)))
+    m = _maal(db, kilde)
+    assert m[0] == "n" and m[1] == "1" and m[5] == "0", m
