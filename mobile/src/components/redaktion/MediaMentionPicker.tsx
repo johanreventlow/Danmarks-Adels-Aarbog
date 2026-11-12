@@ -25,7 +25,7 @@ export function MediaMentionPicker({ media, thumbUris, onVælg, onClose }: {
         <Serif size={20} style={{ marginBottom: 10 }}>Indsæt billede</Serif>
         <ScrollView style={{ maxHeight: 420 }}>
           {brugbar.length === 0 ? (
-            <Body color={Colors.textMuted} style={{ padding: 12 }}>Ingen billeder uploadet endnu.</Body>
+            <Body color={Colors.inkMuted} style={{ padding: 12 }}>Ingen billeder uploadet endnu.</Body>
           ) : (
             <View style={styles.grid}>
               {brugbar.map((m) => (
@@ -46,5 +46,5 @@ export function MediaMentionPicker({ media, thumbUris, onVælg, onClose }: {
 const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   cell: { width: 96 },
-  thumb: { width: 96, height: 96, borderRadius: 8, backgroundColor: Colors.beige2, marginBottom: 2 },
+  thumb: { width: 96, height: 96, borderRadius: 8, backgroundColor: Colors.surfaceSunken, marginBottom: 2 },
 });

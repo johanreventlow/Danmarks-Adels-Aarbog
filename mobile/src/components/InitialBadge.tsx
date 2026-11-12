@@ -12,7 +12,7 @@ function initial(name: string): string {
 export function InitialBadge({
   name,
   size = 44,
-  bg = Colors.beige,
+  bg = Colors.surfaceSunken,
   color = Colors.bordeaux,
   borderColor,
 }: {

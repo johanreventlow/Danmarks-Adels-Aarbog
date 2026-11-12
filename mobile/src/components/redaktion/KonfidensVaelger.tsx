@@ -12,11 +12,11 @@ export function KonfidensVaelger({ vaerdi, onVael }: { vaerdi: string | null; on
         <Pressable key={k}
           style={[editorStyles.koenPille, vaerdi === k && editorStyles.koenPilleAktiv]}
           onPress={() => onVael(k)}>
-          <BtnLabel size={10} color={vaerdi === k ? '#fff' : Colors.textSecondary2}>{k}</BtnLabel>
+          <BtnLabel size={10} color={vaerdi === k ? '#fff' : Colors.inkMuted}>{k}</BtnLabel>
         </Pressable>
       ))}
       <Pressable style={editorStyles.koenPille} onPress={() => onVael(null)}>
-        <BtnLabel size={10} color={Colors.textMuted}>ryd</BtnLabel>
+        <BtnLabel size={10} color={Colors.inkMuted}>ryd</BtnLabel>
       </Pressable>
     </View>
   );

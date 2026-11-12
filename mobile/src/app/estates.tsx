@@ -35,7 +35,7 @@ export default function EstatesScreen() {
       <View style={styles.toggleRow}>
         {(['liste', 'kort'] as const).map((m) => (
           <Pressable key={m} onPress={() => setViewMode(m)} style={[styles.toggleBtn, viewMode === m && styles.toggleBtnActive]}>
-            <BtnLabel size={11.5} color={viewMode === m ? Colors.bordeaux : Colors.textSecondary2}>
+            <BtnLabel size={11.5} color={viewMode === m ? Colors.bordeaux : Colors.inkMuted}>
               {m === 'liste' ? 'Liste' : 'Kort'}
             </BtnLabel>
           </Pressable>
@@ -45,7 +45,7 @@ export default function EstatesScreen() {
         {viewMode === 'kort' ? (
           geoLoading ? (
             <View style={{ padding: 22 }}>
-              <Body size={13} color={Colors.textMuted}>Indlæser kort…</Body>
+              <Body size={13} color={Colors.inkMuted}>Indlæser kort…</Body>
             </View>
           ) : points.length ? (
             <GeoMap
@@ -55,7 +55,7 @@ export default function EstatesScreen() {
             />
           ) : (
             <View style={{ padding: 22 }}>
-              <Body size={13} color={Colors.textMuted}>Ingen godser er kortlagt endnu.</Body>
+              <Body size={13} color={Colors.inkMuted}>Ingen godser er kortlagt endnu.</Body>
             </View>
           )
         ) : (
@@ -65,7 +65,7 @@ export default function EstatesScreen() {
             keyExtractor={(e) => e.id}
             contentContainerStyle={{ padding: 18, paddingBottom: 40 }}
             ListHeaderComponent={
-              <Body size={13} color={Colors.textSecondary2} style={{ marginBottom: 14 }}>
+              <Body size={13} color={Colors.inkMuted} style={{ marginBottom: 14 }}>
                 Godser, herregårde og len knyttet til slægten — med de slægtsmedlemmer der har ejet dem.
               </Body>
             }
@@ -76,7 +76,7 @@ export default function EstatesScreen() {
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Serif size={20} style={{ lineHeight: 21 }}>{item.navn}</Serif>
-                  <Body size={12} color={Colors.textSecondary2} style={{ marginTop: 2 }}>
+                  <Body size={12} color={Colors.inkMuted} style={{ marginTop: 2 }}>
                     {item.ownerCount} {item.ownerCount === 1 ? 'registreret ejer' : 'registrerede ejere'}
                   </Body>
                 </View>
@@ -92,16 +92,16 @@ export default function EstatesScreen() {
 
 const styles = StyleSheet.create({
   toggleRow: {
-    flexDirection: 'row', gap: 2, backgroundColor: Colors.beige2, borderRadius: 8,
+    flexDirection: 'row', gap: 2, backgroundColor: Colors.surfaceSunken, borderRadius: 8,
     padding: 2, marginHorizontal: 18, marginBottom: 4, alignSelf: 'flex-start',
   },
   toggleBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6 },
-  toggleBtnActive: { backgroundColor: Colors.paperCard },
+  toggleBtnActive: { backgroundColor: Colors.surfaceRaised },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 13,
-    backgroundColor: Colors.paperCard,
+    backgroundColor: Colors.surfaceRaised,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Border.light,
     borderRadius: 13,
@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
     ...Shadow.card,
   },
   crest: {
-    width: 38, height: 38, borderRadius: 8, backgroundColor: Colors.beige2,
+    width: 38, height: 38, borderRadius: 8, backgroundColor: Colors.surfaceSunken,
     borderWidth: StyleSheet.hairlineWidth, borderColor: Border.faint, alignItems: 'center', justifyContent: 'center',
   },
 });

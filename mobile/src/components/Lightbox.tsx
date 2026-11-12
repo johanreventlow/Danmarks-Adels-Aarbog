@@ -33,24 +33,24 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
         <Image source={{ uri: m.uri }} style={styles.image} contentFit="contain" />
         {(cap || items.length > 1) && (
           <View style={styles.captionWrap} pointerEvents="none">
-            {cap ? <Body size={13} color={Colors.paperCard} style={{ textAlign: 'center' }}>{cap}</Body> : null}
+            {cap ? <Body size={13} color={Colors.inkOnInverse} style={{ textAlign: 'center' }}>{cap}</Body> : null}
             {items.length > 1 ? (
-              <Mono size={10} color={Colors.textMuted3} style={{ textAlign: 'center', marginTop: 4 }}>{index + 1} / {items.length}</Mono>
+              <Mono size={10} color={Colors.inkMutedOnInverse} style={{ textAlign: 'center', marginTop: 4 }}>{index + 1} / {items.length}</Mono>
             ) : null}
           </View>
         )}
         {harForrige ? (
           <Pressable accessibilityRole="button" accessibilityLabel="Forrige billede" style={[styles.navBtn, styles.navLeft]} onPress={() => onNavigate(index - 1)} hitSlop={16}>
-            <Mono size={30} color={Colors.paperCard}>‹</Mono>
+            <Mono size={30} color={Colors.inkOnInverse}>‹</Mono>
           </Pressable>
         ) : null}
         {harNaeste ? (
           <Pressable accessibilityRole="button" accessibilityLabel="Næste billede" style={[styles.navBtn, styles.navRight]} onPress={() => onNavigate(index + 1)} hitSlop={16}>
-            <Mono size={30} color={Colors.paperCard}>›</Mono>
+            <Mono size={30} color={Colors.inkOnInverse}>›</Mono>
           </Pressable>
         ) : null}
         <Pressable accessibilityRole="button" accessibilityLabel="Luk billedevisning" style={styles.closeBtn} onPress={onClose} hitSlop={16}>
-          <Mono size={24} color={Colors.paperCard}>×</Mono>
+          <Mono size={24} color={Colors.inkOnInverse}>×</Mono>
         </Pressable>
       </Pressable>
     </Modal>

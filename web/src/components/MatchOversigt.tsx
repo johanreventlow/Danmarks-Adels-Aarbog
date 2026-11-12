@@ -7,6 +7,7 @@ import {
   type KandidatDetalje, type MatchAuditPost, type SourceRow,
 } from '../data/redaktionRead';
 import { KandidatSammenligning } from './KandidatSammenligning';
+import { T } from '../theme';
 
 export function formatPersonNavn(p?: RedMatchPerson): string {
   if (!p) return '(ukendt)';
@@ -179,7 +180,7 @@ export function MatchOversigt({
         </label>
       </div>
 
-      {filtreret.length === 0 && <p style={{ color: '#6f675b' }}>Ingen beslutninger matcher filtrene.</p>}
+      {filtreret.length === 0 && <p style={{ color: T.inkMuted }}>Ingen beslutninger matcher filtrene.</p>}
       <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
         {vistePoster.map((post) => {
           const a = byId.get(post.aId);
@@ -203,7 +204,7 @@ export function MatchOversigt({
             <li key={`${post.beslutning}:${post.relationId}`} data-testid={`audit-post-${post.relationId}`}
               style={{ border: '1px solid rgba(34,31,26,.12)', borderRadius: 6, padding: '.65rem .8rem', margin: '.5rem 0' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '.4rem' }}>
-                <strong style={{ color: post.beslutning === 'samme_som' ? '#3d7a3d' : '#881A33' }}>
+                <strong style={{ color: post.beslutning === 'samme_som' ? '#3d7a3d' : T.bordeaux }}>
                   {post.beslutning === 'samme_som' ? 'Bekræftet samme person' : 'Afvist som forskellige'}
                 </strong>
                 <span><code>Score {score == null ? '—' : score.toFixed(3)}</code></span>
@@ -211,13 +212,13 @@ export function MatchOversigt({
               <div style={{ marginTop: '.25rem' }}>
                 {formatPersonNavn(a)} {post.beslutning === 'samme_som' ? '=' : '≠'} {formatPersonNavn(b)}
               </div>
-              <div style={{ fontSize: '.82em', color: '#6f675b', marginTop: '.15rem' }}>
+              <div style={{ fontSize: '.82em', color: T.inkMuted, marginTop: '.15rem' }}>
                 {[formatBogReferencer(a), formatBogReferencer(b)].filter(Boolean).join(' ↔ ') || 'Ingen bogreference'}
               </div>
-              <div style={{ fontSize: '.82em', color: '#6f675b', marginTop: '.2rem' }}>
+              <div style={{ fontSize: '.82em', color: T.inkMuted, marginTop: '.2rem' }}>
                 {actor} · <time dateTime={post.createdAt ?? undefined}>{auditTid(post.createdAt)}</time>
               </div>
-              <div style={{ fontSize: '.82em', marginTop: '.2rem', color: grund ? '#881A33' : '#3d7a3d' }}>
+              <div style={{ fontSize: '.82em', marginTop: '.2rem', color: grund ? T.bordeaux : '#3d7a3d' }}>
                 {post.beslutning === 'ikke_samme_som'
                   ? 'Fold-status er ikke relevant for en afvisning.'
                   : grund ? `⚠ Linket folder ikke endnu: ${grund}` : '✓ Linket foldes offentligt til én person.'}
@@ -232,7 +233,7 @@ export function MatchOversigt({
               </div>
               {erAabent && (
                 detaljeError
-                  ? <p style={{ color: '#881A33' }}>Kunne ikke hente kandidatdetaljer: {detaljeError}</p>
+                  ? <p style={{ color: T.bordeaux }}>Kunne ikke hente kandidatdetaljer: {detaljeError}</p>
                   : detaljeA && detaljeB && a && b
                     ? <KandidatSammenligning
                         personA={a} personB={b} detaljeA={detaljeA} detaljeB={detaljeB}
@@ -246,7 +247,7 @@ export function MatchOversigt({
                         linket={post.beslutning === 'samme_som'} readOnly
                         onBekraeft={() => undefined} onAfvis={() => undefined}
                       />
-                    : <p style={{ color: '#6f675b' }}>{indlaeser ? 'Indlæser kandidatdetaljer…' : 'Kandidatdetaljer mangler.'}</p>
+                    : <p style={{ color: T.inkMuted }}>{indlaeser ? 'Indlæser kandidatdetaljer…' : 'Kandidatdetaljer mangler.'}</p>
               )}
             </li>
           );

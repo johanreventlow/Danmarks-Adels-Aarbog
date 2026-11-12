@@ -19,7 +19,7 @@ export default function Konto() {
   const email = session?.user?.email ?? '';
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+    <View style={{ flex: 1, backgroundColor: Colors.surfaceGround }}>
       <TopBar title="Konto" showBack={false} />
       <ScrollView contentContainerStyle={{ padding: 18 }}>
         {session ? (
@@ -28,13 +28,13 @@ export default function Konto() {
               <InitialBadge name={email || '?'} size={52} bg={Colors.bordeaux} color="#fff" />
               <View>
                 <Body>{email}</Body>
-                <Mono size={9} color={Colors.textMuted}>{rolle.toUpperCase()}</Mono>
+                <Mono size={9} color={Colors.inkMuted}>{rolle.toUpperCase()}</Mono>
               </View>
             </View>
           </View>
         ) : (
-          <View style={[styles.card, { backgroundColor: Colors.ink }]}>
-            <Serif size={20} color={Colors.paperBg}>Log ind for at redigere</Serif>
+          <View style={[styles.card, { backgroundColor: Colors.surfaceInverse }]}>
+            <Serif size={20} color={Colors.inkOnInverse}>Log ind for at redigere</Serif>
             <Pressable style={styles.loginBtn} onPress={() => setLoginOpen(true)}>
               <BtnLabel color={Colors.ink}>Log ind</BtnLabel>
             </Pressable>
@@ -67,7 +67,7 @@ function Row({ label, value, onChange }: { label: string; value: boolean; onChan
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
+  card: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light,
     borderRadius: Radius.card, padding: 16, marginBottom: 12 },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6 },
   loginBtn: { backgroundColor: Colors.goldLight, borderRadius: Radius.field, padding: 12,

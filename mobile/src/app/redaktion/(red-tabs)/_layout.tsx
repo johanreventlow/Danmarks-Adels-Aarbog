@@ -21,9 +21,9 @@ export default function RedTabsLayout() {
         screenOptions={{
           headerShown: false,
           tabBarActiveTintColor: Colors.bordeaux,
-          tabBarInactiveTintColor: Colors.textMuted2,
+          tabBarInactiveTintColor: Colors.inkMutedOnInverse,
           tabBarStyle: { height: 66, paddingTop: 8, paddingBottom: 10,
-            backgroundColor: Colors.ink, borderTopColor: Border.medium },
+            backgroundColor: Colors.surfaceInverse, borderTopColor: Border.medium },
           tabBarLabelStyle: { fontFamily: Fonts.sansSemi, fontSize: 11, letterSpacing: 0.1 },
         }}>
         <Tabs.Screen

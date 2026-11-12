@@ -45,7 +45,7 @@ export function SletBekraeftSheet({ personId, onClose, onDeleted }: {
       <Pressable style={styles.backdrop} onPress={onClose} />
       <View style={styles.sheet}>
         <Serif size={20} style={{ marginBottom: 6 }}>Slet person?</Serif>
-        <Mono size={10} color={dryRun ? Colors.textMuted : Colors.liveRoed} style={{ marginBottom: 12 }}>
+        <Mono size={10} color={dryRun ? Colors.inkMuted : Colors.live} style={{ marginBottom: 12 }}>
           {dryRun ? 'Dry-run · skriver ikke' : 'LIVE · sletter permanent'}
         </Mono>
 
@@ -56,7 +56,7 @@ export function SletBekraeftSheet({ personId, onClose, onDeleted }: {
               {'⚠ '}{preview.antalRelationer} relationer · {preview.antalFacts} fakta · {preview.antalNarrativer} biografier · {preview.antalMedlemskaber} medlemskaber
             </Mono>
             {preview.antalBindinger > 0 ? (
-              <Mono size={10} color={Colors.textSecondary} style={{ marginTop: 4 }}>
+              <Mono size={10} color={Colors.inkSecondary} style={{ marginTop: 4 }}>
                 {preview.antalBindinger} biografi(er) er bundet til en kildepost — bindingen følger med, kilderegistreringen bevares.
               </Mono>
             ) : null}
@@ -65,7 +65,7 @@ export function SletBekraeftSheet({ personId, onClose, onDeleted }: {
                 {preview.relationer.map((r, i) => {
                   const modpartNavn = model?.byId[String(r.modpartId)]?.name ?? `#${r.modpartId}`;
                   return (
-                    <Mono key={i} size={10} color={Colors.textSecondary} style={{ marginBottom: 2 }}>
+                    <Mono key={i} size={10} color={Colors.inkSecondary} style={{ marginBottom: 2 }}>
                       {r.rolle} ({r.retning}) → {modpartNavn}
                     </Mono>
                   );
@@ -91,7 +91,7 @@ export function SletBekraeftSheet({ personId, onClose, onDeleted }: {
           <Mono size={11} color={Colors.danger} style={{ marginTop: 8 }}>{fejl}</Mono>
         ) : null}
         {status === 'ok' ? (
-          <Mono size={11} color={Colors.konklusionGroen} style={{ marginTop: 8 }}>
+          <Mono size={11} color={Colors.success} style={{ marginTop: 8 }}>
             {'✓ '}{dryRun ? 'Forhåndsvist' : 'Slettet'}
           </Mono>
         ) : null}
@@ -105,7 +105,7 @@ export function SletBekraeftSheet({ personId, onClose, onDeleted }: {
         </Pressable>
         {status !== 'busy' ? (
           <Pressable style={styles.cancelBtn} onPress={onClose}>
-            <BtnLabel color={Colors.textSecondary}>Annullér</BtnLabel>
+            <BtnLabel color={Colors.inkSecondary}>Annullér</BtnLabel>
           </Pressable>
         ) : null}
       </View>
@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(34,31,26,0.4)',
   },
   sheet: {
-    backgroundColor: Colors.paperBg,
+    backgroundColor: Colors.surfaceGround,
     borderTopLeftRadius: Radius.sheet,
     borderTopRightRadius: Radius.sheet,
     padding: 20,
@@ -128,7 +128,7 @@ const styles = StyleSheet.create({
     borderColor: Border.light,
   },
   advarsel: {
-    backgroundColor: Colors.konfliktFlade,
+    backgroundColor: Colors.dangerTint,
     borderRadius: Radius.card,
     padding: 12,
     marginBottom: 12,
@@ -144,10 +144,10 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 4,
     borderWidth: 1.5,
-    borderColor: Colors.textSecondary2,
+    borderColor: Colors.inkMuted,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.paperCard,
+    backgroundColor: Colors.surfaceRaised,
   },
   checkboxChecked: {
     backgroundColor: Colors.danger,

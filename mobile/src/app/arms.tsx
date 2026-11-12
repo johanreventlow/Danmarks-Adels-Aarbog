@@ -24,27 +24,27 @@ export default function ArmsScreen() {
       <TopBar title="Slægtens våben" />
       <LoadGate>
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 22, paddingBottom: 40 }}>
-          <Mono size={10} color={Colors.textMuted} style={{ letterSpacing: 10 * 0.1, textTransform: 'uppercase' }}>
+          <Mono size={10} color={Colors.inkMuted} style={{ letterSpacing: 10 * 0.1, textTransform: 'uppercase' }}>
             Autoriseret våben
           </Mono>
-          <Body size={12} color={Colors.textMuted} style={{ marginBottom: 14 }}>
+          <Body size={12} color={Colors.inkMuted} style={{ marginBottom: 14 }}>
             Dansk Adelsforenings gældende gengivelse
           </Body>
 
           <View style={styles.armCard}>
             <StripedPlaceholder width={150} height={185} radius={10} label="våbenskjold" />
-            <Mono size={8.5} color={Colors.gold} style={{ marginTop: 14, letterSpacing: 8.5 * 0.1, textTransform: 'uppercase' }}>
+            <Mono size={8.5} color={Colors.goldInk} style={{ marginTop: 14, letterSpacing: 8.5 * 0.1, textTransform: 'uppercase' }}>
               Blasonering
             </Mono>
-            <Serif size={16} italic color={Colors.textSecondary} style={{ textAlign: 'center', marginTop: 5, lineHeight: 16 * 1.45, fontFamily: Fonts.serifItalic }}>
+            <Serif size={16} italic color={Colors.inkSecondary} style={{ textAlign: 'center', marginTop: 5, lineHeight: 16 * 1.45, fontFamily: Fonts.serifItalic }}>
               {BLASONERING}
             </Serif>
           </View>
 
-          <Mono size={10} color={Colors.textMuted} style={{ marginTop: 26, letterSpacing: 10 * 0.1, textTransform: 'uppercase' }}>
+          <Mono size={10} color={Colors.inkMuted} style={{ marginTop: 26, letterSpacing: 10 * 0.1, textTransform: 'uppercase' }}>
             Øvrige gengivelser & segl
           </Mono>
-          <Body size={12} color={Colors.textMuted} style={{ marginBottom: 14 }}>
+          <Body size={12} color={Colors.inkMuted} style={{ marginBottom: 14 }}>
             Varianter over tid, brisering mellem linjer, daterede segl
           </Body>
 
@@ -53,13 +53,13 @@ export default function ArmsScreen() {
               <View key={v.titel} style={styles.variant}>
                 <StripedPlaceholder radius={8} style={{ width: '100%', aspectRatio: 0.82 }} />
                 <Serif size={15} style={{ marginTop: 7, lineHeight: 16 }}>{v.titel}</Serif>
-                <Mono size={9} color={Colors.textMuted} style={{ marginTop: 2 }}>{v.meta}</Mono>
+                <Mono size={9} color={Colors.inkMuted} style={{ marginTop: 2 }}>{v.meta}</Mono>
               </View>
             ))}
           </View>
 
           <View style={styles.note}>
-            <Body size={12} color={Colors.textSecondary2} style={{ lineHeight: 12 * 1.5 }}>
+            <Body size={12} color={Colors.inkMuted} style={{ lineHeight: 12 * 1.5 }}>
               Varianter, briseringer og daterede segl tilføjes efterhånden som de digitaliseres.
             </Body>
           </View>
@@ -71,7 +71,7 @@ export default function ArmsScreen() {
 
 const styles = StyleSheet.create({
   armCard: {
-    backgroundColor: Colors.paperCard,
+    backgroundColor: Colors.surfaceRaised,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Border.medium,
     borderRadius: 16,
@@ -83,7 +83,7 @@ const styles = StyleSheet.create({
   variant: {
     width: '47%',
     flexGrow: 1,
-    backgroundColor: Colors.paperCard,
+    backgroundColor: Colors.surfaceRaised,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Border.light,
     borderRadius: 12,
@@ -96,6 +96,6 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(34,31,26,0.2)',
     borderRadius: Radius.field,
     padding: 13,
-    backgroundColor: Colors.paperCard,
+    backgroundColor: Colors.surfaceRaised,
   },
 });

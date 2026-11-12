@@ -16,7 +16,7 @@ export function FlytBarnSheet({ barnNavn, andreUnioner, onClose, onVael }: {
       <View style={editorStyles.modalSheet}>
         <Serif size={20} style={{ marginBottom: 10 }}>Flyt {barnNavn} til…</Serif>
         {andreUnioner.length === 0 ? (
-          <Body size={13} color={Colors.textMuted}>Personen har ingen andre registrerede forhold at flytte til.</Body>
+          <Body size={13} color={Colors.inkMuted}>Personen har ingen andre registrerede forhold at flytte til.</Body>
         ) : andreUnioner.map((u) => (
           <Pressable key={u.familyId} style={editorStyles.relRad} onPress={() => onVael(u.familyId)}>
             <Body size={14}>{u.partnere.map((p) => p.navn).join(' & ') || '(ukendt partner)'} · {u.type}</Body>

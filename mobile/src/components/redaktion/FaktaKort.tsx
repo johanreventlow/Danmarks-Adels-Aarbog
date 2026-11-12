@@ -62,11 +62,11 @@ export function FaktaKort({ felt, evidens, onAction, hideFeltLabel = false }: {
     <View style={styles.card}>
       <Pressable style={styles.head} onPress={() => setOpen((v) => !v)}>
         <View style={{ flex: 1 }}>
-          {hideFeltLabel ? null : <Mono size={9} color={Colors.textMuted}>{felt.toUpperCase()}</Mono>}
+          {hideFeltLabel ? null : <Mono size={9} color={Colors.inkMuted}>{felt.toUpperCase()}</Mono>}
           <Serif size={19}>{konkl?.vaerdi ?? '—'}</Serif>
         </View>
         {evidens?.uenig ? <Mono size={8} color={Colors.bordeaux}>UENIGE</Mono> : null}
-        <Mono size={9} color={Colors.textMuted}>{evidens?.oplysninger.length ?? 0} oplysn.</Mono>
+        <Mono size={9} color={Colors.inkMuted}>{evidens?.oplysninger.length ?? 0} oplysn.</Mono>
       </Pressable>
       {open ? (
         <View>
@@ -136,18 +136,18 @@ function OplysningRad({ o, onGørKonklusion, onRedigér, onSlet }: {
     <View style={[styles.opl, o.erKonklusion && styles.oplKonkl]}>
       <View style={{ flex: 1 }}>
         <Serif size={17}>{o.vaerdi}</Serif>
-        <Mono size={8} color={Colors.textMuted}>
+        <Mono size={8} color={Colors.inkMuted}>
           {o.erKonklusion ? 'konklusion' : 'oplysning'} · {kildeAf(o)}
         </Mono>
       </View>
       <View style={{ flexDirection: 'row', gap: 8 }}>
         {!o.erKonklusion ? (
           <Pressable onPress={onGørKonklusion}>
-            <Mono size={9} color={Colors.konklusionGroen}>Gør til konkl.</Mono>
+            <Mono size={9} color={Colors.success}>Gør til konkl.</Mono>
           </Pressable>
         ) : null}
         <Pressable onPress={onRedigér}>
-          <Mono size={9} color={Colors.textMuted}>✎</Mono>
+          <Mono size={9} color={Colors.inkMuted}>✎</Mono>
         </Pressable>
         <Pressable onPress={onSlet}>
           <Mono size={9} color={Colors.danger}>🗑</Mono>
@@ -164,13 +164,13 @@ function InlineEditor({ vaerdi, kilde, label, onVaerdi, onKilde, onGem, onAnnull
 }) {
   return (
     <View style={styles.inlineEditor}>
-      <Mono size={9} color={Colors.textMuted} style={{ marginBottom: 6 }}>{label.toUpperCase()}</Mono>
+      <Mono size={9} color={Colors.inkMuted} style={{ marginBottom: 6 }}>{label.toUpperCase()}</Mono>
       <TextInput
         style={styles.field}
         value={vaerdi}
         onChangeText={onVaerdi}
         placeholder="Værdi"
-        placeholderTextColor={Colors.textMuted2}
+        placeholderTextColor={Colors.inkMuted}
         autoFocus
       />
       <TextInput
@@ -178,7 +178,7 @@ function InlineEditor({ vaerdi, kilde, label, onVaerdi, onKilde, onGem, onAnnull
         value={kilde}
         onChangeText={onKilde}
         placeholder="Kilde (valgfri)"
-        placeholderTextColor={Colors.textMuted2}
+        placeholderTextColor={Colors.inkMuted}
       />
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
         <Pressable style={[styles.gemBtn, { flex: 1 }]} onPress={onGem}>
@@ -193,15 +193,15 @@ function InlineEditor({ vaerdi, kilde, label, onVaerdi, onKilde, onGem, onAnnull
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
+  card: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light,
     borderRadius: Radius.card, padding: 12, marginBottom: 8 },
   head: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  opl: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.paperBg,
+  opl: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surfaceGround,
     borderWidth: 1, borderColor: Border.light, borderRadius: Radius.badge + 1, padding: 10, marginTop: 8 },
-  oplKonkl: { backgroundColor: Colors.konklusionFlade, borderColor: 'rgba(31,91,58,0.32)' },
+  oplKonkl: { backgroundColor: Colors.successTint, borderColor: 'rgba(31,91,58,0.32)' },
   addBtn: { paddingVertical: 10, marginTop: 4 },
   inlineEditor: {
-    backgroundColor: Colors.paperBg,
+    backgroundColor: Colors.surfaceGround,
     borderWidth: 1,
     borderColor: Border.medium,
     borderRadius: Radius.card,
@@ -209,7 +209,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   field: {
-    backgroundColor: Colors.paperCard,
+    backgroundColor: Colors.surfaceRaised,
     borderWidth: 1,
     borderColor: Border.light,
     borderRadius: Radius.field,
@@ -219,13 +219,13 @@ const styles = StyleSheet.create({
     fontFamily: undefined, // sans default
   },
   gemBtn: {
-    backgroundColor: Colors.konklusionGroen,
+    backgroundColor: Colors.success,
     borderRadius: Radius.field,
     padding: 12,
     alignItems: 'center',
   },
   annullerBtn: {
-    backgroundColor: Colors.beige,
+    backgroundColor: Colors.surfaceSunken,
     borderRadius: Radius.field,
     padding: 12,
     alignItems: 'center',

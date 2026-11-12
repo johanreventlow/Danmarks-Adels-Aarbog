@@ -4,6 +4,7 @@ import {
   decideSourcePersona, fetchSourcePersonaDetail, fetchSourcePersonaHistory, fetchSourcePersonaQueue,
   type SourcePersonaAction, type SourcePersonaDetail, type SourcePersonaHistoryRow, type SourcePersonaQueueRow,
 } from '../data/sourcePersona';
+import { T } from '../theme';
 
 const PAGE_SIZE = 50;
 // Køen sorteres inden for siden efter maskinens bedste tier; uden kandidat sidst.
@@ -128,7 +129,7 @@ export function KildepersonaKo({ role }: { role?: string }) {
       </select></label>
       <label>Kilde-id <input value={sourceIdInput} inputMode="numeric" onChange={(e) => setSourceIdInput(e.target.value)} /></label>
     </div>
-    {error && <p role="alert" style={{ color: '#8a2b2b' }}>{error}</p>}
+    {error && <p role="alert" style={{ color: T.danger }}>{error}</p>}
     {shown.map((row) => <article key={row.sourcePersonaId} style={{ marginTop: 12, padding: 12, border: '1px solid #cabfa9', borderRadius: 8 }}>
       <strong>{row.personaKey}</strong> · kilde {row.sourceId} · {row.mentionCount} omtaler · v{row.version}
       {' · '}{row.bestTier ?? 'ingen kandidat'}{row.reason === 'new_person_needed' ? ' · ny person nødvendig' : ''}
@@ -142,7 +143,7 @@ export function KildepersonaKo({ role }: { role?: string }) {
       </div>
     </article>)}
     {hasMore && <button style={{ marginTop: 12 }} onClick={() => void load(rows[rows.length - 1]?.sourcePersonaId ?? null, true)}>Hent næste side</button>}
-    {detail && <aside style={{ marginTop: 16, padding: 12, background: '#f4efe6', borderRadius: 8 }}>
+    {detail && <aside style={{ marginTop: 16, padding: 12, background: T.surfaceGround, borderRadius: 8 }}>
       {detail.familyContext && <div>ægtefælle nr. {detail.familyContext.marriageOrdinal} i {detail.familyContext.principalRecordKey}</div>}
       {detail.reviewReason && <div role="status" style={{ fontWeight: 600 }}>{{
         context_unavailable: 'Hovedpersonens identitet eller ægteskab er ikke entydigt',

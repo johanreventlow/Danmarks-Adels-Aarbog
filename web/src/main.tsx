@@ -4,6 +4,8 @@ import Folgesvend from "./Folgesvend";
 import Redaktion from "./Redaktion";
 import { navigate, usePath } from "./router";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import "./fonts";
+import "./base.css";
 
 // Path-route: alt under /redaktion er redaktørbordet; ellers publikums-følgesvenden.
 function Root() {

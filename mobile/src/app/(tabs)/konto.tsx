@@ -25,7 +25,7 @@ export default function Konto() {
   const me = meId && model ? model.byId[meId] : null;
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+    <View style={{ flex: 1, backgroundColor: Colors.surfaceGround }}>
       <TopBar title="Konto" showBack={false} />
       <ScrollView contentContainerStyle={{ padding: 18 }}>
         {session ? (
@@ -34,14 +34,14 @@ export default function Konto() {
               <InitialBadge name={email || '?'} size={52} bg={Colors.bordeaux} color="#fff" />
               <View>
                 <Body>{email}</Body>
-                <Mono size={9} color={Colors.textMuted}>{rolle.toUpperCase()}</Mono>
+                <Mono size={9} color={Colors.inkMuted}>{rolle.toUpperCase()}</Mono>
               </View>
             </View>
           </View>
         ) : (
-          <View style={[styles.card, { backgroundColor: Colors.ink }]}>
-            <Serif size={20} color={Colors.paperBg}>Log ind</Serif>
-            <Body size={13} color="#cabfa9" style={{ marginTop: 4 }}>
+          <View style={[styles.card, { backgroundColor: Colors.surfaceInverse }]}>
+            <Serif size={20} color={Colors.inkOnInverse}>Log ind</Serif>
+            <Body size={13} color={Colors.inkMutedOnInverse} style={{ marginTop: 4 }}>
               Som medlem ser du også levende slægtninge. Redaktører kan derudover bidrage
               med rettelser.
             </Body>
@@ -93,7 +93,7 @@ export default function Konto() {
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
+  card: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light,
     borderRadius: Radius.card, padding: 16, marginBottom: 12 },
   loginBtn: { backgroundColor: Colors.goldLight, borderRadius: Radius.field, padding: 12,
     alignItems: 'center', marginTop: 12 },

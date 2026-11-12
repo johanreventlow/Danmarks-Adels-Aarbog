@@ -8,7 +8,7 @@ import { Colors, Fonts, monoSpacing, scaleType } from '../theme/tokens';
 type Props = TextProps & { color?: string; size?: number; italic?: boolean };
 
 // Mono kicker/label — uppercase, letter-spacing, dæmpet som standard.
-export function Kicker({ style, color = Colors.textMuted, size = 10, ...rest }: Props) {
+export function Kicker({ style, color = Colors.inkMuted, size = 10, ...rest }: Props) {
   const fs = scaleType(size);
   const s: TextStyle = {
     fontFamily: Fonts.mono,
@@ -21,7 +21,7 @@ export function Kicker({ style, color = Colors.textMuted, size = 10, ...rest }: 
 }
 
 // Mono labels/årstal (ikke nødvendigvis uppercase).
-export function Mono({ style, color = Colors.textMuted, size = 11, ...rest }: Props) {
+export function Mono({ style, color = Colors.inkMuted, size = 11, ...rest }: Props) {
   const fs = scaleType(size);
   const s: TextStyle = {
     fontFamily: Fonts.mono,
@@ -54,7 +54,7 @@ export function BtnLabel({ style, color = Colors.ink, size = 13, ...rest }: Prop
 }
 
 // Hanken Grotesk — brødtekst/UI.
-export function Body({ style, color = Colors.textSecondary, size = 14, ...rest }: Props) {
+export function Body({ style, color = Colors.inkSecondary, size = 14, ...rest }: Props) {
   const fs = scaleType(size);
   const s: TextStyle = {
     fontFamily: Fonts.sans,

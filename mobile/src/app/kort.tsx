@@ -34,20 +34,20 @@ export default function KortScreen() {
         <View style={{ flex: 1 }}>
           <View style={styles.chipRow}>
             <Pressable onPress={() => setLinje(null)} style={[styles.chip, !linje ? styles.chipActive : styles.chipIdle]}>
-              <BtnLabel size={12} color={!linje ? Colors.paperCard : Colors.textSecondary2}>Hele slægten</BtnLabel>
+              <BtnLabel size={12} color={!linje ? Colors.inkOnInverse : Colors.inkMuted}>Hele slægten</BtnLabel>
             </Pressable>
             {linjeList.map((l) => (
               <Pressable key={l.linje} onPress={() => setLinje(l.linje)} style={[styles.chip, linje === l.linje ? styles.chipActive : styles.chipIdle]}>
-                <BtnLabel size={12} color={linje === l.linje ? Colors.paperCard : Colors.textSecondary2}>{l.navn ?? `Linje ${l.linje}`}</BtnLabel>
+                <BtnLabel size={12} color={linje === l.linje ? Colors.inkOnInverse : Colors.inkMuted}>{l.navn ?? `Linje ${l.linje}`}</BtnLabel>
               </Pressable>
             ))}
           </View>
-          <Body size={12.5} color={Colors.textMuted} style={{ paddingHorizontal: 18, marginBottom: 8 }}>
+          <Body size={12.5} color={Colors.inkMuted} style={{ paddingHorizontal: 18, marginBottom: 8 }}>
             {geoLoading ? 'Indlæser kortlagte steder…' : `${points.length} ${points.length === 1 ? 'sted' : 'steder'} kortlagt${linjeNavn ? ` for ${linjeNavn}` : ''}.`}
           </Body>
           {geoLoading ? (
             <View style={{ padding: 22 }}>
-              <Body size={13} color={Colors.textMuted}>Indlæser kort…</Body>
+              <Body size={13} color={Colors.inkMuted}>Indlæser kort…</Body>
             </View>
           ) : points.length ? (
             <GeoMap
@@ -60,7 +60,7 @@ export default function KortScreen() {
             />
           ) : (
             <View style={{ padding: 22 }}>
-              <Body size={13} color={Colors.textMuted}>Ingen steder kortlagt endnu{linjeNavn ? ' for denne linje' : ''}.</Body>
+              <Body size={13} color={Colors.inkMuted}>Ingen steder kortlagt endnu{linjeNavn ? ' for denne linje' : ''}.</Body>
             </View>
           )}
         </View>
@@ -73,5 +73,5 @@ const styles = StyleSheet.create({
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 8 },
   chip: { paddingHorizontal: 13, paddingVertical: 6, borderRadius: 16, borderWidth: StyleSheet.hairlineWidth },
   chipActive: { backgroundColor: Colors.bordeaux, borderColor: Colors.bordeaux },
-  chipIdle: { backgroundColor: Colors.beige, borderColor: Border.light },
+  chipIdle: { backgroundColor: Colors.surfaceSunken, borderColor: Border.light },
 });

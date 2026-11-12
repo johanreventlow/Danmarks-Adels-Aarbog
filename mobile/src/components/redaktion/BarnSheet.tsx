@@ -24,17 +24,17 @@ export function BarnSheet({ scratch, advarsel, onClose, onGem }: {
         {advarsel ? (
           <Mono size={10} color={Colors.bordeaux} style={{ marginBottom: 10 }}>{advarsel}</Mono>
         ) : null}
-        <Mono size={9} color={Colors.gold} style={{ marginBottom: 6 }}>ROLLE</Mono>
+        <Mono size={9} color={Colors.goldInk} style={{ marginBottom: 6 }}>ROLLE</Mono>
         <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
           {BARN_ROLLER.map((r) => (
             <Pressable key={r}
               style={[editorStyles.koenPille, rolle === r && editorStyles.koenPilleAktiv]}
               onPress={() => setRolle(r)}>
-              <BtnLabel size={11} color={rolle === r ? '#fff' : Colors.textSecondary2}>{r}</BtnLabel>
+              <BtnLabel size={11} color={rolle === r ? '#fff' : Colors.inkMuted}>{r}</BtnLabel>
             </Pressable>
           ))}
         </View>
-        <Mono size={9} color={Colors.gold} style={{ marginBottom: 6 }}>KONFIDENS</Mono>
+        <Mono size={9} color={Colors.goldInk} style={{ marginBottom: 6 }}>KONFIDENS</Mono>
         <KonfidensVaelger vaerdi={konfidens} onVael={setKonfidens} />
         <SheetButtons marginTop={14} onGem={() => onGem(rolle, konfidens)} onClose={onClose} />
       </View>

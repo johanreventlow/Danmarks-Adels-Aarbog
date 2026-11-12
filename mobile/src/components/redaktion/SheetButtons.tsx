@@ -7,7 +7,7 @@ export function SheetButtons({ marginTop, onGem, onClose, gemLabel }: { marginTo
   return (
     <View style={{ flexDirection: 'row', gap: 8, marginTop: marginTop ?? 12 }}>
       <Pressable style={editorStyles.addOpret} onPress={onGem}><BtnLabel color="#fff">{gemLabel ?? 'Gem'}</BtnLabel></Pressable>
-      <Pressable style={editorStyles.addAnnuller} onPress={onClose}><BtnLabel color={Colors.textMuted}>Annullér</BtnLabel></Pressable>
+      <Pressable style={editorStyles.addAnnuller} onPress={onClose}><BtnLabel color={Colors.inkMuted}>Annullér</BtnLabel></Pressable>
     </View>
   );
 }

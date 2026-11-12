@@ -22,13 +22,13 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 // forsøger at rendere routen igen.
 export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.paperBg, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 }}>
+    <View style={{ flex: 1, backgroundColor: Colors.surfaceGround, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 }}>
       <Serif size={22} style={{ textAlign: 'center' }}>Der opstod en fejl</Serif>
-      <Body color={Colors.textMuted} style={{ textAlign: 'center' }}>{error.message}</Body>
+      <Body color={Colors.inkMuted} style={{ textAlign: 'center' }}>{error.message}</Body>
       <Pressable
         onPress={retry}
         style={{ marginTop: 12, backgroundColor: Colors.bordeaux, borderRadius: Radius.field, paddingVertical: 12, paddingHorizontal: 24 }}>
-        <BtnLabel color={Colors.paperCard}>Prøv igen</BtnLabel>
+        <BtnLabel color={Colors.inkOnInverse}>Prøv igen</BtnLabel>
       </Pressable>
     </View>
   );
@@ -55,11 +55,11 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+        <View style={{ flex: 1, backgroundColor: Colors.surfaceGround }}>
           <Stack
             screenOptions={{
               headerShown: false,
-              contentStyle: { backgroundColor: Colors.paperBg },
+              contentStyle: { backgroundColor: Colors.surfaceGround },
             }}>
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="person/[id]" options={{ presentation: 'card' }} />

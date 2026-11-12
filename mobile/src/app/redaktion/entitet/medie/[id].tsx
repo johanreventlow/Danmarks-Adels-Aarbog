@@ -66,19 +66,19 @@ function MediaTilknytPicker({ mediaId, udelukkedeMaal, onClose, onVaelg }: {
     <View style={pickerSheetStyles.sheet}>
       <Serif size={20} style={{ marginBottom: 10 }}>Tilknyt medie</Serif>
       <View style={styles.typer}>{typer.map((t) => <Pressable key={t.key} onPress={() => { setMaalType(t.key); setQuery(''); }} style={[styles.typeChip, maalType === t.key && styles.typeChipAktiv]}>
-        <BtnLabel size={10} color={maalType === t.key ? '#fff' : Colors.textSecondary2}>{t.label}</BtnLabel>
+        <BtnLabel size={10} color={maalType === t.key ? '#fff' : Colors.inkMuted}>{t.label}</BtnLabel>
       </Pressable>)}</View>
-      <TextInput style={pickerSheetStyles.input} placeholder="Søg…" placeholderTextColor={Colors.textMuted}
+      <TextInput style={pickerSheetStyles.input} placeholder="Søg…" placeholderTextColor={Colors.inkMuted}
         value={query} onChangeText={setQuery} autoFocus autoCorrect={false} />
       <ScrollView style={{ maxHeight: 380 }} keyboardShouldPersistTaps="handled">
-        {status === 'loading' ? <Body color={Colors.textMuted} style={{ padding: 12 }}>Henter…</Body> : null}
+        {status === 'loading' ? <Body color={Colors.inkMuted} style={{ padding: 12 }}>Henter…</Body> : null}
         {status === 'error' ? <Body color={Colors.danger} style={{ padding: 12 }}>Kunne ikke hente mål.</Body> : null}
-        {status === 'ready' && !synlige.length ? <Body color={Colors.textMuted} style={{ padding: 12 }}>Ingen træffere.</Body> : null}
+        {status === 'ready' && !synlige.length ? <Body color={Colors.inkMuted} style={{ padding: 12 }}>Ingen træffere.</Body> : null}
         {synlige.map((it) => <Pressable key={it.id} style={pickerSheetStyles.row} onPress={() => onVaelg({
           art: 'tilknytMedia', subjektType: 'media', subjektId: mediaId, mediaId,
           payload: { maalType, maalId: it.id },
         })}>
-          <Body size={14}>{it.label}</Body><Mono size={9} color={Colors.textMuted}>{it.sub}</Mono>
+          <Body size={14}>{it.label}</Body><Mono size={9} color={Colors.inkMuted}>{it.sub}</Mono>
         </Pressable>)}
       </ScrollView>
     </View>
@@ -138,9 +138,9 @@ export default function MedieDetalje() {
   if (!id || status === 'error') return <CenterMsg title="Medie">Mediet kunne ikke hentes.</CenterMsg>;
   if (status === 'loading' || !media) return <CenterMsg title="Medie">Henter…</CenterMsg>;
 
-  return <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+  return <View style={{ flex: 1, backgroundColor: Colors.surfaceGround }}>
     <TopBar title={media.titel || 'Medie'} />
-    <View style={{ padding: 18 }}><Body color={Colors.textMuted}>Filsiden er åben.</Body></View>
+    <View style={{ padding: 18 }}><Body color={Colors.inkMuted}>Filsiden er åben.</Body></View>
     {!picker && !pending ? <MediaDetaljeSheet media={media} uri={uris[media.id]} thumbUri={thumbUris[media.id]}
       anvendelse={anvendelse} anvendelseFejl={anvendelseFejl} onClose={() => router.back()}
       onGemMetadata={(payload) => setPending({ art: 'opdaterMedia', subjektType: 'media', subjektId: media.id, mediaId: media.id, payload })}

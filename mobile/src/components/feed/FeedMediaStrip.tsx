@@ -34,7 +34,7 @@ export function FeedMediaStrip({ media }: { media: MobileFeedMediaItem[] }) {
                 accessibilityRole="button"
                 accessibilityLabel={`Åbn billede: ${label}`}
                 onPress={() => setOpenIndex(index)}
-                style={{ width: itemWidth, height: 220, backgroundColor: Colors.beige, borderWidth: 1, borderColor: Border.light, borderRadius: Radius.card, overflow: 'hidden' }}
+                style={{ width: itemWidth, height: 220, backgroundColor: Colors.surfaceSunken, borderWidth: 1, borderColor: Border.light, borderRadius: Radius.card, overflow: 'hidden' }}
               >
                 <Image
                   source={{ uri: item.mediumUri }}

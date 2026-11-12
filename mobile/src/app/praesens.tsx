@@ -66,7 +66,7 @@ function PraesensNodeView({
         <Pressable onPress={() => router.push(`/person/${n.id}`)}>
           <Body
             size={13.5}
-            color={n.forbindelsesled ? Colors.textMuted3 : Colors.ink}
+            color={n.forbindelsesled ? Colors.inkMuted : Colors.ink}
             style={{
               fontFamily: n.forbindelsesled ? Fonts.sans : Fonts.sansSemi,
               fontStyle: n.forbindelsesled ? 'italic' : 'normal',
@@ -76,9 +76,9 @@ function PraesensNodeView({
           </Body>
         </Pressable>
         {aar ? <Mono size={10.5}> {aar}</Mono> : null}
-        {n.usikker ? <Body size={12} color={Colors.gold}> ⚠</Body> : null}
+        {n.usikker ? <Body size={12} color={Colors.goldInk}> ⚠</Body> : null}
         {n.krydsReference ? (
-          <Body size={11.5} color={Colors.textMuted3}> ↗ vist andetsteds i denne gren</Body>
+          <Body size={11.5} color={Colors.inkMuted}> ↗ vist andetsteds i denne gren</Body>
         ) : null}
       </View>
 
@@ -87,9 +87,9 @@ function PraesensNodeView({
           key={partner.id}
           style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline' }}
         >
-          <Body size={12} color={Colors.textMuted3}>· g. m. </Body>
+          <Body size={12} color={Colors.inkMuted}>· g. m. </Body>
           <Pressable onPress={() => router.push(`/person/${partner.id}`)}>
-            <Body size={12} color={Colors.textSecondary2}>
+            <Body size={12} color={Colors.inkMuted}>
               {navnAf(partner.id)}
             </Body>
           </Pressable>
@@ -137,7 +137,7 @@ function PraesensGrenView({
         : { marginTop: 22 }}
     >
       {gren.anker.gren != null ? (
-        <Kicker size={10} color={Colors.gold} style={{ marginBottom: 5 }}>
+        <Kicker size={10} color={Colors.goldInk} style={{ marginBottom: 5 }}>
           {gren.anker.gren}. gren
         </Kicker>
       ) : null}
@@ -156,7 +156,7 @@ function PraesensGrenView({
         <View key={`${gruppe.overskrift}-${gruppe.niveau}`} style={{ marginTop: 22 }}>
           <Kicker
             size={9.5}
-            color={Colors.textSecondary2}
+            color={Colors.inkMuted}
             style={{
               paddingBottom: 6,
               marginBottom: 8,
@@ -235,7 +235,7 @@ function PraesensLinjeSektion({
             <Serif
               size={18}
               italic
-              color={Colors.textSecondary}
+              color={Colors.inkSecondary}
               style={{ marginTop: 5, lineHeight: 22 }}
             >
               {info.titel}
@@ -244,7 +244,7 @@ function PraesensLinjeSektion({
           {info?.slaegtsnavn ? (
             <Kicker
               size={9.5}
-              color={Colors.textMuted2}
+              color={Colors.inkMuted}
               style={{ marginTop: 5, letterSpacing: monoSpacing(9.5, 0.26) }}
             >
               {info.slaegtsnavn}
@@ -355,7 +355,7 @@ export default function PraesensScreen() {
   return (
     <LoadGate>
       <ScrollView
-        style={{ flex: 1, backgroundColor: Colors.paperBg }}
+        style={{ flex: 1, backgroundColor: Colors.surfaceGround }}
         contentContainerStyle={{
           paddingTop: insets.top + 12,
           paddingHorizontal: 14,
@@ -364,7 +364,7 @@ export default function PraesensScreen() {
       >
         {rolle !== 'redaktion' ? (
           <View style={{ marginTop: 24, paddingHorizontal: 4 }}>
-            <Body size={13} color={Colors.textSecondary2}>
+            <Body size={13} color={Colors.inkMuted}>
               Præsenslisten kræver redaktør-login (v1 er redaktion-only).
             </Body>
             <Pressable onPress={() => router.push('/konto')} style={{ marginTop: 12 }}>
@@ -376,17 +376,17 @@ export default function PraesensScreen() {
             Kunne ikke hente grundlaget: {fejl}
           </Body>
         ) : !liste ? (
-          <Body size={13} color={Colors.textSecondary2} style={{ marginTop: 24 }}>
+          <Body size={13} color={Colors.inkMuted} style={{ marginTop: 24 }}>
             Henter…
           </Body>
         ) : liste.grene.length === 0 ? (
           <View style={{ marginTop: 24, paddingHorizontal: 4 }}>
-            <Body size={13} color={Colors.textSecondary2}>
+            <Body size={13} color={Colors.inkMuted}>
               Ingen overhoveder udpeget endnu. Udpeg et linje-/gren-overhoved via person-editorens
               felt &quot;Overhoved (linje/gren)&quot; (værdi fx &quot;II linje, 1. gren&quot;).
             </Body>
             {Object.values(grundlag?.levendeById ?? {}).every((value) => !value) ? (
-              <Body size={12} color={Colors.textMuted3} style={{ marginTop: 10 }}>
+              <Body size={12} color={Colors.inkMuted} style={{ marginTop: 10 }}>
                 Bemærk: modellen indeholder ingen levende personer — er du logget ind som redaktør,
                 så genindlæs appen, så data hentes med dit login.
               </Body>
@@ -395,7 +395,7 @@ export default function PraesensScreen() {
         ) : (
           <View
             style={{
-              backgroundColor: Colors.paperCard,
+              backgroundColor: Colors.surfaceRaised,
               borderWidth: 1,
               borderColor: Border.light,
               borderRadius: 4,
@@ -404,11 +404,11 @@ export default function PraesensScreen() {
             }}
           >
             <View style={{ alignItems: 'center' }}>
-              <Kicker size={9.5} color={Colors.textMuted2}>Slægten Reventlow</Kicker>
+              <Kicker size={9.5} color={Colors.inkMuted}>Slægten Reventlow</Kicker>
               <Serif size={36} style={{ marginTop: 9, lineHeight: 39 }}>Præsensliste</Serif>
               <Body
                 size={12.5}
-                color={Colors.textMuted}
+                color={Colors.inkMuted}
                 style={{ marginTop: 8, textAlign: 'center' }}
               >
                 Slægtens nulevende medlemmer, ordnet efter linje og gren
@@ -430,7 +430,7 @@ export default function PraesensScreen() {
                     key={`${index}-${afsnit.slice(0, 20)}`}
                     size={16.5}
                     italic
-                    color={Colors.textSecondary}
+                    color={Colors.inkSecondary}
                     style={{ lineHeight: 25, marginTop: index === 0 ? 0 : 14 }}
                   >
                     {afsnit}
@@ -442,7 +442,7 @@ export default function PraesensScreen() {
             {liste.advarsler.length > 0 ? (
               <Body
                 size={10.5}
-                color={Colors.textMuted3}
+                color={Colors.inkMuted}
                 style={{
                   marginTop: 24,
                   paddingBottom: 10,
@@ -469,7 +469,7 @@ export default function PraesensScreen() {
 
             <Mono
               size={9.5}
-              color={Colors.textMuted2}
+              color={Colors.inkMuted}
               style={{
                 marginTop: 42,
                 paddingTop: 12,

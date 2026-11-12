@@ -33,7 +33,7 @@ export default function EstateScreen() {
       <LoadGate>
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 22, paddingBottom: 40 }}>
           {!estate ? (
-            <Body color={Colors.textMuted}>Godset blev ikke fundet.</Body>
+            <Body color={Colors.inkMuted}>Godset blev ikke fundet.</Body>
           ) : (
             <>
               <Serif size={32} style={{ lineHeight: 33 }}>{estate.navn}</Serif>
@@ -45,7 +45,7 @@ export default function EstateScreen() {
 
               {geoLoading ? (
                 <View style={{ marginTop: 14 }}>
-                  <Body size={12.5} color={Colors.textMuted}>Indlæser kort…</Body>
+                  <Body size={12.5} color={Colors.inkMuted}>Indlæser kort…</Body>
                 </View>
               ) : point && (
                 <View style={{ marginTop: 14 }}>
@@ -54,10 +54,10 @@ export default function EstateScreen() {
               )}
 
               <View style={styles.soonBox}>
-                <Body size={13} color={Colors.textSecondary2} style={{ lineHeight: 13 * 1.5 }}>
+                <Body size={13} color={Colors.inkMuted} style={{ lineHeight: 13 * 1.5 }}>
                   Beskrivelse af godsets historie indlæses fra Aarbogen.
                 </Body>
-                <Mono size={9} color={Colors.gold} style={{ marginTop: 9, letterSpacing: 9 * 0.1, textTransform: 'uppercase' }}>
+                <Mono size={9} color={Colors.goldInk} style={{ marginTop: 9, letterSpacing: 9 * 0.1, textTransform: 'uppercase' }}>
                   Kommer snart
                 </Mono>
               </View>
@@ -79,8 +79,8 @@ export default function EstateScreen() {
                       style={{ flex: 1, paddingBottom: 16 }}
                       onStartShouldSetResponder={() => true}
                       onResponderRelease={() => person && router.push(`/person/${o.personId}`)}>
-                      {o.period ? <Mono size={10.5} color={Colors.textMuted}>{o.period}</Mono> : null}
-                      <Serif size={19} color={person ? Colors.ink : Colors.textMuted} style={{ marginTop: 1, lineHeight: 20, fontFamily: Fonts.serifSemi }}>
+                      {o.period ? <Mono size={10.5} color={Colors.inkMuted}>{o.period}</Mono> : null}
+                      <Serif size={19} color={person ? Colors.ink : Colors.inkMuted} style={{ marginTop: 1, lineHeight: 20, fontFamily: Fonts.serifSemi }}>
                         {name}{person ? ' ›' : ''}
                       </Serif>
                     </View>
@@ -113,7 +113,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(34,31,26,0.2)',
     borderRadius: Radius.field,
     padding: 15,
-    backgroundColor: Colors.paperCard,
+    backgroundColor: Colors.surfaceRaised,
   },
   dotCol: { width: 13, alignItems: 'center', paddingTop: 6 },
   dot: { width: 11, height: 11, borderRadius: Radius.round, backgroundColor: Colors.bordeaux },

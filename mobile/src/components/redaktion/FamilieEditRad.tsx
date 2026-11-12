@@ -18,12 +18,12 @@ export function FamilieEditRad({ label, aar, konfidens, onKonfidens, onSlet, onO
         {onOpen
           ? <Pressable onPress={onOpen}><Body size={13} color={Colors.bordeaux}>{label} ↗</Body></Pressable>
           : <Body size={13}>{label}</Body>}
-        {aar ? <Mono size={9} color={Colors.textMuted2}>{aar}</Mono> : null}
+        {aar ? <Mono size={9} color={Colors.inkMuted}>{aar}</Mono> : null}
       </View>
       {onOp || onNed ? (
         <View style={{ flexDirection: 'row' }}>
-          <Pressable disabled={!onOp} onPress={onOp}><Mono size={11} color={onOp ? Colors.textSecondary2 : Colors.textMuted3}>↑</Mono></Pressable>
-          <Pressable disabled={!onNed} onPress={onNed} style={{ marginLeft: 4 }}><Mono size={11} color={onNed ? Colors.textSecondary2 : Colors.textMuted3}>↓</Mono></Pressable>
+          <Pressable disabled={!onOp} onPress={onOp}><Mono size={11} color={onOp ? Colors.inkMuted : Colors.inkMuted}>↑</Mono></Pressable>
+          <Pressable disabled={!onNed} onPress={onNed} style={{ marginLeft: 4 }}><Mono size={11} color={onNed ? Colors.inkMuted : Colors.inkMuted}>↓</Mono></Pressable>
         </View>
       ) : null}
       <KonfidensVaelger vaerdi={konfidens} onVael={onKonfidens} />

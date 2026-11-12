@@ -10,7 +10,7 @@ export const personEditorSheetStyles = StyleSheet.create({
     backgroundColor: 'rgba(34,31,26,0.4)',
   },
   modalSheet: {
-    backgroundColor: Colors.paperBg,
+    backgroundColor: Colors.surfaceGround,
     borderTopLeftRadius: Radius.sheet,
     borderTopRightRadius: Radius.sheet,
     padding: 20,
@@ -41,7 +41,7 @@ export const personEditorSheetStyles = StyleSheet.create({
     color: Colors.ink,
   },
   addOpret: {
-    backgroundColor: Colors.konklusionGroen,
+    backgroundColor: Colors.success,
     borderRadius: Radius.field,
     paddingHorizontal: 16,
     paddingVertical: 8,

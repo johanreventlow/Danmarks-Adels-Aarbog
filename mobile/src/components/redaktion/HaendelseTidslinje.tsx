@@ -23,17 +23,17 @@ export function HaendelseTidslinje({ poster, onSetStatus, onNyHistorie }: {
   return (
     <View style={styles.section}>
       <Pressable style={styles.header} onPress={() => setOpen((v) => !v)}>
-        <Mono size={10} color={Colors.gold}>HÆNDELSER · TIDSLINJE FRA PROSAEN</Mono>
-        <Mono size={9} color={Colors.textMuted}>{poster.length} · {open ? 'skjul' : 'vis'}</Mono>
+        <Mono size={10} color={Colors.goldInk}>HÆNDELSER · TIDSLINJE FRA PROSAEN</Mono>
+        <Mono size={9} color={Colors.inkMuted}>{poster.length} · {open ? 'skjul' : 'vis'}</Mono>
       </Pressable>
       {open ? poster.map((p) => (
         <View key={p.id} style={styles.card}>
           <View style={styles.meta}>
             <Mono size={9} color={Colors.bordeaux}>{datoLabel(p)}</Mono>
-            <Mono size={8} color={Colors.textMuted}>{p.art === 'rygrad' ? 'RYGRAD' : (p.kategori ?? 'ANDET').toUpperCase()}</Mono>
+            <Mono size={8} color={Colors.inkMuted}>{p.art === 'rygrad' ? 'RYGRAD' : (p.kategori ?? 'ANDET').toUpperCase()}</Mono>
           </View>
           <Serif size={16}>“{p.klausul}”</Serif>
-          <Mono size={8} color={Colors.textMuted} style={{ marginTop: 5 }}>
+          <Mono size={8} color={Colors.inkMuted} style={{ marginTop: 5 }}>
             {[p.sourceTitel, p.side ? `s. ${p.side}` : null].filter(Boolean).join(', ') || 'kilde mangler'}
           </Mono>
           {p.art === 'haendelse' && p.haendelseId != null ? (
@@ -43,7 +43,7 @@ export function HaendelseTidslinje({ poster, onSetStatus, onNyHistorie }: {
                 return <Pressable key={status}
                   style={[personEditorSheetStyles.koenPille, aktiv && personEditorSheetStyles.koenPilleAktiv]}
                   onPress={() => onSetStatus(p.haendelseId as number, status)}>
-                  <BtnLabel size={10} color={aktiv ? '#fff' : Colors.textSecondary2}>{status}</BtnLabel>
+                  <BtnLabel size={10} color={aktiv ? '#fff' : Colors.inkMuted}>{status}</BtnLabel>
                 </Pressable>;
               })}
               {onNyHistorie ? (
@@ -59,7 +59,7 @@ export function HaendelseTidslinje({ poster, onSetStatus, onNyHistorie }: {
           ) : null}
         </View>
       )) : null}
-      {open && !poster.length ? <Mono size={9} color={Colors.textMuted}>Ingen daterede poster endnu.</Mono> : null}
+      {open && !poster.length ? <Mono size={9} color={Colors.inkMuted}>Ingen daterede poster endnu.</Mono> : null}
     </View>
   );
 }
@@ -67,7 +67,7 @@ export function HaendelseTidslinje({ poster, onSetStatus, onNyHistorie }: {
 const styles = StyleSheet.create({
   section: { marginTop: 14, marginBottom: 12 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  card: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
+  card: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light,
     borderRadius: Radius.card, padding: 12, marginBottom: 8 },
   meta: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginBottom: 6 },
   statusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },

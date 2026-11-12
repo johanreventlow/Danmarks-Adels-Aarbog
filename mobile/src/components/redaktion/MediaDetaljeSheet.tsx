@@ -82,57 +82,57 @@ export function MediaDetaljeSheet({ media, uri, thumbUri, anvendelse, anvendelse
         <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 38 }} keyboardShouldPersistTaps="handled">
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
             <Serif size={22} style={{ flex: 1 }}>{media.titel || 'Medie'}</Serif>
-            <Pressable onPress={onClose}><Serif size={24} color={Colors.textMuted}>×</Serif></Pressable>
+            <Pressable onPress={onClose}><Serif size={24} color={Colors.inkMuted}>×</Serif></Pressable>
           </View>
           {erBillede ? (
             <Pressable disabled={media.uploadStatus !== 'klar'} onPress={() => setLightbox(true)}>
               <Image source={{ uri: uri! }} style={[styles.preview, media.uploadStatus === 'fjernet' && { opacity: .5 }]} contentFit="contain" />
             </Pressable>
           ) : <View style={[styles.preview, styles.dokument, media.uploadStatus === 'fjernet' && { opacity: .5 }]}>
-            <Serif size={32} color={Colors.textMuted}>▤</Serif><Body size={12} color={Colors.textMuted}>{media.slags || 'dokument'}</Body>
+            <Serif size={32} color={Colors.inkMuted}>▤</Serif><Body size={12} color={Colors.inkMuted}>{media.slags || 'dokument'}</Body>
           </View>}
-          <Mono size={8.5} color={Colors.textMuted2} style={{ marginTop: 5 }}>{media.uploadStatus} · {filinfo || 'ingen filmetadata'}</Mono>
+          <Mono size={8.5} color={Colors.inkMuted} style={{ marginTop: 5 }}>{media.uploadStatus} · {filinfo || 'ingen filmetadata'}</Mono>
 
-          <Mono size={9} color={Colors.gold} style={styles.heading}>METADATA</Mono>
+          <Mono size={9} color={Colors.goldInk} style={styles.heading}>METADATA</Mono>
           <View style={styles.chips}>{mediaSlags.map((s) => (
             <Pressable key={s} style={[styles.chip, meta.slags === s && styles.chipAktiv]} onPress={() => setMeta((m) => ({ ...m, slags: s }))}>
-              <BtnLabel size={10.5} color={meta.slags === s ? '#fff' : Colors.textSecondary2}>{s}</BtnLabel>
+              <BtnLabel size={10.5} color={meta.slags === s ? '#fff' : Colors.inkMuted}>{s}</BtnLabel>
             </Pressable>
           ))}</View>
-          <TextInput style={styles.input} placeholder="Titel" placeholderTextColor={Colors.textMuted2} value={meta.titel} onChangeText={(v) => setMeta((m) => ({ ...m, titel: v }))} />
-          <TextInput style={styles.input} placeholder="Kunstner" placeholderTextColor={Colors.textMuted2} value={meta.kunstner} onChangeText={(v) => setMeta((m) => ({ ...m, kunstner: v }))} />
-          <TextInput style={styles.input} placeholder="Datering" placeholderTextColor={Colors.textMuted2} value={meta.datering} onChangeText={(v) => setMeta((m) => ({ ...m, datering: v }))} />
+          <TextInput style={styles.input} placeholder="Titel" placeholderTextColor={Colors.inkMuted} value={meta.titel} onChangeText={(v) => setMeta((m) => ({ ...m, titel: v }))} />
+          <TextInput style={styles.input} placeholder="Kunstner" placeholderTextColor={Colors.inkMuted} value={meta.kunstner} onChangeText={(v) => setMeta((m) => ({ ...m, kunstner: v }))} />
+          <TextInput style={styles.input} placeholder="Datering" placeholderTextColor={Colors.inkMuted} value={meta.datering} onChangeText={(v) => setMeta((m) => ({ ...m, datering: v }))} />
           <Pressable disabled={!Object.keys(metadataPayload).length} style={[styles.gem, !Object.keys(metadataPayload).length && { opacity: .45 }]} onPress={() => onGemMetadata(metadataPayload)}>
             <BtnLabel color="#fff">Gem metadata</BtnLabel>
           </Pressable>
 
-          <Mono size={9} color={Colors.gold} style={styles.heading}>RETTIGHEDER OG PUBLICERING</Mono>
+          <Mono size={9} color={Colors.goldInk} style={styles.heading}>RETTIGHEDER OG PUBLICERING</Mono>
           <View style={styles.chips}>{RETTIGHED_STATUS.map((s) => (
             <Pressable key={s} style={[styles.chip, ret.status === s && styles.chipAktiv]} onPress={() => setRet((r) => ({ ...r, status: s }))}>
-              <BtnLabel size={9.5} color={ret.status === s ? '#fff' : Colors.textSecondary2}>{s}</BtnLabel>
+              <BtnLabel size={9.5} color={ret.status === s ? '#fff' : Colors.inkMuted}>{s}</BtnLabel>
             </Pressable>
           ))}</View>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
             <Body size={13} style={{ flex: 1 }}>Må publiceres</Body>
             <Switch value={ret.maaPubliceres} onValueChange={(v) => setRet((r) => ({ ...r, maaPubliceres: v }))}
-              thumbColor={ret.maaPubliceres ? Colors.bordeaux : Colors.textMuted2}
-              trackColor={{ false: Colors.beige3, true: Colors.bordeauxFillLight2 }} />
+              thumbColor={ret.maaPubliceres ? Colors.bordeaux : Colors.inkMuted}
+              trackColor={{ false: Colors.surfaceSunken, true: Colors.bordeauxFillLight2 }} />
           </View>
           {warning ? <Mono size={9.5} color={Colors.danger} style={{ marginTop: 6 }}>Advarsel: {ret.status} og publicering er valgt samtidig.</Mono> : null}
-          <TextInput style={styles.input} placeholder="Licens" placeholderTextColor={Colors.textMuted2} value={ret.licens} onChangeText={(v) => setRet((r) => ({ ...r, licens: v }))} />
-          <TextInput style={styles.input} placeholder="Kildehenvisning" placeholderTextColor={Colors.textMuted2} value={ret.kildehenvisning} onChangeText={(v) => setRet((r) => ({ ...r, kildehenvisning: v }))} />
-          <TextInput style={styles.input} placeholder="Gengivelsestilladelse" placeholderTextColor={Colors.textMuted2} value={ret.gengivelsestilladelse} onChangeText={(v) => setRet((r) => ({ ...r, gengivelsestilladelse: v }))} />
-          <TextInput style={styles.input} placeholder="Kildenote" placeholderTextColor={Colors.textMuted2} value={ret.kildeFritekst} onChangeText={(v) => setRet((r) => ({ ...r, kildeFritekst: v }))} />
+          <TextInput style={styles.input} placeholder="Licens" placeholderTextColor={Colors.inkMuted} value={ret.licens} onChangeText={(v) => setRet((r) => ({ ...r, licens: v }))} />
+          <TextInput style={styles.input} placeholder="Kildehenvisning" placeholderTextColor={Colors.inkMuted} value={ret.kildehenvisning} onChangeText={(v) => setRet((r) => ({ ...r, kildehenvisning: v }))} />
+          <TextInput style={styles.input} placeholder="Gengivelsestilladelse" placeholderTextColor={Colors.inkMuted} value={ret.gengivelsestilladelse} onChangeText={(v) => setRet((r) => ({ ...r, gengivelsestilladelse: v }))} />
+          <TextInput style={styles.input} placeholder="Kildenote" placeholderTextColor={Colors.inkMuted} value={ret.kildeFritekst} onChangeText={(v) => setRet((r) => ({ ...r, kildeFritekst: v }))} />
           <Pressable style={styles.gem} onPress={() => onGemRettigheder(ret)}><BtnLabel color="#fff">Gem rettigheder</BtnLabel></Pressable>
 
           <View style={styles.anvendelseHeader}>
-            <Mono size={9} color={Colors.gold}>BRUGES PÅ</Mono>
+            <Mono size={9} color={Colors.goldInk}>BRUGES PÅ</Mono>
             {onTilknyt ? <Pressable disabled={!anvendelse} style={[styles.neutral, !anvendelse && { opacity: .45 }]} onPress={onTilknyt}><BtnLabel size={10} color={Colors.bordeaux}>Tilknyt til…</BtnLabel></Pressable> : null}
           </View>
-          {!anvendelse ? <Body size={12} color={anvendelseFejl ? Colors.danger : Colors.textMuted}>{anvendelseFejl || 'Henter anvendelser…'}</Body> : <View style={{ gap: 7 }}>
+          {!anvendelse ? <Body size={12} color={anvendelseFejl ? Colors.danger : Colors.inkMuted}>{anvendelseFejl || 'Henter anvendelser…'}</Body> : <View style={{ gap: 7 }}>
             {anvendelse.afbildet.map((a) => <View key={a.relationId} style={styles.anvendelseRad}>
               <Body size={12.5} style={{ flex: 1 }}>{a.navn} · {a.type}</Body>
-              {a.primaer ? <Mono size={8.5} color={Colors.gold}>Portræt</Mono> : null}
+              {a.primaer ? <Mono size={8.5} color={Colors.goldInk}>Portræt</Mono> : null}
               {a.type === 'person' && media.uploadStatus === 'klar' && onSaetPortraet ? (
                 <Pressable disabled={medieAktionBusy} onPress={() => {
                   void runMedieAktion(() => onSaetPortraet(a.id, a.primaer ? null : media.id), true);
@@ -147,7 +147,7 @@ export function MediaDetaljeSheet({ media, uri, thumbUri, anvendelse, anvendelse
             {anvendelse.mentions.map((m) => <View key={`${m.kildeType}:${m.kildeId}`} style={styles.anvendelseRad}>
               <Body size={12.5}>{m.kildeType === 'narrative' ? 'Narrativ' : m.kildeType} på {m.subjektNavn}</Body>
             </View>)}
-            {!erIBrug ? <Body size={12} color={Colors.textMuted}>Mediet bruges ikke endnu.</Body> : null}
+            {!erIBrug ? <Body size={12} color={Colors.inkMuted}>Mediet bruges ikke endnu.</Body> : null}
           </View>}
 
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8, marginTop: 22 }}>
@@ -173,10 +173,10 @@ export function MediaDetaljeSheet({ media, uri, thumbUri, anvendelse, anvendelse
               {media.uploadStatus === 'klar' && onErstatFil ? (
                 <Pressable disabled={medieAktionBusy} style={[styles.neutral, medieAktionBusy && { opacity: .45 }]}
                   onPress={() => { void runMedieAktion(onErstatFil); }}>
-                  <BtnLabel color={Colors.textMuted}>{medieAktionBusy ? 'Erstatter…' : 'Erstat fil…'}</BtnLabel>
+                  <BtnLabel color={Colors.inkMuted}>{medieAktionBusy ? 'Erstatter…' : 'Erstat fil…'}</BtnLabel>
                 </Pressable>
               ) : null}
-              <Pressable disabled={!media.relationId} style={styles.neutral} onPress={onFjern}><BtnLabel color={Colors.textMuted}>Fjern tilknytning</BtnLabel></Pressable>
+              <Pressable disabled={!media.relationId} style={styles.neutral} onPress={onFjern}><BtnLabel color={Colors.inkMuted}>Fjern tilknytning</BtnLabel></Pressable>
               <Pressable disabled={!anvendelse} style={[styles.slet, !anvendelse && { opacity: .45 }]} onPress={() => {
                 if (!anvendelse) return;
                 if (erIBrug && !bekraeftSlet) { setBekraeftSlet(true); return; }
@@ -202,17 +202,17 @@ export function MediaDetaljeSheet({ media, uri, thumbUri, anvendelse, anvendelse
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(34,31,26,.45)' },
-  sheet: { maxHeight: '92%', backgroundColor: Colors.paperBg, borderTopLeftRadius: Radius.sheet, borderTopRightRadius: Radius.sheet, borderTopWidth: 1, borderColor: Border.light },
-  preview: { width: '100%', height: 260, borderRadius: 10, backgroundColor: Colors.beige2 },
+  sheet: { maxHeight: '92%', backgroundColor: Colors.surfaceGround, borderTopLeftRadius: Radius.sheet, borderTopRightRadius: Radius.sheet, borderTopWidth: 1, borderColor: Border.light },
+  preview: { width: '100%', height: 260, borderRadius: 10, backgroundColor: Colors.surfaceSunken },
   dokument: { alignItems: 'center', justifyContent: 'center', gap: 7 },
   heading: { marginTop: 20, marginBottom: 7 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   chip: { borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.chip, paddingHorizontal: 10, paddingVertical: 5 },
   chipAktiv: { backgroundColor: Colors.bordeaux, borderColor: Colors.bordeaux },
   input: { backgroundColor: '#fff', borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.field, paddingHorizontal: 10, paddingVertical: 8, marginTop: 8, fontFamily: 'HankenGrotesk_400Regular', fontSize: 14, color: Colors.ink },
-  gem: { backgroundColor: Colors.konklusionGroen, borderRadius: Radius.field, paddingHorizontal: 14, paddingVertical: 9, alignSelf: 'flex-start', marginTop: 10 },
+  gem: { backgroundColor: Colors.success, borderRadius: Radius.field, paddingHorizontal: 14, paddingVertical: 9, alignSelf: 'flex-start', marginTop: 10 },
   neutral: { borderWidth: 1, borderColor: Border.medium, borderRadius: Radius.field, paddingHorizontal: 12, paddingVertical: 9 },
   slet: { backgroundColor: Colors.danger, borderRadius: Radius.field, paddingHorizontal: 12, paddingVertical: 9 },
   anvendelseHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, marginBottom: 7 },
-  anvendelseRad: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.beige2, borderRadius: Radius.field, paddingHorizontal: 10, paddingVertical: 8 },
+  anvendelseRad: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.surfaceSunken, borderRadius: Radius.field, paddingHorizontal: 10, paddingVertical: 8 },
 });

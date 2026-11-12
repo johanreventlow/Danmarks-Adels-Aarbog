@@ -26,24 +26,24 @@ export function SlaegtPicker({ open, slaegter, activeId, onClose, onPick }: {
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{ width: 280, background: T.paper, borderRadius: 13, border: '1px solid rgba(34,31,26,.12)', boxShadow: '0 12px 32px rgba(34,31,26,.22)', padding: 10 }}
+        style={{ width: 280, background: T.surfaceRaised, borderRadius: 13, border: '1px solid rgba(34,31,26,.12)', boxShadow: '0 12px 32px rgba(34,31,26,.22)', padding: 10 }}
       >
-        <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted3, padding: '6px 8px 8px' }}>Vælg slægt</div>
+        <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.inkMuted, padding: '6px 8px 8px' }}>Vælg slægt</div>
         {slaegter.map((s) => {
           const active = s.id === activeId;
           return (
             <div
               key={s.id}
               onClick={() => onPick(s.id)}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 8px', borderRadius: 9, cursor: 'pointer', background: active ? '#f8ecef' : 'transparent' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 8px', borderRadius: 9, cursor: 'pointer', background: active ? T.bordeauxTint : 'transparent' }}
             >
-              <span style={{ width: 26, height: 26, borderRadius: '50%', border: `1px solid ${active ? 'rgba(136,26,51,.55)' : 'rgba(34,31,26,.15)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 14, fontWeight: 600, color: active ? T.bordeaux : T.muted }}>{s.navn[0]}</span>
+              <span style={{ width: 26, height: 26, borderRadius: '50%', border: `1px solid ${active ? 'rgba(136,26,51,.55)' : 'rgba(34,31,26,.15)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 14, fontWeight: 600, color: active ? T.bordeaux : T.inkMuted }}>{s.navn[0]}</span>
               <span style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: active ? T.bordeaux : T.ink }}>{s.navn}</span>
               {active && <span style={{ marginLeft: 'auto', fontFamily: T.mono, fontSize: 10, color: T.bordeaux }}>✓</span>}
             </div>
           );
         })}
-        <div style={{ fontFamily: T.sans, fontSize: 12.5, color: T.muted3, padding: '10px 8px 6px', borderTop: '1px solid rgba(34,31,26,.08)', marginTop: 6 }}>
+        <div style={{ fontFamily: T.sans, fontSize: 12.5, color: T.inkMuted, padding: '10px 8px 6px', borderTop: '1px solid rgba(34,31,26,.08)', marginTop: 6 }}>
           Flere slægter kommer til Følgesvend senere.
         </div>
       </div>

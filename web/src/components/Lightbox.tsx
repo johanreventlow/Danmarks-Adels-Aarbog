@@ -55,18 +55,18 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24,
     }}>
       <span onClick={onClose} title="Luk (Esc)"
-        style={{ position: 'absolute', top: 18, right: 22, fontSize: 30, lineHeight: 1, color: T.paper, cursor: 'pointer' }}>
+        style={{ position: 'absolute', top: 18, right: 22, fontSize: 30, lineHeight: 1, color: T.inkOnInverse, cursor: 'pointer' }}>
         ×
       </span>
       {items.length > 1 && harForrige && (
         <span onClick={(e) => { e.stopPropagation(); onNavigate(index - 1); }} title="Forrige billede"
-          style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 38, color: T.paper, cursor: 'pointer', userSelect: 'none' }}>
+          style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 38, color: T.inkOnInverse, cursor: 'pointer', userSelect: 'none' }}>
           ‹
         </span>
       )}
       {items.length > 1 && harNaeste && (
         <span onClick={(e) => { e.stopPropagation(); onNavigate(index + 1); }} title="Næste billede"
-          style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 38, color: T.paper, cursor: 'pointer', userSelect: 'none' }}>
+          style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 38, color: T.inkOnInverse, cursor: 'pointer', userSelect: 'none' }}>
           ›
         </span>
       )}
@@ -74,29 +74,29 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
         style={{ maxWidth: '92vw', maxHeight: '82vh', objectFit: 'contain', borderRadius: 6, boxShadow: '0 24px 70px rgba(0,0,0,.55)' }} />
       {visInfoBlok && (
         <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 14, textAlign: 'center', maxWidth: '80vw' }}>
-          {cap && <div style={{ fontFamily: T.sans, fontSize: 14, color: T.cream }}>{cap}</div>}
+          {cap && <div style={{ fontFamily: T.sans, fontSize: 14, color: T.inkMutedOnInverse }}>{cap}</div>}
           {/* Kreditlinjen vises ALTID når udfyldt — aldrig bag fold (juridisk krav ved
               CC-licenser, fx Deutsche Digitale Bibliothek kræver deres Quellenangabe vist). */}
           {m.kreditlinje && (
-            <div style={{ fontFamily: T.sans, fontSize: 12, color: T.muted3, marginTop: 4 }}>{m.kreditlinje}</div>
+            <div style={{ fontFamily: T.sans, fontSize: 12, color: T.inkMutedOnInverse, marginTop: 4 }}>{m.kreditlinje}</div>
           )}
           {kildeLinkOk && (
             <div style={{ marginTop: 4 }}>
               <a href={m.kildeUrl!} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
-                style={{ fontFamily: T.sans, fontSize: 12, color: T.cream }}>
+                style={{ fontFamily: T.sans, fontSize: 12, color: T.inkMutedOnInverse }}>
                 Se hos {m.kildeInstitution || 'kilden'} ↗
               </a>
             </div>
           )}
           {m.beskrivelse && (
             <details onClick={(e) => e.stopPropagation()}
-              style={{ marginTop: 6, textAlign: 'left', fontFamily: T.sans, fontSize: 12, color: T.cream }}>
+              style={{ marginTop: 6, textAlign: 'left', fontFamily: T.sans, fontSize: 12, color: T.inkMutedOnInverse }}>
               <summary style={{ cursor: 'pointer', textAlign: 'center' }}>Om billedet</summary>
               <div style={{ marginTop: 4 }}>{m.beskrivelse}</div>
             </details>
           )}
           {items.length > 1 && (
-            <div style={{ fontFamily: T.mono, fontSize: 11, color: T.muted3, marginTop: 4 }}>{index + 1} / {items.length}</div>
+            <div style={{ fontFamily: T.mono, fontSize: 11, color: T.inkMutedOnInverse, marginTop: 4 }}>{index + 1} / {items.length}</div>
           )}
         </div>
       )}

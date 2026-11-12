@@ -27,11 +27,11 @@ export default function BogmaerkerScreen() {
   return (
     <LoadGate>
       <ScrollView
-        style={{ flex: 1, backgroundColor: Colors.paperBg }}
+        style={{ flex: 1, backgroundColor: Colors.surfaceGround }}
         contentContainerStyle={{ paddingTop: insets.top + 12, paddingHorizontal: 18, paddingBottom: 30 }}>
         {!canSave ? (
           <View style={{ marginTop: 24 }}>
-            <Body size={13} color={Colors.textSecondary2}>
+            <Body size={13} color={Colors.inkMuted}>
               Log ind for at samle dine bogmærker på tværs af dine enheder.
             </Body>
             <Pressable onPress={() => router.push('/konto')} style={{ marginTop: 12 }}>
@@ -39,12 +39,12 @@ export default function BogmaerkerScreen() {
             </Pressable>
           </View>
         ) : people.length === 0 ? (
-          <Body size={13} color={Colors.textSecondary2} style={{ marginTop: 24 }}>
+          <Body size={13} color={Colors.inkMuted} style={{ marginTop: 24 }}>
             Du har endnu ikke gemt nogen blade. Tryk bogmærke-ikonet på et kort i feedet.
           </Body>
         ) : (
           <>
-            <Body size={13} color={Colors.textSecondary2} style={{ marginBottom: 14 }}>
+            <Body size={13} color={Colors.inkMuted} style={{ marginBottom: 14 }}>
               Blade du har gemt fra feedet.
             </Body>
             {people.map((p) => (
@@ -55,10 +55,10 @@ export default function BogmaerkerScreen() {
                   flexDirection: 'row', alignItems: 'center', gap: 13, paddingVertical: 12,
                   borderBottomWidth: 1, borderBottomColor: Border.faint,
                 }}>
-                <InitialBadge name={p.name} size={42} bg={Colors.beige2} />
+                <InitialBadge name={p.name} size={42} bg={Colors.surfaceSunken} />
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Serif size={18} style={{ lineHeight: 19 }}>{p.name}</Serif>
-                  {p.years ? <Body size={11.5} color={Colors.textSecondary2}>{p.years}</Body> : null}
+                  {p.years ? <Body size={11.5} color={Colors.inkMuted}>{p.years}</Body> : null}
                 </View>
                 <Serif size={18} color="#bcae93">›</Serif>
               </Pressable>

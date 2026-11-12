@@ -72,28 +72,28 @@ export function NarrativEditor({ subjektType, subjektId, media, mediaThumbUris }
 
   return (
     <View style={styles.sektion}>
-      <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 6 }}>Narrativ / biografi</Mono>
+      <Mono size={10} color={Colors.inkMuted} style={{ marginBottom: 6 }}>Narrativ / biografi</Mono>
       {status === 'error' ? (
-        <Mono size={11} color={Colors.liveRoed}>Kunne ikke hente narrativ. Genindlæs.</Mono>
+        <Mono size={11} color={Colors.live}>Kunne ikke hente narrativ. Genindlæs.</Mono>
       ) : status === 'loading' || editorState == null ? (
-        <Mono size={11} color={Colors.textMuted}>Henter narrativ…</Mono>
+        <Mono size={11} color={Colors.inkMuted}>Henter narrativ…</Mono>
       ) : isReadOnly ? (
         <View>
-          {!!editorState.label && <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 6 }}>{editorState.label}</Mono>}
-          <Mono size={11} color={Colors.liveRoed} style={{ marginBottom: 8 }}>Brug webredaktionen</Mono>
+          {!!editorState.label && <Mono size={10} color={Colors.inkMuted} style={{ marginBottom: 6 }}>{editorState.label}</Mono>}
+          <Mono size={11} color={Colors.live} style={{ marginBottom: 8 }}>Brug webredaktionen</Mono>
           {(editorState.records.length ? editorState.records : [{ label: '', tekst: udkast.tekst, privat: udkast.privat, side: udkast.side }]).map((record, index) => (
             <View key={`${record.label}-${index}`} style={index ? { marginTop: 10 } : undefined}>
-              {!!record.label && <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 4 }}>{record.label}</Mono>}
+              {!!record.label && <Mono size={10} color={Colors.inkMuted} style={{ marginBottom: 4 }}>{record.label}</Mono>}
               <TextInput multiline editable={false} value={record.tekst} style={[styles.input, { opacity: 0.65 }]}
-                placeholder="Skriv biografi her…" placeholderTextColor={Colors.textMuted2} textAlignVertical="top" />
+                placeholder="Skriv biografi her…" placeholderTextColor={Colors.inkMuted} textAlignVertical="top" />
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 9 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Switch disabled value={record.privat} thumbColor={record.privat ? Colors.bordeaux : Colors.textMuted2}
-                    trackColor={{ false: Colors.beige3, true: Colors.bordeauxFillLight2 }} />
-                  <Body size={11} color={Colors.textMuted}>privat</Body>
+                  <Switch disabled value={record.privat} thumbColor={record.privat ? Colors.bordeaux : Colors.inkMuted}
+                    trackColor={{ false: Colors.surfaceSunken, true: Colors.bordeauxFillLight2 }} />
+                  <Body size={11} color={Colors.inkMuted}>privat</Body>
                 </View>
                 <TextInput editable={false} value={record.side} placeholder="side, fx 209-211"
-                  placeholderTextColor={Colors.textMuted2} style={[styles.sideInput, { opacity: 0.65 }]} />
+                  placeholderTextColor={Colors.inkMuted} style={[styles.sideInput, { opacity: 0.65 }]} />
               </View>
             </View>
           ))}
@@ -107,7 +107,7 @@ export function NarrativEditor({ subjektType, subjektId, media, mediaThumbUris }
                 const aktiv = n.sourceId === aktivSourceId;
                 return (
                   <Pressable key={n.id} onPress={() => vaelgUdgave(n.sourceId)} style={[styles.fane, aktiv && styles.faneAktiv]}>
-                    <Mono size={10.5} color={aktiv ? '#fff' : Colors.textMuted}>
+                    <Mono size={10.5} color={aktiv ? '#fff' : Colors.inkMuted}>
                       {(n.udgave ?? n.sourceTitel ?? `Kilde ${n.sourceId ?? '—'}`) + (n.privat ? ' · privat' : '')}
                     </Mono>
                   </Pressable>
@@ -119,27 +119,27 @@ export function NarrativEditor({ subjektType, subjektId, media, mediaThumbUris }
                 </View>
               )}
               <Pressable onPress={() => setNyUdgave({ titel: '', udgave: '' })} style={styles.faneNy}>
-                <Mono size={10.5} color={Colors.textMuted2}>+ Ny udgave</Mono>
+                <Mono size={10.5} color={Colors.inkMuted}>+ Ny udgave</Mono>
               </Pressable>
             </View>
           </>}
 
           {isLegacyEditor && nyUdgave != null && (
             <View style={styles.nyUdgaveBoks}>
-              <Mono size={9.5} color={Colors.textMuted}>Vælg en udgave subjektet ikke har endnu:</Mono>
+              <Mono size={9.5} color={Colors.inkMuted}>Vælg en udgave subjektet ikke har endnu:</Mono>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
                 {ledigeSources.map((s) => (
                   <Pressable key={s.id} onPress={() => vaelgUdgave(s.id)} style={styles.faneNy}>
-                    <Mono size={10.5} color={Colors.textMuted}>{s.udgave ?? s.titel ?? `Kilde ${s.id}`}</Mono>
+                    <Mono size={10.5} color={Colors.inkMuted}>{s.udgave ?? s.titel ?? `Kilde ${s.id}`}</Mono>
                   </Pressable>
                 ))}
-                {ledigeSources.length === 0 && <Mono size={10} color={Colors.textMuted2}>(ingen ledige)</Mono>}
+                {ledigeSources.length === 0 && <Mono size={10} color={Colors.inkMuted}>(ingen ledige)</Mono>}
               </View>
-              <Mono size={9.5} color={Colors.textMuted} style={{ marginTop: 8 }}>… eller opret en ny DAA-udgave:</Mono>
+              <Mono size={9.5} color={Colors.inkMuted} style={{ marginTop: 8 }}>… eller opret en ny DAA-udgave:</Mono>
               <TextInput value={nyUdgave.titel} onChangeText={(v) => setNyUdgave((u) => ({ ...u!, titel: v }))}
-                placeholder="Titel" placeholderTextColor={Colors.textMuted2} style={styles.nyUdgaveInput} />
+                placeholder="Titel" placeholderTextColor={Colors.inkMuted} style={styles.nyUdgaveInput} />
               <TextInput value={nyUdgave.udgave} onChangeText={(v) => setNyUdgave((u) => ({ ...u!, udgave: v }))}
-                placeholder="Udgave (DAA 1982-84)" placeholderTextColor={Colors.textMuted2} style={styles.nyUdgaveInput} />
+                placeholder="Udgave (DAA 1982-84)" placeholderTextColor={Colors.inkMuted} style={styles.nyUdgaveInput} />
               <Pressable style={styles.nyUdgaveOpretKnap}
                 onPress={() => {
                   if (!nyUdgave.titel.trim()) return;
@@ -168,25 +168,25 @@ export function NarrativEditor({ subjektType, subjektId, media, mediaThumbUris }
             onSelectionChange={(e) => { selPos.current = e.nativeEvent.selection.start; }}
             style={styles.input}
             placeholder="Skriv biografi her…"
-            placeholderTextColor={Colors.textMuted2}
+            placeholderTextColor={Colors.inkMuted}
             textAlignVertical="top"
           />
           {/* Passiv forhåndsvisning — samme rolle som web's (review 12-mønster): viser hvordan
               [[type:id|tekst]]-tokens renderes for publikum, uden at gøre den selv klikbar. */}
           {!!udkast.tekst && (
             <View style={styles.previewBoks}>
-              <Mono size={9} color={Colors.textMuted2} style={{ marginBottom: 4 }}>SÅDAN VISES DET FOR BESØGENDE</Mono>
-              <NarrativRenderer tekst={udkast.tekst} size={12.5} color={Colors.textMuted} />
+              <Mono size={9} color={Colors.inkMuted} style={{ marginBottom: 4 }}>SÅDAN VISES DET FOR BESØGENDE</Mono>
+              <NarrativRenderer tekst={udkast.tekst} size={12.5} color={Colors.inkMuted} />
             </View>
           )}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 9 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <Switch value={udkast.privat} onValueChange={(v) => setUdkast((u) => ({ ...u, privat: v }))}
-                thumbColor={udkast.privat ? Colors.bordeaux : Colors.textMuted2} trackColor={{ false: Colors.beige3, true: Colors.bordeauxFillLight2 }} />
-              <Body size={11} color={Colors.textMuted}>privat</Body>
+                thumbColor={udkast.privat ? Colors.bordeaux : Colors.inkMuted} trackColor={{ false: Colors.surfaceSunken, true: Colors.bordeauxFillLight2 }} />
+              <Body size={11} color={Colors.inkMuted}>privat</Body>
             </View>
             <TextInput editable={isLegacyEditor} value={udkast.side} onChangeText={(v) => setUdkast((u) => ({ ...u, side: v }))}
-              placeholder="side, fx 209-211" placeholderTextColor={Colors.textMuted2} style={styles.sideInput} />
+              placeholder="side, fx 209-211" placeholderTextColor={Colors.inkMuted} style={styles.sideInput} />
           </View>
           <Pressable
             style={styles.gemKnap}
@@ -259,11 +259,11 @@ const styles = StyleSheet.create({
   fane: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 7, borderWidth: 1, borderColor: Border.medium },
   faneAktiv: { backgroundColor: Colors.bordeaux, borderColor: Colors.bordeaux },
   faneNy: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: 7, borderWidth: 1, borderStyle: 'dashed', borderColor: Border.medium },
-  nyUdgaveBoks: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light, borderRadius: Radius.field, padding: 10, marginBottom: 10 },
+  nyUdgaveBoks: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light, borderRadius: Radius.field, padding: 10, marginBottom: 10 },
   nyUdgaveInput: { backgroundColor: '#fff', borderWidth: 1, borderColor: Border.light, borderRadius: 6, paddingHorizontal: 9, paddingVertical: 6, marginTop: 6, fontFamily: 'HankenGrotesk_400Regular', fontSize: 13.5, color: Colors.ink },
   nyUdgaveOpretKnap: { backgroundColor: Colors.bordeaux, borderRadius: 6, paddingVertical: 8, alignItems: 'center', marginTop: 8 },
-  input: { backgroundColor: Colors.paperCard, borderRadius: Radius.field, borderWidth: 1, borderColor: Border.medium, padding: 12, minHeight: 120, fontFamily: 'HankenGrotesk_400Regular', fontSize: 14, color: Colors.ink },
-  previewBoks: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light, borderRadius: Radius.field, padding: 10, marginTop: 8 },
-  sideInput: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 5, fontFamily: 'HankenGrotesk_400Regular', fontSize: 12, color: Colors.ink, minWidth: 110 },
+  input: { backgroundColor: Colors.surfaceRaised, borderRadius: Radius.field, borderWidth: 1, borderColor: Border.medium, padding: 12, minHeight: 120, fontFamily: 'HankenGrotesk_400Regular', fontSize: 14, color: Colors.ink },
+  previewBoks: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light, borderRadius: Radius.field, padding: 10, marginTop: 8 },
+  sideInput: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 5, fontFamily: 'HankenGrotesk_400Regular', fontSize: 12, color: Colors.ink, minWidth: 110 },
   gemKnap: { backgroundColor: Colors.bordeaux, borderRadius: Radius.field, padding: 14, alignItems: 'center', marginTop: 10 },
 });

@@ -24,11 +24,11 @@ export default function ObjektMateriale() {
   if (rolle !== 'redaktion') return <CenterMsg title={titel}>Kræver redaktør-rolle.</CenterMsg>;
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+    <View style={{ flex: 1, backgroundColor: Colors.surfaceGround }}>
       <TopBar title={titel} />
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         <Serif size={20} style={{ marginBottom: 4 }}>{titel}</Serif>
-        <Mono size={10} color={Colors.textMuted} style={{ marginBottom: 14 }}>Materiale</Mono>
+        <Mono size={10} color={Colors.inkMuted} style={{ marginBottom: 14 }}>Materiale</Mono>
         <MaterialeSektion objektType={objektType} objektId={id!} />
       </ScrollView>
     </View>

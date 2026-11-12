@@ -49,7 +49,7 @@ export function PersonPicker({
           <TextInput
             style={styles.input}
             placeholder="Søg navn…"
-            placeholderTextColor={Colors.textMuted}
+            placeholderTextColor={Colors.inkMuted}
             value={query}
             onChangeText={setQuery}
             autoCorrect={false}
@@ -72,7 +72,7 @@ export function PersonPicker({
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                   <Serif size={17} style={{ lineHeight: 18 }}>{item.name}</Serif>
-                  {item.years ? <Mono size={9.5} color={Colors.textMuted} style={{ marginTop: 1 }}>{item.years}</Mono> : null}
+                  {item.years ? <Mono size={9.5} color={Colors.inkMuted} style={{ marginTop: 1 }}>{item.years}</Mono> : null}
                 </View>
               </Pressable>
             )}
@@ -86,7 +86,7 @@ export function PersonPicker({
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(20,17,13,0.4)', justifyContent: 'flex-end' },
   sheet: {
-    backgroundColor: Colors.paperBg,
+    backgroundColor: Colors.surfaceGround,
     borderTopLeftRadius: Radius.sheet,
     borderTopRightRadius: Radius.sheet,
     maxHeight: '74%',
@@ -96,7 +96,7 @@ const styles = StyleSheet.create({
   },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   input: {
-    backgroundColor: Colors.paperCard,
+    backgroundColor: Colors.surfaceRaised,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: Border.medium,
     borderRadius: Radius.field,
@@ -116,7 +116,7 @@ const styles = StyleSheet.create({
     borderBottomColor: Border.faint,
   },
   avatar: {
-    width: 36, height: 36, borderRadius: Radius.round, backgroundColor: Colors.beige2,
+    width: 36, height: 36, borderRadius: Radius.round, backgroundColor: Colors.surfaceSunken,
     borderWidth: StyleSheet.hairlineWidth, borderColor: Border.faint, alignItems: 'center', justifyContent: 'center',
   },
 });

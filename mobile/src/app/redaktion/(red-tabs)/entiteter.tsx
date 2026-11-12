@@ -13,11 +13,11 @@ export default function Entiteter() {
   const aux = useStore((s) => s.redaktionAux);
 
   if (rolle !== 'redaktion')
-    return <View style={s.wrap}><TopBar title="Entiteter" showBack={false} /><Body color={Colors.textMuted} style={{ padding: 24 }}>Kræver redaktør-rolle.</Body></View>;
+    return <View style={s.wrap}><TopBar title="Entiteter" showBack={false} /><Body color={Colors.inkMuted} style={{ padding: 24 }}>Kræver redaktør-rolle.</Body></View>;
   if (status === 'error')
-    return <View style={s.wrap}><TopBar title="Entiteter" showBack={false} /><Body color={Colors.textMuted} style={{ padding: 24 }}>Kunne ikke hente redaktion-data.</Body></View>;
+    return <View style={s.wrap}><TopBar title="Entiteter" showBack={false} /><Body color={Colors.inkMuted} style={{ padding: 24 }}>Kunne ikke hente redaktion-data.</Body></View>;
   if (status !== 'ready')
-    return <View style={s.wrap}><TopBar title="Entiteter" showBack={false} /><Body color={Colors.textMuted} style={{ padding: 24 }}>Henter…</Body></View>;
+    return <View style={s.wrap}><TopBar title="Entiteter" showBack={false} /><Body color={Colors.inkMuted} style={{ padding: 24 }}>Henter…</Body></View>;
 
   const celler = [
     { n: model?.persons.length ?? 0, label: 'Personer', rute: '/redaktion/entitet/person' },
@@ -43,11 +43,11 @@ export default function Entiteter() {
         </View>
         <Pressable style={s.handling} onPress={() => router.navigate('/redaktion/sammenlign' as never)}>
           <Serif size={16} color={Colors.bordeaux}>⇄  Sammenlign udgaver</Serif>
-          <Body size={13} color={Colors.textMuted}>Find samme person på tværs af DAA-udgaver</Body>
+          <Body size={13} color={Colors.inkMuted}>Find samme person på tværs af DAA-udgaver</Body>
         </Pressable>
         <Pressable style={s.handling} onPress={() => router.navigate('/redaktion/foraeldre-konflikter' as never)}>
           <Serif size={16} color={Colors.bordeaux}>⚠  Forældre-konflikter</Serif>
-          <Body size={13} color={Colors.textMuted}>Personer m. konkurrerende forældrefamilier på tværs af udgaver</Body>
+          <Body size={13} color={Colors.inkMuted}>Personer m. konkurrerende forældrefamilier på tværs af udgaver</Body>
         </Pressable>
       </ScrollView>
     </View>
@@ -55,10 +55,10 @@ export default function Entiteter() {
 }
 
 const s = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: Colors.paperBg },
+  wrap: { flex: 1, backgroundColor: Colors.surfaceGround },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
-  cell: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
+  cell: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light,
     borderRadius: 13, padding: 14, minWidth: '47%' },
-  handling: { backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light,
+  handling: { backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light,
     borderRadius: 13, padding: 16, marginTop: 12, gap: 3 },
 });

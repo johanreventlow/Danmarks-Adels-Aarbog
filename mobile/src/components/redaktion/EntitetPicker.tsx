@@ -25,15 +25,15 @@ export function EntitetPicker({ type, onValg, onClose }: {
       <Pressable style={pickerSheetStyles.backdrop} onPress={onClose} />
       <View style={pickerSheetStyles.sheet}>
         <Serif size={20} style={{ marginBottom: 10 }}>{type === 'organisation' ? 'Vælg organisation' : 'Vælg gods'}</Serif>
-        <TextInput style={pickerSheetStyles.input} placeholder="Søg…" placeholderTextColor={Colors.textMuted}
+        <TextInput style={pickerSheetStyles.input} placeholder="Søg…" placeholderTextColor={Colors.inkMuted}
           value={query} onChangeText={setQuery} autoFocus />
         <ScrollView style={{ maxHeight: 320 }}>
-          {liste.length === 0 ? <Body color={Colors.textMuted} style={{ padding: 12 }}>Ingen.</Body> : null}
+          {liste.length === 0 ? <Body color={Colors.inkMuted} style={{ padding: 12 }}>Ingen.</Body> : null}
           {liste.map((x) => (
             <Pressable key={x.id} style={pickerSheetStyles.row}
               onPress={() => { onValg({ objektType: type, objektId: x.id, navn: x.navn }); onClose(); }}>
               <Body size={14}>{x.navn}</Body>
-              <Mono size={8} color={Colors.textMuted}>#{x.id}</Mono>
+              <Mono size={8} color={Colors.inkMuted}>#{x.id}</Mono>
             </Pressable>
           ))}
         </ScrollView>

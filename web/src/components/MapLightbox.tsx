@@ -30,7 +30,7 @@ export function MapLightbox({ points, onClose }: { points: GeoPoint[]; onClose: 
       }}
     >
       <span onClick={onClose} title="Luk (Esc)"
-        style={{ position: 'absolute', top: 18, right: 22, fontSize: 30, lineHeight: 1, color: T.paper, cursor: 'pointer' }}>
+        style={{ position: 'absolute', top: 18, right: 22, fontSize: 30, lineHeight: 1, color: T.inkOnInverse, cursor: 'pointer' }}>
         ×
       </span>
       {/* Kort-container fanger sine egne klik (stopPropagation), så pan/zoom-træk ikke bobler op
@@ -43,7 +43,7 @@ export function MapLightbox({ points, onClose }: { points: GeoPoint[]; onClose: 
         <GeoMap points={points} mode="explorer" height="100%" />
       </div>
       <div onClick={(e) => e.stopPropagation()}
-        style={{ marginTop: 12, fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', color: T.muted3 }}>
+        style={{ marginTop: 12, fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', color: T.inkMutedOnInverse }}>
         Zoom og træk for at udforske
       </div>
     </div>,

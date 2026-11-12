@@ -26,18 +26,18 @@ export default function SlaegtListe() {
   ];
 
   return (
-    <View style={{ flex: 1, backgroundColor: Colors.paperBg }}>
+    <View style={{ flex: 1, backgroundColor: Colors.surfaceGround }}>
       <TopBar title="Slægten" showBack={false} />
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         {rows.map((r) => (
           <Pressable key={`${r.subjektType}:${r.subjektId}`}
             onPress={() => router.push({ pathname: '/redaktion/entitet/slaegt-narrativ', params: { subjektType: r.subjektType, subjektId: r.subjektId, navn: r.navn } })}
-            style={{ backgroundColor: Colors.paperCard, borderWidth: 1, borderColor: Border.light, borderRadius: Radius.field, padding: 12, marginBottom: 7 }}>
+            style={{ backgroundColor: Colors.surfaceRaised, borderWidth: 1, borderColor: Border.light, borderRadius: Radius.field, padding: 12, marginBottom: 7 }}>
             <Serif size={16}>{r.navn}</Serif>
-            <Mono size={9} color={Colors.textMuted}>{r.under}</Mono>
+            <Mono size={9} color={Colors.inkMuted}>{r.under}</Mono>
           </Pressable>
         ))}
-        {!lineages.length && <Body color={Colors.textMuted} style={{ marginTop: 8 }}>Henter linjer…</Body>}
+        {!lineages.length && <Body color={Colors.inkMuted} style={{ marginTop: 8 }}>Henter linjer…</Body>}
       </ScrollView>
     </View>
   );

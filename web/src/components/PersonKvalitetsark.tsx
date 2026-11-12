@@ -9,6 +9,7 @@
 // samme kanoniske person vises begge, uafhængigt af hinanden.
 import { useMemo, useState, type CSSProperties } from 'react';
 import { Link } from '../Link';
+import { T } from '../theme';
 import {
   filterKvalitetsark, sortKvalitetsark,
   type KvalitetsarkFilter, type KvalitetsarkPreset, type KvalitetsarkSortKey,
@@ -28,12 +29,6 @@ export type PersonKvalitetsarkProps = {
 // konstant er ikke exporteret dér, og denne opgave må ikke ændre den fil (Task 9). Kun de
 // tokens denne komponent rent faktisk bruger. Task 9 kan hoiste dette til et delt modul
 // frem for at holde to kopier.
-const T = {
-  paper: '#fbf8f1', panel: '#f4efe6', beige: '#ece4d6',
-  ink: '#221f1a', bordeaux: '#881A33', muted: '#6f675b', muted2: '#9a8f78', muted3: '#a99f8c',
-  red: '#8a2b2b',
-  serif: "'Cormorant Garamond',serif", sans: "'Hanken Grotesk',sans-serif", mono: "'JetBrains Mono',monospace",
-};
 
 // Danske labels til felt-/reviewstatus-filtrene (samme fire/fem koder som
 // EDITABLE_COLUMN_FELT / OcrReviewStatus i @daa/core).
@@ -145,9 +140,9 @@ function uniqueSorted(rows: PersonKvalitetsarkRow[], vaelg: (r: PersonKvalitetsa
 }
 
 const th_base: CSSProperties = {
-  position: 'sticky', top: 0, background: T.panel, zIndex: 2,
+  position: 'sticky', top: 0, background: T.surfaceGround, zIndex: 2,
   padding: '6px 10px', textAlign: 'left', fontFamily: T.mono, fontSize: 10.5,
-  letterSpacing: '.06em', textTransform: 'uppercase', color: T.muted,
+  letterSpacing: '.06em', textTransform: 'uppercase', color: T.inkMuted,
   borderBottom: '1px solid rgba(34,31,26,.14)', whiteSpace: 'nowrap',
 };
 
@@ -171,13 +166,13 @@ function identityStyle(col: ColumnKey, isHeader: boolean): CSSProperties {
   if (!sticky) return INGEN_IDENTITY_STYLE;
   return {
     position: 'sticky', left: sticky.left, zIndex: isHeader ? 3 : 1,
-    background: isHeader ? T.panel : T.paper, width: sticky.width, minWidth: sticky.width,
+    background: isHeader ? T.surfaceGround : T.surfaceRaised, width: sticky.width, minWidth: sticky.width,
   };
 }
 
 function editableButtonStyle(selected: boolean): CSSProperties {
   return {
-    border: 0, background: selected ? T.beige : 'transparent', borderRadius: 6,
+    border: 0, background: selected ? T.surfaceSunken : 'transparent', borderRadius: 6,
     padding: '3px 6px', font: 'inherit', color: T.ink, cursor: 'pointer', textAlign: 'left',
   };
 }
@@ -191,7 +186,7 @@ function FilterSelect({ label, alleLabel, value, options, onChange }: {
   onChange: (value: string | null) => void;
 }) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', fontSize: 10.5, color: T.muted3, gap: 2 }}>
+    <label style={{ display: 'flex', flexDirection: 'column', fontSize: 10.5, color: T.inkMuted, gap: 2 }}>
       {label}
       <select
         value={value ?? ''}
@@ -215,7 +210,7 @@ function EnumFilterSelect<K extends string>({ label, alleLabel, value, options, 
   onChange: (value: K | null) => void;
 }) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', fontSize: 10.5, color: T.muted3, gap: 2 }}>
+    <label style={{ display: 'flex', flexDirection: 'column', fontSize: 10.5, color: T.inkMuted, gap: 2 }}>
       {label}
       <select
         value={value ?? ''}
@@ -241,7 +236,7 @@ function TriStateFilterSelect({ label, alleLabel, jaLabel, nejLabel, value, onCh
   onChange: (value: boolean | null) => void;
 }) {
   return (
-    <label style={{ display: 'flex', flexDirection: 'column', fontSize: 10.5, color: T.muted3, gap: 2 }}>
+    <label style={{ display: 'flex', flexDirection: 'column', fontSize: 10.5, color: T.inkMuted, gap: 2 }}>
       {label}
       <select
         value={value === null ? '' : value ? 'true' : 'false'}
@@ -307,10 +302,10 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
   const visibleColumns = COLUMNS.filter((c) => !c.hideable || !hiddenColumns.has(c.key));
 
   if (loading) {
-    return <div style={{ padding: 18, fontFamily: T.sans, color: T.muted }}>Indlæser personkontrol…</div>;
+    return <div style={{ padding: 18, fontFamily: T.sans, color: T.inkMuted }}>Indlæser personkontrol…</div>;
   }
   if (error) {
-    return <div role="alert" style={{ padding: 18, fontFamily: T.sans, color: T.red }}>{error}</div>;
+    return <div role="alert" style={{ padding: 18, fontFamily: T.sans, color: T.danger }}>{error}</div>;
   }
 
   function renderEditableCell(row: PersonKvalitetsarkRow, felt: OcrFelt, value: string) {
@@ -336,7 +331,7 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
         <span role="button" tabIndex={0} aria-disabled="true" aria-describedby={reasonId}>
           {value}
         </span>
-        <p id={reasonId} style={{ fontSize: 10.5, color: T.muted2, margin: '2px 0 0' }}>{reasonText}</p>
+        <p id={reasonId} style={{ fontSize: 10.5, color: T.inkMuted, margin: '2px 0 0' }}>{reasonText}</p>
         <Link
           href={`/redaktion/person/${row.personId}`}
           onNavigate={() => onOpenPerson(row.personId)}
@@ -377,7 +372,7 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
           <div>
             <span aria-hidden="true">{alvor.icon}</span> <span>{alvor.label}</span>
             {row.qaKoder.length > 0 && (
-              <div style={{ fontSize: 10, color: T.muted2 }}>{row.qaKoder.join(', ')}</div>
+              <div style={{ fontSize: 10, color: T.inkMuted }}>{row.qaKoder.join(', ')}</div>
             )}
           </div>
         );
@@ -403,7 +398,7 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', fontFamily: T.sans }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '10px 14px', background: T.panel, borderBottom: '1px solid rgba(34,31,26,.1)' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '10px 14px', background: T.surfaceGround, borderBottom: `1px solid ${T.line}` }}>
         <div role="group" aria-label="Filtrér efter status" style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {PRESETS.map((p) => (
             <button
@@ -413,8 +408,8 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
               onClick={() => setPreset(p.key)}
               style={{
                 border: 0, borderRadius: 6, padding: '5px 10px', cursor: 'pointer',
-                background: preset === p.key ? T.bordeaux : T.beige,
-                color: preset === p.key ? T.paper : T.muted, fontSize: 12.5, fontWeight: 600,
+                background: preset === p.key ? T.bordeaux : T.surfaceSunken,
+                color: preset === p.key ? T.inkOnInverse : T.inkMuted, fontSize: 12.5, fontWeight: 600,
               }}
             >
               {p.label}
@@ -422,7 +417,7 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
           ))}
         </div>
 
-        <label style={{ display: 'flex', flexDirection: 'column', fontSize: 10.5, color: T.muted3, gap: 2 }}>
+        <label style={{ display: 'flex', flexDirection: 'column', fontSize: 10.5, color: T.inkMuted, gap: 2 }}>
           Søg
           <input
             type="text"
@@ -467,12 +462,12 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
             type="button"
             aria-expanded={columnsOpen}
             onClick={() => setColumnsOpen((v) => !v)}
-            style={{ border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, padding: '5px 10px', background: T.paper, cursor: 'pointer', fontSize: 12.5 }}
+            style={{ border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, padding: '5px 10px', background: T.surfaceRaised, cursor: 'pointer', fontSize: 12.5 }}
           >
             Kolonner
           </button>
           {columnsOpen && (
-            <div style={{ position: 'absolute', top: '110%', left: 0, background: T.paper, border: '1px solid rgba(34,31,26,.16)', borderRadius: 8, padding: 10, zIndex: 10, minWidth: 200, boxShadow: '0 6px 18px rgba(0,0,0,.15)' }}>
+            <div style={{ position: 'absolute', top: '110%', left: 0, background: T.surfaceRaised, border: '1px solid rgba(34,31,26,.16)', borderRadius: 8, padding: 10, zIndex: 10, minWidth: 200, boxShadow: '0 6px 18px rgba(0,0,0,.15)' }}>
               {COLUMNS.filter((c) => c.hideable).map((c) => (
                 <label key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, padding: '2px 0' }}>
                   <input type="checkbox" checked={!hiddenColumns.has(c.key)} onChange={() => toggleColumn(c.key)} />
@@ -490,7 +485,7 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
           )}
         </div>
 
-        <span aria-live="polite" style={{ marginLeft: 'auto', fontFamily: T.mono, fontSize: 11, color: T.muted2 }}>
+        <span aria-live="polite" style={{ marginLeft: 'auto', fontFamily: T.mono, fontSize: 11, color: T.inkMuted }}>
           Viser {sorted.length} af {rows.length} personer
         </span>
       </div>

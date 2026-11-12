@@ -288,7 +288,7 @@ export function FeedStreamView({
   return (
     <div style={{ maxWidth: 680, margin: '0 auto' }}>
       {bioError ? (
-        <div role="alert" style={{ marginBottom: 14, padding: 14, color: T.bordeaux, background: T.paper, border: '1px solid rgba(136,26,51,.25)' }}>
+        <div role="alert" style={{ marginBottom: 14, padding: 14, color: T.bordeaux, background: T.surfaceRaised, border: '1px solid rgba(136,26,51,.25)' }}>
           <strong>Kunne ikke hente feedets biografier</strong>
           <div style={{ marginTop: 4 }}>Nogle blade vises uden biografi. Prøv at genindlæse siden om lidt.</div>
         </div>
@@ -321,7 +321,7 @@ export function FeedStreamView({
 
 function FeedFooter({ done }: { done: boolean }) {
   return (
-    <div style={{ padding: '28px 0', textAlign: 'center', fontFamily: T.mono, fontSize: 9.5, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted2 }}>
+    <div style={{ padding: '28px 0', textAlign: 'center', fontFamily: T.mono, fontSize: 9.5, letterSpacing: '.14em', textTransform: 'uppercase', color: T.inkMuted }}>
       {done ? 'Du har mødt hele slægten i dag — udforsk registeret' : 'Henter flere blade fra slægten'}
     </div>
   );
