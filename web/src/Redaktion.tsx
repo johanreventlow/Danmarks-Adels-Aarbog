@@ -2492,7 +2492,7 @@ const annoBox: React.CSSProperties = { border: '1px dashed rgba(136,26,51,.4)', 
 // angiver en forbindelse opad. Skriver via red_upsert_fakta (grad) / red_tilbagetraek_fakta (fjern —
 // retract af konklusionen, review 26 HIGH 2) gennem det almindelige `run`/submitChange-flow (dry-run/
 // LIVE respekteres). Selvstændig fetch af nuværende markering (undgår at tråde state gennem editoren).
-function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: Change, label: string) => void }) {
+function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: Change, label: string) => Promise<unknown> }) {
   const [mk, setMk] = useState<ForaeldreUkendtMarkering | null | undefined>(undefined);
   const [grade, setGrade] = useState<string>(GRADE_FORAELDER_UKENDT);
   const [kilde, setKilde] = useState('');
@@ -2505,15 +2505,16 @@ function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: 
       .catch(() => { if (alive) setMk(null); });
     return () => { alive = false; };
   }, [personId, reloadKey]);
-  const refetchSoon = () => setTimeout(() => setReloadKey((k) => k + 1), 700);
-  const marker = () => {
-    run({ art: 'markerForaeldreUkendt', subjektType: 'person', subjektId: personId, vaerdi: grade, kildeFritekst: kilde.trim() || undefined }, 'Forældre ukendt');
-    refetchSoon();
+  // Genindlæs først når skrivningen er afsluttet (run afventes) — ingen gæt-timer på skrive-latens.
+  const genindlaes = () => setReloadKey((k) => k + 1);
+  const marker = async () => {
+    await run({ art: 'markerForaeldreUkendt', subjektType: 'person', subjektId: personId, vaerdi: grade, kildeFritekst: kilde.trim() || undefined }, 'Forældre ukendt');
+    genindlaes();
   };
-  const fjern = () => {
+  const fjern = async () => {
     if (!mk) return;
-    run({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: personId, factId: String(mk.factId) }, 'Fjern forældre-ukendt');
-    refetchSoon();
+    await run({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: personId, factId: String(mk.factId) }, 'Fjern forældre-ukendt');
+    genindlaes();
   };
   const gradeLabel = (g: string) => g === GRADE_FORAELDER_UKENDT ? 'Forælder findes, men er ukendt for os' : 'Bogen forbinder ikke personen opad';
   return (
@@ -2549,7 +2550,7 @@ function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: 
 // Forældrefamilie-slot (Problem 2): konkurrerende forældre-påstande for DENNE person. Renderes kun
 // når der findes påstande (typisk efter en tværudgave-konflikt); mirrorer fact-card-oplysnings-listen
 // (kilde-badge + valgt-markering + "vælg denne"). Adjudikation = red_vaelg_foraeldre via run().
-function ForaeldrePaastandeControl({ personId, run, sammeSom }: { personId: string; run: (c: Change, label: string) => void; sammeSom: SammeSomLink[] }) {
+function ForaeldrePaastandeControl({ personId, run, sammeSom }: { personId: string; run: (c: Change, label: string) => Promise<unknown>; sammeSom: SammeSomLink[] }) {
   const [slot, setSlot] = useState<ForaeldreSlot | null | undefined>(undefined);
   const [egen, setEgen] = useState<BarnFamilie | null>(null); // personens EGEN fødselsfamilie + udgave
   const [rivaler, setRivaler] = useState<{ fraId: string; fam: BarnFamilie }[]>([]);
@@ -2565,15 +2566,16 @@ function ForaeldrePaastandeControl({ personId, run, sammeSom }: { personId: stri
       .then((rs) => { if (alive) setRivaler(rs.filter((r): r is { fraId: string; fam: BarnFamilie } => r != null)); }).catch(() => {});
     return () => { alive = false; };
   }, [personId, reloadKey, sammeSom]);
-  const refetchSoon = () => setTimeout(() => setReloadKey((k) => k + 1), 700);
-  const vaelg = (assertionId: number) => {
-    run({ art: 'vaelgForaeldre', subjektType: 'person', subjektId: personId, payload: { assertionId, konfidens } }, 'Vælg forældrefamilie');
-    refetchSoon();
+  // Genindlæs først når skrivningen er afsluttet (run afventes) — ingen gæt-timer på skrive-latens.
+  const genindlaes = () => setReloadKey((k) => k + 1);
+  const vaelg = async (assertionId: number) => {
+    await run({ art: 'vaelgForaeldre', subjektType: 'person', subjektId: personId, payload: { assertionId, konfidens } }, 'Vælg forældrefamilie');
+    genindlaes();
   };
-  const importer = (fam: BarnFamilie) => {
-    run({ art: 'foraeldrePaastand', subjektType: 'person', subjektId: personId,
+  const importer = async (fam: BarnFamilie) => {
+    await run({ art: 'foraeldrePaastand', subjektType: 'person', subjektId: personId,
       payload: { barnId: personId, familyId: fam.familyId, sourceId: fam.sourceId ?? undefined, citat: fam.udgave ? `Importeret fra ${fam.udgave} (samme_som)` : undefined } }, 'Importér forældre-påstand');
-    refetchSoon();
+    genindlaes();
   };
   const kendteFams = new Set((slot?.paastande ?? []).map((p) => p.familyId));
   // Kun ægte tværudgave-rivaler: anden familie end personens egen, ikke allerede på slottet, OG en
