@@ -1,11 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
-import { SOURCES, TABLE_FIXTURES } from './fixtures';
+import { PERSONS, SOURCES, TABLE_FIXTURES } from './fixtures';
 
 // 5c-2 + B11 (spec 2026-10-29 §4.3-4.4, §7): koordinater fra public_person_source_coordinates og fakta fra
 // public_person_facts. Én hermetisk catch-all for ALLE PostgREST-kald (som family-sources.spec.ts), så intet når
 // nettet. Person 1 har placement »15a«; person 3 har ingen prosa, men fakta.
 // 6e-1 (spec 2026-11-12 §5.2-5.5): `toUdgaver` giver person 4 en 1939-række (person 9, kilde 3) med fakta og
-// biografi, så detaljen viser den valgte udgave forrest og den anden som note.
+// biografi, så detaljen viser den valgte udgave forrest og den anden som note. Person 9 foldes ind i 4 ad den
+// rigtige vej (final review C8): en afklaret samme_som-kant (subjekt = alias 9, objekt = kanonisk 4), og RPC'erne
+// svarer kun for de id'er, detaljen faktisk sender.
 type Opts = { factsStatus?: number; toUdgaver?: boolean };
 
 const RECORD_1939 = 'record-07565168-b903-4444-9189-43d62d5c6ed6';
@@ -24,6 +26,9 @@ const bio = (personId: number, sourceId: number, aar: number, label: string, ref
   person_id: personId, source_id: sourceId, source_year: aar, record_order: 1, source_record_ref: ref, source_label: label,
   record_label: recordLabel, narrative_text: tekst, citation_label: '', provenance_kind: 'source_record',
 });
+// Alias-rækken fra 1939: samme levetid som person 4, så foldningen ikke karantæneres.
+const PERSON_9 = { ...PERSONS[3], id: 9, visning_navn: 'Person 9', visning_fuldt_navn: 'Person 9 af Testslægten' };
+const SAMME_SOM = { id: 900, subjekt_id: 9, objekt_id: 4 };
 const TO_UDGAVER_BIO = [
   bio(4, 1, 2012, 'DAA 2012-14', 'r4', 'II-4', 'Biografi fra 2012-14-udgaven.'),
   bio(9, 3, 1939, 'DAA 1939', 'r9', RECORD_1939, 'Biografi fra 1939-udgaven.'),
@@ -49,7 +54,10 @@ async function mockSupabase(page: Page, kald: { coords: number; legacy: number; 
       kald.facts.push(body);
       if (opts.factsStatus) return svar({ message: 'fejl' }, opts.factsStatus);
       const ids = ((body?.p_person_ids ?? []) as unknown[]).map(String);
-      if (opts.toUdgaver && ids.includes('4')) return svar(TO_UDGAVER_FAKTA);
+      // som RPC'en: kun rækker for de efterspurgte id'er (medlemskontrakten afgør, hvilke id'er detaljen sender)
+      if (opts.toUdgaver && ids.some((i) => i === '4' || i === '9')) {
+        return svar(TO_UDGAVER_FAKTA.filter((r) => ids.includes(String(r.person_id))));
+      }
       return svar(ids.includes('3') ? [{
         person_id: 3, fact_id: 31, faktatype: 'død', conclusion_status: 'afklaret', assertion_id: 31, chosen: true,
         vaerdi_tekst: null, date_raw: '1780', date_min: null, date_max: null, date_qualifier: null, date_certainty: null,
@@ -59,9 +67,13 @@ async function mockSupabase(page: Page, kald: { coords: number; legacy: number; 
     }
     if (sti === 'rpc/public_person_bio_source_versions_v2' && opts.toUdgaver) {
       const ids = ((route.request().postDataJSON()?.p_person_ids ?? []) as unknown[]).map(String);
-      return svar(ids.includes('4') ? TO_UDGAVER_BIO : []);
+      return svar(TO_UDGAVER_BIO.filter((b) => ids.includes(String(b.person_id))));
     }
     if (sti.startsWith('rpc/')) return svar([]);
+    if (opts.toUdgaver && sti === 'person') return svar([...PERSONS, PERSON_9]);
+    if (opts.toUdgaver && sti === 'relation' && url.searchParams.get('rolle') === 'eq.samme_som') return svar([SAMME_SOM]);
+    if (opts.toUdgaver && sti === 'conclusion' && url.searchParams.get('target_type') === 'eq.relation'
+      && url.searchParams.get('status') === 'eq.afklaret') return svar([{ target_id: SAMME_SOM.id }]);
     if (sti === 'source' && opts.toUdgaver) {
       return svar([...SOURCES, { id: 3, slags: 'DAA-udgave', titel: 'Danmarks Adels Aarbog', udgave: 'DAA 1939', aar: 1939, ekstern: null }]);
     }
@@ -103,6 +115,9 @@ test('to udgaver: den valgte forrest, den anden som note; ingen tekniske postnø
   await mockSupabase(page, kald, { toUdgaver: true });
   await page.goto('/person/4');
   await expect(page.getByText('✓ også i DAA 1939')).toBeVisible({ timeout: 10_000 });
+  // detaljen beder om begge medlems-id'er (medlemskontrakten), ikke kun det kanoniske
+  const sendt = (kald.facts as { p_person_ids: unknown[] }[]).map((b) => b.p_person_ids.map(String).sort());
+  expect(sendt).toContainEqual(['4', '9']);
   await expect(page.getByText('Biografi fra 2012-14-udgaven.')).toBeVisible();
   await expect(page.getByText('1. maj 1730', { exact: true })).toBeVisible();
   await expect(page.getByText('Kun i DAA 1939')).toBeVisible();
