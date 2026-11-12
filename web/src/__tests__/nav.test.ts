@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseFolgesvendPath, pathForMode, themeOfMode, labelOfMode, detailOpenFor, personPath, estatePath, type Mode } from '../data/nav';
+import { parseFolgesvendPath, pathForMode, themeOfMode, labelOfMode, detailOpenFor, personPath, estatePath, THEMES, type Mode } from '../data/nav';
 
 describe('parseFolgesvendPath', () => {
   it('/ (og tom sti) → forsiden (home)', () => {
@@ -26,6 +26,14 @@ describe('parseFolgesvendPath', () => {
   });
   it('ukendt sti → home (ikke tree)', () => {
     expect(parseFolgesvendPath('/findes-ikke').mode).toBe('home');
+  });
+});
+
+describe('offentlig menu', () => {
+  it('præsenslisten står ikke i menuen, men ruten findes (webredesign fase 0)', () => {
+    expect(THEMES.flatMap((t) => t.items).some((it) => it.mode === 'praesens')).toBe(false);
+    expect(themeOfMode('praesens')).toBeNull();
+    expect(parseFolgesvendPath('/praesens').mode).toBe('praesens');
   });
 });
 

@@ -26,7 +26,7 @@ export function AboutView({ about, personCount, estateCount, onPick }: { about: 
         </div>
       )) : (
         <div style={{ border: '1px dashed rgba(34,31,26,.2)', borderRadius: 11, padding: 16, background: T.paper, fontSize: 14, lineHeight: 1.5, color: T.muted }}>
-          Ingen slægts-narrativ registreret endnu. Indledningen indlæses fra stamtavlen (narrative · subjekt_type slaegt).
+          Aarbogen har endnu ingen indledning til slægten.
         </div>
       )}
     </div>

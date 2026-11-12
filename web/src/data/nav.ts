@@ -15,7 +15,9 @@ export type Theme = { key: string; label: string; items: ThemeItem[] };
 export const THEMES: Theme[] = [
   { key: 'slaegten', label: 'Slægten', items: [
     { label: 'Stamtræ', mode: 'tree' }, { label: 'Slægtskab', mode: 'relate' },
-    { label: 'Præsensliste', mode: 'praesens' },
+    // Præsenslisten viser levende og er kun for indloggede (decisions.md 2026-11-12, webredesign
+    // pkt. 6). Den står ikke i den offentlige menu, før medlemslaget er bygget (fase 8); ruten
+    // /praesens findes stadig.
     { label: 'Våben', mode: 'arms' }, { label: 'Om slægten', mode: 'about' },
   ] },
   { key: 'godser', label: 'Godser & steder', items: [

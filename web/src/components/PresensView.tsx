@@ -12,6 +12,7 @@ import { fetchPersonDetail } from '../data/public';
 import { personMemberIds } from '../data/personMembers';
 import { currentSession, type RedSession } from '../data/auth';
 import { NarrativRenderer } from './NarrativRenderer';
+import { Tilstand, tilstandPrimaer, tilstandSekundaer } from './Tilstand';
 import { T } from '../theme';
 import { Link } from '../Link';
 import { personPath } from '../data/nav';
@@ -208,9 +209,14 @@ export function PresensLinjeSektion(props: {
   );
 }
 
-export default function PresensView(props: { model: Model | null; onPickPerson: (id: string) => void }) {
-  const { model, onPickPerson } = props;
-  const [session, setSession] = useState<RedSession | null | 'henter'>('henter');
+export default function PresensView(props: {
+  model: Model | null; onPickPerson: (id: string) => void;
+  // Følgesvends session (så login i dens dialog slår igennem her). Udeladt → visningen henter selv.
+  session?: RedSession | null | 'henter'; onLogin?: () => void; onGoTree?: () => void;
+}) {
+  const { model, onPickPerson, onLogin, onGoTree } = props;
+  const [egenSession, setEgenSession] = useState<RedSession | null | 'henter'>('henter');
+  const session = props.session !== undefined ? props.session : egenSession;
   const [grundlag, setGrundlag] = useState<PresensGrundlag | null>(null);
   const [fejl, setFejl] = useState<string | null>(null);
   const [linjeInfo, setLinjeInfo] = useState<Record<string, PresensLinjeInfo>>({});
@@ -226,7 +232,8 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
   const [hentendeIds, setHentendeIds] = useState<Set<string>>(new Set());
   const fokusId = (window.history.state as { fokusId?: string } | null)?.fokusId ?? null;
 
-  useEffect(() => { currentSession().then(setSession).catch(() => setSession(null)); }, []);
+  const selvHenter = props.session === undefined;
+  useEffect(() => { if (selvHenter) currentSession().then(setEgenSession).catch(() => setEgenSession(null)); }, [selvHenter]);
   useEffect(() => {
     if (session === 'henter' || session?.role !== 'redaktion') return;
     fetchPresensGrundlag().then(setGrundlag).catch((e) => setFejl(String(e?.message ?? e)));
@@ -264,10 +271,25 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
   }, [liste, fokusId]);
 
   if (session === 'henter') return <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>;
-  if (session?.role !== 'redaktion')
-    return <div style={{ padding: 40, color: T.muted3, fontFamily: T.sans }}>
-      Præsenslisten kræver redaktør-login (v1 er redaktion-only). Log ind via <a href="/redaktion">Redaktion</a> og vend tilbage.
-    </div>;
+  // Listen viser levende og kan i dag kun ses af redaktionen (webredesign fase 0; medlemmer får
+  // adgang i fase 8). Teksten siger, hvad der faktisk gælder, også for et indlogget medlem.
+  if (session?.role !== 'redaktion') {
+    const tilStamtrae = onGoTree && <button type="button" onClick={onGoTree} style={tilstandSekundaer}>Se stamtræet i stedet</button>;
+    return (
+      <div style={{ padding: 40 }}>
+        {session ? (
+          <Tilstand etiket="Kun for redaktionen" titel="Præsenslisten er ikke åben for medlemmer endnu" handlinger={tilStamtrae}>
+            Den viser slægtens nulevende. Indtil reglerne for levende personer er på plads, kan den kun ses af redaktionen.
+          </Tilstand>
+        ) : (
+          <Tilstand etiket="Kræver login" titel="Præsenslisten er ikke offentlig"
+            handlinger={<>{onLogin && <button type="button" onClick={onLogin} style={tilstandPrimaer}>Log ind</button>}{tilStamtrae}</>}>
+            Den viser slægtens nulevende og kan indtil videre kun ses af redaktionen.
+          </Tilstand>
+        )}
+      </div>
+    );
+  }
   if (fejl) return <div style={{ padding: 40, color: T.bordeaux }}>Kunne ikke hente grundlaget: {fejl}</div>;
   if (!liste) return <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>;
   if (liste.grene.length === 0)

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { buildModel } from '@daa/core';
 
@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   fetchEstateInfo: vi.fn(),
   fetchEstateOwners: vi.fn(),
   treeSearch: null as null | { linjeList: { linje: string; navn: string | null }[] },
+  detailProps: null as null | { onVisPraesens?: () => void },
+  signIn: vi.fn(),
 }));
 
 vi.mock('../router', () => ({
@@ -30,7 +32,8 @@ vi.mock('../data/public', async (importOriginal) => ({
 }));
 vi.mock('../data/auth', () => ({
   currentSession: () => Promise.resolve(null),
-  signIn: vi.fn(),
+  signIn: mocks.signIn,
+  loginFejlTekst: () => 'Login lykkedes ikke.',
   signOut: vi.fn(),
 }));
 vi.mock('../data/bookmarks', () => ({
@@ -50,7 +53,10 @@ vi.mock('../components/TreeView', () => ({
   },
 }));
 vi.mock('../components/DetailPanel', () => ({
-  DetailPanel: ({ detail }: { detail: { bio: string } | null }) => <aside>{detail ? `Biografi: ${detail.bio}` : 'Henter biografi'}</aside>,
+  DetailPanel: (props: { detail: { bio: string } | null; onVisPraesens?: () => void }) => {
+    mocks.detailProps = props;
+    return <aside>{props.detail ? `Biografi: ${props.detail.bio}` : 'Henter biografi'}</aside>;
+  },
 }));
 
 import Folgesvend from '../Folgesvend';
@@ -79,8 +85,16 @@ test('viser personens biografi-fejl eksplicit i stedet for en gyldig tom detalje
   await waitFor(() => expect(mocks.fetchPersonDetail).toHaveBeenCalledTimes(2));
   const alert = await screen.findByRole('alert');
   expect(alert.textContent).toContain('Kunne ikke hente personens biografi');
-  expect(alert.textContent).toContain('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE');
+  // Fejlkoden er til udvikleren (konsollen), ikke til læseren.
+  expect(alert.textContent).not.toContain('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE');
   expect(screen.queryByText('Biografi: ')).toBeNull();
+
+  // »Prøv igen« henter detaljen på ny.
+  const kald = mocks.fetchPersonDetail.mock.calls.length;
+  mocks.fetchPersonDetail.mockResolvedValue({ bio: 'Hentet', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });
+  fireEvent.click(screen.getByRole('button', { name: 'Prøv igen' }));
+  await screen.findByText('Biografi: Hentet');
+  expect(mocks.fetchPersonDetail.mock.calls.length).toBeGreaterThan(kald);
 });
 
 test('søgefladens linjechips får aldrig tekniske linjenøgler (legacy-source:)', async () => {
@@ -107,4 +121,24 @@ test('søgefladens linjechips får aldrig tekniske linjenøgler (legacy-source:)
 
   await waitFor(() => expect(mocks.treeSearch?.linjeList.length).toBeGreaterThan(0));
   expect(mocks.treeSearch!.linjeList.map((l) => l.linje)).toEqual(['slaegt:1:lineage:5:scheme:canonical']);
+});
+
+test('anonym læser får ingen indgang til præsenslisten fra personpanelet', async () => {
+  mocks.fetchPersonDetail.mockResolvedValue({ bio: '', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });
+  render(<Folgesvend />);
+  await screen.findByText(/^Biografi:/);
+  expect(mocks.detailProps?.onVisPraesens).toBeUndefined();
+});
+
+test('modellen hentes igen efter login, så RLS-beskyttede personer kommer med', async () => {
+  mocks.fetchPersonDetail.mockResolvedValue({ bio: '', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });
+  mocks.signIn.mockResolvedValue({ email: 'red@example.test', role: 'redaktion', userId: 'u1' });
+  render(<Folgesvend />);
+  await screen.findByText(/^Biografi:/);
+  expect(mocks.loadModel).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByText('Log ind'));
+  fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'red@example.test' } });
+  fireEvent.change(screen.getByLabelText('Adgangskode'), { target: { value: 'hemmeligt' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Log ind' }));
+  await waitFor(() => expect(mocks.loadModel).toHaveBeenCalledTimes(2));
 });

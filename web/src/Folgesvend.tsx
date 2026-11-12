@@ -15,7 +15,7 @@ import type { AppModel, Model } from './data/types';
 import { computeRelationship } from '@daa/core';
 import { buildBrowse, showSearchResults } from './data/browse';
 import { useBookmarks, type BookmarkSort } from './data/bookmarks';
-import { signIn, signOut, currentSession, type RedSession } from './data/auth';
+import { signIn, signOut, currentSession, loginFejlTekst, type RedSession } from './data/auth';
 import { BookmarksView } from './components/BookmarksView';
 import { SlaegtPicker } from './components/SlaegtPicker';
 import { HomeView } from './components/HomeView';
@@ -31,6 +31,7 @@ import type { TreeSearchBundle } from './components/TreeSearch';
 import { synligeLinjer } from './data/lineage';
 import { THEMES, themeOfMode, labelOfMode, parseFolgesvendPath, pathForMode, detailOpenFor, type Mode, personPath } from './data/nav';
 import { SearchIcon } from './components/primitives';
+import { Tilstand, tilstandPrimaer, tilstandSekundaer } from './components/Tilstand';
 import { T } from './theme';
 
 // Kun Reventlow findes i dag; vælgeren er 1-punkt + "flere kommer"-note (spec §2 ikke-mål).
@@ -81,6 +82,9 @@ export default function Folgesvend() {
   // Konto-bogmærker (spec 2026-07-06): login-eksklusiv session. "Mig" (ovenfor) forbliver
   // lokal/udskudt migration — denne session bruges KUN til bogmærker her.
   const [session, setSession] = useState<RedSession | null>(null);
+  // sessionKlar: er den gemte session tjekket? Præsenslisten må ikke vise »log ind« til en
+  // redaktør, mens sessionen stadig genskabes.
+  const [sessionKlar, setSessionKlar] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [login, setLogin] = useState<{ email: string; pw: string; err: string; busy: boolean }>(
     { email: '', pw: '', err: '', busy: false },
@@ -88,7 +92,7 @@ export default function Folgesvend() {
   useEffect(() => {
     // review 22 N3: currentSession() kan i princippet afvises (netværksfejl) — sluges ikke
     // tavst, men sætter session til null (allerede default) og logger til konsol.
-    currentSession().then(setSession, (e) => console.warn('[session] kunne ikke genskabes', e));
+    currentSession().then(setSession, (e) => console.warn('[session] kunne ikke genskabes', e)).finally(() => setSessionKlar(true));
   }, []);
   const doLogin = async () => {
     if (login.busy) return; // review 22 N3: forhindr overlappende signIn-kald ved dobbelt-klik
@@ -100,7 +104,7 @@ export default function Folgesvend() {
       setLoginOpen(false);
       setLogin({ email: '', pw: '', err: '', busy: false });
     } catch (e) {
-      setLogin((l) => ({ ...l, busy: false, err: e instanceof Error ? e.message : 'Login fejlede' }));
+      setLogin((l) => ({ ...l, busy: false, err: loginFejlTekst(e) }));
     }
   };
   const doLogout = async () => { await signOut(); setSession(null); };
@@ -115,13 +119,15 @@ export default function Folgesvend() {
   const [estateInfo, setEstateInfo] = useState<EstateInfo | null>(null);
   const [detail, setDetail] = useState<PersonDetailData | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailForsoeg, setDetailForsoeg] = useState(0); // »Prøv igen« i personpanelets fejl
 
   // review 27 R2: udtrukket til en genkaldelig funktion, så fejlskærmens "Prøv igen"-knap
   // kan forsøge indlæsningen igen uden hard-reload (Supabase free-tier pauser efter 7 dages
   // inaktivitet — første kald efter en pause kan derfor fejle og lykkes ved forsøg nr. 2).
   const loadData = useCallback(() => {
     setErr(null);
-    loadModel().then(setModel).catch((e) => setErr(describeErr(e)));
+    // Den rå fejl (og udviklerens RLS-hint) går til konsollen; læseren får en forklaring i ord.
+    loadModel().then(setModel).catch((e) => { console.warn('[Folgesvend] model-hentning fejlede:', describeErr(e)); setErr('fejl'); });
   }, []);
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -188,10 +194,10 @@ export default function Folgesvend() {
     const manglerBogNummer = !(model?.sourcesBy?.[focusId]?.length);
     fetchPersonDetail(focusId, members, manglerBogNummer, model ? { udgaver: model.udgaver ?? [], udgaveForPersonRaekke: model.udgaveForPersonRaekke ?? {} } : undefined).then(
       (next) => { if (current) setDetail(next); },
-      (e) => { if (current) setDetailError(String((e as Error)?.message ?? e)); },
+      (e) => { if (current) { console.warn('[Folgesvend] persondetalje fejlede:', e); setDetailError(String((e as Error)?.message ?? e)); } },
     );
     return () => { current = false; };
-  }, [focusId, model]);
+  }, [focusId, model, detailForsoeg]);
 
   const persons = model?.persons ?? [];
   const linjeList = useMemo(() => synligeLinjer(model?.lineage?.list ?? []), [model]);
@@ -325,6 +331,21 @@ export default function Folgesvend() {
       .finally(() => setGeoLoading(false));
   }, [mode, detailOpen, model]);
 
+  // Modellen hentes igen, når brugeren logger ind eller ud: RLS afgør, hvilke personer (levende)
+  // den rummer, og ellers ville fx præsensmurens »Log ind« føre en redaktør til en liste uden
+  // levende, indtil siden blev genindlæst. Første tjek af den gemte session udløser ikke en ny
+  // hentning (den første hentning sker allerede med den gemte session).
+  const brugerId = session?.userId ?? null;
+  const forrigeBrugerRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!sessionKlar) return;
+    if (forrigeBrugerRef.current === undefined) { forrigeBrugerRef.current = brugerId; return; }
+    if (forrigeBrugerRef.current === brugerId) return;
+    forrigeBrugerRef.current = brugerId;
+    geoRequestedRef.current = false; // den nye model har ingen geo; lad geo-effekten hente igen
+    loadData();
+  }, [brugerId, sessionKlar, loadData]);
+
   // "Det er mig"-markering (localStorage) — samme person igen = fjern markering. Gemmer kanonisk id,
   // og sammenligner kanonisk (et gemt alias-meId matcher stadig den kanoniske person).
   const toggleMe = (id: string) => {
@@ -354,20 +375,13 @@ export default function Folgesvend() {
 
   if (err) {
     return (
-      <div style={{ minHeight: '100vh', background: T.pageBg, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, fontFamily: T.sans }}>
-        <div style={{ maxWidth: 420, background: T.paper, borderRadius: 16, border: `1px solid ${T.cream}`, padding: '32px 28px', textAlign: 'center' }}>
-          <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600, color: T.bordeaux, marginBottom: 12 }}>Kunne ikke hente data</div>
-          <div style={{ color: T.ink, whiteSpace: 'pre-wrap', fontSize: 15, marginBottom: 14 }}>{err}</div>
-          <div style={{ color: T.muted, fontSize: 14, marginBottom: 20 }}>
-            Databasen kan være gået i dvale efter en periode uden aktivitet. Vent et øjeblik og prøv igen.
-          </div>
-          <button
-            onClick={loadData}
-            style={{ background: T.bordeaux, color: T.paper, border: 'none', borderRadius: 10, padding: '10px 22px', fontFamily: T.sans, fontSize: 15, fontWeight: 600, cursor: 'pointer' }}
-          >
-            Prøv igen
-          </button>
-        </div>
+      <div style={{ minHeight: '100vh', background: T.pageBg, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        {/* Vi kender ikke årsagen her: dvale efter en uges stilstand er den hyppigste, men en
+            rigtig fejl ser ens ud for læseren. Teksten gætter derfor ikke; fejlen står i konsollen. */}
+        <Tilstand fejl etiket="Kunne ikke hente" titel="Aarbogen svarer ikke lige nu"
+          handlinger={<button type="button" onClick={loadData} style={tilstandPrimaer}>Prøv igen</button>}>
+          Har der ikke været besøg et stykke tid, tager det et øjeblik at åbne arkivet, så prøv igen om et halvt minut. Hjælper det ikke, er fejlen hos os.
+        </Tilstand>
       </div>
     );
   }
@@ -496,15 +510,16 @@ export default function Folgesvend() {
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} onPick={navigateTree} />
             : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={saveOrPrompt} loggedIn={bookmarks.canSave} onRequireLogin={() => setLoginOpen(true)} /> : <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>)
             : mode === 'kort' ? <OverviewMapView model={model} geoLoading={geoLoading} onPickPerson={navigateTree} onPickEstate={(id) => navigate(`/estate/${id}`)} />
-            : mode === 'praesens' ? <PresensView model={model} onPickPerson={navigateTree} />
-            : <Placeholder label={labelOfMode(mode)} />}
+            : mode === 'praesens' ? <PresensView model={model} onPickPerson={navigateTree} session={sessionKlar ? session : 'henter'} onLogin={() => setLoginOpen(true)} onGoTree={() => goToMode('tree')} />
+            : <Placeholder label={labelOfMode(mode)} onHome={() => goToMode('home')} />}
         </div>
 
         {/* Højre: person-detalje (kun i person-centriske visninger) */}
         {detailOpen && model && focusId && (detailError ? (
-          <aside role="alert" style={{ width: 380, padding: 28, color: T.bordeaux, background: T.paper, borderLeft: '1px solid rgba(34,31,26,.1)' }}>
-            <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600 }}>Kunne ikke hente personens biografi</div>
-            <div style={{ marginTop: 8, whiteSpace: 'pre-wrap' }}>{detailError}</div>
+          <aside role="alert" style={{ width: 380, padding: 28, background: T.paper, borderLeft: '1px solid rgba(34,31,26,.1)', fontFamily: T.sans }}>
+            <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600, color: T.bordeaux }}>Kunne ikke hente personens biografi</div>
+            <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.5, color: '#3d382f' }}>Forbindelsen til arkivet svigtede et øjeblik. Prøv igen om lidt.</div>
+            <button type="button" onClick={() => setDetailForsoeg((n) => n + 1)} style={{ ...tilstandSekundaer, marginTop: 14 }}>Prøv igen</button>
           </aside>
         ) : (
           <DetailPanel
@@ -512,7 +527,9 @@ export default function Folgesvend() {
             backName={backName} onBack={() => window.history.back()} onClose={mode === 'tree' ? closeDetail : undefined}
             onFocusTree={() => goToMode('tree')}
             onRelate={() => { setRelA(focusId); setRelB(null); setRelSlot('B'); goToMode('relate'); }}
-            onVisPraesens={() => navigate('/praesens', { state: { fokusId: focusId } })}
+            // Præsenslisten kræver i dag rollen redaktion (PresensView); for andre er linket en
+            // offentlig indgang til en side, de ikke kan se (webredesign fase 0).
+            onVisPraesens={session?.role === 'redaktion' ? () => navigate('/praesens', { state: { fokusId: focusId } }) : undefined}
             isMe={focusId === meCanon} onToggleMe={() => toggleMe(focusId)}
             isBookmarked={bookmarks.has(focusId)} onToggleBookmark={() => saveOrPrompt(focusId)}
             geoLoading={geoLoading}
@@ -524,25 +541,37 @@ export default function Folgesvend() {
 
       {loginOpen && (
         <div onClick={() => setLoginOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(20,17,13,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: 380, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '22px 24px 20px' }}>
-            <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>Log ind</div>
+          {/* Rigtig <form> med <label htmlFor>: skærmlæsere navngiver felterne, og Enter logger ind. */}
+          <form onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); void doLogin(); }} role="dialog" aria-modal="true" aria-labelledby="fs-login-titel" style={{ width: 380, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '22px 24px 20px' }}>
+            <div id="fs-login-titel" style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>Log ind</div>
             <div style={{ fontSize: 13, color: T.muted, marginTop: 3, marginBottom: 15 }}>Log ind for at gemme bogmærker på tværs af dine enheder.</div>
-            <input value={login.email} onChange={(e) => setLogin((l) => ({ ...l, email: e.target.value }))} placeholder="din@email.dk" style={{ width: '100%', fontSize: 14, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
-            <input value={login.pw} type="password" onChange={(e) => setLogin((l) => ({ ...l, pw: e.target.value }))} style={{ width: '100%', fontSize: 14, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none', marginTop: 11 }} />
-            {login.err && <div style={{ fontSize: 12.5, color: T.bordeaux, marginTop: 9 }}>{login.err}</div>}
+            <label htmlFor="fs-login-email" style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: T.muted, marginBottom: 4 }}>E-mail</label>
+            <input id="fs-login-email" type="email" autoComplete="username" value={login.email} onChange={(e) => setLogin((l) => ({ ...l, email: e.target.value }))} placeholder="din@email.dk" style={{ width: '100%', fontSize: 14, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
+            <label htmlFor="fs-login-pw" style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: T.muted, marginTop: 11, marginBottom: 4 }}>Adgangskode</label>
+            <input id="fs-login-pw" type="password" autoComplete="current-password" value={login.pw} onChange={(e) => setLogin((l) => ({ ...l, pw: e.target.value }))} style={{ width: '100%', fontSize: 14, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
+            {login.err && <div role="alert" style={{ fontSize: 12.5, color: T.bordeaux, marginTop: 9 }}>{login.err}</div>}
             <div style={{ display: 'flex', gap: 9, marginTop: 16, justifyContent: 'flex-end' }}>
-              <div onClick={() => setLoginOpen(false)} style={{ fontSize: 13, fontWeight: 600, color: T.muted, padding: '8px 13px', cursor: 'pointer' }}>Annullér</div>
-              <div onClick={doLogin} style={{ fontSize: 13, fontWeight: 600, color: '#fbf8f1', background: T.bordeaux, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>{login.busy ? 'Logger ind…' : 'Log ind'}</div>
+              <button type="button" onClick={() => setLoginOpen(false)} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.muted, background: 'transparent', border: 0, padding: '8px 13px', cursor: 'pointer' }}>Annullér</button>
+              <button type="submit" disabled={login.busy} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: '#fbf8f1', background: T.bordeaux, border: 0, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>{login.busy ? 'Logger ind…' : 'Log ind'}</button>
             </div>
-          </div>
+          </form>
         </div>
       )}
     </div>
   );
 }
 
-function Placeholder({ label }: { label: string }) {
-  return <div style={{ padding: 40, fontFamily: T.serif, fontSize: 22, color: T.muted }}>{label} — visningen porteres som næste skive.</div>;
+// Vises kun, hvis nogen følger et gammelt link til en side, der ikke er bygget; menuen viser
+// aldrig sider, der ikke findes.
+function Placeholder({ label, onHome }: { label: string; onHome: () => void }) {
+  return (
+    <div style={{ padding: 40 }}>
+      <Tilstand etiket="Ikke bygget endnu" titel={label ? `${label} findes ikke endnu` : 'Siden findes ikke endnu'}
+        handlinger={<Link href="/" onNavigate={onHome} style={{ fontFamily: T.sans, fontSize: 14, fontWeight: 600, color: T.bordeaux }}>Til forsiden</Link>}>
+        Den side, linket peger på, er ikke en del af Aarbogen endnu.
+      </Tilstand>
+    </div>
+  );
 }
 
 // Start-fokus midt i træet: en person med BÅDE børn og forælder, flest børn (som mobil).

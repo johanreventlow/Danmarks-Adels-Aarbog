@@ -22,6 +22,16 @@ export async function signIn(email: string, password: string): Promise<RedSessio
   return { email: data.user?.email ?? email.trim(), role: await rolleFor(userId), userId };
 }
 
+// Login-fejl i ord, læseren kan bruge. Supabase svarer på engelsk ("Invalid login credentials");
+// den rå tekst logges, men vises ikke.
+export function loginFejlTekst(e: unknown): string {
+  const m = e instanceof Error ? e.message : String(e);
+  if (/invalid login credentials/i.test(m)) return 'E-mail eller adgangskode er forkert.';
+  if (/email not confirmed/i.test(m)) return 'E-mailadressen er ikke bekræftet endnu.';
+  console.warn('[login] fejlede:', m);
+  return 'Login lykkedes ikke. Prøv igen om lidt.';
+}
+
 export async function signOut(): Promise<void> {
   await supabase.auth.signOut();
 }

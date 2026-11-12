@@ -185,11 +185,27 @@ describe('Redaktion — Liste/Kvalitetsark-skifter (rolle- og entitetsgate)', ()
     expect(screen.queryByRole('group', { name: 'Personvisning' })).toBeNull();
   });
 
-  test('anonym (ikke logget ind) ser IKKE skifteren', async () => {
+  test('anonym (ikke logget ind) ser login, ikke arbejdsbordet', async () => {
     mocks.currentSession.mockResolvedValue(null);
     render(<Redaktion />);
-    await screen.findByPlaceholderText('Søg…');
+    expect(await screen.findByLabelText('Adgangskode')).toBeTruthy();
+    expect(screen.getByLabelText('E-mail')).toBeTruthy();
+    expect(screen.queryByPlaceholderText('Søg…')).toBeNull();
     expect(screen.queryByRole('group', { name: 'Personvisning' })).toBeNull();
+    // Arbejdsbordets data hentes ikke anonymt.
+    expect(mocks.fetchRedaktionPersoner).not.toHaveBeenCalled();
+  });
+
+  test('login fra login-skærmen viser arbejdsbordet og henter data som brugeren', async () => {
+    mocks.currentSession.mockResolvedValue(null);
+    mocks.signIn.mockResolvedValue(session('redaktion'));
+    render(<Redaktion />);
+    fireEvent.change(await screen.findByLabelText('E-mail'), { target: { value: 'red@example.test' } });
+    fireEvent.change(screen.getByLabelText('Adgangskode'), { target: { value: 'hemmeligt' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Log ind' }));
+    await screen.findByPlaceholderText('Søg…');
+    expect(mocks.signIn).toHaveBeenCalledWith('red@example.test', 'hemmeligt');
+    expect(mocks.fetchRedaktionPersoner).toHaveBeenCalled();
   });
 });
 

@@ -34,10 +34,13 @@ export class ErrorBoundary extends Component<Props, State> {
           >
             Genindlæs siden
           </button>
-          <details style={{ marginTop: 18, textAlign: 'left', fontSize: 13, color: T.muted2 }}>
-            <summary style={{ cursor: 'pointer' }}>Fejldetaljer</summary>
-            <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{this.state.error.message}</pre>
-          </details>
+          {/* Fejldetaljer kun under udvikling; læseren får forklaringen ovenfor, og fejlen ligger i konsollen. */}
+          {import.meta.env.DEV && (
+            <details style={{ marginTop: 18, textAlign: 'left', fontSize: 13, color: T.muted2 }}>
+              <summary style={{ cursor: 'pointer' }}>Fejldetaljer</summary>
+              <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{this.state.error.message}</pre>
+            </details>
+          )}
         </div>
       </div>
     );
