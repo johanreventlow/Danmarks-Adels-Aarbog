@@ -59,23 +59,79 @@ function parseReference(ref: string | null): Reference | Exclude<ReferenceStatus
   return { aar: a, maaned, dag };
 }
 
+type Dato = Reference;
+type Haendelse = { start: number; slut: number; del?: Del; eksplicit?: Dato };
+
+const ensDato = (a: Dato, b: Dato) => a.aar === b.aar && a.maaned === b.maaned && a.dag === b.dag;
+// Ligger `a` før `b` på det niveau, begge kender?
+const foer = (a: Dato, b: Dato) => {
+  if (a.aar !== b.aar) return a.aar < b.aar;
+  if (a.maaned == null || b.maaned == null) return false;
+  if (a.maaned !== b.maaned) return a.maaned < b.maaned;
+  return a.dag != null && b.dag != null && a.dag < b.dag;
+};
+
+// Ét led opløst mod `base`: teksten, der erstatter leddet, og den dato, leddet dermed står for (dag/måned fra ordene
+// lige foran: »29. s.m.«, »6. febr. s.å.«). null hvis `base` mangler den nødvendige del.
+function loes(del: Del, foran: string, base: Dato): { tekst: string; dato: Dato } | null {
+  const navn = base.maaned == null ? null : MAANED_NAVNE[base.maaned - 1];
+  if (del === 'å') {
+    const m = foran.match(/(?:(\d{1,2})\.?\s+)?(\p{L}+)\.?\s*$/u);
+    const maaned = m ? maanedNummer(m[2]) : null;
+    return { tekst: String(base.aar), dato: { aar: base.aar, maaned, dag: maaned != null && m?.[1] ? Number(m[1]) : null } };
+  }
+  if (del === 'm') {
+    if (!navn) return null;
+    const m = foran.match(/(\d{1,2})\.?\s*$/u);
+    return { tekst: `${navn} ${base.aar}`, dato: { aar: base.aar, maaned: base.maaned, dag: m ? Number(m[1]) : null } };
+  }
+  if (!navn || base.dag == null) return null;
+  return { tekst: `${base.dag}. ${navn} ${base.aar}`, dato: base };
+}
+
+export type OploesValg = {
+  // Dåb/begravelse: et led, der opløst ligger før referencen (dåb før fødsel), er umuligt → ikke opløst.
+  ikkeFoerReference?: boolean;
+};
+
 // Erstatter hvert relativt led med referencens del og bevarer resten af teksten ordret. En ikke-relativ værdi
-// returneres uændret; null når et led ikke kan opløses.
-export function oploesRelativDato(v: string, reference: string | null): string | null {
+// returneres uændret; null når et led ikke kan opløses ENTYDIGT. Bogen skriver »s.d.«/»s.m.« også i forhold til en
+// dato tidligere i samme tekst (»bisat 5. april s.å. … begravet s.d.«): giver den tolkning (kæden af datoer i
+// teksten) et andet resultat end referencen, er leddet flertydigt, og intet opløses.
+export function oploesRelativDato(v: string, reference: string | null, valg: OploesValg = {}): string | null {
   if (!erRelativDato(v)) return v;
   const ref = parseReference(reference);
   if (typeof ref === 'string') return null;
-  let fejl = false;
-  const ud = v.replace(RELATIV, (_hel, bogstav: string | undefined, ord: string | undefined) => {
-    const del = art(bogstav, ord);
-    const maaned = ref.maaned == null ? null : MAANED_NAVNE[ref.maaned - 1];
-    if (del === 'å') return String(ref.aar);
-    if (del === 'm' && maaned) return `${maaned} ${ref.aar}`;
-    if (del === 'd' && maaned && ref.dag != null) return `${ref.dag}. ${maaned} ${ref.aar}`;
-    fejl = true;
-    return _hel;
-  });
-  return fejl ? null : ud;
+
+  const h: Haendelse[] = [];
+  for (const m of v.matchAll(RELATIV)) h.push({ start: m.index!, slut: m.index! + m[0].length, del: art(m[1], m[2]) });
+  for (const m of v.matchAll(DATO)) {
+    const maaned = maanedNummer(m[2]);
+    if (maaned == null) continue;
+    h.push({ start: m.index!, slut: m.index! + m[0].length,
+      eksplicit: { aar: Number(m[3]), maaned, dag: m[1] == null ? null : Number(m[1]) } });
+  }
+  for (const m of v.matchAll(AAR)) {
+    if (h.some((x) => x.eksplicit && m.index! >= x.start && m.index! < x.slut)) continue;
+    h.push({ start: m.index!, slut: m.index! + m[0].length, eksplicit: { aar: Number(m[0]), maaned: null, dag: null } });
+  }
+  h.sort((a, b) => a.start - b.start);
+
+  let kontekst: Dato = ref;
+  const erstat: { start: number; slut: number; tekst: string }[] = [];
+  for (const x of h) {
+    if (x.eksplicit) { kontekst = x.eksplicit; continue; }
+    const foran = v.slice(0, x.start);
+    const fraRef = loes(x.del!, foran, ref);
+    const fraKaede = loes(x.del!, foran, kontekst);
+    if (!fraRef || !fraKaede || !ensDato(fraRef.dato, fraKaede.dato)) return null;
+    if (valg.ikkeFoerReference && foer(fraRef.dato, ref)) return null;
+    erstat.push({ start: x.start, slut: x.slut, tekst: fraRef.tekst });
+    kontekst = fraRef.dato;
+  }
+  let ud = v;
+  for (const e of erstat.reverse()) ud = ud.slice(0, e.start) + e.tekst + ud.slice(e.slut);
+  return ud;
 }
 
 // Til målingen (tools/maal-6e1): hvorfor en reference ikke kan bruges. 'ok' betyder kun, at referencen kan læses —

@@ -540,6 +540,15 @@ describe('byggUdgaveFakta', () => {
     const w = byggUdgaveFakta(blandet, '3');
     expect(linje(w, 'dåb').map((l) => [l.vaerdi, l.noter])).toEqual([['29. april 1644', [{ art: 'skriver', udgave: D18, vaerdier: ['29. s.m.'] }]]]);
     expect(linje(w, 'begravelse').map((l) => [l.vaerdi, l.noter])).toEqual([['6. aug. 1700', [{ art: 'skriver', udgave: D18, vaerdier: ['6. aug. s.å.'] }]]]);
+    // en dåb, der opløst ville ligge før fødslen, vises som bogens tekst
+    const foerFoedsel = fixture('relativ dåb før fødslen', input([
+      r18({ person_id: 235, faktatype: 'fødsel', date_raw: '28. nov. 1883' }),
+      r18({ person_id: 235, faktatype: 'dåb', date_raw: '25. juli s.å.' }),
+      r39({ person_id: 236, faktatype: 'fødsel', date_raw: '28. nov. 1883' }),
+      r39({ person_id: 236, faktatype: 'dåb', date_raw: '25. juli s.å.' }),
+    ], { udgaveForPersonRaekke: ext2(235, 236) }));
+    expect(linje(byggUdgaveFakta(foerFoedsel, '1'), 'dåb').map((l) => [l.vaerdi, l.noter]))
+      .toEqual([['25. juli s.å.', [{ art: 'skriver', udgave: D39, vaerdier: ['25. juli s.å.'] }]]]);
     // to rækker i samme udgave med ens uopløselig tekst lægges ikke sammen (betydningen kan være forskellig)
     const samme = fixture('relativ dåb, to rækker i samme udgave', input([
       r18({ person_id: 240, faktatype: 'dåb', date_raw: '29. s.m.' }),
@@ -587,7 +596,7 @@ describe('byggUdgaveFakta', () => {
       r18({ person_id: 270, faktatype: 'død', date_raw: '9. juni s.å.' }),
       r39({ person_id: 271, faktatype: 'begravelse', vaerdi_tekst: '6. aug. s.å.', date_raw: null }),
     ], { udgaveForPersonRaekke: ext2(270, 271) });
-    expect(relativeDatoer(inp).map(({ factId: _f, ...x }) => x)).toEqual([
+    expect(relativeDatoer(inp).map(({ factId: _f, bogensTekst: _b, ...x }) => x)).toEqual([
       { faktatype: 'dåb', udgave: '1', oploest: true, reference: '21. april 1644' },
       { faktatype: 'død', udgave: '1', oploest: false, reference: null },
       { faktatype: 'begravelse', udgave: '3', oploest: false, reference: null },

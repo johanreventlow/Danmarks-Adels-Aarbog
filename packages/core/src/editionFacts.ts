@@ -246,7 +246,7 @@ function oploesRelative(fs: FaktumVisning[]): FaktumVisning[] {
     const refType = RELATIV_REFERENCE[f.faktatype];
     if (!refType) return f;
     const ref = reference.get(`${f.personId}\u0000${refType}`) ?? null;
-    const opl = (v: string) => (erRelativDato(v) ? (oploesRelativDato(v, ref) ?? v) : v);
+    const opl = (v: string) => (erRelativDato(v) ? (oploesRelativDato(v, ref, { ikkeFoerReference: true }) ?? v) : v);
     return {
       reference: ref,
       ...f,
@@ -352,11 +352,12 @@ export function byggUdgaveFakta(input: UdgaveFaktaInput, valgt: string | null): 
 // personrækkens udgave, om core opløste det, og den reference, der blev brugt (kun dåb/begravelse).
 export type RelativDatoStatus = {
   factId: string; faktatype: string; udgave: string | null; oploest: boolean; reference: string | null;
+  bogensTekst: string; // den viste værdi før opløsningen (kun til målingens årsagsopdeling; skrives aldrig ud)
 };
 export function relativeDatoer(input: UdgaveFaktaInput): RelativDatoStatus[] {
   const raa = faktaRaa(input, false);
   const opl = oploesRelative(raa);
   return raa.flatMap((f, i) => (f.vaerdi !== '' && erRelativDato(f.vaerdi)
-    ? [{ factId: f.factId, faktatype: f.faktatype, udgave: f.udgave, oploest: !erRelativDato(opl[i].vaerdi), reference: opl[i].reference ?? null }]
+    ? [{ factId: f.factId, bogensTekst: f.vaerdi, faktatype: f.faktatype, udgave: f.udgave, oploest: !erRelativDato(opl[i].vaerdi), reference: opl[i].reference ?? null }]
     : []));
 }

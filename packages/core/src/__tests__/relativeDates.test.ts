@@ -58,6 +58,37 @@ describe('oploesRelativDato', () => {
   });
 });
 
+describe('oploesRelativDato: flertydighed og umulige datoer', () => {
+  it('et led, der kan henvise til en tidligere dato i samme tekst med andet resultat, opløses ikke', () => {
+    // »s.d.« efter bisættelsen = bisættelsens dag, ikke dødsdagen
+    expect(oploesRelativDato('bisat 5. april s.å. og begravet s.d.', '31. marts 1928')).toBeNull();
+    // »27. s.m.« efter en eksplicit dato i en anden måned
+    expect(oploesRelativDato('bisat 27. s.m., begravet 19. sept. 1924, 27. s.m.', '22. nov. 1922')).toBeNull();
+    // »s.m.« efter »5. april s.å.« når referencen er marts
+    expect(oploesRelativDato('bisat 5. april s.å., begravet 9. s.m.', '31. marts 1928')).toBeNull();
+    // et eksplicit år uden måned foran »s.m.«
+    expect(oploesRelativDato('1644, døbt 29. s.m.', '21. april 1644')).toBeNull();
+  });
+
+  it('kæden giver samme resultat som referencen → opløses', () => {
+    expect(oploesRelativDato('bisat 27. s.m. og begravet 29. s.m.', '22. jan. 1923'))
+      .toBe('bisat 27. januar 1923 og begravet 29. januar 1923');
+    expect(oploesRelativDato('hjemmedøbt 10. febr. 1922, 10. febr. s.å.', '12. jan. 1922'))
+      .toBe('hjemmedøbt 10. febr. 1922, 10. febr. 1922');
+    expect(oploesRelativDato('bisat 5. marts s.å., derefter bisat 1746', '7. jan. 1743'))
+      .toBe('bisat 5. marts 1743, derefter bisat 1746');
+  });
+
+  it('ikkeFoerReference: en opløst dato før referencen (dåb før fødsel) opløses ikke', () => {
+    expect(oploesRelativDato('fremstillet, 25. juli s.å.', '28. nov. 1883')).toBe('fremstillet, 25. juli 1883');
+    expect(oploesRelativDato('fremstillet, 25. juli s.å.', '28. nov. 1883', { ikkeFoerReference: true })).toBeNull();
+    expect(oploesRelativDato('15. s.m.', '21. april 1644', { ikkeFoerReference: true })).toBeNull();
+    expect(oploesRelativDato('21. s.m.', '21. april 1644', { ikkeFoerReference: true })).toBe('21. april 1644');
+    expect(oploesRelativDato('6. maj s.å.', '21. april 1644', { ikkeFoerReference: true })).toBe('6. maj 1644');
+    expect(oploesRelativDato('s.d.', '21. april 1644', { ikkeFoerReference: true })).toBe('21. april 1644');
+  });
+});
+
 describe('relativReferenceStatus', () => {
   it('skelner manglende, relativ, usikker og flertydig reference', () => {
     expect(relativReferenceStatus('21. april 1644')).toBe('ok');
