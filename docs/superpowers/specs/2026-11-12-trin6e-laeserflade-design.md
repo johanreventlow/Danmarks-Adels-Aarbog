@@ -98,15 +98,18 @@ grupperer pr. `fact_id`, dvs. pr. personrække (`packages/core/src/personFacts.t
    videre, vælges aldrig først.
 5. **Godserne holdes ude af 6e.** Hver visning viser sin udgaves godser; normaliseringen bliver en backlogopgave.
 6. **1939-personer uden placement** viser kun sidetallet (»DAA 1939, s. 541«), ikke legacy-løbenummeret.
+7. **Den læsbare 1939-etiket skrives som ny publicering** (§9 pkt. 1, vej b): »så ligger det fast, og vi skal ikke
+   bruge tid på beregninger ved alle visninger«.
+8. **Linjeskemaets OCR-fejl rettes:** III hedder »… Linje af Ziesendorf.« (§5.7).
 
 ## 4. Opdeling og afgrænsning (*mit valg*: to dele)
 
 | Del | Indhold | DDL | Prod |
 |---|---|---|---|
 | **6e-1 — klienten** | §5.1-5.5 og §5.8: udgavens fakta, sammenlægning og noter; biografiens standard; børneår; embedsdubletter; tomme værdier; linjer i hovedet følger vælgeren for 2018-20 | nej | web-deploy |
-| **6e-2 — kildehenvisninger og koordinater** | §5.6-5.7: læsbar 1939-etiket fra placement; koordinat-RPC'en entydig på 1939's nøgle og billigere; offentlig læsning af B6; linjer og »Optræder i Aarbogen« for 1939 | ja | DDL + web |
+| **6e-2 — kildehenvisninger og koordinater** | §5.6-5.7: publiceringswriteren skriver den læsbare 1939-etiket, og en ceremoni genpublicerer de berørte bindinger; koordinat-RPC'en entydig på 1939's nøgle og billigere; offentlig læsning af B6; linjer og »Optræder i Aarbogen« for 1939; Ziesendorf | ja | DDL + ceremoni + web |
 
-6e-1 kan gå i prod alene og giver det meste af værdien. 6e-2 kræver DDL og generalprøve på stand-in.
+6e-1 kan gå i prod alene og giver det meste af værdien. 6e-2 kræver DDL, en dataceremoni og generalprøve på stand-in.
 
 **Ikke-mål:** mobilen (dev-only; deler ikke `buildPersonFacts`, *mit valg*: backlog); godsnormalisering; nye fakta,
 personer, familier eller linjer (opret-benet); rettelse af de mulige fejlkoblinger (§2.3); feedets biografifart
@@ -188,8 +191,16 @@ denne på »siger to udgaver det samme?«. Konservativ — ved tvivl: ikke ens.
 **Byggertjekkets fund (bekræftet):** læserne kalder ikke `private.narrative_record_labels`. `public_person_facts`
 (`schema.sql:21427`), biografilæseren v2 (`:16795`, `:16930`) og `public_family_sources` (`:20891`) læser
 `after_state #>> '{labels,record_label}'` fra seneste `private.narrative_publication_event` for bindingen — etiketten
-blev frosset ved publiceringen, før 1939 havde placements. Målt: 1.359 af 4.124 hændelser bærer en `record-`-etiket.
-Vejen til læseren er derfor projektejerens valg (§9 pkt. 1).
+blev frosset ved publiceringen, før 1939 havde placements. Målt: 1.359 af 4.124 hændelser bærer en `record-`-etiket;
+på stand-in er det den seneste hændelse for 563 af 1.151 bindinger (alle kilde 3's publicerede).
+
+**Vej (projektejerens afgørelse 7):** publiceringswriteren lærer formen nedenfor, og en ceremoni skriver én ny
+publiceringshændelse pr. binding, hvis seneste hændelse har en etiket lig `record_key`. Den gamle hændelse bevares
+(versioneret, som målarkitekturen foreskriver for rettelser); læserne er uændrede og læser den nye. Krav til
+ceremonien, som de tidligere: frys, dump før, vinduesvagt, generalprøve på frisk stand-in, afstemning pr. binding
+(kun `labels.record_label` må afvige mellem før- og efterstatus; tekst, synlighed og kilde byte-ens), paritet for
+kilde 1 og fortrydelse. Hvordan ændringen hedder som hændelsestype, og om den kan genbruge revalideringsstien fra
+6d-1, er bygherrens — under kravet, at `stale_published` forbliver 0.
 
 **Etikettens form** (uanset vej):
 
@@ -220,7 +231,16 @@ entydig på siden.
 - **B6 i læseren** (*mit valg*): en offentlig, læse-kun projektion af `membership_component_states` for den viste
   komponent. `corroborated` → »✓ også i DAA 1939 (IV. Den danske grevelige Linje af 1673)« ved linjen; `conflict` →
   »DAA 1939 placerer i: …«. Kun `afklaret` `samme_som`, som funktionen allerede gør.
-- **Linjeskemaets OCR-etiket** (»iesendorf«): se §9.
+- **Linjeskemaets OCR-etiket** (afgørelse 8): entry `III` (stand-in id 61) får etiketten »III. Den ældre meklenborgske
+  Linje af Ziesendorf.« som en lille dataændring i 6e-2's ceremoni, med sporbarhed (før/efter i ceremoniens log eller
+  `change_event`, hvis skemaets writer har en). Øvrige entries er uændrede.
+- **De 21 uden trykt nr.** Projektejerens forventning: nummeret er underforstået 1, fordi forfatteren ikke nummererer en
+  gruppe med kun én person. **Målt:** 20 af 21 står alene i deres gruppe (linje, slægtled, kuld) — forventningen
+  holder. Undtagelsen er `Stamme-holstenske`, slægtled 1: én unummereret og nr. 1-4 i samme gruppe; et underforstået
+  »1« ville kollidere med det trykte nr. 1. *Mit valg:* etiketten viser ikke et nummer, bogen ikke trykker
+  (»II, 5. slægtled«) — læseren skal kunne slå op i bogen, og linje + slægtled finder posten entydigt i de 20 tilfælde.
+  Nøglen behøver ingen udfyldning (NULL kolliderer ikke, målt). Undtagelsen gives en etiket, der skelner den fra
+  nr. 1-4, fx med gruppens overskrift; bygherren viser formen i planen.
 
 ### 5.8 Små rettelser i persondetaljen (6e-1, *mit valg*)
 
@@ -232,8 +252,10 @@ entydig på siden.
 ## 6. Prod og fortrydelse
 
 - **6e-1:** web-deploy. Fortrydelse = redeploy af forrige build. Ingen data ændres.
-- **6e-2:** DDL i `db-migrations.sql` (idempotent) + `schema.sql` + `db-verify.sql`-asserts; ingen dataskrivning.
-  Generalprøve på frisk stand-in. Fortrydelse = forrige funktionsdefinition (gemt i runbooken før apply). Kør
+- **6e-2:** DDL i `db-migrations.sql` (idempotent) + `schema.sql` + `db-verify.sql`-asserts, derefter dataceremonien
+  (§5.6 genpublicering, §5.7 Ziesendorf) efter samme mønster som 6d-1: dump før DDL og før data, vinduesvagt,
+  generalprøve på frisk stand-in. Fortrydelse = restore af data-dumpet under meldt frys (6d-1's kendte begrænsning
+  gælder) og forrige funktionsdefinition (gemt i runbooken før apply). Kør
   `get_advisors`-ækvivalent statisk (Supabase-MCP ser ikke DAA-projektet). Prod-kald via projektejerens shell.
 
 ## 7. Kort
@@ -253,22 +275,19 @@ Browsertjek som anon mod prod (trin 6-specens §8 b, opdateret af §3 og §9 her
 - **Ingen `record-` eller `legacy-source:` i DOM'en** på de tjekkede sider.
 - **Tal:** stikprøven (§5.4) uden falske par; dækning pr. faktatype; koordinat-RPC'en som anon i prod ≤ 0,6 s;
   kilde 1's koordinater og etiketter byte-ens.
+- **Ceremonien (6e-2):** antal genpublicerede bindinger = antal med `record-`-etiket før (stand-in: 563), 0 bagefter;
+  pr. binding afviger kun `labels.record_label`; `stale_published` 0 før og efter; linjeskemaets III lyder
+  »… Ziesendorf.« i læseren.
 - **Status:** `status.md`'s 1939-kolonne for »Læsere på placement/membership« og »Læserflade: fakta med
   kildehenvisning« hæves til `produktionsverificeret` med dato.
 
-## 9. Åbent til projektejeren
+## 9. Afklaret af projektejeren (2026-11-12)
 
-1. **Hvordan når den læsbare 1939-etiket læseren** (§5.6)?
-   - (a) *Beregnet ved læsning:* hver offentlig læser (3-4 RPC'er) afleder etiketten fra placementen og ignorerer en
-     gemt etiket lig `record_key`. Ingen data skrives; men to sandheder (gemt og vist), og fartbudgettet rammes i hver
-     læser.
-   - (b) *Ny publiceringshændelse:* publiceringswriteren får formen fra §5.6, og en ceremoni skriver én ny
-     publiceringshændelse pr. berørt binding med den læsbare etiket (versioneret, som målarkitekturen foreskriver for
-     rettelser). Kræver generalprøve, afstemning pr. binding og fortrydelse; læserne er uændrede.
-   - *Min anbefaling: (b).* Etiketten er en del af det publicerede, og en fremtidig udgave publiceres så med den rigtige
-     etiket fra start.
-2. Skal 1939-linjeskemaets etiket rettes for OCR (»iesendorf« → bogens stavemåde), og i så fald som en lille
-   dataændring i 6e-2?
+1. **Etikettens vej:** (b) ny publiceringshændelse, ikke beregning ved læsning (afgørelse 7, §5.6). Fravalgt (a): to
+   sandheder (gemt og vist) og fartbudgettet i hver læser.
+2. **OCR-etiketten** rettes til »Ziesendorf« (afgørelse 8, §5.7).
+3. **De unummererede** (projektejerens spørgsmål): underforstået nr. 1 bekræftet for 20 af 21; visningen udelader
+   nummeret (§5.7, *mit valg*).
 
 ## 10. Sammenligning: det, specen ville have bygget på uden brainstormen
 
@@ -279,7 +298,7 @@ Projektejeren bad om sammenligningen. Uden spørgsmål ville 6e have fulgt trin 
 | Fakta pr. udgave | §3 pkt. 5: 2018-20-visningen viser kun 2018-20-fakta + kildeløse; 1939's ses kun ved valg af 1939 (= skitse A) | C: den anden udgave som note (»✓ også«/»skriver«/»kun i«) | A skjuler, at udgaverne er enige eller uenige; målarkitekturen: projektionen må ikke skjule uenighed. Kræver decisions-post (justerer §3 pkt. 5) |
 | Gentagelser inden for udgave | ikke nævnt — III-58 og V-1 ville stadig give to »Greve« | lægges sammen | Conrad-eksemplet |
 | Datoformater | ikke nævnt | lighedsregel i core (§5.4) | »21. april« vs »21 April«; 1939's datoer er næsten ikke tolket |
-| Kildeetiket | §3 valg (b) og §8: »DAA 1939, s. N · nr. x« | »s. N · linje, slægtled, nr. x«; uden placement kun »s. N« | 1939's numre er gruppelokale — »nr. x« alene er ikke en reference; Conrad har intet nummer |
+| Kildeetiket | §3 valg (b) og §8: »DAA 1939, s. N · nr. x« | »s. N · linje, slægtled, nr. x«; uden placement kun »s. N«; skrevet som ny publicering | 1939's numre er gruppelokale — »nr. x« alene er ikke en reference; Conrad har intet nummer; etiketten er frosset i publiceringen |
 | Biografiens standard | ikke nævnt (indeks 0) | længste tekst i udgaven | III-58's henvisning vistes først |
 | Koordinater + fart | 6d-beslutningerne: placement for 1939, RPC billigere | uændret, med konkret nøgle og loft | — |
 | B6 i læseren | 6d: »læservisningen er 6e«, form uafklaret | »✓ også i DAA 1939 (linje)« ved linjen | samme mønster som fakta (C) |
@@ -293,3 +312,5 @@ Projektejeren bad om sammenligningen. Uden spørgsmål ville 6e have fulgt trin 
   §5.1; (3) vælgeren når biografi og fakta ikke dækker de samme udgaver → målt (11), §5.5; (4) hvilke værdier noten
   sammenligner → §5.3; (5) hvad et falsk par stopper → kontakt pr. faktatype, §5.4; (6) nøglens kolonner og
   entydighed → målt (0 kollisioner), §5.7.
+- **Projektejerens svar 2026-11-12:** §9 pkt. 1 → (b); pkt. 2 → Ziesendorf; de unummererede målt (20/21 alene i
+  gruppen, én undtagelse), §5.7. 6e-2 får derfor en dataceremoni (§4, §6).
