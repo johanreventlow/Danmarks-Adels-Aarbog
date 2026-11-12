@@ -3,7 +3,7 @@
 // viser en tom-tilstand frem for at vælte siden — men breakage er ikke HELT tavst (console).
 import { supabase } from '../supabase';
 import type { Model } from './types';
-import { pickPreferredBio, buildBioSourceVersions, mapPublicBioSourceVersionsV2 as mapCorePublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, buildPersonFacts, type BioSourceVersion, type BioSourceVersionV2, type NarrativeCand, type PersonFactView, type PublicPersonFactRow, type RaaCitationRow, type SourceRef, type Udgave, type UdgaveFaktaInput } from '@daa/core';
+import { pickPreferredBio, buildBioSourceVersions, mapPublicBioSourceVersionsV2 as mapCorePublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, buildPersonFacts, FAKTA_UDELADT, type BioSourceVersion, type BioSourceVersionV2, type NarrativeCand, type PersonFactView, type PublicPersonFactRow, type RaaCitationRow, type SourceRef, type Udgave, type UdgaveFaktaInput } from '@daa/core';
 import { SLUKKET_ENIGHED } from './udgaver';
 import { fetchPersonMedia, fetchObjectMedia, type MediaItem } from './media';
 
@@ -176,6 +176,7 @@ export type PersonEstate = { id: string; navn: string; personId: string };
 // bog-nummer (person_external_id) — se hentKilder nedenfor.
 // facts/factsError (B11, spec 2026-10-29 §4.3-4.4): personens fakta med kilde fra public_person_facts; en fejl dér
 // sætter factsError, så sektionen siger det i stedet for at stå tom, mens resten af detaljen vises.
+// facts: forældet i web — brug faktaInput/byggUdgaveFakta (bevares for planens kompatibilitet).
 export type PersonDetailData = { bio: string; bioVersions: BioSourceVersion[]; offices: PersonOffice[]; estates: PersonEstate[]; media: MediaItem[]; sources: SourceRef[]; facts: PersonFactView[]; factsError: boolean; faktaInput: UdgaveFaktaInput | null };
 
 type RawPersonRel = { subjekt_id: number | string; objekt_type: string; objekt_id: number; rolle: string | null; periode_raw: string | null };
@@ -213,9 +214,12 @@ function embedeLabel(rolle: string | null, org: string | undefined): string {
 }
 
 // Redaktørens egen kildetekst (citation uden source_id) for valgte påstande uden kilde og uden bogpost.
-// Enhver fejl giver {} — fakta vises stadig; det er ikke en faktafejl.
+// Enhver fejl giver {} — fakta vises stadig; det er ikke en faktafejl. Typer, fakta-visningen udelader
+// (forældrefamilie, forældre_ukendt), udløser intet opslag: personsiden må ikke betale for dem.
 async function fetchFritekstKilde(rows: PublicPersonFactRow[]): Promise<Record<string, string[]>> {
-  const ids = [...new Set(rows.filter((r) => r.chosen === true && r.source_id == null && !r.record_ref).map((r) => r.assertion_id))];
+  const ids = [...new Set(rows
+    .filter((r) => r.chosen === true && r.source_id == null && !r.record_ref && !FAKTA_UDELADT.includes(r.faktatype))
+    .map((r) => r.assertion_id))];
   if (!ids.length) return {};
   try {
     const res = await supabase.from('citation').select('assertion_id,citat_tekst').is('source_id', null).in('assertion_id', ids as number[]);
@@ -320,7 +324,11 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
       : bioVersions[0]?.narrativeText ?? '';
     const orgIds = rels.filter((r) => r.objekt_type === 'organisation').map((r) => r.objekt_id);
     const estIds = rels.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);
-    const { org: orgNavn, estate: estNavn } = await resolveOrgEstateNames(orgIds, estIds);
+    // Navne og redaktørens kildetekster i samme bølge (ingen ekstra seriel rundtur for personsiden).
+    const [{ org: orgNavn, estate: estNavn }, fritekstKilde] = await Promise.all([
+      resolveOrgEstateNames(orgIds, estIds),
+      factRows ? fetchFritekstKilde(factRows) : Promise.resolve({} as Record<string, string[]>),
+    ]);
     // Dedup ved union over foldede medlemmer: samme embede/gods fra to medlems-poster → én.
     const offices = dedupBy(
       rels.filter((r) => r.objekt_type === 'organisation').map((r) => ({
@@ -336,13 +344,13 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
       (e) => `${e.personId}|${e.id}`,
     );
     const sources = hentKilder ? await fetchProveniens(numIds) : [];
-    const facts = factRows ? buildPersonFacts(factRows) : [];
+    const facts = factRows ? buildPersonFacts(factRows) : []; // forældet i web — brug faktaInput/byggUdgaveFakta
     const faktaInput: UdgaveFaktaInput | null = factRows
       ? {
         rows: factRows,
         udgaver: udgaveKontekst?.udgaver ?? [],
         udgaveForPersonRaekke: udgaveKontekst?.udgaveForPersonRaekke ?? {},
-        fritekstKilde: await fetchFritekstKilde(factRows),
+        fritekstKilde,
         slukketEnighed: SLUKKET_ENIGHED,
       }
       : null;

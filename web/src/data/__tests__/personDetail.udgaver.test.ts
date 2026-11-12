@@ -4,6 +4,7 @@ const rel = { data: [] as unknown[], error: null as unknown };
 const citation = { data: [] as unknown[], error: null as unknown };
 const citationIn = vi.fn();
 let factRows: unknown[] = [];
+let orgVent: Promise<void> | null = null;
 
 function table(name: string) {
   const res = () => (name === 'citation' ? citation : name === 'relation' ? rel : name === 'organisation' ? { data: [{ id: 7, navn: 'greve' }], error: null } : { data: [], error: null });
@@ -11,7 +12,8 @@ function table(name: string) {
   const chain = () => q;
   for (const m of ['select', 'eq', 'is', 'order', 'range', 'limit']) q[m] = chain;
   q.in = (...a: unknown[]) => { if (name === 'citation') citationIn(...a); return q; };
-  q.then = (ok: (v: unknown) => unknown, ko: (e: unknown) => unknown) => Promise.resolve(res()).then(ok, ko);
+  q.then = (ok: (v: unknown) => unknown, ko: (e: unknown) => unknown) =>
+    (name === 'organisation' && orgVent ? orgVent.then(res) : Promise.resolve(res())).then(ok, ko);
   return q;
 }
 vi.mock('../../supabase', () => ({
@@ -30,7 +32,7 @@ const { fetchPersonDetail } = await import('../public');
 const row = (o: Record<string, unknown>) => ({ person_id: 1, fact_id: 1, faktatype: 'fødsel', conclusion_status: 'afklaret', assertion_id: 10, chosen: true, vaerdi_tekst: 'x', date_raw: null, date_min: null, date_max: null, date_qualifier: null, date_certainty: null, source_id: null, source_label: null, side: null, record_ref: null, record_label: null, citation_label: null, ...o });
 
 beforeEach(() => {
-  rel.data = []; rel.error = null; citation.data = []; citation.error = null; citationIn.mockReset(); factRows = [];
+  rel.data = []; rel.error = null; citation.data = []; citation.error = null; citationIn.mockReset(); factRows = []; orgVent = null;
 });
 
 describe('fetchPersonDetail udgaveoplysninger', () => {
@@ -41,6 +43,25 @@ describe('fetchPersonDetail udgaveoplysninger', () => {
     expect(citationIn).toHaveBeenCalledTimes(1);
     expect(citationIn).toHaveBeenCalledWith('assertion_id', [10]);
     expect(d.faktaInput?.fritekstKilde).toEqual({ '10': ['Redaktørens tekst'] });
+  });
+  it('forældrefamilie/forældre_ukendt udløser intet citat-opslag (O-I1)', async () => {
+    factRows = [row({ assertion_id: 20, faktatype: 'forældrefamilie' }), row({ assertion_id: 21, fact_id: 2, faktatype: 'forældre_ukendt' })];
+    const d = await fetchPersonDetail('1');
+    expect(citationIn).not.toHaveBeenCalled();
+    expect(d.faktaInput?.fritekstKilde).toEqual({});
+  });
+  it('citat-opslaget venter ikke på embeds- og godsnavnene (O-I1)', async () => {
+    factRows = [row({ assertion_id: 10 })];
+    rel.data = [{ subjekt_id: 1, objekt_type: 'organisation', objekt_id: 7, rolle: 'Greve', periode_raw: null }];
+    let slip!: () => void;
+    orgVent = new Promise<void>((r) => { slip = r; });
+    const svar = fetchPersonDetail('1');
+    try {
+      await vi.waitFor(() => expect(citationIn).toHaveBeenCalledWith('assertion_id', [10]), { timeout: 500 });
+    } finally {
+      slip();
+    }
+    expect((await svar).offices[0].label).toBe('Greve');
   });
   it('fejl i citation-opslaget giver tom fritekstKilde, ikke faktafejl', async () => {
     factRows = [row({})];
