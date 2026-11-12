@@ -27,6 +27,21 @@ test.beforeEach(async ({ page }) => {
   (page as unknown as { __consoleErrors: string[] }).__consoleErrors = errors;
 });
 
+test('et blad tæller først som set, når det har været på skærmen', async ({ page }) => {
+  // Lav skærm: feedet ligger under kanten, til læseren ruller.
+  await page.setViewportSize({ width: 390, height: 500 });
+  await page.goto('/');
+  const foersteKort = page.locator('[data-kort-id]').first();
+  await expect(foersteKort).toBeAttached({ timeout: 15_000 });
+  await page.waitForTimeout(500);
+  const set = () => page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem('daa_feed_seen') ?? '{}')));
+  expect(await set()).toEqual([]);
+
+  await foersteKort.scrollIntoViewIfNeeded();
+  const id = await foersteKort.getAttribute('data-kort-id');
+  await expect.poll(set).toContain(id);
+});
+
 test('hovedsiden deler feedet ud seks blade ad gangen, med et nævnt-kort og kilde', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Slå op i Aarbogen' })).toBeVisible({ timeout: 10_000 });

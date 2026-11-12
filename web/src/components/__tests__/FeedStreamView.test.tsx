@@ -119,11 +119,41 @@ describe('FeedStreamView — uddeling', () => {
     expect((streamMocks.createFeedStream.mock.calls[0][2] as FeedInputs).naevntGrundlag).toBeUndefined();
   });
 
+  it('markerer et blad som set, først når det er synligt — ikke ved uddelingen', async () => {
+    class FakeObserver {
+      static seneste: FakeObserver | null = null;
+      elementer = new Set<Element>();
+      constructor(private cb: (entries: unknown[], obs: unknown) => void) { FakeObserver.seneste = this; }
+      observe(el: Element) { this.elementer.add(el); }
+      unobserve(el: Element) { this.elementer.delete(el); }
+      disconnect() { this.elementer.clear(); }
+      vis(ids: string[]) {
+        const entries = [...this.elementer]
+          .filter((el) => ids.includes((el as HTMLElement).dataset.kortId ?? ''))
+          .map((target) => ({ target, isIntersecting: true, intersectionRatio: 0.6 }));
+        this.cb(entries, this);
+      }
+    }
+    vi.stubGlobal('IntersectionObserver', FakeObserver);
+    try {
+      render(<FeedStreamView {...feedProps(null)} />);
+      await waitFor(() => expect(screen.getByRole('region', { name: 'Blade 1–6' })).toBeTruthy());
+      expect(seenMocks.markSeen).not.toHaveBeenCalled();
+
+      act(() => { FakeObserver.seneste!.vis(['portrait:1', 'portrait:2']); });
+      expect(seenMocks.markSeen).toHaveBeenCalledWith(['portrait:1', 'portrait:2'], 1);
+      // Et blad markeres kun én gang.
+      act(() => { FakeObserver.seneste!.vis(['portrait:1']); });
+      expect(seenMocks.markSeen).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('viser seks blade, og knappen vender de næste som ny blok med fokus', async () => {
     render(<FeedStreamView {...feedProps(null)} />);
     await waitFor(() => expect(screen.getAllByRole('region')).toHaveLength(1));
     expect(screen.getByRole('region', { name: 'Blade 1–6' })).toBeTruthy();
-    expect(seenMocks.markSeen).toHaveBeenLastCalledWith(ids1til6.map((id) => 'portrait:' + id), 1);
     expect(screen.queryByText(/fortsætter, hvor du slap/)).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Vend seks blade mere' }));

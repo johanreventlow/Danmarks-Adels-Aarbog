@@ -203,9 +203,10 @@ export function FeedStreamView({
   const streamOwnerRef = useRef<string | null | undefined>(undefined);
   const [done, setDone] = useState(false);
 
-  // Et dealt blad regnes som set med det samme: knappen viser seks ad gangen, og et blad, der
-  // er delt ud, har læseren haft foran sig. Hukommelsen er frosset for denne visning (§5.3),
-  // så markeringen påvirker først næste besøg — derfor »fortsætter hvor du slap«.
+  // Et blad regnes som set, når mindst halvdelen af det har været på skærmen (observatøren
+  // nedenfor) — ikke allerede ved uddelingen, så et feed under skærmkanten ikke markerer noget
+  // (projektejerens valg 12/11). Hukommelsen er frosset for denne visning (§5.3), så markeringen
+  // påvirker først næste besøg — derfor »fortsætter hvor du slap«.
   const markAsSeen = useCallback((cards: readonly FeedCard[]) => {
     const ids = cards
       .filter((c) => !SEEN_EXCLUDED_KINDS.has(c.kind) && !markedIdsRef.current.has(c.id))
@@ -234,7 +235,6 @@ export function FeedStreamView({
       const first = delUd(built, []);
       shownRef.current = first;
       setShown(first);
-      markAsSeen(first);
     } else {
       // Rebuild pga. bio/livsdato/hændelses-ankomst (SAMME seed) — resume, aldrig nulstil.
       const preserved = preserveShownForResume(shownRef.current);
@@ -261,15 +261,37 @@ export function FeedStreamView({
     shownRef.current = [...shownRef.current, ...next];
     setShown(shownRef.current);
     setDone(stream.done());
-    markAsSeen(next);
     if (next.length > 0) setFokusBlok(blokIndex);
-  }, [markAsSeen]);
+  }, []);
   useEffect(() => {
     if (fokusBlok === null) return;
     blokRefs.current.get(fokusBlok)?.focus();
     setFokusBlok(null);
   }, [fokusBlok]);
   const harSetFoer = seenWeights !== null && Object.keys(seenWeights).length > 0;
+
+  // Synligheds-observatør: markerer et blad som set, første gang mindst halvdelen er på skærmen.
+  // Den implicitte rod (viewport) tager højde for den indre rulle-containers beskæring. Uden
+  // IntersectionObserver (fx jsdom) markeres intet — hellere for lidt »set« end for meget.
+  // Genskabes ved ejerskifte, så den nye ejer får sine egne markeringer.
+  const feedRef = useRef<HTMLDivElement | null>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return;
+    const obs = new IntersectionObserver((entries) => {
+      const synlige = entries.filter((e) => e.isIntersecting && e.intersectionRatio >= 0.5);
+      if (synlige.length === 0) return;
+      const ids = new Set(synlige.map((e) => (e.target as HTMLElement).dataset.kortId));
+      synlige.forEach((e) => obs.unobserve(e.target));
+      markAsSeen(shownRef.current.filter((c) => ids.has(c.id)));
+    }, { threshold: 0.5 });
+    observerRef.current = obs;
+    feedRef.current?.querySelectorAll('[data-kort-id]').forEach((el) => obs.observe(el));
+    return () => { obs.disconnect(); observerRef.current = null; };
+  }, [markAsSeen, bookmarkOwnerId]);
+  const observerKort = useCallback((el: HTMLDivElement | null) => {
+    if (el) observerRef.current?.observe(el);
+  }, []);
 
   const openCard = useCallback((card: FeedCard) => {
     switch (card.kind) {
@@ -284,7 +306,7 @@ export function FeedStreamView({
 
   const blokke = iBlokke(shown);
   return (
-    <div>
+    <div ref={feedRef}>
       {bioError ? (
         <div role="alert" style={{ marginBottom: 14, padding: 14, color: T.bordeaux, background: T.surfaceRaised, border: '1px solid rgba(136,26,51,.25)' }}>
           <strong>Kunne ikke hente feedets biografier</strong>
@@ -310,7 +332,7 @@ export function FeedStreamView({
             const fallbackName = 'personId' in card && 'name' in card ? card.name : ('personId' in card ? `#${card.personId}` : '');
             const fallbackYears = 'personId' in card && 'years' in card ? card.years : '';
             return (
-              <div key={card.id} style={{ breakInside: 'avoid', marginBottom: 18 }}>
+              <div key={card.id} ref={observerKort} data-kort-id={card.id} style={{ breakInside: 'avoid', marginBottom: 18 }}>
                 <FeedCardView
                   card={card}
                   person={'personId' in card ? {
