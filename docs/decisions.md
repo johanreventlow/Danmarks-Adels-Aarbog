@@ -36,6 +36,24 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > **I prod 2026-11-11** (`database-current-state.md` §27): 69 bindinger for kilde 3 (68 ægteskaber + 1 forælder),
 > 42 `samme_som` (dobbelt 42 → 0), 1791 og 1795 private; kilde 1 uændret; browsertjek som anon OK.
 
+## NOTERET: Redaktion mangler et entydigt søge- og koblingsværktøj til `samme_som` — åben backlog (2026-11-12)
+
+> Fundet, da projektejeren skulle lave de 6 koblinger fra de omvendte D-kort i Redaktion (decisions 2026-11-11):
+>
+> - **Søgningen kan ikke finde personen entydigt.** Vælgeren under »+ Marker som samme person« filtrerer på
+>   personens korte visningsnavn og viser højst 40 træf (`web/src/Redaktion.tsx:2012-2013`). 1939's »Anna« (1036) og
+>   2018-20's »Anna Reventlow« (112) kan ingen af vejene findes, fordi begge vises som »Anna«. Der kan ikke søges på
+>   person-id, årstal, slægtsled eller udgave.
+> - **Advarslen i bekræftelsesdialogen er falsk for 1939-par.** Dialogen kalder `previewSammeSom(rawDb, [], …)`
+>   (`web/src/Redaktion.tsx:2256`) uden de eksisterende `samme_som`-kanter, så forældre, der allerede er koblet på tværs
+>   af udgaverne, ses som »konkurrerende forældre«. Med alle kanter folder alle 6 par (målt med core på stand-in
+>   `…_slut`). »Sammenlign udgaver« sender kanterne med (`SammenlignUdgaver.tsx:259`).
+>
+> **Projektejerens ønske:** et søge- og koblingsværktøj, hvor to personer kan matches entydigt (fx id, fulde navn,
+> leveår, forældre/ægtefælle, udgave, og direkte fra et kort). De 6 koblinger blev i stedet lavet af en privat runner
+> (`~/.private/5ab-overfoersel/37-omvendt-samme-som.sh`) med samme RPC (`red_samme_som`). Dialogrettelsen er lille
+> (send kanterne med); søgeværktøjet kræver en spec.
+
 ## NOTERET: 1939-hovedperson ukoblet mens ægtefællen er koblet — det omvendte af 6d-3's D-tilfælde, åben backlog (2026-11-11)
 
 > Fundet ved 6d-3's browsertjek: 612 (Mette von Rantzau) viser to ægtemænd, 2018-20's 75 (»Nicolaus von Reventlow«,
