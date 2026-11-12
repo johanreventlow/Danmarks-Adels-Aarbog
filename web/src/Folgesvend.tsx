@@ -18,6 +18,7 @@ import { useBookmarks, type BookmarkSort } from './data/bookmarks';
 import { signIn, signOut, currentSession, loginFejlTekst, type RedSession } from './data/auth';
 import { BookmarksView } from './components/BookmarksView';
 import { Sidehoved, type HovedpunktAktiv } from './components/Sidehoved';
+import { Slaegtsbjaelke } from './components/Slaegtsbjaelke';
 import { HomeView } from './components/HomeView';
 import { TreeView } from './components/TreeView';
 import { RelateView } from './components/RelateView';
@@ -440,6 +441,11 @@ export default function Folgesvend() {
         ) : null}
       />
 
+      {findSlaegt(parsed.slaegt) && mode !== 'ukendtSlaegt' && (
+        <Slaegtsbjaelke slaegt={findSlaegt(parsed.slaegt)!} aktivMode={mode} visPraesens={session?.role === 'redaktion'}
+          onGaaTil={(m) => goToMode(m)} onSkiftSlaegt={() => setMenuAaben(true)} />
+      )}
+
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
 
         {/* Center */}
@@ -452,7 +458,8 @@ export default function Folgesvend() {
               onOpenSlaegt={(aId, bId) => { setRelA(aId); setRelB(bId); setRelSlot('B'); goToMode('relate'); }} />
             : mode === 'tree' ? <TreeView model={model} focusId={focusId} personHref={visPersonPath} onPick={treePick} onFocus={driftFocus} hasBookmark={bookmarks.has} onToggleBookmark={saveOrPrompt} search={treeSearch} />
             : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={focusOnly} meId={meCanon} onSetMeA={() => { if (meCanon) { setRelA(meCanon); setRelSlot('B'); } }} search={treeSearch} />
-            : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(estatePath(id)); }} onBack={() => { setEstateId(null); navigate(pathForMode('estates', slug)); }} onPickOwner={navigateTree} />
+            : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(estatePath(id)); }} onBack={() => { setEstateId(null); navigate(pathForMode('estates', slug)); }} onPickOwner={navigateTree}
+              slaegtensKortHref={pathForMode('kort', slug)} onSlaegtensKort={() => goToMode('kort')} />
             : mode === 'arms' ? <ArmsView arms={arms} />
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} onPick={navigateTree} />
             : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={saveOrPrompt} loggedIn={bookmarks.canSave} onRequireLogin={() => setLoginOpen(true)} /> : <div style={{ padding: 40, color: T.inkMuted }}>Henter…</div>)

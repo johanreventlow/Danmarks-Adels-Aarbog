@@ -13,9 +13,11 @@ import { Lightbox } from './Lightbox';
 import { ViewHeader, Label, MediaThumb } from './primitives';
 import { GeoMap, ExpandableMiniMap, MapFallback } from './lazyMaps';
 
-export function EstatesView({ estates, estateId, estate, info, owners, geo, geoLoading, onOpen, onBack, onPickOwner }: {
+export function EstatesView({ estates, estateId, estate, info, owners, geo, geoLoading, onOpen, onBack, onPickOwner, slaegtensKortHref, onSlaegtensKort }: {
   estates: EstateItem[] | null; estateId: string | null; estate: EstateItem | null; info: EstateInfo | null;
   owners: EstateOwner[]; geo?: Geo; geoLoading: boolean; onOpen: (id: string) => void; onBack: () => void; onPickOwner: (id: string) => void;
+  // Indgang til oversigtskortet (personernes steder og godserne), der før kun lå i megamenuen.
+  slaegtensKortHref?: string; onSlaegtensKort?: () => void;
 }) {
   const [lightbox, setLightbox] = useState<number | null>(null); // Slice A — kun brugt i detalje-grenen nedenfor
   const [viewMode, setViewMode] = useState<'liste' | 'kort'>('liste');
@@ -89,7 +91,10 @@ export function EstatesView({ estates, estateId, estate, info, owners, geo, geoL
           ))}
         </div>
       </div>
-      <div style={{ fontSize: 14, color: T.inkMuted, marginTop: 4, marginBottom: 20 }}>Besiddelser knyttet til slægten — klik for ejerrækken gennem tiden.</div>
+      <div style={{ fontSize: 14, color: T.inkMuted, marginTop: 4, marginBottom: 20 }}>
+        Besiddelser knyttet til slægten — klik for ejerrækken gennem tiden.
+        {slaegtensKortHref && <> <Link href={slaegtensKortHref} onNavigate={onSlaegtensKort} style={{ color: T.bordeaux, fontWeight: 600 }}>Slægtens kort med personernes steder</Link></>}
+      </div>
       {!estates ? <div style={{ color: T.inkMuted }}>Henter…</div> : !estates.length ? <div style={{ color: T.inkMuted }}>Ingen godser registreret.</div> : viewMode === 'kort' ? (
         geoLoading ? (
           <div style={{ flex: 1, minHeight: 0 }}><MapFallback height="100%" /></div>

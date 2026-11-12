@@ -159,3 +159,15 @@ test('stamtræet med ?fokus=<id> åbner personpanelet', async () => {
   await screen.findByText('Biografi: Fra fokus');
   expect(mocks.fetchPersonDetail.mock.calls[0][0]).toBe('1');
 });
+
+test('slægtsbjælken vises under /slaegt/<slug>, ikke på /person/<id>', async () => {
+  mocks.fetchPersonDetail.mockResolvedValue({ bio: 'x', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });
+  window.history.replaceState({}, '', '/slaegt/reventlow/stamtrae?fokus=1');
+  const { unmount } = render(<Folgesvend />);
+  expect(await screen.findByRole('navigation', { name: 'Slægten Reventlow' })).toBeTruthy();
+  unmount();
+  window.history.replaceState({}, '', '/person/1');
+  render(<Folgesvend />);
+  await screen.findByText('Biografi: x');
+  expect(screen.queryByRole('navigation', { name: 'Slægten Reventlow' })).toBeNull();
+});
