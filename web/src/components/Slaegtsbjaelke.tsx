@@ -2,8 +2,9 @@
 // under sidehovedet på /slaegt/<slug>/* og navigerer mellem slægtens sider. Ikke på /person,
 // /slaegtskab, /soeg, /min-side.
 //
-// Mærket er slægtens monogram, som sidehovedets slægtsvælger viste før — ikke tegningens
-// grundvåben, der endnu ikke er godkendt (overdragelsens åbne punkt 5). Præsenslisten vises kun
+// Mærket er slægtens monogram, som sidehovedets slægtsvælger viste før. Grundvåbnet vises indtil
+// videre kun på slægtens forside, hvor der er plads til kildenoten (det er ikke autoriseret,
+// overdragelsens åbne punkt 5); de små mærker følger, når en godkendt tegning findes. Præsenslisten vises kun
 // for redaktionen (fase 0; medlemmer får den i fase 8). Artikler vises ikke, før siden findes.
 import { Link } from '../Link';
 import { pathForMode, slaegtPath, type Mode, type Slaegt } from '../data/nav';
