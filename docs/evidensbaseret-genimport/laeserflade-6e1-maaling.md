@@ -90,8 +90,8 @@ tallene ligger tæt. Opløst / ikke opløst er core's egen afgørelse (`relative
 
 | Udgave | Faktatype | Opløst | Ikke opløst | Årsag (ikke opløst) |
 |---|---|---:|---:|---|
-| DAA 2018-20 | dåb | 179 | 0 | |
-| DAA 2018-20 | begravelse | 108 | 8 | dødsdatoen er selv relativ |
+| DAA 2018-20 | dåb | 177 | 2 | 1 ville ligge før fødslen · 1 flertydig i teksten |
+| DAA 2018-20 | begravelse | 106 | 10 | 8 dødsdatoen er selv relativ · 2 flertydig i teksten |
 | DAA 2018-20 | død | 0 | 12 | typen opløses ikke |
 | DAA 2018-20 | titel | 0 | 4 | typen opløses ikke |
 | DAA 2018-20 | dekoration | 0 | 3 | typen opløses ikke |
@@ -99,11 +99,19 @@ tallene ligger tæt. Opløst / ikke opløst er core's egen afgørelse (`relative
 | DAA 1939 | begravelse | 8 | 3 | dødsdatoen er selv relativ |
 | DAA 1939 | død | 0 | 16 | typen opløses ikke |
 | DAA 1939 | titel | 0 | 2 | typen opløses ikke |
-| **I alt** | | **316** | **48** | |
+| **I alt** | | **312** | **52** | |
 
-En usikker eller flertydig reference (»ca.«, »o.«, »før«, »eller«, »?«, et interval, to forskellige datoer) opløses
-ikke (*mit valg*: en sikker dato må ikke udledes af en usikker); det rammer 0 viste fakta på stand-in'en. Ikke opløste
-værdier vises som bogens tekst og kan aldrig give »✓«.
+Tre konservative regler ud over spec'en (*mit valg*; ikke opløst = bogens tekst, aldrig »✓«):
+
+- **Usikker reference** (»ca.«, »o.«, »før«, »eller«, »?«, et interval, to forskellige datoer) opløses ikke: en sikker
+  dato må ikke udledes af en usikker. Rammer 0 viste fakta.
+- **Flertydig i teksten:** bogen skriver også »s.d.«/»s.m.« om en dato tidligere i samme tekst (»bisat … s.å. og
+  begravet s.d.« = bisættelsens dag). Giver den læsning et andet resultat end fødslen/døden, opløses intet. Rammer 3.
+- **Før referencen:** en dåb, der opløst ville ligge før fødslen (eller en begravelse før døden), opløses ikke.
+  Rammer 1.
+
+Kontrol af de 312 opløste værdier (kun antal): 0 ugyldige datoer (fx 31. april), 0 før referencen; 3 værdier
+nævner flere datoer, alle forskellige hændelser i bogens tekst (bisat/begravet, hjemmedøbt/fremstillet).
 
 ## Vælger, etiketter og tab
 

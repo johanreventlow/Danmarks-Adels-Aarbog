@@ -213,9 +213,14 @@ for (const k of komps) {
     relTal.set(noegle, x);
     if (r.oploest) { x.oploest++; continue; }
     x.uoploest++;
-    // årsag: typen opløses ikke, eller referencens status (»ok« = læsbar, men mangler den del, leddet kræver)
+    // årsag: typen opløses ikke; referencens status; eller (læsbar reference) opløsningen ville ligge før referencen,
+    // eller leddet mangler en del i referencen / er flertydigt i forhold til en tidligere dato i samme tekst
     const aarsag = r.faktatype !== 'dåb' && r.faktatype !== 'begravelse' ? 'typen opløses ikke'
-      : (() => { const st = relativReferenceStatus(r.reference); return st === 'ok' ? 'reference mangler del' : `reference ${st}`; })();
+      : (() => {
+        const st = relativReferenceStatus(r.reference);
+        if (st !== 'ok') return `reference ${st}`;
+        return oploesRelativDato(r.bogensTekst, r.reference) != null ? 'før referencen' : 'mangler del eller flertydigt i teksten';
+      })();
     x.aarsager.set(aarsag, (x.aarsager.get(aarsag) ?? 0) + 1);
   }
 }
@@ -289,7 +294,8 @@ for (const r of offentligeValgte) {
   if (!linje) klasse = 'ingen linje';
   // en opløst relativ dato (§5.4a) er stadig den valgte påstand — sammenlign med core's opløsning af den
   else if (linje.vaerdi !== factValue(raekke)
-    && linje.vaerdi !== oploesRelativDato(factValue(raekke), relReference.get(String(raekke.fact_id)) ?? null)) klasse = 'bøgernes ord vist';
+    && linje.vaerdi !== oploesRelativDato(factValue(raekke), relReference.get(String(raekke.fact_id)) ?? null,
+      { ikkeFoerReference: true })) klasse = 'bøgernes ord vist';
   else if (egen == null) klasse = 'som i dag';
   else {
     const probe: Udgave = { sourceId: '__probe', label: '\u0000probe', aar: 1 };
