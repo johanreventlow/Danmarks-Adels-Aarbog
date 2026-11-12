@@ -90,8 +90,8 @@ tallene ligger tæt. Opløst / ikke opløst er core's egen afgørelse (`relative
 
 | Udgave | Faktatype | Opløst | Ikke opløst | Årsag (ikke opløst) |
 |---|---|---:|---:|---|
-| DAA 2018-20 | dåb | 177 | 2 | 1 ville ligge før fødslen · 1 flertydig i teksten |
-| DAA 2018-20 | begravelse | 106 | 10 | 8 dødsdatoen er selv relativ · 2 flertydig i teksten |
+| DAA 2018-20 | dåb | 178 | 1 | ville ligge før fødslen |
+| DAA 2018-20 | begravelse | 106 | 10 | 8 dødsdatoen er selv relativ · 1 usikker reference (skråstreg) · 1 flertydig i teksten |
 | DAA 2018-20 | død | 0 | 12 | typen opløses ikke |
 | DAA 2018-20 | titel | 0 | 4 | typen opløses ikke |
 | DAA 2018-20 | dekoration | 0 | 3 | typen opløses ikke |
@@ -99,19 +99,34 @@ tallene ligger tæt. Opløst / ikke opløst er core's egen afgørelse (`relative
 | DAA 1939 | begravelse | 8 | 3 | dødsdatoen er selv relativ |
 | DAA 1939 | død | 0 | 16 | typen opløses ikke |
 | DAA 1939 | titel | 0 | 2 | typen opløses ikke |
-| **I alt** | | **312** | **52** | |
+| **I alt** | | **313** | **51** | |
 
-Tre konservative regler ud over spec'en (*mit valg*; ikke opløst = bogens tekst, aldrig »✓«):
+Konservative regler ud over spec'en (*mit valg*; ikke opløst = bogens tekst, aldrig »✓«):
 
-- **Usikker reference** (»ca.«, »o.«, »før«, »eller«, »?«, et interval, to forskellige datoer) opløses ikke: en sikker
-  dato må ikke udledes af en usikker. Rammer 0 viste fakta.
+- **Usikker eller flertydig reference** (»ca.«, »o.«, »før«, »eller«, »?«, et interval, en skråstreg som »12./13. jan.«
+  eller »1644/45«, to forskellige datoer eller måneder) opløses ikke: en sikker dato må ikke udledes af en usikker.
+  Rammer 1 (skråstreg; den blev opløst før review-rettelsen).
+- **Opløsning pr. del:** `vaerdi_tekst` og `date_raw` opløses hver for sig og derefter tjekkes for dobbelt værdi
+  (spec §5.8). En `date_raw`, der står ordret i `vaerdi_tekst`, vises ikke igen. Kan én del ikke opløses, vises hele
+  værdien som bogens tekst.
 - **Flertydig i teksten:** bogen skriver også »s.d.«/»s.m.« om en dato tidligere i samme tekst (»bisat … s.å. og
-  begravet s.d.« = bisættelsens dag). Giver den læsning et andet resultat end fødslen/døden, opløses intet. Rammer 3.
+  begravet s.d.« = bisættelsens dag). Giver den læsning et andet resultat end fødslen/døden, opløses intet. Rammer 1.
+- **Forkortelser er ikke datoer:** initialer og forkortelseskæder (»i S. M. Kirke«, »R.S.A.O.«, »K.S.D.«, »S.D.-kors«,
+  »p.s.d.«) regnes ikke som relative. 1939's »15 s. M.« (lille s) gør. Rammer 0 på stand-in'en, og formerne
+  »s. Aa.«/»samme Aar« forekommer 0 gange blandt offentlige påstande.
 - **Før referencen:** en dåb, der opløst ville ligge før fødslen (eller en begravelse før døden), opløses ikke.
   Rammer 1.
 
-Kontrol af de 312 opløste værdier (kun antal): 0 ugyldige datoer (fx 31. april), 0 før referencen; 3 værdier
-nævner flere datoer, alle forskellige hændelser i bogens tekst (bisat/begravet, hjemmedøbt/fremstillet).
+Kontrol af de 313 opløste værdier (kun antal): 0 ugyldige datoer (fx 31. april), 0 før referencen. 5 værdier
+nævner flere datoer, alle forskellige hændelser i bogens tekst (bisat/begravet, hjemmedøbt/fremstillet, senere
+bisat).
+
+**Review-rettelsen (2026-11-12), før → efter:**
+
+- Opløst/ikke opløst: 312/52 → 313/51. 1 dåb og 1 begravelse opløses nu (pr. del i stedet for hele værdien), og
+  1 begravelse opløses ikke længere (skråstreg i dødsdatoen).
+- Noterne er uændrede: ✓/skriver/»Kun i« og de 927 par er de samme.
+- 38 visninger (komponent × udgave) viser en kortere værdi, fordi en dato ikke længere står to gange.
 
 ## Vælger, etiketter og tab
 
@@ -160,3 +175,13 @@ begge udgaver. Teksten er ens, men datoen afhænger af det faktum, den henviser 
 46 bedømte par: 45 er stadig ✓ (de 4 relative i nr. 43-46 nu på opløste datoer), nr. 42 er nu »skriver«. Ikke bedømt
 er de 4 nye død-par (ledende tegn, se ovenfor) og de 10 dåb-/begravelsespar på opløste datoer, som ikke var i arket.
 Genkørslen trækker et nyt ark med samme seed over de 927 par; det er ikke bedømt.
+
+**Nye par til bedømmelse:** et eget ark uden for repo'et (`6e1-nye-par.html`) indeholder netop de 14 ✓-par, der er nye
+eller hviler på en ændret værdi siden dommen:
+
+- 4 nye død-par;
+- 9 dåbs- og 1 begravelsespar på opløste datoer, med bogens oprindelige tekst og fødslen/døden, opløsningen bygger på,
+  for begge udgaver.
+
+Udeladt er 153 par, hvis værdi kun har mistet et ledende tegn (samme værdi efter lighedsreglen). Til orientering
+viser arket også nr. 42 (nu »skriver«) og nr. 43-46 (bedømt på bogens tekst, nu opløst og stadig ✓).
