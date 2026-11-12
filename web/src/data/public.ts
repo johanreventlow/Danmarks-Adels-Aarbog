@@ -363,10 +363,11 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
 // udgaver (edition-faner, Slice C3) — pickPreferredBio (samme selector som person-bio) vælger én
 // pr. subjekt (nyeste DAA-udgave). lineageNavn bærer overskriften pr. linje-afsnit; "Generelt" har
 // ingen (null) og vises altid FØRST, linjer derefter i lineage.kode-orden.
-// lineageKode kobler et linjeafsnit til modellens linjeliste (model.lineage.list[].linje).
-// kilde er udgavens etiket efter samme regel som udgavevælgeren (data/udgaver.ts: udgave ?? titel),
-// så indledningen og personsiden nævner udgaven ens; aar står ved siden af.
-export type AboutSection = { lineageNavn: string | null; lineageKode: string | null; tekst: string; kilde: string | null; aar: number | null };
+// lineageId (lineage.id) skelner linjeafsnit fra slægtens eget afsnit (null) og er afsnittets
+// nøgle; lineageKode er bogens kode for linjen i den udgave, rækken stammer fra. kilde er udgavens
+// etiket efter samme regel som udgavevælgeren (data/udgaver.ts: udgave ?? titel), så indledningen
+// og personsiden nævner udgaven ens.
+export type AboutSection = { lineageId: string | null; lineageNavn: string | null; lineageKode: string | null; tekst: string; kilde: string | null; aar: number | null };
 
 type RawAboutSource = { slags: string | null; titel?: string | null; aar: number | null; udgave: string | null };
 export type RawAboutRow = { id: number; subjekt_type: string; subjekt_id: number; source_id: number | null; tekst: string | null; source: RawAboutSource | null };
@@ -391,11 +392,11 @@ export function byggAboutSections(rows: RawAboutRow[], lineageRows: RawAboutLine
   const sections: AboutSection[] = [];
   const slaegtCands = [...candsByKey.entries()].find(([key]) => key.startsWith('slaegt:'))?.[1];
   const slaegtBedst = slaegtCands ? pickPreferredBio(slaegtCands) : null;
-  if (slaegtBedst?.tekst) sections.push({ lineageNavn: null, lineageKode: null, tekst: slaegtBedst.tekst, ...kildeAf(slaegtBedst) });
+  if (slaegtBedst?.tekst) sections.push({ lineageId: null, lineageNavn: null, lineageKode: null, tekst: slaegtBedst.tekst, ...kildeAf(slaegtBedst) });
   for (const l of lineageRows) {
     const cands = candsByKey.get(`lineage:${l.id}`);
     const best = cands ? pickPreferredBio(cands) : null;
-    if (best?.tekst) sections.push({ lineageNavn: l.navn ?? `Linje ${l.kode}`, lineageKode: l.kode, tekst: best.tekst, ...kildeAf(best) });
+    if (best?.tekst) sections.push({ lineageId: String(l.id), lineageNavn: l.navn ?? `Linje ${l.kode}`, lineageKode: l.kode, tekst: best.tekst, ...kildeAf(best) });
   }
   return sections;
 }

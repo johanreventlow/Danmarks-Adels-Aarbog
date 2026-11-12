@@ -12,6 +12,7 @@
 //   uden dem er der intet forslag, og stamfædrene står allerede under linjerne.
 // - Feedet er Aarbogens feed, ikke filtreret pr. slægt (kun én slægt i dag); overskriften siger det.
 import { useEffect, useId, useMemo, useState, type ComponentProps } from 'react';
+import { groupBlocks, parseNarrativ } from '@daa/core';
 import { T } from '../theme';
 import type { FeedPinInput } from '@daa/feed';
 import type { AboutSection } from '../data/public';
@@ -29,16 +30,17 @@ const etiket = { margin: 0, fontFamily: T.mono, fontSize: 11, letterSpacing: '.1
 const kildeStil = { margin: 0, fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted } as const;
 const h2Stil = { margin: 0, fontFamily: T.serif, fontSize: 30, fontWeight: 600, color: T.ink, borderBottom: `1px solid ${T.line}`, paddingBottom: 12 } as const;
 
-// »Kilde: DAA 2018-20« — året tilføjes, når etiketten ikke selv rummer det.
+// »Kilde: DAA 2018-20« — udgavens etiket alene, som udgavevælgeren viser den.
 export function indledningKilde(s: Pick<AboutSection, 'kilde' | 'aar'>): string {
-  if (!s.kilde) return s.aar ? `Kilde: Danmarks Adels Aarbog ${s.aar}` : 'Kilde ikke registreret';
-  return s.aar && !s.kilde.includes(String(s.aar)) ? `Kilde: ${s.kilde} (${s.aar})` : `Kilde: ${s.kilde}`;
+  if (s.kilde) return `Kilde: ${s.kilde}`;
+  return s.aar ? `Kilde: Danmarks Adels Aarbog ${s.aar}` : 'Kilde ikke registreret';
 }
 
-// Første afsnit, der ikke er en overskrift — uddraget, før læseren folder hele teksten ud.
-export function indledningUddrag(tekst: string): string {
-  const afsnit = tekst.split(/\n\s*\n/).map((a) => a.trim()).filter(Boolean);
-  return afsnit.find((a) => !a.startsWith('#')) ?? afsnit[0] ?? '';
+// Har indledningen mere end uddraget (første afsnit i rendererens egen blokopdeling)?
+export function indledningHarMere(tekst: string): boolean {
+  const blokke = groupBlocks(parseNarrativ(tekst));
+  const foerste = blokke.findIndex((b) => b.kind === 'paragraph');
+  return blokke.length > (foerste >= 0 ? 1 : Math.min(1, blokke.length));
 }
 
 type FeedProps = Omit<ComponentProps<typeof FeedStreamView>, 'model' | 'feedPins'>;
@@ -63,8 +65,8 @@ export function AboutView({ slaegt, model, about, personCount, estateCount, onPi
   const [helIndledning, setHelIndledning] = useState(false);
   const indledningId = useId();
 
-  const generelt = about?.find((s) => s.lineageKode == null) ?? null;
-  const linjeAfsnit = useMemo(() => (about ?? []).filter((s) => s.lineageKode != null), [about]);
+  const generelt = about?.find((s) => s.lineageId == null) ?? null;
+  const linjeAfsnit = useMemo(() => (about ?? []).filter((s) => s.lineageId != null), [about]);
   // l.linje er en stabil nøgle, ikke bogens kode; den trykte betegnelse er åbent punkt 1, så
   // linjen vises med sit navn. Tekniske nøgler vises aldrig (samme filter som søgningen).
   const linjer = useMemo(() => synligeLinjer(model?.lineage?.list ?? []), [model]);
@@ -72,8 +74,7 @@ export function AboutView({ slaegt, model, about, personCount, estateCount, onPi
     () => (model && feedPins ? redaktionensForslag(model, feedPins, 4, new Date().getFullYear()) : []),
     [model, feedPins],
   );
-  const uddrag = generelt ? indledningUddrag(generelt.tekst) : '';
-  const kanFoldes = !!generelt && uddrag.length < generelt.tekst.trim().length;
+  const kanFoldes = useMemo(() => !!generelt && indledningHarMere(generelt.tekst), [generelt]);
 
   return (
     <div style={{ padding: 'clamp(24px, 4vw, 40px) clamp(16px, 4vw, 44px) 54px', maxWidth: 1140, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 48 }}>
@@ -99,7 +100,7 @@ export function AboutView({ slaegt, model, about, personCount, estateCount, onPi
           ) : generelt ? (
             <>
               <div id={indledningId} style={{ maxWidth: '38em', fontFamily: T.serif, fontSize: 19, lineHeight: 1.6, color: T.inkSecondary }}>
-                <NarrativRenderer tekst={helIndledning ? generelt.tekst : uddrag} onPickPerson={onPick} linkColor={T.bordeaux} inactiveColor={T.inkMuted} />
+                <NarrativRenderer tekst={generelt.tekst} kunFoersteAfsnit={!helIndledning} onPickPerson={onPick} linkColor={T.bordeaux} inactiveColor={T.inkMuted} />
               </div>
               <p style={{ ...kildeStil, display: 'flex', flexWrap: 'wrap', gap: '4px 12px', alignItems: 'baseline' }}>
                 <span><span aria-hidden="true" style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.bordeaux, marginRight: 6 }}>§</span>{indledningKilde(generelt)}</span>
@@ -142,7 +143,7 @@ export function AboutView({ slaegt, model, about, personCount, estateCount, onPi
           {linjeAfsnit.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: '44em' }}>
               {linjeAfsnit.map((s) => (
-                <details key={s.lineageKode} style={{ borderBottom: `1px solid ${T.line}`, padding: '6px 0 10px' }}>
+                <details key={s.lineageId} style={{ borderBottom: `1px solid ${T.line}`, padding: '6px 0 10px' }}>
                   <summary style={{ cursor: 'pointer', fontFamily: T.serif, fontSize: 20, fontWeight: 600, color: T.bordeaux, padding: '6px 0' }}>Om {s.lineageNavn ?? `linje ${s.lineageKode}`}</summary>
                   <div style={{ fontFamily: T.serif, fontSize: 17, lineHeight: 1.6, color: T.inkSecondary, marginTop: 8 }}>
                     <NarrativRenderer tekst={s.tekst} onPickPerson={onPick} linkColor={T.bordeaux} inactiveColor={T.inkMuted} />

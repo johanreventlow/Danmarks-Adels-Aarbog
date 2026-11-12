@@ -13,7 +13,7 @@ describe('byggAboutSections', () => {
       { id: 2, subjekt_type: 'slaegt', subjekt_id: 1, source_id: 20, tekst: 'Ny indledning', source: daa(2020, 'DAA 2018-20') },
     ];
     expect(byggAboutSections(rows, [])).toEqual([
-      { lineageNavn: null, lineageKode: null, tekst: 'Ny indledning', kilde: 'DAA 2018-20', aar: 2020 },
+      { lineageId: null, lineageNavn: null, lineageKode: null, tekst: 'Ny indledning', kilde: 'DAA 2018-20', aar: 2020 },
     ]);
   });
 
@@ -24,15 +24,15 @@ describe('byggAboutSections', () => {
     expect(byggAboutSections(rows, [])[0]).toMatchObject({ kilde: 'Danmarks Adels Aarbog', aar: 1939 });
   });
 
-  it('giver linjeafsnit deres kode, så de kan kobles til linjelisten, i linjernes rækkefølge', () => {
+  it('giver linjeafsnit deres lineage-id som nøgle og bogens kode, i linjernes rækkefølge', () => {
     const rows: RawAboutRow[] = [
       { id: 3, subjekt_type: 'lineage', subjekt_id: 2, source_id: 10, tekst: 'Om II', source: daa(1939, 'Reventlow, stamtavle') },
       { id: 4, subjekt_type: 'lineage', subjekt_id: 1, source_id: 10, tekst: 'Om I', source: daa(1939, 'Reventlow, stamtavle') },
     ];
     const lin = [{ id: 1, navn: 'I. linje', kode: 'I' }, { id: 2, navn: null, kode: 'II' }];
-    expect(byggAboutSections(rows, lin).map((s) => [s.lineageKode, s.lineageNavn, s.tekst])).toEqual([
-      ['I', 'I. linje', 'Om I'],
-      ['II', 'Linje II', 'Om II'],
+    expect(byggAboutSections(rows, lin).map((s) => [s.lineageId, s.lineageKode, s.lineageNavn, s.tekst])).toEqual([
+      ['1', 'I', 'I. linje', 'Om I'],
+      ['2', 'II', 'Linje II', 'Om II'],
     ]);
   });
 

@@ -9,9 +9,11 @@ const pins = vi.hoisted(() => ({ value: [] as FeedPinInput[] }));
 vi.mock('../../router', () => ({ navigate: vi.fn() }));
 vi.mock('../../data/feedPins', () => ({ fetchFeedPins: () => Promise.resolve(pins.value) }));
 vi.mock('../feed/FeedStreamView', () => ({ FeedStreamView: () => <div data-testid="feed" /> }));
-vi.mock('../NarrativRenderer', () => ({ NarrativRenderer: ({ tekst }: { tekst: string }) => <span>{tekst}</span> }));
+vi.mock('../NarrativRenderer', () => ({
+  NarrativRenderer: ({ tekst, kunFoersteAfsnit }: { tekst: string; kunFoersteAfsnit?: boolean }) => <span>{kunFoersteAfsnit ? tekst.split('\n\n')[0] : tekst}</span>,
+}));
 
-import { AboutView, indledningKilde, indledningUddrag } from '../AboutView';
+import { AboutView, indledningHarMere, indledningKilde } from '../AboutView';
 
 const REVENTLOW = { slug: 'reventlow', navn: 'Reventlow', vaaben: { src: '/vaaben/reventlow.png', note: 'Våben efter DAA 1939 · ikke autoriseret' } };
 const person = (id: string, name: string, o: Partial<ModelPerson> = {}) =>
@@ -22,8 +24,8 @@ const model = {
   lineage: { byPerson: {}, navn: {}, list: [{ linje: 'slaegt:1:lineage:1:scheme:canonical', count: 120, headId: '1', navn: 'I. linje' }, { linje: 'slaegt:1:lineage:2:scheme:canonical', count: 80, headId: null, navn: null }, { linje: 'legacy-source:9:X', count: 3, headId: null, navn: 'Teknisk' }] },
 } as unknown as Model;
 const about: AboutSection[] = [
-  { lineageNavn: null, lineageKode: null, tekst: 'Første afsnit om slægten.\n\nAndet afsnit.', kilde: 'DAA 2018-20', aar: 2020 },
-  { lineageNavn: 'I. linje', lineageKode: 'I', tekst: 'Om første linje.', kilde: 'Reventlow, stamtavle', aar: 1939 },
+  { lineageId: null, lineageNavn: null, lineageKode: null, tekst: 'Første afsnit om slægten.\n\nAndet afsnit.', kilde: 'DAA 2018-20', aar: 2020 },
+  { lineageId: '1', lineageNavn: 'I. linje', lineageKode: 'I', tekst: 'Om første linje.', kilde: 'Reventlow, stamtavle', aar: 1939 },
 ];
 const feed = {
   estates: [], arms: [], meId: null, focusId: null, bookmarkedIds: [], bookmarksReady: true, bookmarkHydrationVersion: 0,
@@ -47,7 +49,7 @@ describe('AboutView (slægtens forside)', () => {
   it('indledningen viser uddrag og kilde, og kan foldes helt ud', async () => {
     vis();
     expect(screen.getByText('Første afsnit om slægten.')).toBeTruthy();
-    expect(screen.getByText('Kilde: DAA 2018-20 (2020)')).toBeTruthy();
+    expect(screen.getByText('Kilde: DAA 2018-20')).toBeTruthy();
     const knap = screen.getByRole('button', { name: 'Læs hele indledningen' });
     expect(knap.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(knap);
@@ -91,12 +93,14 @@ describe('AboutView (slægtens forside)', () => {
 });
 
 describe('indledningens hjælpere', () => {
-  it('kilde med år, uden dobbelt år, og uden kilde', () => {
-    expect(indledningKilde({ kilde: 'DAA 2018-20', aar: 2020 })).toBe('Kilde: DAA 2018-20 (2020)');
-    expect(indledningKilde({ kilde: 'DAA 1939', aar: 1939 })).toBe('Kilde: DAA 1939');
+  it('kilde er udgavens etiket alene; året bruges kun, når etiketten mangler', () => {
+    expect(indledningKilde({ kilde: 'DAA 2018-20', aar: 2020 })).toBe('Kilde: DAA 2018-20');
+    expect(indledningKilde({ kilde: null, aar: 1939 })).toBe('Kilde: Danmarks Adels Aarbog 1939');
     expect(indledningKilde({ kilde: null, aar: null })).toBe('Kilde ikke registreret');
   });
-  it('uddraget springer en overskrift over', () => {
-    expect(indledningUddrag('## Indledning\n\nFørste afsnit.\n\nAndet.')).toBe('Første afsnit.');
+  it('kan foldes ud, når der er mere end første afsnit (efter rendererens blokke)', () => {
+    expect(indledningHarMere('Kun ét afsnit.')).toBe(false);
+    expect(indledningHarMere('## Indledning\nFørste afsnit.')).toBe(true);
+    expect(indledningHarMere('Første.\n\nAndet.')).toBe(true);
   });
 });

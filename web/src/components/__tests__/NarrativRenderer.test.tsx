@@ -77,6 +77,14 @@ describe('NarrativRenderer', () => {
     expect(container.querySelectorAll('p')).toHaveLength(2);
   });
 
+  it('kunFoersteAfsnit viser kun første tekstafsnit og springer en indledende overskrift over', () => {
+    const { container } = render(<NarrativRenderer tekst={'## Indledning\nFørste afsnit.\n\nAndet afsnit.'} kunFoersteAfsnit onPickPerson={vi.fn()} {...COLORS} />);
+    expect(container.querySelectorAll('p')).toHaveLength(1);
+    expect(screen.getByText('Første afsnit.')).toBeTruthy();
+    expect(screen.queryByText('Indledning')).toBeNull();
+    expect(screen.queryByText('Andet afsnit.')).toBeNull();
+  });
+
   it('opløseligt media-token viser <img> (medium-url) og åbner lightbox ved klik', async () => {
     render(<NarrativRenderer tekst="[[media:5|Skjoldet]]" onPickPerson={vi.fn()} {...COLORS} />);
     await waitFor(() => expect(screen.getByRole('img')).toBeTruthy());
