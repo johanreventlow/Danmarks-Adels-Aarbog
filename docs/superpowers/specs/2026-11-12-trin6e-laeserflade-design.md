@@ -101,6 +101,11 @@ grupperer pr. `fact_id`, dvs. pr. personrække (`packages/core/src/personFacts.t
 7. **Den læsbare 1939-etiket skrives som ny publicering** (§9 pkt. 1, vej b): »så ligger det fast, og vi skal ikke
    bruge tid på beregninger ved alle visninger«.
 8. **Linjeskemaets OCR-fejl rettes:** III hedder »… Linje af Ziesendorf.« (§5.7).
+9. **Kilder og redaktion adskilles:** kilder kan skrive et navn forskelligt (Conrad de Reventlow i 2018-20, Conrad
+   Reventlow i 1939, Conrad Comte de Reventlow i adelspatentet); redaktionen bestemmer, hvordan navnet vises i app og
+   på web. I 6e: fakta-blokken viser bøgernes ord, navnet øverst redaktionens valg (§5.2). Backlog: et redaktionelt
+   visningsnavn på identiteten (komponenten) med begrundelse og historik, adskilt fra påstandene — i dag må
+   beslutningen låne en kilde og sidde på én personrække.
 
 ## 4. Opdeling og afgrænsning (*mit valg*: to dele)
 
@@ -139,8 +144,15 @@ alle udgaver), hvis en række en dag får flere.
 
 ### 5.2 Fakta i den valgte udgave
 
-- **Overskriften** pr. oplysning er den valgte udgaves **valgte påstand** (`chosen`), som i dag. Ikke-valgte påstande
-  vises fortsat som »andre udsagn« under den. Konklusionen afgør; læseren omprioriterer ikke.
+- **Fakta-blokken viser bøgernes ord; navnet øverst er redaktionens valg** (projektejerens afgørelse 9).
+  Overskriften pr. oplysning er den valgte påstand (`chosen`), **når den er udgavens egen**: bundet til udgavens post,
+  med citation til udgaven, eller en redaktørrettelse, hvis fritekstkilde navngiver samme udgave som personrækken
+  (OCR-rettelser som 1073's). Er den valgte påstand en redaktørbeslutning uden udgavens egen kilde (392's »Conrad«
+  med fritekst »DAA 1939« på en 2018-20-række), viser udgavens linje udgavens egen påstand (»Conrad de Reventlow ·
+  DAA 2018-20, V-1«), og den anden udgaves form står som note efter §5.3. Redaktionens valg ses i personens navn
+  (overskrift, søgning, træ via `visning_*`), ikke som »redaktionen« i fakta-blokken. Ikke-valgte påstande fra
+  udgaven vises fortsat som »andre udsagn«. Plan-Task 0 måler, hvilke af de 17 redaktørpåstande (§5.1) der falder i
+  hver gruppe; tvivlstilfælde forelægges projektejeren.
 - **Sammenlægning inden for udgaven:** rækker fra flere personrækker i samme udgave med samme faktatype og ens værdi
   (§5.4) bliver én linje, hvis kildeliste samler posterne (»DAA 2018-20 · III-58, V-1«). Uens værdier står som hver
   sin linje (flerværdi-typer som titel) — de er ikke uenighed, men flere oplysninger.
