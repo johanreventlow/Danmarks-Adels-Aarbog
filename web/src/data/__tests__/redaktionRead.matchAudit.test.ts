@@ -22,6 +22,7 @@ vi.mock('../../supabase', () => ({
           rows = rows.filter((row) => row[column] === value);
           return builder;
         },
+        order() { return builder; },
         range: async (from: number, to: number) => ({ data: rows.slice(from, to + 1), error: null }),
       };
       return builder;

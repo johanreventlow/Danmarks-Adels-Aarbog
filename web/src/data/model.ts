@@ -60,8 +60,8 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
   // facts-probe har ingen data-afhængighed af canonicalIdById — kun buildParentsUnknown til sidst har).
   const puRowsP = fetchParentsUnknownRows();
   const [persons, members, extIds, lineageRows, schemes, schemeEntries, schemeMappings, sources, sameAsRel, approvedConc, estates] = await Promise.all([
-    getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_titel,koen,privat')),
-    getAll<RawMember>(() => supabase.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),
+    getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_titel,koen,privat').order('id')),
+    getAll<RawMember>(() => supabase.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens').order('family_id').order('person_id').order('rolle')),
     // Linje/nr pr. person (grene) — tolerant: tabellen/kolonnerne kan mangle i ældre baser.
     // Review 15: log ved fejl, så en RLS/drifts-fejl ikke stiltiende ligner "ingen linjer"
     // (graceful degradation bevares, men degraderingen bliver synlig i konsol/telemetri).
@@ -71,24 +71,24 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
       .then((rows) => rows.map(coordinateRowToExtId))
       .catch((e) => { console.warn('[loadModel] public_person_source_coordinates utilgængelig — linjer/kilder degraderet:', e); return [] as RawExtId[]; }),
     // Linje-navne — lineage-tabellen findes måske ikke endnu (fallback til 'Linje {kode}').
-    getAll<RawLineageContext>(() => supabase.from('lineage').select('id,source_id,kode,navn,canonical_label,slaegt_id,slaegtsnavn,parent_lineage_id')).catch((e) => { console.warn('[loadModel] lineage utilgængelig — bruger linje-koder som navne:', e); return [] as RawLineageContext[]; }),
-    getAll<RawLineageScheme>(() => supabase.from('lineage_scheme').select('id,slaegt_id,source_id,kind')).catch((e) => { console.warn('[loadModel] lineage schemes utilgængelige ikke — bruger kanonisk lineage-kontekst:', e); return [] as RawLineageScheme[]; }),
-    getAll<RawLineageSchemeEntry>(() => supabase.from('lineage_scheme_entry').select('id,scheme_id,code,label')).catch((e) => { console.warn('[loadModel] lineage scheme entries utilgængelige ikke — bruger kanonisk lineage-kontekst:', e); return [] as RawLineageSchemeEntry[]; }),
-    getAll<RawLineageSchemeEntryLineage>(() => supabase.from('lineage_scheme_entry_lineage').select('entry_id,lineage_id,relation_kind')).catch((e) => { console.warn('[loadModel] lineage scheme mapping utilgængelig ikke — bruger kanonisk lineage-kontekst:', e); return [] as RawLineageSchemeEntryLineage[]; }),
+    getAll<RawLineageContext>(() => supabase.from('lineage').select('id,source_id,kode,navn,canonical_label,slaegt_id,slaegtsnavn,parent_lineage_id').order('id')).catch((e) => { console.warn('[loadModel] lineage utilgængelig — bruger linje-koder som navne:', e); return [] as RawLineageContext[]; }),
+    getAll<RawLineageScheme>(() => supabase.from('lineage_scheme').select('id,slaegt_id,source_id,kind').order('id')).catch((e) => { console.warn('[loadModel] lineage schemes utilgængelige ikke — bruger kanonisk lineage-kontekst:', e); return [] as RawLineageScheme[]; }),
+    getAll<RawLineageSchemeEntry>(() => supabase.from('lineage_scheme_entry').select('id,scheme_id,code,label').order('id')).catch((e) => { console.warn('[loadModel] lineage scheme entries utilgængelige ikke — bruger kanonisk lineage-kontekst:', e); return [] as RawLineageSchemeEntry[]; }),
+    getAll<RawLineageSchemeEntryLineage>(() => supabase.from('lineage_scheme_entry_lineage').select('entry_id,lineage_id,relation_kind').order('entry_id').order('lineage_id').order('relation_kind')).catch((e) => { console.warn('[loadModel] lineage scheme mapping utilgængelig ikke — bruger kanonisk lineage-kontekst:', e); return [] as RawLineageSchemeEntryLineage[]; }),
     // Kilder (trykt værk) — til "Kilde i Aarbogen" pr. person.
-    getAll<RawSource>(() => supabase.from('source').select('id,slags,titel,udgave,aar,ekstern')).catch((e) => { console.warn('[loadModel] source utilgængelig — Kilde-i-Aarbogen degraderet:', e); return [] as RawSource[]; }),
+    getAll<RawSource>(() => supabase.from('source').select('id,slags,titel,udgave,aar,ekstern').order('id')).catch((e) => { console.warn('[loadModel] source utilgængelig — Kilde-i-Aarbogen degraderet:', e); return [] as RawSource[]; }),
     // samme_som-relationer (person→person; subjekt=alias, objekt=kanonisk) + afklarede konklusioner.
     // Polymorf kobling (conclusion.target_type/target_id), ingen FK → hentes separat + matches i JS.
     getAll<{ id: number | string; subjekt_id: number | string; objekt_id: number | string }>(() =>
-      supabase.from('relation').select('id,subjekt_id,objekt_id').eq('rolle', 'samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person'),
+      supabase.from('relation').select('id,subjekt_id,objekt_id').eq('rolle', 'samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person').order('id'),
     ).catch((e) => { console.warn('[loadModel] samme_som-relationer utilgængelige — ingen collapse:', e); return [] as { id: number | string; subjekt_id: number | string; objekt_id: number | string }[]; }),
     getAll<{ target_id: number | string }>(() =>
-      supabase.from('conclusion').select('target_id').eq('target_type', 'relation').eq('status', 'afklaret'),
+      supabase.from('conclusion').select('target_id').eq('target_type', 'relation').eq('status', 'afklaret').order('id'),
     ).catch((e) => { console.warn('[loadModel] conclusion utilgængelig — ingen collapse:', e); return [] as { target_id: number | string }[]; }),
     // estate (godser m. sted) er lille og bruges også af den ikke-geo gods-liste/tæller —
     // hentes eager. place+fact (den tunge geo-kæde, ~6.788 place-rækker) er UDSKUDT (review 27
     // P3): de hentes først af loadGeo() nedenfor, ved første kort-brug, ikke ved cold-start.
-    getAll<RawEstate>(() => supabase.from('estate').select('id,navn,slags,sted_id')).catch((e) => { console.warn('[loadModel] estate utilgængelig — ingen godskort:', e); return [] as RawEstate[]; }),
+    getAll<RawEstate>(() => supabase.from('estate').select('id,navn,slags,sted_id').order('id')).catch((e) => { console.warn('[loadModel] estate utilgængelig — ingen godskort:', e); return [] as RawEstate[]; }),
   ]);
 
   const appPersons: AppPerson[] = persons.map((p) => ({

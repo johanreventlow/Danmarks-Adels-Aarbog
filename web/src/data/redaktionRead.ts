@@ -38,7 +38,7 @@ export function mapRedPerson(r: RawRedPerson): RedPerson {
 
 export async function fetchRedaktionPersoner(): Promise<RedPerson[]> {
   const rows = await getAll<RawRedPerson>(() =>
-    supabase.from('person').select('id,visning_navn,visning_efternavn,visning_foedt,visning_doed,levende,privat'));
+    supabase.from('person').select('id,visning_navn,visning_efternavn,visning_foedt,visning_doed,levende,privat').order('id'));
   return rows.map(mapRedPerson);
 }
 
@@ -725,7 +725,7 @@ export type EntityRecord = { id: string; label: string; sub: string; badge: stri
 // liste-kilde og returnerer tom (UI viser "kommer"-tilstand) — dedikerede reads er follow-up.
 export async function fetchEntityRecords(entity: string): Promise<EntityRecord[]> {
   const sel = async <T>(table: string, cols: string): Promise<T[]> =>
-    getAll<T>(() => supabase.from(table).select(cols));
+    getAll<T>(() => supabase.from(table).select(cols).order('id') as never);
   if (entity === 'estate') {
     const rows = await sel<{ id: number; navn: string | null; slags: string | null }>('estate', 'id,navn,slags');
     return rows.map((r) => ({ id: String(r.id), label: r.navn ?? '(uden navn)', sub: r.slags ?? 'gods', badge: '⌂' }));
@@ -848,14 +848,14 @@ export function mapFamilieRows(personId: string, families: RawFamilyMeta[], memb
 
 export async function fetchPersonFamilie(id: string, model: Model | null): Promise<PersonFamilie> {
   const mine = await getAll<{ family_id: number }>(() =>
-    supabase.from('family_member').select('family_id').eq('person_id', Number(id)));
+    supabase.from('family_member').select('family_id').eq('person_id', Number(id)).order('family_id').order('rolle'));
   const famIds = Array.from(new Set(mine.map((m) => m.family_id)));
   if (!famIds.length) return { somPartner: [], somBarn: [] };
   const [members, families] = await Promise.all([
     getAll<RawFamRow>(() =>
       supabase.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens').in('family_id', famIds)
-        .order('ordinal', { ascending: true, nullsFirst: false }).order('person_id')),
-    getAll<RawFamilyMeta>(() => supabase.from('family').select('id,type').in('id', famIds)),
+        .order('ordinal', { ascending: true, nullsFirst: false }).order('person_id').order('family_id').order('rolle')),
+    getAll<RawFamilyMeta>(() => supabase.from('family').select('id,type').in('id', famIds).order('id')),
   ]);
   return mapFamilieRows(id, families, members, model);
 }
@@ -1015,7 +1015,7 @@ async function mediaFromRelPairs(pairs: { mediaId: number; relationId: number; p
   const mediaIds = pairs.map((p) => p.mediaId);
   const [rows, thumbPathByMediaId] = await Promise.all([
     getAll<RawPersonMediaRow>(() =>
-      supabase.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at,sha256').in('id', mediaIds)),
+      supabase.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at,sha256').in('id', mediaIds).order('id')),
     fetchThumbPathByMediaId(mediaIds),
   ]);
   const signed = await signPaths([
@@ -1030,7 +1030,7 @@ export async function fetchRedPersonMedia(id: string): Promise<PersonMedia[]> {
   const rels = await getAll<{ id: number; objekt_id: number; kvalifikator: { primaer?: boolean } | null }>(() =>
     supabase.from('relation').select('id,objekt_id,kvalifikator')
       .eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
-      .eq('objekt_type', 'media').eq('rolle', 'afbildet'));
+      .eq('objekt_type', 'media').eq('rolle', 'afbildet').order('id'));
   return mediaFromRelPairs(rels.map((r) => ({
     mediaId: r.objekt_id, relationId: r.id, primaer: r.kvalifikator?.primaer === true,
   })));
@@ -1043,7 +1043,7 @@ export async function fetchRedObjectMedia(objektType: string, objektId: string):
     supabase.from('relation').select('id,subjekt_id')
       .eq('subjekt_type', 'media')
       .eq('objekt_type', objektType).eq('objekt_id', Number(objektId))
-      .eq('rolle', 'afbildet'));
+      .eq('rolle', 'afbildet').order('id'));
   return mediaFromRelPairs(rels.map((r) => ({ mediaId: r.subjekt_id, relationId: r.id })));
 }
 
@@ -1191,13 +1191,13 @@ export async function fetchMediaBibliotek(): Promise<MediaBibliotekPost[]> {
   const specs = mediaBibliotekQuerySpecs();
   const [mediaRows, personRelationer, objektRelationer, mentions] = await Promise.all([
     getAll<RawPersonMediaRow>(() =>
-      supabase.from(specs.media.table).select(specs.media.select)),
+      supabase.from(specs.media.table).select(specs.media.select).order('id')),
     getAll<RawPersonMediaRelation>(() =>
-      supabase.from(specs.personRelationer.table).select(specs.personRelationer.select).eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('rolle', 'afbildet')),
+      supabase.from(specs.personRelationer.table).select(specs.personRelationer.select).eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('rolle', 'afbildet').order('id')),
     getAll<RawObjectMediaRelation>(() =>
-      supabase.from(specs.objektRelationer.table).select(specs.objektRelationer.select).eq('subjekt_type', 'media').in('objekt_type', ['estate','coat_of_arms','lineage']).eq('rolle', 'afbildet')),
+      supabase.from(specs.objektRelationer.table).select(specs.objektRelationer.select).eq('subjekt_type', 'media').in('objekt_type', ['estate','coat_of_arms','lineage']).eq('rolle', 'afbildet').order('id')),
     getAll<RawMediaMentionCount>(() =>
-      supabase.from(specs.mentions.table).select(specs.mentions.select).eq('maal_type', 'media')),
+      supabase.from(specs.mentions.table).select(specs.mentions.select).eq('maal_type', 'media').order('kilde_type').order('kilde_id').order('maal_id')),
   ]);
   const mediaIds = mediaRows.map((m) => m.id);
   const thumbPathByMediaId = await fetchThumbPathByMediaId(mediaIds);
@@ -1290,19 +1290,19 @@ async function fetchMediaSubjectNames(subjects: { type: string; id: number | str
     if (!ids.length) return;
     if (type === 'person') {
       const rows = await getAll<{ id: number | string; visning_navn: string | null }>(() =>
-        supabase.from('person').select('id::text,visning_navn').in('id', ids));
+        supabase.from('person').select('id::text,visning_navn').in('id', ids).order('id'));
       rows.forEach((r) => out.set(subjectKey(type, r.id), r.visning_navn ?? fallbackSubjectName(type, r.id)));
     } else if (type === 'estate') {
       const rows = await getAll<{ id: number | string; navn: string | null }>(() =>
-        supabase.from('estate').select('id::text,navn').in('id', ids));
+        supabase.from('estate').select('id::text,navn').in('id', ids).order('id'));
       rows.forEach((r) => out.set(subjectKey(type, r.id), r.navn ?? fallbackSubjectName(type, r.id)));
     } else if (type === 'coat_of_arms') {
       const rows = await getAll<{ id: number | string; blasonering: string | null }>(() =>
-        supabase.from('coat_of_arms').select('id::text,blasonering').in('id', ids));
+        supabase.from('coat_of_arms').select('id::text,blasonering').in('id', ids).order('id'));
       rows.forEach((r) => out.set(subjectKey(type, r.id), r.blasonering ?? fallbackSubjectName(type, r.id)));
     } else if (type === 'lineage') {
       const rows = await getAll<{ id: number | string; navn: string | null }>(() =>
-        supabase.from('lineage').select('id::text,navn').in('id', ids));
+        supabase.from('lineage').select('id::text,navn').in('id', ids).order('id'));
       rows.forEach((r) => out.set(subjectKey(type, r.id), r.navn ?? fallbackSubjectName(type, r.id)));
     } else if (type === 'slaegt') {
       ids.forEach((id) => out.set(subjectKey(type, id), 'Slægten (generelt)'));
@@ -1329,7 +1329,7 @@ export async function fetchMediaAnvendelse(mediaId: string): Promise<MediaAnvend
   const narrativIds = [...new Set(mentions.filter((m) => m.kilde_type === 'narrative').map((m) => m.kilde_id))];
   const narrativer = narrativIds.length
     ? await getAll<RawNarrativeSubject>(() =>
-      supabase.from(specs.narrativer.table).select(specs.narrativer.select).in('id', narrativIds))
+      supabase.from(specs.narrativer.table).select(specs.narrativer.select).in('id', narrativIds).order('id'))
     : [];
   const navneBySubjekt = await fetchMediaSubjectNames([
     ...personRelationer.map((r) => ({ type: 'person', id: r.subjekt_id })),
@@ -1448,7 +1448,7 @@ export function parseMatchRelationPar(rows: RawMatchRelation[]): MatchRelationPa
 export async function fetchIkkeSammeSomPar(): Promise<MatchRelationPar[]> {
   const rows = await getAll<RawMatchRelation>(() =>
     supabase.from('relation').select('id,subjekt_id,objekt_id')
-      .eq('rolle', 'ikke_samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person'));
+      .eq('rolle', 'ikke_samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person').order('id'));
   return parseMatchRelationPar(rows);
 }
 
@@ -1456,7 +1456,7 @@ export async function fetchIkkeSammeSomPar(): Promise<MatchRelationPar[]> {
 export async function fetchSammeSomPar(): Promise<MatchRelationPar[]> {
   const rows = await getAll<RawMatchRelation>(() =>
     supabase.from('relation').select('id,subjekt_id,objekt_id')
-      .eq('rolle', 'samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person'));
+      .eq('rolle', 'samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person').order('id'));
   return parseMatchRelationPar(rows);
 }
 
@@ -1548,6 +1548,6 @@ export async function fetchMatchAudit(
  *  (buildFamilyGraph, kommentar deri) — rækkefølgen er uden betydning for karantæne-tjek. */
 export async function fetchFamilyGraph(): Promise<{ unions: Union[]; parentChild: ParentChild[] }> {
   const members = await getAll<RawFamilyMember>(() =>
-    supabase.from('family_member').select('family_id,person_id,rolle'));
+    supabase.from('family_member').select('family_id,person_id,rolle').order('family_id').order('person_id').order('rolle'));
   return buildFamilyGraph(members);
 }
