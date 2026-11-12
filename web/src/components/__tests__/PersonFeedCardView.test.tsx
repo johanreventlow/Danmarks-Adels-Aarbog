@@ -134,4 +134,24 @@ describe('PersonFeedCardView', () => {
     rerender(<FeedCardView card={gods} href="/estate/1" onOpen={vi.fn()} onSave={vi.fn()} bookmarked={false} />);
     expect(screen.getByRole('link').style.display).toBe('block');
   });
+
+  it('viser bogens nummer som kilde (§) — og intet §, når personen ikke har et nummer', () => {
+    const { unmount } = render(<PersonFeedCardView card={portrait} person={{ ...person, bogensNummer: 'Linje I, nr. 121' }} media={[]} onOpen={vi.fn()} onSave={vi.fn()} bookmarked={false} />);
+    expect(screen.getByText('§ Linje I, nr. 121')).toBeTruthy();
+    unmount();
+    renderPersonCard({ media: [] });
+    expect(screen.queryByText(/§/)).toBeNull();
+  });
+
+  it('nævnt-kortet viser overskrift, forældre og kilde — uden påstand om, at bogen intet mere skriver', () => {
+    const naevnt: Extract<FeedCard, { kind: 'naevnt' }> = {
+      kind: 'naevnt', id: 'naevnt:7', personId: '7', name: 'Sophie', years: '† 1702',
+      relation: 'Barn af Conrad Reventlow og Anna Margrethe Gabel', kilde: 'Linje I, nr. 7', kicker: 'Nævnt i Aarbogen',
+    };
+    render(<FeedCardView card={naevnt} person={{ name: 'Sophie Reventlow', years: '† 1702' }} onOpen={vi.fn()} onSave={vi.fn()} bookmarked={false} />);
+    expect(screen.getByText('Nævnt i Aarbogen')).toBeTruthy();
+    expect(screen.getByText('Barn af Conrad Reventlow og Anna Margrethe Gabel')).toBeTruthy();
+    expect(screen.getByText('§ Linje I, nr. 7')).toBeTruthy();
+    expect(screen.getByRole('article').textContent).not.toMatch(/kun et navn|siger ikke mere/i);
+  });
 });
