@@ -13,6 +13,7 @@ export type { PublicPersonFactRow, PersonFactSource, PersonFactStatement, Person
 export * from './editionFacts';
 export * from './editionSelector';
 export * from './factEquality';
+export * from './relativeDates';
 export * from './sammeSomPreflight';
 export * from './buildFamilyGraph';
 export * from './buildGeo';

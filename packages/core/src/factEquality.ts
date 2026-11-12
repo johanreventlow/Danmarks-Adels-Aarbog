@@ -14,6 +14,12 @@ const MAANEDER: Record<string, string> = {
   september: '9', okt: '10', oktober: '10', nov: '11', november: '11', dec: '12', december: '12',
 };
 
+// Månedens nummer (1-12) for et dansk månedsnavn eller en forkortelse (»febr.«, »Maj«), ellers null.
+export function maanedNummer(ord: string): number | null {
+  const w = ord.toLowerCase().replace(/\.$/, '');
+  return Object.prototype.hasOwnProperty.call(MAANEDER, w) ? Number(MAANEDER[w]) : null;
+}
+
 const CA = new Set(['ca', 'o', 'omkr', 'circa']);
 
 export function erTomFaktaVaerdi(v: string): boolean {

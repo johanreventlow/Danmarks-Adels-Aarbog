@@ -13,6 +13,7 @@ import {
   type PublicPersonFactRow,
 } from './personFacts';
 import { ENKELTVAERDI_TYPER, erTomFaktaVaerdi, faktaVaerdierEns, normaliserFaktaVaerdi } from './factEquality';
+import { erRelativDato, oploesRelativDato } from './relativeDates';
 
 export type Udgave = { sourceId: string; label: string; aar: number | null };
 export type UdgaveFaktaInput = {
@@ -48,6 +49,7 @@ type Paastand = { assertionId: string; rows: PublicPersonFactRow[]; value: strin
 //    `andre`; i andre udgaver tæller udgavens EGNE udsagn (`usikre`) som »skriver«, aldrig som ✓.
 type FaktumVisning = {
   factId: string;
+  personId: string;
   faktatype: string;
   udgave: string | null;
   art: 'egen' | 'som-i-dag' | 'uden-valg';
@@ -173,7 +175,7 @@ function fakta(input: UdgaveFaktaInput, udenUdgaver: boolean): FaktumVisning[] {
     }
     const alle = [...paastande.values()];
     const valgt = alle.find((p) => p.chosen);
-    const base = { factId: String(first.fact_id), faktatype: first.faktatype, udgave: udgaveId,
+    const base = { factId: String(first.fact_id), personId: String(first.person_id), faktatype: first.faktatype, udgave: udgaveId,
       omstridt: first.conclusion_status === 'omstridt' };
     const ikkeTomme = (ps: Paastand[]) => ps.flatMap((p) => p.rows.map(statement)).filter((s) => !erTomFaktaVaerdi(s.value));
 
@@ -217,7 +219,37 @@ function fakta(input: UdgaveFaktaInput, udenUdgaver: boolean): FaktumVisning[] {
     }
     ud.push({ ...base, art, vaerdi: vist.value, kilder: unikkeEfterLabel(vist.rows.map(factSource)), andre, usikre: [] });
   }
-  return ud;
+  return oploesRelative(ud);
+}
+
+// ---- relative datoer (§5.4a, afgørelse 12) ----
+
+// Dåb opløses ud fra fødslen, begravelse ud fra døden — begge fra SAMME personrække (og dermed samme udgave).
+const RELATIV_REFERENCE: Record<string, string> = { dåb: 'fødsel', begravelse: 'død' };
+// Typer, hvor en (uopløst) relativ dato aldrig må give ✓. Navne o.l. er udeladt: »S. A.« kan være initialer.
+const RELATIV_TYPER: ReadonlySet<string> = new Set(['dåb', 'begravelse', 'død', 'titel', 'dekoration']);
+const uopløstRelativ = (faktatype: string, v: string) => RELATIV_TYPER.has(faktatype) && erRelativDato(v);
+
+// Referencen er rækkens første viste fødsel/død i fakta-ordenen. Kan et led ikke opløses, vises bogens tekst —
+// den forbliver relativ og kan derfor aldrig give ✓ (se `ens` i byggUdgaveFakta).
+function oploesRelative(fs: FaktumVisning[]): FaktumVisning[] {
+  const reference = new Map<string, string>();
+  for (const f of fs) {
+    const k = `${f.personId}\u0000${f.faktatype}`;
+    if (f.vaerdi !== '' && !reference.has(k)) reference.set(k, f.vaerdi);
+  }
+  return fs.map((f) => {
+    const refType = RELATIV_REFERENCE[f.faktatype];
+    if (!refType) return f;
+    const ref = reference.get(`${f.personId}\u0000${refType}`) ?? null;
+    const opl = (v: string) => (erRelativDato(v) ? (oploesRelativDato(v, ref) ?? v) : v);
+    return {
+      ...f,
+      vaerdi: opl(f.vaerdi),
+      andre: f.andre.map((a) => ({ ...a, value: opl(a.value) })),
+      usikre: f.usikre.map(opl),
+    };
+  });
 }
 
 type Linje = UdgaveFaktaLinje & { egen: boolean; norm: string | null };
@@ -226,7 +258,8 @@ function linjerFor(fs: FaktumVisning[]): Linje[] {
   const linjer: Linje[] = [];
   const ids = new Map<Linje, string[]>();
   for (const f of fs) {
-    const norm = f.vaerdi === '' ? null : normaliserFaktaVaerdi(f.faktatype, f.vaerdi); // tom linje sammenlægges aldrig
+    // tom linje og uopløst relativ dato sammenlægges aldrig (samme tekst kan betyde forskellige datoer)
+    const norm = f.vaerdi === '' || uopløstRelativ(f.faktatype, f.vaerdi) ? null : normaliserFaktaVaerdi(f.faktatype, f.vaerdi);
     const hit = norm == null ? undefined : linjer.find((l) => l.faktatype === f.faktatype && l.norm === norm);
     if (hit) {
       // sammenlægning (§5.2): samme type og ens værdi → én linje, kilderne samlet
@@ -291,7 +324,9 @@ export function byggUdgaveFakta(input: UdgaveFaktaInput, valgt: string | null): 
       if (!p.length) continue;
       const alle = distinkte(t, p.map((x) => x.vaerdi));
       const egne = linjer.filter((l) => l.egen && l.faktatype === t);
-      const ens = (l: Linje, x: { vaerdi: string; sikker: boolean }) => x.sikker && faktaVaerdierEns(t, l.vaerdi, x.vaerdi);
+      // En uopløst relativ dato giver aldrig ✓ — hverken som linjen eller som den anden udgaves værdi (§5.4a).
+      const ens = (l: Linje, x: { vaerdi: string; sikker: boolean }) => x.sikker
+        && !uopløstRelativ(t, l.vaerdi) && !uopløstRelativ(t, x.vaerdi) && faktaVaerdierEns(t, l.vaerdi, x.vaerdi);
       for (const l of egne) {
         if (slukket.has(t)) l.noter.push({ art: 'skriver', udgave: anden, vaerdier: alle });
         else if (ENKELTVAERDI_TYPER.has(t)) {

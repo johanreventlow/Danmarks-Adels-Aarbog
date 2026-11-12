@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPersonFacts, FAKTA_UDELADT, type PublicPersonFactRow } from '../personFacts';
+import { buildPersonFacts, factSource, factValue, FAKTA_UDELADT, type PublicPersonFactRow } from '../personFacts';
 
 let next = 1;
 const row = (o: Partial<PublicPersonFactRow> = {}): PublicPersonFactRow => {
@@ -117,5 +117,28 @@ describe('buildPersonFacts', () => {
     expect(v.chosen?.value).toBe('15. febr. 1878.');
     const [w] = buildPersonFacts([row({ vaerdi_tekst: 'a', date_raw: 'b' })]);
     expect(w.chosen?.value).toBe('a, b');
+  });
+
+  it('ledende *, † eller ⚭ fjernes i visningen; tegn inde i værdien bevares (spec §5.8)', () => {
+    expect(factValue(row({ vaerdi_tekst: null, date_raw: '* 1749' }))).toBe('1749');
+    expect(factValue(row({ vaerdi_tekst: '† ung', date_raw: null }))).toBe('ung');
+    expect(factValue(row({ vaerdi_tekst: '⚭ 1700', date_raw: null }))).toBe('1700');
+    expect(factValue(row({ vaerdi_tekst: '*1749', date_raw: null }))).toBe('1749');
+    expect(factValue(row({ vaerdi_tekst: 'ca. *1700', date_raw: null }))).toBe('ca. *1700');
+    // tegnet fjernes før sammenligningen, så samme tekst ikke vises to gange
+    expect(factValue(row({ vaerdi_tekst: '* 1749', date_raw: '1749' }))).toBe('1749');
+    expect(factValue(row({ vaerdi_tekst: '†', date_raw: null }))).toBe('—');
+  });
+
+  it('kildeetiketten viser »<udgave>, s. N« (også intervaller) (spec §5.8)', () => {
+    const bundet = (citation_label: string) =>
+      factSource(row({ record_ref: 'r', record_label: 'record-07565168-b903-4444-9189-43d62d5c6ed6', citation_label })).label;
+    expect(bundet('DAA 1939 side 532')).toBe('DAA 1939, s. 532');
+    expect(bundet('DAA 1939 side 125-126')).toBe('DAA 1939, s. 125-126');
+    expect(bundet('DAA 2018-20, s. 201-202')).toBe('DAA 2018-20, s. 201-202');
+    expect(factSource(row({ record_ref: 'r', record_label: 'I-32', citation_label: 'DAA 1939 side 7' })).label).toBe('DAA 1939, s. 7 · I-32');
+    expect(factSource(row({ source_label: 'DAA 1939 side 532' })).label).toBe('DAA 1939, s. 532');
+    // kun formen » side <tal>«
+    expect(factSource(row({ source_label: 'Kirkebog, side B' })).label).toBe('Kirkebog, side B');
   });
 });

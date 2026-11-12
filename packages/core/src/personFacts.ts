@@ -46,21 +46,29 @@ export const typeRank = (t: string) => {
   return i === -1 ? FAKTA_RAEKKEFOELGE.length : i;
 };
 
+// Spec §5.8 (projektejeren 2026-11-12): et ledende *, † eller ⚭ fjernes — typen (»Født«, »Død«) siger det allerede.
+const udenLedendeTegn = (v: string | null) => (v == null ? null : v.replace(/^\s*[*†⚭]\s*/u, ''));
+
 export function factValue(r: PublicPersonFactRow): string {
+  const tekst = udenLedendeTegn(r.vaerdi_tekst);
   // date_raw udelades, når den er identisk med vaerdi_tekst (ellers vises samme tekst to gange).
-  const dateRaw = r.date_raw && r.vaerdi_tekst && r.date_raw.trim() === r.vaerdi_tekst.trim() ? null : r.date_raw;
-  const parts = [r.vaerdi_tekst, dateRaw].filter((x): x is string => !!x && x.trim() !== '');
+  const dato = udenLedendeTegn(r.date_raw);
+  const dateRaw = dato && tekst && dato.trim() === tekst.trim() ? null : dato;
+  const parts = [tekst, dateRaw].filter((x): x is string => !!x && x.trim() !== '');
   return parts.length ? parts.join(', ') : '—';
 }
+
+// Spec §5.8: kildeetiketter viser »<udgave>, s. N«; 1939's bundne etiketter siger »DAA 1939 side 532«.
+const sideForm = (label: string) => label.replace(/,?\s+side\s+(\d+(?:\s*[-–]\s*\d+)?)(?!\d)/gu, ', s. $1');
 
 export function factSource(r: PublicPersonFactRow): PersonFactSource {
   if (r.record_ref) {
     // citation_label bærer allerede udgave og side (»DAA 2018-20, s. 45«); record_label er posten (»I-32«).
     const label = [r.citation_label || r.source_label, visbarPostEtiket(r.record_label)].filter(Boolean).join(' · ');
-    return { kind: 'bundet', label, recordRef: r.record_ref };
+    return { kind: 'bundet', label: sideForm(label), recordRef: r.record_ref };
   }
   if (r.source_label) {
-    return { kind: 'import', label: r.side ? `${r.source_label}, s. ${r.side}` : r.source_label, recordRef: null };
+    return { kind: 'import', label: sideForm(r.side ? `${r.source_label}, s. ${r.side}` : r.source_label), recordRef: null };
   }
   return { kind: 'ingen', label: 'Kilde ikke registreret', recordRef: null };
 }
