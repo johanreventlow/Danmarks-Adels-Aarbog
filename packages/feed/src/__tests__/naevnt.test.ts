@@ -30,7 +30,7 @@ function mkModel(
 }
 
 const EMPTY_AUX: FeedAux = { godsListe: [], vaabenListe: [], officesBy: {} };
-const GRUNDLAG: NaevntGrundlag = { personerMedEmbedeEllerGods: new Set() };
+const GRUNDLAG: NaevntGrundlag = { personerMedMereEndNavn: new Set() };
 const LONG_BIO = 'Dette er en tilstrækkelig lang og velformet biografisk tekst om personens liv, '
   + 'virke og eftermæle, skrevet med tilstrækkeligt mange detaljer og sammenhæng.';
 
@@ -73,7 +73,7 @@ describe('buildNaevnt — hvem får kortet', () => {
     const model = mkModel(['gods', 'embede', 'haendelse', 'historie', 'ok'].map((id) => person(id)));
     const aux: FeedAux = { ...EMPTY_AUX, officesBy: { embede: [{ label: 'Amtmand', period: '', _y: 0 }] } };
     const cards = buildNaevnt(
-      model, { personerMedEmbedeEllerGods: new Set(['gods']) }, aux,
+      model, { personerMedMereEndNavn: new Set(['gods']) }, aux,
       { haendelse: [{
         id: 'h', klausul: 'x', kategori: null, dato: { min: null, max: null, qualifier: null },
         dateRaw: null, interessant: false, rygrad: true, kilde: null,

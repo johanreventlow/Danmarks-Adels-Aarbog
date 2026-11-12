@@ -231,7 +231,7 @@ export function buildNaevnt(
     if (p.privat || p.bio.trim() !== '' || p.title.trim() !== '') continue;
     const kilde = bogensNummer(model.sourcesBy, p.id);
     if (!kilde) continue;
-    if (grundlag.personerMedEmbedeEllerGods.has(p.id)) continue;
+    if (grundlag.personerMedMereEndNavn.has(p.id)) continue;
     if ((aux.officesBy[p.id]?.length ?? 0) > 0) continue;
     if ((haendelserBy[p.id]?.length ?? 0) > 0 || (storieBy[p.id]?.length ?? 0) > 0) continue;
     const boernePrUnion = model.indexes.childrenByUnion[p.id] ?? {};

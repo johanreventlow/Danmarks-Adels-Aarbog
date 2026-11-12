@@ -83,7 +83,8 @@ export type FeedCard =
 // komplet: offentlige biografier (stemplet ind i modellen), hændelser, historier og personers
 // embeder/godser. Et tomt map er ellers ikke bevis for fravær — udeladt = ingen nævnt-kort.
 export interface NaevntGrundlag {
-  personerMedEmbedeEllerGods: ReadonlySet<string>;
+  // Kanoniske person-id'er med embede, gods, hændelse eller historie (uanset feed-filtre).
+  personerMedMereEndNavn: ReadonlySet<string>;
 }
 
 export interface FeedInputs {
