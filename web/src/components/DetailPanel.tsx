@@ -79,6 +79,9 @@ export function DetailPanel({ model, focusId, detail, onPick, personHref = perso
                 Optræder i Aarbogen som {proveniens}.
               </div>
             )}
+            {/* Panelet er en genvej; hele personen står på personsiden (webredesign fase 3). personPath, ikke
+                personHref: i træet peger personHref på …/stamtrae?fokus=<id>. */}
+            <Link href={personPath(focusId)} style={{ display: 'inline-block', marginTop: 10, fontFamily: T.sans, fontSize: 13.5, fontWeight: 600, color: T.bordeaux }}>Åbn personsiden ›</Link>
           </div>
         </div>
 
