@@ -37,6 +37,6 @@ describe('Slaegtsbjaelke', () => {
     const onSkift = vi.fn();
     render(<Slaegtsbjaelke slaegt={REVENTLOW} aktivMode="about" visPraesens={false} onGaaTil={vi.fn()} onSkiftSlaegt={onSkift} />);
     fireEvent.click(screen.getByRole('button', { name: 'Skift slægt' }));
-    expect(onSkift).toHaveBeenCalled();
+    expect(onSkift).toHaveBeenCalledWith(screen.getByRole('button', { name: 'Skift slægt' }));
   });
 });

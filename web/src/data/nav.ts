@@ -76,10 +76,15 @@ export function pathForMode(m: Mode, slug: string = STANDARD_SLAEGT): string {
 }
 
 export function parseFolgesvendPath(path: string, search = ''): ParsedPath {
-  const seg = path.split('/').filter(Boolean).map((x) => decodeURIComponent(x));
   const qs = new URLSearchParams(search);
   const ud = (mode: Mode, x: Partial<ParsedPath> = {}): ParsedPath =>
     ({ mode, personId: null, fokusId: null, estateId: null, slaegt: null, q: null, omdiriger: null, ...x });
+  let seg: string[];
+  try {
+    seg = path.split('/').filter(Boolean).map((x) => decodeURIComponent(x));
+  } catch {
+    return ud('ukendtSlaegt'); // ødelagt link (fx »%« uden kode) → »findes ikke«, ikke fejlskærmen
+  }
 
   if (seg.length === 0) return ud('home');
   const [s0, s1, s2] = seg;

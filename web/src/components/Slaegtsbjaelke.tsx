@@ -16,7 +16,7 @@ export function Slaegtsbjaelke({ slaegt, aktivMode, visPraesens, onGaaTil, onSki
   aktivMode: Mode;
   visPraesens: boolean;
   onGaaTil: (m: Mode) => void;
-  onSkiftSlaegt: () => void;
+  onSkiftSlaegt: (knap: HTMLElement) => void;
 }) {
   const sider: Side[] = [
     { mode: 'about', label: 'Forside', aktivFor: ['about'] },
@@ -43,7 +43,7 @@ export function Slaegtsbjaelke({ slaegt, aktivMode, visPraesens, onGaaTil, onSki
             );
           })}
         </div>
-        <button type="button" onClick={onSkiftSlaegt}
+        <button type="button" onClick={(e) => onSkiftSlaegt(e.currentTarget)}
           style={{ fontFamily: T.sans, fontSize: 13.5, fontWeight: 600, color: T.bordeaux, background: 'transparent', border: 0, padding: '8px 4px', cursor: 'pointer' }}>Skift slægt</button>
       </div>
     </nav>

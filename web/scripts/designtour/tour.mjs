@@ -22,6 +22,10 @@ const STEPS = [
   { out: 'a-tree-kolonner', path: '/slaegt/reventlow/stamtrae', actions: [{ click: 'Kolonner', exact: true }] },
   { out: 'a-search', path: '/soeg?q=rev' },
   { out: 'a-search-tom', path: '/soeg?q=Reventlov' },
+  // Skriver midt i et ord: »Revetlow« → »Reventlow«. Slutadressen skal være /soeg?q=Reventlow.
+  { out: 'a-search-midt', path: '/soeg', actions: [{ fill: ['input[aria-label="Søg person"]', 'Revetlow'] }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'n' }] },
+  // Klikvej gennem menu og bjælke; slutadressen skal være stamtræet uden ?fokus=.
+  { out: 'a-klikvej', path: '/', actions: [{ click: 'Slægter', exact: true }, { click: 'Reventlow', exact: true }, { click: 'Stamtræ', exact: true }, { click: 'Godser', exact: true }, { click: 'Stamtræ', exact: true }] },
   { out: 'a-monogram', path: '/person/421' },
   { out: 'a-fejl', path: '/', fail: true },
   { out: 'a-relate', path: '/slaegtskab', actions: [{ fill: ['input[aria-label="Søg person"]', 'Otto Reventlow'] }, { click: 'Otto Reventlow', exact: true }, { fill: ['input[aria-label="Søg person"]', 'Magdalena'] }, { click: 'Magdalena Sophia Reventlow' }] },

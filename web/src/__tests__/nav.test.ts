@@ -31,6 +31,9 @@ describe('parseFolgesvendPath — ny grammatik', () => {
     expect(parseFolgesvendPath('/soeg').q).toBe('');
     expect(parseFolgesvendPath('/min-side/bogmaerker').mode).toBe('bookmarks');
   });
+  it('ødelagt kodning i stien kaster ikke', () => {
+    expect(parseFolgesvendPath('/slaegt/reventlow%').mode).toBe('ukendtSlaegt');
+  });
   it('ukendt sti øverst → hovedsiden', () => {
     expect(parseFolgesvendPath('/findes-ikke').mode).toBe('home');
   });

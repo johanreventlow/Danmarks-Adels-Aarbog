@@ -17,7 +17,7 @@ export function Sidehoved({ aktiv, menuAaben, setMenuAaben, menuKnap, slaegter, 
   onPersoner, onSlaegtskab, onForside, loggetInd, onLogin, onLogout, visRedaktion, ekstra }: {
   aktiv: HovedpunktAktiv;
   menuAaben: boolean;
-  setMenuAaben: (aaben: boolean, returFokus?: boolean) => void;
+  setMenuAaben: (aaben: boolean, returFokus?: boolean, aabner?: HTMLElement | null) => void;
   menuKnap: RefObject<HTMLButtonElement>;
   slaegter: readonly Slaegt[];
   senestSlaegt: string | null;
@@ -51,8 +51,8 @@ export function Sidehoved({ aktiv, menuAaben, setMenuAaben, menuKnap, slaegter, 
         <nav aria-label="Hovedmenu" style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: '1 1 auto' }}>
           <Link href={soegPath()} onNavigate={onPersoner} aria-current={aktiv === 'personer' ? 'page' : undefined} style={punkt(aktiv === 'personer')}>Personer</Link>
           <button ref={menuKnap} type="button" aria-expanded={menuAaben} aria-controls={MENU_ID}
-            onClick={() => setMenuAaben(!menuAaben)}
-            onKeyDown={(e) => { if (e.key === 'ArrowDown') { e.preventDefault(); setMenuAaben(true); } }}
+            onClick={(e) => setMenuAaben(!menuAaben, false, e.currentTarget)}
+            onKeyDown={(e) => { if (e.key === 'ArrowDown') { e.preventDefault(); setMenuAaben(true, false, e.currentTarget); } }}
             style={punkt(slaegterAktiv)}>
             Slægter
             <svg width={12} height={12} viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">

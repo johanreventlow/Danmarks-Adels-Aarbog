@@ -139,8 +139,10 @@ export default function Folgesvend() {
   const [menuAaben, setMenuAabenState] = useState(false);
   const menuKnap = useRef<HTMLButtonElement>(null);
   const aabnerRef = useRef<HTMLElement | null>(null);
-  const setMenuAaben = useCallback((aaben: boolean, returFokus = false) => {
-    if (aaben) aabnerRef.current = (document.activeElement as HTMLElement | null) ?? menuKnap.current;
+  // Åbneren sendes med fra klikket: Safari fokuserer ikke knapper ved museklik, så
+  // document.activeElement ville være body, og Esc ville sende fokus derhen.
+  const setMenuAaben = useCallback((aaben: boolean, returFokus = false, aabner?: HTMLElement | null) => {
+    if (aaben) aabnerRef.current = aabner ?? menuKnap.current;
     setMenuAabenState(aaben);
     if (!aaben && returFokus) (aabnerRef.current ?? menuKnap.current)?.focus();
   }, []);
@@ -213,6 +215,16 @@ export default function Folgesvend() {
     return buildBrowse(src, query, browseSort, activeLetter, { linjeByPerson: model?.lineage?.byPerson, activeLinje });
   }, [persons, model, query, browseSort, activeLetter, activeLinje, bmDep]);
 
+  // /soeg: adressen er eneste kilde til søgeordet — feltet og resultaterne læser parsed.q direkte,
+  // og tastetryk skrives i adressen (replace). Uden søgeord gennemses alle personer.
+  const soegQ = parsed.mode === 'soeg' ? (parsed.q ?? '') : '';
+  const soegBrowse = useMemo(() => {
+    if (parsed.mode !== 'soeg') return null;
+    const bmSet = bmDep ? new Set(bmDep) : null;
+    const src = bmSet ? persons.filter((p) => bmSet.has(p.id)) : persons;
+    return buildBrowse(src, soegQ, browseSort, activeLetter, { linjeByPerson: model?.lineage?.byPerson, activeLinje });
+  }, [parsed.mode, persons, model, soegQ, browseSort, activeLetter, activeLinje, bmDep]);
+
   const rel = useMemo(() => (model && relA && relB ? computeRelationship(model, relA, relB) : null), [model, relA, relB]);
 
   // Navigér til en person i STAMTRÆET — kanoniserer id'et, tvinger mode til 'tree' (matcher
@@ -249,20 +261,6 @@ export default function Folgesvend() {
     setFocusId(cid);
     navigate(visPersonPath(cid), { replace: true, state: { prevFocusId } });
   };
-  // /soeg: URL'en er eneste kilde til søgeordet. Uden søgeord gennemses alle personer.
-  // Forlader man /soeg, ryddes søgningen, så stamtræet eller slægtskabet ikke åbner med resultater.
-  const varPaaSoeg = useRef(false);
-  useEffect(() => {
-    if (parsed.mode !== 'soeg') {
-      if (varPaaSoeg.current) { setQuery(''); setBrowsing(false); setBmOnly(false); }
-      varPaaSoeg.current = false;
-      return;
-    }
-    varPaaSoeg.current = true;
-    setQuery(parsed.q ?? '');
-    setBrowsing(true);
-  }, [parsed]);
-
   // Menuen lukker ved enhver navigation; besøgte slægter huskes til »Senest besøgt«.
   useEffect(() => { setMenuAabenState(false); }, [loc]);
   useEffect(() => {
@@ -271,7 +269,16 @@ export default function Folgesvend() {
     try { window.localStorage.setItem('daa_senest_slaegt', parsed.slaegt!); } catch { /* privat vindue */ }
   }, [parsed.slaegt]);
 
-  // Fane-skift (sidehoved, slægtsbjælke og detalje-panelets "Sæt i fokus"/"Find slægtskab").
+  // Slægtsbjælkens klik går præcis til linkets href (ingen ?fokus=), så klik og cmd-klik lander
+  // samme sted, og Stamtræ ikke åbner panelet på en person, læseren ikke har valgt.
+  const goToSide = (m: Mode) => {
+    setMenuAabenState(false);
+    setMode(m);
+    if (m === 'estates') setEstateId(null);
+    navigate(pathForMode(m, slug));
+  };
+
+  // Fane-skift (sidehoved og detalje-panelets "Sæt i fokus"/"Find slægtskab").
   const goToMode = (m: Mode, tilSlaegt: string = slug) => {
     setMenuAabenState(false);
     setMode(m);
@@ -458,7 +465,7 @@ export default function Folgesvend() {
 
       {findSlaegt(parsed.slaegt) && mode !== 'ukendtSlaegt' && (
         <Slaegtsbjaelke slaegt={findSlaegt(parsed.slaegt)!} aktivMode={mode} visPraesens={session?.role === 'redaktion'}
-          onGaaTil={(m) => goToMode(m)} onSkiftSlaegt={() => setMenuAaben(true)} />
+          onGaaTil={goToSide} onSkiftSlaegt={(knap) => setMenuAaben(true, false, knap)} />
       )}
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
@@ -483,8 +490,8 @@ export default function Folgesvend() {
             : mode === 'soeg' ? (
               <div style={{ padding: '30px 40px 50px' }}>
                 <ViewHeader title="Personer" mb="18px" />
-                <TreeSearch {...treeSearch}
-                  // Skriv søgeordet i URL'en med replace, så tilbage-knappen ikke går ét tastetryk ad gangen.
+                <TreeSearch {...treeSearch} query={soegQ} browse={soegBrowse ?? browse}
+                  // Skriv søgeordet i adressen med replace, så tilbage-knappen ikke går ét tastetryk ad gangen.
                   setQuery={(v) => navigate(soegPath(v), { replace: true, state: window.history.state })}
                   clearSearch={() => navigate(soegPath(), { replace: true })}
                   showResults onPick={navigateTree} personHref={personPath} />
