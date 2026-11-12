@@ -37,7 +37,7 @@ export async function fetchRedaktionPersoner(): Promise<RedPerson[]> {
   if (!supabase) return [];
   const sb = supabase;
   const rows = await getAll<RawRedPerson>(() =>
-    sb.from('person').select('id,visning_navn,visning_efternavn,visning_foedt,visning_doed,levende,privat'));
+    sb.from('person').select('id,visning_navn,visning_efternavn,visning_foedt,visning_doed,levende,privat').order('id'));
   return rows.map(mapRedPerson);
 }
 
@@ -726,15 +726,15 @@ export async function fetchPersonFamilie(id: string, model: import('./types').Mo
   if (!supabase) return { somPartner: [], somBarn: [] };
   const sb = supabase;
   const mine = await getAll<{ family_id: number }>(() =>
-    sb.from('family_member').select('family_id').eq('person_id', Number(id)));
+    sb.from('family_member').select('family_id').eq('person_id', Number(id)).order('family_id').order('rolle'));
   const famIds = Array.from(new Set(mine.map((m) => m.family_id)));
   if (!famIds.length) return { somPartner: [], somBarn: [] };
   const [members, families] = await Promise.all([
     getAll<RawFamRow>(() =>
       sb.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens').in('family_id', famIds)
-        .order('ordinal', { ascending: true, nullsFirst: false }).order('person_id')),
+        .order('ordinal', { ascending: true, nullsFirst: false }).order('person_id').order('family_id').order('rolle')),
     getAll<RawFamilyMeta>(() =>
-      sb.from('family').select('id,type').in('id', famIds)),
+      sb.from('family').select('id,type').in('id', famIds).order('id')),
   ]);
   return mapFamilieRows(id, families, members, model);
 }
@@ -1002,20 +1002,20 @@ export async function fetchMediaBibliotek(): Promise<MediaBibliotekPost[]> {
   const sb = supabase;
   const [mediaRows, personRelationer, objektRelationer, mentions] = await Promise.all([
     getAll<RawPersonMediaRow>(() =>
-      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at')),
+      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at').order('id')),
     getAll<RawMediaRelationRow>(() =>
       sb.from('relation').select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle')
-        .eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('rolle', 'afbildet')),
+        .eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('rolle', 'afbildet').order('id')),
     getAll<RawMediaRelationRow>(() =>
       sb.from('relation').select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle')
-        .eq('subjekt_type', 'media').in('objekt_type', ['estate','coat_of_arms','lineage']).eq('rolle', 'afbildet')),
+        .eq('subjekt_type', 'media').in('objekt_type', ['estate','coat_of_arms','lineage']).eq('rolle', 'afbildet').order('id')),
     getAll<RawMediaMentionRow>(() =>
-      sb.from('text_mention').select('kilde_type,kilde_id,maal_type,maal_id').eq('maal_type', 'media')),
+      sb.from('text_mention').select('kilde_type,kilde_id,maal_type,maal_id').eq('maal_type', 'media').order('kilde_type').order('kilde_id').order('maal_type').order('maal_id')),
   ]);
   const mediaIds = mediaRows.map((m) => m.id);
   const variants = mediaIds.length
     ? await getAll<{ media_id: number; storage_path: string }>(() =>
-        sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds))
+        sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds).order('id'))
     : [];
   return mapMediaBibliotekRows(
     mediaRows,
@@ -1087,13 +1087,13 @@ async function fetchMediaEntityNames(
   const lineageIds = idsFor('lineage');
   const [persons, estates, arms, lineages] = await Promise.all([
     personIds.length ? getAll<{ id: number; visning_navn: string | null }>(() =>
-      sb.from('person').select('id,visning_navn').in('id', personIds)) : [],
+      sb.from('person').select('id,visning_navn').in('id', personIds).order('id')) : [],
     estateIds.length ? getAll<{ id: number; navn: string | null }>(() =>
-      sb.from('estate').select('id,navn').in('id', estateIds)) : [],
+      sb.from('estate').select('id,navn').in('id', estateIds).order('id')) : [],
     armsIds.length ? getAll<{ id: number; blasonering: string | null }>(() =>
-      sb.from('coat_of_arms').select('id,blasonering').in('id', armsIds)) : [],
+      sb.from('coat_of_arms').select('id,blasonering').in('id', armsIds).order('id')) : [],
     lineageIds.length ? getAll<{ id: number; navn: string | null }>(() =>
-      sb.from('lineage').select('id,navn').in('id', lineageIds)) : [],
+      sb.from('lineage').select('id,navn').in('id', lineageIds).order('id')) : [],
   ]);
   const names = new Map<string, string>();
   persons.forEach((r) => names.set(entityKey('person', r.id), r.visning_navn ?? fallbackEntityName('person', r.id)));
@@ -1126,7 +1126,7 @@ export async function fetchMediaAnvendelse(mediaId: string): Promise<MediaAnvend
   const narrativeIds = [...new Set(mentions.filter((m) => m.kilde_type === 'narrative').map((m) => m.kilde_id))];
   const narratives = narrativeIds.length
     ? await getAll<RawMediaNarrativeRow>(() =>
-        sb.from('narrative').select('id,subjekt_type,subjekt_id').in('id', narrativeIds))
+        sb.from('narrative').select('id,subjekt_type,subjekt_id').in('id', narrativeIds).order('id'))
     : [];
   const targets = [
     ...personRelationer.map((r) => ({ type: r.subjekt_type, id: r.subjekt_id })),
@@ -1222,9 +1222,9 @@ async function mediaFromRelPairs(sb: NonNullable<typeof supabase>, pairs: { medi
   const mediaIds = pairs.map((p) => p.mediaId);
   const [rows, variants] = await Promise.all([
     getAll<RawPersonMediaRow>(() =>
-      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at').in('id', mediaIds)),
+      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at').in('id', mediaIds).order('id')),
     getAll<{ media_id: number; storage_path: string }>(() =>
-      sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds)),
+      sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds).order('id')),
   ]);
   const thumbPathByMediaId = new Map(variants.map((v) => [String(v.media_id), v.storage_path]));
   return mapPersonMediaRows(rows, relByMediaId, thumbPathByMediaId)
@@ -1237,7 +1237,7 @@ export async function fetchPersonMedia(id: string): Promise<PersonMedia[]> {
   const rels = await getAll<{ id: number; objekt_id: number; kvalifikator: { primaer?: boolean } | null }>(() =>
     sb.from('relation').select('id,objekt_id,kvalifikator')
       .eq('subjekt_type', 'person').eq('subjekt_id', Number(id))
-      .eq('objekt_type', 'media').eq('rolle', 'afbildet'));
+      .eq('objekt_type', 'media').eq('rolle', 'afbildet').order('id'));
   return mediaFromRelPairs(sb, rels.map((r) => ({
     mediaId: r.objekt_id, relationId: r.id, primaer: r.kvalifikator?.primaer === true,
   })));
@@ -1252,7 +1252,7 @@ export async function fetchObjectMediaRed(objektType: string, objektId: string):
     sb.from('relation').select('id,subjekt_id')
       .eq('subjekt_type', 'media')
       .eq('objekt_type', objektType).eq('objekt_id', Number(objektId))
-      .eq('rolle', 'afbildet'));
+      .eq('rolle', 'afbildet').order('id'));
   return mediaFromRelPairs(sb, rels.map((r) => ({ mediaId: r.subjekt_id, relationId: r.id })));
 }
 
@@ -1317,7 +1317,7 @@ export async function fetchIkkeSammeSomPar(): Promise<{ aId: string; bId: string
   const sb = supabase;
   const rows = await getAll<{ subjekt_id: number; objekt_id: number }>(() =>
     sb.from('relation').select('subjekt_id,objekt_id')
-      .eq('rolle', 'ikke_samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person'));
+      .eq('rolle', 'ikke_samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person').order('id'));
   return parseIkkeSammeSomPar(rows);
 }
 
@@ -1327,6 +1327,6 @@ export async function fetchSammeSomPar(): Promise<{ aId: string; bId: string }[]
   const sb = supabase;
   const rows = await getAll<{ subjekt_id: number; objekt_id: number }>(() =>
     sb.from('relation').select('subjekt_id,objekt_id')
-      .eq('rolle', 'samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person'));
+      .eq('rolle', 'samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person').order('id'));
   return parseIkkeSammeSomPar(rows);
 }
