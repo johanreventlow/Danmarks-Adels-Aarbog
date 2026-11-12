@@ -101,6 +101,12 @@ export default function SammenlignUdgaver() {
     formodetNye: arbejdsliste?.personer.filter((p) => p.status === 'formodet_ny') ?? [],
   }), [arbejdsliste]);
 
+  // Personer i "uden kandidat over tærsklen" der har mindst ét ikke-afvist svagt forslag.
+  const medSvage = useMemo(
+    () => formodetNye.filter((p) => p.svageKandidater.some((k) => !k.afvist)).length,
+    [formodetNye],
+  );
+
   const bekraeft = useCallback((aId: string, bId: string) => // ny(A)=alias, eksisterende(B)=kanonisk (§5.4)
     setPending({ art: 'sammeSom', subjektType: 'person', subjektId: aId, payload: { aliasId: aId, objektId: bId } }), []);
   const afvis = useCallback((aId: string, bId: string) =>
@@ -177,10 +183,46 @@ export default function SammenlignUdgaver() {
 
           {formodetNye.length > 0 ? (
             <View style={s.nyeSektion}>
-              <Serif size={15} style={{ marginBottom: 6 }}>{formodetNye.length} formodet nye — ingen handling nødvendig</Serif>
-              {formodetNye.map((p) => (
-                <Mono key={p.aId} size={11} color={Colors.inkMuted} style={{ marginBottom: 3 }}>{visning(byId.get(p.aId))}</Mono>
-              ))}
+              <Serif size={15} style={{ marginBottom: 6 }}>
+                {formodetNye.length} uden kandidat over tærsklen
+                {medSvage > 0 ? ` — ${medSvage} har et forslag under tærsklen` : ''}
+              </Serif>
+              {medSvage > 0 ? (
+                <Body size={12} color={Colors.inkMuted} style={{ marginBottom: 8 }}>
+                  Personer uden årstal kan ikke nå tærsklen, uanset hvor godt navnet passer: dato-overlap
+                  tæller kun når begge udgaver har en dato. Forslagene nedenfor er ikke vurderet og
+                  fravalgt — bedøm dem selv.
+                </Body>
+              ) : null}
+              {formodetNye.map((p) => {
+                // Som web: op til fem ikke-afviste svage kandidater pr. person.
+                const svage = p.svageKandidater.filter((k) => !k.afvist).slice(0, 5);
+                return (
+                  <View key={p.aId} style={{ marginBottom: svage.length ? 8 : 3 }}>
+                    <Mono size={11} color={Colors.inkMuted}>{visning(byId.get(p.aId))}</Mono>
+                    {svage.map((k) => {
+                      const bId = String(k.bId);
+                      return (
+                        <View key={bId} style={s.svag}>
+                          <Body size={12}>{(k.score ?? 0).toFixed(3)} — {visning(byId.get(bId))}</Body>
+                          <Mono size={10} color={Colors.inkMuted} style={{ marginTop: 2 }}>
+                            navn {k.nameSim.toFixed(2)} · fødsel {k.birthOverlap ? '✓' : '—'} · død {k.deathOverlap ? '✓' : '—'} · køn {k.sexEq ? '✓' : '✗'}
+                          </Mono>
+                          <View style={s.knapper}>
+                            <Pressable style={[s.knap, s.knapPrimaer, k.linket && s.knapDisabled]}
+                              disabled={k.linket} onPress={() => bekraeft(p.aId, bId)}>
+                              <BtnLabel color="#fff">{k.linket ? '✓ bekræftet' : 'Bekræft samme'}</BtnLabel>
+                            </Pressable>
+                            <Pressable style={[s.knap, s.knapSekundaer]} onPress={() => afvis(p.aId, bId)}>
+                              <BtnLabel color={Colors.bordeaux}>Afvis</BtnLabel>
+                            </Pressable>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                );
+              })}
             </View>
           ) : null}
         </ScrollView>
@@ -208,5 +250,6 @@ const s = StyleSheet.create({
   knapPrimaer: { backgroundColor: Colors.bordeaux },
   knapSekundaer: { borderWidth: 1, borderColor: Colors.bordeaux },
   knapDisabled: { opacity: 0.5 },
+  svag: { marginTop: 6, marginLeft: 12, paddingLeft: 8, borderLeftWidth: 1, borderLeftColor: Border.light },
   nyeSektion: { marginTop: 20, paddingTop: 12, borderTopWidth: 1, borderTopColor: Border.light },
 });
