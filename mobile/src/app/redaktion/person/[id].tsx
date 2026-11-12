@@ -37,6 +37,7 @@ import {
   fetchPersonFamilie,
   fetchPersonMedia,
   fetchSammeSomLinks,
+  fetchSammeSomPar,
   fetchForaeldreUkendtMarkering,
   fetchMediaAnvendelse,
   fetchUdrensPreview,
@@ -55,7 +56,7 @@ import {
 } from '../../../data/redaktionRead';
 import { fetchExistingMediaBySha } from '../../../data/mediaDedup';
 import { cleanupUdrensStorage } from '../../../data/mediaUdrens';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, previewSammeSom } from '@daa/core';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, foldePrognose, type SameAsEdge } from '@daa/core';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
 import { type Change } from '../../../data/redaktionWrite';
 import { useStore } from '../../../store/useStore';
@@ -141,6 +142,19 @@ export default function PersonEditor() {
       ([child, parents]) => parents.map((parent) => ({ child, parent, union: '' })),
     ),
   }), [redaktionModel]);
+  // Alle eksisterende samme_som-kanter til arkets fold-prognose (null = hentes, 'fejl' = kunne ikke hentes).
+  // Uden dem ligner forældre, der allerede er koblet på tværs af udgaverne, konkurrerende forældre.
+  const [ssKanter, setSsKanter] = useState<SameAsEdge[] | null | 'fejl'>(null);
+  const ssPersonId = ssScratch?.personId ?? null;
+  useEffect(() => {
+    if (ssPersonId === null) return;
+    let aktiv = true;
+    setSsKanter(null);
+    fetchSammeSomPar()
+      .then((par) => { if (aktiv) setSsKanter(par.map((p) => ({ alias: p.aId, canonical: p.bId }))); })
+      .catch(() => { if (aktiv) setSsKanter('fejl'); });
+    return () => { aktiv = false; };
+  }, [ssPersonId]);
 
   // Familie (2C-2b): redigerbar partner+barn-sektion.
   const [familie, setFamilie] = useState<PersonFamilie>({ somPartner: [], somBarn: [] });
@@ -753,9 +767,9 @@ export default function PersonEditor() {
           valgt={{ id: ssScratch.personId, navn: ssScratch.navn }}
           kanoniskId={ssScratch.kanoniskId}
           onByt={() => setSsScratch({ ...ssScratch, kanoniskId: ssScratch.kanoniskId === id! ? ssScratch.personId : id! })}
-          preview={previewSammeSom(
+          prognose={foldePrognose(
             ssRawDb,
-            [],
+            ssKanter,
             { alias: ssScratch.kanoniskId === id! ? ssScratch.personId : id!, canonical: ssScratch.kanoniskId },
           )}
           onClose={() => setSsScratch(null)}
