@@ -236,8 +236,14 @@ export function buildNaevnt(
     if ((haendelserBy[p.id]?.length ?? 0) > 0 || (storieBy[p.id]?.length ?? 0) > 0) continue;
     const boernePrUnion = model.indexes.childrenByUnion[p.id] ?? {};
     if (Object.values(boernePrUnion).some((boern) => boern.length > 0)) continue;
+    // Invariant 7: et formodet/omstridt forældreled vises med ordet, ikke som sikkert.
     const foraeldre = (model.indexes.parentsByChild[p.id] ?? [])
-      .map((id) => model.byId[id]?.name)
+      .map((id) => {
+        const navn = model.byId[id]?.name;
+        if (!navn) return null;
+        const konf = model.indexes.konfByEdge?.[`${p.id}|${id}`];
+        return konf === 'formodet' || konf === 'omstridt' ? `${navn} (${konf})` : navn;
+      })
       .filter((navn): navn is string => Boolean(navn));
     out.push({
       kind: 'naevnt', id: 'naevnt:' + p.id, personId: p.id, name: p.name, years: p.years,

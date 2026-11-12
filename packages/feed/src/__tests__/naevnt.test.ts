@@ -114,6 +114,18 @@ describe('buildNaevnt — hvem får kortet', () => {
   });
 });
 
+it('»Barn af …« viser et formodet forældreled med ordet (invariant 7)', () => {
+  const model = mkModel([person('far', { name: 'Frederik' }), person('mor', { name: 'Mette' }), person('barn')], {
+    unions: [{ id: 'f1', p1: 'far', p2: 'mor', p2_name: null, year: null }],
+    parentChild: [
+      { child: 'barn', parent: 'far', union: 'f1', konfidens: 'formodet' },
+      { child: 'barn', parent: 'mor', union: 'f1', konfidens: 'sikker' },
+    ],
+  });
+  const kort = buildNaevnt(model, GRUNDLAG, EMPTY_AUX, {}, {}).find((c) => c.id === 'naevnt:barn');
+  expect(kort).toMatchObject({ relation: 'Barn af Frederik (formodet) og Mette' });
+});
+
 describe('buildFeedOrder — naevnt-porten', () => {
   const model = mkModel([person('1'), person('2')]);
 
