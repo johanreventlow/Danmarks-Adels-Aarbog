@@ -40,19 +40,20 @@ export const FAKTA_UDELADT = ['forældrefamilie', 'forældre_ukendt'];
 const FAKTA_RAEKKEFOELGE = ['navn', 'tilnavn', 'fødsel', 'dåb', 'titel', 'dekoration', 'adling', 'floruit',
   'klosterindgang', 'overhoved', 'død', 'dødsårsag', 'begravelse'];
 
-const typeRank = (t: string) => {
+// Intern genbrug i editionFacts.ts; bevidst ikke eksporteret fra index.ts.
+export const typeRank = (t: string) => {
   const i = FAKTA_RAEKKEFOELGE.indexOf(t);
   return i === -1 ? FAKTA_RAEKKEFOELGE.length : i;
 };
 
-function factValue(r: PublicPersonFactRow): string {
+export function factValue(r: PublicPersonFactRow): string {
   // date_raw udelades, når den er identisk med vaerdi_tekst (ellers vises samme tekst to gange).
   const dateRaw = r.date_raw && r.vaerdi_tekst && r.date_raw.trim() === r.vaerdi_tekst.trim() ? null : r.date_raw;
   const parts = [r.vaerdi_tekst, dateRaw].filter((x): x is string => !!x && x.trim() !== '');
   return parts.length ? parts.join(', ') : '—';
 }
 
-function factSource(r: PublicPersonFactRow): PersonFactSource {
+export function factSource(r: PublicPersonFactRow): PersonFactSource {
   if (r.record_ref) {
     // citation_label bærer allerede udgave og side (»DAA 2018-20, s. 45«); record_label er posten (»I-32«).
     const label = [r.citation_label || r.source_label, visbarPostEtiket(r.record_label)].filter(Boolean).join(' · ');
