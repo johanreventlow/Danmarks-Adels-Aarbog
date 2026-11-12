@@ -1,10 +1,10 @@
 // Navigations-model + URL-grammatik for publikums-følgesvenden (ren, uden DOM/fetch, så den
 // kan unit-testes uafhængigt af Folgesvend-komponenten).
 //
-// 'home' = hovedsiden. 'bookmarks' = min side/bogmærker. 'soeg' = søgesiden (/soeg?q=);
+// 'home' = hovedsiden. 'person' = personsiden /person/<id>. 'bookmarks' = min side/bogmærker. 'soeg' = søgesiden (/soeg?q=);
 // 'ukendtSlaegt' = /slaegt/<slug> med et slug eller en side, der ikke findes. Mode-typen gør
 // center-switchen i Folgesvend exhaustive-tjekket af tsc.
-export type Mode = 'home' | 'tree' | 'relate' | 'estates' | 'arms' | 'about' | 'bookmarks' | 'kort' | 'praesens' | 'soeg' | 'ukendtSlaegt';
+export type Mode = 'home' | 'person' | 'tree' | 'relate' | 'estates' | 'arms' | 'about' | 'bookmarks' | 'kort' | 'praesens' | 'soeg' | 'ukendtSlaegt';
 
 // Sidens navn (overskrifter, slægtsbjælken og pladsholderen for ubyggede sider).
 const MODE_LABEL: Partial<Record<Mode, string>> = {
@@ -25,7 +25,7 @@ export function labelOfMode(mode: Mode): string {
 //   /slaegt/<slug>/praesens             præsenslisten
 //   /slaegt/<slug>/godser[?visning=kort] godser, liste eller oversigtskort
 //   /slaegt/<slug>/vaaben               våben
-//   /person/<id>                        personen (i dag træ + panel; egen side i fase 3)
+//   /person/<id>                        personsiden (over slægterne)
 //   /gods/<id>                          godset
 //   /slaegtskab                         Er vi i familie?
 //   /soeg[?q=]                          søgning (uden q: gennemse alle)
@@ -66,7 +66,7 @@ export type ParsedPath = {
 };
 
 export function pathForMode(m: Mode, slug: string = STANDARD_SLAEGT): string {
-  if (m === 'home' || m === 'ukendtSlaegt') return '/';
+  if (m === 'home' || m === 'ukendtSlaegt' || m === 'person') return '/';
   if (m in SLAEGT_SIDE) {
     const side = SLAEGT_SIDE[m] ?? '';
     const base = `/slaegt/${slug}${side ? `/${side}` : ''}`;
@@ -88,7 +88,7 @@ export function parseFolgesvendPath(path: string, search = ''): ParsedPath {
 
   if (seg.length === 0) return ud('home');
   const [s0, s1, s2] = seg;
-  if (s0 === 'person' && s1) return ud('tree', { personId: s1 });
+  if (s0 === 'person' && s1) return ud('person', { personId: s1 });
   if (s0 === 'gods' && s1) return ud('estates', { estateId: s1 });
   if (s0 === 'slaegtskab') return ud('relate');
   if (s0 === 'soeg') return ud('soeg', { q: qs.get('q') ?? '' });
