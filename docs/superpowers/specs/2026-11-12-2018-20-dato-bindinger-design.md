@@ -10,6 +10,7 @@ normaliseringsregel er besluttet«, stikprøve på 20); 6c-2-spec'en (`2026-11-0
 §4.3 (`dato-markoer-v1`, lukket liste »præcis de to, målt« på 1939), §4.4 (kildescope, stikprøve), §4.6 (afgørelse og
 binding direkte i prod); runbook `docs/runbooks/trin6c2-prod.md` ceremoni 3a og 4.
 **Review-budget (B13):** 1 Codex-runde (`gpt-6.1-sol`) på spec+plan og 1 på diffen før prod; Opus afvejer hvert fund.
+Projektejeren 2026-11-12: budgettet gælder ikke i dag; en ekstra Codex-tjekrunde på rettelserne er kørt (§9).
 
 ## 1. Roadmap-kobling
 
@@ -198,3 +199,6 @@ Alle 7 accepteret; rettet i spec og plan samme dag.
 Bekræftet af Codex: paritet 61 → 62; `red_decide_interpretation` kopierer derivation, metode, kørsel og
 observationer korrekt; ingen læser afhænger af v1's `method`-tekst; kortværktøjet virker med kun stikprøven, når
 planskemaet bevares.
+
+**Tjekrunde 2026-11-12** (samme Codex-session, kun rettelserne): GO. Alle 7 lukket, ingen nye fund. Skærpet: `fortryd-ddl`
+kræver, at ingen version i nogen kilde har v2's `method` (plan Task 5).
