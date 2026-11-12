@@ -38,6 +38,10 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >    »Conrad« med fritekst »DAA 1939«). Evt. adelspatentets »Conrad Comte de Reventlow« som navneform (ny faktatype).
 > 7. **Testrest:** et ikke-valgt overhoved-udsagn på person 476 har kildeteksten »Redaktionelt udpeget (præsensliste
 >    v1-test)«. Tjekkes mod prod og fjernes, hvis det er en testrest.
+> 9. **Relative datoer uden for personens fakta** (projektejeren 2026-11-12: »fx borgerlig og kirkelig vielse eller
+>    andre lignende tilfælde der hænger sammen«): 6e-1 opløser dåb←fødsel og begravelse←død (spec §5.4a). Ikke opløst:
+>    vielse (familiefaktum, 8 relative af 478; borgerlig/kirkelig vielse hænger sammen), embedernes periode (46 relative
+>    af 1.256, fx »s.å.« om det foregående embede). Kræver bogens rækkefølge eller en eksplicit reference pr. påstand.
 > 8. **Redaktørens visning af kildeløse fakta i læseren** (spec'ens §9 pkt. 4): ikke afgjort; »Tilføjet af
 >    redaktionen« gør redaktionen for synlig. Alternativer måles senere.
 

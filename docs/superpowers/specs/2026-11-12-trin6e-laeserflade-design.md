@@ -108,6 +108,9 @@ grupperer pr. `fact_id`, dvs. pr. personrække (`packages/core/src/personFacts.t
    beslutningen låne en kilde og sidde på én personrække.
 10. **Uplacerede 1939-poster får også ny publicering** (efter Codex-reviewet): en lille schema-ændring tillader en tom
     postdel, så alle 563 genpubliceres, og afgørelse 7 gælder helt (§5.6).
+12. **Relative datoer opløses** (projektejeren efter stikprøven, 2026-11-12): »29. s.m.«, »6. febr. s.å.«, »s.d.« giver
+    ingen mening uden den foregående dato. Dåb opløses ud fra fødslen og begravelse ud fra døden, i samme udgave og på
+    samme personrække; læseren ser **kun den opløste dato** (»29. april 1644«) (§5.4a).
 11. **Ingen tomme biografichips:** har ingen af udgaverne en biografi (typisk ægtefæller), vises vælgeren som et lille
     udgaveskift over fakta uden biografitekst (§5.5).
 
@@ -211,6 +214,22 @@ denne på »siger to udgaver det samme?«. Konservativ — ved tvivl: ikke ens.
   valg:* stikprøven er en kontakt pr. faktatype: et falsk par slår »✓ også« fra for den type (dens noter bliver
   »skriver: …«), indtil reglen er rettet og en ny stikprøve for typen er ren. Den blokerer ikke resten af 6e-1.
 
+### 5.4a Relative datoer (afgørelse 12)
+
+Målt på stand-in: ~365 offentlige påstande med »s.m.«/»s.d.«/»s.å.« (dåb 201, begravelse 127, død 28, titel/dekoration
+9); ingen for kilde 1 og 3 har udregnet `date_min`. Regel: for **dåb** er referencen personrækkens viste **fødsel** i
+samme udgave, for **begravelse** dens viste **død**. »s.m.« erstattes af referencens måned og år, »s.å.« af dens år,
+»s.d.« af hele dens dato; resten af teksten bevares (»hjemmedøbt 6. febr. s.å.« → »hjemmedøbt 6. febr. 1644«). Den
+opløste værdi er den viste og den, lighedsreglen sammenligner. Kan datoen ikke opløses (reference mangler, mangler den
+nødvendige del eller er selv relativ), vises bogens tekst, og den giver aldrig »✓« (noten bliver »skriver: …«). Død,
+titel og dekoration med relativ dato opløses ikke og giver aldrig »✓« på grund af den relative del. Påstanden i
+databasen ændres ikke (ren projektion; invariant 5).
+
+**Kendt begrænsning (6e-1):** relative datoer uden for personens fakta opløses ikke — ægteskabets **vielse** (familie-
+faktum; 8 relative af 478; vises i dag kun som kortpunkt, ikke som tekst i persondetaljen) og **embedernes periode**
+(46 relative af 1.256 relationer, fx »s.å.« om det foregående embede; vises i »Embeder, rang & hverv«). Embedets
+reference afhænger af bogens rækkefølge, som relationerne ikke bærer sikkert. Backlog (decisions 2026-11-12).
+
 ### 5.5 Biografiens standard og vælgerens chips
 
 - **Én funktion** vælger både den aktive chip og den viste tekst (fjerner divergensen §2.1).
@@ -301,6 +320,10 @@ entydig på siden.
 
 - **Dobbelt værdi:** `factValue` sætter `vaerdi_tekst` og `date_raw` sammen; redaktørens datorettelser gemmer samme
   tekst i begge, så læseren viser »15. febr. 1878., 15. febr. 1878.« (målt: 11 påstande). Er de ens, vises den én gang.
+- **Ledende tegn** (projektejeren 2026-11-12): et ledende `*`, `†` eller `⚭` i en vist værdi fjernes i visningen —
+  typen (»Født«, »Død«) siger det allerede. Påstanden er uændret.
+- **Sideform** (projektejeren 2026-11-12): kildeetiketter viser altid »<udgave>, s. N«; bundne 1939-etiketter med
+  »DAA 1939 side 532« vises som »DAA 1939, s. 532«.
 - **Børn:** chip viser fornavn + fødselsår, når det findes (»Ulrica · 1686«).
 - **Embeder:** organisationsnavnet udelades, når det er lig rollen (uden forskel på store/små bogstaver).
 - **Godser:** hver visning viser kun sin udgaves godser (§5.1 på `relation`), uden note for de andre (afgørelse 5;

@@ -249,6 +249,27 @@ Adfærd: én state `valgtChip` (indeks i `vaelger.chips`, nulstilles til `standa
 - [ ] **Step 5: Hele node-jobbet** (Global Constraints) → PASS.
 - [ ] **Step 6: Commit** — `feat(web): persondetaljen viser valgt udgave forrest og den anden som note`
 
+### Task 7b: Relative datoer opløses (spec §5.4a, afgørelse 12)
+
+**Files:**
+- Create: `packages/core/src/relativeDates.ts`
+- Modify: `packages/core/src/editionFacts.ts` (vist værdi for dåb/begravelse; lighed), `packages/core/src/index.ts`
+- Test: `packages/core/src/__tests__/relativeDates.test.ts`, `packages/core/src/__tests__/editionFacts.test.ts`
+
+**Interfaces:**
+- Produces: `export function erRelativDato(v: string): boolean` (indeholder »s.m.«, »s.d.«, »s.å.«/»s.a.« eller »samme dag/måned/år«, uafhængigt af store/små bogstaver og mellemrum efter punktum); `export function oploesRelativDato(v: string, reference: string | null): string | null` — `null` når den ikke kan opløses.
+- Consumes: Task 3's vist-værdi-beregning.
+
+Regler: referencen parses til dag/måned/år (dansk og 1939's månedsnavne/-forkortelser og tal; `21. april 1644`, `21 April 1644`, `april 1644`, `1644`). »s.m.« kræver måned+år og erstattes af `<måned> <år>` med fuldt dansk månedsnavn med små bogstaver; »s.å.« kræver år; »s.d.« kræver dag+måned+år og erstattes af `<dag>. <måned> <år>`. Resten af teksten bevares ordret. En relativ reference → `null`. I `byggUdgaveFakta`: for dåb/begravelse er referencen den viste fødsel/død-værdi fra **samme personrække** og samme udgave (første, hvis flere); opløst værdi vises og sammenlignes; uopløst relativ værdi vises som bogens tekst og kan aldrig give `enig` (heller ikke for den anden udgaves linjer); død/titel/dekoration med relativ værdi kan aldrig give `enig`.
+
+Desuden (spec §5.8, projektejeren 2026-11-12): i `factValue`-visningen fjernes et **ledende** `*`, `†` eller `⚭` (+ mellemrum); i `factSource` vises `<udgave> side N` som `<udgave>, s. N` (kun formen ` side <tal>`, også intervaller som `side 125-126`). `erRelativDato` skal også genkende 1939's OCR-form `15 s. M.`.
+
+- [ ] **Step 1: Fejlende tests:** `oploesRelativDato('15 s. M.', '3. Maj 1700') === '15 maj 1700'`; `oploesRelativDato('29. s.m.', '21. april 1644') === '29. april 1644'`; `('hjemmedøbt 6. febr. s.å.', '21 April 1644') === 'hjemmedøbt 6. febr. 1644'`; `('s.d.', '3. maj 1700') === '3. maj 1700'`; `('29. s.m.', '1644') === null`; `('29. s.m.', null) === null`; `('29. s.m.', '5. s.m.') === null`; `erRelativDato('29 s. m.') === true`; `factValue` for `'* 1749'` giver `'1749'`, for `'† ung'` `'ung'`, mens `'ca. *1700'` er uændret; `factSource`-label `'DAA 1939 side 532'` → `'DAA 1939, s. 532'` og `'DAA 1939 side 125-126'` → `'DAA 1939, s. 125-126'`; `erRelativDato('29. maj 1700') === false`. I `editionFacts.test.ts`: `it('dåb s.m. vises opløst ud fra fødslen')`; `it('ens relativ tekst men forskellig fødselsmåned giver skriver, ikke ✓')`; `it('uopløselig relativ dato vises som bogens tekst og giver aldrig ✓')`; `it('død med s.å. giver aldrig ✓')`; invariant- og property-testen dækker de nye fixtures.
+- [ ] **Step 2: Kør og se dem fejle** — `npm run test -w @daa/core -- relativeDates editionFacts` → FAIL.
+- [ ] **Step 3: Implementér.**
+- [ ] **Step 4: Kør igen + core-suite + typecheck** → PASS. Kør `tools/maal-6e1/maal.ts` igen og opdatér tallene i `laeserflade-6e1-maaling.md` (antal opløste/uopløste relative datoer pr. type og udgave).
+- [ ] **Step 5: Commit** — `feat(core): relative datoer opløses ud fra fødsel og død`
+
 ### Task 8: Prod og færdigbevis
 
 **Files:**
