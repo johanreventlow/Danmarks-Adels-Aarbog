@@ -294,6 +294,11 @@ Browsertjek som anon mod prod (trin 6-specens §8 b, opdateret af §3 og §9 her
 3. **De unummererede** (projektejerens spørgsmål): underforstået nr. 1 bekræftet for 20 af 21; visningen udelader
    nummeret (§5.7, *mit valg*).
 
+4. **Redaktørens kildeløse fakta** (§5.1): visningen er *ikke afgjort*. »Tilføjet af redaktionen · <kildetekst>« gør
+   redaktionen for synlig for læseren; alternativer (vis kun udgaven, når fritekstkilden entydigt navngiver en; eller
+   udelad kildelinjen) måles senere. 6e-1 ændrer ikke denne visning. Backlog (godkendt): Redaktion skal koble kilden
+   til en `source`-række i stedet for fritekst — hører til søge- og koblingsværktøjet efter trin 6.
+
 ## 10. Sammenligning: det, specen ville have bygget på uden brainstormen
 
 Projektejeren bad om sammenligningen. Uden spørgsmål ville 6e have fulgt trin 6-specens §3 og 6d-beslutningerne:
