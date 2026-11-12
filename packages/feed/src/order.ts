@@ -9,6 +9,7 @@ import {
   buildForbundet,
   buildGods,
   buildJubilaeer,
+  buildNaevnt,
   buildPortraitAndCitat,
   buildSlaegt,
   buildVaaben,
@@ -23,6 +24,8 @@ import type { FeedAux, FeedCard, FeedInputs, Model } from './types';
 export const MAX_ATTEMPTS = 20;
 export const R2_WINDOW = 8;
 export const R3_LOOKBACK = 5;
+// Højst ét 'naevnt'-kort i hvert vindue på NAEVNT_VINDUE på hinanden følgende kort.
+export const NAEVNT_VINDUE = 6;
 
 interface ScoredCard {
   card: FeedCard;
@@ -142,6 +145,9 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
     ...buildSlaegt(safeModel, inputs.meId, inputs.focusId),
     ...buildPaaDenneDag(safeModel, livsdatoBy, inputs.todayISO, haendelserBy),
     ...(dagensPersonCard ? [dagensPersonCard] : []),
+    ...(inputs.naevntGrundlag && !disabledKinds.has('naevnt')
+      ? buildNaevnt(safeModel, inputs.naevntGrundlag, aux, haendelserBy, storieBy)
+      : []),
   ];
 
   const visibleCards = hideSet.size > 0
@@ -221,6 +227,22 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
       else if (slaegtPending) { ordered.push(slaegtPending.card); slaegtPending = null; }
       continue;
     }
+    // Loft over 'naevnt' (højst ét pr. NAEVNT_VINDUE kort): er der et blandt de seneste
+    // NAEVNT_VINDUE-1, må dette træk ikke være et. Er kun 'naevnt' tilbage i puljen, droppes
+    // resten — de kan aldrig placeres lovligt — men de låste kort placeres stadig af løkken.
+    // Redaktørens fastgjorte kort ligger før løkken og kan bryde loftet: pin vinder.
+    const recentHasNaevnt = ordered
+      .slice(-(NAEVNT_VINDUE - 1))
+      .some((c) => c.kind === 'naevnt');
+    let rulePool = pool;
+    if (recentHasNaevnt) {
+      rulePool = pool.filter((c) => c.card.kind !== 'naevnt');
+      if (rulePool.length === 0) {
+        pool.length = 0;
+        continue;
+      }
+    }
+
     const prevKind = ordered.length > 0 ? ordered[ordered.length - 1].kind : null;
     const recentPersonIds = ordered
       .slice(-R2_WINDOW)
@@ -238,12 +260,12 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
     const recentFourHavePortrait = ordered
       .slice(-(R3_LOOKBACK - 1))
       .some((c) => c.kind === 'portrait' || c.kind === 'dagensperson');
-    let effectivePool = pool;
+    let effectivePool = rulePool;
     // Se ét slot frem når det næste kort er det låste (ikke-portræt) slægtskort. Ellers
     // kan fem portrætløse kort + låsen danne et ugyldigt 6-vindue, før den normale R3-
     // forcing når at reagere på det efterfølgende slot.
     if (!recentHasPortrait || (nextSlotIsLockedSlaegt && !recentFourHavePortrait)) {
-      const portraitCandidates = pool.filter((c) => c.card.kind === 'portrait');
+      const portraitCandidates = rulePool.filter((c) => c.card.kind === 'portrait');
       if (portraitCandidates.length > 0) effectivePool = portraitCandidates;
     }
 
@@ -269,7 +291,10 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
 
   // Terminal 'samle'-kort (uændret semantik fra v3): kun når nogen personer slet ikke
   // fik et eget person-kort (portræt/citat/dagensperson). Lægges altid sidst.
-  const shownPersonCount = portraits.length + citater.length + (dagensPersonCard ? 1 : 0);
+  // Placerede 'naevnt'-kort er også et eget person-kort; droppede (loftet) tælles ikke.
+  const placedNaevnt = ordered.filter((c) => c.kind === 'naevnt').length;
+  const shownPersonCount = portraits.length + citater.length + (dagensPersonCard ? 1 : 0)
+    + placedNaevnt;
   const remaining = model.persons.length - shownPersonCount;
   if (remaining > 0) {
     ordered.push({

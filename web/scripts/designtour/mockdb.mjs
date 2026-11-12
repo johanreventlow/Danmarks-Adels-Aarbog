@@ -60,8 +60,18 @@ const kunTourPerson = (args, rows) => ((args.p_person_ids ?? []).map(Number).inc
 const faktaRaekke = (id, faktatype, o) => ({ person_id: TOUR_PERSON, fact_id: id, faktatype, conclusion_status: 'afklaret', assertion_id: id, chosen: true,
   vaerdi_tekst: null, date_raw: null, date_min: null, date_max: null, date_qualifier: null, date_certainty: null,
   source_id: 1, source_label: 'DAA 1939', side: '540', record_ref: null, record_label: null, citation_label: 'DAA 1939, s. 540', ...o });
+// Feedets massehentning (alle personer på én gang) får en pladsholder-biografi for hver tredje
+// person, så hovedsidens feed har portrætter nok til flere uddelinger. Personsidens kald (få id'er)
+// rammes ikke, så de øvrige tour-billeder er uændrede. Teksten er testdata, ikke Aarbogens ord.
+const feedTestBios = (args) => ((args.p_person_ids ?? []).length > 20
+  ? args.p_person_ids.map(Number).filter((id) => id % 3 === 0 && id !== TOUR_PERSON).map((id) => ({
+    person_id: id, source_id: 1, source_year: 1939, record_order: 1, source_record_ref: `tour-feed-${id}`,
+    source_label: 'DAA 1939', record_label: 'Testpost', citation_label: 'DAA 1939', provenance_kind: 'source_record',
+    narrative_text: 'Pladsholder til designtouren: her står et uddrag af personens biografi, som Aarbogen skriver den. Teksten er testdata og ikke Aarbogens ord.',
+  }))
+  : []);
 const RPC = {
-  public_person_bio_source_versions_v2: (args) => kunTourPerson(args, [{
+  public_person_bio_source_versions_v2: (args) => [...feedTestBios(args), ...kunTourPerson(args, [{
     person_id: TOUR_PERSON, source_id: 1, source_year: 1939, record_order: 1, source_record_ref: 'tour-rec-1',
     source_label: 'DAA 1939', record_label: 'Testpost', citation_label: 'DAA 1939, s. 540', provenance_kind: 'source_record',
     narrative_text: 'Testbiografi til designtouren: her står personens biografi ordret, som Aarbogen skriver den, med kilde under. Teksten er pladsholder og ikke Aarbogens ord.',
@@ -70,7 +80,7 @@ const RPC = {
     person_id: TOUR_PERSON, source_id: 2, source_year: 2018, record_order: 1, source_record_ref: 'tour-rec-2',
     source_label: 'DAA 2018-20', record_label: 'Testpost 2', citation_label: 'DAA 2018-20, s. 201', provenance_kind: 'source_record',
     narrative_text: 'Testbiografi fra en anden udgave (pladsholder): vælgeren skifter mellem udgavernes tekster.',
-  }]),
+  }])],
   public_person_facts: (args) => kunTourPerson(args, [
     faktaRaekke(900001, 'fødsel', { date_raw: '[testdato] 1700' }),
     faktaRaekke(900002, 'død', { date_raw: '[testdato] 1760' }),

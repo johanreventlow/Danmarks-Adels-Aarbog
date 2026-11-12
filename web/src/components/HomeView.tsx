@@ -1,34 +1,26 @@
-// Forsiden / landing (brief §6). Logoet fører hertil; fordi detaljen nu er skjult indtil
-// valg, er forsiden appens reelle indgang. Form: prominent søge-hero + redaktionelt
-// kuraterede startpersoner (så en førstegangsbruger har et meningsfuldt sted at begynde) +
-// et roligt "Nyt i arkivet". Port af Reventlow-web-v4.dc.html's isHome-blok, drevet af ægte
-// data. Ingen fabrikerede opdaterings-datoer (der findes ingen timestamp-metadata; brief §8.4).
-import { useEffect, useMemo, useState } from 'react';
+// Hovedsiden (webredesign fase 4, tegningen »Hovedside A · Værket«): titel og søgning ·
+// slægtsregistret · en lille indgang til »Er vi i familie?« · feedet. Med færre end tre slægter
+// står registret kompakt, og feedet bærer siden.
+//
+// Bevidst udeladt: »Nyt i Aarbogen« (der findes ingen nyhedsdata), slægtsbeskrivelse og våben på
+// registerkortet (monogram i stedet; intet opdigtet), filterknapper og sidefod fra tegningen.
+// »Redaktionen foreslår« (forsideStartpersoner i data/home.ts) flytter til slægtens forside (fase 5).
+import { useEffect, useState } from 'react';
 import { T } from '../theme';
-import { KlikbarFlade } from '../Link';
-import { personPath, estatePath } from '../data/nav';
-import { PersonCard, SearchIcon, Crest } from './primitives';
-import { forsideStartpersoner, pickMaanedensGods } from '../data/home';
+import { radius } from '@daa/theme';
+import { Link } from '../Link';
+import { navigate } from '../router';
+import { SLAEGTER, slaegtPath, soegPath } from '../data/nav';
 import { FeedStreamView } from './feed/FeedStreamView';
 import { fetchFeedPins } from '../data/feedPins';
-import { todayISO } from '../data/feedSession';
 import type { FeedPinInput } from '@daa/feed';
 import type { Model } from '../data/types';
 import type { ArmsItem, EstateItem } from '../data/public';
 
-// Kort i "Nyt i arkivet"-kolonnen — samme skabelon, kun tekst/handling varierer.
-function NytCard({ kicker, title, sub, onClick }: { kicker: string; title: string; sub: string; onClick?: () => void }) {
-  return (
-    <div onClick={onClick} style={{ background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 13, padding: '15px 16px', cursor: onClick ? 'pointer' : 'default' }}>
-      <div style={{ fontFamily: T.mono, fontSize: 9.5, letterSpacing: '.1em', textTransform: 'uppercase', color: T.goldInk }}>{kicker}</div>
-      <div style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600, color: T.ink, marginTop: 4, lineHeight: 1.1 }}>{title}</div>
-      <div style={{ fontFamily: T.sans, fontSize: 12.5, color: T.inkMuted, marginTop: 4 }}>{sub}</div>
-    </div>
-  );
-}
+const etiket = { margin: 0, fontFamily: T.mono, fontSize: 11, letterSpacing: '.16em', textTransform: 'uppercase', color: T.goldInk, fontWeight: 400 } as const;
 
 export function HomeView({
-  model, personCount, estates, onPickPerson, onOpenSearch, onBrowseAll, onOpenEstate, onGoTree,
+  model, personCount, estates, onPickPerson, onBrowseAll, onOpenEstate,
   arms, meId, focusId, bookmarkedIds, bookmarksReady, bookmarkHydrationVersion, bookmarkOwnerId,
   hasBookmark, onSaveBookmark, onOpenArms, onOpenSlaegt,
 }: {
@@ -36,11 +28,8 @@ export function HomeView({
   personCount: number;
   estates: EstateItem[] | null;
   onPickPerson: (id: string) => void;
-  onOpenSearch: () => void;
   onBrowseAll: () => void;
   onOpenEstate: (id: string) => void;
-  onGoTree: () => void;
-  // Det levende feed (fase1-design.md §7) — samme motor/kort-katalog som mobil.
   arms: ArmsItem[] | null;
   meId: string | null;
   focusId: string | null;
@@ -53,97 +42,89 @@ export function HomeView({
   onOpenArms: () => void;
   onOpenSlaegt: (aId: string, bId: string) => void;
 }) {
-  // Ét delt pin-load for feed-strømmen og forsidens startpersoner (Task 12).
-  const [feedPins, setFeedPins] = useState<FeedPinInput[]>([]);
-  const dagsAar = useMemo(() => Number(todayISO().slice(0, 4)), []);
-  const curated = useMemo(
-    () => (model ? forsideStartpersoner(model, feedPins, 4, dagsAar) : []),
-    [model, feedPins, dagsAar],
-  );
-  const gods = useMemo(() => pickMaanedensGods(estates), [estates]);
+  // Redaktionens fastgjorte kort skal stå først i feedet; feedet monteres derfor først, når
+  // pins er hentet (ellers kom de efter første uddeling). fetchFeedPins giver [] ved fejl.
+  const [feedPins, setFeedPins] = useState<FeedPinInput[] | null>(null);
+  const [q, setQ] = useState('');
   useEffect(() => {
     let alive = true;
-    void fetchFeedPins().then((pins) => { if (alive) setFeedPins(pins); });
+    void fetchFeedPins().then((pins) => { if (alive) setFeedPins(pins); }, () => { if (alive) setFeedPins([]); });
     return () => { alive = false; };
   }, []);
-  if (!model) return <div style={{ padding: 40, fontFamily: T.sans, color: T.inkMuted }}>Henter slægten…</div>;
+
+  const linjer = model?.lineage?.list.length ?? 0;
+  const udgaver = (model?.udgaver ?? []).map((u) => u.label).filter(Boolean);
 
   return (
-    <div style={{ padding: '34px 44px 54px', maxWidth: 1140 }}>
-      {/* Hero — søgning som primær indgang (brief §6). */}
-      <div style={{ background: T.surfaceInverse, borderRadius: 18, padding: '36px 40px', position: 'relative', overflow: 'hidden' }}>
-        <Crest stroke="#e7c98f" inner={T.gold} opacity={0.16} size={158} style={{ position: 'absolute', top: -12, right: 30 }} />
-        <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.2em', textTransform: 'uppercase', color: T.goldOnInverse }}>Slægten Reventlow · {personCount} personer</div>
-        <div style={{ fontFamily: T.serif, fontSize: 40, fontWeight: 600, color: T.inkOnInverse, lineHeight: 1.03, marginTop: 9, maxWidth: 560 }}>Find din vej ind i slægten</div>
-        <div onClick={onOpenSearch} style={{ marginTop: 22, maxWidth: 640, display: 'flex', alignItems: 'center', gap: 11, background: T.surfaceRaised, borderRadius: 12, padding: '14px 17px', cursor: 'text' }}>
-          <SearchIcon size={20} />
-          <span style={{ fontFamily: T.sans, fontSize: 16.5, color: T.inkMuted }}>Find en person i slægten…</span>
-        </div>
-      </div>
+    <div style={{ padding: 'clamp(24px, 4vw, 40px) clamp(16px, 4vw, 44px) 54px', maxWidth: 1140, margin: '0 auto' }}>
+      <header style={{ maxWidth: 720 }}>
+        <p style={etiket}>Danmarks Adels Aarbog</p>
+        <h1 style={{ margin: '8px 0 0', fontFamily: T.serif, fontSize: 'clamp(32px, 6vw, 44px)', lineHeight: 1.05, fontWeight: 600, color: T.ink }}>Slå op i Aarbogen</h1>
+        <p style={{ margin: '12px 0 0', fontFamily: T.sans, fontSize: 16, lineHeight: 1.5, color: T.inkSecondary }}>
+          Find en person i de slægter, Aarbogen har lagt ind, eller begynd i en slægt.
+        </p>
+        <form role="search" onSubmit={(e) => { e.preventDefault(); navigate(soegPath(q.trim())); }} style={{ display: 'flex', gap: 8, marginTop: 20 }}>
+          <label htmlFor="forside-soeg" style={{ position: 'absolute', left: -9999 }}>Søg efter en person</label>
+          <input id="forside-soeg" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Søg efter en person"
+            style={{ flex: 1, minWidth: 0, fontFamily: T.sans, fontSize: 16, lineHeight: '22px', padding: '12px 15px', borderRadius: radius.field, border: `1px solid ${T.lineStrong}`, background: T.surfaceRaised, color: T.ink }} />
+          <button type="submit" style={{ fontFamily: T.sans, fontSize: 15, fontWeight: 600, padding: '12px 20px', borderRadius: radius.field, border: 0, background: T.bordeaux, color: T.onBordeaux, cursor: 'pointer' }}>Søg</button>
+        </form>
+      </header>
 
-      {/* Redaktionen foreslår — kuraterede startpersoner (brief §6). */}
-      <div style={{ marginTop: 32, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-        <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.16em', textTransform: 'uppercase', color: T.goldInk }}>Redaktionen foreslår · begynd her</div>
-        <span onClick={onBrowseAll} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>Se alle {personCount} →</span>
-      </div>
-      <div style={{ display: 'flex', gap: 13, marginTop: 13, flexWrap: 'wrap' }}>
-        {curated.map((p) => (
-          <div key={p.id} style={{ flex: 1, minWidth: 210 }}>
-            <PersonCard p={p} width="100%" href={personPath(p.id)} onClick={() => onPickPerson(p.id)} />
-          </div>
-        ))}
-      </div>
+      <section aria-labelledby="forside-register" style={{ marginTop: 36 }}>
+        <h2 id="forside-register" style={etiket}>Slægtsregistret</h2>
+        <ul style={{ listStyle: 'none', margin: '12px 0 0', padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))', gap: 14 }}>
+          {SLAEGTER.map((s) => (
+            <li key={s.slug}>
+              <Link href={slaegtPath(s.slug)} style={{ display: 'flex', gap: 14, alignItems: 'center', padding: '16px 18px', background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: radius.card, textDecoration: 'none', color: T.ink }}>
+                <span aria-hidden="true" style={{ flex: 'none', width: 48, height: 48, borderRadius: '50%', border: `1px solid ${T.lineStrong}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 24, color: T.bordeaux }}>{s.navn.slice(0, 1)}</span>
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: 'block', fontFamily: T.serif, fontSize: 22, fontWeight: 600, lineHeight: 1.1 }}>{s.navn}</span>
+                  <span style={{ display: 'block', fontFamily: T.sans, fontSize: 13, color: T.inkMuted, marginTop: 4 }}>
+                    {/* Tallene først, når modellen er hentet — aldrig »0 personer« under indlæsning. */}
+                    {model ? [
+                      `${personCount} personer`,
+                      linjer > 0 ? `${linjer} linjer` : null,
+                      udgaver.length > 0 ? `udgaver: ${udgaver.join(', ')}` : null,
+                    ].filter(Boolean).join(' · ') : 'Henter registret …'}
+                  </span>
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+        <p style={{ margin: '14px 0 0', fontFamily: T.sans, fontSize: 14, color: T.inkSecondary }}>
+          Er vi i familie?{' '}
+          <Link href="/slaegtskab" style={{ color: T.bordeaux, fontWeight: 600 }}>Find slægtskabet mellem to personer →</Link>
+        </p>
+      </section>
 
-      {/* Nyt i arkivet — månedens gods (ægte data) + rolige indgange. */}
-      <div style={{ marginTop: 34, fontFamily: T.mono, fontSize: 11, letterSpacing: '.16em', textTransform: 'uppercase', color: T.goldInk }}>Nyt i arkivet</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, marginTop: 13 }}>
-        {/* Månedens gods: ankeret kun når der FINDES et gods at pege på — ellers er kortet
-            ren dekoration uden mål, og et href ville love en side der ikke findes. */}
-        <KlikbarFlade
-          href={gods ? estatePath(gods.id) : undefined}
-          onClick={gods ? () => onOpenEstate(gods.id) : undefined}
-          style={{ background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 15, overflow: 'hidden' }}
-        >
-          <div style={{ height: 160, background: `repeating-linear-gradient(45deg,${T.surfaceSunken} 0 12px,#e2d8c8 12px 24px)`, borderBottom: '1px solid rgba(34,31,26,.08)', display: 'flex', alignItems: 'flex-end', padding: 14 }}>
-            <span style={{ fontFamily: T.mono, fontSize: 11, color: T.inkMuted }}>{gods ? `gods · ${gods.navn}` : 'gods'}</span>
-          </div>
-          <div style={{ padding: '17px 19px' }}>
-            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: T.goldInk }}>Månedens gods</div>
-            <div style={{ fontFamily: T.serif, fontSize: 24, fontWeight: 600, color: T.ink, marginTop: 5, lineHeight: 1.08 }}>{gods ? gods.navn : 'Følg ejerrækken gennem slægten'}</div>
-            <div style={{ fontFamily: T.sans, fontSize: 14, lineHeight: 1.5, color: T.inkMuted, marginTop: 7 }}>Følg ejerrækken gennem slægten — slægtled for slægtled, fra de tidligste besiddelser til lensafløsningen.</div>
-          </div>
-        </KlikbarFlade>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
-          <NytCard kicker="Udforsk" title="Åbn stamtræet" sub="Fokus- og kolonne-visning af hele slægten" onClick={onGoTree} />
-          <NytCard kicker="Gennemse" title={`Alle ${personCount} personer`} sub="Søg, sortér og hop gennem alfabetet" onClick={onBrowseAll} />
-        </div>
-      </div>
-
-      {/* Det levende feed (fase1-design.md §7) — samme motor/kort-katalog som mobil. */}
-      <div style={{ marginTop: 40, fontFamily: T.mono, fontSize: 11, letterSpacing: '.16em', textTransform: 'uppercase', color: T.goldInk, textAlign: 'center' }}>
-        Feed
-      </div>
-      <div style={{ marginTop: 16 }}>
-        <FeedStreamView
-          model={model}
-          estates={estates}
-          arms={arms}
-          meId={meId}
-          focusId={focusId}
-          feedPins={feedPins}
-          bookmarkedIds={bookmarkedIds}
-          bookmarksReady={bookmarksReady}
-          bookmarkHydrationVersion={bookmarkHydrationVersion}
-          bookmarkOwnerId={bookmarkOwnerId}
-          hasBookmark={hasBookmark}
-          onSaveBookmark={onSaveBookmark}
-          onOpenPerson={onPickPerson}
-          onOpenEstate={onOpenEstate}
-          onOpenArms={onOpenArms}
-          onOpenSlaegt={onOpenSlaegt}
-          onBrowseAll={onBrowseAll}
-        />
-      </div>
+      <section aria-labelledby="forside-feed" style={{ marginTop: 40 }}>
+        <h2 id="forside-feed" style={{ ...etiket, marginBottom: 14 }}>Fra Aarbogen</h2>
+        {model && feedPins ? (
+          <FeedStreamView
+            model={model}
+            estates={estates}
+            arms={arms}
+            meId={meId}
+            focusId={focusId}
+            feedPins={feedPins}
+            bookmarkedIds={bookmarkedIds}
+            bookmarksReady={bookmarksReady}
+            bookmarkHydrationVersion={bookmarkHydrationVersion}
+            bookmarkOwnerId={bookmarkOwnerId}
+            hasBookmark={hasBookmark}
+            onSaveBookmark={onSaveBookmark}
+            onOpenPerson={onPickPerson}
+            onOpenEstate={onOpenEstate}
+            onOpenArms={onOpenArms}
+            onOpenSlaegt={onOpenSlaegt}
+            onBrowseAll={onBrowseAll}
+          />
+        ) : (
+          <p role="status" style={{ margin: 0, fontSize: 14, color: T.inkMuted }}>Henter blade fra Aarbogen …</p>
+        )}
+      </section>
     </div>
   );
 }
