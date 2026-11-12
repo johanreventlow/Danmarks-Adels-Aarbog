@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   fetchEstateOwners: vi.fn(),
   treeSearch: null as null | { linjeList: { linje: string; navn: string | null }[] },
   detailProps: null as null | { onVisPraesens?: () => void },
+  signIn: vi.fn(),
 }));
 
 vi.mock('../router', () => ({
@@ -31,7 +32,8 @@ vi.mock('../data/public', async (importOriginal) => ({
 }));
 vi.mock('../data/auth', () => ({
   currentSession: () => Promise.resolve(null),
-  signIn: vi.fn(),
+  signIn: mocks.signIn,
+  loginFejlTekst: () => 'Login lykkedes ikke.',
   signOut: vi.fn(),
 }));
 vi.mock('../data/bookmarks', () => ({
@@ -126,4 +128,17 @@ test('anonym læser får ingen indgang til præsenslisten fra personpanelet', as
   render(<Folgesvend />);
   await screen.findByText(/^Biografi:/);
   expect(mocks.detailProps?.onVisPraesens).toBeUndefined();
+});
+
+test('modellen hentes igen efter login, så RLS-beskyttede personer kommer med', async () => {
+  mocks.fetchPersonDetail.mockResolvedValue({ bio: '', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });
+  mocks.signIn.mockResolvedValue({ email: 'red@example.test', role: 'redaktion', userId: 'u1' });
+  render(<Folgesvend />);
+  await screen.findByText(/^Biografi:/);
+  expect(mocks.loadModel).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByText('Log ind'));
+  fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'red@example.test' } });
+  fireEvent.change(screen.getByLabelText('Adgangskode'), { target: { value: 'hemmeligt' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Log ind' }));
+  await waitFor(() => expect(mocks.loadModel).toHaveBeenCalledTimes(2));
 });

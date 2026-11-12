@@ -331,6 +331,21 @@ export default function Folgesvend() {
       .finally(() => setGeoLoading(false));
   }, [mode, detailOpen, model]);
 
+  // Modellen hentes igen, når brugeren logger ind eller ud: RLS afgør, hvilke personer (levende)
+  // den rummer, og ellers ville fx præsensmurens »Log ind« føre en redaktør til en liste uden
+  // levende, indtil siden blev genindlæst. Første tjek af den gemte session udløser ikke en ny
+  // hentning (den første hentning sker allerede med den gemte session).
+  const brugerId = session?.userId ?? null;
+  const forrigeBrugerRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!sessionKlar) return;
+    if (forrigeBrugerRef.current === undefined) { forrigeBrugerRef.current = brugerId; return; }
+    if (forrigeBrugerRef.current === brugerId) return;
+    forrigeBrugerRef.current = brugerId;
+    geoRequestedRef.current = false; // den nye model har ingen geo; lad geo-effekten hente igen
+    loadData();
+  }, [brugerId, sessionKlar, loadData]);
+
   // "Det er mig"-markering (localStorage) — samme person igen = fjern markering. Gemmer kanonisk id,
   // og sammenligner kanonisk (et gemt alias-meId matcher stadig den kanoniske person).
   const toggleMe = (id: string) => {
