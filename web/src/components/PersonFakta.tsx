@@ -1,5 +1,7 @@
-// B11 (spec 2026-10-29-5c2-b11-laeserflade-design.md §4.4): personens fakta med kilde. Tre kildevisninger, der kan
-// skelnes: bundet til bogens post (trin 4-binding), fra den oprindelige import (citation) og ingen registreret kilde.
+// B11 (spec 2026-10-29-5c2-b11-laeserflade-design.md §4.4): personens fakta med kilde. Kildeteksten alene skelner
+// visningerne: bundet til bogens post bærer postens koordinat (»DAA 2018-20, s. 201-202 · V-1«), den oprindelige
+// import kun bogen og evt. side (»DAA 2018-20«), og uden kilde står »Kilde ikke registreret«. Mærkerne »bundet til
+// bogens post«/»fra den oprindelige import« er fjernet (decisions 2026-11-12): de beskrev vores arbejdsgang, ikke bogen.
 import type { KunIUdgave, PersonFactSource, PersonFactStatement, UdgaveFaktaVisning, UdgaveNote } from '@daa/core';
 import { T } from '../theme';
 import { Label } from './primitives';
@@ -11,22 +13,8 @@ const NAVN: Record<string, string> = {
 };
 const typeNavn = (t: string) => NAVN[t] ?? t.charAt(0).toUpperCase() + t.slice(1);
 
-const MAERKE: Record<PersonFactSource['kind'], string | null> = {
-  bundet: 'bundet til bogens post',
-  import: 'fra den oprindelige import',
-  ingen: null,
-};
-
 function Kilde({ source }: { source: PersonFactSource }) {
-  const maerke = MAERKE[source.kind];
-  return (
-    <div style={{ fontFamily: T.mono, fontSize: 11, color: T.muted2, marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-      {maerke && (
-        <span style={{ color: source.kind === 'bundet' ? T.bordeaux : T.muted3 }}>{maerke}</span>
-      )}
-      <span>{source.label}</span>
-    </div>
-  );
+  return <div style={{ fontFamily: T.mono, fontSize: 11, color: T.muted2, marginTop: 2 }}>{source.label}</div>;
 }
 
 function Udsagn({ st }: { st: PersonFactStatement }) {

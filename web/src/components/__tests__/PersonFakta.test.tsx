@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-// B11 (spec 2026-10-29 §4.4) + 6e-1 (spec 2026-11-12 §5.2-5.3): fakta-sektionen i persondetaljen med tre
-// kildevisninger og noter om den anden udgave.
+// B11 (spec 2026-10-29 §4.4) + 6e-1 (spec 2026-11-12 §5.2-5.3): fakta-sektionen i persondetaljen med kildetekster
+// (uden arbejdsgangsmærker, decisions 2026-11-12) og noter om den anden udgave.
 import { render, screen } from '@testing-library/react';
 import type { Udgave, UdgaveFaktaLinje, UdgaveFaktaVisning } from '@daa/core';
 import { describe, expect, it } from 'vitest';
@@ -31,15 +31,15 @@ const visning: UdgaveFaktaVisning = {
 const tom: UdgaveFaktaVisning = { linjer: [], kunI: [] };
 
 describe('PersonFakta', () => {
-  it('viser overskrift, værdier og de tre kildevisninger', () => {
-    render(<PersonFakta visning={visning} error={false} />);
+  it('viser overskrift, værdier og kildeteksterne uden arbejdsgangsmærker', () => {
+    const { container } = render(<PersonFakta visning={visning} error={false} />);
     expect(screen.getByText('Fakta')).toBeTruthy();
     expect(screen.getByText('Anna')).toBeTruthy();
-    expect(screen.getByText('bundet til bogens post')).toBeTruthy();
     expect(screen.getByText('DAA 2018-20, s. 45 · I-32')).toBeTruthy();
-    expect(screen.getAllByText('fra den oprindelige import').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('DAA 1939, s. 123')).toBeTruthy();
     expect(screen.getByText('Kilde ikke registreret')).toBeTruthy();
+    expect(container.textContent).not.toContain('bundet til bogens post');
+    expect(container.textContent).not.toContain('oprindelige import');
   });
 
   it('viser alle kilder for en sammenlagt linje', () => {
