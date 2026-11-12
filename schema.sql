@@ -9669,6 +9669,15 @@ RETURNS text LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
   SELECT btrim(regexp_replace(private.saml_blanktegn_v1(p_value),'^(f\.|\u2020) ?',''),' ') $$;
 REVOKE ALL ON FUNCTION private.normaliser_dato_markoer_v1(text) FROM PUBLIC,anon,authenticated,service_role;
 
+-- dato-markoer-v2 (spec 2026-11-12 §4.1): markøren afhænger af prædikatet. På person.birth fjernes én indledende `f.`
+-- eller `*`; på person.death fjernes én indledende `†`. Andre prædikater (og NULL) giver NULL. v1 er uændret og låst.
+-- Blanktegn samles med saml_blanktegn_v1 først, så markøren efterfølges af højst ét ASCII-mellemrum.
+CREATE OR REPLACE FUNCTION private.normaliser_dato_markoer_v2(p_value text, p_predicate text)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+  SELECT btrim(regexp_replace(private.saml_blanktegn_v1(p_value),
+           CASE p_predicate WHEN 'person.birth' THEN '^(f\.|\*) ?' WHEN 'person.death' THEN '^† ?' END,''),' ') $$;
+REVOKE ALL ON FUNCTION private.normaliser_dato_markoer_v2(text,text) FROM PUBLIC,anon,authenticated,service_role;
+
 CREATE OR REPLACE FUNCTION red_normaliser_forslag(
   p_interpretation_id uuid,
   p_expected_version integer,
@@ -9686,7 +9695,7 @@ BEGIN
   IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
     RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
   END IF;
-  IF p_regel IS DISTINCT FROM 'dato-markoer-v1' THEN
+  IF p_regel IS NULL OR p_regel NOT IN ('dato-markoer-v1','dato-markoer-v2') THEN
     RAISE EXCEPTION 'NORMALISERING_REGEL_UKENDT';
   END IF;
   IF p_expected_version IS NULL OR p_expected_version<1 THEN
@@ -9718,7 +9727,8 @@ BEGIN
     RAISE EXCEPTION 'NORMALISERING_KOERSEL_MANGLER';
   END IF;
   v_old := v_current.value #>> '{}';
-  v_new := private.normaliser_dato_markoer_v1(v_old);
+  v_new := CASE p_regel WHEN 'dato-markoer-v1' THEN private.normaliser_dato_markoer_v1(v_old)
+                        ELSE private.normaliser_dato_markoer_v2(v_old,v_current.predicate) END;
   IF v_new IS NOT DISTINCT FROM v_old THEN
     RAISE EXCEPTION 'NORMALISERING_UAENDRET';
   END IF;
@@ -9735,7 +9745,7 @@ BEGIN
     v_new_id,v_current.interpretation_key,v_current.version+1,v_current.source_id,
     v_current.source_persona_id,v_current.interpretation_kind,v_current.predicate,
     to_jsonb(v_new),v_current.schema_version,'deterministic',
-    v_current.confidence,'proposed','deterministisk-normalisering:dato-markoer-v1',
+    v_current.confidence,'proposed','deterministisk-normalisering:'||p_regel,
     v_current.model_version,v_current.prompt_version,v_run,v_current.id
   );
   INSERT INTO private.interpretation_observation(

@@ -191,5 +191,84 @@ BEGIN
     RAISE EXCEPTION 'NORMALISERING_TEST_KLASSIFIKATION_VAERDI';
   END IF;
 END $t6$;
+-- 7) dato-markoer-v2 (spec 2026-11-12 §4.1): markør pr. prædikat. Regelfunktionen, fejlkoder og method.
+SET LOCAL default_transaction_read_only = off;
+DO $t7a$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES
+    ('person.birth',E'* 21. april 1644','21. april 1644'),
+    ('person.birth',E'*1750','1750'),
+    ('person.birth',E'f. 1701','1701'),
+    ('person.birth',E'* 1750','1750'),
+    ('person.death',E'† 21. juli 1708','21. juli 1708'),
+    ('person.death',E'* og † 1756','* og † 1756'),
+    ('person.death',E'* 1750','* 1750'),
+    ('person.birth',E'† 1750','† 1750'),
+    ('person.death',E'f. 1750','f. 1750'),
+    ('person.birth',E'* ','')) v(p,i,o)
+  LOOP
+    IF private.normaliser_dato_markoer_v2(r.i,r.p) IS DISTINCT FROM r.o THEN
+      RAISE EXCEPTION 'NORMALISERING_TEST_V2_REGEL: % % gav % (ventede %)',r.p,r.i,private.normaliser_dato_markoer_v2(r.i,r.p),r.o;
+    END IF;
+  END LOOP;
+  IF private.normaliser_dato_markoer_v2('* 1750','person.name') IS NOT NULL
+     OR private.normaliser_dato_markoer_v2('* 1750',NULL) IS NOT NULL THEN
+    RAISE EXCEPTION 'NORMALISERING_TEST_V2_ANDET_PRAEDIKAT';
+  END IF;
+  IF (SELECT provolatile FROM pg_proc WHERE oid='private.normaliser_dato_markoer_v2(text,text)'::regprocedure)<>'i'
+     OR has_function_privilege('anon','private.normaliser_dato_markoer_v2(text,text)','EXECUTE')
+     OR has_function_privilege('authenticated','private.normaliser_dato_markoer_v2(text,text)','EXECUTE') THEN
+    RAISE EXCEPTION 'NORMALISERING_TEST_V2_IMMUTABLE_ACL';
+  END IF;
+END $t7a$;
+-- n: 21 birth '* 21. april 1644' | 22 birth '*1750' | 23 birth 'f. 1701' | 24 death '† 21. juli 1708'
+-- 25 death '* og † 1756' | 26 death '* 1750' | 27 birth '* ' | 28 birth '* 1750' (v1: uændret) | 29 death 'f. 1750' (v1: 1750)
+INSERT INTO private.interpretation(id,interpretation_key,version,source_id,interpretation_kind,predicate,value,
+  schema_version,derivation_kind,confidence,status,method,model_version,prompt_version,extraction_run_id)
+  SELECT ('a6c20000-0000-4000-8000-0000000003'||lpad(n::text,2,'0'))::uuid,
+         ('a6c20000-0000-4000-8000-0000000004'||lpad(n::text,2,'0'))::uuid,1,-96200,'property',
+         CASE WHEN n IN (24,25,26,29) THEN 'person.death' ELSE 'person.birth' END,
+         to_jsonb(CASE n WHEN 21 THEN E'* 21. april 1644' WHEN 22 THEN E'*1750' WHEN 23 THEN 'f. 1701'
+                         WHEN 24 THEN E'† 21. juli 1708' WHEN 25 THEN E'* og † 1756' WHEN 26 THEN '* 1750'
+                         WHEN 27 THEN '* ' WHEN 28 THEN '* 1750' ELSE 'f. 1750' END),
+         '1.1','model_inference',0.8,'proposed','model-x','m-1','p-1','a6c20000-0000-4000-8000-0000000000e1'
+    FROM generate_series(21,29) n;
+INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
+  SELECT ('a6c20000-0000-4000-8000-0000000003'||lpad(n::text,2,'0'))::uuid,'a6c20000-0000-4000-8000-0000000000e4','supporting',1
+    FROM generate_series(21,29) n;
+SET CONSTRAINTS private.interpretation_has_observation IMMEDIATE;
+SET CONSTRAINTS private.interpretation_has_observation DEFERRED;
+SELECT set_config('request.jwt.claim.sub','a6c20000-0000-4000-8000-000000000001',true);
+SELECT set_config('daa.extraction_run_id','a6c20000-0000-4000-8000-0000000000e5',true);
+SELECT pg_temp.expect_error($q$SELECT red_normaliser_forslag('a6c20000-0000-4000-8000-000000000325',1,'dato-markoer-v2')$q$,'NORMALISERING_UAENDRET');
+SELECT pg_temp.expect_error($q$SELECT red_normaliser_forslag('a6c20000-0000-4000-8000-000000000326',1,'dato-markoer-v2')$q$,'NORMALISERING_UAENDRET');
+SELECT pg_temp.expect_error($q$SELECT red_normaliser_forslag('a6c20000-0000-4000-8000-000000000327',1,'dato-markoer-v2')$q$,'NORMALISERING_VAERDI_TOM');
+SELECT pg_temp.expect_error($q$SELECT red_normaliser_forslag('a6c20000-0000-4000-8000-000000000328',1,'dato-markoer-v1')$q$,'NORMALISERING_UAENDRET');
+SELECT pg_temp.expect_error($q$SELECT red_normaliser_forslag('a6c20000-0000-4000-8000-000000000321',1,'dato-markoer-v3')$q$,'NORMALISERING_REGEL_UKENDT');
+SELECT pg_temp.expect_error($q$SELECT red_normaliser_forslag('a6c20000-0000-4000-8000-000000000304',1,'dato-markoer-v2')$q$,'NORMALISERING_PRAEDIKAT_UGYLDIG');
+SET LOCAL ROLE authenticated;
+CREATE TEMP TABLE norm_v2_result AS
+  SELECT n, red_normaliser_forslag(('a6c20000-0000-4000-8000-0000000003'||lpad(n::text,2,'0'))::uuid,1,
+                CASE WHEN n=29 THEN 'dato-markoer-v1' ELSE 'dato-markoer-v2' END) AS j
+    FROM (VALUES (21),(22),(23),(24),(29)) v(n);
+GRANT SELECT ON norm_v2_result TO authenticated;
+RESET ROLE;
+DO $t7b$
+DECLARE r record; v2 private.interpretation%ROWTYPE;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES (21,'21. april 1644','dato-markoer-v2'),(22,'1750','dato-markoer-v2'),
+      (23,'1701','dato-markoer-v2'),(24,'21. juli 1708','dato-markoer-v2'),(29,'1750','dato-markoer-v1')) v(n,o,regel)
+  LOOP
+    SELECT i.* INTO v2 FROM private.interpretation i
+     WHERE i.id=((SELECT x.j FROM norm_v2_result x WHERE x.n=r.n)->>'interpretation_id')::uuid;
+    IF v2.version<>2 OR v2.status<>'proposed' OR v2.derivation_kind<>'deterministic'
+       OR v2.value<>to_jsonb(r.o::text)
+       OR v2.method<>'deterministisk-normalisering:'||r.regel
+       OR (SELECT x.j->>'regel' FROM norm_v2_result x WHERE x.n=r.n)<>r.regel THEN
+      RAISE EXCEPTION 'NORMALISERING_TEST_V2_FORSLAG: % %',r.n,to_jsonb(v2);
+    END IF;
+  END LOOP;
+END $t7b$;
 ROLLBACK;
 SELECT 'interpretation_normalisering OK' AS result;

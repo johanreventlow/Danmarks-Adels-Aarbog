@@ -18,7 +18,7 @@
 -- Trin 6d-3 (blokken trin 6d-3): tekstfoldningen relation_fold_raw_text, relation_text_form,
 -- relation_name_compare_text, begge overloads af relation_ordered_windows og relation_marriage_ordinals
 -- (write_relation_persona, identity_candidate_input og verify_relation_persona_receipts står allerede ovenfor).
--- I alt 13 + 17 + 3 + 3 + 1 + 7 + 3 + 3 + 5 + 6 = 61 linjer.
+-- I alt 13 + 17 + 3 + 3 + 1 + 7 + 3 + 3 + 5 + 6 + 1 = 62 linjer (dato-markoer-v2: normaliser_dato_markoer_v2).
 \set ON_ERROR_STOP on
 SELECT l FROM (
   SELECT p.oid::regprocedure::text||'|'||p.prosecdef||'|'||coalesce(array_to_string(p.proconfig,','),'')||'|'||
@@ -47,7 +47,7 @@ SELECT l FROM (
      -- 6c-2a
      ('private','binding_value_matches'),
      -- 6c-2b
-     ('private','normaliser_dato_markoer_v1'),('public','red_normaliser_forslag'),
+     ('private','normaliser_dato_markoer_v1'),('private','normaliser_dato_markoer_v2'),('public','red_normaliser_forslag'),
      ('private','saml_blanktegn_v1'),('private','navn_forkortes'),('public','red_ret_paastand'),
      ('public','red_paastand_historik'),('private','validate_interpretation_promotion_items'),
      -- 6m-a
