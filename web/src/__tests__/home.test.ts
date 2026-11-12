@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { curatedFounders, forsideStartpersoner, pickMaanedensGods } from '../data/home';
+import { curatedFounders, forsideStartpersoner, pickMaanedensGods, redaktionensForslag } from '../data/home';
 import type { Model, ModelPerson } from '../data/types';
 import type { EstateItem } from '../data/public';
 
@@ -81,6 +81,28 @@ describe('forsideStartpersoner', () => {
 
   it('tom pin-liste er identisk med curatedFounders', () => {
     expect(forsideStartpersoner(model, [], 4, DAGS_AAR)).toEqual(curatedFounders(model, 4, DAGS_AAR));
+  });
+});
+
+describe('redaktionensForslag', () => {
+  const ps = [person('a', 'A'), person('b', 'B'), { ...person('lev', 'Levende'), died: null, born: 1990 } as ModelPerson];
+  const model = buildModel(ps, {}, ['a', 'b']);
+
+  it('giver kun fastgjorte portrætter, i pin-rækkefølge, uden stamfædre som fallback', () => {
+    const pins = [
+      { kortNoegle: 'portrait:b', handling: 'pin' as const },
+      { kortNoegle: 'story:7', handling: 'pin' as const },
+      { kortNoegle: 'portrait:a', handling: 'skjul' as const },
+    ];
+    expect(redaktionensForslag(model, pins, 4, DAGS_AAR).map((p) => p.id)).toEqual(['b']);
+  });
+
+  it('er tom uden pins', () => {
+    expect(redaktionensForslag(model, [], 4, DAGS_AAR)).toEqual([]);
+  });
+
+  it('viser aldrig en person uden dødsevidens, heller ikke når redaktionen har fastgjort den', () => {
+    expect(redaktionensForslag(model, [{ kortNoegle: 'portrait:lev', handling: 'pin' }], 4, DAGS_AAR)).toEqual([]);
   });
 });
 

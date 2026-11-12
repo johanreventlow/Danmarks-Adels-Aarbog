@@ -37,9 +37,10 @@ export function curatedFounders(model: Model, n: number, dagsAar: number): Model
   return out.slice(0, n);
 }
 
-// Startpersoner fra redaktionens portræt-pins (fase3-spec §7.4); curatedFounders er
-// verificeret fallback — med nul pins er forsiden identisk med i dag.
-export function forsideStartpersoner(
+// »Redaktionen foreslår« på slægtens forside: KUN personer redaktionen selv har fastgjort som
+// portræt (feed_pin 'portrait:<id>'), i pin-rækkefølge. Ingen fallback — uden pins er der intet
+// forslag, og overskriften må ikke stå over en maskinel udvælgelse. Samme GDPR-gate som feedet.
+export function redaktionensForslag(
   model: Model, pins: FeedPinInput[], n: number, dagsAar: number,
 ): ModelPerson[] {
   const safe = kunSikkertDoede(model, dagsAar);
@@ -53,6 +54,16 @@ export function forsideStartpersoner(
     seen.add(p.id);
     out.push(p);
   }
+  return out;
+}
+
+// Startpersoner fra redaktionens portræt-pins (fase3-spec §7.4); curatedFounders er
+// verificeret fallback — med nul pins er udvalget identisk med curatedFounders.
+export function forsideStartpersoner(
+  model: Model, pins: FeedPinInput[], n: number, dagsAar: number,
+): ModelPerson[] {
+  const out = redaktionensForslag(model, pins, n, dagsAar);
+  const seen = new Set(out.map((p) => p.id));
   for (const p of curatedFounders(model, n + out.length, dagsAar)) {
     if (out.length >= n) break;
     if (seen.has(p.id)) continue;
