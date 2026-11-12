@@ -18,6 +18,8 @@ const STEPS = [
   { out: 'a-home', path: '/', full: true },
   { out: 'a-menu-slaegter', path: '/', actions: [{ click: 'Slægter', exact: true }] },
   { out: 'a-person', path: '/person/118' },
+  { out: 'a-personside-fuld', path: '/person/240', full: true }, // testbiografi, fakta og 25 embeder (mockdb)
+  { out: 'a-person-ukendt', path: '/person/999999' },
   { out: 'a-tree-fokus', path: '/slaegt/reventlow/stamtrae?fokus=118' },
   { out: 'a-tree-kolonner', path: '/slaegt/reventlow/stamtrae', actions: [{ click: 'Kolonner', exact: true }] },
   { out: 'a-search', path: '/soeg?q=rev' },
@@ -26,7 +28,7 @@ const STEPS = [
   { out: 'a-search-midt', path: '/soeg', actions: [{ fill: ['input[aria-label="Søg person"]', 'Revetlow'] }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'n' }] },
   // Klikvej gennem menu og bjælke; slutadressen skal være stamtræet uden ?fokus=.
   { out: 'a-klikvej', path: '/', actions: [{ click: 'Slægter', exact: true }, { click: 'Reventlow', exact: true }, { click: 'Stamtræ', exact: true }, { click: 'Godser', exact: true }, { click: 'Stamtræ', exact: true }] },
-  { out: 'a-monogram', path: '/person/421' },
+  { out: 'a-monogram', path: '/slaegt/reventlow/stamtrae?fokus=421' },
   { out: 'a-fejl', path: '/', fail: true },
   { out: 'a-relate', path: '/slaegtskab', actions: [{ fill: ['input[aria-label="Søg person"]', 'Otto Reventlow'] }, { click: 'Otto Reventlow', exact: true }, { fill: ['input[aria-label="Søg person"]', 'Magdalena'] }, { click: 'Magdalena Sophia Reventlow' }] },
   { out: 'a-estates', path: '/slaegt/reventlow/godser' },
@@ -46,7 +48,7 @@ const STEPS = [
   { out: 'd-mobile-home', path: '/', w: 390, h: 844 },
   { out: 'd-mobile-menu', path: '/', w: 390, h: 844, actions: [{ click: 'Slægter', exact: true }] },
   { out: 'd-mobile-bjaelke', path: '/slaegt/reventlow/stamtrae', w: 390, h: 844 },
-  { out: 'd-mobile-person', path: '/person/118', w: 390, h: 844 },
+  { out: 'd-mobile-person', path: '/person/240', w: 390, h: 844 },
 ];
 
 const filter = process.argv[2];

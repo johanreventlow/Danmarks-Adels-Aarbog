@@ -53,7 +53,24 @@ function test(row, col, expr) {
   }
   return neg ? !r : r;
 }
+// Biografi og fakta til personsiden (fase 3) for én person, så touren kan vise de udfyldte sektioner.
+// Teksten er tydeligt testdata, ikke Aarbogens ord.
+const TOUR_PERSON = 240;
+const kunTourPerson = (args, rows) => ((args.p_person_ids ?? []).map(Number).includes(TOUR_PERSON) ? rows : []);
+const faktaRaekke = (id, faktatype, o) => ({ person_id: TOUR_PERSON, fact_id: id, faktatype, conclusion_status: 'afklaret', assertion_id: id, chosen: true,
+  vaerdi_tekst: null, date_raw: null, date_min: null, date_max: null, date_qualifier: null, date_certainty: null,
+  source_id: 1, source_label: 'DAA 1939', side: '540', record_ref: null, record_label: null, citation_label: 'DAA 1939, s. 540', ...o });
 const RPC = {
+  public_person_bio_source_versions_v2: (args) => kunTourPerson(args, [{
+    person_id: TOUR_PERSON, source_id: 1, source_year: 1939, record_order: 1, source_record_ref: 'tour-rec-1',
+    source_label: 'DAA 1939', record_label: 'Testpost', citation_label: 'DAA 1939, s. 540', provenance_kind: 'source_record',
+    narrative_text: 'Testbiografi til designtouren: her står personens biografi ordret, som Aarbogen skriver den, med kilde under. Teksten er pladsholder og ikke Aarbogens ord.',
+  }]),
+  public_person_facts: (args) => kunTourPerson(args, [
+    faktaRaekke(900001, 'fødsel', { date_raw: '[testdato] 1700' }),
+    faktaRaekke(900002, 'død', { date_raw: '[testdato] 1760' }),
+    faktaRaekke(900003, 'titel', { vaerdi_tekst: 'Lensgreve' }),
+  ]),
   public_person_source_coordinates: () => DB.coords,
   public_family_sources: () => [],
   narrative_record_contract_version: () => 2,
