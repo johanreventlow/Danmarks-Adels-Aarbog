@@ -80,6 +80,9 @@ export default function SammenlignUdgaver() {
     if (nyKildeId == null) return null;
     const framesA: MatchFrame[] = [], framesB: MatchFrame[] = [], aIds: string[] = [];
     for (const p of personer) {
+      // Linjer uden modpart i den anden udgave (omstridt gren_af, fx DAA 1939s fyenske Linje)
+      // holdes helt ude af matchningen — hverken arbejdsemne eller kandidat (som web).
+      if (p.udenforMatchning) continue;
       const f = buildMatchFrame(p);
       if (p.sourceIds.includes(nyKildeId)) { framesA.push(f); aIds.push(String(p.id)); }
       else framesB.push(f);
