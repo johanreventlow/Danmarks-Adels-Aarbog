@@ -10730,6 +10730,7 @@ BEGIN
   IF private.normaliser_dato_markoer_v2('* 1750','person.birth') IS DISTINCT FROM '1750'
      OR private.normaliser_dato_markoer_v2(E'\u2020 1750','person.death') IS DISTINCT FROM '1750'
      OR private.normaliser_dato_markoer_v2('* 1750','person.death') IS DISTINCT FROM '* 1750'
+     OR private.normaliser_dato_markoer_v2('* og † 1756','person.birth') IS DISTINCT FROM '* og † 1756'
      OR private.normaliser_dato_markoer_v2('* 1750','person.name') IS NOT NULL THEN
     RAISE EXCEPTION 'VERIFY_FAILED: dato-markoer-v2 regel';
   END IF;

@@ -35070,12 +35070,13 @@ REVOKE ALL ON FUNCTION private.verify_relation_persona_receipts(uuid) FROM PUBLI
 
 -- ===== dato-markoer-v2: markør pr. prædikat =====
 -- dato-markoer-v2 (spec 2026-11-12 §4.1): markøren afhænger af prædikatet. På person.birth fjernes én indledende `f.`
--- eller `*`; på person.death fjernes én indledende `†`. Andre prædikater (og NULL) giver NULL. v1 er uændret og låst.
+-- eller `*` (dog ikke når resten begynder med »og«: `* og † 1756` er født og død samme år og står uændret); på
+-- person.death fjernes én indledende `†`. Andre prædikater (og NULL) giver NULL. v1 er uændret og låst.
 -- Blanktegn samles med saml_blanktegn_v1 først, så markøren efterfølges af højst ét ASCII-mellemrum.
 CREATE OR REPLACE FUNCTION private.normaliser_dato_markoer_v2(p_value text, p_predicate text)
 RETURNS text LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
   SELECT btrim(regexp_replace(private.saml_blanktegn_v1(p_value),
-           CASE p_predicate WHEN 'person.birth' THEN '^(f\.|\*) ?' WHEN 'person.death' THEN '^† ?' END,''),' ') $$;
+           CASE p_predicate WHEN 'person.birth' THEN '^(f\.|\*)(?! ?og\M) ?' WHEN 'person.death' THEN '^\u2020 ?' END,''),' ') $$;
 REVOKE ALL ON FUNCTION private.normaliser_dato_markoer_v2(text,text) FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE OR REPLACE FUNCTION red_normaliser_forslag(
