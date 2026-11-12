@@ -135,8 +135,8 @@ Konservative regler ud over spec'en (*mit valg*; ikke opløst = bogens tekst, al
   (»21 og 22 april«) gør referencen flertydig. Rammer 0.
 
 Kontrol af de opløste værdier (kun antal, samme tæller før og efter slutrettelserne): 313 → 273 opløste; ugyldige
-datoer 0 → 0; værdier med mere end én dato (også tekst + datofelt) 40 → 1 — de 40, der nu vises som bogens tekst, er
-netop dem; før referencen 0 → 0, talt for de 239 værdier, hvis reference er en hel dato (de øvrige 34 sikres af
+datoer 0 → 0; værdier med mere end én dato (også tekst + datofelt) 40 → 1 — 39 af de 40, der nu vises som bogens tekst, var
+blandt dem; før referencen 0 → 0, talt for de 239 værdier, hvis reference er en hel dato (de øvrige 34 sikres af
 reglen »før referencen«). Efter review-rettelsen talte en snævrere tæller 5 værdier, der nævner flere hændelser.
 
 **Review-rettelsen (2026-11-12), før → efter:**
