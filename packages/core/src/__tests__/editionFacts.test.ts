@@ -4,6 +4,7 @@ import { ENKELTVAERDI_TYPER, faktaVaerdierEns } from '../factEquality';
 import { erRelativDato } from '../relativeDates';
 import {
   byggUdgaveFakta,
+  relativeDatoer,
   udgaveForRaekker,
   udgaverMedFakta,
   type Udgave,
@@ -570,6 +571,20 @@ describe('byggUdgaveFakta', () => {
         { udgave: anden, faktatype: 'dekoration', vaerdier: ['R. s.d.'] },
       ]);
     }
+  });
+
+  it('relativeDatoer (måling): viste relative værdier med udgave, opløsning og reference', () => {
+    const inp = input([
+      r18({ person_id: 270, faktatype: 'fødsel', date_raw: '21. april 1644' }),
+      r18({ person_id: 270, faktatype: 'dåb', date_raw: '29. s.m.' }),
+      r18({ person_id: 270, faktatype: 'død', date_raw: '9. juni s.å.' }),
+      r39({ person_id: 271, faktatype: 'begravelse', vaerdi_tekst: '6. aug. s.å.', date_raw: null }),
+    ], { udgaveForPersonRaekke: ext2(270, 271) });
+    expect(relativeDatoer(inp).map(({ factId: _f, ...x }) => x)).toEqual([
+      { faktatype: 'dåb', udgave: '1', oploest: true, reference: '21. april 1644' },
+      { faktatype: 'død', udgave: '1', oploest: false, reference: null },
+      { faktatype: 'begravelse', udgave: '3', oploest: false, reference: null },
+    ]);
   });
 
   it('navn med initialer, der ligner en relativ dato, kan stadig give ✓', () => {

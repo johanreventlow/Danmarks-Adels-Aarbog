@@ -34,21 +34,26 @@ export function erRelativDato(v: string): boolean {
   return hit;
 }
 
+export type ReferenceStatus = 'ok' | 'mangler' | 'relativ' | 'usikker' | 'flertydig';
+
 // Referencens dag/måned/år. Teksten kan gentage samme dato (vaerdi_tekst + date_raw) — alle forekomster skal være
-// ens; to forskellige år eller datoer, en usikker eller selv relativ reference → null.
-function parseReference(ref: string | null): Reference | null {
-  if (ref == null || erRelativDato(ref) || USIKKER.test(ref)) return null;
+// ens; to forskellige år eller datoer, en usikker eller selv relativ reference → ikke brugbar.
+function parseReference(ref: string | null): Reference | Exclude<ReferenceStatus, 'ok'> {
+  if (ref == null) return 'mangler';
+  if (erRelativDato(ref)) return 'relativ';
+  if (USIKKER.test(ref)) return 'usikker';
   const aar = new Set(ref.match(AAR) ?? []);
-  if (aar.size !== 1) return null;
+  if (aar.size === 0) return 'mangler';
+  if (aar.size > 1) return 'flertydig';
   const datoer = new Set<string>();
   for (const m of ref.matchAll(DATO)) {
     const maaned = maanedNummer(m[2]);
     if (maaned == null) continue;
     const dag = m[1] == null ? null : Number(m[1]);
-    if (dag != null && (dag < 1 || dag > 31)) return null;
+    if (dag != null && (dag < 1 || dag > 31)) return 'flertydig';
     datoer.add(JSON.stringify([dag, maaned, Number(m[3])]));
   }
-  if (datoer.size > 1) return null;
+  if (datoer.size > 1) return 'flertydig';
   if (datoer.size === 0) return { aar: Number([...aar][0]), maaned: null, dag: null };
   const [dag, maaned, a] = JSON.parse([...datoer][0]) as [number | null, number, number];
   return { aar: a, maaned, dag };
@@ -59,7 +64,7 @@ function parseReference(ref: string | null): Reference | null {
 export function oploesRelativDato(v: string, reference: string | null): string | null {
   if (!erRelativDato(v)) return v;
   const ref = parseReference(reference);
-  if (!ref) return null;
+  if (typeof ref === 'string') return null;
   let fejl = false;
   const ud = v.replace(RELATIV, (_hel, bogstav: string | undefined, ord: string | undefined) => {
     const del = art(bogstav, ord);
@@ -71,4 +76,11 @@ export function oploesRelativDato(v: string, reference: string | null): string |
     return _hel;
   });
   return fejl ? null : ud;
+}
+
+// Til målingen (tools/maal-6e1): hvorfor en reference ikke kan bruges. 'ok' betyder kun, at referencen kan læses —
+// den kan stadig mangle den del, et led kræver (fx »s.m.« mod »1644«).
+export function relativReferenceStatus(reference: string | null): ReferenceStatus {
+  const ref = parseReference(reference);
+  return typeof ref === 'string' ? ref : 'ok';
 }

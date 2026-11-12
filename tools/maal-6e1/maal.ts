@@ -18,6 +18,9 @@ import {
   fmtYears,
   mapPublicBioSourceVersionsV2,
   parseYear,
+  oploesRelativDato,
+  relativeDatoer,
+  relativReferenceStatus,
   udgaveForRaekker,
   udgaverMedFakta,
   type AppPerson,
@@ -197,6 +200,26 @@ for (const k of komps) {
   }
 }
 
+// ---- 4a. Relative datoer (spec §5.4a): core's egen afgørelse pr. vist faktum, ingen genimplementering ----
+// Enhed: viste fakta (den viste påstand i personrækkens egen udgave), hvis værdi før opløsningen er relativ.
+type RelTal = { oploest: number; uoploest: number; aarsager: Map<string, number> };
+const relTal = new Map<string, RelTal>(); // »udgave|type« → tal
+const relReference = new Map<string, string | null>(); // fact_id → referencen core brugte (til afsnit 6)
+for (const k of komps) {
+  for (const r of relativeDatoer(k.input)) {
+    relReference.set(r.factId, r.reference);
+    const noegle = `${r.udgave == null ? '(ingen udgave)' : udgaveLabel.get(r.udgave)}|${r.faktatype}`;
+    const x = relTal.get(noegle) ?? { oploest: 0, uoploest: 0, aarsager: new Map<string, number>() };
+    relTal.set(noegle, x);
+    if (r.oploest) { x.oploest++; continue; }
+    x.uoploest++;
+    // årsag: typen opløses ikke, eller referencens status (»ok« = læsbar, men mangler den del, leddet kræver)
+    const aarsag = r.faktatype !== 'dåb' && r.faktatype !== 'begravelse' ? 'typen opløses ikke'
+      : (() => { const st = relativReferenceStatus(r.reference); return st === 'ok' ? 'reference mangler del' : `reference ${st}`; })();
+    x.aarsager.set(aarsag, (x.aarsager.get(aarsag) ?? 0) + 1);
+  }
+}
+
 // ---- 5. Enig-par (til stikprøven) og tabstjek ----
 type Side = { udgave: string; vaerdi: string; kilder: string[] };
 type Par = { komp: string; faktatype: string; a: Side; b: Side; noegle: string };
@@ -264,7 +287,9 @@ for (const r of offentligeValgte) {
   const linje = vis.linjer.find((l) => l.noegle.split(':')[1].split('+').includes(String(raekke.fact_id)));
   let klasse: Klasse;
   if (!linje) klasse = 'ingen linje';
-  else if (linje.vaerdi !== factValue(raekke)) klasse = 'bøgernes ord vist';
+  // en opløst relativ dato (§5.4a) er stadig den valgte påstand — sammenlign med core's opløsning af den
+  else if (linje.vaerdi !== factValue(raekke)
+    && linje.vaerdi !== oploesRelativDato(factValue(raekke), relReference.get(String(raekke.fact_id)) ?? null)) klasse = 'bøgernes ord vist';
   else if (egen == null) klasse = 'som i dag';
   else {
     const probe: Udgave = { sourceId: '__probe', label: '\u0000probe', aar: 1 };
@@ -272,7 +297,8 @@ for (const r of offentligeValgte) {
       ...k.input,
       udgaver: [...k.input.udgaver, probe],
       udgaveForPersonRaekke: { ...k.input.udgaveForPersonRaekke, __probeperson: '__probe' },
-      rows: [...k.input.rows, { ...raekke, person_id: '__probeperson', fact_id: '__probefact', assertion_id: '__probeassertion',
+      // probens værdi = linjens viste værdi (en relativ dato er opløst ud fra personens fødsel/død, som proben ikke har)
+      rows: [...k.input.rows, { ...raekke, vaerdi_tekst: linje.vaerdi, date_raw: null, person_id: '__probeperson', fact_id: '__probefact', assertion_id: '__probeassertion',
         chosen: true, source_id: '__probe', source_label: 'probe', record_ref: null, record_label: null, citation_label: null }],
     };
     const pv = byggUdgaveFakta(pin, egen);
@@ -363,6 +389,13 @@ for (const [vl, m] of [...taal].sort()) {
   }
   ln(`${'I ALT'.padEnd(14)} linjer ${String(sum.linjer).padStart(5)}  enig ${String(sum.enig).padStart(4)}  skriver ${String(sum.skriver).padStart(4)}  kunI ${String(sum.kunI).padStart(4)} (${sum.kunIVaerdier})`);
 }
+ln('\n## Relative datoer (viste fakta i egen udgave, hvis viste værdi er relativ før opløsning): opløst / ikke opløst (årsager)');
+for (const [noegle, x] of [...relTal].sort()) {
+  const [u, t] = noegle.split('|');
+  ln(`${u.padEnd(12)} ${t.padEnd(12)} opløst ${String(x.oploest).padStart(4)}  ikke opløst ${String(x.uoploest).padStart(4)}${x.aarsager.size ? `  (${[...x.aarsager].sort().map(([a, n]) => `${a} ${n}`).join(' · ')})` : ''}`);
+}
+const relSum = [...relTal.values()].reduce((a, x) => ({ o: a.o + x.oploest, u: a.u + x.uoploest }), { o: 0, u: 0 });
+ln(`${'I ALT'.padEnd(25)} opløst ${String(relSum.o).padStart(4)}  ikke opløst ${String(relSum.u).padStart(4)}`);
 ln(`\n## Vælgerform pr. komponent: ingen ${formAntal.ingen} · chips ${formAntal.chips} · skift ${formAntal.skift}`);
 ln(`komponenter med fakta i 2+ udgaver: ${komps.filter((k) => k.medFakta.length > 1).length}`);
 ln(`\n## Etiketter: skannet ${labelsSkannet}; »record-« ${recordLabels}; »legacy-source:« ${legacyLabels}${recordKomp.size ? ` (komponenter: ${[...recordKomp].join(', ')})` : ''}`);

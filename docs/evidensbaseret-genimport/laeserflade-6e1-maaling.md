@@ -14,6 +14,8 @@ Spec: `docs/superpowers/specs/2026-11-12-trin6e-laeserflade-design.md` §5.1-5.5
   `public_person_bio_source_versions_v2(...)` og `citation.citat_tekst` for valgte påstande uden `source_id`.
   En visning pr. komponent og valgbar udgave (chipsenes udgaver og udgaver med fakta). Alle psql-kald kører med
   `default_transaction_read_only=on`.
+- **Genkørt efter Task 7b** (relative datoer opløses, ledende tegn og sideform, spec §5.4a/§5.8) på samme stand-in;
+  tabellerne nedenfor er tallene efter 7b, med tallet før 7b i parentes, hvor det har ændret sig.
 
 ## Grundtal
 
@@ -36,11 +38,11 @@ Linjer i den valgte udgave, linjer med »✓ også«, »skriver«-noter, »Kun i
 | Faktatype | Linjer | ✓ også | Skriver | Kun i |
 |---|---:|---:|---:|---:|
 | navn | 849 | 218 | 505 | 0 |
-| død | 670 | 262 | 141 | 7 (7) |
+| død | 670 | 265 (262) | 138 (141) | 7 (7) |
 | fødsel | 582 | 319 | 104 | 4 (4) |
 | titel | 383 | 96 | 0 | 201 (245) |
 | dåb | 200 | 12 | 40 | 2 (2) |
-| begravelse | 174 | 5 | 39 | 5 (5) |
+| begravelse | 174 | 4 (5) | 40 (39) | 5 (5) |
 | dekoration | 131 | 0 | 0 | 0 |
 | floruit | 104 | 0 | 0 | 0 |
 | dødsårsag | 21 | 0 | 0 | 0 |
@@ -48,17 +50,17 @@ Linjer i den valgte udgave, linjer med »✓ også«, »skriver«-noter, »Kun i
 | tilnavn | 5 | 0 | 0 | 0 |
 | adling | 4 | 0 | 0 | 0 |
 | overhoved | 1 | 0 | 0 | 0 |
-| **I alt** | **3.132** | **912** | **829** | **219 (263)** |
+| **I alt** | **3.132** | **914 (912)** | **827 (829)** | **219 (263)** |
 
 **Valgt DAA 1939**
 
 | Faktatype | Linjer | ✓ også | Skriver | Kun i |
 |---|---:|---:|---:|---:|
 | navn | 864 | 224 | 519 | 0 |
-| død | 449 | 267 | 141 | 204 (204) |
+| død | 449 | 270 (267) | 138 (141) | 204 (204) |
 | fødsel | 447 | 319 | 104 | 114 (114) |
 | titel | 362 | 96 | 0 | 190 (254) |
-| begravelse | 55 | 5 | 39 | 118 (118) |
+| begravelse | 55 | 4 (5) | 40 (39) | 118 (118) |
 | dåb | 55 | 12 | 40 | 127 (132) |
 | floruit | 0 | 0 | 0 | 65 (65) |
 | dekoration | 0 | 0 | 0 | 57 (128) |
@@ -66,9 +68,42 @@ Linjer i den valgte udgave, linjer med »✓ også«, »skriver«-noter, »Kun i
 | klosterindgang | 0 | 0 | 0 | 5 (5) |
 | tilnavn | 0 | 0 | 0 | 4 (4) |
 | adling | 0 | 0 | 0 | 4 (4) |
-| **I alt** | **2.232** | **923** | **843** | **909 (1.049)** |
+| **I alt** | **2.232** | **925 (923)** | **841 (843)** | **909 (1.049)** |
 
 Titel og dekoration er flerværdi-typer: de får aldrig »skriver«, kun »✓ også« eller »Kun i«.
+
+**Hvad 7b flyttede** (samme linjer; kun noterne skifter):
+
+- **død +3 ✓ / −3 skriver pr. visning:** 4 nye ✓-par, hvor den ene udgaves værdi før viste samme dødsangivelse to
+  gange (teksten og »† …«); med det ledende tegn fjernet før sammenligningen vises den én gang og er ens med den anden
+  udgave. 1 tidligere ✓-par med ens »s.m.«-tekst på død er nu »skriver« (død opløses ikke og giver aldrig ✓).
+- **begravelse −1 ✓ / +1 skriver pr. visning:** 1 tidligere ✓-par med ens »s.m.«-tekst kan ikke opløses, fordi
+  dødsdatoen, den henviser til, selv er relativ — nu »skriver«. Parret var nr. 42 i det bedømte ark.
+- **dåb uændret (12 ✓):** alle 12 dåbs-✓ og 2 af de 4 begravelses-✓ var før ens relativ tekst; nu hviler de på de
+  opløste datoer, som stadig er ens. 4 af de 14 er bedømt i arket (nr. 43-46).
+
+## Relative datoer (spec §5.4a)
+
+Enhed: viste fakta i personrækkens egen udgave, hvis viste værdi før opløsningen indeholder »s.m.«/»s.d.«/»s.å.« (eller
+»samme dag/måned/år«). Det er ikke det samme som spec'ens ~365 påstande (der tæller påstande, ikke viste fakta), men
+tallene ligger tæt. Opløst / ikke opløst er core's egen afgørelse (`relativeDatoer`), ikke en genberegning.
+
+| Udgave | Faktatype | Opløst | Ikke opløst | Årsag (ikke opløst) |
+|---|---|---:|---:|---|
+| DAA 2018-20 | dåb | 179 | 0 | |
+| DAA 2018-20 | begravelse | 108 | 8 | dødsdatoen er selv relativ |
+| DAA 2018-20 | død | 0 | 12 | typen opløses ikke |
+| DAA 2018-20 | titel | 0 | 4 | typen opløses ikke |
+| DAA 2018-20 | dekoration | 0 | 3 | typen opløses ikke |
+| DAA 1939 | dåb | 21 | 0 | |
+| DAA 1939 | begravelse | 8 | 3 | dødsdatoen er selv relativ |
+| DAA 1939 | død | 0 | 16 | typen opløses ikke |
+| DAA 1939 | titel | 0 | 2 | typen opløses ikke |
+| **I alt** | | **316** | **48** | |
+
+En usikker eller flertydig reference (»ca.«, »o.«, »før«, »eller«, »?«, et interval, to forskellige datoer) opløses
+ikke (*mit valg*: en sikker dato må ikke udledes af en usikker); det rammer 0 viste fakta på stand-in'en. Ikke opløste
+værdier vises som bogens tekst og kan aldrig give »✓«.
 
 ## Vælger, etiketter og tab
 
@@ -89,12 +124,12 @@ ser. De 11:
 
 | Gruppe | Antal | Typer |
 |---|---:|---|
-| Udgavens egen (valgt påstand vist) | 8 | 6 navn, 1 død, 1 dåb |
+| Udgavens egen (valgt påstand vist) | 8 | 6 navn, 1 død, 1 dåb (relativ, vist opløst) |
 | Bøgernes ord vist (udgavens egen påstand i stedet) | 2 | 2 navn |
 | Som i dag (ingen udgaveegen påstand) | 1 | 1 overhoved |
 
 Afgørelsen bruger core: faktummets linje i personrækkens udgave viser enten en anden værdi end den valgte påstand
-(»bøgernes ord«) eller den valgte; i sidste fald skelner en probe — en syntetisk tredje udgave med samme værdi —
+(»bøgernes ord«) eller den valgte (en relativ dato sammenlignes i core's opløste form); i sidste fald skelner en probe — en syntetisk tredje udgave med samme værdi —
 mellem udgavens egen (linjen får »✓ også«) og »som i dag« (linjen indgår aldrig i noter).
 
 **Kontrolkomponenten** (255, 392, 1198; kanonisk 392), valgt DAA 2018-20: to navnelinjer, begge med »DAA 1939
@@ -111,5 +146,9 @@ Arket viser begge udgavers ord med udgave og side, sendes til projektejeren og l
 Til projektejerens opmærksomhed: 5 af de 6 tillæg er relative datoer (»samme måned«-formen) med samme tekst i
 begge udgaver. Teksten er ens, men datoen afhænger af det faktum, den henviser til (fødsel/død), i hver udgave.
 
-**Dom:** afventer projektejeren. Et falsk par sætter typen i `SLUKKET_ENIGHED` (Task 6), indtil reglen er rettet og en
-ny stikprøve for typen er ren.
+**Dom:** Projektejeren 2026-11-12: alle 46 par korrekte → SLUKKET_ENIGHED tom.
+
+**Efter 7b:** 927 unikke ✓-par (fødsel 320 · død 271 · navn 224 · titel 96 · dåb 12 · begravelse 4). Dommen gælder de
+46 bedømte par: 45 er stadig ✓ (de 4 relative i nr. 43-46 nu på opløste datoer), nr. 42 er nu »skriver«. Ikke bedømt
+er de 4 nye død-par (ledende tegn, se ovenfor) og de 10 dåb-/begravelsespar på opløste datoer, som ikke var i arket.
+Genkørslen trækker et nyt ark med samme seed over de 927 par; det er ikke bedømt.

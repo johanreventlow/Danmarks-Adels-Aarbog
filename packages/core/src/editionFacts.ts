@@ -50,6 +50,7 @@ type Paastand = { assertionId: string; rows: PublicPersonFactRow[]; value: strin
 type FaktumVisning = {
   factId: string;
   personId: string;
+  reference?: string | null; // dåb/begravelse: den viste fødsel/død, opløsningen brugte
   faktatype: string;
   udgave: string | null;
   art: 'egen' | 'som-i-dag' | 'uden-valg';
@@ -133,9 +134,11 @@ function erEgen(p: Paastand, udgave: Udgave, input: UdgaveFaktaInput): boolean {
     && tekster.every((t) => t.includes(udgave.label) && !andre.some((u) => t.includes(u.label)));
 }
 
-// Alle fakta med deres visning i egen udgave, i buildPersonFacts' orden (typeorden, date_min, fact_id).
-// `udenUdgaver`: valgt = null → alt som én udgave, valgt påstand som i dag.
-function fakta(input: UdgaveFaktaInput, udenUdgaver: boolean): FaktumVisning[] {
+// Alle fakta med deres visning i egen udgave, i buildPersonFacts' orden (typeorden, date_min, fact_id), med relative
+// datoer opløst. `udenUdgaver`: valgt = null → alt som én udgave, valgt påstand som i dag.
+const fakta = (input: UdgaveFaktaInput, udenUdgaver: boolean) => oploesRelative(faktaRaa(input, udenUdgaver));
+
+function faktaRaa(input: UdgaveFaktaInput, udenUdgaver: boolean): FaktumVisning[] {
   const raekkeUdgave = udenUdgaver ? {} : udgaveForRaekker(input);
   const udgaveMap = new Map(input.udgaver.map((u) => [u.sourceId, u]));
   const byFact = new Map<string, PublicPersonFactRow[]>();
@@ -219,7 +222,7 @@ function fakta(input: UdgaveFaktaInput, udenUdgaver: boolean): FaktumVisning[] {
     }
     ud.push({ ...base, art, vaerdi: vist.value, kilder: unikkeEfterLabel(vist.rows.map(factSource)), andre, usikre: [] });
   }
-  return oploesRelative(ud);
+  return ud;
 }
 
 // ---- relative datoer (§5.4a, afgørelse 12) ----
@@ -244,6 +247,7 @@ function oploesRelative(fs: FaktumVisning[]): FaktumVisning[] {
     const ref = reference.get(`${f.personId}\u0000${refType}`) ?? null;
     const opl = (v: string) => (erRelativDato(v) ? (oploesRelativDato(v, ref) ?? v) : v);
     return {
+      reference: ref,
       ...f,
       vaerdi: opl(f.vaerdi),
       andre: f.andre.map((a) => ({ ...a, value: opl(a.value) })),
@@ -341,4 +345,17 @@ export function byggUdgaveFakta(input: UdgaveFaktaInput, valgt: string | null): 
     }
   }
   return { linjer: linjer.map(offentlig), kunI };
+}
+
+// Til målingen (tools/maal-6e1): hvert vist faktum, hvis viste værdi før opløsningen er en relativ dato, med
+// personrækkens udgave, om core opløste det, og den reference, der blev brugt (kun dåb/begravelse).
+export type RelativDatoStatus = {
+  factId: string; faktatype: string; udgave: string | null; oploest: boolean; reference: string | null;
+};
+export function relativeDatoer(input: UdgaveFaktaInput): RelativDatoStatus[] {
+  const raa = faktaRaa(input, false);
+  const opl = oploesRelative(raa);
+  return raa.flatMap((f, i) => (f.vaerdi !== '' && erRelativDato(f.vaerdi)
+    ? [{ factId: f.factId, faktatype: f.faktatype, udgave: f.udgave, oploest: !erRelativDato(opl[i].vaerdi), reference: opl[i].reference ?? null }]
+    : []));
 }

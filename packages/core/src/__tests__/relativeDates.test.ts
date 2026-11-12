@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { erRelativDato, oploesRelativDato } from '../relativeDates';
+import { erRelativDato, oploesRelativDato, relativReferenceStatus } from '../relativeDates';
 
 describe('erRelativDato', () => {
   it('genkender s.m., s.d., s.å./s.a. og »samme …« uanset versaler og mellemrum', () => {
@@ -55,5 +55,17 @@ describe('oploesRelativDato', () => {
     expect(oploesRelativDato('6. febr. s.å.', '1643, 1644')).toBeNull();
     // en ikke-relativ værdi returneres uændret
     expect(oploesRelativDato('29. maj 1700', null)).toBe('29. maj 1700');
+  });
+});
+
+describe('relativReferenceStatus', () => {
+  it('skelner manglende, relativ, usikker og flertydig reference', () => {
+    expect(relativReferenceStatus('21. april 1644')).toBe('ok');
+    expect(relativReferenceStatus('1644')).toBe('ok');
+    expect(relativReferenceStatus(null)).toBe('mangler');
+    expect(relativReferenceStatus('ung')).toBe('mangler');
+    expect(relativReferenceStatus('5. s.m.')).toBe('relativ');
+    expect(relativReferenceStatus('ca. 1644')).toBe('usikker');
+    expect(relativReferenceStatus('1643, 1644')).toBe('flertydig');
   });
 });
