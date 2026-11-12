@@ -22,8 +22,9 @@ import { Lightbox } from './Lightbox';
 import { MediaThumb, BookmarkFlag, Label } from './primitives';
 import { ExpandableMiniMap, MapFallback } from './lazyMaps';
 
-export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, onClose, onFocusTree, onRelate, onVisPraesens, isMe, onToggleMe, isBookmarked, onToggleBookmark, geoLoading }: {
+export function DetailPanel({ model, focusId, detail, onPick, personHref = personPath, backName, onBack, onClose, onFocusTree, onRelate, onVisPraesens, isMe, onToggleMe, isBookmarked, onToggleBookmark, geoLoading }: {
   model: Model; focusId: string; detail: PersonDetailData | null; onPick: (id: string) => void;
+  personHref?: (id: string) => string; // samme adresse som onPick navigerer til
   backName: string | null; onBack: () => void; onClose?: () => void; onFocusTree: () => void; onRelate: () => void;
   onVisPraesens?: () => void;
   isMe: boolean; onToggleMe: () => void; isBookmarked: boolean; onToggleBookmark: () => void;
@@ -180,7 +181,7 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
             {parents.map((pa, i) => (
               <span key={pa.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 {i > 0 && <span style={{ fontFamily: T.serif, fontSize: 16, fontStyle: 'italic', color: T.goldInk }}>&amp;</span>}
-                <Link href={personPath(pa.id)} onNavigate={() => onPick(pa.id)} style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: T.bordeaux }}>{pa.name} ›</Link>
+                <Link href={personHref(pa.id)} onNavigate={() => onPick(pa.id)} style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: T.bordeaux }}>{pa.name} ›</Link>
                 {foraelderKilder(pa.id).map((k) => (
                   <KildeLinjeVisning key={kildeNøgle(k)} kilde={k} chips={vaelger.chips} onVaelg={vaelgChip} />
                 ))}
@@ -236,7 +237,7 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
             {spouses.map((sp, i) => (
               <span key={(sp.id ?? sp.name) + i}>
                 {i > 0 && <span style={{ color: T.goldInk }}>· </span>}
-                {sp.id ? <Link href={personPath(sp.id)} onNavigate={() => onPick(sp.id!)} style={{ fontWeight: 600, fontStyle: 'normal', color: T.bordeaux }}>{sp.name} ›</Link> : <span>{sp.name}</span>}
+                {sp.id ? <Link href={personHref(sp.id)} onNavigate={() => onPick(sp.id!)} style={{ fontWeight: 600, fontStyle: 'normal', color: T.bordeaux }}>{sp.name} ›</Link> : <span>{sp.name}</span>}
                 {aegteskabsKilder(sp.id).map((k) => (
                   <KildeLinjeVisning key={kildeNøgle(k)} kilde={k} chips={vaelger.chips} onVaelg={vaelgChip} />
                 ))}
@@ -250,7 +251,7 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
             <Label>Børn</Label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
               {children.map((c) => (
-                <Link key={c.id} href={personPath(c.id)} onNavigate={() => onPick(c.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.surfaceGround, border: `1px solid ${T.line}`, borderRadius: 9, padding: '6px 11px 6px 7px' }}>
+                <Link key={c.id} href={personHref(c.id)} onNavigate={() => onPick(c.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.surfaceGround, border: `1px solid ${T.line}`, borderRadius: 9, padding: '6px 11px 6px 7px' }}>
                   <div style={{ width: 26, height: 26, borderRadius: '50%', background: T.surfaceSunken, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 12, fontWeight: 600, color: T.bordeaux }}>{initials(c.name)}</div>
                   <span style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600 }}>{c.born != null ? `${c.name.split(' ')[0]} · ${c.born}` : c.name.split(' ')[0]}</span>
                 </Link>

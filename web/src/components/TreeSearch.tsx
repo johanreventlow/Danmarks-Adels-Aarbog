@@ -21,14 +21,9 @@ export type TreeSearchBundle = {
   showResults: boolean; clearSearch: () => void;
   focusToken: number; resetFocus: () => void;
   onPick: (id: string) => void;
+  // Adressen et resultat linker til (samme som onPick navigerer til). Default /person/<id>.
+  personHref?: (id: string) => string;
 };
-
-const SEARCH_TABS: { key: string; label: string; live: boolean }[] = [
-  { key: 'personer', label: 'Personer', live: true },
-  { key: 'godser', label: 'Godser', live: false },
-  { key: 'steder', label: 'Steder', live: false },
-  { key: 'artikler', label: 'Artikler', live: false },
-];
 
 export function TreeSearch(s: TreeSearchBundle) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -41,27 +36,24 @@ export function TreeSearch(s: TreeSearchBundle) {
       {/* Søgefelt */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: T.surfaceRaised, border: '1px solid rgba(34,31,26,.16)', borderRadius: 12, padding: '13px 17px', boxShadow: '0 2px 8px rgba(20,17,13,.04)' }}>
         <SearchIcon size={19} />
-        <input ref={inputRef} value={s.query} onChange={(e) => s.setQuery(e.target.value)} placeholder="Søg i slægten…" style={{ flex: 1, minWidth: 0, fontFamily: T.sans, fontSize: 16, color: T.ink, background: 'transparent', border: 'none', outline: 'none' }} />
+        <input ref={inputRef} type="search" aria-label="Søg person" value={s.query} onChange={(e) => s.setQuery(e.target.value)} placeholder="Søg i slægten…" style={{ flex: 1, minWidth: 0, fontFamily: T.sans, fontSize: 16, color: T.ink, background: 'transparent', border: 'none', outline: 'none' }} />
         {s.showResults && (
           <>
             <span style={{ fontFamily: T.sans, fontSize: 13, color: T.inkMuted, whiteSpace: 'nowrap', flex: 'none' }}>{`${s.browse.flat.length} ${s.query.trim() ? 'træffere' : 'personer'}`}</span>
-            <span onClick={s.clearSearch} title="Ryd søgning" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', flex: 'none' }}>
-              <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke={T.inkMuted} strokeWidth={2} strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
-            </span>
+            <button type="button" onClick={s.clearSearch} title="Ryd søgning" aria-label="Ryd søgning" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', flex: 'none', background: 'transparent', border: 0, padding: 2 }}>
+              <svg viewBox="0 0 24 24" width={15} height={15} fill="none" stroke={T.inkMuted} strokeWidth={2} strokeLinecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg>
+            </button>
           </>
         )}
       </div>
 
-      {/* Fane-bånd — universel-klar (brief §4.2); kun Personer aktiv nu */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginTop: 12, borderBottom: `1px solid ${T.line}` }}>
-        {SEARCH_TABS.map((tb) => (
-          <div key={tb.key} title={tb.live ? '' : 'Kommer'} style={{ padding: '9px 3px', marginRight: 16, fontFamily: T.sans, fontSize: 14.5, fontWeight: 600, color: tb.live ? T.bordeaux : T.inkMuted, borderBottom: `2px solid ${tb.live ? T.bordeaux : 'transparent'}` }}>{tb.label}</div>
-        ))}
-        <div style={{ flex: 1 }} />
-        {!s.showResults && (
-          <span onClick={() => s.setBrowsing(true)} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', padding: '8px 0', whiteSpace: 'nowrap' }}>Gennemse hele slægten ›</span>
-        )}
-      </div>
+      {/* Fanerne Godser · Steder · Artikler er fjernet (webredesign fase 2): de var »kommer«-punkter.
+          Søgning på tværs af typer kommer med søgesiden i fase 6. */}
+      {!s.showResults && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8, borderBottom: `1px solid ${T.line}` }}>
+          <button type="button" onClick={() => s.setBrowsing(true)} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.bordeaux, background: 'transparent', border: 0, cursor: 'pointer', padding: '8px 0', whiteSpace: 'nowrap' }}>Gennemse hele slægten ›</button>
+        </div>
+      )}
 
       {/* Resultater (kun når der søges/gennemses) */}
       {s.showResults && (
@@ -107,11 +99,11 @@ export function TreeSearch(s: TreeSearchBundle) {
                 <div key={g.letter} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 700px' } as CSSProperties}>
                   <div style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600, color: T.goldInk, margin: '6px 0 10px', paddingBottom: 5, borderBottom: '1px solid rgba(34,31,26,.08)' }}>{g.letter}</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
-                    {g.people.map((p) => <PersonCard key={p.id} p={p} width={186} href={personPath(p.id)} onClick={() => s.onPick(p.id)} />)}
+                    {g.people.map((p) => <PersonCard key={p.id} p={p} width={186} href={(s.personHref ?? personPath)(p.id)} onClick={() => s.onPick(p.id)} />)}
                   </div>
                 </div>
               ))
-            : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>{s.browse.flat.map((p) => <PersonCard key={p.id} p={p} width={186} href={personPath(p.id)} onClick={() => s.onPick(p.id)} />)}</div>}
+            : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>{s.browse.flat.map((p) => <PersonCard key={p.id} p={p} width={186} href={(s.personHref ?? personPath)(p.id)} onClick={() => s.onPick(p.id)} />)}</div>}
           {s.browse.flat.length === 0 && (
             <div style={{ padding: '20px 4px', fontFamily: T.sans }}>
               <div style={{ fontFamily: T.serif, fontSize: 24, fontWeight: 600, color: T.ink }}>{s.query.trim() ? `Ingen hedder »${s.query.trim()}«` : 'Ingen personer at vise'}</div>

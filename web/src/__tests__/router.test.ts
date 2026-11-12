@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { renderHook, act } from '@testing-library/react';
-import { navigate, usePath } from '../router';
+import { navigate, usePath, useLocation } from '../router';
 
 describe('router', () => {
   beforeEach(() => {
@@ -60,5 +60,16 @@ describe('router', () => {
     }).not.toThrow();
     expect(errSpy).not.toHaveBeenCalled();
     errSpy.mockRestore();
+  });
+
+  it('useLocation() opdaterer, når kun query ændres, og bevarer referencen ellers', () => {
+    window.history.replaceState(null, '', '/soeg?q=a');
+    const { result } = renderHook(() => useLocation());
+    expect(result.current).toEqual({ path: '/soeg', search: '?q=a' });
+    act(() => navigate('/soeg?q=ab', { replace: true }));
+    expect(result.current.search).toBe('?q=ab');
+    const foer = result.current;
+    act(() => navigate('/soeg?q=ab', { replace: true }));
+    expect(result.current).toBe(foer);
   });
 });

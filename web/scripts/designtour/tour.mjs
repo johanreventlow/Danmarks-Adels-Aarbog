@@ -16,24 +16,36 @@ fs.mkdirSync(OUT, { recursive: true });
 // Trin: path, role (null|'medlem'|'redaktion'), fail (databasen svarer 500), w/h, actions: click|css|fill|key|scroll.
 const STEPS = [
   { out: 'a-home', path: '/', full: true },
+  { out: 'a-menu-slaegter', path: '/', actions: [{ click: 'Slægter', exact: true }] },
   { out: 'a-person', path: '/person/118' },
-  { out: 'a-tree-kolonner', path: '/stamtrae', actions: [{ click: 'Kolonner', exact: true }] },
-  { out: 'a-search', path: '/stamtrae', actions: [{ click: 'Søg', exact: true }, { key: 'r' }, { key: 'e' }, { key: 'v' }] },
-  { out: 'a-search-tom', path: '/stamtrae', actions: [{ fill: ['input', 'Reventlov'] }] },
+  { out: 'a-tree-fokus', path: '/slaegt/reventlow/stamtrae?fokus=118' },
+  { out: 'a-tree-kolonner', path: '/slaegt/reventlow/stamtrae', actions: [{ click: 'Kolonner', exact: true }] },
+  { out: 'a-search', path: '/soeg?q=rev' },
+  { out: 'a-search-tom', path: '/soeg?q=Reventlov' },
+  // Skriver midt i et ord: »Revetlow« → »Reventlow«. Slutadressen skal være /soeg?q=Reventlow.
+  { out: 'a-search-midt', path: '/soeg', actions: [{ fill: ['input[aria-label="Søg person"]', 'Revetlow'] }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'n' }] },
+  // Klikvej gennem menu og bjælke; slutadressen skal være stamtræet uden ?fokus=.
+  { out: 'a-klikvej', path: '/', actions: [{ click: 'Slægter', exact: true }, { click: 'Reventlow', exact: true }, { click: 'Stamtræ', exact: true }, { click: 'Godser', exact: true }, { click: 'Stamtræ', exact: true }] },
   { out: 'a-monogram', path: '/person/421' },
   { out: 'a-fejl', path: '/', fail: true },
-  { out: 'a-relate', path: '/relate', actions: [{ fill: ['input', 'Otto Reventlow'] }, { click: 'Otto Reventlow', exact: true }, { fill: ['input', 'Magdalena'] }, { click: 'Magdalena Sophia Reventlow' }] },
-  { out: 'a-estates', path: '/estates' },
-  { out: 'a-arms', path: '/arms' },
-  { out: 'a-about', path: '/about' },
-  { out: 'a-praesens', path: '/praesens' },
+  { out: 'a-relate', path: '/slaegtskab', actions: [{ fill: ['input[aria-label="Søg person"]', 'Otto Reventlow'] }, { click: 'Otto Reventlow', exact: true }, { fill: ['input[aria-label="Søg person"]', 'Magdalena'] }, { click: 'Magdalena Sophia Reventlow' }] },
+  { out: 'a-estates', path: '/slaegt/reventlow/godser' },
+  { out: 'a-kort', path: '/slaegt/reventlow/godser?visning=kort' },
+  { out: 'a-arms', path: '/slaegt/reventlow/vaaben' },
+  { out: 'a-about', path: '/slaegt/reventlow' },
+  { out: 'a-praesens', path: '/slaegt/reventlow/praesens' },
+  { out: 'a-ukendt-slaegt', path: '/slaegt/findes-ikke' },
+  { out: 'a-gammel-sti', path: '/estates' }, // skal ende på /slaegt/reventlow/godser
   { out: 'a-login', path: '/', actions: [{ click: 'Log ind', exact: true }] },
   { out: 'b-member-home', path: '/', role: 'medlem' },
-  { out: 'b-member-bookmarks', path: '/bookmarks', role: 'medlem' },
-  { out: 'b-member-praesens', path: '/praesens', role: 'medlem' },
+  { out: 'b-member-bookmarks', path: '/min-side/bogmaerker', role: 'medlem' },
+  { out: 'b-member-praesens', path: '/slaegt/reventlow/praesens', role: 'medlem' },
+  { out: 'b-red-bjaelke', path: '/slaegt/reventlow', role: 'redaktion' },
   { out: 'c-red-anon', path: '/redaktion' },
   { out: 'c-red-redaktion', path: '/redaktion', role: 'redaktion' },
   { out: 'd-mobile-home', path: '/', w: 390, h: 844 },
+  { out: 'd-mobile-menu', path: '/', w: 390, h: 844, actions: [{ click: 'Slægter', exact: true }] },
+  { out: 'd-mobile-bjaelke', path: '/slaegt/reventlow/stamtrae', w: 390, h: 844 },
   { out: 'd-mobile-person', path: '/person/118', w: 390, h: 844 },
 ];
 
@@ -69,7 +81,8 @@ for (const s of STEPS.filter((x) => !filter || x.out.includes(filter))) {
     } catch (e) { errs.push(`handling ${JSON.stringify(a)}: ${e.message.split('\n')[0]}`); }
   }
   await pg.screenshot({ path: path.join(OUT, `${s.out}.png`), fullPage: !!s.full });
-  console.log(`${s.out}${errs.length ? '  ⚠ ' + errs.join(' | ') : ''}${log.length ? '  · ' + [...new Set(log)].join(', ') : ''}`);
+  const slut = new URL(pg.url()); const adr = slut.pathname + slut.search;
+  console.log(`${s.out}${adr !== s.path ? `  → ${adr}` : ''}${errs.length ? '  ⚠ ' + errs.join(' | ') : ''}${log.length ? '  · ' + [...new Set(log)].join(', ') : ''}`);
   await ctx.close();
 }
 await browser.close();

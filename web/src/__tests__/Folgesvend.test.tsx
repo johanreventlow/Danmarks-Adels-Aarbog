@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../router', () => ({
   navigate: vi.fn(),
   usePath: () => window.location.pathname,
+  useLocation: () => ({ path: window.location.pathname, search: window.location.search }),
 }));
 vi.mock('../data/model', () => ({ loadModel: mocks.loadModel }));
 vi.mock('../data/public', async (importOriginal) => ({
@@ -60,6 +61,7 @@ vi.mock('../components/DetailPanel', () => ({
 }));
 
 import Folgesvend from '../Folgesvend';
+import { navigate } from '../router';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -136,9 +138,47 @@ test('modellen hentes igen efter login, så RLS-beskyttede personer kommer med',
   render(<Folgesvend />);
   await screen.findByText(/^Biografi:/);
   expect(mocks.loadModel).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByText('Log ind'));
+  fireEvent.click(screen.getByRole('button', { name: 'Log ind' })); // sidehovedets knap
   fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'red@example.test' } });
   fireEvent.change(screen.getByLabelText('Adgangskode'), { target: { value: 'hemmeligt' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Log ind' }));
+  fireEvent.submit(screen.getByRole('dialog'));
   await waitFor(() => expect(mocks.loadModel).toHaveBeenCalledTimes(2));
+});
+
+test('gammel sti (/stamtrae) erstattes med den nye, og history.state bevares', async () => {
+  window.history.replaceState({ prevFocusId: '9' }, '', '/stamtrae');
+  mocks.fetchPersonDetail.mockResolvedValue({ bio: '', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });
+  render(<Folgesvend />);
+  await waitFor(() => expect(navigate).toHaveBeenCalledWith('/slaegt/reventlow/stamtrae', { replace: true, state: { prevFocusId: '9' } }));
+});
+
+test('stamtræet med ?fokus=<id> åbner personpanelet', async () => {
+  window.history.replaceState({}, '', '/slaegt/reventlow/stamtrae?fokus=1');
+  mocks.fetchPersonDetail.mockResolvedValue({ bio: 'Fra fokus', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });
+  render(<Folgesvend />);
+  await screen.findByText('Biografi: Fra fokus');
+  expect(mocks.fetchPersonDetail.mock.calls[0][0]).toBe('1');
+});
+
+test('slægtsbjælken vises under /slaegt/<slug>, ikke på /person/<id>', async () => {
+  mocks.fetchPersonDetail.mockResolvedValue({ bio: 'x', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });
+  window.history.replaceState({}, '', '/slaegt/reventlow/stamtrae?fokus=1');
+  const { unmount } = render(<Folgesvend />);
+  expect(await screen.findByRole('navigation', { name: 'Slægten Reventlow' })).toBeTruthy();
+  unmount();
+  window.history.replaceState({}, '', '/person/1');
+  render(<Folgesvend />);
+  await screen.findByText('Biografi: x');
+  expect(screen.queryByRole('navigation', { name: 'Slægten Reventlow' })).toBeNull();
+});
+
+test('/soeg?q= viser resultater, og søgeordet skrives i adressen med replace', async () => {
+  window.history.replaceState({}, '', '/soeg?q=Test');
+  render(<Folgesvend />);
+  expect(await screen.findByText('Testperson')).toBeTruthy();
+  const felt = screen.getByLabelText('Søg person') as HTMLInputElement;
+  expect(felt.value).toBe('Test');
+  fireEvent.change(felt, { target: { value: 'Testp' } });
+  expect(navigate).toHaveBeenCalledWith('/soeg?q=Testp', expect.objectContaining({ replace: true }));
+  expect(screen.queryByRole('navigation', { name: 'Slægten Reventlow' })).toBeNull(); // over slægterne
 });
