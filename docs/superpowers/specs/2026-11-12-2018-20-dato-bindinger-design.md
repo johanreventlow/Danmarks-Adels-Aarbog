@@ -104,8 +104,10 @@ Denne inddeling er grov (min egen SQL), ikke kontrolmodellens klassifikation. Pl
    aktuelle `proposed` fødsler og dødsfald, som v2 ændrer: forventet 280 + 286 = 566 versioner. Også resten
    normaliseres, *mit valg*: kortene i del 2 viser så bogens værdi uden markør, og en v2-version er aldrig dårligere end
    modellens. Listen er fastlåst fra øvelsen (antal + sha), og afviger den, stopper runneren.
-2. **Klassifikation** med `interpretation_control_classification.sql` og kildescope 1 (`daa.src`). Forventet `MATCH`
-   = 509. Afviger tallet fra øvelsen, stopper runneren.
+2. **Klassifikation** med `interpretation_control_classification.sql` og kildescope 1 (`daa.control_src`) og
+   **prædikatscope** `person.birth`/`person.death` (Codex fund 1): kilde 1 har andre aktive regler (fx 15 `proposed`
+   titler), og deres `MATCH` må hverken accepteres eller bindes her. Scopet gælder klassifikationen, rækkeeksporten,
+   planen og ceremoniens kontrol i transaktionen. Forventet `MATCH` = 509. Afviger tallet fra øvelsen, stopper runneren.
 3. **Stikprøve:** 20 tilfældige blandt `MATCH`, trukket med fast seed før svarene (decisions 2026-09-27 pkt. 4).
    Projektejeren får dem som kort (persona-kortværktøjet fra 6c-2, posttekst og side med). Reglen er som i 6c-2:
    `B` er i orden, mens `D`, `V` og `P` er fejl. Én fejl stopper anvendelsen, og intet fra kontrolrunden skrives.
@@ -130,7 +132,9 @@ del 1, om den køres. »Vis tab før kortrunde« gælder: del 1's tal og læserv
 Hver ceremoni følger 5c-1-formen: dump med ekstern kopi, flag og GO-kode via projektejerens shell, måling før og
 efter, runner i `~/.private/5ab-overfoersel/`, og output med kun antal, nøgler og hashes.
 
-1. **DDL** (§4.1) → deploy og `get_advisors` → mål.
+1. **DDL** (§4.1) → deploy og `get_advisors` → mål. **Fortrydelse af DDL'en** (Codex fund 3): en restore fjerner ikke
+   objekter, dumpet ikke kender. Derfor genskaber `fortryd-ddl` `red_normaliser_forslag` fra et snapshot taget lige før
+   og dropper `normaliser_dato_markoer_v2`. Det er kun tilladt, så længe ingen version med v2's `method` findes. Øves.
 2. **Data** (§4.2): dump → normalisering → klassifikation → stikprøvekort → svar hash-bindes → GO → afgørelser og
    bindinger i én transaktion → efterkontrol → browsertjek. Normaliseringen kan få sit eget GO før kortene, som i 6c-2's
    3a, *mit valg*. Svarene kan så tage dage uden et gammelt dump.
@@ -152,8 +156,9 @@ backlog); at ændre `binding_value_matches`; at genkøre modellen; at rette pås
 - En eksisterende gyldig binding bliver ugyldig. Kontrolleres med en nøglet liste før og efter, ikke kun antal.
 - En værdi ændres ud over markøren. v2 er en lukket liste, og resten rapporteres i stedet for at regelen udvides.
 - Personsiden bliver mærkbart langsommere. Fakta-kaldet (`public_person_facts`) for de 10 tungeste personer som
-  `anon` må ikke komme over 1,0 s (median af 5), samme grænse som 6c-2. Måles i øvelsen og efter apply. Over → stop og
-  restore.
+  `anon` må ikke komme over 1,0 s (median af 5), samme grænse som 6c-2. Desuden skal det **første kald i en frisk
+  session** med `statement_timeout='3s'` lykkes for hver af dem (Codex fund 4: medianen skjuler et koldt første kald).
+  Måles i øvelsen og efter apply. Over → stop og restore.
 
 ## 7. Færdigbevis
 
@@ -174,3 +179,22 @@ backlog); at ændre `binding_value_matches`; at genkøre modellen; at rette pås
    Metoden er derfor `machine-corroboration-v2` (plan Task 4).
 2. Normaliseringen får sit eget GO før kortene (`go-n`/`apply-n`, plan Task 5).
 3. De ti tungeste 2018-20-personer og deres fakta-tid måles på en frisk stand-in (plan Task 0) og i prod før GO.
+
+## 9. Codex-runde (B13, spec+plan) 2026-11-12, `gpt-6.1-sol`: NO-GO, 7 fund — afvejet
+
+Alle 7 accepteret; rettet i spec og plan samme dag.
+
+1. *Major:* klassifikationen og kontrolværktøjet tager alle aktive regler for kilde 1, så en tilbageværende titels
+   `MATCH` kunne blive bundet → prædikatscope (§4.2 pkt. 2; plan Task 4).
+2. *Major:* `_load_plan` kræver `real_diff_ids`/`skrivemaade_ids` på topniveau, så det foreslåede `udeladt_ids` ville
+   knække `persona_kort.py` → topnøglerne bevares; fuld CLI-rundtur i testen (plan Task 4).
+3. *Major:* ingen fortrydelse af DDL'en → `fortryd-ddl` (§5 pkt. 1; plan Task 5).
+4. *Major:* medianen af 5 varme kald skjuler et koldt første kald over anons 3 s → koldt kald under 3 s (§6; plan
+   Task 5).
+5. *Minor:* preview afviser `proposed` → Task 0's simulering accepterer syntetisk i samme rollback.
+6. *Minor:* GUC'en hedder `daa.control_src`, ikke `daa.src` (§4.2 pkt. 2).
+7. *Minor:* `test-control-model-v2.sh` ligger i `tests/sql/` (plan Task 4).
+
+Bekræftet af Codex: paritet 61 → 62; `red_decide_interpretation` kopierer derivation, metode, kørsel og
+observationer korrekt; ingen læser afhænger af v1's `method`-tekst; kortværktøjet virker med kun stikprøven, når
+planskemaet bevares.
