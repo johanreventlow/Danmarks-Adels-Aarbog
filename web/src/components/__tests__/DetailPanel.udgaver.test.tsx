@@ -79,10 +79,11 @@ const detalje = (o: Partial<PersonDetailData> = {}): PersonDetailData => ({
   ...o,
 });
 const noop = () => {};
-const vis = (detail: PersonDetailData) => render(
-  <DetailPanel model={model} focusId="392" detail={detail} onPick={noop} backName={null} onBack={noop}
-    onFocusTree={noop} onRelate={noop} isMe={false} onToggleMe={noop} isBookmarked={false} onToggleBookmark={noop} geoLoading={false} />,
+const panel = (detail: PersonDetailData | null, focusId = '392') => (
+  <DetailPanel model={model} focusId={focusId} detail={detail} onPick={noop} backName={null} onBack={noop}
+    onFocusTree={noop} onRelate={noop} isMe={false} onToggleMe={noop} isBookmarked={false} onToggleBookmark={noop} geoLoading={false} />
 );
+const vis = (detail: PersonDetailData) => render(panel(detail));
 const chip = (navn: string) => screen.getByRole('button', { name: navn });
 const LAEK = /record-[0-9a-f]{8}-|legacy-source:/;
 
@@ -177,6 +178,35 @@ describe('DetailPanel — udgaver', () => {
     vis(detalje());
     expect(screen.getByText('Ulrica · 1686')).toBeTruthy();
     expect(screen.getByText('Christian')).toBeTruthy();
+  });
+
+  it('»Tidligere udgave« står kun over en ældre udgave end standarden', () => {
+    // kun 1939 har biografi → standarden er 1939-posten; 2018-20 (kun fakta) er den nyere udgave
+    vis(detalje({ bio: BIO_1939.narrativeText, bioVersions: [BIO_1939] }));
+    expect(chip('DAA 1939').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByText('Tidligere udgave')).toBeNull();
+    fireEvent.click(chip('DAA 2018-20'));
+    expect(chip('DAA 2018-20').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByText('Tidligere udgave')).toBeNull();
+  });
+
+  it('valgt chip bevares, når detaljen hentes igen for samme person; ny person → standarden', () => {
+    const { rerender } = render(panel(detalje()));
+    fireEvent.click(chip('DAA 1939'));
+    expect(chip('DAA 1939').getAttribute('aria-pressed')).toBe('true');
+    // genhentning: detaljen er kortvarigt null, derefter et nyt objekt med samme indhold
+    rerender(panel(null));
+    rerender(panel(detalje()));
+    expect(chip('DAA 1939').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText(BIO_1939.narrativeText)).toBeTruthy();
+    // færre chips i den nye detalje: valget findes ikke → standarden, men valget glemmes ikke
+    rerender(panel(detalje({ bioVersions: [BIO_III58, BIO_V1], faktaInput: faktaInput(ROWS_18) })));
+    expect(chip('DAA 2018-20 · V-1').getAttribute('aria-pressed')).toBe('true');
+    rerender(panel(detalje()));
+    expect(chip('DAA 1939').getAttribute('aria-pressed')).toBe('true');
+    // ny person: standarden
+    rerender(panel(detalje(), '600'));
+    expect(chip('DAA 2018-20 · V-1').getAttribute('aria-pressed')).toBe('true');
   });
 
   it('DOM indeholder hverken record- eller legacy-source:', () => {

@@ -9,10 +9,11 @@ import { childrenOf, parentsOf } from '../data/model';
 import { pickPortrait, withUrl } from '../data/media';
 import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
+import { erTekniskLinje } from '../data/lineage';
 import {
   aegteskabsKilder as aegteskabsKilderFor, boerneKilder as boerneKilderFor, byggUdgaveFakta, byggUdgaveVaelger,
   familieIderForPerson, foraelderKilder as foraelderKilderFor, kildeLinje, lifeJourney, udgaveForRaekker,
-  udgaverMedFakta, type FamilieKilde, type UdgaveChip,
+  udgaverMedFakta, type BioSourceVersionV2, type FamilieKilde, type UdgaveChip,
 } from '@daa/core';
 import { fetchFamilySources } from '../data/familySources';
 import { NarrativRenderer } from './NarrativRenderer';
@@ -33,15 +34,19 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
   // alle personens billeder uanset hvilket der blev klikket på.
   const [lightbox, setLightbox] = useState<number | null>(null);
   // Udgavevælger (6e-1, spec §5.5): ÉN chip-liste styrer både biografien og fakta-udgaven. Læserens valg er
-  // bundet til den person og den detalje, det blev truffet på; ellers (ny person, nye data) gælder standarden.
-  // Afledt i stedet for nulstillet i en effekt, så der aldrig vises ét billede med en forkert chip.
-  const [valg, setValg] = useState<{ focusId: string; detail: PersonDetailData | null; idx: number } | null>(null);
+  // bundet til personen og chippens identitet (art, udgave, post) — ikke til detalje-objektet, så en genhentning for
+  // samme person (fx når geo ankommer) bevarer valget. Findes chippen ikke i de aktuelle data, gælder standarden,
+  // uden at valget glemmes; en ny person giver altid standarden. Afledt, ikke nulstillet i en effekt.
+  const [valg, setValg] = useState<{ focusId: string; noegle: string } | null>(null);
   const faktaInput = detail?.faktaInput ?? null;
   const udgaver = model.udgaver ?? [];
   const vaelger = byggUdgaveVaelger(detail?.bioVersions ?? [], udgaver, faktaInput ? udgaverMedFakta(faktaInput) : []);
-  const valgtIdx = valg && valg.focusId === focusId && valg.detail === detail && valg.idx < vaelger.chips.length
-    ? valg.idx : vaelger.standard;
-  const vaelgChip = (idx: number) => setValg({ focusId, detail, idx });
+  const valgtFundet = valg && valg.focusId === focusId ? vaelger.chips.findIndex((c) => chipNoegle(c) === valg.noegle) : -1;
+  const valgtIdx = valgtFundet >= 0 ? valgtFundet : vaelger.standard;
+  const vaelgChip = (idx: number) => {
+    const c = vaelger.chips[idx];
+    if (c) setValg({ focusId, noegle: chipNoegle(c) });
+  };
   const aktivChip: UdgaveChip | null = vaelger.chips[valgtIdx] ?? null;
   // En chip fra en ukendt udgave (fx »label:…« uden udgaveoplysninger) filtrerer intet: alt vises som i dag.
   const valgtUdgave = aktivChip && udgaver.some((u) => u.sourceId === aktivChip.sourceId) ? aktivChip.sourceId : null;
@@ -74,7 +79,7 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
   const children = childrenOf(model, focusId);
   // Tekniske linjenøgler (legacy-source:…, lineage.ts) vises aldrig (spec §5.7) — ellers faldt hovedet tilbage
   // til »Linje <nøgle>«.
-  const linjer = (model.lineage?.byPerson[focusId] ?? []).filter((lk) => !lk.startsWith('legacy-source:'));
+  const linjer = (model.lineage?.byPerson[focusId] ?? []).filter((lk) => !erTekniskLinje(lk));
   // Bog-nummeret ("Linje II, nr. 4") vinder; citation-proveniensen udfylder kun for personer bogen
   // ikke gav et opslag — typisk ægtefæller, der ellers stod helt uden kilde.
   const sources = model.sourcesBy?.[focusId]?.length ? model.sourcesBy[focusId] : (detail?.sources ?? []);
@@ -98,8 +103,13 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
   const godser = (detail?.estates ?? [])
     .filter((e) => { const u = godsUdgave(e.personId); return valgtUdgave == null || u == null || u === valgtUdgave; })
     .filter((e, i, alle) => alle.findIndex((x) => x.id === e.id) === i);
+  // »Tidligere udgave« kun når den aktive chips udgave er ældre end standardens (årstal); ukendt år → ingen etiket.
   const standardChip = vaelger.chips[vaelger.standard] ?? null;
-  const tidligereUdgave = aktivChip != null && standardChip != null && aktivChip.sourceId !== standardChip.sourceId;
+  const chipAar = (c: UdgaveChip): number | null => udgaver.find((u) => u.sourceId === c.sourceId)?.aar
+    ?? (c.art === 'post' ? (c.version as Partial<BioSourceVersionV2>).sourceYear ?? null : null);
+  const aktivAar = aktivChip ? chipAar(aktivChip) : null;
+  const standardAar = standardChip ? chipAar(standardChip) : null;
+  const tidligereUdgave = aktivAar != null && standardAar != null && aktivAar < standardAar;
   const proveniens =
     mergedFrom.length > 1
       ? mergedFrom
@@ -326,6 +336,11 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
     )}
     </>
   );
+}
+
+// En chips identitet på tværs af genhentninger: art, udgave og post (postens ref, ellers etiketten).
+function chipNoegle(c: UdgaveChip): string {
+  return c.art === 'post' ? `post:${c.sourceId}:${c.version.recordRef ?? c.label}` : `udgave:${c.sourceId}`;
 }
 
 // Udgavevælgerens knapper. Etiketten er chippens (core har allerede fjernet tekniske postnøgler).
