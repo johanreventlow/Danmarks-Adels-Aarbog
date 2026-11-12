@@ -14,6 +14,9 @@ export const BASE: Record<FeedCard['kind'], number> = {
   arkiv: 0.5,
   citat: 0.4,
   vaaben: 0.3,
+  // Lav vægt: puljen af nævnte personer er langt større end portrætpuljen, og med højere
+  // vægt ville loftet (højst ét pr. seks kort, order.ts) i praksis blive »hvert sjette kort«.
+  naevnt: 0.3,
   samle: 0,
 };
 

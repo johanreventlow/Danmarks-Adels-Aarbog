@@ -36,7 +36,7 @@ const SEEN_EXCLUDED_KINDS = new Set<FeedCard['kind']>(['slaegt', 'dagensperson',
 export function hrefForCard(card: FeedCard): string | null {
   switch (card.kind) {
     case 'portrait': case 'citat': case 'arkiv': case 'historie': case 'embede':
-    case 'jubilaeum': case 'paadennedag': case 'dagensperson':
+    case 'jubilaeum': case 'paadennedag': case 'dagensperson': case 'naevnt':
       return personPath(card.personId);
     case 'gods': return estatePath(card.estateId);
     case 'vaaben': return pathForMode('arms');

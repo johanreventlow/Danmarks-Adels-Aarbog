@@ -5,7 +5,9 @@
 import { computeRelationship } from '@daa/core';
 import { stableHash } from './prng';
 import { isExactDay } from './types';
-import type { FeedAux, FeedCard, HaendelserBy, LivsdatoBy, Model } from './types';
+import type {
+  FeedAux, FeedCard, HaendelserBy, LivsdatoBy, Model, NaevntGrundlag, StorieBy,
+} from './types';
 
 // Første bogstav i navnet; parenteser og andre tegn springes over (»(Søn)« → »S«, ikke »(«).
 export const initialsOf = (name: string): string => (name.match(/\p{L}/u)?.[0] ?? '?').toUpperCase();
@@ -210,4 +212,38 @@ export function buildSlaegt(model: Model, meId: string | null, focusId: string |
     kind: 'slaegt', id: `slaegt:${meId}:${focusId}`, aId: meId, bId: focusId,
     aName: a.name, bName: b.name, rel: rel.label, foot: 'Se slægtskabet ›', kicker: 'Er I i familie?',
   }];
+}
+
+// »Nævnt i Aarbogen«: personer bogen nævner (har et nummer i model.sourcesBy), men som feedet ellers
+// intet kort har til — ingen tekst overhovedet (heller ikke en kort), ingen titel, embeder, godser,
+// børn, hændelser eller historier. Kaldes med den udtyndede safeModel (kun sikkert døde); dens
+// `indexes` er den fulde graf, så også levende børn tæller som børn. Forældrenavne slås kun op i
+// safeModel.byId — en levende eller ukendt forælder nævnes ikke.
+export function buildNaevnt(
+  model: Model,
+  grundlag: NaevntGrundlag,
+  aux: FeedAux,
+  haendelserBy: HaendelserBy,
+  storieBy: StorieBy,
+): FeedCard[] {
+  const out: FeedCard[] = [];
+  for (const p of model.persons) {
+    if (p.privat || p.bio.trim() !== '' || p.title.trim() !== '') continue;
+    const kilde = (model.sourcesBy?.[p.id] ?? []).map((s) => s.ref.trim()).find((ref) => ref !== '');
+    if (!kilde) continue;
+    if (grundlag.personerMedEmbedeEllerGods.has(p.id)) continue;
+    if ((aux.officesBy[p.id]?.length ?? 0) > 0) continue;
+    if ((haendelserBy[p.id]?.length ?? 0) > 0 || (storieBy[p.id]?.length ?? 0) > 0) continue;
+    const boernePrUnion = model.indexes.childrenByUnion[p.id] ?? {};
+    if (Object.values(boernePrUnion).some((boern) => boern.length > 0)) continue;
+    const foraeldre = (model.indexes.parentsByChild[p.id] ?? [])
+      .map((id) => model.byId[id]?.name)
+      .filter((navn): navn is string => Boolean(navn));
+    out.push({
+      kind: 'naevnt', id: 'naevnt:' + p.id, personId: p.id, name: p.name, years: p.years,
+      relation: foraeldre.length > 0 ? `Barn af ${foraeldre.join(' og ')}` : null,
+      kilde, kicker: 'Nævnt i Aarbogen',
+    });
+  }
+  return out.sort(byIdStr);
 }

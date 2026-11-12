@@ -72,7 +72,19 @@ export type FeedCard =
       aarstal: number; hvad: 'født' | 'død' | 'hændelse'; klausul?: string;
       praecision: 'dag' | 'maaned'; kicker: string }
   | { kind: 'dagensperson'; id: string; personId: string; name: string; years: string;
-      initials: string; title: string | null; bio: string; kicker: string };
+      initials: string; title: string | null; bio: string; kicker: string }
+  // En person bogen nævner uden offentlig tekst, titel, embeder, godser, børn eller hændelser.
+  // Overskriften påstår bevidst IKKE at bogen intet mere skriver: klienten kan ikke skelne
+  // »ingen tekst« fra »tekst ikke offentliggjort endnu« (projektejerens valg 12/11).
+  | { kind: 'naevnt'; id: string; personId: string; name: string; years: string;
+      relation: string | null; kilde: string; kicker: string };
+
+// Grundlaget for 'naevnt'-kort. Kaldersiden sætter det KUN når alle kilder til fravær er hentet
+// komplet: offentlige biografier (stemplet ind i modellen), hændelser, historier og personers
+// embeder/godser. Et tomt map er ellers ikke bevis for fravær — udeladt = ingen nævnt-kort.
+export interface NaevntGrundlag {
+  personerMedEmbedeEllerGods: ReadonlySet<string>;
+}
 
 export interface FeedInputs {
   seed: number;
@@ -88,6 +100,7 @@ export interface FeedInputs {
   // Kort-typer der midlertidigt skal udelades helt fra feedet (fx indtil databasen har mere
   // indhold i kategorien). Se TEMP_DISABLED_KINDS i web/mobile's opsætning af FeedInputs.
   disabledKinds?: ReadonlySet<FeedCard['kind']>;
+  naevntGrundlag?: NaevntGrundlag;
 }
 
 export function bookmarkPersonId(card: FeedCard): string | null {

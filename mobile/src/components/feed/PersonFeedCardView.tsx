@@ -103,6 +103,12 @@ function PersonCardBody({ card }: { card: PersonCard }) {
           {card.hvad === 'hændelse' ? card.klausul : `${card.hvad === 'født' ? 'Født' : 'Død'} ${card.aarstal}`}
         </Body>
       </>;
+    // Mobilen sender intet naevntGrundlag, så motoren bygger ikke kortet her; visningen tåler det dog.
+    case 'naevnt':
+      return <>
+        {card.relation ? <Body size={12} color={Colors.inkSecondary} style={{ marginTop: 7 }}>{card.relation}</Body> : null}
+        {source(card.kilde)}
+      </>;
   }
 }
 
