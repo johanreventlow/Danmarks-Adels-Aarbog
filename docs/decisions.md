@@ -65,8 +65,12 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > **Målt 2026-11-11** (stand-in `…_slut` = prod efter 6d-3; D's tvillingregel med rollerne byttet): 9 familier, heraf
 > 742/743 = 1791 (privat via O). **7 kandidater** (1939-familie: hovedperson → 2018-20-kandidat): 392: 955 → 75,
 > 395: 960 → 210, 438: 1036 → 112, 515: 1156 → 282, 638: 1376 → 312, 740: 1787 → 236, 748: 1803 → 290.
-> **Næste skridt:** projektejerens afgørelse pr. par, som redaktionel `samme_som` (955 → 75 tages af projektejeren) eller
-> en lille kortrunde. Hænger sammen med 1939-navnereglen (»til <gods>«)
+> **Udført 2026-11-12 (kortrunde):** projektejeren besvarede 7 kort (lokal HTML, manifest `1e1775da…`, flettet svar
+> `237ff7a2…`): 6 × S, V02 (960 → 210) = I. V03 (1036 → 112) har dødsår 1632 i 1939 mod † 1602 i 2018-20, men samme
+> person (Gram og Nybøl, g. m. Detlev von Buchwald, Flensborg); begge påstande står. 955 → 75 blev lavet i Redaktion;
+> de 5 andre af runneren `37-omvendt-samme-som.sh` (`red_samme_som`, én transaktion, relation 2809-2813, change_set
+> 3675-3679), prøvet på `…_slut` (apply, gentaget apply afvist, fortryd, skip af eksisterende). `verify` OK i prod. Core
+> på `…_slut`: de 6 ægtefæller går fra 2 til 1 ægtefælle, personer med 2+ ægtefæller 59 → 53, 0 nye karantæner. Hænger sammen med 1939-navnereglen (»til <gods>«)
 > og de 60 personer, der efter 6d-3 stadig har to eller flere ægtefæller (98 → 60).
 
 ## BESLUTTET: 6d-2b indsnævres til at trække forkert tilskrevne 1939-tekster tilbage; resten bliver kendte begrænsninger (2026-11-10)
