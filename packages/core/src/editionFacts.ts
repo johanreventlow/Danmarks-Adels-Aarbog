@@ -44,7 +44,8 @@ type Paastand = { assertionId: string; rows: PublicPersonFactRow[]; value: strin
 // Et faktums visning i sin egen udgave (§5.2).
 //  - 'egen': den viste påstand er udgavens egen → får noter og indgår i andre udgavers noter.
 //  - 'som-i-dag': ingen udgaveegen påstand (redaktørfaktum) eller ingen udgave → vises, men aldrig i noter.
-//  - 'uden-valg': omstridt uden valgt påstand → vises som i dag; i andre udgaver tæller alle udsagn, aldrig som ✓.
+//  - 'uden-valg': ingen vist værdi (omstridt uden valg, eller tomt valg med andre udsagn) → vaerdi '' og alt i
+//    `andre`; i andre udgaver tæller udgavens EGNE udsagn (`usikre`) som »skriver«, aldrig som ✓.
 type FaktumVisning = {
   factId: string;
   faktatype: string;
@@ -54,6 +55,7 @@ type FaktumVisning = {
   vaerdi: string;
   kilder: PersonFactSource[];
   andre: PersonFactStatement[];
+  usikre: string[];
 };
 
 const unikkeRaekker = (rows: PublicPersonFactRow[]) => {
@@ -114,10 +116,13 @@ export function udgaveForRaekker(input: UdgaveFaktaInput): Record<string, string
   return ud;
 }
 
-// Er påstanden udgavens egen (§5.2)? Bundet til en post, citation til udgaven, eller en fritekstkilde,
+// Er påstanden udgavens egen (§5.2)? Bundet til udgavens post, citation til udgaven, eller en fritekstkilde,
 // hvor ALLE tekster nævner netop denne udgave og ingen anden (tom liste eller modstrid → nej).
+// En binding til en ANDEN udgaves post tæller ikke: så ville den udgave bekræfte sig selv (§5.1).
 function erEgen(p: Paastand, udgave: Udgave, input: UdgaveFaktaInput): boolean {
-  if (p.rows.some((r) => r.record_ref)) return true;
+  const andenUdgave = (r: PublicPersonFactRow) =>
+    r.source_id != null && String(r.source_id) !== udgave.sourceId && input.udgaver.some((u) => u.sourceId === String(r.source_id));
+  if (p.rows.some((r) => r.record_ref && !andenUdgave(r))) return true;
   if (p.rows.some((r) => r.source_id != null && String(r.source_id) === udgave.sourceId)) return true;
   if (!p.rows.some((r) => r.source_id == null)) return false;
   const tekster = input.fritekstKilde[p.assertionId] ?? [];
@@ -172,9 +177,15 @@ function fakta(input: UdgaveFaktaInput, udenUdgaver: boolean): FaktumVisning[] {
       omstridt: first.conclusion_status === 'omstridt' };
     const ikkeTomme = (ps: Paastand[]) => ps.flatMap((p) => p.rows.map(statement)).filter((s) => !erTomFaktaVaerdi(s.value));
 
+    // Udgavens egne, ikke-tomme udsagn blandt ps — kun de kan indgå i en anden udgaves noter.
+    const egneVaerdier = (ps: Paastand[]) =>
+      udgave ? ikkeTomme(ps.filter((p) => erEgen(p, udgave, input))).map((s) => s.value) : [];
+    const udenVaerdi = (andre: PersonFactStatement[], usikre: string[]) => {
+      if (andre.length) ud.push({ ...base, art: usikre.length ? 'uden-valg' : 'som-i-dag', vaerdi: '', kilder: [], andre, usikre });
+    };
+
     if (!valgt) {
-      const andre = ikkeTomme(alle);
-      if (andre.length) ud.push({ ...base, art: 'uden-valg', vaerdi: '', kilder: [], andre });
+      udenVaerdi(ikkeTomme(alle), egneVaerdier(alle));
       continue;
     }
 
@@ -194,15 +205,17 @@ function fakta(input: UdgaveFaktaInput, udenUdgaver: boolean): FaktumVisning[] {
         }
       }
     }
-    if (erTomFaktaVaerdi(vist.value)) continue; // tom værdi: ingen linje, ingen note, ingen kunI
-    ud.push({
-      ...base,
-      art,
-      vaerdi: vist.value,
-      kilder: unikkeEfterLabel(vist.rows.map(factSource)),
-      // alle øvrige udsagn — også et redaktørvalg, der ikke er udgavens egne ord — så intet forsvinder
-      andre: ikkeTomme(alle.filter((p) => p !== vist)),
-    });
+    // Andre udsagn = øvrige påstande, men ikke et tilsidesat redaktørvalg uden udgavens egen kilde: redaktionens
+    // valg ses kun i navnet øverst, uden markering (§5.2, projektejeren 2026-11-12).
+    const oevrige = alle.filter((p) => p !== vist && !(vist !== valgt && p === valgt));
+    const andre = ikkeTomme(oevrige);
+    if (erTomFaktaVaerdi(vist.value)) {
+      // Tom vist værdi: ingen linje — medmindre faktummet har andre, ikke-tomme udsagn; de må ikke forsvinde.
+      // De vises som ved omstridt uden valg (vaerdi '', alt i `andre`) og tæller aldrig som ✓ i andre udgaver.
+      udenVaerdi(andre, egneVaerdier(oevrige));
+      continue;
+    }
+    ud.push({ ...base, art, vaerdi: vist.value, kilder: unikkeEfterLabel(vist.rows.map(factSource)), andre, usikre: [] });
   }
   return ud;
 }
@@ -213,7 +226,7 @@ function linjerFor(fs: FaktumVisning[]): Linje[] {
   const linjer: Linje[] = [];
   const ids = new Map<Linje, string[]>();
   for (const f of fs) {
-    const norm = f.art === 'uden-valg' ? null : normaliserFaktaVaerdi(f.faktatype, f.vaerdi);
+    const norm = f.vaerdi === '' ? null : normaliserFaktaVaerdi(f.faktatype, f.vaerdi); // tom linje sammenlægges aldrig
     const hit = norm == null ? undefined : linjer.find((l) => l.faktatype === f.faktatype && l.norm === norm);
     if (hit) {
       // sammenlægning (§5.2): samme type og ens værdi → én linje, kilderne samlet
@@ -247,7 +260,7 @@ function puljer(fs: FaktumVisning[], udgaveId: string): Map<string, Pulje> {
     if (f.udgave !== udgaveId || f.art === 'som-i-dag') continue; // redaktørfakta indgår ikke i noter (§5.2)
     const p = ud.get(f.faktatype) ?? [];
     if (f.art === 'egen') p.push({ vaerdi: f.vaerdi, sikker: true });
-    else for (const a of f.andre) p.push({ vaerdi: a.value, sikker: false });
+    else for (const v of f.usikre) p.push({ vaerdi: v, sikker: false });
     ud.set(f.faktatype, p);
   }
   return ud;

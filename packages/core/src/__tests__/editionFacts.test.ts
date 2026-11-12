@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { PublicPersonFactRow } from '../personFacts';
-import { faktaVaerdierEns } from '../factEquality';
+import { ENKELTVAERDI_TYPER, faktaVaerdierEns } from '../factEquality';
 import {
   byggUdgaveFakta,
   udgaveForRaekker,
@@ -97,8 +97,9 @@ describe('byggUdgaveFakta', () => {
     expect(flereNavne).toEqual([]);
     expect(navn.vaerdi).toBe('Conrad de Reventlow');
     expect(navn.noter).toEqual([{ art: 'skriver', udgave: D39, vaerdier: ['Conrad Reventlow'] }]);
-    // redaktørens valg forsvinder ikke: det står som andet udsagn
-    expect(navn.andre.map((a) => a.value)).toEqual(['Conrad']);
+    // redaktionens valg ses kun i navnet øverst, ikke som »andet udsagn« i fakta-blokken (§5.2)
+    expect(navn.andre.map((a) => a.value)).not.toContain('Conrad');
+    expect(navn.andre).toEqual([]);
 
     const titler = linje(v, 'titel');
     expect(titler).toHaveLength(1);
@@ -393,6 +394,46 @@ describe('byggUdgaveFakta', () => {
     expect(v.kunI).toEqual([{ udgave: D18, faktatype: 'begravelse', vaerdier: ['Vor Frue Kirke'] }]);
   });
 
+  it('binding til en anden udgaves post gør ikke påstanden til udgavens egen (ingen selvbekræftelse)', () => {
+    const bundet39 = { source_id: 3, source_label: 'DAA 1939', record_ref: 'rec-39', citation_label: 'DAA 1939, s. 5' };
+    const inp = fixture('binding til anden udgave', input([
+      r18({ person_id: 140, date_raw: '1708', ...bundet39 }),
+      r39({ person_id: 141, date_raw: '1708', ...bundet39 }),
+    ], { udgaveForPersonRaekke: { '140': '1', '141': '3' } }), ['1708@1']);
+    const v = byggUdgaveFakta(inp, '3');
+    expect(linje(v, 'død').map((l) => [l.vaerdi, l.noter])).toEqual([['1708', []]]);
+    expect(v.kunI).toEqual([]);
+    const w = byggUdgaveFakta(inp, '1');
+    expect(linje(w, 'død').map((l) => [l.vaerdi, l.noter])).toEqual([['1708', []]]);
+    expect(w.kunI).toEqual([{ udgave: D39, faktatype: 'død', vaerdier: ['1708'] }]);
+  });
+
+  it('tomt valg skjuler ikke udgavens andre udsagn', () => {
+    const inp = fixture('tomt valg', input([
+      r18({ person_id: 150, fact_id: 1500, faktatype: 'begravelse', date_raw: null, vaerdi_tekst: '—', chosen: true,
+        record_ref: 'rec-150', citation_label: 'DAA 2018-20, s. 3' }),
+      r18({ person_id: 150, fact_id: 1500, faktatype: 'begravelse', date_raw: null, vaerdi_tekst: 'Vor Frue', chosen: false }),
+      // et udsagn med citation til 1939 på 2018-20-rækken: vises, men er ikke 2018-20's ord
+      r18({ person_id: 150, fact_id: 1500, faktatype: 'begravelse', date_raw: null, vaerdi_tekst: 'Domkirken', chosen: false,
+        source_id: 3, source_label: 'DAA 1939' }),
+      r39({ person_id: 151, faktatype: 'begravelse', date_raw: null, vaerdi_tekst: 'Vor Frue' }),
+    ], { udgaveForPersonRaekke: { '150': '1', '151': '3' } }), ['Domkirken@1']);
+    const v = byggUdgaveFakta(inp, '1');
+    const b = linje(v, 'begravelse');
+    expect(b).toHaveLength(1);
+    expect(b[0].vaerdi).toBe('');
+    expect(b[0].kilder).toEqual([]);
+    expect(b[0].andre.map((a) => a.value)).toEqual(['Vor Frue', 'Domkirken']);
+    expect(b[0].noter).toEqual([]);
+    expect(v.kunI).toEqual([{ udgave: D39, faktatype: 'begravelse', vaerdier: ['Vor Frue'] }]);
+    // fra 1939: 2018-20's egne udsagn som »skriver«, aldrig ✓ — og ikke det 1939-citerede »Domkirken«
+    const w = byggUdgaveFakta(inp, '3');
+    expect(linje(w, 'begravelse').map((l) => [l.vaerdi, l.noter])).toEqual([
+      ['Vor Frue', [{ art: 'skriver', udgave: D18, vaerdier: ['Vor Frue'] }]],
+    ]);
+    expect(w.kunI).toEqual([]);
+  });
+
   it('tom værdi giver hverken linje, note eller kunI', () => {
     const inp = fixture('tom værdi', input([
       r18({ person_id: 120, faktatype: 'begravelse', vaerdi_tekst: '—', date_raw: null }),
@@ -424,6 +465,37 @@ describe('byggUdgaveFakta', () => {
     expect(linje(v, 'navn').map((l) => l.vaerdi)).toEqual(['Conrad', 'Conrad Reventlow']);
     expect(linje(v, 'titel')).toHaveLength(1);
     expect(linje(v, 'titel')[0].kilder).toHaveLength(3);
+  });
+
+  it('egenskab: hvert ✓ bæres af den anden udgaves egne, ens viste værdier', () => {
+    let tjekket = 0;
+    for (const fx of FIXTURES) {
+      const raekkeUdgave = udgaveForRaekker(fx.input);
+      for (const valgt of fx.input.udgaver) {
+        const vis = byggUdgaveFakta(fx.input, valgt.sourceId);
+        for (const l of vis.linjer) {
+          for (const n of l.noter) {
+            if (n.art !== 'enig') continue;
+            const anden = n.udgave;
+            expect(anden.sourceId).not.toBe(valgt.sourceId);
+            const egne = fx.input.rows.filter((r) => raekkeUdgave[String(r.person_id)] === anden.sourceId);
+            const viste = byggUdgaveFakta({ ...fx.input, rows: egne }, anden.sourceId).linjer
+              .filter((m) => m.faktatype === l.faktatype)
+              .flatMap((m) => (m.vaerdi === '' ? m.andre.map((a) => ({ v: a.value, kilder: [a.source] })) : [{ v: m.vaerdi, kilder: m.kilder }]))
+              .filter((x) => !fx.undtaget?.includes(x.v) && !fx.undtaget?.includes(`${x.v}@${anden.sourceId}`));
+            const ens = (x: { v: string }) => faktaVaerdierEns(l.faktatype, x.v, l.vaerdi);
+            // en ens værdi skal have mindst én kilde, der ikke er den valgte udgave selv
+            const egenKilde = (x: { kilder: { label: string }[] }) => x.kilder.some((k) => !k.label.includes(valgt.label));
+            const msg = `${fx.navn}: ✓ ${anden.label} på ${l.faktatype} »${l.vaerdi}« set fra ${valgt.label}`;
+            expect(viste.length, msg).toBeGreaterThan(0);
+            if (ENKELTVAERDI_TYPER.has(l.faktatype)) expect(viste.every(ens), msg).toBe(true);
+            expect(viste.some((x) => ens(x) && egenKilde(x)), msg).toBe(true);
+            tjekket++;
+          }
+        }
+      }
+    }
+    expect(tjekket).toBeGreaterThan(10);
   });
 
   it('invariant: hver anden udgaves viste værdi er i en note eller kunI', () => {
