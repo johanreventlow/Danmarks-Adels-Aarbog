@@ -2,18 +2,20 @@
 -- Brug: psql -X -At -v ON_ERROR_STOP=1 -v source_id=<k> -f maal_dato_bindinger.sql
 --   (\ir finder interpretation_control_classification.sql ved siden af scriptet; kilden gives altid eksplicit)
 -- Én linje:
---   DATO_MAAL tilstand=<foer|ddl|n|k> versioner_v2=<n> match=<n> real_diff=<n> skrivemaade=<n> accepteret_v2=<n>
+--   DATO_MAAL tilstand=<foer|ddl|n|k> versioner_v2=<n> match=<n> real_diff=<n> skrivemaade=<n> no_fact=<n> accepteret_v2=<n>
 --     bundet_v2=<n> post_foedsel=<n> post_doed=<n> alle_bindinger=<n> alle_bindinger_hash=<sha256>
 -- Tilstanden afgøres af fakta i basen, ikke af flag:
 --   foer  private.normaliser_dato_markoer_v2 findes ikke (DDL ikke kørt)
---   ddl   funktionen findes, men kilden har ingen række (nogen version) med method 'deterministisk-normalisering:dato-markoer-v2'
+--   ddl   funktionen findes, men kilden har ingen række (nogen version, nogen status) med method 'deterministisk-normalisering:dato-markoer-v2'
 --   n     v2-rækker findes, men ingen aktuel version med methoden er accepted
 --   k     mindst én aktuel v2-version er accepted (en afgørelse kopierer method, så den accepterede version bærer den)
 -- Tal (kilden fra -v source_id):
---   versioner_v2   alle kildens rækker i private.interpretation med v2's method (alle versioner og status)
+--   versioner_v2   kildens rækker i private.interpretation med v2's method og status proposed: normaliseringens egne skrivninger.
+--                  Konstant efter accept (en afgørelse opretter nye accepted-rækker, som kopierer method)
 --   match          MATCH + MATCH_SINGLETON, kun for person.birth og person.death. Klassifikationen
 --   real_diff      REAL_DIFF   (interpretation_control_classification.sql med daa.control_src = kilden) dækker alle
 --   skrivemaade    SKRIVEMAADE aktive assertion-regler for kilden (fx person.title); de tælles ikke her
+--   no_fact        NO_FACT     (samme klassifikation, samme prædikater: kun birth/death)
 --   accepteret_v2  aktuelle v2-versioner med status accepted
 --   bundet_v2      gældende assertion-bindinger på en aktuel accepteret v2-version af kilden
 --   post_foedsel / post_doed  rækker i public_person_facts(alle personer) med kildens source_id, faktatypen fødsel/død
@@ -28,8 +30,8 @@
 -- hash som et kald til funktionen pr. promotion.
 -- -v liste=1: efter DATO_MAAL-linjen skrives de sorterede '<assertion_id>:<interpretation_key>'-linjer (kun id'er), fra
 --   samme CTE som hashen (hashen er sha256 over netop disse linjer); uden -v liste er outputtet præcis én linje.
--- versioner_v2 tæller ALLE rækker i private.interpretation for kilden med v2's method (alle versioner, alle status);
--- ddl = ingen sådan række; n = rækker findes, men ingen AKTUEL version med methoden er accepted; k = mindst én aktuel er accepted.
+-- Tilstanden bruger alle kildens rækker med v2's method (alle versioner, alle status): ddl = ingen sådan række; n = rækker
+-- findes, men ingen AKTUEL version med methoden er accepted; k = mindst én aktuel er accepted. versioner_v2 i linjen er kun proposed.
 \set QUIET on
 \set ON_ERROR_STOP on
 \pset format unaligned
@@ -47,7 +49,8 @@ SELECT set_config('daa.control_src',:'source_id',true) \g /dev/null
 \o
 SELECT coalesce(sum(c.n) FILTER (WHERE c.class IN ('MATCH','MATCH_SINGLETON')),0) AS match,
        coalesce(sum(c.n) FILTER (WHERE c.class='REAL_DIFF'),0) AS real_diff,
-       coalesce(sum(c.n) FILTER (WHERE c.class='SKRIVEMAADE'),0) AS skrivemaade
+       coalesce(sum(c.n) FILTER (WHERE c.class='SKRIVEMAADE'),0) AS skrivemaade,
+       coalesce(sum(c.n) FILTER (WHERE c.class='NO_FACT'),0) AS no_fact
   FROM (SELECT k.key AS class, k.value::bigint AS n
           FROM jsonb_each(current_setting('daa.control_result')::jsonb->'counts') pr,
                jsonb_each_text(pr.value) k
@@ -75,30 +78,33 @@ SELECT p.id AS promotion_id, p.target_id AS assertion_id, q.interpretation_key, 
 SELECT count(*) AS alle,
        coalesce(string_agg(b.assertion_id::text||':'||b.interpretation_key::text,E'\n'
                            ORDER BY b.assertion_id,b.interpretation_key),'') AS liste,
-       count(*) FILTER (WHERE b.source_id=:source_id
+       count(*) FILTER (WHERE b.source_id=:'source_id'::bigint
                           AND b.method='deterministisk-normalisering:dato-markoer-v2') AS bundet
   FROM m_b b \gset m_
 SELECT encode(sha256(convert_to(:'m_liste','UTF8')),'hex') AS hash \gset m_
 
 SELECT (SELECT count(*) FROM private.interpretation q
-         WHERE q.source_id=:source_id AND q.method='deterministisk-normalisering:dato-markoer-v2') AS versioner,
+         WHERE q.source_id=:'source_id'::bigint AND q.method='deterministisk-normalisering:dato-markoer-v2') AS alle_v2,
+       (SELECT count(*) FROM private.interpretation q
+         WHERE q.source_id=:'source_id'::bigint AND q.method='deterministisk-normalisering:dato-markoer-v2'
+           AND q.status='proposed') AS versioner,
        (SELECT count(*) FROM private.interpretation_current ic
-         WHERE ic.source_id=:source_id AND ic.method='deterministisk-normalisering:dato-markoer-v2'
+         WHERE ic.source_id=:'source_id'::bigint AND ic.method='deterministisk-normalisering:dato-markoer-v2'
            AND ic.status='accepted') AS accepteret \gset m_
 
 SELECT count(*) FILTER (WHERE f.faktatype='fødsel') AS foedsel,
        count(*) FILTER (WHERE f.faktatype='død') AS doed
   FROM public.public_person_facts(ARRAY(SELECT id FROM public.person)) f
- WHERE f.source_id=:source_id AND f.record_label IS NOT NULL \gset m_
+ WHERE f.source_id=:'source_id'::bigint AND f.record_label IS NOT NULL \gset m_
 
 SELECT CASE WHEN NOT :'ddl'::boolean THEN 'foer'
-            WHEN :m_versioner=0 THEN 'ddl'
+            WHEN :m_alle_v2=0 THEN 'ddl'
             WHEN :m_accepteret=0 THEN 'n'
             ELSE 'k' END AS tilstand \gset m_
 
-SELECT format('DATO_MAAL tilstand=%s versioner_v2=%s match=%s real_diff=%s skrivemaade=%s accepteret_v2=%s bundet_v2=%s '
+SELECT format('DATO_MAAL tilstand=%s versioner_v2=%s match=%s real_diff=%s skrivemaade=%s no_fact=%s accepteret_v2=%s bundet_v2=%s '
               'post_foedsel=%s post_doed=%s alle_bindinger=%s alle_bindinger_hash=%s',
-              :'m_tilstand',:'m_versioner',:'m_match',:'m_real_diff',:'m_skrivemaade',:'m_accepteret',:'m_bundet',
+              :'m_tilstand',:'m_versioner',:'m_match',:'m_real_diff',:'m_skrivemaade',:'m_no_fact',:'m_accepteret',:'m_bundet',
               :'m_foedsel',:'m_doed',:'m_alle',:'m_hash');
 \if :{?liste} \else \set liste '' \endif
 SELECT :'liste'='1' AS har_liste \gset

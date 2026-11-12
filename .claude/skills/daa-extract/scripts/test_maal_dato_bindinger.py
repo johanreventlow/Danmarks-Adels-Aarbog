@@ -35,7 +35,7 @@ V2 = "deterministisk-normalisering:dato-markoer-v2"
 P = {n: -7390 - n for n in (1, 5, 7, 9, 10, 11)}
 A = {"p1": -79001, "p5": -79006, "p7": -79008, "p9": -79010, "p10": -79011, "o8": -79020}
 
-LINE = re.compile(r"DATO_MAAL tilstand=(foer|ddl|n|k) versioner_v2=(\d+) match=(\d+) real_diff=(\d+) skrivemaade=(\d+) "
+LINE = re.compile(r"DATO_MAAL tilstand=(foer|ddl|n|k) versioner_v2=(\d+) match=(\d+) real_diff=(\d+) skrivemaade=(\d+) no_fact=(\d+) "
                   r"accepteret_v2=(\d+) bundet_v2=(\d+) post_foedsel=(\d+) post_doed=(\d+) alle_bindinger=(\d+) "
                   r"alle_bindinger_hash=([0-9a-f]{64})")
 
@@ -188,34 +188,34 @@ def test_tilstande_foer_ddl_n_k_og_hashen(db):
     # ddl: funktionen findes, ingen v2-version. Klasserne er kun birth/death: P1 MATCH, P7 REAL_DIFF, P10 SKRIVEMAADE
     # (markøren); navnet (MATCH) tælles ikke.
     ddl = _maal(db)
-    assert ddl[:10] == ("ddl", "0", "1", "1", "1", "0", "0", "0", "0", "1"), ddl
+    assert ddl[:11] == ("ddl", "0", "1", "1", "1", "0", "0", "0", "0", "0", "1"), ddl
     p5 = (A["p5"], _u(79515))
-    assert ddl[10] == _hash([p5]) and foer[10] == ddl[10]
+    assert ddl[11] == _hash([p5]) and foer[11] == ddl[11]
     # n: P10's død normaliseres med v2 (version 2) og bliver MATCH; ingen er accepteret
     _sql(db, _interp(_u(79420), _u(79510), 2, SRC, _u(79110), "person.death", "10. maj 1770", RUN_S,
                      method=V2, supersedes=_u(79410)))
     n = _maal(db)
-    assert n[:10] == ("n", "1", "2", "1", "0", "0", "0", "0", "0", "1"), n
-    # k: afgørelsen kopierer method (versioner_v2 tæller alle rækker: nu to); den er accepteret, men endnu ikke bundet
+    assert n[:11] == ("n", "1", "2", "1", "0", "0", "0", "0", "0", "0", "1"), n
+    # k: afgørelsen kopierer method; versioner_v2 (kun proposed) er uændret 1; den er accepteret, men endnu ikke bundet
     _sql(db, _interp(_u(79430), _u(79510), 3, SRC, _u(79110), "person.death", "10. maj 1770", RUN_S, status="accepted",
                      method=V2, supersedes=_u(79420)))
     k = _maal(db)
-    assert k[:10] == ("k", "2", "1", "1", "0", "1", "0", "0", "0", "1"), k
-    assert k[10] == ddl[10]
+    assert k[:11] == ("k", "1", "1", "1", "0", "0", "1", "0", "0", "0", "1"), k
+    assert k[11] == ddl[11]
     # bundet: en ny gyldig binding giver bundet_v2=1, alle_bindinger=2 og en ny hash
     _sql(db, _promo(_u(79630), _u(79430), "person-death-v1", A["p10"]))
     b = _maal(db)
-    assert b[:10] == ("k", "2", "1", "1", "0", "1", "1", "0", "0", "2"), b
-    assert b[10] == _hash([p5, (A["p10"], _u(79510))]) and b[10] != k[10]
+    assert b[:11] == ("k", "1", "1", "1", "0", "0", "1", "1", "0", "0", "2"), b
+    assert b[11] == _hash([p5, (A["p10"], _u(79510))]) and b[11] != k[11]
     # den anden kildes bindinger tæller ikke i kildens bundet_v2, men indgår i alle_bindinger
     o = _maal(db, OTHER)
     assert o[0] == "ddl" and o[1] == "0", o
-    assert o[6] == "0" and o[9] == "2" and o[10] == b[10]
+    assert o[7] == "0" and o[10] == "2" and o[11] == b[11]
     # en binding, der bliver ugyldig (værdien matcher ikke længere), falder ud af tal og hash
     _sql(db, f"UPDATE public.assertion SET date_raw='11. maj 1770' WHERE id={A['p10']};")
     try:
         u = _maal(db)
-        assert u[6] == "0" and u[9] == "1" and u[10] == ddl[10], u
+        assert u[7] == "0" and u[10] == "1" and u[11] == ddl[11], u
         # lig funktionen: den siger også ugyldig
         assert _must(_psql("-c", f"SELECT private.assertion_binding_current('{_u(79630)}')", db=db), "fn").strip() == "f"
     finally:
@@ -230,7 +230,7 @@ def test_hashen_er_uaendret_naar_den_anden_kildes_data_aendres_uden_bindinger(db
          + _fact(P[11], A["o8"], "fødsel", "9. maj 1767", OTHER)
          + _interp(_u(79408), _u(79508), 1, OTHER, _u(79208), "person.birth", "9. maj 1767", RUN_O))
     after = _maal(db)
-    assert after[9:] == before[9:]
+    assert after[10:] == before[10:]
     assert after[2] == before[2]  # kildens egne klassetal er uroerte
     o = _maal(db, OTHER)
     assert o[2] == "1"  # den anden kildes nye forslag er MATCH for den kilde
@@ -245,9 +245,9 @@ def test_post_taeller_kun_raekker_med_record_label(db):
                         row(P[10], "død", SRC, "r3"), row(P[10], "død", SRC, None),
                         row(P[5], "fødsel", OTHER, "r4"), row(P[5], "navn", SRC, "r5")]))
     m = _maal(db)
-    assert (m[7], m[8]) == ("2", "1"), m
+    assert (m[8], m[9]) == ("2", "1"), m
     o = _maal(db, OTHER)
-    assert (o[7], o[8]) == ("1", "0"), o
+    assert (o[8], o[9]) == ("1", "0"), o
     out = _must(_psql("-v", f"source_id={SRC}", "-f", str(MAAL), db=db), "maal")
     assert "r1" not in out and "marts" not in out
 
@@ -335,7 +335,7 @@ def test_maengdereglen_giver_samme_antal_og_hash_som_funktionen_pr_promotion(db)
         assert r == ("t" if gyldig else "f"), n
     antal, hsh = _must(_psql("-c", PARITET, db=db), "paritet").strip().split("|")
     m = _maal(db)
-    assert (m[9], m[10]) == (antal, hsh)
+    assert (m[10], m[11]) == (antal, hsh)
     assert int(antal) >= 2 + sum(1 for *_, g in GRENE if g)
 
 
@@ -349,8 +349,8 @@ def test_liste_giver_de_linjer_hashen_er_taget_over(db):
     g = LINE.fullmatch(ud[0])
     assert g
     linjer = ud[1:]
-    assert len(linjer) == int(g.group(10))
-    assert hashlib.sha256("\n".join(linjer).encode()).hexdigest() == g.group(11)
+    assert len(linjer) == int(g.group(11))
+    assert hashlib.sha256("\n".join(linjer).encode()).hexdigest() == g.group(12)
     assert all(re.fullmatch(r"-?\d+:[0-9a-f-]{36}", x) for x in linjer)
     # uden liste er outputtet præcis én linje
     assert "\n" not in _must(_psql("-v", f"source_id={SRC}", "-f", str(MAAL), db=db), "maal").strip()
@@ -367,4 +367,16 @@ def test_v2_version_afloest_af_ikke_v2_giver_ikke_ddl(db):
     _sql(db, _interp(_u(79702), _u(79801), 2, kilde, _u(79300), "person.birth", "1. jan 1800", run, status="rejected",
                      method="fixture", supersedes=_u(79701)))
     m = _maal(db, kilde)
-    assert m[0] == "n" and m[1] == "1" and m[5] == "0", m
+    assert m[0] == "n" and m[1] == "1" and m[6] == "0", m
+
+
+def test_no_fact_taelles_kun_for_birth_og_death(db):
+    foer = _maal(db)
+    assert foer[5] == "0", foer
+    pers, persona = -7450, _u(79350)
+    _sql(db, f"INSERT INTO public.person(id,levende,privat,status) VALUES ({pers},false,false,'t3');\n"
+             + _persona(persona, SRC, RUN_S, "t3:nf", pers)
+             + _interp(_u(79450), _u(79550), 1, SRC, persona, "person.birth", "1. jan 1700", RUN_S)
+             + _interp(_u(79451), _u(79551), 1, SRC, persona, "person.name", "Ingen", RUN_S))
+    efter = _maal(db)
+    assert efter[5] == "1" and efter[2] == foer[2] and efter[3] == foer[3] and efter[4] == foer[4], (foer, efter)

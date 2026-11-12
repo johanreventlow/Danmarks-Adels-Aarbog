@@ -289,6 +289,7 @@ def test_kontrakten_kalder_red_normaliser_forslag_og_listen_toemmes(db):
 #   22 SRC2 death '† 1770'         kandidat i begge regler
 #   23 SRC2 death '* og † 1756'   hverken v1 eller v2 aendrer den
 #   24 SRC2 birth 'f. 1701'        kandidat i begge regler
+#   25 SRC2 birth '* og † 1756'   (foedt og doed samme aar) hverken v1 eller v2 aendrer den
 SRC2 = -6397
 RUN_2 = "12000000-0000-0000-0000-000000069011"
 _OBS_2 = _u(69714)
@@ -315,6 +316,7 @@ def _setup2() -> str:
         + _interp(22, SRC2, _u(69111), "person.death", _s("† 1770"), RUN_2)
         + _interp(23, SRC2, _u(69111), "person.death", _s("* og † 1756"), RUN_2)
         + _interp(24, SRC2, _u(69111), "person.birth", _s("f. 1701"), RUN_2)
+        + _interp(25, SRC2, _u(69111), "person.birth", _s("* og † 1756"), RUN_2)
         + "INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) "
         f"SELECT id,'{_OBS_2}','supporting',1 FROM private.interpretation WHERE source_id={SRC2};\n"
     )
@@ -337,6 +339,22 @@ def test_regel_v2_og_v1_paa_fixturekilden(db):
     assert {i for i, _ in e1} == {_u(69422), _u(69424)} and n1 == 2 and sha1 == _sha(e1)
     # standard uden -v regel = v1, byte for byte
     assert _liste2(db, None) == (n1, sha1, e1)
+
+
+def test_v1_listen_kraever_ikke_v2_funktionen(db):
+    med = (_liste2(db, None), _liste2(db, "dato-markoer-v1"))
+    assert med[0] == med[1] and med[0][0] == 2
+    _must(_psql("-c", "ALTER FUNCTION private.normaliser_dato_markoer_v2(text,text) RENAME TO normaliser_dato_markoer_v2_skjult",
+                db=db), "skjul v2")
+    try:
+        uden = (_liste2(db, None), _liste2(db, "dato-markoer-v1"))
+        # v2 kan ikke laves uden funktionen, men v1 skal ikke naevne den
+        p = _psql("-v", f"source_id={SRC2}", "-v", "regel=dato-markoer-v2", "-f", str(KANDIDATER), db=db)
+        assert p.returncode != 0 and "normaliser_dato_markoer_v2" in p.stderr
+    finally:
+        _must(_psql("-c", "ALTER FUNCTION private.normaliser_dato_markoer_v2_skjult(text,text) RENAME TO normaliser_dato_markoer_v2",
+                    db=db), "gendan v2")
+    assert uden == med
 
 
 def test_regel_v1_standard_er_uaendret_paa_gamle_fixtures(db):
