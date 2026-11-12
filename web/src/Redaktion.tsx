@@ -545,24 +545,58 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
     }).catch(() => { setNarrativer([]); setAktivSourceId(1); setNarrativUdkast({ tekst: '', privat: false, side: '' }); });
   }, []);
 
+  // Request-generation: øges ved hvert loadPerson-kald. Hver .then/.catch nedenfor sætter kun state,
+  // hvis generationen stadig er den aktuelle — ellers kan et sent svar for person A (valgt før B,
+  // men svaret lander sidst) overskrive B's visning, og en forældet fejl ville ligne en aktuel.
+  const personGenRef = useRef(0);
+  // model lander typisk EFTER personlisten. loadPerson læser den via en ref i stedet for at have
+  // den som dependency — ellers genskabes callbacken, effekten nedenfor kører igen, og hele
+  // person-pakken hentes om og igangværende redigering nulstilles. Ref frem for at flytte
+  // navneopslaget til rendering, fordi fetchPersonFamilie bruger model inde i selve mappingen.
+  const modelRef = useRef<Model | null>(model);
+  modelRef.current = model;
+  // Hvilken model familie sidst blev mappet med (null = navne mangler endnu, vises som '#id').
+  const familieModelRef = useRef<Model | null>(null);
+
   const loadPerson = useCallback((id: string, opts?: { skipMedia?: boolean }) => {
     storySaveGuardRef.current.invalidate();
+    const gen = ++personGenRef.current;
+    const aktuel = () => gen === personGenRef.current;
+    const meld = (e: unknown) => { if (aktuel()) setLoadErr(oversaetFejl(String((e as Error)?.message ?? e))); };
     setEvidence(null); setHaendelser([]); setStories([]); setStoryEditor(null); setHaendelseNotice(''); setFamilie(null); setRelationer(null); setEditingAssert(null); setAddingFact(null); setAddingNyFelt(null); setBekraeft(null);
-    fetchPersonEvidence(id).then(setEvidence).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
-    fetchHaendelserForPerson(id).then(setHaendelser).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
-    fetchStoriesForPerson(id).then(setStories).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
+    fetchPersonEvidence(id).then((v) => { if (aktuel()) setEvidence(v); }).catch(meld);
+    fetchHaendelserForPerson(id).then((v) => { if (aktuel()) setHaendelser(v); }).catch(meld);
+    fetchStoriesForPerson(id).then((v) => { if (aktuel()) setStories(v); }).catch(meld);
     // Person/DAA-narrativer læses kun af den record-bundne editor. Den generiske
     // source-nøglede læser er fortsat kun til slægt/linje-editoren nedenfor.
     setNarrativer([]); setAktivSourceId(null); setNyUdgave(null);
     setNarrativUdkast({ tekst: '', privat: false, side: '' });
-    fetchPersonFamilie(id, model).then(setFamilie).catch(() => setFamilie({ somPartner: [], somBarn: [] }));
-    fetchPersonRelationer(id).then(setRelationer).catch(() => setRelationer([]));
-    fetchSammeSomLinks(id).then(setSammeSom).catch(() => setSammeSom([]));
+    // Fejl meldes via loadErr (tidligere blev de til tom state og lignede "ingen data"); tom state bevares.
+    familieModelRef.current = modelRef.current;
+    fetchPersonFamilie(id, modelRef.current).then((v) => { if (aktuel()) setFamilie(v); })
+      .catch((e) => { if (aktuel()) setFamilie({ somPartner: [], somBarn: [] }); meld(e); });
+    fetchPersonRelationer(id).then((v) => { if (aktuel()) setRelationer(v); })
+      .catch((e) => { if (aktuel()) setRelationer([]); meld(e); });
+    fetchSammeSomLinks(id).then((v) => { if (aktuel()) setSammeSom(v); })
+      .catch((e) => { if (aktuel()) setSammeSom([]); meld(e); });
     if (!opts?.skipMedia) {
       setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
-      fetchRedPersonMedia(id).then(setMedia).catch(() => setMedia([]));
+      fetchRedPersonMedia(id).then((v) => { if (aktuel()) setMedia(v); })
+        .catch((e) => { if (aktuel()) setMedia([]); meld(e); });
     }
-  }, [model]);
+  }, []);
+
+  // Når model lander efter personen: kun familie-navnene (mappet med model) genhentes — ingen
+  // nulstilling af redigeringstilstand. Samme generation som det igangværende loadPerson, så et
+  // nyere personskift kasserer svaret.
+  useEffect(() => {
+    if (!model || entity !== 'person' || !recordId || familieModelRef.current !== null) return;
+    const gen = personGenRef.current;
+    familieModelRef.current = model;
+    fetchPersonFamilie(recordId, model)
+      .then((v) => { if (gen === personGenRef.current) setFamilie(v); })
+      .catch((e) => { if (gen === personGenRef.current) setLoadErr(oversaetFejl(String((e as Error)?.message ?? e))); });
+  }, [model, entity, recordId]);
 
   // Skift aktiv udgave-fane; nulstil udkast fra den fanes gemte narrativ (ugemte edits kasseres,
   // som ved record-skift). sourceId==null når en ny udgave er valgt men endnu ikke gemt.
