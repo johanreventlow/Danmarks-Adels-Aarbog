@@ -377,6 +377,22 @@ describe('byggUdgaveFakta', () => {
     expect(byggUdgaveFakta(inp, null)).toEqual(v);
   });
 
+  it('tomt udgaveegent alternativ sluger ikke redaktørens valg', () => {
+    const inp = fixture('tomt alternativ', input([
+      r39({ person_id: 130, fact_id: 1300, faktatype: 'begravelse', date_raw: null, vaerdi_tekst: '—', chosen: false,
+        record_ref: 'rec-130', citation_label: 'DAA 1939, s. 7' }),
+      r39({ person_id: 130, fact_id: 1300, faktatype: 'begravelse', date_raw: null, vaerdi_tekst: 'Vor Frue Kirke',
+        chosen: true, assertion_id: 13002, source_id: null, source_label: null }),
+      r18({ person_id: 131, faktatype: 'begravelse', date_raw: null, vaerdi_tekst: 'Vor Frue Kirke' }),
+    ], {
+      udgaveForPersonRaekke: { '130': '3', '131': '1' },
+      fritekstKilde: { '13002': ['(kilde mangler)'] },
+    }), ['Vor Frue Kirke@3']);
+    const v = byggUdgaveFakta(inp, '3');
+    expect(linje(v, 'begravelse').map((l) => [l.vaerdi, l.noter])).toEqual([['Vor Frue Kirke', []]]);
+    expect(v.kunI).toEqual([{ udgave: D18, faktatype: 'begravelse', vaerdier: ['Vor Frue Kirke'] }]);
+  });
+
   it('tom værdi giver hverken linje, note eller kunI', () => {
     const inp = fixture('tom værdi', input([
       r18({ person_id: 120, faktatype: 'begravelse', vaerdi_tekst: '—', date_raw: null }),
@@ -426,7 +442,8 @@ describe('byggUdgaveFakta', () => {
             for (const l of egenVis.linjer) {
               const vaerdier = l.vaerdi === '' ? l.andre.map((a) => a.value) : [l.vaerdi];
               for (const v of vaerdier) {
-                if (fx.undtaget?.includes(v)) continue;
+                // undtaget: redaktørfakta o.l. (ikke udgavens ord); »værdi@sourceId« begrænser til én udgave
+                if (fx.undtaget?.includes(v) || fx.undtaget?.includes(`${v}@${anden.sourceId}`)) continue;
                 const ens = (x: string) => faktaVaerdierEns(l.faktatype, x, v);
                 const iNote = vis.linjer.some((m) => m.faktatype === l.faktatype && m.noter.some((n) =>
                   n.udgave.sourceId === anden.sourceId && (n.art === 'enig' ? ens(m.vaerdi) : n.vaerdier.some(ens))));

@@ -184,7 +184,8 @@ function fakta(input: UdgaveFaktaInput, udenUdgaver: boolean): FaktumVisning[] {
       if (erEgen(valgt, udgave, input)) art = 'egen';
       else {
         const alternativ = alle
-          .filter((p) => p !== valgt && erEgen(p, udgave, input))
+          // et tomt alternativ må ikke sluge redaktørens ikke-tomme valg → så vises valget som i dag
+          .filter((p) => p !== valgt && !erTomFaktaVaerdi(p.value) && erEgen(p, udgave, input))
           .sort((a, b) => Number(b.bundet) - Number(a.bundet) || Number(a.assertionId) - Number(b.assertionId)
             || (a.assertionId < b.assertionId ? -1 : a.assertionId > b.assertionId ? 1 : 0))[0];
         if (alternativ) {
