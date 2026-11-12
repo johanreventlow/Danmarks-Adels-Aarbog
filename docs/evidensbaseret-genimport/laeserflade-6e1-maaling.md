@@ -8,19 +8,21 @@ Spec: `docs/superpowers/specs/2026-11-12-trin6e-laeserflade-design.md` §5.1-5.5
   `PGDATABASE=daa5ab_ddl_standin_20261111191901_slut npx tsx tools/maal-6e1/maal.ts --ark <scratchpad>/6e1-stikproeve.html`
   (≈10 s; heraf ≈9,3 s psql og RPC'er, ≈0,2 s core).
 - **Metode:** den rigtige core-kode (`collapseSameAs`, `udgaverMedFakta`, `byggUdgaveFakta`, `byggUdgaveVaelger`)
-  på data hentet som klienten gør: offentlige personrækker efter anon-reglen (`levende = false` og ikke `privat`),
-  afklarede `samme_som`-kanter, `public_person_source_coordinates()`, `public_person_facts(...)`,
+  på data hentet som anon-læseren ser dem: personrækker efter `person_offentlig` (`db-rls.sql`: `levende = false`, ikke
+  `privat`, ikke `staged`), afklarede `samme_som`-kanter med begge endepunkter offentlige (relation-policyen skjuler
+  resten, så de fjernes før foldningen), `public_person_source_coordinates()`, `public_person_facts(...)`,
   `public_person_bio_source_versions_v2(...)` og `citation.citat_tekst` for valgte påstande uden `source_id`.
-  En visning pr. komponent og valgbar udgave (chipsenes udgaver og udgaver med fakta).
+  En visning pr. komponent og valgbar udgave (chipsenes udgaver og udgaver med fakta). Alle psql-kald kører med
+  `default_transaction_read_only=on`.
 
 ## Grundtal
 
 | | Antal |
 |---|---|
-| Offentlige personrækker | 1.739 (`privat = false` alene giver 1.809; 3 afklarede kanter rører en skjult række) |
-| Afklarede `samme_som`-kanter | 768 |
-| Karantænerede grupper (foldes ikke) | 12: 6 konkurrerende forældre, 3 fødsler for langt fra hinanden, 3 ufuldstændige (en skjult række) |
-| Komponenter (kanoniske personer) | 983, heraf 720 med flere medlemmer |
+| Offentlige personrækker | 1.732 (`privat = false` alene giver 1.809) |
+| Afklarede `samme_som`-kanter | 768, heraf 763 synlige for anon (5 rører en skjult række og foldes ikke) |
+| Karantænerede grupper (foldes ikke) | 9: 6 konkurrerende forældre, 3 fødsler for langt fra hinanden |
+| Komponenter (kanoniske personer) | 978, heraf 720 med flere medlemmer |
 | Komponenter med fakta i begge udgaver | 720 |
 | Personrækker med mere end én koordinatrække | 0 |
 | Fakta-rækker fra RPC'en / bio-rækker / fritekstcitater | 6.470 / 1.100 / 80 |
@@ -70,12 +72,14 @@ Titel og dekoration er flerværdi-typer: de får aldrig »skriver«, kun »✓ o
 
 ## Vælger, etiketter og tab
 
-- **Vælgerform pr. komponent:** `ingen` 263 · `chips` 459 · `skift` 261.
+- **Vælgerform pr. komponent:** `ingen` 258 · `chips` 459 · `skift` 261.
 - **Etiketter:** 7.090 synlige kildeetiketter skannet (fakta-linjernes kilder, »andre udsagn« og vælgerens chips):
   0 med `record-`, 0 med `legacy-source:`.
 - **Tabstjek:** hver ikke-tom linje i en anden udgaves visning er genfundet som »✓ også«, i en »skriver«-note eller
   under »Kun i« — undtagen 1 linje, en redaktøroprettet `overhoved`-markering uden udgavens egen kilde (vises kun i
-  sin egen udgave; afgørelse 3 i forløbet). 0 »✓ også«-noter uden et ens modstykke i den anden udgave.
+  sin egen udgave; afgørelse 3 i forløbet).
+- **Selvkonsistens:** 0 »✓ også«-noter uden en linje i den anden udgaves visning, som lighedsreglen kalder ens. Tjekket
+  bruger samme regel som noterne og er **ikke bevis for, at intet ✓ er falsk** — kun projektejerens dom over arket er.
 
 ## De 17 redaktørpåstande (spec §5.1)
 
@@ -100,8 +104,12 @@ skriver: …«, den ene er 2018-20's egen påstand i stedet for redaktørens val
 ## Stikprøve
 
 925 unikke »✓ også«-par (fødsel 320 · død 268 · navn 224 · titel 96 · dåb 12 · begravelse 5). 40 par trukket med
-fast seed `6e1` (fødsel 13 · navn 11 · død 11 · titel 5; dåb og begravelse fik ingen) og sendt til projektejeren
-som et ark med begge udgavers ord, udgave og side. Arket ligger uden for repo'et.
+fast seed `6e1` (fødsel 13 · navn 11 · død 11 · titel 5), derefter 6 tillæg i samme blandede rækkefølge, så hver type
+med ✓-par har mindst 3 (dåb 3 · begravelse 3; markeret »tillæg« i arket) — 46 par i alt, nummereret fortløbende.
+Arket viser begge udgavers ord med udgave og side, sendes til projektejeren og ligger uden for repo'et.
+
+Til projektejerens opmærksomhed: 5 af de 6 tillæg er relative datoer (»samme måned«-formen) med samme tekst i
+begge udgaver. Teksten er ens, men datoen afhænger af det faktum, den henviser til (fødsel/død), i hver udgave.
 
 **Dom:** afventer projektejeren. Et falsk par sætter typen i `SLUKKET_ENIGHED` (Task 6), indtil reglen er rettet og en
 ny stikprøve for typen er ren.

@@ -46,7 +46,7 @@ function q<T>(sql: string): T[] {
   let ud: string;
   try {
     ud = execFileSync('psql', ['-XAt', '-v', 'ON_ERROR_STOP=1', '-c', `select coalesce(json_agg(t), '[]'::json) from (${sql}) t`], {
-      env: process.env, maxBuffer: 512 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, PGOPTIONS: '-c default_transaction_read_only=on' }, maxBuffer: 512 * 1024 * 1024, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch (e) {
     throw new Error(`psql fejlede (exit ${(e as { status?: number }).status ?? '?'})`);
@@ -54,11 +54,11 @@ function q<T>(sql: string): T[] {
   return JSON.parse(ud) as T[];
 }
 
-// ---- 1. Hent (som anon ser det: offentlig = levende false og ikke privat; db-rls.sql) ----
+// ---- 1. Hent (som anon ser det: person_offentlig i db-rls.sql = levende false, ikke privat, ikke staged) ----
 let s = performance.now();
 type RawPerson = { id: number; visning_foedt: string | null; visning_doed: string | null; koen: string | null };
 const personer = q<RawPerson>(`select id, visning_foedt, visning_doed, koen from person
-  where levende = false and coalesce(privat, false) = false order by id`);
+  where levende = false and coalesce(privat, false) = false and coalesce(staged, false) = false order by id`);
 const offentlige = new Set(personer.map((p) => String(p.id)));
 const medlemmer = q<{ family_id: number; person_id: number; rolle: string | null }>(
   `select family_id, person_id, rolle from family_member order by family_id, person_id`,
@@ -84,7 +84,7 @@ const citater = valgteUdenKilde.length
 const redaktoer = q<{ assertion_id: number; person_id: number; faktatype: string; valgt: boolean; offentlig: boolean }>(`
   select a.id as assertion_id, f.subjekt_id as person_id, f.faktatype,
          coalesce(c.valgt_assertion_id = a.id, false) as valgt,
-         (p.levende = false and coalesce(p.privat, false) = false) as offentlig
+         (p.levende = false and coalesce(p.privat, false) = false and coalesce(p.staged, false) = false) as offentlig
   from fact f join assertion a on a.target_type = 'fact' and a.target_id = f.id
   left join conclusion c on c.target_type = 'fact' and c.target_id = f.id
   join person p on p.id = f.subjekt_id
@@ -101,8 +101,10 @@ const appPersons: AppPerson[] = personer.map((p) => ({
   koen: p.koen === 'mand' || p.koen === 'kvinde' ? p.koen : null,
 }));
 const { unions, parentChild } = buildFamilyGraph(medlemmer);
-const kantListe = kanter.map((k) => ({ alias: String(k.subjekt_id), canonical: String(k.objekt_id) }));
-const kanterTilSkjulte = kantListe.filter((k) => !offentlige.has(k.alias) || !offentlige.has(k.canonical)).length;
+// anon-policyen på relation (db-rls.sql) skjuler en kant, når et af endepunkterne ikke er offentligt → væk FØR foldning
+const alleKanter = kanter.map((k) => ({ alias: String(k.subjekt_id), canonical: String(k.objekt_id) }));
+const kantListe = alleKanter.filter((k) => offentlige.has(k.alias) && offentlige.has(k.canonical));
+const kanterTilSkjulte = alleKanter.length - kantListe.length;
 const collapsed = collapseSameAs({ persons: appPersons, unions, parentChild }, kantListe, new Map());
 const kanon = (id: string) => collapsed.canonicalIdById[id] ?? id;
 const komponenter = new Map<string, string[]>();
@@ -286,7 +288,13 @@ const conradSamlet = ['255', '392', '1198'].every((p) => kanon(p) === conradKomp
 const conrad2018 = conradKomp.visninger.get('1')?.vis;
 const conradLinjer = (t: string) => (conrad2018?.linjer ?? []).filter((l) => l.faktatype === t);
 const noteArt = (t: string) => conradLinjer(t).map((l) => l.noter.map((n) => `${n.art}@${n.udgave.label}`).join('+') || '(ingen note)');
-const conradNavn = conradLinjer('navn').find((l) => l.vaerdi === 'Conrad de Reventlow');
+// 392's navnefaktum: linjen skal vise 392's bundne påstand (bogens ord), ikke redaktørens valg (spec §5.2).
+const conradNavnRaekker = conradKomp.input.rows.filter((r) => String(r.person_id) === '392' && r.faktatype === 'navn');
+const conradBundet = conradNavnRaekker.find((r) => r.record_ref);
+const conradValgt = conradNavnRaekker.find((r) => r.chosen);
+const conradNavn = conradLinjer('navn').find((l) => conradBundet && l.noegle.split(':')[1].split('+').includes(String(conradBundet.fact_id)));
+const conradBundetVist = !!(conradNavn && conradBundet && conradNavn.vaerdi === factValue(conradBundet));
+const conradValgtErRedaktoer = conradValgt?.source_id == null;
 
 // ---- 8. Stikprøve: 40 enig-par, fast seed »6e1« ----
 const fnv = (str: string) => { let h = 0x811c9dc5; for (const c of str) { h ^= c.codePointAt(0)!; h = Math.imul(h, 0x01000193); } return h >>> 0; };
@@ -303,7 +311,16 @@ for (let i = blandet.length - 1; i > 0; i--) {
   const j = Math.floor(rnd() * (i + 1));
   [blandet[i], blandet[j]] = [blandet[j], blandet[i]];
 }
-const stik = blandet.slice(0, 40);
+// 40 tilfældige par; derefter tillæg i samme blandede rækkefølge, til hver type med ✓-par har mindst 3 (alle, hvis færre).
+const stik: (Par & { tillaeg: boolean })[] = blandet.slice(0, 40).map((p) => ({ ...p, tillaeg: false }));
+for (const t of [...new Set(alleParr.map((p) => p.faktatype))].sort()) {
+  const mål = Math.min(3, alleParr.filter((p) => p.faktatype === t).length);
+  for (const p of blandet.slice(40)) {
+    if (stik.filter((x) => x.faktatype === t).length >= mål) break;
+    if (p.faktatype === t) stik.push({ ...p, tillaeg: true });
+  }
+}
+const antalTillaeg = stik.filter((p) => p.tillaeg).length;
 const esc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const side = (x: Side) => `<b>${esc(x.vaerdi)}</b><br><small>${esc(x.udgave)} · ${esc(x.kilder.join('; '))}</small>`;
 const html = `<!doctype html>
@@ -316,11 +333,11 @@ th{background:#f3f3f3}small{color:#555}</style></head><body>
 <p>Læserfladen viser fakta fra én udgave ad gangen. Når den anden udgave siger det samme, står der
 <b>»✓ også i DAA 1939«</b> (eller »✓ også i DAA 2018-20«) ved oplysningen. Et ✓ betyder altså: <i>de to bøger siger det
 samme</i>. Står der et ✓, hvor bøgerne i virkeligheden siger noget forskelligt, er det et falsk ✓.</p>
-<p>Herunder er ${stik.length} tilfældige par (af ${alleParr.length}), hvor læserfladen sætter ✓. Hver række viser begge
+<p>Herunder er ${stik.length} par (af ${alleParr.length}), hvor læserfladen sætter ✓: 40 tilfældige og ${antalTillaeg} tillæg (markeret »tillæg«), så hver faktatype har mindst 3 par. Hver række viser begge
 bøgers ord med udgave og side. <b>Markér de numre, der er falske</b> — ét falsk par slår ✓ fra for den faktatype,
 indtil reglen er rettet.</p>
 <table><thead><tr><th>Nr</th><th>Person (id)</th><th>Faktatype</th><th>Udgave 1</th><th>Udgave 2</th></tr></thead><tbody>
-${stik.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.komp)}</td><td>${esc(p.faktatype)}</td><td>${side(p.a)}</td><td>${side(p.b)}</td></tr>`).join('\n')}
+${stik.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.komp)}</td><td>${esc(p.faktatype)}${p.tillaeg ? '<br><small>tillæg</small>' : ''}</td><td>${side(p.a)}</td><td>${side(p.b)}</td></tr>`).join('\n')}
 </tbody></table>
 <p><small>Seed »6e1«; stand-in ${esc(process.env.PGDATABASE ?? '')}.</small></p>
 </body></html>
@@ -330,7 +347,7 @@ writeFileSync(arkAbs, html, 'utf8');
 // ---- 9. Stdout: kun tal og id'er ----
 const ln = (...x: unknown[]) => console.log(...x);
 ln(`# 6e-1 måling — stand-in ${process.env.PGDATABASE}`);
-ln(`offentlige personrækker (anon-regel): ${personer.length}; afklarede samme_som-kanter: ${kantListe.length} (heraf til skjulte rækker: ${kanterTilSkjulte}); karantæne: ${collapsed.quarantined.length}`);
+ln(`offentlige personrækker (anon-regel): ${personer.length}; afklarede samme_som-kanter: ${alleKanter.length}, anon ser ${kantListe.length} (${kanterTilSkjulte} rører en skjult række og foldes ikke); karantæne: ${collapsed.quarantined.length}`);
 const aarsager = new Map<string, number>();
 for (const qn of collapsed.quarantined) aarsager.set(qn.reason.replace(/\(.*\)/, '(…)'), (aarsager.get(qn.reason.replace(/\(.*\)/, '(…)')) ?? 0) + 1);
 ln(`karantæne-årsager: ${[...aarsager].map(([a, n]) => `${a} ${n}`).join(' · ') || '-'}`);
@@ -357,18 +374,18 @@ for (const kl of ['udgavens egen', 'bøgernes ord vist', 'som i dag', 'ingen lin
 }
 ln('\n## Conrad (255, 392, 1198)');
 ln(`samme komponent: ${conradSamlet ? 'ja' : 'NEJ'} (kanonisk ${conradKomp.id}); udgaver med fakta: ${conradKomp.medFakta.map((x) => udgaveLabel.get(x)).join(', ')}`);
-ln(`2018-20 navn-linjer: ${conradLinjer('navn').length}; »Conrad de Reventlow« vist: ${conradNavn ? 'ja' : 'NEJ'}; noter: ${conradNavn ? conradNavn.noter.map((n) => `${n.art}@${n.udgave.label}`).join('+') : '-'}`);
+ln(`2018-20 navn-linjer: ${conradLinjer('navn').length}; 392's bundne navnepåstand vist (ikke redaktørens valg; valgt er redaktørens: ${conradValgtErRedaktoer ? 'ja' : 'nej'}): ${conradBundetVist ? 'ja' : 'NEJ'}; noter: ${conradNavn ? conradNavn.noter.map((n) => `${n.art}@${n.udgave.label}`).join('+') : '-'}`);
 for (const t of ['navn', 'fødsel', 'død', 'titel', 'adling', 'begravelse']) ln(`2018-20 ${t}: ${noteArt(t).join(' | ') || '(ingen linje)'}`);
 ln(`kunI i 2018-20-visningen: ${(conrad2018?.kunI ?? []).map((x) => `${x.faktatype}(${x.vaerdier.length})`).join(', ') || '(ingen)'}`);
 ln(`\n## Tabstjek: linjer i en anden udgave uden ✓/skriver/kunI: ${tab.length} (redaktør alene: ${tab.filter((x) => x.redaktoerAlene).length}; øvrige: ${tab.filter((x) => !x.redaktoerAlene).length})`);
 for (const x of tab) ln(`  komp ${x.komp} ${x.faktatype} (valgt ${x.valgt}, mangler fra ${x.anden})${x.redaktoerAlene ? ' [redaktør alene]' : ''}`);
 ln(`linjer uden vist værdi (omstridt/tomt valg) i andre udgaver, ikke tjekket: ${udenVaerdiLinjer}`);
-ln(`✓-noter uden modpart i den anden udgave: ${enigUdenModpart.length}${enigUdenModpart.length ? ` (${enigUdenModpart.join(', ')})` : ''}`);
+ln(`selvkonsistens (IKKE bevis for at intet ✓ er falsk — kun projektejerens dom over arket er): ✓-noter uden ens linje i den anden udgaves visning: ${enigUdenModpart.length}${enigUdenModpart.length ? ` (${enigUdenModpart.join(', ')})` : ''}`);
 const stikType = new Map<string, number>();
 for (const p of stik) stikType.set(p.faktatype, (stikType.get(p.faktatype) ?? 0) + 1);
 const parType = new Map<string, number>();
 for (const p of alleParr) parType.set(p.faktatype, (parType.get(p.faktatype) ?? 0) + 1);
-ln(`\n## Stikprøve: ${stik.length} af ${alleParr.length} unikke ✓-par (seed »6e1«) → ${arkAbs}`);
+ln(`\n## Stikprøve: ${stik.length} af ${alleParr.length} unikke ✓-par (seed »6e1«; 40 tilfældige + ${antalTillaeg} tillæg) → ${arkAbs}`);
 ln(`par pr. type: ${[...parType].map(([t, n]) => `${t} ${n}`).join(' · ')}`);
-ln(`i stikprøven: ${[...stikType].map(([t, n]) => `${t} ${n}`).join(' · ')}`);
+ln(`i stikprøven: ${[...stikType].map(([t, n]) => `${t} ${n}`).join(' · ')}; heraf tillæg: ${[...new Set(stik.filter((p) => p.tillaeg).map((p) => p.faktatype))].map((t) => `${t} ${stik.filter((p) => p.tillaeg && p.faktatype === t).length}`).join(' · ') || '-'}`);
 ln(`\n## Tider (ms): ${tider.map(([n, ms]) => `${n} ${ms}`).join(' · ')} · i alt ${Math.round(performance.now() - t0)}`);
