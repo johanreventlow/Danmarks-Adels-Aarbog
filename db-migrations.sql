@@ -35067,3 +35067,96 @@ BEGIN
   END IF;
 END $$;
 REVOKE ALL ON FUNCTION private.verify_relation_persona_receipts(uuid) FROM PUBLIC,anon,authenticated;
+
+-- ===== dato-markoer-v2: markør pr. prædikat =====
+-- dato-markoer-v2 (spec 2026-11-12 §4.1): markøren afhænger af prædikatet. På person.birth fjernes én indledende `f.`
+-- eller `*` (dog ikke når resten begynder med »og«: `* og † 1756` er født og død samme år og står uændret); på
+-- person.death fjernes én indledende `†`. Andre prædikater (og NULL) giver NULL. v1 er uændret og låst.
+-- Blanktegn samles med saml_blanktegn_v1 først, så markøren efterfølges af højst ét ASCII-mellemrum.
+CREATE OR REPLACE FUNCTION private.normaliser_dato_markoer_v2(p_value text, p_predicate text)
+RETURNS text LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+  SELECT btrim(regexp_replace(private.saml_blanktegn_v1(p_value),
+           CASE p_predicate WHEN 'person.birth' THEN '^(f\.|\*)(?! ?og\M) ?' WHEN 'person.death' THEN '^\u2020 ?' END,''),' ') $$;
+REVOKE ALL ON FUNCTION private.normaliser_dato_markoer_v2(text,text) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION red_normaliser_forslag(
+  p_interpretation_id uuid,
+  p_expected_version integer,
+  p_regel text
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_current private.interpretation%ROWTYPE;
+  v_actor uuid := auth.uid();
+  v_run uuid;
+  v_old text;
+  v_new text;
+  v_new_id uuid := gen_random_uuid();
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
+  END IF;
+  IF p_regel IS NULL OR p_regel NOT IN ('dato-markoer-v1','dato-markoer-v2') THEN
+    RAISE EXCEPTION 'NORMALISERING_REGEL_UKENDT';
+  END IF;
+  IF p_expected_version IS NULL OR p_expected_version<1 THEN
+    RAISE EXCEPTION 'EVIDENCE_EXPECTED_VERSION_REQUIRED';
+  END IF;
+  SELECT * INTO v_current FROM private.interpretation
+   WHERE id=p_interpretation_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_NOT_FOUND'; END IF;
+  IF v_current.status<>'proposed' THEN
+    RAISE EXCEPTION 'NORMALISERING_IKKE_PROPOSED';
+  END IF;
+  IF v_current.version<>p_expected_version OR EXISTS (
+    SELECT 1 FROM private.interpretation newer
+     WHERE newer.interpretation_key=v_current.interpretation_key
+       AND newer.version>v_current.version
+  ) THEN
+    RAISE EXCEPTION 'NORMALISERING_VERSION_KONFLIKT';
+  END IF;
+  IF v_current.predicate NOT IN ('person.birth','person.death')
+     OR jsonb_typeof(v_current.value)<>'string' THEN
+    RAISE EXCEPTION 'NORMALISERING_PRAEDIKAT_UGYLDIG';
+  END IF;
+  -- Ét extraction_run pr. ceremoni; den skal findes for forslagets kilde.
+  v_run := nullif(btrim(current_setting('daa.extraction_run_id',true)),'')::uuid;
+  IF v_run IS NULL OR NOT EXISTS (
+    SELECT 1 FROM private.extraction_run r
+     WHERE r.id=v_run AND r.source_id=v_current.source_id
+  ) THEN
+    RAISE EXCEPTION 'NORMALISERING_KOERSEL_MANGLER';
+  END IF;
+  v_old := v_current.value #>> '{}';
+  v_new := CASE p_regel WHEN 'dato-markoer-v1' THEN private.normaliser_dato_markoer_v1(v_old)
+                        ELSE private.normaliser_dato_markoer_v2(v_old,v_current.predicate) END;
+  IF v_new IS NOT DISTINCT FROM v_old THEN
+    RAISE EXCEPTION 'NORMALISERING_UAENDRET';
+  END IF;
+  IF v_new='' THEN
+    RAISE EXCEPTION 'NORMALISERING_VAERDI_TOM';
+  END IF;
+
+  INSERT INTO private.interpretation(
+    id,interpretation_key,version,source_id,source_persona_id,
+    interpretation_kind,predicate,value,schema_version,derivation_kind,
+    confidence,status,method,model_version,prompt_version,extraction_run_id,
+    supersedes_id
+  ) VALUES (
+    v_new_id,v_current.interpretation_key,v_current.version+1,v_current.source_id,
+    v_current.source_persona_id,v_current.interpretation_kind,v_current.predicate,
+    to_jsonb(v_new),v_current.schema_version,'deterministic',
+    v_current.confidence,'proposed','deterministisk-normalisering:'||p_regel,
+    v_current.model_version,v_current.prompt_version,v_run,v_current.id
+  );
+  INSERT INTO private.interpretation_observation(
+    interpretation_id,observation_id,evidence_role,ordinal
+  )
+  SELECT v_new_id,observation_id,evidence_role,ordinal
+    FROM private.interpretation_observation
+   WHERE interpretation_id=v_current.id;
+  RETURN jsonb_build_object('interpretation_id',v_new_id,'version',v_current.version+1,
+    'foer',v_old,'efter',v_new,'regel',p_regel);
+END $$;
+REVOKE ALL ON FUNCTION red_normaliser_forslag(uuid,integer,text) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_normaliser_forslag(uuid,integer,text) TO authenticated;
