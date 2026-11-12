@@ -13,12 +13,15 @@ const BASE = process.env.BASE_URL ?? 'http://localhost:5173';
 const OUT = path.join(ROOT, 'tmp/designtour/shots');
 fs.mkdirSync(OUT, { recursive: true });
 
-// Trin: path, role (null|'medlem'|'redaktion'), w/h, actions: click|css|fill|key|scroll.
+// Trin: path, role (null|'medlem'|'redaktion'), fail (databasen svarer 500), w/h, actions: click|css|fill|key|scroll.
 const STEPS = [
   { out: 'a-home', path: '/', full: true },
   { out: 'a-person', path: '/person/118' },
   { out: 'a-tree-kolonner', path: '/stamtrae', actions: [{ click: 'Kolonner', exact: true }] },
   { out: 'a-search', path: '/stamtrae', actions: [{ click: 'Søg', exact: true }, { key: 'r' }, { key: 'e' }, { key: 'v' }] },
+  { out: 'a-search-tom', path: '/stamtrae', actions: [{ fill: ['input', 'Reventlov'] }] },
+  { out: 'a-monogram', path: '/person/421' },
+  { out: 'a-fejl', path: '/', fail: true },
   { out: 'a-relate', path: '/relate', actions: [{ fill: ['input', 'Otto Reventlow'] }, { click: 'Otto Reventlow', exact: true }, { fill: ['input', 'Magdalena'] }, { click: 'Magdalena Sophia Reventlow' }] },
   { out: 'a-estates', path: '/estates' },
   { out: 'a-arms', path: '/arms' },
@@ -27,6 +30,7 @@ const STEPS = [
   { out: 'a-login', path: '/', actions: [{ click: 'Log ind', exact: true }] },
   { out: 'b-member-home', path: '/', role: 'medlem' },
   { out: 'b-member-bookmarks', path: '/bookmarks', role: 'medlem' },
+  { out: 'b-member-praesens', path: '/praesens', role: 'medlem' },
   { out: 'c-red-anon', path: '/redaktion' },
   { out: 'c-red-redaktion', path: '/redaktion', role: 'redaktion' },
   { out: 'd-mobile-home', path: '/', w: 390, h: 844 },
@@ -36,7 +40,7 @@ const STEPS = [
 const filter = process.argv[2];
 const browser = await chromium.launch();
 for (const s of STEPS.filter((x) => !filter || x.out.includes(filter))) {
-  state.role = s.role ?? null; log.length = 0;
+  state.role = s.role ?? null; state.fail = !!s.fail; log.length = 0;
   const ctx = await browser.newContext({ viewport: { width: s.w ?? 1440, height: s.h ?? 900 } });
   const pg = await ctx.newPage();
   const errs = [];

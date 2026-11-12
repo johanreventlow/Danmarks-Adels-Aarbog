@@ -6,7 +6,7 @@ const FIX = JSON.parse(fs.readFileSync(process.env.FIXTURE, 'utf8'));
 const DB = { ...FIX, profiles: [], bookmark: [], slaegt: [{ id: 1, navn: 'Reventlow' }], vocab: [], media: [], media_variant: [],
   haendelse: [], story: [], story_kilde: [], feed_pin: [], note: [], person_external_id: [], lineage_scheme: [], lineage_scheme_entry: [],
   lineage_scheme_entry_lineage: [], red_foraeldre_konflikt: [], historical_event: [], repository: [], suggestion: [] };
-export const state = { role: null, userId: '00000000-0000-4000-8000-000000000001', email: 'test@example.test' };
+export const state = { role: null, fail: false, userId: '00000000-0000-4000-8000-000000000001', email: 'test@example.test' };
 
 function splitTop(s) { const out = []; let d = 0, cur = ''; for (const c of s) { if (c === '(') d++; if (c === ')') d--; if (c === ',' && !d) { out.push(cur); cur = ''; } else cur += c; } if (cur) out.push(cur); return out.map((x) => x.trim()).filter(Boolean); }
 function parseSelect(s) {
@@ -79,6 +79,7 @@ export async function handle(route) {
     const fn = RPC[name]; if (!fn) log.push('rpc uden stub: ' + name); return json(route, 200, fn ? fn(req.postDataJSON?.() || {}) : []);
   }
   if (!p.startsWith('/rest/v1/')) return route.fulfill({ status: 404, body: '' });
+  if (state.fail) return json(route, 500, { message: 'upstream connect error (designtour: simuleret dvale)' });
   const table = p.slice('/rest/v1/'.length);
   if (req.method() !== 'GET' && req.method() !== 'HEAD') { log.push('WRITE ' + req.method() + ' ' + table); return json(route, 201, []); }
   if (table === 'profiles') DB.profiles = state.role ? [{ id: state.userId, rolle: state.role, reventlow_person_id: null }] : [];
