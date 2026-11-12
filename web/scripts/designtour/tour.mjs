@@ -16,6 +16,9 @@ fs.mkdirSync(OUT, { recursive: true });
 // Trin: path, role (null|'medlem'|'redaktion'), fail (databasen svarer 500), w/h, actions: click|css|fill|key|move|scroll.
 const STEPS = [
   { out: 'a-home', path: '/', full: true },
+  // Feedet på hovedsiden (fase 4): første uddeling, og knappen vender seks blade mere.
+  { out: 'a-home-feed', path: '/', actions: [{ scroll: 600 }] },
+  { out: 'a-home-vend', path: '/', actions: [{ scroll: 600 }, { click: 'Vend seks blade mere', exact: true }, { scroll: 900 }] },
   { out: 'a-menu-slaegter', path: '/', actions: [{ click: 'Slægter', exact: true }] },
   { out: 'a-person', path: '/person/118' },
   { out: 'a-personside-fuld', path: '/person/240', full: true }, // testbiografi, fakta og 25 embeder (mockdb)
@@ -50,6 +53,8 @@ const STEPS = [
   { out: 'c-red-anon', path: '/redaktion' },
   { out: 'c-red-redaktion', path: '/redaktion', role: 'redaktion' },
   { out: 'd-mobile-home', path: '/', w: 390, h: 844 },
+  { out: 'd-mobile-home-feed', path: '/', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 700 }] },
+  { out: 'd-mobile-home-vend', path: '/', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 3200 }, { click: 'Vend seks blade mere', exact: true }, { scroll: 600 }] },
   { out: 'd-mobile-menu', path: '/', w: 390, h: 844, actions: [{ click: 'Slægter', exact: true }] },
   { out: 'd-mobile-bjaelke', path: '/slaegt/reventlow/stamtrae', w: 390, h: 844 },
   { out: 'd-mobile-person', path: '/person/240', w: 390, h: 844 },

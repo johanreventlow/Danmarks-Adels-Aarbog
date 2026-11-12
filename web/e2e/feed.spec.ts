@@ -1,18 +1,21 @@
 import { expect, test, type Page } from '@playwright/test';
-import { TABLE_FIXTURES } from './fixtures';
+import { BIO_ROWS, COORDINATE_ROWS, TABLE_FIXTURES } from './fixtures';
 
-// Mocker ALLE Supabase PostgREST-kald på netværksniveau (task 11 — "genbrug eksisterende
-// fixtures/mocks; opfind ikke ny seed-infrastruktur" er ikke muligt her, da repoet ikke
-// havde en Playwright-opsætning forud for denne spec; se playwright.config.ts). PostgREST
-// returnerer en ren JSON-array-krop ved success — supabase-js's getAll() afgør selv om der
-// er flere sider ud fra array-længden (ikke Content-Range-headeren), så et enkelt 200-svar
-// med den fulde fixture er nok.
+// Mocker ALLE Supabase-kald på netværksniveau: tabeller fra TABLE_FIXTURES (ukendte → []),
+// RPC'er fra RPC nedenfor. Biografier (personer 1-4) og bog-numre (alle) gør, at feedet kan
+// vise både portrætter og »Nævnt i Aarbogen«-kort (personer uden tekst, titel eller børn).
+const RPC: Record<string, unknown> = {
+  narrative_record_contract_version: 2,
+  public_person_bio_source_versions_v2: BIO_ROWS,
+  public_person_source_coordinates: COORDINATE_ROWS,
+};
+
 async function mockSupabase(page: Page): Promise<void> {
   await page.route('**/rest/v1/**', async (route) => {
     const url = new URL(route.request().url());
-    const table = url.pathname.split('/rest/v1/')[1]?.split('?')[0] ?? '';
-    const rows = TABLE_FIXTURES[table] ?? [];
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) });
+    const sti = url.pathname.split('/rest/v1/')[1]?.split('?')[0] ?? '';
+    const body = sti.startsWith('rpc/') ? (RPC[sti.slice(4)] ?? []) : (TABLE_FIXTURES[sti] ?? []);
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });
 }
 
@@ -24,42 +27,24 @@ test.beforeEach(async ({ page }) => {
   (page as unknown as { __consoleErrors: string[] }).__consoleErrors = errors;
 });
 
-test('forsiden viser hero + feed-kort, og scroll udløser flere', async ({ page }) => {
+test('hovedsiden deler feedet ud seks blade ad gangen, med et nævnt-kort og kilde', async ({ page }) => {
   await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Slå op i Aarbogen' })).toBeVisible({ timeout: 10_000 });
 
-  // Hero: søgefeltets placeholder-tekst fra HomeView.tsx.
-  await expect(page.getByText('Find en person i slægten…')).toBeVisible({ timeout: 10_000 });
+  // Første uddeling: én blok med højst seks blade.
+  const foersteBlok = page.getByRole('region', { name: /^Blade 1–\d$/ });
+  await expect(foersteBlok).toBeVisible({ timeout: 15_000 });
+  expect(await foersteBlok.getByRole('article').count()).toBeLessThanOrEqual(6);
 
-  // Feed-sektionen (fase1-design.md §7) — vent til mindst ét kort er rendret.
-  const feedHeading = page.getByText('Feed', { exact: true });
-  await expect(feedHeading).toBeVisible();
+  // Vend blade, til der ikke er flere. Ingen uendelig rulning: kun knappen deler ud.
+  const knap = page.getByRole('button', { name: 'Vend seks blade mere' });
+  for (let i = 0; i < 5 && await knap.isVisible(); i++) await knap.click();
+  await expect(page.getByText(/Du har vendt alle dagens blade/)).toBeVisible();
 
-  // Siden scroller IKKE i window/body — Folgesvend.tsx's rodlayout er `height:100vh;
-  // overflow:hidden`, med den faktiske scroll i en indre `[data-scroll]`-container (samme
-  // container FeedStreamView.tsx's scroll-lytter er hægtet på). Almindelig page.mouse.wheel()
-  // ville scrolle hvad end der ligger under markøren (typisk ingenting, da 0,0 rammer den
-  // faste header) — scroll DENNE container direkte.
-  const scrollContainer = page.locator('[data-scroll]');
-
-  // Kortene har ingen fælles test-id endnu (fase 1-MVP) — tæl "Person N"-forekomster i
-  // stedet. BEMÆRK: (a) "Person 1" optræder også i "Redaktionen foreslår" (curatedFounders,
-  // synkron fra den allerede indlæste model), som bliver synlig FØR feed'et; (b) feed'ets
-  // FØRSTE strøm bygges FØR bio/livsdato er hentet (§7.3) og indeholder derfor kun de
-  // bio-uafhængige kort (gods/forbundet/vaaben/samle) — den er ofte allerede udtømt (samle-
-  // kortet er terminalt), og portræt-/citat-/dagensperson-kortene kommer først til syne når
-  // strømmen genopbygges (resumeStream) EFTER bios ankommer, doseret af NÆSTE scroll-udløste
-  // append. Vi scroller derfor gentagne gange, mens vi poller — ikke kun én gang før tjek.
-  const personCount = () => page.locator('text=/Person \\d/').count();
-  await expect.poll(async () => {
-    await scrollContainer.evaluate((el) => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); });
-    return personCount();
-  }, { timeout: 15_000, intervals: [300] }).toBeGreaterThanOrEqual(5);
-
-  // Footeren viser altid én af de to reelle tilstande — aldrig tom/udefineret.
-  await expect(
-    page.getByText('Henter flere blade fra slægten')
-      .or(page.getByText('Du har mødt hele slægten i dag — udforsk registeret')),
-  ).toBeVisible();
+  // Et nævnt-kort med bogens nummer som kilde — og intet om, at bogen ikke skriver mere.
+  const naevnt = page.getByRole('article').filter({ hasText: 'Nævnt i Aarbogen' });
+  await expect(naevnt.first()).toBeVisible();
+  await expect(naevnt.first()).toContainText(/§ Linje I, nr\. \d/);
 
   const errors = (page as unknown as { __consoleErrors: string[] }).__consoleErrors;
   expect(errors, `Konsol-fejl under kørslen:\n${errors.join('\n')}`).toEqual([]);
