@@ -524,17 +524,20 @@ export default function Folgesvend() {
 
       {loginOpen && (
         <div onClick={() => setLoginOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(20,17,13,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: 380, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '22px 24px 20px' }}>
-            <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>Log ind</div>
+          {/* Rigtig <form> med <label htmlFor>: skærmlæsere navngiver felterne, og Enter logger ind. */}
+          <form onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); void doLogin(); }} role="dialog" aria-modal="true" aria-labelledby="fs-login-titel" style={{ width: 380, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '22px 24px 20px' }}>
+            <div id="fs-login-titel" style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>Log ind</div>
             <div style={{ fontSize: 13, color: T.muted, marginTop: 3, marginBottom: 15 }}>Log ind for at gemme bogmærker på tværs af dine enheder.</div>
-            <input value={login.email} onChange={(e) => setLogin((l) => ({ ...l, email: e.target.value }))} placeholder="din@email.dk" style={{ width: '100%', fontSize: 14, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
-            <input value={login.pw} type="password" onChange={(e) => setLogin((l) => ({ ...l, pw: e.target.value }))} style={{ width: '100%', fontSize: 14, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none', marginTop: 11 }} />
-            {login.err && <div style={{ fontSize: 12.5, color: T.bordeaux, marginTop: 9 }}>{login.err}</div>}
+            <label htmlFor="fs-login-email" style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: T.muted, marginBottom: 4 }}>E-mail</label>
+            <input id="fs-login-email" type="email" autoComplete="username" value={login.email} onChange={(e) => setLogin((l) => ({ ...l, email: e.target.value }))} placeholder="din@email.dk" style={{ width: '100%', fontSize: 14, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
+            <label htmlFor="fs-login-pw" style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: T.muted, marginTop: 11, marginBottom: 4 }}>Adgangskode</label>
+            <input id="fs-login-pw" type="password" autoComplete="current-password" value={login.pw} onChange={(e) => setLogin((l) => ({ ...l, pw: e.target.value }))} style={{ width: '100%', fontSize: 14, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
+            {login.err && <div role="alert" style={{ fontSize: 12.5, color: T.bordeaux, marginTop: 9 }}>{login.err}</div>}
             <div style={{ display: 'flex', gap: 9, marginTop: 16, justifyContent: 'flex-end' }}>
-              <div onClick={() => setLoginOpen(false)} style={{ fontSize: 13, fontWeight: 600, color: T.muted, padding: '8px 13px', cursor: 'pointer' }}>Annullér</div>
-              <div onClick={doLogin} style={{ fontSize: 13, fontWeight: 600, color: '#fbf8f1', background: T.bordeaux, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>{login.busy ? 'Logger ind…' : 'Log ind'}</div>
+              <button type="button" onClick={() => setLoginOpen(false)} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.muted, background: 'transparent', border: 0, padding: '8px 13px', cursor: 'pointer' }}>Annullér</button>
+              <button type="submit" disabled={login.busy} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: '#fbf8f1', background: T.bordeaux, border: 0, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>{login.busy ? 'Logger ind…' : 'Log ind'}</button>
             </div>
-          </div>
+          </form>
         </div>
       )}
     </div>

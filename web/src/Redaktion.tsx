@@ -2396,23 +2396,32 @@ export default function Redaktion() {
   }
 
   // ---- Modaler ----
+  // Login-formularen: rigtig <form> med <label htmlFor>, så skærmlæsere navngiver felterne og
+  // Enter logger ind. onCancel udelades, hvor der ikke er noget at annullere tilbage til.
+  function renderLoginForm(onCancel?: () => void) {
+    return (
+      <form onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); void doLogin(); }} aria-labelledby="red-login-titel" style={{ width: 380, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '22px 24px 20px' }}>
+        <div id="red-login-titel" style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>Redaktør-login</div>
+        <div style={{ fontSize: 13, color: T.muted, marginTop: 3, marginBottom: 15 }}>Supabase Auth · adgang og skriverettigheder afgøres af din rolle.</div>
+        <label htmlFor="red-login-email" style={lbl}>E-mail</label>
+        <input id="red-login-email" type="email" autoComplete="username" value={login.email} onChange={(e) => setLogin((l) => ({ ...l, email: e.target.value }))} placeholder="redaktion@adelsaarbog.dk" style={{ ...inp, background: '#fff' }} />
+        <label htmlFor="red-login-pw" style={{ ...lbl, marginTop: 11 }}>Adgangskode</label>
+        <input id="red-login-pw" type="password" autoComplete="current-password" value={login.pw} onChange={(e) => setLogin((l) => ({ ...l, pw: e.target.value }))} style={{ ...inp, background: '#fff' }} />
+        {login.err && <div role="alert" style={{ fontSize: 12.5, color: T.red, marginTop: 9 }}>{login.err}</div>}
+        <div style={{ display: 'flex', gap: 9, marginTop: 16, justifyContent: 'flex-end' }}>
+          {onCancel && <button type="button" onClick={onCancel} style={{ ...btnGhost, fontFamily: T.sans, background: 'transparent', border: 0 }}>Annullér</button>}
+          <button type="submit" disabled={login.busy} style={{ ...btnGreen, fontFamily: T.sans, border: 0, background: T.bordeaux }}>{login.busy ? 'Logger ind…' : 'Log ind'}</button>
+        </div>
+      </form>
+    );
+  }
+
   function renderLoginModal() {
     if (!login.open) return null;
+    const luk = () => setLogin((l) => ({ ...l, open: false }));
     return (
-      <div onClick={() => setLogin((l) => ({ ...l, open: false }))} style={overlay(95)}>
-        <div onClick={(e) => e.stopPropagation()} style={{ width: 380, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '22px 24px 20px' }}>
-          <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>Redaktør-login</div>
-          <div style={{ fontSize: 13, color: T.muted, marginTop: 3, marginBottom: 15 }}>Supabase Auth · adgang og skriverettigheder afgøres af din rolle.</div>
-          <label style={lbl}>E-mail</label>
-          <input value={login.email} onChange={(e) => setLogin((l) => ({ ...l, email: e.target.value }))} placeholder="redaktion@adelsaarbog.dk" style={{ ...inp, background: '#fff' }} />
-          <label style={{ ...lbl, marginTop: 11 }}>Adgangskode</label>
-          <input value={login.pw} type="password" onChange={(e) => setLogin((l) => ({ ...l, pw: e.target.value }))} style={{ ...inp, background: '#fff' }} />
-          {login.err && <div style={{ fontSize: 12.5, color: T.red, marginTop: 9 }}>{login.err}</div>}
-          <div style={{ display: 'flex', gap: 9, marginTop: 16, justifyContent: 'flex-end' }}>
-            <div onClick={() => setLogin((l) => ({ ...l, open: false }))} style={btnGhost}>Annullér</div>
-            <div onClick={doLogin} style={{ ...btnGreen, background: T.bordeaux }}>{login.busy ? 'Logger ind…' : 'Log ind'}</div>
-          </div>
-        </div>
+      <div onClick={luk} role="dialog" aria-modal="true" aria-labelledby="red-login-titel" style={overlay(95)}>
+        {renderLoginForm(luk)}
       </div>
     );
   }
