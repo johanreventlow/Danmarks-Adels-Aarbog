@@ -2,6 +2,15 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: læserens fakta viser kun kildeteksten — mærkerne »bundet til bogens post« og »fra den oprindelige import« fjernes; justerer B11-spec'ens §4.4 (2026-11-12)
+
+> Projektejeren efter 6e-1 i prod (Conrad, 392): mærkerne er underlige og unødvendige formuleringer. De beskrev vores
+> arbejdsgang (trin 4-binding kontra citation fra importen), ikke bogen, og læseren skal ikke se redaktionens
+> maskinrum (jf. afgørelse 9 i 6e). Kildeteksten skelner stadig: bundet kilde bærer postens koordinat
+> (»DAA 2018-20, s. 201-202 · V-1«), importens kun bogen og evt. side (»DAA 2018-20«, »DAA 1939, s. 541«).
+> »Kilde ikke registreret« bliver stående (spec 6e §9 pkt. 4 er stadig åben). Datamodel og RPC uændret; `kind`
+> bevares i `PersonFactSource`, så færdigbeviser fortsat kan tælle andelen bundne.
+
 ## BESLUTTET: 6e's læserflade — valgt udgave forrest, den anden som note (visning C); justerer trin 6-spec'ens §3 pkt. 5 og §8 (b) (2026-11-12)
 
 > Delspec 6e (`docs/superpowers/specs/2026-11-12-trin6e-laeserflade-design.md`) godkendt af projektejeren efter
