@@ -84,8 +84,9 @@ async function mockSupabase(page: Page, kald: { coords: number; legacy: number; 
 test('koordinater fra placement-RPC\'en med bogstavsuffiks; legacy-viewet kaldes aldrig', async ({ page }) => {
   const kald = { coords: 0, legacy: 0, facts: [] as unknown[] };
   await mockSupabase(page, kald);
-  await page.goto('/person/1');
-  await expect(page.getByText('Linje I, nr. 15a')).toBeVisible({ timeout: 10_000 });
+  // Koordinaterne bruges af livsrejse-kortet i stamtræets panel (personsiden har intet kort).
+  await page.goto('/slaegt/reventlow/stamtrae?fokus=1');
+  await expect(page.getByText('Linje I, nr. 15a').first()).toBeVisible({ timeout: 10_000 });
   expect(kald.coords).toBeGreaterThan(0);
   expect(kald.legacy).toBe(0);
 });

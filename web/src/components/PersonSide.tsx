@@ -48,7 +48,9 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   // står uden slægt i etiketten, frem for at blive tilskrevet en slægt, de ikke tilhører.
   const slaegt = v.linjer.length ? findSlaegt(STANDARD_SLAEGT) : null;
   const linjeNavne = v.linjer.map((lk) => model.lineage?.navn[lk] ?? `Linje ${lk}`);
-  const nr = v.sources[0]?.ref ?? null;
+  // Bogens nummer (»Linje V, nr. 1«) kun fra stamtavlens opslag (model.sourcesBy); citat-proveniensen for personer
+  // uden nummer (typisk ægtefæller) giver et sidetal og hører ikke hjemme i etiketten.
+  const nr = model.sourcesBy?.[focusId]?.[0]?.ref ?? null;
   const etiket = [slaegt?.navn, ...(nr ? [nr] : linjeNavne)].filter(Boolean).join(' · ');
   const harVaelger = v.vaelger.form === 'chips' || v.vaelger.form === 'skift';
   const henter = detail === null && !detailError;
@@ -56,7 +58,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   const offices = detail?.offices ?? [];
   const visteEmbeder = visAlleEmbeder ? offices : offices.slice(0, FOERSTE_EMBEDER);
   const visteGodser = visAlleGodser ? v.godser : v.godser.slice(0, FOERSTE_GODSER);
-  const portrait = v.portrait;
+  const portrait = v.portrait?.url ? v.portrait : null; // kun et portræt, der kan vises, får billedtekst
   const kopier = async () => {
     try {
       await navigator.clipboard.writeText(`${window.location.origin}${personPath(focusId)}`);
