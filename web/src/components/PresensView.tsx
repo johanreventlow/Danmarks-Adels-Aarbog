@@ -299,7 +299,7 @@ export default function PresensView(props: { model: Model | null; onPickPerson: 
     setHentendeIds((prev) => new Set(prev).add(id));
     setBioFejlById((prev) => { const next = new Map(prev); next.delete(id); return next; });
     const members = personMemberIds(id, model!.byId[id]);
-    fetchPersonDetail(id, members)
+    fetchPersonDetail(id, members, false, { udgaver: model!.udgaver ?? [], udgaveForPersonRaekke: model!.udgaveForPersonRaekke ?? {} })
       .then((d) => setBioById((prev) => new Map(prev).set(id, d.bio)))
       .catch((e) => setBioFejlById((prev) => new Map(prev).set(id, String((e as Error)?.message ?? e))))
       .finally(() => setHentendeIds((prev) => { const next = new Set(prev); next.delete(id); return next; }));

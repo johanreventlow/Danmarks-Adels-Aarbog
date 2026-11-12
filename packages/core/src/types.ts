@@ -5,6 +5,7 @@
 // media-typer m.m.) bliver i web/mobile's egne types.ts.
 // Person-id er bigint i basen → konverteres ALTID til streng internt (README §8).
 import type { GenCoord, ParentsUnknown } from './generations';
+import type { Udgave } from './editionFacts';
 
 export type RawExtId = {
   person_id: number | string;
@@ -186,6 +187,10 @@ export type Model = {
   // 'forældre_ukendt' + afklaret konklusion) — IKKE personer hvor en kant bare mangler i basen.
   // Driver den ærlige inline kandidat-visning (unknownParentRing). Se docs/reviews/25-*.
   parentsUnknownByPerson?: Record<string, ParentsUnknown>;
+  // 6e-1: DAA-udgaver (source.slags = 'DAA-udgave') og hvilken udgave hver person-række hører til
+  // (fra koordinatrækkerne). Valgfrit: mobilen sætter dem ikke.
+  udgaver?: Udgave[];
+  udgaveForPersonRaekke?: Record<string, string>;
 };
 
 // --- Geo-lag (kort) ---------------------------------------------------------

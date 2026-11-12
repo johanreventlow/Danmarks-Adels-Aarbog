@@ -5,6 +5,7 @@ import { supabase } from '../supabase';
 import { buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, fmtYears, parseYear, getAll, EMPTY_GEO, type PublicCoordinateRow } from '@daa/core';
 import { buildLineage } from './lineage';
 import { buildSources } from './sources';
+import { byggUdgaveModel } from './udgaver';
 import { normalizeKoen, normalizeKonfidens, type AppModel, type AppPerson, type Db, type Geo, type Model, type ModelPerson, type ParentChild, type RawEstate, type RawExtId, type RawFact, type RawLineageContext, type RawLineageScheme, type RawLineageSchemeEntry, type RawLineageSchemeEntryLineage, type RawPlace, type RawSource, type Union } from './types';
 
 const PARTNER_ROLLER = ['partner'];
@@ -75,7 +76,7 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     getAll<RawLineageSchemeEntry>(() => supabase.from('lineage_scheme_entry').select('id,scheme_id,code,label')).catch((e) => { console.warn('[loadModel] lineage scheme entries utilgængelige ikke — bruger kanonisk lineage-kontekst:', e); return [] as RawLineageSchemeEntry[]; }),
     getAll<RawLineageSchemeEntryLineage>(() => supabase.from('lineage_scheme_entry_lineage').select('entry_id,lineage_id,relation_kind')).catch((e) => { console.warn('[loadModel] lineage scheme mapping utilgængelig ikke — bruger kanonisk lineage-kontekst:', e); return [] as RawLineageSchemeEntryLineage[]; }),
     // Kilder (trykt værk) — til "Kilde i Aarbogen" pr. person.
-    getAll<RawSource>(() => supabase.from('source').select('id,slags,titel,udgave,ekstern')).catch((e) => { console.warn('[loadModel] source utilgængelig — Kilde-i-Aarbogen degraderet:', e); return [] as RawSource[]; }),
+    getAll<RawSource>(() => supabase.from('source').select('id,slags,titel,udgave,aar,ekstern')).catch((e) => { console.warn('[loadModel] source utilgængelig — Kilde-i-Aarbogen degraderet:', e); return [] as RawSource[]; }),
     // samme_som-relationer (person→person; subjekt=alias, objekt=kanonisk) + afklarede konklusioner.
     // Polymorf kobling (conclusion.target_type/target_id), ingen FK → hentes separat + matches i JS.
     getAll<{ id: number | string; subjekt_id: number | string; objekt_id: number | string }>(() =>
@@ -157,6 +158,7 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     }),
     sourcesBy: buildSources(extIds, sources, collapsed.canonicalIdById),
     canonicalIdById: collapsed.canonicalIdById,
+    ...byggUdgaveModel(sources, extIds),
     // Geo-lag: starter TOMT (review 27 P3, "lazy geo-kæde") — place+fact hentes ikke ved
     // cold-start. loadGeo() henter dem + bygger den rigtige Geo, kaldt af web-laget ved
     // første kort-brug (Godser-kort, Slægtens kort, livsrejse-minikort).

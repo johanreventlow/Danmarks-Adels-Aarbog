@@ -185,7 +185,7 @@ export default function Folgesvend() {
     const members = personMemberIds(focusId, model?.byId[focusId]);
     // Ingen bog-nummer (typisk en ægtefælle) → hent proveniens fra citationerne i stedet.
     const manglerBogNummer = !(model?.sourcesBy?.[focusId]?.length);
-    fetchPersonDetail(focusId, members, manglerBogNummer).then(
+    fetchPersonDetail(focusId, members, manglerBogNummer, model ? { udgaver: model.udgaver ?? [], udgaveForPersonRaekke: model.udgaveForPersonRaekke ?? {} } : undefined).then(
       (next) => { if (current) setDetail(next); },
       (e) => { if (current) setDetailError(String((e as Error)?.message ?? e)); },
     );
