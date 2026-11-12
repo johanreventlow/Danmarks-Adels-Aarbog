@@ -28,9 +28,10 @@ import { OverviewMapView } from './components/OverviewMapView';
 import PresensView from './components/PresensView';
 import { ArmsView } from './components/ArmsView';
 import { AboutView } from './components/AboutView';
-import type { TreeSearchBundle } from './components/TreeSearch';
+import { TreeSearch, type TreeSearchBundle } from './components/TreeSearch';
+import { ViewHeader } from './components/primitives';
 import { synligeLinjer } from './data/lineage';
-import { labelOfMode, parseFolgesvendPath, pathForMode, detailOpenFor, type Mode, personPath, estatePath, stamtraePath, STANDARD_SLAEGT, SLAEGTER, findSlaegt } from './data/nav';
+import { labelOfMode, parseFolgesvendPath, pathForMode, detailOpenFor, type Mode, personPath, estatePath, stamtraePath, soegPath, STANDARD_SLAEGT, SLAEGTER, findSlaegt } from './data/nav';
 import { Tilstand, tilstandPrimaer, tilstandSekundaer } from './components/Tilstand';
 import { T } from './theme';
 
@@ -248,6 +249,20 @@ export default function Folgesvend() {
     setFocusId(cid);
     navigate(visPersonPath(cid), { replace: true, state: { prevFocusId } });
   };
+  // /soeg: URL'en er eneste kilde til søgeordet. Uden søgeord gennemses alle personer.
+  // Forlader man /soeg, ryddes søgningen, så stamtræet eller slægtskabet ikke åbner med resultater.
+  const varPaaSoeg = useRef(false);
+  useEffect(() => {
+    if (parsed.mode !== 'soeg') {
+      if (varPaaSoeg.current) { setQuery(''); setBrowsing(false); setBmOnly(false); }
+      varPaaSoeg.current = false;
+      return;
+    }
+    varPaaSoeg.current = true;
+    setQuery(parsed.q ?? '');
+    setBrowsing(true);
+  }, [parsed]);
+
   // Menuen lukker ved enhver navigation; besøgte slægter huskes til »Senest besøgt«.
   useEffect(() => { setMenuAabenState(false); }, [loc]);
   useEffect(() => {
@@ -432,7 +447,7 @@ export default function Folgesvend() {
         aktiv={hovedpunkt} menuAaben={menuAaben} setMenuAaben={setMenuAaben} menuKnap={menuKnap}
         slaegter={SLAEGTER} senestSlaegt={senestSlaegt} aktivSlaegt={parsed.slaegt}
         onVaelgSlaegt={(s) => goToMode('about', s)}
-        onPersoner={() => { goToMode('tree'); setBrowsing(true); }}
+        onPersoner={() => goToMode('soeg')}
         onSlaegtskab={() => goToMode('relate')} onForside={() => goToMode('home')}
         loggetInd={!!session} onLogin={() => setLoginOpen(true)} onLogout={() => { void doLogout(); }}
         visRedaktion={session?.role === 'redaktion'}
@@ -450,7 +465,7 @@ export default function Folgesvend() {
 
         {/* Center */}
         <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
-          {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estates} onPickPerson={navigateTree} onOpenSearch={() => { goToMode('tree'); bumpSearchFocus(); }} onBrowseAll={() => { goToMode('tree'); setBrowsing(true); }} onOpenEstate={(id) => { setEstateId(id); navigate(estatePath(id)); }} onGoTree={() => goToMode('tree')}
+          {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estates} onPickPerson={navigateTree} onOpenSearch={() => { goToMode('soeg'); bumpSearchFocus(); }} onBrowseAll={() => goToMode('soeg')} onOpenEstate={(id) => { setEstateId(id); navigate(estatePath(id)); }} onGoTree={() => goToMode('tree')}
               arms={arms} meId={meCanon} focusId={focusId} bookmarkedIds={bookmarkIds}
               bookmarksReady={bookmarks.ready} bookmarkHydrationVersion={bookmarks.hydrationVersion}
               bookmarkOwnerId={session?.userId ?? null}
@@ -465,6 +480,16 @@ export default function Folgesvend() {
             : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={saveOrPrompt} loggedIn={bookmarks.canSave} onRequireLogin={() => setLoginOpen(true)} /> : <div style={{ padding: 40, color: T.inkMuted }}>Henter…</div>)
             : mode === 'kort' ? <OverviewMapView model={model} geoLoading={geoLoading} onPickPerson={navigateTree} onPickEstate={(id) => navigate(estatePath(id))} />
             : mode === 'praesens' ? <PresensView model={model} onPickPerson={navigateTree} session={sessionKlar ? session : 'henter'} onLogin={() => setLoginOpen(true)} onGoTree={() => goToMode('tree')} />
+            : mode === 'soeg' ? (
+              <div style={{ padding: '30px 40px 50px' }}>
+                <ViewHeader title="Personer" mb="18px" />
+                <TreeSearch {...treeSearch}
+                  // Skriv søgeordet i URL'en med replace, så tilbage-knappen ikke går ét tastetryk ad gangen.
+                  setQuery={(v) => navigate(soegPath(v), { replace: true, state: window.history.state })}
+                  clearSearch={() => navigate(soegPath(), { replace: true })}
+                  showResults onPick={navigateTree} personHref={personPath} />
+              </div>
+            )
             : mode === 'ukendtSlaegt' ? (
               <div style={{ padding: 40 }}>
                 <Tilstand etiket="Findes ikke" titel="Slægten findes ikke i Aarbogen"

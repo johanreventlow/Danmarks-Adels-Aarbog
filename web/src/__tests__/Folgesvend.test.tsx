@@ -171,3 +171,14 @@ test('slægtsbjælken vises under /slaegt/<slug>, ikke på /person/<id>', async 
   await screen.findByText('Biografi: x');
   expect(screen.queryByRole('navigation', { name: 'Slægten Reventlow' })).toBeNull();
 });
+
+test('/soeg?q= viser resultater, og søgeordet skrives i adressen med replace', async () => {
+  window.history.replaceState({}, '', '/soeg?q=Test');
+  render(<Folgesvend />);
+  expect(await screen.findByText('Testperson')).toBeTruthy();
+  const felt = screen.getByLabelText('Søg person') as HTMLInputElement;
+  expect(felt.value).toBe('Test');
+  fireEvent.change(felt, { target: { value: 'Testp' } });
+  expect(navigate).toHaveBeenCalledWith('/soeg?q=Testp', expect.objectContaining({ replace: true }));
+  expect(screen.queryByRole('navigation', { name: 'Slægten Reventlow' })).toBeNull(); // over slægterne
+});
