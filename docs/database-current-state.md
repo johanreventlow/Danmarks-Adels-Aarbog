@@ -538,10 +538,11 @@ til `main` @ `2ac193a9`. Privat runner `~/.private/5ab-overfoersel/38-dato-bindi
 `kort`, `flet`, `go-*` og `verify`. Færdigbevis: `evidensbaseret-genimport/dato-bindinger-2018-20-prod.md`.
 
 - **DDL** (GO `7f9e6656`): regel `dato-markoer-v2` (markøren afhænger af prædikatet: `*`/`f.` på fødsel, `†` på død)
-  i `red_normaliser_forslag`; v1 er uændret. `tilstand=ddl verify=ok`; writerens forrige definition og ACL står i
+  i `red_normaliser_forslag`; v1 er uændret. `tilstand=ddl verify=ok` (16,8 s; kvitteringen læst i ceremoniens session, loggen viser målingen foer → ddl med uændrede tal); writerens forrige definition og ACL står i
   `prod/dato/fortryd-ddl-20261112211215/`. `get_advisors` kunne ikke køres (MCP'en ser ikke DAA-projektet).
-- **Normalisering `n`** (GO `50178e6e`): én `extraction_run` og 565 nye forslagsversioner (`dato-markoer-v2`);
-  509 bliver lig en påstand (`MATCH`), 59 er `SKRIVEMAADE`, 15 `NO_FACT`.
+- **Normalisering `n`** (GO `50178e6e`): af kilde 1's 583 datoforslag (568 med skrivemåde-forskel, 15 uden fakta)
+  fik 565 en ny version (`dato-markoer-v2`) i én `extraction_run`; derefter er 509 lig en påstand (`MATCH`), 59 stadig
+  `SKRIVEMAADE` og 15 `NO_FACT`.
 - **Kontrol og binding `k`** (GO `75ef1336`): stikprøven på 20 kort (alle `B`), 489 maskinelt accepteret, 509
   afgørelser og 509 bindinger (`machine-corroboration-v2`). Alle bindinger fra før findes stadig (nøglet sammenligning
   mod n-dumpet: `tabt:0,nye:509`). Bindinger i alt 1.759 → 2.268, hash `fa08bb8a…` → `c4ef58de…`.
@@ -554,7 +555,7 @@ til `main` @ `2ac193a9`. Privat runner `~/.private/5ab-overfoersel/38-dato-bindi
 - **Fortrydelse:** `k` med n-dumpet `daa-prod-20261112220624-dato.dump` (restore-hash `9ca72cd5…`), `n` med ddl-dumpet
   `daa-prod-20261112212606-dato.dump`, DDL med snapshot-mappen. Foer-dumpet er `daa-prod-20261112193719-dato.dump`
   (`a7add600…`). Efter `DATO_VERIFY_OK` er rettelser almindelig redigering.
-- **Tid i prod:** `maal` 16-17,6 s; DDL 16,8 s; `apply-n` 57,1 s; `kort` 44,9 s eksport; `dump` 162 s + 43 s
+- **Tid i prod:** `maal` 16-17,6 s; DDL 16,8 s (begge foer/DDL-tal fra ceremoniens session); `apply-n` 57,1 s; `kort` 44,9 s eksport; `dump` 162 s + 43 s
   måling; `apply-k` 95,4 s (verify 24,6 s); `verify` 42,2 s. `vejb`: største median 132 ms før og 137 ms efter
   (grænse 1.000 ms), kolde kald 0,6-0,7 s (anons grænse 3 s).
 - **Står tilbage:** 59 `SKRIVEMAADE` (13 fødsler, 46 dødsfald) som `proposed`; del 2 (kort over dem) er ikke besluttet.

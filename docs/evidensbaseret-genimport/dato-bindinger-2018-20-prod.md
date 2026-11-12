@@ -11,12 +11,12 @@ offentlige eksempel.
 |---|---|
 | Kode | PR #322 (regel `dato-markoer-v2`, måling, kontrolværktøj), runbook #324 + #326; GO'erne bundet til `main` @ `2ac193a9` |
 | Runner | `~/.private/5ab-overfoersel/38-dato-bindinger.sh` (sha `8d923049…`), projektejeren kørte alle skrivende trin i sin shell |
-| `maal` foer | `tilstand=foer`, tal `0,0,0,568,15,0,0,67,88,1759`, bindingshash `fa08bb8a…`, 17,6 s |
+| `maal` foer | `tilstand=foer`, tal `0,0,0,568,15,0,0,67,88,1759`, bindingshash `fa08bb8a…`, 17,6 s (sekunderne fra ceremoniens session; tallene står også i DDL-loggen) |
 | `vejb` foer | største median 132 ms (405), 0 kolde fejl |
 | `dump` foer | `a7add600…` (age `736c4031…`, SFTP-rundtur ok) |
-| DDL (GO `7f9e6656`) | `tilstand=ddl verify=ok`, 16,8 s; writerens definition og ACL gemt i `prod/dato/fortryd-ddl-20261112211215/`. Målingen bagefter: tal uændrede, bindingshash uændret |
+| DDL (GO `7f9e6656`) | `tilstand=ddl verify=ok`, 16,8 s (kvitteringen læst i ceremoniens session; loggen `apply-ddl-20261112211138.log` viser målingen foer → ddl); writerens definition og ACL gemt i `prod/dato/fortryd-ddl-20261112211215/`. Målingen bagefter: tal uændrede, bindingshash uændret |
 | `dump` ddl | `ef227696…` (age `a8710a7e…`, rundtur ok) |
-| `forbered-n` | 565 versioner, listen = øvelsens (sha `f1e6d2e3…`) |
+| `forbered-n` | 565 af kilde 1's 583 datoforslag får en v2-version; listen = øvelsens (sha `f1e6d2e3…`) |
 | `apply-n` (GO `50178e6e`) | `DATO_APPLY_N_OK tilstand=n versioner=565`, 57,1 s. Aftryk: kun `extraction_run` +1, `interpretation` +565, `interpretation_observation` +565 |
 | `maal` n | `565,509,0,59,15,0,0,67,88,1759`, bindingshash uændret `fa08bb8a…` |
 | `kort` | 20 personas, 1 side, eksport 44,9 s |
@@ -33,8 +33,8 @@ offentlige eksempel.
 - **Tal i prod:** fakta-rækker med postens koordinat for kilde 1 steg fra 67 til **334** (fødsel) og fra 88 til **330**
   (død), målt som det læseren viser (`public_person_facts`). Bindingslisten er nøglet: alle 1.759 bindinger fra n-dumpet
   findes stadig, og præcis 509 er nye. Aftrykket viser, at kun de fire ceremonitabeller er ændret. **Opfyldt.**
-- **Kæden:** 565 versioner → 509 `MATCH` → stikprøve 20 (0 fejl) → 509 afgørelser (20 fra arket, 489 maskinelt) →
-  509 bindinger. Resten: 59 `SKRIVEMAADE` (13 fødsler, 46 dødsfald) står `proposed`, 15 `NO_FACT` (dødsfald). **Opfyldt.**
+- **Kæden:** 583 datoforslag (568 `SKRIVEMAADE`, 15 `NO_FACT`) → 565 v2-versioner → 509 `MATCH` → stikprøve 20 (0 fejl) → 509 afgørelser (20 fra arket, 489 maskinelt) →
+  509 bindinger. Resten (74): 59 `SKRIVEMAADE` (13 fødsler, 46 dødsfald) står `proposed`, 15 `NO_FACT` (dødsfald). **Opfyldt.**
 - **Fart:** de 10 tungeste personers fakta-kald som `anon` har median ≤ 137 ms. **Opfyldt.**
 - **Status:** `status.md` er opdateret.
 
