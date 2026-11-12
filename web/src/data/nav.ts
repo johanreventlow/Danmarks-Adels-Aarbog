@@ -36,8 +36,17 @@ export function labelOfMode(mode: Mode): string {
 // `omdiriger`; Folgesvend erstatter dem med replace, så eksisterende links virker.
 
 // Slægterne i Aarbogen. Kun Reventlow i dag; slug er stabilt og bruges i URL'en.
-export type Slaegt = { slug: string; navn: string };
-export const SLAEGTER: readonly Slaegt[] = [{ slug: 'reventlow', navn: 'Reventlow' }];
+//
+// vaaben: slægtens våben på slægtens forside. Fil og kildenote står samlet her, så en ny tegning
+// er én ny fil i web/public/vaaben/ og evt. en ny note. Reventlows er grundvåbnet fra
+// designsystemet, en gengivelse der ikke er autoriseret (overdragelsens åbne punkt 5); noten
+// siger det, og projektejeren har valgt at vise den, til en godkendt tegning findes (13/11).
+export type SlaegtsVaaben = { src: string; note: string };
+export type Slaegt = { slug: string; navn: string; vaaben?: SlaegtsVaaben };
+export const SLAEGTER: readonly Slaegt[] = [{
+  slug: 'reventlow', navn: 'Reventlow',
+  vaaben: { src: '/vaaben/reventlow.png', note: 'Våben efter DAA 1939 · tegning fra designudkastet, ikke autoriseret' },
+}];
 export const STANDARD_SLAEGT = 'reventlow';
 export function findSlaegt(slug: string | null | undefined): Slaegt | null {
   return SLAEGTER.find((s) => s.slug === slug) ?? null;
