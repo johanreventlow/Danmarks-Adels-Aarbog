@@ -228,6 +228,12 @@ databasen ændres ikke (ren projektion; invariant 5).
 »?«, »før«, »/«) eller flertydig (to datoer/måneder), når datoen er flertydig i teksten (»begravet s.d.« efter
 »bisat …«), eller når den opløste dato ville ligge før referencen. Initialkæder (»S. M. Kirke«, »R.S.A.O.«) er ikke
 relative datoer. Relative værdier giver aldrig »✓« for andre typer end navn/tilnavn.
+*Slutreviewet (Opus + Codex, 2026-11-12):* desuden uopløselig, når referencetypen har flere forskellige værdier på
+rækken eller er omstridt/uden valg, når referencen har ekstra dagnumre (også uden punktum), når den opløste dato ikke
+findes i kalenderen (»31. april«), og når datofeltet er relativt, mens teksten selv bærer en dato eller et relativt led
+(datokæden kan henvise til noget andet, fx »bisat 5. april s.å. og begravet« + »s.d.«). »S.M.«/»S.D.«/»S.Å.« direkte
+efter et dagnummer er relative. `?` fjernes aldrig ved dobbeltværdi-tjekket. Målt efter runden: 273 opløste, 91
+uopløste (før: 313/51); ingen »✓« berørt.
 
 **Kendt begrænsning (6e-1):** relative datoer uden for personens fakta opløses ikke — ægteskabets **vielse** (familie-
 faktum; 8 relative af 478; vises i dag kun som kortpunkt, ikke som tekst i persondetaljen) og **embedernes periode**
