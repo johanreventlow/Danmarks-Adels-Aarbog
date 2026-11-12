@@ -7,7 +7,8 @@ import { stableHash } from './prng';
 import { isExactDay } from './types';
 import type { FeedAux, FeedCard, HaendelserBy, LivsdatoBy, Model } from './types';
 
-export const initialsOf = (name: string): string => (name.trim()[0] ?? '?').toUpperCase();
+// Første bogstav i navnet; parenteser og andre tegn springes over (»(Søn)« → »S«, ikke »(«).
+export const initialsOf = (name: string): string => (name.match(/\p{L}/u)?.[0] ?? '?').toUpperCase();
 
 // Stabil id-komparator — genbrugt af alle gruppe-sorteringer (determinisme).
 export const byIdStr = (a: { id: string }, b: { id: string }): number => a.id.localeCompare(b.id);
