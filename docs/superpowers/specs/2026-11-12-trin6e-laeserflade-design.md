@@ -130,7 +130,9 @@ ikke registreret«). **Målt:** alle importerede påstande har en kilde; de kild
 skrevet af redaktøren, fordi redaktørens fire faktawritere (`red_tilfoej_oplysning`, `red_opret_fakta`,
 `red_edit_oplysning`, `red_upsert_fakta`) altid gemmer `source_id = NULL` og kilden som fritekst i `citat_tekst`
 (oftest »Dansk Adels Aarbog – DAA 2018-20«; 3 gange »(kilde mangler)«). 392's »Conrad« er sådan en og hører til
-2018-20, fordi 392 er en 2018-20-post. (De 65 strukturelle `forældrefamilie`-påstande uden kilde vises ikke som fakta.) En personrække uden kilde vises i alle udgaver.
+2018-20, fordi 392 er en 2018-20-post — selv om redaktørens fritekst lyder »DAA 1939«. Målt: 17 påstande på 13
+personer, skrevet 4/7-1/8 2026; 11 navnerettelser og 2 datorettelser (`red_edit_oplysning`) og 6 overhoved-markeringer
+(`red_upsert_fakta`/`red_edit_oplysning`); 13 af fritekstkilderne navngiver en udgave, 5 med side. (De 65 strukturelle `forældrefamilie`-påstande uden kilde vises ikke som fakta.) En personrække uden kilde vises i alle udgaver.
 **Målt:** hver personrække har højst én `person_external_id`-række (0 med flere), og kun kilder med
 `source.slags='DAA-udgave'` (1 og 3) har rækker. »Udgave« = en sådan kilde; regler skal fejle lukket (vise rækken i
 alle udgaver), hvis en række en dag får flere.
@@ -249,6 +251,8 @@ entydig på siden.
 
 ### 5.8 Små rettelser i persondetaljen (6e-1, *mit valg*)
 
+- **Dobbelt værdi:** `factValue` sætter `vaerdi_tekst` og `date_raw` sammen; redaktørens datorettelser gemmer samme
+  tekst i begge, så læseren viser »15. febr. 1878., 15. febr. 1878.« (målt: 11 påstande). Er de ens, vises den én gang.
 - **Børn:** chip viser fornavn + fødselsår, når det findes (»Ulrica · 1686«).
 - **Embeder:** organisationsnavnet udelades, når det er lig rollen (uden forskel på store/små bogstaver).
 - **Godser:** hver visning viser kun sin udgaves godser (§5.1 på `relation`), uden note for de andre (afgørelse 5;
