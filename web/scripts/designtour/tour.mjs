@@ -19,6 +19,10 @@ const STEPS = [
   // Feedet på hovedsiden (fase 4): første uddeling, og knappen vender seks blade mere.
   { out: 'a-home-feed', path: '/', actions: [{ scroll: 600 }] },
   { out: 'a-home-vend', path: '/', actions: [{ scroll: 600 }, { click: 'Vend seks blade mere', exact: true }, { scroll: 900 }] },
+  // Hovedsidens tre indgange; slutadresserne skal være /soeg?q=Reventlow, /slaegt/reventlow og /slaegtskab.
+  { out: 'a-home-soeg', path: '/', actions: [{ fill: ['#forside-soeg', 'Reventlow'] }, { key: 'Enter' }] },
+  { out: 'a-home-register', path: '/', actions: [{ css: 'a[href="/slaegt/reventlow"]:has(> span)' }] },
+  { out: 'a-home-familie', path: '/', actions: [{ click: 'Find slægtskabet mellem to personer →', exact: true }] },
   { out: 'a-menu-slaegter', path: '/', actions: [{ click: 'Slægter', exact: true }] },
   { out: 'a-person', path: '/person/118' },
   { out: 'a-personside-fuld', path: '/person/240', full: true }, // testbiografi, fakta og 25 embeder (mockdb)
