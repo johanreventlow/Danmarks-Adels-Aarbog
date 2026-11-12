@@ -1,0 +1,4 @@
+/* Basisstil for web (før indsat af useFonts/useDesignHead sammen med Google Fonts-linket). */
+*{box-sizing:border-box}
+body{margin:0}
+input,textarea,select{font-family:inherit}

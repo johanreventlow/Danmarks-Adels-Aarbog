@@ -141,19 +141,6 @@ function laesGemtPersonVisning(): PersonVisning {
   }
 }
 
-// Indsæt fonte + base-styles én gang (svarer til designets <helmet>).
-function useDesignHead() {
-  useEffect(() => {
-    if (document.getElementById('daa-red-fonts')) return;
-    const link = document.createElement('link');
-    link.id = 'daa-red-fonts'; link.rel = 'stylesheet';
-    link.href = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500;1,600&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap';
-    document.head.appendChild(link);
-    const st = document.createElement('style');
-    st.textContent = '*{box-sizing:border-box}body{margin:0}input,textarea,select{font-family:inherit}';
-    document.head.appendChild(st);
-  }, []);
-}
 
 // /redaktion kræver login (webredesign fase 0). Ydersiden tjekker sessionen og viser login-
 // skærmen; Arbejdsbord monteres først, når der er en session. Så sker alle dets hentninger som den
@@ -161,7 +148,6 @@ function useDesignHead() {
 // RLS-beskyttede rækker manglede, indtil siden blev genindlæst. 'tjekker' holdes adskilt fra
 // »ikke logget ind«, så en redaktør ikke ser login-skærmen blinke, mens sessionen genskabes.
 export default function Redaktion() {
-  useDesignHead();
   const [session, setSession] = useState<RedSession | null | 'tjekker'>('tjekker');
   const [sessionFejl, setSessionFejl] = useState('');
   useEffect(() => {

@@ -38,20 +38,8 @@ import { T } from './theme';
 const SLAEGTER = [{ id: 'reventlow', navn: 'Reventlow' }];
 const EMPTY_CANONICAL_IDS: Record<string, string> = {};
 // Mode/THEMES/routing bor i ./data/nav (ren + unit-testet).
-function useFonts() {
-  useEffect(() => {
-    if (document.getElementById('daa-pub-fonts')) return;
-    const l = document.createElement('link');
-    l.id = 'daa-pub-fonts'; l.rel = 'stylesheet';
-    l.href = 'https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500;1,600&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap';
-    document.head.appendChild(l);
-    const s = document.createElement('style'); s.textContent = '*{box-sizing:border-box}body{margin:0}input{font-family:inherit}';
-    document.head.appendChild(s);
-  }, []);
-}
 
 export default function Folgesvend() {
-  useFonts();
   const path = usePath();
   const [model, setModel] = useState<AppModel | null>(null);
   const [err, setErr] = useState<string | null>(null);
