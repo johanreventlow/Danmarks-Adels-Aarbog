@@ -1,0 +1,71 @@
+// Designtour: skærmbilleder af webappen som anonym, medlem og redaktør — mod testdata.
+// Forudsætter: `python3 web/scripts/designtour/build-fixture.py` og `npm run dev` (port 5173) i web/.
+// Kør fra web/: node scripts/designtour/tour.mjs [filter]   → billeder i ../tmp/designtour/shots/
+import { chromium } from '@playwright/test';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+process.env.FIXTURE ??= path.join(ROOT, 'tmp/designtour/fixture.json');
+const { handle, state, log } = await import('./mockdb.mjs');
+const BASE = process.env.BASE_URL ?? 'http://localhost:5173';
+const OUT = path.join(ROOT, 'tmp/designtour/shots');
+fs.mkdirSync(OUT, { recursive: true });
+
+// Trin: path, role (null|'medlem'|'redaktion'), w/h, actions: click|css|fill|key|scroll.
+const STEPS = [
+  { out: 'a-home', path: '/', full: true },
+  { out: 'a-person', path: '/person/118' },
+  { out: 'a-tree-kolonner', path: '/stamtrae', actions: [{ click: 'Kolonner', exact: true }] },
+  { out: 'a-search', path: '/stamtrae', actions: [{ click: 'Søg', exact: true }, { key: 'r' }, { key: 'e' }, { key: 'v' }] },
+  { out: 'a-relate', path: '/relate', actions: [{ fill: ['input', 'Otto Reventlow'] }, { click: 'Otto Reventlow', exact: true }, { fill: ['input', 'Magdalena'] }, { click: 'Magdalena Sophia Reventlow' }] },
+  { out: 'a-estates', path: '/estates' },
+  { out: 'a-arms', path: '/arms' },
+  { out: 'a-about', path: '/about' },
+  { out: 'a-praesens', path: '/praesens' },
+  { out: 'a-login', path: '/', actions: [{ click: 'Log ind', exact: true }] },
+  { out: 'b-member-home', path: '/', role: 'medlem' },
+  { out: 'b-member-bookmarks', path: '/bookmarks', role: 'medlem' },
+  { out: 'c-red-anon', path: '/redaktion' },
+  { out: 'c-red-redaktion', path: '/redaktion', role: 'redaktion' },
+  { out: 'd-mobile-home', path: '/', w: 390, h: 844 },
+  { out: 'd-mobile-person', path: '/person/118', w: 390, h: 844 },
+];
+
+const filter = process.argv[2];
+const browser = await chromium.launch();
+for (const s of STEPS.filter((x) => !filter || x.out.includes(filter))) {
+  state.role = s.role ?? null; log.length = 0;
+  const ctx = await browser.newContext({ viewport: { width: s.w ?? 1440, height: s.h ?? 900 } });
+  const pg = await ctx.newPage();
+  const errs = [];
+  pg.on('pageerror', (e) => errs.push(e.message));
+  await pg.route(/localhost:54321/, handle); // VITE_SUPABASE_URL i .env.local (lokal stack)
+  await pg.route(/openstreetmap|carto|tiles?\./, (r) => r.abort());
+  if (s.role) {
+    // Simuleret session (ingen rigtige legitimationsoplysninger) i supabase-js' localStorage-nøgle.
+    const exp = Math.floor(Date.now() / 1000) + 36000;
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const sess = { access_token: `${b64({ alg: 'none' })}.${b64({ sub: state.userId, exp, role: 'authenticated' })}.x`, token_type: 'bearer', expires_in: 36000, expires_at: exp, refresh_token: 'r',
+      user: { id: state.userId, aud: 'authenticated', role: 'authenticated', email: state.email, app_metadata: {}, user_metadata: {} } };
+    await pg.addInitScript(([k, v]) => localStorage.setItem(k, JSON.stringify(v)), ['sb-localhost-auth-token', sess]);
+  }
+  await pg.goto(BASE + s.path, { waitUntil: 'networkidle' });
+  await pg.mouse.move(700, 880); // væk fra sidehovedet, så megamenuen ikke folder ud
+  await pg.waitForTimeout(1500);
+  for (const a of s.actions ?? []) {
+    try {
+      if (a.click) await pg.getByText(a.click, { exact: !!a.exact }).first().click({ timeout: 4000 });
+      if (a.css) await pg.locator(a.css).first().click({ timeout: 4000 });
+      if (a.fill) await pg.locator(a.fill[0]).first().fill(a.fill[1]);
+      if (a.key) await pg.keyboard.press(a.key);
+      if (a.scroll) await pg.mouse.wheel(0, a.scroll);
+      await pg.waitForTimeout(900);
+    } catch (e) { errs.push(`handling ${JSON.stringify(a)}: ${e.message.split('\n')[0]}`); }
+  }
+  await pg.screenshot({ path: path.join(OUT, `${s.out}.png`), fullPage: !!s.full });
+  console.log(`${s.out}${errs.length ? '  ⚠ ' + errs.join(' | ') : ''}${log.length ? '  · ' + [...new Set(log)].join(', ') : ''}`);
+  await ctx.close();
+}
+await browser.close();

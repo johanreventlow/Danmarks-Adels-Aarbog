@@ -2,6 +2,78 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: webredesign, runde 2 — hovedside »Værket«, personside med medlemslag, feedet, stamtræet og navigation model 2 (2026-11-12)
+
+> Projektejeren har valgt mellem designvarianterne på canvas'et »Aarbogen – web redesign« (Claude Design) og godkendt
+> reviewet i designgennemgangen. Bygger videre på indførslen »webredesign — Aarbogens hovedside over slægtsforsider …«
+> samme dato. Overdragelse til kode: `docs/design/2026-11-12-webredesign-overdragelse.md`.
+>
+> 1. **Hovedside A »Værket«:** søgning på tværs, slægtsregistret, »Nyt i Aarbogen« og feedet. Variant B er fravalgt;
+>    dens læsespalte-feed kan genbruges på mobil.
+> 2. **Personsiden:** variant A er siden for alle. Indloggede medlemmer får et lag oveni på faste pladser i samme layout
+>    (slægtskab som kontekst, bogmærke, fakta med kilde pr. linje); siden skifter ikke layout ved login.
+> 3. **Feedet »Et blad, tilfældigt vendt«** er fast del af hovedsiden (på tværs af slægter) og slægtens forside (kun
+>    egne). Blandede korttyper, aldrig to ens i træk, intet kort to gange, højst ét »kun et navn« pr. seks kort, kilde på
+>    hvert kort, ingen likes eller tællere. Web: knappen »Vend flere« frem for uendelig scroll. Mobil: forsidens
+>    hovedindhold.
+> 4. **Stamtræet** hører til slægten (`/slaegt/<navn>/stamtrae`) og omtegnes: hele søskendeflokke, alle ægteskaber med
+>    navn, børn samlet når bogen ikke angiver ægteskab, usikre slægtskaber med stiplet kant og ord, mangler sagt med ord.
+>    Visninger: Fokus, Kolonner, Anespor (web); Fokus, Anespor, Liste (mobil). Swipe kun som supplement til synlige pile.
+> 5. **Navigation model 2:** »Slægter« i hovedmenuen er kun en vælger (søg, A–Å, senest besøgt) og fører til slægtens
+>    forside. Inde i en slægt navigerer en slægtsbjælke under sidehovedet (Forside · Stamtræ · Præsensliste · Godser ·
+>    Våben · Artikler · Skift slægt). Personer, Slægtskab og Historie ligger over slægterne og har ingen slægtsbjælke.
+>    Model 1 (todelt megamenu) er fravalgt.
+>
+> **Åbne punkter fra reviewet (blokerer de nævnte dele):**
+> - Linjernes betegnelse afhænger af udgaven (V. linje i udtrækket, II. linje i præsenslisten for den grevelige linje af
+>   1673). URL'er bruger faste id'er; overskrifter viser udgavens betegnelse med kilde. Blokerer linjegenveje og
+>   linjesider.
+> - Arbejdsgang for at bekræfte »Det er mig« mangler. Blokerer slægtskab som kontekst og »Min plads«.
+> - Grundlag for grundniveauet for levende (punkt 8 i forrige indførsel), børns standard og forslaget om en kode til
+>   at finde en levende person. Blokerer præsenslisten for medlemmer og slægtskab med levende.
+
+## BESLUTTET: webredesign — Aarbogens hovedside over slægtsforsider, navigation efter opgaver, personen får egen side, synlighed af levende i to lag (2026-11-12)
+
+> Projektejeren har taget stilling til otte punkter i designgennemgangen (Claude-dok »Designgennemgang – Danmarks Adels
+> Aarbog app«, afsnittet »Beslutninger før redesign«), alle efter anbefalingen. Grundlag: gennemgang af designoplæggene
+> (web-v4, følgesvend-v3 m.fl.), af `web/src` og af den kørende webapp med testdata (`web/scripts/designtour/`).
+> Beslutningerne styrer det kommende redesign; intet er bygget endnu.
+>
+> 1. **To niveauer (beslutning 6, tages først):** Aarbogens hovedside på `/` med søgning og slægtskab på tværs og et
+>    register over slægterne. Hver slægt får en forside på `/slaegt/<navn>` med våben, indledning, linjer, stamtræ,
+>    præsens og godser. Personer og slægtskab ligger over slægterne med én adresse pr. person. Strukturen indføres nu,
+>    selvom kun Reventlow findes; hovedsiden viser registeret med én slægt og fører videre.
+> 2. **Forsiderne (1):** hovedsiden får søgefeltet på tværs, slægtsregistret, »Nyt i Aarbogen« og feedet på tværs;
+>    »Er vi i familie?« er en indgang, ikke det dominerende. Slægtens forside får våben, indledning og linjer, indgange
+>    til stamtræ, præsensliste, godser og artikler, »Redaktionen foreslår« og slægtens eget feed. De fire ens personkort
+>    på den nuværende forside udgår.
+> 3. **Navigation efter opgaver (2):** slå en person op · er vi i familie? · gennemse slægten · læs historien. Menuen
+>    kan klikkes og bruges med tastatur, ikke kun åbnes ved hover. Punkter, der ikke er bygget, vises ikke som »kommer«.
+> 4. **Personen får egen side (3):** `/person/:id` bliver en selvstændig side over slægterne; panelet i stamtræet
+>    bliver en genvej til den. Det er en ny permanent læserflade.
+> 5. **Mobil web (4):** simpelt læselayout, så personside, søgning og slægtskab kan læses på telefon, også fra et
+>    delt link.
+> 6. **Præsenslisten (5):** kun for indloggede medlemmer (redaktionen er også medlemmer), fordi den viser levende.
+>    Indtil det er bygget, står den ikke som klar i den offentlige menu.
+> 7. **»Er vi i familie?« (7):** på mobil et hurtigt værktøj med egen fane (»Det er mig« sættes én gang). På web vises
+>    slægtskabet som kontekst på personsiden (»din oldefars bror«), og værktøjet ligger i menuen. Resultatet kan deles
+>    som link. Indgår en levende person, kræver det login; synligheden styres af punkt 8.
+> 8. **Synlighed af levende personer (8):** to lag. *Grundniveau:* det, der står i den trykte Aarbog (navn,
+>    fødselsår, plads i slægten), vises for indloggede medlemmer; alle kan bede om at blive skjult. *Ekstra deling:*
+>    hvert medlem vælger i sin profil, hvem der kan se mere (billede, »det er mig«, at kunne findes i »Er vi i
+>    familie?«): kun redaktionen, egen slægt eller alle medlemmer. Standardvalget er det mest lukkede; børn får
+>    strammere standarder; samtykke og tilbagetrækning gemmes med dato. **Grundlaget for grundniveauet afklares med
+>    foreningens databeskyttelsesrådgiver, før det bygges.**
+>
+> **Følger af punkt 8 — forslag til ny ordlyd af invariant 8 i CLAUDE.md** (ikke indført; afventer punkt 8's afklaring):
+> »**GDPR indbygget.** `person.levende` styrer synlighed: afdøde er offentlige; levende ses kun af indloggede medlemmer
+> og kun på grundniveau (den trykte Aarbogs oplysninger), med ret til at blive skjult. Mere kræver medlemmets eget
+> synlighedsvalg i profilen (standard: mest lukket; børn strammere). Kortlagt på RLS.«
+>
+> **Næste skridt:** designsystem (ét fælles sæt tokens for web og mobil), derefter navigation og varianter af
+> hovedside, slægtsforside og personside i alle tilstande (mobilbredde, tom, indlogget), derefter overdragelse i
+> `docs/design/`.
+
 ## BESLUTTET: læserens fakta viser kun kildeteksten — mærkerne »bundet til bogens post« og »fra den oprindelige import« fjernes; justerer B11-spec'ens §4.4 (2026-11-12)
 
 > Projektejeren efter 6e-1 i prod (Conrad, 392): mærkerne er underlige og unødvendige formuleringer. De beskrev vores
