@@ -12,13 +12,13 @@ import { FeedStyring } from './components/FeedStyring';
 import { signIn, signOut, currentSession, type RedSession } from './data/auth';
 import {
   buildTidslinje, fetchHaendelserForPerson, fetchStoriesForPerson, storyPrefillFraPost, fetchRedaktionPersoner, fetchPersonEvidence, fetchNarrativer, fetchSources, fetchLineages, fetchSletPreview,
-  fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, fetchRedPersonMedia, fetchRedObjectMedia, nudgeOrdinal, fetchForaeldreUkendtMarkering, type RedPerson, type PersonEvidence,
+  fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, fetchSammeSomPar, fetchRedPersonMedia, fetchRedObjectMedia, nudgeOrdinal, fetchForaeldreUkendtMarkering, type RedPerson, type PersonEvidence,
   type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
   type HaendelsePost, type StoryPost, type TidslinjePost, type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
   fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
   fetchMediaBibliotek, fetchMediaAnvendelse, fetchUdrensPreview, formatMedieAlder, fetchPersonNarrativeRecords, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe, type UdrensPreview,
 } from './data/redaktionRead';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, insertAt, makeToken, previewSammeSom, type OcrFelt, type PersonKvalitetsarkRow } from '@daa/core';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, foldePrognose, insertAt, makeToken, type OcrFelt, type SameAsEdge, type PersonKvalitetsarkRow } from '@daa/core';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
 import { submitChange, describeCall, erFortrydKonflikt, oversaetFejl, planCall, resumeMediaUpload, type Change } from './data/redaktionWrite';
@@ -242,6 +242,19 @@ export default function Redaktion() {
   const [mediaBusy, setMediaBusy] = useState(false); // Slice B2: klient-genkodning tager et øjeblik
   // Retningsbekræftelse for et nyt samme_som-link: den valgte person + hvem der er kanonisk.
   const [ssConfirm, setSsConfirm] = useState<{ personId: string; navn: string; kanoniskId: string } | null>(null);
+  // Alle eksisterende samme_som-kanter til dialogens fold-prognose (null = hentes, 'fejl' = kunne ikke hentes).
+  // Uden dem ligner forældre, der allerede er koblet på tværs af udgaverne, konkurrerende forældre.
+  const [ssKanter, setSsKanter] = useState<SameAsEdge[] | null | 'fejl'>(null);
+  const ssPersonId = ssConfirm?.personId ?? null;
+  useEffect(() => {
+    if (ssPersonId === null) return;
+    let aktiv = true;
+    setSsKanter(null);
+    fetchSammeSomPar()
+      .then((par) => { if (aktiv) setSsKanter(par.map((p) => ({ alias: p.aId, canonical: p.bId }))); })
+      .catch(() => { if (aktiv) setSsKanter('fejl'); });
+    return () => { aktiv = false; };
+  }, [ssPersonId]);
   // 'partner' opretter en NY union; 'unionPartner' tilføjer til en eksisterende (reparerer fx
   // 1939-loaderens mor-løse børne-familier uden at flytte børnene).
   const [picker, setPicker] = useState<{ kind: 'barn' | 'partner' | 'unionPartner' | 'hverv' | 'gods' | 'sammeSom'; familyId?: string } | null>(null);
@@ -2253,7 +2266,7 @@ export default function Redaktion() {
         ([child, parents]) => parents.map((parent) => ({ child, parent, union: '' })),
       ),
     };
-    const preview = previewSammeSom(rawDb, [], { alias: alias.id, canonical: kanonisk.id });
+    const prognose = foldePrognose(rawDb, ssKanter, { alias: alias.id, canonical: kanonisk.id });
     return (
       <div onClick={() => setSsConfirm(null)} style={overlay(96)}>
         <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: 20 }}>
@@ -2264,9 +2277,15 @@ export default function Redaktion() {
           <div style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, marginBottom: 12 }}>{alias.navn}</div>
           <div onClick={() => setSsConfirm({ ...ssConfirm, kanoniskId: ssConfirm.kanoniskId === sid ? ssConfirm.personId : sid })}
             style={{ fontFamily: T.mono, fontSize: 12, color: T.bordeaux, cursor: 'pointer', marginBottom: 12 }}>⇅ Byt retning</div>
-          {!preview.folder ? (
+          {prognose.status === 'afventer' ? (
+            <div style={{ fontSize: 12.5, color: T.muted3, marginBottom: 12, lineHeight: 1.4 }}>Tjekker eksisterende koblinger…</div>
+          ) : prognose.status === 'ukendt' ? (
+            <div style={{ fontSize: 12.5, color: T.muted3, marginBottom: 12, lineHeight: 1.4 }}>
+              Kunne ikke hente de eksisterende koblinger, så det vides ikke, om personerne foldes. Linket kan stadig gemmes.
+            </div>
+          ) : !prognose.folder ? (
             <div style={{ fontSize: 12.5, color: T.bordeaux, marginBottom: 12, lineHeight: 1.4 }}>
-              ⚠ Foldes ikke endnu — {preview.grund}. Linket oprettes, men personerne vises separat til konflikten er løst. (redaktionel projektion — offentlig visning kan afvige)
+              ⚠ Foldes ikke endnu — {prognose.grund}. Linket oprettes, men personerne vises separat til konflikten er løst. (redaktionel projektion — offentlig visning kan afvige)
             </div>
           ) : null}
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>

@@ -190,3 +190,22 @@ export function previewSammeSom(
   );
   return karantæne ? { folder: false, grund: karantæne.reason } : { folder: true, grund: null };
 }
+
+/** Bekræftelsesdialogens fold-prognose. `kanter` er de eksisterende samme_som-kanter: `null` mens de
+ *  hentes, `'fejl'` hvis de ikke kunne hentes. Uden kanterne kan previewSammeSom ikke se, at to
+ *  forældresæt allerede er koblet på tværs af udgaverne, og ville advare falsk om "konkurrerende
+ *  forældre" (decisions 2026-11-12) — derfor vurderes der først, når kanterne er hentet. */
+export type FoldePrognose =
+  | { status: 'afventer' }
+  | { status: 'ukendt' }
+  | { status: 'klar'; folder: boolean; grund: string | null };
+
+export function foldePrognose(
+  rawDb: Db,
+  kanter: SameAsEdge[] | null | 'fejl',
+  hypotetisk: SameAsEdge,
+): FoldePrognose {
+  if (kanter === null) return { status: 'afventer' };
+  if (kanter === 'fejl') return { status: 'ukendt' };
+  return { status: 'klar', ...previewSammeSom(rawDb, kanter, hypotetisk) };
+}
