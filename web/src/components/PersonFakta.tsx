@@ -1,6 +1,6 @@
 // B11 (spec 2026-10-29-5c2-b11-laeserflade-design.md §4.4): personens fakta med kilde. Tre kildevisninger, der kan
 // skelnes: bundet til bogens post (trin 4-binding), fra den oprindelige import (citation) og ingen registreret kilde.
-import type { PersonFactSource, PersonFactStatement, PersonFactView } from '@daa/core';
+import type { KunIUdgave, PersonFactSource, PersonFactStatement, UdgaveFaktaVisning, UdgaveNote } from '@daa/core';
 import { T } from '../theme';
 import { Label } from './primitives';
 
@@ -38,7 +38,16 @@ function Udsagn({ st }: { st: PersonFactStatement }) {
   );
 }
 
-export function PersonFakta({ facts, error }: { facts: PersonFactView[]; error: boolean }) {
+function Note({ note }: { note: UdgaveNote }) {
+  const tekst = note.art === 'enig'
+    ? `✓ også i ${note.udgave.label}`
+    : `${note.udgave.label} skriver: ${note.vaerdier.join('; ')}`;
+  return <div style={{ fontFamily: T.sans, fontSize: 12, color: note.art === 'enig' ? T.muted2 : T.bordeaux, lineHeight: 1.35 }}>{tekst}</div>;
+}
+
+// 6e-1 (spec 2026-11-12 §5.2-5.3): den valgte udgaves fakta forrest; den anden udgave som note under linjen og
+// det, kun den anden udgave har, samlet til sidst under »Kun i <udgave>«.
+export function PersonFakta({ visning, error }: { visning: UdgaveFaktaVisning | null; error: boolean }) {
   if (error) {
     return (
       <>
@@ -47,28 +56,49 @@ export function PersonFakta({ facts, error }: { facts: PersonFactView[]; error: 
       </>
     );
   }
-  if (!facts.length) return null;
+  if (!visning || (!visning.linjer.length && !visning.kunI.length)) return null;
+  // »Kun i …« grupperet pr. udgave i core's rækkefølge (nyeste udgave først).
+  const kunI: { udgave: KunIUdgave['udgave']; raekker: KunIUdgave[] }[] = [];
+  for (const k of visning.kunI) {
+    const g = kunI.find((x) => x.udgave.sourceId === k.udgave.sourceId);
+    if (g) g.raekker.push(k);
+    else kunI.push({ udgave: k.udgave, raekker: [k] });
+  }
   return (
     <>
       <Label>Fakta</Label>
       <div style={{ display: 'flex', flexDirection: 'column' }}>
-        {facts.map((f) => (
-          <div key={f.factId} style={{ display: 'flex', gap: 12, padding: '8px 0', borderBottom: '1px solid rgba(34,31,26,.07)' }}>
+        {visning.linjer.map((l) => (
+          <div key={l.noegle} style={{ display: 'flex', gap: 12, padding: '8px 0', borderBottom: '1px solid rgba(34,31,26,.07)' }}>
             <span style={{ flex: 'none', width: 104, fontFamily: T.mono, fontSize: 10.5, letterSpacing: '.06em', textTransform: 'uppercase', color: T.muted3, paddingTop: 2 }}>
-              {typeNavn(f.faktatype)}
+              {typeNavn(l.faktatype)}
             </span>
             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {f.omstridt && (
+              {l.omstridt && (
                 <span style={{ alignSelf: 'flex-start', fontFamily: T.mono, fontSize: 10, color: T.bordeaux, border: `1px solid ${T.bordeaux}`, borderRadius: 4, padding: '0 5px' }}>omstridt</span>
               )}
-              {f.chosen && <Udsagn st={f.chosen} />}
-              {f.others.length > 0 && (
+              {l.vaerdi !== '' && (
+                <div>
+                  <div style={{ fontSize: 14, color: '#3d382f', lineHeight: 1.3 }}>{l.vaerdi}</div>
+                  {l.kilder.map((k, i) => <Kilde key={`${k.label}:${i}`} source={k} />)}
+                </div>
+              )}
+              {l.vaerdi !== '' && l.noter.map((n) => <Note key={`${n.art}:${n.udgave.sourceId}`} note={n} />)}
+              {l.andre.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <span style={{ fontFamily: T.mono, fontSize: 10, color: T.muted3 }}>Andre udsagn</span>
-                  {f.others.map((o, i) => <Udsagn key={`${o.assertionId}:${i}`} st={o} />)}
+                  {l.andre.map((o, i) => <Udsagn key={`${o.assertionId}:${i}`} st={o} />)}
                 </div>
               )}
             </div>
+          </div>
+        ))}
+        {kunI.map((g) => (
+          <div key={g.udgave.sourceId} style={{ padding: '10px 0 2px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <span style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase', color: T.muted3 }}>{`Kun i ${g.udgave.label}`}</span>
+            {g.raekker.map((k) => (
+              <div key={k.faktatype} style={{ fontSize: 13, color: '#3d382f', lineHeight: 1.35 }}>{`${typeNavn(k.faktatype)}: ${k.vaerdier.join('; ')}`}</div>
+            ))}
           </div>
         ))}
       </div>
