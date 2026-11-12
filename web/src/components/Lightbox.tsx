@@ -78,7 +78,7 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
           {/* Kreditlinjen vises ALTID når udfyldt — aldrig bag fold (juridisk krav ved
               CC-licenser, fx Deutsche Digitale Bibliothek kræver deres Quellenangabe vist). */}
           {m.kreditlinje && (
-            <div style={{ fontFamily: T.sans, fontSize: 12, color: T.inkMuted, marginTop: 4 }}>{m.kreditlinje}</div>
+            <div style={{ fontFamily: T.sans, fontSize: 12, color: T.inkMutedOnInverse, marginTop: 4 }}>{m.kreditlinje}</div>
           )}
           {kildeLinkOk && (
             <div style={{ marginTop: 4 }}>
@@ -96,7 +96,7 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
             </details>
           )}
           {items.length > 1 && (
-            <div style={{ fontFamily: T.mono, fontSize: 11, color: T.inkMuted, marginTop: 4 }}>{index + 1} / {items.length}</div>
+            <div style={{ fontFamily: T.mono, fontSize: 11, color: T.inkMutedOnInverse, marginTop: 4 }}>{index + 1} / {items.length}</div>
           )}
         </div>
       )}

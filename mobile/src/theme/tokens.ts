@@ -1,6 +1,6 @@
 // Design tokens. Farverne kommer fra den fælles @daa/theme (designsystemets tokens.json,
 // webredesign fase 1); fonte, radier, skygger og animationer står herunder.
-import { color } from '@daa/theme';
+import { color, radius } from '@daa/theme';
 
 // De gamle navne (paperBg, paperCard, beige*, textSecondary*, textMuted*, liveRoed, konklusion*,
 // konfliktFlade, bordeauxFillLight) er fjernet; se @daa/theme for reglerne (fx gold kun som pynt,
@@ -39,14 +39,8 @@ export const Fonts = {
 } as const;
 
 // Radier — README §6
-export const Radius = {
-  field: 11, // felter/knapper 9–14
-  card: 14, // kort 11–16
-  badge: 8, // badges 7–9
-  chip: 18, // chips/piller 16–20
-  sheet: 22, // bottom sheet top-hjørner
-  round: 9999, // runde avatarer 50%
-} as const;
+// Radier fra @daa/theme (samme værdier som før): field 11, card 14, badge 8, chip 18, sheet 22, round 9999.
+export const Radius = radius;
 
 // Skygger — README §6
 export const Shadow = {

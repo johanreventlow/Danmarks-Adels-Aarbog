@@ -8,7 +8,7 @@ export function Tilstand({ etiket, titel, children, handlinger, fejl = false }: 
   etiket: string; titel: string; children: ReactNode; handlinger?: ReactNode; fejl?: boolean;
 }) {
   return (
-    <section role={fejl ? 'alert' : undefined} style={{ maxWidth: 560, background: T.surfaceRaised, border: `1px solid ${fejl ? T.bordeaux : 'rgba(34,31,26,.10)'}`, borderRadius: 14, padding: 32, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: T.sans }}>
+    <section role={fejl ? 'alert' : undefined} style={{ maxWidth: 560, background: T.surfaceRaised, border: `1px solid ${fejl ? T.bordeaux : T.line}`, borderRadius: 14, padding: 32, display: 'flex', flexDirection: 'column', gap: 12, fontFamily: T.sans }}>
       <p style={{ margin: 0, fontFamily: T.mono, fontSize: 11, lineHeight: '14px', letterSpacing: '.16em', textTransform: 'uppercase', color: fejl ? T.bordeaux : T.inkMuted }}>{etiket}</p>
       <h2 style={{ margin: 0, fontFamily: T.serif, fontSize: 30, fontWeight: 600, lineHeight: 1.1, color: T.ink }}>{titel}</h2>
       <div style={{ margin: 0, fontSize: 15, lineHeight: '24px', color: T.inkSecondary }}>{children}</div>

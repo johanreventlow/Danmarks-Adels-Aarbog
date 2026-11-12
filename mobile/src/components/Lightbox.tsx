@@ -35,7 +35,7 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
           <View style={styles.captionWrap} pointerEvents="none">
             {cap ? <Body size={13} color={Colors.inkOnInverse} style={{ textAlign: 'center' }}>{cap}</Body> : null}
             {items.length > 1 ? (
-              <Mono size={10} color={Colors.inkMuted} style={{ textAlign: 'center', marginTop: 4 }}>{index + 1} / {items.length}</Mono>
+              <Mono size={10} color={Colors.inkMutedOnInverse} style={{ textAlign: 'center', marginTop: 4 }}>{index + 1} / {items.length}</Mono>
             ) : null}
           </View>
         )}

@@ -43,7 +43,7 @@ export function MapLightbox({ points, onClose }: { points: GeoPoint[]; onClose: 
         <GeoMap points={points} mode="explorer" height="100%" />
       </div>
       <div onClick={(e) => e.stopPropagation()}
-        style={{ marginTop: 12, fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', color: T.inkMuted }}>
+        style={{ marginTop: 12, fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', color: T.inkMutedOnInverse }}>
         Zoom og træk for at udforske
       </div>
     </div>,
