@@ -17,7 +17,7 @@ import { buildBrowse, showSearchResults } from './data/browse';
 import { useBookmarks, type BookmarkSort } from './data/bookmarks';
 import { signIn, signOut, currentSession, loginFejlTekst, type RedSession } from './data/auth';
 import { BookmarksView } from './components/BookmarksView';
-import { SlaegtPicker } from './components/SlaegtPicker';
+import { Sidehoved, type HovedpunktAktiv } from './components/Sidehoved';
 import { HomeView } from './components/HomeView';
 import { TreeView } from './components/TreeView';
 import { RelateView } from './components/RelateView';
@@ -29,15 +29,12 @@ import { ArmsView } from './components/ArmsView';
 import { AboutView } from './components/AboutView';
 import type { TreeSearchBundle } from './components/TreeSearch';
 import { synligeLinjer } from './data/lineage';
-import { THEMES, themeOfMode, labelOfMode, parseFolgesvendPath, pathForMode, detailOpenFor, type Mode, personPath, estatePath, stamtraePath, STANDARD_SLAEGT } from './data/nav';
-import { SearchIcon } from './components/primitives';
+import { labelOfMode, parseFolgesvendPath, pathForMode, detailOpenFor, type Mode, personPath, estatePath, stamtraePath, STANDARD_SLAEGT, SLAEGTER, findSlaegt } from './data/nav';
 import { Tilstand, tilstandPrimaer, tilstandSekundaer } from './components/Tilstand';
 import { T } from './theme';
 
-// Kun Reventlow findes i dag; vælgeren er 1-punkt + "flere kommer"-note (spec §2 ikke-mål).
-const SLAEGTER = [{ id: 'reventlow', navn: 'Reventlow' }];
 const EMPTY_CANONICAL_IDS: Record<string, string> = {};
-// Mode/THEMES/routing bor i ./data/nav (ren + unit-testet).
+// Mode og URL-grammatik bor i ./data/nav (ren + unit-testet).
 
 export default function Folgesvend() {
   const loc = useLocation();
@@ -135,7 +132,20 @@ export default function Folgesvend() {
     [bookmarks],
   );
   const [bmSort, setBmSort] = useState<BookmarkSort>('linje');
-  const [slaegtOpen, setSlaegtOpen] = useState(false);
+  // Slægter-menuen (sidehovedet). aabnerRef = elementet der åbnede den (knappen eller bjælkens
+  // »Skift slægt«), så Esc kan sende fokus tilbage dertil.
+  const [menuAaben, setMenuAabenState] = useState(false);
+  const menuKnap = useRef<HTMLButtonElement>(null);
+  const aabnerRef = useRef<HTMLElement | null>(null);
+  const setMenuAaben = useCallback((aaben: boolean, returFokus = false) => {
+    if (aaben) aabnerRef.current = (document.activeElement as HTMLElement | null) ?? menuKnap.current;
+    setMenuAabenState(aaben);
+    if (!aaben && returFokus) (aabnerRef.current ?? menuKnap.current)?.focus();
+  }, []);
+  // Senest besøgte slægt (Slægter-menuen). Kun gyldige slugs gemmes.
+  const [senestSlaegt, setSenestSlaegt] = useState<string | null>(() => {
+    try { return window.localStorage.getItem('daa_senest_slaegt'); } catch { return null; }
+  });
   // Stabil array-reference til BookmarksView — /simplify-fund: [...bookmarks.ids] i JSX'et
   // nedenfor gav en NY array hvert render, hvilket ville nulstille en useMemo i BookmarksView.
   const bookmarkIds = useMemo(() => [...bookmarks.ids], [bookmarks.ids]);
@@ -237,19 +247,20 @@ export default function Folgesvend() {
     setFocusId(cid);
     navigate(visPersonPath(cid), { replace: true, state: { prevFocusId } });
   };
-  // Mega-menu (brief §3): hover-udfoldning med lille intent-delay så bjælken ikke "blafrer".
-  const [megaOpen, setMegaOpen] = useState(false);
-  const megaTimer = useRef<number | null>(null);
-  const openMega = () => { if (megaTimer.current) clearTimeout(megaTimer.current); megaTimer.current = window.setTimeout(() => setMegaOpen(true), 120); };
-  const closeMega = () => { if (megaTimer.current) { clearTimeout(megaTimer.current); megaTimer.current = null; } setMegaOpen(false); };
-  useEffect(() => () => { if (megaTimer.current) clearTimeout(megaTimer.current); }, []);
+  // Menuen lukker ved enhver navigation; besøgte slægter huskes til »Senest besøgt«.
+  useEffect(() => { setMenuAabenState(false); }, [loc]);
+  useEffect(() => {
+    if (!findSlaegt(parsed.slaegt)) return;
+    setSenestSlaegt(parsed.slaegt);
+    try { window.localStorage.setItem('daa_senest_slaegt', parsed.slaegt!); } catch { /* privat vindue */ }
+  }, [parsed.slaegt]);
 
-  // Fane-skift (mega-menu + detalje-panelets "Sæt i fokus"/"Find slægtskab"-knapper).
-  const goToMode = (m: Mode) => {
-    closeMega();
+  // Fane-skift (sidehoved, slægtsbjælke og detalje-panelets "Sæt i fokus"/"Find slægtskab").
+  const goToMode = (m: Mode, tilSlaegt: string = slug) => {
+    setMenuAabenState(false);
     setMode(m);
     if (m === 'estates') setEstateId(null);
-    navigate(m === 'tree' && focusId ? stamtraePath(slug, focusId) : pathForMode(m, slug));
+    navigate(m === 'tree' && focusId ? stamtraePath(tilSlaegt, focusId) : pathForMode(m, tilSlaegt));
   };
   const backName = prevFocusId && model ? (model.byId[prevFocusId]?.name ?? null) : null;
 
@@ -394,7 +405,8 @@ export default function Folgesvend() {
       </div>
     );
   }
-  const activeTheme = themeOfMode(mode); // aktivt tema for den kollapsede bjælke — beregnes én gang
+  const hovedpunkt: HovedpunktAktiv = mode === 'soeg' || (mode === 'tree' && parsed.personId) ? 'personer'
+    : parsed.slaegt ? 'slaegter' : mode === 'relate' ? 'slaegtskab' : null;
 
   // Søgning-i-træet (§4): bundtet der driver TreeSearch. showResults afgør resultat-grid vs. træ;
   // valg af et resultat rydder søgningen og centrerer træet på personen (brief §4.1).
@@ -415,93 +427,18 @@ export default function Folgesvend() {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: T.surfaceGround, fontFamily: T.sans, color: T.ink, overflow: 'hidden' }}>
-      {/* Header — mega-menu-navigation (brief §3): kollapset bjælke hvis rygrad er de tre
-          temaer; folder sig ud på hover til en mega-menu med større logo + status-mærkede
-          punkter (live ✓ / kommer). Udskudt til Fase 2: redigér-knap (inline-redigering). */}
-      <div onMouseEnter={openMega} onMouseLeave={closeMega} style={{ flex: 'none', position: 'relative', zIndex: 30 }}>
-        <div style={{ height: 66, display: 'flex', alignItems: 'center', gap: 22, padding: '0 26px', background: T.surfaceRaised, borderBottom: `1px solid ${T.line}` }}>
-        {/* Lille logo i bjælken — crossfader ud når mega-menuen folder ud, så det store logo
-            i panelet "vokser frem" fra samme plads (ét logo, ikke to synlige på én gang). */}
-        <div onClick={() => goToMode('home')} title="Til forsiden" style={{ display: 'flex', alignItems: 'center', gap: 13, flex: 'none', cursor: 'pointer', transition: 'opacity .22s ease', opacity: megaOpen ? 0 : 1, pointerEvents: megaOpen ? 'none' : 'auto' }}>
-          <img src="/daf-logo.png" alt="Dansk Adels Forening" style={{ width: 40, height: 40, objectFit: 'contain' }} />
-          <div>
-            <div style={{ fontFamily: T.serif, fontSize: 21, fontWeight: 600, lineHeight: 1, color: T.ink }}>Danmarks Adels Aarbog</div>
-            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: T.inkMuted, marginTop: 2 }}>Følgesvend · Dansk Adels Forening</div>
-          </div>
-        </div>
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-          {THEMES.map((t) => {
-            const active = activeTheme === t.key;
-            return (
-              <div key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 9, fontFamily: T.sans, fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', color: active ? T.bordeaux : T.inkSecondary }}>
-                {t.label}<span style={{ fontSize: 10, color: active ? T.bordeaux : T.inkMuted }}>▾</span>
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 12 }}>
-          {/* Søg-knap — åbner søg/gennemse-modalen (v3: erstatter den permanente sidebar). */}
-          <div onClick={() => { goToMode('tree'); bumpSearchFocus(); }} title="Søg &amp; gennemse personer" style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.surfaceGround, border: '1px solid rgba(34,31,26,.12)', borderRadius: 9, padding: '7px 13px', cursor: 'pointer' }}>
-            <SearchIcon size={15} />
-            <span style={{ fontFamily: T.sans, fontSize: 14, fontWeight: 600, color: T.inkSecondary }}>Søg</span>
-          </div>
-          {/* Slægt-chip — åbner slægt-vælger-modal (kosmetisk, kun Reventlow findes — spec §3.3). */}
-          <div onClick={() => setSlaegtOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 9, background: T.surfaceGround, border: '1px solid rgba(34,31,26,.12)', borderRadius: 9, padding: '6px 12px', cursor: 'pointer' }}>
-            <span style={{ width: 26, height: 26, borderRadius: '50%', border: '1px solid rgba(136,26,51,.55)', boxShadow: `inset 0 0 0 2px ${T.surfaceGround}, inset 0 0 0 2.5px rgba(136,26,51,.28)`, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 14, fontWeight: 600, color: T.bordeaux }}>R</span>
-            <span style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: T.ink }}>Reventlow</span>
-            <span style={{ fontSize: 11, color: T.inkMuted }}>▾</span>
-          </div>
-          {/* Konto-indikator (bogmærke-login) — minimal, ikke en fuld kontoflade (spec §6). */}
-          {session ? (
-            <div onClick={() => { void doLogout(); }} title={session.email} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.inkMuted, cursor: 'pointer' }}>Log ud</div>
-          ) : (
-            <div onClick={() => setLoginOpen(true)} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>Log ind</div>
-          )}
-          {meCanon && model?.byId[meCanon] && (
-            <Link href={personPath(meCanon)} onNavigate={() => navigateTree(meCanon)} title="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: T.bordeauxTint, border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(model.byId[meCanon].name)}</Link>
-          )}
-          <Link href="/redaktion" style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.bordeaux }}>Redaktion ↗</Link>
-        </div>
-        </div>
-
-        {/* Mega-menu — folder ud på hover (brief §3.1): større logo-lockup + tematiserede
-            kolonner med live ✓ / kommer-status. */}
-        {/* Panelet er altid monteret men transition-styret (opacity/translateY/pointer-events),
-            så det folder blødt ud OG ind ("værket åbner sig", brief §3.1) frem for at poppe. */}
-          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: T.surfaceRaised, borderBottom: '1px solid rgba(34,31,26,.12)', boxShadow: '0 26px 46px rgba(20,17,13,.14)', padding: '32px 44px 38px', display: 'flex', gap: 44, transition: 'opacity .28s ease, transform .28s ease', opacity: megaOpen ? 1 : 0, transform: megaOpen ? 'translateY(0)' : 'translateY(-10px)', pointerEvents: megaOpen ? 'auto' : 'none' }}>
-            <div style={{ flex: 'none', width: 274, borderRight: `1px solid ${T.line}`, paddingRight: 40 }}>
-              {/* Samme logo som bjælkens — skalerer fra .62 (≈40px, bjælke-størrelse) op til 1
-                  (64px), så det læses som ét logo der vokser frem, ikke en anden kopi. */}
-              <div onClick={() => goToMode('home')} title="Til forsiden" style={{ cursor: 'pointer' }}>
-                <img src="/daf-logo.png" alt="Dansk Adels Forening" style={{ width: 64, height: 64, objectFit: 'contain', transition: 'transform .28s ease', transform: megaOpen ? 'scale(1)' : 'scale(.62)', transformOrigin: 'top left' }} />
-                <div style={{ fontFamily: T.serif, fontSize: 26, fontWeight: 600, color: T.ink, lineHeight: 1.05, marginTop: 14 }}>Danmarks Adels Aarbog</div>
-              </div>
-              <div style={{ fontFamily: T.sans, fontSize: 13.5, color: T.inkMuted, marginTop: 6, lineHeight: 1.45 }}>Følgesvend · Dansk Adels Forening. En digital ledsager til det trykte værk.</div>
-              <div onClick={() => goToMode('home')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 16, fontFamily: T.sans, fontSize: 13.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>‹ Til forsiden</div>
-            </div>
-            <div style={{ flex: 1, display: 'flex', gap: 32 }}>
-              {THEMES.map((t) => (
-                <div key={t.key} style={{ flex: 1 }}>
-                  <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.18em', textTransform: 'uppercase', color: T.goldInk, paddingBottom: 10, borderBottom: `1px solid ${T.line}` }}>{t.label}</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginTop: 10 }}>
-                    {t.items.map((it) => {
-                      const live = it.mode !== null;
-                      const active = it.mode === mode;
-                      return (
-                        <div key={it.label} onClick={() => { if (it.mode) goToMode(it.mode); }} title={live ? '' : 'Kommer'} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontFamily: T.serif, fontSize: 19, fontWeight: 600, color: active ? T.bordeaux : (live ? T.ink : T.inkMuted), padding: '6px 0', cursor: live ? 'pointer' : 'default' }}>
-                          <span>{it.label}</span>
-                          {live
-                            ? <span style={{ fontFamily: T.mono, fontSize: 10, color: active ? T.bordeaux : '#1f8a5b' }}>✓</span>
-                            : <span style={{ fontFamily: T.mono, fontSize: 9.5, letterSpacing: '.1em', textTransform: 'uppercase', color: T.inkMuted }}>kommer</span>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-      </div>
+      <Sidehoved
+        aktiv={hovedpunkt} menuAaben={menuAaben} setMenuAaben={setMenuAaben} menuKnap={menuKnap}
+        slaegter={SLAEGTER} senestSlaegt={senestSlaegt} aktivSlaegt={parsed.slaegt}
+        onVaelgSlaegt={(s) => goToMode('about', s)}
+        onPersoner={() => { goToMode('tree'); setBrowsing(true); }}
+        onSlaegtskab={() => goToMode('relate')} onForside={() => goToMode('home')}
+        loggetInd={!!session} onLogin={() => setLoginOpen(true)} onLogout={() => { void doLogout(); }}
+        visRedaktion={session?.role === 'redaktion'}
+        ekstra={meCanon && model?.byId[meCanon] ? (
+          <Link href={personPath(meCanon)} onNavigate={() => navigateTree(meCanon)} title="Din plads i slægten" aria-label="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: T.bordeauxTint, border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.bordeaux, flex: 'none', textDecoration: 'none' }}>{initials(model.byId[meCanon].name)}</Link>
+        ) : null}
+      />
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
 
@@ -555,8 +492,6 @@ export default function Folgesvend() {
           />
         ))}
       </div>
-
-      <SlaegtPicker open={slaegtOpen} slaegter={SLAEGTER} activeId="reventlow" onClose={() => setSlaegtOpen(false)} onPick={() => setSlaegtOpen(false)} />
 
       {loginOpen && (
         <div onClick={() => setLoginOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(20,17,13,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>

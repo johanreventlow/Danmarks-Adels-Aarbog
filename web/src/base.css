@@ -2,3 +2,7 @@
 *{box-sizing:border-box}
 body{margin:0}
 input,textarea,select{font-family:inherit}
+/* Fokusring (designsystemet: 2px fuld streg i focus = bordeaux #881a33, 2px afstand). Inline-stil
+   kan ikke udtrykke :focus-visible, derfor her. Felter med outline:none inline beholder deres. */
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{outline:2px solid #881a33;outline-offset:2px}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{transition-duration:0s!important;animation-duration:0s!important}}

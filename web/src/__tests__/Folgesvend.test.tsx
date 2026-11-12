@@ -138,10 +138,10 @@ test('modellen hentes igen efter login, så RLS-beskyttede personer kommer med',
   render(<Folgesvend />);
   await screen.findByText(/^Biografi:/);
   expect(mocks.loadModel).toHaveBeenCalledTimes(1);
-  fireEvent.click(screen.getByText('Log ind'));
+  fireEvent.click(screen.getByRole('button', { name: 'Log ind' })); // sidehovedets knap
   fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'red@example.test' } });
   fireEvent.change(screen.getByLabelText('Adgangskode'), { target: { value: 'hemmeligt' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Log ind' }));
+  fireEvent.submit(screen.getByRole('dialog'));
   await waitFor(() => expect(mocks.loadModel).toHaveBeenCalledTimes(2));
 });
 

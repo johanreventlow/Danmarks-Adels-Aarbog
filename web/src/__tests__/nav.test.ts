@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseFolgesvendPath, pathForMode, themeOfMode, labelOfMode, detailOpenFor, personPath, estatePath, slaegtPath, stamtraePath, soegPath, THEMES, type Mode } from '../data/nav';
+import { parseFolgesvendPath, pathForMode, labelOfMode, detailOpenFor, personPath, estatePath, slaegtPath, stamtraePath, soegPath, type Mode } from '../data/nav';
 
 const tom = { personId: null, fokusId: null, estateId: null, slaegt: null, q: null, omdiriger: null };
 
@@ -89,38 +89,13 @@ describe('stier med id og query', () => {
   });
 });
 
-describe('offentlig menu', () => {
-  it('præsenslisten står ikke i menuen, men ruten findes (webredesign fase 0)', () => {
-    expect(THEMES.flatMap((t) => t.items).some((it) => it.mode === 'praesens')).toBe(false);
-    expect(themeOfMode('praesens')).toBeNull();
-    expect(parseFolgesvendPath('/praesens').mode).toBe('praesens');
-  });
-});
-
-
-describe('themeOfMode', () => {
-  it('mapper live modes til deres tema', () => {
-    expect(themeOfMode('tree')).toBe('slaegten');
-    expect(themeOfMode('relate')).toBe('slaegten');
-    expect(themeOfMode('arms')).toBe('slaegten');
-    expect(themeOfMode('about')).toBe('slaegten');
-    expect(themeOfMode('estates')).toBe('godser');
-    expect(themeOfMode('kort')).toBe('godser');
-  });
-  it('home/bookmarks hører ikke under noget tema', () => {
-    expect(themeOfMode('home')).toBeNull();
-    expect(themeOfMode('bookmarks')).toBeNull();
-  });
-});
-
 describe('labelOfMode', () => {
-  it('giver menu-label for live modes', () => {
+  it('giver sidens navn', () => {
     expect(labelOfMode('tree')).toBe('Stamtræ');
-    expect(labelOfMode('kort')).toBe('Kort');
+    expect(labelOfMode('estates')).toBe('Godser');
   });
-  it('tom for modes uden menupunkt (home/bookmarks)', () => {
+  it('tom for modes uden navn', () => {
     expect(labelOfMode('home')).toBe('');
-    expect(labelOfMode('bookmarks')).toBe('');
   });
 });
 

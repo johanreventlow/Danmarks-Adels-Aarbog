@@ -1,46 +1,18 @@
 // Navigations-model + URL-grammatik for publikums-følgesvenden (ren, uden DOM/fetch, så den
 // kan unit-testes uafhængigt af Folgesvend-komponenten).
 //
-// 'home' = forsiden/landing (brief §6). 'bookmarks' er en konto-klynge-indgang (bmQuick
-// "Se alle", spec §3.3). Begge ligger UDEN FOR mega-menuens temaer men indgår i Mode-typen
-// så center-switchen i Folgesvend er exhaustive-tjekket af tsc.
-// 'soeg' = søgesiden (/soeg?q=); 'ukendtSlaegt' = /slaegt/<slug> med et slug, der ikke findes.
+// 'home' = hovedsiden. 'bookmarks' = min side/bogmærker. 'soeg' = søgesiden (/soeg?q=);
+// 'ukendtSlaegt' = /slaegt/<slug> med et slug eller en side, der ikke findes. Mode-typen gør
+// center-switchen i Folgesvend exhaustive-tjekket af tsc.
 export type Mode = 'home' | 'tree' | 'relate' | 'estates' | 'arms' | 'about' | 'bookmarks' | 'kort' | 'praesens' | 'soeg' | 'ukendtSlaegt';
 
-// Mega-menu-navigationen (brief §3): rygraden er de TRE temaer, ikke enkeltdestinationer.
-// Hvert punkt peger på en live Mode, eller null = "kommer" (endnu ikke bygget — vises
-// inaktivt men inviterende, brief §3.2). Layoutet rummer den fulde vision nu, så nye views
-// kun skal tændes, ikke ombygges. Gruppering efter brief §3.2.
-export type ThemeItem = { label: string; mode: Mode | null };
-export type Theme = { key: string; label: string; items: ThemeItem[] };
-export const THEMES: Theme[] = [
-  { key: 'slaegten', label: 'Slægten', items: [
-    { label: 'Stamtræ', mode: 'tree' }, { label: 'Slægtskab', mode: 'relate' },
-    // Præsenslisten viser levende og er kun for indloggede (decisions.md 2026-11-12, webredesign
-    // pkt. 6). Den står ikke i den offentlige menu, før medlemslaget er bygget (fase 8); ruten
-    // /praesens findes stadig.
-    { label: 'Våben', mode: 'arms' }, { label: 'Om slægten', mode: 'about' },
-  ] },
-  { key: 'godser', label: 'Godser & steder', items: [
-    { label: 'Godser', mode: 'estates' }, { label: 'Kort', mode: 'kort' },
-    { label: 'Steder (register)', mode: null }, { label: 'Organisationer', mode: null },
-  ] },
-  { key: 'historie', label: 'Historie', items: [
-    { label: 'Artikler', mode: null }, { label: 'Kilder / værker', mode: null },
-    { label: 'Tidslinje', mode: null }, { label: 'DAA-udgaver', mode: null },
-    { label: 'Billeder', mode: null },
-  ] },
-];
-// Hvilket tema en aktiv mode hører under (fremhæver temaet i den kollapsede bjælke).
-// home/bookmarks hører ikke under noget tema → null.
-export function themeOfMode(mode: Mode): string | null {
-  for (const t of THEMES) if (t.items.some((it) => it.mode === mode)) return t.key;
-  return null;
-}
-// Menu-label for en live mode (fallback-visning for ubyggede center-grene).
+// Sidens navn (overskrifter, slægtsbjælken og pladsholderen for ubyggede sider).
+const MODE_LABEL: Partial<Record<Mode, string>> = {
+  tree: 'Stamtræ', relate: 'Slægtskab', estates: 'Godser', kort: 'Kort over godser', arms: 'Våben',
+  about: 'Forside', bookmarks: 'Bogmærker', praesens: 'Præsensliste', soeg: 'Søgning',
+};
 export function labelOfMode(mode: Mode): string {
-  for (const t of THEMES) for (const it of t.items) if (it.mode === mode) return it.label;
-  return '';
+  return MODE_LABEL[mode] ?? '';
 }
 
 // URL-grammatik (webredesign fase 2, overdragelsens tabel »URL'er«). Ren path-routing; vercel.json
