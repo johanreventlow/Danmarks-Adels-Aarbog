@@ -2,6 +2,21 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 2018-20's fødsler og dødsfald bindes efter normaliseringsregel `dato-markoer-v2`; udføres før 6e-2 (2026-11-12)
+
+> Projektejeren 2026-11-12, efter kommentaren på Conrad (392): hans fødsel og død står uden postens koordinat. Årsag:
+> modellen skrev datomarkøren med (`* 21. april 1644`), og 6c-2's normalisering (`dato-markoer-v1`, `f.`/`†`, målt på
+> 1939) blev aldrig kørt på 2018-20. Lukker decisions 2026-09-27 pkt. 3's åbne normaliseringsregel for datomarkører.
+>
+> - **Vej 1:** nye forslagsversioner med markøren fjernet (`red_normaliser_forslag`), derefter maskinel accept med
+>   stikprøve på 20 og binding med de eksisterende writere. `binding_value_matches` ændres ikke.
+> - **Variant (a):** én lille DDL (regel v2: `*` tilføjes for `person.birth`; markøren følger prædikatet) og én
+>   datagang for fødsler og dødsfald sammen (≈ 509 bindinger: 267 + 242).
+> - Kortark over resten (≈ 56 `REAL_DIFF`) er en valgfri del 2 med eget GO.
+> - **Rækkefølge:** indskydes før 6e-2 (lille, uafhængig af 6e-2's skrivninger). Roadmappet ændres ikke: leverancen
+>   tjener trin 6's færdigbevis (b) for 2018-20.
+> - Spec: `docs/superpowers/specs/2026-11-12-2018-20-dato-bindinger-design.md`.
+
 ## BESLUTTET: læserens fakta viser kun kildeteksten — mærkerne »bundet til bogens post« og »fra den oprindelige import« fjernes; justerer B11-spec'ens §4.4 (2026-11-12)
 
 > Projektejeren efter 6e-1 i prod (Conrad, 392): mærkerne er underlige og unødvendige formuleringer. De beskrev vores
