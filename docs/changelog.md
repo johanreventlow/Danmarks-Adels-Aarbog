@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-12 — 2018-20's fødsler og dødsfald bundet til bogens post i prod
+
+509 fødsler og dødsfald i 2018-20 viser nu »DAA 2018-20, s. N · <post>« i stedet for kun »DAA 2018-20«, fx Conrad
+(392) ved født og død. Regel `dato-markoer-v2` fjerner datomarkøren pr. prædikat (`*`/`f.` ved fødsel, `†` ved død),
+så modellens forslag kan sammenlignes med importens dato. Tre ceremonier i prod med hver sin GO: DDL, normalisering
+(565 versioner) og kontrol + binding (stikprøve 20/20 `B`, 489 maskinelt, 509 bindinger, 0 tabt). Kilde 1's
+koordinat-rækker: fødsler 67 → 334, dødsfald 88 → 330. Læserkaldet er uændret hurtigt (største median 137 ms).
+59 skrivemåde-forskelle står `proposed`; del 2 er ikke besluttet. Detaljer i `database-current-state.md` §28 og
+`docs/evidensbaseret-genimport/dato-bindinger-2018-20-prod.md`.
+
 ## 2026-11-12 — trin 6e-1 i prod: læseren viser valgt udgave forrest og den anden som note
 
 Persondetaljen viser hver oplysning én gang i den valgte udgaves ord og kilde; den anden udgave står som note
