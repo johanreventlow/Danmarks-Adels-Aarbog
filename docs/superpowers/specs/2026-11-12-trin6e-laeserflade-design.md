@@ -123,6 +123,9 @@ læseren; at personsiden bliver langsommere.
 En faktarækkes udgave er dens **personrækkes kilde** (`person_external_id.source_id` / koordinatrækkens `source_id`),
 ikke citationens. Det følger trin 6-specens §6 pkt. 8 (1939's påstande ligger på kilde 3-rækken) og giver kildeløse
 fakta en udgave (392's »Conrad« uden kilde hører til 2018-20). En personrække uden kilde vises i alle udgaver.
+**Målt:** hver personrække har højst én `person_external_id`-række (0 med flere), og kun kilder med
+`source.slags='DAA-udgave'` (1 og 3) har rækker. »Udgave« = en sådan kilde; regler skal fejle lukket (vise rækken i
+alle udgaver), hvis en række en dag får flere.
 
 ### 5.2 Fakta i den valgte udgave
 
@@ -137,8 +140,12 @@ fakta en udgave (392's »Conrad« uden kilde hører til 2018-20). En personrækk
 
 For hver linje i den valgte udgave søges den samme faktatype i hver anden udgave i komponenten:
 
-- **Enig** (§5.4) → »✓ også i DAA 1939« (udgavens kortnavn).
-- **Uenig** (begge har en værdi, ikke ens) → »DAA 1939 skriver: <værdi>«. *Mit valg:* for flerværdi-typer (titel,
+- **Enig** (§5.4) → »✓ også i DAA 1939« (udgavens kortnavn). *Mit valg:* enig betyder, at den valgte udgaves
+  viste værdi er ens med **et hvilket som helst** af den anden udgaves udsagn af typen (valgt eller ej) — ellers ville
+  Conrads kildeløse »Conrad« give »DAA 1939 skriver: Conrad Reventlow«, selv om 2018-20 selv skriver det samme.
+- **Uenig** (begge har en værdi, intet ens) → »DAA 1939 skriver: <den anden udgaves valgte værdi>«.
+- **Uenighed inden for samme udgave** (to personrækker i samme udgave har valgt forskellige enkeltværdier, fx to
+  fødselsdatoer): begge står som linjer uden mærke (*mit valg*; det er en datasag, ikke læserens at afgøre). *Mit valg:* for flerværdi-typer (titel,
   dekoration) gives kun »✓ også«, når en af den anden udgaves værdier er ens; ellers ingen note pr. linje, men den
   anden udgaves uparrede værdier samles under »kun i DAA 1939«.
 - **Kun i den anden udgave** → samlet til sidst i fakta-sektionen: »Kun i DAA 1939: Begravet …«.
@@ -161,8 +168,9 @@ denne på »siger to udgaver det samme?«. Konservativ — ved tvivl: ikke ens.
   forkortelser (»Kmhre.«) — de står som »skriver: …«, hvilket er sandt.
 - **Tomme værdier** (»—«, kun tegnsætning) er ingen oplysning: de vises ikke som linje og indgår ikke i noter
   (*mit valg*; 1939's »Begravet —«).
-- **Bevis:** plan-Task 0 måler dækningen pr. type og en stikprøve på 40 »✓ også«-par, som projektejeren ser; ét falsk
-  par stopper reglen.
+- **Bevis:** plan-Task 0 måler dækningen pr. type og en stikprøve på 40 »✓ også«-par, som projektejeren ser. *Mit
+  valg:* stikprøven er en kontakt pr. faktatype: et falsk par slår »✓ også« fra for den type (dens noter bliver
+  »skriver: …«), indtil reglen er rettet og en ny stikprøve for typen er ren. Den blokerer ikke resten af 6e-1.
 
 ### 5.5 Biografiens standard og vælgerens chips
 
@@ -171,24 +179,38 @@ denne på »siger to udgaver det samme?«. Konservativ — ved tvivl: ikke ens.
 - **Inden for udgaven** (*mit valg* som deterministisk form af projektejerens afgørelse 4): den længste tekst. Målt
   rigtig i alle 5 tilfælde (§2.2). Henvisningsposten (III-58) forbliver en chip.
 - **Chippen er en post, fakta er en udgave:** III-58 og V-1 viser samme fakta (2018-20's); kun biografien skifter.
+- **Vælgeren bygges af udgaverne i komponenten** (biografier ∪ fakta), *mit valg*. Målt: 11 offentlige 1939-rækker
+  har fakta, men ingen offentlig biografi. Har en udgave fakta uden biografi, får den én chip (»DAA 1939«), der viser
+  »Ingen biografi fra denne udgave« og udgavens fakta. Har komponenten kun én udgave, vises ingen chips.
 
 ### 5.6 Læsbar kildeetiket for poster (6e-2)
 
-`private.narrative_record_labels` og det, `public_person_facts` bruger, får en ny editionsneutral fallback-orden:
+**Byggertjekkets fund (bekræftet):** læserne kalder ikke `private.narrative_record_labels`. `public_person_facts`
+(`schema.sql:21427`), biografilæseren v2 (`:16795`, `:16930`) og `public_family_sources` (`:20891`) læser
+`after_state #>> '{labels,record_label}'` fra seneste `private.narrative_publication_event` for bindingen — etiketten
+blev frosset ved publiceringen, før 1939 havde placements. Målt: 1.359 af 4.124 hændelser bærer en `record-`-etiket.
+Vejen til læseren er derfor projektejerens valg (§9 pkt. 1).
 
-1. Publiceret bindings `record_label` (som i dag).
-2. Én accepteret placement → `<linjekode>, <slægtled>. slægtled, nr. <trykt nr.>` (»II, 10. slægtled, nr. 3«).
-   2018-20's etiket er uændret (»V-1«) — byte-ens for kilde 1 er en del af beviset. *Mit valg:* gruppen udelades af
-   etiketten (kan være en hel sætning); den står i hovedet (§5.7).
-3. Ingen placement → ingen postdel; etiketten er kun citationens »DAA 1939, s. 541«.
+**Etikettens form** (uanset vej):
 
-`record_key` vises aldrig. Præcis form for 2 (fx når slægtled mangler) er bygherrens, under kravet om at den skal være
+1. Én accepteret placement med trykt nr. → `<linjekode>, <slægtled>. slægtled, nr. <trykt nr.>`
+   (»II, 10. slægtled, nr. 3«); uden trykt nr. → `<linjekode>, <slægtled>. slægtled`. 2018-20's etiket er uændret
+   (»V-1«) — byte-ens for kilde 1 er en del af beviset. *Mit valg:* gruppen udelades (kan være en hel sætning); den
+   står i hovedet (§5.7).
+2. Ingen placement → ingen postdel; kun citationens »DAA 1939, s. 541«.
+
+`record_key` vises aldrig. **Indtil 6e-2** (*mit valg*): 6e-1's klient viser ikke en postdel, der er lig postens
+`record_key` (mønster `record-<uuid>`), men kun citationens udgave og side. Så overholder 6e-1 anti-målet alene. Præcis form (fx når slægtled mangler) er bygherrens, under kravet om, at den er
 entydig på siden.
 
 ### 5.7 Koordinater, linjer og B6 (6e-2)
 
-- **Koordinat-RPC'ens entydighedsnøgle** udvides fra `(entry, printed_number)` til placementens fulde position
-  (entry, slægtled, gruppe, trykt nr.), så kilde 3 bruger placement. Kilde 1 byte-ens (`KOORD_SRC`).
+- **Koordinat-RPC'ens entydighedsnøgle** udvides fra `(entry, printed_number)` til
+  `(scheme_entry_id, generation_local, kuld_label, printed_number)`, så kilde 3 bruger placement. **Målt:** entydig for
+  alle 507 nummererede 1939-placements (0 kollisioner); `section_path` i stedet for gruppe giver 13 kollisioner. De 21
+  placements uden trykt nr. (stamfædre, decisions 2026-11-09) tæller ikke som kollision, men vises med linje og
+  slægtled uden nr. (*mit valg*). Kildegaten (hele kilden til legacy ved kollision) bevares som sikkerhedsnet.
+  Kilde 1 byte-ens (`KOORD_SRC`).
 - **Fart:** RPC'en må som anon højst koste, hvad den gjorde før 6d-1 (≈225 ms på stand-in, ≈0,6 s i prod). Fx ved at
   beregne `membership_is_current` mængdebaseret i stedet for pr. række. Måles på stand-in efter `ANALYZE`, median af 3.
 - **Hovedets linjer** følger vælgeren: 2018-20 viser 2018-20's linjer (som i dag); 1939 viser 1939's linjeskema-entry
@@ -236,8 +258,17 @@ Browsertjek som anon mod prod (trin 6-specens §8 b, opdateret af §3 og §9 her
 
 ## 9. Åbent til projektejeren
 
-- Skal 1939-linjeskemaets etiket rettes for OCR (»iesendorf« → bogens stavemåde), og i så fald som en lille
-  dataændring i 6e-2?
+1. **Hvordan når den læsbare 1939-etiket læseren** (§5.6)?
+   - (a) *Beregnet ved læsning:* hver offentlig læser (3-4 RPC'er) afleder etiketten fra placementen og ignorerer en
+     gemt etiket lig `record_key`. Ingen data skrives; men to sandheder (gemt og vist), og fartbudgettet rammes i hver
+     læser.
+   - (b) *Ny publiceringshændelse:* publiceringswriteren får formen fra §5.6, og en ceremoni skriver én ny
+     publiceringshændelse pr. berørt binding med den læsbare etiket (versioneret, som målarkitekturen foreskriver for
+     rettelser). Kræver generalprøve, afstemning pr. binding og fortrydelse; læserne er uændrede.
+   - *Min anbefaling: (b).* Etiketten er en del af det publicerede, og en fremtidig udgave publiceres så med den rigtige
+     etiket fra start.
+2. Skal 1939-linjeskemaets etiket rettes for OCR (»iesendorf« → bogens stavemåde), og i så fald som en lille
+   dataændring i 6e-2?
 
 ## 10. Sammenligning: det, specen ville have bygget på uden brainstormen
 
@@ -257,4 +288,8 @@ Projektejeren bad om sammenligningen. Uden spørgsmål ville 6e have fulgt trin 
 
 ## 11. Reviewlog
 
-(tom)
+- **Byggertjek 2026-11-12** (frisk Opus-agent, 6 spørgsmål): (1) etiketten er frosset i publiceringshændelsen →
+  bekræftet, §5.6 omskrevet, vejen til §9 pkt. 1, 6e-1's klientfilter tilføjet; (2) udgave pr. række → målt, svaret i
+  §5.1; (3) vælgeren når biografi og fakta ikke dækker de samme udgaver → målt (11), §5.5; (4) hvilke værdier noten
+  sammenligner → §5.3; (5) hvad et falsk par stopper → kontakt pr. faktatype, §5.4; (6) nøglens kolonner og
+  entydighed → målt (0 kollisioner), §5.7.
