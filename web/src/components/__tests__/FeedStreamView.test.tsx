@@ -167,13 +167,13 @@ describe('hrefForCard', () => {
     const kort: Extract<FeedCard, { kind: 'gods' }> = {
       kind: 'gods', id: 'gods:7', estateId: '7', navn: 'Gammel Gaard', meta: 'herregård', ownerDots: 3, kicker: 'Gods',
     };
-    expect(hrefForCard(kort)).toBe('/estate/7');
+    expect(hrefForCard(kort)).toBe('/gods/7');
   });
   it('våben-kort peger på våben-fanen', () => {
     const kort: Extract<FeedCard, { kind: 'vaaben' }> = {
       kind: 'vaaben', id: 'vaaben:1', armsId: '1', blazon: 'to skjolde', foot: 'DAA', kicker: 'Våben',
     };
-    expect(hrefForCard(kort)).toBe('/arms');
+    expect(hrefForCard(kort)).toBe('/slaegt/reventlow/vaaben');
   });
   it('slægtskabs-, forbundet- og samle-kort får intet href (målet ligger uden for URL-grammatikken)', () => {
     const slaegt: Extract<FeedCard, { kind: 'slaegt' }> = {

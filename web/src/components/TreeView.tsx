@@ -14,8 +14,10 @@ import { TreeSearch, type TreeSearchBundle } from './TreeSearch';
 import { Link } from '../Link';
 import { personPath } from '../data/nav';
 
-export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggleBookmark, search }: {
+export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggleBookmark, search, personHref = personPath }: {
   model: Model | null; focusId: string | null; onPick: (id: string) => void; onFocus: (id: string) => void;
+  // Adressen et navn linker til (samme som klikket navigerer til). Default /person/<id>.
+  personHref?: (id: string) => string;
   hasBookmark: (id: string) => boolean; onToggleBookmark: (id: string) => void; search: TreeSearchBundle;
 }) {
   // Visnings-variant (segmenteret kontrol) — bevares på tværs af fokus-skift (nulstilles kun når
@@ -99,7 +101,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   // bogmærkeflaget i Kolonner. title viser hele navnet, når det er afkortet.
   const navnLink = (id: string, navn: string, style: CSSProperties, onTap?: () => void) =>
     onTap
-      ? <Link href={personPath(id)} onNavigate={onTap} stopPropagation title={navn} style={{ display: 'block', ...style }}>{navn}</Link>
+      ? <Link href={personHref(id)} onNavigate={onTap} stopPropagation title={navn} style={{ display: 'block', ...style }}>{navn}</Link>
       : <div title={navn} style={style}>{navn}</div>;
 
   // Drill-valg (variant B). onFocus opdaterer fokus UDEN historik, så detalje-panelet følger valget.
