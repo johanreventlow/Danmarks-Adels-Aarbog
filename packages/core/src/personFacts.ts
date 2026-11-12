@@ -1,6 +1,7 @@
 // B11 (spec 2026-10-29-5c2-b11-laeserflade-design.md §4.4): fakta-sektionen i persondetaljen. Rækkerne kommer fra
 // public_person_facts (én pr. påstand og citation); her grupperes de pr. faktum, ordnes og får deres kildevisning:
 // bundet til bogens post (trin 4-binding), fra den oprindelige import (citation), eller ingen registreret kilde.
+import { visbarPostEtiket } from './recordLabel';
 
 export type PublicPersonFactRow = {
   person_id: number | string;
@@ -54,7 +55,7 @@ function factValue(r: PublicPersonFactRow): string {
 function factSource(r: PublicPersonFactRow): PersonFactSource {
   if (r.record_ref) {
     // citation_label bærer allerede udgave og side (»DAA 2018-20, s. 45«); record_label er posten (»I-32«).
-    const label = [r.citation_label || r.source_label, r.record_label].filter(Boolean).join(' · ');
+    const label = [r.citation_label || r.source_label, visbarPostEtiket(r.record_label)].filter(Boolean).join(' · ');
     return { kind: 'bundet', label, recordRef: r.record_ref };
   }
   if (r.source_label) {

@@ -71,6 +71,12 @@ describe('kildeLinje og mapFamilieKilder', () => {
     expect(rows[1].counterpartPersonId).toBe('9007199254740995');
     expect(kildeLinje(rows[0])).toBe('Kilde: DAA X · Post 1');
   });
+  it('kildeLinje skjuler tekniske postetiketter', () => {
+    const k = { familyId: '1', slags: 'aegteskab', counterpartPersonId: '2', sourceRecordRef: null, sourceLabel: 'DAA 1939',
+      recordLabel: 'record-07565168-b903-4444-9189-43d62d5c6ed6', citationLabel: '' } as const;
+    expect(kildeLinje(k)).toBe('Kilde: DAA 1939');
+    expect(kildeLinje({ ...k, sourceLabel: 'DAA 2018-20', recordLabel: 'V-1' })).toBe('Kilde: DAA 2018-20 · V-1');
+  });
   it('bigintTekst følger Postgres-bigint-intervallet', () => {
     expect(bigintTekst('9223372036854775807')).toBe('9223372036854775807');
     expect(bigintTekst('9223372036854775808')).toBeNull();

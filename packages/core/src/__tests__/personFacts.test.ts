@@ -75,6 +75,10 @@ describe('buildPersonFacts', () => {
     ]);
   });
 
+  it('bundet med teknisk record_label viser ikke nøglen', () => {
+    const [f] = buildPersonFacts([row({ record_ref: 'r', record_label: 'record-07565168-b903-4444-9189-43d62d5c6ed6', citation_label: 'DAA 1939, s. 541' })]);
+    expect(f.chosen?.source.label).toBe('DAA 1939, s. 541');
+  });
   it('bundet uden citation_label bruger udgaven foran posten', () => {
     const [f] = buildPersonFacts([row({ record_ref: 'r', record_label: 'III-37', citation_label: '' })]);
     expect(f.chosen?.source.label).toBe('DAA 2018-20 · III-37');
