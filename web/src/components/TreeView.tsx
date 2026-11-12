@@ -95,10 +95,12 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   // Navnet i et kort er ankeret (kortet selv rummer BookmarkFlag → ugyldigt som <a>).
   // stopPropagation: kortets egen onClick ville ellers udføre samme navigation én gang til —
   // og ved cmd-klik navigere den aktuelle fane mens browseren åbner en ny.
+  // display:block: et <a> er inline, og så virker overflow/ellipsis ikke — navnet løb ind under
+  // bogmærkeflaget i Kolonner. title viser hele navnet, når det er afkortet.
   const navnLink = (id: string, navn: string, style: CSSProperties, onTap?: () => void) =>
     onTap
-      ? <Link href={personPath(id)} onNavigate={onTap} stopPropagation style={style}>{navn}</Link>
-      : <div style={style}>{navn}</div>;
+      ? <Link href={personPath(id)} onNavigate={onTap} stopPropagation title={navn} style={{ display: 'block', ...style }}>{navn}</Link>
+      : <div title={navn} style={style}>{navn}</div>;
 
   // Drill-valg (variant B). onFocus opdaterer fokus UDEN historik, så detalje-panelet følger valget.
   // Vi udvider up/down KUN med parentsOf/childrenOf-id'er (kanoniske) → frontier-invarianten holder.
