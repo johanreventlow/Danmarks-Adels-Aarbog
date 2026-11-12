@@ -125,7 +125,8 @@ læseren; at personsiden bliver langsommere.
 
 En faktarækkes udgave er dens **personrækkes kilde** (`person_external_id.source_id` / koordinatrækkens `source_id`),
 ikke citationens. Det følger trin 6-specens §6 pkt. 8 (1939's påstande ligger på kilde 3-rækken) og giver kildeløse
-fakta en udgave (392's »Conrad« uden kilde hører til 2018-20). En personrække uden kilde vises i alle udgaver.
+fakta en udgave. *Kildeløs* = en påstand fra den oprindelige import uden citation til en side (læseren viser i dag
+»Kilde ikke registreret«); 392's »Conrad« er sådan en og hører til 2018-20, fordi 392 er en 2018-20-post. En personrække uden kilde vises i alle udgaver.
 **Målt:** hver personrække har højst én `person_external_id`-række (0 med flere), og kun kilder med
 `source.slags='DAA-udgave'` (1 og 3) har rækker. »Udgave« = en sådan kilde; regler skal fejle lukket (vise rækken i
 alle udgaver), hvis en række en dag får flere.
