@@ -81,11 +81,12 @@ export function HomeView({
                 <span style={{ minWidth: 0 }}>
                   <span style={{ display: 'block', fontFamily: T.serif, fontSize: 22, fontWeight: 600, lineHeight: 1.1 }}>{s.navn}</span>
                   <span style={{ display: 'block', fontFamily: T.sans, fontSize: 13, color: T.inkMuted, marginTop: 4 }}>
-                    {[
+                    {/* Tallene først, når modellen er hentet — aldrig »0 personer« under indlæsning. */}
+                    {model ? [
                       `${personCount} personer`,
                       linjer > 0 ? `${linjer} linjer` : null,
                       udgaver.length > 0 ? `udgaver: ${udgaver.join(', ')}` : null,
-                    ].filter(Boolean).join(' · ')}
+                    ].filter(Boolean).join(' · ') : 'Henter registret …'}
                   </span>
                 </span>
               </Link>
