@@ -4,6 +4,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { loadFromSupabase } from '../data/load';
+// Statisk (tidl. dynamisk `await import`): supabase-klienten indlæses alligevel allerede statisk via
+// data/load, så den dynamiske import sparede intet — og jest (uden vm-modules) kan ikke køre den,
+// hvilket gjorde logout-/login-forløbene utestbare (C8-generationsværnet).
+import { fetchProfile, signIn, signOut } from '../lib/auth';
+import { supabase } from '../lib/supabase';
 import { buildSnapPath } from '../data/selectors';
 import { SEED } from '../data/seed';
 import { childrenOf } from '../data/selectors';
@@ -23,6 +28,17 @@ let stashedLoadGeo: (() => Promise<Geo>) | null = null;
 // fanger sin generation og dropper sit resultat hvis en reload har skiftet den imens — ellers
 // kan en gammel (stadig-pending) geo-hentning lande sidst og overskrive den NYE models geo.
 let geoGeneration = 0;
+// Samme værn for redaktions-modellen: hver ny indlæsning, logout og brugerskift bumper tælleren,
+// og et loadRedaktionModel-svar (succes ELLER fejl) lander kun, hvis tælleren er uændret siden
+// kaldet startede. Ellers kan et igangværende kald lægge den forrige brugers model tilbage efter
+// logout, og to tvungne reloads der slutter i omvendt rækkefølge kan efterlade den ældste model.
+let redaktionGeneration = 0;
+// Nulstil redaktions-slicen og kassér alle igangværende indlæsninger. Status → 'idle' (ikke
+// 'loading'), så redaktion/_layout's effekt kan starte en ny indlæsning for den aktuelle bruger.
+const nulstilRedaktion = () => {
+  redaktionGeneration++;
+  return { redaktionModel: null, redaktionAux: null, redaktionStatus: 'idle' as const };
+};
 
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 export type DataSource = 'live' | 'seed' | null;
@@ -374,41 +390,46 @@ export const useStore = create<State>((set, get) => ({
 
   loadRedaktionModel: async (force?: boolean) => {
     if (!force && (get().redaktionStatus === 'loading' || get().redaktionStatus === 'ready')) return;
+    const gen = ++redaktionGeneration; // bind svaret til DENNE indlæsning (se redaktionGeneration)
     set({ redaktionStatus: 'loading' });
     try {
       // Redaktion collapser IKKE: en redaktør skal se de separate DB-poster for at forvalte
       // samme_som-links (spec §8 — redaktions-modellen holdes eksplicit separat).
       const res = await loadFromSupabase({ includePrivat: true, collapse: false });
       const model = buildModel(res.db);
+      if (gen !== redaktionGeneration) return; // logout/brugerskift/nyere reload imens → kassér
       set({ redaktionModel: model, redaktionAux: res.aux, redaktionStatus: 'ready' });
     } catch {
+      if (gen !== redaktionGeneration) return; // en forældet fejl må ikke overskrive nyere tilstand
       // Redaktion skal VIDE hvis det fejler — ingen seed-fallback. Kaldere tjekker redaktionStatus.
       set({ redaktionStatus: 'error' });
     }
   },
 
   doSignIn: async (email, password) => {
-    const { signIn } = await import('../lib/auth');
     const res = await signIn(email, password);
-    set({ rolle: res.rolle, reventlowPersonId: res.reventlowPersonId });
-    const { supabase } = await import('../lib/supabase');
+    // Brugerskift: en anden brugers redaktions-model (og igangværende indlæsning) må ikke overleve.
+    // Nulstilles i SAMME set som rollen, så _layout's effekt ser 'idle' og indlæser for den nye bruger.
+    const skift = res.userId !== get().session?.user?.id;
+    set({ rolle: res.rolle, reventlowPersonId: res.reventlowPersonId, ...(skift ? nulstilRedaktion() : {}) });
     const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
     set({ session: data.session });
   },
   doSignOut: async () => {
-    const { signOut } = await import('../lib/auth');
+    // Nulstillingen sker EFTER signOut: fejler signOut, er brugeren stadig logget ind, og den
+    // igangværende indlæsning skal så stadig kunne lande (ellers hænger status på 'loading').
+    // Et svar der lander mens signOut afventes, sætter blot modellen, som nulstilles lige efter.
     await signOut();
-    set({ session: null, rolle: 'medlem', reventlowPersonId: null,
-          redaktionModel: null, redaktionAux: null, redaktionStatus: 'idle' });
+    set({ session: null, rolle: 'medlem', reventlowPersonId: null, ...nulstilRedaktion() });
   },
   hydrateAuth: async () => {
-    const { supabase } = await import('../lib/supabase');
     if (!supabase) return;
     const { data } = await supabase.auth.getSession();
     if (data.session) {
-      const { fetchProfile } = await import('../lib/auth');
       const prof = await fetchProfile(data.session.user.id);
-      set({ session: data.session, rolle: prof.rolle, reventlowPersonId: prof.reventlowPersonId });
+      const skift = data.session.user.id !== get().session?.user?.id; // brugerskift → nulstil (som doSignIn)
+      set({ session: data.session, rolle: prof.rolle, reventlowPersonId: prof.reventlowPersonId,
+            ...(skift ? nulstilRedaktion() : {}) });
     }
   },
   setDryRun: (v) => set({ dryRun: v }),
