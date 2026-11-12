@@ -85,7 +85,9 @@ Denne inddeling er grov (min egen SQL), ikke kontrolmodellens klassifikation. Pl
 1. **Ny funktion** `private.normaliser_dato_markoer_v2(p_value text, p_predicate text)`: samler blanktegn som v1 og
    fjerner én indledende markør. For `person.birth` er markørerne `f.` og `*`, for `person.death` er markøren `†`.
    Derefter trimmes. Intet andet ændres.
-2. **Markøren følger prædikatet, *mit valg*.** Én 2018-20-dødsværdi har formen `* og † 9999` (født og død samme år).
+2. **Markøren følger prædikatet, *mit valg*.** Fødselsmønstret er `'^(f\.|\*)(?! ?og\M) ?'`: markøren fjernes ikke,
+   når resten starter med ordet `og` (`* og † 1756`, født og død samme år; 1 fødsel i prod-kopien), slutreviewet
+   2026-11-12. Én 2018-20-dødsværdi har formen `* og † 9999` (født og død samme år).
    v2 med `*` på død ville gøre den til `og † 9999`. Med markøren bundet til prædikatet røres den ikke og står i
    resten. v1 fjernede `f.` og `†` på begge prædikater. v2 er strengere for død (`f.` fjernes ikke) og har samme
    effekt på alle målte værdier: ingen af 2018-20's eller 1939's dødsforslag har formen `f. …`. Planen måler det i
@@ -102,7 +104,7 @@ Denne inddeling er grov (min egen SQL), ikke kontrolmodellens klassifikation. Pl
 ### 4.2 Datagang (én ceremoni efter 6c-2's form)
 
 1. **Normalisering:** ét `red_normaliser_forslag(…, 'dato-markoer-v2')` pr. kandidat. Kandidaterne er 2018-20's
-   aktuelle `proposed` fødsler og dødsfald, som v2 ændrer: forventet 280 + 286 = 566 versioner. Også resten
+   aktuelle `proposed` fødsler og dødsfald, som v2 ændrer: forventet 279 + 286 = 565 versioner (fødslen `* og † …` røres ikke, §4.1 pkt. 2). Også resten
    normaliseres, *mit valg*: kortene i del 2 viser så bogens værdi uden markør, og en v2-version er aldrig dårligere end
    modellens. Listen er fastlåst fra øvelsen (antal + sha), og afviger den, stopper runneren.
 2. **Klassifikation** med `interpretation_control_classification.sql` og kildescope 1 (`daa.control_src`) og
@@ -123,7 +125,9 @@ Denne inddeling er grov (min egen SQL), ikke kontrolmodellens klassifikation. Pl
 
 ### 4.3 Del 2 (valgfri): kort over resten
 
-Kun `REAL_DIFF` med et faktum (cirka 56) bliver kort, i højst 2 ark à ca. 30 personas. De 13, der kun afviger i
+Målt 2026-11-12 (rollback-simulering på en frisk prod-kopi): 0 `REAL_DIFF`, 59 `SKRIVEMAADE` (13 fødsler, 46 dødsfald) og
+15 `NO_FACT`. Kortkandidaterne er de 59 dato-`SKRIVEMAADE` (som 6c-2 §4.4 pkt. 3), i højst 2 ark à ca. 30 personas;
+§2.2's grove inddeling herunder er afløst. De 13, der kun afviger i
 skrivemåde, står `proposed` (decisions 2026-09-27 pkt. 3), og de 5 uden et dødsfald kan ikke bindes (opret-benet).
 Svarene `B`/`D`/`V`/`P` og rettelsesvejen er som i 6c-2 §4.4-4.6. Del 2 får sit eget GO, og projektejeren afgør efter
 del 1, om den køres. »Vis tab før kortrunde« gælder: del 1's tal og læservisning lægges frem først.
@@ -168,7 +172,7 @@ backlog); at ændre `binding_value_matches`; at genkøre modellen; at rette pås
   0 forekomster af `record-<uuid>` og `legacy-source:`.
 - **Tal i prod:** rækker med `record_label` for kilde 1 stiger fra 67 til ≈ 334 for fødsel og fra 88 til ≈ 330 for død.
   De andre typer og kilde 3 er uændrede. Antallet er det, læseren viser (§2.3's måling), ikke bindingerne.
-- **Kæden:** versioner (566), `MATCH` (509), stikprøve (20, 0 fejl), afgørelser (509), bindinger (509) og rest pr.
+- **Kæden:** versioner (565), `MATCH` (509), stikprøve (20, 0 fejl), afgørelser (509), bindinger (509) og rest pr.
   klasse (74). Hver binding, der var gyldig før, er gyldig efter (nøglet).
 - **Fart:** de 10 tungeste personers fakta-kald som `anon` ≤ 1,0 s (median af 5).
 - **Status:** `status.md`'s 2018-20-kolonne for promotion og B11-rækken opdateres med dato og nye tal.
