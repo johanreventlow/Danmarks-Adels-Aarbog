@@ -120,7 +120,9 @@ Konservative regler ud over spec'en (*mit valg*; ikke opløst = bogens tekst, al
 - **Flere eller omstridte referencer:** viser personrækken flere fødsler/døde, der ikke er ens, eller er en af dem
   omstridt eller uden vist værdi, opløses intet. Rammer 0.
 - **Flertydig i teksten:** bogen skriver også »s.d.«/»s.m.« om en dato tidligere i samme tekst (»bisat … s.å. og
-  begravet s.d.« = bisættelsens dag). Giver den læsning et andet resultat end fødslen/døden, opløses intet. Rammer 1.
+  begravet s.d.« = bisættelsens dag). Giver den læsning et andet resultat end fødslen/døden, opløses intet. Rammer 1
+  efter review-rettelsen; efter slutrettelserne tælles det tilfælde under »datofelt ved en dato i teksten« (målingen
+  angiver én årsag pr. værdi, og den regel prøves først), ligesom 3 af de tidligere 8 »dødsdatoen er selv relativ«.
 - **Forkortelser er ikke datoer:** initialer og forkortelseskæder (»i S. M. Kirke«, »R.S.A.O.«, »K.S.D.«, »S.D.-kors«,
   »p.s.d.«) regnes ikke som relative. 1939's »15 s. M.« (lille s) gør, og det samme gør versalformen lige efter et
   dagnummer (»29. S.M.«). Rammer 0 på stand-in'en, og formerne
@@ -132,9 +134,10 @@ Konservative regler ud over spec'en (*mit valg*; ikke opløst = bogens tekst, al
   et år deleligt med 4), eller en reference med en sådan dato, opløses ikke. Et ekstra dagnummer uden punktum
   (»21 og 22 april«) gør referencen flertydig. Rammer 0.
 
-Kontrol af de 273 opløste værdier efter slutrettelserne (kun antal): 0 ugyldige datoer, 0 før referencen, 1 nævner
-flere datoer. (Efter review-rettelsen: 313 opløste; 0 ugyldige, 0 før referencen, 5 med flere datoer, alle
-forskellige hændelser i bogens tekst.)
+Kontrol af de opløste værdier (kun antal, samme tæller før og efter slutrettelserne): 313 → 273 opløste; ugyldige
+datoer 0 → 0; værdier med mere end én dato (også tekst + datofelt) 40 → 1 — de 40, der nu vises som bogens tekst, er
+netop dem; før referencen 0 → 0, talt for de 239 værdier, hvis reference er en hel dato (de øvrige 34 sikres af
+reglen »før referencen«). Efter review-rettelsen talte en snævrere tæller 5 værdier, der nævner flere hændelser.
 
 **Review-rettelsen (2026-11-12), før → efter:**
 
