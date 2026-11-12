@@ -1,16 +1,18 @@
-// Feed-strøm — web-udgaven (fase1-design.md §7). Monteres under forsidens hero/kuraterede
-// sektion (HomeView.tsx). Bygger sin egen FeedAux af estates/arms (allerede hentet af
-// Folgesvend.tsx), henter bio + livsdato asynkront ved mount, og doserer via en sentinel i
-// bunden (scroll-lytter på den rigtige scroll-container, se §-note nedenfor — ikke
-// IntersectionObserver, jf. §7.4's forslag; se begrundelse ved sentinel-opsætningen). Én
-// kolonne, centreret, ~680px — redaktionel ro, ikke et masonry-dashboard.
+// Feed-strøm — web-udgaven (fase1-design.md §7, webredesign fase 4). Monteres på hovedsiden
+// (HomeView.tsx). Bygger sin egen FeedAux af estates/arms (allerede hentet af Folgesvend.tsx),
+// henter bio, livsdato, hændelser, historier og nævnt-grundlag ved mount og deler først ud, når
+// alle er afgjort. Ingen uendelig rulning: seks blade ad gangen bag knappen »Vend seks blade
+// mere«, hvert parti som egen blok i op til tre spalter.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   bookmarkPersonId, createFeedStream, resumeStream, TEMP_DISABLED_KINDS,
   type FeedCard, type FeedPinInput, type FeedStream, type HaendelserBy, type LivsdatoBy,
-  type StorieBy,
+  type NaevntGrundlag, type StorieBy,
 } from '@daa/feed';
+import { radius } from '@daa/theme';
 import { buildWebFeedAux, fetchFeedBios, withFeedBios } from '../../data/feedAux';
+import { fetchNaevntGrundlag } from '../../data/feedGrundlag';
+import { BLADE_PR_UDDELING, delUd, iBlokke } from '../../data/feedUddeling';
 import { epochDay, newSeed, todayISO } from '../../data/feedSession';
 import { loadLivsdatoBy } from '../../data/livsdato';
 import { loadHaendelserBy } from '../../data/haendelser';
@@ -27,7 +29,6 @@ import type { ArmsItem, EstateItem } from '../../data/public';
 import type { Model } from '../../data/types';
 import { FeedCardView } from './FeedCardView';
 
-const PAGE_SIZE = 12;
 const SEEN_EXCLUDED_KINDS = new Set<FeedCard['kind']>(['slaegt', 'dagensperson', 'samle']);
 
 // Hvor peger et feed-kort hen, som en adresserbar sti? null = målet ligger bevidst uden for
@@ -96,27 +97,48 @@ export function FeedStreamView({
     ));
   }, [bookmarksReady, bookmarkOwnerId, bookmarkHydrationVersion, bookmarkedIds]);
 
-  // Bio + livsdato + hændelser + stories hentes ved mount (§7.3). Alle sene ankomster genopbygger
-  // med samme seed og resume-kontrakten nedenfor — viste kort nulstilles aldrig.
+  // Bio + livsdato + hændelser + stories + nævnt-grundlag hentes ved mount (§7.3). Første
+  // uddeling venter, til ALLE er afgjort (hentet eller fejlet) — ellers kom de første seks blade
+  // uden biografi. null = venter. Sene ankomster (fx en ny model) genopbygger med samme seed og
+  // resume-kontrakten nedenfor — viste kort nulstilles aldrig.
   const [bios, setBios] = useState<Record<string, string> | null>(null);
   const [bioError, setBioError] = useState<string | null>(null);
-  const [livsdatoBy, setLivsdatoBy] = useState<LivsdatoBy>({});
-  const [haendelserBy, setHaendelserBy] = useState<HaendelserBy>({});
-  const [storieBy, setStorieBy] = useState<StorieBy>({});
+  const [livsdatoBy, setLivsdatoBy] = useState<LivsdatoBy | null>(null);
+  const [haendelserBy, setHaendelserBy] = useState<HaendelserBy | null>(null);
+  const [storieBy, setStorieBy] = useState<StorieBy | null>(null);
+  const [naevntGrundlag, setNaevntGrundlag] = useState<NaevntGrundlag | 'fejlet' | null>(null);
   useEffect(() => {
     let alive = true;
     const canon = model.canonicalIdById ?? {};
     setBios(null);
     setBioError(null);
+    setLivsdatoBy(null);
+    setHaendelserBy(null);
+    setStorieBy(null);
+    setNaevntGrundlag(null);
     void fetchFeedBios(canon, model.persons.map((p) => p.id)).then(
       (b) => { if (alive) setBios(b); },
       (e) => { if (alive) { console.warn('[feed] biografier fejlede:', e); setBioError(String((e as Error)?.message ?? e)); } },
     );
-    void loadLivsdatoBy(canon).then((ld) => { if (alive) setLivsdatoBy(ld); });
-    void loadHaendelserBy(canon).then((hs) => { if (alive) setHaendelserBy(hs); });
-    void loadStorieBy(canon).then((stories) => { if (alive) setStorieBy(stories); });
+    // Loaderne sluger selv deres fejl (tomt = degraderet feed); .catch er kun et værn, så en
+    // uventet afvisning aldrig lader første uddeling vente for evigt.
+    void loadLivsdatoBy(canon).catch(() => ({})).then((ld) => { if (alive) setLivsdatoBy(ld); });
+    void loadHaendelserBy(canon).catch(() => ({})).then((hs) => { if (alive) setHaendelserBy(hs); });
+    void loadStorieBy(canon).catch(() => ({})).then((stories) => { if (alive) setStorieBy(stories); });
+    void fetchNaevntGrundlag(canon).then(
+      (g) => { if (alive) setNaevntGrundlag(g); },
+      (e) => { if (alive) { console.warn('[feed] nævnt-grundlag fejlede — ingen nævnt-kort:', e); setNaevntGrundlag('fejlet'); } },
+    );
     return () => { alive = false; };
   }, [model]);
+  const dataAfgjort = (bios !== null || bioError !== null)
+    && livsdatoBy !== null && haendelserBy !== null && storieBy !== null && naevntGrundlag !== null;
+  // Nævnt-kort kræver, at hver kilde til fravær er hentet komplet. En tom bio-mængde tæller som
+  // fejlet (fetchFeedBios kan give {} ved en fejl i den gamle kontrakt), ikke som »ingen har tekst«.
+  const naevntInput = bios !== null && Object.keys(bios).length > 0 && naevntGrundlag !== null
+    && naevntGrundlag !== 'fejlet'
+    ? naevntGrundlag
+    : undefined;
 
   // Set-hukommelse: hentes ÉN gang ved mount og fryses for hele visningens levetid (§5.3).
   const [seenWeights, setSeenWeights] = useState<Record<string, number> | null>(null);
@@ -131,7 +153,8 @@ export function FeedStreamView({
   const shownRef = useRef<FeedCard[]>([]);
   useEffect(() => { shownRef.current = shown; }, [shown]);
   const feedMediaRequests = useMemo<FeedMediaRequest[]>(() => shown.flatMap((card) => {
-    if (!('personId' in card)) return [];
+    // Et nævnt-kort er netop personen uden mere end navnet — intet billede på det blad.
+    if (!('personId' in card) || card.kind === 'naevnt') return [];
     return [{ cardId: card.id, kind: card.kind, personId: model.canonicalIdById?.[card.personId] ?? card.personId }];
   }), [shown, model.canonicalIdById]);
   const feedMediaPersonIds = useMemo(() => [...new Set(feedMediaRequests.map((request) => request.personId))], [feedMediaRequests]);
@@ -174,32 +197,43 @@ export function FeedStreamView({
   }, [feedMediaRequests, mediaCandidatesByPerson, bookmarkOwnerId]);
   const markedIdsRef = useRef<Set<string>>(new Set());
   // streamRef holder DEN STRØM der aktuelt doseres fra — genopbygget (via resumeStream, se
-  // nedenfor) hver gang bio/livsdato/hændelser ankommer, uden at nulstille viste kort.
+  // nedenfor) ved sene ændringer i input, uden at nulstille viste kort.
   const streamRef = useRef<FeedStream | null>(null);
   const streamOwnerRef = useRef<string | null | undefined>(undefined);
   const [done, setDone] = useState(false);
 
-  // Bumpes ved hver (gen)opbygning af streamRef.current (ren ref-mutation, ingen re-render i
-  // sig selv) — bruges KUN som et signal til fill-effekten nedenfor om at genvurdere, uden at
-  // gøre streamRef selv til reaktiv state.
-  const [streamGeneration, setStreamGeneration] = useState(0);
+  // Et dealt blad regnes som set med det samme: knappen viser seks ad gangen, og et blad, der
+  // er delt ud, har læseren haft foran sig. Hukommelsen er frosset for denne visning (§5.3),
+  // så markeringen påvirker først næste besøg — derfor »fortsætter hvor du slap«.
+  const markAsSeen = useCallback((cards: readonly FeedCard[]) => {
+    const ids = cards
+      .filter((c) => !SEEN_EXCLUDED_KINDS.has(c.kind) && !markedIdsRef.current.has(c.id))
+      .map((c) => c.id);
+    if (ids.length === 0) return;
+    ids.forEach((id) => markedIdsRef.current.add(id));
+    seenStoreRef.current.markSeen(ids, epochDay());
+  }, []);
 
   useEffect(() => {
-    if (seenWeights === null || !bookmarkSnapshotReady || !bookmarkSnapshot) return;
+    if (!dataAfgjort || seenWeights === null || !bookmarkSnapshotReady || !bookmarkSnapshot) return;
     const enrichedModel = bios ? withFeedBios(model, bios) : model;
     const built = createFeedStream(enrichedModel, aux, {
       seed, todayISO: today, meId, focusId,
       bookmarkedIds: bookmarkSnapshot.ids,
-      seenWeights, livsdatoBy, haendelserBy, storieBy, pins: feedPins,
+      seenWeights,
+      livsdatoBy: livsdatoBy ?? {}, haendelserBy: haendelserBy ?? {}, storieBy: storieBy ?? {},
+      pins: feedPins,
       disabledKinds: TEMP_DISABLED_KINDS,
+      naevntGrundlag: naevntInput,
     });
     if (streamRef.current === null || streamOwnerRef.current !== bookmarkSnapshot.ownerId) {
       streamRef.current = built;
       streamOwnerRef.current = bookmarkSnapshot.ownerId;
-      const first = built.next(PAGE_SIZE);
-      shownRef.current = first;
       markedIdsRef.current.clear();
+      const first = delUd(built, []);
+      shownRef.current = first;
       setShown(first);
+      markAsSeen(first);
     } else {
       // Rebuild pga. bio/livsdato/hændelses-ankomst (SAMME seed) — resume, aldrig nulstil.
       const preserved = preserveShownForResume(shownRef.current);
@@ -210,73 +244,35 @@ export function FeedStreamView({
       streamRef.current = resumeStream(built, new Set(preserved.map((c) => c.id)));
     }
     setDone(streamRef.current.done());
-    setStreamGeneration((g) => g + 1);
     // Live bookmarkedIds er bevidst ikke input her: bookmarkSnapshot fryses efter hydrering,
-    // så et toggle midt i scroll ikke omordner strømmen. shownRef læses tilsvarende via ref.
-  }, [model, bios, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins]);
+    // så et toggle midt i læsningen ikke omordner strømmen. shownRef læses tilsvarende via ref.
+  }, [model, bios, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins, dataAfgjort, naevntInput, markAsSeen]);
 
-  const markShownAsSeen = useCallback(() => {
-    const ids = shownRef.current
-      .filter((c) => !SEEN_EXCLUDED_KINDS.has(c.kind) && !markedIdsRef.current.has(c.id))
-      .map((c) => c.id);
-    if (ids.length === 0) return;
-    ids.forEach((id) => markedIdsRef.current.add(id));
-    seenStoreRef.current.markSeen(ids, epochDay());
-  }, []);
-
-  const appendingRef = useRef(false);
-  const handleEndReached = useCallback(() => {
+  // »Vend seks blade mere«: næste parti som egen blok; fokus flyttes til den nye blok, så
+  // tastatur- og skærmlæserbrugere står ved de nye blade og ikke ved knappen under dem.
+  const blokRefs = useRef<Map<number, HTMLElement>>(new Map());
+  const [fokusBlok, setFokusBlok] = useState<number | null>(null);
+  const vendFlere = useCallback(() => {
     const stream = streamRef.current;
-    if (!stream || appendingRef.current || stream.done()) return;
-    appendingRef.current = true;
-    markShownAsSeen(); // det netop udscrollede parti regnes som set (§7-approksimation af viewability)
-    const next = stream.next(PAGE_SIZE);
-    setShown((prev) => [...prev, ...next]);
+    if (!stream || stream.done()) return;
+    const next = delUd(stream, shownRef.current);
+    const blokIndex = Math.ceil(shownRef.current.length / BLADE_PR_UDDELING);
+    shownRef.current = [...shownRef.current, ...next];
+    setShown(shownRef.current);
     setDone(stream.done());
-    appendingRef.current = false;
-  }, [markShownAsSeen]);
-
-  // VIGTIGT: siden scroller IKKE i window/body (Folgesvend.tsx's rodlayout er
-  // `height:100vh; overflow:hidden`, med den faktiske scroll i en indre
-  // `<div data-scroll>`-container). Dosering er derfor bundet til DENNE container, ikke
-  // vinduet. To komplementære udløsere holder sentinellen dækket:
-  // 1) et 'scroll'-lytter-tjek på selve containeren (synkront, ingen browser-batching) —
-  //    dækker ægte brugerscroll.
-  // 2) en efterkontrol når `shown`/streamGeneration ændrer sig (§-note nedenfor) — dækker
-  //    "kort indhold fylder ikke skærmen" og "en strøm-rebuild uden scroll".
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-
-  const checkAndFill = useCallback(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const scrollEl = el.closest('[data-scroll]');
-    const viewportRect = scrollEl ? scrollEl.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
-    const rect = el.getBoundingClientRect();
-    // 400px margin (spec §7.4): begynd at hente FØR sentinellen er bogstaveligt synlig.
-    const inView = rect.top < viewportRect.bottom + 400 && rect.bottom > viewportRect.top - 400;
-    if (inView) handleEndReached();
-  }, [handleEndReached]);
-
+    markAsSeen(next);
+    if (next.length > 0) setFokusBlok(blokIndex);
+  }, [markAsSeen]);
   useEffect(() => {
-    const el = sentinelRef.current;
-    const scrollEl = el?.closest('[data-scroll]');
-    if (!scrollEl) return;
-    scrollEl.addEventListener('scroll', checkAndFill, { passive: true });
-    return () => scrollEl.removeEventListener('scroll', checkAndFill);
-  }, [checkAndFill]);
-
-  // "Fyld skærmen"-efterkontrol: kører efter hver commit hvor `shown` eller streamGeneration
-  // ændrer sig — inkl. efter handleEndReached's egen setShown, hvilket giver en selv-
-  // terminerende "fyld indtil enten skærmen er fuld eller strømmen er tom"-løkke ved
-  // mount/rebuild, uden at afhænge af at brugeren rent faktisk scroller (fx efter bios
-  // ankommer, hvor sentinellen kan stå ubevæget men strømmen nu har mere at give).
-  useEffect(() => {
-    checkAndFill();
-  }, [shown, streamGeneration, checkAndFill]);
+    if (fokusBlok === null) return;
+    blokRefs.current.get(fokusBlok)?.focus();
+    setFokusBlok(null);
+  }, [fokusBlok]);
+  const harSetFoer = seenWeights !== null && Object.keys(seenWeights).length > 0;
 
   const openCard = useCallback((card: FeedCard) => {
     switch (card.kind) {
-      case 'portrait': case 'citat': case 'arkiv': case 'historie': case 'embede': case 'jubilaeum': case 'paadennedag': case 'dagensperson':
+      case 'portrait': case 'citat': case 'arkiv': case 'historie': case 'embede': case 'jubilaeum': case 'paadennedag': case 'dagensperson': case 'naevnt':
         onOpenPerson(card.personId); break;
       case 'gods': onOpenEstate(card.estateId); break;
       case 'vaaben': onOpenArms(); break;
@@ -285,44 +281,69 @@ export function FeedStreamView({
     }
   }, [onOpenPerson, onOpenEstate, onOpenArms, onOpenSlaegt, onBrowseAll]);
 
+  const blokke = iBlokke(shown);
   return (
-    <div style={{ maxWidth: 680, margin: '0 auto' }}>
+    <div>
       {bioError ? (
         <div role="alert" style={{ marginBottom: 14, padding: 14, color: T.bordeaux, background: T.surfaceRaised, border: '1px solid rgba(136,26,51,.25)' }}>
           <strong>Kunne ikke hente feedets biografier</strong>
           <div style={{ marginTop: 4 }}>Nogle blade vises uden biografi. Prøv at genindlæse siden om lidt.</div>
         </div>
       ) : null}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {shown.map((card) => {
-          const pid = bookmarkPersonId(card);
-          const modelPerson = 'personId' in card ? model.byId[card.personId] : null;
-          const fallbackName = 'personId' in card && 'name' in card ? card.name : ('personId' in card ? `#${card.personId}` : '');
-          const fallbackYears = 'personId' in card && 'years' in card ? card.years : '';
-          return (
-            <FeedCardView
-              key={card.id}
-              card={card}
-              person={'personId' in card ? { name: modelPerson?.name ?? fallbackName, years: modelPerson?.years ?? fallbackYears } : undefined}
-              media={mediaByCard[card.id] ?? []}
-              bookmarked={pid ? hasBookmark(pid) : false}
-              onSave={onSaveBookmark}
-              onOpen={openCard}
-              href={hrefForCard(card)}
-            />
-          );
-        })}
-      </div>
-      <div ref={sentinelRef} style={{ height: 1 }} />
-      <FeedFooter done={done} />
+      {shown.length === 0 && !done ? (
+        <p role="status" style={{ margin: '18px 0', fontSize: 14, color: T.inkMuted }}>Henter blade fra Aarbogen …</p>
+      ) : null}
+      {blokke.map((blok, i) => (
+        // Hver uddeling er sin egen blok; spalterne (op til tre) fyldes inden for blokken, så et
+        // nyt parti aldrig flytter rundt på de blade, der allerede står ovenover.
+        <section
+          key={blok[0].id}
+          ref={(el) => { if (el) blokRefs.current.set(i, el); else blokRefs.current.delete(i); }}
+          tabIndex={-1}
+          aria-label={`Blade ${i * BLADE_PR_UDDELING + 1}–${i * BLADE_PR_UDDELING + blok.length}`}
+          style={{ columns: '3 260px', columnGap: 18, marginBottom: 18, outline: 'none' }}
+        >
+          {blok.map((card) => {
+            const pid = bookmarkPersonId(card);
+            const modelPerson = 'personId' in card ? model.byId[card.personId] : null;
+            const fallbackName = 'personId' in card && 'name' in card ? card.name : ('personId' in card ? `#${card.personId}` : '');
+            const fallbackYears = 'personId' in card && 'years' in card ? card.years : '';
+            return (
+              <div key={card.id} style={{ breakInside: 'avoid', marginBottom: 18 }}>
+                <FeedCardView
+                  card={card}
+                  person={'personId' in card ? { name: modelPerson?.name ?? fallbackName, years: modelPerson?.years ?? fallbackYears } : undefined}
+                  media={mediaByCard[card.id] ?? []}
+                  bookmarked={pid ? hasBookmark(pid) : false}
+                  onSave={onSaveBookmark}
+                  onOpen={openCard}
+                  href={hrefForCard(card)}
+                />
+              </div>
+            );
+          })}
+        </section>
+      ))}
+      {shown.length > 0 ? (
+        <div style={{ padding: '10px 0 28px', textAlign: 'center' }}>
+          {done ? (
+            <p style={{ margin: 0, fontSize: 14, color: T.inkMuted }}>
+              Du har vendt alle dagens blade.{' '}
+              <button type="button" onClick={onBrowseAll} style={{ ...tekstKnap }}>Se hele registret</button>
+            </p>
+          ) : (
+            <>
+              <button type="button" onClick={vendFlere} style={vendKnap}>Vend seks blade mere</button>
+              {harSetFoer ? (
+                <p style={{ margin: '8px 0 0', fontSize: 13, color: T.inkMuted }}>Feedet fortsætter, hvor du slap.</p>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function FeedFooter({ done }: { done: boolean }) {
-  return (
-    <div style={{ padding: '28px 0', textAlign: 'center', fontFamily: T.mono, fontSize: 9.5, letterSpacing: '.14em', textTransform: 'uppercase', color: T.inkMuted }}>
-      {done ? 'Du har mødt hele slægten i dag — udforsk registeret' : 'Henter flere blade fra slægten'}
-    </div>
-  );
-}
+const vendKnap = { fontFamily: T.sans, fontSize: 14, lineHeight: '20px', fontWeight: 600, padding: '12px 22px', borderRadius: radius.field, border: `1px solid ${T.lineStrong}`, background: T.surfaceRaised, color: T.ink, cursor: 'pointer' } as const;
+const tekstKnap = { font: 'inherit', padding: 0, border: 0, background: 'none', color: T.bordeaux, textDecoration: 'underline', cursor: 'pointer' } as const;

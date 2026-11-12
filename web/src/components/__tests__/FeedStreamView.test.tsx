@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FeedCard } from '@daa/feed';
+import type { FeedCard, FeedInputs } from '@daa/feed';
 import { hrefForCard } from '../feed/FeedStreamView';
 
 const mediaMocks = vi.hoisted(() => ({
@@ -10,6 +10,9 @@ const mediaMocks = vi.hoisted(() => ({
 }));
 const streamMocks = vi.hoisted(() => ({ createFeedStream: vi.fn(), resumeStream: vi.fn() }));
 const feedAuxMocks = vi.hoisted(() => ({ fetchFeedBios: vi.fn() }));
+const grundlagMocks = vi.hoisted(() => ({ fetchNaevntGrundlag: vi.fn() }));
+const loaderMocks = vi.hoisted(() => ({ loadHaendelserBy: vi.fn() }));
+const seenMocks = vi.hoisted(() => ({ markSeen: vi.fn(), weights: {} as Record<string, number> }));
 
 vi.mock('../../data/feedMedia', () => mediaMocks);
 vi.mock('../../data/feedAux', () => ({
@@ -17,12 +20,13 @@ vi.mock('../../data/feedAux', () => ({
   fetchFeedBios: feedAuxMocks.fetchFeedBios,
   withFeedBios: (model: unknown) => model,
 }));
+vi.mock('../../data/feedGrundlag', () => grundlagMocks);
 vi.mock('../../data/livsdato', () => ({ loadLivsdatoBy: () => Promise.resolve({}) }));
-vi.mock('../../data/haendelser', () => ({ loadHaendelserBy: () => Promise.resolve({}) }));
+vi.mock('../../data/haendelser', () => loaderMocks);
 vi.mock('../../data/story', () => ({ loadStorieBy: () => Promise.resolve({}) }));
 vi.mock('../../data/seenCards', () => ({
-  createSeenStore: () => ({ load: () => Promise.resolve([]), markSeen: vi.fn() }),
-  toSeenWeights: () => ({}),
+  createSeenStore: () => ({ load: () => Promise.resolve([]), markSeen: seenMocks.markSeen }),
+  toSeenWeights: () => seenMocks.weights,
 }));
 vi.mock('../../data/feedSession', () => ({ epochDay: () => 1, newSeed: () => 1, todayISO: () => '2026-07-26' }));
 vi.mock('@daa/feed', async (importOriginal) => ({
@@ -41,23 +45,21 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-const firstCard: Extract<FeedCard, { kind: 'portrait' }> = {
-  kind: 'portrait', id: 'portrait:1', personId: '1', name: 'Første', years: '', initials: 'F', title: null, bio: '', kicker: 'Portræt',
-};
-const secondCard: Extract<FeedCard, { kind: 'portrait' }> = {
-  kind: 'portrait', id: 'portrait:2', personId: '2', name: 'Anden', years: '', initials: 'A', title: null, bio: '', kicker: 'Portræt',
-};
-const model = {
-  persons: [
-    { id: '1', name: 'Første', years: '', born: null, died: 1700, title: '', bio: '', privat: false },
-    { id: '2', name: 'Anden', years: '', born: null, died: 1700, title: '', bio: '', privat: false },
-  ],
-  byId: {
-    '1': { id: '1', name: 'Første', years: '', born: null, died: 1700, title: '', bio: '', privat: false },
-    '2': { id: '2', name: 'Anden', years: '', born: null, died: 1700, title: '', bio: '', privat: false },
-  },
-  indexes: {},
-} as any;
+const portraet = (id: string): Extract<FeedCard, { kind: 'portrait' }> => ({
+  kind: 'portrait', id: 'portrait:' + id, personId: id, name: 'Person ' + id, years: '', initials: 'P',
+  title: null, bio: '', kicker: 'Portræt',
+});
+const SYV = Array.from({ length: 7 }, (_, i) => portraet(String(i + 1)));
+const model = { persons: SYV.map((c) => ({ id: c.personId })), byId: {}, indexes: {} } as any;
+
+function listStream(cards: FeedCard[]) {
+  let i = 0;
+  return {
+    next: vi.fn((n: number) => { const ud = cards.slice(i, i + n); i += ud.length; return ud; }),
+    done: vi.fn(() => i >= cards.length),
+    total: () => cards.length,
+  };
+}
 
 function feedProps(bookmarkOwnerId: string | null) {
   return {
@@ -68,37 +70,89 @@ function feedProps(bookmarkOwnerId: string | null) {
   };
 }
 
-describe('FeedStreamView media lifecycle', () => {
-  beforeEach(() => {
-    streamMocks.createFeedStream.mockReset().mockImplementation(() => {
-      let nextCall = 0;
-      return {
-        next: vi.fn(() => (nextCall++ === 0 ? [firstCard] : [secondCard])),
-        done: vi.fn(() => nextCall >= 2),
-      };
-    });
-    streamMocks.resumeStream.mockReset().mockImplementation((stream) => stream);
-    feedAuxMocks.fetchFeedBios.mockReset().mockResolvedValue({});
-    mediaMocks.fetchFeedMediaCandidates.mockReset();
-    mediaMocks.resolveFeedMediaForCards.mockReset().mockImplementation(async (requests, candidates) => Object.fromEntries(
-      requests.map((request: { cardId: string; personId: string }) => [request.cardId, (candidates[request.personId] ?? []).map((candidate: { id: string; titel: string }) => ({
-        id: candidate.id, slags: 'portræt', titel: candidate.titel, kunstner: '', datering: '',
-        mediumUrl: `https://example.test/${candidate.id}.jpg`, largeUrl: `https://example.test/${candidate.id}.jpg`,
-      }))]),
-    ));
+const ids1til6 = ['1', '2', '3', '4', '5', '6'];
+
+beforeEach(() => {
+  streamMocks.createFeedStream.mockReset().mockImplementation(() => listStream(SYV));
+  streamMocks.resumeStream.mockReset().mockImplementation((stream) => stream);
+  feedAuxMocks.fetchFeedBios.mockReset().mockResolvedValue({ '1': 'En biografi.' });
+  grundlagMocks.fetchNaevntGrundlag.mockReset().mockResolvedValue({ personerMedMereEndNavn: new Set() });
+  loaderMocks.loadHaendelserBy.mockReset().mockResolvedValue({});
+  seenMocks.markSeen.mockReset();
+  seenMocks.weights = {};
+  mediaMocks.fetchFeedMediaCandidates.mockReset().mockResolvedValue({});
+  mediaMocks.resolveFeedMediaForCards.mockReset().mockImplementation(async (requests, candidates) => Object.fromEntries(
+    requests.map((request: { cardId: string; personId: string }) => [request.cardId, (candidates[request.personId] ?? []).map((candidate: { id: string; titel: string }) => ({
+      id: candidate.id, slags: 'portræt', titel: candidate.titel, kunstner: '', datering: '',
+      mediumUrl: `https://example.test/${candidate.id}.jpg`, largeUrl: `https://example.test/${candidate.id}.jpg`,
+    }))]),
+  ));
+});
+
+describe('FeedStreamView — uddeling', () => {
+  it('deler først ud, når alle kilder er afgjort, og sender da nævnt-grundlaget med', async () => {
+    const haendelser = deferred<Record<string, unknown>>();
+    loaderMocks.loadHaendelserBy.mockReturnValue(haendelser.promise);
+    render(<FeedStreamView {...feedProps(null)} />);
+    await act(async () => { await Promise.resolve(); });
+    expect(streamMocks.createFeedStream).not.toHaveBeenCalled();
+    expect(screen.getByRole('status').textContent).toContain('Henter blade');
+
+    await act(async () => { haendelser.resolve({}); });
+    await waitFor(() => expect(streamMocks.createFeedStream).toHaveBeenCalledTimes(1));
+    const inputs = streamMocks.createFeedStream.mock.calls[0][2] as FeedInputs;
+    expect(inputs.naevntGrundlag?.personerMedMereEndNavn).toBeInstanceOf(Set);
   });
 
-  it('bevarer det igangværende kandidatfetch, når næste side appendes', async () => {
+  it('sender intet nævnt-grundlag, når grundlaget fejler eller biografierne er tomme', async () => {
+    grundlagMocks.fetchNaevntGrundlag.mockRejectedValue(new Error('permission denied'));
+    const view = render(<FeedStreamView {...feedProps(null)} />);
+    await waitFor(() => expect(streamMocks.createFeedStream).toHaveBeenCalled());
+    expect((streamMocks.createFeedStream.mock.calls[0][2] as FeedInputs).naevntGrundlag).toBeUndefined();
+    view.unmount();
+
+    streamMocks.createFeedStream.mockClear();
+    grundlagMocks.fetchNaevntGrundlag.mockResolvedValue({ personerMedMereEndNavn: new Set() });
+    feedAuxMocks.fetchFeedBios.mockResolvedValue({});
+    render(<FeedStreamView {...feedProps(null)} />);
+    await waitFor(() => expect(streamMocks.createFeedStream).toHaveBeenCalled());
+    expect((streamMocks.createFeedStream.mock.calls[0][2] as FeedInputs).naevntGrundlag).toBeUndefined();
+  });
+
+  it('viser seks blade, og knappen vender de næste som ny blok med fokus', async () => {
+    render(<FeedStreamView {...feedProps(null)} />);
+    await waitFor(() => expect(screen.getAllByRole('region')).toHaveLength(1));
+    expect(screen.getByRole('region', { name: 'Blade 1–6' })).toBeTruthy();
+    expect(seenMocks.markSeen).toHaveBeenLastCalledWith(ids1til6.map((id) => 'portrait:' + id), 1);
+    expect(screen.queryByText(/fortsætter, hvor du slap/)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vend seks blade mere' }));
+    const nyBlok = await screen.findByRole('region', { name: 'Blade 7–7' });
+    await waitFor(() => expect(document.activeElement).toBe(nyBlok));
+    expect(screen.queryByRole('button', { name: 'Vend seks blade mere' })).toBeNull();
+    expect(screen.getByText(/Du har vendt alle dagens blade/)).toBeTruthy();
+  });
+
+  it('nævner kun »fortsætter, hvor du slap«, når læseren har set blade før', async () => {
+    seenMocks.weights = { 'portrait:9': 0.25 };
+    render(<FeedStreamView {...feedProps(null)} />);
+    expect(await screen.findByText('Feedet fortsætter, hvor du slap.')).toBeTruthy();
+  });
+});
+
+describe('FeedStreamView media lifecycle', () => {
+  it('bevarer det igangværende kandidatfetch, når næste parti vendes', async () => {
     const firstFetch = deferred<Record<string, unknown[]>>();
     mediaMocks.fetchFeedMediaCandidates.mockImplementation((ids: string[]) => (
-      ids[0] === '1' ? firstFetch.promise : Promise.resolve({ '2': [] })
+      ids[0] === '1' ? firstFetch.promise : Promise.resolve({ '7': [] })
     ));
 
     render(<FeedStreamView {...feedProps(null)} />);
-
+    await waitFor(() => expect(mediaMocks.fetchFeedMediaCandidates).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Vend seks blade mere' }));
     await waitFor(() => expect(mediaMocks.fetchFeedMediaCandidates).toHaveBeenCalledTimes(2));
-    expect(mediaMocks.fetchFeedMediaCandidates).toHaveBeenNthCalledWith(1, ['1'], {});
-    expect(mediaMocks.fetchFeedMediaCandidates).toHaveBeenNthCalledWith(2, ['2'], {});
+    expect(mediaMocks.fetchFeedMediaCandidates).toHaveBeenNthCalledWith(1, ids1til6, {});
+    expect(mediaMocks.fetchFeedMediaCandidates).toHaveBeenNthCalledWith(2, ['7'], {});
     firstFetch.resolve({ '1': [{ id: 'media-1', titel: 'Første portræt' }] });
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Åbn billede: Første portræt' })).toBeTruthy());
@@ -108,33 +162,29 @@ describe('FeedStreamView media lifecycle', () => {
   it('viser ikke et sent kandidatresultat fra den forrige bogmærke-ejer', async () => {
     const ownerAFetch = deferred<Record<string, unknown[]>>();
     const ownerBFetch = deferred<Record<string, unknown[]>>();
-    mediaMocks.fetchFeedMediaCandidates.mockImplementation((ids: string[]) => {
-      if (ids[0] === '1' && ids.length === 1) return ownerAFetch.promise;
-      if (ids[0] === '2') return Promise.resolve({ '2': [] });
-      return ownerBFetch.promise;
-    });
+    mediaMocks.fetchFeedMediaCandidates
+      .mockImplementationOnce(() => ownerAFetch.promise)
+      .mockImplementationOnce(() => ownerBFetch.promise);
 
     const view = render(<FeedStreamView {...feedProps('owner-a')} />);
-    await waitFor(() => expect(mediaMocks.fetchFeedMediaCandidates).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mediaMocks.fetchFeedMediaCandidates).toHaveBeenCalledTimes(1));
     view.rerender(<FeedStreamView {...feedProps('owner-b')} />);
-    await waitFor(() => expect(mediaMocks.fetchFeedMediaCandidates).toHaveBeenCalledTimes(3));
-    expect(mediaMocks.fetchFeedMediaCandidates).toHaveBeenNthCalledWith(3, ['1', '2'], {});
+    await waitFor(() => expect(mediaMocks.fetchFeedMediaCandidates).toHaveBeenCalledTimes(2));
+    expect(mediaMocks.fetchFeedMediaCandidates).toHaveBeenNthCalledWith(2, ids1til6, {});
 
     await act(async () => { ownerAFetch.resolve({ '1': [{ id: 'owner-a', titel: 'Ejer A portræt' }] }); });
     expect(screen.queryByRole('button', { name: 'Åbn billede: Ejer A portræt' })).toBeNull();
 
-    ownerBFetch.resolve({ '1': [{ id: 'owner-b', titel: 'Ejer B portræt' }], '2': [] });
+    ownerBFetch.resolve({ '1': [{ id: 'owner-b', titel: 'Ejer B portræt' }] });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Åbn billede: Ejer B portræt' })).toBeTruthy());
   });
 
   it('starter ikke en ny media-resolution efter unmount fra et sent kandidatresultat', async () => {
     const pendingFetch = deferred<Record<string, unknown[]>>();
-    mediaMocks.fetchFeedMediaCandidates.mockImplementation((ids: string[]) => (
-      ids[0] === '1' ? pendingFetch.promise : Promise.resolve({ '2': [] })
-    ));
+    mediaMocks.fetchFeedMediaCandidates.mockImplementation(() => pendingFetch.promise);
 
     const view = render(<FeedStreamView {...feedProps(null)} />);
-    await waitFor(() => expect(mediaMocks.fetchFeedMediaCandidates).toHaveBeenCalledWith(['1'], {}));
+    await waitFor(() => expect(mediaMocks.fetchFeedMediaCandidates).toHaveBeenCalledWith(ids1til6, {}));
     view.unmount();
     await act(async () => { pendingFetch.resolve({ '1': [{ id: 'unmounted', titel: 'Må ikke vises' }] }); });
 
@@ -143,9 +193,18 @@ describe('FeedStreamView media lifecycle', () => {
     ))).toBe(false);
   });
 
+  it('beder ikke om billeder til et nævnt-kort', async () => {
+    const naevnt: FeedCard = {
+      kind: 'naevnt', id: 'naevnt:9', personId: '9', name: 'Person 9', years: '', relation: null,
+      kilde: 'nr. 9', kicker: 'Nævnt i Aarbogen',
+    };
+    streamMocks.createFeedStream.mockImplementation(() => listStream([portraet('1'), naevnt]));
+    render(<FeedStreamView {...feedProps(null)} />);
+    await waitFor(() => expect(mediaMocks.fetchFeedMediaCandidates).toHaveBeenCalledWith(['1'], {}));
+  });
+
   it('viser en eksplicit biografi-fejl i stedet for en tavs tom feed-model', async () => {
     feedAuxMocks.fetchFeedBios.mockRejectedValue(new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE'));
-    mediaMocks.fetchFeedMediaCandidates.mockResolvedValue({});
 
     render(<FeedStreamView {...feedProps(null)} />);
 
@@ -162,6 +221,12 @@ describe('hrefForCard', () => {
       initials: 'A', title: null, bio: '', kicker: 'Dagens person',
     };
     expect(hrefForCard(kort)).toBe('/person/42');
+  });
+  it('nævnt-kort peger på personens side', () => {
+    expect(hrefForCard({
+      kind: 'naevnt', id: 'naevnt:5', personId: '5', name: 'B', years: '', relation: null,
+      kilde: 'nr. 5', kicker: 'Nævnt i Aarbogen',
+    })).toBe('/person/5');
   });
   it('gods-kort peger på godsets side', () => {
     const kort: Extract<FeedCard, { kind: 'gods' }> = {
