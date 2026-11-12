@@ -10,6 +10,19 @@ koordinat-rækker: fødsler 67 → 334, dødsfald 88 → 330. Læserkaldet er u�
 59 skrivemåde-forskelle står `proposed`; del 2 er ikke besluttet. Detaljer i `database-current-state.md` §28 og
 `docs/evidensbaseret-genimport/dato-bindinger-2018-20-prod.md`.
 
+## 2026-11-12 — webredesign fase 0–4: ny URL-grammatik, personside og hovedside med feed
+
+Webfladen er bygget om efter overdragelsen (`docs/design/2026-11-12-webredesign-overdragelse.md`), én PR pr. fase med
+designtour før/efter. Fase 0 (#323) rettede fejl fundet i touren. Fase 1 (#325) samlede farver, skrifter og afstande i
+`@daa/theme` med selvhostede skrifter. Fase 2 (#327) gav adresser under `/slaegt/<slug>` (stamtræ, godser, våben,
+præsensliste), nyt sidehoved med Slægter-vælger, slægtsbjælke og søgesiden `/soeg`; gamle stier viderestilles. Fase 3
+(#328) gav personen sin egen side `/person/<id>` med etiket fra bogens nummer, udgavevælger, embeder, godser og kilder;
+stamtræets panel linker dertil. Fase 4 gør hovedsiden til »Slå op i Aarbogen«: personsøgning, slægtsregistret og feedet,
+som nu deler seks blade ud ad gangen bag »Vend seks blade mere« i stedet for uendelig rulning. Personkortene viser bogens
+nummer som kilde (§), og den nye korttype »Nævnt i Aarbogen« viser højst én person pr. seks blade, som bogen nævner uden
+offentlig tekst, titel, embeder, godser, børn eller hændelser. Overskriften påstår ikke, at bogen intet mere skriver
+(klienten kan ikke se upubliceret tekst). »Nyt i Aarbogen« er udeladt (ingen nyhedsdata). Klient-only; ingen DDL.
+
 ## 2026-11-12 — trin 6e-1 i prod: læseren viser valgt udgave forrest og den anden som note
 
 Persondetaljen viser hver oplysning én gang i den valgte udgaves ord og kilde; den anden udgave står som note

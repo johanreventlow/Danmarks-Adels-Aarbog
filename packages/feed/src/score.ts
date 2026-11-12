@@ -14,6 +14,11 @@ export const BASE: Record<FeedCard['kind'], number> = {
   arkiv: 0.5,
   citat: 0.4,
   vaaben: 0.3,
+  // Vægten styrer IKKE hyppigheden: puljen af nævnte er langt større end portrætpuljen, og R1
+  // (ikke to portrætter i træk) vælger første ikke-portræt, så snart loftet (NAEVNT_VINDUE i
+  // order.ts) slipper. Målt 12/11: med web-feedets tændte typer har næsten hver blok på seks
+  // præcis ét naevnt-kort for BASE 0.3, 0.1 og 0.03. Håndtaget er vinduet, ikke denne vægt.
+  naevnt: 0.3,
   samle: 0,
 };
 

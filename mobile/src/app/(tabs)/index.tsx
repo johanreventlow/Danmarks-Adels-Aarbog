@@ -170,6 +170,7 @@ export default function HomeScreen() {
         case 'jubilaeum':
         case 'paadennedag':
         case 'dagensperson':
+        case 'naevnt':
           router.push(`/person/${card.personId}`);
           break;
         case 'gods':

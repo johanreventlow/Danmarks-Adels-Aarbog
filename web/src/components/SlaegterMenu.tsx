@@ -4,8 +4,9 @@
 // fokus tilbage til knappen, klik udenfor lukker. data-overlay gør, at Følgesvends Esc-lytter
 // ikke samtidig lukker personpanelet.
 //
-// Bevidst udeladt (data findes ikke endnu): slægtsbeskrivelser (»uradel · 5 linjer«), »slægter med
-// nyt« ved første besøg og linket til hele registret (hovedsiden, fase 4).
+// »Hele registret« fører til hovedsiden (fase 4), hvor slægtsregistret står.
+// Bevidst udeladt (data findes ikke endnu): slægtsbeskrivelser (»uradel · 5 linjer«) og »slægter
+// med nyt« ved første besøg.
 import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { Link } from '../Link';
 import { slaegtPath, type Slaegt } from '../data/nav';
@@ -100,6 +101,7 @@ export function SlaegterMenu({ id, open, onClose, slaegter, senest, aktiv, onVae
             )}
           </section>
         </div>
+        <Link href="/" onNavigate={() => onClose(false)} style={{ alignSelf: 'flex-start', fontFamily: T.sans, fontSize: 14, fontWeight: 600, color: T.bordeaux }}>Hele registret →</Link>
       </div>
     </div>
   );

@@ -96,3 +96,14 @@ export function flettKilder(
   }
   return out;
 }
+
+// Bogens nummer for en person (»Linje V, nr. 1«) — KUN fra stamtavlens opslag (model.sourcesBy),
+// aldrig fra citat-proveniensen, der for personer uden nummer (typisk ægtefæller) giver et sidetal.
+// Én regel for personsidens etiket og feedets kilde-§, så de to aldrig viser forskellige numre.
+export function bogensNummer(
+  sourcesBy: Record<string, SourceRef[]> | undefined,
+  personId: string,
+): string | null {
+  const ref = sourcesBy?.[personId]?.[0]?.ref.trim() ?? '';
+  return ref !== '' ? ref : null;
+}
