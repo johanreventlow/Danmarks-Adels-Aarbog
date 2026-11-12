@@ -167,9 +167,10 @@ backlog); at ændre `binding_value_matches`; at genkøre modellen; at rette pås
 - **Fart:** de 10 tungeste personers fakta-kald som `anon` ≤ 1,0 s (median af 5).
 - **Status:** `status.md`'s 2018-20-kolonne for promotion og B11-rækken opdateres med dato og nye tal.
 
-## 8. Åbne punkter til planen
+## 8. Afgjort i planen (`docs/superpowers/plans/2026-11-12-2018-20-dato-bindinger.md`)
 
-1. Om `control_model_v2.py` (stratificeret, B/D/V/P) kan bruges med kildescope 1, eller om v1's plan og stikprøve
-   bruges (§4.2 pkt. 4).
-2. Om normaliseringen får eget GO før kortene (§5 pkt. 2).
-3. De ti tungeste personer for 2018-20 og deres fakta-tid før (baseline i prod, læse-kun).
+1. `control_model_v2.py` bruges med kildescope 1 og et nyt flag `--kun-stikproeve` (arket bærer kun stikprøven;
+   `REAL_DIFF`/`SKRIVEMAADE` får ingen afgørelse). Strata 0/20, medmindre målingen viser retning 2-udfald for 2018-20.
+   Metoden er derfor `machine-corroboration-v2` (plan Task 4).
+2. Normaliseringen får sit eget GO før kortene (`go-n`/`apply-n`, plan Task 5).
+3. De ti tungeste 2018-20-personer og deres fakta-tid måles på en frisk stand-in (plan Task 0) og i prod før GO.
