@@ -106,6 +106,10 @@ grupperer pr. `fact_id`, dvs. pr. personrække (`packages/core/src/personFacts.t
    på web. I 6e: fakta-blokken viser bøgernes ord, navnet øverst redaktionens valg (§5.2). Backlog: et redaktionelt
    visningsnavn på identiteten (komponenten) med begrundelse og historik, adskilt fra påstandene — i dag må
    beslutningen låne en kilde og sidde på én personrække.
+10. **Uplacerede 1939-poster får også ny publicering** (efter Codex-reviewet): en lille schema-ændring tillader en tom
+    postdel, så alle 563 genpubliceres, og afgørelse 7 gælder helt (§5.6).
+11. **Ingen tomme biografichips:** har ingen af udgaverne en biografi (typisk ægtefæller), vises vælgeren som et lille
+    udgaveskift over fakta uden biografitekst (§5.5).
 
 ## 4. Opdeling og afgrænsning (*mit valg*: to dele)
 
@@ -137,10 +141,13 @@ skrevet af redaktøren, fordi redaktørens fire faktawritere (`red_tilfoej_oplys
 (oftest »Dansk Adels Aarbog – DAA 2018-20«; 3 gange »(kilde mangler)«). 392's »Conrad« er sådan en og hører til
 2018-20, fordi 392 er en 2018-20-post — selv om redaktørens fritekst lyder »DAA 1939«. Målt: 17 påstande på 13
 personer, skrevet 4/7-1/8 2026; 9 navnerettelser og 2 datorettelser (`red_edit_oplysning`) og 6 overhoved-markeringer
-(`red_upsert_fakta`/`red_edit_oplysning`); 13 af fritekstkilderne navngiver en udgave, 6 med side. (De 65 strukturelle `forældrefamilie`-påstande uden kilde vises ikke som fakta.) En personrække uden kilde vises i alle udgaver.
+(`red_upsert_fakta`/`red_edit_oplysning`); 13 af fritekstkilderne navngiver en udgave, 6 med side. (De 65 strukturelle `forældrefamilie`-påstande uden kilde vises ikke som fakta.)
 **Målt:** hver personrække har højst én `person_external_id`-række (0 med flere), og kun kilder med
-`source.slags='DAA-udgave'` (1 og 3) har rækker. »Udgave« = en sådan kilde; regler skal fejle lukket (vise rækken i
-alle udgaver), hvis en række en dag får flere.
+`source.slags='DAA-udgave'` (1 og 3) har rækker. »Udgave« = en sådan kilde.
+**Rækker uden ekstern nøgle** (Codex-fund 5; målt: 546 offentlige rækker i komponenter, ægtefæller; 263 komponenter
+består kun af dem): udgaven er den ene DAA-udgave, rækkens citationer peger på (målt entydig for alle 546). Kun en
+række uden begge dele (eller med citationer til flere udgaver) vises i alle udgaver, og den indgår aldrig i en note.
+En række bekræfter aldrig sig selv.
 
 ### 5.2 Fakta i den valgte udgave
 
@@ -164,10 +171,12 @@ redaktionel afvigelse er sjælden (projektejeren 2026-11-12). Ikke-valgte påsta
 
 For hver linje i den valgte udgave søges den samme faktatype i hver anden udgave i komponenten:
 
-- **Enig** (§5.4) → »✓ også i DAA 1939« (udgavens kortnavn). *Mit valg:* enig betyder, at den valgte udgaves
-  viste værdi er ens med **et hvilket som helst** af den anden udgaves udsagn af typen (valgt eller ej) — ellers ville
-  Conrads kildeløse »Conrad« give »DAA 1939 skriver: Conrad Reventlow«, selv om 2018-20 selv skriver det samme.
-- **Uenig** (begge har en værdi, intet ens) → »DAA 1939 skriver: <den anden udgaves valgte værdi>«.
+- **Enig** (§5.4) → »✓ også i DAA 1939« (udgavens kortnavn). Enig sammenligner de **viste** værdier (§5.2) i begge
+  udgaver, ikke ikke-valgte udsagn (Codex-fund 1). For en enkeltværdi-type kræver »✓ også«, at **alle** den anden
+  udgaves viste værdier er ens med linjen.
+- **Uenig** → »DAA 1939 skriver: a; b« med alle den anden udgaves forskellige viste værdier (målt: 1939 har flere
+  personrækker med forskellige valgte værdier i 8 komponenter for død, 10 for navn, 1 for fødsel). Uden valgt påstand
+  (`omstridt`; målt 0) indgår alle udsagn som »skriver: …«, aldrig som »✓«.
 - **Uenighed inden for samme udgave** (to personrækker i samme udgave har valgt forskellige enkeltværdier, fx to
   fødselsdatoer): begge står som linjer uden mærke (*mit valg*; det er en datasag, ikke læserens at afgøre). *Mit valg:* for flerværdi-typer (titel,
   dekoration) gives kun »✓ også«, når en af den anden udgaves værdier er ens; ellers ingen note pr. linje, men den
@@ -182,11 +191,12 @@ Ligger i `packages/core` (DOM-fri, testbar), ikke i SQL. Den er bevidst en anden
 `assertion_binding_current`'s normalisering (`schema.sql:18291-18296`): den svarer på »er bindingens tekst ændret?«,
 denne på »siger to udgaver det samme?«. Konservativ — ved tvivl: ikke ens.
 
-- **Datotyper** (fødsel, dåb, død, begravelse, når der er en dato): ens når normaliseret datotekst er ens, eller når
-  begge har `date_min`/`date_max` og intervallerne er ens. Normalisering: små bogstaver; `†`, `*`, `⚭` og tegnsætning
-  væk; danske og 1939-månedsnavne/-forkortelser → tal; mellemrum samlet. Bygherren må fjerne efterfølgende sted/årsag
-  (»… på Pronstorf«) og løse »s.A.« og »ca./o.« hvis målingen i plan-Task 0 viser, at det løfter dækningen uden en
-  eneste falsk enighed på stikprøven.
+- **Datotyper** (fødsel, dåb, død, begravelse): ens når hele den viste værdi (`vaerdi_tekst` + datotekst) er ens
+  efter normalisering: små bogstaver; `†`, `*`, `⚭` væk; øvrig tegnsætning **erstattes af mellemrum** (ikke fjernet:
+  `1.12.1700` ≠ `11.2.1700`); danske og 1939-månedsnavne/-forkortelser → tal; mellemrum samlet. »ca./o.« og »s.A.«
+  må kun mappes til et fælles ord, ikke fjernes; et sted på kun den ene side er en forskel (målt: 85 af 560 par med
+  ens datotekst). Ingen intervalvej (Codex-fund 2; målt: 19 af 20 interval-ens par har forskellig `date_qualifier`).
+  Core-tests med negative par: ca. ↔ eksakt, `1.12` ↔ `11.2`, med ↔ uden sted.
 - **Tekst** (navn, titel, dekoration, begravelsessted): ens når teksten er ens efter små bogstaver, samlede mellemrum,
   fjernet tegnsætning og bindestreg-/apostrofvarianter. Ingen stavemåde-ækvivalenser (»Ditlev«≠»Detlef«), ingen
   forkortelser (»Kmhre.«) — de står som »skriver: …«, hvilket er sandt.
@@ -205,7 +215,9 @@ denne på »siger to udgaver det samme?«. Konservativ — ved tvivl: ikke ens.
 - **Chippen er en post, fakta er en udgave:** III-58 og V-1 viser samme fakta (2018-20's); kun biografien skifter.
 - **Vælgeren bygges af udgaverne i komponenten** (biografier ∪ fakta), *mit valg*. Målt: 11 offentlige 1939-rækker
   har fakta, men ingen offentlig biografi. Har en udgave fakta uden biografi, får den én chip (»DAA 1939«), der viser
-  »Ingen biografi fra denne udgave« og udgavens fakta. Har komponenten kun én udgave, vises ingen chips.
+  »Ingen biografi fra denne udgave« og udgavens fakta. Er der kun én chip, vises ingen vælger. Har **ingen** af
+  udgaverne en biografi (afgørelse 11; typisk de 263 ægtefællekomponenter, §5.1), vises vælgeren som et lille
+  udgaveskift over fakta, uden biografitekst og uden »Ingen biografi«.
 
 ### 5.6 Læsbar kildeetiket for poster (6e-2)
 
@@ -218,10 +230,14 @@ på stand-in er det den seneste hændelse for 563 af 1.151 bindinger (alle kilde
 **Vej (projektejerens afgørelse 7):** publiceringswriteren lærer formen nedenfor, og en ceremoni skriver én ny
 publiceringshændelse pr. binding, hvis seneste hændelse har en etiket lig `record_key`. Den gamle hændelse bevares
 (versioneret, som målarkitekturen foreskriver for rettelser); læserne er uændrede og læser den nye. Krav til
-ceremonien, som de tidligere: frys, dump før, vinduesvagt, generalprøve på frisk stand-in, afstemning pr. binding
-(kun `labels.record_label` må afvige mellem før- og efterstatus; tekst, synlighed og kilde byte-ens), paritet for
-kilde 1 og fortrydelse. Hvordan ændringen hedder som hændelsestype, og om den kan genbruge revalideringsstien fra
-6d-1, er bygherrens — under kravet, at `stale_published` forbliver 0.
+ceremonien, som de tidligere: frys, dump før, vinduesvagt, generalprøve på frisk stand-in, paritet for kilde 1 og
+fortrydelse. **Én transaktion** (Codex-fund 3): Ziesendorf-etiketten (§5.7) først, så én ny hændelse pr. berørt
+binding med `after_state` = den aktuelle publiceringstilstand — publiceringsgaten kræver fuld lighed, så en etiket
+ændret uden ny hændelse skjuler biografien (Ziesendorf alene rører 103 publicerede bindinger). **Afstemning pr.
+binding** mod forrige hændelse; tilladte afvigelser: `binding.record_label` (den gemte kolonne opdateres),
+`labels.record_label` og, for linje III's 103, `provenance.placements[].scheme_entry_label` med provenance- og
+state-hash. Alt andet byte-ens; antal offentlige biografier og bundne fakta ens før og efter; `stale_published` 0.
+Hændelsestypen og genbrug af 6d-1's revalideringssti er bygherrens.
 
 **Etikettens form** (uanset vej):
 
@@ -229,7 +245,10 @@ kilde 1 og fortrydelse. Hvordan ændringen hedder som hændelsestype, og om den 
    (»II, 10. slægtled, nr. 3«); uden trykt nr. → `<linjekode>, <slægtled>. slægtled`. 2018-20's etiket er uændret
    (»V-1«) — byte-ens for kilde 1 er en del af beviset. *Mit valg:* gruppen udelades (kan være en hel sætning); den
    står i hovedet (§5.7).
-2. Ingen placement → ingen postdel; kun citationens »DAA 1939, s. 541«.
+2. Ingen placement → ingen postdel; kun citationens »DAA 1939, s. 541« (målt: 35 publicerede bindinger). Afgørelse
+   10: `record_label` er i dag `NOT NULL CHECK (btrim<>'')` (`schema.sql:3667`), og v2-mapperen kræver en streng
+   (`bioVersions.ts:102`). Schemaet tillader en tom postdel (bygherren vælger tom streng eller NULL), og mapperen og
+   alle visninger udelader den uden tom chip eller separator. Conrad (1198) er ende-til-ende-beviset.
 
 `record_key` vises aldrig. **Indtil 6e-2** (*mit valg*): 6e-1's klient viser ikke en postdel, der er lig postens
 `record_key` (mønster `record-<uuid>`), men kun citationens udgave og side. Så overholder 6e-1 anti-målet alene. Præcis form (fx når slægtled mangler) er bygherrens, under kravet om, at den er
@@ -249,9 +268,15 @@ entydig på siden.
   (»IV. Den danske grevelige Linje af 1673.«) med slægtled, gruppe og nr. Ingen placement → ingen linje.
   `legacy-source:…` vises aldrig.
 - **»Optræder i Aarbogen som …«** og **»Kilde i Aarbogen«** bruger §5.6's etiketter pr. udgave.
-- **B6 i læseren** (*mit valg*): en offentlig, læse-kun projektion af `membership_component_states` for den viste
-  komponent. `corroborated` → »✓ også i DAA 1939 (IV. Den danske grevelige Linje af 1673)« ved linjen; `conflict` →
-  »DAA 1939 placerer i: …«. Kun `afklaret` `samme_som`, som funktionen allerede gør.
+- **B6 i læseren** (Codex-fund 4 og 8): regnes kun ud fra **offentlige** personrækkers gældende medlemskab i den
+  komponent, klienten faktisk har foldet (ikke karantæne) — ikke fra `membership_component_states()`, der hverken har
+  persongate eller kobler kilde til linje. Noten tilskrives pr. kilde: »✓ også i DAA 1939 (IV. Den danske grevelige
+  Linje af 1673)«, når den anden kilde har samme linje; »DAA 1939 placerer i: …«, når den har en anden. Flere linjer
+  inden for samme udgave (Conrad III/V) vises som linjer uden note. Ingen private id'er eksponeres. Målt: 3
+  `corroborated`-komponenter hviler kun på et ikke-offentligt medlem og vises uden mærke. Mekanismen er bygherrens.
+- **Linjens hoved** (Codex-fund 10; `lineage.ts:105-108`, hjemmesidens anker `home.ts:26`): laveste slægtled, dernæst
+  laveste trykte nr., unummereret før nummereret. Målt: entydigt i alle 8 1939-entries (3-25 personer med nr. 1 pr.
+  entry); kilde 1's 5 hoveder uændrede.
 - **Linjeskemaets OCR-etiket** (afgørelse 8): entry `III` (stand-in id 61) får etiketten »III. Den ældre meklenborgske
   Linje af Ziesendorf.« som en lille dataændring i 6e-2's ceremoni, med sporbarhed (før/efter i ceremoniens log eller
   `change_event`, hvis skemaets writer har en). Øvrige entries er uændrede.
@@ -298,9 +323,11 @@ Browsertjek som anon mod prod (trin 6-specens §8 b, opdateret af §3 og §9 her
 - **Ingen `record-` eller `legacy-source:` i DOM'en** på de tjekkede sider.
 - **Tal:** stikprøven (§5.4) uden falske par; dækning pr. faktatype; koordinat-RPC'en som anon i prod ≤ 0,6 s;
   kilde 1's koordinater og etiketter byte-ens.
-- **Ceremonien (6e-2):** antal genpublicerede bindinger = antal med `record-`-etiket før (stand-in: 563), 0 bagefter;
-  pr. binding afviger kun `labels.record_label`; `stale_published` 0 før og efter; linjeskemaets III lyder
-  »… Ziesendorf.« i læseren.
+- **Ceremonien (6e-2):** antal genpublicerede bindinger = antal med `record-`-etiket før (stand-in: 563, heraf 35
+  uden placement og 103 i linje III), 0 bagefter; pr. binding kun §5.6's tilladte afvigelser; offentlige biografier og
+  bundne fakta talt ens før og efter; `stale_published` 0; linjeskemaets III lyder »… Ziesendorf.« i læseren.
+- **Personsidens fart:** biografikaldet som anon for Conrad (392) før og efter 6e-2, inden for basen 209-487 ms
+  (decisions 2026-11-10), og samlet indlæsning af personsiden uden regression.
 - **Status:** `status.md`'s 1939-kolonne for »Læsere på placement/membership« og »Læserflade: fakta med
   kildehenvisning« hæves til `produktionsverificeret` med dato.
 
@@ -342,3 +369,7 @@ Projektejeren bad om sammenligningen. Uden spørgsmål ville 6e have fulgt trin 
   entydighed → målt (0 kollisioner), §5.7.
 - **Projektejerens svar 2026-11-12:** §9 pkt. 1 → (b); pkt. 2 → Ziesendorf; de unummererede målt (20/21 alene i
   gruppen, én undtagelse), §5.7. 6e-2 får derfor en dataceremoni (§4, §6).
+- **Codex-review 2026-11-12** (gpt-6.1-sol, 1 runde på spec'en; dom »ikke klar«, 11 fund) → Opus afvejede: 1+6, 3, 5,
+  4+8, 10 nødvendige; 2, 7, 9, 11 forenklet. Projektejeren valgte schema-ændring for tom postdel (afgørelse 10) frem
+  for Opus' »ingen genpublicering af de 35«, og udgaveskift uden tomme biografichips (afgørelse 11). Rettet i §3,
+  §5.1, §5.3-5.7, §8. Fundet viste desuden 546 ægtefællerækker uden ekstern nøgle, som §5.1's første måling overså.
