@@ -87,6 +87,13 @@ describe('oploesRelativDato: forkortelser og referencer med flere datoer (review
     expect(oploesRelativDato('29. s.m.', '21./22. april 1644')).toBeNull();
     expect(oploesRelativDato('29. s.m.', '21. april (1. maj) 1644')).toBeNull();
     expect(oploesRelativDato('6. maj s.å.', '1644 el. 45')).toBeNull();
+    // to dage med ét år, eller et andet år i parentes (review 7b runde 2)
+    expect(oploesRelativDato('s.d.', '21., 22. april 1644')).toBeNull();
+    expect(oploesRelativDato('s.d.', '21. og 22. april 1644')).toBeNull();
+    expect(oploesRelativDato('6. febr. s.å.', '1644 (45)')).toBeNull();
+    expect(oploesRelativDato('6. febr. s.å.', '1644/45')).toBeNull();
+    // kontrol: én dato, gentaget, er stadig entydig
+    expect(oploesRelativDato('s.d.', 'Sandbjerg 21. april 1644, 21. april 1644')).toBe('21. april 1644');
   });
 });
 

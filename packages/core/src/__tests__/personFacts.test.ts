@@ -130,11 +130,16 @@ describe('buildPersonFacts', () => {
     expect(factValue(row({ vaerdi_tekst: '†', date_raw: null }))).toBe('—');
   });
 
-  it('date_raw, der står ordret i vaerdi_tekst, vises ikke igen (spec §5.8 »Dobbelt værdi«)', () => {
+  it('date_raw vises ikke igen, når vaerdi_tekst slutter med den og den er mere end et årstal (afgørelse 13)', () => {
+    expect(factValue(row({ vaerdi_tekst: 'hjemmedøbt 10. febr. 1922', date_raw: '10. febr. 1922' }))).toBe('hjemmedøbt 10. febr. 1922');
+    expect(factValue(row({ vaerdi_tekst: 'hjemmedøbt 10. febr. 1922.', date_raw: '10. febr. 1922' }))).toBe('hjemmedøbt 10. febr. 1922.');
+    // et rent årstal kan være et tilfælde → begge vises
+    expect(factValue(row({ vaerdi_tekst: 'døbt i kirken opført 1845', date_raw: '1845' }))).toBe('døbt i kirken opført 1845, 1845');
+    expect(factValue(row({ vaerdi_tekst: 'døbt 5. sept. 1845 eller 1846', date_raw: '1846' }))).toBe('døbt 5. sept. 1845 eller 1846, 1846');
+    // står datoen inde i teksten (ikke til sidst), vises begge
     expect(factValue(row({ vaerdi_tekst: 'døbt 5. sept. 1845 i Vesterborg Kirke', date_raw: '5. sept. 1845' })))
-      .toBe('døbt 5. sept. 1845 i Vesterborg Kirke');
-    // kun hele ord: »1845« står ikke i »18450«, og »5. sept.« ikke i »15. sept.«
-    expect(factValue(row({ vaerdi_tekst: 'nr. 18450', date_raw: '1845' }))).toBe('nr. 18450, 1845');
+      .toBe('døbt 5. sept. 1845 i Vesterborg Kirke, 5. sept. 1845');
+    // kun ved ordgrænse: »5. sept. 1845« er ikke slutningen af »15. sept. 1845«
     expect(factValue(row({ vaerdi_tekst: 'døbt 15. sept. 1845', date_raw: '5. sept. 1845' }))).toBe('døbt 15. sept. 1845, 5. sept. 1845');
     // tjekket sker efter en omformning af hver del (opløsning af relative datoer)
     const opl = (v: string) => v.replace('s.å.', '1922');

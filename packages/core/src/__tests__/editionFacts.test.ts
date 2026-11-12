@@ -600,9 +600,9 @@ describe('byggUdgaveFakta', () => {
       r39({ person_id: 281, faktatype: 'dåb', vaerdi_tekst: 'hjemmedøbt 10. febr. 1922', date_raw: null }),
     ], { udgaveForPersonRaekke: ext2(280, 281) }));
     const v = byggUdgaveFakta(inp, '1');
-    expect(linje(v, 'fødsel').map((l) => l.vaerdi)).toEqual(['12. jan. 1922 i København']);
+    expect(linje(v, 'fødsel').map((l) => l.vaerdi)).toEqual(['12. jan. 1922 i København, 12. jan. 1922']);
     expect(linje(v, 'dåb').map((l) => [l.vaerdi, l.noter])).toEqual([['hjemmedøbt 10. febr. 1922', [{ art: 'enig', udgave: D39 }]]]);
-    expect(linje(v, 'begravelse').map((l) => l.vaerdi)).toEqual(['bisat 27. november 1922, begravet 19. sept. 1924']);
+    expect(linje(v, 'begravelse').map((l) => l.vaerdi)).toEqual(['bisat 27. november 1922, begravet 19. sept. 1924, 27. november 1922']);
     // kan én del ikke opløses (»s.d.« efter bisættelsen), vises hele værdien som bogens tekst
     const halv = input([
       r18({ person_id: 282, faktatype: 'død', date_raw: '1. april 1928' }),

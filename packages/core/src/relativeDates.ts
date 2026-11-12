@@ -77,6 +77,13 @@ function parseReference(ref: string | null): Reference | Exclude<ReferenceStatus
     datoer.add(JSON.stringify([dag, maaned, Number(m[3])]));
   }
   if (datoer.size > 1) return 'flertydig';
+  // et ekstra dagnummer uden for datoen (»21., 22. april«, »21. og 22. april«) eller et andet år i parentes
+  // (»1644 (45)«) gør referencen flertydig
+  const spaend = [...ref.matchAll(DATO)].filter((m) => maanedNummer(m[2]) != null).map((m) => [m.index!, m.index! + m[0].length]);
+  for (const m of ref.matchAll(/(?<!\d)\d{1,2}\.(?!\d)/g)) {
+    if (!spaend.some(([a, b]) => m.index! >= a && m.index! < b)) return 'flertydig';
+  }
+  if (/\(\s*\d{1,4}\s*\)/.test(ref)) return 'flertydig';
   if (datoer.size === 0) return { aar: Number([...aar][0]), maaned: null, dag: null };
   const [dag, maaned, a] = JSON.parse([...datoer][0]) as [number | null, number, number];
   return { aar: a, maaned, dag };

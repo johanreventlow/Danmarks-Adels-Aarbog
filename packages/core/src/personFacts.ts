@@ -49,16 +49,16 @@ export const typeRank = (t: string) => {
 // Spec §5.8 (projektejeren 2026-11-12): et ledende *, † eller ⚭ fjernes — typen (»Født«, »Død«) siger det allerede.
 const udenLedendeTegn = (v: string | null) => (v == null ? null : v.replace(/^\s*[*†⚭]\s*/u, ''));
 
-// `date_raw` er dobbelt, når den er lig `vaerdi_tekst` eller står ordret i den (spec §5.8 »Dobbelt værdi«; fx
-// »hjemmedøbt 10. febr. 1922« + »10. febr. 1922«). Tjekket sker efter `del` (opløsning af relative datoer, §5.4a).
-const indeholder = (tekst: string, del: string) => {
-  const t = del.trim();
-  if (!t) return false;
-  for (let i = tekst.indexOf(t); i !== -1; i = tekst.indexOf(t, i + 1)) {
-    const foer = tekst[i - 1], efter = tekst[i + t.length];
-    if ((foer == null || !/[\p{L}\p{N}]/u.test(foer)) && (efter == null || !/[\p{L}\p{N}]/u.test(efter))) return true;
-  }
-  return false;
+// `date_raw` er dobbelt, når den er lig `vaerdi_tekst`, eller når `vaerdi_tekst` SLUTTER med den (efter mellemrum og
+// afsluttende tegnsætning, ved en ordgrænse) og den er mere end et årstal — fx »hjemmedøbt 10. febr. 1922« +
+// »10. febr. 1922« (spec §5.8 »Dobbelt værdi«, afgørelse 13). Et rent årstal kan være et tilfælde (»kirken opført
+// 1845« + »1845«, »1845 eller 1846« + »1846«), så begge vises. Tjekket sker efter `del` (opløsning, §5.4a).
+const udenHale = (v: string) => v.trim().replace(/[\s\p{P}]+$/u, '');
+const slutterMed = (tekst: string, del: string) => {
+  const t = udenHale(tekst), d = udenHale(del);
+  if (!d || !/\p{L}/u.test(d) || !t.endsWith(d)) return false;
+  const foer = t[t.length - d.length - 1];
+  return foer == null || !/[\p{L}\p{N}]/u.test(foer);
 };
 
 export function factValue(r: PublicPersonFactRow, del: (v: string) => string = (v) => v): string {
@@ -68,7 +68,7 @@ export function factValue(r: PublicPersonFactRow, del: (v: string) => string = (
   };
   const tekst = vis(r.vaerdi_tekst);
   const dato = vis(r.date_raw);
-  const dateRaw = dato && tekst && (dato.trim() === tekst.trim() || indeholder(tekst, dato)) ? null : dato;
+  const dateRaw = dato && tekst && (dato.trim() === tekst.trim() || slutterMed(tekst, dato)) ? null : dato;
   const parts = [tekst, dateRaw].filter((x): x is string => !!x && x.trim() !== '');
   return parts.length ? parts.join(', ') : '—';
 }
