@@ -2,8 +2,10 @@
 import type { Konfidens } from './types';
 
 // Initialer til avatar-badges: op til to forbogstaver, versaler.
+// Monogram: første bogstav i de to første ord, der rummer et bogstav. Parenteser, tal og
+// tankestreger tæller ikke (»Adelheid (Lilli)« → »AL«, ikke »A(«); \p{L} bevarer æ, ø og å.
 export const initials = (navn: string): string =>
-  navn.split(' ').filter(Boolean).map((s) => s[0]).slice(0, 2).join('').toUpperCase();
+  navn.split(/\s+/).map((ord) => ord.match(/\p{L}/u)?.[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
 
 // Vis kun de led der reelt er usikre (formodet/omstridt); sikre/sandsynlige/uangivne flages ikke.
 export const konfTekst = (k?: Konfidens): string =>
