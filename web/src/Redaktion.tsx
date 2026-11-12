@@ -161,10 +161,68 @@ function useDesignHead() {
   }, []);
 }
 
+// /redaktion kræver login (webredesign fase 0). Ydersiden tjekker sessionen og viser login-
+// skærmen; Arbejdsbord monteres først, når der er en session. Så sker alle dets hentninger som den
+// indloggede bruger — før blev de lavet anonymt ved mount og ikke gentaget efter login, så
+// RLS-beskyttede rækker manglede, indtil siden blev genindlæst. 'tjekker' holdes adskilt fra
+// »ikke logget ind«, så en redaktør ikke ser login-skærmen blinke, mens sessionen genskabes.
 export default function Redaktion() {
   useDesignHead();
+  const [session, setSession] = useState<RedSession | null | 'tjekker'>('tjekker');
+  const [sessionFejl, setSessionFejl] = useState('');
+  useEffect(() => {
+    currentSession().then(setSession).catch((e) => {
+      console.warn('[redaktion] session-load fejlede:', e);
+      setSessionFejl(oversaetFejl(String(e?.message ?? e)));
+      setSession(null);
+    });
+  }, []);
+  if (session === 'tjekker') return <div aria-busy="true" style={{ minHeight: '100vh', background: T.pageBg }} />;
+  if (!session) return <RedaktionLogin fejl={sessionFejl} onLoggedIn={setSession} />;
+  // key: et skift af bruger giver et frisk arbejdsbord uden den forrige brugers data.
+  return <Arbejdsbord key={session.userId} session={session} onLogout={() => setSession(null)} />;
+}
+
+// Login-skærmen for /redaktion: samme formular som før lå i en modal over arbejdsbordet.
+function RedaktionLogin({ fejl, onLoggedIn }: { fejl: string; onLoggedIn: (s: RedSession) => void }) {
+  const [login, setLogin] = useState({ email: '', pw: '', err: fejl, busy: false });
+  const doLogin = async () => {
+    if (login.busy) return;
+    if (!login.email.trim() || !login.pw) { setLogin((l) => ({ ...l, err: 'Udfyld e-mail og adgangskode' })); return; }
+    setLogin((l) => ({ ...l, busy: true, err: '' }));
+    try { onLoggedIn(await signIn(login.email, login.pw)); }
+    catch (e) { setLogin((l) => ({ ...l, busy: false, err: oversaetFejl(String((e as Error)?.message ?? e)) })); }
+  };
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: T.pageBg, fontFamily: T.sans, color: T.ink }}>
+      <div style={{ flex: 'none', height: 66, display: 'flex', alignItems: 'center', gap: 13, padding: '0 26px', background: T.paper, borderBottom: '1px solid rgba(34,31,26,.1)' }}>
+        <img src="/daf-logo.png" alt="Dansk Adels Forening" style={{ width: 40, height: 40, objectFit: 'contain' }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: T.serif, fontSize: 21, fontWeight: 600, lineHeight: 1, color: T.ink }}>Danmarks Adels Aarbog</div>
+          <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.16em', textTransform: 'uppercase', color: T.muted2, marginTop: 2 }}>Redaktion · Dansk Adels Forening</div>
+        </div>
+        <Link href="/" style={{ fontSize: 13, fontWeight: 600, color: T.bordeaux }}>Til Aarbogen</Link>
+      </div>
+      <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <form onSubmit={(e) => { e.preventDefault(); void doLogin(); }} aria-labelledby="red-login-titel" style={{ width: 380, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.12)', padding: '22px 24px 20px' }}>
+          <h1 id="red-login-titel" style={{ margin: 0, fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>Redaktør-login</h1>
+          <p style={{ fontSize: 13, color: T.muted, margin: '3px 0 15px' }}>Redaktionens arbejdsbord kræver, at du er logget ind. Hvad du kan rette, afgøres af din rolle.</p>
+          <label htmlFor="red-login-email" style={lbl}>E-mail</label>
+          <input id="red-login-email" type="email" autoComplete="username" value={login.email} onChange={(e) => setLogin((l) => ({ ...l, email: e.target.value }))} placeholder="redaktion@adelsaarbog.dk" style={{ ...inp, background: '#fff' }} />
+          <label htmlFor="red-login-pw" style={{ ...lbl, marginTop: 11 }}>Adgangskode</label>
+          <input id="red-login-pw" type="password" autoComplete="current-password" value={login.pw} onChange={(e) => setLogin((l) => ({ ...l, pw: e.target.value }))} style={{ ...inp, background: '#fff' }} />
+          {login.err && <div role="alert" style={{ fontSize: 12.5, color: T.red, marginTop: 9 }}>{login.err}</div>}
+          <div style={{ display: 'flex', marginTop: 16, justifyContent: 'flex-end' }}>
+            <button type="submit" disabled={login.busy} style={{ ...btnGreen, fontFamily: T.sans, border: 0, background: T.bordeaux }}>{login.busy ? 'Logger ind…' : 'Log ind'}</button>
+          </div>
+        </form>
+      </main>
+    </div>
+  );
+}
+
+function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () => void }) {
   const path = usePath();
-  const [session, setSession] = useState<RedSession | null>(null);
   const [dryRun, setDryRun] = useState(true);
   const [showAnno, setShowAnno] = useState(true);
   // Personers OCR-kvalitetsark (Task 9b) — kun for entity==='person' && role==='redaktion'
@@ -280,8 +338,6 @@ export default function Redaktion() {
   const [addingNyFelt, setAddingNyFelt] = useState<{ pid: string; felt: string } | null>(null);
   const [scratch, setScratch] = useState<Record<string, string>>({});
 
-  const [login, setLogin] = useState<{ open: boolean; email: string; pw: string; err: string; busy: boolean }>(
-    { open: false, email: '', pw: '', err: '', busy: false });
   const [confirmDel, setConfirmDel] = useState<{ id: string; label: string; preview: SletPreview | null; ack: boolean } | null>(null);
   const [writeView, setWriteView] = useState<{ title: string; lines: string[]; error: string; done: boolean; dryRun: boolean; direkte: boolean } | null>(null);
 
@@ -382,16 +438,7 @@ export default function Redaktion() {
     return found;
   }, []);
 
-  // --- Initial load ---
-  // Fejl her er reelle (currentSession() returnerer null, ikke throw, ved "ikke logget ind") —
-  // en tavs catch lod UI'et hænge uden forklaring; logges + vises via samme loadErr-banner som
-  // fetchRedaktionPersoner nedenfor (review 27 R1).
-  useEffect(() => {
-    currentSession().then(setSession).catch((e) => {
-      console.warn('[redaktion] session-load fejlede:', e);
-      setLoadErr(oversaetFejl(String(e?.message ?? e)));
-    });
-  }, []);
+  // --- Initial load --- (sessionen er allerede genskabt af Redaktion ovenfor)
   // Redaktion collapser IKKE: navne slås op på de rå DB-poster (spec §8 — model holdes separat).
   useEffect(() => {
     loadModel({ collapse: false }).then(setModel).catch((e) => {
@@ -829,13 +876,7 @@ export default function Redaktion() {
     }
   }, [storyEditor, run, dryRun, loadPerson]);
 
-  const doLogin = async () => {
-    if (!login.email.trim() || !login.pw) { setLogin((l) => ({ ...l, err: 'Udfyld e-mail og adgangskode' })); return; }
-    setLogin((l) => ({ ...l, busy: true, err: '' }));
-    try { const s = await signIn(login.email, login.pw); setSession(s); setLogin({ open: false, email: '', pw: '', err: '', busy: false }); }
-    catch (e) { setLogin((l) => ({ ...l, busy: false, err: oversaetFejl(String((e as Error)?.message ?? e)) })); }
-  };
-  const doLogout = () => { signOut().catch(() => {}); setSession(null); };
+  const doLogout = () => { signOut().catch(() => {}); onLogout(); };
 
   const requestDelete = (id: string, label: string) => {
     setConfirmDel({ id, label, preview: null, ack: false });
@@ -881,7 +922,6 @@ export default function Redaktion() {
           </>
         )}
       </div>
-      {renderLoginModal()}
       {renderConfirmModal()}
       {renderWriteModal()}
       {renderPicker()}
@@ -920,20 +960,14 @@ export default function Redaktion() {
           <span style={{ width: 9, height: 9, borderRadius: '50%', background: dryRun ? T.goldLight : '#ff6b6b' }} />
           <span style={{ fontSize: 12.5, fontWeight: 600, color: dryRun ? T.ink : '#fff' }}>{dryRun ? 'Dry-run · skriver ikke' : 'LIVE · skriver til basen'}</span>
         </div>
-        {session ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f8ecef', border: `1px solid ${T.bordeaux}`, borderRadius: 9, padding: '5px 10px' }}>
-            <span style={{ width: 26, height: 26, borderRadius: '50%', background: T.bordeaux, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 12, fontWeight: 600, color: T.paperText }}>{(session.email || '?').slice(0, 2).toUpperCase()}</span>
-            <div>
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: T.ink, lineHeight: 1, maxWidth: 150, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.email}</div>
-              <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted2, marginTop: 1 }}>{session.role === 'redaktion' ? 'redaktion · skriver direkte' : `${session.role} · forslag til staging`}</div>
-            </div>
-            <span onClick={doLogout} style={{ fontSize: 11.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginLeft: 4 }}>Log ud</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f8ecef', border: `1px solid ${T.bordeaux}`, borderRadius: 9, padding: '5px 10px' }}>
+          <span style={{ width: 26, height: 26, borderRadius: '50%', background: T.bordeaux, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 12, fontWeight: 600, color: T.paperText }}>{(session.email || '?').slice(0, 2).toUpperCase()}</span>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: T.ink, lineHeight: 1, maxWidth: 150, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.email}</div>
+            <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.muted2, marginTop: 1 }}>{session.role === 'redaktion' ? 'redaktion · skriver direkte' : `${session.role} · forslag til staging`}</div>
           </div>
-        ) : (
-          <div onClick={() => setLogin((l) => ({ ...l, open: true, err: '' }))} style={{ display: 'flex', alignItems: 'center', gap: 7, background: T.goldLight, borderRadius: 8, padding: '7px 14px', cursor: 'pointer' }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: T.dark }}>Log ind</span>
-          </div>
-        )}
+          <span onClick={doLogout} style={{ fontSize: 11.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginLeft: 4 }}>Log ud</span>
+        </div>
       </div>
     );
   }
@@ -2396,36 +2430,6 @@ export default function Redaktion() {
   }
 
   // ---- Modaler ----
-  // Login-formularen: rigtig <form> med <label htmlFor>, så skærmlæsere navngiver felterne og
-  // Enter logger ind. onCancel udelades, hvor der ikke er noget at annullere tilbage til.
-  function renderLoginForm(onCancel?: () => void) {
-    return (
-      <form onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); void doLogin(); }} aria-labelledby="red-login-titel" style={{ width: 380, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '22px 24px 20px' }}>
-        <div id="red-login-titel" style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>Redaktør-login</div>
-        <div style={{ fontSize: 13, color: T.muted, marginTop: 3, marginBottom: 15 }}>Supabase Auth · adgang og skriverettigheder afgøres af din rolle.</div>
-        <label htmlFor="red-login-email" style={lbl}>E-mail</label>
-        <input id="red-login-email" type="email" autoComplete="username" value={login.email} onChange={(e) => setLogin((l) => ({ ...l, email: e.target.value }))} placeholder="redaktion@adelsaarbog.dk" style={{ ...inp, background: '#fff' }} />
-        <label htmlFor="red-login-pw" style={{ ...lbl, marginTop: 11 }}>Adgangskode</label>
-        <input id="red-login-pw" type="password" autoComplete="current-password" value={login.pw} onChange={(e) => setLogin((l) => ({ ...l, pw: e.target.value }))} style={{ ...inp, background: '#fff' }} />
-        {login.err && <div role="alert" style={{ fontSize: 12.5, color: T.red, marginTop: 9 }}>{login.err}</div>}
-        <div style={{ display: 'flex', gap: 9, marginTop: 16, justifyContent: 'flex-end' }}>
-          {onCancel && <button type="button" onClick={onCancel} style={{ ...btnGhost, fontFamily: T.sans, background: 'transparent', border: 0 }}>Annullér</button>}
-          <button type="submit" disabled={login.busy} style={{ ...btnGreen, fontFamily: T.sans, border: 0, background: T.bordeaux }}>{login.busy ? 'Logger ind…' : 'Log ind'}</button>
-        </div>
-      </form>
-    );
-  }
-
-  function renderLoginModal() {
-    if (!login.open) return null;
-    const luk = () => setLogin((l) => ({ ...l, open: false }));
-    return (
-      <div onClick={luk} role="dialog" aria-modal="true" aria-labelledby="red-login-titel" style={overlay(95)}>
-        {renderLoginForm(luk)}
-      </div>
-    );
-  }
-
   function renderConfirmModal() {
     if (!confirmDel) return null;
     const pv = confirmDel.preview;
