@@ -112,6 +112,6 @@ export const LinjeChip = ({ label, active, onClick, title }: { label: string; ac
   <div onClick={onClick} title={title} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: active ? T.bordeaux : 'transparent', color: active ? T.onBordeaux : T.inkMuted, border: `1px solid ${active ? T.bordeaux : T.lineStrong}` }}>{label}</div>
 );
 // Sektionslabel (mono, kapitæler). Bruges af TreeView/DetailPanel/EstatesView/ArmsView.
-export const Label = ({ children }: { children: React.ReactNode }) => <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.inkMuted, margin: '6px 0 12px' }}>{children}</div>;
+export const Label = ({ children }: { children: React.ReactNode }) => <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.14em', textTransform: 'uppercase', color: T.inkMuted, margin: '6px 0 12px' }}>{children}</div>;
 // Lodret forbindelses-streg mellem generationer. Bruges af TreeView (variant A).
 export const Stem = ({ h, mt = 0 }: { h: number; mt?: number }) => <div style={{ width: 1, height: h, background: 'rgba(34,31,26,.22)', marginTop: mt }} />;
