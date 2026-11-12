@@ -53,10 +53,10 @@ Rangeret efter (risiko for forkerte data eller tabt arbejde) ÷ indsats.
 
 | # | Fund | Konsekvens | Bevis | Kilde | Indsats |
 |---|---|---|---|---|---|
-| 1 | Hændelses-loaderen skriver til prod **som standard** (K1) | Én kommando uden flag ændrer prod og låser `haendelse` | V | F | S |
+| 1 | Hændelses-loaderen skriver til prod **som standard** (K1) | SKILL.md siger "begynd altid med `--dry-run`", men glemmes flaget, ændres prod og `haendelse` låses | V | F | S |
 | 2 | Evidens-runneren melder **grønt** for ugyldigt modelsvar (K2) | En fejlet udtrækning ligner en post uden fakta, og caches | R+V | C | S |
 | 3 | Redaktionen kan vise **person A's data under person B** (K3) | Redaktøren kan rette den forkerte persons påstand | V | F+C | S |
-| 4 | Databasefejl vises som **"ingen data"** i redaktion og læserflade (K4) | Redaktør kan oprette dublet; læser mister link | V | F+C | S–M |
+| 4 | Databasefejl vises som **"ingen data"** i redaktion og læserflade (K4) | Redaktør kan oprette dublet; læser mister link | V (delvist) | F+C | S–M |
 | 5 | Fortrydelse kan **overskrive en samtidig nyere rettelse** (K5) | Tabt redaktørarbejde trods `p_force=false` | V | C | M |
 | 6 | To portrætter kan begge blive primære; begrundelse forældet (K6) | Forkert portræt; review 34's afvisning hviler på kode, der er ændret | V | C | S |
 | 7 | Sidehentning uden fast rækkefølge og med tavst loft (K7) | Person/slægtskabskant kan mangle eller stå dobbelt | V | F (×3) | S |
@@ -64,7 +64,7 @@ Rangeret efter (risiko for forkerte data eller tabt arbejde) ÷ indsats.
 | 9 | Matcheren kan smide den bedste kandidat væk før rangering (K9) | Rigtig 1939↔2018-match vises ikke | R+V | C | S |
 | 10 | Privat-fil-skrivning overskriver udfyldte ark stille (K10) | Menneskets svar i et ark kan tabes ved genkørsel af `render` | V | F+C | S–M |
 | 11 | 69 af 133 Python-testfiler og 13 af 131 SQL-tests kører ikke i CI (D3) | `validate.py` m.fl. kan gå i stykker uden rød PR | V | F | S |
-| 12 | `schema.sql` og migrationen er gledet fra hinanden for `narrative_record_state` (D1) | Frisk base og prod låser forskellige rækker | V | F+C | S |
+| 12 | `schema.sql` og migrationen er gledet fra hinanden for `narrative_record_state` (D1) | En frisk base og en migreret base låser forskellige rækker; hvad prod kører, er ikke tjekket | V | F+C | S |
 
 ---
 
@@ -74,7 +74,8 @@ Rangeret efter (risiko for forkerte data eller tabt arbejde) ÷ indsats.
 - **Hvor:** `.claude/skills/daa-haendelser/scripts/load_haendelser.R:9` (`DRY_RUN <- "--dry-run" %in% argv`), `:49`
   (`LOCK TABLE haendelse IN SHARE ROW EXCLUSIVE MODE`), `:122-143` (én `dbExecute` pr. række).
 - **Konsekvens:** Alle andre prod-skrivere kræver `--jeg-mener-det` eller har dry-run som standard. Denne gør det
-  modsatte. Hver genkørsel sender også ét kald pr. hændelse — inkl. uændrede — under tabellås.
+  modsatte: login er `SUPABASE_*` fra `~/.Renviron` (`:18`), og værnet er kun en instruks i `daa-haendelser/SKILL.md:90-95`
+  ("Begynd altid med `--dry-run`"). Hver genkørsel sender også ét kald pr. hændelse — inkl. uændrede — under tabellås.
 - **Forslag:** Kræv `--jeg-mener-det` som de øvrige; lad `plan_merge` springe uændrede rækker over; skriv via midlertidig
   tabel + tre mængde-statements. Markering-bevarelsen (`feed_status`) skal bestå.
 
@@ -96,9 +97,9 @@ Rangeret efter (risiko for forkerte data eller tabt arbejde) ÷ indsats.
 - **Forslag:** Gør `loadPerson` uafhængig af `model`; én "seneste person-id/generation"-vagt; test A→B med omvendt
   svarrækkefølge.
 
-### K4 · Fejl præsenteres som tomme data — DELVIST · V · F+C
-- **Hvor:** 14 steder med `const { data } = await supabase…` uden `error`-tjek, bl.a. `web/src/data/redaktionRead.ts:134-151`,
-  `:182`, `:236-248`, `:284`, `:941`; `web/src/data/media.ts:302-311`; `web/src/data/public.ts:190-198`; mobil
+### K4 · Fejl præsenteres som tomme data — DELVIST · V (redaktionRead + `safe`) / S (øvrige) · F+C
+- **Hvor:** ~14 steder (reviewerens optælling) med `const { data } = await supabase…` uden `error`-tjek; verificeret i
+  `web/src/data/redaktionRead.ts:134`, `:138`, `:236`, `:240`, `:262`, `:284`, `:941`; desuden angivet `web/src/data/media.ts:302-311`; `web/src/data/public.ts:190-198`; mobil
   `mobile/src/data/redaktionRead.ts:166-190`. Plus `safe()` i `web/src/data/public.ts:20-28`.
 - **Konsekvens:** Fejler et opslag (RLS, timeout, pauset base), ser redaktøren en person uden påstande og kan oprette en
   dublet. På læsersiden returnerer `safe()` `[]` ved fejl → `if (!estates)` henter aldrig igen, og
@@ -116,7 +117,8 @@ Rangeret efter (risiko for forkerte data eller tabt arbejde) ÷ indsats.
 
 ### K6 · Portrætvalg: to primære mulige; kommentarens bevis holder ikke længere — NY · V · C
 - **Hvor:** `schema.sql:8944-8947` (kommentar: "verificeret umuligt" pga. `begin_change_set`'s `max(id)+1`),
-  `:8958-8965` (ryd-så-sæt). `begin_change_set` bruger nu IDENTITY (`:9184-9187`) — kollisionen, der serialiserede, findes ikke.
+  `:8958-8965` (ryd-så-sæt). `begin_change_set` bruger nu IDENTITY (`:9184-9187`) og tager ingen lås — kollisionen,
+  der serialiserede, findes ikke længere.
 - **Konsekvens:** To samtidige valg, når ingen er primær, kan begge sætte `primaer`. Review 34 M1 blev afvist på et
   grundlag, der senere er ændret (jf. erfaringen "latent er ikke harmløst").
 - **Forslag:** Partielt unikt indeks (højst ét `primaer` pr. person) + lås pr. person; ret kommentaren; medtag fortrydelsesvejen.
@@ -160,7 +162,7 @@ Rangeret efter (risiko for forkerte data eller tabt arbejde) ÷ indsats.
 ### Mindre korrekthedsfund
 - **K11 · Mobil: logout-kapløb genopretter redaktionsmodel** — `mobile/src/store/useStore.ts:375-386` (R, C). Mobil er dev-only.
 - **K12 · Web↔mobil-drift med adfærdsforskel** (V, F):
-  - `p_source_id ?? 1` (`mobile/src/data/redaktionWrite.ts:248`) mod `?? null` (`web/src/data/redaktionWrite.ts:363`). Samme handling rammer forskellige narrativ-rækker.
+  - `p_source_id ?? 1` (`mobile/src/data/redaktionWrite.ts:248`) mod `?? null` (`web/src/data/redaktionWrite.ts:363`). Uden kilde i payload rammer samme handling forskellige narrativ-rækker (slægt/linje/gods). Latent, hvis mobilens kaldere altid sætter `sourceId` — ikke eftervist.
   - Mobil mangler web-rettelsen `svageKandidater` (`mobile/src/data/sammenlign.ts:25`).
   - Mobilens "Sammenlign udgaver" mangler linjeudelukkelsen (`udenforMatchning`) og bruger 5× `getAll` i stedet for RPC'en `red_match_personer`.
 - **K13 · Bogstavelig NUL-byte i kildekode** — `mobile/src/lib/feedMedia.ts:76` (V). Git og grep ser filen som binær, så
@@ -181,8 +183,8 @@ Rangeret efter, hvornår det bider. "Nu" = koster mærkbart ved dagens data.
 | # | Fund | Hvornår | Bevis | Indsats |
 |---|---|---|---|---|
 | P1 | Persondetaljen hentes 3× ved dybt link (~30 kald i stedet for ~10) | Nu | V | S |
-| P2 | Koordinat-RPC'en offset-pagineres → hele beregningen køres pr. side (1,2–1,4 s pr. kørsel) | Nu (2×), kvadratisk ved vækst | V+K | S–M |
-| P3 | Forsiden henter alle biografier i ét kald (13 s målt mod 3 s grænse) og igen ved hver tilbagevenden | Nu (KENDT, decisions.md:312) | V | M |
+| P2 | Koordinat-RPC'en offset-pagineres → hele beregningen køres pr. side (1,2–1,4 s pr. kørsel) | Nu hvis > 1.000 rækker (ikke fastslået); kvadratisk ved vækst | V+K | S–M |
+| P3 | Forsiden henter alle biografier i ét kald (målt 12,7 → ≈25 s mod 3 s grænse) og igen ved hver tilbagevenden | Nu (KENDT; optimering bevidst udskudt, decisions 2026-11-10) | V | M |
 | P4 | Redaktørkoden (24 filer, ~9.700 linjer) ligger i læsernes startpakke | Nu | V | S |
 | P5 | Kontraktversion slås op serielt før hver personvisning; v1-læseren vedligeholdes stadig | Nu (én rundtur) | S | S (+M) |
 | P6 | Manglende indeks `conclusion.valgt_assertion_id` → seq scan pr. slettet påstand | Fortryd/slet af import: M×N | V | S |
@@ -204,12 +206,17 @@ Rangeret efter, hvornår det bider. "Nu" = koster mærkbart ved dagens data.
   `manglerBogNummer` fejlagtigt er sand, (b) når modellen lander og (c) når geo lander. Panelet blinker hver gang.
   Samme mønster i `fetchEstateOwners` (`:159-165`). *Forslag:* vent på modellen; hold geo i egen state eller afhæng af stabile delfelter.
 - **P2** `web/src/data/model.ts:70` og `mobile/src/data/load.ts:219` kalder `getAll(() => rpc('public_person_source_coordinates'))`.
-  RPC'en er `plpgsql RETURN QUERY` (`schema.sql:3334`), så hele resultatet beregnes før `.range()` skærer ud. Fundet af
-  tre reviewere uafhængigt. *Forslag:* ét samlet svar eller keyset-parameter; markér i `getAll`, at RPC'er ikke må offset-pagineres.
+  RPC'en er `LANGUAGE plpgsql` (`schema.sql:3334`), så hele resultatet beregnes før `.range()` skærer ud. Fundet af
+  tre reviewere uafhængigt. Om den i dag rammer to sider afhænger af rækketallet (> 1.000), som ikke er fastslået.
+  **Overlap med trin 6e-2:** spec'en (`docs/superpowers/specs/2026-11-12-trin6e-laeserflade-design.md:10,77,366`)
+  gør allerede RPC'en billigere og har færdigbevis "anon i prod ≤ 0,6 s". Pagineringsproblemet er uafhængigt af det og
+  bør foldes ind i 6e-2 i stedet for at blive et eget spor. *Forslag:* ét samlet svar eller keyset-parameter; markér i
+  `getAll`, at RPC'er ikke må offset-pagineres.
 - **P6** `schema.sql:3616` (FK uden indeks; eneste indeks er `ix_conclusion_target` `:6795`). Triggeren
   `trg_regen_from_assertion` (`:6476`) og FK-tjekket ved hver `DELETE FROM assertion` scanner hele `conclusion`;
   `red_reverse_reimport` sletter i løkke (`:5792`). Ét `CREATE INDEX` i schema + migration.
-- **P7/P8** er kendte og kræver beslutning (jf. `docs/decisions.md:265-268`, `:3490-3494`). Forslag til retning:
+- **P7/P8** er kendte og kræver beslutning (jf. `docs/decisions.md:265-268`, `:3490-3494`); biografilæserens ≈25 s er
+  accepteret og optimeringen udskudt "til før projektets afslutning" (decisions 2026-11-10, `status.md`). Forslag til retning:
   flyt integritetsbeviset fra læsetid til skrivetid via en **fejl-lukket** projektionstabel (manglende række = skjult),
   med en `db-verify`-assert der beviser projektion = genberegning. For `person`-RLS: rent kolonneprædikat + assert om
   ækvivalens med `person_offentlig`, men **mål først** — projektet har tidligere droppet en RLS-omlægning uden målt gevinst.
@@ -240,8 +247,9 @@ Rangeret efter, hvornår det bider. "Nu" = koster mærkbart ved dagens data.
 - Hvis mobil forbliver dev-only længe, er trin 1 + K12 + K13 det meste af gevinsten.
 
 ### G2 · `Redaktion.tsx`: én funktion på ~2.280 linjer — NY · V · F
-- **Hvor:** `web/src/Redaktion.tsx:204-2486` (`Arbejdsbord`): ~75 `useState`, 24 indre `renderX()`, 438 inline
-  `style={{`, 78 hårdkodede farver, 67 `<div onClick>` mod 12 `<button>` (ikke tastaturtilgængelige).
+- **Hvor:** `web/src/Redaktion.tsx:204-2486` (`Arbejdsbord`): 66 `useState`-linjer, 24 indre `renderX()`, ~440 inline
+  `style={{`, ~78 hårdkodede farver, 60 `<div … onClick>` mod 11 `<button>` (ikke tastaturtilgængelige). (Tal for
+  useState/div/button talt af hovedsessionen; reviewerens lidt højere tal talte også flerlinjede former.)
 - **Forslag:** Samme snit som lykkedes i `Folgesvend.tsx` (1.326 → 580 linjer): hooks først (`useMediaEditor`,
   `usePersonRecord`, `useKvalitetsark`), derefter `renderX` → komponenter, og en `Knap`-primitiv. Gøres naturligt i
   forbindelse med webredesignets fase for redaktionen. K3 er en direkte følge af størrelsen.
@@ -256,7 +264,9 @@ Rangeret efter, hvornår det bider. "Nu" = koster mærkbart ved dagens data.
 ### G4 · Pipeline: hjælpere kopieret i stedet for delt — NY · V · F
 - **DB-forbindelse (R):** ~45 scripts bygger hver sin forbindelse med fem forskellige SSL-regler. 11 ikke-frosne
   scripts sætter ingen `sslmode` (libpq-standard `prefer`); 9 sætter `disable`, når `PGDATABASE` er sat, uden at tjekke
-  værten (`S/apply_phase_a_1939_v50.R:54-57`). `env_or` er defineret 22×, `connection_factory` 10×.
+  værten (`S/apply_phase_a_1939_v50.R:54-57`, V). `env_or` er defineret som top-level funktion i 11 filer og
+  `connection_factory` i 5 (hovedsessionens optælling; reviewerens 22/10 medtog også inline-/indlejrede definitioner).
+  49 ikke-test R-filer kalder `dbConnect`.
   **Forslag:** én `daa_connect(mode = "prod"|"local")`: prod altid `require`, local kun ved lokal vært; sætter
   `request.jwt.claim.sub` ét sted. Frosne filer røres ikke.
 - **Ark og hashing (Python):** `render_sheet`/`parse_sheet` i 10 filer; `decision_sheet_core.py` deler kun 32 linjer.
@@ -338,7 +348,8 @@ Rangeret efter, hvornår det bider. "Nu" = koster mærkbart ved dagens data.
 Hver er afgrænset, har en tydelig test og kan committes atomisk. K5 (fortryd-lås) er M og kræver en to-sessions-test.
 
 **Bølge 2 — værn mod at ting glider (S–M):** D1 (generisk paritetsgate; først afgør `narrative_record_state` mod prod),
-D3 (alle tests i CI), K10 (`private_io.py`), G4 `daa_connect`, P1, P2, P4, P5-cachen.
+D3 (alle tests i CI), K10 (`private_io.py`), G4 `daa_connect`, P1, P4, P5-cachen. P2 foldes ind i trin 6e-2, som
+allerede ændrer koordinat-RPC'en.
 
 **Bølge 3 — struktur (M–L, kræver beslutninger):** G1 trin 1 → (beslutning) trin 2–3; G2 sammen med webredesignet; G3
 gradvist; G5 arkivering; D2 migrationsmodel efter trin 6; D4 CI-skabeloner.
