@@ -216,6 +216,8 @@ for (const k of komps) {
     // årsag: typen opløses ikke; referencens status; eller (læsbar reference) opløsningen ville ligge før referencen,
     // eller leddet mangler en del i referencen / er flertydigt i forhold til en tidligere dato i samme tekst
     const aarsag = r.faktatype !== 'dåb' && r.faktatype !== 'begravelse' ? 'typen opløses ikke'
+      : r.referenceFlertydig ? 'flere eller omstridte referencer på rækken'
+      : r.kaedebrud ? 'relativt datofelt ved siden af en dato i teksten'
       : (() => {
         const st = relativReferenceStatus(r.reference);
         if (st !== 'ok') return `reference ${st}`;
