@@ -224,6 +224,10 @@ opløste værdi er den viste og den, lighedsreglen sammenligner. Kan datoen ikke
 nødvendige del eller er selv relativ), vises bogens tekst, og den giver aldrig »✓« (noten bliver »skriver: …«). Død,
 titel og dekoration med relativ dato opløses ikke og giver aldrig »✓« på grund af den relative del. Påstanden i
 databasen ændres ikke (ren projektion; invariant 5).
+*Under bygningen (7b, konservativt — ved tvivl bogens tekst):* desuden uopløselig, når referencen er usikker (»ca.«,
+»?«, »før«, »/«) eller flertydig (to datoer/måneder), når datoen er flertydig i teksten (»begravet s.d.« efter
+»bisat …«), eller når den opløste dato ville ligge før referencen. Initialkæder (»S. M. Kirke«, »R.S.A.O.«) er ikke
+relative datoer. Relative værdier giver aldrig »✓« for andre typer end navn/tilnavn.
 
 **Kendt begrænsning (6e-1):** relative datoer uden for personens fakta opløses ikke — ægteskabets **vielse** (familie-
 faktum; 8 relative af 478; vises i dag kun som kortpunkt, ikke som tekst i persondetaljen) og **embedernes periode**
