@@ -2,7 +2,7 @@
 // UÆNDREDE i logik, men UDEN caps (FEED_CAPS/cap() udgår; poolen er alle kandidater).
 // Model importeres fra @daa/core; builders er derfor kun afhængige af Model-felter,
 // ikke af nogen app-specifik type.
-import { computeRelationship } from '@daa/core';
+import { bogensNummer, computeRelationship } from '@daa/core';
 import { stableHash } from './prng';
 import { isExactDay } from './types';
 import type {
@@ -229,7 +229,7 @@ export function buildNaevnt(
   const out: FeedCard[] = [];
   for (const p of model.persons) {
     if (p.privat || p.bio.trim() !== '' || p.title.trim() !== '') continue;
-    const kilde = (model.sourcesBy?.[p.id] ?? []).map((s) => s.ref.trim()).find((ref) => ref !== '');
+    const kilde = bogensNummer(model.sourcesBy, p.id);
     if (!kilde) continue;
     if (grundlag.personerMedEmbedeEllerGods.has(p.id)) continue;
     if ((aux.officesBy[p.id]?.length ?? 0) > 0) continue;
