@@ -1,26 +1,19 @@
 // ---- Person-detalje (højre panel) ----
 // Udtrukket fra Folgesvend.tsx (review 27 W-K1) — samme komponent, blot flyttet fil.
-import { Suspense, useEffect, useState, type CSSProperties } from 'react';
+import { Suspense, useState } from 'react';
 import { T } from '../theme';
 import { Link } from '../Link';
 import { personPath } from '../data/nav';
 import { initials } from '../data/format';
-import { childrenOf, parentsOf } from '../data/model';
-import { pickPortrait, withUrl } from '../data/media';
 import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
-import { erTekniskLinje } from '../data/lineage';
-import {
-  aegteskabsKilder as aegteskabsKilderFor, boerneKilder as boerneKilderFor, byggUdgaveFakta, byggUdgaveVaelger,
-  familieIderForPerson, foraelderKilder as foraelderKilderFor, kildeLinje, lifeJourney, udgaveForRaekker,
-  udgaverMedFakta, type BioSourceVersionV2, type FamilieKilde, type UdgaveChip,
-} from '@daa/core';
-import { fetchFamilySources } from '../data/familySources';
+import { lifeJourney } from '@daa/core';
 import { NarrativRenderer } from './NarrativRenderer';
 import { PersonFakta } from './PersonFakta';
 import { Lightbox } from './Lightbox';
 import { MediaThumb, BookmarkFlag, Label } from './primitives';
 import { ExpandableMiniMap, MapFallback } from './lazyMaps';
+import { usePersonVisning, UdgaveKnapper, KildeLinjeVisning } from './personVisning';
 
 export function DetailPanel({ model, focusId, detail, onPick, personHref = personPath, backName, onBack, onClose, onFocusTree, onRelate, onVisPraesens, isMe, onToggleMe, isBookmarked, onToggleBookmark, geoLoading }: {
   model: Model; focusId: string; detail: PersonDetailData | null; onPick: (id: string) => void;
@@ -34,99 +27,13 @@ export function DetailPanel({ model, focusId, detail, onPick, personHref = perso
   // portræt + galleri bliver ÉT navigerbart sæt (portræt først), så pil-tasterne bladrer gennem
   // alle personens billeder uanset hvilket der blev klikket på.
   const [lightbox, setLightbox] = useState<number | null>(null);
-  // Udgavevælger (6e-1, spec §5.5): ÉN chip-liste styrer både biografien og fakta-udgaven. Læserens valg er
-  // bundet til personen og chippens identitet (art, udgave, post) — ikke til detalje-objektet, så en genhentning for
-  // samme person (fx når geo ankommer) bevarer valget. Findes chippen ikke i de aktuelle data, gælder standarden,
-  // uden at valget glemmes; en ny person giver altid standarden. Afledt, ikke nulstillet i en effekt.
-  const [valg, setValg] = useState<{ focusId: string; noegle: string } | null>(null);
-  // Nyt focusId nulstiller valget (også ved A → B → A); justeret under render, ikke i en effekt.
-  const [valgFokus, setValgFokus] = useState(focusId);
-  if (valgFokus !== focusId) {
-    setValgFokus(focusId);
-    setValg(null);
-  }
-  const faktaInput = detail?.faktaInput ?? null;
-  const udgaver = model.udgaver ?? [];
-  const vaelger = byggUdgaveVaelger(detail?.bioVersions ?? [], udgaver, faktaInput ? udgaverMedFakta(faktaInput) : []);
-  const valgtFundet = valg && valg.focusId === focusId ? vaelger.chips.findIndex((c) => chipNoegle(c) === valg.noegle) : -1;
-  const valgtIdx = valgtFundet >= 0 ? valgtFundet : vaelger.standard;
-  const vaelgChip = (idx: number) => {
-    const c = vaelger.chips[idx];
-    if (c) setValg({ focusId, noegle: chipNoegle(c) });
-  };
-  const aktivChip: UdgaveChip | null = vaelger.chips[valgtIdx] ?? null;
-  // En chip fra en ukendt udgave (fx »label:…« uden udgaveoplysninger) filtrerer intet: alt vises som i dag.
-  const valgtUdgave = aktivChip && udgaver.some((u) => u.sourceId === aktivChip.sourceId) ? aktivChip.sourceId : null;
-  const faktaVisning = faktaInput ? byggUdgaveFakta(faktaInput, valgtUdgave) : null;
-  // Trin 5b 2a (spec §5.2): kilder på ægteskab og forældrelinje. Hentes pr. person; et svar for en
-  // tidligere person ignoreres. Fejl giver [] i datalaget, så panelet aldrig brydes. Afhænger af
-  // model.indexes, ikke model: et nyt modelobjekt (fx når geo ankommer) skal ikke hente kilderne igen.
-  const [familieKilder, setFamilieKilder] = useState<FamilieKilde[]>([]);
-  useEffect(() => {
-    let aktiv = true;
-    setFamilieKilder([]);
-    const { aegteskaber, foraeldreFamilier } = familieIderForPerson(model.indexes, focusId);
-    const ids = [...aegteskaber.map((a) => a.familyId), ...foraeldreFamilier];
-    void fetchFamilySources(ids).then((k) => { if (aktiv) setFamilieKilder(k); });
-    return () => { aktiv = false; };
-  }, [focusId, model.indexes]);
-  const p = model.byId[focusId];
+  // Udgavevælger, familie med kilder, godser, kilder og medier: delt med personsiden (personVisning.tsx).
+  const {
+    p, vaelger, valgtIdx, vaelgChip, aktivChip, faktaVisning, tidligereUdgave,
+    parents, spouses, children, linjer, sources, portrait, gallery, lightboxItems, proveniens, godser,
+    aegteskabsKilder, foraelderKilder, boerneKilder, kildeNøgle,
+  } = usePersonVisning(model, focusId, detail);
   if (!p) return null;
-  const familieIder = familieIderForPerson(model.indexes, focusId);
-  // Kildefiltrene bor i core (6d-3 spor L): modparten slås op kanonisk, så en kilde fra en sammenfoldet
-  // udgaves post (fx 1939's alias-række) vises hos den kanoniske person.
-  const canon = model.canonicalIdById ?? {};
-  const aegteskabsKilder = (spouseId: string | null) => aegteskabsKilderFor(familieKilder, familieIder, spouseId, focusId, canon);
-  const foraelderKilder = (parentId: string) => foraelderKilderFor(familieKilder, familieIder, parentId, canon);
-  const boerneKilder = boerneKilderFor(familieKilder, familieIder, focusId, canon);
-  // Samme ægteskab kan være bundet fra flere udgaver/poster; nøglen skal derfor også bære kilden.
-  const kildeNøgle = (k: FamilieKilde) => [k.familyId, k.slags, k.counterpartPersonId, k.sourceLabel, k.sourceRecordRef ?? k.recordLabel].join('|');
-  const parents = parentsOf(model, focusId);
-  const spouses = (model.indexes.spousesBy[focusId] ?? []);
-  const children = childrenOf(model, focusId);
-  // Tekniske linjenøgler (legacy-source:…, lineage.ts) vises aldrig (spec §5.7) — ellers faldt hovedet tilbage
-  // til »Linje <nøgle>«.
-  const linjer = (model.lineage?.byPerson[focusId] ?? []).filter((lk) => !erTekniskLinje(lk));
-  // Bog-nummeret ("Linje II, nr. 4") vinder; citation-proveniensen udfylder kun for personer bogen
-  // ikke gav et opslag — typisk ægtefæller, der ellers stod helt uden kilde.
-  const sources = model.sourcesBy?.[focusId]?.length ? model.sourcesBy[focusId] : (detail?.sources ?? []);
-  // Portræt = hovedbilledet; galleri = de øvrige medier (materiale). RLS-gatet i data-laget.
-  const media = detail?.media ?? [];
-  const portrait = pickPortrait(media);
-  const gallery = media.filter((m) => m.url && m.id !== portrait?.id);
-  const lightboxItems = withUrl([portrait, ...gallery]);
-  // Proveniens: er personen foldet af flere DAA-poster (samme_som), vis hvilke linjer/numre.
-  const mergedFrom = p.mergedFrom ?? [];
-  // Godser (spec §5.8): kun dem, hvis personrække hører til den valgte udgave, eller hvis udgave ikke kendes.
-  // Rækkens udgave som for fakta (§5.1): fakta-rækkernes udgave, ellers personrækkens eksterne nøgle.
-  const raekkeUdgave = faktaInput ? udgaveForRaekker(faktaInput) : {};
-  const godsUdgave = (personId: string): string | null => {
-    if (!faktaInput) return null;
-    const r = raekkeUdgave[personId];
-    if (r !== undefined) return r;
-    const ext = faktaInput.udgaveForPersonRaekke[personId];
-    return ext != null && udgaver.some((u) => u.sourceId === ext) ? ext : null;
-  };
-  const godser = (detail?.estates ?? [])
-    .filter((e) => { const u = godsUdgave(e.personId); return valgtUdgave == null || u == null || u === valgtUdgave; })
-    .filter((e, i, alle) => alle.findIndex((x) => x.id === e.id) === i);
-  // »Tidligere udgave« kun når den aktive chips udgave er ældre end standardens (årstal); ukendt år → ingen etiket.
-  const standardChip = vaelger.chips[vaelger.standard] ?? null;
-  const chipAar = (c: UdgaveChip): number | null => udgaver.find((u) => u.sourceId === c.sourceId)?.aar
-    ?? (c.art === 'post' ? (c.version as Partial<BioSourceVersionV2>).sourceYear ?? null : null);
-  const aktivAar = aktivChip ? chipAar(aktivChip) : null;
-  const standardAar = standardChip ? chipAar(standardChip) : null;
-  const tidligereUdgave = aktivAar != null && standardAar != null && aktivAar < standardAar;
-  const proveniens =
-    mergedFrom.length > 1
-      ? mergedFrom
-          .map((m) => {
-            const navn = m.linje ? model.lineage?.navn[m.linje] ?? `linje ${m.linje}` : 'ukendt linje';
-            const ref = m.linje && m.nr != null ? ` (${m.linje}-${m.nr_label ?? m.nr})` : '';
-            return `${navn}${ref}`;
-          })
-          .join(' og ')
-      : null;
   return (
     <>
     <div data-scroll style={{ flex: 'none', width: '50%', maxWidth: 760, minWidth: 430, borderLeft: `1px solid ${T.line}`, background: T.surfaceRaised, overflowY: 'auto' }}>
@@ -172,6 +79,9 @@ export function DetailPanel({ model, focusId, detail, onPick, personHref = perso
                 Optræder i Aarbogen som {proveniens}.
               </div>
             )}
+            {/* Panelet er en genvej; hele personen står på personsiden (webredesign fase 3). personPath, ikke
+                personHref: i træet peger personHref på …/stamtrae?fokus=<id>. */}
+            <Link href={personPath(focusId)} style={{ display: 'inline-block', marginTop: 10, fontFamily: T.sans, fontSize: 13.5, fontWeight: 600, color: T.bordeaux }}>Åbn personsiden ›</Link>
           </div>
         </div>
 
@@ -343,42 +253,4 @@ export function DetailPanel({ model, focusId, detail, onPick, personHref = perso
     )}
     </>
   );
-}
-
-// En chips identitet på tværs af genhentninger: art, udgave og post (postens ref, ellers etiketten).
-function chipNoegle(c: UdgaveChip): string {
-  return c.art === 'post' ? `post:${c.sourceId}:${c.version.recordRef ?? c.label}` : `udgave:${c.sourceId}`;
-}
-
-// Udgavevælgerens knapper. Etiketten er chippens (core har allerede fjernet tekniske postnøgler).
-function UdgaveKnapper({ chips, valgt, onVaelg, style }: {
-  chips: UdgaveChip[]; valgt: number; onVaelg: (idx: number) => void; style?: CSSProperties;
-}) {
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, ...style }}>
-      {chips.map((c, i) => (
-        <button key={`${c.art}:${c.sourceId}:${i}`} type="button" aria-pressed={i === valgt} onClick={() => onVaelg(i)} style={{
-          fontFamily: T.mono, fontSize: 10.5, fontWeight: 600, cursor: 'pointer',
-          color: i === valgt ? T.inkOnInverse : T.inkMuted,
-          background: i === valgt ? T.bordeaux : T.surfaceSunken,
-          border: '1px solid rgba(34,31,26,.12)', padding: '4px 9px', borderRadius: 6,
-        }}>
-          {c.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// Kildelinjen »Kilde: ‹udgave› · ‹post›«. Er posten en af personens egne biografiposter, vælger et klik
-// den chip; ellers (fx forælderens post) er linjen ren tekst.
-function KildeLinjeVisning({ kilde, chips, onVaelg }: {
-  kilde: FamilieKilde; chips: UdgaveChip[]; onVaelg: (idx: number) => void;
-}) {
-  const idx = kilde.sourceRecordRef
-    ? chips.findIndex((c) => c.art === 'post' && c.version.recordRef === kilde.sourceRecordRef) : -1;
-  const stil = { display: 'block', fontFamily: T.sans, fontSize: 11.5, fontStyle: 'normal' as const, color: T.inkMuted };
-  return idx >= 0
-    ? <button type="button" onClick={() => onVaelg(idx)} style={{ ...stil, background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}>{kildeLinje(kilde)}</button>
-    : <span style={stil}>{kildeLinje(kilde)}</span>;
 }

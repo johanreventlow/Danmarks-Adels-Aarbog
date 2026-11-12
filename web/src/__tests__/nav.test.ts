@@ -24,7 +24,7 @@ describe('parseFolgesvendPath — ny grammatik', () => {
     expect(parseFolgesvendPath('/slaegt/reventlow/findes-ikke').mode).toBe('ukendtSlaegt');
   });
   it('sider over slægterne', () => {
-    expect(parseFolgesvendPath('/person/abc')).toEqual({ ...tom, mode: 'tree', personId: 'abc' });
+    expect(parseFolgesvendPath('/person/abc')).toEqual({ ...tom, mode: 'person', personId: 'abc' });
     expect(parseFolgesvendPath('/gods/e1')).toEqual({ ...tom, mode: 'estates', estateId: 'e1' });
     expect(parseFolgesvendPath('/slaegtskab').mode).toBe('relate');
     expect(parseFolgesvendPath('/soeg', '?q=Conrad')).toEqual({ ...tom, mode: 'soeg', q: 'Conrad' });

@@ -1,0 +1,176 @@
+// @vitest-environment jsdom
+// Personsiden /person/<id> (webredesign fase 3): samme data som panelets udgavetest (Conrad Reventlow), vist som
+// egen side. Mangler siges med ord; henter, tom og fejl er tre tilstande; usikkert slægtskab vises med ordet.
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { buildModel, type AppPerson, type BioSourceVersionV2, type PublicPersonFactRow, type Udgave, type UdgaveFaktaInput } from '@daa/core';
+import { describe, expect, it, vi } from 'vitest';
+import type { PersonDetailData } from '../../data/public';
+import type { Model } from '../../data/types';
+
+vi.mock('../../data/familySources', () => ({ fetchFamilySources: async () => [] }));
+vi.mock('../../router', () => ({ navigate: vi.fn() }));
+const { PersonSide } = await import('../PersonSide');
+
+const D18: Udgave = { sourceId: '1', label: 'DAA 2018-20', aar: 2018 };
+const D39: Udgave = { sourceId: '3', label: 'DAA 1939', aar: 1939 };
+const RECORD_1939 = 'record-07565168-b903-4444-9189-43d62d5c6ed6';
+
+// ---- Conrad Reventlow (255 III-58, 392 V-1, 1198 1939), som core-fixturen i editionFacts.test.ts ----
+let next = 1;
+const row = (o: Partial<PublicPersonFactRow>): PublicPersonFactRow => {
+  const id = next++;
+  return {
+    person_id: 392, fact_id: id, faktatype: 'død', conclusion_status: 'afklaret', assertion_id: id, chosen: true,
+    vaerdi_tekst: null, date_raw: null, date_min: null, date_max: null, date_qualifier: null, date_certainty: null,
+    source_id: 1, source_label: 'DAA 2018-20', side: null, record_ref: null, record_label: null, citation_label: null, ...o,
+  };
+};
+const bundet39 = { source_id: 3, source_label: 'DAA 1939', record_ref: 'rec-1939', record_label: RECORD_1939, citation_label: 'DAA 1939, s. 541' };
+const ROWS_18: PublicPersonFactRow[] = [
+  row({ fact_id: 3920, faktatype: 'navn', assertion_id: 39200, chosen: true, vaerdi_tekst: 'Conrad', source_id: null, source_label: null }),
+  row({ fact_id: 3920, faktatype: 'navn', assertion_id: 39201, chosen: false, vaerdi_tekst: 'Conrad de Reventlow', side: '201' }),
+  row({ person_id: 255, faktatype: 'titel', vaerdi_tekst: 'greve', record_ref: 'rec-iii58', record_label: 'III-58', citation_label: 'DAA 2018-20, s. 137' }),
+  row({ faktatype: 'titel', vaerdi_tekst: 'Greve', record_ref: 'rec-v1', record_label: 'V-1', citation_label: 'DAA 2018-20, s. 201-202' }),
+  row({ faktatype: 'fødsel', date_raw: '21. april 1644', date_min: '1644-04-21' }),
+];
+const ROWS_39: PublicPersonFactRow[] = [
+  row({ person_id: 1198, faktatype: 'navn', vaerdi_tekst: 'Conrad Reventlow', ...bundet39 }),
+  row({ person_id: 1198, faktatype: 'titel', vaerdi_tekst: 'Greve', ...bundet39 }),
+  row({ person_id: 1198, faktatype: 'fødsel', date_raw: '21 April 1644', ...bundet39 }),
+  row({ person_id: 1198, faktatype: 'begravelse', vaerdi_tekst: 'Herlufsholm', ...bundet39 }),
+];
+const faktaInput = (rows: PublicPersonFactRow[]): UdgaveFaktaInput => ({
+  rows, udgaver: [D39, D18], udgaveForPersonRaekke: { '255': '1', '392': '1', '1198': '3' },
+  fritekstKilde: { '39200': ['Dansk Adels Aarbog – DAA 1939'] }, slukketEnighed: new Set(),
+});
+
+const bio = (sourceId: number, recordLabel: string, tekst: string, recordRef: string): BioSourceVersionV2 => ({
+  personId: sourceId === 1 ? 392 : 1198, sourceId, sourceYear: sourceId === 1 ? 2018 : 1939, recordOrder: null,
+  sourceRecordRef: recordRef, recordRef, sourceLabel: sourceId === 1 ? 'DAA 2018-20' : 'DAA 1939', recordLabel,
+  narrativeText: tekst, citationLabel: '', provenanceKind: 'source_record',
+});
+const BIO_III58 = bio(1, 'III-58', 'Se V-1.', 'rec-iii58');
+const BIO_V1 = bio(1, 'V-1', 'Conrad var storkansler og gehejmeråd og ejede Clausholm.', 'rec-v1');
+const BIO_1939 = bio(3, RECORD_1939, 'Conrad Reventlow, Greve, f. 21 April 1644.', 'rec-1939');
+
+const person = (id: string, name: string, born: number | null = null): AppPerson =>
+  ({ id, name, born, died: null, years: '', title: '', bio: '', privat: false });
+const model = {
+  ...buildModel({
+    persons: [person('392', 'Conrad Reventlow', 1644), person('600', 'Anna Margrethe Gabel'), person('500', 'Ulrica Reventlow', 1686), person('501', 'Christian Reventlow')],
+    unions: [{ id: 'f1', p1: '392', p2: '600', p2_name: null, year: null }],
+    parentChild: [{ child: '500', parent: '392', union: 'f1' }, { child: '501', parent: '392', union: 'f1' },
+      { child: '500', parent: '600', union: 'f1' }, { child: '501', parent: '600', union: 'f1' }],
+  }),
+  lineage: { byPerson: { '392': ['legacy-source:3:II', 'ctx:V'] }, list: [], navn: { 'ctx:V': 'V. Linje' } },
+  udgaver: [D18, D39],
+  udgaveForPersonRaekke: { '255': '1', '392': '1', '1198': '3' },
+} as unknown as Model;
+
+const detalje = (o: Partial<PersonDetailData> = {}): PersonDetailData => ({
+  bio: BIO_V1.narrativeText, offices: [], media: [], sources: [], facts: [], factsError: false,
+  bioVersions: [BIO_III58, BIO_V1, BIO_1939],
+  estates: [
+    { id: 'e1', navn: 'Clausholm', personId: '392' },
+    { id: 'e1', navn: 'Clausholm', personId: '255' },
+    { id: 'e2', navn: 'Frijsenborg', personId: '1198' },
+    { id: 'e3', navn: 'Uden fakta-række', personId: '777' },
+  ],
+  faktaInput: faktaInput([...ROWS_18, ...ROWS_39]),
+  ...o,
+});
+
+const props = (o: Partial<Parameters<typeof PersonSide>[0]> = {}) => ({
+  model, focusId: '392', detail: detalje(), detailError: null, onRetry: vi.fn(), onVisPerson: vi.fn(),
+  onFindSlaegtskab: vi.fn(), onSlaegt: vi.fn(), loggetInd: false, onLogin: vi.fn(), erBogmaerket: false, onToggleBogmaerke: vi.fn(),
+  ...o,
+});
+
+describe('PersonSide', () => {
+  it('navn, slægt, udgavevælger og biografi fra standardudgaven', () => {
+    render(<PersonSide {...props()} />);
+    expect(screen.getByRole('heading', { level: 1, name: 'Conrad Reventlow' })).toBeTruthy();
+    expect(screen.getAllByText(/Reventlow · V\. Linje/).length).toBeGreaterThan(0);
+    const vaelger = screen.getByRole('group', { name: 'Udgave' });
+    expect(within(vaelger).getAllByRole('button').length).toBe(3);
+    expect(screen.getByText(/Conrad var storkansler og gehejmeråd/)).toBeTruthy();
+  });
+
+  it('vælgeren skifter biografi og godser til den valgte udgave', () => {
+    render(<PersonSide {...props()} />);
+    expect(screen.getByRole('link', { name: 'Clausholm' }).getAttribute('href')).toBe('/gods/e1');
+    expect(screen.queryByRole('link', { name: 'Frijsenborg' })).toBeNull();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Udgave' })).getByRole('button', { name: /1939/ }));
+    expect(screen.getByText(/Greve, f\. 21 April 1644/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Frijsenborg' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Clausholm' })).toBeNull();
+  });
+
+  it('familie med links til personsider; mangler siges med ord', () => {
+    render(<PersonSide {...props()} />);
+    expect(screen.getByRole('link', { name: 'Anna Margrethe Gabel' }).getAttribute('href')).toBe('/person/600');
+    expect(screen.getByRole('link', { name: 'Ulrica Reventlow' }).getAttribute('href')).toBe('/person/500');
+    expect(screen.getByText('Ikke angivet i Aarbogen.')).toBeTruthy(); // forældre
+    expect(screen.getByText('Ingen embeder eller hverv angivet i Aarbogen.')).toBeTruthy();
+    expect(screen.getByText('Ingen billeder eller dokumenter i Aarbogen.')).toBeTruthy();
+    expect(screen.getByText('Intet portræt i Aarbogen.')).toBeTruthy();
+  });
+
+  it('usikkert slægtskab vises med ordet', () => {
+    const m = { ...model, indexes: { ...model.indexes, konfByEdge: { '500|392': 'formodet' } } } as unknown as Model;
+    render(<PersonSide {...props({ model: m })} />);
+    const ulrica = screen.getByRole('link', { name: 'Ulrica Reventlow' }).parentElement!;
+    expect(within(ulrica).getByText('formodet')).toBeTruthy();
+  });
+
+  it('de første 7 embeder, så »Vis alle«', () => {
+    const offices = Array.from({ length: 9 }, (_, i) => ({ label: `Embede ${i + 1}`, period: `${1660 + i}` }));
+    render(<PersonSide {...props({ detail: detalje({ offices }) })} />);
+    expect(screen.getByText('Embede 7')).toBeTruthy();
+    expect(screen.queryByText('Embede 8')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Vis alle 9 embeder og hverv' }));
+    expect(screen.getByText('Embede 9')).toBeTruthy();
+  });
+
+  it('henter: ingen »Ikke angivet« før detaljen er kommet', () => {
+    render(<PersonSide {...props({ detail: null })} />);
+    expect(screen.getAllByText('Henter …').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Ingen embeder/)).toBeNull();
+    expect(screen.getByText('Ikke angivet i Aarbogen.')).toBeTruthy(); // familien kommer fra modellen
+  });
+
+  it('fejl: forklaring og »Prøv igen«, ikke tomme sektioner', () => {
+    const onRetry = vi.fn();
+    render(<PersonSide {...props({ detail: null, detailError: 'PUBLIC_BIO_SOURCE_V2_UNAVAILABLE', onRetry })} />);
+    expect(screen.getByRole('alert').textContent).not.toContain('PUBLIC_BIO');
+    fireEvent.click(screen.getByRole('button', { name: 'Prøv igen' }));
+    expect(onRetry).toHaveBeenCalled();
+    expect(screen.queryByText(/Ingen embeder/)).toBeNull();
+  });
+
+  it('handlinger: Vis i stamtræet er et link, Find slægtskab en knap; login-noten lover kun bogmærker', () => {
+    const onFind = vi.fn();
+    render(<PersonSide {...props({ onFindSlaegtskab: onFind })} />);
+    expect(screen.getByRole('link', { name: 'Vis i stamtræet' }).getAttribute('href')).toBe('/slaegt/reventlow/stamtrae?fokus=392');
+    fireEvent.click(screen.getByRole('button', { name: 'Find slægtskab' }));
+    expect(onFind).toHaveBeenCalled();
+    expect(screen.getByText(/for at gemme Conrad Reventlow under dine bogmærker/)).toBeTruthy();
+    expect(screen.queryByText(/i familie/)).toBeNull();
+  });
+
+  it('indlogget: bogmærket står i højre spalte', () => {
+    const onToggle = vi.fn();
+    render(<PersonSide {...props({ loggetInd: true, onToggleBogmaerke: onToggle })} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Gem i bogmærker' }));
+    expect(onToggle).toHaveBeenCalled();
+  });
+
+  it('Kopiér link lægger personens adresse i udklipsholderen', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(<PersonSide {...props()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Kopiér link' }));
+    expect(await screen.findByText('Linket er kopieret.')).toBeTruthy();
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/person/392`);
+  });
+});

@@ -53,6 +53,9 @@ vi.mock('../components/TreeView', () => ({
     return <div>Stamtræ</div>;
   },
 }));
+vi.mock('../components/PersonSide', () => ({
+  PersonSide: (props: { focusId: string; detail: { bio: string } | null }) => <main>Personside {props.focusId}: {props.detail ? props.detail.bio : 'henter'}</main>,
+}));
 vi.mock('../components/DetailPanel', () => ({
   DetailPanel: (props: { detail: { bio: string } | null; onVisPraesens?: () => void }) => {
     mocks.detailProps = props;
@@ -65,7 +68,8 @@ import { navigate } from '../router';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  window.history.replaceState({}, '', '/person/1');
+  // Panelet i stamtræet (personsiden har egne tests nedenfor).
+  window.history.replaceState({}, '', '/slaegt/reventlow/stamtrae?fokus=1');
   const base = buildModel({
     persons: [{ id: '1', name: 'Testperson', born: null, died: 1900, years: '', title: '', bio: '', privat: false }],
     unions: [],
@@ -168,7 +172,7 @@ test('slægtsbjælken vises under /slaegt/<slug>, ikke på /person/<id>', async 
   unmount();
   window.history.replaceState({}, '', '/person/1');
   render(<Folgesvend />);
-  await screen.findByText('Biografi: x');
+  await screen.findByText('Personside 1: x');
   expect(screen.queryByRole('navigation', { name: 'Slægten Reventlow' })).toBeNull();
 });
 
@@ -181,4 +185,20 @@ test('/soeg?q= viser resultater, og søgeordet skrives i adressen med replace', 
   fireEvent.change(felt, { target: { value: 'Testp' } });
   expect(navigate).toHaveBeenCalledWith('/soeg?q=Testp', expect.objectContaining({ replace: true }));
   expect(screen.queryByRole('navigation', { name: 'Slægten Reventlow' })).toBeNull(); // over slægterne
+});
+
+test('/person/<id> er personsiden, ikke træet', async () => {
+  window.history.replaceState({}, '', '/person/1');
+  mocks.fetchPersonDetail.mockResolvedValue({ bio: 'Om testpersonen', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });
+  render(<Folgesvend />);
+  expect(await screen.findByText('Personside 1: Om testpersonen')).toBeTruthy();
+  expect(screen.queryByText('Stamtræ')).toBeNull(); // TreeView-mocken vises ikke
+  expect(screen.getByRole('link', { name: 'Personer' }).getAttribute('aria-current')).toBe('page');
+});
+
+test('ukendt person siger det neutralt, ikke træet', async () => {
+  window.history.replaceState({}, '', '/person/999');
+  render(<Folgesvend />);
+  expect(await screen.findByText('Personen kan ikke vises')).toBeTruthy();
+  expect(screen.getByText(/vises kun for indloggede/)).toBeTruthy();
 });

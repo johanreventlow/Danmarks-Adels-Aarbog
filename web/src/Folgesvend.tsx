@@ -19,6 +19,7 @@ import { signIn, signOut, currentSession, loginFejlTekst, type RedSession } from
 import { BookmarksView } from './components/BookmarksView';
 import { Sidehoved, type HovedpunktAktiv } from './components/Sidehoved';
 import { Slaegtsbjaelke } from './components/Slaegtsbjaelke';
+import { PersonSide } from './components/PersonSide';
 import { HomeView } from './components/HomeView';
 import { TreeView } from './components/TreeView';
 import { RelateView } from './components/RelateView';
@@ -234,11 +235,18 @@ export default function Folgesvend() {
   // Rydder søge-resultaterne (§4): de tre flag der driver showSearchResults. Linje-/bogstav-
   // filtre er browse-præferencer og bevares (og er alligevel uden effekt når resultaterne skjules).
   const clearSearch = () => { setQuery(''); setBmOnly(false); setBrowsing(false); };
-  // Hvor en person vises: inde i slægtens stamtræ bliver man i træet (…/stamtrae?fokus=<id>), så
-  // slægtsbjælken bliver stående; udefra (feed, søgning, bogmærker) er det /person/<id>. href og
-  // klik bruger samme funktion, så cmd-klik åbner samme adresse som et almindeligt klik.
-  const iSlaegtensTrae = mode === 'tree' && parsed.slaegt !== null;
-  const visPersonPath = (id: string) => (iSlaegtensTrae ? stamtraePath(slug, id) : personPath(id));
+  // To handlinger: »vis i træet« (træets egne klik → …/stamtrae?fokus=<id>, panelet åbner og
+  // slægtsbjælken bliver stående) og »vis person« (feed, søgning, bogmærker, familien på personsiden
+  // → /person/<id>). href og klik bruger samme funktion, så cmd-klik åbner samme adresse som et klik.
+  const traePath = (id: string) => stamtraePath(slug, id);
+  const visPersonPath = (id: string) => (mode === 'tree' ? traePath(id) : personPath(id));
+  const visPerson = (id: string) => {
+    const cid = canon(id);
+    setFocusId(cid);
+    setMode('person');
+    clearSearch();
+    navigate(personPath(cid));
+  };
   const navigateTree = (id: string) => {
     const cid = canon(id);
     const prev = focusId && focusId !== cid ? focusId : null;
@@ -246,7 +254,7 @@ export default function Folgesvend() {
     setFocusId(cid);
     setMode('tree');
     clearSearch(); // en "rigtig" navigation lader personen blive centrum i træet; resultat-grid'et viger (§4.1)
-    navigate(visPersonPath(cid), { state: { prevFocusId: prev } });
+    navigate(traePath(cid), { state: { prevFocusId: prev } });
   };
   // Fokus-skift UDEN navigation — bruges hvor det AKTUELLE mode bevidst skal bevares og ikke
   // bør ligge i URL'en: Slægtskabs-fanens "trin for trin"-liste (relate er udenfor URL-scope,
@@ -259,8 +267,12 @@ export default function Folgesvend() {
   const driftFocus = (id: string) => {
     const cid = canon(id);
     setFocusId(cid);
-    navigate(visPersonPath(cid), { replace: true, state: { prevFocusId } });
+    navigate(traePath(cid), { replace: true, state: { prevFocusId } });
   };
+  // Personsiden starter øverst, også når man går fra person til person (siden forbliver monteret).
+  const centerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (mode === 'person' && centerRef.current) centerRef.current.scrollTop = 0; }, [mode, focusId]);
+
   // Menuen lukker ved enhver navigation; besøgte slægter huskes til »Senest besøgt«.
   useEffect(() => { setMenuAabenState(false); }, [loc]);
   useEffect(() => {
@@ -311,8 +323,19 @@ export default function Folgesvend() {
     setMode(p.mode);
     setEstateId(p.estateId);
     setPrevFocusId((window.history.state as { prevFocusId?: string | null } | null)?.prevFocusId ?? null);
+    if (p.mode === 'person') {
+      // Personsiden: kanonisk id (alias → replace). Findes personen ikke i modellen — forkert id eller en
+      // person, læseren ikke må se — er fokus tomt, og siden siger det neutralt. Hentes modellen igen
+      // (login), kører effekten igen, og personen kommer frem af sig selv.
+      const cid = canon(p.personId!);
+      if (model.byId[cid]) {
+        setFocusId(cid);
+        if (cid !== p.personId) navigate(personPath(cid), { replace: true, state: window.history.state });
+      } else setFocusId(null);
+      return;
+    }
     if (p.mode !== 'tree') return;
-    const urlId = p.personId ?? p.fokusId;
+    const urlId = p.fokusId;
     if (!urlId) {
       // /stamtrae bærer ikke selv et fokus-id. Split-skærm (§5): når man LUKKER detaljen navigeres
       // hertil, og træet skal blive stående på samme centrum — så bevar et allerede sat focusId og
@@ -322,10 +345,9 @@ export default function Folgesvend() {
       return;
     }
     const cid = canon(urlId);
-    const tilSammeSlags = (id: string) => (p.personId ? personPath(id) : stamtraePath(p.slaegt ?? STANDARD_SLAEGT, id));
     if (model.byId[cid]) {
       setFocusId(cid);
-      if (cid !== urlId) navigate(tilSammeSlags(cid), { replace: true, state: window.history.state }); // alias → kanonisk
+      if (cid !== urlId) navigate(stamtraePath(p.slaegt ?? STANDARD_SLAEGT, cid), { replace: true, state: window.history.state }); // alias → kanonisk
     } else {
       setFocusId(startFokus(model));
       navigate(stamtraePath(p.slaegt ?? STANDARD_SLAEGT), { replace: true }); // ugyldigt/slettet id — forkast til træet uden fokus frem for at foregive et gæt
@@ -401,7 +423,7 @@ export default function Folgesvend() {
 
   // Bogmærke-række → tree-nav (Codex BLOCKER-fix, spec §3.3): detalje-panelet vises kun i
   // tree/relate, så et klik fra bookmarks-mode ville ellers være visuelt resultatløst.
-  const pickBookmark = (id: string) => navigateTree(id);
+  const pickBookmark = (id: string) => visPerson(id);
 
   // Fælles resultat-valg for tree-søgningen (§4) OG relate-A/B-valg (§5.6): i relate fylder et
   // valg den aktive plads (og rydder søgningen så A/B + sti vises igen), ellers navigerer/centrerer
@@ -411,8 +433,10 @@ export default function Folgesvend() {
     if (mode === 'relate') {
       if (relSlot === 'A') { setRelA(cid); setRelSlot('B'); } else { setRelB(cid); setRelSlot('A'); }
       clearSearch();
-    } else {
+    } else if (mode === 'tree') {
       navigateTree(cid);
+    } else {
+      visPerson(cid);
     }
   };
 
@@ -428,7 +452,7 @@ export default function Folgesvend() {
       </div>
     );
   }
-  const hovedpunkt: HovedpunktAktiv = mode === 'soeg' || (mode === 'tree' && parsed.personId) ? 'personer'
+  const hovedpunkt: HovedpunktAktiv = mode === 'soeg' || mode === 'person' ? 'personer'
     : parsed.slaegt ? 'slaegter' : mode === 'relate' ? 'slaegtskab' : null;
 
   // Søgning-i-træet (§4): bundtet der driver TreeSearch. showResults afgør resultat-grid vs. træ;
@@ -459,7 +483,7 @@ export default function Folgesvend() {
         loggetInd={!!session} onLogin={() => setLoginOpen(true)} onLogout={() => { void doLogout(); }}
         visRedaktion={session?.role === 'redaktion'}
         ekstra={meCanon && model?.byId[meCanon] ? (
-          <Link href={personPath(meCanon)} onNavigate={() => navigateTree(meCanon)} title="Din plads i slægten" aria-label="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: T.bordeauxTint, border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.bordeaux, flex: 'none', textDecoration: 'none' }}>{initials(model.byId[meCanon].name)}</Link>
+          <Link href={personPath(meCanon)} onNavigate={() => visPerson(meCanon)} title="Din plads i slægten" aria-label="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: T.bordeauxTint, border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.bordeaux, flex: 'none', textDecoration: 'none' }}>{initials(model.byId[meCanon].name)}</Link>
         ) : null}
       />
 
@@ -471,22 +495,39 @@ export default function Folgesvend() {
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
 
         {/* Center */}
-        <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
-          {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estates} onPickPerson={navigateTree} onOpenSearch={() => { goToMode('soeg'); bumpSearchFocus(); }} onBrowseAll={() => goToMode('soeg')} onOpenEstate={(id) => { setEstateId(id); navigate(estatePath(id)); }} onGoTree={() => goToMode('tree')}
+        <div ref={centerRef} data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
+          {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estates} onPickPerson={visPerson} onOpenSearch={() => { goToMode('soeg'); bumpSearchFocus(); }} onBrowseAll={() => goToMode('soeg')} onOpenEstate={(id) => { setEstateId(id); navigate(estatePath(id)); }} onGoTree={() => goToMode('tree')}
               arms={arms} meId={meCanon} focusId={focusId} bookmarkedIds={bookmarkIds}
               bookmarksReady={bookmarks.ready} bookmarkHydrationVersion={bookmarks.hydrationVersion}
               bookmarkOwnerId={session?.userId ?? null}
               hasBookmark={bookmarks.has} onSaveBookmark={saveOrPrompt} onOpenArms={() => goToMode('arms')}
               onOpenSlaegt={(aId, bId) => { setRelA(aId); setRelB(bId); setRelSlot('B'); goToMode('relate'); }} />
+            : mode === 'person' ? (
+              focusId && model?.byId[focusId] ? (
+                <PersonSide key={focusId} model={model} focusId={focusId} detail={detail} detailError={detailError}
+                  onRetry={() => setDetailForsoeg((n) => n + 1)} onVisPerson={visPerson}
+                  onFindSlaegtskab={() => { setRelA(focusId); setRelB(null); setRelSlot('B'); goToMode('relate'); }}
+                  onSlaegt={(s) => goToMode('about', s)}
+                  loggetInd={bookmarks.canSave} onLogin={() => setLoginOpen(true)}
+                  erBogmaerket={bookmarks.has(focusId)} onToggleBogmaerke={() => saveOrPrompt(focusId)} />
+              ) : !model ? <div style={{ padding: 40, color: T.inkMuted }}>Henter …</div> : (
+                <div style={{ padding: 40 }}>
+                  <Tilstand etiket="Kan ikke vises" titel="Personen kan ikke vises"
+                    handlinger={<Link href={soegPath()} onNavigate={() => goToMode('soeg')} style={{ fontFamily: T.sans, fontSize: 14, fontWeight: 600, color: T.bordeaux }}>Søg efter personen</Link>}>
+                    Linket kan være forkert, eller personen vises kun for indloggede.
+                  </Tilstand>
+                </div>
+              )
+            )
             : mode === 'tree' ? <TreeView model={model} focusId={focusId} personHref={visPersonPath} onPick={treePick} onFocus={driftFocus} hasBookmark={bookmarks.has} onToggleBookmark={saveOrPrompt} search={treeSearch} />
             : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={focusOnly} meId={meCanon} onSetMeA={() => { if (meCanon) { setRelA(meCanon); setRelSlot('B'); } }} search={treeSearch} />
-            : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(estatePath(id)); }} onBack={() => { setEstateId(null); navigate(pathForMode('estates', slug)); }} onPickOwner={navigateTree}
+            : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(estatePath(id)); }} onBack={() => { setEstateId(null); navigate(pathForMode('estates', slug)); }} onPickOwner={visPerson}
               slaegtensKortHref={pathForMode('kort', slug)} onSlaegtensKort={() => goToMode('kort')} />
             : mode === 'arms' ? <ArmsView arms={arms} />
-            : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} onPick={navigateTree} />
+            : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} onPick={visPerson} />
             : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={saveOrPrompt} loggedIn={bookmarks.canSave} onRequireLogin={() => setLoginOpen(true)} /> : <div style={{ padding: 40, color: T.inkMuted }}>Henter…</div>)
-            : mode === 'kort' ? <OverviewMapView model={model} geoLoading={geoLoading} onPickPerson={navigateTree} onPickEstate={(id) => navigate(estatePath(id))} />
-            : mode === 'praesens' ? <PresensView model={model} onPickPerson={navigateTree} session={sessionKlar ? session : 'henter'} onLogin={() => setLoginOpen(true)} onGoTree={() => goToMode('tree')} />
+            : mode === 'kort' ? <OverviewMapView model={model} geoLoading={geoLoading} onPickPerson={visPerson} onPickEstate={(id) => navigate(estatePath(id))} />
+            : mode === 'praesens' ? <PresensView model={model} onPickPerson={visPerson} session={sessionKlar ? session : 'henter'} onLogin={() => setLoginOpen(true)} onGoTree={() => goToMode('tree')} />
             : mode === 'soeg' ? (
               <div style={{ padding: '30px 40px 50px' }}>
                 <ViewHeader title="Personer" mb="18px" />
@@ -494,7 +535,7 @@ export default function Folgesvend() {
                   // Skriv søgeordet i adressen med replace, så tilbage-knappen ikke går ét tastetryk ad gangen.
                   setQuery={(v) => navigate(soegPath(v), { replace: true, state: window.history.state })}
                   clearSearch={() => navigate(soegPath(), { replace: true })}
-                  showResults onPick={navigateTree} personHref={personPath} />
+                  showResults onPick={visPerson} personHref={personPath} />
               </div>
             )
             : mode === 'ukendtSlaegt' ? (

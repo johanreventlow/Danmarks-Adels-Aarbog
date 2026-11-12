@@ -223,4 +223,11 @@ describe('DetailPanel — udgaver', () => {
     vis(detalje({ bio: '', bioVersions: [] }));
     expect(document.body.innerHTML).not.toMatch(LAEK);
   });
+
+  it('har »Åbn personsiden«, der peger på /person/<id>, også i træet', () => {
+    render(<DetailPanel model={model} focusId="392" detail={detalje()} onPick={vi.fn()} personHref={(id) => `/slaegt/reventlow/stamtrae?fokus=${id}`}
+      backName={null} onBack={vi.fn()} onFocusTree={vi.fn()} onRelate={vi.fn()} isMe={false} onToggleMe={vi.fn()}
+      isBookmarked={false} onToggleBookmark={vi.fn()} geoLoading={false} />);
+    expect(screen.getByRole('link', { name: 'Åbn personsiden ›' }).getAttribute('href')).toBe('/person/392');
+  });
 });
