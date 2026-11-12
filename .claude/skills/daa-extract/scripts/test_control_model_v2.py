@@ -610,3 +610,234 @@ def test_note_med_saerlige_tegn_bevares_og_citeres():
     sql = v2.sql_v2(p, a)
     linje = next(x for x in sql.splitlines() if iid(7001) in x and "red_decide_interpretation" in x)
     assert "it''s a \\\\ back $v$ dollar :actor colon" in linje   # JSON-escapet backslash, fordoblet '
+
+
+# --- 2018-20: kun stikprøven på kortet og prædikatscope (plan 2026-11-12 Task 4) ------------------------------------
+
+DATO = frozenset({"person.birth", "person.death"})
+STRATA_KILDE1 = {"ubekraeftet": 0, "oevrige": 20}
+GOLDEN = Path(__file__).with_name("fixtures") / "control-model-v2-dato"
+PK_SCRIPT = str(Path(__file__).with_name("persona_kort.py"))
+RD_IDS = [iid(101), iid(102), iid(103)]
+SK_IDS = [iid(201), iid(202)]
+TITEL_IDS = [iid(301), iid(302)]
+
+
+def bygge_dato() -> tuple[dict, list[dict]]:
+    """30 dato-MATCH (15 personas med fødsel og død), 3 REAL_DIFF, 2 SKRIVEMAADE og 2 titel-MATCH. Alle
+    identitetsudfald er NULL, som for 2018-20 (målt i Task 0)."""
+    items, rows = [], []
+
+    def add(n, klasse, persona, predicate, value="1850"):
+        items.append(item(n, klasse, predicate=predicate))
+        rows.append(row(n, persona=persona, outcome=None, predicate=predicate, value=value))
+
+    for p in range(1, 16):
+        add(2 * p - 1, "MATCH", p, "person.birth")
+        add(2 * p, "MATCH", p, "person.death")
+    add(101, "REAL_DIFF", 1, "person.death")
+    add(102, "REAL_DIFF", 102, "person.death")
+    add(103, "REAL_DIFF", 103, "person.birth")
+    add(201, "SKRIVEMAADE", 2, "person.birth")
+    add(202, "SKRIVEMAADE", 202, "person.death")
+    add(301, "MATCH", 3, "person.title", "Testtitel")
+    add(302, "MATCH", 302, "person.title", "Testtitel")
+    return {"items": items, "counts": {}}, rows
+
+
+def plan_dato(**kw):
+    k, rows = bygge_dato()
+    return v2.plan_run_v2(k, rows, source_id=SRC, strata=STRATA_KILDE1, **kw)
+
+
+def _red_linjer(sql: str) -> list[str]:
+    return [x for x in sql.splitlines() if re.search(r"public\.red_\w+\(", x)]
+
+
+def test_kun_stikproeve_og_praedikater_giver_20_felter_paa_arket():
+    p = plan_dato(kun_stikproeve=True, predikater=DATO)
+    dato_match = {iid(n) for n in range(1, 31)}
+    assert len(p["sample_ids"]) == 20 and set(p["sample_ids"]) <= dato_match
+    assert sorted(r["interpretation_id"] for r in p["rows_kontrol"]) == p["sample_ids"]
+    # REAL_DIFF/SKRIVEMAADE bevares på topniveau (kortværktøjet og _load_plan læser dem), men står ikke på arket.
+    assert p["real_diff_ids"] == RD_IDS and p["skrivemaade_ids"] == SK_IDS
+    assert {m[0] for m in p["match"]} == dato_match
+    assert len(p["machine_candidates"]) == 10
+    assert set(p["universe_ids"]) == dato_match | set(RD_IDS) | set(SK_IDS)
+    assert p["counts"]["MATCH"] == 30 and p["counts"]["REAL_DIFF"] == 3 and p["counts"]["SKRIVEMAADE"] == 2
+    assert p["kun_stikproeve"] is True and p["predikater"] == ["person.birth", "person.death"]
+    assert p["udeladt"] == 5
+    ark = v2.render_sheet_v2(p)
+    f_ids = re.findall(r"^F (\S+) ", ark, flags=re.M)
+    assert sorted(f_ids) == p["sample_ids"]
+    for i in RD_IDS + SK_IDS + TITEL_IDS:
+        assert i not in ark
+    # Titlerne er helt uden for planen.
+    alt = json.dumps(p)
+    assert not any(i in alt for i in TITEL_IDS)
+    sample_personas = {r["persona_id"] for r in p["rows_kontrol"]}
+    assert set(p["persona_ids"]) == sample_personas
+
+
+def test_kun_stikproeve_sql_har_30_accepter_og_intet_for_de_udeladte():
+    p = plan_dato(kun_stikproeve=True, predikater=DATO)
+    a = anvend(p, udfyld(p))
+    assert a["rettelser"] == [] and a["unresolved"] == []
+    assert {x["interpretation_id"] for x in a["afgoerelser"]} == set(p["sample_ids"])
+    assert all(x["klasse"] == "MATCH" for x in a["afgoerelser"]) and len(a["maskine"]) == 10
+    sql = v2.sql_v2(p, a)
+    assert sql.count("public.red_decide_interpretation(") == 30
+    assert "public.red_ret_paastand(" not in sql and "public.red_afgoer_source_persona(" not in sql
+    red = "\n".join(_red_linjer(sql))
+    for i in RD_IDS + SK_IDS:
+        assert i not in red
+    for i in TITEL_IDS:
+        assert i not in sql
+    assert "afgoerelser=0 stikproeve=20 maskine=10 bundet=30" in sql
+    # Kontrollen i transaktionen er prædikatscopet: værnet ved kildeværnet og MATCH-kontrollen.
+    assert "PLAN_PRAEDIKAT_AFVIGER" in sql
+    assert sql.index("PLAN_PRAEDIKAT_AFVIGER") < min(sql.index(x) for x in _red_linjer(sql))
+    m = next(x for x in sql.splitlines() if "MACHINE_NOT_MATCH" in x)
+    assert "i->>'predicate' IN ('person.birth','person.death')" in m
+    # De udeladte: står proposed og ubundne (verifikationen kontrollerer begge dele).
+    verify = v2.verify_sql_v2(p, a)
+    forventet = sorted(set(p["sample_ids"]) | {x["interpretation_id"] for x in a["maskine"]})
+    assert len(forventet) == 30 and json.dumps(forventet) in verify
+    assert "CONTROL_V2_UDELADT_AFGJORT" in verify and json.dumps(sorted(RD_IDS + SK_IDS)) in verify
+    assert v2._verify_do(p, a) in sql
+
+
+def test_kun_stikproeve_SAMPLE_FAILED_ved_D_og_P():
+    p = plan_dato(kun_stikproeve=True, predikater=DATO)
+    for tok in ("D", "V"):
+        with pytest.raises(ControlError, match="SAMPLE_FAILED"):
+            anvend(p, udfyld(p, {p["sample_ids"][0]: tok}))
+    sp = next(r["persona_id"] for r in p["rows_kontrol"] if r["interpretation_id"] == p["sample_ids"][0])
+    with pytest.raises(ControlError, match="SAMPLE_FAILED"):
+        anvend(p, udfyld(p, persona_svar={sp: "P"}))
+
+
+def test_kun_stikproeve_afviser_andet_end_stikproeven_paa_arket():
+    # En plan, hvis rækkefil bærer et udeladt felt (fx en hånd-redigeret plan.json-flag), afvises fail-closed.
+    p = plan_dato(kun_stikproeve=True, predikater=DATO)
+    _, rows = bygge_dato()
+    rd = next(r for r in rows if r["interpretation_id"] == RD_IDS[1])
+    snydt = dict(p, rows_kontrol=p["rows_kontrol"] + [rd],
+                 personas=sorted(p["personas"] + [{"persona_id": rd["persona_id"], "identity_version": 1}],
+                                 key=lambda x: x["persona_id"]))
+    with pytest.raises(ControlError, match="PLAN_KUN_STIKPROEVE_MISMATCH"):
+        anvend(snydt, udfyld(snydt))
+    # SQL'en nægter rettelser, menneskeafgørelser og P under flaget.
+    a = anvend(p, udfyld(p))
+    falsk = dict(a, afgoerelser=a["afgoerelser"] + [{"interpretation_id": RD_IDS[0], "version": 1,
+                                                       "klasse": "REAL_DIFF", "status": "rejected", "evidence": {}}])
+    with pytest.raises(ControlError, match="PLAN_KUN_STIKPROEVE_MISMATCH"):
+        v2.sql_v2(p, falsk)
+
+
+def test_praedikater_alene_fjerner_titlerne_foer_alt_andet():
+    p = plan_dato(predikater=DATO)
+    assert not any(i in json.dumps(p) for i in TITEL_IDS)
+    assert {r["interpretation_id"] for r in p["rows_kontrol"]} == set(p["sample_ids"]) | set(RD_IDS) | set(SK_IDS)
+    assert "kun_stikproeve" not in p or p["kun_stikproeve"] is False
+    # Uden prædikatscope er titlerne MATCH og med i lodtrækningen.
+    u = plan_dato()
+    assert set(TITEL_IDS) <= {m[0] for m in u["match"]}
+
+
+def test_praedikater_valideres():
+    for bad in (frozenset(), frozenset({""}), frozenset({"person.birth", "x'; DROP"}), ["person.birth"]):
+        with pytest.raises(ControlError, match="PLAN_PRAEDIKATER_INVALID"):
+            plan_dato(predikater=bad)
+
+
+def _skriv_svar(path: Path, plan_sha: str, plan: dict, tok: str = "B") -> None:
+    svar = {"plan_sha256": plan_sha,
+            "svar": {"personas": {x["persona_id"]: "-" for x in plan["personas"]},
+                     "felter": {r["interpretation_id"]: {"tok": tok, "note": ""} for r in plan["rows_kontrol"]}}}
+    path.write_text(json.dumps(svar), encoding="utf-8")
+
+
+def test_cli_rundtur_kun_stikproeve_med_persona_kort(tmp_path):
+    k, rows = bygge_dato()
+    _skriv(tmp_path, k, rows)
+    plan_dir = tmp_path / "plan"
+    r = _cli("plan", "--classification", str(tmp_path / "k.json"), "--rows", str(tmp_path / "r.json"),
+             "--source-id", str(SRC), "--strata-ubekraeftet", "0", "--strata-oevrige", "20",
+             "--kun-stikproeve", "--predikater", "person.birth,person.death", "--out-dir", str(plan_dir))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "udeladt=5" in r.stdout and "ark_felter=20" in r.stdout and "maskinkandidater=10" in r.stdout
+    meta = json.loads((plan_dir / "plan.json").read_text())
+    assert meta["kun_stikproeve"] is True and meta["predikater"] == ["person.birth", "person.death"]
+    assert meta["real_diff_ids"] == RD_IDS and meta["skrivemaade_ids"] == SK_IDS
+    plan, _ = v2._load_plan(plan_dir)
+    assert plan["kun_stikproeve"] is True and plan["predikater"] == ["person.birth", "person.death"]
+
+    r = _cli("ark", "--plan-dir", str(plan_dir), "--out", str(tmp_path / "tomt.txt"))
+    assert r.returncode == 0 and "felter=20" in r.stdout, r.stdout + r.stderr
+    assert len(re.findall(r"^F ", (tmp_path / "tomt.txt").read_text(), flags=re.M)) == 20
+
+    def pk_cli(*args):
+        return subprocess.run([sys.executable, PK_SCRIPT, *args], capture_output=True, text=True)
+
+    r = pk_cli("kontekst-ids", "--plan-dir", str(plan_dir))
+    assert r.returncode == 0 and set(r.stdout.strip().split(",")) == set(plan["persona_ids"]), r.stdout + r.stderr
+    (tmp_path / "kontekst.json").write_text(json.dumps({"udgave": "Syntetisk", "personas": {}}), encoding="utf-8")
+    r = pk_cli("html", "--plan-dir", str(plan_dir), "--kontekst", str(tmp_path / "kontekst.json"),
+               "--out-dir", str(tmp_path / "kort"))
+    assert r.returncode == 0 and "felter=20" in r.stdout, r.stdout + r.stderr
+    plan_sha = hashlib.sha256((plan_dir / "plan.json").read_bytes()).hexdigest()
+    _skriv_svar(tmp_path / "svar.json", plan_sha, plan)
+    ark = tmp_path / "ark.txt"
+    r = pk_cli("flet", "--plan-dir", str(plan_dir), "--svar", str(tmp_path / "svar.json"), "--out", str(ark))
+    assert r.returncode == 0 and "felter=20" in r.stdout, r.stdout + r.stderr
+    sha = hashlib.sha256(ark.read_bytes()).hexdigest()
+
+    out = tmp_path / "ud.sql"
+    r = _cli("sql", "--plan-dir", str(plan_dir), "--sheet", str(ark), "--approved-sha256", sha, "--out", str(out))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "rettelser=0" in r.stdout and "stikprøve=20 maskine=10 bundet=30" in r.stdout
+    sql = out.read_text()
+    assert sql.count("public.red_decide_interpretation(") == 30
+    for i in TITEL_IDS:
+        assert i not in sql
+    r = _cli("verify-sql", "--plan-dir", str(plan_dir), "--sheet", str(ark), "--approved-sha256", sha,
+             "--out", str(tmp_path / "verify.sql"))
+    assert r.returncode == 0 and "VERIFY_SQL_V2_OK bundet=30 " in r.stdout, r.stdout + r.stderr
+
+    # Ét stikprøvefelt D: SAMPLE_FAILED, også med flaget; intet skrives.
+    _skriv_svar(tmp_path / "svar2.json", plan_sha, plan)
+    s2 = json.loads((tmp_path / "svar2.json").read_text())
+    s2["svar"]["felter"][plan["sample_ids"][0]]["tok"] = "D"
+    (tmp_path / "svar2.json").write_text(json.dumps(s2), encoding="utf-8")
+    ark2 = tmp_path / "ark2.txt"
+    r = pk_cli("flet", "--plan-dir", str(plan_dir), "--svar", str(tmp_path / "svar2.json"), "--out", str(ark2))
+    assert r.returncode == 0, r.stdout + r.stderr
+    out2 = tmp_path / "ud2.sql"
+    r = _cli("sql", "--plan-dir", str(plan_dir), "--sheet", str(ark2), "--approved-sha256",
+             hashlib.sha256(ark2.read_bytes()).hexdigest(), "--out", str(out2))
+    assert r.returncode == 1 and "SAMPLE_FAILED" in r.stdout and not out2.exists()
+
+
+def test_uden_flagene_er_plan_ark_og_sql_byte_ens_med_foer(tmp_path):
+    """Regression mod en gemt fixtur, lavet med værktøjet FØR Task 4 (e353e22f)."""
+    k, rows = bygge_dato()
+    assert json.dumps(k).encode() == (GOLDEN / "k.json").read_bytes()
+    assert json.dumps(rows).encode() == (GOLDEN / "r.json").read_bytes()
+    plan_dir = tmp_path / "plan"
+    r = _cli("plan", "--classification", str(GOLDEN / "k.json"), "--rows", str(GOLDEN / "r.json"),
+             "--source-id", str(SRC), "--strata-ubekraeftet", "0", "--strata-oevrige", "20",
+             "--out-dir", str(plan_dir))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "udeladt" not in r.stdout
+    for navn in ("plan.json", "rows-kontrol.json", "machine-candidates.json"):
+        assert (plan_dir / navn).read_bytes() == (GOLDEN / navn).read_bytes(), navn
+    r = _cli("ark", "--plan-dir", str(plan_dir), "--out", str(tmp_path / "tomt.txt"))
+    assert r.returncode == 0
+    assert (tmp_path / "tomt.txt").read_bytes() == (GOLDEN / "tomt.txt").read_bytes()
+    sha = hashlib.sha256((GOLDEN / "ark.txt").read_bytes()).hexdigest()
+    for cmd, navn in (("sql", "ud.sql"), ("verify-sql", "verify.sql")):
+        r = _cli(cmd, "--plan-dir", str(plan_dir), "--sheet", str(GOLDEN / "ark.txt"), "--approved-sha256", sha,
+                 "--out", str(tmp_path / navn))
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert (tmp_path / navn).read_bytes() == (GOLDEN / navn).read_bytes(), navn

@@ -1,0 +1,86 @@
+[
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000004",
+  "version": 1,
+  "predicate": "person.death",
+  "assertion_id": -4,
+  "persona_id": "11111111-0000-4000-8000-000000000002"
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000006",
+  "version": 1,
+  "predicate": "person.death",
+  "assertion_id": -6,
+  "persona_id": "11111111-0000-4000-8000-000000000003"
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000008",
+  "version": 1,
+  "predicate": "person.death",
+  "assertion_id": -8,
+  "persona_id": "11111111-0000-4000-8000-000000000004"
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000014",
+  "version": 1,
+  "predicate": "person.death",
+  "assertion_id": -14,
+  "persona_id": "11111111-0000-4000-8000-000000000007"
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000015",
+  "version": 1,
+  "predicate": "person.birth",
+  "assertion_id": -15,
+  "persona_id": "11111111-0000-4000-8000-000000000008"
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000016",
+  "version": 1,
+  "predicate": "person.death",
+  "assertion_id": -16,
+  "persona_id": "11111111-0000-4000-8000-000000000008"
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000019",
+  "version": 1,
+  "predicate": "person.birth",
+  "assertion_id": -19,
+  "persona_id": "11111111-0000-4000-8000-000000000010"
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000021",
+  "version": 1,
+  "predicate": "person.birth",
+  "assertion_id": -21,
+  "persona_id": "11111111-0000-4000-8000-000000000011"
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000023",
+  "version": 1,
+  "predicate": "person.birth",
+  "assertion_id": -23,
+  "persona_id": "11111111-0000-4000-8000-000000000012"
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000024",
+  "version": 1,
+  "predicate": "person.death",
+  "assertion_id": -24,
+  "persona_id": "11111111-0000-4000-8000-000000000012"
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000028",
+  "version": 1,
+  "predicate": "person.death",
+  "assertion_id": -28,
+  "persona_id": "11111111-0000-4000-8000-000000000014"
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000029",
+  "version": 1,
+  "predicate": "person.birth",
+  "assertion_id": -29,
+  "persona_id": "11111111-0000-4000-8000-000000000015"
+ }
+]
