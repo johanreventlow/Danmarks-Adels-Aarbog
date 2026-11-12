@@ -457,7 +457,6 @@ export default function Folgesvend() {
 
   // Søgning-i-træet (§4): bundtet der driver TreeSearch. showResults afgør resultat-grid vs. træ;
   // valg af et resultat rydder søgningen og centrerer træet på personen (brief §4.1).
-  const bumpSearchFocus = () => setSearchFocusToken((t) => t + 1);
   const treeSearch: TreeSearchBundle = {
     query, setQuery,
     browse,
@@ -496,7 +495,7 @@ export default function Folgesvend() {
 
         {/* Center */}
         <div ref={centerRef} data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
-          {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estates} onPickPerson={visPerson} onOpenSearch={() => { goToMode('soeg'); bumpSearchFocus(); }} onBrowseAll={() => goToMode('soeg')} onOpenEstate={(id) => { setEstateId(id); navigate(estatePath(id)); }} onGoTree={() => goToMode('tree')}
+          {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estates} onPickPerson={visPerson} onBrowseAll={() => goToMode('soeg')} onOpenEstate={(id) => { setEstateId(id); navigate(estatePath(id)); }}
               arms={arms} meId={meCanon} focusId={focusId} bookmarkedIds={bookmarkIds}
               bookmarksReady={bookmarks.ready} bookmarkHydrationVersion={bookmarks.hydrationVersion}
               bookmarkOwnerId={session?.userId ?? null}
