@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-12 — trin 6e-1 i prod: læseren viser valgt udgave forrest og den anden som note
+
+Persondetaljen viser hver oplysning én gang i den valgte udgaves ord og kilde; den anden udgave står som note
+(»✓ også i DAA 1939«, »DAA 1939 skriver: …«, »Kun i DAA 1939«). Én vælger styrer biografi, fakta og godser og åbner på
+nyeste udgave med fuld biografi; ægtefæller uden biografi får et udgaveskift. Relative datoer opløses (dåb←fødsel,
+begravelse←død) og vises ellers med bogens tekst. Ingen `record-`/`legacy-source:` i læseren. Klient-only (PR #318);
+projektejeren rettede Conrads navnekonklusioner (255/392) i Redaktion. Browsertjek som anon OK; færdigbevis i
+`docs/evidensbaseret-genimport/laeserflade-6e1-prod.md`. 6e-2 (læsbar 1939-etiket, koordinater, B6, Ziesendorf) følger.
+
 ## 2026-11-11 — trin 6d-3 i prod: 1939's ægteskaber bundet, dobbelt ægtefælle rettet, 1791 skjult
 
 1939's relationer er gået gennem 5b-vejen med writerens profil som data (DDL: profiltabel, tekstfoldning,
