@@ -46,6 +46,9 @@ const STEPS = [
   { out: 'a-kort', path: '/slaegt/reventlow/godser?visning=kort' },
   { out: 'a-arms', path: '/slaegt/reventlow/vaaben' },
   { out: 'a-about', path: '/slaegt/reventlow' },
+  { out: 'a-about-hel', path: '/slaegt/reventlow', actions: [{ click: 'Læs hele indledningen', exact: true }] },
+  { out: 'a-about-linjer', path: '/slaegt/reventlow', actions: [{ click: 'Om I. linje', exact: true }, { scroll: 500 }] },
+  { out: 'a-about-feed', path: '/slaegt/reventlow', actions: [{ scroll: 1200 }] },
   { out: 'a-praesens', path: '/slaegt/reventlow/praesens' },
   { out: 'a-ukendt-slaegt', path: '/slaegt/findes-ikke' },
   { out: 'a-gammel-sti', path: '/estates' }, // skal ende på /slaegt/reventlow/godser
@@ -61,6 +64,8 @@ const STEPS = [
   { out: 'd-mobile-home-vend', path: '/', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 3200 }, { click: 'Vend seks blade mere', exact: true }, { scroll: 600 }] },
   { out: 'd-mobile-menu', path: '/', w: 390, h: 844, actions: [{ click: 'Slægter', exact: true }] },
   { out: 'd-mobile-bjaelke', path: '/slaegt/reventlow/stamtrae', w: 390, h: 844 },
+  { out: 'd-mobile-about', path: '/slaegt/reventlow', w: 390, h: 844 },
+  { out: 'd-mobile-about-linjer', path: '/slaegt/reventlow', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 900 }] },
   { out: 'd-mobile-person', path: '/person/240', w: 390, h: 844 },
   { out: 'd-mobile-person-bund', path: '/person/240', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 2500 }] },
 ];
