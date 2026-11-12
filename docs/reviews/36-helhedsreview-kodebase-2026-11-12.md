@@ -10,7 +10,7 @@
 
 - Mekanisk forscanning (størrelser, dublerede funktionsnavne, web↔mobil-diff, SQL-dubletter) → hotspot-liste.
 - 5 parallelle read-only reviewere (Fable 5.2): web · mobil+deling · `packages/core`/feed + dataindlæsning · DB · pipeline/tests/CI.
-- Et uafhængigt Codex-review samme dag (projektejerens; `/private/tmp/daa-helhedsreview-2026-11-12.md`), flettet ind.
+- Et uafhængigt Codex-review samme dag (projektejerens; `docs/reviews/36-codex-helhedsreview-2026-11-12.md`), flettet ind.
 - Hovedsessionen har selv åbnet `fil:linje` for de vigtigste fund.
 
 **Bevismærker:** **R** = reproduceret ved at køre den faktiske kode (Codex) · **V** = verificeret i koden af hovedsessionen ·
