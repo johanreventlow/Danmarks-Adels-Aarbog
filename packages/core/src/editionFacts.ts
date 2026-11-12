@@ -13,7 +13,7 @@ import {
   type PublicPersonFactRow,
 } from './personFacts';
 import { ENKELTVAERDI_TYPER, erTomFaktaVaerdi, faktaVaerdierEns, normaliserFaktaVaerdi } from './factEquality';
-import { erRelativDato, oploesRelativDato } from './relativeDates';
+import { erRelativDato, oploesRelativDato, type OploesValg } from './relativeDates';
 
 export type Udgave = { sourceId: string; label: string; aar: number | null };
 export type UdgaveFaktaInput = {
@@ -50,7 +50,6 @@ type Paastand = { assertionId: string; rows: PublicPersonFactRow[]; value: strin
 type FaktumVisning = {
   factId: string;
   personId: string;
-  reference?: string | null; // dåb/begravelse: den viste fødsel/død, opløsningen brugte
   faktatype: string;
   udgave: string | null;
   art: 'egen' | 'som-i-dag' | 'uden-valg';
@@ -77,8 +76,12 @@ const sorterUdgaver = (udgaver: Udgave[]) =>
     .sort((a, b) => (a.u.aar === b.u.aar ? a.i - b.i : a.u.aar == null ? 1 : b.u.aar == null ? -1 : b.u.aar - a.u.aar))
     .map((x) => x.u);
 
-const statement = (r: PublicPersonFactRow): PersonFactStatement => ({
-  assertionId: String(r.assertion_id), value: factValue(r), source: factSource(r),
+// En påstands viste værdi; for dåb/begravelse med relative datoer opløst (se `oploser`).
+type VaerdiFor = (r: PublicPersonFactRow) => string;
+const raaVaerdi: VaerdiFor = (r) => factValue(r);
+
+const statement = (r: PublicPersonFactRow, vaerdiFor: VaerdiFor): PersonFactStatement => ({
+  assertionId: String(r.assertion_id), value: vaerdiFor(r), source: factSource(r),
 });
 
 const unikkeEfterLabel = (kilder: PersonFactSource[]) => {
@@ -136,9 +139,14 @@ function erEgen(p: Paastand, udgave: Udgave, input: UdgaveFaktaInput): boolean {
 
 // Alle fakta med deres visning i egen udgave, i buildPersonFacts' orden (typeorden, date_min, fact_id), med relative
 // datoer opløst. `udenUdgaver`: valgt = null → alt som én udgave, valgt påstand som i dag.
-const fakta = (input: UdgaveFaktaInput, udenUdgaver: boolean) => oploesRelative(faktaRaa(input, udenUdgaver));
+function fakta(input: UdgaveFaktaInput, udenUdgaver: boolean): FaktumVisning[] {
+  const raa = faktaRaa(input, udenUdgaver, raaVaerdi);
+  const relativ = raa.some((f) => RELATIV_REFERENCE[f.faktatype]
+    && [f.vaerdi, ...f.andre.map((a) => a.value), ...f.usikre].some(erRelativDato));
+  return relativ ? faktaRaa(input, udenUdgaver, oploser(referencer(raa), { ikkeFoerReference: true })) : raa;
+}
 
-function faktaRaa(input: UdgaveFaktaInput, udenUdgaver: boolean): FaktumVisning[] {
+function faktaRaa(input: UdgaveFaktaInput, udenUdgaver: boolean, vaerdiFor: VaerdiFor): FaktumVisning[] {
   const raekkeUdgave = udenUdgaver ? {} : udgaveForRaekker(input);
   const udgaveMap = new Map(input.udgaver.map((u) => [u.sourceId, u]));
   const byFact = new Map<string, PublicPersonFactRow[]>();
@@ -173,14 +181,14 @@ function faktaRaa(input: UdgaveFaktaInput, udenUdgaver: boolean): FaktumVisning[
         p.chosen ||= r.chosen;
         p.bundet ||= !!r.record_ref;
       } else {
-        paastande.set(k, { assertionId: k, rows: [r], value: factValue(r), chosen: r.chosen, bundet: !!r.record_ref });
+        paastande.set(k, { assertionId: k, rows: [r], value: vaerdiFor(r), chosen: r.chosen, bundet: !!r.record_ref });
       }
     }
     const alle = [...paastande.values()];
     const valgt = alle.find((p) => p.chosen);
     const base = { factId: String(first.fact_id), personId: String(first.person_id), faktatype: first.faktatype, udgave: udgaveId,
       omstridt: first.conclusion_status === 'omstridt' };
-    const ikkeTomme = (ps: Paastand[]) => ps.flatMap((p) => p.rows.map(statement)).filter((s) => !erTomFaktaVaerdi(s.value));
+    const ikkeTomme = (ps: Paastand[]) => ps.flatMap((p) => p.rows.map((r) => statement(r, vaerdiFor))).filter((s) => !erTomFaktaVaerdi(s.value));
 
     // Udgavens egne, ikke-tomme udsagn blandt ps — kun de kan indgå i en anden udgaves noter.
     const egneVaerdier = (ps: Paastand[]) =>
@@ -234,27 +242,33 @@ const RELATIV_REFERENCE: Record<string, string> = { dåb: 'fødsel', begravelse:
 const RELATIV_FRI: ReadonlySet<string> = new Set(['navn', 'tilnavn']);
 const uopløstRelativ = (faktatype: string, v: string) => !RELATIV_FRI.has(faktatype) && erRelativDato(v);
 
-// Referencen er rækkens første viste fødsel/død i fakta-ordenen. Kan et led ikke opløses, vises bogens tekst —
-// den forbliver relativ og kan derfor aldrig give ✓ (se `ens` i byggUdgaveFakta).
-function oploesRelative(fs: FaktumVisning[]): FaktumVisning[] {
-  const reference = new Map<string, string>();
+// Referencen er rækkens første viste fødsel/død i fakta-ordenen (personrække + type → værdi).
+function referencer(fs: FaktumVisning[]): Map<string, string> {
+  const ud = new Map<string, string>();
   for (const f of fs) {
     const k = `${f.personId}\u0000${f.faktatype}`;
-    if (f.vaerdi !== '' && !reference.has(k)) reference.set(k, f.vaerdi);
+    if (f.vaerdi !== '' && !ud.has(k)) ud.set(k, f.vaerdi);
   }
-  return fs.map((f) => {
-    const refType = RELATIV_REFERENCE[f.faktatype];
-    if (!refType) return f;
-    const ref = reference.get(`${f.personId}\u0000${refType}`) ?? null;
-    const opl = (v: string) => (erRelativDato(v) ? (oploesRelativDato(v, ref, { ikkeFoerReference: true }) ?? v) : v);
-    return {
-      reference: ref,
-      ...f,
-      vaerdi: opl(f.vaerdi),
-      andre: f.andre.map((a) => ({ ...a, value: opl(a.value) })),
-      usikre: f.usikre.map(opl),
-    };
-  });
+  return ud;
+}
+
+// Værdien med relative datoer opløst — pr. del (vaerdi_tekst, date_raw) før dobbelttjekket i factValue (§5.8).
+// Kan et led i en af delene ikke opløses, vises hele værdien som bogens tekst; den forbliver relativ og kan derfor aldrig give ✓ (se `ens`).
+function oploser(ref: Map<string, string>, valg: OploesValg): VaerdiFor {
+  return (r) => {
+    const refType = RELATIV_REFERENCE[r.faktatype];
+    if (!refType) return factValue(r);
+    const reference = ref.get(`${String(r.person_id)}\u0000${refType}`) ?? null;
+    let fejl = false;
+    const opl = factValue(r, (v) => {
+      if (!erRelativDato(v)) return v;
+      const o = oploesRelativDato(v, reference, valg);
+      if (o == null) fejl = true;
+      return o ?? v;
+    });
+    // kan én del ikke opløses, vises hele værdien som bogens tekst (ingen halvt opløst blanding)
+    return fejl ? factValue(r) : opl;
+  };
 }
 
 type Linje = UdgaveFaktaLinje & { egen: boolean; norm: string | null };
@@ -348,16 +362,28 @@ export function byggUdgaveFakta(input: UdgaveFaktaInput, valgt: string | null): 
   return { linjer: linjer.map(offentlig), kunI };
 }
 
-// Til målingen (tools/maal-6e1): hvert vist faktum, hvis viste værdi før opløsningen er en relativ dato, med
-// personrækkens udgave, om core opløste det, og den reference, der blev brugt (kun dåb/begravelse).
+// Til målingen (tools/maal-6e1; bevidst ikke eksporteret fra index.ts): hvert vist faktum, hvis viste værdi før
+// opløsningen er en relativ dato, med personrækkens udgave, om core opløste det, referencen (kun dåb/begravelse), og
+// om det kun er reglen »ikke før referencen«, der hindrer opløsningen.
 export type RelativDatoStatus = {
   factId: string; faktatype: string; udgave: string | null; oploest: boolean; reference: string | null;
-  bogensTekst: string; // den viste værdi før opløsningen (kun til målingens årsagsopdeling; skrives aldrig ud)
+  foerReference: boolean;
+  bogensTekst: string; // den viste værdi før opløsningen (kun til målingens kontrolark; skrives aldrig ud på stdout)
+  vist: string; // den viste værdi efter opløsningen
 };
 export function relativeDatoer(input: UdgaveFaktaInput): RelativDatoStatus[] {
-  const raa = faktaRaa(input, false);
-  const opl = oploesRelative(raa);
-  return raa.flatMap((f, i) => (f.vaerdi !== '' && erRelativDato(f.vaerdi)
-    ? [{ factId: f.factId, bogensTekst: f.vaerdi, faktatype: f.faktatype, udgave: f.udgave, oploest: !erRelativDato(opl[i].vaerdi), reference: opl[i].reference ?? null }]
-    : []));
+  const raa = faktaRaa(input, false, raaVaerdi);
+  const ref = referencer(raa);
+  const opl = faktaRaa(input, false, oploser(ref, { ikkeFoerReference: true }));
+  const uden = faktaRaa(input, false, oploser(ref, {}));
+  return raa.flatMap((f, i) => {
+    if (f.vaerdi === '' || !erRelativDato(f.vaerdi)) return [];
+    const refType = RELATIV_REFERENCE[f.faktatype];
+    return [{
+      factId: f.factId, faktatype: f.faktatype, udgave: f.udgave, bogensTekst: f.vaerdi, vist: opl[i].vaerdi,
+      oploest: !erRelativDato(opl[i].vaerdi),
+      reference: refType ? ref.get(`${f.personId}\u0000${refType}`) ?? null : null,
+      foerReference: erRelativDato(opl[i].vaerdi) && !erRelativDato(uden[i].vaerdi),
+    }];
+  });
 }

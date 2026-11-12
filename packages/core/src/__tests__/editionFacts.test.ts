@@ -589,6 +589,30 @@ describe('byggUdgaveFakta', () => {
     }
   });
 
+  it('dobbelt værdi efter opløsning vises én gang; hver del opløses for sig (spec §5.8)', () => {
+    const inp = fixture('relativ dåb, dobbelt værdi', input([
+      r18({ person_id: 280, faktatype: 'fødsel', vaerdi_tekst: '12. jan. 1922 i København', date_raw: '12. jan. 1922' }),
+      r18({ person_id: 280, faktatype: 'dåb', vaerdi_tekst: 'hjemmedøbt 10. febr. 1922', date_raw: '10. febr. s.å.' }),
+      r18({ person_id: 280, faktatype: 'død', date_raw: '22. nov. 1922' }),
+      // date_raw's »27. s.m.« står alene og henviser til døden, selv om teksten nævner en senere dato
+      r18({ person_id: 280, faktatype: 'begravelse', vaerdi_tekst: 'bisat 27. s.m., begravet 19. sept. 1924', date_raw: '27. s.m.' }),
+      r39({ person_id: 281, faktatype: 'fødsel', date_raw: '12. jan. 1922' }),
+      r39({ person_id: 281, faktatype: 'dåb', vaerdi_tekst: 'hjemmedøbt 10. febr. 1922', date_raw: null }),
+    ], { udgaveForPersonRaekke: ext2(280, 281) }));
+    const v = byggUdgaveFakta(inp, '1');
+    expect(linje(v, 'fødsel').map((l) => l.vaerdi)).toEqual(['12. jan. 1922 i København']);
+    expect(linje(v, 'dåb').map((l) => [l.vaerdi, l.noter])).toEqual([['hjemmedøbt 10. febr. 1922', [{ art: 'enig', udgave: D39 }]]]);
+    expect(linje(v, 'begravelse').map((l) => l.vaerdi)).toEqual(['bisat 27. november 1922, begravet 19. sept. 1924']);
+    // kan én del ikke opløses (»s.d.« efter bisættelsen), vises hele værdien som bogens tekst
+    const halv = input([
+      r18({ person_id: 282, faktatype: 'død', date_raw: '1. april 1928' }),
+      r18({ person_id: 282, faktatype: 'begravelse', vaerdi_tekst: 'bisat 6. s.m. og begravet s.d.', date_raw: '6. april s.å.' }),
+    ], { udgaveForPersonRaekke: { '282': '1' } });
+    // date_raw alene kunne opløses (»6. april 1928«), men det må ikke stå ved siden af det uopløste »s.d.«
+    expect(linje(byggUdgaveFakta(halv, '1'), 'begravelse').map((l) => l.vaerdi))
+      .toEqual(['bisat 6. s.m. og begravet s.d., 6. april s.å.']);
+  });
+
   it('relativeDatoer (måling): viste relative værdier med udgave, opløsning og reference', () => {
     const inp = input([
       r18({ person_id: 270, faktatype: 'fødsel', date_raw: '21. april 1644' }),
@@ -596,7 +620,7 @@ describe('byggUdgaveFakta', () => {
       r18({ person_id: 270, faktatype: 'død', date_raw: '9. juni s.å.' }),
       r39({ person_id: 271, faktatype: 'begravelse', vaerdi_tekst: '6. aug. s.å.', date_raw: null }),
     ], { udgaveForPersonRaekke: ext2(270, 271) });
-    expect(relativeDatoer(inp).map(({ factId: _f, bogensTekst: _b, ...x }) => x)).toEqual([
+    expect(relativeDatoer(inp).map(({ factId: _f, bogensTekst: _b, vist: _v, foerReference: _r, ...x }) => x)).toEqual([
       { faktatype: 'dåb', udgave: '1', oploest: true, reference: '21. april 1644' },
       { faktatype: 'død', udgave: '1', oploest: false, reference: null },
       { faktatype: 'begravelse', udgave: '3', oploest: false, reference: null },

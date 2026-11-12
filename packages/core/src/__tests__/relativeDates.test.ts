@@ -9,6 +9,15 @@ describe('erRelativDato', () => {
     }
   });
 
+  it('initialer og forkortelseskæder er ikke relative (review 7b fund 1)', () => {
+    for (const v of ['i S. M. Kirke', 'begr. i S. M. Kirke 30. juli 1708', 'R.S.A.O.', 'S.M.O.', 'K.S.D.', 'S.D.-kors',
+      'p.s.d.', 'Hans S. A.', 'R. af D.S.A.O.']) {
+      expect(erRelativDato(v), v).toBe(false);
+    }
+    // men 1939's OCR og et månedsnavn lige foran er stadig relative
+    for (const v of ['15 s. M.', '6. febr.s.å.', 'begr. 30.s.m.', 'begr. i S. M. Kirke 30. s.m.']) expect(erRelativDato(v), v).toBe(true);
+  });
+
   it('almindelige datoer, »s.st.« og ord der blot begynder med s er ikke relative', () => {
     for (const v of ['29. maj 1700', '21 April 1644', 'i Kiel s.st.', 's. Andersen', 'Hans. M. Kirke', '1749', '']) {
       expect(erRelativDato(v), v).toBe(false);
@@ -27,9 +36,11 @@ describe('oploesRelativDato', () => {
     expect(oploesRelativDato('6. febr. s.å.', '1644')).toBe('6. febr. 1644');
     expect(oploesRelativDato('3. maj s. A.', 'Kiel, 3 Jan. 1700')).toBe('3. maj 1700');
     expect(oploesRelativDato('begr. samme måned', '3. maj 1700')).toBe('begr. maj 1700');
-    // to relative led i samme værdi (vaerdi_tekst + date_raw) opløses begge
-    expect(oploesRelativDato('hjemmedøbt 6. febr. s.å. i X Kirke, 6. febr. s.å.', '21. april 1644'))
-      .toBe('hjemmedøbt 6. febr. 1644 i X Kirke, 6. febr. 1644');
+    // to relative led i samme tekst opløses begge
+    expect(oploesRelativDato('hjemmedøbt 6. febr. s.å. og fremstillet 1. marts s.å.', '21. jan. 1644'))
+      .toBe('hjemmedøbt 6. febr. 1644 og fremstillet 1. marts 1644');
+    // »30.s.m.« uden mellemrum får et
+    expect(oploesRelativDato('begr. 30.s.m.', '21. juli 1708')).toBe('begr. 30. juli 1708');
   });
 
   it('referencen må gentage samme dato (vaerdi_tekst + date_raw)', () => {
@@ -58,6 +69,27 @@ describe('oploesRelativDato', () => {
   });
 });
 
+describe('oploesRelativDato: forkortelser og referencer med flere datoer (review 7b fund 1-2)', () => {
+  it('forkortelseskæder ændres aldrig til en dato', () => {
+    expect(oploesRelativDato('begr. i S. M. Kirke 30. juli 1708', '21. juli 1708')).toBe('begr. i S. M. Kirke 30. juli 1708');
+    expect(oploesRelativDato('begr. i S. M. Kirke 30. s.m.', '21. juli 1708')).toBe('begr. i S. M. Kirke 30. juli 1708');
+    expect(oploesRelativDato('R.S.A.O.', '21. juli 1708')).toBe('R.S.A.O.');
+    expect(oploesRelativDato('K.S.D., S.D.-kors og p.s.d.', '21. juli 1708')).toBe('K.S.D., S.D.-kors og p.s.d.');
+    expect(oploesRelativDato('Hans S. A.', '21. juli 1708')).toBe('Hans S. A.');
+    expect(oploesRelativDato('begr. i R.S.A.O. kirke s.d.', '21. juli 1708')).toBe('begr. i R.S.A.O. kirke 21. juli 1708');
+  });
+
+  it('en reference med to måneder eller en skråstreg opløses ikke', () => {
+    expect(oploesRelativDato('29. s.m.', '21. april/1. maj 1644')).toBeNull();
+    expect(oploesRelativDato('s.d.', '21. april/1. maj 1644')).toBeNull();
+    expect(oploesRelativDato('29. s.m.', '21. april, 1. maj 1644')).toBeNull();
+    expect(oploesRelativDato('6. febr. s.å.', '1644/45')).toBeNull();
+    expect(oploesRelativDato('29. s.m.', '21./22. april 1644')).toBeNull();
+    expect(oploesRelativDato('29. s.m.', '21. april (1. maj) 1644')).toBeNull();
+    expect(oploesRelativDato('6. maj s.å.', '1644 el. 45')).toBeNull();
+  });
+});
+
 describe('oploesRelativDato: flertydighed og umulige datoer', () => {
   it('et led, der kan henvise til en tidligere dato i samme tekst med andet resultat, opløses ikke', () => {
     // »s.d.« efter bisættelsen = bisættelsens dag, ikke dødsdagen
@@ -73,8 +105,8 @@ describe('oploesRelativDato: flertydighed og umulige datoer', () => {
   it('kæden giver samme resultat som referencen → opløses', () => {
     expect(oploesRelativDato('bisat 27. s.m. og begravet 29. s.m.', '22. jan. 1923'))
       .toBe('bisat 27. januar 1923 og begravet 29. januar 1923');
-    expect(oploesRelativDato('hjemmedøbt 10. febr. 1922, 10. febr. s.å.', '12. jan. 1922'))
-      .toBe('hjemmedøbt 10. febr. 1922, 10. febr. 1922');
+    expect(oploesRelativDato('hjemmedøbt 10. febr. 1922, fremstillet 10. april s.å.', '12. jan. 1922'))
+      .toBe('hjemmedøbt 10. febr. 1922, fremstillet 10. april 1922');
     expect(oploesRelativDato('bisat 5. marts s.å., derefter bisat 1746', '7. jan. 1743'))
       .toBe('bisat 5. marts 1743, derefter bisat 1746');
   });
@@ -98,5 +130,7 @@ describe('relativReferenceStatus', () => {
     expect(relativReferenceStatus('5. s.m.')).toBe('relativ');
     expect(relativReferenceStatus('ca. 1644')).toBe('usikker');
     expect(relativReferenceStatus('1643, 1644')).toBe('flertydig');
+    expect(relativReferenceStatus('21. april, 1. maj 1644')).toBe('flertydig');
+    expect(relativReferenceStatus('1644/45')).toBe('usikker');
   });
 });

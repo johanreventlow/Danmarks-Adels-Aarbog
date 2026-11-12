@@ -130,6 +130,17 @@ describe('buildPersonFacts', () => {
     expect(factValue(row({ vaerdi_tekst: '†', date_raw: null }))).toBe('—');
   });
 
+  it('date_raw, der står ordret i vaerdi_tekst, vises ikke igen (spec §5.8 »Dobbelt værdi«)', () => {
+    expect(factValue(row({ vaerdi_tekst: 'døbt 5. sept. 1845 i Vesterborg Kirke', date_raw: '5. sept. 1845' })))
+      .toBe('døbt 5. sept. 1845 i Vesterborg Kirke');
+    // kun hele ord: »1845« står ikke i »18450«, og »5. sept.« ikke i »15. sept.«
+    expect(factValue(row({ vaerdi_tekst: 'nr. 18450', date_raw: '1845' }))).toBe('nr. 18450, 1845');
+    expect(factValue(row({ vaerdi_tekst: 'døbt 15. sept. 1845', date_raw: '5. sept. 1845' }))).toBe('døbt 15. sept. 1845, 5. sept. 1845');
+    // tjekket sker efter en omformning af hver del (opløsning af relative datoer)
+    const opl = (v: string) => v.replace('s.å.', '1922');
+    expect(factValue(row({ vaerdi_tekst: 'hjemmedøbt 10. febr. 1922', date_raw: '10. febr. s.å.' }), opl)).toBe('hjemmedøbt 10. febr. 1922');
+  });
+
   it('kildeetiketten viser »<udgave>, s. N« (også intervaller) (spec §5.8)', () => {
     const bundet = (citation_label: string) =>
       factSource(row({ record_ref: 'r', record_label: 'record-07565168-b903-4444-9189-43d62d5c6ed6', citation_label })).label;
@@ -138,6 +149,9 @@ describe('buildPersonFacts', () => {
     expect(bundet('DAA 2018-20, s. 201-202')).toBe('DAA 2018-20, s. 201-202');
     expect(factSource(row({ record_ref: 'r', record_label: 'I-32', citation_label: 'DAA 1939 side 7' })).label).toBe('DAA 1939, s. 7 · I-32');
     expect(factSource(row({ source_label: 'DAA 1939 side 532' })).label).toBe('DAA 1939, s. 532');
+    // kun den første » side« efter udgaven får komma
+    expect(factSource(row({ source_label: 'DAA 1939 side 12 og side 14' })).label).toBe('DAA 1939, s. 12 og s. 14');
+    expect(factSource(row({ source_label: 'Optegnelser om Inderside 12' })).label).toBe('Optegnelser om Inderside 12');
     // kun formen » side <tal>«
     expect(factSource(row({ source_label: 'Kirkebog, side B' })).label).toBe('Kirkebog, side B');
   });

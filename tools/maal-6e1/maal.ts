@@ -18,9 +18,6 @@ import {
   fmtYears,
   mapPublicBioSourceVersionsV2,
   parseYear,
-  oploesRelativDato,
-  relativeDatoer,
-  relativReferenceStatus,
   udgaveForRaekker,
   udgaverMedFakta,
   type AppPerson,
@@ -30,6 +27,9 @@ import {
   type UdgaveFaktaVisning,
 } from '../../packages/core/src/index';
 import { factValue } from '../../packages/core/src/personFacts';
+// måle-hooks, bevidst ikke i core's offentlige index
+import { relativeDatoer } from '../../packages/core/src/editionFacts';
+import { relativReferenceStatus } from '../../packages/core/src/relativeDates';
 
 const REPO = path.resolve(__dirname, '..', '..');
 const argv = process.argv.slice(2);
@@ -204,10 +204,10 @@ for (const k of komps) {
 // Enhed: viste fakta (den viste påstand i personrækkens egen udgave), hvis værdi før opløsningen er relativ.
 type RelTal = { oploest: number; uoploest: number; aarsager: Map<string, number> };
 const relTal = new Map<string, RelTal>(); // »udgave|type« → tal
-const relReference = new Map<string, string | null>(); // fact_id → referencen core brugte (til afsnit 6)
+const relRaa = new Map<string, string>(); // fact_id → viste værdi før opløsning (til afsnit 6)
 for (const k of komps) {
   for (const r of relativeDatoer(k.input)) {
-    relReference.set(r.factId, r.reference);
+    relRaa.set(r.factId, r.bogensTekst);
     const noegle = `${r.udgave == null ? '(ingen udgave)' : udgaveLabel.get(r.udgave)}|${r.faktatype}`;
     const x = relTal.get(noegle) ?? { oploest: 0, uoploest: 0, aarsager: new Map<string, number>() };
     relTal.set(noegle, x);
@@ -219,7 +219,7 @@ for (const k of komps) {
       : (() => {
         const st = relativReferenceStatus(r.reference);
         if (st !== 'ok') return `reference ${st}`;
-        return oploesRelativDato(r.bogensTekst, r.reference) != null ? 'før referencen' : 'mangler del eller flertydigt i teksten';
+        return r.foerReference ? 'før referencen' : 'mangler del eller flertydigt i teksten';
       })();
     x.aarsager.set(aarsag, (x.aarsager.get(aarsag) ?? 0) + 1);
   }
@@ -292,10 +292,8 @@ for (const r of offentligeValgte) {
   const linje = vis.linjer.find((l) => l.noegle.split(':')[1].split('+').includes(String(raekke.fact_id)));
   let klasse: Klasse;
   if (!linje) klasse = 'ingen linje';
-  // en opløst relativ dato (§5.4a) er stadig den valgte påstand — sammenlign med core's opløsning af den
-  else if (linje.vaerdi !== factValue(raekke)
-    && linje.vaerdi !== oploesRelativDato(factValue(raekke), relReference.get(String(raekke.fact_id)) ?? null,
-      { ikkeFoerReference: true })) klasse = 'bøgernes ord vist';
+  // en opløst relativ dato (§5.4a): sammenlign den viste påstand FØR opløsningen med den valgte
+  else if ((relRaa.get(String(raekke.fact_id)) ?? linje.vaerdi) !== factValue(raekke)) klasse = 'bøgernes ord vist';
   else if (egen == null) klasse = 'som i dag';
   else {
     const probe: Udgave = { sourceId: '__probe', label: '\u0000probe', aar: 1 };

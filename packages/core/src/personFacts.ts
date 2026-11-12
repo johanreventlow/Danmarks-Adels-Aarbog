@@ -49,17 +49,36 @@ export const typeRank = (t: string) => {
 // Spec §5.8 (projektejeren 2026-11-12): et ledende *, † eller ⚭ fjernes — typen (»Født«, »Død«) siger det allerede.
 const udenLedendeTegn = (v: string | null) => (v == null ? null : v.replace(/^\s*[*†⚭]\s*/u, ''));
 
-export function factValue(r: PublicPersonFactRow): string {
-  const tekst = udenLedendeTegn(r.vaerdi_tekst);
-  // date_raw udelades, når den er identisk med vaerdi_tekst (ellers vises samme tekst to gange).
-  const dato = udenLedendeTegn(r.date_raw);
-  const dateRaw = dato && tekst && dato.trim() === tekst.trim() ? null : dato;
+// `date_raw` er dobbelt, når den er lig `vaerdi_tekst` eller står ordret i den (spec §5.8 »Dobbelt værdi«; fx
+// »hjemmedøbt 10. febr. 1922« + »10. febr. 1922«). Tjekket sker efter `del` (opløsning af relative datoer, §5.4a).
+const indeholder = (tekst: string, del: string) => {
+  const t = del.trim();
+  if (!t) return false;
+  for (let i = tekst.indexOf(t); i !== -1; i = tekst.indexOf(t, i + 1)) {
+    const foer = tekst[i - 1], efter = tekst[i + t.length];
+    if ((foer == null || !/[\p{L}\p{N}]/u.test(foer)) && (efter == null || !/[\p{L}\p{N}]/u.test(efter))) return true;
+  }
+  return false;
+};
+
+export function factValue(r: PublicPersonFactRow, del: (v: string) => string = (v) => v): string {
+  const vis = (v: string | null) => {
+    const u = udenLedendeTegn(v);
+    return u == null || u.trim() === '' ? null : del(u);
+  };
+  const tekst = vis(r.vaerdi_tekst);
+  const dato = vis(r.date_raw);
+  const dateRaw = dato && tekst && (dato.trim() === tekst.trim() || indeholder(tekst, dato)) ? null : dato;
   const parts = [tekst, dateRaw].filter((x): x is string => !!x && x.trim() !== '');
   return parts.length ? parts.join(', ') : '—';
 }
 
 // Spec §5.8: kildeetiketter viser »<udgave>, s. N«; 1939's bundne etiketter siger »DAA 1939 side 532«.
-const sideForm = (label: string) => label.replace(/,?\s+side\s+(\d+(?:\s*[-–]\s*\d+)?)(?!\d)/gu, ', s. $1');
+// Kun den første » side N« efter udgaven får komma: »DAA 1939 side 12 og side 14« → »DAA 1939, s. 12 og s. 14«.
+const SIDE = String.raw`side\s+(\d+(?:\s*[-–]\s*\d+)?)(?!\d)`;
+const sideForm = (label: string) => label
+  .replace(new RegExp(String.raw`,?\s+` + SIDE, 'u'), ', s. $1')
+  .replace(new RegExp(String.raw`(?<=\s)` + SIDE, 'gu'), 's. $1');
 
 export function factSource(r: PublicPersonFactRow): PersonFactSource {
   if (r.record_ref) {

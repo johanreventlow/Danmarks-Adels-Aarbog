@@ -6,15 +6,16 @@
 import { maanedNummer } from './factEquality';
 
 // »s.m.«, »s. M.«, »s.å.«, »s.a.«, »s. A.«, »s.d.«, »s. D.« og »samme dag/måned/maaned/år/aar«. Kræver at »s« ikke
-// står inde i et ord, og at bogstavet ikke fortsætter et ord (»s.st.«, »s. Andersen« er ikke relative).
+// står inde i et ord, og at bogstavet ikke fortsætter et ord (»s.st.«, »s. Andersen« er ikke relative). Kæder af
+// initialer frasorteres bagefter i `relativeLed`.
 const RELATIV = /(?<![\p{L}\p{N}])(?:s\.\s*([mdåa])\.?|samme\s+(dag|måned|maaned|år|aar))(?!\p{L})/giu;
 
 const MAANED_NAVNE = ['januar', 'februar', 'marts', 'april', 'maj', 'juni', 'juli', 'august', 'september', 'oktober',
   'november', 'december'];
 
 // Usikre eller flertydige referencer (mit valg): en sikker dato må ikke udledes af »ca. 1644«, »1644?«, »før 1644«,
-// »1643 eller 1644« eller et interval (»21.-22. april«).
-const USIKKER = /\?|(?<![\p{L}])(?:ca|circa|o|omkr|før|efter|mellem|eller|el|senest|tidligst|formentlig|antagelig|vistnok)(?![\p{L}])|\d\.?\s*[-–]\s*\d/iu;
+// »1643 eller 1644«, et interval (»21.-22. april«) eller en skråstreg (»21. april/1. maj«, »1644/45«).
+const USIKKER = /\?|\/|(?<![\p{L}])(?:ca|circa|o|omkr|før|efter|mellem|eller|el|senest|tidligst|formentlig|antagelig|vistnok)(?![\p{L}])|\d\.?\s*[-–]\s*\d/iu;
 
 const DATO = /(?<![\p{L}\p{N}])(?:(\d{1,2})\.?\s+)?(\p{L}+)\.?\s+(\d{4})(?!\d)/gu;
 const AAR = /(?<!\d)\d{4}(?!\d)/g;
@@ -27,11 +28,30 @@ const art = (bogstav: string | undefined, ord: string | undefined): Del => {
   return b.startsWith('m') ? 'm' : b.startsWith('d') ? 'd' : 'å';
 };
 
+type Led = { start: number; slut: number; del: Del };
+
+// De relative led i teksten. Forkortelseskæder er ikke datoer og frasorteres: »i S. M. Kirke«, »Hans S. A.« (stort S
+// og stort bogstav: initialer), »R.S.A.O.«, »K.S.D.«, »p.s.d.« (bogstav+punktum lige foran, uden mellemrum — dog ikke
+// et månedsnavn: »febr.s.å.«), »S.M.O.«, »S.D.-kors« (bogstav eller bindestreg+bogstav lige efter). 1939's OCR-form
+// »15 s. M.« (lille s) er relativ.
+function relativeLed(v: string): Led[] {
+  const ud: Led[] = [];
+  for (const m of v.matchAll(RELATIV)) {
+    const start = m.index!;
+    const slut = start + m[0].length;
+    if (m[1] != null) {
+      if (v[start] === 'S' && m[1] === m[1].toUpperCase()) continue;
+      const foran = v.slice(0, start).match(/(\p{L}+)\.$/u);
+      if (foran && maanedNummer(foran[1]) == null) continue;
+      if (/^\.?-?\p{L}/u.test(v.slice(slut))) continue;
+    }
+    ud.push({ start, slut, del: art(m[1], m[2]) });
+  }
+  return ud;
+}
+
 export function erRelativDato(v: string): boolean {
-  RELATIV.lastIndex = 0;
-  const hit = RELATIV.test(v);
-  RELATIV.lastIndex = 0;
-  return hit;
+  return relativeLed(v).length > 0;
 }
 
 export type ReferenceStatus = 'ok' | 'mangler' | 'relativ' | 'usikker' | 'flertydig';
@@ -45,6 +65,9 @@ function parseReference(ref: string | null): Reference | Exclude<ReferenceStatus
   const aar = new Set(ref.match(AAR) ?? []);
   if (aar.size === 0) return 'mangler';
   if (aar.size > 1) return 'flertydig';
+  // et månedsnavn ud over datoens (»21. april (1. maj) 1644«) gør dag og måned flertydige
+  const maaneder = new Set((ref.match(/\p{L}+/gu) ?? []).map(maanedNummer).filter((x) => x != null));
+  if (maaneder.size > 1) return 'flertydig';
   const datoer = new Set<string>();
   for (const m of ref.matchAll(DATO)) {
     const maaned = maanedNummer(m[2]);
@@ -104,7 +127,7 @@ export function oploesRelativDato(v: string, reference: string | null, valg: Opl
   if (typeof ref === 'string') return null;
 
   const h: Haendelse[] = [];
-  for (const m of v.matchAll(RELATIV)) h.push({ start: m.index!, slut: m.index! + m[0].length, del: art(m[1], m[2]) });
+  for (const l of relativeLed(v)) h.push(l);
   for (const m of v.matchAll(DATO)) {
     const maaned = maanedNummer(m[2]);
     if (maaned == null) continue;
@@ -126,7 +149,8 @@ export function oploesRelativDato(v: string, reference: string | null, valg: Opl
     const fraKaede = loes(x.del!, foran, kontekst);
     if (!fraRef || !fraKaede || !ensDato(fraRef.dato, fraKaede.dato)) return null;
     if (valg.ikkeFoerReference && foer(fraRef.dato, ref)) return null;
-    erstat.push({ start: x.start, slut: x.slut, tekst: fraRef.tekst });
+    // »30.s.m.« → »30. juli 1708«: et mellemrum efter et punktum lige foran
+    erstat.push({ start: x.start, slut: x.slut, tekst: v[x.start - 1] === '.' ? ` ${fraRef.tekst}` : fraRef.tekst });
     kontekst = fraRef.dato;
   }
   let ud = v;
