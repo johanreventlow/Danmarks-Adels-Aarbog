@@ -11,6 +11,7 @@ export * from './placementCoordinates';
 export { FAKTA_UDELADT, buildPersonFacts } from './personFacts';
 export type { PublicPersonFactRow, PersonFactSource, PersonFactStatement, PersonFactView } from './personFacts';
 export * from './editionFacts';
+export * from './editionSelector';
 export * from './factEquality';
 export * from './sammeSomPreflight';
 export * from './buildFamilyGraph';
