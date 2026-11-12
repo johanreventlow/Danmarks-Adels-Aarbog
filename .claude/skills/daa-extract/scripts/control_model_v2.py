@@ -21,6 +21,12 @@ En kørsel (fra repo-roden; GUC'en `daa.control_src` sat til kilden ved eksporte
      `P`-personas' forslag er `proposed` og ubundne. Planpartitionen (MATCH = maskine ∪ stikprøve ∪ udtaget pga.
      `P`) tjekkes, før SQL'en skrives.
 
+2018-20 (plan 2026-11-12 Task 4): `plan --predikater person.birth,person.death` filtrerer klassifikationen og
+rækkefilen til de prædikater før alt andet, og ceremonien værner om scopet i databasen (PLAN_PRAEDIKAT_AFVIGER,
+MACHINE_NOT_MATCH kun over scopet). `plan --kun-stikproeve` lægger kun stikprøven på arket; REAL_DIFF/SKRIVEMAADE
+står i planen (`udeladt`), får ingen afgørelse, bindes ikke, og verifikationen kræver dem `proposed`. Uden flagene er
+plan, ark og SQL byte-ens med før (`fixtures/control-model-v2-dato`).
+
 SQL'en køres med `psql -v actor=<redaktørens uuid>` (rollen sættes som i v1). Den bærer `p_forventet` med
 påstandens værdier og menneskets noter: den hører under `~/.private` (0600), som arket og rækkefilen. Værktøjet
 printer kun antal, id'er og hashes.
@@ -131,15 +137,42 @@ def _record_key(r: dict) -> str:
     return r.get("record_key") or ""
 
 
-def plan_run_v2(classification: dict, rows: list, *, source_id: int, strata: dict) -> dict:
-    """Stikprøve, menneskets rækker og maskinkandidaterne. Ren funktion; ingen I/O."""
+PRAEDIKAT_RE = re.compile(r"[a-z_]+\.[a-z_]+")
+
+
+def _validate_predikater(predikater) -> list[str] | None:
+    """`None` (intet prædikatscope) eller den sorterede liste. Prædikaterne indgår som literaler i ceremoni-SQL'en."""
+    if predikater is None:
+        return None
+    if (not isinstance(predikater, (set, frozenset)) or not predikater
+            or any(not isinstance(x, str) or not PRAEDIKAT_RE.fullmatch(x) for x in predikater)):
+        raise ControlError("PLAN_PRAEDIKATER_INVALID")
+    return sorted(predikater)
+
+
+def plan_run_v2(classification: dict, rows: list, *, source_id: int, strata: dict, kun_stikproeve: bool = False,
+                predikater: frozenset[str] | None = None) -> dict:
+    """Stikprøve, menneskets rækker og maskinkandidaterne. Ren funktion; ingen I/O.
+
+    `predikater` (2018-20, plan 2026-11-12 Task 4): klassifikationens items og rækkefilen filtreres til de prædikater,
+    før alt andet (MATCH, stikprøve, maskinsæt, counts, universet). Ceremoni-SQL'en værner om samme scope.
+    `kun_stikproeve`: arket bærer kun stikprøven; REAL_DIFF/SKRIVEMAADE står fortsat på planens topniveau (`udeladt`),
+    men får ingen afgørelse og bindes ikke."""
     if not isinstance(source_id, int) or isinstance(source_id, bool):
         raise ControlError("PLAN_SCOPE_MANGLER source_id")
     if not isinstance(rows, list) or any(not isinstance(r, dict) or not all(f in r for f in SCOPE_FIELDS)
                                          for r in rows):
         raise ControlError("PLAN_SCOPE_MANGLER rækkefilen er eksporteret uden daa.control_src")
     strata = _validate_strata(strata)
+    if not isinstance(kun_stikproeve, bool):
+        raise ControlError("PLAN_KUN_STIKPROEVE_INVALID")
+    praedikater = _validate_predikater(predikater)
     items = _validate_items(classification)
+    if praedikater is not None:
+        if any(not isinstance(i.get("predicate"), str) for i in items):
+            raise ControlError("CLASSIFICATION_INVALID predicate")
+        items = [i for i in items if i["predicate"] in praedikater]
+        rows = [r for r in rows if r.get("predicate") in praedikater]
     # Én række pr. forslag: rækkefilen grupperer pr. postnøgle, så et forslag forankret i to poster gav to rækker, og
     # den sidste ville stille og roligt vinde (kortets post, persona og mål).
     dubletter = len(rows) - len({r["interpretation_id"] for r in rows})
@@ -179,7 +212,7 @@ def plan_run_v2(classification: dict, rows: list, *, source_id: int, strata: dic
     skrivemaade = [i for i in items if i["class"] == "SKRIVEMAADE"]
     for i in real_diff + skrivemaade:
         raekke(i)
-    ark = sample_ids | {i["interpretation_id"] for i in real_diff + skrivemaade}
+    ark = sample_ids if kun_stikproeve else sample_ids | {i["interpretation_id"] for i in real_diff + skrivemaade}
     rows_kontrol = [r for r in rows if r["interpretation_id"] in ark]
 
     personas: dict[str, int] = {}
@@ -209,6 +242,9 @@ def plan_run_v2(classification: dict, rows: list, *, source_id: int, strata: dic
         "universe_ids": sorted(i["interpretation_id"] for i in items),
         "strata": rapport,
         "counts": counts,
+        "kun_stikproeve": kun_stikproeve,
+        "predikater": praedikater,
+        "udeladt": len(real_diff) + len(skrivemaade) if kun_stikproeve else 0,
     }
 
 
@@ -360,6 +396,9 @@ def apply_plan_v2(plan: dict, sheet_text: str, *, sheet_sha256: str, hashes: dic
     for felt in ("classification_sha256", "sample_sha256", "rows_kontrol_sha256"):
         if not _hex64(hashes.get(felt)):
             raise ControlError(f"PLAN_HASH_REQUIRED {felt}")
+    if plan.get("kun_stikproeve") and {r["interpretation_id"] for r in plan["rows_kontrol"]} != set(plan["sample_ids"]):
+        # Arket må kun bære stikprøven (plan.json's flag er ikke hash-bundet; rækkefilen er).
+        raise ControlError("PLAN_KUN_STIKPROEVE_MISMATCH arket")
     fields, personas = parse_sheet_v2(sheet_text)
     check_sheet_v2(plan, fields, personas)
 
@@ -478,6 +517,34 @@ def _check_partition(plan: dict, applied: dict) -> None:
                            f"stikprøve={len(stik)} udtaget={len(udtaget)}")
 
 
+def _check_kun_stikproeve(plan: dict, applied: dict) -> None:
+    """Under `kun_stikproeve`: ingen rettelser, ingen menneskeafgørelser og ingen P (en P på en stikprøvepersona er
+    SAMPLE_FAILED); kun stikprøvens accept og maskinens."""
+    if plan.get("kun_stikproeve") and (applied["rettelser"] or applied["unresolved"]
+                                       or any(a["klasse"] != "MATCH" for a in applied["afgoerelser"])):
+        raise ControlError("PLAN_KUN_STIKPROEVE_MISMATCH anvendelsen")
+
+
+def _praedikat_sql(plan: dict) -> str:
+    """`'a','b'` til et SQL-IN over planens prædikatscope (validerede navne; citeret alligevel)."""
+    return ",".join(_lit(x) for x in _validate_predikater(frozenset(plan["predikater"])))
+
+
+def _praedikat_vaern(plan: dict) -> str:
+    """DO-blok (ejerrollen) ved kildeværnet, kun med prædikatscope: rejser PLAN_PRAEDIKAT_AFVIGER, hvis et forslag i
+    planen (arket, MATCH, maskine og universet) ikke findes med et af planens prædikater. plan.json er ikke hash-bundet,
+    så scopet håndhæves i databasen, ikke kun af planens filtrering."""
+    ids = sorted({r["interpretation_id"] for r in plan["rows_kontrol"]} | {m[0] for m in plan["match"]}
+                 | {m["interpretation_id"] for m in plan["machine_candidates"]} | set(plan["universe_ids"]))
+    for i in ids:
+        _uuid(i)
+    return ("DO $q$ DECLARE f jsonb := " + _lit(json.dumps(ids)) + "::jsonb; n int; BEGIN "
+            "SELECT count(*) INTO n FROM jsonb_array_elements_text(f) x "
+            "LEFT JOIN private.interpretation i ON i.id = x::uuid "
+            f"WHERE i.predicate IS NULL OR i.predicate NOT IN ({_praedikat_sql(plan)}); "
+            "IF n <> 0 THEN RAISE EXCEPTION 'PLAN_PRAEDIKAT_AFVIGER forslag=%', n; END IF; END $q$;")
+
+
 def _kilde_vaern(plan: dict, src: int) -> str:
     """DO-blok (ejerrollen, læser private.*): rejser PLAN_KILDE_AFVIGER, hvis et forslag (arkets felter og alle MATCH:
     stikprøve, maskine og P-udtagne) eller en persona i planen ikke findes med planens kilde. Ukendte id'er afviser
@@ -502,6 +569,7 @@ def _kilde_vaern(plan: dict, src: int) -> str:
 
 def sql_v2(plan: dict, applied: dict) -> str:
     """Den samlede ceremoni-SQL i én transaktion (READ COMMITTED, standard)."""
+    _check_kun_stikproeve(plan, applied)
     _check_partition(plan, applied)
     src = plan["source_id"]
     if not isinstance(src, int) or isinstance(src, bool):
@@ -514,6 +582,8 @@ def sql_v2(plan: dict, applied: dict) -> str:
            "SELECT set_config('request.jwt.claim.sub', :'actor', true) \\g /dev/null",
            # (0) Kildescope før første skrivning: hvert forslag og hver persona, ceremonien rører, hører til planens kilde.
            _kilde_vaern(plan, src)]
+    if plan.get("predikater") is not None:
+        out.append(_praedikat_vaern(plan))
 
     # (1) P-identiteter. Værnene læser private.* og kører som den forbundne rolle, før noget skrives.
     if applied["unresolved"]:
@@ -569,6 +639,10 @@ def sql_v2(plan: dict, applied: dict) -> str:
     match_by_id = {m[0]: m for m in plan["match"]}
     accept = [match_by_id[a["interpretation_id"]] for a in stik] + [
         [m["interpretation_id"], m["version"], m["assertion_id"]] for m in applied["maskine"]]
+    # Med prædikatscope sammenlignes kun planens prædikater: et MATCH uden for scopet (fx en titel) kan hverken
+    # accepteres eller give et falsk drift-stop (kontrollen er accept ⊆ MATCH, ikke lighed).
+    scope = (" AND i->>'predicate' IN (" + _praedikat_sql(plan) + ")"
+             if plan.get("predikater") is not None else "")
     if accept:
         out += ["-- (4) re-klassifikation", ANALYZE_SQL,
                 "\\o /dev/null", f"\\i {CLASSIFICATION_SQL}", "\\o",
@@ -577,7 +651,7 @@ def sql_v2(plan: dict, applied: dict) -> str:
                 "SELECT count(*) INTO n FROM jsonb_array_elements(f) m WHERE EXISTS ("
                 "SELECT 1 FROM jsonb_array_elements(r->'items') i WHERE i->>'interpretation_id' = m->>0 "
                 "AND (i->>'version')::int = (m->>1)::int AND i->>'class' = 'MATCH' "
-                "AND (i->>'assertion_id')::bigint = (m->>2)::bigint); "
+                "AND (i->>'assertion_id')::bigint = (m->>2)::bigint" + scope + "); "
                 "IF n <> jsonb_array_length(f) THEN RAISE EXCEPTION 'MACHINE_NOT_MATCH % af %', "
                 "jsonb_array_length(f) - n, jsonb_array_length(f); END IF; END $m$;",
                 "SET LOCAL ROLE authenticated;"]
@@ -646,13 +720,31 @@ def _verify_do(plan: dict, applied: dict) -> str:
     (= Pythons sortering af kanoniske små-bogstavs-uuid'er), uafhængigt af databasens collation."""
     bound = _expected_bound(plan, applied)
     p_ids = sorted(u["persona_id"] for u in applied["unresolved"])
-    for i in plan["universe_ids"] + p_ids:
+    # Under kun_stikproeve: de udeladte (REAL_DIFF/SKRIVEMAADE) står proposed. Ubundne er de allerede, fordi de er i
+    # universet og ikke i det forventede sæt.
+    udeladt = sorted(plan["real_diff_ids"] + plan["skrivemaade_ids"]) if plan.get("kun_stikproeve") else None
+    for i in plan["universe_ids"] + p_ids + (udeladt or []):
         _uuid(i)
+    ud_decl = [f"        ud jsonb := {_lit(json.dumps(udeladt))}::jsonb;"] if udeladt is not None else []
+    ud_tjek = [
+        # Fail-closed: hvert udeladt forslag findes og står proposed (et ukendt id tæller som afvigelse).
+        "  SELECT count(*) INTO n FROM jsonb_array_elements_text(ud) u",
+        "    JOIN private.interpretation i ON i.id = u::uuid",
+        "    JOIN private.interpretation_current ic ON ic.interpretation_key = i.interpretation_key",
+        "   WHERE ic.status = 'proposed';",
+        "  IF n <> jsonb_array_length(ud) THEN RAISE EXCEPTION 'CONTROL_V2_UDELADT_AFGJORT % af %',",
+        "    jsonb_array_length(ud) - n, jsonb_array_length(ud); END IF;",
+    ] if udeladt is not None else []
+    ok = (["  RAISE NOTICE 'CONTROL_V2_VERIFY_OK bundet=% p_personas=% udeladt_proposed=%', jsonb_array_length(faktisk),",
+           "    jsonb_array_length(pp), jsonb_array_length(ud);"] if udeladt is not None else
+          ["  RAISE NOTICE 'CONTROL_V2_VERIFY_OK bundet=% p_personas=%', jsonb_array_length(faktisk),",
+           "    jsonb_array_length(pp);"])
     return "\n".join([
         "DO $v$",
         f"DECLARE univ jsonb := {_lit(json.dumps(plan['universe_ids']))}::jsonb;",
         f"        forventet jsonb := {_lit(json.dumps(bound))}::jsonb;",
         f"        pp jsonb := {_lit(json.dumps(p_ids))}::jsonb;",
+        *ud_decl,
         "        faktisk jsonb; n int;",
         "BEGIN",
         # Promotionssættet: blandt planens forslag har præcis de forventede nøgler en gældende binding.
@@ -680,8 +772,8 @@ def _verify_do(plan: dict, applied: dict) -> str:
         "            JOIN private.interpretation q ON q.id = pr.interpretation_id",
         "           WHERE q.interpretation_key = i.interpretation_key));",
         "  IF n <> 0 THEN RAISE EXCEPTION 'CONTROL_V2_P_PERSONA_DECIDED %', n; END IF;",
-        "  RAISE NOTICE 'CONTROL_V2_VERIFY_OK bundet=% p_personas=%', jsonb_array_length(faktisk),",
-        "    jsonb_array_length(pp);",
+        *ud_tjek,
+        *ok,
         "END $v$;",
     ])
 
@@ -689,6 +781,7 @@ def _verify_do(plan: dict, applied: dict) -> str:
 def verify_sql_v2(plan: dict, applied: dict) -> str:
     """Læse-kun, uafhængig genkontrol EFTER ceremoniens COMMIT (samme DO-blok kørte også før COMMIT i ceremonien).
     Planpartitionen tjekkes her (Python); promotionssættet i SQL'en."""
+    _check_kun_stikproeve(plan, applied)
     _check_partition(plan, applied)
     return "\n".join(["\\set ON_ERROR_STOP on", "BEGIN;", "SET TRANSACTION READ ONLY;",
                       _verify_do(plan, applied), "ROLLBACK;"]) + "\n"
@@ -706,6 +799,15 @@ def _load_plan(plan_dir: Path) -> tuple[dict, dict]:
                                  "personas", "persona_ids", "universe_ids", "strata", "counts")}
     plan["rows_kontrol"] = json.loads((plan_dir / "rows-kontrol.json").read_text(encoding="utf-8"))
     plan["machine_candidates"] = json.loads((plan_dir / "machine-candidates.json").read_text(encoding="utf-8"))
+    # Task 4-flagene findes kun i planer lavet med dem (1939's planer har dem ikke).
+    if not isinstance(meta.get("kun_stikproeve", False), bool):
+        raise ControlError("PLAN_KUN_STIKPROEVE_INVALID")
+    plan["kun_stikproeve"] = meta.get("kun_stikproeve", False)
+    plan["predikater"] = None
+    if "predikater" in meta:
+        if not isinstance(meta["predikater"], list):
+            raise ControlError("PLAN_PRAEDIKATER_INVALID")
+        plan["predikater"] = _validate_predikater(frozenset(meta["predikater"]))
     if _canonical_sha(plan["sample_ids"]) != meta["sample_sha256"]:
         raise ControlError("PLAN_HASH_MISMATCH sample")
     return plan, meta
@@ -731,6 +833,9 @@ def main() -> int:
     p.add_argument("--source-id", type=int)
     p.add_argument("--strata-ubekraeftet", type=int, default=STRATA["ubekraeftet"])
     p.add_argument("--strata-oevrige", type=int, default=STRATA["oevrige"])
+    p.add_argument("--kun-stikproeve", action="store_true",
+                   help="arket bærer kun stikprøven; REAL_DIFF/SKRIVEMAADE afgøres ikke")
+    p.add_argument("--predikater", help="kommaliste, fx person.birth,person.death: alt andet filtreres fra")
     p.add_argument("--out-dir", required=True)
     a = sub.add_parser("ark")
     a.add_argument("--plan-dir", required=True)
@@ -748,9 +853,12 @@ def main() -> int:
             if args.source_id is None:
                 raise ControlError("PLAN_SCOPE_MANGLER --source-id")
             k_path, r_path = Path(args.classification), Path(args.rows)
+            praedikater = (None if args.predikater is None
+                           else frozenset(x.strip() for x in args.predikater.split(",")))
             plan = plan_run_v2(json.loads(k_path.read_text(encoding="utf-8")),
                                json.loads(r_path.read_text(encoding="utf-8")), source_id=args.source_id,
-                               strata={"ubekraeftet": args.strata_ubekraeftet, "oevrige": args.strata_oevrige})
+                               strata={"ubekraeftet": args.strata_ubekraeftet, "oevrige": args.strata_oevrige},
+                               kun_stikproeve=args.kun_stikproeve, predikater=praedikater)
             ud = Path(args.out_dir)
             meta = {"seed": SEED, "decision": DECISION_REF, "source_id": plan["source_id"],
                     "classification_sha256": _sha_file(k_path), "rows_sha256": _sha_file(r_path),
@@ -761,12 +869,19 @@ def main() -> int:
                     "rows_kontrol_sha256": _write(ud / "rows-kontrol.json", _json_bytes(plan["rows_kontrol"])),
                     "machine_candidates_sha256": _write(ud / "machine-candidates.json",
                                                         _json_bytes(plan["machine_candidates"]))}
+            # Kun med flagene: uden dem er plan.json byte-ens med før (kortværktøjet hash-binder svarene til den).
+            if plan["predikater"] is not None:
+                meta["predikater"] = plan["predikater"]
+            if plan["kun_stikproeve"]:
+                meta["kun_stikproeve"] = True
             _write(ud / "plan.json", _json_bytes(meta))
             print(f"PLAN_V2_OK kilde={plan['source_id']} klasser={json.dumps(plan['counts'], sort_keys=True)} "
                   f"stikprøve={len(plan['sample_ids'])} strata={json.dumps(plan['strata'], sort_keys=True)} "
                   f"real_diff={len(plan['real_diff_ids'])} skrivemaade={len(plan['skrivemaade_ids'])} "
                   f"maskinkandidater={len(plan['machine_candidates'])} ark_felter={len(plan['rows_kontrol'])} "
-                  f"personas={len(plan['personas'])}")
+                  f"personas={len(plan['personas'])}"
+                  + (f" praedikater={','.join(plan['predikater'])}" if plan["predikater"] is not None else "")
+                  + (f" udeladt={plan['udeladt']}" if plan["kun_stikproeve"] else ""))
             print(f"  sample_sha256 {meta['sample_sha256']}")
             print(f"  rows_kontrol_sha256 {meta['rows_kontrol_sha256']}")
             return 0

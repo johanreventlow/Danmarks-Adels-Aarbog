@@ -281,3 +281,122 @@ def test_kontrakten_kalder_red_normaliser_forslag_og_listen_toemmes(db):
         f" ON i.id=io.interpretation_id WHERE i.method='{METHOD}'),"
         f" (SELECT count(*) FROM private.interpretation WHERE version>1 AND method<>'{METHOD}')"), db=db), "links").strip()
     assert out == "3|0", out
+
+
+# --- regel-parameteren (dato-markoer-v2, kilde 1 i prod) -------------------------------------------------------
+# Egen kilde, fordi den foregaaende test committer v1-ceremonien paa SRC.
+#   21 SRC2 birth '* 1750'         v2-kandidat (v1: uaendret)
+#   22 SRC2 death '† 1770'         kandidat i begge regler
+#   23 SRC2 death '* og † 1756'   hverken v1 eller v2 aendrer den
+#   24 SRC2 birth 'f. 1701'        kandidat i begge regler
+#   25 SRC2 birth '* og † 1756'   (foedt og doed samme aar) hverken v1 eller v2 aendrer den
+SRC2 = -6397
+RUN_2 = "12000000-0000-0000-0000-000000069011"
+_OBS_2 = _u(69714)
+METHOD_V2 = "deterministisk-normalisering:dato-markoer-v2"
+
+
+def _setup2() -> str:
+    return (
+        f"INSERT INTO public.source(id,titel,udgave,aar,slags) VALUES ({SRC2},'Fixture sr2 v2','synthetic','1902',"
+        "'DAA-udgave');\n"
+        "INSERT INTO private.extraction_run(id,source_id,run_key,schema_version,extractor_version,profile_version,"
+        f"input_sha256,manifest) VALUES ('{RUN_2}',{SRC2},'sr2-v2','fixture','fixture','fixture',repeat('1',64),'{{}}');\n"
+        f"INSERT INTO private.source_rendition(id,source_id,rendition_key,rendition_kind,content_sha256,metadata) VALUES "
+        f"('{_u(69712)}',{SRC2},'sr2v2-rendition','text_layer',repeat('8',64),'{{}}');\n"
+        "INSERT INTO private.source_record_occurrence(id,rendition_id,occurrence_key,page_from,page_to,char_from,"
+        "char_to,verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id) VALUES "
+        f"('{_u(69713)}','{_u(69712)}','sr2v2-occ',1,1,0,4,'1750','phys-sr2v2','struct-sr2v2','{RUN_2}');\n"
+        "INSERT INTO private.source_observation(id,occurrence_id,observation_kind,page_from,page_to,char_from,"
+        "char_to,verbatim_text,quality_status,extraction_method,extraction_run_id) VALUES "
+        f"('{_OBS_2}','{_u(69713)}','name_clause',1,1,0,4,'1750','clear','fixture','{RUN_2}');\n"
+        f"INSERT INTO private.source_persona(id,source_id,persona_key,created_run_id) VALUES "
+        f"('{_u(69111)}',{SRC2},'sr2v2:s1','{RUN_2}');\n"
+        + _interp(21, SRC2, _u(69111), "person.birth", _s("* 1750"), RUN_2)
+        + _interp(22, SRC2, _u(69111), "person.death", _s("† 1770"), RUN_2)
+        + _interp(23, SRC2, _u(69111), "person.death", _s("* og † 1756"), RUN_2)
+        + _interp(24, SRC2, _u(69111), "person.birth", _s("f. 1701"), RUN_2)
+        + _interp(25, SRC2, _u(69111), "person.birth", _s("* og † 1756"), RUN_2)
+        + "INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal) "
+        f"SELECT id,'{_OBS_2}','supporting',1 FROM private.interpretation WHERE source_id={SRC2};\n"
+    )
+
+
+def _liste2(db: str, regel: str | None) -> tuple[int, str, list[tuple[str, int]]]:
+    extra = [] if regel is None else ["-v", f"regel={regel}"]
+    out = _must(_psql("-v", f"source_id={SRC2}", *extra, "-f", str(KANDIDATER), db=db), "kandidater v2").splitlines()
+    g = LINE.fullmatch(out[0])
+    assert g, out[0]
+    elems = [(ELEM.fullmatch(x).group(1), int(ELEM.fullmatch(x).group(2))) for x in out[1:]]
+    return int(g.group(1)), g.group(2), elems
+
+
+def test_regel_v2_og_v1_paa_fixturekilden(db):
+    _sql(db, _setup2(), "setup v2")
+    n2, sha2, e2 = _liste2(db, "dato-markoer-v2")
+    assert {i for i, _ in e2} == {_u(69421), _u(69422), _u(69424)} and n2 == 3 and sha2 == _sha(e2)
+    n1, sha1, e1 = _liste2(db, "dato-markoer-v1")
+    assert {i for i, _ in e1} == {_u(69422), _u(69424)} and n1 == 2 and sha1 == _sha(e1)
+    # standard uden -v regel = v1, byte for byte
+    assert _liste2(db, None) == (n1, sha1, e1)
+
+
+def test_v1_listen_kraever_ikke_v2_funktionen(db):
+    med = (_liste2(db, None), _liste2(db, "dato-markoer-v1"))
+    assert med[0] == med[1] and med[0][0] == 2
+    _must(_psql("-c", "ALTER FUNCTION private.normaliser_dato_markoer_v2(text,text) RENAME TO normaliser_dato_markoer_v2_skjult",
+                db=db), "skjul v2")
+    try:
+        uden = (_liste2(db, None), _liste2(db, "dato-markoer-v1"))
+        # v2 kan ikke laves uden funktionen, men v1 skal ikke naevne den
+        p = _psql("-v", f"source_id={SRC2}", "-v", "regel=dato-markoer-v2", "-f", str(KANDIDATER), db=db)
+        assert p.returncode != 0 and "normaliser_dato_markoer_v2" in p.stderr
+    finally:
+        _must(_psql("-c", "ALTER FUNCTION private.normaliser_dato_markoer_v2_skjult(text,text) RENAME TO normaliser_dato_markoer_v2",
+                    db=db), "gendan v2")
+    assert uden == med
+
+
+def test_regel_v1_standard_er_uaendret_paa_gamle_fixtures(db):
+    # ceremonitesten har committet v1 paa SRC, saa listen er tom; ellers ville eksplicit v1 give samme som standard
+    explicit = _must(_psql("-v", f"source_id={SRC}", "-v", "regel=dato-markoer-v1", "-f", str(KANDIDATER), db=db), "v1")
+    default = _must(_kandidater(db), "standard")
+    assert explicit == default
+
+
+def test_ukendt_regel_stopper(db):
+    p = _psql("-v", f"source_id={SRC2}", "-v", "regel=dato-markoer-v9", "-f", str(KANDIDATER), db=db)
+    assert p.returncode != 0 and "NORMALISER_REGEL_UKENDT" in p.stderr and p.stdout == ""
+
+
+def test_kontrakten_koerer_v2_med_regelnavn_i_koersel_og_efterkontrol(db):
+    _, sha, elems = _liste2(db, "dato-markoer-v2")
+    go = ",".join(f"{i}:{v}" for i, v in elems)
+    ceremoni = (
+        "\\set ON_ERROR_STOP on\n\\set QUIET on\nBEGIN;\n"
+        f"INSERT INTO auth.users(id,email) VALUES ('{ACTOR}','sr2@invalid') ON CONFLICT DO NOTHING;\n"
+        f"INSERT INTO public.profiles(id,rolle,navn,email) VALUES ('{ACTOR}','redaktion','sr2','sr2@invalid') "
+        "ON CONFLICT DO NOTHING;\n"
+        f"SELECT set_config('daa.normaliser_kilde','{SRC2}',true) \\g /dev/null\n"
+        "SELECT set_config('daa.normaliser_regel','dato-markoer-v2',true) \\g /dev/null\n"
+        f"\\i {LISTE}\n"
+        f"SELECT set_config('daa.normaliser_go','{go}',true) \\g /dev/null\n"
+        "DO $a$ BEGIN IF current_setting('daa.normaliser_kandidater_sha256')<>'" + sha + "' THEN "
+        "RAISE EXCEPTION 'NORMALISER_GO_DRIFT'; END IF; END $a$;\n"
+        + _blok("koersel")
+        + f"SELECT set_config('request.jwt.claim.sub','{ACTOR}',true) \\g /dev/null\n"
+        "SET LOCAL ROLE authenticated;\n"
+        + "".join("SELECT set_config('app.change_set_id','',true) \\g /dev/null\n"
+                  f"SELECT public.red_normaliser_forslag('{i}'::uuid,{v},'dato-markoer-v2') \\g /dev/null\n"
+                  for i, v in elems)
+        + "RESET ROLE;\n" + _blok("efterkontrol") + "COMMIT;\n"
+    )
+    p = _psql(db=db, stdin=ceremoni)
+    assert p.returncode == 0, p.stderr[-1500:]
+    out = _must(_psql("-c", (
+        "SELECT count(*) FILTER (WHERE c.method='" + METHOD_V2 + "' AND c.version=2 AND c.supersedes_id=o.id),"
+        " min(r.run_key)='normalisering:dato-markoer-v2:" + sha + "', min(r.profile_version), min(r.manifest->>'regel')"
+        " FROM private.interpretation o JOIN private.interpretation_current c ON c.interpretation_key=o.interpretation_key"
+        " JOIN private.extraction_run r ON r.id=c.extraction_run_id"
+        f" WHERE o.id IN ({','.join(repr(i) for i, _ in elems)})"), db=db), "efter v2").strip()
+    assert out == "3|t|dato-markoer-v2|dato-markoer-v2", out

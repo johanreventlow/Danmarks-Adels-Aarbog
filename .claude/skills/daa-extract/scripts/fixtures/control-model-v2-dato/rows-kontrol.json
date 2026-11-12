@@ -1,0 +1,952 @@
+[
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000001",
+  "version": 1,
+  "record_key": "I-0001",
+  "predicate": "person.birth",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000001",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1001,
+   "forventet": {
+    "fact_id": -2001,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1001,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000002",
+  "version": 1,
+  "record_key": "I-0001",
+  "predicate": "person.death",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000001",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1002,
+   "forventet": {
+    "fact_id": -2002,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1002,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000003",
+  "version": 1,
+  "record_key": "I-0002",
+  "predicate": "person.birth",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000002",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1003,
+   "forventet": {
+    "fact_id": -2003,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1003,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000005",
+  "version": 1,
+  "record_key": "I-0003",
+  "predicate": "person.birth",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000003",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1005,
+   "forventet": {
+    "fact_id": -2005,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1005,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000007",
+  "version": 1,
+  "record_key": "I-0004",
+  "predicate": "person.birth",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000004",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1007,
+   "forventet": {
+    "fact_id": -2007,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1007,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000009",
+  "version": 1,
+  "record_key": "I-0005",
+  "predicate": "person.birth",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000005",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1009,
+   "forventet": {
+    "fact_id": -2009,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1009,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000010",
+  "version": 1,
+  "record_key": "I-0005",
+  "predicate": "person.death",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000005",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1010,
+   "forventet": {
+    "fact_id": -2010,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1010,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000011",
+  "version": 1,
+  "record_key": "I-0006",
+  "predicate": "person.birth",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000006",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1011,
+   "forventet": {
+    "fact_id": -2011,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1011,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000012",
+  "version": 1,
+  "record_key": "I-0006",
+  "predicate": "person.death",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000006",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1012,
+   "forventet": {
+    "fact_id": -2012,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1012,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000013",
+  "version": 1,
+  "record_key": "I-0007",
+  "predicate": "person.birth",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000007",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1013,
+   "forventet": {
+    "fact_id": -2013,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1013,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000017",
+  "version": 1,
+  "record_key": "I-0009",
+  "predicate": "person.birth",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000009",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1017,
+   "forventet": {
+    "fact_id": -2017,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1017,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000018",
+  "version": 1,
+  "record_key": "I-0009",
+  "predicate": "person.death",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000009",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1018,
+   "forventet": {
+    "fact_id": -2018,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1018,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000020",
+  "version": 1,
+  "record_key": "I-0010",
+  "predicate": "person.death",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000010",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1020,
+   "forventet": {
+    "fact_id": -2020,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1020,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000022",
+  "version": 1,
+  "record_key": "I-0011",
+  "predicate": "person.death",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000011",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1022,
+   "forventet": {
+    "fact_id": -2022,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1022,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000025",
+  "version": 1,
+  "record_key": "I-0013",
+  "predicate": "person.birth",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000013",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1025,
+   "forventet": {
+    "fact_id": -2025,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1025,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000026",
+  "version": 1,
+  "record_key": "I-0013",
+  "predicate": "person.death",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000013",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1026,
+   "forventet": {
+    "fact_id": -2026,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1026,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000027",
+  "version": 1,
+  "record_key": "I-0014",
+  "predicate": "person.birth",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000014",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1027,
+   "forventet": {
+    "fact_id": -2027,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1027,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000030",
+  "version": 1,
+  "record_key": "I-0015",
+  "predicate": "person.death",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000015",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1030,
+   "forventet": {
+    "fact_id": -2030,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1030,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000101",
+  "version": 1,
+  "record_key": "I-0001",
+  "predicate": "person.death",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000001",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1101,
+   "forventet": {
+    "fact_id": -2101,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1101,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000102",
+  "version": 1,
+  "record_key": "I-0102",
+  "predicate": "person.death",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000102",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1102,
+   "forventet": {
+    "fact_id": -2102,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1102,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000103",
+  "version": 1,
+  "record_key": "I-0103",
+  "predicate": "person.birth",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000103",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1103,
+   "forventet": {
+    "fact_id": -2103,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1103,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000201",
+  "version": 1,
+  "record_key": "I-0002",
+  "predicate": "person.birth",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000002",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1201,
+   "forventet": {
+    "fact_id": -2201,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1201,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000202",
+  "version": 1,
+  "record_key": "I-0202",
+  "predicate": "person.death",
+  "value_text": "1850",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000202",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1202,
+   "forventet": {
+    "fact_id": -2202,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1202,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000301",
+  "version": 1,
+  "record_key": "I-0003",
+  "predicate": "person.title",
+  "value_text": "Testtitel",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000003",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1301,
+   "forventet": {
+    "fact_id": -2301,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1301,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ },
+ {
+  "interpretation_id": "00000000-0000-4000-8000-000000000302",
+  "version": 1,
+  "record_key": "I-0302",
+  "predicate": "person.title",
+  "value_text": "Testtitel",
+  "confidence": 1,
+  "persona_role": "principal",
+  "cited": [
+   {
+    "ordinal": 1,
+    "text": "syntetisk",
+    "flags": []
+   }
+  ],
+  "persona_id": "11111111-0000-4000-8000-000000000302",
+  "identity_outcome": null,
+  "identity_version": 1,
+  "navn_forkortes": false,
+  "rettelse_maal": {
+   "assertion_id": -1302,
+   "forventet": {
+    "fact_id": -2302,
+    "faktatype": "død",
+    "vaerdi_tekst": null,
+    "date_raw": "1849",
+    "valgt_assertion_id": -1302,
+    "citation_sources": [
+     3
+    ]
+   },
+   "graenser": {
+    "date_min": "1849-01-01",
+    "date_max": "1849-12-31",
+    "date_qualifier": null
+   }
+  }
+ }
+]

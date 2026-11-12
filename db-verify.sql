@@ -10715,6 +10715,33 @@ BEGIN
   RAISE NOTICE 'OK: trin 6c-2b — paastand_korrektion (RLS, ingen klientadgang), regler private, RPC''er kun authenticated';
 END $verify_6c2b_paastand$;
 
+-- ===== dato-markoer-v2: markør pr. prædikat =====
+-- Regelfunktionen findes, er IMMUTABLE og kan ikke kaldes af nogen klientrolle; red_normaliser_forslag er stadig
+-- SECURITY DEFINER og kun for authenticated.
+DO $verify_markoer_v2$
+DECLARE f text:='private.normaliser_dato_markoer_v2(text,text)'; g text:='public.red_normaliser_forslag(uuid,integer,text)';
+BEGIN
+  IF to_regprocedure(f) IS NULL OR (SELECT p.provolatile FROM pg_proc p WHERE p.oid=to_regprocedure(f))<>'i'
+     OR NOT EXISTS (SELECT 1 FROM pg_proc p, unnest(p.proconfig) c WHERE p.oid=to_regprocedure(f) AND c LIKE 'search_path=%')
+     OR has_function_privilege('anon',f,'EXECUTE') OR has_function_privilege('authenticated',f,'EXECUTE')
+     OR has_function_privilege('service_role',f,'EXECUTE') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: dato-markoer-v2 %: findes/immutable/search_path/ACL',f;
+  END IF;
+  IF private.normaliser_dato_markoer_v2('* 1750','person.birth') IS DISTINCT FROM '1750'
+     OR private.normaliser_dato_markoer_v2(E'\u2020 1750','person.death') IS DISTINCT FROM '1750'
+     OR private.normaliser_dato_markoer_v2('* 1750','person.death') IS DISTINCT FROM '* 1750'
+     OR private.normaliser_dato_markoer_v2('* og † 1756','person.birth') IS DISTINCT FROM '* og † 1756'
+     OR private.normaliser_dato_markoer_v2('* 1750','person.name') IS NOT NULL THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: dato-markoer-v2 regel';
+  END IF;
+  IF to_regprocedure(g) IS NULL OR NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid=to_regprocedure(g))
+     OR has_function_privilege('anon',g,'EXECUTE') OR NOT has_function_privilege('authenticated',g,'EXECUTE')
+     OR has_function_privilege('service_role',g,'EXECUTE') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: dato-markoer-v2 %: ACL uændret',g;
+  END IF;
+  RAISE NOTICE 'OK: dato-markoer-v2 — regel private og IMMUTABLE, red_normaliser_forslag kun authenticated';
+END $verify_markoer_v2$;
+
 -- ===== Trin 6m-a: forslagsversion med menneskelig læsning =====
 -- red_ret_forslag findes som SECURITY DEFINER med search_path og kun for authenticated (som red_normaliser_forslag);
 -- triggerfunktionen er SECURITY DEFINER med search_path og kan ikke kaldes af nogen klientrolle; triggeren er en udskudt

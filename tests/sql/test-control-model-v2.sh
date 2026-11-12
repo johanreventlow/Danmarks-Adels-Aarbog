@@ -391,3 +391,99 @@ q -d "$NEG" -A -t -c "SELECT decision_status||' '||version FROM private.source_p
 q -d "$NEG" -A -t -c "SELECT count(*) FROM private.interpretation_current WHERE source_id=-4750 AND status<>'proposed'" \
   | grep -qx "1" || die "afgørelser skrevet trods afvisning"
 echo "OK: værnene — ukendt person, nuværende person og PERSONA_HAR_PROMOTIONER afvises før identitetskaldet; intet skrevet"
+
+# ---------------------------------------------------------------------------------------------------------------------
+# 3. 2018-20-formen (plan 2026-11-12 Task 4): --predikater person.birth,person.death og --kun-stikproeve. Fixturen får
+# to titel-MATCH oveni (22 p2 'kammerjunker', 32 p3 'hofjægermester' = databasens påstand). Kun datoerne planlægges;
+# arket bærer kun stikprøven (11); REAL_DIFF/SKRIVEMAADE (51, 61, 91) og alle titler/navne står proposed og ubundne.
+cat > "$T/titler.sql" <<'SQL'
+BEGIN;
+INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-47522,'person',-4752,'titel'),(-47532,'person',-4753,'titel');
+INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,calendar,uforanderlig) VALUES
+  (-47522,'fact',-47522,'kammerjunker','gregoriansk',true),(-47532,'fact',-47532,'hofjægermester','gregoriansk',true);
+INSERT INTO conclusion(target_type,target_id,valgt_assertion_id) VALUES ('fact',-47522,-47522),('fact',-47532,-47532);
+INSERT INTO citation(assertion_id,source_id) VALUES (-47522,-4750),(-47532,-4750);
+INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,
+  predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id)
+  SELECT ('c4750000-0000-4000-8000-0000000003'||nn)::uuid,('c4750000-0000-4000-8000-0000000004'||nn)::uuid,1,-4750,
+         ('c4750000-0000-4000-8000-00000000010'||left(nn,1))::uuid,'property','person.title',to_jsonb(v),'1.0',
+         'source_statement',1,'proposed','verify','c4750000-0000-4000-8000-0000000000a1'
+    FROM (VALUES ('22','kammerjunker'),('32','hofjægermester')) v(nn,v);
+INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
+  VALUES ('c4750000-0000-4000-8000-000000000322','c4750000-0000-4000-8000-0000000000a4','supporting',1),
+         ('c4750000-0000-4000-8000-000000000332','c4750000-0000-4000-8000-0000000000a4','supporting',1);
+COMMIT;
+SQL
+newdb; PRD=$DB
+q -d "$PRD" -f "$T/fixture.sql" >/dev/null
+q -d "$PRD" -f "$T/titler.sql" >/dev/null
+export_json "$PRD" "$T/k4.json" "$T/r4.json"
+"$PY" - "$T/k4.json" <<'PY' || die "titlerne er ikke MATCH uden prædikatscope"
+import json, sys
+items = {i["interpretation_id"][-3:]: i for i in json.load(open(sys.argv[1]))["items"]}
+assert all(items[n]["class"] == "MATCH" and items[n]["predicate"] == "person.title" for n in ("322", "332")), items
+PY
+rm -rf "$T/plan4"
+cm plan --classification "$T/k4.json" --rows "$T/r4.json" --source-id "$SRC" --strata-ubekraeftet 1 --strata-oevrige 0 \
+   --kun-stikproeve --predikater person.birth,person.death --out-dir "$T/plan4" > "$T/plan4.txt"
+grep -q " ark_felter=1 personas=1 praedikater=person.birth,person.death udeladt=3$" "$T/plan4.txt" \
+  || die "planen med flagene: $(head -1 "$T/plan4.txt" | grep -o 'ark_felter=.*')"
+"$PY" - "$T/plan4/plan.json" <<'PY' || die "planen med flagene"
+import json, sys
+m = json.load(open(sys.argv[1]))
+k = lambda ids: sorted(i[-2:] for i in ids)
+assert m["kun_stikproeve"] is True and m["predikater"] == ["person.birth", "person.death"]
+assert k(m["sample_ids"]) == ["11"] and k(x[0] for x in m["match"]) == ["11", "21", "31", "41", "71"]
+assert k(m["real_diff_ids"]) == ["51", "91"] and k(m["skrivemaade_ids"]) == ["61"]
+assert k(m["universe_ids"]) == ["11", "21", "31", "41", "51", "61", "71", "91"]
+PY
+cm ark --plan-dir "$T/plan4" --out "$T/plan4/tomt.txt" >/dev/null
+[ "$(grep -c '^F ' "$T/plan4/tomt.txt")" = 1 ] || die "arket bærer mere end stikprøven"
+fill "$T/plan4/tomt.txt" "$T/ark4.txt" 11=B
+SHA=$(sha "$T/ark4.txt")
+# Prædikatværnet i databasen: en plan.json med et smallere scope (kun død) end planens forslag (61 er en fødsel)
+# afvises før første skrivning.
+rm -rf "$T/plan4p"; cp -R "$T/plan4" "$T/plan4p"
+"$PY" - "$T/plan4p/plan.json" <<'PY'
+import json, sys
+meta = json.load(open(sys.argv[1])); meta["predikater"] = ["person.death"]
+json.dump(meta, open(sys.argv[1], "w"))
+PY
+cm sql --plan-dir "$T/plan4p" --sheet "$T/ark4.txt" --approved-sha256 "$SHA" --out "$T/p1.sql" >/dev/null
+expect_sql_error "$PRD" "$T/p1.sql" "PLAN_PRAEDIKAT_AFVIGER forslag=1"
+q -d "$PRD" -A -t -c "SELECT count(*) FROM private.interpretation_current WHERE source_id=-4750 AND status<>'proposed'" \
+  | grep -qx "0" || die "prædikatværnet efterlod ændringer"
+echo "OK: prædikatværnet — en plan med et smallere scope end sine forslag afvises; intet skrevet"
+cm sql --plan-dir "$T/plan4" --sheet "$T/ark4.txt" --approved-sha256 "$SHA" --out "$T/ud4.sql" >/dev/null
+cm verify-sql --plan-dir "$T/plan4" --sheet "$T/ark4.txt" --approved-sha256 "$SHA" --out "$T/verify4.sql" >/dev/null
+q -d "$PRD" -v actor="$A" -f "$T/ud4.sql" > "$T/out.txt" 2> "$T/err.txt"
+grep -q "CONTROL_V2_VERIFY_OK bundet=5 p_personas=0 udeladt_proposed=3" "$T/err.txt" || die "verifikationen (flag)"
+grep -q "CONTROL_V2_OK unresolved=0 rettelser=0 afgoerelser=0 stikproeve=1 maskine=4 bundet=5" "$T/out.txt" \
+  || die "ceremonien (flag): $(grep -o 'CONTROL_V2_OK.*' "$T/out.txt")"
+q -d "$PRD" -f "$T/verify4.sql" 2>&1 | grep -q "CONTROL_V2_VERIFY_OK bundet=5 p_personas=0 udeladt_proposed=3" \
+  || die "verify-sql (flag)"
+cat > "$T/check4.sql" <<'SQL'
+DO $$
+DECLARE n int; b text[];
+BEGIN
+  -- Titlerne (to MATCH og en REAL_DIFF), navnene og de udeladte datoer: proposed og ubundne.
+  SELECT count(*) INTO n FROM private.interpretation_current ic
+   WHERE ic.interpretation_key::text IN ('c4750000-0000-4000-8000-000000000422','c4750000-0000-4000-8000-000000000432',
+           'c4750000-0000-4000-8000-000000000472','c4750000-0000-4000-8000-000000000442',
+           'c4750000-0000-4000-8000-000000000481','c4750000-0000-4000-8000-000000000451',
+           'c4750000-0000-4000-8000-000000000461','c4750000-0000-4000-8000-000000000491')
+     AND ic.status = 'proposed'
+     AND NOT EXISTS (SELECT 1 FROM private.interpretation_promotion p JOIN private.interpretation i
+                      ON i.id = p.interpretation_id WHERE i.interpretation_key = ic.interpretation_key);
+  IF n <> 8 THEN RAISE EXCEPTION 'FEJL: urørte %', n; END IF;
+  IF EXISTS (SELECT 1 FROM paastand_korrektion) THEN RAISE EXCEPTION 'FEJL: rettelser'; END IF;
+  -- Bindingerne: præcis de fem dødsfald (stikprøven 11 + maskinen 21, 31, 41, 71).
+  SELECT array_agg(right(i.interpretation_key::text, 2) ORDER BY i.interpretation_key) INTO b
+    FROM private.interpretation_promotion p JOIN private.interpretation i ON i.id = p.interpretation_id
+   WHERE i.source_id = -4750 AND private.assertion_binding_current(p.id);
+  IF b IS DISTINCT FROM ARRAY['11','21','31','41','71'] THEN RAISE EXCEPTION 'FEJL: bindinger %', b; END IF;
+  RAISE NOTICE 'OK: kun stikprøven — titler og udeladte urørte';
+END $$;
+SQL
+q -d "$PRD" -f "$T/check4.sql" 2>&1 | grep -q "OK: kun stikprøven" || { q -d "$PRD" -f "$T/check4.sql"; die "tilstand (flag)"; }
+echo "OK: --kun-stikproeve --predikater — 1 stikprøve + 4 maskine bundet; 2 titel-MATCH og 3 udeladte proposed og ubundne"

@@ -12,7 +12,7 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   stikprøve på 20 og binding med de eksisterende writere. `binding_value_matches` ændres ikke.
 > - **Variant (a):** én lille DDL (regel v2: `*` tilføjes for `person.birth`; markøren følger prædikatet) og én
 >   datagang for fødsler og dødsfald sammen (≈ 509 bindinger: 267 + 242).
-> - Kortark over resten (≈ 56 `REAL_DIFF`) er en valgfri del 2 med eget GO.
+> - Kortark over resten (målt: 0 `REAL_DIFF`, 59 dato-`SKRIVEMAADE`, 15 `NO_FACT`) er en valgfri del 2 med eget GO.
 > - **Rækkefølge:** indskydes før 6e-2 (lille, uafhængig af 6e-2's skrivninger). Roadmappet ændres ikke: leverancen
 >   tjener trin 6's færdigbevis (b) for 2018-20.
 > - Spec: `docs/superpowers/specs/2026-11-12-2018-20-dato-bindinger-design.md`.
