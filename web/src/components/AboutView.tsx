@@ -19,6 +19,7 @@ import type { Model } from '../data/types';
 import { personPath, type Slaegt } from '../data/nav';
 import { fetchFeedPins } from '../data/feedPins';
 import { redaktionensForslag } from '../data/home';
+import { synligeLinjer } from '../data/lineage';
 import { Link } from '../Link';
 import { NarrativRenderer } from './NarrativRenderer';
 import { Avatar } from './primitives';
@@ -64,7 +65,9 @@ export function AboutView({ slaegt, model, about, personCount, estateCount, onPi
 
   const generelt = about?.find((s) => s.lineageKode == null) ?? null;
   const linjeAfsnit = useMemo(() => (about ?? []).filter((s) => s.lineageKode != null), [about]);
-  const linjer = model?.lineage?.list ?? [];
+  // l.linje er en stabil nøgle, ikke bogens kode; den trykte betegnelse er åbent punkt 1, så
+  // linjen vises med sit navn. Tekniske nøgler vises aldrig (samme filter som søgningen).
+  const linjer = useMemo(() => synligeLinjer(model?.lineage?.list ?? []), [model]);
   const forslag = useMemo(
     () => (model && feedPins ? redaktionensForslag(model, feedPins, 4, new Date().getFullYear()) : []),
     [model, feedPins],
@@ -122,18 +125,15 @@ export function AboutView({ slaegt, model, about, personCount, estateCount, onPi
               {linjer.map((l) => {
                 const stamfader = l.headId ? model?.byId[l.headId] : undefined;
                 return (
-                  <li key={l.linje} style={{ display: 'flex', gap: 14, alignItems: 'baseline', padding: '14px 0', borderBottom: `1px solid ${T.line}` }}>
-                    <span aria-hidden="true" style={{ fontFamily: T.serif, fontSize: 30, fontWeight: 600, color: T.bordeaux, minWidth: 44 }}>{l.linje}</span>
-                    <span style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-                      <span style={{ fontFamily: T.sans, fontSize: 15, fontWeight: 600, color: T.ink }}>{l.navn ?? `Linje ${l.linje}`}</span>
-                      <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{l.count.toLocaleString('da')} personer</span>
-                      {stamfader && (
-                        <span style={{ fontFamily: T.sans, fontSize: 13, color: T.inkSecondary }}>
-                          Stamfader:{' '}
-                          <Link href={personPath(stamfader.id)} onNavigate={() => onPick(stamfader.id)} style={{ color: T.bordeaux, fontWeight: 600 }}>{stamfader.name}</Link>
-                        </span>
-                      )}
-                    </span>
+                  <li key={l.linje} style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '14px 0', borderBottom: `1px solid ${T.line}`, minWidth: 0 }}>
+                    <span style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600, lineHeight: 1.15, color: T.bordeaux }}>{l.navn ?? 'Linje uden navn'}</span>
+                    <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{l.count.toLocaleString('da')} personer</span>
+                    {stamfader && (
+                      <span style={{ fontFamily: T.sans, fontSize: 13, color: T.inkSecondary }}>
+                        Stamfader:{' '}
+                        <Link href={personPath(stamfader.id)} onNavigate={() => onPick(stamfader.id)} style={{ color: T.bordeaux, fontWeight: 600 }}>{stamfader.name}</Link>
+                      </span>
+                    )}
                   </li>
                 );
               })}
@@ -167,8 +167,8 @@ export function AboutView({ slaegt, model, about, personCount, estateCount, onPi
                   <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                     <span style={{ fontFamily: T.serif, fontSize: 21, fontWeight: 600 }}>{p.name}</span>
                     {p.title && <span style={{ fontFamily: T.sans, fontSize: 13.5, color: T.bordeaux }}>{p.title}</span>}
+                    {p.years && <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted, marginTop: 2 }}>{p.years}</span>}
                   </span>
-                  {p.years && <span style={{ fontFamily: T.mono, fontSize: 12, color: T.inkMuted, flex: 'none' }}>{p.years}</span>}
                 </Link>
               </li>
             ))}

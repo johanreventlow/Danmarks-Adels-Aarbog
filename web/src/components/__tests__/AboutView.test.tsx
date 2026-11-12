@@ -19,7 +19,7 @@ const person = (id: string, name: string, o: Partial<ModelPerson> = {}) =>
 const ps = [person('1', 'Henning Reventlow'), person('2', 'Conrad Reventlow', { title: 'Storkansler', years: '† 1708', died: 1708 })];
 const model = {
   persons: ps, byId: Object.fromEntries(ps.map((p) => [p.id, p])), indexes: { childIdx: {} },
-  lineage: { byPerson: {}, navn: {}, list: [{ linje: 'I', count: 120, headId: '1', navn: 'I. linje' }, { linje: 'II', count: 80, headId: null, navn: null }] },
+  lineage: { byPerson: {}, navn: {}, list: [{ linje: 'slaegt:1:lineage:1:scheme:canonical', count: 120, headId: '1', navn: 'I. linje' }, { linje: 'slaegt:1:lineage:2:scheme:canonical', count: 80, headId: null, navn: null }, { linje: 'legacy-source:9:X', count: 3, headId: null, navn: 'Teknisk' }] },
 } as unknown as Model;
 const about: AboutSection[] = [
   { lineageNavn: null, lineageKode: null, tekst: 'Første afsnit om slægten.\n\nAndet afsnit.', kilde: 'DAA 2018-20', aar: 2020 },
@@ -60,7 +60,9 @@ describe('AboutView (slægtens forside)', () => {
     vis();
     const linjer = screen.getByRole('region', { name: 'Linjerne' });
     expect(within(linjer).getByText('I. linje')).toBeTruthy();
-    expect(within(linjer).getByText('Linje II')).toBeTruthy();
+    expect(within(linjer).getByText('Linje uden navn')).toBeTruthy();
+    expect(within(linjer).queryByText('Teknisk')).toBeNull();
+    expect(within(linjer).queryByText(/slaegt:1:lineage/)).toBeNull();
     expect(within(linjer).getByText('120 personer')).toBeTruthy();
     expect(within(linjer).getByRole('link', { name: 'Henning Reventlow' }).getAttribute('href')).toBe('/person/1');
     expect(within(linjer).getByText('Om I. linje')).toBeTruthy();
