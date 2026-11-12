@@ -44,13 +44,13 @@ export function HistorikPanel({ personId, onFortryd }: {
   // indlejrede ternaries, så hver gren kan læses isoleret (/simplify-fund).
   function fortrydAction(post: HistPost) {
     if (post.undoKind === 'publication_event' && post.canReverse === false) {
-      return <div style={{ fontSize: 11, color: T.muted3, marginTop: 5 }}>{post.blockingReason ?? 'Denne publiceringshændelse kan ikke fortrydes.'}</div>;
+      return <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 5 }}>{post.blockingReason ?? 'Denne publiceringshændelse kan ikke fortrydes.'}</div>;
     }
-    if (post.reverteret) return <div style={{ fontSize: 11, color: T.muted3, marginTop: 5 }}>Fortrudt</div>;
+    if (post.reverteret) return <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 5 }}>Fortrudt</div>;
     if (post.erFortryd) return null; // ingen events at spille baglæns — knappen ville være et tavst no-op
     if (konfliktId === post.id) {
       return (
-        <div style={{ marginTop: 7, padding: '8px 10px', background: T.beige, border: '1px solid rgba(34,31,26,.15)', borderRadius: 8 }}>
+        <div style={{ marginTop: 7, padding: '8px 10px', background: T.surfaceSunken, border: '1px solid rgba(34,31,26,.15)', borderRadius: 8 }}>
           <div style={{ fontSize: 12.5, color: T.ink, marginBottom: 6 }}>
             Nyere ændring rører samme data — fortrydes der alligevel, overskrives den.
           </div>
@@ -59,7 +59,7 @@ export function HistorikPanel({ personId, onFortryd }: {
             Fortryd alligevel
           </button>
           <button type="button" onClick={() => setKonfliktId(null)}
-            style={{ fontSize: 12, fontWeight: 600, color: T.muted, cursor: 'pointer', border: 0, background: 'transparent', padding: 0 }}>
+            style={{ fontSize: 12, fontWeight: 600, color: T.inkMuted, cursor: 'pointer', border: 0, background: 'transparent', padding: 0 }}>
             Annullér
           </button>
         </div>
@@ -75,11 +75,11 @@ export function HistorikPanel({ personId, onFortryd }: {
   }
 
   return (
-    <div style={{ background: T.panel, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: '14px 15px' }}>
-      {status === 'loading' ? <div style={{ fontSize: 13.5, color: T.muted3 }}>Henter historik…</div> : null}
+    <div style={{ background: T.surfaceGround, border: `1px solid ${T.line}`, borderRadius: 12, padding: '14px 15px' }}>
+      {status === 'loading' ? <div style={{ fontSize: 13.5, color: T.inkMuted }}>Henter historik…</div> : null}
       {status === 'error' ? <div style={{ fontSize: 13, color: T.bordeaux }}>{fejl}</div> : null}
       {status === 'ready' && poster.length === 0 ? (
-        <div style={{ fontSize: 12.5, color: T.muted3 }}>Ingen ændringer registreret.</div>
+        <div style={{ fontSize: 12.5, color: T.inkMuted }}>Ingen ændringer registreret.</div>
       ) : null}
       {status === 'ready' ? poster.map((post) => (
         <div key={post.id} style={{
@@ -87,7 +87,7 @@ export function HistorikPanel({ personId, onFortryd }: {
           opacity: post.reverteret ? 0.55 : 1,
         }}>
           <div style={{ fontSize: 13.5, color: T.ink }}>{post.resume}</div>
-          <div style={{ fontSize: 11.5, color: T.muted3, marginTop: 3, fontFamily: 'ui-monospace, monospace' }}>
+          <div style={{ fontSize: 11.5, color: T.inkMuted, marginTop: 3, fontFamily: 'ui-monospace, monospace' }}>
             {post.hvem} · {post.hvornaar}
           </div>
           {fortrydAction(post)}

@@ -22,21 +22,21 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (!this.state.error) return this.props.children;
     return (
-      <div style={{ minHeight: '100vh', background: T.pageBg, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, fontFamily: T.sans }}>
-        <div style={{ maxWidth: 420, background: T.paper, borderRadius: 16, border: `1px solid ${T.cream}`, padding: '32px 28px', textAlign: 'center' }}>
+      <div style={{ minHeight: '100vh', background: T.surfaceGround, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, fontFamily: T.sans }}>
+        <div style={{ maxWidth: 420, background: T.surfaceRaised, borderRadius: 16, border: '1px solid #cabfa9', padding: '32px 28px', textAlign: 'center' }}>
           <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600, color: T.bordeaux, marginBottom: 12 }}>Noget gik galt.</div>
-          <div style={{ color: T.muted, fontSize: 14, marginBottom: 20 }}>
+          <div style={{ color: T.inkMuted, fontSize: 14, marginBottom: 20 }}>
             Siden stødte på en uventet fejl. Prøv at genindlæse.
           </div>
           <button
             onClick={() => window.location.reload()}
-            style={{ background: T.bordeaux, color: T.paper, border: 'none', borderRadius: 10, padding: '10px 22px', fontFamily: T.sans, fontSize: 15, fontWeight: 600, cursor: 'pointer' }}
+            style={{ background: T.bordeaux, color: T.onBordeaux, border: 'none', borderRadius: 10, padding: '10px 22px', fontFamily: T.sans, fontSize: 15, fontWeight: 600, cursor: 'pointer' }}
           >
             Genindlæs siden
           </button>
           {/* Fejldetaljer kun under udvikling; læseren får forklaringen ovenfor, og fejlen ligger i konsollen. */}
           {import.meta.env.DEV && (
-            <details style={{ marginTop: 18, textAlign: 'left', fontSize: 13, color: T.muted2 }}>
+            <details style={{ marginTop: 18, textAlign: 'left', fontSize: 13, color: T.inkMuted }}>
               <summary style={{ cursor: 'pointer' }}>Fejldetaljer</summary>
               <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{this.state.error.message}</pre>
             </details>

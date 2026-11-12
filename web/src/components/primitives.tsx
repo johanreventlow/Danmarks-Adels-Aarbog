@@ -8,7 +8,7 @@ import { initials } from '../data/format';
 import { mediaCaption, type MediaItem } from '../data/media';
 
 export const Kicker = ({ children }: { children: React.ReactNode }) => (
-  <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.2em', textTransform: 'uppercase', color: T.gold, marginBottom: 6 }}>{children}</div>
+  <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.2em', textTransform: 'uppercase', color: T.goldInk, marginBottom: 6 }}>{children}</div>
 );
 export const H1 = ({ children }: { children: React.ReactNode }) => (
   <div style={{ fontFamily: T.serif, fontSize: 30, fontWeight: 600, lineHeight: 1 }}>{children}</div>
@@ -41,7 +41,7 @@ export const BookmarkFlag = ({ active, onClick }: { active: boolean; onClick: ()
       <path
         d="M3 1.5 H11 V15.5 L7 11.8 L3 15.5 Z"
         fill={active ? T.bordeaux : 'none'}
-        stroke={active ? T.bordeaux : T.muted2}
+        stroke={active ? T.bordeaux : T.inkMuted}
         strokeWidth={1.3}
         strokeLinejoin="round"
       />
@@ -60,7 +60,7 @@ export const MediaThumb = ({ m, w, h, radius = 10, onClick }: { m: MediaItem; w:
   return (
     <img src={m.thumbUrl ?? m.url} alt={m.altTekst || m.titel || m.slags || 'billede'} title={cap || undefined}
       onClick={onClick}
-      style={{ width: w, height: h, objectFit: 'cover', borderRadius: radius, border: '1px solid rgba(34,31,26,.1)', cursor: 'zoom-in', display: 'block' }} />
+      style={{ width: w, height: h, objectFit: 'cover', borderRadius: radius, border: `1px solid ${T.line}`, cursor: 'zoom-in', display: 'block' }} />
   );
 };
 
@@ -74,10 +74,10 @@ export const PersonCard = ({ p, onClick, href, width = 210 }: {
   p: { name: string; years?: string; title?: string };
   onClick?: () => void; href?: string; width?: number | string;
 }) => (
-  <KlikbarFlade href={href} onClick={onClick} style={{ width, background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 14, padding: 16, boxShadow: '0 1px 2px rgba(34,31,26,.04)' }}>
+  <KlikbarFlade href={href} onClick={onClick} style={{ width, background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 14, padding: 16, boxShadow: '0 1px 2px rgba(34,31,26,.04)' }}>
     <Avatar n={p.name} size={50} />
     <div style={{ fontFamily: T.serif, fontSize: 19, lineHeight: 1.05, fontWeight: 600, color: T.ink, marginTop: 11 }}>{p.name}</div>
-    {p.years ? <div style={{ fontFamily: T.mono, fontSize: 10.5, color: T.muted2, marginTop: 4 }}>{p.years}</div> : null}
+    {p.years ? <div style={{ fontFamily: T.mono, fontSize: 10.5, color: T.inkMuted, marginTop: 4 }}>{p.years}</div> : null}
     {p.title ? <div style={{ fontFamily: T.sans, fontSize: 12.5, fontWeight: 500, color: T.bordeaux, marginTop: 6, lineHeight: 1.3 }}>{p.title}</div> : null}
   </KlikbarFlade>
 );
@@ -105,13 +105,13 @@ export const Crest = ({ stroke = T.bordeaux, inner = T.gold, opacity = 0.12, siz
 // ---- Små byggeklodser (udtrukket fra Folgesvend.tsx ved W-K1-splittet, review 27) ----
 // Sidebar-/tæller-celle (tal over label). Bruges af AboutView.
 export const Counter = ({ n, label }: { n: number; label: string }) => (
-  <div><span style={{ fontFamily: T.serif, fontSize: 28, fontWeight: 600, color: T.bordeaux }}>{n.toLocaleString('da')}</span> <span style={{ fontSize: 13.5, color: T.muted }}>{label}</span></div>
+  <div><span style={{ fontFamily: T.serif, fontSize: 28, fontWeight: 600, color: T.bordeaux }}>{n.toLocaleString('da')}</span> <span style={{ fontSize: 13.5, color: T.inkMuted }}>{label}</span></div>
 );
 // Gren-filter-chip (§9.2). Aktiv = bordeaux fyld. Bruges af TreeSearch.
 export const LinjeChip = ({ label, active, onClick, title }: { label: string; active: boolean; onClick: () => void; title?: string }) => (
-  <div onClick={onClick} title={title} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: active ? T.bordeaux : 'transparent', color: active ? T.paper : T.muted, border: `1px solid ${active ? T.bordeaux : 'rgba(34,31,26,.18)'}` }}>{label}</div>
+  <div onClick={onClick} title={title} style={{ padding: '5px 11px', borderRadius: 15, fontFamily: T.sans, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', background: active ? T.bordeaux : 'transparent', color: active ? T.onBordeaux : T.inkMuted, border: `1px solid ${active ? T.bordeaux : T.lineStrong}` }}>{label}</div>
 );
 // Sektionslabel (mono, kapitæler). Bruges af TreeView/DetailPanel/EstatesView/ArmsView.
-export const Label = ({ children }: { children: React.ReactNode }) => <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.muted3, margin: '6px 0 12px' }}>{children}</div>;
+export const Label = ({ children }: { children: React.ReactNode }) => <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.inkMuted, margin: '6px 0 12px' }}>{children}</div>;
 // Lodret forbindelses-streg mellem generationer. Bruges af TreeView (variant A).
 export const Stem = ({ h, mt = 0 }: { h: number; mt?: number }) => <div style={{ width: 1, height: h, background: 'rgba(34,31,26,.22)', marginTop: mt }} />;

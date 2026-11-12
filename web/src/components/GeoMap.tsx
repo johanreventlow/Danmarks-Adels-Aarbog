@@ -62,7 +62,7 @@ export function GeoMap({
         id: 'unclustered-point', type: 'circle', source: 'geo-points', filter: ['!', ['has', 'point_count']],
         paint: {
           'circle-color': T.bordeaux, 'circle-radius': 7,
-          'circle-stroke-width': 2, 'circle-stroke-color': T.paper,
+          'circle-stroke-width': 2, 'circle-stroke-color': T.surfaceRaised,
         },
       });
 
@@ -129,7 +129,7 @@ export function GeoMap({
         width: '100%',
         borderRadius: 14,
         overflow: 'hidden',
-        border: '1px solid rgba(34,31,26,.1)',
+        border: `1px solid ${T.line}`,
       }}
     />
   );

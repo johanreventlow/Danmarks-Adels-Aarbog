@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import type { RedMatchPerson } from '@daa/core';
 import type { KandidatDetalje, Kilde, Oplysning, PersonNarrativ } from '../data/redaktionRead';
+import { T } from '../theme';
 
 type FoldHint = { folder: boolean; grund: string | null };
 
@@ -86,7 +87,7 @@ function DatoEvidens({ label, oplysninger }: { label: string; oplysninger: Oplys
         <span key={oplysning.assertionId}>
           {index > 0 && '; '}{oplysningDatoTekst(oplysning) || '—'}
           {oplysning.kilder.map((kilde, kildeIndex) => (
-            <small key={`${oplysning.assertionId}:${kildeIndex}`} style={{ display: 'block', color: '#6f675b', marginTop: '.15rem' }}>
+            <small key={`${oplysning.assertionId}:${kildeIndex}`} style={{ display: 'block', color: T.inkMuted, marginTop: '.15rem' }}>
               {kildeTekst(kilde)}{kilde.citatTekst ? ` — “${kilde.citatTekst}”` : ''}
             </small>
           ))}
@@ -195,7 +196,7 @@ function RolleBadge({ rolle }: { rolle?: 'alias' | 'kanonisk' }) {
   return (
     <span style={{
       display: 'block', fontSize: '.72em', fontWeight: 600, marginTop: '.1rem',
-      color: rolle === 'kanonisk' ? '#2f632f' : '#6f675b',
+      color: rolle === 'kanonisk' ? '#2f632f' : T.inkMuted,
     }}>
       {tekst}
     </span>
@@ -221,13 +222,13 @@ export function KandidatSammenligning({
     <section style={{ marginTop: '.55rem', border: '1px solid rgba(34,31,26,.16)', borderRadius: 6, padding: '.7rem', overflowX: 'auto' }}>
       <div role="alert" style={{
         padding: '.55rem .7rem', marginBottom: '.65rem', borderRadius: 4,
-        color: foldHint.folder ? '#2f632f' : '#881A33',
+        color: foldHint.folder ? '#2f632f' : T.bordeaux,
         background: foldHint.folder ? '#eef8ee' : '#fdf3f5',
         border: `1px solid ${foldHint.folder ? 'rgba(61,122,61,.35)' : 'rgba(136,26,51,.35)'}`,
       }}>
         <strong>{foldHint.folder ? '✓ Linket kan folde offentligt' : '⚠ Linket vil ikke folde offentligt endnu'}</strong>
         {foldHint.grund && <div>{foldHint.grund}</div>}
-        {!foldHint.folder && foldAdvice && <div style={{ color: '#6f675b', marginTop: '.15rem' }}>{foldAdvice}</div>}
+        {!foldHint.folder && foldAdvice && <div style={{ color: T.inkMuted, marginTop: '.15rem' }}>{foldAdvice}</div>}
       </div>
 
       <table style={{ width: '100%', minWidth: 680, borderCollapse: 'separate', borderSpacing: '0 .25rem', tableLayout: 'fixed' }}>

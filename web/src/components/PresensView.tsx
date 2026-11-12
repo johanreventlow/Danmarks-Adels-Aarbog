@@ -53,16 +53,16 @@ export function PresensGrenSektion(props: {
   const renderFoldud = (id: string) => (
     <div style={{ marginTop: 4, marginBottom: 12, paddingLeft: 14, borderLeft: '2px solid rgba(185,160,106,.45)' }}>
       {erHenter(id) ? (
-        <div style={{ fontSize: 14, color: T.muted2 }}>Henter…</div>
+        <div style={{ fontSize: 14, color: T.inkMuted }}>Henter…</div>
       ) : (
         <>
-          <div style={{ fontFamily: T.serif, fontSize: 16.5, lineHeight: 1.6, color: '#3d382f' }}>
+          <div style={{ fontFamily: T.serif, fontSize: 16.5, lineHeight: 1.6, color: T.inkSecondary }}>
             {bioFejlAf(id) ? (
               <span role="alert" style={{ color: T.bordeaux }}>Kunne ikke hente biografien: {bioFejlAf(id)}</span>
             ) : bioAf(id) ? (
-              <NarrativRenderer tekst={bioAf(id)!} onPickPerson={onPick} linkColor={T.bordeaux} inactiveColor={T.muted2} />
+              <NarrativRenderer tekst={bioAf(id)!} onPickPerson={onPick} linkColor={T.bordeaux} inactiveColor={T.inkMuted} />
             ) : (
-              <span style={{ fontStyle: 'italic', color: T.muted2 }}>Ingen biografi registreret</span>
+              <span style={{ fontStyle: 'italic', color: T.inkMuted }}>Ingen biografi registreret</span>
             )}
           </div>
           <Link
@@ -106,20 +106,20 @@ export function PresensGrenSektion(props: {
           cursor: 'pointer',
           fontWeight: n.forbindelsesled ? 400 : 600, // bogens fed for levende, normal for forbindelsesled
           fontStyle: n.forbindelsesled ? 'italic' : 'normal', // bogens kursiv for afdøde forbindelsesled
-          color: n.forbindelsesled ? T.muted3 : T.ink,
+          color: n.forbindelsesled ? T.inkMuted : T.ink,
           background: fokusId === n.id ? 'rgba(128,0,32,.08)' : 'transparent',
         }}
       >
-        <span aria-hidden style={{ color: T.muted2, fontSize: 11 }}>{erAaben(n.id) ? '▾ ' : '▸ '}</span>
+        <span aria-hidden style={{ color: T.inkMuted, fontSize: 11 }}>{erAaben(n.id) ? '▾ ' : '▸ '}</span>
         <span>{erAnker ? navnAfAnker(n.id) : navnAf(n.id)}</span>
       </span>
-      {' '}<span style={{ fontFamily: T.mono, fontSize: 12, color: T.muted2 }}>{aarAf(n.id)}</span>
-      {n.usikker ? <span style={{ color: T.gold }}> ⚠</span> : ''}
-      {n.krydsReference ? <span style={{ fontSize: 13, color: T.muted2 }}> ↗ vist andetsteds i denne gren</span> : ''}
+      {' '}<span style={{ fontFamily: T.mono, fontSize: 12, color: T.inkMuted }}>{aarAf(n.id)}</span>
+      {n.usikker ? <span style={{ color: T.goldInk }}> ⚠</span> : ''}
+      {n.krydsReference ? <span style={{ fontSize: 13, color: T.inkMuted }}> ↗ vist andetsteds i denne gren</span> : ''}
       {n.partnere.filter((p) => p.levende || !n.forbindelsesled).map((p) => (
         <span key={p.id}>
-          <span style={{ color: T.muted2, fontSize: 14.5 }}> · g. m. </span>
-          <span data-person-id={p.id} onClick={() => onToggle(p.id)} style={{ cursor: 'pointer', color: T.muted, fontSize: 14.5 }}>
+          <span style={{ color: T.inkMuted, fontSize: 14.5 }}> · g. m. </span>
+          <span data-person-id={p.id} onClick={() => onToggle(p.id)} style={{ cursor: 'pointer', color: T.inkMuted, fontSize: 14.5 }}>
             <span aria-hidden style={{ fontSize: 10 }}>{erAaben(p.id) ? '▾ ' : '▸ '}</span>
             <span>{navnAf(p.id)}</span>
           </span>
@@ -142,7 +142,7 @@ export function PresensGrenSektion(props: {
       {gren.anker.gren != null && (
         // margin:0 — appen har ingen CSS-reset, så <h2> ellers arver browserens UA-standardmargin
         // og lægger uventet luft oveni sektionens egen border-top/padding-top (reviewfund).
-        <h2 style={{ margin: 0, fontFamily: T.mono, fontSize: 11.5, letterSpacing: '.22em', textTransform: 'uppercase', color: T.gold, fontWeight: 500 }}>
+        <h2 style={{ margin: 0, fontFamily: T.mono, fontSize: 11.5, letterSpacing: '.22em', textTransform: 'uppercase', color: T.goldInk, fontWeight: 500 }}>
           {gren.anker.gren}. gren
         </h2>
       )}
@@ -153,7 +153,7 @@ export function PresensGrenSektion(props: {
             title={gr.usikker ? 'Usikkert slægtskab (formodet/omstridt led)' : undefined}
             // margin:0 (samme reviewfund) — kun paddingBottom+marginBottom fra mockuppet skal gælde,
             // ikke <h3>'ens egen UA-standard top-margin oveni det omgivende div's marginTop:26.
-            style={{ margin: 0, fontFamily: T.mono, fontSize: 11, letterSpacing: '.2em', textTransform: 'uppercase', color: T.muted, borderBottom: '1px solid rgba(34,31,26,.08)', paddingBottom: 6, marginBottom: 10 }}
+            style={{ margin: 0, fontFamily: T.mono, fontSize: 11, letterSpacing: '.2em', textTransform: 'uppercase', color: T.inkMuted, borderBottom: '1px solid rgba(34,31,26,.08)', paddingBottom: 6, marginBottom: 10 }}
           >
             {gr.overskrift}{gr.usikker ? ' ⚠' : ''}
           </h3>
@@ -195,10 +195,10 @@ export function PresensLinjeSektion(props: {
             <span style={{ fontFamily: T.mono, fontSize: 12, letterSpacing: '.26em', textTransform: 'uppercase', color: T.ink }}>linje</span>
           </div>
           {info?.titel && (
-            <div style={{ fontFamily: T.serif, fontSize: 19, fontStyle: 'italic', color: '#3d382f', marginTop: 8 }}>{info.titel}</div>
+            <div style={{ fontFamily: T.serif, fontSize: 19, fontStyle: 'italic', color: T.inkSecondary, marginTop: 8 }}>{info.titel}</div>
           )}
           {info?.slaegtsnavn && (
-            <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.3em', textTransform: 'uppercase', color: T.muted2, marginTop: 6 }}>{info.slaegtsnavn}</div>
+            <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.3em', textTransform: 'uppercase', color: T.inkMuted, marginTop: 6 }}>{info.slaegtsnavn}</div>
           )}
         </div>
       </div>
@@ -270,7 +270,7 @@ export default function PresensView(props: {
     if (liste && fokusId) document.querySelector(`[data-person-id="${fokusId}"]`)?.scrollIntoView({ block: 'center' });
   }, [liste, fokusId]);
 
-  if (session === 'henter') return <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>;
+  if (session === 'henter') return <div style={{ padding: 40, color: T.inkMuted }}>Henter…</div>;
   // Listen viser levende og kan i dag kun ses af redaktionen (webredesign fase 0; medlemmer får
   // adgang i fase 8). Teksten siger, hvad der faktisk gælder, også for et indlogget medlem.
   if (session?.role !== 'redaktion') {
@@ -291,9 +291,9 @@ export default function PresensView(props: {
     );
   }
   if (fejl) return <div style={{ padding: 40, color: T.bordeaux }}>Kunne ikke hente grundlaget: {fejl}</div>;
-  if (!liste) return <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>;
+  if (!liste) return <div style={{ padding: 40, color: T.inkMuted }}>Henter…</div>;
   if (liste.grene.length === 0)
-    return <div style={{ padding: 40, color: T.muted3, fontFamily: T.sans }}>
+    return <div style={{ padding: 40, color: T.inkMuted, fontFamily: T.sans }}>
       Ingen overhoveder udpeget endnu. Udpeg et linje-/gren-overhoved via person-editorens felt
       "Overhoved (linje/gren)" (værdi fx "II linje, 1. gren").
       {Object.values(grundlag?.levendeById ?? {}).every((v) => !v) && (
@@ -330,7 +330,7 @@ export default function PresensView(props: {
     <div style={{ maxWidth: 1240, margin: '0 auto', padding: '40px 28px 90px', display: 'grid', gridTemplateColumns: '200px minmax(0,860px)', gap: 36, justifyContent: 'center', alignItems: 'start' }}>
       {/* Venstre sticky-indeks */}
       <nav style={{ position: 'sticky', top: 28, paddingTop: 10 }}>
-        <div style={{ fontFamily: T.mono, fontSize: 10.5, letterSpacing: '.2em', textTransform: 'uppercase', color: T.muted2, marginBottom: 14 }}>Indhold</div>
+        <div style={{ fontFamily: T.mono, fontSize: 10.5, letterSpacing: '.2em', textTransform: 'uppercase', color: T.inkMuted, marginBottom: 14 }}>Indhold</div>
         {linjer.map((lin) => (
           <div key={lin.linje} style={{ marginBottom: 18 }}>
             <a href={`#linje-${lin.linje.toLowerCase()}`} style={{ display: 'flex', alignItems: 'baseline', gap: 8, color: T.ink }}>
@@ -339,7 +339,7 @@ export default function PresensView(props: {
             </a>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 5, margin: '8px 0 0 4px', borderLeft: '1px solid rgba(34,31,26,.12)', paddingLeft: 14 }}>
               {lin.grene.filter((g) => g.anker.gren != null).map((g) => (
-                <a key={g.anker.personId} href={`#${lin.linje.toLowerCase()}-g${g.anker.gren}`} style={{ fontSize: 13.5, color: T.muted }}>
+                <a key={g.anker.personId} href={`#${lin.linje.toLowerCase()}-g${g.anker.gren}`} style={{ fontSize: 13.5, color: T.inkMuted }}>
                   {g.anker.gren}. gren
                 </a>
               ))}
@@ -347,46 +347,46 @@ export default function PresensView(props: {
           </div>
         ))}
         <div style={{ borderTop: '1px solid rgba(34,31,26,.12)', marginTop: 6, paddingTop: 14 }}>
-          <div style={{ fontFamily: T.mono, fontSize: 10.5, letterSpacing: '.2em', textTransform: 'uppercase', color: T.muted2, marginBottom: 10 }}>Signatur</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, fontSize: 12.5, color: T.muted, lineHeight: 1.45 }}>
+          <div style={{ fontFamily: T.mono, fontSize: 10.5, letterSpacing: '.2em', textTransform: 'uppercase', color: T.inkMuted, marginBottom: 10 }}>Signatur</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, fontSize: 12.5, color: T.inkMuted, lineHeight: 1.45 }}>
             <div><span style={{ fontWeight: 600, color: T.ink }}>Navn</span> — levende person</div>
-            <div><span style={{ fontStyle: 'italic', color: T.muted2 }}>Navn</span> — afdød forbindelsesled</div>
-            <div><span style={{ color: T.gold }}>⚠</span> usikkert slægtskabsled</div>
-            <div><span style={{ color: T.muted2 }}>↗</span> vist andetsteds i grenen</div>
+            <div><span style={{ fontStyle: 'italic', color: T.inkMuted }}>Navn</span> — afdød forbindelsesled</div>
+            <div><span style={{ color: T.goldInk }}>⚠</span> usikkert slægtskabsled</div>
+            <div><span style={{ color: T.inkMuted }}>↗</span> vist andetsteds i grenen</div>
           </div>
         </div>
       </nav>
 
       {/* Arket */}
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.12em', color: T.muted2, margin: '0 0 14px 4px' }}>Reventlow / Præsensliste</div>
-        <div style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 4, boxShadow: '0 2px 14px rgba(34,31,26,.07)', padding: '56px 72px 64px' }}>
+        <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.12em', color: T.inkMuted, margin: '0 0 14px 4px' }}>Reventlow / Præsensliste</div>
+        <div style={{ background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 4, boxShadow: '0 2px 14px rgba(34,31,26,.07)', padding: '56px 72px 64px' }}>
           <div style={{ textAlign: 'center' }}>
             {/* Slægtens grundvåben er bevidst ikke vist her endnu — en linje-specifik
                 coat_of_arms-række må ikke fejlagtigt genbruges som "hele slægtens" våben;
                 kræver sin egen, adskillelige familie-niveau-række (jf. runbook-mønsteret). */}
-            <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.22em', textTransform: 'uppercase', color: T.muted2 }}>Slægten Reventlow</div>
+            <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.22em', textTransform: 'uppercase', color: T.inkMuted }}>Slægten Reventlow</div>
             <h1 style={{ fontFamily: T.serif, fontSize: 40, fontWeight: 500, lineHeight: 1.08, margin: '12px 0 0' }}>Præsensliste</h1>
-            <div style={{ fontSize: 14.5, color: T.muted, marginTop: 10 }}>Slægtens nulevende medlemmer, ordnet efter linje og gren</div>
+            <div style={{ fontSize: 14.5, color: T.inkMuted, marginTop: 10 }}>Slægtens nulevende medlemmer, ordnet efter linje og gren</div>
             <div style={{ width: 44, height: 1.5, background: T.gold, margin: '26px auto 0' }} />
           </div>
 
           {intro && (
             <div style={{ maxWidth: 640, margin: '34px auto 0' }}>
               {intro.split('\n\n').map((afsnit, i) => (
-                <p key={i} style={{ fontFamily: T.serif, fontSize: 17.5, fontStyle: 'italic', lineHeight: 1.65, color: '#3d382f', margin: i === 0 ? 0 : '16px 0 0' }}>{afsnit}</p>
+                <p key={i} style={{ fontFamily: T.serif, fontSize: 17.5, fontStyle: 'italic', lineHeight: 1.65, color: T.inkSecondary, margin: i === 0 ? 0 : '16px 0 0' }}>{afsnit}</p>
               ))}
             </div>
           )}
 
           {liste.advarsler.length > 0 && (
-            <details style={{ margin: '28px auto 0', maxWidth: 640, background: T.panel, border: '1px solid rgba(185,160,106,.4)', borderRadius: 4, padding: '12px 18px' }}>
-              <summary style={{ fontFamily: T.mono, fontSize: 11.5, letterSpacing: '.1em', color: T.muted }}>
+            <details style={{ margin: '28px auto 0', maxWidth: 640, background: T.surfaceGround, border: '1px solid rgba(185,160,106,.4)', borderRadius: 4, padding: '12px 18px' }}>
+              <summary style={{ fontFamily: T.mono, fontSize: 11.5, letterSpacing: '.1em', color: T.inkMuted }}>
                 {liste.advarsler.length} redaktionelle advarsler — rapportering, udløser aldrig ændringer
               </summary>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12, fontSize: 13.5, color: T.muted, lineHeight: 1.5 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12, fontSize: 13.5, color: T.inkMuted, lineHeight: 1.5 }}>
                 {liste.advarsler.slice(0, 200).map((a, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 10 }}><span style={{ color: T.gold, flex: 'none' }}>▲</span><span>{a.besked}</span></div>
+                  <div key={i} style={{ display: 'flex', gap: 10 }}><span style={{ color: T.goldInk, flex: 'none' }}>▲</span><span>{a.besked}</span></div>
                 ))}
               </div>
             </details>
@@ -396,7 +396,7 @@ export default function PresensView(props: {
             <PresensLinjeSektion key={lin.linje} gruppe={lin} info={linjeInfo[lin.linje]} navnAf={navnAf} navnAfAnker={navnAfAnker} aarAf={aarAf} onPick={onPickPerson} erAaben={erAaben} erHenter={erHenter} bioAf={bioAf} bioFejlAf={bioFejlAf} onToggle={onToggle} fokusId={fokusId} />
           ))}
 
-          <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', color: T.muted2, marginTop: 52, borderTop: '1px solid rgba(34,31,26,.08)', paddingTop: 14, textAlign: 'center' }}>
+          <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', color: T.inkMuted, marginTop: 52, borderTop: '1px solid rgba(34,31,26,.08)', paddingTop: 14, textAlign: 'center' }}>
             Kun levende personer samt afdøde forbindelsesled medtages.
           </div>
         </div>

@@ -18,19 +18,19 @@ export function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
   return (
     <div style={{ padding: '30px 40px 50px', maxWidth: 640 }}>
       <ViewHeader title="Slægtens våben" mb="18px" />
-      {!arms ? <div style={{ color: T.muted3 }}>Henter…</div> : (
+      {!arms ? <div style={{ color: T.inkMuted }}>Henter…</div> : (
         <>
-          <div style={{ background: T.ink, borderRadius: 16, padding: 26, display: 'flex', gap: 24, alignItems: 'center' }}>
+          <div style={{ background: T.surfaceInverse, borderRadius: 16, padding: 26, display: 'flex', gap: 24, alignItems: 'center' }}>
             {mainCrest ? (
               <div style={{ flex: 'none' }}><MediaThumb m={mainCrest} w={150} h={185} radius={10} onClick={() => setLightbox(0)} /></div>
             ) : (
-              <div style={{ width: 150, height: 185, borderRadius: 10, background: 'repeating-linear-gradient(45deg,#3a352c 0 9px,#322d25 9px 18px)', border: '1px solid rgba(231,201,143,.2)', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ fontFamily: T.mono, fontSize: 11, color: T.gold }}>våbenskjold</span></div>
+              <div style={{ width: 150, height: 185, borderRadius: 10, background: 'repeating-linear-gradient(45deg,#3a352c 0 9px,#322d25 9px 18px)', border: '1px solid rgba(231,201,143,.2)', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ fontFamily: T.mono, fontSize: 11, color: T.goldInk }}>våbenskjold</span></div>
             )}
             <div>
-              <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.goldLight }}>Autoriseret våben</div>
-              <div style={{ fontSize: 13, color: T.cream, marginTop: 3 }}>Dansk Adels Forenings gældende gengivelse</div>
-              <div style={{ fontFamily: T.serif, fontSize: 17, fontStyle: 'italic', lineHeight: 1.45, color: T.paper, marginTop: 14 }}>{main?.blasonering || 'Blasonering ikke registreret.'}</div>
-              {main?.note && <div style={{ fontSize: 12.5, color: T.cream, marginTop: 10, lineHeight: 1.45 }}>{main.note}</div>}
+              <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.goldOnInverse }}>Autoriseret våben</div>
+              <div style={{ fontSize: 13, color: T.inkMutedOnInverse, marginTop: 3 }}>Dansk Adels Forenings gældende gengivelse</div>
+              <div style={{ fontFamily: T.serif, fontSize: 17, fontStyle: 'italic', lineHeight: 1.45, color: T.inkOnInverse, marginTop: 14 }}>{main?.blasonering || 'Blasonering ikke registreret.'}</div>
+              {main?.note && <div style={{ fontSize: 12.5, color: T.inkMutedOnInverse, marginTop: 10, lineHeight: 1.45 }}>{main.note}</div>}
             </div>
           </div>
           {rest.length > 0 && (
@@ -40,7 +40,7 @@ export function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
                 {rest.map((v, i) => {
                   const vImg = variantImgs[i]; // første signerbare variant-billede
                   return (
-                    <div key={v.id} style={{ background: T.paper, border: '1px solid rgba(34,31,26,.1)', borderRadius: 12, padding: 11 }}>
+                    <div key={v.id} style={{ background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 12, padding: 11 }}>
                       {/* Fast .82-aspekt uanset billede/placeholder, så grid-cellerne flugter. */}
                       {vImg ? (
                         <div style={{ width: '100%', aspectRatio: '.82', borderRadius: 8, overflow: 'hidden' }}>
@@ -48,7 +48,7 @@ export function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
                             onClick={() => setLightbox(lightboxItems.findIndex((x) => x.id === vImg.id))} />
                         </div>
                       ) : (
-                        <div style={{ width: '100%', aspectRatio: '.82', borderRadius: 8, background: 'repeating-linear-gradient(45deg,#ece4d6 0 8px,#e2d8c8 8px 16px)', border: '1px solid rgba(34,31,26,.08)' }} />
+                        <div style={{ width: '100%', aspectRatio: '.82', borderRadius: 8, background: `repeating-linear-gradient(45deg,${T.surfaceSunken} 0 8px,#e2d8c8 8px 16px)`, border: '1px solid rgba(34,31,26,.08)' }} />
                       )}
                       <div style={{ fontFamily: T.serif, fontSize: 15, fontWeight: 600, marginTop: 7, lineHeight: 1.1 }}>{v.note || v.blasonering.slice(0, 40) || 'variant'}</div>
                     </div>

@@ -19,6 +19,7 @@ import { KandidatSammenligning } from './KandidatSammenligning';
 import {
   MatchOversigt, foraeldreNavne, formatBogReferencer, formatPersonNavn,
 } from './MatchOversigt';
+import { T } from '../theme';
 
 export { foraeldreNavne, formatBogReferencer, formatPersonNavn } from './MatchOversigt';
 
@@ -425,7 +426,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
       <h2>
         Sammenlign udgaver
         {loading && personer.length > 0 && (
-          <span style={{ marginLeft: '.45rem', color: '#6f675b', fontSize: '.65em', fontWeight: 400 }}>· opdaterer…</span>
+          <span style={{ marginLeft: '.45rem', color: T.inkMuted, fontSize: '.65em', fontWeight: 400 }}>· opdaterer…</span>
         )}
       </h2>
       <label>
@@ -441,7 +442,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
       <button type="button" onClick={() => setRefresh((r) => r + 1)} disabled={loading}>Genindlæs</button>
 
       {fejl && (
-        <p role="alert" style={{ color: '#881A33' }}>
+        <p role="alert" style={{ color: T.bordeaux }}>
           Fejl: {fejl} <button type="button" onClick={() => setFejl(null)}>Luk</button>
         </p>
       )}
@@ -456,7 +457,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
       )}
 
       {f && (
-        <p style={{ fontSize: '.9em', color: '#6f675b' }}>
+        <p style={{ fontSize: '.9em', color: T.inkMuted }}>
           {f.afklaret} af {f.total} afklaret · {f.staerke} stærke kandidater · {f.gennemse} til gennemsyn · {f.formodetNye} formodet nye
         </p>
       )}
@@ -495,7 +496,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
             <p style={{ color: '#3d7a3d' }}>✓ Alle kandidater for denne udgave er afklaret.</p>
           )}
           {aabne.length > 0 && filtreredeAabne.length === 0 && (
-            <p style={{ color: '#6f675b' }}>Ingen kandidater matcher søgningen.</p>
+            <p style={{ color: T.inkMuted }}>Ingen kandidater matcher søgningen.</p>
           )}
           {filtreredeAabne.map((person) => {
         const a = byId.get(person.aId);
@@ -504,12 +505,12 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
           formatBogReferencer(a),
         ].filter(Boolean);
         return (
-          <div key={person.aId} style={{ border: '1px solid rgba(34,31,26,.1)', borderRadius: 6, padding: '.6rem .8rem', margin: '.5rem 0' }}>
+          <div key={person.aId} style={{ border: `1px solid ${T.line}`, borderRadius: 6, padding: '.6rem .8rem', margin: '.5rem 0' }}>
             <strong>{visning(a)}</strong>
             <button style={{ marginLeft: '.8rem', fontSize: '.85em' }} disabled={!!busy}
               onClick={() => markerNy(person.kandidater)}>Markér som ny person</button>
             {aDetaljer.length > 0 && (
-              <div style={{ fontSize: '.82em', color: '#6f675b', marginTop: '.15rem' }}>
+              <div style={{ fontSize: '.82em', color: T.inkMuted, marginTop: '.15rem' }}>
                 {aDetaljer.join(' · ')}
               </div>
             )}
@@ -529,14 +530,14 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
                 formatBogReferencer(b),
               ].filter(Boolean);
               return (
-                <div key={String(k.bId)} style={{ marginTop: '.4rem', paddingTop: '.4rem', borderTop: '1px dashed rgba(34,31,26,.1)' }}>
+                <div key={String(k.bId)} style={{ marginTop: '.4rem', paddingTop: '.4rem', borderTop: `1px dashed ${T.line}` }}>
                   <span style={{ fontWeight: 600 }}>{k.tier === 'auto' ? '★ stærk' : 'gennemse'}</span>
                   {' '}<code>{(k.score ?? 0).toFixed(3)}</code> — {visning(b)}
-                  <span style={{ fontSize: '.8em', color: '#6f675b', marginLeft: '.5rem' }}>
+                  <span style={{ fontSize: '.8em', color: T.inkMuted, marginLeft: '.5rem' }}>
                     navn {k.nameSim.toFixed(2)} · fødsel {k.birthOverlap ? '✓' : '—'} · død {k.deathOverlap ? '✓' : '—'} · køn {k.sexEq ? '✓' : '✗'}
                   </span>
                   {bDetaljer.length > 0 && (
-                    <div style={{ fontSize: '.82em', color: '#6f675b', marginTop: '.15rem' }}>
+                    <div style={{ fontSize: '.82em', color: T.inkMuted, marginTop: '.15rem' }}>
                       {bDetaljer.join(' · ')}
                     </div>
                   )}
@@ -555,7 +556,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
                   </button>
                   {erAabent && (
                     detaljeError
-                      ? <p style={{ color: '#881A33' }}>Kunne ikke hente kandidatdetaljer: {detaljeError}</p>
+                      ? <p style={{ color: T.bordeaux }}>Kunne ikke hente kandidatdetaljer: {detaljeError}</p>
                       : detaljeA && detaljeB && a && b
                         ? <KandidatSammenligning
                             personA={a}
@@ -576,7 +577,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
                             onBekraeft={() => bekraeft(person.aId, bId)}
                             onAfvis={() => afvis(person.aId, bId)}
                           />
-                        : <p style={{ color: '#6f675b' }}>
+                        : <p style={{ color: T.inkMuted }}>
                             {detaljerIndlaeses ? 'Indlæser kandidatdetaljer…' : 'Kandidatdetaljer mangler.'}
                           </p>
                   )}
@@ -593,11 +594,11 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
           — typisk fordi forældrene i de to udgaver ikke selv er matchet endnu. Rådgivende. */}
       {aktivFane === 'karantaene' && (
         <section style={{ marginTop: '.75rem', border: '1px solid rgba(136,26,51,.25)', borderRadius: 6, padding: '.5rem .8rem', background: '#fdf3f5' }}>
-          <h3 style={{ color: '#881A33' }}>
+          <h3 style={{ color: T.bordeaux }}>
             {foldPreview.quarantined.length} bekræftet link{foldPreview.quarantined.length === 1 ? '' : 's'} folder endnu ikke offentligt
           </h3>
           {foldPreview.quarantined.length === 0
-            ? <p style={{ color: '#6f675b' }}>Ingen karantænerede links.</p>
+            ? <p style={{ color: T.inkMuted }}>Ingen karantænerede links.</p>
             : (
               <ul style={{ fontSize: '.85em', marginTop: '.4rem', marginBottom: 0 }}>
                 {foldPreview.quarantined.map((q, i) => {
@@ -605,7 +606,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
                   return (
                     <li key={i}>
                       {q.members.map((id) => visning(byId.get(id))).join(' = ')} — <em>{q.reason}</em>
-                      {advice && <div style={{ color: '#6f675b' }}>{advice}</div>}
+                      {advice && <div style={{ color: T.inkMuted }}>{advice}</div>}
                     </li>
                   );
                 })}
@@ -624,20 +625,20 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
             {afklarede.length} bekræftet{afklarede.length === 1 ? '' : 'e'} match{afklarede.length === 1 ? '' : 'es'}
           </h3>
           {afklarede.length === 0
-            ? <p style={{ color: '#6f675b' }}>Ingen bekræftede matches endnu.</p>
+            ? <p style={{ color: T.inkMuted }}>Ingen bekræftede matches endnu.</p>
             : (
               <>
                 <div style={{ margin: '.6rem 0', display: 'flex', alignItems: 'baseline', gap: '.6rem' }}>
                   <button type="button" disabled={!!busy || valgteTilPublicering.size === 0} onClick={publicerValgte}>
                     {busy === 'publicer' ? 'Gemmer…' : `Publicér valgte (${valgteTilPublicering.size})`}
                   </button>
-                  <span style={{ fontSize: '.8em', color: '#6f675b' }}>
+                  <span style={{ fontSize: '.8em', color: T.inkMuted }}>
                     Gør kun de markerede personer synlige for besøgende — resten forbliver skjult, til de er klar.
                   </span>
                   <button type="button" disabled={!!busy || nyKildeId == null} onClick={publicerHeleUdgaven}>
                     {busy === 'publicer-udgave' ? 'Gemmer…' : 'Publicér hele udgaven'}
                   </button>
-                  <span style={{ fontSize: '.8em', color: '#6f675b' }}>
+                  <span style={{ fontSize: '.8em', color: T.inkMuted }}>
                     Gør ALLE resterende skjulte personer fra den valgte udgave offentlige — brug når hele match-gennemgangen er færdig.
                   </span>
                 </div>
@@ -660,9 +661,9 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
                         ) : (
                           <span>{visning(a)} = {visning(b)} <span style={{ fontSize: '.8em', color: '#3d7a3d' }}>✓ publiceret</span></span>
                         )}
-                        <div style={{ fontSize: '.8em', marginTop: '.15rem', color: hint.folder ? '#3d7a3d' : '#881A33' }}>
+                        <div style={{ fontSize: '.8em', marginTop: '.15rem', color: hint.folder ? '#3d7a3d' : T.bordeaux }}>
                           {hint.folder ? '✓ foldes offentligt til én person' : `foldes IKKE endnu offentligt: ${hint.grund}`}
-                          {!hint.folder && advice && <div style={{ color: '#6f675b' }}>{advice}</div>}
+                          {!hint.folder && advice && <div style={{ color: T.inkMuted }}>{advice}</div>}
                         </div>
                       </li>
                     );
@@ -694,13 +695,13 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
             {medSvage > 0 && ` — ${medSvage} har et forslag under tærsklen`}
           </summary>
           {medSvage > 0 && (
-            <p style={{ fontSize: '.85em', color: '#6f675b', margin: '.4rem 0' }}>
+            <p style={{ fontSize: '.85em', color: T.inkMuted, margin: '.4rem 0' }}>
               Scoren vægter kun det der kunne vurderes, så et manglende årstal tæller
               hverken for eller imod. Disse forslag nåede alligevel ikke tærsklen — typisk
               fordi navnene afviger, eller fordi et kendt årstal ikke passer. Bedøm dem selv.
             </p>
           )}
-          <ul style={{ fontSize: '.9em', color: '#6f675b' }}>
+          <ul style={{ fontSize: '.9em', color: T.inkMuted }}>
             {formodetNye.map((p) => {
               const svage = p.svageKandidater.filter((k) => !k.afvist).slice(0, 5);
               return (

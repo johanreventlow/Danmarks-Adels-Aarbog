@@ -375,7 +375,7 @@ export default function Folgesvend() {
 
   if (err) {
     return (
-      <div style={{ minHeight: '100vh', background: T.pageBg, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div style={{ minHeight: '100vh', background: T.surfaceGround, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
         {/* Vi kender ikke årsagen her: dvale efter en uges stilstand er den hyppigste, men en
             rigtig fejl ser ens ud for læseren. Teksten gætter derfor ikke; fejlen står i konsollen. */}
         <Tilstand fejl etiket="Kunne ikke hente" titel="Aarbogen svarer ikke lige nu"
@@ -404,51 +404,51 @@ export default function Folgesvend() {
   };
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: T.pageBg, fontFamily: T.sans, color: T.ink, overflow: 'hidden' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: T.surfaceGround, fontFamily: T.sans, color: T.ink, overflow: 'hidden' }}>
       {/* Header — mega-menu-navigation (brief §3): kollapset bjælke hvis rygrad er de tre
           temaer; folder sig ud på hover til en mega-menu med større logo + status-mærkede
           punkter (live ✓ / kommer). Udskudt til Fase 2: redigér-knap (inline-redigering). */}
       <div onMouseEnter={openMega} onMouseLeave={closeMega} style={{ flex: 'none', position: 'relative', zIndex: 30 }}>
-        <div style={{ height: 66, display: 'flex', alignItems: 'center', gap: 22, padding: '0 26px', background: T.paper, borderBottom: '1px solid rgba(34,31,26,.1)' }}>
+        <div style={{ height: 66, display: 'flex', alignItems: 'center', gap: 22, padding: '0 26px', background: T.surfaceRaised, borderBottom: `1px solid ${T.line}` }}>
         {/* Lille logo i bjælken — crossfader ud når mega-menuen folder ud, så det store logo
             i panelet "vokser frem" fra samme plads (ét logo, ikke to synlige på én gang). */}
         <div onClick={() => goToMode('home')} title="Til forsiden" style={{ display: 'flex', alignItems: 'center', gap: 13, flex: 'none', cursor: 'pointer', transition: 'opacity .22s ease', opacity: megaOpen ? 0 : 1, pointerEvents: megaOpen ? 'none' : 'auto' }}>
           <img src="/daf-logo.png" alt="Dansk Adels Forening" style={{ width: 40, height: 40, objectFit: 'contain' }} />
           <div>
             <div style={{ fontFamily: T.serif, fontSize: 21, fontWeight: 600, lineHeight: 1, color: T.ink }}>Danmarks Adels Aarbog</div>
-            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: T.muted2, marginTop: 2 }}>Følgesvend · Dansk Adels Forening</div>
+            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: T.inkMuted, marginTop: 2 }}>Følgesvend · Dansk Adels Forening</div>
           </div>
         </div>
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
           {THEMES.map((t) => {
             const active = activeTheme === t.key;
             return (
-              <div key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 9, fontFamily: T.sans, fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', color: active ? T.bordeaux : '#3d382f' }}>
-                {t.label}<span style={{ fontSize: 10, color: active ? T.bordeaux : T.muted2 }}>▾</span>
+              <div key={t.key} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 9, fontFamily: T.sans, fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', color: active ? T.bordeaux : T.inkSecondary }}>
+                {t.label}<span style={{ fontSize: 10, color: active ? T.bordeaux : T.inkMuted }}>▾</span>
               </div>
             );
           })}
         </div>
         <div style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 12 }}>
           {/* Søg-knap — åbner søg/gennemse-modalen (v3: erstatter den permanente sidebar). */}
-          <div onClick={() => { goToMode('tree'); bumpSearchFocus(); }} title="Søg &amp; gennemse personer" style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.panel, border: '1px solid rgba(34,31,26,.12)', borderRadius: 9, padding: '7px 13px', cursor: 'pointer' }}>
+          <div onClick={() => { goToMode('tree'); bumpSearchFocus(); }} title="Søg &amp; gennemse personer" style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.surfaceGround, border: '1px solid rgba(34,31,26,.12)', borderRadius: 9, padding: '7px 13px', cursor: 'pointer' }}>
             <SearchIcon size={15} />
-            <span style={{ fontFamily: T.sans, fontSize: 14, fontWeight: 600, color: '#3d382f' }}>Søg</span>
+            <span style={{ fontFamily: T.sans, fontSize: 14, fontWeight: 600, color: T.inkSecondary }}>Søg</span>
           </div>
           {/* Slægt-chip — åbner slægt-vælger-modal (kosmetisk, kun Reventlow findes — spec §3.3). */}
-          <div onClick={() => setSlaegtOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 9, background: T.panel, border: '1px solid rgba(34,31,26,.12)', borderRadius: 9, padding: '6px 12px', cursor: 'pointer' }}>
-            <span style={{ width: 26, height: 26, borderRadius: '50%', border: '1px solid rgba(136,26,51,.55)', boxShadow: 'inset 0 0 0 2px #f4efe6, inset 0 0 0 2.5px rgba(136,26,51,.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 14, fontWeight: 600, color: T.bordeaux }}>R</span>
+          <div onClick={() => setSlaegtOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 9, background: T.surfaceGround, border: '1px solid rgba(34,31,26,.12)', borderRadius: 9, padding: '6px 12px', cursor: 'pointer' }}>
+            <span style={{ width: 26, height: 26, borderRadius: '50%', border: '1px solid rgba(136,26,51,.55)', boxShadow: `inset 0 0 0 2px ${T.surfaceGround}, inset 0 0 0 2.5px rgba(136,26,51,.28)`, display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', fontFamily: T.serif, fontSize: 14, fontWeight: 600, color: T.bordeaux }}>R</span>
             <span style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: T.ink }}>Reventlow</span>
-            <span style={{ fontSize: 11, color: T.muted2 }}>▾</span>
+            <span style={{ fontSize: 11, color: T.inkMuted }}>▾</span>
           </div>
           {/* Konto-indikator (bogmærke-login) — minimal, ikke en fuld kontoflade (spec §6). */}
           {session ? (
-            <div onClick={() => { void doLogout(); }} title={session.email} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.muted, cursor: 'pointer' }}>Log ud</div>
+            <div onClick={() => { void doLogout(); }} title={session.email} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.inkMuted, cursor: 'pointer' }}>Log ud</div>
           ) : (
             <div onClick={() => setLoginOpen(true)} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>Log ind</div>
           )}
           {meCanon && model?.byId[meCanon] && (
-            <Link href={personPath(meCanon)} onNavigate={() => navigateTree(meCanon)} title="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: '#f8ecef', border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(model.byId[meCanon].name)}</Link>
+            <Link href={personPath(meCanon)} onNavigate={() => navigateTree(meCanon)} title="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: T.bordeauxTint, border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.bordeaux, flex: 'none' }}>{initials(model.byId[meCanon].name)}</Link>
           )}
           <Link href="/redaktion" style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.bordeaux }}>Redaktion ↗</Link>
         </div>
@@ -458,31 +458,31 @@ export default function Folgesvend() {
             kolonner med live ✓ / kommer-status. */}
         {/* Panelet er altid monteret men transition-styret (opacity/translateY/pointer-events),
             så det folder blødt ud OG ind ("værket åbner sig", brief §3.1) frem for at poppe. */}
-          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: T.paper, borderBottom: '1px solid rgba(34,31,26,.12)', boxShadow: '0 26px 46px rgba(20,17,13,.14)', padding: '32px 44px 38px', display: 'flex', gap: 44, transition: 'opacity .28s ease, transform .28s ease', opacity: megaOpen ? 1 : 0, transform: megaOpen ? 'translateY(0)' : 'translateY(-10px)', pointerEvents: megaOpen ? 'auto' : 'none' }}>
-            <div style={{ flex: 'none', width: 274, borderRight: '1px solid rgba(34,31,26,.1)', paddingRight: 40 }}>
+          <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: T.surfaceRaised, borderBottom: '1px solid rgba(34,31,26,.12)', boxShadow: '0 26px 46px rgba(20,17,13,.14)', padding: '32px 44px 38px', display: 'flex', gap: 44, transition: 'opacity .28s ease, transform .28s ease', opacity: megaOpen ? 1 : 0, transform: megaOpen ? 'translateY(0)' : 'translateY(-10px)', pointerEvents: megaOpen ? 'auto' : 'none' }}>
+            <div style={{ flex: 'none', width: 274, borderRight: `1px solid ${T.line}`, paddingRight: 40 }}>
               {/* Samme logo som bjælkens — skalerer fra .62 (≈40px, bjælke-størrelse) op til 1
                   (64px), så det læses som ét logo der vokser frem, ikke en anden kopi. */}
               <div onClick={() => goToMode('home')} title="Til forsiden" style={{ cursor: 'pointer' }}>
                 <img src="/daf-logo.png" alt="Dansk Adels Forening" style={{ width: 64, height: 64, objectFit: 'contain', transition: 'transform .28s ease', transform: megaOpen ? 'scale(1)' : 'scale(.62)', transformOrigin: 'top left' }} />
                 <div style={{ fontFamily: T.serif, fontSize: 26, fontWeight: 600, color: T.ink, lineHeight: 1.05, marginTop: 14 }}>Danmarks Adels Aarbog</div>
               </div>
-              <div style={{ fontFamily: T.sans, fontSize: 13.5, color: T.muted, marginTop: 6, lineHeight: 1.45 }}>Følgesvend · Dansk Adels Forening. En digital ledsager til det trykte værk.</div>
+              <div style={{ fontFamily: T.sans, fontSize: 13.5, color: T.inkMuted, marginTop: 6, lineHeight: 1.45 }}>Følgesvend · Dansk Adels Forening. En digital ledsager til det trykte værk.</div>
               <div onClick={() => goToMode('home')} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 16, fontFamily: T.sans, fontSize: 13.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>‹ Til forsiden</div>
             </div>
             <div style={{ flex: 1, display: 'flex', gap: 32 }}>
               {THEMES.map((t) => (
                 <div key={t.key} style={{ flex: 1 }}>
-                  <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.18em', textTransform: 'uppercase', color: T.gold, paddingBottom: 10, borderBottom: '1px solid rgba(34,31,26,.1)' }}>{t.label}</div>
+                  <div style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.18em', textTransform: 'uppercase', color: T.goldInk, paddingBottom: 10, borderBottom: `1px solid ${T.line}` }}>{t.label}</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginTop: 10 }}>
                     {t.items.map((it) => {
                       const live = it.mode !== null;
                       const active = it.mode === mode;
                       return (
-                        <div key={it.label} onClick={() => { if (it.mode) goToMode(it.mode); }} title={live ? '' : 'Kommer'} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontFamily: T.serif, fontSize: 19, fontWeight: 600, color: active ? T.bordeaux : (live ? T.ink : T.muted3), padding: '6px 0', cursor: live ? 'pointer' : 'default' }}>
+                        <div key={it.label} onClick={() => { if (it.mode) goToMode(it.mode); }} title={live ? '' : 'Kommer'} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontFamily: T.serif, fontSize: 19, fontWeight: 600, color: active ? T.bordeaux : (live ? T.ink : T.inkMuted), padding: '6px 0', cursor: live ? 'pointer' : 'default' }}>
                           <span>{it.label}</span>
                           {live
                             ? <span style={{ fontFamily: T.mono, fontSize: 10, color: active ? T.bordeaux : '#1f8a5b' }}>✓</span>
-                            : <span style={{ fontFamily: T.mono, fontSize: 9.5, letterSpacing: '.1em', textTransform: 'uppercase', color: T.muted3 }}>kommer</span>}
+                            : <span style={{ fontFamily: T.mono, fontSize: 9.5, letterSpacing: '.1em', textTransform: 'uppercase', color: T.inkMuted }}>kommer</span>}
                         </div>
                       );
                     })}
@@ -508,7 +508,7 @@ export default function Folgesvend() {
             : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(`/estate/${id}`); }} onBack={() => { setEstateId(null); navigate('/estates'); }} onPickOwner={navigateTree} />
             : mode === 'arms' ? <ArmsView arms={arms} />
             : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} onPick={navigateTree} />
-            : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={saveOrPrompt} loggedIn={bookmarks.canSave} onRequireLogin={() => setLoginOpen(true)} /> : <div style={{ padding: 40, color: T.muted3 }}>Henter…</div>)
+            : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={saveOrPrompt} loggedIn={bookmarks.canSave} onRequireLogin={() => setLoginOpen(true)} /> : <div style={{ padding: 40, color: T.inkMuted }}>Henter…</div>)
             : mode === 'kort' ? <OverviewMapView model={model} geoLoading={geoLoading} onPickPerson={navigateTree} onPickEstate={(id) => navigate(`/estate/${id}`)} />
             : mode === 'praesens' ? <PresensView model={model} onPickPerson={navigateTree} session={sessionKlar ? session : 'henter'} onLogin={() => setLoginOpen(true)} onGoTree={() => goToMode('tree')} />
             : <Placeholder label={labelOfMode(mode)} onHome={() => goToMode('home')} />}
@@ -516,9 +516,9 @@ export default function Folgesvend() {
 
         {/* Højre: person-detalje (kun i person-centriske visninger) */}
         {detailOpen && model && focusId && (detailError ? (
-          <aside role="alert" style={{ width: 380, padding: 28, background: T.paper, borderLeft: '1px solid rgba(34,31,26,.1)', fontFamily: T.sans }}>
+          <aside role="alert" style={{ width: 380, padding: 28, background: T.surfaceRaised, borderLeft: `1px solid ${T.line}`, fontFamily: T.sans }}>
             <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600, color: T.bordeaux }}>Kunne ikke hente personens biografi</div>
-            <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.5, color: '#3d382f' }}>Forbindelsen til arkivet svigtede et øjeblik. Prøv igen om lidt.</div>
+            <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.5, color: T.inkSecondary }}>Forbindelsen til arkivet svigtede et øjeblik. Prøv igen om lidt.</div>
             <button type="button" onClick={() => setDetailForsoeg((n) => n + 1)} style={{ ...tilstandSekundaer, marginTop: 14 }}>Prøv igen</button>
           </aside>
         ) : (
@@ -542,17 +542,17 @@ export default function Folgesvend() {
       {loginOpen && (
         <div onClick={() => setLoginOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(20,17,13,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
           {/* Rigtig <form> med <label htmlFor>: skærmlæsere navngiver felterne, og Enter logger ind. */}
-          <form onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); void doLogin(); }} role="dialog" aria-modal="true" aria-labelledby="fs-login-titel" style={{ width: 380, maxWidth: '100%', background: T.paper, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '22px 24px 20px' }}>
+          <form onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); void doLogin(); }} role="dialog" aria-modal="true" aria-labelledby="fs-login-titel" style={{ width: 380, maxWidth: '100%', background: T.surfaceRaised, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '22px 24px 20px' }}>
             <div id="fs-login-titel" style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>Log ind</div>
-            <div style={{ fontSize: 13, color: T.muted, marginTop: 3, marginBottom: 15 }}>Log ind for at gemme bogmærker på tværs af dine enheder.</div>
-            <label htmlFor="fs-login-email" style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: T.muted, marginBottom: 4 }}>E-mail</label>
-            <input id="fs-login-email" type="email" autoComplete="username" value={login.email} onChange={(e) => setLogin((l) => ({ ...l, email: e.target.value }))} placeholder="din@email.dk" style={{ width: '100%', fontSize: 14, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
-            <label htmlFor="fs-login-pw" style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: T.muted, marginTop: 11, marginBottom: 4 }}>Adgangskode</label>
-            <input id="fs-login-pw" type="password" autoComplete="current-password" value={login.pw} onChange={(e) => setLogin((l) => ({ ...l, pw: e.target.value }))} style={{ width: '100%', fontSize: 14, color: '#221f1a', background: '#fff', border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
+            <div style={{ fontSize: 13, color: T.inkMuted, marginTop: 3, marginBottom: 15 }}>Log ind for at gemme bogmærker på tværs af dine enheder.</div>
+            <label htmlFor="fs-login-email" style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: T.inkMuted, marginBottom: 4 }}>E-mail</label>
+            <input id="fs-login-email" type="email" autoComplete="username" value={login.email} onChange={(e) => setLogin((l) => ({ ...l, email: e.target.value }))} placeholder="din@email.dk" style={{ width: '100%', fontSize: 14, color: T.ink, background: '#fff', border: `1px solid ${T.lineStrong}`, borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
+            <label htmlFor="fs-login-pw" style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: T.inkMuted, marginTop: 11, marginBottom: 4 }}>Adgangskode</label>
+            <input id="fs-login-pw" type="password" autoComplete="current-password" value={login.pw} onChange={(e) => setLogin((l) => ({ ...l, pw: e.target.value }))} style={{ width: '100%', fontSize: 14, color: T.ink, background: '#fff', border: `1px solid ${T.lineStrong}`, borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
             {login.err && <div role="alert" style={{ fontSize: 12.5, color: T.bordeaux, marginTop: 9 }}>{login.err}</div>}
             <div style={{ display: 'flex', gap: 9, marginTop: 16, justifyContent: 'flex-end' }}>
-              <button type="button" onClick={() => setLoginOpen(false)} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.muted, background: 'transparent', border: 0, padding: '8px 13px', cursor: 'pointer' }}>Annullér</button>
-              <button type="submit" disabled={login.busy} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: '#fbf8f1', background: T.bordeaux, border: 0, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>{login.busy ? 'Logger ind…' : 'Log ind'}</button>
+              <button type="button" onClick={() => setLoginOpen(false)} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.inkMuted, background: 'transparent', border: 0, padding: '8px 13px', cursor: 'pointer' }}>Annullér</button>
+              <button type="submit" disabled={login.busy} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.onBordeaux, background: T.bordeaux, border: 0, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>{login.busy ? 'Logger ind…' : 'Log ind'}</button>
             </div>
           </form>
         </div>

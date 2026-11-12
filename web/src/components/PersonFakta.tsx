@@ -14,13 +14,13 @@ const NAVN: Record<string, string> = {
 const typeNavn = (t: string) => NAVN[t] ?? t.charAt(0).toUpperCase() + t.slice(1);
 
 function Kilde({ source }: { source: PersonFactSource }) {
-  return <div style={{ fontFamily: T.mono, fontSize: 11, color: T.muted2, marginTop: 2 }}>{source.label}</div>;
+  return <div style={{ fontFamily: T.mono, fontSize: 11, color: T.inkMuted, marginTop: 2 }}>{source.label}</div>;
 }
 
 function Udsagn({ st }: { st: PersonFactStatement }) {
   return (
     <div>
-      <div style={{ fontSize: 14, color: '#3d382f', lineHeight: 1.3 }}>{st.value}</div>
+      <div style={{ fontSize: 14, color: T.inkSecondary, lineHeight: 1.3 }}>{st.value}</div>
       <Kilde source={st.source} />
     </div>
   );
@@ -30,7 +30,7 @@ function Note({ note }: { note: UdgaveNote }) {
   const tekst = note.art === 'enig'
     ? `✓ også i ${note.udgave.label}`
     : `${note.udgave.label} skriver: ${note.vaerdier.join('; ')}`;
-  return <div style={{ fontFamily: T.sans, fontSize: 12, color: note.art === 'enig' ? T.muted2 : T.bordeaux, lineHeight: 1.35 }}>{tekst}</div>;
+  return <div style={{ fontFamily: T.sans, fontSize: 12, color: note.art === 'enig' ? T.inkMuted : T.bordeaux, lineHeight: 1.35 }}>{tekst}</div>;
 }
 
 // 6e-1 (spec 2026-11-12 §5.2-5.3): den valgte udgaves fakta forrest; den anden udgave som note under linjen og
@@ -40,7 +40,7 @@ export function PersonFakta({ visning, error }: { visning: UdgaveFaktaVisning | 
     return (
       <>
         <Label>Fakta</Label>
-        <div style={{ fontSize: 13, color: T.muted3 }}>Fakta kunne ikke hentes</div>
+        <div style={{ fontSize: 13, color: T.inkMuted }}>Fakta kunne ikke hentes</div>
       </>
     );
   }
@@ -58,7 +58,7 @@ export function PersonFakta({ visning, error }: { visning: UdgaveFaktaVisning | 
       <div style={{ display: 'flex', flexDirection: 'column' }}>
         {visning.linjer.map((l) => (
           <div key={l.noegle} style={{ display: 'flex', gap: 12, padding: '8px 0', borderBottom: '1px solid rgba(34,31,26,.07)' }}>
-            <span style={{ flex: 'none', width: 104, fontFamily: T.mono, fontSize: 10.5, letterSpacing: '.06em', textTransform: 'uppercase', color: T.muted3, paddingTop: 2 }}>
+            <span style={{ flex: 'none', width: 104, fontFamily: T.mono, fontSize: 10.5, letterSpacing: '.06em', textTransform: 'uppercase', color: T.inkMuted, paddingTop: 2 }}>
               {typeNavn(l.faktatype)}
             </span>
             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -67,14 +67,14 @@ export function PersonFakta({ visning, error }: { visning: UdgaveFaktaVisning | 
               )}
               {l.vaerdi !== '' && (
                 <div>
-                  <div style={{ fontSize: 14, color: '#3d382f', lineHeight: 1.3 }}>{l.vaerdi}</div>
+                  <div style={{ fontSize: 14, color: T.inkSecondary, lineHeight: 1.3 }}>{l.vaerdi}</div>
                   {l.kilder.map((k, i) => <Kilde key={`${k.label}:${i}`} source={k} />)}
                 </div>
               )}
               {l.vaerdi !== '' && l.noter.map((n) => <Note key={`${n.art}:${n.udgave.sourceId}`} note={n} />)}
               {l.andre.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span style={{ fontFamily: T.mono, fontSize: 10, color: T.muted3 }}>Andre udsagn</span>
+                  <span style={{ fontFamily: T.mono, fontSize: 10, color: T.inkMuted }}>Andre udsagn</span>
                   {l.andre.map((o, i) => <Udsagn key={`${o.assertionId}:${i}`} st={o} />)}
                 </div>
               )}
@@ -83,9 +83,9 @@ export function PersonFakta({ visning, error }: { visning: UdgaveFaktaVisning | 
         ))}
         {kunI.map((g) => (
           <div key={g.udgave.sourceId} style={{ padding: '10px 0 2px', display: 'flex', flexDirection: 'column', gap: 3 }}>
-            <span style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase', color: T.muted3 }}>{`Kun i ${g.udgave.label}`}</span>
+            <span style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase', color: T.inkMuted }}>{`Kun i ${g.udgave.label}`}</span>
             {g.raekker.map((k) => (
-              <div key={k.faktatype} style={{ fontSize: 13, color: '#3d382f', lineHeight: 1.35 }}>{`${typeNavn(k.faktatype)}: ${k.vaerdier.join('; ')}`}</div>
+              <div key={k.faktatype} style={{ fontSize: 13, color: T.inkSecondary, lineHeight: 1.35 }}>{`${typeNavn(k.faktatype)}: ${k.vaerdier.join('; ')}`}</div>
             ))}
           </div>
         ))}

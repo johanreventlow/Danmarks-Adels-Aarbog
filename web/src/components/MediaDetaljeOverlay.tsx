@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import type { MediaAnvendelse, PersonMedia, UdrensPreview } from '../data/redaktionRead';
 import { MEDIA_FAKTATYPER, type MediaFakta, type MediaFaktatype } from '../data/media';
+import { T } from '../theme';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
@@ -45,8 +46,8 @@ export type MediaFaktaChange = {
 };
 
 const C = {
-  paper: '#fbf8f1', panel: '#f4efe6', beige: '#ece4d6', ink: '#221f1a', muted: '#6f675b',
-  muted2: '#9a8f78', bordeaux: '#881A33', green: '#1f5b3a', red: '#8a2b2b', gold: '#b9a06a',
+  paper: T.surfaceRaised, panel: T.surfaceGround, beige: T.surfaceSunken, ink: T.surfaceInverse, muted: T.inkMuted,
+  muted2: T.inkMuted, bordeaux: T.bordeaux, green: T.success, red: T.danger, gold: T.gold,
 };
 const input: CSSProperties = { width: '100%', fontSize: 14, color: C.ink, background: '#fff', border: '1px solid rgba(34,31,26,.16)', borderRadius: 8, padding: '8px 10px', outline: 'none' };
 const label: CSSProperties = { fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: C.muted2, margin: '10px 0 4px' };
@@ -202,7 +203,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
         </div>}
         <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10.5, color: C.muted2, marginTop: 6 }}>{statusLine || 'ingen filmetadata'}</div>
 
-        <section style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(34,31,26,.1)' }}>
+        <section style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.line}` }}>
           <div style={{ fontWeight: 700, fontSize: 14 }}>Metadata</div>
           <div style={label}>Slags</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -218,7 +219,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
             style={{ marginTop: 12, border: 0, borderRadius: 7, padding: '8px 13px', cursor: Object.keys(metadataPayload).length ? 'pointer' : 'default', background: C.green, color: '#fff', opacity: Object.keys(metadataPayload).length ? 1 : .45 }}>Gem metadata</button>
         </section>
 
-        <section style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(34,31,26,.1)' }}>
+        <section style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.line}` }}>
           <div style={{ fontWeight: 700, fontSize: 14 }}>Kilde og beskrivelse</div>
           {!fakta ? <div style={{ marginTop: 9, fontSize: 13, color: C.muted2 }}>Henter kildefelter…</div> : <>
             {FAKTA_GRUPPER.map((g) => (
@@ -269,7 +270,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
           </>}
         </section>
 
-        <section style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(34,31,26,.1)' }}>
+        <section style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.line}` }}>
           <div style={{ fontWeight: 700, fontSize: 14 }}>Rettigheder og publicering</div>
           <div style={label}>Status</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -295,7 +296,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
           <button type="button" disabled={fletBusy} onClick={() => { if (!fletBusy) onGemRettigheder(retPayload); }} style={{ marginTop: 12, border: 0, borderRadius: 7, padding: '8px 13px', cursor: fletBusy ? 'default' : 'pointer', background: C.green, color: '#fff' }}>Gem rettigheder</button>
         </section>
 
-        <section style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(34,31,26,.1)' }}>
+        <section style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.line}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div style={{ fontWeight: 700, fontSize: 14, flex: 1 }}>Bruges på</div>
             {onTilknyt ? <button type="button" disabled={fletBusy || !anvendelse} onClick={() => { if (!fletBusy) onTilknyt(); }} style={{ border: '1px solid rgba(136,26,51,.28)', borderRadius: 7, padding: '6px 10px', cursor: anvendelse && !fletBusy ? 'pointer' : 'default', background: C.paper, color: C.bordeaux, opacity: anvendelse && !fletBusy ? 1 : .45 }}>Tilknyt til…</button> : null}
@@ -334,7 +335,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
         </section>
 
         {onFlet && fletKandidater.length > 0 ? (
-          <section style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid rgba(34,31,26,.1)' }}>
+          <section style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${T.line}` }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700, fontSize: 14 }}>Mulig dublet</div>
@@ -362,7 +363,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
                   </div>
                 </div>
                 {visteFletMentions.length ? (
-                  <div role="alert" style={{ marginTop: 11, padding: '9px 10px', borderRadius: 8, background: '#f8ecef', border: '1px solid rgba(138,43,43,.2)', color: C.red, fontSize: 12.5, lineHeight: 1.45 }}>
+                  <div role="alert" style={{ marginTop: 11, padding: '9px 10px', borderRadius: 8, background: T.bordeauxTint, border: '1px solid rgba(138,43,43,.2)', color: C.red, fontSize: 12.5, lineHeight: 1.45 }}>
                     <b>Advarsel: {visteFletMentions.length} {visteFletMentions.length === 1 ? 'narrativ-mention flyttes' : 'narrativ-mentions flyttes'} ikke.</b>
                     <div>{visteFletMentions.map((mention) => `${mention.kildeType} #${mention.kildeId} på ${mention.subjektNavn}`).join(' · ')}</div>
                   </div>
@@ -401,7 +402,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
           </section>
         ) : null}
 
-        <section style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 20, paddingTop: 14, borderTop: '1px solid rgba(34,31,26,.1)' }}>
+        <section style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 20, paddingTop: 14, borderTop: `1px solid ${T.line}` }}>
           {media.uploadStatus === 'fjernet' ? (
             <>
               <button type="button" disabled={fletBusy} onClick={() => { if (!fletBusy) onGenopret(); }} style={{ border: 0, borderRadius: 7, padding: '8px 13px', cursor: fletBusy ? 'default' : 'pointer', background: C.green, color: '#fff' }}>Genopret</button>
@@ -429,7 +430,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
             </>
           ) : <>
             {media.uploadStatus === 'klar' && onErstatFil ? (
-              <label style={{ border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 13px', cursor: medieAktionBusy ? 'default' : 'pointer', background: C.beige, color: C.muted, fontSize: 14, opacity: medieAktionBusy ? .5 : 1 }}>
+              <label style={{ border: `1px solid ${T.lineStrong}`, borderRadius: 7, padding: '8px 13px', cursor: medieAktionBusy ? 'default' : 'pointer', background: C.beige, color: C.muted, fontSize: 14, opacity: medieAktionBusy ? .5 : 1 }}>
                 {medieAktionBusy ? 'Erstatter…' : 'Erstat fil…'}
                 <input type="file" accept="image/*" disabled={medieAktionBusy} style={{ display: 'none' }}
                   onChange={async (e) => {
@@ -441,7 +442,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
                   }} />
               </label>
             ) : null}
-            <button type="button" disabled={fletBusy || !media.relationId} onClick={() => { if (!fletBusy) onFjern(); }} style={{ border: '1px solid rgba(34,31,26,.18)', borderRadius: 7, padding: '8px 13px', cursor: media.relationId && !fletBusy ? 'pointer' : 'default', background: C.beige, color: C.muted }}>Fjern tilknytning</button>
+            <button type="button" disabled={fletBusy || !media.relationId} onClick={() => { if (!fletBusy) onFjern(); }} style={{ border: `1px solid ${T.lineStrong}`, borderRadius: 7, padding: '8px 13px', cursor: media.relationId && !fletBusy ? 'pointer' : 'default', background: C.beige, color: C.muted }}>Fjern tilknytning</button>
             <button type="button" disabled={fletBusy || !anvendelse} title={bekraeftSlet ? sletAdvarsel : undefined} onClick={() => {
               if (fletBusy || !anvendelse) return;
               if (erIBrug && !bekraeftSlet) { setBekraeftSlet(true); return; }
