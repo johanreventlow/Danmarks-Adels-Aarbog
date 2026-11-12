@@ -5,6 +5,7 @@
 import { Suspense, useState, type CSSProperties } from 'react';
 import { T } from '../theme';
 import type { Model } from '../data/types';
+import { synligeLinjer } from '../data/lineage';
 import { filterByLineage } from '@daa/core';
 import { ViewHeader } from './primitives';
 import { GeoMap, MapFallback } from './lazyMaps';
@@ -14,7 +15,7 @@ export function OverviewMapView({ model, geoLoading, onPickPerson, onPickEstate 
 }) {
   const [linje, setLinje] = useState<string | null>(null);
   const allPoints = model?.geo?.points ?? [];
-  const linjeList = model?.lineage?.list ?? [];
+  const linjeList = synligeLinjer(model?.lineage?.list ?? []);
   const points = linje ? filterByLineage(allPoints, model?.lineage?.byPerson ?? {}, linje, { includeNonPerson: true }) : allPoints;
   const chip = (active: boolean): CSSProperties => ({
     fontSize: 12.5, fontWeight: 600, padding: '6px 12px', borderRadius: 999, cursor: 'pointer',

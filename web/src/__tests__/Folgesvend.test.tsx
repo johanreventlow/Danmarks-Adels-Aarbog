@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   fetchAbout: vi.fn(),
   fetchEstateInfo: vi.fn(),
   fetchEstateOwners: vi.fn(),
+  treeSearch: null as null | { linjeList: { linje: string; navn: string | null }[] },
 }));
 
 vi.mock('../router', () => ({
@@ -42,7 +43,12 @@ vi.mock('../data/bookmarks', () => ({
     toggle: vi.fn(),
   }),
 }));
-vi.mock('../components/TreeView', () => ({ TreeView: () => <div>Stamtræ</div> }));
+vi.mock('../components/TreeView', () => ({
+  TreeView: ({ search }: { search: { linjeList: { linje: string; navn: string | null }[] } }) => {
+    mocks.treeSearch = search;
+    return <div>Stamtræ</div>;
+  },
+}));
 vi.mock('../components/DetailPanel', () => ({
   DetailPanel: ({ detail }: { detail: { bio: string } | null }) => <aside>{detail ? `Biografi: ${detail.bio}` : 'Henter biografi'}</aside>,
 }));
@@ -75,4 +81,30 @@ test('viser personens biografi-fejl eksplicit i stedet for en gyldig tom detalje
   expect(alert.textContent).toContain('Kunne ikke hente personens biografi');
   expect(alert.textContent).toContain('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE');
   expect(screen.queryByText('Biografi: ')).toBeNull();
+});
+
+test('søgefladens linjechips får aldrig tekniske linjenøgler (legacy-source:)', async () => {
+  mocks.fetchPersonDetail.mockResolvedValue({ bio: '', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });
+  const base = buildModel({
+    persons: [{ id: '1', name: 'Testperson', born: null, died: 1900, years: '', title: '', bio: '', privat: false }],
+    unions: [],
+    parentChild: [],
+  });
+  mocks.loadModel.mockResolvedValue({
+    ...base,
+    lineage: {
+      byPerson: { '1': ['legacy-source:3:II', 'slaegt:1:lineage:5:scheme:canonical'] },
+      navn: { 'slaegt:1:lineage:5:scheme:canonical': 'V. Linje' },
+      list: [
+        { linje: 'legacy-source:3:II', count: 1, headId: '1', navn: null },
+        { linje: 'slaegt:1:lineage:5:scheme:canonical', count: 1, headId: '1', navn: 'V. Linje' },
+      ],
+    },
+    loadGeo: () => new Promise(() => {}),
+  });
+
+  render(<Folgesvend />);
+
+  await waitFor(() => expect(mocks.treeSearch?.linjeList.length).toBeGreaterThan(0));
+  expect(mocks.treeSearch!.linjeList.map((l) => l.linje)).toEqual(['slaegt:1:lineage:5:scheme:canonical']);
 });

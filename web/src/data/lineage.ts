@@ -15,6 +15,11 @@ export function lineageContextKey(context: LineageContext): string {
 
 const sourceCodeKey = (sourceId: string | number, code: string) => `${String(sourceId)}:${code}`;
 
+// Tekniske linjenøgler (en uafklaret legacy-kildekoordinat, se keyFor nedenfor) vises aldrig i læseren — hverken i
+// persondetaljens linjemærker eller i søge-/kortfladens linjechips (spec §5.7, final review C7).
+export const erTekniskLinje = (key: string): boolean => key.startsWith('legacy-source:');
+export const synligeLinjer = <T extends { linje: string }>(list: readonly T[]): T[] => list.filter((l) => !erTekniskLinje(l.linje));
+
 export type LineageSchemeRows = {
   schemes: RawLineageScheme[];
   entries: RawLineageSchemeEntry[];
