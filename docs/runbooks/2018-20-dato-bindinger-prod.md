@@ -55,7 +55,10 @@ de fastlåste; ellers er tilstanden `ukendt` (`MAAL_DATO_UKENDT`), og intet skri
 
 1. `maal` → `DATO_MAAL_OK tilstand=foer`, tal `0,0,0,568,15,0,0,67,88,1759`, bindingshash `fa08bb8a…`. **Notér
    sekunderne**: målingen kalder `public_person_facts` for alle personer og er umålt i prod (stand-in: 6 s).
-2. `vejb` → `DATO_VEJB_OK tilstand=foer … stoerste_median_ms=…` og `DATO_VEJB_KOLD_OK` (før-tallet i prod).
+2. `vejb` → `DATO_VEJB_KOLD_OK` og `DATO_VEJB_OK tilstand=foer … stoerste_median_ms=…` (før-tallet i prod). De kolde
+   kald (én ny forbindelse pr. person) kører først, før målingen og de varme kald har varmet cachen. **Stopregel:** på
+   stand-in'en steg den største median 1,3× fra `foer` til `k` (219 → 287 ms). Er en prod-median i `foer` over ca.
+   750 ms, forudsiger det et brud på grænsen efter `k`: stop og vurdér, før der tages GO.
 
 ### Ceremoni `ddl`
 
@@ -88,11 +91,11 @@ er 12 timer gammelt.
 1. `kort` (læse-kun; tilstand `n`; ejer-tjek) → kontrolmappen `prod/dato/kontrol-<stempel>/`: klassifikation og
    rækkeeksport (kildescope 1), planen (`--predikater person.birth,person.death --kun-stikproeve --strata-ubekraeftet 0
    --strata-oevrige 20`; alle 2018-20-personas har tom identitets-outcome, så hele stikprøven er »øvrige«), konteksten og
-   kortsiden. → `DATO_KORT_OK personas=18 sider=1 …` og `PLAN_V2_OK … stikprøve=20 … maskinkandidater=489 ark_felter=20
-   personas=18 praedikater=person.birth,person.death udeladt=59` (runneren kræver stikprøve, maskinkandidater,
-   ark_felter, udeladt og prædikaterne præcis), `DAA_DATO_KONTROL=…`.
-   Stikprøven trækkes efter versions-id'erne, som `apply-n` opretter tilfældigt; prods 18 personas er derfor ikke
-   øvelsens, og antallet kan variere lidt (runneren låser kun 20/489/20/59).
+   kortsiden. → `DATO_KORT_OK personas=<18-20> sider=1 …` og `PLAN_V2_OK … stikprøve=20 … maskinkandidater=489
+   ark_felter=20 personas=<18-20> praedikater=person.birth,person.death udeladt=59` (runneren kræver stikprøve,
+   maskinkandidater, ark_felter, udeladt og prædikaterne præcis), `DAA_DATO_KONTROL=…`.
+   Stikprøven trækkes efter versions-id'erne, som `apply-n` opretter tilfældigt; prods stikprøve er derfor ikke
+   øvelsens, og antallet af personas varierer (øvelsen: 18 og 20).
 2. **Projektejeren** åbner `kort/kort-1.html`, svarer `-` for hver persona og `B` (eller `D`/`V`) for hvert af de 20
    felter og gemmer svarfilen (JSON). Ét svar, der ikke er `B`, stopper ceremonien allerede ved `go-k`
    (`DATO_GEN_SQL (SAMPLE_FAILED)`); intet skrives (spec §4.2 pkt. 4).
@@ -164,6 +167,13 @@ Alle `STOPPORT:`-linjer stopper uden at skrive yderligere. Hvor langt man er nå
      efterkontrol af grants, default-rettigheder, katalog, forældreløse rækker, restore-hash, rækkeaftryk og målingen
      (tilstand, tal og bindingshash som dumpets). → `DATO_FORTRYD_OK tilstand=<ddl|n> … acl=som_dump katalog=som_dump`.
   4. Kæden går baglæns (`k` → `n` → `ddl`), ét dump ad gangen; ceremonien kan derefter køres igen fra sit `dump`.
+     **I prod kun, så længe ingen andre har skrevet:** ét læserbogmærke efter `apply-n` gør, at `fortryd` af `n`
+     nægter (vinduesvagten, med vilje). Godkendelsespunktet for `n` er derfor `maal` = `n` lige efter `apply-n`; for
+     `k` er det `verify` og `vejb` lige efter `apply-k`. Derefter er fortrydelse ved restore normalt ikke længere en
+     mulighed.
+  5. Fortryd gater på målingens **rå** tilstand (`raa=`), ikke den fastlåste: efter en ceremoni med forkerte tal står
+     `maal` som `ukendt`, og netop da skal `fortryd` kunne køre. Det godkendte aftryk efter ceremonien beviser, at basen
+     kun bærer ceremoniens egne skrivninger.
 - **`ddl`:** `go-fortryd-ddl` → `GO dato-fortryd-ddl <kode>` → `fortryd-ddl --jeg-mener-det --go <kode>`. Kun i tilstand
   `ddl` og kun, når `private.interpretation` i **ingen** kilde har v2's method (tjekkes igen i transaktionen). Én
   transaktion: writerens gemte definition (`CREATE OR REPLACE` bevarer grants) og `DROP FUNCTION
@@ -208,6 +218,11 @@ Stand-in `daa5ab_ddl_standin_20261112154600_dato` (prod-dump 12/11 b9a0503d), ru
   `SAMPLE_FAILED`, intet skrevet. `fortryd-ddl` i tilstand `n` → `DATO_FORTRYD_DDL_TILSTAND`. Et bogmærke indsat mellem
   `apply-k`'s commit og aftrykket (`DAA_DATO_TEST_FREMMED=k`) → `DATO_FREMMED_SKRIVNING (… public.bookmark …)`, markøren
   står, og både `go-fortryd` og `fortryd` stopper med `DATO_MARKOER`; genopretningen ovenfor øvet, derefter `fortryd`.
+- Slutgennemløb med den færdige runner (alle pins sat, ingen testvariabler; repo = `main` + denne runbook):
+  `foer` → `ddl` → `n` → `k` med tallene i tabellen ovenfor, `verify` (`tabt:0,nye:509`) og `vejb` (største median 287
+  ms; 0 kolde fejl). Kilde 3 (1939) er uændret: `post_foedsel=299 post_doed=272` både før og efter. Derefter en bevidst
+  forkert `M_K` → `maal` = `ukendt`, og `fortryd` (k → n) lykkedes alligevel (rå tilstand); pinnen sat tilbage; kæden
+  fortrudt til `foer`. Runnerens sha efter øvelsen: `737f7b23…`.
 - Fund under øvelsen: `SAMPLE_FAILED` kommer allerede ved `go-k` (SQL-genereringen afviser arket), ikke i ceremonien.
   Kortets rækkeeksport tager 43-46 s lokalt for kilde 1 (6c-2's kilde 3: 4 s); den er det langsomste læsetrin.
 
@@ -218,4 +233,8 @@ Stand-in `daa5ab_ddl_standin_20261112154600_dato` (prod-dump 12/11 b9a0503d), ru
 - `docs/evidensbaseret-genimport/status.md` (2018-20's promotion og B11-rækken), `docs/database-current-state.md` (nyt
   afsnit med prod-tider), `docs/changelog.md` og færdigbeviset `docs/evidensbaseret-genimport/dato-bindinger-2018-20-prod.md`.
 - Notér prod-tiderne for `maal`, `kort`, `apply-k` og verify her, så senere skøn bygger på dem.
-- Spørg projektejeren, om del 2 (kort over de 59 SKRIVEMAADE) skal køres.
+- Spørg projektejeren, om del 2 (kort over de 59 SKRIVEMAADE) skal køres. Del 2 er ikke i denne runner. Efter del 2
+  fejler `verify` med vilje (`CONTROL_V2_UDELADT_AFGJORT`: del 1's verify kræver de 59 `proposed`), og `maal` står som
+  `ukendt` (`skrivemaade` er fastlåst til 59). Del 2 får sin egen runner eller nye pins.
+- Før GO er de to datatilfælde fra slutreviewet dækket af den fastlåste kandidatliste: død med `f.` (0) og fødsel med
+  `* og …` (1, står uændret). Ændrer et af dem sig i prod, ændres listens sha, og `forbered-n` stopper.
