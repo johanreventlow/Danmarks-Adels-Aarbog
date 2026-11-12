@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   fetchEstateInfo: vi.fn(),
   fetchEstateOwners: vi.fn(),
   treeSearch: null as null | { linjeList: { linje: string; navn: string | null }[] },
+  detailProps: null as null | { onVisPraesens?: () => void },
 }));
 
 vi.mock('../router', () => ({
@@ -50,7 +51,10 @@ vi.mock('../components/TreeView', () => ({
   },
 }));
 vi.mock('../components/DetailPanel', () => ({
-  DetailPanel: ({ detail }: { detail: { bio: string } | null }) => <aside>{detail ? `Biografi: ${detail.bio}` : 'Henter biografi'}</aside>,
+  DetailPanel: (props: { detail: { bio: string } | null; onVisPraesens?: () => void }) => {
+    mocks.detailProps = props;
+    return <aside>{props.detail ? `Biografi: ${props.detail.bio}` : 'Henter biografi'}</aside>;
+  },
 }));
 
 import Folgesvend from '../Folgesvend';
@@ -107,4 +111,11 @@ test('søgefladens linjechips får aldrig tekniske linjenøgler (legacy-source:)
 
   await waitFor(() => expect(mocks.treeSearch?.linjeList.length).toBeGreaterThan(0));
   expect(mocks.treeSearch!.linjeList.map((l) => l.linje)).toEqual(['slaegt:1:lineage:5:scheme:canonical']);
+});
+
+test('anonym læser får ingen indgang til præsenslisten fra personpanelet', async () => {
+  mocks.fetchPersonDetail.mockResolvedValue({ bio: '', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });
+  render(<Folgesvend />);
+  await screen.findByText(/^Biografi:/);
+  expect(mocks.detailProps?.onVisPraesens).toBeUndefined();
 });

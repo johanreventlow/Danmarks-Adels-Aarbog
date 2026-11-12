@@ -512,7 +512,9 @@ export default function Folgesvend() {
             backName={backName} onBack={() => window.history.back()} onClose={mode === 'tree' ? closeDetail : undefined}
             onFocusTree={() => goToMode('tree')}
             onRelate={() => { setRelA(focusId); setRelB(null); setRelSlot('B'); goToMode('relate'); }}
-            onVisPraesens={() => navigate('/praesens', { state: { fokusId: focusId } })}
+            // Præsenslisten kræver i dag rollen redaktion (PresensView); for andre er linket en
+            // offentlig indgang til en side, de ikke kan se (webredesign fase 0).
+            onVisPraesens={session?.role === 'redaktion' ? () => navigate('/praesens', { state: { fokusId: focusId } }) : undefined}
             isMe={focusId === meCanon} onToggleMe={() => toggleMe(focusId)}
             isBookmarked={bookmarks.has(focusId)} onToggleBookmark={() => saveOrPrompt(focusId)}
             geoLoading={geoLoading}
