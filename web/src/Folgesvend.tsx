@@ -166,10 +166,10 @@ export default function Folgesvend() {
       navigate(pathForMode('estates'), { replace: true });
     }
   }, [estates, estateId]);
-  // 'home' udløser samme hentning som 'arms' (ikke kun mode==='arms'): forsidens feed
+  // 'home' og 'about' udløser samme hentning som 'arms' (ikke kun mode==='arms'): forsidernes feed
   // (fase1-design.md §7) viser våben-kort og skal have data uden at brugeren først har
   // besøgt Våben-siden.
-  useEffect(() => { if ((mode === 'arms' || mode === 'home') && !arms) fetchArms().then(setArms).catch(() => setArms([])); }, [mode, arms]);
+  useEffect(() => { if ((mode === 'arms' || mode === 'home' || mode === 'about') && !arms) fetchArms().then(setArms).catch(() => setArms([])); }, [mode, arms]);
   useEffect(() => { if (mode === 'about' && !about) fetchAbout().then(setAbout).catch(() => setAbout([])); }, [mode, about]);
   // Gods-detalje-fetches (review 15 M3): cancelled-guard så en sen resolver for gods A ikke
   // permanent overskriver gods B's data, når man skifter gods hurtigt.
@@ -523,7 +523,14 @@ export default function Folgesvend() {
             : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(estatePath(id)); }} onBack={() => { setEstateId(null); navigate(pathForMode('estates', slug)); }} onPickOwner={visPerson}
               slaegtensKortHref={pathForMode('kort', slug)} onSlaegtensKort={() => goToMode('kort')} />
             : mode === 'arms' ? <ArmsView arms={arms} />
-            : mode === 'about' ? <AboutView about={about} personCount={persons.length} estateCount={estates?.length ?? null} onPick={visPerson} />
+            : mode === 'about' ? <AboutView slaegt={findSlaegt(slug) ?? SLAEGTER[0]} model={model} about={about} personCount={persons.length} estateCount={estates?.length ?? null} onPick={visPerson}
+                feed={{ estates, arms, meId: meCanon, focusId, bookmarkedIds: bookmarkIds,
+                  bookmarksReady: bookmarks.ready, bookmarkHydrationVersion: bookmarks.hydrationVersion,
+                  bookmarkOwnerId: session?.userId ?? null, hasBookmark: bookmarks.has, onSaveBookmark: saveOrPrompt,
+                  onOpenPerson: visPerson, onOpenEstate: (id) => { setEstateId(id); navigate(estatePath(id)); },
+                  onOpenArms: () => goToMode('arms'),
+                  onOpenSlaegt: (aId, bId) => { setRelA(aId); setRelB(bId); setRelSlot('B'); goToMode('relate'); },
+                  onBrowseAll: () => goToMode('soeg') }} />
             : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={saveOrPrompt} loggedIn={bookmarks.canSave} onRequireLogin={() => setLoginOpen(true)} /> : <div style={{ padding: 40, color: T.inkMuted }}>Henter…</div>)
             : mode === 'kort' ? <OverviewMapView model={model} geoLoading={geoLoading} onPickPerson={visPerson} onPickEstate={(id) => navigate(estatePath(id))} />
             : mode === 'praesens' ? <PresensView model={model} onPickPerson={visPerson} session={sessionKlar ? session : 'henter'} onLogin={() => setLoginOpen(true)} onGoTree={() => goToMode('tree')} />

@@ -1,0 +1,100 @@
+// @vitest-environment jsdom
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { FeedPinInput } from '@daa/feed';
+import type { Model, ModelPerson } from '../../data/types';
+import type { AboutSection } from '../../data/public';
+
+const pins = vi.hoisted(() => ({ value: [] as FeedPinInput[] }));
+vi.mock('../../router', () => ({ navigate: vi.fn() }));
+vi.mock('../../data/feedPins', () => ({ fetchFeedPins: () => Promise.resolve(pins.value) }));
+vi.mock('../feed/FeedStreamView', () => ({ FeedStreamView: () => <div data-testid="feed" /> }));
+vi.mock('../NarrativRenderer', () => ({ NarrativRenderer: ({ tekst }: { tekst: string }) => <span>{tekst}</span> }));
+
+import { AboutView, indledningKilde, indledningUddrag } from '../AboutView';
+
+const REVENTLOW = { slug: 'reventlow', navn: 'Reventlow', vaaben: { src: '/vaaben/reventlow.png', note: 'Våben efter DAA 1939 · ikke autoriseret' } };
+const person = (id: string, name: string, o: Partial<ModelPerson> = {}) =>
+  ({ id, name, born: 1600, died: 1660, years: '1600–1660', title: '', bio: '', privat: false, parentId: null, spouse: '', ...o }) as ModelPerson;
+const ps = [person('1', 'Henning Reventlow'), person('2', 'Conrad Reventlow', { title: 'Storkansler', years: '† 1708', died: 1708 })];
+const model = {
+  persons: ps, byId: Object.fromEntries(ps.map((p) => [p.id, p])), indexes: { childIdx: {} },
+  lineage: { byPerson: {}, navn: {}, list: [{ linje: 'I', count: 120, headId: '1', navn: 'I. linje' }, { linje: 'II', count: 80, headId: null, navn: null }] },
+} as unknown as Model;
+const about: AboutSection[] = [
+  { lineageNavn: null, lineageKode: null, tekst: 'Første afsnit om slægten.\n\nAndet afsnit.', kilde: 'DAA 2018-20', aar: 2020 },
+  { lineageNavn: 'I. linje', lineageKode: 'I', tekst: 'Om første linje.', kilde: 'Reventlow, stamtavle', aar: 1939 },
+];
+const feed = {
+  estates: [], arms: [], meId: null, focusId: null, bookmarkedIds: [], bookmarksReady: true, bookmarkHydrationVersion: 0,
+  bookmarkOwnerId: null, hasBookmark: () => false, onSaveBookmark: vi.fn(), onOpenPerson: vi.fn(), onOpenEstate: vi.fn(),
+  onOpenArms: vi.fn(), onOpenSlaegt: vi.fn(), onBrowseAll: vi.fn(),
+};
+const vis = (o: Partial<Parameters<typeof AboutView>[0]> = {}) =>
+  render(<AboutView slaegt={REVENTLOW} model={model} about={about} personCount={673} estateCount={186} onPick={vi.fn()} feed={feed} {...o} />);
+
+beforeEach(() => { pins.value = []; });
+
+describe('AboutView (slægtens forside)', () => {
+  it('viser våbnet med kildenote og slægtens navn som overskrift', async () => {
+    vis();
+    expect(screen.getByRole('img', { name: 'Reventlows våben' }).getAttribute('src')).toBe('/vaaben/reventlow.png');
+    expect(screen.getByText('Våben efter DAA 1939 · ikke autoriseret')).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'Reventlow' })).toBeTruthy();
+    await screen.findByTestId('feed');
+  });
+
+  it('indledningen viser uddrag og kilde, og kan foldes helt ud', async () => {
+    vis();
+    expect(screen.getByText('Første afsnit om slægten.')).toBeTruthy();
+    expect(screen.getByText('Kilde: DAA 2018-20 (2020)')).toBeTruthy();
+    const knap = screen.getByRole('button', { name: 'Læs hele indledningen' });
+    expect(knap.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(knap);
+    expect(screen.getByText(/Andet afsnit\./)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Vis kun begyndelsen' }).getAttribute('aria-expanded')).toBe('true');
+    await screen.findByTestId('feed');
+  });
+
+  it('linjerne med antal og stamfader som link; linjens indledning kan foldes ud', async () => {
+    vis();
+    const linjer = screen.getByRole('region', { name: 'Linjerne' });
+    expect(within(linjer).getByText('I. linje')).toBeTruthy();
+    expect(within(linjer).getByText('Linje II')).toBeTruthy();
+    expect(within(linjer).getByText('120 personer')).toBeTruthy();
+    expect(within(linjer).getByRole('link', { name: 'Henning Reventlow' }).getAttribute('href')).toBe('/person/1');
+    expect(within(linjer).getByText('Om I. linje')).toBeTruthy();
+    expect(within(linjer).getByText('Om første linje.')).toBeTruthy();
+    await screen.findByTestId('feed');
+  });
+
+  it('»Redaktionen foreslår« kun når redaktionen har fastgjort portrætter', async () => {
+    const { unmount } = vis();
+    await screen.findByTestId('feed');
+    expect(screen.queryByText('Redaktionen foreslår')).toBeNull();
+    unmount();
+    pins.value = [{ kortNoegle: 'portrait:2', handling: 'pin' }];
+    vis();
+    const sektion = await screen.findByRole('region', { name: 'Redaktionen foreslår' });
+    const link = within(sektion).getByRole('link', { name: /Conrad Reventlow/ });
+    expect(link.getAttribute('href')).toBe('/person/2');
+    expect(within(link).getByText('Storkansler')).toBeTruthy();
+  });
+
+  it('siger det med ord, når slægten ingen indledning har', async () => {
+    vis({ about: [] });
+    expect(screen.getByText('Aarbogen har endnu ingen indledning til slægten.')).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId('feed')).toBeTruthy());
+  });
+});
+
+describe('indledningens hjælpere', () => {
+  it('kilde med år, uden dobbelt år, og uden kilde', () => {
+    expect(indledningKilde({ kilde: 'DAA 2018-20', aar: 2020 })).toBe('Kilde: DAA 2018-20 (2020)');
+    expect(indledningKilde({ kilde: 'DAA 1939', aar: 1939 })).toBe('Kilde: DAA 1939');
+    expect(indledningKilde({ kilde: null, aar: null })).toBe('Kilde ikke registreret');
+  });
+  it('uddraget springer en overskrift over', () => {
+    expect(indledningUddrag('## Indledning\n\nFørste afsnit.\n\nAndet.')).toBe('Første afsnit.');
+  });
+});
