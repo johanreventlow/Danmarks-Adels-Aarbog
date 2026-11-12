@@ -103,12 +103,13 @@ tallene ligger tæt. Opløst / ikke opløst er core's egen afgørelse (`relative
 
 Konservative regler ud over spec'en (*mit valg*; ikke opløst = bogens tekst, aldrig »✓«):
 
-- **Usikker eller flertydig reference** (»ca.«, »o.«, »før«, »eller«, »?«, et interval, en skråstreg som »12./13. jan.«
-  eller »1644/45«, to forskellige datoer eller måneder) opløses ikke: en sikker dato må ikke udledes af en usikker.
+- **Usikker eller flertydig reference** (»ca.«, »o.«, »før«, »eller«, »?«, et interval, en skråstreg som »21./22. april«
+  eller »1644/45«, to forskellige datoer, dage eller måneder (»21. og 22. april«), et andet år i parentes
+  (»1644 (45)«)) opløses ikke: en sikker dato må ikke udledes af en usikker.
   Rammer 1 (skråstreg; den blev opløst før review-rettelsen).
 - **Opløsning pr. del:** `vaerdi_tekst` og `date_raw` opløses hver for sig og derefter tjekkes for dobbelt værdi
-  (spec §5.8). En `date_raw`, der står ordret i `vaerdi_tekst`, vises ikke igen. Kan én del ikke opløses, vises hele
-  værdien som bogens tekst.
+  (spec §5.8). `date_raw` vises ikke igen, når den er lig `vaerdi_tekst`, eller når `vaerdi_tekst` slutter med den,
+  og den er mere end et årstal (afgørelse 13). Kan én del ikke opløses, vises hele værdien som bogens tekst.
 - **Flertydig i teksten:** bogen skriver også »s.d.«/»s.m.« om en dato tidligere i samme tekst (»bisat … s.å. og
   begravet s.d.« = bisættelsens dag). Giver den læsning et andet resultat end fødslen/døden, opløses intet. Rammer 1.
 - **Forkortelser er ikke datoer:** initialer og forkortelseskæder (»i S. M. Kirke«, »R.S.A.O.«, »K.S.D.«, »S.D.-kors«,
@@ -126,7 +127,9 @@ bisat).
 - Opløst/ikke opløst: 312/52 → 313/51. 1 dåb og 1 begravelse opløses nu (pr. del i stedet for hele værdien), og
   1 begravelse opløses ikke længere (skråstreg i dødsdatoen).
 - Noterne er uændrede: ✓/skriver/»Kun i« og de 927 par er de samme.
-- 38 visninger (komponent × udgave) viser en kortere værdi, fordi en dato ikke længere står to gange.
+- 3 visninger (komponent × udgave) viser en kortere værdi, fordi en dato ikke længere står to gange. I runde 1 var
+  det 38 med reglen »står i teksten«; afgørelse 13 begrænser den til »slutter med«.
+- Runde 2 (flere dage i referencen, år i parentes, »slutter med«) ændrer 0 noter og 0 opløsninger på stand-in'en.
 
 ## Vælger, etiketter og tab
 
