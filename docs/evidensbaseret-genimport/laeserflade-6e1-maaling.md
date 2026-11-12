@@ -16,6 +16,8 @@ Spec: `docs/superpowers/specs/2026-11-12-trin6e-laeserflade-design.md` §5.1-5.5
   `default_transaction_read_only=on`.
 - **Genkørt efter Task 7b** (relative datoer opløses, ledende tegn og sideform, spec §5.4a/§5.8) på samme stand-in;
   tabellerne nedenfor er tallene efter 7b, med tallet før 7b i parentes, hvor det har ændret sig.
+- **Genkørt efter slutrettelserne** (final review 2026-11-12, se »Slutrettelserne« nedenfor): faktatype-tabellerne
+  er uændrede; kun tabellen over relative datoer har nye tal.
 
 ## Grundtal
 
@@ -90,8 +92,8 @@ tallene ligger tæt. Opløst / ikke opløst er core's egen afgørelse (`relative
 
 | Udgave | Faktatype | Opløst | Ikke opløst | Årsag (ikke opløst) |
 |---|---|---:|---:|---|
-| DAA 2018-20 | dåb | 178 | 1 | ville ligge før fødslen |
-| DAA 2018-20 | begravelse | 106 | 10 | 8 dødsdatoen er selv relativ · 1 usikker reference (skråstreg) · 1 flertydig i teksten |
+| DAA 2018-20 | dåb | 152 | 27 | 26 relativt datofelt ved en dato i teksten · 1 ville ligge før fødslen |
+| DAA 2018-20 | begravelse | 92 | 24 | 18 relativt datofelt ved en dato i teksten · 5 dødsdatoen er selv relativ · 1 usikker reference (skråstreg) |
 | DAA 2018-20 | død | 0 | 12 | typen opløses ikke |
 | DAA 2018-20 | titel | 0 | 4 | typen opløses ikke |
 | DAA 2018-20 | dekoration | 0 | 3 | typen opløses ikke |
@@ -99,7 +101,7 @@ tallene ligger tæt. Opløst / ikke opløst er core's egen afgørelse (`relative
 | DAA 1939 | begravelse | 8 | 3 | dødsdatoen er selv relativ |
 | DAA 1939 | død | 0 | 16 | typen opløses ikke |
 | DAA 1939 | titel | 0 | 2 | typen opløses ikke |
-| **I alt** | | **313** | **51** | |
+| **I alt** | | **273** | **91** | |
 
 Konservative regler ud over spec'en (*mit valg*; ikke opløst = bogens tekst, aldrig »✓«):
 
@@ -109,18 +111,30 @@ Konservative regler ud over spec'en (*mit valg*; ikke opløst = bogens tekst, al
   Rammer 1 (skråstreg; den blev opløst før review-rettelsen).
 - **Opløsning pr. del:** `vaerdi_tekst` og `date_raw` opløses hver for sig og derefter tjekkes for dobbelt værdi
   (spec §5.8). `date_raw` vises ikke igen, når den er lig `vaerdi_tekst`, eller når `vaerdi_tekst` slutter med den,
-  og den er mere end et årstal (afgørelse 13). Kan én del ikke opløses, vises hele værdien som bogens tekst.
+  og den er mere end et årstal (afgørelse 13); afsluttende »?« og parenteser bærer betydning og tæller med. Kan én
+  del ikke opløses, vises hele værdien som bogens tekst.
+- **Datofelt ved en dato i teksten:** er `date_raw` relativ, og nævner `vaerdi_tekst` en dato, et årstal, et
+  månedsnavn eller selv et relativt led, opløses intet — feltets »s.d.« kan henvise til tekstens dato i stedet for
+  fødslen/døden (»bisat 5. april s.å. og begravet« + »s.d.«). Undtagelse: et datofelt, der ordret gentager tekstens
+  slutning, er intet selvstændigt led; teksten opløses da for sig. Rammer 44 (26 dåb, 18 begravelser).
+- **Flere eller omstridte referencer:** viser personrækken flere fødsler/døde, der ikke er ens, eller er en af dem
+  omstridt eller uden vist værdi, opløses intet. Rammer 0.
 - **Flertydig i teksten:** bogen skriver også »s.d.«/»s.m.« om en dato tidligere i samme tekst (»bisat … s.å. og
   begravet s.d.« = bisættelsens dag). Giver den læsning et andet resultat end fødslen/døden, opløses intet. Rammer 1.
 - **Forkortelser er ikke datoer:** initialer og forkortelseskæder (»i S. M. Kirke«, »R.S.A.O.«, »K.S.D.«, »S.D.-kors«,
-  »p.s.d.«) regnes ikke som relative. 1939's »15 s. M.« (lille s) gør. Rammer 0 på stand-in'en, og formerne
+  »p.s.d.«) regnes ikke som relative. 1939's »15 s. M.« (lille s) gør, og det samme gør versalformen lige efter et
+  dagnummer (»29. S.M.«). Rammer 0 på stand-in'en, og formerne
   »s. Aa.«/»samme Aar« forekommer 0 gange blandt offentlige påstande.
 - **Før referencen:** en dåb, der opløst ville ligge før fødslen (eller en begravelse før døden), opløses ikke.
   Rammer 1.
 
-Kontrol af de 313 opløste værdier (kun antal): 0 ugyldige datoer (fx 31. april), 0 før referencen. 5 værdier
-nævner flere datoer, alle forskellige hændelser i bogens tekst (bisat/begravet, hjemmedøbt/fremstillet, senere
-bisat).
+- **Ugyldig kalenderdato:** en opløsning, der ikke findes i kalenderen (»31. s.m.« i april, »29. febr. s.å.« uden for
+  et år deleligt med 4), eller en reference med en sådan dato, opløses ikke. Et ekstra dagnummer uden punktum
+  (»21 og 22 april«) gør referencen flertydig. Rammer 0.
+
+Kontrol af de 273 opløste værdier efter slutrettelserne (kun antal): 0 ugyldige datoer, 0 før referencen, 1 nævner
+flere datoer. (Efter review-rettelsen: 313 opløste; 0 ugyldige, 0 før referencen, 5 med flere datoer, alle
+forskellige hændelser i bogens tekst.)
 
 **Review-rettelsen (2026-11-12), før → efter:**
 
@@ -130,6 +144,17 @@ bisat).
 - 3 visninger (komponent × udgave) viser en kortere værdi, fordi en dato ikke længere står to gange. I runde 1 var
   det 38 med reglen »står i teksten«; afgørelse 13 begrænser den til »slutter med«.
 - Runde 2 (flere dage i referencen, år i parentes, »slutter med«) ændrer 0 noter og 0 opløsninger på stand-in'en.
+
+**Slutrettelserne (final review 2026-11-12), før → efter:**
+
+- Opløst/ikke opløst: 313/51 → 273/91. Hele forskellen er reglen »datofelt ved en dato i teksten«: 40 dåbs- og
+  begravelsesværdier, der før blev opløst, vises nu som bogens tekst (4 af de 44 ramte var i forvejen uopløste af
+  anden grund). Uden undtagelsen for et ordret gentaget datofelt var tallet 272/92.
+- De øvrige regler (»?« i datofeltet, »29. S.M.«, flere/omstridte referencer, dagnumre uden punktum, ugyldige
+  kalenderdatoer) rammer 0 på stand-in'en.
+- Noterne er uændrede: ✓/skriver/»Kun i« pr. type som i tabellerne ovenfor, og de 927 ✓-par har samme nøgler og
+  samme viste værdier i begge udgaver som før — intet nyt eller ændret ✓-par. 40 linjer viser en anden værdi
+  (bogens tekst), og 28 visninger har en ændret værdi under »Kun i«; ingen note skifter art.
 
 ## Vælger, etiketter og tab
 
@@ -188,3 +213,8 @@ eller hviler på en ændret værdi siden dommen:
 
 Udeladt er 153 par, hvis værdi kun har mistet et ledende tegn (samme værdi efter lighedsreglen). Til orientering
 viser arket også nr. 42 (nu »skriver«) og nr. 43-46 (bedømt på bogens tekst, nu opløst og stadig ✓).
+
+**Dom over de 14 nye par:** Projektejeren 2026-11-12: alle 14 korrekte → SLUKKET_ENIGHED tom.
+
+**Efter slutrettelserne:** de 927 ✓-par er de samme (nøgle og værdier) som dem, dommene gælder; der er intet nyt
+par at bedømme.
