@@ -90,7 +90,7 @@ const conrad = fixture('Conrad', input([
   fritekstKilde: { '39200': ['Dansk Adels Aarbog – DAA 1939'] },
 }));
 
-const RELATIV_TYPER = ['dåb', 'begravelse', 'død', 'titel', 'dekoration'];
+const RELATIV_FRI = ['navn', 'tilnavn'];
 const linje = (v: UdgaveFaktaVisning, type: string) => v.linjer.filter((l) => l.faktatype === type);
 
 describe('byggUdgaveFakta', () => {
@@ -559,6 +559,13 @@ describe('byggUdgaveFakta', () => {
       tekst({ person_id: 251, faktatype: 'titel', vaerdi_tekst: 'kammerjunker s.å.', source_id: 3, source_label: 'DAA 1939' }),
       tekst({ person_id: 251, faktatype: 'dekoration', vaerdi_tekst: 'R. s.d.', source_id: 3, source_label: 'DAA 1939' }),
     ], { udgaveForPersonRaekke: ext2(250, 251) }));
+    // latent (0 på stand-in): en relativ fødsel med ens tekst giver heller ikke ✓
+    const foedsel = fixture('relativ fødsel', input([
+      r18({ person_id: 252, faktatype: 'fødsel', date_raw: '2. s.m.' }),
+      r39({ person_id: 253, faktatype: 'fødsel', date_raw: '2. s.m.' }),
+    ], { udgaveForPersonRaekke: ext2(252, 253) }));
+    expect(linje(byggUdgaveFakta(foedsel, '1'), 'fødsel').map((l) => l.noter))
+      .toEqual([[{ art: 'skriver', udgave: D39, vaerdier: ['2. s.m.'] }]]);
     for (const [valgt, anden] of [['1', D39], ['3', D18]] as const) {
       const v = byggUdgaveFakta(inp, valgt);
       // død opløses ikke (referencen er ikke fødslen)
@@ -612,7 +619,7 @@ describe('byggUdgaveFakta', () => {
               .flatMap((m) => (m.vaerdi === '' ? m.andre.map((a) => ({ v: a.value, kilder: [a.source] })) : [{ v: m.vaerdi, kilder: m.kilder }]))
               .filter((x) => !fx.undtaget?.includes(x.v) && !fx.undtaget?.includes(`${x.v}@${anden.sourceId}`));
             // en relativ dato på en dato-/titeltype kan aldrig bære et ✓ (spec §5.4a)
-            const relativ = (x: string) => RELATIV_TYPER.includes(l.faktatype) && erRelativDato(x);
+            const relativ = (x: string) => !RELATIV_FRI.includes(l.faktatype) && erRelativDato(x);
             expect(relativ(l.vaerdi), `relativ ✓-linje: ${l.faktatype}`).toBe(false);
             const ens = (x: { v: string }) => !relativ(x.v) && faktaVaerdierEns(l.faktatype, x.v, l.vaerdi);
             // en ens værdi skal have mindst én kilde, der ikke er den valgte udgave selv

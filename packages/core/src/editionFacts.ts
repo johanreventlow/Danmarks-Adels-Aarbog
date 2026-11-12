@@ -229,9 +229,10 @@ function faktaRaa(input: UdgaveFaktaInput, udenUdgaver: boolean): FaktumVisning[
 
 // Dåb opløses ud fra fødslen, begravelse ud fra døden — begge fra SAMME personrække (og dermed samme udgave).
 const RELATIV_REFERENCE: Record<string, string> = { dåb: 'fødsel', begravelse: 'død' };
-// Typer, hvor en (uopløst) relativ dato aldrig må give ✓. Navne o.l. er udeladt: »S. A.« kan være initialer.
-const RELATIV_TYPER: ReadonlySet<string> = new Set(['dåb', 'begravelse', 'død', 'titel', 'dekoration']);
-const uopløstRelativ = (faktatype: string, v: string) => RELATIV_TYPER.has(faktatype) && erRelativDato(v);
+// En (uopløst) relativ dato må aldrig give ✓ — spec'en nævner dåb, begravelse, død, titel og dekoration; her gælder
+// det alle typer (også fødsel o.l., 0 på stand-in), undtagen navne, hvor »S. A.« kan være initialer.
+const RELATIV_FRI: ReadonlySet<string> = new Set(['navn', 'tilnavn']);
+const uopløstRelativ = (faktatype: string, v: string) => !RELATIV_FRI.has(faktatype) && erRelativDato(v);
 
 // Referencen er rækkens første viste fødsel/død i fakta-ordenen. Kan et led ikke opløses, vises bogens tekst —
 // den forbliver relativ og kan derfor aldrig give ✓ (se `ens` i byggUdgaveFakta).
