@@ -53,7 +53,9 @@ const udenLedendeTegn = (v: string | null) => (v == null ? null : v.replace(/^\s
 // afsluttende tegnsætning, ved en ordgrænse) og den er mere end et årstal — fx »hjemmedøbt 10. febr. 1922« +
 // »10. febr. 1922« (spec §5.8 »Dobbelt værdi«, afgørelse 13). Et rent årstal kan være et tilfælde (»kirken opført
 // 1845« + »1845«, »1845 eller 1846« + »1846«), så begge vises. Tjekket sker efter `del` (opløsning, §5.4a).
-const udenHale = (v: string) => v.trim().replace(/[\s\p{P}]+$/u, '');
+// Kun mellemrum og . , ; : er skrivemåde i halen; »?«, parenteser o.l. bærer betydning og fjernes aldrig — ellers
+// forsvandt »21. april 1644?« bag »døbt 21. april 1644« (final review C1).
+const udenHale = (v: string) => v.trim().replace(/[\s.,;:]+$/u, '');
 const slutterMed = (tekst: string, del: string) => {
   const t = udenHale(tekst), d = udenHale(del);
   if (!d || !/\p{L}/u.test(d) || !t.endsWith(d)) return false;
@@ -61,14 +63,23 @@ const slutterMed = (tekst: string, del: string) => {
   return foer == null || !/[\p{L}\p{N}]/u.test(foer);
 };
 
+// Er `date_raw` en gentagelse af `vaerdi_tekst` (lig den eller dens afslutning)? Samme regel som i factValue.
+export const datoErDobbelt = (tekst: string, dato: string) => dato.trim() === tekst.trim() || slutterMed(tekst, dato);
+
+// Den rå værdi med ledende tegn fjernet; null for tom.
+export const visDel = (v: string | null) => {
+  const u = udenLedendeTegn(v);
+  return u == null || u.trim() === '' ? null : u;
+};
+
 export function factValue(r: PublicPersonFactRow, del: (v: string) => string = (v) => v): string {
   const vis = (v: string | null) => {
-    const u = udenLedendeTegn(v);
-    return u == null || u.trim() === '' ? null : del(u);
+    const u = visDel(v);
+    return u == null ? null : del(u);
   };
   const tekst = vis(r.vaerdi_tekst);
   const dato = vis(r.date_raw);
-  const dateRaw = dato && tekst && (dato.trim() === tekst.trim() || slutterMed(tekst, dato)) ? null : dato;
+  const dateRaw = dato && tekst && datoErDobbelt(tekst, dato) ? null : dato;
   const parts = [tekst, dateRaw].filter((x): x is string => !!x && x.trim() !== '');
   return parts.length ? parts.join(', ') : '—';
 }
@@ -92,6 +103,7 @@ export function factSource(r: PublicPersonFactRow): PersonFactSource {
   return { kind: 'ingen', label: 'Kilde ikke registreret', recordRef: null };
 }
 
+// Forældet i web — brug faktaInput/byggUdgaveFakta (editionFacts.ts). Bevares for planens kompatibilitet.
 export function buildPersonFacts(rows: PublicPersonFactRow[]): PersonFactView[] {
   const seen = new Set<string>();
   const byFact = new Map<string, { first: PublicPersonFactRow; rows: PublicPersonFactRow[] }>();

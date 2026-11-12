@@ -146,6 +146,16 @@ describe('buildPersonFacts', () => {
     expect(factValue(row({ vaerdi_tekst: 'hjemmedøbt 10. febr. 1922', date_raw: '10. febr. s.å.' }), opl)).toBe('hjemmedøbt 10. febr. 1922');
   });
 
+  it('C1: et betydningsbærende tegn i date_raw (»?«, parentes) fjernes aldrig ved dobbelttjekket', () => {
+    expect(factValue(row({ vaerdi_tekst: 'døbt 21. april 1644', date_raw: '21. april 1644?' }))).toBe('døbt 21. april 1644, 21. april 1644?');
+    expect(factValue(row({ vaerdi_tekst: 'døbt 21. april 1644', date_raw: '21. april 1644)' }))).toBe('døbt 21. april 1644, 21. april 1644)');
+    expect(factValue(row({ vaerdi_tekst: 'døbt 21. april 1644?', date_raw: '21. april 1644' }))).toBe('døbt 21. april 1644?, 21. april 1644');
+    // ender teksten med netop »…?«, er datofeltet dobbelt
+    expect(factValue(row({ vaerdi_tekst: 'døbt 21. april 1644?', date_raw: '21. april 1644?' }))).toBe('døbt 21. april 1644?');
+    // afsluttende punktum, komma og mellemrum er stadig kun skrivemåde
+    expect(factValue(row({ vaerdi_tekst: 'døbt 21. april 1644.', date_raw: '21. april 1644, ' }))).toBe('døbt 21. april 1644.');
+  });
+
   it('kildeetiketten viser »<udgave>, s. N« (også intervaller) (spec §5.8)', () => {
     const bundet = (citation_label: string) =>
       factSource(row({ record_ref: 'r', record_label: 'record-07565168-b903-4444-9189-43d62d5c6ed6', citation_label })).label;

@@ -5,15 +5,17 @@
 // dækker, går til kunI.
 import {
   FAKTA_UDELADT,
+  datoErDobbelt,
   factSource,
   factValue,
   typeRank,
+  visDel,
   type PersonFactSource,
   type PersonFactStatement,
   type PublicPersonFactRow,
 } from './personFacts';
 import { ENKELTVAERDI_TYPER, erTomFaktaVaerdi, faktaVaerdierEns, normaliserFaktaVaerdi } from './factEquality';
-import { erRelativDato, oploesRelativDato, type OploesValg } from './relativeDates';
+import { erRelativDato, indeholderDato, oploesRelativDato, type OploesValg } from './relativeDates';
 
 export type Udgave = { sourceId: string; label: string; aar: number | null };
 export type UdgaveFaktaInput = {
@@ -242,25 +244,47 @@ const RELATIV_REFERENCE: Record<string, string> = { dåb: 'fødsel', begravelse:
 const RELATIV_FRI: ReadonlySet<string> = new Set(['navn', 'tilnavn']);
 const uopløstRelativ = (faktatype: string, v: string) => !RELATIV_FRI.has(faktatype) && erRelativDato(v);
 
-// Referencen er rækkens første viste fødsel/død i fakta-ordenen (personrække + type → værdi).
-function referencer(fs: FaktumVisning[]): Map<string, string> {
-  const ud = new Map<string, string>();
+// Referencen er rækkens viste fødsel/død (personrække + type → værdi). Den er null (flertydig), når rækken viser
+// mere end én værdi af typen, der ikke er ens efter lighedsreglen, eller når et faktum af typen er omstridt eller
+// uden vist værdi (final review O-I2/C4) — så opløses intet, og bogens tekst vises.
+type Referencer = Map<string, string | null>;
+function referencer(fs: FaktumVisning[]): Referencer {
+  const ud: Referencer = new Map();
   for (const f of fs) {
+    if (!Object.values(RELATIV_REFERENCE).includes(f.faktatype)) continue;
     const k = `${f.personId}\u0000${f.faktatype}`;
-    if (f.vaerdi !== '' && !ud.has(k)) ud.set(k, f.vaerdi);
+    const før = ud.get(k);
+    if (før === null) continue;
+    if (f.vaerdi === '' || f.omstridt) ud.set(k, null);
+    else if (før === undefined) ud.set(k, f.vaerdi);
+    else if (!faktaVaerdierEns(f.faktatype, før, f.vaerdi)) ud.set(k, null);
   }
   return ud;
 }
 
 // Værdien med relative datoer opløst — pr. del (vaerdi_tekst, date_raw) før dobbelttjekket i factValue (§5.8).
 // Kan et led i en af delene ikke opløses, vises hele værdien som bogens tekst; den forbliver relativ og kan derfor aldrig give ✓ (se `ens`).
-function oploser(ref: Map<string, string>, valg: OploesValg): VaerdiFor {
+// `kaedebrud` (måling): fact_id'er, hvor et relativt datofelt ved siden af en tekst med dato hindrede opløsningen.
+function oploser(ref: Referencer, valg: OploesValg, kaedebrud?: Set<string>): VaerdiFor {
   return (r) => {
     const refType = RELATIV_REFERENCE[r.faktatype];
     if (!refType) return factValue(r);
     const reference = ref.get(`${String(r.person_id)}\u0000${refType}`) ?? null;
+    const tekst = visDel(r.vaerdi_tekst);
+    const dato = visDel(r.date_raw);
+    let raekke = r;
+    if (tekst && dato && erRelativDato(dato) && indeholderDato(tekst)) {
+      // Et datofelt, der ordret gentager tekstens slutning, er intet selvstændigt led: teksten opløses for sig.
+      // Ellers kan feltets »s.d.«/»s.m.« henvise til tekstens dato i stedet for referencen (»bisat 5. april s.å.
+      // og begravet« + »s.d.«), og intet opløses — hele værdien er bogens tekst (final review C3).
+      if (!datoErDobbelt(tekst, dato)) {
+        kaedebrud?.add(String(r.fact_id));
+        return factValue(r);
+      }
+      raekke = { ...r, date_raw: null };
+    }
     let fejl = false;
-    const opl = factValue(r, (v) => {
+    const opl = factValue(raekke, (v) => {
       if (!erRelativDato(v)) return v;
       const o = oploesRelativDato(v, reference, valg);
       if (o == null) fejl = true;
@@ -368,22 +392,28 @@ export function byggUdgaveFakta(input: UdgaveFaktaInput, valgt: string | null): 
 export type RelativDatoStatus = {
   factId: string; faktatype: string; udgave: string | null; oploest: boolean; reference: string | null;
   foerReference: boolean;
+  referenceFlertydig: boolean; // rækken har flere forskellige eller omstridte fødsler/døde (reference null)
+  kaedebrud: boolean; // et relativt datofelt står ved siden af en tekst med dato (final review C3)
   bogensTekst: string; // den viste værdi før opløsningen (kun til målingens kontrolark; skrives aldrig ud på stdout)
   vist: string; // den viste værdi efter opløsningen
 };
 export function relativeDatoer(input: UdgaveFaktaInput): RelativDatoStatus[] {
   const raa = faktaRaa(input, false, raaVaerdi);
   const ref = referencer(raa);
-  const opl = faktaRaa(input, false, oploser(ref, { ikkeFoerReference: true }));
+  const kaedebrud = new Set<string>();
+  const opl = faktaRaa(input, false, oploser(ref, { ikkeFoerReference: true }, kaedebrud));
   const uden = faktaRaa(input, false, oploser(ref, {}));
   return raa.flatMap((f, i) => {
     if (f.vaerdi === '' || !erRelativDato(f.vaerdi)) return [];
     const refType = RELATIV_REFERENCE[f.faktatype];
+    const k = `${f.personId}\u0000${refType}`;
     return [{
       factId: f.factId, faktatype: f.faktatype, udgave: f.udgave, bogensTekst: f.vaerdi, vist: opl[i].vaerdi,
       oploest: !erRelativDato(opl[i].vaerdi),
-      reference: refType ? ref.get(`${f.personId}\u0000${refType}`) ?? null : null,
+      reference: refType ? ref.get(k) ?? null : null,
       foerReference: erRelativDato(opl[i].vaerdi) && !erRelativDato(uden[i].vaerdi),
+      referenceFlertydig: !!refType && ref.has(k) && ref.get(k) === null,
+      kaedebrud: !!refType && kaedebrud.has(f.factId),
     }];
   });
 }

@@ -34,13 +34,16 @@ type Led = { start: number; slut: number; del: Del };
 // og stort bogstav: initialer), »R.S.A.O.«, »K.S.D.«, »p.s.d.« (bogstav+punktum lige foran, uden mellemrum — dog ikke
 // et månedsnavn: »febr.s.å.«), »S.M.O.«, »S.D.-kors« (bogstav eller bindestreg+bogstav lige efter). 1939's OCR-form
 // »15 s. M.« (lille s) er relativ.
+// Står et dagnummer lige foran (»29. S.M.«, »15 S. M.«), er også versalformen en relativ dato (final review C2) —
+// initialreglen gælder kun uden dagnummer foran.
+const DAGNUMMER_FORAN = /(?<!\d)\d{1,2}\.?\s*$/u;
 function relativeLed(v: string): Led[] {
   const ud: Led[] = [];
   for (const m of v.matchAll(RELATIV)) {
     const start = m.index!;
     const slut = start + m[0].length;
     if (m[1] != null) {
-      if (v[start] === 'S' && m[1] === m[1].toUpperCase()) continue;
+      if (v[start] === 'S' && m[1] === m[1].toUpperCase() && !DAGNUMMER_FORAN.test(v.slice(0, start))) continue;
       const foran = v.slice(0, start).match(/(\p{L}+)\.$/u);
       if (foran && maanedNummer(foran[1]) == null) continue;
       if (/^\.?-?\p{L}/u.test(v.slice(slut))) continue;
@@ -54,7 +57,13 @@ export function erRelativDato(v: string): boolean {
   return relativeLed(v).length > 0;
 }
 
-export type ReferenceStatus = 'ok' | 'mangler' | 'relativ' | 'usikker' | 'flertydig';
+// Nævner teksten en dato — et årstal, et månedsnavn eller et relativt led? Bruges, når et relativt datofelt står ved
+// siden af teksten: så kan feltet henvise til tekstens dato i stedet for referencen (final review C3).
+export function indeholderDato(v: string): boolean {
+  return erRelativDato(v) || /(?<!\d)\d{4}(?!\d)/.test(v) || (v.match(/\p{L}+/gu) ?? []).some((o) => maanedNummer(o) != null);
+}
+
+export type ReferenceStatus = 'ok' | 'mangler' | 'relativ' | 'usikker' | 'flertydig' | 'ugyldig';
 
 // Referencens dag/måned/år. Teksten kan gentage samme dato (vaerdi_tekst + date_raw) — alle forekomster skal være
 // ens; to forskellige år eller datoer, en usikker eller selv relativ reference → ikke brugbar.
@@ -77,17 +86,26 @@ function parseReference(ref: string | null): Reference | Exclude<ReferenceStatus
     datoer.add(JSON.stringify([dag, maaned, Number(m[3])]));
   }
   if (datoer.size > 1) return 'flertydig';
-  // et ekstra dagnummer uden for datoen (»21., 22. april«, »21. og 22. april«) eller et andet år i parentes
-  // (»1644 (45)«) gør referencen flertydig
+  // et ekstra dagnummer uden for datoen (»21., 22. april«, »21. og 22. april«, også uden punktum: »21 og 22 april«,
+  // final review C5) eller et andet år i parentes (»1644 (45)«) gør referencen flertydig
   const spaend = [...ref.matchAll(DATO)].filter((m) => maanedNummer(m[2]) != null).map((m) => [m.index!, m.index! + m[0].length]);
-  for (const m of ref.matchAll(/(?<!\d)\d{1,2}\.(?!\d)/g)) {
+  for (const m of ref.matchAll(/(?<!\d)\d{1,2}(?!\d)/g)) {
     if (!spaend.some(([a, b]) => m.index! >= a && m.index! < b)) return 'flertydig';
   }
   if (/\(\s*\d{1,4}\s*\)/.test(ref)) return 'flertydig';
   if (datoer.size === 0) return { aar: Number([...aar][0]), maaned: null, dag: null };
   const [dag, maaned, a] = JSON.parse([...datoer][0]) as [number | null, number, number];
+  // en dato, der ikke findes i kalenderen (»31. april«), er ikke en sikker reference (final review C6)
+  if (dag != null && !gyldigDag(a, maaned, dag)) return 'ugyldig';
   return { aar: a, maaned, dag };
 }
+
+// Findes dagen i måneden? 29. februar kun i år delelige med 4 (konservativ tommelregel, final review C6).
+function gyldigDag(aar: number, maaned: number, dag: number): boolean {
+  const dage = [31, aar % 4 === 0 ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][maaned - 1];
+  return dage != null && dag >= 1 && dag <= dage;
+}
+const gyldig = (d: Dato) => d.maaned == null || d.dag == null || gyldigDag(d.aar, d.maaned, d.dag);
 
 type Dato = Reference;
 type Haendelse = { start: number; slut: number; del?: Del; eksplicit?: Dato };
@@ -102,8 +120,14 @@ const foer = (a: Dato, b: Dato) => {
 };
 
 // Ét led opløst mod `base`: teksten, der erstatter leddet, og den dato, leddet dermed står for (dag/måned fra ordene
-// lige foran: »29. s.m.«, »6. febr. s.å.«). null hvis `base` mangler den nødvendige del.
+// lige foran: »29. s.m.«, »6. febr. s.å.«). null hvis `base` mangler den nødvendige del, eller hvis den opløste dato
+// ikke findes i kalenderen (»31. s.m.« i april, »29. febr. s.å.« i et ikke-skudår; final review C6).
 function loes(del: Del, foran: string, base: Dato): { tekst: string; dato: Dato } | null {
+  const l = loesLed(del, foran, base);
+  return l && gyldig(l.dato) ? l : null;
+}
+
+function loesLed(del: Del, foran: string, base: Dato): { tekst: string; dato: Dato } | null {
   const navn = base.maaned == null ? null : MAANED_NAVNE[base.maaned - 1];
   if (del === 'å') {
     const m = foran.match(/(?:(\d{1,2})\.?\s+)?(\p{L}+)\.?\s*$/u);

@@ -592,17 +592,24 @@ describe('byggUdgaveFakta', () => {
   it('dobbelt værdi efter opløsning vises én gang; hver del opløses for sig (spec §5.8)', () => {
     const inp = fixture('relativ dåb, dobbelt værdi', input([
       r18({ person_id: 280, faktatype: 'fødsel', vaerdi_tekst: '12. jan. 1922 i København', date_raw: '12. jan. 1922' }),
-      r18({ person_id: 280, faktatype: 'dåb', vaerdi_tekst: 'hjemmedøbt 10. febr. 1922', date_raw: '10. febr. s.å.' }),
+      r18({ person_id: 280, faktatype: 'dåb', vaerdi_tekst: 'hjemmedøbt 10. febr. s.å.', date_raw: '10. febr. 1922' }),
       r18({ person_id: 280, faktatype: 'død', date_raw: '22. nov. 1922' }),
-      // date_raw's »27. s.m.« står alene og henviser til døden, selv om teksten nævner en senere dato
+      // C3: et relativt datofelt ved siden af en tekst med dato kan henvise til tekstens dato → bogens tekst
       r18({ person_id: 280, faktatype: 'begravelse', vaerdi_tekst: 'bisat 27. s.m., begravet 19. sept. 1924', date_raw: '27. s.m.' }),
       r39({ person_id: 281, faktatype: 'fødsel', date_raw: '12. jan. 1922' }),
       r39({ person_id: 281, faktatype: 'dåb', vaerdi_tekst: 'hjemmedøbt 10. febr. 1922', date_raw: null }),
     ], { udgaveForPersonRaekke: ext2(280, 281) }));
     const v = byggUdgaveFakta(inp, '1');
     expect(linje(v, 'fødsel').map((l) => l.vaerdi)).toEqual(['12. jan. 1922 i København, 12. jan. 1922']);
+    // teksten opløses for sig; derefter er datofeltet dobbelt
     expect(linje(v, 'dåb').map((l) => [l.vaerdi, l.noter])).toEqual([['hjemmedøbt 10. febr. 1922', [{ art: 'enig', udgave: D39 }]]]);
-    expect(linje(v, 'begravelse').map((l) => l.vaerdi)).toEqual(['bisat 27. november 1922, begravet 19. sept. 1924, 27. november 1922']);
+    expect(linje(v, 'begravelse').map((l) => l.vaerdi)).toEqual(['bisat 27. s.m., begravet 19. sept. 1924, 27. s.m.']);
+    // C3: en tekst med en sikker dato og et relativt datofelt — datofeltet kan henvise til tekstens dato
+    const tekstDato = input([
+      r18({ person_id: 283, faktatype: 'fødsel', date_raw: '12. jan. 1922' }),
+      r18({ person_id: 283, faktatype: 'dåb', vaerdi_tekst: 'hjemmedøbt 10. febr. 1922', date_raw: '10. febr. s.å.' }),
+    ], { udgaveForPersonRaekke: { '283': '1' } });
+    expect(linje(byggUdgaveFakta(tekstDato, '1'), 'dåb').map((l) => l.vaerdi)).toEqual(['hjemmedøbt 10. febr. 1922, 10. febr. s.å.']);
     // kan én del ikke opløses (»s.d.« efter bisættelsen), vises hele værdien som bogens tekst
     const halv = input([
       r18({ person_id: 282, faktatype: 'død', date_raw: '1. april 1928' }),
@@ -619,11 +626,18 @@ describe('byggUdgaveFakta', () => {
       r18({ person_id: 270, faktatype: 'dåb', date_raw: '29. s.m.' }),
       r18({ person_id: 270, faktatype: 'død', date_raw: '9. juni s.å.' }),
       r39({ person_id: 271, faktatype: 'begravelse', vaerdi_tekst: '6. aug. s.å.', date_raw: null }),
-    ], { udgaveForPersonRaekke: ext2(270, 271) });
+      r39({ person_id: 272, faktatype: 'fødsel', date_raw: '21. april 1644' }),
+      r39({ person_id: 272, faktatype: 'fødsel', date_raw: '3. maj 1645' }),
+      r39({ person_id: 272, faktatype: 'dåb', date_raw: '29. s.m.' }),
+      r39({ person_id: 272, faktatype: 'død', date_raw: '31. marts 1928' }),
+      r39({ person_id: 272, faktatype: 'begravelse', vaerdi_tekst: 'bisat 5. april s.å.', date_raw: 's.d.' }),
+    ], { udgaveForPersonRaekke: { ...ext2(270, 271), '272': '3' } });
     expect(relativeDatoer(inp).map(({ factId: _f, bogensTekst: _b, vist: _v, foerReference: _r, ...x }) => x)).toEqual([
-      { faktatype: 'dåb', udgave: '1', oploest: true, reference: '21. april 1644' },
-      { faktatype: 'død', udgave: '1', oploest: false, reference: null },
-      { faktatype: 'begravelse', udgave: '3', oploest: false, reference: null },
+      { faktatype: 'dåb', udgave: '1', oploest: true, reference: '21. april 1644', referenceFlertydig: false, kaedebrud: false },
+      { faktatype: 'dåb', udgave: '3', oploest: false, reference: null, referenceFlertydig: true, kaedebrud: false },
+      { faktatype: 'død', udgave: '1', oploest: false, reference: null, referenceFlertydig: false, kaedebrud: false },
+      { faktatype: 'begravelse', udgave: '3', oploest: false, reference: null, referenceFlertydig: false, kaedebrud: false },
+      { faktatype: 'begravelse', udgave: '3', oploest: false, reference: '31. marts 1928', referenceFlertydig: false, kaedebrud: true },
     ]);
   });
 
@@ -633,6 +647,115 @@ describe('byggUdgaveFakta', () => {
       tekst({ person_id: 261, faktatype: 'navn', vaerdi_tekst: 'Hans s. A. Reventlow', source_id: 3, source_label: 'DAA 1939' }),
     ], { udgaveForPersonRaekke: ext2(260, 261) }));
     expect(linje(byggUdgaveFakta(inp, '1'), 'navn')[0].noter).toEqual([{ art: 'enig', udgave: D39 }]);
+  });
+
+  // ---- slutrettelser (final review 6e-1): ved tvivl bogens tekst, aldrig ✓ ----
+  it('C1: »?« i datofeltet forsvinder ikke og giver ikke ✓ mod en sikker dato', () => {
+    const inp = fixture('dåb med ? i datofeltet', input([
+      r18({ person_id: 300, faktatype: 'dåb', vaerdi_tekst: 'døbt 21. april 1644', date_raw: '21. april 1644?' }),
+      r39({ person_id: 301, faktatype: 'dåb', vaerdi_tekst: 'døbt 21. april 1644', date_raw: null }),
+    ], { udgaveForPersonRaekke: ext2(300, 301) }));
+    expect(linje(byggUdgaveFakta(inp, '1'), 'dåb').map((l) => [l.vaerdi, l.noter])).toEqual([
+      ['døbt 21. april 1644, 21. april 1644?', [{ art: 'skriver', udgave: D39, vaerdier: ['døbt 21. april 1644'] }]],
+    ]);
+    expect(linje(byggUdgaveFakta(inp, '3'), 'dåb').map((l) => l.noter)).toEqual([
+      [{ art: 'skriver', udgave: D18, vaerdier: ['døbt 21. april 1644, 21. april 1644?'] }],
+    ]);
+  });
+
+  it('C2: »29. S.M.« med versaler opløses, så forskellige fødsler giver skriver, ikke ✓', () => {
+    const inp = fixture('relativ dåb med versaler', input([
+      r18({ person_id: 310, faktatype: 'fødsel', date_raw: '21. april 1644' }),
+      r18({ person_id: 310, faktatype: 'dåb', date_raw: '29. S.M.' }),
+      r39({ person_id: 311, faktatype: 'fødsel', date_raw: '21. april 1645' }),
+      r39({ person_id: 311, faktatype: 'dåb', date_raw: '29. S.M.' }),
+    ], { udgaveForPersonRaekke: ext2(310, 311) }));
+    expect(linje(byggUdgaveFakta(inp, '1'), 'dåb').map((l) => [l.vaerdi, l.noter])).toEqual([
+      ['29. april 1644', [{ art: 'skriver', udgave: D39, vaerdier: ['29. april 1645'] }]],
+    ]);
+  });
+
+  it('C3: et relativt datofelt ved siden af en dato i teksten opløses ikke — hele værdien er bogens tekst', () => {
+    const inp = fixture('begravelse, datokæde mellem tekst og datofelt', input([
+      r18({ person_id: 320, faktatype: 'død', date_raw: '31. marts 1928' }),
+      r18({ person_id: 320, faktatype: 'begravelse', vaerdi_tekst: 'bisat 5. april s.å. og begravet', date_raw: 's.d.' }),
+      r39({ person_id: 321, faktatype: 'død', date_raw: '31. marts 1928' }),
+      r39({ person_id: 321, faktatype: 'begravelse', vaerdi_tekst: 'bisat 5. april 1928 og begravet', date_raw: '31. marts 1928' }),
+    ], { udgaveForPersonRaekke: ext2(320, 321) }));
+    expect(linje(byggUdgaveFakta(inp, '1'), 'begravelse').map((l) => [l.vaerdi, l.noter])).toEqual([
+      ['bisat 5. april s.å. og begravet, s.d.', [{ art: 'skriver', udgave: D39, vaerdier: ['bisat 5. april 1928 og begravet, 31. marts 1928'] }]],
+    ]);
+    expect(linje(byggUdgaveFakta(inp, '3'), 'begravelse').map((l) => l.noter)).toEqual([
+      [{ art: 'skriver', udgave: D18, vaerdier: ['bisat 5. april s.å. og begravet, s.d.'] }],
+    ]);
+    // en tekst uden dato bryder ingen kæde → datofeltet opløses stadig
+    const sted = input([
+      r18({ person_id: 322, faktatype: 'død', date_raw: '21. marts 1928' }),
+      r18({ person_id: 322, faktatype: 'begravelse', vaerdi_tekst: 'i Slesvig Domkirke', date_raw: '30. s.m.' }),
+    ], { udgaveForPersonRaekke: { '322': '1' } });
+    expect(linje(byggUdgaveFakta(sted, '1'), 'begravelse').map((l) => l.vaerdi)).toEqual(['i Slesvig Domkirke, 30. marts 1928']);
+    // et datofelt, der ordret gentager tekstens slutning, er ikke et selvstændigt led: teksten opløses for sig
+    const gentaget = input([
+      r18({ person_id: 323, faktatype: 'fødsel', date_raw: '12. jan. 1922' }),
+      r18({ person_id: 323, faktatype: 'dåb', vaerdi_tekst: 'hjemmedøbt 10. febr. s.å.', date_raw: '10. febr. s.å.' }),
+    ], { udgaveForPersonRaekke: { '323': '1' } });
+    expect(linje(byggUdgaveFakta(gentaget, '1'), 'dåb').map((l) => l.vaerdi)).toEqual(['hjemmedøbt 10. febr. 1922']);
+  });
+
+  it('C4: flere forskellige eller omstridte referencer opløser intet', () => {
+    const flere = fixture('relativ dåb, to fødsler på rækken', input([
+      r18({ person_id: 330, faktatype: 'fødsel', date_raw: '21. april 1644' }),
+      r18({ person_id: 330, faktatype: 'fødsel', date_raw: '3. maj 1645' }),
+      r18({ person_id: 330, faktatype: 'dåb', date_raw: '29. s.m.' }),
+      r39({ person_id: 331, faktatype: 'fødsel', date_raw: '21. april 1644' }),
+      r39({ person_id: 331, faktatype: 'dåb', date_raw: '29. april 1644' }),
+    ], { udgaveForPersonRaekke: ext2(330, 331) }));
+    expect(linje(byggUdgaveFakta(flere, '1'), 'dåb').map((l) => [l.vaerdi, l.noter])).toEqual([
+      ['29. s.m.', [{ art: 'skriver', udgave: D39, vaerdier: ['29. april 1644'] }]],
+    ]);
+    // omstridt fødsel, også med en valgt påstand
+    const omstridt = fixture('relativ dåb, omstridt fødsel', input([
+      r18({ person_id: 332, fact_id: 3320, faktatype: 'fødsel', conclusion_status: 'omstridt', chosen: true, date_raw: '21. april 1644' }),
+      r18({ person_id: 332, fact_id: 3320, faktatype: 'fødsel', conclusion_status: 'omstridt', chosen: false, date_raw: '21. maj 1644' }),
+      r18({ person_id: 332, faktatype: 'dåb', date_raw: '29. s.m.' }),
+      r39({ person_id: 333, faktatype: 'fødsel', date_raw: '21. april 1644' }),
+      r39({ person_id: 333, faktatype: 'dåb', date_raw: '29. april 1644' }),
+    ], { udgaveForPersonRaekke: ext2(332, 333) }));
+    expect(linje(byggUdgaveFakta(omstridt, '1'), 'dåb').map((l) => [l.vaerdi, l.noter])).toEqual([
+      ['29. s.m.', [{ art: 'skriver', udgave: D39, vaerdier: ['29. april 1644'] }]],
+    ]);
+    // omstridt uden valg, efterfulgt af en sikker fødsel: den sikre må ikke genoplive referencen
+    const udenValg = fixture('relativ dåb, fødsel uden valg', input([
+      r18({ person_id: 334, fact_id: 3340, faktatype: 'fødsel', conclusion_status: 'omstridt', chosen: false, date_raw: '21. maj 1644', date_min: '1644-01-01' }),
+      r18({ person_id: 334, fact_id: 3340, faktatype: 'fødsel', conclusion_status: 'omstridt', chosen: false, date_raw: '22. maj 1644', date_min: '1644-01-01' }),
+      r18({ person_id: 334, fact_id: 3341, faktatype: 'fødsel', date_raw: '21. april 1644', date_min: '1644-04-21' }),
+      r18({ person_id: 334, faktatype: 'dåb', date_raw: '29. s.m.' }),
+      r39({ person_id: 335, faktatype: 'dåb', date_raw: '29. april 1644' }),
+    ], { udgaveForPersonRaekke: ext2(334, 335) }));
+    expect(linje(byggUdgaveFakta(udenValg, '1'), 'dåb').map((l) => l.vaerdi)).toEqual(['29. s.m.']);
+    // kontrol: to ens fødsler (samme dato, anden skrivemåde) er én reference
+    const ens = input([
+      r18({ person_id: 336, faktatype: 'fødsel', date_raw: '21. april 1644' }),
+      r18({ person_id: 336, faktatype: 'fødsel', date_raw: '21 April 1644' }),
+      r18({ person_id: 336, faktatype: 'dåb', date_raw: '29. s.m.' }),
+    ], { udgaveForPersonRaekke: { '336': '1' } });
+    expect(linje(byggUdgaveFakta(ens, '1'), 'dåb').map((l) => l.vaerdi)).toEqual(['29. april 1644']);
+  });
+
+  it('C5 + C6: flertydige dagnumre og ugyldige kalenderdatoer giver bogens tekst og aldrig ✓', () => {
+    const inp = fixture('relativ dåb, flertydig dag og ugyldig dato', input([
+      r18({ person_id: 340, faktatype: 'fødsel', date_raw: '21 og 22 april 1644' }),
+      r18({ person_id: 340, faktatype: 'dåb', date_raw: 's.d.' }),
+      r18({ person_id: 342, faktatype: 'fødsel', date_raw: '21. april 1644' }),
+      r18({ person_id: 342, faktatype: 'dåb', date_raw: '31. s.m.' }),
+      r39({ person_id: 341, faktatype: 'fødsel', date_raw: '21 og 22 april 1644' }),
+      r39({ person_id: 341, faktatype: 'dåb', date_raw: 's.d.' }),
+      r39({ person_id: 343, faktatype: 'fødsel', date_raw: '21. april 1644' }),
+      r39({ person_id: 343, faktatype: 'dåb', date_raw: '31. s.m.' }),
+    ], { udgaveForPersonRaekke: { '340': '1', '342': '1', '341': '3', '343': '3' } }));
+    const v = byggUdgaveFakta(inp, '1');
+    expect(linje(v, 'dåb').map((l) => l.vaerdi)).toEqual(['s.d.', '31. s.m.']);
+    expect(linje(v, 'dåb').flatMap((l) => l.noter).some((n) => n.art === 'enig')).toBe(false);
   });
 
   it('egenskab: hvert ✓ bæres af den anden udgaves egne, ens viste værdier', () => {
