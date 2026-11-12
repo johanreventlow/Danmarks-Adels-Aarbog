@@ -161,7 +161,11 @@ En række bekræfter aldrig sig selv.
 at redaktionen har valgt, og ser ikke »redaktionen« i fakta-blokken. Normalt følger valget nyeste udgave; en
 redaktionel afvigelse er sjælden (projektejeren 2026-11-12). Ikke-valgte påstande fra
   udgaven vises fortsat som »andre udsagn«. Plan-Task 0 måler, hvilke af de 17 redaktørpåstande (§5.1) der falder i
-  hver gruppe; tvivlstilfælde forelægges projektejeren.
+  hver gruppe; tvivlstilfælde forelægges projektejeren. **Ingen udgaveegen påstand** (fx et faktum oprettet af
+  redaktøren med »(kilde mangler)«): faktummet vises som i dag (§9 pkt. 4) og indgår ikke i noter.
+  **Klientens input** (Codex runde 2): `public_person_facts` returnerer ikke `citat_tekst`. 6e-1 henter den med et
+  supplerende anon-opslag i `public.citation` (læsbar for anon, gatet på målet; `db-rls.sql:541-544`) kun for valgte
+  påstande uden `source_id` — ingen DDL.
 - **Sammenlægning inden for udgaven:** rækker fra flere personrækker i samme udgave med samme faktatype og ens værdi
   (§5.4) bliver én linje, hvis kildeliste samler posterne (»DAA 2018-20 · III-58, V-1«). Uens værdier står som hver
   sin linje (flerværdi-typer som titel) — de er ikke uenighed, men flere oplysninger.
@@ -194,7 +198,8 @@ denne på »siger to udgaver det samme?«. Konservativ — ved tvivl: ikke ens.
 - **Datotyper** (fødsel, dåb, død, begravelse): ens når hele den viste værdi (`vaerdi_tekst` + datotekst) er ens
   efter normalisering: små bogstaver; `†`, `*`, `⚭` væk; øvrig tegnsætning **erstattes af mellemrum** (ikke fjernet:
   `1.12.1700` ≠ `11.2.1700`); danske og 1939-månedsnavne/-forkortelser → tal; mellemrum samlet. »ca./o.« og »s.A.«
-  må kun mappes til et fælles ord, ikke fjernes; et sted på kun den ene side er en forskel (målt: 85 af 560 par med
+  må kun mappes til et fælles ord, ikke fjernes, og `?` bevares som tegn (`1644?` ≠ `1644`); et sted på kun den ene
+  side er en forskel (målt: 85 af 560 par med
   ens datotekst). Ingen intervalvej (Codex-fund 2; målt: 19 af 20 interval-ens par har forskellig `date_qualifier`).
   Core-tests med negative par: ca. ↔ eksakt, `1.12` ↔ `11.2`, med ↔ uden sted.
 - **Tekst** (navn, titel, dekoration, begravelsessted): ens når teksten er ens efter små bogstaver, samlede mellemrum,
@@ -247,8 +252,12 @@ Hændelsestypen og genbrug af 6d-1's revalideringssti er bygherrens.
    står i hovedet (§5.7).
 2. Ingen placement → ingen postdel; kun citationens »DAA 1939, s. 541« (målt: 35 publicerede bindinger). Afgørelse
    10: `record_label` er i dag `NOT NULL CHECK (btrim<>'')` (`schema.sql:3667`), og v2-mapperen kræver en streng
-   (`bioVersions.ts:102`). Schemaet tillader en tom postdel (bygherren vælger tom streng eller NULL), og mapperen og
-   alle visninger udelader den uden tom chip eller separator. Conrad (1198) er ende-til-ende-beviset.
+   (`bioVersions.ts:102`). Tom postdel = **tom streng** med bevaret `NOT NULL` (ikke NULL). Én kontrakt gennem alle
+   aktive veje (Codex runde 2): bindingens CHECK, publiceringswriteren, genimportvalidatoren
+   (`schema.sql:12072`) og dens efterkontrol (`:12849`), v2-biografimapperen, familiekildemapperen
+   (`familieKilder.ts:98`, kasserer i dag ikke-strenge) og redaktørens narrativmapper (`redaktionRead.ts:442`); alle
+   visninger udelader en tom postdel uden tom chip eller separator. Bevis: Conrad (1198) i biografi, fakta,
+   familiekilder og Redaktion.
 
 `record_key` vises aldrig. **Indtil 6e-2** (*mit valg*): 6e-1's klient viser ikke en postdel, der er lig postens
 `record_key` (mønster `record-<uuid>`), men kun citationens udgave og side. Så overholder 6e-1 anti-målet alene. Præcis form (fx når slægtled mangler) er bygherrens, under kravet om, at den er
@@ -373,3 +382,7 @@ Projektejeren bad om sammenligningen. Uden spørgsmål ville 6e have fulgt trin 
   4+8, 10 nødvendige; 2, 7, 9, 11 forenklet. Projektejeren valgte schema-ændring for tom postdel (afgørelse 10) frem
   for Opus' »ingen genpublicering af de 35«, og udgaveskift uden tomme biografichips (afgørelse 11). Rettet i §3,
   §5.1, §5.3-5.7, §8. Fundet viste desuden 546 ægtefællerækker uden ekstern nøgle, som §5.1's første måling overså.
+- **Codex runde 2 2026-11-12** (projektejerens ja til flere runder): 9 af 11 fund løst, 2 delvist; 3 nye. Afvejet af
+  Opus (hovedsessionen; claims verificeret i koden): alle fire små og nødvendige — `?` bevares (§5.4); fakta uden
+  udgaveegen påstand vises som i dag (§5.2); `citat_tekst` hentes via anon-opslag i `citation` (§5.2, ingen DDL i
+  6e-1); tom postdel = tom streng med én kontrakt gennem alle veje (§5.6).
