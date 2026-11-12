@@ -65,6 +65,11 @@ const RPC = {
     person_id: TOUR_PERSON, source_id: 1, source_year: 1939, record_order: 1, source_record_ref: 'tour-rec-1',
     source_label: 'DAA 1939', record_label: 'Testpost', citation_label: 'DAA 1939, s. 540', provenance_kind: 'source_record',
     narrative_text: 'Testbiografi til designtouren: her står personens biografi ordret, som Aarbogen skriver den, med kilde under. Teksten er pladsholder og ikke Aarbogens ord.',
+  }, {
+    // Anden udgave, så udgavevælgeren kan ses.
+    person_id: TOUR_PERSON, source_id: 2, source_year: 2018, record_order: 1, source_record_ref: 'tour-rec-2',
+    source_label: 'DAA 2018-20', record_label: 'Testpost 2', citation_label: 'DAA 2018-20, s. 201', provenance_kind: 'source_record',
+    narrative_text: 'Testbiografi fra en anden udgave (pladsholder): vælgeren skifter mellem udgavernes tekster.',
   }]),
   public_person_facts: (args) => kunTourPerson(args, [
     faktaRaekke(900001, 'fødsel', { date_raw: '[testdato] 1700' }),
