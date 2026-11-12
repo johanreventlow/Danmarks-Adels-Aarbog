@@ -16,6 +16,8 @@ describe('faktaVaerdierEns', () => {
     expect(ens('fødsel', 'ca. 1690', '1690')).toBe(false);
     expect(ens('død', '15. febr. 1878 på Pronstorf', '15. febr. 1878')).toBe(false);
     expect(ens('navn', 'Ditlev', 'Detlef')).toBe(false);
+    expect(ens('adling', '1767?', '1767')).toBe(false);
+    expect(ens('navn', 'Ditlev?', 'Ditlev')).toBe(false);
     expect(ens('dekoration', 'Kmhr.', 'Kammerherre')).toBe(false);
   });
   it('ligner tekst uden hensyn til store/små bogstaver', () => {

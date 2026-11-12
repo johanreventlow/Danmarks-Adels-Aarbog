@@ -35,7 +35,7 @@ function normaliserDato(v: string): string {
 }
 
 function normaliserTekst(v: string): string {
-  return v.toLowerCase().replace(/[\p{P}\p{S}]/gu, ' ').replace(/\s+/g, ' ').trim();
+  return v.toLowerCase().replace(/\?/g, ' ? ').replace(/[^\p{L}\p{N}\s?]/gu, ' ').replace(/\s+/g, ' ').trim();
 }
 
 export function normaliserFaktaVaerdi(faktatype: string, v: string): string {
