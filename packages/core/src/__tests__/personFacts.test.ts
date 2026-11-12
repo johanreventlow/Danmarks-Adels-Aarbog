@@ -107,4 +107,11 @@ describe('buildPersonFacts', () => {
     expect(v).toHaveLength(1);
     expect([v[0].chosen, ...v[0].others].map((s) => s?.source.label)).toEqual(['DAA 1939, s. 1', 'DAA 1939, s. 2']);
   });
+
+  it('viser vaerdi_tekst og date_raw én gang, når de er ens', () => {
+    const [v] = buildPersonFacts([row({ vaerdi_tekst: '15. febr. 1878.', date_raw: '15. febr. 1878.' })]);
+    expect(v.chosen?.value).toBe('15. febr. 1878.');
+    const [w] = buildPersonFacts([row({ vaerdi_tekst: 'a', date_raw: 'b' })]);
+    expect(w.chosen?.value).toBe('a, b');
+  });
 });

@@ -9,6 +9,7 @@ export * from './relationship';
 export * from './collapseSameAs';
 export * from './placementCoordinates';
 export * from './personFacts';
+export * from './factEquality';
 export * from './sammeSomPreflight';
 export * from './buildFamilyGraph';
 export * from './buildGeo';

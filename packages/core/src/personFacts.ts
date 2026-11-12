@@ -45,7 +45,9 @@ const typeRank = (t: string) => {
 };
 
 function factValue(r: PublicPersonFactRow): string {
-  const parts = [r.vaerdi_tekst, r.date_raw].filter((x): x is string => !!x && x.trim() !== '');
+  // date_raw udelades, når den er identisk med vaerdi_tekst (ellers vises samme tekst to gange).
+  const dateRaw = r.date_raw && r.vaerdi_tekst && r.date_raw.trim() === r.vaerdi_tekst.trim() ? null : r.date_raw;
+  const parts = [r.vaerdi_tekst, dateRaw].filter((x): x is string => !!x && x.trim() !== '');
   return parts.length ? parts.join(', ') : '—';
 }
 
