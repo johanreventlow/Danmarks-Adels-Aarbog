@@ -38,6 +38,12 @@ export function DetailPanel({ model, focusId, detail, onPick, backName, onBack, 
   // samme person (fx når geo ankommer) bevarer valget. Findes chippen ikke i de aktuelle data, gælder standarden,
   // uden at valget glemmes; en ny person giver altid standarden. Afledt, ikke nulstillet i en effekt.
   const [valg, setValg] = useState<{ focusId: string; noegle: string } | null>(null);
+  // Nyt focusId nulstiller valget (også ved A → B → A); justeret under render, ikke i en effekt.
+  const [valgFokus, setValgFokus] = useState(focusId);
+  if (valgFokus !== focusId) {
+    setValgFokus(focusId);
+    setValg(null);
+  }
   const faktaInput = detail?.faktaInput ?? null;
   const udgaver = model.udgaver ?? [];
   const vaelger = byggUdgaveVaelger(detail?.bioVersions ?? [], udgaver, faktaInput ? udgaverMedFakta(faktaInput) : []);

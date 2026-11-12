@@ -204,8 +204,10 @@ describe('DetailPanel — udgaver', () => {
     expect(chip('DAA 2018-20 · V-1').getAttribute('aria-pressed')).toBe('true');
     rerender(panel(detalje()));
     expect(chip('DAA 1939').getAttribute('aria-pressed')).toBe('true');
-    // ny person: standarden
+    // ny person: standarden — og valget er glemt, også når man vender tilbage (nulstil ved nyt focusId)
     rerender(panel(detalje(), '600'));
+    expect(chip('DAA 2018-20 · V-1').getAttribute('aria-pressed')).toBe('true');
+    rerender(panel(detalje(), '392'));
     expect(chip('DAA 2018-20 · V-1').getAttribute('aria-pressed')).toBe('true');
   });
 
