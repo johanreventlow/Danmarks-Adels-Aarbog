@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { buildModel } from '@daa/core';
 
@@ -83,8 +83,16 @@ test('viser personens biografi-fejl eksplicit i stedet for en gyldig tom detalje
   await waitFor(() => expect(mocks.fetchPersonDetail).toHaveBeenCalledTimes(2));
   const alert = await screen.findByRole('alert');
   expect(alert.textContent).toContain('Kunne ikke hente personens biografi');
-  expect(alert.textContent).toContain('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE');
+  // Fejlkoden er til udvikleren (konsollen), ikke til læseren.
+  expect(alert.textContent).not.toContain('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE');
   expect(screen.queryByText('Biografi: ')).toBeNull();
+
+  // »Prøv igen« henter detaljen på ny.
+  const kald = mocks.fetchPersonDetail.mock.calls.length;
+  mocks.fetchPersonDetail.mockResolvedValue({ bio: 'Hentet', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });
+  fireEvent.click(screen.getByRole('button', { name: 'Prøv igen' }));
+  await screen.findByText('Biografi: Hentet');
+  expect(mocks.fetchPersonDetail.mock.calls.length).toBeGreaterThan(kald);
 });
 
 test('søgefladens linjechips får aldrig tekniske linjenøgler (legacy-source:)', async () => {

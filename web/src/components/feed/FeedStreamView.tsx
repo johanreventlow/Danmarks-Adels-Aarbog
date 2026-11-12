@@ -110,7 +110,7 @@ export function FeedStreamView({
     setBioError(null);
     void fetchFeedBios(canon, model.persons.map((p) => p.id)).then(
       (b) => { if (alive) setBios(b); },
-      (e) => { if (alive) setBioError(String((e as Error)?.message ?? e)); },
+      (e) => { if (alive) { console.warn('[feed] biografier fejlede:', e); setBioError(String((e as Error)?.message ?? e)); } },
     );
     void loadLivsdatoBy(canon).then((ld) => { if (alive) setLivsdatoBy(ld); });
     void loadHaendelserBy(canon).then((hs) => { if (alive) setHaendelserBy(hs); });
@@ -290,7 +290,7 @@ export function FeedStreamView({
       {bioError ? (
         <div role="alert" style={{ marginBottom: 14, padding: 14, color: T.bordeaux, background: T.paper, border: '1px solid rgba(136,26,51,.25)' }}>
           <strong>Kunne ikke hente feedets biografier</strong>
-          <div style={{ marginTop: 4 }}>{bioError}</div>
+          <div style={{ marginTop: 4 }}>Nogle blade vises uden biografi. Prøv at genindlæse siden om lidt.</div>
         </div>
       ) : null}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

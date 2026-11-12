@@ -150,7 +150,8 @@ describe('FeedStreamView media lifecycle', () => {
     render(<FeedStreamView {...feedProps(null)} />);
 
     expect((await screen.findByRole('alert')).textContent).toContain('Kunne ikke hente feedets biografier');
-    expect(screen.getByRole('alert').textContent).toContain('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+    // Fejlkoden går til konsollen, ikke til læseren.
+    expect(screen.getByRole('alert').textContent).not.toContain('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
   });
 });
 

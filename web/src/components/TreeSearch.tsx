@@ -112,7 +112,12 @@ export function TreeSearch(s: TreeSearchBundle) {
                 </div>
               ))
             : <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>{s.browse.flat.map((p) => <PersonCard key={p.id} p={p} width={186} href={personPath(p.id)} onClick={() => s.onPick(p.id)} />)}</div>}
-          {s.browse.flat.length === 0 && <div style={{ padding: '20px 4px', fontFamily: T.sans, fontSize: 14, color: T.muted3 }}>Ingen træffere.</div>}
+          {s.browse.flat.length === 0 && (
+            <div style={{ padding: '20px 4px', fontFamily: T.sans }}>
+              <div style={{ fontFamily: T.serif, fontSize: 24, fontWeight: 600, color: T.ink }}>{s.query.trim() ? `Ingen hedder »${s.query.trim()}«` : 'Ingen personer at vise'}</div>
+              <div style={{ fontSize: 14.5, lineHeight: 1.5, color: '#3d382f', marginTop: 6 }}>{s.query.trim() ? 'Prøv en anden stavemåde. Stavemåder skifter gennem udgaverne.' : 'Ingen personer passer til de valgte filtre.'}</div>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -9,7 +9,7 @@ import { Link } from './Link';
 import { sammeSomEtiket } from './data/sammeSom';
 import { SammenlignUdgaver } from './components/SammenlignUdgaver';
 import { FeedStyring } from './components/FeedStyring';
-import { signIn, signOut, currentSession, type RedSession } from './data/auth';
+import { signIn, signOut, currentSession, loginFejlTekst, type RedSession } from './data/auth';
 import {
   buildTidslinje, fetchHaendelserForPerson, fetchStoriesForPerson, storyPrefillFraPost, fetchRedaktionPersoner, fetchPersonEvidence, fetchNarrativer, fetchSources, fetchLineages, fetchSletPreview,
   fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, fetchSammeSomPar, fetchRedPersonMedia, fetchRedObjectMedia, nudgeOrdinal, fetchForaeldreUkendtMarkering, type RedPerson, type PersonEvidence,
@@ -191,7 +191,7 @@ function RedaktionLogin({ fejl, onLoggedIn }: { fejl: string; onLoggedIn: (s: Re
     if (!login.email.trim() || !login.pw) { setLogin((l) => ({ ...l, err: 'Udfyld e-mail og adgangskode' })); return; }
     setLogin((l) => ({ ...l, busy: true, err: '' }));
     try { onLoggedIn(await signIn(login.email, login.pw)); }
-    catch (e) { setLogin((l) => ({ ...l, busy: false, err: oversaetFejl(String((e as Error)?.message ?? e)) })); }
+    catch (e) { setLogin((l) => ({ ...l, busy: false, err: loginFejlTekst(e) })); }
   };
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: T.pageBg, fontFamily: T.sans, color: T.ink }}>
