@@ -11,7 +11,9 @@
 --       r5  staged person, ingen placement, PDF-side 543: publiceret og ikke forældet (som prods to i 1939: en baseline-
 --           hændelse skrevet, mens personen var staged, indsættes direkte med replica). Ceremonien springer den over.
 --   Kilde -6921 (udgave »DAA M«, modpart med bognøgle): posten V-1 i entry V, nr. 1, PDF-side 45, publiceret biografi
---     og en legacy-række, så andre kilders koordinater og etiketter er målbare.
+--     og en legacy-række, så andre kilders koordinater og etiketter er målbare. Desuden en levende person (-692102) med
+--     en legacy-række i kilden: gæsten ser den ikke, redaktionen gør (decisions 2026-11-13), så ceremoniens og målingens
+--     koordinat-hash kun stemmer, når begge læser som gæst.
 -- Bindingerne publiceres med 6e-2's skrivere (som allerede giver den nye etiketform); derefter får kilde -6920's
 -- bindinger den gamle form (record_label = record_key, citation_label »DAA T side <PDF-side>«) og revalideres, så
 -- udgangspunktet er som i prod før ceremonien: record-etiketter i bindingen og den seneste hændelse, 0 stale.
@@ -192,6 +194,8 @@ BEGIN
   PERFORM pg_temp.e6e2_post(m,'V-1',-692101,1000,45,v_id,'1');
   PERFORM pg_temp.e6e2_narrativ(-692101,-6921,'V-1');
   INSERT INTO public.person_external_id(person_id,source_id,linje,nr,record_key) VALUES (-692101,-6921,'V',1,'V-1');
+  INSERT INTO public.person(id,levende) VALUES (-692102,true);
+  INSERT INTO public.person_external_id(person_id,source_id,linje,nr) VALUES (-692102,-6921,'V',2);
 END $e6e2$;
 COMMIT;
 \echo ETIKET_CEREMONI_FIXTURE_OK

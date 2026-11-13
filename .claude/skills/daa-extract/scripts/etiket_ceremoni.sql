@@ -79,11 +79,19 @@ CREATE FUNCTION pg_temp.etk_seneste(p_binding uuid) RETURNS private.narrative_pu
    ORDER BY e.stream_version DESC, e.created_at DESC, e.id DESC LIMIT 1
 $f$;
 -- Andre kilders koordinater og bindingsetiketter (samme udtryk som maal_trin6e2.sql).
-CREATE FUNCTION pg_temp.etk_koord_andre(p_src bigint) RETURNS text LANGUAGE sql STABLE AS $f$
+-- Koordinaterne læses som gæst (uden uid) ligesom i maal_trin6e2.sql: siden 2026-11-13 (decisions, POC'ets regel for
+-- levende) ser redaktionen også levende, private og staged personers koordinater, og ceremonien kører med redaktørens
+-- uid. Uid'en sættes tilbage bagefter (revalideringen kræver den).
+CREATE FUNCTION pg_temp.etk_koord_andre(p_src bigint) RETURNS text LANGUAGE plpgsql AS $f$
+DECLARE v_uid text:=coalesce(current_setting('request.jwt.claim.sub',true),''); v text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','',true);
   SELECT md5(coalesce(string_agg(ROW(c.person_id,c.source_id,c.legacy_line_code,c.printed_number,c.printed_number_label,
          c.generation_local,c.generation_global,c.kuld_label,c.provenance_kind)::text,E'\n' ORDER BY c.person_id,c.source_id),''))
-    FROM public.public_person_source_coordinates() c WHERE c.source_id<>p_src
-$f$;
+    INTO v FROM public.public_person_source_coordinates() c WHERE c.source_id<>p_src;
+  PERFORM set_config('request.jwt.claim.sub',v_uid,true);
+  RETURN v;
+END $f$;
 CREATE FUNCTION pg_temp.etk_etiketter_andre(p_src bigint) RETURNS text LANGUAGE sql STABLE AS $f$
   SELECT md5(coalesce(string_agg(concat_ws('|',b.id,b.record_label,b.citation_label),E'\n' ORDER BY b.id),''))
     FROM private.narrative_record_publication b
@@ -285,12 +293,15 @@ RESET ROLE;
 ANALYZE private.narrative_publication_event, private.narrative_record_publication, public.change_set;
 SELECT set_config('app.change_set_id','',true), set_config('etk.reval', :'g_reval', true),
        set_config('etk.andre_events', :'g_andre_events', true) \g /dev/null
--- Læserne som anon (person- og familielisten beregnes som ejer; samme udtryk som maal_trin6e2.sql).
+-- Læserne som anon (person- og familielisten beregnes som ejer; samme udtryk som maal_trin6e2.sql), uden uid (gæst, som
+-- målingen; redaktørens uid sættes tilbage bagefter).
 SELECT '{'||coalesce((SELECT string_agg(id::text,',' ORDER BY id) FROM public.person WHERE public.person_offentlig(id)),'')||'}' AS ids \gset
+SELECT set_config('request.jwt.claim.sub','',true) \g /dev/null
 SET LOCAL ROLE anon;
 SELECT count(*) AS bio_offentlige FROM public.public_person_bio_source_versions_v2(:'ids'::bigint[]) \gset
 SELECT count(*) AS fakta_bundne FROM public.public_person_facts(:'ids'::bigint[]) WHERE record_ref IS NOT NULL \gset
 RESET ROLE;
+SELECT set_config('request.jwt.claim.sub', :'actor', true) \g /dev/null
 SELECT set_config('etk.bio', :'bio_offentlige', true), set_config('etk.fakta', :'fakta_bundne', true) \g /dev/null
 
 DO $post$

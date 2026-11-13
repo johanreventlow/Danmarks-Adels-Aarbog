@@ -181,3 +181,16 @@ def test_laesertal_er_de_samme_som_ceremoniens():
               "WHERE public.person_offentlig(id)",
               "coalesce((s #>> '{publication_state,publication_policy,person_publication_allowed}')::boolean,false)"):
         assert s in m and s in c, s
+
+
+def test_laeserne_laeses_som_gaest_begge_steder():
+    """Redaktionen ser levende (decisions 2026-11-13): maalingen og ceremonien rydder uid'en, foer de laeser
+    koordinaterne og laesertallene, saa begge hasher gaestens udsnit (ceremonien saetter redaktoerens uid tilbage)."""
+    m, c = MAAL.read_text(encoding="utf-8"), CEREMONI.read_text(encoding="utf-8")
+    ryd = "set_config('request.jwt.claim.sub','',true)"
+    assert ryd in m and m.index(ryd) < m.index("public.public_person_source_coordinates()")
+    koord = re.search(r"CREATE FUNCTION pg_temp\.etk_koord_andre.*?END \$f\$;", c, re.S)
+    assert koord and ryd in koord.group(0)
+    anon = c.index("SET LOCAL ROLE anon;")
+    assert c[c.rindex(ryd, 0, anon):anon].count("\n") == 1  # linjen lige foer SET LOCAL ROLE anon
+    assert "set_config('request.jwt.claim.sub', :'actor', true)" in c[anon:]

@@ -27,11 +27,14 @@
 -- Runneren stopper, hvis KOORD_ANDRE eller ETIKETTER_ANDRE i fase ddl eller data afviger fra fase foer. Hash-udtrykkene
 -- er tegn for tegn de samme som i etiket_ceremoni.sql (test_maal_trin6e2.py tjekker det), så ceremoniens
 -- efterbetingelse kan sammenlignes med fase foer. DDL-markørerne er de samme som ceremoniens ETK_PRE_DDL.
+-- Alt læses som gæst: uid'en ryddes i transaktionen, fordi redaktionen siden 2026-11-13 (decisions, POC'ets regel for
+-- levende) også ser levende, private og staged personer i koordinater og fakta; ceremonien læser på samme måde.
 \set QUIET on
 \set ON_ERROR_STOP on
 \if :{?src} \else \set src 3 \endif
 BEGIN READ ONLY;
 SET LOCAL statement_timeout = '15min';
+SELECT set_config('request.jwt.claim.sub','',true) \g /dev/null
 SELECT to_regprocedure('public.source_trykt_side(bigint,text)') IS NOT NULL
    AND to_regprocedure('private.narrative_record_wanted_labels(uuid)') IS NOT NULL
    AND to_regprocedure('private.record_key_uden_bognoegle(text)') IS NOT NULL
