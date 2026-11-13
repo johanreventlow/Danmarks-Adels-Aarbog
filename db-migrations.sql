@@ -35478,3 +35478,314 @@ SET search_path = public, pg_catalog
 AS $$ SELECT public.source_trykt_side(c.source_id, c.side) $$;
 REVOKE ALL ON FUNCTION public.side_trykt(public.citation) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.side_trykt(public.citation) TO anon,authenticated;
+
+-- Etiketreglen (6e-2 Task 2): postetiket uden bogtrykt nøgle, tom postdel.
+CREATE OR REPLACE FUNCTION private.linje_kode(p_label text, p_code text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path=pg_catalog
+AS $$
+  SELECT coalesce((regexp_match(p_label,'^([IVXLC]+|[A-Z])\.\s'))[1],p_code)
+$$;
+
+CREATE OR REPLACE FUNCTION private.record_key_uden_bognoegle(p_record_key text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path=pg_catalog
+AS $$
+  SELECT p_record_key ~ '^record-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+$$;
+
+CREATE OR REPLACE FUNCTION private.narrative_record_wanted_labels(
+  p_source_record_id uuid
+) RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_source_id bigint;
+  v_source_label text;
+  v_record_key text;
+  v_pages text;
+  v_record_label text;
+  v_citation_label text;
+  v_placement_count integer;
+  v_entry_label text;
+  v_entry_code text;
+  v_number text;
+BEGIN
+  SELECT record.source_id,coalesce(source.udgave,source.titel),record.record_key
+    INTO v_source_id,v_source_label,v_record_key
+    FROM private.source_record record
+    JOIN public.source source ON source.id=record.source_id
+   WHERE record.id=p_source_record_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_NOT_FOUND';
+  END IF;
+
+  SELECT string_agg(interval.trykt,', ' ORDER BY interval.page_from,interval.page_to)
+    INTO v_pages
+    FROM (
+      SELECT DISTINCT occurrence.page_from,occurrence.page_to,
+             public.source_trykt_side(
+               v_source_id,
+               CASE WHEN occurrence.page_from=occurrence.page_to
+                    THEN occurrence.page_from::text
+                    ELSE occurrence.page_from::text||'-'||occurrence.page_to::text
+               END) AS trykt
+        FROM private.source_record_anchor_current anchor
+        JOIN private.source_record_occurrence occurrence
+          ON occurrence.id=anchor.occurrence_id
+       WHERE anchor.source_record_id=p_source_record_id
+         AND anchor.decision_status='accepted'
+    ) interval
+   WHERE interval.trykt IS NOT NULL;
+  v_citation_label:=CASE WHEN v_pages IS NULL THEN v_source_label
+                         ELSE v_source_label||', s. '||v_pages END;
+
+  IF private.record_key_uden_bognoegle(v_record_key) THEN
+    SELECT count(*),min(entry.label),min(entry.code),min(placement.printed_number)
+      INTO v_placement_count,v_entry_label,v_entry_code,v_number
+      FROM private.source_record_placement_current placement
+      JOIN public.lineage_scheme_entry entry ON entry.id=placement.scheme_entry_id
+     WHERE placement.source_record_id=p_source_record_id
+       AND placement.decision_status='accepted';
+    IF v_placement_count>1 THEN
+      RAISE EXCEPTION 'RECORD_LABEL_PLACEMENTS_AMBIGUOUS';
+    END IF;
+    v_record_label:=CASE WHEN v_placement_count=0 THEN ''
+      ELSE private.linje_kode(v_entry_label,v_entry_code)
+           ||CASE WHEN v_number IS NOT NULL THEN ', nr. '||v_number ELSE '' END
+      END;
+  ELSE
+    v_record_label:=v_record_key;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'record_label',v_record_label,
+    'citation_label',v_citation_label
+  );
+END
+$$;
+
+CREATE OR REPLACE FUNCTION private.narrative_record_labels(
+  p_source_record_id uuid
+) RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_record_order integer;
+  v_page_label text;
+  v_record_label text;
+  v_citation_label text;
+  v_binding_record_label text;
+  v_binding_citation_label text;
+  v_wanted jsonb;
+BEGIN
+  PERFORM 1 FROM private.source_record record WHERE record.id=p_source_record_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_NOT_FOUND';
+  END IF;
+
+  SELECT min(interval.page_from),
+         string_agg(interval.page_label,', ' ORDER BY interval.page_from,interval.page_to)
+    INTO v_record_order,v_page_label
+    FROM (
+      SELECT DISTINCT occurrence.page_from,occurrence.page_to,
+             CASE WHEN occurrence.page_from=occurrence.page_to
+                  THEN occurrence.page_from::text
+                  ELSE occurrence.page_from::text||'-'||occurrence.page_to::text
+              END AS page_label
+        FROM private.source_record_anchor_current anchor
+        JOIN private.source_record_occurrence occurrence
+          ON occurrence.id=anchor.occurrence_id
+       WHERE anchor.source_record_id=p_source_record_id
+         AND anchor.decision_status='accepted'
+    ) interval;
+
+  v_wanted:=private.narrative_record_wanted_labels(p_source_record_id);
+  v_record_label:=v_wanted->>'record_label';
+  v_citation_label:=v_wanted->>'citation_label';
+
+  SELECT binding.record_label,binding.citation_label
+    INTO v_binding_record_label,v_binding_citation_label
+    FROM private.narrative_record_publication binding
+   WHERE binding.source_record_id=p_source_record_id
+     AND binding.status IN ('draft','published')
+   ORDER BY binding.created_at,binding.id
+   LIMIT 1;
+  IF FOUND THEN
+    v_record_label:=v_binding_record_label;
+    v_citation_label:=v_binding_citation_label;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'record_order',v_record_order,
+    'record_label',v_record_label,
+    'citation_label',v_citation_label,
+    'side',v_page_label
+  );
+END
+$$;
+
+REVOKE ALL ON FUNCTION private.narrative_record_wanted_labels(uuid),
+  private.linje_kode(text,text),
+  private.record_key_uden_bognoegle(text)
+  FROM PUBLIC,anon,authenticated,service_role;
+
+DO $etiket$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint
+              WHERE conrelid='private.narrative_record_publication'::regclass
+                AND conname='narrative_record_publication_record_label_check'
+                AND pg_get_constraintdef(oid) NOT LIKE '%record_label%=%''''%') THEN
+    ALTER TABLE private.narrative_record_publication
+      DROP CONSTRAINT narrative_record_publication_record_label_check;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid='private.narrative_record_publication'::regclass
+                    AND conname='narrative_record_publication_record_label_check') THEN
+    ALTER TABLE private.narrative_record_publication
+      ADD CONSTRAINT narrative_record_publication_record_label_check
+      CHECK (record_label='' OR btrim(record_label)<>'');
+  END IF;
+END $etiket$;
+
+CREATE OR REPLACE FUNCTION private.validate_reimport_case_elements(
+  p_elements jsonb, p_counts jsonb)
+RETURNS void LANGUAGE plpgsql IMMUTABLE
+SET search_path=pg_catalog AS $$
+DECLARE
+  v_key text; v_payload jsonb; v_before jsonb;
+  v_identity integer:=0; v_assign integer:=0; v_no_pub integer:=0;
+  v_case_ids text[]:='{}';
+BEGIN
+  IF jsonb_typeof(p_elements)<>'object'
+     OR (SELECT count(*) FROM jsonb_object_keys(p_elements))<1 THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+  END IF;
+  FOR v_key, v_payload IN SELECT e.key, e.value FROM jsonb_each(p_elements) e ORDER BY e.key LOOP
+    IF jsonb_typeof(v_payload)<>'object' OR coalesce(btrim(v_payload->>'case_id'),'')='' THEN
+      RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+    END IF;
+    v_before := v_payload->'before_state';
+    IF v_payload->>'action'='different' THEN
+      IF v_key <> 'case:'||(v_payload->>'case_id')
+         OR (SELECT count(*) FROM jsonb_object_keys(v_payload))<>4
+         OR jsonb_typeof(v_payload->'person_ids')<>'array'
+         OR jsonb_array_length(v_payload->'person_ids')<>2
+         OR jsonb_typeof(v_payload->'person_ids'->0)<>'number'
+         OR jsonb_typeof(v_payload->'person_ids'->1)<>'number'
+         OR (v_payload->'person_ids'->>0)::bigint >= (v_payload->'person_ids'->>1)::bigint
+         OR jsonb_typeof(v_before)<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before))<>2
+         OR jsonb_typeof(v_before->'component_overlap')<>'boolean'
+         OR jsonb_typeof(v_before->'existing_rejection')<>'boolean'
+         OR (v_before->>'component_overlap')::boolean THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+      END IF;
+      IF v_payload->>'case_id' = ANY(v_case_ids) THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+      END IF;
+      v_case_ids := v_case_ids || (v_payload->>'case_id');
+      v_identity := v_identity + 1;
+    ELSIF v_payload->>'action'='assign' THEN
+      IF v_key <> 'case:'||(v_payload->>'case_id')||':rid:'||coalesce(v_payload->>'rid','')
+         OR (SELECT count(*) FROM jsonb_object_keys(v_payload))<>13
+         OR coalesce(btrim(v_payload->>'rid'),'')=''
+         OR coalesce(btrim(v_payload->>'record_key'),'')=''
+         OR jsonb_typeof(v_payload->'target_person_id')<>'number'
+         OR NOT (jsonb_typeof(v_payload->'target_narrative_id') IN ('number','null'))
+         OR jsonb_typeof(v_payload->'normalized_text')<>'string'
+         OR (v_payload->>'normalized_sha256') !~ '^[0-9a-f]{64}$'
+         OR encode(sha256(convert_to(v_payload->>'normalized_text','UTF8')),'hex')
+            <> (v_payload->>'normalized_sha256')
+         OR jsonb_typeof(v_payload->'record_label')<>'string'
+         OR (v_payload->>'record_label'<>'' AND btrim(v_payload->>'record_label')='')
+         OR coalesce(btrim(v_payload->>'citation_label'),'')=''
+         OR coalesce(btrim(v_payload->>'side'),'')=''
+         OR jsonb_typeof(v_payload->'privat')<>'boolean'
+         OR (v_payload->>'privat')::boolean
+         OR jsonb_typeof(v_before)<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before))<>3 THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+      END IF;
+      IF jsonb_typeof(v_before->'source_record')<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before->'source_record'))<>3
+         OR jsonb_typeof(v_before->'source_record'->'match_count')<>'number'
+         OR (v_before->'source_record'->>'match_count')::integer<>1
+         OR (v_before->'source_record'->>'verbatim_sha256') !~ '^[0-9a-f]{64}$'
+         OR (v_before->'source_record'->>'side') <> (v_payload->>'side')
+         OR jsonb_typeof(v_before->'target_narrative')<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before->'target_narrative'))<>4
+         OR (v_before->'target_narrative'->'person_id') IS DISTINCT FROM (v_payload->'target_person_id')
+         OR (v_before->'target_narrative'->'narrative_id') IS DISTINCT FROM (v_payload->'target_narrative_id')
+         OR jsonb_typeof(v_before->'target_narrative'->'privat')<>'boolean'
+         OR (v_before->'target_narrative'->>'privat')::boolean
+         OR NOT (
+              (jsonb_typeof(v_payload->'target_narrative_id')='null'
+                AND jsonb_typeof(v_before->'target_narrative'->'old_sha256')='null')
+              OR (jsonb_typeof(v_payload->'target_narrative_id')='number'
+                AND (v_before->'target_narrative'->>'old_sha256') ~ '^[0-9a-f]{64}$'))
+         OR jsonb_typeof(v_before->'binding')<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before->'binding'))<>2
+         OR NOT (v_before->'binding'->>'status' IN ('absent','draft_same_record'))
+         OR NOT (
+              (v_before->'binding'->>'status'='absent'
+                AND jsonb_typeof(v_before->'binding'->'binding_person_id')='null')
+              OR (v_before->'binding'->>'status'='draft_same_record'
+                AND (v_before->'binding'->'binding_person_id')
+                    IS NOT DISTINCT FROM (v_payload->'target_person_id'))) THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+      END IF;
+      v_assign := v_assign + 1;
+    ELSIF v_payload->>'action'='no_publication' THEN
+      -- Controller ruling 1: the no_publication threshold is exactly 'absent',
+      -- matching the already-shipped offline finalizer, so a manifest that
+      -- passed that gate is guaranteed to pass this one.
+      IF v_key <> 'case:'||(v_payload->>'case_id')||':rid:'||coalesce(v_payload->>'rid','')
+         OR (SELECT count(*) FROM jsonb_object_keys(v_payload))<>5
+         OR coalesce(btrim(v_payload->>'rid'),'')=''
+         OR coalesce(btrim(v_payload->>'record_key'),'')=''
+         OR jsonb_typeof(v_before)<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before))<>2
+         OR jsonb_typeof(v_before->'source_record')<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before->'source_record'))<>3
+         OR (v_before->'source_record'->>'verbatim_sha256') !~ '^[0-9a-f]{64}$'
+         OR coalesce(btrim(v_before->'source_record'->>'side'),'')=''
+         OR jsonb_typeof(v_before->'binding')<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before->'binding'))<>2
+         OR v_before->'binding'->>'status'<>'absent'
+         OR jsonb_typeof(v_before->'binding'->'binding_person_id')<>'null' THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+      END IF;
+      v_no_pub := v_no_pub + 1;
+    ELSE
+      RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+    END IF;
+  END LOOP;
+
+  -- Every record element must belong to a case that also carries its identity
+  -- element: a record decision without its case's identity decision would be a
+  -- half-applied case, which the spec forbids ("apply-enhed = hele sagen").
+  IF EXISTS (
+    SELECT 1 FROM jsonb_each(p_elements) e
+     WHERE e.value->>'action' IN ('assign','no_publication')
+       AND NOT (p_elements ? ('case:'||(e.value->>'case_id')))
+  ) THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+  END IF;
+
+  IF (p_counts->>'identity_events')::integer IS DISTINCT FROM v_identity
+     OR (p_counts->>'assign_events')::integer IS DISTINCT FROM v_assign
+     OR (p_counts->>'no_publication_events')::integer IS DISTINCT FROM v_no_pub THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_COUNTS_MISMATCH';
+  END IF;
+END $$;

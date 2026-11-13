@@ -10929,3 +10929,42 @@ BEGIN
   END;
   RAISE NOTICE 'OK: trin 6e-2 — sidekort, omregning og anon-adgang';
 END $verify_6e2_sidekort$;
+
+-- Trin 6e-2 Task 2: etiketreglens funktioner og bindingens CHECK.
+DO $verify_6e2_etiket$
+DECLARE v_def text;
+BEGIN
+  IF to_regprocedure('private.linje_kode(text,text)') IS NULL
+     OR to_regprocedure('private.record_key_uden_bognoegle(text)') IS NULL
+     OR to_regprocedure('private.narrative_record_wanted_labels(uuid)') IS NULL THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 etiketfunktioner mangler';
+  END IF;
+  IF has_function_privilege('anon','private.narrative_record_wanted_labels(uuid)','EXECUTE')
+     OR has_function_privilege('authenticated','private.narrative_record_wanted_labels(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 wanted_labels åben for klienter';
+  END IF;
+  IF private.linje_kode('IV. Den danske grevelige Linje af 1673.','IV') IS DISTINCT FROM 'IV'
+     OR private.linje_kode('A. Den holstenske Linje.','Stamme-x') IS DISTINCT FROM 'A'
+     OR private.linje_kode('Den grevelige linje af 1673','V') IS DISTINCT FROM 'V'
+     OR private.record_key_uden_bognoegle('record-62000000-0000-4000-8000-0000000000a1') IS NOT TRUE
+     OR private.record_key_uden_bognoegle('V-1') IS NOT FALSE THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 linje_kode / record_key_uden_bognoegle';
+  END IF;
+  -- CHECK tillader '' og afviser blanktegn.
+  SELECT pg_get_constraintdef(oid) INTO v_def FROM pg_constraint
+   WHERE conrelid='private.narrative_record_publication'::regclass
+     AND conname='narrative_record_publication_record_label_check';
+  IF v_def IS NULL OR v_def NOT LIKE '%record_label%=%''''%' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 bindingens CHECK tillader ikke tom postdel';
+  END IF;
+  IF EXISTS (SELECT 1 WHERE NOT ('' = '' OR btrim('')<>''))
+     OR NOT ((SELECT bool_and(v='' OR btrim(v)<>'') FROM (VALUES (''),('IV')) x(v)))
+     OR ((SELECT bool_and(v='' OR btrim(v)<>'') FROM (VALUES ('  ')) x(v))) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 CHECK-semantik';
+  END IF;
+  v_def := pg_get_functiondef('private.validate_reimport_case_elements(jsonb,jsonb)'::regprocedure);
+  IF v_def LIKE '%coalesce(btrim(v_payload->>''record_label''),'''')=''''%' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 validatoren afviser stadig tom record_label';
+  END IF;
+  RAISE NOTICE 'OK: trin 6e-2 — etiketregel og tom postdel';
+END $verify_6e2_etiket$;

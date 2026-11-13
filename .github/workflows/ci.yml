@@ -639,6 +639,9 @@ jobs:
       - name: Sidekort og omregning til trykt side (trin 6e-2)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         run: bash tests/sql/test-6e2-sidekort.sh ci6e2_sidekort 68af809d
+      - name: Postetiket og tom postdel (trin 6e-2)
+        env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
+        run: bash tests/sql/test-6e2-etiket.sh ci6e2_etiket 68af809d
       - name: Kildetekst-revision · migrationer to gange og to samtidige sessioner (trin 6a)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres, PGDATABASE: ci6a_text_revision}
         run: |

@@ -3757,7 +3757,7 @@ CREATE TABLE private.narrative_record_publication (
   narrative_id bigint NOT NULL UNIQUE REFERENCES public.narrative(id),
   source_record_id uuid NOT NULL REFERENCES private.source_record(id),
   record_ref uuid NOT NULL UNIQUE DEFAULT gen_random_uuid(),
-  record_label text NOT NULL CHECK (btrim(record_label)<>''),
+  record_label text NOT NULL CHECK (record_label='' OR btrim(record_label)<>''),
   citation_label text NOT NULL CHECK (btrim(citation_label)<>''),
   status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','published','withdrawn')),
   created_at timestamptz NOT NULL DEFAULT now(), published_at timestamptz
@@ -12173,7 +12173,8 @@ BEGIN
          OR (v_payload->>'normalized_sha256') !~ '^[0-9a-f]{64}$'
          OR encode(sha256(convert_to(v_payload->>'normalized_text','UTF8')),'hex')
             <> (v_payload->>'normalized_sha256')
-         OR coalesce(btrim(v_payload->>'record_label'),'')=''
+         OR jsonb_typeof(v_payload->'record_label')<>'string'
+         OR (v_payload->>'record_label'<>'' AND btrim(v_payload->>'record_label')='')
          OR coalesce(btrim(v_payload->>'citation_label'),'')=''
          OR coalesce(btrim(v_payload->>'side'),'')=''
          OR jsonb_typeof(v_payload->'privat')<>'boolean'
@@ -14629,6 +14630,98 @@ CREATE INDEX source_record_revision_event_successor_state_idx
     successor_record_id,predecessor_record_id,relation_kind,version DESC
   );
 
+CREATE OR REPLACE FUNCTION private.linje_kode(p_label text, p_code text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path=pg_catalog
+AS $$
+  SELECT coalesce((regexp_match(p_label,'^([IVXLC]+|[A-Z])\.\s'))[1],p_code)
+$$;
+
+CREATE OR REPLACE FUNCTION private.record_key_uden_bognoegle(p_record_key text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path=pg_catalog
+AS $$
+  SELECT p_record_key ~ '^record-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+$$;
+
+CREATE OR REPLACE FUNCTION private.narrative_record_wanted_labels(
+  p_source_record_id uuid
+) RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_source_id bigint;
+  v_source_label text;
+  v_record_key text;
+  v_pages text;
+  v_record_label text;
+  v_citation_label text;
+  v_placement_count integer;
+  v_entry_label text;
+  v_entry_code text;
+  v_number text;
+BEGIN
+  SELECT record.source_id,coalesce(source.udgave,source.titel),record.record_key
+    INTO v_source_id,v_source_label,v_record_key
+    FROM private.source_record record
+    JOIN public.source source ON source.id=record.source_id
+   WHERE record.id=p_source_record_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_NOT_FOUND';
+  END IF;
+
+  SELECT string_agg(interval.trykt,', ' ORDER BY interval.page_from,interval.page_to)
+    INTO v_pages
+    FROM (
+      SELECT DISTINCT occurrence.page_from,occurrence.page_to,
+             public.source_trykt_side(
+               v_source_id,
+               CASE WHEN occurrence.page_from=occurrence.page_to
+                    THEN occurrence.page_from::text
+                    ELSE occurrence.page_from::text||'-'||occurrence.page_to::text
+               END) AS trykt
+        FROM private.source_record_anchor_current anchor
+        JOIN private.source_record_occurrence occurrence
+          ON occurrence.id=anchor.occurrence_id
+       WHERE anchor.source_record_id=p_source_record_id
+         AND anchor.decision_status='accepted'
+    ) interval
+   WHERE interval.trykt IS NOT NULL;
+  v_citation_label:=CASE WHEN v_pages IS NULL THEN v_source_label
+                         ELSE v_source_label||', s. '||v_pages END;
+
+  IF private.record_key_uden_bognoegle(v_record_key) THEN
+    SELECT count(*),min(entry.label),min(entry.code),min(placement.printed_number)
+      INTO v_placement_count,v_entry_label,v_entry_code,v_number
+      FROM private.source_record_placement_current placement
+      JOIN public.lineage_scheme_entry entry ON entry.id=placement.scheme_entry_id
+     WHERE placement.source_record_id=p_source_record_id
+       AND placement.decision_status='accepted';
+    IF v_placement_count>1 THEN
+      RAISE EXCEPTION 'RECORD_LABEL_PLACEMENTS_AMBIGUOUS';
+    END IF;
+    v_record_label:=CASE WHEN v_placement_count=0 THEN ''
+      ELSE private.linje_kode(v_entry_label,v_entry_code)
+           ||CASE WHEN v_number IS NOT NULL THEN ', nr. '||v_number ELSE '' END
+      END;
+  ELSE
+    v_record_label:=v_record_key;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'record_label',v_record_label,
+    'citation_label',v_citation_label
+  );
+END
+$$;
+
 CREATE OR REPLACE FUNCTION private.narrative_record_labels(
   p_source_record_id uuid
 ) RETURNS jsonb
@@ -14638,21 +14731,15 @@ SECURITY INVOKER
 SET search_path=pg_catalog
 AS $$
 DECLARE
-  v_source_label text;
-  v_record_key text;
   v_record_order integer;
   v_page_label text;
   v_record_label text;
   v_citation_label text;
   v_binding_record_label text;
   v_binding_citation_label text;
-  v_placement_count integer;
+  v_wanted jsonb;
 BEGIN
-  SELECT coalesce(source.udgave,source.titel),record.record_key
-    INTO v_source_label,v_record_key
-    FROM private.source_record record
-    JOIN public.source source ON source.id=record.source_id
-   WHERE record.id=p_source_record_id;
+  PERFORM 1 FROM private.source_record record WHERE record.id=p_source_record_id;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_NOT_FOUND';
   END IF;
@@ -14673,17 +14760,9 @@ BEGIN
          AND anchor.decision_status='accepted'
     ) interval;
 
-  SELECT count(*),min(entry.label)
-    INTO v_placement_count,v_record_label
-    FROM private.source_record_placement_current placement
-    JOIN public.lineage_scheme_entry entry ON entry.id=placement.scheme_entry_id
-   WHERE placement.source_record_id=p_source_record_id
-     AND placement.decision_status='accepted';
-  IF v_placement_count<>1 THEN
-    v_record_label:=v_record_key;
-  END IF;
-  v_citation_label:=CASE WHEN v_page_label IS NULL THEN NULL
-                         ELSE v_source_label||', s. '||v_page_label END;
+  v_wanted:=private.narrative_record_wanted_labels(p_source_record_id);
+  v_record_label:=v_wanted->>'record_label';
+  v_citation_label:=v_wanted->>'citation_label';
 
   SELECT binding.record_label,binding.citation_label
     INTO v_binding_record_label,v_binding_citation_label
@@ -15457,6 +15536,9 @@ END
 $$;
 
 REVOKE ALL ON FUNCTION private.narrative_record_labels(uuid),
+  private.narrative_record_wanted_labels(uuid),
+  private.linje_kode(text,text),
+  private.record_key_uden_bognoegle(text),
   private.narrative_publication_state(bigint,bigint,text),
   private.narrative_record_state(bigint,bigint,text,boolean),
   private.narrative_legacy_publication_state(uuid),
