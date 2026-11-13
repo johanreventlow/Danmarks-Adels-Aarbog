@@ -40,11 +40,14 @@ const search = {
 const props = { model, onPick: () => {}, onFocus: () => {}, hasBookmark: () => false, onToggleBookmark: () => {}, search };
 
 describe('TreeView', () => {
-  it('søskende-kortets navn er et ægte anker til /person/<id>', () => {
+  it('kortene er ægte ankre til /person/<id>; fokuskortet er ikke et link, men har »Åbn personsiden«', () => {
     render(<TreeView {...props} focusId="A" />);
-    const anker = screen.getByText('Anna').closest('a');
-    expect(anker).not.toBeNull();
-    expect(anker!.getAttribute('href')).toBe('/person/A');
+    expect(screen.getByText('Bo').closest('a')?.getAttribute('href')).toBe('/person/C1');
+    expect(screen.getByText('Far').closest('a')?.getAttribute('href')).toBe('/person/F');
+    const fokus = screen.getByText('Anna').closest('[aria-current]');
+    expect(fokus).not.toBeNull();
+    expect(screen.getByText('Anna').closest('a')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Åbn personsiden' }).getAttribute('href')).toBe('/person/A');
   });
 
   it('venstreklik på et børne-navn kalder onPick præcis én gang (kortet navigerer ikke også selv)', () => {
@@ -69,10 +72,13 @@ describe('TreeView', () => {
     expect(screen.getByText('Far').closest('a')?.getAttribute('href')).toBe('/person/F');
   });
 
-  it('viser Fokus-variant som standard (ingen kolonne-labels)', () => {
+  it('viser Fokus-variant som standard: rækker med etiketter, Fokus-knappen trykket', () => {
     render(<TreeView {...props} focusId="A" />);
-    expect(screen.getByText('Denne generation')).toBeTruthy(); // variant A-markør
-    expect(screen.queryByText('Forældre')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Fokus' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Kolonner' }).getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByText('Gift')).toBeTruthy();
+    expect(screen.getByText('2 børn')).toBeTruthy();
+    expect(screen.queryByText('Bedsteforældre')).toBeNull();
   });
 
   it('Kolonner default: Forældre + Fokus + Børn synlige (begge retninger)', () => {

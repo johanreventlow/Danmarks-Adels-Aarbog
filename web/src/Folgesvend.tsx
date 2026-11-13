@@ -29,6 +29,7 @@ import { OverviewMapView } from './components/OverviewMapView';
 import PresensView from './components/PresensView';
 import { ArmsView } from './components/ArmsView';
 import { AboutView } from './components/AboutView';
+import { useSmalSkaerm } from './useSmalSkaerm';
 import { TreeSearch, type TreeSearchBundle } from './components/TreeSearch';
 import { ViewHeader } from './components/primitives';
 import { synligeLinjer } from './data/lineage';
@@ -68,6 +69,7 @@ export default function Folgesvend() {
   // "rigtig" navigation), ikke af focusOnly/driftFocus (Slægtskabs-fokus / Kolonner-drill).
   const [prevFocusId, setPrevFocusId] = useState<string | null>(null);
   // "Mig" i slægten (PoC: localStorage; flyttes til profiles.reventlow_person_id ved login).
+  const smal = useSmalSkaerm();
   const [meId, setMeId] = useState<string | null>(() => (typeof window !== 'undefined' ? window.localStorage.getItem('daa_me_id') : null));
   // Konto-bogmærker (spec 2026-07-06): login-eksklusiv session. "Mig" (ovenfor) forbliver
   // lokal/udskudt migration — denne session bruges KUN til bogmærker her.
@@ -558,7 +560,8 @@ export default function Folgesvend() {
         </div>
 
         {/* Højre: person-detalje (kun i person-centriske visninger) */}
-        {detailOpen && model && focusId && (detailError ? (
+        {/* På smal skærm har stamtræets fokuskort selv »Åbn personsiden«; panelet ville klemme træet (fase 5c). */}
+        {detailOpen && !(smal && mode === 'tree') && model && focusId && (detailError ? (
           <aside role="alert" style={{ width: 380, padding: 28, background: T.surfaceRaised, borderLeft: `1px solid ${T.line}`, fontFamily: T.sans }}>
             <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600, color: T.bordeaux }}>Kunne ikke hente personens biografi</div>
             <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.5, color: T.inkSecondary }}>Forbindelsen til arkivet svigtede et øjeblik. Prøv igen om lidt.</div>
