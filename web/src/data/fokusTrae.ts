@@ -3,8 +3,10 @@
 //
 // Regler (overdragelsen §Stamtræet, invariant 5–7):
 // - Hele søskendeflokken: børn af alle viste forældre, ikke kun den primære.
-// - Halvsøskende nævnes KUN, når begge fødselsfamilier er kendt og forskellige — en manglende kant er ikke
-//   en oplysning om, at der er tale om halvsøskende.
+// - Halvsøskende nævnes KUN, når begge fødselsfamilier har en kendt anden forælder, og de to er forskellige.
+//   Familie-id'et alene siger intet: efter samme_som-sammenfoldningen kan samme forældrepar have én familie
+//   pr. udgave, og en manglende kant er ingen oplysning om halvsøskende.
+// - Samme ægtefælle i flere familier (fx én pr. udgave) er ét ægteskab.
 // - »Mor/Far ikke angivet i bogen« kun med præcis én forælder af kendt køn.
 // - Usikre slægtskaber (formodet/omstridt) bærer ordet; komponenten tegner kanten stiplet.
 // - Børn grupperes pr. ægteskab, når data knytter dem til ét af personens ægteskaber; ellers samlet med note.
@@ -15,7 +17,7 @@ import { konfTekst } from './format';
 export type FokusRelation = { person: ModelPerson; konf: string };
 export type FokusForaelder = FokusRelation & { rolle: 'Far' | 'Mor' | 'Forælder' };
 export type FokusSoeskende = FokusRelation & { halv: boolean; iFokus: boolean };
-export type FokusAegteskab = { unionId: string | null; aegtefaelleId: string | null; navn: string; gange: number };
+export type FokusAegteskab = { unionId: string | null; aegtefaelleId: string | null; navn: string };
 export type FokusBoerneGruppe = { aegteskab: FokusAegteskab | null; boern: FokusRelation[] };
 export type FokusRaekker = {
   foraeldre: FokusForaelder[];
@@ -52,10 +54,14 @@ export function byggFokusRaekker(model: Model, focusId: string): FokusRaekker | 
     manglendeForaelder = model.parentsUnknownByPerson?.[focusId] ? 'Forældrene kendes ikke ifølge bogen' : 'Forældre ikke angivet i bogen';
   }
 
-  // Fødselsfamilie pr. (barn, forælder): unionsnøglen fra childrenByUnion, kanonisk.
-  const foedselsUnion = (barn: string, foraelder: string): string | null => {
+  // Den anden forælder i barnets fødselsfamilie under `foraelder` (kanonisk), eller null hvis ukendt.
+  const andenForaelder = (barn: string, foraelder: string): string | null => {
     for (const [k, boern] of Object.entries(model.indexes.childrenByUnion[foraelder] ?? {})) {
-      if (k !== INGEN_UNION && boern.some((b) => canon(b) === barn)) return k;
+      if (k === INGEN_UNION || !boern.some((b) => canon(b) === barn)) continue;
+      const u = model.indexes.unionById?.[k];
+      if (!u) continue;
+      const raa = canon(u.p1) === foraelder ? u.p2 : u.p1;
+      if (raa) return canon(raa);
     }
     return null;
   };
@@ -70,15 +76,15 @@ export function byggFokusRaekker(model: Model, focusId: string): FokusRaekker | 
     let halv = false;
     if (s.id !== f.id && faelles.length > 0) {
       const p = faelles[0];
-      const egen = foedselsUnion(f.id, p.id);
-      const deres = foedselsUnion(s.id, p.id);
+      const egen = andenForaelder(f.id, p.id);
+      const deres = andenForaelder(s.id, p.id);
       halv = egen != null && deres != null && egen !== deres;
     }
     const usikker = faelles.map((p) => konf(s.id, p.id)).find(Boolean) ?? '';
     return { person: s, konf: usikker, halv, iFokus: s.id === f.id };
   });
 
-  // Ægteskaber: fra unionerne (med id), ellers spousesBy; samme ægtefælle to gange tælles.
+  // Ægteskaber: fra unionerne (med id), ellers spousesBy; samme ægtefælle er ét ægteskab.
   const aegteskaber: FokusAegteskab[] = [];
   const findAegteskab = (aegtefaelleId: string | null, navn: string) =>
     aegteskaber.find((a) => (aegtefaelleId ? a.aegtefaelleId === aegtefaelleId : !a.aegtefaelleId && a.navn === navn));
@@ -90,16 +96,12 @@ export function byggFokusRaekker(model: Model, focusId: string): FokusRaekker | 
     if (!anden && !u.p2_name) continue;
     const navn = (anden && model.byId[anden]?.name) || u.p2_name || 'Ægtefælle uden navn';
     const id = anden && model.byId[anden] ? anden : null;
-    const fundet = findAegteskab(id, navn);
-    if (fundet) fundet.gange += 1;
-    else aegteskaber.push({ unionId: u.id, aegtefaelleId: id, navn, gange: 1 });
+    if (!findAegteskab(id, navn)) aegteskaber.push({ unionId: u.id, aegtefaelleId: id, navn });
   }
   if (aegteskaber.length === 0) {
     for (const s of model.indexes.spousesBy[focusId] ?? []) {
       if (!s.name && !s.id) continue;
-      const fundet = findAegteskab(s.id, s.name);
-      if (fundet) fundet.gange += 1;
-      else aegteskaber.push({ unionId: null, aegtefaelleId: s.id, navn: s.name || 'Ægtefælle uden navn', gange: 1 });
+      if (!findAegteskab(s.id, s.name)) aegteskaber.push({ unionId: null, aegtefaelleId: s.id, navn: s.name || 'Ægtefælle uden navn' });
     }
   }
 

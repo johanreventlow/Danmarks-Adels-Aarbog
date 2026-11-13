@@ -13,6 +13,7 @@ import { personPath } from '../data/nav';
 import type { Model } from '../data/types';
 import { byggFokusRaekker, type FokusRelation, type FokusSoeskende } from '../data/fokusTrae';
 import { Avatar, BookmarkFlag } from './primitives';
+import { erTekniskLinje } from '../data/lineage';
 
 const BOERN_FOER_VIS_ALLE = 4;
 
@@ -48,7 +49,7 @@ export function FokusTrae({ model, focusId, onPick, onFocus, personHref = person
     if (e.key === 'ArrowRight' && naeste) { e.preventDefault(); gaaTil(naeste, true); }
   };
   const f = model.byId[focusId];
-  const linje = (model.lineage?.byPerson[focusId] ?? []).map((lk) => model.lineage?.navn[lk]).find(Boolean);
+  const linje = (model.lineage?.byPerson[focusId] ?? []).filter((lk) => !erTekniskLinje(lk)).map((lk) => model.lineage?.navn[lk]).find(Boolean);
 
   const fokusKort = (
     <div ref={fokusRef} tabIndex={-1} aria-current="true"
@@ -156,7 +157,6 @@ export function FokusTrae({ model, focusId, onPick, onFocus, personHref = person
               ⚭ {a.aegtefaelleId
                 ? <Link href={personHref(a.aegtefaelleId)} onNavigate={() => onPick(a.aegtefaelleId!)} style={{ color: T.bordeaux }}>{a.navn}</Link>
                 : a.navn}
-              {a.gange > 1 && <span style={{ ...aarStil, fontStyle: 'normal', marginLeft: 6 }}>(registreret {a.gange} gange)</span>}
             </span>
           )) : <span style={{ fontStyle: 'normal', fontFamily: T.sans, fontSize: 13.5, color: T.inkMuted }}>Intet ægteskab angivet i bogen</span>}
         </p>
@@ -166,7 +166,6 @@ export function FokusTrae({ model, focusId, onPick, onFocus, personHref = person
       {/* Børn */}
       <Raekke smal={smal} etiket={r.antalBoern ? `${r.antalBoern} ${r.antalBoern === 1 ? 'barn' : 'børn'}` : 'Børn'} alignStart>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
-          {r.boerneNote && <p style={{ margin: 0, fontSize: 13, lineHeight: '19px', color: T.inkMuted }}>{r.boerneNote}</p>}
           {r.boerneGrupper.length === 0 && <p style={{ margin: 0, fontSize: 13.5, color: T.inkMuted }}>Ingen børn angivet i bogen</p>}
           {r.boerneGrupper.map((g, gi) => {
             const vis = g.boern.slice(0, Math.max(0, tilbage));
@@ -179,6 +178,7 @@ export function FokusTrae({ model, focusId, onPick, onFocus, personHref = person
                     {g.aegteskab ? `Med ${g.aegteskab.navn}` : 'Ægteskab ikke angivet'}
                   </p>
                 )}
+                {!g.aegteskab && r.boerneNote && <p style={{ margin: 0, fontSize: 13, lineHeight: '19px', color: T.inkMuted }}>{r.boerneNote}</p>}
                 <div style={{ display: 'grid', gridTemplateColumns: smal ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
                   {vis.map((b) => kort(b))}
                 </div>

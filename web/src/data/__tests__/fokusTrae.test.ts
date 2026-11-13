@@ -32,21 +32,28 @@ describe('byggFokusRaekker', () => {
       .toBe('Forældrene kendes ikke ifølge bogen');
   });
 
-  it('hele søskendeflokken under begge forældre; halvsøskende kun ved to kendte, forskellige fødselsfamilier', () => {
-    const m = model({ persons: [P('A', 'Anna'), P('B', 'Bo'), P('C', 'Cille'), P('D', 'Dan'), P('F', 'Far', 'mand'), P('M', 'Mor', 'kvinde'), P('M2', 'Mor2', 'kvinde')], unions: [],
+  it('hele søskendeflokken under begge forældre; halvsøskende kun ved kendte, forskellige andre forældre', () => {
+    const m = model({ persons: [P('A', 'Anna'), P('B', 'Bo'), P('C', 'Cille'), P('D', 'Dan'), P('E', 'Eva'), P('F', 'Far', 'mand'), P('M', 'Mor', 'kvinde'), P('M2', 'Mor2', 'kvinde')],
+      unions: [
+        { id: 'u1', p1: 'F', p2: 'M', p2_name: null, year: null },
+        { id: 'u1b', p1: 'F', p2: 'M', p2_name: null, year: null }, // samme par, anden udgaves familie
+        { id: 'u2', p1: 'F', p2: 'M2', p2_name: null, year: null },
+      ],
       parentChild: [
         { child: 'A', parent: 'F', union: 'u1' }, { child: 'A', parent: 'M', union: 'u1' },
         { child: 'B', parent: 'F', union: 'u1' }, { child: 'B', parent: 'M', union: 'u1' },
         { child: 'C', parent: 'F', union: 'u2' }, { child: 'C', parent: 'M2', union: 'u2' }, // halvsøster via Far
         { child: 'D', parent: 'M', union: null as unknown as string }, // ukendt familie → ikke »halv«
+        { child: 'E', parent: 'F', union: 'u1b' }, { child: 'E', parent: 'M', union: 'u1b' }, // helsøster i en anden familie-række
       ] });
     const r = byggFokusRaekker(m, 'A')!;
-    expect(navne(r.soeskende).sort()).toEqual(['Anna', 'Bo', 'Cille', 'Dan']);
+    expect(navne(r.soeskende).sort()).toEqual(['Anna', 'Bo', 'Cille', 'Dan', 'Eva']);
     const s = Object.fromEntries(r.soeskende.map((x) => [x.person.name, x]));
     expect(s.Anna.iFokus).toBe(true);
     expect(s.Bo.halv).toBe(false);
     expect(s.Cille.halv).toBe(true);
     expect(s.Dan.halv).toBe(false);
+    expect(s.Eva.halv).toBe(false); // samme forældrepar, blot en anden familie-række
   });
 
   it('usikre led bærer ordet', () => {
@@ -71,7 +78,7 @@ describe('byggFokusRaekker', () => {
         { child: 'K3', parent: 'A', union: null as unknown as string },
       ] });
     const r = byggFokusRaekker(m, 'A')!;
-    expect(r.aegteskaber.map((a) => [a.navn, a.gange])).toEqual([['Anna', 1], ['Margaretha', 2]]);
+    expect(r.aegteskaber.map((a) => a.navn)).toEqual(['Anna', 'Margaretha']); // samme ægtefælle i to familier = ét ægteskab
     expect(r.boerneGrupper.map((g) => [g.aegteskab?.navn ?? null, navne(g.boern)])).toEqual([
       ['Anna', ['Joachim']], ['Margaretha', ['Otto']], [null, ['Elsabe']],
     ]);
