@@ -1,7 +1,9 @@
 // Læser citationer til proveniens med det beregnede felt side_trykt (findes først efter 6e-2's DDL).
 // Før DDL afviser PostgREST kaldet fordi feltet mangler; kun DEN fejl udløser en gentagelse uden feltet.
 // Kriterium: kode 42703 / PGRST204 / PGRST200, eller fejlen nævner side_trykt. Alle andre fejl (fx timeout 57014)
-// logges og giver tom liste uden gentagelse, så den rå PDF-side aldrig vises som trykt side.
+// logges og giver tom liste uden gentagelse.
+// Før DDL viser gentagelsen bevidst `side` (PDF-siden), som i dag: det er den planlagte overgang, ikke en garanti for, at
+// den rå PDF-side aldrig vises. Efter DDL giver side_trykt = null kun værket.
 // Overgang: fjernes, når 6e-2's DDL er i prod.
 export type CitationSvar = { data: unknown[] | null; error: unknown };
 export type CitationForespoergsel = (medSideTrykt: boolean) => PromiseLike<CitationSvar>;
