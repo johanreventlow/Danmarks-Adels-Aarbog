@@ -20,6 +20,17 @@ describe('Slaegtsbjaelke', () => {
     expect(within(nav).queryByText('Artikler')).toBeNull(); // findes ikke endnu
   });
 
+  it('mærket er våbnets sepia-gengivelse, når slægten har en, ellers monogrammet', () => {
+    const { container, unmount } = render(<Slaegtsbjaelke slaegt={{ ...REVENTLOW, vaaben: { src: '/v.png', maerke: '/v-sepia.png', note: 'n' } }} aktivMode="about" visPraesens={false} onGaaTil={vi.fn()} onSkiftSlaegt={vi.fn()} />);
+    const img = container.querySelector('img');
+    expect(img?.getAttribute('src')).toBe('/v-sepia.png');
+    expect(img?.getAttribute('alt')).toBe(''); // dekorativt: navnet står ved siden af
+    unmount();
+    const uden = render(<Slaegtsbjaelke slaegt={REVENTLOW} aktivMode="about" visPraesens={false} onGaaTil={vi.fn()} onSkiftSlaegt={vi.fn()} />);
+    expect(uden.container.querySelector('img')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Reventlow' }).querySelector('span[aria-hidden="true"]')?.textContent).toBe('R');
+  });
+
   it('Godser er aktiv også på oversigtskortet', () => {
     render(<Slaegtsbjaelke slaegt={REVENTLOW} aktivMode="kort" visPraesens={false} onGaaTil={vi.fn()} onSkiftSlaegt={vi.fn()} />);
     expect(screen.getByRole('link', { name: 'Godser' }).getAttribute('aria-current')).toBe('page');
