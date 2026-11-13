@@ -19,10 +19,11 @@ diffen før prod pr. del (§4); Opus afvejer hvert fund.
 2. **Værdikædeled:** det sidste — offentlig læseprojektion med kildehenvisning (målarkitekturen: »forståelig
    kildehenvisning«, »må ikke skjule uenighed«).
 3. **Leverancetype:** generel og editionsneutral. Reglerne kender »udgave« som `source_id` og årstal, aldrig 1939 eller
-   2018-20 ved navn. Ingen ny udgaveprofil. Ingen nye `lineage`-rækker (opret-benet).
+   2018-20 ved navn. Én lille udgaveprofil som data: 1939's sidekort fra PDF-side til trykt side (§12.3, tillæg
+   2026-11-13; afløser »ingen ny udgaveprofil«). Ingen nye `lineage`-rækker (opret-benet).
 4. **Værdi for læseren:** en sammenfoldet person viser hver oplysning én gang i den valgte udgaves ord, med den anden
-   udgave som kort note; kildehenvisninger, en læser forstår (»DAA 1939, s. 525 · II, 10. slægtled, nr. 3« i stedet
-   for »record-cd8ef79c-…«); 1939's linjer og numre fra bogen; biografien åbner på den fulde post, ikke en henvisning.
+   udgave som kort note; kildehenvisninger, en læser forstår og kan slå op med (»DAA 1939, s. 49 · IV, nr. 3« med trykt side i stedet
+   for »record-cd8ef79c-…« og PDF-side, §12); 1939's linjer og numre fra bogen; biografien åbner på den fulde post, ikke en henvisning.
 5. **Færdigbevis:** §8.
 6. **Erstatter:** `buildPersonFacts`' sammenblanding af alle udgavers rækker; `record_key` som synlig etiket;
    `legacy-source:<id>:<kode>` og legacy-linjen `1939` i læseren; koordinat-RPC'ens fald til legacy for hele kilde 3.
@@ -255,6 +256,9 @@ reference afhænger af bogens rækkefølge, som relationerne ikke bærer sikkert
 
 ### 5.6 Læsbar kildeetiket for poster (6e-2)
 
+> **Tillæg 2026-11-13:** etikettens form, udvælgelsen af bindinger, sidetallene og de tilladte afvigelser er afløst
+> af §12. Resten af afsnittet gælder.
+
 **Byggertjekkets fund (bekræftet):** læserne kalder ikke `private.narrative_record_labels`. `public_person_facts`
 (`schema.sql:21427`), biografilæseren v2 (`:16795`, `:16930`) og `public_family_sources` (`:20891`) læser
 `after_state #>> '{labels,record_label}'` fra seneste `private.narrative_publication_event` for bindingen — etiketten
@@ -293,6 +297,8 @@ Hændelsestypen og genbrug af 6d-1's revalideringssti er bygherrens.
 entydig på siden.
 
 ### 5.7 Koordinater, linjer og B6 (6e-2)
+
+> **Tillæg 2026-11-13:** linjenavne, linjeskemaets etiketter, »Kilde i Aarbogen« og de unummererede er justeret i §12.
 
 - **Koordinat-RPC'ens entydighedsnøgle** udvides fra `(entry, printed_number)` til
   `(scheme_entry_id, generation_local, kuld_label, printed_number)`, så kilde 3 bruger placement. **Målt:** entydig for
@@ -363,6 +369,11 @@ Browsertjek som anon mod prod (trin 6-specens §8 b, opdateret af §3 og §9 her
 - **En 1939-person uden 2018-20-modpart:** ingen vælger, 1939's fakta, læsbar etiket.
 - **En reel uenighed** viser »… skriver: …«; **konfliktkomponenten 137↔937** viser »placerer i«.
 - **Ingen `record-` eller `legacy-source:` i DOM'en** på de tjekkede sider.
+- **Trykte sider (tillæg §12):**
+  - Conrad 1198 viser »DAA 1939, s. 52« (PDF 541).
+  - Ingen 1939-side over 92 i DOM'en.
+  - En stikprøve på 5 placerede 1939-personer slået op i bogen på den viste side og det viste nr.
+  - »Kilde i Aarbogen« viser linjens navn for begge udgaver.
 - **Tal:** stikprøven (§5.4) uden falske par; dækning pr. faktatype; koordinat-RPC'en som anon i prod ≤ 0,6 s;
   kilde 1's koordinater og etiketter byte-ens.
 - **Ceremonien (6e-2):** antal genpublicerede bindinger = antal med `record-`-etiket før (stand-in: 563, heraf 35
@@ -419,3 +430,181 @@ Projektejeren bad om sammenligningen. Uden spørgsmål ville 6e have fulgt trin 
   Opus (hovedsessionen; claims verificeret i koden): alle fire små og nødvendige — `?` bevares (§5.4); fakta uden
   udgaveegen påstand vises som i dag (§5.2); `citat_tekst` hentes via anon-opslag i `citation` (§5.2, ingen DDL i
   6e-1); tom postdel = tom streng med én kontrakt gennem alle veje (§5.6).
+
+- **Tillæg 2026-11-13 (§12):** genmåling (Task 0) og projektejerens afgørelser 13-16 om etiket, trykte sider og
+  linjenavne; advisor-tjek før skrivning (sidetal vist to gange, omregning pr. vej, profil som data, kollisioner
+  genmålt for den endelige form). Review-budget for 6e-2 uændret: 1 Codex-runde på tillæg + plan, 1 på diffen.
+
+## 12. Tillæg 2026-11-13: etiket, sider og linjenavne (før 6e-2's plan)
+
+Grundlag: genmåling på frisk stand-in (`daa5ab_ddl_standin_20261113070325_6e2`, prod 2026-11-13) og 1939's rå OCR
+(`work_1939_stamtavle/raw.txt`; projektejeren 2026-11-13: må læses, ingen levende i 1939). Afløser de dele af §5.6-5.7,
+der står nedenfor.
+
+### 12.1 Projektejerens afgørelser
+
+13. **Hver bog beholder sin egen opslagsnøgle, og linjens navn står med.** Begrundelse: bøgerne henviser forskelligt.
+    2018-20 henviser med linje og nr. (»se nr. 58«, 61 gange; »se III. Den mecklenburgske linje, nr. 58« over
+    Conrads V-1); 1939 henviser kun med side (»se S. 75«, 8 gange) og bruger aldrig sine numre, der tælles pr. kuld.
+    Romertallene betyder forskellige linjer i de to bøger (IV og V er byttet: 2018-20's V = 1939's IV = »af 1673«),
+    så romertallet alene vildleder; navnet gør ikke.
+14. **Etiketten må være tvetydig (valg A).** Side og navn identificerer personen; poster holdes adskilt på id, ikke på
+    etiket. **Målt for den endelige form** (trykt side, linje, nr.): 87 grupper med 194 af 528 placements deler
+    etiket; heraf én gruppe med 5 unummererede (stammeafsnittet). (De tidligere 50/104 havde slægtled i nøglen.)
+15. **1939's sidetal er særtrykkets trykte sidetal**, ikke PDF-sidetallet. I dag gemmer og viser alt PDF-siden
+    (`narrative.side` 496-598; 2.886 af 2.889 `citation.side`; alle 563 bindingers `citation_label`), og læseren viser
+    allerede »DAA 1939, s. 541« for det, der i bogen er s. 52.
+16. **s. 22 (PDF 511):** bogen trykker »I« over »Den holstenske Linje.«; Calamari-kørslen tabte det.
+
+### 12.2 Etikettens form (afløser §5.6 »Etikettens form« pkt. 1)
+
+Postetiketten (`record_label`) er bogens egen opslagsnøgle uden side; siden bæres af `citation_label`, som for
+2018-20 i dag.
+
+| Bog | `record_label` | `citation_label` |
+|---|---|---|
+| 2018-20 | »V-1« (uændret, byte-ens) | »DAA 2018-20, s. 45« (uændret) |
+| 1939, nummereret | »IV, nr. 3« | »DAA 1939 side 49« (trykt side; i dag PDF-side) |
+| 1939, uden trykt nr. | »IV« | som ovenfor |
+| 1939, stammeafsnit | »A, nr. 2« (*åbent*, §12.8) | som ovenfor |
+| 1939, ingen placement (35) | `''` (§5.6 pkt. 2, uændret) | som ovenfor |
+
+- **Linjekoden** er det trykte romertal eller bogstav foran linjens navn i den rettede skemaetiket (§12.5), ikke
+  `lineage_scheme_entry.code` (`Stamme-holstenske` er en intern nøgle). Slægtled og kuld udelades (afgørelse 14).
+- **Udvælgelse (afløser »etiket lig `record_key`«):** reglen rammer alle 1.150 bindinger, fordi 2018-20's
+  `record_key` er etiketten. Den nye form gælder poster, hvis `record_key` er `^record-[0-9a-f-]{36}$` (posten har
+  ingen bogtrykt nøgle). Reglen er editionsneutral og rammer målt 563 bindinger, alle kilde 3, 0 kilde 1. Writeren
+  `narrative_record_labels` (`schema.sql:14590`) må ikke ændre kilde 1's etiketter (i dag holdes »V-1« kun af
+  bindingens tilsidesættelse, `:14595-14604`).
+- **Tilladte afvigelser i ceremonien** (udvider §5.6): `binding.record_label`, `binding.citation_label`,
+  `labels.record_label`, `labels.citation_label` og `provenance.placements[].scheme_entry_label` for de entries,
+  §12.5 retter. Alt andet byte-ens.
+
+### 12.3 Sidekortet: 1939's profil som data
+
+**Kortet** (PDF-side → trykt side), fastlagt fra trykkeriets arksignaturer i den rå OCR: PDF 490 = s. 1, 506 = s. 17,
+538 = s. 49, 571 = s. 65, 587 = s. 81.
+
+| PDF | Trykt |
+|---|---|
+| 490-545 | PDF − 489 (s. 1-56) |
+| 546 | planche, ingen trykt side |
+| 547-548 | PDF − 490 (s. 57-58) |
+| 549 | planche |
+| 550-555 | PDF − 491 (s. 59-64) |
+| 556-570 | 15 plancher |
+| 571-598 | PDF − 506 (s. 65-92) |
+
+**Bevis:**
+- De fem signaturer går op med præcis 17 ikke-nummererede sider mellem s. 49 og s. 65. Det er netop de 17 sider med
+  under 450 tegn OCR (billedtekster).
+- Bogens egne krydshenvisninger går gensidigt op i tre zoner: PDF 533 ↔ 538 (S. 44 ↔ 49), 552 ↔ 554 (S. 61 ↔ 63) og
+  576 ↔ 592 (S. 70 ↔ 86).
+- Kun 547-548 er sluttet (mellem to plancher), ikke direkte bekræftet.
+- Ingen citation eller binding ligger på en planche (målt 0).
+
+**Uden for kortet:**
+- 3 citationer har `side` < 496: 2 × »490« (= s. 1, indledningen) og 1 × »4«.
+- En værdi uden for kortets PDF-interval vises **uden side** (kun »DAA 1939«), aldrig uomregnet; planens Task 0
+  opklarer »4«.
+
+**Hvor kortet bor** (*mit valg*): som data på kilden, fx en `sidekort`-kolonne på `public.source` (NULL = siden er
+allerede trykt side, som for alle andre kilder), med én SQL-funktion `source_trykt_side(source_id, side)` som
+eneste omregningsregel. Ingen klientkonstant. Leverancetypen i §1.3 er rettet; decisions får en post.
+
+**Omregningen pr. vej** (planen tjekker listen udtømmende i Task 0):
+
+| Vej | Bærer i dag | 6e-2 |
+|---|---|---|
+| Bindingens `citation_label` og hændelsens `labels.citation_label` (fakta, biografi, familiekilder) | »DAA 1939 side 541« (PDF) | Ceremonien skriver trykt side for de 563; en tilladt afvigelse |
+| `public_person_facts.side` (`c.side`; `personFacts.ts:101`, ubundne fakta) | PDF | RPC'en returnerer `source_trykt_side(...)` |
+| `citation.side`, læst direkte af klienten (`kildeProveniens.ts:42`, `:66`) | PDF | Læses gennem en offentlig RPC eller visning med omregningen; klienten regner ikke selv om |
+| `citation.citat_tekst` »DAA 1939 side N« (navnefuldendelse, `schema.sql:5731`) | PDF | Task 0 finder, om den når læseren; i så fald samme RPC-vej |
+| `narrative.side` | PDF | Kun Redaktion. Uændret i 6e-2: redaktøren ser PDF-siden, som er ankeret til PDF'en. Backlog: mærk feltet. |
+| De fire `citation_label_template`-profiler (`schema.sql:3910-3942`) | `{page_from}` = PDF | Historiske kørsler, ikke ændret. Publiceringswriteren, som ceremonien bruger, omregner via funktionen. |
+| Koordinat-RPC'en | ingen side | Ny kolonne: postens trykte startside (§12.4) |
+
+**2018-20** er ikke omfattet. Om dens »s. N« er PDF-side eller trykt side, er *åbent* (§12.8); afgørelsen ændrer ikke
+2018-20 i 6e-2.
+
+### 12.4 Visningen pr. sted
+
+Eksempler:
+- 1939-person placeret i IV, nr. 3, på PDF 538 (s. 49).
+- Conrad 392 (V-1, »DAA 2018-20, s. N«).
+- Conrad 1198 (ingen placement, PDF 541 = s. 52).
+
+| Sted | 1939 | 2018-20 |
+|---|---|---|
+| Fakta (`factSource`, uændret kode) | »DAA 1939, s. 49 · IV, nr. 3«; 1198: »DAA 1939, s. 52« | »DAA 2018-20, s. N · V-1« (uændret) |
+| Biografichip (`editionSelector.ts` `postLabel`) | »DAA 1939, s. 49 · IV, nr. 3« | »DAA 2018-20, s. N · V-1« |
+| Familiekilder (`familieKilder.ts` `kildeLinje`) | »Kilde: DAA 1939, s. 49 · IV, nr. 3« | »Kilde: DAA 2018-20, s. N · V-1« |
+| Redaktion (`PersonNarrativeRecordEditor.tsx:233-234`) | h3 »IV, nr. 3«; tom etiket → `citation_label` | »V-1« (uændret) |
+| »Kilde i Aarbogen« (`buildSources`, `sources.ts:21`) | »DAA 1939: IV. Den danske grevelige Linje af 1673, s. 49, nr. 3«; ingen placement: »DAA 1939, s. 52« | »DAA 2018-20: V. Den grevelige linje af 1673, nr. 1« |
+| Personsidens og feedets nummer (`bogensNummer`) | »IV, s. 49, nr. 3« | »V, nr. 1« |
+| Linjehoved og B6-note (§5.7) | linjens rettede skemaetiket | uændret |
+
+**Ændringer i præsentationen:**
+- Chip og familiekilder bruger `citation_label` i stedet for `source_label` (*mit valg*). Begrundelse: 1939's nr. er
+  uden side ikke en henvisning. For 2018-20 tilføjes siden; data er uændret.
+- `bogensNummer` vælger i dag første ref efter `person_id` (sideeffekt; Conrad viser III-58). Ny regel (*mit valg*):
+  refen for den post, biografien åbner på (§5.5's standard). Ellers den valgte udgaves laveste.
+- Linjens navn i »Kilde i Aarbogen« kommer fra linjeskemaets etiket, som klienten allerede henter
+  (`web/src/data/lineage.ts`). Bygherren bekræfter feltet. Etiketten fryses ikke ind i `record_label`, så fakta og
+  chips forbliver korte.
+- Koordinat-RPC'en returnerer for kilde 3 postens trykte startside, også for de 39 offentlige 1939-rækker uden
+  gældende medlemskab. De viser kun »DAA 1939, s. N« (afgørelse 6), aldrig »Linje 1939, nr. N«.
+- `unikkeEfterLabel` (`editionFacts.ts`) må ikke folde to forskellige poster med samme etiket (afgørelse 14). Nøglen
+  er `record_ref`.
+
+### 12.5 Linjeskemaets etiketter (udvider afgørelse 8)
+
+Ceremonien retter, med før og efter i sin log (ingen `change_event`-writer på `lineage_scheme_entry`, målt):
+
+| Entry | Før | Efter |
+|---|---|---|
+| 61 | III. Den ældre meklenborgske Linje af iesendorf. | III. Den ældre meklenborgske Linje af Ziesendorf. |
+| 59 | Den holstenske Linje. | I. Den holstenske Linje. (afgørelse 16) |
+| 6 | Den fyenske Linje | VI. Den fyenske Linje. |
+| 57 | Den holstenske Linje. | A. Den holstenske Linje. (*åbent*, §12.8) |
+| 58 | Den ældre meklenborgske Linje. | B. Den ældre meklenborgske Linje. (*åbent*, §12.8) |
+
+60 (»II. Linjen Gallentin.«), 62 og 63 er bogens ordlyd og uændrede. Bogens stammeafsnit C (»Den yngre meklenborgske
+Linje af Gallentin«, s. 20-21) er indledende prosa uden placements og uden entry.
+
+**Hvad etiketten ikke rører:**
+- Etiketten indgår ikke i medlemskabernes `source_basis`, i placement-evidensen eller i `membership_state` (målt for
+  61). Planen måler det samme for 6, 57, 58 og 59.
+- Den indgår i hændelsernes `provenance.placements[].scheme_entry_label`. De berørte hændelser skal alle være blandt
+  de 563 (målt for 61: 103 af 103).
+
+### 12.6 Klientrettelser fra genmålingen
+
+Ud over §12.4:
+- **Linjens hoved** (`lineage.ts:111`, `nr ?? 9999`): skal følge §5.7, dvs. slægtled først og unummereret før
+  nummereret. I dag vælges et vilkårligt nr. 1 blandt 3-25 og aldrig det unummererede hoved (7 af 8 entries).
+- **Redaktion:** tom `<h3>` ved tom postdel (`PersonNarrativeRecordEditor.tsx:233-234`).
+- **`getAll` offset-paginerer koordinat-RPC'en** (1.111 rækker > 1.000), så den beregnes to gange pr. indlæsning.
+  Fartloftet i §5.7 gælder pr. personside, ikke pr. kald.
+- **B6 inden for samme kilde:** komponent 255 er `conflict`, fordi dens to 2018-20-rækker står i III og V. Noten
+  skelner konflikt inden for én kilde (vises som linjer uden note, §5.7) fra konflikt mellem kilder (137, 178).
+
+### 12.7 Tal, der er ændret siden spec'en (genmålt 2026-11-13)
+
+| Emne | Spec | Nu |
+|---|---|---|
+| Bindinger med hændelser | 1.151 | 1.150 (ikke opklaret; ingen hændelser efter 2026-11-10) |
+| B6 `corroborated` | 441 | 446 (sandsynligvis prods 6 `samme_som` 2026-11-12; ikke opklaret) |
+| Koordinat-RPC som anon (lokalt) | 600 ms | 555 ms; heraf ≈490 ms `membership_is_current` pr. række. Målet ≈225 ms står. |
+| Offentlige kilde 3-personer | 574 / 91 | 567 / 86 gennem læserens offentlighedsgate |
+
+Flyttede `schema.sql`-henvisninger (+11 efter linje 9669) og klientstier står i Task 0-rapporten. Planen bruger de
+nye.
+
+### 12.8 Åbent til projektejeren
+
+1. **Stammeafsnittenes bogstav:** bogen trykker »A.« (s. 7) og »B.« (s. 16) over stammeafsnittene.
+   - Forslag: etiketten »A, nr. 2« og skemaetiketten »A. Den holstenske Linje.«, som romertallene.
+   - Alternativ: uden bogstav (»Den holstenske Linje, nr. 2«), som godkendt 2026-11-13, før bogstavet var fundet.
+2. **2018-20's sidetal:** er »DAA 2018-20, s. N« den trykte side? Ét stikprøvetjek i bogen afgør det. Påvirker ikke
+   6e-2.
