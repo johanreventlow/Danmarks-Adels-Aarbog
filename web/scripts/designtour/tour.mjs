@@ -52,6 +52,8 @@ const STEPS = [
   // Er vi i familie? (fase 6a): forslagslisten, et delt link, fætre, et formodet led, ingen forbindelse, ukendt id.
   { out: 'a-relate-vaelger', path: '/slaegtskab', actions: [{ fill: ['input[role="combobox"] >> nth=0', 'Otto'] }] },
   { out: 'a-relate-link', path: '/slaegtskab?a=103&b=125' },
+  // Skifter en valgt person ved at skrive i det udfyldte felt (rigtige tastetryk, ikke fill).
+  { out: 'a-relate-skift', path: '/slaegtskab?a=103&b=125', actions: [{ css: 'input[role="combobox"] >> nth=0' }, { key: 'H' }, { key: 'a' }, { key: 'r' }, { key: 't' }] },
   { out: 'a-relate-faetre', path: '/slaegtskab?a=20&b=147' },
   { out: 'a-relate-formodet', path: '/slaegtskab?a=18&b=50' },
   { out: 'a-relate-ingen', path: '/slaegtskab?a=103&b=471' },
@@ -81,6 +83,7 @@ const STEPS = [
   { out: 'd-mobile-tree-aegteskaber', path: '/slaegt/reventlow/stamtrae?fokus=61', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 300 }] },
   { out: 'd-mobile-tree-panel', path: '/slaegt/reventlow/stamtrae?fokus=240', w: 390, h: 844 },
   { out: 'd-mobile-about', path: '/slaegt/reventlow', w: 390, h: 844 },
+  { out: 'd-mobile-relate-vaelger', path: '/slaegtskab', w: 390, h: 844, actions: [{ fill: ['input[role="combobox"] >> nth=0', 'Otto'] }] },
   { out: 'd-mobile-relate', path: '/slaegtskab?a=18&b=50', w: 390, h: 844 },
   { out: 'd-mobile-relate-vej', path: '/slaegtskab?a=18&b=50', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 700 }] },
   { out: 'd-mobile-about-linjer', path: '/slaegt/reventlow', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 900 }] },
