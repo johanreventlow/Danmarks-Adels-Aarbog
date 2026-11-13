@@ -12,8 +12,8 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >
 > 1. **Kladden vises for redaktøren, mærket.** Personsiden henter, kun for en redaktør og kun for medlemmer gæster
 >    ikke kan se, posterne fra den eksisterende redaktør-RPC `red_person_narrative_records` (kladde, udgivet eller
->    forældet-udgivet, med tekst) og viser dem med kildehenvisning og mærkatet »Ikke udgivet — kun synlig for
->    redaktionen«. Ingen databaseændring; `person_daa_narrative_publication_allowed` og de offentlige biografi-RPC'er er
+>    forældet-udgivet, med tekst) og viser dem med mærkatet »Ikke udgivet — kun synlig for redaktionen. Kilde:
+>    <udgave, side>«. Ingen databaseændring; `person_daa_narrative_publication_allowed` og de offentlige biografi-RPC'er er
 >    uændrede.
 > 2. Fakta for levende forbliver uden henvisning til bogens post (den følger narrativets udgivelse); familiekilder
 >    ligeså. En redaktør-RPC med posthenvisning for fakta blev fravalgt (større, ny overflade).
