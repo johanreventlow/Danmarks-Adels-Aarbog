@@ -358,6 +358,13 @@ describe('byggUdgaveFakta', () => {
     expect(en.linjer[0].kilder).toHaveLength(1);
   });
 
+  it('ubundne fakta (recordRef null) med samme label foldes stadig til én kilde', () => {
+    const a = r18({ person_id: 100, side: '12', assertion_id: 1 });
+    const b = r18({ person_id: 100, side: '12', assertion_id: 2 });
+    const v = byggUdgaveFakta(input([a, b], { udgaveForPersonRaekke: { '100': '1' } }), '1');
+    expect(v.linjer[0].kilder).toHaveLength(1);
+  });
+
   it("samme række fra flere medlems-id'er tælles én gang", () => {
     const a = r18({ person_id: 100, date_raw: '1850', side: '12' });
     const b = r39({ person_id: 101, date_raw: '1851' });
