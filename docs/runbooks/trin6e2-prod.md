@@ -48,7 +48,7 @@ laves på ny, hvis de bruges igen.
 
 | Trin | Handling | Forventet |
 |---|---|---|
-| 1 | **Web-deploy (Del B)**: PR `feat/trin6e2-klient` merget og deployet (Vercel) | Klienten viser prod korrekt før DDL (Task 8). Browserens stikprøve: Conrad 392 og 1198 åbner, og konsollen har ingen fejl. |
+| 1 | **Web-deploy (Del B)**: PR `feat/trin6e2-klient` merget og deployet (Vercel), **samme dag** som DDL og data | Klienten viser prod korrekt før DDL (Task 8). Browsertjek før DDL: se »Browsertjek før DDL« nedenfor. |
 | 2 | `go-ddl` | `GO_6E2_DDL_KODE=…` (binder commit, blokkens og filernes sha, runneren, `40-trin6e2-vindue.sql`, `lib.zsh`, `koer.zsh`, `rollback-preflight.sql`) |
 | 3 | `maal` | `T6E2_MAAL fase=foer KOORD_ANDRE=66e9afd9… ETIKETTER_ANDRE=d97decc7… BINDINGER_RECORD=561 SPRUNGET=2 UDEN_PLACEMENT=33 STALE=0 BIO_OFFENTLIGE=1100 FAKTA_BUNDNE=2264 FAMILIEKILDER=06e71a11… SKEMA_ETIKETTER=83c4e28d…`, `T6E2_MAAL_OK tilstand=foer` |
 | 3b | `anon` | `T6E2_ANON raekker=1000,111,1 koord_s1_ms=… koord_s2_ms=… bio392_ms=…` (prod før; median af 3) |
@@ -98,7 +98,7 @@ undtaget).
 
 | Værdi | Kilde |
 |---|---|
-| blok `5fed1420…`, `db-rls.sql` `a21d5034…` (= prods, uændret siden 78afc145), `etiket_ceremoni.sql` `d39c4208…`, `maal_trin6e2.sql` `b0424077…`, `sidekort_1939.json` `cd013e9c…`, `linjeetiketter_6e2.json` `5c34881f…` | commit `e2620a3d`; genpinnes, hvis review eller merge ændrer filen |
+| blok `5fed1420…`, `db-rls.sql` `a21d5034…` (= prods; byte-ens med `origin/main` `cb432c79:db-rls.sql`, som 6e-2 ikke ændrer), `etiket_ceremoni.sql` `d39c4208…`, `maal_trin6e2.sql` `b0424077…`, `sidekort_1939.json` `cd013e9c…`, `linjeetiketter_6e2.json` `5c34881f…` | filerne på stien i `main` efter merge (6e-2-blokken sidst i `db-migrations.sql`, `db-rls.sql`, `.claude/skills/daa-extract/scripts/`); `go-*` binder commit og sha. Genpinnes, hvis review eller merge ændrer filen |
 | `KOORD_ANDRE` `66e9afd9…`, `ETIKETTER_ANDRE` `d97decc7…` | Task 9's forventning = `maal foer` på stand-in-kopien; ens i alle faser |
 | 561 / 2 / 33 / 1100 / 2264 | `maal foer` på stand-in-kopien (Task 9: 563 − 2 staged); afledes igen af `maal` i fase ddl |
 | entries 5 | etiketfilens længde (spec §12.5) |
@@ -117,11 +117,17 @@ generalprøven igen og fastlåsning igen. Prod røres ikke.
 
 - **Mellem DDL og data** viser »Kilde i Aarbogen« 1939's **PDF-side** (fx »s. 541« for Conrad 1198), fordi
   `public_person_source_coordinates()` giver `printed_page` gennem `source_trykt_side`, og kildens sidekort først
-  kommer med data. Vinduet skal være minutter: trin 7-11 køres i ét stræk.
-- **En fuld genkørsel af `db-migrations.sql`** (fx en fremtidig deploy, der kører hele filen) serverer kortvarigt den
-  gamle koordinat-RPC uden `printed_page`. Ældre blokke (6d-1 og før) dropper den nye signatur og genskaber den gamle,
-  og 6e-2-blokken sidst i filen genskaber den nye (Task 3). Klienten tåler den manglende kolonne (Task 5). Runneren
-  kører kun 6e-2-blokken, så prod-ceremonien har ikke vinduet.
+  kommer med data. Hovedet og »Kilde i Aarbogen« viser også linjeskemaets interne kode (»Stamme-holstenske. Den
+  holstenske Linje«), indtil ceremonien retter de 5 etiketter. Kør derfor data straks efter DDL: trin 7-11 i ét stræk.
+- **En fuld genkørsel af `db-migrations.sql`** (fx en fremtidig deploy, der kører hele filen) serverer kortvarigt de
+  gamle versioner af fire funktioner, fordi ældre blokke genskaber dem, før 6e-2-blokken sidst i filen retter dem igen:
+  - koordinat-RPC'en `public_person_source_coordinates()` uden `printed_page` (ældre blokke dropper den nye signatur og
+    genskaber den gamle; Task 3). Klienten tåler den manglende kolonne (Task 5);
+  - `public_person_facts` med den rå PDF-side i fakta-kilden (fx »s. 541« for 1939);
+  - `private.narrative_record_labels` med de gamle etiketter i Redaktion (`record-`-form, ingen tom postdel);
+  - validatoren `private.validate_reimport_case_elements`, der afviser tom postdel `''`.
+
+  Runneren kører kun 6e-2-blokken, så prod-ceremonien har ikke vinduet.
 
 ## Vindue og frys
 
@@ -155,8 +161,8 @@ Tilladte afvigelser:
 | `T6E2_DATA_FASE` / `T6E2_DATA_FAERDIG` | intet kørt | data kræver fase ddl med de fastlåste tal; gentaget data stopper her, før ceremoniens `ETK_PRE_FASE` |
 | `T6E2_AKTOER` | intet kørt | aktørfilen peger ikke på en redaktionsprofil i `auth.users` |
 | `T6E2_FIL_SHA` / `T6E2_BLOK` / `GO_MISMATCH` | intet kørt | en bundet fil er ændret efter fastlåsning eller GO |
-| `T6E2_CEREMONI_FEJL (ETK_PRE_…)` | intet skrevet | prod afviger fra stand-in'en: ny `dump-kopi` og generalprøve |
-| `T6E2_CEREMONI_FEJL (…); IKKE committet (fase ddl…)` | alt rullet tilbage, men `change_set_id_seq` kan være rykket | næste `apply-data` stopper på `T6E2_VINDUE_BRUDT_FOER_DATA`: `dump` igen (GO-data binder ikke dumpet, så samme GO gælder) |
+| `T6E2_CEREMONI_FEJL (ETK_PRE_…)` | intet skrevet af data; DDL'en er **committet** (fase ddl) | prod afviger fra stand-in'en: ny `dump-kopi` og generalprøve. Kan data ikke gennemføres samme dag, beslutter projektejeren før frysen ophæves: DDL'en må stå (klienten tåler den; vinduet er »Mellem DDL og data« under Kendte vinduer), eller den fortrydes med `fortryd-ddl` (GO som normalt). Nødudgangen køres kun i projektejerens shell |
+| `T6E2_CEREMONI_FEJL (…); IKKE committet (fase ddl…)` | data rullet tilbage, men `change_set_id_seq` kan være rykket; DDL'en er **committet** | næste `apply-data` stopper på `T6E2_VINDUE_BRUDT_FOER_DATA`: `dump` igen (GO-data binder ikke dumpet, så samme GO gælder). Kan data ikke gennemføres samme dag: som rækken ovenfor (DDL'en står, eller `fortryd-ddl`) |
 | `T6E2_CEREMONI_FEJL_EFTER_COMMIT` | committet (fase data) | `maal` og `vindue`; ellers `fortryd` |
 | `T6E2_CEREMONI_UAFKLARET` / `T6E2_CEREMONI_INGEN_OK` | ukendt | `maal` før alt andet |
 | `T6E2_EFTER_DATA*` / `T6E2_ETK_OK` / `T6E2_ETK_LINJER` | committet, tallene passer ikke | `fortryd` (bruger rå fase) |
@@ -209,8 +215,11 @@ Hvorfor ikke 6d-1's vej (drop + restore af foer-dumpet):
   restoren« stopper.
 - `db-rls.sql` er uændret siden grenens base, så ingen ældre version skal genanvendes.
 
-**Nødudgang** (kun hvis `fortryd-ddl` ikke kan gennemføres), manuelt under frys, i samme rækkefølge som runnerens
-`fortryd`:
+**Går snapshottet tabt**, kan de forrige definitioner genskabes fra git: `schema.sql`/`db-migrations.sql` på
+`origin/main` før merge (`cb432c79`), fx `git show cb432c79:schema.sql`.
+
+**Nødudgang** (kun hvis `fortryd-ddl` ikke kan gennemføres): køres **kun i projektejerens shell**, manuelt under frys,
+i samme rækkefølge som runnerens `fortryd`. Det er runbookens eneste prod-skrivning uden GO:
 1. `ALTER TABLE public.source DROP CONSTRAINT source_sidekort_gyldigt` (først, ellers kan `sidekort_gyldigt` ikke
    droppes).
 2. Drop de 8 nye funktioner.
@@ -234,9 +243,10 @@ Prod har rækken for `postgres` i forvejen. Stand-in'en `…_6e2` har `postgres`
 ## Ændring i historiske scripts
 
 Task 3 ændrede DDL-markøren i 6d-1's historiske `placement_ceremoni.sql` og `maal_trin6d1.sql`
-(`'printed_number IS NULL'` → `'count(DISTINCT (d.scheme_entry_id,'`, commit `d8429081`). Det var nødvendigt, for 6e-2
-fjernede NULL-filteret i koordinat-RPC'ens kildegate, og CI kører 6d-1's tests mod det nye skema. Den version, der blev
-kørt i prod 9/11, ligger i git (`git show d8429081^:.claude/skills/daa-extract/scripts/placement_ceremoni.sql`). Det
+(`'printed_number IS NULL'` → `'count(DISTINCT (d.scheme_entry_id,'`, i 6e-2's koordinat-RPC-ændring). Det var
+nødvendigt, for 6e-2 fjernede NULL-filteret i koordinat-RPC'ens kildegate, og CI kører 6d-1's tests mod det nye skema.
+Den version, der blev kørt i prod 9/11, er den på `origin/main` før merge
+(`git show cb432c79:.claude/skills/daa-extract/scripts/placement_ceremoni.sql`, tilsvarende `maal_trin6d1.sql`). Det
 noteres også i changelog.
 
 ## De 2 oversprungne staged
@@ -248,6 +258,17 @@ De beholder record-etiket og PDF-side, indtil de bliver offentlige. Backlog: de 
 Afgørelse A (Task 9, 13/11) skal stå i `docs/decisions.md` under 2026-11-13; posten skrives sammen med færdigbeviset,
 hvis den ikke allerede er der. Færdigbevisets tal er derfor 561 genpublicerede (heraf 33 tomme) og 2 sprunget, ikke
 spec §8's 563/35.
+
+## Browsertjek før DDL (efter web-deploy, trin 1)
+
+- **Først:** en ægtefælles personside (kildehenvisning fra citationer; fx en hustru åbnet fra Conrad 392s familie) med browserkonsollen åben.
+  Forventet: »Kilde i Aarbogen« viser værket (før DDL med PDF-siden, som i dag), og konsollen har præcis én `warn` om
+  `side_trykt` (citationslæserens gentagelse uden feltet) og ingen `error`.
+- Conrad 392 og 1198 åbner, og konsollen har ingen `error`.
+- **Accepteret overgang (projektejeren 13/11):** de 26 1939-legacy-personer med kode VI viser et løbenummer som
+  bognummer, fx person 1437: »Kilde i Aarbogen« = »VI. Den fyenske Linje, nr. 514« og hovedets nummer »VI, nr. 514«
+  (rækken 514-539). Det forsvinder med dataceremonien, hvor alle 26 bliver placement. Derfor samme dag.
+- Slægtens forside »Linjerne« og søgesidens linjechips viser 6 linjer, hver én gang.
 
 ## Browsertjek (som anon mod prod; spec §8 + §12.4)
 
