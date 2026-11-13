@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '../supabase';
 import { compareDanish } from '@daa/core';
 import type { Model, ModelPerson } from './types';
-import { erTekniskLinje } from './lineage';
+import { kanoniskeLinjer } from './lineage';
 
 export interface BookmarkRepository {
   list(): Promise<string[]>;
@@ -147,13 +147,13 @@ export function buildBookmarkList(
   // sort === 'linje': lineage.byPerson er string[] uden primær-markør — personen placeres
   // deterministisk i gruppen for sin FØRSTE linje-kode (ren display-placering, ikke en
   // påstand om primaritet). Personer uden nogen linje-kode havner i "Uden linje" sidst.
-  const byPerson = model.lineage?.byPerson ?? {};
+  // Kanoniske linjer (slutreview I-1): én gruppe pr. linje på tværs af udgaver, samme nøgler som listefladerne.
   const linjeNavn = model.lineage?.navn ?? {};
   const grouped = new Map<string, ModelPerson[]>();
   const uden: ModelPerson[] = [];
   for (const p of people) {
     // tekniske linjenøgler (legacy-source:…) bliver aldrig en gruppe/overskrift (spec §5.7, final review C7)
-    const codes = (byPerson[p.id] ?? []).filter((k) => !erTekniskLinje(k));
+    const codes = kanoniskeLinjer(model.lineage, p.id);
     const kode = codes.length > 0 ? codes[0] : null;
     if (kode == null) { uden.push(p); continue; }
     if (!grouped.has(kode)) grouped.set(kode, []);

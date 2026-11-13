@@ -60,11 +60,16 @@ export function buildLineage(
   // (spec §8). Default {} for bagudkompat i eksisterende tests.
   canonicalIdById: Record<string, string> = {},
   schemeRows?: LineageSchemeRows,
+  // 6e-2 slutreview I-1: udgavernes årstal (source.aar) — listens stamfader tages fra den nyeste udgave med rækker i
+  // linjen. Uden: alle udgaver er lige gamle, og stamfaderen er den bedste på tværs af dem.
+  sources?: ReadonlyArray<{ id: number | string; aar?: number | null }>,
 ): Lineage {
   const cid = (id: string) => canonicalIdById[id] ?? id;
   const byPerson: Record<string, string[]> = {};
-  const counts: Record<string, number> = {};
-  const head: Record<string, { id: string; nr: number | null; nr_label: string | null; slaegtled: number | null }> = {};
+  type Hoved = { id: string; nr: number | null; nr_label: string | null; slaegtled: number | null };
+  // Per-udgave-nøgle → kanonisk linjenøgle (slægt + lineage, uden skemadel). Kun nøgler med lineage-kontekst; en rå kode
+  // (base uden kontekst) er sin egen kanoniske nøgle, og en teknisk nøgle har ingen.
+  const kanonisk: Record<string, string> = {};
 
   const rowsBySourceCode = new Map<string, RawLineageContext>();
   const rowsById = new Map<string, RawLineageContext>();
@@ -100,13 +105,17 @@ export function buildLineage(
     const mappedLineages = entry ? canonicalLineagesByEntry.get(String(entry.id)) : undefined;
     const mappedLineageId = mappedLineages?.size === 1 ? [...mappedLineages][0] : undefined;
     if (entry && scheme && mappedLineageId) {
-      return lineageContextKey({
+      const key = lineageContextKey({
         slaegtId: String(scheme.slaegt_id), lineageId: mappedLineageId,
         schemeId: String(scheme.id), schemeEntryId: String(entry.id),
       });
+      kanonisk[key] = lineageContextKey({ slaegtId: String(scheme.slaegt_id), lineageId: mappedLineageId });
+      return key;
     }
     if (row?.id != null && row.slaegt_id != null) {
-      return lineageContextKey({ slaegtId: String(row.slaegt_id), lineageId: String(row.id) });
+      const key = lineageContextKey({ slaegtId: String(row.slaegt_id), lineageId: String(row.id) });
+      kanonisk[key] = key;
+      return key;
     }
     const coordinate = sourceCodeKey(sourceId, code);
     if (hasContext && !unresolvedCoordinates.has(coordinate)) {
@@ -116,20 +125,29 @@ export function buildLineage(
     return hasContext ? `legacy-source:${sourceCodeKey(sourceId, code)}` : code;
   };
 
+  // Listefladerne (slutreview I-1): én post pr. kanonisk linje på tværs af udgaver. Antal = distinkte kanoniske personer
+  // i alle udgaver; stamfader pr. (linje, udgave), valgt fra den nyeste udgave nedenfor.
+  const medlemmer = new Map<string, Set<string>>();
+  const hovedPrUdgave = new Map<string, Map<string, Hoved>>();
+  const kanoniskAf = (key: string): string | null => (erTekniskLinje(key) ? null : kanonisk[key] ?? key);
   (extIds || []).forEach((x) => {
     if (!x.linje) return;
     const pid = cid(String(x.person_id));
     const key = keyFor(x.source_id, x.linje);
     const arr = (byPerson[pid] ??= []);
-    // Tæl distinkte kanoniske personer pr. linje (ikke ext-rækker).
-    if (!arr.includes(key)) {
-      arr.push(key);
-      counts[key] = (counts[key] || 0) + 1;
-    }
+    if (!arr.includes(key)) arr.push(key);
+    const kn = kanoniskAf(key);
+    if (kn == null) return;
+    const s = medlemmer.get(kn) ?? new Set<string>();
+    s.add(pid);
+    medlemmer.set(kn, s);
     // Linjens hoved (6e-2): laveste slægtled, så unummereret før nummereret, så trykt nr.; suffikset afgør (15a før 15b).
-    const kand = { id: pid, nr: x.nr ?? null, nr_label: x.nr_label ?? null, slaegtled: x.slaegtled_lokal ?? null };
-    const cur = head[key];
-    if (!cur || compareLineHead(kand, cur) < 0) head[key] = kand;
+    // Har en udgave flere skemaindgange i samme linje, er hovedet det bedste på tværs af dem (samme regel).
+    const kand: Hoved = { id: pid, nr: x.nr ?? null, nr_label: x.nr_label ?? null, slaegtled: x.slaegtled_lokal ?? null };
+    const prUdgave = hovedPrUdgave.get(kn) ?? new Map<string, Hoved>();
+    const cur = prUdgave.get(String(x.source_id));
+    if (!cur || compareLineHead(kand, cur) < 0) prUdgave.set(String(x.source_id), kand);
+    hovedPrUdgave.set(kn, prUdgave);
   });
 
   // Linje-navne fra lineage-tabellen (kode → navn); fallback til kode hvis tom/mangler.
@@ -162,9 +180,50 @@ export function buildLineage(
       : base;
   });
 
-  const list = Object.keys(counts)
-    .sort()
-    .map((l) => ({ linje: l, count: counts[l], headId: head[l]?.id ?? null, navn: navn[l] ?? null }));
+  // Stamfaderen kommer fra den nyeste udgave (højeste aar; ukendt aar = ældst) med rækker i linjen. Lige gamle udgaver:
+  // det bedste hoved på tværs af dem.
+  const aarAf = new Map((sources ?? []).map((src) => [String(src.id), src.aar ?? null]));
+  const aar = (sid: string) => aarAf.get(sid) ?? Number.NEGATIVE_INFINITY;
+  const hovedFor = (kn: string): Hoved | null => {
+    let bedst: { aar: number; h: Hoved } | null = null;
+    for (const [sid, h] of hovedPrUdgave.get(kn) ?? []) {
+      const a = aar(sid);
+      if (!bedst || a > bedst.aar || (a === bedst.aar && compareLineHead(h, bedst.h) < 0)) bedst = { aar: a, h };
+    }
+    return bedst?.h ?? null;
+  };
+  // Den kanoniske nøgles navn: navnet på en af dens udgavenøgler (de deler lineage og dermed kanonisk navn).
+  for (const key of Object.keys(kanonisk).sort()) {
+    const kn = kanonisk[key];
+    if (navn[kn] == null && navn[key] != null) navn[kn] = navn[key];
+  }
 
-  return { byPerson, list, navn };
+  const list = [...medlemmer.keys()]
+    .sort()
+    .map((l) => ({ linje: l, count: medlemmer.get(l)!.size, headId: hovedFor(l)?.id ?? null, navn: navn[l] ?? null }));
+
+  return { byPerson, list, navn, kanonisk };
 }
+
+// Listefladernes linjer for en person (slutreview I-1): kanoniske nøgler (list[].linje), uden tekniske, i byPersons
+// orden. Uden kanonisk afbildning (ældre producent) er nøglerne byPersons egne.
+export function kanoniskeLinjer(lineage: Lineage | null | undefined, personId: string): string[] {
+  const ud: string[] = [];
+  for (const k of lineage?.byPerson[personId] ?? []) {
+    if (erTekniskLinje(k)) continue;
+    const kn = lineage?.kanonisk?.[k] ?? k;
+    if (!ud.includes(kn)) ud.push(kn);
+  }
+  return ud;
+}
+
+// Hele afbildningen person → kanoniske linjer, til filtre der tager et opslag (buildBrowse, filterByLineage).
+export function kanoniskeLinjerPrPerson(lineage: Lineage | null | undefined): Record<string, string[]> {
+  const ud: Record<string, string[]> = {};
+  for (const pid of Object.keys(lineage?.byPerson ?? {})) ud[pid] = kanoniskeLinjer(lineage, pid);
+  return ud;
+}
+
+// En linjenøgle fra en liste eller en URL gjort kanonisk: en ældre per-udgave-nøgle (delte søgelinks fra før I-1)
+// filtrerer som sin kanoniske linje.
+export const kanoniskLinje = (lineage: Lineage | null | undefined, key: string): string => lineage?.kanonisk?.[key] ?? key;

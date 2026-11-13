@@ -12,7 +12,7 @@ import {
   type AppPerson, type LinjeRaekke, type PublicCoordinateRow, type PublicPersonFactRow, type RaaCitationRow, type UdgaveFaktaInput,
 } from '@daa/core';
 import { factSource } from '../../../../packages/core/src/personFacts';
-import { buildLineage, erTekniskLinje, stamtavleSkemaOpslag, type LineageSchemeRows } from '../lineage';
+import { buildLineage, erTekniskLinje, kanoniskeLinjerPrPerson, stamtavleSkemaOpslag, synligeLinjer, type LineageSchemeRows } from '../lineage';
 import { byggLinjeRaekker } from '../linjeRaekker';
 import { buildSources } from '../sources';
 import { byggUdgaveModel, SLUKKET_ENIGHED } from '../udgaver';
@@ -55,7 +55,7 @@ function byg(fase: Fase) {
   const canon = collapsed.canonicalIdById;
   const skema = stamtavleSkemaOpslag(schemeRows);
   const sourcesBy = buildSources(extIds, sources, canon, skema);
-  const lineage = buildLineage(extIds, lineageRows, canon, schemeRows);
+  const lineage = buildLineage(extIds, lineageRows, canon, schemeRows, sources);
   const linjeRaekkerBy = byggLinjeRaekker(extIds, sources, canon, schemeRows);
   const { udgaver, udgaveForPersonRaekke } = byggUdgaveModel(sources, extIds);
   return { coords, extIds, canon, mergedFrom: collapsed.mergedFrom, sourcesBy, lineage, linjeRaekkerBy, udgaver, udgaveForPersonRaekke };
@@ -154,6 +154,7 @@ function samlStrenge(fase: Fase, b: Bygget): Mærket[] {
   for (const pid of Object.keys(b.lineage.byPerson)) {
     for (const lk of b.lineage.byPerson[pid].filter((k) => !erTekniskLinje(k))) add(null, `linje ${pid}`, b.lineage.navn[lk] ?? `Linje ${lk}`);
   }
+  for (const l of b.lineage.list) add(null, 'linje liste', l.navn ?? `Linje ${l.linje}`);
   for (const [pid, rs] of Object.entries(b.linjeRaekkerBy)) {
     for (const sid of new Set(rs.map((r) => r.sourceId))) {
       linjerForUdgave(rs, sid).forEach((t) => add(sid, `hoved ${pid}`, t));
@@ -228,6 +229,20 @@ describe.skipIf(!DIR)('trin 6e-2: klienten på data før og efter ceremonien', (
         expect(fund.map((s) => `${s.hvor}: ${s.tekst}`)).toEqual([]);
       });
 
+      it('linjelisten (slutreview I-1): hver synlig linje én gang, ingen teknisk nøgle, antal = filtrets træffere', () => {
+        const b = hent(fase);
+        const synlige = synligeLinjer(b.lineage.list);
+        expect(synlige.length, 'ingen teknisk nøgle i listen').toBe(b.lineage.list.length);
+        const navne = synlige.map((l) => l.navn);
+        expect(navne.every((n) => n != null), navne.join(' | ')).toBe(true);
+        expect(new Set(navne).size, `unikke navne: ${navne.join(' | ')}`).toBe(navne.length);
+        const pr = kanoniskeLinjerPrPerson(b.lineage);
+        for (const l of synlige) {
+          expect(Object.keys(pr).filter((pid) => pr[pid].includes(l.linje)).length, `${l.navn}: træffere = antal`).toBe(l.count);
+        }
+        vist[`linjeliste_${fase}`] = synlige.map((l) => ({ navn: l.navn, antal: l.count, stamfader: l.headId }));
+      });
+
       it('2018-20 for 392 viser V-1 i fakta- og chiptekster', () => {
         const b = hent(fase);
         const v = visning(fase, b, FOKUS_CONRAD);
@@ -240,6 +255,13 @@ describe.skipIf(!DIR)('trin 6e-2: klienten på data før og efter ceremonien', (
   }
 
   describe('foer', () => {
+    it('linjelisten er som før 6e-2: seks linjer med 2018-20s stamfædre og 1939-legacy-linjen VI', () => {
+      const liste = synligeLinjer(hent('foer').lineage.list);
+      expect(liste.length).toBe(6);
+      expect(liste.map((l) => l.headId)).toEqual(['1', '137', '172', '298', '392', '1437']);
+      expect(liste.map((l) => l.count)).toEqual([136, 35, 126, 84, 163, 26]);
+    });
+
     it('Kilde i Aarbogen for 1198 er kun værket uden side; bogens nummer for Conrad er V, nr. 1', () => {
       const b = hent('foer');
       const refs = b.sourcesBy['392'].filter((r) => r.personId === '1198');
@@ -274,6 +296,27 @@ describe.skipIf(!DIR)('trin 6e-2: klienten på data før og efter ceremonien', (
   });
 
   describe('efter', () => {
+    it('linjelisten samler udgaverne: samme seks linjer og stamfædre; 1939-personer findes under linjen', () => {
+      const b = hent('efter');
+      const foer = synligeLinjer(hent('foer').lineage.list);
+      const liste = synligeLinjer(b.lineage.list);
+      expect(liste.map((l) => [l.navn, l.headId])).toEqual(foer.map((l) => [l.navn, l.headId]));
+      // En person, hvis eneste stamtavlerækker er fra 1939, findes under sin linje (filtret ser alle udgaver).
+      const kilderPr = new Map<string, Set<string>>();
+      for (const x of b.extIds) {
+        if (!x.linje) continue;
+        const pid = b.canon[String(x.person_id)] ?? String(x.person_id);
+        const k = kilderPr.get(pid) ?? new Set<string>();
+        k.add(String(x.source_id));
+        kilderPr.set(pid, k);
+      }
+      const kun1939 = [...kilderPr].filter(([, k]) => k.size === 1 && k.has('3')).map(([pid]) => pid);
+      const pr = kanoniskeLinjerPrPerson(b.lineage);
+      const holsten = liste.find((l) => l.navn === 'Den holstenske linje')!;
+      expect(kun1939.filter((pid) => pr[pid]?.includes(holsten.linje)).length).toBeGreaterThan(0);
+      for (const l of liste) expect(l.count, l.navn ?? '').toBeGreaterThanOrEqual(foer.find((f) => f.navn === l.navn)!.count);
+    });
+
     it('1198: fakta-kilden er DAA 1939, s. 52', () => {
       const rows = laes<PublicPersonFactRow>('efter', 'facts').filter((r) => String(r.person_id) === '1198');
       const labels = rows.map((r) => factSource(r).label);

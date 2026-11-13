@@ -42,6 +42,7 @@ import { executeUdrens } from './data/mediaUdrens';
 import { withUrl, fetchMediaFakta, type MediaFakta } from './data/media';
 import { supabase } from './supabase';
 import { buildBrowse } from './data/browse';
+import { kanoniskeLinjerPrPerson } from './data/lineage';
 import { initials } from './data/format';
 import { NarrativRenderer } from './components/NarrativRenderer';
 import { Lightbox } from './components/Lightbox';
@@ -704,7 +705,8 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   // RedPerson opfylde buildBrowse's minimale BrowsePerson-shape. Kun beregnet for person-entiteten
   // (null ellers) — så et søge-tastetryk under fx Kilder ikke browser hele slægten unødigt.
   const linjeList = model?.lineage?.list ?? [];
-  const linjeByPerson = model?.lineage?.byPerson;
+  // Listens nøgler er kanoniske (én pr. linje på tværs af udgaver); filtret slår op i samme nøglerum.
+  const linjeByPerson = useMemo(() => (model?.lineage ? kanoniskeLinjerPrPerson(model.lineage) : undefined), [model]);
   const personBrowse = useMemo(
     () => entity !== 'person' ? null
       : buildBrowse(persons.map((p) => ({ ...p, name: p.navn })), query, browseSort, activeLetter, { linjeByPerson, activeLinje }),

@@ -2,6 +2,7 @@
 // match og fremhævning, levetid og forslag til stavemåder.
 import { compareDanish, foldToken } from '@daa/core';
 import { linjeNavnFor } from './slaegtskab';
+import { kanoniskeLinjer, kanoniskLinje } from './lineage';
 import type { EstateItem } from './public';
 import type { Model } from './types';
 
@@ -122,10 +123,13 @@ const sortér = <R extends { rang: number }>(rows: R[], sort: SoegSort, navn: (r
 export function soeg(model: Model, estates: EstateItem[], f: SoegFiltre, bogmaerker?: ReadonlySet<string>): SoegResultat {
   const personer: PersonRaekke[] = [];
   let udenAar = 0;
+  // Linjefiltret er kanonisk (slutreview I-1): en chip for »Den holstenske linje« finder personer fra alle udgaver; en
+  // ældre udgavenøgle i et delt link filtrerer som sin kanoniske linje.
+  const linje = f.linje ? kanoniskLinje(model.lineage, f.linje) : null;
   for (const p of model.persons) {
     // Et delt link med bm=1 hos en læser uden bogmærker: filteret gælder ikke (ellers en tom side uden forklaring).
     if (f.bm && bogmaerker && !bogmaerker.has(p.id)) continue;
-    if (f.linje && !(model.lineage?.byPerson[p.id] ?? []).includes(f.linje)) continue;
+    if (linje && !kanoniskeLinjer(model.lineage, p.id).includes(linje)) continue;
     const m = matchNavn(p.name, f.q);
     if (!m) continue;
     const r = roererPerioden(p, f.fra, f.til);

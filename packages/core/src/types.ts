@@ -235,12 +235,15 @@ export type Geo = {
   byEstate: Record<string, GeoPoint>; // estate-id → godsets punkt → godskort/godsdetalje
 };
 
-// Linje-projektion pr. slægt (grene). byPerson: person_id → linje-koder; list: chips-data
-// (kode, antal, stamfader=headId, fuldt navn); navn: kode → fuldt navn.
+// Linje-projektion pr. slægt (grene). byPerson: person_id → linje-nøgler pr. udgave (hovedet, »Kilde i Aarbogen«);
+// list: listefladernes data — én post pr. kanonisk linje på tværs af udgaver (nøgle, antal distinkte personer,
+// stamfader=headId fra nyeste udgave, fuldt navn), aldrig tekniske nøgler; navn: nøgle (udgave- eller kanonisk) → navn.
 export type Lineage = {
   byPerson: Record<string, string[]>; // flere linjer pr. person (en collapsed grundlægger hører til flere)
   list: LinjeEntry[];
   navn: Record<string, string>;
+  // Udgavenøgle → kanonisk nøgle (list[].linje). Valgfri: uden den er byPersons nøgler selv listens nøgler.
+  kanonisk?: Record<string, string>;
 };
 
 // Delte reference-typer (bruges af Model.sourcesBy/Lineage — og af appernes Aux).

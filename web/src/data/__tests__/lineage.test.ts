@@ -1,4 +1,4 @@
-import { buildLineage, lineageContextKey } from '../lineage';
+import { buildLineage, kanoniskeLinjer, kanoniskeLinjerPrPerson, kanoniskLinje, lineageContextKey } from '../lineage';
 import type { RawExtId, RawLineage } from '../types';
 
 const x = (person_id: string, linje: string | null, nr: number | null): RawExtId => ({
@@ -114,8 +114,11 @@ describe('buildLineage', () => {
     expect(result.byPerson['from-2018']).toEqual([
       lineageContextKey({ slaegtId: '10', lineageId: '101', schemeId: 'stamtavle-2018', schemeEntryId: 'entry-2018-v' }),
     ]);
-    expect(result.list.find((entry) => entry.linje === result.byPerson['from-2018'][0])?.navn)
-      .toBe('Grevelig linje');
+    // Listen er kanonisk (slutreview I-1): én post for lineagen, nøglen uden skemadel; udgavenøglen bevarer navnet.
+    expect(result.list.map((entry) => [entry.linje, entry.count, entry.navn])).toEqual([
+      [lineageContextKey({ slaegtId: '10', lineageId: '101' }), 2, 'Grevelig linje'],
+    ]);
+    expect(result.navn[result.byPerson['from-2018'][0]]).toBe('Grevelig linje');
   });
 
   test('tolker legacy linje-kode som stamtavle, ikke som lige-kodet præsens-entry', () => {
@@ -158,5 +161,95 @@ describe('buildLineage', () => {
     expect(result.byPerson.person).toEqual([
       lineageContextKey({ slaegtId: '10', lineageId: '101' }),
     ]);
+  });
+});
+
+// Slutreview I-1: listefladerne viser hver kanoniske linje én gang på tværs af udgaver; udgavenøglerne (byPerson/navn)
+// bærer fortsat hovedet og »Kilde i Aarbogen«.
+describe('kanonisk linjeliste (slutreview I-1)', () => {
+  // Lineage 1 (»Den holstenske linje«) er trykt i to udgaver: 2018-20 (kilde 1, kode I) og 1939 (kilde 3, to
+  // skemaindgange: »Stamme-holstenske« og »I«). Lineage 2 findes kun i 1939.
+  const rows = [
+    { id: '1', source_id: '1', kode: 'I', navn: 'Den holstenske linje', slaegt_id: '1' },
+    { id: '2', source_id: '3', kode: 'II', navn: 'Linjen Gallentin', slaegt_id: '1' },
+  ] as Array<RawLineage & { slaegt_id: string }>;
+  const skema = {
+    schemes: [
+      { id: 's2018', slaegt_id: '1', source_id: '1', kind: 'stamtavle' },
+      { id: 's1939', slaegt_id: '1', source_id: '3', kind: 'stamtavle' },
+    ],
+    entries: [
+      { id: 'e2018-i', scheme_id: 's2018', code: 'I', label: 'I. Den holstenske linje' },
+      { id: 'e1939-st', scheme_id: 's1939', code: 'Stamme-holstenske', label: 'Den holstenske Linje' },
+      { id: 'e1939-i', scheme_id: 's1939', code: 'I', label: 'I. Den holstenske Linje' },
+      { id: 'e1939-ii', scheme_id: 's1939', code: 'II', label: 'II. Linjen Gallentin' },
+    ],
+    mappings: [
+      { entry_id: 'e2018-i', lineage_id: '1', relation_kind: 'canonical' },
+      { entry_id: 'e1939-st', lineage_id: '1', relation_kind: 'canonical' },
+      { entry_id: 'e1939-i', lineage_id: '1', relation_kind: 'canonical' },
+      { entry_id: 'e1939-ii', lineage_id: '2', relation_kind: 'canonical' },
+    ],
+  };
+  const kilder = [{ id: '1', aar: 2020 }, { id: '3', aar: 1939 }];
+  const r = (sid: string, pid: string, linje: string, nr: number | null, slaegtled: number | null = null): RawExtId =>
+    ({ person_id: pid, source_id: sid, linje, nr, slaegtled_lokal: slaegtled });
+  const ext: RawExtId[] = [
+    r('1', '10', 'I', 1, 1), // 2018-20's stamfader
+    r('1', '11', 'I', 2, 2),
+    r('3', '10', 'Stamme-holstenske', 1, 1), // samme person i 1939 — tælles én gang
+    r('3', '90', 'Stamme-holstenske', null, 0), // 1939's bedste hoved, men 1939 er ikke nyeste udgave
+    r('3', '12', 'I', 5, 3), // kun i 1939
+    r('3', '20', 'II', 4, 2), // Gallentin: kun 1939
+    r('3', '21', 'II', 1, 1),
+    r('3', '99', '1939', 7), // uafklaret legacy-kode → teknisk nøgle
+  ];
+  const holsten = lineageContextKey({ slaegtId: '1', lineageId: '1' });
+  const gallentin = lineageContextKey({ slaegtId: '1', lineageId: '2' });
+  const res = buildLineage(ext, rows, {}, skema, kilder);
+
+  test('én post pr. kanonisk linje; antal = distinkte personer i alle udgaver; teknisk nøgle udeladt', () => {
+    expect(res.list.map((l) => [l.linje, l.count, l.navn])).toEqual([
+      [holsten, 4, 'Den holstenske linje'],
+      [gallentin, 2, 'Linjen Gallentin'],
+    ]);
+    expect(res.list.some((l) => l.linje.startsWith('legacy-source:'))).toBe(false);
+  });
+
+  test('stamfaderen kommer fra den nyeste udgave med rækker; ellers den næste', () => {
+    expect(res.list.find((l) => l.linje === holsten)?.headId).toBe('10');
+    expect(res.list.find((l) => l.linje === gallentin)?.headId).toBe('21');
+  });
+
+  test('udgavenøglerne er uændrede: personen bærer begge udgavers nøgler', () => {
+    expect(res.byPerson['10']).toEqual([
+      lineageContextKey({ slaegtId: '1', lineageId: '1', schemeId: 's2018', schemeEntryId: 'e2018-i' }),
+      lineageContextKey({ slaegtId: '1', lineageId: '1', schemeId: 's1939', schemeEntryId: 'e1939-st' }),
+    ]);
+    expect(res.byPerson['99']).toEqual(['legacy-source:3:1939']);
+  });
+
+  test('filtrering på listens nøgle finder også en person, der kun er i 1939', () => {
+    expect(kanoniskeLinjer(res, '12')).toEqual([holsten]);
+    expect(kanoniskeLinjer(res, '10')).toEqual([holsten]);
+    expect(kanoniskeLinjer(res, '99')).toEqual([]);
+    const pr = kanoniskeLinjerPrPerson(res);
+    const iHolsten = Object.keys(pr).filter((pid) => pr[pid].includes(holsten)).sort();
+    expect(iHolsten).toEqual(['10', '11', '12', '90']);
+    expect(iHolsten.length).toBe(res.list.find((l) => l.linje === holsten)?.count);
+  });
+
+  test('en ældre udgavenøgle (delt søgelink) gøres kanonisk; ukendte nøgler er sig selv', () => {
+    expect(kanoniskLinje(res, res.byPerson['11'][0])).toBe(holsten);
+    expect(kanoniskLinje(res, 'L5')).toBe('L5');
+  });
+
+  test('før DDL (kun 2018-20 har skemaplaceringer) er listen som udgavelisten', () => {
+    const foer = buildLineage(ext.filter((x) => x.source_id === '1'), rows, {}, skema, kilder);
+    expect(foer.list.map((l) => [l.linje, l.count, l.headId, l.navn])).toEqual([[holsten, 2, '10', 'Den holstenske linje']]);
+  });
+
+  test('uden udgavernes årstal er stamfaderen den bedste på tværs af udgaverne', () => {
+    expect(buildLineage(ext, rows, {}, skema).list.find((l) => l.linje === holsten)?.headId).toBe('90');
   });
 });

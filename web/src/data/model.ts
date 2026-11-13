@@ -159,7 +159,7 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     ...buildModel(collapsed.db),
     lineage: buildLineage(extIds, lineageRows, collapsed.canonicalIdById, {
       schemes, entries: schemeEntries, mappings: schemeMappings,
-    }),
+    }, sources),
     sourcesBy: buildSources(extIds, sources, collapsed.canonicalIdById, stamtavleSkemaOpslag({ schemes, entries: schemeEntries, mappings: schemeMappings })),
     linjeRaekkerBy: byggLinjeRaekker(extIds, sources, collapsed.canonicalIdById, { schemes, entries: schemeEntries, mappings: schemeMappings }),
     canonicalIdById: collapsed.canonicalIdById,
