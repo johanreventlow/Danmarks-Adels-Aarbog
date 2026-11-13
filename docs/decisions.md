@@ -2,6 +2,40 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: falsk »formodet« på 1939-forældreled — 30 links tjekkes mod bogens »?«, åben backlog (2026-11-13)
+
+> Projektejeren bemærkede, at person 458's forældre står som »formodet«, selv om de er sikre.
+>
+> **Årsag:**
+> - 458 (2018-20) er foldet sammen med 1939-posten 1347. Dennes forældrelink i familie 617 har `konfidens='formodet'`.
+> - Læseren viser det svageste af de sammenfoldede led (invariant 7).
+> - `load_daa.R` (ca. linje 936) sætter `formodet`, når udtrækket har `usikker=true`. Det skulle afspejle bogens »?«
+>   foran nummeret eller »(?)« efter det.
+> - Posten (PDF 580, trykt s. 74, nr. 3) har ingen »?« i nogen af OCR-kørslerne, så flaget stammer ikke fra bogen.
+>
+> **Omfang:**
+> - 30 `family_member`-rækker har `formodet`. 5 af dem kommer fra rettelsen `flyt_boern_moerloes_familie`, de 25 andre
+>   fra importen.
+> - 39 af 1939-udtrækkets poster har `usikker=true`.
+>
+> **Slutkriterium:**
+> - Hvert af de 30 links er tjekket mod bogens markør, og listen er vist for projektejeren.
+> - Links uden markør i bogen er rettet sporbart, enten via redaktørvejen eller via en lille ceremoni med historik.
+> - Links med markør bevares som `formodet`.
+>
+> Tages efter 6e-2.
+
+## NOTERET: 2 staged 1939-poster får ikke læsbar etiket i 6e-2, åben backlog (2026-11-13)
+
+> 6e-2's ceremoni springer 2 publicerede kilde 3-bindinger over. De tilhører personer, der endnu ikke er offentlige
+> (staged), og ingen af dem har placement. Revalideringen afviser dem (`NARRATIVE_RECORD_PUBLICATION_POLICY_BLOCKED`),
+> og 6d-1's ceremoni springer dem over efter samme kriterium.
+>
+> - De beholder `record-<uuid>` og PDF-siden i `citation_label`.
+> - Læseren ser dem ikke i dag.
+> - **Slutkriterium:** når en af dem bliver offentlig, skal dens binding have den læsbare etiket, enten ved samme ceremoni
+>   eller ved en revalidering efter `narrative_record_wanted_labels`.
+
 ## BESLUTTET: 6e-2's kildeetiket — hver bog sin egen opslagsnøgle med linjens navn, 1939 med trykte særtryksider; sidekortet er en lille profil som data (2026-11-13)
 
 > Projektejeren, før 6e-2's plan. Detaljer og målinger: `docs/superpowers/specs/2026-11-12-trin6e-laeserflade-design.md` §12.
@@ -21,6 +55,19 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > 5. **Linjeskemaets etiketter rettes til bogens ordlyd i 6e-2's ceremoni:** Ziesendorf, »I.«, »VI.« og
 >    stammeafsnittenes »A.« og »B.«. Stammeafsnittenes etiket er f.eks. »A, nr. 2«.
 > 6. **2018-20's sidetal er allerede trykte sider** (stikprøve: Conrad V-1 på s. 201). 2018-20 får intet sidekort.
+>
+> **Slutreview (2026-11-13):**
+>
+> - **Linjelisterne samles pr. kanonisk linje (projektejeren).** Slægtens forside, søge- og kortchips, bogmærkegrupper
+>   og »N linjer« viser hver linje én gang på tværs af udgaver. Antal = distinkte personer i alle udgaver; stamfaderen
+>   tages fra nyeste udgave med rækker i linjen. Visningen pr. udgave i personens hoved og »Kilde i Aarbogen« er
+>   uændret (klientens I-1).
+> - **Accepteret overgang (projektejeren).** Før DDL viser 26 1939-legacy-personer med kode VI et løbenummer som
+>   bognummer (fx 1437: »VI. Den fyenske Linje, nr. 514«). Ceremonien gør dem til placement. Klient-deploy, DDL og
+>   dataceremoni køres derfor samme dag (klientens I-2).
+> - **Åben backlog: `citation_label` uden binding.** En post uden binding og uden accepterede ankre får nu udgaven som
+>   `citation_label` i stedet for NULL. Et udkast i Redaktion stopper derfor ikke længere på NOT NULL; før var det en
+>   implicit vagt. Åbent: en eksplicit vagt i draft-writerne eller en accept af den nye adfærd (DB-review M5).
 
 ## BESLUTTET: redaktøren læser levendes biografi som kladde; udgivelsesreglen røres ikke (2026-11-13)
 
