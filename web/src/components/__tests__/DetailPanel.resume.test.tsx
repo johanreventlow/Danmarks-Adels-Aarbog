@@ -43,7 +43,7 @@ describe('DetailPanel (genvej)', () => {
     const onRelate = vi.fn();
     vis({ onRelate });
     expect(screen.getByRole('link', { name: 'Åbn personsiden' }).getAttribute('href')).toBe('/person/60');
-    fireEvent.click(screen.getByRole('button', { name: 'Find slægtskab med Iwan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Find slægtskab' }));
     expect(onRelate).toHaveBeenCalled();
   });
 

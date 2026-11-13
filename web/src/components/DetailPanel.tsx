@@ -40,7 +40,6 @@ export function DetailPanel({ model, focusId, detail, backName, onBack, onClose,
   const nr = bogensNummer(model.sourcesBy, focusId);
   const linjeNavne = v.linjer.map((lk) => model.lineage?.navn[lk] ?? `Linje ${lk}`);
   const etiket = [slaegt?.navn, ...(nr ? [nr] : linjeNavne)].filter(Boolean).join(' · ');
-  const fornavn = p.name.split(' ')[0] || p.name;
   const portraet = v.portrait?.url && billedFejl !== v.portrait.id ? v.portrait : null;
   const resume = [p.title ? `${p.title}.` : '', detail ? godsResume(v.godser.map((g) => g.navn)) : ''].filter(Boolean).join(' ');
 
@@ -78,7 +77,8 @@ export function DetailPanel({ model, focusId, detail, backName, onBack, onClose,
           style={{ display: 'flex', justifyContent: 'center', fontFamily: T.sans, fontSize: 14, lineHeight: '20px', fontWeight: 600, padding: '12px 18px', borderRadius: radius.field, background: T.bordeaux, color: T.onBordeaux, textDecoration: 'none' }}>
           Åbn personsiden
         </Link>
-        <button type="button" onClick={onRelate} style={{ ...tekstKnap, alignSelf: 'flex-start' }}>Find slægtskab med {fornavn}</button>
+        {/* Ikke »… med <fornavn>«: navnet kan begynde med en titel (»Lensgreve Cay Friedrich …«). */}
+        <button type="button" onClick={onRelate} style={{ ...tekstKnap, alignSelf: 'flex-start' }}>Find slægtskab</button>
         {onFocusTree && (
           <button type="button" onClick={onFocusTree} style={{ ...tekstKnap, alignSelf: 'flex-start' }}>Vis i stamtræet</button>
         )}
