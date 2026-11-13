@@ -190,6 +190,15 @@ describe('buildBookmarkList', () => {
     ]);
   });
 
+  it('grupperer på kanonisk linje: samme linje i to udgaver er én gruppe (slutreview I-1)', () => {
+    const m = makeModel([reventlow, ahlefeldt], { '1': ['K:2018'], '2': ['legacy-source:3:1939', 'K:1939'] },
+      { 'K:2018': 'Den holstenske linje', 'K:1939': 'Den holstenske linje', K: 'Den holstenske linje' });
+    m.lineage!.kanonisk = { 'K:2018': 'K', 'K:1939': 'K' };
+    expect(buildBookmarkList(['1', '2'], m, 'linje').map((g) => [g.linje, g.navn, g.people.map((p) => p.id)])).toEqual([
+      ['K', 'Den holstenske linje', ['1', '2']],
+    ]);
+  });
+
   it('person uden linje-kode havner i "Uden linje"-gruppe sidst', () => {
     const groups = buildBookmarkList(['3', '1'], model, 'linje');
     expect(groups[groups.length - 1].linje).toBe('Uden linje');

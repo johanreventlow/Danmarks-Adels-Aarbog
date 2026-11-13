@@ -34,7 +34,7 @@ import { ArmsView } from './components/ArmsView';
 import { AboutView } from './components/AboutView';
 import { useSmalSkaerm } from './useSmalSkaerm';
 import { type TreeSearchBundle } from './components/TreeSearch';
-import { synligeLinjer } from './data/lineage';
+import { kanoniskeLinjerPrPerson, synligeLinjer } from './data/lineage';
 import { labelOfMode, parseFolgesvendPath, pathForMode, detailOpenFor, type Mode, personPath, estatePath, stamtraePath, soegPath, slaegtskabPath, STANDARD_SLAEGT, SLAEGTER, findSlaegt } from './data/nav';
 import { Tilstand, tilstandPrimaer, tilstandSekundaer } from './components/Tilstand';
 import { T } from './theme';
@@ -213,6 +213,8 @@ export default function Folgesvend() {
 
   const persons = model?.persons ?? [];
   const linjeList = useMemo(() => synligeLinjer(model?.lineage?.list ?? []), [model]);
+  // Listens nøgler er kanoniske (én pr. linje på tværs af udgaver); filtret slår op i samme nøglerum.
+  const linjeByPerson = useMemo(() => kanoniskeLinjerPrPerson(model?.lineage), [model]);
   // Browse-listen (§9.1) + gren-filter (§9.2) — al logik i buildBrowse (ren + testet).
   // bmOnly (§4/§9.e) filtrerer kilde-personerne til bogmærkede før browse-logikken. bmDep gør at
   // et bogmærke-toggle KUN re-kører browse når filteret faktisk er tændt (ellers stabil null).
@@ -220,8 +222,8 @@ export default function Folgesvend() {
   const browse = useMemo(() => {
     const bmSet = bmDep ? new Set(bmDep) : null;
     const src = bmSet ? persons.filter((p) => bmSet.has(p.id)) : persons;
-    return buildBrowse(src, query, browseSort, activeLetter, { linjeByPerson: model?.lineage?.byPerson, activeLinje });
-  }, [persons, model, query, browseSort, activeLetter, activeLinje, bmDep]);
+    return buildBrowse(src, query, browseSort, activeLetter, { linjeByPerson, activeLinje });
+  }, [persons, linjeByPerson, query, browseSort, activeLetter, activeLinje, bmDep]);
 
   // /soeg (fase 6b): adressen er eneste kilde til søgeord og filtre; ændringer skrives i adressen (replace).
   const soegFiltreNu = useMemo(() => soegFiltre(loc.search), [loc.search]);

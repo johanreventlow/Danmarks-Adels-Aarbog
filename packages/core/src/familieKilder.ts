@@ -1,7 +1,7 @@
 // Trin 5b 2a: kilder på ægteskab og forældrelinje (spec §5.2); 2b-iii: børneflokken (slags 'boern'). Familie-id'et udledes af modellens
 // unions ('f' + family_id) — spousesBy bærer det ikke, og to ægteskaber med samme par er to familier.
 import type { ModelIndexes } from './types';
-import { visbarPostEtiket } from './recordLabel';
+import { postEtiketTekst } from './personFacts';
 
 export type FamilieKilde = {
   familyId: string;
@@ -74,8 +74,7 @@ export function boerneKilder(kilder: FamilieKilde[], ider: FamilieIder, focusId:
 }
 
 export function kildeLinje(k: FamilieKilde): string {
-  const post = visbarPostEtiket(k.recordLabel);
-  return post ? `Kilde: ${k.sourceLabel} · ${post}` : `Kilde: ${k.sourceLabel}`;
+  return `Kilde: ${postEtiketTekst(k.sourceLabel, k.citationLabel, k.recordLabel)}`;
 }
 
 // Id'er er decimalstrenge (modellens konvention, jf. web/src/data/model.ts' number | string). PostgREST

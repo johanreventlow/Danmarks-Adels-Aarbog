@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { buildProvenanceSources, citationRowsTilProveniens, flettKilder } from '../kildeProveniens';
+import { bogensNummer, buildProvenanceSources, citationRowsTilProveniens, flettKilder, optraederSom, unikkeKildelinjer } from '../kildeProveniens';
 import type { SourceRef } from '../types';
 
 // Baggrund: `sourcesBy` bygges af person_external_id, som kun findes for personer bogen gav et
@@ -99,6 +99,20 @@ describe('citationRowsTilProveniens', () => {
   });
 });
 
+describe('citationRowsTilProveniens: trykt side', () => {
+  const kilde = { titel: 'DAA 1939', udgave: null };
+  const am = new Map<number | string, string>([[1, '7']]);
+  it('side_trykt vinder, null giver kun værket, fravær falder tilbage til side', () => {
+    expect(citationRowsTilProveniens([{ assertion_id: 1, side: '541', side_trykt: '52', source: kilde }], am)[0].side).toBe('52');
+    expect(citationRowsTilProveniens([{ assertion_id: 1, side: '541', side_trykt: null, source: kilde }], am)[0].side).toBeNull();
+    expect(citationRowsTilProveniens([{ assertion_id: 1, side: '541', source: kilde }], am)[0].side).toBe('541');
+    expect(buildProvenanceSources(citationRowsTilProveniens([{ assertion_id: 1, side: '541', side_trykt: '52', source: kilde }], am))['7'])
+      .toEqual([{ work: 'DAA 1939', ref: 's. 52' }]);
+    expect(buildProvenanceSources(citationRowsTilProveniens([{ assertion_id: 1, side: '541', side_trykt: null, source: kilde }], am))['7'])
+      .toEqual([{ work: 'DAA 1939', ref: '' }]);
+  });
+});
+
 describe('flettKilder', () => {
   const bog: SourceRef[] = [{ work: 'DAA 2018-20', ref: 'Linje II, nr. 4' }];
   const evidens: SourceRef[] = [{ work: 'DAA 2018-20', ref: '' }];
@@ -117,5 +131,80 @@ describe('flettKilder', () => {
 
   test('personer der hverken har det ene eller det andet udelades', () => {
     expect(flettKilder({ '9': [] }, {})).toEqual({});
+  });
+});
+
+describe('bogensNummer og optraederSom (6e-2)', () => {
+  const conrad: Record<string, SourceRef[]> = {
+    c: [
+      { work: 'DAA 2018-20', ref: 'III. Linjen Gallentin, nr. 58', kort: 'III, nr. 58', personId: '255', sourceId: '1', aar: 2018, slaegtled: 12 },
+      { work: 'DAA 2018-20', ref: 'V. Den grevelige linje af 1673, nr. 1', kort: 'V, nr. 1', personId: '392', sourceId: '1', aar: 2018, slaegtled: 1 },
+      { work: 'DAA 1939', ref: 's. 52', kort: 's. 52', personId: '1198', sourceId: '3', aar: 1939, slaegtled: null },
+    ],
+  };
+  test('nyeste udgave, derefter laveste slægtled', () => {
+    expect(bogensNummer(conrad, 'c')).toBe('V, nr. 1');
+  });
+  test('slægtled lig → laveste personId numerisk; NULL slægtled sidst', () => {
+    const r: Record<string, SourceRef[]> = { p: [
+      { work: 'W', ref: 'x', kort: 'B', personId: '100', aar: 2018, slaegtled: 3 },
+      { work: 'W', ref: 'x', kort: 'A', personId: '99', aar: 2018, slaegtled: 3 },
+      { work: 'W', ref: 'x', kort: 'N', personId: '1', aar: 2018, slaegtled: null },
+    ] };
+    expect(bogensNummer(r, 'p')).toBe('A');
+  });
+  test('uden nye felter: dagens adfærd (første ref)', () => {
+    expect(bogensNummer({ p: [{ work: 'W', ref: 'Linje V, nr. 1' }] }, 'p')).toBe('Linje V, nr. 1');
+    expect(bogensNummer({ p: [{ work: 'W', ref: '' }] }, 'p')).toBeNull();
+    expect(bogensNummer(undefined, 'p')).toBeNull();
+  });
+  test('tom kort i nyeste udgave falder videre til næste ref', () => {
+    const r: Record<string, SourceRef[]> = { p: [
+      { work: 'DAA 2018-20', ref: '', kort: '', personId: '1', aar: 2018, slaegtled: 1 },
+      { work: 'DAA 1939', ref: 's. 52', kort: 's. 52', personId: '2', aar: 1939 },
+    ] };
+    expect(bogensNummer(r, 'p')).toBe('DAA 1939, s. 52');
+  });
+  test('et nummer, der kun er en side, får udgaven foran (M-3); linje eller nr. gør ikke', () => {
+    const ref = (kort: string, udgave?: string): Record<string, SourceRef[]> =>
+      ({ p: [{ work: 'Dansk Adels Aarbog – DAA 1939', udgave, ref: kort, kort, personId: '1', aar: 1939 }] });
+    expect(bogensNummer(ref('s. 52', 'DAA 1939'), 'p')).toBe('DAA 1939, s. 52');
+    expect(bogensNummer(ref('s. 52-53', 'DAA 1939'), 'p')).toBe('DAA 1939, s. 52-53');
+    // Uden udgave: værket (ældre producent, fx mobilens buildAux).
+    expect(bogensNummer(ref('s. 52'), 'p')).toBe('Dansk Adels Aarbog – DAA 1939, s. 52');
+    expect(bogensNummer(ref('II, s. 52, nr. 4', 'DAA 1939'), 'p')).toBe('II, s. 52, nr. 4');
+    expect(bogensNummer(ref('s. 52, nr. 4', 'DAA 1939'), 'p')).toBe('s. 52, nr. 4');
+  });
+  test('Optræder i Aarbogen som', () => {
+    expect(optraederSom(conrad.c)).toBe('DAA 2018-20, V, nr. 1 og DAA 2018-20, III, nr. 58 og DAA 1939, s. 52');
+    expect(optraederSom([{ work: 'DAA 1939', ref: '', kort: '' }])).toBe('DAA 1939');
+  });
+  test('Optræder i Aarbogen som bruger udgaven, ikke værkets fulde titel (M-1)', () => {
+    const v = (udgave: string) => `Dansk Adels Aarbog – ${udgave}`;
+    expect(optraederSom([
+      { work: v('DAA 2018-20'), udgave: 'DAA 2018-20', ref: 'V. Den grevelige linje af 1673, nr. 1', kort: 'V, nr. 1', personId: '392', aar: 2018, slaegtled: 1 },
+      { work: v('DAA 2018-20'), udgave: 'DAA 2018-20', ref: 'III. Linjen Gallentin, nr. 58', kort: 'III, nr. 58', personId: '255', aar: 2018, slaegtled: 12 },
+      { work: v('DAA 1939'), udgave: 'DAA 1939', ref: 's. 52', kort: 's. 52', personId: '1198', aar: 1939 },
+      { work: v('DAA 1939'), udgave: 'DAA 1939', ref: '', kort: '', personId: '1199', aar: 1939 },
+    ])).toBe('DAA 2018-20, V, nr. 1 og DAA 2018-20, III, nr. 58 og DAA 1939, s. 52 og DAA 1939');
+  });
+});
+
+describe('unikkeKildelinjer (M-6)', () => {
+  test('dropper eksakte dubletter (værk + ref) og bevarer rækkefølgen', () => {
+    const refs: SourceRef[] = [
+      { work: 'Dansk Adels Aarbog – DAA 2018-20', ref: 'V. Den grevelige linje af 1673, nr. 1', personId: '392' },
+      { work: 'Dansk Adels Aarbog – DAA 1939', ref: '', personId: '1198' },
+      { work: 'Dansk Adels Aarbog – DAA 1939', ref: '', personId: '1199' },
+      { work: 'Dansk Adels Aarbog – DAA 1939', ref: 's. 52', personId: '1200' },
+    ];
+    expect(unikkeKildelinjer(refs).map((r) => [r.work, r.ref, r.personId])).toEqual([
+      ['Dansk Adels Aarbog – DAA 2018-20', 'V. Den grevelige linje af 1673, nr. 1', '392'],
+      ['Dansk Adels Aarbog – DAA 1939', '', '1198'],
+      ['Dansk Adels Aarbog – DAA 1939', 's. 52', '1200'],
+    ]);
+  });
+  test('samme ref i to værker er to linjer', () => {
+    expect(unikkeKildelinjer([{ work: 'A', ref: 'x' }, { work: 'B', ref: 'x' }])).toHaveLength(2);
   });
 });

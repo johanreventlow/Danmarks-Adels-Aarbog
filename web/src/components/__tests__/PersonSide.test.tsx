@@ -110,6 +110,19 @@ describe('PersonSide', () => {
     expect(screen.queryByRole('link', { name: 'Clausholm' })).toBeNull();
   });
 
+  it('»Kilde i Aarbogen« viser to ens linjer (samme værk + ref) for en foldet person én gang (M-6)', () => {
+    const v39 = 'Dansk Adels Aarbog – DAA 1939';
+    const m = { ...model, sourcesBy: { '392': [
+      { work: 'Dansk Adels Aarbog – DAA 2018-20', ref: 'V. Den grevelige linje af 1673, nr. 1', personId: '392', sourceId: '1', aar: 2018 },
+      { work: v39, ref: '', personId: '1198', sourceId: '3', aar: 1939 },
+      { work: v39, ref: '', personId: '1199', sourceId: '3', aar: 1939 },
+    ] } } as unknown as Model;
+    render(<PersonSide {...props({ model: m })} />);
+    const footer = screen.getByText('Kilde i Aarbogen').closest('footer')!;
+    expect(within(footer).getAllByText('§')).toHaveLength(2);
+    expect(within(footer).getAllByText(v39)).toHaveLength(1);
+  });
+
   it('familie med links til personsider; mangler siges med ord', () => {
     render(<PersonSide {...props()} />);
     expect(screen.getByRole('link', { name: 'Anna Margrethe Gabel' }).getAttribute('href')).toBe('/person/600');

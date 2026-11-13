@@ -21,6 +21,8 @@ type RaaKilde = { titel: string | null; udgave: string | null };
 export type RaaCitationRow = {
   assertion_id: number | string;
   side: string | null;
+  // Trykt side (beregnet felt, findes efter DDL); til stede (også null) vinder over `side`.
+  side_trykt?: string | null;
   // PostgREST returnerer et OBJEKT for en til-én-relation, men de genererede typer siger array.
   // Begge former håndteres, så apperne ikke hver især skal caste sig ud af det.
   source: RaaKilde | RaaKilde[] | null;
@@ -39,7 +41,7 @@ export function citationRowsTilProveniens(
     const person_id = personAfAssertion.get(c.assertion_id) ?? '';
     if (!person_id) continue;
     const src = Array.isArray(c.source) ? c.source[0] ?? null : c.source;
-    ud.push({ person_id, work: src?.titel ?? src?.udgave ?? null, side: c.side });
+    ud.push({ person_id, work: src?.titel ?? src?.udgave ?? null, side: 'side_trykt' in c ? (c.side_trykt ?? null) : c.side });
   }
   return ud;
 }
@@ -97,13 +99,68 @@ export function flettKilder(
   return out;
 }
 
-// Bogens nummer for en person (»Linje V, nr. 1«) — KUN fra stamtavlens opslag (model.sourcesBy),
+// Rækkefølgen for en persons bogreferencer (6e-2): nyeste udgave (højeste aar) først; inden for udgaven
+// lavest slægtled (NULL sidst) — en person i to linjer står fuldt i linjen, hvor vedkommende er stamfar,
+// mens henvisningsposten står højt i den gamle linje; dernæst laveste personId numerisk. Manglende felter
+// = laveste prioritet, og lige poster beholder deres indbyrdes orden (stabil sortering).
+export function sorterKilder(refs: readonly SourceRef[]): SourceRef[] {
+  const num = (v: number | null | undefined, tom: number) => (v == null ? tom : v);
+  const pid = (r: SourceRef) => {
+    const n = r.personId == null ? NaN : Number(r.personId);
+    return Number.isNaN(n) ? Number.POSITIVE_INFINITY : n;
+  };
+  return [...refs].sort((a, b) => {
+    const aa = num(a.aar, Number.NEGATIVE_INFINITY);
+    const ba = num(b.aar, Number.NEGATIVE_INFINITY);
+    if (aa !== ba) return aa > ba ? -1 : 1;
+    const as = num(a.slaegtled, Number.POSITIVE_INFINITY);
+    const bs = num(b.slaegtled, Number.POSITIVE_INFINITY);
+    if (as !== bs) return as < bs ? -1 : 1;
+    const ap = pid(a);
+    const bp = pid(b);
+    return ap === bp ? 0 : ap < bp ? -1 : 1;
+  });
+}
+
+// »Kilde i Aarbogen«s linjer uden eksakte dubletter (samme værk + ref), i den givne orden (slutreview M-6): to
+// legacy-poster for samme foldede person gav ellers to ens »§ <værk>«-linjer. Kun til visningen — bogensNummer og
+// optraederSom læser de urørte refs.
+export function unikkeKildelinjer(refs: readonly SourceRef[]): SourceRef[] {
+  const set = new Set<string>();
+  return refs.filter((r) => {
+    const k = `${r.work}\u0000${r.ref}`;
+    if (set.has(k)) return false;
+    set.add(k);
+    return true;
+  });
+}
+
+// Udgavens navn til læserteksterne (»DAA 1939«): udgaven, ellers værket.
+const udgaveAf = (r: SourceRef): string => r.udgave ?? r.work;
+// Et nummer, der kun er en side (»s. 52«, »s. 52-53«), siger ikke, hvilken bog det gælder.
+const KUN_SIDE = /^s\.\s*\S+$/;
+
+// Bogens nummer for en person (»V, nr. 1«) — KUN fra stamtavlens opslag (model.sourcesBy),
 // aldrig fra citat-proveniensen, der for personer uden nummer (typisk ægtefæller) giver et sidetal.
 // Én regel for personsidens etiket og feedets kilde-§, så de to aldrig viser forskellige numre.
+// Er nummeret kun en side, får det udgaven foran: »DAA 1939, s. 52« (slutreview M-3).
 export function bogensNummer(
   sourcesBy: Record<string, SourceRef[]> | undefined,
   personId: string,
 ): string | null {
-  const ref = sourcesBy?.[personId]?.[0]?.ref.trim() ?? '';
-  return ref !== '' ? ref : null;
+  for (const r of sorterKilder(sourcesBy?.[personId] ?? [])) {
+    const tekst = (r.kort ?? r.ref).trim();
+    if (tekst !== '') return KUN_SIDE.test(tekst) ? `${udgaveAf(r)}, ${tekst}` : tekst;
+  }
+  return null;
+}
+
+// »Optræder i Aarbogen som …« (spec §5.7): hver ref som »<udgave>, <kort>« (kun udgaven når kort er tom),
+// i bogensNummers orden, forbundet med ' og '. Udgaven (»DAA 2018-20«) som chips, ikke værkets fulde titel (M-1).
+export function optraederSom(refs: readonly SourceRef[]): string {
+  const dele = sorterKilder(refs).map((r) => {
+    const k = (r.kort ?? r.ref).trim();
+    return k === '' ? udgaveAf(r) : `${udgaveAf(r)}, ${k}`;
+  });
+  return [...new Set(dele)].join(' og ');
 }

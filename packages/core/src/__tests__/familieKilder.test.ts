@@ -57,7 +57,7 @@ describe('kildeLinje og mapFamilieKilder', () => {
   });
   it('former linjen og dropper ugyldige rækker', () => {
     const rows = mapFamilieKilder([
-      { family_id: 10, slags: 'aegteskab', counterpart_person_id: 2, source_record_ref: 'r', source_label: 'DAA X', record_label: 'Post 1', citation_label: 'c' },
+      { family_id: 10, slags: 'aegteskab', counterpart_person_id: 2, source_record_ref: 'r', source_label: 'DAA X', record_label: 'Post 1', citation_label: 'DAA X, s. 7' },
       { family_id: 11, slags: 'noget', counterpart_person_id: 2, source_record_ref: null, source_label: 'DAA X', record_label: 'Post 2', citation_label: 'c' },
       { family_id: '9007199254740993', slags: 'foraelder', counterpart_person_id: '9007199254740995', source_record_ref: null, source_label: 'DAA X', record_label: 'Post 3', citation_label: 'c' },
       // Et tal over 2^53 kan allerede have mistet præcision i JSON.parse ⇒ droppes (fail closed).
@@ -69,13 +69,23 @@ describe('kildeLinje og mapFamilieKilder', () => {
     expect(rows).toHaveLength(2);
     expect(rows[1].familyId).toBe('9007199254740993');   // strenge bevares; aldrig Number()
     expect(rows[1].counterpartPersonId).toBe('9007199254740995');
-    expect(kildeLinje(rows[0])).toBe('Kilde: DAA X · Post 1');
+    expect(kildeLinje(rows[0])).toBe('Kilde: DAA X, s. 7 · Post 1');
   });
   it('kildeLinje skjuler tekniske postetiketter', () => {
     const k = { familyId: '1', slags: 'aegteskab', counterpartPersonId: '2', sourceRecordRef: null, sourceLabel: 'DAA 1939',
       recordLabel: 'record-07565168-b903-4444-9189-43d62d5c6ed6', citationLabel: '' } as const;
     expect(kildeLinje(k)).toBe('Kilde: DAA 1939');
     expect(kildeLinje({ ...k, sourceLabel: 'DAA 2018-20', recordLabel: 'V-1' })).toBe('Kilde: DAA 2018-20 · V-1');
+  });
+  it('kildeLinje: side + post, tom post, teknisk post', () => {
+    const k = { familyId: '1', slags: 'aegteskab', counterpartPersonId: '2', sourceRecordRef: null, sourceLabel: 'DAA 1939',
+      recordLabel: 'IV, nr. 3', citationLabel: 'DAA 1939, s. 49' } as const;
+    expect(kildeLinje(k)).toBe('Kilde: DAA 1939, s. 49 · IV, nr. 3');
+    expect(kildeLinje({ ...k, sourceLabel: 'DAA 2018-20', citationLabel: 'DAA 2018-20, s. 201-202', recordLabel: 'V-1' }))
+      .toBe('Kilde: DAA 2018-20, s. 201-202 · V-1');
+    expect(kildeLinje({ ...k, recordLabel: '', citationLabel: 'DAA 1939, s. 52' })).toBe('Kilde: DAA 1939, s. 52');
+    expect(kildeLinje({ ...k, recordLabel: 'record-07565168-b903-4444-9189-43d62d5c6ed6', citationLabel: 'DAA 1939 side 538' }))
+      .toBe('Kilde: DAA 1939');
   });
   it('bigintTekst følger Postgres-bigint-intervallet', () => {
     expect(bigintTekst('9223372036854775807')).toBe('9223372036854775807');

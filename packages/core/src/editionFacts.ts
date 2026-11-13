@@ -88,7 +88,10 @@ const statement = (r: PublicPersonFactRow, vaerdiFor: VaerdiFor): PersonFactStat
 
 const unikkeEfterLabel = (kilder: PersonFactSource[]) => {
   const seen = new Set<string>();
-  return kilder.filter((k) => (seen.has(k.label) ? false : (seen.add(k.label), true)));
+  return kilder.filter((k) => {
+    const nogle = k.recordRef ?? k.label;
+    return seen.has(nogle) ? false : (seen.add(nogle), true);
+  });
 };
 
 const unikkeUdsagn = (st: PersonFactStatement[]) => {

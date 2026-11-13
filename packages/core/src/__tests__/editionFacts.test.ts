@@ -349,6 +349,22 @@ describe('byggUdgaveFakta', () => {
     ]);
   });
 
+  it('to poster med samme etiket men forskellig recordRef er to kilder; samme recordRef er én', () => {
+    const a = r18({ person_id: 100, record_ref: 'rec-a', citation_label: 'DAA 2018-20, s. 12', record_label: 'V-1' });
+    const b = r18({ person_id: 100, record_ref: 'rec-b', citation_label: 'DAA 2018-20, s. 12', record_label: 'V-1', assertion_id: 2 });
+    const to = byggUdgaveFakta(input([a, b], { udgaveForPersonRaekke: { '100': '1' } }), '1');
+    expect(to.linjer[0].kilder).toHaveLength(2);
+    const en = byggUdgaveFakta(input([a, { ...a, assertion_id: 3 }], { udgaveForPersonRaekke: { '100': '1' } }), '1');
+    expect(en.linjer[0].kilder).toHaveLength(1);
+  });
+
+  it('ubundne fakta (recordRef null) med samme label foldes stadig til én kilde', () => {
+    const a = r18({ person_id: 100, side: '12', assertion_id: 1 });
+    const b = r18({ person_id: 100, side: '12', assertion_id: 2 });
+    const v = byggUdgaveFakta(input([a, b], { udgaveForPersonRaekke: { '100': '1' } }), '1');
+    expect(v.linjer[0].kilder).toHaveLength(1);
+  });
+
   it("samme række fra flere medlems-id'er tælles én gang", () => {
     const a = r18({ person_id: 100, date_raw: '1850', side: '12' });
     const b = r39({ person_id: 101, date_raw: '1851' });

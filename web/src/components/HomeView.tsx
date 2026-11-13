@@ -14,6 +14,7 @@ import { SLAEGTER, slaegtPath, soegPath } from '../data/nav';
 import { FeedStreamView } from './feed/FeedStreamView';
 import { SlaegtsMaerke } from './SlaegtsMaerke';
 import { fetchFeedPins } from '../data/feedPins';
+import { synligeLinjer } from '../data/lineage';
 import type { FeedPinInput } from '@daa/feed';
 import type { Model } from '../data/types';
 import type { ArmsItem, EstateItem } from '../data/public';
@@ -53,7 +54,8 @@ export function HomeView({
     return () => { alive = false; };
   }, []);
 
-  const linjer = model?.lineage?.list.length ?? 0;
+  // Kun synlige linjer (en teknisk nøgle er aldrig en linje); listen har én post pr. kanonisk linje.
+  const linjer = synligeLinjer(model?.lineage?.list ?? []).length;
   const udgaver = (model?.udgaver ?? []).map((u) => u.label).filter(Boolean);
 
   return (

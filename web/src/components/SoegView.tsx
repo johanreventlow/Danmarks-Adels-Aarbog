@@ -9,6 +9,7 @@ import { initials } from '../data/format';
 import { soeg, soegSti, stavemaader, type Maerke, type SoegFiltre, type SoegType } from '../data/soeg';
 import type { EstateItem } from '../data/public';
 import type { LinjeEntry, Model } from '../data/types';
+import { kanoniskLinje } from '../data/lineage';
 import { useSmalSkaerm } from '../useSmalSkaerm';
 
 const etiket: CSSProperties = { fontFamily: T.mono, fontSize: 11, lineHeight: '14px', fontWeight: 500, letterSpacing: '0.16em', textTransform: 'uppercase', color: T.inkMuted };
@@ -79,7 +80,8 @@ export function SoegView({ model, estates, filtre: f, linjer, bogmaerker, onFilt
           <span style={{ fontSize: 14 }}>{SLAEGTER.map((sl) => sl.navn).join(', ')}</span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             {[{ linje: null as string | null, navn: 'Hele slægten' }, ...linjer.map((l) => ({ linje: l.linje as string | null, navn: l.navn ?? 'Linje uden navn' }))].map((l) => {
-              const on = f.linje === l.linje;
+              // En ældre udgavenøgle i adressen (delt link fra før slutreview I-1) markerer sin kanoniske chip.
+              const on = (f.linje == null ? null : kanoniskLinje(model?.lineage, f.linje)) === l.linje;
               return (
                 <button key={l.linje ?? 'alle'} type="button" aria-pressed={on} onClick={() => saet({ linje: l.linje })}
                   style={{ fontFamily: T.sans, fontSize: 12.5, lineHeight: '16px', fontWeight: 600, padding: '5px 11px', borderRadius: 18, border: `1px solid ${on ? T.bordeaux : T.lineStrong}`, background: on ? T.bordeaux : T.surfaceRaised, color: on ? T.onBordeaux : T.inkSecondary, cursor: 'pointer' }}>

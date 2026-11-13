@@ -25,6 +25,7 @@ export * from './tree';
 export * from './navnevarianter';
 export * from './matchUdgaver';
 export * from './kildeProveniens';
+export * from './linjeVisning';
 export * from './slaegtsrod';
 export * from './slaegter';
 export * from './entityDescriptions';
@@ -67,3 +68,4 @@ export type {
   GeoPoint,
   Geo,
 } from './types';
+export * from './b6Note';

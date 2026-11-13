@@ -37,7 +37,7 @@ export function DetailPanel({ model, focusId, detail, backName, onBack, onClose,
   // Etiket som på personsiden: slægt · bogens nummer, ellers linjernes navne.
   const slaegt = v.linjer.length ? findSlaegt(STANDARD_SLAEGT) : null;
   const nr = bogensNummer(model.sourcesBy, focusId);
-  const linjeNavne = v.linjer.map((lk) => model.lineage?.navn[lk] ?? `Linje ${lk}`);
+  const linjeNavne = v.hovedLinjer;
   const etiket = [slaegt?.navn, ...(nr ? [nr] : linjeNavne)].filter(Boolean).join(' · ');
   const portraet = v.portrait?.url && billedFejl !== v.portrait.id ? v.portrait : null;
   const resume = [p.title ? `${p.title}.` : '', detail ? godsResume(v.godser.map((g) => g.navn)) : ''].filter(Boolean).join(' ');

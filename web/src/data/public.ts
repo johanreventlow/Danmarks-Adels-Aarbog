@@ -5,6 +5,7 @@ import { supabase } from '../supabase';
 import type { Model } from './types';
 import type { EjerRelation } from './ejerraekke';
 import { pickPreferredBio, buildBioSourceVersions, mapPublicBioSourceVersionsV2 as mapCorePublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, buildPersonFacts, FAKTA_UDELADT, type BioSourceVersion, type BioSourceVersionV2, type NarrativeCand, type PersonFactView, type PublicPersonFactRow, type RaaCitationRow, type SourceRef, type Udgave, type UdgaveFaktaInput } from '@daa/core';
+import { laesCitationer } from './citationLaes';
 import { SLUKKET_ENIGHED } from './udgaver';
 import { fetchPersonMedia, fetchObjectMedia, type MediaItem } from './media';
 
@@ -185,8 +186,10 @@ async function fetchProveniens(numIds: number[]): Promise<SourceRef[]> {
     .select('id,target_id').eq('target_type', 'fact').in('target_id', factRows.map((f) => f.id));
   const assertRows = (asserts ?? []) as { id: number; target_id: number }[];
   if (!assertRows.length) return [];
-  const { data: cits } = await supabase.from('citation')
-    .select('assertion_id,side,source:source_id(titel,udgave)').in('assertion_id', assertRows.map((a) => a.id));
+  const assertIds = assertRows.map((a) => a.id);
+  const cits = await laesCitationer((medSideTrykt) => supabase.from('citation')
+    .select(medSideTrykt ? 'assertion_id,side,side_trykt,source:source_id(titel,udgave)' : 'assertion_id,side,source:source_id(titel,udgave)')
+    .in('assertion_id', assertIds));
   const personAfFact = new Map(factRows.map((f) => [f.id, String(f.subjekt_id)]));
   const personAfAssert = new Map(assertRows.map((a) => [a.id, personAfFact.get(a.target_id) ?? '']));
   const rows = citationRowsTilProveniens((cits ?? []) as unknown as RaaCitationRow[], personAfAssert);

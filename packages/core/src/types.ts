@@ -19,6 +19,8 @@ export type RawExtId = {
   // 5c-2: den trykte nr.-tekst (»15a«; nr er dens foranstillede heltal) og koordinatens proveniens.
   nr_label?: string | null;
   provenance?: 'placement' | 'legacy_external_id';
+  // 6e-2: bogens trykte side (kun poster uden bogtrykt nøgle; før DDL findes feltet ikke).
+  trykt_side?: string | null;
 };
 export type RawLineage = {
   source_id: number | string;
@@ -203,6 +205,8 @@ export type Model = {
   // (fra koordinatrækkerne). Valgfrit: mobilen sætter dem ikke.
   udgaver?: Udgave[];
   udgaveForPersonRaekke?: Record<string, string>;
+  // 6e-2: personens linjerækker pr. kilde (hovedets linjer pr. udgave, B6-note); kun web sætter dem.
+  linjeRaekkerBy?: Record<string, import('./b6Note').LinjeRaekke[]>;
   // Kanter droppet af buildModels kronologiske vagt (sat af buildModel; valgfri fordi andre
   // Model-literaler ikke bærer den). Gør vagtens fravalg synlige frem for lydløse.
   droppedParentEdges?: DroppedParentEdge[];
@@ -231,14 +235,28 @@ export type Geo = {
   byEstate: Record<string, GeoPoint>; // estate-id → godsets punkt → godskort/godsdetalje
 };
 
-// Linje-projektion pr. slægt (grene). byPerson: person_id → linje-koder; list: chips-data
-// (kode, antal, stamfader=headId, fuldt navn); navn: kode → fuldt navn.
+// Linje-projektion pr. slægt (grene). byPerson: person_id → linje-nøgler pr. udgave (hovedet, »Kilde i Aarbogen«);
+// list: listefladernes data — én post pr. kanonisk linje på tværs af udgaver (nøgle, antal distinkte personer,
+// stamfader=headId fra nyeste udgave, fuldt navn), aldrig tekniske nøgler; navn: nøgle (udgave- eller kanonisk) → navn.
 export type Lineage = {
   byPerson: Record<string, string[]>; // flere linjer pr. person (en collapsed grundlægger hører til flere)
   list: LinjeEntry[];
   navn: Record<string, string>;
+  // Udgavenøgle → kanonisk nøgle (list[].linje). Valgfri: uden den er byPersons nøgler selv listens nøgler.
+  kanonisk?: Record<string, string>;
 };
 
 // Delte reference-typer (bruges af Model.sourcesBy/Lineage — og af appernes Aux).
-export type SourceRef = { ref: string; work: string };
+export type SourceRef = {
+  ref: string;
+  work: string;
+  // Udgavens korte navn (source.udgave ?? titel, som chips), fx »DAA 1939«. Valgfri; uden den bruges work.
+  udgave?: string;
+  // 6e-2 (valgfri, så ældre producenter er uændrede): kort form til bogens nummer + sorteringsnøgler.
+  kort?: string;
+  personId?: string;
+  sourceId?: string;
+  aar?: number | null;
+  slaegtled?: number | null;
+};
 export type LinjeEntry = { linje: string; count: number; headId: string | null; navn: string | null };

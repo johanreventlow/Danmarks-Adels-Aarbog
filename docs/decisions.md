@@ -2,6 +2,26 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: 6e-2's kildeetiket — hver bog sin egen opslagsnøgle med linjens navn, 1939 med trykte særtryksider; sidekortet er en lille profil som data (2026-11-13)
+
+> Projektejeren, før 6e-2's plan. Detaljer og målinger: `docs/superpowers/specs/2026-11-12-trin6e-laeserflade-design.md` §12.
+>
+> 1. **Hver bog beholder sin egen nøgle.** 2018-20's postetiket »V-1« er uændret. Bogen henviser selv sådan:
+>    »se III. Den mecklenburgske linje, nr. 58«. 1939 får »IV, nr. 3« med siden i kildeangivelsen
+>    (»DAA 1939, s. 49 · IV, nr. 3«), fordi 1939 kun henviser med sidetal (»se S. 75«).
+> 2. **Linjens navn vises altid med romertallet.** Romertallene betyder forskellige linjer i de to bøger: IV og V er
+>    byttet om.
+> 3. **Tvetydighed accepteres (valg A).** 87 grupper med 194 af 528 placements deler etiket. Side og navn identificerer
+>    personen, og poster holdes adskilt på id.
+> 4. **Sidetal er særtrykkets trykte sidetal, ikke PDF-siden.** Kortet er fastlagt af trykkeriets arksignaturer og
+>    bekræftet af bogens gensidige krydshenvisninger.
+>    - Det ligger som data på kilden med én omregningsfunktion. Det er en lille udgaveprofil og justerer 6e-spec'ens
+>      §1.3 (»ingen ny udgaveprofil«).
+>    - PDF-siden bevares som anker. Ingen påstande eller citationer ændres; kun projektion og genpublicerede etiketter.
+> 5. **Linjeskemaets etiketter rettes til bogens ordlyd i 6e-2's ceremoni:** Ziesendorf, »I.«, »VI.« og
+>    stammeafsnittenes »A.« og »B.«. Stammeafsnittenes etiket er f.eks. »A, nr. 2«.
+> 6. **2018-20's sidetal er allerede trykte sider** (stikprøve: Conrad V-1 på s. 201). 2018-20 får intet sidekort.
+
 ## BESLUTTET: redaktøren læser levendes biografi som kladde; udgivelsesreglen røres ikke (2026-11-13)
 
 > Retter pkt. 1 i posten nedenfor (»narrativernes udgivelsesregel ... får en redaktør-gren«). Udgivelsesreglen kan ikke

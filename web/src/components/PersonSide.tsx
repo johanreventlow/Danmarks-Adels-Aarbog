@@ -56,8 +56,8 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   // Slægten: personer med en linje i stamtavlen hører til slægten (i dag kun Reventlow). Ægtefæller uden linje
   // står uden slægt i etiketten, frem for at blive tilskrevet en slægt, de ikke tilhører.
   const slaegt = v.linjer.length ? findSlaegt(STANDARD_SLAEGT) : null;
-  const linjeNavne = v.linjer.map((lk) => model.lineage?.navn[lk] ?? `Linje ${lk}`);
-  // Bogens nummer (»Linje V, nr. 1«) kun fra stamtavlens opslag — samme regel som feedets kilde-§ (bogensNummer).
+  const linjeNavne = v.hovedLinjer;
+  // Bogens nummer (»V, nr. 1«) kun fra stamtavlens opslag — samme regel som feedets kilde-§ (bogensNummer).
   const nr = bogensNummer(model.sourcesBy, focusId);
   const etiket = [slaegt?.navn, ...(nr ? [nr] : linjeNavne)].filter(Boolean).join(' · ');
   const harVaelger = v.vaelger.form === 'chips' || v.vaelger.form === 'skift';
@@ -96,6 +96,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
             {p.title && <p style={{ margin: 0, fontSize: 15, color: T.bordeaux, fontWeight: 600 }}>{p.title}</p>}
             {v.proveniens && <p style={{ margin: 0, fontSize: 13.5, color: T.inkMuted }}>Optræder i Aarbogen som {v.proveniens}.</p>}
             {v.tidligereUdgave && <p style={{ margin: 0, fontSize: 13, color: T.inkMuted }}>Du ser en tidligere udgave.</p>}
+            {v.linjeNoter.map((n) => <p key={n} style={{ margin: 0, fontSize: 13, color: T.inkMuted }}>{n}</p>)}
           </header>
 
           {detailError ? (

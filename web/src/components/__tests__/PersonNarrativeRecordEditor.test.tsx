@@ -268,3 +268,14 @@ test('overgangsbiografi får oversigtsmærket på sin egen narrativ, ikke på ud
   expect(within(cards[3]).queryByRole('note')).toBeNull();
   expect(fetchOverviewMarks).toHaveBeenCalledTimes(1);
 });
+
+test('tom postetiket: h3 og aria-label falder tilbage til citationLabel, ingen tom h3', async () => {
+  (fetchPersonNarrativeRecords as ReturnType<typeof vi.fn>).mockResolvedValue({
+    records: [record({ sourceLabel: 'DAA 1939', recordLabel: '', citationLabel: 'DAA 1939, s. 52' })], legacyPublications: [],
+  });
+  render(<PersonNarrativeRecordEditor personId={5} onChange={vi.fn()} />);
+  const kort = await screen.findByRole('article', { name: 'DAA 1939 — DAA 1939, s. 52' });
+  const h3 = kort.querySelector('h3');
+  expect(h3?.textContent).toBe('DAA 1939, s. 52');
+  expect(screen.queryAllByRole('heading', { level: 3 }).every((h) => (h.textContent ?? '') !== '')).toBe(true);
+});

@@ -91,6 +91,14 @@ describe('soeg', () => {
     expect(soeg(model, godser, f({})).godser).toEqual([]);
     expect(soeg(model, godser, f({ type: 'besiddelser' })).godser.map((g) => g.navn)).toEqual(['Clausholm', 'Conradsborg']);
   });
+  it('linjefiltret er kanonisk: én chip finder personer fra alle udgaver, også via en ældre udgavenøgle (I-1)', () => {
+    const m = { ...model, lineage: {
+      byPerson: { 1: ['K:2018'], 2: ['K:1939'], 4: ['L:2018'] }, navn: { 'K:2018': 'V. linje', 'K:1939': 'V. linje', K: 'V. linje' },
+      list: [{ linje: 'K', count: 2, headId: '1', navn: 'V. linje' }], kanonisk: { 'K:2018': 'K', 'K:1939': 'K', 'L:2018': 'L' },
+    } } as Model;
+    expect(soeg(m, godser, f({ q: 'conrad', linje: 'K' })).personer.map((p) => p.id)).toEqual(['2', '1']);
+    expect(soeg(m, godser, f({ q: 'conrad', linje: 'K:2018' })).personer.map((p) => p.id)).toEqual(['2', '1']);
+  });
   it('bogmærker og sortering efter fødeår', () => {
     expect(soeg(model, godser, f({ bm: true }), new Set(['4', '2'])).personer.map((p) => p.id)).toEqual(['2', '4']);
     expect(soeg(model, godser, f({ sort: 'foedt' })).personer.map((p) => p.id)).toEqual(['1', '4', '2', '3']);
