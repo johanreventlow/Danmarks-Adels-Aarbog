@@ -82,16 +82,20 @@ export function matchNavn(navn: string, q: string): Ramt | null {
   return null;
 }
 
-// Levetidens spænd i hele år. Mangler det ene endepunkt, regnes et menneskeliv (100 år) fra det andet, så en
-// person med kun dødsår 1708 rører 1608–1708. Uden årstal: null (personen kan ikke placeres i en periode).
-// Klienten har kun årstallet fra bogens dato, ikke datoens spænd (»ca.«, »mellem … og …«).
+// Levetidens spænd i hele år: fra det tidligste mulige fødselsår til det seneste mulige dødsår. En usikker dato
+// tæller i hele sin bredde (»† 1406/1410« → 1410). Mangler det ene endepunkt, regnes et menneskeliv (100 år) fra
+// det andet, så en person med kun dødsår 1708 rører 1608–1708. Uden årstal: null (kan ikke placeres i en periode).
+// »ca. 1660« er ét år; bogen siger ikke, hvor bredt »ca.« er.
 export const LIVSLAENGDE = 100;
-export function levetid(p: { born: number | null; died: number | null }): [number, number] | null {
-  const lo = p.born ?? (p.died != null ? p.died - LIVSLAENGDE : null);
-  const hi = p.died ?? (p.born != null ? p.born + LIVSLAENGDE : null);
+type Leveaar = { born: number | null; died: number | null; foedtSpaend?: [number, number] | null; doedSpaend?: [number, number] | null };
+export function levetid(p: Leveaar): [number, number] | null {
+  const f = p.foedtSpaend ?? (p.born != null ? [p.born, p.born] : null);
+  const d = p.doedSpaend ?? (p.died != null ? [p.died, p.died] : null);
+  const lo = f?.[0] ?? (d ? d[0] - LIVSLAENGDE : null);
+  const hi = d?.[1] ?? (f ? f[1] + LIVSLAENGDE : null);
   return lo == null || hi == null ? null : [lo, hi];
 }
-export function roererPerioden(p: { born: number | null; died: number | null }, fra: number | null, til: number | null): boolean | null {
+export function roererPerioden(p: Leveaar, fra: number | null, til: number | null): boolean | null {
   if (fra == null && til == null) return true;
   const s = levetid(p);
   if (!s) return null;
@@ -118,7 +122,8 @@ export function soeg(model: Model, estates: EstateItem[], f: SoegFiltre, bogmaer
   const personer: PersonRaekke[] = [];
   let udenAar = 0;
   for (const p of model.persons) {
-    if (f.bm && !bogmaerker?.has(p.id)) continue;
+    // Et delt link med bm=1 hos en læser uden bogmærker: filteret gælder ikke (ellers en tom side uden forklaring).
+    if (f.bm && bogmaerker && !bogmaerker.has(p.id)) continue;
     if (f.linje && !(model.lineage?.byPerson[p.id] ?? []).includes(f.linje)) continue;
     const m = matchNavn(p.name, f.q);
     if (!m) continue;
@@ -128,7 +133,7 @@ export function soeg(model: Model, estates: EstateItem[], f: SoegFiltre, bogmaer
     personer.push({ id: p.id, name: p.name, years: p.years, title: p.title, born: p.born, linje: linjeNavnFor(model, p.id), maerker: m.maerker, rang: m.rang });
   }
   // Godser kender hverken linje, levetid eller bogmærker; filtrerer man på dem, søges der kun i personer.
-  const kunPersoner = f.bm || f.linje != null || f.fra != null || f.til != null;
+  const kunPersoner = (f.bm && !!bogmaerker) || f.linje != null || f.fra != null || f.til != null;
   const godser: GodsRaekke[] = [];
   if (!kunPersoner) {
     for (const e of estates) {
@@ -161,18 +166,27 @@ function afstand(a: string, b: string): number {
 // Andre stavemåder af søgeordet: ord fra navnene, der ligner et søgeord (højst én fejl pr. fire bogstaver, mindst
 // én), men som søgningen ikke allerede rammer (ikke samme ord, ikke ens efter foldning, ikke indeholder søgeordet).
 // Bruges som »Mente du …?«, når intet findes, og som »Andre stavemåder«, når noget findes: »Reventlow« ↔ »Reventlou«.
-// Første søgeord med naboer skiftes ud; højst tre forslag.
+// Et søgeord, der intet navn rammer, skiftes først ud (»Otto Revenlow« → »Otto Reventlow«); ellers det første med
+// naboer. Ord under fem bogstaver får ingen naboer: én fejl i »Otto« eller »Ida« er et andet navn, ikke en stavemåde.
+// Højst tre forslag.
+// Et par, hvor kun det ene ord ender på -a/-e, er typisk to navne (Christian/Christina, Benedict/Benedicte), ikke
+// to stavemåder af ét; de foreslås ikke.
+export const MIN_STAVEORD = 5;
+const kvindeEndelse = (w: string) => /[ae]$/.test(w);
 export function stavemaader(navne: readonly string[], q: string, n = 3): string[] {
   const toks = q.trim().split(/\s+/).filter(Boolean);
   if (!toks.length) return [];
   const ordbog = new Map<string, string>(); // lille → som i bogen
   for (const navn of navne) for (const w of navn.split(ORD)) if (w.length >= 3 && !ordbog.has(w.toLowerCase())) ordbog.set(w.toLowerCase(), w);
-  for (let i = 0; i < toks.length; i++) {
+  const rammer = (t: string) => { const tf = foldToken(t); return [...ordbog.keys()].some((k) => k.includes(t) || foldToken(k).startsWith(tf)); };
+  const raekkefoelge = toks.map((t, i) => ({ i, ingen: !rammer(t.toLowerCase()) })).sort((a, b) => Number(b.ingen) - Number(a.ingen) || a.i - b.i).map((x) => x.i);
+  for (const i of raekkefoelge) {
+    if (toks[i].length < MIN_STAVEORD) continue;
     const lt = toks[i].toLowerCase();
     const tf = foldToken(lt);
     const max = Math.max(1, Math.floor(lt.length / 4));
     const naboer = [...ordbog.entries()]
-      .filter(([k]) => k !== lt && !k.includes(lt) && foldToken(k) !== tf)
+      .filter(([k]) => k !== lt && !k.includes(lt) && foldToken(k) !== tf && kvindeEndelse(k) === kvindeEndelse(lt))
       .map(([k, v]) => ({ v, d: afstand(lt, k) }))
       .filter((x) => x.d <= max)
       .sort((a, b) => a.d - b.d || compareDanish(a.v, b.v))

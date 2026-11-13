@@ -129,6 +129,28 @@ test('søgefladens linjechips får aldrig tekniske linjenøgler (legacy-source:)
   expect(mocks.treeSearch!.linjeList.map((l) => l.linje)).toEqual(['slaegt:1:lineage:5:scheme:canonical']);
 });
 
+test('søgesidens linjeknapper viser kun navngivne linjer, aldrig tekniske nøgler', async () => {
+  window.history.replaceState({}, '', '/soeg?q=Test');
+  const base = buildModel({ persons: [{ id: '1', name: 'Testperson', born: null, died: 1900, years: '', title: '', bio: '', privat: false }], unions: [], parentChild: [] });
+  mocks.loadModel.mockResolvedValue({
+    ...base,
+    lineage: {
+      byPerson: { '1': ['legacy-source:3:II', 'slaegt:1:lineage:5:scheme:canonical'] },
+      navn: { 'slaegt:1:lineage:5:scheme:canonical': 'V. Linje' },
+      list: [
+        { linje: 'legacy-source:3:II', count: 1, headId: '1', navn: null },
+        { linje: 'slaegt:1:lineage:5:scheme:canonical', count: 1, headId: '1', navn: 'V. Linje' },
+      ],
+    },
+    loadGeo: () => new Promise(() => {}),
+  });
+  render(<Folgesvend />);
+  const gruppe = (await screen.findByText('Slægt og linje')).closest('fieldset')!;
+  const knapper = [...gruppe.querySelectorAll('button')].map((b) => b.textContent);
+  expect(knapper).toEqual(['Hele slægten', 'V. Linje']);
+  expect(gruppe.textContent).not.toContain('legacy-source');
+});
+
 test('anonym læser får ingen indgang til præsenslisten fra personpanelet', async () => {
   mocks.fetchPersonDetail.mockResolvedValue({ bio: '', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });
   render(<Folgesvend />);

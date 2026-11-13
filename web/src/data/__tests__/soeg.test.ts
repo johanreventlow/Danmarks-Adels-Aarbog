@@ -50,6 +50,12 @@ describe('levetid', () => {
     expect(roererPerioden({ born: null, died: null }, 1600, 1700)).toBeNull();
     expect(roererPerioden({ born: null, died: null }, null, null)).toBe(true);
   });
+  it('en usikker dato tæller i hele sin bredde (fixturens »† 1406/1410«)', () => {
+    const p = { born: null, died: 1406, doedSpaend: [1406, 1410] as [number, number] };
+    expect(levetid(p)).toEqual([1306, 1410]);
+    expect(roererPerioden(p, 1408, 1409)).toBe(true);
+    expect(roererPerioden({ born: null, died: 1406 }, 1408, 1409)).toBe(false); // uden spændet: kun 1406
+  });
 });
 
 describe('soeg', () => {
@@ -75,6 +81,9 @@ describe('soeg', () => {
     expect(r.udenAar).toBe(1);
     expect(r.godser).toEqual([]);
   });
+  it('bm=1 i et delt link hos en læser uden bogmærker filtrerer ikke', () => {
+    expect(soeg(model, godser, f({ q: 'conrad', bm: true })).personer).toHaveLength(3);
+  });
   it('bogmærker og sortering efter fødeår', () => {
     expect(soeg(model, godser, f({ bm: true }), new Set(['4', '2'])).personer.map((p) => p.id)).toEqual(['2', '4']);
     expect(soeg(model, godser, f({ sort: 'foedt' })).personer.map((p) => p.id)).toEqual(['1', '4', '2', '3']);
@@ -95,5 +104,17 @@ describe('stavemaader', () => {
     expect(stavemaader(navne, 'conrad reventlou')).toEqual(['conrad Reventlow']);
     expect(stavemaader(navne, 'Conrad')).toEqual([]); // Conradt indeholder søgeordet og findes allerede
     expect(stavemaader(navne, 'Xyzzy')).toEqual([]);
+  });
+  it('det søgeord, der intet rammer, skiftes først; korte ord får ingen naboer', () => {
+    const flere = [...navne, 'Otto Reventlow', 'Otte Holck', 'Ida Holck'];
+    expect(stavemaader(flere, 'Otto Revenlow')).toEqual(['Otto Reventlow', 'Otto Reventlou']);
+    expect(stavemaader(flere, 'Otto')).toEqual([]);
+    expect(stavemaader(flere, 'Ida')).toEqual([]);
+  });
+  it('kønsvarianter er andre navne, ikke stavemåder', () => {
+    const ns = ['Christian Holck', 'Christina Holck', 'Christine Holck', 'Benedict Holck', 'Benedicte Holck', 'Frederik Holck', 'Fredrik Holck', 'Friderike Holck'];
+    expect(stavemaader(ns, 'Christian')).toEqual([]);
+    expect(stavemaader(ns, 'Benedicte')).toEqual([]);
+    expect(stavemaader(ns, 'Frederik')).toEqual(['Fredrik']);
   });
 });
