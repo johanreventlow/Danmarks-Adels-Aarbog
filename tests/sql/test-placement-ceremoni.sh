@@ -61,7 +61,7 @@ run() {
     -v expect_persona_placements="${E_PP:-3}" -v expect_bindings="${E_BIND:-3}" -v expect_published=3 \
     -v expect_revalidated="${E_REVAL:-3}" -v expect_ledger_mapped="${E_MAP:-3}" -v expect_ledger_retained="${E_RET:-1}" \
     -v expect_memberships="${E_MEM:-3}" -v expect_corroborated=1 -v expect_conflict=0 \
-    -v expect_laeser_1939="${E_LAES:-uaendret}" -v expect_koord_2018_20="${E_KOORD:-$KOORD}" \
+    -v expect_laeser_1939="${E_LAES:-placement}" -v expect_koord_2018_20="${E_KOORD:-$KOORD}" \
     -f $S/placement_ceremoni.sql > "$tmp/$2.out" 2>&1
 }
 kode() { grep -o 'PLC_[A-Z_0-9]*' "$tmp/$1.out" | head -1; }
@@ -104,7 +104,8 @@ events_p2() { v "$1" "SELECT count(*) FROM private.narrative_publication_event e
 ev0=$(events_p2 "$db")
 
 # $fuld_koersel$: linjeskema, overskrifter, 3 placements, ledger 3 mapped + 1 retained, 3 medlemskaber (1 corroborated),
-# 3 revalideret, 0 stale; 2018-20-koordinaterne og kildens egne læserrækker (gaten: I/1 to gange) uændrede.
+# 3 revalideret, 0 stale; 2018-20-koordinaterne uændrede; kildens læserrækker viser placement (6e-2: I/1 i slægtled 1 og 2
+# er entydige; før 6e-2 holdt gaten kilden på legacy).
 ok "${db}_go" go
 grep -q '^PLC_OK entries=3 headers=6 placements=3 persona=3 ledger_mapped=3 memberships=3 revalideret=3 corroborated=1 conflict=0 human_levels=0$' \
   "$tmp/go.out" || fail "kvittering: $(grep PLC_OK "$tmp/go.out" || tail -3 "$tmp/go.out")"
@@ -112,7 +113,10 @@ grep -q '^PLC_OK entries=3 headers=6 placements=3 persona=3 ledger_mapped=3 memb
 [ "$(ledger "${db}_go")" = "retained_legacy:ingen_placement,mapped:,mapped:,mapped:" ] || fail "ledger: $(ledger "${db}_go")"
 [ "$(felt "${db}_go" fase)" = "data" ] || fail "fase efter: $(maal "${db}_go")"
 [ "$(felt "${db}_go" KOORD_2018_20)" = "$KOORD" ] || fail "2018-20-koordinater ændret"
-[ "$(felt "${db}_go" KOORD_SRC)" = "$KSRC" ] || fail "kildens læserrækker ændret"
+[ "$(felt "${db}_go" KOORD_SRC)" != "$KSRC" ] || fail "kildens læserrækker uændrede"
+# 6e-2: gaten nøgler på (entry, slægtled, kuld, nr.); I/1 slægtled 1 og I/1 slægtled 2 er forskellige ⇒ placement.
+[ "$(v "${db}_go" "SELECT string_agg(person_id||':'||provenance_kind,',' ORDER BY person_id) FROM public.public_person_source_coordinates() WHERE source_id=-1610")" \
+  = "-161004:legacy_external_id,-161003:placement,-161002:placement,-161001:placement" ] || fail "go: læser"
 [ "$(v "${db}_go" "SELECT string_agg(e.code||':'||e.sort_order||':'||(SELECT string_agg(l.kode||'/'||el.relation_kind,'+' ORDER BY el.relation_kind)
        FROM public.lineage_scheme_entry_lineage el JOIN public.lineage l ON l.id=el.lineage_id WHERE el.entry_id=e.id),',' ORDER BY e.code)
        FROM public.lineage_scheme s JOIN public.lineage_scheme_entry e ON e.scheme_id=s.id WHERE s.source_id=-1610")" \
@@ -201,7 +205,7 @@ RULE=header-anden-v1 nej "$N" inv2 PLC_PRE_INVARIANTS
 E_PL=4 nej "$N" ant1 PLC_PRE_PLACEMENTS
 E_RET=2 nej "$N" ant2 PLC_PRE_LEDGER
 E_KOORD=$(printf '0%.0s' {1..32}) nej "$N" koord PLC_POST_KOORD
-E_LAES=placement nej "$N" laes1 PLC_POST_LAESER
+E_LAES=uaendret nej "$N" laes1 PLC_POST_LAESER
 E_LAES=ukendt nej "$N" laes2 PLC_PRE_ARGS
 HKIND= nej "$N" hk1 PLC_PRE_ARGS
 # Forkert helpost-type: ingen forekomst har den som eneste top-observation → ingen helpost (p2's under-forekomst
@@ -215,7 +219,7 @@ nej "${db}_ident" ident PLC_PRE_IDENTITY
 # Persona med unresolved identitet (p2): record-placement, ingen persona-placement, binding stadig published; ledger
 # ingen_identitet. Uden p2's medlemskab er kildens placements entydige → læseren viser placement for -161001/-161003.
 ident "${db}_unres" p2 unresolved NULL
-E_PP=2 E_BIND=2 E_MAP=2 E_RET=2 E_MEM=2 nej "${db}_unres" unres1 PLC_POST_LAESER
+E_PP=2 E_BIND=2 E_MAP=2 E_RET=2 E_MEM=2 E_LAES=uaendret nej "${db}_unres" unres1 PLC_POST_LAESER
 E_PP=2 E_BIND=2 E_MAP=2 E_RET=2 E_MEM=2 E_LAES=placement ok "${db}_unres" unres2
 [ "$(pub "${db}_unres")" = "3/0" ] || fail "unres: publicering"
 [ "$(ledger "${db}_unres")" = "retained_legacy:ingen_placement,mapped:,retained_legacy:ingen_identitet,mapped:" ] \

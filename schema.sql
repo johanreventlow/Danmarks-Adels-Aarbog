@@ -3067,6 +3067,57 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION private.membership_is_current(bigint,bigint) FROM PUBLIC,anon,authenticated,service_role;
 
+-- Trin 6e-2 (Task 3): de gældende linjemedlemskaber som mængde, så læseren ikke kalder membership_is_current pr. række.
+-- Præcis de (person_id, lineage_id), hvor membership_is_current er sand: samme joins og filtre som membership_state,
+-- samme jsonb-udtryk og samme hashfunktion, men beregnet én gang for alle medlemskaber. »Seneste beslutning« læses
+-- direkte af beslutningstabellerne (ingen nyere version for samme placement); det er de to _current-views' regel, fordi
+-- (placement_id, version) er unik. Views'enes DISTINCT ON skjuler rækkeestimaterne, så planneren valgte nested loops
+-- (målt ~100 ms mod ~35 ms på stand-in).
+-- lineage_of_entry kaldes én gang pr. entry blandt de rækker, der består joins (som i membership_state), og kaster
+-- derfor i de samme tilfælde.
+CREATE OR REPLACE FUNCTION private.membership_current_set()
+RETURNS TABLE(person_id bigint, lineage_id bigint)
+LANGUAGE plpgsql STABLE SET search_path=pg_catalog,public,private AS $$
+#variable_conflict use_column
+BEGIN
+  RETURN QUERY
+  WITH j AS MATERIALIZED (
+    SELECT plm.person_id,plm.lineage_id,plm.source_basis->>'state_sha256' AS basis_sha,
+           i.canonical_person_id,i.version AS identity_version,e.id AS entry_id,e.slaegt_id,
+           pp.id AS persona_placement_id,rp.id AS record_placement_id
+      FROM public.person_lineage_membership plm
+      JOIN private.source_persona_placement pp
+        ON pp.id=(plm.source_basis->>'persona_placement_id')::uuid AND pp.placement_role='principal_member'
+      JOIN private.source_persona_placement_decision ppd
+        ON ppd.placement_id=pp.id AND ppd.decision_status='accepted'
+       AND NOT EXISTS (SELECT 1 FROM private.source_persona_placement_decision n
+                        WHERE n.placement_id=ppd.placement_id AND n.version>ppd.version)
+      JOIN private.source_record_placement rp ON rp.id=pp.record_placement_id
+      JOIN private.source_record_placement_decision rpd
+        ON rpd.placement_id=rp.id AND rpd.decision_status='accepted'
+       AND NOT EXISTS (SELECT 1 FROM private.source_record_placement_decision n
+                        WHERE n.placement_id=rpd.placement_id AND n.version>rpd.version)
+      JOIN public.lineage_scheme_entry e ON e.id=rp.scheme_entry_id
+      JOIN private.source_persona_identity i ON i.source_persona_id=pp.source_persona_id
+       AND i.decision_status='accepted' AND i.canonical_person_id IS NOT NULL
+  ), lin AS MATERIALIZED (
+    SELECT u.entry_id,private.lineage_of_entry(u.entry_id) AS lineage_id FROM (SELECT DISTINCT j.entry_id FROM j) u
+  ), h AS MATERIALIZED (
+    SELECT j.person_id,j.lineage_id,j.basis_sha,j.slaegt_id,j.canonical_person_id,lin.lineage_id AS state_lineage_id,
+           private.reimport_canonical_json_sha256(jsonb_build_object('person_id',j.canonical_person_id,
+             'lineage_id',lin.lineage_id,'slaegt_id',j.slaegt_id,'persona_placement_id',j.persona_placement_id,
+             'record_placement_id',j.record_placement_id,'identity_version',j.identity_version,
+             'rule_version','placement-membership-v1')) AS sha
+      FROM j JOIN lin ON lin.entry_id=j.entry_id
+  )
+  SELECT h.person_id,h.lineage_id
+    FROM h
+   WHERE h.sha=h.basis_sha AND h.canonical_person_id=h.person_id AND h.state_lineage_id=h.lineage_id
+     AND EXISTS (SELECT 1 FROM public.person_slaegt_membership m WHERE m.person_id=h.person_id
+                   AND m.slaegt_id=h.slaegt_id AND m.source_basis->>'state_sha256'=h.sha);
+END $$;
+REVOKE ALL ON FUNCTION private.membership_current_set() FROM PUBLIC,anon,authenticated,service_role;
+
 -- Helbredstal (db-verify NOTICE): promoverede linjemedlemskaber, der ikke længere er gældende.
 CREATE OR REPLACE FUNCTION private.placement_membership_not_current()
 RETURNS bigint LANGUAGE plpgsql STABLE SET search_path=pg_catalog,public,private AS $$
@@ -3326,16 +3377,21 @@ REVOKE ALL ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,tex
 GRANT EXECUTE ON FUNCTION public.red_reverse_placement_membership(bigint,bigint,text) TO authenticated;
 
 -- 5c-2 (spec §4.2): læserens kildekoordinater. Én række pr. person_external_id-række. Har personen præcis én gældende
--- membership (membership_is_current), hvis bundne record-placement hører til samme kilde, kommer linje, nr., slægtled og
--- kuld fra placementen; ellers fra legacy-rækken. printed_number er de foranstillede cifre (sortering);
--- printed_number_label er den trykte tekst (»15a«). SECURITY DEFINER omgår RLS; persongaten er i selve funktionen.
--- Trin 6d-1 (afgørelse 4b): en kilde bruger placement-koordinater kun, når dens gældende membership-placements er
--- entydige på (entry, trykt nummer); en placement uden trykt nummer tæller som ikke-entydig. Ellers falder alle
--- kildens rækker til legacy.
+-- membership, hvis bundne record-placement hører til samme kilde, kommer linje, nr., slægtled og kuld fra placementen;
+-- ellers fra legacy-rækken. printed_number er de foranstillede cifre (sortering); printed_number_label er den trykte
+-- tekst (»15a«). SECURITY DEFINER omgår RLS; persongaten er i selve funktionen.
+-- Trin 6d-1 (afgørelse 4b), skærpet i 6e-2: en kilde bruger placement-koordinater kun, når ingen to af dens gældende
+-- membership-placements deler (entry, slægtled, kuld, trykt nummer), med NULL som ens. Ellers falder alle kildens
+-- rækker til legacy.
+-- Trin 6e-2: de gældende memberships kommer fra private.membership_current_set() (én mængdeberegning i stedet for
+-- membership_is_current pr. række). printed_page er postens trykte startside (source_trykt_side over den mindste
+-- PDF-side blandt postens accepterede ankre), kun for poster uden bogtrykt nøgle (private.record_key_uden_bognoegle);
+-- ellers NULL. Placement-rækken bruger placementens post; legacy-rækken posterne bag de publicerede bindinger på
+-- personens offentlige narrativer i kilden (mindste side over dem); uden binding NULL.
 CREATE OR REPLACE FUNCTION public.public_person_source_coordinates()
 RETURNS TABLE(person_id bigint, source_id bigint, legacy_line_code text, printed_number integer,
   printed_number_label text, generation_local integer, generation_global integer, kuld_label text,
-  provenance_kind text)
+  provenance_kind text, printed_page text)
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
 #variable_conflict use_column
 DECLARE
@@ -3345,52 +3401,72 @@ BEGIN
   RETURN QUERY
   WITH m AS (
     -- Gældende memberships med deres bundne record-placement og dennes kilde.
-    SELECT plm.person_id,sr.source_id,rp.id AS rp_id,rp.scheme_entry_id,rp.printed_number
-      FROM public.person_lineage_membership plm
+    SELECT plm.person_id,sr.source_id,rp.id AS rp_id,rp.scheme_entry_id,rp.generation_local,rp.kuld_label,
+           rp.printed_number
+      FROM private.membership_current_set() c
+      JOIN public.person_lineage_membership plm ON plm.person_id=c.person_id AND plm.lineage_id=c.lineage_id
       -- Castet er beskyttet: ét ugyldigt id i én række må ikke vælte RPC'en for alle læsere (rækken falder til legacy).
       JOIN private.source_record_placement rp
         ON rp.id=CASE WHEN plm.source_basis->>'record_placement_id'
                            ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
                       THEN (plm.source_basis->>'record_placement_id')::uuid END
       JOIN private.source_record sr ON sr.id=rp.source_record_id
-     WHERE private.membership_is_current(plm.person_id,plm.lineage_id)
   ), ks AS (
-    -- Kildegate: ingen to af kildens placements deler (entry, trykt nummer), og ingen mangler nummeret (count DISTINCT
-    -- ser to NULL som ens, derfor det særskilte NULL-filter). Placements tælles én gang, også med flere memberships.
+    -- Kildegate: ingen to af kildens placements deler (entry, slægtled, kuld, trykt nummer); count DISTINCT over
+    -- rækken ser NULL som ens. Placements tælles én gang, også med flere memberships.
     SELECT d.source_id
-      FROM (SELECT DISTINCT m.source_id,m.rp_id,m.scheme_entry_id,m.printed_number FROM m) d
+      FROM (SELECT DISTINCT m.source_id,m.rp_id,m.scheme_entry_id,m.generation_local,m.kuld_label,m.printed_number
+              FROM m) d
      GROUP BY d.source_id
-    HAVING count(*)=count(DISTINCT (d.scheme_entry_id,d.printed_number))
-       AND count(*) FILTER (WHERE d.printed_number IS NULL)=0
+    HAVING count(*)=count(DISTINCT (d.scheme_entry_id,d.generation_local,d.kuld_label,d.printed_number))
   ), m1 AS (
     -- Entydighedsgate: præcis én pr. (person, kilde), i en kilde der består kildegaten.
     SELECT m.person_id,m.source_id,min(m.rp_id::text)::uuid AS rp_id
       FROM m JOIN ks ON ks.source_id=m.source_id
      GROUP BY m.person_id,m.source_id HAVING count(*)=1
   ), pl AS (
-    SELECT m1.person_id,m1.source_id,e.code,rp.printed_number,rp.generation_local,rp.generation_global,rp.kuld_label
+    SELECT m1.person_id,m1.source_id,e.code,rp.printed_number,rp.generation_local,rp.generation_global,rp.kuld_label,
+           rp.source_record_id
       FROM m1
       JOIN private.source_record_placement rp ON rp.id=m1.rp_id
       JOIN public.lineage_scheme_entry e ON e.id=rp.scheme_entry_id
+  ), side AS (
+    -- Mindste PDF-side over postens accepterede ankre, kun for poster uden bogtrykt nøgle. Gældende anker = ingen nyere
+    -- version for samme (forekomst, post), som source_record_anchor_current ((occurrence, record, version) er unik).
+    SELECT a.source_record_id,min(o.page_from) AS page_from
+      FROM private.source_record_anchor_event a
+      JOIN private.source_record_occurrence o ON o.id=a.occurrence_id
+      JOIN private.source_record r ON r.id=a.source_record_id
+     WHERE a.decision_status='accepted' AND private.record_key_uden_bognoegle(r.record_key)
+       AND NOT EXISTS (SELECT 1 FROM private.source_record_anchor_event n
+                        WHERE n.occurrence_id=a.occurrence_id AND n.source_record_id=a.source_record_id
+                          AND n.version>a.version)
+     GROUP BY a.source_record_id
+  ), lside AS (
+    -- Legacy-rækkens poster: de publicerede bindinger på personens offentlige narrativer i kilden.
+    SELECT n.subjekt_id AS person_id,n.source_id,min(side.page_from) AS page_from
+      FROM private.narrative_record_publication b
+      JOIN public.narrative n ON n.id=b.narrative_id
+      JOIN side ON side.source_record_id=b.source_record_id
+     WHERE b.status='published' AND n.subjekt_type='person' AND coalesce(n.privat,false)=false
+     GROUP BY n.subjekt_id,n.source_id
   )
-  SELECT x.person_id,x.source_id,
+  -- Én række pr. legacy-række; en gældende placement uden legacy-række (målt 0) tabes ikke (FULL JOIN).
+  SELECT coalesce(x.person_id,pl.person_id),coalesce(x.source_id,pl.source_id),
          CASE WHEN pl.person_id IS NULL THEN x.linje ELSE pl.code END,
          CASE WHEN pl.person_id IS NULL THEN x.nr ELSE substring(pl.printed_number from '^[0-9]+')::integer END,
          CASE WHEN pl.person_id IS NULL THEN x.nr::text ELSE pl.printed_number END,
          CASE WHEN pl.person_id IS NULL THEN x.slaegtled_lokal ELSE pl.generation_local END,
          CASE WHEN pl.person_id IS NULL THEN x.slaegtled_gennem ELSE pl.generation_global END,
          CASE WHEN pl.person_id IS NULL THEN x.kuld ELSE pl.kuld_label END,
-         CASE WHEN pl.person_id IS NULL THEN 'legacy_external_id' ELSE 'placement' END
+         CASE WHEN pl.person_id IS NULL THEN 'legacy_external_id' ELSE 'placement' END,
+         public.source_trykt_side(coalesce(x.source_id,pl.source_id),
+           (CASE WHEN pl.person_id IS NULL THEN ls.page_from ELSE ps.page_from END)::text)
     FROM public.person_external_id x
-    LEFT JOIN pl ON pl.person_id=x.person_id AND pl.source_id=x.source_id
-   WHERE (v_red OR public.entitet_offentlig('person',x.person_id))
-  UNION ALL
-  -- En gældende placement uden legacy-række (målt 0) tabes ikke.
-  SELECT pl.person_id,pl.source_id,pl.code,substring(pl.printed_number from '^[0-9]+')::integer,pl.printed_number,
-         pl.generation_local,pl.generation_global,pl.kuld_label,'placement'
-    FROM pl
-   WHERE (v_red OR public.entitet_offentlig('person',pl.person_id))
-     AND NOT EXISTS (SELECT 1 FROM public.person_external_id x WHERE x.person_id=pl.person_id AND x.source_id=pl.source_id)
+    FULL JOIN pl ON pl.person_id=x.person_id AND pl.source_id=x.source_id
+    LEFT JOIN side ps ON ps.source_record_id=pl.source_record_id
+    LEFT JOIN lside ls ON ls.person_id=x.person_id AND ls.source_id=x.source_id
+   WHERE (v_red OR public.entitet_offentlig('person',coalesce(x.person_id,pl.person_id)))
    ORDER BY 1,2;
 END $$;
 REVOKE ALL ON FUNCTION public.public_person_source_coordinates() FROM PUBLIC,anon,authenticated,service_role;

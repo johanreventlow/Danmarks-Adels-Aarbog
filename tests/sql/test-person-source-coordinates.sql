@@ -178,8 +178,8 @@ BEGIN
   RAISE NOTICE 'OK: public_person_source_coordinates';
 END $coordinates$;
 
--- Trin 6d-1 (afgørelse 4b): kildegaten. En kilde bruger placement-koordinater kun, når dens gældende membership-
--- placements er entydige på (entry, trykt nummer); et manglende nummer tæller som ikke-entydigt. Ellers falder alle
+-- Trin 6d-1 (afgørelse 4b), skærpet i 6e-2: kildegaten. En kilde bruger placement-koordinater kun, når ingen to af dens
+-- gældende membership-placements deler (entry, slægtled, kuld, trykt nummer), med NULL som ens. Ellers falder alle
 -- kildens rækker til legacy.
 
 -- Kilde med entry 'I' og header-kørsel (som f6d_src i test-membership-component.sql).
@@ -274,7 +274,8 @@ END $laeser_1939$;
 DO $laeser_null_nummer$
 DECLARE f jsonb; a jsonb; b jsonb;
 BEGIN
-  -- Én placement uden trykt nummer (stamfader) ⇒ hele kilden legacy, også den nummererede.
+  -- 6e-2: én placement uden trykt nummer (stamfader), alene i sin gruppe, er entydig ⇒ placement med NULL nr., og den
+  -- nummererede beholder også placement (før 6e-2 faldt hele kilden til legacy).
   f:=pg_temp.fco_src(-5271);
   PERFORM pg_temp.fco_place(f,'I-0',-527101,1,NULL);
   PERFORM pg_temp.fco_place(f,'I-2',-527102,2,'2');
@@ -285,8 +286,8 @@ BEGIN
     RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: null_nummer: forudsætning: placementen skal mangle nummer';
   END IF;
   a:=pg_temp.fco_row(f,-527101); b:=pg_temp.fco_row(f,-527102);
-  IF a->>'provenance_kind'<>'legacy_external_id' OR a->>'printed_number_label'<>'1'
-     OR b->>'provenance_kind'<>'legacy_external_id' OR b->>'printed_number_label'<>'2' THEN
+  IF a->>'provenance_kind'<>'placement' OR a->'printed_number_label'<>'null'::jsonb OR a->'printed_number'<>'null'::jsonb
+     OR b->>'provenance_kind'<>'placement' OR b->>'printed_number_label'<>'2' THEN
     RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: null_nummer % %',a,b;
   END IF;
   RAISE NOTICE 'OK: laeser_null_nummer';

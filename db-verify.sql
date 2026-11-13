@@ -10843,13 +10843,15 @@ END $verify_6c3a$;
 -- Redaktøren ser levende (decisions 2026-11-13, blokken redaktoer-ser-levende): de tre læse-RPC'er bag personsiden har
 -- en redaktør-gren og beholder gæsternes gate; »offentlig«-hjælperne afhænger ikke af kalderen (de bærer gæsternes
 -- policies); haendelse har det additive redaktion_read-lag.
+-- Trin 6e-2: koordinat-RPC'en samler legacy- og placement-rækker i én FULL JOIN, så gæste-gaten står over
+-- coalesce(x.person_id,pl.person_id); redaktør-grenen er den samme.
 DO $verify_redaktoer_ser_levende$
 DECLARE f regprocedure; v_def text; v_gate text;
 BEGIN
   FOR f,v_gate IN SELECT to_regprocedure(x.sig),x.gate FROM (VALUES
       ('public.public_person_facts(bigint[])','public.entitet_offentlig(''person'',fa.subjekt_id)'),
       ('public.public_family_sources(bigint[])','public.family_offentlig(b.fam)'),
-      ('public.public_person_source_coordinates()','public.entitet_offentlig(''person'',x.person_id)')) x(sig,gate) LOOP
+      ('public.public_person_source_coordinates()','public.entitet_offentlig(''person'',coalesce(x.person_id,pl.person_id))')) x(sig,gate) LOOP
     IF f IS NULL THEN RAISE EXCEPTION 'VERIFY_FAILED: redaktoer-ser-levende: en læse-RPC mangler'; END IF;
     v_def:=pg_get_functiondef(f);
     IF NOT (SELECT prosecdef FROM pg_proc WHERE oid=f)
@@ -10968,3 +10970,39 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: trin 6e-2 — etiketregel og tom postdel';
 END $verify_6e2_etiket$;
+
+-- Trin 6e-2 Task 3: koordinat-RPC'en (returkolonner med printed_page sidst, ACL) og den mængdebaserede afledning af
+-- gældende medlemskab: private.membership_current_set() = {membership_is_current} over alle linjemedlemskaber.
+DO $verify_6e2_koordinater$
+DECLARE v_diff bigint; v_n bigint;
+BEGIN
+  IF (SELECT array_to_string(p.proargnames,',') FROM pg_proc p WHERE p.oid=to_regprocedure('public.public_person_source_coordinates()'))
+     IS DISTINCT FROM 'person_id,source_id,legacy_line_code,printed_number,printed_number_label,generation_local,generation_global,kuld_label,provenance_kind,printed_page' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 koordinat-RPC''ens returkolonner';
+  END IF;
+  IF NOT has_function_privilege('anon','public.public_person_source_coordinates()','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.public_person_source_coordinates()','EXECUTE')
+     OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) x
+                 WHERE p.oid='public.public_person_source_coordinates()'::regprocedure AND x.grantee=0) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 koordinat-RPC''ens ACL';
+  END IF;
+  IF to_regprocedure('private.membership_current_set()') IS NULL
+     OR has_function_privilege('anon','private.membership_current_set()','EXECUTE')
+     OR has_function_privilege('authenticated','private.membership_current_set()','EXECUTE')
+     OR has_function_privilege('service_role','private.membership_current_set()','EXECUTE') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 membership_current_set mangler eller er åben for klienter';
+  END IF;
+  SELECT count(*) INTO v_diff FROM (
+    (SELECT m.person_id,m.lineage_id FROM public.person_lineage_membership m
+      WHERE private.membership_is_current(m.person_id,m.lineage_id) IS TRUE
+     EXCEPT ALL SELECT s.person_id,s.lineage_id FROM private.membership_current_set() s)
+    UNION ALL
+    (SELECT s.person_id,s.lineage_id FROM private.membership_current_set() s
+     EXCEPT ALL SELECT m.person_id,m.lineage_id FROM public.person_lineage_membership m
+      WHERE private.membership_is_current(m.person_id,m.lineage_id) IS TRUE)) d;
+  IF v_diff<>0 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 membership_current_set afviger fra membership_is_current (% rækker)',v_diff;
+  END IF;
+  SELECT count(*) INTO v_n FROM private.membership_current_set();
+  RAISE NOTICE 'OK: trin 6e-2 — koordinat-RPC og mængdebaseret medlemskab (% gældende, 0 forskelle)',v_n;
+END $verify_6e2_koordinater$;

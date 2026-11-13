@@ -642,6 +642,12 @@ jobs:
       - name: Postetiket og tom postdel (trin 6e-2)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         run: bash tests/sql/test-6e2-etiket.sh ci6e2_etiket 68af809d
+      - name: Koordinat-RPC · kildegate, trykt side og mængdebaseret medlemskab (trin 6e-2)
+        env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
+        run: bash tests/sql/test-6e2-koordinater.sh ci6e2_koordinater
+      - name: Koordinat-RPC · signaturændring gennem hele migrationen (trin 6e-2)
+        env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
+        run: bash tests/sql/test-6e2-upgrade.sh ci6e2_upgrade 68af809d
       - name: Kildetekst-revision · migrationer to gange og to samtidige sessioner (trin 6a)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres, PGDATABASE: ci6a_text_revision}
         run: |
