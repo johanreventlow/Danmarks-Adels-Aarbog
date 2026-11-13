@@ -118,7 +118,7 @@ function proveniens(fase: Fase, focusId: string, b: Bygget): string[] {
 function samlStrenge(fase: Fase, b: Bygget): { hvor: string; tekst: string }[] {
   const ud: { hvor: string; tekst: string }[] = [];
   const add = (hvor: string, tekst: string | null | undefined) => { if (tekst != null) ud.push({ hvor, tekst }); };
-  for (const [pid, refs] of Object.entries(b.sourcesBy)) for (const r of refs) { add(`sourcesBy.ref ${pid}`, r.ref); add(`sourcesBy.kort ${pid}`, r.kort); add(`sourcesBy.work ${pid}`, r.work); }
+  for (const [pid, refs] of Object.entries(b.sourcesBy)) for (const r of refs) { const k = r.sourceId === '3' ? 'sourcesBy[1939]' : 'sourcesBy'; add(`${k}.ref ${pid}`, r.ref); add(`${k}.kort ${pid}`, r.kort); add(`${k}.work ${pid}`, r.work); }
   for (const pid of Object.keys(b.lineage.byPerson)) {
     for (const lk of b.lineage.byPerson[pid].filter((k) => !erTekniskLinje(k))) add(`linje ${pid}`, b.lineage.navn[lk] ?? `Linje ${lk}`);
   }
@@ -237,7 +237,9 @@ describe.skipIf(!DIR)('trin 6e-2: klienten på data før og efter ceremonien', (
       const b = hent('efter');
       const mine = b.sourcesBy[FOKUS_CONRAD].filter((r) => r.sourceId === '1' && r.personId === '392');
       expect(mine.map((r) => r.ref)).toEqual(['V. Den grevelige linje af 1673, nr. 1']);
-      const med = Object.entries(b.sourcesBy).flatMap(([pid, rs]) => rs.filter((r) => r.sourceId === '1' && (r.ref.includes('s. ') || (r.kort ?? '').includes('s. ')).valueOf()).map((r) => `${pid}: ${r.ref}`));
+      // Kun »Kilde i Aarbogen« og bogens nummer for kilde 1; fakta og chips har bevidst »s. N · V-1«.
+      const med = Object.entries(b.sourcesBy).flatMap(([pid, rs]) => rs.filter((r) => r.sourceId === '1' && (r.ref.includes('s. ') || (r.kort ?? '').includes('s. '))).map((r) => `${pid}: ${r.ref}`));
+      expect(bogensNummer(b.sourcesBy, FOKUS_CONRAD)).not.toContain('s. ');
       expect(med).toEqual([]);
     });
 
@@ -245,7 +247,10 @@ describe.skipIf(!DIR)('trin 6e-2: klienten på data før og efter ceremonien', (
       const b = hent('efter');
       const over = b.coords.filter((c) => String(c.source_id) === '3' && c.printed_page != null && Number(c.printed_page) > 92).map((c) => `${c.person_id}: ${c.printed_page}`);
       expect(over).toEqual([]);
-      const tal = samlStrenge('efter', b).filter((s) => s.tekst.includes('1939') || /^(sourcesBy|hoved|b6)/.test(s.hvor) === false ? s.tekst.includes('1939') : false)
+      // Alle 1939-afledte visningsstrenge: sourcesBy for kilde 3 samt enhver streng (chips, fakta, familiekilder,
+      // proveniens, Optræder som, B6) der nævner »DAA 1939«; hvert sidetal i dem skal være højst 92.
+      const er1939 = (s: { hvor: string; tekst: string }) => s.hvor.startsWith('sourcesBy[1939]') || s.tekst.includes('DAA 1939');
+      const tal = samlStrenge('efter', b).filter(er1939)
         .flatMap((s) => sidetal(s.tekst).filter((n) => n > 92).map((n) => `${s.hvor}: ${n}`));
       expect(tal).toEqual([]);
       for (const r of Object.entries(b.sourcesBy).flatMap(([pid, rs]) => rs.filter((x) => x.sourceId === '3').map((x) => [pid, x] as const))) {
