@@ -228,13 +228,17 @@ async function fetchFritekstKilde(rows: PublicPersonFactRow[]): Promise<Record<s
 // Redaktøren ser levende (decisions 2026-11-13, trin 2). Udgivelsesreglen tillader aldrig udgivelse af en levende,
 // privat eller staged persons biografi (publication_allowed er bagt ind i den hash-bundne tilstand), så den findes kun
 // som kladde. For redaktøren hentes kladden med kildehenvisning fra den eksisterende redaktør-RPC for de medlemmer,
-// gæster ikke kan se, og mærkes kunRedaktion. Enhver fejl giver ingen kladder; resten af personsiden står.
-// redaktionRead importerer public.ts, derfor dynamisk import (bryder cirklen og holder koden ude af læserens vej).
+// gæster ikke kan se, og mærkes kunRedaktion. En fejl logges og koster kun det berørte medlems kladder; resten af
+// personsiden står. redaktionRead importerer public.ts, derfor dynamisk import (bryder cirklen og holder koden ude af
+// læserens vej).
 const KLADDE_STATUS = new Set(['draft', 'published', 'stale_published']);
 async function fetchRedaktionKladder(numIds: number[]): Promise<BioSourceVersionV2[]> {
   try {
     const res = await supabase.from('person').select('id,levende,privat,staged').in('id', numIds);
-    if (res.error) return [];
+    if (res.error) {
+      console.warn('[fetchPersonDetail] redaktørens kladder: personopslag fejlede — ingen kladder:', res.error);
+      return [];
+    }
     const skjulte = ((res.data ?? []) as { id: number | string; levende: boolean | null; privat: boolean | null; staged: boolean | null }[])
       // Samme regel som person_offentlig: kun levende=false, ikke privat og ikke staged er offentlig (NULL = skjult).
       .filter((p) => p.levende !== false || p.privat === true || p.staged === true)
@@ -244,19 +248,25 @@ async function fetchRedaktionKladder(numIds: number[]): Promise<BioSourceVersion
     if (!skjulte.length) return [];
     const { mapNarrativeRecordRows } = await import('./redaktionRead');
     const svar = await Promise.all(skjulte.map(async (pid) => {
-      const r = await supabase.rpc('red_person_narrative_records', { p_person_id: pid });
-      if (r.error || !Array.isArray(r.data)) return [] as BioSourceVersionV2[];
-      return mapNarrativeRecordRows(r.data as Parameters<typeof mapNarrativeRecordRows>[0]).records
-        .filter((x) => KLADDE_STATUS.has(x.status) && x.text.trim() !== '')
-        .map((x): BioSourceVersionV2 => ({
-          personId: pid, sourceId: x.sourceId, sourceYear: x.sourceYear, recordOrder: null,
-          sourceRecordRef: x.sourceRecordRef, recordRef: x.sourceRecordRef,
-          sourceLabel: x.sourceLabel, recordLabel: x.recordLabel, citationLabel: x.citationLabel,
-          narrativeText: x.text.trim(), provenanceKind: 'source_record', kunRedaktion: true,
-        }));
+      try {
+        const r = await supabase.rpc('red_person_narrative_records', { p_person_id: pid });
+        if (r.error || !Array.isArray(r.data)) throw new Error(String((r.error as { message?: string } | null)?.message ?? 'svar er ikke en liste'));
+        return mapNarrativeRecordRows(r.data as Parameters<typeof mapNarrativeRecordRows>[0]).records
+          .filter((x) => KLADDE_STATUS.has(x.status) && x.text.trim() !== '')
+          .map((x): BioSourceVersionV2 => ({
+            personId: pid, sourceId: x.sourceId, sourceYear: x.sourceYear, recordOrder: null,
+            sourceRecordRef: x.sourceRecordRef, recordRef: x.sourceRecordRef,
+            sourceLabel: x.sourceLabel, recordLabel: x.recordLabel, citationLabel: x.citationLabel,
+            narrativeText: x.text.trim(), provenanceKind: 'source_record', kunRedaktion: true,
+          }));
+      } catch (e) {
+        console.warn(`[fetchPersonDetail] redaktørens kladder for person ${pid} fejlede — ingen kladder for den:`, e);
+        return [] as BioSourceVersionV2[];
+      }
     }));
     return svar.flat();
-  } catch {
+  } catch (e) {
+    console.warn('[fetchPersonDetail] redaktørens kladder fejlede — ingen kladder:', e);
     return [];
   }
 }
@@ -346,8 +356,9 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
       citationLabel: '',
       provenanceKind: 'legacy_narrative' as const,
     }));
-    // Kladderne (kun redaktør, kun ikke-offentlige medlemmer) står efter de offentlige versioner; standardteksten er den
-    // offentlige, når den findes.
+    // Kladderne (kun redaktør, kun ikke-offentlige medlemmer) står efter de offentlige versioner; detail.bio er den
+    // offentlige tekst, når den findes. Personsidens udgavevælger kan stadig åbne på en kladde (nyeste udgave), som så
+    // bærer mærkatet.
     const v2Versions = [...((rpcVersions ?? []) as BioSourceVersionV2[]), ...kladder];
     const bioVersions = usesV2 ? v2Versions : (rpcVersions && rpcVersions.length ? rpcVersions : fallbackVersions);
     const bio = usesV2

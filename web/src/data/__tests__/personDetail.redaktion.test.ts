@@ -132,6 +132,17 @@ describe('fetchPersonDetail: redaktøren ser kladden for en ikke-offentlig perso
     expect(d.factsError).toBe(false);
   });
 
+  it('en fejlbehæftet række koster kun sit eget medlems kladder, og fejlen logges', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    personRows = [{ id: 1, levende: true, privat: false, staged: false }, { id: 2, levende: true, privat: false, staged: false }];
+    redRows.set(1, [rec({ record_label: null })]);
+    redRows.set(2, [rec({ source_record_ref: 'ok-2', narrative_text: 'God kladde.' })]);
+    const d = await fetchPersonDetail('1', ['1', '2'], false, undefined, true);
+    expect(d.bioVersions.map((v) => v.narrativeText)).toEqual(['God kladde.']);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('person 1'), expect.anything());
+    warn.mockRestore();
+  });
+
   it('fejl i personopslaget giver ingen kladder', async () => {
     personError = { message: 'boom' };
     const d = await fetchPersonDetail('7', undefined, false, undefined, true);
