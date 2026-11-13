@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-13 — webredesign fase 6a: Er vi i familie? kan deles
+
+`/slaegtskab?a=<id>&b=<id>` bærer de to personer, så et resultat kan deles og åbnes direkte (alias-id'er kanoniseres;
+et ukendt id siges ved feltet). Hver plads har sin egen personvælger med leveår og linje, og »Byt om«. Resultatet viser
+etiket, fælles ane, antal slægtled og »sandsynligvis«, når vejen går gennem et formodet eller omstridt led; vejen trin
+for trin er links til personsiderne med fælles ane, første og anden person mærket og usikre led stiplet med ordet.
+Flere linjer vælges med »Vej 1 af N«. Ingen fælles ane hedder »Aarbogen viser ingen forbindelse«. Slægtskab har ikke
+længere personpanelet. »Indtast kode« (levende) venter på åbent punkt 3. Klient-only; ingen DDL.
+
 ## 2026-11-13 — webredesign fase 5: slægtens forside, panelet som genvej og stamtræet i rækker
 
 Fase 5a (#334) gør `/slaegt/<slug>` til slægtens forside: våben (udskiftelig fil; ingen autorisation, jf.
