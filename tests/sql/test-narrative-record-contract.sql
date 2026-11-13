@@ -1424,8 +1424,10 @@ BEGIN
     'binding',NULL,
     'narrative',NULL,
     'publication_status','none',
+    -- Trin 6e-2 (spec §12): en post med bogtrykt nøgle (her 'accepted-principal', ikke record-<uuid>) har record_key
+    -- som postetiket; linjens navn indgår kun i etiketten for poster uden bognøgle.
     'labels',jsonb_build_object(
-      'record_order',2,'record_label','Linje A',
+      'record_order',2,'record_label','accepted-principal',
       'citation_label','DAA Task 2, s. 2, 10','side','2, 10'
     ),
     'publication_policy',v_policy,
@@ -1699,7 +1701,7 @@ BEGIN
     FROM public.red_person_narrative_records(v_person_a) row
    WHERE record_key='accepted-principal';
   IF v_actual->>'source_record_ref' IS DISTINCT FROM v_public_ref::text
-     OR v_actual->>'record_label' IS DISTINCT FROM 'Linje A'
+     OR v_actual->>'record_label' IS DISTINCT FROM 'accepted-principal'   -- 6e-2: bognøgle ⇒ record_key
      OR v_actual->>'citation_label' IS DISTINCT FROM 'DAA Task 2, s. 2, 10'
      OR v_actual->>'record_order' IS DISTINCT FROM '2'
      OR v_actual->'allowed_actions' IS DISTINCT FROM '["create_draft"]'::jsonb

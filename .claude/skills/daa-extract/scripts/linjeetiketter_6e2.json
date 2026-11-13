@@ -1,0 +1,27 @@
+[
+ {
+  "code": "III",
+  "label_foer": "III. Den ældre meklenborgske Linje af iesendorf.",
+  "label_efter": "III. Den ældre meklenborgske Linje af Ziesendorf."
+ },
+ {
+  "code": "I",
+  "label_foer": "Den holstenske Linje.",
+  "label_efter": "I. Den holstenske Linje."
+ },
+ {
+  "code": "VI",
+  "label_foer": "Den fyenske Linje",
+  "label_efter": "VI. Den fyenske Linje."
+ },
+ {
+  "code": "Stamme-holstenske",
+  "label_foer": "Den holstenske Linje.",
+  "label_efter": "A. Den holstenske Linje."
+ },
+ {
+  "code": "Stamme-ældre-meklenborgske",
+  "label_foer": "Den ældre meklenborgske Linje.",
+  "label_efter": "B. Den ældre meklenborgske Linje."
+ }
+]

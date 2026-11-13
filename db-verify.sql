@@ -10843,13 +10843,15 @@ END $verify_6c3a$;
 -- Redaktøren ser levende (decisions 2026-11-13, blokken redaktoer-ser-levende): de tre læse-RPC'er bag personsiden har
 -- en redaktør-gren og beholder gæsternes gate; »offentlig«-hjælperne afhænger ikke af kalderen (de bærer gæsternes
 -- policies); haendelse har det additive redaktion_read-lag.
+-- Trin 6e-2: koordinat-RPC'en samler legacy- og placement-rækker i én FULL JOIN, så gæste-gaten står over
+-- coalesce(x.person_id,pl.person_id); redaktør-grenen er den samme.
 DO $verify_redaktoer_ser_levende$
 DECLARE f regprocedure; v_def text; v_gate text;
 BEGIN
   FOR f,v_gate IN SELECT to_regprocedure(x.sig),x.gate FROM (VALUES
       ('public.public_person_facts(bigint[])','public.entitet_offentlig(''person'',fa.subjekt_id)'),
       ('public.public_family_sources(bigint[])','public.family_offentlig(b.fam)'),
-      ('public.public_person_source_coordinates()','public.entitet_offentlig(''person'',x.person_id)')) x(sig,gate) LOOP
+      ('public.public_person_source_coordinates()','public.entitet_offentlig(''person'',coalesce(x.person_id,pl.person_id))')) x(sig,gate) LOOP
     IF f IS NULL THEN RAISE EXCEPTION 'VERIFY_FAILED: redaktoer-ser-levende: en læse-RPC mangler'; END IF;
     v_def:=pg_get_functiondef(f);
     IF NOT (SELECT prosecdef FROM pg_proc WHERE oid=f)
@@ -10875,3 +10877,135 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: redaktoer-ser-levende — redaktionen ser levende i fakta, familiekilder og koordinater; gæsternes gate uændret';
 END $verify_redaktoer_ser_levende$;
+
+-- trin 6e-2: sidekort og omregning PDF-side -> trykt side.
+-- At source.sidekort er NULL for en given kilde er ingen invariant (ceremonien udfylder kortet); kun gyldigheden og kontrakten testes.
+DO $verify_6e2_sidekort$
+DECLARE
+  f text; r text;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='source' AND column_name='sidekort' AND data_type='jsonb') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 source.sidekort mangler';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.source WHERE sidekort IS NOT NULL AND NOT private.sidekort_gyldigt(sidekort)) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 ugyldigt sidekort på en kilde';
+  END IF;
+  FOREACH f IN ARRAY ARRAY['public.source_trykt_side(bigint,text)','public.side_trykt(public.citation)'] LOOP
+    IF to_regprocedure(f) IS NULL OR (SELECT p.prosecdef FROM pg_proc p WHERE p.oid=to_regprocedure(f))
+       OR NOT has_function_privilege('anon',f,'EXECUTE') OR NOT has_function_privilege('authenticated',f,'EXECUTE')
+       OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) x WHERE p.oid=to_regprocedure(f) AND x.grantee=0) THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 % findes ikke / er DEFINER / forkert ACL', f;
+    END IF;
+  END LOOP;
+  IF private.sidekort_gyldigt('[]'::jsonb) OR NOT private.sidekort_gyldigt(NULL)
+     OR NOT private.sidekort_gyldigt('[{"pdf_fra":1,"pdf_til":2,"trykt_fra":5}]')
+     OR private.sidekort_gyldigt('[{"pdf_fra":1,"pdf_til":3,"trykt_fra":5},{"pdf_fra":3,"pdf_til":4,"trykt_fra":9}]') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 sidekort_gyldigt kontrakt';
+  END IF;
+  IF position('source_trykt_side' IN (SELECT p.prosrc FROM pg_proc p WHERE p.oid='public.public_person_facts(bigint[])'::regprocedure))=0 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 public_person_facts viser ikke trykt side';
+  END IF;
+  -- Kontrakt med NULL-kort og udfyldt fixture-kort (rulles tilbage), kaldt som anon.
+  BEGIN
+    INSERT INTO public.source(id,titel,sidekort) VALUES
+      (-6291,'verify-sidekort',NULL),
+      (-6292,'verify-sidekort','[{"pdf_fra":490,"pdf_til":545,"trykt_fra":1},{"pdf_fra":547,"pdf_til":548,"trykt_fra":57}]');
+    SET LOCAL ROLE anon;
+    IF public.source_trykt_side(-6291,'201-202') IS DISTINCT FROM '201-202'
+       OR public.source_trykt_side(-6291,NULL) IS NOT NULL
+       OR public.source_trykt_side(-6292,'541') IS DISTINCT FROM '52'
+       OR public.source_trykt_side(-6292,'541-542') IS DISTINCT FROM '52-53'
+       OR public.source_trykt_side(-6292,'546') IS NOT NULL
+       OR public.source_trykt_side(-6292,'abc') IS NOT NULL THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 source_trykt_side kontrakt (anon)';
+    END IF;
+    -- side_trykt(citation) som anon, mod NULL-kort og udfyldt kort (række-literal: uafhængig af citation-RLS)
+    IF public.side_trykt(ROW(-6291,NULL,-6291,'538',NULL,NULL,NULL)::public.citation) IS DISTINCT FROM '538'
+       OR public.side_trykt(ROW(-6292,NULL,-6292,'538',NULL,NULL,NULL)::public.citation) IS DISTINCT FROM '49'
+       OR public.side_trykt(ROW(-6292,NULL,-6292,'546',NULL,NULL,NULL)::public.citation) IS NOT NULL THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 side_trykt kontrakt (anon)';
+    END IF;
+    RESET ROLE;
+    RAISE EXCEPTION 'VERIFY_6E2_ROLLBACK';
+  EXCEPTION WHEN raise_exception THEN
+    RESET ROLE;
+    GET STACKED DIAGNOSTICS r = MESSAGE_TEXT;
+    IF r <> 'VERIFY_6E2_ROLLBACK' THEN RAISE; END IF;
+  END;
+  RAISE NOTICE 'OK: trin 6e-2 — sidekort, omregning og anon-adgang';
+END $verify_6e2_sidekort$;
+
+-- Trin 6e-2 Task 2: etiketreglens funktioner og bindingens CHECK.
+DO $verify_6e2_etiket$
+DECLARE v_def text;
+BEGIN
+  IF to_regprocedure('private.linje_kode(text,text)') IS NULL
+     OR to_regprocedure('private.record_key_uden_bognoegle(text)') IS NULL
+     OR to_regprocedure('private.narrative_record_wanted_labels(uuid)') IS NULL THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 etiketfunktioner mangler';
+  END IF;
+  IF has_function_privilege('anon','private.narrative_record_wanted_labels(uuid)','EXECUTE')
+     OR has_function_privilege('authenticated','private.narrative_record_wanted_labels(uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 wanted_labels åben for klienter';
+  END IF;
+  IF private.linje_kode('IV. Den danske grevelige Linje af 1673.','IV') IS DISTINCT FROM 'IV'
+     OR private.linje_kode('A. Den holstenske Linje.','Stamme-x') IS DISTINCT FROM 'A'
+     OR private.linje_kode('Den grevelige linje af 1673','V') IS DISTINCT FROM 'V'
+     OR private.record_key_uden_bognoegle('record-62000000-0000-4000-8000-0000000000a1') IS NOT TRUE
+     OR private.record_key_uden_bognoegle('V-1') IS NOT FALSE THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 linje_kode / record_key_uden_bognoegle';
+  END IF;
+  -- CHECK tillader '' og afviser blanktegn.
+  SELECT pg_get_constraintdef(oid) INTO v_def FROM pg_constraint
+   WHERE conrelid='private.narrative_record_publication'::regclass
+     AND conname='narrative_record_publication_record_label_check';
+  IF v_def IS NULL OR v_def NOT LIKE '%record_label%=%''''%' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 bindingens CHECK tillader ikke tom postdel';
+  END IF;
+  IF EXISTS (SELECT 1 WHERE NOT ('' = '' OR btrim('')<>''))
+     OR NOT ((SELECT bool_and(v='' OR btrim(v)<>'') FROM (VALUES (''),('IV')) x(v)))
+     OR ((SELECT bool_and(v='' OR btrim(v)<>'') FROM (VALUES ('  ')) x(v))) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 CHECK-semantik';
+  END IF;
+  v_def := pg_get_functiondef('private.validate_reimport_case_elements(jsonb,jsonb)'::regprocedure);
+  IF v_def LIKE '%coalesce(btrim(v_payload->>''record_label''),'''')=''''%' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 validatoren afviser stadig tom record_label';
+  END IF;
+  RAISE NOTICE 'OK: trin 6e-2 — etiketregel og tom postdel';
+END $verify_6e2_etiket$;
+
+-- Trin 6e-2 Task 3: koordinat-RPC'en (returkolonner med printed_page sidst, ACL) og den mængdebaserede afledning af
+-- gældende medlemskab: private.membership_current_set() = {membership_is_current} over alle linjemedlemskaber.
+DO $verify_6e2_koordinater$
+DECLARE v_diff bigint; v_n bigint;
+BEGIN
+  IF (SELECT array_to_string(p.proargnames,',') FROM pg_proc p WHERE p.oid=to_regprocedure('public.public_person_source_coordinates()'))
+     IS DISTINCT FROM 'person_id,source_id,legacy_line_code,printed_number,printed_number_label,generation_local,generation_global,kuld_label,provenance_kind,printed_page' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 koordinat-RPC''ens returkolonner';
+  END IF;
+  IF NOT has_function_privilege('anon','public.public_person_source_coordinates()','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.public_person_source_coordinates()','EXECUTE')
+     OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) x
+                 WHERE p.oid='public.public_person_source_coordinates()'::regprocedure AND x.grantee=0) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 koordinat-RPC''ens ACL';
+  END IF;
+  IF to_regprocedure('private.membership_current_set()') IS NULL
+     OR has_function_privilege('anon','private.membership_current_set()','EXECUTE')
+     OR has_function_privilege('authenticated','private.membership_current_set()','EXECUTE')
+     OR has_function_privilege('service_role','private.membership_current_set()','EXECUTE') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 membership_current_set mangler eller er åben for klienter';
+  END IF;
+  SELECT count(*) INTO v_diff FROM (
+    (SELECT m.person_id,m.lineage_id FROM public.person_lineage_membership m
+      WHERE private.membership_is_current(m.person_id,m.lineage_id) IS TRUE
+     EXCEPT ALL SELECT s.person_id,s.lineage_id FROM private.membership_current_set() s)
+    UNION ALL
+    (SELECT s.person_id,s.lineage_id FROM private.membership_current_set() s
+     EXCEPT ALL SELECT m.person_id,m.lineage_id FROM public.person_lineage_membership m
+      WHERE private.membership_is_current(m.person_id,m.lineage_id) IS TRUE)) d;
+  IF v_diff<>0 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 membership_current_set afviger fra membership_is_current (% rækker)',v_diff;
+  END IF;
+  SELECT count(*) INTO v_n FROM private.membership_current_set();
+  RAISE NOTICE 'OK: trin 6e-2 — koordinat-RPC og mængdebaseret medlemskab (% gældende, 0 forskelle)',v_n;
+END $verify_6e2_koordinater$;

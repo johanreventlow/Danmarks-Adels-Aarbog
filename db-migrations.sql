@@ -26692,6 +26692,18 @@ END $$;
 REVOKE ALL ON FUNCTION public.public_person_facts(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.public_person_facts(bigint[]) TO anon,authenticated;
 
+-- Trin 6e-2 (Task 3): RPC'en har fået kolonnen printed_page; CREATE OR REPLACE nedenfor kan ikke skifte returtypen
+-- tilbage. Ved genkørsel af hele filen droppes den nye signatur først (kun når den findes); 6e-2-blokken sidst i filen
+-- genskaber den.
+DO $drop_6e2_koordinater$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+              WHERE n.nspname='public' AND p.proname='public_person_source_coordinates' AND p.pronargs=0
+                AND 'printed_page'=ANY(p.proargnames)) THEN
+    DROP FUNCTION public.public_person_source_coordinates();
+  END IF;
+END $drop_6e2_koordinater$;
+
 -- 5c-2 (spec §4.2): læserens kildekoordinater. Én række pr. person_external_id-række. Har personen præcis én gældende
 -- membership (membership_is_current), hvis bundne record-placement hører til samme kilde, kommer linje, nr., slægtled og
 -- kuld fra placementen; ellers fra legacy-rækken. printed_number er de foranstillede cifre (sortering);
@@ -33884,6 +33896,18 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION private.membership_component_states() FROM PUBLIC,anon,authenticated,service_role;
 
+-- Trin 6e-2 (Task 3): RPC'en har fået kolonnen printed_page; CREATE OR REPLACE nedenfor kan ikke skifte returtypen
+-- tilbage. Ved genkørsel af hele filen droppes den nye signatur først (kun når den findes); 6e-2-blokken sidst i filen
+-- genskaber den.
+DO $drop_6e2_koordinater$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+              WHERE n.nspname='public' AND p.proname='public_person_source_coordinates' AND p.pronargs=0
+                AND 'printed_page'=ANY(p.proargnames)) THEN
+    DROP FUNCTION public.public_person_source_coordinates();
+  END IF;
+END $drop_6e2_koordinater$;
+
 -- 5c-2 (spec §4.2): læserens kildekoordinater. Én række pr. person_external_id-række. Har personen præcis én gældende
 -- membership (membership_is_current), hvis bundne record-placement hører til samme kilde, kommer linje, nr., slægtled og
 -- kuld fra placementen; ellers fra legacy-rækken. printed_number er de foranstillede cifre (sortering);
@@ -35390,3 +35414,662 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.public_person_source_coordinates() FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.public_person_source_coordinates() TO anon,authenticated;
+
+-- ===== trin 6e-2: kildeetiket, sidekort og koordinater =====
+CREATE OR REPLACE FUNCTION private.sidekort_gyldigt(p jsonb)
+RETURNS boolean
+LANGUAGE plpgsql IMMUTABLE
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  e jsonb;
+  k text;
+  v_prev_til bigint := NULL;
+  v_fra bigint;
+  v_til bigint;
+  v_trykt bigint;
+BEGIN
+  IF p IS NULL THEN RETURN true; END IF;
+  IF jsonb_typeof(p) <> 'array' OR jsonb_array_length(p) = 0 THEN RETURN false; END IF;
+  FOR e IN SELECT x FROM jsonb_array_elements(p) AS x LOOP
+    IF jsonb_typeof(e) <> 'object' THEN RETURN false; END IF;
+    FOREACH k IN ARRAY ARRAY['pdf_fra','pdf_til','trykt_fra'] LOOP
+      IF jsonb_typeof(e -> k) IS DISTINCT FROM 'number'
+         OR (e ->> k) !~ '^[0-9]{1,9}$' THEN
+        RETURN false;
+      END IF;
+    END LOOP;
+    IF (SELECT count(*) FROM jsonb_object_keys(e)) <> 3 THEN RETURN false; END IF;
+    v_fra := (e ->> 'pdf_fra')::bigint;
+    v_til := (e ->> 'pdf_til')::bigint;
+    v_trykt := (e ->> 'trykt_fra')::bigint;
+    IF v_fra > v_til OR v_trykt < 1 THEN RETURN false; END IF;
+    IF v_prev_til IS NOT NULL AND v_fra <= v_prev_til THEN RETURN false; END IF;
+    v_prev_til := v_til;
+  END LOOP;
+  RETURN true;
+END $$;
+
+DO $sidekort$
+BEGIN
+  ALTER TABLE public.source ADD COLUMN IF NOT EXISTS sidekort jsonb;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid = 'public.source'::regclass AND conname = 'source_sidekort_gyldigt') THEN
+    ALTER TABLE public.source ADD CONSTRAINT source_sidekort_gyldigt
+      CHECK (sidekort IS NULL OR private.sidekort_gyldigt(sidekort));
+  END IF;
+END $sidekort$;
+COMMENT ON COLUMN public.source.sidekort IS
+  'NULL = kildens sider er allerede trykte sider. Ellers [{"pdf_fra":int,"pdf_til":int,"trykt_fra":int},...] sorteret uden overlap.';
+
+CREATE OR REPLACE FUNCTION public.source_trykt_side(p_source_id bigint, p_side text)
+RETURNS text
+LANGUAGE plpgsql STABLE SECURITY INVOKER
+SET search_path = public, pg_catalog
+AS $$
+DECLARE
+  v_kort jsonb;
+  v_m text[];
+  v_a bigint;
+  v_b bigint;
+  v_ta bigint;
+  v_tb bigint;
+BEGIN
+  IF p_side IS NULL THEN RETURN NULL; END IF;
+  SELECT s.sidekort INTO v_kort FROM public.source s WHERE s.id = p_source_id;
+  IF v_kort IS NULL THEN RETURN p_side; END IF;
+  v_m := regexp_match(p_side, '^([0-9]{1,9})(?:-([0-9]{1,9}))?$');
+  IF v_m IS NULL THEN RETURN NULL; END IF;
+  v_a := v_m[1]::bigint;
+  v_b := coalesce(v_m[2], v_m[1])::bigint;
+  SELECT (e ->> 'trykt_fra')::bigint + v_a - (e ->> 'pdf_fra')::bigint INTO v_ta
+    FROM jsonb_array_elements(v_kort) e
+   WHERE v_a BETWEEN (e ->> 'pdf_fra')::bigint AND (e ->> 'pdf_til')::bigint;
+  SELECT (e ->> 'trykt_fra')::bigint + v_b - (e ->> 'pdf_fra')::bigint INTO v_tb
+    FROM jsonb_array_elements(v_kort) e
+   WHERE v_b BETWEEN (e ->> 'pdf_fra')::bigint AND (e ->> 'pdf_til')::bigint;
+  IF v_ta IS NULL OR v_tb IS NULL THEN RETURN NULL; END IF;
+  IF v_m[2] IS NULL OR v_ta = v_tb THEN RETURN v_ta::text; END IF;
+  RETURN v_ta::text || '-' || v_tb::text;
+END $$;
+REVOKE ALL ON FUNCTION public.source_trykt_side(bigint,text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.source_trykt_side(bigint,text) TO anon,authenticated;
+
+CREATE OR REPLACE FUNCTION public.side_trykt(c public.citation)
+RETURNS text
+LANGUAGE sql STABLE
+SET search_path = public, pg_catalog
+AS $$ SELECT public.source_trykt_side(c.source_id, c.side) $$;
+REVOKE ALL ON FUNCTION public.side_trykt(public.citation) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.side_trykt(public.citation) TO anon,authenticated;
+
+-- Etiketreglen (6e-2 Task 2): postetiket uden bogtrykt nøgle, tom postdel.
+CREATE OR REPLACE FUNCTION private.linje_kode(p_label text, p_code text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path=pg_catalog
+AS $$
+  SELECT coalesce((regexp_match(p_label,'^([IVXLC]+|[A-Z])\.\s'))[1],p_code)
+$$;
+
+CREATE OR REPLACE FUNCTION private.record_key_uden_bognoegle(p_record_key text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path=pg_catalog
+AS $$
+  SELECT p_record_key ~ '^record-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+$$;
+
+CREATE OR REPLACE FUNCTION private.narrative_record_wanted_labels_ex(
+  p_source_record_id uuid,
+  p_kast_ved_tvetydighed boolean
+) RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_source_id bigint;
+  v_source_label text;
+  v_record_key text;
+  v_pages text;
+  v_record_label text;
+  v_citation_label text;
+  v_placement_count integer;
+  v_entry_label text;
+  v_entry_code text;
+  v_number text;
+BEGIN
+  SELECT record.source_id,coalesce(source.udgave,source.titel),record.record_key
+    INTO v_source_id,v_source_label,v_record_key
+    FROM private.source_record record
+    JOIN public.source source ON source.id=record.source_id
+   WHERE record.id=p_source_record_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_NOT_FOUND';
+  END IF;
+
+  SELECT string_agg(interval.trykt,', ' ORDER BY interval.page_from,interval.page_to)
+    INTO v_pages
+    FROM (
+      SELECT DISTINCT occurrence.page_from,occurrence.page_to,
+             public.source_trykt_side(
+               v_source_id,
+               CASE WHEN occurrence.page_from=occurrence.page_to
+                    THEN occurrence.page_from::text
+                    ELSE occurrence.page_from::text||'-'||occurrence.page_to::text
+               END) AS trykt
+        FROM private.source_record_anchor_current anchor
+        JOIN private.source_record_occurrence occurrence
+          ON occurrence.id=anchor.occurrence_id
+       WHERE anchor.source_record_id=p_source_record_id
+         AND anchor.decision_status='accepted'
+    ) interval
+   WHERE interval.trykt IS NOT NULL;
+  v_citation_label:=CASE WHEN v_pages IS NULL THEN v_source_label
+                         ELSE v_source_label||', s. '||v_pages END;
+
+  IF private.record_key_uden_bognoegle(v_record_key) THEN
+    SELECT count(*),min(entry.label),min(entry.code),min(placement.printed_number)
+      INTO v_placement_count,v_entry_label,v_entry_code,v_number
+      FROM private.source_record_placement_current placement
+      JOIN public.lineage_scheme_entry entry ON entry.id=placement.scheme_entry_id
+     WHERE placement.source_record_id=p_source_record_id
+       AND placement.decision_status='accepted';
+    IF v_placement_count>1 AND p_kast_ved_tvetydighed THEN
+      RAISE EXCEPTION 'RECORD_LABEL_PLACEMENTS_AMBIGUOUS';
+    END IF;
+    v_record_label:=CASE WHEN v_placement_count>1 THEN v_record_key
+                         WHEN v_placement_count=0 THEN ''
+      ELSE private.linje_kode(v_entry_label,v_entry_code)
+           ||CASE WHEN v_number IS NOT NULL THEN ', nr. '||v_number ELSE '' END
+      END;
+  ELSE
+    v_record_label:=v_record_key;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'record_label',v_record_label,
+    'citation_label',v_citation_label
+  );
+END
+$$;
+
+CREATE OR REPLACE FUNCTION private.narrative_record_wanted_labels(
+  p_source_record_id uuid
+) RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+  SELECT private.narrative_record_wanted_labels_ex(p_source_record_id,true)
+$$;
+
+CREATE OR REPLACE FUNCTION private.narrative_record_labels(
+  p_source_record_id uuid
+) RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+DECLARE
+  v_record_order integer;
+  v_page_label text;
+  v_record_label text;
+  v_citation_label text;
+  v_binding_record_label text;
+  v_binding_citation_label text;
+  v_wanted jsonb;
+BEGIN
+  PERFORM 1 FROM private.source_record record WHERE record.id=p_source_record_id;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_NOT_FOUND';
+  END IF;
+
+  SELECT min(interval.page_from),
+         string_agg(interval.page_label,', ' ORDER BY interval.page_from,interval.page_to)
+    INTO v_record_order,v_page_label
+    FROM (
+      SELECT DISTINCT occurrence.page_from,occurrence.page_to,
+             CASE WHEN occurrence.page_from=occurrence.page_to
+                  THEN occurrence.page_from::text
+                  ELSE occurrence.page_from::text||'-'||occurrence.page_to::text
+              END AS page_label
+        FROM private.source_record_anchor_current anchor
+        JOIN private.source_record_occurrence occurrence
+          ON occurrence.id=anchor.occurrence_id
+       WHERE anchor.source_record_id=p_source_record_id
+         AND anchor.decision_status='accepted'
+    ) interval;
+
+  SELECT binding.record_label,binding.citation_label
+    INTO v_binding_record_label,v_binding_citation_label
+    FROM private.narrative_record_publication binding
+   WHERE binding.source_record_id=p_source_record_id
+     AND binding.status IN ('draft','published')
+   ORDER BY binding.created_at,binding.id
+   LIMIT 1;
+  IF FOUND THEN
+    v_record_label:=v_binding_record_label;
+    v_citation_label:=v_binding_citation_label;
+  ELSE
+    -- Tvetydige placements må ikke vælte redaktørlisten: record_key (som før 6e-2).
+    v_wanted:=private.narrative_record_wanted_labels_ex(p_source_record_id,false);
+    v_record_label:=v_wanted->>'record_label';
+    v_citation_label:=v_wanted->>'citation_label';
+  END IF;
+
+  RETURN jsonb_build_object(
+    'record_order',v_record_order,
+    'record_label',v_record_label,
+    'citation_label',v_citation_label,
+    'side',v_page_label
+  );
+END
+$$;
+
+REVOKE ALL ON FUNCTION private.narrative_record_wanted_labels(uuid),
+  private.narrative_record_wanted_labels_ex(uuid,boolean),
+  private.linje_kode(text,text),
+  private.record_key_uden_bognoegle(text)
+  FROM PUBLIC,anon,authenticated,service_role;
+
+DO $etiket$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint
+              WHERE conrelid='private.narrative_record_publication'::regclass
+                AND conname='narrative_record_publication_record_label_check'
+                AND pg_get_constraintdef(oid) NOT LIKE '%record_label%=%''''%') THEN
+    ALTER TABLE private.narrative_record_publication
+      DROP CONSTRAINT narrative_record_publication_record_label_check;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid='private.narrative_record_publication'::regclass
+                    AND conname='narrative_record_publication_record_label_check') THEN
+    ALTER TABLE private.narrative_record_publication
+      ADD CONSTRAINT narrative_record_publication_record_label_check
+      CHECK (record_label='' OR btrim(record_label)<>'');
+  END IF;
+END $etiket$;
+
+CREATE OR REPLACE FUNCTION private.validate_reimport_case_elements(
+  p_elements jsonb, p_counts jsonb)
+RETURNS void LANGUAGE plpgsql IMMUTABLE
+SET search_path=pg_catalog AS $$
+DECLARE
+  v_key text; v_payload jsonb; v_before jsonb;
+  v_identity integer:=0; v_assign integer:=0; v_no_pub integer:=0;
+  v_case_ids text[]:='{}';
+BEGIN
+  IF jsonb_typeof(p_elements)<>'object'
+     OR (SELECT count(*) FROM jsonb_object_keys(p_elements))<1 THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+  END IF;
+  FOR v_key, v_payload IN SELECT e.key, e.value FROM jsonb_each(p_elements) e ORDER BY e.key LOOP
+    IF jsonb_typeof(v_payload)<>'object' OR coalesce(btrim(v_payload->>'case_id'),'')='' THEN
+      RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+    END IF;
+    v_before := v_payload->'before_state';
+    IF v_payload->>'action'='different' THEN
+      IF v_key <> 'case:'||(v_payload->>'case_id')
+         OR (SELECT count(*) FROM jsonb_object_keys(v_payload))<>4
+         OR jsonb_typeof(v_payload->'person_ids')<>'array'
+         OR jsonb_array_length(v_payload->'person_ids')<>2
+         OR jsonb_typeof(v_payload->'person_ids'->0)<>'number'
+         OR jsonb_typeof(v_payload->'person_ids'->1)<>'number'
+         OR (v_payload->'person_ids'->>0)::bigint >= (v_payload->'person_ids'->>1)::bigint
+         OR jsonb_typeof(v_before)<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before))<>2
+         OR jsonb_typeof(v_before->'component_overlap')<>'boolean'
+         OR jsonb_typeof(v_before->'existing_rejection')<>'boolean'
+         OR (v_before->>'component_overlap')::boolean THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+      END IF;
+      IF v_payload->>'case_id' = ANY(v_case_ids) THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+      END IF;
+      v_case_ids := v_case_ids || (v_payload->>'case_id');
+      v_identity := v_identity + 1;
+    ELSIF v_payload->>'action'='assign' THEN
+      IF v_key <> 'case:'||(v_payload->>'case_id')||':rid:'||coalesce(v_payload->>'rid','')
+         OR (SELECT count(*) FROM jsonb_object_keys(v_payload))<>13
+         OR coalesce(btrim(v_payload->>'rid'),'')=''
+         OR coalesce(btrim(v_payload->>'record_key'),'')=''
+         OR jsonb_typeof(v_payload->'target_person_id')<>'number'
+         OR NOT (jsonb_typeof(v_payload->'target_narrative_id') IN ('number','null'))
+         OR jsonb_typeof(v_payload->'normalized_text')<>'string'
+         OR (v_payload->>'normalized_sha256') !~ '^[0-9a-f]{64}$'
+         OR encode(sha256(convert_to(v_payload->>'normalized_text','UTF8')),'hex')
+            <> (v_payload->>'normalized_sha256')
+         OR jsonb_typeof(v_payload->'record_label')<>'string'
+         OR (v_payload->>'record_label'<>'' AND btrim(v_payload->>'record_label')='')
+         OR coalesce(btrim(v_payload->>'citation_label'),'')=''
+         OR coalesce(btrim(v_payload->>'side'),'')=''
+         OR jsonb_typeof(v_payload->'privat')<>'boolean'
+         OR (v_payload->>'privat')::boolean
+         OR jsonb_typeof(v_before)<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before))<>3 THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+      END IF;
+      IF jsonb_typeof(v_before->'source_record')<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before->'source_record'))<>3
+         OR jsonb_typeof(v_before->'source_record'->'match_count')<>'number'
+         OR (v_before->'source_record'->>'match_count')::integer<>1
+         OR (v_before->'source_record'->>'verbatim_sha256') !~ '^[0-9a-f]{64}$'
+         OR (v_before->'source_record'->>'side') <> (v_payload->>'side')
+         OR jsonb_typeof(v_before->'target_narrative')<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before->'target_narrative'))<>4
+         OR (v_before->'target_narrative'->'person_id') IS DISTINCT FROM (v_payload->'target_person_id')
+         OR (v_before->'target_narrative'->'narrative_id') IS DISTINCT FROM (v_payload->'target_narrative_id')
+         OR jsonb_typeof(v_before->'target_narrative'->'privat')<>'boolean'
+         OR (v_before->'target_narrative'->>'privat')::boolean
+         OR NOT (
+              (jsonb_typeof(v_payload->'target_narrative_id')='null'
+                AND jsonb_typeof(v_before->'target_narrative'->'old_sha256')='null')
+              OR (jsonb_typeof(v_payload->'target_narrative_id')='number'
+                AND (v_before->'target_narrative'->>'old_sha256') ~ '^[0-9a-f]{64}$'))
+         OR jsonb_typeof(v_before->'binding')<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before->'binding'))<>2
+         OR NOT (v_before->'binding'->>'status' IN ('absent','draft_same_record'))
+         OR NOT (
+              (v_before->'binding'->>'status'='absent'
+                AND jsonb_typeof(v_before->'binding'->'binding_person_id')='null')
+              OR (v_before->'binding'->>'status'='draft_same_record'
+                AND (v_before->'binding'->'binding_person_id')
+                    IS NOT DISTINCT FROM (v_payload->'target_person_id'))) THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+      END IF;
+      v_assign := v_assign + 1;
+    ELSIF v_payload->>'action'='no_publication' THEN
+      -- Controller ruling 1: the no_publication threshold is exactly 'absent',
+      -- matching the already-shipped offline finalizer, so a manifest that
+      -- passed that gate is guaranteed to pass this one.
+      IF v_key <> 'case:'||(v_payload->>'case_id')||':rid:'||coalesce(v_payload->>'rid','')
+         OR (SELECT count(*) FROM jsonb_object_keys(v_payload))<>5
+         OR coalesce(btrim(v_payload->>'rid'),'')=''
+         OR coalesce(btrim(v_payload->>'record_key'),'')=''
+         OR jsonb_typeof(v_before)<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before))<>2
+         OR jsonb_typeof(v_before->'source_record')<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before->'source_record'))<>3
+         OR (v_before->'source_record'->>'verbatim_sha256') !~ '^[0-9a-f]{64}$'
+         OR coalesce(btrim(v_before->'source_record'->>'side'),'')=''
+         OR jsonb_typeof(v_before->'binding')<>'object'
+         OR (SELECT count(*) FROM jsonb_object_keys(v_before->'binding'))<>2
+         OR v_before->'binding'->>'status'<>'absent'
+         OR jsonb_typeof(v_before->'binding'->'binding_person_id')<>'null' THEN
+        RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+      END IF;
+      v_no_pub := v_no_pub + 1;
+    ELSE
+      RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+    END IF;
+  END LOOP;
+
+  -- Every record element must belong to a case that also carries its identity
+  -- element: a record decision without its case's identity decision would be a
+  -- half-applied case, which the spec forbids ("apply-enhed = hele sagen").
+  IF EXISTS (
+    SELECT 1 FROM jsonb_each(p_elements) e
+     WHERE e.value->>'action' IN ('assign','no_publication')
+       AND NOT (p_elements ? ('case:'||(e.value->>'case_id')))
+  ) THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_ELEMENTS_INVALID';
+  END IF;
+
+  IF (p_counts->>'identity_events')::integer IS DISTINCT FROM v_identity
+     OR (p_counts->>'assign_events')::integer IS DISTINCT FROM v_assign
+     OR (p_counts->>'no_publication_events')::integer IS DISTINCT FROM v_no_pub THEN
+    RAISE EXCEPTION 'REIMPORT_CASE_COUNTS_MISMATCH';
+  END IF;
+END $$;
+
+-- Trin 6e-2 (Task 3): koordinat-RPC'en med kildegate på (entry, slægtled, kuld, nr.), printed_page og mængdebaseret
+-- medlemskab. Returtypen ændres (printed_page sidst): DROP + CREATE + samme REVOKE/GRANT.
+-- Trin 6e-2 (Task 3): de gældende linjemedlemskaber som mængde, så læseren ikke kalder membership_is_current pr. række.
+-- Præcis de (person_id, lineage_id), hvor membership_is_current er sand: samme joins og filtre som membership_state,
+-- samme jsonb-udtryk og samme hashfunktion, men beregnet én gang for alle medlemskaber. »Seneste beslutning« læses
+-- direkte af beslutningstabellerne (ingen nyere version for samme placement); det er de to _current-views' regel, fordi
+-- (placement_id, version) er unik. Views'enes DISTINCT ON skjuler rækkeestimaterne, så planneren valgte nested loops
+-- (målt ~100 ms mod ~35 ms på stand-in).
+-- lineage_of_entry kaldes én gang pr. entry blandt de rækker, der består joins (som i membership_state), og kaster
+-- derfor i de samme tilfælde.
+CREATE OR REPLACE FUNCTION private.membership_current_set()
+RETURNS TABLE(person_id bigint, lineage_id bigint)
+LANGUAGE plpgsql STABLE SET search_path=pg_catalog,public,private AS $$
+#variable_conflict use_column
+BEGIN
+  RETURN QUERY
+  WITH j AS MATERIALIZED (
+    SELECT plm.person_id,plm.lineage_id,plm.source_basis->>'state_sha256' AS basis_sha,
+           i.canonical_person_id,i.version AS identity_version,e.id AS entry_id,e.slaegt_id,
+           pp.id AS persona_placement_id,rp.id AS record_placement_id
+      FROM public.person_lineage_membership plm
+      JOIN private.source_persona_placement pp
+        ON pp.id=(plm.source_basis->>'persona_placement_id')::uuid AND pp.placement_role='principal_member'
+      JOIN private.source_persona_placement_decision ppd
+        ON ppd.placement_id=pp.id AND ppd.decision_status='accepted'
+       AND NOT EXISTS (SELECT 1 FROM private.source_persona_placement_decision n
+                        WHERE n.placement_id=ppd.placement_id AND n.version>ppd.version)
+      JOIN private.source_record_placement rp ON rp.id=pp.record_placement_id
+      JOIN private.source_record_placement_decision rpd
+        ON rpd.placement_id=rp.id AND rpd.decision_status='accepted'
+       AND NOT EXISTS (SELECT 1 FROM private.source_record_placement_decision n
+                        WHERE n.placement_id=rpd.placement_id AND n.version>rpd.version)
+      JOIN public.lineage_scheme_entry e ON e.id=rp.scheme_entry_id
+      JOIN private.source_persona_identity i ON i.source_persona_id=pp.source_persona_id
+       AND i.decision_status='accepted' AND i.canonical_person_id IS NOT NULL
+  ), lin AS MATERIALIZED (
+    SELECT u.entry_id,private.lineage_of_entry(u.entry_id) AS lineage_id FROM (SELECT DISTINCT j.entry_id FROM j) u
+  ), h AS MATERIALIZED (
+    SELECT j.person_id,j.lineage_id,j.basis_sha,j.slaegt_id,j.canonical_person_id,lin.lineage_id AS state_lineage_id,
+           private.reimport_canonical_json_sha256(jsonb_build_object('person_id',j.canonical_person_id,
+             'lineage_id',lin.lineage_id,'slaegt_id',j.slaegt_id,'persona_placement_id',j.persona_placement_id,
+             'record_placement_id',j.record_placement_id,'identity_version',j.identity_version,
+             'rule_version','placement-membership-v1')) AS sha
+      FROM j JOIN lin ON lin.entry_id=j.entry_id
+  )
+  SELECT h.person_id,h.lineage_id
+    FROM h
+   WHERE h.sha=h.basis_sha AND h.canonical_person_id=h.person_id AND h.state_lineage_id=h.lineage_id
+     AND EXISTS (SELECT 1 FROM public.person_slaegt_membership m WHERE m.person_id=h.person_id
+                   AND m.slaegt_id=h.slaegt_id AND m.source_basis->>'state_sha256'=h.sha);
+END $$;
+REVOKE ALL ON FUNCTION private.membership_current_set() FROM PUBLIC,anon,authenticated,service_role;
+
+DROP FUNCTION IF EXISTS public.public_person_source_coordinates();
+-- 5c-2 (spec §4.2): læserens kildekoordinater. Én række pr. person_external_id-række. Har personen præcis én gældende
+-- membership, hvis bundne record-placement hører til samme kilde, kommer linje, nr., slægtled og kuld fra placementen;
+-- ellers fra legacy-rækken. printed_number er de foranstillede cifre (sortering); printed_number_label er den trykte
+-- tekst (»15a«). SECURITY DEFINER omgår RLS; persongaten er i selve funktionen.
+-- Trin 6d-1 (afgørelse 4b), skærpet i 6e-2: en kilde bruger placement-koordinater kun, når ingen to af dens gældende
+-- membership-placements deler (entry, slægtled, kuld, trykt nummer), med NULL som ens. Ellers falder alle kildens
+-- rækker til legacy.
+-- Trin 6e-2: de gældende memberships kommer fra private.membership_current_set() (én mængdeberegning i stedet for
+-- membership_is_current pr. række). printed_page er postens trykte startside (source_trykt_side over den mindste
+-- PDF-side blandt postens accepterede ankre), kun for poster uden bogtrykt nøgle (private.record_key_uden_bognoegle);
+-- ellers NULL. Placement-rækken bruger placementens post; legacy-rækken posterne bag de publicerede bindinger på
+-- personens offentlige narrativer i kilden (mindste side over dem); uden binding NULL.
+CREATE OR REPLACE FUNCTION public.public_person_source_coordinates()
+RETURNS TABLE(person_id bigint, source_id bigint, legacy_line_code text, printed_number integer,
+  printed_number_label text, generation_local integer, generation_global integer, kuld_label text,
+  provenance_kind text, printed_page text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+#variable_conflict use_column
+DECLARE
+  -- POC 2026-11-13 (decisions): redaktionen ser også levende, private og staged personer. Én gang pr. kald.
+  v_red boolean:=public.current_rolle()='redaktion';
+BEGIN
+  RETURN QUERY
+  WITH m AS (
+    -- Gældende memberships med deres bundne record-placement og dennes kilde.
+    SELECT plm.person_id,sr.source_id,rp.id AS rp_id,rp.scheme_entry_id,rp.generation_local,rp.kuld_label,
+           rp.printed_number
+      FROM private.membership_current_set() c
+      JOIN public.person_lineage_membership plm ON plm.person_id=c.person_id AND plm.lineage_id=c.lineage_id
+      -- Castet er beskyttet: ét ugyldigt id i én række må ikke vælte RPC'en for alle læsere (rækken falder til legacy).
+      JOIN private.source_record_placement rp
+        ON rp.id=CASE WHEN plm.source_basis->>'record_placement_id'
+                           ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                      THEN (plm.source_basis->>'record_placement_id')::uuid END
+      JOIN private.source_record sr ON sr.id=rp.source_record_id
+  ), ks AS (
+    -- Kildegate: ingen to af kildens placements deler (entry, slægtled, kuld, trykt nummer); count DISTINCT over
+    -- rækken ser NULL som ens. Placements tælles én gang, også med flere memberships.
+    SELECT d.source_id
+      FROM (SELECT DISTINCT m.source_id,m.rp_id,m.scheme_entry_id,m.generation_local,m.kuld_label,m.printed_number
+              FROM m) d
+     GROUP BY d.source_id
+    HAVING count(*)=count(DISTINCT (d.scheme_entry_id,d.generation_local,d.kuld_label,d.printed_number))
+  ), m1 AS (
+    -- Entydighedsgate: præcis én pr. (person, kilde), i en kilde der består kildegaten.
+    SELECT m.person_id,m.source_id,min(m.rp_id::text)::uuid AS rp_id
+      FROM m JOIN ks ON ks.source_id=m.source_id
+     GROUP BY m.person_id,m.source_id HAVING count(*)=1
+  ), pl AS (
+    SELECT m1.person_id,m1.source_id,e.code,rp.printed_number,rp.generation_local,rp.generation_global,rp.kuld_label,
+           rp.source_record_id
+      FROM m1
+      JOIN private.source_record_placement rp ON rp.id=m1.rp_id
+      JOIN public.lineage_scheme_entry e ON e.id=rp.scheme_entry_id
+  ), side AS (
+    -- Mindste PDF-side over postens accepterede ankre, kun for poster uden bogtrykt nøgle. Gældende anker = ingen nyere
+    -- version for samme (forekomst, post), som source_record_anchor_current ((occurrence, record, version) er unik).
+    SELECT a.source_record_id,min(o.page_from) AS page_from
+      FROM private.source_record_anchor_event a
+      JOIN private.source_record_occurrence o ON o.id=a.occurrence_id
+      JOIN private.source_record r ON r.id=a.source_record_id
+     WHERE a.decision_status='accepted' AND private.record_key_uden_bognoegle(r.record_key)
+       AND NOT EXISTS (SELECT 1 FROM private.source_record_anchor_event n
+                        WHERE n.occurrence_id=a.occurrence_id AND n.source_record_id=a.source_record_id
+                          AND n.version>a.version)
+     GROUP BY a.source_record_id
+  ), lside AS (
+    -- Legacy-rækkens poster: de publicerede bindinger på personens offentlige narrativer i kilden.
+    SELECT n.subjekt_id AS person_id,n.source_id,min(side.page_from) AS page_from
+      FROM private.narrative_record_publication b
+      JOIN public.narrative n ON n.id=b.narrative_id
+      JOIN side ON side.source_record_id=b.source_record_id
+     WHERE b.status='published' AND n.subjekt_type='person' AND coalesce(n.privat,false)=false
+     GROUP BY n.subjekt_id,n.source_id
+  )
+  -- Én række pr. legacy-række; en gældende placement uden legacy-række (målt 0) tabes ikke (FULL JOIN).
+  SELECT coalesce(x.person_id,pl.person_id),coalesce(x.source_id,pl.source_id),
+         CASE WHEN pl.person_id IS NULL THEN x.linje ELSE pl.code END,
+         CASE WHEN pl.person_id IS NULL THEN x.nr ELSE substring(pl.printed_number from '^[0-9]+')::integer END,
+         CASE WHEN pl.person_id IS NULL THEN x.nr::text ELSE pl.printed_number END,
+         CASE WHEN pl.person_id IS NULL THEN x.slaegtled_lokal ELSE pl.generation_local END,
+         CASE WHEN pl.person_id IS NULL THEN x.slaegtled_gennem ELSE pl.generation_global END,
+         CASE WHEN pl.person_id IS NULL THEN x.kuld ELSE pl.kuld_label END,
+         CASE WHEN pl.person_id IS NULL THEN 'legacy_external_id' ELSE 'placement' END,
+         public.source_trykt_side(coalesce(x.source_id,pl.source_id),
+           (CASE WHEN pl.person_id IS NULL THEN ls.page_from ELSE ps.page_from END)::text)
+    FROM public.person_external_id x
+    FULL JOIN pl ON pl.person_id=x.person_id AND pl.source_id=x.source_id
+    LEFT JOIN side ps ON ps.source_record_id=pl.source_record_id
+    LEFT JOIN lside ls ON ls.person_id=x.person_id AND ls.source_id=x.source_id
+   WHERE (v_red OR public.entitet_offentlig('person',coalesce(x.person_id,pl.person_id)))
+   ORDER BY 1,2;
+END $$;
+REVOKE ALL ON FUNCTION public.public_person_source_coordinates() FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.public_person_source_coordinates() TO anon,authenticated;
+CREATE OR REPLACE FUNCTION public.public_person_facts(p_person_ids bigint[])
+RETURNS TABLE(person_id bigint, fact_id bigint, faktatype text, conclusion_status text, assertion_id bigint,
+  chosen boolean, vaerdi_tekst text, date_raw text, date_min date, date_max date, date_qualifier text,
+  date_certainty text, source_id bigint, source_label text, side text, record_ref uuid, record_label text,
+  citation_label text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+#variable_conflict use_column
+DECLARE
+  -- POC 2026-11-13 (decisions): redaktionen ser også levende, private og staged personers fakta. Kildehenvisningen
+  -- følger fortsat narrativets udgivelsesregel (lab nederst, trin 2).
+  v_red boolean:=public.current_rolle()='redaktion';
+BEGIN
+  IF public.narrative_record_contract_version()<2 OR p_person_ids IS NULL THEN RETURN; END IF;
+  RETURN QUERY
+  WITH f AS (
+    SELECT fa.id,fa.subjekt_id,fa.faktatype,cn.status,cn.valgt_assertion_id
+      FROM public.fact fa
+      JOIN public.conclusion cn ON cn.target_type='fact' AND cn.target_id=fa.id
+     WHERE fa.subjekt_type='person' AND fa.subjekt_id=ANY(p_person_ids)
+       AND cn.status IN ('afklaret','omstridt')
+       AND (v_red OR public.entitet_offentlig('person',fa.subjekt_id))
+  ), pr AS (
+    -- Personernes assertion-promotions med fortolkningsnøgle.
+    SELECT p.id,p.interpretation_id,p.target_id,p.rule_key,p.rule_version,q.interpretation_key
+      FROM private.interpretation_promotion p
+      JOIN private.interpretation q ON q.id=p.interpretation_id
+     WHERE p.target_type='assertion'
+       AND p.target_id IN (SELECT a.id FROM public.assertion a JOIN f ON a.target_type='fact' AND a.target_id=f.id)
+  ), cur AS (
+    -- interpretation_current én gang for de berørte nøgler (filteret på nøglen skubbes ind under DISTINCT ON).
+    SELECT ic.id,ic.interpretation_key,ic.status,ic.source_id,ic.source_persona_id,ic.value
+      FROM private.interpretation_current ic
+     WHERE ic.interpretation_key=ANY(ARRAY(SELECT pr.interpretation_key FROM pr))
+  ), b AS (
+    -- Gældende bindinger pr. assertion med deres eneste record (betingelse 1, 2 og 4); gyldigheden som
+    -- assertion_binding_current, for alle rækker på én gang.
+    SELECT pr.target_id AS assertion_id,pr.id AS promotion_id,cur.source_id,
+           (SELECT array_agg(an.source_record_id)
+              FROM private.interpretation_observation io
+              JOIN private.source_observation o ON o.id=io.observation_id
+              JOIN private.source_record_anchor_current an ON an.occurrence_id=o.occurrence_id AND an.decision_status='accepted'
+             WHERE io.interpretation_id=pr.interpretation_id AND io.evidence_role='supporting') AS recs,
+           (SELECT count(*) FROM private.interpretation_observation io
+             WHERE io.interpretation_id=pr.interpretation_id AND io.evidence_role='supporting') AS n_support
+      FROM pr
+      JOIN cur ON cur.interpretation_key=pr.interpretation_key AND cur.id=pr.interpretation_id AND cur.status='accepted'
+      JOIN private.interpretation_promotion_rule r ON r.rule_key=pr.rule_key AND r.rule_version=pr.rule_version
+      JOIN public.assertion ba ON ba.id=pr.target_id AND ba.target_type='fact'
+      JOIN public.fact bf ON bf.id=ba.target_id
+      LEFT JOIN private.source_persona_identity i
+        ON i.source_persona_id=cur.source_persona_id AND i.decision_status='accepted'
+     WHERE bf.faktatype=r.expected_fact_type
+       AND (NOT r.requires_persona_identity
+            OR (i.canonical_person_id IS NOT NULL AND bf.subjekt_type='person' AND bf.subjekt_id=i.canonical_person_id))
+       AND private.binding_value_matches(r.value_kind,cur.value,ba.vaerdi_tekst,ba.date_raw)
+  ), bp AS (
+    -- Betingelse 2 og 3: én record i fortolkningens kilde, én publiceret narrativ for den.
+    SELECT b.assertion_id,sr.public_ref,nrp.id AS binding_id,nrp.narrative_id
+      FROM b
+      JOIN private.source_record sr ON sr.id=b.recs[1] AND sr.source_id=b.source_id
+      JOIN private.narrative_record_publication nrp ON nrp.source_record_id=sr.id AND nrp.status='published'
+     WHERE b.n_support=1 AND cardinality(b.recs)=1
+       AND (SELECT count(*) FROM private.narrative_record_publication x
+             WHERE x.source_record_id=sr.id AND x.status='published')=1
+  ), bn AS (
+    -- Entydighed: præcis én gældende binding pr. assertion, ellers ingen.
+    SELECT a.id AS assertion_id,
+           (SELECT count(*) FROM b WHERE b.assertion_id=a.id) AS n_bind
+      FROM public.assertion a JOIN f ON a.target_type='fact' AND a.target_id=f.id
+  )
+  SELECT f.subjekt_id,f.id,f.faktatype,f.status,a.id,
+         coalesce(a.id=f.valgt_assertion_id,false),
+         a.vaerdi_tekst,a.date_raw,a.date_min,a.date_max,a.date_qualifier,a.date_certainty,
+         s.id,coalesce(s.udgave,s.titel),public.source_trykt_side(s.id,c.side),
+         lab.public_ref,lab.record_label,lab.citation_label
+    FROM f
+    JOIN public.assertion a ON a.target_type='fact' AND a.target_id=f.id
+    JOIN bn ON bn.assertion_id=a.id
+    LEFT JOIN public.citation c ON c.assertion_id=a.id
+    LEFT JOIN public.source s ON s.id=c.source_id
+    LEFT JOIN LATERAL (
+      SELECT bp.public_ref,ev.after_state #>> '{labels,record_label}' AS record_label,
+             ev.after_state #>> '{labels,citation_label}' AS citation_label
+        FROM bp
+        JOIN public.narrative n ON n.id=bp.narrative_id
+        JOIN LATERAL (SELECT e.after_state FROM private.narrative_publication_event e
+                       WHERE e.binding_id=bp.binding_id ORDER BY e.stream_version DESC,e.id DESC LIMIT 1) ev ON true
+       WHERE bp.assertion_id=a.id AND bn.n_bind=1
+         AND n.subjekt_type='person' AND n.subjekt_id=f.subjekt_id
+         AND public.person_daa_narrative_publication_allowed(n.id)
+    ) lab ON true
+   ORDER BY f.subjekt_id,f.id,a.id,c.id NULLS LAST;
+END $$;
+REVOKE ALL ON FUNCTION public.public_person_facts(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.public_person_facts(bigint[]) TO anon,authenticated;

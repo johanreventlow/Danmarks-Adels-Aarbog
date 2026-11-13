@@ -25,7 +25,8 @@ SET LOCAL statement_timeout = '15min';
 SELECT coalesce(position('i.canonical_person_id=p_person_id' IN
                   (SELECT prosrc FROM pg_proc WHERE oid=to_regprocedure('private.record_legacy_disposition(bigint,bigint,text,uuid,jsonb)')))>0,false)
    AND to_regprocedure('private.membership_component_states()') IS NOT NULL
-   AND coalesce(position('printed_number IS NULL' IN
+   -- Kildegaten (6d-1; 6e-2 udvidede nøglen og fjernede NULL-filteret, så markøren er gatens fælles del).
+   AND coalesce(position('count(DISTINCT (d.scheme_entry_id,' IN
                   (SELECT prosrc FROM pg_proc WHERE oid=to_regprocedure('public.public_person_source_coordinates()')))>0,false)
    AND coalesce(position('PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE' IN
                   (SELECT prosrc FROM pg_proc WHERE oid=to_regprocedure('public.red_promote_placement_memberships(bigint,text)')))>0,false)
