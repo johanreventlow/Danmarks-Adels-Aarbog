@@ -35390,3 +35390,91 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.public_person_source_coordinates() FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.public_person_source_coordinates() TO anon,authenticated;
+
+-- ===== trin 6e-2: kildeetiket, sidekort og koordinater =====
+CREATE OR REPLACE FUNCTION private.sidekort_gyldigt(p jsonb)
+RETURNS boolean
+LANGUAGE plpgsql IMMUTABLE
+SET search_path = pg_catalog
+AS $$
+DECLARE
+  e jsonb;
+  k text;
+  v_prev_til bigint := NULL;
+  v_fra bigint;
+  v_til bigint;
+  v_trykt bigint;
+BEGIN
+  IF p IS NULL THEN RETURN true; END IF;
+  IF jsonb_typeof(p) <> 'array' OR jsonb_array_length(p) = 0 THEN RETURN false; END IF;
+  FOR e IN SELECT x FROM jsonb_array_elements(p) AS x LOOP
+    IF jsonb_typeof(e) <> 'object' THEN RETURN false; END IF;
+    FOREACH k IN ARRAY ARRAY['pdf_fra','pdf_til','trykt_fra'] LOOP
+      IF jsonb_typeof(e -> k) IS DISTINCT FROM 'number'
+         OR (e ->> k) !~ '^[0-9]{1,9}$' THEN
+        RETURN false;
+      END IF;
+    END LOOP;
+    IF (SELECT count(*) FROM jsonb_object_keys(e)) <> 3 THEN RETURN false; END IF;
+    v_fra := (e ->> 'pdf_fra')::bigint;
+    v_til := (e ->> 'pdf_til')::bigint;
+    v_trykt := (e ->> 'trykt_fra')::bigint;
+    IF v_fra > v_til OR v_trykt < 1 THEN RETURN false; END IF;
+    IF v_prev_til IS NOT NULL AND v_fra <= v_prev_til THEN RETURN false; END IF;
+    v_prev_til := v_til;
+  END LOOP;
+  RETURN true;
+END $$;
+
+DO $sidekort$
+BEGIN
+  ALTER TABLE public.source ADD COLUMN IF NOT EXISTS sidekort jsonb;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid = 'public.source'::regclass AND conname = 'source_sidekort_gyldigt') THEN
+    ALTER TABLE public.source ADD CONSTRAINT source_sidekort_gyldigt
+      CHECK (sidekort IS NULL OR private.sidekort_gyldigt(sidekort));
+  END IF;
+END $sidekort$;
+COMMENT ON COLUMN public.source.sidekort IS
+  'NULL = kildens sider er allerede trykte sider. Ellers [{"pdf_fra":int,"pdf_til":int,"trykt_fra":int},...] sorteret uden overlap.';
+
+CREATE OR REPLACE FUNCTION public.source_trykt_side(p_source_id bigint, p_side text)
+RETURNS text
+LANGUAGE plpgsql STABLE SECURITY INVOKER
+SET search_path = public, pg_catalog
+AS $$
+DECLARE
+  v_kort jsonb;
+  v_m text[];
+  v_a bigint;
+  v_b bigint;
+  v_ta bigint;
+  v_tb bigint;
+BEGIN
+  IF p_side IS NULL THEN RETURN NULL; END IF;
+  SELECT s.sidekort INTO v_kort FROM public.source s WHERE s.id = p_source_id;
+  IF v_kort IS NULL THEN RETURN p_side; END IF;
+  v_m := regexp_match(p_side, '^([0-9]{1,9})(?:-([0-9]{1,9}))?$');
+  IF v_m IS NULL THEN RETURN NULL; END IF;
+  v_a := v_m[1]::bigint;
+  v_b := coalesce(v_m[2], v_m[1])::bigint;
+  SELECT (e ->> 'trykt_fra')::bigint + v_a - (e ->> 'pdf_fra')::bigint INTO v_ta
+    FROM jsonb_array_elements(v_kort) e
+   WHERE v_a BETWEEN (e ->> 'pdf_fra')::bigint AND (e ->> 'pdf_til')::bigint;
+  SELECT (e ->> 'trykt_fra')::bigint + v_b - (e ->> 'pdf_fra')::bigint INTO v_tb
+    FROM jsonb_array_elements(v_kort) e
+   WHERE v_b BETWEEN (e ->> 'pdf_fra')::bigint AND (e ->> 'pdf_til')::bigint;
+  IF v_ta IS NULL OR v_tb IS NULL THEN RETURN NULL; END IF;
+  IF v_m[2] IS NULL OR v_ta = v_tb THEN RETURN v_ta::text; END IF;
+  RETURN v_ta::text || '-' || v_tb::text;
+END $$;
+REVOKE ALL ON FUNCTION public.source_trykt_side(bigint,text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.source_trykt_side(bigint,text) TO anon,authenticated;
+
+CREATE OR REPLACE FUNCTION public.side_trykt(c public.citation)
+RETURNS text
+LANGUAGE sql STABLE
+SET search_path = public, pg_catalog
+AS $$ SELECT public.source_trykt_side(c.source_id, c.side) $$;
+REVOKE ALL ON FUNCTION public.side_trykt(public.citation) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.side_trykt(public.citation) TO anon,authenticated;

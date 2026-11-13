@@ -10875,3 +10875,51 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: redaktoer-ser-levende — redaktionen ser levende i fakta, familiekilder og koordinater; gæsternes gate uændret';
 END $verify_redaktoer_ser_levende$;
+
+-- trin 6e-2: sidekort og omregning PDF-side -> trykt side.
+-- At source.sidekort er NULL for en given kilde er ingen invariant (ceremonien udfylder kortet); kun gyldigheden og kontrakten testes.
+DO $verify_6e2_sidekort$
+DECLARE
+  f text; r text;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='source' AND column_name='sidekort' AND data_type='jsonb') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 source.sidekort mangler';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.source WHERE sidekort IS NOT NULL AND NOT private.sidekort_gyldigt(sidekort)) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 ugyldigt sidekort på en kilde';
+  END IF;
+  FOREACH f IN ARRAY ARRAY['public.source_trykt_side(bigint,text)','public.side_trykt(public.citation)'] LOOP
+    IF to_regprocedure(f) IS NULL OR (SELECT p.prosecdef FROM pg_proc p WHERE p.oid=to_regprocedure(f))
+       OR NOT has_function_privilege('anon',f,'EXECUTE') OR NOT has_function_privilege('authenticated',f,'EXECUTE')
+       OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) x WHERE p.oid=to_regprocedure(f) AND x.grantee=0) THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 % findes ikke / er DEFINER / forkert ACL', f;
+    END IF;
+  END LOOP;
+  IF private.sidekort_gyldigt('[]'::jsonb) OR NOT private.sidekort_gyldigt(NULL)
+     OR NOT private.sidekort_gyldigt('[{"pdf_fra":1,"pdf_til":2,"trykt_fra":5}]')
+     OR private.sidekort_gyldigt('[{"pdf_fra":1,"pdf_til":3,"trykt_fra":5},{"pdf_fra":3,"pdf_til":4,"trykt_fra":9}]') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 sidekort_gyldigt kontrakt';
+  END IF;
+  -- Kontrakt med NULL-kort og udfyldt fixture-kort (rulles tilbage), kaldt som anon.
+  BEGIN
+    INSERT INTO public.source(id,titel,sidekort) VALUES
+      (-6291,'verify-sidekort',NULL),
+      (-6292,'verify-sidekort','[{"pdf_fra":490,"pdf_til":545,"trykt_fra":1},{"pdf_fra":547,"pdf_til":548,"trykt_fra":57}]');
+    SET LOCAL ROLE anon;
+    IF public.source_trykt_side(-6291,'201-202') IS DISTINCT FROM '201-202'
+       OR public.source_trykt_side(-6291,NULL) IS NOT NULL
+       OR public.source_trykt_side(-6292,'541') IS DISTINCT FROM '52'
+       OR public.source_trykt_side(-6292,'541-542') IS DISTINCT FROM '52-53'
+       OR public.source_trykt_side(-6292,'546') IS NOT NULL
+       OR public.source_trykt_side(-6292,'abc') IS NOT NULL THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 source_trykt_side kontrakt (anon)';
+    END IF;
+    RESET ROLE;
+    RAISE EXCEPTION 'VERIFY_6E2_ROLLBACK';
+  EXCEPTION WHEN raise_exception THEN
+    RESET ROLE;
+    GET STACKED DIAGNOSTICS r = MESSAGE_TEXT;
+    IF r <> 'VERIFY_6E2_ROLLBACK' THEN RAISE; END IF;
+  END;
+  RAISE NOTICE 'OK: trin 6e-2 — sidekort, omregning og anon-adgang';
+END $verify_6e2_sidekort$;
