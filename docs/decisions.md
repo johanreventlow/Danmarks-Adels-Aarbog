@@ -2,6 +2,28 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: POC'ets regel for levende: kun redaktionen ser dem; »Det er mig« i to trin; lukker webredesignets åbne punkt 2 og 3 for POC'et (2026-11-13)
+
+> Projektejeren (fase 8): »De levende kommer også med i POC. Jeg er redaktør i dette POC og jeg skal kunne se dem. De
+> levende skal bare ikke vises, hvis man ikke er logget ind som bruger.« Derefter valgt: kun redaktørerne ser alt på
+> alle; »lav dette til poc, og noter at vi senere skal tage stilling til hvad brugere skal kunne se og på hvilke
+> niveauer«.
+>
+> 1. **Levende i POC'et:** gæster og almindelige indloggede brugere ser ingen levende, private eller staged personer
+>    (uændret). Redaktionen ser alt. Tabellerne gør det allerede (`redaktion_read`); det, der mangler, er de
+>    SECURITY DEFINER-funktioner bag personsiden (biografi, fakta, familiekilder, kildekoordinater) og narrativernes
+>    udgivelsesregel, som i dag kun viser offentlige personer uanset rolle. De får en redaktør-gren
+>    (`current_rolle() = 'redaktion'`); gæsternes og brugernes regler røres ikke.
+> 2. **Følger:** præsenslisten og slægtskab med levende er kun for redaktionen i POC'et. »Min plads« (at styre en
+>    levende persons synlighed) udskydes, til brugere kan se levende.
+> 3. **»Det er mig« i to trin:** selverklæret er nok til slægtskab som kontekst (vises kun for personen selv);
+>    »Min plads« kræver redaktionens godkendelse. Accepterer foreningen POC'et, skal bekræftelsen kunne kobles til et
+>    medlemsregister.
+> 4. **Senere stillingtagen (backlog):** hvad almindelige brugere skal kunne se af levende og på hvilke niveauer
+>    (det todelte lag med grundniveau og ekstra deling fra 2026-11-12 pkt. 8, børns standard, koden til at finde en
+>    levende person), sammenhængen mellem konto og medlemskab, og medlemmer, der ikke selv står i bogen. Invariant 8's
+>    forslag til ny ordlyd indføres ikke før da.
+
 ## BESLUTTET: »Besiddelser« i læserfladen; godser og stamhuse skilles i data, ikke på siden (2026-11-13)
 
 > Projektejeren (fase 7): »gods« er ikke det bedste ord, og der bør være en adskillelse mellem godser/gårde/steder og
