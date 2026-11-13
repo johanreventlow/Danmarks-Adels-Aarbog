@@ -225,11 +225,48 @@ async function fetchFritekstKilde(rows: PublicPersonFactRow[]): Promise<Record<s
   }
 }
 
+// Redaktøren ser levende (decisions 2026-11-13, trin 2). Udgivelsesreglen tillader aldrig udgivelse af en levende,
+// privat eller staged persons biografi (publication_allowed er bagt ind i den hash-bundne tilstand), så den findes kun
+// som kladde. For redaktøren hentes kladden med kildehenvisning fra den eksisterende redaktør-RPC for de medlemmer,
+// gæster ikke kan se, og mærkes kunRedaktion. Enhver fejl giver ingen kladder; resten af personsiden står.
+// redaktionRead importerer public.ts, derfor dynamisk import (bryder cirklen og holder koden ude af læserens vej).
+const KLADDE_STATUS = new Set(['draft', 'published', 'stale_published']);
+async function fetchRedaktionKladder(numIds: number[]): Promise<BioSourceVersionV2[]> {
+  try {
+    const res = await supabase.from('person').select('id,levende,privat,staged').in('id', numIds);
+    if (res.error) return [];
+    const skjulte = ((res.data ?? []) as { id: number | string; levende: boolean | null; privat: boolean | null; staged: boolean | null }[])
+      // Samme regel som person_offentlig: kun levende=false, ikke privat og ikke staged er offentlig (NULL = skjult).
+      .filter((p) => p.levende !== false || p.privat === true || p.staged === true)
+      .map((p) => Number(p.id))
+      .filter((n) => Number.isSafeInteger(n) && n > 0)
+      .sort((a, b) => a - b);
+    if (!skjulte.length) return [];
+    const { mapNarrativeRecordRows } = await import('./redaktionRead');
+    const svar = await Promise.all(skjulte.map(async (pid) => {
+      const r = await supabase.rpc('red_person_narrative_records', { p_person_id: pid });
+      if (r.error || !Array.isArray(r.data)) return [] as BioSourceVersionV2[];
+      return mapNarrativeRecordRows(r.data as Parameters<typeof mapNarrativeRecordRows>[0]).records
+        .filter((x) => KLADDE_STATUS.has(x.status) && x.text.trim() !== '')
+        .map((x): BioSourceVersionV2 => ({
+          personId: pid, sourceId: x.sourceId, sourceYear: x.sourceYear, recordOrder: null,
+          sourceRecordRef: x.sourceRecordRef, recordRef: x.sourceRecordRef,
+          sourceLabel: x.sourceLabel, recordLabel: x.recordLabel, citationLabel: x.citationLabel,
+          narrativeText: x.text.trim(), provenanceKind: 'source_record', kunRedaktion: true,
+        }));
+    }));
+    return svar.flat();
+  } catch {
+    return [];
+  }
+}
+
 // memberIds: for en samme_som-foldet person, alle medlems-id'er i gruppen — narrativ + relationer
 // unioneres over dem (spec §8). Uden memberIds (ikke-foldet) = kun personens eget id.
 // hentKilder: kun sandt når personen mangler bog-nummer, så de ~1129 hovedposter ikke betaler for
 // tre ekstra opslag de alligevel ikke bruger.
-export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder = false, udgaveKontekst?: { udgaver: Udgave[]; udgaveForPersonRaekke: Record<string, string> }): Promise<PersonDetailData> {
+// redaktoer: kalderen er logget ind med rollen redaktion (kladder for ikke-offentlige medlemmer, se ovenfor).
+export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder = false, udgaveKontekst?: { udgaver: Udgave[]; udgaveForPersonRaekke: Record<string, string> }, redaktoer = false): Promise<PersonDetailData> {
   const empty = TOM_PERSONDETALJE;
   const ids = memberIds && memberIds.length ? memberIds : [id];
   const numIds = ids.map(Number).filter((n) => !Number.isNaN(n));
@@ -250,7 +287,7 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
     }
     const contractVersion = versionResult.data;
     const usesV2 = contractVersion >= 2;
-    const [narr, rels, media, rpcVersions, factRows] = await Promise.all([
+    const [narr, rels, media, rpcVersions, factRows, kladder] = await Promise.all([
       // V1 keeps its existing fallback query.  At contract v2 this query is
       // never issued: event text is available only through the v2 RPC.
       usesV2
@@ -287,6 +324,7 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
         .then((res) => (!res || res.error || !Array.isArray(res.data) ? null : (res.data as PublicPersonFactRow[])))
         // .catch, ikke then(_, fejl): også et kast i selve svarbehandlingen må kun ramme fakta-sektionen.
         .catch(() => null),
+      usesV2 && redaktoer ? fetchRedaktionKladder(numIds) : Promise.resolve([] as BioSourceVersionV2[]),
     ]);
     // Udgave-versioner (§7.18): ÉN version pr. DAA-udgave, nyeste først. Kandidater ordnet
     // kanonisk (id) FØRST, så en samme_som-foldet person med narrativ i samme udgave fra
@@ -308,9 +346,13 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
       citationLabel: '',
       provenanceKind: 'legacy_narrative' as const,
     }));
-    const bioVersions = usesV2 ? (rpcVersions ?? []) : (rpcVersions && rpcVersions.length ? rpcVersions : fallbackVersions);
+    // Kladderne (kun redaktør, kun ikke-offentlige medlemmer) står efter de offentlige versioner; standardteksten er den
+    // offentlige, når den findes.
+    const v2Versions = [...((rpcVersions ?? []) as BioSourceVersionV2[]), ...kladder];
+    const bioVersions = usesV2 ? v2Versions : (rpcVersions && rpcVersions.length ? rpcVersions : fallbackVersions);
     const bio = usesV2
-      ? selectDefaultPublicBioSourceVersionV2((rpcVersions ?? []) as BioSourceVersionV2[])?.narrativeText ?? ''
+      ? (selectDefaultPublicBioSourceVersionV2((rpcVersions ?? []) as BioSourceVersionV2[])
+        ?? selectDefaultPublicBioSourceVersionV2(kladder))?.narrativeText ?? ''
       : bioVersions[0]?.narrativeText ?? '';
     const orgIds = rels.filter((r) => r.objekt_type === 'organisation').map((r) => r.objekt_id);
     const estIds = rels.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);

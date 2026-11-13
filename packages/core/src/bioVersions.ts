@@ -17,6 +17,9 @@ export type BioSourceVersion = {
   narrativeText: string;
   citationLabel: string;
   provenanceKind: 'source_record' | 'legacy_narrative';
+  // Redaktøren ser levende (decisions 2026-11-13): en kladde for en person, gæster ikke kan se. Aldrig fra de
+  // offentlige RPC'er; kun webklientens redaktør-gren sætter den.
+  kunRedaktion?: true;
 };
 
 export type PublicBioSourceVersionRow = {

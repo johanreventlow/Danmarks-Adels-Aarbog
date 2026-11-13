@@ -219,4 +219,14 @@ describe('PersonSide — udgaver', () => {
     expect(document.body.innerHTML).not.toMatch(LAEK);
   });
 
+  // Redaktøren ser levende (decisions 2026-11-13): en kladde siges med ord; en udgivet tekst gør ikke.
+  it('kladde kun for redaktionen bærer mærkatet; den udgivne tekst gør ikke', () => {
+    const kladde: BioSourceVersionV2 = { ...BIO_1939, kunRedaktion: true, narrativeText: 'Kladdetekst for en levende.' };
+    vis(detalje({ bioVersions: [BIO_V1, kladde] }));
+    expect(screen.queryByText('Ikke udgivet — kun synlig for redaktionen.')).toBeNull();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Udgave' })).getByRole('button', { name: /^DAA 1939/ }));
+    expect(screen.getByText('Kladdetekst for en levende.')).toBeTruthy();
+    expect(screen.getByRole('note').textContent).toBe('Ikke udgivet — kun synlig for redaktionen.');
+  });
+
 });

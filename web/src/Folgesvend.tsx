@@ -79,6 +79,7 @@ export default function Folgesvend() {
   // sessionKlar: er den gemte session tjekket? Præsenslisten må ikke vise »log ind« til en
   // redaktør, mens sessionen stadig genskabes.
   const [sessionKlar, setSessionKlar] = useState(false);
+  const erRedaktoer = session?.role === 'redaktion';
   const [loginOpen, setLoginOpen] = useState(false);
   const [login, setLogin] = useState<{ email: string; pw: string; err: string; busy: boolean }>(
     { email: '', pw: '', err: '', busy: false },
@@ -202,12 +203,13 @@ export default function Folgesvend() {
     const members = personMemberIds(focusId, model?.byId[focusId]);
     // Ingen bog-nummer (typisk en ægtefælle) → hent proveniens fra citationerne i stedet.
     const manglerBogNummer = !(model?.sourcesBy?.[focusId]?.length);
-    fetchPersonDetail(focusId, members, manglerBogNummer, model ? { udgaver: model.udgaver ?? [], udgaveForPersonRaekke: model.udgaveForPersonRaekke ?? {} } : undefined).then(
+    // Redaktøren får også kladder for medlemmer, gæster ikke kan se (decisions 2026-11-13); et rolleskift henter igen.
+    fetchPersonDetail(focusId, members, manglerBogNummer, model ? { udgaver: model.udgaver ?? [], udgaveForPersonRaekke: model.udgaveForPersonRaekke ?? {} } : undefined, erRedaktoer).then(
       (next) => { if (current) setDetail(next); },
       (e) => { if (current) { console.warn('[Folgesvend] persondetalje fejlede:', e); setDetailError(String((e as Error)?.message ?? e)); } },
     );
     return () => { current = false; };
-  }, [focusId, model, detailForsoeg]);
+  }, [focusId, model, detailForsoeg, erRedaktoer]);
 
   const persons = model?.persons ?? [];
   const linjeList = useMemo(() => synligeLinjer(model?.lineage?.list ?? []), [model]);
