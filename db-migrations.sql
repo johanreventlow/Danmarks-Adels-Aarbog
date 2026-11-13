@@ -35498,8 +35498,9 @@ AS $$
   SELECT p_record_key ~ '^record-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
 $$;
 
-CREATE OR REPLACE FUNCTION private.narrative_record_wanted_labels(
-  p_source_record_id uuid
+CREATE OR REPLACE FUNCTION private.narrative_record_wanted_labels_ex(
+  p_source_record_id uuid,
+  p_kast_ved_tvetydighed boolean
 ) RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
@@ -35554,10 +35555,11 @@ BEGIN
       JOIN public.lineage_scheme_entry entry ON entry.id=placement.scheme_entry_id
      WHERE placement.source_record_id=p_source_record_id
        AND placement.decision_status='accepted';
-    IF v_placement_count>1 THEN
+    IF v_placement_count>1 AND p_kast_ved_tvetydighed THEN
       RAISE EXCEPTION 'RECORD_LABEL_PLACEMENTS_AMBIGUOUS';
     END IF;
-    v_record_label:=CASE WHEN v_placement_count=0 THEN ''
+    v_record_label:=CASE WHEN v_placement_count>1 THEN v_record_key
+                         WHEN v_placement_count=0 THEN ''
       ELSE private.linje_kode(v_entry_label,v_entry_code)
            ||CASE WHEN v_number IS NOT NULL THEN ', nr. '||v_number ELSE '' END
       END;
@@ -35570,6 +35572,17 @@ BEGIN
     'citation_label',v_citation_label
   );
 END
+$$;
+
+CREATE OR REPLACE FUNCTION private.narrative_record_wanted_labels(
+  p_source_record_id uuid
+) RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path=pg_catalog
+AS $$
+  SELECT private.narrative_record_wanted_labels_ex(p_source_record_id,true)
 $$;
 
 CREATE OR REPLACE FUNCTION private.narrative_record_labels(
@@ -35610,10 +35623,6 @@ BEGIN
          AND anchor.decision_status='accepted'
     ) interval;
 
-  v_wanted:=private.narrative_record_wanted_labels(p_source_record_id);
-  v_record_label:=v_wanted->>'record_label';
-  v_citation_label:=v_wanted->>'citation_label';
-
   SELECT binding.record_label,binding.citation_label
     INTO v_binding_record_label,v_binding_citation_label
     FROM private.narrative_record_publication binding
@@ -35624,6 +35633,11 @@ BEGIN
   IF FOUND THEN
     v_record_label:=v_binding_record_label;
     v_citation_label:=v_binding_citation_label;
+  ELSE
+    -- Tvetydige placements må ikke vælte redaktørlisten: record_key (som før 6e-2).
+    v_wanted:=private.narrative_record_wanted_labels_ex(p_source_record_id,false);
+    v_record_label:=v_wanted->>'record_label';
+    v_citation_label:=v_wanted->>'citation_label';
   END IF;
 
   RETURN jsonb_build_object(
@@ -35636,6 +35650,7 @@ END
 $$;
 
 REVOKE ALL ON FUNCTION private.narrative_record_wanted_labels(uuid),
+  private.narrative_record_wanted_labels_ex(uuid,boolean),
   private.linje_kode(text,text),
   private.record_key_uden_bognoegle(text)
   FROM PUBLIC,anon,authenticated,service_role;

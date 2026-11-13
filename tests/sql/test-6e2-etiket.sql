@@ -99,6 +99,26 @@ BEGIN
   END;
   -- narrative_record_labels uden binding bruger reglen; med binding vinder bindingen
   r := (SELECT id FROM private.source_record WHERE record_key='record-62000000-0000-4000-8000-000000000101');
+  -- ingen binding + 2 placements: labels giver record_key, wanted kaster
+  r := (SELECT id FROM private.source_record WHERE record_key='record-62000000-0000-4000-8000-000000000106');
+  IF private.narrative_record_labels(r)->>'record_label' IS DISTINCT FROM 'record-62000000-0000-4000-8000-000000000106' THEN
+    RAISE EXCEPTION 'TEST_FAILED: labels ved tvetydighed uden binding %', private.narrative_record_labels(r);
+  END IF;
+  BEGIN
+    PERFORM private.narrative_record_wanted_labels(r);
+    RAISE EXCEPTION 'TEST_FAILED: wanted kastede ikke';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'RECORD_LABEL_PLACEMENTS_AMBIGUOUS' THEN RAISE; END IF;
+  END;
+  -- binding + 2 placements: bindingens etiket, ingen fejl
+  INSERT INTO public.person(id) VALUES (-6393);
+  INSERT INTO public.narrative(id,subjekt_type,subjekt_id,source_id,tekst,privat) VALUES (-6393,'person',-6393,-6302,'t',false);
+  INSERT INTO private.narrative_record_publication(narrative_id,source_record_id,record_label,citation_label,status)
+    VALUES (-6393,r,'bundet','DAA X, s. 49','draft');
+  IF private.narrative_record_labels(r)->>'record_label' IS DISTINCT FROM 'bundet' THEN
+    RAISE EXCEPTION 'TEST_FAILED: binding + 2 placements';
+  END IF;
+  r := (SELECT id FROM private.source_record WHERE record_key='record-62000000-0000-4000-8000-000000000101');
   IF private.narrative_record_labels(r)->>'record_label' IS DISTINCT FROM 'IV, nr. 3' THEN
     RAISE EXCEPTION 'TEST_FAILED: narrative_record_labels uden binding %', private.narrative_record_labels(r);
   END IF;

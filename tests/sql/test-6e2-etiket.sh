@@ -20,7 +20,7 @@ for f in tests/sql/evidence-promotion-bootstrap.sql "$tmp/schema.sql" "$tmp/db-r
 q "$dbu" -f db-migrations.sql
 q "$dbu" -f db-migrations.sql -f db-rls.sql -f db-migrations.sql   # hel fil igen: ældre blokke må ikke genoprette den gamle CHECK/validator
 q "$dbu" -f tests/sql/test-6e2-etiket.sql
-sha() { for f in 'private.linje_kode(text,text)' 'private.record_key_uden_bognoegle(text)' 'private.narrative_record_wanted_labels(uuid)' 'private.narrative_record_labels(uuid)' 'private.validate_reimport_case_elements(jsonb,jsonb)'; do
+sha() { for f in 'private.linje_kode(text,text)' 'private.record_key_uden_bognoegle(text)' 'private.narrative_record_wanted_labels(uuid)' 'private.narrative_record_wanted_labels_ex(uuid,boolean)' 'private.narrative_record_labels(uuid)' 'private.validate_reimport_case_elements(jsonb,jsonb)'; do
   a "$1" "SELECT '$f|'||encode(extensions.digest(convert_to(pg_get_functiondef(to_regprocedure('$f')),'UTF8'),'sha256'),'hex')||'|'||coalesce((SELECT proacl::text FROM pg_proc WHERE oid=to_regprocedure('$f')),'NULL')"; done
   a "$1" "SELECT 'check|'||pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='private.narrative_record_publication'::regclass AND conname='narrative_record_publication_record_label_check'"; }
 [ "$(sha "$db")" = "$(sha "$dbu")" ] || { echo "UPGRADE_BODY_OR_ACL_MISMATCH" >&2; diff <(sha "$db") <(sha "$dbu") >&2 || true; exit 1; }
