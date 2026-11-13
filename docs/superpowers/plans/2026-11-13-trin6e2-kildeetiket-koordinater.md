@@ -503,7 +503,7 @@ expect(linjeTitel({ code: 'Stamme-holstenske', label: 'Den holstenske Linje.' })
 - Privat (kun hovedsessionen): `~/.private/5ab-overfoersel/40-trin6e2.sh` (kopi af 6d-1's runner med vinduesvagt; handlinger `go|standin|maal|dump|advisors|ddl|data|vindue`).
 
 - [ ] **Step 1: Runner:**
-  - Indholdsafledte forventninger fra Task 0 og stand-in-målingen (563, 35, 5).
+  - Indholdsafledte forventninger fra Task 0 og stand-in-målingen: 561 bindinger, 33 tomme, 5 entries og 2 oversprungne (staged; spec §12.2).
   - GO binder DDL-blokkens sha, ceremoni-scriptet, målescriptet og de to json-filer.
   - Kræver `--jeg-mener-det`, og vinduesvagten har en negativtest.
 - [ ] **Step 2: Runbook:**
@@ -525,7 +525,7 @@ expect(linjeTitel({ code: 'Stamme-holstenske', label: 'Den holstenske Linje.' })
 - [ ] **Step 2:** Spørg om push og draft-PR'er. CI på PR'erne skal være grøn.
 - [ ] **Step 3: Prod** efter runbooken: web-deploy, så DDL-GO, så data-GO. AI'en læser kvitteringer og mål.
 - [ ] **Step 4: Færdigbevis** (spec §8 + §12) i `docs/evidensbaseret-genimport/status.md`, `docs/database-current-state.md` (ny §) og changelog:
-  - 563 genpublicerede, heraf 35 tomme;
+  - 561 genpublicerede, heraf 33 tomme, og 2 staged oversprunget;
   - 0 `record-`;
   - øvrige kilders hashes byte-ens;
   - koordinat-RPC'ens anon-tid i prod;

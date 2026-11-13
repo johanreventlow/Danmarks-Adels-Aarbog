@@ -2,6 +2,17 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: 2 staged 1939-poster får ikke læsbar etiket i 6e-2, åben backlog (2026-11-13)
+
+> 6e-2's ceremoni springer 2 publicerede kilde 3-bindinger over. De tilhører personer, der endnu ikke er offentlige
+> (staged), og ingen af dem har placement. Revalideringen afviser dem (`NARRATIVE_RECORD_PUBLICATION_POLICY_BLOCKED`),
+> og 6d-1's ceremoni springer dem over efter samme kriterium.
+>
+> - De beholder `record-<uuid>` og PDF-siden i `citation_label`.
+> - Læseren ser dem ikke i dag.
+> - **Slutkriterium:** når en af dem bliver offentlig, skal dens binding have den læsbare etiket, enten ved samme ceremoni
+>   eller ved en revalidering efter `narrative_record_wanted_labels`.
+
 ## BESLUTTET: 6e-2's kildeetiket — hver bog sin egen opslagsnøgle med linjens navn, 1939 med trykte særtryksider; sidekortet er en lille profil som data (2026-11-13)
 
 > Projektejeren, før 6e-2's plan. Detaljer og målinger: `docs/superpowers/specs/2026-11-12-trin6e-laeserflade-design.md` §12.

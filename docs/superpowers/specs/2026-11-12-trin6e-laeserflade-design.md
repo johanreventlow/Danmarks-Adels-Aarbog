@@ -486,6 +486,12 @@ Postetiketten (`record_label`) er bogens egen opslagsnøgle uden side; siden bæ
   `labels.record_label`, `labels.citation_label` og `provenance.placements[].scheme_entry_label` for de entries,
   §12.5 retter. Alt andet byte-ens.
 
+- **Staged personer (målt under Task 9, 2026-11-13):** 2 af de 563 bindinger tilhører personer, der endnu ikke er
+  offentlige (staged). Begge er uden placement, og revalideringen afviser dem (`NARRATIVE_RECORD_PUBLICATION_POLICY_BLOCKED`).
+  - Ceremonien springer dem over efter 6d-1's kriterium, så tallene bliver 561 genpublicerede, heraf 33 tomme.
+  - De oversprungne bliver byte-ens og tælles i kvitteringen.
+  - Bliver de offentlige senere, mangler de deres læsbare etiket (backlog i decisions 2026-11-13).
+
 ### 12.3 Sidekortet: 1939's profil som data
 
 **Kortet** (PDF-side → trykt side), fastlagt fra trykkeriets arksignaturer i den rå OCR: PDF 490 = s. 1, 506 = s. 17,
