@@ -93,10 +93,21 @@ function visning(fase: Fase, b: Bygget, focusId: string) {
     faktaKilder: factRows.map((r) => factSource(r).label), buildPersonFactsKilder: buildPersonFacts(factRows)
       .flatMap((f) => [...(f.chosen ? [f.chosen] : []), ...f.others]).map((s) => s.source.label),
     pr_udgave, linjeNavneFallback,
-    faktaMedKilde: factRows.map((r) => ({ kilde: r.source_id == null ? null : String(r.source_id), tekst: factSource(r).label })),
+    // Fakta mærkes direkte fra rækkens source_id; en række uden kilde er 'ingen' (aldrig null).
+    faktaMedKilde: factRows.map((r) => ({ kilde: faktaKilde(r), tekst: factSource(r).label })),
     buildPersonFactsMedKilde: factRows.flatMap((r) => buildPersonFacts([r])
-      .flatMap((f) => [...(f.chosen ? [f.chosen] : []), ...f.others]).map((st) => ({ kilde: r.source_id == null ? null : String(r.source_id), tekst: st.source.label }))),
-    kildeAfFaktaLabel: new Map(factRows.filter((r) => r.source_id != null).map((r) => [factSource(r).label, String(r.source_id)] as const)),
+      .flatMap((f) => [...(f.chosen ? [f.chosen] : []), ...f.others]).map((st) => ({ kilde: faktaKilde(r), tekst: st.source.label }))),
+    // byggUdgaveFakta giver kun etiketter; label → række-kilde, og en etiket med to forskellige kilder fejler højlydt.
+    kildeAfFaktaLabel: (() => {
+      const m = new Map<string, string>();
+      for (const r of factRows) {
+        const l = factSource(r).label;
+        const k = faktaKilde(r);
+        if (m.has(l) && m.get(l) !== k) throw new Error(`etiketten »${l}« hører til to kilder: ${m.get(l)} og ${k}`);
+        m.set(l, k);
+      }
+      return m;
+    })(),
     sources: sorterKilder(b.sourcesBy[focusId] ?? []), nummer: bogensNummer(b.sourcesBy, focusId),
     optraeder: optraederSom(b.sourcesBy[focusId] ?? []),
   };
@@ -105,6 +116,8 @@ function visning(fase: Fase, b: Bygget, focusId: string) {
 type Mærket = { kilde: string | null; hvor: string; tekst: string };
 
 // Kilde-id udledt af rækken (familiekildens udgavenavn slået op i udgaverne), aldrig af den viste tekst.
+const faktaKilde = (r: PublicPersonFactRow): string => (r.source_id == null ? 'ingen' : String(r.source_id));
+
 function familieKilderMedKilde(fase: Fase, b: Bygget): Mærket[] {
   return mapFamilieKilder(laes(fase, 'family_sources')).map((k) => ({
     kilde: b.udgaver.find((u) => u.label === k.sourceLabel)?.sourceId ?? null, hvor: 'familiekilde', tekst: kildeLinje(k),
@@ -125,6 +138,7 @@ function provenienMedKilde(fase: Fase, focusId: string, b: Bygget): Mærket[] {
   const rows = citationRowsTilProveniens(cits, personAfAssert);
   const refs = buildProvenanceSources(rows, Object.fromEntries([...medlemmer].map((m) => [m, focusId])));
   const kildeAfVaerk = new Map(laes<RawSource>(fase, 'source').map((x) => [x.titel || x.udgave || '', String(x.id)] as const));
+  expect(kildeAfVaerk.size, 'titel ?? udgave er unik pr. kilde').toBe(laes<RawSource>(fase, 'source').length);
   return (refs[focusId] ?? []).map((r) => ({ kilde: kildeAfVaerk.get(r.work) ?? null, hvor: `proveniens ${focusId}`, tekst: r.ref ? `${r.work}, ${r.ref}` : r.work }));
 }
 function proveniens(fase: Fase, focusId: string, b: Bygget): string[] {
@@ -183,6 +197,18 @@ describe.skipIf(!DIR)('trin 6e-2: klienten på data før og efter ceremonien', (
   const data = { foer: undefined as Bygget | undefined, efter: undefined as Bygget | undefined };
   const hent = (f: Fase) => (data[f] ??= byg(f));
   const vist: Record<string, unknown> = {};
+
+  it('opslagene via udgavenavn og værk er entydige, og ingen mærkning mangler', () => {
+    for (const f of ['foer', 'efter'] as Fase[]) {
+      const src = laes<RawSource>(f, 'source');
+      const udgaver = src.map((x) => x.udgave).filter((u): u is string => u != null);
+      expect(new Set(udgaver).size, `${f}: source.udgave er unik`).toBe(udgaver.length);
+      const vaerker = src.map((x) => x.titel || x.udgave || '');
+      expect(new Set(vaerker).size, `${f}: titel ?? udgave er unik`).toBe(vaerker.length);
+      const mangler = samlStrenge(f, hent(f)).filter((m) => m.kilde === null && !/^(linje|hoved-fallback) /.test(m.hvor));
+      expect(mangler.map((m) => `${m.hvor}: ${m.tekst}`), `${f}: streng uden kilde`).toEqual([]);
+    }
+  });
 
   it('eksporten indeholder de tjekkede personer og foldningen er som forventet', () => {
     for (const f of ['foer', 'efter'] as Fase[]) {
