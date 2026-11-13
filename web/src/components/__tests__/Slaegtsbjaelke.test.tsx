@@ -13,7 +13,7 @@ describe('Slaegtsbjaelke', () => {
     const href = (navn: string) => within(nav).getByRole('link', { name: navn }).getAttribute('href');
     expect(href('Forside')).toBe('/slaegt/reventlow');
     expect(href('Stamtræ')).toBe('/slaegt/reventlow/stamtrae');
-    expect(href('Godser')).toBe('/slaegt/reventlow/godser');
+    expect(href('Besiddelser')).toBe('/slaegt/reventlow/besiddelser');
     expect(href('Våben')).toBe('/slaegt/reventlow/vaaben');
     expect(within(nav).getByRole('link', { name: 'Stamtræ' }).getAttribute('aria-current')).toBe('page');
     expect(within(nav).getByRole('link', { name: 'Forside' }).getAttribute('aria-current')).toBeNull();
@@ -31,9 +31,9 @@ describe('Slaegtsbjaelke', () => {
     expect(screen.getByRole('link', { name: 'Reventlow' }).querySelector('span[aria-hidden="true"]')?.textContent).toBe('R');
   });
 
-  it('Godser er aktiv også på oversigtskortet', () => {
+  it('Besiddelser er aktiv også på oversigtskortet', () => {
     render(<Slaegtsbjaelke slaegt={REVENTLOW} aktivMode="kort" visPraesens={false} onGaaTil={vi.fn()} onSkiftSlaegt={vi.fn()} />);
-    expect(screen.getByRole('link', { name: 'Godser' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('link', { name: 'Besiddelser' }).getAttribute('aria-current')).toBe('page');
   });
 
   it('præsenslisten kun for redaktionen', () => {

@@ -5,7 +5,7 @@ import { linjeNavnFor } from './slaegtskab';
 import type { EstateItem } from './public';
 import type { Model } from './types';
 
-export type SoegType = 'alt' | 'personer' | 'godser';
+export type SoegType = 'alt' | 'personer' | 'besiddelser';
 export type SoegSort = 'match' | 'navn' | 'foedt';
 export type SoegFiltre = {
   q: string; type: SoegType; linje: string | null;
@@ -22,7 +22,8 @@ export function soegFiltre(search: string): SoegFiltre {
   const sort = qs.get('sort');
   return {
     q: qs.get('q') ?? '',
-    type: type === 'personer' || type === 'godser' ? type : 'alt',
+    // »godser« er fra før fase 7a (links fra 6b er ude) og betyder det samme.
+    type: type === 'personer' || type === 'besiddelser' ? type : type === 'godser' ? 'besiddelser' : 'alt',
     linje: qs.get('linje') || null,
     fra: aar(qs.get('fra')), til: aar(qs.get('til')),
     sort: sort === 'navn' || sort === 'foedt' ? sort : 'match',
@@ -136,7 +137,7 @@ export function soeg(model: Model, estates: EstateItem[], f: SoegFiltre, bogmaer
   // søgeord er siden personregistret (Personer i hovedmenuen); godserne kommer kun med, når man vælger dem.
   const kunPersoner = (f.bm && !!bogmaerker) || f.linje != null || f.fra != null || f.til != null;
   const godser: GodsRaekke[] = [];
-  if (!kunPersoner && (f.q.trim() !== '' || f.type === 'godser')) {
+  if (!kunPersoner && (f.q.trim() !== '' || f.type === 'besiddelser')) {
     for (const e of estates) {
       const m = matchNavn(e.navn, f.q);
       if (m) godser.push({ id: e.id, navn: e.navn, slags: e.slags, ejere: e.ownerCount, maerker: m.maerker, rang: m.rang });

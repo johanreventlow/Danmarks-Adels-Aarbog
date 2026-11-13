@@ -151,8 +151,9 @@ export function buildGods(aux: FeedAux): FeedCard[] {
   return aux.godsListe
     .map((g): FeedCard => ({
       kind: 'gods', id: 'gods:' + g.id, estateId: String(g.id), navn: g.navn,
-      meta: g.ownerCount > 0 ? `${g.slags || 'Gods'} · ${g.ownerCount} ejere` : (g.slags || 'Gods'),
-      ownerDots: Math.min(g.ownerCount, 7), kicker: 'Gods',
+      // Ingen »slags« i teksten: alle hedder i dag »gods«, også stamhuse og grevskaber (decisions.md 2026-11-13).
+      meta: g.ownerCount > 0 ? `${g.ownerCount} ${g.ownerCount === 1 ? 'ejer' : 'ejere'} i Aarbogen` : 'Besiddelse',
+      ownerDots: Math.min(g.ownerCount, 7), kicker: 'Besiddelse',
     }))
     .sort(byIdStr);
 }

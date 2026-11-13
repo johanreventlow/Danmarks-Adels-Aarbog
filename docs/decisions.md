@@ -2,6 +2,23 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: »Besiddelser« i læserfladen; godser og stamhuse skilles i data, ikke på siden (2026-11-13)
+
+> Projektejeren (fase 7): »gods« er ikke det bedste ord, og der bør være en adskillelse mellem godser/gårde/steder og
+> egentlige majorater og stamhuse — der er sammenhænge, men de er ikke det samme.
+>
+> 1. **Navnet er »Besiddelser«** i menu, overskrifter, søgning og feed: det, slægten ejede eller besad. Det dækker gods,
+>    gård, len og stamhus og svarer til datamodellens rolle »ejer/besidder«. Adresserne følger:
+>    `/slaegt/<slug>/besiddelser` og `/besiddelse/<id>`; `/slaegt/<slug>/godser`, `/gods/<id>` og `/soeg?type=godser`
+>    omdirigeres eller forstås. Interne navne (`estate`, `EstateItem`) og redaktionen er uændrede.
+> 2. **Opdelingen er backlog.** Data skelner ikke i dag: alle ejendomme har `slags = 'gods'` (testudtrækket: 186 af 186);
+>    grevskab, baroni og stamhus står kun i navnet (7 i testudtrækket), og hvilke godser der hørte under et stamhus står
+>    kun i ejerperiodens fritekst (»lagt under Frisenvold«). Opdelingen kræver (a) et kontrolleret ordforråd for
+>    `estate.slags` (gods, gård, len, stamhus, grevskab, baroni …), sat redaktionelt, og (b) en relation »hører under«
+>    (ejendom → stamhus, med periode). Det er data, ikke nye tabeller (invariant 2; `majorat` er en `slags`, jf. 2C-1).
+>    Siden grupperer først, når data siger det; et gæt ud fra navnets forled er fravalgt.
+> 3. **Indtil da vises `slags` ikke** for læseren (den ville kalde »stamhuset Frisenvold« for »gods«).
+
 ## BESLUTTET: slægtsvåben — Aarbogen vælger selv tegningen; ingen autorisation, note kun efter behov; lukker webredesignets åbne punkt 5 (2026-11-13)
 
 > Overdragelsens åbne punkt 5 (»grundvåbnet er ikke en autoriseret tegning; godkendes før offentlig brug«) og

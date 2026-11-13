@@ -28,12 +28,12 @@ describe('SoegView', () => {
   it('fremhæver søgeordet; godser og personer; linjens navn', () => {
     vis({ q: 'Conrad' });
     const res = screen.getByRole('region', { name: 'Resultater' });
-    expect(within(res).getByRole('status').textContent).toBe('2 personer · 1 gods');
+    expect(within(res).getByRole('status').textContent).toBe('2 personer · 1 besiddelse');
     const conrad = within(res).getByRole('link', { name: /Greve Conrad de Reventlow/ });
     expect(conrad.getAttribute('href')).toBe('/person/1');
     expect(within(conrad).getByText('Conrad', { selector: 'mark' })).toBeTruthy();
     expect(within(conrad).getByText('V. linje')).toBeTruthy();
-    expect(within(res).getByRole('link', { name: /Conradsborg/ }).getAttribute('href')).toBe('/gods/e1');
+    expect(within(res).getByRole('link', { name: /Conradsborg/ }).getAttribute('href')).toBe('/besiddelse/e1');
   });
 
   it('filtre skrives i adressen', () => {

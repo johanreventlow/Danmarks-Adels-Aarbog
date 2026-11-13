@@ -101,7 +101,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
           {detailError ? (
             <Tilstand fejl etiket="Kunne ikke hente" titel="Personens oplysninger kunne ikke hentes"
               handlinger={<button type="button" onClick={onRetry} style={tilstandSekundaer}>Prøv igen</button>}>
-              Forbindelsen til arkivet svigtede et øjeblik. Familien herunder er hentet; biografi, embeder og godser mangler.
+              Forbindelsen til arkivet svigtede et øjeblik. Familien herunder er hentet; biografi, embeder og besiddelser mangler.
             </Tilstand>
           ) : (
             <>
@@ -175,7 +175,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                 ) : <Mangel>Ingen embeder eller hverv angivet i Aarbogen.</Mangel>}
               </Sektion>
 
-              <Sektion titel="Godser">
+              <Sektion titel="Besiddelser">
                 {henter ? <Henter /> : v.godser.length ? (
                   <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 220px), 1fr))', gap: '0 24px', fontSize: 15, lineHeight: '22px' }}>
                     {visteGodser.map((e) => (
@@ -186,12 +186,12 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                     {v.godser.length > FOERSTE_GODSER && (
                       <li style={{ padding: '9px 0', borderTop: `1px solid ${T.line}` }}>
                         <button type="button" aria-expanded={visAlleGodser} onClick={() => setVisAlleGodser((x) => !x)} style={tekstKnap}>
-                          {visAlleGodser ? 'Vis færre' : `Vis alle ${v.godser.length} godser`}
+                          {visAlleGodser ? 'Vis færre' : `Vis alle ${v.godser.length} besiddelser`}
                         </button>
                       </li>
                     )}
                   </ul>
-                ) : <Mangel>{harVaelger ? 'Ingen godser i den valgte udgave.' : 'Ingen godser angivet i Aarbogen.'}</Mangel>}
+                ) : <Mangel>{harVaelger ? 'Ingen besiddelser i den valgte udgave.' : 'Ingen besiddelser angivet i Aarbogen.'}</Mangel>}
               </Sektion>
 
               {/* Livsrejsen vises kun, når personen har steder; de fleste har ingen, og en tom boks ville

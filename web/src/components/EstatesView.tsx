@@ -1,4 +1,4 @@
-// ---- Godser & ejendomme ----
+// ---- Besiddelser (gods, gård, len, stamhus …; hed »Godser« før fase 7a) ----
 // Udtrukket fra Folgesvend.tsx (review 27 W-K1) — samme komponent, blot flyttet fil.
 import { Suspense, useState } from 'react';
 import { T } from '../theme';
@@ -26,10 +26,9 @@ export function EstatesView({ estates, estateId, estate, info, owners, geo, geoL
     const point = geo?.byEstate[estate.id];
     return (
       <div style={{ padding: '26px 40px 50px', maxWidth: 620 }}>
-        <div onClick={onBack} style={{ fontSize: 13.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginBottom: 14 }}>‹ Alle godser</div>
+        <div onClick={onBack} style={{ fontSize: 13.5, fontWeight: 600, color: T.bordeaux, cursor: 'pointer', marginBottom: 14 }}>‹ Alle besiddelser</div>
         <div style={{ fontFamily: T.serif, fontSize: 32, fontWeight: 600, lineHeight: 1.02 }}>{estate.navn}</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginTop: 9 }}>
-          {estate.slags && <span style={{ fontSize: 12.5, fontWeight: 600, color: T.bordeaux, background: '#f4e2e6', border: '1px solid rgba(136,26,51,.16)', padding: '5px 10px', borderRadius: 7 }}>{estate.slags}</span>}
           {info?.sted && <span style={{ fontSize: 12.5, fontWeight: 600, color: T.inkMuted, background: T.surfaceSunken, border: `1px solid ${T.line}`, padding: '5px 10px', borderRadius: 7 }}>⌖ {info.sted}</span>}
         </div>
         {geoLoading ? (
@@ -52,7 +51,7 @@ export function EstatesView({ estates, estateId, estate, info, owners, geo, geoL
         {info && (info.narrativ ? (
           <div style={{ marginTop: 16, fontFamily: T.serif, fontSize: 16.5, lineHeight: 1.6, color: T.inkSecondary }}><NarrativRenderer tekst={info.narrativ} onPickPerson={onPickOwner} linkColor={T.bordeaux} inactiveColor={T.inkMuted} /></div>
         ) : (
-          <div style={{ marginTop: 16, border: '1px dashed rgba(34,31,26,.2)', borderRadius: 11, padding: 14, background: T.surfaceRaised, fontSize: 13.5, color: T.inkMuted }}>Ingen godshistorik registreret endnu.</div>
+          <div style={{ marginTop: 16, border: '1px dashed rgba(34,31,26,.2)', borderRadius: 11, padding: 14, background: T.surfaceRaised, fontSize: 13.5, color: T.inkMuted }}>Ingen historik for besiddelsen registreret endnu.</div>
         ))}
         <Label>Ejere &amp; tilknytninger gennem tiden</Label>
         {owners.length ? (
@@ -81,7 +80,7 @@ export function EstatesView({ estates, estateId, estate, info, owners, geo, geoL
   return (
     <div style={{ padding: '30px 40px 50px', height: viewMode === 'kort' ? 'calc(100vh - 60px)' : undefined, display: 'flex', flexDirection: 'column' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-        <ViewHeader title="Godser &amp; ejendomme" />
+        <ViewHeader title="Besiddelser" />
         <div style={{ display: 'flex', gap: 2, background: T.surfaceSunken, borderRadius: 8, padding: 2, flex: 'none' }}>
           {(['liste', 'kort'] as const).map((m) => (
             <button key={m} onClick={() => setViewMode(m)} style={{
@@ -92,10 +91,10 @@ export function EstatesView({ estates, estateId, estate, info, owners, geo, geoL
         </div>
       </div>
       <div style={{ fontSize: 14, color: T.inkMuted, marginTop: 4, marginBottom: 20 }}>
-        Besiddelser knyttet til slægten — klik for ejerrækken gennem tiden.
+        Godser, gårde, len og stamhuse, slægten har ejet. Vælg en for ejerrækken gennem tiden.
         {slaegtensKortHref && <> <Link href={slaegtensKortHref} onNavigate={onSlaegtensKort} style={{ color: T.bordeaux, fontWeight: 600 }}>Slægtens kort med personernes steder</Link></>}
       </div>
-      {!estates ? <div style={{ color: T.inkMuted }}>Henter…</div> : !estates.length ? <div style={{ color: T.inkMuted }}>Ingen godser registreret.</div> : viewMode === 'kort' ? (
+      {!estates ? <div style={{ color: T.inkMuted }}>Henter…</div> : !estates.length ? <div style={{ color: T.inkMuted }}>Ingen besiddelser registreret.</div> : viewMode === 'kort' ? (
         geoLoading ? (
           <div style={{ flex: 1, minHeight: 0 }}><MapFallback height="100%" /></div>
         ) : points.length ? (
@@ -104,14 +103,14 @@ export function EstatesView({ estates, estateId, estate, info, owners, geo, geoL
               <GeoMap points={points} mode="explorer" onPointPress={(p) => p.estateId && onOpen(p.estateId)} />
             </Suspense>
           </div>
-        ) : <div style={{ color: T.inkMuted }}>Ingen godser er kortlagt endnu.</div>
+        ) : <div style={{ color: T.inkMuted }}>Ingen besiddelser er kortlagt endnu.</div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(220px,1fr))', gap: 12 }}>
           {estates.map((e) => (
             <Link key={e.id} href={estatePath(e.id)} onNavigate={() => onOpen(e.id)} style={{ background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 13, padding: 15, boxShadow: '0 1px 2px rgba(34,31,26,.03)', display: 'block' }}>
               <span style={{ width: 36, height: 36, borderRadius: 8, background: T.surfaceSunken, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 17, color: T.bordeaux }}>⌂</span>
               <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600, lineHeight: 1.05, marginTop: 11 }}>{e.navn}</div>
-              <div style={{ fontSize: 12.5, color: T.inkMuted, marginTop: 3 }}>{[e.slags, e.ownerCount ? `${e.ownerCount} tilknytning${e.ownerCount === 1 ? '' : 'er'}` : ''].filter(Boolean).join(' · ') || '—'}</div>
+              <div style={{ fontSize: 12.5, color: T.inkMuted, marginTop: 3 }}>{e.ownerCount ? `${e.ownerCount} ${e.ownerCount === 1 ? 'ejer' : 'ejere'} i Aarbogen` : 'Ingen ejere registreret'}</div>
             </Link>
           ))}
         </div>

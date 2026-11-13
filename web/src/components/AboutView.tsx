@@ -91,7 +91,7 @@ export function AboutView({ slaegt, model, about, personCount, estateCount, onPi
           <span aria-hidden="true" style={{ display: 'block', width: 44, height: 1.5, background: T.gold }} />
           {model && (
             <p style={{ margin: 0, fontFamily: T.sans, fontSize: 13.5, color: T.inkMuted }}>
-              {[`${personCount.toLocaleString('da')} personer`, estateCount != null ? `${estateCount.toLocaleString('da')} godser` : null,
+              {[`${personCount.toLocaleString('da')} personer`, estateCount != null ? `${estateCount.toLocaleString('da')} besiddelser` : null,
                 linjer.length ? `${linjer.length} linjer` : null].filter(Boolean).join(' · ')}
             </p>
           )}

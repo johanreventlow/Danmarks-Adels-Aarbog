@@ -53,10 +53,10 @@ Ny grammatik. Gamle stier omdirigeres (`replace`), så eksisterende links virker
 | `/slaegt/:slaegt` | Slægtens forside | `/about` |
 | `/slaegt/:slaegt/stamtrae[?fokus=:person]` | Stamtræ | `/stamtrae` |
 | `/slaegt/:slaegt/praesens` | Præsensliste (medlemmer) | `/praesens` |
-| `/slaegt/:slaegt/godser` | Godser, liste og kort | `/estates`, `/kort` |
+| `/slaegt/:slaegt/besiddelser` | Besiddelser, liste og kort (hed »godser« før fase 7a) | `/estates`, `/kort`, `/slaegt/:slaegt/godser` |
 | `/slaegt/:slaegt/vaaben` | Våben | `/arms` |
 | `/person/:id` | Personside (over slægterne) | `/person/:id` (var stamtræ med panel) |
-| `/gods/:id` | Gods-side | `/estate/:id` |
+| `/besiddelse/:id` | Besiddelsens side | `/estate/:id`, `/gods/:id` |
 | `/slaegtskab[?a=:id&b=:id]` | Er vi i familie? Resultatet kan deles | `/relate` |
 | `/soeg?q=…` | Søgeresultater | (modal) |
 | `/historie/artikler`, `/historie/kilder` | Historie | (kom ikke) |

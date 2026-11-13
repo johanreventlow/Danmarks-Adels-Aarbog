@@ -22,7 +22,7 @@ export function Slaegtsbjaelke({ slaegt, aktivMode, visPraesens, onGaaTil, onSki
     { mode: 'about', label: 'Forside', aktivFor: ['about'] },
     { mode: 'tree', label: 'Stamtræ', aktivFor: ['tree'] },
     ...(visPraesens ? [{ mode: 'praesens' as Mode, label: 'Præsensliste', aktivFor: ['praesens' as Mode] }] : []),
-    { mode: 'estates', label: 'Godser', aktivFor: ['estates', 'kort'] },
+    { mode: 'estates', label: 'Besiddelser', aktivFor: ['estates', 'kort'] },
     { mode: 'arms', label: 'Våben', aktivFor: ['arms'] },
   ];
   return (

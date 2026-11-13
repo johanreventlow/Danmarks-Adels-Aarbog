@@ -65,7 +65,7 @@ export function SlaegterMenu({ id, open, onClose, slaegter, senest, aktiv, onVae
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <h2 style={{ margin: 0, fontFamily: T.serif, fontSize: 28, fontWeight: 600, color: T.ink }}>Vælg en slægt</h2>
-            <p style={{ margin: 0, fontSize: 13.5, color: T.inkMuted }}>Du kommer til slægtens forside. Derfra når du stamtræ, godser og våben.</p>
+            <p style={{ margin: 0, fontSize: 13.5, color: T.inkMuted }}>Du kommer til slægtens forside. Derfra når du stamtræ, besiddelser og våben.</p>
           </div>
           <div style={{ flex: '0 1 380px', minWidth: 0, display: 'flex' }}>
             <label htmlFor={`${id}-soeg`} style={{ position: 'absolute', left: -9999 }}>Find slægt</label>

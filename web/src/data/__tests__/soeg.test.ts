@@ -13,6 +13,9 @@ describe('filtre i adressen', () => {
     const f = { ...STANDARD_FILTRE, q: 'a b', type: 'personer' as const, linje: 'k:1', fra: 1600, til: 1900, sort: 'foedt' as const, bm: true };
     expect(soegFiltre(soegSti(f).split('?')[1])).toEqual(f);
   });
+  it('type=godser (fra før fase 7a) betyder besiddelser', () => {
+    expect(soegFiltre('?type=godser').type).toBe('besiddelser');
+  });
   it('ugyldige værdier falder tilbage til standarden', () => {
     expect(soegFiltre('?type=x&sort=y&fra=abc&bm=2')).toEqual(STANDARD_FILTRE);
   });
@@ -84,9 +87,9 @@ describe('soeg', () => {
   it('bm=1 i et delt link hos en læser uden bogmærker filtrerer ikke', () => {
     expect(soeg(model, godser, f({ q: 'conrad', bm: true })).personer).toHaveLength(3);
   });
-  it('uden søgeord: kun personer, medmindre godser vælges', () => {
+  it('uden søgeord: kun personer, medmindre besiddelser vælges; type=godser fra før 7a forstås', () => {
     expect(soeg(model, godser, f({})).godser).toEqual([]);
-    expect(soeg(model, godser, f({ type: 'godser' })).godser.map((g) => g.navn)).toEqual(['Clausholm', 'Conradsborg']);
+    expect(soeg(model, godser, f({ type: 'besiddelser' })).godser.map((g) => g.navn)).toEqual(['Clausholm', 'Conradsborg']);
   });
   it('bogmærker og sortering efter fødeår', () => {
     expect(soeg(model, godser, f({ bm: true }), new Set(['4', '2'])).personer.map((p) => p.id)).toEqual(['2', '4']);

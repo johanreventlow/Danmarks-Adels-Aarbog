@@ -57,7 +57,7 @@ export function SoegView({ model, estates, filtre: f, linjer, bogmaerker, onFilt
   const noegle = soegSti(f);
   const antalVist = vist.noegle === noegle ? vist.n : SIDE;
 
-  const visPersoner = f.type !== 'godser';
+  const visPersoner = f.type !== 'besiddelser';
   const visGodser = f.type !== 'personer' && !!res?.godser.length;
   const personer = res?.personer ?? [];
   const godser = res?.godser ?? [];
@@ -67,7 +67,7 @@ export function SoegView({ model, estates, filtre: f, linjer, bogmaerker, onFilt
     <aside aria-label="Afgræns" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
         <legend style={{ ...etiket, marginBottom: 8 }}>Type</legend>
-        {([['alt', 'Alt', personer.length + godser.length], ['personer', 'Personer', personer.length], ['godser', 'Godser', godser.length]] as [SoegType, string, number][]).map(([v, navn, n]) => (
+        {([['alt', 'Alt', personer.length + godser.length], ['personer', 'Personer', personer.length], ['besiddelser', 'Besiddelser', godser.length]] as [SoegType, string, number][]).map(([v, navn, n]) => (
           <label key={v} style={{ display: 'flex', gap: 8, fontSize: 14, cursor: 'pointer' }}>
             <input type="radio" name="soeg-type" checked={f.type === v} onChange={() => saet({ type: v })} /> {navn} ({n})
           </label>
@@ -122,7 +122,7 @@ export function SoegView({ model, estates, filtre: f, linjer, bogmaerker, onFilt
       <h1 style={{ ...skjult }}>Søg i Aarbogen</h1>
       <form role="search" onSubmit={(e) => e.preventDefault()} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, maxWidth: 760 }}>
         <label htmlFor="soegeside-q" style={skjult}>Søgeord</label>
-        <input id="soegeside-q" type="search" value={f.q} placeholder="Søg efter en person eller et gods"
+        <input id="soegeside-q" type="search" value={f.q} placeholder="Søg efter en person eller en besiddelse"
           // Søgeordet skrives i adressen med replace, så tilbage-knappen ikke går ét tastetryk ad gangen.
           onChange={(e) => saet({ q: e.target.value })}
           style={{ flex: '1 1 320px', minWidth: 0, fontFamily: T.sans, fontSize: 18, lineHeight: '24px', padding: '14px 18px', borderRadius: 11, border: `1px solid ${T.lineStrong}`, background: T.surfaceRaised, color: T.ink }} />
@@ -144,7 +144,7 @@ export function SoegView({ model, estates, filtre: f, linjer, bogmaerker, onFilt
               <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                 <p role="status" style={{ margin: 0, fontSize: 14, color: T.inkMuted }}>
                   {[visPersoner && (personer.length > 0 || f.type === 'personer') && `${personer.length} ${personer.length === 1 ? 'person' : 'personer'}`,
-                    visGodser && `${godser.length} ${godser.length === 1 ? 'gods' : 'godser'}`].filter(Boolean).join(' · ') || 'Ingen resultater'}
+                    visGodser && `${godser.length} ${godser.length === 1 ? 'besiddelse' : 'besiddelser'}`].filter(Boolean).join(' · ') || 'Ingen resultater'}
                   {res.udenAar > 0 && ` · ${res.udenAar} uden årstal er ikke med`}
                 </p>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: T.inkMuted }}>
@@ -193,13 +193,13 @@ export function SoegView({ model, estates, filtre: f, linjer, bogmaerker, onFilt
 
               {visGodser && (
                 <>
-                  {f.type === 'alt' && personer.length > 0 && <h2 style={{ ...etiket, margin: '16px 0 0' }}>Godser</h2>}
+                  {f.type === 'alt' && personer.length > 0 && <h2 style={{ ...etiket, margin: '16px 0 0' }}>Besiddelser</h2>}
                   <ul style={{ listStyle: 'none', margin: 0, padding: 0, background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 14 }}>
                     {godser.map((g, i) => (
                       <li key={g.id} style={{ borderTop: i ? `1px solid ${T.line}` : undefined }}>
                         <Link href={estatePath(g.id)} style={{ display: 'flex', flexDirection: 'column', padding: '14px 18px', textDecoration: 'none', color: T.ink }}>
                           <span style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600, lineHeight: '24px' }}><Fremhaev tekst={g.navn} maerker={g.maerker} /></span>
-                          <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{[g.slags, g.ejere ? `${g.ejere} ${g.ejere === 1 ? 'ejer' : 'ejere'} i Aarbogen` : ''].filter(Boolean).join(' · ')}</span>
+                          <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{g.ejere ? `${g.ejere} ${g.ejere === 1 ? 'ejer' : 'ejere'} i Aarbogen` : 'Ingen ejere registreret'}</span>
                         </Link>
                       </li>
                     ))}
@@ -210,7 +210,7 @@ export function SoegView({ model, estates, filtre: f, linjer, bogmaerker, onFilt
               {(visPersoner ? personer.length : 0) + (visGodser ? godser.length : 0) === 0 && (
                 <div style={{ padding: '12px 4px' }}>
                   <h2 style={{ margin: 0, fontFamily: T.serif, fontSize: 24, fontWeight: 600 }}>
-                    {f.q.trim() ? `${f.type === 'godser' ? 'Intet gods' : f.type === 'personer' ? 'Ingen person' : 'Ingen'} hedder »${f.q.trim()}«` : 'Ingen passer til afgrænsningen'}
+                    {f.q.trim() ? `${f.type === 'besiddelser' ? 'Ingen besiddelse' : f.type === 'personer' ? 'Ingen person' : 'Ingen'} hedder »${f.q.trim()}«` : 'Ingen passer til afgrænsningen'}
                   </h2>
                   {andre.length > 0 ? (
                     <p style={{ margin: '6px 0 0', fontSize: 15, lineHeight: '24px', color: T.inkSecondary }}>

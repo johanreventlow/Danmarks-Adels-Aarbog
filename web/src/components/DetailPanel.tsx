@@ -20,9 +20,9 @@ export function godsResume(navne: string[], n = GODSER_I_RESUME): string {
   if (!navne.length) return '';
   const viste = navne.slice(0, n);
   const rest = navne.length - viste.length;
-  if (rest > 0) return `Godser: ${viste.join(', ')} og ${rest} ${rest === 1 ? 'mere' : 'flere'}.`;
-  if (viste.length === 1) return `Gods: ${viste[0]}.`;
-  return `Godser: ${viste.slice(0, -1).join(', ')} og ${viste[viste.length - 1]}.`;
+  if (rest > 0) return `Besiddelser: ${viste.join(', ')} og ${rest} ${rest === 1 ? 'mere' : 'flere'}.`;
+  if (viste.length === 1) return `Besiddelse: ${viste[0]}.`;
+  return `Besiddelser: ${viste.slice(0, -1).join(', ')} og ${viste[viste.length - 1]}.`;
 }
 
 export function DetailPanel({ model, focusId, detail, backName, onBack, onClose, onRelate }: {
