@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-13 — redaktøren ser levendes biografi som kladde (trin 2)
+
+Udgivelsesreglen kan ikke få en redaktør-gren: `publication_allowed` er bagt ind i den hash-bundne udgivelsestilstand,
+så en levende, privat eller staged persons biografi aldrig kan udgives (decisions 2026-11-13, rettelse). I stedet henter
+personsiden, kun for en redaktør og kun for medlemmer gæster ikke kan se, posterne fra den eksisterende redaktør-RPC
+`red_person_narrative_records` (kladde, udgivet eller forældet-udgivet, med tekst) og viser dem som udgavechips med
+kildehenvisning og mærkatet »Ikke udgivet — kun synlig for redaktionen«. `BioSourceVersion` har et valgfrit
+`kunRedaktion`. Læseren får intet ekstra kald; ingen DB-ændring. Målt på stand-in ≈ prod: 48 af de 56 skjulte
+personer med biografi får den (46 kladder, 2 udgivne fra før de blev private); 2 tilbagetrukne legacy-tekster
+udelades, 6 narrativer uden post i kæden er ikke med. Fakta for levende er fortsat uden posthenvisning.
+
 ## 2026-11-13 — redaktionen ser levende i personsidens fakta, familiekilder og koordinater (trin 1)
 
 POC-reglen fra `decisions.md` (2026-11-13): gæster og almindelige indloggede brugere ser fortsat kun offentlige
