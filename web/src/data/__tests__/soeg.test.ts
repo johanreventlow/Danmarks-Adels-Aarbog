@@ -84,6 +84,10 @@ describe('soeg', () => {
   it('bm=1 i et delt link hos en læser uden bogmærker filtrerer ikke', () => {
     expect(soeg(model, godser, f({ q: 'conrad', bm: true })).personer).toHaveLength(3);
   });
+  it('uden søgeord: kun personer, medmindre godser vælges', () => {
+    expect(soeg(model, godser, f({})).godser).toEqual([]);
+    expect(soeg(model, godser, f({ type: 'godser' })).godser.map((g) => g.navn)).toEqual(['Clausholm', 'Conradsborg']);
+  });
   it('bogmærker og sortering efter fødeår', () => {
     expect(soeg(model, godser, f({ bm: true }), new Set(['4', '2'])).personer.map((p) => p.id)).toEqual(['2', '4']);
     expect(soeg(model, godser, f({ sort: 'foedt' })).personer.map((p) => p.id)).toEqual(['1', '4', '2', '3']);

@@ -164,22 +164,6 @@ export function SoegView({ model, estates, filtre: f, linjer, bogmaerker, onFilt
                 </p>
               )}
 
-              {visGodser && (
-                <>
-                  {f.type === 'alt' && <h2 style={{ ...etiket, margin: '8px 0 0' }}>Godser</h2>}
-                  <ul style={{ listStyle: 'none', margin: 0, padding: 0, background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 14 }}>
-                    {godser.map((g, i) => (
-                      <li key={g.id} style={{ borderTop: i ? `1px solid ${T.line}` : undefined }}>
-                        <Link href={estatePath(g.id)} style={{ display: 'flex', flexDirection: 'column', padding: '14px 18px', textDecoration: 'none', color: T.ink }}>
-                          <span style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600, lineHeight: '24px' }}><Fremhaev tekst={g.navn} maerker={g.maerker} /></span>
-                          <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{[g.slags, g.ejere ? `${g.ejere} ${g.ejere === 1 ? 'ejer' : 'ejere'} i Aarbogen` : ''].filter(Boolean).join(' · ')}</span>
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-
               {visPersoner && personer.length > 0 && (
                 <>
                   {visGodser && <h2 style={{ ...etiket, margin: '8px 0 0' }}>Personer</h2>}
@@ -204,6 +188,22 @@ export function SoegView({ model, estates, filtre: f, linjer, bogmaerker, onFilt
                       Vis {Math.min(SIDE, personer.length - antalVist)} mere (af {personer.length - antalVist})
                     </button>
                   )}
+                </>
+              )}
+
+              {visGodser && (
+                <>
+                  {f.type === 'alt' && personer.length > 0 && <h2 style={{ ...etiket, margin: '16px 0 0' }}>Godser</h2>}
+                  <ul style={{ listStyle: 'none', margin: 0, padding: 0, background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 14 }}>
+                    {godser.map((g, i) => (
+                      <li key={g.id} style={{ borderTop: i ? `1px solid ${T.line}` : undefined }}>
+                        <Link href={estatePath(g.id)} style={{ display: 'flex', flexDirection: 'column', padding: '14px 18px', textDecoration: 'none', color: T.ink }}>
+                          <span style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600, lineHeight: '24px' }}><Fremhaev tekst={g.navn} maerker={g.maerker} /></span>
+                          <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{[g.slags, g.ejere ? `${g.ejere} ${g.ejere === 1 ? 'ejer' : 'ejere'} i Aarbogen` : ''].filter(Boolean).join(' · ')}</span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
                 </>
               )}
 

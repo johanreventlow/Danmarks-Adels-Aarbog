@@ -132,10 +132,11 @@ export function soeg(model: Model, estates: EstateItem[], f: SoegFiltre, bogmaer
     if (!r) continue;
     personer.push({ id: p.id, name: p.name, years: p.years, title: p.title, born: p.born, linje: linjeNavnFor(model, p.id), maerker: m.maerker, rang: m.rang });
   }
-  // Godser kender hverken linje, levetid eller bogmærker; filtrerer man på dem, søges der kun i personer.
+  // Godser kender hverken linje, levetid eller bogmærker; filtrerer man på dem, søges der kun i personer. Uden
+  // søgeord er siden personregistret (Personer i hovedmenuen); godserne kommer kun med, når man vælger dem.
   const kunPersoner = (f.bm && !!bogmaerker) || f.linje != null || f.fra != null || f.til != null;
   const godser: GodsRaekke[] = [];
-  if (!kunPersoner) {
+  if (!kunPersoner && (f.q.trim() !== '' || f.type === 'godser')) {
     for (const e of estates) {
       const m = matchNavn(e.navn, f.q);
       if (m) godser.push({ id: e.id, navn: e.navn, slags: e.slags, ejere: e.ownerCount, maerker: m.maerker, rang: m.rang });

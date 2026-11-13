@@ -71,9 +71,9 @@ describe('SoegView', () => {
   it('uden søgeord: alle personer, 25 ad gangen', () => {
     vis();
     const liste = () => within(screen.getByRole('region', { name: 'Resultater' })).getAllByRole('listitem');
-    expect(liste()).toHaveLength(25 + 1); // 25 personer + 1 gods
+    expect(liste()).toHaveLength(25); // uden søgeord er siden personregistret; godser kun ved valg
     fireEvent.click(screen.getByRole('button', { name: 'Vis 8 mere (af 8)' }));
-    expect(liste()).toHaveLength(33 + 1);
+    expect(liste()).toHaveLength(33);
   });
 
   it('bogmærkefilter kun, når der er bogmærker', () => {
