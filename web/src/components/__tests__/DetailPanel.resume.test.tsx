@@ -39,27 +39,25 @@ describe('DetailPanel (genvej)', () => {
     expect(screen.queryByText(/præsensliste/i)).toBeNull();
   });
 
-  it('»Åbn personsiden« er et link til /person/<id>; »Find slægtskab« er en knap', () => {
+  it('»Åbn personsiden« og »Find slægtskab« er links', () => {
     const onRelate = vi.fn();
     vis({ onRelate });
     expect(screen.getByRole('link', { name: 'Åbn personsiden' }).getAttribute('href')).toBe('/person/60');
-    fireEvent.click(screen.getByRole('button', { name: 'Find slægtskab' }));
+    const find = screen.getByRole('link', { name: 'Find slægtskab' });
+    expect(find.getAttribute('href')).toBe('/slaegtskab?a=60');
+    fireEvent.click(find);
     expect(onRelate).toHaveBeenCalled();
   });
 
-  it('Luk og Tilbage er knapper; »Vis i stamtræet« kun uden for træet', () => {
+  it('Luk og Tilbage er knapper; panelet har ingen »Vis i stamtræet« (det står kun i træet)', () => {
     const onClose = vi.fn(); const onBack = vi.fn();
     const { unmount } = vis({ onClose, backName: 'Detlef', onBack });
     fireEvent.click(screen.getByRole('button', { name: 'Luk' }));
     fireEvent.click(screen.getByRole('button', { name: '‹ Tilbage til Detlef' }));
     expect(onClose).toHaveBeenCalled();
     expect(onBack).toHaveBeenCalled();
-    expect(screen.queryByRole('button', { name: 'Vis i stamtræet' })).toBeNull();
+    expect(screen.queryByText('Vis i stamtræet')).toBeNull();
     unmount();
-    const onFocusTree = vi.fn();
-    vis({ onFocusTree });
-    fireEvent.click(screen.getByRole('button', { name: 'Vis i stamtræet' }));
-    expect(onFocusTree).toHaveBeenCalled();
   });
 
   it('mangler siges med ord, og der hentes, før detaljen er kommet', () => {

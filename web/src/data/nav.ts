@@ -72,6 +72,8 @@ export type ParsedPath = {
   estateId: string | null;
   slaegt: string | null; // slug, når stien ligger under /slaegt/<slug>
   q: string | null; // søgeord på /soeg
+  relA: string | null; // /slaegtskab?a=<id>
+  relB: string | null; // /slaegtskab?b=<id>
   omdiriger: string | null; // ny sti for en gammel (replace)
 };
 
@@ -88,7 +90,7 @@ export function pathForMode(m: Mode, slug: string = STANDARD_SLAEGT): string {
 export function parseFolgesvendPath(path: string, search = ''): ParsedPath {
   const qs = new URLSearchParams(search);
   const ud = (mode: Mode, x: Partial<ParsedPath> = {}): ParsedPath =>
-    ({ mode, personId: null, fokusId: null, estateId: null, slaegt: null, q: null, omdiriger: null, ...x });
+    ({ mode, personId: null, fokusId: null, estateId: null, slaegt: null, q: null, relA: null, relB: null, omdiriger: null, ...x });
   let seg: string[];
   try {
     seg = path.split('/').filter(Boolean).map((x) => decodeURIComponent(x));
@@ -100,7 +102,7 @@ export function parseFolgesvendPath(path: string, search = ''): ParsedPath {
   const [s0, s1, s2] = seg;
   if (s0 === 'person' && s1) return ud('person', { personId: s1 });
   if (s0 === 'gods' && s1) return ud('estates', { estateId: s1 });
-  if (s0 === 'slaegtskab') return ud('relate');
+  if (s0 === 'slaegtskab') return ud('relate', { relA: qs.get('a') || null, relB: qs.get('b') || null });
   if (s0 === 'soeg') return ud('soeg', { q: qs.get('q') ?? '' });
   if (s0 === 'min-side' && s1 === 'bogmaerker') return ud('bookmarks');
   if (s0 === 'slaegt' && s1) {
@@ -135,16 +137,22 @@ export function slaegtPath(slug: string = STANDARD_SLAEGT): string {
 export function stamtraePath(slug: string = STANDARD_SLAEGT, fokus?: string | null): string {
   return `/slaegt/${slug}/stamtrae${fokus ? `?fokus=${encodeURIComponent(fokus)}` : ''}`;
 }
+// Er vi i familie? De valgte personer ligger i adressen, så resultatet kan deles og åbnes direkte.
+export function slaegtskabPath(a?: string | null, b?: string | null): string {
+  const qs = new URLSearchParams();
+  if (a) qs.set('a', a);
+  if (b) qs.set('b', b);
+  const s = qs.toString();
+  return s ? `/slaegtskab?${s}` : '/slaegtskab';
+}
 export function soegPath(q?: string | null): string {
   return q ? `/soeg?q=${encodeURIComponent(q)}` : '/soeg';
 }
 
 // Split-skærm (§5): er detalje-panelet åbent? Drevet af URL'en (review 26 anbef. 6: URL ER
 // split-tilstanden) — i tree betyder en eksplicit person (/person/<id> eller ?fokus=<id>)
-// "detalje åben", mens stamtræet uden fokus (urlPersonId=null) er fuldt træ uden detalje. Relate bevarer sin focusOnly-drevne detalje
-// (brief §5.6), så den gates på focusId. Øvrige modes har ingen detalje.
-export function detailOpenFor(mode: Mode, urlPersonId: string | null, focusId: string | null): boolean {
-  if (mode === 'tree') return urlPersonId !== null;
-  if (mode === 'relate') return focusId !== null;
-  return false;
+// "detalje åben", mens stamtræet uden fokus (urlPersonId=null) er fuldt træ uden detalje.
+// Slægtskab har intet panel længere (fase 6a): vejens trin er links til personsiden.
+export function detailOpenFor(mode: Mode, urlPersonId: string | null): boolean {
+  return mode === 'tree' && urlPersonId !== null;
 }

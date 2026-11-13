@@ -156,6 +156,14 @@ test('gammel sti (/stamtrae) erstattes med den nye, og history.state bevares', a
   await waitFor(() => expect(navigate).toHaveBeenCalledWith('/slaegt/reventlow/stamtrae', { replace: true, state: { prevFocusId: '9' } }));
 });
 
+test('/slaegtskab?a=<alias> erstattes med det kanoniske id; et ukendt id bliver stående', async () => {
+  window.history.replaceState({}, '', '/slaegtskab?a=7&b=999');
+  const base = buildModel({ persons: [{ id: '1', name: 'Testperson', born: null, died: 1900, years: '', title: '', bio: '', privat: false }], unions: [], parentChild: [] });
+  mocks.loadModel.mockResolvedValue({ ...base, canonicalIdById: { '7': '1' }, loadGeo: () => new Promise(() => {}) });
+  render(<Folgesvend />);
+  await waitFor(() => expect(navigate).toHaveBeenCalledWith('/slaegtskab?a=1&b=999', expect.objectContaining({ replace: true })));
+});
+
 test('stamtræet med ?fokus=<id> åbner personpanelet', async () => {
   window.history.replaceState({}, '', '/slaegt/reventlow/stamtrae?fokus=1');
   mocks.fetchPersonDetail.mockResolvedValue({ bio: 'Fra fokus', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });
