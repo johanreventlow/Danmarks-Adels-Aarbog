@@ -56,13 +56,16 @@ SET LOCAL ROLE anon;
 DO $t$
 BEGIN
   IF public.source_trykt_side(-6201,'541') IS DISTINCT FROM '52' THEN RAISE EXCEPTION 'TEST_FAILED: anon source_trykt_side'; END IF;
-  IF (SELECT public.side_trykt(c) FROM public.citation c WHERE c.id=-6201) IS NOT NULL THEN NULL; END IF;
+  -- række-literal: uafhængig af, om RLS lader anon se fixture-citationen
+  IF public.side_trykt(ROW(-6201,NULL,-6201,'538',NULL,NULL,NULL)::public.citation) IS DISTINCT FROM '49' THEN RAISE EXCEPTION 'TEST_FAILED: anon side_trykt med kort'; END IF;
+  IF public.side_trykt(ROW(-6202,NULL,-6202,'538',NULL,NULL,NULL)::public.citation) IS DISTINCT FROM '538' THEN RAISE EXCEPTION 'TEST_FAILED: anon side_trykt uden kort'; END IF;
 END $t$;
 RESET ROLE;
 SET LOCAL ROLE authenticated;
 DO $t$
 BEGIN
   IF public.source_trykt_side(-6201,'541') IS DISTINCT FROM '52' THEN RAISE EXCEPTION 'TEST_FAILED: authenticated source_trykt_side'; END IF;
+  IF public.side_trykt(ROW(-6201,NULL,-6201,'538',NULL,NULL,NULL)::public.citation) IS DISTINCT FROM '49' THEN RAISE EXCEPTION 'TEST_FAILED: authenticated side_trykt'; END IF;
 END $t$;
 RESET ROLE;
 ROLLBACK;

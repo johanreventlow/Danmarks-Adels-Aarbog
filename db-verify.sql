@@ -10914,6 +10914,12 @@ BEGIN
        OR public.source_trykt_side(-6292,'abc') IS NOT NULL THEN
       RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 source_trykt_side kontrakt (anon)';
     END IF;
+    -- side_trykt(citation) som anon, mod NULL-kort og udfyldt kort (række-literal: uafhængig af citation-RLS)
+    IF public.side_trykt(ROW(-6291,NULL,-6291,'538',NULL,NULL,NULL)::public.citation) IS DISTINCT FROM '538'
+       OR public.side_trykt(ROW(-6292,NULL,-6292,'538',NULL,NULL,NULL)::public.citation) IS DISTINCT FROM '49'
+       OR public.side_trykt(ROW(-6292,NULL,-6292,'546',NULL,NULL,NULL)::public.citation) IS NOT NULL THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 side_trykt kontrakt (anon)';
+    END IF;
     RESET ROLE;
     RAISE EXCEPTION 'VERIFY_6E2_ROLLBACK';
   EXCEPTION WHEN raise_exception THEN
