@@ -52,7 +52,7 @@ const STEPS = [
   { out: 'a-search-alle', path: '/soeg', actions: [{ scroll: 1800 }] },
   { out: 'a-search-midt', path: '/soeg', actions: [{ fill: ['#soegeside-q', 'Revetlow'] }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'n' }] },
   // Klikvej gennem menu og bjælke; slutadressen skal være stamtræet uden ?fokus=.
-  { out: 'a-klikvej', path: '/', actions: [{ click: 'Slægter', exact: true }, { click: 'Reventlow', exact: true }, { click: 'Stamtræ', exact: true }, { click: 'Godser', exact: true }, { click: 'Stamtræ', exact: true }] },
+  { out: 'a-klikvej', path: '/', actions: [{ click: 'Slægter', exact: true }, { click: 'Reventlow', exact: true }, { click: 'Stamtræ', exact: true }, { click: 'Besiddelser', exact: true }, { click: 'Stamtræ', exact: true }] },
   { out: 'a-monogram', path: '/slaegt/reventlow/stamtrae?fokus=421' },
   { out: 'a-fejl', path: '/', fail: true },
   { out: 'a-relate', path: '/slaegtskab', actions: [{ fill: ['input[role="combobox"] >> nth=0', 'Otto Reventlow'] }, { click: 'ca. 1660' }, { fill: ['input[role="combobox"] >> nth=1', 'Magdalena'] }, { click: 'Magdalena Sophia Reventlow' }] },
@@ -65,8 +65,8 @@ const STEPS = [
   { out: 'a-relate-formodet', path: '/slaegtskab?a=18&b=50' },
   { out: 'a-relate-ingen', path: '/slaegtskab?a=103&b=471' },
   { out: 'a-relate-ukendt', path: '/slaegtskab?a=103&b=99999' },
-  { out: 'a-estates', path: '/slaegt/reventlow/godser' },
-  { out: 'a-kort', path: '/slaegt/reventlow/godser?visning=kort' },
+  { out: 'a-estates', path: '/slaegt/reventlow/besiddelser' },
+  { out: 'a-kort', path: '/slaegt/reventlow/besiddelser?visning=kort' },
   { out: 'a-arms', path: '/slaegt/reventlow/vaaben' },
   { out: 'a-about', path: '/slaegt/reventlow' },
   { out: 'a-about-hel', path: '/slaegt/reventlow', actions: [{ click: 'Læs hele indledningen', exact: true }] },
@@ -74,7 +74,10 @@ const STEPS = [
   { out: 'a-about-feed', path: '/slaegt/reventlow', actions: [{ scroll: 1200 }] },
   { out: 'a-praesens', path: '/slaegt/reventlow/praesens' },
   { out: 'a-ukendt-slaegt', path: '/slaegt/findes-ikke' },
-  { out: 'a-gammel-sti', path: '/estates' }, // skal ende på /slaegt/reventlow/godser
+  { out: 'a-gammel-sti', path: '/estates' }, // skal ende på /slaegt/reventlow/besiddelser
+  // Fra før fase 7a: skal ende på /slaegt/reventlow/besiddelser og /besiddelse/<id>.
+  { out: 'a-gammel-godser', path: '/slaegt/reventlow/godser' },
+  { out: 'a-gammel-gods', path: '/gods/1' },
   { out: 'a-login', path: '/', actions: [{ click: 'Log ind', exact: true }] },
   { out: 'b-member-home', path: '/', role: 'medlem' },
   { out: 'b-member-bookmarks', path: '/min-side/bogmaerker', role: 'medlem' },
