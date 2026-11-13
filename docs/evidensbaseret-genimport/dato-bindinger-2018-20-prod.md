@@ -60,8 +60,10 @@ for `n` (runbookens `fortryd`). Fra nu af er rettelser almindelig redigering.
 
 ## Ikke gjort
 
-- **Security Advisor** efter DDL'en: sessionen kan ikke køre `get_advisors` (Supabase-MCP'en ser ikke projektet).
-  Grants, `search_path` og RLS er tjekket af runneren og statisk.
+- (Rettet 2026-11-13) **Security Advisor** efter DDL'en er kørt af projektejeren i dashboardet: intet nyt. De 11
+  anon-kaldbare `SECURITY DEFINER` er læser-RPC'erne; `red_normaliser_forslag` var authenticated-kaldbar før DDL'en;
+  ACL-hashen `9b59bcd7…` er ens i foer-, ddl- og n-dumpets kvitteringer. Leaked password protection kræver Pro
+  (parkeret).
 - **Del 2** (spec): kortene over de 59 `SKRIVEMAADE` er ikke kørt. Det afgør projektejeren.
 - Prod-filerne (dumps, `.foer-codex`-backup af runneren) og den lokale stand-in `daa5ab_ddl_standin_20261112154600_dato`
   er ikke ryddet. De måles før oprydning.
