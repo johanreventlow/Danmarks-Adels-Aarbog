@@ -27,8 +27,7 @@ export function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
               <div style={{ width: 150, height: 185, borderRadius: 10, background: 'repeating-linear-gradient(45deg,#3a352c 0 9px,#322d25 9px 18px)', border: '1px solid rgba(231,201,143,.2)', flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ fontFamily: T.mono, fontSize: 11, color: T.goldInk }}>våbenskjold</span></div>
             )}
             <div>
-              <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.goldOnInverse }}>Autoriseret våben</div>
-              <div style={{ fontSize: 13, color: T.inkMutedOnInverse, marginTop: 3 }}>Dansk Adels Forenings gældende gengivelse</div>
+              <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.goldOnInverse }}>Blasonering</div>
               <div style={{ fontFamily: T.serif, fontSize: 17, fontStyle: 'italic', lineHeight: 1.45, color: T.inkOnInverse, marginTop: 14 }}>{main?.blasonering || 'Blasonering ikke registreret.'}</div>
               {main?.note && <div style={{ fontSize: 12.5, color: T.inkMutedOnInverse, marginTop: 10, lineHeight: 1.45 }}>{main.note}</div>}
             </div>

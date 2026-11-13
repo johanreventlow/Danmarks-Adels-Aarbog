@@ -41,9 +41,16 @@ export function NarrativRenderer(props: {
   // Hvor person-tokens peger hen. Default er publikumsfladen; redaktøren overstyrer til sin egen
   // record-sti, så et cmd-klik i narrativ-preview'et ikke sender redaktøren over i læser-fladen.
   hrefFor?: (id: string) => string;
+  // Kun tekstens første afsnit (uddrag, fx slægtens forside). Samme blokopdeling som hele visningen.
+  kunFoersteAfsnit?: boolean;
 }) {
-  const { tekst, onPickPerson, linkColor, inactiveColor, hrefFor = personPath } = props;
-  const blocks = useMemo(() => groupBlocks(parseNarrativ(tekst)), [tekst]);
+  const { tekst, onPickPerson, linkColor, inactiveColor, hrefFor = personPath, kunFoersteAfsnit = false } = props;
+  const blocks = useMemo(() => {
+    const alle = groupBlocks(parseNarrativ(tekst));
+    if (!kunFoersteAfsnit) return alle;
+    const foerste = alle.find((b) => b.kind === 'paragraph');
+    return foerste ? [foerste] : alle.slice(0, 1);
+  }, [tekst, kunFoersteAfsnit]);
   const mediaIds = useMemo(
     () => [...new Set(blocks.filter((b): b is Extract<Block, { kind: 'media' }> => b.kind === 'media').map((b) => b.maalId))],
     [blocks],

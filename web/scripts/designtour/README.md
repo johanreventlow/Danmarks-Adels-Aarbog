@@ -15,7 +15,7 @@ Billederne lander i `tmp/designtour/shots/` (gitignoreret).
 
 ## Sådan virker det
 
-- **Testdata:** `build-fixture.py` bygger tabellerne ud fra stamtavleudtrækket i `data/extracted-2026-06-18`. Kun personer født senest 1930 kommer med. Uden kendt fødsel er personen kun med, hvis den døde senest 1930, har et dateret faktum senest 1890 eller har en forælder født senest 1880. Ægtefæller filtreres efter samme princip. Der er ingen narrativer, medier, feed eller våben.
+- **Testdata:** `build-fixture.py` bygger tabellerne ud fra stamtavleudtrækket i `data/extracted-2026-06-18`. Kun personer født senest 1930 kommer med. Uden kendt fødsel er personen kun med, hvis den døde senest 1930, har et dateret faktum senest 1890 eller har en forælder født senest 1880. Ægtefæller filtreres efter samme princip. Der er ingen narrativer, medier, feed eller våben i fixturen; `mockdb.mjs` lægger tydeligt mærkede pladsholdere ovenpå (biografier, slægtens og I. linjes indledning, ét fastgjort portræt).
 - **Database:** `mockdb.mjs` besvarer appens kald til `localhost:54321` (Supabase-URL'en i `.env.local`) fra fixture-filen via Playwrights `page.route`. Den dækker de PostgREST-funktioner, appen bruger. RPC'er uden stub svarer `[]` og logges som "rpc uden stub".
 - **Login:** rollen sættes pr. trin (`role: 'medlem' | 'redaktion'`). Sessionen lægges direkte i localStorage, og `profiles` svarer med rollen. Skrivninger bliver ikke udført, kun logget.
 - **Fejl:** `fail: true` på et trin får alle tabelkald til at svare 500, så fejlskærmen kan fotograferes.

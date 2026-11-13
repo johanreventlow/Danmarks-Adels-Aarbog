@@ -23,6 +23,7 @@ import { PersonFakta } from './PersonFakta';
 import { Lightbox } from './Lightbox';
 import { Tilstand, tilstandSekundaer } from './Tilstand';
 import { usePersonVisning, KildeLinjeVisning } from './personVisning';
+import { SlaegtsMaerke } from './SlaegtsMaerke';
 import { radius, shadow } from '@daa/theme';
 
 const FOERSTE_EMBEDER = 7;
@@ -234,7 +235,9 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
 
           {slaegt && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: radius.card, padding: 20 }}>
-              <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: '50%', border: '1px solid rgba(136,26,51,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 20, fontWeight: 600, color: T.bordeaux }}>{slaegt.navn[0]}</span>
+              <SlaegtsMaerke slaegt={slaegt} size={56} monogram={
+                <span aria-hidden="true" style={{ width: 40, height: 40, borderRadius: '50%', border: '1px solid rgba(136,26,51,.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 20, fontWeight: 600, color: T.bordeaux }}>{slaegt.navn[0]}</span>
+              } />
               <p style={{ margin: 0, fontSize: 13.5, lineHeight: '20px', color: T.inkSecondary }}>Slægten {slaegt.navn}{linjeNavne.length ? ` · ${linjeNavne.join(', ')}` : ''}</p>
               <Link href={slaegtPath(slaegt.slug)} onNavigate={() => onSlaegt(slaegt.slug)} style={{ fontSize: 14, fontWeight: 600, color: T.bordeaux }}>Til slægtens forside</Link>
             </div>

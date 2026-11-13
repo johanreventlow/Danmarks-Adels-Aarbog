@@ -6,6 +6,17 @@ const FIX = JSON.parse(fs.readFileSync(process.env.FIXTURE, 'utf8'));
 const DB = { ...FIX, profiles: [], bookmark: [], slaegt: [{ id: 1, navn: 'Reventlow' }], vocab: [], media: [], media_variant: [],
   haendelse: [], story: [], story_kilde: [], feed_pin: [], note: [], person_external_id: [], lineage_scheme: [], lineage_scheme_entry: [],
   lineage_scheme_entry_lineage: [], red_foraeldre_konflikt: [], historical_event: [], repository: [], suggestion: [] };
+// Slægtens forside (fase 5a): en pladsholder-indledning til slægten og til I. linje (kilde = fixture-
+// udgaven, id 1) og ét fastgjort portræt, så »Redaktionen foreslår« kan fotograferes. Teksterne er
+// tydeligt testdata, ikke Aarbogens ord. Feedet læser samme pins (uden biografi i massehentningen
+// bliver portrættet dog ikke til et feedkort).
+DB.narrative = [...(DB.narrative ?? []),
+  { id: 9001, subjekt_type: 'slaegt', subjekt_id: 1, source_id: 1, privat: false,
+    tekst: 'Pladsholder til designtouren: her står slægtens indledning, som Aarbogen skriver den, med kilde under. Teksten er testdata og ikke Aarbogens ord.\n\nAndet afsnit af pladsholderen: når læseren folder indledningen ud, står resten af teksten her.' },
+  { id: 9002, subjekt_type: 'lineage', subjekt_id: 1, source_id: 1, privat: false,
+    tekst: 'Pladsholder til designtouren: her står linjens egen indledning. Teksten er testdata og ikke Aarbogens ord.' },
+];
+DB.feed_pin = [{ kort_noegle: 'portrait:240', handling: 'pin', oprettet_naar: '2026-11-01T00:00:00Z' }];
 export const state = { role: null, fail: false, userId: '00000000-0000-4000-8000-000000000001', email: 'test@example.test' };
 
 function splitTop(s) { const out = []; let d = 0, cur = ''; for (const c of s) { if (c === '(') d++; if (c === ')') d--; if (c === ',' && !d) { out.push(cur); cur = ''; } else cur += c; } if (cur) out.push(cur); return out.map((x) => x.trim()).filter(Boolean); }

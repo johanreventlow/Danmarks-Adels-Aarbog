@@ -163,4 +163,6 @@ Tegningernes navne står i parentes.
 3. **Grundlag for grundniveau for levende, børns standard og koden til at finde en levende person** (afklares med
    databeskyttelsesrådgiver). Blokerer præsensliste for medlemmer og slægtskab med levende.
 4. **Tekster:** samlet gennemgang af formuleringer.
-5. **Heraldik:** grundvåbnet er ikke en autoriseret tegning; godkendes før offentlig brug.
+5. ~~**Heraldik:** grundvåbnet er ikke en autoriseret tegning; godkendes før offentlig brug.~~ Lukket 2026-11-13:
+   præmissen var forkert. Ingen dansk instans autoriserer adelsvåben; Aarbogen bruger den tegning, den foretrækker
+   (`docs/decisions.md`, 2026-11-13).

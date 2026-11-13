@@ -3,7 +3,7 @@
 // står registret kompakt, og feedet bærer siden.
 //
 // Bevidst udeladt: »Nyt i Aarbogen« (der findes ingen nyhedsdata), slægtsbeskrivelse og våben på
-// registerkortet (monogram i stedet; intet opdigtet), filterknapper og sidefod fra tegningen.
+// registerkortet (intet opdigtet; våbnet står som mærke, når slægten har et), filterknapper og sidefod fra tegningen.
 // »Redaktionen foreslår« (forsideStartpersoner i data/home.ts) flytter til slægtens forside (fase 5).
 import { useEffect, useState } from 'react';
 import { T } from '../theme';
@@ -12,6 +12,7 @@ import { Link } from '../Link';
 import { navigate } from '../router';
 import { SLAEGTER, slaegtPath, soegPath } from '../data/nav';
 import { FeedStreamView } from './feed/FeedStreamView';
+import { SlaegtsMaerke } from './SlaegtsMaerke';
 import { fetchFeedPins } from '../data/feedPins';
 import type { FeedPinInput } from '@daa/feed';
 import type { Model } from '../data/types';
@@ -77,7 +78,9 @@ export function HomeView({
           {SLAEGTER.map((s) => (
             <li key={s.slug}>
               <Link href={slaegtPath(s.slug)} style={{ display: 'flex', gap: 14, alignItems: 'center', padding: '16px 18px', background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: radius.card, textDecoration: 'none', color: T.ink }}>
-                <span aria-hidden="true" style={{ flex: 'none', width: 48, height: 48, borderRadius: '50%', border: `1px solid ${T.lineStrong}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 24, color: T.bordeaux }}>{s.navn.slice(0, 1)}</span>
+                <SlaegtsMaerke slaegt={s} size={52} monogram={
+                  <span aria-hidden="true" style={{ flex: 'none', width: 48, height: 48, borderRadius: '50%', border: `1px solid ${T.lineStrong}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 24, color: T.bordeaux }}>{s.navn.slice(0, 1)}</span>
+                } />
                 <span style={{ minWidth: 0 }}>
                   <span style={{ display: 'block', fontFamily: T.serif, fontSize: 22, fontWeight: 600, lineHeight: 1.1 }}>{s.navn}</span>
                   <span style={{ display: 'block', fontFamily: T.sans, fontSize: 13, color: T.inkMuted, marginTop: 4 }}>

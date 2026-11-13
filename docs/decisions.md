@@ -2,6 +2,20 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: slægtsvåben — Aarbogen vælger selv tegningen; ingen autorisation, note kun efter behov; lukker webredesignets åbne punkt 5 (2026-11-13)
+
+> Overdragelsens åbne punkt 5 (»grundvåbnet er ikke en autoriseret tegning; godkendes før offentlig brug«) og
+> designsystemets heraldik-note byggede på en forkert præmis. Projektejeren: der findes ingen instans i Danmark, der
+> autoriserer adelsvåben på den måde. Aarbogen bruger den tegning, den bedst kan lide.
+>
+> 1. **Ingen godkendelse før offentlig brug.** Grundvåbnet fra designsystemet bruges som slægtens våben på forsiden
+>    og i sepia som lille mærke (slægtsbjælke, slægtsregister, personside).
+> 2. **Ingen fast kildenote.** Designsystemets »Våben efter DAA 1939« er ikke underbygget og bruges ikke. Noten er
+>    valgfri (`SLAEGTER[].vaaben.note` i `web/src/data/nav.ts`) og sættes kun, når der er en konkret grund.
+> 3. **Tegningen kan skiftes** ved at lægge nye filer i `web/public/vaaben/`.
+> 4. Webbens tekst »Autoriseret våben · Dansk Adels Forenings gældende gengivelse« på våben-siden er fjernet af samme
+>    grund.
+
 ## NOTERET: datoer sammenlignes som tekst — 2018-20's 59 skrivemåde-forskelle venter på en datobaseret sammenligning, åben backlog (2026-11-13)
 
 > Efter datobindingerne i prod (decisions 2026-11-12, `database-current-state.md` §28) står 59 af 2018-20's fødsler og
