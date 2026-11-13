@@ -37,6 +37,8 @@ const STEPS = [
   { out: 'a-tree-aegteskaber', path: '/slaegt/reventlow/stamtrae?fokus=61' },
   { out: 'a-tree-formodet', path: '/slaegt/reventlow/stamtrae?fokus=38', actions: [{ scroll: 400 }] },
   { out: 'a-tree-en-foraelder', path: '/slaegt/reventlow/stamtrae?fokus=45' },
+  { out: 'a-tree-piletaster', path: '/slaegt/reventlow/stamtrae?fokus=61', actions: [{ css: '[role="group"][aria-label^="Søskendeflokken"] [aria-current]' }, { key: 'ArrowRight' }, { key: 'ArrowRight' }, { key: 'ArrowRight' }] },
+  { out: 'a-tree-900-panel', path: '/slaegt/reventlow/stamtrae?fokus=61', w: 900, h: 900 },
   { out: 'a-tree-kolonner', path: '/slaegt/reventlow/stamtrae', actions: [{ click: 'Kolonner', exact: true }] },
   { out: 'a-search', path: '/soeg?q=rev' },
   { out: 'a-search-tom', path: '/soeg?q=Reventlov' },

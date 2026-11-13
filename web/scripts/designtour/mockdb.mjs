@@ -17,6 +17,17 @@ DB.narrative = [...(DB.narrative ?? []),
     tekst: 'Pladsholder til designtouren: her står linjens egen indledning. Teksten er testdata og ikke Aarbogens ord.' },
 ];
 DB.feed_pin = [{ kort_noegle: 'portrait:240', handling: 'pin', oprettet_naar: '2026-11-01T00:00:00Z' }];
+// Stamtræ (fase 5c): fixturen hænger alle børn på forælderens første familie (som prods gamle loader). Prods
+// loader placerer børnene efter bogens ægteskab og parkerer uafklarede på en familie uden partner. For at
+// touren kan vise grupperingen, flyttes tre af Iwans (61) børn til hans 2. ægteskab (119), og to parkeres på en
+// partnerløs familie. Testdata, ikke bogens oplysninger.
+{
+  const iwansBoern = DB.family_member.filter((m) => m.family_id === 118 && m.rolle === 'barn');
+  iwansBoern.slice(0, 3).forEach((m) => { m.family_id = 119; });
+  DB.family = [...DB.family, { id: 99001, type: 'ægteskab' }];
+  DB.family_member = [...DB.family_member, { family_id: 99001, person_id: 61, rolle: 'partner', ordinal: 9, konfidens: 'sikker' }];
+  iwansBoern.slice(3, 5).forEach((m) => { m.family_id = 99001; });
+}
 export const state = { role: null, fail: false, userId: '00000000-0000-4000-8000-000000000001', email: 'test@example.test' };
 
 function splitTop(s) { const out = []; let d = 0, cur = ''; for (const c of s) { if (c === '(') d++; if (c === ')') d--; if (c === ',' && !d) { out.push(cur); cur = ''; } else cur += c; } if (cur) out.push(cur); return out.map((x) => x.trim()).filter(Boolean); }
