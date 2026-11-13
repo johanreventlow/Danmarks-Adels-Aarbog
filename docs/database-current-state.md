@@ -539,7 +539,10 @@ til `main` @ `2ac193a9`. Privat runner `~/.private/5ab-overfoersel/38-dato-bindi
 
 - **DDL** (GO `7f9e6656`): regel `dato-markoer-v2` (markøren afhænger af prædikatet: `*`/`f.` på fødsel, `†` på død)
   i `red_normaliser_forslag`; v1 er uændret. `tilstand=ddl verify=ok` (16,8 s; kvitteringen læst i ceremoniens session, loggen viser målingen foer → ddl med uændrede tal); writerens forrige definition og ACL står i
-  `prod/dato/fortryd-ddl-20261112211215/`. `get_advisors` kunne ikke køres (MCP'en ser ikke DAA-projektet).
+  `prod/dato/fortryd-ddl-20261112211215/`. Security Advisor kørt af projektejeren i dashboardet 2026-11-12 (efter `k`):
+  intet nyt fra DDL'en — 11 anon-kaldbare `SECURITY DEFINER` er læser-RPC'erne, `red_normaliser_forslag` var
+  authenticated-kaldbar før; ACL-hashen `9b59bcd7…` er ens i foer-, ddl- og n-dumpet. Leaked password protection kræver Pro
+  (parkeret).
 - **Normalisering `n`** (GO `50178e6e`): af kilde 1's 583 datoforslag (568 med skrivemåde-forskel, 15 uden fakta)
   fik 565 en ny version (`dato-markoer-v2`) i én `extraction_run`; derefter er 509 lig en påstand (`MATCH`), 59 stadig
   `SKRIVEMAADE` og 15 `NO_FACT`.
