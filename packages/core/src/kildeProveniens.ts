@@ -142,12 +142,12 @@ export function bogensNummer(
   return null;
 }
 
-// »Optræder i Aarbogen som …« (spec §5.7): hver ref som »<værk>, <kort>« (kun værket når kort er tom),
-// i bogensNummers orden, forbundet med ' og '.
+// »Optræder i Aarbogen som …« (spec §5.7): hver ref som »<udgave>, <kort>« (kun udgaven når kort er tom),
+// i bogensNummers orden, forbundet med ' og '. Udgaven (»DAA 2018-20«) som chips, ikke værkets fulde titel (M-1).
 export function optraederSom(refs: readonly SourceRef[]): string {
   const dele = sorterKilder(refs).map((r) => {
     const k = (r.kort ?? r.ref).trim();
-    return k === '' ? r.work : `${r.work}, ${k}`;
+    return k === '' ? udgaveAf(r) : `${udgaveAf(r)}, ${k}`;
   });
   return [...new Set(dele)].join(' og ');
 }

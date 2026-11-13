@@ -179,4 +179,13 @@ describe('bogensNummer og optraederSom (6e-2)', () => {
     expect(optraederSom(conrad.c)).toBe('DAA 2018-20, V, nr. 1 og DAA 2018-20, III, nr. 58 og DAA 1939, s. 52');
     expect(optraederSom([{ work: 'DAA 1939', ref: '', kort: '' }])).toBe('DAA 1939');
   });
+  test('Optræder i Aarbogen som bruger udgaven, ikke værkets fulde titel (M-1)', () => {
+    const v = (udgave: string) => `Dansk Adels Aarbog – ${udgave}`;
+    expect(optraederSom([
+      { work: v('DAA 2018-20'), udgave: 'DAA 2018-20', ref: 'V. Den grevelige linje af 1673, nr. 1', kort: 'V, nr. 1', personId: '392', aar: 2018, slaegtled: 1 },
+      { work: v('DAA 2018-20'), udgave: 'DAA 2018-20', ref: 'III. Linjen Gallentin, nr. 58', kort: 'III, nr. 58', personId: '255', aar: 2018, slaegtled: 12 },
+      { work: v('DAA 1939'), udgave: 'DAA 1939', ref: 's. 52', kort: 's. 52', personId: '1198', aar: 1939 },
+      { work: v('DAA 1939'), udgave: 'DAA 1939', ref: '', kort: '', personId: '1199', aar: 1939 },
+    ])).toBe('DAA 2018-20, V, nr. 1 og DAA 2018-20, III, nr. 58 og DAA 1939, s. 52 og DAA 1939');
+  });
 });
