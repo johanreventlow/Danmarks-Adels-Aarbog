@@ -55,6 +55,19 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > 5. **Linjeskemaets etiketter rettes til bogens ordlyd i 6e-2's ceremoni:** Ziesendorf, »I.«, »VI.« og
 >    stammeafsnittenes »A.« og »B.«. Stammeafsnittenes etiket er f.eks. »A, nr. 2«.
 > 6. **2018-20's sidetal er allerede trykte sider** (stikprøve: Conrad V-1 på s. 201). 2018-20 får intet sidekort.
+>
+> **Slutreview (2026-11-13):**
+>
+> - **Linjelisterne samles pr. kanonisk linje (projektejeren).** Slægtens forside, søge- og kortchips, bogmærkegrupper
+>   og »N linjer« viser hver linje én gang på tværs af udgaver. Antal = distinkte personer i alle udgaver; stamfaderen
+>   tages fra nyeste udgave med rækker i linjen. Visningen pr. udgave i personens hoved og »Kilde i Aarbogen« er
+>   uændret (klientens I-1).
+> - **Accepteret overgang (projektejeren).** Før DDL viser 26 1939-legacy-personer med kode VI et løbenummer som
+>   bognummer (fx 1437: »VI. Den fyenske Linje, nr. 514«). Ceremonien gør dem til placement. Klient-deploy, DDL og
+>   dataceremoni køres derfor samme dag (klientens I-2).
+> - **Åben backlog: `citation_label` uden binding.** En post uden binding og uden accepterede ankre får nu udgaven som
+>   `citation_label` i stedet for NULL. Et udkast i Redaktion stopper derfor ikke længere på NOT NULL; før var det en
+>   implicit vagt. Åbent: en eksplicit vagt i draft-writerne eller en accept af den nye adfærd (DB-review M5).
 
 ## BESLUTTET: redaktøren læser levendes biografi som kladde; udgivelsesreglen røres ikke (2026-11-13)
 
