@@ -2,6 +2,22 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: redaktøren læser levendes biografi som kladde; udgivelsesreglen røres ikke (2026-11-13)
+
+> Retter pkt. 1 i posten nedenfor (»narrativernes udgivelsesregel ... får en redaktør-gren«). Udgivelsesreglen kan ikke
+> få en redaktør-gren: `publication_allowed` (personen afdød, ikke privat, ikke staged, og narrativet ikke privat) er
+> bagt ind i den hash-bundne udgivelsestilstand, så en levende persons biografi kan aldrig udgives — med vilje, så den
+> aldrig når gæster. Målt på stand-in ≈ prod: 79 ikke-offentlige personer, 56 med biografi, 46 som kladde.
+> Projektejeren valgte:
+>
+> 1. **Kladden vises for redaktøren, mærket.** Personsiden henter, kun for en redaktør og kun for medlemmer gæster
+>    ikke kan se, posterne fra den eksisterende redaktør-RPC `red_person_narrative_records` (kladde, udgivet eller
+>    forældet-udgivet, med tekst) og viser dem med mærkatet »Ikke udgivet — kun synlig for redaktionen. Kilde:
+>    <udgave, side>«. Ingen databaseændring; `person_daa_narrative_publication_allowed` og de offentlige biografi-RPC'er er
+>    uændrede.
+> 2. Fakta for levende forbliver uden henvisning til bogens post (den følger narrativets udgivelse); familiekilder
+>    ligeså. En redaktør-RPC med posthenvisning for fakta blev fravalgt (større, ny overflade).
+
 ## BESLUTTET: POC'ets regel for levende: kun redaktionen ser dem; »Det er mig« i to trin; lukker webredesignets åbne punkt 2 og 3 for POC'et (2026-11-13)
 
 > Projektejeren (fase 8): »De levende kommer også med i POC. Jeg er redaktør i dette POC og jeg skal kunne se dem. De

@@ -219,4 +219,28 @@ describe('PersonSide — udgaver', () => {
     expect(document.body.innerHTML).not.toMatch(LAEK);
   });
 
+  // Redaktøren ser levende (decisions 2026-11-13): en kladde siges med ord; en udgivet tekst gør ikke.
+  it('kladde kun for redaktionen bærer mærkatet; den udgivne tekst gør ikke', () => {
+    const kladde: BioSourceVersionV2 = { ...BIO_1939, kunRedaktion: true, narrativeText: 'Kladdetekst for en levende.', citationLabel: 'DAA 1939, s. 541' };
+    vis(detalje({ bioVersions: [BIO_V1, kladde] }));
+    expect(screen.queryByRole('note')).toBeNull();
+    fireEvent.click(within(screen.getByRole('group', { name: 'Udgave' })).getByRole('button', { name: /^DAA 1939/ }));
+    expect(screen.getByText('Kladdetekst for en levende.')).toBeTruthy();
+    expect(screen.getByRole('note').textContent).toBe('Ikke udgivet — kun synlig for redaktionen. Kilde: DAA 1939, s. 541.');
+  });
+
+  it('én kladde alene (ingen udgavevælger): teksten og mærkatet med kilden vises', () => {
+    const kladde: BioSourceVersionV2 = { ...BIO_V1, kunRedaktion: true, narrativeText: 'Eneste kladde.', citationLabel: 'DAA 2018-20, s. 301' };
+    vis(detalje({ bio: '', bioVersions: [kladde], faktaInput: null }));
+    expect(screen.queryByRole('group', { name: 'Udgave' })).toBeNull();
+    expect(screen.getByText('Eneste kladde.')).toBeTruthy();
+    expect(screen.getByRole('note').textContent).toBe('Ikke udgivet — kun synlig for redaktionen. Kilde: DAA 2018-20, s. 301.');
+  });
+
+  it('uden citationLabel nævner mærkatet udgaven', () => {
+    const kladde: BioSourceVersionV2 = { ...BIO_V1, kunRedaktion: true, narrativeText: 'Kladde uden side.', citationLabel: '' };
+    vis(detalje({ bio: '', bioVersions: [kladde], faktaInput: null }));
+    expect(screen.getByRole('note').textContent).toBe('Ikke udgivet — kun synlig for redaktionen. Kilde: DAA 2018-20.');
+  });
+
 });

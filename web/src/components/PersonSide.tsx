@@ -112,6 +112,13 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
               <Sektion titel="Biografi" vis={henter || v.vaelger.form !== 'skift' && (!!v.bioText || v.vaelger.form === 'chips')}>
                 {henter ? <Henter /> : v.bioText ? (
                   <div style={{ maxWidth: '36em', fontSize: 16, lineHeight: '27px', color: T.ink }}>
+                    {/* Redaktøren ser levende (decisions 2026-11-13): en kladde, gæster aldrig ser, siges med ord — med
+                        kilden, fordi én kladde alene ikke giver nogen udgavevælger. */}
+                    {v.aktivChip?.art === 'post' && v.aktivChip.version.kunRedaktion && (
+                      <p role="note" style={{ margin: '0 0 12px', fontSize: 13, lineHeight: '18px', color: T.bordeaux, fontWeight: 600 }}>
+                        Ikke udgivet — kun synlig for redaktionen. Kilde: {v.aktivChip.version.citationLabel || v.aktivChip.version.sourceLabel}.
+                      </p>
+                    )}
                     <NarrativRenderer tekst={v.bioText} onPickPerson={onVisPerson} linkColor={T.bordeaux} inactiveColor={T.inkMuted} />
                   </div>
                 ) : <Mangel>Ingen biografi fra denne udgave.</Mangel>}
