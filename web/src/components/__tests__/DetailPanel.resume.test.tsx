@@ -32,7 +32,7 @@ describe('DetailPanel (genvej)', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Iwan Reventlow' })).toBeTruthy();
     expect(screen.getByText('Reventlow · Linje I, nr. 60')).toBeTruthy();
     expect(screen.getByText('ca. 1484 – ca. 25. okt. 1569')).toBeTruthy();
-    expect(screen.getByText('Amtmand. Godser: Rixdorf, Schönweide, Stocksee og 2 flere.')).toBeTruthy();
+    expect(screen.getByText('Amtmand. Besiddelser: Rixdorf, Schönweide, Stocksee og 2 flere.')).toBeTruthy();
     expect(screen.queryByText(/Lang biografi/)).toBeNull();
     expect(screen.queryByText('amtmand')).toBeNull();
     expect(screen.queryByText('Det er mig')).toBeNull();
@@ -68,11 +68,11 @@ describe('DetailPanel (genvej)', () => {
 });
 
 describe('godsResume', () => {
-  it('ét, to, tre og flere godser', () => {
+  it('ét, to, tre og flere besiddelser', () => {
     expect(godsResume([])).toBe('');
-    expect(godsResume(['A'])).toBe('Gods: A.');
-    expect(godsResume(['A', 'B'])).toBe('Godser: A og B.');
-    expect(godsResume(['A', 'B', 'C'])).toBe('Godser: A, B og C.');
-    expect(godsResume(['A', 'B', 'C', 'D'])).toBe('Godser: A, B, C og 1 mere.');
+    expect(godsResume(['A'])).toBe('Besiddelse: A.');
+    expect(godsResume(['A', 'B'])).toBe('Besiddelser: A og B.');
+    expect(godsResume(['A', 'B', 'C'])).toBe('Besiddelser: A, B og C.');
+    expect(godsResume(['A', 'B', 'C', 'D'])).toBe('Besiddelser: A, B, C og 1 mere.');
   });
 });

@@ -262,7 +262,7 @@ describe('hrefForCard', () => {
     const kort: Extract<FeedCard, { kind: 'gods' }> = {
       kind: 'gods', id: 'gods:7', estateId: '7', navn: 'Gammel Gaard', meta: 'herregård', ownerDots: 3, kicker: 'Gods',
     };
-    expect(hrefForCard(kort)).toBe('/gods/7');
+    expect(hrefForCard(kort)).toBe('/besiddelse/7');
   });
   it('våben-kort peger på våben-fanen', () => {
     const kort: Extract<FeedCard, { kind: 'vaaben' }> = {

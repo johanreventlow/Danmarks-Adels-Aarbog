@@ -102,7 +102,7 @@ describe('PersonSide', () => {
 
   it('vælgeren skifter biografi og godser til den valgte udgave', () => {
     render(<PersonSide {...props()} />);
-    expect(screen.getByRole('link', { name: 'Clausholm' }).getAttribute('href')).toBe('/gods/e1');
+    expect(screen.getByRole('link', { name: 'Clausholm' }).getAttribute('href')).toBe('/besiddelse/e1');
     expect(screen.queryByRole('link', { name: 'Frijsenborg' })).toBeNull();
     fireEvent.click(within(screen.getByRole('group', { name: 'Udgave' })).getByRole('button', { name: /1939/ }));
     expect(screen.getByText(/Greve, f\. 21 April 1644/)).toBeTruthy();
