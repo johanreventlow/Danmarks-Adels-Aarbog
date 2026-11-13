@@ -183,6 +183,16 @@ BEGIN
     RAISE EXCEPTION 'ETK_PRE_BINDINGER n=% sprunget=%', (SELECT count(*) FROM etk_binding),
       (SELECT count(*) FROM etk_sprunget);
   END IF;
+  -- Opdelingen som helhed: kildens publicerede bindinger, hvis seneste hændelse bærer en record-etiket (uden narrativ-
+  -- join), er præcis de udvalgte og de oversprungne.
+  SELECT count(*) INTO v_n
+    FROM private.narrative_record_publication b
+    JOIN private.source_record sr ON sr.id=b.source_record_id AND sr.source_id=v_src
+    LEFT JOIN LATERAL pg_temp.etk_seneste(b.id) l ON true
+   WHERE b.status='published' AND l.after_state #>> '{binding,record_label}' ~ '^record-';
+  IF v_n<>(e->>'bindinger')::bigint+(e->>'sprunget')::bigint THEN
+    RAISE EXCEPTION 'ETK_PRE_OPDELING n=%', v_n;
+  END IF;
   -- En oversprunget binding må ikke blive forældet af ceremonien (dens post må ikke ligge i en rettet entry).
   IF EXISTS (SELECT 1 FROM etk_sprunget x JOIN private.source_record_placement_current pc
                  ON pc.source_record_id=(SELECT source_record_id FROM etk_kandidat k WHERE k.binding_id=x.binding_id)
@@ -375,6 +385,12 @@ BEGIN
     RAISE EXCEPTION 'ETK_POST_LAESER fakta=%', current_setting('etk.fakta');
   END IF;
 END $post$;
+-- Kvitteringens stale-tal tælles i transaktionen (efter ETK_POST_STALE, inden for de 15 min).
+SELECT count(*) FILTER (WHERE s->>'publication_status'='stale_published') AS g_stale
+  FROM private.narrative_record_publication b
+  JOIN private.source_record sr ON sr.id=b.source_record_id AND sr.source_id=:src
+  JOIN public.narrative n ON n.id=b.narrative_id AND n.subjekt_type='person',
+       LATERAL private.narrative_record_state(n.subjekt_id, sr.source_id, sr.record_key) s \gset
 SELECT count(*) AS g_bindinger, count(*) FILTER (WHERE ny_record_label='') AS g_tomme FROM etk_binding \gset
 SELECT count(*) AS g_sprunget FROM etk_sprunget \gset
 SELECT count(*) AS g_entries,
@@ -382,10 +398,5 @@ SELECT count(*) AS g_entries,
          AS g_linjer FROM etk_entry \gset
 SELECT pg_temp.etk_koord_andre(:src) AS g_koord, pg_temp.etk_etiketter_andre(:src) AS g_etiketter \gset
 COMMIT;
-SELECT count(*) FILTER (WHERE s->>'publication_status'='stale_published') AS g_stale
-  FROM private.narrative_record_publication b
-  JOIN private.source_record sr ON sr.id=b.source_record_id AND sr.source_id=:src
-  JOIN public.narrative n ON n.id=b.narrative_id AND n.subjekt_type='person',
-       LATERAL private.narrative_record_state(n.subjekt_id, sr.source_id, sr.record_key) s \gset
 \echo :g_linjer
 \echo ETK_OK bindinger=:g_bindinger tomme=:g_tomme entries=:g_entries revalideret=:g_reval sprunget=:g_sprunget stale=:g_stale koord_andre=:g_koord etiketter_andre=:g_etiketter

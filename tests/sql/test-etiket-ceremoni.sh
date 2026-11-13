@@ -153,6 +153,16 @@ nej "${db}_neg" sprunget ETK_POST_SPRUNGET
 v "${db}_neg" "DROP TRIGGER t6e2_sprunget ON public.lineage_scheme_entry" >/dev/null
 # Stale før kørslen → ETK_PRE_STALE (en binding ændret uden revalidering), og tvetydig placement → ETK_PRE_TVETYDIG.
 createdb -T "$db" "${db}_stale"
+# $opdeling$: r1's etiket er ændret i bindingen uden revalidering, så bindingstabellen og den seneste hændelse er uenige
+# om, hvilke bindinger der bærer record-etiketten. Forventningerne fra tabellen (3 + 1) består opdelingen, men
+# hændelserne tæller 5 → ETK_PRE_OPDELING (før stale-tjekket); intet skrevet.
+v "${db}_stale" "UPDATE private.narrative_record_publication b SET record_label='IV, nr. 3' FROM private.source_record sr
+  WHERE sr.id=b.source_record_id AND sr.record_key='${K}1'" >/dev/null
+if E_BIND=3 run "${db}_stale" opdeling; then fail "opdeling godtaget"; fi
+grep -q 'ETK_PRE_OPDELING n=5' "$tmp/opdeling.out" || fail "opdeling: fik $(kode opdeling) $(grep -m1 ERROR "$tmp/opdeling.out" || true)"
+[ "$(felt "${db}_stale" fase)" = "ddl" ] || fail "opdeling: negativen skrev"
+v "${db}_stale" "UPDATE private.narrative_record_publication b SET record_label=sr.record_key FROM private.source_record sr
+  WHERE sr.id=b.source_record_id AND sr.record_key='${K}1'" >/dev/null
 v "${db}_stale" "UPDATE private.narrative_record_publication b SET citation_label='DAA T side 999' FROM private.source_record sr
   WHERE sr.id=b.source_record_id AND sr.record_key='${K}1'" >/dev/null
 if run "${db}_stale" stale; then fail "stale godtaget"; fi
