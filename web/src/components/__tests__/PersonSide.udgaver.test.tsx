@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// 6e-1 (spec 2026-11-12-trin6e-laeserflade-design.md §5.2-5.5, §5.8): persondetaljen viser den valgte udgaves
+// 6e-1 (spec 2026-11-12-trin6e-laeserflade-design.md §5.2-5.5, §5.8): personsiden (PersonSide) viser den valgte udgaves
 // fakta forrest og den anden udgave som note; én vælger styrer både biografi og fakta.
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { buildModel, type AppPerson, type BioSourceVersionV2, type PublicPersonFactRow, type Udgave, type UdgaveFaktaInput } from '@daa/core';
@@ -8,7 +8,8 @@ import type { PersonDetailData } from '../../data/public';
 import type { Model } from '../../data/types';
 
 vi.mock('../../data/familySources', () => ({ fetchFamilySources: async () => [] }));
-const { DetailPanel } = await import('../DetailPanel');
+vi.mock('../../router', () => ({ navigate: vi.fn() }));
+const { PersonSide } = await import('../PersonSide');
 
 const D18: Udgave = { sourceId: '1', label: 'DAA 2018-20', aar: 2018 };
 const D39: Udgave = { sourceId: '3', label: 'DAA 1939', aar: 1939 };
@@ -78,38 +79,37 @@ const detalje = (o: Partial<PersonDetailData> = {}): PersonDetailData => ({
   faktaInput: faktaInput([...ROWS_18, ...ROWS_39]),
   ...o,
 });
-const noop = () => {};
 const panel = (detail: PersonDetailData | null, focusId = '392') => (
-  <DetailPanel model={model} focusId={focusId} detail={detail} onPick={noop} backName={null} onBack={noop}
-    onFocusTree={noop} onRelate={noop} isMe={false} onToggleMe={noop} isBookmarked={false} onToggleBookmark={noop} geoLoading={false} />
+  <PersonSide model={model} focusId={focusId} detail={detail} detailError={null} onRetry={vi.fn()} onVisPerson={vi.fn()}
+    onFindSlaegtskab={vi.fn()} onSlaegt={vi.fn()} loggetInd={false} onLogin={vi.fn()} erBogmaerket={false} onToggleBogmaerke={vi.fn()} />
 );
 const vis = (detail: PersonDetailData) => render(panel(detail));
-const chip = (navn: string) => screen.getByRole('button', { name: navn });
+const chip = (navn: string) => within(screen.getByRole('group', { name: 'Udgave' })).getByRole('button', { name: navn });
 const LAEK = /record-[0-9a-f]{8}-|legacy-source:/;
 
-describe('DetailPanel — udgaver', () => {
+describe('PersonSide — udgaver', () => {
   it("åbner på V-1 og viser 2018-20's fakta", () => {
     vis(detalje());
     expect(chip('DAA 2018-20 · V-1').getAttribute('aria-pressed')).toBe('true');
     expect(chip('DAA 2018-20 · III-58').getAttribute('aria-pressed')).toBe('false');
     expect(screen.getByText(BIO_V1.narrativeText)).toBeTruthy();
-    expect(screen.queryByText('Tidligere udgave')).toBeNull();
+    expect(screen.queryByText('Du ser en tidligere udgave.')).toBeNull();
     expect(screen.getByText('Conrad de Reventlow')).toBeTruthy();
     expect(screen.getByText('DAA 1939 skriver: Conrad Reventlow')).toBeTruthy();
     expect(screen.getAllByText('✓ også i DAA 1939').length).toBe(2); // titel og fødsel
     expect(screen.getByText('Kun i DAA 1939')).toBeTruthy();
     expect(screen.getByText('Begravet: Herlufsholm')).toBeTruthy();
     // godser: kun 2018-20's (én gang, selv om to 2018-20-rækker ejer det) + rækker uden kendt udgave
-    expect(screen.getAllByText('⌂ Clausholm')).toHaveLength(1);
-    expect(screen.queryByText('⌂ Frijsenborg')).toBeNull();
-    expect(screen.getByText('⌂ Uden fakta-række')).toBeTruthy();
+    expect(screen.getAllByRole('link', { name: 'Clausholm' })).toHaveLength(1);
+    expect(screen.queryByRole('link', { name: 'Frijsenborg' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Uden fakta-række' })).toBeTruthy();
   });
 
   it('klik på III-58 skifter biografi, men ikke fakta', () => {
     vis(detalje());
     fireEvent.click(chip('DAA 2018-20 · III-58'));
     expect(screen.getByText('Se V-1.')).toBeTruthy();
-    expect(screen.queryByText('Tidligere udgave')).toBeNull();
+    expect(screen.queryByText('Du ser en tidligere udgave.')).toBeNull();
     expect(screen.getByText('Conrad de Reventlow')).toBeTruthy();
   });
 
@@ -119,21 +119,21 @@ describe('DetailPanel — udgaver', () => {
     expect(chip('DAA 1939').getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByText(BIO_1939.narrativeText)).toBeTruthy();
     expect(screen.queryByText(BIO_V1.narrativeText)).toBeNull();
-    expect(screen.getByText('Tidligere udgave')).toBeTruthy();
-    expect(screen.getAllByText('Conrad Reventlow')).toHaveLength(2); // overskriften og 1939's navnelinje
+    expect(screen.getByText('Du ser en tidligere udgave.')).toBeTruthy();
+    expect(screen.getAllByText('Conrad Reventlow')).toHaveLength(3); // overskriften, brødkrummen og 1939's navnelinje
     expect(screen.getByText('DAA 2018-20 skriver: Conrad de Reventlow')).toBeTruthy();
     expect(screen.queryByText('Conrad de Reventlow')).toBeNull();
     expect(screen.getByText('Herlufsholm')).toBeTruthy();
     expect(screen.queryByText('Kun i DAA 1939')).toBeNull();
-    expect(screen.getByText('⌂ Frijsenborg')).toBeTruthy();
-    expect(screen.queryByText('⌂ Clausholm')).toBeNull();
+    expect(screen.getByRole('link', { name: 'Frijsenborg' })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Clausholm' })).toBeNull();
   });
 
   it('udgave-chip uden biografi viser Ingen biografi fra denne udgave', () => {
     vis(detalje({ bioVersions: [BIO_V1] }));
-    expect(screen.queryByText('Ingen biografi fra denne udgave')).toBeNull();
+    expect(screen.queryByText('Ingen biografi fra denne udgave.')).toBeNull();
     fireEvent.click(chip('DAA 1939'));
-    expect(screen.getByText('Ingen biografi fra denne udgave')).toBeTruthy();
+    expect(screen.getByText('Ingen biografi fra denne udgave.')).toBeTruthy();
     expect(screen.queryByText(BIO_V1.narrativeText)).toBeNull();
     expect(screen.getByText('DAA 2018-20 skriver: Conrad de Reventlow')).toBeTruthy();
   });
@@ -141,27 +141,27 @@ describe('DetailPanel — udgaver', () => {
   it('ingen biografi og to udgaver viser udgaveskift uden biografitekst', () => {
     vis(detalje({ bio: '', bioVersions: [] }));
     expect(chip('DAA 2018-20').getAttribute('aria-pressed')).toBe('true');
-    expect(screen.queryByText('Ingen biografi fra denne udgave')).toBeNull();
-    expect(screen.queryByText('Tidligere udgave')).toBeNull();
+    expect(screen.queryByText('Ingen biografi fra denne udgave.')).toBeNull();
+    expect(screen.queryByText('Du ser en tidligere udgave.')).toBeNull();
     // udgaveskiftet står over fakta
     expect(chip('DAA 2018-20').compareDocumentPosition(screen.getByText('Fakta')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByText('Conrad de Reventlow')).toBeTruthy();
     fireEvent.click(chip('DAA 1939'));
     expect(screen.getByText('DAA 2018-20 skriver: Conrad de Reventlow')).toBeTruthy();
-    expect(screen.queryByText('Ingen biografi fra denne udgave')).toBeNull();
+    expect(screen.queryByText('Ingen biografi fra denne udgave.')).toBeNull();
   });
 
   it('ingen biografi og ingen fakta viser intet vælgerområde', () => {
     vis(detalje({ bio: '', bioVersions: [], faktaInput: faktaInput([]) }));
     expect(screen.queryByRole('button', { name: /DAA/ })).toBeNull();
-    expect(screen.queryByText('Ingen biografi fra denne udgave')).toBeNull();
+    expect(screen.queryByText('Ingen biografi fra denne udgave.')).toBeNull();
     expect(screen.queryByText('Fakta')).toBeNull();
   });
 
   it('én udgave med fakta og uden biografi viser ingen vælger', () => {
     vis(detalje({ bio: '', bioVersions: [], faktaInput: faktaInput(ROWS_39) }));
     expect(screen.queryByRole('button', { name: /DAA/ })).toBeNull();
-    expect(screen.queryByText('Ingen biografi fra denne udgave')).toBeNull();
+    expect(screen.queryByText('Ingen biografi fra denne udgave.')).toBeNull();
     expect(screen.getByText('Herlufsholm')).toBeTruthy();
   });
 
@@ -170,24 +170,19 @@ describe('DetailPanel — udgaver', () => {
     expect(screen.getByText('Fakta kunne ikke hentes')).toBeTruthy();
     fireEvent.click(chip('DAA 1939'));
     expect(screen.getByText(BIO_1939.narrativeText)).toBeTruthy();
-    expect(screen.getByText('⌂ Frijsenborg')).toBeTruthy(); // uden fakta kendes godsernes udgave ikke → alle vises
-    expect(screen.getAllByText('⌂ Clausholm')).toHaveLength(1);
+    expect(screen.getByRole('link', { name: 'Frijsenborg' })).toBeTruthy(); // uden fakta kendes godsernes udgave ikke → alle vises
+    expect(screen.getAllByRole('link', { name: 'Clausholm' })).toHaveLength(1);
   });
 
-  it('barnechip viser fornavn og fødselsår', () => {
-    vis(detalje());
-    expect(screen.getByText('Ulrica · 1686')).toBeTruthy();
-    expect(screen.getByText('Christian')).toBeTruthy();
-  });
 
   it('»Tidligere udgave« står kun over en ældre udgave end standarden', () => {
     // kun 1939 har biografi → standarden er 1939-posten; 2018-20 (kun fakta) er den nyere udgave
     vis(detalje({ bio: BIO_1939.narrativeText, bioVersions: [BIO_1939] }));
     expect(chip('DAA 1939').getAttribute('aria-pressed')).toBe('true');
-    expect(screen.queryByText('Tidligere udgave')).toBeNull();
+    expect(screen.queryByText('Du ser en tidligere udgave.')).toBeNull();
     fireEvent.click(chip('DAA 2018-20'));
     expect(chip('DAA 2018-20').getAttribute('aria-pressed')).toBe('true');
-    expect(screen.queryByText('Tidligere udgave')).toBeNull();
+    expect(screen.queryByText('Du ser en tidligere udgave.')).toBeNull();
   });
 
   it('valgt chip bevares, når detaljen hentes igen for samme person; ny person → standarden', () => {
@@ -217,17 +212,11 @@ describe('DetailPanel — udgaver', () => {
     expect(JSON.stringify(detalje())).toMatch(/record-07565168-/);
     expect(model.lineage!.byPerson['392'][0]).toMatch(/^legacy-source:/);
     expect(container.innerHTML).not.toMatch(LAEK);
-    expect(within(container).getByText('V. Linje')).toBeTruthy();
+    expect(within(container).getAllByText(/V\. Linje/).length).toBeTruthy();
     fireEvent.click(chip('DAA 1939'));
     expect(container.innerHTML).not.toMatch(LAEK);
     vis(detalje({ bio: '', bioVersions: [] }));
     expect(document.body.innerHTML).not.toMatch(LAEK);
   });
 
-  it('har »Åbn personsiden«, der peger på /person/<id>, også i træet', () => {
-    render(<DetailPanel model={model} focusId="392" detail={detalje()} onPick={vi.fn()} personHref={(id) => `/slaegt/reventlow/stamtrae?fokus=${id}`}
-      backName={null} onBack={vi.fn()} onFocusTree={vi.fn()} onRelate={vi.fn()} isMe={false} onToggleMe={vi.fn()}
-      isBookmarked={false} onToggleBookmark={vi.fn()} geoLoading={false} />);
-    expect(screen.getByRole('link', { name: 'Åbn personsiden ›' }).getAttribute('href')).toBe('/person/392');
-  });
 });
