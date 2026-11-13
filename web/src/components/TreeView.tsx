@@ -9,7 +9,9 @@ import { T } from '../theme';
 import { childrenOf, parentsOf } from '../data/model';
 import type { Model } from '../data/types';
 import { buildBidirectionalColumns } from '@daa/core';
-import { ViewHeader, Avatar, BookmarkFlag, Crest, Label, Stem } from './primitives';
+import { ViewHeader, Avatar, BookmarkFlag } from './primitives';
+import { FokusTrae } from './FokusTrae';
+import { useSmalSkaerm } from '../useSmalSkaerm';
 import { TreeSearch, type TreeSearchBundle } from './TreeSearch';
 import { Link } from '../Link';
 import { personPath } from '../data/nav';
@@ -23,6 +25,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   // Visnings-variant (segmenteret kontrol) — bevares på tværs af fokus-skift (nulstilles kun når
   // TreeView unmountes ved mode-skift til Godser/Våben/Slægtskab). Matcher designets state.variant.
   const [variant, setVariant] = useState<'A' | 'B'>('A');
+  const smal = useSmalSkaerm();
   // Bidirektionel drill-tilstand (variant B): fast anker + valgte aner (op) + valgte efterkommere (ned).
   // up[i] = valgt forælder i ane-ring i+1; down[i] = valgt barn i efterkommer-ring i+1.
   const [anchorId, setAnchorId] = useState<string | null>(null);
@@ -83,14 +86,7 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   if (!model || !focusId) return <div style={{ padding: 40, color: T.inkMuted }}>Henter…</div>;
   const f = model.byId[focusId];
   if (!f) return <div style={{ padding: 40, color: T.inkMuted }}>Ukendt person.</div>;
-  // Forenkling: stamtræet viser den PRIMÆRE forælder-linje (f.parentId). Slægtskabsfinderen er
-  // bilineal (begge forældre) — så et halvsøskende via den anden forælder kan optræde som
-  // beslægtet uden at stå i søskende-rækken her. Bevidst (variant A kan ikke vise to-forælder-celler).
-  const parent = f.parentId ? model.byId[f.parentId] : null;
-  const grand = parent?.parentId ? model.byId[parent.parentId] : null;
-  const siblings = f.parentId ? childrenOf(model, f.parentId) : [f];
-  const spouses = (model.indexes.spousesBy[focusId] ?? []).map((s) => s.name).filter(Boolean);
-  const children = childrenOf(model, focusId);
+  // Fokusvisningen (variant A) bor i FokusTrae.tsx (fase 5c); her er kun Kolonner (variant B).
   const childCount = (id: string) => model.indexes.childIdx[id]?.size ?? 0;
   const hasParents = (id: string) => (model.indexes.parentsByChild[id]?.length ?? 0) > 0;
 
@@ -112,20 +108,18 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
   anchorIdxRef.current = Math.max(0, anchorColIdx);
 
   return (
-    <div style={{ padding: '30px 40px 50px', position: 'relative', minHeight: '100%' }}>
-      {/* Dekorativt våbenskjold-vandmærke (delt Crest-primitiv). */}
-      <Crest opacity={0.09} size={116} style={{ position: 'absolute', top: 104, right: 34, zIndex: 0 }} />
+    <div style={{ padding: 'clamp(16px, 4vw, 30px) clamp(16px, 4vw, 40px) 50px', position: 'relative', minHeight: '100%' }}>
       <div style={{ position: 'relative', zIndex: 1 }}>
       {/* Header: titel til venstre, segmenteret kontrol (Fokus/Kolonner) til højre. */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 18 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 18 }}>
         <div>
           <ViewHeader title="Stamtræ" mb="0" />
         </div>
-        <div style={{ display: 'flex', background: T.surfaceSunken, borderRadius: 10, padding: 3, gap: 3, flex: 'none' }}>
+        <div role="group" aria-label="Visning" style={{ display: 'flex', background: T.surfaceSunken, borderRadius: 10, padding: 3, gap: 3, flex: 'none' }}>
           {(['A', 'B'] as const).map((v) => {
             const active = variant === v;
             return (
-              <div key={v} onClick={() => setVariant(v)} style={{ padding: '7px 16px', borderRadius: 7, fontFamily: T.sans, fontSize: 13.5, fontWeight: 600, cursor: 'pointer', background: active ? T.surfaceRaised : 'transparent', color: active ? T.bordeaux : '#8a8170' }}>{v === 'A' ? 'Fokus' : 'Kolonner'}</div>
+              <button key={v} type="button" aria-pressed={active} onClick={() => setVariant(v)} style={{ padding: '7px 16px', borderRadius: 7, border: 0, fontFamily: T.sans, fontSize: 13.5, fontWeight: 600, cursor: 'pointer', background: active ? T.surfaceRaised : 'transparent', color: active ? T.bordeaux : T.inkSecondary }}>{v === 'A' ? 'Fokus' : 'Kolonner'}</button>
             );
           })}
         </div>
@@ -214,65 +208,8 @@ export function TreeView({ model, focusId, onPick, onFocus, hasBookmark, onToggl
           ))}
         </div>
       ) : (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        {grand && (
-          <>
-            <div onClick={() => onPick(grand.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 16px', borderRadius: 20, background: T.surfaceSunken, border: '1px solid rgba(34,31,26,.08)', cursor: 'pointer', opacity: 0.85 }}>
-              <span style={{ color: T.inkMuted, fontSize: 13 }}>▲</span>
-              {navnLink(grand.id, grand.name, { fontFamily: T.serif, fontSize: 17, fontWeight: 600, color: '#5a5246' }, () => onPick(grand.id))}
-            </div>
-            <Stem h={18} />
-          </>
-        )}
-        {parent && (
-          <>
-            <div onClick={() => onPick(parent.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 13, padding: '11px 18px 11px 12px', cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.04)' }}>
-              <Avatar n={parent.name} size={40} />
-              <div>
-                <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.12em', textTransform: 'uppercase', color: T.goldInk }}>Forælder ▲</div>
-                {navnLink(parent.id, parent.name, { fontFamily: T.serif, fontSize: 18, fontWeight: 600, lineHeight: 1.05 }, () => onPick(parent.id))}
-              </div>
-            </div>
-            <Stem h={22} />
-          </>
-        )}
-        <Label>Denne generation</Label>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 13, justifyContent: 'center', maxWidth: 760 }}>
-          {siblings.map((p) => {
-            const sel = p.id === focusId;
-            return (
-              <div key={p.id} onClick={() => onPick(p.id)} style={{ position: 'relative', width: 188, background: sel ? '#fff' : T.surfaceRaised, border: `1.5px solid ${sel ? T.bordeaux : T.line}`, borderRadius: 15, padding: 16, cursor: 'pointer', boxShadow: sel ? '0 4px 14px rgba(136,26,51,.12)' : '0 1px 2px rgba(34,31,26,.04)' }}>
-                <div style={{ position: 'absolute', top: 12, left: 13 }}><BookmarkFlag active={hasBookmark(p.id)} onClick={() => onToggleBookmark(p.id)} /></div>
-                {sel && <div style={{ position: 'absolute', top: 12, right: 13, fontFamily: T.mono, fontSize: 8.5, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux }}>I fokus</div>}
-                <Avatar n={p.name} size={56} />
-                {navnLink(p.id, p.name, { fontFamily: T.serif, fontSize: 21, lineHeight: 1.04, fontWeight: 600, marginTop: 11 }, () => onPick(p.id))}
-                {p.years && <div style={{ fontFamily: T.mono, fontSize: 11, color: T.inkMuted, marginTop: 4 }}>{p.years}</div>}
-                {p.title && <div style={{ fontSize: 12.5, fontWeight: 500, color: T.bordeaux, marginTop: 6, lineHeight: 1.3 }}>{p.title}</div>}
-                {childCount(p.id) > 0 && <div style={{ fontSize: 11.5, color: T.inkMuted, marginTop: 8 }}>↓ {childCount(p.id)} {childCount(p.id) === 1 ? 'barn' : 'børn'}</div>}
-              </div>
-            );
-          })}
-        </div>
-        {spouses.length > 0 && <div style={{ marginTop: 12, fontFamily: T.serif, fontSize: 16, fontStyle: 'italic', color: T.inkMuted }}>⚭ gift med {spouses.join(', ')}</div>}
-        {children.length > 0 ? (
-          <>
-            <Stem h={22} mt={16} />
-            <Label>Børn &amp; grene</Label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 11, justifyContent: 'center', maxWidth: 820 }}>
-              {children.map((p) => (
-                <div key={p.id} onClick={() => onPick(p.id)} style={{ width: 150, background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 12, padding: 13, cursor: 'pointer', boxShadow: '0 1px 2px rgba(34,31,26,.04)' }}>
-                  <Avatar n={p.name} size={40} />
-                  {navnLink(p.id, p.name, { fontFamily: T.serif, fontSize: 17, lineHeight: 1.05, fontWeight: 600, marginTop: 9 }, () => onPick(p.id))}
-                  {p.years && <div style={{ fontFamily: T.mono, fontSize: 10, color: T.inkMuted, marginTop: 3 }}>{p.years}</div>}
-                  {childCount(p.id) > 0 && <div style={{ fontSize: 11, color: T.bordeaux, marginTop: 6 }}>↓ {childCount(p.id)}</div>}
-                </div>
-              ))}
-            </div>
-          </>
-        ) : (
-          <div style={{ marginTop: 18, fontSize: 13.5, color: T.inkMuted }}>Ingen registrerede efterkommere</div>
-        )}
-      </div>
+        <FokusTrae model={model} focusId={focusId} onPick={onPick} onFocus={onFocus} personHref={personHref}
+          hasBookmark={hasBookmark} onToggleBookmark={onToggleBookmark} smal={smal} />
       ))}
       </div>
     </div>

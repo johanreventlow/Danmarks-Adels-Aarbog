@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-11-13 — webredesign fase 5: slægtens forside, panelet som genvej og stamtræet i rækker
+
+Fase 5a (#334) gør `/slaegt/<slug>` til slægtens forside: våben (udskiftelig fil; ingen autorisation, jf.
+`decisions.md` 2026-11-13), indledning med kilde og »Læs hele indledningen«, linjerne med antal, stamfader og
+linjeindledninger, »Redaktionen foreslår« (kun ved fastgjorte portrætter) og feedet; våbnet i sepia er mærket i
+slægtsbjælken, registret og på personsiden. Fase 5b (#336) gør stamtræets panel til en genvej (resumé + »Åbn
+personsiden«); livsrejsen, »Det er mig« og »Vis i præsensliste« står nu på personsiden. Fase 5c tegner stamtræets
+fokusvisning i rækker — forældre (»Mor ikke angivet i bogen«), hele søskendeflokken (vandret rulning, piletaster),
+alle ægteskaber og børn pr. ægteskab, når data angiver det — med usikre led stiplet og med ordet; på smal skærm
+mobiltegningens layout med synlige pile og uden panel. Linjesider og romertal venter på åbent punkt 1; Anespor er ikke
+bygget. Klient-only; ingen DDL.
+
 ## 2026-11-12 — 2018-20's fødsler og dødsfald bundet til bogens post i prod
 
 509 fødsler og dødsfald i 2018-20 viser nu »DAA 2018-20, s. N · <post>« i stedet for kun »DAA 2018-20«, fx Conrad

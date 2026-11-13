@@ -29,6 +29,7 @@ import { OverviewMapView } from './components/OverviewMapView';
 import PresensView from './components/PresensView';
 import { ArmsView } from './components/ArmsView';
 import { AboutView } from './components/AboutView';
+import { useSmalSkaerm } from './useSmalSkaerm';
 import { TreeSearch, type TreeSearchBundle } from './components/TreeSearch';
 import { ViewHeader } from './components/primitives';
 import { synligeLinjer } from './data/lineage';
@@ -68,6 +69,7 @@ export default function Folgesvend() {
   // "rigtig" navigation), ikke af focusOnly/driftFocus (Slægtskabs-fokus / Kolonner-drill).
   const [prevFocusId, setPrevFocusId] = useState<string | null>(null);
   // "Mig" i slægten (PoC: localStorage; flyttes til profiles.reventlow_person_id ved login).
+  const smal = useSmalSkaerm();
   const [meId, setMeId] = useState<string | null>(() => (typeof window !== 'undefined' ? window.localStorage.getItem('daa_me_id') : null));
   // Konto-bogmærker (spec 2026-07-06): login-eksklusiv session. "Mig" (ovenfor) forbliver
   // lokal/udskudt migration — denne session bruges KUN til bogmærker her.
@@ -380,13 +382,12 @@ export default function Folgesvend() {
   // Lazy geo-kæde (review 27 P3): place+fact hentes IKKE ved cold-start (se loadModel) —
   // kun de tre kort-bærende flader udløser hentningen, og kun ÉN gang (geoRequestedRef er en
   // ref, ikke state, så gentagne mode-skift ikke refetcher selvom resultatet reelt blev tomt).
-  // 'estates'/'kort' er selvforklarende kort-visninger; 'person' har livsrejsen (fase 5b); detailOpen dækker minikortet i
-  // detalje-panelet (der kan åbne fra BÅDE 'tree' og 'relate' — vi kender ikke points.length
-  // for den fokuserede person før geo er hentet, så vi henter så snart panelet er åbent).
+  // 'estates'/'kort' er selvforklarende kort-visninger; 'person' har livsrejsen (fase 5b). Panelet har ikke
+  // længere et minikort (5b) og henter derfor ikke geo.
   const geoRequestedRef = useRef(false);
   const [geoLoading, setGeoLoading] = useState(false);
   useEffect(() => {
-    const needsGeo = mode === 'estates' || mode === 'kort' || mode === 'person' || detailOpen;
+    const needsGeo = mode === 'estates' || mode === 'kort' || mode === 'person';
     if (!needsGeo || !model || geoRequestedRef.current) return;
     geoRequestedRef.current = true;
     setGeoLoading(true);
@@ -394,7 +395,7 @@ export default function Folgesvend() {
       .then((geo) => setModel((m) => (m ? { ...m, geo } : m)))
       .catch((e) => console.warn('[Folgesvend] geo-hentning fejlede — intet kort:', e))
       .finally(() => setGeoLoading(false));
-  }, [mode, detailOpen, model]);
+  }, [mode, model]);
 
   // Modellen hentes igen, når brugeren logger ind eller ud: RLS afgør, hvilke personer (levende)
   // den rummer, og ellers ville fx præsensmurens »Log ind« føre en redaktør til en liste uden
@@ -558,7 +559,8 @@ export default function Folgesvend() {
         </div>
 
         {/* Højre: person-detalje (kun i person-centriske visninger) */}
-        {detailOpen && model && focusId && (detailError ? (
+        {/* På smal skærm har stamtræets fokuskort selv »Åbn personsiden«; panelet ville klemme træet (fase 5c). */}
+        {detailOpen && !(smal && mode === 'tree') && model && focusId && (detailError ? (
           <aside role="alert" style={{ width: 380, padding: 28, background: T.surfaceRaised, borderLeft: `1px solid ${T.line}`, fontFamily: T.sans }}>
             <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600, color: T.bordeaux }}>Kunne ikke hente personens biografi</div>
             <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.5, color: T.inkSecondary }}>Forbindelsen til arkivet svigtede et øjeblik. Prøv igen om lidt.</div>
