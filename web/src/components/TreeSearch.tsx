@@ -47,7 +47,7 @@ export function TreeSearch(s: TreeSearchBundle) {
       </div>
 
       {/* Fanerne Godser · Steder · Artikler er fjernet (webredesign fase 2): de var »kommer«-punkter.
-          Søgning på tværs af typer kommer med søgesiden i fase 6. */}
+          Søgning på tværs af typer bor på søgesiden (/soeg, fase 6b). */}
       {!s.showResults && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8, borderBottom: `1px solid ${T.line}` }}>
           <button type="button" onClick={() => s.setBrowsing(true)} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.bordeaux, background: 'transparent', border: 0, cursor: 'pointer', padding: '8px 0', whiteSpace: 'nowrap' }}>Gennemse hele slægten ›</button>

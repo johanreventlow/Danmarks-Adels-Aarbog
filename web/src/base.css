@@ -6,3 +6,7 @@ input,textarea,select{font-family:inherit}
    kan ikke udtrykke :focus-visible, derfor her. Felter med outline:none inline beholder deres. */
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{outline:2px solid #881a33;outline-offset:2px}
 @media (prefers-reduced-motion: reduce){*,*::before,*::after{transition-duration:0s!important;animation-duration:0s!important}}
+/* Formularernes egne markeringer i designsystemets farver i stedet for browserens blå: radio og afkrydsning
+   (bordeaux) og søgefeltets ryd-kryds (inkMuted #655d4f). */
+input[type=radio],input[type=checkbox]{accent-color:#881a33}
+input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;width:14px;height:14px;cursor:pointer;background:#655d4f;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M18 6L6 18M6 6l12 12' stroke='black' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M18 6L6 18M6 6l12 12' stroke='black' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat}

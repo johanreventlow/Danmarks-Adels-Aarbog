@@ -43,7 +43,14 @@ const STEPS = [
   { out: 'a-search', path: '/soeg?q=rev' },
   { out: 'a-search-tom', path: '/soeg?q=Reventlov' },
   // Skriver midt i et ord: »Revetlow« → »Reventlow«. Slutadressen skal være /soeg?q=Reventlow.
-  { out: 'a-search-midt', path: '/soeg', actions: [{ fill: ['input[aria-label="Søg person"]', 'Revetlow'] }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'n' }] },
+  // Søgesiden (fase 6b): fremhævning, godser og personer, filtre i adressen, stavemåde-forslag, alle personer.
+  { out: 'a-search-conrad', path: '/soeg?q=Conrad' },
+  { out: 'a-search-gods', path: '/soeg?q=stamhuset' },
+  { out: 'a-search-filtre', path: '/soeg?q=Reventlow&type=personer&fra=1700&til=1750&sort=foedt' },
+  { out: 'a-search-forslag', path: '/soeg?q=Revenlow' },
+  { out: 'a-search-stavemaader', path: '/soeg?q=Reventlou' },
+  { out: 'a-search-alle', path: '/soeg', actions: [{ scroll: 1800 }] },
+  { out: 'a-search-midt', path: '/soeg', actions: [{ fill: ['#soegeside-q', 'Revetlow'] }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'ArrowLeft' }, { key: 'n' }] },
   // Klikvej gennem menu og bjælke; slutadressen skal være stamtræet uden ?fokus=.
   { out: 'a-klikvej', path: '/', actions: [{ click: 'Slægter', exact: true }, { click: 'Reventlow', exact: true }, { click: 'Stamtræ', exact: true }, { click: 'Godser', exact: true }, { click: 'Stamtræ', exact: true }] },
   { out: 'a-monogram', path: '/slaegt/reventlow/stamtrae?fokus=421' },
@@ -83,6 +90,8 @@ const STEPS = [
   { out: 'd-mobile-tree-aegteskaber', path: '/slaegt/reventlow/stamtrae?fokus=61', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 300 }] },
   { out: 'd-mobile-tree-panel', path: '/slaegt/reventlow/stamtrae?fokus=240', w: 390, h: 844 },
   { out: 'd-mobile-about', path: '/slaegt/reventlow', w: 390, h: 844 },
+  { out: 'd-mobile-search', path: '/soeg?q=Conrad', w: 390, h: 844 },
+  { out: 'd-mobile-search-afgraens', path: '/soeg?q=Conrad', w: 390, h: 844, actions: [{ click: 'Afgræns' }] },
   { out: 'd-mobile-relate-vaelger', path: '/slaegtskab', w: 390, h: 844, actions: [{ fill: ['input[role="combobox"] >> nth=0', 'Otto'] }] },
   { out: 'd-mobile-relate', path: '/slaegtskab?a=18&b=50', w: 390, h: 844 },
   { out: 'd-mobile-relate-vej', path: '/slaegtskab?a=18&b=50', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 700 }] },

@@ -297,6 +297,8 @@ export function collapseSameAs(
       ...primary,
       born,
       died,
+      foedtSpaend: coalesce('foedtSpaend'),
+      doedSpaend: coalesce('doedSpaend'),
       years: regenYears(born as number | null, died as number | null),
       title: primary.title || others.find((o) => o.title)?.title || '',
       koen: primary.koen ?? others.find((o) => o.koen)?.koen,

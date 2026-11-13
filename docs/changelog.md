@@ -1,13 +1,20 @@
 # Changelog
 
-## 2026-11-13 — webredesign fase 6a: Er vi i familie? kan deles
+## 2026-11-13 — webredesign fase 6: Er vi i familie? kan deles, og søgesiden får filtre
 
 `/slaegtskab?a=<id>&b=<id>` bærer de to personer, så et resultat kan deles og åbnes direkte (alias-id'er kanoniseres;
 et ukendt id siges ved feltet). Hver plads har sin egen personvælger med leveår og linje, og »Byt om«. Resultatet viser
 etiket, fælles ane, antal slægtled og »sandsynligvis«, når vejen går gennem et formodet eller omstridt led; vejen trin
 for trin er links til personsiderne med fælles ane, første og anden person mærket og usikre led stiplet med ordet.
 Flere linjer vælges med »Vej 1 af N«. Ingen fælles ane hedder »Aarbogen viser ingen forbindelse«. Slægtskab har ikke
-længere personpanelet. »Indtast kode« (levende) venter på åbent punkt 3. Klient-only; ingen DDL.
+længere personpanelet. »Indtast kode« (levende) venter på åbent punkt 3.
+
+Fase 6b gør `/soeg` til en egen søgeside: søgeord og filtre i adressen (`q`, `type`, `linje`, `fra`, `til`, `sort`,
+`bm`), personer og godser, søgeordet fremhævet, når det står bogstavret i navnet. Levetid: en person tæller med, når
+levetidens spænd rører perioden; en usikker dato tæller i hele sin bredde (`aarSpaend`: »† 1406/1410« → 1406–1410,
+»s.å.« opløst mod fødslen), et manglende endepunkt regnes 100 år fra det kendte, og personer uden årstal tælles for
+sig. Ingen træffere giver »Mente du …?«; med træffere vises »Andre stavemåder« (Reventlow ↔ Reventlou), som
+navnefoldningen ikke gør ens. Uden søgeord er siden personregistret, 25 ad gangen. Klient-only; ingen DDL.
 
 ## 2026-11-13 — webredesign fase 5: slægtens forside, panelet som genvej og stamtræet i rækker
 

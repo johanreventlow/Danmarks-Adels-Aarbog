@@ -7,6 +7,14 @@ export function parseYear(s: string | null | undefined): number | null {
   return m ? parseInt(m[0], 10) : null;
 }
 
+// Alle årstal i en dato som spænd: »† 1406/1410« → [1406, 1410], »17. aug. 1840« → [1840, 1840]. Dage og
+// måneder (1–2 cifre) tæller ikke. Null uden årstal (fx en uopløst »s.å.«).
+export function aarSpaend(s: string | null | undefined): [number, number] | null {
+  if (s == null) return null;
+  const aar = [...String(s).matchAll(/\d{3,4}/g)].map((m) => parseInt(m[0], 10));
+  return aar.length ? [Math.min(...aar), Math.max(...aar)] : null;
+}
+
 // Ordret leveår-visning: "1640–1708", "* 1640", "† 1708" eller tom.
 export function fmtYears(f: string | null | undefined, d: string | null | undefined): string {
   const clean = (s: string | null | undefined) =>
