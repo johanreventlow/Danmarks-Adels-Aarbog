@@ -3337,6 +3337,9 @@ RETURNS TABLE(person_id bigint, source_id bigint, legacy_line_code text, printed
   provenance_kind text)
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
 #variable_conflict use_column
+DECLARE
+  -- POC 2026-11-13 (decisions): redaktionen ser også levende, private og staged personer. Én gang pr. kald.
+  v_red boolean:=public.current_rolle()='redaktion';
 BEGIN
   RETURN QUERY
   WITH m AS (
@@ -3379,13 +3382,13 @@ BEGIN
          CASE WHEN pl.person_id IS NULL THEN 'legacy_external_id' ELSE 'placement' END
     FROM public.person_external_id x
     LEFT JOIN pl ON pl.person_id=x.person_id AND pl.source_id=x.source_id
-   WHERE public.entitet_offentlig('person',x.person_id)
+   WHERE (v_red OR public.entitet_offentlig('person',x.person_id))
   UNION ALL
   -- En gældende placement uden legacy-række (målt 0) tabes ikke.
   SELECT pl.person_id,pl.source_id,pl.code,substring(pl.printed_number from '^[0-9]+')::integer,pl.printed_number,
          pl.generation_local,pl.generation_global,pl.kuld_label,'placement'
     FROM pl
-   WHERE public.entitet_offentlig('person',pl.person_id)
+   WHERE (v_red OR public.entitet_offentlig('person',pl.person_id))
      AND NOT EXISTS (SELECT 1 FROM public.person_external_id x WHERE x.person_id=pl.person_id AND x.source_id=pl.source_id)
    ORDER BY 1,2;
 END $$;
@@ -20858,6 +20861,10 @@ GRANT EXECUTE ON FUNCTION public.red_relation_persona_v3_input(bigint) TO authen
 CREATE OR REPLACE FUNCTION public.public_family_sources(p_family_ids bigint[])
 RETURNS TABLE(family_id bigint, slags text, counterpart_person_id bigint, source_record_ref uuid, source_label text, record_label text, citation_label text)
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE
+  -- POC 2026-11-13 (decisions): redaktionen ser også familier med levende, private eller staged medlemmer. Narrativets
+  -- udgivelsesregel nederst er uændret (trin 2).
+  v_red boolean:=public.current_rolle()='redaktion';
 BEGIN
   IF public.narrative_record_contract_version()<2 OR p_family_ids IS NULL THEN RETURN; END IF;
   RETURN QUERY
@@ -20876,7 +20883,7 @@ BEGIN
      WHERE b.st IS NOT NULL
        AND private.reimport_canonical_json_sha256(b.st)=b.bound_sha
        AND (b.st#>>'{family,family_id}')::bigint=b.fam
-       AND public.family_offentlig(b.fam)
+       AND (v_red OR public.family_offentlig(b.fam))
   ), rec AS (
     -- Spec §5.1 trin 3 (r2-M6): præcis én supporting-observation og præcis én accepteret anchor.
     SELECT ok.*,
@@ -21365,6 +21372,10 @@ RETURNS TABLE(person_id bigint, fact_id bigint, faktatype text, conclusion_statu
   citation_label text)
 LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
 #variable_conflict use_column
+DECLARE
+  -- POC 2026-11-13 (decisions): redaktionen ser også levende, private og staged personers fakta. Kildehenvisningen
+  -- følger fortsat narrativets udgivelsesregel (lab nederst, trin 2).
+  v_red boolean:=public.current_rolle()='redaktion';
 BEGIN
   IF public.narrative_record_contract_version()<2 OR p_person_ids IS NULL THEN RETURN; END IF;
   RETURN QUERY
@@ -21374,7 +21385,7 @@ BEGIN
       JOIN public.conclusion cn ON cn.target_type='fact' AND cn.target_id=fa.id
      WHERE fa.subjekt_type='person' AND fa.subjekt_id=ANY(p_person_ids)
        AND cn.status IN ('afklaret','omstridt')
-       AND public.entitet_offentlig('person',fa.subjekt_id)
+       AND (v_red OR public.entitet_offentlig('person',fa.subjekt_id))
   ), pr AS (
     -- Personernes assertion-promotions med fortolkningsnøgle.
     SELECT p.id,p.interpretation_id,p.target_id,p.rule_key,p.rule_version,q.interpretation_key
