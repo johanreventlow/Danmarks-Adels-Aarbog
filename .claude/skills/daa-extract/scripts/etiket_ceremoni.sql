@@ -119,7 +119,7 @@ BEGIN
           AND to_regprocedure('private.narrative_record_wanted_labels(uuid)') IS NOT NULL
           AND to_regprocedure('private.record_key_uden_bognoegle(text)') IS NOT NULL
           AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public.source'::regclass AND attname='sidekort' AND NOT attisdropped)
-          AND coalesce((SELECT position('''''' IN pg_get_constraintdef(oid))>0 FROM pg_constraint
+          AND coalesce((SELECT pg_get_constraintdef(oid) LIKE '%record_label = ''''%' FROM pg_constraint
                          WHERE conrelid='private.narrative_record_publication'::regclass
                            AND conname='narrative_record_publication_record_label_check'),false)
           AND coalesce(position('printed_page' IN

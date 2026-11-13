@@ -136,6 +136,16 @@ SKF="$tmp/sk-overlap.json" nej "${db}_neg" sidekort ETK_PRE_SIDEKORT
 jvar "$ET" "$tmp/et-dublet.json" 'd[1]["code"]=d[0]["code"]'
 ETF="$tmp/et-dublet.json" nej "${db}_neg" fil ETK_PRE_FIL
 E_ENT=4 nej "${db}_neg" ent ETK_PRE_FIL
+# db-M4: bindingens gamle CHECK (uden tom postdel) med alle andre DDL-markører på plads → ETK_PRE_DDL, og målingen siger
+# foer (den gamle definition indeholder også '' og må ikke tælle som 6e-2's). CHECK'en sættes tilbage bagefter.
+chk() { v "${db}_neg" "ALTER TABLE private.narrative_record_publication DROP CONSTRAINT narrative_record_publication_record_label_check,
+  ADD CONSTRAINT narrative_record_publication_record_label_check CHECK ($1)" >/dev/null; }
+chk "btrim(record_label)<>''"
+[ "$(felt "${db}_neg" fase)" = "foer" ] || fail "ddl-markør: gammel CHECK giver fase $(felt "${db}_neg" fase)"
+if run "${db}_neg" ddl; then fail "ddl-markør: gammel CHECK godtaget"; fi
+grep -q ETK_PRE_DDL "$tmp/ddl.out" || fail "ddl-markør: forventede ETK_PRE_DDL, fik $(kode ddl)"
+chk "record_label='' OR btrim(record_label)<>''"
+urort "${db}_neg" || fail "ddl-markør: negativen skrev"
 # POST-negativer (rulles tilbage): forkert antal tomme, forkerte læsertal.
 E_TOM=2 nej "${db}_neg" tom ETK_POST_TOMME
 E_BIO=999 nej "${db}_neg" bio 'ETK_POST_LAESER bio'

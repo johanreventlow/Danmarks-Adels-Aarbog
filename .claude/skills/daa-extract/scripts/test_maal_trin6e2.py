@@ -194,3 +194,23 @@ def test_laeserne_laeses_som_gaest_begge_steder():
     anon = c.index("SET LOCAL ROLE anon;")
     assert c[c.rindex(ryd, 0, anon):anon].count("\n") == 1  # linjen lige foer SET LOCAL ROLE anon
     assert "set_config('request.jwt.claim.sub', :'actor', true)" in c[anon:]
+
+
+def test_ddl_markoeren_skelner_den_gamle_check(db):
+    """db-M4: med den gamle CHECK (btrim(record_label) <> '') og alle andre markoerer paa plads er fasen foer; den gamle
+    definition indeholder ogsaa '' og maa ikke tælle som 6e-2's."""
+    tabel, navn = "private.narrative_record_publication", "narrative_record_publication_record_label_check"
+    _must(_psql("-c", f"ALTER TABLE {tabel} DROP CONSTRAINT {navn}, "
+                      f"ADD CONSTRAINT {navn} CHECK (btrim(record_label)<>'')", db=db), "gammel CHECK")
+    try:
+        assert _maal(db)["fase"] == "foer"
+    finally:
+        _must(_psql("-c", f"ALTER TABLE {tabel} DROP CONSTRAINT {navn}, "
+                          f"ADD CONSTRAINT {navn} CHECK (record_label='' OR btrim(record_label)<>'')", db=db), "ny CHECK")
+    assert _maal(db)["fase"] == "ddl"
+
+
+def test_ddl_markoeren_er_den_samme_som_ceremoniens():
+    m, c = MAAL.read_text(encoding="utf-8"), CEREMONI.read_text(encoding="utf-8")
+    s = "pg_get_constraintdef(oid) LIKE '%record_label = ''''%'"
+    assert s in m and s in c and "position('''''' IN" not in m + c
