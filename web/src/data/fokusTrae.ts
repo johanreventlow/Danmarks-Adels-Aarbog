@@ -86,6 +86,8 @@ export function byggFokusRaekker(model: Model, focusId: string): FokusRaekker | 
   for (const u of unioner) {
     const andenRaa = canon(u.p1) === focusId ? u.p2 : u.p1;
     const anden = andenRaa ? canon(andenRaa) : null;
+    // En familie med kun én partner og intet navn er ikke et ægteskab, men børn med ukendt anden forælder.
+    if (!anden && !u.p2_name) continue;
     const navn = (anden && model.byId[anden]?.name) || u.p2_name || 'Ægtefælle uden navn';
     const id = anden && model.byId[anden] ? anden : null;
     const fundet = findAegteskab(id, navn);

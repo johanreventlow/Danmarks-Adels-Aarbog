@@ -89,4 +89,14 @@ describe('byggFokusRaekker', () => {
     expect(r.boerneGrupper[0].aegteskab).toBeNull();
     expect(r.boerneNote).toBeNull();
   });
+
+  it('en familie med kun én partner er ikke et ægteskab', () => {
+    const m = model({ persons: [P('H', 'Hartwich', 'mand'), P('K', 'Karl')],
+      unions: [{ id: 'u1', p1: 'H', p2: null, p2_name: null, year: null }],
+      parentChild: [{ child: 'K', parent: 'H', union: 'u1' }] });
+    const r = byggFokusRaekker(m, 'H')!;
+    expect(r.aegteskaber).toEqual([]);
+    expect(r.boerneGrupper.map((g) => navne(g.boern))).toEqual([['Karl']]);
+    expect(r.boerneNote).toBeNull();
+  });
 });
