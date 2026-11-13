@@ -93,4 +93,26 @@ BEGIN
   END IF;
 END $t$;
 RESET ROLE;
+-- Redaktøren ser levende (decisions 2026-11-13) sammen med 6e-2's trykte side: en levende, privat eller staged persons
+-- fakta ses kun af redaktionen, med citationens side omregnet ('52' med kort, '541' uden). Gæst, uid uden profil og
+-- medlem ser 0.
+\ir fixtures/kalder-matrix.sql
+DO $t$
+DECLARE
+  q_kort text:='SELECT * FROM public.public_person_facts(ARRAY[-6210::bigint]) WHERE assertion_id=-6210 AND side=''52''';
+  q_uden text:='SELECT * FROM public.public_person_facts(ARRAY[-6210::bigint]) WHERE assertion_id=-6211 AND side=''541''';
+BEGIN
+  PERFORM pg_temp.km_kaldere();
+  PERFORM pg_temp.km_forvent('fakta afdød, med kort',q_kort,1,1);
+  PERFORM pg_temp.km_forvent('fakta afdød, uden kort',q_uden,1,1);
+  UPDATE public.person SET levende=true WHERE id=-6210;
+  PERFORM pg_temp.km_forvent('fakta levende, med kort',q_kort,0,1);
+  PERFORM pg_temp.km_forvent('fakta levende, uden kort',q_uden,0,1);
+  UPDATE public.person SET levende=false,privat=true WHERE id=-6210;
+  PERFORM pg_temp.km_forvent('fakta privat, med kort',q_kort,0,1);
+  UPDATE public.person SET privat=false,staged=true WHERE id=-6210;
+  PERFORM pg_temp.km_forvent('fakta staged, med kort',q_kort,0,1);
+  UPDATE public.person SET staged=false WHERE id=-6210;
+  RAISE NOTICE 'OK: redaktøren ser levendes fakta med trykt side';
+END $t$;
 ROLLBACK;

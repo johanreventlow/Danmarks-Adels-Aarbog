@@ -7,6 +7,7 @@ BEGIN;
 \ir fixtures/relation-5b.sql
 \ir fixtures/placement-150.sql
 \ir fixtures/relation-2a.sql
+\ir fixtures/kalder-matrix.sql
 
 -- Kilde med entry 'I' (canonical linje), header-kørsel og valgfrit sidekort.
 CREATE FUNCTION pg_temp.k_src(p_source bigint,p_kort jsonb) RETURNS jsonb LANGUAGE plpgsql AS $$
@@ -93,14 +94,17 @@ BEGIN
     VALUES (v_n,p_record,'','Opdigtet kilde',p_status);
 END $$;
 
--- Én persons række i kilden, som anon.
+-- Én persons række i kilden, som anon uden uid (gæst; redaktøren ser også ikke-offentlige, jf.
+-- fixtures/kalder-matrix.sql). Uid'en sættes tilbage.
 CREATE FUNCTION pg_temp.k_row(p_person bigint,p_source bigint) RETURNS jsonb LANGUAGE plpgsql AS $$
-DECLARE r jsonb; n int;
+DECLARE r jsonb; n int; v_for text:=coalesce(current_setting('request.jwt.claim.sub',true),'');
 BEGIN
+  PERFORM set_config('request.jwt.claim.sub','',true);
   SET LOCAL ROLE anon;
   SELECT count(*),min(to_jsonb(c)::text)::jsonb INTO n,r FROM public.public_person_source_coordinates() c
    WHERE c.person_id=p_person AND c.source_id=p_source;
   RESET ROLE;
+  PERFORM set_config('request.jwt.claim.sub',v_for,true);
   IF n<>1 THEN RAISE EXCEPTION 'KOORDINATER_TEST_FAILED: % i % har % rækker',p_person,p_source,n; END IF;
   RETURN r;
 END $$;
@@ -305,10 +309,41 @@ BEGIN
   RAISE NOTICE 'OK: ækvivalens (% gældende i alt)',(SELECT count(*) FROM private.membership_current_set());
 END $aekvivalens$;
 
--- Total orden og entydighed over hele RPC'en som anon.
+-- Redaktøren ser levende (decisions 2026-11-13) sammen med 6e-2's trykte side: for en levende, privat eller staged
+-- person ser kun redaktionen koordinatrækken, og den bærer printed_page — både placement-rækken (postens anker) og
+-- legacy-rækken (publiceret binding på personens ikke-private narrativ). Gæst, uid uden profil og medlem ser 0.
+DO $redaktoer$
+DECLARE f jsonb; p jsonb;
+  q_pl text:='SELECT * FROM public.public_person_source_coordinates() WHERE person_id=-648101 AND source_id=-6481
+              AND provenance_kind=''placement'' AND printed_page=''49''';
+  q_lg text:='SELECT * FROM public.public_person_source_coordinates() WHERE person_id=-648102 AND source_id=-6481
+              AND provenance_kind=''legacy_external_id'' AND printed_page=''51''';
+BEGIN
+  PERFORM pg_temp.km_kaldere();
+  f:=pg_temp.k_src(-6481,'[{"pdf_fra":490,"pdf_til":545,"trykt_fra":1}]');
+  PERFORM pg_temp.k_post(f,'record-64810000-0000-4000-8000-000000000001',-648101,1,538,1,NULL,'1',true);
+  p:=pg_temp.k_plain(f,'record-64810000-0000-4000-8000-000000000002',-648102,2,540);
+  PERFORM pg_temp.k_bind(-648102,-6481,(p->>'record')::uuid,'published',false);
+  PERFORM pg_temp.km_forvent('trykt side afdød, placement',q_pl,1,1);
+  PERFORM pg_temp.km_forvent('trykt side afdød, legacy',q_lg,1,1);
+  UPDATE public.person SET levende=true WHERE id IN (-648101,-648102);
+  PERFORM pg_temp.km_forvent('trykt side levende, placement',q_pl,0,1);
+  PERFORM pg_temp.km_forvent('trykt side levende, legacy',q_lg,0,1);
+  UPDATE public.person SET levende=false,privat=true WHERE id IN (-648101,-648102);
+  PERFORM pg_temp.km_forvent('trykt side privat, placement',q_pl,0,1);
+  PERFORM pg_temp.km_forvent('trykt side privat, legacy',q_lg,0,1);
+  UPDATE public.person SET privat=false,staged=true WHERE id IN (-648101,-648102);
+  PERFORM pg_temp.km_forvent('trykt side staged, placement',q_pl,0,1);
+  PERFORM pg_temp.km_forvent('trykt side staged, legacy',q_lg,0,1);
+  UPDATE public.person SET staged=false WHERE id IN (-648101,-648102);
+  RAISE NOTICE 'OK: redaktøren ser levende med trykt side';
+END $redaktoer$;
+
+-- Total orden og entydighed over hele RPC'en som anon uden uid (gæst).
 DO $orden$
 DECLARE v_dup int; v_order int;
 BEGIN
+  PERFORM set_config('request.jwt.claim.sub','',true);
   SET LOCAL ROLE anon;
   SELECT count(*)-count(DISTINCT (r.person_id,r.source_id)) INTO v_dup FROM public.public_person_source_coordinates() r;
   SELECT count(*) INTO v_order FROM (
