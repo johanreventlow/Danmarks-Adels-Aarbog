@@ -79,4 +79,22 @@ describe('buildSources med skemaopslag (6e-2)', () => {
   test('uden skema: dagens form', () => {
     expect(buildSources([e('1', '1', 'V', 1)], srcs)['1'][0].ref).toBe('Linje V, nr. 1');
   });
+
+  test('tom skemaliste → dagens form for kilde 1 og 3', () => {
+    const tom = stamtavleSkemaOpslag({ schemes: [], entries: [], mappings: [] });
+    const r1 = buildSources([e('1', '1', 'V', 1)], srcs, {}, tom)['1'][0];
+    expect(r1).toMatchObject({ ref: 'Linje V, nr. 1', kort: 'Linje V, nr. 1' });
+    expect(buildSources([e('2', '3', '1939', 275, '52')], srcs, {}, tom)['2'][0].ref).toBe('Linje 1939, nr. 275');
+  });
+  test('kilde uden stamtavleindgange men med presensindgang → dagens form', () => {
+    const kunPresens = stamtavleSkemaOpslag({
+      schemes: [{ id: 11, slaegt_id: 1, source_id: 1, kind: 'presensliste' }],
+      entries: [{ id: 2, scheme_id: 11, code: 'V', label: 'Presens-etiket' }],
+      mappings: [],
+    });
+    expect(buildSources([e('1', '1', 'V', 1)], srcs, {}, kunPresens)['1'][0].ref).toBe('Linje V, nr. 1');
+  });
+  test('kode mangler i et ellers udfyldt skema → kun side', () => {
+    expect(buildSources([e('1', '1', 'XX', 5, '7')], srcs, {}, skema)['1'][0]).toMatchObject({ ref: 's. 7', kort: 's. 7' });
+  });
 });

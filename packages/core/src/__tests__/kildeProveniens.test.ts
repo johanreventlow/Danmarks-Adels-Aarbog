@@ -144,6 +144,13 @@ describe('bogensNummer og optraederSom (6e-2)', () => {
     expect(bogensNummer({ p: [{ work: 'W', ref: '' }] }, 'p')).toBeNull();
     expect(bogensNummer(undefined, 'p')).toBeNull();
   });
+  test('tom kort i nyeste udgave falder videre til næste ref', () => {
+    const r: Record<string, SourceRef[]> = { p: [
+      { work: 'DAA 2018-20', ref: '', kort: '', personId: '1', aar: 2018, slaegtled: 1 },
+      { work: 'DAA 1939', ref: 's. 52', kort: 's. 52', personId: '2', aar: 1939 },
+    ] };
+    expect(bogensNummer(r, 'p')).toBe('s. 52');
+  });
   test('Optræder i Aarbogen som', () => {
     expect(optraederSom(conrad.c)).toBe('DAA 2018-20, V, nr. 1 og DAA 2018-20, III, nr. 58 og DAA 1939, s. 52');
     expect(optraederSom([{ work: 'DAA 1939', ref: '', kort: '' }])).toBe('DAA 1939');

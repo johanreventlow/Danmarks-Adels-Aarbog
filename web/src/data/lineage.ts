@@ -45,7 +45,9 @@ export function stamtavleEntries(schemeRows?: LineageSchemeRows): Map<string, Ra
 
 export function stamtavleSkemaOpslag(schemeRows?: LineageSchemeRows): SkemaOpslag {
   const m = stamtavleEntries(schemeRows);
+  const kilderMedSkema = new Set([...m.keys()].map((k) => k.slice(0, k.indexOf(':'))));
   return (sourceId, code) => {
+    if (!kilderMedSkema.has(String(sourceId))) return undefined;
     const e = m.get(sourceCodeKey(sourceId, code));
     return e ? { code: e.code, label: e.label } : null;
   };

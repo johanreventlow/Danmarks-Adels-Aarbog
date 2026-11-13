@@ -24,25 +24,25 @@ export function buildSources(
     const side = x.trykt_side?.trim() || null;
     const base = { work, personId: String(x.person_id), sourceId: String(x.source_id), aar: src.aar ?? null, slaegtled: x.slaegtled_lokal ?? null };
     let entry: SourceRef;
-    if (!skema) {
+    // undefined = kilden har intet stamtavleskema (eller skemaet kunne ikke hentes) → dagens form;
+    // null = koden findes ikke i kildens udfyldte skema (legacy); ellers skemaindgangen.
+    const e = skema ? skema(String(x.source_id), x.linje ?? '') : undefined;
+    if (e === undefined) {
       const ref = [x.linje ? 'Linje ' + x.linje : '', nrTekst != null ? 'nr. ' + nrTekst : '']
         .filter(Boolean)
         .join(', ');
-      entry = { ...base, ref };
+      entry = { ...base, ref, kort: ref };
+    } else if (e) {
+      const hale = [side ? 's. ' + side : '', nrTekst != null ? 'nr. ' + nrTekst : ''].filter(Boolean);
+      entry = {
+        ...base,
+        ref: [linjeTitel(e), ...hale].join(', '),
+        kort: [linjeKodeOgNavn(e).kode, ...hale].join(', '),
+      };
     } else {
-      const e = x.linje ? skema(String(x.source_id), x.linje) : null;
-      if (e) {
-        const hale = [side ? 's. ' + side : '', nrTekst != null ? 'nr. ' + nrTekst : ''].filter(Boolean);
-        entry = {
-          ...base,
-          ref: [linjeTitel(e), ...hale].join(', '),
-          kort: [linjeKodeOgNavn(e).kode, ...hale].join(', '),
-        };
-      } else {
-        // Legacy-kode (»1939«, ingen kode): hverken linje eller nr.
-        const t = side ? 's. ' + side : '';
-        entry = { ...base, ref: t, kort: t };
-      }
+      // Legacy-kode (»1939«, ingen kode): hverken linje eller nr.
+      const t = side ? 's. ' + side : '';
+      entry = { ...base, ref: t, kort: t };
     }
     (out[cid(String(x.person_id))] ??= []).push(entry);
   });
