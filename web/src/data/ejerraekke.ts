@@ -14,6 +14,17 @@ export function periodeTekst(raw: string): string {
   return /^\([^()]*(\([^()]*\)[^()]*)*\)$/.test(t) ? t.slice(1, -1).trim() : t;
 }
 
+// Nøgle til sammenlægning: samme periode skrevet med forskellige bindestreger (»1783-†«, »1783‑†«) eller mellemrum er
+// samme periode. Kun nøglen foldes; visningen står, som bogen skriver den.
+const periodeNoegle = (p: string) => p.replace(/[\u2010-\u2015\u2212]/g, '-').replace(/\s+/g, ' ').trim().toLowerCase();
+
+// Antal forskellige ejere, læseren kan se: id'erne kanoniseres (samme person i flere udgaver er én ejer), og ejere
+// uden for modellen tælles ikke.
+export function antalEjere(ejerIds: readonly string[], model: Model): number {
+  const canon = (id: string) => model.canonicalIdById?.[id] ?? id;
+  return new Set(ejerIds.map(canon).filter((id) => model.byId[id])).size;
+}
+
 // Ejere, læseren ikke kan se (ikke i modellen: skjult af adgangsregler eller uden for de indlagte data), udelades
 // — et id eller et tal ville røbe, at de findes. Samme person med samme periodetekst er én række; samme person med
 // forskellige perioder er flere. Rækker uden årstal (ingen periode, eller en tekst uden år) står for sig til sidst.
@@ -24,7 +35,7 @@ export function byggEjerraekke(rel: readonly EjerRelation[], model: Model): Ejer
     const p = model.byId[r.personId];
     if (!p) continue;
     const periode = periodeTekst(r.periode ?? '');
-    const noegle = `${r.personId}|${periode}`;
+    const noegle = `${r.personId}|${periodeNoegle(periode)}`;
     if (set.has(noegle)) continue;
     set.add(noegle);
     alle.push({ personId: p.id, navn: p.name, years: p.years, linje: linjeNavnFor(model, p.id), periode, aar: aarSpaend(periode)?.[0] ?? null, born: p.born });

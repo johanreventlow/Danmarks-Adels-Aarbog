@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildModel, type AppPerson } from '@daa/core';
 import type { Model } from '../types';
-import { byggEjerraekke, periodeTekst } from '../ejerraekke';
+import { antalEjere, byggEjerraekke, periodeTekst } from '../ejerraekke';
 
 const P = (id: string, name: string, born: number | null = null): AppPerson =>
   ({ id, name, born, died: null, years: born ? `* ${born}` : '', title: '', bio: '', privat: false, koen: null });
@@ -43,5 +43,19 @@ describe('byggEjerraekke', () => {
   it('uden årstal til sidst efter fødeår; skjulte ejere nævnes ikke', () => {
     expect(r.udenAar.map((x) => [x.navn, x.periode])).toEqual([['Eggert', 'Klein Kollmar S., Steinburg Kr.'], ['Detlef', '']]);
     expect(JSON.stringify(r)).not.toContain('skjult');
+  });
+});
+
+describe('samme person i flere udgaver (samme_som)', () => {
+  const m = buildModel({ persons: [P('k', 'Christian Reventlow', 1750), P('x', 'Anden')], unions: [], parentChild: [] }) as unknown as Model;
+  m.canonicalIdById = { a1: 'k', a2: 'k' } as never;
+  it('samme periode med forskellig bindestreg og parentes er én række; visningen som bogen skriver den', () => {
+    const r = byggEjerraekke([
+      { personId: 'k', periode: '(1783-†)' }, { personId: 'k', periode: '(1783‑†)' }, { personId: 'k', periode: '1783‑†' }, { personId: 'k', periode: '1783 -†' },
+    ], m);
+    expect(r.raekker.map((x) => x.periode)).toEqual(['1783-†', '1783 -†']);
+  });
+  it('antal ejere tæller kanoniske personer i modellen', () => {
+    expect(antalEjere(['a1', 'a2', 'k', 'x', 'skjult'], m)).toBe(2);
   });
 });

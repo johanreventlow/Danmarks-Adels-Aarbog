@@ -76,7 +76,8 @@ function dedupBy<T>(arr: T[], key: (t: T) => string): T[] {
   });
 }
 
-export type EstateItem = { id: string; navn: string; slags: string; ownerCount: number };
+// ejerIds: rå person-id'er med rollen »ejer« (før samme_som-fletning); ownerCount tælles om mod modellen i Folgesvend.
+export type EstateItem = { id: string; navn: string; slags: string; ownerCount: number; ejerIds?: string[] };
 export type ArmsItem = { id: string; blasonering: string; note: string; media: MediaItem[] };
 export type EstateInfo = { narrativ: string; sted: string; media: MediaItem[] };
 
@@ -94,7 +95,7 @@ export async function fetchEstates(): Promise<EstateItem[]> {
   const ejere: Record<string, Set<string>> = {};
   rels.forEach((r) => { (ejere[String(r.objekt_id)] ??= new Set()).add(String(r.subjekt_id)); });
   return estates
-    .map((e) => ({ id: String(e.id), navn: e.navn ?? '(uden navn)', slags: e.slags ?? '', ownerCount: ejere[String(e.id)]?.size ?? 0 }))
+    .map((e) => ({ id: String(e.id), navn: e.navn ?? '(uden navn)', slags: e.slags ?? '', ownerCount: ejere[String(e.id)]?.size ?? 0, ejerIds: [...(ejere[String(e.id)] ?? [])] }))
     .sort((a, b) => b.ownerCount - a.ownerCount || a.navn.localeCompare(b.navn, 'da'));
 }
 

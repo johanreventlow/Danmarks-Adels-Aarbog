@@ -10,7 +10,7 @@ import { Link } from './Link';
 import { loadModel } from './data/model';
 import { initials } from './data/format';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type PersonDetailData } from './data/public';
-import { byggEjerraekke, type EjerRelation } from './data/ejerraekke';
+import { antalEjere, byggEjerraekke, type EjerRelation } from './data/ejerraekke';
 import type { EjereTilstand } from './components/EstatesView';
 import { personMemberIds } from './data/personMembers';
 import type { AppModel, Model } from './data/types';
@@ -180,6 +180,9 @@ export default function Folgesvend() {
     fetchEstateOwners(estateId, model).then((rel) => { if (!cancelled) setEstateOwners({ status: 'ok', rel }); }).catch(() => { if (!cancelled) setEstateOwners({ status: 'fejl' }); });
     return () => { cancelled = true; };
   }, [estateId, model, ejereForsoeg]);
+  // Antal ejere pr. besiddelse talt mod modellen (samme person i flere udgaver er én ejer; skjulte tælles ikke).
+  const estatesVist = useMemo(() => (estates && model
+    ? estates.map((e) => (e.ejerIds ? { ...e, ownerCount: antalEjere(e.ejerIds, model) } : e)) : estates), [estates, model]);
   const ejere: EjereTilstand = useMemo(() => (estateOwners.status !== 'ok' ? estateOwners
     : model ? { status: 'ok', raekke: byggEjerraekke(estateOwners.rel, model) } : { status: 'henter' }), [estateOwners, model]);
   useEffect(() => {
@@ -451,8 +454,9 @@ export default function Folgesvend() {
       </div>
     );
   }
+  // En besiddelse (/besiddelse/<id>) hører til en slægt, selv om adressen ligger over slægterne.
   const hovedpunkt: HovedpunktAktiv = mode === 'soeg' || mode === 'person' ? 'personer'
-    : parsed.slaegt ? 'slaegter' : mode === 'relate' ? 'slaegtskab' : null;
+    : parsed.slaegt || mode === 'estates' ? 'slaegter' : mode === 'relate' ? 'slaegtskab' : null;
 
   // Søgning-i-træet (§4): bundtet der driver TreeSearch. showResults afgør resultat-grid vs. træ;
   // valg af et resultat rydder søgningen og centrerer træet på personen (brief §4.1).
@@ -494,7 +498,7 @@ export default function Folgesvend() {
 
         {/* Center */}
         <div ref={centerRef} data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
-          {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estates} onPickPerson={visPerson} onBrowseAll={() => goToMode('soeg')} onOpenEstate={(id) => { setEstateId(id); navigate(estatePath(id)); }}
+          {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estatesVist} onPickPerson={visPerson} onBrowseAll={() => goToMode('soeg')} onOpenEstate={(id) => { setEstateId(id); navigate(estatePath(id)); }}
               arms={arms} meId={meCanon} focusId={focusId} bookmarkedIds={bookmarkIds}
               bookmarksReady={bookmarks.ready} bookmarkHydrationVersion={bookmarks.hydrationVersion}
               bookmarkOwnerId={session?.userId ?? null}
@@ -521,14 +525,14 @@ export default function Folgesvend() {
             )
             : mode === 'tree' ? <TreeView model={model} focusId={focusId} personHref={visPersonPath} onPick={treePick} onFocus={driftFocus} hasBookmark={bookmarks.has} onToggleBookmark={saveOrPrompt} search={treeSearch} />
             : mode === 'relate' ? <RelateView model={model} relA={relA} relB={relB} meId={meCanon} slug={slug} onVaelg={findSlaegtskab} />
-            : mode === 'estates' ? <EstatesView estates={estates} estatesFejl={estatesFejl} onRetryEstates={() => { setEstatesFejl(false); setEstates(null); }}
-              estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} ejere={ejere} onRetryEjere={() => setEjereForsoeg((n) => n + 1)}
+            : mode === 'estates' ? <EstatesView estates={estatesVist} estatesFejl={estatesFejl} onRetryEstates={() => { setEstatesFejl(false); setEstates(null); }}
+              estateId={estateId} estate={estatesVist?.find((e) => e.id === estateId) ?? null} info={estateInfo} ejere={ejere} onRetryEjere={() => setEjereForsoeg((n) => n + 1)}
               slaegt={findSlaegt(slug) ?? SLAEGTER[0]} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(estatePath(id)); }} onPickOwner={visPerson}
               besiddelserHref={pathForMode('estates', slug)} onBesiddelser={() => { setEstateId(null); navigate(pathForMode('estates', slug)); }}
               slaegtensKortHref={pathForMode('kort', slug)} onSlaegtensKort={() => goToMode('kort')} />
             : mode === 'arms' ? <ArmsView arms={arms} />
             : mode === 'about' ? <AboutView slaegt={findSlaegt(slug) ?? SLAEGTER[0]} model={model} about={about} personCount={persons.length} estateCount={estates?.length ?? null} onPick={visPerson}
-                feed={{ estates, arms, meId: meCanon, focusId, bookmarkedIds: bookmarkIds,
+                feed={{ estates: estatesVist, arms, meId: meCanon, focusId, bookmarkedIds: bookmarkIds,
                   bookmarksReady: bookmarks.ready, bookmarkHydrationVersion: bookmarks.hydrationVersion,
                   bookmarkOwnerId: session?.userId ?? null, hasBookmark: bookmarks.has, onSaveBookmark: saveOrPrompt,
                   onOpenPerson: visPerson, onOpenEstate: (id) => { setEstateId(id); navigate(estatePath(id)); },
@@ -539,7 +543,7 @@ export default function Folgesvend() {
             : mode === 'kort' ? <OverviewMapView model={model} geoLoading={geoLoading} onPickPerson={visPerson} onPickEstate={(id) => navigate(estatePath(id))} />
             : mode === 'praesens' ? <PresensView model={model} onPickPerson={visPerson} session={sessionKlar ? session : 'henter'} onLogin={() => setLoginOpen(true)} onGoTree={() => goToMode('tree')} />
             : mode === 'soeg' ? (
-              <SoegView model={model} estates={estates} filtre={soegFiltreNu} linjer={linjeList} bogmaerker={bogmaerkeSaet}
+              <SoegView model={model} estates={estatesVist} filtre={soegFiltreNu} linjer={linjeList} bogmaerker={bogmaerkeSaet}
                 onFiltre={(sti) => navigate(sti, { replace: true, state: window.history.state })} />
             )
             : mode === 'ukendtSlaegt' ? (
