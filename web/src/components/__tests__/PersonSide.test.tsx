@@ -152,11 +152,13 @@ describe('PersonSide', () => {
     expect(screen.queryByText(/Ingen embeder/)).toBeNull();
   });
 
-  it('handlinger: Vis i stamtræet er et link, Find slægtskab en knap; login-noten lover kun bogmærker', () => {
+  it('handlinger: Vis i stamtræet og Find slægtskab er links; login-noten lover kun bogmærker', () => {
     const onFind = vi.fn();
     render(<PersonSide {...props({ onFindSlaegtskab: onFind })} />);
     expect(screen.getByRole('link', { name: 'Vis i stamtræet' }).getAttribute('href')).toBe('/slaegt/reventlow/stamtrae?fokus=392');
-    fireEvent.click(screen.getByRole('button', { name: 'Find slægtskab' }));
+    const find = screen.getByRole('link', { name: 'Find slægtskab' });
+    expect(find.getAttribute('href')).toBe('/slaegtskab?a=392');
+    fireEvent.click(find);
     expect(onFind).toHaveBeenCalled();
     expect(screen.getByText(/for at gemme Conrad Reventlow under dine bogmærker/)).toBeTruthy();
     expect(screen.queryByText(/i familie/)).toBeNull();

@@ -570,7 +570,6 @@ export default function Folgesvend() {
           <DetailPanel
             model={model} focusId={focusId} detail={detail}
             backName={backName} onBack={() => window.history.back()} onClose={mode === 'tree' ? closeDetail : undefined}
-            onFocusTree={mode === 'tree' ? undefined : () => goToMode('tree')}
             onRelate={() => findSlaegtskab(focusId, null)}
           />
         ))}

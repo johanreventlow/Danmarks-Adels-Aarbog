@@ -15,7 +15,7 @@
 import { Suspense, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { T } from '../theme';
 import { Link } from '../Link';
-import { personPath, estatePath, slaegtPath, stamtraePath, findSlaegt, STANDARD_SLAEGT } from '../data/nav';
+import { personPath, estatePath, slaegtPath, stamtraePath, slaegtskabPath, findSlaegt, STANDARD_SLAEGT } from '../data/nav';
 import { konfTekst } from '../data/format';
 import { mediaCaption, type MediaItem } from '../data/media';
 import type { PersonDetailData } from '../data/public';
@@ -269,7 +269,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
             <Link href={stamtraePath(slaegt?.slug ?? STANDARD_SLAEGT, focusId)} style={{ ...knap, background: T.bordeaux, color: T.onBordeaux, border: 0, textDecoration: 'none' }}>Vis i stamtræet</Link>
             <div style={{ display: 'flex', gap: 10 }}>
               {/* Knap, ikke link: personen kommer først i slægtskabets adresse i fase 6. */}
-              <button type="button" onClick={onFindSlaegtskab} style={{ ...knap, flex: 1 }}>Find slægtskab</button>
+              <Link href={slaegtskabPath(focusId)} onNavigate={onFindSlaegtskab} style={{ ...knap, flex: 1, textDecoration: 'none' }}>Find slægtskab</Link>
               <button type="button" onClick={() => { void kopier(); }} style={{ ...knap, flex: 1 }}>Kopiér link</button>
             </div>
             {onToggleMig && (

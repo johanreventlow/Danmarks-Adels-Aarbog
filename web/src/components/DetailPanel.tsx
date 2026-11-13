@@ -8,7 +8,7 @@ import { T } from '../theme';
 import { radius } from '@daa/theme';
 import { bogensNummer } from '@daa/core';
 import { Link } from '../Link';
-import { personPath, findSlaegt, STANDARD_SLAEGT } from '../data/nav';
+import { personPath, slaegtskabPath, findSlaegt, STANDARD_SLAEGT } from '../data/nav';
 import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
 import { usePersonVisning } from './personVisning';
@@ -25,10 +25,9 @@ export function godsResume(navne: string[], n = GODSER_I_RESUME): string {
   return `Godser: ${viste.slice(0, -1).join(', ')} og ${viste[viste.length - 1]}.`;
 }
 
-export function DetailPanel({ model, focusId, detail, backName, onBack, onClose, onFocusTree, onRelate }: {
+export function DetailPanel({ model, focusId, detail, backName, onBack, onClose, onRelate }: {
   model: Model; focusId: string; detail: PersonDetailData | null;
   backName: string | null; onBack: () => void; onClose?: () => void;
-  onFocusTree?: () => void; // kun uden for stamtræet (fx på slægtskabssiden)
   onRelate: () => void;
 }) {
   const v = usePersonVisning(model, focusId, detail);
@@ -78,10 +77,7 @@ export function DetailPanel({ model, focusId, detail, backName, onBack, onClose,
           Åbn personsiden
         </Link>
         {/* Ikke »… med <fornavn>«: navnet kan begynde med en titel (»Lensgreve Cay Friedrich …«). */}
-        <button type="button" onClick={onRelate} style={{ ...tekstKnap, alignSelf: 'flex-start' }}>Find slægtskab</button>
-        {onFocusTree && (
-          <button type="button" onClick={onFocusTree} style={{ ...tekstKnap, alignSelf: 'flex-start' }}>Vis i stamtræet</button>
-        )}
+        <Link href={slaegtskabPath(focusId)} onNavigate={onRelate} style={{ ...tekstKnap, alignSelf: 'flex-start', textDecoration: 'none' }}>Find slægtskab</Link>
       </div>
     </aside>
   );
