@@ -22,7 +22,8 @@ export function buildSources(
     const work = src.titel || src.udgave || 'Kilde';
     const nrTekst = x.nr_label ?? (x.nr != null ? String(x.nr) : null);
     const side = x.trykt_side?.trim() || null;
-    const base = { work, personId: String(x.person_id), sourceId: String(x.source_id), aar: src.aar ?? null, slaegtled: x.slaegtled_lokal ?? null };
+    const udgave = src.udgave ?? src.titel ?? undefined;
+    const base = { work, udgave, personId: String(x.person_id), sourceId: String(x.source_id), aar: src.aar ?? null, slaegtled: x.slaegtled_lokal ?? null };
     let entry: SourceRef;
     // undefined = kilden har ingen stamtavleindgange: placement-koder er skemakoder → »Linje X, nr. N«;
     //   legacy/uden provenance → som null (en teknisk linjeetiket vises aldrig). Uden opslag-argument (ingen 6e-2-kontekst): dagens form;

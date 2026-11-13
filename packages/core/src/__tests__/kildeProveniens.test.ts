@@ -163,7 +163,17 @@ describe('bogensNummer og optraederSom (6e-2)', () => {
       { work: 'DAA 2018-20', ref: '', kort: '', personId: '1', aar: 2018, slaegtled: 1 },
       { work: 'DAA 1939', ref: 's. 52', kort: 's. 52', personId: '2', aar: 1939 },
     ] };
-    expect(bogensNummer(r, 'p')).toBe('s. 52');
+    expect(bogensNummer(r, 'p')).toBe('DAA 1939, s. 52');
+  });
+  test('et nummer, der kun er en side, får udgaven foran (M-3); linje eller nr. gør ikke', () => {
+    const ref = (kort: string, udgave?: string): Record<string, SourceRef[]> =>
+      ({ p: [{ work: 'Dansk Adels Aarbog – DAA 1939', udgave, ref: kort, kort, personId: '1', aar: 1939 }] });
+    expect(bogensNummer(ref('s. 52', 'DAA 1939'), 'p')).toBe('DAA 1939, s. 52');
+    expect(bogensNummer(ref('s. 52-53', 'DAA 1939'), 'p')).toBe('DAA 1939, s. 52-53');
+    // Uden udgave: værket (ældre producent, fx mobilens buildAux).
+    expect(bogensNummer(ref('s. 52'), 'p')).toBe('Dansk Adels Aarbog – DAA 1939, s. 52');
+    expect(bogensNummer(ref('II, s. 52, nr. 4', 'DAA 1939'), 'p')).toBe('II, s. 52, nr. 4');
+    expect(bogensNummer(ref('s. 52, nr. 4', 'DAA 1939'), 'p')).toBe('s. 52, nr. 4');
   });
   test('Optræder i Aarbogen som', () => {
     expect(optraederSom(conrad.c)).toBe('DAA 2018-20, V, nr. 1 og DAA 2018-20, III, nr. 58 og DAA 1939, s. 52');

@@ -250,6 +250,8 @@ export type Lineage = {
 export type SourceRef = {
   ref: string;
   work: string;
+  // Udgavens korte navn (source.udgave ?? titel, som chips), fx »DAA 1939«. Valgfri; uden den bruges work.
+  udgave?: string;
   // 6e-2 (valgfri, så ældre producenter er uændrede): kort form til bogens nummer + sorteringsnøgler.
   kort?: string;
   personId?: string;

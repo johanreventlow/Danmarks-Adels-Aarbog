@@ -26,6 +26,13 @@ describe('buildSources', () => {
     expect(r['11'][0].work).toBe('Kilde'); // ukendt source_id
   });
 
+  test('udgave = source.udgave, ellers titel (som chips); ukendt kilde uden udgave (M-3)', () => {
+    const r = buildSources([x('10', '2', 'I', 1), x('11', '1', 'I', 1), x('12', '999', 'II', 2)], sources);
+    expect(r['10'][0].udgave).toBe('DAA 2018-20');
+    expect(r['11'][0].udgave).toBe('Danmarks Adels Aarbog 1913');
+    expect(r['12'][0].udgave).toBeUndefined();
+  });
+
   test('ref udelader manglende linje/nr', () => {
     expect(buildSources([x('10', '1', null, 5)], sources)['10'][0].ref).toBe('nr. 5');
     expect(buildSources([x('10', '1', 'I', null)], sources)['10'][0].ref).toBe('Linje I');
