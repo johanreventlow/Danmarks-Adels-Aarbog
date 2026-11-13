@@ -126,7 +126,7 @@ BEGIN
 END $kontrakt$;
 
 DO $gate$
-DECLARE fa jsonb; fb jsonb; fc jsonb; p jsonb; q jsonb; r jsonb;
+DECLARE fa jsonb; fb jsonb; fc jsonb; p jsonb; q jsonb; r jsonb; v_occ uuid;
 BEGIN
   -- Kilde A med sidekort (PDF 490-545 = s. 1-56).
   fa:=pg_temp.k_src(-6401,'[{"pdf_fra":490,"pdf_til":545,"trykt_fra":1}]');
@@ -153,6 +153,17 @@ BEGIN
   -- Gældende placement uden legacy-række (PDF 545 ⇒ s. 56) tabes ikke.
   PERFORM pg_temp.k_post(fa,'record-64010000-0000-4000-8000-000000000010',-640110,20,545,4,NULL,'7',true);
   DELETE FROM public.person_external_id WHERE person_id=-640110 AND source_id=-6401;
+  -- Kun gældende ankre tæller: et anker på PDF 538, der er accepteret (v1) og siden afvist (v2), flytter ikke
+  -- startsiden fra postens andet anker på PDF 541 (s. 52).
+  p:=pg_temp.k_plain(fa,'record-64010000-0000-4000-8000-000000000011',-640111,21,541);
+  INSERT INTO private.source_record_occurrence(rendition_id,occurrence_key,page_from,page_to,char_from,char_to,
+    verbatim_text,physical_fingerprint,structural_fingerprint,extraction_run_id)
+    VALUES ((fa->>'rend')::uuid,'occ-ekstra-11',538,538,2000,2020,'Opdigtet ekstra',repeat('3',64),repeat('4',64),
+      (fa->>'run')::uuid) RETURNING id INTO v_occ;
+  INSERT INTO private.source_record_anchor_event(occurrence_id,source_record_id,decision_status,evidence,version,decided_by,decided_by_name)
+    VALUES (v_occ,(p->>'record')::uuid,'accepted','{"fixture":"6e2"}',1,(fa->>'actor')::uuid,'fixture'),
+           (v_occ,(p->>'record')::uuid,'rejected','{"fixture":"6e2"}',2,(fa->>'actor')::uuid,'fixture');
+  PERFORM pg_temp.k_bind(-640111,-6401,(p->>'record')::uuid,'published',false);
 
   r:=pg_temp.k_row(-640101,-6401);
   IF r->>'provenance_kind'<>'placement' OR r->>'legacy_line_code'<>'I' OR (r->>'printed_number')::int<>1
@@ -185,6 +196,9 @@ BEGIN
   r:=pg_temp.k_row(-640110,-6401);
   IF r->>'provenance_kind'<>'placement' OR r->>'printed_number_label'<>'7' OR r->>'printed_page' IS DISTINCT FROM '56' THEN
     RAISE EXCEPTION 'KOORDINATER_TEST_FAILED: placement uden legacy-række %',r;
+  END IF;
+  IF pg_temp.k_row(-640111,-6401)->>'printed_page' IS DISTINCT FROM '52' THEN
+    RAISE EXCEPTION 'KOORDINATER_TEST_FAILED: afvist anker talte %',pg_temp.k_row(-640111,-6401);
   END IF;
   IF pg_temp.k_row(-640108,-6401)->>'printed_page' IS DISTINCT FROM '49' THEN
     RAISE EXCEPTION 'KOORDINATER_TEST_FAILED: to bindinger %',pg_temp.k_row(-640108,-6401);
