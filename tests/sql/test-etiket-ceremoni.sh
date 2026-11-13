@@ -161,6 +161,21 @@ CREATE TRIGGER t6e2_sprunget AFTER UPDATE ON public.lineage_scheme_entry FOR EAC
 SQL
 nej "${db}_neg" sprunget ETK_POST_SPRUNGET
 v "${db}_neg" "DROP TRIGGER t6e2_sprunget ON public.lineage_scheme_entry" >/dev/null
+# $afstemning$ (db-M7): en ikke-rettet entry (IV, som den udvalgte r1's placement bruger) får ændret etiket under
+# ceremonien (trigger på linjeskemaet, kun på yderste niveau). Revalideringen tager den med i proveniensen, så r1's nye
+# hændelse afviger ud over de tilladte felter → ETK_POST_AFSTEMNING; intet skrevet.
+q -d "${db}_neg" >/dev/null <<'SQL' || fail "afstemning: trigger"
+CREATE FUNCTION public.t6e2_afstemning() RETURNS trigger LANGUAGE plpgsql AS $f$
+BEGIN
+  IF pg_trigger_depth()>1 THEN RETURN NULL; END IF;
+  UPDATE public.lineage_scheme_entry e SET label=e.label||' (ændret)'
+    FROM public.lineage_scheme s WHERE s.id=e.scheme_id AND s.source_id=-6920 AND e.code='IV';
+  RETURN NULL;
+END $f$;
+CREATE TRIGGER t6e2_afstemning AFTER UPDATE ON public.lineage_scheme_entry FOR EACH STATEMENT EXECUTE FUNCTION public.t6e2_afstemning();
+SQL
+nej "${db}_neg" afstemning ETK_POST_AFSTEMNING
+v "${db}_neg" "DROP TRIGGER t6e2_afstemning ON public.lineage_scheme_entry" >/dev/null
 # Stale før kørslen → ETK_PRE_STALE (en binding ændret uden revalidering), og tvetydig placement → ETK_PRE_TVETYDIG.
 createdb -T "$db" "${db}_stale"
 # $opdeling$: r1's etiket er ændret i bindingen uden revalidering, så bindingstabellen og den seneste hændelse er uenige
