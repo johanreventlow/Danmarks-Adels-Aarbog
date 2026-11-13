@@ -529,6 +529,24 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 29. Redaktionen ser levende i personsidens fakta, familiekilder og koordinater — LIVE i prod (2026-11-13)
+
+**Grundlag:** decisions 2026-11-13 (POC'ets regel for levende), PR #342 (draft ved deploy). Blokken
+`redaktoer-ser-levende` sidst i `db-migrations.sql` (sha `c598f2a0…`) kørt af projektejeren med den private pakke
+`~/.private/redaktoer-ser-levende/prod.zsh apply` (hash-låst; før-hashes = main's definitioner, målt identiske i
+stand-in og 6e-2-generalprøven).
+
+- **Ændring:** `public_person_facts`, `public_family_sources`, `public_person_source_coordinates` får
+  `v_red:=current_rolle()='redaktion'` og `(v_red OR <gæste-gate>)`. Ingen RLS-ændring; `haendelse.redaktion_read`
+  fandtes (målt 1). `person_offentlig`/`entitet_offentlig`/`family_offentlig`/narrativets udgivelsesregel uændrede.
+- **Én transaktion:** hash-tjek → blok → db-verify-blokken (`OK: redaktoer-ser-levende`) → gæste-invarians før COMMIT.
+- **Tal (prod):** gæst 1111 koordinater / 6469 fakta / 328 familiekilder før og efter; redaktion før 1111 / 6469 / 328,
+  efter 1167 / 6768 / 328 (som generalprøven). Familiekilder +0: ingen bundne familier er ikke-offentlige i dag.
+- **Fortrydelse:** `prod.zsh fortryd --jeg-mener-det` (kun fra anvendt tilstand → main's definitioner, én
+  transaktion); prøvet apply → fortryd → apply på stand-in-kopi.
+- **Ikke kørt:** Security Advisor (MCP når ikke prod). Ingen nye funktioner eller grants — kun nye kroppe.
+- **Står tilbage (trin 2):** kildehenvisninger og biografi for levende følger narrativets udgivelsesregel.
+
 ## 28. 2018-20's fødsler og dødsfald bundet til bogens post — LIVE i prod (2026-11-12)
 
 **Grundlag:** spec `2026-11-12-2018-20-dato-bindinger-design.md`, plan samme dato, runbook
