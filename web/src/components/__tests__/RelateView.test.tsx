@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { buildModel, type AppPerson } from '@daa/core';
 import { describe, expect, it, vi } from 'vitest';
 import type { Model } from '../../data/types';
 
 vi.mock('../../router', () => ({ navigate: vi.fn() }));
+const smal = vi.hoisted(() => ({ v: false }));
+vi.mock('../../useSmalSkaerm', () => ({ useSmalSkaerm: () => smal.v }));
 const { RelateView } = await import('../RelateView');
 
 const P = (id: string, name: string, years = '', koen: AppPerson['koen'] = null): AppPerson =>
@@ -44,6 +47,22 @@ describe('RelateView', () => {
     expect(p.onVaelg).toHaveBeenCalledWith('2', '4');
   });
 
+  it('rigtige tastetryk i et udfyldt felt søger på det nye, ikke på »Navn (leveår)« + det nye', async () => {
+    const bruger = userEvent.setup();
+    vis({ relA: '1', relB: '4' });
+    const felt = screen.getByRole('combobox', { name: 'Første person' }) as HTMLInputElement;
+    expect(felt.value).toBe('Otto Reventlow (1634)');
+    await bruger.click(felt);
+    await bruger.keyboard('Hans');
+    expect(felt.value).toBe('Hans');
+    expect(within(screen.getByRole('listbox', { name: /første person/ })).getByRole('option').textContent).toContain('Hans Holck');
+    // Markøren efter navnet (markeringen ophævet): kun det nye tæller.
+    await bruger.keyboard('{Escape}');
+    felt.setSelectionRange(felt.value.length, felt.value.length);
+    await bruger.type(felt, 'X', { initialSelectionStart: felt.value.length, initialSelectionEnd: felt.value.length, skipClick: true });
+    expect(felt.value).toBe('X');
+  });
+
   it('ingen forslag siges med ord', () => {
     vis();
     fireEvent.change(screen.getByRole('combobox', { name: 'Anden person' }), { target: { value: 'xyz' } });
@@ -73,7 +92,7 @@ describe('RelateView', () => {
 
   it('kopiér link lægger den delbare adresse i udklipsholderen', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     vis({ relA: '1', relB: '4' });
     fireEvent.click(screen.getByRole('button', { name: 'Kopiér link til resultatet' }));
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/slaegtskab?a=1&b=4`);
@@ -89,6 +108,25 @@ describe('RelateView', () => {
     vis({ relA: '1', relB: '999' });
     expect(screen.getByText(/Personen i linket findes ikke i Aarbogen/)).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Resultat' })).toBeNull();
+  });
+
+  it('omstridt led: »Omstridt«, ikke »Sandsynligvis«', () => {
+    const m = { ...model, indexes: { ...model.indexes, konfByEdge: { '4|3': 'omstridt' } } } as Model;
+    vis({ model: m, relA: '1', relB: '4' });
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('OmstridtOldefar & oldebarn');
+    expect(screen.getByText(/kilderne er uenige/)).toBeTruthy();
+    expect(screen.getByText('omstridt led')).toBeTruthy();
+  });
+
+  it('smal skærm: »Det er mig« er første person uden valg i adressen, men overstyrer aldrig et delt link', () => {
+    smal.v = true;
+    try {
+      const { unmount } = vis({ meId: '9' });
+      expect((screen.getByRole('combobox', { name: 'Første person' }) as HTMLInputElement).value).toBe('Hans Holck');
+      unmount();
+      vis({ meId: '9', relB: '4' });
+      expect((screen.getByRole('combobox', { name: 'Første person' }) as HTMLInputElement).value).toBe('');
+    } finally { smal.v = false; }
   });
 
   it('»Det er mig« sætter mig som første person', () => {
@@ -122,5 +160,14 @@ describe('RelateView — flere veje', () => {
     expect(screen.getByText('Vej 2 af 2')).toBeTruthy();
     expect(h()).not.toBe(foer);
     expect(screen.getByRole('button', { name: 'Næste vej ›' })).toHaveProperty('disabled', true);
+  });
+
+  it('en usikker vej 2 bekræftes af den sikre vej 1', () => {
+    const mu = { ...m, indexes: { ...m.indexes, konfByEdge: { 'qa|x': 'formodet' } } } as Model;
+    vis({ model: mu, relA: 'A', relB: 'B' });
+    expect(screen.queryByText(/Bekræftet ad en anden, sikker linje/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Næste vej ›' }));
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toMatch(/^Sandsynligvis/);
+    expect(screen.getByText(/Bekræftet ad en anden, sikker linje/)).toBeTruthy();
   });
 });

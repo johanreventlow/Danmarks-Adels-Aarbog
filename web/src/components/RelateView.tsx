@@ -13,7 +13,7 @@ import { useSmalSkaerm } from '../useSmalSkaerm';
 const etiket: CSSProperties = { margin: 0, fontFamily: T.mono, fontSize: 11, lineHeight: '14px', fontWeight: 500, letterSpacing: '0.16em', textTransform: 'uppercase' };
 const knap: CSSProperties = { fontFamily: T.sans, fontSize: 14, lineHeight: '20px', fontWeight: 600, padding: '10px 16px', borderRadius: 11, cursor: 'pointer', textDecoration: 'none' };
 
-export function RelateView({ model, relA, relB, meId, slug, onVaelg }: {
+export function RelateView({ model, relA: relAUrl, relB, meId, slug, onVaelg }: {
   model: Model | null;
   relA: string | null; relB: string | null; // kanoniske id'er fra adressen (kan pege på en person, der ikke findes)
   meId: string | null;
@@ -21,6 +21,9 @@ export function RelateView({ model, relA, relB, meId, slug, onVaelg }: {
   onVaelg: (a: string | null, b: string | null) => void;
 }) {
   const smal = useSmalSkaerm();
+  // Mobiltegningen: på smal skærm er »Det er mig« første person, når adressen ikke selv har valgt nogen.
+  // Et delt link (a eller b sat) overstyres aldrig.
+  const relA = relAUrl ?? (smal && !relB && meId ? meId : null);
   const a = relA && model ? model.byId[relA] ?? null : null;
   const b = relB && model ? model.byId[relB] ?? null : null;
   const me = meId && model ? model.byId[meId] ?? null : null;
@@ -54,7 +57,7 @@ export function RelateView({ model, relA, relB, meId, slug, onVaelg }: {
 
       {!model ? <p style={{ margin: 0, fontSize: 15, color: T.inkMuted }}>Henter Aarbogen …</p>
         : !a || !b ? <p style={{ margin: 0, fontSize: 15, lineHeight: '24px', color: T.inkSecondary, maxWidth: '52em' }}>Vælg to personer for at se, om og hvordan Aarbogen forbinder dem.</p>
-        : rel && <Resultat key={`${a.id}|${b.id}`} lines={rel.lines} found={rel.found} alternativSolidLinje={!!rel.alternativSolidLinje}
+        : rel && <Resultat key={`${a.id}|${b.id}`} lines={rel.lines} found={rel.found}
           aNavn={a.name} bNavn={b.name} delSti={slaegtskabPath(a.id, b.id)} slug={slug} smal={smal} />}
     </main>
   );
@@ -85,7 +88,10 @@ function PersonVaelger({ label, model, valgtId, valgt, onVaelg }: {
         aria-expanded={aaben} aria-controls={`${id}-liste`}
         aria-activedescendant={aaben && forslag[aktiv] ? `${id}-f${aktiv}` : undefined}
         value={vist} placeholder="Skriv et navn" disabled={!model}
-        onChange={(e) => { setTekst(e.target.value); setAktiv(0); }}
+        // Feltet viser »Navn (leveår)«, til man skriver. Fokus markerer teksten, så det første tegn erstatter den;
+        // står markøren alligevel efter navnet, tæller kun det nye.
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => { const v = e.target.value; setTekst(tekst === null && vist && v.startsWith(vist) ? v.slice(vist.length) : v); setAktiv(0); }}
         onKeyDown={tast} onBlur={() => setTekst(null)}
         style={{ fontFamily: T.sans, fontSize: 16, lineHeight: '22px', padding: '12px 16px', borderRadius: 11, border: `1px solid ${T.lineStrong}`, background: T.surfaceRaised, color: T.ink, minWidth: 0 }} />
       {valgtId && model && !valgt && tekst === null && (
@@ -109,8 +115,8 @@ function PersonVaelger({ label, model, valgtId, valgt, onVaelg }: {
   );
 }
 
-function Resultat({ lines, found, alternativSolidLinje, aNavn, bNavn, delSti, slug, smal }: {
-  lines: RelationLine[]; found: boolean; alternativSolidLinje: boolean;
+function Resultat({ lines, found, aNavn, bNavn, delSti, slug, smal }: {
+  lines: RelationLine[]; found: boolean;
   aNavn: string; bNavn: string; delSti: string; slug: string; smal: boolean;
 }) {
   const [vej, setVej] = useState(0);
@@ -130,9 +136,12 @@ function Resultat({ lines, found, alternativSolidLinje, aNavn, bNavn, delSti, sl
       </section>
     );
   }
-  const line = lines[Math.min(vej, lines.length - 1)];
+  const valgt = Math.min(vej, lines.length - 1);
+  const line = lines[valgt];
+  // Korroboration gælder den viste vej: en usikker vej bekræftes af en ANDEN, sikker vej (også når den viste er vej 2).
   const korrob = line.uafhaengige >= 2 ? `Bekræftet ad ${line.uafhaengige} uafhængige linjer`
-    : line.usikker && alternativSolidLinje ? 'Bekræftet ad en anden, sikker linje' : '';
+    : line.usikker && lines.some((l, i) => i !== valgt && !l.usikker) ? 'Bekræftet ad en anden, sikker linje' : '';
+  const omstridt = line.weakestKonfidens === 'omstridt';
   const trin = vejTrin(line);
   const samme = line.d1 === 0 && line.d2 === 0;
   return (
@@ -140,7 +149,7 @@ function Resultat({ lines, found, alternativSolidLinje, aNavn, bNavn, delSti, sl
       <div style={{ flex: '1 1 420px', minWidth: 0, background: T.surfaceInverse, color: T.inkOnInverse, borderRadius: 22, padding: smal ? 22 : 32, display: 'flex', flexDirection: 'column', gap: 14 }}>
         <p style={{ ...etiket, color: T.goldOnInverse }}>Slægtskab</p>
         <h2 aria-live="polite" style={{ margin: 0, fontFamily: T.serif, fontSize: smal ? 32 : 40, fontWeight: 500, lineHeight: 1.05 }}>
-          {line.usikker && <span style={{ display: 'block', fontSize: smal ? 20 : 24, fontStyle: 'italic', color: T.goldOnInverse }}>Sandsynligvis</span>}
+          {line.usikker && <span style={{ display: 'block', fontSize: smal ? 20 : 24, fontStyle: 'italic', color: T.goldOnInverse }}>{omstridt ? 'Omstridt' : 'Sandsynligvis'}</span>}
           {line.label}
         </h2>
         <p style={{ margin: 0, fontSize: 15, lineHeight: '23px', color: T.inkMutedOnInverse }}>
@@ -148,7 +157,7 @@ function Resultat({ lines, found, alternativSolidLinje, aNavn, bNavn, delSti, sl
         </p>
         {line.usikker && (
           <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: T.goldOnInverse }}>
-            Vejen går gennem et {line.weakestKonfidens} led, så slægtskabet er sandsynligt, ikke sikkert.
+            {omstridt ? 'Vejen går gennem et omstridt led: kilderne er uenige om det.' : 'Vejen går gennem et formodet led, så slægtskabet er sandsynligt, ikke sikkert.'}
           </p>
         )}
         {korrob && <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: T.inkMutedOnInverse }}>✓ {korrob}</p>}
