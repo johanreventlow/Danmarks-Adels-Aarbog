@@ -8,7 +8,7 @@ export type Mode = 'home' | 'person' | 'tree' | 'relate' | 'estates' | 'arms' | 
 
 // Sidens navn (overskrifter, slægtsbjælken og pladsholderen for ubyggede sider).
 const MODE_LABEL: Partial<Record<Mode, string>> = {
-  tree: 'Stamtræ', relate: 'Slægtskab', estates: 'Godser', kort: 'Kort over godser', arms: 'Våben',
+  tree: 'Stamtræ', relate: 'Slægtskab', estates: 'Besiddelser', kort: 'Kort over godser', arms: 'Våben',
   about: 'Forside', bookmarks: 'Bogmærker', praesens: 'Præsensliste', soeg: 'Søgning',
 };
 export function labelOfMode(mode: Mode): string {
@@ -23,16 +23,16 @@ export function labelOfMode(mode: Mode): string {
 //   /slaegt/<slug>                      slægtens forside (i dag AboutView)
 //   /slaegt/<slug>/stamtrae[?fokus=id]  stamtræet; med fokus er personpanelet åbent
 //   /slaegt/<slug>/praesens             præsenslisten
-//   /slaegt/<slug>/godser[?visning=kort] godser, liste eller oversigtskort
+//   /slaegt/<slug>/besiddelser[?visning=kort] besiddelser, liste eller oversigtskort
 //   /slaegt/<slug>/vaaben               våben
 //   /person/<id>                        personsiden (over slægterne)
-//   /gods/<id>                          godset
-//   /slaegtskab                         Er vi i familie?
+//   /besiddelse/<id>                    besiddelsen (gods, gård, len, stamhus …)
+//   /slaegtskab[?a=&b=]                 Er vi i familie?
 //   /soeg[?q=]                          søgning (uden q: gennemse alle)
 //   /min-side/bogmaerker                bogmærker
 //
 // Gamle stier (/stamtrae, /about, /estates, /estate/<id>, /kort, /arms, /relate, /bookmarks,
-// /praesens) forstås stadig, så første render er rigtig, og parseren giver den nye sti som
+// /praesens, og fra før fase 7a /slaegt/<slug>/godser og /gods/<id>) forstås stadig, så første render er rigtig, og parseren giver den nye sti som
 // `omdiriger`; Folgesvend erstatter dem med replace, så eksisterende links virker.
 
 // Slægterne i Aarbogen. Kun Reventlow i dag; slug er stabilt og bruges i URL'en.
@@ -55,9 +55,10 @@ export function findSlaegt(slug: string | null | undefined): Slaegt | null {
 
 // Siderne under en slægt: mode ↔ understi (tom = forsiden).
 const SLAEGT_SIDE: Partial<Record<Mode, string>> = {
-  about: '', tree: 'stamtrae', praesens: 'praesens', estates: 'godser', kort: 'godser', arms: 'vaaben',
+  about: '', tree: 'stamtrae', praesens: 'praesens', estates: 'besiddelser', kort: 'besiddelser', arms: 'vaaben',
 };
-const SIDE_MODE: Record<string, Mode> = { '': 'about', stamtrae: 'tree', praesens: 'praesens', godser: 'estates', vaaben: 'arms' };
+// »Besiddelser« (fase 7a, decisions.md 2026-11-13) hed før »godser«; den gamle understi omdirigeres.
+const SIDE_MODE: Record<string, Mode> = { '': 'about', stamtrae: 'tree', praesens: 'praesens', besiddelser: 'estates', godser: 'estates', vaaben: 'arms' };
 // Sider over slægterne.
 const TOP_PATH: Partial<Record<Mode, string>> = { relate: '/slaegtskab', soeg: '/soeg', bookmarks: '/min-side/bogmaerker' };
 // Gamle stier → mode (kun til omdirigering).
@@ -101,7 +102,7 @@ export function parseFolgesvendPath(path: string, search = ''): ParsedPath {
   if (seg.length === 0) return ud('home');
   const [s0, s1, s2] = seg;
   if (s0 === 'person' && s1) return ud('person', { personId: s1 });
-  if (s0 === 'gods' && s1) return ud('estates', { estateId: s1 });
+  if (s0 === 'besiddelse' && s1) return ud('estates', { estateId: s1 });
   if (s0 === 'slaegtskab') return ud('relate', { relA: qs.get('a') || null, relB: qs.get('b') || null });
   if (s0 === 'soeg') return ud('soeg', { q: qs.get('q') ?? '' });
   if (s0 === 'min-side' && s1 === 'bogmaerker') return ud('bookmarks');
@@ -110,10 +111,11 @@ export function parseFolgesvendPath(path: string, search = ''): ParsedPath {
     let mode = SIDE_MODE[s2 ?? ''];
     if (!mode || seg.length > 3) return ud('ukendtSlaegt', { slaegt: s1 });
     if (mode === 'estates' && qs.get('visning') === 'kort') mode = 'kort';
-    return ud(mode, { slaegt: s1, fokusId: mode === 'tree' ? qs.get('fokus') || null : null });
+    const omdiriger = s2 === 'godser' ? pathForMode(mode, s1) : null; // gammel understi → én omdirigering
+    return ud(mode, { slaegt: s1, fokusId: mode === 'tree' ? qs.get('fokus') || null : null, omdiriger });
   }
   // Gamle stier.
-  if (s0 === 'estate' && s1) return ud('estates', { estateId: s1, omdiriger: estatePath(s1) });
+  if ((s0 === 'estate' || s0 === 'gods') && s1) return ud('estates', { estateId: s1, omdiriger: estatePath(s1) });
   const gammel = GAMMEL_MODE[s0];
   if (gammel && seg.length === 1) {
     const ny = pathForMode(gammel);
@@ -128,7 +130,7 @@ export function personPath(id: string): string {
   return `/person/${encodeURIComponent(id)}`;
 }
 export function estatePath(id: string): string {
-  return `/gods/${encodeURIComponent(id)}`;
+  return `/besiddelse/${encodeURIComponent(id)}`;
 }
 export function slaegtPath(slug: string = STANDARD_SLAEGT): string {
   return `/slaegt/${slug}`;

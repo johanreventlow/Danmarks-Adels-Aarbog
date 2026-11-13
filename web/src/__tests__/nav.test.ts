@@ -12,8 +12,8 @@ describe('parseFolgesvendPath — ny grammatik', () => {
     expect(parseFolgesvendPath('/slaegt/reventlow')).toEqual({ ...tom, mode: 'about', slaegt: 'reventlow' });
     expect(parseFolgesvendPath('/slaegt/reventlow/stamtrae')).toEqual({ ...tom, mode: 'tree', slaegt: 'reventlow' });
     expect(parseFolgesvendPath('/slaegt/reventlow/praesens').mode).toBe('praesens');
-    expect(parseFolgesvendPath('/slaegt/reventlow/godser').mode).toBe('estates');
-    expect(parseFolgesvendPath('/slaegt/reventlow/godser', '?visning=kort').mode).toBe('kort');
+    expect(parseFolgesvendPath('/slaegt/reventlow/besiddelser').mode).toBe('estates');
+    expect(parseFolgesvendPath('/slaegt/reventlow/besiddelser', '?visning=kort').mode).toBe('kort');
     expect(parseFolgesvendPath('/slaegt/reventlow/vaaben').mode).toBe('arms');
   });
   it('stamtræet med fokus åbner personen', () => {
@@ -25,7 +25,7 @@ describe('parseFolgesvendPath — ny grammatik', () => {
   });
   it('sider over slægterne', () => {
     expect(parseFolgesvendPath('/person/abc')).toEqual({ ...tom, mode: 'person', personId: 'abc' });
-    expect(parseFolgesvendPath('/gods/e1')).toEqual({ ...tom, mode: 'estates', estateId: 'e1' });
+    expect(parseFolgesvendPath('/besiddelse/e1')).toEqual({ ...tom, mode: 'estates', estateId: 'e1' });
     expect(parseFolgesvendPath('/slaegtskab')).toEqual({ ...tom, mode: 'relate' });
     expect(parseFolgesvendPath('/slaegtskab', '?a=1&b=2')).toEqual({ ...tom, mode: 'relate', relA: '1', relB: '2' });
     expect(parseFolgesvendPath('/slaegtskab', '?b=2')).toEqual({ ...tom, mode: 'relate', relB: '2' });
@@ -45,13 +45,16 @@ describe('gamle stier omdirigeres', () => {
   const tilfaelde: [string, string, Mode][] = [
     ['/stamtrae', '/slaegt/reventlow/stamtrae', 'tree'],
     ['/about', '/slaegt/reventlow', 'about'],
-    ['/estates', '/slaegt/reventlow/godser', 'estates'],
-    ['/kort', '/slaegt/reventlow/godser?visning=kort', 'kort'],
+    ['/estates', '/slaegt/reventlow/besiddelser', 'estates'],
+    ['/kort', '/slaegt/reventlow/besiddelser?visning=kort', 'kort'],
+    // Fra før fase 7a (»Godser« → »Besiddelser«): én omdirigering.
+    ['/slaegt/reventlow/godser', '/slaegt/reventlow/besiddelser', 'estates'],
+    ['/gods/7', '/besiddelse/7', 'estates'],
     ['/arms', '/slaegt/reventlow/vaaben', 'arms'],
     ['/praesens', '/slaegt/reventlow/praesens', 'praesens'],
     ['/relate', '/slaegtskab', 'relate'],
     ['/bookmarks', '/min-side/bogmaerker', 'bookmarks'],
-    ['/estate/7', '/gods/7', 'estates'],
+    ['/estate/7', '/besiddelse/7', 'estates'],
   ];
   it.each(tilfaelde)('%s → %s', (gammel, ny, mode) => {
     const p = parseFolgesvendPath(gammel);
@@ -78,7 +81,7 @@ describe('pathForMode + rundtur', () => {
 describe('stier med id og query', () => {
   it('person, gods, slægt, stamtræ og søgning', () => {
     expect(personPath('482')).toBe('/person/482');
-    expect(estatePath('7')).toBe('/gods/7');
+    expect(estatePath('7')).toBe('/besiddelse/7');
     expect(slaegtPath()).toBe('/slaegt/reventlow');
     expect(stamtraePath()).toBe('/slaegt/reventlow/stamtrae');
     expect(stamtraePath('reventlow', '482')).toBe('/slaegt/reventlow/stamtrae?fokus=482');
@@ -97,7 +100,7 @@ describe('stier med id og query', () => {
 describe('labelOfMode', () => {
   it('giver sidens navn', () => {
     expect(labelOfMode('tree')).toBe('Stamtræ');
-    expect(labelOfMode('estates')).toBe('Godser');
+    expect(labelOfMode('estates')).toBe('Besiddelser');
   });
   it('tom for modes uden navn', () => {
     expect(labelOfMode('home')).toBe('');
