@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-13 — webredesign fase 7a: »Godser« hedder »Besiddelser«
+
+Læserfladen siger »Besiddelser« (menu, overskrifter, personside, panelets resumé, søgning, feedkort), og adresserne
+følger: `/slaegt/<slug>/besiddelser` og `/besiddelse/<id>`; `/slaegt/<slug>/godser`, `/gods/<id>` og
+`/soeg?type=godser` omdirigeres eller forstås. `slags` vises ikke, så længe alle ejendomme hedder »gods«, også stamhuse
+og grevskaber. Opdelingen i godser/gårde og stamhuse/grevskaber/baronier er backlog i `decisions.md` (2026-11-13): den
+kræver et ordforråd for `estate.slags` og en relation »hører under«. Redaktionen er uændret. Klient-only; ingen DDL.
+
 ## 2026-11-13 — webredesign fase 6: Er vi i familie? kan deles, og søgesiden får filtre
 
 `/slaegtskab?a=<id>&b=<id>` bærer de to personer, så et resultat kan deles og åbnes direkte (alias-id'er kanoniseres;
