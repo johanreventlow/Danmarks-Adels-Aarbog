@@ -9,7 +9,7 @@ import {
   b6Noter, bogensNummer, buildPersonFacts, byggUdgaveFakta, byggUdgaveVaelger, citationRowsTilProveniens,
   buildProvenanceSources, collapseSameAs, coordinateRowToExtId, kildeLinje, linjerForUdgave,
   mapFamilieKilder, mapPublicBioSourceVersionsV2, optraederSom, sorterKilder, udgaverMedFakta,
-  type AppPerson, type PublicCoordinateRow, type PublicPersonFactRow, type RaaCitationRow, type UdgaveFaktaInput,
+  type AppPerson, type LinjeRaekke, type PublicCoordinateRow, type PublicPersonFactRow, type RaaCitationRow, type UdgaveFaktaInput,
 } from '@daa/core';
 import { factSource } from '../../../../packages/core/src/personFacts';
 import { buildLineage, erTekniskLinje, stamtavleSkemaOpslag, type LineageSchemeRows } from '../lineage';
@@ -82,6 +82,7 @@ function visning(fase: Fase, b: Bygget, focusId: string) {
     return {
       valgt, kilder, kunI: v.kunI.length,
       noter: hovedKilde ? b6Noter(raekker, hovedKilde) : [],
+      noterKilde: hovedKilde ? b6Kilder(raekker, hovedKilde) : [], hovedKilde,
       linjer: hovedKilde ? linjerForUdgave(raekker, hovedKilde) : [],
     };
   });
@@ -92,16 +93,28 @@ function visning(fase: Fase, b: Bygget, focusId: string) {
     faktaKilder: factRows.map((r) => factSource(r).label), buildPersonFactsKilder: buildPersonFacts(factRows)
       .flatMap((f) => [...(f.chosen ? [f.chosen] : []), ...f.others]).map((s) => s.source.label),
     pr_udgave, linjeNavneFallback,
+    faktaMedKilde: factRows.map((r) => ({ kilde: r.source_id == null ? null : String(r.source_id), tekst: factSource(r).label })),
+    buildPersonFactsMedKilde: factRows.flatMap((r) => buildPersonFacts([r])
+      .flatMap((f) => [...(f.chosen ? [f.chosen] : []), ...f.others]).map((st) => ({ kilde: r.source_id == null ? null : String(r.source_id), tekst: st.source.label }))),
+    kildeAfFaktaLabel: new Map(factRows.filter((r) => r.source_id != null).map((r) => [factSource(r).label, String(r.source_id)] as const)),
     sources: sorterKilder(b.sourcesBy[focusId] ?? []), nummer: bogensNummer(b.sourcesBy, focusId),
     optraeder: optraederSom(b.sourcesBy[focusId] ?? []),
   };
 }
 
+type Mærket = { kilde: string | null; hvor: string; tekst: string };
+
+// Kilde-id udledt af rækken (familiekildens udgavenavn slået op i udgaverne), aldrig af den viste tekst.
+function familieKilderMedKilde(fase: Fase, b: Bygget): Mærket[] {
+  return mapFamilieKilder(laes(fase, 'family_sources')).map((k) => ({
+    kilde: b.udgaver.find((u) => u.label === k.sourceLabel)?.sourceId ?? null, hvor: 'familiekilde', tekst: kildeLinje(k),
+  }));
+}
 function familieKilder(fase: Fase): string[] {
   return mapFamilieKilder(laes(fase, 'family_sources')).map(kildeLinje);
 }
 
-function proveniens(fase: Fase, focusId: string, b: Bygget): string[] {
+function provenienMedKilde(fase: Fase, focusId: string, b: Bygget): Mærket[] {
   const medlemmer = new Set((b.mergedFrom[focusId] ?? [{ personId: focusId }]).map((m) => String(m.personId)));
   const personAfAssert = new Map(laes<{ assertion_id: number; person_id: number }>(fase, 'fact_assertion')
     .filter((a) => medlemmer.has(String(a.person_id))).map((a) => [a.assertion_id, String(a.person_id)] as const));
@@ -111,31 +124,52 @@ function proveniens(fase: Fase, focusId: string, b: Bygget): string[] {
     .map((c) => ({ ...c, source: kilde.get(c.assertion_id) ?? null })) as unknown as RaaCitationRow[];
   const rows = citationRowsTilProveniens(cits, personAfAssert);
   const refs = buildProvenanceSources(rows, Object.fromEntries([...medlemmer].map((m) => [m, focusId])));
-  return (refs[focusId] ?? []).map((r) => (r.ref ? `${r.work}, ${r.ref}` : r.work));
+  const kildeAfVaerk = new Map(laes<RawSource>(fase, 'source').map((x) => [x.titel || x.udgave || '', String(x.id)] as const));
+  return (refs[focusId] ?? []).map((r) => ({ kilde: kildeAfVaerk.get(r.work) ?? null, hvor: `proveniens ${focusId}`, tekst: r.ref ? `${r.work}, ${r.ref}` : r.work }));
+}
+function proveniens(fase: Fase, focusId: string, b: Bygget): string[] {
+  return provenienMedKilde(fase, focusId, b).map((m) => m.tekst);
 }
 
-// Alle visningsstrenge uden prosa, hver med en kilde-etiket til fejlmeldingen.
-function samlStrenge(fase: Fase, b: Bygget): { hvor: string; tekst: string }[] {
-  const ud: { hvor: string; tekst: string }[] = [];
-  const add = (hvor: string, tekst: string | null | undefined) => { if (tekst != null) ud.push({ hvor, tekst }); };
-  for (const [pid, refs] of Object.entries(b.sourcesBy)) for (const r of refs) { const k = r.sourceId === '3' ? 'sourcesBy[1939]' : 'sourcesBy'; add(`${k}.ref ${pid}`, r.ref); add(`${k}.kort ${pid}`, r.kort); add(`${k}.work ${pid}`, r.work); }
+// Alle visningsstrenge uden prosa. `kilde` er kilde-id'et (fra rækken, aldrig fra teksten) for strenge, der stammer fra
+// én kilde; null for strenge uden kildetilhør (linjenavne). `hvor` bruges i fejlmeldingen.
+function samlStrenge(fase: Fase, b: Bygget): Mærket[] {
+  const ud: Mærket[] = [];
+  const add = (kilde: string | null, hvor: string, tekst: string | null | undefined) => { if (tekst != null) ud.push({ kilde, hvor, tekst }); };
+  for (const [pid, refs] of Object.entries(b.sourcesBy)) for (const r of refs) { const k = r.sourceId ?? null; add(k, `sourcesBy.ref ${pid}`, r.ref); add(k, `sourcesBy.kort ${pid}`, r.kort); add(k, `sourcesBy.work ${pid}`, r.work); }
   for (const pid of Object.keys(b.lineage.byPerson)) {
-    for (const lk of b.lineage.byPerson[pid].filter((k) => !erTekniskLinje(k))) add(`linje ${pid}`, b.lineage.navn[lk] ?? `Linje ${lk}`);
+    for (const lk of b.lineage.byPerson[pid].filter((k) => !erTekniskLinje(k))) add(null, `linje ${pid}`, b.lineage.navn[lk] ?? `Linje ${lk}`);
   }
   for (const [pid, rs] of Object.entries(b.linjeRaekkerBy)) {
-    for (const sid of new Set(rs.map((r) => r.sourceId))) { linjerForUdgave(rs, sid).forEach((t) => add(`hoved ${pid}`, t)); b6Noter(rs, sid).forEach((t) => add(`b6 ${pid}`, t)); }
+    for (const sid of new Set(rs.map((r) => r.sourceId))) {
+      linjerForUdgave(rs, sid).forEach((t) => add(sid, `hoved ${pid}`, t));
+      b6Noter(rs, sid).forEach((t, i) => add(b6Kilder(rs, sid)[i], `b6 ${pid}`, t));
+    }
   }
   for (const f of [FOKUS_CONRAD, FOKUS_PLACERET]) {
     const v = visning(fase, b, f);
-    v.chips.forEach((t) => add(`chip ${f}`, t));
-    v.faktaKilder.forEach((t) => add(`faktakilde ${f}`, t));
-    v.buildPersonFactsKilder.forEach((t) => add(`faktakilde(buildPersonFacts) ${f}`, t));
-    v.pr_udgave.forEach((u) => { u.kilder.forEach((t) => add(`faktavisning ${f}`, t)); u.noter.forEach((t) => add(`b6 ${f}`, t)); u.linjer.forEach((t) => add(`hoved ${f}`, t)); });
-    v.linjeNavneFallback.forEach((t) => add(`hoved-fallback ${f}`, t));
-    add(`optraeder ${f}`, v.optraeder);
-    proveniens(fase, f, b).forEach((t) => add(`proveniens ${f}`, t));
+    v.chips.forEach((t, i) => add(v.chipUdgaver[i], `chip ${f}`, t));
+    v.faktaMedKilde.forEach((m) => add(m.kilde, `faktakilde ${f}`, m.tekst));
+    v.buildPersonFactsMedKilde.forEach((m) => add(m.kilde, `faktakilde(buildPersonFacts) ${f}`, m.tekst));
+    v.pr_udgave.forEach((u) => {
+      u.kilder.forEach((t) => add(v.kildeAfFaktaLabel.get(t) ?? null, `faktavisning ${f}`, t));
+      u.noter.forEach((t, i) => add(u.noterKilde[i] ?? null, `b6 ${f}`, t));
+      u.linjer.forEach((t) => add(u.hovedKilde, `hoved ${f}`, t));
+    });
+    v.linjeNavneFallback.forEach((t) => add(null, `hoved-fallback ${f}`, t));
+    for (const sid of new Set((b.sourcesBy[f] ?? []).map((r) => r.sourceId ?? ''))) {
+      add(sid, `optraeder ${f}`, optraederSom((b.sourcesBy[f] ?? []).filter((r) => r.sourceId === sid)));
+    }
+    provenienMedKilde(fase, f, b).forEach((m) => add(m.kilde, m.hvor, m.tekst));
   }
-  familieKilder(fase).forEach((t) => add('familiekilde', t));
+  familieKilderMedKilde(fase, b).forEach((m) => add(m.kilde, m.hvor, m.tekst));
+  return ud;
+}
+
+// De andre kilder en B6-note handler om, i notens rækkefølge (samme regel som b6Noter).
+function b6Kilder(raekker: LinjeRaekke[], valgt: string): string[] {
+  const ud: string[] = [];
+  for (const r of raekker) if (r.sourceId !== valgt && r.provenance === 'placement' && !ud.includes(r.sourceId)) ud.push(r.sourceId);
   return ud;
 }
 
@@ -196,11 +230,11 @@ describe.skipIf(!DIR)('trin 6e-2: klienten på data før og efter ceremonien', (
       for (const f of [FOKUS_CONRAD, FOKUS_PLACERET]) {
         const v = visning('foer', b, f);
         for (const c of v.chips.filter(udgave1939)) expect(sidetal(c), `chip ${f}: ${c}`).toEqual([]);
-        for (const r of v.sources.filter((x) => x.work.includes('1939'))) expect(sidetal(`${r.ref} ${r.kort ?? ''}`), `kilde ${f}: ${r.ref}`).toEqual([]);
+        for (const r of v.sources.filter((x) => x.sourceId === '3')) expect(sidetal(`${r.ref} ${r.kort ?? ''}`), `kilde ${f}: ${r.ref}`).toEqual([]);
       }
       for (const t of familieKilder('foer').filter(udgave1939)) expect(sidetal(t), `familiekilde: ${t}`).toEqual([]);
       for (const [pid, refs] of Object.entries(b.sourcesBy)) {
-        for (const r of refs.filter((x) => x.work.includes('1939'))) expect(sidetal(`${r.ref} ${r.kort ?? ''}`), `kilde ${pid}: ${r.ref}`).toEqual([]);
+        for (const r of refs.filter((x) => x.sourceId === '3')) expect(sidetal(`${r.ref} ${r.kort ?? ''}`), `kilde ${pid}: ${r.ref}`).toEqual([]);
       }
     });
 
@@ -233,7 +267,7 @@ describe.skipIf(!DIR)('trin 6e-2: klienten på data før og efter ceremonien', (
       expect(mine.map((r) => r.ref).some((r) => /^[IVXLC]+\. .+, s\. \d+, nr\. \d+$/.test(r)), mine.map((r) => r.ref).join(' | ')).toBe(true);
     });
 
-    it('2018-20: ref for 392 er »V. Den grevelige linje af 1673, nr. 1« uden side; ingen 2018-20-ref har »s. «', () => {
+    it('2018-20: ref for 392 er »V. Den grevelige linje af 1673, nr. 1« uden side; ingen »Kilde i Aarbogen«-ref eller bogens nummer for 2018-20 har »s. «', () => {
       const b = hent('efter');
       const mine = b.sourcesBy[FOKUS_CONRAD].filter((r) => r.sourceId === '1' && r.personId === '392');
       expect(mine.map((r) => r.ref)).toEqual(['V. Den grevelige linje af 1673, nr. 1']);
@@ -247,10 +281,8 @@ describe.skipIf(!DIR)('trin 6e-2: klienten på data før og efter ceremonien', (
       const b = hent('efter');
       const over = b.coords.filter((c) => String(c.source_id) === '3' && c.printed_page != null && Number(c.printed_page) > 92).map((c) => `${c.person_id}: ${c.printed_page}`);
       expect(over).toEqual([]);
-      // Alle 1939-afledte visningsstrenge: sourcesBy for kilde 3 samt enhver streng (chips, fakta, familiekilder,
-      // proveniens, Optræder som, B6) der nævner »DAA 1939«; hvert sidetal i dem skal være højst 92.
-      const er1939 = (s: { hvor: string; tekst: string }) => s.hvor.startsWith('sourcesBy[1939]') || s.tekst.includes('DAA 1939');
-      const tal = samlStrenge('efter', b).filter(er1939)
+      // Alle visningsstrenge med kilde 3 (kilden udledt af rækken): hvert sidetal skal være højst 92.
+      const tal = samlStrenge('efter', b).filter((s) => s.kilde === '3')
         .flatMap((s) => sidetal(s.tekst).filter((n) => n > 92).map((n) => `${s.hvor}: ${n}`));
       expect(tal).toEqual([]);
       for (const r of Object.entries(b.sourcesBy).flatMap(([pid, rs]) => rs.filter((x) => x.sourceId === '3').map((x) => [pid, x] as const))) {
