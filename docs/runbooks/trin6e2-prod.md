@@ -2,7 +2,20 @@
 
 Spec: `docs/superpowers/specs/2026-11-12-trin6e-laeserflade-design.md` §6, §8 og §12. Plan:
 `docs/superpowers/plans/2026-11-13-trin6e2-kildeetiket-koordinater.md` (Task 10-11). Beslutning: `docs/decisions.md`
-2026-11-13 (6e-2's kildeetiket).
+2026-11-13 (6e-2's kildeetiket) og 2026-11-13 »POC'ets regel for levende« (#342).
+
+**Fletning med #342 (13/11).** #342 (redaktionen ser levende, live i prod; `origin/main` `ac194bfd`) giver
+`public_person_facts`, `public_family_sources` og `public_person_source_coordinates` en redaktør-gren
+(`v_red boolean:=public.current_rolle()='redaktion'`; gæster og medlemmer uændret). 6e-2-blokken genskaber to af dem
+(`public_person_source_coordinates`, `public_person_facts`); deres kroppe bærer nu både #342's gren og 6e-2's ændringer,
+byte-ens med `schema.sql`, og 6e-2-blokken står efter #342's blok. `public_family_sources` røres ikke af 6e-2.
+Prods **forrige definitioner** (det, fortryd-ddl genskaber) er derfor #342's kroppe, ikke `cb432c79`'s.
+Ceremonien og `maal_trin6e2.sql` læser andre kilders koordinater og læsertallene som gæst (uid ryddet), ellers ville
+ceremoniens redaktør-uid give en anden `KOORD_ANDRE` end målingen (`ETK_POST_ANDRE koord`).
+
+**`GP3:` Generalprøve 1 og 2 kørte på en stand-in fra før #342 og gælder ikke den flettede DDL.** Alle tal, sha'er og
+tider i denne runbook, der stammer fra dem, er mærket `GP3:` og erstattes af generalprøve 3's (nyt prod-dump, ny
+stand-in, ny runner-pin). Prod køres ikke, før de er erstattet.
 Runner: `~/.private/5ab-overfoersel/40-trin6e2.sh` med `40-trin6e2-vindue.sql` (aldrig i repoet). Den kaldes via
 `/bin/zsh -f ~/.private/5ab-overfoersel/koer.zsh 40-trin6e2.sh <handling>` fra operatørens cwd. Alle linjer er kun
 antal, koder og hashes; ceremoniens før/efter-linjer (`ETK_LINJE`) står kun i 0600-filen. Prod-skrivning (`apply-*`,
@@ -17,7 +30,7 @@ laves på ny, hvis de bruges igen.
 ## To ceremonier
 
 1. **DDL** (`apply-ddl`): blok `-- ===== trin 6e-2: kildeetiket, sidekort og koordinater =====` (sidst i
-   `db-migrations.sql`, 651 linjer) + `db-rls.sql` i én transaktion, `lock_timeout 5s`. Ikke kun `CREATE OR REPLACE`:
+   `db-migrations.sql`, 658 linjer efter fletningen med #342; før 651) + `db-rls.sql` i én transaktion, `lock_timeout 5s`. Ikke kun `CREATE OR REPLACE`:
    - `ALTER TABLE public.source ADD COLUMN sidekort jsonb` + CHECK `source_sidekort_gyldigt`.
    - Ændret CHECK `narrative_record_publication_record_label_check` (tillader tom postdel `''`).
    - `DROP` + `CREATE` af `public.public_person_source_coordinates()` (ny returtype med `printed_page`), samme
@@ -27,7 +40,8 @@ laves på ny, hvis de bruges igen.
      `private.narrative_record_wanted_labels_ex(uuid,boolean)`, `private.narrative_record_wanted_labels(uuid)`,
      `private.membership_current_set()`.
    - 4 ændrede: `private.narrative_record_labels(uuid)`, `private.validate_reimport_case_elements(jsonb,jsonb)`,
-     `public.public_person_source_coordinates()`, `public.public_person_facts(bigint[])`.
+     `public.public_person_source_coordinates()`, `public.public_person_facts(bigint[])`. De to sidste har i prod
+     #342's krop (med redaktør-grenen) som forrige definition, og deres nye krop beholder grenen.
 
    Lige før DDL'en gemmer runneren fortrydelsens snapshot (`fortryd-ddl-<stamp>/fortryd.sql` + `snapshot.json`).
    Kontrol efter:
@@ -38,7 +52,8 @@ laves på ny, hvis de bruges igen.
    `statement_timeout=15min`. Ceremonien skriver:
    - kildens sidekort (`sidekort_1939.json`);
    - linjeskemaets 5 rettede etiketter (`linjeetiketter_6e2.json`);
-   - 561 bindingers `record_label`/`citation_label`, heraf 33 med tom postdel;
+   - 561 bindingers `record_label`/`citation_label`, heraf 33 med tom postdel (`GP3:` tal fra stand-in'en før #342;
+     #342 ændrer ingen data, men generalprøve 3 bekræfter dem);
    - revalidering af de 561.
 
    2 bindinger for staged personer springes over. Ingen genoptagelse: en fejl ruller alt tilbage. Aktøren skal være
@@ -50,22 +65,22 @@ laves på ny, hvis de bruges igen.
 |---|---|---|
 | 1 | **Web-deploy (Del B)**: PR `feat/trin6e2-klient` merget og deployet (Vercel), **samme dag** som DDL og data | Klienten viser prod korrekt før DDL (Task 8). Browsertjek før DDL: se »Browsertjek før DDL« nedenfor. |
 | 2 | `go-ddl` | `GO_6E2_DDL_KODE=…` (binder commit, blokkens og filernes sha, runneren, `40-trin6e2-vindue.sql`, `lib.zsh`, `koer.zsh`, `rollback-preflight.sql`) |
-| 3 | `maal` | `T6E2_MAAL fase=foer KOORD_ANDRE=66e9afd9… ETIKETTER_ANDRE=d97decc7… BINDINGER_RECORD=561 SPRUNGET=2 UDEN_PLACEMENT=33 STALE=0 BIO_OFFENTLIGE=1100 FAKTA_BUNDNE=2264 FAMILIEKILDER=06e71a11… SKEMA_ETIKETTER=83c4e28d…`, `T6E2_MAAL_OK tilstand=foer` |
-| 3b | `anon` | `T6E2_ANON raekker=1000,111,1 koord_s1_ms=… koord_s2_ms=… bio392_ms=…` (prod før; median af 3) |
+| 3 | `maal` | `GP3:` `T6E2_MAAL fase=foer KOORD_ANDRE=66e9afd9… ETIKETTER_ANDRE=d97decc7… BINDINGER_RECORD=561 SPRUNGET=2 UDEN_PLACEMENT=33 STALE=0 BIO_OFFENTLIGE=1100 FAKTA_BUNDNE=2264 FAMILIEKILDER=06e71a11… SKEMA_ETIKETTER=83c4e28d…`, `T6E2_MAAL_OK tilstand=foer` |
+| 3b | `anon` | `GP3:` `T6E2_ANON raekker=1000,111,1 koord_s1_ms=… koord_s2_ms=… bio392_ms=…` (prod før; median af 3) |
 | 4 | `dump` | `DUMP_6E2_OK tilstand=foer`, `EKSTERN_6E2_OK … rundtur=ok`, `DAA_T6E2_DUMP=…` |
 | 5 | advisors (security + performance, læse-kun) | Spec §6: Supabase-MCP ser ikke DAA-projektet, så det er den statiske ækvivalent. Ingen nye fund ud over de kendte. |
-| 6 | projektejeren `apply-ddl --jeg-mener-det --go <kode>` | i rækkefølge: `T6E2_VINDUE_AFVIGER sammenligning=eksakt navne=-`, `T6E2_VINDUE_OK sammenligning=eksakt`, `B1_6E2_OK tilstand=foer …`, `T6E2_SNAPSHOT_OK … funktioner=4 nye=8`, `T6E2_VINDUE_AFVIGER sammenligning=ddl navne=public.source`, `T6E2_VINDUE_OK sammenligning=ddl`, `T6E2_APPLY_DDL_OK tilstand=ddl blok=5fed142013780f29 katalog=ok fortryd_ddl=…`. Før snapshottet kræves kataloget lig foer-dumpets (`T6E2_KATALOG_FOER_DDL`), og `db-rls.sql` køres som sha-tjekket kopi. |
+| 6 | projektejeren `apply-ddl --jeg-mener-det --go <kode>` | i rækkefølge: `T6E2_VINDUE_AFVIGER sammenligning=eksakt navne=-`, `T6E2_VINDUE_OK sammenligning=eksakt`, `B1_6E2_OK tilstand=foer …`, `T6E2_SNAPSHOT_OK … funktioner=4 nye=8`, `T6E2_VINDUE_AFVIGER sammenligning=ddl navne=public.source`, `T6E2_VINDUE_OK sammenligning=ddl`, `T6E2_APPLY_DDL_OK tilstand=ddl blok=5fed142013780f29 katalog=ok fortryd_ddl=…` (`GP3:` blokken er ændret ved fletningen; ny blok-sha). Efter: `db-verify`'s `redaktoer-ser-levende`-tjek grønt (redaktør-grenen står i alle tre læse-RPC'er). Før snapshottet kræves kataloget lig foer-dumpets (`T6E2_KATALOG_FOER_DDL`), og `db-rls.sql` køres som sha-tjekket kopi. |
 | 7 | `maal` | `fase=ddl`; andre kilders hashes uændrede (runneren stopper ellers) |
 | 8 | advisors | som trin 5 |
 | 9 | `dump` | `DUMP_6E2_OK tilstand=ddl` (data-dumpet; fortrydelsens grundlag) |
-| 10 | `go-data` | `sidekort=cd013e9c420e22e1 etiketter=5c34881f25dc4350 ceremoni=d39c4208b97a9f53 maal=b0424077ab73c004`, `GO_6E2_DATA_KODE=…` |
+| 10 | `go-data` | `sidekort=cd013e9c420e22e1 etiketter=5c34881f25dc4350 ceremoni=… maal=…`, `GO_6E2_DATA_KODE=…`. `GP3:` ceremoni og maal er ændret ved fletningen (på grenen nu `6fb56fcf9d0beb2c` / `8f0d6e58068403ef`, før `d39c4208…` / `b0424077…`); genpinnes efter merge |
 | 11 | projektejeren `apply-data --jeg-mener-det --go <kode>` | se næste tabel |
-| 12 | `maal` | `fase=data … BINDINGER_RECORD=0 SPRUNGET=2 UDEN_PLACEMENT=0 STALE=0 BIO_OFFENTLIGE=1100 FAKTA_BUNDNE=2264` |
+| 12 | `maal` | `GP3:` `fase=data … BINDINGER_RECORD=0 SPRUNGET=2 UDEN_PLACEMENT=0 STALE=0 BIO_OFFENTLIGE=1100 FAKTA_BUNDNE=2264` |
 | 13 | `vindue` | `T6E2_CS_OK ceremoniens=561 fremmede=0`, `T6E2_VINDUE_AFVIGER sammenligning=data navne=private.narrative_publication_event,private.narrative_record_publication,public.change_set,public.change_set_id_seq,public.lineage_scheme_entry,public.source`, `T6E2_VINDUE_OK` |
 | 13b | `anon` | 3 målinger efter; koordinat-RPC'en ≤ 0,6 s pr. kald, Conrads biografi inden for 209-487 ms (spec §8) |
 | 14 | browsertjek | se nedenfor |
 
-`apply-data`'s linjer:
+`apply-data`'s linjer (`GP3:` tal og hashes er generalprøve 1/2's fra før #342):
 
 | Linje | Betydning |
 |---|---|
@@ -82,7 +97,7 @@ Ceremoniens tre filer (`etiket_ceremoni.sql` og de to json) kopieres til kørsel
 værdier og køres som kopier; det samme gælder `maal_trin6e2.sql` ved hver måling og `db-rls.sql` i `apply-ddl` og
 `fortryd`.
 
-**Tid.** Generalprøven 13/11 på `daa5ab_ddl_standin_20261113150400_g1` (prods timeouts, `statement_timeout='2min'`):
+**Tid.** `GP3:` Generalprøven 13/11 på `daa5ab_ddl_standin_20261113150400_g1` (prods timeouts, `statement_timeout='2min'`):
 - ceremonien 30 s i alt, langsomste sætning 11,5 s. Med den værste målte skrive-faktor (≈27, 6c-2) giver det ≈5,2 min
   for den langsomste sætning, under ceremoniens 15 min;
 - `anon` efter data: koordinat-RPC'en 96 ms pr. kald (før DDL 558 ms), Conrads biografi (392) 23 ms;
@@ -98,12 +113,12 @@ undtaget).
 
 | Værdi | Kilde |
 |---|---|
-| blok `5fed1420…`, `db-rls.sql` `a21d5034…` (= prods; byte-ens med `origin/main` `cb432c79:db-rls.sql`, som 6e-2 ikke ændrer), `etiket_ceremoni.sql` `d39c4208…`, `maal_trin6e2.sql` `b0424077…`, `sidekort_1939.json` `cd013e9c…`, `linjeetiketter_6e2.json` `5c34881f…` | filerne på stien i `main` efter merge (6e-2-blokken sidst i `db-migrations.sql`, `db-rls.sql`, `.claude/skills/daa-extract/scripts/`); `go-*` binder commit og sha. Genpinnes, hvis review eller merge ændrer filen |
-| `KOORD_ANDRE` `66e9afd9…`, `ETIKETTER_ANDRE` `d97decc7…` | Task 9's forventning = `maal foer` på stand-in-kopien; ens i alle faser |
-| 561 / 2 / 33 / 1100 / 2264 | `maal foer` på stand-in-kopien (Task 9: 563 − 2 staged); afledes igen af `maal` i fase ddl |
+| `GP3:` blok `5fed1420…` (før fletningen), `db-rls.sql` `a21d5034…` (= prods; byte-ens med `origin/main` `ac194bfd:db-rls.sql` og `cb432c79:db-rls.sql`, som hverken #342 eller 6e-2 ændrer), `GP3:` `etiket_ceremoni.sql` `d39c4208…` (nu `6fb56fcf…`), `GP3:` `maal_trin6e2.sql` `b0424077…` (nu `8f0d6e58…`), `sidekort_1939.json` `cd013e9c…`, `linjeetiketter_6e2.json` `5c34881f…` | filerne på stien i `main` efter merge (6e-2-blokken sidst i `db-migrations.sql`, `db-rls.sql`, `.claude/skills/daa-extract/scripts/`); `go-*` binder commit og sha. Genpinnes, hvis review eller merge ændrer filen |
+| `GP3:` `KOORD_ANDRE` `66e9afd9…`, `ETIKETTER_ANDRE` `d97decc7…` (gæstens udsnit; ceremonien læser nu også som gæst) | Task 9's forventning = `maal foer` på stand-in-kopien; ens i alle faser |
+| `GP3:` 561 / 2 / 33 / 1100 / 2264 | `maal foer` på stand-in-kopien (Task 9: 563 − 2 staged); afledes igen af `maal` i fase ddl |
 | entries 5 | etiketfilens længde (spec §12.5) |
-| `M[foer]` | `maal foer` på `daa5ab_ddl_standin_20261113070325_6e2t` (Task 10) |
-| `M[ddl]` (= `M[foer]`), `M[data]` (`0 2 0 0 1100 2264 75186593… f0cb8884…`) | generalprøven 13/11 (`…_g1`) |
+| `GP3:` `M[foer]` | `maal foer` på `daa5ab_ddl_standin_20261113070325_6e2t` (Task 10) |
+| `GP3:` `M[ddl]` (= `M[foer]`), `M[data]` (`0 2 0 0 1100 2264 75186593… f0cb8884…`) | generalprøven 13/11 (`…_g1`) |
 | grant-matrix `--xxxx------------xxxx`, katalogdiffen (15 objekter), vindueslisterne | målt på en t6e2_-kopi af stand-in'en (Task 10); generalprøven bekræfter. Matrixen afhænger ikke af forbindelsens rolle: `db-rls.sql` l. 43 tager EXECUTE på alle private funktioner i samme transaktion, `postgres` har ingen default-ACL i `private`, og de offentlige har eksplicit `REVOKE`/`GRANT` |
 
 **Efter Codex-review og merge:** `T6E2_BLOK` og filernes sha'er genpinnes, hvis reviewet rører filerne; ændres
@@ -120,7 +135,9 @@ generalprøven igen og fastlåsning igen. Prod røres ikke.
   kommer med data. Hovedet og »Kilde i Aarbogen« viser også linjeskemaets interne kode (»Stamme-holstenske. Den
   holstenske Linje«), indtil ceremonien retter de 5 etiketter. Kør derfor data straks efter DDL: trin 7-11 i ét stræk.
 - **En fuld genkørsel af `db-migrations.sql`** (fx en fremtidig deploy, der kører hele filen) serverer kortvarigt de
-  gamle versioner af fire funktioner, fordi ældre blokke genskaber dem, før 6e-2-blokken sidst i filen retter dem igen:
+  gamle versioner af fire funktioner, fordi ældre blokke genskaber dem, før 6e-2-blokken sidst i filen retter dem igen.
+  Koordinat- og fakta-RPC'en er desuden uden #342's redaktør-gren, indtil `redaktoer-ser-levende`-blokken genskaber
+  den (redaktøren ser kortvarigt kun offentlige personer); først 6e-2-blokken giver den flettede krop:
   - koordinat-RPC'en `public_person_source_coordinates()` uden `printed_page` (ældre blokke dropper den nye signatur og
     genskaber den gamle; Task 3). Klienten tåler den manglende kolonne (Task 5);
   - `public_person_facts` med den rå PDF-side i fakta-kilden (fx »s. 541« for 1939);
@@ -199,9 +216,14 @@ uafhængigt af DB.
 transaktion:
 - `DROP CONSTRAINT source_sidekort_gyldigt` og `DROP COLUMN sidekort`;
 - den gamle CHECK genskabes fra `pg_get_constraintdef`;
-- den nye koordinat-RPC droppes, og de 4 ændrede funktioner genskabes fra `pg_get_functiondef`;
+- den nye koordinat-RPC droppes, og de 4 ændrede funktioner genskabes fra `pg_get_functiondef` (i prod er
+  koordinat- og fakta-RPC'ens forrige krop #342's med redaktør-grenen; snapshottet tages fra prod, så grenen følger med);
 - deres grants sættes som før;
 - de 8 nye funktioner droppes.
+
+Efter fortryd-ddl er prod igen på `ac194bfd`'s skema: redaktør-grenen står i alle tre læse-RPC'er (tjek med
+`git show ac194bfd:db-verify.sql`'s `verify_redaktoer_ser_levende`; grenens `db-verify.sql` forudsætter 6e-2's
+koordinat-krop med `coalesce(x.person_id,pl.person_id)`).
 
 Vagter før: fase ddl, intet sidekort i nogen kilde, ingen tom `record_label` (`btrim(record_label)=''`), og kataloget afviger fra foer-dumpet i
 præcis DDL'ens 15 objekter. Bevis efter: katalog (P) og ACL (P+L) som foer-dumpet (grants afstemmes som
@@ -216,7 +238,9 @@ Hvorfor ikke 6d-1's vej (drop + restore af foer-dumpet):
 - `db-rls.sql` er uændret siden grenens base, så ingen ældre version skal genanvendes.
 
 **Går snapshottet tabt**, kan de forrige definitioner genskabes fra git: `schema.sql`/`db-migrations.sql` på
-`origin/main` før merge (`cb432c79`), fx `git show cb432c79:schema.sql`.
+`origin/main` før merge (`ac194bfd`, prods tilstand med #342), fx `git show ac194bfd:schema.sql`; #342's kroppe står
+også i blokken `-- ===== redaktoer-ser-levende: …` i `db-migrations.sql`. **Ikke** `cb432c79`: den ligger før #342 og
+ville fjerne redaktørens adgang til levende.
 
 **Nødudgang** (kun hvis `fortryd-ddl` ikke kan gennemføres): køres **kun i projektejerens shell**, manuelt under frys,
 i samme rækkefølge som runnerens `fortryd`. Det er runbookens eneste prod-skrivning uden GO:
@@ -246,7 +270,8 @@ Task 3 ændrede DDL-markøren i 6d-1's historiske `placement_ceremoni.sql` og `m
 (`'printed_number IS NULL'` → `'count(DISTINCT (d.scheme_entry_id,'`, i 6e-2's koordinat-RPC-ændring). Det var
 nødvendigt, for 6e-2 fjernede NULL-filteret i koordinat-RPC'ens kildegate, og CI kører 6d-1's tests mod det nye skema.
 Den version, der blev kørt i prod 9/11, er den på `origin/main` før merge
-(`git show cb432c79:.claude/skills/daa-extract/scripts/placement_ceremoni.sql`, tilsvarende `maal_trin6d1.sql`). Det
+(`git show ac194bfd:.claude/skills/daa-extract/scripts/placement_ceremoni.sql`, tilsvarende `maal_trin6d1.sql`; #342
+ændrede ingen af dem, så `cb432c79` giver samme filer). Det
 noteres også i changelog.
 
 ## De 2 oversprungne staged
@@ -287,6 +312,8 @@ Efter trin 13. På hver tjekket side: ingen `record-` eller `legacy-source:` i D
   - B6 viser »✓ også i DAA 1939 (II. Linjen Gallentin)«.
 - **Linjenavne:** III lyder »… Ziesendorf.« i læseren. Stammeafsnittene hedder »A. Den holstenske Linje.« og »B. Den
   ældre meklenborgske Linje.«. »Kilde i Aarbogen« viser linjens navn for begge udgaver.
+- **Som redaktør (#342):** en levende persons side viser fakta og »Kilde i Aarbogen« (med trykt side, hvor posten har
+  en) som før 6e-2; samme person er ikke synlig som anon.
 - **Ingen 1939-side over 92** i DOM'en (Task 8: højeste viste 1939-side er 90).
 - **En 1939-person uden 2018-20-modpart:** ingen vælger, 1939's fakta og læsbar etiket.
 - **Uenighed og konflikt:** en reel uenighed viser »… skriver: …«; konfliktkomponenten 137↔937 viser »placerer i«.
@@ -298,6 +325,10 @@ Efter trin 13. På hver tjekket side: ingen `record-` eller `legacy-source:` i D
   - `stale_published` 0.
 
 ## Generalprøven 13/11
+
+`GP3:` Kørt på en stand-in fra før #342; den gælder ikke den flettede DDL. Generalprøve 3 (nyt prod-dump med #342,
+samme forløb og negativer, plus et læsekald som redaktør, der viser en levende persons koordinater og fakta efter DDL)
+afventer; dens tal erstatter alle `GP3:`-mærkede værdier.
 
 Kørt af controlleren fra operatørens cwd på `daa5ab_ddl_standin_20261113150400_g1` med `statement_timeout='2min'`
 (efter at `koer.zsh`-reglen var udvidet):
