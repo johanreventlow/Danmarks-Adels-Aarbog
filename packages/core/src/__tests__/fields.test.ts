@@ -1,4 +1,5 @@
-import { fmtYears, parseYear, stripParen } from '../fields';
+import { aarSpaend, fmtYears, parseYear, stripParen } from '../fields';
+import { oploesRelativDato } from '../relativeDates';
 
 // Rene felt-hjælpere (port fra design-HTML). Datalag-dækning: årstals-udtræk og
 // leveår-formatering rammer mange rå-felter, så randtilfældene skal være fastlåst.
@@ -58,5 +59,18 @@ describe('stripParen — fjern omkransende parenteser/whitespace', () => {
   test('null/undefined → tom streng', () => {
     expect(stripParen(null)).toBe('');
     expect(stripParen(undefined)).toBe('');
+  });
+});
+
+describe('aarSpaend', () => {
+  it('alle årstal i datoen; dage og måneder tæller ikke', () => {
+    expect(aarSpaend('† 1406/1410')).toEqual([1406, 1410]);
+    expect(aarSpaend('17. aug. 1840 på Aalstrup')).toEqual([1840, 1840]);
+    expect(aarSpaend('mellem 1. og 4. juni 1697')).toEqual([1697, 1697]);
+    expect(aarSpaend('† s.å.')).toBeNull();
+    expect(aarSpaend(null)).toBeNull();
+  });
+  it('»s.å.« opløst mod fødslen giver fødselsåret', () => {
+    expect(aarSpaend(oploesRelativDato('† s.å.', '* 12. maj 1650'))).toEqual([1650, 1650]);
   });
 });

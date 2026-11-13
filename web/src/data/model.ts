@@ -2,7 +2,7 @@
 // → buildModel. Lean udgave af mobile/src/data/load.ts (kun det stamtræ + slægtskabsfinder
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
-import { buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, fmtYears, parseYear, getAll, EMPTY_GEO, type PublicCoordinateRow } from '@daa/core';
+import { aarSpaend, buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, fmtYears, oploesRelativDato, parseYear, getAll, EMPTY_GEO, type PublicCoordinateRow } from '@daa/core';
 import { buildLineage } from './lineage';
 import { buildSources } from './sources';
 import { byggUdgaveModel } from './udgaver';
@@ -98,6 +98,9 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     name: p.visning_fuldt_navn ?? p.visning_navn ?? '(uden navn)',
     born: parseYear(p.visning_foedt),
     died: parseYear(p.visning_doed),
+    foedtSpaend: aarSpaend(p.visning_foedt),
+    // »† s.å.« opløses mod fødslen, så et barn, der døde samme år, ikke får et åbent dødsår.
+    doedSpaend: aarSpaend(p.visning_doed == null ? null : oploesRelativDato(p.visning_doed, p.visning_foedt ?? null) ?? p.visning_doed),
     years: fmtYears(p.visning_foedt, p.visning_doed),
     title: p.visning_titel ?? '',
     bio: '',

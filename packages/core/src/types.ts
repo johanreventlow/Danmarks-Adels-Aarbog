@@ -119,6 +119,10 @@ export type AppPerson = {
   bio: string;
   privat: boolean;
   koen?: Koen; // valgfri: ældre fixtures/seed mangler den → behandles som ukendt
+  // Valgfri: årstallenes spænd i bogens dato (»† 1406/1410« → [1406, 1410]; et enkelt år → [år, år]).
+  // born/died er det første år; spændet bruges, hvor en usikker dato skal tælle i hele sin bredde.
+  foedtSpaend?: [number, number] | null;
+  doedSpaend?: [number, number] | null;
 };
 
 // Db = output af loadFromSupabase; persons mangler stadig parentId/spouse.
