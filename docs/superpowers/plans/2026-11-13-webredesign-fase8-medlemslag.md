@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Når »Det er mig« er sat, står slægtskabet til dig over navnet på enhver personside (»Din tipoldefar«,
-»Gift med din onkel Christian Reventlow«); fakta, hvor udgaverne er uenige, får mærket »Uenige kilder«.
+»Gift med Christian Reventlow, din onkel«); fakta, hvor udgaverne er uenige, får mærket »Uenige kilder«.
 
 **Architecture:** Ren klient. `@daa/core` får én ny ren funktion, der giver slægtskabsordet set fra mig mod
 fokuspersonen. `web/src/data/slaegtskab.ts` samler den med `computeRelationship` og ægtefælleindekset til en lille
@@ -32,8 +32,14 @@ godkender sammen med planen.
    får »Omstridt:«. Bekræfter en anden, sikker vej slægtskabet, tilføjes »· bekræftet ad en anden linje«, samme ord
    som »Er vi i familie?«.
 5. **Mere end én vej:** linket »Se vejen« (eller »Se alle N veje«) fører til `/slaegtskab?a=<mig>&b=<fokus>`.
-   Dobbelt slægtskab får » · dobbelt slægtskab« (tredobbelt osv. med `multiplicitetForled`).
-6. **Ingen forbindelse siges med ord:** »Aarbogen viser intet slægtskab med dig« i dæmpet tekst. Uden »Det er mig«
+   Personsiden nævner **ikke** dobbelt slægtskab. Ordet kommer altid fra den nærmeste linjes egne `d1`/`d2`, og
+   sikkerheden fra samme linje. Linjen påstår altså kun det, én bestemt vej bærer.
+   Grunden er Codex-review 13/11: core slår linjer sammen efter etiket. Ved sammenlægningen arves kun
+   repræsentantens konfidens (`relationship.ts:281-302`), og to linjer med modsat retning kan få samme etiket
+   (»Onkel & nevø«). »Dobbelt« kunne derfor skjule et omstridt led eller blande onkel og nevø. »Er vi i familie?«
+   har samme svaghed; den står i backlog (task 6) og hører ikke til fase 8.
+6. **Ingen forbindelse siges med ord:** »Aarbogen viser ingen fælles ane med dig« i dæmpet tekst. Der står »fælles
+   ane« og ikke »slægtskab«, fordi svigerfamilie bevidst ikke undersøges (valg 3). Uden »Det er mig«
    vises intet, og pladsen fylder intet. Login betyder intet her, så det ændrer ikke kravet om intet layoutskift
    ved login.
 7. **POC-reglen for levende kræver ingen kode:** gæster og almindelige brugere har ingen levende personer i modellen,
@@ -146,9 +152,21 @@ expect(slaegtskabTilMig(3, 3, { koen: 'mand', half: true })).toBe('din 2. grads 
 expect(slaegtskabTilMig(0, 0)).toBe('');
 ```
 
-Tilføj en krydstest, så de to funktioner ikke kan glide fra hinanden: for alle `d1,d2 ∈ 0..5` (undtagen 0,0)
-skal `relationshipLabel(d1, d2)` og `slaegtskabTilMig(d1, d2)` begge være ikke-tomme. For `minD ≥ 2` skal
-gradtallet (`/(\d+)\. grads/`) være det samme i begge.
+Retning, store forskydninger og neutrale halvformer skal også have konkrete forventninger:
+
+```ts
+expect(slaegtskabTilMig(4, 1, m)).toBe('din grandonkel');      // forskydning 3 → stadig grand- (valg 8)
+expect(slaegtskabTilMig(1, 4)).toBe('din grandniece/-nevø');
+expect(slaegtskabTilMig(5, 2, k)).toBe('din 1. grads kusine · 3 gange forskudt');
+expect(slaegtskabTilMig(2, 5, m)).toBe('din 1. grads fætter · 3 gange forskudt');
+expect(slaegtskabTilMig(1, 1, { half: true })).toBe('dit halvsøskende');
+expect(slaegtskabTilMig(2, 2, { half: true })).toBe('din 1. grads fætter/kusine (halv)');
+expect(slaegtskabTilMig(1, 2, { half: true })).toBe('din niece/nevø (halv)');
+```
+
+Tilføj en begrænset krydstest. Den kontrollerer kun ikke-tomhed og gradtal, ikke retning: for alle
+`d1,d2 ∈ 0..5` (undtagen 0,0) skal `relationshipLabel(d1, d2)` og `slaegtskabTilMig(d1, d2)` begge være
+ikke-tomme. For `minD ≥ 2` skal gradtallet (`/(\d+)\. grads/`) være det samme i begge.
 
 - [ ] **Step 2:** `npm run test -w @daa/core -- relationship`. Forventet: FAIL (`slaegtskabTilMig` er ikke defineret).
 - [ ] **Step 3:** Implementér med samme rækker som `relationshipLabel` (`relationship.ts:135-177`): direkte linje
@@ -173,42 +191,53 @@ gradtallet (`/(\d+)\. grads/`) være det samme i begge.
   `buildModel` fylder `spousesBy` i begge retninger (`buildModel.ts:50-62`).
 
 **Interfaces:**
-- Consumes: `slaegtskabTilMig` (task 1), `computeRelationship`, `multiplicitetForled` og `model.indexes.spousesBy`.
+- Consumes: `slaegtskabTilMig` (task 1), `computeRelationship` og `model.indexes.spousesBy`.
 - Produces:
 
 ```ts
 export type Sikkerhed = 'sikker' | 'sandsynligvis' | 'omstridt';
+// Fælles for blod og gift: beskriver forbindelsen mig ↔ blodslægtningen (fokus selv eller fokus' ægtefælle).
+export type Forbindelse = { ord: string; sikkerhed: Sikkerhed; bekraeftetAndenVej: boolean; veje: number };
 export type SlaegtskabsKontekst =
   | { art: 'skjult' }                                   // »Det er mig« ikke sat, eller mig findes ikke i modellen
   | { art: 'dig' }
   | { art: 'min-aegtefaelle' }
-  | { art: 'blod'; ord: string; sikkerhed: Sikkerhed; bekraeftetAndenVej: boolean; veje: number; multiplicitet: number }
-  | { art: 'gift'; ord: string; sikkerhed: Sikkerhed; aegtefaelleId: string; aegtefaelleNavn: string }
+  | ({ art: 'blod' } & Forbindelse)
+  | ({ art: 'gift'; aegtefaelleId: string; aegtefaelleNavn: string } & Forbindelse)
   | { art: 'ingen' };
 export function slaegtskabsKontekst(model: Model, meId: string | null, focusId: string): SlaegtskabsKontekst;
 ```
 
-`ord` er uden stort begyndelsesbogstav (fra `slaegtskabTilMig`). `veje = lines.length`.
+`ord` er uden stort begyndelsesbogstav (fra `slaegtskabTilMig`) og bygges af `lines[0].d1`/`d2`/`half`, aldrig af
+`label` eller `multiplicitet` (valg 5). `sikkerhed` kommer fra `lines[0]`. `veje = lines.length`.
 
 - [ ] **Step 1: Skriv de fejlende tests**, én `it` pr. regel. Prioriteten er: skjult → dig → min-aegtefaelle → blod
   → gift → ingen.
   - `meId` er null → `{ art: 'skjult' }`. `meId` findes ikke i `model.byId` → `skjult`.
   - `meId === focusId` → `dig`.
   - mig=A, fokus=B → `min-aegtefaelle`, selv om de også er fætre (fætter-kusine-ægteskab).
-  - mig=A2, fokus=B → `{ art: 'blod', ord: 'din 1. grads fætter', sikkerhed: 'sikker', veje: 1, multiplicitet: 1, bekraeftetAndenVej: false }`.
-  - Samme med `konfidens: 'formodet'` på kanten B→P2 → `sikkerhed: 'sandsynligvis'`. Med `'omstridt'` →
-    `'omstridt'` (fra `lines[0].usikker` og `lines[0].weakestKonfidens`).
+  - mig=A2, fokus=B → `{ art: 'blod', ord: 'din 1. grads fætter', sikkerhed: 'sikker', veje: 1, bekraeftetAndenVej: false }`.
+  - Samme med `konfidens: 'formodet'` på kanten B→P2 → `sikkerhed: 'sandsynligvis'`, `bekraeftetAndenVej: false`.
+    Med `'omstridt'` → `'omstridt'` (fra `lines[0].usikker` og `lines[0].weakestKonfidens`).
   - `bekraeftetAndenVej` følger reglen fra `RelateView.tsx:143`: `lines[0].usikker`, og der findes en anden linje,
-    der ikke er usikker.
-  - mig=A, fokus=S (gift med B og A2, ingen forældre) → `{ art: 'gift', ord: 'din bror', aegtefaelleId: 'A2', aegtefaelleNavn: 'A2', sikkerhed: 'sikker' }`.
-    A2 vinder over B, fordi `d1+d2` er 2 mod 4. S's ægtefælle uden id (`uS0`) springes over uden fejl.
+    der ikke er usikker. Den positive test bruger en egen model bygget som fixturen i
+    `packages/core/src/__tests__/relationship.test.ts:383-413` (nær usikker linje, fjern sikker linje), med
+    forventningen `bekraeftetAndenVej: true` og `veje: 2`. Samme model uden det usikre led → `false`.
+  - Ordet følger den nærmeste linjes egen retning, ikke den sammenlagte etiket. Brug Codex' graf som egen model:
+    G1 er forælder til A og P, P er forælder til B; G2 er forælder til B og Q, Q er forælder til A; alle mænd.
+    Fokus er her både nevø og onkel til mig. Assertér, at `ord === slaegtskabTilMig(lines[0].d1, lines[0].d2, …)`,
+    og at resultatet ikke indeholder »dobbelt«.
+  - mig=A, fokus=S (gift med B og A2, ingen forældre) → `{ art: 'gift', ord: 'din bror', aegtefaelleId: 'A2', aegtefaelleNavn: 'A2', sikkerhed: 'sikker', veje: 1, bekraeftetAndenVej: false }`.
+    A2 vinder over B, fordi `d1+d2` er 2 mod 4. S's ægtefælle uden id (`uS0`) springes over uden fejl. Det gør en
+    ægtefællepost med `id === focusId` også (`spousesBy` har ingen vagt mod selvreference, `buildModel.ts:53-65`).
   - Samme med `konfidens: 'formodet'` på kanten A2→P1 → `gift` med `sikkerhed: 'sandsynligvis'`.
   - mig=A, fokus=X → `ingen`.
 - [ ] **Step 2:** `npm run test -w web -- slaegtskab`. Forventet: FAIL.
 - [ ] **Step 3:** Implementér `slaegtskabsKontekst` i `web/src/data/slaegtskab.ts`. Til ord og køn bruges
   `computeRelationship(model, meId, focusId).lines[0]` og `slaegtskabTilMig(line.d1, line.d2, { koen: model.byId[focusId].koen, half: line.half })`.
-  Ægtefællereglen kører `computeRelationship(model, meId, s.id)` for hver ægtefælle med id. Den vælger mindst
-  `d1+d2`, og ordet bruger **ægtefællens** køn. Det er ægtefællen, der er slægtningen.
+  Ægtefællereglen kører `computeRelationship(model, meId, s.id)` for hver ægtefælle med id (undtagen `focusId`).
+  Den vælger mindst `lines[0].d1 + lines[0].d2`, og ordet bruger **ægtefællens** køn. Det er ægtefællen, der er
+  slægtningen. `Forbindelse` bygges af én fælles hjælper til både blod og gift.
 - [ ] **Step 4:** `npm run test -w web -- slaegtskab`. Forventet: PASS.
 - [ ] **Step 5: Commit** — `git add web/src/data/slaegtskab.ts web/src/data/__tests__/slaegtskab.test.ts` og
   `git commit -m "feat(web): slægtskab som kontekst beregnet fra »Det er mig«"`.
@@ -225,7 +254,7 @@ export function slaegtskabsKontekst(model: Model, meId: string | null, focusId: 
 
 **Interfaces:**
 - Consumes: `slaegtskabsKontekst`/`SlaegtskabsKontekst` (task 2), `slaegtskabPath(a, b)` og `personPath(id)` fra
-  `../data/nav`, og `multiplicitetForled` fra `@daa/core`.
+  `../data/nav`.
 - Produces: `SlaegtskabsLinje({ kontekst, meId, focusId, onVisPerson }: { kontekst: SlaegtskabsKontekst; meId: string | null; focusId: string; onVisPerson: (id: string) => void })`,
   som returnerer `null` ved `skjult`. Desuden en ny valgfri prop `meId?: string | null` på `PersonSide` (default
   `null`). `erMig`/`onToggleMig` er uændrede.
@@ -233,18 +262,18 @@ export function slaegtskabsKontekst(model: Model, meId: string | null, focusId: 
 - [ ] **Step 1: Skriv de fejlende tests for `SlaegtskabsLinje`.** Den præcise tekst (`toHaveTextContent` på
   `getByTestId('slaegtskab-kontekst')`) er:
   - `skjult` → intet renderes.
-  - `dig` → `Det er dig`. `min-aegtefaelle` → `Din ægtefælle`. `ingen` → `Aarbogen viser intet slægtskab med dig`.
+  - `dig` → `Det er dig`. `min-aegtefaelle` → `Din ægtefælle`. `ingen` → `Aarbogen viser ingen fælles ane med dig`.
   - `blod`, `ord: 'din 1. grads fætter'`, sikker, `veje: 1` → `Din 1. grads fætter` og et link `Se vejen` med
     `href` = `slaegtskabPath(meId, focusId)`. Med `veje: 2` → linkteksten `Se alle 2 veje`.
   - `blod` sandsynligvis → `Sandsynligvis din 1. grads fætter`. Omstridt → `Omstridt: din 1. grads fætter`.
     `bekraeftetAndenVej: true` → `· bekræftet ad en anden linje` efter ordet.
-  - `blod` med `multiplicitet: 2` → `Din 1. grads fætter · dobbelt slægtskab`. Med 3 → `· tredobbelt slægtskab`
-    (`multiplicitetForled(n).toLowerCase()`).
-  - `gift`, `ord: 'din onkel'`, `aegtefaelleNavn: 'Christian Reventlow'`, sikker → `Gift med Christian Reventlow, din onkel`.
+  - `gift`, `ord: 'din onkel'`, `aegtefaelleNavn: 'Christian Reventlow'`, sikker, `veje: 1` → `Gift med Christian Reventlow, din onkel`.
     Navnet er et link til `personPath(aegtefaelleId)`, og et klik kalder `onVisPerson(aegtefaelleId)`. `Se vejen`
-    peger på `slaegtskabPath(meId, aegtefaelleId)`.
+    peger på `slaegtskabPath(meId, aegtefaelleId)`. Med `veje: 2` → `Se alle 2 veje`.
   - `gift` sandsynligvis → `Gift med Christian Reventlow, sandsynligvis din onkel`. Omstridt →
-    `Gift med Christian Reventlow, omstridt: din onkel`.
+    `Gift med Christian Reventlow, omstridt: din onkel`. Med `bekraeftetAndenVej: true` →
+    `· bekræftet ad en anden linje` efter ordet, som ved blod.
+  - Ingen tilstand renderer ordet »dobbelt« (valg 5).
 - [ ] **Step 2: Skriv de fejlende wiring-tests i `PersonSide.test.tsx`** (Conrad-fixturen): uden `meId` er
   `queryByTestId('slaegtskab-kontekst')` null. Med `meId === focusId` står der `Det er dig`. Efter `rerender` med
   `meId={null}` forsvinder linjen (Review Focus 5).
@@ -266,14 +295,18 @@ export function slaegtskabsKontekst(model: Model, meId: string | null, focusId: 
 
 **Files:** ét script i sessionens scratchpad-mappe. Det committes ikke.
 
-- [ ] **Step 1:** Skriv et read-only tsx-script, der som anon (samme klient og RPC som `web/src/data/public.ts:333`,
-  `public_person_facts`) henter fakta for alle offentlige personer med fakta fra mindst to udgaver. Kald
-  `p_person_ids` i bidder af 25 og ét ad gangen, fordi anon har en grænse på 3 s pr. kald, og personer med mange
-  fakta er tunge. Byg `UdgaveFaktaInput` med samme felter og kilder som `web/src/data/public.ts:391-398`
-  (udgavekontekst, `fritekstKilde`, `SLUKKET_ENIGHED`) og genbrug de funktioner, der står der, uden at udlede noget
-  på ny. Kør derefter `byggUdgaveFakta(input, valgt)` med hver udgave som valgt, og tæl faktalinjer med mindst én
-  note `art: 'skriver'` (ikke omstridt). Script og output må kun læse offentlige data. Anon-nøglen hentes fra env og
-  printes aldrig.
+- [ ] **Step 1:** Skriv et read-only script, der genbruger webbens egen datalæsning præcis, som en gæst ser
+  personsiden. Det køres med `npx vite-node <script>` fra `web/`, så Vites `import.meta.env` virker; ingen ændring i
+  `web/src`.
+  - **Population:** `loadModel()` (`web/src/data/model.ts:58`) som gæst giver de kanoniske, offentlige personer.
+  - **Pr. person:** fakta hentes som `Folgesvend.tsx:202-207` gør:
+    `fetchPersonDetail(id, personMemberIds(id, model.byId[id]), false, { udgaver: model.udgaver ?? [], udgaveForPersonRaekke: model.udgaveForPersonRaekke ?? {} }, false)`.
+    Det sker én person ad gangen, så alle aliasposter samles pr. foldet person, og intet blandes mellem personer.
+    Personer, hvis `faktaInput` dækker færre end to udgaver, springes over.
+  - **Tælleenhed:** én person × valgt udgave × linjenøgle. For hver udgave som valgt køres
+    `byggUdgaveFakta(detail.faktaInput, valgt)`. Der tælles linjer med `vaerdi !== ''`, `!omstridt` og mindst én note
+    `art: 'skriver'`. Det er netop de linjer, task 5 ville mærke.
+  - Scriptet læser kun offentlige data. Anon-nøglen hentes fra env og printes aldrig.
 - [ ] **Step 2:** Output: antal personer, antal linjer med »skriver«-note pr. faktatype, og 25 tilfældige eksempler
   med `valgt værdi` ↔ `anden udgaves værdi`. Hvert eksempel sorteres i hånden: *skrivemåde* (samme betydning) eller
   *reel uenighed*.
@@ -302,7 +335,9 @@ export function slaegtskabsKontekst(model: Model, meId: string | null, focusId: 
 ### Task 6: Dokumentation og den fulde kontrol
 
 **Files:**
-- Modify: `docs/decisions.md` (ny `BESLUTTET`-post øverst: valg 1-8 og 10 som godkendt, og valget fra task 4)
+- Modify: `docs/decisions.md` (ny `BESLUTTET`-post øverst: valg 1-8 og 10 som godkendt og valget fra task 4,
+  plus en `NOTERET`-backlogpost: »Er vi i familie?« viser »Dobbelt …« med kun repræsentantens konfidens og kan slå
+  linjer med modsat retning sammen (`relationship.ts:281-302`; Codex-review 13/11))
 - Modify: `docs/changelog.md` (dateret post)
 - Modify: `docs/design/2026-11-12-webredesign-overdragelse.md:107-109` (fase 8 bygget; hvad der udgik)
 
