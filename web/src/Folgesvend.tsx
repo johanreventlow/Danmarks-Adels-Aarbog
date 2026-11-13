@@ -382,13 +382,12 @@ export default function Folgesvend() {
   // Lazy geo-kæde (review 27 P3): place+fact hentes IKKE ved cold-start (se loadModel) —
   // kun de tre kort-bærende flader udløser hentningen, og kun ÉN gang (geoRequestedRef er en
   // ref, ikke state, så gentagne mode-skift ikke refetcher selvom resultatet reelt blev tomt).
-  // 'estates'/'kort' er selvforklarende kort-visninger; 'person' har livsrejsen (fase 5b); detailOpen dækker minikortet i
-  // detalje-panelet (der kan åbne fra BÅDE 'tree' og 'relate' — vi kender ikke points.length
-  // for den fokuserede person før geo er hentet, så vi henter så snart panelet er åbent).
+  // 'estates'/'kort' er selvforklarende kort-visninger; 'person' har livsrejsen (fase 5b). Panelet har ikke
+  // længere et minikort (5b) og henter derfor ikke geo.
   const geoRequestedRef = useRef(false);
   const [geoLoading, setGeoLoading] = useState(false);
   useEffect(() => {
-    const needsGeo = mode === 'estates' || mode === 'kort' || mode === 'person' || detailOpen;
+    const needsGeo = mode === 'estates' || mode === 'kort' || mode === 'person';
     if (!needsGeo || !model || geoRequestedRef.current) return;
     geoRequestedRef.current = true;
     setGeoLoading(true);
@@ -396,7 +395,7 @@ export default function Folgesvend() {
       .then((geo) => setModel((m) => (m ? { ...m, geo } : m)))
       .catch((e) => console.warn('[Folgesvend] geo-hentning fejlede — intet kort:', e))
       .finally(() => setGeoLoading(false));
-  }, [mode, detailOpen, model]);
+  }, [mode, model]);
 
   // Modellen hentes igen, når brugeren logger ind eller ud: RLS afgør, hvilke personer (levende)
   // den rummer, og ellers ville fx præsensmurens »Log ind« føre en redaktør til en liste uden
