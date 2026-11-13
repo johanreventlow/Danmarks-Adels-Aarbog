@@ -187,8 +187,9 @@ test('slægtsbjælken vises under /slaegt/<slug>, ikke på /person/<id>', async 
 test('/soeg?q= viser resultater, og søgeordet skrives i adressen med replace', async () => {
   window.history.replaceState({}, '', '/soeg?q=Test');
   render(<Folgesvend />);
-  expect(await screen.findByText('Testperson')).toBeTruthy();
-  const felt = screen.getByLabelText('Søg person') as HTMLInputElement;
+  // Søgeordet er fremhævet i navnet (<mark>), så navnet findes som linkets navn.
+  expect((await screen.findByRole('link', { name: /Testperson/ })).getAttribute('href')).toBe('/person/1');
+  const felt = screen.getByLabelText('Søgeord') as HTMLInputElement;
   expect(felt.value).toBe('Test');
   fireEvent.change(felt, { target: { value: 'Testp' } });
   expect(navigate).toHaveBeenCalledWith('/soeg?q=Testp', expect.objectContaining({ replace: true }));

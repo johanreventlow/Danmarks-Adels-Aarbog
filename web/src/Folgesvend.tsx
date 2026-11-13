@@ -22,6 +22,8 @@ import { PersonSide } from './components/PersonSide';
 import { HomeView } from './components/HomeView';
 import { TreeView } from './components/TreeView';
 import { RelateView } from './components/RelateView';
+import { SoegView } from './components/SoegView';
+import { soegFiltre } from './data/soeg';
 import { DetailPanel } from './components/DetailPanel';
 import { EstatesView } from './components/EstatesView';
 import { OverviewMapView } from './components/OverviewMapView';
@@ -29,8 +31,7 @@ import PresensView from './components/PresensView';
 import { ArmsView } from './components/ArmsView';
 import { AboutView } from './components/AboutView';
 import { useSmalSkaerm } from './useSmalSkaerm';
-import { TreeSearch, type TreeSearchBundle } from './components/TreeSearch';
-import { ViewHeader } from './components/primitives';
+import { type TreeSearchBundle } from './components/TreeSearch';
 import { synligeLinjer } from './data/lineage';
 import { labelOfMode, parseFolgesvendPath, pathForMode, detailOpenFor, type Mode, personPath, estatePath, stamtraePath, soegPath, slaegtskabPath, STANDARD_SLAEGT, SLAEGTER, findSlaegt } from './data/nav';
 import { Tilstand, tilstandPrimaer, tilstandSekundaer } from './components/Tilstand';
@@ -214,15 +215,9 @@ export default function Folgesvend() {
     return buildBrowse(src, query, browseSort, activeLetter, { linjeByPerson: model?.lineage?.byPerson, activeLinje });
   }, [persons, model, query, browseSort, activeLetter, activeLinje, bmDep]);
 
-  // /soeg: adressen er eneste kilde til søgeordet — feltet og resultaterne læser parsed.q direkte,
-  // og tastetryk skrives i adressen (replace). Uden søgeord gennemses alle personer.
-  const soegQ = parsed.mode === 'soeg' ? (parsed.q ?? '') : '';
-  const soegBrowse = useMemo(() => {
-    if (parsed.mode !== 'soeg') return null;
-    const bmSet = bmDep ? new Set(bmDep) : null;
-    const src = bmSet ? persons.filter((p) => bmSet.has(p.id)) : persons;
-    return buildBrowse(src, soegQ, browseSort, activeLetter, { linjeByPerson: model?.lineage?.byPerson, activeLinje });
-  }, [parsed.mode, persons, model, soegQ, browseSort, activeLetter, activeLinje, bmDep]);
+  // /soeg (fase 6b): adressen er eneste kilde til søgeord og filtre; ændringer skrives i adressen (replace).
+  const soegFiltreNu = useMemo(() => soegFiltre(loc.search), [loc.search]);
+  const bogmaerkeSaet = useMemo(() => (bookmarks.canSave && bookmarkIds.length ? new Set(bookmarkIds) : null), [bookmarks.canSave, bookmarkIds]);
 
   // Er vi i familie? Adressen er eneste kilde til de to valgte personer (kanoniske id'er; et ukendt id bevares,
   // så siden kan sige, at personen i linket ikke findes).
@@ -538,14 +533,8 @@ export default function Folgesvend() {
             : mode === 'kort' ? <OverviewMapView model={model} geoLoading={geoLoading} onPickPerson={visPerson} onPickEstate={(id) => navigate(estatePath(id))} />
             : mode === 'praesens' ? <PresensView model={model} onPickPerson={visPerson} session={sessionKlar ? session : 'henter'} onLogin={() => setLoginOpen(true)} onGoTree={() => goToMode('tree')} />
             : mode === 'soeg' ? (
-              <div style={{ padding: '30px 40px 50px' }}>
-                <ViewHeader title="Personer" mb="18px" />
-                <TreeSearch {...treeSearch} query={soegQ} browse={soegBrowse ?? browse}
-                  // Skriv søgeordet i adressen med replace, så tilbage-knappen ikke går ét tastetryk ad gangen.
-                  setQuery={(v) => navigate(soegPath(v), { replace: true, state: window.history.state })}
-                  clearSearch={() => navigate(soegPath(), { replace: true })}
-                  showResults onPick={visPerson} personHref={personPath} />
-              </div>
+              <SoegView model={model} estates={estates} filtre={soegFiltreNu} linjer={linjeList} bogmaerker={bogmaerkeSaet}
+                onFiltre={(sti) => navigate(sti, { replace: true, state: window.history.state })} />
             )
             : mode === 'ukendtSlaegt' ? (
               <div style={{ padding: 40 }}>
