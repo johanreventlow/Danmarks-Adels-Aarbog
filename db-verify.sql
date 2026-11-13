@@ -10902,6 +10902,9 @@ BEGIN
      OR private.sidekort_gyldigt('[{"pdf_fra":1,"pdf_til":3,"trykt_fra":5},{"pdf_fra":3,"pdf_til":4,"trykt_fra":9}]') THEN
     RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 sidekort_gyldigt kontrakt';
   END IF;
+  IF position('source_trykt_side' IN (SELECT p.prosrc FROM pg_proc p WHERE p.oid='public.public_person_facts(bigint[])'::regprocedure))=0 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: 6e-2 public_person_facts viser ikke trykt side';
+  END IF;
   -- Kontrakt med NULL-kort og udfyldt fixture-kort (rulles tilbage), kaldt som anon.
   BEGIN
     INSERT INTO public.source(id,titel,sidekort) VALUES

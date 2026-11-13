@@ -68,4 +68,29 @@ BEGIN
   IF public.side_trykt(ROW(-6201,NULL,-6201,'538',NULL,NULL,NULL)::public.citation) IS DISTINCT FROM '49' THEN RAISE EXCEPTION 'TEST_FAILED: authenticated side_trykt'; END IF;
 END $t$;
 RESET ROLE;
+-- Task 4: public_person_facts viser trykt side. Ubundet faktum; citation s. 541 i kilde med kort -> '52', uden kort -> '541'.
+CREATE OR REPLACE FUNCTION public.narrative_record_contract_version() RETURNS integer LANGUAGE sql STABLE SET search_path=pg_catalog AS $$ SELECT 2 $$;
+INSERT INTO public.person(id,levende,privat,status) VALUES (-6210,false,false,'t6e2');
+INSERT INTO public.fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-6210,'person',-6210,'død'),(-6211,'person',-6210,'død');
+INSERT INTO public.assertion(id,target_type,target_id,date_raw,calendar,uforanderlig) VALUES
+  (-6210,'fact',-6210,'1850','gregoriansk',true),(-6211,'fact',-6211,'1851','gregoriansk',true);
+INSERT INTO public.conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('fact',-6210,-6210,'afklaret'),('fact',-6211,-6211,'afklaret');
+INSERT INTO public.citation(id,assertion_id,source_id,side) VALUES (-6210,-6210,-6201,'541'),(-6211,-6211,-6202,'541');
+DO $t$
+DECLARE v text;
+BEGIN
+  SELECT side INTO v FROM public.public_person_facts(ARRAY[-6210::bigint]) WHERE assertion_id=-6210;
+  IF v IS DISTINCT FROM '52' THEN RAISE EXCEPTION 'TEST_FAILED: public_person_facts side med kort = %', v; END IF;
+  SELECT side INTO v FROM public.public_person_facts(ARRAY[-6210::bigint]) WHERE assertion_id=-6211;
+  IF v IS DISTINCT FROM '541' THEN RAISE EXCEPTION 'TEST_FAILED: public_person_facts side uden kort = %', v; END IF;
+  RAISE NOTICE 'OK: public_person_facts side';
+END $t$;
+SET LOCAL ROLE anon;
+DO $t$
+BEGIN
+  IF (SELECT side FROM public.public_person_facts(ARRAY[-6210::bigint]) WHERE assertion_id=-6210) IS DISTINCT FROM '52' THEN
+    RAISE EXCEPTION 'TEST_FAILED: anon public_person_facts side';
+  END IF;
+END $t$;
+RESET ROLE;
 ROLLBACK;

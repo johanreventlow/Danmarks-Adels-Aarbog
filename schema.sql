@@ -21627,7 +21627,8 @@ REVOKE ALL ON FUNCTION private.write_text_revision_reconciliation(uuid,jsonb,jso
 -- Trin 6c-2a (vej B): bindingernes gyldighed afgøres for alle personens promotion-rækker i én mængdeoperation med
 -- assertion_binding_current's invarianter (aktuel accepteret version, gemt regel, faktatype, identitet og
 -- binding_value_matches); interpretation_current læses én gang for de berørte nøgler, ikke én gang pr. binding.
--- Resultatet er rækkeligt med definitionen før 6c-2a (tests/sql/fixtures/public_person_facts_reference.sql).
+-- Resultatet er rækkeligt med definitionen før 6c-2a (tests/sql/fixtures/public_person_facts_reference.sql), bortset fra
+-- side: trin 6e-2 viser trykt side (public.source_trykt_side), som er uændret for kilder uden sidekort.
 CREATE OR REPLACE FUNCTION public.public_person_facts(p_person_ids bigint[])
 RETURNS TABLE(person_id bigint, fact_id bigint, faktatype text, conclusion_status text, assertion_id bigint,
   chosen boolean, vaerdi_tekst text, date_raw text, date_min date, date_max date, date_qualifier text,
@@ -21701,7 +21702,7 @@ BEGIN
   SELECT f.subjekt_id,f.id,f.faktatype,f.status,a.id,
          coalesce(a.id=f.valgt_assertion_id,false),
          a.vaerdi_tekst,a.date_raw,a.date_min,a.date_max,a.date_qualifier,a.date_certainty,
-         s.id,coalesce(s.udgave,s.titel),c.side,
+         s.id,coalesce(s.udgave,s.titel),public.source_trykt_side(s.id,c.side),
          lab.public_ref,lab.record_label,lab.citation_label
     FROM f
     JOIN public.assertion a ON a.target_type='fact' AND a.target_id=f.id

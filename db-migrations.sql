@@ -35978,3 +35978,98 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.public_person_source_coordinates() FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.public_person_source_coordinates() TO anon,authenticated;
+CREATE OR REPLACE FUNCTION public.public_person_facts(p_person_ids bigint[])
+RETURNS TABLE(person_id bigint, fact_id bigint, faktatype text, conclusion_status text, assertion_id bigint,
+  chosen boolean, vaerdi_tekst text, date_raw text, date_min date, date_max date, date_qualifier text,
+  date_certainty text, source_id bigint, source_label text, side text, record_ref uuid, record_label text,
+  citation_label text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+#variable_conflict use_column
+DECLARE
+  -- POC 2026-11-13 (decisions): redaktionen ser også levende, private og staged personers fakta. Kildehenvisningen
+  -- følger fortsat narrativets udgivelsesregel (lab nederst, trin 2).
+  v_red boolean:=public.current_rolle()='redaktion';
+BEGIN
+  IF public.narrative_record_contract_version()<2 OR p_person_ids IS NULL THEN RETURN; END IF;
+  RETURN QUERY
+  WITH f AS (
+    SELECT fa.id,fa.subjekt_id,fa.faktatype,cn.status,cn.valgt_assertion_id
+      FROM public.fact fa
+      JOIN public.conclusion cn ON cn.target_type='fact' AND cn.target_id=fa.id
+     WHERE fa.subjekt_type='person' AND fa.subjekt_id=ANY(p_person_ids)
+       AND cn.status IN ('afklaret','omstridt')
+       AND (v_red OR public.entitet_offentlig('person',fa.subjekt_id))
+  ), pr AS (
+    -- Personernes assertion-promotions med fortolkningsnøgle.
+    SELECT p.id,p.interpretation_id,p.target_id,p.rule_key,p.rule_version,q.interpretation_key
+      FROM private.interpretation_promotion p
+      JOIN private.interpretation q ON q.id=p.interpretation_id
+     WHERE p.target_type='assertion'
+       AND p.target_id IN (SELECT a.id FROM public.assertion a JOIN f ON a.target_type='fact' AND a.target_id=f.id)
+  ), cur AS (
+    -- interpretation_current én gang for de berørte nøgler (filteret på nøglen skubbes ind under DISTINCT ON).
+    SELECT ic.id,ic.interpretation_key,ic.status,ic.source_id,ic.source_persona_id,ic.value
+      FROM private.interpretation_current ic
+     WHERE ic.interpretation_key=ANY(ARRAY(SELECT pr.interpretation_key FROM pr))
+  ), b AS (
+    -- Gældende bindinger pr. assertion med deres eneste record (betingelse 1, 2 og 4); gyldigheden som
+    -- assertion_binding_current, for alle rækker på én gang.
+    SELECT pr.target_id AS assertion_id,pr.id AS promotion_id,cur.source_id,
+           (SELECT array_agg(an.source_record_id)
+              FROM private.interpretation_observation io
+              JOIN private.source_observation o ON o.id=io.observation_id
+              JOIN private.source_record_anchor_current an ON an.occurrence_id=o.occurrence_id AND an.decision_status='accepted'
+             WHERE io.interpretation_id=pr.interpretation_id AND io.evidence_role='supporting') AS recs,
+           (SELECT count(*) FROM private.interpretation_observation io
+             WHERE io.interpretation_id=pr.interpretation_id AND io.evidence_role='supporting') AS n_support
+      FROM pr
+      JOIN cur ON cur.interpretation_key=pr.interpretation_key AND cur.id=pr.interpretation_id AND cur.status='accepted'
+      JOIN private.interpretation_promotion_rule r ON r.rule_key=pr.rule_key AND r.rule_version=pr.rule_version
+      JOIN public.assertion ba ON ba.id=pr.target_id AND ba.target_type='fact'
+      JOIN public.fact bf ON bf.id=ba.target_id
+      LEFT JOIN private.source_persona_identity i
+        ON i.source_persona_id=cur.source_persona_id AND i.decision_status='accepted'
+     WHERE bf.faktatype=r.expected_fact_type
+       AND (NOT r.requires_persona_identity
+            OR (i.canonical_person_id IS NOT NULL AND bf.subjekt_type='person' AND bf.subjekt_id=i.canonical_person_id))
+       AND private.binding_value_matches(r.value_kind,cur.value,ba.vaerdi_tekst,ba.date_raw)
+  ), bp AS (
+    -- Betingelse 2 og 3: én record i fortolkningens kilde, én publiceret narrativ for den.
+    SELECT b.assertion_id,sr.public_ref,nrp.id AS binding_id,nrp.narrative_id
+      FROM b
+      JOIN private.source_record sr ON sr.id=b.recs[1] AND sr.source_id=b.source_id
+      JOIN private.narrative_record_publication nrp ON nrp.source_record_id=sr.id AND nrp.status='published'
+     WHERE b.n_support=1 AND cardinality(b.recs)=1
+       AND (SELECT count(*) FROM private.narrative_record_publication x
+             WHERE x.source_record_id=sr.id AND x.status='published')=1
+  ), bn AS (
+    -- Entydighed: præcis én gældende binding pr. assertion, ellers ingen.
+    SELECT a.id AS assertion_id,
+           (SELECT count(*) FROM b WHERE b.assertion_id=a.id) AS n_bind
+      FROM public.assertion a JOIN f ON a.target_type='fact' AND a.target_id=f.id
+  )
+  SELECT f.subjekt_id,f.id,f.faktatype,f.status,a.id,
+         coalesce(a.id=f.valgt_assertion_id,false),
+         a.vaerdi_tekst,a.date_raw,a.date_min,a.date_max,a.date_qualifier,a.date_certainty,
+         s.id,coalesce(s.udgave,s.titel),public.source_trykt_side(s.id,c.side),
+         lab.public_ref,lab.record_label,lab.citation_label
+    FROM f
+    JOIN public.assertion a ON a.target_type='fact' AND a.target_id=f.id
+    JOIN bn ON bn.assertion_id=a.id
+    LEFT JOIN public.citation c ON c.assertion_id=a.id
+    LEFT JOIN public.source s ON s.id=c.source_id
+    LEFT JOIN LATERAL (
+      SELECT bp.public_ref,ev.after_state #>> '{labels,record_label}' AS record_label,
+             ev.after_state #>> '{labels,citation_label}' AS citation_label
+        FROM bp
+        JOIN public.narrative n ON n.id=bp.narrative_id
+        JOIN LATERAL (SELECT e.after_state FROM private.narrative_publication_event e
+                       WHERE e.binding_id=bp.binding_id ORDER BY e.stream_version DESC,e.id DESC LIMIT 1) ev ON true
+       WHERE bp.assertion_id=a.id AND bn.n_bind=1
+         AND n.subjekt_type='person' AND n.subjekt_id=f.subjekt_id
+         AND public.person_daa_narrative_publication_allowed(n.id)
+    ) lab ON true
+   ORDER BY f.subjekt_id,f.id,a.id,c.id NULLS LAST;
+END $$;
+REVOKE ALL ON FUNCTION public.public_person_facts(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.public_person_facts(bigint[]) TO anon,authenticated;

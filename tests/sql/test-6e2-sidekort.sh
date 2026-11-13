@@ -26,7 +26,7 @@ q "$dbu" -f db-migrations.sql -f db-rls.sql -f db-migrations.sql
 [ "$(a "$dbu" "SELECT sidekort::text FROM public.source WHERE id=-6201")" = '[{"pdf_fra": 10, "pdf_til": 20, "trykt_fra": 1}]' ] \
   || { echo "UPGRADE_SIDEKORT_NULSTILLET" >&2; exit 1; }
 [ "$(a "$dbu" "SELECT public.source_trykt_side(-6201,'12')")" = "3" ] || { echo "UPGRADE_OMREGNING" >&2; exit 1; }
-sha() { for f in 'private.sidekort_gyldigt(jsonb)' 'public.source_trykt_side(bigint,text)' 'public.side_trykt(public.citation)'; do
+sha() { for f in 'private.sidekort_gyldigt(jsonb)' 'public.source_trykt_side(bigint,text)' 'public.side_trykt(public.citation)' 'public.public_person_facts(bigint[])'; do
   a "$1" "SELECT '$f|'||encode(extensions.digest(convert_to(pg_get_functiondef(to_regprocedure('$f')),'UTF8'),'sha256'),'hex')||'|'||coalesce((SELECT proacl::text FROM pg_proc WHERE oid=to_regprocedure('$f')),'NULL')"; done; }
 [ "$(sha "$db")" = "$(sha "$dbu")" ] || { echo "UPGRADE_BODY_OR_ACL_MISMATCH" >&2; diff <(sha "$db") <(sha "$dbu") >&2 || true; exit 1; }
 dropdb --if-exists "$db"; dropdb --if-exists "$dbu"
