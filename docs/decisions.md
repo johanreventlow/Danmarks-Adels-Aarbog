@@ -18,8 +18,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >    - Det ligger som data på kilden med én omregningsfunktion. Det er en lille udgaveprofil og justerer 6e-spec'ens
 >      §1.3 (»ingen ny udgaveprofil«).
 >    - PDF-siden bevares som anker. Ingen påstande eller citationer ændres; kun projektion og genpublicerede etiketter.
-> 5. **Linjeskemaets etiketter rettes til bogens ordlyd i 6e-2's ceremoni:** Ziesendorf, »I.« og »VI.«.
->    Stammeafsnittenes »A.«/»B.« er åbent.
+> 5. **Linjeskemaets etiketter rettes til bogens ordlyd i 6e-2's ceremoni:** Ziesendorf, »I.«, »VI.« og
+>    stammeafsnittenes »A.« og »B.«. Stammeafsnittenes etiket er f.eks. »A, nr. 2«.
+> 6. **2018-20's sidetal er allerede trykte sider** (stikprøve: Conrad V-1 på s. 201). 2018-20 får intet sidekort.
 
 ## BESLUTTET: redaktøren læser levendes biografi som kladde; udgivelsesreglen røres ikke (2026-11-13)
 

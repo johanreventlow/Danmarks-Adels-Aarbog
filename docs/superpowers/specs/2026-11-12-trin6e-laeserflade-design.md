@@ -466,7 +466,7 @@ Postetiketten (`record_label`) er bogens egen opslagsnøgle uden side; siden bæ
 | 2018-20 | »V-1« (uændret, byte-ens) | »DAA 2018-20, s. 45« (uændret) |
 | 1939, nummereret | »IV, nr. 3« | »DAA 1939 side 49« (trykt side; i dag PDF-side) |
 | 1939, uden trykt nr. | »IV« | som ovenfor |
-| 1939, stammeafsnit | »A, nr. 2« (*åbent*, §12.8) | som ovenfor |
+| 1939, stammeafsnit | »A, nr. 2« (afgørelse 17) | som ovenfor |
 | 1939, ingen placement (35) | `''` (§5.6 pkt. 2, uændret) | som ovenfor |
 
 - **Linjekoden** er det trykte romertal eller bogstav foran linjens navn i den rettede skemaetiket (§12.5), ikke
@@ -524,8 +524,7 @@ eneste omregningsregel. Ingen klientkonstant. Leverancetypen i §1.3 er rettet; 
 | De fire `citation_label_template`-profiler (`schema.sql:3910-3942`) | `{page_from}` = PDF | Historiske kørsler, ikke ændret. Publiceringswriteren, som ceremonien bruger, omregner via funktionen. |
 | Koordinat-RPC'en | ingen side | Ny kolonne: postens trykte startside (§12.4) |
 
-**2018-20** er ikke omfattet. Om dens »s. N« er PDF-side eller trykt side, er *åbent* (§12.8); afgørelsen ændrer ikke
-2018-20 i 6e-2.
+**2018-20** er ikke omfattet: dens »s. N« er allerede trykt side (§12.8 pkt. 2), og den har intet sidekort.
 
 ### 12.4 Visningen pr. sted
 
@@ -566,8 +565,8 @@ Ceremonien retter, med før og efter i sin log (ingen `change_event`-writer på 
 | 61 | III. Den ældre meklenborgske Linje af iesendorf. | III. Den ældre meklenborgske Linje af Ziesendorf. |
 | 59 | Den holstenske Linje. | I. Den holstenske Linje. (afgørelse 16) |
 | 6 | Den fyenske Linje | VI. Den fyenske Linje. |
-| 57 | Den holstenske Linje. | A. Den holstenske Linje. (*åbent*, §12.8) |
-| 58 | Den ældre meklenborgske Linje. | B. Den ældre meklenborgske Linje. (*åbent*, §12.8) |
+| 57 | Den holstenske Linje. | A. Den holstenske Linje. (afgørelse 17) |
+| 58 | Den ældre meklenborgske Linje. | B. Den ældre meklenborgske Linje. (afgørelse 17) |
 
 60 (»II. Linjen Gallentin.«), 62 og 63 er bogens ordlyd og uændrede. Bogens stammeafsnit C (»Den yngre meklenborgske
 Linje af Gallentin«, s. 20-21) er indledende prosa uden placements og uden entry.
@@ -601,10 +600,11 @@ Ud over §12.4:
 Flyttede `schema.sql`-henvisninger (+11 efter linje 9669) og klientstier står i Task 0-rapporten. Planen bruger de
 nye.
 
-### 12.8 Åbent til projektejeren
+### 12.8 Afklaret af projektejeren 2026-11-13
 
-1. **Stammeafsnittenes bogstav:** bogen trykker »A.« (s. 7) og »B.« (s. 16) over stammeafsnittene.
-   - Forslag: etiketten »A, nr. 2« og skemaetiketten »A. Den holstenske Linje.«, som romertallene.
-   - Alternativ: uden bogstav (»Den holstenske Linje, nr. 2«), som godkendt 2026-11-13, før bogstavet var fundet.
-2. **2018-20's sidetal:** er »DAA 2018-20, s. N« den trykte side? Ét stikprøvetjek i bogen afgør det. Påvirker ikke
-   6e-2.
+1. **Valg A står** med de genmålte tal (87 grupper / 194 af 528 placements).
+2. **2018-20's sidetal er trykte sider.** Stikprøve: Conrad V-1 har »DAA 2018-20, s. 201-202«, og bogen har ham på
+   s. 201. 2018-20 får intet sidekort.
+3. **Afgørelse 17: stammeafsnittene får bogens bogstav.** Bogen trykker »A.« (s. 7) og »B.« (s. 16) over dem.
+   Etiketten bliver »A, nr. 2«, og skemaetiketterne bliver »A. Den holstenske Linje.« og »B. Den ældre meklenborgske
+   Linje.«, ligesom romertallene.
