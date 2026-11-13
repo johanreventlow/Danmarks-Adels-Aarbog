@@ -76,7 +76,7 @@ laves på ny, hvis de bruges igen.
 | 10 | `go-data` | `sidekort=cd013e9c420e22e1 etiketter=5c34881f25dc4350 ceremoni=… maal=…`, `GO_6E2_DATA_KODE=…`. `GP3:` ceremoni og maal er ændret ved fletningen (på grenen nu `6fb56fcf9d0beb2c` / `8f0d6e58068403ef`, før `d39c4208…` / `b0424077…`); genpinnes efter merge |
 | 11 | projektejeren `apply-data --jeg-mener-det --go <kode>` | se næste tabel |
 | 12 | `maal` | `GP3:` `fase=data … BINDINGER_RECORD=0 SPRUNGET=2 UDEN_PLACEMENT=0 STALE=0 BIO_OFFENTLIGE=1100 FAKTA_BUNDNE=2264` |
-| 13 | `vindue` | `T6E2_CS_OK ceremoniens=561 fremmede=0`, `T6E2_VINDUE_AFVIGER sammenligning=data navne=private.narrative_publication_event,private.narrative_record_publication,public.change_set,public.change_set_id_seq,public.lineage_scheme_entry,public.source`, `T6E2_VINDUE_OK` |
+| 13 | `vindue` | `GP3:` `T6E2_CS_OK ceremoniens=561 fremmede=0`, `T6E2_VINDUE_AFVIGER sammenligning=data navne=private.narrative_publication_event,private.narrative_record_publication,public.change_set,public.change_set_id_seq,public.lineage_scheme_entry,public.source`, `T6E2_VINDUE_OK` |
 | 13b | `anon` | 3 målinger efter; koordinat-RPC'en ≤ 0,6 s pr. kald, Conrads biografi inden for 209-487 ms (spec §8) |
 | 14 | browsertjek | se nedenfor |
 
@@ -104,7 +104,7 @@ værdier og køres som kopier; det samme gælder `maal_trin6e2.sql` ved hver må
 - data-`fortryd`: `T6E2_FORTRYD_OK` med `restore_fejl=5` (de kendte `current_rolle`/`media_object_synlig_anon`-linjer +
   advarslen; vurderet godkendt); `fortryd-ddl`: `T6E2_FORTRYD_DDL_OK`, derefter `maal` fase foer.
 
-På en t6e2_-testkopi uden stand-in'ens timeouts tog DDL'en 0,13 s.
+`GP3:` På en t6e2_-testkopi uden stand-in'ens timeouts tog DDL'en 0,13 s.
 
 ## Fastlåste værdier og deres kilder
 
@@ -202,7 +202,7 @@ uafhængigt af DB.
 
 **Data** (fase data → ddl): `koer.zsh --saet DAA_T6E2_DUMP=<kvittering for data-dumpet>` (normalt allerede gemt af
 `dump` i trin 9), så `koer.zsh 40-trin6e2.sh go-fortryd` → projektejeren `fortryd --jeg-mener-det --go <kode>`.
-- Kræver, at alle change_sets efter dumpet er ceremoniens: `narrative_record_revalidated`, én `created_at`, præcis 561
+- Kræver, at alle change_sets efter dumpet er ceremoniens: `narrative_record_revalidated`, én `created_at`, præcis 561 (`GP3:`)
   stk., aktøren er ceremoniens. Med 0 change_sets kræves fase data (ellers er der intet at fortryde).
 - Kræver, at kataloget er uændret siden data-dumpet.
 - Derefter: restore af data-dumpet (`--clean --if-exists`, `private`+`public`), skema-default-ACL, `ANALYZE`,
@@ -227,7 +227,7 @@ koordinat-krop med `coalesce(x.person_id,pl.person_id)`).
 
 Vagter før: fase ddl, intet sidekort i nogen kilde, ingen tom `record_label` (`btrim(record_label)=''`), og kataloget afviger fra foer-dumpet i
 præcis DDL'ens 15 objekter. Bevis efter: katalog (P) og ACL (P+L) som foer-dumpet (grants afstemmes som
-sikkerhedsnet), `maal` fase foer, vinduet som foer-dumpet. Øvet på en t6e2_-kopi af stand-in'en 13/11: katalog P, ACL P
+sikkerhedsnet), `maal` fase foer, vinduet som foer-dumpet. `GP3:` Øvet på en t6e2_-kopi af stand-in'en 13/11 (før #342, dvs. tilbage til kroppe uden redaktør-grenen; skal øves igen med #342's kroppe som forrige definitioner): katalog P, ACL P
 og vinduet byte-ens efter, `maal` fase foer.
 
 Hvorfor ikke 6d-1's vej (drop + restore af foer-dumpet):
@@ -276,7 +276,7 @@ noteres også i changelog.
 
 ## De 2 oversprungne staged
 
-Af kildens 563 publicerede bindinger med `record-`-etiket tilhører 2 staged personer uden placement. Revalideringen
+`GP3:` Af kildens 563 publicerede bindinger med `record-`-etiket tilhører 2 staged personer uden placement. Revalideringen
 afviser dem (`POLICY_BLOCKED`). Ceremonien springer dem over efter 6d-1's præcedens (`placement_ceremoni.sql:539-541`)
 og tæller dem som `sprunget=2`. Efterbetingelsen kræver dem byte-ens (etiketter, seneste hændelse, publiceringsstatus).
 De beholder record-etiket og PDF-side, indtil de bliver offentlige. Backlog: de får etiket, når de bliver offentlige.
