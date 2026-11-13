@@ -546,8 +546,12 @@ Eksempler:
 **Ændringer i præsentationen:**
 - Chip og familiekilder bruger `citation_label` i stedet for `source_label` (*mit valg*). Begrundelse: 1939's nr. er
   uden side ikke en henvisning. For 2018-20 tilføjes siden; data er uændret.
-- `bogensNummer` vælger i dag første ref efter `person_id` (sideeffekt; Conrad viser III-58). Ny regel (*mit valg*):
-  refen for den post, biografien åbner på (§5.5's standard). Ellers den valgte udgaves laveste.
+- `bogensNummer` vælger i dag første ref efter `person_id`. Det er en sideeffekt, og Conrad viser III-58.
+  - Ny regel (*mit valg*, plan-review 2026-11-13): nyeste udgave, dernæst laveste slægtled, dernæst laveste id.
+  - Den fulde post står i den linje, hvor personen er stamfar. Conrad får derfor V-1 (slægtled 1) frem for III-58
+    (slægtled 12).
+  - Personside og feed bruger samme regel uden biografidata.
+- `printed_page` gives kun for poster uden bogtrykt nøgle, så 2018-20 forbliver »V, nr. 1«.
 - Linjens navn i »Kilde i Aarbogen« kommer fra linjeskemaets etiket, som klienten allerede henter
   (`web/src/data/lineage.ts`). Bygherren bekræfter feltet. Etiketten fryses ikke ind i `record_label`, så fakta og
   chips forbliver korte.
