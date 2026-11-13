@@ -119,4 +119,35 @@ describe('buildModel — sanity-guard mod umulige forælder→barn-kanter', () =
     expect(model.byId['post'].parentId).toBe('p');
     expect(model.byId['ok'].parentId).toBe('p');
   });
+
+  test('registrerer de droppede kanter med årsag (ikke lydløst)', () => {
+    expect(model.droppedParentEdges).toEqual([
+      { parent: 'p', child: 'c', reason: 'barn_aeldre' },
+      { parent: 'p', child: 'late', reason: 'foedt_efter_doed' },
+    ]);
+  });
+
+  test('ingen droppede kanter → tom liste', () => {
+    const ren = buildModel({ ...db, parentChild: db.parentChild.filter((pc) => pc.child === 'ok' || pc.child === 'post') });
+    expect(ren.droppedParentEdges).toEqual([]);
+  });
+
+  test('flere påstande for samme link giver én registrering', () => {
+    const dub = buildModel({ ...db, parentChild: [...db.parentChild, { child: 'late', parent: 'p', union: 'f1' }] });
+    expect(dub.droppedParentEdges?.filter((e) => e.child === 'late')).toHaveLength(1);
+  });
+
+  test('uændret adfærd: kvalificeret rå datotekst droppes stadig ud fra parseYear-tallet', () => {
+    // Forælder "† ca. 1672" giver died=1672; barn født 1678 → droppes som i dag (bevidst, se buildModel).
+    const kv = buildModel({
+      persons: [
+        { ...mkY('p2', 'Forælder', 1640, 1672), years: '1640–ca. 1672' },
+        { ...mkY('b2', 'Barn', 1678), years: '* 1678' },
+      ],
+      unions: [{ id: 'f2', p1: 'p2', p2: null, p2_name: null, year: null }],
+      parentChild: [{ child: 'b2', parent: 'p2', union: 'f2' }],
+    });
+    expect(kv.byId['b2'].parentId).toBeNull();
+    expect(kv.droppedParentEdges).toEqual([{ parent: 'p2', child: 'b2', reason: 'foedt_efter_doed' }]);
+  });
 });

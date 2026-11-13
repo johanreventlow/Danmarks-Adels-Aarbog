@@ -142,6 +142,15 @@ export function scorePairEvidens(p: ScoredPair, cfg: MatchCfg): number {
   return naevner > 0 ? taeller / naevner : 0;
 }
 
+/** Den score slutrangeringen (assignTiers) bruger: evidens-normaliseret når cfg beder om det,
+ *  ellers den vægtede sum. ÉT sted, så top-K-beskæringen i buildScored rangerer med præcis
+ *  samme tal som slutrangeringen — ellers kan den bedste kandidat beskæres væk før rangering. */
+export function finalScore(p: ScoredPair, cfg: MatchCfg): number {
+  return cfg.evidensNormaliseret
+    ? scorePairEvidens(p, cfg)
+    : scorePair(p.nameSim, p.birthOverlap, p.deathOverlap, p.sexEq, cfg);
+}
+
 /** Byg kandidat-par: blocking (fornavns-initial af foldet nøgle) + fødselsårs-vindue +
  *  name_floor-prune + top-K. Disjunkte kilder forudsættes af kalderen (a ⟂ b). */
 export function buildScored(a: MatchFrame[], b: MatchFrame[], cfg: MatchCfg = defaultCfg()): ScoredPair[] {
@@ -186,10 +195,15 @@ export function buildScored(a: MatchFrame[], b: MatchFrame[], cfg: MatchCfg = de
     if (!scored.length) continue;
     const nPlausible = scored.length; // ægte unikhed FØR top-K-cap
 
-    // top-K på FAKTISK score (ligenavngivne skelnes af dato-overlap, ikke name_sim alene).
+    // top-K på FAKTISK score (ligenavngivne skelnes af dato-overlap, ikke name_sim alene) — med
+    // SAMME scorefunktion som assignTiers (finalScore), så beskæringen ikke fjerner den kandidat
+    // slutrangeringen ville have sat øverst (fx dato-løs kandidat under evidensNormaliseret).
     if (nPlausible > cfg.topK) {
       scored = scored
-        .map((x) => ({ x, sc: scorePair(x.sim, x.birthOverlap, x.deathOverlap, x.sexEq, cfg) }))
+        .map((x) => ({ x, sc: finalScore({
+          aId: af.id, bId: x.c.id, nameSim: x.sim, birthOverlap: x.birthOverlap, deathOverlap: x.deathOverlap,
+          sexEq: x.sexEq, uniqueBlock: false, birthKendt: x.birthKendt, deathKendt: x.deathKendt, koenKendt: x.koenKendt,
+        }, cfg) }))
         .sort((p, q) => q.sc - p.sc)
         .slice(0, cfg.topK)
         .map((w) => w.x);
@@ -211,9 +225,7 @@ export function assignTiers(scored: ScoredPair[], cfg: MatchCfg = defaultCfg()):
   interface Row extends ScoredPair { score: number; _margin: number; _isTop: boolean }
   const rows: Row[] = scored.map((s) => ({
     ...s,
-    score: cfg.evidensNormaliseret
-      ? scorePairEvidens(s, cfg)
-      : scorePair(s.nameSim, s.birthOverlap, s.deathOverlap, s.sexEq, cfg),
+    score: finalScore(s, cfg),
     _margin: Infinity, _isTop: false,
   }));
 

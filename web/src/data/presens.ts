@@ -35,7 +35,7 @@ export function mapPresensGrundlag(
 }
 
 export async function fetchPresensGrundlag(): Promise<PresensGrundlag> {
-  const persons = await getAll<RawLevende>(() => supabase.from('person').select('id,levende'));
+  const persons = await getAll<RawLevende>(() => supabase.from('person').select('id,levende').order('id'));
   const facts = await getAll<RawOverhovedFact>(() =>
     supabase.from('fact').select('id,subjekt_id').eq('subjekt_type', 'person').eq('faktatype', 'overhoved').order('id'));
   if (!facts.length) return mapPresensGrundlag(persons, [], [], []);
@@ -186,11 +186,11 @@ type RawPartnerRow = { family_id: number | string; person_id: number | string };
 async function fetchAegtefaelleIdById(personIds: number[]): Promise<Map<string, string>> {
   if (!personIds.length) return new Map();
   const mine = await getAll<RawPartnerRow>(() =>
-    supabase.from('family_member').select('family_id,person_id').eq('rolle', 'partner').in('person_id', personIds).order('family_id'));
+    supabase.from('family_member').select('family_id,person_id').eq('rolle', 'partner').in('person_id', personIds).order('family_id').order('person_id'));
   if (!mine.length) return new Map();
   const familyIds = [...new Set(mine.map((m) => m.family_id))];
   const alle = await getAll<RawPartnerRow>(() =>
-    supabase.from('family_member').select('family_id,person_id').eq('rolle', 'partner').in('family_id', familyIds).order('family_id'));
+    supabase.from('family_member').select('family_id,person_id').eq('rolle', 'partner').in('family_id', familyIds).order('family_id').order('person_id'));
   const partnereByFamily = new Map<string, string[]>();
   for (const r of alle) {
     const k = String(r.family_id);
@@ -215,7 +215,7 @@ export async function fetchPresensNavneDele(ids: string[]): Promise<Record<strin
   const aegtefaelleIds = [...new Set([...aegtefaelleIdById.values()].map(Number))];
   const alleIds = [...new Set([...numIds, ...aegtefaelleIds])];
   const [personer, adelsTitelFakta] = await Promise.all([
-    getAll<RawNavneDele>(() => supabase.from('person').select('id,visning_navn,visning_efternavn,koen').in('id', alleIds)),
+    getAll<RawNavneDele>(() => supabase.from('person').select('id,visning_navn,visning_efternavn,koen').in('id', alleIds).order('id')),
     fetchAdelsTitelFakta(alleIds),
   ]);
   return mapPresensNavneDele(personer, adelsTitelFakta, aegtefaelleIdById);

@@ -16,6 +16,33 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > 4. Webbens tekst »Autoriseret våben · Dansk Adels Forenings gældende gengivelse« på våben-siden er fjernet af samme
 >    grund.
 
+## NOTERET: datoer sammenlignes som tekst — 2018-20's 59 skrivemåde-forskelle venter på en datobaseret sammenligning, åben backlog (2026-11-13)
+
+> Efter datobindingerne i prod (decisions 2026-11-12, `database-current-state.md` §28) står 59 af 2018-20's fødsler og
+> dødsfald `proposed` som `SKRIVEMAADE` (13 fødsler, 46 dødsfald). Målt 2026-11-13 mod importens påstande (modellens
+> v2-værdi mod `date_raw` på personens fødsel/død): **alle 59 er samme dato i en anden form**, ingen reel uenighed.
+>
+> | Forskel | Antal | Eksempel (bogen/modellen → importen) |
+> |---|---|---|
+> | Importen har sted og/eller markør med | 32 | `24. jan. 1733` → `† 24. jan. 1733 i Kiel` |
+> | Et ord om dødsmåden i den ene side | 10 | `faldt 24. okt. 1914` → `24. okt. 1914`; `mellem 1. og 4. juni 1697` → `faldt mellem …` |
+> | Alder i stedet for dato | 6 + 1 | `ung.` → `† ung`; `18 måneder gammel.` → `† 18 måneder gammel` |
+> | Tegnsætning, parentes, `* og †`, relativ dato | 10 | `-1353` → `(-1353)`; `1684.` → `* 1684`; `15. s.m. s.st.` → `15. s.m.` |
+>
+> **Konsekvens for læseren:** de 59 datoer vises allerede korrekt; de mangler kun postens koordinat (»DAA 2018-20,
+> s. N · <post>«). Det er 59 af ca. 720 fødsler og dødsfald med koordinat.
+>
+> **Projektejerens valg:** spec'ens del 2 (§4.3, kort over de 59 med eget GO) køres ikke nu. Runneren
+> (`38-dato-bindinger.sh`) har ingen del 2-tilstand, så det ville kræve udvidelse, øvelse, review og en ceremoni for at
+> sætte koordinater på datoer, der allerede står rigtigt.
+>
+> **Den bedre vej (backlog):** `private.binding_value_matches` sammenligner datoer som normaliseret tekst
+> (`date_raw`), så sted, markør og tegnsætning gør ens datoer forskellige. En sammenligning på datoens indhold
+> (`date_min`/`date_max` + kvalifikator, invariant 5) ville fange de fleste af de 59 uden kort og gælder alle udgaver
+> (1939 og de næste). Ordene om dødsmåden (`faldt`, `dræbt`, `henrettet`, `dødfødt`) og alderen (`ung`) skal da afgøres
+> særskilt: de er oplysninger, ikke skrivemåde. Kræver en lille spec; `binding_value_matches` bruges af flere writere,
+> så ændringen skal måles mod alle eksisterende bindinger (ingen må falde ud).
+
 ## BESLUTTET: webredesign, runde 2 — hovedside »Værket«, personside med medlemslag, feedet, stamtræet og navigation model 2 (2026-11-12)
 
 > Projektejeren har valgt mellem designvarianterne på canvas'et »Aarbogen – web redesign« (Claude Design) og godkendt

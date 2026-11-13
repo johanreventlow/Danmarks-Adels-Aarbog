@@ -3,6 +3,7 @@
 // almindelig select/signering returnerer kun det den aktuelle rolle må se (fail-closed i basen).
 import { supabase } from '../supabase';
 import { getAll } from '@daa/core';
+import { orThrow } from './orThrow';
 
 export type MediaItem = {
   id: string;
@@ -299,17 +300,19 @@ export function joinMediaFakta(
 // ville "fjernede" værdier fortsat vises. RLS afgør synlighed (anon ser kun publicerede mediers fakta).
 export async function fetchMediaFakta(mediaIds: number[]): Promise<Map<string, MediaFakta>> {
   if (!mediaIds.length) return new Map();
-  const { data: facts } = await supabase
+  const facts = orThrow(await supabase
     .from('fact').select('id,subjekt_id,faktatype')
-    .eq('subjekt_type', 'media').in('subjekt_id', mediaIds).in('faktatype', MEDIA_FAKTA_LAES);
+    .eq('subjekt_type', 'media').in('subjekt_id', mediaIds).in('faktatype', MEDIA_FAKTA_LAES), 'fetchMediaFakta/fact');
   const factIds = (facts ?? []).map((f: RawMediaFact) => f.id);
   if (!factIds.length) return new Map();
-  const [{ data: assertions }, { data: conclusions }] = await Promise.all([
+  const [assertionsRes, conclusionsRes] = await Promise.all([
     supabase.from('assertion').select('id,target_id,vaerdi_tekst,date_min,date_max,date_qualifier,date_raw')
       .eq('target_type', 'fact').in('target_id', factIds),
     supabase.from('conclusion').select('target_id,valgt_assertion_id,status')
       .eq('target_type', 'fact').in('target_id', factIds).eq('status', 'afklaret'),
   ]);
+  const assertions = orThrow(assertionsRes, 'fetchMediaFakta/assertion');
+  const conclusions = orThrow(conclusionsRes, 'fetchMediaFakta/conclusion');
   return joinMediaFakta(
     (facts ?? []) as RawMediaFact[],
     (assertions ?? []) as RawMediaAssert[],

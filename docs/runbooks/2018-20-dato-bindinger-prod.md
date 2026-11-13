@@ -107,7 +107,7 @@ er 12 timer gammelt.
 2. **Projektejeren** åbner `kort/kort-1.html`, svarer `-` for hver persona og `B` (eller `D`/`V`) for hvert af de 20
    felter og gemmer svarfilen (JSON). Ét svar, der ikke er `B`, stopper ceremonien allerede ved `go-k`
    (`DATO_GEN_SQL (SAMPLE_FAILED)`); intet skrives (spec §4.2 pkt. 4).
-3. `flet <svar.json>` → `DATO_FLET_OK svar=1 ark_sha256=… linjer=61`. Arket kan kun flettes én gang pr. kontrolmappe.
+3. `flet <svar.json>` → `DATO_FLET_OK svar=1 ark_sha256=… linjer=…` (afhænger af antallet af personas; øvelsen: 18 → 61, prod 2026-11-12: 20 → 65). Arket kan kun flettes én gang pr. kontrolmappe.
 4. `dump` → `tilstand=n` (bindingslisten gemmes i dumpets målmappe; den er grundlaget for den nøglede sammenligning).
 5. `go-k` genererer ceremoniens SQL og verify fra plan + ark og binder kontrolmappens filer → `GO dato-k <kode>`.
 6. `apply-k --jeg-mener-det --go <kode>`: vinduet mod n-dumpet; ejer-tjek; SQL'en genereres igen og skal være byte-ens

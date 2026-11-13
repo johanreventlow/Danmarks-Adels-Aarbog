@@ -529,6 +529,37 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 28. 2018-20's fødsler og dødsfald bundet til bogens post — LIVE i prod (2026-11-12)
+
+**Grundlag:** spec `2026-11-12-2018-20-dato-bindinger-design.md`, plan samme dato, runbook
+`docs/runbooks/2018-20-dato-bindinger-prod.md`. Kode i PR #322 (merget `743787f3`), runbook #324 + #326; GO'erne bundet
+til `main` @ `2ac193a9`. Privat runner `~/.private/5ab-overfoersel/38-dato-bindinger.sh` (sha `8d923049…`, med
+`38-dato-vindue.sql`). Projektejeren kørte dumps og alle skrivende trin; sessionen kørte `maal`, `vejb`, `forbered-n`,
+`kort`, `flet`, `go-*` og `verify`. Færdigbevis: `evidensbaseret-genimport/dato-bindinger-2018-20-prod.md`.
+
+- **DDL** (GO `7f9e6656`): regel `dato-markoer-v2` (markøren afhænger af prædikatet: `*`/`f.` på fødsel, `†` på død)
+  i `red_normaliser_forslag`; v1 er uændret. `tilstand=ddl verify=ok` (16,8 s; kvitteringen læst i ceremoniens session, loggen viser målingen foer → ddl med uændrede tal); writerens forrige definition og ACL står i
+  `prod/dato/fortryd-ddl-20261112211215/`. `get_advisors` kunne ikke køres (MCP'en ser ikke DAA-projektet).
+- **Normalisering `n`** (GO `50178e6e`): af kilde 1's 583 datoforslag (568 med skrivemåde-forskel, 15 uden fakta)
+  fik 565 en ny version (`dato-markoer-v2`) i én `extraction_run`; derefter er 509 lig en påstand (`MATCH`), 59 stadig
+  `SKRIVEMAADE` og 15 `NO_FACT`.
+- **Kontrol og binding `k`** (GO `75ef1336`): stikprøven på 20 kort (alle `B`), 489 maskinelt accepteret, 509
+  afgørelser og 509 bindinger (`machine-corroboration-v2`). Alle bindinger fra før findes stadig (nøglet sammenligning
+  mod n-dumpet: `tabt:0,nye:509`). Bindinger i alt 1.759 → 2.268, hash `fa08bb8a…` → `c4ef58de…`.
+- **Læseren:** kilde 1's fødsler med postens koordinat 67 → 334, dødsfald 88 → 330. Browsertjek som anon: Conrad (392)
+  viser »DAA 2018-20, s. 201-202 · V-1« ved født og død; rest-personerne 10 og 20 viser uændret »DAA 2018-20«;
+  0 `record-`/`legacy-source:`.
+- **Vagten:** fulde aftryk før og efter hvert skridt. `n` må kun ændre `extraction_run`, `interpretation` og
+  `interpretation_observation`; `k` kun `interpretation`, `interpretation_observation`, `interpretation_promotion` og
+  `interpretation_promotion_batch`. Begge holdt.
+- **Fortrydelse:** `k` med n-dumpet `daa-prod-20261112220624-dato.dump` (restore-hash `9ca72cd5…`), `n` med ddl-dumpet
+  `daa-prod-20261112212606-dato.dump`, DDL med snapshot-mappen. Foer-dumpet er `daa-prod-20261112193719-dato.dump`
+  (`a7add600…`). Efter `DATO_VERIFY_OK` er rettelser almindelig redigering.
+- **Tid i prod:** `maal` 16-17,6 s; DDL 16,8 s (begge foer/DDL-tal fra ceremoniens session); `apply-n` 57,1 s; `kort` 44,9 s eksport; `dump` 162 s + 43 s
+  måling; `apply-k` 95,4 s (verify 24,6 s); `verify` 42,2 s. `vejb`: største median 132 ms før og 137 ms efter
+  (grænse 1.000 ms), kolde kald 0,6-0,7 s (anons grænse 3 s).
+- **Står tilbage:** 59 `SKRIVEMAADE` (13 fødsler, 46 dødsfald) som `proposed`; del 2 (kort over dem) er ikke besluttet.
+
 ## 27. Trin 6d-3: 1939's relationer, dobbelt ægtefælle og 1791 — LIVE i prod (2026-11-11)
 
 **Grundlag:** decisions 2026-11-10 (6d-3's afgrænsning), spec `2026-11-10-trin6d3-relationer-design.md`, runbook

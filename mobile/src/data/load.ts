@@ -207,10 +207,13 @@ export async function loadFromSupabase(opts?: {
     sameAsRel,
     approvedConc,
   ] = await Promise.all([
+      // Alle tabel-læsninger her sorteres på en ENTYDIG nøgle (PK / alle PK-kolonner): getAll
+      // offset-paginerer, og uden fast rækkefølge kan rækker springes over/gentages mellem sider.
       getAll<RawPerson>(() =>
-        sb.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_titel,koen,privat'),
+        sb.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_titel,koen,privat').order('id'),
       ),
-      getAll<RawMember>(() => sb.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')),
+      getAll<RawMember>(() => sb.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')
+        .order('family_id').order('person_id').order('rolle')),
       // Linje/nr + slægtled-koordinater pr. person — tolerant: kolonnerne kan mangle på en
       // ikke-migreret base. Uden .catch ville en manglende kolonne fælde HELE Promise.all'et og
       // erstatte det levende datasæt med det indlejrede SEED (F1, dual-review 2026-07-05) —
@@ -219,40 +222,43 @@ export async function loadFromSupabase(opts?: {
       getAll<PublicCoordinateRow>(() => sb.rpc('public_person_source_coordinates'))
         .then((rows) => rows.map(coordinateRowToExtId))
         .catch((e) => { console.warn('[loadFromSupabase] public_person_source_coordinates utilgængelig — linjer/generationer degraderet:', e); return [] as RawExtId[]; }),
-      getAll<RawSource>(() => sb.from('source').select('id,slags,titel,udgave,aar,ekstern')),
+      getAll<RawSource>(() => sb.from('source').select('id,slags,titel,udgave,aar,ekstern').order('id')),
       getAll<RawRelation>(() =>
         sb
           .from('relation')
           .select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw,kvalifikator')
-          .eq('subjekt_type', 'person'),
+          .eq('subjekt_type', 'person')
+          .order('id'),
       ),
       getAll<RawRelation>(() =>
         sb
           .from('relation')
           .select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw')
           .eq('subjekt_type', 'media')
-          .eq('rolle', 'afbildet'),
+          .eq('rolle', 'afbildet')
+          .order('id'),
       ),
       getAll<RawTextMention>(() =>
         sb
           .from('text_mention')
           .select('kilde_type,kilde_id,maal_type,maal_id')
-          .eq('maal_type', 'media'),
+          .eq('maal_type', 'media')
+          .order('kilde_type').order('kilde_id').order('maal_type').order('maal_id'),
       ),
-      getAll<RawEstate>(() => sb.from('estate').select('id,navn,slags,sted_id')),
-      getAll<RawOrg>(() => sb.from('organisation').select('id,navn,slags')),
-      getAll<RawMedia>(() => sb.from('media').select('*')),
+      getAll<RawEstate>(() => sb.from('estate').select('id,navn,slags,sted_id').order('id')),
+      getAll<RawOrg>(() => sb.from('organisation').select('id,navn,slags').order('id')),
+      getAll<RawMedia>(() => sb.from('media').select('*').order('id')),
       // Billedstørrelser (2026-07-05, Slice B3 'thumb' + Slice C 'medium' — narrativ-indlejrede
       // billeder). ÉN query for begge tiers (ikke to separate) — samme rækker filtreres i JS
       // nedenfor. Tolerant: tabellen kan mangle på en ikke-migreret base (samme mønster som
       // lineage/arms).
       getAll<{ media_id: number; tier: string; storage_path: string }>(() =>
-        sb.from('media_variant').select('media_id,tier,storage_path').in('tier', ['thumb', 'medium']),
+        sb.from('media_variant').select('media_id,tier,storage_path').in('tier', ['thumb', 'medium']).order('id'),
       ).catch(() => [] as { media_id: number; tier: string; storage_path: string }[]),
       // Tolerant: lineage-tabellen findes måske ikke endnu (migration ej kørt) → tom = fallback til 'Linje {kode}'.
-      getAll<RawLineage>(() => sb.from('lineage').select('id,source_id,kode,navn,parent_lineage_id')).catch(() => [] as RawLineage[]),
+      getAll<RawLineage>(() => sb.from('lineage').select('id,source_id,kode,navn,parent_lineage_id').order('id')).catch(() => [] as RawLineage[]),
       // Tolerant: coat_of_arms-tabellen findes måske ikke endnu.
-      getAll<RawArms>(() => sb.from('coat_of_arms').select('id,blasonering,note')).catch(() => [] as RawArms[]),
+      getAll<RawArms>(() => sb.from('coat_of_arms').select('id,blasonering,note').order('id')).catch(() => [] as RawArms[]),
       // samme_som-relationer (person→person). Kanterne er retningsbestemte: subjekt=alias, objekt=kanonisk.
       getAll<{ id: number | string; subjekt_id: number | string; objekt_id: number | string }>(() =>
         sb
@@ -260,12 +266,13 @@ export async function loadFromSupabase(opts?: {
           .select('id,subjekt_id,objekt_id')
           .eq('rolle', 'samme_som')
           .eq('subjekt_type', 'person')
-          .eq('objekt_type', 'person'),
+          .eq('objekt_type', 'person')
+          .order('id'),
       ).catch(() => [] as { id: number | string; subjekt_id: number | string; objekt_id: number | string }[]),
       // Afklarede (blåstemplede) konklusioner på relationer — kun disse identiteter foldes (spec §4).
       // Polymorf kobling (conclusion.target_type/target_id), ingen FK → hentes separat + matches i JS.
       getAll<{ target_id: number | string }>(() =>
-        sb.from('conclusion').select('target_id').eq('target_type', 'relation').eq('status', 'afklaret'),
+        sb.from('conclusion').select('target_id').eq('target_type', 'relation').eq('status', 'afklaret').order('id'),
       ).catch(() => [] as { target_id: number | string }[]),
       // place+fact (den tunge geo-kæde) er UDSKUDT (review 27 P3): de hentes først af loadGeo()
       // nedenfor, ved første kort-brug, ikke ved cold-start. Se loadGeo-closuren for de faktiske

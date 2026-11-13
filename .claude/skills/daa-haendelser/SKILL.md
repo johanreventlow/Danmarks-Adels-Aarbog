@@ -91,7 +91,8 @@ Rscript .claude/skills/daa-haendelser/scripts/load_haendelser.R \
   work/haendelser/clean.json --dry-run
 ```
 
-Begynd altid med `--dry-run`. Loaderen genlæser den aktuelle narrativtekst,
+Begynd altid med `--dry-run`. Den egentlige skrivning til prod kræver `--jeg-mener-det`
+(præcis ét af de to flag skal angives; uden flag afviser loaderen). Loaderen genlæser den aktuelle narrativtekst,
 genberegner spans og ruller hele transaktionen tilbage i dry-run. Den berører
 kun narrativer i inputtet. `feed_status` og stabile ids bevares ved nøglematch;
 mistede markeringer logges og må aldrig forsvinde tavst.
