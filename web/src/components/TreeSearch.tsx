@@ -1,7 +1,6 @@
-// Søgning-i-træet (§4): søgefelt + universel-klart fane-bånd + browse-værktøjer + resultat-grid
-// som personkort. Bundtet (state + handlers) ejes af Folgesvend og deles af TreeView (onPick =
-// centrér træet) og RelateView (onPick = fyld A/B-plads, §5.6). `showResults` gater om
-// resultaterne eller selve fladen (træ / A-B-sti) vises.
+// Søgning-i-træet (§4): søgefelt + browse-værktøjer + resultat-grid som personkort. Bundtet (state +
+// handlers) ejes af Folgesvend; TreeView bruger det (onPick = centrér træet). `showResults` gater om
+// resultaterne eller selve træet vises. Slægtskab har sine egne personvælgere (fase 6a).
 // Udtrukket fra Folgesvend.tsx (review 27 W-K1) — samme bundt-kontrakt, blot flyttet fil.
 import { useEffect, useRef, type CSSProperties } from 'react';
 import { T } from '../theme';
@@ -28,7 +27,7 @@ export type TreeSearchBundle = {
 export function TreeSearch(s: TreeSearchBundle) {
   const inputRef = useRef<HTMLInputElement>(null);
   // Consume-and-reset (dual-review M1): fokusér ved et bump og nulstil straks tokenet, ellers ville
-  // TreeSearch (der re-mountes ved hvert mode-skift) stjæle fokus på ENHVER senere tree/relate-entry
+  // TreeSearch (der re-mountes ved hvert mode-skift) stjæle fokus på ENHVER senere tree-entry
   // — fx når man klikker "Find slægtskab" uden at ville søge.
   useEffect(() => { if (s.focusToken > 0) { inputRef.current?.focus(); s.resetFocus(); } }, [s.focusToken]);
   return (

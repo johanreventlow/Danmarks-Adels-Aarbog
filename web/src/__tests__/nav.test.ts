@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { parseFolgesvendPath, pathForMode, labelOfMode, detailOpenFor, personPath, estatePath, slaegtPath, stamtraePath, soegPath, type Mode } from '../data/nav';
+import { parseFolgesvendPath, pathForMode, labelOfMode, detailOpenFor, personPath, estatePath, slaegtPath, stamtraePath, soegPath, slaegtskabPath, type Mode } from '../data/nav';
 
-const tom = { personId: null, fokusId: null, estateId: null, slaegt: null, q: null, omdiriger: null };
+const tom = { personId: null, fokusId: null, estateId: null, slaegt: null, q: null, relA: null, relB: null, omdiriger: null };
 
 describe('parseFolgesvendPath — ny grammatik', () => {
   it('/ (og tom sti) → hovedsiden', () => {
@@ -26,7 +26,9 @@ describe('parseFolgesvendPath — ny grammatik', () => {
   it('sider over slægterne', () => {
     expect(parseFolgesvendPath('/person/abc')).toEqual({ ...tom, mode: 'person', personId: 'abc' });
     expect(parseFolgesvendPath('/gods/e1')).toEqual({ ...tom, mode: 'estates', estateId: 'e1' });
-    expect(parseFolgesvendPath('/slaegtskab').mode).toBe('relate');
+    expect(parseFolgesvendPath('/slaegtskab')).toEqual({ ...tom, mode: 'relate' });
+    expect(parseFolgesvendPath('/slaegtskab', '?a=1&b=2')).toEqual({ ...tom, mode: 'relate', relA: '1', relB: '2' });
+    expect(parseFolgesvendPath('/slaegtskab', '?b=2')).toEqual({ ...tom, mode: 'relate', relB: '2' });
     expect(parseFolgesvendPath('/soeg', '?q=Conrad')).toEqual({ ...tom, mode: 'soeg', q: 'Conrad' });
     expect(parseFolgesvendPath('/soeg').q).toBe('');
     expect(parseFolgesvendPath('/min-side/bogmaerker').mode).toBe('bookmarks');
@@ -104,19 +106,22 @@ describe('labelOfMode', () => {
 
 describe('detailOpenFor (§5 split)', () => {
   it('tree: detalje åben KUN når URL har en person', () => {
-    expect(detailOpenFor('tree', 'p1', 'p1')).toBe(true);   // /person/:id
-    expect(detailOpenFor('tree', null, 'p1')).toBe(false);  // /stamtrae (træet centreret, men lukket)
-    expect(detailOpenFor('tree', null, null)).toBe(false);
+    expect(detailOpenFor('tree', 'p1')).toBe(true);   // …/stamtrae?fokus=p1
+    expect(detailOpenFor('tree', null)).toBe(false);  // /stamtrae (træet centreret, men lukket)
   });
-  it('relate: detalje åben når en person er i fokus (focusOnly), uafhængigt af URL', () => {
-    expect(detailOpenFor('relate', null, 'p1')).toBe(true);
-    expect(detailOpenFor('relate', null, null)).toBe(false);
+  it('øvrige modes har ingen detalje — heller ikke slægtskab (vejens trin er links)', () => {
+    for (const m of ['relate', 'home', 'bookmarks', 'estates', 'arms'] as Mode[]) expect(detailOpenFor(m, 'p1')).toBe(false);
   });
-  it('øvrige modes har ingen detalje', () => {
-    expect(detailOpenFor('home', 'p1', 'p1')).toBe(false);
-    expect(detailOpenFor('bookmarks', null, 'p1')).toBe(false);
-    expect(detailOpenFor('estates', null, 'p1')).toBe(false);
-    expect(detailOpenFor('arms', null, 'p1')).toBe(false);
+});
+
+describe('slaegtskabPath', () => {
+  it('kun de valgte personer i adressen; tur-retur gennem parseren', () => {
+    expect(slaegtskabPath()).toBe('/slaegtskab');
+    expect(slaegtskabPath('1')).toBe('/slaegtskab?a=1');
+    expect(slaegtskabPath(null, '2')).toBe('/slaegtskab?b=2');
+    const sti = slaegtskabPath('a b', '2&3');
+    const [p, q] = sti.split('?');
+    expect(parseFolgesvendPath(p, `?${q}`)).toMatchObject({ relA: 'a b', relB: '2&3' });
   });
 });
 

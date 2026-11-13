@@ -12,7 +12,6 @@ import { initials } from './data/format';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
 import { personMemberIds } from './data/personMembers';
 import type { AppModel, Model } from './data/types';
-import { computeRelationship } from '@daa/core';
 import { buildBrowse, showSearchResults } from './data/browse';
 import { useBookmarks, type BookmarkSort } from './data/bookmarks';
 import { signIn, signOut, currentSession, loginFejlTekst, type RedSession } from './data/auth';
@@ -33,7 +32,7 @@ import { useSmalSkaerm } from './useSmalSkaerm';
 import { TreeSearch, type TreeSearchBundle } from './components/TreeSearch';
 import { ViewHeader } from './components/primitives';
 import { synligeLinjer } from './data/lineage';
-import { labelOfMode, parseFolgesvendPath, pathForMode, detailOpenFor, type Mode, personPath, estatePath, stamtraePath, soegPath, STANDARD_SLAEGT, SLAEGTER, findSlaegt } from './data/nav';
+import { labelOfMode, parseFolgesvendPath, pathForMode, detailOpenFor, type Mode, personPath, estatePath, stamtraePath, soegPath, slaegtskabPath, STANDARD_SLAEGT, SLAEGTER, findSlaegt } from './data/nav';
 import { Tilstand, tilstandPrimaer, tilstandSekundaer } from './components/Tilstand';
 import { T } from './theme';
 
@@ -66,7 +65,7 @@ export default function Folgesvend() {
   // Forrige fokus-person (kun til "◄ Tilbage til X"-labelen) — ÉN værdi, ikke en fuld stak:
   // selve tilbage-navigationen er nu browserens rigtige back-knap (window.history.back()),
   // som allerede har sin egen fulde historik. prevFocusId sættes kun af navigateTree (en
-  // "rigtig" navigation), ikke af focusOnly/driftFocus (Slægtskabs-fokus / Kolonner-drill).
+  // "rigtig" navigation), ikke af driftFocus (Kolonner-drill).
   const [prevFocusId, setPrevFocusId] = useState<string | null>(null);
   // "Mig" i slægten (PoC: localStorage; flyttes til profiles.reventlow_person_id ved login).
   const smal = useSmalSkaerm();
@@ -100,9 +99,6 @@ export default function Folgesvend() {
     }
   };
   const doLogout = async () => { await signOut(); setSession(null); };
-  const [relA, setRelA] = useState<string | null>(null);
-  const [relB, setRelB] = useState<string | null>(null);
-  const [relSlot, setRelSlot] = useState<'A' | 'B'>('A');
   const [estates, setEstates] = useState<EstateItem[] | null>(null);
   const [arms, setArms] = useState<ArmsItem[] | null>(null);
   const [about, setAbout] = useState<AboutSection[] | null>(null);
@@ -228,7 +224,15 @@ export default function Folgesvend() {
     return buildBrowse(src, soegQ, browseSort, activeLetter, { linjeByPerson: model?.lineage?.byPerson, activeLinje });
   }, [parsed.mode, persons, model, soegQ, browseSort, activeLetter, activeLinje, bmDep]);
 
-  const rel = useMemo(() => (model && relA && relB ? computeRelationship(model, relA, relB) : null), [model, relA, relB]);
+  // Er vi i familie? Adressen er eneste kilde til de to valgte personer (kanoniske id'er; et ukendt id bevares,
+  // så siden kan sige, at personen i linket ikke findes).
+  const relA = parsed.mode === 'relate' && parsed.relA ? canon(parsed.relA) : null;
+  const relB = parsed.mode === 'relate' && parsed.relB ? canon(parsed.relB) : null;
+  const findSlaegtskab = (a: string | null, b: string | null) => {
+    setMenuAabenState(false);
+    setMode('relate');
+    navigate(slaegtskabPath(a ? canon(a) : null, b ? canon(b) : null));
+  };
 
   // Navigér til en person i STAMTRÆET — kanoniserer id'et, tvinger mode til 'tree' (matcher
   // hvordan et sidebar-/detalje-panel-klik altid har betydet "vis denne person i træet",
@@ -258,10 +262,6 @@ export default function Folgesvend() {
     clearSearch(); // en "rigtig" navigation lader personen blive centrum i træet; resultat-grid'et viger (§4.1)
     navigate(traePath(cid), { state: { prevFocusId: prev } });
   };
-  // Fokus-skift UDEN navigation — bruges hvor det AKTUELLE mode bevidst skal bevares og ikke
-  // bør ligge i URL'en: Slægtskabs-fanens "trin for trin"-liste (relate er udenfor URL-scope,
-  // jf. plan) og detalje-panelets links mens man er i Slægtskab-mode.
-  const focusOnly = (id: string) => setFocusId(canon(id));
   // Kolonner-variantens ane/efterkommer-drill (TreeView's onFocus): opdaterer URL'en så den
   // forbliver delbar, men UDEN en ny back-entry pr. generations-trin — samme "ingen historik
   // ved drill"-regel som før, nu udtrykt som en URL-replace i stedet for et no-op på et
@@ -336,6 +336,12 @@ export default function Folgesvend() {
       } else setFocusId(null);
       return;
     }
+    if (p.mode === 'relate') {
+      // Alias-id'er i et delt link → kanoniske (replace). Ukendte id'er bliver stående; siden siger det.
+      const a = p.relA ? canon(p.relA) : null, b = p.relB ? canon(p.relB) : null;
+      if (a !== p.relA || b !== p.relB) navigate(slaegtskabPath(a, b), { replace: true, state: window.history.state });
+      return;
+    }
     if (p.mode !== 'tree') return;
     const urlId = p.fokusId;
     if (!urlId) {
@@ -356,10 +362,9 @@ export default function Folgesvend() {
     }
   }, [parsed, model, canon]);
 
-  // Split-skærm (§5): detalje-panelet er åbent når URL'en bærer en eksplicit person (tree) /
-  // et fokus er inspiceret (relate). closeDetail navigerer til /stamtrae (replace) — træets centrum
+  // Split-skærm (§5): detalje-panelet er åbent, når stamtræets URL bærer en person. closeDetail navigerer til /stamtrae (replace) — træets centrum
   // bevares (se path-sync ovenfor), kun detaljen viger. Escape lukker også.
-  const detailOpen = detailOpenFor(mode, parsed.personId ?? parsed.fokusId, focusId);
+  const detailOpen = detailOpenFor(mode, parsed.fokusId);
   const closeDetail = () => navigate(stamtraePath(slug), { replace: true });
   // Klik på den allerede-valgte person i træet lukker detaljen igen (brief §5.2); ellers navigér.
   const treePick = (id: string) => { if (detailOpen && canon(id) === focusId) closeDetail(); else navigateTree(id); };
@@ -422,19 +427,14 @@ export default function Folgesvend() {
     else window.localStorage.removeItem('daa_me_id');
   };
 
-  // Bogmærke-række → tree-nav (Codex BLOCKER-fix, spec §3.3): detalje-panelet vises kun i
-  // tree/relate, så et klik fra bookmarks-mode ville ellers være visuelt resultatløst.
+  // Bogmærke-række → personsiden.
   const pickBookmark = (id: string) => visPerson(id);
 
-  // Fælles resultat-valg for tree-søgningen (§4) OG relate-A/B-valg (§5.6): i relate fylder et
-  // valg den aktive plads (og rydder søgningen så A/B + sti vises igen), ellers navigerer/centrerer
-  // det træet (navigateTree rydder selv). Delt så begge modes bruger samme søge-personkort.
+  // Resultat-valg i stamtræets søgning (§4): centrér træet (navigateTree rydder selv); ellers personsiden.
+  // Slægtskab har sine egne personvælgere (fase 6a).
   const pickPerson = (id: string) => {
     const cid = canon(id);
-    if (mode === 'relate') {
-      if (relSlot === 'A') { setRelA(cid); setRelSlot('B'); } else { setRelB(cid); setRelSlot('A'); }
-      clearSearch();
-    } else if (mode === 'tree') {
+    if (mode === 'tree') {
       navigateTree(cid);
     } else {
       visPerson(cid);
@@ -468,7 +468,7 @@ export default function Folgesvend() {
     browsing, setBrowsing,
     showResults: showSearchResults({ query, bmOnly, browsing }), clearSearch,
     focusToken: searchFocusToken, resetFocus: () => setSearchFocusToken(0),
-    onPick: pickPerson, // tree → navigateTree (centrerer+rydder); relate → fylder A/B-plads (§5.6)
+    onPick: pickPerson, // tree → navigateTree (centrerer+rydder)
     personHref: visPersonPath,
   };
 
@@ -501,12 +501,12 @@ export default function Folgesvend() {
               bookmarksReady={bookmarks.ready} bookmarkHydrationVersion={bookmarks.hydrationVersion}
               bookmarkOwnerId={session?.userId ?? null}
               hasBookmark={bookmarks.has} onSaveBookmark={saveOrPrompt} onOpenArms={() => goToMode('arms')}
-              onOpenSlaegt={(aId, bId) => { setRelA(aId); setRelB(bId); setRelSlot('B'); goToMode('relate'); }} />
+              onOpenSlaegt={(aId, bId) => findSlaegtskab(aId, bId)} />
             : mode === 'person' ? (
               focusId && model?.byId[focusId] ? (
                 <PersonSide key={focusId} model={model} focusId={focusId} detail={detail} detailError={detailError}
                   onRetry={() => setDetailForsoeg((n) => n + 1)} onVisPerson={visPerson}
-                  onFindSlaegtskab={() => { setRelA(focusId); setRelB(null); setRelSlot('B'); goToMode('relate'); }}
+                  onFindSlaegtskab={() => findSlaegtskab(focusId, null)}
                   onSlaegt={(s) => goToMode('about', s)}
                   loggetInd={bookmarks.canSave} onLogin={() => setLoginOpen(true)}
                   erBogmaerket={bookmarks.has(focusId)} onToggleBogmaerke={() => saveOrPrompt(focusId)}
@@ -522,7 +522,7 @@ export default function Folgesvend() {
               )
             )
             : mode === 'tree' ? <TreeView model={model} focusId={focusId} personHref={visPersonPath} onPick={treePick} onFocus={driftFocus} hasBookmark={bookmarks.has} onToggleBookmark={saveOrPrompt} search={treeSearch} />
-            : mode === 'relate' ? <RelateView model={model} rel={rel} relA={relA} relB={relB} slot={relSlot} setSlot={setRelSlot} onPickStep={focusOnly} meId={meCanon} onSetMeA={() => { if (meCanon) { setRelA(meCanon); setRelSlot('B'); } }} search={treeSearch} />
+            : mode === 'relate' ? <RelateView model={model} relA={relA} relB={relB} meId={meCanon} slug={slug} onVaelg={findSlaegtskab} />
             : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(estatePath(id)); }} onBack={() => { setEstateId(null); navigate(pathForMode('estates', slug)); }} onPickOwner={visPerson}
               slaegtensKortHref={pathForMode('kort', slug)} onSlaegtensKort={() => goToMode('kort')} />
             : mode === 'arms' ? <ArmsView arms={arms} />
@@ -532,7 +532,7 @@ export default function Folgesvend() {
                   bookmarkOwnerId: session?.userId ?? null, hasBookmark: bookmarks.has, onSaveBookmark: saveOrPrompt,
                   onOpenPerson: visPerson, onOpenEstate: (id) => { setEstateId(id); navigate(estatePath(id)); },
                   onOpenArms: () => goToMode('arms'),
-                  onOpenSlaegt: (aId, bId) => { setRelA(aId); setRelB(bId); setRelSlot('B'); goToMode('relate'); },
+                  onOpenSlaegt: (aId, bId) => findSlaegtskab(aId, bId),
                   onBrowseAll: () => goToMode('soeg') }} />
             : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={saveOrPrompt} loggedIn={bookmarks.canSave} onRequireLogin={() => setLoginOpen(true)} /> : <div style={{ padding: 40, color: T.inkMuted }}>Henter…</div>)
             : mode === 'kort' ? <OverviewMapView model={model} geoLoading={geoLoading} onPickPerson={visPerson} onPickEstate={(id) => navigate(estatePath(id))} />
@@ -571,7 +571,7 @@ export default function Folgesvend() {
             model={model} focusId={focusId} detail={detail}
             backName={backName} onBack={() => window.history.back()} onClose={mode === 'tree' ? closeDetail : undefined}
             onFocusTree={mode === 'tree' ? undefined : () => goToMode('tree')}
-            onRelate={() => { setRelA(focusId); setRelB(null); setRelSlot('B'); goToMode('relate'); }}
+            onRelate={() => findSlaegtskab(focusId, null)}
           />
         ))}
       </div>
