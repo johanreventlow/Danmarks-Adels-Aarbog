@@ -3,12 +3,9 @@
 suppressMessages({library(DBI); library(jsonlite); library(RPostgres)})
 source(".claude/skills/daa-haendelser/scripts/load_haendelser_helpers.R")
 
-argv <- commandArgs(trailingOnly = TRUE)
-if (!length(argv)) stop("brug: load_haendelser.R clean.json [--dry-run]")
-path <- argv[[1]]
-DRY_RUN <- "--dry-run" %in% argv
-unknown_flags <- argv[startsWith(argv, "--") & argv != "--dry-run"]
-if (length(unknown_flags)) stop("Ukendte flag: ", paste(unknown_flags, collapse=", "))
+args <- parse_load_haendelser_args(commandArgs(trailingOnly = TRUE))
+path <- args$path
+DRY_RUN <- args$dry_run
 
 clean <- fromJSON(path, simplifyVector = FALSE)
 if (!is.list(clean)) stop("clean.json skal være en liste")

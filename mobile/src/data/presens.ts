@@ -37,7 +37,7 @@ export function mapPresensGrundlag(
 export async function fetchPresensGrundlag(): Promise<PresensGrundlag> {
   if (!supabase) return { ankre: [], levendeById: {} };
   const sb = supabase;
-  const persons = await getAll<RawLevende>(() => sb.from('person').select('id,levende'));
+  const persons = await getAll<RawLevende>(() => sb.from('person').select('id,levende').order('id'));
   const facts = await getAll<RawOverhovedFact>(() =>
     sb.from('fact').select('id,subjekt_id').eq('subjekt_type', 'person').eq('faktatype', 'overhoved').order('id'));
   if (!facts.length) return mapPresensGrundlag(persons, [], [], []);
@@ -182,12 +182,12 @@ async function fetchAegtefaelleIdById(personIds: number[]): Promise<Map<string, 
   const sb = supabase;
   const mine = await getAll<RawPartnerRow>(() =>
     sb.from('family_member').select('family_id,person_id')
-      .eq('rolle', 'partner').in('person_id', personIds).order('family_id'));
+      .eq('rolle', 'partner').in('person_id', personIds).order('family_id').order('person_id'));
   if (!mine.length) return new Map();
   const familyIds = [...new Set(mine.map((m) => m.family_id))];
   const alle = await getAll<RawPartnerRow>(() =>
     sb.from('family_member').select('family_id,person_id')
-      .eq('rolle', 'partner').in('family_id', familyIds).order('family_id'));
+      .eq('rolle', 'partner').in('family_id', familyIds).order('family_id').order('person_id'));
   const partnereByFamily = new Map<string, string[]>();
   for (const r of alle) {
     const key = String(r.family_id);
@@ -216,7 +216,7 @@ export async function fetchPresensNavneDele(
   const alleIds = [...new Set([...numIds, ...aegtefaelleIds])];
   const [personer, adelsTitelFakta] = await Promise.all([
     getAll<RawNavneDele>(() =>
-      sb.from('person').select('id,visning_navn,visning_efternavn,koen').in('id', alleIds)),
+      sb.from('person').select('id,visning_navn,visning_efternavn,koen').in('id', alleIds).order('id')),
     fetchAdelsTitelFakta(alleIds),
   ]);
   return mapPresensNavneDele(personer, adelsTitelFakta, aegtefaelleIdById);

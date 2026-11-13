@@ -43,10 +43,15 @@ describe('buildRpcCall — narrativ (source-nøglet)', () => {
       vaerdi: 'bio', payload: { privat: false, sourceId: 2, side: '12', narrativeRecordContractVersion: 1 } } as never);
     expect(call).toMatchObject({ fn: 'red_upsert_narrativ', args: { p_source_id: 2, p_side: '12', p_privat: false } });
   });
-  it('defaulter p_source_id til 1 (primær DAA-udgave) når payload mangler kilde', () => {
+  it('sender p_source_id null (kildeløs række, som web) når payload mangler kilde — aldrig kilde 1', () => {
     const call = buildRpcCall({ art: 'narrativ', subjektType: 'person', subjektId: '5',
       vaerdi: 'bio', payload: { privat: true, narrativeRecordContractVersion: 1 } } as never);
-    expect(call?.args).toMatchObject({ p_source_id: 1, p_side: null, p_privat: true });
+    expect(call?.args).toMatchObject({ p_source_id: null, p_side: null, p_privat: true });
+  });
+  it('sender p_source_id null når editoren eksplicit har aktivSourceId = null', () => {
+    const call = buildRpcCall({ art: 'narrativ', subjektType: 'person', subjektId: '5',
+      vaerdi: 'bio', payload: { privat: false, sourceId: null, side: null, narrativeRecordContractVersion: 1 } } as never);
+    expect(call?.args).toMatchObject({ p_source_id: null });
   });
 
   it('afviser personens gamle writer ved kontrakt v2, også når record-læsningen fejlede', () => {

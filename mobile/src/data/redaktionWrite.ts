@@ -240,12 +240,13 @@ export function buildRpcCall(c: Change): RpcCall | null {
     // Personens legacy-vej skal være eksplicit capability v1. Uden markøren
     // kan en v2-readfejl aldrig degradere til red_upsert_narrativ.
     if (c.subjektType === 'person' && c.payload?.narrativeRecordContractVersion !== 1) return null;
-    // p_source_id default 1 (primær DAA-udgave) hvis prefill ikke gav en kilde — mobil
-    // redigerer den source-korrekte primær-række (single-narrativ-UI; faner er follow-up).
+    // p_source_id = null når editoren ikke har en aktiv kilde (aktivSourceId kan være null) —
+    // som web: den kildeløse narrativ-række. Et tidligere `?? 1` skrev lydløst teksten ind som
+    // kilde 1's narrativ, dvs. til en anden række end den redaktøren redigerede.
     return { fn: 'red_upsert_narrativ', args: {
       p_subjekt_type: c.subjektType, p_subjekt_id: sid, p_tekst: c.vaerdi,
       p_privat: Boolean(c.payload?.privat),
-      p_source_id: (c.payload?.sourceId as number | null | undefined) ?? 1,
+      p_source_id: (c.payload?.sourceId as number | null | undefined) ?? null,
       p_side: (c.payload?.side as string | null | undefined) ?? null } };
   }
   if (c.art === 'relation' || c.art === 'gods' || c.art === 'hverv') {

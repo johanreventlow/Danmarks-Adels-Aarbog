@@ -545,24 +545,58 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
     }).catch(() => { setNarrativer([]); setAktivSourceId(1); setNarrativUdkast({ tekst: '', privat: false, side: '' }); });
   }, []);
 
+  // Request-generation: øges ved hvert loadPerson-kald. Hver .then/.catch nedenfor sætter kun state,
+  // hvis generationen stadig er den aktuelle — ellers kan et sent svar for person A (valgt før B,
+  // men svaret lander sidst) overskrive B's visning, og en forældet fejl ville ligne en aktuel.
+  const personGenRef = useRef(0);
+  // model lander typisk EFTER personlisten. loadPerson læser den via en ref i stedet for at have
+  // den som dependency — ellers genskabes callbacken, effekten nedenfor kører igen, og hele
+  // person-pakken hentes om og igangværende redigering nulstilles. Ref frem for at flytte
+  // navneopslaget til rendering, fordi fetchPersonFamilie bruger model inde i selve mappingen.
+  const modelRef = useRef<Model | null>(model);
+  modelRef.current = model;
+  // Hvilken model familie sidst blev mappet med (null = navne mangler endnu, vises som '#id').
+  const familieModelRef = useRef<Model | null>(null);
+
   const loadPerson = useCallback((id: string, opts?: { skipMedia?: boolean }) => {
     storySaveGuardRef.current.invalidate();
+    const gen = ++personGenRef.current;
+    const aktuel = () => gen === personGenRef.current;
+    const meld = (e: unknown) => { if (aktuel()) setLoadErr(oversaetFejl(String((e as Error)?.message ?? e))); };
     setEvidence(null); setHaendelser([]); setStories([]); setStoryEditor(null); setHaendelseNotice(''); setFamilie(null); setRelationer(null); setEditingAssert(null); setAddingFact(null); setAddingNyFelt(null); setBekraeft(null);
-    fetchPersonEvidence(id).then(setEvidence).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
-    fetchHaendelserForPerson(id).then(setHaendelser).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
-    fetchStoriesForPerson(id).then(setStories).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
+    fetchPersonEvidence(id).then((v) => { if (aktuel()) setEvidence(v); }).catch(meld);
+    fetchHaendelserForPerson(id).then((v) => { if (aktuel()) setHaendelser(v); }).catch(meld);
+    fetchStoriesForPerson(id).then((v) => { if (aktuel()) setStories(v); }).catch(meld);
     // Person/DAA-narrativer læses kun af den record-bundne editor. Den generiske
     // source-nøglede læser er fortsat kun til slægt/linje-editoren nedenfor.
     setNarrativer([]); setAktivSourceId(null); setNyUdgave(null);
     setNarrativUdkast({ tekst: '', privat: false, side: '' });
-    fetchPersonFamilie(id, model).then(setFamilie).catch(() => setFamilie({ somPartner: [], somBarn: [] }));
-    fetchPersonRelationer(id).then(setRelationer).catch(() => setRelationer([]));
-    fetchSammeSomLinks(id).then(setSammeSom).catch(() => setSammeSom([]));
+    // Fejl meldes via loadErr (tidligere blev de til tom state og lignede "ingen data"); tom state bevares.
+    familieModelRef.current = modelRef.current;
+    fetchPersonFamilie(id, modelRef.current).then((v) => { if (aktuel()) setFamilie(v); })
+      .catch((e) => { if (aktuel()) setFamilie({ somPartner: [], somBarn: [] }); meld(e); });
+    fetchPersonRelationer(id).then((v) => { if (aktuel()) setRelationer(v); })
+      .catch((e) => { if (aktuel()) setRelationer([]); meld(e); });
+    fetchSammeSomLinks(id).then((v) => { if (aktuel()) setSammeSom(v); })
+      .catch((e) => { if (aktuel()) setSammeSom([]); meld(e); });
     if (!opts?.skipMedia) {
       setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
-      fetchRedPersonMedia(id).then(setMedia).catch(() => setMedia([]));
+      fetchRedPersonMedia(id).then((v) => { if (aktuel()) setMedia(v); })
+        .catch((e) => { if (aktuel()) setMedia([]); meld(e); });
     }
-  }, [model]);
+  }, []);
+
+  // Når model lander efter personen: kun familie-navnene (mappet med model) genhentes — ingen
+  // nulstilling af redigeringstilstand. Samme generation som det igangværende loadPerson, så et
+  // nyere personskift kasserer svaret.
+  useEffect(() => {
+    if (!model || entity !== 'person' || !recordId || familieModelRef.current !== null) return;
+    const gen = personGenRef.current;
+    familieModelRef.current = model;
+    fetchPersonFamilie(recordId, model)
+      .then((v) => { if (gen === personGenRef.current) setFamilie(v); })
+      .catch((e) => { if (gen === personGenRef.current) setLoadErr(oversaetFejl(String((e as Error)?.message ?? e))); });
+  }, [model, entity, recordId]);
 
   // Skift aktiv udgave-fane; nulstil udkast fra den fanes gemte narrativ (ugemte edits kasseres,
   // som ved record-skift). sourceId==null når en ny udgave er valgt men endnu ikke gemt.
@@ -2492,7 +2526,7 @@ const annoBox: React.CSSProperties = { border: '1px dashed rgba(136,26,51,.4)', 
 // angiver en forbindelse opad. Skriver via red_upsert_fakta (grad) / red_tilbagetraek_fakta (fjern —
 // retract af konklusionen, review 26 HIGH 2) gennem det almindelige `run`/submitChange-flow (dry-run/
 // LIVE respekteres). Selvstændig fetch af nuværende markering (undgår at tråde state gennem editoren).
-function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: Change, label: string) => void }) {
+function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: Change, label: string) => Promise<unknown> }) {
   const [mk, setMk] = useState<ForaeldreUkendtMarkering | null | undefined>(undefined);
   const [grade, setGrade] = useState<string>(GRADE_FORAELDER_UKENDT);
   const [kilde, setKilde] = useState('');
@@ -2505,15 +2539,16 @@ function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: 
       .catch(() => { if (alive) setMk(null); });
     return () => { alive = false; };
   }, [personId, reloadKey]);
-  const refetchSoon = () => setTimeout(() => setReloadKey((k) => k + 1), 700);
-  const marker = () => {
-    run({ art: 'markerForaeldreUkendt', subjektType: 'person', subjektId: personId, vaerdi: grade, kildeFritekst: kilde.trim() || undefined }, 'Forældre ukendt');
-    refetchSoon();
+  // Genindlæs først når skrivningen er afsluttet (run afventes) — ingen gæt-timer på skrive-latens.
+  const genindlaes = () => setReloadKey((k) => k + 1);
+  const marker = async () => {
+    await run({ art: 'markerForaeldreUkendt', subjektType: 'person', subjektId: personId, vaerdi: grade, kildeFritekst: kilde.trim() || undefined }, 'Forældre ukendt');
+    genindlaes();
   };
-  const fjern = () => {
+  const fjern = async () => {
     if (!mk) return;
-    run({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: personId, factId: String(mk.factId) }, 'Fjern forældre-ukendt');
-    refetchSoon();
+    await run({ art: 'tilbagetraekFakta', subjektType: 'person', subjektId: personId, factId: String(mk.factId) }, 'Fjern forældre-ukendt');
+    genindlaes();
   };
   const gradeLabel = (g: string) => g === GRADE_FORAELDER_UKENDT ? 'Forælder findes, men er ukendt for os' : 'Bogen forbinder ikke personen opad';
   return (
@@ -2549,7 +2584,7 @@ function ForaeldreUkendtControl({ personId, run }: { personId: string; run: (c: 
 // Forældrefamilie-slot (Problem 2): konkurrerende forældre-påstande for DENNE person. Renderes kun
 // når der findes påstande (typisk efter en tværudgave-konflikt); mirrorer fact-card-oplysnings-listen
 // (kilde-badge + valgt-markering + "vælg denne"). Adjudikation = red_vaelg_foraeldre via run().
-function ForaeldrePaastandeControl({ personId, run, sammeSom }: { personId: string; run: (c: Change, label: string) => void; sammeSom: SammeSomLink[] }) {
+function ForaeldrePaastandeControl({ personId, run, sammeSom }: { personId: string; run: (c: Change, label: string) => Promise<unknown>; sammeSom: SammeSomLink[] }) {
   const [slot, setSlot] = useState<ForaeldreSlot | null | undefined>(undefined);
   const [egen, setEgen] = useState<BarnFamilie | null>(null); // personens EGEN fødselsfamilie + udgave
   const [rivaler, setRivaler] = useState<{ fraId: string; fam: BarnFamilie }[]>([]);
@@ -2565,15 +2600,16 @@ function ForaeldrePaastandeControl({ personId, run, sammeSom }: { personId: stri
       .then((rs) => { if (alive) setRivaler(rs.filter((r): r is { fraId: string; fam: BarnFamilie } => r != null)); }).catch(() => {});
     return () => { alive = false; };
   }, [personId, reloadKey, sammeSom]);
-  const refetchSoon = () => setTimeout(() => setReloadKey((k) => k + 1), 700);
-  const vaelg = (assertionId: number) => {
-    run({ art: 'vaelgForaeldre', subjektType: 'person', subjektId: personId, payload: { assertionId, konfidens } }, 'Vælg forældrefamilie');
-    refetchSoon();
+  // Genindlæs først når skrivningen er afsluttet (run afventes) — ingen gæt-timer på skrive-latens.
+  const genindlaes = () => setReloadKey((k) => k + 1);
+  const vaelg = async (assertionId: number) => {
+    await run({ art: 'vaelgForaeldre', subjektType: 'person', subjektId: personId, payload: { assertionId, konfidens } }, 'Vælg forældrefamilie');
+    genindlaes();
   };
-  const importer = (fam: BarnFamilie) => {
-    run({ art: 'foraeldrePaastand', subjektType: 'person', subjektId: personId,
+  const importer = async (fam: BarnFamilie) => {
+    await run({ art: 'foraeldrePaastand', subjektType: 'person', subjektId: personId,
       payload: { barnId: personId, familyId: fam.familyId, sourceId: fam.sourceId ?? undefined, citat: fam.udgave ? `Importeret fra ${fam.udgave} (samme_som)` : undefined } }, 'Importér forældre-påstand');
-    refetchSoon();
+    genindlaes();
   };
   const kendteFams = new Set((slot?.paastande ?? []).map((p) => p.familyId));
   // Kun ægte tværudgave-rivaler: anden familie end personens egen, ikke allerede på slottet, OG en
