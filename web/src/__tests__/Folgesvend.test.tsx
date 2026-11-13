@@ -186,6 +186,24 @@ test('/slaegtskab?a=<alias> erstattes med det kanoniske id; et ukendt id bliver 
   await waitFor(() => expect(navigate).toHaveBeenCalledWith('/slaegtskab?a=1&b=999', expect.objectContaining({ replace: true })));
 });
 
+test('/besiddelse/<id>: en fejlet ejer-hentning er en fejl med »Prøv igen«; et ukendt id bliver stående og siges', async () => {
+  mocks.fetchEstates.mockResolvedValue([{ id: '1', navn: 'Wittenberg', slags: 'gods', ownerCount: 1 }]);
+  mocks.fetchEstateOwners.mockRejectedValue(new Error('netværk'));
+  window.history.replaceState({}, '', '/besiddelse/1');
+  const { unmount } = render(<Folgesvend />);
+  expect((await screen.findByRole('alert')).textContent).toContain('Ejerrækken kunne ikke hentes');
+  mocks.fetchEstateOwners.mockResolvedValue([{ personId: '1', periode: '(1606-†)' }]);
+  fireEvent.click(screen.getByRole('button', { name: 'Prøv igen' }));
+  expect((await screen.findByRole('link', { name: 'Testperson' })).getAttribute('href')).toBe('/person/1');
+  expect(screen.getByText('1606-†')).toBeTruthy();
+  unmount();
+  vi.mocked(navigate).mockClear();
+  window.history.replaceState({}, '', '/besiddelse/99999');
+  render(<Folgesvend />);
+  expect(await screen.findByRole('heading', { name: 'Besiddelsen findes ikke i Aarbogen' })).toBeTruthy();
+  expect(navigate).not.toHaveBeenCalledWith('/slaegt/reventlow/besiddelser', expect.anything());
+});
+
 test('stamtræet med ?fokus=<id> åbner personpanelet', async () => {
   window.history.replaceState({}, '', '/slaegt/reventlow/stamtrae?fokus=1');
   mocks.fetchPersonDetail.mockResolvedValue({ bio: 'Fra fokus', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });

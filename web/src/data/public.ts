@@ -3,6 +3,7 @@
 // viser en tom-tilstand frem for at vælte siden — men breakage er ikke HELT tavst (console).
 import { supabase } from '../supabase';
 import type { Model } from './types';
+import type { EjerRelation } from './ejerraekke';
 import { pickPreferredBio, buildBioSourceVersions, mapPublicBioSourceVersionsV2 as mapCorePublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, buildPersonFacts, FAKTA_UDELADT, type BioSourceVersion, type BioSourceVersionV2, type NarrativeCand, type PersonFactView, type PublicPersonFactRow, type RaaCitationRow, type SourceRef, type Udgave, type UdgaveFaktaInput } from '@daa/core';
 import { SLUKKET_ENIGHED } from './udgaver';
 import { fetchPersonMedia, fetchObjectMedia, type MediaItem } from './media';
@@ -75,49 +76,38 @@ function dedupBy<T>(arr: T[], key: (t: T) => string): T[] {
   });
 }
 
-export type EstateItem = { id: string; navn: string; slags: string; ownerCount: number };
-export type EstateOwner = { personId: string; navn: string; rolle: string; periode: string };
+// ejerIds: rå person-id'er med rollen »ejer« (før samme_som-fletning); ownerCount tælles om mod modellen i Folgesvend.
+export type EstateItem = { id: string; navn: string; slags: string; ownerCount: number; ejerIds?: string[] };
 export type ArmsItem = { id: string; blasonering: string; note: string; media: MediaItem[] };
 export type EstateInfo = { narrativ: string; sted: string; media: MediaItem[] };
 
 type RawEstate = { id: number; navn: string | null; slags: string | null };
 type RawEstateRel = { subjekt_id: number; objekt_id: number; rolle: string | null; periode_raw: string | null };
 
-export function fetchEstates(): Promise<EstateItem[]> {
-  return safe(async () => {
-    const [estates, rels] = await Promise.all([
-      getAll<RawEstate>(() => supabase.from('estate').select('id,navn,slags')),
-      getAll<{ objekt_id: number }>(() => supabase.from('relation').select('objekt_id').eq('objekt_type', 'estate')),
-    ]);
-    const count: Record<string, number> = {};
-    rels.forEach((r) => { count[String(r.objekt_id)] = (count[String(r.objekt_id)] ?? 0) + 1; });
-    return estates
-      .map((e) => ({ id: String(e.id), navn: e.navn ?? '(uden navn)', slags: e.slags ?? '', ownerCount: count[String(e.id)] ?? 0 }))
-      .sort((a, b) => b.ownerCount - a.ownerCount || a.navn.localeCompare(b.navn, 'da'));
-  }, [], 'fetchEstates');
+// Kaster ved fejl (fase 7b): en fejlet hentning må ikke ligne »ingen besiddelser«. ownerCount er antal forskellige
+// ejere (personer), ikke ejer-relationer — samme person med to perioder er én ejer.
+export async function fetchEstates(): Promise<EstateItem[]> {
+  const [estates, rels] = await Promise.all([
+    getAll<RawEstate>(() => supabase.from('estate').select('id,navn,slags')),
+    getAll<{ subjekt_id: number; objekt_id: number }>(() => supabase.from('relation').select('subjekt_id,objekt_id')
+      .eq('objekt_type', 'estate').eq('subjekt_type', 'person').eq('rolle', 'ejer')),
+  ]);
+  const ejere: Record<string, Set<string>> = {};
+  rels.forEach((r) => { (ejere[String(r.objekt_id)] ??= new Set()).add(String(r.subjekt_id)); });
+  return estates
+    .map((e) => ({ id: String(e.id), navn: e.navn ?? '(uden navn)', slags: e.slags ?? '', ownerCount: ejere[String(e.id)]?.size ?? 0, ejerIds: [...(ejere[String(e.id)] ?? [])] }))
+    .sort((a, b) => b.ownerCount - a.ownerCount || a.navn.localeCompare(b.navn, 'da'));
 }
 
-// Ejerrækken for ét gods — navne slås op i den allerede-indlæste model (ingen ekstra person-fetch).
-// En ejer-relation kan være registreret under et foldet alias-person-id, som er fjernet fra den
-// collapsede model.byId → kanonisér via model.canonicalIdById før navne-opslag (ellers vises '#<id>').
-export function fetchEstateOwners(estateId: string, model: Model | null): Promise<EstateOwner[]> {
+// Ejer-relationerne for én besiddelse. En relation kan være registreret under et foldet alias-person-id → kanonisér
+// via model.canonicalIdById. Navne, rækkefølge og udeladelse af ejere, læseren ikke kan se, sker i byggEjerraekke.
+// Kaster ved fejl (fase 7b): en fejlet hentning må ikke ligne »ingen ejere«.
+export async function fetchEstateOwners(estateId: string, model: Model | null): Promise<EjerRelation[]> {
   const canon = (id: string) => model?.canonicalIdById?.[id] ?? id;
-  return safe(async () => {
-    const rows = await getAll<RawEstateRel>(() =>
-      supabase.from('relation').select('subjekt_id,objekt_id,rolle,periode_raw')
-        .eq('objekt_type', 'estate').eq('objekt_id', Number(estateId)).eq('subjekt_type', 'person'));
-    return rows
-      .map((r) => {
-        const pid = canon(String(r.subjekt_id));
-        return {
-          personId: pid,
-          navn: model?.byId?.[pid]?.name ?? `#${r.subjekt_id}`,
-          rolle: r.rolle ?? '',
-          periode: r.periode_raw ?? '',
-        };
-      })
-      .sort((a, b) => a.periode.localeCompare(b.periode, 'da'));
-  }, [], 'fetchEstateOwners');
+  const rows = await getAll<RawEstateRel>(() =>
+    supabase.from('relation').select('subjekt_id,objekt_id,rolle,periode_raw')
+      .eq('objekt_type', 'estate').eq('objekt_id', Number(estateId)).eq('subjekt_type', 'person').eq('rolle', 'ejer'));
+  return rows.map((r) => ({ personId: canon(String(r.subjekt_id)), periode: r.periode_raw ?? '' }));
 }
 
 export function fetchArms(): Promise<ArmsItem[]> {

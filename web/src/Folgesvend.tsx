@@ -9,7 +9,9 @@ import { navigate, useLocation } from './router';
 import { Link } from './Link';
 import { loadModel } from './data/model';
 import { initials } from './data/format';
-import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type EstateOwner, type PersonDetailData } from './data/public';
+import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type PersonDetailData } from './data/public';
+import { antalEjere, byggEjerraekke, type EjerRelation } from './data/ejerraekke';
+import type { EjereTilstand } from './components/EstatesView';
 import { personMemberIds } from './data/personMembers';
 import type { AppModel, Model } from './data/types';
 import { buildBrowse, showSearchResults } from './data/browse';
@@ -104,7 +106,10 @@ export default function Folgesvend() {
   const [arms, setArms] = useState<ArmsItem[] | null>(null);
   const [about, setAbout] = useState<AboutSection[] | null>(null);
   const [estateId, setEstateId] = useState<string | null>(() => initialPath.estateId);
-  const [estateOwners, setEstateOwners] = useState<EstateOwner[]>([]);
+  // Ejer-relationerne for den åbne besiddelse; fejl er en tilstand, ikke en tom liste (fase 7b).
+  const [estateOwners, setEstateOwners] = useState<{ status: 'henter' } | { status: 'fejl' } | { status: 'ok'; rel: EjerRelation[] }>({ status: 'henter' });
+  const [ejereForsoeg, setEjereForsoeg] = useState(0);
+  const [estatesFejl, setEstatesFejl] = useState(false);
   const [estateInfo, setEstateInfo] = useState<EstateInfo | null>(null);
   const [detail, setDetail] = useState<PersonDetailData | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -154,17 +159,13 @@ export default function Folgesvend() {
   // nedenfor gav en NY array hvert render, hvilket ville nulstille en useMemo i BookmarksView.
   const bookmarkIds = useMemo(() => [...bookmarks.ids], [bookmarks.ids]);
 
-  // Estates hentes eager (én gang) — bruges både af godser-visningen OG sidebar-statistikkens
-  // "godser"-tæller. Én pagineret query; billig nok til mount.
-  useEffect(() => { if (!estates) fetchEstates().then(setEstates).catch(() => setEstates([])); }, [estates]);
-  // URL'en pegede evt. på et gods-id (deep link) — valider det så snart listen er hentet;
-  // et forældet/forkert id falder pænt tilbage til gods-listen i stedet for en tom detaljevisning.
+  // Besiddelserne hentes eager (én gang) — bruges af listen, slægtens tal og feedet. En fejl giver en tom liste til
+  // feedet, men besiddelsessiderne siger fejlen og kan prøve igen. Et ukendt id i adressen siges på siden (fase 7b),
+  // ikke ved et tavst skift til listen.
   useEffect(() => {
-    if (estates && estateId && !estates.some((e) => e.id === estateId)) {
-      setEstateId(null);
-      navigate(pathForMode('estates'), { replace: true });
-    }
-  }, [estates, estateId]);
+    if (estates || estatesFejl) return;
+    fetchEstates().then(setEstates).catch(() => { setEstates([]); setEstatesFejl(true); });
+  }, [estates, estatesFejl]);
   // 'home' og 'about' udløser samme hentning som 'arms' (ikke kun mode==='arms'): forsidernes feed
   // (fase1-design.md §7) viser våben-kort og skal have data uden at brugeren først har
   // besøgt Våben-siden.
@@ -175,10 +176,15 @@ export default function Folgesvend() {
   useEffect(() => {
     if (!estateId) return;
     let cancelled = false;
-    setEstateOwners([]);
-    fetchEstateOwners(estateId, model).then((o) => { if (!cancelled) setEstateOwners(o); }).catch(() => { if (!cancelled) setEstateOwners([]); });
+    setEstateOwners({ status: 'henter' });
+    fetchEstateOwners(estateId, model).then((rel) => { if (!cancelled) setEstateOwners({ status: 'ok', rel }); }).catch(() => { if (!cancelled) setEstateOwners({ status: 'fejl' }); });
     return () => { cancelled = true; };
-  }, [estateId, model]);
+  }, [estateId, model, ejereForsoeg]);
+  // Antal ejere pr. besiddelse talt mod modellen (samme person i flere udgaver er én ejer; skjulte tælles ikke).
+  const estatesVist = useMemo(() => (estates && model
+    ? estates.map((e) => (e.ejerIds ? { ...e, ownerCount: antalEjere(e.ejerIds, model) } : e)) : estates), [estates, model]);
+  const ejere: EjereTilstand = useMemo(() => (estateOwners.status !== 'ok' ? estateOwners
+    : model ? { status: 'ok', raekke: byggEjerraekke(estateOwners.rel, model) } : { status: 'henter' }), [estateOwners, model]);
   useEffect(() => {
     if (!estateId) return;
     let cancelled = false;
@@ -448,8 +454,9 @@ export default function Folgesvend() {
       </div>
     );
   }
+  // En besiddelse (/besiddelse/<id>) hører til en slægt, selv om adressen ligger over slægterne.
   const hovedpunkt: HovedpunktAktiv = mode === 'soeg' || mode === 'person' ? 'personer'
-    : parsed.slaegt ? 'slaegter' : mode === 'relate' ? 'slaegtskab' : null;
+    : parsed.slaegt || mode === 'estates' ? 'slaegter' : mode === 'relate' ? 'slaegtskab' : null;
 
   // Søgning-i-træet (§4): bundtet der driver TreeSearch. showResults afgør resultat-grid vs. træ;
   // valg af et resultat rydder søgningen og centrerer træet på personen (brief §4.1).
@@ -491,7 +498,7 @@ export default function Folgesvend() {
 
         {/* Center */}
         <div ref={centerRef} data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
-          {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estates} onPickPerson={visPerson} onBrowseAll={() => goToMode('soeg')} onOpenEstate={(id) => { setEstateId(id); navigate(estatePath(id)); }}
+          {mode === 'home' ? <HomeView model={model} personCount={persons.length} estates={estatesVist} onPickPerson={visPerson} onBrowseAll={() => goToMode('soeg')} onOpenEstate={(id) => { setEstateId(id); navigate(estatePath(id)); }}
               arms={arms} meId={meCanon} focusId={focusId} bookmarkedIds={bookmarkIds}
               bookmarksReady={bookmarks.ready} bookmarkHydrationVersion={bookmarks.hydrationVersion}
               bookmarkOwnerId={session?.userId ?? null}
@@ -518,11 +525,14 @@ export default function Folgesvend() {
             )
             : mode === 'tree' ? <TreeView model={model} focusId={focusId} personHref={visPersonPath} onPick={treePick} onFocus={driftFocus} hasBookmark={bookmarks.has} onToggleBookmark={saveOrPrompt} search={treeSearch} />
             : mode === 'relate' ? <RelateView model={model} relA={relA} relB={relB} meId={meCanon} slug={slug} onVaelg={findSlaegtskab} />
-            : mode === 'estates' ? <EstatesView estates={estates} estateId={estateId} estate={estates?.find((e) => e.id === estateId) ?? null} info={estateInfo} owners={estateOwners} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(estatePath(id)); }} onBack={() => { setEstateId(null); navigate(pathForMode('estates', slug)); }} onPickOwner={visPerson}
+            : mode === 'estates' ? <EstatesView estates={estatesVist} estatesFejl={estatesFejl} onRetryEstates={() => { setEstatesFejl(false); setEstates(null); }}
+              estateId={estateId} estate={estatesVist?.find((e) => e.id === estateId) ?? null} info={estateInfo} ejere={ejere} onRetryEjere={() => setEjereForsoeg((n) => n + 1)}
+              slaegt={findSlaegt(slug) ?? SLAEGTER[0]} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(estatePath(id)); }} onPickOwner={visPerson}
+              besiddelserHref={pathForMode('estates', slug)} onBesiddelser={() => { setEstateId(null); navigate(pathForMode('estates', slug)); }}
               slaegtensKortHref={pathForMode('kort', slug)} onSlaegtensKort={() => goToMode('kort')} />
             : mode === 'arms' ? <ArmsView arms={arms} />
             : mode === 'about' ? <AboutView slaegt={findSlaegt(slug) ?? SLAEGTER[0]} model={model} about={about} personCount={persons.length} estateCount={estates?.length ?? null} onPick={visPerson}
-                feed={{ estates, arms, meId: meCanon, focusId, bookmarkedIds: bookmarkIds,
+                feed={{ estates: estatesVist, arms, meId: meCanon, focusId, bookmarkedIds: bookmarkIds,
                   bookmarksReady: bookmarks.ready, bookmarkHydrationVersion: bookmarks.hydrationVersion,
                   bookmarkOwnerId: session?.userId ?? null, hasBookmark: bookmarks.has, onSaveBookmark: saveOrPrompt,
                   onOpenPerson: visPerson, onOpenEstate: (id) => { setEstateId(id); navigate(estatePath(id)); },
@@ -533,7 +543,7 @@ export default function Folgesvend() {
             : mode === 'kort' ? <OverviewMapView model={model} geoLoading={geoLoading} onPickPerson={visPerson} onPickEstate={(id) => navigate(estatePath(id))} />
             : mode === 'praesens' ? <PresensView model={model} onPickPerson={visPerson} session={sessionKlar ? session : 'henter'} onLogin={() => setLoginOpen(true)} onGoTree={() => goToMode('tree')} />
             : mode === 'soeg' ? (
-              <SoegView model={model} estates={estates} filtre={soegFiltreNu} linjer={linjeList} bogmaerker={bogmaerkeSaet}
+              <SoegView model={model} estates={estatesVist} filtre={soegFiltreNu} linjer={linjeList} bogmaerker={bogmaerkeSaet}
                 onFiltre={(sti) => navigate(sti, { replace: true, state: window.history.state })} />
             )
             : mode === 'ukendtSlaegt' ? (
