@@ -26,7 +26,12 @@ describe('coordinateRowToExtId', () => {
       slaegtled_gennem: 7,
       kuld: 'II',
       provenance: 'placement',
+      trykt_side: null,
     });
+  });
+
+  it('bærer printed_page videre som trykt_side', () => {
+    expect(coordinateRowToExtId(row({ printed_page: '49' })).trykt_side).toBe('49');
   });
 
   it('bevarer null-koordinater (karantæne nedstrøms)', () => {

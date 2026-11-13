@@ -97,13 +97,49 @@ export function flettKilder(
   return out;
 }
 
-// Bogens nummer for en person (»Linje V, nr. 1«) — KUN fra stamtavlens opslag (model.sourcesBy),
+// Rækkefølgen for en persons bogreferencer (6e-2): nyeste udgave (højeste aar) først; inden for udgaven
+// lavest slægtled (NULL sidst) — en person i to linjer står fuldt i linjen, hvor vedkommende er stamfar,
+// mens henvisningsposten står højt i den gamle linje; dernæst laveste personId numerisk. Manglende felter
+// = laveste prioritet, og lige poster beholder deres indbyrdes orden (stabil sortering).
+export function sorterKilder(refs: readonly SourceRef[]): SourceRef[] {
+  const num = (v: number | null | undefined, tom: number) => (v == null ? tom : v);
+  const pid = (r: SourceRef) => {
+    const n = r.personId == null ? NaN : Number(r.personId);
+    return Number.isNaN(n) ? Number.POSITIVE_INFINITY : n;
+  };
+  return [...refs].sort((a, b) => {
+    const aa = num(a.aar, Number.NEGATIVE_INFINITY);
+    const ba = num(b.aar, Number.NEGATIVE_INFINITY);
+    if (aa !== ba) return aa > ba ? -1 : 1;
+    const as = num(a.slaegtled, Number.POSITIVE_INFINITY);
+    const bs = num(b.slaegtled, Number.POSITIVE_INFINITY);
+    if (as !== bs) return as < bs ? -1 : 1;
+    const ap = pid(a);
+    const bp = pid(b);
+    return ap === bp ? 0 : ap < bp ? -1 : 1;
+  });
+}
+
+// Bogens nummer for en person (»V, nr. 1«) — KUN fra stamtavlens opslag (model.sourcesBy),
 // aldrig fra citat-proveniensen, der for personer uden nummer (typisk ægtefæller) giver et sidetal.
 // Én regel for personsidens etiket og feedets kilde-§, så de to aldrig viser forskellige numre.
 export function bogensNummer(
   sourcesBy: Record<string, SourceRef[]> | undefined,
   personId: string,
 ): string | null {
-  const ref = sourcesBy?.[personId]?.[0]?.ref.trim() ?? '';
-  return ref !== '' ? ref : null;
+  for (const r of sorterKilder(sourcesBy?.[personId] ?? [])) {
+    const tekst = (r.kort ?? r.ref).trim();
+    if (tekst !== '') return tekst;
+  }
+  return null;
+}
+
+// »Optræder i Aarbogen som …« (spec §5.7): hver ref som »<værk>, <kort>« (kun værket når kort er tom),
+// i bogensNummers orden, forbundet med ' og '.
+export function optraederSom(refs: readonly SourceRef[]): string {
+  const dele = sorterKilder(refs).map((r) => {
+    const k = (r.kort ?? r.ref).trim();
+    return k === '' ? r.work : `${r.work}, ${k}`;
+  });
+  return [...new Set(dele)].join(' og ');
 }

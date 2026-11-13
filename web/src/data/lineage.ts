@@ -5,7 +5,7 @@ import type {
   Lineage, LineageContext, RawExtId, RawLineageContext,
   RawLineageScheme, RawLineageSchemeEntry, RawLineageSchemeEntryLineage,
 } from './types';
-import { compareLineHead } from '@daa/core';
+import { compareLineHead, type SkemaOpslag } from '@daa/core';
 
 /** Stabile nøgler for klienttilstand; den trykte kode er aldrig selv nøglen. */
 export function lineageContextKey(context: LineageContext): string {
@@ -25,6 +25,31 @@ export type LineageSchemeRows = {
   entries: RawLineageSchemeEntry[];
   mappings: RawLineageSchemeEntryLineage[];
 };
+
+/**
+ * Stamtavlens skemaindgange pr. (kilde, kode) — person_external_id.linje er stamtavlens koordinat, aldrig et
+ * præsens- eller redaktionelt nummer, selv hvis de deler kode inden for samme kilde. Delt af buildLineage og
+ * kildeetiketterne (stamtavleSkemaOpslag).
+ */
+export function stamtavleEntries(schemeRows?: LineageSchemeRows): Map<string, RawLineageSchemeEntry> {
+  const schemeById = new Map((schemeRows?.schemes ?? []).map((scheme) => [String(scheme.id), scheme]));
+  const out = new Map<string, RawLineageSchemeEntry>();
+  (schemeRows?.entries ?? []).forEach((entry) => {
+    const scheme = schemeById.get(String(entry.scheme_id));
+    if (scheme?.kind === 'stamtavle' && scheme.source_id != null) {
+      out.set(sourceCodeKey(scheme.source_id, entry.code), entry);
+    }
+  });
+  return out;
+}
+
+export function stamtavleSkemaOpslag(schemeRows?: LineageSchemeRows): SkemaOpslag {
+  const m = stamtavleEntries(schemeRows);
+  return (sourceId, code) => {
+    const e = m.get(sourceCodeKey(sourceId, code));
+    return e ? { code: e.code, label: e.label } : null;
+  };
+}
 
 export function buildLineage(
   extIds: RawExtId[],
@@ -56,15 +81,7 @@ export function buildLineage(
   // kontekst i svaret, bliver også legacy-rækker source-scopede frem for globale.
   const hasContext = (lineageRows || []).some((row) => row.id != null && row.slaegt_id != null);
   const schemeById = new Map((schemeRows?.schemes ?? []).map((scheme) => [String(scheme.id), scheme]));
-  const entryBySourceCode = new Map<string, RawLineageSchemeEntry>();
-  (schemeRows?.entries ?? []).forEach((entry) => {
-    const scheme = schemeById.get(String(entry.scheme_id));
-    // person_external_id.linje er stamtavlens koordinat — aldrig et præsens- eller
-    // redaktionelt nummer, selv hvis de deler kode inden for den samme kilde.
-    if (scheme?.kind === 'stamtavle' && scheme.source_id != null) {
-      entryBySourceCode.set(sourceCodeKey(scheme.source_id, entry.code), entry);
-    }
-  });
+  const entryBySourceCode = stamtavleEntries(schemeRows);
   const canonicalLineagesByEntry = new Map<string, Set<string>>();
   const unresolvedCoordinates = new Set<string>();
   (schemeRows?.mappings ?? []).forEach((mapping) => {

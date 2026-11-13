@@ -3,7 +3,7 @@
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
 import { aarSpaend, buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, fmtYears, oploesRelativDato, parseYear, getAll, EMPTY_GEO, type PublicCoordinateRow } from '@daa/core';
-import { buildLineage } from './lineage';
+import { buildLineage, stamtavleSkemaOpslag } from './lineage';
 import { buildSources } from './sources';
 import { byggUdgaveModel } from './udgaver';
 import { normalizeKoen, normalizeKonfidens, type AppModel, type AppPerson, type Db, type Geo, type Model, type ModelPerson, type ParentChild, type RawEstate, type RawExtId, type RawFact, type RawLineageContext, type RawLineageScheme, type RawLineageSchemeEntry, type RawLineageSchemeEntryLineage, type RawPlace, type RawSource, type Union } from './types';
@@ -159,7 +159,7 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     lineage: buildLineage(extIds, lineageRows, collapsed.canonicalIdById, {
       schemes, entries: schemeEntries, mappings: schemeMappings,
     }),
-    sourcesBy: buildSources(extIds, sources, collapsed.canonicalIdById),
+    sourcesBy: buildSources(extIds, sources, collapsed.canonicalIdById, stamtavleSkemaOpslag({ schemes, entries: schemeEntries, mappings: schemeMappings })),
     canonicalIdById: collapsed.canonicalIdById,
     ...byggUdgaveModel(sources, extIds),
     // Geo-lag: starter TOMT (review 27 P3, "lazy geo-kæde") — place+fact hentes ikke ved

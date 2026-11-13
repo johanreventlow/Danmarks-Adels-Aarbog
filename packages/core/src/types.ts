@@ -19,6 +19,8 @@ export type RawExtId = {
   // 5c-2: den trykte nr.-tekst (»15a«; nr er dens foranstillede heltal) og koordinatens proveniens.
   nr_label?: string | null;
   provenance?: 'placement' | 'legacy_external_id';
+  // 6e-2: bogens trykte side (kun poster uden bogtrykt nøgle; før DDL findes feltet ikke).
+  trykt_side?: string | null;
 };
 export type RawLineage = {
   source_id: number | string;
@@ -240,5 +242,14 @@ export type Lineage = {
 };
 
 // Delte reference-typer (bruges af Model.sourcesBy/Lineage — og af appernes Aux).
-export type SourceRef = { ref: string; work: string };
+export type SourceRef = {
+  ref: string;
+  work: string;
+  // 6e-2 (valgfri, så ældre producenter er uændrede): kort form til bogens nummer + sorteringsnøgler.
+  kort?: string;
+  personId?: string;
+  sourceId?: string;
+  aar?: number | null;
+  slaegtled?: number | null;
+};
 export type LinjeEntry = { linje: string; count: number; headId: string | null; navn: string | null };

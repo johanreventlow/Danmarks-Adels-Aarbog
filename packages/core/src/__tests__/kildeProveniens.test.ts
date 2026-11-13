@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { buildProvenanceSources, citationRowsTilProveniens, flettKilder } from '../kildeProveniens';
+import { bogensNummer, buildProvenanceSources, citationRowsTilProveniens, flettKilder, optraederSom } from '../kildeProveniens';
 import type { SourceRef } from '../types';
 
 // Baggrund: `sourcesBy` bygges af person_external_id, som kun findes for personer bogen gav et
@@ -117,5 +117,35 @@ describe('flettKilder', () => {
 
   test('personer der hverken har det ene eller det andet udelades', () => {
     expect(flettKilder({ '9': [] }, {})).toEqual({});
+  });
+});
+
+describe('bogensNummer og optraederSom (6e-2)', () => {
+  const conrad: Record<string, SourceRef[]> = {
+    c: [
+      { work: 'DAA 2018-20', ref: 'III. Linjen Gallentin, nr. 58', kort: 'III, nr. 58', personId: '255', sourceId: '1', aar: 2018, slaegtled: 12 },
+      { work: 'DAA 2018-20', ref: 'V. Den grevelige linje af 1673, nr. 1', kort: 'V, nr. 1', personId: '392', sourceId: '1', aar: 2018, slaegtled: 1 },
+      { work: 'DAA 1939', ref: 's. 52', kort: 's. 52', personId: '1198', sourceId: '3', aar: 1939, slaegtled: null },
+    ],
+  };
+  test('nyeste udgave, derefter laveste slægtled', () => {
+    expect(bogensNummer(conrad, 'c')).toBe('V, nr. 1');
+  });
+  test('slægtled lig → laveste personId numerisk; NULL slægtled sidst', () => {
+    const r: Record<string, SourceRef[]> = { p: [
+      { work: 'W', ref: 'x', kort: 'B', personId: '100', aar: 2018, slaegtled: 3 },
+      { work: 'W', ref: 'x', kort: 'A', personId: '99', aar: 2018, slaegtled: 3 },
+      { work: 'W', ref: 'x', kort: 'N', personId: '1', aar: 2018, slaegtled: null },
+    ] };
+    expect(bogensNummer(r, 'p')).toBe('A');
+  });
+  test('uden nye felter: dagens adfærd (første ref)', () => {
+    expect(bogensNummer({ p: [{ work: 'W', ref: 'Linje V, nr. 1' }] }, 'p')).toBe('Linje V, nr. 1');
+    expect(bogensNummer({ p: [{ work: 'W', ref: '' }] }, 'p')).toBeNull();
+    expect(bogensNummer(undefined, 'p')).toBeNull();
+  });
+  test('Optræder i Aarbogen som', () => {
+    expect(optraederSom(conrad.c)).toBe('DAA 2018-20, V, nr. 1 og DAA 2018-20, III, nr. 58 og DAA 1939, s. 52');
+    expect(optraederSom([{ work: 'DAA 1939', ref: '', kort: '' }])).toBe('DAA 1939');
   });
 });

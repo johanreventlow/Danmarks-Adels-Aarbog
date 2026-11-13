@@ -13,6 +13,7 @@ export type PublicCoordinateRow = {
   generation_global: number | null;
   kuld_label: string | null;
   provenance_kind: 'placement' | 'legacy_external_id';
+  printed_page?: string | null; // 6e-2: findes først efter DDL
 };
 
 export function coordinateRowToExtId(row: PublicCoordinateRow): RawExtId {
@@ -26,6 +27,7 @@ export function coordinateRowToExtId(row: PublicCoordinateRow): RawExtId {
     slaegtled_gennem: row.generation_global,
     kuld: row.kuld_label,
     provenance: row.provenance_kind,
+    trykt_side: row.printed_page ?? null,
   };
 }
 
