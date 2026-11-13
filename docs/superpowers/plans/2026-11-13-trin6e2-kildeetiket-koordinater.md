@@ -151,7 +151,10 @@ Kør mod `daa5ab_ddl_standin_20261113070325_6e2` med `PGOPTIONS='-c default_tran
     - funktionerne findes;
     - kald under `SET ROLE anon` lykkes for både `source_trykt_side` og `side_trykt`. Begge er INVOKER og læser
       `source.sidekort`, så kolonnen skal være læsbar for anon;
-    - `source.sidekort` er NULL for alle kilder efter migrationen. Data kommer i Del C.
+    - `db-verify` kontrollerer kortets gyldighed (`sidekort IS NULL OR private.sidekort_gyldigt(sidekort)`) og
+      funktionernes kontrakt med både NULL og et udfyldt fixture-kort.
+    - At `sidekort` er NULL efter migrationen er en førtilstand i opgraderingstesten, **ikke** en db-verify-invariant
+      (Codex r1 #7): ceremonien udfylder kortet, og migrationen må ikke nulstille det ved genkørsel.
 - [ ] **Step 4:** Kør testen og migrationen to gange på en kopi af stand-in'en. Forventet: PASS, og 2. kørsel ændrer intet.
 - [ ] **Step 5: Commit** `feat(6e): sidekort som kildedata og omregning til trykt side`
 
@@ -213,6 +216,12 @@ binding med record_label ''                           → accepteres; '  ' → C
 **Interfaces:**
 - Produces: `public.public_person_source_coordinates()`.
   - **Returtypen:** de nuværende kolonner i samme rækkefølge + `printed_page text` sidst. Ændringen kræver `DROP FUNCTION` + `CREATE` + de samme `REVOKE`/`GRANT` i migrationen.
+  - **Ældre blokke (Codex r1 #1):** `db-migrations.sql:26699` og `:33894` genopretter funktionen med den gamle
+    returtype med `CREATE OR REPLACE`. Det fejler ved anden kørsel. Foran hver af de to indsættes derfor en
+    betinget `DROP FUNCTION`, som kun rammer, når den eksisterende funktion har kolonnen `printed_page` (opslag i
+    `pg_proc.proallargtypes`/`proargnames`). Det er en undtagelse fra reglen om ældre blokke.
+  - Testen kører **hele** `db-migrations.sql` to gange på en base med den gamle signatur og én gang oven på et frisk
+    `schema.sql`.
   - **Kildegaten:** ingen to placements deler `(scheme_entry_id, generation_local, kuld_label, printed_number)`, med NULL som ens (`count(DISTINCT row(...))`). Gatens særskilte NULL-nr.-filter fjernes. Kildegaten bevares som sikkerhedsnet.
   - **`printed_page`:** kun for poster uden bogtrykt nøgle (`record_key` matcher `record-<uuid>`, samme regel som
     etiketten i Task 2). Ellers NULL, så 2018-20 bliver ved »V, nr. 1«.
@@ -239,9 +248,10 @@ binding med record_label ''                           → accepteres; '  ' → C
   - Kilde 3 har 528 rækker `placement` og resten legacy (Task 0 step 5's tal).
   - Ækvivalens over alle 1.104 medlemskaber: 0 forskelle.
   
-  - Personsiden kalder RPC'en to gange (`getAll` paginerer 1.111 rækker > 1.000). Før 6d-1 var det samme
-    rækkeantal og derfor også to kald, så målet gælder pr. kald.
-  - Rapportér summen af de to sider sammen med den enkelte tid.
+  - **Stopkriteriet er klientens faktiske vej** (Codex r1 #6): summen af de to sider, som `getAll` henter
+    (`range(0,999)` + `range(1000,1999)`), skal være ≤ 450 ms. Det er to gange 225 ms, fordi siden før 6d-1 også
+    hentede to sider med samme rækkeantal.
+  - Desuden rapporteres det enkelte kald, med 225 ms som mål.
   
   Nås 225 ms ikke, **stop og rapportér tallene**. Målet sænkes ikke af implementeren.
 - [ ] **Step 5:** `test-6e2-upgrade.sh`: migrationen på en base med den gamle signatur (to kørsler) → ny signatur, grants som før, anon kan kalde.
@@ -276,13 +286,19 @@ binding med record_label ''                           → accepteres; '  ' → C
   - `export function linjeKodeOgNavn(e: { code: string; label: string | null }): { kode: string; navn: string }`. Samme præfiksregel som SQL'ens `linje_kode`. `navn` = etiketten uden præfiks og uden afsluttende punktum; tom etiket → `navn = kode`.
   - `export function linjeTitel(e: { code: string; label: string | null }): string` → `${kode}. ${navn}`.
   - `export type SkemaOpslag = (sourceId: string, code: string) => { code: string; label: string | null } | null`.
-    - Bygges i `model.ts` af `schemes` + `schemeEntries`, nøgle `${scheme.source_id}|${entry.code}`.
-  - `SourceRef` udvides til `{ ref: string; work: string; kort: string; personId: string; sourceId: string; aar: number | null }`.
+    - Bygges i `model.ts` af `schemes` + `schemeEntries`, nøgle `${scheme.source_id}|${entry.code}`, **kun skemaer
+      med `kind='stamtavle'`** (Codex r1 #4). Brug samme afgrænsning som `lineage.ts:60-66`
+      (`entryBySourceCode`), og helst samme kode.
+    - Test: en kilde med samme kode i et `presensliste`-skema med en anden etiket skal give stamtavlens titel.
+  - `SourceRef` udvides **kompatibelt** (Codex r1 #2) med valgfrie felter:
+    `{ ref: string; work: string; kort?: string; personId?: string; sourceId?: string; aar?: number | null; slaegtled?: number | null }`.
+    Eksisterende producenter (`kildeProveniens.ts:69`, `mobile/src/data/buildAux.ts:77`) er uændrede.
+    `bogensNummer` bruger `kort ?? ref` og behandler manglende felter som laveste prioritet.
   - `buildSources(extIds, sources, canonicalIdById, skema?: SkemaOpslag)`:
     - Kode i kildens skema → `ref = linjeTitel + [', s. '+trykt_side] + [', nr. '+nr]`, `kort = kode + [', s. '+side] + [', nr. '+nr]`.
     - Kode ikke i kildens skema (legacy »1939«, ingen kode) → hverken linje eller nr. `ref = kort = trykt_side ? 's. '+trykt_side : ''`.
     - Uden `skema` (ældre kald) → dagens form.
-  - `SourceRef` får også `slaegtled: number | null` (fra `slaegtled_lokal`).
+  - `buildSources` udfylder `slaegtled` fra `slaegtled_lokal`.
   - `bogensNummer(sourcesBy, personId): string | null` (signaturen er uændret).
     - Vælger den ref, der har højeste `aar` (nyeste udgave). Inden for udgaven lavest `slaegtled` (NULL sidst),
       dernæst laveste `personId` numerisk.
@@ -338,7 +354,11 @@ expect(linjeTitel({ code: 'Stamme-holstenske', label: 'Den holstenske Linje.' })
 **Interfaces:**
 - Produces:
   - `export function sideForm(label: string): string` (uændret adfærd).
-  - `postLabel(v)` / `kildeLinje(k)`: synlig postetiket → `sideForm(citationLabel || sourceLabel) · etiket`, ellers som i dag. Før ceremonien er 1939's etiketter `record-…` og dermed usynlige, så de viser som i dag.
+  - `postLabel(v)` / `kildeLinje(k)` (Codex r1 #3):
+    - Synlig postetiket → `sideForm(citationLabel || sourceLabel) · etiket`.
+    - Tom postetiket `''` (de 35 uden placement) → `sideForm(citationLabel || sourceLabel)` uden separator.
+    - Teknisk etiket (`record-…`, `legacy-source:…`, kun før ceremonien) → `sourceLabel` som i dag. Dens
+      `citationLabel` bærer endnu PDF-siden.
   - `unikkeEfterLabel`: nøgle `recordRef ?? label`.
   - Redaktion: `<h3>{record.recordLabel || record.citationLabel}</h3>` og `aria-label` med samme fald.
   - `pageOrder` (`PersonNarrativeRecordEditor.tsx:36`) læser nu det trykte »s. N« fra `citationLabel`. Den bruges
@@ -349,7 +369,8 @@ expect(linjeTitel({ code: 'Stamme-holstenske', label: 'Den holstenske Linje.' })
 
 - [ ] **Step 1: Skriv de fejlende tests:**
   - Chip `{sourceLabel:'DAA 1939', citationLabel:'DAA 1939, s. 49', recordLabel:'IV, nr. 3'}` → `'DAA 1939, s. 49 · IV, nr. 3'`.
-  - Samme med `recordLabel:'record-…'` → `'DAA 1939'`.
+  - Samme med `recordLabel:'record-…'` og `citationLabel:'DAA 1939 side 538'` → `'DAA 1939'`.
+  - `recordLabel:''`, `citationLabel:'DAA 1939, s. 52'` → `'DAA 1939, s. 52'`.
   - 2018-20 `{citationLabel:'DAA 2018-20, s. 201-202', recordLabel:'V-1'}` → `'DAA 2018-20, s. 201-202 · V-1'`.
   - `kildeLinje` tilsvarende med `Kilde: `.
   - To fakta med samme label, men forskellig `recordRef` → to kilder. Samme `recordRef` → én.
@@ -372,6 +393,9 @@ expect(linjeTitel({ code: 'Stamme-holstenske', label: 'Den holstenske Linje.' })
     - Rækkefølge: laveste `slaegtled` (NULL sidst), dernæst unummereret før nummereret, dernæst nr og label som i dag.
     - `lineage.ts` sender `nr: x.nr ?? null` og `slaegtled: x.slaegtled_lokal ?? null`.
   - `export type LinjeRaekke = { sourceId: string; udgave: string; entry: { code: string; label: string | null }; lineageId: string | null; provenance: 'placement' | 'legacy_external_id' }`.
+  - **Hovedet viser linjetitler, ikke personens koordinater** (Codex r1 #5, afgjort med spec §12.4). Slægtled,
+    gruppe og nr. står ikke i hovedet. Personens side og nr. står i »Kilde i Aarbogen« (Task 5), og slægtled og
+    gruppe udelades efter afgørelse 14. Spec §5.7's »med slægtled, gruppe og nr.« er afløst af §12.4.
   - `export function linjerForUdgave(raekker: LinjeRaekke[], sourceId: string): string[]`.
     - Giver den valgte udgaves `linjeTitel`'er, unikke, i rækkefølgen af de første forekomster.
     - Rækken tæller, når koden findes i kildens skema, både `placement` og legacy. Det er samme regel som
@@ -401,7 +425,8 @@ expect(linjeTitel({ code: 'Stamme-holstenske', label: 'Den holstenske Linje.' })
 - [ ] **Step 3:** Implementér, og forbind hovedet.
   - Hovedet viser `linjerForUdgave` for vælgerens valgte udgave og noterne under linjerne.
   - Uden vælger: personens eneste udgave.
-  - Legacy-rækker giver ingen linje.
+  - Legacy-rækker, hvis kode ikke findes i kildens stamtavleskema, giver ingen linje. Kilde 1's legacy-rækker
+    giver deres linje som i dag (samme regel som Task 5).
 - [ ] **Step 4:** Kør. Forventet: PASS.
 - [ ] **Step 5: Commit** `feat(6e): linjens hoved efter slægtled, linjer pr. udgave og B6-note`
 

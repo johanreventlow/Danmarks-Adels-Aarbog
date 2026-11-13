@@ -435,6 +435,12 @@ Projektejeren bad om sammenligningen. Uden spørgsmål ville 6e have fulgt trin 
   linjenavne; advisor-tjek før skrivning (sidetal vist to gange, omregning pr. vej, profil som data, kollisioner
   genmålt for den endelige form). Review-budget for 6e-2 uændret: 1 Codex-runde på tillæg + plan, 1 på diffen.
 
+- **Codex runde 1 på tillæg + plan 2026-11-13** (gpt-6.1-sol; dom »ikke klar«, 7 fund):
+  - Afvejet af hovedsessionen (Opus); alle claims er tjekket i koden. 6 er godkendt, og #5 er løst ved en præcisering.
+  - Rettet i planen: migrationens ældre blokke (#1), kompatibel `SourceRef` (#2), side ved tom postdel (#3),
+    stamtavleskema (#4), fartloft på klientens vej (#6) og db-verify (#7).
+  - Rettet i spec'en: §12.4 (hovedet viser linjetitler) og §12.6 (fartloftet).
+
 ## 12. Tillæg 2026-11-13: etiket, sider og linjenavne (før 6e-2's plan)
 
 Grundlag: genmåling på frisk stand-in (`daa5ab_ddl_standin_20261113070325_6e2`, prod 2026-11-13) og 1939's rå OCR
@@ -543,6 +549,10 @@ Eksempler:
 | Personsidens og feedets nummer (`bogensNummer`) | »IV, s. 49, nr. 3« | »V, nr. 1« |
 | Linjehoved og B6-note (§5.7) | linjens rettede skemaetiket | uændret |
 
+Hovedet viser linjetitler (»IV. Den danske grevelige Linje af 1673«), ikke personens slægtled, gruppe og nr. Det
+afløser §5.7's »med slægtled, gruppe og nr.«: siden og nr. står i »Kilde i Aarbogen«, og slægtled og gruppe udelades
+efter afgørelse 14.
+
 **Ændringer i præsentationen:**
 - Chip og familiekilder bruger `citation_label` i stedet for `source_label` (*mit valg*). Begrundelse: 1939's nr. er
   uden side ikke en henvisning. For 2018-20 tilføjes siden; data er uændret.
@@ -588,7 +598,9 @@ Ud over §12.4:
   nummereret. I dag vælges et vilkårligt nr. 1 blandt 3-25 og aldrig det unummererede hoved (7 af 8 entries).
 - **Redaktion:** tom `<h3>` ved tom postdel (`PersonNarrativeRecordEditor.tsx:233-234`).
 - **`getAll` offset-paginerer koordinat-RPC'en** (1.111 rækker > 1.000), så den beregnes to gange pr. indlæsning.
-  Fartloftet i §5.7 gælder pr. personside, ikke pr. kald.
+  - Fartloftet i §5.7 måles på klientens vej: summen af de to sider ≤ 2 × 225 ms på stand-in. Siden før 6d-1 hentede
+    også to sider.
+  - Prods ≤ 0,6 s i §8 gælder det enkelte kald.
 - **B6 inden for samme kilde:** komponent 255 er `conflict`, fordi dens to 2018-20-rækker står i III og V. Noten
   skelner konflikt inden for én kilde (vises som linjer uden note, §5.7) fra konflikt mellem kilder (137, 178).
 
