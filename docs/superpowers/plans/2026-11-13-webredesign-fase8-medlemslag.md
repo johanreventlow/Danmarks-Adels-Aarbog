@@ -21,8 +21,10 @@ godkender sammen med planen.
 
 1. **Sætningen står uden navn:** der står »Din tipoldefar« lige over navnet, ikke »Conrad er din tipoldefar«.
    Navnet står jo i overskriften lige under, og modellen har intet felt for fornavn.
-2. **Indgiftede kommer med:** er fokuspersonen gift med en af dine blodslægtninge, står der »Gift med din onkel
-   Christian Reventlow« (ægtefællen som link). Er der flere sådanne ægtefæller, vælges den nærmeste slægtning.
+2. **Indgiftede kommer med:** er fokuspersonen gift med en af dine blodslægtninge, står der »Gift med Christian
+   Reventlow, din onkel« (ægtefællen som link). Er der flere sådanne ægtefæller, vælges den nærmeste slægtning.
+   Usikkerheden sidder på blodsforbindelsen, ikke på ægteskabet: »Gift med Christian Reventlow, sandsynligvis din
+   onkel« og »… , omstridt: din onkel«. »Se vejen« fører til vejen mellem dig og ægtefællen.
    Er fokuspersonen din egen ægtefælle, står der »Din ægtefælle«.
 3. **Ikke med:** slægt gennem din ægtefælle (svigerforældre, svogre), og slægt gennem to giftermål. Det kræver en
    graf over ægteskaber og hører til »Er vi i familie?«, ikke til en linje på personsiden.
@@ -54,15 +56,20 @@ godkender sammen med planen.
 - `relationshipLabel`'s signatur og output røres ikke, fordi mobil og »Er vi i familie?« bruger den.
 - Commits: Conventional Commits på dansk, uden Claude-Session- eller attributionslinje (projektejerens præference).
   Én commit pr. task. Ingen push uden frisk ja; PR altid `--draft`.
-- Grenen hedder `feat/webredesign-fase8-medlemslag-v2`, oprettet fra `origin/main` efter task 0. Den gamle
+- Arbejdet sker på planens gren `docs/webredesign-fase8-plan`. Den rebases på main og omdøbes til
+  `feat/webredesign-fase8-medlemslag-v2` i task 0, så plan og kode ender i samme PR. Den gamle
   `feat/webredesign-fase8-medlemslag` røres ikke uden projektejerens ja.
+- Den fulde kontrol er CI's node-job (`.github/workflows/ci.yml:55-102`). Lokalt kører man de samme kommandoer, se
+  task 6.
 
 ## Review Focus
 
 1. **Køn ukendt (`koen: null`):** ordet bliver kønsneutralt (»din onkel/tante«, »dit barnebarn«), aldrig et gæt.
    Testes i task 1.
-2. **»Mig« er alias for samme person (samme_som):** `meCanon` er kanonisk, og `focusId` er kanonisk. Står jeg på
-   min egen side via et alias-id, skal der stå »Det er dig« og ikke »Samme person«. Testes i task 2.
+2. **»Mig« er alias for samme person (samme_som):** står jeg på min egen side via et alias-id, skal der stå »Det er
+   dig« og ikke »Samme person«. Det er en kontrakt og ingen ny test: `Folgesvend.tsx` sender `meCanon`, den samme
+   kanoniske værdi, som `erMig={focusId === meCanon}` allerede bruger (`Folgesvend.tsx:424-427`). `focusId` er
+   kanonisk. `slaegtskabsKontekst` kanoniserer ikke selv.
 3. **Fokuspersonen er både blodslægtning og ægtefælle (fætter-kusine-ægteskab):** »Din ægtefælle« vinder. Testes i
    task 2.
 4. **Ægtefælle uden id (`spousesBy` med `id: null`, kun navn):** springes over i ægtefællereglen og må ikke kaste
@@ -77,9 +84,10 @@ godkender sammen med planen.
 **Files:** ingen.
 
 - [ ] **Step 1:** Spørg projektejeren, om den parallelle DB-session er merget. Fortsæt kun på et eksplicit »go«.
-- [ ] **Step 2:** `git fetch origin` og `git switch -c feat/webredesign-fase8-medlemslag-v2 origin/main`, derefter
-  `git branch --unset-upstream`, så et senere push ikke rammer main.
-- [ ] **Step 3:** `npm ci` fra roden, derefter `npm run test -w @daa/core` og `npm run test -w daa-folgesvend-web`.
+- [ ] **Step 2:** `git fetch origin`, `git switch docs/webredesign-fase8-plan`, `git rebase origin/main`,
+  `git branch -m feat/webredesign-fase8-medlemslag-v2`. Kontrollér med `git branch -vv`, at grenen ikke har
+  `origin/main` som upstream, så et senere push ikke rammer main.
+- [ ] **Step 3:** `npm ci` fra roden, derefter `npm run test -w @daa/core` og `npm run test -w web`.
   Forventet: begge grønne. Notér eventuelle fejl, der findes på main i forvejen (`feed.spec` i e2e fejler kendt på
   main), før der ændres noget.
 - [ ] **Step 4:** Bekræft, at disse stadig findes med samme form, og stop og meld tilbage, hvis ikke:
@@ -124,7 +132,8 @@ expect(slaegtskabTilMig(1, 1, { koen: 'mand', half: true })).toBe('din halvbror'
 expect(slaegtskabTilMig(2, 1, m)).toBe('din onkel');          // fokus er ældre (d2 < d1)
 expect(slaegtskabTilMig(2, 1)).toBe('din onkel/tante');
 expect(slaegtskabTilMig(1, 2, k)).toBe('din niece');          // fokus er yngre
-expect(slaegtskabTilMig(1, 2)).toBe('din nevø/niece');
+expect(slaegtskabTilMig(1, 2)).toBe('din niece/nevø');         // samme rækkefølge som relationshipLabel
+expect(slaegtskabTilMig(1, 3)).toBe('din grandniece/-nevø');
 expect(slaegtskabTilMig(3, 1, k)).toBe('din grandtante');
 expect(slaegtskabTilMig(1, 3, m)).toBe('din grandnevø');
 expect(slaegtskabTilMig(2, 1, { koen: 'mand', half: true })).toBe('din onkel (halv)');
@@ -156,8 +165,12 @@ gradtallet (`/(\d+)\. grads/`) være det samme i begge.
 
 **Files:**
 - Modify: `web/src/data/slaegtskab.ts` (ny eksport nederst)
-- Test: `web/src/data/__tests__/slaegtskab.test.ts` (opret, hvis den ikke findes; byg modellen med `buildModel` som i
-  `packages/core/src/__tests__/relationship.test.ts:1-25`, udvidet med `koen`, en ægtefælle på B og en på A)
+- Test: `web/src/data/__tests__/slaegtskab.test.ts` (opret, hvis den ikke findes). Modellen bygges med `buildModel`
+  som i `packages/core/src/__tests__/relationship.test.ts:1-25`, udvidet med `koen: 'mand'` på B og A2 og med
+  personerne `S` og `X` (begge uden forældre). Disse unioner tilføjes: `{ id: 'uSB', p1: 'S', p2: 'B' }`,
+  `{ id: 'uSA2', p1: 'S', p2: 'A2' }`, `{ id: 'uAB', p1: 'A', p2: 'B' }` (fætter-kusine-ægteskab) og
+  `{ id: 'uS0', p1: 'S', p2: null, p2_name: 'Ukendt' }` (ægtefælle uden id). `X` har ingen unioner.
+  `buildModel` fylder `spousesBy` i begge retninger (`buildModel.ts:50-62`).
 
 **Interfaces:**
 - Consumes: `slaegtskabTilMig` (task 1), `computeRelationship`, `multiplicitetForled` og `model.indexes.spousesBy`.
@@ -181,60 +194,72 @@ export function slaegtskabsKontekst(model: Model, meId: string | null, focusId: 
   → gift → ingen.
   - `meId` er null → `{ art: 'skjult' }`. `meId` findes ikke i `model.byId` → `skjult`.
   - `meId === focusId` → `dig`.
-  - Fokus står i `spousesBy[meId]` → `min-aegtefaelle`, også når de to har en fælles ane (fætter-kusine-ægteskab).
-  - A og B (fætre i fixturen, med `koen: 'mand'` på B) → `{ art: 'blod', ord: 'din 1. grads fætter', sikkerhed: 'sikker', veje: 1, multiplicitet: 1, bekraeftetAndenVej: false }`.
-  - Sæt `konfidens: 'formodet'` på kanten B→P2 → `sikkerhed: 'sandsynligvis'`. Med `'omstridt'` → `'omstridt'`
-    (bruger `lines[0].usikker` og `lines[0].weakestKonfidens`).
-  - `bekraeftetAndenVej` følger reglen fra `RelateView.tsx:143`: `lines[0].usikker` og der findes en anden linje,
+  - mig=A, fokus=B → `min-aegtefaelle`, selv om de også er fætre (fætter-kusine-ægteskab).
+  - mig=A2, fokus=B → `{ art: 'blod', ord: 'din 1. grads fætter', sikkerhed: 'sikker', veje: 1, multiplicitet: 1, bekraeftetAndenVej: false }`.
+  - Samme med `konfidens: 'formodet'` på kanten B→P2 → `sikkerhed: 'sandsynligvis'`. Med `'omstridt'` →
+    `'omstridt'` (fra `lines[0].usikker` og `lines[0].weakestKonfidens`).
+  - `bekraeftetAndenVej` følger reglen fra `RelateView.tsx:143`: `lines[0].usikker`, og der findes en anden linje,
     der ikke er usikker.
-  - S er gift med B og har ingen forældre → `{ art: 'gift', ord: 'din 1. grads fætter', aegtefaelleId: 'B', aegtefaelleNavn: 'B', sikkerhed: 'sikker' }`.
-    Er S gift med både B og A2, vælges A2 (mindst `d1+d2`).
-  - En ægtefællepost i `spousesBy` med `id: null` → springes over, og resultatet er `ingen`.
-  - Ingen fælles ane og ingen ægtefælle i slægten → `ingen`.
-- [ ] **Step 2:** `npm run test -w daa-folgesvend-web -- slaegtskab`. Forventet: FAIL.
+  - mig=A, fokus=S (gift med B og A2, ingen forældre) → `{ art: 'gift', ord: 'din bror', aegtefaelleId: 'A2', aegtefaelleNavn: 'A2', sikkerhed: 'sikker' }`.
+    A2 vinder over B, fordi `d1+d2` er 2 mod 4. S's ægtefælle uden id (`uS0`) springes over uden fejl.
+  - Samme med `konfidens: 'formodet'` på kanten A2→P1 → `gift` med `sikkerhed: 'sandsynligvis'`.
+  - mig=A, fokus=X → `ingen`.
+- [ ] **Step 2:** `npm run test -w web -- slaegtskab`. Forventet: FAIL.
 - [ ] **Step 3:** Implementér `slaegtskabsKontekst` i `web/src/data/slaegtskab.ts`. Til ord og køn bruges
   `computeRelationship(model, meId, focusId).lines[0]` og `slaegtskabTilMig(line.d1, line.d2, { koen: model.byId[focusId].koen, half: line.half })`.
   Ægtefællereglen kører `computeRelationship(model, meId, s.id)` for hver ægtefælle med id. Den vælger mindst
   `d1+d2`, og ordet bruger **ægtefællens** køn. Det er ægtefællen, der er slægtningen.
-- [ ] **Step 4:** `npm run test -w daa-folgesvend-web -- slaegtskab`. Forventet: PASS.
+- [ ] **Step 4:** `npm run test -w web -- slaegtskab`. Forventet: PASS.
 - [ ] **Step 5: Commit** — `git add web/src/data/slaegtskab.ts web/src/data/__tests__/slaegtskab.test.ts` og
   `git commit -m "feat(web): slægtskab som kontekst beregnet fra »Det er mig«"`.
 
 ### Task 3: web UI — linjen over navnet
 
 **Files:**
-- Modify: `web/src/components/PersonSide.tsx` (props og pladsen over `<h1>`, i dag kommentaren »Plads til
-  medlemslagets …«, og filhovedets kommentar om fase 8)
+- Create: `web/src/components/SlaegtskabsLinje.tsx` (ren visning af en `SlaegtskabsKontekst`)
+- Test: `web/src/components/__tests__/SlaegtskabsLinje.test.tsx` (bogstavelige kontekst-objekter, ingen model)
+- Modify: `web/src/components/PersonSide.tsx` (prop `meId` og pladsen over `<h1>`, i dag kommentaren »Plads til
+  medlemslagets …«; opdatér filhovedets kommentar om fase 8)
 - Modify: `web/src/Folgesvend.tsx:517` (send `meId={meCanon}`)
-- Test: `web/src/components/__tests__/PersonSide.test.tsx` (ny `describe('slægtskab som kontekst')`, samme fixture)
+- Test: `web/src/components/__tests__/PersonSide.test.tsx` (kun wiring)
 
 **Interfaces:**
-- Consumes: `slaegtskabsKontekst`/`SlaegtskabsKontekst` (task 2) og `slaegtskabPath(a, b)` fra `../data/nav`.
-- Produces: en ny valgfri prop `meId?: string | null` på `PersonSide` (default `null`). `erMig`/`onToggleMig` er
-  uændrede.
+- Consumes: `slaegtskabsKontekst`/`SlaegtskabsKontekst` (task 2), `slaegtskabPath(a, b)` og `personPath(id)` fra
+  `../data/nav`, og `multiplicitetForled` fra `@daa/core`.
+- Produces: `SlaegtskabsLinje({ kontekst, meId, focusId, onVisPerson }: { kontekst: SlaegtskabsKontekst; meId: string | null; focusId: string; onVisPerson: (id: string) => void })`,
+  som returnerer `null` ved `skjult`. Desuden en ny valgfri prop `meId?: string | null` på `PersonSide` (default
+  `null`). `erMig`/`onToggleMig` er uændrede.
 
-- [ ] **Step 1: Skriv de fejlende tests** (render `PersonSide` med `meId`):
-  - Uden `meId` → `screen.queryByTestId('slaegtskab-kontekst')` er null.
-  - `meId === focusId` → teksten `Det er dig`.
-  - Blod → teksten `Din 1. grads fætter` (stort begyndelsesbogstav), og et link med navnet `Se vejen` og
-    `href` = `slaegtskabPath(meId, focusId)`. Med `veje: 2` står der `Se alle 2 veje`.
-  - Formodet → `Sandsynligvis` står før ordet; omstridt → `Omstridt:`. Bekræftet → `· bekræftet ad en anden linje`.
-  - Dobbelt (`multiplicitet: 2`) → `· dobbelt slægtskab`.
-  - Gift → `Gift med din 1. grads fætter` efterfulgt af ægtefællens navn som link til `personPath(aegtefaelleId)`.
-  - Min ægtefælle → `Din ægtefælle`. Ingen → `Aarbogen viser intet slægtskab med dig`.
-  - Skift `meId` fra `focusId` til `null` med `rerender` → linjen forsvinder (Review Focus 5).
-- [ ] **Step 2:** `npm run test -w daa-folgesvend-web -- PersonSide`. Forventet: de nye tests fejler, de gamle er
+- [ ] **Step 1: Skriv de fejlende tests for `SlaegtskabsLinje`.** Den præcise tekst (`toHaveTextContent` på
+  `getByTestId('slaegtskab-kontekst')`) er:
+  - `skjult` → intet renderes.
+  - `dig` → `Det er dig`. `min-aegtefaelle` → `Din ægtefælle`. `ingen` → `Aarbogen viser intet slægtskab med dig`.
+  - `blod`, `ord: 'din 1. grads fætter'`, sikker, `veje: 1` → `Din 1. grads fætter` og et link `Se vejen` med
+    `href` = `slaegtskabPath(meId, focusId)`. Med `veje: 2` → linkteksten `Se alle 2 veje`.
+  - `blod` sandsynligvis → `Sandsynligvis din 1. grads fætter`. Omstridt → `Omstridt: din 1. grads fætter`.
+    `bekraeftetAndenVej: true` → `· bekræftet ad en anden linje` efter ordet.
+  - `blod` med `multiplicitet: 2` → `Din 1. grads fætter · dobbelt slægtskab`. Med 3 → `· tredobbelt slægtskab`
+    (`multiplicitetForled(n).toLowerCase()`).
+  - `gift`, `ord: 'din onkel'`, `aegtefaelleNavn: 'Christian Reventlow'`, sikker → `Gift med Christian Reventlow, din onkel`.
+    Navnet er et link til `personPath(aegtefaelleId)`, og et klik kalder `onVisPerson(aegtefaelleId)`. `Se vejen`
+    peger på `slaegtskabPath(meId, aegtefaelleId)`.
+  - `gift` sandsynligvis → `Gift med Christian Reventlow, sandsynligvis din onkel`. Omstridt →
+    `Gift med Christian Reventlow, omstridt: din onkel`.
+- [ ] **Step 2: Skriv de fejlende wiring-tests i `PersonSide.test.tsx`** (Conrad-fixturen): uden `meId` er
+  `queryByTestId('slaegtskab-kontekst')` null. Med `meId === focusId` står der `Det er dig`. Efter `rerender` med
+  `meId={null}` forsvinder linjen (Review Focus 5).
+- [ ] **Step 3:** `npm run test -w web -- SlaegtskabsLinje PersonSide`. Forventet: de nye tests fejler, de gamle er
   grønne.
-- [ ] **Step 3:** Beregn `const kontekst = useMemo(() => slaegtskabsKontekst(model, meId, focusId), [model, meId, focusId])`
-  **før** `if (!p) return null` (hook-rækkefølge). Vis den som ét `<p data-testid="slaegtskab-kontekst">` lige over
-  `<h1>`, kun når `art !== 'skjult'`. Stil: `T.serif`, 17 px, kursiv, `T.bordeaux`. »Sandsynligvis«/»Omstridt:« i
-  `T.danger` som `konf`-ordet i `PersonLink`. »Ingen« i `T.inkMuted`, ikke kursiv. Links i `T.bordeaux`. Brug
-  eksisterende `Link` med `onNavigate`: `onVisPerson` til ægtefællen og ingen handler til »Se vejen«; routeren tager
-  `/slaegtskab`.
-- [ ] **Step 4:** I `Folgesvend.tsx` sendes `meId={meCanon}` til `PersonSide` ved siden af `erMig`.
-- [ ] **Step 5:** `npm run test -w daa-folgesvend-web` (hele web-suiten) og `npx tsc --noEmit -p web`. Forventet:
-  PASS.
-- [ ] **Step 6: Commit** — `git add web/src/components/PersonSide.tsx web/src/Folgesvend.tsx web/src/components/__tests__/PersonSide.test.tsx`
+- [ ] **Step 4:** Implementér `SlaegtskabsLinje` som ét `<p data-testid="slaegtskab-kontekst">`. Stil: `T.serif`,
+  17 px, kursiv, `T.bordeaux`. »Sandsynligvis«/»Omstridt:« i `T.danger` som `konf`-ordet i `PersonLink`.
+  `ingen` i `T.inkMuted`, ikke kursiv. Links i `T.bordeaux` via `Link`: ægtefællen med
+  `onNavigate={() => onVisPerson(id)}`, »Se vejen« uden handler (routeren tager `/slaegtskab`). Stort
+  begyndelsesbogstav sættes kun i visningen.
+- [ ] **Step 5:** I `PersonSide` beregnes `const kontekst = useMemo(() => slaegtskabsKontekst(model, meId, focusId), [model, meId, focusId])`
+  **før** `if (!p) return null` (hook-rækkefølge). `SlaegtskabsLinje` renderes på pladsen over `<h1>`. I
+  `Folgesvend.tsx` sendes `meId={meCanon}` ved siden af `erMig`.
+- [ ] **Step 6:** `npm run test -w web`. Forventet: PASS.
+- [ ] **Step 7: Commit** — `git add web/src/components/SlaegtskabsLinje.tsx web/src/components/__tests__/SlaegtskabsLinje.test.tsx web/src/components/PersonSide.tsx web/src/Folgesvend.tsx web/src/components/__tests__/PersonSide.test.tsx`
   og `git commit -m "feat(web): personsiden viser slægtskabet til dig over navnet"`.
 
 ### Task 4: Mål »skriver«-noterne, før »Uenige kilder« bygges (beslutningspunkt)
@@ -242,9 +267,12 @@ export function slaegtskabsKontekst(model: Model, meId: string | null, focusId: 
 **Files:** ét script i sessionens scratchpad-mappe. Det committes ikke.
 
 - [ ] **Step 1:** Skriv et read-only tsx-script, der som anon (samme klient og RPC som `web/src/data/public.ts:333`,
-  `public_person_facts`) henter fakta for alle offentlige personer med fakta fra mindst to udgaver. Det kører
-  `byggUdgaveFakta(input, valgt)` for hver udgave som valgt og tæller faktalinjer med mindst én note
-  `art: 'skriver'` (ikke omstridt). Script og output må kun læse offentlige data. Anon-nøglen hentes fra env og
+  `public_person_facts`) henter fakta for alle offentlige personer med fakta fra mindst to udgaver. Kald
+  `p_person_ids` i bidder af 25 og ét ad gangen, fordi anon har en grænse på 3 s pr. kald, og personer med mange
+  fakta er tunge. Byg `UdgaveFaktaInput` med samme felter og kilder som `web/src/data/public.ts:391-398`
+  (udgavekontekst, `fritekstKilde`, `SLUKKET_ENIGHED`) og genbrug de funktioner, der står der, uden at udlede noget
+  på ny. Kør derefter `byggUdgaveFakta(input, valgt)` med hver udgave som valgt, og tæl faktalinjer med mindst én
+  note `art: 'skriver'` (ikke omstridt). Script og output må kun læse offentlige data. Anon-nøglen hentes fra env og
   printes aldrig.
 - [ ] **Step 2:** Output: antal personer, antal linjer med »skriver«-note pr. faktatype, og 25 tilfældige eksempler
   med `valgt værdi` ↔ `anden udgaves værdi`. Hvert eksempel sorteres i hånden: *skrivemåde* (samme betydning) eller
@@ -264,7 +292,7 @@ export function slaegtskabsKontekst(model: Model, meId: string | null, focusId: 
 - [ ] **Step 1: Skriv de fejlende tests:** en linje med en note `{ art: 'skriver', … }` og `omstridt: false` →
   `screen.getByText('Uenige kilder')`. Med kun `enig`-noter → intet mærke. Med `omstridt: true` → kun
   `omstridt`-mærket, ikke begge. Med `vaerdi: ''` → intet mærke (noterne vises heller ikke der).
-- [ ] **Step 2:** `npm run test -w daa-folgesvend-web -- PersonFakta`. Forventet: FAIL.
+- [ ] **Step 2:** `npm run test -w web -- PersonFakta`. Forventet: FAIL.
 - [ ] **Step 3:** Vis mærket med præcis samme stil som `omstridt`-mærket. Teksten er `Uenige kilder`; CSS må gerne
   vise den med versaler.
 - [ ] **Step 4:** Hele web-suiten. Forventet: PASS (panelet i stamtræet bruger samme komponent; valg 10).
@@ -279,12 +307,16 @@ export function slaegtskabsKontekst(model: Model, meId: string | null, focusId: 
 - Modify: `docs/design/2026-11-12-webredesign-overdragelse.md:107-109` (fase 8 bygget; hvad der udgik)
 
 - [ ] **Step 1:** Skriv de tre dokumenter. Decisions-posten citerer projektejerens godkendelse ordret.
-- [ ] **Step 2:** Den fulde kontrol, som CI's node-job kører den: `npm run test -w @daa/core`,
-  `npm run typecheck -w @daa/core`, `npm run test -w daa-folgesvend-web`, `npm run build -w daa-folgesvend-web`,
-  `npx tsc --noEmit -p mobile` (core-ændringen rammer også mobil). Forventet: alt grønt.
-- [ ] **Step 3:** `npm run dev -w daa-folgesvend-web`. Sæt »Det er mig« på en person, og se linjen på en fætter, en
-  ane, en indgiftet ægtefælle og en person uden forbindelse, også ved 390 px bredde. Tag et skærmbillede pr. tilstand
-  til PR'en.
+- [ ] **Step 2:** Den fulde kontrol med præcis de kommandoer, CI's node-job kører (`.github/workflows/ci.yml:55-102`).
+  Brug Read-værktøjet til filen, fordi shell-vagten afviser stier med `.github`: `npm run test -w @daa/core`,
+  `npm run typecheck -w @daa/core`, `npm run test -w web`, `npm run build -w web`,
+  `npm --workspace mobile exec -- tsc --noEmit` og `npm test -w mobile` (core-ændringen rammer også mobil). Web
+  kræver dummy-env i `web/.env.local` som i CI, hvis der ikke allerede findes en fil. Overskriv aldrig en eksisterende.
+  Forventet: alt grønt.
+- [ ] **Step 3:** `npm run dev -w web`. Sæt »Det er mig« på en person, og se linjen på en fætter, en ane, en
+  indgiftet ægtefælle og en person uden forbindelse, også ved 390 px bredde. Tag et skærmbillede pr. tilstand til
+  PR'en. Forvent »Sandsynligvis« på veje gennem 1939-forældreled, der står som formodet. Det er korrekt efter
+  invariant 7, men memory-noten om falske »formodet« i 1939 betyder, at det kan ramme mange. Notér antallet i PR'en.
 - [ ] **Step 4: Commit** — `git add docs/decisions.md docs/changelog.md docs/design/2026-11-12-webredesign-overdragelse.md`
   og `git commit -m "docs: slægtskab som kontekst på personsiden (fase 8)"`.
 - [ ] **Step 5:** Spørg om ja til push og draft-PR.
