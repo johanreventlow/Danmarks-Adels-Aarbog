@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import {
   b6Noter, bogensNummer, buildPersonFacts, byggUdgaveFakta, byggUdgaveVaelger, citationRowsTilProveniens,
   buildProvenanceSources, collapseSameAs, coordinateRowToExtId, kildeLinje, linjerForUdgave,
-  mapFamilieKilder, mapPublicBioSourceVersionsV2, optraederSom, sorterKilder, udgaverMedFakta,
+  mapFamilieKilder, mapPublicBioSourceVersionsV2, optraederSom, sorterKilder, udgaverMedFakta, unikkeKildelinjer,
   type AppPerson, type LinjeRaekke, type PublicCoordinateRow, type PublicPersonFactRow, type RaaCitationRow, type UdgaveFaktaInput,
 } from '@daa/core';
 import { factSource } from '../../../../packages/core/src/personFacts';
@@ -108,7 +108,7 @@ function visning(fase: Fase, b: Bygget, focusId: string) {
       }
       return m;
     })(),
-    sources: sorterKilder(b.sourcesBy[focusId] ?? []), nummer: bogensNummer(b.sourcesBy, focusId),
+    sources: unikkeKildelinjer(sorterKilder(b.sourcesBy[focusId] ?? [])), nummer: bogensNummer(b.sourcesBy, focusId),
     optraeder: optraederSom(b.sourcesBy[focusId] ?? []),
   };
 }
@@ -241,6 +241,18 @@ describe.skipIf(!DIR)('trin 6e-2: klienten på data før og efter ceremonien', (
           expect(Object.keys(pr).filter((pid) => pr[pid].includes(l.linje)).length, `${l.navn}: træffere = antal`).toBe(l.count);
         }
         vist[`linjeliste_${fase}`] = synlige.map((l) => ({ navn: l.navn, antal: l.count, stamfader: l.headId }));
+      });
+
+      it('»Kilde i Aarbogen« har ingen ens linjer (værk + ref) for nogen person (M-6)', () => {
+        const b = hent(fase);
+        const noegle = (r: { work: string; ref: string }) => `${r.work} | ${r.ref}`;
+        const dubletter = Object.entries(b.sourcesBy)
+          .map(([pid, rs]) => [pid, unikkeKildelinjer(sorterKilder(rs)).map(noegle)] as const)
+          .filter(([, ls]) => new Set(ls).size !== ls.length).map(([pid]) => pid);
+        expect(dubletter).toEqual([]);
+        // Uden fjernelsen havde før-tilstanden dubletter (målt 12 personer); ellers beviser testen intet.
+        const foerFjernelse = Object.values(b.sourcesBy).filter((rs) => new Set(rs.map(noegle)).size !== rs.length).length;
+        if (fase === 'foer') expect(foerFjernelse).toBeGreaterThan(0);
       });
 
       it('2018-20 for 392 viser V-1 i fakta- og chiptekster', () => {

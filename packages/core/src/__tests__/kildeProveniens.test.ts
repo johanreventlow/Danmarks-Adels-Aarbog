@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { bogensNummer, buildProvenanceSources, citationRowsTilProveniens, flettKilder, optraederSom } from '../kildeProveniens';
+import { bogensNummer, buildProvenanceSources, citationRowsTilProveniens, flettKilder, optraederSom, unikkeKildelinjer } from '../kildeProveniens';
 import type { SourceRef } from '../types';
 
 // Baggrund: `sourcesBy` bygges af person_external_id, som kun findes for personer bogen gav et
@@ -187,5 +187,24 @@ describe('bogensNummer og optraederSom (6e-2)', () => {
       { work: v('DAA 1939'), udgave: 'DAA 1939', ref: 's. 52', kort: 's. 52', personId: '1198', aar: 1939 },
       { work: v('DAA 1939'), udgave: 'DAA 1939', ref: '', kort: '', personId: '1199', aar: 1939 },
     ])).toBe('DAA 2018-20, V, nr. 1 og DAA 2018-20, III, nr. 58 og DAA 1939, s. 52 og DAA 1939');
+  });
+});
+
+describe('unikkeKildelinjer (M-6)', () => {
+  test('dropper eksakte dubletter (værk + ref) og bevarer rækkefølgen', () => {
+    const refs: SourceRef[] = [
+      { work: 'Dansk Adels Aarbog – DAA 2018-20', ref: 'V. Den grevelige linje af 1673, nr. 1', personId: '392' },
+      { work: 'Dansk Adels Aarbog – DAA 1939', ref: '', personId: '1198' },
+      { work: 'Dansk Adels Aarbog – DAA 1939', ref: '', personId: '1199' },
+      { work: 'Dansk Adels Aarbog – DAA 1939', ref: 's. 52', personId: '1200' },
+    ];
+    expect(unikkeKildelinjer(refs).map((r) => [r.work, r.ref, r.personId])).toEqual([
+      ['Dansk Adels Aarbog – DAA 2018-20', 'V. Den grevelige linje af 1673, nr. 1', '392'],
+      ['Dansk Adels Aarbog – DAA 1939', '', '1198'],
+      ['Dansk Adels Aarbog – DAA 1939', 's. 52', '1200'],
+    ]);
+  });
+  test('samme ref i to værker er to linjer', () => {
+    expect(unikkeKildelinjer([{ work: 'A', ref: 'x' }, { work: 'B', ref: 'x' }])).toHaveLength(2);
   });
 });

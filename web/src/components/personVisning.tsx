@@ -12,7 +12,7 @@ import {
   aegteskabsKilder as aegteskabsKilderFor, boerneKilder as boerneKilderFor, byggUdgaveFakta, byggUdgaveVaelger,
   familieIderForPerson, foraelderKilder as foraelderKilderFor, kildeLinje, udgaveForRaekker,
   udgaverMedFakta, type BioSourceVersionV2, type FamilieKilde, type UdgaveChip,
-  optraederSom, sorterKilder, linjerForUdgave, b6Noter,
+  optraederSom, sorterKilder, unikkeKildelinjer, linjerForUdgave, b6Noter,
 } from '@daa/core';
 import { fetchFamilySources } from '../data/familySources';
 
@@ -80,7 +80,8 @@ export function usePersonVisning(model: Model, focusId: string, detail: PersonDe
   const linjeNoter = hovedKilde ? b6Noter(linjeRaekker, hovedKilde) : [];
   // Bog-nummeret ("Linje II, nr. 4") vinder; citation-proveniensen udfylder kun for personer bogen
   // ikke gav et opslag — typisk ægtefæller, der ellers stod helt uden kilde.
-  const sources = model.sourcesBy?.[focusId]?.length ? sorterKilder(model.sourcesBy[focusId]) : (detail?.sources ?? []);
+  // Eksakte dubletter (samme værk + ref, fx to 1939-legacy-poster for én foldet person) vises én gang (M-6).
+  const sources = unikkeKildelinjer(model.sourcesBy?.[focusId]?.length ? sorterKilder(model.sourcesBy[focusId]) : (detail?.sources ?? []));
   // Portræt = hovedbilledet; galleri = de øvrige medier (materiale). RLS-gatet i data-laget.
   const media = detail?.media ?? [];
   const portrait = pickPortrait(media);

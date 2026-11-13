@@ -122,6 +122,19 @@ export function sorterKilder(refs: readonly SourceRef[]): SourceRef[] {
   });
 }
 
+// »Kilde i Aarbogen«s linjer uden eksakte dubletter (samme værk + ref), i den givne orden (slutreview M-6): to
+// legacy-poster for samme foldede person gav ellers to ens »§ <værk>«-linjer. Kun til visningen — bogensNummer og
+// optraederSom læser de urørte refs.
+export function unikkeKildelinjer(refs: readonly SourceRef[]): SourceRef[] {
+  const set = new Set<string>();
+  return refs.filter((r) => {
+    const k = `${r.work}\u0000${r.ref}`;
+    if (set.has(k)) return false;
+    set.add(k);
+    return true;
+  });
+}
+
 // Udgavens navn til læserteksterne (»DAA 1939«): udgaven, ellers værket.
 const udgaveAf = (r: SourceRef): string => r.udgave ?? r.work;
 // Et nummer, der kun er en side (»s. 52«, »s. 52-53«), siger ikke, hvilken bog det gælder.
