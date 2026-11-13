@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-11-13 — redaktionen ser levende i personsidens fakta, familiekilder og koordinater (trin 1)
+
+POC-reglen fra `decisions.md` (2026-11-13): gæster og almindelige indloggede brugere ser fortsat kun offentlige
+personer; redaktionen (`current_rolle()='redaktion'`) ser nu også levende, private og staged personer i
+`public_person_facts`, `public_family_sources` og `public_person_source_coordinates`. Rolletjekket står i én variabel
+pr. kald; gæsternes gate er uændret. `person_offentlig`, `entitet_offentlig`, `family_offentlig` og narrativets
+udgivelsesregel er ikke rørt (de bærer gæsternes policies), så redaktøren ser endnu fakta UDEN kildehenvisning og
+ingen familiekilder, hvor narrativets subjekt er levende — det kommer med trin 2 (biografiens udgivelsesregel).
+`haendelse` havde allerede `redaktion_read` (db-rls.sql-loopet siden 18/7).
+
+Ny blok `redaktoer-ser-levende` sidst i `db-migrations.sql` (genereret fra `schema.sql`), db-verify-blok,
+`public_family_sources` i funktionsparitetslisten (63). Testene har en kaldermatrix (`tests/sql/fixtures/kalder-matrix.sql`:
+gæst, uid uden profil, medlem, redaktion × afdød/levende/privat/staged/levende ukendt); de eksisterende læse-hjælpere
+kalder nu uden uid i stedet for lydløst at arve test-redaktørens. Generalprøve på en kopi af stand-in'en (≈ prod 13/11):
+gæst 1111 koordinater / 6469 fakta / 328 familiekilder før og efter; redaktion efter 1167 / 6768 / 328.
+
 ## 2026-11-13 — webredesign fase 7: »Besiddelser« og ejerrækken
 
 Læserfladen siger »Besiddelser« (menu, overskrifter, personside, panelets resumé, søgning, feedkort), og adresserne
