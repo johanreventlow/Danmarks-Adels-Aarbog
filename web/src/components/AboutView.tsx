@@ -1,9 +1,9 @@
-// Slægtens forside (webredesign fase 5a, tegningen »Slægtens forside · Reventlow«): våben med
-// kildenote · indledning med kilde · linjerne · »Redaktionen foreslår« · feedet.
+// Slægtens forside (webredesign fase 5a, tegningen »Slægtens forside · Reventlow«): våben (med
+// valgfri note) · indledning med kilde · linjerne · »Redaktionen foreslår« · feedet.
 //
 // Bevidst anderledes end tegningen:
 // - De fire indgangskort udgår; slægtsbjælken erstatter dem (overdragelsen).
-// - Ingen »uradel«-etiket og ingen »farvegengivelse rekonstrueret«: intet i data bærer dem.
+// - Ingen »uradel«-etiket og ingen våbennote fra tegningen: intet i data bærer dem.
 // - Linjerne linker ikke til linjesider; de er blokeret af åbent punkt 1. Stamfaderen linker til
 //   sin personside, og linjernes egne indledninger kan foldes ud her, så ingen tekst fra den
 //   tidligere »Om slægten« forsvinder.
@@ -82,7 +82,7 @@ export function AboutView({ slaegt, model, about, personCount, estateCount, onPi
         {slaegt.vaaben && (
           <figure style={{ margin: 0, flex: 'none', width: 'clamp(120px, 28vw, 200px)', display: 'flex', flexDirection: 'column', gap: 8 }}>
             <img src={slaegt.vaaben.src} alt={`${slaegt.navn}s våben`} style={{ display: 'block', width: '100%', height: 'auto' }} />
-            <figcaption style={{ fontFamily: T.sans, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{slaegt.vaaben.note}</figcaption>
+            {slaegt.vaaben.note && <figcaption style={{ fontFamily: T.sans, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{slaegt.vaaben.note}</figcaption>}
           </figure>
         )}
         <div style={{ flex: '1 1 480px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>

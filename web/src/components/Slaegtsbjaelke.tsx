@@ -2,9 +2,7 @@
 // under sidehovedet på /slaegt/<slug>/* og navigerer mellem slægtens sider. Ikke på /person,
 // /slaegtskab, /soeg, /min-side.
 //
-// Mærket er slægtens våben i sepia (SlaegtsMaerke), ellers monogrammet. Grundvåbnet er ikke
-// autoriseret (overdragelsens åbne punkt 5); kildenoten står på slægtens forside, og
-// projektejeren har valgt at vise det som mærke her også (13/11). Præsenslisten vises kun
+// Mærket er slægtens våben i sepia (SlaegtsMaerke), ellers monogrammet. Præsenslisten vises kun
 // for redaktionen (fase 0; medlemmer får den i fase 8). Artikler vises ikke, før siden findes.
 import { Link } from '../Link';
 import { pathForMode, slaegtPath, type Mode, type Slaegt } from '../data/nav';

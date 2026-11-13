@@ -15,7 +15,7 @@ vi.mock('../NarrativRenderer', () => ({
 
 import { AboutView, indledningHarMere, indledningKilde } from '../AboutView';
 
-const REVENTLOW = { slug: 'reventlow', navn: 'Reventlow', vaaben: { src: '/vaaben/reventlow.png', note: 'Våben efter DAA 1939 · ikke autoriseret' } };
+const REVENTLOW = { slug: 'reventlow', navn: 'Reventlow', vaaben: { src: '/vaaben/reventlow.png' } };
 const person = (id: string, name: string, o: Partial<ModelPerson> = {}) =>
   ({ id, name, born: 1600, died: 1660, years: '1600–1660', title: '', bio: '', privat: false, parentId: null, spouse: '', ...o }) as ModelPerson;
 const ps = [person('1', 'Henning Reventlow'), person('2', 'Conrad Reventlow', { title: 'Storkansler', years: '† 1708', died: 1708 })];
@@ -38,11 +38,17 @@ const vis = (o: Partial<Parameters<typeof AboutView>[0]> = {}) =>
 beforeEach(() => { pins.value = []; });
 
 describe('AboutView (slægtens forside)', () => {
-  it('viser våbnet med kildenote og slægtens navn som overskrift', async () => {
-    vis();
+  it('viser våbnet uden note og slægtens navn som overskrift', async () => {
+    const { container } = vis();
     expect(screen.getByRole('img', { name: 'Reventlows våben' }).getAttribute('src')).toBe('/vaaben/reventlow.png');
-    expect(screen.getByText('Våben efter DAA 1939 · ikke autoriseret')).toBeTruthy();
+    expect(container.querySelector('figcaption')).toBeNull();
     expect(screen.getByRole('heading', { level: 1, name: 'Reventlow' })).toBeTruthy();
+    await screen.findByTestId('feed');
+  });
+
+  it('viser en våbennote, når slægten har en', async () => {
+    vis({ slaegt: { ...REVENTLOW, vaaben: { src: '/vaaben/reventlow.png', note: 'Tegnet 2026' } } });
+    expect(screen.getByText('Tegnet 2026').tagName).toBe('FIGCAPTION');
     await screen.findByTestId('feed');
   });
 

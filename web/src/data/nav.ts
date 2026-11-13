@@ -37,17 +37,16 @@ export function labelOfMode(mode: Mode): string {
 
 // Slægterne i Aarbogen. Kun Reventlow i dag; slug er stabilt og bruges i URL'en.
 //
-// vaaben: slægtens våben på slægtens forside. Fil og kildenote står samlet her, så en ny tegning
-// er én ny fil i web/public/vaaben/ og evt. en ny note. Reventlows er grundvåbnet fra
-// designsystemet, en gengivelse der ikke er autoriseret (overdragelsens åbne punkt 5); noten
-// siger det, og projektejeren har valgt at vise den, til en godkendt tegning findes (13/11).
-// maerke: sepia-gengivelsen til de små mærker (slægtsbjælke, register, personside), som
-// designsystemet foreskriver; projektejeren valgte den også dér (13/11).
-export type SlaegtsVaaben = { src: string; note: string; maerke?: string };
+// vaaben: slægtens våben. src er tegningen på slægtens forside, maerke den lille gengivelse i
+// slægtsbjælken, slægtsregistret og på personsiden. Aarbogen vælger selv sin tegning; der findes
+// ingen dansk instans, der autoriserer adelsvåben (projektejeren 13/11, docs/decisions.md).
+// Skift = nye filer i web/public/vaaben/. note er valgfri og vises under den store tegning, når
+// der er grund til at skrive noget.
+export type SlaegtsVaaben = { src: string; maerke?: string; note?: string };
 export type Slaegt = { slug: string; navn: string; vaaben?: SlaegtsVaaben };
 export const SLAEGTER: readonly Slaegt[] = [{
   slug: 'reventlow', navn: 'Reventlow',
-  vaaben: { src: '/vaaben/reventlow.png', maerke: '/vaaben/reventlow-sepia.png', note: 'Våben efter DAA 1939 · tegning fra designudkastet, ikke autoriseret' },
+  vaaben: { src: '/vaaben/reventlow.png', maerke: '/vaaben/reventlow-sepia.png' },
 }];
 export const STANDARD_SLAEGT = 'reventlow';
 export function findSlaegt(slug: string | null | undefined): Slaegt | null {
