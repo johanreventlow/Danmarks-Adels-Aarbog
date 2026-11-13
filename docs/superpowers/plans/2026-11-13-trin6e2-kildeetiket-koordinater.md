@@ -28,6 +28,16 @@
 6. **Erstatter:** `record-<uuid>` som etiket, PDF-sider i læseren, legacy-linjen »1939« og koordinat-RPC'ens fald til legacy for kilde 3.
 7. **Review-budget (B13):** 1 Codex-runde (`gpt-6.1-sol`) på tillæg + plan og 1 på diffen før prod. Opus afvejer hvert fund.
 
+## Afvigelse fra den aftalte rækkefølge (meldes til projektejeren)
+
+Den aftalte rækkefølge var:
+1. en lille ændring, så klienten tåler den nye tilstand;
+2. DDL og ceremoni;
+3. 6e-2's webdel til sidst.
+
+Planen samler i stedet hele webdelen i trin 1 (Del B). Klienten er bygget, så den viser prod korrekt både før og
+efter DDL (Task 8). Så findes der ikke et vindue, hvor databasen er ændret, men klienten ikke er.
+
 ## Global Constraints
 
 - **Prod-rækkefølge:**
@@ -94,6 +104,14 @@ Kør mod `daa5ab_ddl_standin_20261113070325_6e2` med `PGOPTIONS='-c default_tran
 - [ ] **Step 6:** Tæl kilde 3-placements med mere end én accepteret placement pr. record. Forventet: 0.
 - [ ] **Step 7:** Projektejeren får rapporten. En afvigelse fra en forventning stopper planen her.
 
+**Allerede prøvet (2026-11-13, BEGIN … ROLLBACK på stand-in'en, med redaktionsaktøren):**
+- De 5 linjeetiketter gør **252** af de 563 publicerede kilde 3-bindinger `stale_published`. Spec'ens 103 gjaldt
+  kun linje III.
+- `placement_header_violations(3)` = 0 med de nye etiketter.
+- En binding med ændrede etiketter bliver `stale_published`, og `red_revalider_person_narrative_record` godtager den
+  med en `revalidated`-hændelse (stale 253 → 252).
+- Mekanismen er dermed bekræftet. Task 9 genbruger den.
+
 ## Del A — DDL (gren `feat/trin6e2-db`)
 
 ### Task 1: Sidekort og omregning
@@ -129,7 +147,11 @@ Kør mod `daa5ab_ddl_standin_20261113070325_6e2` med `PGOPTIONS='-c default_tran
 
 - [ ] **Step 2:** Kør `bash tests/sql/test-6e2-sidekort.sh`. Forventet: FAIL (funktionen findes ikke).
 - [ ] **Step 3:** Implementér i `schema.sql`, spejl ordret i den nye migrationsblok, og tilføj `db-verify.sql`-asserts.
-  - Asserts: funktionerne findes; anon har `EXECUTE`; `source.sidekort` er NULL for alle kilder efter migrationen. Data kommer i Del C.
+  - Asserts:
+    - funktionerne findes;
+    - kald under `SET ROLE anon` lykkes for både `source_trykt_side` og `side_trykt`. Begge er INVOKER og læser
+      `source.sidekort`, så kolonnen skal være læsbar for anon;
+    - `source.sidekort` er NULL for alle kilder efter migrationen. Data kommer i Del C.
 - [ ] **Step 4:** Kør testen og migrationen to gange på en kopi af stand-in'en. Forventet: PASS, og 2. kørsel ændrer intet.
 - [ ] **Step 5: Commit** `feat(6e): sidekort som kildedata og omregning til trykt side`
 
@@ -192,9 +214,11 @@ binding med record_label ''                           → accepteres; '  ' → C
 - Produces: `public.public_person_source_coordinates()`.
   - **Returtypen:** de nuværende kolonner i samme rækkefølge + `printed_page text` sidst. Ændringen kræver `DROP FUNCTION` + `CREATE` + de samme `REVOKE`/`GRANT` i migrationen.
   - **Kildegaten:** ingen to placements deler `(scheme_entry_id, generation_local, kuld_label, printed_number)`, med NULL som ens (`count(DISTINCT row(...))`). Gatens særskilte NULL-nr.-filter fjernes. Kildegaten bevares som sikkerhedsnet.
-  - **`printed_page`:**
+  - **`printed_page`:** kun for poster uden bogtrykt nøgle (`record_key` matcher `record-<uuid>`, samme regel som
+    etiketten i Task 2). Ellers NULL, så 2018-20 bliver ved »V, nr. 1«.
     - Placement-række: `source_trykt_side(source_id, min(page_from)::text)` over postens accepterede ankre.
-    - Legacy-række: samme over den publicerede binding for `(person, source)` (narrativ med `subjekt_id = person_id`); uden binding NULL.
+    - Legacy-række: samme over posten for den publicerede binding for `(person, source)` (narrativ med
+      `subjekt_id = person_id`). Uden binding: NULL.
   - **Legacy-rækker:** `legacy_line_code` og `printed_number` uændrede. Klienten afgør visningen (Task 5).
   - **Fart:** `membership_is_current` evalueres ikke pr. række. En mængdebaseret afledning skal give **præcis samme** sæt af `(person_id, lineage_id)`. Mekanismen er implementerens.
 
@@ -202,7 +226,10 @@ binding med record_label ''                           → accepteres; '  ' → C
   - Fixture med to kuld i samme entry og slægtled, begge med nr. 1 → begge rækker `placement` (gaten består).
   - Én unummereret alene i sin gruppe → `placement` med NULL nr.
   - To rækker med ens nøgle → hele kilden `legacy`.
-  - `printed_page` for et anker på PDF 538 = `'49'`. Legacy-række uden binding → NULL. Kilde uden kort → `page_from` uændret.
+  - `printed_page` for en `record-`-post med anker på PDF 538 = `'49'`.
+  - Post med bognøgle (»V-1«) → NULL.
+  - Legacy-række uden binding → NULL.
+  - `record-`-post i en kilde uden kort → `page_from` uændret.
   - Ækvivalens: mængdefunktionen = `membership_is_current` for hver fixture-medlemskab, inklusive et forældet medlemskab (ændret `state_sha256`).
 - [ ] **Step 2:** Kør. Forventet: FAIL.
 - [ ] **Step 3:** Implementér.
@@ -211,6 +238,10 @@ binding med record_label ''                           → accepteres; '  ' → C
   - Kilde 1's gamle kolonner har md5 `66e9afd96e1b201a55c3984c0c1d66a3`.
   - Kilde 3 har 528 rækker `placement` og resten legacy (Task 0 step 5's tal).
   - Ækvivalens over alle 1.104 medlemskaber: 0 forskelle.
+  
+  - Personsiden kalder RPC'en to gange (`getAll` paginerer 1.111 rækker > 1.000). Før 6d-1 var det samme
+    rækkeantal og derfor også to kald, så målet gælder pr. kald.
+  - Rapportér summen af de to sider sammen med den enkelte tid.
   
   Nås 225 ms ikke, **stop og rapportér tallene**. Målet sænkes ikke af implementeren.
 - [ ] **Step 5:** `test-6e2-upgrade.sh`: migrationen på en base med den gamle signatur (to kørsler) → ny signatur, grants som før, anon kan kalde.
@@ -251,11 +282,15 @@ binding med record_label ''                           → accepteres; '  ' → C
     - Kode i kildens skema → `ref = linjeTitel + [', s. '+trykt_side] + [', nr. '+nr]`, `kort = kode + [', s. '+side] + [', nr. '+nr]`.
     - Kode ikke i kildens skema (legacy »1939«, ingen kode) → hverken linje eller nr. `ref = kort = trykt_side ? 's. '+trykt_side : ''`.
     - Uden `skema` (ældre kald) → dagens form.
-  - `bogensNummer(sourcesBy, personId, foretrukketPersonId?: string | null): string | null`.
-    - Vælger den ref, hvis `personId` er `foretrukketPersonId`.
-    - Ellers højeste `aar`, dernæst laveste `personId` numerisk.
+  - `SourceRef` får også `slaegtled: number | null` (fra `slaegtled_lokal`).
+  - `bogensNummer(sourcesBy, personId): string | null` (signaturen er uændret).
+    - Vælger den ref, der har højeste `aar` (nyeste udgave). Inden for udgaven lavest `slaegtled` (NULL sidst),
+      dernæst laveste `personId` numerisk.
     - Returnerer `kort`.
-    - `PersonSide` giver personrækken for den biografi, `vaelger.standard` åbner på. Feedet giver intet (*mit valg*; meldes i PR'en).
+    - Samme regel gælder for personside og feed, som funktionens kommentar kræver.
+    - Begrundelse (*mit valg*): optræder en person i to linjer, står den fulde post i den linje, hvor personen er
+      stamfar (lavt slægtled). Henvisningsposten står højt i den gamle linje, fx Conrad V-1 slægtled 1 mod III-58
+      slægtled 12.
 
 - [ ] **Step 1: Skriv de fejlende tests:**
 
@@ -271,11 +306,19 @@ expect(linjeTitel({ code: 'Stamme-holstenske', label: 'Den holstenske Linje.' })
 // kilde 3 legacy '1939'/275, ingen side         → ref '' (personVisning viser kun værket)
 // uden skema-argument                           → 'Linje V, nr. 1' (uændret)
 // bogensNummer: Conrad 255 (III-58, kilde 1), 392 (V-1, kilde 1), 1198 (kilde 3)
-//   foretrukket '392' → 'V, nr. 1'; intet → 'III, nr. 58' (højeste aar = kilde 1, laveste id 255)
+//   → 'V, nr. 1' (nyeste udgave = kilde 1; V-1 har slægtled 1, III-58 slægtled 12)
+// »Optræder i Aarbogen som« for Conrad → 'DAA 2018-20, V, nr. 1 og DAA 2018-20, III, nr. 58 og DAA 1939, s. 52'
 ```
 
 - [ ] **Step 2:** Kør `npm run test -w @daa/core` og `npm run test -w web`. Forventet: FAIL.
-- [ ] **Step 3:** Implementér. `personVisning.tsx:73` og `PersonSide.tsx:205-212` viser `work` og `ref` som i dag. En tom `ref` giver kun værket uden separator.
+- [ ] **Step 3:** Implementér.
+  - `personVisning.tsx:73` og `PersonSide.tsx:205-212` viser `work` og `ref` som i dag. En tom `ref` giver kun
+    værket uden separator.
+  - **»Optræder i Aarbogen som …«** (`personVisning.tsx:101-110`, spec §5.7) bygges af den foldede persons
+    `sourcesBy`-refs i `bogensNummer`'s orden. Hver ref vises som `<work>, <kort>`, eller kun `<work>`, når `kort`
+    er tom; refs forbindes med ' og '. Det afløser `mergedFrom`'s »linje (V-1)«-form, som viste 1939's gruppelokale
+    nr. som »IV-3«.
+  - Mobilens kopi (`mobile/src/app/person/[id].tsx:155`) røres ikke (ikke-mål).
 - [ ] **Step 4:** Kør. Forventet: PASS.
 - [ ] **Step 5: Commit** `feat(6e): linjens navn og trykt side i »Kilde i Aarbogen«, bogens nummer efter biografien`
 
@@ -298,6 +341,8 @@ expect(linjeTitel({ code: 'Stamme-holstenske', label: 'Den holstenske Linje.' })
   - `postLabel(v)` / `kildeLinje(k)`: synlig postetiket → `sideForm(citationLabel || sourceLabel) · etiket`, ellers som i dag. Før ceremonien er 1939's etiketter `record-…` og dermed usynlige, så de viser som i dag.
   - `unikkeEfterLabel`: nøgle `recordRef ?? label`.
   - Redaktion: `<h3>{record.recordLabel || record.citationLabel}</h3>` og `aria-label` med samme fald.
+  - `pageOrder` (`PersonNarrativeRecordEditor.tsx:36`) læser nu det trykte »s. N« fra `citationLabel`. Den bruges
+    kun til sortering, og omregningen bevarer rækkefølgen. Ingen ændring.
   - Proveniens: `.select('assertion_id,side,side_trykt,source:source_id(titel,udgave)')`.
     - Fejler kaldet (funktionen findes ikke før DDL), gentages det uden `side_trykt`.
     - `citationRowsTilProveniens` bruger `side_trykt`, når feltet er til stede (også NULL), ellers `side`.
@@ -327,12 +372,16 @@ expect(linjeTitel({ code: 'Stamme-holstenske', label: 'Den holstenske Linje.' })
     - Rækkefølge: laveste `slaegtled` (NULL sidst), dernæst unummereret før nummereret, dernæst nr og label som i dag.
     - `lineage.ts` sender `nr: x.nr ?? null` og `slaegtled: x.slaegtled_lokal ?? null`.
   - `export type LinjeRaekke = { sourceId: string; udgave: string; entry: { code: string; label: string | null }; lineageId: string | null; provenance: 'placement' | 'legacy_external_id' }`.
-  - `export function linjerForUdgave(raekker: LinjeRaekke[], sourceId: string): string[]`. Den valgte udgaves `linjeTitel`'er, kun `placement`, unikke, i rækkefølgen af de første forekomster.
+  - `export function linjerForUdgave(raekker: LinjeRaekke[], sourceId: string): string[]`.
+    - Giver den valgte udgaves `linjeTitel`'er, unikke, i rækkefølgen af de første forekomster.
+    - Rækken tæller, når koden findes i kildens skema, både `placement` og legacy. Det er samme regel som
+      Task 5; kilde 1's 14 legacy-rækker viser deres linje som i dag.
   - `export function b6Noter(raekker: LinjeRaekke[], valgtSourceId: string): string[]`. En note pr. anden kilde med `placement`:
     - samme `lineageId` som en af den valgte kildes linjer → `✓ også i <udgave> (<linjeTitel>)`;
     - ellers `<udgave> placerer i: <linjeTitel>`.
     - Flere linjer i den valgte kilde giver ingen note.
     - Rækkerne kommer kun fra offentlige koordinatrækker i den foldede komponent, med `lineageId` fra `lineage_scheme_entry_lineage` (`relation_kind='canonical'`).
+    - B6 bruger kun `placement`-rækker (gældende medlemskab); legacy giver aldrig en note.
 
 - [ ] **Step 1: Skriv de fejlende tests:**
   - **Hoved:**
@@ -342,6 +391,8 @@ expect(linjeTitel({ code: 'Stamme-holstenske', label: 'Den holstenske Linje.' })
   - **Udgavens linjer:**
     - Conrad-komponenten valgt i 2018-20 → `['III. Den mecklenburgske linje', 'V. Den grevelige linje af 1673']`.
     - Valgt i 1939 (1198 uden placement) → `[]`.
+    - Kilde 1-legacy-række med kode `V` → `['V. Den grevelige linje af 1673']` (som i dag).
+    - Kilde 3-legacy-række med kode `1939` → `[]`.
   - **B6:**
     - 2018-20 V og 1939 IV med samme `lineageId` → `['✓ også i DAA 1939 (IV. Den danske grevelige Linje af 1673)']`.
     - Forskellig `lineageId` → `['DAA 1939 placerer i: …']`.
