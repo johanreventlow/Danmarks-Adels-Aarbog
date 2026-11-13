@@ -205,6 +205,8 @@ export type Model = {
   // (fra koordinatrækkerne). Valgfrit: mobilen sætter dem ikke.
   udgaver?: Udgave[];
   udgaveForPersonRaekke?: Record<string, string>;
+  // 6e-2: personens linjerækker pr. kilde (hovedets linjer pr. udgave, B6-note); kun web sætter dem.
+  linjeRaekkerBy?: Record<string, import('./b6Note').LinjeRaekke[]>;
   // Kanter droppet af buildModels kronologiske vagt (sat af buildModel; valgfri fordi andre
   // Model-literaler ikke bærer den). Gør vagtens fravalg synlige frem for lydløse.
   droppedParentEdges?: DroppedParentEdge[];

@@ -64,7 +64,7 @@ export function buildLineage(
   const cid = (id: string) => canonicalIdById[id] ?? id;
   const byPerson: Record<string, string[]> = {};
   const counts: Record<string, number> = {};
-  const head: Record<string, { id: string; nr: number; nr_label: string | null }> = {};
+  const head: Record<string, { id: string; nr: number | null; nr_label: string | null; slaegtled: number | null }> = {};
 
   const rowsBySourceCode = new Map<string, RawLineageContext>();
   const rowsById = new Map<string, RawLineageContext>();
@@ -126,8 +126,8 @@ export function buildLineage(
       arr.push(key);
       counts[key] = (counts[key] || 0) + 1;
     }
-    // Linjens hoved = laveste trykte nr.; ved samme tal afgør bogstavsuffikset (15a før 15b), jf. 5c-2.
-    const kand = { id: pid, nr: x.nr ?? 9999, nr_label: x.nr_label ?? null };
+    // Linjens hoved (6e-2): laveste slægtled, så unummereret før nummereret, så trykt nr.; suffikset afgør (15a før 15b).
+    const kand = { id: pid, nr: x.nr ?? null, nr_label: x.nr_label ?? null, slaegtled: x.slaegtled_lokal ?? null };
     const cur = head[key];
     if (!cur || compareLineHead(kand, cur) < 0) head[key] = kand;
   });

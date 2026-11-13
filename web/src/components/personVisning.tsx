@@ -12,7 +12,7 @@ import {
   aegteskabsKilder as aegteskabsKilderFor, boerneKilder as boerneKilderFor, byggUdgaveFakta, byggUdgaveVaelger,
   familieIderForPerson, foraelderKilder as foraelderKilderFor, kildeLinje, udgaveForRaekker,
   udgaverMedFakta, type BioSourceVersionV2, type FamilieKilde, type UdgaveChip,
-  optraederSom, sorterKilder,
+  optraederSom, sorterKilder, linjerForUdgave, b6Noter,
 } from '@daa/core';
 import { fetchFamilySources } from '../data/familySources';
 
@@ -69,6 +69,15 @@ export function usePersonVisning(model: Model, focusId: string, detail: PersonDe
   // Tekniske linjenøgler (legacy-source:…, lineage.ts) vises aldrig (spec §5.7) — ellers faldt hovedet tilbage
   // til »Linje <nøgle>«.
   const linjer = (model.lineage?.byPerson[focusId] ?? []).filter((lk) => !erTekniskLinje(lk));
+  // 6e-2 (spec §12.4): hovedet viser linjetitler for den valgte udgave (uden vælger: personens eneste udgave) og
+  // B6-noter om de andre udgavers placering. Uden linjerækker (kilde uden skema) gælder dagens linjenavne.
+  const linjeRaekker = model.linjeRaekkerBy?.[focusId] ?? [];
+  const raekkeKilder = [...new Set(linjeRaekker.map((r) => r.sourceId))];
+  const hovedKilde = valgtUdgave ?? (raekkeKilder.length === 1 ? raekkeKilder[0] : null);
+  const hovedLinjer = linjeRaekker.length === 0
+    ? linjer.map((lk) => model.lineage?.navn[lk] ?? `Linje ${lk}`)
+    : [...new Set((hovedKilde ? [hovedKilde] : raekkeKilder).flatMap((sid) => linjerForUdgave(linjeRaekker, sid)))];
+  const linjeNoter = hovedKilde ? b6Noter(linjeRaekker, hovedKilde) : [];
   // Bog-nummeret ("Linje II, nr. 4") vinder; citation-proveniensen udfylder kun for personer bogen
   // ikke gav et opslag — typisk ægtefæller, der ellers stod helt uden kilde.
   const sources = model.sourcesBy?.[focusId]?.length ? sorterKilder(model.sourcesBy[focusId]) : (detail?.sources ?? []);
@@ -107,7 +116,7 @@ export function usePersonVisning(model: Model, focusId: string, detail: PersonDe
     : (detail?.bio ?? '');
   return {
     p, vaelger, valgtIdx, vaelgChip, aktivChip, valgtUdgave, faktaVisning, bioText, tidligereUdgave,
-    parents, spouses, children, linjer, sources, portrait, gallery, lightboxItems, proveniens, godser,
+    parents, spouses, children, linjer, hovedLinjer, linjeNoter, sources, portrait, gallery, lightboxItems, proveniens, godser,
     aegteskabsKilder, foraelderKilder, boerneKilder, kildeNøgle,
   };
 }

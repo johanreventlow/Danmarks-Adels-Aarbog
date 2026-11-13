@@ -68,3 +68,4 @@ export type {
   GeoPoint,
   Geo,
 } from './types';
+export * from './b6Note';

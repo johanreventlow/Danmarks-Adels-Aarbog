@@ -31,12 +31,17 @@ export function coordinateRowToExtId(row: PublicCoordinateRow): RawExtId {
   };
 }
 
-type HeadKey = { nr: number | null; nr_label?: string | null };
+export type HeadKey = { nr: number | null; nr_label?: string | null; slaegtled?: number | null };
 
-// Heltallet først (null sidst), ved lige tal labelen (manglende label = det rene tal, før et suffiks).
+// Linjens hoved (6e-2): laveste slægtled først (NULL sidst), dernæst unummereret før nummereret, så heltallet og
+// ved lige tal labelen (manglende label = det rene tal, før et suffiks).
 export function compareLineHead(a: HeadKey, b: HeadKey): number {
-  const an = a.nr ?? Number.POSITIVE_INFINITY;
-  const bn = b.nr ?? Number.POSITIVE_INFINITY;
+  const ag = a.slaegtled ?? Number.POSITIVE_INFINITY;
+  const bg = b.slaegtled ?? Number.POSITIVE_INFINITY;
+  if (ag !== bg) return ag < bg ? -1 : 1;
+  if ((a.nr == null) !== (b.nr == null)) return a.nr == null ? -1 : 1;
+  const an = a.nr ?? 0;
+  const bn = b.nr ?? 0;
   if (an !== bn) return an < bn ? -1 : 1;
   const al = a.nr_label ?? (a.nr == null ? '' : String(a.nr));
   const bl = b.nr_label ?? (b.nr == null ? '' : String(b.nr));
