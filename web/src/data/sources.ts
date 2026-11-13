@@ -9,7 +9,7 @@ export function buildSources(
   sources: RawSource[],
   // samme_som-collapse: nøgle kanoniseres → kilder for en foldet person samles under kanonisk id.
   canonicalIdById: Record<string, string> = {},
-  // 6e-2: opslag i kildens stamtavleskema. Uden: dagens »Linje X, nr. N«.
+  // 6e-2: opslag i kildens stamtavleskema. Uden: placement-rækker beholder »Linje X, nr. N«; legacy-rækker kun side.
   skema?: SkemaOpslag,
 ): Record<string, SourceRef[]> {
   const cid = (id: string) => canonicalIdById[id] ?? id;
@@ -24,10 +24,11 @@ export function buildSources(
     const side = x.trykt_side?.trim() || null;
     const base = { work, personId: String(x.person_id), sourceId: String(x.source_id), aar: src.aar ?? null, slaegtled: x.slaegtled_lokal ?? null };
     let entry: SourceRef;
-    // undefined = kilden har intet stamtavleskema (eller skemaet kunne ikke hentes) → dagens form;
+    // undefined = kilden har ingen stamtavleindgange: placement-koder er skemakoder → »Linje X, nr. N«;
+    //   legacy/uden provenance → som null (en teknisk linjeetiket vises aldrig). Uden opslag-argument (ingen 6e-2-kontekst): dagens form;
     // null = koden findes ikke i kildens udfyldte skema (legacy); ellers skemaindgangen.
     const e = skema ? skema(String(x.source_id), x.linje ?? '') : undefined;
-    if (e === undefined) {
+    if (e === undefined && (!skema || x.provenance === 'placement')) {
       const ref = [x.linje ? 'Linje ' + x.linje : '', nrTekst != null ? 'nr. ' + nrTekst : '']
         .filter(Boolean)
         .join(', ');
