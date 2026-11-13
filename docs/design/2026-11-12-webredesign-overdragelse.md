@@ -159,9 +159,10 @@ Tegningernes navne står i parentes.
 ## Åbne punkter
 
 1. **Linjernes betegnelse pr. udgave.** Blokerer linjegenveje og linjesider.
-2. **Arbejdsgang for at bekræfte »Det er mig«.** Blokerer slægtskab som kontekst og Min plads.
-3. **Grundlag for grundniveau for levende, børns standard og koden til at finde en levende person** (afklares med
-   databeskyttelsesrådgiver). Blokerer præsensliste for medlemmer og slægtskab med levende.
+2. ~~**Arbejdsgang for at bekræfte »Det er mig«.**~~ Lukket 2026-11-13: selverklæret til slægtskab som kontekst;
+   »Min plads« kræver redaktionens godkendelse; senere kobling til medlemsregister (`docs/decisions.md`, 2026-11-13).
+3. ~~**Grundlag for grundniveau for levende …**~~ Lukket for POC'et 2026-11-13: kun redaktionen ser levende; hvad
+   brugere skal kunne se og på hvilke niveauer, tages der stilling til senere (`docs/decisions.md`, 2026-11-13).
 4. **Tekster:** samlet gennemgang af formuleringer.
 5. ~~**Heraldik:** grundvåbnet er ikke en autoriseret tegning; godkendes før offentlig brug.~~ Lukket 2026-11-13:
    præmissen var forkert. Ingen dansk instans autoriserer adelsvåben; Aarbogen bruger den tegning, den foretrækker

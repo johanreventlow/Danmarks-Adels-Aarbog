@@ -3,6 +3,7 @@
 BEGIN;
 \ir fixtures/relation-5b.sql
 \ir fixtures/relation-2a.sql
+\ir fixtures/kalder-matrix.sql
 
 -- Ét bundet og publiceret ægteskab i egen kilde p_base: personer p_base (hovedperson) og p_base-1 (ægtefælle).
 CREATE OR REPLACE FUNCTION pg_temp.f2a_bound(p_base bigint,p_actor uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
@@ -26,13 +27,16 @@ BEGIN
   RETURN m||jsonb_build_object('source',s);
 END $$;
 
--- Antal synlige rækker for familien som anon.
+-- Antal synlige rækker for familien som anon uden uid (gæst; redaktøren ser mere, jf. fixtures/kalder-matrix.sql).
+-- Uid'en sættes tilbage.
 CREATE OR REPLACE FUNCTION pg_temp.f2a_visible(p_fam bigint) RETURNS integer LANGUAGE plpgsql AS $$
-DECLARE n integer;
+DECLARE n integer; v_for text:=coalesce(current_setting('request.jwt.claim.sub',true),'');
 BEGIN
+  PERFORM set_config('request.jwt.claim.sub','',true);
   SET LOCAL ROLE anon;
   SELECT count(*) INTO n FROM public.public_family_sources(ARRAY[p_fam]);
   RESET ROLE;
+  PERFORM set_config('request.jwt.claim.sub',v_for,true);
   RETURN n;
 END $$;
 
@@ -41,6 +45,7 @@ DECLARE v_actor uuid:='11000000-0000-0000-0000-0000002a0501'; m jsonb; par jsonb
   v_fam bigint; v_pfam bigint; v_par2 jsonb; v_v2 uuid; v_sha text; v_ref uuid;
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
+  PERFORM pg_temp.km_kaldere();
 
   -- (1) lykkelig sti: ægteskab + forælder
   m:=pg_temp.f2a_bound(-2502,v_actor);
@@ -169,6 +174,26 @@ BEGIN
   PERFORM red_promote_relation_interpretations_batch(-2591,items,pv->>'preview_sha256');
   RESET ROLE;
   IF pg_temp.f2a_visible(v_fam)<>1 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: genbundet kilde ikke synlig'; END IF;
+
+  -- Redaktøren ser levende (decisions 2026-11-13): familiegaten åbnes for redaktionen. Rækken kræver fortsat, at
+  -- narrativets subjekt (her hovedpersonen -2602) er offentligt — narrativets udgivelsesregel kender endnu kun
+  -- offentlige personer (bevidst halvt billede indtil trin 2).
+  m:=pg_temp.f2a_bound(-2602,v_actor); SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  v_fam:=(m->>'family')::bigint;
+  PERFORM pg_temp.km_forvent('familie afdød',format('SELECT * FROM public.public_family_sources(ARRAY[%s])',v_fam),1,1);
+  INSERT INTO person(id,levende,privat,status) VALUES (-2609,true,false,'2a');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (v_fam,-2609,'barn');
+  PERFORM pg_temp.km_forvent('familie levende barn',format('SELECT * FROM public.public_family_sources(ARRAY[%s])',v_fam),0,1);
+  UPDATE person SET levende=false WHERE id=-2609;
+  UPDATE person SET staged=true WHERE id=-2603;   -- ægtefællen
+  PERFORM pg_temp.km_forvent('familie staged ægtefælle',format('SELECT * FROM public.public_family_sources(ARRAY[%s])',v_fam),0,1);
+  UPDATE person SET staged=false,privat=true WHERE id=-2603;
+  PERFORM pg_temp.km_forvent('familie privat ægtefælle',format('SELECT * FROM public.public_family_sources(ARRAY[%s])',v_fam),0,1);
+  UPDATE person SET privat=false WHERE id=-2603;
+  UPDATE person SET levende=true WHERE id=-2602;  -- narrativets subjekt levende ⇒ heller ikke redaktionen (trin 2)
+  PERFORM pg_temp.km_forvent('familie levende hovedperson',format('SELECT * FROM public.public_family_sources(ARRAY[%s])',v_fam),0,0);
+  UPDATE person SET levende=false WHERE id=-2602;
+  IF pg_temp.f2a_visible(v_fam)<>1 THEN RAISE EXCEPTION 'FAMILY_SOURCES_TEST_FAILED: matrixfamilien ikke tilbage'; END IF;
   RAISE NOTICE 'OK: public_family_sources og gaten';
 END $family_sources$;
 ROLLBACK;

@@ -141,12 +141,15 @@ BEGIN
   RESET ROLE;
   RETURN 'BOUND';
 END $$;
+-- Som anon uden uid (gæst; redaktøren ser også familier med levende, jf. test-family-sources.sql). Uid'en sættes tilbage.
 CREATE OR REPLACE FUNCTION pg_temp.fc_boern(p_fam bigint) RETURNS integer LANGUAGE plpgsql AS $$
-DECLARE n integer;
+DECLARE n integer; v_for text:=coalesce(current_setting('request.jwt.claim.sub',true),'');
 BEGIN
+  PERFORM set_config('request.jwt.claim.sub','',true);
   SET LOCAL ROLE anon;
   SELECT count(*) INTO n FROM public.public_family_sources(ARRAY[p_fam]) s WHERE s.slags='boern' AND s.counterpart_person_id=-5701;
   RESET ROLE;
+  PERFORM set_config('request.jwt.claim.sub',v_for,true);
   RETURN n;
 END $$;
 -- Afgjort og publiceret flok: returnerer {fam, iid}.

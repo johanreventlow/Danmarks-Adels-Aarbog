@@ -7,18 +7,22 @@ BEGIN;
 \ir fixtures/relation-2a.sql
 \ir fixtures/person-facts.sql
 \ir fixtures/public_person_facts_reference.sql
+\ir fixtures/kalder-matrix.sql
 
 -- Trin 6c-2a (vej B): public_person_facts skal give præcis samme rækker som den frosne reference (main), med
--- dubletter talt med (EXCEPT ALL begge veje). Kaldes som ejer; begge er SECURITY DEFINER.
+-- dubletter talt med (EXCEPT ALL begge veje). Kaldes som ejer; begge er SECURITY DEFINER. Uden uid: referencen kender
+-- ikke redaktørens undtagelse (2026-11-13), så sammenligningen gælder læserens regel. Uid'en sættes tilbage.
 CREATE OR REPLACE FUNCTION pg_temp.fpf_equal(p_ids bigint[]) RETURNS void LANGUAGE plpgsql AS $$
-DECLARE n_new int; n_ref int; n_a int; n_b int;
+DECLARE n_new int; n_ref int; n_a int; n_b int; v_for text:=coalesce(current_setting('request.jwt.claim.sub',true),'');
 BEGIN
+  PERFORM set_config('request.jwt.claim.sub','',true);
   SELECT count(*) INTO n_new FROM public.public_person_facts(p_ids);
   SELECT count(*) INTO n_ref FROM pg_temp.public_person_facts_ref(p_ids);
   SELECT count(*) INTO n_a FROM (SELECT * FROM public.public_person_facts(p_ids)
                                  EXCEPT ALL SELECT * FROM pg_temp.public_person_facts_ref(p_ids)) x;
   SELECT count(*) INTO n_b FROM (SELECT * FROM pg_temp.public_person_facts_ref(p_ids)
                                  EXCEPT ALL SELECT * FROM public.public_person_facts(p_ids)) x;
+  PERFORM set_config('request.jwt.claim.sub',v_for,true);
   IF n_new<>n_ref OR n_a<>0 OR n_b<>0 THEN
     RAISE EXCEPTION 'PERSON_FACTS_TEST_FAILED: vej B ulig referencen for % (ny %, ref %, kun ny %, kun ref %)',
       p_ids,n_new,n_ref,n_a,n_b;
@@ -91,6 +95,7 @@ DECLARE v_actor uuid:='11000000-0000-0000-0000-0000005c2b11'; m jsonb; m2 jsonb;
   x1 jsonb; x2 jsonb; c0 bigint; c1 bigint; c2 bigint;
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
+  PERFORM pg_temp.km_kaldere();
   PERFORM set_config('track_functions','all',true);
 
   -- (1) lykkelig sti: én bundet række, som anon og authenticated
@@ -323,6 +328,26 @@ BEGIN
     RAISE EXCEPTION 'PERSON_FACTS_TEST_FAILED: privat';
   END IF;
   PERFORM pg_temp.fpf_equal(ARRAY[-2831]);
+
+  -- Redaktøren ser levende (decisions 2026-11-13): fire kaldere × fire personstatus. Kun redaktionen ser ikke-offentlige
+  -- personers fakta. Kildehenvisningen (record_ref) følger fortsat narrativets udgivelsesregel, som endnu kun kender
+  -- offentlige personer — derfor 0 bundne rækker for redaktionen (bevidst halvt billede indtil trin 2).
+  m:=pg_temp.fpf_bound(-2871,v_actor); SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  PERFORM pg_temp.km_forvent('fakta afdød','SELECT * FROM public.public_person_facts(ARRAY[-2871])',1,1);
+  PERFORM pg_temp.km_forvent('fakta afdød, bundne',
+    'SELECT * FROM public.public_person_facts(ARRAY[-2871]) WHERE record_ref IS NOT NULL',1,1);
+  UPDATE person SET levende=true WHERE id=-2871;
+  PERFORM pg_temp.km_forvent('fakta levende','SELECT * FROM public.public_person_facts(ARRAY[-2871])',0,1);
+  PERFORM pg_temp.km_forvent('fakta levende, bundne',
+    'SELECT * FROM public.public_person_facts(ARRAY[-2871]) WHERE record_ref IS NOT NULL',0,0);
+  UPDATE person SET levende=false,privat=true WHERE id=-2871;
+  PERFORM pg_temp.km_forvent('fakta privat','SELECT * FROM public.public_person_facts(ARRAY[-2871])',0,1);
+  UPDATE person SET privat=false,staged=true WHERE id=-2871;
+  PERFORM pg_temp.km_forvent('fakta staged','SELECT * FROM public.public_person_facts(ARRAY[-2871])',0,1);
+  UPDATE person SET levende=NULL,staged=false WHERE id=-2871;   -- levende ukendt = fail-closed
+  PERFORM pg_temp.km_forvent('fakta levende NULL','SELECT * FROM public.public_person_facts(ARRAY[-2871])',0,1);
+  UPDATE person SET levende=false WHERE id=-2871;
+  PERFORM pg_temp.fpf_equal(ARRAY[-2871]);
 
   -- konklusionsstatus: forældet ⇒ 0; omstridt uden valgt påstand ⇒ chosen IS FALSE
   m:=pg_temp.fpf_bound(-2841,v_actor); SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;

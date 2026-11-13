@@ -48,16 +48,20 @@ BEGIN
     'items',items,'import_key','verify:fpf'||abs(p_base),'record_key','P'||abs(p_base));
 END $$;
 
--- Antal rækker, bundne rækker og rækker med chosen=false for én person, kaldt som p_role.
+-- Antal rækker, bundne rækker og rækker med chosen=false for én person, kaldt som p_role UDEN uid (læser, ikke
+-- redaktør: redaktøren ser også ikke-offentlige personer, jf. fixtures/kalder-matrix.sql). Uid'en sættes tilbage.
 CREATE OR REPLACE FUNCTION pg_temp.fpf_rows(p_person bigint,p_role text DEFAULT 'anon',
   OUT n integer,OUT n_bundet integer,OUT n_ikke_valgt integer) LANGUAGE plpgsql AS $$
+DECLARE v_for text:=coalesce(current_setting('request.jwt.claim.sub',true),'');
 BEGIN
+  PERFORM set_config('request.jwt.claim.sub','',true);
   EXECUTE format('SET LOCAL ROLE %I',p_role);
   SELECT count(*)::int,
          count(*) FILTER (WHERE r.record_ref IS NOT NULL AND r.record_label IS NOT NULL AND r.citation_label IS NOT NULL)::int,
          count(*) FILTER (WHERE r.chosen IS FALSE)::int
     INTO n,n_bundet,n_ikke_valgt FROM public.public_person_facts(ARRAY[p_person]) r;
   RESET ROLE;
+  PERFORM set_config('request.jwt.claim.sub',v_for,true);
 END $$;
 
 -- Validatorens reason_code for fixturens item, kaldt som ejer.

@@ -6,6 +6,7 @@ BEGIN;
 \ir fixtures/relation-5b.sql
 \ir fixtures/placement-150.sql
 \ir fixtures/relation-2a.sql
+\ir fixtures/kalder-matrix.sql
 
 -- Én placeret hovedperson med legacy nr 15, kuld II, slægtled 3/7 og placement »15a«, kuld tom, slægtled 3/7;
 -- membership fremmet gennem redaktions-RPC'en.
@@ -31,19 +32,24 @@ BEGIN
   RETURN f||jsonb_build_object('post',p,'rp',v_rp,'pp',v_pp,'person',p_person);
 END $$;
 
--- Rækkerne for én person som p_role.
+-- Rækkerne for én person som p_role uden uid (læser; redaktøren ser mere, jf. fixtures/kalder-matrix.sql).
+-- Uid'en sættes tilbage.
 CREATE OR REPLACE FUNCTION pg_temp.fco_rows(p_person bigint,p_role text DEFAULT 'anon')
 RETURNS SETOF jsonb LANGUAGE plpgsql AS $$
+DECLARE v_for text:=coalesce(current_setting('request.jwt.claim.sub',true),'');
 BEGIN
+  PERFORM set_config('request.jwt.claim.sub','',true);
   EXECUTE format('SET LOCAL ROLE %I',p_role);
   RETURN QUERY SELECT to_jsonb(r) FROM public.public_person_source_coordinates() r WHERE r.person_id=p_person;
   RESET ROLE;
+  PERFORM set_config('request.jwt.claim.sub',v_for,true);
 END $$;
 
 DO $coordinates$
 DECLARE f jsonb; r jsonb; v_src2 jsonb; n int; v_dup int; v_order int; v_sl2 bigint; v_lin2 bigint; v_sch2 bigint;
   v_ent2 bigint; v_post2 jsonb; v_obs2 uuid; v_rp2 uuid; v_pp2 uuid; v_state jsonb; v_sha text;
 BEGIN
+  PERFORM pg_temp.km_kaldere();
   -- (1) placement: linje fra entryens code, heltal + label, slægtled og kuld fra placementen
   f:=pg_temp.fco_placed(-5201,-520101);
   SELECT r2 INTO r FROM pg_temp.fco_rows(-520101) r2 WHERE (r2->>'source_id')::bigint=-5201;
@@ -145,6 +151,29 @@ BEGIN
    WHERE (x.pp,x.ps) > (x.person_id,x.source_id);
   RESET ROLE;
   IF v_dup<>0 OR v_order<>0 THEN RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: orden dup=% bagud=%',v_dup,v_order; END IF;
+
+  -- Redaktøren ser levende (decisions 2026-11-13): fire kaldere × personstatus, både placement-grenen (-528101) og
+  -- legacy-grenen uden placement (-528102). Kun redaktionen ser ikke-offentlige personers koordinater.
+  f:=pg_temp.fco_placed(-5281,-528101);
+  INSERT INTO public.person(id,levende,privat,status) VALUES (-528102,false,false,'co');
+  INSERT INTO public.person_external_id(person_id,source_id,linje,nr) VALUES (-528102,-5281,'V',9);
+  PERFORM pg_temp.km_forvent('koordinater afdød',
+    'SELECT * FROM public.public_person_source_coordinates() WHERE person_id IN (-528101,-528102)',2,2);
+  UPDATE public.person SET levende=true WHERE id IN (-528101,-528102);
+  PERFORM pg_temp.km_forvent('koordinater levende',
+    'SELECT * FROM public.public_person_source_coordinates() WHERE person_id IN (-528101,-528102)',0,2);
+  PERFORM pg_temp.km_forvent('koordinater levende, placement',
+    'SELECT * FROM public.public_person_source_coordinates() WHERE person_id=-528101 AND provenance_kind=''placement''',0,1);
+  UPDATE public.person SET levende=false,privat=true WHERE id IN (-528101,-528102);
+  PERFORM pg_temp.km_forvent('koordinater privat',
+    'SELECT * FROM public.public_person_source_coordinates() WHERE person_id IN (-528101,-528102)',0,2);
+  UPDATE public.person SET privat=false,staged=true WHERE id IN (-528101,-528102);
+  PERFORM pg_temp.km_forvent('koordinater staged',
+    'SELECT * FROM public.public_person_source_coordinates() WHERE person_id IN (-528101,-528102)',0,2);
+  UPDATE public.person SET staged=false,levende=NULL WHERE id IN (-528101,-528102);
+  PERFORM pg_temp.km_forvent('koordinater levende NULL',
+    'SELECT * FROM public.public_person_source_coordinates() WHERE person_id IN (-528101,-528102)',0,2);
+  UPDATE public.person SET levende=false WHERE id IN (-528101,-528102);
 
   RAISE NOTICE 'OK: public_person_source_coordinates';
 END $coordinates$;

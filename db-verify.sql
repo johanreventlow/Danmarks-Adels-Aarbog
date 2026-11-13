@@ -10839,3 +10839,39 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: trin 6c-3a — afstemningskvitteringen er tilføj-kun og lukket, writeren er privat';
 END $verify_6c3a$;
+
+-- Redaktøren ser levende (decisions 2026-11-13, blokken redaktoer-ser-levende): de tre læse-RPC'er bag personsiden har
+-- en redaktør-gren og beholder gæsternes gate; »offentlig«-hjælperne afhænger ikke af kalderen (de bærer gæsternes
+-- policies); haendelse har det additive redaktion_read-lag.
+DO $verify_redaktoer_ser_levende$
+DECLARE f regprocedure; v_def text; v_gate text;
+BEGIN
+  FOR f,v_gate IN SELECT to_regprocedure(x.sig),x.gate FROM (VALUES
+      ('public.public_person_facts(bigint[])','public.entitet_offentlig(''person'',fa.subjekt_id)'),
+      ('public.public_family_sources(bigint[])','public.family_offentlig(b.fam)'),
+      ('public.public_person_source_coordinates()','public.entitet_offentlig(''person'',x.person_id)')) x(sig,gate) LOOP
+    IF f IS NULL THEN RAISE EXCEPTION 'VERIFY_FAILED: redaktoer-ser-levende: en læse-RPC mangler'; END IF;
+    v_def:=pg_get_functiondef(f);
+    IF NOT (SELECT prosecdef FROM pg_proc WHERE oid=f)
+       OR (SELECT proconfig FROM pg_proc WHERE oid=f) IS DISTINCT FROM ARRAY['search_path=pg_catalog']
+       OR strpos(v_def,'v_red boolean:=public.current_rolle()=''redaktion''')=0
+       OR strpos(v_def,'(v_red OR '||v_gate||')')=0
+       OR NOT has_function_privilege('anon',f,'EXECUTE')
+       OR NOT has_function_privilege('authenticated',f,'EXECUTE')
+       OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(p.proacl) a WHERE p.oid=f AND a.grantee=0) THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: redaktoer-ser-levende %: redaktør-gren, gæste-gate, search_path eller ACL',f;
+    END IF;
+  END LOOP;
+  FOR f IN SELECT to_regprocedure(s) FROM unnest(ARRAY['public.person_offentlig(bigint)',
+      'public.family_offentlig(bigint)','public.entitet_offentlig(text,bigint)',
+      'public.person_daa_narrative_publication_allowed(bigint)']) s LOOP
+    IF f IS NULL OR strpos(pg_get_functiondef(f),'current_rolle')>0 THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: redaktoer-ser-levende: % mangler eller afhænger af kalderens rolle',f;
+    END IF;
+  END LOOP;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='haendelse'
+                  AND policyname='redaktion_read' AND cmd='SELECT') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: redaktoer-ser-levende: haendelse mangler redaktion_read';
+  END IF;
+  RAISE NOTICE 'OK: redaktoer-ser-levende — redaktionen ser levende i fakta, familiekilder og koordinater; gæsternes gate uændret';
+END $verify_redaktoer_ser_levende$;
