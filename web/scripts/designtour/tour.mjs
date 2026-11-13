@@ -32,6 +32,8 @@ const STEPS = [
   { out: 'a-personside-udgave', path: '/person/240', actions: [{ click: 'DAA 1939 · Testpost', exact: true }] },
   { out: 'a-personside-aegtefaelle', path: '/person/461' }, // ægtefælle uden linje: ingen slægt i etiket og brødkrumme
   { out: 'a-tree-fokus', path: '/slaegt/reventlow/stamtrae?fokus=118' },
+  { out: 'a-tree-panel', path: '/slaegt/reventlow/stamtrae?fokus=240' },
+  { out: 'a-personside-mig', path: '/person/240', actions: [{ click: 'Det er mig', exact: true }] },
   { out: 'a-tree-kolonner', path: '/slaegt/reventlow/stamtrae', actions: [{ click: 'Kolonner', exact: true }] },
   { out: 'a-search', path: '/soeg?q=rev' },
   { out: 'a-search-tom', path: '/soeg?q=Reventlov' },
@@ -64,6 +66,7 @@ const STEPS = [
   { out: 'd-mobile-home-vend', path: '/', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 3200 }, { click: 'Vend seks blade mere', exact: true }, { scroll: 600 }] },
   { out: 'd-mobile-menu', path: '/', w: 390, h: 844, actions: [{ click: 'Slægter', exact: true }] },
   { out: 'd-mobile-bjaelke', path: '/slaegt/reventlow/stamtrae', w: 390, h: 844 },
+  { out: 'd-mobile-tree-panel', path: '/slaegt/reventlow/stamtrae?fokus=240', w: 390, h: 844 },
   { out: 'd-mobile-about', path: '/slaegt/reventlow', w: 390, h: 844 },
   { out: 'd-mobile-about-linjer', path: '/slaegt/reventlow', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 900 }] },
   { out: 'd-mobile-person', path: '/person/240', w: 390, h: 844 },

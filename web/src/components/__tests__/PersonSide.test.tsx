@@ -9,6 +9,10 @@ import type { Model } from '../../data/types';
 
 vi.mock('../../data/familySources', () => ({ fetchFamilySources: async () => [] }));
 vi.mock('../../router', () => ({ navigate: vi.fn() }));
+vi.mock('../lazyMaps', () => ({
+  ExpandableMiniMap: ({ points }: { points: unknown[] }) => <div data-testid="livsrejse">{points.length} steder</div>,
+  MapFallback: () => null,
+}));
 const { PersonSide } = await import('../PersonSide');
 
 const D18: Udgave = { sourceId: '1', label: 'DAA 2018-20', aar: 2018 };
@@ -172,5 +176,43 @@ describe('PersonSide', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Kopiér link' }));
     expect(await screen.findByText('Linket er kopieret.')).toBeTruthy();
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/person/392`);
+  });
+
+  it('»Det er mig« er en trykknap; kun med handlingen', () => {
+    const onToggleMig = vi.fn();
+    const { unmount } = render(<PersonSide {...props()} />);
+    expect(screen.queryByRole('button', { name: /Det er (mig|dig)/ })).toBeNull();
+    unmount();
+    const r = render(<PersonSide {...props({ onToggleMig })} />);
+    const knap = screen.getByRole('button', { name: 'Det er mig' });
+    expect(knap.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(knap);
+    expect(onToggleMig).toHaveBeenCalled();
+    r.rerender(<PersonSide {...props({ onToggleMig, erMig: true })} />);
+    expect(screen.getByRole('button', { name: 'Det er dig' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('»Vis i præsensliste« kun når handlingen gives (redaktionen)', () => {
+    const onVisPraesens = vi.fn();
+    const { unmount } = render(<PersonSide {...props()} />);
+    expect(screen.queryByRole('button', { name: 'Vis i præsensliste' })).toBeNull();
+    unmount();
+    render(<PersonSide {...props({ onVisPraesens })} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Vis i præsensliste' }));
+    expect(onVisPraesens).toHaveBeenCalled();
+  });
+
+  it('livsrejsen vises kun med steder og først, når geo er hentet', async () => {
+    const punkt = { placeId: 'p1', navn: 'Clausholm', lat: 56.4, lon: 10.1, kind: 'fødsel', personId: '392', estateId: null, unionId: null, year: 1644 };
+    const medGeo = { ...model, geo: { points: [punkt], byPerson: { '392': [punkt] }, byEstate: {} } } as unknown as Model;
+    const { unmount } = render(<PersonSide {...props({ model: medGeo, geoLoading: true })} />);
+    expect(screen.queryByText('Livsrejse')).toBeNull();
+    unmount();
+    const u2 = render(<PersonSide {...props()} />);
+    expect(screen.queryByText('Livsrejse')).toBeNull(); // ingen geo → ingen tom boks
+    u2.unmount();
+    render(<PersonSide {...props({ model: medGeo })} />);
+    expect(screen.getByText('Livsrejse')).toBeTruthy();
+    expect((await screen.findByTestId('livsrejse')).textContent).toBe('1 steder');
   });
 });

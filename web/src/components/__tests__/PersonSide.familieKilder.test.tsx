@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// Trin 5b 2a (spec §5.2): kildelinje ved ægteskab og forældrelinje i detaljepanelet.
+// Trin 5b 2a (spec §5.2): kildelinje ved ægteskab og forældrelinje — nu på personsiden (PersonSide).
 import { fireEvent, render, screen } from '@testing-library/react';
 import { buildModel, type AppPerson, type FamilieKilde } from '@daa/core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,10 +8,11 @@ import type { Model } from '../../data/types';
 
 let kilder: FamilieKilde[] = [];
 const kald: string[][] = [];
+vi.mock('../../router', () => ({ navigate: vi.fn() }));
 vi.mock('../../data/familySources', () => ({
   fetchFamilySources: async (ids: string[]) => { kald.push(ids); return kilder; },
 }));
-const { DetailPanel } = await import('../DetailPanel');
+const { PersonSide } = await import('../PersonSide');
 
 const person = (id: string): AppPerson => ({ id, name: `Person ${id}`, born: null, died: null, years: '', title: '', bio: '', privat: false });
 const model = buildModel({
@@ -38,15 +39,16 @@ const kilde = (k: Partial<FamilieKilde>): FamilieKilde => ({
   familyId: '10', slags: 'aegteskab', counterpartPersonId: '2', sourceRecordRef: null,
   sourceLabel: 'DAA X', recordLabel: 'Post 1', citationLabel: '', ...k,
 });
-const noop = () => {};
 const vis = (m: Model = model) => render(
-  <DetailPanel model={m} focusId="1" detail={detail} onPick={noop} backName={null} onBack={noop}
-    onFocusTree={noop} onRelate={noop} isMe={false} onToggleMe={noop} isBookmarked={false} onToggleBookmark={noop} geoLoading={false} />,
+  <PersonSide model={m} focusId="1" detail={detail} detailError={null} onRetry={vi.fn()} onVisPerson={vi.fn()}
+    onFindSlaegtskab={vi.fn()} onSlaegt={vi.fn()} loggetInd={false} onLogin={vi.fn()} erBogmaerket={false} onToggleBogmaerke={vi.fn()} />,
 );
+// kildelinjen står i samme blok som forælderlinket (PersonLink-spanen rummer kun linket)
+const blok = (navn: string) => screen.getByRole('link', { name: navn }).closest('div');
 
 beforeEach(() => { kilder = []; kald.length = 0; });
 
-describe('DetailPanel — familiekilder', () => {
+describe('PersonSide — familiekilder', () => {
   it('viser ægteskabskilden som knap til egen post og forælderkilden kun ved den rette forælder', async () => {
     kilder = [
       kilde({ sourceRecordRef: 'r1' }),
@@ -58,14 +60,14 @@ describe('DetailPanel — familiekilder', () => {
     // forælderkilden: ren tekst (r9 er ikke en af personens egne versioner), præcis én gang (kun ved forælder 5)
     expect(screen.getAllByText('Kilde: DAA X · Post 2')).toHaveLength(1);
     expect(screen.queryByRole('button', { name: 'Kilde: DAA X · Post 2' })).toBeNull();
-    const forælder5 = screen.getByText('Person 5 ›').closest('span');
+    const forælder5 = blok('Person 5');
     expect(forælder5?.textContent).toContain('Kilde: DAA X · Post 2');
-    const forælder6 = screen.getByText('Person 6 ›').closest('span');
+    const forælder6 = blok('Person 6');
     expect(forælder6?.textContent).not.toContain('Kilde:');
     // klik vælger personens egen version (versionsvælgeren skifter til den ældre udgave)
-    expect(screen.queryByText('Tidligere udgave')).toBeNull();
+    expect(screen.queryByText('Du ser en tidligere udgave.')).toBeNull();
     fireEvent.click(knap);
-    expect(screen.getByText('Tidligere udgave')).toBeTruthy();
+    expect(screen.getByText('Du ser en tidligere udgave.')).toBeTruthy();
   });
   // Trin 5b 2b-iii (spec §8): børneflokkens kilde — hos forælderen under »Børn«, hos barnet ved den forælder,
   // påstanden står hos (ikke ved den anden forælder); en ukendt slags springes over i datalaget.
@@ -74,7 +76,7 @@ describe('DetailPanel — familiekilder', () => {
     vis();
     await screen.findByText('Kilde: DAA X · Post 8');
     expect(screen.getAllByText('Kilde: DAA X · Post 8')).toHaveLength(1);
-    const børn = screen.getByText('Børn');
+    const børn = screen.getByText('Børn', { selector: 'dt' });
     expect(børn.compareDocumentPosition(screen.getByText('Kilde: DAA X · Post 8')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(kald[0].sort()).toEqual(['10', '20']);
   });
@@ -83,19 +85,19 @@ describe('DetailPanel — familiekilder', () => {
     vis();
     await screen.findByText('Kilde: DAA X · Post 9');
     expect(screen.getAllByText('Kilde: DAA X · Post 9')).toHaveLength(1);
-    expect(screen.getByText('Person 5 ›').closest('span')?.textContent).toContain('Kilde: DAA X · Post 9');
-    expect(screen.getByText('Person 6 ›').closest('span')?.textContent).not.toContain('Kilde:');
+    expect(blok('Person 5')?.textContent).toContain('Kilde: DAA X · Post 9');
+    expect(blok('Person 6')?.textContent).not.toContain('Kilde:');
   });
   it('viser ingen kildelinje uden kilder', async () => {
     vis();
-    await screen.findByText('Person 2 ›');
+    await screen.findByRole('link', { name: 'Person 2' });
     await Promise.resolve();
     expect(screen.queryByText(/Kilde:/)).toBeNull();
   });
   it('viser ikke en ægteskabskilde, hvis modparten ikke er ægtefællen eller personen selv', async () => {
     kilder = [kilde({ counterpartPersonId: '99', recordLabel: 'Post 7' })];
     vis();
-    await screen.findByText('Person 2 ›');
+    await screen.findByRole('link', { name: 'Person 2' });
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByText('Kilde: DAA X · Post 7')).toBeNull();
   });
@@ -107,13 +109,13 @@ describe('DetailPanel — familiekilder', () => {
     vis({ ...model, canonicalIdById: { '98': '2', '97': '5' } } as Model);
     await screen.findByText('Kilde: DAA X · Post 11');
     expect(screen.getAllByText('Kilde: DAA X · Post 11')).toHaveLength(1);
-    expect(screen.getByText('Person 5 ›').closest('span')?.textContent).toContain('Kilde: DAA X · Post 12');
-    expect(screen.getByText('Person 6 ›').closest('span')?.textContent).not.toContain('Kilde:');
+    expect(blok('Person 5')?.textContent).toContain('Kilde: DAA X · Post 12');
+    expect(blok('Person 6')?.textContent).not.toContain('Kilde:');
   });
   it('uden canonicalIdById vises en alias-modpart ikke', async () => {
     kilder = [kilde({ counterpartPersonId: '98', recordLabel: 'Post 11' })];
     vis();
-    await screen.findByText('Person 2 ›');
+    await screen.findByRole('link', { name: 'Person 2' });
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByText('Kilde: DAA X · Post 11')).toBeNull();
   });

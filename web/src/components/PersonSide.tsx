@@ -3,13 +3,16 @@
 // kilde, biografi ordret, familie, embeder, godser, billeder og »Kilde i Aarbogen«; højre spalte med portræt,
 // slægten og handlingerne.
 //
+// Fra stamtræets panel (fase 5b, projektejeren 12/11): livsrejsen (minikort, kun når personen har steder),
+// »Det er mig« (lokalt i browseren, intet login) og »Vis i præsensliste« (kun redaktionen).
+//
 // Medlemslaget (fase 8, tegningen »… lag for indloggede medlemmer«) får faste pladser i samme layout:
 // slægtskab som kontekst over titlen, bogmærket i højre spalte og fakta med kilde pr. linje (PersonFakta står
 // allerede på fakta-pladsen). Siden skifter ikke layout ved login.
 //
 // Mangler siges med ord. »i den valgte udgave« bruges kun, hvor vælgeren faktisk filtrerer (biografi, fakta,
 // godser); familie og embeder kommer fra den samlede model.
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { Suspense, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { T } from '../theme';
 import { Link } from '../Link';
 import { personPath, estatePath, slaegtPath, stamtraePath, findSlaegt, STANDARD_SLAEGT } from '../data/nav';
@@ -17,31 +20,36 @@ import { konfTekst } from '../data/format';
 import { mediaCaption, type MediaItem } from '../data/media';
 import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
-import { bogensNummer, type UdgaveChip } from '@daa/core';
+import { bogensNummer, lifeJourney, type UdgaveChip } from '@daa/core';
 import { NarrativRenderer } from './NarrativRenderer';
 import { PersonFakta } from './PersonFakta';
 import { Lightbox } from './Lightbox';
 import { Tilstand, tilstandSekundaer } from './Tilstand';
 import { usePersonVisning, KildeLinjeVisning } from './personVisning';
 import { SlaegtsMaerke } from './SlaegtsMaerke';
+import { ExpandableMiniMap, MapFallback } from './lazyMaps';
 import { radius, shadow } from '@daa/theme';
 
 const FOERSTE_EMBEDER = 7;
 const FOERSTE_GODSER = 6;
 
 export function PersonSide({ model, focusId, detail, detailError, onRetry, onVisPerson, onFindSlaegtskab, onSlaegt,
-  loggetInd, onLogin, erBogmaerket, onToggleBogmaerke }: {
+  loggetInd, onLogin, erBogmaerket, onToggleBogmaerke, geoLoading = false, erMig = false, onToggleMig, onVisPraesens }: {
   model: Model; focusId: string; detail: PersonDetailData | null; detailError: string | null; onRetry: () => void;
   onVisPerson: (id: string) => void; // familie og biografiens personlinks (→ /person/<id>)
   onFindSlaegtskab: () => void;
   onSlaegt: (slug: string) => void;
   loggetInd: boolean; onLogin: () => void; erBogmaerket: boolean; onToggleBogmaerke: () => void;
+  geoLoading?: boolean; // geo hentes dovent; minikortet vises først, når hentningen er færdig (intet flimmer)
+  erMig?: boolean; onToggleMig?: () => void;
+  onVisPraesens?: () => void; // kun redaktionen (præsenslisten kræver i dag rollen)
 }) {
   const v = usePersonVisning(model, focusId, detail);
   const [visAlleEmbeder, setVisAlleEmbeder] = useState(false);
   const [visAlleGodser, setVisAlleGodser] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [kopieret, setKopieret] = useState<'ja' | 'fejl' | null>(null);
+  const livsrejse = useMemo(() => (!geoLoading && model.geo ? lifeJourney(model.geo, focusId) : []), [geoLoading, model.geo, focusId]);
   const p = v.p;
   if (!p) return null;
 
@@ -186,6 +194,14 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                 ) : <Mangel>{harVaelger ? 'Ingen godser i den valgte udgave.' : 'Ingen godser angivet i Aarbogen.'}</Mangel>}
               </Sektion>
 
+              {/* Livsrejsen vises kun, når personen har steder; de fleste har ingen, og en tom boks ville
+                  bare flimre ind og ud, mens geo hentes. */}
+              <Sektion titel="Livsrejse" vis={livsrejse.length > 0}>
+                <Suspense fallback={<MapFallback />}>
+                  <ExpandableMiniMap points={livsrejse} />
+                </Suspense>
+              </Sektion>
+
               <Sektion titel="Billeder og dokumenter">
                 {henter ? <Henter /> : v.gallery.length ? (
                   <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 150px), 1fr))', gap: 12 }}>
@@ -256,6 +272,16 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
               <button type="button" onClick={onFindSlaegtskab} style={{ ...knap, flex: 1 }}>Find slægtskab</button>
               <button type="button" onClick={() => { void kopier(); }} style={{ ...knap, flex: 1 }}>Kopiér link</button>
             </div>
+            {onToggleMig && (
+              <button type="button" aria-pressed={erMig} onClick={onToggleMig}
+                title={erMig ? 'Fjern markeringen af dig' : 'Markér denne person som dig (gemmes kun i denne browser)'}
+                style={{ ...knap, border: `1px solid ${erMig ? T.bordeaux : T.lineStrong}`, background: erMig ? T.bordeauxTint : T.surfaceRaised, color: erMig ? T.bordeaux : T.ink }}>
+                {erMig ? 'Det er dig' : 'Det er mig'}
+              </button>
+            )}
+            {onVisPraesens && (
+              <button type="button" onClick={onVisPraesens} style={{ ...tekstKnap, alignSelf: 'flex-start' }}>Vis i præsensliste</button>
+            )}
             <p role="status" aria-live="polite" style={{ margin: 0, minHeight: 20, fontSize: 13, color: kopieret === 'fejl' ? T.danger : T.inkMuted }}>
               {kopieret === 'ja' ? 'Linket er kopieret.' : kopieret === 'fejl' ? 'Linket kunne ikke kopieres. Kopiér adressen fra browserens adresselinje.' : ''}
             </p>

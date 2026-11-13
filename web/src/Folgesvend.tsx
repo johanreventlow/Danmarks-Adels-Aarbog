@@ -380,13 +380,13 @@ export default function Folgesvend() {
   // Lazy geo-kæde (review 27 P3): place+fact hentes IKKE ved cold-start (se loadModel) —
   // kun de tre kort-bærende flader udløser hentningen, og kun ÉN gang (geoRequestedRef er en
   // ref, ikke state, så gentagne mode-skift ikke refetcher selvom resultatet reelt blev tomt).
-  // 'estates'/'kort' er selvforklarende kort-visninger; detailOpen dækker minikortet i
+  // 'estates'/'kort' er selvforklarende kort-visninger; 'person' har livsrejsen (fase 5b); detailOpen dækker minikortet i
   // detalje-panelet (der kan åbne fra BÅDE 'tree' og 'relate' — vi kender ikke points.length
   // for den fokuserede person før geo er hentet, så vi henter så snart panelet er åbent).
   const geoRequestedRef = useRef(false);
   const [geoLoading, setGeoLoading] = useState(false);
   useEffect(() => {
-    const needsGeo = mode === 'estates' || mode === 'kort' || detailOpen;
+    const needsGeo = mode === 'estates' || mode === 'kort' || mode === 'person' || detailOpen;
     if (!needsGeo || !model || geoRequestedRef.current) return;
     geoRequestedRef.current = true;
     setGeoLoading(true);
@@ -508,7 +508,9 @@ export default function Folgesvend() {
                   onFindSlaegtskab={() => { setRelA(focusId); setRelB(null); setRelSlot('B'); goToMode('relate'); }}
                   onSlaegt={(s) => goToMode('about', s)}
                   loggetInd={bookmarks.canSave} onLogin={() => setLoginOpen(true)}
-                  erBogmaerket={bookmarks.has(focusId)} onToggleBogmaerke={() => saveOrPrompt(focusId)} />
+                  erBogmaerket={bookmarks.has(focusId)} onToggleBogmaerke={() => saveOrPrompt(focusId)}
+                  geoLoading={geoLoading} erMig={focusId === meCanon} onToggleMig={() => toggleMe(focusId)}
+                  onVisPraesens={session?.role === 'redaktion' ? () => navigate(pathForMode('praesens', slug), { state: { fokusId: focusId } }) : undefined} />
               ) : !model ? <div style={{ padding: 40, color: T.inkMuted }}>Henter …</div> : (
                 <div style={{ padding: 40 }}>
                   <Tilstand etiket="Kan ikke vises" titel="Personen kan ikke vises"
@@ -564,17 +566,10 @@ export default function Folgesvend() {
           </aside>
         ) : (
           <DetailPanel
-            model={model} focusId={focusId} detail={detail} onPick={mode === 'tree' ? navigateTree : focusOnly}
-            personHref={visPersonPath}
+            model={model} focusId={focusId} detail={detail}
             backName={backName} onBack={() => window.history.back()} onClose={mode === 'tree' ? closeDetail : undefined}
-            onFocusTree={() => goToMode('tree')}
+            onFocusTree={mode === 'tree' ? undefined : () => goToMode('tree')}
             onRelate={() => { setRelA(focusId); setRelB(null); setRelSlot('B'); goToMode('relate'); }}
-            // Præsenslisten kræver i dag rollen redaktion (PresensView); for andre er linket en
-            // offentlig indgang til en side, de ikke kan se (webredesign fase 0).
-            onVisPraesens={session?.role === 'redaktion' ? () => navigate(pathForMode('praesens', slug), { state: { fokusId: focusId } }) : undefined}
-            isMe={focusId === meCanon} onToggleMe={() => toggleMe(focusId)}
-            isBookmarked={bookmarks.has(focusId)} onToggleBookmark={() => saveOrPrompt(focusId)}
-            geoLoading={geoLoading}
           />
         ))}
       </div>
