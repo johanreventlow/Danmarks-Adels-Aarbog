@@ -21,6 +21,8 @@ type RaaKilde = { titel: string | null; udgave: string | null };
 export type RaaCitationRow = {
   assertion_id: number | string;
   side: string | null;
+  // Trykt side (beregnet felt, findes efter DDL); til stede (også null) vinder over `side`.
+  side_trykt?: string | null;
   // PostgREST returnerer et OBJEKT for en til-én-relation, men de genererede typer siger array.
   // Begge former håndteres, så apperne ikke hver især skal caste sig ud af det.
   source: RaaKilde | RaaKilde[] | null;
@@ -39,7 +41,7 @@ export function citationRowsTilProveniens(
     const person_id = personAfAssertion.get(c.assertion_id) ?? '';
     if (!person_id) continue;
     const src = Array.isArray(c.source) ? c.source[0] ?? null : c.source;
-    ud.push({ person_id, work: src?.titel ?? src?.udgave ?? null, side: c.side });
+    ud.push({ person_id, work: src?.titel ?? src?.udgave ?? null, side: 'side_trykt' in c ? (c.side_trykt ?? null) : c.side });
   }
   return ud;
 }

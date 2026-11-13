@@ -115,3 +115,18 @@ describe('byggUdgaveVaelger', () => {
     expect(r.chips.map((x) => x.sourceId)).toEqual(['9', '10']);
   });
 });
+
+describe('postetiketter i chips (6e-2)', () => {
+  const chip = (label: string, citationLabel: string, recordLabel: string) =>
+    (byggUdgaveVaelger([{ ...v(1, recordLabel, 'tekst'), sourceLabel: label, citationLabel }], udgaver, []).chips[0] as { label: string }).label;
+  it('synlig etiket: side + post', () => {
+    expect(chip('DAA 1939', 'DAA 1939, s. 49', 'IV, nr. 3')).toBe('DAA 1939, s. 49 · IV, nr. 3');
+    expect(chip('DAA 2018-20', 'DAA 2018-20, s. 201-202', 'V-1')).toBe('DAA 2018-20, s. 201-202 · V-1');
+  });
+  it('teknisk etiket: udgavens navn (citationLabel bærer endnu PDF-siden)', () => {
+    expect(chip('DAA 1939', 'DAA 1939 side 538', 'record-07565168-b903-4444-9189-43d62d5c6ed6')).toBe('DAA 1939');
+  });
+  it('tom etiket: kun siden', () => {
+    expect(chip('DAA 1939', 'DAA 1939, s. 52', '')).toBe('DAA 1939, s. 52');
+  });
+});

@@ -87,9 +87,18 @@ export function factValue(r: PublicPersonFactRow, del: (v: string) => string = (
 // Spec §5.8: kildeetiketter viser »<udgave>, s. N«; 1939's bundne etiketter siger »DAA 1939 side 532«.
 // Kun den første » side N« efter udgaven får komma: »DAA 1939 side 12 og side 14« → »DAA 1939, s. 12 og s. 14«.
 const SIDE = String.raw`side\s+(\d+(?:\s*[-–]\s*\d+)?)(?!\d)`;
-const sideForm = (label: string) => label
+export const sideForm = (label: string): string => label
   .replace(new RegExp(String.raw`,?\s+` + SIDE, 'u'), ', s. $1')
   .replace(new RegExp(String.raw`(?<=\s)` + SIDE, 'gu'), 's. $1');
+
+// Postetiket til chips og familiekilder: bogens side + post. Tom post (''): kun siden. Teknisk etiket
+// (record-…, legacy-source:…; før ceremonien bærer citationLabel endnu PDF-siden): udgavens navn som hidtil.
+export function postEtiketTekst(sourceLabel: string, citationLabel: string, recordLabel: string): string {
+  const etiket = visbarPostEtiket(recordLabel);
+  if (etiket) return `${sideForm(citationLabel || sourceLabel)} · ${etiket}`;
+  if (recordLabel === '') return sideForm(citationLabel || sourceLabel);
+  return sourceLabel;
+}
 
 export function factSource(r: PublicPersonFactRow): PersonFactSource {
   if (r.record_ref) {

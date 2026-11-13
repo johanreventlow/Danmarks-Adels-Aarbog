@@ -99,6 +99,20 @@ describe('citationRowsTilProveniens', () => {
   });
 });
 
+describe('citationRowsTilProveniens: trykt side', () => {
+  const kilde = { titel: 'DAA 1939', udgave: null };
+  const am = new Map<number | string, string>([[1, '7']]);
+  it('side_trykt vinder, null giver kun værket, fravær falder tilbage til side', () => {
+    expect(citationRowsTilProveniens([{ assertion_id: 1, side: '541', side_trykt: '52', source: kilde }], am)[0].side).toBe('52');
+    expect(citationRowsTilProveniens([{ assertion_id: 1, side: '541', side_trykt: null, source: kilde }], am)[0].side).toBeNull();
+    expect(citationRowsTilProveniens([{ assertion_id: 1, side: '541', source: kilde }], am)[0].side).toBe('541');
+    expect(buildProvenanceSources(citationRowsTilProveniens([{ assertion_id: 1, side: '541', side_trykt: '52', source: kilde }], am))['7'])
+      .toEqual([{ work: 'DAA 1939', ref: 's. 52' }]);
+    expect(buildProvenanceSources(citationRowsTilProveniens([{ assertion_id: 1, side: '541', side_trykt: null, source: kilde }], am))['7'])
+      .toEqual([{ work: 'DAA 1939', ref: '' }]);
+  });
+});
+
 describe('flettKilder', () => {
   const bog: SourceRef[] = [{ work: 'DAA 2018-20', ref: 'Linje II, nr. 4' }];
   const evidens: SourceRef[] = [{ work: 'DAA 2018-20', ref: '' }];

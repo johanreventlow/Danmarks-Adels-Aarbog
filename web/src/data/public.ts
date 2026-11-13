@@ -185,8 +185,17 @@ async function fetchProveniens(numIds: number[]): Promise<SourceRef[]> {
     .select('id,target_id').eq('target_type', 'fact').in('target_id', factRows.map((f) => f.id));
   const assertRows = (asserts ?? []) as { id: number; target_id: number }[];
   if (!assertRows.length) return [];
-  const { data: cits } = await supabase.from('citation')
-    .select('assertion_id,side,source:source_id(titel,udgave)').in('assertion_id', assertRows.map((a) => a.id));
+  const assertIds = assertRows.map((a) => a.id);
+  // side_trykt er et beregnet felt, der først findes efter DDL; før da afviser PostgREST kaldet, og vi gentager uden.
+  const medTrykt = await supabase.from('citation')
+    .select('assertion_id,side,side_trykt,source:source_id(titel,udgave)').in('assertion_id', assertIds);
+  let citRes: { data: unknown[] | null; error: unknown } = medTrykt;
+  if (medTrykt.error) {
+    console.warn('[public] proveniens: side_trykt ikke tilgængelig, gentager uden:', medTrykt.error);
+    citRes = await supabase.from('citation')
+      .select('assertion_id,side,source:source_id(titel,udgave)').in('assertion_id', assertIds);
+  }
+  const cits = citRes.data;
   const personAfFact = new Map(factRows.map((f) => [f.id, String(f.subjekt_id)]));
   const personAfAssert = new Map(assertRows.map((a) => [a.id, personAfFact.get(a.target_id) ?? '']));
   const rows = citationRowsTilProveniens((cits ?? []) as unknown as RaaCitationRow[], personAfAssert);

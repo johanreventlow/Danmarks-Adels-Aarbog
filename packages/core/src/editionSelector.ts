@@ -2,7 +2,7 @@
 // fakta men ingen biografi. Standard = nyeste udgaves længste tekst (spec 6e §5.5, afgørelse 11).
 import type { BioSourceVersion, BioSourceVersionV2 } from './bioVersions';
 import type { Udgave } from './editionFacts';
-import { visbarPostEtiket } from './recordLabel';
+import { postEtiketTekst } from './personFacts';
 
 export type UdgaveChip =
   | { art: 'post'; sourceId: string; label: string; version: BioSourceVersion }
@@ -22,8 +22,7 @@ function versionSourceId(v: BioSourceVersion, udgaver: Udgave[]): string {
 
 function postLabel(v: BioSourceVersion): string {
   if (v.provenanceKind !== 'source_record') return `${v.sourceLabel} · overgangsdata`;
-  const etiket = visbarPostEtiket(v.recordLabel);
-  return etiket ? `${v.sourceLabel} · ${etiket}` : v.sourceLabel;
+  return postEtiketTekst(v.sourceLabel, v.citationLabel, v.recordLabel);
 }
 
 export function byggUdgaveVaelger(

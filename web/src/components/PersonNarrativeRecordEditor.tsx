@@ -230,8 +230,8 @@ export function PersonNarrativeRecordEditor({ personId, onChange }: Props) {
         );
         const isBusy = busy === id;
         return (
-          <article key={id} aria-label={`${record.sourceLabel} — ${record.recordLabel}`}>
-            <h3>{record.recordLabel}</h3>
+          <article key={id} aria-label={`${record.sourceLabel} — ${record.recordLabel || record.citationLabel}`}>
+            <h3>{record.recordLabel || record.citationLabel}</h3>
             <div>{record.sourceLabel}</div>
             <div>{record.citationLabel}</div>
             <div>{statusLabel[record.status]}</div>
@@ -239,7 +239,7 @@ export function PersonNarrativeRecordEditor({ personId, onChange }: Props) {
             {record.blockingReason ? <div role="status">{record.blockingReason}</div> : null}
             {editable ? (
               <textarea
-                aria-label={`Tekst for ${record.recordLabel}`}
+                aria-label={`Tekst for ${record.recordLabel || record.citationLabel}`}
                 value={text}
                 onChange={(event) => setTexts((current) => ({ ...current, [id]: event.target.value }))}
               />
