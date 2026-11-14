@@ -2,7 +2,7 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
-## DELVIST LØST: falsk »formodet« på 1939-forældreled — 28 rettet, 2 venter på 2018-20-tjek (2026-11-13, rettet 2026-11-14)
+## LØST: falsk »formodet« på 1939-forældreled — 28 rettet, 2 bekræftet af bogen (2026-11-13, afsluttet 2026-11-14)
 
 > **Udfald 2026-11-14:**
 > - De 28 1939-led blev tjekket på sidebillederne. Ingen af dem har »?«, »(?)« eller »formentlig« i bogen.
@@ -14,13 +14,14 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   Kvitteringerne: `FMD_MAAL_OK`, `FMD_APPLY_OK`, `FMD_VERIFY_OK` (`0,28,0,2,2,0`).
 > - Anon ser nu kun de 2 led i familie 38 som `formodet`. 1347 (= 458) er tom.
 >
-> **Tilbage:**
-> - 79 og 80 (2018-20, linje I nr. 47/48) tjekker projektejeren selv i 2018-20-bogen, fordi den har levende personer.
+> **Afklaret og tilbage:**
+> - 79 og 80 (2018-20, linje I nr. 47/48): projektejeren har tjekket 2018-20-bogen 2026-11-14. Der står »?« ved
+>   begge, så de forbliver `formodet`.
 > - Det omvendte tjek af bogens markører er gjort 2026-11-14. To OCR-lag (`raw.txt` og Calamari) giver de samme 5
 >   »(?)« om slægtskab. Ingen af de 5 har sit eget 1939-forældreled, så der er intet 1939-led at flage:
 >   - s. 13 nr. 6 Margrethe (959) og nr. 7 Hartvig (1770). 959 er foldet sammen med 80. Leddene 79/80 i familie 38
 >     (forælder 66 Hartwich) er `formodet`: præcis de to søskende, som 1939 sætter »(?)« ved. Det taler for at beholde
->     dem. 1770 er ikke foldet sammen med 79 (mulig manglende `samme_som`).
+>     dem. 1770 er ikke foldet sammen med 79 (mulig manglende `samme_som`; projektejeren har noteret det, uden for denne opgave).
 >   - s. 34 nr. 1 Magdalene (1033), foldet sammen med 169. 169's led (familie 128) er tomt, så læseren viser ikke
 >     1939's tvivl. Om det skal være `formodet`, afgør projektejeren.
 >   - s. 37 nr. 5 uden navn (1780) og s. 19 »En Sønnesøn (?)« Henning (1849): intet led og ingen navngiven tvivl at

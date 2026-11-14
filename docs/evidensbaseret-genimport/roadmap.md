@@ -13,7 +13,7 @@ mod bogen) 2026-11-07; 6c-3 (resten af A6b for 2018-20) 2026-11-08; 6d-1 (1939's
 2026-11-09; 6d-2a (oversigtsreglen og 1939's sidste identitetssager) 2026-11-10; 6d-2b (indsnævret: fire forkert
 tilskrevne tekster trukket tilbage, decisions 2026-11-10) 2026-11-10; 6d-3 (1939's relationer, dobbelt ægtefælle,
 1791 skjult) 2026-11-11; 6e-1 (læseren viser valgt udgave forrest) 2026-11-12; 6e-2 (1939's kildeetiket, trykte
-sider og koordinater) 2026-11-14. De 30 »formodet«-forældreled: 28 rettet 2026-11-14, 79/80 venter på projektejerens tjek (decisions). Status, modenhed pr. led og gates: [status.md](status.md). Sektionen her og status' »Aktivt programmål« skal
+sider og koordinater) 2026-11-14. De 30 »formodet«-forældreled: 28 rettet 2026-11-14, 79/80 bekræftet af bogens »?« (decisions). Status, modenhed pr. led og gates: [status.md](status.md). Sektionen her og status' »Aktivt programmål« skal
 sige det samme.
 
 ## Styrende rækkefølge
