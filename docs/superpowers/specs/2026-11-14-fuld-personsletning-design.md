@@ -2,7 +2,7 @@
 
 Status: v2 (2026-11-14) — revideret efter planreview og projektejerens svar på slettegrafens Q1-Q11
 (`docs/superpowers/plans/personsletning/slettegraf.md`, afsnittet »Afgørelser«). Reviewbudget: spec 1 fable-runde
-(udført), plan 2 fable-runder (v1 udført, v2), kode 1-2 Opus/Codex-runder pr. DB-task; overskridelse noteres i
+(udført), plan 2 fable-runder (v1 og v2 udført) + én smal Opus-review af v2.1-tilføjelserne, kode 1-2 Opus/Codex-runder pr. DB-task; overskridelse noteres i
 decisions. Kortlægning: 58 steder i skemaet, hvor en person kan efterlade spor
 (gennemgået 2026-11-14 og målt for 1791 på en prod-kopi af 13/11). Afgør den åbne post »hvad skal en person-sletning
 gøre ved `source_persona_identity`?« (decisions 2026-08-20) **anderledes end** dens anbefaling (tombstone +
@@ -249,7 +249,12 @@ låserækkefølger (M4).
 
 **Eksistensvagt (V2-5).** Polymorfe rækker (`fact`, `note`, `narrative`, `story`, `suggestion`, `relation`) kan ikke
 længere oprettes eller flyttes til en person eller familie, der ikke findes. Det gælder også en skrivning fra en
-forældet redaktørside efter sletningen. Målt 14/11: 0 forældreløse rækker i prod-kopien.
+forældet redaktørside efter sletningen. Vagten udvider det eksisterende `enforce_relation_evidence_target` til også
+at dække fact-mål. Målt 14/11: 0 forældreløse rækker i prod-kopien, bortset fra note 72 på den tidligere slettede
+familie 54 (projektejerens afgørelse).
+
+**Skrivepause.** Mens en sletning kører (typisk sekunder), venter alle redaktørskrivninger, der åbner et
+`change_set`. Sletningen giver op efter 5 s ventetid på en lås og ændrer da intet.
 
 ## 7. Prod og den første brug
 

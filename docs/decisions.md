@@ -27,6 +27,15 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   - **»Ikke en person«** får version n+1, så gamle versionshenvisninger fejler synligt.
 >   - **UPDATE i de låste logs** forbliver forbudt uden undtagelse.
 >   - **Låseorden.** Kildelåsen tages eksklusivt og tidligt (rettet fra specens første udgave).
+> - **Tilføjet ved plan v2.1 (planreview af v2):**
+>   - **Eksistensvagt.** En ny, permanent vagt på seks kernetabeller (`fact`, `note`, `narrative`, `story`,
+>     `suggestion`, `relation`) afviser rækker om en person eller familie, der ikke findes. Fakta-mål kommer med i den
+>     eksisterende relationsvagt.
+>   - **Fortryd afviser døde links.** En fortrydelse, der ville genskabe et link til noget, der ikke findes, afvises
+>     overalt.
+>   - **Skrivepause.** Mens en sletning kører, venter alle redaktørskrivninger. Det varer typisk sekunder, og
+>     sletningen giver selv op efter 5 s ventetid.
+>   - **Reviewbudget.** Udvidet med én smal Opus-review af disse tilføjelser.
 > - **Backlog (Q11):** 26 personer, der før er slettet med `red_slet_person`, har stadig en fuld kopi i historikken.
 >   En engangsoprydning med sit eget preview ligger uden for denne bygning.
 > - Plan v2 og slettegraf: `docs/superpowers/plans/2026-11-14-fuld-personsletning.md`,
