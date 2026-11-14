@@ -27,8 +27,9 @@ i historikken (så sletningen kan fortrydes) og spor på ca. 15 andre steder.
   hvilke filer der slettes, og hvad der forhindrer sletningen.
 - Efter sletningen findes personens id ikke i nogen række, der handler om personen. Tilladt rest er udtømmende:
   personens id-nummer i **andre** personers rækker og historik, og **bogtekst**, der står i andres eller fælles rækker:
-  genimportkvitteringer (Q1), andres narrativhistorik (Q2, 6.11), et delt medies titel (Q8) og vielsesfakta i
-  bevarede familier (beslutning 7). Listen står i planens Global Constraints.
+  genimportkvitteringer (Q1), andres narrativhistorik (Q2, 6.11), et delt medies titel (Q8), vielsesfakta i
+  bevarede familier (beslutning 7) og fritekst hos andre, som forhåndsvisningen viste til kontrol (Q9). Listen står
+  i planens Global Constraints.
 - Andre personer er uændrede, bortset fra de rækker, der direkte forbinder dem med den slettede (familieled,
   `samme_som`).
 - Læsere, medlemmer og anon kan ikke se, at personen har eksisteret.
@@ -150,7 +151,8 @@ hvor rækken handler om personen:
   »Fortrød: …«-kopi) forsvinder, fordi sættene slettes efter reglen ovenfor; bygherren beviser, at der ikke findes
   andre summaries med navn.
 - `red_fortryd_change_set` på et bevaret fælles sæt efter sletningen skal fejle lukket eller give et korrekt resultat
-  (test, med og uden force). Den må aldrig genskabe en række, der hører til den slettede (fx en `family`-række).
+  (test, med og uden force). Den må aldrig genskabe en række, der hører til den slettede (fx en `family`-række), og
+  afviser (`FORTRYD_DOED_LINK`) at genskabe tekst med et link til en person, familie eller et medie, der ikke findes.
 
 ### 6.4 Familier og identitet
 
@@ -239,10 +241,15 @@ stierne er indholdsadresserede og ikke indeholder person-id, er udbakken ikke en
 
 Rettet 2026-11-14 (planreview V-1): rækkefølgen er slettegraf §6.2 L1-L13 — kontrakt delt → rollegate →
 `lock_reimport_writer` (sorteret) → kildelås `daa-identity-candidates:<source>` **eksklusiv**, sorteret efter kilde →
-persona/identitet `FOR UPDATE` → `samme_som_mutation` + generation → `LOCK change_set IN ROW EXCLUSIVE MODE` →
+persona/identitet `FOR UPDATE` → `samme_som_mutation` + generation → `LOCK change_set IN SHARE ROW EXCLUSIVE MODE`
+(så versionerede skrivere, der er i gang, når at blive færdige, og nye venter; planreview v2, V2-5) →
 source/external-id → `lock_identity_people` → `lock_family_rows` → genberegn låsemængden (drift → afvis) og preview.
 Kildelåsen sidst gav en låsecyklus mod `red_afgoer_source_persona`. Funktionen kommer på db-verify's liste over
 låserækkefølger (M4).
+
+**Eksistensvagt (V2-5).** Polymorfe rækker (`fact`, `note`, `narrative`, `story`, `suggestion`, `relation`) kan ikke
+længere oprettes eller flyttes til en person eller familie, der ikke findes. Det gælder også en skrivning fra en
+forældet redaktørside efter sletningen. Målt 14/11: 0 forældreløse rækker i prod-kopien.
 
 ## 7. Prod og den første brug
 

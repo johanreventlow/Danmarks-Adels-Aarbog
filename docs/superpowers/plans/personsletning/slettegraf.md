@@ -82,6 +82,11 @@ Hvor et afsnit nedenfor siger noget andet, gælder dette afsnit.
   - §4.6 `samme_som_knudepunkt`: 33 personer (beslutning 8).
   - 1.150 personer har reimport-rækker. 1791 har ingen.
 
+**Efter planreview v2 (2026-11-14):** L8 i §6.2 er `SHARE ROW EXCLUSIVE`, ikke ROW EXCLUSIVE. Fejlkoden
+`PERSON_PURGE_LOCKSET_DRIFT` hedder `PURGE_LOCKSET_DRIFT`. `forrige_version` står kun på state-rækkens manifestpost,
+og `hel_stroem`-tjekket bruger `OLD.version <= forrige_version` og »ingen version > forrige_version«, ikke
+`max(version)` (planens Task 5).
+
 **Historikkens `foer`/`efter`:** `count.sql` bruger `coalesce(efter,foer)` på nogle tabeller og mangler `feed_pin`-
 formaterne fra NY-B. S46-regexen rammer aldrig (kandidat-uuid'er). Alle tre rettes, før `count.sql` bruges som
 uafhængig måler (plan Task 1).
