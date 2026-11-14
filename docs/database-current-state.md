@@ -561,7 +561,7 @@ kørte alle trin i sin shell; sessionen læste kvitteringerne. Færdigbevis: `ev
   `apply-data` 180,6 s; `dump` 104-139 s + 83 s måling.
 - **Ikke kørt:** Security Advisor i dashboardet (kun statisk); personsidens samlede indlæsning ikke tidsmålt.
 - **Står tilbage:** de 2 staged 1939-poster beholder `record-` (decisions 2026-11-13); af 30 »formodet«-forældreled er
-  28 rettet 2026-11-14 (change_set 4245-4272), 79/80 venter på projektejerens tjek (decisions).
+  28 rettet 2026-11-14 (change_set 4245-4272), 79/80 har »?« i 2018-20-bogen og forbliver `formodet` (decisions).
 
 ## 29. Redaktionen ser levende i personsidens fakta, familiekilder og koordinater — LIVE i prod (2026-11-13)
 

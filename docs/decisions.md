@@ -2,7 +2,23 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
-## DELVIST LØST: falsk »formodet« på 1939-forældreled — 28 rettet, 2 venter på 2018-20-tjek (2026-11-13, rettet 2026-11-14)
+## NOTERET: 40 nummererede 1939-børn uden forældreled, åben backlog (2026-11-14)
+
+> Måling 2026-11-14 (læse-kun: anons data fra prod, plus post→person fra en prod-kopi af 13/11). 211 af 567
+> placerede 1939-personer har intet eget barneled:
+> - **141** har forældre gennem en sammenfoldet 2018-20-person (`samme_som`). Læseren viser dem allerede.
+> - **18** står i tillægget s. 91-92 (Reventlow'er, bogen ikke kan henføre). Ingen forældre at forvente.
+> - **12** har intet løbenummer (linjehoveder og nævnte forfædre, s. 7-39 og 87).
+> - **40** er nummererede børn i en børneflok, men har intet forældreled og ingen sammenfoldning. De fleste er
+>   6c-/6d-personer (17xx-18xx) uden egen narrativbinding, flere uden navn (jf. 13 navneløse). 20 af de 40 har
+>   søskende med led på samme side, så familien kan sandsynligvis aflæses (fx 1759/1760 → familie 380, 1780 → 472-476, 1800/1801 → 692). 1770
+>   Hartvig (s. 13 nr. 7) hører hertil.
+>
+> Leddene kom fra udtrækkets `_link_foraelder_nr` (356 poster = 567 − 211). 6d-3 lod 1939's 4 børneforslag stå
+> `proposed` (`relation-child-v1` kræver koordinater, se 6d-3-afsnittet). Projektejeren afgør, om de 40 rettes som
+> redaktørarbejde (kort pr. barn, som 6d-3's D-kort) eller som et trin på roadmappen.
+
+## LØST: falsk »formodet« på 1939-forældreled — 28 rettet, 2 bekræftet af bogen (2026-11-13, afsluttet 2026-11-14)
 
 > **Udfald 2026-11-14:**
 > - De 28 1939-led blev tjekket på sidebillederne. Ingen af dem har »?«, »(?)« eller »formentlig« i bogen.
@@ -14,10 +30,20 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   Kvitteringerne: `FMD_MAAL_OK`, `FMD_APPLY_OK`, `FMD_VERIFY_OK` (`0,28,0,2,2,0`).
 > - Anon ser nu kun de 2 led i familie 38 som `formodet`. 1347 (= 458) er tom.
 >
-> **Tilbage:**
-> - 79 og 80 (2018-20, linje I nr. 47/48) tjekker projektejeren selv i 2018-20-bogen, fordi den har levende personer.
-> - Omvendt fejl: bogens markører er ikke alle flaget. 1770 står som »7. (?) Hartvig« (s. 13), men leddet er ikke
->   `formodet`. Et tjek af bogens »?«/»(?)« mod leddene mangler.
+> **Afklaret og tilbage:**
+> - 79 og 80 (2018-20, linje I nr. 47/48): projektejeren har tjekket 2018-20-bogen 2026-11-14. Der står »?« ved
+>   begge, så de forbliver `formodet`.
+> - Det omvendte tjek af bogens markører er gjort 2026-11-14 på sidebillederne af alle 92 stamtavlesider. Der er
+>   10 »?« i alt, de samme som OCR-lagene (`raw.txt` og Calamari) viser; 5 af dem gælder slægtskab, resten datoer,
+>   et andet ægteskab og bisætninger. Ingen af de 5 har sit eget 1939-forældreled, så der er intet 1939-led at flage:
+>   - s. 13 nr. 6 Margrethe (959) og nr. 7 Hartvig (1770). 959 er foldet sammen med 80. Leddene 79/80 i familie 38
+>     (forælder 66 Hartwich) er `formodet`: præcis de to søskende, som 1939 sætter »(?)« ved. Det taler for at beholde
+>     dem. 1770 er ikke foldet sammen med 79 (mulig manglende `samme_som`; projektejeren har noteret det, uden for denne opgave).
+>   - s. 34 nr. 1 Magdalene (1033), foldet sammen med 169. 169's led (familie 128) er tomt. Projektejeren
+>     2026-11-14: 2018-20 har intet »?« ved hende, så den nyere udgave har afklaret 1939's tvivl; leddet forbliver tomt.
+>     Princip: en senere udgave uden markør afklarer en tidligere udgaves »(?)«.
+>   - s. 37 nr. 5 uden navn (1780) og s. 19 »En Sønnesøn (?)« Henning (1849): intet led og ingen navngiven tvivl at
+>     flytte.
 >
 > **Oprindelig note (2026-11-13):**
 >
