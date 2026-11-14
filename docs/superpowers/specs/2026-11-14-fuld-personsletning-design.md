@@ -1,6 +1,6 @@
 # Fuld sletning af en personprofil — design (2026-11-14)
 
-Status: udkast til projektejerens godkendelse. Kortlægning: 58 steder i skemaet, hvor en person kan efterlade spor
+Status: revideret efter fable-review; projektejerens spørgsmål besvaret; til godkendelse. Kortlægning: 58 steder i skemaet, hvor en person kan efterlade spor
 (gennemgået 2026-11-14 og målt for 1791 på en prod-kopi af 13/11). Afgør den åbne post »hvad skal en person-sletning
 gøre ved `source_persona_identity`?« (decisions 2026-08-20) **anderledes end** dens anbefaling (tombstone +
 udtømning): projektejeren vælger hård sletning uden nogen rest.
@@ -57,6 +57,8 @@ i historikken (så sletningen kan fortrydes) og spor på ca. 15 andre steder.
 3. Andre personers historik må beholde id-nummeret, ikke indholdet.
 4. Kun redaktører; forhåndsvisning og bekræftelse før sletning.
 5. `slet helt` må løfte skrivespærringen på de låste logs for netop den person.
+7. Vielsesfakta i en familie, der bevares, bliver stående (6.4).
+8. Er personen knudepunkt i en sammenfoldning med to eller flere andre, afvises sletningen, til de er koblet direkte (6.4).
 6. Personens egne kildepersonas (bogens omtale) får efter sletningen en ny afgørelse »ikke en person«
    (afsnit 6.9), så de ikke vender tilbage som uafgjorte i Kildepersona-køen.
 
@@ -140,8 +142,12 @@ hvor rækken handler om personen:
   slettes også. (1791: 742/743 forsvinder; 1823/1824 bliver stående uden familie og er fortsat foldet sammen med
   815/816, hvis rigtige ægteskaber er 540/541 med 1198.)
 - En familie med andre medlemmer tilbage bevares uden personen.
-- **Vielsesfakta: AFVENTER PROJEKTEJEREN** (reviewets K3).
-- **`samme_som`: AFVENTER PROJEKTEJEREN** (reviewets V1: personen som knudepunkt mellem andre).
+- **Vielsesfakta (projektejeren 2026-11-14):** bevares familien (børn eller anden partner tilbage), bevares også dens
+  vielsesfakta med evidens; de hører også ægtefællen til og bærer ikke den slettedes navn. Slettes familien (6.4 ovenfor),
+  slettes vielsen med den. Forhåndsvisningen viser hvilke vielser der bliver stående.
+- **`samme_som` (projektejeren 2026-11-14):** har personen to eller flere identitetsnaboer (andre personer, der kun er
+  forbundet gennem den), er det en **blokering** (6.6); en redaktør kobler dem direkte først. Med én nabo slettes kanten,
+  og naboen er uændret. Forhåndsvisningen viser komponenten.
 - Låse ved familier: også `lock_family_rows` (l. 18910).
 
 ### 6.5 Andres data
@@ -162,6 +168,7 @@ hvor rækken handler om personen:
 - Promotions, der hører til en andens persona (6.3, K5).
 - En åben/uforseglet identitetskontrolkørsel, kandidatkørsel, reimport- eller publiceringsbatch, der omfatter
   personens personas (K4).
+- Personen er knudepunkt i en `samme_som`-komponent med to eller flere andre (6.4).
 - Medier delt med andre: ingen blokering; koblingen slettes, mediet og filen bevares.
 - Levende person med brugerkonto: ingen blokering; nævnes i forhåndsvisningen.
 
