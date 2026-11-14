@@ -4,7 +4,10 @@
 -- (kun TEMP-tabeller oprettes, og de forsvinder ved ROLLBACK).
 --
 -- Tre tegn tælles pr. tabel:
---   tok   : P's id som helt tal-token (ikke omgivet af ciffer/bogstav/_/.)
+--   tok   : P's id som helt tal-token: hverken foran eller efter ciffer, bogstav, _, ., : eller - (så tidsstempler,
+--           uuid-segmenter og [[person:<pid>| ikke rammes); et afsluttende punktum tæller, når intet ciffer følger.
+--           FORUDSÆTNING i fixture-mode: testpersonernes id'er er > 1.000.000 (Task 2a sætter sekvensen højt),
+--           så små tal ikke ramler ind i andre kolonner.
 --   navn  : P's navn som delstreng (springes over, hvis navnet er tomt)
 --   link  : delstrengen '[[person:<pid>|'
 --
@@ -15,7 +18,7 @@
 --   -v mode=fixture|prod  (default fixture)
 --   -v fase=foer|efter    (kun prod; default foer)
 --   -v foerfil=<sti>      (kun prod; foer SKRIVER filen, efter LÆSER den. Filen indeholder kun tabelnavne og tal
---                          plus et 8-tegns md5-præfiks af navnet, så efter kan se, at det er samme navn.)
+--                          plus et navnets længde, så efter kan se, at navnet ligner det samme.)
 --   -v planfil=<sti>      (kun prod/efter, valgfri; linjer 'tabel|forventet_fald_i_tok'. Mangler den, springes
 --                          plan-sammenligningen over, og det siges højt — det er ikke en bestået kontrol.)
 --
@@ -26,6 +29,8 @@
 -- Exit-kode != 0 (ON_ERROR_STOP), når kontrollen fejler; stderr siger hvorfor.
 \set ON_ERROR_STOP on
 \set QUIET on
+\set VERBOSITY terse
+\set SHOW_CONTEXT never
 \if :{?mode}
 \else
   \set mode fixture
@@ -82,11 +87,11 @@ SELECT t.tabel, x.tok, x.navn, x.link
           (xpath('/row/link/text()', q))[1]::text::bigint AS link
      FROM (SELECT query_to_xml(format(
             $q$SELECT count(*) FILTER (WHERE t::text ~ %L) AS tok,
-                      count(*) FILTER (WHERE %L <> '' AND strpos(t::text, %L) > 0) AS navn,
+                      count(*) FILTER (WHERE (SELECT navn FROM pg_temp.params) <> ''
+                                         AND strpos(t::text, (SELECT navn FROM pg_temp.params)) > 0) AS navn,
                       count(*) FILTER (WHERE strpos(t::text, %L) > 0) AS link
                  FROM %I.%I t$q$,
-            '(^|[^0-9A-Za-z_.])' || p.pid::text || '([^0-9A-Za-z_.]|$)',
-            p.navn, p.navn,
+            '(^|[^0-9A-Za-z_.:-])' || p.pid::text || '(\.(?![0-9])|[^0-9A-Za-z_.:-]|$)',
             '[[person:' || p.pid::text || '|',
             t.nspname, t.relname), false, true, '') AS q) s) x;
 
@@ -96,6 +101,7 @@ SELECT t.tabel, x.tok, x.navn, x.link
 -- særskilt, og testen skal afstemme det mod til_kontrol); 'nej' = aldrig.
 INSERT INTO tilladt
 SELECT * FROM (VALUES
+  -- P's id-nummer i andres rækker (Global Constraints: S11c, S23b, S32c, S41b, S43b, S45b, S46, S48, S49c, S50, NY-C, S57, S52b, S39c)
   ('private.source_persona_identity_event',      'S11c',       'ja', 'q9', 'andres identitetsevents: P-id i evidence; noter i Y-events er Q9'),
   ('private.narrative_publication_event',        'S23b/K2',    'ja', 'ja', 'andres publiceringshistorik: P i state; navn er bogtekst (K2/Q2)'),
   ('private.narrative_legacy_publication',       'S23b/K2',    'ja', 'ja', 'andres narrativ-baseline: P i state; navn er bogtekst (K2/Q2)'),
@@ -103,41 +109,43 @@ SELECT * FROM (VALUES
   ('private.reimport_event',                     'S41b',       'ja', 'nej','aktiverings-kvitteringer og same_as_hint med P-id'),
   ('private.reimport_case_event',                'S43b',       'ja', 'nej','identity_different-par med P-id'),
   ('private.identity_control_parent_card',       'S45b',       'ja', 'nej','partner_ids med P'),
-  ('private.identity_control_parent_event',      'S45b',       'ja', 'q9', 'parent_event.note er fritekst (Q9)'),
-  ('private.interpretation_promotion',           'S39c/S58a',  'ja', 'q9', 'andres bindinger (id/hash); evidence er Q9'),
-  ('private.relation_classification_event',      'S48/S58f',   'ja', 'q9', 'hash over familierækker; evidence er Q9'),
+  ('private.identity_control_sample',            'S46/bog',    'ja', 'ja', 'bogens lag (kandidat-uuid, intet P-id)'),
+  ('private.relation_classification_event',      'S48/S58',    'ja', 'q9', 'S48: hash over familierækker; S58: evidence er Q9'),
+  ('private.interpretation_promotion',           'S39c/S58',   'ja', 'q9', 'S39c: andres bindinger (id/hash); S58: evidence er Q9'),
   ('private.marriage_ordinal_correction',        'S49c',       'ja', 'q9', 'familie-id; evidence er Q9'),
-  ('private.relation_reopen',                    'S49d/S58d',  'ja', 'q9', 'context er Q9'),
-  ('private.text_revision_reconciliation',       'S58e',       'ja', 'q9', 'context er Q9'),
-  ('private.legacy_placement_disposition',       'S58h',       'ja', 'q9', 'evidence er Q9'),
-  ('private.source_record_placement_decision',   'S58i',       'ja', 'q9', 'evidence er Q9'),
-  ('private.source_persona_identity_candidate',  'S58c',       'ja', 'q9', 'andres kandidater: basis er Q9'),
-  ('public.change_event',                        'S57/K2',     'ja', 'ja', 'andres events; andres narrativ-/notehistorik med P-link er bogtekst (K2/Q2)'),
-  ('public.change_set',                          'S52b',       'ja', 'nej','sæt med subjekt P, som stadig har andres events (id)'),
-  ('public.media',                               'K3/S37b',    'ja', 'q9', 'delt medies titel (K3/Q8; Q9)'),
-  ('public.fact',                                'K5/S38b',    'ja', 'q9', 'vielsesfakta i bevarede familier (beslutning 7)'),
-  ('public.assertion',                           'K5/S38b',    'ja', 'q9', 'vielsens vaerdi_tekst i bevarede familier'),
-  ('public.citation',                            'K5/S38b',    'ja', 'q9', 'vielsens citat_tekst i bevarede familier'),
-  ('public.suggestion',                          'S34b',       'nej','q9', 'andres forslag: token blokerer, øvrig fritekst er Q9'),
-  ('private.reimport_authorization',             'S44a/Q1',    'ja', 'ja', 'authorized_elements er bogtekst og kopi af bogens lag'),
-  ('private.reimport_case_authorization',        'S44b',       'ja', 'q9', 'C3-elementer; fritekst er Q9'),
   ('private.narrative_record_cutover_receipt',   'S50/bog',    'ja', 'ja', 'bogens lag'),
   ('private.identity_control_exclusion',         'NY-C/bog',   'ja', 'ja', 'bogens lag'),
-  ('private.identity_control_sample',            'S46/bog',    'ja', 'ja', 'bogens lag'),
-  ('private.identity_control_run',               'bog',        'ja', 'ja', 'bogens lag'),
-  ('private.identity_control_event',             'bog',        'ja', 'ja', 'bogens lag'),
-  ('private.source_record',                      'bog',        'ja', 'ja', 'bogens lag'),
-  ('private.source_occurrence',                  'bog',        'ja', 'ja', 'bogens lag'),
-  ('private.source_observation%',                'bog',        'ja', 'ja', 'bogens lag'),
+  ('public.change_event',                        'S57/K2',     'ja', 'ja', 'andres events; andres narrativ-/notehistorik med P-link er bogtekst (K2/Q2)'),
+  ('public.change_set',                          'S52b',       'ja', 'nej','sæt med subjekt P, som stadig har andres events (id)'),
+  -- Bogtekst med navn, men INGEN id-tilladelse
+  ('private.reimport_authorization',             'S44a/Q1',    'nej','ja', 'authorized_elements er bogtekst og kopi af bogens lag'),
+  -- Fritekst på Q9-stederne: kun navn/link, og kun når til_kontrol har rækken; ingen id-tilladelse
+  ('private.identity_control_parent_event',      'S45b/Q9',    'nej','q9', 'parent_event.note er fritekst'),
+  ('private.reimport_case_authorization',        'S44b/Q9',    'nej','q9', 'C3-elementer; fritekst'),
+  ('public.suggestion',                          'S34b/Q9',    'nej','q9', 'andres forslag: token blokerer, øvrig fritekst er Q9'),
+  ('public.media',                               'S37b/K3/Q9', 'nej','q9', 'delt medies titel'),
+  ('public.fact',                                'K5/S38b/Q9', 'nej','q9', 'vielsesfakta i bevarede familier (beslutning 7)'),
+  ('public.assertion',                           'K5/S38b/Q9', 'nej','q9', 'vielsens vaerdi_tekst i bevarede familier'),
+  ('public.citation',                            'K5/S38b/Q9', 'nej','q9', 'vielsens citat_tekst i bevarede familier'),
+  ('private.relation_reopen',                    'S58/Q9',     'nej','q9', 'context er fritekst'),
+  ('private.text_revision_reconciliation',       'S58/Q9',     'nej','q9', 'context er fritekst'),
+  ('private.legacy_placement_disposition',       'S58/Q9',     'nej','q9', 'evidence er fritekst'),
+  ('private.source_persona_identity_candidate',  'S58/Q9',     'nej','q9', 'basis er fritekst'),
+  -- Bogens lag slettes aldrig (Global Constraints) og dens underordnede tabeller (afstemt mod pg_class på stand-in)
+  ('private.source_record%',                     'bog',        'ja', 'ja', 'source_record, _occurrence, _anchor_event, _revision_event, _placement, _placement_decision'),
+  ('private.source_observation%',                'bog',        'ja', 'ja', 'source_observation, _text'),
   ('private.source_mention',                     'bog',        'ja', 'ja', 'bogens lag'),
   ('private.source_rendition',                   'bog',        'ja', 'ja', 'bogens lag'),
   ('private.extraction_run',                     'bog',        'ja', 'ja', 'bogens lag'),
   ('private.source_persona',                     'bog',        'ja', 'ja', 'bogens lag'),
   ('private.source_persona_mention',             'bog',        'ja', 'ja', 'bogens lag'),
-  ('private.source_persona_placement%',          'bog',        'ja', 'ja', 'bogens lag'),
-  ('private.interpretation',                     'S58b/bog',   'ja', 'ja', 'bogens lag'),
+  ('private.source_persona_placement%',          'bog',        'ja', 'ja', 'source_persona_placement, _decision'),
+  ('private.identity_control_run',               'bog',        'ja', 'ja', 'bogens lag'),
+  ('private.identity_control_event',             'bog',        'ja', 'ja', 'bogens lag'),
+  ('private.interpretation',                     'bog',        'ja', 'ja', 'bogens lag'),
   ('private.interpretation_observation',         'bog',        'ja', 'ja', 'bogens lag'),
   ('private.interpretation_party',               'bog',        'ja', 'ja', 'bogens lag'),
+  ('private.interpretation_predicate',           'bog',        'ja', 'ja', 'underordnet fortolkningstabel'),
   ('private.reimport_writer_profile',            'bog',        'ja', 'ja', 'bogens lag')
 ) v(tabel_like, sted, tok_art, tekst_art, begrundelse);
 
@@ -170,7 +178,7 @@ SELECT m.tabel, m.tok, m.navn, m.link,
     -- konsistens: samme person, samme navn
     SELECT (SELECT count(*) FROM foer_raw WHERE tabel = '#pid' AND tok = (SELECT pid::text FROM params)) = 1 AS pid_ok,
            (SELECT navn = '' FROM params)
-             OR (SELECT count(*) FROM foer_raw WHERE tabel = '#navnhash' AND tok = left(md5((SELECT navn FROM params)), 8)) = 1 AS navn_ok,
+             OR (SELECT count(*) FROM foer_raw WHERE tabel = '#navnlaengde' AND tok = length((SELECT navn FROM params))::text) = 1 AS navn_ok,
            (SELECT navn = '' FROM params) AS navn_mangler
       \gset
     \if :pid_ok
@@ -183,7 +191,7 @@ SELECT m.tabel, m.tok, m.navn, m.link,
     \else
       \if :navn_ok
       \else
-        \echo 'FEJL: navnet matcher ikke foer-filens navn-hash'
+        \echo 'FEJL: navnet matcher ikke foer-filens navn-længde'
         SELECT 1/0;
       \endif
     \endif
@@ -236,7 +244,7 @@ SELECT m.tabel, m.tok, m.navn, m.link,
     \endif
     \o :foerfil
     SELECT '#pid', pid::text, '', '' FROM params
-    UNION ALL SELECT '#navnhash', left(md5(navn), 8), '', '' FROM params
+    UNION ALL SELECT '#navnlaengde', length(navn)::text, '', '' FROM params
     UNION ALL SELECT tabel, tok::text, navn::text, link::text FROM maaling ORDER BY 1;
     \o
     \echo '-- tabel|tok|navn|link (kun tabeller med nogen forekomst; fuld liste i foer-filen)'
