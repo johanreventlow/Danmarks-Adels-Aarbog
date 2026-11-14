@@ -1,5 +1,5 @@
 import { buildModel } from '../buildModel';
-import { computeRelationship, multiplicitetForled, relationshipLabel } from '../relationship';
+import { computeRelationship, multiplicitetForled, relationshipLabel, slaegtskabTilMig } from '../relationship';
 import type { Db } from '../types';
 
 const mk = (id: string, name: string) => ({ id, name, born: null, died: null, years: '', title: '', bio: '', privat: false });
@@ -448,5 +448,69 @@ describe('korroboration — delt mellem-knude tæller ikke som uafhængig', () =
     expect(r.lines[0].uafhaengige).toBe(1);
     // Begge stier deler mellem-knuden N.
     expect(r.lines[0].steps.map((s) => s.id)).toContain('N');
+  });
+});
+
+describe('slaegtskabTilMig — ordet set fra mig', () => {
+  const m = { koen: 'mand' as const }, k = { koen: 'kvinde' as const };
+
+  test('giver ordet for hver række set fra mig', () => {
+    expect(slaegtskabTilMig(1, 0, m)).toBe('din far');
+    expect(slaegtskabTilMig(1, 0, k)).toBe('din mor');
+    expect(slaegtskabTilMig(1, 0)).toBe('din forælder');
+    expect(slaegtskabTilMig(2, 0, m)).toBe('din bedstefar');
+    expect(slaegtskabTilMig(3, 0, k)).toBe('din oldemor');
+    expect(slaegtskabTilMig(4, 0, m)).toBe('din tipoldefar');
+    expect(slaegtskabTilMig(6, 0, m)).toBe('din ane, 6 slægtled tilbage');
+    expect(slaegtskabTilMig(0, 1, m)).toBe('din søn');
+    expect(slaegtskabTilMig(0, 1)).toBe('dit barn');
+    expect(slaegtskabTilMig(0, 2, k)).toBe('dit barnebarn');
+    expect(slaegtskabTilMig(0, 3)).toBe('dit oldebarn');
+    expect(slaegtskabTilMig(0, 4)).toBe('dit tipoldebarn');
+    expect(slaegtskabTilMig(0, 5)).toBe('din efterkommer, 5 slægtled frem');
+    expect(slaegtskabTilMig(1, 1, m)).toBe('din bror');
+    expect(slaegtskabTilMig(1, 1, k)).toBe('din søster');
+    expect(slaegtskabTilMig(1, 1)).toBe('dit søskende');
+    expect(slaegtskabTilMig(1, 1, { koen: 'mand', half: true })).toBe('din halvbror');
+    expect(slaegtskabTilMig(2, 1, m)).toBe('din onkel'); // fokus er ældre (d2 < d1)
+    expect(slaegtskabTilMig(2, 1)).toBe('din onkel/tante');
+    expect(slaegtskabTilMig(1, 2, k)).toBe('din niece'); // fokus er yngre
+    expect(slaegtskabTilMig(1, 2)).toBe('din niece/nevø'); // samme rækkefølge som relationshipLabel
+    expect(slaegtskabTilMig(1, 3)).toBe('din grandniece/-nevø');
+    expect(slaegtskabTilMig(3, 1, k)).toBe('din grandtante');
+    expect(slaegtskabTilMig(1, 3, m)).toBe('din grandnevø');
+    expect(slaegtskabTilMig(2, 1, { koen: 'mand', half: true })).toBe('din onkel (halv)');
+    expect(slaegtskabTilMig(2, 2, m)).toBe('din 1. grads fætter');
+    expect(slaegtskabTilMig(2, 2, k)).toBe('din 1. grads kusine');
+    expect(slaegtskabTilMig(2, 2)).toBe('din 1. grads fætter/kusine');
+    expect(slaegtskabTilMig(3, 2, m)).toBe('din 1. grads fætter · 1 gang forskudt');
+    expect(slaegtskabTilMig(4, 2, k)).toBe('din 1. grads kusine · 2 gange forskudt');
+    expect(slaegtskabTilMig(3, 3, { koen: 'mand', half: true })).toBe('din 2. grads fætter (halv)');
+    expect(slaegtskabTilMig(0, 0)).toBe('');
+  });
+
+  test('holder retning, store forskydninger og neutrale halvformer', () => {
+    expect(slaegtskabTilMig(4, 1, m)).toBe('din grandonkel'); // forskydning 3 → stadig grand- (valg 8)
+    expect(slaegtskabTilMig(1, 4)).toBe('din grandniece/-nevø');
+    expect(slaegtskabTilMig(5, 2, k)).toBe('din 1. grads kusine · 3 gange forskudt');
+    expect(slaegtskabTilMig(2, 5, m)).toBe('din 1. grads fætter · 3 gange forskudt');
+    expect(slaegtskabTilMig(1, 1, { half: true })).toBe('dit halvsøskende');
+    expect(slaegtskabTilMig(2, 2, { half: true })).toBe('din 1. grads fætter/kusine (halv)');
+    expect(slaegtskabTilMig(1, 2, { half: true })).toBe('din niece/nevø (halv)');
+  });
+
+  test('er ikke-tom og har samme grad som relationshipLabel (krydstest)', () => {
+    for (let d1 = 0; d1 <= 5; d1++) {
+      for (let d2 = 0; d2 <= 5; d2++) {
+        if (d1 === 0 && d2 === 0) continue;
+        const par = relationshipLabel(d1, d2);
+        const mig = slaegtskabTilMig(d1, d2);
+        expect(par).not.toBe('');
+        expect(mig).not.toBe('');
+        if (Math.min(d1, d2) >= 2) {
+          expect(mig.match(/(\d+)\. grads/)?.[1]).toBe(par.match(/(\d+)\. grads/)?.[1]);
+        }
+      }
+    }
   });
 });
