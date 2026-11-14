@@ -22,6 +22,15 @@
 --     uden DML (som withdraw_legacy_narrative, der kun skriver ikke-versionerede publiceringsrækker).
 --   * purge_test.forventet (V2-2) fyldes trinvis ud fra de id'er, skriverne returnerede, og de sæt, de lige åbnede —
 --     aldrig fra en forespørgsel af typen »alle rækker om P«. pk har version_pk_registry's form (som change_event.row_pk).
+--     pk-konvention: tabel uden skema = public, ellers 'private.<tabel>'. En række matches med to_jsonb(række) @> pk, så pk
+--     kan være en delmængde af kolonnerne. Uden for registret: hele PK'en (fx text_mention, private.entity_description_source,
+--     private.identity_control_parent_event {card_id,seq}), uuid-PK som {"id": "<uuid>"}. Undtagelse: S10-rækkerne
+--     (private.source_persona_identity) har pk {source_persona_id, canonical_person_id=P}; sletningen erstatter dem
+--     under samme PK, og canonical_person_id gør, at den nye række ikke matcher facit.
+--   * Rækker, sletningen selv OPRETTER (slettegraf §3.1 punkt 3, Q7), og som Task 8's purge_andre_uaendrede skal navngive:
+--     for hver x ∈ X = {X1, X2} (purge_test.uid 'X1' og 'X2') én ny private.source_persona_identity_event med
+--     decision_status='rejected', evidence {"reason":"not_a_person"} og version n+1 (n = max(version) før sletningen:
+--     X1 n=1, X2 n=3), og state-rækken private.source_persona_identity for x i samme form (samme PK, nyt indhold).
 --
 -- Task 2b (afsnittet »ledgers og identitet« før kontrollen) dækker S10-S12, S22-S24, S33b, S36 og §1e, herunder R3
 -- (det fælles sæts narrative_publication_event) og R11 (paadennedag:<P>:født:<år>). S9 kan ikke forekomme: kvitteringen
@@ -746,8 +755,9 @@ SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
 --    f) Genåbning af familiebindingen (relation_reopen, S49a) fra fam_keep til en familie uden P (fam_andre = union af
 --       nabo og tredje); ny version v3 af fortolkningen. Målet er bevidst ikke fam_del: en genåbning med to_family_id i
 --       Fam_del rører grænsen mellem S49d (blokér) og Q6 (slet), som hører til en blokeringsgruppe, ikke fixturen.
---    g) Afstemning efter tekstrevision (text_revision_reconciliation, S49b): Prom_egen tilbagetrukket; revisionshændelsen
---       er P's publication_persona-hændelse (S41a), så begge FK-veje i fase 2a er dækket.
+--    g) Afstemning efter tekstrevision (text_revision_reconciliation, S49b), to rækker, der hver kun nås ad én vej:
+--       g1) kun via Prom_egen: tilbagetrukket binding; revisionshændelsen er tredjes publication_persona-hændelse (ikke P's);
+--       g2) kun via S41a: ikke_genfundet uden promotions; revisionshændelsen er P's publication_persona-hændelse.
 DO $$
 DECLARE v_actor uuid:='a2a00000-0000-4000-8000-00000000a001'; v_p bigint:=purge_test.id('P');
   v_ka bigint:=purge_test.id('kilde_a'); v_x2 uuid:=purge_test.u('X2'); v_obs uuid:=purge_test.u('X2_klausul');
@@ -832,13 +842,21 @@ BEGIN
     VALUES (v_m3,v_key_m,v_m2,v_prom_fam,purge_test.id('fam_keep'),purge_test.id('fam_andre'),purge_test.u('Y'),2,
             'Genåbnet efter identitetsrettelse.','{"fixture":"purge"}',v_actor,'Purge-redaktør');
   PERFORM purge_test.fs('S49a','private.relation_reopen',jsonb_build_object('to_interpretation_id',v_m3));
-  -- g)
+  -- g1)
   INSERT INTO private.text_revision_reconciliation(revision_batch_id,revision_element_id,old_interpretation_key,
     old_promotion_id,outcome,context,decided_by,decided_by_name)
-    VALUES (purge_test.u('b_batch'),'publication-persona:PURGE-P',v_key_t,v_prom,'tilbagetrukket','{"fixture":"purge"}',
+    VALUES (purge_test.u('b_batch'),'publication-persona:PURGE-T',v_key_t,v_prom,'tilbagetrukket','{"fixture":"purge"}',
             v_actor,'Purge-redaktør');
   PERFORM purge_test.fs('S49b','private.text_revision_reconciliation',
     jsonb_build_object('id',(SELECT id FROM private.text_revision_reconciliation WHERE old_promotion_id=v_prom)));
+  -- g2)
+  INSERT INTO private.text_revision_reconciliation(revision_batch_id,revision_element_id,old_interpretation_key,
+    old_promotion_id,outcome,context,decided_by,decided_by_name)
+    VALUES (purge_test.u('b_batch'),'publication-persona:PURGE-P',v_key_t,NULL,'ikke_genfundet','{"fixture":"purge"}',
+            v_actor,'Purge-redaktør');
+  PERFORM purge_test.fs('S49b','private.text_revision_reconciliation',
+    jsonb_build_object('id',(SELECT id FROM private.text_revision_reconciliation
+                              WHERE old_interpretation_key=v_key_t AND old_promotion_id IS NULL)));
 END $$;
 SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
 
@@ -851,8 +869,12 @@ SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
 --    b) Legacy-publicering af P's narrativ (S24): grandfathered → withdrawn med en legacy_withdrawn-hændelse under
 --       2a's withdraw-sæt (saet_withdraw, 0 change_events, som withdraw_legacy_narrative); latest_event_id peger på
 --       hændelsen (fase 3a nulstiller den, før 3b sletter hændelsen).
---    c) Navnefuldførelse (S42): writeren kræver en staged, navnløs person fra en person_create-hændelse; P er oprettet af
---       red_opret_person. Rækken peger på B-/C-batchen og P's navnefaktum (fabrikeret).
+--    c) Navnefuldførelse (S42) i prod-formen fra 18/8-kørslen (fabrikeret: writeren kræver en staged, navnløs person fra
+--       en person_create-hændelse, og P er oprettet af red_opret_person). Et separat batchpar i kilde A:
+--       forælder = reimport-autorisation (consumed), batch activated, med P's person_create-hændelse (S41a);
+--       barn = name_completion-autorisation (consumed, source_batch_id = forælderen), batch finalized, med P's
+--       canonical_delta-hændelse (S41a) og resultatrækken (S42). Forælderen er activated, så batchparret blokerer ikke
+--       (slettegraf §4.4 punkt 2 med »Afgørelser«-præciseringen). Rækken peger på P's navnefaktum.
 --    d) C3-tildeling (S43a): reimport_case_event record_assign med target_person_id=P i en finaliseret case-batch.
 --    e) Kontrolkørsel på kandidatkørslen (terminal: sealed → failed) med stikprøve på X1, hvis mapping/expected er P's
 --       kandidat-uuid (S46, bevar_andres), og et forældrekort med counterpart_person_id=P (S45a) og dets event (M5).
@@ -860,6 +882,7 @@ DO $$
 DECLARE v_actor uuid:='a2a00000-0000-4000-8000-00000000a001'; v_p bigint:=purge_test.id('P');
   v_ka bigint:=purge_test.id('kilde_a'); v_kb bigint:=purge_test.id('kilde_b'); v_e uuid; v_ref uuid:='a2a00000-0000-4000-8000-0000000000c1';
   v_st jsonb; v_sha text; v_auth uuid; v_batch uuid; v_ev bigint; v_run uuid; v_smp uuid; v_card uuid; v_nf bigint; r record;
+  v_prof jsonb; v_nc_parent uuid; v_nc_child uuid;
   v_sheet text:=repeat('a',64); v_rows text:=repeat('b',64);
 BEGIN
   -- a)
@@ -892,13 +915,56 @@ BEGIN
   PERFORM purge_test.fs('S23','private.narrative_publication_event',jsonb_build_object('id',v_e));
   PERFORM purge_test.fs('S24','private.narrative_legacy_publication',jsonb_build_object('legacy_publication_ref',v_ref));
   -- c)
+  v_prof:=(SELECT jsonb_build_object('id',profile_id,'sha',profile_sha256) FROM private.reimport_writer_profile
+            WHERE source_id=v_ka AND profile_id='fixture-pub-a');
+  INSERT INTO private.reimport_authorization(operation,manifest_sha256,preview_sha256,database_identity,source_id,
+    expected_counts,authorized_elements,principal_id,nonce,expires_at,status,consumed_at,profile_id,profile_sha256)
+    VALUES ('reimport',repeat('a1',32),repeat('a2',32),
+            jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,
+            v_ka,'{"person_creates":1,"source_evidence":0}',
+            jsonb_build_object('person-create:PURGE-P',jsonb_build_object('source_record_key','PURGE-P')),
+            v_actor,gen_random_uuid(),clock_timestamp()-interval '1 minute','consumed',clock_timestamp(),
+            v_prof->>'id',v_prof->>'sha')
+    RETURNING id INTO v_auth;
+  INSERT INTO private.reimport_batch(authorization_id,manifest_sha256,preview_sha256,principal_id,status,expected_counts,
+    observed_counts,finalized_at,source_id,profile_id,profile_sha256)
+    VALUES (v_auth,repeat('a1',32),repeat('a2',32),v_actor,'activated','{"person_creates":1,"source_evidence":0}',
+            '{"person_creates":1,"source_evidence":0}',clock_timestamp(),v_ka,v_prof->>'id',v_prof->>'sha')
+    RETURNING id INTO v_nc_parent;
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,canonical_person_id,payload,after_sha256)
+    VALUES (v_nc_parent,'person-create:PURGE-P','person_create','PURGE-P',v_p,
+            jsonb_build_object('source_persona_id',purge_test.u('X1'),'authorized_payload_sha256',repeat('e',64)),repeat('a3',32))
+    RETURNING id INTO v_ev;
+  PERFORM purge_test.fs('S41a','private.reimport_event',jsonb_build_object('id',v_ev));
+  INSERT INTO private.reimport_authorization(operation,manifest_sha256,preview_sha256,database_identity,source_id,
+    expected_counts,authorized_elements,principal_id,nonce,expires_at,status,consumed_at,profile_id,profile_sha256)
+    VALUES ('name_completion',repeat('b1',32),repeat('a1',32),
+            jsonb_build_object('database_name',current_database(),'system_identifier',(pg_control_system()).system_identifier::text)::text,
+            v_ka,'{"name_completions":1,"operations":1}',
+            jsonb_build_object('source_batch_id',v_nc_parent,'payloads',
+              jsonb_build_object('name-completion:PURGE-P',jsonb_build_object('source_record_key','PURGE-P')),
+              'source_manifest_bytes_sha256',repeat('a2',32),'source_manifest_content_sha256',repeat('a1',32)),
+            v_actor,gen_random_uuid(),clock_timestamp()-interval '1 minute','consumed',clock_timestamp(),
+            v_prof->>'id',v_prof->>'sha')
+    RETURNING id INTO v_auth;
+  INSERT INTO private.reimport_batch(authorization_id,manifest_sha256,preview_sha256,principal_id,status,expected_counts,
+    observed_counts,finalized_at,source_id,profile_id,profile_sha256)
+    VALUES (v_auth,repeat('b1',32),repeat('a1',32),v_actor,'finalized','{"name_completions":1,"operations":1}',
+            '{"name_completions":1,"operations":1}',clock_timestamp(),v_ka,v_prof->>'id',v_prof->>'sha')
+    RETURNING id INTO v_nc_child;
+  PERFORM purge_test.gem_u('nc_forælder',v_nc_parent); PERFORM purge_test.gem_u('nc_barn',v_nc_child);
+  INSERT INTO private.reimport_event(batch_id,element_id,operation,source_record_key,canonical_person_id,payload,after_sha256)
+    VALUES (v_nc_child,'name-completion:PURGE-P','canonical_delta','PURGE-P',v_p,
+            jsonb_build_object('source_batch_id',v_nc_parent,'source_record_key','PURGE-P'),repeat('b2',32))
+    RETURNING id INTO v_ev;
+  PERFORM purge_test.fs('S41a','private.reimport_event',jsonb_build_object('id',v_ev));
   SELECT f.id AS fact_id, c.valgt_assertion_id AS assertion_id, ci.id AS citation_id, c.id AS conclusion_id INTO r
     FROM public.fact f JOIN public.conclusion c ON c.target_type='fact' AND c.target_id=f.id
     JOIN public.citation ci ON ci.assertion_id=c.valgt_assertion_id
    WHERE f.subjekt_type='person' AND f.subjekt_id=v_p AND f.faktatype='navn' ORDER BY ci.id LIMIT 1;
   INSERT INTO private.reimport_name_completion_result(batch_id,element_id,source_batch_id,person_id,source_record_id,
     source_persona_id,fact_id,assertion_id,citation_id,conclusion_id,payload_sha256,result_sha256)
-    VALUES (purge_test.u('c_batch'),'name-completion:PURGE-P',purge_test.u('b_batch'),v_p,purge_test.u('record_P'),
+    VALUES (v_nc_child,'name-completion:PURGE-P',v_nc_parent,v_p,purge_test.u('record_P'),
             purge_test.u('X1'),r.fact_id,r.assertion_id,r.citation_id,r.conclusion_id,repeat('e',64),repeat('f',64));
   PERFORM purge_test.fs('S42','private.reimport_name_completion_result',
     jsonb_build_object('id',(SELECT id FROM private.reimport_name_completion_result WHERE person_id=v_p)));
@@ -932,6 +998,9 @@ BEGIN
             jsonb_build_object('1',purge_test.u('kandidat_P')::text),purge_test.u('kandidat_P')::text)
     RETURNING id INTO v_smp;
   PERFORM purge_test.gem_u('stikproeve_X1',v_smp);
+  -- Fixturtilnærmelse: kortets interpretation_key er en tilfældig uuid uden en fortolkning bag (i prod er det nøglen for
+  -- et relation.parent-forslag på et barns record, l. 19706-19714). Tabellen har ingen FK, og sletningen ser kun på
+  -- counterpart_person_id.
   INSERT INTO private.identity_control_parent_card(control_run_id,interpretation_key,interpretation_version,family_id,
     counterpart_person_id,counterpart_persona_id,partner_ids)
     VALUES (v_run,gen_random_uuid(),1,purge_test.id('fam_keep'),v_p,purge_test.u('X2'),
@@ -1097,12 +1166,41 @@ BEGIN
                                ORDER BY e.seq DESC LIMIT 1),'uforseglet') NOT IN ('passed','failed')) THEN
     RAISE EXCEPTION 'PURGE_FIXTURE_KONTROL: åben kontrolkørsel (aaben_koersel)';
   END IF;
-  IF EXISTS (SELECT 1 FROM private.reimport_batch WHERE status='open')
-     OR EXISTS (SELECT 1 FROM private.reimport_case_batch WHERE status='open')
-     OR EXISTS (SELECT 1 FROM private.reimport_authorization WHERE status='issued')
-     OR EXISTS (SELECT 1 FROM private.reimport_case_authorization WHERE status='issued')
-     OR EXISTS (SELECT 1 FROM private.reimport_event WHERE operation='person_create' AND canonical_person_id=v_p) THEN
-    RAISE EXCEPTION 'PURGE_FIXTURE_KONTROL: åben/udstedt batch eller autorisation';
+  -- §4.4 med »Afgørelser«-præciseringerne (punkt 2: en finalized name_completion-batch blokerer kun, hvis dens
+  -- forælderbatch stadig er finalized; punkt 3: kun issued med expires_at > now()). Tjekket gælder alle kilder (strengere
+  -- end sources(P)).
+  IF EXISTS (SELECT 1 FROM private.reimport_batch WHERE status='open')                                       -- punkt 1
+     OR EXISTS (SELECT 1 FROM private.reimport_batch b JOIN private.reimport_event e ON e.batch_id=b.id     -- punkt 2
+                 WHERE b.status='finalized' AND e.operation='person_create' AND e.canonical_person_id=v_p)
+     OR EXISTS (SELECT 1 FROM private.reimport_batch c                                                    -- punkt 2
+                  JOIN private.reimport_authorization a ON a.id=c.authorization_id AND a.operation='name_completion'
+                  JOIN private.reimport_batch f ON f.id=(a.authorized_elements->>'source_batch_id')::uuid
+                 WHERE c.status='finalized' AND f.status='finalized')
+     OR EXISTS (SELECT 1 FROM private.reimport_authorization WHERE status='issued' AND expires_at>now())  -- punkt 3
+     OR EXISTS (SELECT 1 FROM private.reimport_case_batch WHERE status='open')                               -- punkt 4
+     OR EXISTS (SELECT 1 FROM private.reimport_case_authorization WHERE status='issued') THEN
+    RAISE EXCEPTION 'PURGE_FIXTURE_KONTROL: blokerende batch eller autorisation (§4.4)';
+  END IF;
+  -- S42 står i prod-formen: barnebatchen har en name_completion-autorisation, forælderen er activated med en
+  -- reimport-autorisation.
+  IF NOT EXISTS (SELECT 1 FROM private.reimport_name_completion_result r
+                   JOIN private.reimport_batch c ON c.id=r.batch_id AND c.status='finalized'
+                   JOIN private.reimport_authorization ca ON ca.id=c.authorization_id AND ca.operation='name_completion'
+                   JOIN private.reimport_batch f ON f.id=r.source_batch_id AND f.status='activated'
+                   JOIN private.reimport_authorization fa ON fa.id=f.authorization_id AND fa.operation='reimport'
+                  WHERE r.person_id=v_p AND ca.authorized_elements->>'source_batch_id'=f.id::text) THEN
+    RAISE EXCEPTION 'PURGE_FIXTURE_KONTROL: S42 er ikke i prod-formen';
+  END IF;
+  -- S49b diskriminerer: én række kun via Prom_egen (revisionshændelsen er ikke P's), én kun via S41a (ingen promotion).
+  IF (SELECT count(*) FROM private.text_revision_reconciliation t
+        JOIN private.reimport_event e ON (e.batch_id,e.element_id)=(t.revision_batch_id,t.revision_element_id)
+       WHERE t.old_promotion_id=purge_test.u('prom_egen') AND t.new_promotion_id IS NULL
+         AND e.canonical_person_id IS DISTINCT FROM v_p) <> 1
+     OR (SELECT count(*) FROM private.text_revision_reconciliation t
+           JOIN private.reimport_event e ON (e.batch_id,e.element_id)=(t.revision_batch_id,t.revision_element_id)
+          WHERE t.old_promotion_id IS NULL AND t.new_promotion_id IS NULL AND e.canonical_person_id=v_p) <> 1
+     OR (SELECT count(*) FROM purge_test.sted WHERE sted='S49b') <> 2 THEN
+    RAISE EXCEPTION 'PURGE_FIXTURE_KONTROL: S49b-rækkerne diskriminerer ikke';
   END IF;
   IF EXISTS (SELECT 1 FROM unnest(v_x||v_y) x WHERE private.persona_awaiting_control(x)) THEN
     RAISE EXCEPTION 'PURGE_FIXTURE_KONTROL: persona venter på kontrol';
