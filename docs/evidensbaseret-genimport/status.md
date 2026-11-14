@@ -42,7 +42,7 @@ prod 2026-11-11** (PR #315, `database-current-state.md` §27): writerens profile
 strukturelle bindinger for kilde 3 (68 ægteskaber, 46 maskinelt og 22 via kontrolkort, og 1 forælder); 42 `samme_som`
 fjerner den dobbelte ægtefælle (42 → 0); 1791 og 1795 er private; kilde 1 uændret. 203 ægteskaber, 5 forældre og 4
 børn står `proposed` med årsag (161 parkeret af navnereglen, 42 ikke egnede; børn kræver `relation-child-v1`). De 29
-records uden narrativbinding har 0 relationsforslag. **6e-1 er i prod 2026-11-12, 6e-2 2026-11-14** (`database-current-state.md` §30: 561 1939-bindinger med læsbar etiket og trykt side, koordinatkaldet 1,26 → 0,31 s; [færdigbevis](laeserflade-6e2-prod.md)). Næste: de 30 »formodet«-forældreled (decisions 2026-11-13). 2018-20's fødsler og dødsfald er bundet til bogens post 2026-11-12 (`database-current-state.md` §28: 509 bindinger; 59 `SKRIVEMAADE` står `proposed`, del 2 er ikke besluttet). Åben backlog fra 6d-3: en
+records uden narrativbinding har 0 relationsforslag. **6e-1 er i prod 2026-11-12, 6e-2 2026-11-14** (`database-current-state.md` §30: 561 1939-bindinger med læsbar etiket og trykt side, koordinatkaldet 1,26 → 0,31 s; [færdigbevis](laeserflade-6e2-prod.md)). De 30 »formodet«-forældreled: 28 rettet 2026-11-14, 79/80 venter på projektejerens tjek (decisions). 2018-20's fødsler og dødsfald er bundet til bogens post 2026-11-12 (`database-current-state.md` §28: 509 bindinger; 59 `SKRIVEMAADE` står `proposed`, del 2 er ikke besluttet). Åben backlog fra 6d-3: en
 1939-navneregel, hovedpersoner ukoblet mens ægtefællen er koblet (decisions 2026-11-11) og den fælles 5ab-runners
 `profile_file`.
 

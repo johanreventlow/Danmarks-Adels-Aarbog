@@ -560,8 +560,8 @@ kørte alle trin i sin shell; sessionen læste kvitteringerne. Færdigbevis: `ev
 - **Tid i prod:** `maal` 35-47 s; DDL 27,3 s; ceremonien 120,1 s (604 sætninger, langsomste 19,4 s; stand-in 11,4 s);
   `apply-data` 180,6 s; `dump` 104-139 s + 83 s måling.
 - **Ikke kørt:** Security Advisor i dashboardet (kun statisk); personsidens samlede indlæsning ikke tidsmålt.
-- **Står tilbage:** de 2 staged 1939-poster beholder `record-` (decisions 2026-11-13); 30 »formodet«-forældreled tjekkes
-  mod bogen (decisions 2026-11-13).
+- **Står tilbage:** de 2 staged 1939-poster beholder `record-` (decisions 2026-11-13); af 30 »formodet«-forældreled er
+  28 rettet 2026-11-14 (change_set 4245-4272), 79/80 venter på projektejerens tjek (decisions).
 
 ## 29. Redaktionen ser levende i personsidens fakta, familiekilder og koordinater — LIVE i prod (2026-11-13)
 

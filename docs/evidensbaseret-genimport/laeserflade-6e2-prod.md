@@ -77,6 +77,7 @@ er det viste, og nummeret står ved personen:
 - Redaktør-visningen i browseren (logget ind) er ikke tjekket i prod; katalog-tjekket er grønt.
 - Security Advisor i dashboardet er ikke kørt (kun statisk).
 - De 2 staged 1939-poster beholder `record-`-etiketten (decisions 2026-11-13, afgørelse A).
-- 30 »formodet«-forældreled tjekkes mod bogens »?« (decisions 2026-11-13) — næste.
+- 30 »formodet«-forældreled: 28 fra 1939 uden markør i bogen er sat til tom konfidens 2026-11-14 (change_set
+  4245-4272); 79/80 (2018-20) venter på projektejerens tjek (decisions).
 - Fortrydelse: data med ddl-dumpet (`fortryd`), DDL med snapshot-mappen `prod/6e2/fortryd-ddl-20261114095036`
   (`fortryd-ddl`); begge prøvet i generalprøve 3. Efter færdigbeviset er rettelser almindelig redigering.
