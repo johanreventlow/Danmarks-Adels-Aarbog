@@ -110,6 +110,17 @@ echo "kan_ikke_forekomme: $KAN_IKKE_FOREKOMME"
 [ "$(antal S46)" -gt 0 ] 2>/dev/null || die "fixture_daekker_slettegraf: S46 er $(antal S46)"
 echo "OK fixture_daekker_slettegraf"
 echo "facit: $(a "$DB" "SELECT string_agg(handling||'='||n,' ' ORDER BY handling) FROM (SELECT handling,count(*) n FROM purge_test.forventet GROUP BY 1) x")"
+
+# ---------------------------------------------------------------------------------------------------------------------
+# SQL-testgrupperne i tests/sql/test-person-purge.sql, hver i sin egen kopi (de midlertidige tabeller/kolonner i
+# katalogvagtens test oprettes og fjernes kun dér).
+for g in inventar; do
+  gruppe "$g"
+  ud=$(env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$DB" -v gruppe="$g" -f tests/sql/test-person-purge.sql 2>&1)
+  rc=$?
+  printf '%s\n' "$ud" | grep -v NOTICE
+  [ "$rc" = 0 ] || die "testgruppen $g fejlede"
+done
 echo FRISK_OK
 
 # ---------------------------------------------------------------------------------------------------------------------

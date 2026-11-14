@@ -36331,3 +36331,464 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
 $$;
 REVOKE ALL ON FUNCTION public.public_person_source_coordinates_samlet() FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.public_person_source_coordinates_samlet() TO anon,authenticated;
+
+-- ===================================================================================
+-- Fuld personsletning (2026-11-14)
+-- Idempotent spejl af schema.sql-sektionen »FULD PERSONSLETNING« (CREATE OR REPLACE; kan køres to gange).
+-- Spec 2026-11-14-fuld-personsletning-design.md; plan docs/superpowers/plans/2026-11-14-fuld-personsletning.md; slettegraf docs/superpowers/plans/personsletning/slettegraf.md).
+-- Sektionen står sidst i filen, efter alle tabeller den nævner (K-4). Inventar og undtagelser er VALUES-funktioner,
+-- ikke tabeller, så de er dækket af harnessens sammenligning af funktionskroppe og ikke kan ændres med DML.
+--
+-- Task 3: sletteinventar og katalogvagt pr. kolonne (K-1, V-7, K2-2).
+--   person_purge_inventar()        én række pr. (sted, tabel[, handling/grund]) i slettegrafen, inkl. bevar_andres,
+--                                  blokér og steder uden egen handling (ingen). `kolonner` er de kolonner, stedet finder
+--                                  eller rummer P igennem. `grund` er den, manifestet bruger (slettegraf §3.2, Q5-Q7,
+--                                  M2-4); historikken (change_event/change_set) har ingen append-only-trigger og ingen
+--                                  grund.
+--   person_purge_undtagelser()     kandidatkolonner, der ikke er et sted, hver med begrundelse. kolonne='*' undtager en
+--                                  hel tabel og er kun tilladt for bogens lag og rene opslagstabeller (slettegraf §2.3).
+--   person_purge_kandidatkolonner() alle kolonner i public/private af typen bigint, integer, uuid, text, jsonb eller
+--                                  arrays af dem. `art` er kun beskrivende (FK, type/id-par, navn); den afgør ikke, om
+--                                  kolonnen er kandidat.
+-- Vagtreglen (tests/sql/test-person-purge.sql, gruppe inventar): hver kandidatkolonne står i et inventarsteds
+-- `kolonner` for samme tabel eller i undtagelserne. En ny tabel eller kolonne skal klassificeres, før CI er grøn; tasks,
+-- der opretter tabeller, opdaterer inventar eller undtagelser i samme ændring (V2-7).
+-- Tabelnavne følger fixturens facit (purge_test.forventet): public-tabeller uden skema, private-tabeller med `private.`.
+-- ===================================================================================
+CREATE OR REPLACE FUNCTION private.person_purge_inventar()
+RETURNS TABLE(sted text, tabel text, kolonner text[], handling text, fase text, grund text)
+LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+  SELECT * FROM (VALUES
+    -- §1a Kerne og hårde FK'er
+    ('S1',   'person', ARRAY['id','status','koen','visning_navn','visning_foedt','visning_doed','visning_titel',
+                             'visning_efternavn','visning_fuldt_navn'], 'slet', '11', 'egen'),
+    ('S2',   'person_external_id', ARRAY['person_id','source_id','record_key'], 'slet', '10', 'egen'),
+    ('S3',   'family_member', ARRAY['person_id','family_id'], 'slet', '10', 'egen'),
+    ('S4',   'slaegtsnavn_karantaene', ARRAY['person_id'], 'slet', '10', 'egen'),
+    ('S5',   'profiles', ARRAY['reventlow_person_id'], 'nulstil', '10', 'andres_ref'),
+    ('S6',   'bookmark', ARRAY['person_id'], 'slet', '4', 'egen'),
+    ('S7',   'person_slaegt_membership', ARRAY['person_id'], 'slet', '10', 'egen'),
+    ('S8',   'person_lineage_membership', ARRAY['person_id'], 'slet', '10', 'egen'),
+    ('S9',   'private.person_create_receipt', ARRAY['person_id'], 'slet', '11', 'egen'),
+    ('S10',  'private.source_persona_identity', ARRAY['source_persona_id','canonical_person_id'], 'slet', '2l+2m', 'hel_stroem'),
+    ('S11a', 'private.source_persona_identity_event', ARRAY['source_persona_id'], 'slet', '2k', 'hel_stroem'),
+    ('S11b', 'private.source_persona_identity_event', ARRAY['source_persona_id','canonical_person_id'], 'slet', '2k', 'andres_ref'),
+    ('S11c', 'private.source_persona_identity_event', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S12',  'private.source_persona_identity_candidate', ARRAY['candidate_person_id'], 'slet', '2j', 'egen'),
+    -- §1b Kerne-evidens
+    ('S13',  'fact', ARRAY['subjekt_type','subjekt_id'], 'slet', '8', 'egen'),
+    ('S13b', 'fact', ARRAY['subjekt_type','subjekt_id'], 'slet', '8', 'familie'),
+    ('S14',  'relation', ARRAY['subjekt_type','subjekt_id','objekt_type','objekt_id'], 'slet', '8', 'egen'),
+    ('S14b', 'relation', ARRAY['subjekt_type','subjekt_id','objekt_type','objekt_id'], 'slet', '8', 'familie'),
+    ('S15',  'assertion', ARRAY['target_type','target_id'], 'slet', '6', 'egen'),
+    ('S16',  'conclusion', ARRAY['target_type','target_id','valgt_assertion_id'], 'slet', '6', 'egen'),
+    ('S17',  'citation', ARRAY['assertion_id'], 'slet', '6', 'egen'),
+    ('S18',  'note', ARRAY['target_type','target_id'], 'slet', '6', 'egen'),
+    ('S19',  'relation', ARRAY['subjekt_type','subjekt_id','objekt_type','objekt_id'], 'slet', '8', 'egen'),
+    ('S20',  'assertion', ARRAY['objekt_type','objekt_id'], 'blokér', '0', NULL),
+    ('NY-A', 'assertion', ARRAY['objekt_type','objekt_id'], 'blokér', '0', NULL),
+    -- §1c Narrativ, publicering, formidling
+    ('S21',  'narrative', ARRAY['subjekt_type','subjekt_id'], 'slet', '7', 'egen'),
+    ('S22',  'private.narrative_record_publication', ARRAY['narrative_id'], 'slet', '3d', 'egen'),
+    -- M2-4: et familienarrativ i N (Fam_del) har sin egen grund i append-only-tjekket.
+    ('S23',  'private.narrative_publication_event', ARRAY['narrative_id'], 'slet', '3b', 'egen'),
+    ('S23',  'private.narrative_publication_event', ARRAY['narrative_id'], 'slet', '3b', 'familie'),
+    ('S23b', 'private.narrative_publication_event', ARRAY['before_state','after_state','decision_basis'], 'bevar_andres', NULL, NULL),
+    ('S23b', 'private.narrative_legacy_publication', ARRAY['baseline_state'], 'bevar_andres', NULL, NULL),
+    ('S24',  'private.narrative_legacy_publication', ARRAY['latest_event_id'], 'nulstil', '3a', 'egen'),
+    ('S24',  'private.narrative_legacy_publication', ARRAY['narrative_id'], 'slet', '3c', 'egen'),
+    ('S25',  'haendelse', ARRAY['narrative_id'], 'slet', '7', 'egen'),
+    ('S26',  'haendelse', ARRAY['subjekt_type','subjekt_id'], 'slet', '5', 'egen'),
+    ('S27',  'haendelse', ARRAY['fact_id','relation_id'], 'loesn', '5', 'andres_ref'),
+    ('S28',  'text_mention', ARRAY['kilde_type','kilde_id'], 'slet', '6/7', 'afledt'),
+    -- S29: link-tokens til P (og til Fam_del/M_del) i prosa, der bevares (slettegraf §4.1).
+    ('S29',  'text_mention', ARRAY['maal_type','maal_id'], 'blokér', '0', NULL),
+    ('S29',  'narrative', ARRAY['tekst'], 'blokér', '0', NULL),
+    ('S29',  'note', ARRAY['indhold'], 'blokér', '0', NULL),
+    ('S29',  'story', ARRAY['titel','tekst'], 'blokér', '0', NULL),
+    ('S29',  'entity_description', ARRAY['tekst'], 'blokér', '0', NULL),
+    ('S29',  'haendelse', ARRAY['klausul'], 'blokér', '0', NULL),
+    ('S29',  'suggestion', ARRAY['vaerdi','note','kilde_fritekst','payload'], 'blokér', '0', NULL),
+    ('S29',  'citation', ARRAY['citat_tekst'], 'blokér', '0', NULL),
+    ('S29',  'assertion', ARRAY['vaerdi_tekst','date_raw'], 'blokér', '0', NULL),
+    ('S29',  'media', ARRAY['titel'], 'blokér', '0', NULL),
+    ('S30',  'story', ARRAY['subjekt_type','subjekt_id'], 'slet', '4', 'egen'),
+    ('S30',  'story_kilde', ARRAY['story_id'], 'slet', '4', 'egen'),
+    ('S31',  'story', ARRAY['haendelse_id','fact_id','relation_id'], 'loesn', '5-8', 'andres_ref'),
+    ('S32',  'feed_pin', ARRAY['kort_noegle'], 'slet', '4', 'egen'),
+    ('NY-B', 'feed_pin', ARRAY['kort_noegle'], 'slet', '4', 'egen'),
+    ('S32c', 'feed_pin', ARRAY['kort_noegle'], 'bevar_andres', NULL, NULL),
+    ('S33',  'entity_description', ARRAY['subjekt_type','subjekt_id'], 'slet', '4', 'egen'),
+    ('S33',  'private.entity_description_source', ARRAY['description_id'], 'slet', '4', 'egen'),
+    ('S34',  'suggestion', ARRAY['subjekt_type','subjekt_id'], 'slet', '4', 'egen'),
+    ('S34b', 'suggestion', ARRAY['payload','vaerdi','note','kilde_fritekst'], 'blokér', '0', NULL),
+    -- §1d Rettelsesjournaler, medier, familier
+    ('S35',  'import_korrektion', ARRAY['import_key','record_key','importeret','korrigeret'], 'slet', '6', 'egen'),
+    ('S36',  'paastand_korrektion', ARRAY['assertion_id','foer','efter'], 'slet', '6', 'egen'),
+    ('S37',  'media', ARRAY['id','storage_path'], 'slet', '9', 'egen'),
+    ('S37',  'media_variant', ARRAY['media_id','storage_path'], 'slet', '9', 'egen'),
+    ('S37b', 'media', ARRAY['titel','original_filnavn','kunstner'], 'bevar_andres', NULL, NULL),
+    ('S38',  'family', ARRAY['id'], 'slet', '10', 'familie'),
+    ('S38b', 'family', ARRAY['id'], 'bevar_andres', NULL, NULL),
+    ('S38b', 'citation', ARRAY['citat_tekst'], 'bevar_andres', NULL, NULL),
+    ('S38b', 'assertion', ARRAY['vaerdi_tekst'], 'bevar_andres', NULL, NULL),
+    -- §1e Private ledgers (+ »Afgørelser« Q6)
+    ('S39a', 'private.interpretation_promotion', ARRAY['target_type','target_id','interpretation_id'], 'slet', '2c', 'egen'),
+    ('S39b', 'private.interpretation_promotion', ARRAY['target_type','target_id','interpretation_id'], 'blokér', '0', NULL),
+    ('S39c', 'private.interpretation_promotion', ARRAY['target_type','target_id'], 'bevar_andres', NULL, NULL),
+    ('Prom_egen_fam', 'private.interpretation_promotion', ARRAY['target_type','target_id','interpretation_id'], 'slet', '2c', 'egen'),
+    ('S40',  'private.legacy_placement_disposition', ARRAY['person_id'], 'slet', '2i', 'egen'),
+    ('S41a', 'private.reimport_event', ARRAY['canonical_person_id','payload'], 'slet', '2g', 'egen'),
+    ('S41b', 'private.reimport_event', ARRAY['payload'], 'bevar_andres', NULL, NULL),
+    ('S42',  'private.reimport_name_completion_result', ARRAY['person_id','fact_id','assertion_id','citation_id','conclusion_id'],
+             'slet', '2f', 'egen'),
+    ('S43a', 'private.reimport_case_event', ARRAY['action','payload'], 'slet', '2h', 'egen'),
+    ('S43b', 'private.reimport_case_event', ARRAY['payload'], 'bevar_andres', NULL, NULL),
+    ('S44a', 'private.reimport_authorization', ARRAY['authorized_elements'], 'bevar_andres', NULL, NULL),
+    ('S44b', 'private.reimport_case_authorization', ARRAY['authorized_elements'], 'bevar_andres', NULL, NULL),
+    ('S45a', 'private.identity_control_parent_card', ARRAY['counterpart_person_id','family_id','partner_ids'], 'slet', '2e', 'egen'),
+    ('M5',   'private.identity_control_parent_event', ARRAY['card_id'], 'slet', '2d', 'afledt'),
+    ('S45b', 'private.identity_control_parent_card', ARRAY['partner_ids','family_id'], 'bevar_andres', NULL, NULL),
+    ('S45b', 'private.identity_control_parent_event', ARRAY['note'], 'bevar_andres', NULL, NULL),
+    ('S46',  'private.identity_control_sample', ARRAY['mapping','expected'], 'bevar_andres', NULL, NULL),
+    -- S47 henviser til S10-S12/S11c (slettegraf: uden egen handling).
+    ('S47',  'private.source_persona_identity_candidate', ARRAY['basis'], 'ingen', NULL, NULL),
+    ('S47',  'private.source_persona_identity', ARRAY['evidence'], 'ingen', NULL, NULL),
+    ('S47',  'private.source_persona_identity_event', ARRAY['evidence'], 'ingen', NULL, NULL),
+    ('S48',  'private.interpretation_promotion', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S48',  'private.relation_classification_event', ARRAY['state_sha256'], 'bevar_andres', NULL, NULL),
+    ('S48',  'private.source_persona_identity_candidate', ARRAY['family_context_sha256'], 'bevar_andres', NULL, NULL),
+    ('S49a', 'private.relation_reopen', ARRAY['superseded_promotion_id','from_family_id','to_family_id'], 'slet', '2b', 'afledt'),
+    ('S49b', 'private.text_revision_reconciliation', ARRAY['old_promotion_id','new_promotion_id','revision_batch_id',
+                                                           'revision_element_id'], 'slet', '2a', 'afledt'),
+    ('S49c', 'private.marriage_ordinal_correction', ARRAY['family_id','evidence'], 'bevar_andres', NULL, NULL),
+    -- S49d følger S39b: en genåbning til Fam_del, hvis promotion ikke er P's, blokerer.
+    ('S49d', 'private.relation_reopen', ARRAY['from_family_id','to_family_id'], 'blokér', '0', NULL),
+    ('S50',  'private.narrative_record_cutover_receipt', ARRAY['result'], 'bevar_andres', NULL, NULL),
+    ('S51',  'private.identity_relation_update_prelock', ARRAY['locked_person_ids','relation_id','current_signature',
+                                                              'target_signature'], 'ingen', NULL, NULL),
+    -- S58: øvrige jsonb/fritekst på fortolkningsniveau eller i bogens lag (Q9: til_kontrol).
+    ('S58',  'private.interpretation_promotion', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.interpretation', ARRAY['value','decision_evidence'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.source_persona_identity_candidate', ARRAY['basis'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.relation_reopen', ARRAY['context','note'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.text_revision_reconciliation', ARRAY['context'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.relation_classification_event', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.marriage_ordinal_correction', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.legacy_placement_disposition', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.source_record_placement_decision', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.source_persona_placement_decision', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('NY-C', 'private.identity_control_exclusion', ARRAY['source_persona_id'], 'bevar_andres', NULL, NULL),
+    ('NY-D', 'private.relation_persona_profile', ARRAY['profile','source_id','predicate_forms','text_form'], 'ingen', NULL, NULL),
+    -- §1f Historik (ingen append-only-trigger, derfor ingen grund; M2-4)
+    ('S54',  'change_event', ARRAY['tabel','row_pk','foer','efter'], 'slet', '12', NULL),
+    ('S57',  'change_event', ARRAY['row_pk','foer','efter'], 'bevar_andres', NULL, NULL),
+    ('S52',  'change_set', ARRAY['subjekt_type','subjekt_id'], 'slet', '13', NULL),
+    ('S53',  'change_set', ARRAY['summary'], 'slet', '13', NULL),
+    ('S55',  'change_set', ARRAY['reverterer_id'], 'slet', '13', NULL),
+    ('S52b', 'change_set', ARRAY['subjekt_id','summary'], 'bevar_andres', NULL, NULL),
+    -- S56: indgående FK'er til change_set (oversigt; handlingen ligger i S23/S36 og i at sættet bevares).
+    ('S56',  'private.narrative_publication_event', ARRAY['change_set_id'], 'ingen', NULL, NULL),
+    ('S56',  'paastand_korrektion', ARRAY['change_set_id'], 'ingen', NULL, NULL),
+    ('S56',  'private.reimport_case_batch', ARRAY['change_set_id'], 'ingen', NULL, NULL)
+  ) v(sted, tabel, kolonner, handling, fase, grund)
+$$;
+CREATE OR REPLACE FUNCTION private.person_purge_undtagelser()
+RETURNS TABLE(tabel text, kolonne text, begrundelse text)
+LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+  SELECT u.tabel, k.kolonne, u.begrundelse
+    FROM (VALUES
+    -- Hele tabeller (kolonne '*'): kun bogens lag og rene opslagstabeller uden P-sti.
+    -- Bogens lag (Global Constraints; slettes aldrig). P's spor her er bogtekst og bevares; de steder, der læser dem
+    -- (S46, S50, S58, NY-C), står i inventaret.
+    ('private.source_record', ARRAY['*'], 'bogens lag'),
+    ('private.source_record_occurrence', ARRAY['*'], 'bogens lag'),
+    ('private.source_record_anchor_event', ARRAY['*'], 'bogens lag (underordnet source_record)'),
+    ('private.source_record_placement', ARRAY['*'], 'bogens lag (underordnet source_record)'),
+    ('private.source_record_placement_decision', ARRAY['*'], 'bogens lag (underordnet source_record); evidence er S58'),
+    ('private.source_record_revision_event', ARRAY['*'], 'bogens lag (underordnet source_record)'),
+    ('private.source_observation', ARRAY['*'], 'bogens lag'),
+    ('private.source_observation_text', ARRAY['*'], 'bogens lag (underordnet source_observation)'),
+    ('private.source_mention', ARRAY['*'], 'bogens lag'),
+    ('private.source_rendition', ARRAY['*'], 'bogens lag'),
+    ('private.extraction_run', ARRAY['*'], 'bogens lag'),
+    ('private.source_persona', ARRAY['*'], 'bogens lag'),
+    ('private.source_persona_mention', ARRAY['*'], 'bogens lag'),
+    ('private.source_persona_placement', ARRAY['*'], 'bogens lag'),
+    ('private.source_persona_placement_decision', ARRAY['*'], 'bogens lag; evidence er S58'),
+    ('private.interpretation', ARRAY['*'], 'bogens lag; value/decision_evidence er S58'),
+    ('private.interpretation_observation', ARRAY['*'], 'bogens lag'),
+    ('private.interpretation_party', ARRAY['*'], 'bogens lag'),
+    ('private.identity_control_run', ARRAY['*'], 'bogens lag'),
+    ('private.identity_control_sample', ARRAY['*'], 'bogens lag; mapping/expected er S46'),
+    ('private.identity_control_event', ARRAY['*'], 'bogens lag'),
+    ('private.identity_control_exclusion', ARRAY['*'], 'bogens lag; source_persona_id er NY-C'),
+    ('private.reimport_writer_profile', ARRAY['*'], 'bogens lag (skriverprofil)'),
+    ('private.narrative_record_cutover_receipt', ARRAY['*'], 'bogens lag; result er S50'),
+    ('private.clause_disposition', ARRAY['*'], 'bogens lag (slettegraf §3.2: vocab/clause_disposition, schema l. 1125-1135)'),
+    -- Opslagstabeller uden P-sti (slettegraf §2.3 »øvrige«).
+    ('source', ARRAY['*'], 'opslag: kilder/udgaver; ingen P-sti (slettegraf §2.3)'),
+    ('place', ARRAY['*'], 'opslag: steder; ingen P-sti (slettegraf §2.3)'),
+    ('estate', ARRAY['*'], 'opslag: ejendomme; ingen P-sti (slettegraf §2.3)'),
+    ('organisation', ARRAY['*'], 'opslag: organisationer; ingen P-sti (slettegraf §2.3)'),
+    ('lineage', ARRAY['*'], 'opslag: linjer; ingen P-sti (slettegraf §2.3)'),
+    ('slaegt', ARRAY['*'], 'opslag: slægter; ingen P-sti (slettegraf §2.3)'),
+    ('vocab', ARRAY['*'], 'opslag: kontrolleret vokabular (slettegraf §2.3)'),
+    ('private.vocab', ARRAY['*'], 'opslag: kontrolleret vokabular for bogens lag (slettegraf §2.3, §3.2)'),
+
+    -- Kolonne for kolonne. Faste begrundelser: egen nøgle · FK/reference til en ikke-person-tabel · kontrolleret
+    -- værdi/status · hash/tælling · aktør (redaktør/bruger; brugerkonti er uden for scope, R15) · mål/teknik ·
+    -- beskriver kun rækkens egen person/genstand (findes via inventarkolonnen og følger dens sted).
+    -- public
+    ('assertion', ARRAY['id'], 'egen nøgle; P''s påstande findes via target (S15)'),
+    ('assertion', ARRAY['date_qualifier','date_certainty','calendar'], 'kontrolleret værdi'),
+    ('bookmark', ARRAY['id'], 'egen nøgle'),
+    ('bookmark', ARRAY['user_id'], 'aktør: brugerkonto (auth.users), uden for scope (R15)'),
+    ('change_event', ARRAY['id','seq'], 'egen nøgle/rækkefølge'),
+    ('change_event', ARRAY['change_set_id'], 'reference til change_set; sættet afgøres af S52-S55 (§2.4)'),
+    ('change_event', ARRAY['op'], 'kontrolleret værdi'),
+    ('change_set', ARRAY['id'], 'egen nøgle'),
+    ('change_set', ARRAY['actor_id','actor_navn','actor_rolle'], 'aktør: redaktør, uden for scope (R15)'),
+    ('change_set', ARRAY['operation','subjekt_synlighed'], 'kontrolleret værdi'),
+    ('citation', ARRAY['id'], 'egen nøgle'),
+    ('citation', ARRAY['source_id'], 'reference til opslag (source)'),
+    ('citation', ARRAY['side','citat_dato'], 'kildens side/rå dato; beskriver kun citatet, intet person-id'),
+    ('citation', ARRAY['kvalitet'], 'kontrolleret værdi'),
+    ('coat_of_arms', ARRAY['id'], 'egen nøgle'),
+    ('coat_of_arms', ARRAY['blasonering','note'], 'opslag: våbnets egen beskrivelse; ingen P-sti (våben er en entitet som place/estate, §2.3); ikke i §4.1''s scanliste'),
+    ('conclusion', ARRAY['id'], 'egen nøgle'),
+    ('conclusion', ARRAY['status'], 'kontrolleret værdi'),
+    ('conclusion', ARRAY['blaastemplet_af'], 'proveniens (udgave eller ''Redaktør''), intet person-id'),
+    ('entity_description', ARRAY['id','version'], 'egen nøgle/version'),
+    ('entity_description', ARRAY['kind','language_code','status'], 'kontrolleret værdi'),
+    ('entity_description', ARRAY['created_by'], 'aktør: redaktør, uden for scope (R15)'),
+    ('fact', ARRAY['id'], 'egen nøgle; P''s fakta findes via subjekt (S13)'),
+    ('fact', ARRAY['faktatype'], 'kontrolleret værdi (vocab)'),
+    ('fact', ARRAY['sted_id'], 'reference til opslag (place)'),
+    ('family', ARRAY['type'], 'kontrolleret værdi'),
+    ('family_member', ARRAY['rolle','ordinal','konfidens'], 'beskriver kun rækkens eget medlemskab (S3)'),
+    ('feed_pin', ARRAY['id'], 'egen nøgle'),
+    ('feed_pin', ARRAY['handling'], 'kontrolleret værdi'),
+    ('feed_pin', ARRAY['oprettet_af'], 'aktør: redaktør, uden for scope (R15)'),
+    ('haendelse', ARRAY['id'], 'egen nøgle'),
+    ('haendelse', ARRAY['noegle','span_start','span_laengde'], 'position i rækkens eget narrativ (S25)'),
+    ('haendelse', ARRAY['kategori','date_qualifier','feed_status'], 'kontrolleret værdi'),
+    ('haendelse', ARRAY['date_raw'], 'rå dato fra rækkens egen klausul; intet person-id'),
+    ('haendelse', ARRAY['pass_version'], 'udtræksversion (teknik)'),
+    ('historical_event', ARRAY['id'], 'egen nøgle'),
+    ('historical_event', ARRAY['navn'], 'opslag: historisk begivenhed; ingen P-sti'),
+    ('import_korrektion', ARRAY['id'], 'egen nøgle'),
+    ('import_korrektion', ARRAY['felt','status'], 'kontrolleret værdi'),
+    ('import_korrektion', ARRAY['input_fingerprint'], 'hash'),
+    ('import_korrektion', ARRAY['actor_id','actor_navn'], 'aktør: redaktør, uden for scope (R15)'),
+    ('lineage_scheme', ARRAY['id'], 'egen nøgle'),
+    ('lineage_scheme', ARRAY['slaegt_id','source_id'], 'reference til opslag (slaegt/source)'),
+    ('lineage_scheme', ARRAY['kind','label'], 'opslag: bogens linjeskema; ingen P-sti'),
+    ('lineage_scheme_entry', ARRAY['id','sort_order'], 'egen nøgle/rækkefølge'),
+    ('lineage_scheme_entry', ARRAY['scheme_id','slaegt_id'], 'reference til opslag (lineage_scheme/slaegt)'),
+    ('lineage_scheme_entry', ARRAY['code','label'], 'opslag: bogens linjeskema; ingen P-sti'),
+    ('lineage_scheme_entry_lineage', ARRAY['entry_id','lineage_id','slaegt_id'], 'reference til opslag (linjeskema/lineage/slaegt)'),
+    ('lineage_scheme_entry_lineage', ARRAY['relation_kind'], 'kontrolleret værdi'),
+    ('media', ARRAY['slags','upload_status','rettigheder_status','mime_type'], 'kontrolleret værdi'),
+    ('media', ARRAY['bucket'], 'lagerspand (teknik); stien er S37'),
+    ('media', ARRAY['datering'], 'mediets rå dato; intet person-id'),
+    ('media', ARRAY['byte_size','bredde','hoejde'], 'mål'),
+    ('media', ARRAY['sha256'], 'hash'),
+    ('media_variant', ARRAY['id'], 'egen nøgle'),
+    ('media_variant', ARRAY['tier','mime_type'], 'kontrolleret værdi'),
+    ('media_variant', ARRAY['byte_size','bredde','hoejde'], 'mål'),
+    ('narrative', ARRAY['id'], 'egen nøgle; P''s narrativer findes via subjekt (S21)'),
+    ('narrative', ARRAY['source_id'], 'reference til opslag (source)'),
+    ('narrative', ARRAY['side'], 'kildens side'),
+    ('note', ARRAY['id'], 'egen nøgle'),
+    ('paastand_korrektion', ARRAY['id'], 'egen nøgle'),
+    ('paastand_korrektion', ARRAY['grund'], 'kontrolleret værdi (bogen_har_ret, linjeskift-v1)'),
+    ('paastand_korrektion', ARRAY['interpretation_id'], 'reference til bogens lag (interpretation)'),
+    ('paastand_korrektion', ARRAY['actor_id','actor_navn'], 'aktør: redaktør, uden for scope (R15)'),
+    ('person_external_id', ARRAY['linje','nr','slaegtled_lokal','slaegtled_gennem','kuld'], 'beskriver kun rækkens egen person (S2)'),
+    ('person_lineage_membership', ARRAY['lineage_id'], 'reference til opslag (lineage)'),
+    ('person_lineage_membership', ARRAY['role'], 'kontrolleret værdi'),
+    ('person_lineage_membership', ARRAY['source_basis'], 'kildegrundlag for rækkens eget medlemskab (placement-uuid, kilde, hash; S8)'),
+    ('person_slaegt_membership', ARRAY['slaegt_id'], 'reference til opslag (slaegt)'),
+    ('person_slaegt_membership', ARRAY['membership_kind'], 'kontrolleret værdi'),
+    ('person_slaegt_membership', ARRAY['source_basis'], 'kildegrundlag for rækkens eget medlemskab (placement-uuid, kilde, hash; S7)'),
+    ('profiles', ARRAY['id','rolle','email','navn'], 'brugerkonto, uden for scope (R15; spec §3)'),
+    ('relation', ARRAY['id'], 'egen nøgle; P''s relationer findes via enderne (S14/S19)'),
+    ('relation', ARRAY['rolle','erhvervelsesmaade','period_type','konfidens'], 'kontrolleret værdi'),
+    ('relation', ARRAY['periode_raw'], 'rå periodetekst for rækkens egen relation; intet person-id'),
+    ('relation', ARRAY['kvalifikator'], 'rollekvalifikation (fx primaer, bbox); intet person-id'),
+    ('repository', ARRAY['id'], 'egen nøgle'),
+    ('repository', ARRAY['navn','adresse'], 'opslag: arkiv; ingen P-sti'),
+    ('slaegtsnavn_karantaene', ARRAY['n_distinct'], 'tælling'),
+    ('story', ARRAY['id'], 'egen nøgle'),
+    ('story', ARRAY['historical_event_id'], 'reference til opslag (historical_event)'),
+    ('story', ARRAY['date_qualifier','status','oprindelse'], 'kontrolleret værdi'),
+    ('story', ARRAY['date_raw'], 'rå dato for rækkens egen historie; intet person-id'),
+    ('story', ARRAY['llm_model','llm_promptversion'], 'teknik'),
+    ('story', ARRAY['skabt_af','godkendt_af'], 'aktør: redaktør, uden for scope (R15)'),
+    ('story_kilde', ARRAY['id'], 'egen nøgle'),
+    ('story_kilde', ARRAY['source_id'], 'reference til opslag (source)'),
+    ('story_kilde', ARRAY['side'], 'kildens side'),
+    ('suggestion', ARRAY['id'], 'egen nøgle'),
+    ('suggestion', ARRAY['status','art','felt'], 'kontrolleret værdi'),
+    ('suggestion', ARRAY['forslagsstiller'], 'aktør: bruger, uden for scope (R15)'),
+    ('suggestion', ARRAY['kilde_source_id'], 'reference til opslag (source)'),
+    ('version_pk_registry', ARRAY['tabel','pk_cols','skip_cols'], 'metadata om versionerede tabeller; ingen rækkedata'),
+    -- private
+    ('private.entity_description_source', ARRAY['source_record_id'], 'reference til bogens lag'),
+    ('private.entity_description_source', ARRAY['citation_note'], 'kildenote til rækkens egen beskrivelse; P''s følger S33 (CASCADE), andres er bogtekst'),
+    ('private.identity_control_parent_card', ARRAY['id','interpretation_key','interpretation_version'], 'egen nøgle/fortolkningsnøgle'),
+    ('private.identity_control_parent_card', ARRAY['control_run_id','counterpart_persona_id'], 'reference til bogens lag'),
+    ('private.identity_control_parent_event', ARRAY['seq','line'], 'egen rækkefølge/arklinje'),
+    ('private.identity_control_parent_event', ARRAY['outcome'], 'kontrolleret værdi'),
+    ('private.identity_control_parent_event', ARRAY['sheet_sha256','rows_sha256'], 'hash'),
+    ('private.identity_control_parent_event', ARRAY['created_by'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.identity_mutation_generation', ARRAY['generation','guard_backend_pid'], 'teknik: generationstæller og backend'),
+    ('private.identity_relation_update_prelock', ARRAY['backend_pid'], 'teknik: backend (transient, S51)'),
+    ('private.interpretation_predicate', ARRAY['predicate','interpretation_kind','category','value_kind','status','introduced_in'], 'opslag: prædikatkatalog; ingen P-sti'),
+    ('private.interpretation_promotion', ARRAY['id'], 'egen nøgle'),
+    ('private.interpretation_promotion', ARRAY['rule_key','rule_version','batch_id'], 'reference til regelkatalog/batch'),
+    ('private.interpretation_promotion', ARRAY['promoted_by','promoted_by_name'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.interpretation_promotion_batch', ARRAY['id'], 'egen nøgle'),
+    ('private.interpretation_promotion_batch', ARRAY['rule_profile_hash','preview_hash','items_sha256'], 'hash'),
+    ('private.interpretation_promotion_batch', ARRAY['requested_count'], 'tælling'),
+    ('private.interpretation_promotion_batch', ARRAY['promoted_by','promoted_by_name'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.interpretation_promotion_rule', ARRAY['rule_key','rule_version','predicate','interpretation_kind','target_type','expected_fact_type','value_kind','status','rule_mode'], 'opslag: regelkatalog; ingen P-sti'),
+    ('private.interpretation_promotion_rule_line', ARRAY['rule_key','predicate'], 'opslag: regelkatalog; ingen P-sti'),
+    ('private.legacy_placement_disposition', ARRAY['source_id','placement_id'], 'reference til opslag/bogens lag'),
+    ('private.legacy_placement_disposition', ARRAY['version'], 'egen version'),
+    ('private.legacy_placement_disposition', ARRAY['disposition'], 'kontrolleret værdi'),
+    ('private.legacy_placement_disposition', ARRAY['legacy_sha256'], 'hash'),
+    ('private.legacy_placement_disposition', ARRAY['decided_by_name'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.marriage_ordinal_correction', ARRAY['id','interpretation_key'], 'egen nøgle/fortolkningsnøgle'),
+    ('private.marriage_ordinal_correction', ARRAY['interpretation_id'], 'reference til bogens lag'),
+    ('private.marriage_ordinal_correction', ARRAY['party_version_from','party_version_to','ordinal_from','ordinal_to'], 'versions- og ordenstal'),
+    ('private.marriage_ordinal_correction', ARRAY['created_by'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.narrative_legacy_publication', ARRAY['legacy_publication_ref'], 'egen nøgle'),
+    ('private.narrative_legacy_publication', ARRAY['source_id'], 'reference til opslag (source)'),
+    ('private.narrative_legacy_publication', ARRAY['baseline_sha256'], 'hash'),
+    ('private.narrative_legacy_publication', ARRAY['status'], 'kontrolleret værdi'),
+    ('private.narrative_publication_event', ARRAY['id','stream_ref','stream_version'], 'egen nøgle/strøm'),
+    ('private.narrative_publication_event', ARRAY['binding_id','legacy_publication_ref','reversed_event_id','source_record_id','source_id'], 'reference til publiceringstilstand/bogens lag/opslag; P''s rækker findes via narrative_id (S23)'),
+    ('private.narrative_publication_event', ARRAY['event_type'], 'kontrolleret værdi'),
+    ('private.narrative_publication_event', ARRAY['before_state_sha256','after_state_sha256'], 'hash'),
+    ('private.narrative_publication_event', ARRAY['decided_by','decided_by_name'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.narrative_record_contract', ARRAY['version'], 'kontraktversion (teknik)'),
+    ('private.narrative_record_publication', ARRAY['id','record_ref'], 'egen nøgle/reference'),
+    ('private.narrative_record_publication', ARRAY['source_record_id'], 'reference til bogens lag'),
+    ('private.narrative_record_publication', ARRAY['record_label','citation_label'], 'bogens etiketter for posten; intet person-id'),
+    ('private.narrative_record_publication', ARRAY['status'], 'kontrolleret værdi'),
+    ('private.reimport_authorization', ARRAY['id','nonce'], 'egen nøgle'),
+    ('private.reimport_authorization', ARRAY['operation','status'], 'kontrolleret værdi'),
+    ('private.reimport_authorization', ARRAY['manifest_sha256','preview_sha256','profile_sha256'], 'hash'),
+    ('private.reimport_authorization', ARRAY['database_identity'], 'teknik: databaseidentitet'),
+    ('private.reimport_authorization', ARRAY['source_id','profile_id'], 'reference til opslag/skriverprofil'),
+    ('private.reimport_authorization', ARRAY['expected_counts'], 'tællinger pr. operation'),
+    ('private.reimport_authorization', ARRAY['principal_id'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.reimport_batch', ARRAY['id'], 'egen nøgle'),
+    ('private.reimport_batch', ARRAY['authorization_id','source_id','profile_id'], 'reference til autorisation/opslag/skriverprofil'),
+    ('private.reimport_batch', ARRAY['manifest_sha256','preview_sha256','profile_sha256'], 'hash'),
+    ('private.reimport_batch', ARRAY['status'], 'kontrolleret værdi'),
+    ('private.reimport_batch', ARRAY['expected_counts','observed_counts'], 'tællinger pr. operation'),
+    ('private.reimport_batch', ARRAY['principal_id'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.reimport_case_authorization', ARRAY['id','nonce'], 'egen nøgle'),
+    ('private.reimport_case_authorization', ARRAY['phase','operation','status'], 'kontrolleret værdi'),
+    ('private.reimport_case_authorization', ARRAY['manifest_sha256','preview_sha256','approval_sha256','decisions_sha256','state_sha256','text_bundle_sha256'], 'hash'),
+    ('private.reimport_case_authorization', ARRAY['database_name','system_identifier'], 'teknik: databaseidentitet'),
+    ('private.reimport_case_authorization', ARRAY['source_id'], 'reference til opslag (source)'),
+    ('private.reimport_case_authorization', ARRAY['expected_counts'], 'tællinger pr. operation'),
+    ('private.reimport_case_authorization', ARRAY['principal_id'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.reimport_case_batch', ARRAY['id'], 'egen nøgle'),
+    ('private.reimport_case_batch', ARRAY['authorization_id','reversal_batch_id','source_id'], 'reference til autorisation/batch/opslag'),
+    ('private.reimport_case_batch', ARRAY['phase','operation','status'], 'kontrolleret værdi'),
+    ('private.reimport_case_batch', ARRAY['manifest_sha256','preview_sha256'], 'hash'),
+    ('private.reimport_case_batch', ARRAY['expected_counts','observed_counts'], 'tællinger pr. operation'),
+    ('private.reimport_case_batch', ARRAY['principal_id'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.reimport_case_event', ARRAY['id'], 'egen nøgle'),
+    ('private.reimport_case_event', ARRAY['batch_id','source_id'], 'reference til batch/opslag'),
+    ('private.reimport_case_event', ARRAY['phase','payload_schema_version'], 'kontrolleret værdi'),
+    ('private.reimport_case_event', ARRAY['element_id'], 'elementnøgle afledt af bogens record-nøgle; intet person-id'),
+    ('private.reimport_case_event', ARRAY['before_sha256','after_sha256'], 'hash'),
+    ('private.reimport_event', ARRAY['id'], 'egen nøgle'),
+    ('private.reimport_event', ARRAY['batch_id'], 'reference til batch'),
+    ('private.reimport_event', ARRAY['operation'], 'kontrolleret værdi'),
+    ('private.reimport_event', ARRAY['element_id','source_record_key'], 'elementnøgle/record-nøgle fra bogens lag; intet person-id'),
+    ('private.reimport_event', ARRAY['before_sha256','after_sha256'], 'hash'),
+    ('private.reimport_name_completion_result', ARRAY['id'], 'egen nøgle'),
+    ('private.reimport_name_completion_result', ARRAY['batch_id','source_batch_id'], 'reference til batch'),
+    ('private.reimport_name_completion_result', ARRAY['element_id'], 'elementnøgle fra bogens lag; intet person-id'),
+    ('private.reimport_name_completion_result', ARRAY['source_record_id','source_persona_id'], 'reference til bogens lag'),
+    ('private.reimport_name_completion_result', ARRAY['payload_sha256','result_sha256'], 'hash'),
+    ('private.relation_classification_event', ARRAY['interpretation_key','seq','interpretation_version'], 'fortolkningsnøgle/rækkefølge'),
+    ('private.relation_classification_event', ARRAY['interpretation_id'], 'reference til bogens lag'),
+    ('private.relation_classification_event', ARRAY['classification'], 'kontrolleret værdi'),
+    ('private.relation_classification_event', ARRAY['created_by'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.relation_reopen', ARRAY['interpretation_key'], 'fortolkningsnøgle'),
+    ('private.relation_reopen', ARRAY['to_interpretation_id','from_interpretation_id','spouse_source_persona_id'], 'reference til bogens lag'),
+    ('private.relation_reopen', ARRAY['spouse_identity_version'], 'versionstal'),
+    ('private.relation_reopen', ARRAY['reopened_by','reopened_by_name'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.source_persona_identity', ARRAY['decision_status'], 'kontrolleret værdi'),
+    ('private.source_persona_identity', ARRAY['version'], 'versionstal (Q7)'),
+    ('private.source_persona_identity', ARRAY['decided_by','decided_by_name'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.source_persona_identity_candidate', ARRAY['id'], 'egen nøgle (kandidat-uuid; S46 refererer den)'),
+    ('private.source_persona_identity_candidate', ARRAY['run_id','source_persona_id'], 'reference til kandidatkørsel/bogens lag'),
+    ('private.source_persona_identity_candidate', ARRAY['rank','tier'], 'rang/kontrolleret værdi'),
+    ('private.source_persona_identity_candidate_run', ARRAY['id','run_seq'], 'egen nøgle'),
+    ('private.source_persona_identity_candidate_run', ARRAY['source_id'], 'reference til opslag (source)'),
+    ('private.source_persona_identity_candidate_run', ARRAY['generator_version'], 'teknik'),
+    ('private.source_persona_identity_candidate_run', ARRAY['config'], 'generatorindstillinger (fx topK); kildeniveau, intet person-id'),
+    ('private.source_persona_identity_candidate_run', ARRAY['input_spec'], 'input-spec (mode, persona-uuid''er fra bogens lag; identity_candidate_input); intet person-id'),
+    ('private.source_persona_identity_candidate_run', ARRAY['config_sha256','input_sha256','candidates_sha256'], 'hash (bliver forældet, M2; slettegraf §3.5)'),
+    ('private.source_persona_identity_candidate_run', ARRAY['persona_count','candidate_count'], 'tælling'),
+    ('private.source_persona_identity_candidate_run', ARRAY['created_by','created_by_name'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.source_persona_identity_event', ARRAY['id'], 'egen nøgle (indholdsafledt af persona og version, Q7)'),
+    ('private.source_persona_identity_event', ARRAY['decision_status'], 'kontrolleret værdi'),
+    ('private.source_persona_identity_event', ARRAY['version'], 'versionstal (Q7)'),
+    ('private.source_persona_identity_event', ARRAY['decided_by','decided_by_name'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.text_revision_reconciliation', ARRAY['id'], 'egen nøgle'),
+    ('private.text_revision_reconciliation', ARRAY['old_interpretation_key','new_interpretation_key'], 'fortolkningsnøgle'),
+    ('private.text_revision_reconciliation', ARRAY['outcome'], 'kontrolleret værdi'),
+    ('private.text_revision_reconciliation', ARRAY['decided_by','decided_by_name'], 'aktør: redaktør, uden for scope (R15)')
+    ) u(tabel, kolonner, begrundelse)
+    CROSS JOIN LATERAL unnest(u.kolonner) AS k(kolonne)
+$$;
+CREATE OR REPLACE FUNCTION private.person_purge_kandidatkolonner()
+RETURNS TABLE(tabel text, kolonne text, art text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+  WITH kol AS (
+    SELECT c.oid AS relid, a.attnum, a.attname::text AS kolonne, a.atttypid,
+           CASE WHEN n.nspname='public' THEN c.relname::text ELSE n.nspname||'.'||c.relname END AS tabel
+      FROM pg_catalog.pg_attribute a
+      JOIN pg_catalog.pg_class c ON c.oid=a.attrelid
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname IN ('public','private') AND c.relkind IN ('r','p')
+       AND a.attnum>0 AND NOT a.attisdropped
+       AND a.atttypid IN ('bigint'::regtype,'integer'::regtype,'uuid'::regtype,'text'::regtype,'jsonb'::regtype,
+                          'bigint[]'::regtype,'integer[]'::regtype,'uuid[]'::regtype,'text[]'::regtype,'jsonb[]'::regtype)
+  )
+  SELECT k.tabel, k.kolonne,
+         CASE
+           WHEN fk.til_person THEN 'fk_person'
+           WHEN fk.til_familie THEN 'fk_familie'
+           WHEN fk.antal>0 THEN 'fk'
+           WHEN k.kolonne ~ '_id$' AND EXISTS (SELECT 1 FROM kol t WHERE t.relid=k.relid
+                                                  AND t.kolonne=regexp_replace(k.kolonne,'_id$','_type')) THEN 'polymorf_id'
+           WHEN k.kolonne ~ '_type$' AND EXISTS (SELECT 1 FROM kol t WHERE t.relid=k.relid
+                                                    AND t.kolonne=regexp_replace(k.kolonne,'_type$','_id')) THEN 'polymorf_type'
+           WHEN k.kolonne ~ '(person|family|familie|partner)' THEN 'navn_person'
+           WHEN k.atttypid IN ('bigint[]'::regtype,'integer[]'::regtype,'uuid[]'::regtype,'text[]'::regtype,
+                               'jsonb[]'::regtype) THEN 'array'
+           WHEN k.atttypid='jsonb'::regtype THEN 'jsonb'
+           WHEN k.atttypid='text'::regtype THEN 'tekst'
+           WHEN k.atttypid='uuid'::regtype THEN 'uuid'
+           ELSE 'tal'
+         END AS art
+    FROM kol k
+    CROSS JOIN LATERAL (SELECT count(*) AS antal,
+                              coalesce(bool_or(f.confrelid='public.person'::regclass),false) AS til_person,
+                              coalesce(bool_or(f.confrelid='public.family'::regclass),false) AS til_familie
+                         FROM pg_catalog.pg_constraint f
+                        WHERE f.contype='f' AND f.conrelid=k.relid AND k.attnum=ANY(f.conkey)) fk
+$$;
+REVOKE ALL ON FUNCTION private.person_purge_inventar(), private.person_purge_undtagelser(),
+  private.person_purge_kandidatkolonner() FROM PUBLIC,anon,authenticated,service_role;

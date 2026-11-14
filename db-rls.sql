@@ -1745,3 +1745,8 @@ BEGIN
   DROP TABLE pg_temp.red_allow_list;
 END
 $redaction_rpc_surface_guard$;
+
+-- Fuld personsletning (2026-11-14), Task 3: sletteinventar og katalogvagt er interne VALUES-/katalogfunktioner;
+-- ingen klientrolle må kalde dem (PostgreSQL giver nye funktioner til PUBLIC som standard).
+REVOKE ALL ON FUNCTION private.person_purge_inventar(), private.person_purge_undtagelser(),
+  private.person_purge_kandidatkolonner() FROM PUBLIC,anon,authenticated,service_role;
