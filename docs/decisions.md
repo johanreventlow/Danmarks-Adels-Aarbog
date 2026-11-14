@@ -2,7 +2,25 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
-## NOTERET: falsk »formodet« på 1939-forældreled — 30 links tjekkes mod bogens »?«, åben backlog (2026-11-13)
+## DELVIST LØST: falsk »formodet« på 1939-forældreled — 28 rettet, 2 venter på 2018-20-tjek (2026-11-13, rettet 2026-11-14)
+
+> **Udfald 2026-11-14:**
+> - De 28 1939-led blev tjekket på sidebillederne. Ingen af dem har »?«, »(?)« eller »formentlig« i bogen.
+> - Flaget kom fra udtrækkets `usikker`, som handler om OCR-tvivl om navne og datoer, ikke om slægtskab. De 5 fra
+>   `flyt_boern_moerloes_familie` bar flaget med fra importen; rettelsen flyttede kun leddene.
+> - Leddene er sat til tom konfidens (`NULL`), som de andre barneled. Det skete med redaktørhandlingen
+>   `red_set_familie_konfidens`: ét change_set pr. led, 4245-4272.
+> - Runner: `~/.private/5ab-overfoersel/41-formodet-1939.sh` (sha `15899c05…`), øvet på en kopi af prod-dumpet.
+>   Kvitteringerne: `FMD_MAAL_OK`, `FMD_APPLY_OK`, `FMD_VERIFY_OK` (`0,28,0,2,2,0`).
+> - Anon ser nu kun de 2 led i familie 38 som `formodet`. 1347 (= 458) er tom.
+>
+> **Tilbage:**
+> - 79 og 80 (2018-20, linje I nr. 47/48) tjekker projektejeren selv i 2018-20-bogen, fordi den har levende personer.
+> - Omvendt fejl: bogens markører er ikke alle flaget. 1770 står som »7. (?) Hartvig« (s. 13), men leddet er ikke
+>   `formodet`. Et tjek af bogens »?«/»(?)« mod leddene mangler.
+>
+> **Oprindelig note (2026-11-13):**
+>
 
 > Projektejeren bemærkede, at person 458's forældre står som »formodet«, selv om de er sikre.
 >

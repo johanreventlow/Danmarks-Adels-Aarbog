@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-14 — 28 falske »formodet« fjernet fra 1939-forældreled
+
+28 af de 30 forældreled med `formodet` stammede fra udtrækkets OCR-tvivl, ikke fra bogen: ingen af dem har »?« eller
+»(?)« på sidebilledet. De er sat til tom konfidens med redaktørhandlingen `red_set_familie_konfidens` (change_set
+4245-4272, runner `41-formodet-1939.sh`, verify `0,28,0,2,2,0`). Læseren viser derfor ikke længere fx 458's forældre
+som formodede. Tilbage: 79/80 (2018-20) tjekkes i bogen af projektejeren; bogens »?« uden flag (fx 1770) er ny
+backlog. Se `decisions.md`.
+
 ## 2026-11-14 — trin 6e-2 i prod: 1939 med bogens nøgle og trykte side; koordinatkaldet 4 × hurtigere
 
 Læseren viser 1939's poster med bogens egen nøgle og særtrykkets trykte side (Conrad: »DAA 1939, s. 52«) og linjens
