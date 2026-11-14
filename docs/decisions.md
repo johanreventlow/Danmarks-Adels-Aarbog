@@ -15,6 +15,37 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   indholdet.
 > - **Efterlades:** én afgørelse »ikke en person« på personens egne kildepersonas, så de ikke vender tilbage i køen.
 > - Design: `docs/superpowers/specs/2026-11-14-fuld-personsletning-design.md`. Den nuværende `red_slet_person` bevares.
+> - **Tilføjet 2026-11-14 (projektejerens svar på slettegrafens Q1-Q11):**
+>   - **Bogtekst bevares.** Bogtekst med personens navn bliver stående i fælles genimportkvitteringer, i andres
+>     narrativhistorik, i et delt medies titel og i vielsesfakta i bevarede familier. »Indholdet« i beslutning 3 er
+>     personens egen profil.
+>   - **Advarsel, ikke blokering:**
+>     - en genimportkørsel, der ikke længere kan fortrydes
+>     - en `passed` kontrolkørsel, der bliver `failed`
+>   - **Manuel kontrol.** Fritekster hos andre vises til kontrol og blokerer ikke.
+>   - **Personens egne familiebindinger** til en bevaret familie slettes.
+>   - **»Ikke en person«** får version n+1, så gamle versionshenvisninger fejler synligt.
+>   - **UPDATE i de låste logs** forbliver forbudt uden undtagelse.
+>   - **Låseorden.** Kildelåsen tages eksklusivt og tidligt (rettet fra specens første udgave).
+> - **Tilføjet ved plan v2.1 (planreview af v2):**
+>   - **Eksistensvagt** (godkendt af projektejeren frem for minimumsløsningen). En ny, permanent vagt på seks kernetabeller (`fact`, `note`, `narrative`, `story`,
+>     `suggestion`, `relation`) afviser rækker om en person eller familie, der ikke findes. Fakta-mål kommer med i den
+>     eksisterende relationsvagt.
+>   - **Fortryd afviser døde links.** En fortrydelse, der ville genskabe et link til noget, der ikke findes, afvises
+>     overalt.
+>   - ~~Skrivepause~~: **trukket tilbage** samme dag. Den stærkere lås gav deadlock mod almindelige redaktørskrivninger
+>     (delta-review D-1). Andre redaktører skriver videre under en sletning.
+>   - **Fakta-slettevagt.** Et faktum kan ikke slettes, så længe der er evidens på det (som relationer i dag). Det
+>     er den anden halvdel af eksistensvagten.
+>   - **Reviewbudget overskredet.** Ud over to fable-runder og én smal Opus-review kommer en låse-spike med
+>     go/no-go (plan Task 0), fordi tre reviews hver fandt nye låsecykler.
+> - **Backlog (fra delta-review):** en fortrydelse af »opret person/familie« kan efterlade rækker fra senere sæt.
+>   Den mangler en vagt på personens og familiens side. Den modsatte retning af fortryd-tjekket mangler også: en
+>   fortrydelse, der sletter en person, familie eller et medie, kan efterlade døde links hos andre.
+> - **Backlog (Q11):** 26 personer, der før er slettet med `red_slet_person`, har stadig en fuld kopi i historikken.
+>   En engangsoprydning med sit eget preview ligger uden for denne bygning.
+> - Plan v2 og slettegraf: `docs/superpowers/plans/2026-11-14-fuld-personsletning.md`,
+>   `docs/superpowers/plans/personsletning/`.
 
 ## NOTERET: 40 nummererede 1939-børn uden forældreled, åben backlog (2026-11-14)
 
