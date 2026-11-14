@@ -371,6 +371,26 @@ counts(nr, sted, antal) AS (
   UNION ALL SELECT 'S49','private.relation_reopen/marriage_ordinal_correction på P''s familier', (SELECT
          (SELECT count(*) FROM private.relation_reopen r WHERE r.from_family_id IN (SELECT id FROM fams) OR r.to_family_id IN (SELECT id FROM fams))
        + (SELECT count(*) FROM private.marriage_ordinal_correction m WHERE m.family_id IN (SELECT id FROM fams)))
+  -- M5 (slettegraf §1e S45a/M5, §3.4): kontrolkortets events slettes med kortet (counterpart_person_id=P).
+  UNION ALL SELECT 'M5','private.identity_control_parent_event (card_id i kort med counterpart_person_id=P)', (SELECT count(*) FROM private.identity_control_parent_event e
+       WHERE e.card_id IN (SELECT c.id FROM private.identity_control_parent_card c, params p WHERE c.counterpart_person_id=p.pid))
+  -- S49b (slettegraf §0 Prom_egen + »Afgørelser« Q5/Q6): promotion ejet af P (mål = P's egne rækker; familiemål kun når
+  -- fortolkningens persona er en af P's personas X) ELLER reimport_event med canonical_person_id=P.
+  UNION ALL SELECT 'S49b','private.text_revision_reconciliation (old/new promotion ∈ Prom_egen(+_fam) eller event ∈ S41a)', (SELECT count(*) FROM private.text_revision_reconciliation x
+       WHERE EXISTS (SELECT 1 FROM private.interpretation_promotion ip
+                       JOIN private.interpretation i ON i.id=ip.interpretation_id, params p
+                      WHERE ip.id IN (x.old_promotion_id, x.new_promotion_id)
+                        AND ((ip.target_type='person' AND ip.target_id=p.pid)
+                          OR (ip.target_type='fact' AND ip.target_id IN (SELECT id FROM facts))
+                          OR (ip.target_type='assertion' AND ip.target_id IN (SELECT id FROM asrt))
+                          OR (ip.target_type='relation' AND ip.target_id IN (SELECT id FROM rels))
+                          OR (ip.target_type='narrative' AND ip.target_id IN (SELECT id FROM narr))
+                          OR (ip.target_type='haendelse' AND ip.target_id IN (SELECT id FROM p_haendelse))
+                          OR (ip.target_type='family' AND ip.target_id IN (SELECT id FROM fams)
+                              AND i.source_persona_id IN (SELECT id FROM personas))))
+          OR EXISTS (SELECT 1 FROM private.reimport_event e, params p
+                      WHERE e.batch_id=x.revision_batch_id AND e.element_id=x.revision_element_id
+                        AND e.canonical_person_id=p.pid))
   UNION ALL SELECT 'S50','private.narrative_record_cutover_receipt.result (heuristik)', (SELECT count(*) FROM private.narrative_record_cutover_receipt r, jrx WHERE r.result::text ~ jrx.rx)
   UNION ALL SELECT 'S51','private.identity_relation_update_prelock (transient)', (SELECT count(*) FROM private.identity_relation_update_prelock x, params p WHERE p.pid = ANY(x.locked_person_ids))
   -- Punkt 3: historik
