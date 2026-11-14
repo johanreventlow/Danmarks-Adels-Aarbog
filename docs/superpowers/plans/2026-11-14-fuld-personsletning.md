@@ -85,9 +85,9 @@ tilbage om personen ud over de rester, projektejeren udtrykkeligt har godkendt.
     `fact`, `note`, `narrative`, `story`, `suggestion` og `relation` (begge ender). Den afviser INSERT og UPDATE af
     subjekt eller mål af typen `person` eller `family`, når rækken ikke findes.
   - **Målt på prod-kopien 14/11:** 0 forældreløse rækker. Den eneste undtagelse er **note 72 på familie 54**, en
-    familie der er slettet tidligere; noten blev aldrig logget. Hvad der skal ske med note 72, er projektejerens
-    afgørelse. Indtil den foreligger, står note 72 på en navngiven undtagelse i db-verify-assertet. Triggeren rammer
-    kun nye skrivninger og ser derfor ikke noten.
+    familie der er slettet tidligere; noten blev aldrig logget. **Projektejeren har besluttet (14/11):** note 72 slettes
+    i DDL-ceremonien (Task 13). Før det måles den og vises for projektejeren (de 9 tegn). Assertet har ingen
+    undtagelse. Lokalt og i CI findes noten ikke.
   - Vagten lukker for en skrivning fra en forældet redaktørside efter sletningen og for skrivere, der ikke åbner et
     `change_set`.
 - **Skrivepause og ventetid.** Mens en sletning kører, venter alle redaktørskrivninger, der åbner et `change_set`
@@ -718,6 +718,9 @@ Asserts:
     transaktion med ROLLBACK.
 - [ ] **Step 3: Runbook.**
   - GO-koder, dump før DDL, `apply-ddl`, `maal`, `fortryd-ddl`.
+  - **Note 72 (familie 54):** mål og vis den for projektejeren. Slet den derefter i ceremonien, i samme transaktion
+    som DDL og før `db-verify.sql`. Den slettes kun, hvis den stadig er den eneste forældreløse række, og hvis
+    `target_id=54`.
   - **Et nyt dump umiddelbart før projektejerens sletning af 1791.**
   - Fortryd-DDL kan **ikke** fortryde en udført sletning; kun dumpet kan.
   - Projektejeren sletter 1791 i Redaktion.

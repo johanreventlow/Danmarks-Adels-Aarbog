@@ -251,7 +251,7 @@ låserækkefølger (M4).
 længere oprettes eller flyttes til en person eller familie, der ikke findes. Det gælder også en skrivning fra en
 forældet redaktørside efter sletningen. Vagten udvider det eksisterende `enforce_relation_evidence_target` til også
 at dække fact-mål. Målt 14/11: 0 forældreløse rækker i prod-kopien, bortset fra note 72 på den tidligere slettede
-familie 54 (projektejerens afgørelse).
+familie 54; den slettes i DDL-ceremonien efter projektejerens afgørelse 14/11.
 
 **Skrivepause.** Mens en sletning kører (typisk sekunder), venter alle redaktørskrivninger, der åbner et
 `change_set`. Sletningen giver op efter 5 s ventetid på en lås og ændrer da intet.
