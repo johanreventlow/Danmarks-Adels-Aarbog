@@ -2,6 +2,20 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: fuld sletning af en personprofil uden rest — design godkendes (2026-11-14)
+
+> Projektejeren vil kunne slette en fejlprofil (fx 1791 »fyenske Rytterreg.)«), en testperson eller en GDPR-slettet
+> person helt. Der må intet stå tilbage om personen, heller ikke en indholdsløs slettelinje.
+>
+> - **Afgør** den åbne post »hvad skal en person-sletning gøre ved `source_persona_identity`?« (2026-08-20)
+>   **imod** dens anbefaling (tombstone + udtømning): hård sletning.
+> - **Undtagelse fra append-only:** den nye `red_slet_person_helt` må slette personens rækker i de låste logs, kun for
+>   den markerede person i dens egen transaktion. Triggerne forbliver enabled; UPDATE forbliver forbudt.
+> - **Bevares:** bogens lag (source records, personas, observationer). Andres historik beholder id-nummeret, ikke
+>   indholdet.
+> - **Efterlades:** én afgørelse »ikke en person« på personens egne kildepersonas, så de ikke vender tilbage i køen.
+> - Design: `docs/superpowers/specs/2026-11-14-fuld-personsletning-design.md`. Den nuværende `red_slet_person` bevares.
+
 ## NOTERET: 40 nummererede 1939-børn uden forældreled, åben backlog (2026-11-14)
 
 > Måling 2026-11-14 (læse-kun: anons data fra prod, plus post→person fra en prod-kopi af 13/11). 211 af 567
