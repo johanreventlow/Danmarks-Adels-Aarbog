@@ -57,10 +57,10 @@ i historikken (så sletningen kan fortrydes) og spor på ca. 15 andre steder.
 3. Andre personers historik må beholde id-nummeret, ikke indholdet.
 4. Kun redaktører; forhåndsvisning og bekræftelse før sletning.
 5. `slet helt` må løfte skrivespærringen på de låste logs for netop den person.
-7. Vielsesfakta i en familie, der bevares, bliver stående (6.4).
-8. Er personen knudepunkt i en sammenfoldning med to eller flere andre, afvises sletningen, til de er koblet direkte (6.4).
 6. Personens egne kildepersonas (bogens omtale) får efter sletningen en ny afgørelse »ikke en person«
    (afsnit 6.9), så de ikke vender tilbage som uafgjorte i Kildepersona-køen.
+7. Vielsesfakta i en familie, der bevares, bliver stående (6.4).
+8. Er personen knudepunkt i en sammenfoldning med to eller flere andre, afvises sletningen, til de er koblet direkte (6.4).
 
 ## 6. Hvordan (bundne valg)
 
