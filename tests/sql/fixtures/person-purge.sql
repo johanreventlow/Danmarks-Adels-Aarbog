@@ -16,13 +16,17 @@
 --   * Steder uden red_*-skriver i schema.sql skrives med direkte INSERT/UPDATE (forælder før barn), under et åbent
 --     sæt når tabellen er versioneret: note, haendelse (ingen historik, som load_haendelser.R), entity_description,
 --     bookmark (som klienten, via RLS), profiles-bindingen, person_external_id, medlemskaber, slægt/linjer/kilder.
---   * Historik, der ikke kan opstå gennem skriverne (fortryd-sæt, tidligere slettede rækker, withdraw-sættet), indsættes
---     direkte i change_set/change_event. foer/row_pk bygges med jsonb_populate_record/_row_pk, så formen er log_change's.
+--   * Historik kommer så vidt muligt fra skriverne eller fra rigtig DML under et åbent sæt (log_change skriver eventet).
+--     Kun fortryd-sættene og de tidligere slettede rækker indsættes direkte i change_set/change_event; foer/row_pk
+--     bygges med jsonb_populate_record/_row_pk, så formen er log_change's. withdraw-sættet åbnes med begin_change_set
+--     uden DML (som withdraw_legacy_narrative, der kun skriver ikke-versionerede publiceringsrækker).
 --   * purge_test.forventet (V2-2) fyldes trinvis ud fra de id'er, skriverne returnerede, og de sæt, de lige åbnede —
 --     aldrig fra en forespørgsel af typen »alle rækker om P«. pk har version_pk_registry's form (som change_event.row_pk).
 --
--- Kendte huller, der hører til Task 2b (ledgers/bogens lag): S9-S12, S22-S24, S33b (entity_description_source kræver
--- source_record), S36, S39-S51. Det fælles sæt (rolle faelles_saet) får sin narrative_publication_event-FK i 2b (R3).
+-- Kendte huller, der hører til Task 2b (ledgers/bogens lag): S9 (kvitteringen forbruges), S10-S12 (identitet),
+-- S22-S24 (publicering), S33b (entity_description_source kræver source_record), S36 (red_ret_paastand kræver en
+-- proposed/accepted interpretation for faktaets person via accepteret identitet), S39-S51. Det fælles sæt (rolle
+-- faelles_saet) får sin narrative_publication_event-FK i 2b (R3).
 \set ON_ERROR_STOP on
 SELECT set_config('request.jwt.claim.sub','a2a00000-0000-4000-8000-00000000a001',false) \g /dev/null
 
