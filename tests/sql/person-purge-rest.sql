@@ -4,10 +4,13 @@
 -- (kun TEMP-tabeller oprettes, og de forsvinder ved ROLLBACK).
 --
 -- Tre tegn tælles pr. tabel:
---   tok   : P's id som helt tal-token: hverken foran eller efter ciffer, bogstav, _, ., : eller - (så tidsstempler,
---           uuid-segmenter og [[person:<pid>| ikke rammes); et afsluttende punktum tæller, når intet ciffer følger.
---           FORUDSÆTNING i fixture-mode: testpersonernes id'er er > 1.000.000 (Task 2a sætter sekvensen højt),
---           så små tal ikke ramler ind i andre kolonner.
+--   tok   : P's id som helt tal-token. Grænsetegn afhænger af mode (R10/R12):
+--           mode=prod    : hverken foran eller efter ciffer, bogstav, _, ., : eller - (så tidsstempler,
+--                          uuid-segmenter og [[person:<pid>| ikke rammes) — streng regex, uændret.
+--           mode=fixture : som prod, men : og - ER grænsetegn (så feed-pin-nøgler som portrait:<pid> og
+--                          paadennedag:<pid>:født:<år> ses). Sikkert, fordi fixture-id'er er > 1.000.000 og derfor
+--                          ikke kan ramle ind i dato- eller uuid-segmenter (Task 2a sætter sekvensen højt).
+--           Et afsluttende punktum tæller i begge, når intet ciffer følger.
 --   navn  : P's navn som delstreng (springes over, hvis navnet er tomt)
 --   link  : delstrengen '[[person:<pid>|'
 --
@@ -51,7 +54,7 @@
 \else
   \set planfil ''
 \endif
-SELECT (:'mode' = 'prod') AS is_prod, (:'fase' = 'efter') AS is_efter, (:'planfil' <> '') AS har_plan \gset
+SELECT (:'mode' = 'prod') AS is_prod, (CASE WHEN :'mode' = 'prod' THEN '0-9A-Za-z_.:-' ELSE '0-9A-Za-z_.' END) AS bnd, (:'fase' = 'efter') AS is_efter, (:'planfil' <> '') AS har_plan \gset
 \pset format unaligned
 \pset tuples_only on
 \pset fieldsep '|'
@@ -91,7 +94,7 @@ SELECT t.tabel, x.tok, x.navn, x.link
                                          AND strpos(t::text, (SELECT navn FROM pg_temp.params)) > 0) AS navn,
                       count(*) FILTER (WHERE strpos(t::text, %L) > 0) AS link
                  FROM %I.%I t$q$,
-            '(^|[^0-9A-Za-z_.:-])' || p.pid::text || '(\.(?![0-9])|[^0-9A-Za-z_.:-]|$)',
+            '(^|[^' || :'bnd' || '])' || p.pid::text || '(\.(?![0-9])|[^' || :'bnd' || ']|$)',
             '[[person:' || p.pid::text || '|',
             t.nspname, t.relname), false, true, '') AS q) s) x;
 

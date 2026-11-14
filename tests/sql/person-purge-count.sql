@@ -116,7 +116,8 @@ p_import_keys AS MATERIALIZED (
 -- feed_pin-nøgler (NY-B): mønstre med person-id og eksakte nøgler for P's historier/hændelser.
 feed_rx AS (
   SELECT '^((portrait|citat|naevnt|dagensperson):' || p.pidt || '|(jubilaeum|embede):' || p.pidt || ':.*'
-         || '|slaegt:' || p.pidt || ':[0-9]+|slaegt:[0-9]+:' || p.pidt || ')$' AS rx
+         || '|slaegt:' || p.pidt || ':[0-9]+|slaegt:[0-9]+:' || p.pidt
+         || '|paadennedag:' || p.pidt || ':(født|død):[0-9]+' || ')$' AS rx
     FROM params p),
 feed_keys AS MATERIALIZED (
   SELECT 'story:' || idt AS k FROM hist_story
@@ -239,7 +240,7 @@ counts(nr, sted, antal) AS (
   UNION ALL SELECT 'S31','public.story (andres) forankret i P''s fakta/relationer (SET NULL)', (SELECT count(*) FROM public.story s
        WHERE (s.fact_id IN (SELECT id FROM facts) OR s.relation_id IN (SELECT id FROM rels))
          AND s.id NOT IN (SELECT id FROM p_story))
-  UNION ALL SELECT 'S32','public.feed_pin (person-nøgler, dagensperson, story:<S>, arkiv:/paadennedag:h:<H>)', (SELECT count(*) FROM public.feed_pin f, feed_rx fx
+  UNION ALL SELECT 'S32','public.feed_pin (person-nøgler, dagensperson, story:<S>, arkiv:/paadennedag:h:<H>/paadennedag:P:(født|død):<år>)', (SELECT count(*) FROM public.feed_pin f, feed_rx fx
        WHERE f.kort_noegle ~ fx.rx
           OR f.kort_noegle IN (SELECT k FROM feed_keys))
   UNION ALL SELECT 'S32b','public.feed_pin forbundet:<P''s familie>', (SELECT count(*) FROM public.feed_pin f
