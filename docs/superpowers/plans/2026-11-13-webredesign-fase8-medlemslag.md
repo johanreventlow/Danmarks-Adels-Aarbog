@@ -17,7 +17,7 @@ allerede leverer. Ingen DB-ændringer, ingen nye RPC'er.
 2026-11-13 (»Det er mig« i to trin, pkt. 3) og afsnittet **Valg truffet i planen** nedenfor, som projektejeren
 godkender sammen med planen.
 
-## Valg truffet i planen (projektejeren godkender)
+## Valg truffet i planen (godkendt af projektejeren 2026-11-14)
 
 1. **Sætningen står uden navn:** der står »Din tipoldefar« lige over navnet, ikke »Conrad er din tipoldefar«.
    Navnet står jo i overskriften lige under, og modellen har intet felt for fornavn.
