@@ -5,8 +5,8 @@
 --
 -- Indhold:
 --   1. spike.indstilling: vagternes tilstand ('enforce' | 'warn'). En tabelrække, ikke en GUC, så createdb -T arver den.
---   2. Vagterne fra Global Constraints (eksistensvagt, fakta-mål, fakta-slettevagt, entity_description). feed_pin er
---      udeladt i spiket (red_set_feed_pin er en enkelt RPC; den skal have samme lås i Task 8).
+--   2. Vagterne fra Global Constraints (eksistensvagt, fakta-mål, fakta-slettevagt, entity_description) og (fix 1)
+--      feed_pin: en spike-kopi af red_set_feed_pin, der låser nøglens person/familie FOR KEY SHARE FØR pin-rækken.
 --   3. spike.red_slet_person_helt_skelet(P, opt): tager KUN L1-L13 med L5b i slettegrafens orden og sletter derefter
 --      noget repræsentativt (P's fakta/relationer med evidens, memberships og evt. selve personen). Det er ikke den
 --      rigtige sletning.
@@ -175,6 +175,76 @@ DROP TRIGGER IF EXISTS trg_spike_fact_evidence_delete ON public.fact;
 CREATE TRIGGER trg_spike_fact_evidence_delete BEFORE DELETE OR UPDATE OF id ON public.fact
   FOR EACH ROW EXECUTE FUNCTION private.guard_fact_evidence_delete();
 
+-- 2e. feed_pin (fix 1). kort_noegle er tekst, så ingen trigger på feed_pin kan låse målet FØR pin-rækken: en
+--     INSERT … ON CONFLICT DO UPDATE låser den eksisterende pin-række, før BEFORE UPDATE-triggeren kører. Låsen skal
+--     derfor ligge i skriveren, før upserten (her en spike-kopi af red_set_feed_pin, schema.sql l. 7121, med uændret
+--     krop ud over låsen). Rækkefølgen i skriveren bliver person/familie (KEY SHARE) → change_set (RE) → pin-række,
+--     hvilket er forenelig med sletningens L8 → L10 (person FOR UPDATE) → DELETE af pins.
+--     spike.indstilling 'feed_pin_laas' flytter låsen til kontrolformål: 'trigger' = BEFORE INSERT OR UPDATE-trigger
+--     på feed_pin; 'trigger_update' = kun BEFORE UPDATE (positiv kontrol: den forkerte placering).
+CREATE OR REPLACE FUNCTION spike.feed_pin_maal(p_noegle text)
+RETURNS TABLE(typ text, id bigint) LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+  SELECT 'person', (regexp_match(p_noegle,'^(?:portrait|citat|naevnt|dagensperson):(-?[0-9]+)$'))[1]::bigint
+   WHERE p_noegle ~ '^(portrait|citat|naevnt|dagensperson):-?[0-9]+$'
+  UNION SELECT 'person', (regexp_match(p_noegle,'^(?:jubilaeum|embede):(-?[0-9]+):'))[1]::bigint
+   WHERE p_noegle ~ '^(jubilaeum|embede):-?[0-9]+:'
+  UNION SELECT 'person', unnest((regexp_match(p_noegle,'^slaegt:(-?[0-9]+):(-?[0-9]+)$'))::bigint[])
+   WHERE p_noegle ~ '^slaegt:-?[0-9]+:-?[0-9]+$'
+  UNION SELECT 'family', (regexp_match(p_noegle,'^forbundet:(-?[0-9]+)$'))[1]::bigint
+   WHERE p_noegle ~ '^forbundet:-?[0-9]+$'
+$$;
+
+CREATE OR REPLACE FUNCTION spike.laas_feed_pin_maal(p_noegle text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE r record;
+BEGIN
+  -- SPIKE_PERSON_PURGE_VAGT_V1
+  FOR r IN SELECT * FROM spike.feed_pin_maal(p_noegle) ORDER BY (typ='family'), id LOOP
+    IF r.typ='person' THEN PERFORM 1 FROM public.person WHERE person.id=r.id FOR KEY SHARE;
+    ELSE PERFORM 1 FROM public.family WHERE family.id=r.id FOR KEY SHARE;
+    END IF;
+    IF NOT FOUND THEN PERFORM spike.vagt_brud('POLYMORF_SUBJEKT_FINDES_IKKE','feed_pin',r.typ,r.id); END IF;
+  END LOOP;
+END $$;
+REVOKE ALL ON FUNCTION spike.laas_feed_pin_maal(text) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION red_set_feed_pin(p_kort_noegle text, p_handling text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  -- SPIKE_PERSON_PURGE_VAGT_V1 (spike-kopi: låsen før upserten er det eneste nye)
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_handling NOT IN ('pin','skjul') THEN
+    RAISE EXCEPTION '''%'' er ikke en gyldig pin-handling (pin|skjul)', p_handling;
+  END IF;
+  IF p_kort_noegle IS NULL OR btrim(p_kort_noegle)='' THEN
+    RAISE EXCEPTION 'kort_noegle må ikke være tom';
+  END IF;
+  PERFORM begin_change_set('red_set_feed_pin',
+    format('Satte %s på kort %s', p_handling, p_kort_noegle), NULL, NULL);
+  IF coalesce((SELECT vaerdi FROM spike.indstilling WHERE noegle='feed_pin_laas'),'foer')='foer' THEN
+    PERFORM spike.laas_feed_pin_maal(p_kort_noegle);
+  END IF;
+  INSERT INTO feed_pin (kort_noegle, handling)
+  VALUES (p_kort_noegle, p_handling)
+  ON CONFLICT (kort_noegle) DO UPDATE
+    SET handling=excluded.handling, oprettet_af=auth.uid(), oprettet_naar=now();
+END $$;
+
+CREATE OR REPLACE FUNCTION spike.feed_pin_trigger_laas()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+BEGIN
+  -- 'trigger': låsen i BEFORE INSERT OR UPDATE; 'trigger_update': kun i BEFORE UPDATE (ON CONFLICT DO UPDATE-vejen).
+  IF coalesce((SELECT vaerdi FROM spike.indstilling WHERE noegle='feed_pin_laas'),'foer')='trigger'
+     OR (coalesce((SELECT vaerdi FROM spike.indstilling WHERE noegle='feed_pin_laas'),'foer')='trigger_update'
+         AND TG_OP='UPDATE') THEN
+    PERFORM spike.laas_feed_pin_maal(NEW.kort_noegle);
+  END IF;
+  RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS trg_spike_feed_pin_kontrol ON public.feed_pin;
+CREATE TRIGGER trg_spike_feed_pin_kontrol BEFORE INSERT OR UPDATE ON public.feed_pin
+  FOR EACH ROW EXECUTE FUNCTION spike.feed_pin_trigger_laas();
+
 -- ---------------------------------------------------------------------------------------------------------------
 -- 3. Skelettet. opt (jsonb), alle valgfri:
 --   l5b          boolean  (default true)  — false = positiv kontrol for D-2
@@ -203,7 +273,9 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private A
     'personas',(SELECT coalesce(jsonb_agg(x ORDER BY x),'[]') FROM spike.person_purge_personas(p) x),
     'kandidater',(SELECT coalesce(jsonb_agg(c.id ORDER BY c.id),'[]') FROM private.source_persona_identity_candidate c
                    WHERE c.candidate_person_id=p),
-    'memberships',(SELECT count(*) FROM public.person_lineage_membership WHERE person_id=p))::text)
+    'memberships',(SELECT count(*) FROM public.person_lineage_membership WHERE person_id=p),
+    'pins',(SELECT coalesce(jsonb_agg(f.id ORDER BY f.id),'[]') FROM public.feed_pin f
+             WHERE EXISTS (SELECT 1 FROM spike.feed_pin_maal(f.kort_noegle) m WHERE m.typ='person' AND m.id=p)))::text)
 $$;
 
 -- L3: sources(P)
@@ -328,6 +400,8 @@ BEGIN
   DELETE FROM public.fact WHERE id=ANY(v_facts);
   DELETE FROM public.person_lineage_membership WHERE person_id=p_person_id;
   DELETE FROM public.person_slaegt_membership WHERE person_id=p_person_id;
+  DELETE FROM public.feed_pin f
+   WHERE EXISTS (SELECT 1 FROM spike.feed_pin_maal(f.kort_noegle) m WHERE m.typ='person' AND m.id=p_person_id);
   IF coalesce((p_opt->>'slet_person')::boolean,false) THEN
     DELETE FROM public.person_external_id WHERE person_id=p_person_id;
     DELETE FROM public.family_member WHERE person_id=p_person_id;

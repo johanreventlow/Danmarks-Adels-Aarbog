@@ -41,7 +41,10 @@ Afgørelsen go/no-go træffes af hovedsessionen.
   `schema.sql`; se F-6.
 - Fakta-slettevagten `private.guard_fact_evidence_delete` (BEFORE DELETE OR UPDATE OF id på `fact`) med
   `FACT_HAR_EVIDENS`.
-- **Ikke med:** låsen i `red_set_feed_pin`. Den er én RPC uden samspil med de øvrige låse og laves i Task 8.
+- `feed_pin` (fix 1): en spike-kopi af `red_set_feed_pin` (schema.sql l. 7121) låser nøglens mål FOR KEY SHARE før
+  upserten. Det gælder person P for `portrait|citat|naevnt|dagensperson:P`, `jubilaeum|embede:P:…` og
+  `slaegt:P:x`/`slaegt:x:P`, og familie F for `forbundet:F`. Personer låses før familier i id-orden. Hvorfor låsen skal
+  ligge i skriveren og ikke i en trigger, står i F-8.
 - En `warn`-tilstand (tabelrækken `spike.indstilling`, så `createdb -T` arver den) giver `RAISE WARNING
   SPIKE_VAGT_BRUD … stak=<funktioner>` i stedet for en fejl. Den bruges kun til CI-inventaret.
 
@@ -50,9 +53,10 @@ Afgørelsen go/no-go træffes af hovedsessionen.
 - `lock_timeout = 5s` og `statement_timeout = 30s` sættes med `set_config`.
 - L3 og L12 beregner kilderne for `person_external_id`, X∪Y, kandidatrækker og kontrolstikprøver.
 - L5b låser de records, hvor X∪Y-personas er placeret, plus records med P's narrativbindinger.
-- L13 sammenligner et forenklet preview: P's fakta, påstande, relationer, noter, X∪Y, kandidater og memberships.
+- L13 sammenligner et forenklet preview: P's fakta, påstande, relationer, noter, X∪Y, kandidater, memberships og
+  feed_pins med P i nøglen.
 - Derefter sletter skelettet noget repræsentativt, børn før forældre: citation, conclusion, assertion, note,
-  haendelse-ankre, relationer (også med en fakta-ende), fakta og memberships. Med `slet_person` slettes også
+  haendelse-ankre, relationer (også med en fakta-ende), fakta, memberships og P's feed_pins. Med `slet_person` slettes også
   external ids, family_member og selve personen.
 - Det skriver ingen manifest og rører ingen ledgers.
 - Valg (kun til spiket):
@@ -89,7 +93,7 @@ i Task 2a.
   - et forslag fra X_P til titlen.
 - P's narrativ på P-REC oprettes og publiceres gennem de rigtige RPC'er (`red_upsert_…`, `red_publicer_…`).
 - Q (-9102) er en anden person i samme kilde.
-- L (-9103) har ingen ledger, så skelettet kan slette den helt.
+- L (-9103) har ingen ledger, så skelettet kan slette den helt. L har en eksisterende pin `portrait:-9103` (fix 1).
 - Z er en uafgjort persona i S.
 - Kontrakt v2 kommer fra `tests/sql/reimport-writer-v2-bootstrap.sql`, altså den rigtige cutover.
 
@@ -100,7 +104,11 @@ Scriptet opretter `<præfiks>_base` og én kopi pr. scenarie og sletter kun dem.
 ### 3.2 Resultater pr. scenarie
 
 Kørt tre gange (to af gangene, mens CI-jobbene belastede maskinen). Udfald og observerede ventninger var ens alle tre
-gange.
+gange. feed_pin-scenarierne (fix 1) er kørt to gange med samme udfald, sammen med D-1 OCR-gruppen som kontrol. OCR-
+gruppen gav samme udfald som før.
+
+»Ingen kollision mulig ved RE« betyder: skriveren rører intet, skelettet holder, så længe skelettet kun har L1-L8.
+Scenariet beviser derfor ikke serialisering. Det viser kun, at der ikke opstår en ventning.
 
 S = skelettet, W = skriveren, H = holder-sessionen. »Venter« er observeret med `pg_blocking_pids`.
 
@@ -109,13 +117,13 @@ S = skelettet, W = skriveren, H = holder-sessionen. »Venter« er observeret med
 | Scenarie | Observeret | S | W | Udfald |
 |---|---|---|---|---|
 | D-1 `red_ret_ocr_felt` på Q (samme kilde), W først | W ved change_set-pausen; S venter på W's række i `source` (L9) | OK | OK | serialiseret |
-| D-1 OCR, S først (holder L1-L8) | W venter ikke (L9 er ikke taget endnu) | OK | OK | serialiseret |
+| D-1 OCR, S først (holder L1-L8) | W venter ikke (L9 er ikke taget endnu) | OK | OK | ingen kollision mulig ved RE |
 | D-1 `red_ret_paastand`, W først | S venter på W's række i `source_persona_identity` (L6) | OK | OK | serialiseret |
 | D-1 `red_ret_paastand`, S først | W venter på S i `source_persona_identity` | OK | `PAASTAND_DRIFT` | serialiseret, fail-closed |
 | D-1 `red_reverse_placement_membership`, W først | S venter på W's række i `person_lineage_membership` (DELETE) | OK | OK | serialiseret |
-| D-1 membership, S først | W venter ikke; W committer før S's L13 | `PURGE_PREVIEW_AENDRET` | OK | serialiseret, fail-closed |
+| D-1 membership, S først | W venter ikke; W committer før S's L13 | `PURGE_PREVIEW_AENDRET` | OK | ingen kollision mulig ved RE; fail-closed via L13 |
 | D-1 `red_slet_medierelation_uden_evidens`, W først | S venter på W's række i `relation` | OK | OK | serialiseret |
-| D-1 medie, S først | W venter ikke | `PURGE_PREVIEW_AENDRET` | OK | serialiseret, fail-closed |
+| D-1 medie, S først | W venter ikke | `PURGE_PREVIEW_AENDRET` | OK | ingen kollision mulig ved RE; fail-closed via L13 |
 | D-2 `mutate_person_narrative_record` (revider), S først, stoppet ved L7 | W venter på S's række i `source_record` (L5b) | OK | OK | serialiseret |
 | D-2 revider, W først (record+AE+person holdt) | S venter på W's række i `source_record` (L5b) | OK | OK | serialiseret |
 | D-2 `reverse_narrative_publication_event` (fortryd), S først, L7 | W venter på S i `source_record` | OK | OK | serialiseret |
@@ -130,10 +138,13 @@ S = skelettet, W = skriveren, H = holder-sessionen. »Venter« er observeret med
 | `red_afgoer_source_persona`, S først | W venter på S's eksklusive kildelås | OK | OK | serialiseret |
 | `red_record_identity_candidates` (S, Z→P), W først | S venter på W's kildelås (L5) | `PURGE_PREVIEW_AENDRET` | OK | serialiseret, fail-closed |
 | `red_record_identity_candidates`, S først | W venter på S's kildelås | OK | `IDENTITY_CANDIDATE_INPUT_DRIFT` | serialiseret, fail-closed |
+| `red_set_feed_pin('portrait:L')`, eksisterende pin (ON CONFLICT DO UPDATE), W først | S venter på W's KEY SHARE på `person` (L10) | OK (sletter den opdaterede pin og L) | OK | serialiseret |
+| `red_set_feed_pin`, S først (sover efter sletningen) | W venter på S i `person` | OK | `POLYMORF_SUBJEKT_FINDES_IKKE: person` | serialiseret, fail-closed |
+| `red_set_feed_pin`, S holder L10 og sover; W's upsert; S sletter pins (låsen før upserten) | W venter på S i `person`, før pin-rækken | OK | `POLYMORF_SUBJEKT_FINDES_IKKE: person` | serialiseret |
 | (h) en anden session holder P FOR UPDATE i 10 s | S venter i `person` | `55P03` efter 5 s | (holder) | intet ændret |
 
-Tabellen bagefter blev målt efter hvert scenarie: 0 forældreløse påstande, 0 forældreløse fakta og 0 forældreløse
-noter i alle 31 kørsler.
+Tabellen bagefter blev målt efter hvert scenarie: 0 forældreløse påstande, 0 forældreløse fakta, 0 forældreløse
+noter og (fix 1) 0 forældreløse pins i alle kørsler.
 
 **Positive kontroller** (beviser, at harnessen fremtvinger cyklerne):
 
@@ -147,6 +158,8 @@ noter i alle 31 kørsler.
 | D-2 revider, W først, UDEN L5b | S venter på W's ACCESS EXCLUSIVE (L8); W slippes og vil have personaen | **40P01**, S |
 | D-2 fortryd, S først, UDEN L5b | som revider | **40P01**, W |
 | D-2 fortryd, W først, UDEN L5b | som revider | **40P01**, S |
+| `red_set_feed_pin`, låsen KUN i en BEFORE UPDATE-trigger på `feed_pin`; S holder L10 | W har den eksisterende pin-række (DO UPDATE) og venter på S i `person`; S's DELETE af pins venter på W i `feed_pin` | **40P01**, S |
+| `red_set_feed_pin`, låsen i en BEFORE INSERT OR UPDATE-trigger; S holder L10 | W venter på S i `person`, før pin-rækken | ingen deadlock (se F-8) |
 
 ### 3.3 Hvad spiket ikke dækker
 
@@ -155,16 +168,19 @@ noter i alle 31 kørsler.
   køre de samme scenarier mod den rigtige funktion. Harnessen er bygget, så skabelonerne kan genbruges.
 - Skelettet sletter ikke P selv i D-2-scenarierne, fordi P har publiceringshistorik (append-only). Kollisionen sker
   før sletningen, så det ændrer ikke låseudfaldet.
-- `red_set_feed_pin` og `red_fortryd_change_set` (Task 11 e) er ikke med.
+- `red_fortryd_change_set` (Task 11 e) og `red_fjern_feed_pin` er ikke med. `red_fjern_feed_pin` sletter kun
+  pin-rækken og låser ingen person.
 - Pausen i `begin_change_set` er et testinstrument. Uden den kan vinduet mellem en skrivers rækkelås og dens
   change_set-lås ikke rammes deterministisk.
 - Step 1b's statiske tjek af helpers og triggere er ikke lavet. Spiket tester kun de navngivne skrivere.
 
 ### 3.4 Fund
 
-- **F-1 (låseorden):** L1-L13 med L5b og L8 = ROW EXCLUSIVE serialiserer alle tvungne sammenstød. De gav 0 deadlocks
-  i 23 scenarier × 3 kørsler. Begge rettelser fra delta-reviewet er nødvendige. Uden dem giver de positive
-  kontroller 40P01 hver gang.
+- **F-1 (låseorden):** L1-L13 med L5b og L8 = ROW EXCLUSIVE serialiserer alle tvungne sammenstød.
+  - Der kom 0 deadlocks i de 23 scenarier med en observeret kollision: 20 fra første runde × 3 kørsler og 3
+    feed_pin-scenarier × 2 kørsler.
+  - De 3 D-1 »S først«-scenarier tæller ikke med. Der var ingen kollision mulig ved RE.
+  - Begge rettelser fra delta-reviewet er nødvendige. Uden dem giver de positive kontroller 40P01 hver gang.
 - **F-2 (`red_ret_paastand` kan ikke danne D-1-cyklussen):** Skriveren kræver altid et forslag fra en persona med
   accepteret identitet til faktummets person, altså en persona i X. Den tager `source_persona_identity FOR SHARE`, før
   den tager personen.
@@ -173,6 +189,25 @@ noter i alle 31 kørsler.
     rollback.
   - Delta-reviewets formulering »når påstanden ikke kommer fra en fortolkning« dækker altså ingen sti, der når
     `begin_change_set`.
+- **F-8 (feed_pin: låsens placering afgør udfaldet; fix 1):**
+  - `kort_noegle` er tekst uden FK. Eksistensvagten for et pin-mål skal derfor tages et sted, og placeringen er
+    afgørende.
+  - Med en `INSERT … ON CONFLICT DO UPDATE` på en eksisterende pin låser PostgreSQL pin-rækken (konfliktrækken), før
+    BEFORE UPDATE-triggeren kører.
+  - En lås på personen i en ren BEFORE UPDATE-trigger tages altså efter pin-rækken. Skelettet tager personen (L10) før
+    pins (DELETE). Det giver en cyklus, og kontrollen gav **40P01** (offer: skelettet).
+  - Med låsen i skriveren før upserten (planens placering) venter skriveren på personen, før den rører pin-rækken. Der
+    kom ingen deadlock: skrivningen afvises med `POLYMORF_SUBJEKT_FINDES_IKKE`, efter at sletningen har committet.
+  - En BEFORE INSERT OR UPDATE-trigger gav også serialisering i spiket. Den BEFORE INSERT-trigger, der hører til
+    upserten, kører før konfliktarbitreringen, altså før pin-rækken låses. Den beskytter dog ikke en ren `UPDATE` af
+    `kort_noegle`.
+  - **Task 8 skal kopiere:** låsen i `red_set_feed_pin` selv, før `INSERT … ON CONFLICT`. Rækkefølgen er
+    `begin_change_set` → KEY SHARE på nøglens personer (id-orden), derefter familier → upsert. Låsen må ikke lægges i
+    en BEFORE UPDATE-trigger.
+  - Funktionen er defineret i `schema.sql` l. 7121 og to gange i `db-migrations.sql` (l. 3220 og 4523). Samme
+    forhold som F-5: den nye krop skal vinde ved genkørsel.
+  - Nøglemønstrene står i `spike.feed_pin_maal` i skelettet. De følger slettegrafens S32 for person- og
+    familienøgler.
 - **F-3 (fail-closed, ikke deadlock):** Når en skriver når at committe, mens sletningen holder L1-L8, fanger L13's
   preview-sammenligning ændringen (`PURGE_PREVIEW_AENDRET`). Det gælder membership, medie, afgørelse og
   kandidatkørsel. Planens L12/L13 er altså det, der lukker, ikke låsene alene. Det kræver, at det rigtige preview
@@ -217,8 +252,9 @@ Kørt med `tests/sql/spike/ci_jobs_lokalt.py`:
   - `enforce`: vagterne som i planen;
   - `warn`: vagterne skriver en advarsel i stedet for at fejle, så hele inventaret kommer med, også efter første
     brud;
-  - `enforce_kendte`: som enforce, men de 13 kendte steder fra warn-inventaret giver kun en advarsel. Alt andet fejler.
-    Den bekræfter, at inventaret er komplet, også for brud i dblink- og R-sessioner, hvis advarsler aldrig når en log.
+  - `enforce_kendte`: som enforce, men en undtagelsesliste giver kun en advarsel. Listen er efter type:id, ikke
+    efter sted, og er tjekket mod loggene. Alt andet fejler. Kørslen viser, at der ikke findes andre brud end dem
+    med disse type:id-par. Det gælder også i dblink- og R-sessioner, hvis advarsler aldrig når en log.
 
 Lokale afvigelser fra CI:
 
@@ -242,7 +278,10 @@ blev grønne, da de blev genkørt med en dummy. Med vagterne (enforce) er disse 
 Alle andre trin er grønne med vagterne.
 
 I ren enforce stopper hvert rødt trin ved første fejl, så resten af trinnet når ikke at køre. Det gælder fx db-verify
-efter l. 6724 og R-testene i trin 42. **Kørslen `enforce_kendte` dækker resten: alle trin i alle 4 jobs er grønne.**
+efter l. 6724 og R-testene i trin 42. **Kørslen `enforce_kendte` dækker resten: alle trin i alle 4 jobs er grønne.** Den bygger på en undtagelsesliste
+efter type:id (person -99, 1, -999904, -999951, -999941, -999942, -999943, -153109; familie -621017; faktum -1). Et
+nyt brud på et af de samme id'er et andet sted ville derfor ikke blive set. Alle 201 advarsler i loggene ligger på
+de 13 kendte steder.
 Kun `install.packages` fejler, af miljøgrunde. Vagterne ramte kun de 13 kendte steder (201 advarsler i alt).
 
 - Det gælder også alle R-baserede samtidighedstests:
@@ -274,7 +313,7 @@ steder. Linjenummeret er sætningens linje. psql melder slutningen af DO-blokken
 - **Klasse a** (13): testen skriver om en forælder, der ikke findes. Den rettes i Task 8 ved at seede forælderen.
   Ved `test-publication-persona.sql:54` skal testen have en familie med det id eller pege på en eksisterende familie.
   I alle 13 tilfælde ville den rigtige skriver have gjort det samme med en eksisterende forælder.
-- **Klasse b** (en rigtig skriver, vagten bryder): **0.** Det er bekræftet af `enforce_kendte`. De fire `red_relation`-steder er en skriver, men den kaldes
+- **Klasse b** (en rigtig skriver, vagten bryder): **0.** Det er understøttet af `enforce_kendte` (undtagelser efter type:id, tjekket mod loggene). De fire `red_relation`-steder er en skriver, men den kaldes
   med ikke-eksisterende personer. Det er netop det, vagten skal afvise (F-7).
 - `FACT_HAR_EVIDENS` blev ikke ramt nogen steder i CI.
 - Delta-reviewets D-5-liste (6724, 7304, 7500, 7625) er bekræftet. De øvrige 9 steder er nye. Det samlede antal er

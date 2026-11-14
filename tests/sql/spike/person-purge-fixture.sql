@@ -54,6 +54,9 @@ BEGIN
   END LOOP;
   INSERT INTO public.note(target_type,target_id,indhold) VALUES ('person',-9101,'Spike note'),('person',-9103,'Spike note');
 
+  -- Eksisterende feed_pin på L (fix 1: red_set_feed_pin rammer ON CONFLICT DO UPDATE-vejen).
+  INSERT INTO public.feed_pin(kort_noegle,handling,oprettet_af) VALUES ('portrait:-9103','pin',v_actor);
+
   -- Medie og evidensfri afbildning (red_slet_medierelation_uden_evidens).
   INSERT INTO public.media(id,slags,titel) VALUES (-9001,'foto','Spike medie');
   INSERT INTO public.relation(subjekt_type,subjekt_id,rolle,objekt_type,objekt_id)

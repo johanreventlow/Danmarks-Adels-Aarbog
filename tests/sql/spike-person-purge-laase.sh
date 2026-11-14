@@ -4,7 +4,8 @@
 # Brug:  bash tests/sql/spike-person-purge-laase.sh [præfiks] [scenarie ...]
 #   præfiks   navn på engangsbaserne (default spike_purge_ci_<pid>); scriptet opretter <præfiks>_base og én kopi pr.
 #             scenarie (<præfiks>_<n>) og sletter KUN dem, det selv har oprettet i denne kørsel
-#             (SPIKE_KEEP_DBS=1 beholder dem). Det rører aldrig en base, det ikke selv har oprettet.
+#             Baserne BEHOLDES som standard (oprydning sker manuelt efter måling). SPIKE_DROP_DBS=1 sletter dem,
+#             scriptet selv har oprettet i kørslen. Det rører aldrig en base, det ikke selv har oprettet.
 #   scenarie  et eller flere scenarienavne (se SCENARIER nederst); default alle.
 # Output: én linje pr. scenarie i $SPIKE_OUT/resultat.tsv (default en mappe under mktemp) og på stdout; sessionernes
 # fulde psql-output (VERBOSITY=verbose, så SQLSTATE står der) i $SPIKE_OUT/<scenarie>/. Kun syntetiske data.
@@ -29,7 +30,7 @@ RES="$OUT/resultat.tsv"; : > "$RES"
 cleanup() {
   local rc=$?
   for p in $(jobs -p); do kill "$p" 2>/dev/null || true; done
-  if [ "${SPIKE_KEEP_DBS:-0}" != 1 ]; then
+  if [ "${SPIKE_DROP_DBS:-0}" = 1 ]; then
     for db in $CREATED; do dropdb "$db" >/dev/null 2>&1 || true; done
   else
     echo "beholdt:$CREATED"
@@ -171,7 +172,9 @@ efter() {  # tilstand bagefter (kun tal)
                                    AND NOT EXISTS (SELECT 1 FROM person p WHERE p.id=f.subjekt_id))
     ||' forældreløse_noter='||(SELECT count(*) FROM note n WHERE (n.target_type='fact' AND NOT EXISTS
                                    (SELECT 1 FROM fact f WHERE f.id=n.target_id)) OR (n.target_type='person' AND NOT EXISTS
-                                   (SELECT 1 FROM person p WHERE p.id=n.target_id)))"
+                                   (SELECT 1 FROM person p WHERE p.id=n.target_id)))
+    ||' forældreløse_pins='||(SELECT count(*) FROM feed_pin f JOIN spike.feed_pin_maal(f.kort_noegle) m ON m.typ='person'
+                                   WHERE NOT EXISTS (SELECT 1 FROM person p WHERE p.id=m.id))"
 }
 rapport() {  # rapport <scenarie> <beskrivelse>
   local line
@@ -208,6 +211,7 @@ w_upsert_l() { echo "SELECT red_upsert_fakta('person',-9103,'erhverv','Spike erh
 w_tilfoej_l() { echo "SELECT red_tilfoej_oplysning((SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id=-9103 AND faktatype='navn'),'Spike ny påstand');"; }
 w_note_l() { echo "INSERT INTO note(target_type,target_id,indhold) SELECT 'fact',id,'Spike note på faktum' FROM fact WHERE subjekt_type='person' AND subjekt_id=-9103 AND faktatype='navn';"; }
 w_afgoer() { echo "SELECT red_afgoer_source_persona('c0000000-0000-4000-8000-0000000000c1',0,'same',-9101,'spike');"; }
+w_feed_pin_l() { echo "SELECT red_set_feed_pin('portrait:-9103','skjul');"; }   # eksisterende pin → ON CONFLICT DO UPDATE
 w_kandidat() { cat <<'SQL'
 SELECT red_record_identity_candidates(jsonb_build_object('source_id',-9001,'generator_version','spike',
   'input_spec','{"mode":"undecided"}'::jsonb,
@@ -284,7 +288,7 @@ s_foerst_hel() {  # <skriverfunktion> <person> <skelet-opt> <beskrivelse> <navn>
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
-SCENARIER="d1_ocr d1_paastand d1_membership d1_medie d2_revider d2_fortryd f_upsert g_tilfoej g_note afgoer kandidat h_timeout"
+SCENARIER="d1_ocr d1_paastand d1_membership d1_medie d2_revider d2_fortryd f_upsert g_tilfoej g_note feed_pin afgoer kandidat h_timeout"
 [ $# -gt 0 ] && SCENARIER="$*"
 build_base
 echo "base=$BASE ud=$OUT"
@@ -313,6 +317,22 @@ for s in $SCENARIER; do
       w_foerst_hel w_note_l -9103 '{"slet_person":true}' "Task 11 (g) note på L's faktum (uden change_set): skriver først" gn_w_foerst
       s_foerst_hel w_note_l -9103 '{"slet_person":true,"pause_after":"DELETE","pause_s":3}' \
         "Task 11 (g) note på L's faktum (uden change_set): skelet først" gn_s_foerst ;;
+    feed_pin)
+      w_foerst_hel w_feed_pin_l -9103 '{"slet_person":true}' \
+        "red_set_feed_pin(portrait:L, eksisterende pin → DO UPDATE): skriver først" fp_w_foerst
+      s_foerst_hel w_feed_pin_l -9103 '{"slet_person":true,"pause_after":"DELETE","pause_s":3}' \
+        "red_set_feed_pin(portrait:L): skelet først" fp_s_foerst
+      # Samme interleaving med låsen før upserten (planen) og i en trigger på feed_pin (kontroller). S holder L10 (person FOR UPDATE) og sover;
+      # W's upsert rammer den eksisterende pin (ON CONFLICT DO UPDATE); bagefter sletter S pin-rækken.
+      for m in foer trigger_update trigger; do
+        ny fp_kontrol_$m
+        a "$DB" "INSERT INTO spike.indstilling VALUES ('feed_pin_laas','$m') ON CONFLICT (noegle) DO UPDATE SET vaerdi='$m'" >/dev/null
+        start S "$(skelet -9103 '{"slet_person":true,"pause_after":"L10","pause_s":3}')"; vent_paa S sover
+        start W "$(w_feed_pin_l)"
+        observer W 4 || true
+        observer S 6 || true
+        vent_alle; rapport "red_set_feed_pin, låsens placering=$m (foer=planen; trigger*=kontrol), skelet holder L10"
+      done ;;
     afgoer)
       w_foerst_hel w_afgoer -9101 '{}' "red_afgoer_source_persona(Z same P): skriver først" afgoer_w_foerst
       s_foerst_hel w_afgoer -9101 '{"pause_after":"DELETE","pause_s":3}' "red_afgoer_source_persona(Z same P): skelet først" afgoer_s_foerst ;;
