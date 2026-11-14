@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-14 — trin 6e-2 i prod: 1939 med bogens nøgle og trykte side; koordinatkaldet 4 × hurtigere
+
+Læseren viser 1939's poster med bogens egen nøgle og særtrykkets trykte side (Conrad: »DAA 1939, s. 52«) og linjens
+navn ved begge udgaver. Sidekortet ligger som data på kilden; 561 bindingers etiketter er genpubliceret, så ingen
+offentlig binding har `record-`-etiket; linjeskemaets fem etiketter følger bogens ordlyd (»… Ziesendorf.«).
+Koordinat-RPC'en som anon 1,26 s → 0,31 s pr. kald. Klient #345, DB #347 (flettet med #342), GO DDL `da5b40a6`, data
+`0b9019de`; kilde 1 byte-ens. Færdigbevis: `docs/evidensbaseret-genimport/laeserflade-6e2-prod.md`
+(`database-current-state.md` §30). Næste: de 30 »formodet«-forældreled.
+
 ## 2026-11-13 — redaktøren ser levendes biografi som kladde (trin 2)
 
 Udgivelsesreglen kan ikke få en redaktør-gren: `publication_allowed` er bagt ind i den hash-bundne udgivelsestilstand,

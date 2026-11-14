@@ -68,6 +68,11 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > - **Åben backlog: `citation_label` uden binding.** En post uden binding og uden accepterede ankre får nu udgaven som
 >   `citation_label` i stedet for NULL. Et udkast i Redaktion stopper derfor ikke længere på NOT NULL; før var det en
 >   implicit vagt. Åbent: en eksplicit vagt i draft-writerne eller en accept af den nye adfærd (DB-review M5).
+> - **Trykt side følger koordinatrækkens gate (merge-review m5, 2026-11-14).** `printed_page` vises for de rækker,
+>   kalderen må se: gæsten kun for offentlige personer, redaktøren også for levende, private og staged (#342, decisions
+>   2026-11-13). DB-reviewets parkering af Codex #1 begrundede det med »kun allerede offentlige personer«; det gælder
+>   kun gæsten. Ingen ny eksponeringsklasse: siden er bogens trykte side for en post, redaktøren allerede ser.
+> - **I prod 2026-11-14** (`database-current-state.md` §30, [færdigbevis](evidensbaseret-genimport/laeserflade-6e2-prod.md)).
 
 ## BESLUTTET: redaktøren læser levendes biografi som kladde; udgivelsesreglen røres ikke (2026-11-13)
 
