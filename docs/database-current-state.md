@@ -529,6 +529,40 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 30. Trin 6e-2: 1939's kildeetiket, trykte sider og koordinater — LIVE i prod (2026-11-14)
+
+**Grundlag:** spec `2026-11-12-trin6e-laeserflade-design.md` (§12-tillægget), decisions 2026-11-13 (kildeetiketten,
+afgørelse A), plan `2026-11-13-trin6e2-kildeetiket-koordinater.md`, runbook `docs/runbooks/trin6e2-prod.md`. Klient
+#345 (deployet før DDL), tillæg #346, DB #347 merget som `8d4782af` (flettet med §29's #342). Privat runner
+`~/.private/5ab-overfoersel/40-trin6e2.sh` (sha `234eb8e3…`); GO'erne bundet til `main` @ `8d4782af`. Projektejeren
+kørte alle trin i sin shell; sessionen læste kvitteringerne. Færdigbevis: `evidensbaseret-genimport/laeserflade-6e2-prod.md`.
+
+- **DDL** (GO `da5b40a6`, blok `0ad7c6c3…`, 658 linjer sidst i `db-migrations.sql`): `public.source.sidekort`
+  (+ `source_sidekort_gyldigt`) og `source_trykt_side`/`side_trykt` omregner 1939's PDF-sider til særtrykkets trykte;
+  læsbar postetiket for poster uden bogtrykt nøgle; `public_person_source_coordinates()` med 1939's entydige nøgle,
+  `printed_page` og mængdebaseret linjemedlemskab; `public_person_facts` med trykt side. Begge RPC'er bærer §29's
+  redaktør-gren (`db-verify`'s `redaktoer-ser-levende` grøn mod prod efter DDL). 12 funktioner, alle med
+  `search_path`; `REVOKE ALL` før hver `GRANT`. `T6E2_APPLY_DDL_OK katalog=ok` (27,3 s); snapshot til `fortryd-ddl` i
+  `prod/6e2/fortryd-ddl-20261114095036/` (4 funktioner før, 8 nye).
+- **Data** (GO `0b9019de`, `etiket_ceremoni.sql` `6fb56fcf…`): én transaktion; 561 bindingers etiketter genpubliceret
+  (33 uden placement), sidekortet skrevet, 5 linjenavne rettet til bogens ordlyd (III »… Ziesendorf.«, »I.«,
+  »VI.« og stammeafsnittene »A.« og »B.«). 2 staged personers bindinger sprunget over (afgørelse A). `ETK_OK … stale=0`; 561 change_sets, alle
+  ceremoniens; rækker afviger kun i ceremoniens 6 tabeller/sekvenser.
+- **Målt (`maal`):** `BINDINGER_RECORD` 561 → 0, `UDEN_PLACEMENT` 33 → 0, `STALE` 0, offentlige biografier 1.100 og
+  bundne fakta 2.264 uændrede; kilde 1's koordinater (`66e9afd9…`) og etiketter (`d97decc7…`) byte-ens;
+  familiekilder `06e71a11…` → `75186593…`, skemaetiketter `83c4e28d…` → `f0cb8884…` (som alle generalprøver).
+- **Læseren (anon):** koordinat-RPC'en 1.261 → 306 ms pr. kald (begge sider 2,5 → 0,6 s); Conrads biografi 120 → 157 ms.
+  1.111 koordinatrækker, 0 `record-`/`legacy-source:`, 1939's højeste trykte side 92; stikprøve 5/5 mod bogen.
+- **Dumps:** før `daa-prod-20261114085322-6e2.dump` (`331ac5b4…`, restore-hash `156c4073…`); ddl
+  `daa-prod-20261114100655-6e2.dump` (`b47fd30d…`, restore-hash `09227d41…`); begge age-krypteret på SFTP (rundtur ok).
+- **Fortrydelse:** data med ddl-dumpet (`fortryd`), DDL med snapshot-mappen (`fortryd-ddl`); begge prøvet i
+  generalprøve 3. Efter færdigbeviset er rettelser almindelig redigering.
+- **Tid i prod:** `maal` 35-47 s; DDL 27,3 s; ceremonien 120,1 s (604 sætninger, langsomste 19,4 s; stand-in 11,4 s);
+  `apply-data` 180,6 s; `dump` 104-139 s + 83 s måling.
+- **Ikke kørt:** Security Advisor i dashboardet (kun statisk); personsidens samlede indlæsning ikke tidsmålt.
+- **Står tilbage:** de 2 staged 1939-poster beholder `record-` (decisions 2026-11-13); 30 »formodet«-forældreled tjekkes
+  mod bogen (decisions 2026-11-13).
+
 ## 29. Redaktionen ser levende i personsidens fakta, familiekilder og koordinater — LIVE i prod (2026-11-13)
 
 **Grundlag:** decisions 2026-11-13 (POC'ets regel for levende), PR #342 (draft ved deploy). Blokken
