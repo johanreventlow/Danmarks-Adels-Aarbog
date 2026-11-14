@@ -28,7 +28,7 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   - **UPDATE i de låste logs** forbliver forbudt uden undtagelse.
 >   - **Låseorden.** Kildelåsen tages eksklusivt og tidligt (rettet fra specens første udgave).
 > - **Tilføjet ved plan v2.1 (planreview af v2):**
->   - **Eksistensvagt.** En ny, permanent vagt på seks kernetabeller (`fact`, `note`, `narrative`, `story`,
+>   - **Eksistensvagt** (godkendt af projektejeren frem for minimumsløsningen). En ny, permanent vagt på seks kernetabeller (`fact`, `note`, `narrative`, `story`,
 >     `suggestion`, `relation`) afviser rækker om en person eller familie, der ikke findes. Fakta-mål kommer med i den
 >     eksisterende relationsvagt.
 >   - **Fortryd afviser døde links.** En fortrydelse, der ville genskabe et link til noget, der ikke findes, afvises
