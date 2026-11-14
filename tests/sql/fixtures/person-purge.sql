@@ -743,7 +743,9 @@ SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
 --    d) Bindingen af forslaget til påstanden (red_preview_/red_promote_interpretations_batch) → Prom_egen (S39a).
 --    e) relation.marriage fra X2 (principal-persona, som forslagswriteren skriver persona_role='principal'), afgjort og
 --       bundet til den bevarede familie fam_keep (red_promote_interpretation, familiemål med state_sha256) → Prom_egen_fam.
---    f) Genåbning af familiebindingen til fam_del (relation_reopen, S49a); ny version v3 af fortolkningen.
+--    f) Genåbning af familiebindingen (relation_reopen, S49a) fra fam_keep til en familie uden P (fam_andre = union af
+--       nabo og tredje); ny version v3 af fortolkningen. Målet er bevidst ikke fam_del: en genåbning med to_family_id i
+--       Fam_del rører grænsen mellem S49d (blokér) og Q6 (slet), som hører til en blokeringsgruppe, ikke fixturen.
 --    g) Afstemning efter tekstrevision (text_revision_reconciliation, S49b): Prom_egen tilbagetrukket; revisionshændelsen
 --       er P's publication_persona-hændelse (S41a), så begge FK-veje i fase 2a er dækket.
 DO $$
@@ -815,6 +817,9 @@ BEGIN
   PERFORM purge_test.gem_u('prom_egen_fam',v_prom_fam);
   PERFORM purge_test.fs('Prom_egen_fam','private.interpretation_promotion',jsonb_build_object('id',v_prom_fam));
   -- f)
+  PERFORM purge_test.nyt();
+  PERFORM purge_test.gem('fam_andre',public.red_opret_union(purge_test.id('nabo'),purge_test.id('tredje'),'vielse',1));
+  PERFORM purge_test.nyt();
   INSERT INTO private.interpretation(id,interpretation_key,version,source_id,source_persona_id,interpretation_kind,
     predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id,supersedes_id)
     SELECT v_m3,interpretation_key,3,source_id,source_persona_id,interpretation_kind,predicate,value,schema_version,
@@ -824,7 +829,7 @@ BEGIN
     VALUES (v_m3,v_obs,'supporting',1);
   INSERT INTO private.relation_reopen(to_interpretation_id,interpretation_key,from_interpretation_id,superseded_promotion_id,
     from_family_id,to_family_id,spouse_source_persona_id,spouse_identity_version,note,context,reopened_by,reopened_by_name)
-    VALUES (v_m3,v_key_m,v_m2,v_prom_fam,purge_test.id('fam_keep'),purge_test.id('fam_del'),purge_test.u('Y'),2,
+    VALUES (v_m3,v_key_m,v_m2,v_prom_fam,purge_test.id('fam_keep'),purge_test.id('fam_andre'),purge_test.u('Y'),2,
             'Genåbnet efter identitetsrettelse.','{"fixture":"purge"}',v_actor,'Purge-redaktør');
   PERFORM purge_test.fs('S49a','private.relation_reopen',jsonb_build_object('to_interpretation_id',v_m3));
   -- g)
@@ -1117,6 +1122,11 @@ BEGIN
                                                                 WHERE subjekt_type='family' AND subjekt_id=purge_test.id('fam_del')))
                   OR (p.target_type='relation' AND p.target_id=purge_test.id('relation_fam_del')))) THEN
     RAISE EXCEPTION 'PURGE_FIXTURE_KONTROL: anden_promotion';
+  END IF;
+  -- S49d: ingen genåbning rører fam_del (den grænse mod Q6 afprøves i en blokeringsgruppe, ikke i fixturen).
+  IF EXISTS (SELECT 1 FROM private.relation_reopen
+              WHERE purge_test.id('fam_del') IN (from_family_id,to_family_id)) THEN
+    RAISE EXCEPTION 'PURGE_FIXTURE_KONTROL: genåbning med fam_del (S49d)';
   END IF;
 END $$;
 
