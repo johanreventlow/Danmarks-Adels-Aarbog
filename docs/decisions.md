@@ -16,8 +16,15 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >
 > **Tilbage:**
 > - 79 og 80 (2018-20, linje I nr. 47/48) tjekker projektejeren selv i 2018-20-bogen, fordi den har levende personer.
-> - Omvendt fejl: bogens markører er ikke alle flaget. 1770 står som »7. (?) Hartvig« (s. 13), men leddet er ikke
->   `formodet`. Et tjek af bogens »?«/»(?)« mod leddene mangler.
+> - Det omvendte tjek af bogens markører er gjort 2026-11-14. To OCR-lag (`raw.txt` og Calamari) giver de samme 5
+>   »(?)« om slægtskab. Ingen af de 5 har sit eget 1939-forældreled, så der er intet 1939-led at flage:
+>   - s. 13 nr. 6 Margrethe (959) og nr. 7 Hartvig (1770). 959 er foldet sammen med 80. Leddene 79/80 i familie 38
+>     (forælder 66 Hartwich) er `formodet`: præcis de to søskende, som 1939 sætter »(?)« ved. Det taler for at beholde
+>     dem. 1770 er ikke foldet sammen med 79 (mulig manglende `samme_som`).
+>   - s. 34 nr. 1 Magdalene (1033), foldet sammen med 169. 169's led (familie 128) er tomt, så læseren viser ikke
+>     1939's tvivl. Om det skal være `formodet`, afgør projektejeren.
+>   - s. 37 nr. 5 uden navn (1780) og s. 19 »En Sønnesøn (?)« Henning (1849): intet led og ingen navngiven tvivl at
+>     flytte.
 >
 > **Oprindelig note (2026-11-13):**
 >
