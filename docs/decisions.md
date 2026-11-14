@@ -2,6 +2,22 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: 40 nummererede 1939-børn uden forældreled, åben backlog (2026-11-14)
+
+> Måling 2026-11-14 (læse-kun: anons data fra prod, plus post→person fra en prod-kopi af 13/11). 211 af 567
+> placerede 1939-personer har intet eget barneled:
+> - **141** har forældre gennem en sammenfoldet 2018-20-person (`samme_som`). Læseren viser dem allerede.
+> - **18** står i tillægget s. 91-92 (Reventlow'er, bogen ikke kan henføre). Ingen forældre at forvente.
+> - **12** har intet løbenummer (linjehoveder og nævnte forfædre, s. 7-39 og 87).
+> - **40** er nummererede børn i en børneflok, men har intet forældreled og ingen sammenfoldning. De fleste er
+>   6c-/6d-personer (17xx-18xx) uden egen narrativbinding, flere uden navn (jf. 13 navneløse). 20 af de 40 har
+>   søskende med led på samme side, så familien kan sandsynligvis aflæses (fx 1759/1760 → familie 380, 1780 → 472-476, 1800/1801 → 692). 1770
+>   Hartvig (s. 13 nr. 7) hører hertil.
+>
+> Leddene kom fra udtrækkets `_link_foraelder_nr` (356 poster = 567 − 211). 6d-3 lod 1939's 4 børneforslag stå
+> `proposed` (`relation-child-v1` kræver koordinater, se 6d-3-afsnittet). Projektejeren afgør, om de 40 rettes som
+> redaktørarbejde (kort pr. barn, som 6d-3's D-kort) eller som et trin på roadmappen.
+
 ## LØST: falsk »formodet« på 1939-forældreled — 28 rettet, 2 bekræftet af bogen (2026-11-13, afsluttet 2026-11-14)
 
 > **Udfald 2026-11-14:**
