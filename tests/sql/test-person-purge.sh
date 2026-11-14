@@ -88,25 +88,24 @@ DAEKNING="S1=S01 S2=S02 S3=S03,S03b S4=S04 S5=S05 S6=S06 S7=S07 S8=S08 S10=S10 S
   S13=S13 S13b=S13b S14=S14 S14b=S14b S15=S15,S15b S16=S16,S16b S17=S17,S17b S18=S18,S18b S19=S19
   S21=S21,S21b S22=S22 S23=S23 S24=S24 S25=S25 S26=S26 S27=S27 S28=S28 S30=S30,S30b,S30c S31=S31 S32=S32 NY-B=S32
   S33=S33,S33b S34=S34,S34c S35=S35 S36=S36 S37=S37b,S37c S38=S38 S39a=S39 Prom_egen_fam=S39,S48 S40=S40 S41a=S41
-  S42=S42 S43a=S43 S45a=S45 S49a=S49 S52/S53/S55=S52,S53,S53b,S55 S54=S54 S56=S56,S56b"
+  S42=S42 S43a=S43 S45a=S45 M5=M5 S49a=S49 S49b=S49b S52/S53/S55=S52,S53,S53b,S55 S54=S54 S56=S56,S56b"
 # Navngiven liste (hver linje godkendt af hovedsessionen): steder, der ikke kan forekomme.
 KAN_IKKE_FOREKOMME="S9: person_create_receipt forbruges i den oprettende transaktion (slettegraf S9, R14)"
-# Steder uden egen linje i tælleren: M5 (identity_control_parent_event) og S49b (text_revision_reconciliation; kun
-# S58e's regex på context). De efterprøves via fixturens repræsentant (purge_test.sted + facit), ikke via tælleren.
-UDEN_TAELLER="M5 S49b"
 for par in $DAEKNING; do
   sted=${par%%=*}
   for nr in $(echo "${par#*=}" | tr ',' ' '); do
     [ "$(antal "$nr")" -gt 0 ] 2>/dev/null || die "fixture_daekker_slettegraf: $sted ($nr) er $(antal "$nr")"
   done
 done
-for sted in $UDEN_TAELLER S11a S11b S39a Prom_egen_fam S45a S49a; do
+# Delsteder bag en samlet tæller skal desuden have en repræsentant i facit (purge_test.sted).
+for sted in S11a S11b S39a Prom_egen_fam S45a S49a; do
   [ "$(a "$DB" "SELECT count(*) FROM purge_test.sted s JOIN purge_test.forventet f USING (tabel,pk) WHERE s.sted='$sted'")" -gt 0 ] \
     || die "fixture_daekker_slettegraf: delstedet $sted har ingen repræsentant i facit"
 done
+# S49b: fixturen har to rækker, der hver kun nås ad én vej (Prom_egen hhv. S41a); tælleren skal se begge.
+[ "$(antal S49b)" = 2 ] || die "fixture_daekker_slettegraf: S49b er $(antal S49b), forventet 2"
 [ "$(antal S09)" = 0 ] || die "fixture_daekker_slettegraf: S9 står på kan_ikke_forekomme, men er $(antal S09)"
 echo "kan_ikke_forekomme: $KAN_IKKE_FOREKOMME"
-echo "uden_taeller (repræsentant i facit): $UDEN_TAELLER"
 # S46 (bevar_andres): stikprøvens mapping/expected er P's kandidat-uuid; tælleren skal se den.
 [ "$(antal S46)" -gt 0 ] 2>/dev/null || die "fixture_daekker_slettegraf: S46 er $(antal S46)"
 echo "OK fixture_daekker_slettegraf"
