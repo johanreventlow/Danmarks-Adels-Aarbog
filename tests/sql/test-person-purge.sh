@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Fuld personsletning: testharness (Task 2a: skabelon + fixtur; senere tasks tilføjer testgrupper, Task 11 opgradering).
+# Fuld personsletning: testharness (Task 2a/2b: skabelon + fixtur; senere tasks tilføjer testgrupper, Task 11 opgradering).
 #
 # Brug:  bash tests/sql/test-person-purge.sh <præfiks> [<base-commit>]
 #   præfiks      navn på engangsbaserne: <præfiks>_tmpl (skabelon) og én kopi pr. testgruppe, <præfiks>_<gruppe>.
 #                Scriptet nægter at køre, hvis en base med præfikset allerede findes.
 #   base-commit  (valgfri) opgraderingsdelen (Task 11). Uden den køres kun frisk-delen, som slutter med FRISK_OK.
 #
-# Skabelonen bygges som tests/sql/test-6e2-etiket.sh: evidence-promotion-bootstrap.sql + schema.sql + db-rls.sql, og
-# derefter tests/sql/fixtures/person-purge.sql. Hver testgruppe får sin egen kopi (createdb -T), så en sletning kan
-# COMMIT'e i sin kopi: udskudte triggere kører ikke ved ROLLBACK (V-4).
+# Skabelonen bygges som tests/sql/test-6e2-etiket.sh: evidence-promotion-bootstrap.sql + schema.sql + db-rls.sql, så
+# kontrakt v2 (reimport-writer-v2-bootstrap.sql) og til sidst tests/sql/fixtures/person-purge.sql. Hver testgruppe får
+# sin egen kopi (createdb -T), så en sletning kan COMMIT'e i sin kopi: udskudte triggere kører ikke ved ROLLBACK (V-4).
 #
 # Baserne BEHOLDES som standard. PURGE_DROP_DBS=1 sletter de baser, scriptet selv har oprettet i denne kørsel (og kun
 # dem; alle bærer præfikset). Scriptet rører aldrig en base, det ikke selv har oprettet.
@@ -45,9 +45,12 @@ a() { env -u PGOPTIONS psql -X -At -v ON_ERROR_STOP=1 -d "$1" -c "$2"; }
 # ---------------------------------------------------------------------------------------------------------------------
 # Skabelonen.
 createdb "$TMPL" || die "createdb $TMPL"; CREATED="$CREATED $TMPL"
-for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql tests/sql/fixtures/person-purge.sql; do
+for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql; do
   q "$TMPL" -f "$f" || die "byg $f"
 done
+# Kontrakt v2 (Task 2b): publicerings- og reimport-writerne kræver den (som spike-person-purge-laase.sh).
+q "$TMPL" -c 'BEGIN' -f tests/sql/reimport-writer-v2-bootstrap.sql -c 'COMMIT' || die "byg kontrakt v2"
+q "$TMPL" -f tests/sql/fixtures/person-purge.sql || die "byg tests/sql/fixtures/person-purge.sql"
 # createdb -T kræver, at ingen er forbundet til skabelonen.
 a postgres "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='$TMPL' AND pid<>pg_backend_pid()" >/dev/null
 
@@ -58,7 +61,8 @@ gruppe() {
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
-# Gruppe frisk: fixturen dækker kernestederne (Task 2a). Tælleren er den uafhængige måler fra Task 1.
+# Gruppe frisk: fixturen dækker kernestederne (Task 2a) og ledgers/identitet (Task 2b). Tælleren er den uafhængige
+# måler fra Task 1.
 gruppe frisk
 P=$(a "$DB" "SELECT purge_test.id('P')")
 [ "${P:-0}" -gt 1000000 ] || die "P mangler eller har id <= 1.000.000"
@@ -67,7 +71,8 @@ COUNTS=$(env -u PGOPTIONS psql -X -A -t -F'|' -v ON_ERROR_STOP=1 -d "$DB" -v pid
 echo "$COUNTS" | awk -F'|' '$NF>0 {print "count " $1 "=" $NF}'
 antal() { echo "$COUNTS" | awk -F'|' -v s="$1" '$1==s {print $NF}'; }
 # Kernesteder, fixturen skal dække (slettegraf §1a-1d og §1f; ledgers/identitet/publicering er Task 2b).
-for s in S01 S02 S03 S04 S05 S06 S07 S08 S13 S14 S15 S16 S17 S18 S19 S21 S25 S26 S27 S28 S30 S30b S31 S32 S32b \
+# (S32b er lagt ind i S32 af T1f/T1g: forbundet:<Fam_del> tælles nu dér.)
+for s in S01 S02 S03 S04 S05 S06 S07 S08 S13 S14 S15 S16 S17 S18 S19 S21 S25 S26 S27 S28 S30 S30b S31 S32 \
          S33 S34 S35 S37 S37b S38 S38c S38d S52 S53b S54 S54b S55; do
   [ "$(antal "$s")" -gt 0 ] 2>/dev/null || die "kernestedet $s er ikke dækket ($(antal "$s"))"
 done
@@ -76,6 +81,35 @@ for s in S20 S29; do
   [ "$(antal "$s")" = 0 ] || die "blokeringsstedet $s er $(antal "$s"), forventet 0"
 done
 echo "OK fixture_kerne_daekket"
+
+# Task 2b, step 2: fixture_daekker_slettegraf. Hvert sted med handling slet/nulstil/loesn i slettegrafen (§1 og
+# »Afgørelser« Q6) skal have antal > 0 i tælleren. Format: sted=tællerlinje[,tællerlinje…] (alle skal være > 0).
+DAEKNING="S1=S01 S2=S02 S3=S03,S03b S4=S04 S5=S05 S6=S06 S7=S07 S8=S08 S10=S10 S11a=S11 S11b=S11 S12=S12
+  S13=S13 S13b=S13b S14=S14 S14b=S14b S15=S15,S15b S16=S16,S16b S17=S17,S17b S18=S18,S18b S19=S19
+  S21=S21,S21b S22=S22 S23=S23 S24=S24 S25=S25 S26=S26 S27=S27 S28=S28 S30=S30,S30b,S30c S31=S31 S32=S32 NY-B=S32
+  S33=S33,S33b S34=S34,S34c S35=S35 S36=S36 S37=S37b,S37c S38=S38 S39a=S39 Prom_egen_fam=S39,S48 S40=S40 S41a=S41
+  S42=S42 S43a=S43 S45a=S45 S49a=S49 S52/S53/S55=S52,S53,S53b,S55 S54=S54 S56=S56,S56b"
+# Navngiven liste (hver linje godkendt af hovedsessionen): steder, der ikke kan forekomme.
+KAN_IKKE_FOREKOMME="S9: person_create_receipt forbruges i den oprettende transaktion (slettegraf S9, R14)"
+# Steder uden egen linje i tælleren: M5 (identity_control_parent_event) og S49b (text_revision_reconciliation; kun
+# S58e's regex på context). De efterprøves via fixturens repræsentant (purge_test.sted + facit), ikke via tælleren.
+UDEN_TAELLER="M5 S49b"
+for par in $DAEKNING; do
+  sted=${par%%=*}
+  for nr in $(echo "${par#*=}" | tr ',' ' '); do
+    [ "$(antal "$nr")" -gt 0 ] 2>/dev/null || die "fixture_daekker_slettegraf: $sted ($nr) er $(antal "$nr")"
+  done
+done
+for sted in $UDEN_TAELLER S11a S11b S39a Prom_egen_fam S45a S49a; do
+  [ "$(a "$DB" "SELECT count(*) FROM purge_test.sted s JOIN purge_test.forventet f USING (tabel,pk) WHERE s.sted='$sted'")" -gt 0 ] \
+    || die "fixture_daekker_slettegraf: delstedet $sted har ingen repræsentant i facit"
+done
+[ "$(antal S09)" = 0 ] || die "fixture_daekker_slettegraf: S9 står på kan_ikke_forekomme, men er $(antal S09)"
+echo "kan_ikke_forekomme: $KAN_IKKE_FOREKOMME"
+echo "uden_taeller (repræsentant i facit): $UDEN_TAELLER"
+# S46 (bevar_andres): stikprøvens mapping/expected er P's kandidat-uuid; tælleren skal se den.
+[ "$(antal S46)" -gt 0 ] 2>/dev/null || die "fixture_daekker_slettegraf: S46 er $(antal S46)"
+echo "OK fixture_daekker_slettegraf"
 echo "facit: $(a "$DB" "SELECT string_agg(handling||'='||n,' ' ORDER BY handling) FROM (SELECT handling,count(*) n FROM purge_test.forventet GROUP BY 1) x")"
 echo FRISK_OK
 
