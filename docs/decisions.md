@@ -17,8 +17,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > **Afklaret og tilbage:**
 > - 79 og 80 (2018-20, linje I nr. 47/48): projektejeren har tjekket 2018-20-bogen 2026-11-14. Der står »?« ved
 >   begge, så de forbliver `formodet`.
-> - Det omvendte tjek af bogens markører er gjort 2026-11-14. To OCR-lag (`raw.txt` og Calamari) giver de samme 5
->   »(?)« om slægtskab. Ingen af de 5 har sit eget 1939-forældreled, så der er intet 1939-led at flage:
+> - Det omvendte tjek af bogens markører er gjort 2026-11-14 på sidebillederne af alle 92 stamtavlesider. Der er
+>   10 »?« i alt, de samme som OCR-lagene (`raw.txt` og Calamari) viser; 5 af dem gælder slægtskab, resten datoer,
+>   et andet ægteskab og bisætninger. Ingen af de 5 har sit eget 1939-forældreled, så der er intet 1939-led at flage:
 >   - s. 13 nr. 6 Margrethe (959) og nr. 7 Hartvig (1770). 959 er foldet sammen med 80. Leddene 79/80 i familie 38
 >     (forælder 66 Hartwich) er `formodet`: præcis de to søskende, som 1939 sætter »(?)« ved. Det taler for at beholde
 >     dem. 1770 er ikke foldet sammen med 79 (mulig manglende `samme_som`; projektejeren har noteret det, uden for denne opgave).
