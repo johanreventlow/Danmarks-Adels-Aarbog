@@ -2,7 +2,7 @@
 
 Status: v2 (2026-11-14) — revideret efter planreview og projektejerens svar på slettegrafens Q1-Q11
 (`docs/superpowers/plans/personsletning/slettegraf.md`, afsnittet »Afgørelser«). Reviewbudget: spec 1 fable-runde
-(udført), plan 2 fable-runder (v1 og v2 udført) + én smal Opus-review af v2.1-tilføjelserne, kode 1-2 Opus/Codex-runder pr. DB-task; overskridelse noteres i
+(udført), plan 2 fable-runder (v1 og v2 udført) + én smal Opus-review af v2.1 (overskredet med en låse-spike, Task 0; noteret i decisions), kode 1-2 Opus/Codex-runder pr. DB-task; overskridelse noteres i
 decisions. Kortlægning: 58 steder i skemaet, hvor en person kan efterlade spor
 (gennemgået 2026-11-14 og målt for 1791 på en prod-kopi af 13/11). Afgør den åbne post »hvad skal en person-sletning
 gøre ved `source_persona_identity`?« (decisions 2026-08-20) **anderledes end** dens anbefaling (tombstone +
@@ -241,20 +241,22 @@ stierne er indholdsadresserede og ikke indeholder person-id, er udbakken ikke en
 
 Rettet 2026-11-14 (planreview V-1): rækkefølgen er slettegraf §6.2 L1-L13 — kontrakt delt → rollegate →
 `lock_reimport_writer` (sorteret) → kildelås `daa-identity-candidates:<source>` **eksklusiv**, sorteret efter kilde →
-persona/identitet `FOR UPDATE` → `samme_som_mutation` + generation → `LOCK change_set IN SHARE ROW EXCLUSIVE MODE`
-(så versionerede skrivere, der er i gang, når at blive færdige, og nye venter; planreview v2, V2-5) →
+`source_record FOR UPDATE` for personens records (L5b; mod narrativskriverne) → persona/identitet `FOR UPDATE` →
+`samme_som_mutation` + generation → `LOCK change_set IN ROW EXCLUSIVE MODE` →
 source/external-id → `lock_identity_people` → `lock_family_rows` → genberegn låsemængden (drift → afvis) og preview.
 Kildelåsen sidst gav en låsecyklus mod `red_afgoer_source_persona`. Funktionen kommer på db-verify's liste over
 låserækkefølger (M4).
 
-**Eksistensvagt (V2-5).** Polymorfe rækker (`fact`, `note`, `narrative`, `story`, `suggestion`, `relation`) kan ikke
-længere oprettes eller flyttes til en person eller familie, der ikke findes. Det gælder også en skrivning fra en
-forældet redaktørside efter sletningen. Vagten udvider det eksisterende `enforce_relation_evidence_target` til også
-at dække fact-mål. Målt 14/11: 0 forældreløse rækker i prod-kopien, bortset fra note 72 på den tidligere slettede
-familie 54; den slettes i DDL-ceremonien efter projektejerens afgørelse 14/11.
+**Eksistensvagt (V2-5, godkendt af projektejeren).** Polymorfe rækker kan ikke længere oprettes eller flyttes, så
+de peger på en person, familie, et faktum eller en relation, der ikke findes. Det gælder `fact`, `note`,
+`narrative`, `story`, `suggestion`, `relation`, `assertion`, `conclusion`, `haendelse`, `entity_description` og
+feed-pins. Det gælder også en skrivning fra en forældet redaktørside efter sletningen. Vagten udvider det
+eksisterende `enforce_relation_evidence_target` og låser målet som en FK. Et faktum kan ikke slettes, så længe der er
+evidens på det (som relationer i dag). Målt 14/11: 0 forældreløse rækker i prod-kopien, bortset fra note 72 på den
+tidligere slettede familie 54. Den slettes i DDL-ceremonien efter projektejerens afgørelse 14/11.
 
-**Skrivepause.** Mens en sletning kører (typisk sekunder), venter alle redaktørskrivninger, der åbner et
-`change_set`. Sletningen giver op efter 5 s ventetid på en lås og ændrer da intet.
+**Ingen skrivepause.** Andre redaktører skriver videre under en sletning. Sletningen giver op efter 5 s ventetid på en
+enkelt lås eller 30 s i alt og ændrer da intet. Deadlock eller timeout vises som »Prøv igen om lidt«.
 
 ## 7. Prod og den første brug
 

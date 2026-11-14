@@ -33,9 +33,15 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >     eksisterende relationsvagt.
 >   - **Fortryd afviser døde links.** En fortrydelse, der ville genskabe et link til noget, der ikke findes, afvises
 >     overalt.
->   - **Skrivepause.** Mens en sletning kører, venter alle redaktørskrivninger. Det varer typisk sekunder, og
->     sletningen giver selv op efter 5 s ventetid.
->   - **Reviewbudget.** Udvidet med én smal Opus-review af disse tilføjelser.
+>   - ~~Skrivepause~~: **trukket tilbage** samme dag. Den stærkere lås gav deadlock mod almindelige redaktørskrivninger
+>     (delta-review D-1). Andre redaktører skriver videre under en sletning.
+>   - **Fakta-slettevagt.** Et faktum kan ikke slettes, så længe der er evidens på det (som relationer i dag). Det
+>     er den anden halvdel af eksistensvagten.
+>   - **Reviewbudget overskredet.** Ud over to fable-runder og én smal Opus-review kommer en låse-spike med
+>     go/no-go (plan Task 0), fordi tre reviews hver fandt nye låsecykler.
+> - **Backlog (fra delta-review):** en fortrydelse af »opret person/familie« kan efterlade rækker fra senere sæt.
+>   Den mangler en vagt på personens og familiens side. Den modsatte retning af fortryd-tjekket mangler også: en
+>   fortrydelse, der sletter en person, familie eller et medie, kan efterlade døde links hos andre.
 > - **Backlog (Q11):** 26 personer, der før er slettet med `red_slet_person`, har stadig en fuld kopi i historikken.
 >   En engangsoprydning med sit eget preview ligger uden for denne bygning.
 > - Plan v2 og slettegraf: `docs/superpowers/plans/2026-11-14-fuld-personsletning.md`,

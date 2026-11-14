@@ -82,7 +82,9 @@ Hvor et afsnit nedenfor siger noget andet, gælder dette afsnit.
   - §4.6 `samme_som_knudepunkt`: 33 personer (beslutning 8).
   - 1.150 personer har reimport-rækker. 1791 har ingen.
 
-**Efter planreview v2 (2026-11-14):** L8 i §6.2 er `SHARE ROW EXCLUSIVE`, ikke ROW EXCLUSIVE. Fejlkoden
+**Efter planreview v2 og delta-review (2026-11-14):** L8 forbliver ROW EXCLUSIVE (SHARE ROW EXCLUSIVE gav deadlock,
+delta-review D-1). Ny L5b: `source_record FOR UPDATE` (sorteret) for records med X∪Y-personas og P's
+narrativbindinger, før L6 (D-2). Fejlkoden
 `PERSON_PURGE_LOCKSET_DRIFT` hedder `PURGE_LOCKSET_DRIFT`. `forrige_version` står kun på state-rækkens manifestpost,
 og `hel_stroem`-tjekket bruger `OLD.version <= forrige_version` og »ingen version > forrige_version«, ikke
 `max(version)` (planens Task 5).

@@ -1,4 +1,4 @@
-# Fuld personsletning — implementeringsplan (v2.1)
+# Fuld personsletning — implementeringsplan (v2.2)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -30,7 +30,9 @@ tilbage om personen ud over de rester, projektejeren udtrykkeligt har godkendt.
 - Review, plan v1: `docs/superpowers/plans/personsletning/fable-planreview-v1.md`. Fundene hedder K-1..K-4, V-1..V-9
   og »Mindre«; hvert fund er taget med nedenfor.
 - Review, plan v2: `docs/superpowers/plans/personsletning/fable-planreview-v2.md`. Fundene hedder K2-1..K2-2,
-  V2-1..V2-8 og M2-1..M2-9; alle er rettet i denne udgave (v2.1).
+  V2-1..V2-8 og M2-1..M2-9; alle er rettet i denne udgave.
+- Delta-review af v2.1 (Opus): `docs/superpowers/plans/personsletning/delta-review-v21.md`. Fundene hedder D-1..D-9
+  og er rettet i v2.2. D-9's »modsatte retning« står i backloggen.
 - Linjenumre: `schema.sql` på `main` `c41f67db`.
 
 **Roadmap (adgangskrav, roadmap.md »Adgangskrav«):**
@@ -75,27 +77,57 @@ tilbage om personen ud over de rester, projektejeren udtrykkeligt har godkendt.
 - **Ingen GUC som bevis** (V-2). Rettigheden til oprindelsen `person_purge` og til hvert løft af append-only bevises
   af manifestrækker for `(pg_current_xact_id(), pg_backend_pid())`.
 - **Låseorden:** slettegraf §6.2, L1-L13, ikke spec v1 §6.12 (V-1). Kildelåsen tages eksklusivt og tidligt, sorteret
-  efter kilde-id. **L8 er `LOCK TABLE public.change_set IN SHARE ROW EXCLUSIVE MODE`** (V2-5), ikke ROW EXCLUSIVE.
-  Så venter sletningen på versionerede skrivere, der allerede er i gang, og nye venter på sletningen. Samme tilstand
-  bruges allerede ved l. 14359.
-- **Eksistensvagt** (V2-5). Den udvider det eksisterende mønster `enforce_relation_evidence_target` (l. 7367-7390).
-  Den funktion låser i dag en polymorf `relation`-målrække med `FOR KEY SHARE` som en rigtig FK.
+  efter kilde-id.
+  - **L8 forbliver `ROW EXCLUSIVE`.** Den stærkere `SHARE ROW EXCLUSIVE` fra v2.1 er trukket tilbage, fordi den gav
+    deadlock mod fire almindelige skrivere (delta-review D-1). Det gjaldt bl.a. en OCR-rettelse på en vilkårlig
+    person i samme udgave.
+  - Beskyttelsen mod samtidige skrivninger ligger i stedet i eksistensvagten (rækkelåse som en FK) og i
+    `lock_identity_people`/`lock_family_rows`, der tager `FOR UPDATE`.
+  - **Ny L5b** (D-2): `source_record FOR UPDATE`, sorteret efter id, tages før L6. Det gælder de records, hvor
+    personas i X∪Y er placeret, og de records, P's narrativer er bundet til (`narrative_record_publication`).
+    Mængden indgår i drift-tjekket L12. Den forhindrer en cyklus mod narrativskriverne
+    (`narrative_record_state(p_lock=true)` l. 15223-15292), som låser record → change_set → person → persona.
+  - Låseordenen afgøres ikke længere på papir; **Task 0** afprøver den i praksis, før byggeriet starter.
+- **Eksistensvagt** (V2-5, godkendt af projektejeren). Den udvider det eksisterende mønster
+  `enforce_relation_evidence_target` (l. 7367-7390). Den funktion låser i dag en polymorf `relation`-målrække med
+  `FOR KEY SHARE` som en rigtig FK.
   - **Fact-mål:** den eksisterende funktion dækker også `target_type='fact'` på `assertion`, `conclusion` og `note`.
-  - **Person/family:** en ny `private.validate_polymorf_subjekt_findes` (SECURITY DEFINER, `FOR KEY SHARE`) sidder på
-    `fact`, `note`, `narrative`, `story`, `suggestion` og `relation` (begge ender). Den afviser INSERT og UPDATE af
-    subjekt eller mål af typen `person` eller `family`, når rækken ikke findes.
+  - **Person/family:** en ny `private.validate_polymorf_subjekt_findes` (SECURITY DEFINER, `FOR KEY SHARE`) dækker
+    subjekt og mål af typen `person` eller `family` (sammenlignet med `lower()`; D-8). Den afviser INSERT og UPDATE,
+    når rækken ikke findes. Den sidder på:
+    - `fact`, `note`, `narrative`, `story`, `suggestion`
+    - `relation` (begge ender)
+    - `assertion.objekt_*` (S20/NY-A)
+    - `haendelse.subjekt_*` (S26)
+  - **Opgraderinger og regler:**
+    - `validate_entity_description_subject` (l. 11967) får `FOR KEY SHARE` i stedet for et rent `EXISTS`.
+    - `red_set_feed_pin` låser det id, nøglen peger på, på samme måde.
+    - Ved UPDATE returnerer vagten straks, når (type, id) er uændret (D-6). Fortryd sætter alle kolonner, og ellers
+      ville en fortrydelse, der rører note 72, fejle.
+    - Begge ender låses i id-orden, personer før familier (D-8).
+  - **Forælderhalvdel for fakta** (advisor; D-7): en ny `BEFORE DELETE`-vagt på `fact` følger mønstret i
+    `guard_relation_evidence_delete` (l. 7394). Den afviser sletning af et faktum, så længe `assertion`,
+    `conclusion` eller `note` peger på det, eller en relation har faktummet som ende. Uden den kan en påstand, en
+    samtidig skriver har tilføjet på P's faktum, ikke nås fra P bagefter, og hverken slutkontrollen eller
+    `count.sql` ville se den.
+  - **Forælderhalvdel for person og familie er ikke en del af denne opgave.** Sletningen er dækket, fordi
+    `lock_identity_people` og `lock_family_rows` tager `FOR UPDATE`, så en skrivers KEY SHARE får sletningen til at
+    vente og genberegningen til at se rækken. Tilbage står, at en fortrydelse af »opret person/familie« kan efterlade
+    rækker fra senere sæt; det står i backloggen (decisions).
   - **Målt på prod-kopien 14/11:** 0 forældreløse rækker. Den eneste undtagelse er **note 72 på familie 54**, en
     familie der er slettet tidligere; noten blev aldrig logget. **Projektejeren har besluttet (14/11):** note 72 slettes
     i DDL-ceremonien (Task 13). Før det måles den og vises for projektejeren (de 9 tegn). Assertet har ingen
     undtagelse. Lokalt og i CI findes noten ikke.
   - Vagten lukker for en skrivning fra en forældet redaktørside efter sletningen og for skrivere, der ikke åbner et
     `change_set`.
-- **Skrivepause og ventetid.** Mens en sletning kører, venter alle redaktørskrivninger, der åbner et `change_set`
-  (L8). Det varer typisk sekunder. Sletningen sætter `SET LOCAL lock_timeout = '5s'`. Kan den ikke få en lås, fejler
-  den med Postgres' 55P03, og UI'et viser »Prøv igen om lidt« uden at have ændret noget.
+- **Ventetid** (D-3). Sletningen sætter `SET LOCAL lock_timeout = '5s'` og `SET LOCAL statement_timeout = '30s'`.
+  Den første gælder **pr. låseventning**, den anden er det samlede loft. 55P03, 57014 og 40P01 vises i UI'et som
+  »Prøv igen om lidt«, både for sletningen og for en redaktørskrivning, der taber en deadlock. Ingen af dem har
+  ændret noget. Der er **ingen skrivepause** for andre redaktører.
 - **Fejlkoder:** `PURGE_FREMMED_CHANGE_SET`, `PURGE_PREVIEW_AENDRET`, `PURGE_BLOKERET: <art>`, `PURGE_FINDES_IKKE`,
   `PURGE_LOCKSET_DRIFT` (slettegrafens `PERSON_PURGE_LOCKSET_DRIFT` hedder dette; M2-6), `PURGE_REST: <sted>`
-  (slutkontrol), `EVIDENCE_PERSON_PURGE_SHAPE`, `POLYMORF_SUBJEKT_FINDES_IKKE`, `FORTRYD_DOED_LINK`.
+  (slutkontrol), `EVIDENCE_PERSON_PURGE_SHAPE`, `POLYMORF_SUBJEKT_FINDES_IKKE`, `FACT_HAR_EVIDENS`,
+  `FORTRYD_DOED_LINK`.
 - **Tilladt rest.** Testenes navngivne liste er præcis denne; alt andet er en fejl:
   - P's id-nummer i andres rækker: S11c, S23b, S32c, S41b, S43b, S45b, S46, S48, S49c, S50, NY-C, S57, S52b, og
     andres bindinger i S39c.
@@ -161,6 +193,29 @@ tilbage om personen ud over de rester, projektejeren udtrykkeligt har godkendt.
 | `docs/runbooks/personsletning-prod.md` | ceremoni og første brug |
 
 ---
+
+### Task 0: Låse-spike med go/no-go (advisor efter delta-review)
+
+Tre reviews har hver fundet låsecykler, som den forrige overså, og alle tre byggede på grep af direkte statements.
+Låseordenen afprøves derfor i praksis, før byggeriet starter.
+
+**Files:** `tests/sql/spike-person-purge-laase.sh`. Det er en wegwerf-gren; intet merges uden Task 8/11.
+
+- [ ] **Step 1: Byg et skelet på en engangsbase.**
+  - En minimal `red_slet_person_helt_skelet(P)`, der kun tager L1-L13 med L5b.
+  - Vagterne fra Global Constraints: eksistensvagt, fakta-mål, fakta-slettevagt, `entity_description` og
+    `feed_pin`.
+- [ ] **Step 2:** Kør de 4 eksisterende PostgreSQL-CI-jobs mod basen med vagterne slået til (som Task 8 step 4b).
+- [ ] **Step 3: Tvungne interleavings**, med `pg_sleep` og en tredje session, der holder en lås:
+  - D-1's fire skrivere
+  - D-2's to narrativskrivere
+  - Task 11 (f) og (g)
+  - `red_afgoer_source_persona`
+  - `red_record_identity_candidates`
+- [ ] **Step 4: Go/no-go.** Hovedsessionen afgør.
+  - **Go:** ingen 40P01 i de serialiserede tilfælde og alle CI-jobs grønne.
+  - **No-go:** låseordenen revideres i slettegrafen og planen, og spiket køres igen.
+  - Resultatet skrives i `docs/superpowers/plans/personsletning/analyse-binding-og-fortrydelse.md`, del 3.
 
 ### Task 1: Uafhængig måler (V-4, V2-4)
 
@@ -522,19 +577,24 @@ inventaret i samme task (V2-7).
 **Interfaces:**
 - Produces: `private.person_purge_udbakke(bucket text, sti text, oprettet timestamptz, PRIMARY KEY(bucket, sti))` med
   RLS on og ingen grants (flyttet fra Task 12; V2-7). Den har intet person-id; stierne er indholdsadresserede.
-- Produces: eksistensvagten `private.validate_polymorf_subjekt_findes` og dens triggere (Global Constraints, V2-5).
+- Produces: eksistensvagten `private.validate_polymorf_subjekt_findes`, udvidelsen af
+  `enforce_relation_evidence_target`, fakta-slettevagten og opgraderingerne fra Global Constraints. Er de allerede
+  lavet i Task 0's skelet, overtages de herfra.
 - Produces: `public.red_slet_person_helt(p_person_id bigint, p_preview_sha256 text) RETURNS jsonb` →
   `{"slettet": P, "storage_antal": n, "personas_afvist": k}`.
 - **Forløb:**
-  1. Låse L1-L13 (slettegraf §6.2, L8 som `SHARE ROW EXCLUSIVE`), herunder `PURGE_LOCKSET_DRIFT`.
+  1. Låse L1-L13 med L5b (slettegraf §6.2 og Global Constraints), herunder `PURGE_LOCKSET_DRIFT`.
   2. Preview genberegnes, og hashen sammenlignes.
   3. Blokeringer giver `PURGE_BLOKERET: <art>`.
   4. Manifestet skrives fra `person_purge_plan` og `person_purge_historik`.
   5. Faserne 2a-13 køres (slettegraf §1.1 med Q6-rækker i 2a-2c).
   6. Storage-stier skrives i `private.person_purge_udbakke`.
-  7. Manifestet tømmes.
-  8. **Slutkontrol:** `person_purge_plan(P)` og `person_purge_historik(P)` returnerer 0 rækker med handling `slet`,
-     ellers `PURGE_REST: <sted>`.
+  7. **Slutkontrol, mens manifestet stadig findes** (advisor). To tjek; fejler et af dem, giver det
+     `PURGE_REST: <sted>`:
+     - Ingen manifestrække med handling `slet` findes længere, og ingen række peger på et af manifestets slettede
+       fakta-, relation-, person- eller familie-id'er. Tjekket går gennem de polymorfe kolonner, ikke kun gennem P.
+     - `person_purge_plan(P)` og `person_purge_historik(P)` returnerer 0 rækker med handling `slet`.
+  8. Manifestet tømmes.
   9. Retur.
 
 - [ ] **Step 1: Tests.** Alle med COMMIT i egen kopi, derefter måling:
@@ -547,8 +607,16 @@ inventaret i samme task (V2-7).
     - en navngiven liste over forventede ændringer hos naboerne: `loesn`/`nulstil`-kolonner og `person.visning_*`
       for naboerne
     Hverken manifestet eller planfunktionen bruges til at afgrænse.
-  - `eksistensvagt` (V2-5): efter sletningen afvises `red_upsert_fakta('person', P, …)`, en note på P, en story på P
-    og et forslag på P med `POLYMORF_SUBJEKT_FINDES_IKKE`. Det samme gælder for en slettet familie.
+  - `eksistensvagt` (V2-5): efter sletningen afvises `red_upsert_fakta('person', P, …)`, en note på P, en story på P,
+    et forslag på P, en hændelse på P og en påstand med objekt P med `POLYMORF_SUBJEKT_FINDES_IKKE`. Det samme
+    gælder for en slettet familie. En påstand på et slettet faktum afvises også.
+  - `fakta_slettevagt`: DELETE af et faktum med en påstand giver `FACT_HAR_EVIDENS`; uden påstand lykkes det.
+  - `beskyttelse_daekker_fk_loese_steder` (advisor): en `VALUES`-tabel parrer hvert slet-/nulstil-/loesn-sted, der
+    ikke har en deklarativ FK (kontrolleret i kataloget), med sin beskyttelse:
+    - `vagt:<triggerfunktion>`; testen tjekker, at triggeren findes på tabellen
+    - `laas:L4` eller `laas:L5` (ledgers bag skriver- eller kildelåsen)
+    - `accepteret:<begrundelse>`
+    Et sted uden par får testen til at fejle.
   - `purge_manifest_tomt`, `purge_ingen_ny_historik`: max(id) og antal `change_set`/`change_event` er uændret, bortset
     fra de slettede.
   - `purge_persona_ikke_en_person`: Q7, version n+1.
@@ -564,13 +632,16 @@ inventaret i samme task (V2-7).
     `PURGE_REST`.
   - Opdatér katalogvagtens inventar eller undtagelser for udbakken (V2-7).
 - [ ] **Step 2-4:** FAIL → implementér → `OK`.
-- [ ] **Step 4b: Eksistensvagten mod alt det eksisterende.** Kør **hele** de eksisterende DB-CI-jobs lokalt med
-  vagten i: alle 4 PostgreSQL-jobs fra `.github/workflows/ci.yml`, inklusive `db-verify.sql`'s syntetiske rækker
-  og alle `tests/sql/fixtures/*`. Tjek særligt to ting:
-  - Om en fixture eller db-verify indsætter en polymorf række, før dens person, familie eller faktum findes.
-  - Om `red_fortryd_change_set` genskaber et gammelt `red_slet_person`-sæt i en rækkefølge, hvor fakta og noter kommer
-    før personen.
-  En fejl rettes i rækkefølgen, ikke ved at svække vagten. Kan den ikke rettes, stopper hovedsessionen og forelægger.
+- [ ] **Step 4b: Vagterne mod alt det eksisterende.** Kør **hele** de eksisterende DB-CI-jobs lokalt med vagterne
+  slået til: alle 4 PostgreSQL-jobs fra `.github/workflows/ci.yml`, inklusive `db-verify.sql`'s syntetiske rækker og
+  alle `tests/sql/fixtures/*` (44 filer, 103 polymorfe INSERTs).
+  - **Kendte fejl (D-5)** findes i db-verify l. 6724 (fact på person -99), l. 7500 (narrative på -999904) og
+    l. 7304/7625 (narrative/note på person 1). `tests/sql/run-db-verify-disposable.sql` seeder kun -987659901.
+  - En test må rettes ved at **seede den manglende forælder** eller ved at ændre rækkefølgen. Den må aldrig rettes
+    ved at svække vagten.
+  - Tjek også, om `red_fortryd_change_set` genskaber et gammelt `red_slet_person`-sæt i en rækkefølge, hvor fakta og
+    noter kommer før personen. Målt 14/11: 0 sæt, hvor et barn er slettet efter sin forælder.
+  - Kan en fejl ikke rettes efter disse regler, stopper hovedsessionen og forelægger.
 - [ ] **Step 5:** Hovedsessionen committer `feat(sletning): red_slet_person_helt sletter personen uden rest`.
 
 ### Task 9: Id-genbrug og fortryd uden døde links (§6.8, V-8, M2-5, M2-9)
@@ -588,9 +659,18 @@ inventaret i samme task (V2-7).
 - [ ] **Step 3:** Grenen i l. 9558, der allokerer med `max+1`, når sekvensen mangler, erstattes af
   `RAISE EXCEPTION 'CHANGE_SET_SEQUENCE_MISSING'`. Den kører netop, når der ingen sekvens er, så en sekvens kan ikke
   være rettelsen (V-8). Bekræft, at v1-narrativskriveren (l. 12648) er død ved kontrakt v2.
-  `red_fortryd_change_set` afviser med `FORTRYD_DOED_LINK`, hvis en tekst, den vil genskabe i `note.indhold`,
-  `story.titel`/`tekst`, `entity_description.tekst` eller `suggestion`, har et `parse_mentions`-mål af typen person,
-  family eller media, der ikke findes. Narrativer afvises allerede ved kontrakt v2 (l. 9500-9527).
+  `red_fortryd_change_set` afviser med `FORTRYD_DOED_LINK`, når en tekst, den genskaber, **indfører** et link, hvis
+  mål af typen person, family eller media ikke findes. Detaljerne (D-9):
+  - **Hvordan:** saml de genskabte (tabel, id) i løkken som `v_notes`/`v_narr`, og kør `parse_mentions` over
+    `jsonb_each_text` af de genskabte tekstværdier.
+  - **Kun indførte links** sammenlignet med `v_cur`. Et dødt link, der allerede står i den nuværende tekst, afviser
+    ikke en fortrydelse af et andet felt.
+  - **Kolonner:** `narrative.tekst`, `note.indhold`, `story.titel`/`tekst` og `entity_description.tekst`. Narrativer
+    er med, fordi afvisningen ved l. 9500-9527 kun gælder narrativer med publiceringshistorik; 8 narrativer har
+    ingen. `suggestion` står ikke i `version_pk_registry` og genskabes aldrig.
+  - **`p_force` omgår ikke tjekket.**
+  - **Backlog:** den modsatte retning, hvor en fortrydelse sletter en person, familie eller et medie og efterlader
+    døde links hos andre.
   **Tjekket køres efter alle inverse skrivninger i fortrydelsen.** Ellers afvises en fortrydelse, der genskaber både
   en person og en note, som linker til personen. Test `fortryd_link_til_genskabt_person`: den slags fortrydelse
   lykkes.
@@ -605,14 +685,17 @@ Asserts:
 - `PURGE_TILLADELSESLISTE_BOGTABEL`: `private.person_purge_tilladte_tabeller()` indeholder ingen bogtabel (V2-8).
   Funktionskroppene scannes ikke, for `reject_reimport_writer_mutation` nævner allerede `reimport_writer_profile`
   (l. 4066).
-- `POLYMORF_SUBJEKT_FORAELDRELOES`: 0 rækker i `fact`, `note`, `narrative`, `story`, `suggestion` og `relation` med
-  subjekt eller mål af typen person eller family, der ikke findes (V2-5).
+- `POLYMORF_SUBJEKT_FORAELDRELOES`: 0 rækker, hvis subjekt, mål eller objekt peger på noget, der ikke findes. Det
+  gælder:
+  - type person eller family i alle tabeller, eksistensvagten dækker
+  - type fact eller relation i `assertion`, `conclusion` og `note` og i relationsender (advisor)
 - `PURGE_MANIFEST_SKRIVER`: kun `red_slet_person_helt` indeholder `INSERT INTO private.person_purge_manifest`.
 - `PURGE_INVENTAR_HASH`: md5 af `person_purge_inventar()` er lig en konstant. Den opdateres bevidst ved ændring.
 - `IDENTITY_WRITER_LOCK_ORDER_DRIFT`: tilføj `red_slet_person_helt(bigint,text)` til listen ved l. 1758-1767.
 - `PURGE_LOCK_ORDER` (M2-6): i kroppen af `red_slet_person_helt` står L1-L13 i rækkefølge. Kontrollen er
-  tekstpositioner af `lock_reimport_writer`, `daa-identity-candidates`, `FOR UPDATE` på persona, `samme_som_mutation`,
-  `SHARE ROW EXCLUSIVE`, `lock_identity_people` og `lock_family_rows`.
+  tekstpositioner af `lock_reimport_writer`, `daa-identity-candidates`, `source_record … FOR UPDATE` (L5b), `FOR
+  UPDATE` på persona, `samme_som_mutation`, `change_set IN ROW EXCLUSIVE`, `lock_identity_people` og
+  `lock_family_rows`.
 - `ID_MAX_PLUS_ONE_ALLOCATOR`: ingen aktiv skrivefunktion allokerer med max+1. Døde v1-veje står på en navngiven
   liste.
 
@@ -632,25 +715,33 @@ Asserts:
   - (e) `red_fortryd_change_set` på et fælles sæt, der indeholder en FK-løs række om P, fx et faktum på P. Bagefter
     giver tællingen 0 (V2-5).
   - (f) `red_upsert_fakta('person', P, …)` samtidig med sletningen, i begge rækkefølger:
-    - Skrivningen starter først: sletningen venter ved L8, ser bagefter faktummet i genberegningen og afviser med
-      `PURGE_PREVIEW_AENDRET`.
+    - Skrivningen starter først: sletningen venter ved L10 på skrivningens KEY SHARE, ser bagefter faktummet i
+      genberegningen og afviser med `PURGE_PREVIEW_AENDRET`.
     - Sletningen starter først: skrivningen venter og afvises med `POLYMORF_SUBJEKT_FINDES_IKKE`.
   - (g) En skriver, der rammer et **eksisterende** faktum eller en eksisterende relation hos P, fx
-    `red_tilfoej_oplysning` (ny påstand med citat) eller en note på faktummet, kører i begge rækkefølger. Bagefter
-    giver tællingen 0. (f) bevises allerede af vagten og L10, så (g) er den test, der viser, at L8 er nødvendig.
-  (b)-(d), (f) og (g) skal serialiseres uden 40P01. (e) må give 40P01 eller fejle lukket (slettegraf §6.2 »Kendt
+    `red_tilfoej_oplysning` (ny påstand med citat) eller en note på faktummet, kører i begge rækkefølger.
+    - Skrivningen først: sletningens DELETE af faktummet venter og afvises derefter af fakta-slettevagten
+      (`FACT_HAR_EVIDENS`) eller af genberegningen.
+    - Sletningen først: skrivningen afvises af vagten.
+    Testen kontrollerer bagefter de konkrete fakta-id'er fra `purge_test.forventet`, ikke kun tællingen fra P
+    (advisor).
+  - (i) **D-1's fire skrivere** (`red_ret_ocr_felt` på en **anden** person i samme kilde, `red_ret_paastand`,
+    `red_reverse_placement_membership`, `red_slet_medierelation_uden_evidens`) samtidig med sletningen: ingen 40P01.
+  - (j) **D-2's to narrativskrivere** (`mutate_person_narrative_record`, `reverse_narrative_publication_event`) på
+    P's record. En tredje session holder `samme_som_mutation`, så sletningen står stille mellem L6 og L8. Der må ikke
+    komme 40P01.
+  (b)-(d), (f), (g), (i) og (j) skal serialiseres uden 40P01. (e) må give 40P01 eller fejle lukket (slettegraf §6.2 »Kendt
   rest«), men må aldrig efterlade en række om P.
-  - (h) `lock_timeout`: en skriver holder et `change_set` åbent i 10 s. Sletningen fejler med 55P03 og har intet
+  - (h) `lock_timeout`: en skriver holder P's personrække låst i 10 s. Sletningen fejler med 55P03 og har intet
     ændret.
-- [ ] **Step 1b: Statisk låsetjek (advisor v2.1).** Med L8 venter sletningen på hver åben `change_set`-skriver, mens
-  den holder L4-L7. Find alle funktioner, der kalder `begin_change_set(` eller tager en `LOCK` på `change_set`, også
-  indirekte gennem kaldte funktioner.
-  - Hovedsessionen har målt de direkte forekomster 14/11: ingen tager kildelåsen, `lock_reimport_writer` eller
-    `samme_som_mutation` **efter** at have åbnet sættet.
-  - Tilbage er de indlejrede kald: `decide_source_persona_identity` og `source_persona … FOR UPDATE` efter
-    `begin_change_set`, uden at kildelåsen eller skriverlåsen er taget før.
-  - Leverance: en liste i task-rapporten. Hver fundet funktion får enten en test i step 1 eller en begrundelse for,
-    at den ikke kan ramme P samtidig.
+- [ ] **Step 1b: Statisk låsetjek i begge retninger** (D-1, D-4). Find alle funktioner, der tager lås på eller laver
+  DML på rækker, sletningen låser i L5b-L11. Det er `source_record`, `source`, `person_external_id`,
+  `source_persona`, `source_persona_identity`, `person`, `family` og `family_member`. Find også alle, der tager en
+  lås på `change_set`, og følg kaldte helpers og triggere.
+  - For hver: i hvilken orden tager den låsene, og kan den danne en cyklus med L1-L13?
+  - Målt 14/11 (direkte statements): ingen tager kildelåsen, `lock_reimport_writer` eller `samme_som_mutation` efter
+    at have åbnet et sæt. De syv indlejrede `decide`-kald tager skriver- eller kildelåsen først.
+  - Leverance: en liste i task-rapporten. Hver funktion får enten en test i step 1 eller en begrundelse.
 - [ ] **Step 2: Opgradering.** Base-commit er `ac194bfd`, som 6e2-harnesserne bruger; skemafilerne er uændrede derfra
   til `c41f67db`. Migrationen køres to gange på den gamle base. Funktionskroppe og ACL for alle nye og ændrede
   funktioner skal være byte-ens mellem frisk og opgraderet base. CI-trinnet fra Task 3 får argumentet `ac194bfd`.
