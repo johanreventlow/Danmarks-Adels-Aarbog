@@ -1,6 +1,9 @@
 # Fuld sletning af en personprofil — design (2026-11-14)
 
-Status: revideret efter fable-review; projektejerens spørgsmål besvaret; til godkendelse. Kortlægning: 58 steder i skemaet, hvor en person kan efterlade spor
+Status: v2 (2026-11-14) — revideret efter planreview og projektejerens svar på slettegrafens Q1-Q11
+(`docs/superpowers/plans/personsletning/slettegraf.md`, afsnittet »Afgørelser«). Reviewbudget: spec 1 fable-runde
+(udført), plan 2 fable-runder (v1 udført, v2), kode 1-2 Opus/Codex-runder pr. DB-task; overskridelse noteres i
+decisions. Kortlægning: 58 steder i skemaet, hvor en person kan efterlade spor
 (gennemgået 2026-11-14 og målt for 1791 på en prod-kopi af 13/11). Afgør den åbne post »hvad skal en person-sletning
 gøre ved `source_persona_identity`?« (decisions 2026-08-20) **anderledes end** dens anbefaling (tombstone +
 udtømning): projektejeren vælger hård sletning uden nogen rest.
@@ -22,9 +25,10 @@ i historikken (så sletningen kan fortrydes) og spor på ca. 15 andre steder.
 - En redaktør kan slette én personprofil helt fra Redaktion.
 - Før sletningen ser redaktøren en forhåndsvisning: hvad der slettes (antal pr. sted), hvilke familier der forsvinder,
   hvilke filer der slettes, og hvad der forhindrer sletningen.
-- Efter sletningen findes personens id ikke i nogen række, der handler om personen. Den eneste tilladte rest er
-  personens id-nummer i **andre** personers historik (fx en change_event på et familieled, hvor også 1791 stod), uden
-  personens indhold.
+- Efter sletningen findes personens id ikke i nogen række, der handler om personen. Tilladt rest er udtømmende:
+  personens id-nummer i **andre** personers rækker og historik, og **bogtekst**, der står i andres eller fælles rækker:
+  genimportkvitteringer (Q1), andres narrativhistorik (Q2, 6.11), et delt medies titel (Q8) og vielsesfakta i
+  bevarede familier (beslutning 7). Listen står i planens Global Constraints.
 - Andre personer er uændrede, bortset fra de rækker, der direkte forbinder dem med den slettede (familieled,
   `samme_som`).
 - Læsere, medlemmer og anon kan ikke se, at personen har eksisteret.
@@ -48,19 +52,25 @@ i historikken (så sletningen kan fortrydes) og spor på ca. 15 andre steder.
 - Halve rester: en familie med kun én partner og ingen børn, en tom post i en fælles historikpost, et dødt link.
 - Append-only-beskyttelsen svækkes generelt. Den må kun løftes for netop den person, i netop den transaktion, inde i
   den ene funktion.
-- En kopi af personens indhold overlever i historikken, så sletningen kan fortrydes.
+- En kopi af personens indhold overlever i historikken, så sletningen kan fortrydes. (Bogtekst i andres eller
+  fælles rækker, jf. §2, er ikke en sådan kopi.)
 
 ## 5. Det projektejeren har besluttet (2026-11-14)
 
 1. Hård sletning, ingen tombstone, ingen indholdsløs slettelinje.
 2. Bogens lag bliver stående.
-3. Andre personers historik må beholde id-nummeret, ikke indholdet.
+3. Andre personers historik må beholde id-nummeret, ikke indholdet. Præciseret 2026-11-14 (Q1, Q2): »indholdet« er
+   personens egen profil; bogtekst i andres biografier og i fælles kvitteringer bevares.
 4. Kun redaktører; forhåndsvisning og bekræftelse før sletning.
 5. `slet helt` må løfte skrivespærringen på de låste logs for netop den person.
 6. Personens egne kildepersonas (bogens omtale) får efter sletningen en ny afgørelse »ikke en person«
    (afsnit 6.9), så de ikke vender tilbage som uafgjorte i Kildepersona-køen.
 7. Vielsesfakta i en familie, der bevares, bliver stående (6.4).
 8. Er personen knudepunkt i en sammenfoldning med to eller flere andre, afvises sletningen, til de er koblet direkte (6.4).
+9. (2026-11-14, slettegrafens Q1-Q11) Genimportkvitteringer røres ikke (Q1). En kørsel, der ikke længere kan
+   fortrydes, er en advarsel, ikke en blokering (Q3); det samme gælder en `passed` kontrolkørsel (Q4). Fritekster
+   hos andre, der kan nævne personen, vises til manuel kontrol uden at blokere (Q8, Q9). Personens egne
+   familiebindinger til en bevaret familie slettes (Q6). »Ikke en person« får version n+1 (Q7).
 
 ## 6. Hvordan (bundne valg)
 
@@ -85,7 +95,8 @@ Revideret efter fable-review 2026-11-14 (fund K1-K5, V1-V7, M1-M6). Linjenumre e
 
 ### 6.2 Kontrolleret løft af append-only (K1)
 
-- **Manifest, ikke GUC.** En privat tabel `private.person_purge_manifest(xid, backend_pid, tabel, raekke_pk)` efter
+- **Manifest, ikke GUC.** En privat tabel `private.person_purge_manifest(xid, backend_pid, person_id, tabel, pk, grund,
+  forrige_version)` efter
   mønstret i `identity_relation_update_prelock` (l. 7521-7551). Kun `red_slet_person_helt` skriver den; den beregner
   den fulde sletteliste, skriver manifestet, sletter, og **tømmer manifestet før retur**. Intet overlever commit (en
   overlevende række ville være den slettelinje, beslutning 1 forbyder). db-verify: manifestet er tomt.
@@ -94,11 +105,12 @@ Revideret efter fable-review 2026-11-14 (fund K1-K5, V1-V7, M1-M6). Linjenumre e
   (`source_record`, `source_persona`, `source_observation*`, `interpretation`, `interpretation_party` m.fl.) står
   **aldrig** på listen. DELETE tillades kun, hvis `(pg_current_xact_id(), pg_backend_pid(), TG_TABLE_NAME, pk)` står i
   manifestet.
-- **Uafhængigt tjek, hvor det kan lade sig gøre:** har rækken en typet person-kolonne (`canonical_person_id`,
-  `candidate_person_id`, `person_id`), tjekker triggeren selv, at den er lig manifestets person.
+- **Uafhængigt tjek pr. `grund`** (`egen`, `hel_stroem`, `andres_ref`, `afledt`): triggeren efterprøver rækken efter
+  slettegraf §3.2 med Q5-rettelsen. `hel_stroem` tillader ældre events med NULL eller en anden person, når personaens
+  nuværende afgørelse peger på personen.
 - Triggerne forbliver enabled. Ingen `DISABLE TRIGGER`, ingen `session_replication_role`. TRUNCATE-triggerne røres
-  ikke. UPDATE forbliver forbudt med én navngiven undtagelse: `narrative_legacy_publication.latest_event_id := NULL`
-  for personens egne rækker, for at bryde cirklen event ↔ legacy (l. 13898/13905; K5).
+  ikke. UPDATE forbliver forbudt **uden undtagelse**: `narrative_legacy_publication` har ingen append-only-trigger, og
+  dens validator tillader allerede `latest_event_id := NULL` (l. 14035).
 - db-verify asserter funktionskroppene (tilladelseslisten indeholder ingen bogtabel) og den nye funktions
   låserækkefølge (M4).
 
@@ -115,18 +127,23 @@ hvor rækken handler om personen:
 - **Rettelsesjournaler:** `import_korrektion`, `paastand_korrektion` for personens rækker.
 - **Logs (via 6.2):** personens publication-events og legacy-publikationer, identitetsstrømme (6.9/6.10),
   kandidatrækker, legacy-placement-dispositioner og de øvrige ledgers fra kortlægningen, hvor rækken vedrører personen.
-- **Promotions (K5):** `interpretation_promotion`-rækker, hvis mål er personens rækker, med deres afhængige
-  `relation_reopen`/`text_revision_reconciliation`-rækker først. Promotions, der hører til **en andens** persona
-  (fx en ægtefælles `relation.marriage`-fortolkning, hvis familie slettes), er en **blokering** (6.6), indtil det er
-  afklaret, om en senere promotion-batch så kan genoprette familien.
+- **Promotions (K5, Q5, Q6):** `interpretation_promotion`-rækker, hvis mål er personens egne rækker, slettes, også
+  når fortolkningen sidder på en andens record (fx `relation_person_create` fra en forælders post). Personens egne
+  personas' bindinger til en familie, der bevares, slettes også (Q6). Afhængige `relation_reopen`/
+  `text_revision_reconciliation` slettes først. En promotion fra **en andens** persona til en familie, der slettes
+  (fx en ægtefælles `relation.marriage`), er en **blokering** (6.6).
 
 ### 6.3a Historik på eventniveau (K3)
 
 - Slet hver `change_event`, hvis række er en af de slettede rækker (personens egne, de slettede familiers rækker og
   deres evidens, den andens familieled i en familie der slettes helt).
+- Events slettes også, når deres `foer` eller `efter` bærer personens indhold, selv om rækken er slettet tidligere
+  (lukningen over nøglestier, slettegraf §2.2-2.3).
 - Et `change_set` slettes kun, når (a) det ikke har events tilbage, (b) det ikke har indgående FK (publication-event,
-  `paastand_korrektion`, `reimport_case_batch`; S56), og (c) det **havde** events, der blev slettet nu — eller det er et
-  fortryd-sæt (`reverterer_id`) for et sæt, der slettes. Fortryd-sæt for bevarede sæt røres ikke. Sletteorden: fortryd-
+  `paastand_korrektion`, `reimport_case_batch`; S56), og (c) det havde events, der blev slettet nu, **eller** har
+  personen som subjekt og `reverterer_id IS NULL` (fx `withdraw_legacy_narrative`, der ingen events har), **eller**
+  havde en publication-event/`paastand_korrektion`, der slettes nu — eller det er et fortryd-sæt (`reverterer_id`)
+  for et sæt, der slettes (slettegraf §2.4). Fortryd-sæt for bevarede sæt røres ikke. Sletteorden: fortryd-
   sæt før det sæt, de peger på.
 - `change_set` med personen som subjekt, men med andres events (fx `red_opret_union`, l. 8023), bevares med de andres
   events; summary med kun id er dækket af beslutning 3 (M1). Summaries med navn (`red_opret_person`, l. 8641, og dens
@@ -154,7 +171,7 @@ hvor rækken handler om personen:
 
 - Andres historik beholder id-nummeret (beslutning 3).
 - Andres publication-events og bindingshashes bevares. Forhåndsvisningen lister de narrativer og familiebindinger
-  hos andre, der bliver forældede (V5): `narrative_publication_state` (l. 14978-15005) medtager accepterede
+  hos andre, der bliver forældede (V5); personens egne bindinger slettes (Q6): `narrative_publication_state` (l. 14978-15005) medtager accepterede
   medhovedpersoner, så når personens persona afvises (6.9), ændres en anden persons tilstandshash på samme record.
   Revalidering sker ad det eksisterende spor.
 - Kandidatkørslers `candidates_sha256`/`candidate_count` og `identity_control_run`-hashes stemmer ikke længere efter
@@ -166,8 +183,15 @@ hvor rækken handler om personen:
   `entity_description.tekst`, `haendelse.klausul`, `suggestion` m.fl. — skannet med `parse_mentions`, ikke kun via
   `text_mention`. Redaktøren retter teksten først.
 - Promotions, der hører til en andens persona (6.3, K5).
-- En åben/uforseglet identitetskontrolkørsel, kandidatkørsel, reimport- eller publiceringsbatch, der omfatter
-  personens personas (K4).
+- En identitetskontrolkørsel, der endnu ikke er `passed` eller `failed` (også `sealed`), og som omfatter personens
+  personas, personen som kandidat eller på et forældrekort (slettegraf §4.3).
+- En åben reimport-/C3-batch, en `finalized` batch, der ikke er aktiveret, en gyldig `issued` autorisation, eller en
+  `publication_identity`, der er den eneste for sin B-batch (slettegraf §4.4 med præciseringerne); `persona_awaiting_control`.
+- En andens påstand, hvis værdi er personen eller en familie, der slettes (S20, NY-A).
+- `[[family:…]]`/`[[media:…]]`-links til en familie eller et medie, der slettes.
+- **Advarsler, ikke blokeringer:** kørsler, der ikke længere kan fortrydes (Q3, alle fortrydelsesveje); en `passed`
+  kontrolkørsel, der bliver `failed` (Q4); forældede bindinger hos andre (6.5).
+- **Til kontrol, ikke blokering (Q8, Q9):** fritekster hos andre og titler på delte medier, der kan nævne personen.
 - Personen er knudepunkt i en `samme_som`-komponent med to eller flere andre (6.4).
 - Medier delt med andre: ingen blokering; koblingen slettes, mediet og filen bevares.
 - Levende person med brugerkonto: ingen blokering; nævnes i forhåndsvisningen.
@@ -190,7 +214,8 @@ stierne er indholdsadresserede og ikke indeholder person-id, er udbakken ikke en
 
 - For hver persona, hvis **nuværende** afgørelse peger på personen, slettes **hele** identitetsstrømmen (også ældre
   events uden person-id, fordi de kan bære indhold om personen, fx `deceased.clause_years`).
-- Derefter skrives version `max+1` (= 1) med status `rejected` og en **ny oprindelse `person_purge`** i
+- Derefter skrives version n+1 (n = den slettede strøms højeste version, aflæst før sletningen og båret i manifestet;
+  Q7) med status `rejected` og en **ny oprindelse `person_purge`** i
   `private.decide_source_persona_identity`, med fast evidence `{"reason":"not_a_person"}`, uden person-id, uden navn.
   Køen viser allerede `evidence->>'reason'` (l. 11046), så redaktøren kan skelne den fra »different«.
 - `rejected` med version ≥ 1 forhindrer genoprettelse: `person_create`/`legacy_match` kræver version 0 (l. 10470,
@@ -207,17 +232,25 @@ stierne er indholdsadresserede og ikke indeholder person-id, er udbakken ikke en
 ### 6.11 Navne i andres tekster (min afgørelse)
 
 - Navnet i et fjernet link kan stå tilbage i den andens publiceringshistorik og `change_event`. Narrativerne er bogens
-  ordlyd, og bogens lag bevares (beslutning 2). Andres publication-events og hash-kæder røres ikke.
+  ordlyd, og bogens lag bevares (beslutning 2). Andres publication-events og hash-kæder røres ikke. Bekræftet af
+  projektejeren 2026-11-14 (Q2).
 
 ### 6.12 Låse og samtidighed
 
-Rækkefølgen fra `red_slet_person`: delt advisory-lås på narrative-kontrakten → rollegate → `samme_som_mutation` +
-`guard_identity_mutation_snapshot` → `FOR UPDATE` på source/external-id → `lock_identity_people` → `lock_family_rows`
-→ kildelåsen fra 6.9. Funktionen kommer på db-verify's liste over låserækkefølger (M4).
+Rettet 2026-11-14 (planreview V-1): rækkefølgen er slettegraf §6.2 L1-L13 — kontrakt delt → rollegate →
+`lock_reimport_writer` (sorteret) → kildelås `daa-identity-candidates:<source>` **eksklusiv**, sorteret efter kilde →
+persona/identitet `FOR UPDATE` → `samme_som_mutation` + generation → `LOCK change_set IN ROW EXCLUSIVE MODE` →
+source/external-id → `lock_identity_people` → `lock_family_rows` → genberegn låsemængden (drift → afvis) og preview.
+Kildelåsen sidst gav en låsecyklus mod `red_afgoer_source_persona`. Funktionen kommer på db-verify's liste over
+låserækkefølger (M4).
 
 ## 7. Prod og den første brug
 
-- DDL i en ceremoni i projektejerens shell som de foregående trin (runner, GO-kode, dump før, fortryd-DDL).
+- DDL i en ceremoni i projektejerens shell som de foregående trin (runner, GO-kode, dump før, fortryd-DDL). Et nyt
+  dump tages umiddelbart før sletningen af 1791: fortryd-DDL fjerner funktionerne, men fortryder ikke en udført
+  sletning.
+- Generalprøve 2 på en separat kopi: en person fra en aktiveret genimportkørsel slettes; `db-verify.sql` grøn, og
+  fortrydelsen af kørslen fejler lukket.
 - **Generalprøve på en restoret prod-kopi med planner-statistik:** forhåndsvisning og sletning af 1791, målt køretid
   under `authenticated`-rollens timeout (lukningen over `change_event` bruger jsonb-opslag), og **hele `db-verify.sql`
   grøn efter sletningen**.
@@ -225,7 +258,8 @@ Rækkefølgen fra `red_slet_person`: delt advisory-lås på narrative-kontrakten
   17 steder, herunder 2 publication-events (det ene i cutover-sættet fra 6/9, som bevares uden 1791's event), 1
   legacy-placement-disposition og 2 egne historikposter.
 - Færdigbevis: tællingen for 1791 er 0 overalt (bortset fra id i andres historik), andre rækker byte-ens før/efter
-  (hash over alle ikke-slettede rækker i de berørte tabeller), manifest og udbakke tomme, ingen ny historikrække,
+  (hash over alle ikke-slettede rækker i de berørte tabeller), kun tilladt rest ved en inventaruafhængig søgning,
+  manifest og udbakke tomme (eller fejlede filer vist i Redaktion og janitor-tjek 0), ingen ny historikrække,
   anon-tjek i browseren, og append-only-triggerne afviser fortsat DELETE uden for funktionen.
 
 ## 8. Test (krav)
@@ -247,7 +281,7 @@ Rækkefølgen fra `red_slet_person`: delt advisory-lås på narrative-kontrakten
 
 ## 9. Overladt til bygherren
 
-- Den præcise slettegraf (FK-orden) ud fra 6.2, 6.3, 6.3a og K5's cirkler; den skal stå i planen.
+- ~~Den præcise slettegraf~~ — leveret: `docs/superpowers/plans/personsletning/slettegraf.md`.
 - Navne på manifest- og udbakketabeller og præcis hvilke triggerfunktioner der ændres.
 - Om `red_slet_person_helt` deler kode med `red_slet_person`.
 - UI-detaljer ud over 6.1.

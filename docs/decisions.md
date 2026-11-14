@@ -15,6 +15,22 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   indholdet.
 > - **Efterlades:** én afgørelse »ikke en person« på personens egne kildepersonas, så de ikke vender tilbage i køen.
 > - Design: `docs/superpowers/specs/2026-11-14-fuld-personsletning-design.md`. Den nuværende `red_slet_person` bevares.
+> - **Tilføjet 2026-11-14 (projektejerens svar på slettegrafens Q1-Q11):**
+>   - **Bogtekst bevares.** Bogtekst med personens navn bliver stående i fælles genimportkvitteringer, i andres
+>     narrativhistorik, i et delt medies titel og i vielsesfakta i bevarede familier. »Indholdet« i beslutning 3 er
+>     personens egen profil.
+>   - **Advarsel, ikke blokering:**
+>     - en genimportkørsel, der ikke længere kan fortrydes
+>     - en `passed` kontrolkørsel, der bliver `failed`
+>   - **Manuel kontrol.** Fritekster hos andre vises til kontrol og blokerer ikke.
+>   - **Personens egne familiebindinger** til en bevaret familie slettes.
+>   - **»Ikke en person«** får version n+1, så gamle versionshenvisninger fejler synligt.
+>   - **UPDATE i de låste logs** forbliver forbudt uden undtagelse.
+>   - **Låseorden.** Kildelåsen tages eksklusivt og tidligt (rettet fra specens første udgave).
+> - **Backlog (Q11):** 26 personer, der før er slettet med `red_slet_person`, har stadig en fuld kopi i historikken.
+>   En engangsoprydning med sit eget preview ligger uden for denne bygning.
+> - Plan v2 og slettegraf: `docs/superpowers/plans/2026-11-14-fuld-personsletning.md`,
+>   `docs/superpowers/plans/personsletning/`.
 
 ## NOTERET: 40 nummererede 1939-børn uden forældreled, åben backlog (2026-11-14)
 
