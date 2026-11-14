@@ -6,7 +6,8 @@
 »(?)« på sidebilledet. De er sat til tom konfidens med redaktørhandlingen `red_set_familie_konfidens` (change_set
 4245-4272, runner `41-formodet-1939.sh`, verify `0,28,0,2,2,0`). Læseren viser derfor ikke længere fx 458's forældre
 som formodede. 79/80 (2018-20) har »?« i bogen og forbliver `formodet` (tjekket af projektejeren); bogens 5 »(?)« om slægtskab står ved
-personer uden eget 1939-led; to af dem svarer til 79/80 (se `decisions.md`).
+personer uden eget 1939-led; to af dem svarer til 79/80; Magdalene (169) er afklaret af
+2018-20 og forbliver uden flag (se `decisions.md`).
 
 ## 2026-11-14 — trin 6e-2 i prod: 1939 med bogens nøgle og trykte side; koordinatkaldet 4 × hurtigere
 

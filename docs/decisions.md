@@ -23,8 +23,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   - s. 13 nr. 6 Margrethe (959) og nr. 7 Hartvig (1770). 959 er foldet sammen med 80. Leddene 79/80 i familie 38
 >     (forælder 66 Hartwich) er `formodet`: præcis de to søskende, som 1939 sætter »(?)« ved. Det taler for at beholde
 >     dem. 1770 er ikke foldet sammen med 79 (mulig manglende `samme_som`; projektejeren har noteret det, uden for denne opgave).
->   - s. 34 nr. 1 Magdalene (1033), foldet sammen med 169. 169's led (familie 128) er tomt, så læseren viser ikke
->     1939's tvivl. Om det skal være `formodet`, afgør projektejeren.
+>   - s. 34 nr. 1 Magdalene (1033), foldet sammen med 169. 169's led (familie 128) er tomt. Projektejeren
+>     2026-11-14: 2018-20 har intet »?« ved hende, så den nyere udgave har afklaret 1939's tvivl; leddet forbliver tomt.
+>     Princip: en senere udgave uden markør afklarer en tidligere udgaves »(?)«.
 >   - s. 37 nr. 5 uden navn (1780) og s. 19 »En Sønnesøn (?)« Henning (1849): intet led og ingen navngiven tvivl at
 >     flytte.
 >
