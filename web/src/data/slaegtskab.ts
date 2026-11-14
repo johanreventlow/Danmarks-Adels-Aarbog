@@ -1,6 +1,6 @@
 // »Er vi i familie?« (webredesign fase 6a) som rene funktioner: forslag i personvælgeren og vejen trin for trin.
 // Selve beregningen bor i @daa/core (computeRelationship); her formes den til visning.
-import { compareDanish, foldToken, type Konfidens, type RelationLine } from '@daa/core';
+import { compareDanish, computeRelationship, foldToken, slaegtskabTilMig, type Koen, type Konfidens, type RelationLine } from '@daa/core';
 import { erTekniskLinje } from './lineage';
 import type { Model } from './types';
 
@@ -68,4 +68,57 @@ export function slaegtledTekst(line: RelationLine): string {
 export function faellesAneTekst(line: RelationLine): string {
   const flere = line.aner.length > 1;
   return `${flere ? 'Fælles aner' : 'Fælles ane'}: ${line.aner.join(' · ')}`;
+}
+
+// ── Slægtskab som kontekst over navnet (webredesign fase 8) ─────────────────
+
+export type Sikkerhed = 'sikker' | 'sandsynligvis' | 'omstridt';
+// Fælles for blod og gift: beskriver forbindelsen mig ↔ blodslægtningen (fokus selv eller fokus' ægtefælle).
+export type Forbindelse = { ord: string; sikkerhed: Sikkerhed; bekraeftetAndenVej: boolean; veje: number };
+export type SlaegtskabsKontekst =
+  | { art: 'skjult' } // »Det er mig« ikke sat, eller mig findes ikke i modellen
+  | { art: 'dig' }
+  | { art: 'min-aegtefaelle' }
+  | ({ art: 'blod' } & Forbindelse)
+  | ({ art: 'gift'; aegtefaelleId: string; aegtefaelleNavn: string } & Forbindelse)
+  | { art: 'ingen' };
+
+// Ordet og sikkerheden kommer altid fra den nærmeste linjes egne d1/d2 og konfidens — aldrig fra den
+// sammenlagte etiket eller multipliciteten, som kan blande retninger og skjule et omstridt led.
+function forbindelse(lines: RelationLine[], koen: Koen | undefined): Forbindelse {
+  const l = lines[0];
+  const sikkerhed: Sikkerhed = l.weakestKonfidens === 'omstridt' ? 'omstridt' : l.usikker ? 'sandsynligvis' : 'sikker';
+  return {
+    ord: slaegtskabTilMig(l.d1, l.d2, { koen, half: l.half }),
+    sikkerhed,
+    // Samme regel som »Er vi i familie?«: en usikker vej bekræftes af en anden, sikker vej.
+    bekraeftetAndenVej: l.usikker && lines.slice(1).some((x) => !x.usikker),
+    veje: lines.length,
+  };
+}
+
+// Hvad der står over navnet på fokuspersonens side. meId og focusId er kanoniske (samme_som-foldede).
+// Prioritet: skjult → dig → min ægtefælle → blodslægtning → gift med en blodslægtning → ingen fælles ane.
+// Svigerfamilie gennem min ægtefælle og slægt gennem to giftermål undersøges bevidst ikke.
+export function slaegtskabsKontekst(model: Model, meId: string | null, focusId: string): SlaegtskabsKontekst {
+  if (!meId || !model.byId[meId] || !model.byId[focusId]) return { art: 'skjult' };
+  if (meId === focusId) return { art: 'dig' };
+  if ((model.indexes.spousesBy[meId] ?? []).some((s) => s.id === focusId)) return { art: 'min-aegtefaelle' };
+
+  const blod = computeRelationship(model, meId, focusId);
+  if (blod.found && blod.lines.length) return { art: 'blod', ...forbindelse(blod.lines, model.byId[focusId].koen) };
+
+  // Gift med en af mine blodslægtninge: den nærmeste (mindst d1+d2) vinder; ordet bruger ægtefællens køn.
+  let bedst: { id: string; navn: string; lines: RelationLine[] } | null = null;
+  for (const s of model.indexes.spousesBy[focusId] ?? []) {
+    if (!s.id || s.id === focusId || !model.byId[s.id]) continue;
+    const r = computeRelationship(model, meId, s.id);
+    if (!r.found || !r.lines.length) continue;
+    const afst = r.lines[0].d1 + r.lines[0].d2;
+    if (!bedst || afst < bedst.lines[0].d1 + bedst.lines[0].d2) bedst = { id: s.id, navn: s.name, lines: r.lines };
+  }
+  if (bedst) {
+    return { art: 'gift', aegtefaelleId: bedst.id, aegtefaelleNavn: bedst.navn, ...forbindelse(bedst.lines, model.byId[bedst.id].koen) };
+  }
+  return { art: 'ingen' };
 }
