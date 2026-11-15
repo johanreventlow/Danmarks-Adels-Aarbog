@@ -27,7 +27,8 @@ Målt ved 390 px: **intet stikker ud** på nogen af de 37 mobiltrin — accept-k
 - Kun tokens fra `web/src/theme.ts` / `@daa/theme`; ingen tekst under 11 px; `gold` aldrig som tekstfarve (`goldInk`).
 - Rigtige `<button>`/`<a href>`; alt kan bruges med tastatur; `aria-expanded` på knapper, der åbner noget; Esc lukker og sender fokus tilbage til knappen; klik udenfor lukker; ingen hover-åbning.
 - Bred skærm (> 720 px) må ikke ændre sig — eksisterende tests og designtour-trin `a-*`/`b-*`/`c-*` er facit.
-- Berøringsflader ≥ 44 px på smal skærm.
+- Nye og flyttede knapper på smal skærm ≥ 44 px; eksisterende ≥ 24 px (WCAG 2.2, 2.5.8 — alle opfylder det i dag).
+- Redaktionsfladen (`Redaktion.tsx`) røres ikke, heller ikke via global CSS.
 - Smal gren testes ved at mocke `useSmalSkaerm`, som `web/src/components/__tests__/RelateView.test.tsx:9-10` gør (`vi.hoisted` + `vi.mock('../../useSmalSkaerm', …)`); jsdom regnes ellers bred.
 - Commits: Conventional Commits på dansk, ingen Claude-attribution og ingen Claude-Session-linje.
 - Verifikationsgate pr. task: `npm run test -w daa-folgesvend-web` (eller den berørte testfil) + `npx tsc -b web` (som `build` gør); sidste task kører også `npm run build -w daa-folgesvend-web` og mobil `tsc` + jest er urørt (rør ikke `mobile/`).
@@ -50,8 +51,8 @@ Målt ved 390 px: **intet stikker ud** på nogen af de 37 mobiltrin — accept-k
 
 **Interfaces:** Produces intet til andre tasks.
 
-- [ ] **Step 1:** Tilføj i `web/src/base.css` en regel for smal skærm, samme grænse som `SMAL_SKAERM`:
-  `@media (max-width: 720px){input:not([type=checkbox]):not([type=radio]),select,textarea{font-size:16px!important}}` med en kommentar om iPhone-zoom (`!important` er nødvendigt, fordi felterne har inline `fontSize`).
+- [ ] **Step 1:** Sæt `data-flade="laeser"` på skallen (`Folgesvend.tsx:482`; login-dialogen og slægtsmenuen ligger inde i den) og `data-felt-stor` på søgesidens felt `#soegeside-q` (`SoegView.tsx:130`, 18 px — må ikke sænkes). Tilføj i `web/src/base.css`, samme grænse som `SMAL_SKAERM`, med en kommentar om iPhone-zoom (`!important`, fordi felterne har inline `fontSize`; afgrænset, fordi `base.css` også gælder redaktionen):
+  `@media (max-width:720px){[data-flade=laeser] :is(input:not([type=checkbox]):not([type=radio]),select,textarea):not([data-felt-stor]){font-size:16px!important}}`
 - [ ] **Step 2:** Skift skallens højde i `Folgesvend.tsx:482` fra `'100vh'` til `'100dvh'` med en kort kommentar: på iPhone er `100vh` højere end det synlige vindue, så bunden gemmes under browserens værktøjslinje. (`Redaktion.tsx` røres ikke.)
 - [ ] **Step 3:** Verificér med designtouren (dev-server på 5173 fra denne worktree): `cd web && node scripts/designtour/tour.mjs d-mobile`
   Expected: ingen linje indeholder `felt < 16 px`.
@@ -77,6 +78,8 @@ Målt ved 390 px: **intet stikker ud** på nogen af de 37 mobiltrin — accept-k
   - `share` afviser med `NotAllowedError` → falder tilbage til clipboard → `'kopieret'`.
   - `brugDeling=false` → kun clipboard → `'kopieret'`; clipboard afviser → `'fejl'`.
   - `share` mangler → clipboard → `'kopieret'`.
+  - `share` afviser med `NotAllowedError`, og clipboard afviser bagefter → `'fejl'` (Safari kan afvise kopiering efter et asynkront delekald; fejlteksten »kopiér adressen fra adresselinjen« er vejen videre — ingen ekstra knap).
+  - `navigator.clipboard` mangler helt → `'fejl'`.
 - [ ] **Step 2: Write failing tests** for `sidetitel` (separator `' · '`):
   - `{mode:'home'}` → `'Danmarks Adels Aarbog'`
   - `{mode:'person', personNavn:'Conrad Reventlow'}` → `'Conrad Reventlow · Danmarks Adels Aarbog'`; uden navn → `'Danmarks Adels Aarbog'`
@@ -88,7 +91,7 @@ Målt ved 390 px: **intet stikker ud** på nogen af de 37 mobiltrin — accept-k
   - `{mode:'bookmarks'}` → `'Bogmærker · Danmarks Adels Aarbog'`; `{mode:'ukendtSlaegt'}` → `'Slægt ikke fundet · Danmarks Adels Aarbog'`
 - [ ] **Step 3:** Run `npm run test -w daa-folgesvend-web -- delLink sidetitel` → FAIL (moduler findes ikke).
 - [ ] **Step 4:** Implementér begge. `delLink`: `brugDeling && typeof navigator.share === 'function'` → `share`; `AbortError` → `'afbrudt'`; anden fejl → clipboard.
-- [ ] **Step 5:** I `Folgesvend.tsx`: `useEffect(() => { document.title = sidetitel({...}); }, [...])` med `mode`, slægtens navn (`findSlaegt(parsed.slaegt)?.navn`), `model?.byId[focusId]?.name` når `mode==='person'`, `relA`/`relB`-navne fra `model.byId`, `parsed`s søgeord (det, `SoegView` får som `filtre.q`), og `estatesVist?.find(e => e.id === estateId)?.navn` når `estateId` er sat. Navne kommer kun fra modellen, som RLS allerede har filtreret — samme regel som sidens h1.
+- [ ] **Step 5:** I `Folgesvend.tsx`, før det tidlige `return` for fejlskærmen: `useEffect(() => { document.title = err ? VAERK : sidetitel({...}); }, [err, ...])` — ved fejlet genhentning (fx efter logout) beholdes den gamle model (`:122`), så titlen må ikke bygges af den, mens fejlskærmen vises. Test i `__tests__/Folgesvend.test.tsx` (mocker allerede `loadModel`): hentning fejler → `document.title === 'Danmarks Adels Aarbog'`. Øvrige argumenter: `mode`, slægtens navn (`findSlaegt(parsed.slaegt)?.navn`), `model?.byId[focusId]?.name` når `mode==='person'`, `relA`/`relB`-navne fra `model.byId`, `parsed`s søgeord (det, `SoegView` får som `filtre.q`), og `estatesVist?.find(e => e.id === estateId)?.navn` når `estateId` er sat. Navne kommer kun fra modellen, som RLS allerede har filtreret — samme regel som sidens h1.
 - [ ] **Step 6:** `npm run test -w daa-folgesvend-web` + `npx tsc -b web` (som `build` gør) → PASS. Commit:
   `feat(web): sidetitel pr. side og del-link med telefonens deleknap`
 
@@ -118,7 +121,7 @@ Målt ved 390 px: **intet stikker ud** på nogen af de 37 mobiltrin — accept-k
 - Consumes: eksisterende props; ny prop `sti: string` (Folgesvend sender `loc.path + loc.search`).
 - Produces: ingen nye eksporter. Ved smal skærm sidder `menuKnap`-ref'en på menuknappen (☰), så `SlaegterMenu`s `opener` og Folgesvends fokus-retur peger på en knap, der stadig findes.
 
-Smal skærm (tegningerne `Mobil-Hovedside`/`Mobil-Person`): én række — logo 32 px + »Danmarks Adels Aarbog« 19 px serif (link til `/`, `flex: 1; min-width: 0`), så `ekstra` (»Din plads«-monogrammet), så en 44×44 menuknap med tre streger, `aria-label="Menu"`, `aria-expanded`, `aria-controls="mobilmenu"`. Padding `12px 16px`. Menuknappen åbner et panel (`id="mobilmenu"`, `data-overlay`, placeret som `SlaegterMenu`: `position: absolute; top: 100%; left: 0; right: 0; zIndex: 40`) med, i rækkefølge: søgeformularen (samme `id="sidehoved-soeg"`, fuld bredde), `<nav aria-label="Hovedmenu">` med Personer, Slægter, Slægtskab som lodret liste (≥ 44 px høje), Log ind/Log ud, Redaktion ↗ (kun `visRedaktion`). Bred skærm: uændret markup.
+Smal skærm (tegningerne `Mobil-Hovedside`/`Mobil-Person`): én række — logo 32 px + »Danmarks Adels Aarbog« 19 px serif (link til `/`, `flex: 1; min-width: 0`), så `ekstra` (»Din plads«-monogrammet; `Folgesvend.tsx:492` gør det `smal ? 44 : 38` px), så en 44×44 menuknap med tre streger, `aria-label="Menu"`, `aria-expanded={mobilAaben || menuAaben}`, `aria-controls={menuAaben ? 'slaegter-menu' : 'mobilmenu'}`; klik, mens `menuAaben`, lukker slægtsmenuen i stedet for at åbne mobilmenuen (knappen er den eneste tilbageværende åbner, når man er gået Menu → Slægter). Padding `12px 16px`. Menuknappen åbner et panel (`id="mobilmenu"`, `data-overlay`, placeret som `SlaegterMenu`: `position: absolute; top: 100%; left: 0; right: 0; zIndex: 40`, og `maxHeight: 'calc(100dvh - 64px)', overflowY: 'auto'`, så bunden ikke klippes ved stor tekst eller kort skærm) med, i rækkefølge: søgeformularen (samme `id="sidehoved-soeg"`, fuld bredde), `<nav aria-label="Hovedmenu">` med Personer, Slægter, Slægtskab som lodret liste (≥ 44 px høje), Log ind/Log ud, Redaktion ↗ (kun `visRedaktion`). Bred skærm: uændret markup.
 
 - [ ] **Step 1: Failing tests** (mock `useSmalSkaerm` → true i en `describe('smal skærm')`):
   - Kun menuknappen og forsiden-linket er synlige; `queryByRole('navigation', { name: 'Hovedmenu' })` er null, og søgefeltet findes ikke, før menuen åbnes.
@@ -128,11 +131,13 @@ Smal skærm (tegningerne `Mobil-Hovedside`/`Mobil-Person`): én række — logo 
   - Klik på Slægter i panelet → panelet lukker, og `setMenuAaben(true, false, <menuknappen>)` kaldes (slægtsmenuen åbnes).
   - Nyt `sti`-prop (rerender) → panelet lukker. `smal` skifter til false (rerender med mocket værdi) → panelet lukker, og den brede navigation vises.
   - Åbning af panelet lukker en åben slægtsmenu (`setMenuAaben(false)`).
+  - Efter Menu → Slægter: menuknappen har `aria-expanded="true"` og `aria-controls="slaegter-menu"`; klik på den lukker slægtsmenuen.
+  - Fokus-retur (i `Folgesvend`, med den rigtige `setMenuAaben`): `setMenuAaben` (`Folgesvend.tsx:150-154`) fokuserer `aabnerRef.current` kun hvis `isConnected`, ellers `menuKnap.current`. Test: Menu → Slægter, rerender bred, Esc → fokus på Slægter-knappen; og »Skift slægt« i slægtsbjælken → Esc → fokus på »Skift slægt«.
   - `ekstra` renderes i rækken (fx `<span>LC</span>` synlig uden at åbne menuen).
   - De eksisterende brede tests er uændrede og grønne.
 - [ ] **Step 2:** Run `npm run test -w daa-folgesvend-web -- Sidehoved` → FAIL.
 - [ ] **Step 3:** Implementér smal gren i `Sidehoved` (lokal `const [mobilAaben, setMobilAaben] = useState(false)`; Esc/klik-udenfor-lyttere som i `SlaegterMenu.tsx:31-42`; luk ved `sti`/`smal`-skift med `useEffect`). Send `sti` fra `Folgesvend.tsx`.
-- [ ] **Step 4:** Tests + tsc → PASS. Designtour `d-mobile-home`, `d-mobile-menu` (opdatér trinnet: klik `Menu`, så `Slægter`) og nyt trin `d-mobile-menu-aaben` (klik `Menu`): rækken er én linje, panelet læses.
+- [ ] **Step 4:** Designtouren klikker i dag kun via synlig tekst (`getByText`, `tour.mjs:158`), så ikonknappen kan ikke rammes. Tilføj handlingen `{ role: ['button', 'Menu'] }` → `pg.getByRole(a.role[0], { name: a.role[1], exact: true }).first().click()`. Opdatér `d-mobile-menu` (Menu → Slægter) og `d-mobile-login` (Menu → Log ind), og tilføj `d-mobile-menu-aaben` (Menu). Tests + tsc → PASS; touren `d-mobile` uden `⚠ handling`-linjer: rækken er én linje, panelet læses.
 - [ ] **Step 5:** Commit `Sidehoved.tsx`, `Folgesvend.tsx`, testen og `scripts/designtour/tour.mjs`:
   `feat(web): sidehovedet som én række med menu på smal skærm`
 
@@ -176,7 +181,12 @@ Smal skærm (`Mobil-Person`): handlingerne flyttes op, ikke dubleres. Rækkeføl
 - Modify: `web/scripts/designtour/tour.mjs` (trin ved 320 px: `d-smal320-person`, `d-smal320-relate-link`, `d-smal320-home` med `me: '103'`, så monogrammet står i rækken)
 - Modify: `docs/design/2026-11-12-webredesign-overdragelse.md` (under fase 9: »Bygget 2026-11-15 …« + det udeladte), `docs/changelog.md`, `docs/decisions.md` (beslutningen: mobilmenu bag ☰ på ≤ 720 px; bundfaner fravalgt i fase 9)
 
-- [ ] **Step 1:** Tilføj 320 px-trinene. Kør hele mobil-touren: `node scripts/designtour/tour.mjs mobile` og `node scripts/designtour/tour.mjs smal320` → **ingen** `⇔`-linjer (intet stikker ud, intet felt < 16 px). Kopiér billederne til `tmp/designtour/fase9-efter/`.
+- [ ] **Step 1:** Tilføj 320 px-trinene. Kør hele mobil-touren: `node scripts/designtour/tour.mjs mobile` og `node scripts/designtour/tour.mjs smal320` → **ingen** `⇔`-linjer (intet stikker ud, intet felt < 16 px) og **ingen** `⚠ handling`-linjer (et fejlet klik betyder, at billedet ikke viser det, trinnet påstår). Kopiér billederne til `tmp/designtour/fase9-efter/`.
 - [ ] **Step 2:** Bred regression: `node scripts/designtour/tour.mjs a-` → ingen nye `⚠`-linjer i forhold til før; stikprøve af `a-home`, `a-personside-fuld`, `a-relate-link` mod `fase8`/tidligere billeder: uændrede.
 - [ ] **Step 3:** Fuld gate: `npm run test -w @daa/core`, `npm run test -w daa-folgesvend-web`, `npm run build -w daa-folgesvend-web`, `npx tsc -b web` (som `build` gør). Alt grønt.
 - [ ] **Step 4:** Opdatér de tre dokumenter (kort, dateret). Commit: `docs: mobil web (fase 9)`.
+- [ ] **Step 5: Rigtig telefon før merge (projektejeren).** Designtouren er Chrome i et 390 px-vindue: den ser, at et
+  felt er under 16 px, men ikke iPhone-Safaris zoom, og den kan ikke se forskellen på `100vh` og `100dvh`. Grøn tour =
+  »ser fint ud i smal Chrome«, ikke »virker på telefonen«. Bed projektejeren åbne Vercel-preview på sin iPhone og prøve:
+  sidehovedets menu og søgefelt (ingen zoom ved tryk), personsiden helt til bunden (intet skjult under Safaris
+  værktøjslinje), »Del« (telefonens delemenu), og »Er vi i familie?« fra et delt link. Står i PR-teksten som afkrydsning.
