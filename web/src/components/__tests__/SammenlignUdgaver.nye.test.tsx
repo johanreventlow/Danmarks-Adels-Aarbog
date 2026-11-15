@@ -178,3 +178,36 @@ describe('SammenlignUdgaver: Find modpart (A1)', () => {
     expect(screen.getByText('Ingen personer matcher søgningen.')).toBeTruthy();
   });
 });
+
+describe('SammenlignUdgaver: bekræftelse uden for matcherens forslag (LIVE)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.fetchSources.mockResolvedValue([
+      { id: 3, titel: 'Danmarks Adels Aarbog', udgave: '1939', slags: 'bog', aar: 1939 },
+      { id: 7, titel: 'Danmarks Adels Aarbog', udgave: '2018-20', slags: 'bog', aar: 2018 },
+    ]);
+    mocks.fetchMatchPersoner.mockResolvedValue([person('1', 3, 'ditlev'), person('2', 7, 'christian')]);
+    mocks.fetchIkkeSammeSomPar.mockResolvedValue([]);
+    mocks.fetchSammeSomPar.mockResolvedValue([]);
+    mocks.fetchMatchAudit.mockResolvedValue([]);
+    mocks.fetchFamilyGraph.mockResolvedValue({ unions: [], parentChild: [] });
+    mocks.submitChange.mockResolvedValue({
+      dryRun: false, call: { fn: 'red_samme_som', args: {} }, direkte: true, result: 123,
+    });
+  });
+
+  test('et søgeresultat bekræftet LIVE afklarer personen og står under Bekræftede', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<SammenlignUdgaver role="redaktor" dryRun={false} />);
+    fireEvent.change(await screen.findByRole('combobox'), { target: { value: '3' } });
+    await screen.findByText(/1 uden kandidat over tærsklen/);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Find modpart' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Søg modpart' }), { target: { value: 'christian' } });
+    fireEvent.click(screen.getByRole('button', { name: '✓ Bekræft' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Bekræftede (1)' }));
+    expect(screen.getByText(/Ditlev Reventlow .* = Christian Reventlow/)).toBeTruthy();
+    confirm.mockRestore();
+  });
+});

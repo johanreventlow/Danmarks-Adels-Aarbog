@@ -14,17 +14,26 @@ export function pairKey(a: Id, b: Id): string {
   return `${s[0]}|${s[1]}`;
 }
 
-/** Kandidatpar til arbejdslisten. Afviste par fjernes FØR matcherens 1:1-tildeling: ellers
+/** Kandidatpar til arbejdslisten. Afviste par holdes ude af matcherens 1:1-tildeling: ellers
  *  "bruger" en afvist ★ stadig både personen og kandidaten, så de næstbedste forslag for
- *  begge nedgraderes og forsvinder af syne (review 2026-11-15, A3). */
+ *  begge nedgraderes og forsvinder af syne (review 2026-11-15, A3). De afviste par returneres
+ *  stadig (scoret, tier efter tærsklen), så buildArbejdsliste kan se, at personen HAVDE en
+ *  kandidat over tærsklen, og at den er afvist. */
 export function beregnKandidatPar(
   a: MatchFrame[],
   b: MatchFrame[],
   cfg: MatchCfg,
   afvisteKeys: ReadonlySet<string>,
 ): ScoredPair[] {
-  const scored = buildScored(a, b, cfg).filter((p) => !afvisteKeys.has(pairKey(p.aId, p.bId)));
-  return assignTiers(scored, cfg);
+  const aktive: ScoredPair[] = [], afviste: ScoredPair[] = [];
+  for (const p of buildScored(a, b, cfg)) (afvisteKeys.has(pairKey(p.aId, p.bId)) ? afviste : aktive).push(p);
+  return [
+    ...assignTiers(aktive, cfg),
+    ...afviste.map((p) => {
+      const score = finalScore(p, cfg);
+      return { ...p, score, tier: score >= cfg.reviewCutoff ? 'review' as const : 'none' as const };
+    }),
+  ];
 }
 
 /** Kandidater der allerede er matchet (samme_som) med en ANDEN person på den nye udgaves side:
@@ -38,6 +47,21 @@ export function byggMatchetMed(
   for (const { aId, bId } of links) {
     if (aSide.has(aId) && !aSide.has(bId)) m.set(bId, aId);
     else if (aSide.has(bId) && !aSide.has(aId)) m.set(aId, bId);
+  }
+  return m;
+}
+
+/** Personer i den nye udgave, der allerede er matchet (samme_som) med en person uden for den:
+ *  person → modpart. Uanset hvor linket er lavet (arbejdslisten, »Find modpart«, persondetaljen,
+ *  importkæden) — det er linket, ikke matcherens forslag, der afklarer personen. */
+export function byggLinketTil(
+  links: ReadonlyArray<{ aId: string; bId: string }>,
+  aSide: ReadonlySet<string>,
+): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const { aId, bId } of links) {
+    if (aSide.has(aId) && !aSide.has(bId)) m.set(aId, bId);
+    else if (aSide.has(bId) && !aSide.has(aId)) m.set(bId, aId);
   }
   return m;
 }
@@ -58,6 +82,8 @@ export type ArbejdslistePerson = {
    *  tærsklen: overlap tæller kun når BEGGE sider har en dato, så deres loft er
    *  0,6·navn + 0,1·køn = 0,70 = præcis cutoff. Uden denne liste var de en blindgyde. */
   svageKandidater: Kandidat[];
+  /** Modparten, personen er matchet med (fra byggLinketTil eller et linket kandidatpar). */
+  linketTil: string | null;
   status: PersonStatus;
 };
 export type Fremdrift = {
@@ -70,6 +96,8 @@ export type ArbejdslisteValg = {
   reviewCutoff?: number;
   /** Fra byggMatchetMed: kandidat-id → person i den nye udgave, den allerede er matchet med. */
   matchetMed?: ReadonlyMap<string, string>;
+  /** Fra byggLinketTil: person i den nye udgave → modpart, den er matchet med. */
+  linketTil?: ReadonlyMap<string, string>;
 };
 
 export function buildArbejdsliste(
@@ -92,11 +120,6 @@ export function buildArbejdsliste(
     if (arr) arr.push(p); else maal.set(String(p.aId), [p]);
   }
 
-  // Personer med mindst én afvisning: når ingen aktive kandidater er tilbage, er de afgjort som
-  // nye — ikke "formodet" nye. Afviste par er typisk allerede fjernet af beregnKandidatPar.
-  const idsMedAfvisning = new Set<string>();
-  for (const k of afvisteKeys) for (const id of k.split('|')) idsMedAfvisning.add(id);
-
   const berig = (p: ScoredPair, kandidat: boolean): Kandidat => {
     const aId = String(p.aId), bId = String(p.bId);
     const linket = linkedeKeys.has(pairKey(aId, bId));
@@ -115,12 +138,16 @@ export function buildArbejdsliste(
     const kandidater = (byA.get(aId) ?? []).map((p) => berig(p, true)).sort(orden);
     const svageKandidater = (svageByA.get(aId) ?? []).map((p) => berig(p, false)).sort(orden);
     const aktive = kandidater.filter((k) => !k.afvist);
+    const linketTil = valg.linketTil?.get(aId)
+      ?? [...kandidater, ...svageKandidater].find((k) => k.linket)?.bId?.toString() ?? null;
+    // »ny« = havde mindst én kandidat over tærsklen, og alle er afvist. En afvist svag kandidat
+    // eller en afvisning andetsteds i basen gør ikke personen ny.
     let status: PersonStatus;
-    if (kandidater.some((k) => k.linket)) status = 'afklaret';
+    if (linketTil != null) status = 'afklaret';
     else if (aktive.length) status = 'aaben';
-    else if (idsMedAfvisning.has(aId)) status = 'ny';
+    else if (kandidater.length) status = 'ny';
     else status = 'formodet_ny';
-    return { aId, kandidater, svageKandidater, status };
+    return { aId, kandidater, svageKandidater, linketTil, status };
   });
 
   // sortér: åbne først (topscore faldende), så afklarede, nye, formodet-nye

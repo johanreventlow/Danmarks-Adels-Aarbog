@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import {
-  beregnKandidatPar, buildArbejdsliste, byggMatchetMed, matcherSoegning, pairKey, scorePersonPar,
+  beregnKandidatPar, buildArbejdsliste, byggLinketTil, byggMatchetMed, matcherSoegning, pairKey, scorePersonPar,
 } from '../sammenlign';
 import { buildMatchFrame, defaultCfg, type MatchFrame, type RedMatchPerson, type ScoredPair } from '@daa/core';
 
@@ -51,10 +51,23 @@ describe('buildArbejdsliste (§5.2)', () => {
     expect(fremdrift.afklaret).toBe(0);
   });
 
-  test('afvist par allerede fjernet af beregnKandidatPar → stadig ny, ikke formodet ny', () => {
-    const uden = pairs.filter((p) => p.aId !== 'A2');
-    const { personer } = buildArbejdsliste(uden, aIds, new Set([pairKey('A2', 'B3')]), new Set());
-    expect(personer.find((p) => p.aId === 'A2')!.status).toBe('ny');
+  test('en afvist SVAG kandidat gør ikke personen ny', () => {
+    const svag = [sp('A9', 'B9', 'none', 0.5)];
+    const { personer } = buildArbejdsliste(svag, ['A9'], new Set([pairKey('A9', 'B9')]), new Set());
+    expect(personer[0].status).toBe('formodet_ny');
+  });
+
+  test('en afvisning andetsteds i basen gør ikke personen ny', () => {
+    const { personer } = buildArbejdsliste([], ['A9'], new Set([pairKey('A9', 'X')]), new Set());
+    expect(personer[0].status).toBe('formodet_ny');
+  });
+
+  test('link uden for matcherens forslag (søgning, persondetalje) afklarer personen', () => {
+    const { personer, fremdrift } = buildArbejdsliste(
+      [], ['A9'], new Set(), new Set([pairKey('A9', 'B9')]), { linketTil: new Map([['A9', 'B9']]) },
+    );
+    expect(personer[0]).toMatchObject({ status: 'afklaret', linketTil: 'B9' });
+    expect(fremdrift.afklaret).toBe(1);
   });
 
   test('fremdrift tæller korrekt', () => {
@@ -142,11 +155,22 @@ describe('A3: afvisninger og 1:1-tildelingen skjuler ikke de næstbedste forslag
     expect(a2.kandidater.map((k) => [k.bId, k.tier])).toEqual([['B1', 'review']]);
   });
 
-  test('en afvist ★ frigiver kandidaten til andre personer', () => {
+  test('en afvist ★ frigiver kandidaten til andre personer, men bliver selv stående som afvist', () => {
     const afviste = new Set([pairKey('A1', 'B1')]);
     const pairs = beregnKandidatPar(a, b, cfg, afviste);
-    expect(pairs.some((p) => p.aId === 'A1' && p.bId === 'B1')).toBe(false);
     expect(pairs.find((p) => p.aId === 'A2')!.tier).toBe('auto');
+    const l = buildArbejdsliste(pairs, ['A1', 'A2'], afviste, new Set(), { reviewCutoff: cfg.reviewCutoff });
+    const a1 = l.personer.find((p) => p.aId === 'A1')!;
+    expect(a1.kandidater.map((k) => [k.bId, k.afvist])).toEqual([['B1', true]]);
+    expect(a1.status).toBe('ny');
+  });
+
+  test('byggLinketTil peger fra personen i den nye udgave til modparten, begge retninger', () => {
+    const m = byggLinketTil(
+      [{ aId: 'A1', bId: 'B1' }, { aId: 'B2', bId: 'A2' }, { aId: 'A3', bId: 'A4' }],
+      new Set(['A1', 'A2', 'A3', 'A4']),
+    );
+    expect([...m.entries()].sort()).toEqual([['A1', 'B1'], ['A2', 'B2']]);
   });
 
   test('byggMatchetMed peger fra kandidaten til personen i den nye udgave, begge retninger', () => {

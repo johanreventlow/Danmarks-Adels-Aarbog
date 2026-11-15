@@ -15,7 +15,7 @@ import {
 } from '../data/redaktionRead';
 import { describeCall, oversaetFejl, submitChange, type Change } from '../data/redaktionWrite';
 import {
-  beregnKandidatPar, buildArbejdsliste, byggMatchetMed, matcherSoegning, pairKey, scorePersonPar,
+  beregnKandidatPar, buildArbejdsliste, byggLinketTil, byggMatchetMed, matcherSoegning, pairKey, scorePersonPar,
   type ArbejdslistePerson, type Kandidat,
 } from '../data/sammenlign';
 import { KandidatSammenligning } from './KandidatSammenligning';
@@ -216,10 +216,10 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
 
   const matchCfg = useMemo(() => ({ ...defaultCfg(), evidensNormaliseret: true }), []);
   const linkedeKeys = useMemo(() => new Set(linkede.map((x) => pairKey(x.aId, x.bId))), [linkede]);
-  const matchetMed = useMemo(() => {
-    if (nyKildeId == null) return new Map<string, string>();
+  const { matchetMed, linketTil } = useMemo(() => {
+    if (nyKildeId == null) return { matchetMed: new Map<string, string>(), linketTil: new Map<string, string>() };
     const aSide = new Set(personerMedKilde.filter((p) => p.sourceIds.includes(nyKildeId)).map((p) => String(p.id)));
-    return byggMatchetMed(linkede, aSide);
+    return { matchetMed: byggMatchetMed(linkede, aSide), linketTil: byggLinketTil(linkede, aSide) };
   }, [personerMedKilde, nyKildeId, linkede]);
 
   const arbejdsliste = useMemo(() => {
@@ -245,9 +245,9 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     const pairs = beregnKandidatPar(framesA, framesB, matchCfg, afvisteKeys);
     return buildArbejdsliste(
       pairs, aIds, afvisteKeys, linkedeKeys,
-      { reviewCutoff: matchCfg.reviewCutoff, matchetMed },
+      { reviewCutoff: matchCfg.reviewCutoff, matchetMed, linketTil },
     );
-  }, [personerMedKilde, nyKildeId, afviste, linkedeKeys, matchetMed, matchCfg]);
+  }, [personerMedKilde, nyKildeId, afviste, linkedeKeys, matchetMed, linketTil, matchCfg]);
 
   // »Find modpart«: hele den anden side (alle uden for den valgte udgave), filtreret på søgeteksten
   // og rangeret med samme score som arbejdslisten. Ingen blocking, intet årsvindue, ingen tærskel —
@@ -733,7 +733,8 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
       {/* Bekræftede matches (§7.20): kun HER kan en staged 1939-person vælges til selektiv
           publicering — allerede publicerede vises med et badge i stedet for afkrydsning.
           Adskilt fra `aabne`, fordi buildArbejdsliste flytter en person hertil i samme
-          øjeblik ÉT af dens kandidater bekræftes (uanset øvrige kandidaters status). */}
+          øjeblik den har et samme_som-link til den anden side — uanset om linket kom fra et
+          forslag, »Find modpart« eller persondetaljen (uanset øvrige kandidaters status). */}
       {aktivFane === 'bekraeftede' && (
         <section style={{ marginTop: '.75rem' }}>
           <h3>
@@ -761,9 +762,9 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
                   {afklarede.map((person) => {
                     const a = byId.get(person.aId);
                     const staged = a?.staged ?? false;
-                    const linket = person.kandidater.find((k) => k.linket);
-                    const b = linket ? byId.get(String(linket.bId)) : undefined;
-                    const hint = linket ? foldHint(person.aId, String(linket.bId), true) : { folder: false, grund: null };
+                    const bId = person.linketTil;
+                    const b = bId ? byId.get(bId) : undefined;
+                    const hint = bId ? foldHint(person.aId, bId, true) : { folder: false, grund: null };
                     const advice = hint.grund ? foldAdvice(hint.grund) : null;
                     return (
                       <li key={person.aId} style={{ padding: '.4rem 0', borderBottom: '1px dashed rgba(34,31,26,.08)' }}>
