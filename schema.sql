@@ -3842,9 +3842,11 @@ BEGIN
   END IF;
 
   -- Sikkerhedsnet: en operation, der findes i data, må aldrig falde ud af listen.
-  v_all := ARRAY(SELECT DISTINCT x FROM unnest(
+  -- COLLATE "C": rækkefølgen indgår i constraint-teksten og må ikke afhænge af basens locale
+  -- (glibc sætter relation_persona før relation_person_create; prod og schema.sql har bytevis orden).
+  v_all := ARRAY(SELECT DISTINCT x COLLATE "C" FROM unnest(
              v_current || p_values || ARRAY(SELECT DISTINCT operation FROM private.reimport_event)
-           ) x WHERE x IS NOT NULL ORDER BY x);
+           ) x WHERE x IS NOT NULL ORDER BY 1);
 
   IF v_name IS NOT NULL THEN
     EXECUTE format('ALTER TABLE private.reimport_event DROP CONSTRAINT %I', v_name);
