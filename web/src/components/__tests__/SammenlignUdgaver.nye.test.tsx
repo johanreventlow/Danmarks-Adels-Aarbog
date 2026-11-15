@@ -25,6 +25,10 @@ vi.mock('../../data/redaktionRead', () => ({
 
 vi.mock('../../data/redaktionWrite', () => ({
   submitChange: mocks.submitChange,
+  // Dry-run-svar vises via describeCall; fejl oversættes via oversaetFejl. Uden dem kaster
+  // komponenten en ufanget fejl efter testen, og vitest afslutter med exit 1.
+  describeCall: () => 'red_samme_som(…)',
+  oversaetFejl: (s: string) => s,
 }));
 
 import { SammenlignUdgaver } from '../SammenlignUdgaver';
@@ -166,6 +170,7 @@ describe('SammenlignUdgaver: Find modpart (A1)', () => {
     expect(mocks.submitChange.mock.calls[0][0]).toMatchObject({
       art: 'sammeSom', payload: { aliasId: '1', objektId: '2' },
     });
+    expect(await screen.findByText('Dry-run — intet er gemt.')).toBeTruthy();
     confirm.mockRestore();
   });
 
