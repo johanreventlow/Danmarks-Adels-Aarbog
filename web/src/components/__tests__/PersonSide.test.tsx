@@ -6,6 +6,7 @@ import { buildModel, type AppPerson, type BioSourceVersionV2, type PublicPersonF
 import { describe, expect, it, vi } from 'vitest';
 import type { PersonDetailData } from '../../data/public';
 import type { Model } from '../../data/types';
+import type { MediaItem } from '../../data/media';
 
 vi.mock('../../data/familySources', () => ({ fetchFamilySources: async () => [] }));
 vi.mock('../../router', () => ({ navigate: vi.fn() }));
@@ -193,6 +194,48 @@ describe('PersonSide', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Kopiér link' }));
     expect(await screen.findByText('Linket er kopieret.')).toBeTruthy();
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/person/392`);
+  });
+
+  describe('smal skærm (fase 9): handlinger ved navnet', () => {
+    const foer = (a: Node, b: Node) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const PORTRAET = { id: 'm1', slags: 'portræt', titel: 'Portræt', kunstner: 'Ukendt', datering: '1690', url: 'https://eksempel.dk/p.jpg' } as unknown as MediaItem;
+
+    it('med portræt: én miniature før navnet', () => {
+      smal.v = true;
+      try {
+        render(<PersonSide {...props({ detail: detalje({ media: [PORTRAET] }) })} />);
+        const knapper = screen.getAllByRole('button', { name: /Vis portrættet af Conrad Reventlow større/ });
+        expect(knapper).toHaveLength(1);
+        expect(foer(knapper[0], screen.getByRole('heading', { level: 1 }))).toBe(true);
+      } finally { smal.v = false; }
+    });
+
+    it('uden portræt: ingen tom portrætboks', () => {
+      smal.v = true;
+      try {
+        render(<PersonSide {...props()} />);
+        expect(screen.queryByRole('img', { name: 'Intet portræt' })).toBeNull();
+      } finally { smal.v = false; }
+    });
+
+    it('Vis i stamtræet står før Familie; Find slægtskab og Del findes én gang hver', () => {
+      smal.v = true;
+      try {
+        render(<PersonSide {...props({ onToggleMig: vi.fn() })} />);
+        const stamtrae = screen.getByRole('link', { name: 'Vis i stamtræet' });
+        expect(foer(stamtrae, screen.getByRole('heading', { name: 'Familie' }))).toBe(true);
+        expect(screen.getAllByRole('link', { name: 'Find slægtskab' })).toHaveLength(1);
+        expect(screen.getAllByRole('button', { name: 'Del' })).toHaveLength(1);
+        expect(screen.getAllByRole('button', { name: 'Det er mig' })).toHaveLength(1);
+      } finally { smal.v = false; }
+    });
+
+    it('bred skærm uændret: handlingerne i højre spalte efter Familie, portrætboksen findes', () => {
+      render(<PersonSide {...props()} />);
+      const stamtrae = screen.getByRole('link', { name: 'Vis i stamtræet' });
+      expect(foer(screen.getByRole('heading', { name: 'Familie' }), stamtrae)).toBe(true);
+      expect(screen.getByRole('img', { name: 'Intet portræt' })).toBeTruthy();
+    });
   });
 
   it('bred skærm kopierer, også når browseren kan dele (desktop-Safari)', async () => {
