@@ -97,7 +97,7 @@ test('viser personens biografi-fejl eksplicit i stedet for en gyldig tom detalje
 
   render(<Folgesvend />);
 
-  await waitFor(() => expect(mocks.fetchPersonDetail).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(mocks.fetchPersonDetail).toHaveBeenCalledTimes(1));
   const alert = await screen.findByRole('alert');
   expect(alert.textContent).toContain('Kunne ikke hente personens biografi');
   // Fejlkoden er til udvikleren (konsollen), ikke til læseren.

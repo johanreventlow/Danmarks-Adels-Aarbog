@@ -80,7 +80,8 @@ export function chooseNext(
 // En eksponentialnøgle giver en vægtet permutation uden tilbagelægning: den mindste
 // -log(1-U)/weight vinder. Hele rækkefølgen kan derfor seedes/sorteres én gang i O(n log n)
 // i stedet for at genberegne en O(n)-vægtsum for hvert af n træk. Rytmereglerne vælger den
-// første tilladte kandidat blandt de næste MAX_ATTEMPTS i den vægtede permutation.
+// første tilladte kandidat blandt de næste MAX_ATTEMPTS i den vægtede permutation — så hvert
+// træk ser kun på højst MAX_ATTEMPTS kandidater (se RangPulje nedenfor).
 function chooseRankedIndex(
   pool: RankedCard[],
   prevKind: FeedCard['kind'] | null,
@@ -96,6 +97,80 @@ function chooseRankedIndex(
     if (passR1 && passR2) return idx;
   }
   return -1;
+}
+
+// Den sorterede pulje som tre rang-ordnede, dobbelt-kædede lister (portræt / nævnt / øvrige) over
+// pool-indekset (= rang). Rytmereglernes filtre (uden 'naevnt', kun portrætter, uden dagens person) er
+// alle delmængder af puljen i rang-orden, og chooseRankedIndex læser kun de første MAX_ATTEMPTS af
+// dem. Et træk fletter derfor bare hovederne af de tilladte lister (O(MAX_ATTEMPTS)), og det valgte kort
+// tages ud i O(1) — i stedet for at filtrere hele puljen og splice'e/indexOf'e den pr. træk (O(n) pr.
+// træk, O(n²) i alt; review 36 P11). Rækkefølgen er uændret (ekvivalenstest mod den gamle løkke:
+// __tests__/order.ekvivalens.test.ts).
+const KLASSE_PORTRAET = 0;
+const KLASSE_NAEVNT = 1;
+const KLASSE_OEVRIG = 2;
+const ALLE_KLASSER: readonly number[] = [KLASSE_PORTRAET, KLASSE_NAEVNT, KLASSE_OEVRIG];
+const UDEN_NAEVNT: readonly number[] = [KLASSE_PORTRAET, KLASSE_OEVRIG];
+const KUN_PORTRAET: readonly number[] = [KLASSE_PORTRAET];
+
+class RangPulje {
+  private readonly naeste: Int32Array;
+  private readonly forrige: Int32Array;
+  private readonly klasse: Uint8Array;
+  private readonly hoved = [-1, -1, -1];
+  private readonly hale = [-1, -1, -1];
+  private readonly antalI = [0, 0, 0];
+
+  constructor(private readonly kort: RankedCard[]) {
+    const n = kort.length;
+    this.naeste = new Int32Array(n).fill(-1);
+    this.forrige = new Int32Array(n).fill(-1);
+    this.klasse = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      const kind = kort[i].card.kind;
+      const k = kind === 'portrait' ? KLASSE_PORTRAET : kind === 'naevnt' ? KLASSE_NAEVNT : KLASSE_OEVRIG;
+      this.klasse[i] = k;
+      if (this.hale[k] < 0) this.hoved[k] = i; else this.naeste[this.hale[k]] = i;
+      this.forrige[i] = this.hale[k];
+      this.hale[k] = i;
+      this.antalI[k]++;
+    }
+  }
+
+  get total(): number { return this.antalI[0] + this.antalI[1] + this.antalI[2]; }
+
+  antal(k: number): number { return this.antalI[k]; }
+
+  ryd(): void {
+    for (let k = 0; k < 3; k++) { this.hoved[k] = -1; this.hale[k] = -1; this.antalI[k] = 0; }
+  }
+
+  fjern(i: number): void {
+    const k = this.klasse[i];
+    const f = this.forrige[i];
+    const n = this.naeste[i];
+    if (f < 0) this.hoved[k] = n; else this.naeste[f] = n;
+    if (n < 0) this.hale[k] = f; else this.forrige[n] = f;
+    this.antalI[k]--;
+  }
+
+  // Indekserne på de første `max` kort i rang-orden fra `klasser`, evt. uden kort for personen `udenPerson`.
+  foerste(klasser: readonly number[], max: number, udenPerson: string | null): number[] {
+    const ud: number[] = [];
+    const markoer = klasser.map((k) => this.hoved[k]);
+    while (ud.length < max) {
+      let bedst = -1;
+      for (let j = 0; j < markoer.length; j++) {
+        if (markoer[j] >= 0 && (bedst < 0 || markoer[j] < markoer[bedst])) bedst = j;
+      }
+      if (bedst < 0) break;
+      const i = markoer[bedst];
+      markoer[bedst] = this.naeste[i];
+      if (udenPerson !== null && bookmarkPersonId(this.kort[i].card) === udenPerson) continue;
+      ud.push(i);
+    }
+    return ud;
+  }
 }
 
 export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): FeedCard[] {
@@ -208,10 +283,11 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
     }))
     .sort((a, b) => a.priority - b.priority || a.card.id.localeCompare(b.card.id));
 
+  const pulje = new RangPulje(pool);
   const ordered: FeedCard[] = [...pinnedBlock];
   let dagensPending = lockedDagensPerson;
   let slaegtPending = lockedSlaegt;
-  while (pool.length > 0 || dagensPending || slaegtPending) {
+  while (pulje.total > 0 || dagensPending || slaegtPending) {
     if (dagensPending && ordered.length === dagensPosition) {
       ordered.push(dagensPending.card);
       dagensPending = null;
@@ -222,7 +298,7 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
       slaegtPending = null;
       continue;
     }
-    if (pool.length === 0) {
+    if (pulje.total === 0) {
       if (dagensPending) { ordered.push(dagensPending.card); dagensPending = null; }
       else if (slaegtPending) { ordered.push(slaegtPending.card); slaegtPending = null; }
       continue;
@@ -234,13 +310,13 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
     const recentHasNaevnt = ordered
       .slice(-(NAEVNT_VINDUE - 1))
       .some((c) => c.kind === 'naevnt');
-    let rulePool = pool;
+    let klasser = ALLE_KLASSER;
     if (recentHasNaevnt) {
-      rulePool = pool.filter((c) => c.card.kind !== 'naevnt');
-      if (rulePool.length === 0) {
-        pool.length = 0;
+      if (pulje.antal(KLASSE_PORTRAET) + pulje.antal(KLASSE_OEVRIG) === 0) {
+        pulje.ryd();
         continue;
       }
+      klasser = UDEN_NAEVNT;
     }
 
     const prevKind = ordered.length > 0 ? ordered[ordered.length - 1].kind : null;
@@ -260,33 +336,30 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
     const recentFourHavePortrait = ordered
       .slice(-(R3_LOOKBACK - 1))
       .some((c) => c.kind === 'portrait' || c.kind === 'dagensperson');
-    let effectivePool = rulePool;
     // Se ét slot frem når det næste kort er det låste (ikke-portræt) slægtskort. Ellers
     // kan fem portrætløse kort + låsen danne et ugyldigt 6-vindue, før den normale R3-
     // forcing når at reagere på det efterfølgende slot.
     if (!recentHasPortrait || (nextSlotIsLockedSlaegt && !recentFourHavePortrait)) {
-      const portraitCandidates = rulePool.filter((c) => c.card.kind === 'portrait');
-      if (portraitCandidates.length > 0) effectivePool = portraitCandidates;
+      if (pulje.antal(KLASSE_PORTRAET) > 0) klasser = KUN_PORTRAET;
     }
 
     // Hvis dagens person endnu ikke er placeret (kun position 0-2), må samme persons
-    // øvrige kort ikke snige sig ind umiddelbart før låsen og bryde R2.
-    if (dagensPending && dagensPersonId) {
-      const withoutDagensPerson = effectivePool.filter(
-        (c) => bookmarkPersonId(c.card) !== dagensPersonId,
-      );
-      if (withoutDagensPerson.length > 0) effectivePool = withoutDagensPerson;
-    }
+    // øvrige kort ikke snige sig ind umiddelbart før låsen og bryde R2 — medmindre kun
+    // dagens persons kort er tilbage blandt de tilladte.
+    let kandidatIdx = dagensPending && dagensPersonId
+      ? pulje.foerste(klasser, MAX_ATTEMPTS, dagensPersonId)
+      : [];
+    if (kandidatIdx.length === 0) kandidatIdx = pulje.foerste(klasser, MAX_ATTEMPTS, null);
+    const kandidater = kandidatIdx.map((i) => pool[i]);
 
     // Eskalerende relaksering: normal → R2 relakseret → R1+R2 relakseret (garanteret
-    // at finde noget, da effectivePool er ikke-tom og fuld relaksering altid består).
-    let idx = chooseRankedIndex(effectivePool, prevKind, recentPersonIds);
-    if (idx < 0) idx = chooseRankedIndex(effectivePool, prevKind, recentPersonIds, { relaxR2: true });
-    if (idx < 0) idx = chooseRankedIndex(effectivePool, prevKind, recentPersonIds, { relaxR1: true, relaxR2: true });
+    // at finde noget, da kandidaterne er ikke-tomme og fuld relaksering altid består).
+    let idx = chooseRankedIndex(kandidater, prevKind, recentPersonIds);
+    if (idx < 0) idx = chooseRankedIndex(kandidater, prevKind, recentPersonIds, { relaxR2: true });
+    if (idx < 0) idx = chooseRankedIndex(kandidater, prevKind, recentPersonIds, { relaxR1: true, relaxR2: true });
 
-    const chosen = effectivePool[idx];
-    ordered.push(chosen.card);
-    pool.splice(effectivePool === pool ? idx : pool.indexOf(chosen), 1);
+    ordered.push(kandidater[idx].card);
+    pulje.fjern(kandidatIdx[idx]);
   }
 
   // Terminal 'samle'-kort (uændret semantik fra v3): kun når nogen personer slet ikke

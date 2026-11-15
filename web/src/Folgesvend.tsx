@@ -176,13 +176,18 @@ export default function Folgesvend() {
   useEffect(() => { if (mode === 'about' && !about) fetchAbout().then(setAbout).catch(() => setAbout([])); }, [mode, about]);
   // Gods-detalje-fetches (review 15 M3): cancelled-guard så en sen resolver for gods A ikke
   // permanent overskriver gods B's data, når man skifter gods hurtigt.
+  // Review 36 P1: hentes først, når modellen er landet (ejerrækken bygges alligevel først med modellen), og afhænger
+  // kun af canonicalIdById — geo-svaret laver et nyt model-objekt ({ ...m, geo }), men delfelterne er de samme.
+  const modelKlar = model !== null;
+  const canonicalIdById = model?.canonicalIdById;
   useEffect(() => {
-    if (!estateId) return;
+    if (!estateId || !modelKlar) return;
     let cancelled = false;
     setEstateOwners({ status: 'henter' });
+    // model læses kun for canonicalIdById (deraf afhængigheden nedenfor).
     fetchEstateOwners(estateId, model).then((rel) => { if (!cancelled) setEstateOwners({ status: 'ok', rel }); }).catch(() => { if (!cancelled) setEstateOwners({ status: 'fejl' }); });
     return () => { cancelled = true; };
-  }, [estateId, model, ejereForsoeg]);
+  }, [estateId, modelKlar, canonicalIdById, ejereForsoeg]);
   // Antal ejere pr. besiddelse talt mod modellen (samme person i flere udgaver er én ejer; skjulte tælles ikke).
   const estatesVist = useMemo(() => (estates && model
     ? estates.map((e) => (e.ejerIds ? { ...e, ownerCount: antalEjere(e.ejerIds, model) } : e)) : estates), [estates, model]);
@@ -196,22 +201,31 @@ export default function Folgesvend() {
     return () => { cancelled = true; };
   }, [estateId]);
   // Detalje (bio/embeder/godser) for fokus-personen — til højre-panelet.
+  // Review 36 P1: hentes ÉN gang pr. (fokus, forsøg, rolle), efter modellen er landet — før den mangler
+  // medlems-id'erne og bog-nummeret (manglerBogNummer ville fejlagtigt være sand). Effekten afhænger af de delfelter,
+  // den læser, ikke af hele modellen: geo-svaret laver et nyt model-objekt ({ ...m, geo }) med de samme delfelter, mens
+  // en ny model efter log ind/ud har nye delfelter (RLS kan ændre medlemmerne) og derfor henter igen.
+  const fokusPerson = focusId ? model?.byId[focusId] : undefined;
+  const fokusKilder = focusId ? model?.sourcesBy?.[focusId] : undefined;
+  const modelUdgaver = model?.udgaver;
+  const modelUdgaveForPersonRaekke = model?.udgaveForPersonRaekke;
   useEffect(() => {
     if (!focusId) { setDetail(null); setDetailError(null); return; }
-    let current = true;
     setDetail(null);
     setDetailError(null);
+    if (!modelKlar) return;
+    let current = true;
     // Foldet person: hent detalje for ALLE medlems-id'er (narrativ/relationer unioneres — spec §8).
-    const members = personMemberIds(focusId, model?.byId[focusId]);
+    const members = personMemberIds(focusId, fokusPerson);
     // Ingen bog-nummer (typisk en ægtefælle) → hent proveniens fra citationerne i stedet.
-    const manglerBogNummer = !(model?.sourcesBy?.[focusId]?.length);
+    const manglerBogNummer = !(fokusKilder?.length);
     // Redaktøren får også kladder for medlemmer, gæster ikke kan se (decisions 2026-11-13); et rolleskift henter igen.
-    fetchPersonDetail(focusId, members, manglerBogNummer, model ? { udgaver: model.udgaver ?? [], udgaveForPersonRaekke: model.udgaveForPersonRaekke ?? {} } : undefined, erRedaktoer).then(
+    fetchPersonDetail(focusId, members, manglerBogNummer, { udgaver: modelUdgaver ?? [], udgaveForPersonRaekke: modelUdgaveForPersonRaekke ?? {} }, erRedaktoer).then(
       (next) => { if (current) setDetail(next); },
       (e) => { if (current) { console.warn('[Folgesvend] persondetalje fejlede:', e); setDetailError(String((e as Error)?.message ?? e)); } },
     );
     return () => { current = false; };
-  }, [focusId, model, detailForsoeg, erRedaktoer]);
+  }, [focusId, modelKlar, fokusPerson, fokusKilder, modelUdgaver, modelUdgaveForPersonRaekke, detailForsoeg, erRedaktoer]);
 
   const persons = model?.persons ?? [];
   const linjeList = useMemo(() => synligeLinjer(model?.lineage?.list ?? []), [model]);

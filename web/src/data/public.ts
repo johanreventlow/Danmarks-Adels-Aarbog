@@ -1,6 +1,7 @@
 // Lean offentlige læse-queries til publikums-visningerne (Godser, Våben, Om, person-detalje).
-// Fejl-tolerant via safe(): logger og returnerer tomt ved manglende tabel/RLS, så visningen
-// viser en tom-tilstand frem for at vælte siden — men breakage er ikke HELT tavst (console).
+// Fejlregel (review 36 K4): en hentning, hvis kalder viser en fejl med »Prøv igen« (besiddelser, ejerrække,
+// persondetalje), KASTER — en databasefejl må ikke ligne tomme data. Kun ren ekstra pynt uden fejl-UI går gennem
+// safe() nedenfor og giver en tom-tilstand (logget i konsollen).
 import { supabase } from '../supabase';
 import type { Model } from './types';
 import type { EjerRelation } from './ejerraekke';
@@ -19,17 +20,21 @@ class PublicNarrativeFetchError extends Error {
   }
 }
 
+// Tolerant fallback — en dokumenteret undtagelse fra fejlreglen øverst (review 36 K4). Kun for hentninger, hvis
+// kaldere IKKE har en fejl-tilstand, og hvor en tom visning er acceptabel: fetchArms (Våben-siden + feedets våbenkort),
+// fetchAbout (»Om slægten«) og fetchEstateInfo (besiddelsens historik/beliggenhed/billeder; ejerrækken har sin egen
+// fejl). Kalderne sætter også selv tom ved .catch. Får en af dem en fejl-UI, skal den ud af safe() og kaste.
 async function safe<T>(fn: () => Promise<T>, fallback: T, label: string): Promise<T> {
   try {
     return await fn();
   } catch (e) {
     console.warn(`[public] ${label} fejlede:`, e);
-    if (e instanceof PublicNarrativeFetchError) throw e;
     return fallback;
   }
 }
 
-// Pakker et supabase-{data,error}-svar ud: kaster ved .error (fanges af safe() og logges),
+// Pakker et supabase-{data,error}-svar ud: kaster ved .error (en kastende hentning når kalderens fejl-UI; inde i
+// safe() logges den og giver tom),
 // returnerer ellers data. supabase-js kaster ikke selv, så uden dette bliver en RLS-/grant-fejl
 // tavst til tom-tilstand (review 27 R1).
 export function orThrow<T>(res: { data: T; error: unknown }, label: string): T {
@@ -172,18 +177,18 @@ export type PersonDetailData = { bio: string; bioVersions: BioSourceVersion[]; o
 
 type RawPersonRel = { subjekt_id: number | string; objekt_type: string; objekt_id: number; rolle: string | null; periode_raw: string | null };
 
-export const TOM_PERSONDETALJE: PersonDetailData = { bio: '', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null };
-
 // Proveniens for personer UDEN bog-nummer (de 627 ægtefæller): fact → assertion → citation →
 // source. Tre flade opslag, fordi assertion.target_id er polymorf og derfor uden FK at neste på.
 async function fetchProveniens(numIds: number[]): Promise<SourceRef[]> {
   if (!numIds.length) return [];
-  const { data: facts } = await supabase.from('fact')
-    .select('id,subjekt_id').eq('subjekt_type', 'person').in('subjekt_id', numIds);
+  // Fejl i fact/assertion kaster (review 36 K4): personsiden viser fejlen med »Prøv igen« frem for »ingen kilde«.
+  // Citationerne læses tolerant af laesCitationer (dokumenteret overgang til 6e-2's DDL).
+  const facts = orThrow(await supabase.from('fact')
+    .select('id,subjekt_id').eq('subjekt_type', 'person').in('subjekt_id', numIds), 'fetchProveniens/fact');
   const factRows = (facts ?? []) as { id: number; subjekt_id: number }[];
   if (!factRows.length) return [];
-  const { data: asserts } = await supabase.from('assertion')
-    .select('id,target_id').eq('target_type', 'fact').in('target_id', factRows.map((f) => f.id));
+  const asserts = orThrow(await supabase.from('assertion')
+    .select('id,target_id').eq('target_type', 'fact').in('target_id', factRows.map((f) => f.id)), 'fetchProveniens/assertion');
   const assertRows = (asserts ?? []) as { id: number; target_id: number }[];
   if (!assertRows.length) return [];
   const assertIds = assertRows.map((a) => a.id);
@@ -279,11 +284,13 @@ async function fetchRedaktionKladder(numIds: number[]): Promise<BioSourceVersion
 // hentKilder: kun sandt når personen mangler bog-nummer, så de ~1129 hovedposter ikke betaler for
 // tre ekstra opslag de alligevel ikke bruger.
 // redaktoer: kalderen er logget ind med rollen redaktion (kladder for ikke-offentlige medlemmer, se ovenfor).
+// Kaster ved fejl (review 36 K4): begge kaldere (personpanelet/-siden og præsenslisten) viser fejlen og kan prøve igen,
+// så et fejlet relations-, navne- eller kildeopslag må ikke blive til en tom person. Bevidst tolerante delopslag:
+// fakta (factsError), redaktørens fritekstkilder og kladder, billeder (media.ts) og citationer (laesCitationer).
 export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder = false, udgaveKontekst?: { udgaver: Udgave[]; udgaveForPersonRaekke: Record<string, string> }, redaktoer = false): Promise<PersonDetailData> {
-  const empty = TOM_PERSONDETALJE;
   const ids = memberIds && memberIds.length ? memberIds : [id];
   const numIds = ids.map(Number).filter((n) => !Number.isNaN(n));
-  return safe(async () => {
+  return (async () => {
     const rpcClient = supabase as unknown as { rpc?: (name: string, args: unknown) => Promise<{ data: unknown; error: unknown }> };
     const hasRpc = typeof rpcClient.rpc === 'function';
     if (!hasRpc) {
@@ -327,9 +334,11 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
           } catch (e) {
             throw new PublicNarrativeFetchError(String((e as Error)?.message ?? 'PUBLIC_BIO_SOURCE_V2_INVALID'));
           }
-        }, (e) => {
+        }, () => {
           if (usesV2) throw new PublicNarrativeFetchError('PUBLIC_BIO_SOURCE_V2_UNAVAILABLE');
-          throw e;
+          // v1: en afvist RPC behandles som et fejlsvar ovenfor — fald tilbage til narrative-tabellen. (Før review 36
+          // K4 slugte safe() kastet og gav en helt tom person.)
+          return null;
         }),
       // B11: fakta med kilde for alle medlems-id'er; null = fejl (sektionen siger det, resten står).
       Promise.resolve()
@@ -401,7 +410,7 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
       }
       : null;
     return { bio, bioVersions, offices, estates, media, sources, facts, factsError: factRows === null, faktaInput };
-  }, empty, 'fetchPersonDetail');
+  })();
 }
 
 // Indledende narrativer på slægts-niveau (subjekt_type 'slaegt'/'lineage') til "Om slægten".
