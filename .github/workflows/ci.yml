@@ -519,6 +519,14 @@ jobs:
           PGPASSWORD: postgres
           PGDATABASE: writer_1939
         run: Rscript tests/integration/test-reimport-writer-locking.R
+      - name: Generic reimport writer DBI integration (review 36 D3)
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: writer_1939
+        run: Rscript tests/integration/test-reimport-writer.R
       - name: Source evidence writer integration
         env:
           PGHOST: localhost
@@ -719,6 +727,32 @@ jobs:
           PGPASSWORD: postgres
           PGDATABASE: writer_1939
         run: Rscript tests/integration/test-reimport-legacy-migration.R
+      # Review 36 D3: C3-identitetens SQL- og to-sessionstests kørte aldrig i CI. De kræver hver sin
+      # engangsbase med et bestemt navnepræfiks (daa1939_c3_task9_ / daa1939_c3_identity_task2_), så der
+      # bygges én skabelon på migrationsvejen og klones pr. test. deploy-contract afslutter stille med
+      # exit 0 uden task3_dsn (psql ignorerer \quit 2), derfor kræves dens OK-linje eksplicit.
+      - name: C3-identitet og C3-apply · SQL og to-sessionstests (review 36 D3)
+        env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
+        run: |
+          createdb c3_tpl
+          for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql db-migrations.sql db-migrations.sql db-rls.sql; do
+            psql -q -d c3_tpl -v ON_ERROR_STOP=1 -f "$f" >/dev/null; done
+          createdb -T c3_tpl c3_invariants
+          psql -d c3_invariants -v ON_ERROR_STOP=1 -f tests/sql/test-1939-v50-c3-identity-invariants.sql
+          createdb -T c3_tpl c3_deploy_contract
+          psql -d c3_deploy_contract -v ON_ERROR_STOP=1 \
+            -v task3_dsn="dbname=c3_deploy_contract host=localhost port=5432 user=postgres password=postgres" \
+            -f tests/sql/test-1939-v50-c3-identity-deploy-contract.sql 2>&1 | tee c3-deploy-contract.log
+          grep -q 'OK: C3 identity defaults are cross-writer collision safe' c3-deploy-contract.log
+          createdb -T c3_tpl daa1939_c3_task9_ci
+          PGDATABASE=daa1939_c3_task9_ci Rscript tests/integration/test-1939-v50-c3-apply.R
+          createdb -T c3_tpl daa1939_c3_writer_lock_ci
+          PGDATABASE=daa1939_c3_writer_lock_ci Rscript tests/integration/test-1939-v50-c3-writer-lock-order.R
+          for t in identity-concurrency identity-delete-lock-order identity-delete-protocol identity-mvcc post-load-lock-order; do
+            db="daa1939_c3_identity_task2_${t//-/_}"
+            createdb -T c3_tpl "$db"
+            PGDATABASE="$db" Rscript "tests/integration/test-1939-v50-c3-$t.R"
+          done
 
   narrative-record-contract-db:
     name: 'narrative record #152 · PostgreSQL 17'
