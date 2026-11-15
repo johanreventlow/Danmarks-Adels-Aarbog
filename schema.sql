@@ -15239,6 +15239,8 @@ BEGIN
      ORDER BY event.stream_ref,event.stream_version,event.id FOR UPDATE;
     PERFORM narrative.id
       FROM public.narrative narrative
+      JOIN public.source source
+        ON source.id=narrative.source_id AND source.slags='DAA-udgave'
       JOIN private.narrative_record_publication binding
         ON binding.narrative_id=narrative.id
      WHERE binding.source_record_id=v_record_id
