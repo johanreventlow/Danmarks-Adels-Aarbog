@@ -192,6 +192,22 @@ describe('Sidehoved på smal skærm (fase 9)', () => {
     expect(menu().getAttribute('aria-expanded')).toBe('false');
   });
 
+  it('Log ind lukker menuen, så login-dialogen ikke står oven på et åbent panel', () => {
+    render(<Opsat />);
+    fireEvent.click(menu());
+    fireEvent.click(screen.getByRole('button', { name: 'Log ind' }));
+    expect(screen.queryByRole('navigation', { name: 'Hovedmenu' })).toBeNull();
+    expect(menu().getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('menuens knapper og links er mindst 44 px høje', () => {
+    render(<Opsat visRedaktion />);
+    fireEvent.click(menu());
+    for (const el of [screen.getByRole('button', { name: 'Log ind' }), screen.getByRole('link', { name: /Redaktion/ })]) {
+      expect(parseFloat(el.style.minHeight)).toBeGreaterThanOrEqual(44);
+    }
+  });
+
   it('»Redaktion ↗« i menuen kun for redaktionen', () => {
     render(<Opsat visRedaktion />);
     fireEvent.click(menu());

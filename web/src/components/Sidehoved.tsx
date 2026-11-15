@@ -73,10 +73,12 @@ export function Sidehoved({ aktiv, menuAaben, setMenuAaben, menuKnap, slaegter, 
         style={{ width: smal ? '100%' : 240, maxWidth: '100%', fontFamily: T.sans, fontSize: 14, lineHeight: '20px', padding: smal ? '12px 14px' : '10px 14px', borderRadius: 11, border: `1px solid ${T.lineStrong}`, background: T.surfaceGround, color: T.ink }} />
     </form>
   );
+  // Smal skærm: login lukker menuen (ellers åbner dialogen oven på panelet, og Esc sender fokus bag dialogen), og
+  // berøringsfladerne er mindst 44 px.
   const logind = loggetInd
-    ? <button type="button" onClick={onLogout} style={sekundaer}>Log ud</button>
-    : <button type="button" onClick={onLogin} style={sekundaer}>Log ind</button>;
-  const redaktion = visRedaktion && <Link href="/redaktion" style={{ fontFamily: T.sans, fontSize: 13.5, fontWeight: 600, color: T.bordeaux }}>Redaktion ↗</Link>;
+    ? <button type="button" onClick={() => { setMobilAaben(false); onLogout(); }} style={{ ...sekundaer, ...(smal ? { minHeight: 44 } : null) }}>Log ud</button>
+    : <button type="button" onClick={() => { setMobilAaben(false); onLogin(); }} style={{ ...sekundaer, ...(smal ? { minHeight: 44 } : null) }}>Log ind</button>;
+  const redaktion = visRedaktion && <Link href="/redaktion" style={{ fontFamily: T.sans, fontSize: 13.5, fontWeight: 600, color: T.bordeaux, ...(smal ? { minHeight: 44, display: 'inline-flex', alignItems: 'center' } : null) }}>Redaktion ↗</Link>;
   const slaegterMenu = (
     <SlaegterMenu id={MENU_ID} open={menuAaben} onClose={(retur) => setMenuAaben(false, retur)} slaegter={slaegter}
       senest={senestSlaegt} aktiv={aktivSlaegt} onVaelg={onVaelgSlaegt} opener={menuKnap} />
