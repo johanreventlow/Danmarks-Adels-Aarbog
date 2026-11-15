@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -21,6 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # -I tilføjer ikke scriptets mappe
 from decision_sheet_core import SheetError  # noqa: E402
+from private_io import write_private_new  # noqa: E402
 
 VERSION = "5ab-expected-v1"
 KINDS = ("absent_new", "absent_old", "may_differ")
@@ -109,12 +109,7 @@ def report_text(r: Result) -> str:
 
 
 def _write_new(path: Path, text: str) -> None:
-    try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        raise SheetError("CONTENT_REPORT_EXISTS") from None
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(text)
+    write_private_new(path, text, exists_code="CONTENT_REPORT_EXISTS")
 
 
 def main() -> int:

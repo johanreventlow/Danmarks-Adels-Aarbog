@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from private_io import write_private_replace  # noqa: E402
 
 import build_source_evidence_manifest as sem
 import clause_set
@@ -284,9 +285,8 @@ def main() -> None:
         manifest = build_revision_manifest(profile, ledger, rendition, ledger_file_sha256, current)
     else:
         manifest = build_manifest(profile, ledger, rendition, ledger_file_sha256)
-    out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-                   encoding="utf-8")
-    out.chmod(0o600)
+    # Eksisterende output er allerede nægtet ovenfor (CLAUSE_EVIDENCE_OUTPUT_EXISTS).
+    write_private_replace(out, json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     print(json.dumps({"operations": len(manifest["operations"]),
                       "clauses": sum(len(o["clauses"]) for o in manifest["operations"]),
                       "manifest_content_sha256": manifest["manifest_content_sha256"],

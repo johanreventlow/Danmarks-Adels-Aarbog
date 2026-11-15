@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from private_io import write_private_replace  # noqa: E402
 
 import evidence_extract
 import evidence_runner
@@ -244,13 +245,11 @@ def main() -> int:
     if stoppet:
         print(f"BUNDLE_STOPPED {stoppet}")
 
-    Path(args.out).write_text(json.dumps(
+    write_private_replace(Path(args.out), json.dumps(
         {"bundle": args.bundle, "manifest_sha256": manifest["manifest_sha256"],
-         "resultater": resultater}, ensure_ascii=False, indent=2), encoding="utf-8")
-    Path(args.out).chmod(0o600)
+         "resultater": resultater}, ensure_ascii=False, indent=2))
     sheet = Path(args.judgement_sheet)
-    sheet.write_text(json.dumps(ark, ensure_ascii=False, indent=2), encoding="utf-8")
-    sheet.chmod(0o600)
+    write_private_replace(sheet, json.dumps(ark, ensure_ascii=False, indent=2))
     print(f"\nresultat:          {args.out}")
     print(f"bedømmelsesark:    {sheet}  (indeholder tekst — 0600, uden for repoet)")
     print(f"ark-sha256:        {sha256_text(sheet.read_text(encoding='utf-8'))}")

@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from private_io import write_private_new  # noqa: E402
 from evidence_runner import sha256_text
 
 
@@ -104,8 +105,8 @@ def main() -> int:
     add("  dækning             : afventer MANGLER-linjerne")
 
     out = Path(args.out)
-    out.write_text("\n".join(linjer) + "\n", encoding="utf-8")
-    out.chmod(0o600)
+    # Udfyldbart bedømmelsesark: et eksisterende (måske udfyldt) ark overskrives aldrig.
+    write_private_new(out, "\n".join(linjer) + "\n")
     print(f"ark skrevet: {out}")
     print(f"  {i_alt} claims at bedømme fordelt på {len(ark)} poster")
     print(f"  forudfyldt: binding {bundet}/{i_alt}, ordrethed {ordret}/{i_alt}")

@@ -21,7 +21,8 @@ from collections import Counter
 from pathlib import Path
 
 from decision_sheet_core import SheetError
-from spouse_exception_sheet import _write_private, check_private_path
+from private_io import (check_private_path, write_private_new_many,
+                        write_private_replace)
 
 THRESHOLD = 0.8
 OTHER_MAX = 2
@@ -207,8 +208,9 @@ def main() -> int:
         ex = json.loads(check_private_path(Path(args.export), root).read_text(encoding='utf-8'))
         if args.cmd == 'render':
             ark, tok = render(m, ex)
-            _write_private(check_private_path(Path(args.out_ark), root), ark)
-            _write_private(check_private_path(Path(args.out_token), root), tok)
+            # Ark + token er et par: begge nægtes, før noget skrives, hvis én findes.
+            write_private_new_many([(check_private_path(Path(args.out_ark), root), ark),
+                                    (check_private_path(Path(args.out_token), root), tok)])
             print(summary(m, ex))
             return 0
         ark = check_private_path(Path(args.ark), root).read_bytes()
@@ -217,7 +219,7 @@ def main() -> int:
         if sha != args.approved_ark_sha256:
             raise SheetError('SHEET_SHA_MISMATCH')
         res = approvals(tok.decode('utf-8'), m, ex, sha)
-        _write_private(check_private_path(Path(args.out), root), json.dumps(res, sort_keys=True) + '\n')
+        write_private_replace(check_private_path(Path(args.out), root), json.dumps(res, sort_keys=True) + '\n')
     except SheetError as exc:
         print(str(exc).split(' ')[0])
         return 1

@@ -1251,3 +1251,58 @@ def test_partial_records_still_count_towards_a_green_batch():
     from evidence_runner import batch_status
     assert batch_status([("I-1", "green"), ("I-2", "delvis")]) == "green"
     assert batch_status([("I-1", "green"), ("I-2", "failed")]) == "pending"
+
+
+# --- review 36, K2: claims-containeren skal være en liste --------------------
+
+#: Containere, JSON kan give, som ikke er en liste.  Før K2 blev de til ([], []),
+#: og `afviste and not gyldige` var falsk — posten blev cachet og meldt grøn uden fakta.
+UGYLDIGE_CONTAINERE = [None, "ingen fakta", {"clause_ordinals": [1]}, 0, True]
+
+
+@pytest.mark.parametrize("container", UGYLDIGE_CONTAINERE)
+def test_partition_refuses_a_claims_container_that_is_not_a_list(container):
+    from evidence_runner import partition_record_claims
+    with pytest.raises(RunnerError, match="RUNNER_CLAIMS_INVALID"):
+        partition_record_claims(container, export())
+
+
+def test_partition_keeps_the_empty_list_valid():
+    from evidence_runner import partition_record_claims
+    assert partition_record_claims([], export()) == ([], [])
+
+
+@pytest.mark.parametrize("container", UGYLDIGE_CONTAINERE)
+def test_a_new_answer_with_an_invalid_claims_container_fails_and_is_not_cached(tmp_path, container):
+    cache = ResponseCache(tmp_path)
+    last = json.dumps({"claims": container})
+    outcome = run_record(export(), ident=cache_ident(), cache=cache,
+                         run=seam_returning("turn-completed-with-usage.jsonl", last))
+    assert outcome.status == "failed" and outcome.error_kind == "schema_violation"
+    assert outcome.claims == () and outcome.usage is not None
+    assert cache.get(cache_ident()) is None
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("container", UGYLDIGE_CONTAINERE)
+def test_a_cached_answer_with_an_invalid_claims_container_fails_closed(tmp_path, container):
+    """En cachefil skrevet før K2 (eller af anden kode) revalideres: en ikke-liste er et
+    fail-closed udfald for den ene record — ikke grøn, og ingen exception."""
+    cache = ResponseCache(tmp_path)
+    # `put` validerer ikke; det er netop sådan en gammel fil ville se ud.
+    cache.put(cache_ident(), raw=json.dumps({"claims": container}), usage={"input_tokens": 7})
+    outcome = run_record(export(), ident=cache_ident(), cache=cache, run=exploding_seam)
+    assert outcome.status == "failed" and outcome.error_kind == "validation_failed"
+    assert outcome.from_cache and outcome.claims == ()
+    assert outcome.usage == {"input_tokens": 7}
+
+
+def test_a_new_answer_with_an_empty_claims_list_is_green_and_cached(tmp_path):
+    """Den bevidst gyldige tomme liste: en post uden udtrækbare fakta er ikke en fejl."""
+    cache = ResponseCache(tmp_path)
+    outcome = run_record(export(), ident=cache_ident(), cache=cache,
+                         run=seam_returning("turn-completed-with-usage.jsonl", '{"claims": []}'))
+    assert outcome.status == "green" and outcome.claims == () and not outcome.from_cache
+    assert cache.get(cache_ident()) is not None
+    again = run_record(export(), ident=cache_ident(), cache=cache, run=exploding_seam)
+    assert again.status == "green" and again.from_cache and again.claims == ()

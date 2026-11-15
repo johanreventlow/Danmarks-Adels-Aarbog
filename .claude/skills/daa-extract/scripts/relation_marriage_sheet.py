@@ -15,7 +15,7 @@ from pathlib import Path
 
 from decision_sheet_core import SheetError, require_hex64, sql_literal, verify_bound
 from relation_persona_extract_v2 import PROFILE, RULE, propose
-from spouse_exception_sheet import _write_private, check_private_path
+from private_io import check_private_path, write_private_new, write_private_replace
 
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 M_RE = re.compile(rf"^M (?P<key>{UUID}) (?P<ver>[0-9]+) : (?P<tok>[SDNIU])\s*(?:#\s*(?P<note>.*))?$")
@@ -157,7 +157,7 @@ def main() -> int:
         rows = json.loads(rows_bytes.decode("utf-8"))
         if args.cmd == "render":
             out = check_private_path(Path(args.out), root)
-            _write_private(out, render_sheet(rows))
+            write_private_new(out, render_sheet(rows))  # udfyldbart ark: aldrig stille overskrivning
             c = {t: 0 for t in "SDNIU"}
             for p in _proposals(rows):
                 c[p["tok"]] += 1
@@ -170,8 +170,8 @@ def main() -> int:
         lines = parse_sheet(sheet_bytes.decode("utf-8"))
         manifest = persona_manifest(lines, rows)
         ident = identity_sql(lines, rows, sheet_sha256=sheet_sha, rows_sha256=rows_sha)
-        _write_private(mout, json.dumps(manifest, sort_keys=True, ensure_ascii=False) + "\n")
-        _write_private(iout, ident)
+        write_private_replace(mout, json.dumps(manifest, sort_keys=True, ensure_ascii=False) + "\n")
+        write_private_replace(iout, ident)
     except SheetError as exc:
         print(str(exc).split(" ")[0])
         return 1

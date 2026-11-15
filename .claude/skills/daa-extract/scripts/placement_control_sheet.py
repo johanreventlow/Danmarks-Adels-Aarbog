@@ -19,7 +19,8 @@ import re
 from pathlib import Path
 
 from decision_sheet_core import SheetError
-from spouse_exception_sheet import _write_private, check_private_path
+from private_io import (check_private_path, write_private_new_many,
+                        write_private_replace)
 
 QUOTA = {'slaegtled': 4, 'kuld': 4, 'laengste': 3, 'side': 2}
 # Kun disse årsager kan godkendes i token-filen; fix_150_placement.sql håndhæver samme liste (FIX150_PRE_APPROVALS).
@@ -197,8 +198,10 @@ def main() -> int:
         m = json.loads(check_private_path(Path(args.manifest), root).read_text(encoding='utf-8'))
         if args.cmd == 'render':
             keys = sample(m, args.k, args.seed)
-            _write_private(check_private_path(Path(args.out_kontrolark), root), render_kontrolark(m, keys))
-            _write_private(check_private_path(Path(args.out_token), root), render_token(m))
+            # Kontrolark + token er et par: begge nægtes, før noget skrives, hvis én findes.
+            write_private_new_many([
+                (check_private_path(Path(args.out_kontrolark), root), render_kontrolark(m, keys)),
+                (check_private_path(Path(args.out_token), root), render_token(m))])
             print(f"ARK_OK kontrol={len(keys)} grupper={len(groups(m))}")
             return 0
         ark = check_private_path(Path(args.kontrolark), root).read_bytes()
@@ -210,7 +213,7 @@ def main() -> int:
         res = approvals(tok.decode('utf-8'), m, tok_sha)
         res['kontrolark_sha256'] = hashlib.sha256(ark).hexdigest()
         res['manifest_sha256'] = hashlib.sha256(Path(args.manifest).read_bytes()).hexdigest()
-        _write_private(check_private_path(Path(args.out), root), json.dumps(res, sort_keys=True) + '\n')
+        write_private_replace(check_private_path(Path(args.out), root), json.dumps(res, sort_keys=True) + '\n')
     except SheetError as exc:
         print(str(exc).split(' ')[0])
         return 1

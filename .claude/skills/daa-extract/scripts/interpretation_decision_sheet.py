@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from decision_sheet_core import SheetError, require_hex64, sql_literal as _lit, verify_bound
+from private_io import write_private_new, write_private_replace
 
 TOKENS = {"A": "accepted", "R": "rejected", "U": "unresolved"}
 LINE_RE = re.compile(
@@ -190,9 +191,9 @@ def main() -> int:
         except SheetError as exc:
             print(str(exc))
             return 1
-        out = Path(args.out)
-        out.write_text(render_html(payload), encoding="utf-8")
-        out.chmod(0o600)
+        # HTML-siden gemmer ingen svar (den eksporterer token-arket) og genbygges bevidst
+        # fra et påbegyndt `--sheet`: erstatning, ikke nægtelse.
+        write_private_replace(Path(args.out), render_html(payload))
         afgjort = sum(1 for it in payload["items"] if it["initial_tok"] != "_")
         mangler = sum(len(v.splitlines()) for v in payload["mangler"].values())
         print(f"HTML_OK forslag={len(payload['items'])} poster={len(payload['posts'])} "
@@ -202,10 +203,9 @@ def main() -> int:
         return 0
 
     if args.cmd == "render":
-        out = Path(args.out)
-        out.write_text(render_sheet(rows, prior, title=args.title, prior_label=args.prior_label),
-                       encoding="utf-8")
-        out.chmod(0o600)
+        # Udfyldbart menneskeark: et eksisterende (måske udfyldt) ark overskrives aldrig.
+        write_private_new(Path(args.out),
+                          render_sheet(rows, prior, title=args.title, prior_label=args.prior_label))
         forudfyldt = sum(1 for r in rows if (r["record_key"], r["predicate"], r["value_text"]) in prior)
         print(f"ARK_OK linjer={len(rows)} forudfyldt={forudfyldt}")
         print(f"  rows_sha256 {rows_sha}")
@@ -226,9 +226,7 @@ def main() -> int:
     except SheetError as exc:
         print(str(exc))
         return 1
-    out = Path(args.out)
-    out.write_text(sql, encoding="utf-8")
-    out.chmod(0o600)
+    write_private_replace(Path(args.out), sql)
     tal = {st: sum(1 for d in decisions if d.status == st) for st in TOKENS.values()}
     print(f"SQL_OK afgørelser={len(decisions)} {tal}")
     return 0

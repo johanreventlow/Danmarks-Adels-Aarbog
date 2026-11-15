@@ -11,13 +11,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))   # -I tilføjer ikke scriptets mappe
 from decision_sheet_core import SheetError, require_hex64, sql_literal  # noqa: E402
+# check_private_path bor i private_io (review 36, K10) og re-eksporteres herfra.
+from private_io import check_private_path, write_private_new  # noqa: E402,F401
 
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 Q_RE = re.compile(rf"^Q (?P<pid>{UUID}) (?P<ver>[0-9]+) : (?P<tok>same (?P<person>-?[0-9]+)|N|X|U)\s*#\s*(?P<why>\S.*)$")
@@ -108,26 +109,8 @@ def sheet_sql(sheet_text: str, details: list[dict], *, sheet_sha256: str, approv
     return "\n".join(sql) + "\n", counts
 
 
-def check_private_path(path: Path, root: Path) -> Path:
-    root_r = root.resolve()
-    if path.is_symlink():
-        raise SheetError("SHEET_PATH_SYMLINK")
-    p = path.resolve()
-    if root_r not in p.parents:
-        raise SheetError("SHEET_PATH_NOT_PRIVATE")
-    for parent in [p.parent, *p.parent.parents]:
-        if (parent / ".git").exists():
-            raise SheetError("SHEET_PATH_IN_GIT")
-    return p
-
-
 def _write_new(path: Path, text: str) -> None:
-    try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    except FileExistsError:
-        raise SheetError("KOE_OUT_EXISTS") from None
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(text)
+    write_private_new(path, text, exists_code="KOE_OUT_EXISTS")
 
 
 def main() -> int:

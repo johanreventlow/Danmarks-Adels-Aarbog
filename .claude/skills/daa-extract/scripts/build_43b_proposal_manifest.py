@@ -28,6 +28,7 @@ import unicodedata
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from private_io import write_private_replace  # noqa: E402
 
 import evidence_extract
 import evidence_runner
@@ -453,8 +454,7 @@ def main() -> int:
     manifest["manifest_content_sha256"] = hashlib.sha256(krop.encode("utf-8")).hexdigest()
 
     out = Path(args.out)
-    out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    out.chmod(0o600)
+    write_private_replace(out, json.dumps(manifest, ensure_ascii=False, indent=2))
 
     r = manifest["provenance"]["regnskab"]
     print(f"PROPOSAL_MANIFEST_OK elementer={len(elementer)}")

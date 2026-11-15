@@ -149,10 +149,17 @@ def partition_record_claims(claims: Any, export: Mapping[str, Any]) -> tuple[lis
     meget der reddes.  Posten markeres `delvis`, så tabet forbliver synligt.
 
     Afviste bærer deres fejltoken, så mønstre kan tælles frem for at forsvinde.
+
+    Containeren skal være en liste (review 36, K2).  `null`, en streng eller et
+    objekt kaster `RUNNER_CLAIMS_INVALID` i stedet for at blive til `([], [])` —
+    ellers var `afviste and not gyldige` falsk, og posten blev cachet og meldt grøn
+    uden fakta.  Den tomme liste er stadig gyldig: en post uden udtrækbare fakta er
+    ikke en fejl.
     """
+    if not isinstance(claims, list):
+        raise RunnerError("RUNNER_CLAIMS_INVALID")
     gyldige, afviste = [], []
-    for claim in (claims if isinstance(claims, Sequence)
-                  and not isinstance(claims, (str, bytes)) else []):
+    for claim in claims:
         try:
             validate_record_claims([claim], export)
         except RunnerError as exc:
@@ -250,6 +257,8 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+from private_io import write_private_replace
 
 #: Bumpes, når runnerens egen kontrakt ændrer sig (argv, parsing, validering).
 #: Indgår i cache-nøglen, så et gammelt råsvar ikke genbruges under nye regler.
@@ -518,11 +527,11 @@ class ResponseCache:
             if json.loads(path.read_text(encoding="utf-8")) != entry:
                 raise RunnerError("RUNNER_CACHE_CONFLICT")
             return
-        # Opret med 0600 fra starten frem for at rette bagefter: ellers findes filen
-        # et øjeblik med umask'ens rettigheder.
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(entry, handle, ensure_ascii=False, sort_keys=True)
+        # 0600 fra starten og atomisk (review 36, K10): svaret skrives til en tempfil og
+        # erstatter først det endelige navn, når det er helt skrevet.  En afbrudt kørsel
+        # efterlader derfor aldrig en trunkeret cachefil, som `get` ikke kan læse, og som
+        # ville spærre genkørslen.  Append-only-tjekket ovenfor står uændret foran.
+        write_private_replace(path, json.dumps(entry, ensure_ascii=False, sort_keys=True))
 
 
 @dataclass(frozen=True)
@@ -610,7 +619,12 @@ def run_record(export: Mapping[str, Any], *, ident: Mapping[str, Any], cache: Re
         except (json.JSONDecodeError, KeyError, TypeError):
             return RecordOutcome(record_key, "failed", error_kind="validation_failed",
                                  usage=hit.get("usage"), from_cache=True)
-        gyldige, afviste = partition_record_claims(raa, export)
+        try:
+            gyldige, afviste = partition_record_claims(raa, export)
+        except RunnerError:
+            # Ikke-liste-container (review 36, K2): også en gammel cachefil fældes.
+            return RecordOutcome(record_key, "failed", error_kind="validation_failed",
+                                 usage=hit.get("usage"), from_cache=True)
         if afviste and not gyldige:
             return RecordOutcome(record_key, "failed", error_kind="validation_failed",
                                  usage=hit.get("usage"), from_cache=True)
@@ -660,7 +674,12 @@ def run_record(export: Mapping[str, Any], *, ident: Mapping[str, Any], cache: Re
         # grunden til 4.3a, så tallet må ikke tabes her.
         return RecordOutcome(record_key, "failed", error_kind="schema_violation", usage=usage)
 
-    gyldige, afviste = partition_record_claims(claims, export)
+    try:
+        gyldige, afviste = partition_record_claims(claims, export)
+    except RunnerError:
+        # En `claims`, der ikke er en liste, er et skemabrud på linje med en manglende
+        # nøgle (review 36, K2) — og må aldrig nå cachen.
+        return RecordOutcome(record_key, "failed", error_kind="schema_violation", usage=usage)
     if afviste and not gyldige:
         # Intet brugbart kom igennem — det er en ægte fejl, ikke en delvis succes.
         return RecordOutcome(record_key, "failed", error_kind="validation_failed", usage=usage)

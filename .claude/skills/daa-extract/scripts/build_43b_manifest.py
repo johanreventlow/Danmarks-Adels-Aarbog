@@ -15,6 +15,7 @@ import argparse, hashlib, json, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from private_io import write_private_replace  # noqa: E402
 import evidence_extract, evidence_runner
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -24,6 +25,7 @@ SKEMA = SCRIPTS.parent / "references" / "evidence-claims-1.0.json"
 #: indholdshashede i manifestet.  Listen omfatter også denne fil, fordi den definerer
 #: kontrollen (4.5-kodereview, fund 2).
 RUNNER_CODE_FILES = ("evidence_extract.py", "evidence_runner.py", "run_evidence_43b.py",
+                     "private_io.py", "decision_sheet_core.py",
                      "build_43b_manifest.py", "sandbox/runner-gate.sb.template",
                      "sandbox/gate-access-test.sh",
                      "../references/interpretation-predicates.json",
@@ -178,8 +180,7 @@ def main() -> int:
         codex_cli_version=evidence_runner.codex_cli_version(), source_id=source_id)
 
     out = Path(args.out)
-    out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    out.chmod(0o600)
+    write_private_replace(out, json.dumps(manifest, ensure_ascii=False, indent=2))
     print(f"MANIFEST_OK records={len(manifest['records'])} bundter={sorted(bundles_of(manifest))}")
     print(f"  manifest_sha256: {manifest['manifest_sha256']}")
     print(f"  ledger_sha256:   {manifest['eligibility_ledger_sha256'][:32]}…")

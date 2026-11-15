@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from decision_sheet_core import SheetError, require_hex64, sql_literal, verify_bound
+# check_private_path bor i private_io (review 36, K10); navnet re-eksporteres herfra,
+# fordi andre ark-scripts og tests importerer det fra dette modul.
+from private_io import check_private_path, write_private_new, write_private_replace  # noqa: F401
 
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 # `?` (#248): en linje, hvis kandidat nr. 1 deles med en anden ægtefælle i posten, står ubesvaret.
@@ -110,26 +112,6 @@ def check_identity(lines: list[Line], rows: dict) -> None:
     _require_answered(lines)
 
 
-def check_private_path(path: Path, root: Path) -> Path:
-    root_r = root.resolve()
-    if path.is_symlink():
-        raise SheetError("SHEET_PATH_SYMLINK")
-    p = path.resolve()
-    if root_r not in p.parents:
-        raise SheetError("SHEET_PATH_NOT_PRIVATE")
-    for parent in [p.parent, *p.parent.parents]:
-        if (parent / ".git").exists():
-            raise SheetError("SHEET_PATH_IN_GIT")
-    return p
-
-
-def _write_private(path: Path, text: str) -> None:
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(text)
-    path.chmod(0o600)
-
-
 def sheet_sql(lines: list[Line], rows: dict, *, sheet_sha256: str, rows_sha256: str, source_id: int) -> str:
     _require_v2(rows)
     _require_answered(lines)
@@ -219,14 +201,15 @@ def main() -> int:
             forslag = {}
             if args.forslag:
                 forslag = json.loads(check_private_path(Path(args.forslag), root).read_text(encoding="utf-8"))
-            _write_private(out, render_sheet(rows, forslag))
+            # Udfyldbart menneskeark: et eksisterende (måske udfyldt) ark overskrives aldrig.
+            write_private_new(out, render_sheet(rows, forslag))
             print(f"ARK_OK s={len(rows['s_rows'])} o={len(rows['o_rows'])}")
             return 0
         sheet_bytes = check_private_path(Path(args.sheet), root).read_bytes()
         rows_sha, sheet_sha = verify_bound(rows_bytes, args.expect_rows_sha256, sheet_bytes, args.approved_sha256)
         lines = parse_sheet(sheet_bytes.decode("utf-8"))
         check_identity(lines, rows)
-        _write_private(out, sheet_sql(lines, rows, sheet_sha256=sheet_sha, rows_sha256=rows_sha, source_id=int(args.source)))
+        write_private_replace(out, sheet_sql(lines, rows, sheet_sha256=sheet_sha, rows_sha256=rows_sha, source_id=int(args.source)))
     except SheetError as exc:
         print(str(exc).split(" ")[0])
         return 1

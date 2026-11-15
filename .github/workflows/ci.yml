@@ -149,17 +149,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: pipeline · unittest
-        run: python3 -m unittest discover -s .claude/skills/daa-haendelser/scripts -p 'test_*.py'
       - id: install
-        if: ${{ !cancelled() }}
         run: python3 -m pip install --disable-pip-version-check -r .claude/skills/daa-extract/requirements-test.txt
-      - name: evidence contract · pytest
+      # Review 36, D3: hele mapperne, ikke en håndskrevet liste (den udelod 69 af 134 filer).
+      # pytest kører også daa-haendelser's unittest-tests, så det tidligere unittest-trin og
+      # det separate kontrakt-trin er foldet ind her. Udelukkelser står i `udeluk` med årsag;
+      # `test_ci_python_coverage.py` læser netop dette trin og fejler, hvis en testfil hverken
+      # køres eller står her, eller hvis en udelukkelse peger på noget, der ikke findes.
+      - name: pipeline · pytest (alle testfiler)
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: python3 -m pytest .claude/skills/daa-extract/scripts/test_evidence_contract.py -q
-      - name: evidence builders/runner/comparators · pytest
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: python3 -m pytest .claude/skills/daa-extract/scripts/test_reimport_profile.py .claude/skills/daa-extract/scripts/test_build_source_evidence_rendition.py .claude/skills/daa-extract/scripts/test_build_source_evidence_manifest.py .claude/skills/daa-extract/scripts/test_build_legacy_migration_manifest.py .claude/skills/daa-extract/scripts/test_build_clause_evidence_manifest.py .claude/skills/daa-extract/scripts/test_build_43b_proposal_manifest.py .claude/skills/daa-extract/scripts/test_evidence_runner.py .claude/skills/daa-extract/scripts/test_compare_clause_evidence_projection.py .claude/skills/daa-extract/scripts/test_compare_interpretation_proposal_projection.py .claude/skills/daa-extract/scripts/test_build_45_selection.py .claude/skills/daa-extract/scripts/test_evidence_run_manifest.py .claude/skills/daa-extract/scripts/test_interpretation_decision_sheet.py .claude/skills/daa-extract/scripts/test_decision_sheet_html.py .claude/skills/daa-extract/scripts/test_control_model.py .claude/skills/daa-extract/scripts/test_control_model_v2.py .claude/skills/daa-extract/scripts/test_persona_kort.py .claude/skills/daa-extract/scripts/test_build_clause_ledger.py .claude/skills/daa-extract/scripts/test_clause_segment.py .claude/skills/daa-extract/scripts/test_evidence_extract.py .claude/skills/daa-extract/scripts/test_clause_readers.py .claude/skills/daa-extract/scripts/test_clause_set.py .claude/skills/daa-extract/scripts/test_transfer_pack.py .claude/skills/daa-extract/scripts/test_identity_guard_static.py .claude/skills/daa-extract/scripts/test_identity_decision_sheet.py .claude/skills/daa-extract/scripts/test_relation_persona_extract.py .claude/skills/daa-extract/scripts/test_identity_control_sheet.py .claude/skills/daa-extract/scripts/test_spouse_exception_sheet.py .claude/skills/daa-extract/scripts/test_relation_persona_extract_v2.py .claude/skills/daa-extract/scripts/test_relation_marriage_sheet.py .claude/skills/daa-extract/scripts/test_relation_persona_extract_v3.py .claude/skills/daa-extract/scripts/test_relation_fold.py .claude/skills/daa-extract/scripts/test_relation_marriage_sheet_v3.py .claude/skills/daa-extract/scripts/test_relation_child_sheet.py .claude/skills/daa-extract/scripts/test_relation_parent_sheet.py .claude/skills/daa-extract/scripts/test_tekstrevision_afstemning.py .claude/skills/daa-extract/scripts/test_relation_ordinal_sheet.py .claude/skills/daa-extract/scripts/test_transfer_ddl.py .claude/skills/daa-extract/scripts/test_identity_queue_sheet.py .claude/skills/daa-extract/scripts/test_transfer_answers.py .claude/skills/daa-extract/scripts/test_transfer_steps.py .claude/skills/daa-extract/scripts/test_transfer_5ab_content_check.py .claude/skills/daa-extract/scripts/test_build_header_manifest.py .claude/skills/daa-extract/scripts/test_placement_control_sheet.py .claude/skills/daa-extract/scripts/test_placement_kort_1939.py .claude/skills/daa-extract/scripts/test_lineage_mapping_sheet.py .claude/skills/daa-extract/scripts/test_segment.py .claude/skills/daa-extract/scripts/test_segment_slaegtled.py .claude/skills/daa-extract/scripts/test_segment_1939.py .claude/skills/daa-extract/scripts/test_build_narrative_revision_manifest.py .claude/skills/daa-extract/scripts/test_build_source_text_revision_manifest.py .claude/skills/daa-extract/scripts/test_publication_persona_manifest.py .claude/skills/daa-extract/scripts/test_publication_identity_sheet.py .claude/skills/daa-extract/scripts/test_build_eligible_selection.py .claude/skills/daa-extract/scripts/test_maal_trin6c1.py .claude/skills/daa-extract/scripts/test_maal_trin6c2.py .claude/skills/daa-extract/scripts/test_maal_dato_bindinger.py .claude/skills/daa-extract/scripts/test_maal_trin6d1.py .claude/skills/daa-extract/scripts/test_maal_trin6d2a.py .claude/skills/daa-extract/scripts/test_maal_trin6d3.py .claude/skills/daa-extract/scripts/test_maal_trin6e2.py .claude/skills/daa-extract/scripts/test_normaliser_kandidater.py .claude/skills/daa-extract/scripts/test_model_gennemgang.py .claude/skills/daa-extract/scripts/test_laesertekst_rettelse.py .claude/skills/daa-extract/scripts/test_faktaforslag_rettelse.py -q
+        run: |
+          udeluk=(
+            # Kræver ripgrep (`rg`) som eksternt program; runner-imaget garanterer det ikke.
+            # Resten af filen kører. (1939-v50-kode, jf. review 36 G5.)
+            --deselect=.claude/skills/daa-extract/scripts/test_convert_c3_decisions_1939_v50.py::test_c3_scripts_pass_mechanical_no_writer_audit
+            --deselect=.claude/skills/daa-extract/scripts/test_convert_c3_decisions_1939_v50.py::test_c3_preview_scripts_only_writer_hit_is_the_read_only_preview_rpc
+          )
+          python3 -m pytest .claude/skills/daa-extract/scripts .claude/skills/daa-haendelser/scripts -q -rs -p no:cacheprovider "${udeluk[@]}"
 
   evidence-promotion-db:
     name: evidence promotion · PostgreSQL 17

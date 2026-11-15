@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from decision_sheet_core import SheetError, require_hex64, sql_literal, verify_bound
-from spouse_exception_sheet import _write_private, check_private_path
+from private_io import check_private_path, write_private_new, write_private_replace
 
 CONTRACT = "relation-ordinal-sheet-input-v1"
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -131,7 +131,7 @@ def main() -> int:
         rows = json.loads(rows_bytes.decode("utf-8"))
         if args.cmd == "render":
             text = render_sheet(rows)
-            _write_private(check_private_path(Path(args.out), root), text)
+            write_private_new(check_private_path(Path(args.out), root), text)  # udfyldbart ark
             ok = _ok_rows(rows)
             print(f"ARK_OK linjer={len(ok)} uden={len(rows['rows']) - len(ok)}")
             return 0
@@ -140,7 +140,7 @@ def main() -> int:
         rows_sha, sheet_sha = verify_bound(rows_bytes, args.expect_rows_sha256, sheet_bytes, args.approved_sha256)
         lines = parse_sheet(sheet_bytes.decode("utf-8"))
         sql = decision_sql(lines, rows, sheet_sha256=sheet_sha, rows_sha256=rows_sha)
-        _write_private(dout, sql)
+        write_private_replace(dout, sql)
         toks = [l.tok for l in lines]
     except SheetError as exc:
         print(str(exc).split(" ")[0])

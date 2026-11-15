@@ -16,6 +16,7 @@ import relation_persona_extract as _v1
 from relation_persona_extract import LETTER, MAX_NAME_WORDS, UPPER
 from relation_persona_extract_v2 import CAP, STOP_TITLE, TOKEN, WORD, YEAR, _shares_half, _start, _words, fold_raw_text, windows
 from relation_persona_extract_v2 import PARTICLES as _PARTICLES_V2
+from private_io import write_private_replace
 
 PROFILE = "relation-persona-2018-20-v3"
 RULE = "aarstal-120-v1"
@@ -402,7 +403,7 @@ def main(argv: list[str] | None = None) -> int:
         manifest["v3_input_file_sha256"] = f3_sha           # = elementernes sheet_sha256
     out = Path(a.out)
     body = json.dumps(manifest, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    out.write_bytes(body); out.chmod(0o600)
+    write_private_replace(out, body)
     print(f"RELATION_EXTRACT_OK elementer={stats['elementer']} parkeret={json.dumps(stats['parkeret'])} "
           f"pr_praedikat={json.dumps(stats['pr_praedikat'])}")
     print(f"  manifest_fil_sha256 {hashlib.sha256(body).hexdigest()}")

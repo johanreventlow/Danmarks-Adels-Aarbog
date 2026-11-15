@@ -16,6 +16,7 @@ import unicodedata
 from pathlib import Path
 
 import control_model_v2 as cm
+from private_io import write_private_replace
 
 _BLANK = re.compile("[ \t\n\r\f\v     ]+")
 
@@ -729,10 +730,7 @@ def _skriv(sti: Path, tekst: str) -> str:
 
 
 def _skriv_b(sti: Path, data: bytes) -> str:
-    fd = os.open(sti, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "wb") as fh:
-        fh.write(data)
-    os.chmod(sti, 0o600)
+    write_private_replace(sti, data)
     return hashlib.sha256(data).hexdigest()
 
 
@@ -845,10 +843,7 @@ def main(argv=None) -> int:
         print(f"FF_FEJL {e.kode}", file=sys.stderr)
         return 2
     p = d / "a-klasser.json"
-    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        json.dump({"manifest_a": sha, "klasser": kl}, fh, ensure_ascii=False, indent=1)
-    os.chmod(p, 0o600)
+    write_private_replace(p, json.dumps({"manifest_a": sha, "klasser": kl}, ensure_ascii=False, indent=1))
     c = {x: sum(1 for r in kl if r["klasse"] == x) for x in ("VERSION", "BIND", "RET_OG_BIND", "SPAERRET", "DRIFT", "RAPPORT")}
     print(f"FF_KLASSE_OK version={c['VERSION']} bind={c['BIND']} ret_og_bind={c['RET_OG_BIND']} "
           f"spaerret={c['SPAERRET']} drift={c['DRIFT']} rapport={c['RAPPORT']} manifest_a={sha[:8]}")

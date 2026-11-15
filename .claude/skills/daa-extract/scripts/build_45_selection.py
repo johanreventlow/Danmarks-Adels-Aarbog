@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from private_io import write_private_replace  # noqa: E402
 
 from evidence_runner import (EligibilityError, canonical_record_input, check_eligibility,
                              load_ledger, sha256_text)
@@ -156,8 +157,7 @@ def main() -> int:
         "record_input_sha256": {k: canonical_record_input(records[k]) for k in alle},
     }
     out = Path(args.out)
-    out.write_text(json.dumps(udvalg, ensure_ascii=False, indent=2), encoding="utf-8")
-    out.chmod(0o600)
+    write_private_replace(out, json.dumps(udvalg, ensure_ascii=False, indent=2))
     print(f"UDVALG_OK nye={len(valgt)} reserve={len(reserve)} bundter={len(bundter)} "
           f"henvisninger_udelukket={henvisninger}")
     print(f"  daekning {udvalg['daekning']}")

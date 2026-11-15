@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from decision_sheet_core import SheetError, require_hex64, sql_literal, verify_bound
-from spouse_exception_sheet import _write_private, check_private_path
+from private_io import check_private_path, write_private_new, write_private_replace
 
 CONTRACT = "relation-child-sheet-input-v1"
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -215,7 +215,7 @@ def main() -> int:
             rows = select_rows(rows, load_keys(Path(args.interpretation_keys).read_text(encoding="utf-8")))
         if args.cmd == "render":
             text = render_sheet(rows)
-            _write_private(check_private_path(Path(args.out), root), text)
+            write_private_new(check_private_path(Path(args.out), root), text)  # udfyldbart ark
             ok = _ok_rows(rows)
             kort = sum(1 for x in ok.values() if x["rule"]["afvigelser"])
             print(f"ARK_OK passer={len(ok) - kort} kort={kort} uden={len(rows['rows']) - len(ok)}")
@@ -227,7 +227,7 @@ def main() -> int:
             rows_sha = selected_rows_sha256(rows)
         lines = parse_sheet(sheet_bytes.decode("utf-8"))
         sql = decision_sql(lines, rows, sheet_sha256=sheet_sha, rows_sha256=rows_sha)
-        _write_private(dout, sql)
+        write_private_replace(dout, sql)
         toks = [l.tok for l in lines]
     except SheetError as exc:
         print(str(exc).split(" ")[0])
