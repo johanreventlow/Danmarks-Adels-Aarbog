@@ -120,3 +120,12 @@ Task 3: complete (commits 54e8cccf..45c1cd3c, review clean)
 Task 4: dispatched (base 45c1cd3c)
 Task 4: implementer a53b5219226e3ff84 (opus)
 PARKERET 14/11 efter brugerens ønske: Task 4-implementer stoppet før den skrev noget (arbejdstræ rent på 45c1cd3c). Genoptag: re-dispatch Task 4 frisk med samme brief (task-4-brief.md) og dispatch-tekst (se handoff). 46 testbaser (828 MB) bevaret; oprydning kræver måling + brugerens ja.
+
+## Rebase på #361 (15/11)
+
+Grenen er rebaset på main f9f2cd9c, som indeholder #361 (merge 7ddb76cb). #361 K5 ændrer `red_fortryd_change_set`: den låser nu sættets change_set-række og derefter alle berørte rækker FOR UPDATE (personer stigende først) via `_version_lock_row`, før divergens-tjekket.
+
+- Eneste konflikt: halen af `db-migrations.sql` (begge sider tilføjede en sektion sidst). Løst ved at beholde begge, main's kodereview-36-sektioner først og personsletningen sidst (K-4). `range-diff`: kun 45c1cd3c afviger, og kun i kontekst.
+- Fortryd-sættets INSERT-form er uændret af K5, så fixturens `purge_test.fortryd_saet` gælder stadig; kun linjenumre er flyttet.
+- SHA-mapping gammel → ny: 2e7a57ed→3c3f0b54, e6e03bdf→a2300dff, 82bb8e16→21720157, 30322f08→277c79d5, 63289b22→86f48fd2, b4e2944c→c9e5b19d, 40bd675d→b77737fb, d401a9d1→f15be6fa, 4c8712df→ac247027, 12b2f1f7→c230e61d, 7e14db7b→90894959, 7a4e4784→8675c999, 54e8cccf→2703ab03, 45c1cd3c→8ae193a5, 72e83323→f02f834a. Task 4's base er nu 8ae193a5.
+- Konsekvenser for senere tasks: (a) Task 9 ændrer `red_fortryd_change_set` og skal bygge på K5-kroppen (planens l. 9484-9620 er forældet). (b) Låseorden: Task 0-spiken har intet scenarie for generisk `red_fortryd_change_set`. K5 tager change_set-række → personrækker; sletningen låser P og sletter P's change_set/change_event. Et scenarie »generisk fortryd af et sæt, der rører P« mod sletningen skal afgøres (åbent: før Task 4 eller før Task 8).
