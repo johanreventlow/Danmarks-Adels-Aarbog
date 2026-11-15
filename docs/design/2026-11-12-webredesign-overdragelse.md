@@ -104,9 +104,11 @@ Tegningernes navne står i parentes.
   »Find slægtskab«, »Kopiér link«.
 - Mangler siges med ord (»Ikke angivet i den valgte udgave«), aldrig tomme felter.
 - Tilhører personen flere slægter, vises alle i etiketten.
-- Medlemslag (fase 8) på faste pladser i samme layout: slægtskab som kontekst over titlen (»Conrad er din …«, kræver
-  bekræftet »Det er mig«), bogmærke i højre spalte, fakta med kilde pr. linje og »UENIGE KILDER« hvor udgaverne er
-  uenige. Ingen layoutskift ved login.
+- Medlemslag (fase 8) på faste pladser i samme layout: slægtskab som kontekst over navnet, bogmærke i højre spalte
+  og fakta med kilde pr. linje. Ingen layoutskift ved login.
+  - **Bygget 2026-11-14:** linjen står uden navn (»Din tipoldefar«), kræver »Det er mig« og tager indgiftede med
+    (»Gift med …, din onkel«). Se `decisions.md` 2026-11-14.
+  - **Udgået:** »UENIGE KILDER«. Projektejeren valgte intet mærke; noten »DAA 1939 skriver: …« på faktalinjen er nok.
 
 ### Slægtens forside (»Slægtens forside · Reventlow«, »Navigation model 2 · slægtsbjælken (web)«)
 

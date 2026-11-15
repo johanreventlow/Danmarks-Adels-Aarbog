@@ -2,6 +2,33 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: personsidens slægtskab som kontekst; intet »Uenige kilder«-mærke (webredesign fase 8, 2026-11-14)
+
+> Projektejeren godkendte planens valg 1-10 (»ja, punkterne er ok«) og valgte (c) for »Uenige kilder« uden måling
+> (»Vi springer målingen over, vælg (c)«). Plan: `docs/superpowers/plans/2026-11-13-webredesign-fase8-medlemslag.md`.
+>
+> - **Linjen over navnet** beregnes ud fra »Det er mig«, ikke ud fra login, og står uden navn: »Din tipoldefar«.
+>   Uden »Det er mig« vises intet.
+> - **Indgiftede kommer med:** »Gift med Christian Reventlow, din onkel«. Den nærmeste blodslægtning blandt
+>   fokuspersonens ægtefæller vinder. Usikkerheden sidder på blodsforbindelsen, ikke på ægteskabet. Min egen
+>   ægtefælle hedder »Din ægtefælle«, også ved fætter-kusine-ægteskab.
+> - **Ikke med:** svigerfamilie gennem min ægtefælle og slægt gennem to giftermål. Det hører til »Er vi i familie?«.
+> - **Usikkerhed med ord (invariant 7):** »Sandsynligvis …« og »Omstridt: …« samt »· bekræftet ad en anden linje«.
+> - **Aldrig »dobbelt« på personsiden.** Ordet og sikkerheden kommer fra den nærmeste linjes egne `d1`/`d2` og
+>   konfidens. »Se alle N veje« fører til »Er vi i familie?«.
+> - **Ingen forbindelse** hedder »Aarbogen viser ingen fælles ane med dig«, ikke »intet slægtskab«, fordi
+>   svigerfamilie bevidst ikke undersøges.
+> - **Dybe led:** ordene følger `relationshipLabel`. Fra 5 led står der »din ane, N slægtled tilbage« og
+>   »din efterkommer, N slægtled frem«.
+> - **POC-reglen for levende** kræver ingen kode: en levende »mig« findes kun i redaktionens model.
+> - **»Uenige kilder« (valg c):** intet mærke. Noten »DAA 1939 skriver: …« på faktalinjen er nok. Lighedsreglen
+>   (`factEquality.ts`) er forsigtig, så et mærke kunne ramme rene stavemådeforskelle. Målingen blev ikke kørt.
+>
+> **NOTERET (backlog):** »Er vi i familie?« viser »Dobbelt …« med kun repræsentantens konfidens. Den kan også slå
+> linjer med modsat retning sammen under én etiket (»Onkel & nevø«), fordi `mergeSameDistanceLines` grupperer efter
+> etiket (`packages/core/src/relationship.ts`; Codex-review 13/11). Personsiden er bygget uden om svagheden; selve
+> finderen er ikke rettet.
+
 ## BESLUTTET: fuld sletning af en personprofil uden rest — design godkendes (2026-11-14)
 
 > Projektejeren vil kunne slette en fejlprofil (fx 1791 »fyenske Rytterreg.)«), en testperson eller en GDPR-slettet

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-14 — personsiden viser slægtskabet til dig over navnet (webredesign fase 8)
+
+Når »Det er mig« er sat, står slægtskabet over navnet på personsiden: »Din tipoldefar«, »Din 1. grads fætter · 1 gang
+forskudt«, »Gift med Christian Reventlow, din onkel«, »Det er dig«, »Din ægtefælle« eller »Aarbogen viser ingen fælles
+ane med dig«. Usikre led siges med ord (»Sandsynligvis …«, »Omstridt: …«). »Se vejen« / »Se alle N veje« fører til
+»Er vi i familie?«. Nyt i kernen: `slaegtskabTilMig` (ordet set fra mig); i web: `slaegtskabsKontekst` og
+`SlaegtskabsLinje`. Intet »Uenige kilder«-mærke (projektejerens valg c, se `decisions.md`). Ren klient, ingen
+DB-ændring.
+
 ## 2026-11-14 — 28 falske »formodet« fjernet fra 1939-forældreled; 79/80 bekræftet
 
 28 af de 30 forældreled med `formodet` stammede fra udtrækkets OCR-tvivl, ikke fra bogen: ingen af dem har »?« eller
