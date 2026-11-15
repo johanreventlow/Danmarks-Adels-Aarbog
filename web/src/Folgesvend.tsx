@@ -493,9 +493,9 @@ export default function Folgesvend() {
   };
 
   return (
-    // 100dvh: på iPhone er 100vh højere end det synlige vindue, så bunden gemmes under Safaris værktøjslinje.
-    // data-flade afgrænser læserfladens CSS (base.css) fra redaktionen, som bruger samme stilark.
-    <div data-flade="laeser" style={{ height: '100dvh', display: 'flex', flexDirection: 'column', background: T.surfaceGround, fontFamily: T.sans, color: T.ink, overflow: 'hidden' }}>
+    // data-flade afgrænser læserfladens CSS (base.css) fra redaktionen, som bruger samme stilark. Højden står dér
+    // (100vh som reserve, så 100dvh): på iPhone er 100vh højere end det synlige vindue.
+    <div data-flade="laeser" style={{ display: 'flex', flexDirection: 'column', background: T.surfaceGround, fontFamily: T.sans, color: T.ink, overflow: 'hidden' }}>
       <Sidehoved
         aktiv={hovedpunkt} menuAaben={menuAaben} setMenuAaben={setMenuAaben} menuKnap={menuKnap}
         slaegter={SLAEGTER} senestSlaegt={senestSlaegt} aktivSlaegt={parsed.slaegt}
