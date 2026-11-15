@@ -210,6 +210,15 @@ describe('PersonSide', () => {
       } finally { smal.v = false; }
     });
 
+    it('portrættets billedtekst og kilde står ved miniaturen (kilder vises, også når kun institutionen kendes)', () => {
+      smal.v = true;
+      try {
+        const kunInstitution = { ...PORTRAET, titel: '', kunstner: '', datering: '', kildeInstitution: 'Frederiksborgmuseet' } as unknown as MediaItem;
+        render(<PersonSide {...props({ detail: detalje({ media: [kunInstitution] }) })} />);
+        expect(screen.getByText(/Frederiksborgmuseet/)).toBeTruthy();
+      } finally { smal.v = false; }
+    });
+
     it('uden portræt: ingen tom portrætboks', () => {
       smal.v = true;
       try {

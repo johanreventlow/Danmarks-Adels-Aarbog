@@ -145,7 +145,11 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                   <img src={portrait.url} alt={portrait.altTekst || `Portræt af ${p.name}`}
                     style={{ display: 'block', width: '100%', aspectRatio: '4 / 5', objectFit: 'cover', borderRadius: radius.card, border: `1px solid ${T.line}` }} />
                 </button>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>{navneblok}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
+                  {navneblok}
+                  {/* Billedtekst og kilde (kunstner, år, ejer/institution) — kilder vises også på telefonen. */}
+                  {billedtekst(portrait) && <p style={{ margin: 0, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>Portræt: {billedtekst(portrait)}</p>}
+                </div>
               </div>
             ) : navneblok}
             {v.proveniens && <p style={{ margin: 0, fontSize: 13.5, color: T.inkMuted }}>Optræder i Aarbogen som {v.proveniens}.</p>}
