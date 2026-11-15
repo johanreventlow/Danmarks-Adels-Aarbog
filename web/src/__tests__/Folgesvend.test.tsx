@@ -295,10 +295,18 @@ test('fanens titel bærer personens navn på personsiden', async () => {
   await waitFor(() => expect(document.title).toBe('Testperson · Danmarks Adels Aarbog'));
 });
 
-test('fejler hentningen, viser fanen kun værkets navn — aldrig et navn fra en tidligere model', async () => {
-  document.title = 'Levende person · Danmarks Adels Aarbog';
-  mocks.loadModel.mockRejectedValue(new Error('netværk'));
+test('fejler en ny hentning (fx efter login/logout), viser fanen kun værkets navn — ikke navnet fra den gamle model', async () => {
+  // Den gamle model beholdes ved fejl (Folgesvend loadData), så titlen må ikke bygges af den, mens fejlskærmen vises.
+  mocks.fetchPersonDetail.mockResolvedValue({ bio: '', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });
+  mocks.signIn.mockResolvedValue({ email: 'red@example.test', role: 'redaktion', userId: 'u1' });
   window.history.replaceState({}, '', '/person/1');
   render(<Folgesvend />);
+  await waitFor(() => expect(document.title).toBe('Testperson · Danmarks Adels Aarbog'));
+  mocks.loadModel.mockRejectedValue(new Error('netværk'));
+  fireEvent.click(screen.getByRole('button', { name: 'Log ind' }));
+  fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'red@example.test' } });
+  fireEvent.change(screen.getByLabelText('Adgangskode'), { target: { value: 'hemmeligt' } });
+  fireEvent.submit(screen.getByRole('dialog'));
+  await waitFor(() => expect(mocks.loadModel).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(document.title).toBe('Danmarks Adels Aarbog'));
 });
