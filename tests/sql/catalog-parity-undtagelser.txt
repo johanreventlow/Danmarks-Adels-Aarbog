@@ -1,0 +1,10 @@
+# Bevidste forskelle mellem en ren schema.sql-base og den migrerede base (2d6aabf:schema.sql + db-migrations.sql).
+# Én nøgle pr. linje: art|nøgle (som i tests/sql/inspect-catalog-parity.sql). En undtagelse, der ikke længere
+# matcher en forskel, får vagten til at fejle, så listen kun kan skrumpe.
+#
+# 2d6aabf-basen havde fire unavngivne constraints. Migrationerne tilføjer dem igen under prods navne (IF NOT EXISTS
+# på navnet), så den migrerede testbase har dem to gange. Prod og en frisk schema.sql-base har kun prods navne.
+con|import_korrektion.import_korrektion_import_key_record_key_felt_key
+idx|import_korrektion_import_key_record_key_felt_key
+con|person.person_koen_check
+con|private.interpretation_promotion_rule.interpretation_promotion_rule_rule_key_predicate_fkey

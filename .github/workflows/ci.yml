@@ -406,6 +406,8 @@ jobs:
           psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f tests/sql/reimport-writer-legacy-empty-fixture.sql
           psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f db-migrations.sql
           psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f db-rls.sql
+          # Katalogparitet (review 36 D1): udtræk FØR testene, som ændrer grants og tilføjer hjælpefunktioner.
+          psql -h localhost -U postgres -d reimport_legacy_empty_153 -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-catalog-parity.sql > catalog-upgraded.txt
           psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-writer.sql
           psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f db-rls.sql
           psql -h localhost -U postgres -d reimport_legacy_empty_153 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-name-completion.sql
@@ -419,19 +421,19 @@ jobs:
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -f schema.sql
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -f db-migrations.sql
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -f db-rls.sql
+          psql -h localhost -U postgres -d reimport_fresh_153 -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-catalog-parity.sql > catalog-fresh-migrated.txt
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql
           psql -h localhost -U postgres -d reimport_fresh_153 -v ON_ERROR_STOP=1 -f tests/sql/test-reimport-edition-catalog.sql
           psql -h localhost -U postgres -d reimport_fresh_153 -At -f tests/sql/inspect-reimport-writer-catalog.sql > reimport-writer-fresh-catalog.json
           cmp reimport-writer-fresh-catalog.json reimport-writer-upgraded-catalog.json
-          # Indholds-id (#151, spec §5.4): de ændrede funktioner er ens i en ren schema.sql-base og i den migrerede base.
+          # Katalogparitet (review 36 D1; afløser #151's 68-funktioners liste): ren schema.sql-base mod de migrerede baser.
           createdb -h localhost -U postgres reimport_schema_only_5ab
           for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql; do
             psql -h localhost -U postgres -d reimport_schema_only_5ab -q -v ON_ERROR_STOP=1 -f "$f" >/dev/null; done
-          psql -h localhost -U postgres -d reimport_schema_only_5ab -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-5ab-function-parity.sql > parity-5ab-schema.txt
-          psql -h localhost -U postgres -d reimport_legacy_empty_153 -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-5ab-function-parity.sql > parity-5ab-upgraded.txt
-          test "$(wc -l < parity-5ab-schema.txt)" -eq 68 || { echo "5ab+RED-8+trin B+5c2-b11+6c-2a+6c-2b+6m-a+6c-3a+6d-1+6d-3+dato-markoer-v2+redaktoer-ser-levende+D1+K6+K5+P2 parity: forventede 68 funktioner" >&2; exit 1; }
-          test "$(wc -l < parity-5ab-upgraded.txt)" -eq 68 || { echo "5ab+RED-8+trin B+5c2-b11+6c-2a+6c-2b+6m-a+6c-3a+6d-1+6d-3+dato-markoer-v2+redaktoer-ser-levende+D1+K6+K5+P2 parity: forventede 68 funktioner (migreret)" >&2; exit 1; }
-          cmp parity-5ab-schema.txt parity-5ab-upgraded.txt
+          psql -h localhost -U postgres -d reimport_schema_only_5ab -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-catalog-parity.sql > catalog-schema.txt
+          # Hele kataloget: ren schema.sql = migreret pre-153-base (kendte 2d6aabf-dubletter undtaget) = schema + migrationer.
+          bash tests/sql/check-catalog-parity.sh catalog-schema.txt catalog-upgraded.txt tests/sql/catalog-parity-undtagelser.txt
+          bash tests/sql/check-catalog-parity.sh catalog-schema.txt catalog-fresh-migrated.txt
           # RED-8 (A3): kolonnerne i de 25 id-tabeller (inkl. identity) er ens i ren schema.sql-base og migreret base.
           psql -h localhost -U postgres -d reimport_schema_only_5ab -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-red8-column-parity.sql > parity-red8-schema.txt
           psql -h localhost -U postgres -d reimport_legacy_empty_153 -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-red8-column-parity.sql > parity-red8-upgraded.txt
