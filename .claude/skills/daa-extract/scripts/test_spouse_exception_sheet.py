@@ -110,6 +110,29 @@ def test_cli_hashbinding(tmp_path):
     assert ok.returncode == 0 and "Bo Beta" not in ok.stdout + ok.stderr
 
 
+def test_cli_render_overskriver_aldrig_et_udfyldt_ark(tmp_path):
+    """Review 36, K10: render til samme sti som et udfyldt ark nægtes; SQL'en (maskin-output)
+    må gerne genskabes."""
+    root = tmp_path / "priv"; root.mkdir(mode=0o700)
+    rows_path = root / "rows.json"
+    rows_path.write_text(json.dumps(rows()) + "\n", encoding="utf-8")
+    ark = root / "ark.txt"
+    run = lambda *a: subprocess.run(["python3", str(Path(ses.__file__)), *a, "--private-root", str(root)],
+                                    capture_output=True, text=True)
+    assert run("render", "--rows", str(rows_path), "--out", str(ark)).returncode == 0
+    udfyldt = ark.read_text(encoding="utf-8") + "# menneskets noter\n"
+    ark.write_text(udfyldt, encoding="utf-8")
+    igen = run("render", "--rows", str(rows_path), "--out", str(ark))
+    assert igen.returncode == 1 and igen.stdout.strip() == "PRIVATE_OUT_EXISTS"
+    assert ark.read_text(encoding="utf-8") == udfyldt
+    rows_sha = hashlib.sha256(rows_path.read_bytes()).hexdigest()
+    sql = lambda: run("sql", "--sheet", str(ark), "--approved-sha256", hashlib.sha256(ark.read_bytes()).hexdigest(),
+                      "--rows", str(rows_path), "--expect-rows-sha256", rows_sha, "--source", "1",
+                      "--out", str(root / "a.sql"))
+    assert sql().returncode == 0 and sql().returncode == 0
+    assert oct((root / "a.sql").stat().st_mode & 0o777) == "0o600"
+
+
 def test_sql_laaser_standard_conforming_strings():
     # Opus kode-review I1: noterne citeres kun ved fordobling af ', så backslash skal være bogstavelig i sessionen.
     sql = ses.sheet_sql(ses.parse_sheet(ses.render_sheet(rows())), rows(), sheet_sha256="b" * 64, rows_sha256="c" * 64,

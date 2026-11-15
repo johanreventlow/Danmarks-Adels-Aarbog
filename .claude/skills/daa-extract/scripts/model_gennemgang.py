@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Callable
 
 import persona_kort as pk
+from private_io import write_private_replace
 
 MAX_SIDER = 4
 NABO_TAERSKEL = 0.15
@@ -161,8 +162,7 @@ def skriv_briefs(skabelon: str, mappe: Path, bidder: int) -> list:
              .replace("{SVAR_B}", str(mappe / f"svar-B-{k}.json"))
              .replace("{SIDER}", str(mappe / "sider")))
         p = mappe / f"brief-{k}.md"
-        p.write_text(t, encoding="utf-8")
-        os.chmod(p, 0o600)
+        write_private_replace(p, t)
         stier.append(p)
     return stier
 
@@ -384,8 +384,7 @@ def cmd_saml(a) -> int:
 
 
 def _skriv_json(sti: Path, data) -> None:
-    sti.write_text(json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True), encoding="utf-8")
-    os.chmod(sti, 0o600)
+    write_private_replace(sti, json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True))
 
 
 def _laes_json(sti: Path):

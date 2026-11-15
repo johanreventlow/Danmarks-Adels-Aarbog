@@ -37,7 +37,8 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from decision_sheet_core import SheetError
-from spouse_exception_sheet import _write_private, check_private_path
+from private_io import (check_private_path, write_private_new_many,
+                        write_private_replace)
 
 ROMAN = re.compile(r'^[IVXLC]+$')
 STRUKTUR = ('ikke_parret', 'nummer_tabt_i_rendition', 'ikke_alignet')
@@ -771,7 +772,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == 'flet':
             tpath = check_private_path(Path(args.token), root)
             ud = flet(tpath.read_text(encoding='utf-8'), _load_json(Path(args.html_svar)), cards)
-            _write_private(tpath, ud)
+            # `flet` fletter HTML-svarene ind i det eksisterende token: bevidst overskrivning.
+            write_private_replace(tpath, ud)
             print(f"FLET_OK token_sha256={_sha(ud.encode('utf-8'))}")
             return 0
         svar_b = Path(args.svar).read_bytes()
@@ -783,9 +785,11 @@ def main(argv: list[str] | None = None) -> int:
                 render_pages(Path(args.pdf), sorted({x for o in ops for x in range(o['side'] - 2, o['side'] + 1)
                                                      if x >= 1}), jobdir / 'sider')
             tok = render_token(cards, vd, svar, args.seed)
-            _write_private(check_private_path(Path(args.out_token), root), tok)
-            _write_private(check_private_path(Path(args.out_html), root),
-                           render_html(cards, vd, svar, ops, jobdir, tok, args.seed))
+            # Token + html er et par til udfyldning: begge nægtes, før noget skrives.
+            write_private_new_many([
+                (check_private_path(Path(args.out_token), root), tok),
+                (check_private_path(Path(args.out_html), root),
+                 render_html(cards, vd, svar, ops, jobdir, tok, args.seed))])
             c = {k: list(vd.values()).count(k) for k in ('enig', 'uenig', 'ulaeselig', 'ingen_anden')}
             print('UNDTAGELSER_OK ' + ' '.join(f'{k}={v}' for k, v in c.items())
                   + f' kontrol={len(v_poster(cards, vd, args.seed))} token_sha256={_sha(tok.encode("utf-8"))}')
@@ -800,7 +804,7 @@ def main(argv: list[str] | None = None) -> int:
                    'token_sha256': _sha(tb), 'opslag_sha256': _sha((jobdir / 'opslag.json').read_bytes())}
         res = approvals_1939(m, cards, svar, tb.decode('utf-8'), manifest_sha256=_sha(mpath.read_bytes()),
                              kontrol=kontrol, seed=args.seed, ops=ops)
-        _write_private(check_private_path(Path(args.out), root), json.dumps(res, ensure_ascii=False, sort_keys=True) + '\n')
+        write_private_replace(check_private_path(Path(args.out), root), json.dumps(res, ensure_ascii=False, sort_keys=True) + '\n')
     except SheetError as exc:
         print(str(exc))
         return 1

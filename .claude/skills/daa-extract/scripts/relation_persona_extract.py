@@ -9,8 +9,12 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from collections import Counter
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # -I tilføjer ikke scriptets mappe
+from private_io import write_private_replace  # noqa: E402
 
 PROFILE = "relation-persona-2018-20-v1"
 # Profilens markører (versioneret: ændres de, når der er skrevet data med profilen, skal PROFILE have ny version).
@@ -118,7 +122,7 @@ def main() -> int:
     manifest["input_sha256"] = data["input_sha256"]
     out = Path(a.out)
     body = json.dumps(manifest, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    out.write_bytes(body); out.chmod(0o600)
+    write_private_replace(out, body)
     print(f"RELATION_EXTRACT_OK elementer={stats['elementer']} parkeret={json.dumps(stats['parkeret'])} "
           f"pr_praedikat={json.dumps(stats['pr_praedikat'])}")
     print(f"  manifest_fil_sha256 {hashlib.sha256(body).hexdigest()}")

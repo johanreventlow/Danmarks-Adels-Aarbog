@@ -23,7 +23,6 @@ import hashlib
 import io
 import json
 import math
-import os
 import re
 import sys
 from collections import Counter
@@ -31,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from private_io import write_private_replace  # noqa: E402
 
 import segment
 from build_source_evidence_manifest import project_rendition
@@ -1258,10 +1258,7 @@ def main(argv: list[str] | None = None) -> int:
         manifest = build_manifest_by_offset(
             rendition, Path(args.guide_text).read_bytes(), profile,
             export['records'], export.get('parents', []))
-    fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, 'w', encoding='utf-8') as fh:
-        json.dump(manifest, fh, ensure_ascii=False, sort_keys=True, indent=1)
-        fh.write('\n')
+    write_private_replace(out, json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=1) + '\n')
     result = summary(manifest)
     result['manifest_file_sha256'] = hashlib.sha256(out.read_bytes()).hexdigest()
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))

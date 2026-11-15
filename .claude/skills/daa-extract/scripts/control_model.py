@@ -35,6 +35,7 @@ import re
 from pathlib import Path
 
 from interpretation_decision_sheet import SheetError, check_identity, parse_sheet
+from private_io import write_private_replace
 
 SEED = "kontrolmodel-v1"
 SAMPLE_SIZE = 20
@@ -203,10 +204,7 @@ def verify_sql(plan: dict) -> str:
 def _write(path: Path, data: bytes) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     os.chmod(path.parent, 0o700)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "wb") as f:
-        f.write(data)
-    os.chmod(path, 0o600)
+    write_private_replace(path, data)
     return hashlib.sha256(data).hexdigest()
 
 

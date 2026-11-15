@@ -20,6 +20,7 @@ from pathlib import Path
 
 import model_gennemgang as mg
 from model_gennemgang import GennemgangError
+from private_io import write_private_new, write_private_replace
 
 KONTEKST = 80
 PR_SIDE = 40
@@ -292,8 +293,7 @@ def verify_b_sql(anvendt: dict) -> str:
 
 
 def _skriv(sti: Path, tekst: str) -> str:
-    sti.write_text(tekst, encoding="utf-8")
-    os.chmod(sti, 0o600)
+    write_private_replace(sti, tekst)
     return mg._sha(tekst.encode("utf-8"))
 
 
@@ -326,8 +326,8 @@ def cmd_flet(a) -> int:
     (ud / "svar-b").mkdir(mode=0o700)
     for i, p in enumerate(a.svar, 1):
         f = ud / "svar-b" / f"svar-{i:02d}.json"
-        f.write_bytes(Path(p).read_bytes())
-        os.chmod(f, 0o600)
+        # Mappen er netop oprettet (mkdir fejler, hvis den fandtes): filen er altid ny.
+        write_private_new(f, Path(p).read_bytes())
     sha = _skriv(ud / "ark-b.txt", ark)
     t = list(laes_ark(ark)[1].values())
     print(f"LT_FLET_OK L={t.count('L')} K={t.count('K')} N={t.count('N')} ubesvaret={t.count('_')} ark_sha256={sha}")

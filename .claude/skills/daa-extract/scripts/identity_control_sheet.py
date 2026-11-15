@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from decision_sheet_core import SheetError, require_hex64, sql_literal, verify_bound
+from private_io import write_private_new, write_private_replace
 
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 D_RE = re.compile(rf"^D (?P<id>{UUID}) (?P<ver>[0-9]+) : (?P<tok>_|[123](?:=[123]){{0,2}}|X|N|U)\s*(?:#\s*(?P<note>.*))?$")
@@ -217,8 +218,8 @@ def main() -> int:
     rows_bytes = Path(args.rows).read_bytes()
     rows = json.loads(rows_bytes.decode("utf-8"))
     if args.cmd == "render":
-        out = Path(args.out)
-        out.write_text(render_sheet(rows), encoding="utf-8"); out.chmod(0o600)
+        # Udfyldbart menneskeark: et eksisterende (måske udfyldt) ark overskrives aldrig.
+        write_private_new(Path(args.out), render_sheet(rows))
         n_d = sum(1 for it in rows["items"] if it["kind"] == "identity")
         n_h = sum(1 for it in rows["items"] if it["kind"] == "identity" and it.get("stratum") == "navnefaelle")
         print(f"ARK_OK aegtefaellekort={n_d} foraeldrekort={len(rows['items']) - n_d} navnefaeller={n_h}")
@@ -234,7 +235,7 @@ def main() -> int:
         sql = decision_sql(lines, rows, sheet_sha256=sheet_sha, rows_sha256=rows_sha)
     except SheetError as exc:
         print(str(exc)); return 1
-    out = Path(args.out); out.write_text(sql, encoding="utf-8"); out.chmod(0o600)
+    write_private_replace(Path(args.out), sql)
     print(f"SQL_OK linjer={len(lines)}")
     return 0
 

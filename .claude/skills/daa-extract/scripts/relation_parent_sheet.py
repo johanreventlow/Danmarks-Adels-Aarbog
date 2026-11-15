@@ -19,7 +19,7 @@ from pathlib import Path
 
 from decision_sheet_core import SheetError, require_hex64, sql_literal
 from relation_child_sheet import Line, TOKENS, UUID, load_keys, select_rows, selected_rows_sha256
-from spouse_exception_sheet import _write_private, check_private_path
+from private_io import check_private_path, write_private_new_many, write_private_replace
 
 CONTRACT = "relation-parent-sheet-input-v1"
 CONTRACT_V2 = "relation-parent-sheet-input-v2"
@@ -230,9 +230,9 @@ def main(argv: list[str] | None = None) -> int:
             html_out = check_private_path(Path(args.html), root) if args.html else None
             if html_out is not None:
                 page = render_html(sel)
-            _write_private(out, render_sheet(sel))
-            if html_out is not None:
-                _write_private(html_out, page)
+            # Ark (+ html) til udfyldning: nægtes, før noget skrives, hvis én af dem findes.
+            write_private_new_many([(out, render_sheet(sel))]
+                                   + ([(html_out, page)] if html_out is not None else []))
             ens = sum(1 for x in sel["rows"] if _unique_family(x) is not None)
             print(f"ARK_OK rows={len(sel['rows'])} entydig={ens} uden_entydig={len(sel['rows']) - ens}")
             return 0
@@ -244,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
         lines = parse_sheet(text)
         sel = sheet_rows(lines, text, rows)
         sql = decision_sql(lines, sel, sheet_sha256=sheet_sha, rows_sha256=selected_rows_sha256(sel))
-        _write_private(out, sql)
+        write_private_replace(out, sql)
         toks = [l.tok for l in lines]
     except SheetError as exc:
         print(str(exc).split(" ")[0])

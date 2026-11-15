@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from decision_sheet_core import SheetError, require_hex64, sql_literal, verify_bound
+from private_io import write_private_new, write_private_replace
 
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 LINE_RE = re.compile(rf"^D (?P<id>{UUID}) (?P<ver>[0-9]+) : (?P<tok>_|[123]|P [1-9][0-9]*|X|N|U)\s*(?:#\s*(?P<note>.*))?$")
@@ -155,7 +156,8 @@ def main() -> int:
     rows_bytes = Path(args.rows).read_bytes()
     rows = json.loads(rows_bytes.decode("utf-8"))
     if args.cmd == "render":
-        out = Path(args.out); out.write_text(render_sheet(rows), encoding="utf-8"); out.chmod(0o600)
+        # Udfyldbart menneskeark: et eksisterende (måske udfyldt) ark overskrives aldrig.
+        write_private_new(Path(args.out), render_sheet(rows))
         print(f"ARK_OK linjer={len(rows)} uden_kandidat={sum(1 for x in rows if not x['candidates'])}")
         print(f"  rows_sha256 {hashlib.sha256(rows_bytes).hexdigest()}")
         return 0
@@ -172,7 +174,7 @@ def main() -> int:
     except SheetError as exc:
         print(str(exc))
         return 1
-    out = Path(args.out); out.write_text(sql, encoding="utf-8"); out.chmod(0o600)
+    write_private_replace(Path(args.out), sql)
     tal = {a: sum(1 for d in decisions if d.action == a) for a in ("same", "different", "new_person_needed", "unresolved")}
     print(f"SQL_OK afgørelser={len(decisions)} {tal}")
     return 0

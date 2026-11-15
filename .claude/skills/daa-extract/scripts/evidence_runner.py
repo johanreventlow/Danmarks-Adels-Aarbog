@@ -258,6 +258,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from private_io import write_private_replace
+
 #: Bumpes, når runnerens egen kontrakt ændrer sig (argv, parsing, validering).
 #: Indgår i cache-nøglen, så et gammelt råsvar ikke genbruges under nye regler.
 #: 1.1 (2026-09-26): date_raw-værdier skal stå ordret i en citeret klausul.
@@ -525,11 +527,11 @@ class ResponseCache:
             if json.loads(path.read_text(encoding="utf-8")) != entry:
                 raise RunnerError("RUNNER_CACHE_CONFLICT")
             return
-        # Opret med 0600 fra starten frem for at rette bagefter: ellers findes filen
-        # et øjeblik med umask'ens rettigheder.
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(entry, handle, ensure_ascii=False, sort_keys=True)
+        # 0600 fra starten og atomisk (review 36, K10): svaret skrives til en tempfil og
+        # erstatter først det endelige navn, når det er helt skrevet.  En afbrudt kørsel
+        # efterlader derfor aldrig en trunkeret cachefil, som `get` ikke kan læse, og som
+        # ville spærre genkørslen.  Append-only-tjekket ovenfor står uændret foran.
+        write_private_replace(path, json.dumps(entry, ensure_ascii=False, sort_keys=True))
 
 
 @dataclass(frozen=True)

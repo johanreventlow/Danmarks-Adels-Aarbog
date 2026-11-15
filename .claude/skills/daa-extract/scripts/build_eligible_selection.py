@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from private_io import write_private_replace  # noqa: E402
 
 from evidence_runner import (EligibilityError, RunnerError, canonical_clause_set,
                              canonical_record_input, check_clauses_within_post,
@@ -222,8 +223,7 @@ def main() -> int:
         print(str(exc))
         return 1
     out = Path(args.out)
-    out.write_text(json.dumps(udvalg, ensure_ascii=False, indent=2), encoding="utf-8")
-    out.chmod(0o600)
+    write_private_replace(out, json.dumps(udvalg, ensure_ascii=False, indent=2))
     print(f"UDVALG_OK records={len(udvalg['records'])} bundter={len(udvalg['bundter'])} "
           f"uden_persona={len(udvalg['uden_persona'])} ikke_i_ledger={len(udvalg['ikke_i_ledger'])}")
     print(f"  strata_sha256 {udvalg['strata_sha256']}")

@@ -10,9 +10,12 @@ del (P) bruges. Fejl er navngivne koder (SystemExit), aldrig fri tekst i generer
 """
 import argparse
 import hashlib
-import os
 import re
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # -I tilføjer ikke scriptets mappe
+from private_io import write_private_replace  # noqa: E402
 
 POINTS = {
     "after-153-commit": ("COMMIT;", 0),
@@ -33,10 +36,10 @@ def _sha(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _write_new(path, text):
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(text)
+def _write_private(path, text):
+    # Maskin-output, der genskabes deterministisk: atomisk erstatning, 0600 fra start
+    # (review 36, K10).  Navnet var `_write_new`, men funktionen har altid overskrevet.
+    write_private_replace(path, text)
 
 
 def prefix(migrations, point, out):
@@ -52,7 +55,7 @@ def prefix(migrations, point, out):
     else:
         raise SystemExit("PREFIX_POINT")
     text = "".join(lines[:n])
-    _write_new(out, text)
+    _write_private(out, text)
     return n, _sha(text)
 
 
@@ -164,7 +167,7 @@ def main(argv=None):
     elif args.cmd == "removal-sql":
         sql, st = removal_sql(open(args.before, encoding="utf-8").read().splitlines(),
                               open(args.after, encoding="utf-8").read().splitlines())
-        _write_new(args.out, sql)
+        _write_private(args.out, sql)
         print(f"REMOVAL_OK drop={st['drop']} skipped_existing={st['skipped_existing']} "
               f"removed_by_ddl={st['removed_by_ddl']} sha256={_sha(sql)}")
     else:
