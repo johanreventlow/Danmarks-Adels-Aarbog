@@ -1,6 +1,8 @@
 import { describe, test, expect } from 'vitest';
-import { buildArbejdsliste, pairKey } from '../sammenlign';
-import type { ScoredPair } from '@daa/core';
+import {
+  beregnKandidatPar, buildArbejdsliste, byggLinketTil, byggMatchetMed, matcherSoegning, pairKey, scorePersonPar,
+} from '../sammenlign';
+import { buildMatchFrame, defaultCfg, type MatchFrame, type RedMatchPerson, type ScoredPair } from '@daa/core';
 
 const sp = (aId: string, bId: string, tier: ScoredPair['tier'], score: number): ScoredPair =>
   ({ aId, bId, nameSim: score, birthOverlap: true, deathOverlap: false, sexEq: true, uniqueBlock: true, score, tier });
@@ -39,12 +41,33 @@ describe('buildArbejdsliste (§5.2)', () => {
     expect(byId['A2'].status).toBe('aaben');
   });
 
-  test('alle kandidater afvist → afklaret', () => {
+  test('alle kandidater afvist → ny (ikke afklaret)', () => {
     const afviste = new Set([pairKey('A2', 'B3')]);
-    const { personer } = buildArbejdsliste(pairs, aIds, afviste, new Set());
+    const { personer, fremdrift } = buildArbejdsliste(pairs, aIds, afviste, new Set());
     const a2 = personer.find((p) => p.aId === 'A2')!;
     expect(a2.kandidater[0].afvist).toBe(true);
-    expect(a2.status).toBe('afklaret');
+    expect(a2.status).toBe('ny');
+    expect(fremdrift.nye).toBe(1);
+    expect(fremdrift.afklaret).toBe(0);
+  });
+
+  test('en afvist SVAG kandidat gør ikke personen ny', () => {
+    const svag = [sp('A9', 'B9', 'none', 0.5)];
+    const { personer } = buildArbejdsliste(svag, ['A9'], new Set([pairKey('A9', 'B9')]), new Set());
+    expect(personer[0].status).toBe('formodet_ny');
+  });
+
+  test('en afvisning andetsteds i basen gør ikke personen ny', () => {
+    const { personer } = buildArbejdsliste([], ['A9'], new Set([pairKey('A9', 'X')]), new Set());
+    expect(personer[0].status).toBe('formodet_ny');
+  });
+
+  test('link uden for matcherens forslag (søgning, persondetalje) afklarer personen', () => {
+    const { personer, fremdrift } = buildArbejdsliste(
+      [], ['A9'], new Set(), new Set([pairKey('A9', 'B9')]), { linketTil: new Map([['A9', 'B9']]) },
+    );
+    expect(personer[0]).toMatchObject({ status: 'afklaret', linketTil: 'B9' });
+    expect(fremdrift.afklaret).toBe(1);
   });
 
   test('fremdrift tæller korrekt', () => {
@@ -54,6 +77,7 @@ describe('buildArbejdsliste (§5.2)', () => {
     expect(fremdrift.gennemse).toBe(1);     // A2 kun review
     expect(fremdrift.formodetNye).toBe(2);  // A3, A4
     expect(fremdrift.afklaret).toBe(0);
+    expect(fremdrift.nye).toBe(0);
   });
 
   test('sortering: åbne før afklarede før formodet-nye', () => {
@@ -110,5 +134,111 @@ describe('svage kandidater (tier=none) bevares til manuel gennemgang', () => {
     expect(l.personer[0].status).toBe('aaben');
     expect(l.personer[0].kandidater.map((k) => k.bId)).toEqual(['god']);
     expect(l.personer[0].svageKandidater.map((k) => k.bId)).toEqual(['svag']);
+  });
+});
+
+describe('A3: afvisninger og 1:1-tildelingen skjuler ikke de næstbedste forslag', () => {
+  const cfg = { ...defaultCfg(), evidensNormaliseret: true };
+  const frame = (id: string, death: number): MatchFrame => ({
+    id, nameKey: 'detlev', birthMin: 1660, birthMax: 1660, deathMin: death, deathMax: death, sex: 'mand',
+  });
+  // A1 er identisk med B1 (★). A2 har samme navn og fødsel, men en anden død → 0,90.
+  const a = [frame('A1', 1730), frame('A2', 1740)];
+  const b = [frame('B1', 1730)];
+
+  test('et par nedgraderet af 1:1-tildelingen står stadig som kandidat', () => {
+    const pairs = beregnKandidatPar(a, b, cfg, new Set());
+    expect(pairs.find((p) => p.aId === 'A2')!.tier).toBe('none'); // matcherens egen dom
+    const l = buildArbejdsliste(pairs, ['A1', 'A2'], new Set(), new Set(), { reviewCutoff: cfg.reviewCutoff });
+    const a2 = l.personer.find((p) => p.aId === 'A2')!;
+    expect(a2.status).toBe('aaben');
+    expect(a2.kandidater.map((k) => [k.bId, k.tier])).toEqual([['B1', 'review']]);
+  });
+
+  test('en afvist ★ frigiver kandidaten til andre personer, men bliver selv stående som afvist', () => {
+    const afviste = new Set([pairKey('A1', 'B1')]);
+    const pairs = beregnKandidatPar(a, b, cfg, afviste);
+    expect(pairs.find((p) => p.aId === 'A2')!.tier).toBe('auto');
+    const l = buildArbejdsliste(pairs, ['A1', 'A2'], afviste, new Set(), { reviewCutoff: cfg.reviewCutoff });
+    const a1 = l.personer.find((p) => p.aId === 'A1')!;
+    expect(a1.kandidater.map((k) => [k.bId, k.afvist])).toEqual([['B1', true]]);
+    expect(a1.status).toBe('ny');
+  });
+
+  test('byggLinketTil peger fra personen i den nye udgave til modparten, begge retninger', () => {
+    const m = byggLinketTil(
+      [{ aId: 'A1', bId: 'B1' }, { aId: 'B2', bId: 'A2' }, { aId: 'A3', bId: 'A4' }],
+      new Set(['A1', 'A2', 'A3', 'A4']),
+    );
+    expect([...m.entries()].sort()).toEqual([['A1', 'B1'], ['A2', 'B2']]);
+  });
+
+  test('byggMatchetMed peger fra kandidaten til personen i den nye udgave, begge retninger', () => {
+    const m = byggMatchetMed(
+      [{ aId: 'A1', bId: 'B1' }, { aId: 'B2', bId: 'A2' }, { aId: 'B3', bId: 'B4' }],
+      new Set(['A1', 'A2']),
+    );
+    expect([...m.entries()].sort()).toEqual([['B1', 'A1'], ['B2', 'A2']]);
+  });
+
+  test('kandidat matchet med en anden person mærkes, mister ★ og sorteres sidst', () => {
+    const pairs = [sp('A2', 'B1', 'auto', 0.95), sp('A2', 'B2', 'review', 0.75)];
+    const l = buildArbejdsliste(pairs, ['A2'], new Set(), new Set(), { matchetMed: new Map([['B1', 'A1']]) });
+    const k = l.personer[0].kandidater;
+    expect(k.map((x) => x.bId)).toEqual(['B2', 'B1']);
+    expect(k[1]).toMatchObject({ matchetMed: 'A1', tier: 'review' });
+    expect(k[0].matchetMed).toBeNull();
+  });
+
+  test('personens eget link mærkes ikke som "matchet med"', () => {
+    const l = buildArbejdsliste(
+      [sp('A1', 'B1', 'auto', 0.95)], ['A1'], new Set(), new Set([pairKey('A1', 'B1')]),
+      { matchetMed: new Map([['B1', 'A1']]) },
+    );
+    expect(l.personer[0].kandidater[0].matchetMed).toBeNull();
+  });
+});
+
+describe('A1: Find modpart', () => {
+  const person = (o: Partial<RedMatchPerson> = {}): RedMatchPerson => ({
+    id: 'b', navn: 'Frederik Christian', fuldtNavn: 'Frederik Christian Reventlow', koen: 'mand',
+    foedsel: { date_min: '1741-03-02', date_max: '1741-03-02' },
+    doed: { date_min: '1801-01-01', date_max: '1801-12-31' },
+    titel: null, sourceIds: [7], staged: false, udenforMatchning: false,
+    bogReferencer: [{ sourceId: 7, linje: 'III', nr: 58, slaegtledLokal: null, slaegtledGennem: null, kuld: null, grenNavn: 'Holstenske linje' }],
+    ...o,
+  });
+
+  test('alle ord skal passe; tom søgning finder intet', () => {
+    expect(matcherSoegning('frederik', person())).toBe(true);
+    expect(matcherSoegning('frederik ludvig', person())).toBe(false);
+    expect(matcherSoegning('   ', person())).toBe(false);
+  });
+
+  test('årstal passer på fødsel eller død med ±2 års tolerance', () => {
+    expect(matcherSoegning('frederik 1743', person())).toBe(true);
+    expect(matcherSoegning('1801', person())).toBe(true);
+    expect(matcherSoegning('frederik 1744', person())).toBe(false);
+  });
+
+  test('stavevarianter foldes som i matcheren', () => {
+    expect(matcherSoegning('Friedrich', person())).toBe(true);
+    expect(matcherSoegning('Kristian', person())).toBe(true);
+  });
+
+  test('bognummer og gren kan søges', () => {
+    expect(matcherSoegning('III-58', person())).toBe(true);
+    expect(matcherSoegning('holstenske', person())).toBe(true);
+  });
+
+  test('scorePersonPar scorer også par med forskelligt forbogstav', () => {
+    const cfg = { ...defaultCfg(), evidensNormaliseret: true };
+    const a = buildMatchFrame({ id: 'a', navn: 'Christian Frederik', koen: 'mand', foedsel: person().foedsel, doed: null });
+    const b = buildMatchFrame(person());
+    const p = scorePersonPar(a, b, cfg);
+    expect(p.birthOverlap).toBe(true);
+    expect(p.deathKendt).toBe(false);
+    expect(p.score).toBeGreaterThan(0);
+    expect(p.score).toBeLessThanOrEqual(1);
   });
 });

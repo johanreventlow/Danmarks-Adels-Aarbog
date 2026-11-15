@@ -2,6 +2,26 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: »Sammenlign udgaver« får fire afgrænsede rettelser som legacy-afvikling, ikke ny matcher (2026-11-15)
+
+> Projektejeren valgte (a) efter et review af `/redaktion/sammenlign`: efter de åbenlyse matches står en rest, hvor
+> det rigtige match ikke foreslås, og der er ingen måde at finde det på.
+>
+> - **Roadmap:** midlertidig legacy-afvikling under trin 5/6 (#151 »én identitetsvej«). Formålet er at gøre den
+>   resterende 1939↔2018-20-afstemning færdig med den flade, der findes; ingen ny permanent overflade og ingen
+>   omprioritering.
+> - **Indhold (kun web-laget, ingen DDL, ingen ændring af `@daa/core`-matcheren):** (A1) »Find modpart«-søgning på
+>   hele den anden side; (A2) svage forslag kan vises for alle personer; (A3) afviste par holdes ude af matcherens
+>   1:1-tildeling, kandidater under tærsklen pga. 1:1-tildelingen vises stadig, og en kandidat der allerede er matchet
+>   med en anden person mærkes og sorteres sidst (skjules ikke — fail-open); (A4) en person hvis kandidater alle er
+>   afvist, får status »ny« og egen fane i stedet for at stå som »X = (ukendt)« under Bekræftede.
+> - **Sideeffekt (bevidst):** en person er nu afklaret, så snart den har et `samme_som`-link til den anden side —
+>   uanset om linket er lavet i arbejdslisten, i »Find modpart«, i persondetaljen eller af importkæden. Før talte kun
+>   links til matcherens egne forslag, så tallene på arbejdslisten flytter sig på rigtige data.
+> - **Fravalgt her:** familiesignal, ord-for-ord-navnelighed og bløde årstalsgrænser i matcheren. Det er
+>   matcherudvikling og hører i den fælles identitetsvej (`packages/identity-candidates`), hvis det tages op.
+> - **Færdigbevis:** web-testene dækker de fire tilfælde; projektejeren afprøver resten af listen i preview.
+
 ## BESLUTTET: mobil web — én række og en menu på telefonen; ingen bundfaner i fase 9 (webredesign fase 9, 2026-11-15)
 
 > Projektejeren sprang spørgsmålene over og godkendte planen

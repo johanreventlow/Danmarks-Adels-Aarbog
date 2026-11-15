@@ -4,9 +4,9 @@
 // eksisterende base = kanonisk (objekt/sink), ny udgaves person = alias (subjekt).
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  matchUdgaver, buildMatchFrame, collapseSameAs, previewSammeSom, parseYear, defaultCfg,
+  buildMatchFrame, collapseSameAs, previewSammeSom, parseYear, defaultCfg,
   udledKilderForAegtefaeller,
-  type MatchFrame, type RedMatchPerson, type Db, type SameAsEdge, type Union, type ParentChild,
+  type MatchFrame, type RedMatchPerson, type ScoredPair, type Db, type SameAsEdge, type Union, type ParentChild,
 } from '@daa/core';
 import {
   fetchSources, fetchMatchPersoner, fetchIkkeSammeSomPar, fetchSammeSomPar, fetchFamilyGraph,
@@ -14,7 +14,10 @@ import {
   type KandidatDetalje, type MatchAuditPost, type MatchRelationPar, type SourceRow,
 } from '../data/redaktionRead';
 import { describeCall, oversaetFejl, submitChange, type Change } from '../data/redaktionWrite';
-import { buildArbejdsliste, pairKey, type Kandidat } from '../data/sammenlign';
+import {
+  beregnKandidatPar, buildArbejdsliste, byggLinketTil, byggMatchetMed, matcherSoegning, pairKey, scorePersonPar,
+  type ArbejdslistePerson, type Kandidat,
+} from '../data/sammenlign';
 import { KandidatSammenligning } from './KandidatSammenligning';
 import {
   MatchOversigt, foraeldreNavne, formatBogReferencer, formatPersonNavn,
@@ -80,8 +83,13 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
   const [busy, setBusy] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [aabentPar, setAabentPar] = useState<string | null>(null);
-  const [aktivFane, setAktivFane] = useState<'arbejdsliste' | 'bekraeftede' | 'karantaene' | 'historik'>('arbejdsliste');
+  const [aktivFane, setAktivFane] = useState<'arbejdsliste' | 'bekraeftede' | 'nye' | 'karantaene' | 'historik'>('arbejdsliste');
   const [arbejdslisteSoegning, setArbejdslisteSoegning] = useState('');
+  // Personer hvis svage forslag (under tærsklen) er foldet ud.
+  const [visSvage, setVisSvage] = useState<Set<string>>(() => new Set());
+  // »Find modpart«: hvilken person søgningen er åben for, og søgeteksten.
+  const [modpartFor, setModpartFor] = useState<string | null>(null);
+  const [modpartSoegning, setModpartSoegning] = useState('');
   const [detaljeCache, setDetaljeCache] = useState<Map<string, KandidatDetalje>>(() => new Map());
   const [detaljeLoading, setDetaljeLoading] = useState<Set<string>>(() => new Set());
   const [detaljeFejl, setDetaljeFejl] = useState<Map<string, string>>(() => new Map());
@@ -206,6 +214,14 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     [personer, familieGraf.unions],
   );
 
+  const matchCfg = useMemo(() => ({ ...defaultCfg(), evidensNormaliseret: true }), []);
+  const linkedeKeys = useMemo(() => new Set(linkede.map((x) => pairKey(x.aId, x.bId))), [linkede]);
+  const { matchetMed, linketTil } = useMemo(() => {
+    if (nyKildeId == null) return { matchetMed: new Map<string, string>(), linketTil: new Map<string, string>() };
+    const aSide = new Set(personerMedKilde.filter((p) => p.sourceIds.includes(nyKildeId)).map((p) => String(p.id)));
+    return { matchetMed: byggMatchetMed(linkede, aSide), linketTil: byggLinketTil(linkede, aSide) };
+  }, [personerMedKilde, nyKildeId, linkede]);
+
   const arbejdsliste = useMemo(() => {
     if (nyKildeId == null) return null;
     const framesA: MatchFrame[] = [], framesB: MatchFrame[] = [], aIds: string[] = [];
@@ -224,18 +240,35 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     // Målt mod prod: personer med mindst ét forslag går 442 -> 815 af 835.
     // assignTiers kapper navn-alene-match til "gennemsyn" (måling: 152 -> 0 par
     // markeret stærke uden ét eneste årstal).
-    const pairs = matchUdgaver(framesA, framesB, { ...defaultCfg(), evidensNormaliseret: true });
+    const afvisteKeys = new Set(afviste.map((x) => pairKey(x.aId, x.bId)));
+    // Afviste par tages ud før 1:1-tildelingen, så de ikke blokerer de næstbedste forslag.
+    const pairs = beregnKandidatPar(framesA, framesB, matchCfg, afvisteKeys);
     return buildArbejdsliste(
-      pairs, aIds,
-      new Set(afviste.map((x) => pairKey(x.aId, x.bId))),
-      new Set(linkede.map((x) => pairKey(x.aId, x.bId))),
+      pairs, aIds, afvisteKeys, linkedeKeys,
+      { reviewCutoff: matchCfg.reviewCutoff, matchetMed, linketTil },
     );
-  }, [personerMedKilde, nyKildeId, afviste, linkede]);
-  const { aabne, afklarede, formodetNye } = useMemo(() => {
+  }, [personerMedKilde, nyKildeId, afviste, linkedeKeys, matchetMed, linketTil, matchCfg]);
+
+  // »Find modpart«: hele den anden side (alle uden for den valgte udgave), filtreret på søgeteksten
+  // og rangeret med samme score som arbejdslisten. Ingen blocking, intet årsvindue, ingen tærskel —
+  // det er netop de par, matcheren ikke stiller op, redaktøren skal kunne finde.
+  const MAKS_MODPARTER = 25;
+  const modpartResultat = useMemo(() => {
+    const a = modpartFor != null ? byId.get(modpartFor) : undefined;
+    if (!a || nyKildeId == null || !modpartSoegning.trim()) return { hits: [], total: 0 };
+    const fa = buildMatchFrame(a);
+    const alle = personerMedKilde
+      .filter((p) => p.id !== a.id && !p.sourceIds.includes(nyKildeId) && matcherSoegning(modpartSoegning, p))
+      .map((p) => ({ p, par: scorePersonPar(fa, buildMatchFrame(p), matchCfg) }))
+      .sort((x, y) => (y.par.score ?? 0) - (x.par.score ?? 0));
+    return { hits: alle.slice(0, MAKS_MODPARTER), total: alle.length };
+  }, [modpartFor, modpartSoegning, byId, personerMedKilde, nyKildeId, matchCfg]);
+  const { aabne, afklarede, nye, formodetNye } = useMemo(() => {
     const arbejdspersoner = arbejdsliste?.personer ?? [];
     return {
       aabne: arbejdspersoner.filter((p) => p.status === 'aaben'),
       afklarede: arbejdspersoner.filter((p) => p.status === 'afklaret'),
+      nye: arbejdspersoner.filter((p) => p.status === 'ny'),
       formodetNye: arbejdspersoner.filter((p) => p.status === 'formodet_ny'),
     };
   }, [arbejdsliste]);
@@ -249,20 +282,6 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
           visning(byId.get(String(kandidat.bId))).toLocaleLowerCase('da-DK').includes(needle));
     });
   }, [aabne, arbejdslisteSoegning, byId]);
-  const ubekraeftedeFoldHints = useMemo(() => {
-    const hints = new Map<string, { folder: boolean; grund: string | null }>();
-    for (const person of aabne) {
-      for (const kandidat of person.kandidater) {
-        if (kandidat.linket) continue;
-        const bId = String(kandidat.bId);
-        hints.set(
-          pairKey(person.aId, bId),
-          previewSammeSom(rawDb, existingEdges, { alias: person.aId, canonical: bId }),
-        );
-      }
-    }
-    return hints;
-  }, [aabne, rawDb, existingEdges]);
 
   // Bøttet child->[ParentChild] én gang, så foraeldreNavne() slår O(1) op i stedet for
   // at scanne HELE familieGraf.parentChild (~1500-2000 kanter) for hver kandidat-række.
@@ -400,14 +419,169 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
 
   // Fold-hint pr. par: for et allerede bekræftet link, slå op om DET par er en af de karantænerede
   // grupper (fra den ÉN kørsel over alle bekræftede kanter ovenfor); for et endnu ubekræftet par,
-  // slå den memoiserede previewSammeSom-beregning op. RÅDGIVENDE (offentlig visning kan afvige
-  // pga. RLS/completeness) — se sammeSomPreflight.ts-header.
+  // kør previewSammeSom — dovent, kun for par der faktisk vises (åbnet sammenligning), og cachet
+  // pr. retning indtil datasættet ændres. Før blev den kørt for ALLE åbne kandidater ved hver
+  // ændring. RÅDGIVENDE (offentlig visning kan afvige pga. RLS/completeness) — se
+  // sammeSomPreflight.ts-header.
+  const foldPreviewCache = useMemo(
+    () => new Map<string, { folder: boolean; grund: string | null }>(),
+    [rawDb, existingEdges],
+  );
   const foldHint = (aId: string, bId: string, linket: boolean): { folder: boolean; grund: string | null } => {
     if (linket) {
       const grund = karantaeneByPersonId.get(aId) ?? karantaeneByPersonId.get(bId) ?? null;
       return { folder: grund == null, grund };
     }
-    return ubekraeftedeFoldHints.get(pairKey(aId, bId)) ?? { folder: false, grund: null };
+    const noegle = `${aId}>${bId}`;
+    let hint = foldPreviewCache.get(noegle);
+    if (!hint) {
+      hint = previewSammeSom(rawDb, existingEdges, { alias: aId, canonical: bId });
+      foldPreviewCache.set(noegle, hint);
+    }
+    return hint;
+  };
+
+  // Én kandidatrække: navn, signaler, detaljer, Sammenlign/Bekræft og (når åben) sammenligningen.
+  // Bruges af arbejdslisten, de svage forslag og »Find modpart«.
+  const renderPar = (aId: string, bId: string, info: {
+    tierLabel: string;
+    signaler: Pick<ScoredPair, 'score' | 'nameSim' | 'birthOverlap' | 'deathOverlap' | 'sexEq'>;
+    matchetMed?: string | null;
+    linket?: boolean;
+  }) => {
+    const a = byId.get(aId);
+    const b = byId.get(bId);
+    const k = info.signaler;
+    const linket = !!info.linket;
+    const erAabent = aabentPar === pairKey(aId, bId);
+    const detaljeA = detaljeCache.get(aId);
+    const detaljeB = detaljeCache.get(bId);
+    const detaljerIndlaeses = detaljeLoading.has(aId) || detaljeLoading.has(bId);
+    const detaljeError = detaljeFejl.get(aId) ?? detaljeFejl.get(bId) ?? null;
+    // Fold-preview kører hele collapseSameAs, så den beregnes kun for det åbne par.
+    const hint = erAabent ? foldHint(aId, bId, linket) : null;
+    const advice = hint?.grund ? foldAdvice(hint.grund) : null;
+    const bDetaljer = [
+      foraeldreNavne(bId, foraeldreEdgesFor(bId), byId),
+      formatBogReferencer(b),
+    ].filter(Boolean);
+    return (
+      <div key={bId} style={{ marginTop: '.4rem', paddingTop: '.4rem', borderTop: `1px dashed ${T.line}` }}>
+        <span style={{ fontWeight: 600 }}>{info.tierLabel}</span>
+        {' '}<code>{(k.score ?? 0).toFixed(3)}</code> — {visning(b)}
+        <span style={{ fontSize: '.8em', color: T.inkMuted, marginLeft: '.5rem' }}>
+          navn {k.nameSim.toFixed(2)} · fødsel {k.birthOverlap ? '✓' : '—'} · død {k.deathOverlap ? '✓' : '—'} · køn {k.sexEq ? '✓' : '✗'}
+        </span>
+        {info.matchetMed && (
+          <div style={{ fontSize: '.8em', color: T.bordeaux, marginTop: '.15rem' }}>
+            Allerede matchet med {visning(byId.get(info.matchetMed))}
+          </div>
+        )}
+        {bDetaljer.length > 0 && (
+          <div style={{ fontSize: '.82em', color: T.inkMuted, marginTop: '.15rem' }}>
+            {bDetaljer.join(' · ')}
+          </div>
+        )}
+        <button type="button" style={{ marginTop: '.35rem', fontSize: '.85em' }}
+          onClick={() => toggleSammenligning(aId, bId)}>
+          {erAabent ? 'Luk sammenligning' : 'Sammenlign'}
+        </button>
+        <button type="button" style={{ marginTop: '.35rem', marginLeft: '.35rem', fontSize: '.85em' }}
+          disabled={linket || busy === `s:${aId}:${bId}`}
+          onClick={() => {
+            if (window.confirm('Bekræft ' + visning(a) + ' = ' + visning(b) + ' som samme person uden at se sammenligningen?')) {
+              bekraeft(aId, bId);
+            }
+          }}>
+          {busy === `s:${aId}:${bId}` ? 'Gemmer…' : '✓ Bekræft'}
+        </button>
+        {erAabent && hint && (
+          detaljeError
+            ? <p style={{ color: T.bordeaux }}>Kunne ikke hente kandidatdetaljer: {detaljeError}</p>
+            : detaljeA && detaljeB && a && b
+              ? <KandidatSammenligning
+                  personA={a}
+                  personB={b}
+                  detaljeA={detaljeA}
+                  detaljeB={detaljeB}
+                  kildeA={kildeLabel(a.sourceIds)}
+                  kildeB={kildeLabel(b.sourceIds)}
+                  rolleA="alias"
+                  rolleB="kanonisk"
+                  navnById={navnById}
+                  foldHint={hint}
+                  foldAdvice={advice}
+                  linket={linket}
+                  busyAction={busy === `s:${aId}:${bId}`
+                    ? 'bekraeft'
+                    : busy === `a:${aId}:${bId}` ? 'afvis' : null}
+                  onBekraeft={() => bekraeft(aId, bId)}
+                  onAfvis={() => afvis(aId, bId)}
+                />
+              : <p style={{ color: T.inkMuted }}>
+                  {detaljerIndlaeses ? 'Indlæser kandidatdetaljer…' : 'Kandidatdetaljer mangler.'}
+                </p>
+        )}
+      </div>
+    );
+  };
+
+  // Svage forslag (under tærsklen) for en person, foldet ind som standard. Matcheren pålægger dem
+  // ikke som arbejde, men det rigtige match ligger ofte her, når navn eller årstal afviger.
+  const renderSvage = (person: ArbejdslistePerson) => {
+    const svage = person.svageKandidater.filter((k) => !k.afvist);
+    if (!svage.length) return null;
+    const vis = visSvage.has(person.aId);
+    return (
+      <div style={{ marginTop: '.4rem' }}>
+        <button type="button" style={{ fontSize: '.85em' }} aria-expanded={vis}
+          onClick={() => setVisSvage((prev) => {
+            const next = new Set(prev);
+            if (next.has(person.aId)) next.delete(person.aId); else next.add(person.aId);
+            return next;
+          })}>
+          {vis ? 'Skjul svage forslag' : `Vis ${svage.length} svag${svage.length === 1 ? 't' : 'e'} forslag`}
+        </button>
+        {vis && svage.map((k) => renderPar(person.aId, String(k.bId), {
+          tierLabel: 'svag', signaler: k, matchetMed: k.matchetMed, linket: k.linket,
+        }))}
+      </div>
+    );
+  };
+
+  const renderFindModpart = (aId: string) => {
+    const aaben = modpartFor === aId;
+    return (
+      <div style={{ marginTop: '.4rem' }}>
+        <button type="button" style={{ fontSize: '.85em' }} aria-expanded={aaben}
+          onClick={() => { setModpartFor(aaben ? null : aId); setModpartSoegning(''); }}>
+          {aaben ? 'Luk søgning' : 'Find modpart'}
+        </button>
+        {aaben && (
+          <div style={{ marginTop: '.4rem', padding: '.4rem .6rem', background: T.surfaceSunken, borderRadius: 4 }}>
+            <input type="search" aria-label="Søg modpart" autoFocus value={modpartSoegning}
+              placeholder="Navn, årstal eller bognr., fx »Frederik 1741«"
+              onChange={(e) => setModpartSoegning(e.target.value)} style={{ width: '100%', maxWidth: '28rem' }} />
+            <div style={{ fontSize: '.8em', color: T.inkMuted, marginTop: '.25rem' }}>
+              Søger i alle personer uden for den valgte udgave. Årstal passer på fødsel eller død ±2 år.
+            </div>
+            {modpartSoegning.trim() && modpartResultat.total === 0 && (
+              <p style={{ color: T.inkMuted, margin: '.4rem 0 0' }}>Ingen personer matcher søgningen.</p>
+            )}
+            {modpartResultat.total > modpartResultat.hits.length && (
+              <p style={{ fontSize: '.8em', color: T.inkMuted, margin: '.4rem 0 0' }}>
+                Viser de {modpartResultat.hits.length} bedste af {modpartResultat.total} — skriv mere for at indsnævre.
+              </p>
+            )}
+            {modpartResultat.hits.map(({ p, par }) => renderPar(aId, p.id, {
+              tierLabel: 'søgning', signaler: par,
+              matchetMed: matchetMed.get(p.id) !== aId ? matchetMed.get(p.id) ?? null : null,
+              linket: linkedeKeys.has(pairKey(aId, p.id)),
+            }))}
+          </div>
+        )}
+      </div>
+    );
   };
 
   if (loading && personer.length === 0) return (
@@ -458,7 +632,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
 
       {f && (
         <p style={{ fontSize: '.9em', color: T.inkMuted }}>
-          {f.afklaret} af {f.total} afklaret · {f.staerke} stærke kandidater · {f.gennemse} til gennemsyn · {f.formodetNye} formodet nye
+          {f.afklaret + f.nye} af {f.total} afklaret ({f.afklaret} matchet · {f.nye} nye) · {f.staerke} stærke kandidater · {f.gennemse} til gennemsyn · {f.formodetNye} formodet nye
         </p>
       )}
 
@@ -472,6 +646,11 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
           aria-current={aktivFane === 'bekraeftede' ? 'true' : undefined}
           style={{ fontWeight: aktivFane === 'bekraeftede' ? 700 : 400 }}>
           Bekræftede ({afklarede.length})
+        </button>
+        <button type="button" onClick={() => setAktivFane('nye')}
+          aria-current={aktivFane === 'nye' ? 'true' : undefined}
+          style={{ fontWeight: aktivFane === 'nye' ? 700 : 400 }}>
+          Nye ({nye.length})
         </button>
         <button type="button" onClick={() => setAktivFane('karantaene')}
           aria-current={aktivFane === 'karantaene' ? 'true' : undefined}
@@ -514,76 +693,12 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
                 {aDetaljer.join(' · ')}
               </div>
             )}
-            {person.kandidater.filter((k) => !k.afvist).map((k) => {
-              const b = byId.get(String(k.bId));
-              const bId = String(k.bId);
-              const parNoegle = pairKey(person.aId, bId);
-              const erAabent = aabentPar === parNoegle;
-              const detaljeA = detaljeCache.get(person.aId);
-              const detaljeB = detaljeCache.get(bId);
-              const detaljerIndlaeses = detaljeLoading.has(person.aId) || detaljeLoading.has(bId);
-              const detaljeError = detaljeFejl.get(person.aId) ?? detaljeFejl.get(bId) ?? null;
-              const hint = foldHint(person.aId, bId, k.linket);
-              const advice = hint.grund ? foldAdvice(hint.grund) : null;
-              const bDetaljer = [
-                foraeldreNavne(bId, foraeldreEdgesFor(bId), byId),
-                formatBogReferencer(b),
-              ].filter(Boolean);
-              return (
-                <div key={String(k.bId)} style={{ marginTop: '.4rem', paddingTop: '.4rem', borderTop: `1px dashed ${T.line}` }}>
-                  <span style={{ fontWeight: 600 }}>{k.tier === 'auto' ? '★ stærk' : 'gennemse'}</span>
-                  {' '}<code>{(k.score ?? 0).toFixed(3)}</code> — {visning(b)}
-                  <span style={{ fontSize: '.8em', color: T.inkMuted, marginLeft: '.5rem' }}>
-                    navn {k.nameSim.toFixed(2)} · fødsel {k.birthOverlap ? '✓' : '—'} · død {k.deathOverlap ? '✓' : '—'} · køn {k.sexEq ? '✓' : '✗'}
-                  </span>
-                  {bDetaljer.length > 0 && (
-                    <div style={{ fontSize: '.82em', color: T.inkMuted, marginTop: '.15rem' }}>
-                      {bDetaljer.join(' · ')}
-                    </div>
-                  )}
-                  <button type="button" style={{ marginTop: '.35rem', fontSize: '.85em' }}
-                    onClick={() => toggleSammenligning(person.aId, bId)}>
-                    {erAabent ? 'Luk sammenligning' : 'Sammenlign'}
-                  </button>
-                  <button type="button" style={{ marginTop: '.35rem', marginLeft: '.35rem', fontSize: '.85em' }}
-                    disabled={!!k.linket || busy === `s:${person.aId}:${bId}`}
-                    onClick={() => {
-                      if (window.confirm('Bekræft ' + visning(a) + ' = ' + visning(b) + ' som samme person uden at se sammenligningen?')) {
-                        bekraeft(person.aId, bId);
-                      }
-                    }}>
-                    {busy === `s:${person.aId}:${bId}` ? 'Gemmer…' : '✓ Bekræft'}
-                  </button>
-                  {erAabent && (
-                    detaljeError
-                      ? <p style={{ color: T.bordeaux }}>Kunne ikke hente kandidatdetaljer: {detaljeError}</p>
-                      : detaljeA && detaljeB && a && b
-                        ? <KandidatSammenligning
-                            personA={a}
-                            personB={b}
-                            detaljeA={detaljeA}
-                            detaljeB={detaljeB}
-                            kildeA={kildeLabel(a.sourceIds)}
-                            kildeB={kildeLabel(b.sourceIds)}
-                            rolleA="alias"
-                            rolleB="kanonisk"
-                            navnById={navnById}
-                            foldHint={hint}
-                            foldAdvice={advice}
-                            linket={k.linket}
-                            busyAction={busy === `s:${person.aId}:${bId}`
-                              ? 'bekraeft'
-                              : busy === `a:${person.aId}:${bId}` ? 'afvis' : null}
-                            onBekraeft={() => bekraeft(person.aId, bId)}
-                            onAfvis={() => afvis(person.aId, bId)}
-                          />
-                        : <p style={{ color: T.inkMuted }}>
-                            {detaljerIndlaeses ? 'Indlæser kandidatdetaljer…' : 'Kandidatdetaljer mangler.'}
-                          </p>
-                  )}
-                </div>
-              );
-            })}
+            {person.kandidater.filter((k) => !k.afvist).map((k) => renderPar(person.aId, String(k.bId), {
+              tierLabel: k.tier === 'auto' ? '★ stærk' : 'gennemse', signaler: k,
+              matchetMed: k.matchetMed, linket: k.linket,
+            }))}
+            {renderSvage(person)}
+            {renderFindModpart(person.aId)}
           </div>
         );
           })}
@@ -618,7 +733,8 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
       {/* Bekræftede matches (§7.20): kun HER kan en staged 1939-person vælges til selektiv
           publicering — allerede publicerede vises med et badge i stedet for afkrydsning.
           Adskilt fra `aabne`, fordi buildArbejdsliste flytter en person hertil i samme
-          øjeblik ÉT af dens kandidater bekræftes (uanset øvrige kandidaters status). */}
+          øjeblik den har et samme_som-link til den anden side — uanset om linket kom fra et
+          forslag, »Find modpart« eller persondetaljen (uanset øvrige kandidaters status). */}
       {aktivFane === 'bekraeftede' && (
         <section style={{ marginTop: '.75rem' }}>
           <h3>
@@ -646,9 +762,9 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
                   {afklarede.map((person) => {
                     const a = byId.get(person.aId);
                     const staged = a?.staged ?? false;
-                    const linket = person.kandidater.find((k) => k.linket);
-                    const b = linket ? byId.get(String(linket.bId)) : undefined;
-                    const hint = linket ? foldHint(person.aId, String(linket.bId), true) : { folder: false, grund: null };
+                    const bId = person.linketTil;
+                    const b = bId ? byId.get(bId) : undefined;
+                    const hint = bId ? foldHint(person.aId, bId, true) : { folder: false, grund: null };
                     const advice = hint.grund ? foldAdvice(hint.grund) : null;
                     return (
                       <li key={person.aId} style={{ padding: '.4rem 0', borderBottom: '1px dashed rgba(34,31,26,.08)' }}>
@@ -665,6 +781,55 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
                           {hint.folder ? '✓ foldes offentligt til én person' : `foldes IKKE endnu offentligt: ${hint.grund}`}
                           {!hint.folder && advice && <div style={{ color: T.inkMuted }}>{advice}</div>}
                         </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
+        </section>
+      )}
+
+      {/* Personer hvis kandidater alle er afvist (»Markér som ny person«). Før stod de under
+          Bekræftede som "X = (ukendt)". Staged personer kan publiceres herfra som under Bekræftede. */}
+      {aktivFane === 'nye' && (
+        <section style={{ marginTop: '.75rem' }}>
+          <h3>{nye.length} markeret som ny{nye.length === 1 ? '' : 'e'} person{nye.length === 1 ? '' : 'er'}</h3>
+          <p style={{ fontSize: '.85em', color: T.inkMuted }}>
+            Alle forslag over tærsklen er afvist. Fortryd en afvisning under Historik.
+          </p>
+          {nye.length === 0
+            ? <p style={{ color: T.inkMuted }}>Ingen personer er markeret som nye.</p>
+            : (
+              <>
+                <div style={{ margin: '.6rem 0' }}>
+                  <button type="button" disabled={!!busy || valgteTilPublicering.size === 0} onClick={publicerValgte}>
+                    {busy === 'publicer' ? 'Gemmer…' : `Publicér valgte (${valgteTilPublicering.size})`}
+                  </button>
+                </div>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                  {nye.map((person) => {
+                    const a = byId.get(person.aId);
+                    const detaljer = [
+                      foraeldreNavne(person.aId, foraeldreEdgesFor(person.aId), byId),
+                      formatBogReferencer(a),
+                    ].filter(Boolean);
+                    return (
+                      <li key={person.aId} style={{ padding: '.4rem 0', borderBottom: '1px dashed rgba(34,31,26,.08)' }}>
+                        {a?.staged ? (
+                          <label style={{ cursor: 'pointer' }}>
+                            <input type="checkbox" checked={valgteTilPublicering.has(person.aId)}
+                              onChange={() => toggleValgtTilPublicering(person.aId)} style={{ marginRight: '.4rem' }} />
+                            {visning(a)}
+                          </label>
+                        ) : (
+                          <span>{visning(a)} <span style={{ fontSize: '.8em', color: '#3d7a3d' }}>✓ publiceret</span></span>
+                        )}
+                        {detaljer.length > 0 && (
+                          <div style={{ fontSize: '.8em', color: T.inkMuted, marginTop: '.15rem' }}>{detaljer.join(' · ')}</div>
+                        )}
+                        {renderSvage(person)}
+                        {renderFindModpart(person.aId)}
                       </li>
                     );
                   })}
@@ -707,33 +872,10 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
               return (
                 <li key={p.aId} style={{ marginBottom: svage.length ? '.5rem' : 0 }}>
                   {visning(byId.get(p.aId))}
-                  {svage.map((k) => {
-                    const bId = String(k.bId);
-                    const b = byId.get(bId);
-                    return (
-                      <div key={bId} style={{ marginTop: '.25rem', marginLeft: '1rem' }}>
-                        <code>{(k.score ?? 0).toFixed(3)}</code> — {visning(b)}
-                        <span style={{ fontSize: '.85em', marginLeft: '.4rem' }}>
-                          navn {k.nameSim.toFixed(2)} · fødsel {k.birthOverlap ? '✓' : '—'}
-                          {' '}· død {k.deathOverlap ? '✓' : '—'} · køn {k.sexEq ? '✓' : '✗'}
-                        </span>
-                        <button type="button" style={{ marginLeft: '.4rem', fontSize: '.85em' }}
-                          onClick={() => toggleSammenligning(p.aId, bId)}>
-                          {aabentPar === `${p.aId}:${bId}` ? 'Luk' : 'Sammenlign'}
-                        </button>
-                        <button type="button" style={{ marginLeft: '.35rem', fontSize: '.85em' }}
-                          disabled={busy === `s:${p.aId}:${bId}`}
-                          onClick={() => {
-                            const navnA = visning(byId.get(p.aId));
-                            if (window.confirm(`Bekræft ${navnA} = ${visning(b)} som samme person?`)) {
-                              bekraeft(p.aId, bId);
-                            }
-                          }}>
-                          {busy === `s:${p.aId}:${bId}` ? 'Gemmer…' : '✓ Bekræft'}
-                        </button>
-                      </div>
-                    );
-                  })}
+                  {svage.map((k) => renderPar(p.aId, String(k.bId), {
+                    tierLabel: 'svag', signaler: k, matchetMed: k.matchetMed, linket: k.linket,
+                  }))}
+                  {renderFindModpart(p.aId)}
                 </li>
               );
             })}
