@@ -15,6 +15,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   1:1-tildeling, kandidater under tærsklen pga. 1:1-tildelingen vises stadig, og en kandidat der allerede er matchet
 >   med en anden person mærkes og sorteres sidst (skjules ikke — fail-open); (A4) en person hvis kandidater alle er
 >   afvist, får status »ny« og egen fane i stedet for at stå som »X = (ukendt)« under Bekræftede.
+> - **Sideeffekt (bevidst):** en person er nu afklaret, så snart den har et `samme_som`-link til den anden side —
+>   uanset om linket er lavet i arbejdslisten, i »Find modpart«, i persondetaljen eller af importkæden. Før talte kun
+>   links til matcherens egne forslag, så tallene på arbejdslisten flytter sig på rigtige data.
 > - **Fravalgt her:** familiesignal, ord-for-ord-navnelighed og bløde årstalsgrænser i matcheren. Det er
 >   matcherudvikling og hører i den fælles identitetsvej (`packages/identity-candidates`), hvis det tages op.
 > - **Færdigbevis:** web-testene dækker de fire tilfælde; projektejeren afprøver resten af listen i preview.
