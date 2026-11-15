@@ -383,8 +383,14 @@ def test_inventory_metrics_are_exact_and_reconciled_to_candidates(axis: str) -> 
         )
 
 
-def test_output_policy_rejects_repo_work_symlink_and_nonprivate_directory(tmp_path: Path) -> None:
-    repo_root = HERE.parents[3]
+def test_output_policy_rejects_repo_work_symlink_and_nonprivate_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # En kunstig repo-rod: CI's checkout ligger under /home/runner/work/…, så den rigtige
+    # rod rammer OUTPUT_WORK_PATH, før repo-vagten nås.
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(mode=0o700)
+    monkeypatch.setattr(review, "REPO_ROOT", repo_root)
     with pytest.raises(review.PublicationError, match="OUTPUT_INSIDE_REPOSITORY"):
         review.open_output_directory(repo_root)
     with pytest.raises(review.PublicationError, match="OUTPUT_WORK_PATH"):
