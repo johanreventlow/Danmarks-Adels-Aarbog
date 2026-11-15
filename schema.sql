@@ -6962,6 +6962,9 @@ CREATE INDEX IF NOT EXISTS ix_lineage_src_kode   ON lineage(source_id, kode);
 CREATE INDEX IF NOT EXISTS ix_fact_subjekt       ON fact(subjekt_type, subjekt_id);
 CREATE INDEX IF NOT EXISTS ix_assertion_target   ON assertion(target_type, target_id);
 CREATE INDEX IF NOT EXISTS ix_conclusion_target  ON conclusion(target_type, target_id);
+-- Kodereview 36 P6: FK'en til assertion uden indeks gav en fuld scanning af conclusion pr. slettet påstand
+-- (FK-tjekket og trg_regen_from_assertion), fx i red_reverse_reimport's sletteløkke.
+CREATE INDEX IF NOT EXISTS ix_conclusion_valgt_assertion ON conclusion(valgt_assertion_id);
 CREATE INDEX IF NOT EXISTS ix_citation_assertion ON citation(assertion_id);
 CREATE INDEX IF NOT EXISTS ix_note_target        ON note(target_type, target_id);
 CREATE INDEX IF NOT EXISTS ix_relation_subjekt   ON relation(subjekt_type, subjekt_id);

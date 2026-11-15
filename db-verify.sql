@@ -11009,3 +11009,16 @@ BEGIN
   SELECT count(*) INTO v_n FROM private.membership_current_set();
   RAISE NOTICE 'OK: trin 6e-2 — koordinat-RPC og mængdebaseret medlemskab (% gældende, 0 forskelle)',v_n;
 END $verify_6e2_koordinater$;
+
+-- Kodereview 36 P6: FK'en conclusion.valgt_assertion_id har et indeks, hvis første kolonne er netop den.
+DO $verify_p6_conclusion_index$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_index i
+     WHERE i.indrelid='public.conclusion'::regclass AND i.indisvalid
+       AND i.indkey[0]=(SELECT a.attnum FROM pg_attribute a
+                         WHERE a.attrelid='public.conclusion'::regclass AND a.attname='valgt_assertion_id')) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: P6 conclusion.valgt_assertion_id mangler indeks';
+  END IF;
+  RAISE NOTICE 'OK: P6 — conclusion.valgt_assertion_id er indekseret';
+END $verify_p6_conclusion_index$;

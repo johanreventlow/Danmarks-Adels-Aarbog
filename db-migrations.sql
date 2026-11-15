@@ -36073,3 +36073,10 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.public_person_facts(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.public_person_facts(bigint[]) TO anon,authenticated;
+
+-- ===== kodereview-36-p6: indeks på conclusion.valgt_assertion_id =====
+-- Kodereview 36 P6. FK'en conclusion.valgt_assertion_id → assertion(id) havde intet indeks, så hver DELETE FROM
+-- assertion (FK-tjekket og trg_regen_from_assertion) scannede hele conclusion — M×N i fx red_reverse_reimport's
+-- sletteløkke. Prod 2026-11-15: kun conclusion_pkey, conclusion_target_type_target_id_key og ix_conclusion_target;
+-- 9.262 rækker. ix_conclusion_target er en dublet af den unikke nøgle, men røres ikke her. Idempotent.
+CREATE INDEX IF NOT EXISTS ix_conclusion_valgt_assertion ON public.conclusion (valgt_assertion_id);
