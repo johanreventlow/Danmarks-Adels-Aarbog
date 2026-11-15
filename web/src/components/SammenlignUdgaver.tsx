@@ -282,20 +282,6 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
           visning(byId.get(String(kandidat.bId))).toLocaleLowerCase('da-DK').includes(needle));
     });
   }, [aabne, arbejdslisteSoegning, byId]);
-  const ubekraeftedeFoldHints = useMemo(() => {
-    const hints = new Map<string, { folder: boolean; grund: string | null }>();
-    for (const person of aabne) {
-      for (const kandidat of person.kandidater) {
-        if (kandidat.linket) continue;
-        const bId = String(kandidat.bId);
-        hints.set(
-          pairKey(person.aId, bId),
-          previewSammeSom(rawDb, existingEdges, { alias: person.aId, canonical: bId }),
-        );
-      }
-    }
-    return hints;
-  }, [aabne, rawDb, existingEdges]);
 
   // Bøttet child->[ParentChild] én gang, så foraeldreNavne() slår O(1) op i stedet for
   // at scanne HELE familieGraf.parentChild (~1500-2000 kanter) for hver kandidat-række.
@@ -433,19 +419,30 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
 
   // Fold-hint pr. par: for et allerede bekræftet link, slå op om DET par er en af de karantænerede
   // grupper (fra den ÉN kørsel over alle bekræftede kanter ovenfor); for et endnu ubekræftet par,
-  // slå den memoiserede previewSammeSom-beregning op. RÅDGIVENDE (offentlig visning kan afvige
-  // pga. RLS/completeness) — se sammeSomPreflight.ts-header.
+  // kør previewSammeSom — dovent, kun for par der faktisk vises (åbnet sammenligning), og cachet
+  // pr. retning indtil datasættet ændres. Før blev den kørt for ALLE åbne kandidater ved hver
+  // ændring. RÅDGIVENDE (offentlig visning kan afvige pga. RLS/completeness) — se
+  // sammeSomPreflight.ts-header.
+  const foldPreviewCache = useMemo(
+    () => new Map<string, { folder: boolean; grund: string | null }>(),
+    [rawDb, existingEdges],
+  );
   const foldHint = (aId: string, bId: string, linket: boolean): { folder: boolean; grund: string | null } => {
     if (linket) {
       const grund = karantaeneByPersonId.get(aId) ?? karantaeneByPersonId.get(bId) ?? null;
       return { folder: grund == null, grund };
     }
-    return ubekraeftedeFoldHints.get(pairKey(aId, bId)) ?? { folder: false, grund: null };
+    const noegle = `${aId}>${bId}`;
+    let hint = foldPreviewCache.get(noegle);
+    if (!hint) {
+      hint = previewSammeSom(rawDb, existingEdges, { alias: aId, canonical: bId });
+      foldPreviewCache.set(noegle, hint);
+    }
+    return hint;
   };
 
   // Én kandidatrække: navn, signaler, detaljer, Sammenlign/Bekræft og (når åben) sammenligningen.
-  // Bruges af arbejdslisten, de svage forslag og »Find modpart«. Fold-hintet for et ubekræftet
-  // par uden for arbejdslisten beregnes først, når sammenligningen åbnes.
+  // Bruges af arbejdslisten, de svage forslag og »Find modpart«.
   const renderPar = (aId: string, bId: string, info: {
     tierLabel: string;
     signaler: Pick<ScoredPair, 'score' | 'nameSim' | 'birthOverlap' | 'deathOverlap' | 'sexEq'>;
@@ -461,9 +458,8 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     const detaljeB = detaljeCache.get(bId);
     const detaljerIndlaeses = detaljeLoading.has(aId) || detaljeLoading.has(bId);
     const detaljeError = detaljeFejl.get(aId) ?? detaljeFejl.get(bId) ?? null;
-    const hint = !erAabent ? null
-      : linket || ubekraeftedeFoldHints.has(pairKey(aId, bId)) ? foldHint(aId, bId, linket)
-        : previewSammeSom(rawDb, existingEdges, { alias: aId, canonical: bId });
+    // Fold-preview kører hele collapseSameAs, så den beregnes kun for det åbne par.
+    const hint = erAabent ? foldHint(aId, bId, linket) : null;
     const advice = hint?.grund ? foldAdvice(hint.grund) : null;
     const bDetaljer = [
       foraeldreNavne(bId, foraeldreEdgesFor(bId), byId),
