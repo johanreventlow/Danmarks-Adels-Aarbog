@@ -15,7 +15,7 @@ import {
 } from '../data/redaktionRead';
 import { describeCall, oversaetFejl, submitChange, type Change } from '../data/redaktionWrite';
 import {
-  beregnKandidatPar, buildArbejdsliste, byggMatchetMed, pairKey, type Kandidat,
+  beregnKandidatPar, buildArbejdsliste, byggMatchetMed, pairKey, type ArbejdslistePerson, type Kandidat,
 } from '../data/sammenlign';
 import { KandidatSammenligning } from './KandidatSammenligning';
 import {
@@ -84,6 +84,8 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
   const [aabentPar, setAabentPar] = useState<string | null>(null);
   const [aktivFane, setAktivFane] = useState<'arbejdsliste' | 'bekraeftede' | 'nye' | 'karantaene' | 'historik'>('arbejdsliste');
   const [arbejdslisteSoegning, setArbejdslisteSoegning] = useState('');
+  // Personer hvis svage forslag (under tærsklen) er foldet ud.
+  const [visSvage, setVisSvage] = useState<Set<string>>(() => new Set());
   const [detaljeCache, setDetaljeCache] = useState<Map<string, KandidatDetalje>>(() => new Map());
   const [detaljeLoading, setDetaljeLoading] = useState<Set<string>>(() => new Set());
   const [detaljeFejl, setDetaljeFejl] = useState<Map<string, string>>(() => new Map());
@@ -503,6 +505,29 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     );
   };
 
+  // Svage forslag (under tærsklen) for en person, foldet ind som standard. Matcheren pålægger dem
+  // ikke som arbejde, men det rigtige match ligger ofte her, når navn eller årstal afviger.
+  const renderSvage = (person: ArbejdslistePerson) => {
+    const svage = person.svageKandidater.filter((k) => !k.afvist);
+    if (!svage.length) return null;
+    const vis = visSvage.has(person.aId);
+    return (
+      <div style={{ marginTop: '.4rem' }}>
+        <button type="button" style={{ fontSize: '.85em' }} aria-expanded={vis}
+          onClick={() => setVisSvage((prev) => {
+            const next = new Set(prev);
+            if (next.has(person.aId)) next.delete(person.aId); else next.add(person.aId);
+            return next;
+          })}>
+          {vis ? 'Skjul svage forslag' : `Vis ${svage.length} svag${svage.length === 1 ? 't' : 'e'} forslag`}
+        </button>
+        {vis && svage.map((k) => renderPar(person.aId, String(k.bId), {
+          tierLabel: 'svag', signaler: k, matchetMed: k.matchetMed, linket: k.linket,
+        }))}
+      </div>
+    );
+  };
+
   if (loading && personer.length === 0) return (
     <div className="sammenlign" data-testid="sammenlign-skeleton" aria-busy="true" style={{ padding: '1rem', maxWidth: 900 }}>
       <div style={{ width: '13rem', height: '1.5rem', marginBottom: '1rem', borderRadius: 3, background: '#e7e2d9' }} />
@@ -616,6 +641,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
               tierLabel: k.tier === 'auto' ? '★ stærk' : 'gennemse', signaler: k,
               matchetMed: k.matchetMed, linket: k.linket,
             }))}
+            {renderSvage(person)}
           </div>
         );
           })}
@@ -744,6 +770,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
                         {detaljer.length > 0 && (
                           <div style={{ fontSize: '.8em', color: T.inkMuted, marginTop: '.15rem' }}>{detaljer.join(' · ')}</div>
                         )}
+                        {renderSvage(person)}
                       </li>
                     );
                   })}

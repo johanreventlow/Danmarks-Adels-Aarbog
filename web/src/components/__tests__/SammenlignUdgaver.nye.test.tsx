@@ -97,3 +97,32 @@ describe('SammenlignUdgaver: svage forslag', () => {
     expect(await screen.findByRole('columnheader', { name: /1939/ })).toBeTruthy();
   });
 });
+
+describe('SammenlignUdgaver: svage forslag hos en åben person (A2)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.fetchSources.mockResolvedValue([
+      { id: 3, titel: 'Danmarks Adels Aarbog', udgave: '1939', slags: 'bog', aar: 1939 },
+      { id: 7, titel: 'Danmarks Adels Aarbog', udgave: '2018-20', slags: 'bog', aar: 2018 },
+    ]);
+    mocks.fetchMatchPersoner.mockResolvedValue([
+      person('1', 3), person('2', 7), person('3', 7, 'detmar', '1663', '1790'),
+    ]);
+    mocks.fetchIkkeSammeSomPar.mockResolvedValue([]);
+    mocks.fetchSammeSomPar.mockResolvedValue([]);
+    mocks.fetchMatchAudit.mockResolvedValue([]);
+    mocks.fetchFamilyGraph.mockResolvedValue({ unions: [], parentChild: [] });
+    mocks.fetchKandidatDetalje.mockResolvedValue(tomDetalje);
+  });
+
+  test('kan folde svage forslag ud under et åbent arbejdsemne', async () => {
+    render(<SammenlignUdgaver role="redaktor" />);
+    fireEvent.change(await screen.findByRole('combobox'), { target: { value: '3' } });
+    expect(await screen.findByRole('heading', { name: 'Til gennemgang (1)' })).toBeTruthy();
+    expect(screen.queryByText(/Detmar Reventlow/)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Vis 1 svagt forslag' }));
+    expect(screen.getByText(/Detmar Reventlow/)).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Sammenlign' })).toHaveLength(2);
+  });
+});
