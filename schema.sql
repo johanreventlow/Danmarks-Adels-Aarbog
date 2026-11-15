@@ -129,7 +129,7 @@ CREATE TABLE person (
   privat        BOOLEAN DEFAULT FALSE,   -- GDPR: MANUEL skjulning, uafhængig af levende (TNG: living vs. private)
   staged        BOOLEAN DEFAULT FALSE,   -- KURATERING (K2): ny udgaves poster skjult for anon indtil redaktør har matchet dem mod eksisterende udgaver (undgår dublette Conrad'er). Uafhængig af levende/privat. Loaderen sætter TRUE ved --staged; red_publicer_udgave rydder.
   status        TEXT,                    -- fx 'kendt hul / ikke undersøgt'
-  koen          TEXT CHECK (koen IN ('mand','kvinde','ukendt')),  -- vocab 'koen'; NULL = ikke registreret. Arbejdsværdi; afledes af konklusion hvis omstridt.
+  koen          TEXT CONSTRAINT person_koen_chk CHECK (koen IN ('mand','kvinde','ukendt')),  -- vocab 'koen'; NULL = ikke registreret. Arbejdsværdi; afledes af konklusion hvis omstridt.
   -- afledt visnings-cache (envejs-projektion af konklusioner; redigeres ALDRIG direkte):
   visning_navn       TEXT,
   visning_foedt      TEXT,
@@ -169,7 +169,7 @@ CREATE TABLE import_korrektion (
   actor_navn text,
   oprettet_at timestamptz NOT NULL DEFAULT now(),
   opdateret_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (import_key, record_key, felt)
+  CONSTRAINT import_korrektion_import_record_felt_key UNIQUE (import_key, record_key, felt)
 );
 CREATE INDEX import_korrektion_status_import_idx
   ON import_korrektion (status, import_key);
@@ -643,7 +643,8 @@ ALTER TABLE private.source_observation
   -- 370 af 868 klausuler ville få forkert tekst ved subtraktion. Det post-relative
   -- par bærer derfor den eksakte substring-kontrol.
   ADD COLUMN post_char_from        integer CHECK (post_char_from IS NULL OR post_char_from >= 0),
-  ADD COLUMN post_char_to          integer CHECK (post_char_to IS NULL OR post_char_to > post_char_from),
+  ADD COLUMN post_char_to          integer CONSTRAINT source_observation_post_char_to_check
+                                    CHECK (post_char_to IS NULL OR post_char_to > post_char_from),
   ADD COLUMN clause_ordinal        integer CHECK (clause_ordinal IS NULL OR clause_ordinal >= 1),
   ADD COLUMN clause_classification text,
   ADD COLUMN clause_flags          jsonb CHECK (clause_flags IS NULL OR jsonb_typeof(clause_flags)='array'),
@@ -919,64 +920,49 @@ BEGIN
   RAISE EXCEPTION 'EVIDENCE_APPEND_ONLY: %.% kan ikke %',TG_TABLE_SCHEMA,TG_TABLE_NAME,TG_OP;
 END $$;
 
-CREATE FUNCTION private.validate_evidence_scope()
+CREATE OR REPLACE FUNCTION private.validate_evidence_scope()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
-DECLARE
-  v_source_a bigint;
-  v_source_b bigint;
-  v_text text;
+DECLARE v_source_a bigint; v_source_b bigint; v_text text;
 BEGIN
   IF TG_TABLE_NAME='source_record_occurrence' THEN
     SELECT source_id INTO v_source_a FROM private.source_rendition WHERE id=NEW.rendition_id;
     SELECT source_id INTO v_source_b FROM private.extraction_run WHERE id=NEW.extraction_run_id;
   ELSIF TG_TABLE_NAME='source_observation' THEN
-    SELECT r.source_id INTO v_source_a
-      FROM private.source_record_occurrence o
-      JOIN private.source_rendition r ON r.id=o.rendition_id
-     WHERE o.id=NEW.occurrence_id;
+    SELECT r.source_id INTO v_source_a FROM private.source_record_occurrence ro
+      JOIN private.source_rendition r ON r.id=ro.rendition_id WHERE ro.id=NEW.occurrence_id;
     SELECT source_id INTO v_source_b FROM private.extraction_run WHERE id=NEW.extraction_run_id;
-    IF NEW.page_from < (SELECT page_from FROM private.source_record_occurrence WHERE id=NEW.occurrence_id)
-       OR NEW.page_to > (SELECT page_to FROM private.source_record_occurrence WHERE id=NEW.occurrence_id)
-       OR NEW.char_from < (SELECT char_from FROM private.source_record_occurrence WHERE id=NEW.occurrence_id)
-       OR NEW.char_to > (SELECT char_to FROM private.source_record_occurrence WHERE id=NEW.occurrence_id) THEN
+    IF NEW.page_from<(SELECT page_from FROM private.source_record_occurrence WHERE id=NEW.occurrence_id)
+       OR NEW.page_to>(SELECT page_to FROM private.source_record_occurrence WHERE id=NEW.occurrence_id)
+       OR NEW.char_from<(SELECT char_from FROM private.source_record_occurrence WHERE id=NEW.occurrence_id)
+       OR NEW.char_to>(SELECT char_to FROM private.source_record_occurrence WHERE id=NEW.occurrence_id) THEN
       RAISE EXCEPTION 'EVIDENCE_OBSERVATION_SPAN_INVALID';
     END IF;
   ELSIF TG_TABLE_NAME='source_observation_text' THEN
-    SELECT r.source_id INTO v_source_a
-      FROM private.source_observation o
+    SELECT r.source_id INTO v_source_a FROM private.source_observation o
       JOIN private.source_record_occurrence ro ON ro.id=o.occurrence_id
-      JOIN private.source_rendition r ON r.id=ro.rendition_id
-     WHERE o.id=NEW.observation_id;
+      JOIN private.source_rendition r ON r.id=ro.rendition_id WHERE o.id=NEW.observation_id;
     SELECT source_id INTO v_source_b FROM private.source_rendition WHERE id=NEW.rendition_id;
-    IF (NEW.version=1 AND NEW.supersedes_id IS NOT NULL)
-       OR (NEW.version>1 AND NOT EXISTS (
-         SELECT 1 FROM private.source_observation_text previous
-          WHERE previous.id=NEW.supersedes_id
-            AND previous.observation_id=NEW.observation_id
-            AND previous.rendition_id=NEW.rendition_id
-            AND previous.version=NEW.version-1
-       )) THEN
+    IF (NEW.version=1 AND NEW.supersedes_id IS NOT NULL) OR
+       (NEW.version>1 AND NOT EXISTS(SELECT 1 FROM private.source_observation_text p
+          WHERE p.id=NEW.supersedes_id AND p.observation_id=NEW.observation_id
+            AND p.rendition_id=NEW.rendition_id AND p.version=NEW.version-1)) THEN
       RAISE EXCEPTION 'EVIDENCE_TEXT_VERSION_CONFLICT';
     END IF;
   ELSIF TG_TABLE_NAME='source_mention' THEN
-    SELECT o.verbatim_text,r.source_id INTO v_text,v_source_a
-      FROM private.source_observation o
+    SELECT o.verbatim_text,r.source_id INTO v_text,v_source_a FROM private.source_observation o
       JOIN private.source_record_occurrence ro ON ro.id=o.occurrence_id
-      JOIN private.source_rendition r ON r.id=ro.rendition_id
-     WHERE o.id=NEW.observation_id;
+      JOIN private.source_rendition r ON r.id=ro.rendition_id WHERE o.id=NEW.observation_id;
     SELECT source_id INTO v_source_b FROM private.extraction_run WHERE id=NEW.created_run_id;
-    IF NEW.char_to > length(v_text)
-       OR substr(v_text,NEW.char_from+1,NEW.char_to-NEW.char_from) <> NEW.verbatim_text THEN
+    IF NEW.char_to>length(v_text) OR
+       substr(v_text,NEW.char_from+1,NEW.char_to-NEW.char_from)<>NEW.verbatim_text THEN
       RAISE EXCEPTION 'EVIDENCE_MENTION_SPAN_INVALID';
     END IF;
   ELSIF TG_TABLE_NAME='source_persona_mention' THEN
     SELECT source_id INTO v_source_a FROM private.source_persona WHERE id=NEW.persona_id;
-    SELECT r.source_id INTO v_source_b
-      FROM private.source_mention m
+    SELECT r.source_id INTO v_source_b FROM private.source_mention m
       JOIN private.source_observation o ON o.id=m.observation_id
       JOIN private.source_record_occurrence ro ON ro.id=o.occurrence_id
-      JOIN private.source_rendition r ON r.id=ro.rendition_id
-     WHERE m.id=NEW.mention_id;
+      JOIN private.source_rendition r ON r.id=ro.rendition_id WHERE m.id=NEW.mention_id;
   END IF;
   IF v_source_a IS DISTINCT FROM v_source_b THEN
     RAISE EXCEPTION 'EVIDENCE_SOURCE_MISMATCH: %',TG_TABLE_NAME;
@@ -1456,7 +1442,7 @@ CREATE TABLE private.interpretation_promotion_rule (
   rule_mode                     text NOT NULL DEFAULT 'text_assertion',
   PRIMARY KEY (rule_key,rule_version),
   UNIQUE (predicate,rule_version),
-  FOREIGN KEY (rule_key,predicate)
+  CONSTRAINT interpretation_promotion_rule_line_fk FOREIGN KEY (rule_key,predicate)
     REFERENCES private.interpretation_promotion_rule_line(rule_key,predicate),
   -- Én CHECK pr. regeltype. text_assertion kræver faktatypen eksplicit: NULL i en CHECK godtages.
   CONSTRAINT interpretation_promotion_rule_mode_check CHECK (
@@ -1806,19 +1792,17 @@ BEGIN
   RETURN NEW;
 END $$;
 
-CREATE FUNCTION private.assert_interpretation_has_observation()
+CREATE OR REPLACE FUNCTION private.assert_interpretation_has_observation()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM private.interpretation_observation io
-     WHERE io.interpretation_id=NEW.id
-  ) THEN
+  IF NOT EXISTS(SELECT 1 FROM private.interpretation_observation
+                 WHERE interpretation_id=NEW.id) THEN
     RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_OBSERVATION_REQUIRED: %',NEW.id;
   END IF;
   RETURN NULL;
 END $$;
 
-CREATE FUNCTION private.validate_interpretation_promotion()
+CREATE OR REPLACE FUNCTION private.validate_interpretation_promotion()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
 DECLARE v_exists boolean;
 BEGIN
@@ -1830,13 +1814,11 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'EVIDENCE_DECISION_PROVENANCE_REQUIRED';
   END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM private.interpretation i
-     WHERE i.id=NEW.interpretation_id AND i.status='accepted'
-  ) THEN
+  IF NOT EXISTS(SELECT 1 FROM private.interpretation
+                 WHERE id=NEW.interpretation_id AND status='accepted') THEN
     RAISE EXCEPTION 'EVIDENCE_INTERPRETATION_NOT_ACCEPTED';
   END IF;
-  v_exists := CASE NEW.target_type
+  v_exists:=CASE NEW.target_type
     WHEN 'person' THEN EXISTS(SELECT 1 FROM public.person WHERE id=NEW.target_id)
     WHEN 'family' THEN EXISTS(SELECT 1 FROM public.family WHERE id=NEW.target_id)
     WHEN 'fact' THEN EXISTS(SELECT 1 FROM public.fact WHERE id=NEW.target_id)
@@ -1848,8 +1830,7 @@ BEGIN
     WHEN 'source' THEN EXISTS(SELECT 1 FROM public.source WHERE id=NEW.target_id)
     WHEN 'coat_of_arms' THEN EXISTS(SELECT 1 FROM public.coat_of_arms WHERE id=NEW.target_id)
     WHEN 'historical_event' THEN EXISTS(SELECT 1 FROM public.historical_event WHERE id=NEW.target_id)
-    ELSE false
-  END;
+    ELSE false END;
   IF NOT v_exists THEN
     RAISE EXCEPTION 'EVIDENCE_PROMOTION_TARGET_NOT_FOUND: %.%',NEW.target_type,NEW.target_id;
   END IF;
@@ -1893,7 +1874,7 @@ BEGIN
   RETURN NEW;
 END $$;
 
-CREATE FUNCTION private.assert_identity_state_event_consistency()
+CREATE OR REPLACE FUNCTION private.assert_identity_state_event_consistency()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,private AS $$
 DECLARE
   v_persona_id uuid;
@@ -1905,11 +1886,9 @@ BEGIN
   SELECT max(version) INTO v_latest_version
     FROM private.source_persona_identity_event
    WHERE source_persona_id=v_persona_id;
-  SELECT EXISTS(
-    SELECT 1 FROM private.source_persona_identity
-     WHERE source_persona_id=v_persona_id
-  ) INTO v_state_exists;
-
+  SELECT EXISTS(SELECT 1 FROM private.source_persona_identity
+                 WHERE source_persona_id=v_persona_id)
+    INTO v_state_exists;
   IF v_latest_version IS NOT NULL AND NOT v_state_exists THEN
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_STATE_REQUIRED';
   END IF;
@@ -1917,26 +1896,20 @@ BEGIN
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_EVENT_REQUIRED';
   END IF;
   IF v_latest_version IS NULL THEN RETURN NULL; END IF;
-  IF NOT EXISTS (
-    SELECT 1
-      FROM private.source_persona_identity i
-     WHERE i.source_persona_id=v_persona_id
-       AND i.version=v_latest_version
-  ) THEN
+  IF NOT EXISTS(SELECT 1 FROM private.source_persona_identity
+    WHERE source_persona_id=v_persona_id AND version=v_latest_version) THEN
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_LATEST_REQUIRED';
   END IF;
-  IF NOT EXISTS (
-    SELECT 1
-      FROM private.source_persona_identity i
-      JOIN private.source_persona_identity_event e
-        ON e.source_persona_id=i.source_persona_id AND e.version=i.version
-     WHERE i.source_persona_id=v_persona_id
-       AND i.canonical_person_id IS NOT DISTINCT FROM e.canonical_person_id
-       AND i.decision_status=e.decision_status
-       AND i.evidence=e.evidence
-       AND i.decided_by IS NOT DISTINCT FROM e.decided_by
-       AND i.decided_by_name IS NOT DISTINCT FROM e.decided_by_name
-       AND i.decided_at IS NOT DISTINCT FROM e.decided_at
+  IF NOT EXISTS(
+    SELECT 1 FROM private.source_persona_identity i
+    JOIN private.source_persona_identity_event e
+      ON e.source_persona_id=i.source_persona_id AND e.version=i.version
+    WHERE i.source_persona_id=v_persona_id
+      AND i.canonical_person_id IS NOT DISTINCT FROM e.canonical_person_id
+      AND i.decision_status=e.decision_status AND i.evidence=e.evidence
+      AND i.decided_by IS NOT DISTINCT FROM e.decided_by
+      AND i.decided_by_name IS NOT DISTINCT FROM e.decided_by_name
+      AND i.decided_at IS NOT DISTINCT FROM e.decided_at
   ) THEN
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_EVENT_REQUIRED';
   END IF;
@@ -2032,136 +2005,26 @@ REVOKE ALL ON FUNCTION private.ocr_importeret(text,text,text,date,date,text,text
 REVOKE ALL ON FUNCTION private.ocr_fingerprint(text,text,text,jsonb,text)
   FROM PUBLIC, anon, authenticated;
 
-CREATE OR REPLACE FUNCTION red_ret_ocr_felt(
-  p_person_id bigint, p_import_key text, p_record_key text, p_felt text,
-  p_input_fingerprint text, p_korrigeret jsonb, p_status text DEFAULT 'rettet',
-  p_actor_navn text DEFAULT NULL
-) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
-DECLARE
-  v_source_id bigint; v_anchor_person bigint; v_anchor_count integer; v_person_anchor_count integer;
-  v_assertion_id bigint; v_candidate_count integer; v_context text; v_observed jsonb;
-  v_journal import_korrektion%ROWTYPE; v_importeret jsonb; v_fingerprint text;
-  v_actor_id uuid := auth.uid(); v_actor_navn text; v_result jsonb;
-  v_min date; v_max date;
+CREATE OR REPLACE FUNCTION red_ret_ocr_felt(p_person_id bigint,p_import_key text,p_record_key text,p_felt text,p_input_fingerprint text,p_korrigeret jsonb,p_status text DEFAULT 'rettet',p_actor_navn text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+DECLARE s bigint; ap bigint; ac int; pc int; aid bigint; cc int; ctx text; observed jsonb; j import_korrektion%ROWTYPE; imp jsonb; fp text; actor text; dmin date; dmax date; out jsonb;
 BEGIN
-  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'OCR_ROLE_FORBIDDEN'; END IF;
-  IF p_felt NOT IN ('navn','foedsel','doed','koen') THEN RAISE EXCEPTION 'OCR_FIELD_INVALID'; END IF;
-  IF p_status NOT IN ('rettet','godkendt','udskudt') THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF;
-  IF (p_status='rettet' AND p_korrigeret IS NULL) OR (p_status<>'rettet' AND p_korrigeret IS NOT NULL) THEN
-    RAISE EXCEPTION 'OCR_VALUE_INVALID';
-  END IF;
-
-  WITH anchor_rows AS (
-    SELECT pei.person_id,s.id AS source_id
-      FROM source s JOIN person_external_id pei ON pei.source_id=s.id
-     WHERE s.import_key=p_import_key AND pei.record_key=p_record_key
-     FOR UPDATE OF s,pei
-  ) SELECT count(*),min(person_id),min(source_id) INTO v_anchor_count,v_anchor_person,v_source_id
-      FROM anchor_rows;
-  IF v_anchor_count <> 1 THEN RAISE EXCEPTION 'OCR_IMPORT_ANCHOR_AMBIGUOUS'; END IF;
-  IF v_anchor_person <> p_person_id THEN RAISE EXCEPTION 'OCR_PERSON_NOT_FOUND'; END IF;
-  SELECT count(*) INTO v_person_anchor_count
-    FROM person_external_id pei JOIN source s ON s.id=pei.source_id
-   WHERE pei.person_id=p_person_id AND s.import_key IS NOT NULL AND pei.record_key IS NOT NULL;
-  IF v_person_anchor_count <> 1 THEN RAISE EXCEPTION 'OCR_IMPORT_ANCHOR_AMBIGUOUS'; END IF;
-  PERFORM 1 FROM person WHERE id=p_person_id FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'OCR_PERSON_NOT_FOUND'; END IF;
-
-  IF p_felt='koen' THEN
-    SELECT private.ocr_importeret('koen',koen,NULL,NULL,NULL,NULL,NULL,NULL) INTO v_observed
-      FROM person WHERE id=p_person_id;
-    v_context := NULL;
-  ELSE
-    WITH candidates AS (
-      SELECT DISTINCT a.id
-      FROM fact f JOIN conclusion cn ON cn.target_type='fact' AND cn.target_id=f.id
-        JOIN assertion a ON a.id=cn.valgt_assertion_id
-        JOIN citation c ON c.assertion_id=a.id AND c.source_id=v_source_id
-      WHERE f.subjekt_type='person' AND f.subjekt_id=p_person_id AND cn.status='afklaret'
-        AND f.faktatype=CASE p_felt WHEN 'navn' THEN 'navn' WHEN 'foedsel' THEN 'fødsel' ELSE 'død' END
-    ) SELECT count(*),min(id) INTO v_candidate_count,v_assertion_id FROM candidates;
-    IF v_candidate_count <> 1 THEN RAISE EXCEPTION 'OCR_ASSERTION_AMBIGUOUS'; END IF;
-    SELECT private.ocr_importeret(p_felt,a.vaerdi_tekst,a.date_raw,a.date_min,a.date_max,
-             a.date_qualifier,a.calendar,a.date_certainty),c.citat_tekst
-      INTO v_observed,v_context
-      FROM assertion a JOIN citation c ON c.assertion_id=a.id AND c.source_id=v_source_id
-     WHERE a.id=v_assertion_id ORDER BY c.id LIMIT 1 FOR UPDATE OF a,c;
-    IF NOT FOUND THEN RAISE EXCEPTION 'OCR_ASSERTION_AMBIGUOUS'; END IF;
-  END IF;
-
-  -- A missing journal row has no row lock; serialize its logical key before the upsert.
-  PERFORM pg_advisory_xact_lock(hashtextextended(concat_ws(chr(31),p_import_key,p_record_key,p_felt),0));
-  SELECT * INTO v_journal FROM import_korrektion
-   WHERE import_key=p_import_key AND record_key=p_record_key AND felt=p_felt FOR UPDATE;
-  v_importeret := coalesce(v_journal.importeret,v_observed);
-  v_fingerprint := private.ocr_fingerprint(p_import_key,p_record_key,p_felt,v_importeret,v_context);
-  IF v_journal.id IS NOT NULL AND v_journal.input_fingerprint IS DISTINCT FROM v_fingerprint THEN
-    RAISE EXCEPTION 'OCR_FINGERPRINT_STALE';
-  END IF;
-  IF p_input_fingerprint IS DISTINCT FROM coalesce(v_journal.input_fingerprint,v_fingerprint) THEN
-    RAISE EXCEPTION 'OCR_FINGERPRINT_STALE';
-  END IF;
-
-  IF p_status='rettet' THEN
-    IF jsonb_typeof(p_korrigeret) <> 'object' THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF;
-    IF p_felt='navn' THEN
-      IF jsonb_typeof(p_korrigeret->'value') <> 'string' OR nullif(btrim(p_korrigeret->>'value'),'') IS NULL THEN
-        RAISE EXCEPTION 'OCR_VALUE_INVALID';
-      END IF;
-    ELSIF p_felt='koen' THEN
-      IF p_korrigeret->>'value' NOT IN ('mand','kvinde','ukendt') THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF;
-    ELSE
-      IF jsonb_typeof(p_korrigeret->'raw') <> 'string' OR nullif(btrim(p_korrigeret->>'raw'),'') IS NULL THEN
-        RAISE EXCEPTION 'OCR_VALUE_INVALID';
-      END IF;
-      BEGIN
-        v_min := NULLIF(p_korrigeret->>'min','')::date;
-        v_max := NULLIF(p_korrigeret->>'max','')::date;
-      EXCEPTION WHEN others THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END;
-    END IF;
-  END IF;
-
-  SELECT coalesce(pr.navn,pr.email,p_actor_navn,v_actor_id::text,'ukendt') INTO v_actor_navn
-    FROM profiles pr WHERE pr.id=v_actor_id;
-  v_actor_navn := coalesce(v_actor_navn,p_actor_navn,'ukendt');
-  PERFORM begin_change_set('red_ret_ocr_felt',format('OCR-%s: %s/%s',p_felt,p_import_key,p_record_key),'person',p_person_id);
-  IF p_status='rettet' THEN
-    IF p_felt='navn' THEN
-      UPDATE assertion SET vaerdi_tekst=p_korrigeret->>'value' WHERE id=v_assertion_id;
-    ELSIF p_felt='koen' THEN
-      UPDATE person SET koen=p_korrigeret->>'value' WHERE id=p_person_id;
-    ELSE
-      UPDATE assertion SET date_raw=p_korrigeret->>'raw',date_min=v_min,date_max=v_max,
-        date_qualifier=p_korrigeret->>'qualifier',calendar=coalesce(p_korrigeret->>'calendar','gregoriansk'),
-        date_certainty=p_korrigeret->>'certainty' WHERE id=v_assertion_id;
-    END IF;
-  END IF;
-  INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,korrigeret,status,actor_id,actor_navn)
-    VALUES (p_import_key,p_record_key,p_felt,v_fingerprint,v_importeret,
-      CASE WHEN p_status='rettet' THEN p_korrigeret ELSE NULL END,p_status,v_actor_id,v_actor_navn)
-  ON CONFLICT (import_key,record_key,felt) DO UPDATE SET
-    input_fingerprint=import_korrektion.input_fingerprint,
-    korrigeret=CASE WHEN excluded.status='rettet' THEN excluded.korrigeret ELSE import_korrektion.korrigeret END,
-    status=excluded.status,actor_id=excluded.actor_id,
-    actor_navn=excluded.actor_navn,opdateret_at=now();
-  SELECT to_jsonb(g) INTO v_result FROM red_person_grid() g WHERE g.person_id=p_person_id;
-  RETURN v_result;
+ IF current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'OCR_ROLE_FORBIDDEN'; END IF;
+ IF p_felt NOT IN ('navn','foedsel','doed','koen') THEN RAISE EXCEPTION 'OCR_FIELD_INVALID'; END IF;
+ IF p_status NOT IN ('rettet','godkendt','udskudt') OR (p_status='rettet' AND p_korrigeret IS NULL) OR (p_status<>'rettet' AND p_korrigeret IS NOT NULL) THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF;
+ WITH anchor_rows AS (SELECT pei.person_id,src.id AS source_id FROM source src JOIN person_external_id pei ON pei.source_id=src.id WHERE src.import_key=p_import_key AND pei.record_key=p_record_key FOR UPDATE OF src,pei) SELECT count(*),min(person_id),min(source_id) INTO ac,ap,s FROM anchor_rows;
+ IF ac<>1 THEN RAISE EXCEPTION 'OCR_IMPORT_ANCHOR_AMBIGUOUS'; END IF; IF ap<>p_person_id THEN RAISE EXCEPTION 'OCR_PERSON_NOT_FOUND'; END IF;
+ SELECT count(*) INTO pc FROM person_external_id pei JOIN source src ON src.id=pei.source_id WHERE pei.person_id=p_person_id AND src.import_key IS NOT NULL AND pei.record_key IS NOT NULL;
+ IF pc<>1 THEN RAISE EXCEPTION 'OCR_IMPORT_ANCHOR_AMBIGUOUS'; END IF; PERFORM 1 FROM person WHERE id=p_person_id FOR UPDATE; IF NOT FOUND THEN RAISE EXCEPTION 'OCR_PERSON_NOT_FOUND'; END IF;
+ IF p_felt='koen' THEN SELECT private.ocr_importeret('koen',koen,NULL,NULL,NULL,NULL,NULL,NULL) INTO observed FROM person WHERE id=p_person_id; ctx:=NULL;
+ ELSE WITH c AS (SELECT DISTINCT a.id FROM fact f JOIN conclusion cn ON cn.target_type='fact' AND cn.target_id=f.id JOIN assertion a ON a.id=cn.valgt_assertion_id JOIN citation ci ON ci.assertion_id=a.id AND ci.source_id=s WHERE f.subjekt_type='person' AND f.subjekt_id=p_person_id AND cn.status='afklaret' AND f.faktatype=CASE p_felt WHEN 'navn' THEN 'navn' WHEN 'foedsel' THEN 'fødsel' ELSE 'død' END) SELECT count(*),min(id) INTO cc,aid FROM c; IF cc<>1 THEN RAISE EXCEPTION 'OCR_ASSERTION_AMBIGUOUS'; END IF; SELECT private.ocr_importeret(p_felt,a.vaerdi_tekst,a.date_raw,a.date_min,a.date_max,a.date_qualifier,a.calendar,a.date_certainty),ci.citat_tekst INTO observed,ctx FROM assertion a JOIN citation ci ON ci.assertion_id=a.id AND ci.source_id=s WHERE a.id=aid ORDER BY ci.id LIMIT 1 FOR UPDATE OF a,ci; IF NOT FOUND THEN RAISE EXCEPTION 'OCR_ASSERTION_AMBIGUOUS'; END IF; END IF;
+ PERFORM pg_advisory_xact_lock(hashtextextended(concat_ws(chr(31),p_import_key,p_record_key,p_felt),0)); SELECT * INTO j FROM import_korrektion WHERE import_key=p_import_key AND record_key=p_record_key AND felt=p_felt FOR UPDATE; imp:=coalesce(j.importeret,observed); fp:=private.ocr_fingerprint(p_import_key,p_record_key,p_felt,imp,ctx); IF j.id IS NOT NULL AND j.input_fingerprint IS DISTINCT FROM fp THEN RAISE EXCEPTION 'OCR_FINGERPRINT_STALE'; END IF; IF p_input_fingerprint IS DISTINCT FROM coalesce(j.input_fingerprint,fp) THEN RAISE EXCEPTION 'OCR_FINGERPRINT_STALE'; END IF;
+ IF p_status='rettet' THEN IF jsonb_typeof(p_korrigeret)<>'object' THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF; IF p_felt='navn' AND (jsonb_typeof(p_korrigeret->'value')<>'string' OR nullif(btrim(p_korrigeret->>'value'),'') IS NULL) THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF; IF p_felt='koen' AND p_korrigeret->>'value' NOT IN ('mand','kvinde','ukendt') THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF; IF p_felt IN ('foedsel','doed') THEN IF jsonb_typeof(p_korrigeret->'raw')<>'string' OR nullif(btrim(p_korrigeret->>'raw'),'') IS NULL THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF; BEGIN dmin:=nullif(p_korrigeret->>'min','')::date; dmax:=nullif(p_korrigeret->>'max','')::date; EXCEPTION WHEN others THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END; END IF; END IF;
+ SELECT coalesce(pr.navn,pr.email,p_actor_navn,auth.uid()::text,'ukendt') INTO actor FROM profiles pr WHERE pr.id=auth.uid(); actor:=coalesce(actor,p_actor_navn,'ukendt'); PERFORM begin_change_set('red_ret_ocr_felt',format('OCR-%s: %s/%s',p_felt,p_import_key,p_record_key),'person',p_person_id);
+ IF p_status='rettet' THEN IF p_felt='navn' THEN UPDATE assertion SET vaerdi_tekst=p_korrigeret->>'value' WHERE id=aid; ELSIF p_felt='koen' THEN UPDATE person SET koen=p_korrigeret->>'value' WHERE id=p_person_id; ELSE UPDATE assertion SET date_raw=p_korrigeret->>'raw',date_min=dmin,date_max=dmax,date_qualifier=p_korrigeret->>'qualifier',calendar=coalesce(p_korrigeret->>'calendar','gregoriansk'),date_certainty=p_korrigeret->>'certainty' WHERE id=aid; END IF; END IF;
+ INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,korrigeret,status,actor_id,actor_navn) VALUES(p_import_key,p_record_key,p_felt,fp,imp,CASE WHEN p_status='rettet' THEN p_korrigeret ELSE NULL END,p_status,auth.uid(),actor) ON CONFLICT(import_key,record_key,felt) DO UPDATE SET input_fingerprint=import_korrektion.input_fingerprint,korrigeret=CASE WHEN excluded.status='rettet' THEN excluded.korrigeret ELSE import_korrektion.korrigeret END,status=excluded.status,actor_id=excluded.actor_id,actor_navn=excluded.actor_navn,opdateret_at=now(); SELECT to_jsonb(g) INTO out FROM red_person_grid() g WHERE g.person_id=p_person_id; RETURN out;
 END $$;
 
-CREATE OR REPLACE FUNCTION red_ocr_historik(p_import_key text,p_record_key text,p_felt text)
-RETURNS TABLE(change_set_id bigint,changed_at timestamptz,actor_navn text,operation text,foer jsonb,efter jsonb)
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
-DECLARE v_journal_id bigint;
-BEGIN
-  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'OCR_ROLE_FORBIDDEN'; END IF;
-  SELECT id INTO v_journal_id FROM import_korrektion
-   WHERE import_key=p_import_key AND record_key=p_record_key AND felt=p_felt;
-  IF v_journal_id IS NULL THEN RETURN; END IF;
-  RETURN QUERY SELECT cs.id,cs.created_at,cs.actor_navn,cs.operation,ce.foer,ce.efter
-    FROM change_event ce JOIN change_set cs ON cs.id=ce.change_set_id
-   WHERE ce.tabel='import_korrektion' AND ce.row_pk->>'id'=v_journal_id::text
-   ORDER BY cs.created_at DESC,cs.id DESC,ce.seq DESC;
-END $$;
+CREATE OR REPLACE FUNCTION red_ocr_historik(p_import_key text,p_record_key text,p_felt text) RETURNS TABLE(change_set_id bigint,changed_at timestamptz,actor_navn text,operation text,foer jsonb,efter jsonb) LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$ DECLARE jid bigint; BEGIN IF current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'OCR_ROLE_FORBIDDEN'; END IF; SELECT id INTO jid FROM import_korrektion WHERE import_key=p_import_key AND record_key=p_record_key AND felt=p_felt; IF jid IS NULL THEN RETURN; END IF; RETURN QUERY SELECT cs.id,cs.created_at,cs.actor_navn,cs.operation,ce.foer,ce.efter FROM change_event ce JOIN change_set cs ON cs.id=ce.change_set_id WHERE ce.tabel='import_korrektion' AND ce.row_pk->>'id'=jid::text ORDER BY cs.created_at DESC,cs.id DESC,ce.seq DESC; END $$;
 
 CREATE TABLE lineage (                   -- SLÆGTSLINJE / GREN (fx Reventlows fem linjer)
   id        BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
@@ -2329,6 +2192,11 @@ CREATE TABLE private.source_persona_placement (
   created_at             timestamptz NOT NULL DEFAULT now(),
   UNIQUE (source_persona_id,record_placement_id,placement_role)
 );
+-- Prod har både den automatisk navngivne nøgle ovenfor og denne navngivne (migrationen tilføjer den ved navn).
+-- Den står som ALTER, fordi CREATE TABLE stille slår to ens UNIQUE-led sammen. Så har en frisk base samme
+-- katalog som prod; at fjerne dubletten er en prod-ændring for sig.
+ALTER TABLE private.source_persona_placement
+  ADD CONSTRAINT source_persona_placement_business_key UNIQUE (source_persona_id,record_placement_id,placement_role);
 
 CREATE TABLE private.source_record_placement_decision (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2455,59 +2323,44 @@ BEGIN
   RETURN NEW;
 END $$;
 
-CREATE FUNCTION private.validate_placement_decision()
+CREATE OR REPLACE FUNCTION private.validate_placement_decision()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
-DECLARE
-  v_initial_status text;
-  v_previous_status text;
-  v_previous_version integer;
-  v_record_id uuid;
-  v_scheme_entry_id bigint;
-  v_record_placement_id uuid;
+DECLARE v_initial text; v_previous text; v_version integer;
+  v_record uuid; v_entry bigint; v_record_placement uuid;
 BEGIN
   IF TG_TABLE_NAME='source_record_placement_decision' THEN
-    SELECT initial_status INTO v_initial_status
-      FROM private.source_record_placement WHERE id=NEW.placement_id;
-    SELECT version,decision_status INTO v_previous_version,v_previous_status
-      FROM private.source_record_placement_decision
-     WHERE placement_id=NEW.placement_id ORDER BY version DESC LIMIT 1;
+    SELECT initial_status INTO v_initial FROM private.source_record_placement WHERE id=NEW.placement_id;
+    SELECT version,decision_status INTO v_version,v_previous FROM private.source_record_placement_decision
+      WHERE placement_id=NEW.placement_id ORDER BY version DESC LIMIT 1;
   ELSE
-    SELECT initial_status INTO v_initial_status
-      FROM private.source_persona_placement WHERE id=NEW.placement_id;
-    SELECT version,decision_status INTO v_previous_version,v_previous_status
-      FROM private.source_persona_placement_decision
-     WHERE placement_id=NEW.placement_id ORDER BY version DESC LIMIT 1;
+    SELECT initial_status INTO v_initial FROM private.source_persona_placement WHERE id=NEW.placement_id;
+    SELECT version,decision_status INTO v_version,v_previous FROM private.source_persona_placement_decision
+      WHERE placement_id=NEW.placement_id ORDER BY version DESC LIMIT 1;
   END IF;
-  IF v_initial_status IS NULL THEN
-    RAISE EXCEPTION 'EVIDENCE_PLACEMENT_NOT_FOUND';
-  END IF;
-  IF v_previous_version IS NULL THEN
-    IF NEW.version<>1 OR NEW.decision_status<>v_initial_status
-       OR NEW.decision_origin NOT IN ('ingest','migration') THEN
+  IF v_initial IS NULL THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_NOT_FOUND'; END IF;
+  IF v_version IS NULL THEN
+    IF NEW.version<>1 OR NEW.decision_status<>v_initial OR NEW.decision_origin NOT IN ('ingest','migration') THEN
       RAISE EXCEPTION 'EVIDENCE_PLACEMENT_INITIAL_DECISION_INVALID';
     END IF;
-  ELSIF NEW.version<>v_previous_version+1
-     OR NEW.decision_origin<>'redaction'
-     OR NOT ((v_previous_status='proposed' AND NEW.decision_status IN ('accepted','rejected'))
-          OR (v_previous_status='accepted' AND NEW.decision_status='superseded')) THEN
+  ELSIF NEW.version<>v_version+1 OR NEW.decision_origin<>'redaction'
+    OR NOT ((v_previous='proposed' AND NEW.decision_status IN ('accepted','rejected'))
+         OR (v_previous='accepted' AND NEW.decision_status='superseded')) THEN
     RAISE EXCEPTION 'EVIDENCE_PLACEMENT_TRANSITION_INVALID';
   END IF;
   IF NEW.decision_status='accepted' AND TG_TABLE_NAME='source_record_placement_decision' THEN
-    SELECT source_record_id,scheme_entry_id INTO v_record_id,v_scheme_entry_id
+    SELECT source_record_id,scheme_entry_id INTO v_record,v_entry
       FROM private.source_record_placement WHERE id=NEW.placement_id;
-    PERFORM 1 FROM private.source_record WHERE id=v_record_id FOR UPDATE;
-    IF EXISTS (SELECT 1 FROM private.source_record_placement_current current_placement
-                WHERE current_placement.source_record_id=v_record_id
-                  AND current_placement.scheme_entry_id=v_scheme_entry_id
-                  AND current_placement.id<>NEW.placement_id
-                  AND current_placement.decision_status='accepted') THEN
+    PERFORM 1 FROM private.source_record WHERE id=v_record FOR UPDATE;
+    IF EXISTS(SELECT 1 FROM private.source_record_placement_current
+               WHERE source_record_id=v_record AND scheme_entry_id=v_entry
+                 AND id<>NEW.placement_id AND decision_status='accepted') THEN
       RAISE EXCEPTION 'EVIDENCE_PLACEMENT_ALREADY_ACCEPTED';
     END IF;
   ELSIF NEW.decision_status='accepted' THEN
-    SELECT record_placement_id INTO v_record_placement_id
+    SELECT record_placement_id INTO v_record_placement
       FROM private.source_persona_placement WHERE id=NEW.placement_id;
-    IF NOT EXISTS (SELECT 1 FROM private.source_record_placement_current
-                    WHERE id=v_record_placement_id AND decision_status='accepted') THEN
+    IF NOT EXISTS(SELECT 1 FROM private.source_record_placement_current
+                   WHERE id=v_record_placement AND decision_status='accepted') THEN
       RAISE EXCEPTION 'EVIDENCE_RECORD_PLACEMENT_ACCEPTED_REQUIRED';
     END IF;
   END IF;
@@ -2529,134 +2382,77 @@ BEGIN
   RETURN NULL;
 END $$;
 
-CREATE FUNCTION private.propose_source_record_placement(
+CREATE OR REPLACE FUNCTION private.propose_source_record_placement(
   p_source_record_id uuid,p_scheme_entry_id bigint,p_header_observation_id uuid,
-  p_evidence jsonb,p_decided_by_name text DEFAULT 'evidence ingest'
-) RETURNS uuid LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+  p_evidence jsonb,p_decided_by_name text DEFAULT 'evidence ingest')
+RETURNS uuid LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
 DECLARE v_id uuid;
 BEGIN
-  IF jsonb_typeof(p_evidence)<>'object' OR p_evidence='{}'::jsonb
-     OR btrim(coalesce(p_decided_by_name,''))='' THEN
-    RAISE EXCEPTION 'EVIDENCE_PLACEMENT_PROPOSAL_INVALID';
-  END IF;
-  INSERT INTO private.source_record_placement(
-    source_record_id,scheme_entry_id,header_observation_id,initial_status
-  ) VALUES (p_source_record_id,p_scheme_entry_id,p_header_observation_id,'proposed')
-  RETURNING id INTO v_id;
-  INSERT INTO private.source_record_placement_decision(
-    placement_id,version,decision_status,evidence,decision_origin,decided_by_name
-  ) VALUES (v_id,1,'proposed',p_evidence,'ingest',p_decided_by_name);
-  RETURN v_id;
+  IF jsonb_typeof($4)<>'object' OR $4='{}'::jsonb OR btrim(coalesce($5,''))='' THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_PROPOSAL_INVALID'; END IF;
+  INSERT INTO private.source_record_placement(source_record_id,scheme_entry_id,header_observation_id,initial_status)
+    VALUES($1,$2,$3,'proposed') RETURNING id INTO v_id;
+  INSERT INTO private.source_record_placement_decision(placement_id,version,decision_status,evidence,decision_origin,decided_by_name)
+    VALUES(v_id,1,'proposed',$4,'ingest',$5); RETURN v_id;
 END $$;
 
-CREATE FUNCTION private.propose_source_persona_placement(
+CREATE OR REPLACE FUNCTION private.propose_source_persona_placement(
   p_source_persona_id uuid,p_record_placement_id uuid,p_placement_role text,
-  p_basis_observation_id uuid,p_evidence jsonb,p_decided_by_name text DEFAULT 'evidence ingest'
-) RETURNS uuid LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
+  p_basis_observation_id uuid,p_evidence jsonb,p_decided_by_name text DEFAULT 'evidence ingest')
+RETURNS uuid LANGUAGE plpgsql SET search_path=pg_catalog,public,private AS $$
 DECLARE v_id uuid;
 BEGIN
-  IF jsonb_typeof(p_evidence)<>'object' OR p_evidence='{}'::jsonb
-     OR btrim(coalesce(p_decided_by_name,''))='' THEN
-    RAISE EXCEPTION 'EVIDENCE_PLACEMENT_PROPOSAL_INVALID';
-  END IF;
-  INSERT INTO private.source_persona_placement(
-    source_persona_id,record_placement_id,placement_role,basis_observation_id,initial_status
-  ) VALUES (p_source_persona_id,p_record_placement_id,p_placement_role,p_basis_observation_id,'proposed')
-  RETURNING id INTO v_id;
-  INSERT INTO private.source_persona_placement_decision(
-    placement_id,version,decision_status,evidence,decision_origin,decided_by_name
-  ) VALUES (v_id,1,'proposed',p_evidence,'ingest',p_decided_by_name);
-  RETURN v_id;
+  IF jsonb_typeof($5)<>'object' OR $5='{}'::jsonb OR btrim(coalesce($6,''))='' THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_PROPOSAL_INVALID'; END IF;
+  INSERT INTO private.source_persona_placement(source_persona_id,record_placement_id,placement_role,basis_observation_id,initial_status)
+    VALUES($1,$2,$3,$4,'proposed') RETURNING id INTO v_id;
+  INSERT INTO private.source_persona_placement_decision(placement_id,version,decision_status,evidence,decision_origin,decided_by_name)
+    VALUES(v_id,1,'proposed',$5,'ingest',$6); RETURN v_id;
 END $$;
 
 CREATE OR REPLACE FUNCTION red_decide_source_record_placement(
-  p_placement_id uuid,p_expected_version integer,p_status text,p_evidence jsonb
-) RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE
-  v_actor uuid:=auth.uid(); v_actor_name text; v_record_id uuid; v_scheme_entry_id bigint;
-  v_current_version integer; v_current_status text; v_new_version integer;
+  p_placement_id uuid,p_expected_version integer,p_status text,p_evidence jsonb)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_actor uuid:=auth.uid(); v_name text; v_record uuid; v_entry bigint; v_version integer; v_status text;
 BEGIN
   IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
-  IF p_expected_version IS NULL OR p_expected_version<1 THEN RAISE EXCEPTION 'EVIDENCE_EXPECTED_VERSION_REQUIRED'; END IF;
-  IF p_status NOT IN ('accepted','rejected','superseded')
-     OR jsonb_typeof(p_evidence)<>'object' OR p_evidence='{}'::jsonb THEN
-    RAISE EXCEPTION 'EVIDENCE_PLACEMENT_DECISION_INVALID';
-  END IF;
-  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text)
-    INTO v_actor_name FROM public.profiles WHERE id=v_actor;
-  IF v_actor_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
-  SELECT source_record_id,scheme_entry_id INTO v_record_id,v_scheme_entry_id
-    FROM private.source_record_placement WHERE id=p_placement_id;
+  IF $2 IS NULL OR $2<1 THEN RAISE EXCEPTION 'EVIDENCE_EXPECTED_VERSION_REQUIRED'; END IF;
+  IF $3 NOT IN ('accepted','rejected','superseded') OR jsonb_typeof($4)<>'object' OR $4='{}'::jsonb THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_DECISION_INVALID'; END IF;
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text) INTO v_name FROM public.profiles WHERE id=v_actor;
+  IF v_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
+  SELECT source_record_id,scheme_entry_id INTO v_record,v_entry FROM private.source_record_placement WHERE id=$1;
   IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_NOT_FOUND'; END IF;
-  PERFORM 1 FROM private.source_record WHERE id=v_record_id FOR UPDATE;
-  PERFORM 1 FROM private.source_record_placement WHERE id=p_placement_id FOR UPDATE;
-  SELECT version,decision_status INTO v_current_version,v_current_status
-    FROM private.source_record_placement_decision WHERE placement_id=p_placement_id
-   ORDER BY version DESC LIMIT 1 FOR UPDATE;
-  IF v_current_version IS NULL THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_INITIAL_DECISION_REQUIRED'; END IF;
-  IF v_current_version<>p_expected_version THEN
-    RAISE EXCEPTION 'EVIDENCE_PLACEMENT_VERSION_CONFLICT: expected %, current %',p_expected_version,v_current_version;
-  END IF;
-  IF NOT ((v_current_status='proposed' AND p_status IN ('accepted','rejected'))
-       OR (v_current_status='accepted' AND p_status='superseded')) THEN
-    RAISE EXCEPTION 'EVIDENCE_PLACEMENT_TRANSITION_INVALID';
-  END IF;
-  IF p_status='accepted' AND EXISTS (
-    SELECT 1 FROM private.source_record_placement_current current_placement
-     WHERE current_placement.source_record_id=v_record_id
-       AND current_placement.scheme_entry_id=v_scheme_entry_id
-       AND current_placement.id<>p_placement_id
-       AND current_placement.decision_status='accepted'
-  ) THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_ALREADY_ACCEPTED'; END IF;
-  v_new_version:=v_current_version+1;
-  INSERT INTO private.source_record_placement_decision(
-    placement_id,version,decision_status,evidence,decision_origin,decided_by,decided_by_name
-  ) VALUES (p_placement_id,v_new_version,p_status,p_evidence,'redaction',v_actor,v_actor_name);
-  RETURN v_new_version;
+  PERFORM 1 FROM private.source_record WHERE id=v_record FOR UPDATE;
+  PERFORM 1 FROM private.source_record_placement WHERE id=$1 FOR UPDATE;
+  SELECT version,decision_status INTO v_version,v_status FROM private.source_record_placement_decision WHERE placement_id=$1 ORDER BY version DESC LIMIT 1 FOR UPDATE;
+  IF v_version IS NULL THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_INITIAL_DECISION_REQUIRED'; END IF;
+  IF v_version<>$2 THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_VERSION_CONFLICT: expected %, current %',$2,v_version; END IF;
+  IF NOT ((v_status='proposed' AND $3 IN ('accepted','rejected')) OR (v_status='accepted' AND $3='superseded')) THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_TRANSITION_INVALID'; END IF;
+  IF $3='accepted' AND EXISTS(SELECT 1 FROM private.source_record_placement_current WHERE source_record_id=v_record AND scheme_entry_id=v_entry AND id<>$1 AND decision_status='accepted') THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_ALREADY_ACCEPTED'; END IF;
+  INSERT INTO private.source_record_placement_decision(placement_id,version,decision_status,evidence,decision_origin,decided_by,decided_by_name)
+    VALUES($1,v_version+1,$3,$4,'redaction',v_actor,v_name); RETURN v_version+1;
 END $$;
 
 CREATE OR REPLACE FUNCTION red_decide_source_persona_placement(
-  p_placement_id uuid,p_expected_version integer,p_status text,p_evidence jsonb
-) RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE
-  v_actor uuid:=auth.uid(); v_actor_name text; v_persona_id uuid; v_record_placement_id uuid;
-  v_current_version integer; v_current_status text; v_new_version integer;
+  p_placement_id uuid,p_expected_version integer,p_status text,p_evidence jsonb)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_actor uuid:=auth.uid(); v_name text; v_persona uuid; v_record_placement uuid; v_version integer; v_status text;
 BEGIN
   IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
-  IF p_expected_version IS NULL OR p_expected_version<1 THEN RAISE EXCEPTION 'EVIDENCE_EXPECTED_VERSION_REQUIRED'; END IF;
-  IF p_status NOT IN ('accepted','rejected','superseded')
-     OR jsonb_typeof(p_evidence)<>'object' OR p_evidence='{}'::jsonb THEN
-    RAISE EXCEPTION 'EVIDENCE_PLACEMENT_DECISION_INVALID';
-  END IF;
-  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text)
-    INTO v_actor_name FROM public.profiles WHERE id=v_actor;
-  IF v_actor_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
-  SELECT source_persona_id,record_placement_id INTO v_persona_id,v_record_placement_id
-    FROM private.source_persona_placement WHERE id=p_placement_id;
+  IF $2 IS NULL OR $2<1 THEN RAISE EXCEPTION 'EVIDENCE_EXPECTED_VERSION_REQUIRED'; END IF;
+  IF $3 NOT IN ('accepted','rejected','superseded') OR jsonb_typeof($4)<>'object' OR $4='{}'::jsonb THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_DECISION_INVALID'; END IF;
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text) INTO v_name FROM public.profiles WHERE id=v_actor;
+  IF v_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
+  SELECT source_persona_id,record_placement_id INTO v_persona,v_record_placement FROM private.source_persona_placement WHERE id=$1;
   IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_NOT_FOUND'; END IF;
-  PERFORM 1 FROM private.source_persona WHERE id=v_persona_id FOR UPDATE;
-  PERFORM 1 FROM private.source_record_placement WHERE id=v_record_placement_id FOR UPDATE;
-  PERFORM 1 FROM private.source_persona_placement WHERE id=p_placement_id FOR UPDATE;
-  SELECT version,decision_status INTO v_current_version,v_current_status
-    FROM private.source_persona_placement_decision WHERE placement_id=p_placement_id
-   ORDER BY version DESC LIMIT 1 FOR UPDATE;
-  IF v_current_version IS NULL THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_INITIAL_DECISION_REQUIRED'; END IF;
-  IF v_current_version<>p_expected_version THEN
-    RAISE EXCEPTION 'EVIDENCE_PLACEMENT_VERSION_CONFLICT: expected %, current %',p_expected_version,v_current_version;
-  END IF;
-  IF NOT ((v_current_status='proposed' AND p_status IN ('accepted','rejected'))
-       OR (v_current_status='accepted' AND p_status='superseded')) THEN
-    RAISE EXCEPTION 'EVIDENCE_PLACEMENT_TRANSITION_INVALID';
-  END IF;
-  IF p_status='accepted' AND NOT EXISTS (
-    SELECT 1 FROM private.source_record_placement_current
-     WHERE id=v_record_placement_id AND decision_status='accepted'
-  ) THEN RAISE EXCEPTION 'EVIDENCE_RECORD_PLACEMENT_ACCEPTED_REQUIRED'; END IF;
-  v_new_version:=v_current_version+1;
-  INSERT INTO private.source_persona_placement_decision(
-    placement_id,version,decision_status,evidence,decision_origin,decided_by,decided_by_name
-  ) VALUES (p_placement_id,v_new_version,p_status,p_evidence,'redaction',v_actor,v_actor_name);
-  RETURN v_new_version;
+  PERFORM 1 FROM private.source_persona WHERE id=v_persona FOR UPDATE;
+  PERFORM 1 FROM private.source_record_placement WHERE id=v_record_placement FOR UPDATE;
+  PERFORM 1 FROM private.source_persona_placement WHERE id=$1 FOR UPDATE;
+  SELECT version,decision_status INTO v_version,v_status FROM private.source_persona_placement_decision WHERE placement_id=$1 ORDER BY version DESC LIMIT 1 FOR UPDATE;
+  IF v_version IS NULL THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_INITIAL_DECISION_REQUIRED'; END IF;
+  IF v_version<>$2 THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_VERSION_CONFLICT: expected %, current %',$2,v_version; END IF;
+  IF NOT ((v_status='proposed' AND $3 IN ('accepted','rejected')) OR (v_status='accepted' AND $3='superseded')) THEN RAISE EXCEPTION 'EVIDENCE_PLACEMENT_TRANSITION_INVALID'; END IF;
+  IF $3='accepted' AND NOT EXISTS(SELECT 1 FROM private.source_record_placement_current WHERE id=v_record_placement AND decision_status='accepted') THEN RAISE EXCEPTION 'EVIDENCE_RECORD_PLACEMENT_ACCEPTED_REQUIRED'; END IF;
+  INSERT INTO private.source_persona_placement_decision(placement_id,version,decision_status,evidence,decision_origin,decided_by,decided_by_name)
+    VALUES($1,v_version+1,$3,$4,'redaction',v_actor,v_name); RETURN v_version+1;
 END $$;
 
 CREATE TRIGGER trg_source_record_placement_validate
@@ -3949,7 +3745,8 @@ CREATE TABLE private.reimport_writer_profile (
   profile_id text NOT NULL CHECK (btrim(profile_id)<>''),
   profile_version text NOT NULL CHECK (btrim(profile_version)<>''),
   profile_sha256 text NOT NULL CHECK (profile_sha256 ~ '^[0-9a-f]{64}$'),
-  writer_config jsonb NOT NULL CHECK (private.validate_reimport_writer_config(writer_config)),
+  writer_config jsonb NOT NULL CONSTRAINT reimport_writer_profile_config_valid
+                CHECK (private.validate_reimport_writer_config(writer_config)),
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   PRIMARY KEY(source_id,profile_id),
   CHECK(profile_sha256=private.reimport_canonical_json_sha256(writer_config)),
@@ -4005,7 +3802,8 @@ CREATE TABLE private.reimport_event (
   id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
   batch_id uuid NOT NULL REFERENCES private.reimport_batch(id),
   element_id text NOT NULL CHECK(btrim(element_id)<>''),
-  operation text NOT NULL CONSTRAINT reimport_event_operation_check CHECK(operation IN ('source_evidence','person_create','legacy_migration','clause_evidence','interpretation_proposal','canonical_delta','reversal','activation','clause_revision','relation_persona','relation_person_create','relation_disposition','source_text_revision','publication_persona','publication_identity')),
+  -- Samme form som private.ensure_reimport_operations skriver (sorteret = ANY-liste), så frisk base og prod er ens.
+  operation text NOT NULL CONSTRAINT reimport_event_operation_check CHECK(operation = ANY('{activation,canonical_delta,clause_evidence,clause_revision,interpretation_proposal,legacy_migration,person_create,publication_identity,publication_persona,relation_disposition,relation_person_create,relation_persona,reversal,source_evidence,source_text_revision}'::text[])),
   source_record_key text,
   canonical_person_id bigint,
   payload jsonb NOT NULL CHECK(jsonb_typeof(payload)='object'),
@@ -4015,18 +3813,53 @@ CREATE TABLE private.reimport_event (
   UNIQUE(batch_id,element_id)
 );
 
+-- Udvider reimport_event_operation_check uden at tabe værdier; migrationerne kalder den, når nye operationer kommer til.
+CREATE OR REPLACE FUNCTION private.ensure_reimport_operations(p_values text[])
+RETURNS void LANGUAGE plpgsql SET search_path=pg_catalog AS $ero$
+DECLARE v_def text; v_current text[]; v_all text[]; v_name text;
+BEGIN
+  SELECT conname, pg_get_constraintdef(oid) INTO v_name, v_def
+    FROM pg_constraint
+   WHERE conrelid = 'private.reimport_event'::regclass AND contype = 'c'
+     AND pg_get_constraintdef(oid) LIKE '%operation%'
+     AND pg_get_constraintdef(oid) LIKE '%source_evidence%'
+   LIMIT 1;
+
+  -- Læs den eksisterende liste. Definitionen kan have TO former:
+  --   IN ('a','b')                  — de oprindelige blokke
+  --   = ANY ('{a,b}'::text[])       — det, denne funktion selv skriver
+  -- Læses kun den første, taber anden kørsel de værdier, første kørsel satte.
+  -- (Præcis den fejl, en tidligere udgave af funktionen havde: `reversal` og
+  --  `activation` forsvandt, fordi de ikke findes i data og kun blev sendt med
+  --  af den første blok.)
+  IF v_def IS NULL THEN
+    v_current := ARRAY[]::text[];
+  ELSIF v_def LIKE '%ANY%{%' THEN
+    v_current := string_to_array(
+      btrim(substring(v_def from '\{([^}]*)\}'), ' '), ',');
+  ELSE
+    v_current := ARRAY(SELECT DISTINCT m[1] FROM regexp_matches(v_def, $re$'([a-z_]+)'$re$, 'g') m);
+  END IF;
+
+  -- Sikkerhedsnet: en operation, der findes i data, må aldrig falde ud af listen.
+  -- COLLATE "C": rækkefølgen indgår i constraint-teksten og må ikke afhænge af basens locale
+  -- (glibc sætter relation_persona før relation_person_create; prod og schema.sql har bytevis orden).
+  v_all := ARRAY(SELECT DISTINCT x COLLATE "C" FROM unnest(
+             v_current || p_values || ARRAY(SELECT DISTINCT operation FROM private.reimport_event)
+           ) x WHERE x IS NOT NULL ORDER BY 1);
+
+  IF v_name IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE private.reimport_event DROP CONSTRAINT %I', v_name);
+  END IF;
+  EXECUTE format('ALTER TABLE private.reimport_event ADD CONSTRAINT reimport_event_operation_check CHECK(operation = ANY(%L))', v_all);
+END $ero$;
+
 
 
 -- ---------- Generic profile-bound reimport writer (narrative record v2) ----------
 -- Existing case-ledger code still uses these two internal primitives. They are
 -- not writer tables or public wrappers, and remain private/revoked below.
-CREATE OR REPLACE FUNCTION private.require_reimport_1939_editor()
-RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
-DECLARE v_actor uuid:=auth.uid();
-BEGIN
-  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'REIMPORT_1939_ROLE_FORBIDDEN'; END IF;
-  RETURN v_actor;
-END $$;
+CREATE OR REPLACE FUNCTION private.require_reimport_1939_editor() RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$ DECLARE a uuid:=auth.uid(); BEGIN IF a IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'REIMPORT_1939_ROLE_FORBIDDEN'; END IF; RETURN a; END $$;
 CREATE OR REPLACE FUNCTION private.reimport_1939_canonical_json_text(p_value jsonb)
 RETURNS text LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE v_piece text; v_key text; v_item jsonb;
@@ -4153,31 +3986,9 @@ FROM (VALUES (
 WHERE EXISTS(SELECT 1 FROM public.source WHERE id=1)
 ON CONFLICT DO NOTHING;
 
-CREATE FUNCTION private.require_reimport_writer_editor()
-RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
-DECLARE v_actor uuid:=auth.uid();
-BEGIN
-  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'REIMPORT_WRITER_ROLE_FORBIDDEN'; END IF;
-  RETURN v_actor;
-END $$;
+CREATE OR REPLACE FUNCTION private.require_reimport_writer_editor() RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$ DECLARE actor uuid:=auth.uid(); BEGIN IF actor IS NULL OR public.current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'REIMPORT_WRITER_ROLE_FORBIDDEN'; END IF; RETURN actor; END $$;
 
-CREATE FUNCTION private.require_reimport_open_batch(p_batch_id uuid)
-RETURNS private.reimport_batch LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
-DECLARE v_batch private.reimport_batch%ROWTYPE; v_actor uuid; v_discovered_source_id bigint; v_discovered_profile_id text;
-BEGIN
-  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
-  IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF;
-  v_actor:=private.require_reimport_writer_editor();
-  -- Discovery is deliberately unlocked: mutable state is only trusted after
-  -- the profile writer lock has established the lifecycle lock hierarchy.
-  SELECT source_id,profile_id INTO v_discovered_source_id,v_discovered_profile_id
-    FROM private.reimport_batch WHERE id=p_batch_id;
-  IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_INVALID'; END IF;
-  PERFORM private.lock_reimport_writer(v_discovered_source_id,v_discovered_profile_id);
-  SELECT * INTO v_batch FROM private.reimport_batch WHERE id=p_batch_id FOR UPDATE;
-  IF NOT FOUND OR v_batch.source_id IS DISTINCT FROM v_discovered_source_id OR v_batch.profile_id IS DISTINCT FROM v_discovered_profile_id OR v_batch.status<>'open' OR v_batch.principal_id<>v_actor THEN RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_INVALID'; END IF;
-  RETURN v_batch;
-END $$;
+CREATE OR REPLACE FUNCTION private.require_reimport_open_batch(batch_id uuid) RETURNS private.reimport_batch LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$ DECLARE batch private.reimport_batch%ROWTYPE; actor uuid; discovered_source_id bigint; discovered_profile_id text; BEGIN PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0)); IF public.narrative_record_contract_version()<>2 THEN RAISE EXCEPTION 'REIMPORT_NARRATIVE_RECORD_CONTRACT_REQUIRED'; END IF; actor:=private.require_reimport_writer_editor(); SELECT source_id,profile_id INTO discovered_source_id,discovered_profile_id FROM private.reimport_batch WHERE id=batch_id; IF NOT FOUND THEN RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_INVALID'; END IF; PERFORM private.lock_reimport_writer(discovered_source_id,discovered_profile_id); SELECT * INTO batch FROM private.reimport_batch WHERE id=batch_id FOR UPDATE; IF NOT FOUND OR batch.source_id IS DISTINCT FROM discovered_source_id OR batch.profile_id IS DISTINCT FROM discovered_profile_id OR batch.status<>'open' OR batch.principal_id<>actor THEN RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_INVALID'; END IF; RETURN batch; END $$;
 
 CREATE FUNCTION private.lock_reimport_writer(p_source_id bigint,p_profile_id text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
@@ -5239,24 +5050,14 @@ END $$;
 -- legacy v1 key material or the new receipt value hash is calculated.
 CREATE OR REPLACE FUNCTION private.normalize_interpretation_proposal_value(p_value jsonb)
 RETURNS jsonb LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE v_key text; v_item jsonb; v_number numeric; v_result jsonb;
+DECLARE v_number numeric; v_result jsonb;
 BEGIN
   CASE jsonb_typeof(p_value)
-    WHEN 'object' THEN
-      SELECT coalesce(jsonb_object_agg(key,private.normalize_interpretation_proposal_value(p_value->key)),'{}'::jsonb)
-        INTO v_result FROM jsonb_object_keys(p_value) key;
-      RETURN v_result;
-    WHEN 'array' THEN
-      SELECT coalesce(jsonb_agg(private.normalize_interpretation_proposal_value(value) ORDER BY ordinality),'[]'::jsonb)
-        INTO v_result FROM jsonb_array_elements(p_value) WITH ORDINALITY a(value,ordinality);
-      RETURN v_result;
+    WHEN 'object' THEN SELECT coalesce(jsonb_object_agg(key,private.normalize_interpretation_proposal_value(p_value->key)),'{}'::jsonb) INTO v_result FROM jsonb_object_keys(p_value) key; RETURN v_result;
+    WHEN 'array' THEN SELECT coalesce(jsonb_agg(private.normalize_interpretation_proposal_value(value) ORDER BY ordinality),'[]'::jsonb) INTO v_result FROM jsonb_array_elements(p_value) WITH ORDINALITY a(value,ordinality); RETURN v_result;
     WHEN 'number' THEN
-      BEGIN v_number:=(p_value#>>'{}')::numeric; EXCEPTION WHEN OTHERS THEN
-        RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_VALUE_NUMERIC_INVALID';
-      END;
-      IF trunc(v_number)<>v_number OR v_number<(-9007199254740991)::numeric OR v_number>9007199254740991::numeric THEN
-        RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_VALUE_NUMERIC_INVALID';
-      END IF;
+      BEGIN v_number:=(p_value#>>'{}')::numeric; EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_VALUE_NUMERIC_INVALID'; END;
+      IF trunc(v_number)<>v_number OR v_number<(-9007199254740991)::numeric OR v_number>9007199254740991::numeric THEN RAISE EXCEPTION 'REIMPORT_WRITER_INTERPRETATION_VALUE_NUMERIC_INVALID'; END IF;
       RETURN to_jsonb(v_number::bigint);
     ELSE RETURN p_value;
   END CASE;
@@ -6987,6 +6788,7 @@ CREATE INDEX IF NOT EXISTS ix_fammember_family   ON family_member(family_id);
 CREATE INDEX IF NOT EXISTS ix_extid_linje_nr     ON person_external_id(linje, nr);
 CREATE INDEX IF NOT EXISTS ix_extid_person       ON person_external_id(person_id);
 CREATE INDEX IF NOT EXISTS ix_lineage_src_kode   ON lineage(source_id, kode);
+CREATE INDEX IF NOT EXISTS ix_lineage_parent      ON lineage(parent_lineage_id);
 CREATE INDEX IF NOT EXISTS ix_fact_subjekt       ON fact(subjekt_type, subjekt_id);
 CREATE INDEX IF NOT EXISTS ix_assertion_target   ON assertion(target_type, target_id);
 CREATE INDEX IF NOT EXISTS ix_conclusion_target  ON conclusion(target_type, target_id);
