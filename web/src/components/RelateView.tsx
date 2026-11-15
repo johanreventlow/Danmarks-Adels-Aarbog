@@ -9,6 +9,7 @@ import { personPath, slaegtskabPath, stamtraePath } from '../data/nav';
 import { faellesAneTekst, personForslag, slaegtledTekst, vejTrin, type PersonForslag } from '../data/slaegtskab';
 import type { Model } from '../data/types';
 import { useSmalSkaerm } from '../useSmalSkaerm';
+import { delLink, type DelUdfald } from '../data/delLink';
 
 const etiket: CSSProperties = { margin: 0, fontFamily: T.mono, fontSize: 11, lineHeight: '14px', fontWeight: 500, letterSpacing: '0.16em', textTransform: 'uppercase' };
 const knap: CSSProperties = { fontFamily: T.sans, fontSize: 14, lineHeight: '20px', fontWeight: 600, padding: '10px 16px', borderRadius: 11, cursor: 'pointer', textDecoration: 'none' };
@@ -38,12 +39,12 @@ export function RelateView({ model, relA: relAUrl, relB, meId, slug, onVaelg }: 
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div role="group" aria-label="Vælg to personer" style={{ display: 'grid', gridTemplateColumns: smal ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) auto minmax(0, 1fr)', gap: smal ? 10 : 16, alignItems: 'start' }}>
-          <PersonVaelger label="Første person" model={model} valgtId={relA} valgt={a} onVaelg={(id) => onVaelg(id, relB)} />
+          <PersonVaelger label="Første person" smal={smal} model={model} valgtId={relA} valgt={a} onVaelg={(id) => onVaelg(id, relB)} />
           <button type="button" aria-label="Byt om på de to personer" title="Byt om" disabled={!relA && !relB} onClick={() => onVaelg(relB, relA)}
             style={{ width: 44, height: 44, marginTop: smal ? 0 : 22, justifySelf: 'center', borderRadius: 11, border: `1px solid ${T.lineStrong}`, background: T.surfaceRaised, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width={18} height={18} viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke={T.ink} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" style={smal ? { transform: 'rotate(90deg)' } : undefined}><path d="M4 7h12l-3-3M16 13H4l3 3" /></svg>
           </button>
-          <PersonVaelger label="Anden person" model={model} valgtId={relB} valgt={b} onVaelg={(id) => onVaelg(relA, id)} />
+          <PersonVaelger label="Anden person" smal={smal} model={model} valgtId={relB} valgt={b} onVaelg={(id) => onVaelg(relA, id)} />
         </div>
         {me && relA !== me.id && (
           <p style={{ margin: 0, fontSize: 13.5, lineHeight: '20px', color: T.inkMuted }}>
@@ -64,8 +65,9 @@ export function RelateView({ model, relA: relAUrl, relB, meId, slug, onVaelg }: 
 }
 
 // Personvælger: et søgefelt med forslag (ARIA combobox). Feltet viser den valgte person, til man skriver.
-function PersonVaelger({ label, model, valgtId, valgt, onVaelg }: {
-  label: string; model: Model | null; valgtId: string | null; valgt: Model['persons'][number] | null;
+// Smal skærm (fase 9): feltet viser kun navnet, og leveårene står under det — ellers skæres de af midt i datoen.
+function PersonVaelger({ label, smal, model, valgtId, valgt, onVaelg }: {
+  label: string; smal: boolean; model: Model | null; valgtId: string | null; valgt: Model['persons'][number] | null;
   onVaelg: (id: string) => void;
 }) {
   const id = useId();
@@ -73,7 +75,8 @@ function PersonVaelger({ label, model, valgtId, valgt, onVaelg }: {
   const [aktiv, setAktiv] = useState(0);
   const forslag = useMemo(() => (model && tekst ? personForslag(model, tekst) : []), [model, tekst]);
   const aaben = tekst !== null && tekst.trim() !== '';
-  const vist = tekst ?? (valgt ? `${valgt.name}${valgt.years ? ` (${valgt.years})` : ''}` : '');
+  const vist = tekst ?? (valgt ? `${valgt.name}${valgt.years && !smal ? ` (${valgt.years})` : ''}` : '');
+  const aarUnder = smal && tekst === null && valgt?.years ? valgt.years : null;
   const vaelg = (f: PersonForslag) => { onVaelg(f.id); setTekst(null); setAktiv(0); };
   const tast = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown' && forslag.length) { e.preventDefault(); setAktiv((i) => (i + 1) % forslag.length); }
@@ -87,6 +90,7 @@ function PersonVaelger({ label, model, valgtId, valgt, onVaelg }: {
       <input id={`${id}-felt`} type="text" role="combobox" autoComplete="off" aria-autocomplete="list"
         aria-expanded={aaben} aria-controls={`${id}-liste`}
         aria-activedescendant={aaben && forslag[aktiv] ? `${id}-f${aktiv}` : undefined}
+        aria-describedby={aarUnder ? `${id}-aar` : undefined}
         value={vist} placeholder="Skriv et navn" disabled={!model}
         // Feltet viser »Navn (leveår)«, til man skriver. Fokus markerer teksten, så det første tegn erstatter den;
         // står markøren alligevel efter navnet, tæller kun det nye.
@@ -94,6 +98,7 @@ function PersonVaelger({ label, model, valgtId, valgt, onVaelg }: {
         onChange={(e) => { const v = e.target.value; setTekst(tekst === null && vist && v.startsWith(vist) ? v.slice(vist.length) : v); setAktiv(0); }}
         onKeyDown={tast} onBlur={() => setTekst(null)}
         style={{ fontFamily: T.sans, fontSize: 16, lineHeight: '22px', padding: '12px 16px', borderRadius: 11, border: `1px solid ${T.lineStrong}`, background: T.surfaceRaised, color: T.ink, minWidth: 0 }} />
+      {aarUnder && <span id={`${id}-aar`} style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{aarUnder}</span>}
       {valgtId && model && !valgt && tekst === null && (
         <p role="note" style={{ margin: 0, fontSize: 13, color: T.danger }}>Personen i linket findes ikke i Aarbogen. Vælg en anden.</p>
       )}
@@ -120,11 +125,9 @@ function Resultat({ lines, found, aNavn, bNavn, delSti, slug, smal }: {
   aNavn: string; bNavn: string; delSti: string; slug: string; smal: boolean;
 }) {
   const [vej, setVej] = useState(0);
-  const [kopieret, setKopieret] = useState<'ja' | 'fejl' | null>(null);
-  const kopier = async () => {
-    try { await navigator.clipboard.writeText(`${window.location.origin}${delSti}`); setKopieret('ja'); }
-    catch { setKopieret('fejl'); }
-  };
+  const [kopieret, setKopieret] = useState<DelUdfald | null>(null);
+  // Telefonen deler med sin egen delemenu; bred skærm kopierer (fase 9).
+  const kopier = async () => { setKopieret(await delLink(`${window.location.origin}${delSti}`, document.title, smal)); };
   if (!found) {
     return (
       <section aria-label="Resultat" style={{ background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 22, padding: smal ? 22 : 32, maxWidth: 720 }}>
@@ -162,11 +165,11 @@ function Resultat({ lines, found, aNavn, bNavn, delSti, slug, smal }: {
         )}
         {korrob && <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: T.inkMutedOnInverse }}>✓ {korrob}</p>}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
-          <button type="button" onClick={() => { void kopier(); }} style={{ ...knap, border: 0, background: T.surfaceRaised, color: T.ink }}>Kopiér link til resultatet</button>
+          <button type="button" onClick={() => { void kopier(); }} style={{ ...knap, border: 0, background: T.surfaceRaised, color: T.ink }}>{smal ? 'Del resultatet' : 'Kopiér link til resultatet'}</button>
           {!samme && <Link href={stamtraePath(slug, line.lcaId)} style={{ ...knap, border: '1px solid rgba(251,248,241,0.35)', color: T.inkOnInverse }}>Vis fælles ane i stamtræet</Link>}
         </div>
         <p role="status" aria-live="polite" style={{ margin: 0, minHeight: 20, fontSize: 13, color: T.inkMutedOnInverse }}>
-          {kopieret === 'ja' ? 'Linket er kopieret.' : kopieret === 'fejl' ? 'Linket kunne ikke kopieres. Kopiér adressen fra browserens adresselinje.' : ''}
+          {kopieret === 'kopieret' ? 'Linket er kopieret.' : kopieret === 'fejl' ? 'Linket kunne ikke kopieres. Kopiér adressen fra browserens adresselinje.' : ''}
         </p>
       </div>
 

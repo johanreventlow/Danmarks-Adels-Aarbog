@@ -32,6 +32,8 @@ import { usePersonVisning, KildeLinjeVisning } from './personVisning';
 import { SlaegtsMaerke } from './SlaegtsMaerke';
 import { ExpandableMiniMap, MapFallback } from './lazyMaps';
 import { radius, shadow } from '@daa/theme';
+import { useSmalSkaerm } from '../useSmalSkaerm';
+import { delLink, type DelUdfald } from '../data/delLink';
 
 const FOERSTE_EMBEDER = 7;
 const FOERSTE_GODSER = 6;
@@ -52,7 +54,8 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   const [visAlleEmbeder, setVisAlleEmbeder] = useState(false);
   const [visAlleGodser, setVisAlleGodser] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null);
-  const [kopieret, setKopieret] = useState<'ja' | 'fejl' | null>(null);
+  const [kopieret, setKopieret] = useState<DelUdfald | null>(null);
+  const smal = useSmalSkaerm(); // telefonen: »Del« med telefonens delemenu (fase 9)
   const livsrejse = useMemo(() => (!geoLoading && model.geo ? lifeJourney(model.geo, focusId) : []), [geoLoading, model.geo, focusId]);
   // Før det tidlige return: hooks skal kaldes i samme rækkefølge ved hver render.
   const kontekst = useMemo(() => slaegtskabsKontekst(model, meId, focusId), [model, meId, focusId]);
@@ -74,14 +77,52 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   const visteGodser = visAlleGodser ? v.godser : v.godser.slice(0, FOERSTE_GODSER);
   const portrait = v.portrait?.url ? v.portrait : null; // kun et portræt, der kan vises, får billedtekst
   const kopier = async () => {
-    try {
-      await navigator.clipboard.writeText(`${window.location.origin}${personPath(focusId)}`);
-      setKopieret('ja');
-    } catch { setKopieret('fejl'); }
+    setKopieret(await delLink(`${window.location.origin}${personPath(focusId)}`, document.title, smal));
   };
 
+  // Familie på telefonen: én spalte med etiketten over navnene (tegningen), ikke en smal etiketspalte.
+  const dtStil: CSSProperties = smal ? { ...etiketStil, color: T.inkMuted, marginTop: 8 } : { color: T.inkMuted };
+  const navneblok = (
+    <>
+      <h1 style={{ margin: 0, fontFamily: T.serif, fontSize: smal ? 32 : 44, lineHeight: 1.05, fontWeight: 500, color: T.ink, textWrap: 'balance' } as CSSProperties}>{p.name}</h1>
+      <p style={{ margin: 0, fontFamily: T.mono, fontSize: smal ? 13 : 14, lineHeight: '20px', color: T.inkMuted }}>{p.years || 'Livsdatoer ikke angivet i Aarbogen'}</p>
+      {p.title && <p style={{ margin: 0, fontSize: 15, color: T.bordeaux, fontWeight: 600 }}>{p.title}</p>}
+    </>
+  );
+  // Handlingerne: højre spalte på bred skærm, lige under navnet på telefonen (fase 9, tegningen »Mobil – personside«).
+  // Samme knapper begge steder, aldrig to gange — DOM-rækkefølgen er tab-rækkefølgen.
+  const handlinger = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {loggetInd && (
+        <button type="button" aria-pressed={erBogmaerket} onClick={onToggleBogmaerke}
+          style={{ ...knap, border: `1px solid ${erBogmaerket ? T.bordeaux : T.lineStrong}`, background: erBogmaerket ? T.bordeauxTint : T.surfaceRaised, color: erBogmaerket ? T.bordeaux : T.ink }}>
+          {erBogmaerket ? 'Gemt i bogmærker' : 'Gem i bogmærker'}
+        </button>
+      )}
+      <Link href={stamtraePath(slaegt?.slug ?? STANDARD_SLAEGT, focusId)} style={{ ...knap, background: T.bordeaux, color: T.onBordeaux, border: 0, textDecoration: 'none' }}>Vis i stamtræet</Link>
+      <div style={{ display: 'flex', gap: 10 }}>
+        {/* Knap, ikke link: personen kommer først i slægtskabets adresse i fase 6. */}
+        <Link href={slaegtskabPath(focusId)} onNavigate={onFindSlaegtskab} style={{ ...knap, flex: 1, textDecoration: 'none' }}>Find slægtskab</Link>
+        <button type="button" onClick={() => { void kopier(); }} style={{ ...knap, flex: 1 }}>{smal ? 'Del' : 'Kopiér link'}</button>
+      </div>
+      {onToggleMig && (
+        <button type="button" aria-pressed={erMig} onClick={onToggleMig}
+          title={erMig ? 'Fjern markeringen af dig' : 'Markér denne person som dig (gemmes kun i denne browser)'}
+          style={{ ...knap, border: `1px solid ${erMig ? T.bordeaux : T.lineStrong}`, background: erMig ? T.bordeauxTint : T.surfaceRaised, color: erMig ? T.bordeaux : T.ink }}>
+          {erMig ? 'Det er dig' : 'Det er mig'}
+        </button>
+      )}
+      {onVisPraesens && (
+        <button type="button" onClick={onVisPraesens} style={{ ...tekstKnap, alignSelf: 'flex-start', ...(smal ? { minHeight: 44 } : null) }}>Vis i præsensliste</button>
+      )}
+      <p role="status" aria-live="polite" style={{ margin: 0, minHeight: 20, fontSize: 13, color: kopieret === 'fejl' ? T.danger : T.inkMuted }}>
+        {kopieret === 'kopieret' ? 'Linket er kopieret.' : kopieret === 'fejl' ? 'Linket kunne ikke kopieres. Kopiér adressen fra browserens adresselinje.' : ''}
+      </p>
+    </div>
+  );
+
   return (
-    <main style={{ maxWidth: 1240, margin: '0 auto', padding: '24px 24px 64px', display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <main style={{ maxWidth: 1240, margin: '0 auto', padding: smal ? '16px 16px 48px' : '24px 24px 64px', display: 'flex', flexDirection: 'column', gap: smal ? 16 : 24 }}>
       <nav aria-label="Brødkrumme" style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>
         <Link href="/" style={{ color: T.bordeaux }}>Aarbogen</Link>
         {slaegt && <> / <Link href={slaegtPath(slaegt.slug)} onNavigate={() => onSlaegt(slaegt.slug)} style={{ color: T.bordeaux }}>{slaegt.navn}</Link></>}
@@ -90,20 +131,32 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
       </nav>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 40, alignItems: 'flex-start' }}>
-        <article style={{ flex: '999 1 640px', minWidth: 0, background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 4, boxShadow: shadow.card, padding: 'clamp(24px, 5vw, 64px)', display: 'flex', flexDirection: 'column', gap: 36 }}>
+        <article style={{ flex: '999 1 640px', minWidth: 0, background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 4, boxShadow: shadow.card, padding: smal ? 20 : 'clamp(24px, 5vw, 64px)', display: 'flex', flexDirection: 'column', gap: smal ? 28 : 36 }}>
           <header style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
               {etiket ? <p style={{ ...etiketStil, color: T.goldInk }}>{etiket}</p> : <span />}
               {harVaelger && <Udgavevaelger chips={v.vaelger.chips} valgt={v.valgtIdx} onVaelg={v.vaelgChip} />}
             </div>
             <SlaegtskabsLinje kontekst={kontekst} meId={meId} focusId={focusId} onVisPerson={onVisPerson} />
-            <h1 style={{ margin: 0, fontFamily: T.serif, fontSize: 44, lineHeight: 1.05, fontWeight: 500, color: T.ink, textWrap: 'balance' } as CSSProperties}>{p.name}</h1>
-            <p style={{ margin: 0, fontFamily: T.mono, fontSize: 14, lineHeight: '20px', color: T.inkMuted }}>{p.years || 'Livsdatoer ikke angivet i Aarbogen'}</p>
-            {p.title && <p style={{ margin: 0, fontSize: 15, color: T.bordeaux, fontWeight: 600 }}>{p.title}</p>}
+            {smal && portrait?.url ? (
+              <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                <button type="button" onClick={() => setLightbox(0)} aria-label={`Vis portrættet af ${p.name} større`}
+                  style={{ flex: 'none', width: 92, padding: 0, border: 0, background: 'none', cursor: 'zoom-in' }}>
+                  <img src={portrait.url} alt={portrait.altTekst || `Portræt af ${p.name}`}
+                    style={{ display: 'block', width: '100%', aspectRatio: '4 / 5', objectFit: 'cover', borderRadius: radius.card, border: `1px solid ${T.line}` }} />
+                </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
+                  {navneblok}
+                  {/* Billedtekst og kilde (kunstner, år, ejer/institution) — kilder vises også på telefonen. */}
+                  {billedtekst(portrait) && <p style={{ margin: 0, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>Portræt: {billedtekst(portrait)}</p>}
+                </div>
+              </div>
+            ) : navneblok}
             {v.proveniens && <p style={{ margin: 0, fontSize: 13.5, color: T.inkMuted }}>Optræder i Aarbogen som {v.proveniens}.</p>}
             {v.tidligereUdgave && <p style={{ margin: 0, fontSize: 13, color: T.inkMuted }}>Du ser en tidligere udgave.</p>}
             {v.linjeNoter.map((n) => <p key={n} style={{ margin: 0, fontSize: 13, color: T.inkMuted }}>{n}</p>)}
           </header>
+          {smal && handlinger}
 
           {detailError ? (
             <Tilstand fejl etiket="Kunne ikke hente" titel="Personens oplysninger kunne ikke hentes"
@@ -134,8 +187,8 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
           )}
 
           <Sektion titel="Familie">
-            <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: 'minmax(0, 140px) minmax(0, 1fr)', gap: '10px 20px', fontSize: 15, lineHeight: '22px' }}>
-              <dt style={{ color: T.inkMuted }}>Forældre</dt>
+            <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: smal ? 'minmax(0, 1fr)' : 'minmax(0, 140px) minmax(0, 1fr)', gap: smal ? '4px 0' : '10px 20px', fontSize: 15, lineHeight: '22px' }}>
+              <dt style={dtStil}>Forældre</dt>
               <dd style={{ margin: 0 }}>
                 {v.parents.length ? v.parents.map((pa) => (
                   <div key={pa.id}>
@@ -144,7 +197,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                   </div>
                 )) : <Mangel>Ikke angivet i Aarbogen.</Mangel>}
               </dd>
-              <dt style={{ color: T.inkMuted }}>Gift med</dt>
+              <dt style={dtStil}>Gift med</dt>
               <dd style={{ margin: 0 }}>
                 {v.spouses.length ? v.spouses.map((sp, i) => (
                   <div key={(sp.id ?? sp.name) + i}>
@@ -153,7 +206,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                   </div>
                 )) : <Mangel>Intet ægteskab angivet i Aarbogen.</Mangel>}
               </dd>
-              <dt style={{ color: T.inkMuted }}>Børn</dt>
+              <dt style={dtStil}>Børn</dt>
               <dd style={{ margin: 0 }}>
                 {v.children.length ? (
                   <>
@@ -174,7 +227,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                   <ol style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: 15, lineHeight: '22px' }}>
                     {visteEmbeder.map((o, i) => (
                       <li key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 20px', padding: '9px 0', borderTop: `1px solid ${T.line}` }}>
-                        <span style={{ flex: 'none', width: 140, fontFamily: T.mono, fontSize: 12, lineHeight: '22px', color: T.inkMuted }}>{o.period || '—'}</span>
+                        <span style={{ flex: 'none', width: smal ? 92 : 140, fontFamily: T.mono, fontSize: 12, lineHeight: '22px', color: T.inkMuted }}>{o.period || '—'}</span>
                         <span style={{ flex: '1 1 240px', minWidth: 0, color: T.ink }}>{o.label}</span>
                       </li>
                     ))}
@@ -246,7 +299,8 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
         </article>
 
         <aside style={{ flex: '1 1 300px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <figure style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {/* Telefonen: portrættet står som miniature ved navnet; billedteksten vises i lysboksen. */}
+          {!smal && <figure style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
             {portrait?.url ? (
               <button type="button" onClick={() => setLightbox(0)} aria-label={`Vis portrættet af ${p.name} større`}
                 style={{ padding: 0, border: 0, background: 'none', cursor: 'zoom-in', display: 'block', width: '100%' }}>
@@ -261,7 +315,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
             <figcaption style={{ fontSize: 13, lineHeight: '19px', color: T.inkMuted }}>
               {henter ? 'Henter billeder …' : portrait ? (billedtekst(portrait) || 'Uden billedtekst.') : 'Intet portræt i Aarbogen.'}
             </figcaption>
-          </figure>
+          </figure>}
 
           {slaegt && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: radius.card, padding: 20 }}>
@@ -273,33 +327,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
             </div>
           )}
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {loggetInd && (
-              <button type="button" aria-pressed={erBogmaerket} onClick={onToggleBogmaerke}
-                style={{ ...knap, border: `1px solid ${erBogmaerket ? T.bordeaux : T.lineStrong}`, background: erBogmaerket ? T.bordeauxTint : T.surfaceRaised, color: erBogmaerket ? T.bordeaux : T.ink }}>
-                {erBogmaerket ? 'Gemt i bogmærker' : 'Gem i bogmærker'}
-              </button>
-            )}
-            <Link href={stamtraePath(slaegt?.slug ?? STANDARD_SLAEGT, focusId)} style={{ ...knap, background: T.bordeaux, color: T.onBordeaux, border: 0, textDecoration: 'none' }}>Vis i stamtræet</Link>
-            <div style={{ display: 'flex', gap: 10 }}>
-              {/* Knap, ikke link: personen kommer først i slægtskabets adresse i fase 6. */}
-              <Link href={slaegtskabPath(focusId)} onNavigate={onFindSlaegtskab} style={{ ...knap, flex: 1, textDecoration: 'none' }}>Find slægtskab</Link>
-              <button type="button" onClick={() => { void kopier(); }} style={{ ...knap, flex: 1 }}>Kopiér link</button>
-            </div>
-            {onToggleMig && (
-              <button type="button" aria-pressed={erMig} onClick={onToggleMig}
-                title={erMig ? 'Fjern markeringen af dig' : 'Markér denne person som dig (gemmes kun i denne browser)'}
-                style={{ ...knap, border: `1px solid ${erMig ? T.bordeaux : T.lineStrong}`, background: erMig ? T.bordeauxTint : T.surfaceRaised, color: erMig ? T.bordeaux : T.ink }}>
-                {erMig ? 'Det er dig' : 'Det er mig'}
-              </button>
-            )}
-            {onVisPraesens && (
-              <button type="button" onClick={onVisPraesens} style={{ ...tekstKnap, alignSelf: 'flex-start' }}>Vis i præsensliste</button>
-            )}
-            <p role="status" aria-live="polite" style={{ margin: 0, minHeight: 20, fontSize: 13, color: kopieret === 'fejl' ? T.danger : T.inkMuted }}>
-              {kopieret === 'ja' ? 'Linket er kopieret.' : kopieret === 'fejl' ? 'Linket kunne ikke kopieres. Kopiér adressen fra browserens adresselinje.' : ''}
-            </p>
-          </div>
+          {!smal && handlinger}
           {!loggetInd && (
             <p style={{ margin: 0, fontSize: 13.5, lineHeight: '20px', color: T.inkMuted }}>
               <button type="button" onClick={onLogin} style={{ ...tekstKnap, fontSize: 13.5 }}>Log ind</button> for at gemme {p.name} under dine bogmærker.

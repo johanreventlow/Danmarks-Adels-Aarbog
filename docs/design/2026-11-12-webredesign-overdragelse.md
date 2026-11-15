@@ -42,6 +42,9 @@ punkt (nederst).
 7. **Godser**
 8. **Medlemslag: personsidens B-lag, Min plads, præsensliste** (**blokeret**)
 9. **Mobil web** (læselayout for personside, søgning, slægtskab og delte links)
+   - **Bygget 2026-11-15:** sidehovedet som én række med menu, personsidens handlinger ved navnet, felter ≥ 16 px,
+     fanetitler og »Del« med telefonens delemenu (`decisions.md` 2026-11-15). Udeladt: bundfaner, »Min plads«,
+     link-forhåndsvisning.
 
 ## URL'er
 

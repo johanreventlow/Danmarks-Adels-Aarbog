@@ -13,7 +13,8 @@ const BASE = process.env.BASE_URL ?? 'http://localhost:5173';
 const OUT = path.join(ROOT, 'tmp/designtour/shots');
 fs.mkdirSync(OUT, { recursive: true });
 
-// Trin: path, role (null|'medlem'|'redaktion'), fail (databasen svarer 500), w/h, actions: click|css|fill|key|move|scroll.
+// Trin: path, role (null|'medlem'|'redaktion'), me (»Det er mig«-id), fail (databasen svarer 500), w/h,
+// actions: click (synlig tekst)|role ([rolle, tilgængeligt navn])|css|fill|key|move|scroll.
 const STEPS = [
   { out: 'a-home', path: '/', full: true },
   // Feedet på hovedsiden (fase 4): første uddeling, og knappen vender seks blade mere.
@@ -29,7 +30,7 @@ const STEPS = [
   { out: 'a-person-ukendt', path: '/person/999999' },
   { out: 'a-personside-embeder', path: '/person/240', actions: [{ click: 'Vis alle 25 embeder og hverv', exact: true }, { scroll: 700 }] },
   { out: 'a-personside-bund', path: '/person/240', actions: [{ scroll: 4000 }] },
-  { out: 'a-personside-udgave', path: '/person/240', actions: [{ click: 'DAA 1939 · Testpost', exact: true }] },
+  { out: 'a-personside-udgave', path: '/person/240', actions: [{ css: '[role="group"][aria-label="Udgave"] button >> nth=1' }] },
   { out: 'a-personside-aegtefaelle', path: '/person/461' }, // ægtefælle uden linje: ingen slægt i etiket og brødkrumme
   { out: 'a-tree-fokus', path: '/slaegt/reventlow/stamtrae?fokus=118' },
   { out: 'a-tree-panel', path: '/slaegt/reventlow/stamtrae?fokus=240' },
@@ -93,7 +94,8 @@ const STEPS = [
   { out: 'd-mobile-home', path: '/', w: 390, h: 844 },
   { out: 'd-mobile-home-feed', path: '/', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 700 }] },
   { out: 'd-mobile-home-vend', path: '/', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 3200 }, { click: 'Vend seks blade mere', exact: true }, { scroll: 600 }] },
-  { out: 'd-mobile-menu', path: '/', w: 390, h: 844, actions: [{ click: 'Slægter', exact: true }] },
+  { out: 'd-mobile-menu', path: '/', w: 390, h: 844, actions: [{ role: ['button', 'Menu'] }, { role: ['button', 'Slægter'] }] },
+  { out: 'd-mobile-menu-aaben', path: '/', w: 390, h: 844, actions: [{ role: ['button', 'Menu'] }] },
   { out: 'd-mobile-bjaelke', path: '/slaegt/reventlow/stamtrae', w: 390, h: 844 },
   { out: 'd-mobile-tree-aegteskaber', path: '/slaegt/reventlow/stamtrae?fokus=61', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 300 }] },
   { out: 'd-mobile-tree-panel', path: '/slaegt/reventlow/stamtrae?fokus=240', w: 390, h: 844 },
@@ -107,6 +109,32 @@ const STEPS = [
   { out: 'd-mobile-about-linjer', path: '/slaegt/reventlow', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 900 }] },
   { out: 'd-mobile-person', path: '/person/240', w: 390, h: 844 },
   { out: 'd-mobile-person-bund', path: '/person/240', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 2500 }] },
+  // Fase 9 (mobil web): personsiden, søgningen, Er vi i familie? og delte links ved 390 px.
+  { out: 'd-mobile-person-fuld', path: '/person/240', w: 390, h: 844, full: true },
+  { out: 'd-mobile-person-118', path: '/person/118', w: 390, h: 844, full: true },
+  { out: 'd-mobile-person-aegtefaelle', path: '/person/461', w: 390, h: 844 },
+  { out: 'd-mobile-person-ukendt', path: '/person/999999', w: 390, h: 844 },
+  { out: 'd-mobile-person-embeder', path: '/person/240', w: 390, h: 844, actions: [{ click: 'Vis alle 25 embeder og hverv', exact: true }, { move: [200, 600] }, { scroll: 700 }] },
+  { out: 'd-mobile-person-udgave', path: '/person/240', w: 390, h: 844, actions: [{ css: '[role="group"][aria-label="Udgave"] button >> nth=1' }] },
+  { out: 'd-mobile-person-slaegtskab', path: '/person/125', me: '103', w: 390, h: 844 },
+  { out: 'd-mobile-person-slaegtskab-gift', path: '/person/461', me: '103', w: 390, h: 844 },
+  { out: 'd-mobile-person-slaegtskab-ingen', path: '/person/118', me: '240', w: 390, h: 844 },
+  { out: 'd-mobile-person-medlem', path: '/person/240', role: 'medlem', w: 390, h: 844, full: true },
+  { out: 'd-mobile-search-tom', path: '/soeg?q=Reventlov', w: 390, h: 844 },
+  { out: 'd-mobile-search-filtre', path: '/soeg?q=Reventlow&type=personer&fra=1700&til=1750&sort=foedt', w: 390, h: 844 },
+  { out: 'd-mobile-search-alle', path: '/soeg', w: 390, h: 844, full: true },
+  { out: 'd-mobile-relate-tom', path: '/slaegtskab', w: 390, h: 844 },
+  { out: 'd-mobile-relate-link', path: '/slaegtskab?a=103&b=125', w: 390, h: 844, full: true },
+  { out: 'd-mobile-relate-faetre', path: '/slaegtskab?a=20&b=147', w: 390, h: 844, full: true },
+  { out: 'd-mobile-relate-ingen', path: '/slaegtskab?a=103&b=471', w: 390, h: 844 },
+  { out: 'd-mobile-relate-ukendt', path: '/slaegtskab?a=103&b=99999', w: 390, h: 844 },
+  { out: 'd-mobile-relate-mig', path: '/slaegtskab', me: '240', w: 390, h: 844 },
+  { out: 'd-mobile-login', path: '/', w: 390, h: 844, actions: [{ role: ['button', 'Menu'] }, { role: ['button', 'Log ind'] }] },
+  // 320 px (iPhone SE/mini, stor tekst): sidehovedets række med navn, monogram og menuknap må ikke stikke ud.
+  { out: 'd-smal320-home', path: '/', me: '103', w: 320, h: 640 },
+  { out: 'd-smal320-person', path: '/person/125', me: '103', w: 320, h: 640 },
+  { out: 'd-smal320-relate-link', path: '/slaegtskab?a=103&b=125', w: 320, h: 640 },
+  { out: 'd-smal320-menu', path: '/', me: '103', w: 320, h: 640, actions: [{ role: ['button', 'Menu'] }] },
 ];
 
 const filter = process.argv[2];
@@ -119,6 +147,7 @@ for (const s of STEPS.filter((x) => !filter || x.out.includes(filter))) {
   pg.on('pageerror', (e) => errs.push(e.message));
   await pg.route(/localhost:54321/, handle); // VITE_SUPABASE_URL i .env.local (lokal stack)
   await pg.route(/openstreetmap|carto|tiles?\./, (r) => r.abort());
+  if (s.me) await pg.addInitScript((id) => localStorage.setItem('daa_me_id', id), s.me); // »Det er mig«
   if (s.role) {
     // Simuleret session (ingen rigtige legitimationsoplysninger) i supabase-js' localStorage-nøgle.
     const exp = Math.floor(Date.now() / 1000) + 36000;
@@ -133,6 +162,7 @@ for (const s of STEPS.filter((x) => !filter || x.out.includes(filter))) {
   for (const a of s.actions ?? []) {
     try {
       if (a.click) await pg.getByText(a.click, { exact: !!a.exact }).first().click({ timeout: 4000 });
+      if (a.role) await pg.getByRole(a.role[0], { name: a.role[1], exact: true }).first().click({ timeout: 4000 }); // ikonknapper
       if (a.css) await pg.locator(a.css).first().click({ timeout: 4000 });
       if (a.fill) await pg.locator(a.fill[0]).first().fill(a.fill[1]);
       if (a.key) await pg.keyboard.press(a.key);
@@ -142,8 +172,25 @@ for (const s of STEPS.filter((x) => !filter || x.out.includes(filter))) {
     } catch (e) { errs.push(`handling ${JSON.stringify(a)}: ${e.message.split('\n')[0]}`); }
   }
   await pg.screenshot({ path: path.join(OUT, `${s.out}.png`), fullPage: !!s.full });
+  // Bredere end vinduet: appens skal er 100vh med overflow hidden, så dokumentet bliver aldrig bredere — indhold, der
+  // stikker ud, bliver skåret af eller giver vandret scroll i den indre rulleflade. Nævner de yderste elementer, der
+  // går ud over vinduets kant, undtagen inde i en bevidst vandret rulleflade (søskendeflokken) eller en klippet tekst
+  // (inline overflowX/overflow sat på en forælder under skallen).
+  const bred = await pg.evaluate(() => {
+    const vw = document.documentElement.clientWidth;
+    const skal = document.getElementById('root')?.firstElementChild;
+    const bevidst = (el) => { for (let p = el.parentElement; p && p !== skal; p = p.parentElement) { const o = p.style.overflowX || p.style.overflow; if (o && o !== 'visible') return true; } return false; };
+    const ud = [...document.body.querySelectorAll('*')].filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.right > vw + 1 && getComputedStyle(el).position !== 'fixed' && !bevidst(el); });
+    // Felter under 16 px får iPhone-Safari til at zoome ind ved fokus (kun relevant på smal skærm).
+    const smaa = vw > 720 ? [] : [...document.querySelectorAll('input:not([type=checkbox]):not([type=radio]), select, textarea')].filter((el) => el.getBoundingClientRect().width > 0 && parseFloat(getComputedStyle(el).fontSize) < 16)
+      .map((el) => `${el.tagName.toLowerCase()}#${el.id || el.getAttribute('aria-label') || el.getAttribute('placeholder') || '?'}=${getComputedStyle(el).fontSize}`);
+    if (!ud.length && !smaa.length) return null;
+    const yderst = ud.filter((el) => !ud.includes(el.parentElement));
+    const navn = (el) => { const t = (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 28); return `${el.tagName.toLowerCase()}«${t}»+${Math.round(el.getBoundingClientRect().right - vw)}`; };
+    return [ud.length ? `stikker ud: ${yderst.length} elementer: ${yderst.slice(0, 5).map(navn).join(', ')}` : '', smaa.length ? `felt < 16 px: ${smaa.join(', ')}` : ''].filter(Boolean).join('  ');
+  });
   const slut = new URL(pg.url()); const adr = slut.pathname + slut.search;
-  console.log(`${s.out}${adr !== s.path ? `  → ${adr}` : ''}${errs.length ? '  ⚠ ' + errs.join(' | ') : ''}${log.length ? '  · ' + [...new Set(log)].join(', ') : ''}`);
+  console.log(`${s.out}${adr !== s.path ? `  → ${adr}` : ''}${bred ? `  ⇔ ${bred}` : ''}${errs.length ? '  ⚠ ' + errs.join(' | ') : ''}${log.length ? '  · ' + [...new Set(log)].join(', ') : ''}`);
   await ctx.close();
 }
 await browser.close();

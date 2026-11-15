@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-15 — mobil web: personside, søgning, slægtskab og delte links på telefonen (webredesign fase 9)
+
+Ved 390 px fyldte sidehovedet en fjerdedel af skærmen; nu er det én række med en menuknap. Personsidens handlinger
+(Vis i stamtræet, Find slægtskab, Del, Det er mig) står under navnet i stedet for nederst, og familien står i én
+spalte. »Er vi i familie?« skærer ikke længere de valgte personer af midt i datoen. Felter er mindst 16 px på
+telefonen, så iPhone ikke zoomer ind, og skallen bruger `100dvh`. Hver side har sin egen fanetitel (personens,
+slægtens eller besiddelsens navn), og »Del« åbner telefonens delemenu. Designtouren måler nu udstikkende elementer og
+små felter pr. trin og har trin ved 390 og 320 px. Ren klient, ingen DB-ændring.
+
 ## 2026-11-14 — personsiden viser slægtskabet til dig over navnet (webredesign fase 8)
 
 Når »Det er mig« er sat, står slægtskabet over navnet på personsiden: »Din tipoldefar«, »Din 1. grads fætter · 1 gang

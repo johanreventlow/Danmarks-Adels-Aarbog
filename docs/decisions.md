@@ -2,6 +2,25 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: mobil web — én række og en menu på telefonen; ingen bundfaner i fase 9 (webredesign fase 9, 2026-11-15)
+
+> Projektejeren sprang spørgsmålene over og godkendte planen
+> (`docs/superpowers/plans/2026-11-15-webredesign-fase9-mobil-web.md`; Codex-review afvejet af Opus).
+>
+> - **Smal skærm = `(max-width: 720px)`** (`useSmalSkaerm`), samme grænse som stamtræ, søgning og slægtskab.
+> - **Sidehovedet på telefonen** er én række: forsiden, »Din plads« og en menuknap. Søgefelt, hovedmenu, login og
+>   Redaktion ligger bag knappen. Går man Menu → Slægter, bliver menuknappen slægtsvælgerens åbner.
+> - **Personsidens handlinger** står under navnet på telefonen (tegningen »Mobil – personside«), portrættet som
+>   miniature ved navnet. Billedteksten står i lysboksen. Bred skærm er uændret.
+> - **»Del«** bruger telefonens delemenu (`navigator.share`) kun på smal skærm; bred skærm kopierer, også i browsere
+>   der kan dele.
+> - **Felter ≥ 16 px** på telefonen (iPhone zoomer ellers ind), afgrænset til læserfladen med `data-flade="laeser"`,
+>   fordi `base.css` også gælder redaktionen.
+> - **Fravalgt i fase 9:** bundfaner, »Min plads«, »Indtast kode« og »LOGGET IND« fra tegningen »Er vi i familie?
+>   (mobil)«. De afhænger af ubyggede dele. Link-forhåndsvisning pr. person kræver servergengivelse.
+> - **Designtouren er ikke en telefon:** den ser, at et felt er under 16 px, men ikke selve zoomet, og den kan ikke se
+>   Safaris værktøjslinje. Vercel-preview på en rigtig iPhone er en del af færdigbeviset.
+
 ## BESLUTTET: personsidens slægtskab som kontekst; intet »Uenige kilder«-mærke (webredesign fase 8, 2026-11-14)
 
 > Projektejeren godkendte planens valg 1-10 (»ja, punkterne er ok«) og valgte (c) for »Uenige kilder« uden måling

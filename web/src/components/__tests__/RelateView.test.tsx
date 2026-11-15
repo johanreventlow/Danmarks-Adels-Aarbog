@@ -99,6 +99,39 @@ describe('RelateView', () => {
     expect(await screen.findByText('Linket er kopieret.')).toBeTruthy();
   });
 
+  it('smal skærm: feltet viser kun navnet; leveårene står under feltet og beskriver det', () => {
+    smal.v = true;
+    try {
+      vis({ relA: '2', relB: '4' });
+      const felt = screen.getByRole('combobox', { name: 'Første person' }) as HTMLInputElement;
+      expect(felt.value).toBe('Otto Reventlow');
+      const beskrevet = felt.getAttribute('aria-describedby');
+      expect(beskrevet && document.getElementById(beskrevet)?.textContent).toBe('ca. 1660–1700');
+      expect((screen.getByRole('combobox', { name: 'Anden person' }) as HTMLInputElement).value).toBe('Magdalena Sophia Reventlow');
+    } finally { smal.v = false; }
+  });
+
+  it('bred skærm: feltet viser »Navn (leveår)« som før', () => {
+    vis({ relA: '2', relB: '4' });
+    expect((screen.getByRole('combobox', { name: 'Første person' }) as HTMLInputElement).value).toBe('Otto Reventlow (ca. 1660–1700)');
+  });
+
+  it('smal skærm: »Del resultatet« deler den delbare adresse med telefonens delemenu', async () => {
+    smal.v = true;
+    const share = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true, writable: true });
+    try {
+      vis({ relA: '1', relB: '4' });
+      expect(screen.queryByRole('button', { name: 'Kopiér link til resultatet' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Del resultatet' }));
+      await vi.waitFor(() => expect(share).toHaveBeenCalledTimes(1));
+      expect(share.mock.calls[0][0].url).toBe(`${window.location.origin}/slaegtskab?a=1&b=4`);
+    } finally {
+      smal.v = false;
+      Object.defineProperty(navigator, 'share', { value: undefined, configurable: true, writable: true });
+    }
+  });
+
   it('ingen fælles ane: »Aarbogen viser ingen forbindelse«, ikke »ikke i familie«', () => {
     vis({ relA: '1', relB: '9' });
     expect(screen.getByRole('heading', { name: 'Aarbogen viser ingen forbindelse' })).toBeTruthy();

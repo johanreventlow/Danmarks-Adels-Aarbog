@@ -36,6 +36,7 @@ import { useSmalSkaerm } from './useSmalSkaerm';
 import { type TreeSearchBundle } from './components/TreeSearch';
 import { kanoniskeLinjerPrPerson, synligeLinjer } from './data/lineage';
 import { labelOfMode, parseFolgesvendPath, pathForMode, detailOpenFor, type Mode, personPath, estatePath, stamtraePath, soegPath, slaegtskabPath, STANDARD_SLAEGT, SLAEGTER, findSlaegt } from './data/nav';
+import { sidetitel, VAERK } from './data/sidetitel';
 import { Tilstand, tilstandPrimaer, tilstandSekundaer } from './components/Tilstand';
 import { T } from './theme';
 
@@ -150,7 +151,8 @@ export default function Folgesvend() {
   const setMenuAaben = useCallback((aaben: boolean, returFokus = false, aabner?: HTMLElement | null) => {
     if (aaben) aabnerRef.current = aabner ?? menuKnap.current;
     setMenuAabenState(aaben);
-    if (!aaben && returFokus) (aabnerRef.current ?? menuKnap.current)?.focus();
+    // Den gemte åbner kan være forsvundet (fx menuknappen efter skift til bred skærm): så sidehovedets aktuelle knap.
+    if (!aaben && returFokus) (aabnerRef.current?.isConnected ? aabnerRef.current : menuKnap.current)?.focus();
   }, []);
   // Senest besøgte slægt (Slægter-menuen). Kun gyldige slugs gemmes.
   const [senestSlaegt, setSenestSlaegt] = useState<string | null>(() => {
@@ -446,6 +448,18 @@ export default function Folgesvend() {
     }
   };
 
+  // Fanens titel (fase 9: delte links og bogmærker). Ved fejl beholdes den gamle model (fx efter logout), så titlen må
+  // ikke bygges af den, mens fejlskærmen vises. Står før det tidlige return: hooks i samme rækkefølge.
+  const titelSlaegt = findSlaegt(parsed.slaegt)?.navn ?? null;
+  const titelPerson = mode === 'person' && focusId ? model?.byId[focusId]?.name ?? null : null;
+  const titelA = relA ? model?.byId[relA]?.name ?? null : null;
+  const titelB = relB ? model?.byId[relB]?.name ?? null : null;
+  const titelBesiddelse = estateId ? estatesVist?.find((e) => e.id === estateId)?.navn ?? null : null;
+  useEffect(() => {
+    document.title = err ? VAERK : sidetitel({ mode, slaegtNavn: titelSlaegt, personNavn: titelPerson, aNavn: titelA, bNavn: titelB,
+      q: soegFiltreNu.q, besiddelseNavn: titelBesiddelse });
+  }, [err, mode, titelSlaegt, titelPerson, titelA, titelB, soegFiltreNu.q, titelBesiddelse]);
+
   if (err) {
     return (
       <div style={{ minHeight: '100vh', background: T.surfaceGround, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
@@ -479,7 +493,9 @@ export default function Folgesvend() {
   };
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: T.surfaceGround, fontFamily: T.sans, color: T.ink, overflow: 'hidden' }}>
+    // data-flade afgrænser læserfladens CSS (base.css) fra redaktionen, som bruger samme stilark. Højden står dér
+    // (100vh som reserve, så 100dvh): på iPhone er 100vh højere end det synlige vindue.
+    <div data-flade="laeser" style={{ display: 'flex', flexDirection: 'column', background: T.surfaceGround, fontFamily: T.sans, color: T.ink, overflow: 'hidden' }}>
       <Sidehoved
         aktiv={hovedpunkt} menuAaben={menuAaben} setMenuAaben={setMenuAaben} menuKnap={menuKnap}
         slaegter={SLAEGTER} senestSlaegt={senestSlaegt} aktivSlaegt={parsed.slaegt}
@@ -487,9 +503,9 @@ export default function Folgesvend() {
         onPersoner={() => goToMode('soeg')}
         onSlaegtskab={() => goToMode('relate')} onForside={() => goToMode('home')}
         loggetInd={!!session} onLogin={() => setLoginOpen(true)} onLogout={() => { void doLogout(); }}
-        visRedaktion={session?.role === 'redaktion'}
+        visRedaktion={session?.role === 'redaktion'} sti={loc.path + loc.search}
         ekstra={meCanon && model?.byId[meCanon] ? (
-          <Link href={personPath(meCanon)} onNavigate={() => visPerson(meCanon)} title="Din plads i slægten" aria-label="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: T.bordeauxTint, border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.bordeaux, flex: 'none', textDecoration: 'none' }}>{initials(model.byId[meCanon].name)}</Link>
+          <Link href={personPath(meCanon)} onNavigate={() => visPerson(meCanon)} title="Din plads i slægten" aria-label="Din plads i slægten" style={{ width: smal ? 44 : 38, height: smal ? 44 : 38, borderRadius: '50%', background: T.bordeauxTint, border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.bordeaux, flex: 'none', textDecoration: 'none' }}>{initials(model.byId[meCanon].name)}</Link>
         ) : null}
       />
 

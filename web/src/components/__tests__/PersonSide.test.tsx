@@ -6,9 +6,12 @@ import { buildModel, type AppPerson, type BioSourceVersionV2, type PublicPersonF
 import { describe, expect, it, vi } from 'vitest';
 import type { PersonDetailData } from '../../data/public';
 import type { Model } from '../../data/types';
+import type { MediaItem } from '../../data/media';
 
 vi.mock('../../data/familySources', () => ({ fetchFamilySources: async () => [] }));
 vi.mock('../../router', () => ({ navigate: vi.fn() }));
+const smal = vi.hoisted(() => ({ v: false }));
+vi.mock('../../useSmalSkaerm', () => ({ useSmalSkaerm: () => smal.v }));
 vi.mock('../lazyMaps', () => ({
   ExpandableMiniMap: ({ points }: { points: unknown[] }) => <div data-testid="livsrejse">{points.length} steder</div>,
   MapFallback: () => null,
@@ -191,6 +194,97 @@ describe('PersonSide', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Kopiér link' }));
     expect(await screen.findByText('Linket er kopieret.')).toBeTruthy();
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/person/392`);
+  });
+
+  describe('smal skærm (fase 9): handlinger ved navnet', () => {
+    const foer = (a: Node, b: Node) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const PORTRAET = { id: 'm1', slags: 'portræt', titel: 'Portræt', kunstner: 'Ukendt', datering: '1690', url: 'https://eksempel.dk/p.jpg' } as unknown as MediaItem;
+
+    it('med portræt: én miniature før navnet', () => {
+      smal.v = true;
+      try {
+        render(<PersonSide {...props({ detail: detalje({ media: [PORTRAET] }) })} />);
+        const knapper = screen.getAllByRole('button', { name: /Vis portrættet af Conrad Reventlow større/ });
+        expect(knapper).toHaveLength(1);
+        expect(foer(knapper[0], screen.getByRole('heading', { level: 1 }))).toBe(true);
+      } finally { smal.v = false; }
+    });
+
+    it('portrættets billedtekst og kilde står ved miniaturen (kilder vises, også når kun institutionen kendes)', () => {
+      smal.v = true;
+      try {
+        const kunInstitution = { ...PORTRAET, titel: '', kunstner: '', datering: '', kildeInstitution: 'Frederiksborgmuseet' } as unknown as MediaItem;
+        render(<PersonSide {...props({ detail: detalje({ media: [kunInstitution] }) })} />);
+        expect(screen.getByText(/Frederiksborgmuseet/)).toBeTruthy();
+      } finally { smal.v = false; }
+    });
+
+    it('den flyttede »Vis i præsensliste« er mindst 44 px høj', () => {
+      smal.v = true;
+      try {
+        render(<PersonSide {...props({ onVisPraesens: vi.fn() })} />);
+        expect(parseFloat(screen.getByRole('button', { name: 'Vis i præsensliste' }).style.minHeight)).toBeGreaterThanOrEqual(44);
+      } finally { smal.v = false; }
+    });
+
+    it('uden portræt: ingen tom portrætboks', () => {
+      smal.v = true;
+      try {
+        render(<PersonSide {...props()} />);
+        expect(screen.queryByRole('img', { name: 'Intet portræt' })).toBeNull();
+      } finally { smal.v = false; }
+    });
+
+    it('Vis i stamtræet står før Familie; Find slægtskab og Del findes én gang hver', () => {
+      smal.v = true;
+      try {
+        render(<PersonSide {...props({ onToggleMig: vi.fn() })} />);
+        const stamtrae = screen.getByRole('link', { name: 'Vis i stamtræet' });
+        expect(foer(stamtrae, screen.getByRole('heading', { name: 'Familie' }))).toBe(true);
+        expect(screen.getAllByRole('link', { name: 'Find slægtskab' })).toHaveLength(1);
+        expect(screen.getAllByRole('button', { name: 'Del' })).toHaveLength(1);
+        expect(screen.getAllByRole('button', { name: 'Det er mig' })).toHaveLength(1);
+      } finally { smal.v = false; }
+    });
+
+    it('bred skærm uændret: handlingerne i højre spalte efter Familie, portrætboksen findes', () => {
+      render(<PersonSide {...props()} />);
+      const stamtrae = screen.getByRole('link', { name: 'Vis i stamtræet' });
+      expect(foer(screen.getByRole('heading', { name: 'Familie' }), stamtrae)).toBe(true);
+      expect(screen.getByRole('img', { name: 'Intet portræt' })).toBeTruthy();
+    });
+  });
+
+  it('bred skærm kopierer, også når browseren kan dele (desktop-Safari)', async () => {
+    const share = vi.fn().mockResolvedValue(undefined); const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true, writable: true });
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true, writable: true });
+    try {
+      render(<PersonSide {...props()} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Kopiér link' }));
+      expect(await screen.findByText('Linket er kopieret.')).toBeTruthy();
+      expect(share).not.toHaveBeenCalled();
+    } finally { Object.defineProperty(navigator, 'share', { value: undefined, configurable: true, writable: true }); }
+  });
+
+  it('smal skærm: »Del« åbner telefonens delemenu med personens adresse; ingen status efter deling eller afbrydelse', async () => {
+    smal.v = true;
+    const share = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new DOMException('x', 'AbortError'));
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true, writable: true });
+    try {
+      render(<PersonSide {...props()} />);
+      expect(screen.queryByRole('button', { name: 'Kopiér link' })).toBeNull();
+      const del = screen.getByRole('button', { name: 'Del' });
+      fireEvent.click(del);
+      await vi.waitFor(() => expect(share).toHaveBeenCalledTimes(1));
+      expect(share.mock.calls[0][0].url).toBe(`${window.location.origin}/person/392`);
+      fireEvent.click(del);
+      await vi.waitFor(() => expect(share).toHaveBeenCalledTimes(2));
+      expect(screen.getByRole('status').textContent).toBe('');
+    } finally {
+      smal.v = false;
+      Object.defineProperty(navigator, 'share', { value: undefined, configurable: true, writable: true });
+    }
   });
 
   it('»Det er mig« er en trykknap; kun med handlingen', () => {
