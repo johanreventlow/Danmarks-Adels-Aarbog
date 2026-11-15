@@ -10,3 +10,7 @@ a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,te
    (bordeaux) og søgefeltets ryd-kryds (inkMuted #655d4f). */
 input[type=radio],input[type=checkbox]{accent-color:#881a33}
 input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;width:14px;height:14px;cursor:pointer;background:#655d4f;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M18 6L6 18M6 6l12 12' stroke='black' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M18 6L6 18M6 6l12 12' stroke='black' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E") center/contain no-repeat}
+/* Smal skærm (samme grænse som SMAL_SKAERM): iPhone-Safari zoomer ind, når man trykker i et felt med tekst under
+   16 px. Felterne har inline fontSize, derfor !important. Kun læserfladen (data-flade på Følgesvends skal; base.css
+   gælder også redaktionen), og felter, der allerede er større (data-felt-stor), sænkes ikke. */
+@media (max-width:720px){[data-flade=laeser] :is(input:not([type=checkbox]):not([type=radio]),select,textarea):not([data-felt-stor]){font-size:16px!important}}

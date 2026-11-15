@@ -124,7 +124,7 @@ export function SoegView({ model, estates, filtre: f, linjer, bogmaerker, onFilt
       <h1 style={{ ...skjult }}>Søg i Aarbogen</h1>
       <form role="search" onSubmit={(e) => e.preventDefault()} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, maxWidth: 760 }}>
         <label htmlFor="soegeside-q" style={skjult}>Søgeord</label>
-        <input id="soegeside-q" type="search" value={f.q} placeholder="Søg efter en person eller en besiddelse"
+        <input id="soegeside-q" data-felt-stor type="search" value={f.q} placeholder="Søg efter en person eller en besiddelse"
           // Søgeordet skrives i adressen med replace, så tilbage-knappen ikke går ét tastetryk ad gangen.
           onChange={(e) => saet({ q: e.target.value })}
           style={{ flex: '1 1 320px', minWidth: 0, fontFamily: T.sans, fontSize: 18, lineHeight: '24px', padding: '14px 18px', borderRadius: 11, border: `1px solid ${T.lineStrong}`, background: T.surfaceRaised, color: T.ink }} />
