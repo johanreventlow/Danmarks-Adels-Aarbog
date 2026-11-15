@@ -20,6 +20,19 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   (mobil)«. De afhænger af ubyggede dele. Link-forhåndsvisning pr. person kræver servergengivelse.
 > - **Designtouren er ikke en telefon:** den ser, at et felt er under 16 px, men ikke selve zoomet, og den kan ikke se
 >   Safaris værktøjslinje. Vercel-preview på en rigtig iPhone er en del af færdigbeviset.
+> - **Portrættets billedtekst** står i 12 px under navnet ved miniaturen (slutreview: lysboksen viser ikke
+>   institutionen som reserve, og kilder skal vises).
+>
+> **NOTERET (backlog, fra Fable-slutreviewet af PR #354, alle »minor«):**
+> - Fanetitlen ryddes ikke ved skift til `/redaktion`; redaktionsfanen kan beholde læsersidens personnavn.
+> - Bogmærkeknappen står over »Vis i stamtræet« for indloggede på telefonen; planen satte den primære handling først.
+> - Menuknappen viser tre streger, ikke kryds, efter Menu → Slægter, selv om den er `aria-expanded` (brug
+>   `mobilAaben || menuAaben` til ikonet, `Sidehoved.tsx`).
+> - Fanetitlen mangler første persons navn, når »Det er mig« er forvalgt i »Er vi i familie?« på telefonen
+>   (`Folgesvend.tsx` bruger kun adressens a/b; `RelateView.tsx` forvælger `meId`).
+> - Dobbelttryk på »Del«: andet `navigator.share` afvises med `InvalidStateError` og falder til kopiering bag
+>   delemenuen (`delLink.ts`; behandl som »afbrudt« eller spær knappen under deling).
+> - Designtourens bredde-trin `a-personside-udgave` klikker efter position (etiketten fik sidetal).
 
 ## BESLUTTET: personsidens slægtskab som kontekst; intet »Uenige kilder«-mærke (webredesign fase 8, 2026-11-14)
 
