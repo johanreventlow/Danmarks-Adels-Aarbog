@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-15 — review 36, bølge 2: fortrydelse og portrætvalg tåler samtidige redaktører; koordinater i ét kald
+
+Bølge 2 af helhedsreview 36 er merget og i prod. **Web (#359):** personsiden henter ikke længere detaljerne igen, når
+stedsdata ankommer (P1); en databasefejl på personsiden vises som fejl i stedet for som en tom person (K4); feedets
+ordning er lineær (50.000 personer 55 s → 0,35 s, P11). **Pipeline (#360):** runneren afviser svar, hvor `claims` ikke
+er en liste (K2); al privat filskrivning går gennem `private_io.py` (K10); CI kører alle pipeline-testfiler (D3).
+**DB (#361):** to redaktører kan ikke længere give en person to primære portrætter (K6), og en fortrydelse låser de
+rækker, den tjekker, før den skriver (K5); indeks på `conclusion.valgt_assertion_id` (P6); koordinaterne kommer i ét
+jsonb-kald i stedet for sider á 1.000 (P2, 0,31 s som anon); `schema.sql` følger prod i `narrative_record_state` (D1).
+Efterkontrol grøn (`database-current-state.md` §31).
+
 ## 2026-11-15 — mobil web: personside, søgning, slægtskab og delte links på telefonen (webredesign fase 9)
 
 Ved 390 px fyldte sidehovedet en fjerdedel af skærmen; nu er det én række med en menuknap. Personsidens handlinger
