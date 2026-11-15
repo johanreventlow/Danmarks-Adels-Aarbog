@@ -113,7 +113,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
         </button>
       )}
       {onVisPraesens && (
-        <button type="button" onClick={onVisPraesens} style={{ ...tekstKnap, alignSelf: 'flex-start' }}>Vis i præsensliste</button>
+        <button type="button" onClick={onVisPraesens} style={{ ...tekstKnap, alignSelf: 'flex-start', ...(smal ? { minHeight: 44 } : null) }}>Vis i præsensliste</button>
       )}
       <p role="status" aria-live="polite" style={{ margin: 0, minHeight: 20, fontSize: 13, color: kopieret === 'fejl' ? T.danger : T.inkMuted }}>
         {kopieret === 'kopieret' ? 'Linket er kopieret.' : kopieret === 'fejl' ? 'Linket kunne ikke kopieres. Kopiér adressen fra browserens adresselinje.' : ''}

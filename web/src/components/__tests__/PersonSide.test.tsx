@@ -219,6 +219,14 @@ describe('PersonSide', () => {
       } finally { smal.v = false; }
     });
 
+    it('den flyttede »Vis i præsensliste« er mindst 44 px høj', () => {
+      smal.v = true;
+      try {
+        render(<PersonSide {...props({ onVisPraesens: vi.fn() })} />);
+        expect(parseFloat(screen.getByRole('button', { name: 'Vis i præsensliste' }).style.minHeight)).toBeGreaterThanOrEqual(44);
+      } finally { smal.v = false; }
+    });
+
     it('uden portræt: ingen tom portrætboks', () => {
       smal.v = true;
       try {
