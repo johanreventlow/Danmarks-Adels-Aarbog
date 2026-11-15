@@ -251,3 +251,18 @@ test('ukendt person siger det neutralt, ikke træet', async () => {
   expect(await screen.findByText('Personen kan ikke vises')).toBeTruthy();
   expect(screen.getByText(/vises kun for indloggede/)).toBeTruthy();
 });
+
+test('fanens titel bærer personens navn på personsiden', async () => {
+  mocks.fetchPersonDetail.mockResolvedValue({ bio: '', bioVersions: [], offices: [], estates: [], media: [], sources: [], facts: [], factsError: false, faktaInput: null });
+  window.history.replaceState({}, '', '/person/1');
+  render(<Folgesvend />);
+  await waitFor(() => expect(document.title).toBe('Testperson · Danmarks Adels Aarbog'));
+});
+
+test('fejler hentningen, viser fanen kun værkets navn — aldrig et navn fra en tidligere model', async () => {
+  document.title = 'Levende person · Danmarks Adels Aarbog';
+  mocks.loadModel.mockRejectedValue(new Error('netværk'));
+  window.history.replaceState({}, '', '/person/1');
+  render(<Folgesvend />);
+  await waitFor(() => expect(document.title).toBe('Danmarks Adels Aarbog'));
+});

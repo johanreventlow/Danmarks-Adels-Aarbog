@@ -36,6 +36,7 @@ import { useSmalSkaerm } from './useSmalSkaerm';
 import { type TreeSearchBundle } from './components/TreeSearch';
 import { kanoniskeLinjerPrPerson, synligeLinjer } from './data/lineage';
 import { labelOfMode, parseFolgesvendPath, pathForMode, detailOpenFor, type Mode, personPath, estatePath, stamtraePath, soegPath, slaegtskabPath, STANDARD_SLAEGT, SLAEGTER, findSlaegt } from './data/nav';
+import { sidetitel, VAERK } from './data/sidetitel';
 import { Tilstand, tilstandPrimaer, tilstandSekundaer } from './components/Tilstand';
 import { T } from './theme';
 
@@ -445,6 +446,18 @@ export default function Folgesvend() {
       visPerson(cid);
     }
   };
+
+  // Fanens titel (fase 9: delte links og bogmærker). Ved fejl beholdes den gamle model (fx efter logout), så titlen må
+  // ikke bygges af den, mens fejlskærmen vises. Står før det tidlige return: hooks i samme rækkefølge.
+  const titelSlaegt = findSlaegt(parsed.slaegt)?.navn ?? null;
+  const titelPerson = mode === 'person' && focusId ? model?.byId[focusId]?.name ?? null : null;
+  const titelA = relA ? model?.byId[relA]?.name ?? null : null;
+  const titelB = relB ? model?.byId[relB]?.name ?? null : null;
+  const titelBesiddelse = estateId ? estatesVist?.find((e) => e.id === estateId)?.navn ?? null : null;
+  useEffect(() => {
+    document.title = err ? VAERK : sidetitel({ mode, slaegtNavn: titelSlaegt, personNavn: titelPerson, aNavn: titelA, bNavn: titelB,
+      q: soegFiltreNu.q, besiddelseNavn: titelBesiddelse });
+  }, [err, mode, titelSlaegt, titelPerson, titelA, titelB, soegFiltreNu.q, titelBesiddelse]);
 
   if (err) {
     return (
