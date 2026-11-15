@@ -20,7 +20,11 @@
 -- (write_relation_persona, identity_candidate_input og verify_relation_persona_receipts står allerede ovenfor).
 -- Redaktøren ser levende (blokken redaktoer-ser-levende, decisions 2026-11-13): public_family_sources (public_person_facts
 -- og public_person_source_coordinates står allerede under 5c2-b11).
--- I alt 13 + 17 + 3 + 3 + 1 + 7 + 3 + 3 + 5 + 6 + 1 + 1 = 63 linjer (dato-markoer-v2: normaliser_dato_markoer_v2).
+-- Kodereview 36 §D1 (bølge 2): narrative_record_state, hvis låseblok var gledet (schema.sql manglede kildefilteret,
+-- prod kører migrationsversionen).
+-- Kodereview 36 K6: red_saet_portraet (personlås). K5: red_fortryd_change_set og _version_lock_row (rækkelåse).
+-- P2: public_person_source_coordinates_samlet (koordinaterne i ét kald).
+-- I alt 13 + 17 + 3 + 3 + 1 + 7 + 3 + 3 + 5 + 6 + 1 + 1 + 1 + 1 + 2 + 1 = 68 linjer (dato-markoer-v2: normaliser_dato_markoer_v2).
 \set ON_ERROR_STOP on
 SELECT l FROM (
   SELECT p.oid::regprocedure::text||'|'||p.prosecdef||'|'||coalesce(array_to_string(p.proconfig,','),'')||'|'||
@@ -65,5 +69,13 @@ SELECT l FROM (
      ('private','relation_fold_raw_text'),('private','relation_text_form'),('private','relation_name_compare_text'),
      ('private','relation_ordered_windows'),('private','relation_marriage_ordinals'),
      -- redaktoer-ser-levende
-     ('public','public_family_sources'))) x
+     ('public','public_family_sources'),
+     -- kodereview 36 §D1
+     ('private','narrative_record_state'),
+     -- kodereview 36 K6
+     ('public','red_saet_portraet'),
+     -- kodereview 36 K5
+     ('public','red_fortryd_change_set'),('public','_version_lock_row'),
+     -- kodereview 36 P2
+     ('public','public_person_source_coordinates_samlet'))) x
  ORDER BY l COLLATE "C";

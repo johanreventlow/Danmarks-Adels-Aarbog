@@ -152,6 +152,18 @@ BEGIN
   RESET ROLE;
   IF v_dup<>0 OR v_order<>0 THEN RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: orden dup=% bagud=%',v_dup,v_order; END IF;
 
+  -- Kodereview 36 P2: den samlede funktion er præcis de gamle rækker (samme felter, samme orden) som ét jsonb-array,
+  -- både for ejeren og for anon.
+  FOR i IN 1..2 LOOP
+    IF i=2 THEN SET LOCAL ROLE anon; END IF;
+    IF public.public_person_source_coordinates_samlet() IS DISTINCT FROM (
+         SELECT coalesce(jsonb_agg(to_jsonb(o)-'ordinality' ORDER BY o.ordinality),'[]'::jsonb)
+           FROM public.public_person_source_coordinates() WITH ORDINALITY o) THEN
+      RAISE EXCEPTION 'PERSON_COORDINATES_TEST_FAILED: samlet afviger fra rækkefunktionen (%)',CASE i WHEN 1 THEN 'ejer' ELSE 'anon' END;
+    END IF;
+    RESET ROLE;
+  END LOOP;
+
   -- Redaktøren ser levende (decisions 2026-11-13): fire kaldere × personstatus, både placement-grenen (-528101) og
   -- legacy-grenen uden placement (-528102). Kun redaktionen ser ikke-offentlige personers koordinater.
   f:=pg_temp.fco_placed(-5281,-528101);
@@ -159,14 +171,20 @@ BEGIN
   INSERT INTO public.person_external_id(person_id,source_id,linje,nr) VALUES (-528102,-5281,'V',9);
   PERFORM pg_temp.km_forvent('koordinater afdød',
     'SELECT * FROM public.public_person_source_coordinates() WHERE person_id IN (-528101,-528102)',2,2);
+  PERFORM pg_temp.km_forvent('koordinater afdød, samlet',
+    'SELECT e FROM jsonb_array_elements(public.public_person_source_coordinates_samlet()) e WHERE (e->>''person_id'')::bigint IN (-528101,-528102)',2,2);
   UPDATE public.person SET levende=true WHERE id IN (-528101,-528102);
   PERFORM pg_temp.km_forvent('koordinater levende',
     'SELECT * FROM public.public_person_source_coordinates() WHERE person_id IN (-528101,-528102)',0,2);
+  PERFORM pg_temp.km_forvent('koordinater levende, samlet',
+    'SELECT e FROM jsonb_array_elements(public.public_person_source_coordinates_samlet()) e WHERE (e->>''person_id'')::bigint IN (-528101,-528102)',0,2);
   PERFORM pg_temp.km_forvent('koordinater levende, placement',
     'SELECT * FROM public.public_person_source_coordinates() WHERE person_id=-528101 AND provenance_kind=''placement''',0,1);
   UPDATE public.person SET levende=false,privat=true WHERE id IN (-528101,-528102);
   PERFORM pg_temp.km_forvent('koordinater privat',
     'SELECT * FROM public.public_person_source_coordinates() WHERE person_id IN (-528101,-528102)',0,2);
+  PERFORM pg_temp.km_forvent('koordinater privat, samlet',
+    'SELECT e FROM jsonb_array_elements(public.public_person_source_coordinates_samlet()) e WHERE (e->>''person_id'')::bigint IN (-528101,-528102)',0,2);
   UPDATE public.person SET privat=false,staged=true WHERE id IN (-528101,-528102);
   PERFORM pg_temp.km_forvent('koordinater staged',
     'SELECT * FROM public.public_person_source_coordinates() WHERE person_id IN (-528101,-528102)',0,2);

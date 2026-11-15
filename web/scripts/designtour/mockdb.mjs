@@ -109,6 +109,7 @@ const RPC = {
     faktaRaekke(900003, 'titel', { vaerdi_tekst: 'Lensgreve' }),
   ]),
   public_person_source_coordinates: () => DB.coords,
+  public_person_source_coordinates_samlet: () => DB.coords, // kodereview 36 P2
   public_family_sources: () => [],
   narrative_record_contract_version: () => 2,
   hist_for_subjekt: () => [], hist_for_subjekter: () => [],

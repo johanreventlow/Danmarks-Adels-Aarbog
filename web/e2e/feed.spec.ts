@@ -8,6 +8,7 @@ const RPC: Record<string, unknown> = {
   narrative_record_contract_version: 2,
   public_person_bio_source_versions_v2: BIO_ROWS,
   public_person_source_coordinates: COORDINATE_ROWS,
+  public_person_source_coordinates_samlet: COORDINATE_ROWS, // kodereview 36 P2: klientens ét-kalds-vej
 };
 
 async function mockSupabase(page: Page): Promise<void> {

@@ -3472,6 +3472,20 @@ END $$;
 REVOKE ALL ON FUNCTION public.public_person_source_coordinates() FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.public_person_source_coordinates() TO anon,authenticated;
 
+-- Kodereview 36 P2: koordinaterne som ÉN jsonb-værdi (array af de samme rækker, samme felter, samme orden som
+-- ORDER BY 1,2 ovenfor), så klienten henter dem i ét kald. Rækkesættet overstiger PostgREST's max_rows (prod
+-- 2026-11-15: 1.111 rækker som anon), og offset-paginering af den gamle RPC beregnede hele resultatet én gang pr.
+-- side. Et tyndt lag over public_person_source_coordinates(), så logikken (og redaktør-grenen/gæste-gaten) kun findes
+-- ét sted; samme SECURITY DEFINER, search_path og ACL. Den gamle funktion beholdes uændret (ældre klienter).
+CREATE OR REPLACE FUNCTION public.public_person_source_coordinates_samlet()
+RETURNS jsonb
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+  SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY r.person_id,r.source_id),'[]'::jsonb)
+    FROM public.public_person_source_coordinates() r
+$$;
+REVOKE ALL ON FUNCTION public.public_person_source_coordinates_samlet() FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.public_person_source_coordinates_samlet() TO anon,authenticated;
+
 -- ---------- trin 6e-2: sidekort (PDF-side -> trykt side) ----------
 CREATE OR REPLACE FUNCTION private.sidekort_gyldigt(p jsonb)
 RETURNS boolean
@@ -3752,6 +3766,20 @@ CREATE TABLE relation (
 CREATE UNIQUE INDEX IF NOT EXISTS relation_afbildet_uidx
   ON relation (subjekt_type, subjekt_id, objekt_type, objekt_id)
   WHERE rolle='afbildet';
+-- Kodereview 36 K6: højst ét primært portræt pr. person. En exclusion constraint (btree, '=' — samme semantik som et
+-- partielt unikt indeks), fordi den kan være DEFERRABLE INITIALLY DEFERRED: den generiske fortrydelse
+-- (red_fortryd_change_set) genskaber rækkerne én ad gangen, og et mellemtrin med to flag må ikke fejle, så længe
+-- slutresultatet ved COMMIT har højst ét. Et partielt UNIQUE-indeks kan ikke udskydes. Idempotent.
+DO $relation_portraet_constraint$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid='public.relation'::regclass AND conname='relation_hoejst_et_primaert_portraet') THEN
+    ALTER TABLE public.relation ADD CONSTRAINT relation_hoejst_et_primaert_portraet
+      EXCLUDE USING btree (subjekt_id WITH =)
+      WHERE (subjekt_type='person' AND objekt_type='media' AND rolle='afbildet' AND kvalifikator ? 'primaer')
+      DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $relation_portraet_constraint$;
 
 -- ---------- EVIDENS: PÅSTAND / KONKLUSION / CITATION ----------
 CREATE TABLE assertion (                 -- én kildes udsagn om et FACT ELLER en RELATION
@@ -6962,6 +6990,9 @@ CREATE INDEX IF NOT EXISTS ix_lineage_src_kode   ON lineage(source_id, kode);
 CREATE INDEX IF NOT EXISTS ix_fact_subjekt       ON fact(subjekt_type, subjekt_id);
 CREATE INDEX IF NOT EXISTS ix_assertion_target   ON assertion(target_type, target_id);
 CREATE INDEX IF NOT EXISTS ix_conclusion_target  ON conclusion(target_type, target_id);
+-- Kodereview 36 P6: FK'en til assertion uden indeks gav en fuld scanning af conclusion pr. slettet påstand
+-- (FK-tjekket og trg_regen_from_assertion), fx i red_reverse_reimport's sletteløkke.
+CREATE INDEX IF NOT EXISTS ix_conclusion_valgt_assertion ON conclusion(valgt_assertion_id);
 CREATE INDEX IF NOT EXISTS ix_citation_assertion ON citation(assertion_id);
 CREATE INDEX IF NOT EXISTS ix_note_target        ON note(target_type, target_id);
 CREATE INDEX IF NOT EXISTS ix_relation_subjekt   ON relation(subjekt_type, subjekt_id);
@@ -9110,10 +9141,11 @@ END $$;
 -- den ene retning scannes. Ingen upload_status-guard: et flag på et senere-fjernet medie er
 -- harmløst (læse-lagene ser kun synlige medier) og overlever genopret. p_media_id=NULL rydder
 -- valget. relation står i version_pk_registry uden skip-cols → begge UPDATEs logges og fortrydes.
--- Samtidighed (review 34, M1 dismissed): to samtidige kald kan IKKE efterlade to primaer-flag
--- — begin_change_set's eget max(id)+1 på change_set kolliderer FØRST (unique_violation), og
--- taberen ruller hele sit kald tilbage før portræt-logikken nås. Verificeret umuligt, ikke
--- blot usandsynligt; ingen ekstra lås nødvendig.
+-- Samtidighed (kodereview 36 K6, erstatter review 34 M1's afvisning): begin_change_set bruger nu IDENTITY,
+-- så den kollision, der før serialiserede to kald, findes ikke længere. Derfor (1) låses personens række
+-- FOR UPDATE efter begin_change_set — samme rækkefølge som de øvrige writere (change_set før person) — så et
+-- samtidigt kald for samme person venter og derefter ser (og rydder) det første kalds valg; og (2) håndhæver
+-- constraint'en relation_hoejst_et_primaert_portraet højst ét primaer-flag pr. person for ALLE skriveveje.
 CREATE OR REPLACE FUNCTION red_saet_portraet(p_person_id bigint, p_media_id bigint DEFAULT NULL)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_rows int;
@@ -9123,6 +9155,8 @@ BEGIN
     CASE WHEN p_media_id IS NULL THEN format('Ryddede portræt-valg for person %s', p_person_id)
          ELSE format('Satte media %s som portræt for person %s', p_media_id, p_person_id) END,
     'person', p_person_id);
+  -- K6: serialisér portrætvalg pr. person (efter change_set, som de øvrige writere).
+  PERFORM 1 FROM person WHERE id = p_person_id FOR UPDATE;
   -- Nulstil søskende først (én UPDATE): fjern nøglen; tom jsonb normaliseres til NULL.
   UPDATE relation SET kvalifikator = nullif(kvalifikator - 'primaer', '{}'::jsonb)
    WHERE subjekt_type='person' AND subjekt_id=p_person_id
@@ -9428,6 +9462,15 @@ BEGIN
   RETURN v_row - v_skip;  -- samme projektion som log_change (NULL - skip = NULL)
 END $$;
 
+-- Kodereview 36 K5: lås én registreret række FOR UPDATE (findes den ikke, låses intet). Kun til
+-- red_fortryd_change_set's forudgående låsning; _version_current_row forbliver en ren læser (bruges også i et WHERE).
+CREATE OR REPLACE FUNCTION _version_lock_row(p_tabel text, p_pk jsonb)
+RETURNS void LANGUAGE plpgsql VOLATILE SET search_path=public AS $$
+BEGIN
+  EXECUTE format('SELECT 1 FROM %I WHERE %s FOR UPDATE', p_tabel, _version_pk_where(p_tabel, p_pk));
+END $$;
+REVOKE EXECUTE ON FUNCTION _version_lock_row(text, jsonb) FROM PUBLIC, anon, authenticated;
+
 -- Genskab snapshot-tilstand: opdatér eksisterende række uden at røre skip-kolonner;
 -- ved en slettet række bruges INSERT, hvor manglende kolonner får deres DEFAULT.
 CREATE OR REPLACE FUNCTION _version_upsert_row(p_tabel text, p_row jsonb)
@@ -9486,7 +9529,7 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE
   ev change_event; v_new_cs bigint; v_orig change_set;
   v_cur jsonb; v_pids bigint[] := '{}'; v_narr bigint[] := '{}'; v_notes bigint[] := '{}';
-  v_div int := 0; pid bigint; v_forventet jsonb; v_contract_version integer;
+  v_div int := 0; pid bigint; v_forventet jsonb; v_contract_version integer; v_lock record;
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   v_contract_version:=public.narrative_record_contract_version();
@@ -9525,7 +9568,9 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_DEDICATED_REVERSAL_REQUIRED';
   END IF;
-  SELECT * INTO v_orig FROM change_set WHERE id=p_change_set_id;
+  -- K5: lås sættets række, så to samtidige fortrydelser af samme sæt serialiseres; den anden ser bagefter
+  -- (nyt snapshot pr. sætning) den førstes reversal nedenfor og afvises — også med p_force.
+  SELECT * INTO v_orig FROM change_set WHERE id=p_change_set_id FOR UPDATE;
   IF v_orig.id IS NULL THEN RAISE EXCEPTION 'FEJL: change_set % findes ikke', p_change_set_id; END IF;
   -- allerede reverteret? (reversal-kæde; M3)
   IF EXISTS (SELECT 1 FROM change_set WHERE reverterer_id=p_change_set_id) THEN
@@ -9573,6 +9618,37 @@ BEGIN
               v_orig.subjekt_type, v_orig.subjekt_id, v_orig.subjekt_synlighed, p_change_set_id)
       RETURNING id INTO v_new_cs;
   END IF;
+
+  -- K5 (kodereview 36): verifikationen nedenfor læser uden lås og skriver bagefter; uden låse kunne en samtidig
+  -- redigering (T2 gemmer mellem T1's tjek og skrivning) blive overskrevet uden divergens. Lås derfor ALLE berørte,
+  -- eksisterende rækker FOR UPDATE før første tjek, i en fast rækkefølge efter change_set (som writerne): først
+  -- personer i stigende id (sættets personrækker og personer, sættets relationer peger på — samme orden som
+  -- identitetsprotokollen og red_saet_portraet: personer før relationsrækker), derefter resten efter (tabel, numerisk
+  -- id, row_pk). En samtidig writer venter nu på fortrydelsen, eller fortrydelsen venter på writeren og ser bagefter
+  -- dens committede værdi (nyt snapshot pr. sætning under READ COMMITTED) og afviser den som divergens. En række, som
+  -- sættet slettede (og fortrydelsen genindsætter), findes ikke og kan ikke låses.
+  PERFORM 1 FROM person lp
+   WHERE lp.id IN (
+     SELECT (ce.row_pk->>'id')::bigint FROM change_event ce
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='person'
+     UNION
+     SELECT (x.r->>'subjekt_id')::bigint
+       FROM change_event ce CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation' AND x.r->>'subjekt_type'='person'
+     UNION
+     SELECT (x.r->>'objekt_id')::bigint
+       FROM change_event ce CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation' AND x.r->>'objekt_type'='person')
+   ORDER BY lp.id FOR UPDATE;
+  FOR v_lock IN
+    SELECT d.tabel, d.row_pk
+      FROM (SELECT DISTINCT ce.tabel, ce.row_pk FROM change_event ce WHERE ce.change_set_id=p_change_set_id) d
+     ORDER BY d.tabel COLLATE "C",
+              CASE WHEN d.row_pk->>'id' ~ '^-?[0-9]{1,18}$' THEN (d.row_pk->>'id')::bigint END,
+              d.row_pk::text COLLATE "C"
+  LOOP
+    PERFORM _version_lock_row(v_lock.tabel, v_lock.row_pk);
+  END LOOP;
 
   -- inverse-apply i OMVENDT seq-orden, alt i denne ene transaktion
   FOR ev IN SELECT * FROM change_event WHERE change_set_id=p_change_set_id ORDER BY seq DESC LOOP
@@ -15239,6 +15315,8 @@ BEGIN
      ORDER BY event.stream_ref,event.stream_version,event.id FOR UPDATE;
     PERFORM narrative.id
       FROM public.narrative narrative
+      JOIN public.source source
+        ON source.id=narrative.source_id AND source.slags='DAA-udgave'
       JOIN private.narrative_record_publication binding
         ON binding.narrative_id=narrative.id
      WHERE binding.source_record_id=v_record_id

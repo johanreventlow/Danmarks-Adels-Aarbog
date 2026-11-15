@@ -2,7 +2,7 @@
 // → buildModel. Lean udgave af mobile/src/data/load.ts (kun det stamtræ + slægtskabsfinder
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
-import { aarSpaend, buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, fmtYears, oploesRelativDato, parseYear, getAll, EMPTY_GEO, type PublicCoordinateRow } from '@daa/core';
+import { aarSpaend, buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates, fmtYears, oploesRelativDato, parseYear, getAll, EMPTY_GEO } from '@daa/core';
 import { buildLineage, stamtavleSkemaOpslag } from './lineage';
 import { buildSources } from './sources';
 import { byggLinjeRaekker } from './linjeRaekker';
@@ -68,7 +68,8 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     // (graceful degradation bevares, men degraderingen bliver synlig i konsol/telemetri).
     // 5c-2: koordinater fra public_person_source_coordinates (placement ved gældende membership, ellers legacy).
     // Bevidst intet fald tilbage til legacy-viewet: en fejlslagen deploy skal ses som manglende linjer, ikke skjules.
-    getAll<PublicCoordinateRow>(() => supabase.rpc('public_person_source_coordinates'))
+    // Kodereview 36 P2: ét kald (samlet jsonb); fald tilbage til rækkefunktionen via getAll, hvis DDL'en mangler.
+    fetchPublicCoordinates(() => supabase.rpc(COORDINATES_RPC_SAMLET), () => supabase.rpc(COORDINATES_RPC_RAEKKER))
       .then((rows) => rows.map(coordinateRowToExtId))
       .catch((e) => { console.warn('[loadModel] public_person_source_coordinates utilgængelig — linjer/kilder degraderet:', e); return [] as RawExtId[]; }),
     // Linje-navne — lineage-tabellen findes måske ikke endnu (fallback til 'Linje {kode}').
