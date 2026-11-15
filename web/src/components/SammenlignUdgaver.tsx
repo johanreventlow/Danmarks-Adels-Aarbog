@@ -4,7 +4,7 @@
 // eksisterende base = kanonisk (objekt/sink), ny udgaves person = alias (subjekt).
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  matchUdgaver, buildMatchFrame, collapseSameAs, previewSammeSom, parseYear, defaultCfg,
+  buildMatchFrame, collapseSameAs, previewSammeSom, parseYear, defaultCfg,
   udledKilderForAegtefaeller,
   type MatchFrame, type RedMatchPerson, type Db, type SameAsEdge, type Union, type ParentChild,
 } from '@daa/core';
@@ -14,7 +14,9 @@ import {
   type KandidatDetalje, type MatchAuditPost, type MatchRelationPar, type SourceRow,
 } from '../data/redaktionRead';
 import { describeCall, oversaetFejl, submitChange, type Change } from '../data/redaktionWrite';
-import { buildArbejdsliste, pairKey, type Kandidat } from '../data/sammenlign';
+import {
+  beregnKandidatPar, buildArbejdsliste, byggMatchetMed, pairKey, type Kandidat,
+} from '../data/sammenlign';
 import { KandidatSammenligning } from './KandidatSammenligning';
 import {
   MatchOversigt, foraeldreNavne, formatBogReferencer, formatPersonNavn,
@@ -224,11 +226,14 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     // Målt mod prod: personer med mindst ét forslag går 442 -> 815 af 835.
     // assignTiers kapper navn-alene-match til "gennemsyn" (måling: 152 -> 0 par
     // markeret stærke uden ét eneste årstal).
-    const pairs = matchUdgaver(framesA, framesB, { ...defaultCfg(), evidensNormaliseret: true });
+    const cfg = { ...defaultCfg(), evidensNormaliseret: true };
+    const afvisteKeys = new Set(afviste.map((x) => pairKey(x.aId, x.bId)));
+    // Afviste par tages ud før 1:1-tildelingen, så de ikke blokerer de næstbedste forslag.
+    const pairs = beregnKandidatPar(framesA, framesB, cfg, afvisteKeys);
     return buildArbejdsliste(
-      pairs, aIds,
-      new Set(afviste.map((x) => pairKey(x.aId, x.bId))),
+      pairs, aIds, afvisteKeys,
       new Set(linkede.map((x) => pairKey(x.aId, x.bId))),
+      { reviewCutoff: cfg.reviewCutoff, matchetMed: byggMatchetMed(linkede, new Set(aIds)) },
     );
   }, [personerMedKilde, nyKildeId, afviste, linkede]);
   const { aabne, afklarede, formodetNye } = useMemo(() => {
@@ -536,6 +541,11 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
                   <span style={{ fontSize: '.8em', color: T.inkMuted, marginLeft: '.5rem' }}>
                     navn {k.nameSim.toFixed(2)} · fødsel {k.birthOverlap ? '✓' : '—'} · død {k.deathOverlap ? '✓' : '—'} · køn {k.sexEq ? '✓' : '✗'}
                   </span>
+                  {k.matchetMed && (
+                    <div style={{ fontSize: '.8em', color: T.bordeaux, marginTop: '.15rem' }}>
+                      Allerede matchet med {visning(byId.get(k.matchetMed))}
+                    </div>
+                  )}
                   {bDetaljer.length > 0 && (
                     <div style={{ fontSize: '.82em', color: T.inkMuted, marginTop: '.15rem' }}>
                       {bDetaljer.join(' · ')}
