@@ -1,6 +1,6 @@
 -- Katalogparitet (kodereview 36, D1): hele kataloget for skemaerne public og private, én linje pr. objekt
 -- (art|nøgle|detaljer). Kaldes på en ren schema.sql-base og på migrerede baser; tests/sql/check-catalog-parity.sh
--- sammenligner. Dækker funktioner (definition, SECURITY DEFINER, config, EXECUTE-rettigheder), tabeller og views
+-- sammenligner. Dækker funktioner (definition uden layout, SECURITY DEFINER, config, EXECUTE-rettigheder), tabeller og views
 -- (RLS, rettigheder, options), kolonner, constraints, indekser, triggere, politikker, view-definitioner, sekvenser,
 -- enum-/domænetyper og skemarettigheder. Rettigheder vises kun for PUBLIC, anon, authenticated og service_role, så
 -- ejer- og grantornavne ikke afhænger af, hvem der byggede basen. Udvidelsers egne objekter er udeladt.
@@ -16,7 +16,13 @@ WITH ns AS (
   SELECT 'fn' AS art, p.oid::regprocedure::text AS noegle,
          concat_ws('|', p.prosecdef, coalesce(array_to_string(p.proconfig, ','), ''),
            coalesce((SELECT string_agg(CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE r.grantee::regrole::text END || ':' || r.privilege_type, ',' ORDER BY 1) FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) r WHERE r.grantee = 0 OR r.grantee::regrole::text IN ('anon','authenticated','service_role')), ''),
-           md5(pg_get_functiondef(p.oid))) AS detalje
+           -- Layout tæller ikke: kommentarer fjernes, blanktegn samles og fjernes omkring tegnsætning. Store og små
+           -- bogstaver og alt andet skal være ens. (Kommentarlignende tekst inde i strenge fjernes på begge sider ens.)
+           md5(btrim(regexp_replace(regexp_replace(regexp_replace(regexp_replace(pg_get_functiondef(p.oid),
+             '--[^\n]*', '', 'g'),
+             '/\*([^*]|\*+[^*/])*\*+/', '', 'g'),
+             '\s+', ' ', 'g'),
+             ' ?([(),;=<>+*/|:\[\]]) ?', '\1', 'g')))) AS detalje
     FROM pg_proc p JOIN ns ON ns.oid = p.pronamespace
    WHERE p.prokind IN ('f','p','w') AND p.oid NOT IN (SELECT objid FROM ext)
   UNION ALL
