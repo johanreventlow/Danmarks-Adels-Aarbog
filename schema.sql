@@ -9448,6 +9448,15 @@ BEGIN
   RETURN v_row - v_skip;  -- samme projektion som log_change (NULL - skip = NULL)
 END $$;
 
+-- Kodereview 36 K5: lås én registreret række FOR UPDATE (findes den ikke, låses intet). Kun til
+-- red_fortryd_change_set's forudgående låsning; _version_current_row forbliver en ren læser (bruges også i et WHERE).
+CREATE OR REPLACE FUNCTION _version_lock_row(p_tabel text, p_pk jsonb)
+RETURNS void LANGUAGE plpgsql VOLATILE SET search_path=public AS $$
+BEGIN
+  EXECUTE format('SELECT 1 FROM %I WHERE %s FOR UPDATE', p_tabel, _version_pk_where(p_tabel, p_pk));
+END $$;
+REVOKE EXECUTE ON FUNCTION _version_lock_row(text, jsonb) FROM PUBLIC, anon, authenticated;
+
 -- Genskab snapshot-tilstand: opdatér eksisterende række uden at røre skip-kolonner;
 -- ved en slettet række bruges INSERT, hvor manglende kolonner får deres DEFAULT.
 CREATE OR REPLACE FUNCTION _version_upsert_row(p_tabel text, p_row jsonb)
@@ -9506,7 +9515,7 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE
   ev change_event; v_new_cs bigint; v_orig change_set;
   v_cur jsonb; v_pids bigint[] := '{}'; v_narr bigint[] := '{}'; v_notes bigint[] := '{}';
-  v_div int := 0; pid bigint; v_forventet jsonb; v_contract_version integer;
+  v_div int := 0; pid bigint; v_forventet jsonb; v_contract_version integer; v_lock record;
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   v_contract_version:=public.narrative_record_contract_version();
@@ -9545,7 +9554,9 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_DEDICATED_REVERSAL_REQUIRED';
   END IF;
-  SELECT * INTO v_orig FROM change_set WHERE id=p_change_set_id;
+  -- K5: lås sættets række, så to samtidige fortrydelser af samme sæt serialiseres; den anden ser bagefter
+  -- (nyt snapshot pr. sætning) den førstes reversal nedenfor og afvises — også med p_force.
+  SELECT * INTO v_orig FROM change_set WHERE id=p_change_set_id FOR UPDATE;
   IF v_orig.id IS NULL THEN RAISE EXCEPTION 'FEJL: change_set % findes ikke', p_change_set_id; END IF;
   -- allerede reverteret? (reversal-kæde; M3)
   IF EXISTS (SELECT 1 FROM change_set WHERE reverterer_id=p_change_set_id) THEN
@@ -9593,6 +9604,37 @@ BEGIN
               v_orig.subjekt_type, v_orig.subjekt_id, v_orig.subjekt_synlighed, p_change_set_id)
       RETURNING id INTO v_new_cs;
   END IF;
+
+  -- K5 (kodereview 36): verifikationen nedenfor læser uden lås og skriver bagefter; uden låse kunne en samtidig
+  -- redigering (T2 gemmer mellem T1's tjek og skrivning) blive overskrevet uden divergens. Lås derfor ALLE berørte,
+  -- eksisterende rækker FOR UPDATE før første tjek, i en fast rækkefølge efter change_set (som writerne): først
+  -- personer i stigende id (sættets personrækker og personer, sættets relationer peger på — samme orden som
+  -- identitetsprotokollen og red_saet_portraet: personer før relationsrækker), derefter resten efter (tabel, numerisk
+  -- id, row_pk). En samtidig writer venter nu på fortrydelsen, eller fortrydelsen venter på writeren og ser bagefter
+  -- dens committede værdi (nyt snapshot pr. sætning under READ COMMITTED) og afviser den som divergens. En række, som
+  -- sættet slettede (og fortrydelsen genindsætter), findes ikke og kan ikke låses.
+  PERFORM 1 FROM person lp
+   WHERE lp.id IN (
+     SELECT (ce.row_pk->>'id')::bigint FROM change_event ce
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='person'
+     UNION
+     SELECT (x.r->>'subjekt_id')::bigint
+       FROM change_event ce CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation' AND x.r->>'subjekt_type'='person'
+     UNION
+     SELECT (x.r->>'objekt_id')::bigint
+       FROM change_event ce CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation' AND x.r->>'objekt_type'='person')
+   ORDER BY lp.id FOR UPDATE;
+  FOR v_lock IN
+    SELECT d.tabel, d.row_pk
+      FROM (SELECT DISTINCT ce.tabel, ce.row_pk FROM change_event ce WHERE ce.change_set_id=p_change_set_id) d
+     ORDER BY d.tabel COLLATE "C",
+              CASE WHEN d.row_pk->>'id' ~ '^-?[0-9]{1,18}$' THEN (d.row_pk->>'id')::bigint END,
+              d.row_pk::text COLLATE "C"
+  LOOP
+    PERFORM _version_lock_row(v_lock.tabel, v_lock.row_pk);
+  END LOOP;
 
   -- inverse-apply i OMVENDT seq-orden, alt i denne ene transaktion
   FOR ev IN SELECT * FROM change_event WHERE change_set_id=p_change_set_id ORDER BY seq DESC LOOP

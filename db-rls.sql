@@ -1010,7 +1010,8 @@ REVOKE EXECUTE ON FUNCTION
   _version_pk_where(text, jsonb),
   _version_current_row(text, jsonb),
   _version_upsert_row(text, jsonb),
-  _version_delete_row(text, jsonb)
+  _version_delete_row(text, jsonb),
+  _version_lock_row(text, jsonb)  -- kodereview 36 K5
   FROM PUBLIC, anon, authenticated;
 
 -- C3 identitets-UPDATE: prelock-beviset er intern transaktionsstate, ikke API-data.
