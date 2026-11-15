@@ -39,12 +39,20 @@ describe('buildArbejdsliste (§5.2)', () => {
     expect(byId['A2'].status).toBe('aaben');
   });
 
-  test('alle kandidater afvist → afklaret', () => {
+  test('alle kandidater afvist → ny (ikke afklaret)', () => {
     const afviste = new Set([pairKey('A2', 'B3')]);
-    const { personer } = buildArbejdsliste(pairs, aIds, afviste, new Set());
+    const { personer, fremdrift } = buildArbejdsliste(pairs, aIds, afviste, new Set());
     const a2 = personer.find((p) => p.aId === 'A2')!;
     expect(a2.kandidater[0].afvist).toBe(true);
-    expect(a2.status).toBe('afklaret');
+    expect(a2.status).toBe('ny');
+    expect(fremdrift.nye).toBe(1);
+    expect(fremdrift.afklaret).toBe(0);
+  });
+
+  test('afvist par allerede fjernet af beregnKandidatPar → stadig ny, ikke formodet ny', () => {
+    const uden = pairs.filter((p) => p.aId !== 'A2');
+    const { personer } = buildArbejdsliste(uden, aIds, new Set([pairKey('A2', 'B3')]), new Set());
+    expect(personer.find((p) => p.aId === 'A2')!.status).toBe('ny');
   });
 
   test('fremdrift tæller korrekt', () => {
@@ -54,6 +62,7 @@ describe('buildArbejdsliste (§5.2)', () => {
     expect(fremdrift.gennemse).toBe(1);     // A2 kun review
     expect(fremdrift.formodetNye).toBe(2);  // A3, A4
     expect(fremdrift.afklaret).toBe(0);
+    expect(fremdrift.nye).toBe(0);
   });
 
   test('sortering: åbne før afklarede før formodet-nye', () => {

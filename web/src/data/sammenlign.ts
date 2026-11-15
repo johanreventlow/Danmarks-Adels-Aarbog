@@ -1,6 +1,6 @@
 // "Sammenlign udgaver" — arbejdsliste-logik (Problem 3 §5.2). Ren funktion: matcher-par →
 // arbejdsliste grupperet pr. ny-udgave-person, med tier/status/fremdrift. Afledt tilstand
-// (§2): en person er "afklaret" når et af dens par er linket, eller alle dens kandidater
+// (§2): en person er "afklaret" når et af dens par er linket; "ny" når alle dens kandidater
 // over tærsklen er afvist.
 import {
   assignTiers, buildScored, defaultCfg,
@@ -48,7 +48,7 @@ export type Kandidat = ScoredPair & {
   /** Id på den person (i den nye udgave), kandidaten allerede er matchet med — ellers null. */
   matchetMed: string | null;
 };
-export type PersonStatus = 'aaben' | 'afklaret' | 'formodet_ny';
+export type PersonStatus = 'aaben' | 'afklaret' | 'ny' | 'formodet_ny';
 export type ArbejdslistePerson = {
   aId: string;
   kandidater: Kandidat[];
@@ -61,7 +61,7 @@ export type ArbejdslistePerson = {
   status: PersonStatus;
 };
 export type Fremdrift = {
-  total: number; afklaret: number; staerke: number; gennemse: number; formodetNye: number;
+  total: number; afklaret: number; staerke: number; gennemse: number; nye: number; formodetNye: number;
 };
 export type Arbejdsliste = { personer: ArbejdslistePerson[]; fremdrift: Fremdrift };
 
@@ -92,6 +92,11 @@ export function buildArbejdsliste(
     if (arr) arr.push(p); else maal.set(String(p.aId), [p]);
   }
 
+  // Personer med mindst én afvisning: når ingen aktive kandidater er tilbage, er de afgjort som
+  // nye — ikke "formodet" nye. Afviste par er typisk allerede fjernet af beregnKandidatPar.
+  const idsMedAfvisning = new Set<string>();
+  for (const k of afvisteKeys) for (const id of k.split('|')) idsMedAfvisning.add(id);
+
   const berig = (p: ScoredPair, kandidat: boolean): Kandidat => {
     const aId = String(p.aId), bId = String(p.bId);
     const linket = linkedeKeys.has(pairKey(aId, bId));
@@ -111,14 +116,15 @@ export function buildArbejdsliste(
     const svageKandidater = (svageByA.get(aId) ?? []).map((p) => berig(p, false)).sort(orden);
     const aktive = kandidater.filter((k) => !k.afvist);
     let status: PersonStatus;
-    if (kandidater.length === 0) status = 'formodet_ny';
-    else if (kandidater.some((k) => k.linket) || aktive.length === 0) status = 'afklaret';
-    else status = 'aaben';
+    if (kandidater.some((k) => k.linket)) status = 'afklaret';
+    else if (aktive.length) status = 'aaben';
+    else if (idsMedAfvisning.has(aId)) status = 'ny';
+    else status = 'formodet_ny';
     return { aId, kandidater, svageKandidater, status };
   });
 
-  // sortér: åbne først (topscore faldende), så afklarede, så formodet-nye
-  const rank: Record<PersonStatus, number> = { aaben: 0, afklaret: 1, formodet_ny: 2 };
+  // sortér: åbne først (topscore faldende), så afklarede, nye, formodet-nye
+  const rank: Record<PersonStatus, number> = { aaben: 0, afklaret: 1, ny: 2, formodet_ny: 3 };
   personer.sort((a, b) =>
     rank[a.status] - rank[b.status] || (b.kandidater[0]?.score ?? 0) - (a.kandidater[0]?.score ?? 0));
 
@@ -128,6 +134,7 @@ export function buildArbejdsliste(
     afklaret: personer.filter((p) => p.status === 'afklaret').length,
     staerke: personer.filter((p) => p.status === 'aaben' && harAktivAuto(p)).length,
     gennemse: personer.filter((p) => p.status === 'aaben' && !harAktivAuto(p)).length,
+    nye: personer.filter((p) => p.status === 'ny').length,
     formodetNye: personer.filter((p) => p.status === 'formodet_ny').length,
   };
   return { personer, fremdrift };

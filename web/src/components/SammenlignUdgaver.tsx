@@ -82,7 +82,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
   const [busy, setBusy] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [aabentPar, setAabentPar] = useState<string | null>(null);
-  const [aktivFane, setAktivFane] = useState<'arbejdsliste' | 'bekraeftede' | 'karantaene' | 'historik'>('arbejdsliste');
+  const [aktivFane, setAktivFane] = useState<'arbejdsliste' | 'bekraeftede' | 'nye' | 'karantaene' | 'historik'>('arbejdsliste');
   const [arbejdslisteSoegning, setArbejdslisteSoegning] = useState('');
   const [detaljeCache, setDetaljeCache] = useState<Map<string, KandidatDetalje>>(() => new Map());
   const [detaljeLoading, setDetaljeLoading] = useState<Set<string>>(() => new Set());
@@ -236,11 +236,12 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
       { reviewCutoff: cfg.reviewCutoff, matchetMed: byggMatchetMed(linkede, new Set(aIds)) },
     );
   }, [personerMedKilde, nyKildeId, afviste, linkede]);
-  const { aabne, afklarede, formodetNye } = useMemo(() => {
+  const { aabne, afklarede, nye, formodetNye } = useMemo(() => {
     const arbejdspersoner = arbejdsliste?.personer ?? [];
     return {
       aabne: arbejdspersoner.filter((p) => p.status === 'aaben'),
       afklarede: arbejdspersoner.filter((p) => p.status === 'afklaret'),
+      nye: arbejdspersoner.filter((p) => p.status === 'ny'),
       formodetNye: arbejdspersoner.filter((p) => p.status === 'formodet_ny'),
     };
   }, [arbejdsliste]);
@@ -463,7 +464,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
 
       {f && (
         <p style={{ fontSize: '.9em', color: T.inkMuted }}>
-          {f.afklaret} af {f.total} afklaret · {f.staerke} stærke kandidater · {f.gennemse} til gennemsyn · {f.formodetNye} formodet nye
+          {f.afklaret + f.nye} af {f.total} afklaret ({f.afklaret} matchet · {f.nye} nye) · {f.staerke} stærke kandidater · {f.gennemse} til gennemsyn · {f.formodetNye} formodet nye
         </p>
       )}
 
@@ -477,6 +478,11 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
           aria-current={aktivFane === 'bekraeftede' ? 'true' : undefined}
           style={{ fontWeight: aktivFane === 'bekraeftede' ? 700 : 400 }}>
           Bekræftede ({afklarede.length})
+        </button>
+        <button type="button" onClick={() => setAktivFane('nye')}
+          aria-current={aktivFane === 'nye' ? 'true' : undefined}
+          style={{ fontWeight: aktivFane === 'nye' ? 700 : 400 }}>
+          Nye ({nye.length})
         </button>
         <button type="button" onClick={() => setAktivFane('karantaene')}
           aria-current={aktivFane === 'karantaene' ? 'true' : undefined}
@@ -675,6 +681,53 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
                           {hint.folder ? '✓ foldes offentligt til én person' : `foldes IKKE endnu offentligt: ${hint.grund}`}
                           {!hint.folder && advice && <div style={{ color: T.inkMuted }}>{advice}</div>}
                         </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
+        </section>
+      )}
+
+      {/* Personer hvis kandidater alle er afvist (»Markér som ny person«). Før stod de under
+          Bekræftede som "X = (ukendt)". Staged personer kan publiceres herfra som under Bekræftede. */}
+      {aktivFane === 'nye' && (
+        <section style={{ marginTop: '.75rem' }}>
+          <h3>{nye.length} markeret som ny{nye.length === 1 ? '' : 'e'} person{nye.length === 1 ? '' : 'er'}</h3>
+          <p style={{ fontSize: '.85em', color: T.inkMuted }}>
+            Alle forslag over tærsklen er afvist. Fortryd en afvisning under Historik.
+          </p>
+          {nye.length === 0
+            ? <p style={{ color: T.inkMuted }}>Ingen personer er markeret som nye.</p>
+            : (
+              <>
+                <div style={{ margin: '.6rem 0' }}>
+                  <button type="button" disabled={!!busy || valgteTilPublicering.size === 0} onClick={publicerValgte}>
+                    {busy === 'publicer' ? 'Gemmer…' : `Publicér valgte (${valgteTilPublicering.size})`}
+                  </button>
+                </div>
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                  {nye.map((person) => {
+                    const a = byId.get(person.aId);
+                    const detaljer = [
+                      foraeldreNavne(person.aId, foraeldreEdgesFor(person.aId), byId),
+                      formatBogReferencer(a),
+                    ].filter(Boolean);
+                    return (
+                      <li key={person.aId} style={{ padding: '.4rem 0', borderBottom: '1px dashed rgba(34,31,26,.08)' }}>
+                        {a?.staged ? (
+                          <label style={{ cursor: 'pointer' }}>
+                            <input type="checkbox" checked={valgteTilPublicering.has(person.aId)}
+                              onChange={() => toggleValgtTilPublicering(person.aId)} style={{ marginRight: '.4rem' }} />
+                            {visning(a)}
+                          </label>
+                        ) : (
+                          <span>{visning(a)} <span style={{ fontSize: '.8em', color: '#3d7a3d' }}>✓ publiceret</span></span>
+                        )}
+                        {detaljer.length > 0 && (
+                          <div style={{ fontSize: '.8em', color: T.inkMuted, marginTop: '.15rem' }}>{detaljer.join(' · ')}</div>
+                        )}
                       </li>
                     );
                   })}
