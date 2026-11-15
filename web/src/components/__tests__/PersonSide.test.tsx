@@ -9,6 +9,8 @@ import type { Model } from '../../data/types';
 
 vi.mock('../../data/familySources', () => ({ fetchFamilySources: async () => [] }));
 vi.mock('../../router', () => ({ navigate: vi.fn() }));
+const smal = vi.hoisted(() => ({ v: false }));
+vi.mock('../../useSmalSkaerm', () => ({ useSmalSkaerm: () => smal.v }));
 vi.mock('../lazyMaps', () => ({
   ExpandableMiniMap: ({ points }: { points: unknown[] }) => <div data-testid="livsrejse">{points.length} steder</div>,
   MapFallback: () => null,
@@ -191,6 +193,38 @@ describe('PersonSide', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Kopiér link' }));
     expect(await screen.findByText('Linket er kopieret.')).toBeTruthy();
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/person/392`);
+  });
+
+  it('bred skærm kopierer, også når browseren kan dele (desktop-Safari)', async () => {
+    const share = vi.fn().mockResolvedValue(undefined); const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true, writable: true });
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true, writable: true });
+    try {
+      render(<PersonSide {...props()} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Kopiér link' }));
+      expect(await screen.findByText('Linket er kopieret.')).toBeTruthy();
+      expect(share).not.toHaveBeenCalled();
+    } finally { Object.defineProperty(navigator, 'share', { value: undefined, configurable: true, writable: true }); }
+  });
+
+  it('smal skærm: »Del« åbner telefonens delemenu med personens adresse; ingen status efter deling eller afbrydelse', async () => {
+    smal.v = true;
+    const share = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new DOMException('x', 'AbortError'));
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true, writable: true });
+    try {
+      render(<PersonSide {...props()} />);
+      expect(screen.queryByRole('button', { name: 'Kopiér link' })).toBeNull();
+      const del = screen.getByRole('button', { name: 'Del' });
+      fireEvent.click(del);
+      await vi.waitFor(() => expect(share).toHaveBeenCalledTimes(1));
+      expect(share.mock.calls[0][0].url).toBe(`${window.location.origin}/person/392`);
+      fireEvent.click(del);
+      await vi.waitFor(() => expect(share).toHaveBeenCalledTimes(2));
+      expect(screen.getByRole('status').textContent).toBe('');
+    } finally {
+      smal.v = false;
+      Object.defineProperty(navigator, 'share', { value: undefined, configurable: true, writable: true });
+    }
   });
 
   it('»Det er mig« er en trykknap; kun med handlingen', () => {

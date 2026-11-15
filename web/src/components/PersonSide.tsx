@@ -32,6 +32,8 @@ import { usePersonVisning, KildeLinjeVisning } from './personVisning';
 import { SlaegtsMaerke } from './SlaegtsMaerke';
 import { ExpandableMiniMap, MapFallback } from './lazyMaps';
 import { radius, shadow } from '@daa/theme';
+import { useSmalSkaerm } from '../useSmalSkaerm';
+import { delLink, type DelUdfald } from '../data/delLink';
 
 const FOERSTE_EMBEDER = 7;
 const FOERSTE_GODSER = 6;
@@ -52,7 +54,8 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   const [visAlleEmbeder, setVisAlleEmbeder] = useState(false);
   const [visAlleGodser, setVisAlleGodser] = useState(false);
   const [lightbox, setLightbox] = useState<number | null>(null);
-  const [kopieret, setKopieret] = useState<'ja' | 'fejl' | null>(null);
+  const [kopieret, setKopieret] = useState<DelUdfald | null>(null);
+  const smal = useSmalSkaerm(); // telefonen: »Del« med telefonens delemenu (fase 9)
   const livsrejse = useMemo(() => (!geoLoading && model.geo ? lifeJourney(model.geo, focusId) : []), [geoLoading, model.geo, focusId]);
   // Før det tidlige return: hooks skal kaldes i samme rækkefølge ved hver render.
   const kontekst = useMemo(() => slaegtskabsKontekst(model, meId, focusId), [model, meId, focusId]);
@@ -74,10 +77,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   const visteGodser = visAlleGodser ? v.godser : v.godser.slice(0, FOERSTE_GODSER);
   const portrait = v.portrait?.url ? v.portrait : null; // kun et portræt, der kan vises, får billedtekst
   const kopier = async () => {
-    try {
-      await navigator.clipboard.writeText(`${window.location.origin}${personPath(focusId)}`);
-      setKopieret('ja');
-    } catch { setKopieret('fejl'); }
+    setKopieret(await delLink(`${window.location.origin}${personPath(focusId)}`, document.title, smal));
   };
 
   return (
@@ -284,7 +284,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
             <div style={{ display: 'flex', gap: 10 }}>
               {/* Knap, ikke link: personen kommer først i slægtskabets adresse i fase 6. */}
               <Link href={slaegtskabPath(focusId)} onNavigate={onFindSlaegtskab} style={{ ...knap, flex: 1, textDecoration: 'none' }}>Find slægtskab</Link>
-              <button type="button" onClick={() => { void kopier(); }} style={{ ...knap, flex: 1 }}>Kopiér link</button>
+              <button type="button" onClick={() => { void kopier(); }} style={{ ...knap, flex: 1 }}>{smal ? 'Del' : 'Kopiér link'}</button>
             </div>
             {onToggleMig && (
               <button type="button" aria-pressed={erMig} onClick={onToggleMig}
@@ -297,7 +297,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
               <button type="button" onClick={onVisPraesens} style={{ ...tekstKnap, alignSelf: 'flex-start' }}>Vis i præsensliste</button>
             )}
             <p role="status" aria-live="polite" style={{ margin: 0, minHeight: 20, fontSize: 13, color: kopieret === 'fejl' ? T.danger : T.inkMuted }}>
-              {kopieret === 'ja' ? 'Linket er kopieret.' : kopieret === 'fejl' ? 'Linket kunne ikke kopieres. Kopiér adressen fra browserens adresselinje.' : ''}
+              {kopieret === 'kopieret' ? 'Linket er kopieret.' : kopieret === 'fejl' ? 'Linket kunne ikke kopieres. Kopiér adressen fra browserens adresselinje.' : ''}
             </p>
           </div>
           {!loggetInd && (

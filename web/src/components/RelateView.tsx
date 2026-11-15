@@ -9,6 +9,7 @@ import { personPath, slaegtskabPath, stamtraePath } from '../data/nav';
 import { faellesAneTekst, personForslag, slaegtledTekst, vejTrin, type PersonForslag } from '../data/slaegtskab';
 import type { Model } from '../data/types';
 import { useSmalSkaerm } from '../useSmalSkaerm';
+import { delLink, type DelUdfald } from '../data/delLink';
 
 const etiket: CSSProperties = { margin: 0, fontFamily: T.mono, fontSize: 11, lineHeight: '14px', fontWeight: 500, letterSpacing: '0.16em', textTransform: 'uppercase' };
 const knap: CSSProperties = { fontFamily: T.sans, fontSize: 14, lineHeight: '20px', fontWeight: 600, padding: '10px 16px', borderRadius: 11, cursor: 'pointer', textDecoration: 'none' };
@@ -120,11 +121,9 @@ function Resultat({ lines, found, aNavn, bNavn, delSti, slug, smal }: {
   aNavn: string; bNavn: string; delSti: string; slug: string; smal: boolean;
 }) {
   const [vej, setVej] = useState(0);
-  const [kopieret, setKopieret] = useState<'ja' | 'fejl' | null>(null);
-  const kopier = async () => {
-    try { await navigator.clipboard.writeText(`${window.location.origin}${delSti}`); setKopieret('ja'); }
-    catch { setKopieret('fejl'); }
-  };
+  const [kopieret, setKopieret] = useState<DelUdfald | null>(null);
+  // Telefonen deler med sin egen delemenu; bred skærm kopierer (fase 9).
+  const kopier = async () => { setKopieret(await delLink(`${window.location.origin}${delSti}`, document.title, smal)); };
   if (!found) {
     return (
       <section aria-label="Resultat" style={{ background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 22, padding: smal ? 22 : 32, maxWidth: 720 }}>
@@ -162,11 +161,11 @@ function Resultat({ lines, found, aNavn, bNavn, delSti, slug, smal }: {
         )}
         {korrob && <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: T.inkMutedOnInverse }}>✓ {korrob}</p>}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
-          <button type="button" onClick={() => { void kopier(); }} style={{ ...knap, border: 0, background: T.surfaceRaised, color: T.ink }}>Kopiér link til resultatet</button>
+          <button type="button" onClick={() => { void kopier(); }} style={{ ...knap, border: 0, background: T.surfaceRaised, color: T.ink }}>{smal ? 'Del resultatet' : 'Kopiér link til resultatet'}</button>
           {!samme && <Link href={stamtraePath(slug, line.lcaId)} style={{ ...knap, border: '1px solid rgba(251,248,241,0.35)', color: T.inkOnInverse }}>Vis fælles ane i stamtræet</Link>}
         </div>
         <p role="status" aria-live="polite" style={{ margin: 0, minHeight: 20, fontSize: 13, color: T.inkMutedOnInverse }}>
-          {kopieret === 'ja' ? 'Linket er kopieret.' : kopieret === 'fejl' ? 'Linket kunne ikke kopieres. Kopiér adressen fra browserens adresselinje.' : ''}
+          {kopieret === 'kopieret' ? 'Linket er kopieret.' : kopieret === 'fejl' ? 'Linket kunne ikke kopieres. Kopiér adressen fra browserens adresselinje.' : ''}
         </p>
       </div>
 

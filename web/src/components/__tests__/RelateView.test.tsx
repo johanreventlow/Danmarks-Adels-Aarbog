@@ -99,6 +99,22 @@ describe('RelateView', () => {
     expect(await screen.findByText('Linket er kopieret.')).toBeTruthy();
   });
 
+  it('smal skærm: »Del resultatet« deler den delbare adresse med telefonens delemenu', async () => {
+    smal.v = true;
+    const share = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true, writable: true });
+    try {
+      vis({ relA: '1', relB: '4' });
+      expect(screen.queryByRole('button', { name: 'Kopiér link til resultatet' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Del resultatet' }));
+      await vi.waitFor(() => expect(share).toHaveBeenCalledTimes(1));
+      expect(share.mock.calls[0][0].url).toBe(`${window.location.origin}/slaegtskab?a=1&b=4`);
+    } finally {
+      smal.v = false;
+      Object.defineProperty(navigator, 'share', { value: undefined, configurable: true, writable: true });
+    }
+  });
+
   it('ingen fælles ane: »Aarbogen viser ingen forbindelse«, ikke »ikke i familie«', () => {
     vis({ relA: '1', relB: '9' });
     expect(screen.getByRole('heading', { name: 'Aarbogen viser ingen forbindelse' })).toBeTruthy();
