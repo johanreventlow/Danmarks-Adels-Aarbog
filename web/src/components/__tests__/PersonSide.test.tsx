@@ -230,4 +230,15 @@ describe('PersonSide', () => {
     expect(screen.getByText('Livsrejse')).toBeTruthy();
     expect((await screen.findByTestId('livsrejse')).textContent).toBe('1 steder');
   });
+
+  it('slægtskab over navnet: intet uden »Det er mig«, »Det er dig« på egen side, skifter uden genindlæsning', () => {
+    const { rerender } = render(<PersonSide {...props()} />);
+    expect(screen.queryByTestId('slaegtskab-kontekst')).toBeNull();
+    rerender(<PersonSide {...props({ meId: '392', erMig: true })} />);
+    expect(screen.getByTestId('slaegtskab-kontekst').textContent).toBe('Det er dig');
+    rerender(<PersonSide {...props({ meId: null, erMig: false })} />);
+    expect(screen.queryByTestId('slaegtskab-kontekst')).toBeNull();
+    rerender(<PersonSide {...props({ meId: '500' })} />);
+    expect(screen.getByTestId('slaegtskab-kontekst').textContent).toMatch(/^Din forælder/);
+  });
 });

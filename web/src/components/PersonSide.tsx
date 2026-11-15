@@ -7,8 +7,9 @@
 // »Det er mig« (lokalt i browseren, intet login) og »Vis i præsensliste« (kun redaktionen).
 //
 // Medlemslaget (fase 8, tegningen »… lag for indloggede medlemmer«) får faste pladser i samme layout:
-// slægtskab som kontekst over titlen, bogmærket i højre spalte og fakta med kilde pr. linje (PersonFakta står
-// allerede på fakta-pladsen). Siden skifter ikke layout ved login.
+// slægtskab som kontekst over navnet (SlaegtskabsLinje, beregnet ud fra »Det er mig« og ikke ud fra login),
+// bogmærket i højre spalte og fakta med kilde pr. linje (PersonFakta står på fakta-pladsen). Siden skifter ikke
+// layout ved login.
 //
 // Mangler siges med ord. »i den valgte udgave« bruges kun, hvor vælgeren faktisk filtrerer (biografi, fakta,
 // godser); familie og embeder kommer fra den samlede model.
@@ -23,6 +24,8 @@ import type { Model } from '../data/types';
 import { bogensNummer, lifeJourney, type UdgaveChip } from '@daa/core';
 import { NarrativRenderer } from './NarrativRenderer';
 import { PersonFakta } from './PersonFakta';
+import { SlaegtskabsLinje } from './SlaegtskabsLinje';
+import { slaegtskabsKontekst } from '../data/slaegtskab';
 import { Lightbox } from './Lightbox';
 import { Tilstand, tilstandSekundaer } from './Tilstand';
 import { usePersonVisning, KildeLinjeVisning } from './personVisning';
@@ -34,7 +37,7 @@ const FOERSTE_EMBEDER = 7;
 const FOERSTE_GODSER = 6;
 
 export function PersonSide({ model, focusId, detail, detailError, onRetry, onVisPerson, onFindSlaegtskab, onSlaegt,
-  loggetInd, onLogin, erBogmaerket, onToggleBogmaerke, geoLoading = false, erMig = false, onToggleMig, onVisPraesens }: {
+  loggetInd, onLogin, erBogmaerket, onToggleBogmaerke, geoLoading = false, erMig = false, onToggleMig, onVisPraesens, meId = null }: {
   model: Model; focusId: string; detail: PersonDetailData | null; detailError: string | null; onRetry: () => void;
   onVisPerson: (id: string) => void; // familie og biografiens personlinks (→ /person/<id>)
   onFindSlaegtskab: () => void;
@@ -43,6 +46,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   geoLoading?: boolean; // geo hentes dovent; minikortet vises først, når hentningen er færdig (intet flimmer)
   erMig?: boolean; onToggleMig?: () => void;
   onVisPraesens?: () => void; // kun redaktionen (præsenslisten kræver i dag rollen)
+  meId?: string | null; // »Det er mig« (kanonisk); null → ingen slægtskabslinje over navnet
 }) {
   const v = usePersonVisning(model, focusId, detail);
   const [visAlleEmbeder, setVisAlleEmbeder] = useState(false);
@@ -50,6 +54,8 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [kopieret, setKopieret] = useState<'ja' | 'fejl' | null>(null);
   const livsrejse = useMemo(() => (!geoLoading && model.geo ? lifeJourney(model.geo, focusId) : []), [geoLoading, model.geo, focusId]);
+  // Før det tidlige return: hooks skal kaldes i samme rækkefølge ved hver render.
+  const kontekst = useMemo(() => slaegtskabsKontekst(model, meId, focusId), [model, meId, focusId]);
   const p = v.p;
   if (!p) return null;
 
@@ -90,7 +96,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
               {etiket ? <p style={{ ...etiketStil, color: T.goldInk }}>{etiket}</p> : <span />}
               {harVaelger && <Udgavevaelger chips={v.vaelger.chips} valgt={v.valgtIdx} onVaelg={v.vaelgChip} />}
             </div>
-            {/* Plads til medlemslagets »slægtskab som kontekst« (fase 8). */}
+            <SlaegtskabsLinje kontekst={kontekst} meId={meId} focusId={focusId} onVisPerson={onVisPerson} />
             <h1 style={{ margin: 0, fontFamily: T.serif, fontSize: 44, lineHeight: 1.05, fontWeight: 500, color: T.ink, textWrap: 'balance' } as CSSProperties}>{p.name}</h1>
             <p style={{ margin: 0, fontFamily: T.mono, fontSize: 14, lineHeight: '20px', color: T.inkMuted }}>{p.years || 'Livsdatoer ikke angivet i Aarbogen'}</p>
             {p.title && <p style={{ margin: 0, fontSize: 15, color: T.bordeaux, fontWeight: 600 }}>{p.title}</p>}

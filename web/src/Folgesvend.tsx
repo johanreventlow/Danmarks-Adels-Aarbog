@@ -516,7 +516,7 @@ export default function Folgesvend() {
                   onSlaegt={(s) => goToMode('about', s)}
                   loggetInd={bookmarks.canSave} onLogin={() => setLoginOpen(true)}
                   erBogmaerket={bookmarks.has(focusId)} onToggleBogmaerke={() => saveOrPrompt(focusId)}
-                  geoLoading={geoLoading} erMig={focusId === meCanon} onToggleMig={() => toggleMe(focusId)}
+                  geoLoading={geoLoading} erMig={focusId === meCanon} meId={meCanon} onToggleMig={() => toggleMe(focusId)}
                   onVisPraesens={session?.role === 'redaktion' ? () => navigate(pathForMode('praesens', slug), { state: { fokusId: focusId } }) : undefined} />
               ) : !model ? <div style={{ padding: 40, color: T.inkMuted }}>Henter …</div> : (
                 <div style={{ padding: 40 }}>

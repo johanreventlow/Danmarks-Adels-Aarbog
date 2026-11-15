@@ -175,6 +175,55 @@ export function relationshipLabel(d1: number, d2: number, opts: LabelOpts = {}):
   return half ? s + ' (halv)' : s;
 }
 
+export type TilMigOpts = { koen?: Koen; half?: boolean };
+
+// Ordet for fokuspersonen set fra »mig« (webredesign fase 8): d1 = mig→fælles ane, d2 = fokus→fælles
+// ane, dvs. computeRelationship(model, mig, fokus). `koen` er fokuspersonens. Samme rækker som
+// relationshipLabel, så personsiden og »Er vi i familie?« aldrig er uenige; fra 5 led står der et tal.
+// (0,0) giver '' — kalderen viser »Det er dig«.
+export function slaegtskabTilMig(d1: number, d2: number, opts: TilMigOpts = {}): string {
+  const { koen, half } = opts;
+  if (d1 === 0 && d2 === 0) return '';
+
+  // Direkte linje: d2 === 0 ⇒ fokus er min ane; d1 === 0 ⇒ fokus er min efterkommer.
+  if (d2 === 0) {
+    if (d1 === 1) return 'din ' + g(koen, 'far', 'mor', 'forælder');
+    if (d1 === 2) return 'din ' + g(koen, 'bedstefar', 'bedstemor', 'bedsteforælder');
+    if (d1 === 3) return 'din ' + g(koen, 'oldefar', 'oldemor', 'oldeforælder');
+    if (d1 === 4) return 'din ' + g(koen, 'tipoldefar', 'tipoldemor', 'tipoldeforælder');
+    return `din ane, ${d1} slægtled tilbage`;
+  }
+  if (d1 === 0) {
+    if (d2 === 1) return koen ? 'din ' + g(koen, 'søn', 'datter', '') : 'dit barn';
+    if (d2 === 2) return 'dit barnebarn';
+    if (d2 === 3) return 'dit oldebarn';
+    if (d2 === 4) return 'dit tipoldebarn';
+    return `din efterkommer, ${d2} slægtled frem`;
+  }
+
+  const minD = Math.min(d1, d2);
+  const rem = Math.abs(d1 - d2);
+  const deg = minD - 1;
+
+  if (deg === 0) {
+    if (rem === 0) {
+      if (!koen) return half ? 'din halvsøskende' : 'din søskende';
+      return 'din ' + (half ? g(koen, 'halvbror', 'halvsøster', '') : g(koen, 'bror', 'søster', ''));
+    }
+    // Fokus er den ældre, når fokus har mindst afstand til den fælles ane.
+    const fokusAeldst = d2 < d1;
+    const ord =
+      rem === 1
+        ? fokusAeldst ? g(koen, 'onkel', 'tante', 'onkel/tante') : g(koen, 'nevø', 'niece', 'niece/nevø')
+        : fokusAeldst ? g(koen, 'grandonkel', 'grandtante', 'grandonkel/-tante') : g(koen, 'grandnevø', 'grandniece', 'grandniece/-nevø');
+    return 'din ' + ord + (half ? ' (halv)' : '');
+  }
+
+  let s = `din ${deg}. grads ${g(koen, 'fætter', 'kusine', 'fætter/kusine')}`;
+  if (rem > 0) s += ' · ' + rem + ' gang' + (rem > 1 ? 'e' : '') + ' forskudt';
+  return half ? s + ' (halv)' : s;
+}
+
 // ── Offentlig API ────────────────────────────────────────────────────────────
 
 export type RelationStep = {
