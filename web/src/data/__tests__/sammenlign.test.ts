@@ -1,6 +1,8 @@
 import { describe, test, expect } from 'vitest';
-import { beregnKandidatPar, buildArbejdsliste, byggMatchetMed, pairKey } from '../sammenlign';
-import { defaultCfg, type MatchFrame, type ScoredPair } from '@daa/core';
+import {
+  beregnKandidatPar, buildArbejdsliste, byggMatchetMed, matcherSoegning, pairKey, scorePersonPar,
+} from '../sammenlign';
+import { buildMatchFrame, defaultCfg, type MatchFrame, type RedMatchPerson, type ScoredPair } from '@daa/core';
 
 const sp = (aId: string, bId: string, tier: ScoredPair['tier'], score: number): ScoredPair =>
   ({ aId, bId, nameSim: score, birthOverlap: true, deathOverlap: false, sexEq: true, uniqueBlock: true, score, tier });
@@ -170,5 +172,49 @@ describe('A3: afvisninger og 1:1-tildelingen skjuler ikke de næstbedste forslag
       { matchetMed: new Map([['B1', 'A1']]) },
     );
     expect(l.personer[0].kandidater[0].matchetMed).toBeNull();
+  });
+});
+
+describe('A1: Find modpart', () => {
+  const person = (o: Partial<RedMatchPerson> = {}): RedMatchPerson => ({
+    id: 'b', navn: 'Frederik Christian', fuldtNavn: 'Frederik Christian Reventlow', koen: 'mand',
+    foedsel: { date_min: '1741-03-02', date_max: '1741-03-02' },
+    doed: { date_min: '1801-01-01', date_max: '1801-12-31' },
+    titel: null, sourceIds: [7], staged: false, udenforMatchning: false,
+    bogReferencer: [{ sourceId: 7, linje: 'III', nr: 58, slaegtledLokal: null, slaegtledGennem: null, kuld: null, grenNavn: 'Holstenske linje' }],
+    ...o,
+  });
+
+  test('alle ord skal passe; tom søgning finder intet', () => {
+    expect(matcherSoegning('frederik', person())).toBe(true);
+    expect(matcherSoegning('frederik ludvig', person())).toBe(false);
+    expect(matcherSoegning('   ', person())).toBe(false);
+  });
+
+  test('årstal passer på fødsel eller død med ±2 års tolerance', () => {
+    expect(matcherSoegning('frederik 1743', person())).toBe(true);
+    expect(matcherSoegning('1801', person())).toBe(true);
+    expect(matcherSoegning('frederik 1744', person())).toBe(false);
+  });
+
+  test('stavevarianter foldes som i matcheren', () => {
+    expect(matcherSoegning('Friedrich', person())).toBe(true);
+    expect(matcherSoegning('Kristian', person())).toBe(true);
+  });
+
+  test('bognummer og gren kan søges', () => {
+    expect(matcherSoegning('III-58', person())).toBe(true);
+    expect(matcherSoegning('holstenske', person())).toBe(true);
+  });
+
+  test('scorePersonPar scorer også par med forskelligt forbogstav', () => {
+    const cfg = { ...defaultCfg(), evidensNormaliseret: true };
+    const a = buildMatchFrame({ id: 'a', navn: 'Christian Frederik', koen: 'mand', foedsel: person().foedsel, doed: null });
+    const b = buildMatchFrame(person());
+    const p = scorePersonPar(a, b, cfg);
+    expect(p.birthOverlap).toBe(true);
+    expect(p.deathKendt).toBe(false);
+    expect(p.score).toBeGreaterThan(0);
+    expect(p.score).toBeLessThanOrEqual(1);
   });
 });

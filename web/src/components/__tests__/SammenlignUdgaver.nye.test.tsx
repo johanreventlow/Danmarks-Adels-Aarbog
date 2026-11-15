@@ -126,3 +126,55 @@ describe('SammenlignUdgaver: svage forslag hos en åben person (A2)', () => {
     expect(screen.getAllByRole('button', { name: 'Sammenlign' })).toHaveLength(2);
   });
 });
+
+describe('SammenlignUdgaver: Find modpart (A1)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.fetchSources.mockResolvedValue([
+      { id: 3, titel: 'Danmarks Adels Aarbog', udgave: '1939', slags: 'bog', aar: 1939 },
+      { id: 7, titel: 'Danmarks Adels Aarbog', udgave: '2018-20', slags: 'bog', aar: 2018 },
+    ]);
+    // Andet forbogstav → matcheren stiller dem aldrig op; kun søgningen kan finde modparten.
+    mocks.fetchMatchPersoner.mockResolvedValue([
+      person('1', 3, 'ditlev'), person('2', 7, 'christian'), person('3', 7, 'conrad', '1700', '1760'),
+      person('4', 3, 'christian', '1900', '1950'), // 1939-navnebror uden kandidat (årsvinduet)
+    ]);
+    mocks.fetchIkkeSammeSomPar.mockResolvedValue([]);
+    mocks.fetchSammeSomPar.mockResolvedValue([]);
+    mocks.fetchMatchAudit.mockResolvedValue([]);
+    mocks.fetchFamilyGraph.mockResolvedValue({ unions: [], parentChild: [] });
+    mocks.submitChange.mockResolvedValue({ dryRun: true, call: { fn: 'red_samme_som', args: {} } });
+  });
+
+  test('finder en person matcheren ikke foreslog og kan bekræfte den', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<SammenlignUdgaver role="redaktor" />);
+    fireEvent.change(await screen.findByRole('combobox'), { target: { value: '3' } });
+    await screen.findByText(/uden kandidat over tærsklen/);
+
+    // Personen 'ditlev' (id 1) er den første i listen over formodet nye.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Find modpart' })[0]);
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Søg modpart' }), { target: { value: 'christian' } });
+
+    // Kun 2018-20-personen findes — ikke 1939's egen Christian (id 4) og ikke Conrad.
+    expect(screen.getAllByText(/Christian Reventlow \(1660/)).toHaveLength(1);
+    expect(screen.getAllByText(/Christian Reventlow \(1900/)).toHaveLength(1); // kun i A-listen
+    expect(screen.queryByText(/Conrad Reventlow/)).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '✓ Bekræft' }));
+    await waitFor(() => expect(mocks.submitChange).toHaveBeenCalledTimes(1));
+    expect(mocks.submitChange.mock.calls[0][0]).toMatchObject({
+      art: 'sammeSom', payload: { aliasId: '1', objektId: '2' },
+    });
+    confirm.mockRestore();
+  });
+
+  test('viser besked når intet matcher', async () => {
+    render(<SammenlignUdgaver role="redaktor" />);
+    fireEvent.change(await screen.findByRole('combobox'), { target: { value: '3' } });
+    await screen.findByText(/uden kandidat over tærsklen/);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Find modpart' })[0]);
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Søg modpart' }), { target: { value: 'zacharias' } });
+    expect(screen.getByText('Ingen personer matcher søgningen.')).toBeTruthy();
+  });
+});

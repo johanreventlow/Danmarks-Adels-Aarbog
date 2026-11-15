@@ -15,7 +15,8 @@ import {
 } from '../data/redaktionRead';
 import { describeCall, oversaetFejl, submitChange, type Change } from '../data/redaktionWrite';
 import {
-  beregnKandidatPar, buildArbejdsliste, byggMatchetMed, pairKey, type ArbejdslistePerson, type Kandidat,
+  beregnKandidatPar, buildArbejdsliste, byggMatchetMed, matcherSoegning, pairKey, scorePersonPar,
+  type ArbejdslistePerson, type Kandidat,
 } from '../data/sammenlign';
 import { KandidatSammenligning } from './KandidatSammenligning';
 import {
@@ -86,6 +87,9 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
   const [arbejdslisteSoegning, setArbejdslisteSoegning] = useState('');
   // Personer hvis svage forslag (under tærsklen) er foldet ud.
   const [visSvage, setVisSvage] = useState<Set<string>>(() => new Set());
+  // »Find modpart«: hvilken person søgningen er åben for, og søgeteksten.
+  const [modpartFor, setModpartFor] = useState<string | null>(null);
+  const [modpartSoegning, setModpartSoegning] = useState('');
   const [detaljeCache, setDetaljeCache] = useState<Map<string, KandidatDetalje>>(() => new Map());
   const [detaljeLoading, setDetaljeLoading] = useState<Set<string>>(() => new Set());
   const [detaljeFejl, setDetaljeFejl] = useState<Map<string, string>>(() => new Map());
@@ -210,6 +214,14 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     [personer, familieGraf.unions],
   );
 
+  const matchCfg = useMemo(() => ({ ...defaultCfg(), evidensNormaliseret: true }), []);
+  const linkedeKeys = useMemo(() => new Set(linkede.map((x) => pairKey(x.aId, x.bId))), [linkede]);
+  const matchetMed = useMemo(() => {
+    if (nyKildeId == null) return new Map<string, string>();
+    const aSide = new Set(personerMedKilde.filter((p) => p.sourceIds.includes(nyKildeId)).map((p) => String(p.id)));
+    return byggMatchetMed(linkede, aSide);
+  }, [personerMedKilde, nyKildeId, linkede]);
+
   const arbejdsliste = useMemo(() => {
     if (nyKildeId == null) return null;
     const framesA: MatchFrame[] = [], framesB: MatchFrame[] = [], aIds: string[] = [];
@@ -228,16 +240,29 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     // Målt mod prod: personer med mindst ét forslag går 442 -> 815 af 835.
     // assignTiers kapper navn-alene-match til "gennemsyn" (måling: 152 -> 0 par
     // markeret stærke uden ét eneste årstal).
-    const cfg = { ...defaultCfg(), evidensNormaliseret: true };
     const afvisteKeys = new Set(afviste.map((x) => pairKey(x.aId, x.bId)));
     // Afviste par tages ud før 1:1-tildelingen, så de ikke blokerer de næstbedste forslag.
-    const pairs = beregnKandidatPar(framesA, framesB, cfg, afvisteKeys);
+    const pairs = beregnKandidatPar(framesA, framesB, matchCfg, afvisteKeys);
     return buildArbejdsliste(
-      pairs, aIds, afvisteKeys,
-      new Set(linkede.map((x) => pairKey(x.aId, x.bId))),
-      { reviewCutoff: cfg.reviewCutoff, matchetMed: byggMatchetMed(linkede, new Set(aIds)) },
+      pairs, aIds, afvisteKeys, linkedeKeys,
+      { reviewCutoff: matchCfg.reviewCutoff, matchetMed },
     );
-  }, [personerMedKilde, nyKildeId, afviste, linkede]);
+  }, [personerMedKilde, nyKildeId, afviste, linkedeKeys, matchetMed, matchCfg]);
+
+  // »Find modpart«: hele den anden side (alle uden for den valgte udgave), filtreret på søgeteksten
+  // og rangeret med samme score som arbejdslisten. Ingen blocking, intet årsvindue, ingen tærskel —
+  // det er netop de par, matcheren ikke stiller op, redaktøren skal kunne finde.
+  const MAKS_MODPARTER = 25;
+  const modpartResultat = useMemo(() => {
+    const a = modpartFor != null ? byId.get(modpartFor) : undefined;
+    if (!a || nyKildeId == null || !modpartSoegning.trim()) return { hits: [], total: 0 };
+    const fa = buildMatchFrame(a);
+    const alle = personerMedKilde
+      .filter((p) => p.id !== a.id && !p.sourceIds.includes(nyKildeId) && matcherSoegning(modpartSoegning, p))
+      .map((p) => ({ p, par: scorePersonPar(fa, buildMatchFrame(p), matchCfg) }))
+      .sort((x, y) => (y.par.score ?? 0) - (x.par.score ?? 0));
+    return { hits: alle.slice(0, MAKS_MODPARTER), total: alle.length };
+  }, [modpartFor, modpartSoegning, byId, personerMedKilde, nyKildeId, matchCfg]);
   const { aabne, afklarede, nye, formodetNye } = useMemo(() => {
     const arbejdspersoner = arbejdsliste?.personer ?? [];
     return {
@@ -528,6 +553,41 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     );
   };
 
+  const renderFindModpart = (aId: string) => {
+    const aaben = modpartFor === aId;
+    return (
+      <div style={{ marginTop: '.4rem' }}>
+        <button type="button" style={{ fontSize: '.85em' }} aria-expanded={aaben}
+          onClick={() => { setModpartFor(aaben ? null : aId); setModpartSoegning(''); }}>
+          {aaben ? 'Luk søgning' : 'Find modpart'}
+        </button>
+        {aaben && (
+          <div style={{ marginTop: '.4rem', padding: '.4rem .6rem', background: T.surfaceSunken, borderRadius: 4 }}>
+            <input type="search" aria-label="Søg modpart" autoFocus value={modpartSoegning}
+              placeholder="Navn, årstal eller bognr., fx »Frederik 1741«"
+              onChange={(e) => setModpartSoegning(e.target.value)} style={{ width: '100%', maxWidth: '28rem' }} />
+            <div style={{ fontSize: '.8em', color: T.inkMuted, marginTop: '.25rem' }}>
+              Søger i alle personer uden for den valgte udgave. Årstal passer på fødsel eller død ±2 år.
+            </div>
+            {modpartSoegning.trim() && modpartResultat.total === 0 && (
+              <p style={{ color: T.inkMuted, margin: '.4rem 0 0' }}>Ingen personer matcher søgningen.</p>
+            )}
+            {modpartResultat.total > modpartResultat.hits.length && (
+              <p style={{ fontSize: '.8em', color: T.inkMuted, margin: '.4rem 0 0' }}>
+                Viser de {modpartResultat.hits.length} bedste af {modpartResultat.total} — skriv mere for at indsnævre.
+              </p>
+            )}
+            {modpartResultat.hits.map(({ p, par }) => renderPar(aId, p.id, {
+              tierLabel: 'søgning', signaler: par,
+              matchetMed: matchetMed.get(p.id) !== aId ? matchetMed.get(p.id) ?? null : null,
+              linket: linkedeKeys.has(pairKey(aId, p.id)),
+            }))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   if (loading && personer.length === 0) return (
     <div className="sammenlign" data-testid="sammenlign-skeleton" aria-busy="true" style={{ padding: '1rem', maxWidth: 900 }}>
       <div style={{ width: '13rem', height: '1.5rem', marginBottom: '1rem', borderRadius: 3, background: '#e7e2d9' }} />
@@ -642,6 +702,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
               matchetMed: k.matchetMed, linket: k.linket,
             }))}
             {renderSvage(person)}
+            {renderFindModpart(person.aId)}
           </div>
         );
           })}
@@ -771,6 +832,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
                           <div style={{ fontSize: '.8em', color: T.inkMuted, marginTop: '.15rem' }}>{detaljer.join(' · ')}</div>
                         )}
                         {renderSvage(person)}
+                        {renderFindModpart(person.aId)}
                       </li>
                     );
                   })}
@@ -816,6 +878,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
                   {svage.map((k) => renderPar(p.aId, String(k.bId), {
                     tierLabel: 'svag', signaler: k, matchetMed: k.matchetMed, linket: k.linket,
                   }))}
+                  {renderFindModpart(p.aId)}
                 </li>
               );
             })}

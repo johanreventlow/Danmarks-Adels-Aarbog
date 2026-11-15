@@ -3,8 +3,8 @@
 // (§2): en person er "afklaret" når et af dens par er linket; "ny" når alle dens kandidater
 // over tærsklen er afvist.
 import {
-  assignTiers, buildScored, defaultCfg,
-  type Id, type MatchCfg, type MatchFrame, type ScoredPair,
+  assignTiers, buildScored, defaultCfg, finalScore, jaroWinkler, matchKey, overlapEvidence, parseYear,
+  type Id, type MatchCfg, type MatchFrame, type RedMatchPerson, type ScoredPair,
 } from '@daa/core';
 
 /** Normaliseret retningsløs par-nøgle (samme_som er retningsbestemt, ikke_samme_som normaliseret —
@@ -138,4 +138,53 @@ export function buildArbejdsliste(
     formodetNye: personer.filter((p) => p.status === 'formodet_ny').length,
   };
   return { personer, fremdrift };
+}
+
+/** Score for et vilkårligt par — også et, matcheren aldrig stillede op (andet forbogstav, årstal
+ *  uden for vinduet). Samme signaler og samme scorefunktion som arbejdslisten (finalScore). */
+export function scorePersonPar(a: MatchFrame, b: MatchFrame, cfg: MatchCfg): ScoredPair {
+  const kendt = (min: number | null, max: number | null) => min != null || max != null;
+  const p: ScoredPair = {
+    aId: a.id, bId: b.id,
+    nameSim: a.nameKey && b.nameKey ? jaroWinkler(a.nameKey, b.nameKey) : 0,
+    birthOverlap: overlapEvidence(a.birthMin, a.birthMax, b.birthMin, b.birthMax),
+    deathOverlap: overlapEvidence(a.deathMin, a.deathMax, b.deathMin, b.deathMax),
+    sexEq: a.sex === b.sex && a.sex !== 'ukendt',
+    birthKendt: kendt(a.birthMin, a.birthMax) && kendt(b.birthMin, b.birthMax),
+    deathKendt: kendt(a.deathMin, a.deathMax) && kendt(b.deathMin, b.deathMax),
+    koenKendt: a.sex !== 'ukendt' && b.sex !== 'ukendt',
+    uniqueBlock: false,
+  };
+  return { ...p, score: finalScore(p, cfg) };
+}
+
+const AARSTAL_RE = /^\d{4}$/;
+const AARSTAL_TOLERANCE = 2;
+
+/** »Find modpart«: matcher en person søgeteksten? Hvert ord skal passe. Et firecifret tal passer
+ *  på fødsels- eller dødsår (±2 år); andre ord på navn, bognummer (fx »III-58«) eller gren —
+ *  direkte eller efter matcherens stavefoldning, så »Friedrich« finder »Frederik«. */
+export function matcherSoegning(
+  query: string,
+  p: Pick<RedMatchPerson, 'navn' | 'fuldtNavn' | 'foedsel' | 'doed' | 'bogReferencer'>,
+): boolean {
+  const ord = query.toLocaleLowerCase('da-DK').split(/\s+/).filter(Boolean);
+  if (!ord.length) return false;
+  const navn = `${p.fuldtNavn ?? ''} ${p.navn ?? ''}`.toLocaleLowerCase('da-DK');
+  const bog = p.bogReferencer
+    .map((r) => [r.linje && r.nr != null ? `${r.linje}-${r.nr}` : r.linje, r.grenNavn].filter(Boolean).join(' '))
+    .join(' ')
+    .toLocaleLowerCase('da-DK');
+  const tekst = `${navn} ${bog}`;
+  const foldet = matchKey(navn);
+  const aar = [
+    parseYear(p.foedsel?.date_min ?? p.foedsel?.date_max),
+    parseYear(p.doed?.date_min ?? p.doed?.date_max),
+  ].filter((y): y is number => y != null);
+  return ord.every((o) => {
+    if (AARSTAL_RE.test(o)) return aar.some((y) => Math.abs(y - Number(o)) <= AARSTAL_TOLERANCE);
+    if (tekst.includes(o)) return true;
+    const f = matchKey(o);
+    return f !== '' && foldet.includes(f);
+  });
 }
