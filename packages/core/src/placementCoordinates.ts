@@ -2,6 +2,7 @@
 // public_person_source_coordinates (placement ved gældende membership, ellers legacy). Én fælles mapping til RawExtId
 // for web og mobil, og én sortering af linjehovedet, der tåler bogstavsuffikser (15a før 15b før 16).
 import type { RawExtId } from './types';
+import { getAll } from './getAll';
 
 export type PublicCoordinateRow = {
   person_id: number | string;
@@ -15,6 +16,34 @@ export type PublicCoordinateRow = {
   provenance_kind: 'placement' | 'legacy_external_id';
   printed_page?: string | null; // 6e-2: findes først efter DDL
 };
+
+// Kodereview 36 P2: koordinaterne hentes i ÉT kald fra public_person_source_coordinates_samlet (jsonb-array af de
+// samme rækker). Rækkefunktionen må ikke offset-pagineres (den beregnes forfra pr. side, jf. getAll). Findes den nye
+// funktion ikke endnu (frontend deployet før DDL'en), falder vi tilbage til den gamle via getAll; alle andre fejl
+// kastes videre til kalderens degraderingssti.
+export const COORDINATES_RPC_SAMLET = 'public_person_source_coordinates_samlet';
+export const COORDINATES_RPC_RAEKKER = 'public_person_source_coordinates';
+
+type RpcSvar = { data: unknown; error: unknown };
+
+// PostgREST: PGRST202 = funktionen findes ikke i schema-cachen; 42883 = Postgres' undefined_function.
+export function erUkendtFunktion(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === 'PGRST202' || code === '42883';
+}
+
+export async function fetchPublicCoordinates(
+  samlet: () => PromiseLike<RpcSvar>,
+  raekker: () => { range: (from: number, to: number) => PromiseLike<{ data: PublicCoordinateRow[] | null; error: unknown }> },
+): Promise<PublicCoordinateRow[]> {
+  const { data, error } = await samlet();
+  if (!error) {
+    if (!Array.isArray(data)) throw new Error(`${COORDINATES_RPC_SAMLET}: forventede et JSON-array`);
+    return data as PublicCoordinateRow[];
+  }
+  if (erUkendtFunktion(error)) return getAll<PublicCoordinateRow>(raekker);
+  throw error;
+}
 
 export function coordinateRowToExtId(row: PublicCoordinateRow): RawExtId {
   return {

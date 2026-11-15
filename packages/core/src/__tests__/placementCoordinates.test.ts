@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { coordinateRowToExtId, compareLineHead, type PublicCoordinateRow } from '../placementCoordinates';
+import { coordinateRowToExtId, compareLineHead, erUkendtFunktion, fetchPublicCoordinates, type PublicCoordinateRow } from '../placementCoordinates';
 
 const row = (o: Partial<PublicCoordinateRow> = {}): PublicCoordinateRow => ({
   person_id: 7,
@@ -66,5 +66,47 @@ describe('compareLineHead', () => {
 
   it('uden label sorteres et rent heltal før et suffiks med samme tal', () => {
     expect(compareLineHead({ nr: 15 }, { nr: 15, nr_label: '15a' })).toBeLessThan(0);
+  });
+});
+
+describe('fetchPublicCoordinates (kodereview 36 P2)', () => {
+  const raekker = (pages: PublicCoordinateRow[][]) => {
+    const kald: [number, number][] = [];
+    let i = 0;
+    return { kald, fn: () => ({ range: async (a: number, b: number) => { kald.push([a, b]); return { data: pages[i++] ?? [], error: null }; } }) };
+  };
+
+  it('henter alt i ét kald fra den samlede funktion og rører ikke rækkefunktionen', async () => {
+    const r = raekker([]);
+    let n = 0;
+    const rows = await fetchPublicCoordinates(async () => { n++; return { data: [row(), row({ person_id: 8 })], error: null }; }, r.fn);
+    expect(n).toBe(1);
+    expect(rows.map((x) => x.person_id)).toEqual([7, 8]);
+    expect(r.kald).toEqual([]);
+  });
+
+  it('falder tilbage til rækkefunktionen via getAll, når den samlede funktion ikke findes (PGRST202)', async () => {
+    const fuld = Array.from({ length: 1000 }, (_, i) => row({ person_id: i }));
+    const r = raekker([fuld, [row({ person_id: 1000 })]]);
+    const rows = await fetchPublicCoordinates(async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } }), r.fn);
+    expect(rows).toHaveLength(1001);
+    expect(r.kald).toEqual([[0, 999], [1000, 1999]]);
+  });
+
+  it('kaster andre fejl videre uden fallback', async () => {
+    const r = raekker([[row()]]);
+    await expect(fetchPublicCoordinates(async () => ({ data: null, error: { code: '57014', message: 'timeout' } }), r.fn)).rejects.toMatchObject({ code: '57014' });
+    expect(r.kald).toEqual([]);
+  });
+
+  it('kaster, hvis svaret ikke er et array', async () => {
+    await expect(fetchPublicCoordinates(async () => ({ data: { x: 1 }, error: null }), raekker([]).fn)).rejects.toThrow(/JSON-array/);
+  });
+
+  it('genkender ukendt funktion på PostgREST- og Postgres-koden', () => {
+    expect(erUkendtFunktion({ code: 'PGRST202' })).toBe(true);
+    expect(erUkendtFunktion({ code: '42883' })).toBe(true);
+    expect(erUkendtFunktion({ code: '42501' })).toBe(false);
+    expect(erUkendtFunktion(null)).toBe(false);
   });
 });

@@ -6,8 +6,8 @@ import { buildAux } from './buildAux';
 import {
   buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, buildBioSourceVersions,
   mapPublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, fmtYears, parseYear, getAll, EMPTY_GEO,
-  citationRowsTilProveniens, coordinateRowToExtId,
-  type GenCoord, type PublicCoordinateRow, type ParentsUnknown, type CitationProvenanceRow, type RaaCitationRow,
+  citationRowsTilProveniens, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates,
+  type GenCoord, type ParentsUnknown, type CitationProvenanceRow, type RaaCitationRow,
 } from '@daa/core';
 import {
   buildHaendelserBy,
@@ -219,7 +219,8 @@ export async function loadFromSupabase(opts?: {
       // erstatte det levende datasæt med det indlejrede SEED (F1, dual-review 2026-07-05) —
       // degrader i stedet til "ingen linje/generations-data" som web's model.ts-pendant.
       // 5c-2: koordinater fra public_person_source_coordinates (placement ved gældende membership, ellers legacy).
-      getAll<PublicCoordinateRow>(() => sb.rpc('public_person_source_coordinates'))
+      // Kodereview 36 P2: ét kald (samlet jsonb); fald tilbage til rækkefunktionen via getAll, hvis DDL'en mangler.
+      fetchPublicCoordinates(() => sb.rpc(COORDINATES_RPC_SAMLET), () => sb.rpc(COORDINATES_RPC_RAEKKER))
         .then((rows) => rows.map(coordinateRowToExtId))
         .catch((e) => { console.warn('[loadFromSupabase] public_person_source_coordinates utilgængelig — linjer/generationer degraderet:', e); return [] as RawExtId[]; }),
       getAll<RawSource>(() => sb.from('source').select('id,slags,titel,udgave,aar,ekstern').order('id')),

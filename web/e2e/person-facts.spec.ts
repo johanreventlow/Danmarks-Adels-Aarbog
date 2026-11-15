@@ -41,7 +41,8 @@ async function mockSupabase(page: Page, kald: { coords: number; legacy: number; 
     const svar = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     if (sti === 'rpc/narrative_record_contract_version') return svar(2);
     if (sti === 'person_source_coordinate_legacy') { kald.legacy++; return svar([]); }
-    if (sti === 'rpc/public_person_source_coordinates') {
+    // Kodereview 36 P2: klienten kalder den samlede funktion (ét jsonb-array); rækkefunktionen er kun fallback.
+    if (sti === 'rpc/public_person_source_coordinates_samlet' || sti === 'rpc/public_person_source_coordinates') {
       kald.coords++;
       const koord = (person_id: number, source_id: number, legacy_line_code: string, printed_number: number, printed_number_label: string) => ({
         person_id, source_id, legacy_line_code, printed_number, printed_number_label,
