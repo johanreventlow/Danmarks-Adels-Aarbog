@@ -3472,6 +3472,20 @@ END $$;
 REVOKE ALL ON FUNCTION public.public_person_source_coordinates() FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.public_person_source_coordinates() TO anon,authenticated;
 
+-- Kodereview 36 P2: koordinaterne som ÉN jsonb-værdi (array af de samme rækker, samme felter, samme orden som
+-- ORDER BY 1,2 ovenfor), så klienten henter dem i ét kald. Rækkesættet overstiger PostgREST's max_rows (prod
+-- 2026-11-15: 1.111 rækker som anon), og offset-paginering af den gamle RPC beregnede hele resultatet én gang pr.
+-- side. Et tyndt lag over public_person_source_coordinates(), så logikken (og redaktør-grenen/gæste-gaten) kun findes
+-- ét sted; samme SECURITY DEFINER, search_path og ACL. Den gamle funktion beholdes uændret (ældre klienter).
+CREATE OR REPLACE FUNCTION public.public_person_source_coordinates_samlet()
+RETURNS jsonb
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+  SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY r.person_id,r.source_id),'[]'::jsonb)
+    FROM public.public_person_source_coordinates() r
+$$;
+REVOKE ALL ON FUNCTION public.public_person_source_coordinates_samlet() FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.public_person_source_coordinates_samlet() TO anon,authenticated;
+
 -- ---------- trin 6e-2: sidekort (PDF-side -> trykt side) ----------
 CREATE OR REPLACE FUNCTION private.sidekort_gyldigt(p jsonb)
 RETURNS boolean

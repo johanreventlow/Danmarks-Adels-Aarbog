@@ -11042,3 +11042,31 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: K6 — højst ét primært portræt pr. person (udskudt exclusion constraint)';
 END $verify_k6_portraet$;
+
+-- Kodereview 36 P2: public_person_source_coordinates_samlet() er de samme rækker som public_person_source_coordinates()
+-- (samme felter og orden) som ét jsonb-array, for ejeren og for anon; samme sikkerhed og ACL som rækkefunktionen.
+DO $verify_p2_koordinater_samlet$
+DECLARE f regprocedure:=to_regprocedure('public.public_person_source_coordinates_samlet()'); i int; v_n bigint;
+BEGIN
+  IF f IS NULL OR NOT (SELECT prosecdef FROM pg_proc WHERE oid=f)
+     OR (SELECT proconfig FROM pg_proc WHERE oid=f) IS DISTINCT FROM ARRAY['search_path=pg_catalog']
+     OR pg_get_function_result(f)<>'jsonb'
+     OR NOT has_function_privilege('anon',f,'EXECUTE') OR NOT has_function_privilege('authenticated',f,'EXECUTE')
+     OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) x
+                 WHERE p.oid=f AND x.grantee=0) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: P2 public_person_source_coordinates_samlet mangler eller har forkert sikkerhed/ACL';
+  END IF;
+  FOR i IN 1..2 LOOP
+    IF i=2 THEN SET LOCAL ROLE anon; END IF;
+    IF public.public_person_source_coordinates_samlet() IS DISTINCT FROM (
+         SELECT coalesce(jsonb_agg(to_jsonb(o)-'ordinality' ORDER BY o.ordinality),'[]'::jsonb)
+           FROM public.public_person_source_coordinates() WITH ORDINALITY o) THEN
+      RESET ROLE;
+      RAISE EXCEPTION 'VERIFY_FAILED: P2 den samlede koordinatfunktion afviger fra rækkefunktionen (%)',
+        CASE i WHEN 1 THEN 'ejer' ELSE 'anon' END;
+    END IF;
+    RESET ROLE;
+  END LOOP;
+  SELECT jsonb_array_length(public.public_person_source_coordinates_samlet()) INTO v_n;
+  RAISE NOTICE 'OK: P2 — koordinaterne i ét kald (% rækker, ens med rækkefunktionen for ejer og anon)',v_n;
+END $verify_p2_koordinater_samlet$;

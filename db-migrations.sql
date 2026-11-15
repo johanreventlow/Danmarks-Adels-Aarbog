@@ -36311,3 +36311,20 @@ BEGIN
   END IF;
   RETURN jsonb_build_object('reversal_change_set', v_new_cs, 'divergenser', v_div);
 END $$;
+
+-- ===== kodereview-36-p2: koordinaterne i ét kald =====
+-- Kodereview 36 P2. public_person_source_coordinates() er LANGUAGE plpgsql og giver i prod 1.111 rækker som anon
+-- (2026-11-15) — over PostgREST's max_rows (1.000), så klienternes getAll (offset-sider via .range) beregnede hele
+-- resultatet to gange. Den nye public_person_source_coordinates_samlet() returnerer de samme rækker som ÉT jsonb-array
+-- (samme felter og orden) som et tyndt lag over den eksisterende funktion; samme SECURITY DEFINER, search_path og ACL.
+-- Den gamle funktion er uændret (ældre browserfaner kalder den stadig); klienterne falder tilbage til den, hvis den nye
+-- ikke findes endnu (PGRST202). Kræver 6e-2-blokken ovenfor (koordinatfunktionen med printed_page). Kun CREATE OR
+-- REPLACE, REVOKE og GRANT: kan køres to gange. Tests: tests/sql/test-person-source-coordinates.sql og db-verify.sql.
+CREATE OR REPLACE FUNCTION public.public_person_source_coordinates_samlet()
+RETURNS jsonb
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog AS $$
+  SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY r.person_id,r.source_id),'[]'::jsonb)
+    FROM public.public_person_source_coordinates() r
+$$;
+REVOKE ALL ON FUNCTION public.public_person_source_coordinates_samlet() FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.public_person_source_coordinates_samlet() TO anon,authenticated;
