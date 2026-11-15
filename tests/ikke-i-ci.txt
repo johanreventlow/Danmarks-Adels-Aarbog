@@ -1,0 +1,22 @@
+# Testfiler under tests/sql/ og tests/integration/, som CI bevidst ikke kører (review 36 D3).
+# Format: <sti> | <grund>. Vagten .claude/skills/daa-extract/scripts/test_ci_sql_r_coverage.py fejler,
+# hvis en testfil hverken køres af ci.yml eller står her, eller hvis en linje her er forældet
+# (filen findes ikke, eller CI kører den alligevel). "Målt" = kørt lokalt 2026-11-15 på HEAD.
+
+# C3-identitetens deploybeviser: kræver en base fra før C3, som prod for længst har passeret.
+tests/sql/test-1939-v50-c3-identity-sequence-acl.sql | kræver base uden C3's identitetssekvenser; målt: C3_IDENTITY_SEQUENCE_PRE_ARTIFACT_PRESENT på nuværende skema
+tests/sql/test-1939-v50-c3-identity-sequence-drift.sql | kræver pre-identity-base og -v task3_fixture_id; målt: C3_SEQUENCE_DRIFT_REQUIRES_PRE_IDENTITY_BASELINE
+tests/sql/test-1939-v50-c3-identity-sequence-monotonic.sql | kører db-migrations-c3-identity.sql, der er spærret som HISTORISK (review 2026-10-27, 1b-04)
+tests/sql/inspect-1939-v50-c3-external-acl.sql | serialiserer kun til cmp mellem C3-deployens to endepunkter og asserter intet selv; skema=migration dækkes af katalogpariteten (D1)
+tests/sql/inspect-1939-v50-c3-identity-deploy.sql | som ovenfor: deploybevisets serialisering, ingen asserts
+
+# Engangs-opgraderingstests fra før en merge: base = merge-base(origin/main, HEAD), så efter merge tester de intet nyt.
+tests/sql/test-150-upgrade.sh | engangstest før merge af #150 (5c-1); kræver at base mangler private.legacy_placement_disposition, så den fejler bevidst nu (kun nævnt i en kommentar i test-6d1-upgrade.sh)
+tests/sql/test-244-upgrade.sh | engangstest før merge af #244; målt grøn
+tests/sql/test-248-upgrade.sh | engangstest før merge af #248; kræver at base mangler private.relation_reopen, så den fejler bevidst nu, hvor main har #248
+tests/sql/test-2bii-upgrade.sh | engangstest før merge af 2b-ii (#151); målt grøn
+
+# Opgradering fra historiske prodtræer, som prod har passeret. Holdt ude af CI af hensyn til minutbudgettet.
+tests/sql/test-indholds-id-upgrade.sh | fra prodtræ 140a17b (september); målt grøn (23 s lokalt)
+tests/sql/test-relation-binding-upgrade.sh | fra 2a's head 31008f5; målt grøn (13 s lokalt)
+tests/sql/test-transfer-5ab-ddl-upgrade.sh | 5a+5b-overførslens DDL-øvelse fra b42266e; overførslen er udført; målt rød: DATA_DELTA_UNEXPECTED (ikke undersøgt nærmere)
