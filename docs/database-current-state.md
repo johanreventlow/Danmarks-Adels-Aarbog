@@ -529,6 +529,34 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 31. Review 36, bølge 2's DB-spor (#361): låse, portrætregel, indeks og ét koordinatkald — LIVE i prod (2026-11-15)
+
+**Grundlag:** `docs/reviews/36-helhedsreview-kodebase-2026-11-12.md` (fund D1, P6, K6, K5, P2), PR #361 merget som
+`7ddb76cb`. Halen fra `-- ===== kodereview-36-p6` til filens slutning i `db-migrations.sql` (sha `46c69383…`, 255
+linjer), derefter `db-rls.sql`, hver i én transaktion. Projektejeren kørte `deploy-361.sh --jeg-mener-prod` i sin shell
+(hash-tjek af commit og hale, forhåndstjek, hale, RLS, efterkontrol); sessionen læste kvitteringen.
+
+- **P6:** indeks `ix_conclusion_valgt_assertion` på `conclusion.valgt_assertion_id`.
+- **K6:** højst ét primært portræt pr. person: `relation_hoejst_et_primaert_portraet` (`EXCLUDE … DEFERRABLE INITIALLY
+  DEFERRED`), og `red_saet_portraet` låser personen efter `begin_change_set`. Forhåndstjek: 0 personer med flere.
+- **K5:** `red_fortryd_change_set` låser ændringssættet (`FOR UPDATE`), derefter de berørte personer stigende og øvrige
+  rækker i fast orden via ny `_version_lock_row(text,jsonb)` (lukket for `PUBLIC`/`anon`/`authenticated`).
+- **P2:** `public_person_source_coordinates_samlet()` giver koordinaterne som ét jsonb-svar (sorteret efter
+  `person_id, source_id`), så PostgREST's grænse på 1.000 rækker ikke deler kaldet op. Web og mobil kalder den via
+  `fetchPublicCoordinates` i `@daa/core` og falder tilbage til rækkefunktionen ved `PGRST202`/`42883`.
+- **D1:** ingen prod-ændring; `schema.sql` er rettet til prods `private.narrative_record_state` (kun narrativer fra en
+  `DAA-udgave`-kilde låses), og funktionen er med i paritetstjekket.
+- **Efterkontrol (prod):** indeks 1; constraint udskudt; 0 dubletter; person-, sæt- og rækkelås findes; hjælperen lukket;
+  samlet-funktionen kaldbar for `anon`/`authenticated`, 1.111 elementer = rækkefunktionens 1.111 og ens indhold;
+  D1-filter 1. `db-rls.sql`: 150 authenticated-kaldbare `red_*`, 0 anon-kaldbare.
+- **Læseren (anon):** samlet-kaldet 0,32 / 0,31 s (to kørsler, `READ ONLY`); før skulle klienten bruge mindst to kald.
+- **Generalprøve:** kopi af stand-in `daa5ab_ddl_standin_20261114150000_fmd` (prod efter 6e-2): samme hale + RLS +
+  efterkontrol, alt grønt, 1.111 koordinater. Kopien er slettet bagefter.
+- **Fortrydelse:** intet snapshot; de tidligere definitioner står i `main` @ `f31e19dc`. Tilbagerulning er en ny migration.
+- **Ikke kørt:** `db-verify.sql` mod prod og Security Advisor (MCP når ikke prod).
+- **Står tilbage:** D1's generelle paritetsgate (18 funktioner skrevet forskelligt mellem frisk og migreret base,
+  `private.ensure_reimport_operations` kun på migrerede); `feat/personsletning` skal rebases på #361.
+
 ## 30. Trin 6e-2: 1939's kildeetiket, trykte sider og koordinater — LIVE i prod (2026-11-14)
 
 **Grundlag:** spec `2026-11-12-trin6e-laeserflade-design.md` (§12-tillægget), decisions 2026-11-13 (kildeetiketten,
