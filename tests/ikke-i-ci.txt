@@ -19,4 +19,4 @@ tests/sql/test-2bii-upgrade.sh | engangstest før merge af 2b-ii (#151); målt g
 # Opgradering fra historiske prodtræer, som prod har passeret. Holdt ude af CI af hensyn til minutbudgettet.
 tests/sql/test-indholds-id-upgrade.sh | fra prodtræ 140a17b (september); målt grøn (23 s lokalt)
 tests/sql/test-relation-binding-upgrade.sh | fra 2a's head 31008f5; målt grøn (13 s lokalt)
-tests/sql/test-transfer-5ab-ddl-upgrade.sh | 5a+5b-overførslens DDL-øvelse fra b42266e; overførslen er udført; målt rød: DATA_DELTA_UNEXPECTED (ikke undersøgt nærmere)
+tests/sql/test-transfer-5ab-ddl-upgrade.sh | engangstest for 5a+5b-overførslens DDL (udført); dens påstande er hårdkodet til netop den DDL (allow-liste, præcis én ny anon-funktion, DROP-liste). Målt: grøn på sit eget commit 2069dfe3; rød på HEAD, fordi senere features ændrer data og tilføjer bevidst offentlige funktioner (#150 5c-1: vocab header_* + slaegt i version_pk_registry; 5c-2/6e-2: public_person_facts, koordinat-RPC'er, side_trykt)
