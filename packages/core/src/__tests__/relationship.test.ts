@@ -470,7 +470,7 @@ describe('slaegtskabTilMig — ordet set fra mig', () => {
     expect(slaegtskabTilMig(0, 5)).toBe('din efterkommer, 5 slægtled frem');
     expect(slaegtskabTilMig(1, 1, m)).toBe('din bror');
     expect(slaegtskabTilMig(1, 1, k)).toBe('din søster');
-    expect(slaegtskabTilMig(1, 1)).toBe('dit søskende');
+    expect(slaegtskabTilMig(1, 1)).toBe('din søskende');
     expect(slaegtskabTilMig(1, 1, { koen: 'mand', half: true })).toBe('din halvbror');
     expect(slaegtskabTilMig(2, 1, m)).toBe('din onkel'); // fokus er ældre (d2 < d1)
     expect(slaegtskabTilMig(2, 1)).toBe('din onkel/tante');
@@ -494,7 +494,7 @@ describe('slaegtskabTilMig — ordet set fra mig', () => {
     expect(slaegtskabTilMig(1, 4)).toBe('din grandniece/-nevø');
     expect(slaegtskabTilMig(5, 2, k)).toBe('din 1. grads kusine · 3 gange forskudt');
     expect(slaegtskabTilMig(2, 5, m)).toBe('din 1. grads fætter · 3 gange forskudt');
-    expect(slaegtskabTilMig(1, 1, { half: true })).toBe('dit halvsøskende');
+    expect(slaegtskabTilMig(1, 1, { half: true })).toBe('din halvsøskende');
     expect(slaegtskabTilMig(2, 2, { half: true })).toBe('din 1. grads fætter/kusine (halv)');
     expect(slaegtskabTilMig(1, 2, { half: true })).toBe('din niece/nevø (halv)');
   });

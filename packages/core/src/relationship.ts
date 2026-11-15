@@ -207,7 +207,7 @@ export function slaegtskabTilMig(d1: number, d2: number, opts: TilMigOpts = {}):
 
   if (deg === 0) {
     if (rem === 0) {
-      if (!koen) return half ? 'dit halvsøskende' : 'dit søskende';
+      if (!koen) return half ? 'din halvsøskende' : 'din søskende';
       return 'din ' + (half ? g(koen, 'halvbror', 'halvsøster', '') : g(koen, 'bror', 'søster', ''));
     }
     // Fokus er den ældre, når fokus har mindst afstand til den fælles ane.

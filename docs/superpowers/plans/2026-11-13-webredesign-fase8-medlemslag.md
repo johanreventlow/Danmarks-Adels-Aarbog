@@ -133,7 +133,7 @@ expect(slaegtskabTilMig(0, 4)).toBe('dit tipoldebarn');
 expect(slaegtskabTilMig(0, 5)).toBe('din efterkommer, 5 slægtled frem');
 expect(slaegtskabTilMig(1, 1, m)).toBe('din bror');
 expect(slaegtskabTilMig(1, 1, k)).toBe('din søster');
-expect(slaegtskabTilMig(1, 1)).toBe('dit søskende');
+expect(slaegtskabTilMig(1, 1)).toBe('din søskende');
 expect(slaegtskabTilMig(1, 1, { koen: 'mand', half: true })).toBe('din halvbror');
 expect(slaegtskabTilMig(2, 1, m)).toBe('din onkel');          // fokus er ældre (d2 < d1)
 expect(slaegtskabTilMig(2, 1)).toBe('din onkel/tante');
@@ -159,7 +159,7 @@ expect(slaegtskabTilMig(4, 1, m)).toBe('din grandonkel');      // forskydning 3 
 expect(slaegtskabTilMig(1, 4)).toBe('din grandniece/-nevø');
 expect(slaegtskabTilMig(5, 2, k)).toBe('din 1. grads kusine · 3 gange forskudt');
 expect(slaegtskabTilMig(2, 5, m)).toBe('din 1. grads fætter · 3 gange forskudt');
-expect(slaegtskabTilMig(1, 1, { half: true })).toBe('dit halvsøskende');
+expect(slaegtskabTilMig(1, 1, { half: true })).toBe('din halvsøskende');
 expect(slaegtskabTilMig(2, 2, { half: true })).toBe('din 1. grads fætter/kusine (halv)');
 expect(slaegtskabTilMig(1, 2, { half: true })).toBe('din niece/nevø (halv)');
 ```
@@ -172,7 +172,7 @@ ikke-tomme. For `minD ≥ 2` skal gradtallet (`/(\d+)\. grads/`) være det samme
 - [ ] **Step 3:** Implementér med samme rækker som `relationshipLabel` (`relationship.ts:135-177`): direkte linje
   n=1..4 og derefter fallback; søskendeplanet; onkel/nevø ved forskydning 1 og grand- ved ≥2, hvor `d2 < d1` betyder,
   at fokus er den ældre; fætter/kusine med grad `min(d1,d2)-1` og forskydning `|d1-d2|`. Brug `g()` til kønsordet.
-  Pronomenet er `dit` for barn, barnebarn, oldebarn, tipoldebarn og søskende, ellers `din`. Genbrug `g()`/`gendered()`
+  Pronomenet er `dit` for barn, barnebarn, oldebarn og tipoldebarn, ellers `din` (»en søskende«, rettet ved slutreview). Genbrug `g()`/`gendered()`
   fra filen, og lav ingen ny kønslogik.
 - [ ] **Step 4:** `npm run test -w @daa/core` og `npm run typecheck -w @daa/core`. Forventet: PASS, og ingen
   eksisterende `relationshipLabel`-test ændret.
