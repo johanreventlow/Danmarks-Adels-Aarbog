@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { buildModel } from '@daa/core';
 
@@ -16,11 +16,20 @@ const mocks = vi.hoisted(() => ({
   signIn: vi.fn(),
 }));
 
+const smal = vi.hoisted(() => ({ v: false }));
+vi.mock('../useSmalSkaerm', () => ({ useSmalSkaerm: () => smal.v }));
 vi.mock('../router', () => ({
   navigate: vi.fn(),
   usePath: () => window.location.pathname,
-  useLocation: () => ({ path: window.location.pathname, search: window.location.search }),
+  // Stabilt objekt for samme adresse, som den rigtige router (ellers kører [loc]-effekter ved hver render).
+  useLocation: () => {
+    const c = locCache;
+    if (c.v && c.v.path === window.location.pathname && c.v.search === window.location.search) return c.v;
+    c.v = { path: window.location.pathname, search: window.location.search };
+    return c.v;
+  },
 }));
+const locCache = vi.hoisted(() => ({ v: null as { path: string; search: string } | null }));
 vi.mock('../data/model', () => ({ loadModel: mocks.loadModel }));
 vi.mock('../data/public', async (importOriginal) => ({
   ...await importOriginal<typeof import('../data/public')>(),
@@ -250,6 +259,33 @@ test('ukendt person siger det neutralt, ikke træet', async () => {
   render(<Folgesvend />);
   expect(await screen.findByText('Personen kan ikke vises')).toBeTruthy();
   expect(screen.getByText(/vises kun for indloggede/)).toBeTruthy();
+});
+
+test('Esc giver fokus til en knap, der stadig findes: Menu → Slægter, skift til bred skærm, Esc → Slægter-knappen', async () => {
+  smal.v = true;
+  try {
+    window.history.replaceState({}, '', '/slaegt/reventlow');
+    const { rerender } = render(<Folgesvend />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Menu' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Slægter/ }));
+    expect(screen.getByLabelText('Find slægt')).toBeTruthy();
+    smal.v = false;
+    rerender(<Folgesvend />);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByLabelText('Find slægt')).toBeNull();
+    const nav = screen.getByRole('navigation', { name: 'Hovedmenu' });
+    expect(document.activeElement).toBe(within(nav).getByRole('button', { name: /Slægter/ }));
+  } finally { smal.v = false; }
+});
+
+test('»Skift slægt« i slægtsbjælken får fokus tilbage, når vælgeren lukkes med Esc', async () => {
+  window.history.replaceState({}, '', '/slaegt/reventlow');
+  render(<Folgesvend />);
+  const skift = await screen.findByRole('button', { name: 'Skift slægt' });
+  fireEvent.click(skift);
+  expect(screen.getByLabelText('Find slægt')).toBeTruthy();
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(document.activeElement).toBe(skift);
 });
 
 test('fanens titel bærer personens navn på personsiden', async () => {

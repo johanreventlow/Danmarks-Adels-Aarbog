@@ -151,7 +151,8 @@ export default function Folgesvend() {
   const setMenuAaben = useCallback((aaben: boolean, returFokus = false, aabner?: HTMLElement | null) => {
     if (aaben) aabnerRef.current = aabner ?? menuKnap.current;
     setMenuAabenState(aaben);
-    if (!aaben && returFokus) (aabnerRef.current ?? menuKnap.current)?.focus();
+    // Den gemte åbner kan være forsvundet (fx menuknappen efter skift til bred skærm): så sidehovedets aktuelle knap.
+    if (!aaben && returFokus) (aabnerRef.current?.isConnected ? aabnerRef.current : menuKnap.current)?.focus();
   }, []);
   // Senest besøgte slægt (Slægter-menuen). Kun gyldige slugs gemmes.
   const [senestSlaegt, setSenestSlaegt] = useState<string | null>(() => {
@@ -502,9 +503,9 @@ export default function Folgesvend() {
         onPersoner={() => goToMode('soeg')}
         onSlaegtskab={() => goToMode('relate')} onForside={() => goToMode('home')}
         loggetInd={!!session} onLogin={() => setLoginOpen(true)} onLogout={() => { void doLogout(); }}
-        visRedaktion={session?.role === 'redaktion'}
+        visRedaktion={session?.role === 'redaktion'} sti={loc.path + loc.search}
         ekstra={meCanon && model?.byId[meCanon] ? (
-          <Link href={personPath(meCanon)} onNavigate={() => visPerson(meCanon)} title="Din plads i slægten" aria-label="Din plads i slægten" style={{ width: 38, height: 38, borderRadius: '50%', background: T.bordeauxTint, border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.bordeaux, flex: 'none', textDecoration: 'none' }}>{initials(model.byId[meCanon].name)}</Link>
+          <Link href={personPath(meCanon)} onNavigate={() => visPerson(meCanon)} title="Din plads i slægten" aria-label="Din plads i slægten" style={{ width: smal ? 44 : 38, height: smal ? 44 : 38, borderRadius: '50%', background: T.bordeauxTint, border: `1.5px solid ${T.bordeaux}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: 16, fontWeight: 600, color: T.bordeaux, flex: 'none', textDecoration: 'none' }}>{initials(model.byId[meCanon].name)}</Link>
         ) : null}
       />
 

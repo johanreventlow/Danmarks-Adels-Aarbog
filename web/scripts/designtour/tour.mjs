@@ -14,7 +14,7 @@ const OUT = path.join(ROOT, 'tmp/designtour/shots');
 fs.mkdirSync(OUT, { recursive: true });
 
 // Trin: path, role (null|'medlem'|'redaktion'), me (»Det er mig«-id), fail (databasen svarer 500), w/h,
-// actions: click|css|fill|key|move|scroll.
+// actions: click (synlig tekst)|role ([rolle, tilgængeligt navn])|css|fill|key|move|scroll.
 const STEPS = [
   { out: 'a-home', path: '/', full: true },
   // Feedet på hovedsiden (fase 4): første uddeling, og knappen vender seks blade mere.
@@ -94,7 +94,8 @@ const STEPS = [
   { out: 'd-mobile-home', path: '/', w: 390, h: 844 },
   { out: 'd-mobile-home-feed', path: '/', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 700 }] },
   { out: 'd-mobile-home-vend', path: '/', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 3200 }, { click: 'Vend seks blade mere', exact: true }, { scroll: 600 }] },
-  { out: 'd-mobile-menu', path: '/', w: 390, h: 844, actions: [{ click: 'Slægter', exact: true }] },
+  { out: 'd-mobile-menu', path: '/', w: 390, h: 844, actions: [{ role: ['button', 'Menu'] }, { role: ['button', 'Slægter'] }] },
+  { out: 'd-mobile-menu-aaben', path: '/', w: 390, h: 844, actions: [{ role: ['button', 'Menu'] }] },
   { out: 'd-mobile-bjaelke', path: '/slaegt/reventlow/stamtrae', w: 390, h: 844 },
   { out: 'd-mobile-tree-aegteskaber', path: '/slaegt/reventlow/stamtrae?fokus=61', w: 390, h: 844, actions: [{ move: [200, 600] }, { scroll: 300 }] },
   { out: 'd-mobile-tree-panel', path: '/slaegt/reventlow/stamtrae?fokus=240', w: 390, h: 844 },
@@ -128,7 +129,7 @@ const STEPS = [
   { out: 'd-mobile-relate-ingen', path: '/slaegtskab?a=103&b=471', w: 390, h: 844 },
   { out: 'd-mobile-relate-ukendt', path: '/slaegtskab?a=103&b=99999', w: 390, h: 844 },
   { out: 'd-mobile-relate-mig', path: '/slaegtskab', me: '240', w: 390, h: 844 },
-  { out: 'd-mobile-login', path: '/', w: 390, h: 844, actions: [{ click: 'Log ind', exact: true }] },
+  { out: 'd-mobile-login', path: '/', w: 390, h: 844, actions: [{ role: ['button', 'Menu'] }, { role: ['button', 'Log ind'] }] },
 ];
 
 const filter = process.argv[2];
@@ -156,6 +157,7 @@ for (const s of STEPS.filter((x) => !filter || x.out.includes(filter))) {
   for (const a of s.actions ?? []) {
     try {
       if (a.click) await pg.getByText(a.click, { exact: !!a.exact }).first().click({ timeout: 4000 });
+      if (a.role) await pg.getByRole(a.role[0], { name: a.role[1], exact: true }).first().click({ timeout: 4000 }); // ikonknapper
       if (a.css) await pg.locator(a.css).first().click({ timeout: 4000 });
       if (a.fill) await pg.locator(a.fill[0]).first().fill(a.fill[1]);
       if (a.key) await pg.keyboard.press(a.key);
