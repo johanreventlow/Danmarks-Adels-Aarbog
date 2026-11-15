@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import {
-  beregnKandidatPar, buildArbejdsliste, byggLinketTil, byggMatchetMed, matcherSoegning, pairKey, scorePersonPar,
+  beregnKandidatPar, buildArbejdsliste, byggLinketTil, byggMatchetMed, matcherSoegning, pairKey, sammeSomRetning, scorePersonPar,
 } from '../sammenlign';
 import { buildMatchFrame, defaultCfg, type MatchFrame, type RedMatchPerson, type ScoredPair } from '@daa/core';
 
@@ -240,5 +240,21 @@ describe('A1: Find modpart', () => {
     expect(p.deathKendt).toBe(false);
     expect(p.score).toBeGreaterThan(0);
     expect(p.score).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('sammeSomRetning', () => {
+  const aar = new Map<string, number | null>([['a39', 1939], ['b18', 2018], ['ukendt', null]]);
+  const udgaveAar = (id: string) => aar.get(id) ?? null;
+
+  test('den ældre udgaves person er alias, uanset hvilken side redaktøren står på', () => {
+    expect(sammeSomRetning('b18', 'a39', udgaveAar)).toEqual({ aliasId: 'a39', objektId: 'b18' });
+    expect(sammeSomRetning('a39', 'b18', udgaveAar)).toEqual({ aliasId: 'a39', objektId: 'b18' });
+  });
+
+  test('ukendt eller samme udgave → redaktørens side (a) er alias som før', () => {
+    expect(sammeSomRetning('ukendt', 'a39', udgaveAar)).toEqual({ aliasId: 'ukendt', objektId: 'a39' });
+    expect(sammeSomRetning('b18', 'ukendt', udgaveAar)).toEqual({ aliasId: 'b18', objektId: 'ukendt' });
+    expect(sammeSomRetning('a39', 'a39', udgaveAar)).toEqual({ aliasId: 'a39', objektId: 'a39' });
   });
 });

@@ -14,6 +14,19 @@ export function pairKey(a: Id, b: Id): string {
   return `${s[0]}|${s[1]}`;
 }
 
+/** Retning for et nyt samme_som-link. Den ÆLDRE udgaves person foldes ind (alias) i den nyere
+ *  (kanonisk), så den nyeste udgaves profil forbliver synlig — uanset hvilken udgave redaktøren
+ *  arbejder fra (projektejerens regel 2026-11-15). Kan udgaven ikke afgøres for begge, eller er
+ *  den ens, gælder redaktørens side som før: a er alias. `red_samme_som` kan stadig vælge retning
+ *  efter data, når serveren har et entydigt grundlag. */
+export function sammeSomRetning(
+  aId: string, bId: string, udgaveAar: (id: string) => number | null,
+): { aliasId: string; objektId: string } {
+  const ya = udgaveAar(aId), yb = udgaveAar(bId);
+  if (ya != null && yb != null && yb < ya) return { aliasId: bId, objektId: aId };
+  return { aliasId: aId, objektId: bId };
+}
+
 /** Kandidatpar til arbejdslisten. Afviste par holdes ude af matcherens 1:1-tildeling: ellers
  *  "bruger" en afvist ★ stadig både personen og kandidaten, så de næstbedste forslag for
  *  begge nedgraderes og forsvinder af syne (review 2026-11-15, A3). De afviste par returneres
