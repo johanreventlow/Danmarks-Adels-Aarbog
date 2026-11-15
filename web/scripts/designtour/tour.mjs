@@ -130,6 +130,11 @@ const STEPS = [
   { out: 'd-mobile-relate-ukendt', path: '/slaegtskab?a=103&b=99999', w: 390, h: 844 },
   { out: 'd-mobile-relate-mig', path: '/slaegtskab', me: '240', w: 390, h: 844 },
   { out: 'd-mobile-login', path: '/', w: 390, h: 844, actions: [{ role: ['button', 'Menu'] }, { role: ['button', 'Log ind'] }] },
+  // 320 px (iPhone SE/mini, stor tekst): sidehovedets række med navn, monogram og menuknap må ikke stikke ud.
+  { out: 'd-smal320-home', path: '/', me: '103', w: 320, h: 640 },
+  { out: 'd-smal320-person', path: '/person/125', me: '103', w: 320, h: 640 },
+  { out: 'd-smal320-relate-link', path: '/slaegtskab?a=103&b=125', w: 320, h: 640 },
+  { out: 'd-smal320-menu', path: '/', me: '103', w: 320, h: 640, actions: [{ role: ['button', 'Menu'] }] },
 ];
 
 const filter = process.argv[2];
