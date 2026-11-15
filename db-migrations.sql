@@ -36318,7 +36318,8 @@ END $$;
 -- resultatet to gange. Den nye public_person_source_coordinates_samlet() returnerer de samme rækker som ÉT jsonb-array
 -- (samme felter og orden) som et tyndt lag over den eksisterende funktion; samme SECURITY DEFINER, search_path og ACL.
 -- Den gamle funktion er uændret (ældre browserfaner kalder den stadig); klienterne falder tilbage til den, hvis den nye
--- ikke findes endnu (PGRST202). Kræver 6e-2-blokken ovenfor (koordinatfunktionen med printed_page). Kun CREATE OR
+-- ikke findes endnu (PGRST202). Laget nævner ingen enkelte kolonner, så det virker over både 6e-2-signaturen (med
+-- printed_page) og den ældre (øvet lokalt på begge). Kun CREATE OR
 -- REPLACE, REVOKE og GRANT: kan køres to gange. Tests: tests/sql/test-person-source-coordinates.sql og db-verify.sql.
 CREATE OR REPLACE FUNCTION public.public_person_source_coordinates_samlet()
 RETURNS jsonb
