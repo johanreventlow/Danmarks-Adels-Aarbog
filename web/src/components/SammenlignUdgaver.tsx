@@ -6,7 +6,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   buildMatchFrame, collapseSameAs, previewSammeSom, parseYear, defaultCfg,
   udledKilderForAegtefaeller,
-  type MatchFrame, type RedMatchPerson, type Db, type SameAsEdge, type Union, type ParentChild,
+  type MatchFrame, type RedMatchPerson, type ScoredPair, type Db, type SameAsEdge, type Union, type ParentChild,
 } from '@daa/core';
 import {
   fetchSources, fetchMatchPersoner, fetchIkkeSammeSomPar, fetchSammeSomPar, fetchFamilyGraph,
@@ -416,6 +416,93 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     return ubekraeftedeFoldHints.get(pairKey(aId, bId)) ?? { folder: false, grund: null };
   };
 
+  // Én kandidatrække: navn, signaler, detaljer, Sammenlign/Bekræft og (når åben) sammenligningen.
+  // Bruges af arbejdslisten, de svage forslag og »Find modpart«. Fold-hintet for et ubekræftet
+  // par uden for arbejdslisten beregnes først, når sammenligningen åbnes.
+  const renderPar = (aId: string, bId: string, info: {
+    tierLabel: string;
+    signaler: Pick<ScoredPair, 'score' | 'nameSim' | 'birthOverlap' | 'deathOverlap' | 'sexEq'>;
+    matchetMed?: string | null;
+    linket?: boolean;
+  }) => {
+    const a = byId.get(aId);
+    const b = byId.get(bId);
+    const k = info.signaler;
+    const linket = !!info.linket;
+    const erAabent = aabentPar === pairKey(aId, bId);
+    const detaljeA = detaljeCache.get(aId);
+    const detaljeB = detaljeCache.get(bId);
+    const detaljerIndlaeses = detaljeLoading.has(aId) || detaljeLoading.has(bId);
+    const detaljeError = detaljeFejl.get(aId) ?? detaljeFejl.get(bId) ?? null;
+    const hint = !erAabent ? null
+      : linket || ubekraeftedeFoldHints.has(pairKey(aId, bId)) ? foldHint(aId, bId, linket)
+        : previewSammeSom(rawDb, existingEdges, { alias: aId, canonical: bId });
+    const advice = hint?.grund ? foldAdvice(hint.grund) : null;
+    const bDetaljer = [
+      foraeldreNavne(bId, foraeldreEdgesFor(bId), byId),
+      formatBogReferencer(b),
+    ].filter(Boolean);
+    return (
+      <div key={bId} style={{ marginTop: '.4rem', paddingTop: '.4rem', borderTop: `1px dashed ${T.line}` }}>
+        <span style={{ fontWeight: 600 }}>{info.tierLabel}</span>
+        {' '}<code>{(k.score ?? 0).toFixed(3)}</code> — {visning(b)}
+        <span style={{ fontSize: '.8em', color: T.inkMuted, marginLeft: '.5rem' }}>
+          navn {k.nameSim.toFixed(2)} · fødsel {k.birthOverlap ? '✓' : '—'} · død {k.deathOverlap ? '✓' : '—'} · køn {k.sexEq ? '✓' : '✗'}
+        </span>
+        {info.matchetMed && (
+          <div style={{ fontSize: '.8em', color: T.bordeaux, marginTop: '.15rem' }}>
+            Allerede matchet med {visning(byId.get(info.matchetMed))}
+          </div>
+        )}
+        {bDetaljer.length > 0 && (
+          <div style={{ fontSize: '.82em', color: T.inkMuted, marginTop: '.15rem' }}>
+            {bDetaljer.join(' · ')}
+          </div>
+        )}
+        <button type="button" style={{ marginTop: '.35rem', fontSize: '.85em' }}
+          onClick={() => toggleSammenligning(aId, bId)}>
+          {erAabent ? 'Luk sammenligning' : 'Sammenlign'}
+        </button>
+        <button type="button" style={{ marginTop: '.35rem', marginLeft: '.35rem', fontSize: '.85em' }}
+          disabled={linket || busy === `s:${aId}:${bId}`}
+          onClick={() => {
+            if (window.confirm('Bekræft ' + visning(a) + ' = ' + visning(b) + ' som samme person uden at se sammenligningen?')) {
+              bekraeft(aId, bId);
+            }
+          }}>
+          {busy === `s:${aId}:${bId}` ? 'Gemmer…' : '✓ Bekræft'}
+        </button>
+        {erAabent && hint && (
+          detaljeError
+            ? <p style={{ color: T.bordeaux }}>Kunne ikke hente kandidatdetaljer: {detaljeError}</p>
+            : detaljeA && detaljeB && a && b
+              ? <KandidatSammenligning
+                  personA={a}
+                  personB={b}
+                  detaljeA={detaljeA}
+                  detaljeB={detaljeB}
+                  kildeA={kildeLabel(a.sourceIds)}
+                  kildeB={kildeLabel(b.sourceIds)}
+                  rolleA="alias"
+                  rolleB="kanonisk"
+                  navnById={navnById}
+                  foldHint={hint}
+                  foldAdvice={advice}
+                  linket={linket}
+                  busyAction={busy === `s:${aId}:${bId}`
+                    ? 'bekraeft'
+                    : busy === `a:${aId}:${bId}` ? 'afvis' : null}
+                  onBekraeft={() => bekraeft(aId, bId)}
+                  onAfvis={() => afvis(aId, bId)}
+                />
+              : <p style={{ color: T.inkMuted }}>
+                  {detaljerIndlaeses ? 'Indlæser kandidatdetaljer…' : 'Kandidatdetaljer mangler.'}
+                </p>
+        )}
+      </div>
+    );
+  };
+
   if (loading && personer.length === 0) return (
     <div className="sammenlign" data-testid="sammenlign-skeleton" aria-busy="true" style={{ padding: '1rem', maxWidth: 900 }}>
       <div style={{ width: '13rem', height: '1.5rem', marginBottom: '1rem', borderRadius: 3, background: '#e7e2d9' }} />
@@ -525,81 +612,10 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
                 {aDetaljer.join(' · ')}
               </div>
             )}
-            {person.kandidater.filter((k) => !k.afvist).map((k) => {
-              const b = byId.get(String(k.bId));
-              const bId = String(k.bId);
-              const parNoegle = pairKey(person.aId, bId);
-              const erAabent = aabentPar === parNoegle;
-              const detaljeA = detaljeCache.get(person.aId);
-              const detaljeB = detaljeCache.get(bId);
-              const detaljerIndlaeses = detaljeLoading.has(person.aId) || detaljeLoading.has(bId);
-              const detaljeError = detaljeFejl.get(person.aId) ?? detaljeFejl.get(bId) ?? null;
-              const hint = foldHint(person.aId, bId, k.linket);
-              const advice = hint.grund ? foldAdvice(hint.grund) : null;
-              const bDetaljer = [
-                foraeldreNavne(bId, foraeldreEdgesFor(bId), byId),
-                formatBogReferencer(b),
-              ].filter(Boolean);
-              return (
-                <div key={String(k.bId)} style={{ marginTop: '.4rem', paddingTop: '.4rem', borderTop: `1px dashed ${T.line}` }}>
-                  <span style={{ fontWeight: 600 }}>{k.tier === 'auto' ? '★ stærk' : 'gennemse'}</span>
-                  {' '}<code>{(k.score ?? 0).toFixed(3)}</code> — {visning(b)}
-                  <span style={{ fontSize: '.8em', color: T.inkMuted, marginLeft: '.5rem' }}>
-                    navn {k.nameSim.toFixed(2)} · fødsel {k.birthOverlap ? '✓' : '—'} · død {k.deathOverlap ? '✓' : '—'} · køn {k.sexEq ? '✓' : '✗'}
-                  </span>
-                  {k.matchetMed && (
-                    <div style={{ fontSize: '.8em', color: T.bordeaux, marginTop: '.15rem' }}>
-                      Allerede matchet med {visning(byId.get(k.matchetMed))}
-                    </div>
-                  )}
-                  {bDetaljer.length > 0 && (
-                    <div style={{ fontSize: '.82em', color: T.inkMuted, marginTop: '.15rem' }}>
-                      {bDetaljer.join(' · ')}
-                    </div>
-                  )}
-                  <button type="button" style={{ marginTop: '.35rem', fontSize: '.85em' }}
-                    onClick={() => toggleSammenligning(person.aId, bId)}>
-                    {erAabent ? 'Luk sammenligning' : 'Sammenlign'}
-                  </button>
-                  <button type="button" style={{ marginTop: '.35rem', marginLeft: '.35rem', fontSize: '.85em' }}
-                    disabled={!!k.linket || busy === `s:${person.aId}:${bId}`}
-                    onClick={() => {
-                      if (window.confirm('Bekræft ' + visning(a) + ' = ' + visning(b) + ' som samme person uden at se sammenligningen?')) {
-                        bekraeft(person.aId, bId);
-                      }
-                    }}>
-                    {busy === `s:${person.aId}:${bId}` ? 'Gemmer…' : '✓ Bekræft'}
-                  </button>
-                  {erAabent && (
-                    detaljeError
-                      ? <p style={{ color: T.bordeaux }}>Kunne ikke hente kandidatdetaljer: {detaljeError}</p>
-                      : detaljeA && detaljeB && a && b
-                        ? <KandidatSammenligning
-                            personA={a}
-                            personB={b}
-                            detaljeA={detaljeA}
-                            detaljeB={detaljeB}
-                            kildeA={kildeLabel(a.sourceIds)}
-                            kildeB={kildeLabel(b.sourceIds)}
-                            rolleA="alias"
-                            rolleB="kanonisk"
-                            navnById={navnById}
-                            foldHint={hint}
-                            foldAdvice={advice}
-                            linket={k.linket}
-                            busyAction={busy === `s:${person.aId}:${bId}`
-                              ? 'bekraeft'
-                              : busy === `a:${person.aId}:${bId}` ? 'afvis' : null}
-                            onBekraeft={() => bekraeft(person.aId, bId)}
-                            onAfvis={() => afvis(person.aId, bId)}
-                          />
-                        : <p style={{ color: T.inkMuted }}>
-                            {detaljerIndlaeses ? 'Indlæser kandidatdetaljer…' : 'Kandidatdetaljer mangler.'}
-                          </p>
-                  )}
-                </div>
-              );
-            })}
+            {person.kandidater.filter((k) => !k.afvist).map((k) => renderPar(person.aId, String(k.bId), {
+              tierLabel: k.tier === 'auto' ? '★ stærk' : 'gennemse', signaler: k,
+              matchetMed: k.matchetMed, linket: k.linket,
+            }))}
           </div>
         );
           })}
@@ -770,33 +786,9 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
               return (
                 <li key={p.aId} style={{ marginBottom: svage.length ? '.5rem' : 0 }}>
                   {visning(byId.get(p.aId))}
-                  {svage.map((k) => {
-                    const bId = String(k.bId);
-                    const b = byId.get(bId);
-                    return (
-                      <div key={bId} style={{ marginTop: '.25rem', marginLeft: '1rem' }}>
-                        <code>{(k.score ?? 0).toFixed(3)}</code> — {visning(b)}
-                        <span style={{ fontSize: '.85em', marginLeft: '.4rem' }}>
-                          navn {k.nameSim.toFixed(2)} · fødsel {k.birthOverlap ? '✓' : '—'}
-                          {' '}· død {k.deathOverlap ? '✓' : '—'} · køn {k.sexEq ? '✓' : '✗'}
-                        </span>
-                        <button type="button" style={{ marginLeft: '.4rem', fontSize: '.85em' }}
-                          onClick={() => toggleSammenligning(p.aId, bId)}>
-                          {aabentPar === `${p.aId}:${bId}` ? 'Luk' : 'Sammenlign'}
-                        </button>
-                        <button type="button" style={{ marginLeft: '.35rem', fontSize: '.85em' }}
-                          disabled={busy === `s:${p.aId}:${bId}`}
-                          onClick={() => {
-                            const navnA = visning(byId.get(p.aId));
-                            if (window.confirm(`Bekræft ${navnA} = ${visning(b)} som samme person?`)) {
-                              bekraeft(p.aId, bId);
-                            }
-                          }}>
-                          {busy === `s:${p.aId}:${bId}` ? 'Gemmer…' : '✓ Bekræft'}
-                        </button>
-                      </div>
-                    );
-                  })}
+                  {svage.map((k) => renderPar(p.aId, String(k.bId), {
+                    tierLabel: 'svag', signaler: k, matchetMed: k.matchetMed, linket: k.linket,
+                  }))}
                 </li>
               );
             })}
