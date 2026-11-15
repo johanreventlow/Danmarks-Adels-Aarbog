@@ -266,6 +266,11 @@ jobs:
             psql -q -v ON_ERROR_STOP=1 -d ci5b_2bi_sheet -f "$f" >/dev/null; done
           bash tests/sql/test-spouse-exception-sheet.sh ci5b_2bi_sheet
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-identity-control-run.sql
+          # Kodereview 36 K6/K5: to-sessionstests via dblink; opsætningen committes, derfor egen engangsbase.
+          createdb ci_k36_laase
+          for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql db-migrations.sql db-migrations.sql db-rls.sql; do
+            psql -q -v ON_ERROR_STOP=1 -d ci_k36_laase -f "$f" >/dev/null; done
+          psql -v ON_ERROR_STOP=1 -d ci_k36_laase -f tests/sql/test-portraet-primaer.sql
           sed -n '/^-- BEGIN 5a-cutover/,/^-- END 5a-cutover/p' db-migrations.sql > /tmp/cutover-5a.sql
           psql -v ON_ERROR_STOP=1 -v cutover=/tmp/cutover-5a.sql -f tests/sql/test-identity-cutover.sql
           python3 .claude/skills/daa-extract/scripts/check_interpretation_predicates.py
@@ -423,8 +428,8 @@ jobs:
             psql -h localhost -U postgres -d reimport_schema_only_5ab -q -v ON_ERROR_STOP=1 -f "$f" >/dev/null; done
           psql -h localhost -U postgres -d reimport_schema_only_5ab -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-5ab-function-parity.sql > parity-5ab-schema.txt
           psql -h localhost -U postgres -d reimport_legacy_empty_153 -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-5ab-function-parity.sql > parity-5ab-upgraded.txt
-          test "$(wc -l < parity-5ab-schema.txt)" -eq 64 || { echo "5ab+RED-8+trin B+5c2-b11+6c-2a+6c-2b+6m-a+6c-3a+6d-1+6d-3+dato-markoer-v2+redaktoer-ser-levende+D1 parity: forventede 64 funktioner" >&2; exit 1; }
-          test "$(wc -l < parity-5ab-upgraded.txt)" -eq 64 || { echo "5ab+RED-8+trin B+5c2-b11+6c-2a+6c-2b+6m-a+6c-3a+6d-1+6d-3+dato-markoer-v2+redaktoer-ser-levende+D1 parity: forventede 64 funktioner (migreret)" >&2; exit 1; }
+          test "$(wc -l < parity-5ab-schema.txt)" -eq 65 || { echo "5ab+RED-8+trin B+5c2-b11+6c-2a+6c-2b+6m-a+6c-3a+6d-1+6d-3+dato-markoer-v2+redaktoer-ser-levende+D1+K6 parity: forventede 65 funktioner" >&2; exit 1; }
+          test "$(wc -l < parity-5ab-upgraded.txt)" -eq 65 || { echo "5ab+RED-8+trin B+5c2-b11+6c-2a+6c-2b+6m-a+6c-3a+6d-1+6d-3+dato-markoer-v2+redaktoer-ser-levende+D1+K6 parity: forventede 65 funktioner (migreret)" >&2; exit 1; }
           cmp parity-5ab-schema.txt parity-5ab-upgraded.txt
           # RED-8 (A3): kolonnerne i de 25 id-tabeller (inkl. identity) er ens i ren schema.sql-base og migreret base.
           psql -h localhost -U postgres -d reimport_schema_only_5ab -Atq -v ON_ERROR_STOP=1 -f tests/sql/inspect-red8-column-parity.sql > parity-red8-schema.txt

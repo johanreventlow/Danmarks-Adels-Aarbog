@@ -22,7 +22,8 @@
 -- og public_person_source_coordinates står allerede under 5c2-b11).
 -- Kodereview 36 §D1 (bølge 2): narrative_record_state, hvis låseblok var gledet (schema.sql manglede kildefilteret,
 -- prod kører migrationsversionen).
--- I alt 13 + 17 + 3 + 3 + 1 + 7 + 3 + 3 + 5 + 6 + 1 + 1 + 1 = 64 linjer (dato-markoer-v2: normaliser_dato_markoer_v2).
+-- Kodereview 36 K6: red_saet_portraet (personlås).
+-- I alt 13 + 17 + 3 + 3 + 1 + 7 + 3 + 3 + 5 + 6 + 1 + 1 + 1 + 1 = 65 linjer (dato-markoer-v2: normaliser_dato_markoer_v2).
 \set ON_ERROR_STOP on
 SELECT l FROM (
   SELECT p.oid::regprocedure::text||'|'||p.prosecdef||'|'||coalesce(array_to_string(p.proconfig,','),'')||'|'||
@@ -69,5 +70,7 @@ SELECT l FROM (
      -- redaktoer-ser-levende
      ('public','public_family_sources'),
      -- kodereview 36 §D1
-     ('private','narrative_record_state'))) x
+     ('private','narrative_record_state'),
+     -- kodereview 36 K6
+     ('public','red_saet_portraet'))) x
  ORDER BY l COLLATE "C";

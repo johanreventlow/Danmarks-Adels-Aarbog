@@ -11022,3 +11022,23 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: P6 — conclusion.valgt_assertion_id er indekseret';
 END $verify_p6_conclusion_index$;
+
+-- Kodereview 36 K6: højst ét primært portræt pr. person, håndhævet af en udskudt exclusion constraint, og ingen person
+-- har i dag mere end ét flag.
+DO $verify_k6_portraet$
+DECLARE v_dup bigint;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid='public.relation'::regclass AND conname='relation_hoejst_et_primaert_portraet'
+                    AND contype='x' AND condeferrable AND condeferred) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: K6 relation_hoejst_et_primaert_portraet mangler eller er ikke DEFERRABLE INITIALLY DEFERRED';
+  END IF;
+  SELECT count(*) INTO v_dup FROM (
+    SELECT subjekt_id FROM public.relation
+     WHERE subjekt_type='person' AND objekt_type='media' AND rolle='afbildet' AND kvalifikator ? 'primaer'
+     GROUP BY subjekt_id HAVING count(*)>1) d;
+  IF v_dup<>0 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: K6 % personer har mere end ét primært portræt',v_dup;
+  END IF;
+  RAISE NOTICE 'OK: K6 — højst ét primært portræt pr. person (udskudt exclusion constraint)';
+END $verify_k6_portraet$;

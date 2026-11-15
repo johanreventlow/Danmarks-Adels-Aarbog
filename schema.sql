@@ -3752,6 +3752,20 @@ CREATE TABLE relation (
 CREATE UNIQUE INDEX IF NOT EXISTS relation_afbildet_uidx
   ON relation (subjekt_type, subjekt_id, objekt_type, objekt_id)
   WHERE rolle='afbildet';
+-- Kodereview 36 K6: højst ét primært portræt pr. person. En exclusion constraint (btree, '=' — samme semantik som et
+-- partielt unikt indeks), fordi den kan være DEFERRABLE INITIALLY DEFERRED: den generiske fortrydelse
+-- (red_fortryd_change_set) genskaber rækkerne én ad gangen, og et mellemtrin med to flag må ikke fejle, så længe
+-- slutresultatet ved COMMIT har højst ét. Et partielt UNIQUE-indeks kan ikke udskydes. Idempotent.
+DO $relation_portraet_constraint$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid='public.relation'::regclass AND conname='relation_hoejst_et_primaert_portraet') THEN
+    ALTER TABLE public.relation ADD CONSTRAINT relation_hoejst_et_primaert_portraet
+      EXCLUDE USING btree (subjekt_id WITH =)
+      WHERE (subjekt_type='person' AND objekt_type='media' AND rolle='afbildet' AND kvalifikator ? 'primaer')
+      DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $relation_portraet_constraint$;
 
 -- ---------- EVIDENS: PÅSTAND / KONKLUSION / CITATION ----------
 CREATE TABLE assertion (                 -- én kildes udsagn om et FACT ELLER en RELATION
@@ -9113,10 +9127,11 @@ END $$;
 -- den ene retning scannes. Ingen upload_status-guard: et flag på et senere-fjernet medie er
 -- harmløst (læse-lagene ser kun synlige medier) og overlever genopret. p_media_id=NULL rydder
 -- valget. relation står i version_pk_registry uden skip-cols → begge UPDATEs logges og fortrydes.
--- Samtidighed (review 34, M1 dismissed): to samtidige kald kan IKKE efterlade to primaer-flag
--- — begin_change_set's eget max(id)+1 på change_set kolliderer FØRST (unique_violation), og
--- taberen ruller hele sit kald tilbage før portræt-logikken nås. Verificeret umuligt, ikke
--- blot usandsynligt; ingen ekstra lås nødvendig.
+-- Samtidighed (kodereview 36 K6, erstatter review 34 M1's afvisning): begin_change_set bruger nu IDENTITY,
+-- så den kollision, der før serialiserede to kald, findes ikke længere. Derfor (1) låses personens række
+-- FOR UPDATE efter begin_change_set — samme rækkefølge som de øvrige writere (change_set før person) — så et
+-- samtidigt kald for samme person venter og derefter ser (og rydder) det første kalds valg; og (2) håndhæver
+-- constraint'en relation_hoejst_et_primaert_portraet højst ét primaer-flag pr. person for ALLE skriveveje.
 CREATE OR REPLACE FUNCTION red_saet_portraet(p_person_id bigint, p_media_id bigint DEFAULT NULL)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_rows int;
@@ -9126,6 +9141,8 @@ BEGIN
     CASE WHEN p_media_id IS NULL THEN format('Ryddede portræt-valg for person %s', p_person_id)
          ELSE format('Satte media %s som portræt for person %s', p_media_id, p_person_id) END,
     'person', p_person_id);
+  -- K6: serialisér portrætvalg pr. person (efter change_set, som de øvrige writere).
+  PERFORM 1 FROM person WHERE id = p_person_id FOR UPDATE;
   -- Nulstil søskende først (én UPDATE): fjern nøglen; tom jsonb normaliseres til NULL.
   UPDATE relation SET kvalifikator = nullif(kvalifikator - 'primaer', '{}'::jsonb)
    WHERE subjekt_type='person' AND subjekt_id=p_person_id

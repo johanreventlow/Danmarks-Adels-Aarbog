@@ -36080,3 +36080,49 @@ GRANT EXECUTE ON FUNCTION public.public_person_facts(bigint[]) TO anon,authentic
 -- sletteløkke. Prod 2026-11-15: kun conclusion_pkey, conclusion_target_type_target_id_key og ix_conclusion_target;
 -- 9.262 rækker. ix_conclusion_target er en dublet af den unikke nøgle, men røres ikke her. Idempotent.
 CREATE INDEX IF NOT EXISTS ix_conclusion_valgt_assertion ON public.conclusion (valgt_assertion_id);
+
+-- ===== kodereview-36-k6: højst ét primært portræt pr. person =====
+-- Kodereview 36 K6. begin_change_set bruger IDENTITY, så review 34 M1's begrundelse (max(id)+1-kollisionen
+-- serialiserede to samtidige portrætvalg) holder ikke længere: to samtidige valg for en person uden primært portræt
+-- kunne begge sætte primaer. (1) Exclusion constraint'en relation_hoejst_et_primaert_portraet (DEFERRABLE INITIALLY
+-- DEFERRED, se schema.sql) er databasegarantien for alle skriveveje; (2) red_saet_portraet låser personens række efter
+-- begin_change_set. Prod 2026-11-15: 0 personer med mere end ét primaer-flag (4 i alt), så ADD CONSTRAINT lykkes; findes
+-- der alligevel en dublet, fejler blokken lukket. Kun IF NOT EXISTS og CREATE OR REPLACE (samme signatur): kan køres to
+-- gange. Tests: tests/sql/test-portraet-primaer.sql.
+DO $relation_portraet_constraint$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid='public.relation'::regclass AND conname='relation_hoejst_et_primaert_portraet') THEN
+    ALTER TABLE public.relation ADD CONSTRAINT relation_hoejst_et_primaert_portraet
+      EXCLUDE USING btree (subjekt_id WITH =)
+      WHERE (subjekt_type='person' AND objekt_type='media' AND rolle='afbildet' AND kvalifikator ? 'primaer')
+      DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $relation_portraet_constraint$;
+
+CREATE OR REPLACE FUNCTION red_saet_portraet(p_person_id bigint, p_media_id bigint DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_rows int;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  PERFORM begin_change_set('red_saet_portraet',
+    CASE WHEN p_media_id IS NULL THEN format('Ryddede portræt-valg for person %s', p_person_id)
+         ELSE format('Satte media %s som portræt for person %s', p_media_id, p_person_id) END,
+    'person', p_person_id);
+  -- K6: serialisér portrætvalg pr. person (efter change_set, som de øvrige writere).
+  PERFORM 1 FROM person WHERE id = p_person_id FOR UPDATE;
+  -- Nulstil søskende først (én UPDATE): fjern nøglen; tom jsonb normaliseres til NULL.
+  UPDATE relation SET kvalifikator = nullif(kvalifikator - 'primaer', '{}'::jsonb)
+   WHERE subjekt_type='person' AND subjekt_id=p_person_id
+     AND objekt_type='media' AND rolle='afbildet'
+     AND kvalifikator ? 'primaer';
+  IF p_media_id IS NOT NULL THEN
+    UPDATE relation SET kvalifikator = coalesce(kvalifikator,'{}'::jsonb) || '{"primaer":true}'::jsonb
+     WHERE subjekt_type='person' AND subjekt_id=p_person_id
+       AND objekt_type='media' AND objekt_id=p_media_id AND rolle='afbildet';
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    IF v_rows = 0 THEN
+      RAISE EXCEPTION 'Mediet er ikke tilknyttet personen — tilknyt først';
+    END IF;
+  END IF;
+END $$;
