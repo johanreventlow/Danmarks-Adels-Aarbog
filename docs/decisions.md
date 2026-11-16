@@ -18,6 +18,11 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > - **Sideeffekt (bevidst):** en person er nu afklaret, så snart den har et `samme_som`-link til den anden side —
 >   uanset om linket er lavet i arbejdslisten, i »Find modpart«, i persondetaljen eller af importkæden. Før talte kun
 >   links til matcherens egne forslag, så tallene på arbejdslisten flytter sig på rigtige data.
+> - **Retning (projektejerens regel, tilføjet samme dag):** den ældre udgaves person foldes altid ind i den nyere, så
+>   den nyeste udgaves profil forbliver synlig — uanset hvilken udgave der er valgt. Før sendte siden den valgte
+>   udgaves person som alias, og standardvalget er den nyeste udgave, så 2018-20-profilen kunne foldes væk
+>   (relation 2751). `red_samme_som` vælger kun selv retning, når data er entydige; for alle 47 par i gennemgangen
+>   15/11 var de ikke. Kan udgaven ikke afgøres for begge personer, gælder den valgte side som før.
 > - **Fravalgt her:** familiesignal, ord-for-ord-navnelighed og bløde årstalsgrænser i matcheren. Det er
 >   matcherudvikling og hører i den fælles identitetsvej (`packages/identity-candidates`), hvis det tages op.
 > - **Færdigbevis:** web-testene dækker de fire tilfælde; projektejeren afprøver resten af listen i preview.

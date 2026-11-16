@@ -15,7 +15,7 @@ import {
 } from '../data/redaktionRead';
 import { describeCall, oversaetFejl, submitChange, type Change } from '../data/redaktionWrite';
 import {
-  beregnKandidatPar, buildArbejdsliste, byggLinketTil, byggMatchetMed, matcherSoegning, pairKey, scorePersonPar,
+  beregnKandidatPar, buildArbejdsliste, byggLinketTil, byggMatchetMed, matcherSoegning, pairKey, sammeSomRetning, scorePersonPar,
   type ArbejdslistePerson, type Kandidat,
 } from '../data/sammenlign';
 import { KandidatSammenligning } from './KandidatSammenligning';
@@ -215,6 +215,17 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
   );
 
   const matchCfg = useMemo(() => ({ ...defaultCfg(), evidensNormaliseret: true }), []);
+  // Udgavens årstal pr. person (den nyeste, hvis personen står i flere) — afgør retningen af nye
+  // links: den ældre udgaves person foldes ind, uanset hvilken udgave der er valgt.
+  const udgaveAar = useMemo(() => {
+    const aarByKilde = new Map(sources.map((s) => [s.id, s.aar ?? null]));
+    const m = new Map<string, number | null>();
+    for (const p of personerMedKilde) {
+      const aar = p.sourceIds.map((id) => aarByKilde.get(id)).filter((x): x is number => x != null);
+      m.set(String(p.id), aar.length ? Math.max(...aar) : null);
+    }
+    return (id: string) => m.get(id) ?? null;
+  }, [sources, personerMedKilde]);
   const linkedeKeys = useMemo(() => new Set(linkede.map((x) => pairKey(x.aId, x.bId))), [linkede]);
   const { matchetMed, linketTil } = useMemo(() => {
     if (nyKildeId == null) return { matchetMed: new Map<string, string>(), linketTil: new Map<string, string>() };
@@ -327,21 +338,24 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     } finally { setBusy(null); }
   }, [role, dryRun]);
 
-  const bekraeft = (aId: string, bId: string) => run(
-    { art: 'sammeSom', subjektType: 'person', subjektId: aId, payload: { aliasId: aId, objektId: bId } },
-    `s:${aId}:${bId}`,
-    async (result) => {
-      const relationId = String((result as { result?: unknown }).result ?? '');
-      setLinkede((prev) => (prev.some((l) => l.aId === aId && l.bId === bId)
-        ? prev
-        : [...prev, { relationId, aId, bId }]));
-      if (!relationId) return;
-      try {
-        const audit = await fetchMatchAudit([{ relationId, aId, bId }], []);
-        setMatchAudit((prev) => [...prev.filter((p) => p.relationId !== relationId), ...audit]);
-      } catch { /* audit display is not critical */ }
-    },
-  );
+  const bekraeft = (aId: string, bId: string) => {
+    const { aliasId, objektId } = sammeSomRetning(aId, bId, udgaveAar);
+    return run(
+      { art: 'sammeSom', subjektType: 'person', subjektId: aliasId, payload: { aliasId, objektId } },
+      `s:${aId}:${bId}`,
+      async (result) => {
+        const relationId = String((result as { result?: unknown }).result ?? '');
+        setLinkede((prev) => (prev.some((l) => l.aId === aliasId && l.bId === objektId)
+          ? prev
+          : [...prev, { relationId, aId: aliasId, bId: objektId }]));
+        if (!relationId) return;
+        try {
+          const audit = await fetchMatchAudit([{ relationId, aId: aliasId, bId: objektId }], []);
+          setMatchAudit((prev) => [...prev.filter((p) => p.relationId !== relationId), ...audit]);
+        } catch { /* audit display is not critical */ }
+      },
+    );
+  };
 
   const afvis = (aId: string, bId: string) => run(
     { art: 'ikkeSammeSom', subjektType: 'person', subjektId: aId, payload: { aId, bId } },
@@ -425,7 +439,7 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
   // sammeSomPreflight.ts-header.
   const foldPreviewCache = useMemo(
     () => new Map<string, { folder: boolean; grund: string | null }>(),
-    [rawDb, existingEdges],
+    [rawDb, existingEdges, udgaveAar],
   );
   const foldHint = (aId: string, bId: string, linket: boolean): { folder: boolean; grund: string | null } => {
     if (linket) {
@@ -435,7 +449,9 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     const noegle = `${aId}>${bId}`;
     let hint = foldPreviewCache.get(noegle);
     if (!hint) {
-      hint = previewSammeSom(rawDb, existingEdges, { alias: aId, canonical: bId });
+      // Samme retning som »Bekræft« vil sende — ellers forudsiger hintet en anden foldning.
+      const { aliasId, objektId } = sammeSomRetning(aId, bId, udgaveAar);
+      hint = previewSammeSom(rawDb, existingEdges, { alias: aliasId, canonical: objektId });
       foldPreviewCache.set(noegle, hint);
     }
     return hint;

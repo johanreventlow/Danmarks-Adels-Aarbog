@@ -122,8 +122,10 @@ describe('SammenlignUdgaver lazy kandidatdetalje', () => {
       'Bekræft Detlev Reventlow · Amtmand (1660–1730) = Detlev Reventlow · Amtmand (1660–1730) som samme person uden at se sammenligningen?',
     );
     await waitFor(() => expect(mocks.submitChange).toHaveBeenCalledWith({
-      art: 'sammeSom', subjektType: 'person', subjektId: '2',
-      payload: { aliasId: '2', objektId: '1' },
+      // 2018-20 er valgt, men den ældre udgaves person (1939, id 1) foldes ind, så 2018-20-
+      // profilen forbliver synlig (projektejerens regel 15/11-2026).
+      art: 'sammeSom', subjektType: 'person', subjektId: '1',
+      payload: { aliasId: '1', objektId: '2' },
     }, { dryRun: false, role: 'redaktor' }));
     await screen.findByRole('heading', { name: 'Til gennemgang (0)' });
     expect(mocks.fetchKandidatDetalje).not.toHaveBeenCalled();
