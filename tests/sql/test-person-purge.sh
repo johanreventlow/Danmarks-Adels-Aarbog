@@ -120,7 +120,7 @@ q "$TMPL" -c 'CREATE TABLE purge_test.counts(sted text PRIMARY KEY, antal bigint
 printf '%s\n' "$COUNTS" | awk -F'|' '{print $1 "|" $NF}' | \
   env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$TMPL" \
     -c "COPY purge_test.counts(sted,antal) FROM STDIN WITH (DELIMITER '|')" || die "gem count-snapshot"
-for g in inventar binding plan historik fortrydelse manifest; do
+for g in inventar binding plan historik fortrydelse manifest oprindelse; do
   gruppe "$g"
   ud=$(env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$DB" -v gruppe="$g" -f tests/sql/test-person-purge.sql 2>&1)
   rc=$?

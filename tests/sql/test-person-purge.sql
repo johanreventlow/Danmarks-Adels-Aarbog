@@ -10,9 +10,10 @@
   \echo 'PURGE_TEST_FEJL: angiv -v gruppe=<navn>'
   SELECT 1/0 AS gruppe_mangler;
 \endif
-SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest') AS gruppe_kendt,
+SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest','oprindelse') AS gruppe_kendt,
        :'gruppe'='inventar' AS g_inventar, :'gruppe'='binding' AS g_binding,
-       :'gruppe'='plan' AS g_plan, :'gruppe'='historik' AS g_historik, :'gruppe'='fortrydelse' AS g_fortrydelse, :'gruppe'='manifest' AS g_manifest \gset
+       :'gruppe'='plan' AS g_plan, :'gruppe'='historik' AS g_historik, :'gruppe'='fortrydelse' AS g_fortrydelse,
+       :'gruppe'='manifest' AS g_manifest, :'gruppe'='oprindelse' AS g_oprindelse \gset
 \if :gruppe_kendt
 \else
   \echo 'PURGE_TEST_FEJL: ukendt gruppe'
@@ -1560,4 +1561,264 @@ BEGIN
   END IF;
 END $t$;
 \echo OK manifest_tillader_egen_raekke
+\endif
+
+-- =====================================================================================================================
+-- Gruppe oprindelse (Task 6 / Q7). Simulér kun identitetsdelen af Task 8: håndskrevet manifest, events før state.
+-- Ingen planfunktion autoriserer testene. Negative kald kræver den præcise fejl; en anden constraint tæller ikke.
+-- =====================================================================================================================
+\if :g_oprindelse
+SET request.jwt.claim.sub='a2a00000-0000-4000-8000-00000000a001';
+CREATE FUNCTION pg_temp.oprindelse_afvis(p_sql text,p_error text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_error text;
+BEGIN
+  BEGIN EXECUTE p_sql; EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+  IF v_error IS DISTINCT FROM p_error THEN
+    RAISE EXCEPTION 'TEST_FAILED oprindelse: forventet %, fik %',p_error,v_error;
+  END IF;
+END $$;
+CREATE FUNCTION pg_temp.purge_kald() RETURNS integer
+LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+  SELECT private.decide_source_persona_identity(purge_test.u('X2'),NULL,0,'rejected','{"reason":"not_a_person"}','person_purge')
+$$;
+CREATE FUNCTION pg_temp.toem_identitet() RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_x uuid:=purge_test.u('X2'); v_n int;
+BEGIN
+  SELECT max(version) INTO v_n FROM private.source_persona_identity_event WHERE source_persona_id=v_x;
+  IF v_n IS NULL OR NOT EXISTS (SELECT 1 FROM private.source_persona_identity
+      WHERE source_persona_id=v_x AND version=v_n AND decision_status='accepted' AND canonical_person_id=purge_test.id('P')) THEN
+    RAISE EXCEPTION 'TEST_FAILED oprindelse: manglende accepteret teststrøm';
+  END IF;
+  INSERT INTO private.person_purge_manifest(xid,backend_pid,person_id,tabel,pk,grund,forrige_version)
+    VALUES (pg_current_xact_id(),pg_backend_pid(),purge_test.id('P'),'private.source_persona_identity',
+            jsonb_build_object('source_persona_id',v_x),'hel_stroem',v_n);
+  INSERT INTO private.person_purge_manifest(xid,backend_pid,person_id,tabel,pk,grund)
+    SELECT pg_current_xact_id(),pg_backend_pid(),purge_test.id('P'),'private.source_persona_identity_event',
+           jsonb_build_object('id',id),'hel_stroem'
+      FROM private.source_persona_identity_event WHERE source_persona_id=v_x;
+  DELETE FROM private.source_persona_identity_event WHERE source_persona_id=v_x;
+  DELETE FROM private.source_persona_identity WHERE source_persona_id=v_x;
+END $$;
+-- Direkte INSERT omgår kernen, så validatoren skal kunne stå alene. Auditfelter er ellers gyldige.
+CREATE FUNCTION pg_temp.identitetsevent(p_version int,p_evidence jsonb DEFAULT '{"reason":"not_a_person"}',
+  p_status text DEFAULT 'rejected',p_person bigint DEFAULT NULL) RETURNS void LANGUAGE sql AS $$
+  INSERT INTO private.source_persona_identity_event(source_persona_id,version,evidence,decision_status,canonical_person_id,
+    decided_by,decided_by_name,decided_at)
+  VALUES (purge_test.u('X2'),p_version,p_evidence,p_status,p_person,auth.uid(),'Purge-redaktør',clock_timestamp())
+$$;
+
+BEGIN;
+DO $t$
+DECLARE r record;
+BEGIN
+  PERFORM pg_temp.toem_identitet();
+  FOR r IN SELECT * FROM (VALUES
+    ('accepted',NULL::bigint,0,'{"reason":"not_a_person"}'::jsonb),
+    ('unresolved',NULL,0,'{"reason":"not_a_person"}'),
+    ('superseded',NULL,0,'{"reason":"not_a_person"}'),
+    ('proposed',NULL,0,'{"reason":"not_a_person"}'),
+    (NULL,NULL,0,'{"reason":"not_a_person"}'),
+    ('rejected',purge_test.id('P'),0,'{"reason":"not_a_person"}'),
+    ('rejected',NULL,1,'{"reason":"not_a_person"}'),
+    ('rejected',NULL,-1,'{"reason":"not_a_person"}'),
+    ('rejected',NULL,NULL,'{"reason":"not_a_person"}'),
+    ('rejected',NULL,0,NULL),
+    ('rejected',NULL,0,'null'),
+    ('rejected',NULL,0,'{}'),
+    ('rejected',NULL,0,'[]'),
+    ('rejected',NULL,0,'{"reason":"new_person_needed"}'),
+    ('rejected',NULL,0,'{"reason":"not_a_person","basis":"web_detail"}'),
+    ('rejected',NULL,0,'{"reason":"not_a_person","extra":true}')
+  ) AS bad(status,person_id,expected_version,evidence) LOOP
+    PERFORM pg_temp.oprindelse_afvis(format(
+      'SELECT private.decide_source_persona_identity(purge_test.u(''X2''),%L::bigint,%L::int,%L,%L::jsonb,''person_purge'')',
+      r.person_id,r.expected_version,r.status,r.evidence),'EVIDENCE_PERSON_PURGE_SHAPE');
+  END LOOP;
+END $t$;
+ROLLBACK;
+\echo OK purge_oprindelse_form
+
+-- En rigtig kvittering giver hverken lov til at springe over eksisterende events eller at genbruge state.
+BEGIN;
+INSERT INTO private.person_purge_manifest VALUES
+  (pg_current_xact_id(),pg_backend_pid(),purge_test.id('P'),'private.source_persona_identity',
+   jsonb_build_object('source_persona_id',purge_test.u('X2')),'hel_stroem',3);
+DO $t$ BEGIN
+  PERFORM pg_temp.oprindelse_afvis('SELECT pg_temp.purge_kald()','EVIDENCE_PERSON_PURGE_SHAPE');
+  DELETE FROM private.source_persona_identity WHERE source_persona_id=purge_test.u('X2');
+  PERFORM pg_temp.oprindelse_afvis('SELECT pg_temp.purge_kald()','EVIDENCE_PERSON_PURGE_SHAPE');
+  -- Manifestets n+1=5 ville passe, men max+1 er 4, og strømmen er ikke tom.
+  UPDATE private.person_purge_manifest SET forrige_version=4;
+  PERFORM pg_temp.oprindelse_afvis('SELECT pg_temp.identitetsevent(5)',
+    'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected 4, got 5');
+END $t$;
+ROLLBACK;
+\echo OK purge_kraever_slettet_stroem
+
+BEGIN;
+DO $t$
+DECLARE v_manifest jsonb; v_bad jsonb;
+BEGIN
+  PERFORM pg_temp.toem_identitet();
+  SELECT to_jsonb(m) INTO v_manifest FROM private.person_purge_manifest m WHERE tabel='private.source_persona_identity';
+  DELETE FROM private.person_purge_manifest WHERE tabel='private.source_persona_identity';
+  -- Direkte og gennem en SECURITY DEFINER-serverfunktion, selv med eventposter i manifestet.
+  PERFORM pg_temp.oprindelse_afvis(
+    'SELECT private.decide_source_persona_identity(purge_test.u(''X2''),NULL,0,''rejected'',''{"reason":"not_a_person"}'',''person_purge'')',
+    'EVIDENCE_PERSON_PURGE_SHAPE');
+  PERFORM pg_temp.oprindelse_afvis('SELECT pg_temp.purge_kald()','EVIDENCE_PERSON_PURGE_SHAPE');
+  PERFORM pg_temp.oprindelse_afvis('SELECT pg_temp.identitetsevent(4)',
+    'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected 1, got 4');
+  -- Hver probe prøves mod BÅDE kernen og validatoren. PK er lighed, aldrig containment.
+  FOR v_bad IN SELECT value FROM jsonb_array_elements(jsonb_build_array(
+    jsonb_build_object('xid','1'),
+    jsonb_build_object('backend_pid',pg_backend_pid()+1),
+    jsonb_build_object('tabel','source_persona_identity'),
+    jsonb_build_object('grund','egen'),
+    jsonb_build_object('pk','{}'::jsonb),
+    jsonb_build_object('pk',jsonb_build_object('source_persona_id',purge_test.u('X2'),'extra',true)),
+    jsonb_build_object('pk',jsonb_build_object('source_persona_id',purge_test.u('X1'))),
+    jsonb_build_object('forrige_version',NULL),
+    jsonb_build_object('forrige_version',0),
+    jsonb_build_object('forrige_version',-1)
+  )) LOOP
+    INSERT INTO private.person_purge_manifest SELECT (jsonb_populate_record(NULL::private.person_purge_manifest,v_manifest||v_bad)).*;
+    PERFORM pg_temp.oprindelse_afvis('SELECT pg_temp.purge_kald()','EVIDENCE_PERSON_PURGE_SHAPE');
+    PERFORM pg_temp.oprindelse_afvis('SELECT pg_temp.identitetsevent(4)',
+      'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected 1, got 4');
+    DELETE FROM private.person_purge_manifest WHERE tabel<>'private.source_persona_identity_event';
+  END LOOP;
+END $t$;
+ROLLBACK;
+\echo OK purge_oprindelse_kraever_manifest
+\echo OK purge_validator_kraever_praecist_manifest
+
+BEGIN;
+DO $t$
+DECLARE v_ev jsonb; v_status text;
+BEGIN
+  PERFORM pg_temp.toem_identitet();
+  PERFORM pg_temp.oprindelse_afvis('SELECT pg_temp.identitetsevent(5)',
+    'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected 1, got 5');
+  FOR v_ev IN SELECT value FROM jsonb_array_elements('[{}, {"reason":"new_person_needed"},
+      {"reason":"not_a_person","extra":true}, null]'::jsonb) LOOP
+    PERFORM pg_temp.oprindelse_afvis(format('SELECT pg_temp.identitetsevent(4,%L::jsonb)',v_ev),
+      'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected 1, got 4');
+  END LOOP;
+  PERFORM pg_temp.oprindelse_afvis('SELECT pg_temp.identitetsevent(4,NULL)',
+    'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected 1, got 4');
+  FOREACH v_status IN ARRAY ARRAY['accepted','unresolved','superseded','proposed'] LOOP
+    PERFORM pg_temp.oprindelse_afvis(format('SELECT pg_temp.identitetsevent(4,''{"reason":"not_a_person"}'',%L)',v_status),
+      'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected 1, got 4');
+  END LOOP;
+  PERFORM pg_temp.oprindelse_afvis('SELECT pg_temp.identitetsevent(4,''{"reason":"not_a_person"}'',''rejected'',purge_test.id(''P''))',
+    'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected 1, got 4');
+END $t$;
+ROLLBACK;
+\echo OK purge_validator_kun_n_plus_1_og_purgeform
+
+-- Den positive test COMMIT'er: også de deferred state/event-triggere skal bestå.
+BEGIN;
+CREATE TEMP TABLE gamle_identitetsevents AS SELECT id,version FROM private.source_persona_identity_event
+ WHERE source_persona_id=purge_test.u('X2');
+CREATE TEMP TABLE andre_identitetsevents AS SELECT * FROM private.source_persona_identity_event
+ WHERE source_persona_id<>purge_test.u('X2');
+CREATE TEMP TABLE andre_identiteter AS SELECT * FROM private.source_persona_identity
+ WHERE source_persona_id<>purge_test.u('X2');
+DO $t$ BEGIN
+  IF (SELECT array_agg(version ORDER BY version) FROM gamle_identitetsevents) IS DISTINCT FROM ARRAY[1,2,3] THEN
+    RAISE EXCEPTION 'TEST_FAILED purge_version_n_plus_1: kræver v1..v3';
+  END IF;
+  PERFORM pg_temp.toem_identitet();
+  IF pg_temp.purge_kald() IS DISTINCT FROM 4 THEN RAISE EXCEPTION 'TEST_FAILED purge_version_n_plus_1: returversion'; END IF;
+  -- Kvitteringen giver ikke lov til at gentage kaldet, når v4 findes.
+  PERFORM pg_temp.oprindelse_afvis('SELECT pg_temp.purge_kald()','EVIDENCE_PERSON_PURGE_SHAPE');
+END $t$;
+DELETE FROM private.person_purge_manifest;
+COMMIT;
+DO $t$
+DECLARE v_event private.source_persona_identity_event%ROWTYPE;
+BEGIN
+  SELECT * INTO STRICT v_event FROM private.source_persona_identity_event WHERE source_persona_id=purge_test.u('X2');
+  IF v_event.version<>4 OR v_event.decision_status<>'rejected' OR v_event.canonical_person_id IS NOT NULL
+     OR v_event.evidence<>'{"reason":"not_a_person"}'::jsonb
+     OR v_event.id<>private.content_uuid('identity-event',jsonb_build_object('source_persona_id',purge_test.u('X2'),'version',4))
+     OR v_event.id IN (SELECT id FROM gamle_identitetsevents)
+     OR NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
+       WHERE i.source_persona_id=v_event.source_persona_id AND i.version=4 AND i.decision_status='rejected'
+         AND i.canonical_person_id IS NULL AND i.evidence=v_event.evidence)
+     OR EXISTS ((SELECT * FROM andre_identitetsevents EXCEPT SELECT * FROM private.source_persona_identity_event WHERE source_persona_id<>purge_test.u('X2'))
+       UNION ALL (SELECT * FROM private.source_persona_identity_event WHERE source_persona_id<>purge_test.u('X2') EXCEPT SELECT * FROM andre_identitetsevents))
+     OR EXISTS ((SELECT * FROM andre_identiteter EXCEPT SELECT * FROM private.source_persona_identity WHERE source_persona_id<>purge_test.u('X2'))
+       UNION ALL (SELECT * FROM private.source_persona_identity WHERE source_persona_id<>purge_test.u('X2') EXCEPT SELECT * FROM andre_identiteter)) THEN
+    RAISE EXCEPTION 'TEST_FAILED purge_version_n_plus_1';
+  END IF;
+END $t$;
+\echo OK purge_version_n_plus_1
+
+BEGIN;
+DO $t$
+DECLARE v_origin text; v_ev jsonb;
+BEGIN
+  FOREACH v_origin IN ARRAY ARRAY['person_create','legacy_match','relation_person_create'] LOOP
+    v_ev:=CASE v_origin WHEN 'legacy_match' THEN jsonb_build_object('authority','person_external_id',
+      'person_external_id',jsonb_build_object('person_id',purge_test.id('P'),'source_id',purge_test.id('kilde_a'),'record_key','PURGE-P'))
+      WHEN 'relation_person_create' THEN '{"batch_id":"purge-test","method":"relation-person-create-v1","deceased":{}}'::jsonb
+      ELSE '{"batch_id":"purge-test"}'::jsonb END;
+    PERFORM pg_temp.oprindelse_afvis(format(
+      'SELECT private.decide_source_persona_identity(purge_test.u(''X2''),purge_test.id(''P''),0,''accepted'',%L::jsonb,%L)',v_ev,v_origin),
+      'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected 0, current 4');
+    -- relation_person_create har ikke et eget expected_version=0-krav. Den skal også afvise den aktuelle version.
+    IF v_origin='relation_person_create' THEN
+      PERFORM pg_temp.oprindelse_afvis(format(
+        'SELECT private.decide_source_persona_identity(purge_test.u(''X2''),purge_test.id(''P''),4,''accepted'',%L::jsonb,%L)',v_ev,v_origin),
+        'RELATION_PERSON_CREATE_ORIGIN_INVALID');
+    END IF;
+  END LOOP;
+  -- En almindelig menneskelig afgørelse fortsætter stadig på max+1; purge-kvitteringen er nu væk.
+  IF private.decide_source_persona_identity(purge_test.u('X2'),NULL,4,'unresolved',
+      '{"basis":"web_detail","reason":"review"}','human') IS DISTINCT FROM 5 THEN
+    RAISE EXCEPTION 'TEST_FAILED purge: almindelig oprindelse ændret';
+  END IF;
+END $t$;
+SET CONSTRAINTS ALL IMMEDIATE;
+ROLLBACK;
+\echo OK purge_spaerrer_genoprettelse
+\echo OK purge_bevarer_almindelig_versionsregel
+
+-- Minimal kontrolfixture: en ny gældende kandidatkørsel og et håndskrevet stikprøvekort på den aktuelle persona.
+-- Status beregnes rigtigt både før og efter. Ingen eksisterende kontrolkørsel eller append-only-række omskrives.
+BEGIN;
+DO $t$
+DECLARE v_run uuid; v_ctl uuid; v_candidate uuid:=gen_random_uuid(); v_version int; v_status text;
+  v_actor uuid:=auth.uid(); v_sheet text:=repeat('6',64); v_rows text:=repeat('7',64);
+BEGIN
+  -- Gør personaen accepted igen i denne rollback-kopi, så den simulerede sletning har sin normale forudsætning.
+  v_version:=private.decide_source_persona_identity(purge_test.u('X2'),purge_test.id('P'),4,'accepted',
+    '{"basis":"web_detail"}','human');
+  INSERT INTO private.source_persona_identity_candidate_run(source_id,generator_version,config,config_sha256,input_spec,
+    input_sha256,candidates_sha256,persona_count,candidate_count,created_by,created_by_name)
+  VALUES (purge_test.id('kilde_a'),'purge-control-test','{}',repeat('6',64),'{}',repeat('7',64),repeat('8',64),1,0,v_actor,'Purge-redaktør')
+  RETURNING id INTO v_run;
+  INSERT INTO private.identity_control_run(source_id,candidate_run_id,identity_population_sha256,relation_population_sha256,
+    input_list_sha256,created_by)
+  VALUES (purge_test.id('kilde_a'),v_run,repeat('8',64),repeat('9',64),private.control_input_list_sha256(v_run),v_actor)
+  RETURNING id INTO v_ctl;
+  INSERT INTO private.identity_control_sample(control_run_id,sample_kind,stratum,source_persona_id,identity_version,mapping,expected)
+  VALUES (v_ctl,'identity','single_family',purge_test.u('X2'),v_version,jsonb_build_object('1',v_candidate::text),v_candidate::text);
+  PERFORM private.append_control_event(v_ctl,'sealed',NULL,v_sheet,v_rows);
+  v_version:=private.decide_source_persona_identity(purge_test.u('X2'),purge_test.id('P'),v_version,'accepted',
+    jsonb_build_object('basis','human_sheet','sheet_sha256',v_sheet,'rows_sha256',v_rows,'control_run_id',v_ctl::text,
+      'display_position',1,'candidate_id',v_candidate::text),'human');
+  SELECT status INTO v_status FROM private.control_run_status(v_ctl);
+  IF v_status IS DISTINCT FROM 'passed' THEN RAISE EXCEPTION 'TEST_FAILED purge_kontrolkoersel_failed: før'; END IF;
+  PERFORM private.append_control_event(v_ctl,'passed','ok');
+  PERFORM pg_temp.toem_identitet();
+  IF pg_temp.purge_kald() IS DISTINCT FROM v_version+1 THEN RAISE EXCEPTION 'TEST_FAILED purge_kontrolkoersel_failed: version'; END IF;
+  SELECT status INTO v_status FROM private.control_run_status(v_ctl);
+  IF v_status IS DISTINCT FROM 'failed' THEN RAISE EXCEPTION 'TEST_FAILED purge_kontrolkoersel_failed: efter'; END IF;
+END $t$;
+SET CONSTRAINTS ALL IMMEDIATE;
+ROLLBACK;
+\echo OK purge_kontrolkoersel_failed
 \endif

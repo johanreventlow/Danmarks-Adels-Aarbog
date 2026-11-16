@@ -156,6 +156,18 @@ describe('KildepersonaKo', () => {
     await waitFor(() => expect(mocks.decide).toHaveBeenCalledWith(row().sourcePersonaId, 0, 'new_person_needed', null, 'ikke i basen', null));
   });
 
+  it('personsletning: viser »ikke en person« i køen og historikken', async () => {
+    mocks.queue.mockResolvedValue([{ ...row(), decisionStatus: 'rejected', version: 2, reason: 'ikke en person' }]);
+    mocks.history.mockResolvedValue([
+      { version: 2, decisionStatus: 'rejected', canonicalPersonId: null, basis: null, candidateId: null, reason: 'ikke en person', decidedByName: 'R', decidedAt: null },
+    ]);
+    render(<KildepersonaKo role="redaktion" />);
+    const article = (await screen.findByText(/ikke en person/)).closest('article');
+    expect(article).toBeTruthy();
+    fireEvent.click(await screen.findByRole('button', { name: 'Vis kildegrundlag' }));
+    expect(await screen.findByText(/v2 · rejected · migration · ikke en person/)).toBeTruthy();
+  });
+
   it('viser historik med kandidat fulgt og ny person nødvendig', async () => {
     mocks.history.mockResolvedValue([
       { version: 2, decisionStatus: 'unresolved', canonicalPersonId: null, basis: 'human_sheet', candidateId: null, reason: 'new_person_needed', decidedByName: 'R', decidedAt: null },

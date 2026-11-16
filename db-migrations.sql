@@ -37599,3 +37599,238 @@ BEGIN
   RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_APPEND_ONLY';
 END
 $$;
+
+
+-- Fuld personsletning (2026-11-14), Task 6: person_purge og identitetsversion n+1.
+-- Efter Task 5: manifest og DELETE-hjælperne skal findes før disse funktionskroppe.
+CREATE OR REPLACE FUNCTION private.validate_source_persona_identity_event()
+RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,private AS $$
+DECLARE v_expected integer; v_purge_allowed boolean:=false;
+BEGIN
+  IF NEW.decision_status<>'proposed' AND current_user<>(
+    SELECT pg_catalog.pg_get_userbyid(c.relowner)
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname='private' AND c.relname='source_persona_identity_event'
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_DECISION_PROVENANCE_REQUIRED';
+  END IF;
+  PERFORM 1 FROM private.source_persona WHERE id=NEW.source_persona_id FOR UPDATE;
+  SELECT coalesce(max(version),0)+1 INTO v_expected
+    FROM private.source_persona_identity_event
+   WHERE source_persona_id=NEW.source_persona_id;
+  IF NEW.version<>v_expected THEN
+    -- Q7: efter en hel strømsletning må kun purge-afvisningen fortsætte på kvitteringens n+1.
+    -- v_expected=1 betyder ingen tilbageværende events (alle eventversioner er >=1).
+    IF v_expected=1 AND NEW.decision_status='rejected' AND NEW.canonical_person_id IS NULL
+        AND NEW.evidence='{"reason":"not_a_person"}'::jsonb THEN
+      -- Selvstændig gren: almindelige proposed-kald skal aldrig læse det private manifest.
+      SELECT EXISTS (SELECT 1 FROM private.person_purge_manifest m
+          WHERE m.xid=pg_current_xact_id() AND m.backend_pid=pg_backend_pid()
+            AND m.tabel='private.source_persona_identity' AND m.grund='hel_stroem'
+            AND m.pk=jsonb_build_object('source_persona_id',NEW.source_persona_id)
+            AND m.forrige_version>=1 AND NEW.version::bigint=m.forrige_version::bigint+1) INTO v_purge_allowed;
+    END IF;
+    IF NOT v_purge_allowed THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected %, got %',
+        v_expected,NEW.version;
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE OR REPLACE FUNCTION private.decide_source_persona_identity(
+  p_source_persona_id uuid,
+  p_canonical_person_id bigint,
+  p_expected_version integer,
+  p_decision_status text,
+  p_evidence jsonb,
+  p_origin text
+) RETURNS integer
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_actor uuid := auth.uid();
+  v_actor_name text;
+  v_current_version integer;
+  v_new_version integer;
+  v_purge_previous_version integer;
+  v_decided_at timestamptz := clock_timestamp();
+  v_pb record;
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
+    RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
+  END IF;
+  -- V-2/Q7: kun denne præcise form og en privat kvittering i samme transaktion/backend.
+  -- Tjek før de generelle fejl, så ugyldige purge-kald altid fejler med purge-formfejlen.
+  IF p_origin='person_purge' THEN
+    IF p_decision_status IS DISTINCT FROM 'rejected' OR p_canonical_person_id IS NOT NULL
+       OR p_expected_version IS DISTINCT FROM 0
+       OR p_evidence IS DISTINCT FROM '{"reason":"not_a_person"}'::jsonb THEN
+      RAISE EXCEPTION 'EVIDENCE_PERSON_PURGE_SHAPE';
+    END IF;
+    SELECT m.forrige_version INTO v_purge_previous_version FROM private.person_purge_manifest m
+      WHERE m.xid=pg_current_xact_id() AND m.backend_pid=pg_backend_pid()
+        AND m.tabel='private.source_persona_identity' AND m.grund='hel_stroem'
+        AND m.pk=jsonb_build_object('source_persona_id',p_source_persona_id) AND m.forrige_version>=1;
+    IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PERSON_PURGE_SHAPE'; END IF;
+  END IF;
+  IF p_expected_version IS NULL OR p_expected_version<0 THEN
+    RAISE EXCEPTION 'EVIDENCE_EXPECTED_VERSION_REQUIRED';
+  END IF;
+  SELECT coalesce(nullif(btrim(navn),''),nullif(btrim(email),''),v_actor::text)
+    INTO v_actor_name FROM public.profiles WHERE id=v_actor;
+  IF v_actor_name IS NULL THEN RAISE EXCEPTION 'EVIDENCE_ACTOR_REQUIRED'; END IF;
+  IF p_decision_status NOT IN ('accepted','rejected','unresolved','superseded')
+     OR (p_decision_status='accepted' AND p_canonical_person_id IS NULL)
+     OR (p_decision_status<>'accepted' AND p_canonical_person_id IS NOT NULL)
+     OR jsonb_typeof(p_evidence)<>'object' OR p_evidence='{}'::jsonb THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_DECISION_INVALID';
+  END IF;
+
+  -- Persona-rækken findes også før første state-række og er derfor den stabile
+  -- serialiseringslås for to samtidige initiale afgørelser.
+  PERFORM 1 FROM private.source_persona
+   WHERE id=p_source_persona_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PERSONA_NOT_FOUND'; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM private.source_persona_mention
+     WHERE persona_id=p_source_persona_id
+  ) THEN
+    RAISE EXCEPTION 'EVIDENCE_PERSONA_BASIS_REQUIRED';
+  END IF;
+  SELECT version INTO v_current_version
+    FROM private.source_persona_identity
+   WHERE source_persona_id=p_source_persona_id FOR UPDATE;
+  v_current_version:=coalesce(v_current_version,0);
+  IF p_origin='person_purge' AND (v_current_version<>0 OR EXISTS (
+      SELECT 1 FROM private.source_persona_identity_event WHERE source_persona_id=p_source_persona_id)) THEN
+    RAISE EXCEPTION 'EVIDENCE_PERSON_PURGE_SHAPE';
+  END IF;
+  IF v_current_version<>p_expected_version THEN
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected %, current %',
+      p_expected_version,v_current_version;
+  END IF;
+  -- Trin 5b (spec §6.2): lås gammelt og nyt mål — og ved family_corroboration også hovedpersonen —
+  -- i den totale orden (person → familie → medlemmer) før nogen efterprøvning eller skrivning.
+  PERFORM private.lock_family_rows(ARRAY(SELECT DISTINCT x FROM unnest(ARRAY[
+      (SELECT canonical_person_id FROM private.source_persona_identity WHERE source_persona_id=p_source_persona_id),
+      p_canonical_person_id,
+      CASE WHEN p_origin='family_corroboration' THEN private.spouse_principal_person(p_source_persona_id) END]) x
+    WHERE x IS NOT NULL ORDER BY 1));
+  -- Trin 5a-guard (#151): oprindelsen er strukturel. Kernen har ingen grants; kun
+  -- serverfunktioner kalder den, og hver oprindelse har sine egne krav.
+  IF p_origin='person_purge' THEN
+    v_new_version:=v_purge_previous_version+1;
+  ELSIF p_origin='human' THEN
+    IF coalesce(p_evidence->>'basis','') NOT IN ('web_detail','human_sheet') THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
+  ELSIF p_origin='person_create' THEN
+    IF p_decision_status<>'accepted' OR p_expected_version<>0 OR NOT (p_evidence ? 'batch_id') OR p_evidence ? 'basis' THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
+    -- Kvitteringen beviser, at personen er oprettet af insert_person_with_receipt i DENNE
+    -- toptransaktion (xid8: epoke-sikker og ens i subtransaktioner); den forbruges én gang.
+    DELETE FROM private.person_create_receipt WHERE person_id=p_canonical_person_id AND xact_id=pg_current_xact_id();
+    IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_CREATE_RECEIPT_MISSING'; END IF;
+  ELSIF p_origin='legacy_match' THEN
+    -- 149b: den faste 1:1-kobling via person_external_id, efterprøvet her — ikke kun i writeren.
+    IF p_decision_status<>'accepted' OR p_expected_version<>0 OR p_evidence ? 'basis'
+       OR p_evidence->>'authority' IS DISTINCT FROM 'person_external_id'
+       OR (p_evidence->'person_external_id'->>'person_id')::bigint IS DISTINCT FROM p_canonical_person_id
+       OR (p_evidence->'person_external_id'->>'source_id')::bigint IS DISTINCT FROM
+          (SELECT sp.source_id FROM private.source_persona sp WHERE sp.id=p_source_persona_id)
+       OR (SELECT count(*) FROM public.person_external_id x
+            WHERE x.source_id=(p_evidence->'person_external_id'->>'source_id')::bigint
+              AND x.record_key=p_evidence->'person_external_id'->>'record_key')<>1
+       OR NOT EXISTS (SELECT 1 FROM public.person_external_id x
+            WHERE x.source_id=(p_evidence->'person_external_id'->>'source_id')::bigint
+              AND x.record_key=p_evidence->'person_external_id'->>'record_key' AND x.person_id=p_canonical_person_id)
+       OR (SELECT count(*) FROM public.person_external_id x
+            WHERE x.source_id=(p_evidence->'person_external_id'->>'source_id')::bigint AND x.person_id=p_canonical_person_id)<>1 THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
+  ELSIF p_origin='reversal' THEN
+    IF p_decision_status<>'superseded' OR NOT (p_evidence ? 'reversed_batch_id') OR p_evidence ? 'basis' THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
+    END IF;
+  ELSIF p_origin='family_corroboration' THEN
+    PERFORM private.check_family_corroboration(p_source_persona_id,p_canonical_person_id,p_expected_version,
+                                                p_decision_status,p_evidence);
+  ELSIF p_origin='relation_person_create' THEN
+    -- Trin 5b 2b-ii (spec §6): kun en afdød-erklæret new_person_needed bliver til en ny person.
+    IF p_decision_status<>'accepted' OR p_evidence ? 'basis' OR NOT (p_evidence ? 'batch_id')
+       OR p_evidence->>'method' IS DISTINCT FROM 'relation-person-create-v1'
+       OR NOT EXISTS (SELECT 1 FROM private.source_persona_identity i
+                       WHERE i.source_persona_id=p_source_persona_id AND i.decision_status='unresolved'
+                         AND i.evidence->>'reason'='new_person_needed' AND i.evidence ? 'deceased'
+                         AND i.evidence->'deceased'=p_evidence->'deceased') THEN
+      RAISE EXCEPTION 'RELATION_PERSON_CREATE_ORIGIN_INVALID';
+    END IF;
+    DELETE FROM private.person_create_receipt WHERE person_id=p_canonical_person_id AND xact_id=pg_current_xact_id();
+    IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_IDENTITY_CREATE_RECEIPT_MISSING'; END IF;
+  ELSIF p_origin='publication_binding' THEN
+    -- Trin 6b (spec §4.3.1): personaen peger på personen, recordens publicerede narrativ handler om. Kernen efterprøver
+    -- selv strukturen (ikke kun writeren): bindingen er den, personaens primary-mention fører til via recordens gældende
+    -- helpost (helpost-slagsen = mention-observationens slags, så reglen er ikke udgavebundet), den er publiceret og
+    -- peger på målpersonen; personen har præcis én person_external_id for kilden; ingen anden persona har en mention i
+    -- helposten. Writeren holder låsen på bindingen; kernen låser personaen og målpersonen som ved de øvrige oprindelser.
+    -- Version 0, eller (trin 6b opfølgning, I2) den aktuelle version af en fortrudt publikationsidentitet: versionen er
+    -- allerede lig den aktuelle (ovenfor), og identitetsrækken er låst, så vagten læser den tilstand, der overskrives.
+    IF p_decision_status<>'accepted' OR (p_expected_version<>0 AND NOT private.publication_identity_reverted(p_source_persona_id))
+       OR p_evidence ? 'basis'
+       OR p_evidence->>'authority' IS DISTINCT FROM 'narrative_record_publication'
+       OR coalesce(p_evidence->>'binding_id','') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+      RAISE EXCEPTION 'PUBLICATION_BINDING_ORIGIN_INVALID';
+    END IF;
+    SELECT * INTO v_pb FROM private.publication_persona_binding(p_source_persona_id);
+    IF v_pb.binding_status IS DISTINCT FROM 'published'
+       OR v_pb.binding_id IS DISTINCT FROM (p_evidence->>'binding_id')::uuid
+       OR v_pb.person_id IS DISTINCT FROM p_canonical_person_id
+       OR (SELECT count(*) FROM public.person_external_id x JOIN private.source_persona sp ON sp.source_id=x.source_id
+            WHERE sp.id=p_source_persona_id AND x.person_id=p_canonical_person_id)<>1
+       OR EXISTS (SELECT 1 FROM private.source_persona_mention spm JOIN private.source_mention sm ON sm.id=spm.mention_id
+                   WHERE sm.observation_id=v_pb.observation_id AND spm.persona_id<>p_source_persona_id) THEN
+      RAISE EXCEPTION 'PUBLICATION_BINDING_ORIGIN_INVALID';
+    END IF;
+  ELSE
+    RAISE EXCEPTION 'EVIDENCE_IDENTITY_ORIGIN_INVALID';
+  END IF;
+  v_new_version:=coalesce(v_new_version,v_current_version+1);
+
+  -- Indholds-id (#151, spec §3): hændelsens id afledes af (persona, version) for alle oprindelser.
+  BEGIN
+    INSERT INTO private.source_persona_identity_event(
+      id,source_persona_id,canonical_person_id,decision_status,version,evidence,
+      decided_by,decided_by_name,decided_at
+    ) VALUES (
+      private.content_uuid('identity-event',jsonb_build_object('source_persona_id',p_source_persona_id,'version',v_new_version)),
+      p_source_persona_id,p_canonical_person_id,p_decision_status,v_new_version,
+      p_evidence,v_actor,v_actor_name,v_decided_at
+    );
+  EXCEPTION WHEN unique_violation THEN
+    IF EXISTS (SELECT 1 FROM private.source_persona_identity_event
+                WHERE id=private.content_uuid('identity-event',jsonb_build_object('source_persona_id',p_source_persona_id,'version',v_new_version))
+                  AND (source_persona_id,version) IS DISTINCT FROM (p_source_persona_id,v_new_version)) THEN
+      RAISE EXCEPTION 'DETERMINISTIC_ID_COLLISION: identity-event';
+    END IF;
+    RAISE;
+  END;
+  INSERT INTO private.source_persona_identity(
+    source_persona_id,canonical_person_id,decision_status,version,evidence,
+    decided_by,decided_by_name,decided_at,updated_at
+  ) VALUES (
+    p_source_persona_id,p_canonical_person_id,p_decision_status,v_new_version,
+    p_evidence,v_actor,v_actor_name,v_decided_at,v_decided_at
+  )
+  ON CONFLICT(source_persona_id) DO UPDATE SET
+    canonical_person_id=excluded.canonical_person_id,
+    decision_status=excluded.decision_status,
+    version=excluded.version,
+    evidence=excluded.evidence,
+    decided_by=excluded.decided_by,
+    decided_by_name=excluded.decided_by_name,
+    decided_at=excluded.decided_at,
+    updated_at=excluded.updated_at;
+  RETURN v_new_version;
+END $$;

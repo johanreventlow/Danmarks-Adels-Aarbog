@@ -1847,7 +1847,7 @@ END $$;
 
 CREATE FUNCTION private.validate_source_persona_identity_event()
 RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,private AS $$
-DECLARE v_expected integer;
+DECLARE v_expected integer; v_purge_allowed boolean:=false;
 BEGIN
   IF NEW.decision_status<>'proposed' AND current_user<>(
     SELECT pg_catalog.pg_get_userbyid(c.relowner)
@@ -1862,8 +1862,21 @@ BEGIN
     FROM private.source_persona_identity_event
    WHERE source_persona_id=NEW.source_persona_id;
   IF NEW.version<>v_expected THEN
-    RAISE EXCEPTION 'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected %, got %',
-      v_expected,NEW.version;
+    -- Q7: efter en hel strømsletning må kun purge-afvisningen fortsætte på kvitteringens n+1.
+    -- v_expected=1 betyder ingen tilbageværende events (alle eventversioner er >=1).
+    IF v_expected=1 AND NEW.decision_status='rejected' AND NEW.canonical_person_id IS NULL
+        AND NEW.evidence='{"reason":"not_a_person"}'::jsonb THEN
+      -- Selvstændig gren: almindelige proposed-kald skal aldrig læse det private manifest.
+      SELECT EXISTS (SELECT 1 FROM private.person_purge_manifest m
+          WHERE m.xid=pg_current_xact_id() AND m.backend_pid=pg_backend_pid()
+            AND m.tabel='private.source_persona_identity' AND m.grund='hel_stroem'
+            AND m.pk=jsonb_build_object('source_persona_id',NEW.source_persona_id)
+            AND m.forrige_version>=1 AND NEW.version::bigint=m.forrige_version::bigint+1) INTO v_purge_allowed;
+    END IF;
+    IF NOT v_purge_allowed THEN
+      RAISE EXCEPTION 'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected %, got %',
+        v_expected,NEW.version;
+    END IF;
   END IF;
   RETURN NEW;
 END $$;
@@ -10319,11 +10332,26 @@ DECLARE
   v_actor_name text;
   v_current_version integer;
   v_new_version integer;
+  v_purge_previous_version integer;
   v_decided_at timestamptz := clock_timestamp();
   v_pb record;
 BEGIN
   IF v_actor IS NULL OR public.current_rolle()<>'redaktion' THEN
     RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN';
+  END IF;
+  -- V-2/Q7: kun denne præcise form og en privat kvittering i samme transaktion/backend.
+  -- Tjek før de generelle fejl, så ugyldige purge-kald altid fejler med purge-formfejlen.
+  IF p_origin='person_purge' THEN
+    IF p_decision_status IS DISTINCT FROM 'rejected' OR p_canonical_person_id IS NOT NULL
+       OR p_expected_version IS DISTINCT FROM 0
+       OR p_evidence IS DISTINCT FROM '{"reason":"not_a_person"}'::jsonb THEN
+      RAISE EXCEPTION 'EVIDENCE_PERSON_PURGE_SHAPE';
+    END IF;
+    SELECT m.forrige_version INTO v_purge_previous_version FROM private.person_purge_manifest m
+      WHERE m.xid=pg_current_xact_id() AND m.backend_pid=pg_backend_pid()
+        AND m.tabel='private.source_persona_identity' AND m.grund='hel_stroem'
+        AND m.pk=jsonb_build_object('source_persona_id',p_source_persona_id) AND m.forrige_version>=1;
+    IF NOT FOUND THEN RAISE EXCEPTION 'EVIDENCE_PERSON_PURGE_SHAPE'; END IF;
   END IF;
   IF p_expected_version IS NULL OR p_expected_version<0 THEN
     RAISE EXCEPTION 'EVIDENCE_EXPECTED_VERSION_REQUIRED';
@@ -10353,6 +10381,10 @@ BEGIN
     FROM private.source_persona_identity
    WHERE source_persona_id=p_source_persona_id FOR UPDATE;
   v_current_version:=coalesce(v_current_version,0);
+  IF p_origin='person_purge' AND (v_current_version<>0 OR EXISTS (
+      SELECT 1 FROM private.source_persona_identity_event WHERE source_persona_id=p_source_persona_id)) THEN
+    RAISE EXCEPTION 'EVIDENCE_PERSON_PURGE_SHAPE';
+  END IF;
   IF v_current_version<>p_expected_version THEN
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_VERSION_CONFLICT: expected %, current %',
       p_expected_version,v_current_version;
@@ -10366,7 +10398,9 @@ BEGIN
     WHERE x IS NOT NULL ORDER BY 1));
   -- Trin 5a-guard (#151): oprindelsen er strukturel. Kernen har ingen grants; kun
   -- serverfunktioner kalder den, og hver oprindelse har sine egne krav.
-  IF p_origin='human' THEN
+  IF p_origin='person_purge' THEN
+    v_new_version:=v_purge_previous_version+1;
+  ELSIF p_origin='human' THEN
     IF coalesce(p_evidence->>'basis','') NOT IN ('web_detail','human_sheet') THEN
       RAISE EXCEPTION 'EVIDENCE_IDENTITY_BASIS_REQUIRED';
     END IF;
@@ -10441,7 +10475,7 @@ BEGIN
   ELSE
     RAISE EXCEPTION 'EVIDENCE_IDENTITY_ORIGIN_INVALID';
   END IF;
-  v_new_version:=v_current_version+1;
+  v_new_version:=coalesce(v_new_version,v_current_version+1);
 
   -- Indholds-id (#151, spec §3): hændelsens id afledes af (persona, version) for alle oprindelser.
   BEGIN
