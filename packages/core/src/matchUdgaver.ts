@@ -469,8 +469,9 @@ export function buildMatchPersoner(
  *
  *  Kun det tidligst mulige fødselsår (`date_min`) tæller: et ukendt år, eller et der kun har
  *  en øvre grænse, udelukker aldrig — at vise en kandidat for meget er bedre end at skjule en.
- *  Årstallene kommer fra kilderne, så reglen gælder for enhver kommende udgave, ikke kun 1939.
- *  Kun kilder med personer og et årstal tæller som "andre udgaver". Ren funktion. */
+ *  Reglen er besluttet for sammenligningen af præcis to udgaver (1939 ↔ 2018-20). Har flere end
+ *  to udgaver personer og årstal, gør funktionen intet, indtil reglen er taget op igen for de nye
+ *  bøger (fail-open). Årstallene kommer fra kilderne; ingen udgave er hårdkodet. Ren funktion. */
 export function markerFoedtEfterAndreUdgaver<
   T extends { sourceIds: number[]; foedsel: { date_min: string | null } | null; udenforMatchning?: boolean },
 >(
@@ -479,6 +480,7 @@ export function markerFoedtEfterAndreUdgaver<
 ): T[] {
   const kilder = new Set(personer.flatMap((p) => p.sourceIds)
     .filter((k) => aarByKilde.get(k) != null));
+  if (kilder.size !== 2) return personer;
   return personer.map((p) => {
     if (p.udenforMatchning) return p;
     const foedt = parseYear(p.foedsel?.date_min);

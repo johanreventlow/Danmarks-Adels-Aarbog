@@ -391,6 +391,13 @@ describe('markerFoedtEfterAndreUdgaver — eksklusiv for den nyere udgave (proje
     expect(find(ud, 'a').udenforMatchning).toBeFalsy();
   });
 
+  it('slår fra, når der er flere end to udgaver med personer (reglen gælder kun 1939 ↔ 2018-20)', () => {
+    const aar3 = new Map<number, number | null>([[1, 2020], [3, 1939], [5, 1960]]);
+    const ud = markerFoedtEfterAndreUdgaver(
+      [P('a', [1], '1965-01-01'), P('b', [3], '1900-01-01'), P('c', [5], '1950-01-01')], aar3);
+    expect(['a', 'b', 'c'].every((id) => !find(ud, id).udenforMatchning)).toBe(true);
+  });
+
   it('bevarer en eksisterende undtagelse (fx den fynske linje)', () => {
     const ud = markerFoedtEfterAndreUdgaver(
       [{ ...P('b', [3], '1500-01-01'), udenforMatchning: true }, P('a', [1], '1800-01-01')], aar);

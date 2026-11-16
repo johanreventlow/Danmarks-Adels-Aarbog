@@ -24,8 +24,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   (relation 2751). `red_samme_som` vælger kun selv retning, når data er entydige; for alle 47 par i gennemgangen
 >   15/11 var de ikke. Kan udgaven ikke afgøres for begge personer, gælder den valgte side som før.
 > - **Født efter den ældre udgave (projektejerens regel, 2026-11-16):** en person, der er født efter den anden
->   udgaves årstal, kan ikke stå i den og er eksklusiv for sin egen udgave. Med flere end to udgaver måles mod den
->   nyeste af de andre; det er korrekt med to udgaver og skal genovervejes, når en tredje udgave får personer. Det samme gælder personer koblet til
+>   udgaves årstal, kan ikke stå i den og er eksklusiv for sin egen udgave. Reglen gælder kun sammenligningen af
+>   1939 og 2018-20. Får andre bøger personer, kan det forholde sig anderledes, så koden gør intet, når flere end
+>   to udgaver har personer og årstal. Reglen tages op igen ved næste bog (fail-open). Det samme gælder personer koblet til
 >   hende som indgiftede ægtefæller uden eget bognummer. De holdes ude af både arbejdslisten og »Find modpart«.
 >   - **Mekanik:** den sker med flaget `udenforMatchning`, som også holder den fynske linje ude, og sættes af den
 >     rene `markerFoedtEfterAndreUdgaver` i `@daa/core`. Det er et forfilter og ingen ændring af matcherens
