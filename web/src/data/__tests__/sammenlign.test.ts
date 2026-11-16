@@ -173,6 +173,15 @@ describe('A3: afvisninger og 1:1-tildelingen skjuler ikke de næstbedste forslag
     expect([...m.entries()].sort()).toEqual([['A1', 'B1'], ['A2', 'B2']]);
   });
 
+  test('byggLinketTil følger en kæde gennem samme udgave (1939-oversigtspost → 1939-stamtavle → 2018-20)', () => {
+    // Som 1939-91 (1014) → 1939-125 (1048) → I-97 (134): 1014 er afklaret, selv om det direkte link er inden for 1939.
+    const m = byggLinketTil(
+      [{ aId: 'A1', bId: 'A2' }, { aId: 'A2', bId: 'B1' }, { aId: 'A3', bId: 'A4' }],
+      new Set(['A1', 'A2', 'A3', 'A4']),
+    );
+    expect([...m.entries()].sort()).toEqual([['A1', 'B1'], ['A2', 'B1']]);
+  });
+
   test('byggMatchetMed peger fra kandidaten til personen i den nye udgave, begge retninger', () => {
     const m = byggMatchetMed(
       [{ aId: 'A1', bId: 'B1' }, { aId: 'B2', bId: 'A2' }, { aId: 'B3', bId: 'B4' }],
