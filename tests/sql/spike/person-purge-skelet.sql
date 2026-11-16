@@ -249,7 +249,11 @@ CREATE TRIGGER trg_spike_feed_pin_kontrol BEFORE INSERT OR UPDATE ON public.feed
 -- 3. Skelettet. opt (jsonb), alle valgfri:
 --   l5b          boolean  (default true)  — false = positiv kontrol for D-2
 --   l8_mode      text     (default 'ROW EXCLUSIVE') — 'SHARE ROW EXCLUSIVE' = positiv kontrol for D-1
---   pause_after  text     — 'L5'|'L5b'|'L6'|'L8'|'L10'|'L13'|'DELETE': pg_sleep(pause_s) efter dette trin
+--   pause_after  text     — 'L5'|'L5b'|'L6'|'L7'|'L8'|'L10'|'L13'|'DATA'|'DELETE': pg_sleep(pause_s) efter dette trin
+--                            (DATA = efter datasletningen, før historiksletningen)
+--   slet_historik boolean (default false) — K5-spike: slet P's historik som Task 8 (person_purge_historik, beregnet
+--                            efter L13 før datasletningen; P's publiceringssæt er append-only-refereret og springes over)
+--   saet_laas    text     — K5-variant: 'L6' | 'L8' = lås historikkens slettesæt FOR UPDATE efter dette trin
 --   pause_s      numeric  (default 3)
 --   slet_person  boolean  (default false) — slet også personrækken (kun for en »let« P uden ledger/narrativ)
 --   preview      text     — forventet preview-hash; mangler den, beregnes den ved indgangen (før L1)
@@ -304,6 +308,17 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path=pg_catalog,public,private A
   ) q WHERE r IS NOT NULL
 $$;
 
+-- K5-variant: lås de sæt, historikken vil slette helt (ikke P's publiceringssæt), FOR UPDATE i id-orden.
+CREATE OR REPLACE FUNCTION spike.person_purge_saet_laas(p bigint) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  PERFORM 1 FROM public.change_set cs
+   WHERE cs.id IN (SELECT (h.pk->>'id')::bigint FROM private.person_purge_historik(p) h WHERE h.tabel='change_set')
+     AND NOT EXISTS (SELECT 1 FROM private.narrative_publication_event e WHERE e.change_set_id=cs.id)
+   ORDER BY cs.id FOR UPDATE;
+END $$;
+REVOKE ALL ON FUNCTION spike.person_purge_saet_laas(bigint) FROM PUBLIC;
+
 CREATE OR REPLACE FUNCTION spike.red_slet_person_helt_skelet(p_person_id bigint, p_opt jsonb DEFAULT '{}'::jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 DECLARE
@@ -313,6 +328,7 @@ DECLARE
   v_l8 text := coalesce(p_opt->>'l8_mode','ROW EXCLUSIVE');
   v_sources bigint[]; v_profiles text[]; v_records uuid[]; v_personas uuid[]; v_people bigint[];
   v_facts bigint[]; v_rels bigint[]; v_src bigint; v_prof record; v_n jsonb := '{}';
+  v_hist_ev bigint[] := '{}'; v_hist_cs bigint[] := '{}'; v_saet_laas text := p_opt->>'saet_laas';
 BEGIN
   PERFORM set_config('lock_timeout','5s',true);
   PERFORM set_config('statement_timeout','30s',true);   -- virker først fra næste statement (se analysen)
@@ -347,12 +363,15 @@ BEGIN
   PERFORM 1 FROM private.source_persona WHERE id=ANY(v_personas) ORDER BY id FOR UPDATE;
   PERFORM 1 FROM private.source_persona_identity WHERE source_persona_id=ANY(v_personas)
     ORDER BY source_persona_id FOR UPDATE;
+  IF v_saet_laas='L6' THEN PERFORM spike.person_purge_saet_laas(p_person_id); END IF;
   IF v_pause='L6' THEN PERFORM pg_sleep(v_pause_s); END IF;
   -- L7
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
   PERFORM private.guard_identity_mutation_snapshot();
+  IF v_pause='L7' THEN PERFORM pg_sleep(v_pause_s); END IF;
   -- L8
   EXECUTE format('LOCK TABLE public.change_set IN %s MODE', v_l8);
+  IF v_saet_laas='L8' THEN PERFORM spike.person_purge_saet_laas(p_person_id); END IF;
   IF v_pause='L8' THEN PERFORM pg_sleep(v_pause_s); END IF;
   -- L9
   PERFORM 1 FROM public.source s JOIN public.person_external_id pei ON pei.source_id=s.id
@@ -377,6 +396,13 @@ BEGIN
     RAISE EXCEPTION 'PURGE_PREVIEW_AENDRET';
   END IF;
   IF v_pause='L13' THEN PERFORM pg_sleep(v_pause_s); END IF;
+  -- K5-spike: historikken beregnes før datasletningen (som Task 8's manifest) og slettes efter den.
+  IF coalesce((p_opt->>'slet_historik')::boolean,false) THEN
+    SELECT coalesce(array_agg((h.pk->>'id')::bigint ORDER BY (h.pk->>'id')::bigint) FILTER (WHERE h.tabel='change_event'),'{}'),
+           coalesce(array_agg((h.pk->>'id')::bigint ORDER BY (h.pk->>'id')::bigint) FILTER (WHERE h.tabel='change_set'
+             AND NOT EXISTS (SELECT 1 FROM private.narrative_publication_event e WHERE e.change_set_id=(h.pk->>'id')::bigint)),'{}')
+      INTO v_hist_ev, v_hist_cs FROM private.person_purge_historik(p_person_id) h;
+  END IF;
 
   -- Repræsentativ sletning (børn før forældre, så fakta-slettevagten er tilfreds).
   SELECT coalesce(array_agg(id ORDER BY id),'{}') INTO v_facts FROM public.fact
@@ -408,10 +434,13 @@ BEGIN
     DELETE FROM public.slaegtsnavn_karantaene WHERE person_id=p_person_id;
     DELETE FROM public.person WHERE id=p_person_id;
   END IF;
+  IF v_pause='DATA' THEN PERFORM pg_sleep(v_pause_s); END IF;
+  DELETE FROM public.change_event WHERE id=ANY(v_hist_ev);
+  DELETE FROM public.change_set WHERE id=ANY(v_hist_cs);
   IF v_pause='DELETE' THEN PERFORM pg_sleep(v_pause_s); END IF;
   RETURN jsonb_build_object('sources',to_jsonb(v_sources),'profiles',to_jsonb(v_profiles),
     'records',to_jsonb(v_records),'personas',to_jsonb(v_personas),'people',to_jsonb(v_people),
-    'facts',to_jsonb(v_facts),'relations',to_jsonb(v_rels),
+    'facts',to_jsonb(v_facts),'relations',to_jsonb(v_rels),'historik_events',to_jsonb(v_hist_ev),'historik_saet',to_jsonb(v_hist_cs),
     'person_slettet',coalesce((p_opt->>'slet_person')::boolean,false));
 END $$;
 REVOKE ALL ON FUNCTION spike.red_slet_person_helt_skelet(bigint,jsonb) FROM PUBLIC;

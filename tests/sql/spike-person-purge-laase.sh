@@ -288,7 +288,94 @@ s_foerst_hel() {  # <skriverfunktion> <person> <skelet-opt> <beskrivelse> <navn>
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
-SCENARIER="d1_ocr d1_paastand d1_membership d1_medie d2_revider d2_fortryd f_upsert g_tilfoej g_note feed_pin afgoer kandidat h_timeout"
+# K5 (kodereview 36): red_fortryd_change_set tager sættets række FOR UPDATE → (samme_som_mutation ved identitets-
+# relation eller force) → personer stigende → øvrige rækker. Sletningen (Task 8) tager L7 samme_som → L10 personer →
+# data → P's historik, og slettesættets række (S53) først til sidst. To sætformer, lavet i hver kopi gennem rigtige
+# skrivere (basen er uændret, så de 13 øvrige scenarier er sammenlignelige med Task 0's GO):
+#   fakta  ét sæt (subjekt P) med red_upsert_fakta på P og Q: historikken sletter P's events og bevarer sættet (S52b)
+#   medie  red_slet_medierelation_uden_evidens på P's afbildet-relation: sættet har kun P's event og slettes helt (S53)
+# Kriterium (plan Task 11 e): 40P01 eller lukket fejl er tilladt. FEJL = sletningen committede, og der står en række om
+# P tilbage (P's K5-faktum, en relation på P, et af historikkens events/sæt), eller sletningen ventede ud over 5 s.
+K5_CS=""; K5_EV=""; K5_FORM=""
+k5_saet() {  # k5_saet fakta|medie: lav sættet i den aktuelle kopi; sætter K5_CS og K5_EV (P's events i sættet)
+  local foer n; foer=$(a "$DB" "SELECT coalesce(max(id),0) FROM change_set")
+  case $1 in
+    fakta) q "$DB" <<SQL || die "k5 fakta-sæt"
+SELECT set_config('request.jwt.claim.sub','$ACTOR',false);
+BEGIN;
+SELECT red_upsert_fakta('person',-9101,'erhverv','Spike K5 P');
+SELECT red_upsert_fakta('person',-9102,'erhverv','Spike K5 Q');
+COMMIT;
+SQL
+      ;;
+    medie) q "$DB" -c "SELECT set_config('request.jwt.claim.sub','$ACTOR',false)" -c "$(w_medie)" || die "k5 medie-sæt" ;;
+  esac
+  n=$(a "$DB" "SELECT count(*) FROM change_set WHERE id>$foer")
+  [ "$n" = 1 ] || die "k5_saet $1: forventede ét nyt change_set, fik $n"
+  K5_CS=$(a "$DB" "SELECT id FROM change_set WHERE id>$foer"); K5_FORM=$1
+  K5_EV=$(a "$DB" "SELECT coalesce(string_agg((h.pk->>'id'),',' ORDER BY (h.pk->>'id')::bigint),'') FROM private.person_purge_historik(-9101) h
+    JOIN change_event ce ON h.tabel='change_event' AND ce.id=(h.pk->>'id')::bigint WHERE ce.change_set_id=$K5_CS")
+  [ -n "$K5_EV" ] || die "k5_saet $1: historikken ser ingen P-events i sæt $K5_CS"
+  if [ "$1" = fakta ]; then
+    [ "$(a "$DB" "SELECT count(*) FROM private.person_purge_historik(-9101) WHERE tabel='change_set' AND pk->>'id'='$K5_CS'")" = 0 ] \
+      || die "k5 fakta-sæt $K5_CS skulle bevares (S52b)"
+  else
+    [ "$(a "$DB" "SELECT count(*) FROM private.person_purge_historik(-9101) WHERE tabel='change_set' AND pk->>'id'='$K5_CS'")" = 1 ] \
+      || die "k5 medie-sæt $K5_CS skulle slettes helt (S53)"
+  fi
+}
+k5_fortryd() { echo "SELECT red_fortryd_change_set($K5_CS, $1);"; }
+k5_efter() {  # P-rester fra sættet + sættets tilstand; dom efter kriteriet ovenfor
+  local s_ud=$1 fp rp ev cs rv rsub dom
+  fp=$(a "$DB" "SELECT count(*) FROM fact WHERE subjekt_type='person' AND subjekt_id=-9101 AND faktatype='erhverv'")
+  rp=$(a "$DB" "SELECT count(*) FROM relation WHERE (subjekt_type='person' AND subjekt_id=-9101) OR (objekt_type='person' AND objekt_id=-9101)")
+  ev=$(a "$DB" "SELECT count(*) FROM change_event WHERE id IN ($K5_EV)")
+  cs=$(a "$DB" "SELECT count(*) FROM change_set WHERE id=$K5_CS")
+  rv=$(a "$DB" "SELECT count(*) FROM change_set WHERE reverterer_id=$K5_CS")
+  rsub=$(a "$DB" "SELECT count(*) FROM change_set WHERE reverterer_id=$K5_CS AND subjekt_type='person' AND subjekt_id=-9101")
+  dom=OK
+  if [ "$s_ud" = OK ]; then
+    { [ "$fp" != 0 ] || [ "$rp" != 0 ] || [ "$ev" != 0 ]; } && dom=FEJL
+    [ "$K5_FORM" = medie ] && [ "$cs" != 0 ] && dom=FEJL
+  fi
+  echo "K5[$dom] sæt=$K5_CS($K5_FORM) findes=$cs fortrydelser=$rv (subjekt P: $rsub) P-events_tilbage=$ev erhverv(P)=$fp relationer(P)=$rp"
+}
+k5_rapport() {
+  local line
+  line=$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$SCEN" "$1" "skelet: $(udfald S)" "fortryd: $(udfald W)" "$OBS" "$(k5_efter "$(udfald S)")")
+  echo "$line" | tee -a "$RES"
+}
+k5_skelet_opt() {  # <pause> <saet_laas|''>
+  local o="\"slet_historik\":true,\"pause_s\":3"
+  [ -n "$1" ] && o="$o,\"pause_after\":\"$1\""
+  [ -n "$2" ] && o="$o,\"saet_laas\":\"$2\""
+  echo "{$o}"
+}
+# Fortrydelsen først: hele fortrydelsen kørt, ucommittet (sover 3 s); sletningen starter og venter; W committer.
+k5_w_foerst() {  # <form> <force> <saet_laas> <beskrivelse> <navn>
+  ny "$5"; k5_saet "$1"
+  start W "BEGIN;
+$(k5_fortryd "$2")
+SELECT pg_sleep(3);
+COMMIT;"
+  vent_paa W sover || OBS="${OBS}W nåede ikke pg_sleep; "
+  start S "$(skelet -9101 "$(k5_skelet_opt '' "$3")")"
+  observer S 6 || true
+  vent_alle; k5_rapport "$4"
+}
+# Sletningen først, standset efter <pause> (sover 3 s); fortrydelsen starter; begge kører færdig.
+k5_s_foerst() {  # <form> <force> <pause> <saet_laas> <beskrivelse> <navn>
+  ny "$6"; k5_saet "$1"
+  start S "$(skelet -9101 "$(k5_skelet_opt "$3" "$4")")"
+  vent_paa S sover || OBS="${OBS}S nåede ikke pg_sleep; "
+  start W "$(k5_fortryd "$2")"
+  observer W 4 || true
+  observer S 6 || true
+  vent_alle; k5_rapport "$5"
+}
+
+# ---------------------------------------------------------------------------------------------------------------------
+SCENARIER="d1_ocr d1_paastand d1_membership d1_medie d2_revider d2_fortryd f_upsert g_tilfoej g_note feed_pin afgoer kandidat h_timeout k5"
 [ $# -gt 0 ] && SCENARIER="$*"
 build_base
 echo "base=$BASE ud=$OUT"
@@ -345,6 +432,22 @@ for s in $SCENARIER; do
       start S "$(skelet -9101 '{}')"; observer S
       vent_paa S faerdig 12 || true
       slip W; vent_alle; rapport "(h) en anden session holder P FOR UPDATE: lock_timeout 5 s" ;;
+    k5)
+      k5_w_foerst fakta false ''   "K5 fakta-sæt (S52b): fortryd først"                       k5_fakta_w_foerst
+      k5_s_foerst fakta false L10 '' "K5 fakta-sæt: sletning først, holder L10"            k5_fakta_s_l10
+      k5_s_foerst fakta false DATA '' "K5 fakta-sæt: sletning først, efter datasletningen"  k5_fakta_s_data
+      for f in true false; do
+        k5_w_foerst medie $f ''          "K5 medie-sæt (S53), force=$f: fortryd først"                     k5_medie_${f}_w_foerst
+        for p in L7 L10 DATA DELETE; do
+          k5_s_foerst medie $f $p ''     "K5 medie-sæt, force=$f: sletning først, standset efter $p"       k5_medie_${f}_s_$p
+        done
+      done
+      for l in L8 L6; do   # varianter: sletningen låser slettesættene tidligt
+        k5_w_foerst medie true $l        "K5 medie-sæt, force=true, sætlås efter $l: fortryd først"       k5_medie_laas${l}_w_foerst
+        for p in L7 L10 DATA; do
+          k5_s_foerst medie true $p $l   "K5 medie-sæt, force=true, sætlås efter $l: sletning først, efter $p" k5_medie_laas${l}_s_$p
+        done
+      done ;;
     *) die "ukendt scenarie $s" ;;
   esac
 done
