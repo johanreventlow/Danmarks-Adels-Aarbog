@@ -13,9 +13,14 @@ gennemgået igen på familie, årstal og sjældne ord i stedet for navne.
 - **change_set 4395:** Rensvad Trotte Pedersen var ved en importfejl Henrik 1939-4's ægtefælle og stod derfor på
   III-10. Han er fjernet fra familien og gjort privat.
 - **change_set 4404:** tvillingen Christiane Benedicte 1939-312, som 2018-20 udelader, står som `omstridt` barn.
-- **Resultat:** 814 link. De sidste 19 på arbejdslisten findes kun i 1939. Den fynske linje findes ikke i 2018-20 og
-  udgår af matcharbejdet. 30 1939-personer har
-  stadig ingen modpart; 1939-212 og 1939-17 er dubletter på slettelisten.
+- **change_set 4426:** Emeke 1939-10 → I-15 og Claus 1939-12 → I-11 Nicolaus. Begge bærer stadig 1939-11's forkerte
+  tekst, som aldrig er publiceret.
+- **Sammenlign:** personer født efter 1939 holdes ude af sammenligningen med 1939 (#371). Kæder af link tæller som
+  afklaret (#372). Matcheren kender nu Claus/Nicolaus, Iven/Iwan, Hartvig/Hartwich, Bertram/Bartram og Joachim/Achim
+  (#373).
+- **Resultat:** 816 link. Den fynske linje findes ikke i 2018-20 og udgår af matcharbejdet. 30 1939-personer har
+  stadig ingen modpart; 1939-212 og 1939-17 er dubletter på slettelisten. 1939-25 er måske III-126, men er ikke
+  linket (se reviewet).
 
 ## 2026-11-16 — 1939 matchet mod de afdøde i 2018-20: 45 nye identitetslink, 5 forkerte rettet
 
