@@ -462,6 +462,35 @@ export function buildMatchPersoner(
   }));
 }
 
+/** Eksklusiv for en nyere udgave (projektejerens regel 2026-11-16): en person, der er født
+ *  efter ALLE de andre udgavers årstal, kan ikke stå i dem og har derfor ingen modpart. Hun
+ *  sættes `udenforMatchning`, så hun hverken er arbejdsemne eller kandidat. Indgiftede
+ *  ægtefæller uden bog-nr. arver det bagefter via `udledKilderForAegtefaeller` ("koblet til").
+ *
+ *  Kun det tidligst mulige fødselsår (`date_min`) tæller: et ukendt år, eller et der kun har
+ *  en øvre grænse, udelukker aldrig — at vise en kandidat for meget er bedre end at skjule en.
+ *  Reglen er besluttet for sammenligningen af præcis to udgaver (1939 ↔ 2018-20). Har flere end
+ *  to udgaver personer og årstal, gør funktionen intet, indtil reglen er taget op igen for de nye
+ *  bøger (fail-open). Årstallene kommer fra kilderne; ingen udgave er hårdkodet. Ren funktion. */
+export function markerFoedtEfterAndreUdgaver<
+  T extends { sourceIds: number[]; foedsel: { date_min: string | null } | null; udenforMatchning?: boolean },
+>(
+  personer: T[],
+  aarByKilde: ReadonlyMap<number, number | null>,
+): T[] {
+  const kilder = new Set(personer.flatMap((p) => p.sourceIds)
+    .filter((k) => aarByKilde.get(k) != null));
+  if (kilder.size !== 2) return personer;
+  return personer.map((p) => {
+    if (p.udenforMatchning) return p;
+    const foedt = parseYear(p.foedsel?.date_min);
+    if (foedt == null || !p.sourceIds.length) return p;
+    const andre = [...kilder].filter((k) => !p.sourceIds.includes(k)).map((k) => aarByKilde.get(k) as number);
+    if (!andre.length || foedt <= Math.max(...andre)) return p;
+    return { ...p, udenforMatchning: true };
+  });
+}
+
 /** Udled udgave-tilhør for ægtefæller uden eget bog-nummer.
  *
  *  Bogens ægtefæller har sjældent en egen nummereret post — moderen står typisk kun

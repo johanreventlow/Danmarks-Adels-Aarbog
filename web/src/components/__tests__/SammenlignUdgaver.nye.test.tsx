@@ -216,3 +216,66 @@ describe('SammenlignUdgaver: bekræftelse uden for matcherens forslag (LIVE)', (
     confirm.mockRestore();
   });
 });
+
+describe('SammenlignUdgaver: født efter den ældre udgave er eksklusiv for den nyere (regel 2026-11-16)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.fetchSources.mockResolvedValue([
+      { id: 3, titel: 'Danmarks Adels Aarbog', udgave: '1939', slags: 'bog', aar: 1939 },
+      { id: 7, titel: 'Danmarks Adels Aarbog', udgave: '2018-20', slags: 'bog', aar: 2018 },
+    ]);
+    mocks.fetchMatchPersoner.mockResolvedValue([
+      person('1', 3, 'ditlev'), person('2', 7, 'christian'),
+      person('5', 7, 'christian', '1950', '2010'), // født efter 1939 → kan ikke stå i 1939
+    ]);
+    mocks.fetchIkkeSammeSomPar.mockResolvedValue([]);
+    mocks.fetchSammeSomPar.mockResolvedValue([]);
+    mocks.fetchMatchAudit.mockResolvedValue([]);
+    mocks.fetchFamilyGraph.mockResolvedValue({ unions: [], parentChild: [] });
+  });
+
+  test('står ikke i arbejdslisten for den nyere udgave', async () => {
+    render(<SammenlignUdgaver role="redaktor" />);
+    fireEvent.change(await screen.findByRole('combobox'), { target: { value: '7' } });
+    await screen.findByText(/Christian Reventlow \(1660/);
+    expect(screen.queryByText(/Christian Reventlow \(1950/)).toBeNull();
+  });
+
+  test('foreslås ikke af »Find modpart« for en 1939-person', async () => {
+    render(<SammenlignUdgaver role="redaktor" />);
+    fireEvent.change(await screen.findByRole('combobox'), { target: { value: '3' } });
+    await screen.findByText(/uden kandidat over tærsklen/);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Find modpart' })[0]);
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Søg modpart' }), { target: { value: 'christian' } });
+    expect(screen.getAllByText(/Christian Reventlow \(1660/)).toHaveLength(1);
+    expect(screen.queryByText(/Christian Reventlow \(1950/)).toBeNull();
+  });
+});
+
+describe('SammenlignUdgaver: indgiftet ægtefælle født efter den ældre udgave', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.fetchSources.mockResolvedValue([
+      { id: 3, titel: 'Danmarks Adels Aarbog', udgave: '1939', slags: 'bog', aar: 1939 },
+      { id: 7, titel: 'Danmarks Adels Aarbog', udgave: '2018-20', slags: 'bog', aar: 2018 },
+    ]);
+    mocks.fetchMatchPersoner.mockResolvedValue([
+      person('1', 3, 'ditlev'), person('2', 7, 'christian', '1935', '2000'),
+      // Ægtefælle uden bog-nr. (arver 2018-20 fra partneren), selv født 1942.
+      { ...person('6', 7, 'sophie', '1942', '2015'), koen: 'kvinde', sourceIds: [] },
+    ]);
+    mocks.fetchIkkeSammeSomPar.mockResolvedValue([]);
+    mocks.fetchSammeSomPar.mockResolvedValue([]);
+    mocks.fetchMatchAudit.mockResolvedValue([]);
+    mocks.fetchFamilyGraph.mockResolvedValue({
+      unions: [{ id: 'f1', p1: '2', p2: '6', p2_name: null, year: null }], parentChild: [],
+    });
+  });
+
+  test('står ikke i arbejdslisten, selv om partneren er født før 1940', async () => {
+    render(<SammenlignUdgaver role="redaktor" />);
+    fireEvent.change(await screen.findByRole('combobox'), { target: { value: '7' } });
+    await screen.findByText(/Christian Reventlow \(1935/);
+    expect(screen.queryByText(/Sophie Reventlow/)).toBeNull();
+  });
+});

@@ -5,7 +5,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   buildMatchFrame, collapseSameAs, previewSammeSom, parseYear, defaultCfg,
-  udledKilderForAegtefaeller,
+  udledKilderForAegtefaeller, markerFoedtEfterAndreUdgaver,
   type MatchFrame, type RedMatchPerson, type ScoredPair, type Db, type SameAsEdge, type Union, type ParentChild,
 } from '@daa/core';
 import {
@@ -209,10 +209,14 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
   // Ægtefæller uden eget bog-nummer arver udgaven fra deres partner (entydigt, ellers urørt).
   // Uden det havner de i B-siden uanset udgave — så en 1939-ægtefælle kunne foreslås som match
   // for en 1939-person, og forældrepar kunne aldrig matches færdigt (→ "konkurrerende forældre").
-  const personerMedKilde = useMemo(
-    () => udledKilderForAegtefaeller(personer, familieGraf.unions),
-    [personer, familieGraf.unions],
-  );
+  // Født efter alle andre udgavers årstal → kan ikke stå i dem (regel 2026-11-16). To gennemløb:
+  // før arven, så indgiftede ægtefæller til dem også holdes ude, og efter arven, så en indgiftet
+  // ægtefælle, der selv er født efter (men gift med en fra før), vurderes på sit eget år.
+  const personerMedKilde = useMemo(() => {
+    const aarByKilde = new Map(sources.map((s) => [s.id, s.aar ?? null]));
+    const arvet = udledKilderForAegtefaeller(markerFoedtEfterAndreUdgaver(personer, aarByKilde), familieGraf.unions);
+    return markerFoedtEfterAndreUdgaver(arvet, aarByKilde);
+  }, [personer, sources, familieGraf.unions]);
 
   const matchCfg = useMemo(() => ({ ...defaultCfg(), evidensNormaliseret: true }), []);
   // Udgavens årstal pr. person (den nyeste, hvis personen står i flere) — afgør retningen af nye
@@ -269,7 +273,8 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
     if (!a || nyKildeId == null || !modpartSoegning.trim()) return { hits: [], total: 0 };
     const fa = buildMatchFrame(a);
     const alle = personerMedKilde
-      .filter((p) => p.id !== a.id && !p.sourceIds.includes(nyKildeId) && matcherSoegning(modpartSoegning, p))
+      .filter((p) => p.id !== a.id && !p.sourceIds.includes(nyKildeId) && !p.udenforMatchning
+        && matcherSoegning(modpartSoegning, p))
       .map((p) => ({ p, par: scorePersonPar(fa, buildMatchFrame(p), matchCfg) }))
       .sort((x, y) => (y.par.score ?? 0) - (x.par.score ?? 0));
     return { hits: alle.slice(0, MAKS_MODPARTER), total: alle.length };
