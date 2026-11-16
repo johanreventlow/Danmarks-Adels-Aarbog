@@ -1,6 +1,6 @@
 # Changelog
 
-## 2026-11-16 — 1939 matchet mod de afdøde i 2018-20: 44 nye identitetslink, 5 forkerte rettet
+## 2026-11-16 — 1939 matchet mod de afdøde i 2018-20: 45 nye identitetslink, 5 forkerte rettet
 
 Hele 1939-bogen er gennemgået mod de afdøde i 2018-20 (den fynske linje findes kun i 1939). Matcheren kan ikke se
 kortposter uden årstal; de fleste fund kom fra tekst, bogens rækkefølge og allerede matchede forældre og ægtefæller.
@@ -8,7 +8,9 @@ kortposter uden årstal; de fleste fund kom fra tekst, bogens rækkefølge og al
 - **change_set 4281 (16/11):** Hartvig 1939-2 var to personer i én. Han er nu 1200-tallets Hartvig (I-3), og
   familien er flyttet til 1939-547. 1939-276 er flyttet fra V-2 til V-6, og 1939-573 er linket til V-2.
   13 forældreløse 1939-personer har fået forældre efter bogen.
-- **Kontrol:** 807 link, 0 karantæner, ingen 2018-profil foldet ind i 1939.
+- **Gruppe C (4282–4283):** Hedevig Ida 1939-432 er foldet ind i IV-5. Kortposten 963 er gjort privat og
+  venter sammen med 1791/1795 på fuld personsletning.
+- **Kontrol:** 808 link, 0 karantæner, ingen 2018-profil foldet ind i 1939.
 
 1939 er altid alias, så 2018-20-profilen forbliver synlig (#366). Detaljer, metode og åbne punkter står i
 `reviews/match-1939-2018-20-2026-11-16.md`.
