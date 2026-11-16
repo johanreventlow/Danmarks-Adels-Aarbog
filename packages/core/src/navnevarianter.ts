@@ -37,6 +37,14 @@ const RAW_CLASSES: string[][] = [
   ['christian', 'kristian'],                                                // 'ch' foldes ikke af c→k → ellers c-blok vs k-blok
   ['gotskalk', 'gottschalk', 'godskalk'],                                   // facit 1939↔2018-20
   ['cathrina', 'catharina', 'katharina', 'cathrine', 'catharine', 'katharine'], // flagship §9
+  // Middelalderlige par fra 1939 ↔ 2018-20-afstemningen 2026-11-16: hvert skjulte et ægte match
+  // (Claus 1939-590/-12 = Nicolaus I-17/I-11, Iwen 1939-21 = Iwan I-16, Joachim 1939-19 = Achim II-9).
+  // »claus« først, så klassens repræsentant er »klaus« og prefix-søgning på Clau… er uændret.
+  ['claus', 'nicolaus', 'nikolaus'],
+  ['iven', 'iwan', 'iwen', 'ywan'],
+  ['hartvig', 'hartwich'],
+  ['bertram', 'bartram'],
+  ['joachim', 'achim', 'jochim'],
 ];
 
 const VARIANT_MAP: Record<string, string> = {};
