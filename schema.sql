@@ -915,8 +915,16 @@ REVOKE ALL ON FUNCTION private.record_helpost_status(uuid,text), private.record_
 
 -- Alle rå kilde-/hypoteserækker er uforanderlige. En rettelse er en ny række/event.
 CREATE FUNCTION private.reject_evidence_mutation()
-RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 BEGIN
+  -- Statement-triggere har intet OLD. Løftet gælder kun DELETE på en privat række.
+  IF TG_OP='DELETE' AND TG_LEVEL='ROW' AND TG_TABLE_SCHEMA='private' THEN
+    IF private.person_purge_tilladt(
+      CASE TG_TABLE_SCHEMA WHEN 'public' THEN TG_TABLE_NAME ELSE TG_TABLE_SCHEMA||'.'||TG_TABLE_NAME END,
+      to_jsonb(OLD)) THEN
+      RETURN OLD;
+    END IF;
+  END IF;
   RAISE EXCEPTION 'EVIDENCE_APPEND_ONLY: %.% kan ikke %',TG_TABLE_SCHEMA,TG_TABLE_NAME,TG_OP;
 END $$;
 
@@ -3922,8 +3930,16 @@ CREATE TABLE IF NOT EXISTS private.reimport_name_completion_result (
 );
 
 CREATE FUNCTION private.reject_reimport_writer_mutation()
-RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
 BEGIN
+  -- Statement-triggere har intet OLD. Løftet gælder kun DELETE på en privat række.
+  IF TG_OP='DELETE' AND TG_LEVEL='ROW' AND TG_TABLE_SCHEMA='private' THEN
+    IF private.person_purge_tilladt(
+      CASE TG_TABLE_SCHEMA WHEN 'public' THEN TG_TABLE_NAME ELSE TG_TABLE_SCHEMA||'.'||TG_TABLE_NAME END,
+      to_jsonb(OLD)) THEN
+      RETURN OLD;
+    END IF;
+  END IF;
   IF TG_TABLE_NAME='reimport_writer_profile' THEN RAISE EXCEPTION 'REIMPORT_WRITER_PROFILE_APPEND_ONLY'; END IF;
   IF TG_TABLE_NAME='reimport_event' THEN RAISE EXCEPTION 'REIMPORT_EVENT_APPEND_ONLY'; END IF;
   IF TG_TABLE_NAME='reimport_name_completion_result' THEN RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_RESULT_APPEND_ONLY'; END IF;
@@ -9131,8 +9147,18 @@ CREATE TABLE private.reimport_case_event (
 );
 
 CREATE FUNCTION private.reject_reimport_case_event_mutation()
-RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog AS $$
-BEGIN RAISE EXCEPTION 'REIMPORT_CASE_EVENT_APPEND_ONLY'; END $$;
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+BEGIN
+  -- Statement-triggere har intet OLD. Løftet gælder kun DELETE på en privat række.
+  IF TG_OP='DELETE' AND TG_LEVEL='ROW' AND TG_TABLE_SCHEMA='private' THEN
+    IF private.person_purge_tilladt(
+      CASE TG_TABLE_SCHEMA WHEN 'public' THEN TG_TABLE_NAME ELSE TG_TABLE_SCHEMA||'.'||TG_TABLE_NAME END,
+      to_jsonb(OLD)) THEN
+      RETURN OLD;
+    END IF;
+  END IF;
+  RAISE EXCEPTION 'REIMPORT_CASE_EVENT_APPEND_ONLY';
+END $$;
 CREATE TRIGGER trg_reimport_case_event_append_only
   BEFORE UPDATE OR DELETE ON private.reimport_case_event
   FOR EACH ROW EXECUTE FUNCTION private.reject_reimport_case_event_mutation();
@@ -13875,9 +13901,18 @@ $$;
 CREATE FUNCTION private.reject_narrative_publication_event_mutation()
 RETURNS trigger
 LANGUAGE plpgsql
-SET search_path=pg_catalog
+SECURITY DEFINER
+SET search_path=pg_catalog,public,private
 AS $$
 BEGIN
+  -- Statement-triggere har intet OLD. Løftet gælder kun DELETE på en privat række.
+  IF TG_OP='DELETE' AND TG_LEVEL='ROW' AND TG_TABLE_SCHEMA='private' THEN
+    IF private.person_purge_tilladt(
+      CASE TG_TABLE_SCHEMA WHEN 'public' THEN TG_TABLE_NAME ELSE TG_TABLE_SCHEMA||'.'||TG_TABLE_NAME END,
+      to_jsonb(OLD)) THEN
+      RETURN OLD;
+    END IF;
+  END IF;
   RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_APPEND_ONLY';
 END
 $$;
@@ -21907,6 +21942,8 @@ LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, public, pr
     ('suggestion', ARRAY['kilde_source_id'], 'reference til opslag (source)'),
     ('version_pk_registry', ARRAY['tabel','pk_cols','skip_cols'], 'metadata om versionerede tabeller; ingen rækkedata'),
     -- private
+    ('private.person_purge_manifest', ARRAY['xid','backend_pid','person_id','tabel','pk','grund','forrige_version'],
+      'internt transaktionsmanifest; tømmes af sletningen, ingen klientadgang (Task 5)'),
     ('private.entity_description_source', ARRAY['source_record_id'], 'reference til bogens lag'),
     ('private.entity_description_source', ARRAY['citation_note'], 'kildenote til rækkens egen beskrivelse; P''s følger S33 (CASCADE), andres er bogtekst'),
     ('private.identity_control_parent_card', ARRAY['id','interpretation_key','interpretation_version'], 'egen nøgle/fortolkningsnøgle'),
@@ -22633,3 +22670,176 @@ JOIN private.person_purge_inventar() i ON (i.sted,i.tabel,i.handling)=(c.sted,c.
   AND i.grund IS NOT DISTINCT FROM c.grund
 $purge_plan$;
 REVOKE ALL ON FUNCTION private.person_purge_plan(bigint) FROM PUBLIC,anon,authenticated,service_role;
+
+
+-- Fuld personsletning (2026-11-14), Task 5: transaktionsbevis og snævert DELETE-løft.
+-- Ingen FK til person: manifestet lever til slutkontrollen EFTER at personen er slettet (Task 8).
+CREATE TABLE IF NOT EXISTS private.person_purge_manifest (
+  xid xid8 NOT NULL,
+  backend_pid int NOT NULL,
+  person_id bigint NOT NULL,
+  tabel text NOT NULL,
+  pk jsonb NOT NULL,
+  grund text NOT NULL,
+  forrige_version int,
+  PRIMARY KEY (xid,backend_pid,tabel,pk)
+);
+ALTER TABLE private.person_purge_manifest ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.person_purge_manifest FROM PUBLIC,anon,authenticated,service_role;
+
+-- R24: altid skemakvalificerede private-navne. Samme VALUES-liste bruges af triggerhjælperen og katalogtests.
+CREATE OR REPLACE FUNCTION private.person_purge_tilladte_tabeller()
+RETURNS TABLE(tabel text)
+LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+  SELECT * FROM (VALUES
+    ('private.source_persona_identity_event'),
+    ('private.source_persona_identity_candidate'),
+    ('private.narrative_publication_event'),
+    ('private.interpretation_promotion'),
+    ('private.legacy_placement_disposition'),
+    ('private.reimport_event'),
+    ('private.reimport_name_completion_result'),
+    ('private.reimport_case_event'),
+    ('private.identity_control_parent_card'),
+    ('private.identity_control_parent_event'),
+    ('private.relation_reopen'),
+    ('private.text_revision_reconciliation')
+  ) v(tabel)
+$$;
+
+-- Fam_del fra levende medlemskaber, fælles for publiceringsevents og promotions.
+-- Et manifest kan aldrig i sig selv gøre en uvedkommende eller bevaret familie sletbar.
+CREATE OR REPLACE FUNCTION private.person_purge_fam_del(p_person_id bigint)
+RETURNS TABLE(id bigint)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_fam_del$
+  SELECT DISTINCT fm.family_id AS id FROM public.family_member fm
+  WHERE fm.person_id=p_person_id
+    AND NOT EXISTS (SELECT 1 FROM public.family_member rest
+      WHERE rest.family_id=fm.family_id AND rest.person_id<>p_person_id AND rest.rolle<>'partner')
+    AND (SELECT count(*) FROM public.family_member rest
+      WHERE rest.family_id=fm.family_id AND rest.person_id<>p_person_id AND rest.rolle='partner')<=1
+$purge_fam_del$;
+REVOKE ALL ON FUNCTION private.person_purge_fam_del(bigint) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION private.person_purge_tilladt(p_tabel text, p_old jsonb)
+RETURNS boolean
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_allowed$
+DECLARE
+  m private.person_purge_manifest%ROWTYPE;
+  v_pk jsonb;
+  v_n int;
+  v_ok boolean;
+BEGIN
+  -- Standard-afvisning omfatter ALLE bogtabeller, også når ejeren har manifesteret dem ved en fejl.
+  IF NOT EXISTS (SELECT 1 FROM private.person_purge_tilladte_tabeller() t WHERE t.tabel=p_tabel) THEN
+    RETURN false;
+  END IF;
+  v_pk:=CASE p_tabel
+    WHEN 'private.legacy_placement_disposition' THEN
+      jsonb_build_object('person_id',p_old->'person_id','source_id',p_old->'source_id','version',p_old->'version')
+    WHEN 'private.identity_control_parent_event' THEN jsonb_build_object('card_id',p_old->'card_id','seq',p_old->'seq')
+    WHEN 'private.relation_reopen' THEN jsonb_build_object('to_interpretation_id',p_old->'to_interpretation_id')
+    ELSE jsonb_build_object('id',p_old->'id') END;
+  SELECT * INTO m FROM private.person_purge_manifest
+    WHERE xid=pg_current_xact_id() AND backend_pid=pg_backend_pid() AND tabel=p_tabel AND pk=v_pk;
+  IF NOT FOUND THEN RETURN false; END IF;
+
+  CASE p_tabel
+    WHEN 'private.source_persona_identity_event' THEN
+      IF m.grund IN ('egen','andres_ref') THEN
+        RETURN coalesce((p_old->>'canonical_person_id')::bigint=m.person_id,false);
+      ELSIF m.grund='hel_stroem' THEN
+        -- V2-1: kvitteringen er på STATE-rækken. Sammenlign aldrig med max(version) i en DELETE-rækketrigger.
+        SELECT q.forrige_version INTO v_n FROM private.person_purge_manifest q
+          WHERE q.xid=m.xid AND q.backend_pid=m.backend_pid AND q.person_id=m.person_id
+            AND q.tabel='private.source_persona_identity' AND q.grund='hel_stroem'
+            AND q.pk=jsonb_build_object('source_persona_id',p_old->'source_persona_id');
+        RETURN v_n IS NOT NULL AND (p_old->>'version')::int<=v_n
+          AND EXISTS (SELECT 1 FROM private.source_persona_identity i
+            WHERE i.source_persona_id=(p_old->>'source_persona_id')::uuid
+              AND i.decision_status='accepted' AND i.canonical_person_id=m.person_id)
+          AND NOT EXISTS (SELECT 1 FROM private.source_persona_identity_event e
+            WHERE e.source_persona_id=(p_old->>'source_persona_id')::uuid AND e.version>v_n);
+      END IF;
+    WHEN 'private.source_persona_identity_candidate' THEN
+      RETURN m.grund='egen' AND coalesce((p_old->>'candidate_person_id')::bigint=m.person_id,false);
+    WHEN 'private.legacy_placement_disposition', 'private.reimport_name_completion_result' THEN
+      RETURN m.grund='egen' AND coalesce((p_old->>'person_id')::bigint=m.person_id,false);
+    WHEN 'private.reimport_event' THEN
+      RETURN m.grund='egen' AND coalesce((p_old->>'canonical_person_id')::bigint=m.person_id,false);
+    WHEN 'private.reimport_case_event' THEN
+      RETURN m.grund='egen' AND coalesce(p_old->>'action'='record_assign'
+        AND p_old->'payload'->>'target_person_id'=m.person_id::text,false);
+    WHEN 'private.identity_control_parent_card' THEN
+      RETURN m.grund='egen' AND coalesce((p_old->>'counterpart_person_id')::bigint=m.person_id,false);
+    WHEN 'private.identity_control_parent_event' THEN
+      RETURN m.grund='afledt' AND EXISTS (SELECT 1 FROM private.person_purge_manifest q
+        WHERE q.xid=m.xid AND q.backend_pid=m.backend_pid AND q.person_id=m.person_id
+          AND q.tabel='private.identity_control_parent_card' AND q.grund='egen'
+          AND q.pk=jsonb_build_object('id',p_old->'card_id'));
+    WHEN 'private.relation_reopen' THEN
+      RETURN m.grund='afledt' AND EXISTS (SELECT 1 FROM private.person_purge_manifest q
+        WHERE q.xid=m.xid AND q.backend_pid=m.backend_pid AND q.person_id=m.person_id
+          AND q.tabel='private.interpretation_promotion' AND q.grund='egen'
+          AND q.pk=jsonb_build_object('id',p_old->'superseded_promotion_id'));
+    WHEN 'private.text_revision_reconciliation' THEN
+      RETURN m.grund='afledt' AND EXISTS (SELECT 1 FROM private.person_purge_manifest q
+        WHERE q.xid=m.xid AND q.backend_pid=m.backend_pid AND q.person_id=m.person_id AND q.grund='egen'
+          AND ((q.tabel='private.interpretation_promotion' AND q.pk IN (
+            jsonb_build_object('id',p_old->'old_promotion_id'),jsonb_build_object('id',p_old->'new_promotion_id')))
+          OR (q.tabel='private.reimport_event' AND EXISTS (SELECT 1 FROM private.reimport_event e
+            WHERE q.pk=jsonb_build_object('id',e.id) AND e.batch_id=(p_old->>'revision_batch_id')::uuid
+              AND e.element_id=p_old->>'revision_element_id'))));
+    WHEN 'private.narrative_publication_event' THEN
+      RETURN EXISTS (SELECT 1 FROM public.narrative n WHERE n.id=(p_old->>'narrative_id')::bigint
+        AND ((m.grund='egen' AND n.subjekt_type='person' AND n.subjekt_id=m.person_id)
+          OR (m.grund='familie' AND n.subjekt_type='family'
+            AND n.subjekt_id IN (SELECT id FROM private.person_purge_fam_del(m.person_id)) AND EXISTS (
+            SELECT 1 FROM private.person_purge_manifest q WHERE q.xid=m.xid AND q.backend_pid=m.backend_pid
+              AND q.person_id=m.person_id AND q.tabel='family' AND q.grund='familie'
+              AND q.pk=jsonb_build_object('id',n.subjekt_id)))));
+    WHEN 'private.interpretation_promotion' THEN
+      IF m.grund<>'egen' THEN RETURN false; END IF;
+      -- Uafhængigt ejerskab fra levende mål, aldrig fra person_purge_plan eller et mål i manifestet.
+      -- Q5: hele R_fam (også overlap med R) kræver principal-persona i X. Bevarede familier er Q6-bindinger.
+      WITH fam AS (SELECT DISTINCT family_id AS id FROM public.family_member WHERE person_id=m.person_id),
+      fam_del AS (SELECT id FROM private.person_purge_fam_del(m.person_id)),
+      f AS (SELECT id FROM public.fact WHERE subjekt_type='person' AND subjekt_id=m.person_id),
+      ff AS (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del)),
+      r AS (SELECT id FROM public.relation WHERE
+        (subjekt_type='person' AND subjekt_id=m.person_id) OR (objekt_type='person' AND objekt_id=m.person_id)
+        OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM f)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM f))),
+      rf AS (SELECT id FROM public.relation WHERE
+        (subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del)) OR (objekt_type='family' AND objekt_id IN (SELECT id FROM fam_del))
+        OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM ff)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM ff))),
+      n AS (SELECT id FROM public.narrative WHERE (subjekt_type='person' AND subjekt_id=m.person_id)
+        OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del))),
+      a AS (SELECT id FROM public.assertion WHERE (target_type='fact' AND target_id IN (SELECT id FROM f UNION SELECT id FROM ff))
+        OR (target_type='relation' AND target_id IN (SELECT id FROM r UNION SELECT id FROM rf))),
+      h AS (SELECT id FROM public.haendelse WHERE narrative_id IN (SELECT id FROM n)
+        OR (subjekt_type='person' AND subjekt_id=m.person_id) OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del)))
+      SELECT EXISTS (SELECT 1 FROM private.interpretation i WHERE i.id=(p_old->>'interpretation_id')::uuid
+        AND ((p_old->>'target_type'='person' AND (p_old->>'target_id')::bigint=m.person_id
+                AND EXISTS (SELECT 1 FROM public.person WHERE id=m.person_id))
+          OR (p_old->>'target_type'='family' AND (p_old->>'target_id')::bigint IN (SELECT id FROM fam))
+          OR (p_old->>'target_type'='fact' AND (p_old->>'target_id')::bigint IN (SELECT id FROM f UNION SELECT id FROM ff))
+          OR (p_old->>'target_type'='relation' AND (p_old->>'target_id')::bigint IN (SELECT id FROM r UNION SELECT id FROM rf))
+          OR (p_old->>'target_type'='assertion' AND (p_old->>'target_id')::bigint IN (SELECT id FROM a))
+          OR (p_old->>'target_type'='narrative' AND (p_old->>'target_id')::bigint IN (SELECT id FROM n))
+          OR (p_old->>'target_type'='haendelse' AND (p_old->>'target_id')::bigint IN (SELECT id FROM h)))
+        AND (NOT (p_old->>'target_type'='family'
+          OR (p_old->>'target_type'='fact' AND (p_old->>'target_id')::bigint IN (SELECT id FROM ff))
+          OR (p_old->>'target_type'='relation' AND (p_old->>'target_id')::bigint IN (SELECT id FROM rf))
+          OR (p_old->>'target_type'='assertion' AND (p_old->>'target_id')::bigint IN (SELECT id FROM public.assertion
+            WHERE (target_type='fact' AND target_id IN (SELECT id FROM ff))
+              OR (target_type='relation' AND target_id IN (SELECT id FROM rf)))))
+          OR EXISTS (SELECT 1 FROM private.source_persona_identity x WHERE x.source_persona_id=i.source_persona_id
+            AND x.decision_status='accepted' AND x.canonical_person_id=m.person_id))) INTO v_ok;
+      RETURN v_ok;
+    ELSE RETURN false;
+  END CASE;
+  RETURN false;
+END
+$purge_allowed$;
+REVOKE ALL ON FUNCTION private.person_purge_tilladte_tabeller(), private.person_purge_tilladt(text,jsonb)
+  FROM PUBLIC,anon,authenticated,service_role;

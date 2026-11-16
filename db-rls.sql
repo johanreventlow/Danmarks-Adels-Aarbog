@@ -1750,3 +1750,11 @@ $redaction_rpc_surface_guard$;
 -- ingen klientrolle må kalde dem (PostgreSQL giver nye funktioner til PUBLIC som standard).
 REVOKE ALL ON FUNCTION private.person_purge_inventar(), private.person_purge_undtagelser(),
   private.person_purge_kandidatkolonner() FROM PUBLIC,anon,authenticated,service_role;
+
+
+-- Fuld personsletning (2026-11-14), Task 5: ingen klientadgang til manifest eller bevisfunktioner.
+ALTER TABLE private.person_purge_manifest ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.person_purge_manifest FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION private.person_purge_fam_del(bigint),
+  private.person_purge_tilladte_tabeller(), private.person_purge_tilladt(text,jsonb)
+  FROM PUBLIC,anon,authenticated,service_role;

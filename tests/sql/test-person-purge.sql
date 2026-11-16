@@ -10,9 +10,9 @@
   \echo 'PURGE_TEST_FEJL: angiv -v gruppe=<navn>'
   SELECT 1/0 AS gruppe_mangler;
 \endif
-SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse') AS gruppe_kendt,
+SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest') AS gruppe_kendt,
        :'gruppe'='inventar' AS g_inventar, :'gruppe'='binding' AS g_binding,
-       :'gruppe'='plan' AS g_plan, :'gruppe'='historik' AS g_historik, :'gruppe'='fortrydelse' AS g_fortrydelse \gset
+       :'gruppe'='plan' AS g_plan, :'gruppe'='historik' AS g_historik, :'gruppe'='fortrydelse' AS g_fortrydelse, :'gruppe'='manifest' AS g_manifest \gset
 \if :gruppe_kendt
 \else
   \echo 'PURGE_TEST_FEJL: ukendt gruppe'
@@ -950,4 +950,614 @@ END $s26_drift$;
 \echo OK fortrydelse_s26_receipt_drift
 \unset purge_reversal_assert
 ROLLBACK;
+\endif
+
+
+-- =====================================================================================================================
+-- Gruppe manifest (Task 5). Alle negative DML-tests kræver den oprindelige append-only-fejl; andre fejl tæller ikke.
+-- Kun den afsluttende positive kandidatsletning COMMIT'er. Resten isoleres i transaktioner/subtransaktioner.
+-- =====================================================================================================================
+\if :g_manifest
+CREATE FUNCTION pg_temp.append_fejl(p_tabel text, p_op text DEFAULT 'DELETE') RETURNS text
+LANGUAGE sql AS $$
+  SELECT CASE p_tabel
+    WHEN 'private.reimport_event' THEN 'REIMPORT_EVENT_APPEND_ONLY'
+    WHEN 'private.reimport_name_completion_result' THEN 'REIMPORT_NAME_COMPLETION_RESULT_APPEND_ONLY'
+    WHEN 'private.reimport_case_event' THEN 'REIMPORT_CASE_EVENT_APPEND_ONLY'
+    WHEN 'private.narrative_publication_event' THEN 'NARRATIVE_PUBLICATION_EVENT_APPEND_ONLY'
+    ELSE 'EVIDENCE_APPEND_ONLY: '||p_tabel||' kan ikke '||p_op END
+$$;
+CREATE FUNCTION pg_temp.afvis(p_sql text, p_error text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_error text;
+BEGIN
+  BEGIN EXECUTE p_sql; EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+  IF v_error IS DISTINCT FROM p_error THEN
+    RAISE EXCEPTION 'TEST_FAILED manifest: forventet %, fik %',p_error,v_error;
+  END IF;
+END $$;
+-- PK fra fixturens uafhængige facit; kræv også en faktisk række før DML (ellers ville DELETE af nul rækker bestå).
+CREATE FUNCTION pg_temp.slet_sql(p_tabel text, p_pk jsonb) RETURNS text LANGUAGE plpgsql AS $$
+DECLARE v_n bigint;
+BEGIN
+  EXECUTE format('SELECT count(*) FROM %s t WHERE to_jsonb(t) @> $1',p_tabel) INTO v_n USING p_pk;
+  IF v_n<>1 THEN RAISE EXCEPTION 'TEST_FAILED manifest: forventet 1 række i %, fik %',p_tabel,v_n; END IF;
+  RETURN format('DELETE FROM %s t WHERE to_jsonb(t) @> %L::jsonb',p_tabel,p_pk);
+END $$;
+
+BEGIN;
+DO $t$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT DISTINCT ON (f.tabel) f.tabel,f.pk FROM purge_test.forventet f
+    WHERE f.tabel IN (SELECT tabel FROM private.person_purge_tilladte_tabeller()) ORDER BY f.tabel,f.pk LOOP
+    PERFORM pg_temp.afvis(pg_temp.slet_sql(r.tabel,r.pk),pg_temp.append_fejl(r.tabel));
+  END LOOP;
+  IF (SELECT count(DISTINCT f.tabel) FROM purge_test.forventet f
+      WHERE f.tabel IN (SELECT tabel FROM private.person_purge_tilladte_tabeller()))<>12 THEN
+    RAISE EXCEPTION 'TEST_FAILED manifest: alle 12 tabeller skal have en eksisterende fixturrække';
+  END IF;
+END $t$;
+ROLLBACK;
+\echo OK manifest_uden_raekke_afvises
+\echo OK afvisningstekst_uaendret
+
+
+
+BEGIN;
+DO $t$
+DECLARE v_pk jsonb; v_sql text; v_t text:='private.source_persona_identity_event';
+BEGIN
+  SELECT jsonb_build_object('id',id) INTO STRICT v_pk FROM private.source_persona_identity_event
+   WHERE source_persona_id=purge_test.u('X2') AND version=3;
+  v_sql:=pg_temp.slet_sql(v_t,v_pk);
+  INSERT INTO private.person_purge_manifest VALUES
+    (pg_current_xact_id(),pg_backend_pid(),purge_test.id('tredje'),v_t,v_pk,'egen',NULL);
+  PERFORM pg_temp.afvis(v_sql,pg_temp.append_fejl(v_t));
+  UPDATE private.person_purge_manifest SET person_id=purge_test.id('P'),backend_pid=pg_backend_pid()+1;
+  PERFORM pg_temp.afvis(v_sql,pg_temp.append_fejl(v_t));
+  -- Samme backend, men en afsluttet transaktions manifest må heller ikke autorisere.
+  UPDATE private.person_purge_manifest SET backend_pid=pg_backend_pid(),xid='1'::xid8;
+  PERFORM pg_temp.afvis(v_sql,pg_temp.append_fejl(v_t));
+  UPDATE private.person_purge_manifest SET xid=pg_current_xact_id();
+  -- Positiv kontrol på præcis den samme række viser, at afvisningerne skyldtes gates ovenfor.
+  EXECUTE v_sql;
+END $t$;
+ROLLBACK;
+\echo OK manifest_anden_person_afvises
+\echo OK manifest_anden_backend
+\echo OK manifest_anden_transaktion
+
+BEGIN;
+DO $t$
+DECLARE v_pk jsonb; v_other jsonb; v_t text:='private.source_persona_identity_event';
+BEGIN
+  SELECT jsonb_build_object('id',id) INTO STRICT v_pk FROM private.source_persona_identity_event
+   WHERE source_persona_id=purge_test.u('X2') AND version=3;
+  SELECT jsonb_build_object('id',id) INTO STRICT v_other FROM private.source_persona_identity_event
+   WHERE source_persona_id=purge_test.u('X1') AND version=1;
+  INSERT INTO private.person_purge_manifest VALUES
+    (pg_current_xact_id(),pg_backend_pid(),purge_test.id('P'),v_t,v_other,'egen',NULL);
+  PERFORM pg_temp.afvis(pg_temp.slet_sql(v_t,v_pk),pg_temp.append_fejl(v_t));
+  UPDATE private.person_purge_manifest SET pk=v_pk;
+  EXECUTE pg_temp.slet_sql(v_t,v_pk);
+END $t$;
+ROLLBACK;
+\echo OK manifest_kraever_praecis_pk
+
+-- Fuld JSONB-lighed: hver probe har en rigtig række, gyldig grund og korrekt ejer.
+-- {} og delvis PK fanger containment i den ene retning; ekstra felt fanger den modsatte.
+BEGIN;
+DO $t$
+DECLARE v_pk jsonb; v_bad_pk jsonb; v_sql text; v_t text:='private.reimport_event';
+BEGIN
+  SELECT jsonb_build_object('id',id) INTO STRICT v_pk FROM private.reimport_event
+    WHERE canonical_person_id=purge_test.id('P') ORDER BY id LIMIT 1;
+  v_sql:=pg_temp.slet_sql(v_t,v_pk);
+  INSERT INTO private.person_purge_manifest VALUES
+    (pg_current_xact_id(),pg_backend_pid(),purge_test.id('P'),v_t,v_pk,'egen',NULL);
+  IF private.person_purge_tilladt(v_t,v_pk||jsonb_build_object('canonical_person_id',purge_test.id('P'))) IS NOT TRUE THEN
+    RAISE EXCEPTION 'TEST_FAILED manifest_pk_prober: positiv kontrol';
+  END IF;
+  FOR v_bad_pk IN SELECT pk FROM (VALUES
+    ('{}'::jsonb),
+    (v_pk||jsonb_build_object('ekstra',true)),
+    (jsonb_build_object('id',v_pk->>'id'))
+  ) bad(pk) LOOP
+    UPDATE private.person_purge_manifest SET pk=v_bad_pk WHERE tabel=v_t;
+    PERFORM pg_temp.afvis(v_sql,pg_temp.append_fejl(v_t));
+  END LOOP;
+
+  v_t:='private.legacy_placement_disposition';
+  SELECT jsonb_build_object('person_id',person_id,'source_id',source_id,'version',version) INTO STRICT v_pk
+    FROM private.legacy_placement_disposition WHERE person_id=purge_test.id('P') ORDER BY source_id,version LIMIT 1;
+  INSERT INTO private.person_purge_manifest VALUES
+    (pg_current_xact_id(),pg_backend_pid(),purge_test.id('P'),v_t,v_pk,'egen',NULL);
+  IF private.person_purge_tilladt(v_t,v_pk) IS NOT TRUE THEN
+    RAISE EXCEPTION 'TEST_FAILED manifest_pk_prober: positiv kontrol sammensat PK';
+  END IF;
+  UPDATE private.person_purge_manifest SET pk=jsonb_build_object('person_id',v_pk->'person_id') WHERE tabel=v_t;
+  PERFORM pg_temp.afvis(pg_temp.slet_sql(v_t,v_pk),pg_temp.append_fejl(v_t));
+END $t$;
+ROLLBACK;
+\echo OK manifest_pk_tom_ekstra_og_forkert_type_afvises
+\echo OK manifest_pk_delvis_sammensat_afvises
+
+BEGIN;
+DO $t$
+DECLARE v_pk jsonb; v_t text:='private.source_persona_identity_event';
+BEGIN
+  SELECT jsonb_build_object('id',id) INTO STRICT v_pk FROM private.source_persona_identity_event
+   WHERE source_persona_id=purge_test.u('X2') AND version=1;
+  INSERT INTO private.person_purge_manifest VALUES
+    (pg_current_xact_id(),pg_backend_pid(),purge_test.id('P'),v_t,v_pk,'egen',NULL);
+  PERFORM pg_temp.afvis(pg_temp.slet_sql(v_t,v_pk),pg_temp.append_fejl(v_t));
+END $t$;
+ROLLBACK;
+\echo OK manifest_forkert_grund
+
+-- Manifest fra den eksisterende plan, men state-kvitteringens PK normaliseres til dens faktiske primærnøgle.
+-- Task 4's plan bærer også canonical_person_id i state-pk til sin driftkontrol; Task 6-kontrakten bruger kun persona.
+CREATE FUNCTION pg_temp.manifest() RETURNS void LANGUAGE sql AS $$
+  INSERT INTO private.person_purge_manifest(xid,backend_pid,person_id,tabel,pk,grund,forrige_version)
+  SELECT pg_current_xact_id(),pg_backend_pid(),purge_test.id('P'),tabel,
+    CASE WHEN tabel='private.source_persona_identity' THEN jsonb_build_object('source_persona_id',pk->'source_persona_id') ELSE pk END,
+    grund,(ekstra->>'forrige_version')::int
+  FROM private.person_purge_plan(purge_test.id('P')) WHERE handling='slet' AND grund IS NOT NULL
+$$;
+
+-- Negativt ejerskab på ALLE 12 tabeller og begge afstemningsveje, med rigtige fixturrækker.
+-- Her spiller fixturens P rollen Q (rækkernes ejer), og tredje spiller sletningens P.
+-- Kun målpostens person ændres; afledte poster beholder den korrekte ejers referenceposter.
+BEGIN;
+DO $t$ BEGIN PERFORM pg_temp.manifest(); END $t$;
+DO $t$
+DECLARE r record; v_old jsonb; v_antal int:=0;
+BEGIN
+  FOR r IN SELECT m.tabel,m.pk,m.person_id FROM private.person_purge_manifest m
+    WHERE m.tabel IN (SELECT tabel FROM private.person_purge_tilladte_tabeller()) ORDER BY m.tabel,m.pk LOOP
+    EXECUTE format('SELECT to_jsonb(t) FROM %s t WHERE to_jsonb(t) @> $1',r.tabel) INTO STRICT v_old USING r.pk;
+    IF private.person_purge_tilladt(r.tabel,v_old) IS NOT TRUE THEN
+      RAISE EXCEPTION 'TEST_FAILED manifest_anden_ejer: positiv kontrol i %',r.tabel;
+    END IF;
+    UPDATE private.person_purge_manifest SET person_id=purge_test.id('tredje') WHERE tabel=r.tabel AND pk=r.pk;
+    IF private.person_purge_tilladt(r.tabel,v_old) IS DISTINCT FROM false THEN
+      RAISE EXCEPTION 'TEST_FAILED manifest_anden_ejer: fremmed række tilladt i %',r.tabel;
+    END IF;
+    PERFORM pg_temp.afvis(pg_temp.slet_sql(r.tabel,r.pk),pg_temp.append_fejl(r.tabel));
+    UPDATE private.person_purge_manifest SET person_id=r.person_id WHERE tabel=r.tabel AND pk=r.pk;
+    v_antal:=v_antal+1;
+  END LOOP;
+  IF (SELECT count(DISTINCT m.tabel) FROM private.person_purge_manifest m
+       WHERE m.tabel IN (SELECT tabel FROM private.person_purge_tilladte_tabeller()))<>12
+     OR (SELECT count(*) FROM private.person_purge_manifest WHERE tabel='private.text_revision_reconciliation')<>2
+     OR v_antal<13 THEN
+    RAISE EXCEPTION 'TEST_FAILED manifest_anden_ejer: manglende tabel/afstemningsvej';
+  END IF;
+END $t$;
+ROLLBACK;
+\echo OK manifest_anden_ejer_alle_tabeller
+
+BEGIN;
+DO $t$ BEGIN PERFORM pg_temp.manifest(); END $t$;
+DELETE FROM private.person_purge_manifest WHERE tabel='private.source_persona_identity';
+DO $t$
+DECLARE r record; v_n int:=0;
+BEGIN
+  FOR r IN SELECT id FROM private.source_persona_identity_event WHERE source_persona_id=purge_test.u('X2') LOOP
+    v_n:=v_n+1;
+    PERFORM pg_temp.afvis(pg_temp.slet_sql('private.source_persona_identity_event',jsonb_build_object('id',r.id)),
+                         pg_temp.append_fejl('private.source_persona_identity_event'));
+  END LOOP;
+  IF v_n<>3 THEN RAISE EXCEPTION 'TEST_FAILED hel_stroem_kraever_statekvittering'; END IF;
+END $t$;
+ROLLBACK;
+\echo OK hel_stroem_kraever_statekvittering
+
+BEGIN;
+DO $t$ BEGIN PERFORM pg_temp.manifest(); END $t$;
+-- State opdateres som ejer i testens rollback; eventstrøm og kvittering står uændret.
+UPDATE private.source_persona_identity SET canonical_person_id=purge_test.id('tredje')
+ WHERE source_persona_id=purge_test.u('X2');
+DO $t$
+DECLARE r record; v_n int:=0;
+BEGIN
+  FOR r IN SELECT id FROM private.source_persona_identity_event WHERE source_persona_id=purge_test.u('X2') LOOP
+    v_n:=v_n+1;
+    PERFORM pg_temp.afvis(pg_temp.slet_sql('private.source_persona_identity_event',jsonb_build_object('id',r.id)),
+                         pg_temp.append_fejl('private.source_persona_identity_event'));
+  END LOOP;
+  IF v_n<>3 THEN RAISE EXCEPTION 'TEST_FAILED hel_stroem_kraever_gaeldende_person'; END IF;
+END $t$;
+ROLLBACK;
+\echo OK hel_stroem_kraever_gaeldende_person
+
+BEGIN;
+DO $t$ BEGIN PERFORM pg_temp.manifest(); END $t$;
+DO $t$
+DECLARE v_n int;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM private.source_persona_identity_event WHERE source_persona_id=purge_test.u('X2')
+                 AND canonical_person_id IS NULL)
+     OR NOT EXISTS (SELECT 1 FROM private.source_persona_identity_event WHERE source_persona_id=purge_test.u('X2')
+                    AND canonical_person_id=purge_test.id('tredje')) THEN
+    RAISE EXCEPTION 'TEST_FAILED hel_stroem: manglende negativt/andens event';
+  END IF;
+  DELETE FROM private.source_persona_identity_event WHERE source_persona_id=purge_test.u('X2');
+  GET DIAGNOSTICS v_n=ROW_COUNT;
+  IF v_n<>3 THEN RAISE EXCEPTION 'TEST_FAILED hel_stroem_tillader_null_og_anden'; END IF;
+END $t$;
+ROLLBACK;
+\echo OK hel_stroem_tillader_null_og_anden
+
+BEGIN;
+DO $t$ BEGIN PERFORM pg_temp.manifest(); END $t$;
+CREATE TEMP TABLE sletteorden(n int GENERATED ALWAYS AS IDENTITY, version int);
+CREATE FUNCTION pg_temp.sletteorden() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN INSERT INTO sletteorden(version) VALUES(OLD.version); RETURN OLD; END $$;
+CREATE TRIGGER zz_purge_test_orden BEFORE DELETE ON private.source_persona_identity_event
+ FOR EACH ROW EXECUTE FUNCTION pg_temp.sletteorden();
+-- CLUSTER i testkopien gør heap-rækkefølgen faldende; tving seqscan og kontrollér den observerede rækkefølge.
+CREATE INDEX purge_test_version_desc ON private.source_persona_identity_event(version DESC);
+CLUSTER private.source_persona_identity_event USING purge_test_version_desc;
+SET LOCAL enable_indexscan=off;
+SET LOCAL enable_bitmapscan=off;
+DELETE FROM private.source_persona_identity_event WHERE source_persona_id=purge_test.u('X2');
+DO $t$
+BEGIN
+  IF (SELECT array_agg(version ORDER BY n) FROM sletteorden) IS DISTINCT FROM ARRAY[3,2,1] THEN
+    RAISE EXCEPTION 'TEST_FAILED hel_stroem_faldende_orden: ét DELETE observerede ikke 3,2,1';
+  END IF;
+END $t$;
+ROLLBACK;
+BEGIN;
+DO $t$ BEGIN PERFORM pg_temp.manifest(); END $t$;
+DO $t$
+DECLARE v int; v_n int;
+BEGIN
+  FOR v IN REVERSE 3..1 LOOP
+    DELETE FROM private.source_persona_identity_event WHERE source_persona_id=purge_test.u('X2') AND version=v;
+    GET DIAGNOSTICS v_n=ROW_COUNT;
+    IF v_n<>1 THEN RAISE EXCEPTION 'TEST_FAILED hel_stroem_faldende_orden: tre DELETE'; END IF;
+  END LOOP;
+END $t$;
+ROLLBACK;
+BEGIN;
+DO $t$ BEGIN PERFORM pg_temp.manifest(); END $t$;
+UPDATE private.person_purge_manifest SET forrige_version=2 WHERE tabel='private.source_persona_identity';
+DO $t$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT id FROM private.source_persona_identity_event WHERE source_persona_id=purge_test.u('X2') LOOP
+    PERFORM pg_temp.afvis(pg_temp.slet_sql('private.source_persona_identity_event',jsonb_build_object('id',r.id)),
+                         pg_temp.append_fejl('private.source_persona_identity_event'));
+  END LOOP;
+END $t$;
+ROLLBACK;
+\echo OK hel_stroem_faldende_orden
+
+BEGIN;
+DO $t$
+DECLARE v_t text; v_pk jsonb;
+BEGIN
+  FOREACH v_t IN ARRAY ARRAY['private.source_record','private.interpretation'] LOOP
+    EXECUTE format('SELECT jsonb_build_object(''id'',id) FROM %s ORDER BY id LIMIT 1',v_t) INTO STRICT v_pk;
+    INSERT INTO private.person_purge_manifest VALUES
+      (pg_current_xact_id(),pg_backend_pid(),purge_test.id('P'),v_t,v_pk,'egen',NULL);
+    PERFORM pg_temp.afvis(pg_temp.slet_sql(v_t,v_pk),pg_temp.append_fejl(v_t));
+  END LOOP;
+END $t$;
+ROLLBACK;
+\echo OK bogtabel_altid_afvist
+
+BEGIN;
+DO $t$ BEGIN PERFORM pg_temp.manifest(); END $t$;
+UPDATE private.person_purge_manifest SET grund='ukendt';
+DO $t$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT DISTINCT ON (m.tabel) m.tabel,m.pk FROM private.person_purge_manifest m
+     WHERE m.tabel IN (SELECT tabel FROM private.person_purge_tilladte_tabeller()) ORDER BY m.tabel,m.pk LOOP
+    PERFORM pg_temp.afvis(pg_temp.slet_sql(r.tabel,r.pk),pg_temp.append_fejl(r.tabel));
+  END LOOP;
+END $t$;
+ROLLBACK;
+\echo OK manifest_ukendt_grund_alle_tabeller
+
+BEGIN;
+DO $t$ BEGIN PERFORM pg_temp.manifest(); END $t$;
+DO $t$
+DECLARE r record; v_n int; v_kolonne name; v_update_antal int:=0;
+BEGIN
+  -- UPDATE skal ramme en rigtig manifesteret række i hver af de 12 tabeller og bevare den præcise fejl.
+  FOR r IN SELECT DISTINCT ON (m.tabel) m.tabel,m.pk FROM private.person_purge_manifest m
+     WHERE m.tabel IN (SELECT tabel FROM private.person_purge_tilladte_tabeller()) ORDER BY m.tabel,m.pk LOOP
+    PERFORM pg_temp.slet_sql(r.tabel,r.pk);
+    -- GENERATED ALWAYS kan afvise SET id=id før rækketriggeren. Brug den første almindelige kolonne uden for PK.
+    SELECT a.attname INTO v_kolonne FROM pg_attribute a
+     WHERE a.attrelid=to_regclass(r.tabel) AND a.attnum>0 AND NOT a.attisdropped
+       AND a.attidentity='' AND a.attgenerated=''
+       AND NOT EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid=a.attrelid AND i.indisprimary
+                        AND a.attnum=ANY(i.indkey))
+     ORDER BY a.attnum LIMIT 1;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'TEST_FAILED update_uaendret_forbudt: ingen almindelig kolonne uden for PK i %',r.tabel;
+    END IF;
+    PERFORM pg_temp.afvis(format('UPDATE %s t SET %I=%I WHERE to_jsonb(t) @> %L::jsonb',
+      r.tabel,v_kolonne,v_kolonne,r.pk),pg_temp.append_fejl(r.tabel,'UPDATE'));
+    v_update_antal:=v_update_antal+1;
+  END LOOP;
+  IF v_update_antal<>12 THEN
+    RAISE EXCEPTION 'TEST_FAILED update_uaendret_forbudt: forventet 12 tabeller, fik %',v_update_antal;
+  END IF;
+  -- En positiv sletning fra hver tabel (i subtransaktion, så FK-forældre og fixturen bevares).
+  -- Disse tests er også følsomme for manglende tilladelser til en enkelt grund/tabel.
+  UPDATE private.narrative_legacy_publication SET latest_event_id=NULL
+   WHERE narrative_id IN (SELECT narrative_id FROM private.narrative_publication_event
+     WHERE id IN (SELECT (pk->>'id')::uuid FROM private.person_purge_manifest WHERE tabel='private.narrative_publication_event'));
+  -- Børn slettes først; rollback til sidst genskaber alt. Mere end én række pr. tabel udøver begge S49b-veje og Q6.
+  FOR r IN SELECT m.tabel,m.pk FROM private.person_purge_manifest m
+    WHERE m.tabel IN (SELECT tabel FROM private.person_purge_tilladte_tabeller())
+    ORDER BY CASE m.tabel WHEN 'private.text_revision_reconciliation' THEN 1 WHEN 'private.relation_reopen' THEN 2
+      WHEN 'private.interpretation_promotion' THEN 3 WHEN 'private.identity_control_parent_event' THEN 4
+      WHEN 'private.identity_control_parent_card' THEN 5 WHEN 'private.reimport_name_completion_result' THEN 6
+      WHEN 'private.reimport_event' THEN 7 ELSE 8 END,m.pk LOOP
+    EXECUTE pg_temp.slet_sql(r.tabel,r.pk);
+    GET DIAGNOSTICS v_n=ROW_COUNT;
+    IF v_n<>1 THEN RAISE EXCEPTION 'TEST_FAILED manifest_grunde: %',r.tabel; END IF;
+  END LOOP;
+END $t$;
+ROLLBACK;
+\echo OK update_uaendret_forbudt
+\echo OK manifest_alle_tilladte_tabeller
+
+-- TRUNCATE må ikke kalde rækkehjælperen eller tilgå OLD. Test alle eksisterende statement-vagter enkeltvis
+-- med CASCADE, så en FK-afvisning ikke kan give et falsk grønt resultat.
+BEGIN;
+DO $t$ BEGIN PERFORM pg_temp.manifest(); END $t$;
+DO $t$
+DECLARE r record; v_count int:=0;
+BEGIN
+  FOR r IN SELECT n.nspname||'.'||c.relname AS tabel
+    FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='private' AND NOT t.tgisinternal AND (t.tgtype::int & 32)=32
+      AND c.relname IN ('source_persona_identity_event','source_persona_identity_candidate','interpretation_promotion',
+        'legacy_placement_disposition','identity_control_parent_card','identity_control_parent_event',
+        'relation_reopen','text_revision_reconciliation') ORDER BY c.relname LOOP
+    v_count:=v_count+1;
+    -- CASCADE kan møde en anden evidenstabel først; kræv den uændrede evidens-fejlfamilie, aldrig permission/OLD-fejl.
+    DECLARE v_error text;
+    BEGIN
+      BEGIN EXECUTE format('TRUNCATE %s CASCADE',r.tabel); EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+      IF v_error IS NULL OR v_error NOT LIKE 'EVIDENCE_APPEND_ONLY: private.% kan ikke TRUNCATE' THEN
+        RAISE EXCEPTION 'TEST_FAILED truncate_uaendret: %, %',r.tabel,v_error;
+      END IF;
+    END;
+  END LOOP;
+  -- Målt 16/11 på skabelonen før Task 5: interpretation_promotion og source_persona_identity_event har ingen
+  -- TRUNCATE-vagt (kun rækkevagter); de 6 andre har. Task 5 ændrer ingen TRUNCATE-triggere (global-constraints).
+  IF v_count<>6 THEN RAISE EXCEPTION 'TEST_FAILED truncate_uaendret: forventet 6 vagter, fik %',v_count; END IF;
+END $t$;
+ROLLBACK;
+\echo OK truncate_uaendret
+
+BEGIN;
+DO $q5$
+DECLARE v_rel bigint; v_assertion bigint; v_i uuid; v_template private.interpretation%ROWTYPE;
+  v_other uuid:=purge_test.u('T1'); v_prom uuid[]:='{}'; v_id uuid; r record;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','a2a00000-0000-4000-8000-00000000a001',true);
+  PERFORM purge_test.nyt();
+  IF NOT EXISTS (SELECT 1 FROM private.source_persona_identity
+    WHERE source_persona_id=v_other AND canonical_person_id=purge_test.id('tredje') AND decision_status='accepted') THEN
+    RAISE EXCEPTION 'TEST_FAILED plan_q5_overlap: andens persona mangler';
+  END IF;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('person',purge_test.id('P'),'fact',purge_test.id('fakta_vielse_del'),'omtaler') RETURNING id INTO v_rel;
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst)
+    VALUES ('relation',v_rel,'Syntetisk familieudsagn') RETURNING id INTO v_assertion;
+  SELECT i.* INTO STRICT v_template FROM private.interpretation i JOIN private.interpretation_promotion p
+    ON p.interpretation_id=i.id WHERE p.id=purge_test.u('prom_egen');
+  INSERT INTO private.interpretation(interpretation_key,version,source_id,source_persona_id,interpretation_kind,
+    predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id)
+    VALUES (gen_random_uuid(),1,v_template.source_id,v_other,v_template.interpretation_kind,
+      v_template.predicate,v_template.value,v_template.schema_version,v_template.derivation_kind,1,'proposed','fixture',v_template.extraction_run_id)
+    RETURNING id INTO v_i;
+  INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
+    SELECT v_i,observation_id,evidence_role,ordinal FROM private.interpretation_observation WHERE interpretation_id=v_template.id;
+  v_i:=public.red_decide_interpretation(v_i,1,'accepted','{"basis":"purge-q5-overlap"}');
+  FOR r IN SELECT * FROM (VALUES ('relation',v_rel),('assertion',v_assertion)) t(typ,id) LOOP
+    INSERT INTO private.interpretation_promotion(interpretation_id,target_type,target_id,evidence,promoted_by,promoted_by_name)
+      VALUES (v_i,r.typ,r.id,'{"fixture":"q5-overlap"}','a2a00000-0000-4000-8000-00000000a001','Purge-redaktør')
+      RETURNING id INTO v_id;
+    v_prom:=array_append(v_prom,v_id);
+  END LOOP;
+  FOR v_id IN SELECT unnest(v_prom) LOOP
+    INSERT INTO private.person_purge_manifest VALUES
+      (pg_current_xact_id(),pg_backend_pid(),purge_test.id('P'),'private.interpretation_promotion',
+       jsonb_build_object('id',v_id),'egen',NULL);
+    PERFORM pg_temp.afvis(pg_temp.slet_sql('private.interpretation_promotion',jsonb_build_object('id',v_id)),
+                         pg_temp.append_fejl('private.interpretation_promotion'));
+  END LOOP;
+  -- Den samme andens principal-persona må gerne have en promotion til P selv (Q5).
+  INSERT INTO private.interpretation_promotion(interpretation_id,target_type,target_id,evidence,promoted_by,promoted_by_name)
+    VALUES (v_i,'person',purge_test.id('P'),'{"fixture":"q5-person"}',
+      'a2a00000-0000-4000-8000-00000000a001','Purge-redaktør') RETURNING id INTO v_id;
+  INSERT INTO private.person_purge_manifest VALUES
+    (pg_current_xact_id(),pg_backend_pid(),purge_test.id('P'),'private.interpretation_promotion',
+     jsonb_build_object('id',v_id),'egen',NULL);
+  EXECUTE pg_temp.slet_sql('private.interpretation_promotion',jsonb_build_object('id',v_id));
+  IF EXISTS (SELECT 1 FROM private.interpretation_promotion WHERE id=v_id) THEN
+    RAISE EXCEPTION 'TEST_FAILED manifest_q5: egen person med andens principal';
+  END IF;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+END $q5$;
+ROLLBACK;
+\echo OK manifest_q5_overlap_og_andens_principal
+
+-- Afledte rækker kræver en reference i samme persons manifest; målposten alene er ikke nok.
+BEGIN;
+DO $t$ BEGIN PERFORM pg_temp.manifest(); END $t$;
+DELETE FROM private.person_purge_manifest
+ WHERE tabel NOT IN ('private.relation_reopen','private.text_revision_reconciliation','private.identity_control_parent_event');
+DO $t$
+DECLARE r record; v_n int:=0;
+BEGIN
+  FOR r IN SELECT tabel,pk FROM private.person_purge_manifest LOOP
+    v_n:=v_n+1;
+    PERFORM pg_temp.afvis(pg_temp.slet_sql(r.tabel,r.pk),pg_temp.append_fejl(r.tabel));
+  END LOOP;
+  IF v_n<4 THEN RAISE EXCEPTION 'TEST_FAILED manifest_afledt_reference: manglende fixturrækker'; END IF;
+END $t$;
+DELETE FROM private.person_purge_manifest;
+DO $t$ BEGIN PERFORM pg_temp.manifest(); END $t$;
+UPDATE private.person_purge_manifest SET person_id=purge_test.id('tredje')
+ WHERE tabel NOT IN ('private.relation_reopen','private.text_revision_reconciliation','private.identity_control_parent_event');
+DO $t$
+DECLARE r record; v_n int:=0;
+BEGIN
+  FOR r IN SELECT tabel,pk FROM private.person_purge_manifest
+    WHERE tabel IN ('private.relation_reopen','private.text_revision_reconciliation','private.identity_control_parent_event') LOOP
+    v_n:=v_n+1;
+    PERFORM pg_temp.afvis(pg_temp.slet_sql(r.tabel,r.pk),pg_temp.append_fejl(r.tabel));
+  END LOOP;
+  IF v_n<4 THEN RAISE EXCEPTION 'TEST_FAILED manifest_afledt_reference: manglende fixturrækker'; END IF;
+END $t$;
+ROLLBACK;
+\echo OK manifest_afledt_reference
+
+-- Familiegrunden har sit eget uafhængige bevis. Omdan kun legacy-testnarrativets subjekt i denne rollback.
+BEGIN;
+DO $t$
+DECLARE v_pk jsonb:=jsonb_build_object('id',purge_test.u('npe_legacy'));
+  v_t text:='private.narrative_publication_event'; v_n bigint; v_fam bigint;
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.family_member
+      WHERE family_id=purge_test.id('fam_andre') AND person_id=purge_test.id('P'))
+     OR NOT EXISTS (SELECT 1 FROM public.family_member
+      WHERE family_id=purge_test.id('fam_keep') AND person_id=purge_test.id('P'))
+     OR NOT EXISTS (SELECT 1 FROM public.family_member
+      WHERE family_id=purge_test.id('fam_keep') AND person_id<>purge_test.id('P') AND rolle<>'partner') THEN
+    RAISE EXCEPTION 'TEST_FAILED manifest_familienarrativ: manglende uvedkommende/bevaret familie';
+  END IF;
+  SELECT narrative_id INTO STRICT v_n FROM private.narrative_publication_event WHERE id=purge_test.u('npe_legacy');
+  UPDATE public.narrative SET subjekt_type='family',subjekt_id=purge_test.id('fam_del') WHERE id=v_n;
+  INSERT INTO private.person_purge_manifest VALUES
+    (pg_current_xact_id(),pg_backend_pid(),purge_test.id('P'),v_t,v_pk,'egen',NULL);
+  PERFORM pg_temp.afvis(pg_temp.slet_sql(v_t,v_pk),pg_temp.append_fejl(v_t));
+  UPDATE private.person_purge_manifest SET grund='familie';
+  PERFORM pg_temp.afvis(pg_temp.slet_sql(v_t,v_pk),pg_temp.append_fejl(v_t));
+  INSERT INTO private.person_purge_manifest VALUES
+    (pg_current_xact_id(),pg_backend_pid(),purge_test.id('tredje'),'family',
+     jsonb_build_object('id',purge_test.id('fam_del')),'familie',NULL);
+  PERFORM pg_temp.afvis(pg_temp.slet_sql(v_t,v_pk),pg_temp.append_fejl(v_t));
+  UPDATE private.person_purge_manifest SET person_id=purge_test.id('P') WHERE tabel='family';
+  UPDATE private.narrative_legacy_publication SET latest_event_id=NULL WHERE narrative_id=v_n;
+  -- Selv en family-post med korrekt person/grund/PK må ikke autorisere Fam_keep eller en familie uden P.
+  FOREACH v_fam IN ARRAY ARRAY[purge_test.id('fam_andre'),purge_test.id('fam_keep')] LOOP
+    UPDATE public.narrative SET subjekt_id=v_fam WHERE id=v_n;
+    UPDATE private.person_purge_manifest SET pk=jsonb_build_object('id',v_fam) WHERE tabel='family';
+    PERFORM pg_temp.afvis(pg_temp.slet_sql(v_t,v_pk),pg_temp.append_fejl(v_t));
+  END LOOP;
+  -- Samme event og manifest må fortsat slettes, når begge familiebeviser gælder for Fam_del.
+  UPDATE public.narrative SET subjekt_id=purge_test.id('fam_del') WHERE id=v_n;
+  UPDATE private.person_purge_manifest SET pk=jsonb_build_object('id',purge_test.id('fam_del')) WHERE tabel='family';
+  EXECUTE pg_temp.slet_sql(v_t,v_pk);
+  IF EXISTS (SELECT 1 FROM private.narrative_publication_event WHERE id=purge_test.u('npe_legacy')) THEN
+    RAISE EXCEPTION 'TEST_FAILED manifest_familienarrativ';
+  END IF;
+END $t$;
+ROLLBACK;
+\echo OK manifest_familienarrativ
+\echo OK manifest_familienarrativ_uvedkommende_og_bevaret_afvises
+
+-- Triggere er automatisk kaldbare ved tabel-DML, også uden private USAGE/helper-EXECUTE.
+-- Udøv alle fire vagter under de faktiske klientroller på en offentlig probe, med samme OLD-id som et manifest.
+BEGIN;
+CREATE TABLE public.purge_trigger_probe(id uuid PRIMARY KEY,canonical_person_id bigint);
+INSERT INTO public.purge_trigger_probe VALUES(gen_random_uuid(),purge_test.id('P'));
+GRANT SELECT,UPDATE,DELETE ON public.purge_trigger_probe TO anon,authenticated,service_role;
+INSERT INTO private.person_purge_manifest(xid,backend_pid,person_id,tabel,pk,grund)
+ SELECT pg_current_xact_id(),pg_backend_pid(),canonical_person_id,'private.purge_trigger_probe',jsonb_build_object('id',id),'egen'
+ FROM public.purge_trigger_probe;
+DO $t$
+DECLARE v_func text; v_role text; v_error text; v_expected text;
+BEGIN
+  FOREACH v_func IN ARRAY ARRAY['reject_evidence_mutation','reject_reimport_writer_mutation',
+    'reject_reimport_case_event_mutation','reject_narrative_publication_event_mutation'] LOOP
+    EXECUTE format('CREATE TRIGGER probe BEFORE DELETE OR UPDATE ON public.purge_trigger_probe FOR EACH ROW EXECUTE FUNCTION private.%I()',v_func);
+    v_expected:=CASE v_func WHEN 'reject_evidence_mutation' THEN 'EVIDENCE_APPEND_ONLY: public.purge_trigger_probe kan ikke DELETE'
+      WHEN 'reject_reimport_writer_mutation' THEN 'REIMPORT_WRITER_APPEND_ONLY'
+      WHEN 'reject_reimport_case_event_mutation' THEN 'REIMPORT_CASE_EVENT_APPEND_ONLY'
+      ELSE 'NARRATIVE_PUBLICATION_EVENT_APPEND_ONLY' END;
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      v_error:=NULL;
+      EXECUTE format('SET LOCAL ROLE %I',v_role);
+      BEGIN DELETE FROM public.purge_trigger_probe; EXCEPTION WHEN OTHERS THEN v_error:=SQLERRM; END;
+      RESET ROLE;
+      IF v_error IS DISTINCT FROM v_expected THEN
+        RAISE EXCEPTION 'TEST_FAILED manifest_rollefejl: %, %, %',v_func,v_role,v_error;
+      END IF;
+    END LOOP;
+    DROP TRIGGER probe ON public.purge_trigger_probe;
+  END LOOP;
+END $t$;
+ROLLBACK;
+\echo OK afvisningstekst_klientroller
+
+DO $t$
+DECLARE v_role text; v_t text;
+BEGIN
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_schema_privilege(v_role,'private','USAGE') THEN
+      RAISE EXCEPTION 'TEST_FAILED manifest_klientrettigheder: private USAGE';
+    END IF;
+    IF has_table_privilege(v_role,'private.person_purge_manifest','SELECT,INSERT,UPDATE,DELETE,TRUNCATE')
+       OR has_function_privilege(v_role,'private.person_purge_tilladt(text,jsonb)','EXECUTE')
+       OR has_function_privilege(v_role,'private.person_purge_tilladte_tabeller()','EXECUTE')
+       OR has_function_privilege(v_role,'private.person_purge_fam_del(bigint)','EXECUTE') THEN
+      RAISE EXCEPTION 'TEST_FAILED manifest_klientrettigheder: manifest/helper';
+    END IF;
+    FOR v_t IN SELECT tabel FROM private.person_purge_tilladte_tabeller() LOOP
+      IF has_table_privilege(v_role,v_t,'DELETE') THEN RAISE EXCEPTION 'TEST_FAILED manifest_klientrettigheder: DELETE'; END IF;
+    END LOOP;
+  END LOOP;
+  IF NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.person_purge_manifest'::regclass) THEN
+    RAISE EXCEPTION 'TEST_FAILED manifest_rls';
+  END IF;
+  FOR v_t IN SELECT tabel FROM private.person_purge_tilladte_tabeller() LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid=to_regclass(v_t) AND NOT t.tgisinternal
+      AND t.tgenabled='O' AND (t.tgtype::int & 25)=25
+      AND t.tgfoid IN ('private.reject_evidence_mutation()'::regprocedure,'private.reject_reimport_writer_mutation()'::regprocedure,
+        'private.reject_reimport_case_event_mutation()'::regprocedure,'private.reject_narrative_publication_event_mutation()'::regprocedure)) THEN
+      RAISE EXCEPTION 'TEST_FAILED trigger_enabled: manglende rækkevagt på %',v_t;
+    END IF;
+  END LOOP;
+  IF EXISTS (SELECT 1 FROM pg_trigger t WHERE NOT t.tgisinternal
+    AND t.tgfoid IN ('private.reject_evidence_mutation()'::regprocedure,'private.reject_reimport_writer_mutation()'::regprocedure,
+      'private.reject_reimport_case_event_mutation()'::regprocedure,'private.reject_narrative_publication_event_mutation()'::regprocedure)
+    AND t.tgenabled<>'O') THEN RAISE EXCEPTION 'TEST_FAILED trigger_enabled'; END IF;
+END $t$;
+\echo OK trigger_enabled
+\echo OK manifest_klientrettigheder
+-- Et vellykket DELETE skal overleve COMMIT og må kun ramme netop den manifesterede kandidat.
+BEGIN;
+CREATE TEMP TABLE valgt_kandidat AS SELECT id FROM private.source_persona_identity_candidate
+ WHERE candidate_person_id=purge_test.id('P') ORDER BY id LIMIT 1;
+CREATE TEMP TABLE andre_kandidater AS SELECT * FROM private.source_persona_identity_candidate
+ WHERE id<>(SELECT id FROM valgt_kandidat);
+INSERT INTO private.person_purge_manifest(xid,backend_pid,person_id,tabel,pk,grund)
+ SELECT pg_current_xact_id(),pg_backend_pid(),purge_test.id('P'),'private.source_persona_identity_candidate',
+        jsonb_build_object('id',id),'egen' FROM valgt_kandidat;
+DELETE FROM private.source_persona_identity_candidate WHERE id=(SELECT id FROM valgt_kandidat);
+COMMIT;
+DO $t$
+BEGIN
+  IF (SELECT count(*) FROM valgt_kandidat)<>1
+     OR EXISTS (SELECT 1 FROM private.source_persona_identity_candidate WHERE id=(SELECT id FROM valgt_kandidat))
+     OR EXISTS ((SELECT * FROM andre_kandidater EXCEPT SELECT * FROM private.source_persona_identity_candidate)
+                UNION ALL (SELECT * FROM private.source_persona_identity_candidate EXCEPT SELECT * FROM andre_kandidater)) THEN
+    RAISE EXCEPTION 'TEST_FAILED manifest_tillader_egen_raekke';
+  END IF;
+END $t$;
+\echo OK manifest_tillader_egen_raekke
 \endif
