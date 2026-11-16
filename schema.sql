@@ -21821,6 +21821,17 @@ LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, public, pr
     ('S58',  'private.source_persona_placement_decision', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
     ('NY-C', 'private.identity_control_exclusion', ARRAY['source_persona_id'], 'bevar_andres', NULL, NULL),
     ('NY-D', 'private.relation_persona_profile', ARRAY['profile','source_id','predicate_forms','text_form'], 'ingen', NULL, NULL),
+    -- Task 7 / R28: fritekstkontrol er selvstændig fra sletteplanen.
+    ('S34b', 'suggestion', ARRAY['payload','vaerdi','note','kilde_fritekst'], 'bevar_andres', NULL, NULL),
+    ('S38b', 'note', ARRAY['indhold'], 'bevar_andres', NULL, NULL),
+    ('S38b', 'narrative', ARRAY['tekst'], 'bevar_andres', NULL, NULL),
+    ('S58', 'note', ARRAY['indhold'], 'bevar_andres', NULL, NULL),
+    ('S58', 'private.identity_control_event', ARRAY['reason'], 'bevar_andres', NULL, NULL),
+    ('S58', 'private.identity_control_exclusion', ARRAY['reason'], 'bevar_andres', NULL, NULL),
+    ('S58', 'private.source_record_anchor_event', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S58', 'private.source_record_revision_event', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S58', 'private.source_observation_text', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S58', 'private.entity_description_source', ARRAY['citation_note'], 'bevar_andres', NULL, NULL),
     -- §1f Historik (ingen append-only-trigger, derfor ingen grund; M2-4)
     ('S54',  'change_event', ARRAY['tabel','row_pk','foer','efter'], 'slet', '12', NULL),
     ('S57',  'change_event', ARRAY['row_pk','foer','efter'], 'bevar_andres', NULL, NULL),
@@ -21979,7 +21990,6 @@ LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, public, pr
     ('private.person_purge_manifest', ARRAY['xid','backend_pid','person_id','tabel','pk','grund','forrige_version'],
       'internt transaktionsmanifest; tømmes af sletningen, ingen klientadgang (Task 5)'),
     ('private.entity_description_source', ARRAY['source_record_id'], 'reference til bogens lag'),
-    ('private.entity_description_source', ARRAY['citation_note'], 'kildenote til rækkens egen beskrivelse; P''s følger S33 (CASCADE), andres er bogtekst'),
     ('private.identity_control_parent_card', ARRAY['id','interpretation_key','interpretation_version'], 'egen nøgle/fortolkningsnøgle'),
     ('private.identity_control_parent_card', ARRAY['control_run_id','counterpart_persona_id'], 'reference til bogens lag'),
     ('private.identity_control_parent_event', ARRAY['seq','line'], 'egen rækkefølge/arklinje'),
@@ -22578,6 +22588,18 @@ WITH RECURSIVE
   SELECT 'S32c'::text,'feed_pin'::text,jsonb_build_object('id',t.id),'bevar_andres'::text,NULL::text,'{}'::jsonb,10
     FROM public.feed_pin t WHERE t.kort_noegle IN (SELECT 'forbundet:'||id FROM fam_keep)
   UNION ALL
+  SELECT 'S34b'::text,'suggestion'::text,jsonb_build_object('id',t.id),'bevar_andres'::text,NULL::text,'{}'::jsonb,10
+    FROM public.suggestion t WHERE ((t.subjekt_type='person' AND t.subjekt_id=p_person_id)
+      OR (t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM fam_del))) IS NOT TRUE
+      AND (t.vaerdi ~ (SELECT rx FROM jrx) OR t.note ~ (SELECT rx FROM jrx)
+        OR t.kilde_fritekst ~ (SELECT rx FROM jrx) OR t.payload::text ~ (SELECT rx FROM jrx))
+  UNION ALL
+  SELECT 'S38b'::text,'note'::text,jsonb_build_object('id',t.id),'bevar_andres'::text,NULL::text,'{}'::jsonb,10
+    FROM public.note t WHERE t.target_type='family' AND t.target_id IN (SELECT id FROM fam_keep)
+  UNION ALL
+  SELECT 'S38b'::text,'narrative'::text,jsonb_build_object('id',t.id),'bevar_andres'::text,NULL::text,'{}'::jsonb,10
+    FROM public.narrative t WHERE t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM fam_keep)
+  UNION ALL
   SELECT 'S37b'::text,'media'::text,jsonb_build_object('id',t.id),'bevar_andres'::text,NULL::text,'{}'::jsonb,10
     FROM public.media t WHERE t.id IN (SELECT id FROM media_ref) AND t.id NOT IN (SELECT id FROM md)
   UNION ALL
@@ -22695,9 +22717,10 @@ WITH RECURSIVE
   SELECT 'S29'::text,'text_mention'::text,jsonb_build_object('kilde_type',t.kilde_type,'kilde_id',t.kilde_id,'maal_type',t.maal_type,'maal_id',t.maal_id),'blokér'::text,NULL::text,'{}'::jsonb,0
     FROM public.text_mention t WHERE ((t.maal_type='person' AND t.maal_id=p_person_id) OR (t.maal_type='family' AND t.maal_id IN (SELECT id FROM fam_del)) OR (t.maal_type='media' AND t.maal_id IN (SELECT id FROM md))) AND ((t.kilde_type='narrative' AND t.kilde_id IN (SELECT id FROM n)) OR (t.kilde_type='note' AND t.kilde_id IN (SELECT id FROM nt))) IS NOT TRUE
   ), chosen AS (
-    -- Én fysisk række, én handling. S19/NY-B er delmængder; slet/blokér vinder over bevar_andres.
+    -- Én fysisk række, én handling. Blokér vinder altid (en løsnet/bevaret række med dødt link skal stoppe sletningen);
+    -- derefter prioritet: S19/NY-B er delmængder; slet vinder over bevar_andres.
     -- S24's mellem-UPDATE er en udførelsesdetalje i ekstra, ikke en anden manifest-/facitrække.
-    SELECT DISTINCT ON (tabel,pk) * FROM raw ORDER BY tabel,pk,prioritet,sted COLLATE "C"
+    SELECT DISTINCT ON (tabel,pk) * FROM raw ORDER BY tabel,pk,(handling='blokér') DESC,prioritet,sted COLLATE "C"
   )
 SELECT c.sted,c.tabel,c.pk,c.handling,c.grund,i.fase,c.ekstra FROM chosen c
 JOIN private.person_purge_inventar() i ON (i.sted,i.tabel,i.handling)=(c.sted,c.tabel,c.handling)
@@ -22877,3 +22900,401 @@ END
 $purge_allowed$;
 REVOKE ALL ON FUNCTION private.person_purge_tilladte_tabeller(), private.person_purge_tilladt(text,jsonb)
   FROM PUBLIC,anon,authenticated,service_role;
+
+-- Task 7 / R30: fælles læsende Q3-prædikater. niveau=NULL betyder uændret fortrydelse.
+-- Planen leveres af kalderen; funktionen genberegner hverken plan eller historik.
+CREATE OR REPLACE FUNCTION private.person_purge_fortrydelse(p_person_id bigint,p_plan jsonb)
+RETURNS TABLE(batch_id uuid,vej text,kan_nu boolean,niveau text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_reversal$
+WITH plan AS MATERIALIZED (
+  SELECT * FROM jsonb_to_recordset(p_plan) AS q(sted text,tabel text,pk jsonb,handling text,grund text,fase text,ekstra jsonb)),
+children AS MATERIALIZED (
+  SELECT b.id AS parent_id,c.* FROM private.reimport_batch b
+    JOIN private.reimport_authorization ca ON ca.operation='name_completion'
+      AND ca.source_id=b.source_id AND ca.profile_id=b.profile_id AND ca.profile_sha256=b.profile_sha256
+      AND ca.authorized_elements->'source_batch_id'=to_jsonb(b.id)
+    JOIN private.reimport_batch c ON c.authorization_id=ca.id AND c.status='finalized'),
+children_counted AS MATERIALIZED (SELECT c.*,count(*) OVER (PARTITION BY parent_id) AS child_count FROM children c),
+-- Kun gyldige parent/child-par; ingen »status alene«-genvej.
+generic_header AS MATERIALIZED (
+  SELECT b.id,b.source_id,c.id AS child_id FROM private.reimport_batch b JOIN children_counted c ON c.parent_id=b.id
+   WHERE public.narrative_record_contract_version()=2 AND b.status='activated'
+     AND c.child_count=1
+     AND c.expected_counts=c.observed_counts
+     AND (SELECT count(*) FROM private.reimport_name_completion_result r WHERE r.batch_id=c.id)=(c.expected_counts->>'name_completions')::bigint
+     AND (SELECT count(*) FROM private.reimport_event e WHERE e.batch_id=c.id AND e.operation='canonical_delta')=(c.expected_counts->>'operations')::bigint
+     AND NOT EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=b.id AND e.operation='person_create'
+       AND NOT EXISTS (SELECT 1 FROM private.reimport_name_completion_result r JOIN private.reimport_event ce
+         ON ce.batch_id=r.batch_id AND ce.element_id=r.element_id AND ce.operation='canonical_delta'
+         WHERE r.batch_id=c.id AND r.person_id=e.canonical_person_id
+           AND ce.payload->>'source_person_create_element_id'=e.element_id AND ce.source_record_key=e.source_record_key))
+     AND NOT EXISTS (SELECT 1 FROM private.reimport_name_completion_result r JOIN private.reimport_event ce
+       ON ce.batch_id=r.batch_id AND ce.element_id=r.element_id AND ce.operation='canonical_delta'
+       WHERE r.batch_id=c.id AND NOT EXISTS (SELECT 1 FROM private.reimport_event e
+         WHERE e.batch_id=b.id AND e.operation='person_create' AND e.element_id=ce.payload->>'source_person_create_element_id'
+           AND e.canonical_person_id=r.person_id AND e.source_record_key=ce.source_record_key))),
+generic_states AS MATERIALIZED (
+  SELECT r.id,private.narrative_record_state(r.person_id,b.source_id,sr.record_key,false) AS state
+  FROM generic_header b JOIN private.reimport_name_completion_result r ON r.batch_id=b.child_id
+  JOIN private.source_record sr ON sr.id=r.source_record_id AND sr.source_id=b.source_id),
+generic_rows AS MATERIALIZED (
+  SELECT b.id AS batch_id,r.id AS result_id,r.person_id,r.source_persona_id,ev.id AS publication_event_id,
+         ev.narrative_id,r.source_record_id,r.fact_id,r.assertion_id,r.citation_id,r.conclusion_id,
+         measured.state AS receipt_state,
+    (e.id IS NOT NULL AND r.result_sha256=private.reimport_canonical_json_sha256(jsonb_build_object(
+       'fact_id',r.fact_id,'assertion_id',r.assertion_id,'citation_id',r.citation_id,'conclusion_id',r.conclusion_id))
+     AND e.payload->>'event_id' IS NOT NULL AND jsonb_typeof(receipt.j)='object'
+     AND receipt.j->>'source_person_create_event_id'=e.payload->>'event_id'
+     AND receipt.j->>'source_record_key'=e.source_record_key AND receipt.j->>'state_sha256' ~ '^[0-9a-f]{64}$'
+     AND i.version IS NOT NULL AND ev.id IS NOT NULL
+     -- Aktiveringswriteren skriver upsert på den eksisterende kladde => draft_updated. Den inverse tilstand
+     -- er draft, så red_kasser_person_narrative_record kan følge efter reverseringen (§5933-sporet).
+     AND ev.event_type='draft_updated' AND ev.before_state#>>'{binding,status}'='draft'
+     AND ev.before_state_sha256=encode(extensions.digest(ev.before_state::text,'sha256'),'hex')
+     AND ev.after_state_sha256=encode(extensions.digest(ev.after_state::text,'sha256'),'hex')
+     AND NOT EXISTS (SELECT 1 FROM private.narrative_publication_event later
+       WHERE later.stream_ref=ev.stream_ref AND (later.stream_version>ev.stream_version OR later.reversed_event_id=ev.id))
+     AND CASE WHEN sr.id IS NOT NULL AND e.id IS NOT NULL THEN
+       measured.state->>'state_sha256'=receipt.j->>'state_sha256'
+       AND measured.state->>'latest_event_id'=ev.id::text
+       AND measured.state->'publication_state'=ev.after_state
+       AND measured.state->>'publication_state_sha256'=ev.after_state_sha256
+       ELSE false END) IS TRUE AS ready
+  FROM generic_header b JOIN private.reimport_name_completion_result r ON r.batch_id=b.child_id
+  LEFT JOIN generic_states measured ON measured.id=r.id
+  LEFT JOIN private.source_record sr ON sr.id=r.source_record_id AND sr.source_id=b.source_id
+  LEFT JOIN private.reimport_event e ON e.batch_id=b.id AND e.operation='person_create'
+    AND e.canonical_person_id=r.person_id AND e.source_record_key=sr.record_key
+  LEFT JOIN LATERAL (SELECT ac.payload FROM private.reimport_event ac WHERE ac.batch_id=b.id AND ac.operation='activation'
+    ORDER BY ac.id DESC LIMIT 1) activation ON true
+  CROSS JOIN LATERAL (SELECT activation.payload->'post_activation_receipts'->r.person_id::text AS j) receipt
+  LEFT JOIN private.narrative_publication_event ev ON ev.id::text=receipt.j->>'event_id'
+  LEFT JOIN private.source_persona_identity i ON i.source_persona_id=r.source_persona_id),
+generic_ready AS MATERIALIZED (
+  SELECT b.id,b.child_id FROM generic_header b
+   WHERE (SELECT jsonb_typeof(ac.payload->'post_activation_receipts') FROM private.reimport_event ac
+      WHERE ac.batch_id=b.id AND ac.operation='activation' ORDER BY ac.id DESC LIMIT 1)='object'
+     AND NOT EXISTS (SELECT 1 FROM generic_rows r WHERE r.batch_id=b.id AND NOT r.ready)),
+generic_lost AS MATERIALIZED (
+  SELECT b.id FROM generic_ready b WHERE EXISTS (
+    SELECT 1 FROM plan q WHERE q.handling IN ('slet','nulstil','loesn') AND (
+      (q.tabel='private.reimport_event' AND EXISTS (SELECT 1 FROM private.reimport_event e
+        WHERE q.pk=jsonb_build_object('id',e.id)
+          AND ((e.batch_id=b.id AND e.operation IN ('person_create','activation'))
+            OR (e.batch_id=b.child_id AND e.operation='canonical_delta'))))
+      OR (q.tabel='private.reimport_name_completion_result' AND EXISTS (SELECT 1 FROM generic_rows r
+        WHERE r.batch_id=b.id AND q.pk=jsonb_build_object('id',r.result_id)))
+      OR (q.tabel='private.narrative_publication_event' AND EXISTS (SELECT 1 FROM generic_rows r
+        WHERE r.batch_id=b.id AND q.pk=jsonb_build_object('id',r.publication_event_id)))
+      OR (q.tabel='narrative' AND EXISTS (SELECT 1 FROM generic_rows r
+        WHERE r.batch_id=b.id AND q.pk=jsonb_build_object('id',r.narrative_id)))
+      -- R30: state indeholder kun has_haendelse, ikke fact_id/relation_id eller hændelsens tekst.
+      -- Kun fjernelse af den SIDSTE hændelse ændrer receiptet. S27 er altid en no-op her.
+      OR (q.tabel='haendelse' AND q.handling='slet' AND EXISTS (
+        SELECT 1 FROM generic_rows r JOIN public.haendelse h ON h.narrative_id=r.narrative_id
+        WHERE r.batch_id=b.id AND q.pk=jsonb_build_object('id',h.id)
+          AND NOT EXISTS (SELECT 1 FROM public.haendelse kept WHERE kept.narrative_id=r.narrative_id
+            AND kept.id NOT IN (SELECT (d.pk->>'id')::bigint FROM plan d
+              WHERE d.tabel='haendelse' AND d.handling='slet'))))
+      OR (q.tabel='person' AND EXISTS (SELECT 1 FROM generic_rows r
+        WHERE r.batch_id=b.id AND q.pk=jsonb_build_object('id',r.person_id)))
+      OR (q.tabel IN ('fact','assertion','citation','conclusion') AND EXISTS (SELECT 1 FROM generic_rows r
+        WHERE r.batch_id=b.id AND q.pk=jsonb_build_object('id',CASE q.tabel
+          WHEN 'fact' THEN r.fact_id WHEN 'assertion' THEN r.assertion_id
+          WHEN 'citation' THEN r.citation_id WHEN 'conclusion' THEN r.conclusion_id END)))
+      -- Receiptet binder den aktive binding og KUN resultatpersonens withdrawn_history.
+      -- Andre personers tilbagetrukne bindinger på samme record indgår ikke i state.
+      OR (q.tabel='private.narrative_record_publication' AND EXISTS (SELECT 1 FROM generic_rows r
+        WHERE r.batch_id=b.id AND (q.pk->>'id'=r.receipt_state#>>'{publication_state,binding,binding_id}'
+          OR EXISTS (SELECT 1 FROM jsonb_array_elements(r.receipt_state->'withdrawn_history') h
+            WHERE h->>'binding_id'=q.pk->>'id'))))
+      -- Kun receiptets konkrete publication_event_id (ovenfor) bruges af draft_updated-reversal;
+      -- øvrige events på recorden er ikke en afhængighed. Accepterede hovedperson-identiteter er det.
+      OR (q.tabel='private.source_persona_identity' AND EXISTS (SELECT 1 FROM generic_rows r
+        WHERE r.batch_id=b.id AND (q.pk->>'source_persona_id'=r.source_persona_id::text
+          OR EXISTS (SELECT 1 FROM private.source_record_placement_current rp
+            JOIN private.source_persona_placement_current pp ON pp.record_placement_id=rp.id
+            WHERE rp.source_record_id=r.source_record_id AND rp.decision_status='accepted'
+              AND pp.decision_status='accepted' AND pp.placement_role IN ('principal_member','co_principal')
+              AND pp.source_persona_id::text=q.pk->>'source_persona_id'))))))),
+publication_ready AS MATERIALIZED (
+  SELECT b.id FROM private.reimport_batch b WHERE public.narrative_record_contract_version()=2 AND b.status='finalized'
+    AND EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=b.id AND e.operation='publication_identity')
+    AND NOT EXISTS (SELECT 1 FROM private.reimport_event e LEFT JOIN private.source_persona_identity i
+      ON i.source_persona_id::text=e.payload->>'source_persona_id' WHERE e.batch_id=b.id AND (
+        e.operation IS DISTINCT FROM 'publication_identity'
+        OR jsonb_typeof(e.payload#>'{result_receipt,identity_version}') IS DISTINCT FROM 'number'
+        OR i.version IS DISTINCT FROM (e.payload#>>'{result_receipt,identity_version}')::integer))),
+publication_lost AS MATERIALIZED (
+  SELECT b.id FROM publication_ready b WHERE
+    -- R30: eget deltab er en note; niveauet beregnes nedenfor.
+    EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=b.id AND EXISTS (
+      SELECT 1 FROM plan q WHERE q.tabel='private.reimport_event' AND q.handling='slet' AND q.pk=jsonb_build_object('id',e.id)))
+    OR EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=b.id
+      AND NOT EXISTS (SELECT 1 FROM plan q WHERE q.tabel='private.reimport_event' AND q.handling='slet' AND q.pk=jsonb_build_object('id',e.id))
+      AND EXISTS (SELECT 1 FROM plan q WHERE q.tabel='private.source_persona_identity' AND q.handling='slet'
+        AND q.pk->>'source_persona_id'=e.payload->>'source_persona_id'))),
+generic_graded AS (
+  SELECT b.id,CASE WHEN EXISTS (SELECT 1 FROM generic_rows r WHERE r.batch_id=b.id
+      AND (r.person_id<>p_person_id OR NOT EXISTS (SELECT 1 FROM plan x
+        WHERE x.tabel='private.source_persona_identity' AND x.handling='slet'
+          AND x.pk->>'source_persona_id'=r.source_persona_id::text)))
+    THEN 'advarsel' ELSE 'note' END AS niveau FROM generic_lost b),
+publication_graded AS (
+  SELECT b.id,CASE WHEN
+    -- En bevaret event med ændret state bryder HELE RPC'en, også andres events.
+    EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=b.id
+      AND e.id NOT IN (SELECT (q.pk->>'id')::bigint FROM plan q
+        WHERE q.tabel='private.reimport_event' AND q.handling='slet')
+      AND e.payload->>'source_persona_id' IN (SELECT q.pk->>'source_persona_id' FROM plan q
+        WHERE q.tabel='private.source_persona_identity' AND q.handling='slet'))
+    AND EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=b.id
+      AND (e.canonical_person_id IS DISTINCT FROM p_person_id
+        OR e.payload->>'source_persona_id' NOT IN (SELECT q.pk->>'source_persona_id' FROM plan q
+          WHERE q.tabel='private.source_persona_identity' AND q.handling='slet')))
+    THEN 'advarsel' ELSE 'note' END AS niveau FROM publication_lost b)
+SELECT b.id,'red_reverse_reimport'::text,true,g.niveau FROM generic_ready b LEFT JOIN generic_graded g USING(id)
+UNION ALL
+SELECT b.id,'red_reverse_1939_v50_reimport',true,g.niveau FROM generic_ready b LEFT JOIN generic_graded g USING(id)
+UNION ALL
+SELECT b.id,'red_reverse_reimport_publication',true,g.niveau FROM publication_ready b LEFT JOIN publication_graded g USING(id)
+$purge_reversal$;
+REVOKE ALL ON FUNCTION private.person_purge_fortrydelse(bigint,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Task 7 / Q8-Q9 / R28. Statisk scan; intet tekstindhold i returværdien.
+CREATE OR REPLACE FUNCTION private.person_purge_kontrol(p_person_id bigint,p_plan jsonb)
+RETURNS TABLE(sted text,tabel text,pk jsonb,grund text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_control$
+WITH plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_plan) q(tabel text,pk jsonb,handling text)),
+  fam AS MATERIALIZED (SELECT family_id AS id FROM public.family_member WHERE person_id=p_person_id),
+  fam_keep AS (SELECT id FROM fam WHERE id NOT IN
+    (SELECT (pk->>'id')::bigint FROM plan WHERE tabel='family' AND handling='slet')),
+  tokens AS (SELECT '(^|[^0-9])('||string_agg(id::text,'|' ORDER BY id)||')([^0-9]|$)' AS rx
+    FROM (SELECT p_person_id AS id UNION SELECT id FROM fam) ids),
+  navn AS MATERIALIZED (SELECT n.navn,substring(to_jsonb(n.navn)::text FROM 2 FOR length(to_jsonb(n.navn)::text)-2) AS json_navn
+    FROM (SELECT nullif(visning_navn,'') AS navn FROM public.person WHERE id=p_person_id) n),
+  tekster AS (
+  SELECT 'S11c'::text AS sted,'private.source_persona_identity_event'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_persona_identity_event t WHERE true
+  UNION ALL
+  SELECT 'S34b'::text AS sted,'suggestion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.payload::text,t.vaerdi::text,t.note::text,t.kilde_fritekst::text) AS tekst FROM public.suggestion t WHERE true
+  UNION ALL
+  SELECT 'S37b'::text AS sted,'media'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.titel::text,t.original_filnavn::text,t.kunstner::text) AS tekst FROM public.media t WHERE true
+  UNION ALL
+  SELECT 'S38b'::text AS sted,'narrative'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.tekst::text) AS tekst FROM public.narrative t WHERE t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM fam_keep)
+  UNION ALL
+  SELECT 'S38b'::text AS sted,'note'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.indhold::text) AS tekst FROM public.note t WHERE t.target_type='family' AND t.target_id IN (SELECT id FROM fam_keep)
+  UNION ALL
+  SELECT 'S58'::text AS sted,'note'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.indhold::text) AS tekst FROM public.note t WHERE (t.target_type='family' AND t.target_id IN (SELECT id FROM fam_keep)) IS NOT TRUE
+  UNION ALL
+  SELECT 'S38b'::text AS sted,'assertion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.vaerdi_tekst::text,t.date_raw::text) AS tekst FROM public.assertion t WHERE t.target_type='fact' AND t.target_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep))
+  UNION ALL
+  SELECT 'S38b'::text AS sted,'citation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.citat_tekst::text) AS tekst FROM public.citation t WHERE t.assertion_id IN (SELECT a.id FROM public.assertion a JOIN public.fact f ON a.target_type='fact' AND a.target_id=f.id WHERE f.subjekt_type='family' AND f.subjekt_id IN (SELECT id FROM fam_keep))
+  UNION ALL
+  SELECT 'S44b'::text AS sted,'private.reimport_case_authorization'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.authorized_elements::text) AS tekst FROM private.reimport_case_authorization t WHERE true
+  UNION ALL
+  SELECT 'S45b'::text AS sted,'private.identity_control_parent_event'::text AS tabel,jsonb_build_object('card_id',t.card_id,'seq',t.seq) AS pk,
+    concat_ws(' ',t.note::text) AS tekst FROM private.identity_control_parent_event t WHERE true
+  UNION ALL
+  SELECT 'S49c'::text AS sted,'private.marriage_ordinal_correction'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.marriage_ordinal_correction t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.interpretation_promotion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.interpretation_promotion t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.interpretation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.value::text,t.decision_evidence::text) AS tekst FROM private.interpretation t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_persona_identity_candidate'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.basis::text) AS tekst FROM private.source_persona_identity_candidate t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.relation_reopen'::text AS tabel,jsonb_build_object('to_interpretation_id',t.to_interpretation_id) AS pk,
+    concat_ws(' ',t.context::text,t.note::text) AS tekst FROM private.relation_reopen t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.text_revision_reconciliation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.context::text) AS tekst FROM private.text_revision_reconciliation t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.relation_classification_event'::text AS tabel,jsonb_build_object('interpretation_key',t.interpretation_key,'seq',t.seq) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.relation_classification_event t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.legacy_placement_disposition'::text AS tabel,jsonb_build_object('person_id',t.person_id,'source_id',t.source_id,'version',t.version) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.legacy_placement_disposition t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_record_placement_decision'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_record_placement_decision t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_persona_placement_decision'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_persona_placement_decision t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.identity_control_event'::text AS tabel,jsonb_build_object('control_run_id',t.control_run_id,'seq',t.seq) AS pk,
+    concat_ws(' ',t.reason::text) AS tekst FROM private.identity_control_event t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.identity_control_exclusion'::text AS tabel,jsonb_build_object('control_run_id',t.control_run_id,'source_persona_id',t.source_persona_id) AS pk,
+    concat_ws(' ',t.reason::text) AS tekst FROM private.identity_control_exclusion t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_record_anchor_event'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_record_anchor_event t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_record_revision_event'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_record_revision_event t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_observation_text'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_observation_text t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.entity_description_source'::text AS tabel,jsonb_build_object('description_id',t.description_id,'source_record_id',t.source_record_id) AS pk,
+    concat_ws(' ',t.citation_note::text) AS tekst FROM private.entity_description_source t WHERE true
+  )
+SELECT DISTINCT t.sted,t.tabel,t.pk,'fritekst'::text FROM tekster t CROSS JOIN tokens CROSS JOIN navn
+WHERE (t.tekst COLLATE "C" ~ tokens.rx OR (navn.navn IS NOT NULL AND (
+    position((navn.navn COLLATE "C") IN (t.tekst COLLATE "C"))>0
+    OR position((navn.json_navn COLLATE "C") IN (t.tekst COLLATE "C"))>0)))
+  AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel=t.tabel AND d.pk=t.pk AND d.handling='slet')
+$purge_control$;
+REVOKE ALL ON FUNCTION private.person_purge_kontrol(bigint,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Task 7: forhåndsvisning. Planen (inkl. historik) beregnes én gang; alle øvrige læsere får samme snapshot.
+-- steder[sted] = [{tabel,pk,handling,grund,fase,ekstra}], sorteret binært efter tabel og pk.
+-- jsonb's objektnøgler serialiseres kanonisk; ALLE listeordener bruger tal/uuid eller COLLATE "C".
+CREATE OR REPLACE FUNCTION public.red_slet_person_helt_preview(p_person_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, public, private AS $purge_preview$
+DECLARE v_navn text; v_plan jsonb; v_result jsonb;
+BEGIN
+  IF public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  SELECT visning_navn INTO v_navn FROM public.person WHERE id=p_person_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'PURGE_FINDES_IKKE'; END IF;
+  -- person_purge_plan materialiserer selv person_purge_historik. Intet separat historikkald her.
+  SELECT coalesce(jsonb_agg(to_jsonb(q) ORDER BY q.tabel COLLATE "C",q.pk::text COLLATE "C"),'[]'::jsonb)
+    INTO v_plan FROM private.person_purge_plan(p_person_id) q;
+  WITH
+  plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(v_plan)
+    q(sted text,tabel text,pk jsonb,handling text,grund text,fase text,ekstra jsonb)),
+  slettes AS MATERIALIZED (SELECT tabel,pk FROM plan WHERE handling='slet'),
+  fam AS MATERIALIZED (SELECT DISTINCT family_id AS id FROM public.family_member WHERE person_id=p_person_id),
+  fam_del AS MATERIALIZED (SELECT (pk->>'id')::bigint AS id FROM slettes WHERE tabel='family'),
+  fam_keep AS MATERIALIZED (SELECT id FROM fam EXCEPT SELECT id FROM fam_del),
+  x AS MATERIALIZED (SELECT (pk->>'source_persona_id')::uuid AS id FROM slettes WHERE tabel='private.source_persona_identity'),
+  xy AS MATERIALIZED (SELECT id FROM x UNION SELECT source_persona_id FROM private.source_persona_identity_event
+    WHERE canonical_person_id=p_person_id),
+  candidates AS MATERIALIZED (SELECT id,run_id FROM private.source_persona_identity_candidate WHERE candidate_person_id=p_person_id),
+  -- §4.3: population, mapping, expected, exclusions og forældrekort er selvstændige indgange.
+  affected_control AS MATERIALIZED (
+    SELECT s.control_run_id AS id FROM private.identity_control_sample s WHERE s.source_persona_id IN (SELECT id FROM xy)
+      OR s.expected IN (SELECT id::text FROM candidates)
+      OR EXISTS (SELECT 1 FROM jsonb_each_text(s.mapping) m WHERE m.value IN (SELECT id::text FROM candidates))
+    UNION SELECT control_run_id FROM private.identity_control_exclusion WHERE source_persona_id IN (SELECT id FROM x)
+    UNION SELECT control_run_id FROM private.identity_control_parent_card
+      WHERE counterpart_person_id=p_person_id OR p_person_id=ANY(partner_ids) OR family_id IN (SELECT id FROM fam)
+    UNION SELECT r.id FROM private.identity_control_run r WHERE r.candidate_run_id IN (SELECT run_id FROM candidates)),
+  control AS MATERIALIZED (
+    SELECT r.id,r.source_id,r.candidate_run_id,
+      (SELECT e.status FROM private.identity_control_event e WHERE e.control_run_id=r.id ORDER BY e.seq DESC LIMIT 1) AS status,
+      r.candidate_run_id=(SELECT cr.id FROM private.source_persona_identity_candidate_run cr
+        WHERE cr.source_id=r.source_id ORDER BY cr.run_seq DESC LIMIT 1) AS gaeldende
+    FROM private.identity_control_run r WHERE r.id IN (SELECT id FROM affected_control)),
+  sources AS MATERIALIZED (
+    SELECT source_id AS id FROM public.person_external_id WHERE person_id=p_person_id
+    UNION SELECT source_id FROM private.source_persona WHERE id IN (SELECT id FROM xy)
+    UNION SELECT r.source_id FROM private.source_persona_identity_candidate_run r WHERE r.id IN (SELECT run_id FROM candidates)
+    UNION SELECT source_id FROM control),
+  c_removed AS MATERIALIZED (
+    SELECT e.id,e.batch_id,e.payload->>'persona_batch_id' AS persona_batch_id
+    FROM private.reimport_event e JOIN slettes d ON d.tabel='private.reimport_event' AND d.pk=jsonb_build_object('id',e.id)
+    JOIN private.reimport_batch b ON b.id=e.batch_id AND b.status IN ('finalized','activated')
+    WHERE e.operation='publication_identity'),
+  blockers AS (
+    SELECT jsonb_build_object('art',CASE WHEN sted IN ('S20','NY-A') THEN 'anden_paastand'
+      WHEN sted IN ('S39b','S49d') THEN 'anden_promotion' ELSE 'link_i_tekst' END,
+      'sted',sted,'tabel',tabel,'pk',pk) AS j FROM plan WHERE handling='blokér'
+    UNION ALL SELECT jsonb_build_object('art','aaben_koersel','pk',jsonb_build_object('id',id),
+      'tabel','private.identity_control_run') FROM control WHERE status IS NULL OR status='sealed'
+    UNION ALL SELECT jsonb_build_object('art','aaben_batch','tabel','private.reimport_batch','pk',jsonb_build_object('id',b.id))
+      FROM private.reimport_batch b WHERE b.source_id IN (SELECT id FROM sources) AND
+        (b.status='open' OR (b.status='finalized' AND EXISTS (SELECT 1 FROM private.reimport_event e
+          WHERE e.batch_id=b.id AND e.operation='person_create' AND e.canonical_person_id=p_person_id)))
+    UNION ALL SELECT jsonb_build_object('art','aaben_batch','tabel','private.reimport_batch','pk',jsonb_build_object('id',c.id))
+      FROM private.reimport_batch c JOIN private.reimport_authorization a ON a.id=c.authorization_id AND a.operation='name_completion'
+      JOIN private.reimport_batch b ON to_jsonb(b.id)=a.authorized_elements->'source_batch_id'
+      WHERE c.source_id IN (SELECT id FROM sources) AND c.status='finalized' AND b.status='finalized'
+        AND EXISTS (SELECT 1 FROM private.reimport_event e WHERE e.batch_id=b.id AND e.operation='person_create'
+          AND e.canonical_person_id=p_person_id)
+    UNION ALL SELECT jsonb_build_object('art','aaben_batch','tabel','private.reimport_authorization','pk',jsonb_build_object('id',id))
+      FROM private.reimport_authorization WHERE source_id IN (SELECT id FROM sources) AND status='issued' AND expires_at>now()
+    UNION ALL SELECT jsonb_build_object('art','aaben_batch','tabel','private.reimport_case_batch','pk',jsonb_build_object('id',id))
+      FROM private.reimport_case_batch WHERE source_id IN (SELECT id FROM sources) AND status='open'
+    UNION ALL SELECT jsonb_build_object('art','aaben_batch','tabel','private.reimport_case_authorization','pk',jsonb_build_object('id',id))
+      FROM private.reimport_case_authorization WHERE source_id IN (SELECT id FROM sources) AND status='issued'
+    -- Kun tab af den SIDSTE gyldige C-hændelse for B genlukker køen; en C i en anden batch tæller også.
+    UNION ALL SELECT DISTINCT jsonb_build_object('art','aaben_batch','tabel','private.reimport_batch',
+        'pk',jsonb_build_object('id',r.persona_batch_id)) FROM c_removed r
+      WHERE r.persona_batch_id IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM private.reimport_event e JOIN private.reimport_batch b ON b.id=e.batch_id
+        WHERE e.operation='publication_identity' AND e.payload->>'persona_batch_id'=r.persona_batch_id
+          AND b.status IN ('finalized','activated') AND b.source_id IN (SELECT id FROM sources)
+          AND e.id NOT IN (SELECT id FROM c_removed))
+    UNION ALL SELECT jsonb_build_object('art','afventer_kontrol','tabel','private.source_persona','pk',jsonb_build_object('id',id))
+      FROM xy WHERE private.persona_awaiting_control(id)
+    UNION ALL SELECT jsonb_build_object('art','samme_som_knudepunkt','antal',count(DISTINCT
+      CASE WHEN r.subjekt_id=p_person_id THEN r.objekt_id ELSE r.subjekt_id END))
+      FROM public.relation r WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+        AND (r.subjekt_id=p_person_id OR r.objekt_id=p_person_id)
+      HAVING count(DISTINCT CASE WHEN r.subjekt_id=p_person_id THEN r.objekt_id ELSE r.subjekt_id END)>=2),
+  affected_records AS MATERIALIZED (
+    SELECT DISTINCT rp.source_record_id AS id FROM private.source_persona_placement_current pp
+      JOIN private.source_record_placement_current rp ON rp.id=pp.record_placement_id
+      WHERE pp.source_persona_id IN (SELECT id FROM x) AND pp.decision_status='accepted'
+        AND pp.placement_role IN ('principal_member','co_principal') AND rp.decision_status='accepted'),
+  stale_narratives AS MATERIALIZED (
+    SELECT DISTINCT np.narrative_id AS id FROM private.narrative_record_publication np
+      WHERE np.source_record_id IN (SELECT id FROM affected_records) AND np.status IN ('draft','published')
+        AND np.narrative_id NOT IN (SELECT (pk->>'id')::bigint FROM slettes WHERE tabel='narrative')
+    UNION SELECT h.narrative_id FROM public.haendelse h JOIN slettes d ON d.tabel='haendelse' AND d.pk=jsonb_build_object('id',h.id)
+      WHERE h.narrative_id NOT IN (SELECT (pk->>'id')::bigint FROM slettes WHERE tabel='narrative')
+        AND NOT EXISTS (SELECT 1 FROM public.haendelse kept WHERE kept.narrative_id=h.narrative_id AND kept.id NOT IN
+          (SELECT (pk->>'id')::bigint FROM slettes WHERE tabel='haendelse'))),
+  stale_bindings AS MATERIALIZED (
+    SELECT p.id FROM private.interpretation_promotion p WHERE p.target_type='family' AND p.target_id IN (SELECT id FROM fam)
+      AND p.id NOT IN (SELECT (pk->>'id')::uuid FROM slettes WHERE tabel='private.interpretation_promotion')),
+  warnings AS (
+    SELECT jsonb_build_object('art','fortrydelse_mistes','batch_id',batch_id,'vej',vej,'niveau',niveau) AS j
+      FROM private.person_purge_fortrydelse(p_person_id,v_plan) WHERE niveau IS NOT NULL
+    UNION ALL SELECT jsonb_build_object('art','kontrolkoersel_failer','control_run_id',id,'niveau','advarsel')
+      FROM control WHERE status='passed' AND gaeldende
+    UNION ALL SELECT jsonb_build_object('art','forældede_bindinger','niveau','advarsel',
+      'narrativer',(SELECT count(*) FROM stale_narratives),'bindinger',(SELECT count(*) FROM stale_bindings))
+      WHERE EXISTS (SELECT 1 FROM stale_narratives) OR EXISTS (SELECT 1 FROM stale_bindings)),
+  steder AS (SELECT sted,jsonb_agg(jsonb_build_object('tabel',tabel,'pk',pk,'handling',handling,'grund',grund,'fase',fase,'ekstra',ekstra)
+      ORDER BY tabel COLLATE "C",pk::text COLLATE "C") AS j FROM plan GROUP BY sted),
+  storage AS (SELECT DISTINCT ekstra->>'bucket' AS bucket,ekstra->>'storage_path' AS sti
+    FROM plan WHERE handling='slet' AND tabel IN ('media','media_variant') AND ekstra->>'storage_path' IS NOT NULL)
+  SELECT jsonb_build_object(
+    'person_id',p_person_id,'navn',v_navn,
+    'steder',coalesce((SELECT jsonb_object_agg(sted,j) FROM steder),'{}'::jsonb),
+    'historik',jsonb_build_object('events',(SELECT count(*) FROM slettes WHERE tabel='change_event'),
+      'saet',(SELECT count(*) FROM slettes WHERE tabel='change_set')),
+    'familier_slettes',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM fam_del),'[]'::jsonb),
+    'familier_bevares',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM fam_keep),'[]'::jsonb),
+    'vielser_staar',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM public.fact
+      WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep) AND faktatype='vielse'),'[]'::jsonb),
+    'samme_som_komponent',coalesce((SELECT jsonb_agg(pid ORDER BY pid) FROM public._samme_som_gruppe(p_person_id)),'[]'::jsonb),
+    'forældes',jsonb_build_object('narrativer',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM stale_narratives),'[]'::jsonb),
+      'bindinger',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM stale_bindings),'[]'::jsonb)),
+    'storage',coalesce((SELECT jsonb_agg(jsonb_build_object('bucket',bucket,'sti',sti)
+      ORDER BY bucket COLLATE "C",sti COLLATE "C") FROM storage),'[]'::jsonb),
+    'blokeringer',coalesce((SELECT jsonb_agg(j ORDER BY j::text COLLATE "C") FROM (SELECT DISTINCT j FROM blockers) b),'[]'::jsonb),
+    'advarsler',coalesce((SELECT jsonb_agg(j ORDER BY j::text COLLATE "C") FROM warnings),'[]'::jsonb),
+    'til_kontrol',coalesce((SELECT jsonb_agg(to_jsonb(k) ORDER BY k.sted COLLATE "C",k.tabel COLLATE "C",k.pk::text COLLATE "C")
+      FROM private.person_purge_kontrol(p_person_id,v_plan) k),'[]'::jsonb),
+    'levende_bruger',EXISTS(SELECT 1 FROM public.profiles WHERE reventlow_person_id=p_person_id)) INTO v_result;
+  RETURN v_result||jsonb_build_object('sha256',encode(extensions.digest(convert_to(v_result::text,'UTF8'),'sha256'),'hex'));
+END
+$purge_preview$;
+REVOKE ALL ON FUNCTION public.red_slet_person_helt_preview(bigint) FROM PUBLIC,anon,authenticated,service_role;

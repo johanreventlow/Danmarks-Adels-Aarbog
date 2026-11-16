@@ -196,6 +196,69 @@ en kendt begrænsning: Q3 er en advarsel, ikke en blokering, og prædikatet er b
 for meget). Task 7, der bygger advarslerne, kan begrænse grenen til sletning af narrativets sidste hændelse og tilføje
 negative kontroller (bevaret hændelse, ren S27-løsning).
 
+
+### 2.9 Task 7 / R30: fælles prædikater og to niveauer (afløser 2.8)
+
+Projektejerens R30 og hovedsessionens præcisering 16/11 erstatter den konservative regel i 2.1, 2.2, 2.5 og 2.8.
+`private.person_purge_fortrydelse(person_id, plan_jsonb)` er nu den ENESTE eksekverbare definition. Både previewet og
+`tests/sql/person-purge-reversal-count.sql` bruger den. `kan_nu=true,niveau=NULL` er en uændret, fungerende fortrydelse
+og giver ingen previewpost. Ellers vises én `fortrydelse_mistes` pr. batch og RPC-vej:
+
+- `niveau='advarsel'`: en fungerende fortrydelse går tabt for mindst ét subjekt uden for X (en bevaret person eller persona).
+- `niveau='note'`: tabet berører kun egne subjekter. Det omfatter både en generel batch med kun P/X og en publication-batch
+  med kun P/X, selv om hele fortrydelsen forsvinder. En delvis publication-batch, hvor kun P's events fjernes og alle bevarede
+  events stadig har gyldig state-version, giver også note; de øvrige kan stadig fortrydes.
+
+Generel reversal og wrapperen er alt-eller-intet. Receiptets `has_haendelse` ændres kun, når narrativets SIDSTE hændelse
+slettes. En anden bevaret hændelse gør derfor S26-grenen falsk. S27 ændrer alene `fact_id`/`relation_id`, som IKKE indgår
+i narrativets state; en ren løsning giver ingen post. Identitetsafhængigheden følger gældende accepterede
+principal/co_principal-placements, ikke historiske placeringer. Kun parentens person_create/activation og barnets
+canonical_delta indgår som event-afhængigheder i den generelle kæde.
+
+Bindingsafhængighederne følger den målte state, som matcher aktiveringsreceiptet: den aktive
+`publication_state.binding.binding_id` og bindingerne i resultatpersonens `withdrawn_history`.
+En anden persons tilbagetrukne binding på samme record indgår ikke. Publication-event-afhængigheden er alene
+receiptets konkrete `event_id`: den reversible vej kræver `draft_updated`, hvis inverse bruger eventens egen
+`before_state`, ikke en forgænger-event. Ældre events på samme record er derfor ikke i sig selv afhængigheder.
+Måleren kalder fortsat den fælles funktion og har ingen separat kopi af prædikatet.
+
+Publication-reversal er delvis i forhold til den oprindelige batch. Fjernede egne events giver note. Drift i en BEVARET
+persons/personas event bryder RPC'en. Hvis batchen også rummer bevarede subjekter uden for X, giver det advarsel; en
+batch med kun X giver note. Den lukkede C3-vej giver fortsat 0/0 ved kontrakt v2.
+
+De gamle `*_mistes`-målekolonner tæller nu berørte batches (begge niveauer); de suppleres med `advarsler` og `noter`,
+summeret over RPC-veje. Den eksisterende fixtures publication 1/1 er dermed 0 advarsler og 1 note. S26-fixturen med Q's
+sidste hændelse giver 2 advarsler (generel + wrapper) og 1 publication-note. De gamle måletests asserterer også niveauerne.
+
+`preview_q3` prøver begge retninger, P-only på begge veje og aktiveret parent/finalized barn (kun Q/X-subjekter => note).
+Rollback-subtransaktioner kalder rigtige reversal-RPC'er: bevaret S26-hændelse og ren S27 giver identisk state før/efter og
+fortsat succes; delvis publication giver stadig én reversed identity; sidste S26 giver reversal-invalid og publication-drift
+giver `PUBLICATION_REVERSAL_VERSION_DRIFT`. Databasekørslerne er ikke udført af Task 7-implementeren; hovedsessionen
+kører dem og den tidlige måling, før Task 8.
+
+Rettelsesrunde 2 tilføjer `preview_q3_fremmed_historik_ingen_post_rpc_virker`: Q's aktiveringsreceipt matcher både før
+og efter oprettelse/fjernelse af P's tilbagetrukne binding og event på Q's record. Planen skal faktisk fjerne begge
+historikrækker, begge generelle veje skal forblive `kan_nu=true,niveau=NULL`, og den rigtige generelle reversal-RPC
+skal lykkes i rollback-subtransaktioner før og efter fjernelsen. Den eksisterende sidste-S26-test for reelt tab
+(advarsel og afvist reversal) bevares. Den nye SQL-test er ikke kørt i rettelsesrunden (ingen psql tilladt).
+
+Preview-kontrakten: `steder[sted]` er en liste af `{tabel,pk,handling,grund,fase,ekstra}`; tabellen er nødvendig, fordi samme
+sted kan dække flere tabeller. Alle andre feltformer står ved funktionen i schema.sql. `sha256` hasher UTF-8 af `(svar uden
+sha256)::text`; jsonb kanoniserer objektnøglerne, og ALLE producerede lister sorteres på tal/uuid eller `COLLATE "C"`.
+`niveau` indgår dermed i hashgrundlaget. Ingen flygtige værdier serialiseres. Udløb afgør alene, om en autorisation blokerer.
+Planen materialiseres én gang som jsonb; den materialiserer selv historikken, som ikke kaldes igen fra previewet. Q3- og
+Q9-hjælperne modtager den samme plan. Generic receipts får ét materialiseret state-kald pr. resultat.
+
+R28: inventaret suppleres med S34b/bevar_andres, S38b's noter/narrativer og S58 for bog-redaktørfelterne. Q9 scanner dem
+statisk og returnerer kun sted, tabel, pk og grund. Andres frie noter bruger S58 (testens note hos tredje); familienoter
+bruger S38b. `identity_control_exclusion.reason` scannes også, men kan ikke bære fixturens personnavn/id pga. feltets to
+CHECK-koder; dette står på Task 2b-harnessens `kan_ikke_forekomme`-liste og efterprøves i preview-testen.
+
+Taskens roadmapkobling er planens adgangskrav: trin 6's løse ende efter 6d-3; identitet og publicering; en generel leverance,
+hvor redaktøren kan gennemgå konsekvenserne før en fuld sletning. Preview/hash og de isolerede tests er Task 7's bevis;
+1791 og generalprøve 2 er fortsat Task 13's færdigbevis. Det erstatter manglende konsekvensoverblik ved skjulning eller
+`red_slet_person` med historik; roadmapstatus ændres ikke her.
+
 ---
 
 ## Del 3: Låse-spike (Task 0)

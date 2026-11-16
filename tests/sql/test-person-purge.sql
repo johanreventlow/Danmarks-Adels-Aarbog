@@ -10,10 +10,12 @@
   \echo 'PURGE_TEST_FEJL: angiv -v gruppe=<navn>'
   SELECT 1/0 AS gruppe_mangler;
 \endif
-SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest','oprindelse') AS gruppe_kendt,
+SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest','oprindelse','preview','preview_q3') AS gruppe_kendt,
        :'gruppe'='inventar' AS g_inventar, :'gruppe'='binding' AS g_binding,
        :'gruppe'='plan' AS g_plan, :'gruppe'='historik' AS g_historik, :'gruppe'='fortrydelse' AS g_fortrydelse,
-       :'gruppe'='manifest' AS g_manifest, :'gruppe'='oprindelse' AS g_oprindelse \gset
+       :'gruppe'='manifest' AS g_manifest, :'gruppe'='oprindelse' AS g_oprindelse,
+       :'gruppe'='preview' AS g_preview, :'gruppe'='preview_q3' AS g_preview_q3,
+       :'gruppe' IN ('preview','preview_q3') AS g_preview_helpers \gset
 \if :gruppe_kendt
 \else
   \echo 'PURGE_TEST_FEJL: ukendt gruppe'
@@ -823,6 +825,7 @@ SELECT pg_temp.assert_reversal(
         :reversal_cases_kan_nu,:reversal_cases_mistes,:reversal_publication_kan_nu,:reversal_publication_mistes]::bigint[],
   ARRAY[0,0,0,0,0,0,1,1]::bigint[],:'reversal_batches'::jsonb,
   '{}'::uuid[],'{}'::uuid[],ARRAY[purge_test.u('c_batch')],ARRAY[purge_test.u('c_batch')]);
+SELECT 1 / CASE WHEN :reversal_advarsler=0 AND :reversal_noter=1 THEN 1 ELSE 0 END;
 \echo OK fortrydelse_praedikater_fixture
 
 \ir fixtures/person-purge-reimport.sql
@@ -899,6 +902,7 @@ SELECT pg_temp.assert_reversal(
   ARRAY[1,1,1,1,0,0,1,1]::bigint[],:'reversal_batches'::jsonb,
   ARRAY[(state->>'source_batch_id')::uuid],ARRAY[(state->>'source_batch_id')::uuid],
   ARRAY[purge_test.u('c_batch')],ARRAY[purge_test.u('c_batch')]) FROM generic_test;
+SELECT 1 / CASE WHEN :reversal_advarsler=2 AND :reversal_noter=1 THEN 1 ELSE 0 END;
 \echo OK fortrydelse_s26_advarsel
 
 -- Negativ kontrol: en uberørt person må ikke give blanketadvarsel for Q eller C-batchen.
@@ -1821,4 +1825,706 @@ END $t$;
 SET CONSTRAINTS ALL IMMEDIATE;
 ROLLBACK;
 \echo OK purge_kontrolkoersel_failed
+\endif
+
+-- =====================================================================================================================
+-- Task 7. Alle mutationer er syntetiske og rulles tilbage. Ingen tekst i fejl/output.
+-- =====================================================================================================================
+\if :g_preview_helpers
+SET request.jwt.claim.sub='a2a00000-0000-4000-8000-00000000a001';
+CREATE FUNCTION pg_temp.preview_assert(p_ok boolean,p_test text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN IF p_ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'TEST_FAILED %',p_test; END IF; END $$;
+CREATE FUNCTION pg_temp.preview_has(p_json jsonb,p_art text,p_tabel text DEFAULT NULL,p_pk jsonb DEFAULT NULL)
+RETURNS boolean LANGUAGE sql AS $$
+  SELECT EXISTS (SELECT 1 FROM jsonb_array_elements(p_json->'blokeringer') b WHERE b->>'art'=p_art
+    AND (p_tabel IS NULL OR b->>'tabel'=p_tabel) AND (p_pk IS NULL OR b->'pk'=p_pk))
+$$;
+-- Test-only clone: kopier gyldige fixtures og patch nøgler/felter. Aldrig produktions-SQL.
+CREATE FUNCTION pg_temp.preview_clone(p_tabel text,p_filter text,p_patch jsonb) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE j jsonb;
+BEGIN
+  EXECUTE format('SELECT to_jsonb(t) FROM %s t WHERE %s LIMIT 1',p_tabel,p_filter) INTO STRICT j;
+  IF j IS NULL THEN RAISE EXCEPTION 'TEST_FAILED preview_clone mangler fixturrække'; END IF;
+  j:=j||p_patch;
+  EXECUTE format('INSERT INTO %s AS n OVERRIDING SYSTEM VALUE SELECT (jsonb_populate_record(NULL::%s,$1)).* RETURNING to_jsonb(n)',
+    p_tabel,p_tabel) INTO j USING j;
+  RETURN j;
+END $$;
+\endif
+\if :g_preview
+BEGIN;
+\ir fixtures/kalder-matrix.sql
+SELECT pg_temp.km_kaldere();
+DO $role$
+DECLARE k text; v_id bigint; v_error text; v_state text; v_previous text; v_prev_state text;
+BEGIN
+  FOREACH k IN ARRAY ARRAY['gaest','uden_profil','medlem'] LOOP
+    v_previous:=NULL; v_prev_state:=NULL;
+    FOREACH v_id IN ARRAY ARRAY[purge_test.id('P'),9223372036854775807::bigint] LOOP
+      BEGIN
+        PERFORM pg_temp.km_antal(k,format('SELECT * FROM jsonb_each(public.red_slet_person_helt_preview(%s))',v_id));
+        RAISE EXCEPTION 'TEST_FAILED preview_rollegate_foerst accepterede';
+      EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_error=MESSAGE_TEXT,v_state=RETURNED_SQLSTATE;
+      END;
+      IF k='gaest' THEN
+        PERFORM pg_temp.preview_assert(v_state='42501','preview_rollegate_foerst anon');
+      ELSE PERFORM pg_temp.preview_assert(v_error='Kun redaktion','preview_rollegate_foerst medlem'); END IF;
+      IF v_previous IS NOT NULL THEN
+        PERFORM pg_temp.preview_assert(v_previous=v_error AND v_prev_state=v_state,'preview_rollegate_foerst oracle');
+      END IF;
+      v_previous:=v_error; v_prev_state:=v_state;
+    END LOOP;
+  END LOOP;
+  PERFORM pg_temp.preview_assert(NOT has_function_privilege('anon','public.red_slet_person_helt_preview(bigint)','EXECUTE')
+    AND NOT has_function_privilege('service_role','public.red_slet_person_helt_preview(bigint)','EXECUTE')
+    AND has_function_privilege('authenticated','public.red_slet_person_helt_preview(bigint)','EXECUTE'),'preview_acl');
+  PERFORM pg_temp.preview_assert(pg_temp.km_antal('redaktion',format(
+    'SELECT * FROM jsonb_each(public.red_slet_person_helt_preview(%s))',purge_test.id('P')))>0,'preview_redaktion');
+END $role$;
+\echo OK preview_rollegate_foerst
+ROLLBACK;
+
+BEGIN;
+DO $base$
+DECLARE j jsonb; j_after jsonb; j_pk_only jsonb; h text; v_f bigint; v_g bigint; v_index bigint;
+BEGIN
+  j:=public.red_slet_person_helt_preview(purge_test.id('P'));
+  PERFORM pg_temp.preview_assert(j->'blokeringer'='[]'::jsonb,'preview_fixture_ingen_blokering');
+  PERFORM pg_temp.preview_assert(j->'familier_slettes' @> to_jsonb(purge_test.id('fam_del'))
+    AND j->'familier_bevares' @> to_jsonb(purge_test.id('fam_keep'))
+    AND j->'vielser_staar' @> to_jsonb(purge_test.id('fakta_vielse_keep'))
+    AND NOT j->'vielser_staar' @> to_jsonb(purge_test.id('fakta_vielse_del')),'preview_familier');
+  PERFORM pg_temp.preview_assert(j->'samme_som_komponent' @> to_jsonb(purge_test.id('nabo'))
+    AND (j#>>'{historik,events}')::int>0 AND (j#>>'{historik,saet}')::int>0
+    AND jsonb_array_length(j->'storage')>0 AND (j->>'levende_bruger')::boolean,'preview_indhold');
+  h:=j->>'sha256';
+  PERFORM pg_temp.preview_assert(h=public.red_slet_person_helt_preview(purge_test.id('P'))->>'sha256'
+    AND h=encode(extensions.digest(convert_to((j-'sha256')::text,'UTF8'),'sha256'),'hex'),'preview_hash_stabil');
+  -- Ét blad-faktum erstattes af et andet uden afhængige påstande; antallet er uændret.
+  PERFORM purge_test.nyt(); PERFORM public.begin_change_set('preview_hash','fixture','person',purge_test.id('P'));
+  INSERT INTO public.fact(subjekt_type,subjekt_id,faktatype) VALUES ('person',purge_test.id('P'),'preview-hash') RETURNING id INTO v_f;
+  j:=public.red_slet_person_helt_preview(purge_test.id('P')); h:=j->>'sha256';
+  DELETE FROM public.fact WHERE id=v_f;
+  INSERT INTO public.fact(subjekt_type,subjekt_id,faktatype) VALUES ('person',purge_test.id('P'),'preview-hash') RETURNING id INTO v_g;
+  j_after:=public.red_slet_person_helt_preview(purge_test.id('P'));
+  PERFORM pg_temp.preview_assert(v_f<>v_g AND h<>j_after->>'sha256'
+    AND jsonb_array_length(j#>'{steder,S13}')=jsonb_array_length(j_after#>'{steder,S13}')
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(j_after#>'{steder,S13}') s
+      WHERE s->>'tabel'='fact' AND s->'pk'=jsonb_build_object('id',v_g))
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(j_after#>'{steder,S13}') s
+      WHERE s->>'tabel'='fact' AND s->'pk'=jsonb_build_object('id',v_f)),
+    'preview_hash_samme_antal');
+  -- Hold ALLE historikevents/-tællinger fast på efter-snapshotet; skift kun S13's pk i hashgrundlaget.
+  SELECT ord-1 INTO STRICT v_index FROM jsonb_array_elements(j_after#>'{steder,S13}') WITH ORDINALITY s(j,ord)
+    WHERE s.j->>'tabel'='fact' AND s.j->'pk'=jsonb_build_object('id',v_g);
+  j_pk_only:=jsonb_set(j_after-'sha256',ARRAY['steder','S13',v_index::text,'pk'],jsonb_build_object('id',v_f));
+  PERFORM pg_temp.preview_assert(j_after->>'sha256'=
+      encode(extensions.digest(convert_to((j_after-'sha256')::text,'UTF8'),'sha256'),'hex')
+    AND j_after->>'sha256'<>
+      encode(extensions.digest(convert_to(j_pk_only::text,'UTF8'),'sha256'),'hex'),'preview_hash_kun_pk');
+END $base$;
+\echo OK preview_familier
+\echo OK preview_hash_stabil
+ROLLBACK;
+
+-- §4.1: hver kolonne og måltype i sin egen rollback-subtransaktion. En baseline uden links er bevist ovenfor.
+BEGIN;
+DO $links$
+DECLARE r record; target record; v_id bigint; v_sql text; j jsonb; v_token text;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES
+    ('narrative','tekst',purge_test.id('narrativ_anden')),
+    ('note','indhold',purge_test.id('note_tredje')),
+    ('story','titel',purge_test.id('story_anden_forankret')),('story','tekst',purge_test.id('story_anden_forankret')),
+    ('haendelse','klausul',purge_test.id('haendelse_anden_forankret')),
+    ('media','titel',purge_test.id('medie_delt')),
+    ('assertion','vaerdi_tekst',(SELECT id FROM public.assertion WHERE target_type='fact' AND target_id=purge_test.id('fakta_vielse_keep') LIMIT 1)),
+    ('assertion','date_raw',(SELECT id FROM public.assertion WHERE target_type='fact' AND target_id=purge_test.id('fakta_vielse_keep') LIMIT 1)),
+    ('citation','citat_tekst',(SELECT c.id FROM public.citation c JOIN public.assertion a ON a.id=c.assertion_id
+       WHERE a.target_type='fact' AND a.target_id=purge_test.id('fakta_vielse_keep') LIMIT 1))
+    ) x(tabel,kolonne,id) LOOP
+    FOR target IN SELECT * FROM (VALUES ('person',purge_test.id('P')),('family',purge_test.id('fam_del')),
+      ('media',purge_test.id('medie_eksklusiv'))) x(typ,id) LOOP
+      BEGIN
+        PERFORM purge_test.nyt(); PERFORM public.begin_change_set('preview_link','fixture');
+        v_token:=format('[[%s:%s|fixture]]',target.typ,target.id);
+        EXECUTE format('UPDATE public.%I SET %I=$1 WHERE id=$2',r.tabel,r.kolonne) USING v_token,r.id;
+        j:=public.red_slet_person_helt_preview(purge_test.id('P'));
+        IF target.typ='media' AND r.tabel IN ('narrative','note') THEN
+          -- trg_mentions_narrative/note synkroniserer text_mention; et medie med en indgående mention er ikke i M_del
+          -- og bevares derfor. Ingen sletning → intet dødt link → ingen blokering, og mediet må ikke stå som slet.
+          -- Alle arter dækkes, også text_mention med sammensat pk. Andre baselineblokeringer er irrelevante.
+          PERFORM pg_temp.preview_assert(NOT EXISTS (SELECT 1 FROM jsonb_array_elements(j->'blokeringer') b WHERE
+              (b->>'tabel'=r.tabel AND b->'pk'=jsonb_build_object('id',r.id))
+              OR (b->>'tabel'='media' AND b->'pk'=jsonb_build_object('id',target.id))
+              OR (b->>'tabel'='text_mention' AND (
+                (b#>>'{pk,kilde_type}'=r.tabel AND b#>>'{pk,kilde_id}'=r.id::text)
+                OR (b#>>'{pk,maal_type}'='media' AND b#>>'{pk,maal_id}'=target.id::text))))
+            AND NOT EXISTS (SELECT 1 FROM private.person_purge_plan(purge_test.id('P')) pl
+              WHERE pl.tabel='media' AND pl.handling='slet' AND pl.pk=jsonb_build_object('id',target.id)),
+            'preview_blokering_link '||r.tabel||'.'||r.kolonne||'/media_bevares');
+        ELSE
+          PERFORM pg_temp.preview_assert(pg_temp.preview_has(j,'link_i_tekst',r.tabel,jsonb_build_object('id',r.id)),
+            'preview_blokering_link '||r.tabel||'.'||r.kolonne||'/'||target.typ);
+        END IF;
+        RAISE SQLSTATE 'ZX001';
+      EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL; END;
+    END LOOP;
+  END LOOP;
+  FOR r IN SELECT unnest(ARRAY['vaerdi','note','kilde_fritekst','payload']) AS kolonne LOOP
+    BEGIN
+      PERFORM purge_test.nyt();
+      INSERT INTO public.suggestion(subjekt_type,subjekt_id) VALUES ('person',purge_test.id('tredje')) RETURNING id INTO v_id;
+      v_sql:=format('UPDATE public.suggestion SET %I=$1%s WHERE id=$2',r.kolonne,CASE WHEN r.kolonne='payload' THEN '::jsonb' ELSE '' END);
+      v_token:=format('[[person:%s|fixture]]',purge_test.id('P'));
+      IF r.kolonne='payload' THEN v_token:=jsonb_build_object('note',v_token)::text; END IF;
+      EXECUTE v_sql USING v_token,v_id;
+      PERFORM pg_temp.preview_assert(pg_temp.preview_has(public.red_slet_person_helt_preview(purge_test.id('P')),
+        'link_i_tekst','suggestion',jsonb_build_object('id',v_id)),'preview_blokering_link suggestion.'||r.kolonne);
+      RAISE SQLSTATE 'ZX001';
+    EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL; END;
+  END LOOP;
+  BEGIN
+    PERFORM purge_test.nyt();
+    INSERT INTO public.entity_description(subjekt_type,subjekt_id,kind,tekst)
+      VALUES ('person',purge_test.id('tredje'),'overview',format('[[person:%s|fixture]]',purge_test.id('P'))) RETURNING id INTO v_id;
+    PERFORM pg_temp.preview_assert(pg_temp.preview_has(public.red_slet_person_helt_preview(purge_test.id('P')),
+      'link_i_tekst','entity_description',jsonb_build_object('id',v_id)),'preview_blokering_link entity_description');
+    RAISE SQLSTATE 'ZX001';
+  EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL; END;
+END $links$;
+\echo OK preview_blokering_link
+ROLLBACK;
+
+BEGIN;
+DO $node$
+BEGIN
+  -- P har allerede én samme_som (nabo). En ny person uden union med P gør P til knudepunkt (§4.6: ≥2).
+  -- (tredje kan ikke bruges: tredje og P er parter i samme union, hvilket red_samme_som afviser.)
+  PERFORM purge_test.nyt();
+  PERFORM public.red_samme_som(public.red_opret_person('Knudepunkt Fixture','mand',false,'1860',NULL,NULL),purge_test.id('P'));
+  PERFORM pg_temp.preview_assert(pg_temp.preview_has(public.red_slet_person_helt_preview(purge_test.id('P')),
+    'samme_som_knudepunkt'),'preview_blokering_knudepunkt');
+END $node$;
+\echo OK preview_blokering_knudepunkt
+ROLLBACK;
+
+BEGIN;
+DO $promotion$
+DECLARE t private.interpretation%ROWTYPE; v_i uuid; v_prom uuid; j jsonb;
+BEGIN
+  SELECT i.* INTO STRICT t FROM private.interpretation i JOIN private.interpretation_promotion p ON p.interpretation_id=i.id
+    WHERE p.id=purge_test.u('prom_egen');
+  -- Ægtefællens accepterede persona, uden for X; egen record hos T1 bevares.
+  PERFORM public.red_afgoer_source_persona(purge_test.u('T1'),
+    (SELECT version FROM private.source_persona_identity WHERE source_persona_id=purge_test.u('T1')),
+    'same',purge_test.id('aegtefaelle'),'Fixture');
+  INSERT INTO private.interpretation(interpretation_key,version,source_id,source_persona_id,interpretation_kind,
+    predicate,value,schema_version,derivation_kind,confidence,status,method,extraction_run_id)
+  VALUES(gen_random_uuid(),1,t.source_id,purge_test.u('T1'),t.interpretation_kind,t.predicate,t.value,t.schema_version,
+    t.derivation_kind,1,'proposed','fixture',t.extraction_run_id) RETURNING id INTO v_i;
+  INSERT INTO private.interpretation_observation(interpretation_id,observation_id,evidence_role,ordinal)
+    SELECT v_i,observation_id,evidence_role,ordinal FROM private.interpretation_observation WHERE interpretation_id=t.id;
+  v_i:=public.red_decide_interpretation(v_i,1,'accepted','{"basis":"preview-q5"}');
+  BEGIN
+    INSERT INTO private.interpretation_promotion(interpretation_id,target_type,target_id,evidence,promoted_by,promoted_by_name)
+    VALUES(v_i,'family',purge_test.id('fam_del'),jsonb_build_object('state_sha256',repeat('a',64)),auth.uid(),'Fixture') RETURNING id INTO v_prom;
+    PERFORM pg_temp.preview_assert(pg_temp.preview_has(public.red_slet_person_helt_preview(purge_test.id('P')),
+      'anden_promotion','private.interpretation_promotion',jsonb_build_object('id',v_prom)),'preview_blokering_promotion');
+    RAISE SQLSTATE 'ZX001';
+  EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL; END;
+  INSERT INTO private.interpretation_promotion(interpretation_id,target_type,target_id,evidence,promoted_by,promoted_by_name)
+    VALUES(v_i,'person',purge_test.id('P'),'{"basis":"preview-q5"}',auth.uid(),'Fixture') RETURNING id INTO v_prom;
+  j:=public.red_slet_person_helt_preview(purge_test.id('P'));
+  PERFORM pg_temp.preview_assert(NOT pg_temp.preview_has(j,'anden_promotion') AND EXISTS (
+    SELECT 1 FROM jsonb_array_elements(j#>'{steder,S39a}') p WHERE p->'pk'=jsonb_build_object('id',v_prom)),
+    'preview_ingen_blokering_egen_promotion_fra_andens_record');
+END $promotion$;
+\echo OK preview_blokering_promotion
+\echo OK preview_ingen_blokering_egen_promotion_fra_andens_record
+ROLLBACK;
+
+-- Ny kontrolkørsel pr. vej/status; den gamle failed-kørsel ændres aldrig.
+BEGIN;
+DO $control$
+DECLARE v_run uuid; v_cr uuid; v_j jsonb; v_path int; v_status text; v_row jsonb;
+BEGIN
+  FOR v_path IN 1..6 LOOP
+    FOREACH v_status IN ARRAY ARRAY['sealed','passed','failed'] LOOP
+      BEGIN
+        v_run:=gen_random_uuid(); v_cr:=gen_random_uuid();
+        PERFORM pg_temp.preview_clone('private.source_persona_identity_candidate_run',format('id=%L',purge_test.u('kandidatkoersel')),
+          jsonb_build_object('id',v_cr,'run_seq',(SELECT max(run_seq)+1 FROM private.source_persona_identity_candidate_run),
+            'input_sha256',encode(extensions.digest(v_cr::text,'sha256'),'hex')));
+        PERFORM pg_temp.preview_clone('private.identity_control_run',format('id=%L',purge_test.u('kontrolkoersel')),
+          jsonb_build_object('id',v_run,'candidate_run_id',v_cr));
+        IF v_path=1 THEN
+          PERFORM pg_temp.preview_clone('private.identity_control_sample',format('id=%L',purge_test.u('stikproeve_X1')),
+            jsonb_build_object('id',gen_random_uuid(),'control_run_id',v_run,'mapping','{"1":"S"}'::jsonb,'expected','S'));
+        ELSIF v_path=2 THEN -- P kun som mapping/expected i en ANDENS stikprøve.
+          PERFORM pg_temp.preview_clone('private.identity_control_sample',format('id=%L',purge_test.u('stikproeve_X1')),
+            jsonb_build_object('id',gen_random_uuid(),'control_run_id',v_run,'source_persona_id',purge_test.u('T1')));
+        ELSIF v_path=3 THEN
+          INSERT INTO private.identity_control_exclusion VALUES(v_run,purge_test.u('X1'),'rang1_tidsumulig');
+        ELSIF v_path=4 THEN -- counterpart uden P i partner_ids, så vejene prøves uafhængigt.
+          PERFORM pg_temp.preview_clone('private.identity_control_parent_card','true',jsonb_build_object('id',gen_random_uuid(),
+            'control_run_id',v_run,'family_id',purge_test.id('fam_andre'),'partner_ids',ARRAY[purge_test.id('tredje')]));
+        ELSIF v_path=5 THEN
+          PERFORM pg_temp.preview_clone('private.identity_control_parent_card','true',jsonb_build_object('id',gen_random_uuid(),
+            'control_run_id',v_run,'counterpart_person_id',purge_test.id('tredje')));
+        ELSE
+          PERFORM pg_temp.preview_clone('private.source_persona_identity_candidate',format('id=%L',purge_test.u('kandidat_P')),
+            jsonb_build_object('id',gen_random_uuid(),'run_id',v_cr));
+        END IF;
+        PERFORM private.append_control_event(v_run,'sealed',NULL,repeat('1',64),repeat('2',64));
+        IF v_status<>'sealed' THEN PERFORM private.append_control_event(v_run,v_status,NULL); END IF;
+        v_j:=public.red_slet_person_helt_preview(purge_test.id('P'));
+        PERFORM pg_temp.preview_assert(pg_temp.preview_has(v_j,'aaben_koersel','private.identity_control_run',jsonb_build_object('id',v_run))
+          =(v_status='sealed'),'preview_blokering_aaben_koersel');
+        IF v_status='passed' THEN
+          PERFORM pg_temp.preview_assert(EXISTS(SELECT 1 FROM jsonb_array_elements(v_j->'advarsler') a
+            WHERE a->>'art'='kontrolkoersel_failer' AND a->>'control_run_id'=v_run::text),'preview_q4');
+        END IF;
+        RAISE SQLSTATE 'ZX001';
+      EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL; END;
+    END LOOP;
+  END LOOP;
+END $control$;
+\echo OK preview_blokering_aaben_koersel
+ROLLBACK;
+
+BEGIN;
+DO $batches$
+DECLARE v_case int; a jsonb; b jsonb; c jsonb; e jsonb; v_a uuid; v_b uuid; v_child uuid; v_new_b uuid; j jsonb;
+BEGIN
+  FOR v_case IN 1..7 LOOP
+    BEGIN
+      v_a:=gen_random_uuid(); v_b:=gen_random_uuid();
+      IF v_case IN (1,2,3,4,7) THEN
+        a:=pg_temp.preview_clone('private.reimport_authorization',format('id=(SELECT authorization_id FROM private.reimport_batch WHERE id=%L)',
+          purge_test.u('nc_forælder')),jsonb_build_object('id',v_a,'nonce',gen_random_uuid(),
+          'status',CASE WHEN v_case IN (3,4) THEN 'issued' ELSE 'consumed' END,
+          'consumed_at',CASE WHEN v_case IN (3,4) THEN NULL ELSE to_jsonb(now()) END,
+          'expires_at',now()+CASE WHEN v_case=4 THEN interval '-1 day' ELSE interval '1 day' END));
+      ELSE
+        a:=pg_temp.preview_clone('private.reimport_case_authorization','true',jsonb_build_object('id',v_a,'nonce',gen_random_uuid(),
+          'status',CASE WHEN v_case=6 THEN 'issued' ELSE 'consumed' END,
+          'consumed_at',CASE WHEN v_case=6 THEN NULL ELSE to_jsonb(now()) END));
+      END IF;
+      IF v_case IN (1,2) THEN
+        b:=pg_temp.preview_clone('private.reimport_batch',format('id=%L',purge_test.u('nc_forælder')),
+          jsonb_build_object('id',v_b,'authorization_id',v_a,'preview_sha256',encode(extensions.digest(v_b::text,'sha256'),'hex'),
+            'status',CASE WHEN v_case=1 THEN 'open' ELSE 'finalized' END));
+        IF v_case=2 THEN
+          e:=pg_temp.preview_clone('private.reimport_event',format('batch_id=%L AND operation=%L',purge_test.u('nc_forælder'),'person_create'),
+            jsonb_build_object('id',nextval(pg_get_serial_sequence('private.reimport_event','id')),'batch_id',v_b));
+          v_a:=gen_random_uuid(); v_child:=gen_random_uuid();
+          a:=pg_temp.preview_clone('private.reimport_authorization',format('id=(SELECT authorization_id FROM private.reimport_batch WHERE id=%L)',
+            purge_test.u('nc_barn')),jsonb_build_object('id',v_a,'nonce',gen_random_uuid(),
+            'authorized_elements',jsonb_build_object('source_batch_id',v_b)));
+          c:=pg_temp.preview_clone('private.reimport_batch',format('id=%L',purge_test.u('nc_barn')),
+            jsonb_build_object('id',v_child,'authorization_id',v_a,'preview_sha256',encode(extensions.digest(v_child::text,'sha256'),'hex')));
+        END IF;
+      ELSIF v_case=5 THEN
+        b:=pg_temp.preview_clone('private.reimport_case_batch','true',jsonb_build_object('id',v_b,'authorization_id',v_a,'status','open',
+          'preview_sha256',encode(extensions.digest(v_b::text,'sha256'),'hex')));  -- manifest_uidx kræver en ny preview-hash
+      ELSIF v_case=7 THEN
+        -- En ny B har to subjekter (P og tredje), men dens eneste C-event er P's.
+        b:=pg_temp.preview_clone('private.reimport_batch',format('id=%L',purge_test.u('b_batch')),
+          jsonb_build_object('id',v_b,'authorization_id',v_a,'preview_sha256',encode(extensions.digest(v_b::text,'sha256'),'hex')));
+        FOR e IN SELECT to_jsonb(t) AS j FROM private.reimport_event t WHERE batch_id=purge_test.u('b_batch') LOOP
+          -- B-events er kun nødvendige som population for den reelle venter-på-kontrol-vej.
+          PERFORM pg_temp.preview_clone('private.reimport_event',format('id=%s',e->>'id'),
+            jsonb_build_object('id',nextval(pg_get_serial_sequence('private.reimport_event','id')),'batch_id',v_b));
+        END LOOP;
+        v_new_b:=v_b; v_a:=gen_random_uuid(); v_b:=gen_random_uuid();
+        a:=pg_temp.preview_clone('private.reimport_authorization',format('id=(SELECT authorization_id FROM private.reimport_batch WHERE id=%L)',
+          purge_test.u('c_batch')),jsonb_build_object('id',v_a,'nonce',gen_random_uuid()));
+        b:=pg_temp.preview_clone('private.reimport_batch',format('id=%L',purge_test.u('c_batch')),
+          jsonb_build_object('id',v_b,'authorization_id',v_a,'preview_sha256',encode(extensions.digest(v_b::text,'sha256'),'hex')));
+        SELECT to_jsonb(t) INTO e FROM private.reimport_event t WHERE batch_id=purge_test.u('c_batch') AND canonical_person_id=purge_test.id('P');
+        PERFORM pg_temp.preview_clone('private.reimport_event',format('id=%s',e->>'id'),
+          jsonb_build_object('id',nextval(pg_get_serial_sequence('private.reimport_event','id')),'batch_id',v_b,
+            'payload',(e->'payload')||jsonb_build_object('persona_batch_id',v_new_b)));
+      END IF;
+      j:=public.red_slet_person_helt_preview(purge_test.id('P'));
+      IF v_case=4 THEN
+        PERFORM pg_temp.preview_assert(NOT pg_temp.preview_has(j,'aaben_batch','private.reimport_authorization',jsonb_build_object('id',v_a)),
+          'preview_udloebet_autorisation');
+      ELSE
+        PERFORM pg_temp.preview_assert(pg_temp.preview_has(j,'aaben_batch',CASE
+          WHEN v_case=3 THEN 'private.reimport_authorization' WHEN v_case=6 THEN 'private.reimport_case_authorization'
+          WHEN v_case=5 THEN 'private.reimport_case_batch' ELSE 'private.reimport_batch' END,
+          jsonb_build_object('id',CASE WHEN v_case IN (3,6) THEN v_a WHEN v_case=7 THEN v_new_b ELSE v_b END)),
+          'preview_blokering_batch');
+        IF v_case=2 THEN PERFORM pg_temp.preview_assert(pg_temp.preview_has(j,'aaben_batch','private.reimport_batch',
+          jsonb_build_object('id',v_child)),'preview_blokering_name_completion_barn'); END IF;
+      END IF;
+      RAISE SQLSTATE 'ZX001';
+    EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL; END;
+  END LOOP;
+END $batches$;
+\echo OK preview_blokering_batch
+ROLLBACK;
+
+BEGIN;
+DO $awaiting$
+DECLARE v_a uuid; v_b uuid:=purge_test.u('c_batch'); j jsonb;
+BEGIN
+  PERFORM purge_test.nyt();
+  SET LOCAL ROLE service_role;
+  v_a:=public.red_authorize_reimport_reversal(v_b,gen_random_uuid(),now()+interval '10 minutes');
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_reverse_reimport_publication(v_b,v_a);
+  RESET ROLE;
+  j:=public.red_slet_person_helt_preview(purge_test.id('P'));
+  PERFORM pg_temp.preview_assert(pg_temp.preview_has(j,'afventer_kontrol','private.source_persona',
+    jsonb_build_object('id',purge_test.u('X1'))),'preview_blokering_afventer_kontrol');
+END $awaiting$;
+\echo OK preview_blokering_afventer_kontrol
+ROLLBACK;
+BEGIN;
+DO $assertion$
+DECLARE v_typ text; v_a bigint;
+BEGIN
+  FOREACH v_typ IN ARRAY ARRAY['person','family'] LOOP
+    BEGIN
+      PERFORM purge_test.nyt(); PERFORM public.begin_change_set('preview_paastand','fixture');
+      INSERT INTO public.assertion(target_type,target_id,objekt_type,objekt_id)
+        SELECT 'fact',id,v_typ,CASE WHEN v_typ='person' THEN purge_test.id('P') ELSE purge_test.id('fam_del') END
+        FROM public.fact WHERE subjekt_type='person' AND subjekt_id=purge_test.id('tredje') LIMIT 1 RETURNING id INTO STRICT v_a;
+      PERFORM pg_temp.preview_assert(pg_temp.preview_has(public.red_slet_person_helt_preview(purge_test.id('P')),
+        'anden_paastand','assertion',jsonb_build_object('id',v_a)),'preview_blokering_anden_paastand');
+      RAISE SQLSTATE 'ZX001';
+    EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL; END;
+  END LOOP;
+END $assertion$;
+\echo OK preview_blokering_anden_paastand
+ROLLBACK;
+
+BEGIN;
+CREATE TEMP TABLE q9_expected(sted text,tabel text,pk jsonb,PRIMARY KEY(sted,tabel,pk)) ON COMMIT DROP;
+DO $q9$
+DECLARE v_name text; v_id bigint; v_uuid uuid; j jsonb; v_card uuid; v_i uuid; v_e bigint;
+  v_obs private.source_observation%ROWTYPE; v_prev private.source_observation_text%ROWTYPE; v_rend uuid;
+BEGIN
+  SELECT visning_navn INTO STRICT v_name FROM public.person WHERE id=purge_test.id('P');
+  PERFORM purge_test.nyt(); PERFORM public.begin_change_set('preview_q9','fixture');
+  UPDATE public.note SET indhold=v_name WHERE id=purge_test.id('note_tredje');
+  INSERT INTO q9_expected VALUES('S58','note',jsonb_build_object('id',purge_test.id('note_tredje')));
+  UPDATE public.media SET titel=v_name WHERE id=purge_test.id('medie_delt');
+  INSERT INTO q9_expected VALUES('S37b','media',jsonb_build_object('id',purge_test.id('medie_delt')));
+  INSERT INTO public.suggestion(subjekt_type,subjekt_id,note) VALUES('person',purge_test.id('tredje'),v_name) RETURNING id INTO v_id;
+  INSERT INTO q9_expected VALUES('S34b','suggestion',jsonb_build_object('id',v_id));
+  INSERT INTO public.note(target_type,target_id,indhold) VALUES('family',purge_test.id('fam_keep'),v_name) RETURNING id INTO v_id;
+  INSERT INTO q9_expected VALUES('S38b','note',jsonb_build_object('id',v_id));
+  INSERT INTO public.narrative(subjekt_type,subjekt_id,tekst) VALUES('family',purge_test.id('fam_keep'),v_name) RETURNING id INTO v_id;
+  INSERT INTO q9_expected VALUES('S38b','narrative',jsonb_build_object('id',v_id));
+  UPDATE public.assertion SET vaerdi_tekst=v_name WHERE target_type='fact' AND target_id=purge_test.id('fakta_vielse_keep') RETURNING id INTO STRICT v_id;
+  INSERT INTO q9_expected VALUES('S38b','assertion',jsonb_build_object('id',v_id));
+  UPDATE public.citation SET citat_tekst=v_name WHERE assertion_id=v_id RETURNING id INTO STRICT v_id;
+  INSERT INTO q9_expected VALUES('S38b','citation',jsonb_build_object('id',v_id));
+  j:=pg_temp.preview_clone('private.reimport_case_authorization','true',jsonb_build_object('id',gen_random_uuid(),
+    'nonce',gen_random_uuid(),'authorized_elements',jsonb_build_object('note',v_name)));
+  INSERT INTO q9_expected VALUES('S44b','private.reimport_case_authorization',jsonb_build_object('id',j->'id'));
+  v_card:=gen_random_uuid();
+  PERFORM pg_temp.preview_clone('private.identity_control_parent_card','true',jsonb_build_object('id',v_card,
+    'interpretation_key',gen_random_uuid(),'counterpart_person_id',purge_test.id('tredje')));
+  PERFORM private.append_parent_card_event(v_card,'F',v_name,jsonb_build_object('sheet_sha256',repeat('1',64),'rows_sha256',repeat('2',64),'line',1));
+  INSERT INTO q9_expected VALUES('S45b','private.identity_control_parent_event',jsonb_build_object('card_id',v_card,'seq',1));
+  SELECT interpretation_id INTO STRICT v_i FROM private.interpretation_promotion WHERE id=purge_test.u('prom_egen');
+  INSERT INTO private.marriage_ordinal_correction(interpretation_key,interpretation_id,party_version_from,party_version_to,
+    ordinal_from,ordinal_to,family_id,evidence,created_by)
+    VALUES(gen_random_uuid(),v_i,1,2,1,2,purge_test.id('fam_keep'),jsonb_build_object('note',v_name),auth.uid()) RETURNING id INTO v_uuid;
+  INSERT INTO q9_expected VALUES('S49c','private.marriage_ordinal_correction',jsonb_build_object('id',v_uuid));
+  j:=pg_temp.preview_clone('private.interpretation',format('id=%L',v_i),jsonb_build_object('id',gen_random_uuid(),
+    'interpretation_key',gen_random_uuid(),'version',1,'supersedes_id',NULL,'status','proposed',
+    'source_persona_id',purge_test.u('T1'),'value',jsonb_build_object('note',v_name),
+    'decided_by',NULL,'decided_by_name',NULL,'decided_at',NULL));  -- proposed kræver tomme afgørelsesfelter
+  INSERT INTO q9_expected VALUES('S58','private.interpretation',jsonb_build_object('id',j->'id'));
+  -- Y bevares. En ny rigtig afgørelse med fritekst giver en bevaret v3-event.
+  PERFORM public.red_afgoer_source_persona(purge_test.u('Y'),2,'same',purge_test.id('tredje'),v_name);
+  INSERT INTO q9_expected SELECT 'S11c','private.source_persona_identity_event',jsonb_build_object('id',id)
+    FROM private.source_persona_identity_event WHERE source_persona_id=purge_test.u('Y') AND version=3;
+  -- R28's nye bog-redaktørfelter. Original bogtekst hverken opdateres eller returneres.
+  PERFORM private.append_control_event(purge_test.u('kontrolkoersel'),'failed',v_name);
+  INSERT INTO q9_expected SELECT 'S58','private.identity_control_event',jsonb_build_object('control_run_id',control_run_id,'seq',seq)
+    FROM private.identity_control_event WHERE control_run_id=purge_test.u('kontrolkoersel') ORDER BY seq DESC LIMIT 1;
+  SELECT to_jsonb(t) INTO STRICT j FROM private.source_record_anchor_event t WHERE source_record_id=purge_test.u('record_P') ORDER BY version DESC LIMIT 1;
+  j:=pg_temp.preview_clone('private.source_record_anchor_event',format('id=%L',j->>'id'),jsonb_build_object('id',gen_random_uuid(),
+    'version',(j->>'version')::int+1,'decision_status','proposed','evidence',jsonb_build_object('note',v_name)));
+  INSERT INTO q9_expected VALUES('S58','private.source_record_anchor_event',jsonb_build_object('id',j->'id'));
+  INSERT INTO private.source_record_revision_event(predecessor_record_id,successor_record_id,relation_kind,decision_status,evidence,version)
+    SELECT purge_test.u('record_P'),r.id,'replaced_by','proposed',jsonb_build_object('note',v_name),1
+    FROM private.source_record r WHERE r.source_id=purge_test.id('kilde_a') AND r.id<>purge_test.u('record_P')
+      AND NOT EXISTS (SELECT 1 FROM private.source_record_revision_event e WHERE e.predecessor_record_id=purge_test.u('record_P')
+        AND e.successor_record_id=r.id AND e.relation_kind='replaced_by') LIMIT 1 RETURNING id INTO STRICT v_uuid;
+  INSERT INTO q9_expected VALUES('S58','private.source_record_revision_event',jsonb_build_object('id',v_uuid));
+  SELECT o.* INTO STRICT v_obs FROM private.source_observation o ORDER BY id LIMIT 1;
+  SELECT rendition_id INTO STRICT v_rend FROM private.source_record_occurrence WHERE id=v_obs.occurrence_id;
+  SELECT * INTO v_prev FROM private.source_observation_text WHERE observation_id=v_obs.id AND rendition_id=v_rend ORDER BY version DESC LIMIT 1;
+  INSERT INTO private.source_observation_text(observation_id,rendition_id,version,verbatim_text,char_from,char_to,supersedes_id,evidence)
+    VALUES(v_obs.id,v_rend,coalesce(v_prev.version,0)+1,v_obs.verbatim_text,v_obs.char_from,v_obs.char_to,v_prev.id,
+      jsonb_build_object('note',v_name)) RETURNING id INTO v_uuid;
+  INSERT INTO q9_expected VALUES('S58','private.source_observation_text',jsonb_build_object('id',v_uuid));
+  PERFORM purge_test.nyt(); PERFORM public.begin_change_set('preview_q9_description','fixture');
+  INSERT INTO public.entity_description(subjekt_type,subjekt_id,kind,tekst) VALUES('person',purge_test.id('tredje'),'overview','Fixture') RETURNING id INTO v_id;
+  INSERT INTO private.entity_description_source VALUES(v_id,purge_test.u('record_P'),v_name);
+  INSERT INTO q9_expected VALUES('S58','private.entity_description_source',jsonb_build_object('description_id',v_id,'source_record_id',purge_test.u('record_P')));
+  -- exclusion.reason er lukket vokabular: kan_ikke_forekomme-listen i Task 2b-harnessen dokumenterer dette.
+  PERFORM pg_temp.preview_assert(EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='private.identity_control_exclusion'::regclass
+    AND pg_get_constraintdef(oid) LIKE '%rang1_tidsumulig%' AND pg_get_constraintdef(oid) LIKE '%navnefaeller_over_3%'),
+    'preview_q9_exclusion_kan_ikke_forekomme');
+  j:=public.red_slet_person_helt_preview(purge_test.id('P'));
+  PERFORM pg_temp.preview_assert(NOT EXISTS(SELECT 1 FROM q9_expected e WHERE NOT EXISTS(
+    SELECT 1 FROM jsonb_array_elements(j->'til_kontrol') k WHERE k->>'sted'=e.sted AND k->>'tabel'=e.tabel AND k->'pk'=e.pk)),
+    'preview_til_kontrol');
+  PERFORM pg_temp.preview_assert(position(v_name IN (j-'navn')::text)=0
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(j->'til_kontrol') k
+      WHERE (SELECT array_agg(key ORDER BY key COLLATE "C") FROM jsonb_object_keys(k) key)
+        IS DISTINCT FROM ARRAY['grund','pk','sted','tabel']::text[]),'preview_ingen_fritekst');
+END $q9$;
+\echo OK preview_til_kontrol
+\echo OK preview_ingen_fritekst
+ROLLBACK;
+
+-- Q9: navnet står kun i JSON og indeholder hverken P's id eller et familie-id.
+BEGIN;
+DO $q9_escaped$
+DECLARE v_name text; v_id bigint; j jsonb;
+BEGIN
+  FOREACH v_name IN ARRAY ARRAY[$name$Purge "Citat"$name$,$name$Purge \Streg$name$] LOOP
+    BEGIN
+      PERFORM purge_test.nyt(); PERFORM public.begin_change_set('preview_q9_escaped','fixture');
+      UPDATE public.person SET visning_navn=v_name WHERE id=purge_test.id('P');
+      INSERT INTO public.suggestion(subjekt_type,subjekt_id,payload)
+        VALUES('person',purge_test.id('tredje'),jsonb_build_object('note',v_name)) RETURNING id INTO v_id;
+      -- Bevis, at den uescapede søgning ikke ville finde testnavnet.
+      PERFORM pg_temp.preview_assert(NOT EXISTS (SELECT 1 FROM public.suggestion s WHERE s.id=v_id
+        AND position((v_name COLLATE "C") IN (s.payload::text COLLATE "C"))>0),'preview_q9_escape_fixture');
+      j:=public.red_slet_person_helt_preview(purge_test.id('P'));
+      PERFORM pg_temp.preview_assert(EXISTS (SELECT 1 FROM jsonb_array_elements(j->'til_kontrol') k
+        WHERE k->>'sted'='S34b' AND k->>'tabel'='suggestion' AND k->'pk'=jsonb_build_object('id',v_id)),
+        'preview_q9_json_escaped');
+      RAISE SQLSTATE 'ZX001';
+    EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL; END;
+  END LOOP;
+END $q9_escaped$;
+\echo OK preview_q9_json_escaped
+ROLLBACK;
+\endif
+
+\if :g_preview_q3
+SET request.jwt.claim.sub='a2a00000-0000-4000-8000-00000000a001';
+\ir fixtures/person-purge-reimport.sql
+BEGIN;
+CREATE TEMP TABLE preview_chain(state jsonb,haendelse_id bigint) ON COMMIT DROP;
+CREATE FUNCTION pg_temp.preview_q3(p_person bigint,p_batch uuid,p_vej text,p_niveau text) RETURNS boolean LANGUAGE sql AS $$
+  SELECT CASE WHEN p_niveau IS NULL THEN NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(public.red_slet_person_helt_preview(p_person)->'advarsler') a
+    WHERE a->>'art'='fortrydelse_mistes' AND a->>'batch_id'=p_batch::text AND a->>'vej'=p_vej)
+  ELSE EXISTS(SELECT 1 FROM jsonb_array_elements(public.red_slet_person_helt_preview(p_person)->'advarsler') a
+    WHERE a->>'art'='fortrydelse_mistes' AND a->>'batch_id'=p_batch::text AND a->>'vej'=p_vej AND a->>'niveau'=p_niveau) END
+$$;
+-- Positiv RPC med deferred constraints; en succes rulles tilbage, øvrige fejl propagere.
+CREATE FUNCTION pg_temp.preview_reverse_ok(p_batch uuid,p_publication boolean,p_count int DEFAULT NULL) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_a uuid; v_res jsonb;
+BEGIN
+  BEGIN
+    PERFORM purge_test.nyt();
+    SET LOCAL ROLE service_role;
+    v_a:=public.red_authorize_reimport_reversal(p_batch,gen_random_uuid(),now()+interval '10 minutes');
+    SET LOCAL ROLE authenticated;
+    IF p_publication THEN v_res:=public.red_reverse_reimport_publication(p_batch,v_a);
+    ELSE v_res:=public.red_reverse_reimport(p_batch,v_a); END IF;
+    RESET ROLE;
+    PERFORM pg_temp.preview_assert(v_res->>'status'='reversed' AND (p_count IS NULL OR (v_res->>'reversed_identities')::int=p_count),
+      'preview_q3_rpc_kvittering');
+    SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+    RAISE SQLSTATE 'ZX001';
+  EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL; END;
+END $$;
+DO $setup$
+DECLARE v_s bigint:=nextval(pg_get_serial_sequence('public.source','id')); j jsonb; v_n bigint; v_h bigint; v_a uuid;
+BEGIN
+  PERFORM purge_test.nyt();
+  j:=pg_temp.purge_complete_profile(pg_temp.purge_stage_profile(v_s,'preview-q3','PREVIEW-Q3','Purge Q',v_s));
+  SELECT narrative_id INTO STRICT v_n FROM private.narrative_record_publication WHERE source_record_id=(j->>'source_record_id')::uuid AND status='draft';
+  PERFORM purge_test.nyt();  -- som Task 4's fortrydelse_generel: friskt sæt til hændelsen
+  INSERT INTO public.haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul)
+    VALUES('person',purge_test.id('P'),v_n,'preview-q3-s26','Fixture') RETURNING id INTO v_h;
+  v_a:=public.red_authorize_reimport_cutover((j->>'source_batch_id')::uuid,gen_random_uuid(),now()+interval '10 minutes');
+  PERFORM public.red_activate_reimport_batch((j->>'source_batch_id')::uuid,v_a);
+  INSERT INTO preview_chain VALUES(j,v_h);
+END $setup$;
+DO $last$
+DECLARE j jsonb; v_b uuid; v_q bigint; v_h bigint; v_vej text; p jsonb; v_a uuid; v_error text;
+BEGIN
+  SELECT state,(state->>'source_batch_id')::uuid,(state->>'person_id')::bigint,haendelse_id INTO STRICT j,v_b,v_q,v_h FROM preview_chain;
+  PERFORM pg_temp.preview_reverse_ok(v_b,false);
+  FOREACH v_vej IN ARRAY ARRAY['red_reverse_reimport','red_reverse_1939_v50_reimport'] LOOP
+    PERFORM pg_temp.preview_assert(pg_temp.preview_q3(purge_test.id('P'),v_b,v_vej,'advarsel'),'preview_s26_sidste_advarsel');
+    -- Den generelle batch har KUN Q og Q's persona (X når Q slettes). Ingen subjekt uden for X mister noget.
+    PERFORM pg_temp.preview_assert(pg_temp.preview_q3(v_q,v_b,v_vej,'note'),'preview_generel_p_only_note');
+  END LOOP;
+  p:=public.red_slet_person_helt_preview(v_q);
+  PERFORM pg_temp.preview_assert(NOT pg_temp.preview_has(p,'aaben_batch'),'preview_ingen_blokering_aktiveret_batch');
+  -- Reel fjernelse af sidste hændelse bryder receiptet for Q og dermed den generelle RPC.
+  BEGIN
+    DELETE FROM public.haendelse WHERE id=v_h;
+    SET LOCAL ROLE service_role;
+    v_a:=public.red_authorize_reimport_reversal(v_b,gen_random_uuid(),now()+interval '10 minutes');
+    RESET ROLE;
+    BEGIN
+      SET LOCAL ROLE authenticated; PERFORM public.red_reverse_reimport(v_b,v_a); RESET ROLE;
+      RAISE EXCEPTION 'TEST_FAILED preview_s26_sidste_rpc';
+    EXCEPTION WHEN raise_exception THEN GET STACKED DIAGNOSTICS v_error=MESSAGE_TEXT;
+      IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_REVERSAL_INVALID' THEN RAISE; END IF;
+    END;
+    RAISE SQLSTATE 'ZX001';
+  EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL; END;
+END $last$;
+\echo OK preview_s26_sidste_advarsel
+\echo OK preview_generel_p_only_note
+\echo OK preview_ingen_blokering_aktiveret_batch
+
+DO $unchanged$
+DECLARE j jsonb; v_b uuid; v_q bigint; v_h bigint; v_n bigint; v_mode int; v_before jsonb; v_after jsonb; v_vej text;
+BEGIN
+  SELECT state,(state->>'source_batch_id')::uuid,(state->>'person_id')::bigint,haendelse_id INTO STRICT j,v_b,v_q,v_h FROM preview_chain;
+  SELECT narrative_id INTO STRICT v_n FROM public.haendelse WHERE id=v_h;
+  FOR v_mode IN 1..2 LOOP
+    BEGIN
+      IF v_mode=1 THEN -- S26 fjernes, men en ANDEN hændelse bevares: has_haendelse forbliver true.
+        INSERT INTO public.haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul)
+          VALUES('person',v_q,v_n,'preview-q3-kept','Fixture');
+      ELSE -- Ren S27: hændelsen er Q's; kun dens binding til P's faktum forsvinder.
+        UPDATE public.haendelse SET subjekt_id=v_q,fact_id=purge_test.id('fakta_titel') WHERE id=v_h;
+        PERFORM pg_temp.preview_assert(EXISTS(SELECT 1 FROM private.person_purge_plan(purge_test.id('P'))
+          WHERE tabel='haendelse' AND pk=jsonb_build_object('id',v_h) AND sted='S27' AND handling='loesn'),'preview_s27_fixture');
+      END IF;
+      FOREACH v_vej IN ARRAY ARRAY['red_reverse_reimport','red_reverse_1939_v50_reimport'] LOOP
+        PERFORM pg_temp.preview_assert(pg_temp.preview_q3(purge_test.id('P'),v_b,v_vej,NULL),'preview_uændret_ingen_post');
+      END LOOP;
+      v_before:=private.narrative_record_state(v_q,(j->>'source_id')::bigint,j#>>'{person_payload,source_record_key}',false);
+      IF v_mode=1 THEN DELETE FROM public.haendelse WHERE id=v_h;
+      ELSE UPDATE public.haendelse SET fact_id=NULL,relation_id=NULL WHERE id=v_h; END IF;
+      v_after:=private.narrative_record_state(v_q,(j->>'source_id')::bigint,j#>>'{person_payload,source_record_key}',false);
+      PERFORM pg_temp.preview_assert(v_before=v_after,'preview_s26_s27_state_uaendret');
+      PERFORM pg_temp.preview_reverse_ok(v_b,false);
+      RAISE SQLSTATE 'ZX001';
+    EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL; END;
+  END LOOP;
+END $unchanged$;
+\echo OK preview_s26_bevaret_haendelse_ingen_post
+\echo OK preview_s27_ingen_post_rpc_virker
+
+DO $unrelated_history$
+DECLARE j jsonb; v_b uuid; v_q bigint; v_h bigint; v_n bigint; v_binding uuid; v_event uuid; v_vej text;
+  v_before jsonb; v_after jsonb; v_plan jsonb; v_receipt jsonb;
+BEGIN
+  BEGIN
+    SELECT state,(state->>'source_batch_id')::uuid,(state->>'person_id')::bigint,haendelse_id
+      INTO STRICT j,v_b,v_q,v_h FROM preview_chain;
+    -- S26 må ikke være en anden grund til tab i denne prøve; has_haendelse ændres ikke.
+    UPDATE public.haendelse SET subjekt_id=v_q WHERE id=v_h;
+    v_before:=private.narrative_record_state(v_q,(j->>'source_id')::bigint,j#>>'{person_payload,source_record_key}',false);
+    SELECT payload->'post_activation_receipts'->v_q::text INTO STRICT v_receipt
+      FROM private.reimport_event WHERE batch_id=v_b AND operation='activation';
+    PERFORM pg_temp.preview_assert(v_before->>'state_sha256'=v_receipt->>'state_sha256','preview_q3_historik_receipt');
+    -- Historisk P-binding på Q's record. Som grundfixturens S23-ledger bygges den direkte med aktive validatorer.
+    PERFORM purge_test.nyt(); PERFORM public.begin_change_set('preview_q3_historik','fixture','person',purge_test.id('P'));
+    INSERT INTO public.narrative(subjekt_type,subjekt_id,source_id,tekst)
+      VALUES('person',purge_test.id('P'),(j->>'source_id')::bigint,'Fixture') RETURNING id INTO v_n;
+    INSERT INTO private.narrative_record_publication(narrative_id,source_record_id,record_label,citation_label,status,created_at)
+      VALUES(v_n,(j->>'source_record_id')::uuid,'Fixture','Fixture','withdrawn',now()-interval '1 day') RETURNING id INTO v_binding;
+    INSERT INTO private.narrative_publication_event(change_set_id,stream_ref,stream_version,event_type,binding_id,narrative_id,
+      source_id,source_record_id,decision_basis,before_state,after_state,before_state_sha256,after_state_sha256,decided_by,decided_by_name)
+      VALUES(purge_test.saet(),v_binding,1,'draft_discarded',v_binding,v_n,(j->>'source_id')::bigint,
+        (j->>'source_record_id')::uuid,'Fixture','{}','{}',encode(extensions.digest('{}','sha256'),'hex'),
+        encode(extensions.digest('{}','sha256'),'hex'),auth.uid(),'Fixture') RETURNING id INTO v_event;
+    v_after:=private.narrative_record_state(v_q,(j->>'source_id')::bigint,j#>>'{person_payload,source_record_key}',false);
+    PERFORM pg_temp.preview_assert(v_before=v_after,'preview_q3_fremmed_historik_state');
+    SELECT jsonb_agg(to_jsonb(p)) INTO v_plan FROM private.person_purge_plan(purge_test.id('P')) p;
+    PERFORM pg_temp.preview_assert(EXISTS (SELECT 1 FROM jsonb_array_elements(v_plan) p WHERE
+        p->>'tabel'='private.narrative_record_publication' AND p->>'handling'='slet' AND p->'pk'=jsonb_build_object('id',v_binding))
+      AND EXISTS (SELECT 1 FROM jsonb_array_elements(v_plan) p WHERE
+        p->>'tabel'='private.narrative_publication_event' AND p->>'handling'='slet' AND p->'pk'=jsonb_build_object('id',v_event)),
+      'preview_q3_fremmed_historik_plan');
+    FOREACH v_vej IN ARRAY ARRAY['red_reverse_reimport','red_reverse_1939_v50_reimport'] LOOP
+      -- ready=true forhindrer, at »ingen post« blot skyldes en allerede defekt fixture.
+      PERFORM pg_temp.preview_assert(EXISTS (SELECT 1 FROM private.person_purge_fortrydelse(purge_test.id('P'),v_plan) f
+        WHERE f.batch_id=v_b AND f.vej=v_vej AND f.kan_nu AND f.niveau IS NULL)
+        AND pg_temp.preview_q3(purge_test.id('P'),v_b,v_vej,NULL),'preview_q3_fremmed_historik_ingen_post');
+    END LOOP;
+    PERFORM pg_temp.preview_reverse_ok(v_b,false);
+    -- Fjern planens konkrete historikafhængigheder og narrativ; append-only kræver det rigtige manifest.
+    INSERT INTO private.person_purge_manifest(xid,backend_pid,person_id,tabel,pk,grund)
+      SELECT pg_current_xact_id(),pg_backend_pid(),purge_test.id('P'),p->>'tabel',p->'pk',p->>'grund'
+      FROM jsonb_array_elements(v_plan) p WHERE p->>'tabel'='private.narrative_publication_event'
+        AND p->'pk'=jsonb_build_object('id',v_event) AND p->>'handling'='slet';
+    DELETE FROM private.narrative_publication_event WHERE id=v_event;
+    DELETE FROM private.narrative_record_publication WHERE id=v_binding;
+    DELETE FROM public.narrative WHERE id=v_n;
+    v_after:=private.narrative_record_state(v_q,(j->>'source_id')::bigint,j#>>'{person_payload,source_record_key}',false);
+    PERFORM pg_temp.preview_assert(v_before=v_after AND v_after->>'state_sha256'=v_receipt->>'state_sha256',
+      'preview_q3_fremmed_historik_fjernet_state');
+    PERFORM pg_temp.preview_reverse_ok(v_b,false);
+    RAISE SQLSTATE 'ZX001';
+  EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL; END;
+END $unrelated_history$;
+\echo OK preview_q3_fremmed_historik_ingen_post_rpc_virker
+
+DO $publication$
+DECLARE v_b uuid:=purge_test.u('c_batch'); v_a uuid; v_new uuid; v_e jsonb; v_p_event bigint; j jsonb; v_case int; v_error text;
+BEGIN
+  -- Grundfixturen: P og tredje. Kun P's event fjernes; tredjes state/version bevares => NOTE.
+  PERFORM pg_temp.preview_assert(pg_temp.preview_q3(purge_test.id('P'),v_b,'red_reverse_reimport_publication','note'),
+    'preview_publication_eget_deltab_note');
+  BEGIN
+    SELECT id INTO STRICT v_p_event FROM private.reimport_event WHERE batch_id=v_b AND canonical_person_id=purge_test.id('P');
+    INSERT INTO private.person_purge_manifest(xid,backend_pid,person_id,tabel,pk,grund)
+      VALUES(pg_current_xact_id(),pg_backend_pid(),purge_test.id('P'),'private.reimport_event',jsonb_build_object('id',v_p_event),'egen');
+    DELETE FROM private.reimport_event WHERE id=v_p_event;
+    PERFORM pg_temp.preview_reverse_ok(v_b,true,1); -- Virker stadig for tredje efter eget deltab.
+    RAISE SQLSTATE 'ZX001';
+  EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL; END;
+  FOR v_case IN 1..2 LOOP
+    BEGIN
+      v_new:=gen_random_uuid(); v_a:=gen_random_uuid();
+      PERFORM pg_temp.preview_clone('private.reimport_authorization',format('id=(SELECT authorization_id FROM private.reimport_batch WHERE id=%L)',v_b),
+        jsonb_build_object('id',v_a,'nonce',gen_random_uuid()));
+      PERFORM pg_temp.preview_clone('private.reimport_batch',format('id=%L',v_b),jsonb_build_object('id',v_new,'authorization_id',v_a,
+        'preview_sha256',encode(extensions.digest(v_new::text,'sha256'),'hex')));
+      FOR v_e IN SELECT to_jsonb(e) FROM private.reimport_event e WHERE batch_id=v_b
+        AND (v_case=2 OR canonical_person_id=purge_test.id('P')) LOOP
+        -- Case 1: kun P/X1 => NOTE. Case 2: X1's event BEVARES (canonical=tredje), og T1 er også i batchen.
+        PERFORM pg_temp.preview_clone('private.reimport_event',format('id=%s',v_e->>'id'),
+          jsonb_build_object('id',nextval(pg_get_serial_sequence('private.reimport_event','id')),'batch_id',v_new,
+            'canonical_person_id',CASE WHEN v_case=2 THEN purge_test.id('tredje') ELSE purge_test.id('P') END));
+      END LOOP;
+      PERFORM pg_temp.preview_reverse_ok(v_new,true,CASE WHEN v_case=1 THEN 1 ELSE 2 END);
+      PERFORM pg_temp.preview_assert(pg_temp.preview_q3(purge_test.id('P'),v_new,'red_reverse_reimport_publication',
+        CASE WHEN v_case=1 THEN 'note' ELSE 'advarsel' END),'preview_publication_niveau');
+      IF v_case=2 THEN
+        -- En rigtig ny state-version på X1 beviser, at en bevaret event med drift bryder hele RPC'en.
+        PERFORM public.red_afgoer_source_persona(purge_test.u('X1'),1,'different',NULL,'Fixture');
+        SET LOCAL ROLE service_role;
+        v_a:=public.red_authorize_reimport_reversal(v_new,gen_random_uuid(),now()+interval '10 minutes');
+        RESET ROLE;
+        BEGIN
+          SET LOCAL ROLE authenticated; PERFORM public.red_reverse_reimport_publication(v_new,v_a); RESET ROLE;
+          RAISE EXCEPTION 'TEST_FAILED preview_publication_drift_rpc';
+        EXCEPTION WHEN raise_exception THEN GET STACKED DIAGNOSTICS v_error=MESSAGE_TEXT;
+          IF v_error IS DISTINCT FROM 'PUBLICATION_REVERSAL_VERSION_DRIFT' THEN RAISE; END IF;
+        END;
+      END IF;
+      RAISE SQLSTATE 'ZX001';
+    EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL; END;
+  END LOOP;
+END $publication$;
+\echo OK preview_publication_eget_deltab_note_rpc_virker
+\echo OK preview_publication_p_only_note
+\echo OK preview_publication_bevaret_drift_advarsel
+ROLLBACK;
 \endif
