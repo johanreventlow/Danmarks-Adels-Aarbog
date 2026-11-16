@@ -24,16 +24,20 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   (relation 2751). `red_samme_som` vælger kun selv retning, når data er entydige; for alle 47 par i gennemgangen
 >   15/11 var de ikke. Kan udgaven ikke afgøres for begge personer, gælder den valgte side som før.
 > - **Født efter den ældre udgave (projektejerens regel, 2026-11-16):** en person, der er født efter den anden
->   udgaves årstal, kan ikke stå i den og er eksklusiv for sin egen udgave. Det samme gælder personer koblet til
+>   udgaves årstal, kan ikke stå i den og er eksklusiv for sin egen udgave. Med flere end to udgaver måles mod den
+>   nyeste af de andre; det er korrekt med to udgaver og skal genovervejes, når en tredje udgave får personer. Det samme gælder personer koblet til
 >   hende som indgiftede ægtefæller uden eget bognummer. De holdes ude af både arbejdslisten og »Find modpart«.
 >   - **Mekanik:** den sker med flaget `udenforMatchning`, som også holder den fynske linje ude, og sættes af den
 >     rene `markerFoedtEfterAndreUdgaver` i `@daa/core`. Det er et forfilter og ingen ændring af matcherens
 >     scoring.
 >   - **Årstallene** kommer fra `source.aar` og er ikke hårdkodet. Et ukendt fødselsår, eller et år med kun en øvre
 >     grænse, udelukker aldrig (fail-open).
->   - **Ægtefæller** arver flaget efter den eksisterende regel: kun når alle partnere er udelukket.
->   - **Målt på prod 16/11:** 67 personer rammes (44 født efter 1939 og 23 indgiftede). Ingen eksisterende
->     `samme_som` berøres. De 7 levende 2018-20-personer uden for reglen er født før 1940 og kan stå i 1939 som børn.
+>   - **Ægtefæller** arver flaget efter den eksisterende regel: kun når alle partnere er udelukket. Efter arven
+>     vurderes en indgiftet ægtefælle også på sit eget fødselsår, så en ægtefælle født efter 1939, gift med en fra
+>     før, også holdes ude.
+>   - **Målt på prod 16/11:** 68 personer rammes: 44 født efter 1939, 23 indgiftede ægtefæller til dem og 1
+>     indgiftet ægtefælle, der selv er født efter 1939. Ingen eksisterende `samme_som` berøres. Alle 7 levende
+>     2018-20-personer uden for reglen har et fødselsår før 1940 og kan stå i 1939 som børn.
 >   - **Sideeffekt:** »Find modpart« foreslår heller ikke længere den fynske linje.
 > - **Fravalgt her:** familiesignal, ord-for-ord-navnelighed og bløde årstalsgrænser i matcheren. Det er
 >   matcherudvikling og hører i den fælles identitetsvej (`packages/identity-candidates`), hvis det tages op.

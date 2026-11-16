@@ -209,11 +209,13 @@ export function SammenlignUdgaver({ role, dryRun = true }: { role?: string; dryR
   // Ægtefæller uden eget bog-nummer arver udgaven fra deres partner (entydigt, ellers urørt).
   // Uden det havner de i B-siden uanset udgave — så en 1939-ægtefælle kunne foreslås som match
   // for en 1939-person, og forældrepar kunne aldrig matches færdigt (→ "konkurrerende forældre").
-  // Først: født efter alle andre udgavers årstal → kan ikke stå i dem (regel 2026-11-16). Det
-  // sker før arven, så indgiftede ægtefæller til dem også holdes ude.
+  // Født efter alle andre udgavers årstal → kan ikke stå i dem (regel 2026-11-16). To gennemløb:
+  // før arven, så indgiftede ægtefæller til dem også holdes ude, og efter arven, så en indgiftet
+  // ægtefælle, der selv er født efter (men gift med en fra før), vurderes på sit eget år.
   const personerMedKilde = useMemo(() => {
     const aarByKilde = new Map(sources.map((s) => [s.id, s.aar ?? null]));
-    return udledKilderForAegtefaeller(markerFoedtEfterAndreUdgaver(personer, aarByKilde), familieGraf.unions);
+    const arvet = udledKilderForAegtefaeller(markerFoedtEfterAndreUdgaver(personer, aarByKilde), familieGraf.unions);
+    return markerFoedtEfterAndreUdgaver(arvet, aarByKilde);
   }, [personer, sources, familieGraf.unions]);
 
   const matchCfg = useMemo(() => ({ ...defaultCfg(), evidensNormaliseret: true }), []);

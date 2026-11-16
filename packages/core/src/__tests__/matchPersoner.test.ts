@@ -404,6 +404,15 @@ describe('markerFoedtEfterAndreUdgaver — eksklusiv for den nyere udgave (proje
     expect(find(ud, 's').udenforMatchning).toBe(true);
   });
 
+  it('indgiftet ægtefælle født efter den ældre udgave udelukkes på eget år (2. gennemløb efter arven)', () => {
+    const U = (id: string, p1: string, p2: string | null) => ({ id, p1, p2, p2_name: null, year: null });
+    const personer = [P('a', [1], '1935-01-01'), P('s', [], '1942-01-01'), P('b', [3], '1900-01-01')];
+    const arvet = udledKilderForAegtefaeller(markerFoedtEfterAndreUdgaver(personer, aar), [U('f', 'a', 's')]);
+    const ud = markerFoedtEfterAndreUdgaver(arvet, aar);
+    expect(find(ud, 's').udenforMatchning).toBe(true);
+    expect(find(ud, 'a').udenforMatchning).toBeFalsy();
+  });
+
   it('ægtefælle med også en partner fra før 1940 bliver stående', () => {
     const U = (id: string, p1: string, p2: string | null) => ({ id, p1, p2, p2_name: null, year: null });
     const personer = [P('a', [1], '1950-01-01'), P('c', [1], '1920-01-01'), P('s', [], null), P('b', [3], '1900-01-01')];
