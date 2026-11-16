@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-11-16 — 1939-opfølgning: 6 oversete personer fundet i 2018-20
+
+Margrethe (1853) manglede forældre. Det afslørede, at listen over 1939-personer »uden modpart« i 2018-20 var
+upålidelig, fordi navneformen var en anden (Claus/Nicolaus, Heinrich/Detlef) eller teksten kun var ét ord. Listen er
+gennemgået igen på familie, årstal og sjældne ord i stedet for navne.
+- **change_set 4377:** Margrethe (s. 517, intet bog-nr.) er foldet ind i I-91 og hægtet på Otto og Dorothea.
+- **change_set 4379:** Heinrich f. 1643 (1939-207) er foldet ind i III-57. Kopien 1939-212 er gjort privat.
+- **change_set 4381:** Claus 1939-590 (kanonikat i Slesvig 1348) er foldet ind i I-17.
+- **change_set 4383:** Joachim til Elmenhorst 1939-19 → II-9, Iwen 1939-21 → I-16, »5. (?)« 1939-561 → II-22
+  (hægtet på forældrene).
+- **Resultat:** 814 link. Den fynske linje findes ikke i 2018-20 og udgår af matcharbejdet. 30 1939-personer har
+  stadig ingen modpart; 1939-212 og 1939-17 er dubletter på slettelisten.
+
 ## 2026-11-16 — 1939 matchet mod de afdøde i 2018-20: 45 nye identitetslink, 5 forkerte rettet
 
 Hele 1939-bogen er gennemgået mod de afdøde i 2018-20 (den fynske linje findes kun i 1939). Matcheren kan ikke se
