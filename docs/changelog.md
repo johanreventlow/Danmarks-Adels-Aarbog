@@ -10,7 +10,11 @@ gennemgået igen på familie, årstal og sjældne ord i stedet for navne.
 - **change_set 4381:** Claus 1939-590 (kanonikat i Slesvig 1348) er foldet ind i I-17.
 - **change_set 4383:** Joachim til Elmenhorst 1939-19 → II-9, Iwen 1939-21 → I-16, »5. (?)« 1939-561 → II-22
   (hægtet på forældrene).
-- **Resultat:** 814 link. Den fynske linje findes ikke i 2018-20 og udgår af matcharbejdet. 30 1939-personer har
+- **change_set 4395:** Rensvad Trotte Pedersen var ved en importfejl Henrik 1939-4's ægtefælle og stod derfor på
+  III-10. Han er fjernet fra familien og gjort privat.
+- **change_set 4404:** tvillingen Christiane Benedicte 1939-312, som 2018-20 udelader, står som `omstridt` barn.
+- **Resultat:** 814 link. De sidste 19 på arbejdslisten findes kun i 1939. Den fynske linje findes ikke i 2018-20 og
+  udgår af matcharbejdet. 30 1939-personer har
   stadig ingen modpart; 1939-212 og 1939-17 er dubletter på slettelisten.
 
 ## 2026-11-16 — 1939 matchet mod de afdøde i 2018-20: 45 nye identitetslink, 5 forkerte rettet
