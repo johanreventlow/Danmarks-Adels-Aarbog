@@ -93,6 +93,8 @@ og `hel_stroem`-tjekket bruger `OLD.version <= forrige_version` og »ingen versi
 formaterne fra NY-B. S46-regexen rammer aldrig (kandidat-uuid'er). Alle tre rettes, før `count.sql` bruges som
 uafhængig måler (plan Task 1).
 
+R11 (2026-11-14): S32 omfatter også `paadennedag:P:(født|død):<år>` (packages/feed/src/temporal.ts:78).
+
 ---
 
 ## 0. Notation og id-mængder (beregnes i fase 0, FØR noget slettes)

@@ -17,6 +17,17 @@ describe('mapping fra RPC (snake_case → camelCase)', () => {
     expect(rows.map((r) => [r.bestTier, r.reason])).toEqual([['review', 'new_person_needed'], [null, null]]);
   });
 
+  it('kø: viser not_a_person som ikke en person og bevarer andre årsager', async () => {
+    const base = { source_persona_id: ID, source_id: 1, persona_key: 'k', decision_status: 'rejected', version: 4, canonical_person_id: null, mention_count: 1 };
+    rpc.mockResolvedValue({ data: [
+      { ...base, reason: 'not_a_person' },
+      { ...base, reason: 'ukendt_aarsag' },
+      { ...base, reason: null },
+    ], error: null });
+    expect((await fetchSourcePersonaQueue('rejected')).map((r) => r.reason))
+      .toEqual(['ikke en person', 'ukendt_aarsag', null]);
+  });
+
   it('detalje: kandidater og kollisioner', async () => {
     rpc.mockResolvedValue({ data: {
       persona: { source_persona_id: ID, source_id: 1, persona_key: 'k', decision_status: 'proposed', version: 0, canonical_person_id: null },
@@ -56,6 +67,12 @@ describe('mapping fra RPC (snake_case → camelCase)', () => {
       { version: 3, decisionStatus: 'unresolved', canonicalPersonId: null, basis: 'human_sheet', candidateId: null, reason: 'new_person_needed', decidedByName: 'R', decidedAt: '2026-10-05T00:00:00Z' },
       { version: 2, decisionStatus: 'accepted', canonicalPersonId: 42, basis: 'web_detail', candidateId: 'c1', reason: null, decidedByName: null, decidedAt: null },
     ]);
+  });
+  it('historik: not_a_person fra personsletning vises som ikke en person', async () => {
+    rpc.mockResolvedValue({ data: [
+      { version: 4, decision_status: 'rejected', canonical_person_id: null, evidence: { reason: 'not_a_person' }, decided_by_name: null, decided_at: null },
+    ], error: null });
+    expect((await fetchSourcePersonaHistory(ID)).map((r) => r.reason)).toEqual(['ikke en person']);
   });
 });
 

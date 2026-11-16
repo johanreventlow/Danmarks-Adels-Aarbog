@@ -134,6 +134,7 @@ export function KildepersonaKo({ role }: { role?: string }) {
       <strong>{row.personaKey}</strong> · kilde {row.sourceId} · {row.mentionCount} omtaler · v{row.version}
       {' · '}{row.bestTier ?? 'ingen kandidat'}{row.reason === 'new_person_needed' ? ' · ny person nødvendig' : ''}
       {row.reason === 'duplicate_unresolved' ? ' · dublet uafklaret' : ''}
+      {row.reason === 'ikke en person' ? ' · ikke en person' : ''}
       <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
         <button onClick={() => void showEvidence(row)}>Vis kildegrundlag</button>
         <button disabled={busy === row.sourcePersonaId} onClick={() => void decide(row, 'same')}>Samme person</button>
@@ -189,7 +190,7 @@ export function KildepersonaKo({ role }: { role?: string }) {
         </div> : <p style={{ fontSize: 12 }}>Ingen kandidater fra generatoren.</p>}
         {history.length > 0 && <div style={{ marginTop: 12, fontSize: 12 }}>
           <strong>Historik</strong>
-          {history.map((h) => <div key={h.version}>v{h.version} · {h.decisionStatus}{h.canonicalPersonId ? ` · #${h.canonicalPersonId}` : ''} · {h.basis ?? 'migration'}{h.candidateId ? ' · kandidat fulgt' : ''}{h.reason === 'new_person_needed' ? ' · ny person nødvendig' : ''} · {h.decidedByName ?? ''}</div>)}
+          {history.map((h) => <div key={h.version}>v{h.version} · {h.decisionStatus}{h.canonicalPersonId ? ` · #${h.canonicalPersonId}` : ''} · {h.basis ?? 'migration'}{h.candidateId ? ' · kandidat fulgt' : ''}{h.reason === 'new_person_needed' ? ' · ny person nødvendig' : ''}{h.reason === 'ikke en person' ? ' · ikke en person' : ''} · {h.decidedByName ?? ''}</div>)}
         </div>}
       <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
         <label>Søg person <input aria-label="Søg person" value={personFilter} onChange={(e) => setPersonFilter(e.target.value)} /></label>

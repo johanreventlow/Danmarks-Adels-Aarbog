@@ -3077,6 +3077,7 @@ DECLARE
     'public.red_slet_oplysning(bigint)'::regprocedure,
     'public.red_slet_person(bigint)'::regprocedure,
     'public.red_slet_person_preview(bigint)'::regprocedure,
+    'public.red_slet_person_helt_preview(bigint)'::regprocedure,
     'public.red_slet_relation(bigint)'::regprocedure,
     'public.red_slet_story(bigint)'::regprocedure,
     'public.red_source_persona_detail(uuid)'::regprocedure,

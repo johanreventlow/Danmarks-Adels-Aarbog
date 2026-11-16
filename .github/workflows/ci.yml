@@ -671,6 +671,10 @@ jobs:
       - name: Koordinat-RPC · signaturændring gennem hele migrationen (trin 6e-2)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         run: bash tests/sql/test-6e2-upgrade.sh ci6e2_upgrade ac194bfd
+      - name: Fuld personsletning · fixtur, tæller og katalogvagt pr. kolonne
+        env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
+        # Base-commit til opgraderingsdelen tilføjes i Task 11.
+        run: bash tests/sql/test-person-purge.sh ciperson_purge
       - name: Kildetekst-revision · migrationer to gange og to samtidige sessioner (trin 6a)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres, PGDATABASE: ci6a_text_revision}
         run: |

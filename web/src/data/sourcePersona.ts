@@ -64,7 +64,7 @@ export async function fetchSourcePersonaQueue(status: string | null = null, sour
     version: Number(row.version), canonicalPersonId: row.canonical_person_id == null ? null : Number(row.canonical_person_id),
     mentionCount: Number(row.mention_count),
     bestTier: row.best_tier == null ? null : String(row.best_tier),
-    reason: row.reason == null ? null : String(row.reason),
+    reason: row.reason === 'not_a_person' ? 'ikke en person' : row.reason == null ? null : String(row.reason),
     mentionRole: row.mention_role == null ? null : String(row.mention_role),
   }));
 }
@@ -166,7 +166,7 @@ export async function fetchSourcePersonaHistory(sourcePersonaId: string): Promis
       version: Number(r.version), decisionStatus: String(r.decision_status),
       canonicalPersonId: r.canonical_person_id == null ? null : Number(r.canonical_person_id),
       basis: ev.basis == null ? null : String(ev.basis), candidateId: ev.candidate_id == null ? null : String(ev.candidate_id),
-      reason: ev.reason == null ? null : String(ev.reason),
+      reason: ev.reason === 'not_a_person' ? 'ikke en person' : ev.reason == null ? null : String(ev.reason),
       decidedByName: r.decided_by_name == null ? null : String(r.decided_by_name),
       decidedAt: r.decided_at == null ? null : String(r.decided_at),
     };

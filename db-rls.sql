@@ -762,6 +762,7 @@ BEGIN
     'public.red_slet_oplysning(bigint)',
     'public.red_slet_person(bigint)',
     'public.red_slet_person_preview(bigint)',
+    'public.red_slet_person_helt_preview(bigint)',
     'public.red_slet_relation(bigint)',
     'public.red_slet_story(bigint)',
     'public.red_source_persona_detail(uuid)',
@@ -1745,3 +1746,22 @@ BEGIN
   DROP TABLE pg_temp.red_allow_list;
 END
 $redaction_rpc_surface_guard$;
+
+-- Fuld personsletning (2026-11-14), Task 3: sletteinventar og katalogvagt er interne VALUES-/katalogfunktioner;
+-- ingen klientrolle må kalde dem (PostgreSQL giver nye funktioner til PUBLIC som standard).
+REVOKE ALL ON FUNCTION private.person_purge_inventar(), private.person_purge_undtagelser(),
+  private.person_purge_kandidatkolonner() FROM PUBLIC,anon,authenticated,service_role;
+
+
+-- Fuld personsletning (2026-11-14), Task 5: ingen klientadgang til manifest eller bevisfunktioner.
+ALTER TABLE private.person_purge_manifest ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.person_purge_manifest FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION private.person_purge_fam_del(bigint),
+  private.person_purge_tilladte_tabeller(), private.person_purge_tilladt(text,jsonb)
+  FROM PUBLIC,anon,authenticated,service_role;
+
+-- Fuld personsletning (2026-11-14), Task 7: samme eksakte signatur som allow-listen ovenfor.
+REVOKE ALL ON FUNCTION public.red_slet_person_helt_preview(bigint) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_slet_person_helt_preview(bigint) TO authenticated;
+REVOKE ALL ON FUNCTION private.person_purge_fortrydelse(bigint,jsonb),private.person_purge_kontrol(bigint,jsonb)
+  FROM PUBLIC,anon,authenticated,service_role;
