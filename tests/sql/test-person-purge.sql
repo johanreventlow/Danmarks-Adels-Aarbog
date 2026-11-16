@@ -618,6 +618,41 @@ BEGIN
 END $s48$;
 \echo OK plan_s48_paritet
 ROLLBACK;
+
+-- P's eksklusive medie skal slettes, selv om P's EGEN narrativ og note linker til det (text_mention fra en tekst, der
+-- selv slettes, holder ikke mediet i live). Modprøven (link fra en andens narrativ/note bevarer mediet) står i
+-- preview_blokering_link.
+BEGIN;
+DO $mediemention$
+DECLARE v_kilde text; v_token text;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM private.person_purge_plan(purge_test.id('P'))
+      WHERE tabel='media' AND handling='slet' AND pk=jsonb_build_object('id',purge_test.id('medie_eksklusiv'))) THEN
+    RAISE EXCEPTION 'TEST_FAILED plan_egen_mention_medie baseline';
+  END IF;
+  v_token:=format(' [[media:%s|fixture]]',purge_test.id('medie_eksklusiv'));
+  FOREACH v_kilde IN ARRAY ARRAY['narrative','note'] LOOP
+    BEGIN
+      PERFORM purge_test.nyt(); PERFORM public.begin_change_set('plan_egen_mention','fixture');
+      IF v_kilde='narrative' THEN
+        UPDATE public.narrative SET tekst=tekst||v_token WHERE id=purge_test.id('narrativ_P');
+      ELSE
+        UPDATE public.note SET indhold=indhold||v_token WHERE id=purge_test.id('note_P');
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM public.text_mention WHERE maal_type='media' AND maal_id=purge_test.id('medie_eksklusiv')
+          AND kilde_type=v_kilde) THEN
+        RAISE EXCEPTION 'TEST_FAILED plan_egen_mention_medie fixture %',v_kilde;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM private.person_purge_plan(purge_test.id('P'))
+          WHERE tabel='media' AND handling='slet' AND pk=jsonb_build_object('id',purge_test.id('medie_eksklusiv'))) THEN
+        RAISE EXCEPTION 'TEST_FAILED plan_egen_mention_medie %',v_kilde;
+      END IF;
+      RAISE SQLSTATE 'ZX001';
+    EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL; END;
+  END LOOP;
+END $mediemention$;
+\echo OK plan_egen_mention_medie
+ROLLBACK;
 \endif
 
 -- =====================================================================================================================

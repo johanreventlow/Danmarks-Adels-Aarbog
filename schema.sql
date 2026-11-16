@@ -22188,7 +22188,13 @@ WITH RECURSIVE
     AND NOT EXISTS (SELECT 1 FROM public.note t WHERE t.target_type='media' AND t.target_id=m.id)
     AND NOT EXISTS (SELECT 1 FROM public.suggestion t WHERE t.subjekt_type='media' AND t.subjekt_id=m.id)
     AND NOT EXISTS (SELECT 1 FROM public.entity_description t WHERE t.subjekt_type='media' AND t.subjekt_id=m.id)
-    AND NOT EXISTS (SELECT 1 FROM public.text_mention t WHERE t.maal_type='media' AND t.maal_id=m.id)),
+    -- En mention fra en tekst, der selv slettes (P's/Fam_del's narrativ eller en note i nt), holder ikke mediet i live;
+    -- ellers ville P's portræt overleve sletningen, blot fordi P's egen biografi linker til det.
+    AND NOT EXISTS (SELECT 1 FROM public.text_mention t WHERE t.maal_type='media' AND t.maal_id=m.id
+      AND NOT ((t.kilde_type='narrative' AND t.kilde_id IN (SELECT id FROM n))
+        OR (t.kilde_type='note' AND t.kilde_id IN (SELECT nn.id FROM public.note nn WHERE (nn.target_type='person' AND nn.target_id=p_person_id)
+          OR (nn.target_type='family' AND nn.target_id IN (SELECT id FROM fam_del))
+          OR (nn.target_type='fact' AND nn.target_id IN (SELECT id FROM fd)) OR (nn.target_type='relation' AND nn.target_id IN (SELECT id FROM rd))))))),
   pei_raw AS MATERIALIZED (
     SELECT source_id::text AS source_id,record_key FROM public.person_external_id WHERE person_id=p_person_id
     UNION SELECT j->>'source_id',j->>'record_key' FROM public.change_event e
@@ -22331,7 +22337,13 @@ WITH RECURSIVE
     AND NOT EXISTS (SELECT 1 FROM public.note t WHERE t.target_type='media' AND t.target_id=m.id)
     AND NOT EXISTS (SELECT 1 FROM public.suggestion t WHERE t.subjekt_type='media' AND t.subjekt_id=m.id)
     AND NOT EXISTS (SELECT 1 FROM public.entity_description t WHERE t.subjekt_type='media' AND t.subjekt_id=m.id)
-    AND NOT EXISTS (SELECT 1 FROM public.text_mention t WHERE t.maal_type='media' AND t.maal_id=m.id)),
+    -- En mention fra en tekst, der selv slettes (P's/Fam_del's narrativ eller en note i nt), holder ikke mediet i live;
+    -- ellers ville P's portræt overleve sletningen, blot fordi P's egen biografi linker til det.
+    AND NOT EXISTS (SELECT 1 FROM public.text_mention t WHERE t.maal_type='media' AND t.maal_id=m.id
+      AND NOT ((t.kilde_type='narrative' AND t.kilde_id IN (SELECT id FROM n))
+        OR (t.kilde_type='note' AND t.kilde_id IN (SELECT nn.id FROM public.note nn WHERE (nn.target_type='person' AND nn.target_id=p_person_id)
+          OR (nn.target_type='family' AND nn.target_id IN (SELECT id FROM fam_del))
+          OR (nn.target_type='fact' AND nn.target_id IN (SELECT id FROM fd)) OR (nn.target_type='relation' AND nn.target_id IN (SELECT id FROM rd))))))),
   pei_raw AS MATERIALIZED (
     SELECT source_id::text AS source_id,record_key FROM public.person_external_id WHERE person_id=p_person_id
     UNION SELECT j->>'source_id',j->>'record_key' FROM public.change_event e
