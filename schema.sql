@@ -6981,7 +6981,7 @@ BEGIN
 END $$;
 
 CREATE OR REPLACE FUNCTION red_set_feed_pin(p_kort_noegle text, p_handling text)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   IF p_handling NOT IN ('pin','skjul') THEN
@@ -6992,6 +6992,7 @@ BEGIN
   END IF;
   PERFORM begin_change_set('red_set_feed_pin',
     format('Satte %s på kort %s', p_handling, p_kort_noegle), NULL, NULL);
+  PERFORM private.laas_feed_pin_maal(p_kort_noegle);
   INSERT INTO feed_pin (kort_noegle, handling)
   VALUES (p_kort_noegle, p_handling)
   ON CONFLICT (kort_noegle) DO UPDATE
@@ -7065,7 +7066,10 @@ BEGIN
     WHERE subjekt_type='person' AND subjekt_id=p_person_id;
   SELECT coalesce(array_agg(id),'{}') INTO v_rels FROM relation
     WHERE (subjekt_type='person' AND subjekt_id=p_person_id)
-       OR (objekt_type='person'  AND objekt_id=p_person_id);
+       OR (objekt_type='person'  AND objekt_id=p_person_id)
+       -- Task 8a: relationer til P's fakta skal også have evidensen ryddet før faktasletning.
+       OR (subjekt_type='fact' AND subjekt_id = ANY(v_facts))
+       OR (objekt_type='fact' AND objekt_id = ANY(v_facts));
 
   UPDATE profiles SET reventlow_person_id = NULL WHERE reventlow_person_id = p_person_id;
 
@@ -7227,12 +7231,23 @@ END $$;
 -- rigtig FK ville gøre: writer-før-delete holder KEY SHARE; delete-før-writer holder
 -- UPDATE/DELETE-lock, hvorefter writeren vågner og fejler, fordi rækken er væk.
 CREATE OR REPLACE FUNCTION enforce_relation_evidence_target()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
 BEGIN
+  -- D-6: generisk fortryd sætter også et uændret mål.
+  IF TG_OP='UPDATE' AND NEW.target_type IS NOT DISTINCT FROM OLD.target_type
+     AND NEW.target_id IS NOT DISTINCT FROM OLD.target_id THEN RETURN NEW; END IF;
+  IF lower(NEW.target_type) IN ('fact','relation') AND NEW.target_type<>lower(NEW.target_type) THEN
+    RAISE EXCEPTION 'POLYMORF_TYPE_IKKE_KANONISK: %', NEW.target_type;
+  END IF;
   IF NEW.target_type='relation' THEN
-    PERFORM 1 FROM relation WHERE id=NEW.target_id FOR KEY SHARE;
+    PERFORM 1 FROM public.relation WHERE id=NEW.target_id FOR KEY SHARE;
     IF NOT FOUND THEN
       RAISE EXCEPTION 'Relations-evidens kræver eksisterende relation %', NEW.target_id;
+    END IF;
+  ELSIF NEW.target_type='fact' THEN
+    PERFORM 1 FROM public.fact WHERE id=NEW.target_id FOR KEY SHARE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: fact %', NEW.target_id;
     END IF;
   END IF;
   RETURN NEW;
@@ -9370,7 +9385,7 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE
   ev change_event; v_new_cs bigint; v_orig change_set;
   v_cur jsonb; v_pids bigint[] := '{}'; v_narr bigint[] := '{}'; v_notes bigint[] := '{}';
-  v_div int := 0; pid bigint; v_forventet jsonb; v_contract_version integer; v_lock record;
+  v_div int := 0; pid bigint; v_forventet jsonb; v_contract_version integer; v_lock record; v_pin_maal record;
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   v_contract_version:=public.narrative_record_contract_version();
@@ -9463,8 +9478,8 @@ BEGIN
   -- K5 (kodereview 36): verifikationen nedenfor læser uden lås og skriver bagefter; uden låse kunne en samtidig
   -- redigering (T2 gemmer mellem T1's tjek og skrivning) blive overskrevet uden divergens. Lås derfor ALLE berørte,
   -- eksisterende rækker FOR UPDATE før første tjek, i en fast rækkefølge efter change_set (som writerne): først
-  -- personer i stigende id (sættets personrækker og personer, sættets relationer peger på — samme orden som
-  -- identitetsprotokollen og red_saet_portraet: personer før relationsrækker), derefter resten efter (tabel, numerisk
+  -- personer i stigende id (sættets personrækker og personmål fra relationer/pins — samme orden som
+  -- identitetsprotokollen og red_saet_portraet), derefter pin-familier og resten efter (tabel, numerisk
   -- id, row_pk). En samtidig writer venter nu på fortrydelsen, eller fortrydelsen venter på writeren og ser bagefter
   -- dens committede værdi (nyt snapshot pr. sætning under READ COMMITTED) og afviser den som divergens. En række, som
   -- sættet slettede (og fortrydelsen genindsætter), findes ikke og kan ikke låses.
@@ -9479,8 +9494,23 @@ BEGIN
      UNION
      SELECT (x.r->>'objekt_id')::bigint
        FROM change_event ce CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
-      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation' AND x.r->>'objekt_type'='person')
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation' AND x.r->>'objekt_type'='person'
+     UNION
+     -- R6: også pins i foer/efter, før K5 låser pin-rækken. Ellers kan en
+     -- inverse genindsætte P's pin efter sletningen eller danne pin→person-cyklus.
+     SELECT m.id FROM change_event ce
+       CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+       CROSS JOIN LATERAL private.feed_pin_maal(x.r->>'kort_noegle') m
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='feed_pin' AND m.typ='person')
    ORDER BY lp.id FOR UPDATE;
+  -- Familier følger personerne, stadig før K5's øvrige rækker. Samme parser
+  -- som red_set_feed_pin; ingen ny nøglegrammatik eller sen rækkelås i restore-helperen.
+  PERFORM 1 FROM family lf WHERE lf.id IN (
+    SELECT m.id FROM change_event ce
+      CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+      CROSS JOIN LATERAL private.feed_pin_maal(x.r->>'kort_noegle') m
+     WHERE ce.change_set_id=p_change_set_id AND ce.tabel='feed_pin' AND m.typ='family')
+   ORDER BY lf.id FOR KEY SHARE;
   FOR v_lock IN
     SELECT d.tabel, d.row_pk
       FROM (SELECT DISTINCT ce.tabel, ce.row_pk FROM change_event ce WHERE ce.change_set_id=p_change_set_id) d
@@ -9503,6 +9533,23 @@ BEGIN
       IF NOT p_force THEN
         RAISE EXCEPTION 'FEJL: nyere ændring rører %/% — afvist (brug force)', ev.tabel, ev.row_pk;
       END IF;
+    END IF;
+    -- Efter K5-låsene: en inverse, der efterlader en pin, skal have eksisterende
+    -- mål, også med force. Kun eksistenskontrol her; mållåsene blev taget før
+    -- pin-rækken. INSERT-inverse fjerner pinnen og behøver ikke et levende mål.
+    IF ev.tabel='feed_pin' AND ev.op IN ('DELETE','UPDATE') THEN
+      FOR v_pin_maal IN SELECT m.typ,m.id FROM private.feed_pin_maal(ev.foer->>'kort_noegle') m LOOP
+        IF v_pin_maal.typ='person' THEN
+          PERFORM 1 FROM public.person WHERE id=v_pin_maal.id;
+        ELSIF v_pin_maal.typ='family' THEN
+          PERFORM 1 FROM public.family WHERE id=v_pin_maal.id;
+        ELSE
+          RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %',v_pin_maal.typ,v_pin_maal.id;
+        END IF;
+        IF NOT FOUND THEN
+          RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %',v_pin_maal.typ,v_pin_maal.id;
+        END IF;
+      END LOOP;
     END IF;
     -- anvend inverse
     IF ev.op='INSERT' THEN
@@ -11903,16 +11950,20 @@ CREATE TABLE private.entity_description_source (
 );
 
 CREATE OR REPLACE FUNCTION validate_entity_description_subject()
-RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public AS $$
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
 BEGIN
-  IF (NEW.subjekt_type='person' AND EXISTS (SELECT 1 FROM public.person WHERE id=NEW.subjekt_id))
-     OR (NEW.subjekt_type='slaegt' AND EXISTS (SELECT 1 FROM public.slaegt WHERE id=NEW.subjekt_id))
-     OR (NEW.subjekt_type='lineage' AND EXISTS (SELECT 1 FROM public.lineage WHERE id=NEW.subjekt_id))
-     OR (NEW.subjekt_type='coat_of_arms' AND EXISTS (SELECT 1 FROM public.coat_of_arms WHERE id=NEW.subjekt_id))
-     OR (NEW.subjekt_type='media' AND EXISTS (SELECT 1 FROM public.media WHERE id=NEW.subjekt_id))
-     OR (NEW.subjekt_type='estate' AND EXISTS (SELECT 1 FROM public.estate WHERE id=NEW.subjekt_id)) THEN
-    RETURN NEW;
+  -- KEY SHARE kræver UPDATE-ret på måltabellen; derfor DEFINER, ikke klientgrants.
+  IF TG_OP='UPDATE' AND NEW.subjekt_type IS NOT DISTINCT FROM OLD.subjekt_type
+     AND NEW.subjekt_id IS NOT DISTINCT FROM OLD.subjekt_id THEN RETURN NEW; END IF;
+  IF NEW.subjekt_type='person' THEN PERFORM 1 FROM public.person WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSIF NEW.subjekt_type='slaegt' THEN PERFORM 1 FROM public.slaegt WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSIF NEW.subjekt_type='lineage' THEN PERFORM 1 FROM public.lineage WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSIF NEW.subjekt_type='coat_of_arms' THEN PERFORM 1 FROM public.coat_of_arms WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSIF NEW.subjekt_type='media' THEN PERFORM 1 FROM public.media WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSIF NEW.subjekt_type='estate' THEN PERFORM 1 FROM public.estate WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSE RAISE EXCEPTION 'ENTITY_DESCRIPTION_SUBJECT_INVALID';
   END IF;
+  IF FOUND THEN RETURN NEW; END IF;
   RAISE EXCEPTION 'ENTITY_DESCRIPTION_SUBJECT_INVALID';
 END $$;
 
@@ -21987,6 +22038,8 @@ LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, public, pr
     ('suggestion', ARRAY['kilde_source_id'], 'reference til opslag (source)'),
     ('version_pk_registry', ARRAY['tabel','pk_cols','skip_cols'], 'metadata om versionerede tabeller; ingen rækkedata'),
     -- private
+    ('private.person_purge_udbakke', ARRAY['bucket','sti'],
+      'indholdsadresseret Storage-udbakke; ingen personreference eller klientadgang (Task 8a)'),
     ('private.person_purge_manifest', ARRAY['xid','backend_pid','person_id','tabel','pk','grund','forrige_version'],
       'internt transaktionsmanifest; tømmes af sletningen, ingen klientadgang (Task 5)'),
     ('private.entity_description_source', ARRAY['source_record_id'], 'reference til bogens lag'),
@@ -23310,3 +23363,158 @@ BEGIN
 END
 $purge_preview$;
 REVOKE ALL ON FUNCTION public.red_slet_person_helt_preview(bigint) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Task 8a: vagter og Storage-udbakke. Selve sletningen følger i Task 8b.
+CREATE TABLE IF NOT EXISTS private.person_purge_udbakke (
+  bucket text NOT NULL,
+  sti text NOT NULL,
+  oprettet timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (bucket,sti)
+);
+ALTER TABLE private.person_purge_udbakke ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.person_purge_udbakke FROM PUBLIC,anon,authenticated,service_role;
+
+-- Kolonnepar fra TG_ARGV; relation har to. D-8: person → familie → fakta, id-orden
+-- inden for hver type. Fact-ender er godkendt som supplement til Task 0-spiken.
+CREATE OR REPLACE FUNCTION private.validate_polymorf_subjekt_findes()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+DECLARE
+  v_new jsonb := to_jsonb(NEW); v_old jsonb; i int; v_uaendret boolean := true; r record;
+BEGIN
+  IF TG_OP='UPDATE' THEN
+    v_old := to_jsonb(OLD);
+    FOR i IN 0..TG_NARGS-1 LOOP
+      IF (v_new->>TG_ARGV[i]) IS DISTINCT FROM (v_old->>TG_ARGV[i]) THEN v_uaendret := false; END IF;
+    END LOOP;
+    IF v_uaendret THEN RETURN NEW; END IF; -- D-6; ingen undtagelse fra append-only.
+  END IF;
+  IF TG_TABLE_SCHEMA='public' AND TG_TABLE_NAME='relation' THEN
+    FOR i IN 0..TG_NARGS/2-1 LOOP
+      IF lower(v_new->>TG_ARGV[2*i])='fact' AND (v_new->>TG_ARGV[2*i])<>'fact' THEN
+        RAISE EXCEPTION 'POLYMORF_TYPE_IKKE_KANONISK: %', v_new->>TG_ARGV[2*i];
+      END IF;
+    END LOOP;
+  END IF;
+  FOR r IN
+    SELECT lower(v_new->>TG_ARGV[2*k]) AS typ, (v_new->>TG_ARGV[2*k+1])::bigint AS id
+      FROM generate_series(0,TG_NARGS/2-1) k
+     WHERE (lower(v_new->>TG_ARGV[2*k]) IN ('person','family')
+         OR (TG_TABLE_SCHEMA='public' AND TG_TABLE_NAME='relation' AND lower(v_new->>TG_ARGV[2*k])='fact'))
+       AND v_new->>TG_ARGV[2*k+1] IS NOT NULL
+     ORDER BY CASE lower(v_new->>TG_ARGV[2*k]) WHEN 'person' THEN 1 WHEN 'family' THEN 2 ELSE 3 END,
+              (v_new->>TG_ARGV[2*k+1])::bigint
+  LOOP
+    IF r.typ='person' THEN PERFORM 1 FROM public.person WHERE id=r.id FOR KEY SHARE;
+    ELSIF r.typ='family' THEN PERFORM 1 FROM public.family WHERE id=r.id FOR KEY SHARE;
+    ELSE PERFORM 1 FROM public.fact WHERE id=r.id FOR KEY SHARE;
+    END IF;
+    IF NOT FOUND THEN RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %', r.typ,r.id; END IF;
+  END LOOP;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION private.validate_polymorf_subjekt_findes() FROM PUBLIC,anon,authenticated,service_role;
+
+DROP TRIGGER IF EXISTS trg_polymorf_fact ON public.fact;
+CREATE TRIGGER trg_polymorf_fact BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id ON public.fact
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_note ON public.note;
+CREATE TRIGGER trg_polymorf_note BEFORE INSERT OR UPDATE OF target_type,target_id ON public.note
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('target_type','target_id');
+DROP TRIGGER IF EXISTS trg_polymorf_narrative ON public.narrative;
+CREATE TRIGGER trg_polymorf_narrative BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id ON public.narrative
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_story ON public.story;
+CREATE TRIGGER trg_polymorf_story BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id ON public.story
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_suggestion ON public.suggestion;
+CREATE TRIGGER trg_polymorf_suggestion BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id ON public.suggestion
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_relation ON public.relation;
+CREATE TRIGGER trg_polymorf_relation BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id,objekt_type,objekt_id ON public.relation
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id','objekt_type','objekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_assertion_objekt ON public.assertion;
+-- BEFORE-rækkefølgen afhænger af triggernavnene: person/familie før fakta-/relationsmål.
+-- Note har ét fælles mål (vagterne låser gensidigt udelukkende typer); conclusion kun målvagten.
+-- Relation sorterer selv begge ender person → familie → fakta; fact har kun subjektvagten ved INSERT/UPDATE.
+DROP TRIGGER IF EXISTS trg_assertion_0_polymorf_objekt ON public.assertion;
+CREATE TRIGGER trg_assertion_0_polymorf_objekt BEFORE INSERT OR UPDATE OF objekt_type,objekt_id ON public.assertion
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('objekt_type','objekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_haendelse ON public.haendelse;
+CREATE TRIGGER trg_polymorf_haendelse BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id ON public.haendelse
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id');
+
+-- D-7: forælderhalvdelen. Rene ligheder på evidensens kanoniske target_type,
+-- så de eksisterende (target_type,target_id)-indekser kan benyttes.
+CREATE OR REPLACE FUNCTION private.guard_fact_evidence_delete()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.assertion WHERE target_type='fact' AND target_id=OLD.id)
+     OR EXISTS (SELECT 1 FROM public.conclusion WHERE target_type='fact' AND target_id=OLD.id)
+     OR EXISTS (SELECT 1 FROM public.note WHERE target_type='fact' AND target_id=OLD.id)
+     OR EXISTS (SELECT 1 FROM public.relation
+                 WHERE (subjekt_type='fact' AND subjekt_id=OLD.id)
+                    OR (objekt_type='fact' AND objekt_id=OLD.id)) THEN
+    RAISE EXCEPTION 'FACT_HAR_EVIDENS: fact %', OLD.id;
+  END IF;
+  RETURN OLD;
+END $$;
+REVOKE ALL ON FUNCTION private.guard_fact_evidence_delete() FROM PUBLIC,anon,authenticated,service_role;
+DROP TRIGGER IF EXISTS trg_fact_evidence_delete ON public.fact;
+CREATE TRIGGER trg_fact_evidence_delete BEFORE DELETE ON public.fact
+  FOR EACH ROW EXECUTE FUNCTION private.guard_fact_evidence_delete();
+
+-- Én parser til både red_set_feed_pin og K5-prelock. Den tager ingen rækkelåse;
+-- de kaldende skrivere bestemmer låseordenen. Manglende indirekte ankre gives
+-- som type/id, så prelock kan læse både foer/efter uden at afvise en pin, der kun fjernes.
+CREATE OR REPLACE FUNCTION private.feed_pin_maal(p_noegle text)
+RETURNS TABLE(typ text,id bigint)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+DECLARE v_anker_type text; v_anker_id bigint; v_subjekt_type text; v_subjekt_id bigint;
+BEGIN
+  IF p_noegle ~ '^story:-?[0-9]+$' THEN
+    v_anker_type:='story';
+    v_anker_id:=(regexp_match(p_noegle,'^story:(-?[0-9]+)$'))[1]::bigint;
+    SELECT s.subjekt_type,s.subjekt_id INTO v_subjekt_type,v_subjekt_id FROM public.story s WHERE s.id=v_anker_id;
+    IF NOT FOUND THEN RETURN QUERY SELECT v_anker_type,v_anker_id; RETURN; END IF;
+  ELSIF p_noegle ~ '^(arkiv:|paadennedag:h:)-?[0-9]+$' THEN
+    v_anker_type:='haendelse';
+    v_anker_id:=(regexp_match(p_noegle,'^(?:arkiv:|paadennedag:h:)(-?[0-9]+)$'))[1]::bigint;
+    SELECT h.subjekt_type,h.subjekt_id INTO v_subjekt_type,v_subjekt_id FROM public.haendelse h WHERE h.id=v_anker_id;
+    IF NOT FOUND THEN RETURN QUERY SELECT v_anker_type,v_anker_id; RETURN; END IF;
+  END IF;
+  RETURN QUERY
+    SELECT maal.typ,maal.id FROM (
+      SELECT 'person' AS typ, (regexp_match(p_noegle,'^(?:portrait|citat|naevnt|dagensperson):(-?[0-9]+)$'))[1]::bigint AS id
+       WHERE p_noegle ~ '^(portrait|citat|naevnt|dagensperson):-?[0-9]+$'
+      UNION SELECT 'person', (regexp_match(p_noegle,'^(?:jubilaeum|embede|paadennedag):(-?[0-9]+):'))[1]::bigint
+       WHERE p_noegle ~ '^(jubilaeum|embede|paadennedag):-?[0-9]+:'
+      UNION SELECT 'person', unnest((regexp_match(p_noegle,'^slaegt:(-?[0-9]+):(-?[0-9]+)$'))::bigint[])
+       WHERE p_noegle ~ '^slaegt:-?[0-9]+:-?[0-9]+$'
+      UNION SELECT 'family', (regexp_match(p_noegle,'^forbundet:(-?[0-9]+)$'))[1]::bigint
+       WHERE p_noegle ~ '^forbundet:-?[0-9]+$'
+      UNION SELECT lower(v_subjekt_type),v_subjekt_id WHERE lower(v_subjekt_type) IN ('person','family')
+    ) maal ORDER BY (maal.typ='family'),maal.id;
+END $$;
+REVOKE ALL ON FUNCTION private.feed_pin_maal(text) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Fix 1 fra Task 0: ingen feed_pin-trigger (ON CONFLICT låser pin-rækken for tidligt).
+-- Indirekte story-/hændelsesnøgler arver personens/familiens lås; R11 er også dækket.
+CREATE OR REPLACE FUNCTION private.laas_feed_pin_maal(p_noegle text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT m.typ,m.id FROM private.feed_pin_maal(p_noegle) m
+            ORDER BY (m.typ='family'),m.id LOOP
+    IF r.typ='person' THEN PERFORM 1 FROM public.person WHERE person.id=r.id FOR KEY SHARE;
+    ELSIF r.typ='family' THEN PERFORM 1 FROM public.family WHERE family.id=r.id FOR KEY SHARE;
+    ELSE RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %',r.typ,r.id;
+    END IF;
+    IF NOT FOUND THEN RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %',r.typ,r.id; END IF;
+  END LOOP;
+END $$;
+REVOKE ALL ON FUNCTION private.laas_feed_pin_maal(text) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.enforce_relation_evidence_target(),public.validate_entity_description_subject()
+  FROM PUBLIC,anon,authenticated,service_role;
+
+REVOKE ALL ON FUNCTION public.red_fortryd_change_set(bigint,boolean) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_fortryd_change_set(bigint,boolean) TO authenticated;

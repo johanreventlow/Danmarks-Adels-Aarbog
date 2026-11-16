@@ -39102,3 +39102,811 @@ REVOKE ALL ON FUNCTION private.person_purge_inventar(),private.person_purge_undt
   FROM PUBLIC,anon,authenticated,service_role;
 REVOKE ALL ON FUNCTION public.red_slet_person_helt_preview(bigint) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_slet_person_helt_preview(bigint) TO authenticated;
+
+-- Fuld personsletning (2026-11-14), Task 8a: endelige kroppe efter alle historiske migrationer.
+
+
+-- Task 8a: vagter og Storage-udbakke. Selve sletningen følger i Task 8b.
+CREATE TABLE IF NOT EXISTS private.person_purge_udbakke (
+  bucket text NOT NULL,
+  sti text NOT NULL,
+  oprettet timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (bucket,sti)
+);
+ALTER TABLE private.person_purge_udbakke ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.person_purge_udbakke FROM PUBLIC,anon,authenticated,service_role;
+
+-- Kolonnepar fra TG_ARGV; relation har to. D-8: person → familie → fakta, id-orden
+-- inden for hver type. Fact-ender er godkendt som supplement til Task 0-spiken.
+CREATE OR REPLACE FUNCTION private.validate_polymorf_subjekt_findes()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+DECLARE
+  v_new jsonb := to_jsonb(NEW); v_old jsonb; i int; v_uaendret boolean := true; r record;
+BEGIN
+  IF TG_OP='UPDATE' THEN
+    v_old := to_jsonb(OLD);
+    FOR i IN 0..TG_NARGS-1 LOOP
+      IF (v_new->>TG_ARGV[i]) IS DISTINCT FROM (v_old->>TG_ARGV[i]) THEN v_uaendret := false; END IF;
+    END LOOP;
+    IF v_uaendret THEN RETURN NEW; END IF; -- D-6; ingen undtagelse fra append-only.
+  END IF;
+  IF TG_TABLE_SCHEMA='public' AND TG_TABLE_NAME='relation' THEN
+    FOR i IN 0..TG_NARGS/2-1 LOOP
+      IF lower(v_new->>TG_ARGV[2*i])='fact' AND (v_new->>TG_ARGV[2*i])<>'fact' THEN
+        RAISE EXCEPTION 'POLYMORF_TYPE_IKKE_KANONISK: %', v_new->>TG_ARGV[2*i];
+      END IF;
+    END LOOP;
+  END IF;
+  FOR r IN
+    SELECT lower(v_new->>TG_ARGV[2*k]) AS typ, (v_new->>TG_ARGV[2*k+1])::bigint AS id
+      FROM generate_series(0,TG_NARGS/2-1) k
+     WHERE (lower(v_new->>TG_ARGV[2*k]) IN ('person','family')
+         OR (TG_TABLE_SCHEMA='public' AND TG_TABLE_NAME='relation' AND lower(v_new->>TG_ARGV[2*k])='fact'))
+       AND v_new->>TG_ARGV[2*k+1] IS NOT NULL
+     ORDER BY CASE lower(v_new->>TG_ARGV[2*k]) WHEN 'person' THEN 1 WHEN 'family' THEN 2 ELSE 3 END,
+              (v_new->>TG_ARGV[2*k+1])::bigint
+  LOOP
+    IF r.typ='person' THEN PERFORM 1 FROM public.person WHERE id=r.id FOR KEY SHARE;
+    ELSIF r.typ='family' THEN PERFORM 1 FROM public.family WHERE id=r.id FOR KEY SHARE;
+    ELSE PERFORM 1 FROM public.fact WHERE id=r.id FOR KEY SHARE;
+    END IF;
+    IF NOT FOUND THEN RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %', r.typ,r.id; END IF;
+  END LOOP;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION private.validate_polymorf_subjekt_findes() FROM PUBLIC,anon,authenticated,service_role;
+
+DROP TRIGGER IF EXISTS trg_polymorf_fact ON public.fact;
+CREATE TRIGGER trg_polymorf_fact BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id ON public.fact
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_note ON public.note;
+CREATE TRIGGER trg_polymorf_note BEFORE INSERT OR UPDATE OF target_type,target_id ON public.note
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('target_type','target_id');
+DROP TRIGGER IF EXISTS trg_polymorf_narrative ON public.narrative;
+CREATE TRIGGER trg_polymorf_narrative BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id ON public.narrative
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_story ON public.story;
+CREATE TRIGGER trg_polymorf_story BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id ON public.story
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_suggestion ON public.suggestion;
+CREATE TRIGGER trg_polymorf_suggestion BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id ON public.suggestion
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_relation ON public.relation;
+CREATE TRIGGER trg_polymorf_relation BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id,objekt_type,objekt_id ON public.relation
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id','objekt_type','objekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_assertion_objekt ON public.assertion;
+-- BEFORE-rækkefølgen afhænger af triggernavnene: person/familie før fakta-/relationsmål.
+-- Note har ét fælles mål (vagterne låser gensidigt udelukkende typer); conclusion kun målvagten.
+-- Relation sorterer selv begge ender person → familie → fakta; fact har kun subjektvagten ved INSERT/UPDATE.
+DROP TRIGGER IF EXISTS trg_assertion_0_polymorf_objekt ON public.assertion;
+CREATE TRIGGER trg_assertion_0_polymorf_objekt BEFORE INSERT OR UPDATE OF objekt_type,objekt_id ON public.assertion
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('objekt_type','objekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_haendelse ON public.haendelse;
+CREATE TRIGGER trg_polymorf_haendelse BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id ON public.haendelse
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id');
+
+-- D-7: forælderhalvdelen. Rene ligheder på evidensens kanoniske target_type,
+-- så de eksisterende (target_type,target_id)-indekser kan benyttes.
+CREATE OR REPLACE FUNCTION private.guard_fact_evidence_delete()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.assertion WHERE target_type='fact' AND target_id=OLD.id)
+     OR EXISTS (SELECT 1 FROM public.conclusion WHERE target_type='fact' AND target_id=OLD.id)
+     OR EXISTS (SELECT 1 FROM public.note WHERE target_type='fact' AND target_id=OLD.id)
+     OR EXISTS (SELECT 1 FROM public.relation
+                 WHERE (subjekt_type='fact' AND subjekt_id=OLD.id)
+                    OR (objekt_type='fact' AND objekt_id=OLD.id)) THEN
+    RAISE EXCEPTION 'FACT_HAR_EVIDENS: fact %', OLD.id;
+  END IF;
+  RETURN OLD;
+END $$;
+REVOKE ALL ON FUNCTION private.guard_fact_evidence_delete() FROM PUBLIC,anon,authenticated,service_role;
+DROP TRIGGER IF EXISTS trg_fact_evidence_delete ON public.fact;
+CREATE TRIGGER trg_fact_evidence_delete BEFORE DELETE ON public.fact
+  FOR EACH ROW EXECUTE FUNCTION private.guard_fact_evidence_delete();
+
+-- Én parser til både red_set_feed_pin og K5-prelock. Den tager ingen rækkelåse;
+-- de kaldende skrivere bestemmer låseordenen. Manglende indirekte ankre gives
+-- som type/id, så prelock kan læse både foer/efter uden at afvise en pin, der kun fjernes.
+CREATE OR REPLACE FUNCTION private.feed_pin_maal(p_noegle text)
+RETURNS TABLE(typ text,id bigint)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+DECLARE v_anker_type text; v_anker_id bigint; v_subjekt_type text; v_subjekt_id bigint;
+BEGIN
+  IF p_noegle ~ '^story:-?[0-9]+$' THEN
+    v_anker_type:='story';
+    v_anker_id:=(regexp_match(p_noegle,'^story:(-?[0-9]+)$'))[1]::bigint;
+    SELECT s.subjekt_type,s.subjekt_id INTO v_subjekt_type,v_subjekt_id FROM public.story s WHERE s.id=v_anker_id;
+    IF NOT FOUND THEN RETURN QUERY SELECT v_anker_type,v_anker_id; RETURN; END IF;
+  ELSIF p_noegle ~ '^(arkiv:|paadennedag:h:)-?[0-9]+$' THEN
+    v_anker_type:='haendelse';
+    v_anker_id:=(regexp_match(p_noegle,'^(?:arkiv:|paadennedag:h:)(-?[0-9]+)$'))[1]::bigint;
+    SELECT h.subjekt_type,h.subjekt_id INTO v_subjekt_type,v_subjekt_id FROM public.haendelse h WHERE h.id=v_anker_id;
+    IF NOT FOUND THEN RETURN QUERY SELECT v_anker_type,v_anker_id; RETURN; END IF;
+  END IF;
+  RETURN QUERY
+    SELECT maal.typ,maal.id FROM (
+      SELECT 'person' AS typ, (regexp_match(p_noegle,'^(?:portrait|citat|naevnt|dagensperson):(-?[0-9]+)$'))[1]::bigint AS id
+       WHERE p_noegle ~ '^(portrait|citat|naevnt|dagensperson):-?[0-9]+$'
+      UNION SELECT 'person', (regexp_match(p_noegle,'^(?:jubilaeum|embede|paadennedag):(-?[0-9]+):'))[1]::bigint
+       WHERE p_noegle ~ '^(jubilaeum|embede|paadennedag):-?[0-9]+:'
+      UNION SELECT 'person', unnest((regexp_match(p_noegle,'^slaegt:(-?[0-9]+):(-?[0-9]+)$'))::bigint[])
+       WHERE p_noegle ~ '^slaegt:-?[0-9]+:-?[0-9]+$'
+      UNION SELECT 'family', (regexp_match(p_noegle,'^forbundet:(-?[0-9]+)$'))[1]::bigint
+       WHERE p_noegle ~ '^forbundet:-?[0-9]+$'
+      UNION SELECT lower(v_subjekt_type),v_subjekt_id WHERE lower(v_subjekt_type) IN ('person','family')
+    ) maal ORDER BY (maal.typ='family'),maal.id;
+END $$;
+REVOKE ALL ON FUNCTION private.feed_pin_maal(text) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Fix 1 fra Task 0: ingen feed_pin-trigger (ON CONFLICT låser pin-rækken for tidligt).
+-- Indirekte story-/hændelsesnøgler arver personens/familiens lås; R11 er også dækket.
+CREATE OR REPLACE FUNCTION private.laas_feed_pin_maal(p_noegle text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT m.typ,m.id FROM private.feed_pin_maal(p_noegle) m
+            ORDER BY (m.typ='family'),m.id LOOP
+    IF r.typ='person' THEN PERFORM 1 FROM public.person WHERE person.id=r.id FOR KEY SHARE;
+    ELSIF r.typ='family' THEN PERFORM 1 FROM public.family WHERE family.id=r.id FOR KEY SHARE;
+    ELSE RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %',r.typ,r.id;
+    END IF;
+    IF NOT FOUND THEN RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %',r.typ,r.id; END IF;
+  END LOOP;
+END $$;
+REVOKE ALL ON FUNCTION private.laas_feed_pin_maal(text) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.enforce_relation_evidence_target(),public.validate_entity_description_subject()
+  FROM PUBLIC,anon,authenticated,service_role;
+
+
+CREATE OR REPLACE FUNCTION private.person_purge_undtagelser()
+RETURNS TABLE(tabel text, kolonne text, begrundelse text)
+LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+  SELECT u.tabel, k.kolonne, u.begrundelse
+    FROM (VALUES
+    -- Hele tabeller (kolonne '*'): kun bogens lag og rene opslagstabeller uden P-sti.
+    -- Bogens lag (Global Constraints; slettes aldrig). P's spor her er bogtekst og bevares; de steder, der læser dem
+    -- (S46, S50, S58, NY-C), står i inventaret.
+    ('private.source_record', ARRAY['*'], 'bogens lag'),
+    ('private.source_record_occurrence', ARRAY['*'], 'bogens lag'),
+    ('private.source_record_anchor_event', ARRAY['*'], 'bogens lag (underordnet source_record)'),
+    ('private.source_record_placement', ARRAY['*'], 'bogens lag (underordnet source_record)'),
+    ('private.source_record_placement_decision', ARRAY['*'], 'bogens lag (underordnet source_record); evidence er S58'),
+    ('private.source_record_revision_event', ARRAY['*'], 'bogens lag (underordnet source_record)'),
+    ('private.source_observation', ARRAY['*'], 'bogens lag'),
+    ('private.source_observation_text', ARRAY['*'], 'bogens lag (underordnet source_observation)'),
+    ('private.source_mention', ARRAY['*'], 'bogens lag'),
+    ('private.source_rendition', ARRAY['*'], 'bogens lag'),
+    ('private.extraction_run', ARRAY['*'], 'bogens lag'),
+    ('private.source_persona', ARRAY['*'], 'bogens lag'),
+    ('private.source_persona_mention', ARRAY['*'], 'bogens lag'),
+    ('private.source_persona_placement', ARRAY['*'], 'bogens lag'),
+    ('private.source_persona_placement_decision', ARRAY['*'], 'bogens lag; evidence er S58'),
+    ('private.interpretation', ARRAY['*'], 'bogens lag; value/decision_evidence er S58'),
+    ('private.interpretation_observation', ARRAY['*'], 'bogens lag'),
+    ('private.interpretation_party', ARRAY['*'], 'bogens lag'),
+    ('private.identity_control_run', ARRAY['*'], 'bogens lag'),
+    ('private.identity_control_sample', ARRAY['*'], 'bogens lag; mapping/expected er S46'),
+    ('private.identity_control_event', ARRAY['*'], 'bogens lag'),
+    ('private.identity_control_exclusion', ARRAY['*'], 'bogens lag; source_persona_id er NY-C'),
+    ('private.reimport_writer_profile', ARRAY['*'], 'bogens lag (skriverprofil)'),
+    ('private.narrative_record_cutover_receipt', ARRAY['*'], 'bogens lag; result er S50'),
+    ('private.clause_disposition', ARRAY['*'], 'bogens lag (slettegraf §3.2: vocab/clause_disposition, schema l. 1125-1135)'),
+    -- Opslagstabeller uden P-sti (slettegraf §2.3 »øvrige«).
+    ('source', ARRAY['*'], 'opslag: kilder/udgaver; ingen P-sti (slettegraf §2.3)'),
+    ('place', ARRAY['*'], 'opslag: steder; ingen P-sti (slettegraf §2.3)'),
+    ('estate', ARRAY['*'], 'opslag: ejendomme; ingen P-sti (slettegraf §2.3)'),
+    ('organisation', ARRAY['*'], 'opslag: organisationer; ingen P-sti (slettegraf §2.3)'),
+    ('lineage', ARRAY['*'], 'opslag: linjer; ingen P-sti (slettegraf §2.3)'),
+    ('slaegt', ARRAY['*'], 'opslag: slægter; ingen P-sti (slettegraf §2.3)'),
+    ('vocab', ARRAY['*'], 'opslag: kontrolleret vokabular (slettegraf §2.3)'),
+    ('private.vocab', ARRAY['*'], 'opslag: kontrolleret vokabular for bogens lag (slettegraf §2.3, §3.2)'),
+
+    -- Kolonne for kolonne. Faste begrundelser: egen nøgle · FK/reference til en ikke-person-tabel · kontrolleret
+    -- værdi/status · hash/tælling · aktør (redaktør/bruger; brugerkonti er uden for scope, R15) · mål/teknik ·
+    -- beskriver kun rækkens egen person/genstand (findes via inventarkolonnen og følger dens sted).
+    -- public
+    ('assertion', ARRAY['id'], 'egen nøgle; P''s påstande findes via target (S15)'),
+    ('assertion', ARRAY['date_qualifier','date_certainty','calendar'], 'kontrolleret værdi'),
+    ('bookmark', ARRAY['id'], 'egen nøgle'),
+    ('bookmark', ARRAY['user_id'], 'aktør: brugerkonto (auth.users), uden for scope (R15)'),
+    ('change_event', ARRAY['id','seq'], 'egen nøgle/rækkefølge'),
+    ('change_event', ARRAY['change_set_id'], 'reference til change_set; sættet afgøres af S52-S55 (§2.4)'),
+    ('change_event', ARRAY['op'], 'kontrolleret værdi'),
+    ('change_set', ARRAY['id'], 'egen nøgle'),
+    ('change_set', ARRAY['actor_id','actor_navn','actor_rolle'], 'aktør: redaktør, uden for scope (R15)'),
+    ('change_set', ARRAY['operation','subjekt_synlighed'], 'kontrolleret værdi'),
+    ('citation', ARRAY['id'], 'egen nøgle'),
+    ('citation', ARRAY['source_id'], 'reference til opslag (source)'),
+    ('citation', ARRAY['side','citat_dato'], 'kildens side/rå dato; beskriver kun citatet, intet person-id'),
+    ('citation', ARRAY['kvalitet'], 'kontrolleret værdi'),
+    ('coat_of_arms', ARRAY['id'], 'egen nøgle'),
+    ('coat_of_arms', ARRAY['blasonering','note'], 'opslag: våbnets egen beskrivelse; ingen P-sti (våben er en entitet som place/estate, §2.3); ikke i §4.1''s scanliste'),
+    ('conclusion', ARRAY['id'], 'egen nøgle'),
+    ('conclusion', ARRAY['status'], 'kontrolleret værdi'),
+    ('conclusion', ARRAY['blaastemplet_af'], 'proveniens (udgave eller ''Redaktør''), intet person-id'),
+    ('entity_description', ARRAY['id','version'], 'egen nøgle/version'),
+    ('entity_description', ARRAY['kind','language_code','status'], 'kontrolleret værdi'),
+    ('entity_description', ARRAY['created_by'], 'aktør: redaktør, uden for scope (R15)'),
+    ('fact', ARRAY['id'], 'egen nøgle; P''s fakta findes via subjekt (S13)'),
+    ('fact', ARRAY['faktatype'], 'kontrolleret værdi (vocab)'),
+    ('fact', ARRAY['sted_id'], 'reference til opslag (place)'),
+    ('family', ARRAY['type'], 'kontrolleret værdi'),
+    ('family_member', ARRAY['rolle','ordinal','konfidens'], 'beskriver kun rækkens eget medlemskab (S3)'),
+    ('feed_pin', ARRAY['id'], 'egen nøgle'),
+    ('feed_pin', ARRAY['handling'], 'kontrolleret værdi'),
+    ('feed_pin', ARRAY['oprettet_af'], 'aktør: redaktør, uden for scope (R15)'),
+    ('haendelse', ARRAY['id'], 'egen nøgle'),
+    ('haendelse', ARRAY['noegle','span_start','span_laengde'], 'position i rækkens eget narrativ (S25)'),
+    ('haendelse', ARRAY['kategori','date_qualifier','feed_status'], 'kontrolleret værdi'),
+    ('haendelse', ARRAY['date_raw'], 'rå dato fra rækkens egen klausul; intet person-id'),
+    ('haendelse', ARRAY['pass_version'], 'udtræksversion (teknik)'),
+    ('historical_event', ARRAY['id'], 'egen nøgle'),
+    ('historical_event', ARRAY['navn'], 'opslag: historisk begivenhed; ingen P-sti'),
+    ('import_korrektion', ARRAY['id'], 'egen nøgle'),
+    ('import_korrektion', ARRAY['felt','status'], 'kontrolleret værdi'),
+    ('import_korrektion', ARRAY['input_fingerprint'], 'hash'),
+    ('import_korrektion', ARRAY['actor_id','actor_navn'], 'aktør: redaktør, uden for scope (R15)'),
+    ('lineage_scheme', ARRAY['id'], 'egen nøgle'),
+    ('lineage_scheme', ARRAY['slaegt_id','source_id'], 'reference til opslag (slaegt/source)'),
+    ('lineage_scheme', ARRAY['kind','label'], 'opslag: bogens linjeskema; ingen P-sti'),
+    ('lineage_scheme_entry', ARRAY['id','sort_order'], 'egen nøgle/rækkefølge'),
+    ('lineage_scheme_entry', ARRAY['scheme_id','slaegt_id'], 'reference til opslag (lineage_scheme/slaegt)'),
+    ('lineage_scheme_entry', ARRAY['code','label'], 'opslag: bogens linjeskema; ingen P-sti'),
+    ('lineage_scheme_entry_lineage', ARRAY['entry_id','lineage_id','slaegt_id'], 'reference til opslag (linjeskema/lineage/slaegt)'),
+    ('lineage_scheme_entry_lineage', ARRAY['relation_kind'], 'kontrolleret værdi'),
+    ('media', ARRAY['slags','upload_status','rettigheder_status','mime_type'], 'kontrolleret værdi'),
+    ('media', ARRAY['bucket'], 'lagerspand (teknik); stien er S37'),
+    ('media', ARRAY['datering'], 'mediets rå dato; intet person-id'),
+    ('media', ARRAY['byte_size','bredde','hoejde'], 'mål'),
+    ('media', ARRAY['sha256'], 'hash'),
+    ('media_variant', ARRAY['id'], 'egen nøgle'),
+    ('media_variant', ARRAY['tier','mime_type'], 'kontrolleret værdi'),
+    ('media_variant', ARRAY['byte_size','bredde','hoejde'], 'mål'),
+    ('narrative', ARRAY['id'], 'egen nøgle; P''s narrativer findes via subjekt (S21)'),
+    ('narrative', ARRAY['source_id'], 'reference til opslag (source)'),
+    ('narrative', ARRAY['side'], 'kildens side'),
+    ('note', ARRAY['id'], 'egen nøgle'),
+    ('paastand_korrektion', ARRAY['id'], 'egen nøgle'),
+    ('paastand_korrektion', ARRAY['grund'], 'kontrolleret værdi (bogen_har_ret, linjeskift-v1)'),
+    ('paastand_korrektion', ARRAY['interpretation_id'], 'reference til bogens lag (interpretation)'),
+    ('paastand_korrektion', ARRAY['actor_id','actor_navn'], 'aktør: redaktør, uden for scope (R15)'),
+    ('person_external_id', ARRAY['linje','nr','slaegtled_lokal','slaegtled_gennem','kuld'], 'beskriver kun rækkens egen person (S2)'),
+    ('person_lineage_membership', ARRAY['lineage_id'], 'reference til opslag (lineage)'),
+    ('person_lineage_membership', ARRAY['role'], 'kontrolleret værdi'),
+    ('person_lineage_membership', ARRAY['source_basis'], 'kildegrundlag for rækkens eget medlemskab (placement-uuid, kilde, hash; S8)'),
+    ('person_slaegt_membership', ARRAY['slaegt_id'], 'reference til opslag (slaegt)'),
+    ('person_slaegt_membership', ARRAY['membership_kind'], 'kontrolleret værdi'),
+    ('person_slaegt_membership', ARRAY['source_basis'], 'kildegrundlag for rækkens eget medlemskab (placement-uuid, kilde, hash; S7)'),
+    ('profiles', ARRAY['id','rolle','email','navn'], 'brugerkonto, uden for scope (R15; spec §3)'),
+    ('relation', ARRAY['id'], 'egen nøgle; P''s relationer findes via enderne (S14/S19)'),
+    ('relation', ARRAY['rolle','erhvervelsesmaade','period_type','konfidens'], 'kontrolleret værdi'),
+    ('relation', ARRAY['periode_raw'], 'rå periodetekst for rækkens egen relation; intet person-id'),
+    ('relation', ARRAY['kvalifikator'], 'rollekvalifikation (fx primaer, bbox); intet person-id'),
+    ('repository', ARRAY['id'], 'egen nøgle'),
+    ('repository', ARRAY['navn','adresse'], 'opslag: arkiv; ingen P-sti'),
+    ('slaegtsnavn_karantaene', ARRAY['n_distinct'], 'tælling'),
+    ('story', ARRAY['id'], 'egen nøgle'),
+    ('story', ARRAY['historical_event_id'], 'reference til opslag (historical_event)'),
+    ('story', ARRAY['date_qualifier','status','oprindelse'], 'kontrolleret værdi'),
+    ('story', ARRAY['date_raw'], 'rå dato for rækkens egen historie; intet person-id'),
+    ('story', ARRAY['llm_model','llm_promptversion'], 'teknik'),
+    ('story', ARRAY['skabt_af','godkendt_af'], 'aktør: redaktør, uden for scope (R15)'),
+    ('story_kilde', ARRAY['id'], 'egen nøgle'),
+    ('story_kilde', ARRAY['source_id'], 'reference til opslag (source)'),
+    ('story_kilde', ARRAY['side'], 'kildens side'),
+    ('suggestion', ARRAY['id'], 'egen nøgle'),
+    ('suggestion', ARRAY['status','art','felt'], 'kontrolleret værdi'),
+    ('suggestion', ARRAY['forslagsstiller'], 'aktør: bruger, uden for scope (R15)'),
+    ('suggestion', ARRAY['kilde_source_id'], 'reference til opslag (source)'),
+    ('version_pk_registry', ARRAY['tabel','pk_cols','skip_cols'], 'metadata om versionerede tabeller; ingen rækkedata'),
+    -- private
+    ('private.person_purge_udbakke', ARRAY['bucket','sti'],
+      'indholdsadresseret Storage-udbakke; ingen personreference eller klientadgang (Task 8a)'),
+    ('private.person_purge_manifest', ARRAY['xid','backend_pid','person_id','tabel','pk','grund','forrige_version'],
+      'internt transaktionsmanifest; tømmes af sletningen, ingen klientadgang (Task 5)'),
+    ('private.entity_description_source', ARRAY['source_record_id'], 'reference til bogens lag'),
+    ('private.identity_control_parent_card', ARRAY['id','interpretation_key','interpretation_version'], 'egen nøgle/fortolkningsnøgle'),
+    ('private.identity_control_parent_card', ARRAY['control_run_id','counterpart_persona_id'], 'reference til bogens lag'),
+    ('private.identity_control_parent_event', ARRAY['seq','line'], 'egen rækkefølge/arklinje'),
+    ('private.identity_control_parent_event', ARRAY['outcome'], 'kontrolleret værdi'),
+    ('private.identity_control_parent_event', ARRAY['sheet_sha256','rows_sha256'], 'hash'),
+    ('private.identity_control_parent_event', ARRAY['created_by'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.identity_mutation_generation', ARRAY['generation','guard_backend_pid'], 'teknik: generationstæller og backend'),
+    ('private.identity_relation_update_prelock', ARRAY['backend_pid'], 'teknik: backend (transient, S51)'),
+    ('private.interpretation_predicate', ARRAY['predicate','interpretation_kind','category','value_kind','status','introduced_in'], 'opslag: prædikatkatalog; ingen P-sti'),
+    ('private.interpretation_promotion', ARRAY['id'], 'egen nøgle'),
+    ('private.interpretation_promotion', ARRAY['rule_key','rule_version','batch_id'], 'reference til regelkatalog/batch'),
+    ('private.interpretation_promotion', ARRAY['promoted_by','promoted_by_name'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.interpretation_promotion_batch', ARRAY['id'], 'egen nøgle'),
+    ('private.interpretation_promotion_batch', ARRAY['rule_profile_hash','preview_hash','items_sha256'], 'hash'),
+    ('private.interpretation_promotion_batch', ARRAY['requested_count'], 'tælling'),
+    ('private.interpretation_promotion_batch', ARRAY['promoted_by','promoted_by_name'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.interpretation_promotion_rule', ARRAY['rule_key','rule_version','predicate','interpretation_kind','target_type','expected_fact_type','value_kind','status','rule_mode'], 'opslag: regelkatalog; ingen P-sti'),
+    ('private.interpretation_promotion_rule_line', ARRAY['rule_key','predicate'], 'opslag: regelkatalog; ingen P-sti'),
+    ('private.legacy_placement_disposition', ARRAY['source_id','placement_id'], 'reference til opslag/bogens lag'),
+    ('private.legacy_placement_disposition', ARRAY['version'], 'egen version'),
+    ('private.legacy_placement_disposition', ARRAY['disposition'], 'kontrolleret værdi'),
+    ('private.legacy_placement_disposition', ARRAY['legacy_sha256'], 'hash'),
+    ('private.legacy_placement_disposition', ARRAY['decided_by_name'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.marriage_ordinal_correction', ARRAY['id','interpretation_key'], 'egen nøgle/fortolkningsnøgle'),
+    ('private.marriage_ordinal_correction', ARRAY['interpretation_id'], 'reference til bogens lag'),
+    ('private.marriage_ordinal_correction', ARRAY['party_version_from','party_version_to','ordinal_from','ordinal_to'], 'versions- og ordenstal'),
+    ('private.marriage_ordinal_correction', ARRAY['created_by'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.narrative_legacy_publication', ARRAY['legacy_publication_ref'], 'egen nøgle'),
+    ('private.narrative_legacy_publication', ARRAY['source_id'], 'reference til opslag (source)'),
+    ('private.narrative_legacy_publication', ARRAY['baseline_sha256'], 'hash'),
+    ('private.narrative_legacy_publication', ARRAY['status'], 'kontrolleret værdi'),
+    ('private.narrative_publication_event', ARRAY['id','stream_ref','stream_version'], 'egen nøgle/strøm'),
+    ('private.narrative_publication_event', ARRAY['binding_id','legacy_publication_ref','reversed_event_id','source_record_id','source_id'], 'reference til publiceringstilstand/bogens lag/opslag; P''s rækker findes via narrative_id (S23)'),
+    ('private.narrative_publication_event', ARRAY['event_type'], 'kontrolleret værdi'),
+    ('private.narrative_publication_event', ARRAY['before_state_sha256','after_state_sha256'], 'hash'),
+    ('private.narrative_publication_event', ARRAY['decided_by','decided_by_name'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.narrative_record_contract', ARRAY['version'], 'kontraktversion (teknik)'),
+    ('private.narrative_record_publication', ARRAY['id','record_ref'], 'egen nøgle/reference'),
+    ('private.narrative_record_publication', ARRAY['source_record_id'], 'reference til bogens lag'),
+    ('private.narrative_record_publication', ARRAY['record_label','citation_label'], 'bogens etiketter for posten; intet person-id'),
+    ('private.narrative_record_publication', ARRAY['status'], 'kontrolleret værdi'),
+    ('private.reimport_authorization', ARRAY['id','nonce'], 'egen nøgle'),
+    ('private.reimport_authorization', ARRAY['operation','status'], 'kontrolleret værdi'),
+    ('private.reimport_authorization', ARRAY['manifest_sha256','preview_sha256','profile_sha256'], 'hash'),
+    ('private.reimport_authorization', ARRAY['database_identity'], 'teknik: databaseidentitet'),
+    ('private.reimport_authorization', ARRAY['source_id','profile_id'], 'reference til opslag/skriverprofil'),
+    ('private.reimport_authorization', ARRAY['expected_counts'], 'tællinger pr. operation'),
+    ('private.reimport_authorization', ARRAY['principal_id'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.reimport_batch', ARRAY['id'], 'egen nøgle'),
+    ('private.reimport_batch', ARRAY['authorization_id','source_id','profile_id'], 'reference til autorisation/opslag/skriverprofil'),
+    ('private.reimport_batch', ARRAY['manifest_sha256','preview_sha256','profile_sha256'], 'hash'),
+    ('private.reimport_batch', ARRAY['status'], 'kontrolleret værdi'),
+    ('private.reimport_batch', ARRAY['expected_counts','observed_counts'], 'tællinger pr. operation'),
+    ('private.reimport_batch', ARRAY['principal_id'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.reimport_case_authorization', ARRAY['id','nonce'], 'egen nøgle'),
+    ('private.reimport_case_authorization', ARRAY['phase','operation','status'], 'kontrolleret værdi'),
+    ('private.reimport_case_authorization', ARRAY['manifest_sha256','preview_sha256','approval_sha256','decisions_sha256','state_sha256','text_bundle_sha256'], 'hash'),
+    ('private.reimport_case_authorization', ARRAY['database_name','system_identifier'], 'teknik: databaseidentitet'),
+    ('private.reimport_case_authorization', ARRAY['source_id'], 'reference til opslag (source)'),
+    ('private.reimport_case_authorization', ARRAY['expected_counts'], 'tællinger pr. operation'),
+    ('private.reimport_case_authorization', ARRAY['principal_id'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.reimport_case_batch', ARRAY['id'], 'egen nøgle'),
+    ('private.reimport_case_batch', ARRAY['authorization_id','reversal_batch_id','source_id'], 'reference til autorisation/batch/opslag'),
+    ('private.reimport_case_batch', ARRAY['phase','operation','status'], 'kontrolleret værdi'),
+    ('private.reimport_case_batch', ARRAY['manifest_sha256','preview_sha256'], 'hash'),
+    ('private.reimport_case_batch', ARRAY['expected_counts','observed_counts'], 'tællinger pr. operation'),
+    ('private.reimport_case_batch', ARRAY['principal_id'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.reimport_case_event', ARRAY['id'], 'egen nøgle'),
+    ('private.reimport_case_event', ARRAY['batch_id','source_id'], 'reference til batch/opslag'),
+    ('private.reimport_case_event', ARRAY['phase','payload_schema_version'], 'kontrolleret værdi'),
+    ('private.reimport_case_event', ARRAY['element_id'], 'elementnøgle afledt af bogens record-nøgle; intet person-id'),
+    ('private.reimport_case_event', ARRAY['before_sha256','after_sha256'], 'hash'),
+    ('private.reimport_event', ARRAY['id'], 'egen nøgle'),
+    ('private.reimport_event', ARRAY['batch_id'], 'reference til batch'),
+    ('private.reimport_event', ARRAY['operation'], 'kontrolleret værdi'),
+    ('private.reimport_event', ARRAY['element_id','source_record_key'], 'elementnøgle/record-nøgle fra bogens lag; intet person-id'),
+    ('private.reimport_event', ARRAY['before_sha256','after_sha256'], 'hash'),
+    ('private.reimport_name_completion_result', ARRAY['id'], 'egen nøgle'),
+    ('private.reimport_name_completion_result', ARRAY['batch_id','source_batch_id'], 'reference til batch'),
+    ('private.reimport_name_completion_result', ARRAY['element_id'], 'elementnøgle fra bogens lag; intet person-id'),
+    ('private.reimport_name_completion_result', ARRAY['source_record_id','source_persona_id'], 'reference til bogens lag'),
+    ('private.reimport_name_completion_result', ARRAY['payload_sha256','result_sha256'], 'hash'),
+    ('private.relation_classification_event', ARRAY['interpretation_key','seq','interpretation_version'], 'fortolkningsnøgle/rækkefølge'),
+    ('private.relation_classification_event', ARRAY['interpretation_id'], 'reference til bogens lag'),
+    ('private.relation_classification_event', ARRAY['classification'], 'kontrolleret værdi'),
+    ('private.relation_classification_event', ARRAY['created_by'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.relation_reopen', ARRAY['interpretation_key'], 'fortolkningsnøgle'),
+    ('private.relation_reopen', ARRAY['to_interpretation_id','from_interpretation_id','spouse_source_persona_id'], 'reference til bogens lag'),
+    ('private.relation_reopen', ARRAY['spouse_identity_version'], 'versionstal'),
+    ('private.relation_reopen', ARRAY['reopened_by','reopened_by_name'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.source_persona_identity', ARRAY['decision_status'], 'kontrolleret værdi'),
+    ('private.source_persona_identity', ARRAY['version'], 'versionstal (Q7)'),
+    ('private.source_persona_identity', ARRAY['decided_by','decided_by_name'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.source_persona_identity_candidate', ARRAY['id'], 'egen nøgle (kandidat-uuid; S46 refererer den)'),
+    ('private.source_persona_identity_candidate', ARRAY['run_id','source_persona_id'], 'reference til kandidatkørsel/bogens lag'),
+    ('private.source_persona_identity_candidate', ARRAY['rank','tier'], 'rang/kontrolleret værdi'),
+    ('private.source_persona_identity_candidate_run', ARRAY['id','run_seq'], 'egen nøgle'),
+    ('private.source_persona_identity_candidate_run', ARRAY['source_id'], 'reference til opslag (source)'),
+    ('private.source_persona_identity_candidate_run', ARRAY['generator_version'], 'teknik'),
+    ('private.source_persona_identity_candidate_run', ARRAY['config'], 'generatorindstillinger (fx topK); kildeniveau, intet person-id'),
+    ('private.source_persona_identity_candidate_run', ARRAY['input_spec'], 'input-spec (mode, persona-uuid''er fra bogens lag; identity_candidate_input); intet person-id'),
+    ('private.source_persona_identity_candidate_run', ARRAY['config_sha256','input_sha256','candidates_sha256'], 'hash (bliver forældet, M2; slettegraf §3.5)'),
+    ('private.source_persona_identity_candidate_run', ARRAY['persona_count','candidate_count'], 'tælling'),
+    ('private.source_persona_identity_candidate_run', ARRAY['created_by','created_by_name'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.source_persona_identity_event', ARRAY['id'], 'egen nøgle (indholdsafledt af persona og version, Q7)'),
+    ('private.source_persona_identity_event', ARRAY['decision_status'], 'kontrolleret værdi'),
+    ('private.source_persona_identity_event', ARRAY['version'], 'versionstal (Q7)'),
+    ('private.source_persona_identity_event', ARRAY['decided_by','decided_by_name'], 'aktør: redaktør, uden for scope (R15)'),
+    ('private.text_revision_reconciliation', ARRAY['id'], 'egen nøgle'),
+    ('private.text_revision_reconciliation', ARRAY['old_interpretation_key','new_interpretation_key'], 'fortolkningsnøgle'),
+    ('private.text_revision_reconciliation', ARRAY['outcome'], 'kontrolleret værdi'),
+    ('private.text_revision_reconciliation', ARRAY['decided_by','decided_by_name'], 'aktør: redaktør, uden for scope (R15)')
+    ) u(tabel, kolonner, begrundelse)
+    CROSS JOIN LATERAL unnest(u.kolonner) AS k(kolonne)
+$$;
+
+CREATE OR REPLACE FUNCTION enforce_relation_evidence_target()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+BEGIN
+  -- D-6: generisk fortryd sætter også et uændret mål.
+  IF TG_OP='UPDATE' AND NEW.target_type IS NOT DISTINCT FROM OLD.target_type
+     AND NEW.target_id IS NOT DISTINCT FROM OLD.target_id THEN RETURN NEW; END IF;
+  IF lower(NEW.target_type) IN ('fact','relation') AND NEW.target_type<>lower(NEW.target_type) THEN
+    RAISE EXCEPTION 'POLYMORF_TYPE_IKKE_KANONISK: %', NEW.target_type;
+  END IF;
+  IF NEW.target_type='relation' THEN
+    PERFORM 1 FROM public.relation WHERE id=NEW.target_id FOR KEY SHARE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Relations-evidens kræver eksisterende relation %', NEW.target_id;
+    END IF;
+  ELSIF NEW.target_type='fact' THEN
+    PERFORM 1 FROM public.fact WHERE id=NEW.target_id FOR KEY SHARE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: fact %', NEW.target_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE OR REPLACE FUNCTION validate_entity_description_subject()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+BEGIN
+  -- KEY SHARE kræver UPDATE-ret på måltabellen; derfor DEFINER, ikke klientgrants.
+  IF TG_OP='UPDATE' AND NEW.subjekt_type IS NOT DISTINCT FROM OLD.subjekt_type
+     AND NEW.subjekt_id IS NOT DISTINCT FROM OLD.subjekt_id THEN RETURN NEW; END IF;
+  IF NEW.subjekt_type='person' THEN PERFORM 1 FROM public.person WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSIF NEW.subjekt_type='slaegt' THEN PERFORM 1 FROM public.slaegt WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSIF NEW.subjekt_type='lineage' THEN PERFORM 1 FROM public.lineage WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSIF NEW.subjekt_type='coat_of_arms' THEN PERFORM 1 FROM public.coat_of_arms WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSIF NEW.subjekt_type='media' THEN PERFORM 1 FROM public.media WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSIF NEW.subjekt_type='estate' THEN PERFORM 1 FROM public.estate WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSE RAISE EXCEPTION 'ENTITY_DESCRIPTION_SUBJECT_INVALID';
+  END IF;
+  IF FOUND THEN RETURN NEW; END IF;
+  RAISE EXCEPTION 'ENTITY_DESCRIPTION_SUBJECT_INVALID';
+END $$;
+
+CREATE OR REPLACE FUNCTION red_set_feed_pin(p_kort_noegle text, p_handling text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_handling NOT IN ('pin','skjul') THEN
+    RAISE EXCEPTION '''%'' er ikke en gyldig pin-handling (pin|skjul)', p_handling;
+  END IF;
+  IF p_kort_noegle IS NULL OR btrim(p_kort_noegle)='' THEN
+    RAISE EXCEPTION 'kort_noegle må ikke være tom';
+  END IF;
+  PERFORM begin_change_set('red_set_feed_pin',
+    format('Satte %s på kort %s', p_handling, p_kort_noegle), NULL, NULL);
+  PERFORM private.laas_feed_pin_maal(p_kort_noegle);
+  INSERT INTO feed_pin (kort_noegle, handling)
+  VALUES (p_kort_noegle, p_handling)
+  ON CONFLICT (kort_noegle) DO UPDATE
+    SET handling=excluded.handling, oprettet_af=auth.uid(), oprettet_naar=now();
+END $$;
+
+DROP TRIGGER IF EXISTS trg_assertion_relation_target ON public.assertion;
+CREATE TRIGGER trg_assertion_relation_target BEFORE INSERT OR UPDATE OF target_type,target_id ON public.assertion
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_relation_evidence_target();
+
+DROP TRIGGER IF EXISTS trg_conclusion_relation_target ON public.conclusion;
+CREATE TRIGGER trg_conclusion_relation_target BEFORE INSERT OR UPDATE OF target_type,target_id ON public.conclusion
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_relation_evidence_target();
+
+DROP TRIGGER IF EXISTS trg_note_relation_target ON public.note;
+CREATE TRIGGER trg_note_relation_target BEFORE INSERT OR UPDATE OF target_type,target_id ON public.note
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_relation_evidence_target();
+
+DROP TRIGGER IF EXISTS trg_entity_description_subject ON public.entity_description;
+CREATE TRIGGER trg_entity_description_subject BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id ON public.entity_description
+  FOR EACH ROW EXECUTE FUNCTION public.validate_entity_description_subject();
+
+REVOKE ALL ON FUNCTION public.red_set_feed_pin(text,text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_set_feed_pin(text,text) TO authenticated;
+
+-- Task 8a / R6: K5-prelock omfatter også feed_pin-mål.
+CREATE OR REPLACE FUNCTION red_fortryd_change_set(p_change_set_id bigint, p_force boolean DEFAULT false)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE
+  ev change_event; v_new_cs bigint; v_orig change_set;
+  v_cur jsonb; v_pids bigint[] := '{}'; v_narr bigint[] := '{}'; v_notes bigint[] := '{}';
+  v_div int := 0; pid bigint; v_forventet jsonb; v_contract_version integer; v_lock record; v_pin_maal record;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  v_contract_version:=public.narrative_record_contract_version();
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Publication writers hold ACCESS EXCLUSIVE while allocating their audit
+  -- set and appending its event. Take the weakest conflicting table lock before
+  -- the dedicated-routing predicate so the predicate cannot race an uncommitted
+  -- event. ACCESS SHARE remains compatible with ordinary legacy writers and
+  -- preserves their identity-advisory -> change_set ordering.
+  LOCK TABLE public.change_set IN ACCESS SHARE MODE;
+  IF EXISTS (
+    SELECT 1
+    FROM private.narrative_publication_event
+    WHERE change_set_id = p_change_set_id
+  ) OR (
+    v_contract_version >= 2
+    AND EXISTS (
+      SELECT 1
+      FROM public.change_event ce
+      WHERE ce.change_set_id = p_change_set_id
+        AND ce.tabel = 'narrative'
+        AND ce.row_pk ? 'id'
+        AND (
+          EXISTS (
+            SELECT 1
+            FROM private.narrative_publication_event npe
+            WHERE npe.narrative_id = (ce.row_pk->>'id')::bigint
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM private.narrative_legacy_publication nlp
+            WHERE nlp.narrative_id = (ce.row_pk->>'id')::bigint
+          )
+        )
+    )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_DEDICATED_REVERSAL_REQUIRED';
+  END IF;
+  -- K5: lås sættets række, så to samtidige fortrydelser af samme sæt serialiseres; den anden ser bagefter
+  -- (nyt snapshot pr. sætning) den førstes reversal nedenfor og afvises — også med p_force.
+  SELECT * INTO v_orig FROM change_set WHERE id=p_change_set_id FOR UPDATE;
+  IF v_orig.id IS NULL THEN RAISE EXCEPTION 'FEJL: change_set % findes ikke', p_change_set_id; END IF;
+  -- allerede reverteret? (reversal-kæde; M3)
+  IF EXISTS (SELECT 1 FROM change_set WHERE reverterer_id=p_change_set_id) THEN
+    RAISE EXCEPTION 'FEJL: change_set % er allerede fortrudt', p_change_set_id;
+  END IF;
+
+  -- Forudscan HELE sættet før reversal-audit eller inverse DML. Hvis nogen inverse
+  -- operation kan indsætte, opdatere eller slette en identitetsrelation, tages den
+  -- fælles advisory+generation-protokol én gang i den globale rækkefølge.
+  IF EXISTS (
+    SELECT 1 FROM change_event ce
+    WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation' AND (
+      p_force OR CASE ce.op
+        WHEN 'INSERT' THEN ce.efter->>'rolle' IN ('samme_som','ikke_samme_som')
+        WHEN 'DELETE' THEN ce.foer->>'rolle' IN ('samme_som','ikke_samme_som')
+        WHEN 'UPDATE' THEN ce.foer->>'rolle' IN ('samme_som','ikke_samme_som')
+                            OR ce.efter->>'rolle' IN ('samme_som','ikke_samme_som')
+        ELSE false
+      END)
+  ) THEN
+    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+    PERFORM private.guard_identity_mutation_snapshot();
+  END IF;
+
+  -- åbn reversal-sæt (re-entrant: triggere fanger ikke restore-DML ind under DET, da vi
+  -- bevidst NULLER app.change_set_id under selve inverse — se nedenfor). Vi logger restore
+  -- som ÉT change_set uden child-events for ikke at dobbelt-logge; reversal-kæden er sporet.
+  PERFORM set_config('app.change_set_id','',true);  -- undgå at inverse-DML re-logges
+  IF pg_get_serial_sequence('public.change_set','id') IS NULL THEN
+    v_new_cs := (SELECT coalesce(max(id),0)+1 FROM change_set);
+    INSERT INTO change_set(id, actor_id, actor_navn, actor_rolle, operation, summary,
+                           subjekt_type, subjekt_id, subjekt_synlighed, reverterer_id)
+      VALUES (v_new_cs, auth.uid(),
+              coalesce((SELECT coalesce(p.navn, p.email, auth.uid()::text) FROM profiles p WHERE p.id=auth.uid()), 'ukendt'),
+              current_rolle(), 'fortryd',
+              format('Fortrød: %s', coalesce(v_orig.summary,'(uden tekst)')),
+              v_orig.subjekt_type, v_orig.subjekt_id, v_orig.subjekt_synlighed, p_change_set_id);
+  ELSE
+    INSERT INTO change_set(actor_id, actor_navn, actor_rolle, operation, summary,
+                           subjekt_type, subjekt_id, subjekt_synlighed, reverterer_id)
+      VALUES (auth.uid(),
+              coalesce((SELECT coalesce(p.navn, p.email, auth.uid()::text) FROM profiles p WHERE p.id=auth.uid()), 'ukendt'),
+              current_rolle(), 'fortryd',
+              format('Fortrød: %s', coalesce(v_orig.summary,'(uden tekst)')),
+              v_orig.subjekt_type, v_orig.subjekt_id, v_orig.subjekt_synlighed, p_change_set_id)
+      RETURNING id INTO v_new_cs;
+  END IF;
+
+  -- K5 (kodereview 36): verifikationen nedenfor læser uden lås og skriver bagefter; uden låse kunne en samtidig
+  -- redigering (T2 gemmer mellem T1's tjek og skrivning) blive overskrevet uden divergens. Lås derfor ALLE berørte,
+  -- eksisterende rækker FOR UPDATE før første tjek, i en fast rækkefølge efter change_set (som writerne): først
+  -- personer i stigende id (sættets personrækker og personmål fra relationer/pins — samme orden som
+  -- identitetsprotokollen og red_saet_portraet), derefter pin-familier og resten efter (tabel, numerisk
+  -- id, row_pk). En samtidig writer venter nu på fortrydelsen, eller fortrydelsen venter på writeren og ser bagefter
+  -- dens committede værdi (nyt snapshot pr. sætning under READ COMMITTED) og afviser den som divergens. En række, som
+  -- sættet slettede (og fortrydelsen genindsætter), findes ikke og kan ikke låses.
+  PERFORM 1 FROM person lp
+   WHERE lp.id IN (
+     SELECT (ce.row_pk->>'id')::bigint FROM change_event ce
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='person'
+     UNION
+     SELECT (x.r->>'subjekt_id')::bigint
+       FROM change_event ce CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation' AND x.r->>'subjekt_type'='person'
+     UNION
+     SELECT (x.r->>'objekt_id')::bigint
+       FROM change_event ce CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation' AND x.r->>'objekt_type'='person'
+     UNION
+     -- R6: også pins i foer/efter, før K5 låser pin-rækken. Ellers kan en
+     -- inverse genindsætte P's pin efter sletningen eller danne pin→person-cyklus.
+     SELECT m.id FROM change_event ce
+       CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+       CROSS JOIN LATERAL private.feed_pin_maal(x.r->>'kort_noegle') m
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='feed_pin' AND m.typ='person')
+   ORDER BY lp.id FOR UPDATE;
+  -- Familier følger personerne, stadig før K5's øvrige rækker. Samme parser
+  -- som red_set_feed_pin; ingen ny nøglegrammatik eller sen rækkelås i restore-helperen.
+  PERFORM 1 FROM family lf WHERE lf.id IN (
+    SELECT m.id FROM change_event ce
+      CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+      CROSS JOIN LATERAL private.feed_pin_maal(x.r->>'kort_noegle') m
+     WHERE ce.change_set_id=p_change_set_id AND ce.tabel='feed_pin' AND m.typ='family')
+   ORDER BY lf.id FOR KEY SHARE;
+  FOR v_lock IN
+    SELECT d.tabel, d.row_pk
+      FROM (SELECT DISTINCT ce.tabel, ce.row_pk FROM change_event ce WHERE ce.change_set_id=p_change_set_id) d
+     ORDER BY d.tabel COLLATE "C",
+              CASE WHEN d.row_pk->>'id' ~ '^-?[0-9]{1,18}$' THEN (d.row_pk->>'id')::bigint END,
+              d.row_pk::text COLLATE "C"
+  LOOP
+    PERFORM _version_lock_row(v_lock.tabel, v_lock.row_pk);
+  END LOOP;
+
+  -- inverse-apply i OMVENDT seq-orden, alt i denne ene transaktion
+  FOR ev IN SELECT * FROM change_event WHERE change_set_id=p_change_set_id ORDER BY seq DESC LOOP
+    -- optimistisk verifikation (B9): nuværende tilstand skal matche hvad sættet efterlod
+    v_cur := _version_current_row(ev.tabel, ev.row_pk);
+    -- B9-divergens for ALLE op-typer (review09 H1): DELETE efterlod række ABSENT (NULL),
+    -- INSERT/UPDATE efterlod ev.efter. Lukker blind PK-overskrivning ved DELETE-inverse.
+    v_forventet := CASE WHEN ev.op='DELETE' THEN NULL ELSE ev.efter END;
+    IF v_cur IS DISTINCT FROM v_forventet THEN
+      v_div := v_div + 1;
+      IF NOT p_force THEN
+        RAISE EXCEPTION 'FEJL: nyere ændring rører %/% — afvist (brug force)', ev.tabel, ev.row_pk;
+      END IF;
+    END IF;
+    -- Efter K5-låsene: en inverse, der efterlader en pin, skal have eksisterende
+    -- mål, også med force. Kun eksistenskontrol her; mållåsene blev taget før
+    -- pin-rækken. INSERT-inverse fjerner pinnen og behøver ikke et levende mål.
+    IF ev.tabel='feed_pin' AND ev.op IN ('DELETE','UPDATE') THEN
+      FOR v_pin_maal IN SELECT m.typ,m.id FROM private.feed_pin_maal(ev.foer->>'kort_noegle') m LOOP
+        IF v_pin_maal.typ='person' THEN
+          PERFORM 1 FROM public.person WHERE id=v_pin_maal.id;
+        ELSIF v_pin_maal.typ='family' THEN
+          PERFORM 1 FROM public.family WHERE id=v_pin_maal.id;
+        ELSE
+          RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %',v_pin_maal.typ,v_pin_maal.id;
+        END IF;
+        IF NOT FOUND THEN
+          RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %',v_pin_maal.typ,v_pin_maal.id;
+        END IF;
+      END LOOP;
+    END IF;
+    -- anvend inverse
+    IF ev.op='INSERT' THEN
+      PERFORM _version_delete_row(ev.tabel, ev.row_pk);
+    ELSE  -- DELETE eller UPDATE: genskab foer-tilstand
+      PERFORM _version_upsert_row(ev.tabel, ev.foer);
+    END IF;
+    -- saml berørte for cache/indeks-regen
+    IF ev.tabel='person'    THEN v_pids := v_pids || (ev.row_pk->>'id')::bigint; END IF;
+    IF ev.tabel='conclusion' THEN
+      SELECT f.subjekt_id INTO pid FROM fact f
+        WHERE f.id=(coalesce(ev.foer,ev.efter)->>'target_id')::bigint AND f.subjekt_type='person';
+      IF pid IS NOT NULL THEN v_pids := v_pids || pid; END IF;
+    END IF;
+    IF ev.tabel='narrative' THEN v_narr := v_narr || (ev.row_pk->>'id')::bigint; END IF;
+    IF ev.tabel='note'      THEN v_notes := v_notes || (ev.row_pk->>'id')::bigint; END IF;
+  END LOOP;
+
+  -- regenerér afledte projektioner ÉN gang (B8 + hyperlinks)
+  FOR pid IN SELECT DISTINCT unnest(v_pids) LOOP
+    PERFORM regen_person_visning(pid);
+  END LOOP;
+  -- text_mention regenereres af mention-trigger ved narrativ/note-skrivning (Task 10);
+  -- ved restore kalder vi den eksplicit (funktion tilføjes i Task 10):
+  PERFORM _regen_mentions_for('narrative', n) FROM unnest(v_narr) n;
+  PERFORM _regen_mentions_for('note', n)      FROM unnest(v_notes) n;
+
+  IF v_div > 0 THEN
+    UPDATE change_set SET summary = summary || format(' [%s divergenser tvunget]', v_div) WHERE id=v_new_cs;
+  END IF;
+  RETURN jsonb_build_object('reversal_change_set', v_new_cs, 'divergenser', v_div);
+END $$;
+
+REVOKE ALL ON FUNCTION public.red_fortryd_change_set(bigint,boolean) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_fortryd_change_set(bigint,boolean) TO authenticated;
+
+
+-- Fuld personsletning (2026-11-14), Task 8a: gammel sletter rydder også relationer til personens fakta.
+CREATE OR REPLACE FUNCTION red_slet_person(p_person_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_facts bigint[]; v_rels bigint[]; v_contract_version integer;
+BEGIN
+  -- #152: serialize with the atomic narrative-record cutover before every
+  -- existing delete lock. Publication history is append-only, so whole-person
+  -- hard delete stays fail-closed until the retention/tombstone design exists.
+  PERFORM pg_advisory_xact_lock_shared(
+    hashtextextended('daa-narrative-record-contract',0)
+  );
+  v_contract_version:=public.narrative_record_contract_version();
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM private.narrative_publication_event event
+      JOIN public.narrative narrative ON narrative.id=event.narrative_id
+     WHERE narrative.subjekt_type='person'
+       AND narrative.subjekt_id=p_person_id
+  ) THEN
+    RAISE EXCEPTION 'PERSON_HAR_NARRATIVE_PUBLICATION_HISTORY';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  PERFORM private.guard_identity_mutation_snapshot();
+
+  -- 2026-08-20: private.source_persona_identity(_event).canonical_person_id har FK mod person
+  -- uden ON DELETE, og _event er append-only (kun BEFORE INSERT-trigger). Har personen én gang
+  -- været mål for en ACCEPTERET kilde-identifikation, bærer den historiske event stadig id'et,
+  -- og sletningen kan aldrig lykkes — heller ikke efter en tilbagetrækning. Vi afviser derfor
+  -- tidligt med en forståelig fejl i stedet for at lade en rå FK-violation slippe ud midt i
+  -- en halvt udført sletning. Den varige løsning er et arkitekturvalg; se docs/decisions.md.
+  IF EXISTS (SELECT 1 FROM private.source_persona_identity_event
+               WHERE canonical_person_id = p_person_id)
+     OR EXISTS (SELECT 1 FROM private.source_persona_identity
+               WHERE canonical_person_id = p_person_id) THEN
+    RAISE EXCEPTION 'PERSON_HAR_KILDEIDENTITET: personen er mål for en accepteret kilde-identifikation, og beslutningssporet er uforanderligt. Sletning er ikke mulig — se docs/decisions.md om tombstone-valget.';
+  END IF;
+
+  PERFORM begin_change_set('red_slet_person', format('Slettede person %s', p_person_id), 'person', p_person_id);
+
+  -- Fælles skriveorden med OCR-rettelsen: source/external-id → person → evidens.
+  -- Sletningen må vente her, før den tager citation/assertion, ellers kan to transaktioner
+  -- danne cyklussen external-id→citation / citation→external-id.
+  PERFORM 1 FROM source s JOIN person_external_id pei ON pei.source_id=s.id
+    WHERE pei.person_id=p_person_id ORDER BY s.id,pei.source_id FOR UPDATE OF s,pei;
+  PERFORM private.lock_identity_people(ARRAY[p_person_id]);
+
+  SELECT coalesce(array_agg(id),'{}') INTO v_facts FROM fact
+    WHERE subjekt_type='person' AND subjekt_id=p_person_id;
+  SELECT coalesce(array_agg(id),'{}') INTO v_rels FROM relation
+    WHERE (subjekt_type='person' AND subjekt_id=p_person_id)
+       OR (objekt_type='person'  AND objekt_id=p_person_id)
+       -- Task 8a: relationer til P's fakta skal også have evidensen ryddet før faktasletning.
+       OR (subjekt_type='fact' AND subjekt_id = ANY(v_facts))
+       OR (objekt_type='fact' AND objekt_id = ANY(v_facts));
+
+  UPDATE profiles SET reventlow_person_id = NULL WHERE reventlow_person_id = p_person_id;
+
+  DELETE FROM citation WHERE assertion_id IN (
+    SELECT id FROM assertion WHERE (target_type='fact'     AND target_id = ANY(v_facts))
+                                OR (target_type='relation' AND target_id = ANY(v_rels)));
+  DELETE FROM conclusion WHERE (target_type='fact'     AND target_id = ANY(v_facts))
+                            OR (target_type='relation' AND target_id = ANY(v_rels));
+  DELETE FROM assertion  WHERE (target_type='fact'     AND target_id = ANY(v_facts))
+                            OR (target_type='relation' AND target_id = ANY(v_rels));
+
+  DELETE FROM note WHERE (target_type='person'   AND target_id=p_person_id)
+                      OR (target_type='fact'     AND target_id = ANY(v_facts))
+                      OR (target_type='relation' AND target_id = ANY(v_rels));
+
+  -- 2026-08-20: private.narrative_record_publication har FK mod narrative(id) UDEN ON DELETE,
+  -- så den blokerede sletningen for alle 551 narrativ-bundne 1939-personer. Bindingen siger
+  -- »dette narrativ stammer fra denne kilderecord« — når narrativet går, er udsagnet
+  -- meningsløst, så bindingen skal med. private.source_record røres derimod ALDRIG: at
+  -- teksten står på siden er stadig sandt. Skema-kvalificeret, fordi SET search_path=public.
+  DELETE FROM private.narrative_record_publication WHERE narrative_id IN (
+    SELECT id FROM narrative WHERE subjekt_type='person' AND subjekt_id=p_person_id);
+  DELETE FROM narrative          WHERE subjekt_type='person' AND subjekt_id=p_person_id;
+  -- 2026-08-20: haendelse.relation_id/fact_id har FK uden ON DELETE. relation_id er en PÅVIST
+  -- blokering: red_slet_person samler relationer hvor personen er subjekt ELLER objekt, mens
+  -- hændelses-loaderen forankrer efter subjekt alene — en relation Q→P kan derfor bære en
+  -- hændelse under Q's narrativ, som overlever når P slettes. fact_id tages med for symmetri
+  -- (loaderen filtrerer i dag fakta til narrativets egen person, så den sti er ikke påvist).
+  -- Hændelseslaget er regenererbart, og begge kolonner er skip-cols i versioneringen, så vi
+  -- løsner ankeret i stedet for at slette en anden persons hændelse.
+  UPDATE haendelse SET relation_id = NULL WHERE relation_id = ANY(v_rels);
+  UPDATE haendelse SET fact_id     = NULL WHERE fact_id     = ANY(v_facts);
+
+  DELETE FROM relation           WHERE id = ANY(v_rels);
+  DELETE FROM fact               WHERE id = ANY(v_facts);
+  DELETE FROM person_external_id WHERE person_id = p_person_id;
+  DELETE FROM family_member      WHERE person_id = p_person_id;
+  -- review 19 H2: slaegtsnavn_karantaene.person_id har ingen ON DELETE CASCADE — uden denne linje
+  -- fejler sletningen for enhver person der har >1 distinkt effektivt efternavn (fan-out).
+  DELETE FROM slaegtsnavn_karantaene WHERE person_id = p_person_id;
+  -- 2026-08-20: samme klasse som H2 ovenfor — person_id er NOT NULL uden ON DELETE CASCADE,
+  -- så et medlemskab blokerer sletningen. Et medlemskab uden sin person er meningsløst.
+  DELETE FROM person_slaegt_membership   WHERE person_id = p_person_id;
+  DELETE FROM person_lineage_membership  WHERE person_id = p_person_id;
+  DELETE FROM person             WHERE id = p_person_id;
+END $$;

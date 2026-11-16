@@ -6718,6 +6718,9 @@ DECLARE
   cid CONSTANT bigint := -987656214;
   chosen bigint;
 BEGIN
+  -- Task 8a: lokale forældre før polymorfe testbørn; rulles tilbage med scenariet.
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO public.person(id,levende,privat) VALUES (-99,false,false) ON CONFLICT (id) DO NOTHING;
   INSERT INTO auth.users(id,email) VALUES (actor,'task4-db-verify@example.invalid');
   INSERT INTO profiles(id,rolle,email) VALUES (actor,'redaktion','task4-db-verify@example.invalid');
   PERFORM set_config('request.jwt.claim.sub', actor::text, true);
@@ -7196,6 +7199,9 @@ END $$;
 DO $$
 DECLARE v_id bigint; cur jsonb;
 BEGIN
+  -- Task 8a: lokale forældre før polymorfe testbørn; rulles tilbage med scenariet.
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO public.person(id,levende,privat) VALUES (1,false,false) ON CONFLICT (id) DO NOTHING;
   v_id := (SELECT coalesce(max(id),0)+1 FROM note);
   PERFORM _version_upsert_row('note', jsonb_build_object('id',v_id,'target_type','person','target_id',1,'indhold','A','privat',false));
   cur := _version_current_row('note', jsonb_build_object('id',v_id));
@@ -7300,6 +7306,9 @@ END $$;
 DO $$
 DECLARE v_nid bigint; n int;
 BEGIN
+  -- Task 8a: lokale forældre før polymorfe testbørn; rulles tilbage med scenariet.
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO public.person(id,levende,privat) VALUES (1,false,false) ON CONFLICT (id) DO NOTHING;
   PERFORM set_config('app.change_set_id','',true);  -- bulk-sti, ingen versionering af testdata
   v_nid := (SELECT coalesce(max(id),0)+1 FROM narrative);
   INSERT INTO narrative(id,subjekt_type,subjekt_id,tekst)
@@ -7393,6 +7402,9 @@ DECLARE
   v_manglende_media_id bigint := 999999901;
   v_eksisterende_media_id bigint := 999999902;
 BEGIN
+  -- Task 8a: lokale forældre før polymorfe testbørn; rulles tilbage med scenariet.
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO public.person(id,levende,privat) VALUES (1,false,false) ON CONFLICT (id) DO NOTHING;
   PERFORM set_config('app.change_set_id','',true);  -- bulk-sti, ingen versionering af testdata
 
   IF NOT EXISTS (
@@ -7476,6 +7488,9 @@ DECLARE
   v_redaktion int;
   v_dead_redaktion int;
 BEGIN
+  -- Task 8a: lokale forældre før polymorfe testbørn; rulles tilbage med scenariet.
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO public.person(id,levende,privat) VALUES (-999904,false,false) ON CONFLICT (id) DO NOTHING;
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
     WHERE schemaname='public' AND tablename='text_mention'
@@ -7610,6 +7625,9 @@ END $$;
 DO $$
 DECLARE v_nid bigint; cs bigint; cur text; afvist boolean := false;
 BEGIN
+  -- Task 8a: lokale forældre før polymorfe testbørn; rulles tilbage med scenariet.
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO public.person(id,levende,privat) VALUES (1,false,false) ON CONFLICT (id) DO NOTHING;
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
   INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
     ON CONFLICT (id) DO NOTHING;
@@ -8557,22 +8575,25 @@ DO $$
 DECLARE v_mangler text;
 BEGIN
   DELETE FROM assertion WHERE id BETWEEN -987654326 AND -987654321;  -- ryd evt. residual fra fejlet kørsel
+  -- Task 8a: rigtigt syntetisk mål; mål-vagten må ikke skygge for CHECK-testen.
+  INSERT INTO public.person(id,levende,privat) VALUES (-987654320,false,false);
+  INSERT INTO public.fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-987654320,'person',-987654320,'test');
   -- (1) date_certainty-kolonne findes
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                  WHERE table_name='assertion' AND column_name='date_certainty') THEN
     RAISE EXCEPTION 'A1: assertion.date_certainty-kolonne mangler'; END IF;
   -- (2) CHECK afviser ugyldig værdi
   BEGIN
-    INSERT INTO assertion (id,target_type,target_id,date_certainty) VALUES (-987654321,'fact',-1,'sikker-forkert');
+    INSERT INTO assertion (id,target_type,target_id,date_certainty) VALUES (-987654321,'fact',-987654320,'sikker-forkert');
     RAISE EXCEPTION 'A1: date_certainty-CHECK fyrede ikke på ugyldig værdi';
   EXCEPTION WHEN check_violation THEN NULL;  -- forventet
   END;
   -- (3) gyldige værdier + NULL tillades
   INSERT INTO assertion (id,target_type,target_id,date_certainty) VALUES
-    (-987654322,'fact',-1,'certain'),(-987654323,'fact',-1,'uncertain'),
-    (-987654324,'fact',-1,'ambiguous'),(-987654325,'fact',-1,NULL);
+    (-987654322,'fact',-987654320,'certain'),(-987654323,'fact',-987654320,'uncertain'),
+    (-987654324,'fact',-987654320,'ambiguous'),(-987654325,'fact',-987654320,NULL);
   -- (4) calendar-DEFAULT anvendes når kolonnen udelades
-  INSERT INTO assertion (id,target_type,target_id) VALUES (-987654326,'fact',-1);
+  INSERT INTO assertion (id,target_type,target_id) VALUES (-987654326,'fact',-987654320);
   IF (SELECT calendar FROM assertion WHERE id=-987654326) IS DISTINCT FROM 'gregoriansk' THEN
     RAISE EXCEPTION 'A1: calendar-DEFAULT er ikke gregoriansk'; END IF;
   -- (5) faktavokabular seedet (kerne-dato-/event-typer)
@@ -8581,6 +8602,8 @@ BEGIN
     AS w(code) WHERE NOT EXISTS (SELECT 1 FROM vocab WHERE scheme='faktatype' AND vocab.code=w.code);
   IF v_mangler IS NOT NULL THEN RAISE EXCEPTION 'A1: faktatype-vokabular mangler: %', v_mangler; END IF;
   DELETE FROM assertion WHERE id BETWEEN -987654326 AND -987654321;  -- oprydning
+  DELETE FROM public.fact WHERE id=-987654320;
+  DELETE FROM public.person WHERE id=-987654320;
   RAISE NOTICE 'OK: dato-hærdning A1 (date_certainty-kolonne+CHECK, calendar-default, faktavokabular)';
 END $$;
 
@@ -8728,6 +8751,9 @@ DO $$
 DECLARE v_id bigint; v_upload bigint; v_cs bigint; v_cs_foer int; v_cs_efter int;
         v_relation bigint; v_sha text;
 BEGIN
+  -- Task 8a: lokale forældre før polymorfe testbørn; rulles tilbage med scenariet.
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO public.person(id,levende,privat) VALUES (-999951,false,false) ON CONFLICT (id) DO NOTHING;
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
   INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
     ON CONFLICT (id) DO NOTHING;
@@ -8871,6 +8897,9 @@ END $$;
 DO $$
 DECLARE v_id bigint; v_rel bigint; v_andet bigint; v_cs bigint; v_thumb_foer text; v_thumb_efter text;
 BEGIN
+  -- Task 8a: lokale forældre før polymorfe testbørn; rulles tilbage med scenariet.
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO public.person(id,levende,privat) VALUES (-999941,false,false) ON CONFLICT (id) DO NOTHING;
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
   INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
     ON CONFLICT (id) DO NOTHING;
@@ -8993,6 +9022,9 @@ DO $$
 DECLARE v_id bigint; v_rel bigint; v_story bigint; v_narr bigint; v_note bigint; v_forslag bigint;
         v_prev jsonb; v_res jsonb; v_cs bigint;
 BEGIN
+  -- Task 8a: lokale forældre før polymorfe testbørn; rulles tilbage med scenariet.
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO public.person(id,levende,privat) VALUES (-999942,false,false) ON CONFLICT (id) DO NOTHING;
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
   INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
     ON CONFLICT (id) DO NOTHING;
@@ -9192,6 +9224,9 @@ END $$;
 DO $$
 DECLARE v_m1 bigint; v_m2 bigint; v_r1 bigint; v_r2 bigint;
 BEGIN
+  -- Task 8a: lokale forældre før polymorfe testbørn; rulles tilbage med scenariet.
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO public.person(id,levende,privat) VALUES (-999943,false,false) ON CONFLICT (id) DO NOTHING;
   PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
   INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
     ON CONFLICT (id) DO NOTHING;
@@ -11071,3 +11106,71 @@ BEGIN
   SELECT jsonb_array_length(public.public_person_source_coordinates_samlet()) INTO v_n;
   RAISE NOTICE 'OK: P2 — koordinaterne i ét kald (% rækker, ens med rækkefunktionen for ejer og anon)',v_n;
 END $verify_p2_koordinater_samlet$;
+
+-- Fuld personsletning (2026-11-14), Task 8a: eksistensvagter, låsesikkerhed og privat udbakke.
+DO $verify_person_purge_vagt$
+DECLARE r record; f regprocedure; v_role text;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES
+    ('fact','trg_polymorf_fact','private.validate_polymorf_subjekt_findes()',23),
+    ('note','trg_polymorf_note','private.validate_polymorf_subjekt_findes()',23),
+    ('narrative','trg_polymorf_narrative','private.validate_polymorf_subjekt_findes()',23),
+    ('story','trg_polymorf_story','private.validate_polymorf_subjekt_findes()',23),
+    ('suggestion','trg_polymorf_suggestion','private.validate_polymorf_subjekt_findes()',23),
+    ('relation','trg_polymorf_relation','private.validate_polymorf_subjekt_findes()',23),
+    ('assertion','trg_assertion_0_polymorf_objekt','private.validate_polymorf_subjekt_findes()',23),
+    ('haendelse','trg_polymorf_haendelse','private.validate_polymorf_subjekt_findes()',23),
+    ('assertion','trg_assertion_relation_target','public.enforce_relation_evidence_target()',23),
+    ('conclusion','trg_conclusion_relation_target','public.enforce_relation_evidence_target()',23),
+    ('note','trg_note_relation_target','public.enforce_relation_evidence_target()',23),
+    ('fact','trg_fact_evidence_delete','private.guard_fact_evidence_delete()',11),
+    ('entity_description','trg_entity_description_subject','public.validate_entity_description_subject()',23)
+  ) x(tabel,triggernavn,funktion,triggerart) LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid=to_regclass('public.'||r.tabel)
+      AND t.tgname=r.triggernavn AND t.tgfoid=to_regprocedure(r.funktion)
+      AND t.tgtype=r.triggerart AND t.tgenabled IN ('O','A') AND NOT t.tgisinternal) THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: person_purge vagt mangler/disabled: %',r.triggernavn;
+    END IF;
+  END LOOP;
+  FOR r IN SELECT * FROM (VALUES
+    ('private.validate_polymorf_subjekt_findes()'),('private.guard_fact_evidence_delete()'),
+    ('private.feed_pin_maal(text)'),('private.laas_feed_pin_maal(text)'),('public.enforce_relation_evidence_target()'),
+    ('public.validate_entity_description_subject()'),('public.red_set_feed_pin(text,text)'),
+    ('public.red_fortryd_change_set(bigint,boolean)')
+  ) x(funktion) LOOP
+    f:=to_regprocedure(r.funktion);
+    IF f IS NULL OR NOT (SELECT prosecdef FROM pg_proc WHERE oid=f)
+       OR (SELECT proconfig FROM pg_proc WHERE oid=f) IS DISTINCT FROM
+          (CASE WHEN r.funktion='public.red_fortryd_change_set(bigint,boolean)' THEN ARRAY['search_path=public']
+               ELSE ARRAY['search_path=pg_catalog, public, private'] END) THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: person_purge vagt SECURITY DEFINER/search_path: %',r.funktion;
+    END IF;
+    FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+      IF has_function_privilege(v_role,f,'EXECUTE') IS DISTINCT FROM
+         (r.funktion IN ('public.red_set_feed_pin(text,text)','public.red_fortryd_change_set(bigint,boolean)')
+          AND v_role='authenticated') THEN
+        RAISE EXCEPTION 'VERIFY_FAILED: person_purge vagt ACL: % / %',r.funktion,v_role;
+      END IF;
+    END LOOP;
+    IF EXISTS (SELECT 1 FROM pg_proc p,aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+                WHERE p.oid=f AND a.grantee=0 AND a.privilege_type='EXECUTE') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: person_purge vagt PUBLIC ACL: %',r.funktion;
+    END IF;
+  END LOOP;
+  IF to_regclass('private.person_purge_udbakke') IS NULL
+     OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.person_purge_udbakke'::regclass)
+     OR NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conrelid='private.person_purge_udbakke'::regclass
+         AND c.contype='p' AND pg_get_constraintdef(c.oid)='PRIMARY KEY (bucket, sti)') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: person_purge_udbakke mangler/RLS/PK';
+  END IF;
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_table_privilege(v_role,'private.person_purge_udbakke','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: person_purge_udbakke klientadgang: %',v_role;
+    END IF;
+  END LOOP;
+  IF EXISTS (SELECT 1 FROM pg_class c,aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a
+              WHERE c.oid='private.person_purge_udbakke'::regclass AND a.grantee=0) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: person_purge_udbakke PUBLIC ACL';
+  END IF;
+  RAISE NOTICE 'OK: person_purge Task 8a — enabled vagter, DEFINER/search_path/ACL og privat udbakke';
+END $verify_person_purge_vagt$;
