@@ -3425,11 +3425,55 @@ ROLLBACK;
 \echo OK udbakke_kvitter_praecis_en
 \echo OK udbakke_kvitter_idempotent
 
+-- Indsæt køposter EFTER de levende referencer: filteret skal også beskytte gamle/strandede køposter.
+BEGIN;
+\ir fixtures/kalder-matrix.sql
+SELECT pg_temp.km_kaldere();
+DO $t$
+DECLARE v_media bigint;
+BEGIN
+  PERFORM purge_test.nyt();
+  INSERT INTO public.media(bucket,storage_path,upload_status)
+    VALUES('purge-task12-live','genbrugt-original','kladde') RETURNING id INTO v_media;
+  INSERT INTO public.media_variant(media_id,tier,storage_path)
+    VALUES(v_media,'thumb','genbrugt-variant');
+  INSERT INTO private.person_purge_udbakke(bucket,sti) VALUES
+    ('purge-task12-live','genbrugt-original'),('purge-task12-live','genbrugt-variant'),
+    ('purge-task12-anden','genbrugt-original'),('purge-task12-anden','genbrugt-variant'),
+    ('purge-task12-live','uden-reference');
+  PERFORM pg_temp.udbakke_assert(pg_temp.km_antal('redaktion',
+    $q$SELECT * FROM public.red_person_purge_udbakke()
+      WHERE bucket='purge-task12-live' AND sti='genbrugt-original'$q$)=0,'udbakke_skjuler_levende_media');
+  PERFORM pg_temp.udbakke_assert(pg_temp.km_antal('redaktion',
+    $q$SELECT * FROM public.red_person_purge_udbakke()
+      WHERE bucket='purge-task12-live' AND sti='genbrugt-variant'$q$)=0,'udbakke_skjuler_levende_variant');
+  PERFORM pg_temp.udbakke_assert(pg_temp.km_antal('redaktion',
+    $q$SELECT * FROM public.red_person_purge_udbakke()
+      WHERE bucket='purge-task12-anden' AND sti='genbrugt-original'$q$)=1,
+    'udbakke_media_anden_bucket_synlig');
+  PERFORM pg_temp.udbakke_assert(pg_temp.km_antal('redaktion',
+    $q$SELECT * FROM public.red_person_purge_udbakke()
+      WHERE bucket='purge-task12-anden' AND sti='genbrugt-variant'$q$)=0,
+    'udbakke_variant_alle_buckets_skjult');
+  PERFORM pg_temp.udbakke_assert(pg_temp.km_antal('redaktion',
+    $q$SELECT * FROM public.red_person_purge_udbakke()
+      WHERE bucket='purge-task12-live' AND sti='uden-reference'$q$)=1,'udbakke_uden_reference_synlig');
+END $t$;
+ROLLBACK;
+\echo OK udbakke_skjuler_levende_media
+\echo OK udbakke_skjuler_levende_variant
+\echo OK udbakke_media_anden_bucket_synlig
+\echo OK udbakke_variant_alle_buckets_skjult
+\echo OK udbakke_uden_reference_synlig
+
 SET request.jwt.claim.sub='a2a00000-0000-4000-8000-00000000a001';
+-- Tilføj en rigtig variant til det eksklusive medie, så begge slags bytes overlever i køen efter COMMIT.
+INSERT INTO public.media_variant(media_id,tier,storage_path)
+  VALUES(purge_test.id('medie_eksklusiv'),'thumb','purge-test/eksklusiv-genbrug-thumb.jpg');
 -- Forventede bytes fra fixturens medie, ikke fra sletteinventaret eller manifestet.
 CREATE TEMP TABLE udbakke_forventet AS
-  SELECT m.bucket,m.storage_path AS sti FROM public.media m WHERE m.id=purge_test.id('medie_eksklusiv')
-  UNION SELECT m.bucket,v.storage_path FROM public.media_variant v JOIN public.media m ON m.id=v.media_id
+  SELECT 'media'::text AS art,m.bucket,m.storage_path AS sti FROM public.media m WHERE m.id=purge_test.id('medie_eksklusiv')
+  UNION SELECT 'variant',m.bucket,v.storage_path FROM public.media_variant v JOIN public.media m ON m.id=v.media_id
     WHERE m.id=purge_test.id('medie_eksklusiv');
 BEGIN;
 SELECT public.red_slet_person_helt(purge_test.id('P'),public.red_slet_person_helt_preview(purge_test.id('P'))->>'sha256') \g /dev/null
@@ -3458,4 +3502,76 @@ END $t$;
 \echo OK udbakke_bytes_efter_commit
 \echo OK udbakke_liste_kun_tre_felter
 \echo OK udbakke_ingen_person_reference
+
+-- Genbrug EFTER den rigtige sletnings COMMIT: kun de nye levende bytes annullerer køposter.
+BEGIN;
+DO $t$
+DECLARE v_media bigint; v_variant bigint; v_original record; v_thumb record;
+BEGIN
+  SELECT bucket,sti INTO STRICT v_original FROM udbakke_forventet WHERE art='media';
+  SELECT bucket,sti INTO STRICT v_thumb FROM udbakke_forventet WHERE art='variant';
+  INSERT INTO private.person_purge_udbakke(bucket,sti) VALUES
+    ('purge-task12-anden',v_original.sti),('purge-task12-anden',v_thumb.sti);
+  PERFORM purge_test.nyt();
+  INSERT INTO public.media(bucket,storage_path) VALUES(v_original.bucket,v_original.sti) RETURNING id INTO v_media;
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS (SELECT 1 FROM private.person_purge_udbakke
+    WHERE bucket=v_original.bucket AND sti=v_original.sti) AND EXISTS (SELECT 1 FROM private.person_purge_udbakke
+    WHERE bucket='purge-task12-anden' AND sti=v_original.sti),'udbakke_genbrug_media_efter_commit');
+  -- En variant skal rydde alle buckets, også når dens nye forælder har en anden bucket.
+  INSERT INTO public.media(bucket) VALUES('purge-task12-variant-foraelder') RETURNING id INTO v_media;
+  INSERT INTO public.media_variant(media_id,tier,storage_path) VALUES(v_media,'thumb',v_thumb.sti)
+    RETURNING id INTO v_variant;
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS (SELECT 1 FROM private.person_purge_udbakke WHERE sti=v_thumb.sti),
+    'udbakke_genbrug_variant_efter_commit');
+
+  -- UPDATE-vejene: bucket alene, media-sti alene og variant-sti alene.
+  INSERT INTO private.person_purge_udbakke(bucket,sti) VALUES('purge-task12-opdateret',v_original.sti);
+  UPDATE public.media SET bucket='purge-task12-opdateret'
+    WHERE bucket=v_original.bucket AND storage_path=v_original.sti;
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS (SELECT 1 FROM private.person_purge_udbakke
+    WHERE bucket='purge-task12-opdateret' AND sti=v_original.sti),'udbakke_genbrug_media_bucket_update');
+  INSERT INTO private.person_purge_udbakke(bucket,sti) VALUES('purge-task12-opdateret','ny-media-sti');
+  UPDATE public.media SET storage_path='ny-media-sti'
+    WHERE bucket='purge-task12-opdateret' AND storage_path=v_original.sti;
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS (SELECT 1 FROM private.person_purge_udbakke
+    WHERE bucket='purge-task12-opdateret' AND sti='ny-media-sti'),'udbakke_genbrug_media_sti_update');
+  INSERT INTO private.person_purge_udbakke(bucket,sti) VALUES
+    ('purge-task12-opdateret','ny-variant-sti'),('purge-task12-anden','ny-variant-sti');
+  UPDATE public.media_variant SET storage_path='ny-variant-sti' WHERE id=v_variant;
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS (SELECT 1 FROM private.person_purge_udbakke WHERE sti='ny-variant-sti'),
+    'udbakke_genbrug_variant_sti_update');
+END $t$;
+ROLLBACK;
+\echo OK udbakke_genbrug_media_efter_commit
+\echo OK udbakke_genbrug_variant_efter_commit
+\echo OK udbakke_genbrug_media_bucket_update
+\echo OK udbakke_genbrug_media_sti_update
+\echo OK udbakke_genbrug_variant_sti_update
+
+BEGIN;
+DO $t$
+DECLARE v_role text;
+BEGIN
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    PERFORM pg_temp.udbakke_assert(NOT has_function_privilege(v_role,
+      'private.person_purge_udbakke_genbrug()','EXECUTE'),'udbakke_genbrug_intern_acl');
+  END LOOP;
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS (
+    SELECT 1 FROM pg_proc p,aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+    WHERE p.oid='private.person_purge_udbakke_genbrug()'::regprocedure AND a.grantee=0
+      AND a.privilege_type='EXECUTE'),'udbakke_genbrug_intern_acl');
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated'] LOOP
+    BEGIN
+      EXECUTE format('SET LOCAL ROLE %I',v_role);
+      PERFORM private.person_purge_udbakke_genbrug();
+      RAISE EXCEPTION 'TEST_FAILED udbakke_genbrug_klientkald accepterede';
+    EXCEPTION WHEN insufficient_privilege THEN
+      NULL; -- Kun 42501 accepteres; triggerfunktionens almindelige kaldfejl er ikke nok.
+    END;
+    RESET ROLE;
+  END LOOP;
+END $t$;
+ROLLBACK;
+\echo OK udbakke_genbrug_intern_acl
+\echo OK udbakke_genbrug_klientkald_afvist
 \endif

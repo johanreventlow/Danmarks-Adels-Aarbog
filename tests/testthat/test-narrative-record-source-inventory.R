@@ -444,8 +444,9 @@ test_that("direct narrative readers remain an explicit closed inventory", {
 })
 
 
-test_that("person purge outbox RPCs do not mutate narratives", {
-  signatures <- c("public.red_person_purge_udbakke()", "public.red_person_purge_udbakke_kvitter(text,text)")
+test_that("person purge outbox routines do not mutate narratives", {
+  signatures <- c("public.red_person_purge_udbakke()", "public.red_person_purge_udbakke_kvitter(text,text)",
+                  "private.person_purge_udbakke_genbrug()")
   for (path in c("schema.sql", "db-migrations.sql")) {
     expect_false(any(signatures %in% direct_narrative_sql_writers(path)), info = path)
     sql <- paste(read_repo(path), collapse = "\n")
@@ -453,5 +454,9 @@ test_that("person purge outbox RPCs do not mutate narratives", {
       block <- last_function_block(sql, "public", name)
       expect_match(block, "private.person_purge_udbakke", fixed = TRUE, info = path)
     }
+    block <- last_function_block(sql, "private", "person_purge_udbakke_genbrug")
+    expect_match(block, "DELETE FROM private.person_purge_udbakke", fixed = TRUE, info = path)
+    expect_acl(sql, "REVOKE ALL ON FUNCTION", "private.person_purge_udbakke_genbrug()",
+               "FROM PUBLIC,anon,authenticated,service_role")
   }
 })

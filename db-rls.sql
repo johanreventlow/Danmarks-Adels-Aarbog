@@ -1791,3 +1791,5 @@ REVOKE ALL ON FUNCTION public.red_person_purge_udbakke(),public.red_person_purge
   FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_person_purge_udbakke(),public.red_person_purge_udbakke_kvitter(text,text)
   TO authenticated;
+REVOKE ALL ON FUNCTION private.person_purge_udbakke_genbrug()
+  FROM PUBLIC,anon,authenticated,service_role;

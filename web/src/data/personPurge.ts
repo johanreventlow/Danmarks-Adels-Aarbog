@@ -61,6 +61,9 @@ export function purgeFejl(e: unknown): { kind: 'retry' | 'blocked' | 'raw'; teks
   return { kind: 'raw', tekst: raw };
 }
 
+// RPC'en filtrerer stier med levende media-/variantreferencer. Restvindue: en upload kan
+// genbruge en sti efter listOutbox og før Storage.remove; DB og Storage deler ingen transaktion.
+// Samme klasse som executeUdrens; triggerne kan ikke tilbagekalde en allerede hentet liste.
 // Udbakken er autoritativ EFTER commit. Samme oprydning bruges ved sletning og ved genforsøg.
 // Fejl efter DB-sletning er advarsler, også når Storage, læsning eller kvittering kaster.
 export async function executePurgeOprydning(
