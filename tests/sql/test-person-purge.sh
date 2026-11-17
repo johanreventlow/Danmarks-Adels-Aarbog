@@ -121,9 +121,14 @@ q "$TMPL" -c 'CREATE TABLE purge_test.counts(sted text PRIMARY KEY, antal bigint
 printf '%s\n' "$COUNTS" | awk -F'|' '{print $1 "|" $NF}' | \
   env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$TMPL" \
     -c "COPY purge_test.counts(sted,antal) FROM STDIN WITH (DELIMITER '|')" || die "gem count-snapshot"
-for g in inventar binding plan historik fortrydelse manifest oprindelse preview preview_q3 vagt purge purge_ekstra purge_binding fortryd_link; do
+# Task 10 prøver de KANONISKE blokke fra db-verify, ikke en testkopi af assert-logikken.
+# Kun læsning af repo-filen; SQL-teksten gemmes i pg_temp i testgruppens egen databasekopi.
+VERIFY_SQL=$(sed -n '/^-- BEGIN PERSON PURGE TASK 10 CHECKS$/,/^-- END PERSON PURGE TASK 10 CHECKS$/p' db-verify.sql)
+[ -n "$VERIFY_SQL" ] || die "Task 10 db-verify-blokke mangler"
+for g in inventar binding plan historik fortrydelse manifest oprindelse preview preview_q3 vagt purge purge_ekstra purge_binding fortryd_link db_verify; do
   gruppe "$g"
-  ud=$(env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$DB" -v gruppe="$g" -f tests/sql/test-person-purge.sql 2>&1)
+  ud=$(env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$DB" -v gruppe="$g" \
+    -v purge_verify_sql="$VERIFY_SQL" -f tests/sql/test-person-purge.sql 2>&1)
   rc=$?
   printf '%s\n' "$ud" | grep -v NOTICE
   [ "$rc" = 0 ] || die "testgruppen $g fejlede"

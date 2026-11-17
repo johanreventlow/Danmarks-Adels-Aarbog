@@ -1610,7 +1610,6 @@ DECLARE
   v_definition text;
   v_lock_position integer;
   v_people_position integer;
-  v_writer regprocedure;
 BEGIN
   IF to_regprocedure('private.lock_identity_people(bigint[])') IS NULL THEN
     RAISE EXCEPTION 'IDENTITY_LOCK_HELPER_MISSING';
@@ -1755,19 +1754,6 @@ BEGIN
      OR v_definition !~ 'ORDER BY p.id FOR UPDATE' THEN
     RAISE EXCEPTION 'IDENTITY_LOCK_HELPER_SORT_DEDUP_DRIFT';
   END IF;
-  FOREACH v_writer IN ARRAY ARRAY[
-    'public.red_samme_som(bigint,bigint)'::regprocedure,
-    'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
-    'public.red_slet_person(bigint)'::regprocedure,
-    'public.red_slet_person_helt(bigint,text)'::regprocedure
-  ] LOOP
-    v_definition := pg_get_functiondef(v_writer);
-    v_lock_position := strpos(v_definition, 'pg_advisory_xact_lock(hashtext(''samme_som_mutation''))');
-    v_people_position := strpos(v_definition, 'private.lock_identity_people');
-    IF v_lock_position < 1 OR v_people_position <= v_lock_position THEN
-      RAISE EXCEPTION 'IDENTITY_WRITER_LOCK_ORDER_DRIFT: %', v_writer;
-    END IF;
-  END LOOP;
   v_definition := pg_get_functiondef('public.enforce_samme_som_invariants()'::regprocedure);
   IF regexp_count(v_definition, 'private\.lock_identity_people') <> 1
      OR v_definition !~ 'IDENTITY_RELATION_UPDATE_PRELOCK_REQUIRED'
@@ -11204,3 +11190,206 @@ BEGIN
   END LOOP;
 END
 $purge_execute_catalog$;
+
+-- Fuld personsletning (2026-11-14), Task 10. Rene læse-/katalogkontroller, også i prod-ceremonien.
+-- Markørerne afgrænser præcis de samme DO-blokke til harnessens positive og negative prøver.
+-- BEGIN PERSON PURGE TASK 10 CHECKS
+DO $purge_verify_manifest_empty$
+DECLARE v_n bigint;
+BEGIN
+  SELECT count(*) INTO v_n FROM private.person_purge_manifest;
+  IF v_n<>0 THEN RAISE EXCEPTION 'PURGE_MANIFEST_IKKE_TOMT: %',v_n; END IF;
+END $purge_verify_manifest_empty$;
+
+DO $purge_verify_book_tables$
+DECLARE v_tabel text;
+BEGIN
+  -- Uafhængig liste fra Global Constraints/slettegraf §3.2 (R27), IKKE en scanning af skriverkroppe.
+  SELECT t.tabel INTO v_tabel FROM private.person_purge_tilladte_tabeller() t
+  WHERE t.tabel IN (
+    'private.source_record','private.source_occurrence','private.source_record_occurrence',
+    'private.source_record_anchor_event','private.source_record_placement','private.source_record_placement_decision',
+    'private.source_record_revision_event','private.source_observation','private.source_observation_text',
+    'private.source_mention','private.source_rendition','private.extraction_run',
+    'private.source_persona','private.source_persona_mention','private.source_persona_placement',
+    'private.source_persona_placement_decision','private.interpretation','private.interpretation_observation',
+    'private.interpretation_party','private.identity_control_run','private.identity_control_sample',
+    'private.identity_control_event','private.identity_control_exclusion','private.reimport_writer_profile',
+    'private.narrative_record_cutover_receipt','private.clause_disposition')
+    OR t.tabel LIKE 'private.source\_record\_%' OR t.tabel LIKE 'private.source\_observation\_%'
+    OR t.tabel LIKE 'private.source\_persona\_placement%'
+  ORDER BY t.tabel COLLATE "C" LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION 'PURGE_TILLADELSESLISTE_BOGTABEL: %',v_tabel; END IF;
+END $purge_verify_book_tables$;
+
+DO $purge_verify_polymorf$
+DECLARE r record; v_type text; v_n bigint; v_bad_type bigint;
+BEGIN
+  -- Note 72 på familie 54 findes i prod og slettes i Task 13 FØR db-verify.
+  -- Ingen undtagelse her. Ingen rækkeindhold/id i fejlen, kun tabelnavn og antal.
+  -- Person/family på eksistensvagtens kolonnepar; fact/relation på evidensmål og relationsender;
+  -- media på begge relationsender (8b runde 2) samt beskrivelser/noter med mediemål.
+  -- Lower bruges KUN til at opdage ikke-kanoniske typer; opslaget kræver derefter kanonisk type.
+  FOR r IN SELECT * FROM (VALUES
+    ('fact','subjekt_type','subjekt_id',ARRAY['person','family']),
+    ('note','target_type','target_id',ARRAY['person','family','fact','relation','media']),
+    ('narrative','subjekt_type','subjekt_id',ARRAY['person','family']),
+    ('story','subjekt_type','subjekt_id',ARRAY['person','family']),
+    ('suggestion','subjekt_type','subjekt_id',ARRAY['person','family']),
+    ('relation','subjekt_type','subjekt_id',ARRAY['person','family','fact','relation','media']),
+    ('relation','objekt_type','objekt_id',ARRAY['person','family','fact','relation','media']),
+    ('assertion','objekt_type','objekt_id',ARRAY['person','family']),
+    ('assertion','target_type','target_id',ARRAY['fact','relation']),
+    ('conclusion','target_type','target_id',ARRAY['fact','relation']),
+    ('haendelse','subjekt_type','subjekt_id',ARRAY['person','family']),
+    ('entity_description','subjekt_type','subjekt_id',ARRAY['person','family','media'])
+  ) x(tabel,typekolonne,idkolonne,typer) LOOP
+    EXECUTE format('SELECT count(*) FROM public.%I WHERE lower(%I)=ANY($1) AND %I<>lower(%I)',
+      r.tabel,r.typekolonne,r.typekolonne,r.typekolonne) INTO v_bad_type USING r.typer;
+    IF v_bad_type<>0 THEN
+      RAISE EXCEPTION 'POLYMORF_TYPE_IKKE_KANONISK: % %',r.tabel,v_bad_type;
+    END IF;
+    FOREACH v_type IN ARRAY r.typer LOOP
+      EXECUTE format('SELECT count(*) FROM public.%I t WHERE t.%I=$1 AND t.%I IS NOT NULL
+        AND NOT EXISTS(SELECT 1 FROM public.%I p WHERE p.id=t.%I)',
+        r.tabel,r.typekolonne,r.idkolonne,v_type,r.idkolonne) INTO v_n USING v_type;
+      IF v_n<>0 THEN RAISE EXCEPTION 'POLYMORF_SUBJEKT_FORAELDRELOES: % %',r.tabel,v_n; END IF;
+    END LOOP;
+  END LOOP;
+END $purge_verify_polymorf$;
+
+DO $purge_verify_manifest_writer$
+DECLARE v_writers oid[]; v_names text;
+BEGIN
+  -- Alle funktioner/procedurer i kataloget, også uden for public/private. Udelad kun kommentarer.
+  -- Medtag også citerede navne, ONLY og ukvalificeret INSERT (search_path kan være private).
+  SELECT array_agg(p.oid ORDER BY p.oid),string_agg(p.oid::regprocedure::text,', ' ORDER BY p.oid)
+    INTO v_writers,v_names FROM pg_proc p WHERE p.prokind IN ('f','p')
+    AND regexp_replace(regexp_replace(p.prosrc,'/\*.*?\*/',' ','gs'),'--[^\n]*',' ','g')
+      ~* '\minsert\s+into\s+(only\s+)?("?private"?\s*\.\s*)?"?person_purge_manifest"?\M';
+  IF v_writers IS DISTINCT FROM ARRAY[to_regprocedure('public.red_slet_person_helt(bigint,text)')::oid] THEN
+    RAISE EXCEPTION 'PURGE_MANIFEST_SKRIVER: %',coalesce(v_names,'red_slet_person_helt');
+  END IF;
+END $purge_verify_manifest_writer$;
+
+DO $purge_verify_inventory_hash$
+DECLARE v_hash text;
+BEGIN
+  -- Hashkontrakt: én jsonb-array [sted,tabel,kolonner,handling,fase,grund] pr. række,
+  -- sorteret som UTF-8-tekst med COLLATE "C", samlet med LF, uden afsluttende LF.
+  -- Arrays bevarer kolonneordenen; NULL/dubletter bevares. Ingen ICU/libc-sorteringsforskel.
+  -- Ved bevidst inventarændring: gennemse diffen i slettegraf/inventar og kør SELECT'en nedenfor
+  -- i en engangsbase med det nye schema. Erstat først derefter konstanten med det beregnede md5.
+  SELECT md5(coalesce(string_agg(j,E'\n' ORDER BY j COLLATE "C"),'')) INTO v_hash FROM (
+    SELECT jsonb_build_array(i.sted,i.tabel,i.kolonner,i.handling,i.fase,i.grund)::text j
+      FROM private.person_purge_inventar() i) s;
+  IF v_hash IS DISTINCT FROM '2d30f2e1162e8bfa8c806b20bce21c45' THEN
+    RAISE EXCEPTION 'PURGE_INVENTAR_HASH: person_purge_inventar';
+  END IF;
+END $purge_verify_inventory_hash$;
+
+-- Flyttet samlet fra C3-katalogblokken ovenfor, så harnessen prøver den eksisterende vagt direkte.
+DO $purge_verify_identity_writers$
+DECLARE v_writer regprocedure; v_definition text; v_lock_position int; v_people_position int;
+BEGIN
+  FOREACH v_writer IN ARRAY ARRAY[
+    'public.red_samme_som(bigint,bigint)'::regprocedure,
+    'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
+    'public.red_slet_person(bigint)'::regprocedure,
+    'public.red_slet_person_helt(bigint,text)'::regprocedure
+  ] LOOP
+    v_definition := pg_get_functiondef(v_writer);
+    v_lock_position := strpos(v_definition, 'pg_advisory_xact_lock(hashtext(''samme_som_mutation''))');
+    v_people_position := strpos(v_definition, 'private.lock_identity_people');
+    IF v_lock_position < 1 OR v_people_position <= v_lock_position THEN
+      RAISE EXCEPTION 'IDENTITY_WRITER_LOCK_ORDER_DRIFT: %', v_writer;
+    END IF;
+  END LOOP;
+END $purge_verify_identity_writers$;
+
+DO $purge_verify_lock_order$
+DECLARE v_body text; r record; v_position int; v_previous int:=0;
+BEGIN
+  SELECT regexp_replace(regexp_replace(prosrc,'/\*.*?\*/',' ','gs'),'--[^\n]*',' ','g') INTO v_body
+    FROM pg_proc WHERE oid=to_regprocedure('public.red_slet_person_helt(bigint,text)');
+  -- Faktiske sætninger, ALDRIG L-kommentarernes position. Kræv præcis ét match pr. trin
+  -- OG strengt stigende positioner: at bytte to sætninger beholder alle navne, men fejler stadig.
+  -- L2's rollegate er udført før L1; L3-L13 er derefter den besluttede låse-/valideringsorden.
+  FOR r IN SELECT pattern FROM (VALUES
+    (1,$re$PERFORM pg_advisory_xact_lock_shared\(hashtextextended\('daa-narrative-record-contract',0\)\);$re$),
+    (3,$re$v_laas\s*:=\s*private.person_purge_laasemaengder\(p_person_id\);$re$),
+    (4,$re$PERFORM private.lock_reimport_writer\(v_prof.source_id,v_prof.profile_id\);$re$),
+    (5,$re$PERFORM pg_advisory_xact_lock\(hashtextextended\('daa-identity-candidates:'\|\|v_source::text,0\)\);$re$),
+    (6,$re$PERFORM 1 FROM private.source_record WHERE[^;]*ORDER BY id FOR UPDATE;$re$),
+    (7,$re$PERFORM 1 FROM private.source_persona WHERE[^;]*ORDER BY id FOR UPDATE;$re$),
+    (8,$re$PERFORM 1 FROM private.source_persona_identity WHERE[^;]*ORDER BY source_persona_id FOR UPDATE;$re$),
+    (9,$re$PERFORM 1 FROM public.change_set WHERE id=ANY\(v_saet\) ORDER BY id FOR UPDATE;$re$),
+    (10,$re$PERFORM pg_advisory_xact_lock\(hashtext\('samme_som_mutation'\)\);$re$),
+    (11,$re$PERFORM private.guard_identity_mutation_snapshot\(\);$re$),
+    (12,$re$LOCK TABLE public.change_set IN ROW EXCLUSIVE MODE;$re$),
+    (13,$re$PERFORM 1 FROM public.source s JOIN public.person_external_id pei[^;]*FOR UPDATE OF s,pei;$re$),
+    (14,$re$PERFORM private.lock_identity_people\(v_people\);$re$),
+    (15,$re$PERFORM private.lock_family_rows\(ARRAY\[p_person_id\]\);$re$),
+    (16,$re$PERFORM 1 FROM public.media WHERE id=ANY\(v_medier\) ORDER BY id FOR UPDATE;$re$),
+    (17,$re$v_nu\s*:=\s*private.person_purge_laasemaengder\(p_person_id\);$re$),
+    (18,$re$v_preview\s*:=\s*private.person_purge_preview_fra_plan\(p_person_id,v_plan\);$re$)
+  ) x(n,pattern) ORDER BY n LOOP
+    v_position:=regexp_instr(v_body,r.pattern,1,1,0,'i');
+    IF v_position IS NULL OR v_position<=v_previous OR regexp_count(v_body,r.pattern,1,'i')<>1 THEN
+      RAISE EXCEPTION 'PURGE_LOCK_ORDER: red_slet_person_helt';
+    END IF;
+    v_previous:=v_position;
+  END LOOP;
+END $purge_verify_lock_order$;
+
+DO $purge_verify_allocators$
+DECLARE
+  r record; v_col text; v_body text; v_first int;
+  -- Døde v1-veje (navngiven liste). Kun narrative-id-grenen i denne ene helper er tilbage;
+  -- red_fortryd_change_set bruger sekvensen og har ingen max+1-undtagelse (Task 9).
+  v_dead_v1 regprocedure[]:=ARRAY[
+    'private.write_reimport_case_narrative(bigint,bigint,bigint,text,boolean,text)'::regprocedure
+  ];
+BEGIN
+  -- Alle katalogfunktioner/procedurer; ingen afgrænsning til RPC-navne, volatilitet eller skema.
+  -- Scan også ordinaler. Hver undtagelse er et (signatur,kolonnenavn)-par, aldrig et helt funktionsfripas.
+  FOR r IN SELECT p.oid,p.prosrc FROM pg_proc p WHERE p.prokind IN ('f','p') ORDER BY p.oid LOOP
+    v_body:=regexp_replace(regexp_replace(r.prosrc,'/\*.*?\*/',' ','gs'),'--[^\n]*',' ','g');
+    FOR v_col IN SELECT lower(regexp_replace(m[1],'["[:space:]]','','g')) FROM regexp_matches(v_body,
+      $re$\mmax\s*\(\s*((?:"?[a-z_][a-z_0-9]*"?\s*\.\s*)?"?[a-z_][a-z_0-9]*"?)\s*\)\s*(?:,\s*0\s*\))?\s*\+\s*1\M$re$,'gi') m LOOP
+      v_col:=regexp_replace(v_col,'^.*\.','');
+      -- Navngiven død v1-vej: kun narrative-id-grenen, og kun mens kontrakt >=2 afviser FØR max-læsningen.
+      IF r.oid::regprocedure=ANY(v_dead_v1)
+         AND v_col='id' AND public.narrative_record_contract_version()>=2 THEN
+        v_first:=regexp_instr(v_body,'\mmax\s*\(',1,1,0,'i');
+        IF strpos(v_body,'IF public.narrative_record_contract_version()>=2 THEN RAISE EXCEPTION ''NARRATIVE_RECORD_LEGACY_WRITER_DISABLED''; END IF;')
+             BETWEEN 1 AND v_first-1 THEN CONTINUE; END IF;
+      END IF;
+      -- Versionsordinaler, ikke entitets-id'er. Append-only strømme bevarer deres numre ved purge.
+      -- Især reverse_narrative_publication_event: max(stream_version)+1 er næste position i SAMME
+      -- stream_ref, mens event-id kommer fra uuid-default. Den aktive vej må derfor ikke kaldes en død v1-vej.
+      IF EXISTS (SELECT 1 FROM (VALUES
+        ('private.validate_clause_disposition()','version'),
+        ('private.validate_source_record_anchor_event()','version'),
+        ('private.validate_source_record_revision_event()','version'),
+        ('private.add_interpretation_promotion_rule_version(text,text,text,text,text,text,boolean,boolean,boolean,text,text)','rule_version'),
+        ('private.validate_source_persona_identity_event()','version'),
+        ('private.migrate_legacy_narrative_record(uuid,text,jsonb)','stream_version'),
+        ('private.write_clause_revision(uuid,text,jsonb)','version'),
+        ('private.write_source_text_revision(uuid,text,jsonb)','version'),
+        ('private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text)','stream_version'),
+        ('private.withdraw_legacy_narrative(uuid,text,text)','stream_version'),
+        ('private.reverse_narrative_publication_event(uuid,text)','stream_version'),
+        ('private.write_relation_persona(uuid,text,jsonb)','version'),
+        ('public.red_afgoer_relation_interpretation(uuid,integer,text,bigint,text,jsonb)','version'),
+        ('private.append_control_event(uuid,text,text,text,text)','seq'),
+        ('private.append_parent_card_event(uuid,text,text,jsonb)','seq'),
+        ('private.append_relation_classification(uuid,text,jsonb)','seq')
+      ) x(funktion,kolonne) WHERE r.oid=to_regprocedure(x.funktion) AND v_col=x.kolonne) THEN CONTINUE; END IF;
+      RAISE EXCEPTION 'ID_MAX_PLUS_ONE_ALLOCATOR: %',r.oid::regprocedure;
+    END LOOP;
+  END LOOP;
+  -- Cutoverens ALTER SEQUENCE RESTART flytter sekvensgulvet transaktionelt og monotont under tabellås;
+  -- den allokerer rækker via DEFAULT. max(id) -> sekvensgulv er ikke en max+1-id-allokator.
+END $purge_verify_allocators$;
+-- END PERSON PURGE TASK 10 CHECKS
