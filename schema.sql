@@ -9393,6 +9393,7 @@ CREATE OR REPLACE FUNCTION red_fortryd_change_set(p_change_set_id bigint, p_forc
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE
   ev change_event; v_new_cs bigint; v_orig change_set;
+  v_link_rows jsonb := '{}'; v_link_row record; v_link record; v_link_cols text[];
   v_cur jsonb; v_pids bigint[] := '{}'; v_narr bigint[] := '{}'; v_notes bigint[] := '{}';
   v_div int := 0; pid bigint; v_forventet jsonb; v_contract_version integer; v_lock record; v_pin_maal record;
 BEGIN
@@ -9465,14 +9466,7 @@ BEGIN
   -- som ÉT change_set uden child-events for ikke at dobbelt-logge; reversal-kæden er sporet.
   PERFORM set_config('app.change_set_id','',true);  -- undgå at inverse-DML re-logges
   IF pg_get_serial_sequence('public.change_set','id') IS NULL THEN
-    v_new_cs := (SELECT coalesce(max(id),0)+1 FROM change_set);
-    INSERT INTO change_set(id, actor_id, actor_navn, actor_rolle, operation, summary,
-                           subjekt_type, subjekt_id, subjekt_synlighed, reverterer_id)
-      VALUES (v_new_cs, auth.uid(),
-              coalesce((SELECT coalesce(p.navn, p.email, auth.uid()::text) FROM profiles p WHERE p.id=auth.uid()), 'ukendt'),
-              current_rolle(), 'fortryd',
-              format('Fortrød: %s', coalesce(v_orig.summary,'(uden tekst)')),
-              v_orig.subjekt_type, v_orig.subjekt_id, v_orig.subjekt_synlighed, p_change_set_id);
+    RAISE EXCEPTION 'CHANGE_SET_SEQUENCE_MISSING';
   ELSE
     INSERT INTO change_set(actor_id, actor_navn, actor_rolle, operation, summary,
                            subjekt_type, subjekt_id, subjekt_synlighed, reverterer_id)
@@ -9560,6 +9554,14 @@ BEGIN
         END IF;
       END LOOP;
     END IF;
+    -- D-9: fasthold v_cur før rækkens FØRSTE inverse. Et sæt kan røre samme
+    -- række flere gange; kun sluttilstandens indførte links skal kontrolleres.
+    -- Ingen mållåse her eller i slutkontrollen: K5/R33's prelock er uændret.
+    IF ev.tabel IN ('narrative','note','story','entity_description')
+       AND NOT (v_link_rows ? (ev.tabel||':'||(ev.row_pk->>'id'))) THEN
+      v_link_rows := v_link_rows || jsonb_build_object(ev.tabel||':'||(ev.row_pk->>'id'),
+        jsonb_build_object('tabel',ev.tabel,'pk',ev.row_pk,'foer',v_cur));
+    END IF;
     -- anvend inverse
     IF ev.op='INSERT' THEN
       PERFORM _version_delete_row(ev.tabel, ev.row_pk);
@@ -9575,6 +9577,31 @@ BEGIN
     END IF;
     IF ev.tabel='narrative' THEN v_narr := v_narr || (ev.row_pk->>'id')::bigint; END IF;
     IF ev.tabel='note'      THEN v_notes := v_notes || (ev.row_pk->>'id')::bigint; END IF;
+  END LOOP;
+
+  -- D-9: EFTER alle inverser, så et mål genskabt i samme sæt nu findes.
+  -- Sammenlign (type,id) pr. tekstkolonne, ikke visningstekst eller hele strengen.
+  -- Eksisterende døde links må blive stående; p_force omgår aldrig denne kontrol.
+  FOR v_link_row IN SELECT value AS r FROM jsonb_each(v_link_rows) LOOP
+    v_cur := _version_current_row(v_link_row.r->>'tabel',v_link_row.r->'pk');
+    v_link_cols := CASE v_link_row.r->>'tabel'
+      WHEN 'narrative' THEN ARRAY['tekst'] WHEN 'note' THEN ARRAY['indhold']
+      WHEN 'story' THEN ARRAY['titel','tekst'] WHEN 'entity_description' THEN ARRAY['tekst'] END;
+    FOR v_link IN
+      SELECT DISTINCT m.maal_type,m.maal_id
+        FROM jsonb_each_text(v_cur) t
+        CROSS JOIN LATERAL private.parse_mentions_klikbare(t.value) m
+       WHERE t.key=ANY(v_link_cols) AND m.maal_type IN ('person','family','media')
+         AND NOT EXISTS (SELECT 1 FROM private.parse_mentions_klikbare(v_link_row.r->'foer'->>t.key) old_m
+           WHERE (old_m.maal_type,old_m.maal_id)=(m.maal_type,m.maal_id))
+       ORDER BY m.maal_type,m.maal_id
+    LOOP
+      IF (v_link.maal_type='person' AND NOT EXISTS (SELECT 1 FROM public.person WHERE id=v_link.maal_id))
+         OR (v_link.maal_type='family' AND NOT EXISTS (SELECT 1 FROM public.family WHERE id=v_link.maal_id))
+         OR (v_link.maal_type='media' AND NOT EXISTS (SELECT 1 FROM public.media WHERE id=v_link.maal_id)) THEN
+        RAISE EXCEPTION 'FORTRYD_DOED_LINK: % %',v_link.maal_type,v_link.maal_id;
+      END IF;
+    END LOOP;
   END LOOP;
 
   -- regenerér afledte projektioner ÉN gang (B8 + hyperlinks)
@@ -23839,3 +23866,17 @@ END
 $purge_execute$;
 REVOKE ALL ON FUNCTION public.red_slet_person_helt(bigint,text) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_slet_person_helt(bigint,text) TO authenticated;
+
+-- Task 9 (review P2): kun KLIKBARE tokens, med læserens afgrænsning (packages/core/src/mentions.ts parseNarrativ):
+-- label frem til første uescapede ]]; \<tegn> er ét escapet par; et uafsluttet hoved er rå tekst, og et hoved inde i en
+-- label er ikke et link. parse_mentions (text_mention-indekset) genkender kun hovedet og ændres ikke her.
+CREATE OR REPLACE FUNCTION private.parse_mentions_klikbare(p_tekst text)
+RETURNS TABLE(maal_type text, maal_id bigint) LANGUAGE sql IMMUTABLE SET search_path = pg_catalog AS $$
+  SELECT m[1] AS maal_type, m[2]::bigint AS maal_id
+  FROM regexp_matches(
+    coalesce(p_tekst,''),
+    '\[\[(person|estate|place|organisation|source|coat_of_arms|family|historical_event|media|lineage):(0|[1-9][0-9]*)\|(?:\\.|[^\\\]]|\](?!\]))*\]\]',
+    'g'
+  ) AS m;
+$$;
+REVOKE ALL ON FUNCTION private.parse_mentions_klikbare(text) FROM PUBLIC,anon,authenticated,service_role;
