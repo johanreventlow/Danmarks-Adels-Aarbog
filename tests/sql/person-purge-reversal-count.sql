@@ -1,4 +1,6 @@
 -- Task 7 / R30: samme funktion som previewet; kun tal i normalt output.
+-- Q6: plan-wrapperen bruger direkte persona ELLER gældende principal-part; denne tæller
+-- og fortrydelses-/kontrolfunktionerne forbruger planen uden et selvstændigt ejerskabsprædikat.
 \set ON_ERROR_STOP on
 \set QUIET on
 WITH plan AS MATERIALIZED (SELECT * FROM private.person_purge_plan((:pid)::bigint)),

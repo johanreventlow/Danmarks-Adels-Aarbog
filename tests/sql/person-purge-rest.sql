@@ -121,10 +121,13 @@ SELECT * FROM (VALUES
   ('public.change_event',                        'S57/K2',     'ja', 'ja', 'andres events; andres narrativ-/notehistorik med P-link er bogtekst (K2/Q2)'),
   ('public.change_set',                          'S52b',       'ja', 'nej','sæt med subjekt P, som stadig har andres events (id)'),
   -- Bogtekst med navn, men INGEN id-tilladelse
-  ('private.reimport_authorization',             'S44a/Q1',    'nej','ja', 'authorized_elements er bogtekst og kopi af bogens lag'),
+  -- R36: Q1 bevarer authorized_elements urørt (batchkvittering, manifest_sha256 hviler på den); P's id i elementet følger med.
+  ('private.reimport_authorization',             'S44a/Q1',    'ja','ja',  'authorized_elements er bogtekst og kopi af bogens lag; urørt (Q1)'),
   -- Fritekst på Q9-stederne: kun navn/link, og kun når til_kontrol har rækken; ingen id-tilladelse
   ('private.identity_control_parent_event',      'S45b/Q9',    'nej','q9', 'parent_event.note er fritekst'),
   ('private.reimport_case_authorization',        'S44b/Q9',    'nej','q9', 'C3-elementer; fritekst'),
+  ('public.note',                                'S38b/S58/Q9','nej','q9', 'bevarede familienoter og andres noter'),
+  ('public.narrative',                           'S38b/Q9',    'nej','q9', 'bevarede familienarrativer'),
   ('public.suggestion',                          'S34b/Q9',    'nej','q9', 'andres forslag: token blokerer, øvrig fritekst er Q9'),
   ('public.media',                               'S37b/K3/Q9', 'nej','q9', 'delt medies titel'),
   ('public.fact',                                'K5/S38b/Q9', 'nej','q9', 'vielsesfakta i bevarede familier (beslutning 7)'),
@@ -162,14 +165,36 @@ SELECT m.tabel, m.tok, m.navn, m.link,
   LEFT JOIN LATERAL (SELECT t.* FROM tilladt t WHERE m.tabel LIKE t.tabel_like
                       ORDER BY length(t.tabel_like) DESC LIMIT 1) a ON true;
 
+-- K3/Q8: summary for et BEVARET medie må bære dets bogteksttitel. Tabeltilladelsen
+-- løftes kun når ALLE navn/link-fund i change_set er bevist som præcis sådan en summary.
+-- Andre summaries bliver ved med at være forbudt. Den rå måling i maaling ændres ikke.
+\if :is_prod
+\else
+UPDATE vurdering v SET tekst_art='ja',sted='S52b/K3'
+WHERE v.tabel='public.change_set' AND v.navn+v.link>0 AND (v.navn,v.link)=(
+  SELECT count(*) FILTER(WHERE p.navn<>'' AND position(p.navn IN cs::text)>0),
+         count(*) FILTER(WHERE position('[[person:'||p.pid::text||'|' IN cs::text)>0)
+  FROM public.change_set cs CROSS JOIN params p
+  WHERE EXISTS(SELECT 1 FROM public.change_event e JOIN public.media m ON e.tabel='media' AND e.row_pk->>'id'=m.id::text
+    WHERE e.change_set_id=cs.id AND e.op='INSERT'
+      AND cs.summary IN ('Oprettede media '||coalesce(m.titel,m.original_filnavn,'?'),
+                        'Uploadede media '||coalesce(m.titel,m.original_filnavn,'?'))));
+\endif
+
 \if :is_prod
   -- ======================= mode=prod =======================
   \if :is_efter
+    \if :{?purge_assert_nul}
+    \else
     \echo '== person-purge-rest mode=prod fase=efter'
+    \endif
     SELECT (:'foerfil' <> '') AS har_foerfil \gset
     \if :har_foerfil
     \else
+      \if :{?purge_assert_nul}
+      \else
       \echo 'FEJL: -v foerfil=<sti> er påkrævet i fase=efter'
+      \endif
       SELECT 1/0;
     \endif
     \set cpy '\\copy foer_raw FROM ' :'foerfil' ' WITH (FORMAT csv, DELIMITER ''|'')'
@@ -186,15 +211,24 @@ SELECT m.tabel, m.tok, m.navn, m.link,
       \gset
     \if :pid_ok
     \else
+      \if :{?purge_assert_nul}
+      \else
       \echo 'FEJL: foer-filen er for en anden person'
+      \endif
       SELECT 1/0;
     \endif
     \if :navn_mangler
+      \if :{?purge_assert_nul}
+      \else
       \echo 'ADVARSEL: navn ikke angivet; navn-kontrollen er sprunget over'
+      \endif
     \else
       \if :navn_ok
       \else
+        \if :{?purge_assert_nul}
+        \else
         \echo 'FEJL: navnet matcher ikke foer-filens navn-længde'
+        \endif
         SELECT 1/0;
       \endif
     \endif
@@ -209,7 +243,10 @@ SELECT m.tabel, m.tok, m.navn, m.link,
       LEFT JOIN foer_raw f ON f.tabel = v.tabel
       LEFT JOIN plan pl ON pl.tabel = v.tabel;
 
+    \if :{?purge_assert_nul}
+    \else
     \echo '-- tabel|foer_tok|efter_tok|fald_tok|foer_navn|efter_navn|foer_link|efter_link|plan_fald|status (kun tabeller med nogen aendring eller rest)'
+    \endif
     SELECT tabel, foer_tok, efter_tok, foer_tok - efter_tok, foer_navn, efter_navn, foer_link, efter_link,
            CASE WHEN :'har_plan' = 't' THEN plan_fald::text ELSE '-' END,
            concat_ws(',',
@@ -222,27 +259,45 @@ SELECT m.tabel, m.tok, m.navn, m.link,
      ORDER BY tabel;
     \if :har_plan
     \else
+      \if :{?purge_assert_nul}
+      \else
       \echo 'plan-sammenligning sprunget over: ingen planfil (dette er IKKE en bestået plankontrol)'
+      \endif
     \endif
     SELECT count(*) FILTER (WHERE efter_tok > foer_tok OR efter_navn > foer_navn OR efter_link > foer_link) AS stigning,
            count(*) FILTER (WHERE :'har_plan' = 't' AND (foer_tok - efter_tok) <> plan_fald) AS afviger_plan,
            count(*) FILTER (WHERE (efter_navn > 0 OR efter_link > 0) AND tekst_art = 'nej') AS udtilladt,
            coalesce(sum(efter_navn + efter_link) FILTER (WHERE tekst_art = 'q9'), 0) AS q9_rest
       FROM sammenlign \gset
+    \if :{?purge_assert_nul}
+    \else
     \echo '== sammenfatning: stigning=' :stigning ' afviger_plan=' :afviger_plan ' udtilladt_navn_link=' :udtilladt ' q9_rest=' :q9_rest
+    \endif
     SELECT (:stigning + :afviger_plan + :udtilladt = 0) AS alt_ok \gset
     \if :alt_ok
+      \if :{?purge_assert_nul}
+      \else
       \echo 'REST_OK (q9_rest skal afstemmes mod til_kontrol af kalderen)'
+      \endif
     \else
+      \if :{?purge_assert_nul}
+      \else
       \echo 'REST_FEJL'
+      \endif
       SELECT 1/0;
     \endif
   \else
+    \if :{?purge_assert_nul}
+    \else
     \echo '== person-purge-rest mode=prod fase=foer: skriver foer-tal'
+    \endif
     SELECT (:'foerfil' <> '') AS har_foerfil \gset
     \if :har_foerfil
     \else
+      \if :{?purge_assert_nul}
+      \else
       \echo 'FEJL: -v foerfil=<sti> er påkrævet i fase=foer'
+      \endif
       SELECT 1/0;
     \endif
     \o :foerfil
@@ -250,34 +305,78 @@ SELECT m.tabel, m.tok, m.navn, m.link,
     UNION ALL SELECT '#navnlaengde', length(navn)::text, '', '' FROM params
     UNION ALL SELECT tabel, tok::text, navn::text, link::text FROM maaling ORDER BY 1;
     \o
+    \if :{?purge_assert_nul}
+    \else
     \echo '-- tabel|tok|navn|link (kun tabeller med nogen forekomst; fuld liste i foer-filen)'
+    \endif
     SELECT tabel, tok, navn, link FROM maaling WHERE tok + navn + link > 0 ORDER BY tabel;
     SELECT count(*) AS antal_tabeller, count(*) FILTER (WHERE tok + navn + link > 0) AS med_forekomst,
            coalesce(sum(tok), 0) AS sum_tok, coalesce(sum(navn), 0) AS sum_navn, coalesce(sum(link), 0) AS sum_link
       FROM maaling \gset
+    \if :{?purge_assert_nul}
+    \else
     \echo '== foer: tabeller=' :antal_tabeller ' med_forekomst=' :med_forekomst ' sum_tok=' :sum_tok ' sum_navn=' :sum_navn ' sum_link=' :sum_link
+    \endif
   \endif
 \else
   -- ======================= mode=fixture =======================
+  \if :{?purge_assert_nul}
+  \else
   \echo '== person-purge-rest mode=fixture'
+  \endif
   SELECT (navn = '') AS navn_mangler FROM params \gset
   \if :navn_mangler
+    \if :{?purge_assert_nul}
+    \else
     \echo 'FEJL: -v navn er påkrævet i mode=fixture'
+    \endif
     SELECT 1/0;
   \endif
+  \if :{?purge_assert_nul}
+  \else
   \echo '-- tabel|tok|navn|link|tilladt_tok|tilladt_tekst|sted (kun tabeller med forekomst)'
+  \endif
   SELECT tabel, tok, navn, link, tok_art, tekst_art, sted FROM vurdering WHERE tok + navn + link > 0 ORDER BY tabel;
   SELECT count(*) FILTER (WHERE (tok > 0 AND tok_art = 'nej')
                              OR ((navn > 0 OR link > 0) AND tekst_art = 'nej')) AS fejl,
          coalesce(sum(navn + link) FILTER (WHERE tekst_art = 'q9'), 0) AS q9_rest
     FROM vurdering \gset
+  \if :{?purge_assert_nul}
+  \else
   \echo '== sammenfatning: fejl=' :fejl ' q9_rest=' :q9_rest
+  \endif
   SELECT (:fejl > 0) AS har_fejl \gset
   \if :har_fejl
+    \if :{?purge_assert_nul}
+    \else
     \echo 'REST_FEJL: rest på utilladte steder (tabeller med tilladt=nej ovenfor)'
+    \endif
     SELECT 1/0;
   \else
+    \if :{?purge_assert_nul}
+    \else
     \echo 'REST_OK (q9_rest skal afstemmes mod til_kontrol af kalderen)'
+    \endif
   \endif
+\endif
+-- Kun testharnessen: hvert Q9-restfund skal findes som en bestemt række i preview.til_kontrol.
+\if :{?purge_assert_nul}
+DO $q9$
+DECLARE r record; v_bad bigint;
+BEGIN
+  FOR r IN SELECT tabel FROM pg_temp.vurdering WHERE tekst_art='q9' AND navn+link>0 LOOP
+    EXECUTE format($q$SELECT count(*) FROM %s t CROSS JOIN pg_temp.params p
+      WHERE (position(p.navn IN t::text)>0 OR position('[[person:'||p.pid::text||'|' IN t::text)>0)
+      AND NOT EXISTS(SELECT 1 FROM pg_temp.purge_preview pv CROSS JOIN LATERAL jsonb_array_elements(pv.j->'til_kontrol') k
+        WHERE (CASE WHEN k->>'tabel' LIKE 'private.%%' THEN k->>'tabel' ELSE 'public.'||(k->>'tabel') END)=$1
+          AND to_jsonb(t) @> (k->'pk'))$q$,r.tabel) INTO v_bad USING r.tabel;
+    IF v_bad<>0 THEN RAISE EXCEPTION 'TEST_FAILED purge_rest_q9: %',r.tabel; END IF;
+  END LOOP;
+  -- S52b/K3 tillader et delt medies titel i summary; ingen andre summaries må bære navnet.
+  IF EXISTS(SELECT 1 FROM public.change_set cs CROSS JOIN pg_temp.params p
+    WHERE position(p.navn IN cs.summary)>0 AND cs.id<>purge_test.id('saet_medie_delt')) THEN
+    RAISE EXCEPTION 'TEST_FAILED purge_historik_navn_vaek';
+  END IF;
+END $q9$;
 \endif
 ROLLBACK;

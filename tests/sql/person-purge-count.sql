@@ -12,6 +12,28 @@
 -- uuid-PK (profiles) ikke kan give castfejl.
 \set ON_ERROR_STOP on
 \set QUIET on
+-- Nul-assertion efter sletning kræver eksplicitte før-mængder; ellers kan en tabt
+-- identitet skjule en overlevende binding. Normal måling kan køres uden dem.
+\if :{?purge_assert_nul}
+\if :{?purge_count_personas}
+\else
+SELECT 1/0 AS purge_count_personas_foer_mangler;
+\endif
+\if :{?purge_count_families}
+\else
+SELECT 1/0 AS purge_count_families_foer_mangler;
+\endif
+\endif
+-- Valgfrie før-mængder fra basistabeller, aldrig plan/manifest. Efter purge er både P's
+-- identitetshistorik og medlemskab væk; uden før-mængder kan S39e ikke genfinde ejerskabet.
+\if :{?purge_count_personas}
+\else
+\set purge_count_personas '[]'
+\endif
+\if :{?purge_count_families}
+\else
+\set purge_count_families '[]'
+\endif
 BEGIN TRANSACTION READ ONLY;
 
 WITH RECURSIVE
@@ -102,7 +124,16 @@ personas AS MATERIALIZED (
    WHERE e.canonical_person_id=p.pid
   UNION
   SELECT i.source_persona_id FROM private.source_persona_identity i, params p
-   WHERE i.canonical_person_id=p.pid),
+   WHERE i.canonical_person_id=p.pid
+  UNION SELECT value::uuid FROM jsonb_array_elements_text(:'purge_count_personas'::jsonb)),
+own_personas AS MATERIALIZED (
+  SELECT source_persona_id AS id FROM private.source_persona_identity,params p
+    WHERE canonical_person_id=p.pid AND decision_status='accepted'
+  UNION SELECT value::uuid FROM jsonb_array_elements_text(:'purge_count_personas'::jsonb)),
+count_keep_families AS MATERIALIZED (
+  SELECT id FROM fam_keep
+  UNION SELECT f.id FROM public.family f
+    JOIN jsonb_array_elements_text(:'purge_count_families'::jsonb) saved ON f.id=saved.value::bigint),
 
 
 -- ---------- historiske id-mængder (lukning over change_event; foer og efter hver for sig) ----------
@@ -349,7 +380,27 @@ counts(nr, sted, antal) AS (
           OR (ip.target_type='narrative' AND ip.target_id::text IN (SELECT idt FROM hist_narr))
           OR (ip.target_type='haendelse' AND ip.target_id IN (SELECT id FROM p_haendelse))
           OR (ip.target_type='family' AND ip.target_id IN (SELECT id FROM fams)))
-  UNION ALL SELECT 'S40','private.legacy_placement_disposition', (SELECT count(*) FROM private.legacy_placement_disposition d, params p WHERE d.person_id=p.pid)
+  UNION ALL SELECT 'S39e','private.interpretation_promotion egne bindinger på bevarede familier', (
+       SELECT count(*) FROM private.interpretation_promotion ip
+       JOIN private.interpretation i ON i.id=ip.interpretation_id
+       WHERE ip.target_type='family' AND ip.target_id IN (SELECT id FROM count_keep_families)
+         AND (i.source_persona_id IN (SELECT id FROM own_personas) OR EXISTS (
+           SELECT 1 FROM private.interpretation_party_current principal
+           WHERE principal.interpretation_key=i.interpretation_key AND principal.party_role='principal'
+             AND principal.source_persona_id IN (SELECT id FROM own_personas))))
+  -- R39-information: ikke sletteantal og derfor ikke del af nul-listen. Egne bindinger er S39e.
+  UNION ALL SELECT 'S39f','private.interpretation_promotion andres binding med ikke-principal i X (info; blokering)', (
+       SELECT count(*) FROM private.interpretation_promotion ip
+       JOIN private.interpretation i ON i.id=ip.interpretation_id
+       WHERE ip.target_type='family' AND ip.target_id IN (SELECT id FROM count_keep_families)
+         AND (i.source_persona_id IN (SELECT id FROM own_personas)) IS NOT TRUE
+         AND NOT EXISTS (SELECT 1 FROM private.interpretation_party_current principal
+           WHERE principal.interpretation_key=i.interpretation_key AND principal.party_role='principal'
+             AND principal.source_persona_id IN (SELECT id FROM own_personas))
+         AND EXISTS (SELECT 1 FROM private.interpretation_party_current party
+           WHERE party.interpretation_key=i.interpretation_key AND party.party_role<>'principal'
+             AND party.source_persona_id IN (SELECT id FROM own_personas)))
+  UNION ALL SELECT 'S40' ,'private.legacy_placement_disposition', (SELECT count(*) FROM private.legacy_placement_disposition d, params p WHERE d.person_id=p.pid)
   UNION ALL SELECT 'S41','private.reimport_event (kolonne eller payload-nøgle)', (SELECT count(*) FROM private.reimport_event e, params p, jrx
        WHERE e.canonical_person_id=p.pid OR e.payload::text ~ jrx.rx)
   UNION ALL SELECT 'S42','private.reimport_name_completion_result', (SELECT count(*) FROM private.reimport_name_completion_result r, params p WHERE r.person_id=p.pid)
@@ -366,7 +417,7 @@ counts(nr, sted, antal) AS (
                           OR (jsonb_typeof(s.mapping)='object'
                               AND EXISTS (SELECT 1 FROM jsonb_each_text(s.mapping) m WHERE m.value = c.id::text)))))
   UNION ALL SELECT 'S47','personas koblet via S10/S11 (bog-lag, BEVARES)', (SELECT count(*) FROM personas)
-  UNION ALL SELECT 'S48','private.interpretation_promotion familiebindinger på P''s familier (hash bliver stale)', (SELECT count(*) FROM private.interpretation_promotion ip
+  UNION ALL SELECT 'S48','private.interpretation_promotion familiebindinger på P''s familier (info; S39e egne, S39f blokering)', (SELECT count(*) FROM private.interpretation_promotion ip
        WHERE ip.target_type='family' AND ip.target_id IN (SELECT id FROM fams))
   UNION ALL SELECT 'S49','private.relation_reopen/marriage_ordinal_correction på P''s familier', (SELECT
          (SELECT count(*) FROM private.relation_reopen r WHERE r.from_family_id IN (SELECT id FROM fams) OR r.to_family_id IN (SELECT id FROM fams))
@@ -375,7 +426,7 @@ counts(nr, sted, antal) AS (
   UNION ALL SELECT 'M5','private.identity_control_parent_event (card_id i kort med counterpart_person_id=P)', (SELECT count(*) FROM private.identity_control_parent_event e
        WHERE e.card_id IN (SELECT c.id FROM private.identity_control_parent_card c, params p WHERE c.counterpart_person_id=p.pid))
   -- S49b (slettegraf §0 Prom_egen + »Afgørelser« Q5/Q6): promotion ejet af P (mål = P's egne rækker; familiemål kun når
-  -- fortolkningens persona er en af P's personas X) ELLER reimport_event med canonical_person_id=P.
+  -- fortolkningens direkte persona eller gældende principal-part er en af P's personas X) ELLER reimport_event med canonical_person_id=P.
   UNION ALL SELECT 'S49b','private.text_revision_reconciliation (old/new promotion ∈ Prom_egen(+_fam) eller event ∈ S41a)', (SELECT count(*) FROM private.text_revision_reconciliation x
        WHERE EXISTS (SELECT 1 FROM private.interpretation_promotion ip
                        JOIN private.interpretation i ON i.id=ip.interpretation_id, params p
@@ -386,8 +437,11 @@ counts(nr, sted, antal) AS (
                           OR (ip.target_type='relation' AND ip.target_id IN (SELECT id FROM rels))
                           OR (ip.target_type='narrative' AND ip.target_id IN (SELECT id FROM narr))
                           OR (ip.target_type='haendelse' AND ip.target_id IN (SELECT id FROM p_haendelse))
-                          OR (ip.target_type='family' AND ip.target_id IN (SELECT id FROM fams)
-                              AND i.source_persona_id IN (SELECT id FROM personas))))
+                          OR (ip.target_type='family' AND ip.target_id IN (SELECT id FROM fams UNION SELECT id FROM count_keep_families)
+                              AND (i.source_persona_id IN (SELECT id FROM own_personas) OR EXISTS (
+                                SELECT 1 FROM private.interpretation_party_current principal
+                                WHERE principal.interpretation_key=i.interpretation_key AND principal.party_role='principal'
+                                  AND principal.source_persona_id IN (SELECT id FROM own_personas))))))
           OR EXISTS (SELECT 1 FROM private.reimport_event e, params p
                       WHERE e.batch_id=x.revision_batch_id AND e.element_id=x.revision_element_id
                         AND e.canonical_person_id=p.pid))
@@ -426,6 +480,25 @@ counts(nr, sted, antal) AS (
        + (SELECT count(*) FROM private.source_persona_placement_decision x, jrx WHERE x.evidence::text ~ jrx.rx))
   UNION ALL SELECT 'S58j','public.suggestion.payload', (SELECT count(*) FROM public.suggestion x, jrx WHERE x.payload::text ~ jrx.rx)
 )
+\if :{?purge_assert_nul}
+SELECT coalesce(sum(antal),0)=0
+  AND NOT EXISTS(SELECT 1 FROM private.reimport_event e,params p WHERE e.canonical_person_id=p.pid)
+  AND NOT EXISTS(SELECT 1 FROM private.reimport_case_event e,params p WHERE e.action='record_assign' AND e.payload->>'target_person_id'=p.pidt)
+  AND NOT EXISTS(SELECT 1 FROM private.identity_control_parent_card c,params p WHERE c.counterpart_person_id=p.pid)
+  AS purge_count_ok FROM counts
+WHERE nr IN ('S01','S02','S03','S03b','S04','S05','S06','S07','S08','S09','S10','S11','S12','S13','S13b',
+ 'S14','S14b','S15','S15b','S16','S16b','S17','S17b','S18','S18b','S19','S21','S21b','S22','S23','S24',
+ 'S25','S26','S27','S28','S30','S30b','S30c','S31','S32','S33','S33b','S34','S34c','S35','S36',
+ 'S37b','S37c','S38','S38c','S38d','S39','S39e','S40','S42','M5','S49','S49b','S53b','S54') \gset
+-- S55 står bevidst ikke på listen: tællerens rev_chain tæller fortrydelser af ALLE sæt, der rører P, også af bevarede
+-- sæt (S52b, andres events). Slettegrafens S55 er kun kæden under slettede sæt (mængden D); reverterer_id er en FK,
+-- så en tilbageværende kæde peger altid på et bevaret sæt og er selv S52b (kun P's id i subjekt_id).
+\if :purge_count_ok
+\else
+  SELECT 1/0 AS purge_count_nul_failed;
+\endif
+\else
 SELECT nr AS sted, sted AS tabel, antal FROM counts ORDER BY nr;
+\endif
 
 ROLLBACK;

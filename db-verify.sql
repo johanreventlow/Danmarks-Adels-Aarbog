@@ -1758,7 +1758,8 @@ BEGIN
   FOREACH v_writer IN ARRAY ARRAY[
     'public.red_samme_som(bigint,bigint)'::regprocedure,
     'public.red_ikke_samme_som(bigint,bigint)'::regprocedure,
-    'public.red_slet_person(bigint)'::regprocedure
+    'public.red_slet_person(bigint)'::regprocedure,
+    'public.red_slet_person_helt(bigint,text)'::regprocedure
   ] LOOP
     v_definition := pg_get_functiondef(v_writer);
     v_lock_position := strpos(v_definition, 'pg_advisory_xact_lock(hashtext(''samme_som_mutation''))');
@@ -3077,6 +3078,7 @@ DECLARE
     'public.red_slet_oplysning(bigint)'::regprocedure,
     'public.red_slet_person(bigint)'::regprocedure,
     'public.red_slet_person_preview(bigint)'::regprocedure,
+    'public.red_slet_person_helt(bigint,text)'::regprocedure,
     'public.red_slet_person_helt_preview(bigint)'::regprocedure,
     'public.red_slet_relation(bigint)'::regprocedure,
     'public.red_slet_story(bigint)'::regprocedure,
@@ -11157,6 +11159,14 @@ BEGIN
       RAISE EXCEPTION 'VERIFY_FAILED: person_purge vagt PUBLIC ACL: %',r.funktion;
     END IF;
   END LOOP;
+  -- Relationsvagtlisten omfatter begge media-ender; samme type-/låsekontrakt som fact.
+  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid='private.validate_polymorf_subjekt_findes()'::regprocedure
+    AND position('FROM public.media WHERE id=r.id FOR KEY SHARE' IN prosrc)>0
+    AND position('IN (''fact'',''media'')' IN prosrc)>0
+    AND position('WHEN ''fact'' THEN 3 ELSE 4 END' IN prosrc)>0
+    AND position('POLYMORF_TYPE_IKKE_KANONISK' IN prosrc)>0) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: person_purge vagt media-ender/type/låseorden';
+  END IF;
   IF to_regclass('private.person_purge_udbakke') IS NULL
      OR NOT (SELECT relrowsecurity FROM pg_class WHERE oid='private.person_purge_udbakke'::regclass)
      OR NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conrelid='private.person_purge_udbakke'::regclass
@@ -11174,3 +11184,23 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: person_purge Task 8a — enabled vagter, DEFINER/search_path/ACL og privat udbakke';
 END $verify_person_purge_vagt$;
+
+-- Fuld personsletning (2026-11-14), Task 8b: eksakt RPC-kontrakt og ACL (R34).
+DO $purge_execute_catalog$
+DECLARE v_oid oid:=to_regprocedure('public.red_slet_person_helt(bigint,text)'); v_role text;
+BEGIN
+  IF v_oid IS NULL OR NOT EXISTS (SELECT 1 FROM pg_proc WHERE oid=v_oid
+    AND prosecdef AND prorettype='jsonb'::regtype AND NOT proretset
+    AND proconfig @> ARRAY['search_path=pg_catalog, public, private']) THEN
+    RAISE EXCEPTION 'PURGE_EXECUTE_CATALOG_DRIFT';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+    WHERE p.oid=v_oid AND a.grantee=0 AND a.privilege_type='EXECUTE')
+    OR NOT has_function_privilege('authenticated',v_oid,'EXECUTE') THEN
+    RAISE EXCEPTION 'PURGE_EXECUTE_ACL_DRIFT';
+  END IF;
+  FOREACH v_role IN ARRAY ARRAY['anon','service_role'] LOOP
+    IF has_function_privilege(v_role,v_oid,'EXECUTE') THEN RAISE EXCEPTION 'PURGE_EXECUTE_ACL_DRIFT'; END IF;
+  END LOOP;
+END
+$purge_execute_catalog$;

@@ -1139,7 +1139,10 @@ BEGIN
   -- Q6: Prom_egen_fam er en familiebinding på fam_keep fra P's egen persona.
   IF NOT EXISTS (SELECT 1 FROM private.interpretation_promotion p JOIN private.interpretation i ON i.id=p.interpretation_id
                   WHERE p.id=purge_test.u('prom_egen_fam') AND p.target_type='family'
-                    AND p.target_id=purge_test.id('fam_keep') AND i.source_persona_id=ANY(v_x)) THEN
+                    AND p.target_id=purge_test.id('fam_keep') AND (i.source_persona_id=ANY(v_x) OR EXISTS (
+                      SELECT 1 FROM private.interpretation_party_current principal
+                      WHERE principal.interpretation_key=i.interpretation_key AND principal.party_role='principal'
+                        AND principal.source_persona_id=ANY(v_x)))) THEN
     RAISE EXCEPTION 'PURGE_FIXTURE_KONTROL: Prom_egen_fam';
   END IF;
   -- Hver repræsentant står i facit, og hvert 2b-delsted har mindst én.
@@ -1214,7 +1217,10 @@ BEGIN
     RAISE EXCEPTION 'PURGE_FIXTURE_KONTROL: P''s C-hændelse er B-batchens eneste';
   END IF;
   IF EXISTS (SELECT 1 FROM private.interpretation_promotion p JOIN private.interpretation i ON i.id=p.interpretation_id
-              WHERE NOT coalesce(i.source_persona_id=ANY(v_x),false)
+              WHERE NOT (coalesce(i.source_persona_id=ANY(v_x),false) OR EXISTS (
+                SELECT 1 FROM private.interpretation_party_current principal
+                WHERE principal.interpretation_key=i.interpretation_key AND principal.party_role='principal'
+                  AND principal.source_persona_id=ANY(v_x)))
                 AND ((p.target_type='family' AND p.target_id=purge_test.id('fam_del'))
                   OR (p.target_type='fact' AND p.target_id IN (SELECT id FROM public.fact
                                                                 WHERE subjekt_type='family' AND subjekt_id=purge_test.id('fam_del')))
