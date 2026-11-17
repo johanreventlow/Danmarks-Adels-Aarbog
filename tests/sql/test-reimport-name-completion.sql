@@ -876,6 +876,8 @@ BEGIN
   IF coalesce(array_length(v_retained_fact_ids,1),0)<2 THEN
     RAISE EXCEPTION 'REIMPORT_NAME_COMPLETION_RETAINED_RECEIPTS_MISSING';
   END IF;
+  -- Task 8a: den uafhængige default-skrivers polymorfe forælder.
+  INSERT INTO public.person(id,levende,privat) VALUES (-153109,false,false);
   INSERT INTO public.fact(subjekt_type,subjekt_id,faktatype)
   VALUES('person',-153109,'task10-ordinary-default-writer')
   RETURNING id INTO v_ordinary_fact;

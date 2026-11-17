@@ -44,6 +44,11 @@ Hvor et afsnit nedenfor siger noget andet, gælder dette afsnit.
   Bygherren undersøger og tester, hvad `relation_binding_state` (l. 20004) og familiebekræftelsen gør, når en bevaret
   families binding forsvinder. Forventet: bindingen bliver forældet og kan genåbnes ad det eksisterende spor; det
   giver ingen fejl. Gør den noget andet, stopper bygherren og forelægger.
+- **R39 (projektejeren 17/11) → S39f/blokér.** En andens familiebinding på `Fam_keep` blokerer,
+  når en gældende ikke-principal part (`interpretation_party_current`) har persona i `X`. Eget ejerskab afgøres
+  som i planen: `source_persona_id ∈ X` eller gældende principal-part i `X`. Blokér vinder over S39c for samme
+  fysiske promotion. Preview og RPC bruger den etablerede art `anden_promotion`; redaktøren retter og genåbner
+  Q's fortolkning, mens P findes. S39c tillader ikke længere dette tavse bindingstab.
 - **Q7 → `person_purge`-eventet får version n+1**, hvor n = `max(version)` for personaen. n aflæses i fase 0 og gemmes
   i manifestets række (`source_persona_identity`, x, grund `hel_stroem`, `forrige_version` = n). Det **retter §3.1
   punkt 3**:
@@ -209,7 +214,8 @@ Kolonnen **Indhold** udfyldes kun for bevar_andres: `id` = kun P's id/hash/uuid;
 |---|---|---|---|---|---|---|
 | S39a | `private.interpretation_promotion` | `id ∈ Prom_egen` | slet | 2c | `trg_interpretation_promotion_append_only` (loop l. 1973-1987) → l. 916 **AO**; `…_validate` l. 1955 (INS) | |
 | S39b | samme | `id ∈ Prom_anden` | **blokér** (afsnit 4.2) | 0 | **AO** | |
-| S39c | familiebindinger på `Fam_keep` | `target_type='family' AND target_id ∈ Fam_keep` | bevar_andres (hash bliver forældet, V5) | – | **AO** | id (hash, familie-id) — se også spørgsmål Q6 |
+| S39c | familiebindinger på `Fam_keep` | `target_type='family' AND target_id ∈ Fam_keep`, hverken egen binding eller S39f | bevar_andres | – | **AO** | id (hash, familie-id) — Q6 og R39 |
+| S39f | samme | andens binding på `Fam_keep`, gældende ikke-principal persona i `X` | **blokér** (R39) | 0 | **AO** | kun art, sted, tabel og pk i blokeringen |
 | S40 | `private.legacy_placement_disposition` | `person_id=P` | slet | 2i | `trg_legacy_placement_disposition_append_only` l. 2809 → l. 916 **AO** | |
 | S41a | `private.reimport_event` | `canonical_person_id=P` (ops `person_create` l. 4376, `legacy_migration` l. 4556, `canonical_delta` l. 5902, `publication_persona` l. 18344, `publication_identity` l. 18550, `relation_person_create` l. 20807) | slet (person_create-payload bærer `name` og `narrative.text`) | 2g | `trg_reimport_event_append_only` l. 4072 → `reject_reimport_writer_mutation` l. 4063 **AO**; `trg_reimport_event_publication_identity_finalized` l. 18661 er deferred, men kun `AFTER INSERT` → rammer ikke DELETE | |
 | S41b | `reimport_event` uden P som kolonne, med P i payload | `operation='activation'` → `payload->'post_activation_receipts' ? Pt` (l. 6170); `publication_identity` med `payload->>'same_as_hint_person_id'=Pt` (nøglen l. 18402) | bevar_andres | – | **AO** | id (+ record_key + hashes) |
@@ -741,7 +747,7 @@ ikke er sikret.
 | nulstil | 2 | S5 (`profiles.reventlow_person_id`), S24 (`nlp.latest_event_id`, før sletning) |
 | loesn | 2 | S27 (`haendelse.fact_id/relation_id`), S31 (`story.*_id`, automatisk SET NULL) |
 | bevar_andres | 19 | S11c, S23b, S32c, S37b, S38b, S39c, S41b, S43b, S44a, S44b, S45b, S46, S48, S49c, S50, S58, NY-C, S57, S52b |
-| blokér | 5 | S20, NY-A, S29, S34b (ved token), S39b |
+| blokér | 6 | S20, NY-A, S29, S34b (ved token), S39b, S39f |
 | KONFLIKT | 3 | K1 (S44a), K2 (S57/S23b-tekst), K3 (S52b-medie). K4 er et hul i specens regel, som den rettede regel lukker; ikke en bevaret række |
 
 S24 tælles under både slet og nulstil (først `latest_event_id := NULL`, så sletning). Uden handling: S47 (henviser til

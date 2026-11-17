@@ -87,7 +87,7 @@ echo "OK fixture_kerne_daekket"
 DAEKNING="S1=S01 S2=S02 S3=S03,S03b S4=S04 S5=S05 S6=S06 S7=S07 S8=S08 S10=S10 S11a=S11 S11b=S11 S12=S12
   S13=S13 S13b=S13b S14=S14 S14b=S14b S15=S15,S15b S16=S16,S16b S17=S17,S17b S18=S18,S18b S19=S19
   S21=S21,S21b S22=S22 S23=S23 S24=S24 S25=S25 S26=S26 S27=S27 S28=S28 S30=S30,S30b,S30c S31=S31 S32=S32 NY-B=S32
-  S33=S33,S33b S34=S34,S34c S35=S35 S36=S36 S37=S37b,S37c S38=S38 S39a=S39 Prom_egen_fam=S39,S48 S40=S40 S41a=S41
+  S33=S33,S33b S34=S34,S34c S35=S35 S36=S36 S37=S37b,S37c S38=S38 S39a=S39 Prom_egen_fam=S39,S39e,S48 S40=S40 S41a=S41
   S42=S42 S43a=S43 S45a=S45 M5=M5 S49a=S49 S49b=S49b S52/S53/S55=S52,S53,S53b,S55 S54=S54 S56=S56,S56b"
 # Navngiven liste (hver linje godkendt af hovedsessionen): steder, der ikke kan forekomme.
 KAN_IKKE_FOREKOMME="S9: person_create_receipt forbruges i den oprettende transaktion (slettegraf S9, R14);
@@ -121,7 +121,7 @@ q "$TMPL" -c 'CREATE TABLE purge_test.counts(sted text PRIMARY KEY, antal bigint
 printf '%s\n' "$COUNTS" | awk -F'|' '{print $1 "|" $NF}' | \
   env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$TMPL" \
     -c "COPY purge_test.counts(sted,antal) FROM STDIN WITH (DELIMITER '|')" || die "gem count-snapshot"
-for g in inventar binding plan historik fortrydelse manifest oprindelse preview preview_q3; do
+for g in inventar binding plan historik fortrydelse manifest oprindelse preview preview_q3 vagt purge purge_ekstra purge_binding fortryd_link; do
   gruppe "$g"
   ud=$(env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$DB" -v gruppe="$g" -f tests/sql/test-person-purge.sql 2>&1)
   rc=$?

@@ -208,6 +208,7 @@ w_fortryd() { echo "SELECT public.red_fortryd_person_narrative_publication_event
   (SELECT id FROM private.narrative_publication_event WHERE event_type='published'),
   private.narrative_record_state(-9101,-9001,'P-REC',false)->>'state_sha256');"; }
 w_upsert_l() { echo "SELECT red_upsert_fakta('person',-9103,'erhverv','Spike erhverv');"; }
+w_upsert_navn_l() { echo "SELECT red_upsert_fakta('person',-9103,'navn','Testperson Let ændret');"; }  # eksisterende navnefaktum
 w_tilfoej_l() { echo "SELECT red_tilfoej_oplysning((SELECT id FROM fact WHERE subjekt_type='person' AND subjekt_id=-9103 AND faktatype='navn'),'Spike ny påstand');"; }
 w_note_l() { echo "INSERT INTO note(target_type,target_id,indhold) SELECT 'fact',id,'Spike note på faktum' FROM fact WHERE subjekt_type='person' AND subjekt_id=-9103 AND faktatype='navn';"; }
 w_afgoer() { echo "SELECT red_afgoer_source_persona('c0000000-0000-4000-8000-0000000000c1',0,'same',-9101,'spike');"; }
@@ -447,6 +448,16 @@ for s in $SCENARIER; do
         for p in L7 L10 DATA; do
           k5_s_foerst medie true $p $l   "K5 medie-sæt, force=true, sætlås efter $l: sletning først, efter $p" k5_medie_laas${l}_s_$p
         done
+      done ;;
+    g_upsert_navn)  # review 8b P2: eksisterende faktum → conclusion-lås → regen venter på personen
+      w_foerst_hel w_upsert_navn_l -9103 '{"slet_person":true}' "red_upsert_fakta(L's eksisterende navn): skriver først" gu_w_foerst
+      for pz in L10 DELETE; do
+        ny gu_s_$pz
+        start S "$(skelet -9103 '{"slet_person":true,"pause_after":"'"$pz"'","pause_s":3}')"; vent_paa S sover
+        start W "$(w_upsert_navn_l)"
+        observer W 4 || true
+        observer S 6 || true
+        vent_alle; rapport "red_upsert_fakta(L's eksisterende navn): skelet først, holder $pz"
       done ;;
     *) die "ukendt scenarie $s" ;;
   esac

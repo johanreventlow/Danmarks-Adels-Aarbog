@@ -10,11 +10,13 @@
   \echo 'PURGE_TEST_FEJL: angiv -v gruppe=<navn>'
   SELECT 1/0 AS gruppe_mangler;
 \endif
-SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest','oprindelse','preview','preview_q3') AS gruppe_kendt,
+SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest','oprindelse','preview','preview_q3','vagt','purge','purge_ekstra','purge_binding','fortryd_link') AS gruppe_kendt,
        :'gruppe'='inventar' AS g_inventar, :'gruppe'='binding' AS g_binding,
        :'gruppe'='plan' AS g_plan, :'gruppe'='historik' AS g_historik, :'gruppe'='fortrydelse' AS g_fortrydelse,
        :'gruppe'='manifest' AS g_manifest, :'gruppe'='oprindelse' AS g_oprindelse,
        :'gruppe'='preview' AS g_preview, :'gruppe'='preview_q3' AS g_preview_q3,
+       :'gruppe'='vagt' AS g_vagt, :'gruppe'='fortryd_link' AS g_fortryd_link,
+       :'gruppe'='purge_binding' AS g_purge_binding, :'gruppe'='purge' AS g_purge, :'gruppe'='purge_ekstra' AS g_purge_ekstra,
        :'gruppe' IN ('preview','preview_q3') AS g_preview_helpers \gset
 \if :gruppe_kendt
 \else
@@ -139,7 +141,7 @@ DECLARE
     -- §1d
     'S35','S36','S37','S37b','S38','S38b',
     -- §1e (+ Q6)
-    'S39a','S39b','S39c','Prom_egen_fam','S40','S41a','S41b','S42','S43a','S43b','S44a','S44b','S45a','M5','S45b',
+    'S39a','S39b','S39c','S39f','Prom_egen_fam','S40','S41a','S41b','S42','S43a','S43b','S44a','S44b','S45a','M5','S45b',
     'S46','S47','S48','S49a','S49b','S49c','S49d','S50','S51','S58','NY-C','NY-D',
     -- §1f
     'S54','S57','S52','S53','S55','S52b','S56'];
@@ -450,7 +452,7 @@ INSERT INTO count_map VALUES
  ('{S25,S26}','{S25,S25b,S26}'),('{S27}','{S27}'),('{S28}','{S28}'),('{S30}','{S30,S30b,S30c}'),
  ('{S31}','{S31}'),('{S32,NY-B}','{S32}'),('{S33}','{S33,S33b}'),('{S34}','{S34,S34c}'),
  ('{S35}','{S35}'),('{S36}','{S36}'),('{S37}','{S37c}'),('{S38}','{S38}'),
- ('{S39a,Prom_egen_fam}','{S39}'),('{S40}','{S40}'),('{S41a}','{S41}'),('{S42}','{S42}'),
+ ('{S39a,Prom_egen_fam}','{S39}'),('{S39f}','{S39f}'),('{S40}','{S40}'),('{S41a}','{S41}'),('{S42}','{S42}'),
  ('{S43a}','{S43}'),('{S45a}','{S45}'),('{M5}','{M5}'),('{S49a}','{S49}'),('{S49b}','{S49b}'),('{S54}','{S54}');
 -- Afvigelser i den eksisterende tæller, afgrænset og testet:
 -- * S11 tæller kun canonical_person_id=P, mens planen tager hele X2-strømmen (v1/v2 = to ekstra events).
@@ -2562,4 +2564,809 @@ END $publication$;
 \echo OK preview_publication_p_only_note
 \echo OK preview_publication_bevaret_drift_advarsel
 ROLLBACK;
+\endif
+
+-- =====================================================================================================================
+-- Task 8a: vagterne testes uden red_slet_person_helt (Task 8b). Hvert scenarie rulles tilbage i egen transaktion.
+\if :g_vagt
+CREATE FUNCTION pg_temp.vagt_afvis(p_sql text,p_kode text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_afvist boolean:=false;
+BEGIN
+  BEGIN
+    EXECUTE p_sql;
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM NOT LIKE p_kode||':%' AND SQLERRM<>p_kode THEN RAISE; END IF;
+    v_afvist:=true;
+  END;
+  IF NOT v_afvist THEN RAISE EXCEPTION 'TEST_FAILED vagt: forventede %',p_kode; END IF;
+END $$;
+-- Kaldes også under SET ROLE authenticated (red_upsert_fakta); basens default privileges giver ikke PUBLIC EXECUTE.
+GRANT EXECUTE ON FUNCTION pg_temp.vagt_afvis(text,text) TO authenticated;
+
+-- Kataloget skal fastholde navnorden for vagter, der kan låse forskellige mål på samme række.
+BEGIN;
+DO $t$
+DECLARE r record; v_poly int; v_maal int;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES
+    ('assertion',1,1),('note',1,1),('conclusion',0,1),('relation',1,0),('fact',1,0)
+  ) x(tabel,polymorf,maal) LOOP
+    SELECT count(*) FILTER (WHERE tgfoid='private.validate_polymorf_subjekt_findes()'::regprocedure),
+           count(*) FILTER (WHERE tgfoid='public.enforce_relation_evidence_target()'::regprocedure)
+      INTO v_poly,v_maal FROM pg_trigger
+     WHERE tgrelid=to_regclass('public.'||r.tabel) AND tgtype=23
+       AND tgenabled IN ('O','A') AND NOT tgisinternal;
+    IF (v_poly,v_maal) IS DISTINCT FROM (r.polymorf,r.maal) THEN
+      RAISE EXCEPTION 'TEST_FAILED vagt_triggerorden: manglende/duplikeret vagt på %',r.tabel;
+    END IF;
+  END LOOP;
+  -- Assertion har uafhængigt objekt og mål. Note har ét mål; conclusion kun målvagten.
+  -- Relation sorterer begge ender i én vagt; fact's anden vagt kører kun ved DELETE.
+  IF EXISTS (
+    SELECT 1 FROM pg_trigger p JOIN pg_trigger m ON m.tgrelid=p.tgrelid
+     WHERE p.tgrelid='public.assertion'::regclass
+       AND p.tgfoid='private.validate_polymorf_subjekt_findes()'::regprocedure
+       AND m.tgfoid='public.enforce_relation_evidence_target()'::regprocedure
+       AND p.tgname::text COLLATE "C" >= m.tgname::text COLLATE "C"
+  ) THEN RAISE EXCEPTION 'TEST_FAILED vagt_triggerorden: person/familie skal låses før fakta/relation'; END IF;
+END $t$;
+ROLLBACK;
+\echo OK vagt_triggerorden
+
+BEGIN;
+DO $t$
+DECLARE v_p bigint; v_fam bigint; v_fact bigint; v_narr bigint; r record; v_typ text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','a2a00000-0000-4000-8000-00000000a001',true);
+  PERFORM purge_test.nyt();
+  INSERT INTO public.person(levende,privat) VALUES (false,false) RETURNING id INTO v_p;
+  INSERT INTO public.family(type) VALUES ('test') RETURNING id INTO v_fam;
+  INSERT INTO public.fact(subjekt_type,subjekt_id,faktatype) VALUES ('person',v_p,'test') RETURNING id INTO v_fact;
+  DELETE FROM public.fact WHERE id=v_fact;
+  DELETE FROM public.person WHERE id=v_p;
+  DELETE FROM public.family WHERE id=v_fam;
+  SELECT min(id) INTO v_narr FROM public.narrative;
+  IF v_narr IS NULL THEN RAISE EXCEPTION 'TEST_FAILED eksistensvagt: mangler narrativ'; END IF;
+  FOR r IN SELECT * FROM (VALUES ('person',v_p),('family',v_fam),('Person',v_p),('Family',v_fam)) x(typ,id) LOOP
+    -- RPC kaldes som klient; de direkte DML-prober kontrollerer også skriverløse steder.
+    SET LOCAL ROLE authenticated;
+    PERFORM pg_temp.vagt_afvis(format('SELECT public.red_upsert_fakta(%L,%s,%L,%L)',r.typ,r.id,'test','test'),
+                              'POLYMORF_SUBJEKT_FINDES_IKKE');
+    RESET ROLE;
+    PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.note(target_type,target_id) VALUES (%L,%s)',r.typ,r.id),'POLYMORF_SUBJEKT_FINDES_IKKE');
+    PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.story(subjekt_type,subjekt_id,tekst) VALUES (%L,%s,%L)',r.typ,r.id,'test'),'POLYMORF_SUBJEKT_FINDES_IKKE');
+    PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.suggestion(subjekt_type,subjekt_id) VALUES (%L,%s)',r.typ,r.id),'POLYMORF_SUBJEKT_FINDES_IKKE');
+    PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.narrative(subjekt_type,subjekt_id,tekst) VALUES (%L,%s,%L)',r.typ,r.id,'test'),'POLYMORF_SUBJEKT_FINDES_IKKE');
+    PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul) VALUES (%L,%s,%s,%L,%L)',r.typ,r.id,v_narr,'vagt','test'),'POLYMORF_SUBJEKT_FINDES_IKKE');
+    PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.assertion(target_type,target_id,objekt_type,objekt_id) VALUES (%L,%s,%L,%s)',
+      'fact',purge_test.id('fakta_titel'),r.typ,r.id),'POLYMORF_SUBJEKT_FINDES_IKKE');
+    PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES (%L,%s,%L,%s,%L)',
+      r.typ,r.id,'person',purge_test.id('nabo'),'test'),'POLYMORF_SUBJEKT_FINDES_IKKE');
+    PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES (%L,%s,%L,%s,%L)',
+      'person',purge_test.id('nabo'),r.typ,r.id,'test'),'POLYMORF_SUBJEKT_FINDES_IKKE');
+  END LOOP;
+  FOREACH v_typ IN ARRAY ARRAY['assertion','conclusion','note'] LOOP
+    PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.%I(target_type,target_id) VALUES (%L,%s)',v_typ,'fact',v_fact),'POLYMORF_SUBJEKT_FINDES_IKKE');
+  END LOOP;
+  -- Begge relationsender af typen fact; ikke-kanonisk case testes særskilt nedenfor.
+  PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES (%L,%s,%L,%s,%L)',
+    'fact',v_fact,'person',purge_test.id('nabo'),'test'),'POLYMORF_SUBJEKT_FINDES_IKKE');
+  PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES (%L,%s,%L,%s,%L)',
+    'person',purge_test.id('nabo'),'fact',v_fact,'test'),'POLYMORF_SUBJEKT_FINDES_IKKE');
+END $t$;
+ROLLBACK;
+\echo OK eksistensvagt
+
+BEGIN;
+DO $t$
+DECLARE v_f bigint; v_r bigint; v_id bigint; v_target bigint; v_typ text; v_tabel text; v_ende text;
+BEGIN
+  PERFORM purge_test.nyt();
+  INSERT INTO public.fact(subjekt_type,subjekt_id,faktatype)
+    VALUES ('person',purge_test.id('nabo'),'test') RETURNING id INTO v_f;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('person',purge_test.id('nabo'),'person',purge_test.id('tredje'),'test') RETURNING id INTO v_r;
+  FOREACH v_typ IN ARRAY ARRAY['fact','relation'] LOOP
+    v_target:=CASE WHEN v_typ='fact' THEN v_f ELSE v_r END;
+    FOREACH v_tabel IN ARRAY ARRAY['note','assertion','conclusion'] LOOP
+      -- Gyldigt mål findes: det er typen, ikke eksistensen, der skal give afvisningen.
+      PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.%I(target_type,target_id) VALUES (%L,%s)',
+        v_tabel,initcap(v_typ),v_target),'POLYMORF_TYPE_IKKE_KANONISK');
+      EXECUTE format('INSERT INTO public.%I(target_type,target_id) VALUES (%L,%s) RETURNING id',
+        v_tabel,v_typ,v_target) INTO v_id;
+      PERFORM pg_temp.vagt_afvis(format('UPDATE public.%I SET target_type=%L WHERE id=%s',
+        v_tabel,initcap(v_typ),v_id),'POLYMORF_TYPE_IKKE_KANONISK');
+    END LOOP;
+  END LOOP;
+  FOREACH v_ende IN ARRAY ARRAY['subjekt','objekt'] LOOP
+    IF v_ende='subjekt' THEN
+      PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES (%L,%s,%L,%s,%L)',
+        'Fact',v_f,'person',purge_test.id('nabo'),'test'),'POLYMORF_TYPE_IKKE_KANONISK');
+      INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+        VALUES ('fact',v_f,'person',purge_test.id('nabo'),'test') RETURNING id INTO v_id;
+    ELSE
+      PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES (%L,%s,%L,%s,%L)',
+        'person',purge_test.id('nabo'),'Fact',v_f,'test'),'POLYMORF_TYPE_IKKE_KANONISK');
+      INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+        VALUES ('person',purge_test.id('nabo'),'fact',v_f,'test') RETURNING id INTO v_id;
+    END IF;
+    PERFORM pg_temp.vagt_afvis(format('UPDATE public.relation SET %I=%L WHERE id=%s',
+      v_ende||'_type','Fact',v_id),'POLYMORF_TYPE_IKKE_KANONISK');
+  END LOOP;
+END $t$;
+ROLLBACK;
+\echo OK vagt_type_kanonisk
+
+-- Begge media-ender: eksistens, kanonisk type, INSERT/UPDATE og en faktisk tuple-lås.
+BEGIN;
+DO $t$
+DECLARE v_end text; v_id bigint; v_m bigint:=purge_test.id('medie_delt'); v_body text;
+BEGIN
+  PERFORM purge_test.nyt();
+  SELECT prosrc INTO v_body FROM pg_proc WHERE oid='private.validate_polymorf_subjekt_findes()'::regprocedure;
+  IF position('FROM public.media WHERE id=r.id FOR KEY SHARE' IN v_body)=0 THEN
+    RAISE EXCEPTION 'TEST_FAILED vagt_media_key_share';
+  END IF;
+  FOREACH v_end IN ARRAY ARRAY['subjekt','objekt'] LOOP
+    IF v_end='subjekt' THEN
+      PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES (''media'',9223372036854775807,''person'',%s,''test'')',
+        purge_test.id('nabo')),'POLYMORF_SUBJEKT_FINDES_IKKE');
+      PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES (''Media'',%s,''person'',%s,''test'')',
+        v_m,purge_test.id('nabo')),'POLYMORF_TYPE_IKKE_KANONISK');
+      INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+        VALUES('media',v_m,'person',purge_test.id('nabo'),'test') RETURNING id INTO v_id;
+    ELSE
+      PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES (''person'',%s,''media'',9223372036854775807,''test'')',
+        purge_test.id('nabo')),'POLYMORF_SUBJEKT_FINDES_IKKE');
+      PERFORM pg_temp.vagt_afvis(format('INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES (''person'',%s,''Media'',%s,''test'')',
+        purge_test.id('nabo'),v_m),'POLYMORF_TYPE_IKKE_KANONISK');
+      INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+        VALUES('person',purge_test.id('nabo'),'media',v_m,'test') RETURNING id INTO v_id;
+    END IF;
+    IF NOT EXISTS(SELECT 1 FROM public.media WHERE id=v_m AND xmax::text=pg_current_xact_id()::text) THEN
+      RAISE EXCEPTION 'TEST_FAILED vagt_media_key_share';
+    END IF;
+    PERFORM pg_temp.vagt_afvis(format('UPDATE public.relation SET %I=''Media'' WHERE id=%s',v_end||'_type',v_id),'POLYMORF_TYPE_IKKE_KANONISK');
+    PERFORM pg_temp.vagt_afvis(format('UPDATE public.relation SET %I=9223372036854775807 WHERE id=%s',v_end||'_id',v_id),'POLYMORF_SUBJEKT_FINDES_IKKE');
+    DELETE FROM public.relation WHERE id=v_id;
+  END LOOP;
+END $t$;
+ROLLBACK;
+\echo OK vagt_media_ende_afvises_og_laases
+
+BEGIN;
+DO $t$
+DECLARE v_f bigint; v_a bigint; v_id bigint; v_end text;
+BEGIN
+  PERFORM purge_test.nyt();
+  INSERT INTO public.fact(subjekt_type,subjekt_id,faktatype) VALUES ('person',purge_test.id('nabo'),'test') RETURNING id INTO v_f;
+  INSERT INTO public.assertion(target_type,target_id,uforanderlig) VALUES ('fact',v_f,false) RETURNING id INTO v_a;
+  PERFORM pg_temp.vagt_afvis(format('DELETE FROM public.fact WHERE id=%s',v_f),'FACT_HAR_EVIDENS');
+  DELETE FROM public.assertion WHERE id=v_a;
+  -- De øvrige tre FK-løse veje beskytter samme forælderhalvdel.
+  INSERT INTO public.conclusion(target_type,target_id) VALUES ('fact',v_f) RETURNING id INTO v_id;
+  PERFORM pg_temp.vagt_afvis(format('DELETE FROM public.fact WHERE id=%s',v_f),'FACT_HAR_EVIDENS');
+  DELETE FROM public.conclusion WHERE id=v_id;
+  INSERT INTO public.note(target_type,target_id) VALUES ('fact',v_f) RETURNING id INTO v_id;
+  PERFORM pg_temp.vagt_afvis(format('DELETE FROM public.fact WHERE id=%s',v_f),'FACT_HAR_EVIDENS');
+  DELETE FROM public.note WHERE id=v_id;
+  FOREACH v_end IN ARRAY ARRAY['subjekt','objekt'] LOOP
+    IF v_end='subjekt' THEN
+      INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+        VALUES ('fact',v_f,'person',purge_test.id('nabo'),'test') RETURNING id INTO v_id;
+    ELSE
+      INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+        VALUES ('person',purge_test.id('nabo'),'fact',v_f,'test') RETURNING id INTO v_id;
+    END IF;
+    PERFORM pg_temp.vagt_afvis(format('DELETE FROM public.fact WHERE id=%s',v_f),'FACT_HAR_EVIDENS');
+    DELETE FROM public.relation WHERE id=v_id;
+  END LOOP;
+  DELETE FROM public.fact WHERE id=v_f;
+  IF EXISTS (SELECT 1 FROM public.fact WHERE id=v_f) THEN RAISE EXCEPTION 'TEST_FAILED fakta_slettevagt'; END IF;
+END $t$;
+ROLLBACK;
+\echo OK fakta_slettevagt
+
+BEGIN;
+DO $t$
+DECLARE v_p bigint; v_n bigint; v_r bigint; v_count int;
+BEGIN
+  PERFORM purge_test.nyt();
+  INSERT INTO public.person(levende,privat) VALUES (false,false) RETURNING id INTO v_p;
+  INSERT INTO public.note(target_type,target_id,indhold) VALUES ('Person',v_p,'test') RETURNING id INTO v_n;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('Person',v_p,'person',purge_test.id('nabo'),'test') RETURNING id INTO v_r;
+  -- Forælderhalvdelen for person/familie er bevidst uden for scope; sådan laves historiske forældreløse rækker.
+  DELETE FROM public.person WHERE id=v_p;
+  UPDATE public.note SET target_type=target_type,target_id=target_id,indhold='ændret' WHERE id=v_n;
+  GET DIAGNOSTICS v_count=ROW_COUNT;
+  IF v_count<>1 THEN RAISE EXCEPTION 'TEST_FAILED vagt_update_uaendret: note'; END IF;
+  UPDATE public.relation SET subjekt_type=subjekt_type,subjekt_id=subjekt_id,objekt_type=objekt_type,objekt_id=objekt_id,
+    rolle='test-ændret' WHERE id=v_r;
+  GET DIAGNOSTICS v_count=ROW_COUNT;
+  IF v_count<>1 THEN RAISE EXCEPTION 'TEST_FAILED vagt_update_uaendret: relation'; END IF;
+  PERFORM pg_temp.vagt_afvis(format('UPDATE public.note SET target_id=%s WHERE id=%s',v_p+10000000,v_n),'POLYMORF_SUBJEKT_FINDES_IKKE');
+END $t$;
+ROLLBACK;
+\echo OK vagt_update_uaendret
+
+BEGIN;
+DO $t$
+DECLARE v_p bigint; v_f bigint; v_s bigint; v_h bigint; v_n bigint; v_key text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','a2a00000-0000-4000-8000-00000000a001',true);
+  PERFORM purge_test.nyt();
+  INSERT INTO public.person(levende,privat) VALUES (false,false) RETURNING id INTO v_p;
+  INSERT INTO public.family(type) VALUES ('test') RETURNING id INTO v_f;
+  INSERT INTO public.story(subjekt_type,subjekt_id,tekst) VALUES ('person',v_p,'test') RETURNING id INTO v_s;
+  INSERT INTO public.narrative(subjekt_type,subjekt_id,tekst) VALUES ('person',v_p,'test') RETURNING id INTO v_n;
+  INSERT INTO public.haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul)
+    VALUES ('person',v_p,v_n,'vagt','test') RETURNING id INTO v_h;
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_set_feed_pin('story:'||v_s,'pin');
+  PERFORM public.red_set_feed_pin('arkiv:'||v_h,'pin');
+  PERFORM public.red_set_feed_pin('paadennedag:h:'||v_h,'pin');
+  PERFORM public.red_set_feed_pin('portrait:'||v_p,'pin');
+  PERFORM public.red_set_feed_pin('portrait:'||v_p,'skjul'); -- ON CONFLICT-vejen
+  PERFORM public.red_set_feed_pin('forbundet:'||v_f,'pin');
+  RESET ROLE;
+  DELETE FROM public.person WHERE id=v_p;
+  DELETE FROM public.family WHERE id=v_f;
+  FOREACH v_key IN ARRAY ARRAY['portrait:'||v_p,'citat:'||v_p,'naevnt:'||v_p,'dagensperson:'||v_p,
+    'jubilaeum:'||v_p||':100','embede:'||v_p||':test:1900','paadennedag:'||v_p||':født:1900',
+    'slaegt:'||v_p||':'||purge_test.id('nabo'),'slaegt:'||purge_test.id('nabo')||':'||v_p,'forbundet:'||v_f,
+    'story:'||v_s,'arkiv:'||v_h,'paadennedag:h:'||v_h] LOOP
+    SET LOCAL ROLE authenticated;
+    PERFORM pg_temp.vagt_afvis(format('SELECT public.red_set_feed_pin(%L,%L)',v_key,'pin'),'POLYMORF_SUBJEKT_FINDES_IKKE');
+    RESET ROLE;
+  END LOOP;
+  RESET ROLE;
+END $t$;
+ROLLBACK;
+\echo OK feed_pin_laaser_maal
+
+-- R6: testdata via begge rigtige pin-skrivere; fortryd skal prelocke målet før pin-rækken.
+CREATE FUNCTION pg_temp.vagt_pin_slettesaet(p_typ text)
+RETURNS TABLE(maal_id bigint,saet_id bigint,noegle text) LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','a2a00000-0000-4000-8000-00000000a001',true);
+  PERFORM purge_test.nyt();
+  IF p_typ='person' THEN
+    INSERT INTO public.person(levende,privat) VALUES (false,false) RETURNING id INTO maal_id;
+    noegle:='portrait:'||maal_id;
+  ELSE
+    INSERT INTO public.family(type) VALUES ('test') RETURNING id INTO maal_id;
+    noegle:='forbundet:'||maal_id;
+  END IF;
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_set_feed_pin(noegle,'pin');
+  RESET ROLE;
+  PERFORM purge_test.nyt();
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_fjern_feed_pin(noegle);
+  RESET ROLE;
+  saet_id:=current_setting('app.change_set_id')::bigint;
+  PERFORM purge_test.nyt();
+  RETURN NEXT;
+END $$;
+
+BEGIN;
+DO $t$
+DECLARE r record; v_typ text; v_force boolean;
+BEGIN
+  FOREACH v_typ IN ARRAY ARRAY['person','family'] LOOP
+    SELECT * INTO STRICT r FROM pg_temp.vagt_pin_slettesaet(v_typ);
+    IF v_typ='person' THEN DELETE FROM public.person WHERE id=r.maal_id;
+    ELSE DELETE FROM public.family WHERE id=r.maal_id;
+    END IF;
+    FOREACH v_force IN ARRAY ARRAY[false,true] LOOP
+      SET LOCAL ROLE authenticated;
+      PERFORM pg_temp.vagt_afvis(format('SELECT public.red_fortryd_change_set(%s,%L)',r.saet_id,v_force),
+        format('POLYMORF_SUBJEKT_FINDES_IKKE: %s %s',v_typ,r.maal_id));
+      RESET ROLE;
+      IF EXISTS (SELECT 1 FROM public.feed_pin WHERE kort_noegle=r.noegle)
+         OR EXISTS (SELECT 1 FROM public.change_set WHERE reverterer_id=r.saet_id) THEN
+        RAISE EXCEPTION 'TEST_FAILED feed_pin_fortryd_doedt_maal: pin eller reversal blev efterladt';
+      END IF;
+    END LOOP;
+  END LOOP;
+END $t$;
+ROLLBACK;
+\echo OK feed_pin_fortryd_doedt_maal
+
+BEGIN;
+DO $t$
+DECLARE r record; v_typ text; v_force boolean;
+BEGIN
+  FOREACH v_typ IN ARRAY ARRAY['person','family'] LOOP
+    FOREACH v_force IN ARRAY ARRAY[false,true] LOOP
+      SELECT * INTO STRICT r FROM pg_temp.vagt_pin_slettesaet(v_typ);
+      SET LOCAL ROLE authenticated;
+      PERFORM public.red_fortryd_change_set(r.saet_id,v_force);
+      RESET ROLE;
+      IF NOT EXISTS (SELECT 1 FROM public.feed_pin WHERE kort_noegle=r.noegle AND handling='pin') THEN
+        RAISE EXCEPTION 'TEST_FAILED feed_pin_fortryd_levende_maal: pin blev ikke genskabt';
+      END IF;
+    END LOOP;
+  END LOOP;
+END $t$;
+ROLLBACK;
+\echo OK feed_pin_fortryd_levende_maal
+
+-- Step 4b: den eksisterende sletter logger børn før forælder; generisk inverse bruger seq DESC.
+BEGIN;
+DO $t$
+DECLARE v_p bigint; v_f bigint; v_n bigint; v_cs bigint; v_person_seq int; v_child_seq int; j jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','a2a00000-0000-4000-8000-00000000a001',true);
+  PERFORM purge_test.nyt();
+  INSERT INTO public.person(levende,privat) VALUES (false,false) RETURNING id INTO v_p;
+  SET LOCAL ROLE authenticated;
+  j:=public.red_upsert_fakta('person',v_p,'test','test');
+  RESET ROLE;
+  v_f:=(j->>'fact_id')::bigint;
+  INSERT INTO public.note(target_type,target_id,indhold) VALUES ('person',v_p,'test') RETURNING id INTO v_n;
+  PERFORM purge_test.nyt();
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_slet_person(v_p);
+  RESET ROLE;
+  v_cs:=current_setting('app.change_set_id')::bigint;
+  SELECT seq INTO STRICT v_person_seq FROM public.change_event
+    WHERE change_set_id=v_cs AND tabel='person' AND op='DELETE' AND row_pk=jsonb_build_object('id',v_p);
+  SELECT max(seq) INTO v_child_seq FROM public.change_event
+    WHERE change_set_id=v_cs AND tabel IN ('fact','note') AND op='DELETE';
+  IF v_child_seq IS NULL OR v_child_seq>=v_person_seq THEN
+    RAISE EXCEPTION 'TEST_FAILED vagt_fortryd_slet_person: børn slettet efter forælder';
+  END IF;
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_fortryd_change_set(v_cs,false);
+  RESET ROLE;
+  IF NOT EXISTS (SELECT 1 FROM public.person WHERE id=v_p)
+     OR NOT EXISTS (SELECT 1 FROM public.fact WHERE id=v_f AND subjekt_id=v_p)
+     OR NOT EXISTS (SELECT 1 FROM public.note WHERE id=v_n AND target_id=v_p) THEN
+    RAISE EXCEPTION 'TEST_FAILED vagt_fortryd_slet_person: restore';
+  END IF;
+END $t$;
+ROLLBACK;
+\echo OK vagt_fortryd_slet_person
+
+-- Gammel sletter: Q → F og F → Q skal med, selv om P ikke er direkte relationsende.
+BEGIN;
+DO $t$
+DECLARE v_p bigint; v_q bigint; v_f bigint; v_r bigint; v_a bigint; v_ende text;
+        v_rels bigint[]:='{}'; v_assertions bigint[]:='{}';
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','a2a00000-0000-4000-8000-00000000a001',true);
+  PERFORM purge_test.nyt();
+  INSERT INTO public.person(levende,privat) VALUES (false,false) RETURNING id INTO v_p;
+  INSERT INTO public.person(levende,privat) VALUES (false,false) RETURNING id INTO v_q;
+  INSERT INTO public.fact(subjekt_type,subjekt_id,faktatype) VALUES ('person',v_p,'test') RETURNING id INTO v_f;
+  FOREACH v_ende IN ARRAY ARRAY['subjekt','objekt'] LOOP
+    IF v_ende='subjekt' THEN
+      INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+        VALUES ('fact',v_f,'person',v_q,'test') RETURNING id INTO v_r;
+    ELSE
+      INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+        VALUES ('person',v_q,'fact',v_f,'test') RETURNING id INTO v_r;
+    END IF;
+    v_rels:=array_append(v_rels,v_r);
+    INSERT INTO public.assertion(target_type,target_id,uforanderlig)
+      VALUES ('relation',v_r,false) RETURNING id INTO v_a;
+    v_assertions:=array_append(v_assertions,v_a);
+    INSERT INTO public.citation(assertion_id) VALUES (v_a);
+    INSERT INTO public.conclusion(target_type,target_id,valgt_assertion_id) VALUES ('relation',v_r,v_a);
+    INSERT INTO public.note(target_type,target_id,indhold) VALUES ('relation',v_r,'test');
+  END LOOP;
+  PERFORM purge_test.nyt();
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_slet_person(v_p);
+  RESET ROLE;
+  IF EXISTS (SELECT 1 FROM public.person WHERE id=v_p)
+     OR EXISTS (SELECT 1 FROM public.fact WHERE id=v_f)
+     OR EXISTS (SELECT 1 FROM public.relation WHERE id=ANY(v_rels))
+     OR EXISTS (SELECT 1 FROM public.assertion WHERE id=ANY(v_assertions))
+     OR EXISTS (SELECT 1 FROM public.citation WHERE assertion_id=ANY(v_assertions))
+     OR EXISTS (SELECT 1 FROM public.conclusion WHERE target_type='relation' AND target_id=ANY(v_rels))
+     OR EXISTS (SELECT 1 FROM public.note WHERE target_type='relation' AND target_id=ANY(v_rels))
+     OR NOT EXISTS (SELECT 1 FROM public.person WHERE id=v_q) THEN
+    RAISE EXCEPTION 'TEST_FAILED vagt_gammel_sletter_fakta_ende: rest eller anden person slettet';
+  END IF;
+END $t$;
+ROLLBACK;
+\echo OK vagt_gammel_sletter_fakta_ende
+
+-- Literal sted→beskyttelse. Kataloget afgør FK-dækningen pr. inventarkolonne; en FK på en anden kolonne
+-- (fx conclusion.valgt_assertion_id) må ikke skjule et FK-løst target_id. Ikke alle inventarkolonner er
+-- referencer: rødder, egne felter og fritekst har derfor en udtrykkelig accepteret-begrundelse.
+BEGIN;
+CREATE TEMP TABLE vagt_beskyttelse(sted text,tabel text,beskyttelse text,PRIMARY KEY(sted,tabel));
+INSERT INTO vagt_beskyttelse VALUES
+ ('S1','person','accepteret:selve roden; person-id er PK og genbruges ikke af skriverne'),
+ ('S2','person_external_id','accepteret:person_id har FK; øvrige felter beskriver ekstern nøgle'),
+ ('S3','family_member','accepteret:begge entiteter har FK'),
+ ('S4','slaegtsnavn_karantaene','accepteret:person_id har FK'),
+ ('S5','profiles','accepteret:personbinding har FK; brugerdata er R15'),
+ ('S6','bookmark','accepteret:person_id har FK'),
+ ('S7','person_slaegt_membership','accepteret:person_id har FK'),
+ ('S8','person_lineage_membership','accepteret:person_id har FK'),
+ ('S9','private.person_create_receipt','accepteret:R14; forbruges atomisk ved oprettelse'),
+ ('S10','private.source_persona_identity','laas:L5'),
+ ('S11a','private.source_persona_identity_event','laas:L5'),
+ ('S11b','private.source_persona_identity_event','laas:L5'),
+ ('S12','private.source_persona_identity_candidate','laas:L5'),
+ ('S13','fact','vagt:private.validate_polymorf_subjekt_findes'),
+ ('S13b','fact','vagt:private.validate_polymorf_subjekt_findes'),
+ ('S14','relation','vagt:private.validate_polymorf_subjekt_findes'),
+ ('S14b','relation','vagt:private.validate_polymorf_subjekt_findes'),
+ ('S15','assertion','vagt:public.enforce_relation_evidence_target'),
+ ('S16','conclusion','vagt:public.enforce_relation_evidence_target'),
+ ('S17','citation','accepteret:assertion_id har FK'),
+ ('S18','note','vagt:private.validate_polymorf_subjekt_findes'),
+ ('S19','relation','vagt:private.validate_polymorf_subjekt_findes'),
+ ('S21','narrative','vagt:private.validate_polymorf_subjekt_findes'),
+ ('S22','private.narrative_record_publication','accepteret:narrative_id har FK; recordlåsen tages før publicering'),
+ ('S23','private.narrative_publication_event','accepteret:narrative_id har FK; recordlåsen tages før publicering'),
+ ('S24','private.narrative_legacy_publication','accepteret:narrative_id og latest_event_id har FK'),
+ ('S25','haendelse','accepteret:narrative_id har FK'),
+ ('S26','haendelse','vagt:private.validate_polymorf_subjekt_findes'),
+ ('S27','haendelse','accepteret:fact_id og relation_id har FK'),
+ ('S28','text_mention','accepteret:afledt i tekstens AFTER-trigger; kilde-rækken er allerede låst'),
+ ('S30','story','vagt:private.validate_polymorf_subjekt_findes'),
+ ('S30','story_kilde','accepteret:story_id har FK'),
+ ('S31','story','accepteret:ankerkolonnerne har FK med ON DELETE SET NULL'),
+ ('S32','feed_pin','accepteret:R6: red_set_feed_pin og generisk fortryd låser person/familie før pin-rækken'),
+ ('NY-B','feed_pin','accepteret:R6: red_set_feed_pin og generisk fortryd låser person/familie før pin-rækken'),
+ ('S33','entity_description','vagt:public.validate_entity_description_subject'),
+ ('S33','private.entity_description_source','accepteret:description_id har FK ON DELETE CASCADE'),
+ ('S34','suggestion','vagt:private.validate_polymorf_subjekt_findes'),
+ ('S35','import_korrektion','accepteret:OCR-skriveren låser source og person_external_id før journalen'),
+ ('S36','paastand_korrektion','accepteret:assertion_id har FK; foer/efter er journal for samme påstand'),
+ ('S37','media','accepteret:selve mediet; Storage-sti er indholdsadresseret'),
+ ('S37','media_variant','accepteret:media_id har FK; Storage-sti er indholdsadresseret'),
+ ('S38','family','accepteret:selve familieroden; medlemskabsskriverne bruger lock_family_rows'),
+ ('S39a','private.interpretation_promotion','laas:L4'),
+ ('Prom_egen_fam','private.interpretation_promotion','laas:L4'),
+ ('S40','private.legacy_placement_disposition','laas:L5'),
+ ('S41a','private.reimport_event','laas:L4'),
+ ('S42','private.reimport_name_completion_result','laas:L4'),
+ ('S43a','private.reimport_case_event','laas:L4'),
+ ('S45a','private.identity_control_parent_card','laas:L5'),
+ ('M5','private.identity_control_parent_event','laas:L5'),
+ ('S49a','private.relation_reopen','laas:L4'),
+ ('S49b','private.text_revision_reconciliation','laas:L4'),
+ ('S54','change_event','accepteret:log_change i samme transaktion som den beskyttede dataskrivning'),
+ ('S52','change_set','accepteret:L8 plus eksistensvagterne; generisk fortryd serialiseres via K5 og L6b'),
+ ('S53','change_set','accepteret:L8 plus eksistensvagterne; summary hører til samme skriveoperation'),
+ ('S55','change_set','accepteret:reverterer_id har FK; sættene låses af K5 og L6b');
+DO $t$
+DECLARE v_bad text;
+BEGIN
+  SELECT string_agg(DISTINCT i.sted||':'||i.tabel,', ' ORDER BY i.sted||':'||i.tabel) INTO v_bad
+    FROM private.person_purge_inventar() i
+   WHERE i.handling IN ('slet','nulstil','loesn')
+     AND EXISTS (
+       SELECT 1 FROM unnest(i.kolonner) k
+       JOIN pg_attribute a ON a.attrelid=to_regclass(CASE WHEN i.tabel LIKE 'private.%' THEN i.tabel ELSE 'public.'||i.tabel END)
+                          AND a.attname=k AND NOT a.attisdropped
+       WHERE NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conrelid=a.attrelid AND c.contype='f' AND a.attnum=ANY(c.conkey)))
+     AND NOT EXISTS (SELECT 1 FROM vagt_beskyttelse b WHERE (b.sted,b.tabel)=(i.sted,i.tabel));
+  IF v_bad IS NOT NULL THEN RAISE EXCEPTION 'TEST_FAILED beskyttelse_daekker_fk_loese_steder: %',v_bad; END IF;
+  SELECT string_agg(b.sted||':'||b.tabel,', ') INTO v_bad FROM vagt_beskyttelse b
+   WHERE (b.beskyttelse LIKE 'vagt:%' AND NOT EXISTS (
+            SELECT 1 FROM pg_trigger t WHERE t.tgrelid=to_regclass('public.'||b.tabel)
+              AND t.tgfoid=to_regprocedure(substring(b.beskyttelse FROM 6)||'()')
+              AND NOT t.tgisinternal AND t.tgenabled IN ('O','A')))
+      OR NOT (b.beskyttelse LIKE 'vagt:%' OR b.beskyttelse IN ('laas:L4','laas:L5')
+              OR b.beskyttelse ~ '^accepteret:.+');
+  IF v_bad IS NOT NULL THEN RAISE EXCEPTION 'TEST_FAILED beskyttelse_daekker_fk_loese_steder: ugyldig beskyttelse %',v_bad; END IF;
+END $t$;
+ROLLBACK;
+\echo OK beskyttelse_daekker_fk_loese_steder
+-- 8a-opfølgning (security-review af fec84f6c): red_suggest må ikke afsløre, om et skjult id findes. En ikke-redaktør får
+-- samme fejl for et skjult og et ikke-eksisterende person-/familiemål; redaktøren og offentlige mål er uændrede.
+\ir fixtures/kalder-matrix.sql
+BEGIN;
+SELECT pg_temp.km_kaldere();
+DO $t$
+DECLARE v_skjult bigint; v_offentlig bigint; v_fam_skjult bigint; v_fam_tom bigint; v_ingen bigint; v_fam_ingen bigint;
+  v_fejl text[] := '{}'; v_msg text; r record;
+BEGIN
+  PERFORM purge_test.nyt();
+  INSERT INTO public.person(levende,privat) VALUES (false,true) RETURNING id INTO v_skjult;
+  INSERT INTO public.person(levende,privat) VALUES (false,false) RETURNING id INTO v_offentlig;
+  INSERT INTO public.family(type) VALUES ('test') RETURNING id INTO v_fam_skjult;
+  INSERT INTO public.family_member(family_id,person_id,rolle) VALUES (v_fam_skjult,v_skjult,'partner');
+  INSERT INTO public.family(type) VALUES ('test') RETURNING id INTO v_fam_tom;
+  v_ingen := (SELECT max(id) FROM public.person)+1000;
+  v_fam_ingen := (SELECT max(id) FROM public.family)+1000;
+  PERFORM set_config('request.jwt.claim.sub','11000000-0000-0000-0000-00000000ca02',true);  -- medlem
+  SET LOCAL ROLE authenticated;
+  FOR r IN SELECT * FROM (VALUES ('person',v_skjult),('person',v_ingen),('family',v_fam_skjult),('family',v_fam_ingen)) x(typ,id) LOOP
+    BEGIN
+      PERFORM public.red_suggest('rettelse',r.typ,r.id,'navn','x');
+      v_msg := 'LYKKEDES';
+    EXCEPTION WHEN raise_exception THEN v_msg := SQLERRM;
+    END;
+    v_fejl := v_fejl || v_msg;
+  END LOOP;
+  -- Positive kontroller: offentlig person og eksisterende familie uden skjulte medlemmer.
+  PERFORM public.red_suggest('rettelse','person',v_offentlig,'navn','x');
+  PERFORM public.red_suggest('rettelse','family',v_fam_tom,'navn','x');
+  RESET ROLE;
+  IF array_length(v_fejl,1)<>4 OR EXISTS (SELECT 1 FROM unnest(v_fejl) f WHERE f<>'FORSLAG_SUBJEKT_UTILGAENGELIGT') THEN
+    RAISE EXCEPTION 'TEST_FAILED red_suggest_intet_orakel: %', v_fejl;
+  END IF;
+  -- Redaktøren må stadig foreslå på et skjult mål.
+  PERFORM set_config('request.jwt.claim.sub','11000000-0000-0000-0000-00000000ca03',true);
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_suggest('rettelse','person',v_skjult,'navn','x');
+  RESET ROLE;
+END $t$;
+ROLLBACK;
+\echo OK red_suggest_intet_orakel
+\endif
+
+\if :g_purge
+\ir person-purge-execute-tests.sql
+\else
+\if :g_purge_ekstra
+\ir person-purge-execute-tests.sql
+\endif
+\endif
+
+-- Task 8b / R29: samme rigtige Q6-kæde, nu med en committet fuld sletning.
+\if :g_purge_binding
+BEGIN;
+\ir fixtures/relation-5b.sql
+\ir fixtures/relation-2a.sql
+CREATE TEMP TABLE purge_binding_count_before(personas jsonb,families jsonb);
+-- Fuld tabeltilstand før/efter det afviste kald; ingen plan-/manifestafledt undtagelsesliste.
+CREATE FUNCTION pg_temp.purge_binding_hash() RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE r record; v_hash text; v_result jsonb:='{}';
+BEGIN
+  FOR r IN SELECT n.nspname,c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname IN ('public','private') AND c.relkind IN ('r','p') AND NOT c.relispartition LOOP
+    EXECUTE format($q$SELECT encode(extensions.digest(convert_to(coalesce(
+      string_agg(to_jsonb(t)::text,E'\n' ORDER BY to_jsonb(t)::text COLLATE "C"),''),'UTF8'),'sha256'),'hex')
+      FROM %I.%I t$q$,r.nspname,r.relname) INTO v_hash;
+    v_result:=v_result||jsonb_build_object(r.nspname||'.'||r.relname,v_hash);
+  END LOOP;
+  RETURN v_result;
+END $$;
+DO $binding_forsvinder$
+DECLARE v_tredje bigint;
+  v_actor uuid := 'a2a00000-0000-4000-8000-00000000a001';
+  v_source bigint; v_src jsonb; v_other_source bigint; v_other_src jsonb; v_control uuid; v_m jsonb; v_items jsonb; v_preview jsonb;
+  v_i uuid; v_version integer; v_hash text; v_promotion uuid; v_error text;
+  v_sp_source bigint; v_sp_src jsonb; v_sp jsonb; v_sp_i uuid; v_sp_version integer; v_sp_promotion uuid; v_sp_identity_version integer;
+  v_before jsonb; v_sp_hash text; v_new_family bigint; v_reopened uuid; v_sp_new_i uuid; v_sp_new_hash text;
+  v_other jsonb; v_other_hash text; v_child jsonb; v_parent jsonb; v_parent_i uuid; v_parent_key uuid;
+  v_family bigint := purge_test.id('fam_keep');
+  v_p bigint := purge_test.id('P');
+  v_context jsonb := jsonb_build_object('basis','human_sheet','line',1,
+    'sheet_sha256',repeat('1',64),'rows_sha256',repeat('2',64));
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
+  PERFORM purge_test.nyt();
+  -- red_opret_person opretter privat=true. Som test-family-sources.sql/fixtures/person-facts.sql kræver
+  -- denne publiceringsprøve offentlige, afdøde narrativsubjekter. Kun denne gruppes rollback-kopi ændres;
+  -- den rigtige publiceringspolitik og f2a_publish bruges uændret.
+  UPDATE public.person SET levende=false,privat=false,staged=false
+    WHERE id IN (v_p,purge_test.id('barn'),purge_test.id('anden_partner'));
+  -- Ny kilde med positivt sekvens-id; ingen ændring af fixturens syntetiske prom_egen_fam-hash (R21).
+  v_source := nextval(pg_get_serial_sequence('public.source','id'));
+  v_src := pg_temp.f5b_source(v_source);
+  -- Samme kilde/persona/party-kæde som de eksisterende relations-tests, men på fixturens P og anden_partner.
+  -- false: brug den eksisterende familie med barn; opret ikke et konkurrerende ægteskab.
+  v_m := pg_temp.f2a_marriage(v_source,v_src,'PURGE-Q6',v_p,purge_test.id('anden_partner'),v_actor,2,2,false);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  SET LOCAL ROLE authenticated;
+  v_preview := public.red_preview_relation_decisions(v_source);
+  IF public.red_decide_relation_interpretations(v_source,v_preview->>'set_sha256') IS DISTINCT FROM 1 THEN
+    RAISE EXCEPTION 'TEST_FAILED binding_forsvinder: præcis én strukturel afgørelse kræves';
+  END IF;
+  RESET ROLE;
+  SELECT i.id,i.version INTO STRICT v_i,v_version FROM private.interpretation_current i
+   WHERE i.interpretation_key=(v_m->'claim'->>'key')::uuid;
+  v_items := jsonb_build_array(jsonb_build_object('interpretation_id',v_i::text,'family_id',v_family));
+  SET LOCAL ROLE authenticated;
+  v_preview := public.red_preview_relation_promotions(v_source,v_items);
+  IF (v_preview#>>'{items,0,eligible}')::boolean IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'TEST_FAILED binding_forsvinder: strukturel binding kunne ikke oprettes';
+  END IF;
+  PERFORM public.red_promote_relation_interpretations_batch(v_source,v_items,v_preview->>'preview_sha256');
+  RESET ROLE;
+  SELECT p.id,p.evidence->>'state_sha256' INTO STRICT v_promotion,v_hash
+    FROM private.interpretation_promotion p WHERE p.interpretation_id=v_i AND p.target_type='family';
+  IF NOT EXISTS(SELECT 1 FROM private.interpretation WHERE id=v_i AND source_persona_id IS NULL)
+     OR NOT EXISTS(SELECT 1 FROM private.interpretation_party_current
+       WHERE interpretation_key=(v_m->'claim'->>'key')::uuid AND party_role='principal'
+         AND source_persona_id=(v_m->'post'->>'principal')::uuid)
+     OR NOT EXISTS(SELECT 1 FROM private.person_purge_plan(v_p) WHERE sted='Prom_egen_fam'
+       AND handling='slet' AND pk=jsonb_build_object('id',v_promotion)) THEN
+    RAISE EXCEPTION 'TEST_FAILED purge_q6_principal_party';
+  END IF;
+  IF v_hash IS NULL OR v_hash IS DISTINCT FROM private.relation_binding_state_sha256(v_i) THEN
+    RAISE EXCEPTION 'TEST_FAILED binding_forsvinder: udgangspunktet har ikke en gældende bindingshash';
+  END IF;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+
+  -- En separat forælderfortolkning på barnets post til den tilbageværende partner i samme familie.
+  -- P's ægteskab og barnets forælderbinding publiceres, så public_family_sources faktisk har to kilder før.
+  v_other_source:=nextval(pg_get_serial_sequence('public.source','id'));
+  v_other_src:=pg_temp.f5b_source(v_other_source);
+  v_parent:=pg_temp.f5b_post(v_other_source,v_other_src,'PURGE-Q6-PARENT','Far Alfa.',ARRAY['Far Alfa.'],purge_test.id('anden_partner'),v_actor);
+  v_child:=pg_temp.f5b_post(v_other_source,v_other_src,'PURGE-Q6-CHILD','Barn Alfa. søn af Far.',ARRAY['Barn Alfa.','søn af Far.'],purge_test.id('barn'),v_actor);
+  PERFORM pg_temp.f2a_event_for_state((v_parent->>'principal')::uuid);
+  PERFORM pg_temp.f2a_event_for_state((v_child->>'principal')::uuid);
+  v_other:=pg_temp.f5b_claim(v_other_source,v_other_src,'relation.parent',(v_child->'clauses'->>1)::uuid,'søn af Far.');
+  v_parent_key:=(v_other->>'key')::uuid;
+  INSERT INTO private.interpretation_party(interpretation_key,party_role,version,source_persona_id,post_offset,origin,origin_ref)
+    VALUES (v_parent_key,'principal',1,(v_child->>'principal')::uuid,11,'relation_persona',gen_random_uuid());
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_afgoer_relation_interpretation(v_parent_key,1,'same',v_family,'Q6: anden forælder','{}');
+  RESET ROLE;
+  SELECT id INTO STRICT v_parent_i FROM private.interpretation_current WHERE interpretation_key=v_parent_key;
+  v_other:=jsonb_build_array(jsonb_build_object('interpretation_id',v_parent_i::text,'family_id',v_family));
+  v_preview:=private.preview_relation_promotions(v_other_source,v_other,false);
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_promote_relation_interpretations_batch(v_other_source,v_other,v_preview->>'preview_sha256');
+  RESET ROLE;
+  v_other_hash:=private.relation_binding_state_sha256(v_parent_i);
+  IF v_other_hash IS NULL THEN RAISE EXCEPTION 'TEST_FAILED binding_andres_bevaret: udgangspunkt NULL'; END IF;
+  -- Den omvendte post: hovedpersonen er en anden; P står KUN som spouse-part.
+  -- R39: andres bundne ægteskab må ikke miste sin gældende spouse ved sletning.
+  v_sp_source:=nextval(pg_get_serial_sequence('public.source','id'));
+  v_sp_src:=pg_temp.f5b_source(v_sp_source);
+  v_sp:=pg_temp.f2a_marriage(v_sp_source,v_sp_src,'PURGE-Q6-SPOUSE',purge_test.id('anden_partner'),v_p,v_actor,2,2,false);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  SET LOCAL ROLE authenticated;
+  v_preview:=public.red_preview_relation_decisions(v_sp_source);
+  IF public.red_decide_relation_interpretations(v_sp_source,v_preview->>'set_sha256') IS DISTINCT FROM 1 THEN
+    RAISE EXCEPTION 'TEST_FAILED purge_q6_spouse_afgoerelse';
+  END IF;
+  RESET ROLE;
+  SELECT id,version INTO STRICT v_sp_i,v_sp_version FROM private.interpretation_current
+    WHERE interpretation_key=(v_sp->'claim'->>'key')::uuid;
+  SELECT version INTO STRICT v_sp_identity_version FROM private.source_persona_identity
+    WHERE source_persona_id=(v_sp->>'spouse_persona')::uuid;
+  v_items:=jsonb_build_array(jsonb_build_object('interpretation_id',v_sp_i::text,'family_id',v_family));
+  v_preview:=private.preview_relation_promotions(v_sp_source,v_items,false);
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_promote_relation_interpretations_batch(v_sp_source,v_items,v_preview->>'preview_sha256');
+  RESET ROLE;
+  SELECT id INTO STRICT v_sp_promotion FROM private.interpretation_promotion
+    WHERE interpretation_id=v_sp_i AND target_type='family';
+  v_sp_hash:=private.relation_binding_state_sha256(v_sp_i);
+  -- Lokalt facit: blokér skal vinde over S39c/S48 for samme fysiske række.
+  IF v_sp_hash IS NULL OR (SELECT count(*) FROM private.person_purge_plan(v_p)
+      WHERE tabel='private.interpretation_promotion' AND pk=jsonb_build_object('id',v_sp_promotion))<>1
+     OR NOT EXISTS(SELECT 1 FROM private.person_purge_plan(v_p)
+       WHERE (sted,tabel,pk,handling)=('S39f','private.interpretation_promotion',
+         jsonb_build_object('id',v_sp_promotion),'blokér')) THEN
+    RAISE EXCEPTION 'TEST_FAILED purge_q6_spouse_bloker_facit';
+  END IF;
+  PERFORM pg_temp.f2a_publish(v_sp_source,v_sp_src,v_sp->'post',purge_test.id('anden_partner'),v_actor,'Anna Alfa. Gift med Bo Beta.');
+  PERFORM pg_temp.f2a_publish(v_source,v_src,v_m->'post',v_p,v_actor,'Anna Alfa. Gift med Bo Beta.');
+  PERFORM pg_temp.f2a_publish(v_other_source,v_other_src,v_child,purge_test.id('barn'),v_actor,'Barn Alfa. søn af Far.');
+  IF (SELECT count(*) FROM public.public_family_sources(ARRAY[v_family]))<>3 THEN
+    RAISE EXCEPTION 'TEST_FAILED binding_andres_bevaret: tre offentlige kilder kræves før';
+  END IF;
+
+  PERFORM purge_test.nyt();
+  v_before:=pg_temp.purge_binding_hash();
+  v_preview:=public.red_slet_person_helt_preview(v_p);
+  IF NOT EXISTS(SELECT 1 FROM jsonb_array_elements(v_preview->'blokeringer') b
+      WHERE b=jsonb_build_object('art','anden_promotion','sted','S39f',
+        'tabel','private.interpretation_promotion','pk',jsonb_build_object('id',v_sp_promotion))) THEN
+    RAISE EXCEPTION 'TEST_FAILED purge_q6_spouse_preview_art_pk_uden_tekst';
+  END IF;
+  v_error:=NULL;
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    PERFORM public.red_slet_person_helt(v_p,v_preview->>'sha256');
+    RESET ROLE;
+  EXCEPTION WHEN raise_exception THEN
+    v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'PURGE_BLOKERET: anden_promotion' THEN
+    RAISE EXCEPTION 'TEST_FAILED purge_q6_spouse_blokeret';
+  END IF;
+  IF pg_temp.purge_binding_hash() IS DISTINCT FROM v_before
+     OR NOT EXISTS(SELECT 1 FROM public.person WHERE id=v_p)
+     OR private.relation_binding_state_sha256(v_sp_i) IS DISTINCT FROM v_sp_hash
+     OR NOT EXISTS(SELECT 1 FROM private.interpretation_promotion WHERE id=v_sp_promotion
+       AND evidence->>'state_sha256'=v_sp_hash)
+     OR (SELECT count(*) FROM public.public_family_sources(ARRAY[v_family]))<>3 THEN
+    RAISE EXCEPTION 'TEST_FAILED purge_q6_spouse_afvisning_uaendret';
+  END IF;
+
+  -- Positiv kontrol gennem rigtige skrivere: ret spouse-identiteten til tredje, genåbn,
+  -- afgør og bind Q's ægteskab i Q+tredjes familie, mens P stadig findes.
+  v_new_family:=pg_temp.f5b_family(purge_test.id('anden_partner'),purge_test.id('tredje'),2);
+  v_tredje:=purge_test.id('tredje');  -- før rolleskiftet: authenticated har ingen adgang til purge_test
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_afgoer_source_persona((v_sp->>'spouse_persona')::uuid,v_sp_identity_version,
+    'same',v_tredje,'R39: spouse var tredje, ikke P','{}');
+  v_reopened:=public.red_genaabn_relation_interpretation(v_sp_i,v_sp_version,'R39: rettet spouse',v_context);
+  v_preview:=public.red_preview_relation_decisions(v_sp_source);
+  IF public.red_decide_relation_interpretations(v_sp_source,v_preview->>'set_sha256') IS DISTINCT FROM 1 THEN
+    RAISE EXCEPTION 'TEST_FAILED purge_q6_spouse_rettet_afgoerelse';
+  END IF;
+  RESET ROLE;
+  SELECT id INTO STRICT v_sp_new_i FROM private.interpretation_current
+    WHERE interpretation_key=(v_sp->'claim'->>'key')::uuid AND supersedes_id=v_reopened;
+  v_items:=jsonb_build_array(jsonb_build_object('interpretation_id',v_sp_new_i::text,'family_id',v_new_family));
+  v_preview:=private.preview_relation_promotions(v_sp_source,v_items,false);
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_promote_relation_interpretations_batch(v_sp_source,v_items,v_preview->>'preview_sha256');
+  RESET ROLE;
+  v_sp_new_hash:=private.relation_binding_state_sha256(v_sp_new_i);
+  IF v_sp_new_hash IS NULL OR EXISTS(SELECT 1 FROM private.person_purge_plan(v_p) WHERE sted='S39f')
+     OR NOT EXISTS(SELECT 1 FROM private.person_purge_plan(v_p) WHERE sted='S39c'
+       AND handling='bevar_andres' AND pk=jsonb_build_object('id',v_sp_promotion))
+     OR EXISTS(SELECT 1 FROM jsonb_array_elements(public.red_slet_person_helt_preview(v_p)->'blokeringer') b
+       WHERE b->>'sted'='S39f') THEN
+    RAISE EXCEPTION 'TEST_FAILED purge_q6_spouse_rettet_blokerer_ikke';
+  END IF;
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+
+  INSERT INTO purge_binding_count_before SELECT
+    coalesce((SELECT jsonb_agg(source_persona_id) FROM private.source_persona_identity
+      WHERE canonical_person_id=v_p AND decision_status='accepted'),'[]'::jsonb),
+    coalesce((SELECT jsonb_agg(DISTINCT family_id) FROM public.family_member WHERE person_id=v_p),'[]'::jsonb);
+  PERFORM purge_test.nyt();
+  v_preview:=public.red_slet_person_helt_preview(v_p);
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_slet_person_helt(v_p,v_preview->>'sha256');
+  RESET ROLE;
+  IF EXISTS(SELECT 1 FROM private.interpretation_promotion WHERE id=v_promotion)
+     OR EXISTS(SELECT 1 FROM public.person WHERE id=v_p)
+     OR NOT EXISTS(SELECT 1 FROM private.interpretation_promotion WHERE interpretation_id=v_parent_i)
+     OR private.relation_binding_state(v_i) IS NOT NULL
+     OR private.relation_binding_state_sha256(v_i) IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST_FAILED purge_q6_binding_rigtig_sletning';
+  END IF;
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    PERFORM public.red_genaabn_relation_interpretation(v_i,v_version,'Q6: slettet',v_context);
+    RESET ROLE;
+    RAISE EXCEPTION 'TEST_FAILED purge_q6_genaabning';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM IS DISTINCT FROM 'RELATION_REOPEN_STATE_INVALID' THEN RAISE; END IF;
+  END;
+  IF private.relation_binding_state(v_parent_i) IS NULL
+     OR private.relation_binding_state_sha256(v_parent_i) IS DISTINCT FROM v_other_hash
+     OR NOT EXISTS(SELECT 1 FROM private.text_revision_binding_set(ARRAY[v_parent_key]))
+     OR (SELECT count(*) FROM public.public_family_sources(ARRAY[v_family]))<>1 THEN
+    RAISE EXCEPTION 'TEST_FAILED purge_q6_andres_binding';
+  END IF;
+  IF NOT EXISTS(SELECT 1 FROM private.interpretation_promotion WHERE id=v_sp_promotion)
+     OR private.relation_binding_state_sha256(v_sp_new_i) IS DISTINCT FROM v_sp_new_hash
+     OR NOT EXISTS(SELECT 1 FROM private.text_revision_binding_set(ARRAY[(v_sp->'claim'->>'key')::uuid]))
+     OR (SELECT count(*) FROM public.public_family_sources(ARRAY[v_new_family]))<>1 THEN
+    RAISE EXCEPTION 'TEST_FAILED purge_q6_spouse_rettet_binding_bevaret';
+  END IF;
+  SET CONSTRAINTS ALL IMMEDIATE;
+END $binding_forsvinder$;
+COMMIT;
+\echo OK purge_q6_binding_rigtig_sletning
+\echo OK purge_q6_andres_binding
+\echo OK purge_q6_spouse_bloker_facit
+\echo OK purge_q6_spouse_preview_art_pk_uden_tekst
+\echo OK purge_q6_spouse_blokeret
+\echo OK purge_q6_spouse_afvisning_uaendret
+\echo OK purge_q6_spouse_rettet_blokerer_ikke
+\echo OK purge_q6_spouse_rettet_binding_bevaret
+SELECT personas AS purge_count_personas,families AS purge_count_families FROM purge_binding_count_before \gset
+SELECT purge_test.id('P') AS pid \gset
+\set purge_assert_nul true
+\o /dev/null
+\ir person-purge-count.sql
+\o
+\echo OK purge_q6_uafhaengig_count_nul
+\endif
+
+\if :g_fortryd_link
+\ir person-purge-fortryd-link-tests.sql
 \endif

@@ -762,6 +762,7 @@ BEGIN
     'public.red_slet_oplysning(bigint)',
     'public.red_slet_person(bigint)',
     'public.red_slet_person_preview(bigint)',
+    'public.red_slet_person_helt(bigint,text)',
     'public.red_slet_person_helt_preview(bigint)',
     'public.red_slet_relation(bigint)',
     'public.red_slet_story(bigint)',
@@ -1764,4 +1765,21 @@ REVOKE ALL ON FUNCTION private.person_purge_fam_del(bigint),
 REVOKE ALL ON FUNCTION public.red_slet_person_helt_preview(bigint) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_slet_person_helt_preview(bigint) TO authenticated;
 REVOKE ALL ON FUNCTION private.person_purge_fortrydelse(bigint,jsonb),private.person_purge_kontrol(bigint,jsonb)
+  FROM PUBLIC,anon,authenticated,service_role;
+
+-- Fuld personsletning (2026-11-14), Task 8a: udbakke og trigger-/låsefunktioner er interne.
+ALTER TABLE private.person_purge_udbakke ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.person_purge_udbakke FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION private.validate_polymorf_subjekt_findes(),private.guard_fact_evidence_delete(),
+  private.feed_pin_maal(text),private.laas_feed_pin_maal(text),public.enforce_relation_evidence_target(),public.validate_entity_description_subject()
+  FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.red_set_feed_pin(text,text),public.red_fortryd_change_set(bigint,boolean)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_set_feed_pin(text,text),public.red_fortryd_change_set(bigint,boolean) TO authenticated;
+
+-- Fuld personsletning (2026-11-14), Task 8b / R34.
+REVOKE ALL ON FUNCTION public.red_slet_person_helt(bigint,text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_slet_person_helt(bigint,text) TO authenticated;
+REVOKE ALL ON FUNCTION private.person_purge_plan_fra_historik(bigint,jsonb),
+  private.person_purge_preview_fra_plan(bigint,jsonb),private.person_purge_laasemaengder(bigint)
   FROM PUBLIC,anon,authenticated,service_role;

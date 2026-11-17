@@ -51,6 +51,8 @@ BEGIN
   -- narrativet afviger fra payloaden: anden person, anden type, anden kilde
   INSERT INTO public.person(id,levende,privat,status) VALUES (-621020,false,false,'pp');
   UPDATE public.narrative SET subjekt_id=-621020 WHERE id=(v_ns->>'narrative')::bigint;
+  -- Task 8a: typen skifter til familie, så dens polymorfe forælder skal findes.
+  INSERT INTO public.family(id,type) VALUES (-621017,'fixture');
   UPDATE public.narrative SET subjekt_type='family' WHERE id=(v_nt->>'narrative')::bigint;
   INSERT INTO public.source(id,titel,udgave,aar,slags) VALUES (-6219,'Fixture anden','synthetic','1900','DAA-udgave');
   UPDATE public.narrative SET source_id=-6219 WHERE id=(v_nc->>'narrative')::bigint;

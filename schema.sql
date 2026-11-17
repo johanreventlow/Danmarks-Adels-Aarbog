@@ -6981,7 +6981,7 @@ BEGIN
 END $$;
 
 CREATE OR REPLACE FUNCTION red_set_feed_pin(p_kort_noegle text, p_handling text)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   IF p_handling NOT IN ('pin','skjul') THEN
@@ -6992,6 +6992,7 @@ BEGIN
   END IF;
   PERFORM begin_change_set('red_set_feed_pin',
     format('Satte %s på kort %s', p_handling, p_kort_noegle), NULL, NULL);
+  PERFORM private.laas_feed_pin_maal(p_kort_noegle);
   INSERT INTO feed_pin (kort_noegle, handling)
   VALUES (p_kort_noegle, p_handling)
   ON CONFLICT (kort_noegle) DO UPDATE
@@ -7065,7 +7066,10 @@ BEGIN
     WHERE subjekt_type='person' AND subjekt_id=p_person_id;
   SELECT coalesce(array_agg(id),'{}') INTO v_rels FROM relation
     WHERE (subjekt_type='person' AND subjekt_id=p_person_id)
-       OR (objekt_type='person'  AND objekt_id=p_person_id);
+       OR (objekt_type='person'  AND objekt_id=p_person_id)
+       -- Task 8a: relationer til P's fakta skal også have evidensen ryddet før faktasletning.
+       OR (subjekt_type='fact' AND subjekt_id = ANY(v_facts))
+       OR (objekt_type='fact' AND objekt_id = ANY(v_facts));
 
   UPDATE profiles SET reventlow_person_id = NULL WHERE reventlow_person_id = p_person_id;
 
@@ -7227,12 +7231,23 @@ END $$;
 -- rigtig FK ville gøre: writer-før-delete holder KEY SHARE; delete-før-writer holder
 -- UPDATE/DELETE-lock, hvorefter writeren vågner og fejler, fordi rækken er væk.
 CREATE OR REPLACE FUNCTION enforce_relation_evidence_target()
-RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
 BEGIN
+  -- D-6: generisk fortryd sætter også et uændret mål.
+  IF TG_OP='UPDATE' AND NEW.target_type IS NOT DISTINCT FROM OLD.target_type
+     AND NEW.target_id IS NOT DISTINCT FROM OLD.target_id THEN RETURN NEW; END IF;
+  IF lower(NEW.target_type) IN ('fact','relation') AND NEW.target_type<>lower(NEW.target_type) THEN
+    RAISE EXCEPTION 'POLYMORF_TYPE_IKKE_KANONISK: %', NEW.target_type;
+  END IF;
   IF NEW.target_type='relation' THEN
-    PERFORM 1 FROM relation WHERE id=NEW.target_id FOR KEY SHARE;
+    PERFORM 1 FROM public.relation WHERE id=NEW.target_id FOR KEY SHARE;
     IF NOT FOUND THEN
       RAISE EXCEPTION 'Relations-evidens kræver eksisterende relation %', NEW.target_id;
+    END IF;
+  ELSIF NEW.target_type='fact' THEN
+    PERFORM 1 FROM public.fact WHERE id=NEW.target_id FOR KEY SHARE;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: fact %', NEW.target_id;
     END IF;
   END IF;
   RETURN NEW;
@@ -8406,6 +8421,15 @@ RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_id bigint;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Login kræves for forslag'; END IF;
+  -- Personsletning (8a-opfølgning): eksistensvagten på suggestion må ikke blive et orakel. En ikke-redaktør får
+  -- samme fejl for et skjult og et ikke-eksisterende person-/familiemål, før INSERT når vagten.
+  -- family_offentlig er true for en familie uden medlemmer; derfor kræves eksistens eksplicit.
+  IF current_rolle() IS DISTINCT FROM 'redaktion' AND (
+       (lower(p_subjekt_type)='person' AND NOT public.person_offentlig(p_subjekt_id))
+    OR (lower(p_subjekt_type)='family' AND (NOT EXISTS (SELECT 1 FROM public.family WHERE id=p_subjekt_id)
+                                            OR NOT public.family_offentlig(p_subjekt_id)))) THEN
+    RAISE EXCEPTION 'FORSLAG_SUBJEKT_UTILGAENGELIGT';
+  END IF;
   INSERT INTO suggestion(forslagsstiller, art, subjekt_type, subjekt_id, felt, vaerdi,
                          kilde_fritekst, payload, note)
     VALUES (auth.uid(), p_art, p_subjekt_type, p_subjekt_id, p_felt, p_vaerdi,
@@ -9369,8 +9393,9 @@ CREATE OR REPLACE FUNCTION red_fortryd_change_set(p_change_set_id bigint, p_forc
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE
   ev change_event; v_new_cs bigint; v_orig change_set;
+  v_link_rows jsonb := '{}'; v_link_row record; v_link record; v_link_cols text[];
   v_cur jsonb; v_pids bigint[] := '{}'; v_narr bigint[] := '{}'; v_notes bigint[] := '{}';
-  v_div int := 0; pid bigint; v_forventet jsonb; v_contract_version integer; v_lock record;
+  v_div int := 0; pid bigint; v_forventet jsonb; v_contract_version integer; v_lock record; v_pin_maal record;
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   v_contract_version:=public.narrative_record_contract_version();
@@ -9441,14 +9466,7 @@ BEGIN
   -- som ÉT change_set uden child-events for ikke at dobbelt-logge; reversal-kæden er sporet.
   PERFORM set_config('app.change_set_id','',true);  -- undgå at inverse-DML re-logges
   IF pg_get_serial_sequence('public.change_set','id') IS NULL THEN
-    v_new_cs := (SELECT coalesce(max(id),0)+1 FROM change_set);
-    INSERT INTO change_set(id, actor_id, actor_navn, actor_rolle, operation, summary,
-                           subjekt_type, subjekt_id, subjekt_synlighed, reverterer_id)
-      VALUES (v_new_cs, auth.uid(),
-              coalesce((SELECT coalesce(p.navn, p.email, auth.uid()::text) FROM profiles p WHERE p.id=auth.uid()), 'ukendt'),
-              current_rolle(), 'fortryd',
-              format('Fortrød: %s', coalesce(v_orig.summary,'(uden tekst)')),
-              v_orig.subjekt_type, v_orig.subjekt_id, v_orig.subjekt_synlighed, p_change_set_id);
+    RAISE EXCEPTION 'CHANGE_SET_SEQUENCE_MISSING';
   ELSE
     INSERT INTO change_set(actor_id, actor_navn, actor_rolle, operation, summary,
                            subjekt_type, subjekt_id, subjekt_synlighed, reverterer_id)
@@ -9463,8 +9481,8 @@ BEGIN
   -- K5 (kodereview 36): verifikationen nedenfor læser uden lås og skriver bagefter; uden låse kunne en samtidig
   -- redigering (T2 gemmer mellem T1's tjek og skrivning) blive overskrevet uden divergens. Lås derfor ALLE berørte,
   -- eksisterende rækker FOR UPDATE før første tjek, i en fast rækkefølge efter change_set (som writerne): først
-  -- personer i stigende id (sættets personrækker og personer, sættets relationer peger på — samme orden som
-  -- identitetsprotokollen og red_saet_portraet: personer før relationsrækker), derefter resten efter (tabel, numerisk
+  -- personer i stigende id (sættets personrækker og personmål fra relationer/pins — samme orden som
+  -- identitetsprotokollen og red_saet_portraet), derefter pin-familier og resten efter (tabel, numerisk
   -- id, row_pk). En samtidig writer venter nu på fortrydelsen, eller fortrydelsen venter på writeren og ser bagefter
   -- dens committede værdi (nyt snapshot pr. sætning under READ COMMITTED) og afviser den som divergens. En række, som
   -- sættet slettede (og fortrydelsen genindsætter), findes ikke og kan ikke låses.
@@ -9479,8 +9497,23 @@ BEGIN
      UNION
      SELECT (x.r->>'objekt_id')::bigint
        FROM change_event ce CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
-      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation' AND x.r->>'objekt_type'='person')
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation' AND x.r->>'objekt_type'='person'
+     UNION
+     -- R6: også pins i foer/efter, før K5 låser pin-rækken. Ellers kan en
+     -- inverse genindsætte P's pin efter sletningen eller danne pin→person-cyklus.
+     SELECT m.id FROM change_event ce
+       CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+       CROSS JOIN LATERAL private.feed_pin_maal(x.r->>'kort_noegle') m
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='feed_pin' AND m.typ='person')
    ORDER BY lp.id FOR UPDATE;
+  -- Familier følger personerne, stadig før K5's øvrige rækker. Samme parser
+  -- som red_set_feed_pin; ingen ny nøglegrammatik eller sen rækkelås i restore-helperen.
+  PERFORM 1 FROM family lf WHERE lf.id IN (
+    SELECT m.id FROM change_event ce
+      CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+      CROSS JOIN LATERAL private.feed_pin_maal(x.r->>'kort_noegle') m
+     WHERE ce.change_set_id=p_change_set_id AND ce.tabel='feed_pin' AND m.typ='family')
+   ORDER BY lf.id FOR KEY SHARE;
   FOR v_lock IN
     SELECT d.tabel, d.row_pk
       FROM (SELECT DISTINCT ce.tabel, ce.row_pk FROM change_event ce WHERE ce.change_set_id=p_change_set_id) d
@@ -9504,6 +9537,31 @@ BEGIN
         RAISE EXCEPTION 'FEJL: nyere ændring rører %/% — afvist (brug force)', ev.tabel, ev.row_pk;
       END IF;
     END IF;
+    -- Efter K5-låsene: en inverse, der efterlader en pin, skal have eksisterende
+    -- mål, også med force. Kun eksistenskontrol her; mållåsene blev taget før
+    -- pin-rækken. INSERT-inverse fjerner pinnen og behøver ikke et levende mål.
+    IF ev.tabel='feed_pin' AND ev.op IN ('DELETE','UPDATE') THEN
+      FOR v_pin_maal IN SELECT m.typ,m.id FROM private.feed_pin_maal(ev.foer->>'kort_noegle') m LOOP
+        IF v_pin_maal.typ='person' THEN
+          PERFORM 1 FROM public.person WHERE id=v_pin_maal.id;
+        ELSIF v_pin_maal.typ='family' THEN
+          PERFORM 1 FROM public.family WHERE id=v_pin_maal.id;
+        ELSE
+          RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %',v_pin_maal.typ,v_pin_maal.id;
+        END IF;
+        IF NOT FOUND THEN
+          RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %',v_pin_maal.typ,v_pin_maal.id;
+        END IF;
+      END LOOP;
+    END IF;
+    -- D-9: fasthold v_cur før rækkens FØRSTE inverse. Et sæt kan røre samme
+    -- række flere gange; kun sluttilstandens indførte links skal kontrolleres.
+    -- Ingen mållåse her eller i slutkontrollen: K5/R33's prelock er uændret.
+    IF ev.tabel IN ('narrative','note','story','entity_description')
+       AND NOT (v_link_rows ? (ev.tabel||':'||(ev.row_pk->>'id'))) THEN
+      v_link_rows := v_link_rows || jsonb_build_object(ev.tabel||':'||(ev.row_pk->>'id'),
+        jsonb_build_object('tabel',ev.tabel,'pk',ev.row_pk,'foer',v_cur));
+    END IF;
     -- anvend inverse
     IF ev.op='INSERT' THEN
       PERFORM _version_delete_row(ev.tabel, ev.row_pk);
@@ -9519,6 +9577,31 @@ BEGIN
     END IF;
     IF ev.tabel='narrative' THEN v_narr := v_narr || (ev.row_pk->>'id')::bigint; END IF;
     IF ev.tabel='note'      THEN v_notes := v_notes || (ev.row_pk->>'id')::bigint; END IF;
+  END LOOP;
+
+  -- D-9: EFTER alle inverser, så et mål genskabt i samme sæt nu findes.
+  -- Sammenlign (type,id) pr. tekstkolonne, ikke visningstekst eller hele strengen.
+  -- Eksisterende døde links må blive stående; p_force omgår aldrig denne kontrol.
+  FOR v_link_row IN SELECT value AS r FROM jsonb_each(v_link_rows) LOOP
+    v_cur := _version_current_row(v_link_row.r->>'tabel',v_link_row.r->'pk');
+    v_link_cols := CASE v_link_row.r->>'tabel'
+      WHEN 'narrative' THEN ARRAY['tekst'] WHEN 'note' THEN ARRAY['indhold']
+      WHEN 'story' THEN ARRAY['titel','tekst'] WHEN 'entity_description' THEN ARRAY['tekst'] END;
+    FOR v_link IN
+      SELECT DISTINCT m.maal_type,m.maal_id
+        FROM jsonb_each_text(v_cur) t
+        CROSS JOIN LATERAL private.parse_mentions_klikbare(t.value) m
+       WHERE t.key=ANY(v_link_cols) AND m.maal_type IN ('person','family','media')
+         AND NOT EXISTS (SELECT 1 FROM private.parse_mentions_klikbare(v_link_row.r->'foer'->>t.key) old_m
+           WHERE (old_m.maal_type,old_m.maal_id)=(m.maal_type,m.maal_id))
+       ORDER BY m.maal_type,m.maal_id
+    LOOP
+      IF (v_link.maal_type='person' AND NOT EXISTS (SELECT 1 FROM public.person WHERE id=v_link.maal_id))
+         OR (v_link.maal_type='family' AND NOT EXISTS (SELECT 1 FROM public.family WHERE id=v_link.maal_id))
+         OR (v_link.maal_type='media' AND NOT EXISTS (SELECT 1 FROM public.media WHERE id=v_link.maal_id)) THEN
+        RAISE EXCEPTION 'FORTRYD_DOED_LINK: % %',v_link.maal_type,v_link.maal_id;
+      END IF;
+    END LOOP;
   END LOOP;
 
   -- regenerér afledte projektioner ÉN gang (B8 + hyperlinks)
@@ -11903,16 +11986,20 @@ CREATE TABLE private.entity_description_source (
 );
 
 CREATE OR REPLACE FUNCTION validate_entity_description_subject()
-RETURNS trigger LANGUAGE plpgsql SET search_path=pg_catalog,public AS $$
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
 BEGIN
-  IF (NEW.subjekt_type='person' AND EXISTS (SELECT 1 FROM public.person WHERE id=NEW.subjekt_id))
-     OR (NEW.subjekt_type='slaegt' AND EXISTS (SELECT 1 FROM public.slaegt WHERE id=NEW.subjekt_id))
-     OR (NEW.subjekt_type='lineage' AND EXISTS (SELECT 1 FROM public.lineage WHERE id=NEW.subjekt_id))
-     OR (NEW.subjekt_type='coat_of_arms' AND EXISTS (SELECT 1 FROM public.coat_of_arms WHERE id=NEW.subjekt_id))
-     OR (NEW.subjekt_type='media' AND EXISTS (SELECT 1 FROM public.media WHERE id=NEW.subjekt_id))
-     OR (NEW.subjekt_type='estate' AND EXISTS (SELECT 1 FROM public.estate WHERE id=NEW.subjekt_id)) THEN
-    RETURN NEW;
+  -- KEY SHARE kræver UPDATE-ret på måltabellen; derfor DEFINER, ikke klientgrants.
+  IF TG_OP='UPDATE' AND NEW.subjekt_type IS NOT DISTINCT FROM OLD.subjekt_type
+     AND NEW.subjekt_id IS NOT DISTINCT FROM OLD.subjekt_id THEN RETURN NEW; END IF;
+  IF NEW.subjekt_type='person' THEN PERFORM 1 FROM public.person WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSIF NEW.subjekt_type='slaegt' THEN PERFORM 1 FROM public.slaegt WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSIF NEW.subjekt_type='lineage' THEN PERFORM 1 FROM public.lineage WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSIF NEW.subjekt_type='coat_of_arms' THEN PERFORM 1 FROM public.coat_of_arms WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSIF NEW.subjekt_type='media' THEN PERFORM 1 FROM public.media WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSIF NEW.subjekt_type='estate' THEN PERFORM 1 FROM public.estate WHERE id=NEW.subjekt_id FOR KEY SHARE;
+  ELSE RAISE EXCEPTION 'ENTITY_DESCRIPTION_SUBJECT_INVALID';
   END IF;
+  IF FOUND THEN RETURN NEW; END IF;
   RAISE EXCEPTION 'ENTITY_DESCRIPTION_SUBJECT_INVALID';
 END $$;
 
@@ -21776,6 +21863,8 @@ LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, public, pr
     -- §1e Private ledgers (+ »Afgørelser« Q6)
     ('S39a', 'private.interpretation_promotion', ARRAY['target_type','target_id','interpretation_id'], 'slet', '2c', 'egen'),
     ('S39b', 'private.interpretation_promotion', ARRAY['target_type','target_id','interpretation_id'], 'blokér', '0', NULL),
+    -- R39: andres binding til Fam_keep afhænger af en ikke-principal persona i X.
+    ('S39f', 'private.interpretation_promotion', ARRAY['target_type','target_id','interpretation_id'], 'blokér', '0', NULL),
     ('S39c', 'private.interpretation_promotion', ARRAY['target_type','target_id'], 'bevar_andres', NULL, NULL),
     ('Prom_egen_fam', 'private.interpretation_promotion', ARRAY['target_type','target_id','interpretation_id'], 'slet', '2c', 'egen'),
     ('S40',  'private.legacy_placement_disposition', ARRAY['person_id'], 'slet', '2i', 'egen'),
@@ -21987,6 +22076,8 @@ LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, public, pr
     ('suggestion', ARRAY['kilde_source_id'], 'reference til opslag (source)'),
     ('version_pk_registry', ARRAY['tabel','pk_cols','skip_cols'], 'metadata om versionerede tabeller; ingen rækkedata'),
     -- private
+    ('private.person_purge_udbakke', ARRAY['bucket','sti'],
+      'indholdsadresseret Storage-udbakke; ingen personreference eller klientadgang (Task 8a)'),
     ('private.person_purge_manifest', ARRAY['xid','backend_pid','person_id','tabel','pk','grund','forrige_version'],
       'internt transaktionsmanifest; tømmes af sletningen, ingen klientadgang (Task 5)'),
     ('private.entity_description_source', ARRAY['source_record_id'], 'reference til bogens lag'),
@@ -22294,7 +22385,7 @@ $purge_history$;
 REVOKE ALL ON FUNCTION private.person_purge_historik(bigint) FROM PUBLIC,anon,authenticated,service_role;
 
 -- Task 4: statisk rækkeplan; kanoniske tabel-/stednavne (R24/R25), uden dobbelttælling (M3).
-CREATE OR REPLACE FUNCTION private.person_purge_plan(p_person_id bigint)
+CREATE OR REPLACE FUNCTION private.person_purge_plan_fra_historik(p_person_id bigint,p_historik jsonb)
 RETURNS TABLE(sted text, tabel text, pk jsonb, handling text, grund text, fase text, ekstra jsonb)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_plan$
 WITH RECURSIVE
@@ -22377,11 +22468,15 @@ WITH RECURSIVE
   nt AS MATERIALIZED (SELECT id FROM public.note WHERE (target_type='person' AND target_id=p_person_id)
     OR (target_type='family' AND target_id IN (SELECT id FROM fam_del))
     OR (target_type='fact' AND target_id IN (SELECT id FROM fd)) OR (target_type='relation' AND target_id IN (SELECT id FROM rd))),
-  hist AS MATERIALIZED (SELECT * FROM private.person_purge_historik(p_person_id)),
+  hist AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_historik) h(tabel text,pk jsonb)),
   av AS MATERIALIZED (SELECT id::text AS id FROM a UNION SELECT ce.row_pk->>'id' FROM public.change_event ce
     JOIN hist ON hist.tabel='change_event' AND hist.pk=jsonb_build_object('id',ce.id) WHERE ce.tabel='assertion'),
   prom_target AS MATERIALIZED (
-    SELECT t.id,t.target_type,t.target_id,i.source_persona_id,
+    SELECT t.id,t.target_type,t.target_id,i.interpretation_key,
+      (coalesce(i.source_persona_id IN (SELECT id FROM x),false) OR EXISTS (
+        SELECT 1 FROM private.interpretation_party_current principal
+        WHERE principal.interpretation_key=i.interpretation_key AND principal.party_role='principal'
+          AND principal.source_persona_id IN (SELECT id FROM x))) AS own_binding,
       t.target_type='family' AND t.target_id IN (SELECT id FROM fam_keep) AS keep_family,
       (t.target_type='family' OR (t.target_type='fact' AND t.target_id IN (SELECT id FROM ff))
         OR (t.target_type='relation' AND t.target_id IN (SELECT id FROM rf_all))
@@ -22395,9 +22490,9 @@ WITH RECURSIVE
       OR (t.target_type='relation' AND t.target_id IN (SELECT id FROM rd))
       OR (t.target_type='narrative' AND t.target_id IN (SELECT id FROM n))
       OR (t.target_type='haendelse' AND t.target_id IN (SELECT id FROM h))),
-  prom AS MATERIALIZED (SELECT id,keep_family FROM prom_target WHERE NOT family_target OR source_persona_id IN (SELECT id FROM x)),
+  prom AS MATERIALIZED (SELECT id,keep_family FROM prom_target WHERE NOT family_target OR own_binding),
   prom_other AS MATERIALIZED (SELECT id FROM prom_target WHERE family_target AND NOT keep_family
-    AND coalesce(source_persona_id IN (SELECT id FROM x),false)=false),
+    AND NOT own_binding),
   jrx AS (SELECT '"[a-z_]*person[a-z_]*": "?'||p_person_id::text||'"?[],}]|"[a-z_]*(person|partner)[a-z_]*": \[[^]]*\m'||p_person_id::text||'\M' AS rx),
   token_rx AS (SELECT '\[\[(person:'||p_person_id::text||'|family:('||coalesce((SELECT string_agg(id::text,'|') FROM fam_del),'(?!)')
     ||')|media:('||coalesce((SELECT string_agg(id::text,'|') FROM md),'(?!)')||'))[|\]]' AS rx),
@@ -22548,6 +22643,14 @@ WITH RECURSIVE
   UNION ALL
   SELECT 'S39b'::text,'private.interpretation_promotion'::text,jsonb_build_object('id',t.id),'blokér'::text,NULL::text,'{}'::jsonb,0
     FROM private.interpretation_promotion t WHERE t.id IN (SELECT id FROM prom_other)
+  UNION ALL
+  -- R39: behold andres promotion intakt; P må først slettes efter redaktionel rettelse.
+  -- interpretation_party_current afgrænser til den gældende part, aldrig historiske partsrækker.
+  SELECT 'S39f'::text,'private.interpretation_promotion'::text,jsonb_build_object('id',t.id),'blokér'::text,NULL::text,'{}'::jsonb,0
+    FROM prom_target t WHERE t.keep_family AND NOT t.own_binding AND EXISTS (
+      SELECT 1 FROM private.interpretation_party_current party
+      WHERE party.interpretation_key=t.interpretation_key AND party.party_role<>'principal'
+        AND party.source_persona_id IN (SELECT id FROM x))
   UNION ALL
   SELECT 'S40'::text,'private.legacy_placement_disposition'::text,jsonb_build_object('person_id',t.person_id,'source_id',t.source_id,'version',t.version),'slet'::text,'egen'::text,'{}'::jsonb,0
     FROM private.legacy_placement_disposition t WHERE t.person_id=p_person_id
@@ -22738,7 +22841,16 @@ SELECT c.sted,c.tabel,c.pk,c.handling,c.grund,i.fase,c.ekstra FROM chosen c
 JOIN private.person_purge_inventar() i ON (i.sted,i.tabel,i.handling)=(c.sted,c.tabel,c.handling)
   AND i.grund IS NOT DISTINCT FROM c.grund
 $purge_plan$;
+REVOKE ALL ON FUNCTION private.person_purge_plan_fra_historik(bigint,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+-- Samme plan som hidtil; 8b leverer sin allerede materialiserede historik til den interne kerne.
+CREATE OR REPLACE FUNCTION private.person_purge_plan(p_person_id bigint)
+RETURNS TABLE(sted text,tabel text,pk jsonb,handling text,grund text,fase text,ekstra jsonb)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+  SELECT p.* FROM private.person_purge_plan_fra_historik(p_person_id,
+    (SELECT coalesce(jsonb_agg(to_jsonb(h)),'[]'::jsonb) FROM private.person_purge_historik(p_person_id) h)) p
+$$;
 REVOKE ALL ON FUNCTION private.person_purge_plan(bigint) FROM PUBLIC,anon,authenticated,service_role;
+
 
 
 -- Fuld personsletning (2026-11-14), Task 5: transaktionsbevis og snævert DELETE-løft.
@@ -22903,7 +23015,12 @@ BEGIN
             WHERE (target_type='fact' AND target_id IN (SELECT id FROM ff))
               OR (target_type='relation' AND target_id IN (SELECT id FROM rf)))))
           OR EXISTS (SELECT 1 FROM private.source_persona_identity x WHERE x.source_persona_id=i.source_persona_id
-            AND x.decision_status='accepted' AND x.canonical_person_id=m.person_id))) INTO v_ok;
+            AND x.decision_status='accepted' AND x.canonical_person_id=m.person_id)
+          -- Relationsfortolkninger har source_persona_id NULL; P's persona står som principal-part (Q6, 8b-runde 2).
+          OR EXISTS (SELECT 1 FROM private.interpretation_party_current pc
+            JOIN private.source_persona_identity x ON x.source_persona_id=pc.source_persona_id
+            WHERE pc.interpretation_key=i.interpretation_key AND pc.party_role='principal'
+              AND x.decision_status='accepted' AND x.canonical_person_id=m.person_id))) INTO v_ok;
       RETURN v_ok;
     ELSE RETURN false;
   END CASE;
@@ -22915,6 +23032,7 @@ REVOKE ALL ON FUNCTION private.person_purge_tilladte_tabeller(), private.person_
 
 -- Task 7 / R30: fælles læsende Q3-prædikater. niveau=NULL betyder uændret fortrydelse.
 -- Planen leveres af kalderen; funktionen genberegner hverken plan eller historik.
+-- Q6-ejerskab kommer fra p_plan (direkte persona ELLER gældende principal-part), aldrig et separat prædikat.
 CREATE OR REPLACE FUNCTION private.person_purge_fortrydelse(p_person_id bigint,p_plan jsonb)
 RETURNS TABLE(batch_id uuid,vej text,kan_nu boolean,niveau text)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_reversal$
@@ -23074,6 +23192,7 @@ $purge_reversal$;
 REVOKE ALL ON FUNCTION private.person_purge_fortrydelse(bigint,jsonb) FROM PUBLIC,anon,authenticated,service_role;
 
 -- Task 7 / Q8-Q9 / R28. Statisk scan; intet tekstindhold i returværdien.
+-- Q6: planens slet-rækker udelades også ved principal-part-ejerskab; ingen separat ejerskabsregel.
 CREATE OR REPLACE FUNCTION private.person_purge_kontrol(p_person_id bigint,p_plan jsonb)
 RETURNS TABLE(sted text,tabel text,pk jsonb,grund text)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_control$
@@ -23175,17 +23294,13 @@ REVOKE ALL ON FUNCTION private.person_purge_kontrol(bigint,jsonb) FROM PUBLIC,an
 -- Task 7: forhåndsvisning. Planen (inkl. historik) beregnes én gang; alle øvrige læsere får samme snapshot.
 -- steder[sted] = [{tabel,pk,handling,grund,fase,ekstra}], sorteret binært efter tabel og pk.
 -- jsonb's objektnøgler serialiseres kanonisk; ALLE listeordener bruger tal/uuid eller COLLATE "C".
-CREATE OR REPLACE FUNCTION public.red_slet_person_helt_preview(p_person_id bigint)
+CREATE OR REPLACE FUNCTION private.person_purge_preview_fra_plan(p_person_id bigint,p_plan jsonb)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, public, private AS $purge_preview$
-DECLARE v_navn text; v_plan jsonb; v_result jsonb;
+DECLARE v_navn text; v_plan jsonb := p_plan; v_result jsonb;
 BEGIN
-  IF public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   SELECT visning_navn INTO v_navn FROM public.person WHERE id=p_person_id;
   IF NOT FOUND THEN RAISE EXCEPTION 'PURGE_FINDES_IKKE'; END IF;
-  -- person_purge_plan materialiserer selv person_purge_historik. Intet separat historikkald her.
-  SELECT coalesce(jsonb_agg(to_jsonb(q) ORDER BY q.tabel COLLATE "C",q.pk::text COLLATE "C"),'[]'::jsonb)
-    INTO v_plan FROM private.person_purge_plan(p_person_id) q;
   WITH
   plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(v_plan)
     q(sted text,tabel text,pk jsonb,handling text,grund text,fase text,ekstra jsonb)),
@@ -23224,7 +23339,7 @@ BEGIN
     WHERE e.operation='publication_identity'),
   blockers AS (
     SELECT jsonb_build_object('art',CASE WHEN sted IN ('S20','NY-A') THEN 'anden_paastand'
-      WHEN sted IN ('S39b','S49d') THEN 'anden_promotion' ELSE 'link_i_tekst' END,
+      WHEN sted IN ('S39b','S39f','S49d') THEN 'anden_promotion' ELSE 'link_i_tekst' END,
       'sted',sted,'tabel',tabel,'pk',pk) AS j FROM plan WHERE handling='blokér'
     UNION ALL SELECT jsonb_build_object('art','aaben_koersel','pk',jsonb_build_object('id',id),
       'tabel','private.identity_control_run') FROM control WHERE status IS NULL OR status='sealed'
@@ -23309,4 +23424,459 @@ BEGIN
   RETURN v_result||jsonb_build_object('sha256',encode(extensions.digest(convert_to(v_result::text,'UTF8'),'sha256'),'hex'));
 END
 $purge_preview$;
+REVOKE ALL ON FUNCTION private.person_purge_preview_fra_plan(bigint,jsonb) FROM PUBLIC,anon,authenticated,service_role;
+CREATE OR REPLACE FUNCTION public.red_slet_person_helt_preview(p_person_id bigint)
+RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = pg_catalog, public, private AS $purge_preview$
+DECLARE v_plan jsonb;
+BEGIN
+  IF public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.person WHERE id=p_person_id) THEN RAISE EXCEPTION 'PURGE_FINDES_IKKE'; END IF;
+  SELECT coalesce(jsonb_agg(to_jsonb(p) ORDER BY p.tabel COLLATE "C",p.pk::text COLLATE "C"),'[]'::jsonb)
+    INTO v_plan FROM private.person_purge_plan(p_person_id) p;
+  RETURN private.person_purge_preview_fra_plan(p_person_id,v_plan);
+END
+$purge_preview$;
 REVOKE ALL ON FUNCTION public.red_slet_person_helt_preview(bigint) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_slet_person_helt_preview(bigint) TO authenticated;
+
+
+-- Task 8a: vagter og Storage-udbakke. Selve sletningen følger i Task 8b.
+CREATE TABLE IF NOT EXISTS private.person_purge_udbakke (
+  bucket text NOT NULL,
+  sti text NOT NULL,
+  oprettet timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (bucket,sti)
+);
+ALTER TABLE private.person_purge_udbakke ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.person_purge_udbakke FROM PUBLIC,anon,authenticated,service_role;
+
+-- Kolonnepar fra TG_ARGV; relation har to. D-8: person → familie → fakta → media,
+-- id-orden inden for hver type. Fact-/media-ender har også kanonisk type og KEY SHARE.
+CREATE OR REPLACE FUNCTION private.validate_polymorf_subjekt_findes()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+DECLARE
+  v_new jsonb := to_jsonb(NEW); v_old jsonb; i int; v_uaendret boolean := true; r record;
+BEGIN
+  IF TG_OP='UPDATE' THEN
+    v_old := to_jsonb(OLD);
+    FOR i IN 0..TG_NARGS-1 LOOP
+      IF (v_new->>TG_ARGV[i]) IS DISTINCT FROM (v_old->>TG_ARGV[i]) THEN v_uaendret := false; END IF;
+    END LOOP;
+    IF v_uaendret THEN RETURN NEW; END IF; -- D-6; ingen undtagelse fra append-only.
+  END IF;
+  IF TG_TABLE_SCHEMA='public' AND TG_TABLE_NAME='relation' THEN
+    FOR i IN 0..TG_NARGS/2-1 LOOP
+      IF lower(v_new->>TG_ARGV[2*i]) IN ('fact','media') AND (v_new->>TG_ARGV[2*i])<>lower(v_new->>TG_ARGV[2*i]) THEN
+        RAISE EXCEPTION 'POLYMORF_TYPE_IKKE_KANONISK: %', v_new->>TG_ARGV[2*i];
+      END IF;
+    END LOOP;
+  END IF;
+  FOR r IN
+    SELECT lower(v_new->>TG_ARGV[2*k]) AS typ, (v_new->>TG_ARGV[2*k+1])::bigint AS id
+      FROM generate_series(0,TG_NARGS/2-1) k
+     WHERE (lower(v_new->>TG_ARGV[2*k]) IN ('person','family')
+         OR (TG_TABLE_SCHEMA='public' AND TG_TABLE_NAME='relation' AND lower(v_new->>TG_ARGV[2*k]) IN ('fact','media')))
+       AND v_new->>TG_ARGV[2*k+1] IS NOT NULL
+     ORDER BY CASE lower(v_new->>TG_ARGV[2*k]) WHEN 'person' THEN 1 WHEN 'family' THEN 2 WHEN 'fact' THEN 3 ELSE 4 END,
+              (v_new->>TG_ARGV[2*k+1])::bigint
+  LOOP
+    IF r.typ='person' THEN PERFORM 1 FROM public.person WHERE id=r.id FOR KEY SHARE;
+    ELSIF r.typ='family' THEN PERFORM 1 FROM public.family WHERE id=r.id FOR KEY SHARE;
+    ELSIF r.typ='fact' THEN PERFORM 1 FROM public.fact WHERE id=r.id FOR KEY SHARE;
+    ELSE PERFORM 1 FROM public.media WHERE id=r.id FOR KEY SHARE;
+    END IF;
+    IF NOT FOUND THEN RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %', r.typ,r.id; END IF;
+  END LOOP;
+  RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION private.validate_polymorf_subjekt_findes() FROM PUBLIC,anon,authenticated,service_role;
+
+DROP TRIGGER IF EXISTS trg_polymorf_fact ON public.fact;
+CREATE TRIGGER trg_polymorf_fact BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id ON public.fact
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_note ON public.note;
+CREATE TRIGGER trg_polymorf_note BEFORE INSERT OR UPDATE OF target_type,target_id ON public.note
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('target_type','target_id');
+DROP TRIGGER IF EXISTS trg_polymorf_narrative ON public.narrative;
+CREATE TRIGGER trg_polymorf_narrative BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id ON public.narrative
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_story ON public.story;
+CREATE TRIGGER trg_polymorf_story BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id ON public.story
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_suggestion ON public.suggestion;
+CREATE TRIGGER trg_polymorf_suggestion BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id ON public.suggestion
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_relation ON public.relation;
+CREATE TRIGGER trg_polymorf_relation BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id,objekt_type,objekt_id ON public.relation
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id','objekt_type','objekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_assertion_objekt ON public.assertion;
+-- BEFORE-rækkefølgen afhænger af triggernavnene: person/familie før fakta-/relationsmål.
+-- Note har ét fælles mål (vagterne låser gensidigt udelukkende typer); conclusion kun målvagten.
+-- Relation sorterer selv begge ender person → familie → fakta; fact har kun subjektvagten ved INSERT/UPDATE.
+DROP TRIGGER IF EXISTS trg_assertion_0_polymorf_objekt ON public.assertion;
+CREATE TRIGGER trg_assertion_0_polymorf_objekt BEFORE INSERT OR UPDATE OF objekt_type,objekt_id ON public.assertion
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('objekt_type','objekt_id');
+DROP TRIGGER IF EXISTS trg_polymorf_haendelse ON public.haendelse;
+CREATE TRIGGER trg_polymorf_haendelse BEFORE INSERT OR UPDATE OF subjekt_type,subjekt_id ON public.haendelse
+  FOR EACH ROW EXECUTE FUNCTION private.validate_polymorf_subjekt_findes('subjekt_type','subjekt_id');
+
+-- D-7: forælderhalvdelen. Rene ligheder på evidensens kanoniske target_type,
+-- så de eksisterende (target_type,target_id)-indekser kan benyttes.
+CREATE OR REPLACE FUNCTION private.guard_fact_evidence_delete()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.assertion WHERE target_type='fact' AND target_id=OLD.id)
+     OR EXISTS (SELECT 1 FROM public.conclusion WHERE target_type='fact' AND target_id=OLD.id)
+     OR EXISTS (SELECT 1 FROM public.note WHERE target_type='fact' AND target_id=OLD.id)
+     OR EXISTS (SELECT 1 FROM public.relation
+                 WHERE (subjekt_type='fact' AND subjekt_id=OLD.id)
+                    OR (objekt_type='fact' AND objekt_id=OLD.id)) THEN
+    RAISE EXCEPTION 'FACT_HAR_EVIDENS: fact %', OLD.id;
+  END IF;
+  RETURN OLD;
+END $$;
+REVOKE ALL ON FUNCTION private.guard_fact_evidence_delete() FROM PUBLIC,anon,authenticated,service_role;
+DROP TRIGGER IF EXISTS trg_fact_evidence_delete ON public.fact;
+CREATE TRIGGER trg_fact_evidence_delete BEFORE DELETE ON public.fact
+  FOR EACH ROW EXECUTE FUNCTION private.guard_fact_evidence_delete();
+
+-- Én parser til både red_set_feed_pin og K5-prelock. Den tager ingen rækkelåse;
+-- de kaldende skrivere bestemmer låseordenen. Manglende indirekte ankre gives
+-- som type/id, så prelock kan læse både foer/efter uden at afvise en pin, der kun fjernes.
+CREATE OR REPLACE FUNCTION private.feed_pin_maal(p_noegle text)
+RETURNS TABLE(typ text,id bigint)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+DECLARE v_anker_type text; v_anker_id bigint; v_subjekt_type text; v_subjekt_id bigint;
+BEGIN
+  IF p_noegle ~ '^story:-?[0-9]+$' THEN
+    v_anker_type:='story';
+    v_anker_id:=(regexp_match(p_noegle,'^story:(-?[0-9]+)$'))[1]::bigint;
+    SELECT s.subjekt_type,s.subjekt_id INTO v_subjekt_type,v_subjekt_id FROM public.story s WHERE s.id=v_anker_id;
+    IF NOT FOUND THEN RETURN QUERY SELECT v_anker_type,v_anker_id; RETURN; END IF;
+  ELSIF p_noegle ~ '^(arkiv:|paadennedag:h:)-?[0-9]+$' THEN
+    v_anker_type:='haendelse';
+    v_anker_id:=(regexp_match(p_noegle,'^(?:arkiv:|paadennedag:h:)(-?[0-9]+)$'))[1]::bigint;
+    SELECT h.subjekt_type,h.subjekt_id INTO v_subjekt_type,v_subjekt_id FROM public.haendelse h WHERE h.id=v_anker_id;
+    IF NOT FOUND THEN RETURN QUERY SELECT v_anker_type,v_anker_id; RETURN; END IF;
+  END IF;
+  RETURN QUERY
+    SELECT maal.typ,maal.id FROM (
+      SELECT 'person' AS typ, (regexp_match(p_noegle,'^(?:portrait|citat|naevnt|dagensperson):(-?[0-9]+)$'))[1]::bigint AS id
+       WHERE p_noegle ~ '^(portrait|citat|naevnt|dagensperson):-?[0-9]+$'
+      UNION SELECT 'person', (regexp_match(p_noegle,'^(?:jubilaeum|embede|paadennedag):(-?[0-9]+):'))[1]::bigint
+       WHERE p_noegle ~ '^(jubilaeum|embede|paadennedag):-?[0-9]+:'
+      UNION SELECT 'person', unnest((regexp_match(p_noegle,'^slaegt:(-?[0-9]+):(-?[0-9]+)$'))::bigint[])
+       WHERE p_noegle ~ '^slaegt:-?[0-9]+:-?[0-9]+$'
+      UNION SELECT 'family', (regexp_match(p_noegle,'^forbundet:(-?[0-9]+)$'))[1]::bigint
+       WHERE p_noegle ~ '^forbundet:-?[0-9]+$'
+      UNION SELECT lower(v_subjekt_type),v_subjekt_id WHERE lower(v_subjekt_type) IN ('person','family')
+    ) maal ORDER BY (maal.typ='family'),maal.id;
+END $$;
+REVOKE ALL ON FUNCTION private.feed_pin_maal(text) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Fix 1 fra Task 0: ingen feed_pin-trigger (ON CONFLICT låser pin-rækken for tidligt).
+-- Indirekte story-/hændelsesnøgler arver personens/familiens lås; R11 er også dækket.
+CREATE OR REPLACE FUNCTION private.laas_feed_pin_maal(p_noegle text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT m.typ,m.id FROM private.feed_pin_maal(p_noegle) m
+            ORDER BY (m.typ='family'),m.id LOOP
+    IF r.typ='person' THEN PERFORM 1 FROM public.person WHERE person.id=r.id FOR KEY SHARE;
+    ELSIF r.typ='family' THEN PERFORM 1 FROM public.family WHERE family.id=r.id FOR KEY SHARE;
+    ELSE RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %',r.typ,r.id;
+    END IF;
+    IF NOT FOUND THEN RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %',r.typ,r.id; END IF;
+  END LOOP;
+END $$;
+REVOKE ALL ON FUNCTION private.laas_feed_pin_maal(text) FROM PUBLIC,anon,authenticated,service_role;
+REVOKE ALL ON FUNCTION public.enforce_relation_evidence_target(),public.validate_entity_description_subject()
+  FROM PUBLIC,anon,authenticated,service_role;
+
+REVOKE ALL ON FUNCTION public.red_fortryd_change_set(bigint,boolean) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_fortryd_change_set(bigint,boolean) TO authenticated;
+
+-- Fuld personsletning (2026-11-14), Task 8b: kun læsning, fælles L3/L12-låsemængder.
+CREATE OR REPLACE FUNCTION private.person_purge_laasemaengder(p_person_id bigint)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+WITH
+  x AS MATERIALIZED (SELECT source_persona_id id FROM private.source_persona_identity
+    WHERE canonical_person_id=p_person_id AND decision_status='accepted'),
+  xy AS MATERIALIZED (SELECT id FROM x UNION SELECT source_persona_id FROM private.source_persona_identity_event
+    WHERE canonical_person_id=p_person_id),
+  candidates AS MATERIALIZED (SELECT id,run_id,source_persona_id FROM private.source_persona_identity_candidate
+    WHERE candidate_person_id=p_person_id),
+  fam AS MATERIALIZED (SELECT family_id id FROM public.family_member WHERE person_id=p_person_id),
+  control AS MATERIALIZED (
+    SELECT s.control_run_id id FROM private.identity_control_sample s WHERE s.source_persona_id IN (SELECT id FROM xy)
+      OR s.expected IN (SELECT id::text FROM candidates)
+      OR EXISTS (SELECT 1 FROM jsonb_each_text(s.mapping) m WHERE m.value IN (SELECT id::text FROM candidates))
+    UNION SELECT control_run_id FROM private.identity_control_exclusion WHERE source_persona_id IN (SELECT id FROM x)
+    UNION SELECT control_run_id FROM private.identity_control_parent_card
+      WHERE counterpart_person_id=p_person_id OR p_person_id=ANY(partner_ids) OR family_id IN (SELECT id FROM fam)
+    UNION SELECT id FROM private.identity_control_run WHERE candidate_run_id IN (SELECT run_id FROM candidates)),
+  records AS MATERIALIZED (
+    SELECT rp.source_record_id id FROM private.source_persona_placement pp
+      JOIN private.source_record_placement rp ON rp.id=pp.record_placement_id WHERE pp.source_persona_id IN (SELECT id FROM xy)
+    UNION SELECT b.source_record_id FROM private.narrative_record_publication b JOIN public.narrative n ON n.id=b.narrative_id
+      WHERE (n.subjekt_type='person' AND n.subjekt_id=p_person_id)
+         OR (n.subjekt_type='family' AND n.subjekt_id IN (SELECT id FROM private.person_purge_fam_del(p_person_id)))),
+  sources AS MATERIALIZED (
+    SELECT source_id id FROM public.person_external_id WHERE person_id=p_person_id
+    UNION SELECT source_id FROM private.source_persona WHERE id IN (SELECT id FROM xy UNION SELECT source_persona_id FROM candidates)
+    UNION SELECT source_id FROM private.source_persona_identity_candidate_run WHERE id IN (SELECT run_id FROM candidates)
+    UNION SELECT source_id FROM private.identity_control_run WHERE id IN (SELECT id FROM control)
+    UNION SELECT source_id FROM private.source_record WHERE id IN (SELECT id FROM records))
+SELECT jsonb_build_object(
+  'sources',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM sources WHERE id IS NOT NULL),'[]'::jsonb),
+  'profiles',coalesce((SELECT jsonb_agg(jsonb_build_object('source_id',source_id,'profile_id',profile_id)
+    ORDER BY source_id,profile_id COLLATE "C") FROM private.reimport_writer_profile WHERE source_id IN (SELECT id FROM sources)),'[]'::jsonb),
+  'records',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM records),'[]'::jsonb),
+  'personas',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM xy),'[]'::jsonb))
+$$;
+REVOKE ALL ON FUNCTION private.person_purge_laasemaengder(bigint) FROM PUBLIC,anon,authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION public.red_slet_person_helt(p_person_id bigint,p_preview_sha256 text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public, private AS $purge_execute$
+DECLARE
+  v_laas jsonb; v_nu jsonb; v_historik jsonb; v_plan jsonb; v_preview jsonb; v_delete jsonb;
+  v_saet bigint[]; v_saet_nu bigint[]; v_medier bigint[]; v_medier_nu bigint[]; v_people bigint[]; v_deleted jsonb;
+  v_source bigint; v_prof record; r record; v_persona uuid; v_sted text; v_handling text; v_art text; v_rest boolean;
+  v_storage int; v_personas int:=0; v_pk_pred text; v_schema text; v_table text;
+BEGIN
+  PERFORM set_config('lock_timeout','5s',true);
+  PERFORM set_config('statement_timeout','30s',true);
+  -- Rollegate FØRST, også før kontraktlåsen og alle eksistens-/fremmed-sæt-læsninger.
+  IF public.current_rolle() IS DISTINCT FROM 'redaktion' OR auth.uid() IS NULL THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN RAISE EXCEPTION 'PURGE_FREMMED_CHANGE_SET'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.person WHERE id=p_person_id) THEN RAISE EXCEPTION 'PURGE_FINDES_IKKE'; END IF;
+  -- L1: delt kontraktlås. Gaten ovenfor læser ingen slette-/identitetstilstand.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  -- L2: rolle og fremmed sæt er allerede kontrolleret uden person-opslag før gaten.
+  -- L3
+  v_laas:=private.person_purge_laasemaengder(p_person_id);
+  -- L4
+  FOR v_prof IN SELECT * FROM jsonb_to_recordset(v_laas->'profiles') p(source_id bigint,profile_id text)
+    ORDER BY source_id,profile_id COLLATE "C" LOOP
+    PERFORM private.lock_reimport_writer(v_prof.source_id,v_prof.profile_id);
+  END LOOP;
+  -- L5
+  FOR v_source IN SELECT value::bigint FROM jsonb_array_elements_text(v_laas->'sources') ORDER BY value::bigint LOOP
+    PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||v_source::text,0));
+  END LOOP;
+  -- L5b: source_record FOR UPDATE før personas og change_set.
+  PERFORM 1 FROM private.source_record WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(v_laas->'records'))
+    ORDER BY id FOR UPDATE;
+  -- L6
+  PERFORM 1 FROM private.source_persona WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(v_laas->'personas'))
+    ORDER BY id FOR UPDATE;
+  PERFORM 1 FROM private.source_persona_identity WHERE source_persona_id IN (SELECT value::uuid FROM jsonb_array_elements_text(v_laas->'personas'))
+    ORDER BY source_persona_id FOR UPDATE;
+  -- L6b: R31, ALLE helt slettede sæt, også publiceringssæt. Samme orden som K5.
+  SELECT coalesce(array_agg((h.pk->>'id')::bigint ORDER BY (h.pk->>'id')::bigint),'{}') INTO v_saet
+    FROM private.person_purge_historik(p_person_id) h WHERE h.tabel='change_set';
+  PERFORM 1 FROM public.change_set WHERE id=ANY(v_saet) ORDER BY id FOR UPDATE;
+  -- L7
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  PERFORM private.guard_identity_mutation_snapshot();
+  -- L8: må IKKE styrkes (D-1).
+  LOCK TABLE public.change_set IN ROW EXCLUSIVE MODE;
+  -- L9
+  PERFORM 1 FROM public.source s JOIN public.person_external_id pei ON pei.source_id=s.id
+    WHERE pei.person_id=p_person_id ORDER BY s.id,pei.source_id FOR UPDATE OF s,pei;
+  -- L10
+  SELECT array_agg(DISTINCT id ORDER BY id) INTO v_people FROM (
+    SELECT p_person_id id UNION SELECT CASE WHEN subjekt_id=p_person_id THEN objekt_id ELSE subjekt_id END
+    FROM public.relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
+      AND (subjekt_id=p_person_id OR objekt_id=p_person_id)) q;
+  -- En anden sletning kan være committet mens vi ventede.
+  IF NOT EXISTS (SELECT 1 FROM public.person WHERE id=p_person_id) THEN RAISE EXCEPTION 'PURGE_FINDES_IKKE'; END IF;
+  PERFORM private.lock_identity_people(v_people);
+  -- L11
+  PERFORM private.lock_family_rows(ARRAY[p_person_id]);
+  -- L11b: planens md-mængde; media FOR UPDATE i id-orden efter personer og familier.
+  -- Historik påvirker ikke md; den autoritative plan med låst historik beregnes i L12.
+  SELECT coalesce(array_agg((p.pk->>'id')::bigint ORDER BY (p.pk->>'id')::bigint),'{}') INTO v_medier
+    FROM private.person_purge_plan_fra_historik(p_person_id,'[]'::jsonb) p WHERE p.tabel='media' AND p.handling='slet';
+  PERFORM 1 FROM public.media WHERE id=ANY(v_medier) ORDER BY id FOR UPDATE;
+  -- L12: genberegn alle mængder; tag ALDRIG en ny, sent opdaget lås.
+  v_nu:=private.person_purge_laasemaengder(p_person_id);
+  SELECT coalesce(jsonb_agg(to_jsonb(h)),'[]'::jsonb) INTO v_historik FROM private.person_purge_historik(p_person_id) h;
+  SELECT coalesce(array_agg((h.pk->>'id')::bigint ORDER BY (h.pk->>'id')::bigint),'{}') INTO v_saet_nu
+    FROM jsonb_to_recordset(v_historik) h(tabel text,pk jsonb) WHERE h.tabel='change_set';
+  SELECT coalesce(jsonb_agg(to_jsonb(p) ORDER BY p.tabel COLLATE "C",p.pk::text COLLATE "C"),'[]'::jsonb)
+    INTO v_plan FROM private.person_purge_plan_fra_historik(p_person_id,v_historik) p;
+  SELECT coalesce(array_agg((p.pk->>'id')::bigint ORDER BY (p.pk->>'id')::bigint),'{}') INTO v_medier_nu
+    FROM jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text) WHERE p.tabel='media' AND p.handling='slet';
+  IF NOT v_nu <@ v_laas OR NOT v_saet_nu <@ v_saet OR NOT v_medier_nu <@ v_medier THEN
+    RAISE EXCEPTION 'PURGE_LOCKSET_DRIFT';
+  END IF;
+  -- L13: låst historik og autoritativ plan fra L12 genbruges til preview/manifest/DML.
+  v_preview:=private.person_purge_preview_fra_plan(p_person_id,v_plan);
+  IF v_preview->>'sha256' IS DISTINCT FROM p_preview_sha256 THEN RAISE EXCEPTION 'PURGE_PREVIEW_AENDRET'; END IF;
+  IF jsonb_array_length(v_preview->'blokeringer')>0 THEN
+    RAISE EXCEPTION 'PURGE_BLOKERET: %',v_preview->'blokeringer'->0->>'art';
+  END IF;
+
+  -- Fase 1: bevis for ALLE slet-/nulstil-/loesn-rækker. State-pk er Task 6's præcise kontrakt.
+  INSERT INTO private.person_purge_manifest(xid,backend_pid,person_id,tabel,pk,grund,forrige_version)
+  SELECT pg_current_xact_id(),pg_backend_pid(),p_person_id,p.tabel,
+    CASE WHEN p.tabel='private.source_persona_identity' THEN jsonb_build_object('source_persona_id',p.pk->'source_persona_id') ELSE p.pk END,
+    coalesce(p.grund,'historik'),(p.ekstra->>'forrige_version')::int
+    FROM jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text,grund text,ekstra jsonb)
+    WHERE p.handling IN ('slet','nulstil','loesn');
+  SELECT coalesce(jsonb_object_agg(tabel,pks),'{}'::jsonb) INTO v_delete FROM (
+    SELECT tabel,jsonb_agg(pk) pks FROM jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text)
+    WHERE handling='slet' GROUP BY tabel) q;
+  -- Fase 2a-2l: afledte kvitteringer før promotions, events før state, mål stadig levende.
+  DELETE FROM private.text_revision_reconciliation t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'private.text_revision_reconciliation') p);
+  DELETE FROM private.relation_reopen t WHERE t.to_interpretation_id IN (SELECT (p->>'to_interpretation_id')::uuid FROM jsonb_array_elements(v_delete->'private.relation_reopen') p);
+  DELETE FROM private.interpretation_promotion t WHERE t.id IN (SELECT (p->>'id')::uuid FROM jsonb_array_elements(v_delete->'private.interpretation_promotion') p);
+  DELETE FROM private.identity_control_parent_event t WHERE (t.card_id,t.seq) IN (SELECT (p->>'card_id')::uuid,(p->>'seq')::integer FROM jsonb_array_elements(v_delete->'private.identity_control_parent_event') p);
+  DELETE FROM private.identity_control_parent_card t WHERE t.id IN (SELECT (p->>'id')::uuid FROM jsonb_array_elements(v_delete->'private.identity_control_parent_card') p);
+  DELETE FROM private.reimport_name_completion_result t WHERE t.id IN (SELECT (p->>'id')::uuid FROM jsonb_array_elements(v_delete->'private.reimport_name_completion_result') p);
+  DELETE FROM private.reimport_event t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'private.reimport_event') p);
+  DELETE FROM private.reimport_case_event t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'private.reimport_case_event') p);
+  DELETE FROM private.legacy_placement_disposition t WHERE (t.person_id,t.source_id,t.version) IN (SELECT (p->>'person_id')::bigint,(p->>'source_id')::bigint,(p->>'version')::integer FROM jsonb_array_elements(v_delete->'private.legacy_placement_disposition') p);
+  DELETE FROM private.source_persona_identity_candidate t WHERE t.id IN (SELECT (p->>'id')::uuid FROM jsonb_array_elements(v_delete->'private.source_persona_identity_candidate') p);
+  DELETE FROM private.source_persona_identity_event t WHERE t.id IN (SELECT (p->>'id')::uuid FROM jsonb_array_elements(v_delete->'private.source_persona_identity_event') p);
+  DELETE FROM private.source_persona_identity t WHERE t.source_persona_id IN (SELECT (p->>'source_persona_id')::uuid FROM jsonb_array_elements(v_delete->'private.source_persona_identity') p);
+  -- Fase 2m / Q7: version n+1, ingen genbrug af gamle event-id’er.
+  FOR v_persona IN SELECT (p->>'source_persona_id')::uuid
+    FROM jsonb_array_elements(v_delete->'private.source_persona_identity') p ORDER BY 1 LOOP
+    PERFORM private.decide_source_persona_identity(v_persona,NULL,0,'rejected','{"reason":"not_a_person"}'::jsonb,'person_purge');
+    v_personas:=v_personas+1;
+  END LOOP;
+  -- Fase 3a-3d: bryd publiceringens FK-cirkel før event-/binding-sletning.
+  UPDATE private.narrative_legacy_publication t SET latest_event_id=NULL WHERE t.legacy_publication_ref IN (SELECT (p->>'legacy_publication_ref')::uuid FROM jsonb_array_elements(v_delete->'private.narrative_legacy_publication') p);
+  DELETE FROM private.narrative_publication_event t WHERE t.id IN (SELECT (p->>'id')::uuid FROM jsonb_array_elements(v_delete->'private.narrative_publication_event') p);
+  DELETE FROM private.narrative_legacy_publication t WHERE t.legacy_publication_ref IN (SELECT (p->>'legacy_publication_ref')::uuid FROM jsonb_array_elements(v_delete->'private.narrative_legacy_publication') p);
+  DELETE FROM private.narrative_record_publication t WHERE t.id IN (SELECT (p->>'id')::uuid FROM jsonb_array_elements(v_delete->'private.narrative_record_publication') p);
+  -- Fase 4: børn eksplicit før forældre; alle id’er kommer fra det manifesterede sæt.
+  DELETE FROM public.feed_pin t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'feed_pin') p);
+  DELETE FROM public.bookmark t WHERE t.id IN (SELECT (p->>'id')::uuid FROM jsonb_array_elements(v_delete->'bookmark') p);
+  DELETE FROM public.suggestion t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'suggestion') p);
+  DELETE FROM private.entity_description_source t WHERE (t.description_id,t.source_record_id) IN (SELECT (p->>'description_id')::bigint,(p->>'source_record_id')::uuid FROM jsonb_array_elements(v_delete->'private.entity_description_source') p);
+  DELETE FROM public.entity_description t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'entity_description') p);
+  DELETE FROM public.story_kilde t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'story_kilde') p);
+  DELETE FROM public.story t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'story') p);
+  -- Fase 5: alle slettede hændelser før andre hændelsers løsnede ankre.
+  DELETE FROM public.haendelse t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'haendelse') p);
+  UPDATE public.haendelse t SET
+    fact_id=CASE WHEN (p.ekstra->>'fact_id')::boolean THEN NULL ELSE t.fact_id END,
+    relation_id=CASE WHEN (p.ekstra->>'relation_id')::boolean THEN NULL ELSE t.relation_id END
+  FROM jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text,ekstra jsonb)
+  WHERE p.tabel='haendelse' AND p.handling='loesn' AND t.id=(p.pk->>'id')::bigint;
+  -- S31: FK SET NULL løser story-ankrene i fase 5-8; ingen andre kolonner ændres.
+  -- Fase 6: korrektionsjournalen før assertion (FK); citation → conclusion → assertion.
+  DELETE FROM public.paastand_korrektion t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'paastand_korrektion') p);
+  DELETE FROM public.citation t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'citation') p);
+  DELETE FROM public.conclusion t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'conclusion') p);
+  DELETE FROM public.assertion t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'assertion') p);
+  DELETE FROM public.import_korrektion t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'import_korrektion') p);
+  DELETE FROM public.note t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'note') p);
+  -- Fase 7-8: tekst-mentions fjernes af tekstens egne triggere; relation før fact.
+  DELETE FROM public.narrative t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'narrative') p);
+  DELETE FROM public.relation t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'relation') p);
+  DELETE FROM public.fact t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'fact') p);
+  -- Fase 9: indholdsadresserede stier uden person-id, før medier/varianter slettes.
+  INSERT INTO private.person_purge_udbakke(bucket,sti)
+  SELECT DISTINCT p.ekstra->>'bucket',p.ekstra->>'storage_path'
+    FROM jsonb_to_recordset(v_plan) p(tabel text,handling text,ekstra jsonb)
+    WHERE p.handling='slet' AND p.tabel IN ('media','media_variant') AND p.ekstra->>'storage_path' IS NOT NULL
+    ON CONFLICT(bucket,sti) DO NOTHING;
+  -- Antal unikke stier i denne sletning, også hvis en sti allerede ventede i udbakken.
+  SELECT count(*) INTO v_storage FROM (SELECT DISTINCT p.ekstra->>'bucket',p.ekstra->>'storage_path'
+    FROM jsonb_to_recordset(v_plan) p(tabel text,handling text,ekstra jsonb)
+    WHERE p.handling='slet' AND p.tabel IN ('media','media_variant') AND p.ekstra->>'storage_path' IS NOT NULL) paths;
+  DELETE FROM public.media_variant t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'media_variant') p);
+  DELETE FROM public.media t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'media') p);
+  -- Fase 10: external-id/conclusion-regen før karantænen. Profiler beholder brugerkontoen (R15).
+  UPDATE public.profiles t SET reventlow_person_id=NULL
+    WHERE t.id IN (SELECT (p.pk->>'id')::uuid FROM jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text)
+      WHERE p.tabel='profiles' AND p.handling='nulstil');
+  DELETE FROM public.person_external_id t WHERE (t.person_id,t.source_id) IN (SELECT (p->>'person_id')::bigint,(p->>'source_id')::bigint FROM jsonb_array_elements(v_delete->'person_external_id') p);
+  DELETE FROM public.family_member t WHERE (t.family_id,t.person_id,t.rolle) IN (SELECT (p->>'family_id')::bigint,(p->>'person_id')::bigint,(p->>'rolle')::text FROM jsonb_array_elements(v_delete->'family_member') p);
+  DELETE FROM public.family t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'family') p);
+  DELETE FROM public.person_slaegt_membership t WHERE (t.person_id,t.slaegt_id) IN (SELECT (p->>'person_id')::bigint,(p->>'slaegt_id')::bigint FROM jsonb_array_elements(v_delete->'person_slaegt_membership') p);
+  DELETE FROM public.person_lineage_membership t WHERE (t.person_id,t.lineage_id) IN (SELECT (p->>'person_id')::bigint,(p->>'lineage_id')::bigint FROM jsonb_array_elements(v_delete->'person_lineage_membership') p);
+  DELETE FROM public.slaegtsnavn_karantaene t WHERE t.person_id IN (SELECT (p->>'person_id')::bigint FROM jsonb_array_elements(v_delete->'slaegtsnavn_karantaene') p);
+  -- Fase 11-13: person og dernæst historik. Ét DELETE af sæt håndterer self-FK ved statement-slut.
+  DELETE FROM private.person_create_receipt t WHERE t.person_id IN (SELECT (p->>'person_id')::bigint FROM jsonb_array_elements(v_delete->'private.person_create_receipt') p);
+  DELETE FROM public.person t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'person') p);
+  DELETE FROM public.change_event t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'change_event') p);
+  DELETE FROM public.change_set t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'change_set') p);
+
+  -- Forløb 7a: ingen slettet række tilbage. Indekseret PK-join; S10 sammenligner også det GAMLE mål,
+  -- fordi den nye, afviste state-række bevidst har samme persona-PK. Manifestet er stadig til stede.
+  FOR r IN SELECT DISTINCT p.tabel FROM jsonb_to_recordset(v_plan) p(tabel text,handling text) WHERE p.handling='slet' LOOP
+    v_schema:=CASE WHEN r.tabel LIKE 'private.%' THEN 'private' ELSE 'public' END;
+    v_table:=CASE WHEN r.tabel LIKE 'private.%' THEN substring(r.tabel FROM 9) ELSE r.tabel END;
+    SELECT string_agg(format('t.%1$I=k.%1$I',a.attname),' AND ' ORDER BY u.ord) INTO v_pk_pred
+      FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY u(attnum,ord)
+      JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=u.attnum
+      WHERE c.conrelid=to_regclass(format('%I.%I',v_schema,v_table)) AND c.contype='p';
+    IF v_pk_pred IS NULL THEN RAISE EXCEPTION 'PURGE_REST: %',r.tabel; END IF;
+    EXECUTE format('SELECT EXISTS(SELECT 1 FROM jsonb_array_elements($1->$2) d
+      CROSS JOIN LATERAL jsonb_populate_record(NULL::%I.%I,d) k
+      JOIN %I.%I t ON %s WHERE to_jsonb(t) @> d)',v_schema,v_table,v_schema,v_table,v_pk_pred)
+      INTO v_rest USING v_delete,r.tabel;
+    IF v_rest THEN RAISE EXCEPTION 'PURGE_REST: %',r.tabel; END IF;
+  END LOOP;
+  SELECT coalesce(jsonb_agg(jsonb_build_object('typ',tabel,'id',(pk->>'id')::bigint)),'[]'::jsonb) INTO v_deleted
+    FROM private.person_purge_manifest WHERE xid=pg_current_xact_id() AND backend_pid=pg_backend_pid()
+      AND tabel IN ('person','family','fact','relation','media');
+  -- Forløb 7b: INVENTARETS polymorfe kolonnepar, ikke blot P. Også en sen række på et slettet fact/relation/family/media.
+  -- Tilladte historiske/id-rester er navngivet: S11c, S23b, S41b, S43b, S45b, S46, S48,
+  -- S49c, S50, NY-C, S57 ligger i evidence/arrays/tekst eller bogens lag, ikke i levende polymorfe ender.
+  -- S32c og S39c peger på BEVAREDE familier. S52b er den eneste eksplicitte undtagelse nedenfor:
+  -- bevarede change_set må stadig have subjekt_type=person, subjekt_id=P (kun historisk id).
+  FOR r IN
+    WITH cols AS MATERIALIZED (SELECT DISTINCT i.tabel,c FROM private.person_purge_inventar() i CROSS JOIN LATERAL unnest(i.kolonner) c)
+    SELECT DISTINCT ON (i.tabel,c.c) i.sted,i.tabel,c.c AS type_col,regexp_replace(c.c,'_type$','_id') AS id_col
+      FROM private.person_purge_inventar() i JOIN cols c ON c.tabel=i.tabel
+      WHERE c.c ~ '_type$' AND EXISTS (SELECT 1 FROM cols k WHERE k.tabel=c.tabel AND k.c=regexp_replace(c.c,'_type$','_id'))
+      ORDER BY i.tabel,c.c,i.sted COLLATE "C"
+  LOOP
+    v_schema:=CASE WHEN r.tabel LIKE 'private.%' THEN 'private' ELSE 'public' END;
+    v_table:=CASE WHEN r.tabel LIKE 'private.%' THEN substring(r.tabel FROM 9) ELSE r.tabel END;
+    EXECUTE format('SELECT EXISTS(SELECT 1 FROM %I.%I t JOIN jsonb_to_recordset($1) d(typ text,id bigint)
+      ON lower(t.%I)=d.typ AND t.%I=d.id %s)',v_schema,v_table,r.type_col,r.id_col,
+      CASE WHEN r.tabel='change_set' THEN 'WHERE NOT (d.typ=''person'' AND d.id=$2)' ELSE '' END)
+      INTO v_rest USING v_deleted,p_person_id;
+    IF v_rest THEN RAISE EXCEPTION 'PURGE_REST: %',r.sted; END IF;
+  END LOOP;
+  -- Den krævede EFTER-kontrol er en ny beregning; hash/manifest ovenfor genbrugte kun FØR-beregningen.
+  -- plan-wrapperen materialiserer historik én gang, så begge tjek dækkes uden et separat historikkald.
+  -- Restvindue: tekstskrivere låser ikke linkmål; et link kan stadig committe efter EFTER-kontrollen.
+  SELECT p.sted,p.handling,CASE WHEN p.sted IN ('S20','NY-A') THEN 'anden_paastand'
+      WHEN p.sted IN ('S39b','S39f','S49d') THEN 'anden_promotion' ELSE 'link_i_tekst' END
+    INTO v_sted,v_handling,v_art
+    FROM private.person_purge_plan(p_person_id) p WHERE p.handling IN ('slet','blokér')
+    ORDER BY (p.handling='blokér') DESC,p.sted COLLATE "C" LIMIT 1;
+  IF FOUND THEN
+    IF v_handling='blokér' THEN RAISE EXCEPTION 'PURGE_BLOKERET: %',v_art; END IF;
+    RAISE EXCEPTION 'PURGE_REST: %',v_sted;
+  END IF;
+  DELETE FROM private.person_purge_manifest WHERE xid=pg_current_xact_id() AND backend_pid=pg_backend_pid();
+  RETURN jsonb_build_object('slettet',p_person_id,'storage_antal',v_storage,'personas_afvist',v_personas);
+END
+$purge_execute$;
+REVOKE ALL ON FUNCTION public.red_slet_person_helt(bigint,text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_slet_person_helt(bigint,text) TO authenticated;
+
+-- Task 9 (review P2): kun KLIKBARE tokens, med læserens afgrænsning (packages/core/src/mentions.ts parseNarrativ):
+-- label frem til første uescapede ]]; \<tegn> er ét escapet par; et uafsluttet hoved er rå tekst, og et hoved inde i en
+-- label er ikke et link. parse_mentions (text_mention-indekset) genkender kun hovedet og ændres ikke her.
+CREATE OR REPLACE FUNCTION private.parse_mentions_klikbare(p_tekst text)
+RETURNS TABLE(maal_type text, maal_id bigint) LANGUAGE sql IMMUTABLE SET search_path = pg_catalog AS $$
+  SELECT m[1] AS maal_type, m[2]::bigint AS maal_id
+  FROM regexp_matches(
+    coalesce(p_tekst,''),
+    '\[\[(person|estate|place|organisation|source|coat_of_arms|family|historical_event|media|lineage):(0|[1-9][0-9]*)\|(?:\\.|[^\\\]]|\](?!\]))*\]\]',
+    'g'
+  ) AS m;
+$$;
+REVOKE ALL ON FUNCTION private.parse_mentions_klikbare(text) FROM PUBLIC,anon,authenticated,service_role;
