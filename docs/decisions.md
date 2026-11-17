@@ -2,7 +2,31 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
-## NOTERET: Emeke, Henrik og Claus (1939-10/11/12) bærer Hartvigs tekst, åben backlog (2026-11-16)
+## BESLUTTET: 1939-teksterne til Emeke, Henrik, Claus og Iven bindes ikke; kendt begrænsning (2026-11-17)
+
+> Lukker backloggen fra 2026-11-16 nedenfor. Projektejeren valgte at lukke sagen efter en læse-kun måling i prod
+> 2026-11-17. Ingen prod-ændring.
+>
+> - **Læserne ser intet forkert.** 598 (Iven) og 603 (Henrik) er trukket tilbage (`legacy_withdrawn`, 6d-2b). 602
+>   (Emeke) og 604 (Claus) har hverken legacy-publicering eller record-binding, så biografigaten
+>   (`person_daa_narrative_publication_allowed`) afviser dem. Det gælder også, hvis 933/935 publiceres fra Sammenlign,
+>   for `red_publicer_personer` ændrer kun `person.staged`. Backloggens skridt 1 (træk 602/604 tilbage) har derfor
+>   intet at virke på. Alle fire er linket med `samme_som` og vises med 2018-20's tekst: 929 → Iwan (44), 933 → Emeke
+>   (43), 934 → Hinrich (2), 935 → Nicolaus (13).
+> - **Binding kræver hele kæden.** Henriks (`record-e63debca…`) og Ivens (`record-9db9004f…`) egne poster er hele og
+>   ubundne, men den generelle writer (`red_upsert_person_narrative_record`) afviser dem med
+>   `NARRATIVE_RECORD_IDENTITY_REQUIRED`: posterne har klausuler, men ingen persona, identitet eller placement. Dosos
+>   (930) post har heller ingen placement; den blev bundet ved kontrakt-cutover 2026-09-06 (`existing_exact_binding`),
+>   og den vej findes ikke længere. En binding ville kræve en ceremoni gennem 6b's, 6c-1's og 6d-1's writere for to
+>   tekster.
+> - **Claus' post er afkortet.** `record-c0e8f5ad…` slutter »… og var da Vidner Hr. Henrik«. Resten, »Reventlow og
+>   Otto Reventlow. — Sønner: IV C.«, ligger i hullet mellem posterne (tegn 8464-8542 i Calamari-teksten). Det er en
+>   grænsefejl som Emekes, og der findes ingen writer, der flytter grænser (decisions 2026-11-10).
+> - **Kendt begrænsning:** de fire personer har ingen egen 1939-tekst. Volrads publicerede tekst 601 bærer fortsat
+>   Emekes sætning, som bogen trykker i Volrads post. Vision'en gør det ikke til et mål at gøre 1939 internt perfekt,
+>   og roadmappet parkerer nye 1939-undtagelser. Genåbnes kun, hvis en grænsemekanisme bygges af andre grunde.
+
+## LUKKET 2026-11-17 (se ovenfor): Emeke, Henrik og Claus (1939-10/11/12) bærer Hartvigs tekst, åben backlog (2026-11-16)
 
 > Fundet under afstemningen af 1939 og 2018-20 (`reviews/match-1939-2018-20-2026-11-16.md`). Projektejeren valgte
 > at parkere rettelsen. Læserne er ikke berørt: posterne er staged, og de forkerte tekster er aldrig publiceret.

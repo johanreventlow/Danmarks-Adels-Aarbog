@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-17 — 1939-teksterne til Emeke, Henrik, Claus og Iven lukket som kendt begrænsning
+
+Afstemningen 1939 ↔ afdøde i 2018-20 er afsluttet: Sammenlign-listen for 1939 har 0 åbne. Backloggen om Hartvigs
+tekst på 1939-10/11/12 er lukket uden prod-ændring (`decisions.md` 2026-11-17). Læserne ser ingen forkert tekst.
+En binding af Henriks og Ivens egne poster ville kræve hele kæden (persona, identitet og placement), og Claus' og
+Emekes tekster kræver en grænsemekanisme, der ikke findes.
+
 ## 2026-11-16 — 1939-opfølgning: 6 oversete personer fundet i 2018-20
 
 Margrethe (1853) manglede forældre. Det afslørede, at listen over 1939-personer »uden modpart« i 2018-20 var
