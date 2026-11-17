@@ -1,7 +1,8 @@
 # Delspec — persona for en helpost uden tekst; Henrik og Iven (1939) får deres egen tekst
 
 **Status:** **godkendt af projektejeren 2026-11-17** efter brainstorm og bygherre-tjek (§10). Projektejerens
-afgørelser står i §3; mine valg er markeret *mit valg*.
+afgørelser står i §3; mine valg er markeret *mit valg*. **Revideret 2026-11-17 efter Task 0 (§9) og Codex-runde 1
+med Opus-dom (§10)**; projektejeren godkendte den brede spærring (§4.5), 944's oversigtsomtale (§8) og rettelserne.
 **Arv:** decisions 2026-11-17 (backlog 1: Henrik og Iven bindes til deres egne poster), decisions 2026-11-10 (6d-2b:
 598 og 603 trukket tilbage, fordi teksterne var andres), 6b (`2026-10-31-trin6b-identitet-design.md` §4.2: elementoperationen
 `publication_persona`), 6d-1 (`2026-11-08-trin6d-placement-relationer-medlemskab-design.md` §5.3: placements), 6d-2a
@@ -99,12 +100,17 @@ Pr. element (én helpost):
   `record_key`, indholds-id som 6b. **Ingen identitet.** Hændelsen gemmer målpersonen i `canonical_person_id` og en
   kvittering.
 - **Køen:** personaen venter ikke på 6b's kontrol, men venter på identitetsafgørelsen i §4.2. Bygherren sikrer, at
-  personaen ikke kan afgøres i webkøen mod en anden person end kortets, mellem persona- og identitetsskrivningen. Det
-  sker enten ved at skrive begge i samme ceremonitransaktion eller med en vagt.
+  personaen ikke kan afgøres i webkøen mod en anden person end kortets, mellem persona- og identitetsskrivningen.
+  **Afgjort (Task 0 trin 5):** begge skrives i samme ceremonitransaktion; ingen vagt. `red_source_persona_queue` viser
+  ellers personaen som `proposed` (`persona_awaiting_control` er falsk).
 - **Følgeændringer i den fælles writer:** hændelsens `operation`-CHECK, authorize' og finalize' tællenøgler og
-  elementprefix, samt fortrydelsens operationsliste. En selektiv fortrydelse af operationen er *ikke* et krav (*mit
-  valg*, som 6d-3): fortrydelse sker ved restore inden for vinduet (§6). Kalder en generel fortrydelse en batch med
-  operationen, skal den stoppe med en eksplicit fejl.
+  elementprefix samt `red_reimport_batch_result`'s lukkede lister (nøgler, antal, prefix, operation). En selektiv
+  fortrydelse af operationen er *ikke* et krav (*mit valg*, som 6d-3): fortrydelse sker ved restore inden for vinduet
+  (§6). De generelle fortrydelser afviser allerede en batch med operationen med `REIMPORT_WRITER_REVERSAL_INVALID`
+  (`red_reverse_reimport` kræver en aktiveret batch med navnefuldendelses-barn; `red_reverse_reimport_publication`
+  kun `publication_identity`); det testes, uden kodeændring.
+- **Profil:** `daa-1939-publication-v1` bærer operationen (`persona_key_prefix` `1939:`, helpost-slags `person`); ingen
+  ny profilrække (Task 0 trin 5).
 - **Opgraderingstest:** CHECK- og signaturændringerne testes mod en base bygget fra prods skema før DDL'en (memory
   `signaturaendring-kraever-opgraderingstest`).
 
@@ -122,22 +128,36 @@ den forkerte, tilbagetrukne tekst til sammenligning. Kortarkets form følger mem
 af bygherren efter 6d-1's regler og afgøres af projektejeren på kortet. Overskriftsvalidatoren
 (`placement_header_violations(3)`) skal give 0 efter skrivningen.
 
-- **Ledger:** legacy-rækkerne for 929 og 934 får en ny version `mapped` med den nye placement gennem den eksisterende
-  ledgerfunktion, hvis 6d-1's regel tillader det; ellers registreres grunden.
-- **Medlemskab og B6 (*mit valg*, efter bygherre-tjekket):** `red_promote_placement_memberships` (`schema.sql:3124`)
-  virker på hele kilden og kan ikke begrænses til to personer. Task 0 kører forhåndsvisningen på en stand-in. Rammer
-  den præcis 929 og 934 uden konflikt, køres den i ceremonien. Rammer den andre personer eller fejler den (fx
-  `PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE`), springes medlemskab over, og grunden noteres i kvitteringen og i
-  `decisions.md`. Medlemskab er ikke en forudsætning for tekstbindingen, og ceremonien må ikke vokse ud over de to
-  poster (§3 pkt. 3).
+**Forslag på kortet (Task 0 trin 1):** begge entry 57, `header_observation_id` = linjeoverskriften »Den holstenske
+Linje.«, intet trykt nummer, `evidence.basis = 'human_sheet'`.
+
+| | Henrik (934) | Iven (929) |
+|---|---|---|
+| `header_ids` | linje, slægtled »III.« | linje, kuld »Hr. Hartvig Reventlows Søn:« |
+| `human_header_levels` | ingen | `["slaegtled"]` |
+| `section_path` | `{header:21,header:2490}` | `{header:21,header:8514}` |
+| slægtled / kuld | 3, »III« / ingen | 4, »IV A« / `Hr-Hartvig-Reventlows-Søn` |
+
+»Til samme Generation, ikke Brødre, hørte:« er ikke en overskriftsobservation; Henrik står derfor under »III.« som
+Volrad. »IV A.« findes heller ikke som observation (den ligger i hullet efter Claus' afkortede post), så Ivens
+slægtled er menneskeangivet som i 43 andre 1939-placements.
+
+- **Ledger:** legacy-rækkerne for 929 og 934 får version 2, `mapped`, med den nye placement gennem
+  `private.record_legacy_disposition` (målt på stand-in).
+- **Medlemskab (revideret efter Codex r1 fund 6):** `red_promote_placement_memberships` (`schema.sql:3124`) virker på
+  hele kilden. **Medlemskab er obligatorisk:** rammer forhåndsvisningens `eligible`-mængde ikke præcis 929 og 934,
+  stopper ceremonien uden at skrive. Grund: uden medlemskab for 929 bliver 944's oversigtsomtale stående ved siden af
+  Ivens fulde tekst (to 1939-tekster i komponenten). Målt på stand-in: 528 `already_current`, og præcis 929 og 934
+  bliver `eligible`; komponenterne [2,934] og [44,929,944] bliver `corroborated` uden dublet.
 - **Revalidering:** ingen. Posterne har ingen publiceringer.
 
 ### 4.4 Kladden (eksisterende writer)
 
 `red_upsert_person_narrative_record(person, 3, record_key, tekst, false, expected_state_sha256)` som redaktør (memory
-`rpc-rollegate-kraever-jwt-claim-sub`). Teksten er bogpostens `verbatim_text`, foldet med samme regel som 1939's
-øvrige tekstfoldning (`private.relation_fold_raw_text` eller 6d-3's profilfoldning; bygherren vælger og dokumenterer).
-Sidemarkøren fjernes. **Ingen OCR-rettelser i ceremonien:** dem laver projektejeren i redaktøren. Status efter
+`rpc-rollegate-kraever-jwt-claim-sub`); `app.change_set_id` nulstilles før hvert kald. Teksten er
+`btrim((private.relation_fold_raw_text(<postens accepterede occurrence>.verbatim_text)).folded)` (6d-3's
+profilfoldning; Task 0 trin 4): orddelinger, linjeskift og sidemarkør fjernes. Det svarer til de publicerede 1939-tekster
+(foldet post uden løbenummer; posterne har intet). **Ingen OCR-rettelser i ceremonien:** dem laver projektejeren i redaktøren. Status efter
 ceremonien: `draft`. Publiceringen er projektejerens egen handling i redaktøren, uden for ceremonien.
 
 ### 4.5 To narrativrækker pr. person og kilde
@@ -146,7 +166,21 @@ Kladden opretter en ny narrativrække. 598 og 603 består som tilbagetrukne lega
 koden, at biografilæseren, oversigtsreglen (6d-2a), udgavevælgeren (6e-1), redaktørens narrativliste og
 publiceringshistorikken tåler to rækker for samme person og kilde. Det skal også afgøres, hvad der sker, hvis nogen
 fortryder `legacy_withdrawn` på 598 eller 603, efter at den nye tekst er publiceret: to 1939-tekster ville da være
-synlige. Bygherren afgør, om fortrydelsen skal spærres, eller om det dokumenteres som en kendt redaktørhandling.
+synlige.
+
+**Målt (Task 0 trin 3):** læserne v1/v2, redaktørens liste (nøgle `sourceId:recordKey`, legacy for sig) og historikken
+tåler to rækker; klienterne viser hver række som egen version, så databasen er vagten. Fortrydelsen af
+`legacy_withdrawn` gav to synlige 1939-tekster i begge rækkefølger (før og efter publiceringen), og Codex r1 fandt en
+tredje vej (publicér → tilbagetræk den nye → fortryd legacy → fortryd tilbagetrækningen af den nye).
+
+**Afgjort (projektejeren 2026-11-17): bred spærring.** `private.reverse_narrative_publication_event` afviser
+fortrydelse af en `legacy_withdrawn`-hændelse med `NARRATIVE_LEGACY_RECORD_BINDING_EXISTS`, når personen har en
+narrativ i samme kilde med en record-binding **i enhver status** (en tilbagetrukket eller kasseret binding beholder
+sin række). Tjekket er en selvstændig sætning efter funktionens `LOCK TABLE public.change_set` (samme egenskab som
+149b's `NARRATIVE_LEGACY_MIGRATION_BINDING_ACTIVE`). `red_person_narrative_publication_history`'s
+`reversal_blocking_reason` får en tilsvarende arm, så fladen ikke tilbyder en knap, RPC'en afviser. Følge: 598/603's
+tilbagetrækning er permanent efter ceremonien (kun restore eller en senere bevidst ændring). I prod rammer det i dag
+kun 929 og 934 (1791 og 1795 har ingen record-binding).
 
 ## 5. Ikke-mål og anti-mål
 
@@ -167,11 +201,16 @@ synlige. Bygherren afgør, om fortrydelsen skal spærres, eller om det dokumente
 Som 6d-2a i mindre skala: privat runner, dump før hver skrivende ceremoni (B1 + `age`-kopi), frys, vinduesvagt, GO pr.
 ceremoni, fortryd ved restore, generalprøve fra operatørens cwd på en stand-in fra en frisk prod-dump-kopi.
 
-- **DDL-ceremoni:** operationen fra §4.1, `db-rls.sql`-grants og opgraderingstesten, i én transaktion.
+- **DDL-ceremoni:** operationen fra §4.1, spærringen fra §4.5, `db-rls.sql`-grants og opgraderingstesten, i én
+  transaktion. Fortryd-DDL anvender `db-rls.sql` fra basecommit (den nye nævner funktioner, restoren fjerner);
+  fortryd-data den nye; begge sha-bindes i GO.
 - **Dataceremoni** (efter projektejerens kortsvar): authorize og apply af de to persona-elementer, finalize,
-  identiteter, placements, ledger og medlemskab, og de to kladder, i én transaktion. Pinnes på indhold: record keys,
-  mention-id'er og -hashes, person-id'er og kortarkets sha, aldrig id'er oprettet af ceremonien (memory
-  `pin-indhold-ikke-ceremoniens-id`). Ceremonien efterlader en kvittering.
+  identiteter, placements, ledger og medlemskab, og de to kladder, i én transaktion. **Ethvert `N` eller ugyldigt svar
+  stopper hele ceremonien før authorize** (ingen delvis skrivning). Efter finalize og før første identitet tager
+  ceremonien `LOCK TABLE public.change_set IN ACCESS EXCLUSIVE MODE` (kodens orden record → audit → person; en
+  resterende låsecyklus ender i 40P01 med fuld rollback). Pinnes på indhold: record keys, mention-id'er og -hashes,
+  person-id'er og kortarkets sha, aldrig id'er oprettet af ceremonien (memory `pin-indhold-ikke-ceremoniens-id`).
+  Ceremonien efterlader en kvittering.
 - **Efter ceremonien:** projektejeren retter og publicerer de to kladder i redaktøren. Den publicering er ikke en del
   af fortrydelsesvinduet.
 - **Mål før og efter:** `narrative_publication_state` for begge poster (fra `missing_identity` til `eligible`),
@@ -187,13 +226,19 @@ hvordan identitetsvinduet (§4.1, Køen) lukkes; testopdelingen; runnerens form.
 ## 8. Færdigbevis
 
 - **Kæden:** Henriks og Ivens poster har hver én persona, en accepteret identitet (934 og 929), en accepteret record-
-  og persona-placement og en kladde. `narrative_publication_state` er `eligible` med `accepted_identity`.
+  og persona-placement, et gældende linje- og slægtsmedlemskab og en kladde. `narrative_publication_state` er
+  `eligible` med `accepted_identity` umiddelbart før kladden og `existing_exact_binding` efter; personaens accepterede
+  identitet peger stadig på kortets person.
 - **Redaktøren:** begge poster står i redaktørens liste med kladden. Projektejeren kan rette og publicere dem.
 - **Efter projektejerens publicering:** anon ser 1939-teksten på Hinrichs (2) og Iwans (44) side som 1939-udgaven med
-  »DAA 1939, s. 498-499« og »s. 499«. 598 og 603 er stadig `withdrawn`.
-- **Uberørte:** de øvrige 1939-publiceringer (565 synlige), 2018-20's paritetshashes og 6d-1's 528 placements er
-  uændrede. 0 personer med to synlige 1939-tekster.
-- **Placement:** `placement_header_violations(3)=0`.
+  »DAA 1939, s. 9-10« og »DAA 1939, s. 10« (bogens trykte sidetal, som alle 1939-citater; Volrad på samme PDF-side har
+  »s. 9«). 598 og 603 er stadig `withdrawn`, og fortrydelsen af deres tilbagetrækning afvises.
+- **Synlige 1939-tekster:** 565 + 2 − 1. 944's korte omtale (narrativ 613, s. 91) bliver oversigtsomtale med detalje
+  929 og vises ikke længere på Iwans side (6d-2a-reglen; godkendt af projektejeren 2026-11-17). Narrativet består.
+- **Uberørte:** de øvrige 1939-publiceringer, `KOORD_2018_20`, `FAKTA`, 2018-20's paritetshashes og 6d-1's 528
+  placements er uændrede; `KOORD_SRC` ændres kun for 929 og 934 (fra gamle nr. 6/11 til placementen). 0 personer med
+  to synlige 1939-tekster.
+- **Placement:** `placement_header_violations(3)=0`; `placement_human_header_levels(3)` = 103.
 
 ## 9. Task 0 (måling før planen låses)
 
@@ -204,6 +249,18 @@ hvordan identitetsvinduet (§4.1, Køen) lukkes; testopdelingen; runnerens form.
 3. §4.5's læsere og fortrydelsen af `legacy_withdrawn`, målt mod koden og på en stand-in.
 4. Foldningsfunktionens resultat på de to poster (vises på kortet).
 5. Om `red_source_persona_queue` viser en persona fra den nye operation, og hvordan identitetsvinduet lukkes.
+
+### 9.1 Resultat (2026-11-17, stand-in fra frisk prod-læsedump, sha256 `64ceddaa…`)
+
+1. Placement: se §4.3's tabel. Prøveplacering gav `placement_header_violations(3)=0`.
+2. Ledger: version 2 `mapped` for begge. Medlemskab: præcis 929 og 934 `eligible` (528 `already_current`); promovering
+   gav 2; komponenterne `corroborated`.
+3. Læsere: tåler to rækker. Fortrydelsen gav to synlige tekster → spærring (§4.5). Citat: »s. 9-10«/»s. 10« (§8).
+   Ceremonien ændrer kun `KOORD_SRC` (`KOORD_2018_20`, `FAKTA`, `BIO` og oversigtsreglen uændrede); publiceringen
+   ændrer `BIO` og oversigtsreglen (13 → 14: 944).
+4. Foldning: `relation_fold_raw_text` + `btrim` (§4.4): Henrik 1.170 → 1.146 tegn, Iven 1.124 → 1.113.
+5. Køen viser en persona uden identitet som `proposed`; vinduet lukkes af én transaktion (§4.1). Profilen
+   `daa-1939-publication-v1` bærer operationen.
 
 ## 10. Reviewlog
 
@@ -221,4 +278,23 @@ Specens påstande er efterprøvet mod `schema.sql` og `web/` og holder:
 - Redaktøren åbnes på det rå person-id, så 929/934 kan nås uden webændringer.
 
 Ét betinget spørgsmål: hvad hvis medlemskabspromoveringen rammer andre end de to? Afgjort som *mit valg* i §4.3
-(spring medlemskab over og notér grunden), fordi projektejeren har afgrænset ceremonien til de to poster.
+(spring medlemskab over og notér grunden), fordi projektejeren har afgrænset ceremonien til de to poster. *Omgjort
+efter Codex r1 fund 6: medlemskab er obligatorisk.*
+
+### Codex-runde 1 (`gpt-6.1-sol`, spec+plan+Task 0) med Opus-dom (2026-11-17)
+
+11 fund, alle faktuelt korrekte; Opus dømte (projektejeren godkendte dommen):
+
+| # | Fund | Dom | Rettelse |
+|---|---|---|---|
+| 1 | Spærring kun ved `draft|published` lader veje stå åbne | nødvendig | Bred spærring (§4.5) |
+| 2 | `red_reimport_batch_result` mangler; fortrydelse | nødvendig + forenkl | Med i registreringen; eksisterende `REVERSAL_INVALID` testes (§4.1) |
+| 3 | `expected_counts` mangler obligatoriske nøgler | forenkl | `{"person_creates":0,"source_evidence":0,"record_personas":n}` |
+| 4 | Isolation for spærringen | afvis | Dækket: tjek efter `change_set`-låsen, READ COMMITTED |
+| 5 | Låseorden/deadlock | forenkl | Auditlås efter finalize, før identitet (§6) |
+| 6 | Valgfrit medlemskab vs. 944 | nødvendig | Obligatorisk medlemskab (§4.3), §8 = +2 −1 |
+| 7 | `N`-svar modstridende | forenkl | Ethvert N stopper hele ceremonien (§6) |
+| 8 | Fortryd-DDL og `db-rls.sql` | forenkl | Basecommits `db-rls.sql` ved fortryd-DDL (§6) |
+| 9 | Opgraderingstestens bevis | forenkl | Base-tjek, CHECK-mængde, sha-liste (plan Task 3) |
+| 10 | `authority_kind` efter kladden | forenkl | §8 skelner før/efter kladden |
+| 11 | To eksterne id'er kan ikke etableres | nødvendig | Test uden id-række i kilden (plan Task 2) |

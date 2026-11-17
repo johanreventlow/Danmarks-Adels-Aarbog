@@ -43,8 +43,9 @@ afvejer hvert fund.
 - **Ingen OCR-rettelser i ceremonien.** Kladden er bogpostens `verbatim_text`, foldet, og sidemarkøren fjernet.
 - **Indholds-id'er:** manifest og ceremoni refererer record keys, mention-id'er og -hashes, person-id'er og kortarkets
   sha, aldrig id'er oprettet af en ceremoni.
-- **Uberørte:** 2018-20's data og koordinater, 6d-1's 528 placements, de 565 synlige 1939-publiceringer, 598 og 603
-  (`withdrawn`), `public_person_facts`, `public_family_sources`.
+- **Uberørte:** 2018-20's data og koordinater, 6d-1's 528 placements, de 565 synlige 1939-publiceringer (efter
+  projektejerens publicering: + 2 − 1, spec §8; 944's omtale bliver oversigtsomtale), 598 og 603 (`withdrawn`),
+  `public_person_facts`, `public_family_sources`.
 - **Tidsbudget:** intet anon-kald mere end 10 % langsommere end før DDL'en (median af 3, samme base).
 - **PII (invariant 8):** 1939-tekst må vises for projektejeren (alle afdøde, memory `work-1939-maa-laeses`). Kort,
   manifest og målinger kun under `~/.private/record-persona/` (0600). Tests bruger opdigtede personer med negative
@@ -60,13 +61,15 @@ afvejer hvert fund.
 1. **Posten får en tekst mellem manifest og ceremoni** (en redaktør opretter en kladde). Writeren skal afvise med
    `RECORD_PERSONA_BINDING_PRESENT`, og ceremonien må intet skrive. Låses af `binding_present` (Task 2) og
    `T_RP_PRE_MANIFEST` (Task 4).
-2. **Kortarkets person passer ikke til forudsætningerne** (levende, to eksterne nøgler, findes ikke). Afvises før
-   skrivning. Låses af `subject_*`-testene (Task 2).
+2. **Kortarkets person passer ikke til forudsætningerne** (levende, ingen ekstern nøgle i kilden, findes ikke).
+   Afvises før skrivning. Låses af `subject_*`-testene (Task 2).
 3. **Ceremonien køres to gange.** Den anden kørsel skal stoppe uden at skrive. Låses af `T_RP_PRE_FASE` (Task 4).
-4. **Nogen fortryder `legacy_withdrawn` på 598/603, efter at den nye tekst er publiceret.** Udfaldet følger Task 0
-   trin 3's afgørelse: spærret med en fejl eller dokumenteret, og i begge tilfælde testet (Task 4 `$to_tekster$`).
-5. **Medlemskabspromoveringen rammer andre end de to.** Ceremonien springer medlemskab over og noterer grunden i
-   kvitteringen. Låses af `$medlemskab_andre$` (Task 4).
+4. **Nogen fortryder `legacy_withdrawn` på 598/603, når personen har (haft) en record-binding i samme kilde.** Afvises
+   med `NARRATIVE_LEGACY_RECORD_BINDING_EXISTS` (spec §4.5, bred spærring). Låses af `$to_tekster$` (Task 2) i tre
+   forløb.
+5. **Medlemskabspromoveringen rammer andre end de to.** Ceremonien stopper uden at skrive (`T_RP_PRE_MEDLEMSKAB`).
+   Låses af `$medlemskab_andre$` (Task 4).
+6. **Et `N` eller ugyldigt svar i svarfilen.** Hele ceremonien stopper før authorize (`T_RP_PRE_SVAR`); intet skrives.
 
 ---
 
@@ -74,27 +77,31 @@ afvejer hvert fund.
 
 Noter, tider, kort og manifest i `~/.private/record-persona/` (0600). Stand-in fra en frisk prod-`dump-kopi`.
 
-- [ ] **Trin 1 (spec §9.1):** 6d-1's regel for entry, overskriftsobservation, `section_path`, slægtled og kuld anvendt
+**Udført 2026-11-17** (resultat: spec §9.1; noter `~/.private/record-persona/task0-noter.md`; stand-in
+`daa5ab_ddl_standin_20261117165851_rp0`, eksperimenter rp1/rp2). Kortark `kort.html`, manifest `kortmanifest.jsonl`
+(sha256 `20b4a68d…`), svarfil `kort-svar.txt` (tjek: `python3 -I tjek_svar.py`). **Udestår:** projektejerens kortsvar.
+
+- [x] **Trin 1 (spec §9.1):** 6d-1's regel for entry, overskriftsobservation, `section_path`, slægtled og kuld anvendt
   på de to poster. Afgør, om »Til samme Generation, ikke Brødre, hørte:« er en overskriftsobservation; ellers foreslå
   nærmeste slægtledsoverskrift. Resultat: ét forslag pr. post til kortet.
-- [ ] **Trin 2 (spec §9.2):** ledgerfunktionens krav (`mapped` for 929/934) og `red_promote_placement_memberships(3,
+- [x] **Trin 2 (spec §9.2):** ledgerfunktionens krav (`mapped` for 929/934) og `red_promote_placement_memberships(3,
   …)`'s forhåndsvisning på stand-in'en efter en prøveplacering. Notér, om den rammer præcis 929 og 934 uden fejl.
-- [ ] **Trin 3 (spec §4.5):** biografilæserne (web v2 og mobilens v1), oversigtsreglen, udgavevælgeren (6e-1),
+- [x] **Trin 3 (spec §4.5):** biografilæserne (web v2 og mobilens v1), oversigtsreglen, udgavevælgeren (6e-1),
   `red_person_narrative_records` og publiceringshistorikken med to kilde-3-narrativrækker pr. person. Afgør og notér:
   spærres fortrydelsen af `legacy_withdrawn` (598/603), når personen har en aktiv record-binding i samme kilde, eller
   dokumenteres den? Spærring kræver en ændring i `private.reverse_narrative_publication_event`, som så føjes til
-  Task 2's filer.
-- [ ] **Trin 4 (spec §9.4):** foldningsfunktionen (`private.relation_fold_raw_text` eller 6d-3's profilfoldning) på de
+  Task 2's filer. **Afgjort:** bred spærring (spec §4.5), i Task 2.
+- [x] **Trin 4 (spec §9.4):** foldningsfunktionen (`private.relation_fold_raw_text` eller 6d-3's profilfoldning) på de
   to `verbatim_text`. Resultatet går på kortet.
-- [ ] **Trin 5 (spec §9.5):** om `red_source_persona_queue` viser en `record_persona`-persona uden identitet, og om
+- [x] **Trin 5 (spec §9.5):** om `red_source_persona_queue` viser en `record_persona`-persona uden identitet, og om
   profilen `daa-1939-publication-v1` kan bære operationen (`persona_key_prefix` = `1939:`). Ellers seedes en ny
   profilrække i Task 1.
-- [ ] **Trin 6:** kortark (HTML efter memory `kortark-kraever-kontekst-html`, token-fil efter
+- [x] **Trin 6:** kortark (HTML efter memory `kortark-kraever-kontekst-html`, token-fil efter
   `menneske-gennemgang-token-fil`): pr. post sidebillede, bogtekst, foldet kladde, personens 1939-fakta, linket til
   2018-20, den tilbagetrukne tekst og placementforslaget. Projektejeren svarer J/N pr. linje (identitet) og
   godkender eller retter placementen. Manifest (kanonisk JSON pr. linje: record key, mention-id, mention-tekst-sha,
   person-id, placementværdier, foldet teksts sha) hashes; svarfilen refererer manifestets sha.
-- [ ] **Trin 7:** Codex-runde (`gpt-6.1-sol`) på spec+plan; Opus afvejer; ret spec/plan efter projektejerens ja.
+- [x] **Trin 7:** Codex-runde (`gpt-6.1-sol`) på spec+plan; Opus afvejer; ret spec/plan efter projektejerens ja.
 
 ### Task 1: Registrering af operationen
 
@@ -104,21 +111,26 @@ Noter, tider, kort og manifest i `~/.private/record-persona/` (0600). Stand-in f
   - `private.validate_reimport_authorization_payload`: `expected_counts`-nøglen `record_personas`, prefixet
     `record-persona:`, tællingen pr. prefix, og den tilladte nøglemængde udvides med én;
   - `public.red_finalize_reimport`: én `CASE`-arm efter mønstret for `publication_persona`;
-  - `public.red_reverse_reimport` (`:5791`): en batch med `record_persona`-hændelser afvises med
-    `RECORD_PERSONA_REVERSAL_UNSUPPORTED` (spec §4.1: fortryd ved restore);
-  - profilrækken, kun hvis Task 0 trin 5 kræver det.
+  - `public.red_reimport_batch_result` (`:5523-5556`): de lukkede lister (tællenøgle, antal nøgler op til 13, prefix
+    `record-persona:`, `operation IN (…)`), som 6b udvidede dem;
+  - **ingen** ændring af `red_reverse_reimport`: den kræver en aktiveret batch med navnefuldendelses-barn, og
+    `red_reverse_reimport_publication` kun `publication_identity`; begge afviser allerede med
+    `REIMPORT_WRITER_REVERSAL_INVALID` (spec §4.1);
+  - ingen profilrække (Task 0 trin 5: `daa-1939-publication-v1` bærer operationen).
 - Modify: `db-migrations.sql` (den nye blok).
 - Create: `tests/sql/test-record-persona-registration.sql`.
 - Modify: `.github/workflows/ci.yml`: kør testen efter `schema.sql` og efter `db-migrations.sql` (to gange).
 
 **Interfaces:**
-- Produces: operationen `record_persona` kan autoriseres med `{"record_personas":n}` og elementer
-  `record-persona:<record_key>` og finaliseres; den generelle fortrydelse afviser den.
+- Produces: operationen `record_persona` kan autoriseres med
+  `{"person_creates":0,"source_evidence":0,"record_personas":n}` og elementer `record-persona:<record_key>`,
+  finaliseres og aflæses med `red_reimport_batch_result`; de generelle fortrydelser afviser den.
 
 - [ ] **Step 1: Skriv testen** (`BEGIN … ROLLBACK`): autorisation med 2 elementer lykkes; én for mange eller forkert
   prefix → `REIMPORT_WRITER_AUTHORIZATION_INVALID`; finalize med 2 events og `record_personas:2` lykkes, med 1
-  forventet → `REIMPORT_WRITER_FINALIZE_COUNT_MISMATCH`; `red_reverse_reimport` på batchen →
-  `RECORD_PERSONA_REVERSAL_UNSUPPORTED`; eksisterende profilers `profile_sha256` uændrede (hårdkodet fra `main`).
+  forventet → `REIMPORT_WRITER_FINALIZE_COUNT_MISMATCH`; `red_reimport_batch_result` på den finaliserede batch giver
+  `status='finalized'` og `record_personas=2`; `red_reverse_reimport` og `red_reverse_reimport_publication` på batchen
+  → `REIMPORT_WRITER_REVERSAL_INVALID`; eksisterende profilers `profile_sha256` uændrede (hårdkodet fra `main`).
 - [ ] **Step 2:** Kør mod `schema.sql`. Forventet: fejl.
 - [ ] **Step 3: Implementér.**
 - [ ] **Step 4:** Kør mod frisk `schema.sql` og mod `db-migrations.sql` kørt to gange. Forventet: `OK`.
@@ -130,8 +142,13 @@ Noter, tider, kort og manifest i `~/.private/record-persona/` (0600). Stand-in f
 - Modify: `schema.sql`: `private.write_record_persona(p_batch_id uuid, p_element_id text, p_payload jsonb) RETURNS
   jsonb` og `public.red_apply_reimport_record_persona(uuid, text, jsonb) RETURNS jsonb` efter
   `write_publication_persona` (`:18180`); REVOKE/GRANT som `red_apply_reimport_publication_persona`.
-- Modify: `db-verify.sql` (wrapperen i `v_authenticated`-listen), `db-rls.sql` hvis grants står der,
-  `db-migrations.sql`.
+- Modify: `schema.sql`: **spærringen (spec §4.5)** i `private.reverse_narrative_publication_event` (`:16412`): for
+  `event_type='legacy_withdrawn'`, som selvstændig sætning efter `LOCK TABLE public.change_set` (`:16488`), afvis med
+  `NARRATIVE_LEGACY_RECORD_BINDING_EXISTS`, når personen (`v_person_id`) har en narrativ i `v_target.source_id` med en
+  række i `private.narrative_record_publication` (enhver status); og en tilsvarende arm i `reversal_blocking_reason` i
+  `public.red_person_narrative_publication_history` (`:15836-15842`, 149b-mønstret).
+- Modify: `db-verify.sql` (wrapperen i `v_authenticated`-listen), `db-rls.sql` (REVOKE/GRANT og fladevagtens
+  `red_surface_expected`, `:1635`), `db-migrations.sql`.
 - Create: `tests/sql/test-record-persona.sql`, `tests/integration/test-record-persona-concurrency.R` (mønster
   `test-publication-persona-concurrency.R`).
 - Modify: `.github/workflows/ci.yml`.
@@ -158,25 +175,37 @@ Rækkefølge som `write_publication_persona` (spec §4.1), med disse forskelle: 
   - `binding_present`: en `draft`-binding, en `published`-binding → `RECORD_PERSONA_BINDING_PRESENT`; kun en
     `withdrawn`-binding → lykkes;
   - `mention_drift`, `helpost_ambiguous` → `RECORD_PERSONA_MENTION_DRIFT` / 6a's kode;
-  - `subject_levende`, `subject_two_external_ids`, `subject_missing` → `RECORD_PERSONA_SUBJECT_INVALID`;
+  - `subject_levende`, `subject_no_external_id` (0 rækker i kilden, én i en anden kilde), `subject_missing` →
+    `RECORD_PERSONA_SUBJECT_INVALID` (to rækker i samme kilde kan ikke etableres: PK `(person_id, source_id)`);
   - `persona_exists`: en persona med mention i helposten → `RECORD_PERSONA_EXISTS`;
   - `payload_invalid`: manglende `sheet_sha256`, ekstra nøgle, forkert prefix → `RECORD_PERSONA_PAYLOAD_INVALID`;
   - `not_awaiting_control`: `private.persona_awaiting_control(persona)` er `false`, og
     `red_afgoer_source_persona(…,'same',…,{basis:'human_sheet',…})` lykkes bagefter;
   - `full_chain`: authorize → begin → apply → finalize med `record_personas` = 2; replay giver `already_applied`;
-  - samtidighed (R): to batches med samme record; den anden fejler med `RECORD_PERSONA_EXISTS`.
+  - samtidighed (R): to batches med samme record; den anden fejler med `RECORD_PERSONA_EXISTS`;
+  - `$to_tekster$` (spærringen; opdigtet person med `legacy_withdrawn` og en record-post) i tre forløb, alle stoppet
+    ved fortrydelsen af legacy med `NARRATIVE_LEGACY_RECORD_BINDING_EXISTS`: (a) kladde → publicér → fortryd legacy;
+    (b) kladde → kassér → fortryd legacy; (c) publicér → tilbagetræk → fortryd legacy. Efter hvert: v1 og v2 som anon
+    giver én eller nul tekster for kilden; historikkens `reversal_blocking_reason` er sat for legacy-hændelsen. Uden
+    record-binding kan legacy stadig fortrydes (kontrol).
 - [ ] **Step 2:** Kør. Forventet: fejl.
 - [ ] **Step 3: Implementér.**
 - [ ] **Step 4:** Kør testene og `db-verify.sql`. Forventet: `OK`.
-- [ ] **Step 5:** Commit `feat(db): writer-operationen record_persona — persona på helpost uden tekst`.
+- [ ] **Step 5:** To commits: `feat(db): writer-operationen record_persona — persona på helpost uden tekst` og
+  `feat(db): spær fortrydelse af legacy_withdrawn ved record-binding i samme kilde` (spærringen og `$to_tekster$`).
 
 ### Task 3: Opgraderingstest og hele CI lokalt
 
 **Files:** Create `tests/sql/test-record-persona-upgrade.sh` (kopi af `tests/sql/test-6e2-upgrade.sh`).
 
-- [ ] **Step 1:** Byg fra `git merge-base origin/main HEAD`, kør nye `db-migrations.sql` + `db-rls.sql` to gange,
-  assert at Task 1-2's funktioner har `schema.sql`'s kroppe (`pg_get_functiondef`-sha) og ACL, kør Task 1-2's
-  testfiler og `run-db-verify-disposable.sql`, slut med `echo UPGRADE_OK`.
+- [ ] **Step 1:** Byg fra `git merge-base origin/main HEAD` (tjek origin/main for SQL-ændringer før prod, memory
+  `parallel-db-aendring-ugyldiggoer-generalproeve`). Base-tjek (som `test-6e2-upgrade.sh:46-52`): basens
+  `reimport_event_operation_check` mangler `record_persona`, og wrapperen findes ikke, ellers `UPGRADE_BASE_INVALID`.
+  Kør nye `db-migrations.sql` + `db-rls.sql` to gange; assert CHECK-mængden = basens ∪ {`record_persona`}; assert at
+  validator, finalize, `red_reimport_batch_result`, writer, wrapper, `reverse_narrative_publication_event` og
+  `red_person_narrative_publication_history` har `schema.sql`'s kroppe (`pg_get_functiondef`-sha) og ACL; kør Task
+  1-2's testfiler og `run-db-verify-disposable.sql`; også frisk `schema.sql` efterfulgt af migrationen; slut med
+  `echo UPGRADE_OK`.
 - [ ] **Step 2:** Kør den. Forventet: `UPGRADE_OK`.
 - [ ] **Step 3:** Hele CI-jobbet lokalt (alle PostgreSQL-jobs, python, R, node med `tsc --noEmit`); tjek exit-koder
   (memory `koer-hele-ci-jobbet-lokalt`). Forventet: grønt.
@@ -200,20 +229,24 @@ Rækkefølge som `write_publication_persona` (spec §4.1), med disse forskelle: 
 - `maal_record_persona.sql` printer én linje: `T_RP_MAAL fase=<foer|ddl|data> personas=<n> identiteter=<n>
   placements=<n> kladder=<n> eligible=<n> header_violations=<n> synlige_1939=<n> KOORD_2018_20=<md5> KOORD_SRC=<md5>
   FAKTA=<md5> BIO=<md5>`, regnet for de manifest-nævnte record keys (`-v` variabler, ingen nøgler i scriptet).
-- Ceremonien: én transaktion; førtilstanden efterprøves under lås mod manifestet (mention-sha, ingen aktiv binding,
-  ingen persona, legacy-status for 598/603) → ellers `T_RP_PRE_MANIFEST`; svarfilens sha → ellers `T_RP_PRE_SHA`;
-  allerede kørt → `T_RP_PRE_FASE`. Rækkefølge: authorize/begin/apply/finalize (2 elementer) → identiteter → placements
-  → ledger → medlemskab (kun hvis forhåndsvisningen rammer præcis manifestets personer; ellers springes over med
-  grund) → kladder sidst. `app.change_set_id` nulstilles mellem kaldene. POST: `eligible=2`, `kladder=2`,
-  `header_violations=0`, `FAKTA`, `BIO`, `KOORD_2018_20` og `synlige_1939` uændrede. Kvittering `T_RP_OK personas=2
-  identiteter=2 placements=2 kladder=2 medlemskab=<skrevet|sprunget:<grund>>` som change_set-/auditpost.
+- Ceremonien: én transaktion; svarfilen skal have præcis én `J` pr. linje i manifestet (ethvert `N`, manglende eller
+  dobbelt svar → `T_RP_PRE_SVAR`, før authorize; intet skrives); svarfilens sha → ellers `T_RP_PRE_SHA`; førtilstanden
+  efterprøves under lås mod manifestet (mention-sha, ingen binding på posten, ingen persona, legacy-status `withdrawn`
+  for 598/603) → ellers `T_RP_PRE_MANIFEST`; allerede kørt → `T_RP_PRE_FASE`. Rækkefølge: authorize/begin/apply/
+  finalize (2 elementer) → `LOCK TABLE public.change_set IN ACCESS EXCLUSIVE MODE` → identiteter → placements (værdier
+  fra manifestet, spec §4.3; `evidence.basis='human_sheet'`) → ledger (`record_legacy_disposition` → `mapped`) →
+  medlemskab (forhåndsvisningens `eligible`-mængde skal være præcis manifestets personer, ellers
+  `T_RP_PRE_MEDLEMSKAB` og alt rulles tilbage) → `narrative_publication_state` = `accepted_identity` for begge →
+  kladder sidst (tekst = `btrim(relation_fold_raw_text(occurrence).folded)`, sha mod manifestets `foldet_sha256`).
+  `app.change_set_id` nulstilles før hvert narrativkald. POST: `eligible=2` (`existing_exact_binding`), `kladder=2`,
+  `header_violations=0`, `FAKTA`, `BIO`, `KOORD_2018_20` og `synlige_1939` uændrede (publiceringen sker først senere).
+  Kvittering `T_RP_OK personas=2 identiteter=2 placements=2 medlemskab=2 kladder=2` som change_set-/auditpost.
 
 - [ ] **Step 1: Fejlende tests** på en lokal base med opdigtede poster og personer: `J` på begge → kvittering og
-  `eligible=2`; et `N` → intet skrevet for den linje; forkert svar-sha → `T_RP_PRE_SHA`; en kladde oprettet efter
-  manifestet → `T_RP_PRE_MANIFEST`; gentaget kørsel → `T_RP_PRE_FASE`; `$medlemskab_andre$`: forhåndsvisningen rammer
-  en tredje person → medlemskab sprunget over, kvitteringen siger det; `$to_tekster$`: efter en simuleret publicering
-  af kladden giver fortrydelse af den gamle `legacy_withdrawn` Task 0 trin 3's udfald; målescriptets format
-  (`test_maal_record_persona.py`).
+  `eligible=2`; et `N` → intet skrevet overhovedet (`T_RP_PRE_SVAR`); manglende/dobbelt svar → `T_RP_PRE_SVAR`;
+  forkert svar-sha → `T_RP_PRE_SHA`; en kladde oprettet efter manifestet → `T_RP_PRE_MANIFEST`; gentaget kørsel →
+  `T_RP_PRE_FASE`; `$medlemskab_andre$`: forhåndsvisningen rammer en tredje person → `T_RP_PRE_MEDLEMSKAB`, intet
+  skrevet; hver skrevet identitet matcher sin manifestlinjes person; målescriptets format (`test_maal_record_persona.py`).
 - [ ] **Step 2-4:** Kør (fejl) → implementér → grønne.
 - [ ] **Step 5:** Commit `feat(data): dataceremoni og målescript for record_persona`.
 
@@ -226,7 +259,8 @@ Rækkefølge som `write_publication_persona` (spec §4.1), med disse forskelle: 
 - Create: `docs/runbooks/record-persona-prod.md`.
 
 - [ ] **Step 1: Runner:** GO binder sha over DDL-blokken, ceremoni-SQL, målescript, manifest, svar, runner og
-  vinduesvagt samt commit. Dump + ekstern kopi med efterprøvet sha før hver `apply-*`. Vinduesvagten: præcist tilladt
+  vinduesvagt samt commit, og over begge `db-rls.sql`-versioner: basecommits (fortryd-DDL, memory
+  `fortryd-ddl-rls-foer-grenen`) og grenens (fortryd-data). Dump + ekstern kopi med efterprøvet sha før hver `apply-*`. Vinduesvagten: præcist tilladt
   write-set pr. ceremoni. `anon` måler tidsbudgettets kald mod baseline (fejl over +10 %).
 - [ ] **Step 2: Runbook:** `maal → anon → dump → dump-kopi → go-ddl → apply-ddl → maal → anon → dump → dump-kopi →
   go-data → apply-data → verify → anon`; stoppunkter; fortryd under meldt frys. Efter `verify`: projektejeren retter
@@ -234,7 +268,8 @@ Rækkefølge som `write_publication_persona` (spec §4.1), med disse forskelle: 
 - [ ] **Step 3: Generalprøve** fra operatørens cwd (memory `oev-fra-operatoerens-cwd`) på en stand-in fra en frisk
   prod-`dump-kopi`: hele rækkefølgen; redaktøren viser begge kladder (`red_person_narrative_records(934)` og
   `(929)`); en simuleret publicering som redaktør giver 1939-teksten i biografilæseren som anon på komponenterne
-  934↔2 og 929↔44, og 598/603 vises ikke; fortryd-data og fortryd-DDL på en anden stand-in.
+  934↔2 og 929↔44, 598/603 vises ikke, fortrydelse af deres `legacy_withdrawn` afvises, og 944's omtale udelades som
+  oversigtsomtale (synlige 1939 = før + 2 − 1); fortryd-data og fortryd-DDL på en anden stand-in.
 - [ ] **Step 4: Negativer:** forkert GO, manglende flag, gentaget `apply-data`, ændret svarfil.
 - [ ] **Step 5:** Commit `docs(runbook): record_persona i prod` (runneren committes ikke).
 
