@@ -693,6 +693,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-source-text-revision.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-publication-registration.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-record-persona-registration.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-record-persona.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-publication-persona.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-persona-awaiting-control.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-publication-control.sql
@@ -702,6 +703,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-proposal-rerun.sql
           Rscript tests/integration/test-source-text-revision-concurrency.R
           Rscript tests/integration/test-publication-persona-concurrency.R
+          Rscript tests/integration/test-record-persona-concurrency.R
           Rscript tests/integration/test-publication-identity-concurrency.R
           # Trin 6c-3a: genbrug af ægtefælle-persona serialiseret pr. kilde (to sessioner via dblink; committer, derfor her).
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-relation-persona-reuse-lock.sql
@@ -717,6 +719,9 @@ jobs:
       - name: Record-persona-operation SQL
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-record-persona-registration.sql
+      - name: Record-persona-writer SQL
+        env: {PGPASSWORD: postgres}
+        run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-record-persona.sql
       - name: Publication-persona SQL (trin 6b)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-publication-persona.sql

@@ -2952,6 +2952,7 @@ DECLARE
     'public.red_apply_reimport_interpretation_proposal(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_relation_persona(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_publication_persona(uuid,text,jsonb)'::regprocedure,
+    'public.red_apply_reimport_record_persona(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_publication_identity(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_relation_person_create(uuid,text,jsonb)'::regprocedure,
     'public.red_apply_reimport_relation_disposition(uuid,text,jsonb)'::regprocedure,
