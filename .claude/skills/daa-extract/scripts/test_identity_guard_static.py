@@ -191,3 +191,12 @@ def test_cutover_staar_foer_foerste_saetning():
     for sig in ("public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)",
                 "public.red_afgoer_source_persona(uuid,integer,text,bigint,text)"):
         assert f"REVOKE ALL ON FUNCTION {sig} FROM PUBLIC,anon,authenticated,service_role" in blok.group(0), sig
+
+
+def test_person_purge_udbakke_er_ikke_identitetsskrivere():
+    # Task 12: læsning / kvittering af bytes, ingen ny oprindelse i identitetskernen.
+    for navn in ("schema.sql", "db-migrations.sql"):
+        s = _tekst(navn)
+        for fn in ("red_person_purge_udbakke", "red_person_purge_udbakke_kvitter"):
+            assert re.search(r"FUNCTION\s+public\." + fn + r"\(", s), (navn, fn)
+            assert not any(kalder == fn for kalder, _, _, _ in kernekald(s)), (navn, fn)

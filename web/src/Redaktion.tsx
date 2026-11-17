@@ -39,6 +39,9 @@ import {
 } from './data/mediaDedup';
 import { executeMediaMerge, fetchMediaMergeRelationEvidence, findMediaMergeCandidates, mediaMentionFingerprint, sortMediaForQueue } from './data/mediaMerge';
 import { executeUdrens } from './data/mediaUdrens';
+import { executeSletHelt, purgeStorage } from './data/personPurge';
+import { SletHeltDialog } from './components/SletHeltDialog';
+import { PersonPurgeUdbakke } from './components/PersonPurgeUdbakke';
 import { withUrl, fetchMediaFakta, type MediaFakta } from './data/media';
 import { supabase } from './supabase';
 import { buildBrowse } from './data/browse';
@@ -319,6 +322,8 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   const [addingNyFelt, setAddingNyFelt] = useState<{ pid: string; felt: string } | null>(null);
   const [scratch, setScratch] = useState<Record<string, string>>({});
 
+  const [purgePerson, setPurgePerson] = useState<{ id: string; navn: string } | null>(null);
+  const [purgeRevision, setPurgeRevision] = useState(0);
   const [confirmDel, setConfirmDel] = useState<{ id: string; label: string; preview: SletPreview | null; ack: boolean } | null>(null);
   const [writeView, setWriteView] = useState<{ title: string; lines: string[]; error: string; done: boolean; dryRun: boolean; direkte: boolean } | null>(null);
 
@@ -938,6 +943,17 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
           </>
         )}
       </div>
+      {purgePerson && role === 'redaktion' && <SletHeltDialog key={purgePerson.id}
+        personId={purgePerson.id} navn={purgePerson.navn} dryRun={dryRun}
+        execute={(opts) => executeSletHelt({ ...opts, role }, { ...purgeStorage, submit: submitChange })}
+        onClose={() => setPurgePerson(null)} onDeleted={() => {
+          setPersons((ps) => ps.filter((p) => p.id !== purgePerson.id));
+          setKvRows((rs) => rs.filter((r) => r.personId !== purgePerson.id));
+          setRecordId((id) => id === purgePerson.id ? null : id);
+          // Tøm også »hentet«-markeringen, ellers genhentes tidligere besøgte entitetslister aldrig (Codex-review P2).
+          setRecCache({}); fetchedRef.current.clear(); setPurgeRevision((n) => n + 1);
+          loadModel({ collapse: false }).then(setModel).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
+        }} />}
       {renderConfirmModal()}
       {renderWriteModal()}
       {renderPicker()}
@@ -1003,6 +1019,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
             </div>
           );
         })}
+        {role === 'redaktion' && <PersonPurgeUdbakke dryRun={dryRun} role={role} revision={purgeRevision} />}
       </div>
     );
   }
@@ -1251,6 +1268,8 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
             <div onClick={() => requestDelete(p.id, p.navn)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: T.surfaceRaised, border: '1.5px solid rgba(138,43,43,.3)', borderRadius: 8, padding: '6px 11px', cursor: 'pointer' }}>
               <span style={{ fontSize: 13, color: T.danger }}>🗑</span><span style={{ fontSize: 13, fontWeight: 600, color: T.danger }}>Slet person</span>
             </div>
+            {role === 'redaktion' && <button type="button" onClick={() => setPurgePerson({ id: p.id, navn: p.navn })}
+              style={{ color: T.danger, border: `1px solid ${T.danger}`, borderRadius: 8, padding: '6px 11px', background: T.surfaceRaised }}>Slet helt</button>}
           </div>
         </div>
 

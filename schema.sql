@@ -23880,3 +23880,26 @@ RETURNS TABLE(maal_type text, maal_id bigint) LANGUAGE sql IMMUTABLE SET search_
   ) AS m;
 $$;
 REVOKE ALL ON FUNCTION private.parse_mentions_klikbare(text) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Fuld personsletning (2026-11-14), Task 12: privat udbakke, uden personreference.
+CREATE OR REPLACE FUNCTION public.red_person_purge_udbakke()
+RETURNS TABLE(bucket text,sti text,oprettet timestamptz)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_outbox$
+BEGIN
+  IF public.current_rolle() IS DISTINCT FROM 'redaktion' OR auth.uid() IS NULL THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  RETURN QUERY SELECT u.bucket,u.sti,u.oprettet FROM private.person_purge_udbakke u
+    ORDER BY u.oprettet,u.bucket COLLATE "C",u.sti COLLATE "C";
+END
+$purge_outbox$;
+REVOKE ALL ON FUNCTION public.red_person_purge_udbakke() FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_person_purge_udbakke() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.red_person_purge_udbakke_kvitter(p_bucket text,p_sti text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_outbox_ack$
+BEGIN
+  IF public.current_rolle() IS DISTINCT FROM 'redaktion' OR auth.uid() IS NULL THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  DELETE FROM private.person_purge_udbakke u WHERE u.bucket=p_bucket AND u.sti=p_sti;
+END
+$purge_outbox_ack$;
+REVOKE ALL ON FUNCTION public.red_person_purge_udbakke_kvitter(text,text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_person_purge_udbakke_kvitter(text,text) TO authenticated;

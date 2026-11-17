@@ -764,6 +764,8 @@ BEGIN
     'public.red_slet_person_preview(bigint)',
     'public.red_slet_person_helt(bigint,text)',
     'public.red_slet_person_helt_preview(bigint)',
+    'public.red_person_purge_udbakke()',
+    'public.red_person_purge_udbakke_kvitter(text,text)',
     'public.red_slet_relation(bigint)',
     'public.red_slet_story(bigint)',
     'public.red_source_persona_detail(uuid)',
@@ -1783,3 +1785,9 @@ GRANT EXECUTE ON FUNCTION public.red_slet_person_helt(bigint,text) TO authentica
 REVOKE ALL ON FUNCTION private.person_purge_plan_fra_historik(bigint,jsonb),
   private.person_purge_preview_fra_plan(bigint,jsonb),private.person_purge_laasemaengder(bigint)
   FROM PUBLIC,anon,authenticated,service_role;
+
+-- Fuld personsletning (2026-11-14), Task 12: authenticated-facader, intern rollegate.
+REVOKE ALL ON FUNCTION public.red_person_purge_udbakke(),public.red_person_purge_udbakke_kvitter(text,text)
+  FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_person_purge_udbakke(),public.red_person_purge_udbakke_kvitter(text,text)
+  TO authenticated;
