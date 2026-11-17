@@ -40802,3 +40802,28 @@ END
 $purge_execute$;
 REVOKE ALL ON FUNCTION public.red_slet_person_helt(bigint,text) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.red_slet_person_helt(bigint,text) TO authenticated;
+
+-- Fuld personsletning (2026-11-14), 8a-opfølgning: red_suggest er ikke et eksistens-orakel for skjulte mål.
+CREATE OR REPLACE FUNCTION red_suggest(
+  p_art text, p_subjekt_type text, p_subjekt_id bigint, p_felt text, p_vaerdi text,
+  p_kilde_fritekst text DEFAULT NULL, p_payload jsonb DEFAULT '{}'::jsonb, p_note text DEFAULT NULL)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Login kræves for forslag'; END IF;
+  -- Personsletning (8a-opfølgning): eksistensvagten på suggestion må ikke blive et orakel. En ikke-redaktør får
+  -- samme fejl for et skjult og et ikke-eksisterende person-/familiemål, før INSERT når vagten.
+  -- family_offentlig er true for en familie uden medlemmer; derfor kræves eksistens eksplicit.
+  IF current_rolle() IS DISTINCT FROM 'redaktion' AND (
+       (lower(p_subjekt_type)='person' AND NOT public.person_offentlig(p_subjekt_id))
+    OR (lower(p_subjekt_type)='family' AND (NOT EXISTS (SELECT 1 FROM public.family WHERE id=p_subjekt_id)
+                                            OR NOT public.family_offentlig(p_subjekt_id)))) THEN
+    RAISE EXCEPTION 'FORSLAG_SUBJEKT_UTILGAENGELIGT';
+  END IF;
+  INSERT INTO suggestion(forslagsstiller, art, subjekt_type, subjekt_id, felt, vaerdi,
+                         kilde_fritekst, payload, note)
+    VALUES (auth.uid(), p_art, p_subjekt_type, p_subjekt_id, p_felt, p_vaerdi,
+            p_kilde_fritekst, coalesce(p_payload,'{}'::jsonb), p_note)
+    RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
