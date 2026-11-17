@@ -16,7 +16,7 @@ KERNE = "private.decide_source_persona_identity("
 # Trin 6b: publication_binding (spec §4.3.1; decisions 2026-10-31). Kalderne write_publication_identity (Task 6) og
 # red_reverse_reimport_publication (Task 7, reversal) står i ALLOWLIST (ledger-ruling R2).
 OPRINDELSER = ("human", "person_create", "legacy_match", "reversal", "family_corroboration", "relation_person_create",
-               "publication_binding")
+               "publication_binding", "person_purge")
 CUTOVER = re.compile(r"-- BEGIN 5a-cutover.*?-- END 5a-cutover", re.S)
 # Eksakt allowlist (fil, omsluttende funktion, oprindelse) -> antal kald. Målt 2026-09-24.
 # En ny kalder kræver en ændring her OG en beslutning (spec §4.2) — aldrig bare en ny linje.
@@ -49,6 +49,10 @@ ALLOWLIST = {
     # Trin 6b Task 7: fortrydelsen af C (superseded gennem reversal-oprindelsen, med versionsvagt).
     ("schema.sql", "red_reverse_reimport_publication", "reversal"): 1,
     ("db-migrations.sql", "red_reverse_reimport_publication", "reversal"): 1,
+    # Fuld personsletning (decisions 2026-11-14; spec Q7): P's personas afvises som not_a_person, version n+1,
+    # med oprindelsen person_purge. Eneste kalder er red_slet_person_helt (Task 8b).
+    ("schema.sql", "red_slet_person_helt", "person_purge"): 1,
+    ("db-migrations.sql", "red_slet_person_helt", "person_purge"): 1,
 }
 
 

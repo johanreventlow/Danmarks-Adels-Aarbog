@@ -395,6 +395,8 @@ test_that("direct narrative mutation sources remain an exact closed inventory", 
     "private.reverse_narrative_publication_event(uuid,text)",
     "private.write_reimport_case_narrative(bigint,bigint,bigint,text,boolean,text)",
     "public.red_slet_person(bigint)",
+    # Fuld personsletning (decisions 2026-11-14): sletter P's narrativer efter manifestet, uden ny historik.
+    "public.red_slet_person_helt(bigint,text)",
     "public.red_upsert_narrativ(text,bigint,text,boolean,bigint,text)"
   ))
   for (path in c("schema.sql", "db-migrations.sql")) {
