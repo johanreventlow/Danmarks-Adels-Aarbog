@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import {
-  beregnKandidatPar, buildArbejdsliste, byggLinketTil, byggMatchetMed, matcherSoegning, pairKey, scorePersonPar,
+  beregnKandidatPar, buildArbejdsliste, byggLinketTil, byggMatchetMed, matcherSoegning, pairKey, sammeSomRetning, scorePersonPar,
 } from '../sammenlign';
 import { buildMatchFrame, defaultCfg, type MatchFrame, type RedMatchPerson, type ScoredPair } from '@daa/core';
 
@@ -173,6 +173,15 @@ describe('A3: afvisninger og 1:1-tildelingen skjuler ikke de næstbedste forslag
     expect([...m.entries()].sort()).toEqual([['A1', 'B1'], ['A2', 'B2']]);
   });
 
+  test('byggLinketTil følger en kæde gennem samme udgave (1939-oversigtspost → 1939-stamtavle → 2018-20)', () => {
+    // Som 1939-91 (1014) → 1939-125 (1048) → I-97 (134): 1014 er afklaret, selv om det direkte link er inden for 1939.
+    const m = byggLinketTil(
+      [{ aId: 'A1', bId: 'A2' }, { aId: 'A2', bId: 'B1' }, { aId: 'A3', bId: 'A4' }],
+      new Set(['A1', 'A2', 'A3', 'A4']),
+    );
+    expect([...m.entries()].sort()).toEqual([['A1', 'B1'], ['A2', 'B1']]);
+  });
+
   test('byggMatchetMed peger fra kandidaten til personen i den nye udgave, begge retninger', () => {
     const m = byggMatchetMed(
       [{ aId: 'A1', bId: 'B1' }, { aId: 'B2', bId: 'A2' }, { aId: 'B3', bId: 'B4' }],
@@ -240,5 +249,21 @@ describe('A1: Find modpart', () => {
     expect(p.deathKendt).toBe(false);
     expect(p.score).toBeGreaterThan(0);
     expect(p.score).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('sammeSomRetning', () => {
+  const aar = new Map<string, number | null>([['a39', 1939], ['b18', 2018], ['ukendt', null]]);
+  const udgaveAar = (id: string) => aar.get(id) ?? null;
+
+  test('den ældre udgaves person er alias, uanset hvilken side redaktøren står på', () => {
+    expect(sammeSomRetning('b18', 'a39', udgaveAar)).toEqual({ aliasId: 'a39', objektId: 'b18' });
+    expect(sammeSomRetning('a39', 'b18', udgaveAar)).toEqual({ aliasId: 'a39', objektId: 'b18' });
+  });
+
+  test('ukendt eller samme udgave → redaktørens side (a) er alias som før', () => {
+    expect(sammeSomRetning('ukendt', 'a39', udgaveAar)).toEqual({ aliasId: 'ukendt', objektId: 'a39' });
+    expect(sammeSomRetning('b18', 'ukendt', udgaveAar)).toEqual({ aliasId: 'b18', objektId: 'ukendt' });
+    expect(sammeSomRetning('a39', 'a39', udgaveAar)).toEqual({ aliasId: 'a39', objektId: 'a39' });
   });
 });

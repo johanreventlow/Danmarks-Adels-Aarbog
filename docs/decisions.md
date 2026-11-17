@@ -20,6 +20,66 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   først → sletningen lykkes, skriveren får FK-fejl). Den ændrer en global skrivevej og laves som egen opgave med
 >   egen review og låsetest.
 
+## NOTERET: 1939-teksterne til Emeke, Henrik, Claus og Iven — målt, to åbne backlog-punkter (2026-11-17)
+
+> Afløser backloggen fra 2026-11-16 nedenfor efter en læse-kun måling i prod 2026-11-17. Ingen prod-ændring.
+> Projektejeren vil kunne rette alle fire, men ikke nu.
+>
+> - **Læserne ser intet forkert.** 598 (Iven) og 603 (Henrik) er trukket tilbage (`legacy_withdrawn`, 6d-2b). 602
+>   (Emeke) og 604 (Claus) har hverken legacy-publicering eller record-binding, så biografigaten
+>   (`person_daa_narrative_publication_allowed`) afviser dem. Det gælder også, hvis 933/935 publiceres fra Sammenlign,
+>   for `red_publicer_personer` ændrer kun `person.staged`. Backloggens skridt 1 (træk 602/604 tilbage) har derfor
+>   intet at virke på. Alle fire er linket med `samme_som` og vises med 2018-20's tekst: 929 → Iwan (44), 933 → Emeke
+>   (43), 934 → Hinrich (2), 935 → Nicolaus (13). Ingen af dem har i dag en egen 1939-tekst.
+> - **Backlog 1 — Henrik og Iven bindes til deres egne poster (åben, kræver spec).** Henriks (`record-e63debca…`,
+>   s. 498-499) og Ivens (`record-9db9004f…`, s. 499, »Hr. Iven, solgte 1352 …«, ca. 1.100 tegn) poster er hele og
+>   ubundne. Den generelle writer (`red_upsert_person_narrative_record`) afviser dem i dag med
+>   `NARRATIVE_RECORD_IDENTITY_REQUIRED`: posterne har klausuler, men ingen persona, identitet eller placement. Dosos
+>   (930) post har heller ingen placement; den blev bundet ved kontrakt-cutover 2026-09-06 (`existing_exact_binding`),
+>   og den vej findes ikke længere. Bindingen går gennem de eksisterende writere (6b's persona, 6c-1's identitet,
+>   6d-1's placement, derefter teksten) i en lille prod-ceremoni med dump. Ingen ny mekanisme. Roadmap: trin 6,
+>   legacy-afvikling af 6d-2b's tilbagetrækninger.
+>   *Rettet 2026-11-17 (samme dag):* »ingen ny mekanisme« holder ikke. 6b's persona-writer
+>   (`write_publication_persona`) kræver en publiceret binding på posten, og 6d-1 placerede ingen poster uden trykt
+>   løbenummer. Projektejeren valgte vej A: en ny, generel elementoperation for en helpost uden aktiv tekstbinding,
+>   identitet og placement via kortark, og en kladde fra bogposten, som projektejeren selv retter og publicerer.
+>   Spec: `superpowers/specs/2026-11-17-persona-for-post-uden-tekst-design.md`.
+> - **Backlog 2 — manuel grænse- og tekstoverstyring (til overvejelse, ikke besluttet).** Claus' post
+>   (`record-c0e8f5ad…`) er afkortet: den slutter »… og var da Vidner Hr. Henrik«, og resten, »Reventlow og Otto
+>   Reventlow. — Sønner: IV C.«, ligger i hullet mellem posterne (tegn 8464-8542 i Calamari-teksten). Emeke har ingen
+>   egen post; hans sætning står sidst i Volrads post (`record-5248d804…`), hvis publicerede tekst 601 bærer den.
+>   Begge er grænsefejl, og der findes ingen writer, der flytter grænser (decisions 2026-11-10). Projektejeren ønsker,
+>   at det senere overvejes, om redaktøren manuelt kan angive en posts præcise placering i kilden (side og tegnspænd)
+>   og dermed rette en grænse eller give en person en tekst som Emekes. Mekanismen skal bevare den gamle grænse i
+>   historikken, gøre afhængige klausuler, tekster og bindinger forældede på synlig vis og være editionsneutral. Det
+>   er en ny permanent mekanisme og kræver derfor en beslutningspost og roadmappets adgangskrav, før den planlægges.
+>   Den kan også dække de 6 grænsefejl fra 6d-2b (decisions 2026-11-10).
+
+## AFLØST 2026-11-17 (se ovenfor): Emeke, Henrik og Claus (1939-10/11/12) bærer Hartvigs tekst, åben backlog (2026-11-16)
+
+> Fundet under afstemningen af 1939 og 2018-20 (`reviews/match-1939-2018-20-2026-11-16.md`). Projektejeren valgte
+> at parkere rettelsen. Læserne er ikke berørt: posterne er staged, og de forkerte tekster er aldrig publiceret.
+>
+> - **Fejlen:** narrativ 602 (Emeke, 933), 603 (Henrik, 934) og 604 (Claus, 935) indeholder alle slutningen af Hr.
+>   Hartvigs tekst (1939-8, s. 497): »Medgift, staaende i Techelsdorf, nævnes 1353, men var død 1356. Søn: IV A.«.
+>   603 er trukket tilbage (legacy `withdrawn`). 602 og 604 er aldrig publiceret. Personernes fakta (navn, titel,
+>   død) er rigtige.
+> - **Link:** 933 → I-15 og 935 → I-11 (change_set 4426), 934 → I-10. Posterne må ikke publiceres fra Sammenlign,
+>   før de forkerte tekster er væk.
+> - **De rigtige tekster findes i kildelaget** (`private.source_record_occurrence`):
+>   - Claus har sin egen post (s. 499, `phase-a:record-c0e8f5ad…`): »Hr. Claus, var 1320 Foged hos Grev Johan
+>     III …«.
+>   - Henrik har sin egen post (s. 498, `phase-a:record-e63debca…`): »Hr. Henrik, var 1325 Ridder …«.
+>   - Emeke har ingen egen post. Hans sætning »Emeke, nævnes 1338, medbeseglede 1365 Forliget i Kolding …« står
+>     sidst i Hr. Volrads post (s. 498, `phase-a:record-5248d804…`). Det er en grænsefejl som i
+>     `detect_boundary_defects_1939.py`.
+> - **Rettelsen** skal gå gennem tekstbindingskæden (trin 6d), ikke gennem redaktørfladen, og planlægges efter
+>   genimport-dokumenterne:
+>   1. Træk 602 og 604 tilbage.
+>   2. Bind Claus' og Henriks egne poster til 935 og 934.
+>   3. Afgør Emeke: skil sætningen ud af Volrads post, eller lad ham stå uden egen tekst. Volrads publicerede
+>      narrativ 601 bærer i dag også Emekes sætning.
+
 ## BESLUTTET: »Sammenlign udgaver« får fire afgrænsede rettelser som legacy-afvikling, ikke ny matcher (2026-11-15)
 
 > Projektejeren valgte (a) efter et review af `/redaktion/sammenlign`: efter de åbenlyse matches står en rest, hvor
@@ -36,6 +96,28 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > - **Sideeffekt (bevidst):** en person er nu afklaret, så snart den har et `samme_som`-link til den anden side —
 >   uanset om linket er lavet i arbejdslisten, i »Find modpart«, i persondetaljen eller af importkæden. Før talte kun
 >   links til matcherens egne forslag, så tallene på arbejdslisten flytter sig på rigtige data.
+> - **Retning (projektejerens regel, tilføjet samme dag):** den ældre udgaves person foldes altid ind i den nyere, så
+>   den nyeste udgaves profil forbliver synlig — uanset hvilken udgave der er valgt. Før sendte siden den valgte
+>   udgaves person som alias, og standardvalget er den nyeste udgave, så 2018-20-profilen kunne foldes væk
+>   (relation 2751). `red_samme_som` vælger kun selv retning, når data er entydige; for alle 47 par i gennemgangen
+>   15/11 var de ikke. Kan udgaven ikke afgøres for begge personer, gælder den valgte side som før.
+> - **Født efter den ældre udgave (projektejerens regel, 2026-11-16):** en person, der er født efter den anden
+>   udgaves årstal, kan ikke stå i den og er eksklusiv for sin egen udgave. Reglen gælder kun sammenligningen af
+>   1939 og 2018-20. Får andre bøger personer, kan det forholde sig anderledes, så koden gør intet, når flere end
+>   to udgaver har personer og årstal. Reglen tages op igen ved næste bog (fail-open). Det samme gælder personer koblet til
+>   hende som indgiftede ægtefæller uden eget bognummer. De holdes ude af både arbejdslisten og »Find modpart«.
+>   - **Mekanik:** den sker med flaget `udenforMatchning`, som også holder den fynske linje ude, og sættes af den
+>     rene `markerFoedtEfterAndreUdgaver` i `@daa/core`. Det er et forfilter og ingen ændring af matcherens
+>     scoring.
+>   - **Årstallene** kommer fra `source.aar` og er ikke hårdkodet. Et ukendt fødselsår, eller et år med kun en øvre
+>     grænse, udelukker aldrig (fail-open).
+>   - **Ægtefæller** arver flaget efter den eksisterende regel: kun når alle partnere er udelukket. Efter arven
+>     vurderes en indgiftet ægtefælle også på sit eget fødselsår, så en ægtefælle født efter 1939, gift med en fra
+>     før, også holdes ude.
+>   - **Målt på prod 16/11:** 68 personer rammes: 44 født efter 1939, 23 indgiftede ægtefæller til dem og 1
+>     indgiftet ægtefælle, der selv er født efter 1939. Ingen eksisterende `samme_som` berøres. Alle 7 levende
+>     2018-20-personer uden for reglen har et fødselsår før 1940 og kan stå i 1939 som børn.
+>   - **Sideeffekt:** »Find modpart« foreslår heller ikke længere den fynske linje.
 > - **Fravalgt her:** familiesignal, ord-for-ord-navnelighed og bløde årstalsgrænser i matcheren. Det er
 >   matcherudvikling og hører i den fælles identitetsvej (`packages/identity-candidates`), hvis det tages op.
 > - **Færdigbevis:** web-testene dækker de fire tilfælde; projektejeren afprøver resten af listen i preview.

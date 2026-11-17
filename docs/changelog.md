@@ -1,5 +1,51 @@
 # Changelog
 
+## 2026-11-17 — 1939-teksterne til Emeke, Henrik, Claus og Iven målt
+
+Afstemningen 1939 ↔ afdøde i 2018-20 er afsluttet: Sammenlign-listen for 1939 har 0 åbne. Backloggen om Hartvigs
+tekst på 1939-10/11/12 er målt uden prod-ændring (`decisions.md` 2026-11-17). Læserne ser ingen forkert tekst.
+Henriks og Ivens hele poster kan bindes gennem den eksisterende kæde (persona, identitet og placement); det står
+åbent. Claus' afkortede post og Emekes sætning i Volrads post venter på en mulig manuel grænsemekanisme.
+
+## 2026-11-16 — 1939-opfølgning: 6 oversete personer fundet i 2018-20
+
+Margrethe (1853) manglede forældre. Det afslørede, at listen over 1939-personer »uden modpart« i 2018-20 var
+upålidelig, fordi navneformen var en anden (Claus/Nicolaus, Heinrich/Detlef) eller teksten kun var ét ord. Listen er
+gennemgået igen på familie, årstal og sjældne ord i stedet for navne.
+- **change_set 4377:** Margrethe (s. 517, intet bog-nr.) er foldet ind i I-91 og hægtet på Otto og Dorothea.
+- **change_set 4379:** Heinrich f. 1643 (1939-207) er foldet ind i III-57. Kopien 1939-212 er gjort privat.
+- **change_set 4381:** Claus 1939-590 (kanonikat i Slesvig 1348) er foldet ind i I-17.
+- **change_set 4383:** Joachim til Elmenhorst 1939-19 → II-9, Iwen 1939-21 → I-16, »5. (?)« 1939-561 → II-22
+  (hægtet på forældrene).
+- **change_set 4395:** Rensvad Trotte Pedersen var ved en importfejl Henrik 1939-4's ægtefælle og stod derfor på
+  III-10. Han er fjernet fra familien og gjort privat.
+- **change_set 4404:** tvillingen Christiane Benedicte 1939-312, som 2018-20 udelader, står som `omstridt` barn.
+- **change_set 4426:** Emeke 1939-10 → I-15 og Claus 1939-12 → I-11 Nicolaus. Begge bærer stadig 1939-11's forkerte
+  tekst, som aldrig er publiceret.
+- **Sammenlign:** personer født efter 1939 holdes ude af sammenligningen med 1939 (#371). Kæder af link tæller som
+  afklaret (#372). Matcheren kender nu Claus/Nicolaus, Iven/Iwan, Hartvig/Hartwich, Bertram/Bartram og Joachim/Achim
+  (#373).
+- **change_set 4533:** 1939-25 Marie Elisabeth (hofdame i Plön 1746) → III-126. 2018-20 kalder hende »måske« den
+  samme, og 1939's dødsår 1746 står ved siden af 2018-20's 1777.
+- **Resultat:** 817 link. Den fynske linje findes ikke i 2018-20 og udgår af matcharbejdet. 29 1939-personer har
+  stadig ingen modpart; 1939-212 og 1939-17 er dubletter på slettelisten. Emeke, Henrik og Claus (1939-10/11/12)
+  bærer Hartvigs tekst; det er parkeret som backlog i `decisions.md`.
+
+## 2026-11-16 — 1939 matchet mod de afdøde i 2018-20: 45 nye identitetslink, 5 forkerte rettet
+
+Hele 1939-bogen er gennemgået mod de afdøde i 2018-20 (den fynske linje findes kun i 1939). Matcheren kan ikke se
+kortposter uden årstal; de fleste fund kom fra tekst, bogens rækkefølge og allerede matchede forældre og ægtefæller.
+- **change_set 4277 (15/11):** 41 nye samme_som, 3 forkerte fjernet, 4 rettelser i 1939-familiedata.
+- **change_set 4281 (16/11):** Hartvig 1939-2 var to personer i én. Han er nu 1200-tallets Hartvig (I-3), og
+  familien er flyttet til 1939-547. 1939-276 er flyttet fra V-2 til V-6, og 1939-573 er linket til V-2.
+  13 forældreløse 1939-personer har fået forældre efter bogen.
+- **Gruppe C (4282–4283):** Hedevig Ida 1939-432 er foldet ind i IV-5. Kortposten 963 er gjort privat og
+  venter sammen med 1791/1795 på fuld personsletning.
+- **Kontrol:** 808 link, 0 karantæner, ingen 2018-profil foldet ind i 1939.
+
+1939 er altid alias, så 2018-20-profilen forbliver synlig (#366). Detaljer, metode og åbne punkter står i
+`reviews/match-1939-2018-20-2026-11-16.md`.
+
 ## 2026-11-15 — review 36, bølge 2: fortrydelse og portrætvalg tåler samtidige redaktører; koordinater i ét kald
 
 Bølge 2 af helhedsreview 36 er merget og i prod. **Web (#359):** personsiden henter ikke længere detaljerne igen, når

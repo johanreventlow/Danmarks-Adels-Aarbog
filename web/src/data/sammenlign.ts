@@ -14,6 +14,19 @@ export function pairKey(a: Id, b: Id): string {
   return `${s[0]}|${s[1]}`;
 }
 
+/** Retning for et nyt samme_som-link. Den ÆLDRE udgaves person foldes ind (alias) i den nyere
+ *  (kanonisk), så den nyeste udgaves profil forbliver synlig — uanset hvilken udgave redaktøren
+ *  arbejder fra (projektejerens regel 2026-11-15). Kan udgaven ikke afgøres for begge, eller er
+ *  den ens, gælder redaktørens side som før: a er alias. `red_samme_som` kan stadig vælge retning
+ *  efter data, når serveren har et entydigt grundlag. */
+export function sammeSomRetning(
+  aId: string, bId: string, udgaveAar: (id: string) => number | null,
+): { aliasId: string; objektId: string } {
+  const ya = udgaveAar(aId), yb = udgaveAar(bId);
+  if (ya != null && yb != null && yb < ya) return { aliasId: bId, objektId: aId };
+  return { aliasId: aId, objektId: bId };
+}
+
 /** Kandidatpar til arbejdslisten. Afviste par holdes ude af matcherens 1:1-tildeling: ellers
  *  "bruger" en afvist ★ stadig både personen og kandidaten, så de næstbedste forslag for
  *  begge nedgraderes og forsvinder af syne (review 2026-11-15, A3). De afviste par returneres
@@ -53,15 +66,45 @@ export function byggMatchetMed(
 
 /** Personer i den nye udgave, der allerede er matchet (samme_som) med en person uden for den:
  *  person → modpart. Uanset hvor linket er lavet (arbejdslisten, »Find modpart«, persondetaljen,
- *  importkæden) — det er linket, ikke matcherens forslag, der afklarer personen. */
+ *  importkæden) — det er linket, ikke matcherens forslag, der afklarer personen.
+ *
+ *  Kæder tæller: en 1939-oversigtspost kan være foldet ind i 1939-stamtavlens post, der selv er
+ *  foldet ind i 2018-20 (1939-91 → 1939-125 → I-97). Personen er da afklaret via sin samme_som-
+ *  gruppe. Et direkte link til den anden side foretrækkes som modpart; ellers gruppens første. */
 export function byggLinketTil(
   links: ReadonlyArray<{ aId: string; bId: string }>,
   aSide: ReadonlySet<string>,
 ): Map<string, string> {
+  const direkte = new Map<string, string>();
+  const forael = new Map<string, string>();
+  const rod = (x: string): string => {
+    let r = x;
+    while (forael.has(r) && forael.get(r) !== r) r = forael.get(r)!;
+    forael.set(x, r);
+    return r;
+  };
+  for (const { aId, bId } of links) {
+    if (aSide.has(aId) && !aSide.has(bId)) direkte.set(aId, bId);
+    else if (aSide.has(bId) && !aSide.has(aId)) direkte.set(bId, aId);
+    const ra = rod(aId), rb = rod(bId);
+    if (ra !== rb) forael.set(ra, rb);
+  }
+  // Første person uden for den nye udgave i hver gruppe (i links-rækkefølge, deterministisk).
+  const udenforPrGruppe = new Map<string, string>();
+  for (const { aId, bId } of links) {
+    for (const id of [aId, bId]) {
+      if (aSide.has(id)) continue;
+      const r = rod(id);
+      if (!udenforPrGruppe.has(r)) udenforPrGruppe.set(r, id);
+    }
+  }
   const m = new Map<string, string>();
   for (const { aId, bId } of links) {
-    if (aSide.has(aId) && !aSide.has(bId)) m.set(aId, bId);
-    else if (aSide.has(bId) && !aSide.has(aId)) m.set(bId, aId);
+    for (const id of [aId, bId]) {
+      if (!aSide.has(id) || m.has(id)) continue;
+      const modpart = direkte.get(id) ?? udenforPrGruppe.get(rod(id));
+      if (modpart != null) m.set(id, modpart);
+    }
   }
   return m;
 }

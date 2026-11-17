@@ -5,6 +5,7 @@ import {
   matchUdgaver,
   parseIkkeSammeSomPar,
   udledKilderForAegtefaeller,
+  markerFoedtEfterAndreUdgaver,
   assignTiers,
   defaultCfg,
   type ScoredPair,
@@ -352,5 +353,77 @@ describe('evidensNormaliseret: navn alene giver aldrig "stærk"', () => {
   it('rører ikke den umodificerede model', () => {
     const r = assignTiers([par({ aId: 'a', bId: 'b', birthKendt: true, birthOverlap: true })]);
     expect(r[0].tier).toBe('auto');
+  });
+});
+
+describe('markerFoedtEfterAndreUdgaver — eksklusiv for den nyere udgave (projektejerens regel 2026-11-16)', () => {
+  // Udgaveår pr. kilde: 1 = 2018-20 (2020), 3 = 1939.
+  const aar = new Map<number, number | null>([[1, 2020], [3, 1939], [9, null]]);
+  const P = (id: string, sourceIds: number[], foedt: string | null, max: string | null = foedt) =>
+    ({ id, sourceIds, foedsel: foedt || max ? { date_min: foedt, date_max: max } : null });
+  const find = (ps: { id: string; udenforMatchning?: boolean }[], id: string) => ps.find((p) => p.id === id)!;
+
+  it('udelukker en person født efter den anden udgaves årstal', () => {
+    const ud = markerFoedtEfterAndreUdgaver([P('a', [1], '1945-03-01'), P('b', [3], '1900-01-01')], aar);
+    expect(find(ud, 'a').udenforMatchning).toBe(true);
+  });
+
+  it('beholder en person født i eller før den anden udgaves årstal', () => {
+    const ud = markerFoedtEfterAndreUdgaver([P('a', [1], '1939-12-31'), P('b', [3], '1900-01-01')], aar);
+    expect(find(ud, 'a').udenforMatchning).toBeFalsy();
+  });
+
+  it('udelukker aldrig personer i den ældste udgave', () => {
+    const ud = markerFoedtEfterAndreUdgaver([P('a', [1], '1800-01-01'), P('b', [3], '1938-01-01')], aar);
+    expect(find(ud, 'b').udenforMatchning).toBeFalsy();
+  });
+
+  it('udelukker ikke uden fødselsår eller med kun et senest-muligt år', () => {
+    const ud = markerFoedtEfterAndreUdgaver(
+      [P('a', [1], null), P('c', [1], null, '1950-01-01'), P('b', [3], '1900-01-01')], aar);
+    expect(find(ud, 'a').udenforMatchning).toBeFalsy();
+    expect(find(ud, 'c').udenforMatchning).toBeFalsy();
+  });
+
+  it('ser kun på udgaver der faktisk har personer og et årstal', () => {
+    // Kun 2018-20 har personer → ingen anden udgave at sammenligne med → ingen udelukkelse.
+    const ud = markerFoedtEfterAndreUdgaver([P('a', [1], '1990-01-01')], aar);
+    expect(find(ud, 'a').udenforMatchning).toBeFalsy();
+  });
+
+  it('slår fra, når der er flere end to udgaver med personer (reglen gælder kun 1939 ↔ 2018-20)', () => {
+    const aar3 = new Map<number, number | null>([[1, 2020], [3, 1939], [5, 1960]]);
+    const ud = markerFoedtEfterAndreUdgaver(
+      [P('a', [1], '1965-01-01'), P('b', [3], '1900-01-01'), P('c', [5], '1950-01-01')], aar3);
+    expect(['a', 'b', 'c'].every((id) => !find(ud, id).udenforMatchning)).toBe(true);
+  });
+
+  it('bevarer en eksisterende undtagelse (fx den fynske linje)', () => {
+    const ud = markerFoedtEfterAndreUdgaver(
+      [{ ...P('b', [3], '1500-01-01'), udenforMatchning: true }, P('a', [1], '1800-01-01')], aar);
+    expect(find(ud, 'b').udenforMatchning).toBe(true);
+  });
+
+  it('indgiftet ægtefælle uden bog-nr. arver udelukkelsen via udledKilderForAegtefaeller', () => {
+    const U = (id: string, p1: string, p2: string | null) => ({ id, p1, p2, p2_name: null, year: null });
+    const personer = [P('a', [1], '1950-01-01'), P('s', [], '1930-01-01'), P('b', [3], '1900-01-01')];
+    const ud = udledKilderForAegtefaeller(markerFoedtEfterAndreUdgaver(personer, aar), [U('f', 'a', 's')]);
+    expect(find(ud, 's').udenforMatchning).toBe(true);
+  });
+
+  it('indgiftet ægtefælle født efter den ældre udgave udelukkes på eget år (2. gennemløb efter arven)', () => {
+    const U = (id: string, p1: string, p2: string | null) => ({ id, p1, p2, p2_name: null, year: null });
+    const personer = [P('a', [1], '1935-01-01'), P('s', [], '1942-01-01'), P('b', [3], '1900-01-01')];
+    const arvet = udledKilderForAegtefaeller(markerFoedtEfterAndreUdgaver(personer, aar), [U('f', 'a', 's')]);
+    const ud = markerFoedtEfterAndreUdgaver(arvet, aar);
+    expect(find(ud, 's').udenforMatchning).toBe(true);
+    expect(find(ud, 'a').udenforMatchning).toBeFalsy();
+  });
+
+  it('ægtefælle med også en partner fra før 1940 bliver stående', () => {
+    const U = (id: string, p1: string, p2: string | null) => ({ id, p1, p2, p2_name: null, year: null });
+    const personer = [P('a', [1], '1950-01-01'), P('c', [1], '1920-01-01'), P('s', [], null), P('b', [3], '1900-01-01')];
+    const ud = udledKilderForAegtefaeller(markerFoedtEfterAndreUdgaver(personer, aar), [U('f1', 'a', 's'), U('f2', 'c', 's')]);
+    expect(find(ud, 's').udenforMatchning).toBeFalsy();
   });
 });

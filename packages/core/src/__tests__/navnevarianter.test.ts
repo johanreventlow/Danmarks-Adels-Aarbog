@@ -94,3 +94,27 @@ describe('matchKey — flagship + facit (§9)', () => {
     expect(matchKey('   ')).toBe('');
   });
 });
+
+describe('foldToken — middelalderlige navnepar fra 1939 ↔ 2018-20-afstemningen (2026-11-16)', () => {
+  // Hvert par skjulte et ægte match for matcheren: Claus 1939-590/-12 = Nicolaus I-17/I-11, Iwen 1939-21 = Iwan I-16,
+  // Joachim 1939-19 = Achim II-9, Bertram 1939-125 = Bartram I-97, Hartvig = Hartwich i hele linje I.
+  test.each([
+    ['claus', 'nicolaus'], ['claus', 'nikolaus'], ['claus', 'klaus'],
+    ['iven', 'iwan'], ['iven', 'iwen'], ['iven', 'ywan'],
+    ['hartvig', 'hartwich'], ['hartvig', 'hartwig'],
+    ['bertram', 'bartram'],
+    ['joachim', 'achim'], ['joachim', 'jochim'],
+  ])('%s ≡ %s', (a, b) => {
+    expect(foldToken(a)).toBe(foldToken(b));
+  });
+
+  test('Claus-klassens repræsentant er »klaus«, så prefix-søgning på Clau… er uændret', () => {
+    expect(foldToken('nicolaus')).toBe('klaus');
+  });
+
+  test('beslægtede, men forskellige navne foldes ikke sammen', () => {
+    expect(foldToken('henning')).not.toBe(foldToken('henrik'));
+    expect(foldToken('hans')).not.toBe(foldToken('johan'));
+    expect(foldToken('ivar')).not.toBe(foldToken('iven'));
+  });
+});
