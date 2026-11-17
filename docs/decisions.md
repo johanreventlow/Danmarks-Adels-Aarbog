@@ -21,6 +21,11 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   og den vej findes ikke længere. Bindingen går gennem de eksisterende writere (6b's persona, 6c-1's identitet,
 >   6d-1's placement, derefter teksten) i en lille prod-ceremoni med dump. Ingen ny mekanisme. Roadmap: trin 6,
 >   legacy-afvikling af 6d-2b's tilbagetrækninger.
+>   *Rettet 2026-11-17 (samme dag):* »ingen ny mekanisme« holder ikke. 6b's persona-writer
+>   (`write_publication_persona`) kræver en publiceret binding på posten, og 6d-1 placerede ingen poster uden trykt
+>   løbenummer. Projektejeren valgte vej A: en ny, generel elementoperation for en helpost uden aktiv tekstbinding,
+>   identitet og placement via kortark, og en kladde fra bogposten, som projektejeren selv retter og publicerer.
+>   Spec: `superpowers/specs/2026-11-17-persona-for-post-uden-tekst-design.md`.
 > - **Backlog 2 — manuel grænse- og tekstoverstyring (til overvejelse, ikke besluttet).** Claus' post
 >   (`record-c0e8f5ad…`) er afkortet: den slutter »… og var da Vidner Hr. Henrik«, og resten, »Reventlow og Otto
 >   Reventlow. — Sønner: IV C.«, ligger i hullet mellem posterne (tegn 8464-8542 i Calamari-teksten). Emeke har ingen
