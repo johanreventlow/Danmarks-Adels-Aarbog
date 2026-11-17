@@ -1,7 +1,7 @@
 # Delspec — persona for en helpost uden tekst; Henrik og Iven (1939) får deres egen tekst
 
-**Status:** udkast 2026-11-17 (brainstorm med projektejeren). Projektejerens afgørelser står i §3; mine valg er
-markeret *mit valg*.
+**Status:** **godkendt af projektejeren 2026-11-17** efter brainstorm og bygherre-tjek (§10). Projektejerens
+afgørelser står i §3; mine valg er markeret *mit valg*.
 **Arv:** decisions 2026-11-17 (backlog 1: Henrik og Iven bindes til deres egne poster), decisions 2026-11-10 (6d-2b:
 598 og 603 trukket tilbage, fordi teksterne var andres), 6b (`2026-10-31-trin6b-identitet-design.md` §4.2: elementoperationen
 `publication_persona`), 6d-1 (`2026-11-08-trin6d-placement-relationer-medlemskab-design.md` §5.3: placements), 6d-2a
