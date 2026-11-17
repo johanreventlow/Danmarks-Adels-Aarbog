@@ -1922,7 +1922,11 @@ BEGIN
   SELECT to_jsonb(row) INTO v_actual
     FROM public.red_person_narrative_publication_history(v_person_a) row
    WHERE event_id='15210000-0000-0000-0000-000000002203';
-  IF (v_actual->>'can_reverse')::boolean IS DISTINCT FROM true
+  -- Bred spærring (persona for helpost uden tekst, spec §4.5): person A har record-bindinger
+  -- i samme kilde, så den tilbagetrukne legacy-tekst kan ikke fortrydes.
+  IF (v_actual->>'can_reverse')::boolean IS DISTINCT FROM false
+     OR v_actual->>'blocking_reason' IS DISTINCT FROM
+          'NARRATIVE_LEGACY_RECORD_BINDING_EXISTS'
      OR v_actual->>'legacy_publication_ref' IS DISTINCT FROM v_legacy_withdrawn::text
      OR v_actual->>'source_record_ref' IS NOT NULL THEN
     RAISE EXCEPTION 'NARRATIVE_LEGACY_HISTORY_MAPPING_INVALID: %',v_actual;
@@ -3287,6 +3291,8 @@ DECLARE
   v_legacy_active uuid := '15210000-0000-0000-0000-000000000201';
   v_legacy_drift uuid := '15210000-0000-0000-0000-000000000203';
   v_legacy_sibling uuid := '15240000-0000-0000-0000-000000000210';
+  v_legacy_free uuid := '15240000-0000-0000-0000-000000000260';
+  v_free_person bigint := -91524060;
   v_legacy_sibling_state jsonb;
   v_policy jsonb;
   v_before jsonb;
@@ -3659,36 +3665,60 @@ BEGIN
     'Task 4 drifted baseline','NARRATIVE_LEGACY_BASELINE_DRIFT'
   );
 
+  -- Bred spærring (persona for helpost uden tekst, spec §4.5): v_person har record-bindinger
+  -- i kilden, så en tilbagetrukket legacy-tekst kan ikke fortrydes for v_person. Tilbagetrækning
+  -- og fortrydelse prøves derfor på en person uden record-binding i kilden; v_legacy_active
+  -- forbliver grandfathered (Task 5 læser den).
+  INSERT INTO public.person(id,levende,privat,staged,visning_navn)
+  VALUES (v_free_person,false,false,false,'Task 4 legacy free');
+  INSERT INTO public.narrative(
+    id,subjekt_type,subjekt_id,source_id,tekst,side,privat
+  ) VALUES (
+    -91524160,'person',v_free_person,-91521001,'Task 4 legacy free','52',false
+  );
+  v_before:=private.narrative_legacy_candidate_publication_state(
+    -91524160,-91521001,v_legacy_free
+  );
+  INSERT INTO private.narrative_legacy_publication(
+    legacy_publication_ref,narrative_id,source_id,baseline_state,
+    baseline_sha256,status
+  ) VALUES (
+    v_legacy_free,-91524160,-91521001,v_before,
+    encode(extensions.digest(v_before::text,'sha256'),'hex'),
+    'grandfathered_publication'
+  );
+
   v_before:=(SELECT to_jsonb(narrative) FROM public.narrative narrative
-              WHERE narrative.id=-91521201);
+              WHERE narrative.id=-91524160);
   PERFORM set_config('app.change_set_id','',true);
   v_result:=public.red_tilbagetraek_legacy_narrative(
-    v_legacy_active,v_state->>'state_sha256','Task 4 granular withdrawal'
+    v_legacy_free,private.narrative_legacy_state(v_legacy_free,false)->>'state_sha256',
+    'Task 4 granular withdrawal'
   );
   v_event_legacy:=(v_result->>'event_id')::uuid;
   v_after:=(SELECT to_jsonb(narrative) FROM public.narrative narrative
-             WHERE narrative.id=-91521201);
+             WHERE narrative.id=-91524160);
   IF v_after IS DISTINCT FROM v_before
      OR (SELECT status FROM private.narrative_legacy_publication
-          WHERE legacy_publication_ref=v_legacy_active)
+          WHERE legacy_publication_ref=v_legacy_free)
           IS DISTINCT FROM 'withdrawn'
      OR (SELECT status FROM private.narrative_legacy_publication
           WHERE legacy_publication_ref=v_legacy_sibling)
           IS DISTINCT FROM 'grandfathered_publication'
-     OR private.narrative_legacy_state(v_legacy_active,false)
+     OR private.narrative_legacy_state(v_legacy_free,false)
           ->>'publication_status' IS DISTINCT FROM 'withdrawn'
      OR private.narrative_legacy_state(v_legacy_sibling,false)
           ->>'publication_status' IS DISTINCT FROM 'published' THEN
     RAISE EXCEPTION 'TASK4_LEGACY_WITHDRAWAL_NOT_GRANULAR_OR_TEXT_SAFE';
   END IF;
   PERFORM pg_temp.task4_expect_legacy_error(
-    v_legacy_active,
-    private.narrative_legacy_state(v_legacy_active,false)->>'state_sha256',
+    v_legacy_free,
+    private.narrative_legacy_state(v_legacy_free,false)->>'state_sha256',
     'Task 4 duplicate','NARRATIVE_LEGACY_PUBLICATION_ALREADY_WITHDRAWN'
   );
 
   SELECT to_jsonb(row) INTO STRICT v_history
-    FROM public.red_person_narrative_publication_history(v_person) row
+    FROM public.red_person_narrative_publication_history(v_free_person) row
    WHERE row.event_id=v_event_legacy;
   IF (v_history->>'can_reverse')::boolean IS DISTINCT FROM true
      OR v_history->>'change_set_id' IS DISTINCT FROM
@@ -3698,27 +3728,27 @@ BEGIN
     RAISE EXCEPTION 'TASK4_LEGACY_HISTORY_EVENT_MAPPING_INVALID: %',v_history;
   END IF;
 
-  UPDATE public.person SET privat=true WHERE id=v_person;
+  UPDATE public.person SET privat=true WHERE id=v_free_person;
   PERFORM pg_temp.task4_expect_reverse_error(
     v_event_legacy,
-    private.narrative_legacy_state(v_legacy_active,false)->>'state_sha256',
+    private.narrative_legacy_state(v_legacy_free,false)->>'state_sha256',
     'NARRATIVE_PUBLICATION_REVERSAL_POLICY_BLOCKED'
   );
-  UPDATE public.person SET privat=false WHERE id=v_person;
+  UPDATE public.person SET privat=false WHERE id=v_free_person;
 
   PERFORM set_config('app.change_set_id','',true);
   v_reverse_result:=public.red_fortryd_person_narrative_publication_event(
     v_event_legacy,
-    private.narrative_legacy_state(v_legacy_active,false)->>'state_sha256'
+    private.narrative_legacy_state(v_legacy_free,false)->>'state_sha256'
   );
   v_event_legacy_reversal:=(v_reverse_result->>'event_id')::uuid;
   IF (SELECT status FROM private.narrative_legacy_publication
-       WHERE legacy_publication_ref=v_legacy_active)
+       WHERE legacy_publication_ref=v_legacy_free)
        IS DISTINCT FROM 'grandfathered_publication' THEN
     RAISE EXCEPTION 'TASK4_LEGACY_REVERSAL_DID_NOT_RESTORE_LEDGER';
   END IF;
   SELECT to_jsonb(row) INTO STRICT v_history
-    FROM public.red_person_narrative_publication_history(v_person) row
+    FROM public.red_person_narrative_publication_history(v_free_person) row
    WHERE row.event_id=v_event_legacy_reversal;
   IF (v_history->>'can_reverse')::boolean IS DISTINCT FROM false
      OR v_history->>'blocking_reason' IS DISTINCT FROM
@@ -3726,7 +3756,7 @@ BEGIN
     RAISE EXCEPTION 'TASK4_HISTORY_REVERSAL_ROW_INVALID: %',v_history;
   END IF;
   SELECT to_jsonb(row) INTO STRICT v_history
-    FROM public.red_person_narrative_publication_history(v_person) row
+    FROM public.red_person_narrative_publication_history(v_free_person) row
    WHERE row.event_id=v_event_legacy;
   IF (v_history->>'can_reverse')::boolean IS DISTINCT FROM false
      OR v_history->>'blocking_reason' IS DISTINCT FROM

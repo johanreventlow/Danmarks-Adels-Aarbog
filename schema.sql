@@ -15934,6 +15934,18 @@ BEGIN
                        AND binding.status IN ('draft','published')
                   )
                THEN 'NARRATIVE_LEGACY_MIGRATION_BINDING_ACTIVE'
+             -- Samme gate som private.reverse_narrative_publication_event: en
+             -- tilbagetrukket legacy-tekst kan ikke fortrydes, når personen har en
+             -- record-binding (i enhver status) på en narrativ i samme kilde.
+             WHEN classified.event_type='legacy_withdrawn' AND EXISTS (
+                    SELECT 1 FROM private.narrative_record_publication binding
+                      JOIN public.narrative narrative
+                        ON narrative.id=binding.narrative_id
+                     WHERE narrative.subjekt_type='person'
+                       AND narrative.subjekt_id=p_person_id
+                       AND narrative.source_id=classified.source_id
+                  )
+               THEN 'NARRATIVE_LEGACY_RECORD_BINDING_EXISTS'
              WHEN classified.has_reversal
                THEN 'NARRATIVE_PUBLICATION_EVENT_ALREADY_REVERSED'
              WHEN classified.has_later_event
@@ -16665,6 +16677,21 @@ BEGIN
        OR NOT coalesce((v_before_editor->>'baseline_matches')::boolean,false)
      ) THEN
     RAISE EXCEPTION 'NARRATIVE_LEGACY_BASELINE_DRIFT';
+  END IF;
+  -- Bred spærring: en tilbagetrukket legacy-tekst fortrydes ikke, når personen har
+  -- en narrativ i samme kilde med en record-binding i enhver status (en kasseret
+  -- eller tilbagetrukket binding beholder sin række); ellers kunne to tekster for
+  -- kilden blive synlige. Selvstændig sætning efter LOCK TABLE public.change_set
+  -- (legacy-grenen): binding-writerne under kontrakt 2 tager samme lås, før de
+  -- skriver, så sætningen ser enhver binding, der er committet før låsen.
+  IF v_target.event_type='legacy_withdrawn' AND EXISTS (
+    SELECT 1 FROM private.narrative_record_publication binding
+      JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+     WHERE narrative.subjekt_type='person'
+       AND narrative.subjekt_id=v_person_id
+       AND narrative.source_id=v_target.source_id
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_LEGACY_RECORD_BINDING_EXISTS';
   END IF;
   -- #166 149b: en legacy-migration fortrydes kun, når record-bindingen allerede
   -- er trukket tilbage; ellers ville narrativet stå både bundet og grandfathered.

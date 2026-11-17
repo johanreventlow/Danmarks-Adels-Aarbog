@@ -222,6 +222,172 @@ BEGIN
   RAISE NOTICE 'OK: full_chain';
 END $chain$;
 
+-- $to_tekster$ (bred spærring): en person med en tilbagetrukket legacy-tekst og en record-post i samme kilde. Når
+-- personen har en record-binding i kilden (i enhver status), afviser fortrydelsen af legacy_withdrawn med
+-- NARRATIVE_LEGACY_RECORD_BINDING_EXISTS, og historikken viser samme grund; ellers ville to tekster for kilden kunne
+-- blive synlige. Tre forløb: (a) kladde → publicér, (b) kladde → kassér, (c) publicér → tilbagetræk. Kontrol: uden
+-- record-binding kan legacy stadig fortrydes.
+\i tests/sql/fixtures/kalder-matrix.sql
+
+-- En person med legacy-tekst (grandfathered, derefter tilbagetrukket gennem RPC'en) og en record-post med persona,
+-- identitet og placement, så redaktøren kan skrive en kladde. Returnerer nøglerne.
+CREATE FUNCTION pg_temp.tt_person(p_src jsonb, p_key text, p_person bigint, p_batch_fx jsonb) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE
+  v_source bigint:=(p_src->>'source')::bigint; v_narr bigint; v_ref uuid:=gen_random_uuid(); v_state jsonb; v_sha text;
+  v_res jsonb; v_header uuid; v_rp uuid:=gen_random_uuid(); v_pp uuid:=gen_random_uuid(); v_persona uuid;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.change_set) THEN
+    INSERT INTO public.change_set(actor_navn,actor_rolle,operation,summary,subjekt_synlighed)
+    VALUES ('fixture','system','fixture','fixture','offentlig');
+  END IF;
+  INSERT INTO public.narrative(subjekt_type,subjekt_id,source_id,side,tekst,privat)
+    VALUES ('person',p_person,v_source,'9','Legacy tekst '||p_key,false) RETURNING id INTO v_narr;
+  v_state:=private.narrative_legacy_candidate_publication_state(v_narr,v_source,v_ref);
+  v_sha:=encode(extensions.digest(v_state::text,'sha256'),'hex');
+  INSERT INTO private.narrative_legacy_publication(legacy_publication_ref,narrative_id,source_id,baseline_state,baseline_sha256,status)
+    VALUES (v_ref,v_narr,v_source,v_state,v_sha,'grandfathered_publication');
+  INSERT INTO private.narrative_publication_event(change_set_id,stream_ref,stream_version,event_type,narrative_id,source_id,
+    legacy_publication_ref,decision_basis,before_state,after_state,before_state_sha256,after_state_sha256,decided_by_name)
+  VALUES ((SELECT max(id) FROM public.change_set),v_ref,1,'baseline',v_narr,v_source,v_ref,'fixture',v_state,v_state,v_sha,v_sha,'fixture');
+  UPDATE private.narrative_legacy_publication SET latest_event_id=(SELECT id FROM private.narrative_publication_event WHERE stream_ref=v_ref)
+   WHERE legacy_publication_ref=v_ref;
+  v_sha:=private.narrative_legacy_state(v_ref,false)->>'state_sha256';
+  PERFORM set_config('request.jwt.claim.sub',p_src->>'actor',true);
+  SET LOCAL ROLE authenticated;
+  PERFORM set_config('app.change_set_id','',true);
+  v_res:=public.red_tilbagetraek_legacy_narrative(v_ref,v_sha,'to tekster');
+  PERFORM set_config('app.change_set_id','',true);
+  RESET ROLE;
+  IF p_batch_fx IS NOT NULL THEN
+    -- identitet fra kortarket og placement som i ceremonien (lineage-skema pr. kilde)
+    v_persona:=private.content_uuid('source-persona',jsonb_build_object('source_id',v_source,'persona_key','1939:'||p_key));
+    SET LOCAL ROLE authenticated;
+    PERFORM public.red_afgoer_source_persona(v_persona,0,'same',p_person,'kortark',
+      jsonb_build_object('basis','human_sheet','sheet_sha256',repeat('c',64),'rows_sha256',repeat('d',64),'line',1));
+    RESET ROLE;
+    IF NOT EXISTS (SELECT 1 FROM public.lineage_scheme WHERE id=v_source) THEN
+      INSERT INTO public.slaegt(id,navn,sorteringsnavn,slug) VALUES (v_source,'tt slægt','tt slægt','tt-slaegt'||abs(v_source));
+      INSERT INTO public.lineage_scheme(id,slaegt_id,source_id,kind,label) VALUES (v_source,v_source,v_source,'stamtavle','tt scheme');
+      INSERT INTO public.lineage_scheme_entry(id,scheme_id,slaegt_id,code,label,sort_order) VALUES (v_source,v_source,v_source,'A','Linje A',1);
+    END IF;
+    INSERT INTO private.source_observation(occurrence_id,observation_kind,page_from,page_to,char_from,char_to,
+      verbatim_text,quality_status,extraction_method,extraction_run_id)
+      VALUES ((p_batch_fx->>'occ')::uuid,'header',1,1,100,104,'Fixt','clear','fixture',(p_src->>'run')::uuid) RETURNING id INTO v_header;
+    INSERT INTO private.source_record_placement(id,source_record_id,scheme_entry_id,header_observation_id,initial_status)
+      VALUES (v_rp,(p_batch_fx->>'record')::uuid,v_source,v_header,'accepted');
+    INSERT INTO private.source_record_placement_decision(placement_id,version,decision_status,evidence,decision_origin,decided_by_name)
+      VALUES (v_rp,1,'accepted','{"basis":"tt fixture"}','migration','fixture');
+    INSERT INTO private.source_persona_placement(id,source_persona_id,record_placement_id,placement_role,basis_observation_id,initial_status)
+      VALUES (v_pp,v_persona,v_rp,'principal_member',(p_batch_fx->>'observation')::uuid,'accepted');
+    INSERT INTO private.source_persona_placement_decision(placement_id,version,decision_status,evidence,decision_origin,decided_by_name)
+      VALUES (v_pp,1,'accepted','{"basis":"tt fixture"}','migration','fixture');
+  END IF;
+  RETURN jsonb_build_object('legacy_ref',v_ref,'legacy_event',v_res->>'event_id','legacy_narrative',v_narr);
+END $$;
+
+-- Én redaktionshandling på posten (upsert/publish/discard/withdraw) med frisk tilstands-hash.
+CREATE FUNCTION pg_temp.tt_act(p_src jsonb, p_action text, p_person bigint, p_key text) RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_source bigint:=(p_src->>'source')::bigint; v_h text; v_r jsonb;
+BEGIN
+  v_h:=private.narrative_record_state(p_person,v_source,p_key,false)->>'state_sha256';
+  PERFORM set_config('request.jwt.claim.sub',p_src->>'actor',true);
+  SET LOCAL ROLE authenticated;
+  PERFORM set_config('app.change_set_id','',true);
+  v_r:=CASE p_action
+    WHEN 'upsert' THEN public.red_upsert_person_narrative_record(p_person,v_source,p_key,'Ny tekst '||p_key,false,v_h)
+    WHEN 'publish' THEN public.red_publicer_person_narrative_record(p_person,v_source,p_key,v_h)
+    WHEN 'discard' THEN public.red_kasser_person_narrative_record(p_person,v_source,p_key,v_h)
+    WHEN 'withdraw' THEN public.red_tilbagetraek_person_narrative_record(p_person,v_source,p_key,v_h) END;
+  PERFORM set_config('app.change_set_id','',true);
+  RESET ROLE;
+  RETURN v_r;
+EXCEPTION WHEN OTHERS THEN RESET ROLE; RAISE;
+END $$;
+
+-- Fortryd legacy-hændelsen; NULL = lykkedes, ellers fejlteksten.
+CREATE FUNCTION pg_temp.tt_reverse_legacy(p_src jsonb, p_fx jsonb) RETURNS text LANGUAGE plpgsql AS $$
+DECLARE v_h text:=private.narrative_legacy_state((p_fx->>'legacy_ref')::uuid,false)->>'state_sha256';
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub',p_src->>'actor',true);
+  SET LOCAL ROLE authenticated;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM public.red_fortryd_person_narrative_publication_event((p_fx->>'legacy_event')::uuid,v_h);
+  PERFORM set_config('app.change_set_id','',true);
+  RESET ROLE;
+  RETURN NULL;
+EXCEPTION WHEN OTHERS THEN RESET ROLE; RETURN SQLERRM;
+END $$;
+
+-- Antal tekster for personen i kilden som gæst (anon uden uid) i v1 og v2, og historikkens grund for legacy-hændelsen.
+CREATE FUNCTION pg_temp.tt_check(p_src jsonb, p_person bigint, p_fx jsonb, p_texts int, p_reason text, p_label text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_v1 int; v_v2 int; v_hist record;
+BEGIN
+  v_v1:=pg_temp.km_antal('gaest',format('SELECT 1 FROM public.public_person_bio_source_versions(ARRAY[%s]::bigint[])',p_person));
+  v_v2:=pg_temp.km_antal('gaest',format('SELECT 1 FROM public.public_person_bio_source_versions_v2(ARRAY[%s]::bigint[]) r WHERE r.source_id=%s',
+                                        p_person,p_src->>'source'));
+  PERFORM set_config('request.jwt.claim.sub',p_src->>'actor',true);
+  SELECT h.can_reverse,h.blocking_reason INTO STRICT v_hist FROM public.red_person_narrative_publication_history(p_person) h
+   WHERE h.event_id=(p_fx->>'legacy_event')::uuid;
+  IF v_v1<>p_texts OR v_v2<>p_texts OR v_hist.blocking_reason IS DISTINCT FROM p_reason
+     OR v_hist.can_reverse IS DISTINCT FROM (p_reason IS NULL) THEN
+    RAISE EXCEPTION 'TO_TEKSTER_TEST_FAILED: % (v1 %, v2 %, forventet %; historik % %)',p_label,v_v1,v_v2,p_texts,v_hist.can_reverse,v_hist.blocking_reason;
+  END IF;
+END $$;
+
+DO $to_tekster$
+DECLARE
+  v_src jsonb:=pg_temp.pp_source(-6313,'11000000-0000-0000-0000-0000000c0724');
+  v_a jsonb; v_b jsonb; v_c jsonb; v_k jsonb; v_els jsonb; v_batch uuid; fa jsonb; fb jsonb; fc jsonb; fk jsonb; v_err text;
+  v_block text:='NARRATIVE_LEGACY_RECORD_BINDING_EXISTS';
+BEGIN
+  PERFORM pg_temp.km_kaldere();
+  v_a:=pg_temp.rp_post(v_src,'ta',-631301); v_b:=pg_temp.rp_post(v_src,'tb',-631302); v_c:=pg_temp.rp_post(v_src,'tc',-631303);
+  v_k:=pg_temp.rp_post(v_src,'tk',-631304);
+  v_els:=jsonb_build_object(pg_temp.el('ta'),pg_temp.rp_payload(v_src,v_a),pg_temp.el('tb'),pg_temp.rp_payload(v_src,v_b),
+                            pg_temp.el('tc'),pg_temp.rp_payload(v_src,v_c));
+  v_batch:=pg_temp.rp_begin(v_src,'fixture-pub-a','to-tekster',v_els);
+  PERFORM pg_temp.rp_apply(v_src,v_batch,pg_temp.el('ta'),v_els->pg_temp.el('ta'));
+  PERFORM pg_temp.rp_apply(v_src,v_batch,pg_temp.el('tb'),v_els->pg_temp.el('tb'));
+  PERFORM pg_temp.rp_apply(v_src,v_batch,pg_temp.el('tc'),v_els->pg_temp.el('tc'));
+  fa:=pg_temp.tt_person(v_src,'ta',-631301,v_a); fb:=pg_temp.tt_person(v_src,'tb',-631302,v_b);
+  fc:=pg_temp.tt_person(v_src,'tc',-631303,v_c); fk:=pg_temp.tt_person(v_src,'tk',-631304,NULL);
+  SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+  -- udgangspunkt: legacy er tilbagetrukket og kan fortrydes; ingen tekst for kilden
+  PERFORM pg_temp.tt_check(v_src,-631301,fa,0,NULL,'(a) før');
+
+  -- (a) kladde → publicér → fortryd legacy
+  PERFORM pg_temp.tt_act(v_src,'upsert',-631301,'ta');
+  PERFORM pg_temp.tt_check(v_src,-631301,fa,0,v_block,'(a) kladde');
+  PERFORM pg_temp.tt_act(v_src,'publish',-631301,'ta');
+  v_err:=pg_temp.tt_reverse_legacy(v_src,fa);
+  IF v_err IS NULL OR v_err NOT LIKE v_block||'%' THEN RAISE EXCEPTION 'TO_TEKSTER_TEST_FAILED: (a) fortrydelse gav %',v_err; END IF;
+  PERFORM pg_temp.tt_check(v_src,-631301,fa,1,v_block,'(a) publiceret');
+
+  -- (b) kladde → kassér → fortryd legacy (den kasserede binding beholder sin række)
+  PERFORM pg_temp.tt_act(v_src,'upsert',-631302,'tb');
+  PERFORM pg_temp.tt_act(v_src,'discard',-631302,'tb');
+  IF NOT EXISTS (SELECT 1 FROM private.narrative_record_publication b WHERE b.source_record_id=(v_b->>'record')::uuid AND b.status='withdrawn') THEN
+    RAISE EXCEPTION 'TO_TEKSTER_TEST_FAILED: (b) kasseret binding uden række'; END IF;
+  v_err:=pg_temp.tt_reverse_legacy(v_src,fb);
+  IF v_err IS NULL OR v_err NOT LIKE v_block||'%' THEN RAISE EXCEPTION 'TO_TEKSTER_TEST_FAILED: (b) fortrydelse gav %',v_err; END IF;
+  PERFORM pg_temp.tt_check(v_src,-631302,fb,0,v_block,'(b) kasseret');
+
+  -- (c) kladde → publicér → tilbagetræk → fortryd legacy
+  PERFORM pg_temp.tt_act(v_src,'upsert',-631303,'tc');
+  PERFORM pg_temp.tt_act(v_src,'publish',-631303,'tc');
+  PERFORM pg_temp.tt_act(v_src,'withdraw',-631303,'tc');
+  v_err:=pg_temp.tt_reverse_legacy(v_src,fc);
+  IF v_err IS NULL OR v_err NOT LIKE v_block||'%' THEN RAISE EXCEPTION 'TO_TEKSTER_TEST_FAILED: (c) fortrydelse gav %',v_err; END IF;
+  PERFORM pg_temp.tt_check(v_src,-631303,fc,0,v_block,'(c) tilbagetrukket');
+
+  -- kontrol: uden record-binding i kilden kan legacy fortrydes, og legacy-teksten er synlig igen
+  PERFORM pg_temp.tt_check(v_src,-631304,fk,0,NULL,'kontrol før');
+  v_err:=pg_temp.tt_reverse_legacy(v_src,fk);
+  IF v_err IS NOT NULL THEN RAISE EXCEPTION 'TO_TEKSTER_TEST_FAILED: kontrol fortrydelse gav %',v_err; END IF;
+  PERFORM pg_temp.tt_check(v_src,-631304,fk,1,'NARRATIVE_PUBLICATION_EVENT_ALREADY_REVERSED','kontrol efter');
+  RAISE NOTICE 'OK: to_tekster (a) publiceret, (b) kasseret, (c) tilbagetrukket spærret; kontrol uden binding fortrydes';
+END $to_tekster$;
+
 ROLLBACK;
 
 -- Writeren kræver READ COMMITTED (eksistens- og bindingskontrollerne skal læse efter låsene). SET TRANSACTION skal være
