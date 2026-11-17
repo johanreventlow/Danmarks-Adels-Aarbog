@@ -72,7 +72,7 @@ BEGIN
     pg_temp.el('pi6'),pg_temp.rp_payload(v_src,v_pi)||jsonb_build_object('source_record_key','pi6','persona_key','1939:pi6','sheet_line',0),
     pg_temp.el('pi7'),pg_temp.rp_payload(v_src,v_pi)||jsonb_build_object('source_record_key','pi7','persona_key','1939:pi7','sheet_line','1'),
     pg_temp.el('pi8'),pg_temp.rp_payload(v_src,v_pi)||jsonb_build_object('source_record_key','pi8','persona_key','1939:pi8','binding_id',gen_random_uuid()),
-    pg_temp.el('pi9'),pg_temp.rp_payload(v_src,v_pi)||jsonb_build_object('source_id',-6319),
+    pg_temp.el('pi9'),pg_temp.rp_payload(v_src,v_pi)||jsonb_build_object('source_record_key','pi9','persona_key','1939:pi9','source_id',-6319),
     pg_temp.el('rm'),pg_temp.rp_payload(v_src,v_pi)||jsonb_build_object('source_record_key','rm','persona_key','1939:rm'));
   v_batch:=pg_temp.rp_begin(v_src,'fixture-pub-a','main',v_els);
 

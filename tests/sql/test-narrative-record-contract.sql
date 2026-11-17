@@ -3292,6 +3292,7 @@ DECLARE
   v_legacy_drift uuid := '15210000-0000-0000-0000-000000000203';
   v_legacy_sibling uuid := '15240000-0000-0000-0000-000000000210';
   v_legacy_free uuid := '15240000-0000-0000-0000-000000000260';
+  v_legacy_free_sibling uuid := '15240000-0000-0000-0000-000000000261';
   v_free_person bigint := -91524060;
   v_legacy_sibling_state jsonb;
   v_policy jsonb;
@@ -3668,13 +3669,27 @@ BEGIN
   -- Bred spærring (persona for helpost uden tekst, spec §4.5): v_person har record-bindinger
   -- i kilden, så en tilbagetrukket legacy-tekst kan ikke fortrydes for v_person. Tilbagetrækning
   -- og fortrydelse prøves derfor på en person uden record-binding i kilden; v_legacy_active
-  -- forbliver grandfathered (Task 5 læser den).
+  -- forbliver grandfathered (Task 5 læser den). Personen har to legacy-tekster i samme kilde,
+  -- så granulariteten pr. person og kilde stadig prøves (v_legacy_free_sibling bliver stående).
   INSERT INTO public.person(id,levende,privat,staged,visning_navn)
   VALUES (v_free_person,false,false,false,'Task 4 legacy free');
   INSERT INTO public.narrative(
     id,subjekt_type,subjekt_id,source_id,tekst,side,privat
   ) VALUES (
     -91524160,'person',v_free_person,-91521001,'Task 4 legacy free','52',false
+  ),(
+    -91524161,'person',v_free_person,-91521001,'Task 4 legacy free sibling','53',false
+  );
+  v_before:=private.narrative_legacy_candidate_publication_state(
+    -91524161,-91521001,v_legacy_free_sibling
+  );
+  INSERT INTO private.narrative_legacy_publication(
+    legacy_publication_ref,narrative_id,source_id,baseline_state,
+    baseline_sha256,status
+  ) VALUES (
+    v_legacy_free_sibling,-91524161,-91521001,v_before,
+    encode(extensions.digest(v_before::text,'sha256'),'hex'),
+    'grandfathered_publication'
   );
   v_before:=private.narrative_legacy_candidate_publication_state(
     -91524160,-91521001,v_legacy_free
@@ -3705,9 +3720,16 @@ BEGIN
      OR (SELECT status FROM private.narrative_legacy_publication
           WHERE legacy_publication_ref=v_legacy_sibling)
           IS DISTINCT FROM 'grandfathered_publication'
+     OR (SELECT status FROM private.narrative_legacy_publication
+          WHERE legacy_publication_ref=v_legacy_free_sibling)
+          IS DISTINCT FROM 'grandfathered_publication'
+     OR (SELECT tekst FROM public.narrative WHERE id=-91524161)
+          IS DISTINCT FROM 'Task 4 legacy free sibling'
      OR private.narrative_legacy_state(v_legacy_free,false)
           ->>'publication_status' IS DISTINCT FROM 'withdrawn'
      OR private.narrative_legacy_state(v_legacy_sibling,false)
+          ->>'publication_status' IS DISTINCT FROM 'published'
+     OR private.narrative_legacy_state(v_legacy_free_sibling,false)
           ->>'publication_status' IS DISTINCT FROM 'published' THEN
     RAISE EXCEPTION 'TASK4_LEGACY_WITHDRAWAL_NOT_GRANULAR_OR_TEXT_SAFE';
   END IF;
