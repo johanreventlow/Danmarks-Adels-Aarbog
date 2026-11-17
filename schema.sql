@@ -3824,7 +3824,7 @@ CREATE TABLE private.reimport_event (
   batch_id uuid NOT NULL REFERENCES private.reimport_batch(id),
   element_id text NOT NULL CHECK(btrim(element_id)<>''),
   -- Samme form som private.ensure_reimport_operations skriver (sorteret = ANY-liste), så frisk base og prod er ens.
-  operation text NOT NULL CONSTRAINT reimport_event_operation_check CHECK(operation = ANY('{activation,canonical_delta,clause_evidence,clause_revision,interpretation_proposal,legacy_migration,person_create,publication_identity,publication_persona,relation_disposition,relation_person_create,relation_persona,reversal,source_evidence,source_text_revision}'::text[])),
+  operation text NOT NULL CONSTRAINT reimport_event_operation_check CHECK(operation = ANY('{activation,canonical_delta,clause_evidence,clause_revision,interpretation_proposal,legacy_migration,person_create,publication_identity,publication_persona,record_persona,relation_disposition,relation_person_create,relation_persona,reversal,source_evidence,source_text_revision}'::text[])),
   source_record_key text,
   canonical_person_id bigint,
   payload jsonb NOT NULL CHECK(jsonb_typeof(payload)='object'),
@@ -4032,7 +4032,7 @@ END $$;
 
 CREATE FUNCTION private.validate_reimport_authorization_payload(p_expected_counts jsonb,p_authorized_elements jsonb)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE v_person_creates bigint; v_source_evidence bigint; v_legacy_migrations bigint; v_clause_evidence bigint; v_interpretation_proposals bigint; v_clause_revisions bigint; v_relation_personas bigint; v_relation_person_creates bigint; v_relation_dispositions bigint; v_source_text_revisions bigint; v_publication_personas bigint; v_publication_identities bigint; v_authorized_count bigint;
+DECLARE v_person_creates bigint; v_source_evidence bigint; v_legacy_migrations bigint; v_clause_evidence bigint; v_interpretation_proposals bigint; v_clause_revisions bigint; v_relation_personas bigint; v_relation_person_creates bigint; v_relation_dispositions bigint; v_source_text_revisions bigint; v_publication_personas bigint; v_publication_identities bigint; v_record_personas bigint; v_authorized_count bigint;
 BEGIN
   IF jsonb_typeof(p_expected_counts)<>'object' OR jsonb_typeof(p_authorized_elements)<>'object'
      OR jsonb_typeof(p_expected_counts->'person_creates')<>'number'
@@ -4049,8 +4049,9 @@ BEGIN
      OR (p_expected_counts ? 'source_text_revision' AND (jsonb_typeof(p_expected_counts->'source_text_revision')<>'number' OR coalesce(p_expected_counts->>'source_text_revision','') !~ '^[0-9]+$'))
      OR (p_expected_counts ? 'publication_personas' AND (jsonb_typeof(p_expected_counts->'publication_personas')<>'number' OR coalesce(p_expected_counts->>'publication_personas','') !~ '^[0-9]+$'))
      OR (p_expected_counts ? 'publication_identities' AND (jsonb_typeof(p_expected_counts->'publication_identities')<>'number' OR coalesce(p_expected_counts->>'publication_identities','') !~ '^[0-9]+$'))
-     OR (SELECT count(*) FROM jsonb_object_keys(p_expected_counts)) NOT IN (2,3,4,5,6,7,8,9,10,11,12)
-     OR EXISTS(SELECT 1 FROM jsonb_object_keys(p_expected_counts) key WHERE key NOT IN ('person_creates','source_evidence','legacy_migrations','clause_evidence','interpretation_proposals','clause_revisions','relation_personas','relation_person_creates','relation_dispositions','source_text_revision','publication_personas','publication_identities')) THEN
+     OR (p_expected_counts ? 'record_personas' AND (jsonb_typeof(p_expected_counts->'record_personas')<>'number' OR coalesce(p_expected_counts->>'record_personas','') !~ '^[0-9]+$'))
+     OR (SELECT count(*) FROM jsonb_object_keys(p_expected_counts)) NOT IN (2,3,4,5,6,7,8,9,10,11,12,13)
+     OR EXISTS(SELECT 1 FROM jsonb_object_keys(p_expected_counts) key WHERE key NOT IN ('person_creates','source_evidence','legacy_migrations','clause_evidence','interpretation_proposals','clause_revisions','relation_personas','relation_person_creates','relation_dispositions','source_text_revision','publication_personas','publication_identities','record_personas')) THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_AUTHORIZATION_INVALID';
   END IF;
   v_person_creates:=(p_expected_counts->>'person_creates')::bigint;
@@ -4065,11 +4066,12 @@ BEGIN
   v_source_text_revisions:=coalesce((p_expected_counts->>'source_text_revision')::bigint,0);
   v_publication_personas:=coalesce((p_expected_counts->>'publication_personas')::bigint,0);
   v_publication_identities:=coalesce((p_expected_counts->>'publication_identities')::bigint,0);
+  v_record_personas:=coalesce((p_expected_counts->>'record_personas')::bigint,0);
   SELECT count(*) INTO v_authorized_count FROM jsonb_object_keys(p_authorized_elements);
-  IF v_authorized_count<>(v_person_creates+v_source_evidence+v_legacy_migrations+v_clause_evidence+v_interpretation_proposals+v_clause_revisions+v_relation_personas+v_relation_person_creates+v_relation_dispositions+v_source_text_revisions+v_publication_personas+v_publication_identities)
+  IF v_authorized_count<>(v_person_creates+v_source_evidence+v_legacy_migrations+v_clause_evidence+v_interpretation_proposals+v_clause_revisions+v_relation_personas+v_relation_person_creates+v_relation_dispositions+v_source_text_revisions+v_publication_personas+v_publication_identities+v_record_personas)
      OR EXISTS(SELECT 1 FROM jsonb_each(p_authorized_elements) element
                 WHERE jsonb_typeof(element.value)<>'object'
-                   OR (element.key !~ '^person-create:.+$' AND element.key !~ '^source-evidence:.+$' AND element.key !~ '^legacy-migration:.+$' AND element.key !~ '^clause-evidence:.+$' AND element.key !~ '^interpretation-proposal:.+$' AND element.key !~ '^clause-revision:.+$' AND element.key !~ '^relation-persona:.+$' AND element.key !~ '^relation-person-create:.+$' AND element.key !~ '^relation-disposition:.+$' AND element.key !~ '^source-text-revision:.+$' AND element.key !~ '^publication-persona:.+$' AND element.key !~ '^publication-identity:.+$'))
+                   OR (element.key !~ '^person-create:.+$' AND element.key !~ '^source-evidence:.+$' AND element.key !~ '^legacy-migration:.+$' AND element.key !~ '^clause-evidence:.+$' AND element.key !~ '^interpretation-proposal:.+$' AND element.key !~ '^clause-revision:.+$' AND element.key !~ '^relation-persona:.+$' AND element.key !~ '^relation-person-create:.+$' AND element.key !~ '^relation-disposition:.+$' AND element.key !~ '^source-text-revision:.+$' AND element.key !~ '^publication-persona:.+$' AND element.key !~ '^publication-identity:.+$' AND element.key !~ '^record-persona:.+$'))
      OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^person-create:.+$')<>v_person_creates
      OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^source-evidence:.+$')<>v_source_evidence
      OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^legacy-migration:.+$')<>v_legacy_migrations
@@ -4081,7 +4083,8 @@ BEGIN
      OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^relation-disposition:.+$')<>v_relation_dispositions
      OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^source-text-revision:.+$')<>v_source_text_revisions
      OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^publication-persona:.+$')<>v_publication_personas
-     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^publication-identity:.+$')<>v_publication_identities THEN
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^publication-identity:.+$')<>v_publication_identities
+     OR (SELECT count(*) FROM jsonb_object_keys(p_authorized_elements) key WHERE key ~ '^record-persona:.+$')<>v_record_personas THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_AUTHORIZATION_INVALID';
   END IF;
 END $$;
@@ -5443,6 +5446,8 @@ BEGIN
                  THEN jsonb_build_object('publication_personas',count(*) FILTER(WHERE operation='publication_persona')) ELSE '{}'::jsonb END
          || CASE WHEN v_batch.expected_counts ? 'publication_identities'
                  THEN jsonb_build_object('publication_identities',count(*) FILTER(WHERE operation='publication_identity')) ELSE '{}'::jsonb END
+         || CASE WHEN v_batch.expected_counts ? 'record_personas'
+                 THEN jsonb_build_object('record_personas',count(*) FILTER(WHERE operation='record_persona')) ELSE '{}'::jsonb END
     INTO v_counts FROM private.reimport_event WHERE batch_id=p_batch_id;
   IF v_counts<>v_batch.expected_counts THEN RAISE EXCEPTION 'REIMPORT_WRITER_FINALIZE_COUNT_MISMATCH'; END IF;
   IF v_batch.expected_counts ? 'relation_personas' THEN PERFORM private.verify_relation_persona_receipts(p_batch_id); END IF;
@@ -5467,7 +5472,7 @@ DECLARE
   v_distinct_element_id_count bigint;
   v_distinct_person_id_count bigint;
   v_expected_source_evidence bigint;
-  v_expected_legacy_migrations bigint; v_expected_clause_evidence bigint; v_expected_interpretation_proposals bigint; v_expected_clause_revisions bigint; v_expected_relation_personas bigint; v_expected_relation_person_creates bigint; v_expected_relation_dispositions bigint; v_expected_source_text_revisions bigint; v_expected_publication_personas bigint; v_expected_publication_identities bigint;
+  v_expected_legacy_migrations bigint; v_expected_clause_evidence bigint; v_expected_interpretation_proposals bigint; v_expected_clause_revisions bigint; v_expected_relation_personas bigint; v_expected_relation_person_creates bigint; v_expected_relation_dispositions bigint; v_expected_source_text_revisions bigint; v_expected_publication_personas bigint; v_expected_publication_identities bigint; v_expected_record_personas bigint;
   v_authorized_element_count bigint;
   v_person_id_map jsonb;
   v_discovered_source_id bigint;
@@ -5527,8 +5532,9 @@ BEGIN
      OR (v_batch.expected_counts ? 'source_text_revision' AND (jsonb_typeof(v_batch.expected_counts->'source_text_revision')<>'number' OR coalesce(v_batch.expected_counts->>'source_text_revision','') !~ '^[0-9]+$'))
      OR (v_batch.expected_counts ? 'publication_personas' AND (jsonb_typeof(v_batch.expected_counts->'publication_personas')<>'number' OR coalesce(v_batch.expected_counts->>'publication_personas','') !~ '^[0-9]+$'))
      OR (v_batch.expected_counts ? 'publication_identities' AND (jsonb_typeof(v_batch.expected_counts->'publication_identities')<>'number' OR coalesce(v_batch.expected_counts->>'publication_identities','') !~ '^[0-9]+$'))
-     OR (SELECT count(*) FROM jsonb_object_keys(v_batch.expected_counts)) NOT IN (2,3,4,5,6,7,8,9,10,11,12)
-     OR EXISTS(SELECT 1 FROM jsonb_object_keys(v_batch.expected_counts) key WHERE key NOT IN ('person_creates','source_evidence','legacy_migrations','clause_evidence','interpretation_proposals','clause_revisions','relation_personas','relation_person_creates','relation_dispositions','source_text_revision','publication_personas','publication_identities')) THEN
+     OR (v_batch.expected_counts ? 'record_personas' AND (jsonb_typeof(v_batch.expected_counts->'record_personas')<>'number' OR coalesce(v_batch.expected_counts->>'record_personas','') !~ '^[0-9]+$'))
+     OR (SELECT count(*) FROM jsonb_object_keys(v_batch.expected_counts)) NOT IN (2,3,4,5,6,7,8,9,10,11,12,13)
+     OR EXISTS(SELECT 1 FROM jsonb_object_keys(v_batch.expected_counts) key WHERE key NOT IN ('person_creates','source_evidence','legacy_migrations','clause_evidence','interpretation_proposals','clause_revisions','relation_personas','relation_person_creates','relation_dispositions','source_text_revision','publication_personas','publication_identities','record_personas')) THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
   END IF;
   v_expected_person_creates:=(v_batch.expected_counts->>'person_creates')::bigint;
@@ -5543,17 +5549,18 @@ BEGIN
   v_expected_source_text_revisions:=coalesce((v_batch.expected_counts->>'source_text_revision')::bigint,0);
   v_expected_publication_personas:=coalesce((v_batch.expected_counts->>'publication_personas')::bigint,0);
   v_expected_publication_identities:=coalesce((v_batch.expected_counts->>'publication_identities')::bigint,0);
+  v_expected_record_personas:=coalesce((v_batch.expected_counts->>'record_personas')::bigint,0);
   SELECT count(*) INTO v_authorized_element_count FROM jsonb_object_keys(v_authorization.authorized_elements);
-  IF v_authorized_element_count<>(v_expected_person_creates+v_expected_source_evidence+v_expected_legacy_migrations+v_expected_clause_evidence+v_expected_interpretation_proposals+v_expected_clause_revisions+v_expected_relation_personas+v_expected_relation_person_creates+v_expected_relation_dispositions+v_expected_source_text_revisions+v_expected_publication_personas+v_expected_publication_identities)
+  IF v_authorized_element_count<>(v_expected_person_creates+v_expected_source_evidence+v_expected_legacy_migrations+v_expected_clause_evidence+v_expected_interpretation_proposals+v_expected_clause_revisions+v_expected_relation_personas+v_expected_relation_person_creates+v_expected_relation_dispositions+v_expected_source_text_revisions+v_expected_publication_personas+v_expected_publication_identities+v_expected_record_personas)
      OR EXISTS(SELECT 1 FROM jsonb_each(v_authorization.authorized_elements) item
                 WHERE jsonb_typeof(item.value)<>'object'
-                   OR (item.key !~ '^person-create:' AND item.key !~ '^source-evidence:' AND item.key !~ '^legacy-migration:' AND item.key !~ '^clause-evidence:' AND item.key !~ '^interpretation-proposal:' AND item.key !~ '^clause-revision:' AND item.key !~ '^relation-persona:' AND item.key !~ '^relation-person-create:' AND item.key !~ '^relation-disposition:' AND item.key !~ '^source-text-revision:' AND item.key !~ '^publication-persona:' AND item.key !~ '^publication-identity:'))
+                   OR (item.key !~ '^person-create:' AND item.key !~ '^source-evidence:' AND item.key !~ '^legacy-migration:' AND item.key !~ '^clause-evidence:' AND item.key !~ '^interpretation-proposal:' AND item.key !~ '^clause-revision:' AND item.key !~ '^relation-persona:' AND item.key !~ '^relation-person-create:' AND item.key !~ '^relation-disposition:' AND item.key !~ '^source-text-revision:' AND item.key !~ '^publication-persona:' AND item.key !~ '^publication-identity:' AND item.key !~ '^record-persona:'))
      OR EXISTS(SELECT 1 FROM jsonb_object_keys(v_authorization.authorized_elements) key
                 LEFT JOIN private.reimport_event event ON event.batch_id=v_batch.id AND event.element_id=key
                 WHERE event.id IS NULL)
      OR EXISTS(SELECT 1 FROM private.reimport_event event
                 LEFT JOIN jsonb_object_keys(v_authorization.authorized_elements) key ON key=event.element_id
-                WHERE event.batch_id=v_batch.id AND event.operation IN ('person_create','source_evidence','legacy_migration','clause_evidence','interpretation_proposal','clause_revision','relation_persona','relation_person_create','relation_disposition','source_text_revision','publication_persona','publication_identity') AND key IS NULL) THEN
+                WHERE event.batch_id=v_batch.id AND event.operation IN ('person_create','source_evidence','legacy_migration','clause_evidence','interpretation_proposal','clause_revision','relation_persona','relation_person_create','relation_disposition','source_text_revision','publication_persona','publication_identity','record_persona') AND key IS NULL) THEN
     RAISE EXCEPTION 'REIMPORT_WRITER_BATCH_RESULT_INVALID';
   END IF;
   SELECT count(*),

@@ -692,6 +692,7 @@ jobs:
           psql -q -v ON_ERROR_STOP=1 -f db-rls.sql >/dev/null
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-source-text-revision.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-publication-registration.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-record-persona-registration.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-publication-persona.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-persona-awaiting-control.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-publication-control.sql
@@ -713,6 +714,9 @@ jobs:
       - name: Publication-operationer SQL (trin 6b)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-publication-registration.sql
+      - name: Record-persona-operation SQL
+        env: {PGPASSWORD: postgres}
+        run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-record-persona-registration.sql
       - name: Publication-persona SQL (trin 6b)
         env: {PGPASSWORD: postgres}
         run: psql -h localhost -U postgres -d writer_1939 -v ON_ERROR_STOP=1 -f tests/sql/test-publication-persona.sql
