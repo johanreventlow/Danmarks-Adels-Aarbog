@@ -2,6 +2,24 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: fuld personsletning — to sjældne samtidighedsudfald accepteres som »prøv igen«; person-først-trigger på `family_member` er åben backlog (2026-11-17)
+
+> Projektejeren valgte begge anbefalinger efter Task 11's samtidighedstest
+> (`tests/sql/test-person-purge-concurrent.sh`, rapport `docs/superpowers/plans/personsletning/task-11-report.md`).
+>
+> - **R41.** En D-1-skriver (`red_reverse_placement_membership`, `red_slet_medierelation_uden_evidens`) låser sin
+>   række, før den åbner sit change_set. Kommer den før sletningen, opstår dens sæt om P først efter sletningens plan,
+>   og slutkontrollen afviser med `PURGE_REST: S52`/`S53` i stedet for `PURGE_PREVIEW_AENDRET`. Det er lukket:
+>   intet ændres, og nyt forsøg lykkes. Task 12's dialog viser »prøv igen« også ved `PURGE_REST`.
+> - **R42.** Indsættes en person i en familie, hvor P er medlem (fx `red_tilfoej_barn(F,P,'plejebarn')`), mens P
+>   slettes, tager FK-kontrollen familien før personen, og sletningen tager personen før familien. Én af de to får
+>   40P01 (målt: det kan være redaktøren); intet ændres. Samme klasse som den accepterede partner-deadlock i
+>   kommentaren ved `private.lock_family_rows`. Ingen af de syv på slettelisten er barn i en familie (målt 17/11).
+> - **Backlog:** en `BEFORE INSERT`-trigger på `family_member`, der tager `person FOR KEY SHARE` før RI's
+>   familietjek, fjerner cyklussen for alle skrivere, også partnertilfældet. Afprøvet kun i en testbase (sletning
+>   først → sletningen lykkes, skriveren får FK-fejl). Den ændrer en global skrivevej og laves som egen opgave med
+>   egen review og låsetest.
+
 ## BESLUTTET: »Sammenlign udgaver« får fire afgrænsede rettelser som legacy-afvikling, ikke ny matcher (2026-11-15)
 
 > Projektejeren valgte (a) efter et review af `/redaktion/sammenlign`: efter de åbenlyse matches står en rest, hvor

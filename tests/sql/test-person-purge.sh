@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fuld personsletning: testharness (Task 2a/2b: skabelon + fixtur; senere tasks tilføjer testgrupper, Task 11 opgradering).
+# Fuld personsletning: testharness (fixtur, testgrupper og valgfri Task 11-opgradering).
 #
 # Brug:  bash tests/sql/test-person-purge.sh <præfiks> [<base-commit>]
 #   præfiks      navn på engangsbaserne: <præfiks>_tmpl (skabelon) og én kopi pr. testgruppe, <præfiks>_<gruppe>.
@@ -137,6 +137,5 @@ echo FRISK_OK
 
 # ---------------------------------------------------------------------------------------------------------------------
 if [ -n "$BASE_COMMIT" ]; then
-  echo "PURGE_FEJL: opgraderingsdelen (base-commit $BASE_COMMIT) er ikke bygget endnu (Task 11)" >&2
-  exit 2
+  bash tests/sql/test-person-purge-upgrade.sh "${PFX}_upgrade" "$BASE_COMMIT" || exit $?
 fi
