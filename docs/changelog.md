@@ -18,9 +18,11 @@ gennemgået igen på familie, årstal og sjældne ord i stedet for navne.
 - **Sammenlign:** personer født efter 1939 holdes ude af sammenligningen med 1939 (#371). Kæder af link tæller som
   afklaret (#372). Matcheren kender nu Claus/Nicolaus, Iven/Iwan, Hartvig/Hartwich, Bertram/Bartram og Joachim/Achim
   (#373).
-- **Resultat:** 816 link. Den fynske linje findes ikke i 2018-20 og udgår af matcharbejdet. 30 1939-personer har
-  stadig ingen modpart; 1939-212 og 1939-17 er dubletter på slettelisten. 1939-25 er måske III-126, men er ikke
-  linket (se reviewet).
+- **change_set 4533:** 1939-25 Marie Elisabeth (hofdame i Plön 1746) → III-126. 2018-20 kalder hende »måske« den
+  samme, og 1939's dødsår 1746 står ved siden af 2018-20's 1777.
+- **Resultat:** 817 link. Den fynske linje findes ikke i 2018-20 og udgår af matcharbejdet. 29 1939-personer har
+  stadig ingen modpart; 1939-212 og 1939-17 er dubletter på slettelisten. Emeke, Henrik og Claus (1939-10/11/12)
+  bærer Hartvigs tekst; det er parkeret som backlog i `decisions.md`.
 
 ## 2026-11-16 — 1939 matchet mod de afdøde i 2018-20: 45 nye identitetslink, 5 forkerte rettet
 

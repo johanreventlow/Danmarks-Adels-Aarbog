@@ -2,6 +2,31 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: Emeke, Henrik og Claus (1939-10/11/12) bærer Hartvigs tekst, åben backlog (2026-11-16)
+
+> Fundet under afstemningen af 1939 og 2018-20 (`reviews/match-1939-2018-20-2026-11-16.md`). Projektejeren valgte
+> at parkere rettelsen. Læserne er ikke berørt: posterne er staged, og de forkerte tekster er aldrig publiceret.
+>
+> - **Fejlen:** narrativ 602 (Emeke, 933), 603 (Henrik, 934) og 604 (Claus, 935) indeholder alle slutningen af Hr.
+>   Hartvigs tekst (1939-8, s. 497): »Medgift, staaende i Techelsdorf, nævnes 1353, men var død 1356. Søn: IV A.«.
+>   603 er trukket tilbage (legacy `withdrawn`). 602 og 604 er aldrig publiceret. Personernes fakta (navn, titel,
+>   død) er rigtige.
+> - **Link:** 933 → I-15 og 935 → I-11 (change_set 4426), 934 → I-10. Posterne må ikke publiceres fra Sammenlign,
+>   før de forkerte tekster er væk.
+> - **De rigtige tekster findes i kildelaget** (`private.source_record_occurrence`):
+>   - Claus har sin egen post (s. 499, `phase-a:record-c0e8f5ad…`): »Hr. Claus, var 1320 Foged hos Grev Johan
+>     III …«.
+>   - Henrik har sin egen post (s. 498, `phase-a:record-e63debca…`): »Hr. Henrik, var 1325 Ridder …«.
+>   - Emeke har ingen egen post. Hans sætning »Emeke, nævnes 1338, medbeseglede 1365 Forliget i Kolding …« står
+>     sidst i Hr. Volrads post (s. 498, `phase-a:record-5248d804…`). Det er en grænsefejl som i
+>     `detect_boundary_defects_1939.py`.
+> - **Rettelsen** skal gå gennem tekstbindingskæden (trin 6d), ikke gennem redaktørfladen, og planlægges efter
+>   genimport-dokumenterne:
+>   1. Træk 602 og 604 tilbage.
+>   2. Bind Claus' og Henriks egne poster til 935 og 934.
+>   3. Afgør Emeke: skil sætningen ud af Volrads post, eller lad ham stå uden egen tekst. Volrads publicerede
+>      narrativ 601 bærer i dag også Emekes sætning.
+
 ## BESLUTTET: »Sammenlign udgaver« får fire afgrænsede rettelser som legacy-afvikling, ikke ny matcher (2026-11-15)
 
 > Projektejeren valgte (a) efter et review af `/redaktion/sammenlign`: efter de åbenlyse matches står en rest, hvor
