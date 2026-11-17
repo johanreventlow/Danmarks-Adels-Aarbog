@@ -113,6 +113,7 @@ BEGIN
 END $chain$;
 
 -- 3. Eksisterende profilers hash er uændret (hentet fra main før ændringen); manglende profiler (ren schema.sql-base) springes over.
+--    Kun ægte kilder (1 = 2018-20, 3 = 1939): andre tests committer syntetiske profiler med samme profile_id på syntetiske kilder.
 DO $profiles$
 DECLARE k record;
 BEGIN
@@ -122,7 +123,7 @@ BEGIN
       ('daa-2018-20-source-text-revision-v1','60c7deaa352a3d7916ef35aba160a8f602c931474dd093a0dd1d6873d0a16f45'),
       ('daa-1939-interpretation-proposal-v1','c6131dcc9655fd74abeb3de787592ee76a7fa17944a9b525b41a38bdd7acd6dc')
     ) AS t(profile_id,sha) LOOP
-    IF EXISTS(SELECT 1 FROM private.reimport_writer_profile WHERE profile_id=k.profile_id AND profile_sha256<>k.sha) THEN
+    IF EXISTS(SELECT 1 FROM private.reimport_writer_profile WHERE profile_id=k.profile_id AND source_id IN (1,3) AND profile_sha256<>k.sha) THEN
       RAISE EXCEPTION 'RECORD_PERSONA_REG_PROFILE_SHA_CHANGED: %',k.profile_id; END IF;
   END LOOP;
   RAISE NOTICE 'OK: profile hashes';
