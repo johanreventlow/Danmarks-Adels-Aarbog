@@ -74,12 +74,44 @@ merge-commit'en, og `origin/main` har ingen nyere SQL-ændringer end den commit 
 5. **Udbakken:** »Filer der venter på sletning« skal være tom eller vise de filer, sletningen frigjorde (1791 har
    ingen medier). Ved filer: kør oprydningen dér; `Rscript R/media-janitor.R` (uden flag = læse-kun) skal derefter vise
    0 forældreløse for de stier.
-6. **Efter-måling:** `… 43-personsletning.sh efter <pid>` → `count: 0 spor`, `REST_OK` og `PURGE_EFTER_OK`. Q9-linjer
-   afstemmes mod afsnittet ovenfor.
+6. **Efter-måling:** `… 43-personsletning.sh efter <pid>` → `count: nul-kontrol OK`, `REST_OK` og `PURGE_EFTER_OK`.
+   Linjer `tilbage (til kontrol/bevaret)` og Q9-linjer afstemmes mod tabellen nedenfor.
 7. **Verify:** `… 43-personsletning.sh verify` → `PURGE_VERIFY_OK` (personsletningens afsnit af `db-verify.sql`,
    Task 8a + Task 10, i en READ ONLY-session).
 
-Gentag 2-7 for de næste id'er. 1823 og 1824 slettes efter 1791 (deres eneste familier forsvinder med 1791).
+Gentag 2-7 for de næste id'er. 1823 og 1824 slettes efter 1791 (deres eneste familier forsvinder med 1791). Et dump
+kan dække flere personer i træk; det gendanner så dem alle.
+
+## Efter-kontrollen (rettet under ceremonien 18/11)
+
+- **Tælleren** gater med `count.sql`'s egen nul-kontrol (`purge_assert_nul`) og de før-mængder, `foer` gemmer
+  (`personas.json`, `families.json`). Heuristik- og bevar-steder (S44, S46, S52, S53, S54b, S57, S58*) står ikke på
+  dens liste og vises som `tilbage (til kontrol/bevaret)`. Første version krævede 0 overalt og stoppede på 1823's
+  S58c (matchkørsler for 815 med 1823 som klyngemedlem: andres historik, til kontrol, ikke sletning).
+- **Navnefæller:** `foer` tæller andre personrækker med navnet. Er der nogen, køres rest-kontrollen på id og link
+  alene, fordi navne-delstrengen ikke kan skelne P's rester fra navnefællernes data (1823/1824 er dubletter af
+  1613/1614; 1795's navn står i 1806 andre rækker). Id-tælleren er uændret streng.
+- **Bogens udtræk:** S41b/bog løfter også `source_evidence.payload.legacy_payload` (1620 står som `partner_navn` i en
+  vielses udtræk). Kræver commit'en fra rettelses-PR'en; runneren fastlåses til den.
+
+## Forventede tal pr. person (øvelse på stand-in i listens rækkefølge, 18/11)
+
+| id | steder | blok. | advarsler | familier slettes | til kontrol | navnefæller | `tilbage` | Q9 (bogtekst) |
+|---|---|---|---|---|---|---|---|---|
+| 1791 | 32 | 0 | – | 742, 743 | 40 | 0 | – | narrativ 867 (1198) |
+| 1823 | 25 | 0 | – | – | 23 | 1 | S58c=5 | – |
+| 1824 | 20 | 0 | – | – | 19 | 1 | – | – |
+| 963 | 1118 | 0 | kontrolkoersel_failer ×2 | – | 15 | 1 | S44=2, S52=1, S54b=1, S57=7 | – |
+| 1795 | 14 | 0 | – | – | 15 | 1806 | – | – |
+| 1620 | 199 | 0 | kontrolkoersel_failer ×2 | – | 6 | 0 | – | narrativ 875 (1206) |
+| 1135 | 818 | 0 | – | – | 91 | 49 | S53=1 | – |
+| 940 | 1132 | 0 | kontrolkoersel_failer ×2 | – | 64 | 20 | – | – |
+| 1814 | 10 | 0 | kontrolkoersel_failer ×1 | – | 9 | 0 | – | narrativ 596 (927) + én citation |
+
+`kontrolkoersel_failer`: en bestået identitetskontrolkørsel holder ikke længere efter sletningen, fordi personen
+indgik i den. Det er en advarsel, ikke en blokering; kørslen må laves om, hvis dens resultat skal bruges igen. Tal i
+steder kan afvige en smule i prod, hvis data er ændret siden dumpet; afvigelser i blokeringer eller nye advarsler er
+et stop.
 
 ## Færdigbevis (spec §7)
 
