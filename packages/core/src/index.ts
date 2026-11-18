@@ -69,3 +69,4 @@ export type {
   Geo,
 } from './types';
 export * from './b6Note';
+export * from './personNavn';

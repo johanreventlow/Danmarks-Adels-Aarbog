@@ -4,7 +4,7 @@
 import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
 import {
-  buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, buildBioSourceVersions,
+  boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, buildBioSourceVersions,
   mapPublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, fmtYears, parseYear, getAll, EMPTY_GEO,
   citationRowsTilProveniens, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates,
   type GenCoord, type ParentsUnknown, type CitationProvenanceRow, type RaaCitationRow,
@@ -87,6 +87,7 @@ export function mapAppPersons(
   persons: RawPerson[],
   bioBy: Record<string, string>,
   includePrivat: boolean,
+  boern: ReadonlySet<string> = new Set(),
 ): AppPerson[] {
   return (persons || [])
     .filter((p) => includePrivat || !p.privat)
@@ -94,7 +95,8 @@ export function mapAppPersons(
       id: String(p.id),
       // Fallback til visning_navn er MIDLERTIDIG kompat (spec §4.9) — visning_fuldt_navn er NULL
       // for personer der endnu ikke er regenereret efter udledt-slægtsnavn-backfillen.
-      name: p.visning_fuldt_navn || p.visning_navn || '(uden navn)',
+      // Barn uden navn vises som »Unavngivet barn« (#388); boern kommer fra family_member.
+      name: personVisningsnavn(p, boern.has(String(p.id))),
       born: parseYear(p.visning_foedt),
       died: parseYear(p.visning_doed),
       years: fmtYears(p.visning_foedt, p.visning_doed),
@@ -296,7 +298,7 @@ export async function loadFromSupabase(opts?: {
   }
   // Bios are applied only after identity collapse.  This prevents v2 event
   // text from being concatenated across aliases by collapseSameAs.
-  const appPersons = mapAppPersons(persons || [], {}, opts?.includePrivat ?? false);
+  const appPersons = mapAppPersons(persons || [], {}, opts?.includePrivat ?? false, boernIder(members || []));
 
   // koen pr. person — bruges KUN til at afgøre forælder-rækkefølge nedenfor (ordinal er
   // ægteskabs-nummer, ikke far/mor-markør; to forældre i samme familie har typisk begge

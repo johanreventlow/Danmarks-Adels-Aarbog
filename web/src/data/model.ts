@@ -2,7 +2,7 @@
 // → buildModel. Lean udgave af mobile/src/data/load.ts (kun det stamtræ + slægtskabsfinder
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
-import { aarSpaend, buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates, fmtYears, oploesRelativDato, parseYear, getAll, EMPTY_GEO } from '@daa/core';
+import { aarSpaend, boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates, fmtYears, oploesRelativDato, parseYear, getAll, EMPTY_GEO } from '@daa/core';
 import { buildLineage, stamtavleSkemaOpslag } from './lineage';
 import { buildSources } from './sources';
 import { byggLinjeRaekker } from './linjeRaekker';
@@ -93,11 +93,13 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     getAll<RawEstate>(() => supabase.from('estate').select('id,navn,slags,sted_id').order('id')).catch((e) => { console.warn('[loadModel] estate utilgængelig — ingen godskort:', e); return [] as RawEstate[]; }),
   ]);
 
+  // Barn uden navn vises som »Unavngivet barn« (#388); erBarn ud fra family_member, ikke et fast id.
+  const boern = boernIder(members);
   const appPersons: AppPerson[] = persons.map((p) => ({
     id: String(p.id),
     // Fallback til visning_navn er MIDLERTIDIG kompat (spec §4.9) — visning_fuldt_navn er NULL
     // for personer der endnu ikke er regenereret efter udledt-slægtsnavn-backfillen.
-    name: p.visning_fuldt_navn ?? p.visning_navn ?? '(uden navn)',
+    name: personVisningsnavn(p, boern.has(String(p.id))),
     born: parseYear(p.visning_foedt),
     died: parseYear(p.visning_doed),
     foedtSpaend: aarSpaend(p.visning_foedt),
