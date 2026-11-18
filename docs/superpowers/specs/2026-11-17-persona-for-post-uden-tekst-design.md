@@ -106,9 +106,12 @@ Pr. element (én helpost):
 - **Følgeændringer i den fælles writer:** hændelsens `operation`-CHECK, authorize' og finalize' tællenøgler og
   elementprefix samt `red_reimport_batch_result`'s lukkede lister (nøgler, antal, prefix, operation). En selektiv
   fortrydelse af operationen er *ikke* et krav (*mit valg*, som 6d-3): fortrydelse sker ved restore inden for vinduet
-  (§6). De generelle fortrydelser afviser allerede en batch med operationen med `REIMPORT_WRITER_REVERSAL_INVALID`
-  (`red_reverse_reimport` kræver en aktiveret batch med navnefuldendelses-barn; `red_reverse_reimport_publication`
-  kun `publication_identity`); det testes, uden kodeændring.
+  (§6). De generelle fortrydelser afviser en *finaliseret* batch med operationen med
+  `REIMPORT_WRITER_REVERSAL_INVALID` (`red_reverse_reimport` kræver en aktiveret batch med navnefuldendelses-barn;
+  `red_reverse_reimport_publication` kun `publication_identity`); det testes. En *aktiveret* batch uden
+  `person_create` (fx med et tomt navnefuldendelses-barn) kan i dag fejlagtigt meldes fortrudt af
+  `red_reverse_reimport`, uden at dens indhold fortrydes. Det er en generel, eksisterende egenskab ved den fælles writer (backlog), som ikke ændres her;
+  fortrydelse sker ved restore (§6).
 - **Profil:** `daa-1939-publication-v1` bærer operationen (`persona_key_prefix` `1939:`, helpost-slags `person`); ingen
   ny profilrække (Task 0 trin 5).
 - **Opgraderingstest:** CHECK- og signaturændringerne testes mod en base bygget fra prods skema før DDL'en (memory
@@ -201,8 +204,13 @@ kun 929 og 934 (1791 og 1795 har ingen record-binding).
 Som 6d-2a i mindre skala: privat runner, dump før hver skrivende ceremoni (B1 + `age`-kopi), frys, vinduesvagt, GO pr.
 ceremoni, fortryd ved restore, generalprøve fra operatørens cwd på en stand-in fra en frisk prod-dump-kopi.
 
-- **DDL-ceremoni:** operationen fra §4.1, spærringen fra §4.5, `db-rls.sql`-grants og opgraderingstesten, i én
-  transaktion. Fortryd-DDL anvender `db-rls.sql` fra basecommit (den nye nævner funktioner, restoren fjerner);
+- **DDL-ceremoni:** DDL'en er `db-migrations.sql`-halen fra separatorlinjen lige før blokken »Fuld personsletning
+  (2026-11-14)« til filens slutning (personsletning #369/#377/#380 + record_persona: operationen fra §4.1,
+  spærringen fra §4.5 og isolationsvagten i legacy-fortrydelsen) efterfulgt af `db-rls.sql`, i én transaktion.
+  Opgraderingstesten kører netop den form fra basen `f37b294a` (prod-form-benet). I samme transaktion, efter hale og
+  `db-rls.sql` og før verify, slettes note 72 (forældreløs, `target_type='family'`, `target_id=54`) under en
+  forudsætning: den er den eneste forældreløse polymorfe række, og family 54 findes ikke (projektejerens afgørelse
+  18/11). Fortryd-DDL anvender `db-rls.sql` fra basecommit (den nye nævner funktioner, restoren fjerner);
   fortryd-data den nye; begge sha-bindes i GO.
 - **Dataceremoni** (efter projektejerens kortsvar): authorize og apply af de to persona-elementer, finalize,
   identiteter, placements, ledger og medlemskab, og de to kladder, i én transaktion. **Ethvert `N` eller ugyldigt svar
@@ -298,3 +306,15 @@ efter Codex r1 fund 6: medlemskab er obligatorisk.*
 | 9 | Opgraderingstestens bevis | forenkl | Base-tjek, CHECK-mængde, sha-liste (plan Task 3) |
 | 10 | `authority_kind` efter kladden | forenkl | §8 skelner før/efter kladden |
 | 11 | To eksterne id'er kan ikke etableres | nødvendig | Test uden id-række i kilden (plan Task 2) |
+
+### Codex-runde 2 (diff) med Opus-dom (2026-11-18)
+
+NO-GO med fire fund plus et testhul; Opus dømte, projektejeren godkendte dommen (18/11):
+
+| # | Fund | Dom | Rettelse |
+|---|---|---|---|
+| 1 | Isolation: legacy-fortrydelsen håndhæver ikke READ COMMITTED; et ældre snapshot omgår bindingsspærringen (r1 fund 4 genåbnet) | nødvendig | Vagt `NARRATIVE_LEGACY_REVERSAL_ISOLATION` i legacy-grenen før `LOCK TABLE` + test (REPEATABLE READ, SERIALIZABLE, kontrol) |
+| 2 | Batch-fortrydelse: en aktiveret batch kan meldes fortrudt uden indhold | generel egenskab, ingen kodeændring | §4.1 og testkommentaren præciseret (*finaliseret* batch); backlog |
+| 3 | Koordinater: ceremoniens koordinathash læser redaktørvisningen | nødvendig | Anon-koordinathash ved siden af redaktørens (`T_RP_POST_KOORD_ANDRE_ANON`) + test |
+| 4 | `printed_page` mangler i KOORD | nødvendig | Med i ceremoniens og målingens udtryk; paritetstest |
+| 5 | Opgraderingstesten kører ikke prods form | nødvendig | Prod-form-ben: hale + `db-rls.sql` i én transaktion fra `f37b294a` (§6) |
