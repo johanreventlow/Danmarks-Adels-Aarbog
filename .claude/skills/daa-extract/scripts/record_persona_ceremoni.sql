@@ -127,13 +127,17 @@ CREATE FUNCTION pg_temp.rp_koord(p_src bigint,p_andre boolean) RETURNS text LANG
    WHERE (c.source_id<>p_src)=p_andre;
 $f$;
 
--- FAKTA, BIO og synlige tekster (samme udtryk som maal_record_persona.sql), beregnet som anon for alle offentlige
--- personer: 'fakta' | 'bio' | 'synlige' (kildens tekster i biografilæseren).
+-- FAKTA, BIO og synlige tekster (samme udtryk som maal_record_persona.sql), beregnet som ægte anon for alle offentlige
+-- personer: 'fakta' | 'bio' | 'synlige' (kildens tekster i biografilæseren). Læserne afgør redaktørvisningen ud fra
+-- current_rolle(), som læser request.jwt.claim.sub (memory redaktoer-uid-arves-i-tests), så kravet ryddes under
+-- læsningen og sættes tilbage til aktøren bagefter; en fejl undervejs ruller hele transaktionen tilbage, så der er
+-- ingen tilstand at gendanne i en undtagelsesgren. Målingen kører uden aktør og ser altså det samme.
 CREATE FUNCTION pg_temp.rp_laeser(p_hvad text,p_src bigint) RETURNS text LANGUAGE plpgsql AS $f$
-DECLARE v_ids bigint[]; v_fids bigint[]; v text;
+DECLARE v_ids bigint[]; v_fids bigint[]; v text; v_sub text:=current_setting('request.jwt.claim.sub',true);
 BEGIN
   v_ids:=ARRAY(SELECT id FROM public.person WHERE public.person_offentlig(id) ORDER BY id);
   v_fids:=ARRAY(SELECT id FROM public.family ORDER BY id);
+  PERFORM set_config('request.jwt.claim.sub','',true);
   SET LOCAL ROLE anon;
   IF p_hvad='fakta' THEN
     v:=(SELECT md5(coalesce(string_agg(x,E'\n' ORDER BY x COLLATE "C"),''))
@@ -147,6 +151,8 @@ BEGIN
     v:=(SELECT count(*) FROM public.public_person_bio_source_versions_v2(v_ids) b WHERE b.source_id=p_src)::text;
   END IF;
   RESET ROLE;
+  PERFORM set_config('request.jwt.claim.sub',coalesce(v_sub,''),true);
+  IF public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'T_RP_PRE_ROLE efter læserkontrol'; END IF;
   RETURN v;
 END $f$;
 
@@ -254,7 +260,7 @@ BEGIN
   END IF;
 
   -- Manifestets form: lukkede nøgler og typer pr. linje; kort, linje, post, person og mention er unikke.
-  FOR v_l IN SELECT l FROM unnest(string_to_array(i.m_text,E'\n')) l LOOP
+  FOR v_l IN SELECT u.l FROM unnest(string_to_array(i.m_text,E'\n')) WITH ORDINALITY AS u(l,ord) ORDER BY u.ord LOOP
     IF btrim(v_l)='' THEN CONTINUE; END IF;
     v_o:=v_o+1;
     BEGIN x:=v_l::jsonb; EXCEPTION WHEN OTHERS THEN RAISE EXCEPTION 'T_RP_PRE_MANIFEST skema (linje %)',v_o; END;
@@ -301,7 +307,7 @@ BEGIN
   IF v_o=0 THEN RAISE EXCEPTION 'T_RP_PRE_MANIFEST tomt'; END IF;
 
   -- Svarene: første linje bærer manifestets sha; derefter præcis ét J pr. kort og del. Ethvert N stopper alt.
-  FOR r IN SELECT l.line,l.ord FROM unnest(string_to_array(replace(i.sv_text,E'\r',''),E'\n')) WITH ORDINALITY AS l(line,ord) LOOP
+  FOR r IN SELECT l.line,l.ord FROM unnest(string_to_array(replace(i.sv_text,E'\r',''),E'\n')) WITH ORDINALITY AS l(line,ord) ORDER BY l.ord LOOP
     IF v_first THEN
       v_first:=false;
       IF r.line !~ '^#' OR (regexp_match(r.line,'manifest_sha256=([0-9a-f]{64})([^0-9a-f]|$)'))[1] IS DISTINCT FROM v_msha THEN
