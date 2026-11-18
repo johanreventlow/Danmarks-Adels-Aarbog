@@ -56,7 +56,7 @@ tekst om Conrad Reventlow (1198). Navnet står derfor bagefter (a) i fire `reimp
 DAA 1939, person 1198) — bogtekst, ikke redaktørtekst, derfor ikke i forhåndsvisningens `til_kontrol`. `efter`
 udskriver `q9 narrativ: 867 | kilde 3 | person 1198`. Alt andet end netop det er et fund.
 
-## Ceremoni pr. person (1791 først)
+## Ceremoni pr. person (1791 først) — udført 18/11, se `docs/superpowers/plans/personsletning/task-13-faerdigbevis.md`
 
 Forudsætning: Task 13-PR'en er merget, Vercel har bygget main (57014-teksten), `PS_COMMIT_FAST` er sat til
 merge-commit'en, og `origin/main` har ingen nyere SQL-ændringer end den commit (memory: parallel DB-ændring).
@@ -78,6 +78,13 @@ merge-commit'en, og `origin/main` har ingen nyere SQL-ændringer end den commit 
    Linjer `tilbage (til kontrol/bevaret)` og Q9-linjer afstemmes mod tabellen nedenfor.
 7. **Verify:** `… 43-personsletning.sh verify` → `PURGE_VERIFY_OK` (personsletningens afsnit af `db-verify.sql`,
    Task 8a + Task 10, i en READ ONLY-session).
+
+**Store profiler og flere ad gangen (tilføjet under ceremonien 18/11):**
+- `foer` og `efter` tager flere id'er: `… foer 963 1795 1620` og `… efter 963 1795 1620` (hver person sit eget kald,
+  samlet `PURGE_FOER_ALLE_OK`/`PURGE_EFTER_ALLE_OK`).
+- Giver Redaktion gentagne »Det tog for lang tid«, slettes personen med
+  `… 43-personsletning.sh slet <pid> --steder <antal fra forhåndsvisningen> --jeg-mener-det` (SKRIVER; samme RPC som
+  authenticated med redaktørens uid, 90 s; forkert antal steder eller blokeringer → intet slettet).
 
 Gentag 2-7 for de næste id'er. 1823 og 1824 slettes efter 1791 (deres eneste familier forsvinder med 1791). Et dump
 kan dække flere personer i træk; det gendanner så dem alle.
