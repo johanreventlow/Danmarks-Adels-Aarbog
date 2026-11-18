@@ -23,6 +23,12 @@ test('mapAppPersons: bio fra bioBy, navn-fallback', () => {
   expect(r[0]).toMatchObject({ id: '3', name: '(uden navn)', bio: 'En biografi', privat: false });
 });
 
+test('mapAppPersons: barn uden navn vises som »Unavngivet barn« (#388), andre beholder »(uden navn)«', () => {
+  const raw = [3, 4].map((id) => ({ id, visning_navn: null, visning_foedt: null, visning_doed: null, visning_titel: null, privat: false }));
+  const r = mapAppPersons(raw as never, {}, false, new Set(['3']));
+  expect(r.map((p) => p.name)).toEqual(['Unavngivet barn', '(uden navn)']);
+});
+
 test('mapPublicBioVersionsByPersonV2: vælger den første bundne eventtekst uden direkte narrativ-fallback', () => {
   expect(mapPublicBioVersionsByPersonV2([
     { person_id: 1, source_id: 9, source_year: 1939, record_order: 2, source_record_ref: 's2', source_label: 'DAA', record_label: 'Post 2', narrative_text: 'Anden post', citation_label: '', provenance_kind: 'source_record' },
