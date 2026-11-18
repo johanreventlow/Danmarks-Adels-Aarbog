@@ -7,14 +7,18 @@
 #    funktioner har præcis schema.sql's kroppe og ACL. Task 1-2's testfiler og writer-bootstrappen køres på den opgraderede base.
 # 3) Frisk schema.sql + hele migrationen én gang: resultatet er stadig byte-ens med 1).
 # 4) db-verify på en selvstændig opgraderet base.
+# 5) Prods form: basen (som i 2) → halen af den aktuelle db-migrations.sql (fra separatorlinjen lige før
+#    `-- Fuld personsletning (2026-11-14)` til filens slutning: personsletning + record_persona) og db-rls.sql i ÉN
+#    psql-transaktion (-1), som prod-runneren kører DDL'en. Derefter samme krav som 2): kroppe+ACL = 1), CHECK-mængden =
+#    basens ∪ {record_persona}, db-verify og Task 1-2's tests.
 # Hvorfor f37b294a og ikke merge-base med origin/main: prods installerede SQL er #363 (2026-11-15). origin/main indeholder
 # bl.a. fuld personsletning (#369/#377), som ikke er i prod; en base derfra ville gøre opgraderingen mere end prods.
 # Basen skal mangle record_persona i CHECK'en og wrapperen, ellers UPGRADE_BASE_INVALID.
-# Kun lokalt/CI. Ved succes droppes de fire baser, scriptet selv oprettede (<db>_f, <db>_u, <db>_s, <db>_v); ved fejl står
-# de tilbage til inspektion.
+# Kun lokalt/CI. Ved succes droppes de fem baser, scriptet selv oprettede (<db>_f, <db>_u, <db>_s, <db>_v, <db>_p); ved
+# fejl står de tilbage til inspektion.
 set -euo pipefail
 name=${1:?database}; base=${2:-$(git merge-base origin/main HEAD)}
-dbf="${name}_f"; dbu="${name}_u"; dbs="${name}_s"; dbv="${name}_v"
+dbf="${name}_f"; dbu="${name}_u"; dbs="${name}_s"; dbv="${name}_v"; dbp="${name}_p"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 for f in schema.sql db-rls.sql db-migrations.sql; do git show "$base:$f" > "$tmp/$f"; done
 q() { env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$1" "${@:2}" >/dev/null; }
@@ -32,12 +36,12 @@ ops() { a "$1" "SELECT o FROM (SELECT unnest(string_to_array(substring(pg_get_co
 tests() { q "$1" -f tests/sql/1939-v50-writer-bootstrap.sql
   q "$1" -c 'BEGIN' -f tests/sql/reimport-writer-v2-bootstrap.sql -c 'COMMIT'
   # psql \quit/NOTICE-testene kan slutte stille: kræv hver testfils sidste OK-linje, ikke kun exit-koden.
-  for pair in "test-record-persona-registration|OK: profile hashes" "test-record-persona|OK: SERIALIZABLE afvises"; do
+  for pair in "test-record-persona-registration|OK: profile hashes" "test-record-persona|OK: legacy-fortrydelse under READ COMMITTED lykkes"; do
     t=${pair%%|*}; ok=${pair#*|}
     out=$(env -u PGOPTIONS psql -X -q -v ON_ERROR_STOP=1 -d "$1" -f "tests/sql/$t.sql" 2>&1) || { echo "$out" >&2; echo "TEST_FAILED: $t" >&2; exit 1; }
     grep -qF "$ok" <<<"$out" || { echo "$out" >&2; echo "TEST_OK_LINE_MISSING: $t" >&2; exit 1; }
   done; }
-createdb "$dbf"; createdb "$dbu"; createdb "$dbs"; createdb "$dbv"
+createdb "$dbf"; createdb "$dbu"; createdb "$dbs"; createdb "$dbv"; createdb "$dbp"
 
 # 1) Frisk reference.
 for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql; do q "$dbf" -f "$f"; done
@@ -74,5 +78,29 @@ for f in tests/sql/evidence-promotion-bootstrap.sql "$tmp/schema.sql" "$tmp/db-r
          db-migrations.sql db-rls.sql db-migrations.sql db-rls.sql tests/sql/run-db-verify-disposable.sql; do q "$dbv" -f "$f"; done
 echo VERIFY_OK
 
-dropdb --if-exists "$dbf"; dropdb --if-exists "$dbu"; dropdb --if-exists "$dbs"; dropdb --if-exists "$dbv"
+# 5) Prods form: hale + db-rls.sql i én transaktion på basen.
+sep='-- ==================================================================================='
+hdr='-- Fuld personsletning (2026-11-14)'
+rph='-- ===== record_persona: persona for helpost uden tekst ====='
+[ "$(grep -cxF -- "$hdr" db-migrations.sql)" = 1 ] || { echo "PROD_TAIL_INVALID: personsletningens overskrift ikke præcis én gang" >&2; exit 1; }
+[ "$(grep -cxF -- "$rph" db-migrations.sql)" = 1 ] || { echo "PROD_TAIL_INVALID: record_persona-overskriften ikke præcis én gang" >&2; exit 1; }
+hl=$(grep -nxF -- "$hdr" db-migrations.sql | cut -d: -f1)
+[ "$hl" -gt 1 ] && [ "$(sed -n "$((hl-1))p" db-migrations.sql)" = "$sep" ] \
+  || { echo "PROD_TAIL_INVALID: linjen før personsletningens overskrift er ikke separatoren" >&2; exit 1; }
+tail -n +"$((hl-1))" db-migrations.sql > "$tmp/hale.sql"
+[ "$(head -1 "$tmp/hale.sql")" = "$sep" ] && [ "$(sed -n 2p "$tmp/hale.sql")" = "$hdr" ] \
+  || { echo "PROD_TAIL_INVALID: halen starter ikke med separator + overskrift" >&2; exit 1; }
+[ "$(grep -cxF -- "$rph" "$tmp/hale.sql")" = 1 ] || { echo "PROD_TAIL_INVALID: record_persona-overskriften er ikke i halen" >&2; exit 1; }
+! grep -qE '^[[:space:]]*(BEGIN|COMMIT|ROLLBACK|START TRANSACTION)[[:space:]]*;|^\\' "$tmp/hale.sql" db-rls.sql \
+  || { echo "PROD_TAIL_INVALID: transaktionsstyring eller psql-metakommando i halen/db-rls.sql" >&2; exit 1; }
+for f in tests/sql/evidence-promotion-bootstrap.sql "$tmp/schema.sql" "$tmp/db-rls.sql" "$tmp/db-migrations.sql" "$tmp/db-migrations.sql" "$tmp/db-rls.sql"; do q "$dbp" -f "$f"; done
+[ "$(ops "$dbp")" = "$base_ops" ] || { echo "PROD_FORM_BASE_INVALID: basens CHECK-mængde afviger fra 2)" >&2; exit 1; }
+q "$dbp" -1 -f "$tmp/hale.sql" -f db-rls.sql
+[ "$(sha "$dbp")" = "$fresh" ] || { echo "PROD_FORM_BODY_OR_ACL_MISMATCH" >&2; diff <(echo "$fresh") <(sha "$dbp") >&2 || true; exit 1; }
+[ "$(ops "$dbp")" = "$expected_ops" ] || { echo "PROD_FORM_OPERATION_SET_MISMATCH" >&2; diff <(echo "$expected_ops") <(ops "$dbp") >&2 || true; exit 1; }
+q "$dbp" -f tests/sql/run-db-verify-disposable.sql
+tests "$dbp"
+echo PROD_FORM_OK
+
+dropdb --if-exists "$dbf"; dropdb --if-exists "$dbu"; dropdb --if-exists "$dbs"; dropdb --if-exists "$dbv"; dropdb --if-exists "$dbp"
 echo UPGRADE_RECORD_PERSONA_OK
