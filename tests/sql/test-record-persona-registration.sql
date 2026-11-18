@@ -102,7 +102,8 @@ BEGIN
   IF (SELECT observed_counts->>'record_personas' FROM private.reimport_batch WHERE id=s.batch)::int<>2 THEN
     RAISE EXCEPTION 'RECORD_PERSONA_REG_TEST_RESULT_COUNT'; END IF;
 
-  -- de generelle fortrydelser afviser en record_persona-batch
+  -- de generelle fortrydelser afviser en *finaliseret* record_persona-batch (en aktiveret batch uden person_create kan
+  -- i dag fejlagtigt meldes fortrudt af red_reverse_reimport: generel egenskab ved den fælles writer, backlog; spec §4.1)
   PERFORM set_config('request.jwt.claim.sub',s.actor::text,true);
   PERFORM set_config('role','service_role',true);
   v_auth:=public.red_authorize_reimport_reversal(s.batch,gen_random_uuid(),clock_timestamp()+interval '10 minutes');
