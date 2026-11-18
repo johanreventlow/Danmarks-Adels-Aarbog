@@ -19,7 +19,8 @@ FOCUS = {'private.source_record', 'public.source', 'public.person_external_id',
 EXTRA = {'_version_lock_row', '_version_upsert_row', '_version_delete_row', 'log_change',
          'enforce_relation_evidence_target', 'private.guard_fact_evidence_delete',
          'private.reject_evidence_mutation', 'private.reject_row_mutation',
-         'private.guard_identity_mutation_snapshot', 'private.lock_reimport_writer'}
+         'private.guard_identity_mutation_snapshot', 'private.lock_reimport_writer',
+         'private.person_purge_udbakke_genbrug'}
 
 
 def relation(name):

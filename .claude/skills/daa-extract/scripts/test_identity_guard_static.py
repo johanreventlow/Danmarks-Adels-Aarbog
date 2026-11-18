@@ -191,3 +191,14 @@ def test_cutover_staar_foer_foerste_saetning():
     for sig in ("public.red_decide_source_persona_identity(uuid,bigint,integer,text,jsonb)",
                 "public.red_afgoer_source_persona(uuid,integer,text,bigint,text)"):
         assert f"REVOKE ALL ON FUNCTION {sig} FROM PUBLIC,anon,authenticated,service_role" in blok.group(0), sig
+
+
+def test_person_purge_udbakke_er_ikke_identitetsskrivere():
+    # Task 12: læsning / kvittering / annullering ved stigenbrug; ingen identitetsskrivning.
+    for navn in ("schema.sql", "db-migrations.sql"):
+        s = _tekst(navn)
+        for skema, fn in (("public", "red_person_purge_udbakke"),
+                          ("public", "red_person_purge_udbakke_kvitter"),
+                          ("private", "person_purge_udbakke_genbrug")):
+            assert re.search(r"FUNCTION\s+" + skema + r"\." + fn + r"\(", s), (navn, fn)
+            assert not any(kalder == fn for kalder, _, _, _ in kernekald(s)), (navn, fn)

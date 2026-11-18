@@ -35,6 +35,11 @@ const mocks = vi.hoisted(() => ({
   retOcrFelt: vi.fn(),
 }));
 
+// Udbakken hentes ved mount for redaktion; uden mock rammer den et rigtigt netværkskald (ustabil under belastning).
+vi.mock('../data/personPurge', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../data/personPurge')>()),
+  fetchPurgeUdbakke: vi.fn().mockResolvedValue([]),
+}));
 vi.mock('../data/auth', () => ({
   currentSession: mocks.currentSession,
   signIn: mocks.signIn,

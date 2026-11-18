@@ -29,7 +29,7 @@ const MEDIA_DATE_FAKTATYPER = new Set(['hentedato', 'datering']);
 
 export type Change = {
   art: 'fakta' | 'narrativ' | 'relation' | 'gods' | 'hverv'
-     | 'redigerOplysning' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'sletPerson'
+     | 'redigerOplysning' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'sletPerson' | 'sletPersonHelt' | 'kvitterPersonPurgeFil'
      | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'sletMediaRelationUdenEvidens' | 'tilfoejRelation'
      | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
      | 'setFamilieOrdinal' | 'flytBarn'
@@ -303,6 +303,17 @@ export function buildRpcCall(c: Change): RpcCall | null {
   }
   if (c.art === 'setPrivat') {
     return { fn: 'red_set_privat', args: { p_person_id: sid, p_privat: Boolean(c.payload?.privat) } };
+  }
+  if (c.art === 'sletPersonHelt') {
+    const id = parsePostgresBigintId(c.subjektId);
+    const sha = c.payload?.previewSha256;
+    if (id == null || typeof sha !== 'string' || !/^[a-f0-9]{64}$/.test(sha)) return null;
+    return { fn: 'red_slet_person_helt', args: { p_person_id: id, p_preview_sha256: sha } };
+  }
+  if (c.art === 'kvitterPersonPurgeFil') {
+    const { bucket, sti } = c.payload ?? {};
+    if (typeof bucket !== 'string' || !bucket || typeof sti !== 'string' || !sti) return null;
+    return { fn: 'red_person_purge_udbakke_kvitter', args: { p_bucket: bucket, p_sti: sti } };
   }
   if (c.art === 'sletPerson') {
     return { fn: 'red_slet_person', args: { p_person_id: sid } };
@@ -676,12 +687,15 @@ export function buildSuggestCall(c: Change): RpcCall {
 // Arter hvor et ufuldstændigt Change ALDRIG må degradere til red_suggest: de beskriver en
 // struktur-operation på en konkret række, og et forslag uden mål er ikke en svagere udgave af
 // handlingen — det er en tom post der kvitteres som "sendt til staging" (Codex sol, 2026-08-01).
-const KRAEVER_GYLDIGT_KALD = new Set(['tilknytMedia', 'tilfoejPartner', 'narrativRecord', 'fortrydNarrativPublicering']);
+const KRAEVER_GYLDIGT_KALD = new Set(['tilknytMedia', 'tilfoejPartner', 'narrativRecord', 'fortrydNarrativPublicering', 'sletPersonHelt', 'kvitterPersonPurgeFil']);
 
 export function planCall(c: Change, role: string | undefined): RpcCall {
   const bygget = buildRpcCall(c);
   if (KRAEVER_GYLDIGT_KALD.has(c.art) && !bygget) {
     throw new Error(c.art === 'tilknytMedia' ? 'Ugyldig medietilknytning.' : 'Ufuldstændig ændring — handlingen blev ikke sendt.');
+  }
+  if ((c.art === 'sletPersonHelt' || c.art === 'kvitterPersonPurgeFil') && role !== 'redaktion') {
+    throw new Error('Fuld personsletning kræver redaktør-rettigheder — kan ikke sendes som forslag.');
   }
   if ((c.art === 'narrativRecord' || c.art === 'fortrydNarrativPublicering') && role !== 'redaktion') {
     throw new Error('Narrativ-publicering kræver redaktør-rettigheder — kan ikke sendes som forslag.');
@@ -706,6 +720,8 @@ export async function submitChange(c: Change, opts: { dryRun: boolean; role?: st
     // forslags-laget gemmer kun p_payload som jsonb — en rå File-værdi JSON-serialiserer til '{}'
     uploadMedia: 'Medieupload',
     erstatMediaFil: 'Medieupload', // bærer fil-bytes, samme fælde som uploadMedia
+    sletPersonHelt: 'Fuld personsletning',
+    kvitterPersonPurgeFil: 'Kvittering af filsletning',
     udrensMedia: 'Udrensning', // destruktiv + afhænger af de RETURNEREDE stier (spec §6)
     fortryd: 'Fortryd', // et "fortryd-forslag" er en tom kø-post der kvitteres, mens intet fortrydes
     narrativRecord: 'Narrativ-publicering',
@@ -731,7 +747,7 @@ export async function submitChange(c: Change, opts: { dryRun: boolean; role?: st
     await performUpload(p.file as Blob, String(p.storagePath));
   }
   const { data, error } = await supabase.rpc(call.fn, call.args);
-  if (error) throw new Error(error.message);
+  if (error) throw Object.assign(new Error(error.message), { code: error.code });
   if (c.art === 'uploadMedia') {
     // Billedstørrelser Slice B2: thumb+medium er selvstændige størrelsestrin (media_variant),
     // ikke en del af red_upload_media selv. Rækken forbliver 'kladde', indtil ALLE varianter

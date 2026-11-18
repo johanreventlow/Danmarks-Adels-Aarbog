@@ -10,8 +10,8 @@
   \echo 'PURGE_TEST_FEJL: angiv -v gruppe=<navn>'
   SELECT 1/0 AS gruppe_mangler;
 \endif
-SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest','oprindelse','preview','preview_q3','vagt','purge','purge_ekstra','purge_binding','fortryd_link','db_verify') AS gruppe_kendt,
-       :'gruppe'='inventar' AS g_inventar, :'gruppe'='binding' AS g_binding,
+SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest','oprindelse','preview','preview_q3','vagt','purge','purge_ekstra','purge_binding','fortryd_link','db_verify','udbakke') AS gruppe_kendt,
+       :'gruppe'='udbakke' AS g_udbakke, :'gruppe'='inventar' AS g_inventar, :'gruppe'='binding' AS g_binding,
        :'gruppe'='plan' AS g_plan, :'gruppe'='historik' AS g_historik, :'gruppe'='fortrydelse' AS g_fortrydelse,
        :'gruppe'='manifest' AS g_manifest, :'gruppe'='oprindelse' AS g_oprindelse,
        :'gruppe'='preview' AS g_preview, :'gruppe'='preview_q3' AS g_preview_q3,
@@ -3373,4 +3373,205 @@ SELECT purge_test.id('P') AS pid \gset
 
 \if :g_db_verify
 \ir person-purge-db-verify-tests.sql
+\endif
+
+-- Task 12: udbakke, kald som rigtige roller og en rigtig sletning med COMMIT.
+\if :g_udbakke
+CREATE FUNCTION pg_temp.udbakke_assert(p_ok boolean,p_test text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN IF p_ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'TEST_FAILED %',p_test; END IF; END $$;
+BEGIN;
+\ir fixtures/kalder-matrix.sql
+SELECT pg_temp.km_kaldere();
+INSERT INTO private.person_purge_udbakke(bucket,sti) VALUES
+  ('purge-task12-a','en'),('purge-task12-a','to'),('purge-task12-b','en');
+CREATE TEMP TABLE udbakke_foer AS SELECT * FROM private.person_purge_udbakke;
+DO $t$
+DECLARE k text; q text; v_error text; v_state text; sig text;
+BEGIN
+  FOREACH sig IN ARRAY ARRAY['public.red_person_purge_udbakke()','public.red_person_purge_udbakke_kvitter(text,text)'] LOOP
+    PERFORM pg_temp.udbakke_assert(has_function_privilege('authenticated',sig,'EXECUTE')
+      AND NOT has_function_privilege('anon',sig,'EXECUTE') AND NOT has_function_privilege('service_role',sig,'EXECUTE'),'udbakke_acl');
+    PERFORM pg_temp.udbakke_assert(EXISTS (SELECT 1 FROM pg_proc WHERE oid=to_regprocedure(sig)
+      AND prosecdef AND proconfig @> ARRAY['search_path=pg_catalog, public, private']), 'udbakke_definer_search_path');
+  END LOOP;
+  FOREACH k IN ARRAY ARRAY['gaest','uden_profil','medlem'] LOOP
+    FOREACH q IN ARRAY ARRAY['SELECT * FROM public.red_person_purge_udbakke()',
+      'SELECT public.red_person_purge_udbakke_kvitter(''purge-task12-a'',''en'')',
+      'SELECT public.red_person_purge_udbakke_kvitter(''findes-ikke'',''findes-ikke'')'] LOOP
+      BEGIN
+        PERFORM pg_temp.km_antal(k,q);
+        RAISE EXCEPTION 'TEST_FAILED udbakke_rollegate accepterede';
+      EXCEPTION WHEN OTHERS THEN GET STACKED DIAGNOSTICS v_error=MESSAGE_TEXT,v_state=RETURNED_SQLSTATE;
+      END;
+      PERFORM pg_temp.udbakke_assert(CASE WHEN k='gaest' THEN v_state='42501' ELSE v_error='Kun redaktion' END,'udbakke_rollegate');
+    END LOOP;
+  END LOOP;
+  PERFORM pg_temp.udbakke_assert(pg_temp.km_antal('redaktion','SELECT * FROM public.red_person_purge_udbakke()')=
+    (SELECT count(*) FROM udbakke_foer),'udbakke_liste_redaktion');
+  PERFORM pg_temp.km_antal('redaktion','SELECT public.red_person_purge_udbakke_kvitter(''purge-task12-a'',''en'')');
+  -- EXCEPT i begge retninger sammenligner alle felter, også oprettet og rækken med samme sti i anden bucket.
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS (
+    (SELECT * FROM private.person_purge_udbakke EXCEPT SELECT * FROM udbakke_foer WHERE NOT (bucket='purge-task12-a' AND sti='en'))
+    UNION ALL
+    (SELECT * FROM udbakke_foer WHERE NOT (bucket='purge-task12-a' AND sti='en') EXCEPT SELECT * FROM private.person_purge_udbakke)
+  ),'udbakke_kvitter_praecis_en');
+  PERFORM pg_temp.km_antal('redaktion','SELECT public.red_person_purge_udbakke_kvitter(''purge-task12-a'',''en'')');
+  PERFORM pg_temp.udbakke_assert((SELECT count(*) FROM private.person_purge_udbakke)=(SELECT count(*)-1 FROM udbakke_foer),
+    'udbakke_kvitter_idempotent');
+END $t$;
+ROLLBACK;
+\echo OK udbakke_rollegate
+\echo OK udbakke_acl
+\echo OK udbakke_kvitter_praecis_en
+\echo OK udbakke_kvitter_idempotent
+
+-- Indsæt køposter EFTER de levende referencer: filteret skal også beskytte gamle/strandede køposter.
+BEGIN;
+\ir fixtures/kalder-matrix.sql
+SELECT pg_temp.km_kaldere();
+DO $t$
+DECLARE v_media bigint;
+BEGIN
+  PERFORM purge_test.nyt();
+  INSERT INTO public.media(bucket,storage_path,upload_status)
+    VALUES('purge-task12-live','genbrugt-original','kladde') RETURNING id INTO v_media;
+  INSERT INTO public.media_variant(media_id,tier,storage_path)
+    VALUES(v_media,'thumb','genbrugt-variant');
+  INSERT INTO private.person_purge_udbakke(bucket,sti) VALUES
+    ('purge-task12-live','genbrugt-original'),('purge-task12-live','genbrugt-variant'),
+    ('purge-task12-anden','genbrugt-original'),('purge-task12-anden','genbrugt-variant'),
+    ('purge-task12-live','uden-reference');
+  PERFORM pg_temp.udbakke_assert(pg_temp.km_antal('redaktion',
+    $q$SELECT * FROM public.red_person_purge_udbakke()
+      WHERE bucket='purge-task12-live' AND sti='genbrugt-original'$q$)=0,'udbakke_skjuler_levende_media');
+  PERFORM pg_temp.udbakke_assert(pg_temp.km_antal('redaktion',
+    $q$SELECT * FROM public.red_person_purge_udbakke()
+      WHERE bucket='purge-task12-live' AND sti='genbrugt-variant'$q$)=0,'udbakke_skjuler_levende_variant');
+  PERFORM pg_temp.udbakke_assert(pg_temp.km_antal('redaktion',
+    $q$SELECT * FROM public.red_person_purge_udbakke()
+      WHERE bucket='purge-task12-anden' AND sti='genbrugt-original'$q$)=1,
+    'udbakke_media_anden_bucket_synlig');
+  PERFORM pg_temp.udbakke_assert(pg_temp.km_antal('redaktion',
+    $q$SELECT * FROM public.red_person_purge_udbakke()
+      WHERE bucket='purge-task12-anden' AND sti='genbrugt-variant'$q$)=0,
+    'udbakke_variant_alle_buckets_skjult');
+  PERFORM pg_temp.udbakke_assert(pg_temp.km_antal('redaktion',
+    $q$SELECT * FROM public.red_person_purge_udbakke()
+      WHERE bucket='purge-task12-live' AND sti='uden-reference'$q$)=1,'udbakke_uden_reference_synlig');
+END $t$;
+ROLLBACK;
+\echo OK udbakke_skjuler_levende_media
+\echo OK udbakke_skjuler_levende_variant
+\echo OK udbakke_media_anden_bucket_synlig
+\echo OK udbakke_variant_alle_buckets_skjult
+\echo OK udbakke_uden_reference_synlig
+
+SET request.jwt.claim.sub='a2a00000-0000-4000-8000-00000000a001';
+-- Tilføj en rigtig variant til det eksklusive medie, så begge slags bytes overlever i køen efter COMMIT.
+INSERT INTO public.media_variant(media_id,tier,storage_path)
+  VALUES(purge_test.id('medie_eksklusiv'),'thumb','purge-test/eksklusiv-genbrug-thumb.jpg');
+-- Forventede bytes fra fixturens medie, ikke fra sletteinventaret eller manifestet.
+CREATE TEMP TABLE udbakke_forventet AS
+  SELECT 'media'::text AS art,m.bucket,m.storage_path AS sti FROM public.media m WHERE m.id=purge_test.id('medie_eksklusiv')
+  UNION SELECT 'variant',m.bucket,v.storage_path FROM public.media_variant v JOIN public.media m ON m.id=v.media_id
+    WHERE m.id=purge_test.id('medie_eksklusiv');
+BEGIN;
+SELECT public.red_slet_person_helt(purge_test.id('P'),public.red_slet_person_helt_preview(purge_test.id('P'))->>'sha256') \g /dev/null
+COMMIT;
+DO $t$
+DECLARE cols text[];
+BEGIN
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS(SELECT 1 FROM public.person WHERE id=purge_test.id('P')),'udbakke_efter_commit');
+  PERFORM pg_temp.udbakke_assert(EXISTS(SELECT 1 FROM udbakke_forventet) AND NOT EXISTS (
+    SELECT bucket,sti FROM udbakke_forventet EXCEPT SELECT bucket,sti FROM private.person_purge_udbakke),'udbakke_bytes_efter_commit');
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS (
+    SELECT 1 FROM public.red_person_purge_udbakke() u WHERE
+      (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(to_jsonb(u)) k) IS DISTINCT FROM ARRAY['bucket','oprettet','sti']
+  ),'udbakke_liste_kun_tre_felter');
+  SELECT array_agg(attname::text ORDER BY attname) INTO cols FROM pg_attribute
+    WHERE attrelid='private.person_purge_udbakke'::regclass AND attnum>0 AND NOT attisdropped;
+  PERFORM pg_temp.udbakke_assert(cols=ARRAY['bucket','oprettet','sti'] AND NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conrelid='private.person_purge_udbakke'::regclass AND contype='f'
+  ) AND NOT EXISTS (SELECT 1 FROM private.person_purge_kandidatkolonner() k WHERE k.tabel='private.person_purge_udbakke'
+    AND NOT EXISTS (SELECT 1 FROM private.person_purge_undtagelser() u WHERE u.tabel=k.tabel AND u.kolonne IN (k.kolonne,'*'))),
+    'udbakke_ingen_person_reference');
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS (SELECT 1 FROM private.person_purge_udbakke
+    WHERE sti LIKE '%'||purge_test.id('P')::text||'%' OR bucket LIKE '%'||purge_test.id('P')::text||'%'), 'udbakke_intet_person_id');
+END $t$;
+\echo OK udbakke_efter_commit
+\echo OK udbakke_bytes_efter_commit
+\echo OK udbakke_liste_kun_tre_felter
+\echo OK udbakke_ingen_person_reference
+
+-- Genbrug EFTER den rigtige sletnings COMMIT: kun de nye levende bytes annullerer køposter.
+BEGIN;
+DO $t$
+DECLARE v_media bigint; v_variant bigint; v_original record; v_thumb record;
+BEGIN
+  SELECT bucket,sti INTO STRICT v_original FROM udbakke_forventet WHERE art='media';
+  SELECT bucket,sti INTO STRICT v_thumb FROM udbakke_forventet WHERE art='variant';
+  INSERT INTO private.person_purge_udbakke(bucket,sti) VALUES
+    ('purge-task12-anden',v_original.sti),('purge-task12-anden',v_thumb.sti);
+  PERFORM purge_test.nyt();
+  INSERT INTO public.media(bucket,storage_path) VALUES(v_original.bucket,v_original.sti) RETURNING id INTO v_media;
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS (SELECT 1 FROM private.person_purge_udbakke
+    WHERE bucket=v_original.bucket AND sti=v_original.sti) AND EXISTS (SELECT 1 FROM private.person_purge_udbakke
+    WHERE bucket='purge-task12-anden' AND sti=v_original.sti),'udbakke_genbrug_media_efter_commit');
+  -- En variant skal rydde alle buckets, også når dens nye forælder har en anden bucket.
+  INSERT INTO public.media(bucket) VALUES('purge-task12-variant-foraelder') RETURNING id INTO v_media;
+  INSERT INTO public.media_variant(media_id,tier,storage_path) VALUES(v_media,'thumb',v_thumb.sti)
+    RETURNING id INTO v_variant;
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS (SELECT 1 FROM private.person_purge_udbakke WHERE sti=v_thumb.sti),
+    'udbakke_genbrug_variant_efter_commit');
+
+  -- UPDATE-vejene: bucket alene, media-sti alene og variant-sti alene.
+  INSERT INTO private.person_purge_udbakke(bucket,sti) VALUES('purge-task12-opdateret',v_original.sti);
+  UPDATE public.media SET bucket='purge-task12-opdateret'
+    WHERE bucket=v_original.bucket AND storage_path=v_original.sti;
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS (SELECT 1 FROM private.person_purge_udbakke
+    WHERE bucket='purge-task12-opdateret' AND sti=v_original.sti),'udbakke_genbrug_media_bucket_update');
+  INSERT INTO private.person_purge_udbakke(bucket,sti) VALUES('purge-task12-opdateret','ny-media-sti');
+  UPDATE public.media SET storage_path='ny-media-sti'
+    WHERE bucket='purge-task12-opdateret' AND storage_path=v_original.sti;
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS (SELECT 1 FROM private.person_purge_udbakke
+    WHERE bucket='purge-task12-opdateret' AND sti='ny-media-sti'),'udbakke_genbrug_media_sti_update');
+  INSERT INTO private.person_purge_udbakke(bucket,sti) VALUES
+    ('purge-task12-opdateret','ny-variant-sti'),('purge-task12-anden','ny-variant-sti');
+  UPDATE public.media_variant SET storage_path='ny-variant-sti' WHERE id=v_variant;
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS (SELECT 1 FROM private.person_purge_udbakke WHERE sti='ny-variant-sti'),
+    'udbakke_genbrug_variant_sti_update');
+END $t$;
+ROLLBACK;
+\echo OK udbakke_genbrug_media_efter_commit
+\echo OK udbakke_genbrug_variant_efter_commit
+\echo OK udbakke_genbrug_media_bucket_update
+\echo OK udbakke_genbrug_media_sti_update
+\echo OK udbakke_genbrug_variant_sti_update
+
+BEGIN;
+DO $t$
+DECLARE v_role text;
+BEGIN
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    PERFORM pg_temp.udbakke_assert(NOT has_function_privilege(v_role,
+      'private.person_purge_udbakke_genbrug()','EXECUTE'),'udbakke_genbrug_intern_acl');
+  END LOOP;
+  PERFORM pg_temp.udbakke_assert(NOT EXISTS (
+    SELECT 1 FROM pg_proc p,aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+    WHERE p.oid='private.person_purge_udbakke_genbrug()'::regprocedure AND a.grantee=0
+      AND a.privilege_type='EXECUTE'),'udbakke_genbrug_intern_acl');
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated'] LOOP
+    BEGIN
+      EXECUTE format('SET LOCAL ROLE %I',v_role);
+      PERFORM private.person_purge_udbakke_genbrug();
+      RAISE EXCEPTION 'TEST_FAILED udbakke_genbrug_klientkald accepterede';
+    EXCEPTION WHEN insufficient_privilege THEN
+      NULL; -- Kun 42501 accepteres; triggerfunktionens almindelige kaldfejl er ikke nok.
+    END;
+    RESET ROLE;
+  END LOOP;
+END $t$;
+ROLLBACK;
+\echo OK udbakke_genbrug_intern_acl
+\echo OK udbakke_genbrug_klientkald_afvist
 \endif

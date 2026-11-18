@@ -3066,6 +3066,8 @@ DECLARE
     'public.red_slet_person_preview(bigint)'::regprocedure,
     'public.red_slet_person_helt(bigint,text)'::regprocedure,
     'public.red_slet_person_helt_preview(bigint)'::regprocedure,
+    'public.red_person_purge_udbakke()'::regprocedure,
+    'public.red_person_purge_udbakke_kvitter(text,text)'::regprocedure,
     'public.red_slet_relation(bigint)'::regprocedure,
     'public.red_slet_story(bigint)'::regprocedure,
     'public.red_source_persona_detail(uuid)'::regprocedure,
@@ -11112,7 +11114,9 @@ BEGIN
     ('conclusion','trg_conclusion_relation_target','public.enforce_relation_evidence_target()',23),
     ('note','trg_note_relation_target','public.enforce_relation_evidence_target()',23),
     ('fact','trg_fact_evidence_delete','private.guard_fact_evidence_delete()',11),
-    ('entity_description','trg_entity_description_subject','public.validate_entity_description_subject()',23)
+    ('entity_description','trg_entity_description_subject','public.validate_entity_description_subject()',23),
+    ('media','trg_media_person_purge_udbakke_genbrug','private.person_purge_udbakke_genbrug()',21),
+    ('media_variant','trg_media_variant_person_purge_udbakke_genbrug','private.person_purge_udbakke_genbrug()',21)
   ) x(tabel,triggernavn,funktion,triggerart) LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid=to_regclass('public.'||r.tabel)
       AND t.tgname=r.triggernavn AND t.tgfoid=to_regprocedure(r.funktion)
@@ -11122,6 +11126,7 @@ BEGIN
   END LOOP;
   FOR r IN SELECT * FROM (VALUES
     ('private.validate_polymorf_subjekt_findes()'),('private.guard_fact_evidence_delete()'),
+    ('private.person_purge_udbakke_genbrug()'),
     ('private.feed_pin_maal(text)'),('private.laas_feed_pin_maal(text)'),('public.enforce_relation_evidence_target()'),
     ('public.validate_entity_description_subject()'),('public.red_set_feed_pin(text,text)'),
     ('public.red_fortryd_change_set(bigint,boolean)')
@@ -11143,6 +11148,20 @@ BEGIN
     IF EXISTS (SELECT 1 FROM pg_proc p,aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
                 WHERE p.oid=f AND a.grantee=0 AND a.privilege_type='EXECUTE') THEN
       RAISE EXCEPTION 'VERIFY_FAILED: person_purge vagt PUBLIC ACL: %',r.funktion;
+    END IF;
+  END LOOP;
+  -- UPDATE OF skal dække hele sti-identiteten; ingen WHEN-betingelse må omgå genbrugsvagten.
+  FOR r IN SELECT * FROM (VALUES
+    ('media','trg_media_person_purge_udbakke_genbrug',ARRAY['bucket','storage_path']::text[]),
+    ('media_variant','trg_media_variant_person_purge_udbakke_genbrug',ARRAY['storage_path']::text[])
+  ) x(tabel,triggernavn,kolonner) LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger t
+      WHERE t.tgrelid=to_regclass('public.'||r.tabel) AND t.tgname=r.triggernavn
+        AND t.tgqual IS NULL AND NOT t.tgdeferrable AND t.tgnargs=0
+        AND (SELECT array_agg(a.attname::text ORDER BY a.attname)
+          FROM unnest(t.tgattr::smallint[]) n(attnum)
+          JOIN pg_attribute a ON a.attrelid=t.tgrelid AND a.attnum=n.attnum)=r.kolonner) THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: person_purge udbakke genbrug triggerkolonner: %',r.triggernavn;
     END IF;
   END LOOP;
   -- Relationsvagtlisten omfatter begge media-ender; samme type-/låsekontrakt som fact.

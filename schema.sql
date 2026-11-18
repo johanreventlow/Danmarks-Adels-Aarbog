@@ -23880,3 +23880,53 @@ RETURNS TABLE(maal_type text, maal_id bigint) LANGUAGE sql IMMUTABLE SET search_
   ) AS m;
 $$;
 REVOKE ALL ON FUNCTION private.parse_mentions_klikbare(text) FROM PUBLIC,anon,authenticated,service_role;
+
+-- Fuld personsletning (2026-11-14), Task 12: privat udbakke, uden personreference.
+CREATE OR REPLACE FUNCTION public.red_person_purge_udbakke()
+RETURNS TABLE(bucket text,sti text,oprettet timestamptz)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_outbox$
+BEGIN
+  IF public.current_rolle() IS DISTINCT FROM 'redaktion' OR auth.uid() IS NULL THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- SHA-stier kan være genbrugt, mens en tidligere Storage-sletning ventede.
+  -- Variantstier er globalt unikke; samme sti tæller konservativt som i brug i alle buckets.
+  RETURN QUERY SELECT u.bucket,u.sti,u.oprettet FROM private.person_purge_udbakke u
+    WHERE NOT EXISTS (SELECT 1 FROM public.media m WHERE m.bucket=u.bucket AND m.storage_path=u.sti)
+      AND NOT EXISTS (SELECT 1 FROM public.media_variant v WHERE v.storage_path=u.sti)
+    ORDER BY u.oprettet,u.bucket COLLATE "C",u.sti COLLATE "C";
+END
+$purge_outbox$;
+REVOKE ALL ON FUNCTION public.red_person_purge_udbakke() FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_person_purge_udbakke() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.red_person_purge_udbakke_kvitter(p_bucket text,p_sti text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_outbox_ack$
+BEGIN
+  IF public.current_rolle() IS DISTINCT FROM 'redaktion' OR auth.uid() IS NULL THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  DELETE FROM private.person_purge_udbakke u WHERE u.bucket=p_bucket AND u.sti=p_sti;
+END
+$purge_outbox_ack$;
+REVOKE ALL ON FUNCTION public.red_person_purge_udbakke_kvitter(text,text) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_person_purge_udbakke_kvitter(text,text) TO authenticated;
+
+-- Genbrug af indholdsadresserede stier annullerer ventende sletning af de nye levende bytes.
+-- Ingen klientadgang til udbakken eller triggerfunktionen; alle media-skriveveje dækkes.
+CREATE OR REPLACE FUNCTION private.person_purge_udbakke_genbrug()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_outbox_reuse$
+BEGIN
+  IF TG_TABLE_NAME='media' THEN
+    DELETE FROM private.person_purge_udbakke u WHERE u.bucket=NEW.bucket AND u.sti=NEW.storage_path;
+  ELSE
+    -- media_variant_storage_path_uidx er globalt unikt; beskyt samme sti i alle buckets.
+    DELETE FROM private.person_purge_udbakke u WHERE u.sti=NEW.storage_path;
+  END IF;
+  RETURN NEW;
+END
+$purge_outbox_reuse$;
+REVOKE ALL ON FUNCTION private.person_purge_udbakke_genbrug() FROM PUBLIC,anon,authenticated,service_role;
+
+DROP TRIGGER IF EXISTS trg_media_person_purge_udbakke_genbrug ON public.media;
+CREATE TRIGGER trg_media_person_purge_udbakke_genbrug AFTER INSERT OR UPDATE OF bucket,storage_path ON public.media
+  FOR EACH ROW EXECUTE FUNCTION private.person_purge_udbakke_genbrug();
+DROP TRIGGER IF EXISTS trg_media_variant_person_purge_udbakke_genbrug ON public.media_variant;
+CREATE TRIGGER trg_media_variant_person_purge_udbakke_genbrug AFTER INSERT OR UPDATE OF storage_path ON public.media_variant
+  FOR EACH ROW EXECUTE FUNCTION private.person_purge_udbakke_genbrug();
