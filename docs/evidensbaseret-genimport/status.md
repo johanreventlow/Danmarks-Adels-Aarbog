@@ -1,6 +1,6 @@
 # Evidensbaseret genimport — aktuel status
 
-**Snapshot 2026-11-14**, efter 6e-2 i prod (1939's kildeetiket, trykte sider og koordinater), 2018-20's datobindinger i prod (509 fødsler og dødsfald bundet til bogens post), 6e-1 (læseren viser valgt udgave forrest), 6d-3 i prod (1939's relationer, dobbelt ægtefælle, 1791 skjult), 6d-2b (fire forkert tilskrevne 1939-tekster trukket tilbage), 6d-2a (oversigtsreglen og 1939's sidste identitetssager), 6d-1 (1939's placements og medlemskaber), 6c-3 (2018-20's A6b-rest), 6m del 2 (faktaforslag rettet efter bogen), 6m del 1 (læsertekst rettet efter bogen) og 6c-2's ceremoni 4 (efter 6c-1, 6b's A, B og C, 6a, 5c-2 + B11, A6b, reviewets trin B, trin 5c-1 og helhedsreviewet
+**Snapshot 2026-11-18**, efter `record_persona` i prod (Henrik og Iven har deres egen 1939-tekst; personsletningens kode installeret, ubrugt), 6e-2 i prod (1939's kildeetiket, trykte sider og koordinater), 2018-20's datobindinger i prod (509 fødsler og dødsfald bundet til bogens post), 6e-1 (læseren viser valgt udgave forrest), 6d-3 i prod (1939's relationer, dobbelt ægtefælle, 1791 skjult), 6d-2b (fire forkert tilskrevne 1939-tekster trukket tilbage), 6d-2a (oversigtsreglen og 1939's sidste identitetssager), 6d-1 (1939's placements og medlemskaber), 6c-3 (2018-20's A6b-rest), 6m del 2 (faktaforslag rettet efter bogen), 6m del 1 (læsertekst rettet efter bogen) og 6c-2's ceremoni 4 (efter 6c-1, 6b's A, B og C, 6a, 5c-2 + B11, A6b, reviewets trin B, trin 5c-1 og helhedsreviewet
 af trin 1-5, [rapport](../reviews/2026-10-27-trin-1-5/rapport.md)). Dokumentet **overskrives** ved hvert trinskifte og hver
 prod-ændring; der skrives ikke tillæg (opdateringsreglen nederst). Det gamle dokument med tillæg til og med
 2026-10-27 står i [status-arkiv-til-2026-10-27.md](status-arkiv-til-2026-10-27.md).
@@ -44,7 +44,12 @@ fjerner den dobbelte ægtefælle (42 → 0); 1791 og 1795 er private; kilde 1 u�
 børn står `proposed` med årsag (161 parkeret af navnereglen, 42 ikke egnede; børn kræver `relation-child-v1`). De 29
 records uden narrativbinding har 0 relationsforslag. **6e-1 er i prod 2026-11-12, 6e-2 2026-11-14** (`database-current-state.md` §30: 561 1939-bindinger med læsbar etiket og trykt side, koordinatkaldet 1,26 → 0,31 s; [færdigbevis](laeserflade-6e2-prod.md)). De 30 »formodet«-forældreled: 28 rettet 2026-11-14, 79/80 bekræftet af bogens »?« (decisions). 2018-20's fødsler og dødsfald er bundet til bogens post 2026-11-12 (`database-current-state.md` §28: 509 bindinger; 59 `SKRIVEMAADE` står `proposed`, del 2 er ikke besluttet). Åben backlog fra 6d-3: en
 1939-navneregel, hovedpersoner ukoblet mens ægtefællen er koblet (decisions 2026-11-11) og den fælles 5ab-runners
-`profile_file`.
+`profile_file`. **`record_persona` er i prod 2026-11-18** (PR #382, `database-current-state.md` §32): en ny generel
+elementoperation giver en helpost uden tekstbinding en persona. Henriks (934) og Ivens (929) 1939-poster har fået
+persona, identitet (kortark), placement, medlemskab og en kladde, som projektejeren har rettet og publiceret. Synlige
+1939-tekster for anon er 554 → 555 (+2, og 944's omtale bliver oversigtsomtale). Fortrydelse af 598/603's
+`legacy_withdrawn` er spærret, når personen har en record-binding i kilden. Samme DDL installerede personsletningens
+kode (#369/#377/#380). Den bruges først efter dens egen ceremoni.
 
 ## Samlet dom
 

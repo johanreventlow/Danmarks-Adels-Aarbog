@@ -44,6 +44,8 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   løbenummer. Projektejeren valgte vej A: en ny, generel elementoperation for en helpost uden aktiv tekstbinding,
 >   identitet og placement via kortark, og en kladde fra bogposten, som projektejeren selv retter og publicerer.
 >   Spec: `superpowers/specs/2026-11-17-persona-for-post-uden-tekst-design.md`.
+>   **Lukket 2026-11-18:** i prod via `record_persona` (PR #382, `database-current-state.md` §32). Henrik og Iven har
+>   deres egen publicerede 1939-tekst. Den generelle batch-fortrydelse er sat i backlog som #381.
 > - **Backlog 2 — manuel grænse- og tekstoverstyring (til overvejelse, ikke besluttet).** Claus' post
 >   (`record-c0e8f5ad…`) er afkortet: den slutter »… og var da Vidner Hr. Henrik«, og resten, »Reventlow og Otto
 >   Reventlow. — Sønner: IV C.«, ligger i hullet mellem posterne (tegn 8464-8542 i Calamari-teksten). Emeke har ingen
