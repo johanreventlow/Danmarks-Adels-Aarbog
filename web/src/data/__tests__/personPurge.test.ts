@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { executePurgeOprydning, executeSletHelt, purgeStorage, type PurgeFil, type PurgeStorageDeps } from '../personPurge';
+import { executePurgeOprydning, executeSletHelt, purgeFejl, purgeStorage, type PurgeFil, type PurgeStorageDeps } from '../personPurge';
 import { buildRpcCall, planCall, submitChange } from '../redaktionWrite';
 import { supabase } from '../../supabase';
 
@@ -127,5 +127,19 @@ describe('executeSletHelt — DB først og dryRun-threading (PR #72)', () => {
     }
     exists.mockResolvedValueOnce({ data: true, error: null });
     expect(await purgeStorage.objectAbsent('media', 'a')).toBe(false);
+  });
+});
+describe('purgeFejl — oversættelse af afbrudte kald', () => {
+  it('statement_timeout (57014) er et nyt forsøg med egen tekst; intet er slettet', () => {
+    expect(purgeFejl({ code: '57014', message: 'canceling statement due to statement timeout' }))
+      .toEqual({ kind: 'retry', tekst: 'Det tog for lang tid — intet er slettet. Prøv igen.' });
+  });
+  it('deadlock, låsetimeout og ændret forhåndsvisning er stadig »noget ændrede sig«', () => {
+    for (const code of ['40P01', '55P03']) expect(purgeFejl({ code, message: 'x' }).kind).toBe('retry');
+    expect(purgeFejl({ message: 'PURGE_PREVIEW_AENDRET' }).tekst).toBe('Noget ændrede sig undervejs — intet er slettet. Prøv igen.');
+  });
+  it('blokering og ukendte fejl mappes ikke til et nyt forsøg', () => {
+    expect(purgeFejl({ message: 'PURGE_BLOKERET: x' }).kind).toBe('blocked');
+    expect(purgeFejl({ code: '42501', message: 'Kun redaktion' }).kind).toBe('raw');
   });
 });
