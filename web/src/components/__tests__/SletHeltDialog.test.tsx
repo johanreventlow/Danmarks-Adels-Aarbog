@@ -57,16 +57,19 @@ it('dialogens dry-run sendes til sletningen og markerer ikke profilen slettet', 
   await typeId(); fireEvent.click(button()); await screen.findByText('Dry-run: ingen data eller filer er slettet.');
   expect(execute).toHaveBeenCalledWith(expect.objectContaining({ dryRun: true })); expect(onDeleted).not.toHaveBeenCalled();
 });
+const AENDRET = 'Noget ændrede sig undervejs — intet er slettet. Prøv igen.';
 it.each([
-  ['PURGE_PREVIEW_AENDRET', { message: 'PURGE_PREVIEW_AENDRET' }],
-  ['PURGE_LOCKSET_DRIFT', { message: 'PURGE_LOCKSET_DRIFT' }],
-  ['PURGE_REST', { message: 'PURGE_REST: S52' }],
-  ['40P01', { code: '40P01', message: 'deadlock detected' }],
-  ['55P03', { code: '55P03', message: 'canceling statement due to lock timeout' }],
-])('%s viser prøv igen og kræver et nyt preview og en ny id-bekræftelse', async (_name, error) => {
+  ['PURGE_PREVIEW_AENDRET', { message: 'PURGE_PREVIEW_AENDRET' }, AENDRET],
+  ['PURGE_LOCKSET_DRIFT', { message: 'PURGE_LOCKSET_DRIFT' }, AENDRET],
+  ['PURGE_REST', { message: 'PURGE_REST: S52' }, AENDRET],
+  ['40P01', { code: '40P01', message: 'deadlock detected' }, AENDRET],
+  ['55P03', { code: '55P03', message: 'canceling statement due to lock timeout' }, AENDRET],
+  ['57014', { code: '57014', message: 'canceling statement due to statement timeout' },
+    'Det tog for lang tid — intet er slettet. Prøv igen.'],
+])('%s viser prøv igen og kræver et nyt preview og en ny id-bekræftelse', async (_name, error, tekst) => {
   const execute = vi.fn().mockRejectedValueOnce(error).mockResolvedValueOnce({ kind: 'completed' });
   const p = setup(preview(), execute); await typeId(); fireEvent.click(button());
-  await screen.findByText('Noget ændrede sig undervejs — intet er slettet. Prøv igen.');
+  await screen.findByText(tekst);
   expect(p.onDeleted).not.toHaveBeenCalled(); expect(button().disabled).toBe(true);
   expect(screen.queryByText(/Forslag i staging/)).toBeNull();
   p.loadPreview.mockResolvedValueOnce(preview({ sha256: 'b'.repeat(64) }));
@@ -82,7 +85,7 @@ it('PURGE_BLOKERET vises som blokering og deaktiverer handlingen', async () => {
   await typeId(); fireEvent.click(button()); await screen.findByText('Blokering: PURGE_BLOKERET: anden_promotion');
   expect(button().disabled).toBe(true); expect(p.onDeleted).not.toHaveBeenCalled();
 });
-it.each(['P0001', '57014'])('andre fejl (%s) viser kode og besked råt, uden stacktrace eller staging-kvittering', async (code) => {
+it.each(['P0001', 'XX000'])('andre fejl (%s) viser kode og besked råt, uden stacktrace eller staging-kvittering', async (code) => {
   setup(preview(), vi.fn().mockRejectedValue({ code, message: 'PURGE_FREMMED_CHANGE_SET', stack: 'hemmelig stack' }));
   await typeId(); fireEvent.click(button()); await screen.findByText(`${code}: PURGE_FREMMED_CHANGE_SET`);
   expect(screen.queryByText(/hemmelig stack|Forslag i staging/)).toBeNull();

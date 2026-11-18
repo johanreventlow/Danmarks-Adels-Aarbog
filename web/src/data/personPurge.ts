@@ -54,6 +54,11 @@ function rawError(e: unknown): string {
 }
 export function purgeFejl(e: unknown): { kind: 'retry' | 'blocked' | 'raw'; tekst: string } {
   const raw = rawError(e);
+  // 57014 = authenticated-rollens statement_timeout (8 s i prod). Hele kaldet rulles tilbage; første kald
+  // i en kold prod-base kan ramme den (målt 18/11), et nyt forsøg er varmt.
+  if (/\b57014\b/.test(raw)) {
+    return { kind: 'retry', tekst: 'Det tog for lang tid — intet er slettet. Prøv igen.' };
+  }
   if (/\b(PURGE_PREVIEW_AENDRET|PURGE_LOCKSET_DRIFT|PURGE_REST)\b|\b(40P01|55P03)\b/.test(raw)) {
     return { kind: 'retry', tekst: 'Noget ændrede sig undervejs — intet er slettet. Prøv igen.' };
   }
