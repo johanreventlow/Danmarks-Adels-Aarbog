@@ -135,7 +135,7 @@ for g in inventar binding plan historik fortrydelse manifest oprindelse preview 
 done
 
 # Task 13 (generalprøve 18/11): rest-målerens S41b/bog-løft. Gruppen purge har slettet P i sin kopi (COMMIT).
-# Bogtekst (source_evidence, navnet kun i verbatim_text) må stå; navnet andre steder i reimport_event må ikke.
+# Bogtekst (source_evidence, navnet kun i verbatim_text/legacy_payload) må stå; navnet andre steder i reimport_event må ikke.
 # Rækkerne sættes ind med session_replication_role=replica (kun i denne engangskopi), så append-only-vagten
 # ikke kræver en åben writer-batch.
 RDB="${PFX}_purge"
@@ -150,6 +150,10 @@ fjern() { q "$RDB" -c "SET session_replication_role=replica" -c "DELETE FROM pri
 ind bog source_evidence NULL '{"verbatim_text":"… Testperson Purge, fyenske …"}'
 [ "$(rest_rc)" = 0 ] && grep -q '^private.reimport_event|.*|ja|S41b/bog$' "$LOG.rest" \
   || die "rest_bogtekst: bogtekst i verbatim_text blev ikke løftet som S41b/bog"
+fjern bog
+ind udtraek source_evidence NULL '{"verbatim_text":"x","legacy_payload":{"partner_navn":"Testperson Purge"}}'
+[ "$(rest_rc)" = 0 ] && grep -q '^private.reimport_event|.*|ja|S41b/bog$' "$LOG.rest" \
+  || die "rest_bogtekst: bogens udtræk i legacy_payload blev ikke løftet som S41b/bog"
 ind aktiv activation NULL '{"note":"Testperson Purge"}'
 [ "$(rest_rc)" != 0 ] && grep -q '^private.reimport_event|.*|nej|S41b$' "$LOG.rest" || die "rest_bogtekst: navn i en aktivering blev godtaget"
 fjern aktiv
@@ -159,7 +163,7 @@ fjern noegle
 ind link source_evidence NULL "{\"verbatim_text\":\"Testperson Purge [[person:$P|x]]\"}"
 [ "$(rest_rc)" != 0 ] || die "rest_bogtekst: et P-link i bogteksten blev godtaget"
 fjern link
-echo "OK rest_bogtekst_kun_verbatim"
+echo "OK rest_bogtekst_kun_verbatim_og_udtraek"
 echo FRISK_OK
 
 # ---------------------------------------------------------------------------------------------------------------------
