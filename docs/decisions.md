@@ -2,6 +2,30 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: record_persona's prod-DDL tager personsletningen med, sletter note 72 og spærrer fortrydelse af legacy bredt (2026-11-18)
+
+> - **Personsletningens kode i samme DDL.** Prod-DDL'en er halen af `db-migrations.sql` fra »Fuld personsletning
+>   (2026-11-14)« til filens slutning plus `db-rls.sql`, i én transaktion. Den indeholder #369/#377/#380 før
+>   record_persona's blok.
+>   - *Hvorfor:* main indeholdt allerede koden. Kun vores blok ville kræve en særlig rls-fil, fordi grenens
+>     `db-rls.sql` nævner sletningsfunktioner, som prod ikke havde. Rebasen på #380 fik udbakkens sikkerhedsrettelse
+>     med.
+>   - *Fravalgt:* at vente på personsletningens egen ceremoni (forsinker Henrik og Iven) og en blok-kun-DDL (skrøbelig).
+>   - *Konsekvens:* »Slet helt« virker i prod, men må ikke bruges før personsletningens Task 13, som nu er ren data.
+> - **Note 72 slettes i DDL-transaktionen.** Note 72 hænger på family 54, som ikke findes. Den slettes efter halen og
+>   rls, under db-verify's polymorf-forbetingelse: præcis ét fund, og præcis én række slettes. Uden den fejler
+>   personsletningens db-verify i prod. Opfylder projektejerens afgørelse fra 2026-11-14 (personsletningens plan,
+>   Task 13).
+> - **Bred spærring af legacy-fortrydelse.** `legacy_withdrawn` kan ikke fortrydes, når personen har en record-binding
+>   i samme kilde, uanset status (`NARRATIVE_LEGACY_RECORD_BINDING_EXISTS`). Legacy-fortrydelse kræver desuden
+>   `READ COMMITTED`.
+>   - *Fravalgt:* kun at spærre ved draft/published-binding. Codex viste veje, hvor to tekster ellers bliver synlige.
+>   - *Codex' fund om den generelle batch-fortrydelse* (en aktiveret batch uden `person_create` kan meldes reversed)
+>     rettes ikke her: backlog #381.
+>
+> Grundlag: spec `superpowers/specs/2026-11-17-persona-for-post-uden-tekst-design.md` §4.5, §6 og §10;
+> `database-current-state.md` §32.
+
 ## BESLUTTET: fuld personsletning — to sjældne samtidighedsudfald accepteres som »prøv igen«; person-først-trigger på `family_member` er åben backlog (2026-11-17)
 
 > Projektejeren valgte begge anbefalinger efter Task 11's samtidighedstest
