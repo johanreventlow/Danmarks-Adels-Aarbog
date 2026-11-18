@@ -212,8 +212,18 @@ krævede fase. `go-fortryd*` viser kvitteringens fase og sha og binder den i kod
 - En fejl efter DDL'en og før data viser ikke noget nyt for læseren: halen ændrer ingen læser (FAKTA/BIO/KOORD
   efterprøves).
 
-## Generalprøven
+## Generalprøven (18/11)
 
-Udfyldes af controlleren (Step 3): stand-in fra en frisk prod-`dump-kopi`, kørt fra operatørens cwd (memory
-`oev-fra-operatoerens-cwd`), hele rækkefølgen, simuleret publicering som redaktør, `bevis`, fortryd-data og
-fortryd-DDL på en anden stand-in, negativerne og de fastlåste værdier.
+Kilde: prod-`dump-kopi` 20261118114316 (sha `19bb7cd7…`, taget i projektejerens shell). Stand-ins bygget med
+runnerens `standin`, kørt fra operatørens cwd (`~`) gennem `koer.zsh` med `DAA_STANDIN_REPO` = grenens checkout.
+
+| Base | Forløb | Resultat |
+|---|---|---|
+| g1 | `maal` → `anon` → `dump` → `go-ddl` → `apply-ddl` → `maal` → `anon` → `dump` → `go-data` → `apply-data` → `verify` → `anon` → simuleret publicering som redaktør → `bevis` | DDL 0,3 s (note 72 slettet; personsletningens 8 verify-blokke grønne bagefter); ceremoni `T_RP_OK …` på 53 s (længste sætning 24 s), `apply-data` 84 s; `verify` FAKTA/BIO uændret, synlige 554; efter publicering `bevis` synlige **555** (= 554 + 2 − 1; 944's omtale skjult), FAKTA uændret, BIO ændret; fortrydelse af 598/603's `legacy_withdrawn` afvist med `NARRATIVE_LEGACY_RECORD_BINDING_EXISTS` (RPC og historik) |
+| g1 | negativer | forkert GO → `T_RP_GO_MISMATCH`; manglende flag → `T_RP_FLAG_MANGLER`; gentaget `apply-data` → `T_RP_DATA_FAERDIG`; ændret svarfil (kopi) → `T_RP_PAKKE_SHA` |
+| g2 | frem til data → `go-fortryd`/`fortryd` → `maal` (fase ddl) → `DAA_TRP_DUMP` = foer-kvitteringen → `go-fortryd-ddl`/`fortryd-ddl` | data: `T_RP_FORTRYD_OK tilstand=ddl`, ACL/katalog som dumpet; DDL: drop af 11 triggere, 1 constraint, 2 tabeller, 25 funktioner, restore, `db-rls.sql` fra `f37b294a`; `T_RP_FORTRYD_OK tilstand=foer`, restore-hash `599233f4…` = foer-dumpets; note 72 tilbage |
+| g3 | hele rækkefølgen med den **fastlåste** runner | samme tal som g1; 0 `T_RP_FASTLAAS`-linjer |
+
+Målt: `synlige_1939` tæller anon-synlige tekster i biografilæseren (554), ikke publiceringer (565, spec §8); forskellen
+er uændret siden 17/11. Fortryd-DDL kræver, at foer-dumpets kvittering vælges (`koer.zsh --saet DAA_TRP_DUMP=…`).
+Efter merge måler `dump-kopi`'s efterfølgende `maal` også i prod (før merge mangler målescriptet i hovedcheckouten).
