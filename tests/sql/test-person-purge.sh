@@ -133,6 +133,33 @@ for g in inventar binding plan historik fortrydelse manifest oprindelse preview 
   printf '%s\n' "$ud" | grep -v NOTICE
   [ "$rc" = 0 ] || die "testgruppen $g fejlede"
 done
+
+# Task 13 (generalprøve 18/11): rest-målerens S41b/bog-løft. Gruppen purge har slettet P i sin kopi (COMMIT).
+# Bogtekst (source_evidence, navnet kun i verbatim_text) må stå; navnet andre steder i reimport_event må ikke.
+# Rækkerne sættes ind med session_replication_role=replica (kun i denne engangskopi), så append-only-vagten
+# ikke kræver en åben writer-batch.
+RDB="${PFX}_purge"
+rest_rc() { env -u PGOPTIONS psql -X -q -d "$RDB" -v ON_ERROR_STOP=1 -v pid="$P" -v mode=fixture \
+  -v navn='Testperson Purge' -f tests/sql/person-purge-rest.sql >"$LOG.rest" 2>&1; echo $?; }
+ind() { q "$RDB" -c "SET session_replication_role=replica" -c "INSERT INTO private.reimport_event
+  (batch_id,element_id,operation,source_record_key,payload,after_sha256)
+  SELECT batch_id,'t13-$1','$2',$3,'$4'::jsonb,repeat('0',64) FROM private.reimport_event LIMIT 1" || die "indsæt t13-$1"; }
+fjern() { q "$RDB" -c "SET session_replication_role=replica" -c "DELETE FROM private.reimport_event WHERE element_id='t13-$1'" \
+  || die "fjern t13-$1"; }
+[ "$(rest_rc)" = 0 ] || die "rest_bogtekst: rest-måleren fejler allerede før testrækkerne"
+ind bog source_evidence NULL '{"verbatim_text":"… Testperson Purge, fyenske …"}'
+[ "$(rest_rc)" = 0 ] && grep -q '^private.reimport_event|.*|ja|S41b/bog$' "$LOG.rest" \
+  || die "rest_bogtekst: bogtekst i verbatim_text blev ikke løftet som S41b/bog"
+ind aktiv activation NULL '{"note":"Testperson Purge"}'
+[ "$(rest_rc)" != 0 ] && grep -q '^private.reimport_event|.*|nej|S41b$' "$LOG.rest" || die "rest_bogtekst: navn i en aktivering blev godtaget"
+fjern aktiv
+ind noegle source_evidence "'Testperson Purge'" '{"verbatim_text":"Testperson Purge"}'
+[ "$(rest_rc)" != 0 ] && grep -q '^private.reimport_event|.*|nej|S41b$' "$LOG.rest" || die "rest_bogtekst: navn uden for verbatim_text blev godtaget"
+fjern noegle
+ind link source_evidence NULL "{\"verbatim_text\":\"Testperson Purge [[person:$P|x]]\"}"
+[ "$(rest_rc)" != 0 ] || die "rest_bogtekst: et P-link i bogteksten blev godtaget"
+fjern link
+echo "OK rest_bogtekst_kun_verbatim"
 echo FRISK_OK
 
 # ---------------------------------------------------------------------------------------------------------------------
