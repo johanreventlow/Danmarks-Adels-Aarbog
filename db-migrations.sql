@@ -41558,6 +41558,9 @@ BEGIN
       v_person_id,v_target.source_id,v_record_key,true
     );
   ELSE
+    -- Bindingsspærringen nedenfor skal se bindinger committet efter låsen; et
+    -- ældre snapshot (REPEATABLE READ/SERIALIZABLE) opfriskes ikke af LOCK TABLE.
+    IF current_setting('transaction_isolation')<>'read committed' THEN RAISE EXCEPTION 'NARRATIVE_LEGACY_REVERSAL_ISOLATION'; END IF;
     -- The record path owns record -> audit ordering; legacy has no record
     -- absence owner and therefore takes audit allocation before its ledger.
     LOCK TABLE public.change_set IN ACCESS EXCLUSIVE MODE;

@@ -416,3 +416,80 @@ BEGIN
   RAISE NOTICE 'OK: SERIALIZABLE afvises';
 END $iso$;
 ROLLBACK;
+
+-- Fortrydelse af en legacy-hændelse kræver READ COMMITTED: bindingsspærringen (NARRATIVE_LEGACY_RECORD_BINDING_EXISTS)
+-- skal se en binding, der er committet efter låsen, og LOCK TABLE opfrisker ikke et ældre snapshot. lr_reverse bygger
+-- en person med en tilbagetrukket legacy-tekst (legacy_withdrawn) i den aktuelle transaktion og fortryder den;
+-- NULL = lykkedes, ellers fejlteksten. Oprettes uden for transaktionerne, så den overlever dem.
+CREATE FUNCTION pg_temp.lr_reverse(p_base bigint) RETURNS text LANGUAGE plpgsql AS $$
+DECLARE
+  v_src jsonb:=pg_temp.pp_source(p_base,'11000000-0000-0000-0000-0000000c0725'); v_source bigint:=p_base;
+  v_person bigint:=p_base*100-1; v_narr bigint; v_ref uuid:=gen_random_uuid(); v_state jsonb; v_sha text; v_res jsonb;
+BEGIN
+  PERFORM pg_temp.rp_post(v_src,'lr',v_person);
+  IF NOT EXISTS (SELECT 1 FROM public.change_set) THEN
+    INSERT INTO public.change_set(actor_navn,actor_rolle,operation,summary,subjekt_synlighed)
+    VALUES ('fixture','system','fixture','fixture','offentlig');
+  END IF;
+  INSERT INTO public.narrative(subjekt_type,subjekt_id,source_id,side,tekst,privat)
+    VALUES ('person',v_person,v_source,'9','Legacy tekst lr',false) RETURNING id INTO v_narr;
+  v_state:=private.narrative_legacy_candidate_publication_state(v_narr,v_source,v_ref);
+  v_sha:=encode(extensions.digest(v_state::text,'sha256'),'hex');
+  INSERT INTO private.narrative_legacy_publication(legacy_publication_ref,narrative_id,source_id,baseline_state,baseline_sha256,status)
+    VALUES (v_ref,v_narr,v_source,v_state,v_sha,'grandfathered_publication');
+  INSERT INTO private.narrative_publication_event(change_set_id,stream_ref,stream_version,event_type,narrative_id,source_id,
+    legacy_publication_ref,decision_basis,before_state,after_state,before_state_sha256,after_state_sha256,decided_by_name)
+  VALUES ((SELECT max(id) FROM public.change_set),v_ref,1,'baseline',v_narr,v_source,v_ref,'fixture',v_state,v_state,v_sha,v_sha,'fixture');
+  UPDATE private.narrative_legacy_publication SET latest_event_id=(SELECT id FROM private.narrative_publication_event WHERE stream_ref=v_ref)
+   WHERE legacy_publication_ref=v_ref;
+  v_sha:=private.narrative_legacy_state(v_ref,false)->>'state_sha256';
+  PERFORM set_config('request.jwt.claim.sub',v_src->>'actor',true);
+  SET LOCAL ROLE authenticated;
+  PERFORM set_config('app.change_set_id','',true);
+  v_res:=public.red_tilbagetraek_legacy_narrative(v_ref,v_sha,'isolation');
+  PERFORM set_config('app.change_set_id','',true);
+  RESET ROLE;
+  IF NOT EXISTS (SELECT 1 FROM private.narrative_publication_event e WHERE e.id=(v_res->>'event_id')::uuid AND e.event_type='legacy_withdrawn') THEN
+    RAISE EXCEPTION 'LEGACY_REVERSAL_ISOLATION_TEST: ingen legacy_withdrawn-hændelse (%)',v_res; END IF;
+  v_sha:=private.narrative_legacy_state(v_ref,false)->>'state_sha256';
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM public.red_fortryd_person_narrative_publication_event((v_res->>'event_id')::uuid,v_sha);
+    PERFORM set_config('app.change_set_id','',true);
+    RESET ROLE;
+    RETURN NULL;
+  EXCEPTION WHEN OTHERS THEN RESET ROLE; RETURN SQLERRM;
+  END;
+END $$;
+
+BEGIN;
+SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;
+DO $lr_iso$
+DECLARE v_res text:=pg_temp.lr_reverse(-6314);
+BEGIN
+  IF v_res IS DISTINCT FROM 'NARRATIVE_LEGACY_REVERSAL_ISOLATION' THEN
+    RAISE EXCEPTION 'LEGACY_REVERSAL_ISOLATION_TEST: repeatable read gav %',v_res; END IF;
+  RAISE NOTICE 'OK: legacy-fortrydelse under REPEATABLE READ afvises';
+END $lr_iso$;
+ROLLBACK;
+BEGIN;
+SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+DO $lr_iso$
+DECLARE v_res text:=pg_temp.lr_reverse(-6314);
+BEGIN
+  IF v_res IS DISTINCT FROM 'NARRATIVE_LEGACY_REVERSAL_ISOLATION' THEN
+    RAISE EXCEPTION 'LEGACY_REVERSAL_ISOLATION_TEST: serializable gav %',v_res; END IF;
+  RAISE NOTICE 'OK: legacy-fortrydelse under SERIALIZABLE afvises';
+END $lr_iso$;
+ROLLBACK;
+-- kontrol: samme forløb under READ COMMITTED fortrydes
+BEGIN;
+DO $lr_iso$
+DECLARE v_res text:=pg_temp.lr_reverse(-6314);
+BEGIN
+  IF v_res IS NOT NULL THEN
+    RAISE EXCEPTION 'LEGACY_REVERSAL_ISOLATION_TEST: read committed gav %',v_res; END IF;
+  RAISE NOTICE 'OK: legacy-fortrydelse under READ COMMITTED lykkes';
+END $lr_iso$;
+ROLLBACK;
