@@ -35,7 +35,8 @@
 --   T_RP_PRE_MEDLEMSKAB  forhåndsvisningens eligible-mængde er ikke præcis manifestets personer
 --   T_RP_WRITE_*      en skrivning gav ikke det forventede (batch, identitet, placement, overskrifter, ledger, medlemskab,
 --                     narrativtilstand, kladde)
---   T_RP_POST_*       efterbetingelser: tilstand, rækker, overskrifter, FAKTA, BIO, KOORD_2018_20, synlige tekster
+--   T_RP_POST_*       efterbetingelser: tilstand, rækker, overskrifter, FAKTA, BIO, synlige tekster og de andre kilders
+--                     koordinater set af redaktøren (KOORD_ANDRE) og af anon (KOORD_ANDRE_ANON)
 -- Låseorden (som writerne): kontraktlåsen (delt) → writer-låsen (kilde, profil) → kildens kandidatlås (delt) → posterne
 -- (FOR UPDATE, id-orden) → deres publikationsrækker → [authorize/apply/finalize] → change_set (ACCESS EXCLUSIVE) →
 -- personaer/identiteter → personer. En resterende låsecyklus ender i 40P01 og fuld rollback.
@@ -117,18 +118,23 @@ CREATE TEMP TABLE rp_hash (navn text PRIMARY KEY, foer text NOT NULL) ON COMMIT 
 CREATE FUNCTION pg_temp.rp_sha(p_text text) RETURNS text LANGUAGE sql IMMUTABLE AS
   $f$ SELECT encode(sha256(convert_to(p_text,'UTF8')),'hex') $f$;
 
--- Koordinat-hash (samme udtryk som maal_record_persona.sql): p_andre = rækkerne med source_id <> kilden, ellers kildens.
+-- Koordinat-hash: samme hashudtryk som KOORD i maal_record_persona.sql (inkl. printed_page); p_andre = rækkerne med
+-- source_id <> kilden, ellers kildens. Rækkemængden afhænger af kalderens rolle: kaldt direkte (med aktørens krav) ser
+-- den redaktørvisningen (også levende, private og staged personer), mens rp_laeser('koord_andre_anon') beregner samme
+-- udtryk som ægte anon, som læseren ser (test_maal_record_persona.py holder alle kopier ens). Målingen kører uden
+-- aktør, så dens KOORD svarer til anon-visningen, ikke redaktørens.
 CREATE FUNCTION pg_temp.rp_koord(p_src bigint,p_andre boolean) RETURNS text LANGUAGE sql AS $f$
   SELECT md5(coalesce(string_agg(concat_ws('|',quote_nullable(c.person_id),quote_nullable(c.source_id),
            quote_nullable(c.legacy_line_code),quote_nullable(c.printed_number),quote_nullable(c.printed_number_label),
            quote_nullable(c.generation_local),quote_nullable(c.generation_global),quote_nullable(c.kuld_label),
-           quote_nullable(c.provenance_kind)),E'\n' ORDER BY c.person_id,c.source_id),''))
+           quote_nullable(c.provenance_kind),quote_nullable(c.printed_page)),E'\n' ORDER BY c.person_id,c.source_id),''))
     FROM public.public_person_source_coordinates() c
    WHERE (c.source_id<>p_src)=p_andre;
 $f$;
 
 -- FAKTA, BIO og synlige tekster (samme udtryk som maal_record_persona.sql), beregnet som ægte anon for alle offentlige
--- personer: 'fakta' | 'bio' | 'synlige' (kildens tekster i biografilæseren). Læserne afgør redaktørvisningen ud fra
+-- personer: 'fakta' | 'bio' | 'synlige' (kildens tekster i biografilæseren) | 'koord_andre_anon' (de andre kilders
+-- koordinater; rp_koord's udtryk som anon). Læserne afgør redaktørvisningen ud fra
 -- current_rolle(), som læser request.jwt.claim.sub (memory redaktoer-uid-arves-i-tests), så kravet ryddes under
 -- læsningen og sættes tilbage til aktøren bagefter; en fejl undervejs ruller hele transaktionen tilbage, så der er
 -- ingen tilstand at gendanne i en undtagelsesgren. Målingen kører uden aktør og ser altså det samme.
@@ -144,6 +150,14 @@ BEGIN
           FROM (SELECT 'f|'||f::text AS x FROM public.public_person_facts(v_ids) f
                 UNION ALL
                 SELECT 's|'||s::text FROM public.public_family_sources(v_fids) s) z);
+  ELSIF p_hvad='koord_andre_anon' THEN
+    -- Samme udtryk som pg_temp.rp_koord(p_src,true), skrevet ud: anon må ikke kalde pg_temp-funktioner.
+    v:=(SELECT md5(coalesce(string_agg(concat_ws('|',quote_nullable(c.person_id),quote_nullable(c.source_id),
+           quote_nullable(c.legacy_line_code),quote_nullable(c.printed_number),quote_nullable(c.printed_number_label),
+           quote_nullable(c.generation_local),quote_nullable(c.generation_global),quote_nullable(c.kuld_label),
+           quote_nullable(c.provenance_kind),quote_nullable(c.printed_page)),E'\n' ORDER BY c.person_id,c.source_id),''))
+          FROM public.public_person_source_coordinates() c
+         WHERE c.source_id<>p_src);
   ELSIF p_hvad='bio' THEN
     v:=(SELECT md5(coalesce(string_agg(b::text,E'\n' ORDER BY b::text COLLATE "C"),'')) AS bio
           FROM public.public_person_bio_source_versions_v2(v_ids) b);
@@ -362,7 +376,8 @@ BEGIN
 END $pre$;
 INSERT INTO rp_hash(navn,foer)
 SELECT 'fakta',pg_temp.rp_laeser('fakta',:src) UNION ALL SELECT 'bio',pg_temp.rp_laeser('bio',:src)
-UNION ALL SELECT 'synlige',pg_temp.rp_laeser('synlige',:src) UNION ALL SELECT 'koord_andre',pg_temp.rp_koord(:src,true);
+UNION ALL SELECT 'synlige',pg_temp.rp_laeser('synlige',:src) UNION ALL SELECT 'koord_andre',pg_temp.rp_koord(:src,true)
+UNION ALL SELECT 'koord_andre_anon',pg_temp.rp_laeser('koord_andre_anon',:src);
 
 -- Skrivning 1: authorize (service_role) → begin → apply pr. post → finalize (redaktøren), i denne transaktion.
 DO $persona$
@@ -552,7 +567,7 @@ BEGIN
   END IF;
   IF private.placement_header_violations(v_src)<>0 THEN RAISE EXCEPTION 'T_RP_POST_HEADER'; END IF;
   -- Læserne er uændrede, indtil projektejeren selv publicerer: FAKTA, BIO, kildens synlige tekster og de andre
-  -- kilders koordinater (kildens egne koordinater ændres af placementen).
+  -- kilders koordinater, set af redaktøren og af anon (kildens egne koordinater ændres af placementen).
   FOR h IN SELECT navn,foer FROM rp_hash LOOP
     IF h.foer IS DISTINCT FROM (CASE h.navn WHEN 'koord_andre' THEN pg_temp.rp_koord(v_src,true)
                                             ELSE pg_temp.rp_laeser(h.navn,v_src) END) THEN

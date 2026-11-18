@@ -20,12 +20,13 @@
 --   header_violations  private.placement_header_violations(kilde) (hele kilden)
 --   synlige_1939       kildens tekster i biografilæseren v2 for alle offentlige personer (som anon); navnet er
 --                      kontraktens, tallet gælder -v src
---   KOORD_2018_20      md5 over public_person_source_coordinates()-rækkerne med source_id <> kilden (som maal_trin6d2a.sql)
+--   KOORD_2018_20      md5 over public_person_source_coordinates()-rækkerne med source_id <> kilden (som maal_trin6d2a.sql,
+--                      plus printed_page)
 --   KOORD_SRC          samme over rækkerne med source_id = kilden
 --   FAKTA              md5 over public_person_facts + public_family_sources for alle offentlige personer (som anon)
 --   BIO                md5 over biografilæseren v2 for de samme personer (som anon)
--- FAKTA-, BIO- og KOORD-udtrykkene er de samme som i maal_trin6d2a.sql og ceremoniens POST-sammenligning
--- (test_maal_record_persona.py holder dem ens). Definitionerne er tal og hashes, ingen forventninger; runneren
+-- FAKTA-, BIO- og KOORD-udtrykkene er de samme som i ceremoniens POST-sammenligning (test_maal_record_persona.py
+-- holder dem ens); FAKTA og BIO er som i maal_trin6d2a.sql, KOORD er maal_trin6d2a.sql's plus printed_page. Definitionerne er tal og hashes, ingen forventninger; runneren
 -- sammenligner med sine egne.
 \set QUIET on
 \set ON_ERROR_STOP on
@@ -85,15 +86,16 @@ SELECT md5(coalesce(string_agg(b::text,E'\n' ORDER BY b::text COLLATE "C"),'')) 
   FROM public.public_person_bio_source_versions_v2(:'ids'::bigint[]) b \gset
 SELECT count(*) AS synlige FROM public.public_person_bio_source_versions_v2(:'ids'::bigint[]) b WHERE b.source_id=:src \gset
 RESET ROLE;
--- Koordinat-hash (samme udtryk som maal_trin6d2a.sql og ceremoniens pg_temp.rp_koord).
+-- Koordinat-hash (samme udtryk som ceremoniens pg_temp.rp_koord; som maal_trin6d2a.sql plus printed_page). Kører uden
+-- aktør, altså anon-visningen (som ceremoniens koord_andre_anon).
 SELECT md5(coalesce(string_agg(concat_ws('|',quote_nullable(c.person_id),quote_nullable(c.source_id),
          quote_nullable(c.legacy_line_code),quote_nullable(c.printed_number),quote_nullable(c.printed_number_label),
          quote_nullable(c.generation_local),quote_nullable(c.generation_global),quote_nullable(c.kuld_label),
-         quote_nullable(c.provenance_kind)),E'\n' ORDER BY c.person_id,c.source_id) FILTER (WHERE c.source_id<>:src),'')) AS k_andre,
+         quote_nullable(c.provenance_kind),quote_nullable(c.printed_page)),E'\n' ORDER BY c.person_id,c.source_id) FILTER (WHERE c.source_id<>:src),'')) AS k_andre,
        md5(coalesce(string_agg(concat_ws('|',quote_nullable(c.person_id),quote_nullable(c.source_id),
          quote_nullable(c.legacy_line_code),quote_nullable(c.printed_number),quote_nullable(c.printed_number_label),
          quote_nullable(c.generation_local),quote_nullable(c.generation_global),quote_nullable(c.kuld_label),
-         quote_nullable(c.provenance_kind)),E'\n' ORDER BY c.person_id,c.source_id) FILTER (WHERE c.source_id=:src),'')) AS k_src
+         quote_nullable(c.provenance_kind),quote_nullable(c.printed_page)),E'\n' ORDER BY c.person_id,c.source_id) FILTER (WHERE c.source_id=:src),'')) AS k_src
   FROM public.public_person_source_coordinates() c \gset
 SELECT format('T_RP_MAAL fase=%s personas=%s identiteter=%s placements=%s kladder=%s eligible=%s header_violations=%s synlige_1939=%s KOORD_2018_20=%s KOORD_SRC=%s FAKTA=%s BIO=%s',
               :'fase',:'m_personas',:'m_identiteter',:'m_placements',:'m_kladder',:'m_eligible',:'m_header_violations',

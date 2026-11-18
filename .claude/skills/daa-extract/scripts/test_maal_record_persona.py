@@ -204,6 +204,26 @@ def test_hashudtrykkene_er_de_samme_som_ceremoniens():
         assert a == b, (start, a, b)
 
 
+def test_koord_udtrykkene_har_trykt_side_og_er_ens_overalt():
+    """KOORD medtager printed_page; maalingens to udtryk (andre kilder, kilden) og ceremoniens to (redaktoerens
+    rp_koord og anon-grenen i rp_laeser) er det samme udtryk, og anon-grenen beregnes efter SET LOCAL ROLE anon."""
+    maal = MAAL.read_text(encoding="utf-8")
+    cer = CEREMONI.read_text(encoding="utf-8")
+    pat = re.escape("concat_ws('|',quote_nullable(c.person_id)") + r".*?" + re.escape("ORDER BY c.person_id,c.source_id)")
+    alle_maal = [re.sub(r"\s+", "", x) for x in re.findall(pat, re.sub(r"--[^\n]*", "", maal), re.S)]
+    alle_cer = [re.sub(r"\s+", "", x) for x in re.findall(pat, re.sub(r"--[^\n]*", "", cer), re.S)]
+    assert len(alle_maal) == 2 and len(alle_cer) == 2, (len(alle_maal), len(alle_cer))
+    for x in alle_maal + alle_cer:
+        assert "quote_nullable(c.printed_page)" in x, x
+        assert x == alle_maal[0], (x, alle_maal[0])
+    laeser = cer[cer.index("CREATE FUNCTION pg_temp.rp_laeser"):]
+    laeser = laeser[:laeser.index("END $f$;")]
+    assert laeser.index("SET LOCAL ROLE anon") < laeser.index("p_hvad='koord_andre_anon'") < laeser.index("RESET ROLE")
+    # foermaalingen og POST-loekken tager anon-hashen med (fejlkoden er T_RP_POST_KOORD_ANDRE_ANON)
+    assert "SELECT 'koord_andre_anon',pg_temp.rp_laeser('koord_andre_anon',:src)" in cer
+    assert "'T_RP_POST_%',upper(h.navn)" in cer
+
+
 def test_ceremonien_er_kildeneutral():
     """Ceremonien naevner ingen kilde, udgave, post, person eller profil i logikken: alt kommer fra -v og filerne."""
     code = re.sub(r"--[^\n]*", "", CEREMONI.read_text(encoding="utf-8"))

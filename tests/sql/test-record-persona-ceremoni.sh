@@ -5,7 +5,7 @@
 # ren tekst med manifestets sha i første linje. Negative scenarier ruller tilbage og køres på basen selv eller på en
 # kopi, der kun afviger i det, scenariet tester; det skrivende scenarie kører på sin egen kopi.
 # Brug: bash tests/sql/test-record-persona-ceremoni.sh <basenavn>
-#   Opretter <basenavn> og <basenavn>_go/_kladde/_andre/_persona; dropper netop dem, når hele testen er grøn (ellers står de
+#   Opretter <basenavn> og <basenavn>_go/_kladde/_andre/_persona/_anon; dropper netop dem, når hele testen er grøn (ellers står de
 #   til eftersyn). Scriptet dropper aldrig andre baser.
 set -euo pipefail
 db=${1:?database}
@@ -102,7 +102,7 @@ nej() {  # nej <base> <mærke> <kode>: afvist med koden, intet skrevet
   [ "$(felt "$b" fase)" = "ddl" ] || fail "$t: fasen ændret"
 }
 
-for c in go kladde andre persona; do createdb -T "$db" "${db}_$c"; done
+for c in go kladde andre persona anon; do createdb -T "$db" "${db}_$c"; done
 f0=$(maal "$db")
 [[ "$f0" =~ ^T_RP_MAAL\ fase=ddl\ personas=0\ identiteter=0\ placements=0\ kladder=0\ eligible=0\ header_violations=0\  ]] \
   || fail "mål før: $f0"
@@ -191,6 +191,30 @@ v "${db}_andre" "DELETE FROM public.person_slaegt_membership WHERE person_id=-64
 nej "${db}_andre" medlemskab-andre T_RP_PRE_MEDLEMSKAB
 [ "$(v "${db}_andre" "SELECT count(*) FROM private.source_persona WHERE source_id=$SRC")" = 1 ] || fail "medlemskab-andre: personas skrevet"
 
+# \$koord_anon\$: en tredjepart gør en privat person i en anden kilde offentlig mellem førmålingen og POST (simuleret
+# af en trigger på første persona-skrivning). Redaktørens koordinater er uændrede (redaktionen ser også private), og
+# personen har ingen fakta eller tekst, så kun anon-koordinathashen afslører ændringen.
+q -d "${db}_anon" >/dev/null <<'SQL'
+INSERT INTO public.person(id,levende,privat,status) VALUES (-640102,false,true,'rpc');
+INSERT INTO public.person_external_id(person_id,source_id,linje,nr,record_key) VALUES (-640102,-6401,'I',2,'b2');
+CREATE FUNCTION public.rp_test_offentliggoer() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+  SET search_path=pg_catalog SET session_replication_role=replica AS $f$
+BEGIN UPDATE public.person SET privat=false WHERE id=-640102 AND privat; RETURN NULL; END $f$;
+CREATE TRIGGER rp_test_offentliggoer AFTER INSERT ON private.source_persona
+  FOR EACH STATEMENT EXECUTE FUNCTION public.rp_test_offentliggoer();
+SQL
+# Forudsætning: anon ser ikke personen før, men gør efter offentliggørelsen; redaktøren ser den begge gange.
+anon_q() { v "${db}_anon" "BEGIN; $1 SET LOCAL ROLE anon;
+  SELECT 'N='||count(*) FROM public.public_person_source_coordinates() WHERE person_id=-640102; ROLLBACK;" | sed -n 's/^N=//p'; }
+red_q() { v "${db}_anon" "BEGIN; $1 SELECT set_config('request.jwt.claim.sub','$ACTOR',true) IS NOT NULL;
+  SELECT 'N='||count(*) FROM public.public_person_source_coordinates() WHERE person_id=-640102; ROLLBACK;" | sed -n 's/^N=//p'; }
+[ "$(anon_q '')" = 0 ] && [ "$(anon_q 'UPDATE public.person SET privat=false WHERE id=-640102;')" = 1 ] \
+  || fail "koord-anon: anon-forudsætning"
+[ "$(red_q '')" = 1 ] && [ "$(red_q 'UPDATE public.person SET privat=false WHERE id=-640102;')" = 1 ] \
+  || fail "koord-anon: redaktør-forudsætning"
+nej "${db}_anon" koord-anon T_RP_POST_KOORD_ANDRE_ANON
+[ "$(v "${db}_anon" "SELECT privat FROM public.person WHERE id=-640102")" = t ] || fail "koord-anon: ikke rullet tilbage"
+
 # ---- Alle J: personas, identiteter, placements, ledger, medlemskab og kladder ----
 ok "${db}_go" go
 grep -qx 'T_RP_OK personas=2 identiteter=2 placements=2 medlemskab=2 kladder=2' "$tmp/go.out" || fail "kvittering: $(tail -3 "$tmp/go.out")"
@@ -260,6 +284,6 @@ nej_fase() { local s0; s0=$(state "${db}_go")
   [ "$(state "${db}_go")" = "$s0" ] || fail "genkørslen skrev"; }
 nej_fase
 
-for c in go kladde andre persona; do dropdb "${db}_$c"; done
+for c in go kladde andre persona anon; do dropdb "${db}_$c"; done
 dropdb "$db"
 echo RECORD_PERSONA_CEREMONI_TEST_OK
