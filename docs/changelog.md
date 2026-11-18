@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-18 — Henrik og Iven har deres egen 1939-tekst
+
+Henriks og Ivens hele poster i DAA 1939 (s. 9-10 og s. 10) er bundet til deres personer gennem evidenskæden, med persona, identitet,
+placement og medlemskab. Projektejeren har rettet og publiceret teksterne. Læseren viser nu 555 1939-tekster for anon
+(før 554): to nye, og 944's korte omtale vises ikke længere på Iwans side, fordi Ivens egen tekst står der. Den samme
+prod-ændring installerede personsletningens databasekode, som først tages i brug efter dens egen kørsel. PR #382,
+`database-current-state.md` §32.
+
 ## 2026-11-17 — 1939-teksterne til Emeke, Henrik, Claus og Iven målt
 
 Afstemningen 1939 ↔ afdøde i 2018-20 er afsluttet: Sammenlign-listen for 1939 har 0 åbne. Backloggen om Hartvigs

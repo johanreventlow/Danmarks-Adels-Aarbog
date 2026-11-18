@@ -529,6 +529,37 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 32. `record_persona`: Henrik og Iven får deres egen 1939-tekst — LIVE i prod (2026-11-18)
+
+**Grundlag:** spec `docs/superpowers/specs/2026-11-17-persona-for-post-uden-tekst-design.md`, plan
+`docs/superpowers/plans/2026-11-17-persona-for-post-uden-tekst.md` og runbook `docs/runbooks/record-persona-prod.md`.
+PR #382 er merget som `aca139a0`. Runneren `42-record-persona.sh` (privat) blev kørt i projektejerens shell med GO.
+
+- **DDL** (GO `27a5a0e6`, 37,9 s): halen af `db-migrations.sql` fra blokken »Fuld personsletning (2026-11-14)« til
+  filens slutning (sha `af15ee3e…`) plus `db-rls.sql` (`c0c62fb2…`), i én transaktion.
+  - Nyt: operationen `record_persona` (writer `private.write_record_persona` og wrapper
+    `red_apply_reimport_record_persona`).
+  - Spærring: `legacy_withdrawn` kan ikke fortrydes, når personen har en record-binding i kilden
+    (`NARRATIVE_LEGACY_RECORD_BINDING_EXISTS`).
+  - Fortrydelse af legacy kræver `READ COMMITTED`.
+  - Personsletningens kode (#369/#377/#380) er installeret, men ubrugt indtil dens egen ceremoni (Task 13).
+  - Note 72 (forældreløs, family 54) er slettet i samme transaktion under db-verify's forbetingelse. Begge dele er
+    projektejerens afgørelser fra 2026-11-18.
+- **Data** (GO `4dee6d18`, ceremoni 113 s): `T_RP_OK personas=2 identiteter=2 placements=2 medlemskab=2 kladder=2`
+  for `record-e63debca…` → 934 og `record-9db9004f…` → 929 (kortmanifest `20b4a68d…`, svar `c753aea9…`).
+- **Efterkontrol:** runnerens måling efter commit hang på en død forbindelse og blev stoppet. Derefter er tre
+  kontroller kørt særskilt:
+  - `verify`: tal 2,2,2,2,2,0,554, FAKTA og BIO uændrede.
+  - `vindue`: 4 change_sets, alle ceremoniens, og basen er lig aftrykket efter ceremonien.
+  - `anon`: inden for budget.
+- **Publicering:** projektejeren rettede OCR og publicerede de to kladder i Redaktion. `bevis` (anon): synlige
+  1939-tekster 554 → **555**, læseren viser de nye tekster, og KOORD og FAKTA er uændrede.
+- **Generalprøve:** stand-ins fra prod-kopien 2026-11-18 (fremad, simuleret publicering, fortryd-data, fortryd-DDL,
+  negativer og en kørsel med fastlåst runner). Detaljer står i runbooken.
+- **Fortrydelse:** lukket efter publiceringen. Rettelser i teksterne sker i Redaktion som revisioner.
+- **Ikke kørt:** Security- og Performance-advisors (MCP når ikke prod; projektejeren kører dem i dashboardet).
+- **Står tilbage:** backlog #381 (generel batch-fortrydelse) og personsletningens Task 13.
+
 ## 31. Review 36, bølge 2's DB-spor (#361): låse, portrætregel, indeks og ét koordinatkald — LIVE i prod (2026-11-15)
 
 **Grundlag:** `docs/reviews/36-helhedsreview-kodebase-2026-11-12.md` (fund D1, P6, K6, K5, P2), PR #361 merget som
