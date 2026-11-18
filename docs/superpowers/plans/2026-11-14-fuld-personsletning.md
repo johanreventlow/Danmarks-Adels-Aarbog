@@ -121,7 +121,10 @@ tilbage om personen ud over de rester, projektejeren udtrykkeligt har godkendt.
   - Vagten lukker for en skrivning fra en forældet redaktørside efter sletningen og for skrivere, der ikke åbner et
     `change_set`.
 - **Ventetid** (D-3). Sletningen sætter `SET LOCAL lock_timeout = '5s'` og `SET LOCAL statement_timeout = '30s'`.
-  Den første gælder **pr. låseventning**, den anden er det samlede loft. 55P03, 57014 og 40P01 vises i UI'et som
+  Den første gælder **pr. låseventning**. **Rettet 18/11 (R4, målt i Task 13):** den anden virker IKKE for det
+  igangværende kald, fordi timeren startes, når sætningen begynder. Det reelle loft er `authenticated`-rollens
+  `statement_timeout`, som er 8 s i prod (`authenticator` har også `lock_timeout` 8 s). Kodens `set_config` er
+  uskadelig og står, til funktionen alligevel skal ændres. 55P03, 57014 og 40P01 vises i UI'et som
   »Prøv igen om lidt«, både for sletningen og for en redaktørskrivning, der taber en deadlock. Ingen af dem har
   ændret noget. Der er **ingen skrivepause** for andre redaktører.
 - **Fejlkoder:** `PURGE_FREMMED_CHANGE_SET`, `PURGE_PREVIEW_AENDRET`, `PURGE_BLOKERET: <art>`, `PURGE_FINDES_IKKE`,
