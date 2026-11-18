@@ -10,8 +10,18 @@ describe('kildeAf', () => {
     expect(kildeAf(mkOplysning([]))).toBe('ingen kilde');
   });
 
-  test('source-linket kilde (sourceTitel + side)', () => {
-    expect(kildeAf(mkOplysning([{ sourceId: 5, sourceTitel: 'DAA 2018-20', side: '361' }]))).toBe('DAA 2018-20, 361');
+  test('source-linket kilde viser den trykte side (sideTrykt) med »s.«', () => {
+    expect(kildeAf(mkOplysning([{ sourceId: 5, sourceTitel: 'DAA 2018-20', side: '361', sideTrykt: '361' }]))).toBe('DAA 2018-20, s. 361');
+  });
+
+  // #388 (19/11): citation.side er PDF-siden; Redaktion viste »Dansk Adels Aarbog – DAA 1939, 544« for trykt s. 55.
+  test('rå PDF-side vises aldrig: 1939 PDF-side 544 → »s. 55«', () => {
+    expect(kildeAf(mkOplysning([{ sourceId: 3, sourceTitel: 'Dansk Adels Aarbog – DAA 1939', side: '544', sideTrykt: '55' }])))
+      .toBe('Dansk Adels Aarbog – DAA 1939, s. 55');
+  });
+
+  test('side uden trykt side (kan ikke omregnes) → kun værket, ikke PDF-siden', () => {
+    expect(kildeAf(mkOplysning([{ sourceId: 3, sourceTitel: 'Dansk Adels Aarbog – DAA 1939', side: '544' }]))).toBe('Dansk Adels Aarbog – DAA 1939');
   });
 
   test('kun sourceTitel, ingen side', () => {

@@ -61,6 +61,24 @@ describe('joinEvidence: uforanderlige kildepåstande (review trin B, 1d.1-02)', 
   });
 });
 
+describe('joinEvidence: trykt side (#388)', () => {
+  it('fører side_trykt med som sideTrykt; rå PDF-side bevares i side', () => {
+    const ev = joinEvidence({
+      facts: [{ id: 7, faktatype: 'titel' }],
+      assertions: [{ id: 1, target_id: 7, vaerdi_tekst: 'Greve', date_min: null, date_max: null, date_qualifier: null, date_raw: null, uforanderlig: true }],
+      conclusions: [{ target_id: 7, valgt_assertion_id: 1 }],
+      citations: [
+        { assertion_id: 1, source_id: 3, side: '544', side_trykt: '55', citat_tekst: null, citat_dato: null, source: { titel: 'Dansk Adels Aarbog – DAA 1939' } },
+        { assertion_id: 1, source_id: 3, side: '9999', side_trykt: null, citat_tekst: null, citat_dato: null, source: { titel: 'Dansk Adels Aarbog – DAA 1939' } },
+      ],
+      koen: null,
+    });
+    const kilder = Object.values(ev.felter).flat()[0].oplysninger[0].kilder;
+    expect(kilder[0]).toMatchObject({ side: '544', sideTrykt: '55' });
+    expect(kilder[1].sideTrykt).toBeUndefined();
+  });
+});
+
 describe('hændelses-tidslinje', () => {
   it('mapper også skjulte og fletter fact-kobling uden dublet, NULL sidst', () => {
     const hs = mapHaendelser([

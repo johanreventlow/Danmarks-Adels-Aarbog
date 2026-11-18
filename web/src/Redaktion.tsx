@@ -116,7 +116,8 @@ const konklusionAf = (f: FeltEvidens): Oplysning | undefined => f.oplysninger.fi
 export const kildeAf = (o: Oplysning): string => {
   const k = o.kilder[0];
   if (!k) return 'ingen kilde';
-  return [k.sourceTitel, k.side].filter(Boolean).join(', ') || k.citatTekst || 'ingen kilde';
+  // #388: citation.side er PDF-siden; vis kun bogens trykte side (side_trykt), ellers kun værket — som læserfladen.
+  return [k.sourceTitel, k.sideTrykt ? `s. ${k.sideTrykt}` : null].filter(Boolean).join(', ') || k.citatTekst || 'ingen kilde';
 };
 
 // URL-grammatik (matcher web/vercel.json's SPA-fallback + allerede etableret navngivning i
@@ -2650,7 +2651,7 @@ function ForaeldrePaastandeControl({ personId, run, sammeSom }: { personId: stri
           <span style={{ fontFamily: T.mono, fontSize: 10, color: T.inkMuted, background: T.surfaceSunken, borderRadius: 5, padding: '3px 7px', whiteSpace: 'nowrap' }}>{pp.udgave ?? 'redaktionel'}</span>
           <div style={{ flex: 1, fontSize: 13.5, color: T.inkSecondary }}>
             {pp.foraeldre.map((f) => f.navn).join(' & ') || '(ukendt familie)'}
-            {pp.side ? <span style={{ color: T.inkMuted }}> · {pp.side}</span> : null}
+            {pp.sideTrykt ? <span style={{ color: T.inkMuted }}> · s. {pp.sideTrykt}</span> : null}
             {pp.valgt ? <span style={{ color: T.bordeaux, fontWeight: 600 }}> · ✓ valgt</span> : null}
           </div>
           {pp.valgt ? null : (

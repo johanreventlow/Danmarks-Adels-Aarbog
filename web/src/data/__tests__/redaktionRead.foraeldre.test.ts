@@ -8,8 +8,8 @@ describe('buildForaeldreSlot — konkurrerende forældre-påstande (Problem 2)',
     { id: 3, objekt_id: null }, // ikke-familie-assertion (skal ignoreres)
   ];
   const citations = [
-    { assertion_id: 1, side: 's.490', citat_tekst: 'udg1', source: { udgave: 'DAA 1939', titel: null } },
-    { assertion_id: 2, side: 's.12', citat_tekst: 'udg2', source: { udgave: null, titel: 'Særudgave' } },
+    { assertion_id: 1, side: '529', side_trykt: '40', citat_tekst: 'udg1', source: { udgave: 'DAA 1939', titel: null } },
+    { assertion_id: 2, side: '12', side_trykt: null, citat_tekst: 'udg2', source: { udgave: null, titel: 'Særudgave' } },
   ];
   const partners = [
     { family_id: 100, person_id: 11, visning_navn: 'Far A' },
@@ -24,10 +24,10 @@ describe('buildForaeldreSlot — konkurrerende forældre-påstande (Problem 2)',
     expect(slot.status).toBe('omstridt');
     expect(slot.paastande).toHaveLength(2); // objekt_id=null ignoreret
     const p1 = slot.paastande[0];
-    expect(p1).toMatchObject({ assertionId: 1, familyId: 100, udgave: 'DAA 1939', side: 's.490', valgt: true });
+    expect(p1).toMatchObject({ assertionId: 1, familyId: 100, udgave: 'DAA 1939', side: '529', sideTrykt: '40', valgt: true });
     expect(p1.foraeldre.map((f) => f.navn)).toEqual(['Far A', 'Mor A']);
     const p2 = slot.paastande[1];
-    expect(p2).toMatchObject({ assertionId: 2, familyId: 200, udgave: 'Særudgave', valgt: false }); // udgave falder tilbage til titel
+    expect(p2).toMatchObject({ assertionId: 2, familyId: 200, udgave: 'Særudgave', sideTrykt: null, valgt: false }); // udgave falder tilbage til titel
     expect(p2.foraeldre.map((f) => f.navn)).toEqual(['Far B', '(ukendt)']); // NULL-navn → (ukendt)
   });
 
