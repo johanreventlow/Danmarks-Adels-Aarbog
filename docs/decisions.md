@@ -2,6 +2,17 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: »Slet helt« i Redaktion når ikke store profiler i prod — åben backlog (2026-11-18)
+
+> - **Målt i ceremonien 18/11:** `authenticated` har `statement_timeout` 8 s. 963 (1118 steder) gav gentagne
+>   57014 i Redaktion; via runnerens `slet` (samme RPC, 90 s) tog sletningen 3,7 s efter en forhåndsvisning i samme
+>   transaktion, 940 (1132 steder) tog 16,4 s. Første forhåndsvisning i en kold base tog 7,2 s eller ramte 8 s.
+> - **Konsekvens:** brugerfladen siger »Det tog for lang tid — intet er slettet. Prøv igen.«, men et nyt forsøg hjælper
+>   ikke for store profiler. Små profiler (≤ ca. 200 steder) gik igennem.
+> - **Backlog (ikke besluttet):** gør sletningen hurtig nok til 8 s (profilér planen/låsene for store profiler), eller
+>   giv sletningen en vej med længere loft, der bevarer rollegate og forhåndsvisningens hash (fx en server-side
+>   funktion med egen timeout). Indtil da: store profiler slettes med runneren efter runbooken.
+
 ## BESLUTTET: record_persona's prod-DDL tager personsletningen med, sletter note 72 og spærrer fortrydelse af legacy bredt (2026-11-18)
 
 > - **Personsletningens kode i samme DDL.** Prod-DDL'en er halen af `db-migrations.sql` fra »Fuld personsletning
