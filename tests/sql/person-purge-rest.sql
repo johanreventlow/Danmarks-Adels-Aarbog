@@ -181,18 +181,19 @@ WHERE v.tabel='public.change_set' AND v.navn+v.link>0 AND (v.navn,v.link)=(
                         'Uploadede media '||coalesce(m.titel,m.original_filnavn,'?'))));
 \endif
 
--- S41b/bog: 'source_evidence'-kvitteringer i reimport_event bærer bogens OCR-tekst (payload.verbatim_text).
--- Er P en fejlprofil, hvis »navn« er et brudstykke af en andens bogtekst (1791, generalprøve 18/11), står navnet
--- dér som bogens ordlyd. Løftes KUN når ALLE navnefund i tabellen er præcis sådanne rækker: operation
--- source_evidence, navnet kun i verbatim_text, intet P-link. Andre reimport_event-fund (aktiveringer,
--- same_as_hint) forbliver forbudt. Den rå måling i maaling ændres ikke. Gælder begge modes.
+-- S41b/bog: 'source_evidence'-kvitteringer i reimport_event bærer bogens lag: OCR-teksten (payload.verbatim_text)
+-- og det oprindelige udtræk af samme sted (payload.legacy_payload, fx partner_navn i en vielse).
+-- Er P en fejlprofil eller dublet, hvis navn står i en andens bogtekst (1791 og 1620, generalprøven 18/11), står
+-- navnet dér som bogens ordlyd. Løftes KUN når ALLE navnefund i tabellen er præcis sådanne rækker: operation
+-- source_evidence, navnet kun i verbatim_text og/eller legacy_payload, intet P-link. Andre reimport_event-fund
+-- (aktiveringer, same_as_hint) forbliver forbudt. Den rå måling i maaling ændres ikke. Gælder begge modes.
 UPDATE vurdering v SET tekst_art='ja', sted='S41b/bog'
 WHERE v.tabel='private.reimport_event' AND v.link=0 AND v.navn>0
   AND v.navn=(
     SELECT count(*) FROM private.reimport_event e CROSS JOIN params p
      WHERE p.navn<>'' AND e.operation='source_evidence'
-       AND strpos(e.payload->>'verbatim_text', p.navn)>0
-       AND strpos((e.payload-'verbatim_text')::text, p.navn)=0
+       AND strpos(concat_ws('|',e.payload->>'verbatim_text',(e.payload->'legacy_payload')::text), p.navn)>0
+       AND strpos((e.payload-'verbatim_text'-'legacy_payload')::text, p.navn)=0
        AND strpos(concat_ws('|',e.batch_id::text,e.element_id,e.operation,e.source_record_key,
                             e.canonical_person_id::text,e.before_sha256,e.after_sha256), p.navn)=0);
 
