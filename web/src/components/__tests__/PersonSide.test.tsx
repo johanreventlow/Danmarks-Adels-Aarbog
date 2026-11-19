@@ -131,7 +131,8 @@ describe('PersonSide', () => {
     expect(screen.getByRole('link', { name: 'Anna Margrethe Gabel' }).getAttribute('href')).toBe('/person/600');
     expect(screen.getByRole('link', { name: 'Ulrica Reventlow' }).getAttribute('href')).toBe('/person/500');
     expect(screen.getByText('Ikke angivet i Aarbogen.')).toBeTruthy(); // forældre
-    expect(screen.getByText('Ingen embeder eller hverv angivet i Aarbogen.')).toBeTruthy();
+    expect(screen.queryByText('Embeder og hverv')).toBeNull(); // ingen embeder → ingen sektion (19/11)
+    expect(screen.queryByText(/Ingen embeder/)).toBeNull();
     expect(screen.getByText('Ingen billeder eller dokumenter i Aarbogen.')).toBeTruthy();
     expect(screen.getByText('Intet portræt i Aarbogen.')).toBeTruthy();
   });
@@ -152,10 +153,17 @@ describe('PersonSide', () => {
     expect(screen.getByText('Embede 9')).toBeTruthy();
   });
 
+  it('embeder: sektionen vises, når der er mindst ét', () => {
+    render(<PersonSide {...props({ detail: detalje({ offices: [{ label: 'Amtmand', period: '1700' }] }) })} />);
+    expect(screen.getByText('Embeder og hverv')).toBeTruthy();
+    expect(screen.getByText('Amtmand')).toBeTruthy();
+  });
+
   it('henter: ingen »Ikke angivet« før detaljen er kommet', () => {
     render(<PersonSide {...props({ detail: null })} />);
     expect(screen.getAllByText('Henter …').length).toBeGreaterThan(0);
     expect(screen.queryByText(/Ingen embeder/)).toBeNull();
+    expect(screen.queryByText('Embeder og hverv')).toBeNull(); // ingen tom boks under hentning
     expect(screen.getByText('Ikke angivet i Aarbogen.')).toBeTruthy(); // familien kommer fra modellen
   });
 

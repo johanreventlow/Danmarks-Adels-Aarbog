@@ -222,8 +222,11 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
 
           {!detailError && (
             <>
+              {/* Embeder vises kun, når personen har nogen (projektejeren 19/11): kun ~8 % har embeder som oplysning,
+                  resten står i biografien, så »Ingen embeder … angivet i Aarbogen« var usandt. Skjult under hentning,
+                  så en tom boks ikke flimrer ind og ud (samme regel som livsrejsen). */}
+              {!henter && offices.length > 0 && (
               <Sektion titel="Embeder og hverv">
-                {henter ? <Henter /> : offices.length ? (
                   <ol style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: 15, lineHeight: '22px' }}>
                     {visteEmbeder.map((o, i) => (
                       <li key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 20px', padding: '9px 0', borderTop: `1px solid ${T.line}` }}>
@@ -239,8 +242,8 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                       </li>
                     )}
                   </ol>
-                ) : <Mangel>Ingen embeder eller hverv angivet i Aarbogen.</Mangel>}
               </Sektion>
+              )}
 
               <Sektion titel="Besiddelser">
                 {henter ? <Henter /> : v.godser.length ? (
