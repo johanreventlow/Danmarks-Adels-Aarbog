@@ -371,3 +371,35 @@ describe('collapse → buildModel → relationship (integration)', () => {
     expect([...parents.keys()].some((n) => hasCycle(n))).toBe(false);
   });
 });
+
+describe('collapseSameAs — floruit', () => {
+  const ext = new Map<string, { linje: string | null; nr: number | null }>();
+  it('alias med livsdatoer vinder over floruit', () => {
+    const rawDb: Db = {
+      persons: [P('K', { floruit: '1600' }), P('A', { born: 1640, died: 1708 })],
+      unions: [],
+      parentChild: [],
+    };
+    const r = collapseSameAs(rawDb, [{ alias: 'A', canonical: 'K' }], ext);
+    const k = r.db.persons.find((p) => p.id === 'K')!;
+    expect(k.years).toBe('1640–1708');
+  });
+  it('floruit flettes som forening', () => {
+    const rawDb: Db = {
+      persons: [P('K'), P('A', { floruit: '1349–1360' }), P('B', { floruit: '1380–1391' })],
+      unions: [],
+      parentChild: [],
+    };
+    const r = collapseSameAs(
+      rawDb,
+      [
+        { alias: 'A', canonical: 'K' },
+        { alias: 'B', canonical: 'K' },
+      ],
+      ext,
+    );
+    const k = r.db.persons.find((p) => p.id === 'K')!;
+    expect(k.floruit).toBe('1349–1391');
+    expect(k.years).toBe('Nævnes 1349–1391');
+  });
+});

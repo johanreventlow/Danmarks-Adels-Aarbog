@@ -2,7 +2,7 @@
 // (linket via afklarede samme_som-relationer) til ÉN kanonisk post FØR buildModel, så
 // slægtskabs-motoren forbliver urørt. Reversibel (returnerer alias-map + proveniens) og
 // valideret (konflikter karantæneres, foldes ikke). Se spec 2026-07-02-samme-som-collapse-design.md.
-import { fmtYears } from './fields';
+import { fletFloruit, fmtVisningsAar } from './fields';
 import { KONFIDENS_RANK } from './types';
 import type {
   SameAsEdge,
@@ -246,11 +246,11 @@ export function validateGroups(
   return { accepted, quarantined };
 }
 
-// Regenerér display-år fra de coalescede tal via samme formatter som loaderen (fields.ts),
-// så et flettet person-år er format-konsistent med resten af appen (sti-visningen bruger
-// `years` separat — inkonsistens ville ellers lydløst afvige fra fmtYears).
-const regenYears = (born: number | null, died: number | null): string =>
-  fmtYears(born == null ? null : String(born), died == null ? null : String(died));
+// Regenerér display-år fra de coalescede tal + flettet floruit via samme formatter som loaderen
+// (fields.ts), så et flettet person-år er format-konsistent med resten af appen (sti-visningen
+// bruger `years` separat — inkonsistens ville ellers lydløst afvige).
+const regenYears = (born: number | null, died: number | null, floruit: string | null): string =>
+  fmtVisningsAar(born == null ? null : String(born), died == null ? null : String(died), floruit);
 
 // Gruppér (Task 1) → validér/karantænér (Task 2) UDEN projektion. Egen indgang fordi
 // previewSammeSom kun behøver karantænen — den fulde projektion (person-flet + kant-omskrivning)
@@ -293,13 +293,15 @@ export function collapseSameAs(
       (primary[k] ?? others.find((o) => o[k] != null)?.[k]) as AppPerson[K];
     const born = coalesce('born');
     const died = coalesce('died');
+    const floruit = fletFloruit([primary, ...others].map((p) => p.floruit));
     mergedPersons.push({
       ...primary,
       born,
       died,
       foedtSpaend: coalesce('foedtSpaend'),
       doedSpaend: coalesce('doedSpaend'),
-      years: regenYears(born as number | null, died as number | null),
+      floruit,
+      years: regenYears(born as number | null, died as number | null, floruit),
       title: primary.title || others.find((o) => o.title)?.title || '',
       koen: primary.koen ?? others.find((o) => o.koen)?.koen,
       privat: ids.some((id) => Boolean(personById.get(id)?.privat)), // OR

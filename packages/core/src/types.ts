@@ -117,6 +117,8 @@ export type AppPerson = {
   born: number | null;
   died: number | null;
   years: string; // ordret: "* 1640", "† 1708", "1640–1708"
+  // Valgfri: årsspænd person nævnes i uden livsdatoer (DB visning_floruit): »1671« / »1349–1391«.
+  floruit?: string | null;
   title: string;
   bio: string;
   privat: boolean;
