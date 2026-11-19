@@ -53,7 +53,8 @@ const FAKTATYPE_FELT: Record<string, string> = Object.fromEntries(
 export type Kilde = {
   sourceId: number | null;
   sourceTitel?: string;
-  side?: string;
+  side?: string;       // citation.side: PDF-siden for importerede udgaver (rå; vis aldrig til redaktøren)
+  sideTrykt?: string;  // side_trykt (sidekortet): bogens trykte side; mangler når siden ikke kan omregnes
   citatTekst?: string;
   citatDato?: string;
 };
@@ -84,7 +85,7 @@ type RawAssert = { id: number; target_id: number; vaerdi_tekst: string | null;
   date_min: string | null; date_max: string | null; date_qualifier: string | null; date_raw: string | null;
   uforanderlig?: boolean | null };
 type RawConc = { target_id: number; valgt_assertion_id: number | null };
-type RawCit = { assertion_id: number; source_id: number | null; side: string | null;
+type RawCit = { assertion_id: number; source_id: number | null; side: string | null; side_trykt?: string | null;
   citat_tekst: string | null; citat_dato: string | null; source?: { titel?: string } | null };
 
 export function joinEvidence(rows: {
@@ -96,7 +97,7 @@ export function joinEvidence(rows: {
     const list = citByAssert.get(c.assertion_id) ?? [];
     list.push({
       sourceId: c.source_id, sourceTitel: c.source?.titel ?? undefined,
-      side: c.side ?? undefined, citatTekst: c.citat_tekst ?? undefined, citatDato: c.citat_dato ?? undefined,
+      side: c.side ?? undefined, sideTrykt: c.side_trykt ?? undefined, citatTekst: c.citat_tekst ?? undefined, citatDato: c.citat_dato ?? undefined,
     });
     citByAssert.set(c.assertion_id, list);
   }
@@ -152,7 +153,7 @@ export async function fetchPersonEvidence(personId: string): Promise<PersonEvide
   const assertIds = (assertions ?? []).map((a: RawAssert) => a.id);
   const citations = assertIds.length
     ? orThrow(await supabase.from('citation')
-        .select('assertion_id,source_id,side,citat_tekst,citat_dato,source(titel)')
+        .select('assertion_id,source_id,side,side_trykt,citat_tekst,citat_dato,source(titel)')
         .in('assertion_id', assertIds), 'fetchPersonEvidence/citation')
     : [];
   return joinEvidence({
@@ -196,12 +197,12 @@ export async function fetchForaeldreUkendtMarkering(personId: string): Promise<F
 export type ForaeldreForaelder = { personId: number; navn: string };
 export type ForaeldrePaastand = {
   assertionId: number; familyId: number; foraeldre: ForaeldreForaelder[];
-  udgave: string | null; side: string | null; citat: string | null; valgt: boolean;
+  udgave: string | null; side: string | null; sideTrykt: string | null; citat: string | null; valgt: boolean;
 };
 export type ForaeldreSlot = { factId: number; status: string | null; paastande: ForaeldrePaastand[] };
 
 type RawSlotAssert = { id: number; objekt_id: number | null };
-type RawSlotCit = { assertion_id: number; side: string | null; citat_tekst: string | null;
+type RawSlotCit = { assertion_id: number; side: string | null; side_trykt?: string | null; citat_tekst: string | null;
   source: { udgave: string | null; titel: string | null } | null };
 type RawSlotConc = { valgt_assertion_id: number | null; status: string | null };
 type RawFamPartner = { family_id: number; person_id: number; visning_navn: string | null };
@@ -227,7 +228,7 @@ export function buildForaeldreSlot(
         assertionId: a.id, familyId: a.objekt_id as number,
         foraeldre: partnersByFam.get(a.objekt_id as number) ?? [],
         udgave: cit?.source?.udgave ?? cit?.source?.titel ?? null,
-        side: cit?.side ?? null, citat: cit?.citat_tekst ?? null,
+        side: cit?.side ?? null, sideTrykt: cit?.side_trykt ?? null, citat: cit?.citat_tekst ?? null,
         valgt: a.id === valgt,
       };
     });
@@ -247,7 +248,7 @@ export async function fetchForaeldreSlot(personId: string): Promise<ForaeldreSlo
   const aids = aList.map((a) => a.id);
   const famIds = aList.map((a) => a.objekt_id).filter((x): x is number => x != null);
   const [citRes, concRes, partRes] = await Promise.all([
-    aids.length ? supabase.from('citation').select('assertion_id,side,citat_tekst,source(udgave,titel)').in('assertion_id', aids).order('id') : Promise.resolve({ data: [] as unknown[] }),
+    aids.length ? supabase.from('citation').select('assertion_id,side,side_trykt,citat_tekst,source(udgave,titel)').in('assertion_id', aids).order('id') : Promise.resolve({ data: [] as unknown[] }),
     supabase.from('conclusion').select('valgt_assertion_id,status').eq('target_type', 'fact').eq('target_id', factId).maybeSingle(),
     famIds.length ? supabase.from('family_member').select('family_id,person_id,person(visning_navn)').in('family_id', famIds).eq('rolle', 'partner') : Promise.resolve({ data: [] as unknown[] }),
   ]);
