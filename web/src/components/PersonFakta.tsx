@@ -2,6 +2,8 @@
 // visningerne: bundet til bogens post bærer postens koordinat (»DAA 2018-20, s. 201-202 · V-1«), den oprindelige
 // import kun bogen og evt. side (»DAA 2018-20«), og uden kilde står »Kilde ikke registreret«. Mærkerne »bundet til
 // bogens post«/»fra den oprindelige import« er fjernet (decisions 2026-11-12): de beskrev vores arbejdsgang, ikke bogen.
+// 2026-11-19 (projektejeren): kilden står ikke længere under hvert faktum; personsidens »Kilde i Aarbogen« nederst er
+// nok. Kun »Andre udsagn« (omstridte fakta) beholder kilden, fordi den dér skelner udsagnene (invariant 7).
 import type { KunIUdgave, PersonFactSource, PersonFactStatement, UdgaveFaktaVisning, UdgaveNote } from '@daa/core';
 import { T } from '../theme';
 import { Label } from './primitives';
@@ -68,7 +70,6 @@ export function PersonFakta({ visning, error }: { visning: UdgaveFaktaVisning | 
               {l.vaerdi !== '' && (
                 <div>
                   <div style={{ fontSize: 14, color: T.inkSecondary, lineHeight: 1.3 }}>{l.vaerdi}</div>
-                  {l.kilder.map((k, i) => <Kilde key={`${k.label}:${i}`} source={k} />)}
                 </div>
               )}
               {l.vaerdi !== '' && l.noter.map((n) => <Note key={`${n.art}:${n.udgave.sourceId}`} note={n} />)}

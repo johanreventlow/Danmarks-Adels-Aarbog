@@ -2,6 +2,20 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: personsiden viser kun det, der er — tomme sektioner skjules, kilden står kun nederst (2026-11-19)
+
+> Projektejeren efter gennemgang af personsider (fx 457, 474, 1776).
+>
+> - **Tomme sektioner skjules** (»Embeder og hverv«, »Besiddelser«, »Billeder og dokumenter«), i stedet for »Ingen …
+>   angivet i Aarbogen«. Embeder findes kun som oplysning for 150 af 1.802 personer (målt 19/11); resten står i
+>   biografien, så teksten var usand. **1939 har 0 embeder**, fordi trin 6 udskød dem (`embede` er
+>   `promotable: false`), ikke af princip: hullet er nu usynligt for læseren og ligger som backlog.
+> - **»Gift med« og »Børn« kun med indhold:** »Gift med« kun for gifte; »Børn« for gifte (også »Ingen børn angivet«)
+>   eller når der er børn. Et barn, der døde ungt, får ingen af dem.
+> - **Kilden står ikke under hvert faktum** (afløser B11 §4.4's kilde pr. faktum): »Kilde i Aarbogen« nederst er
+>   nok. Undtagelse: »Andre udsagn« ved omstridte fakta beholder kilden, fordi den dér skelner udsagnene
+>   (invariant 7). Noterne »✓ også i …« og »… skriver: …« bliver.
+
 ## NOTERET: »Slet helt« i Redaktion når ikke store profiler i prod — åben backlog (2026-11-18)
 
 > - **Målt i ceremonien 18/11:** `authenticated` har `statement_timeout` 8 s. 963 (1118 steder) gav gentagne
