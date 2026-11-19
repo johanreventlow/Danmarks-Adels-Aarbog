@@ -29,11 +29,15 @@ de ikke er reelt lukket.
   - Delvise veje findes for en redaktør, der har været logget ind på samme browser eller enhed
     (W5, M5).
 
-**Dækningsforbehold:** første bølge har ikke gennemgået hele projektet linje for linje.
-- Ulæst: fuld personsletning (`red_slet_person_helt` og purge-kæden), cirka halvdelen af
-  `schema.sql` (reimport, placement og narrative-record-kontrakten) og de prod-skrivende
-  `*_1939_v50`-apply-helpere.
-- Ydelse er kun dækket af D8, M8, M12 og E12. Der er ingen målinger.
+**Anden bølge** (§4b) dækkede personsletningen, den prod-skrivende apply-vej og en
+dedikeret ydelsesgennemgang, som var huller i første bølge. Den tilføjer tre høje fund:
+- **P1+P2:** en GDPR-sletning kan gøre en levende persons billede offentligt.
+- **A1:** fuld genkørsel af `db-migrations.sql` åbner midlertidigt narrativ-gaten.
+- **Y1:** kvalitetsarket genberegner hele griddet pr. side.
+
+Y3 er desuden et latent krav, før #130 køres.
+
+**Ydelse er kun vurderet statisk.** Intet er målt med EXPLAIN eller i browseren.
 - **Fem fund med alvor høj:**
   - **W1:** redaktionen kan skrive på forkert person efter et hurtigt personskift.
   - **M1:** falske »halvsøskende«.
@@ -170,6 +174,61 @@ de ikke er reelt lukket.
 - **C12:** kortet bruger `demotiles.maplibre.org`.
 - **C13:** testvagten ser ikke `.mjs`-browsertesten; spike-filer ligger i `tests/sql/`.
 
+## 4b. Anden bølge (samme dag): personsletning, prod-skrivende apply-vej, ydelse
+
+Tre Fable-reviewere, der kun læste kode, med samme regler som første bølge. Intet er kørt eller målt.
+
+### Fuld personsletning (P)
+| id | alvor | fund | belæg |
+|---|---|---|---|
+| **P1+P2** ✔ | **høj** | En GDPR-sletning kan gøre en levende persons billede offentligt. Et portræt, der kun afbilder P, men har egne fakta (rettigheder skrives som fakta på mediet, `schema.sql:8717`), bevares som »S37b«. Kun `afbildet`-relationen slettes. Dermed bliver `media_afbilder_skjult` falsk, og med dokumenterede rettigheder bliver billedet, varianterne og storage-objektet synlige for anon. Det samme sker for delte gruppebilleder og for vielsesfakta i bevarede familier (`family_offentlig` bliver sand). Ingen advarsel i forhåndsvisningen og ingen test. Forekomst i prod ukendt; de ni sletninger den 18/11 var uden medier. | `schema.sql:22586-22601, 22712, 22882`; `db-rls.sql:120-124, 133-146, 229-232` |
+| P3 | middel | Kontrollisten skanner ikke `story`, `entity_description` eller andres `assertion.vaerdi_tekst`/`citation.citat_tekst` for P's navn i ren tekst. | `schema.sql:23371-23449, 22969-22994` |
+| P4 | middel-lav | Historiklukningen kender kun historiske rækker med person-subjekt. `change_event` for tidligere slettede story- og relationsrækker med familie-subjekt beholder `foer`-teksten. | `schema.sql:22468-22527` |
+| P5 | middel | Tabt svar efter commit: klienten kalder aldrig `onDeleted` og kører ikke `executePurgeOprydning`. `PURGE_FINDES_IKKE` vises som rå fejl, og filerne bliver liggende i udbakken. | `web/src/components/SletHeltDialog.tsx:33-58`; `web/src/data/personPurge.ts:53-66, 115-123` |
+| P6 | lav-middel | Dialogen viser ikke `storage`, `vielser_staar`, `forældes`, `historik` eller `samme_som_komponent` (spec §2/§6.1), og steder vises som rå koder (»S37b«). | `personPurge.ts:6-14`; `SletHeltDialog.tsx:63-93` |
+| P7 | lav (middel ved ægte GDPR-sletning) | Færdigbevis og runbook i git rummer slettede id'er og bogreferencer. Det strider mod spec §1/§5.1 (»ingen linje om, at sletningen fandt sted«). | `docs/superpowers/plans/personsletning/task-13-faerdigbevis.md:19-29`; `docs/runbooks/personsletning-prod.md:52-116` |
+| P8 | lav | Fil-oprydningen er aldrig kørt mod rigtig Storage. Kvitteringen sletter udbakkerækken uden at tjekke, at objektet er væk, og buckets ud over `media` kan aldrig kvitteres. | `schema.sql:24065-24071`; `personPurge.ts:38-45` |
+| P9 | lav | `set_config('statement_timeout','30s',true)` inde i funktionen påvirker ikke det kald, der allerede kører, så »30 s i alt« findes ikke (jf. 8 s-backlog). | `schema.sql:23814` |
+| P10 | lav | Kontrollistens id-søgning matcher årstal og datoer (id < ca. 2100), så ægte navnefund drukner i støj. | `schema.sql:23367-23368, 23450-23453` |
+
+### Prod-skrivende apply-vej og ulæste schema-regioner (A)
+Hovedsvar: alle ni element-writere sammenligner payloaden med `authorized_elements`, og `red_finalize_reimport` tæller pr. operation. En apply kan altså ikke skrive andet indhold end det autoriserede.
+
+| id | alvor | fund | belæg |
+|---|---|---|---|
+| **A1** ✔ | **høj (latent)** | Fuld genkørsel af `db-migrations.sql` mod prod: fra linje 11258 til 15993 svarer `narrative_record_contract_version()` 1. Narrativ-gaten (`IF … <2 THEN RETURN true`) slipper så kladder og tilbagetrukne tekster om offentlige personer igennem til anon, og legacy-writerne genåbnes. Filen er ikke én transaktion (#153 har sin egen BEGIN/COMMIT), så standser kørslen i vinduet, bliver tilstanden stående. Levende personer lækker ikke. Hele filen blev kørt 17/9 (`database-current-state.md:412-416`). | `db-migrations.sql:11258, 15993, 7858`; `schema.sql:16952` |
+| A2 | middel | `has_haendelse` indgår i narrativets hashede tilstand. Når `/daa-haendelser` tilføjer eller fjerner en hændelse, forsvinder publicerede tekster lydløst fra personsiden. Grandfathered legacy-tekster har ingen vej tilbage. Rammer ved #130. | `schema.sql:15222, 15541-15545, 17035-17040, 15631-15635` |
+| A3 | middel | `ensure_reimport_source_evidence` genbruger en eksisterende `source_record` (ON CONFLICT DO NOTHING) uden efterkontrol, så posten får to helposter (`RECORD_HELPOST_AMBIGUOUS`). | `schema.sql:4119-4126, 871-898` |
+| A4 | middel | `LOCK TABLE change_set IN ACCESS EXCLUSIVE MODE` holdes i hele manifest-transaktionen, så redaktørskrivninger står i kø. Legacy-migrering og mutation låser i modsat rækkefølge, så der er risiko for deadlock. | `schema.sql:4302, 15269`; `apply_reimport_helpers.R:263-325` |
+| A5 | middel-lav | Legacy-reversal lader batchen stå `finalized`. Genkørsel af samme manifest melder `already_applied`, selvom bindingerne er trukket tilbage. | `schema.sql:4190-4197, 5855-5860, 5520-5586` |
+| A6 | middel | `legacy_migrated`-fortrydelse mangler den brede vagt (person + kilde) fra `legacy_withdrawn`. N1 kan vises som »Overgangsdata« ved siden af N2. | `schema.sql:16690-16712` |
+| A7 | middel | `red_afgoer_source_persona` henter stikprøverækken `WHERE …='sealed'` uden `ORDER BY` og uden krav om den gældende kandidatkørsel. Efter en opgivet forsegling kan der vælges forkert ark. | `schema.sql:11280-11289` |
+| A8 | middel (latent) | Generisk runner: serveren får `manifest_content_sha256` fra manifestet (kun regex-tjekket), og `--preview-sha256` er en fri etiket. Fase A autoriserer sig selv i samme transaktion. C3 genberegner aldrig sine hashes. Samme klasse som E9/E13. | `apply_reimport_helpers.R:28`; `apply_phase_a_1939_v50_helpers.R:287`; `apply_c3_1939_v50_helpers.R:492-498` |
+| A9 | middel (latent) | `env_or` falder tilbage pr. variabel. Er `PGDATABASE` sat og `PGHOST` glemt, rammes prod med `sslmode=disable`. De generiske runnere sætter slet ingen sslmode (jf. E10). | `apply_phase_a_1939_v50.R:54-57` m.fl. |
+| A10 | lav | Fejler `dbCommit`, kaldes rollback på en død forbindelse. Operatøren ser en almindelig fejl, selvom prod kan være ændret. Der mangler et særskilt udfald for »commit ukendt«. | `apply_reimport_helpers.R:325-327, 438-439` m.fl. |
+| A11 | lav | NULL-usikre vagter: `NOT IN`/`<>` på NULL slipper igennem. | `schema.sql:11242, 11273, 5300, 4212, 4225, 14215` |
+| A12 | lav (latent) | `reimport_authorization` og `reimport_batch` har ingen mutations-trigger. `narrative_publication_event` og `narrative_record_cutover_receipt` mangler TRUNCATE-trigger. | `schema.sql:3961-3963, 14101, 17490` |
+| A13 | lav | Dobbeltdefinitioner i `schema.sql` (3716/3900, 13824/17345, 15478/17438, 6226/17206). Den sidste vinder; de første er døde eller vildledende og er roden til A1. | — |
+| A14 | lav (latent) | Case-ledger: `max(id)+1` på identity-kolonnen `narrative.id`, rå 23505 ved genanvendelse af en fortrudt batch, og reversal-autorisationen binder ikke til batchens principal. | `schema.sql:12680-12682, 9172, 12927, 13252-13316` |
+| A15 | lav (latent) | 1939-engangsscripts: drift-guard på antal i stedet for id-mængde, preflight uden FOR UPDATE, preview uden REPEATABLE READ, filen læses to gange og `max(id)` bruges som rapporteret id. Alle er gennemført eller spærret af kontrakt v2. | `apply_narrative_replacement_1939_v50_helpers.R:471-475, 661-672` m.fl. |
+
+### Ydelse og effektivitet (Y): statisk vurdering, intet målt
+| id | alvor | fund | belæg |
+|---|---|---|---|
+| **Y1** ✔ | høj (redaktion) | Kvalitetsarket offset-paginerer `red_person_grid` (plpgsql) via `getAll`, så hver side genberegner hele griddet. Det er P2-mønstret, som `getAll` selv forbyder. Genindlæsning af én række henter hele griddet. Alle cirka 1.800 × 20 celler tegnes ved hvert tastetryk. Kompleksitet O(n²/1000). | `web/src/data/personKvalitetsark.ts:166-167`; `Redaktion.tsx:420`; `PersonKvalitetsark.tsx:519` |
+| **Y2** ✔ | middel-høj | Opstarten henter alle afklarede relationskonklusioner (med en RLS-kaskade på op til 6 DEFINER-kald pr. række), men bruger kun dem for `samme_som`. Fejl sluges, så dubletpersoner dukker op uden fejlbesked. | `web/src/data/model.ts:87-88` |
+| Y3 | høj (latent) | `haendelse`-politikkens `EXISTS narrative` kører hele publiceringsgaten (SHA-256 og subtransaktion) pr. hændelsesrække. Feedet mister stille kort ved anon-grænsen på 3 s, når #130 køres. Bør være færdigkrav for #130. | `db-rls.sql:494-499`; `schema.sql:16922-17050`; `web/src/data/haendelser.ts:44`, `feedGrundlag.ts:34` |
+| Y4 | middel | `public_family_sources`/`public_person_facts` joiner `*_current`-views (`DISTINCT ON` over hele tabellen) på en nøgle, der ikke kan skubbes ind. Prisen pr. personside vokser lineært med korpus. Skal bekræftes med EXPLAIN. | `schema.sql:21341, 21356, 21872, 848-852, 1749-1753` |
+| Y5 | middel | Fakta, konklusion og påstand joines i browseren med serielle bidder à 200: cirka 36 rundture pr. forsidevisning i dag, cirka 3.600 ved 100×. | `web/src/data/livsdato.ts`; `haendelser.ts:27-33`; `story.ts:49-55`; `presens.ts:38-47` |
+| Y6 | middel | RLS-kaskaden på evidenstabellerne giver 2-6 ikke-inlinede DEFINER-kald pr. række, ganget med offset-effekten. Forudsætningen »tabellerne er små« holder ikke ved 50-100×. | `db-rls.sql:505-545, 1050-1070` |
+| Y7 | lav-middel | Søgningens stavemådeforslag bygger ordbogen forfra og kører op til tre ekstra fulde `soeg()`. | `web/src/components/SoegView.tsx:44-51`; `soeg.ts:182-203` |
+| Y8 | lav-middel | Der mangler et indeks på `interpretation_promotion(target_type, target_id)`. | `schema.sql:1624-1627` |
+| Y9 | lav | FK'er uden indeks på `haendelse.fact_id/relation_id`, `story.fact_id/relation_id/historical_event_id` og `bookmark.person_id`. | `schema.sql:6312-6318, 6346-6348, 3524` |
+| Y10 | lav | Intet indeks på `fact(faktatype, …)`/`sted_id`. | `schema.sql:6828` |
+| Y11 | lav | Regen-triggerne er `FOR EACH ROW`, så skrivning af F konklusioner for samme person giver O(F²). | `schema.sql:6501-6562` |
+| Y12 | lav | Reimport-applieren laver én rundtur pr. operation i én åben transaktion. | `apply_reimport_helpers.R:292-322` |
+| Y13 | lav | `bn`-CTE'en i `public_person_facts` er O(A×B). | `schema.sql:21899` |
+
 ## 5. Kendte, stadig åbne punkter (ikke nye fund)
 
 - `data/extracted-2026-06-18/` (591 filer) er tracket med strukturerede data om 47 levende personer (review 35). Repoet er privat, men data ligger i git-historikken og hos GitHub (jf. C8: en kompromitteret action kan læse dem).
@@ -198,9 +257,17 @@ Følgende er ikke gennemgået linje for linje:
 
 Ydelse er ikke målt nogen steder.
 
+Efter anden bølge er stadig ulæst:
+- **Database:** `schema.sql` 440-2000 (undtagen 871-1024), 4790-5003, 5345-5417, 2667-2770 og writerne efter linje 17500 (kun stikprøver). Desuden kroppen af den gamle `red_slet_person` og purge-delen af `db-verify.sql`.
+- **Pipeline:** ceremoni-`.sql`-scripts og den private runner/apply-wrapper i `~/.private`.
+
 ## 8. Forslag til rækkefølge (ikke besluttet)
 
-1. **PII-værn før næste kørsel af #130/#131/præsens:**
+0. **GDPR-sletning (P1+P2) før næste »Slet helt« af en person med billeder.** Indtil da
+   bør sletning af personer med medier undgås.
+0b. **Fuld genkørsel af `db-migrations.sql` mod prod må ikke ske** (A1), før de forældede
+   kroppe er fjernet, eller der er lagt en vagt ind.
+1. **PII-værn og forudsætninger før næste kørsel af #130/#131/præsens** (husk også A2 og Y3 ved #130):
    - E1, E2 og E8 (spær eller gate LLM-trinnene).
    - E3 (geo-godkendelser).
    - E4 (integer64-sletning).
