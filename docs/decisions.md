@@ -2,6 +2,18 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: udgavevælgeren har én chip pr. udgave; enighed mellem udgaver vises ikke; etiketten bærer linjens navn (2026-11-19)
+
+> Projektejeren ud fra Conrad Reventlow (392), der står i to 2018-20-linjer (V-1 og henvisningen III-58).
+>
+> - **Én chip pr. udgave** med kun udgavens navn (»DAA 2018-20«, »DAA 1939«); afløser spec 6e §5.5 afgørelse 11's
+>   chip pr. post og 6e-2's postetiket i chippen. Chippen bærer posten med den fulde biografi: bogpost før
+>   overgangsdata, så længste tekst. Henvisningsposter (III-58: »Se V-1.«) kan ikke vælges, men står stadig under
+>   »Kilde i Aarbogen«. En kildelinje til en af personens egne poster (også III-58) vælger udgavens chip.
+> - **»✓ også i …« vises ikke**; kun »… skriver: …« når den anden bog siger noget andet. »Kun i <udgave>« bliver.
+> - **Etiketten bærer linjens fulde navn**: »Reventlow · V. Den grevelige linje af 1673, nr. 1« (`bogensNummer` form
+>   'fuld'); feedets kilde-§ beholder den korte form.
+
 ## BESLUTTET: personsiden viser kun det, der er — tomme sektioner skjules, kilden står kun nederst (2026-11-19)
 
 > Projektejeren efter gennemgang af personsider (fx 457, 474, 1776).

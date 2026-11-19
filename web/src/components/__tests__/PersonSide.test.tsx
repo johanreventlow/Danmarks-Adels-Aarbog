@@ -99,7 +99,7 @@ describe('PersonSide', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Conrad Reventlow' })).toBeTruthy();
     expect(screen.getAllByText(/Reventlow · V\. Linje/).length).toBeGreaterThan(0);
     const vaelger = screen.getByRole('group', { name: 'Udgave' });
-    expect(within(vaelger).getAllByRole('button').length).toBe(3);
+    expect(within(vaelger).getAllByRole('button').map((b) => b.textContent)).toEqual(['DAA 2018-20', 'DAA 1939']); // én pr. udgave
     expect(screen.getByText(/Conrad var storkansler og gehejmeråd/)).toBeTruthy();
   });
 

@@ -88,15 +88,16 @@ const chip = (navn: string) => within(screen.getByRole('group', { name: 'Udgave'
 const LAEK = /record-[0-9a-f]{8}-|legacy-source:/;
 
 describe('PersonSide — udgaver', () => {
-  it("åbner på V-1 og viser 2018-20's fakta", () => {
+  it("åbner på 2018-20 med V-1's biografi og viser 2018-20's fakta; én chip pr. udgave", () => {
     vis(detalje());
-    expect(chip('DAA 2018-20 · V-1').getAttribute('aria-pressed')).toBe('true');
-    expect(chip('DAA 2018-20 · III-58').getAttribute('aria-pressed')).toBe('false');
+    expect(chip('DAA 2018-20').getAttribute('aria-pressed')).toBe('true');
+    expect(within(screen.getByRole('group', { name: 'Udgave' })).getAllByRole('button').map((b) => b.textContent))
+      .toEqual(['DAA 2018-20', 'DAA 1939']);
     expect(screen.getByText(BIO_V1.narrativeText)).toBeTruthy();
     expect(screen.queryByText('Du ser en tidligere udgave.')).toBeNull();
     expect(screen.getByText('Conrad de Reventlow')).toBeTruthy();
     expect(screen.getByText('DAA 1939 skriver: Conrad Reventlow')).toBeTruthy();
-    expect(screen.getAllByText('✓ også i DAA 1939').length).toBe(2); // titel og fødsel
+    expect(screen.queryByText(/✓ også i/)).toBeNull(); // enighed vises ikke (2026-11-19)
     expect(screen.getByText('Kun i DAA 1939')).toBeTruthy();
     expect(screen.getByText('Begravet: Herlufsholm')).toBeTruthy();
     // godser: kun 2018-20's (én gang, selv om to 2018-20-rækker ejer det) + rækker uden kendt udgave
@@ -105,12 +106,10 @@ describe('PersonSide — udgaver', () => {
     expect(screen.getByRole('link', { name: 'Uden fakta-række' })).toBeTruthy();
   });
 
-  it('klik på III-58 skifter biografi, men ikke fakta', () => {
+  it('III-58 (henvisningen »Se V-1.«) kan ikke vælges', () => {
     vis(detalje());
-    fireEvent.click(chip('DAA 2018-20 · III-58'));
-    expect(screen.getByText('Se V-1.')).toBeTruthy();
-    expect(screen.queryByText('Du ser en tidligere udgave.')).toBeNull();
-    expect(screen.getByText('Conrad de Reventlow')).toBeTruthy();
+    expect(within(screen.getByRole('group', { name: 'Udgave' })).queryByRole('button', { name: /III-58/ })).toBeNull();
+    expect(screen.queryByText('Se V-1.')).toBeNull();
   });
 
   it('klik på 1939 skifter biografi og fakta', () => {
@@ -194,16 +193,17 @@ describe('PersonSide — udgaver', () => {
     rerender(panel(detalje()));
     expect(chip('DAA 1939').getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByText(BIO_1939.narrativeText)).toBeTruthy();
-    // færre chips i den nye detalje: valget findes ikke → standarden, men valget glemmes ikke
+    // færre chips i den nye detalje: kun 2018-20 → ingen vælger, men valget glemmes ikke
     rerender(panel(detalje({ bioVersions: [BIO_III58, BIO_V1], faktaInput: faktaInput(ROWS_18) })));
-    expect(chip('DAA 2018-20 · V-1').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByRole('group', { name: 'Udgave' })).toBeNull();
+    expect(screen.getByText(BIO_V1.narrativeText)).toBeTruthy();
     rerender(panel(detalje()));
     expect(chip('DAA 1939').getAttribute('aria-pressed')).toBe('true');
     // ny person: standarden — og valget er glemt, også når man vender tilbage (nulstil ved nyt focusId)
     rerender(panel(detalje(), '600'));
-    expect(chip('DAA 2018-20 · V-1').getAttribute('aria-pressed')).toBe('true');
+    expect(chip('DAA 2018-20').getAttribute('aria-pressed')).toBe('true');
     rerender(panel(detalje(), '392'));
-    expect(chip('DAA 2018-20 · V-1').getAttribute('aria-pressed')).toBe('true');
+    expect(chip('DAA 2018-20').getAttribute('aria-pressed')).toBe('true');
   });
 
   it('DOM indeholder hverken record- eller legacy-source:', () => {

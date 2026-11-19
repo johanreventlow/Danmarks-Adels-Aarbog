@@ -147,13 +147,13 @@ export function UdgaveKnapper({ chips, valgt, onVaelg, style }: {
   );
 }
 
-// Kildelinjen »Kilde: ‹udgave› · ‹post›«. Er posten en af personens egne biografiposter, vælger et klik
-// den chip; ellers (fx forælderens post) er linjen ren tekst.
+// Kildelinjen »Kilde: ‹udgave› · ‹post›«. Er posten en af personens egne biografiposter, vælger et klik udgavens chip
+// (chips er pr. udgave, 2026-11-19: III-58 → »DAA 2018-20«); ellers (fx forælderens post) er linjen ren tekst.
 export function KildeLinjeVisning({ kilde, chips, onVaelg, fontSize = 11.5 }: {
   kilde: FamilieKilde; chips: UdgaveChip[]; onVaelg: (idx: number) => void; fontSize?: number;
 }) {
-  const idx = kilde.sourceRecordRef
-    ? chips.findIndex((c) => c.art === 'post' && c.version.recordRef === kilde.sourceRecordRef) : -1;
+  const ref = kilde.sourceRecordRef;
+  const idx = ref ? chips.findIndex((c) => c.art === 'post' && (c.version.recordRef === ref || c.poster.includes(ref))) : -1;
   const stil = { display: 'block', fontFamily: T.sans, fontSize, fontStyle: 'normal' as const, color: T.inkMuted };
   return idx >= 0
     ? <button type="button" onClick={() => onVaelg(idx)} style={{ ...stil, background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}>{kildeLinje(kilde)}</button>

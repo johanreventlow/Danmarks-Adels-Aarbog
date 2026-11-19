@@ -25,18 +25,38 @@ function v(sourceId: number, recordLabel: string, tekst: string, label = sourceI
 }
 
 describe('byggUdgaveVaelger', () => {
-  it('Conrad: åbner på V-1, III-58 er stadig en chip', () => {
+  // 2026-11-19: én chip pr. udgave; III-58 (henvisning »Se V-1.«) kan ikke længere vælges.
+  it('Conrad: én chip pr. udgave, 2018-20 bærer V-1 (fuld biografi)', () => {
     const r = byggUdgaveVaelger(
-      [v(3, 'III-58', 'kort'), v(1, '1939-post', 'x'.repeat(50)), v(3, 'V-1', 'y'.repeat(500))],
+      [v(3, 'III-58', 'Se V-1.'), v(1, '1939-post', 'x'.repeat(50)), v(3, 'V-1', 'y'.repeat(500))],
       udgaver,
       ['1', '3'],
     );
+    expect(r.chips.map((c) => c.label)).toEqual(['DAA 2018-20', 'DAA 1939']);
     expect(r.standard).toBe(0);
     expect((r.chips[0] as { version: { recordLabel: string } }).version.recordLabel).toBe('V-1');
-    expect(r.chips.some((c) => c.art === 'post' && c.version.recordLabel === 'III-58')).toBe(true);
-    const sidste = r.chips[r.chips.length - 1];
-    expect(sidste.sourceId).toBe('1');
+    expect(r.chips.some((c) => c.art === 'post' && c.version.recordLabel === 'III-58')).toBe(false);
     expect(r.form).toBe('chips');
+  });
+
+  it('bogpost foretrækkes for overgangsdata, selv om overgangsdata er længere', () => {
+    const legacy = { ...v(3, 'x', 'z'.repeat(900)), provenanceKind: 'legacy_narrative' as const };
+    const r = byggUdgaveVaelger([legacy, v(3, 'V-1', 'kort tekst')], udgaver, ['3']);
+    expect(r.chips).toHaveLength(1);
+    expect((r.chips[0] as { version: { recordLabel: string } }).version.recordLabel).toBe('V-1');
+  });
+
+  it('chippen kender alle personens poster i udgaven (også III-58), så en kildelinje kan vælge den', () => {
+    const r = byggUdgaveVaelger(
+      [{ ...v(3, 'III-58', 'Se V-1.'), recordRef: 'rec-iii58' }, { ...v(3, 'V-1', 'y'.repeat(500)), recordRef: 'rec-v1' }],
+      udgaver, ['3'],
+    );
+    expect((r.chips[0] as { poster: string[] }).poster).toEqual(['rec-iii58', 'rec-v1']);
+  });
+
+  it('samme længde: den første post vinder (stabil)', () => {
+    const r = byggUdgaveVaelger([v(3, 'A', 'abc'), v(3, 'B', 'xyz')], udgaver, ['3']);
+    expect((r.chips[0] as { version: { recordLabel: string } }).version.recordLabel).toBe('A');
   });
 
   it('1939 med fakta men uden biografi får en udgave-chip', () => {
@@ -71,10 +91,10 @@ describe('byggUdgaveVaelger', () => {
     expect(r.chips[0].label).toBe('DAA 2018-20');
   });
 
-  it('overgangsdata og version uden sourceId slås op på label', () => {
+  it('overgangsdata og version uden sourceId slås op på label; etiketten er kun udgaven', () => {
     const { sourceId: _s, ...uden } = v(3, 'x', 'tekst');
     const r = byggUdgaveVaelger([{ ...uden, provenanceKind: 'legacy_narrative' }], udgaver, ['3']);
-    expect(r.chips[0].label).toBe('DAA 2018-20 · overgangsdata');
+    expect(r.chips[0].label).toBe('DAA 2018-20');
     expect(r.chips[0].sourceId).toBe('3');
   });
 
@@ -116,17 +136,11 @@ describe('byggUdgaveVaelger', () => {
   });
 });
 
-describe('postetiketter i chips (6e-2)', () => {
+describe('chipetiket = udgavens navn (2026-11-19; afløser 6e-2-postetiketten i chippen)', () => {
   const chip = (label: string, citationLabel: string, recordLabel: string) =>
     (byggUdgaveVaelger([{ ...v(1, recordLabel, 'tekst'), sourceLabel: label, citationLabel }], udgaver, []).chips[0] as { label: string }).label;
-  it('synlig etiket: side + post', () => {
-    expect(chip('DAA 1939', 'DAA 1939, s. 49', 'IV, nr. 3')).toBe('DAA 1939, s. 49 · IV, nr. 3');
-    expect(chip('DAA 2018-20', 'DAA 2018-20, s. 201-202', 'V-1')).toBe('DAA 2018-20, s. 201-202 · V-1');
-  });
-  it('teknisk etiket: udgavens navn (citationLabel bærer endnu PDF-siden)', () => {
+  it('side og post vises ikke i chippen', () => {
+    expect(chip('DAA 1939', 'DAA 1939, s. 49', 'IV, nr. 3')).toBe('DAA 1939');
     expect(chip('DAA 1939', 'DAA 1939 side 538', 'record-07565168-b903-4444-9189-43d62d5c6ed6')).toBe('DAA 1939');
-  });
-  it('tom etiket: kun siden', () => {
-    expect(chip('DAA 1939', 'DAA 1939, s. 52', '')).toBe('DAA 1939, s. 52');
   });
 });
