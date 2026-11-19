@@ -47,6 +47,7 @@ export type RawPerson = {
   visning_navn: string | null;
   visning_foedt: string | null;
   visning_doed: string | null;
+  visning_floruit?: string | null;
   visning_titel: string | null;
   koen: string | null;
   privat: boolean | null;

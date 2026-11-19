@@ -2,7 +2,7 @@
 // → buildModel. Lean udgave af mobile/src/data/load.ts (kun det stamtræ + slægtskabsfinder
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
-import { aarSpaend, boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates, fmtYears, oploesRelativDato, parseYear, getAll, EMPTY_GEO } from '@daa/core';
+import { aarSpaend, boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates, fmtVisningsAar, oploesRelativDato, parseYear, getAll, EMPTY_GEO } from '@daa/core';
 import { buildLineage, stamtavleSkemaOpslag } from './lineage';
 import { buildSources } from './sources';
 import { byggLinjeRaekker } from './linjeRaekker';
@@ -33,7 +33,7 @@ export function parentsOf(model: Model, id: string): ModelPerson[] {
 
 type RawPerson = {
   id: number | string; visning_navn: string | null; visning_fuldt_navn: string | null; visning_foedt: string | null;
-  visning_doed: string | null; visning_titel: string | null; koen: string | null; privat: boolean | null;
+  visning_doed: string | null; visning_floruit?: string | null; visning_titel: string | null; koen: string | null; privat: boolean | null;
 };
 type RawMember = { family_id: number | string; person_id: number | string; rolle: string | null; ordinal: number | null; konfidens: string | null };
 
@@ -61,7 +61,7 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
   // facts-probe har ingen data-afhængighed af canonicalIdById — kun buildParentsUnknown til sidst har).
   const puRowsP = fetchParentsUnknownRows();
   const [persons, members, extIds, lineageRows, schemes, schemeEntries, schemeMappings, sources, sameAsRel, approvedConc, estates] = await Promise.all([
-    getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_titel,koen,privat').order('id')),
+    getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_floruit,visning_titel,koen,privat').order('id')),
     getAll<RawMember>(() => supabase.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens').order('family_id').order('person_id').order('rolle')),
     // Linje/nr pr. person (grene) — tolerant: tabellen/kolonnerne kan mangle i ældre baser.
     // Review 15: log ved fejl, så en RLS/drifts-fejl ikke stiltiende ligner "ingen linjer"
@@ -105,7 +105,8 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     foedtSpaend: aarSpaend(p.visning_foedt),
     // »† s.å.« opløses mod fødslen, så et barn, der døde samme år, ikke får et åbent dødsår.
     doedSpaend: aarSpaend(p.visning_doed == null ? null : oploesRelativDato(p.visning_doed, p.visning_foedt ?? null) ?? p.visning_doed),
-    years: fmtYears(p.visning_foedt, p.visning_doed),
+    floruit: p.visning_floruit ?? null,
+    years: fmtVisningsAar(p.visning_foedt, p.visning_doed, p.visning_floruit),
     title: p.visning_titel ?? '',
     bio: '',
     privat: Boolean(p.privat),

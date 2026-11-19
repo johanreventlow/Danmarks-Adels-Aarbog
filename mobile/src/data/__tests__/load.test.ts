@@ -17,6 +17,17 @@ test('mapAppPersons: includePrivat=true beholder private + sætter privat-flag',
   expect(r.find((p) => p.id === '1')?.privat).toBe(false);
 });
 
+test('mapAppPersons: floruit giver Nævnes når livsdatoer mangler, ellers ikke', () => {
+  const raw = [
+    { id: 5, visning_navn: 'A', visning_foedt: null, visning_doed: null, visning_floruit: '1349–1391', visning_titel: null, privat: false },
+    { id: 6, visning_navn: 'B', visning_foedt: '1644', visning_doed: null, visning_floruit: null, visning_titel: null, privat: false },
+  ];
+  const r = mapAppPersons(raw as never, {}, false);
+  expect(r[0]).toMatchObject({ years: 'Nævnes 1349–1391', floruit: '1349–1391', born: null });
+  expect(r[1].years).not.toContain('Nævnes');
+  expect(r[1].floruit).toBeNull();
+});
+
 test('mapAppPersons: bio fra bioBy, navn-fallback', () => {
   const r = mapAppPersons([{ id: 3, visning_navn: null, visning_foedt: null, visning_doed: null, visning_titel: null, privat: false }] as never,
     { '3': 'En biografi' }, false);

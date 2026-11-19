@@ -94,6 +94,15 @@ const props = (o: Partial<Parameters<typeof PersonSide>[0]> = {}) => ({
 });
 
 describe('PersonSide', () => {
+  it('floruit vises som Nævnes; uden år ingen årslinje', () => {
+    const m = { ...model, byId: { ...model.byId, '392': { ...model.byId['392'], years: 'Nævnes 1349–1391' } } } as unknown as Model;
+    const { unmount } = render(<PersonSide {...props({ model: m })} />);
+    expect(screen.getByText('Nævnes 1349–1391')).toBeTruthy();
+    unmount();
+    render(<PersonSide {...props()} />);
+    expect(screen.queryByText(/Livsdatoer ikke angivet/)).toBeNull();
+  });
+
   it('navn, slægt, udgavevælger og biografi fra standardudgaven', () => {
     render(<PersonSide {...props()} />);
     expect(screen.getByRole('heading', { level: 1, name: 'Conrad Reventlow' })).toBeTruthy();
