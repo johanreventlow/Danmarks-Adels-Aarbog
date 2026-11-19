@@ -41990,6 +41990,7 @@ UPDATE version_pk_registry
 -- låser, at de to er enige. Har personen livsdatoer (ikke-tom AKTUEL visning_foedt eller visning_doed), er værdien NULL
 -- (projektejerens afgørelse 19/11). Skriver KUN visning_floruit: familie-, medlemskabs- og offentlighedsstierne kalder
 -- denne og aldrig den fulde regen, så de seks øvrige visning_* kun ændres af deres egne kilder.
+-- SECURITY INVOKER: forudsætter ingen skrive-policies på person/family_member/conclusion/assertion (db-verify, visning-floruit katalog).
 CREATE OR REPLACE FUNCTION regen_person_floruit(pid BIGINT)
 RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
 BEGIN
@@ -42095,6 +42096,7 @@ END $$;
 
 -- visning-floruit: et familie-faktum (vielse o.l.), et medlemskab eller et medlems offentlighed ændrer
 -- partnernes visning_floruit — og kun den. Partnerne regenereres i id-orden (fast låserækkefølge).
+-- SECURITY INVOKER: forudsætter ingen skrive-policies på person/family_member/conclusion/assertion (db-verify, visning-floruit katalog).
 CREATE OR REPLACE FUNCTION regen_familie_partnere(p_family_id BIGINT)
 RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
 DECLARE v_pid BIGINT;
@@ -42109,14 +42111,14 @@ END $$;
 -- (visning-floruit) regenererer familiens partneres visning_floruit.
 CREATE OR REPLACE FUNCTION trg_regen_from_conclusion()
 RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
-DECLARE pid BIGINT; v_type TEXT;
+DECLARE v_subjekt_id BIGINT; v_type TEXT;
 BEGIN
-  SELECT f.subjekt_id, f.subjekt_type INTO pid, v_type FROM fact f
+  SELECT f.subjekt_id, f.subjekt_type INTO v_subjekt_id, v_type FROM fact f
     WHERE f.id = coalesce(NEW.target_id, OLD.target_id)
       AND coalesce(NEW.target_type, OLD.target_type)='fact'
       AND f.subjekt_type IN ('person','family');
-  IF v_type = 'person' THEN PERFORM regen_person_visning(pid);
-  ELSIF v_type = 'family' THEN PERFORM regen_familie_partnere(pid);
+  IF v_type = 'person' THEN PERFORM regen_person_visning(v_subjekt_id);
+  ELSIF v_type = 'family' THEN PERFORM regen_familie_partnere(v_subjekt_id);
   END IF;
   RETURN NULL;
 END $$;
@@ -42129,13 +42131,13 @@ CREATE TRIGGER trg_conclusion_regen
 -- Edits af den VALGTE assertion ændrer cache-værdien uden at conclusion-rækken røres.
 CREATE OR REPLACE FUNCTION trg_regen_from_assertion()
 RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
-DECLARE pid BIGINT; v_type TEXT;
+DECLARE v_subjekt_id BIGINT; v_type TEXT;
 BEGIN
-  SELECT f.subjekt_id, f.subjekt_type INTO pid, v_type FROM fact f
+  SELECT f.subjekt_id, f.subjekt_type INTO v_subjekt_id, v_type FROM fact f
     JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id
     WHERE c.valgt_assertion_id = NEW.id AND f.subjekt_type IN ('person','family');
-  IF v_type = 'person' THEN PERFORM regen_person_visning(pid);
-  ELSIF v_type = 'family' THEN PERFORM regen_familie_partnere(pid);
+  IF v_type = 'person' THEN PERFORM regen_person_visning(v_subjekt_id);
+  ELSIF v_type = 'family' THEN PERFORM regen_familie_partnere(v_subjekt_id);
   END IF;
   RETURN NULL;
 END $$;
