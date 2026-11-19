@@ -60,11 +60,12 @@ describe('PersonFakta', () => {
     expect(screen.getByText('DAA 1939, s. 9')).toBeTruthy();
   });
 
-  it('viser ✓ også i DAA 1939 under en enig linje', () => {
+  // 2026-11-19: enighed vises ikke; kun når den anden bog siger noget andet.
+  it('viser ikke ✓ også i DAA 1939 under en enig linje', () => {
     render(<PersonFakta visning={{ linjer: [linje({ faktatype: 'fødsel', vaerdi: '21. april 1644',
       noter: [{ art: 'enig', udgave: D39 }] })], kunI: [] }} error={false} />);
-    const note = screen.getByText('✓ også i DAA 1939');
-    expect(screen.getByText('21. april 1644').compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('21. april 1644')).toBeTruthy();
+    expect(screen.queryByText(/også i/)).toBeNull();
   });
 
   it('viser DAA 1939 skriver: a; b', () => {

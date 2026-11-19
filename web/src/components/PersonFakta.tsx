@@ -72,7 +72,8 @@ export function PersonFakta({ visning, error }: { visning: UdgaveFaktaVisning | 
                   <div style={{ fontSize: 14, color: T.inkSecondary, lineHeight: 1.3 }}>{l.vaerdi}</div>
                 </div>
               )}
-              {l.vaerdi !== '' && l.noter.map((n) => <Note key={`${n.art}:${n.udgave.sourceId}`} note={n} />)}
+              {/* Kun uenighed vises (»… skriver: …«); enighed (»✓ også i …«) er støj (projektejeren 2026-11-19). */}
+              {l.vaerdi !== '' && l.noter.filter((n) => n.art !== 'enig').map((n) => <Note key={`${n.art}:${n.udgave.sourceId}`} note={n} />)}
               {l.andre.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <span style={{ fontFamily: T.mono, fontSize: 11, color: T.inkMuted }}>Andre udsagn</span>
