@@ -2,6 +2,24 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: rettelserne fra review 37 udskydes og samles i ét backlog-issue (2026-11-19)
+
+> Projektejeren, efter helhedsreview 37 (main @ `880ab241`, to bølger, ni Fable-reviewere der kun læste kode).
+
+- **Ingen rettelser endnu.** Alle fund er dokumenteret i
+  `docs/reviews/37-helhedsreview-kodebase-2026-11-19.md` og samlet som tjekliste i **issue #397**, ordnet efter
+  den foreslåede rækkefølge. Fundene må ikke gå tabt. De lukkes i #397 med PR-nummer, efterhånden som de
+  rettes.
+- **To stopregler gælder, indtil fundene er rettet:**
+  - **P1+P2:** »Slet helt« af en person med billeder kan gøre billedet offentligt for anon. Undgå at slette
+    personer med medier.
+  - **A1:** kør aldrig hele `db-migrations.sql` mod prod. Kontraktversionen er midlertidigt 1, og
+    narrativ-gaten åbner, uden at filen kører i én transaktion.
+- **Forudsætninger før #130 (hændelser), #131 (geo) og næste præsensliste:** E1-E8, A2 og Y3 i #397. E1 kræver
+  først en afgørelse: binder eligibility-regel 2-4 også hændelses-LLM-passet?
+- **Hvorfor:** udviklingen kører videre i parallelle sessioner. Ingen fund er kritiske, og de høje fund (W1, M1,
+  M2, E1, E2, P1+P2, A1, Y1) kræver enten egne PR'er med tests eller en afgørelse fra projektejeren.
+
 ## BESLUTTET: udgavevælgeren har én chip pr. udgave; enighed mellem udgaver vises ikke; etiketten bærer linjens navn (2026-11-19)
 
 > Projektejeren ud fra Conrad Reventlow (392), der står i to 2018-20-linjer (V-1 og henvisningen III-58).
