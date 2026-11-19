@@ -144,7 +144,7 @@ describe('PersonSide', () => {
     expect(screen.queryByText('Billeder og dokumenter')).toBeNull();
   });
 
-  it('børn: vises for gifte (også uden børn), ikke for ugifte uden børn', () => {
+  it('gift med og børn: vises for gifte (børn også uden børn), ikke for ugifte uden børn', () => {
     const m2 = {
       ...model,
       ...buildModel({
@@ -158,8 +158,11 @@ describe('PersonSide', () => {
     const { unmount } = render(<PersonSide {...props({ model: m2, focusId: '501' })} />); // ugift, ingen børn (død ung)
     expect(screen.queryByText('Børn')).toBeNull();
     expect(screen.queryByText('Ingen børn angivet i Aarbogen.')).toBeNull();
+    expect(screen.queryByText('Gift med')).toBeNull();
+    expect(screen.queryByText(/Intet ægteskab/)).toBeNull();
     unmount();
     render(<PersonSide {...props({ model: m2, focusId: '500' })} />); // gift, ingen børn
+    expect(screen.getByText('Gift med')).toBeTruthy();
     expect(screen.getByText('Børn')).toBeTruthy();
     expect(screen.getByText('Ingen børn angivet i Aarbogen.')).toBeTruthy();
   });
