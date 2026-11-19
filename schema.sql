@@ -136,7 +136,8 @@ CREATE TABLE person (
   visning_doed       TEXT,
   visning_titel      TEXT,
   visning_efternavn  TEXT,   -- afledt families-efternavn (linje-medlemskab); NULL = ikke afledt (udledt-slægtsnavn-design)
-  visning_fuldt_navn TEXT    -- visning_navn (+ ' ' + visning_efternavn); envejs-cache som de øvrige visning_*
+  visning_fuldt_navn TEXT,   -- visning_navn (+ ' ' + visning_efternavn); envejs-cache som de øvrige visning_*
+  visning_floruit    TEXT    -- dokumenteret-aktiv årsspænd ('1671' / '1349–1391'); NULL ved livsdatoer (visning-floruit-design §5)
 );
 
 CREATE TABLE person_external_id (        -- bogens (linje, nr.) som eksternt ID
@@ -6422,6 +6423,51 @@ INSERT INTO vocab (scheme, code, label) VALUES
 ON CONFLICT (scheme, code) DO NOTHING;
 
 -- ---------- CACHE-REGENERERING & TRIGGERS ----------
+-- visning_floruit (visning-floruit-design §5, 2026-11-19): årsspændet over daterede, afklarede og valgte påstande på
+-- personens fakta undtagen fødsel/død og på fakta for offentlige familier, hvor personen er partner uden konfidens
+-- formodet/omstridt. Offentlighedsreglen er family_offentlig inlinet (den defineres først i db-rls.sql); db-verify
+-- låser, at de to er enige. Har personen livsdatoer (ikke-tom AKTUEL visning_foedt eller visning_doed), er værdien NULL
+-- (projektejerens afgørelse 19/11). Skriver KUN visning_floruit: familie-, medlemskabs- og offentlighedsstierne kalder
+-- denne og aldrig den fulde regen, så de seks øvrige visning_* kun ændres af deres egne kilder.
+CREATE OR REPLACE FUNCTION regen_person_floruit(pid BIGINT)
+RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
+BEGIN
+  WITH floruit_kilder AS (
+    SELECT a.date_min, a.date_max FROM fact f
+    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
+    JOIN assertion a ON a.id=c.valgt_assertion_id
+    WHERE f.subjekt_type='person' AND f.subjekt_id=pid AND f.faktatype NOT IN ('fødsel','død')
+      AND (a.date_min IS NOT NULL OR a.date_max IS NOT NULL)
+    UNION ALL
+    SELECT a.date_min, a.date_max FROM family_member fm
+    JOIN fact f ON f.subjekt_type='family' AND f.subjekt_id=fm.family_id
+    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
+    JOIN assertion a ON a.id=c.valgt_assertion_id
+    WHERE fm.person_id=pid AND fm.rolle='partner' AND coalesce(fm.konfidens,'') NOT IN ('formodet','omstridt')
+      AND (a.date_min IS NOT NULL OR a.date_max IS NOT NULL)
+      AND NOT EXISTS (SELECT 1 FROM family_member m JOIN person q ON q.id=m.person_id
+                      WHERE m.family_id=fm.family_id
+                        AND (q.levende IS NOT FALSE OR coalesce(q.privat,false) OR coalesce(q.staged,false)))
+  ),
+  floruit AS (
+    SELECT min(extract(year FROM coalesce(date_min,date_max)))::int AS lo,
+           max(extract(year FROM coalesce(date_max,date_min)))::int AS hi FROM floruit_kilder
+  ),
+  final AS (
+    SELECT CASE
+             WHEN coalesce(trim(p.visning_foedt),'') <> '' OR coalesce(trim(p.visning_doed),'') <> '' THEN NULL
+             WHEN floruit.lo IS NULL THEN NULL
+             WHEN floruit.lo = floruit.hi THEN floruit.lo::text
+             ELSE floruit.lo || '–' || floruit.hi
+           END AS floruit
+    FROM person p CROSS JOIN floruit
+    WHERE p.id = pid
+  )
+  UPDATE person p SET visning_floruit = final.floruit
+  FROM final
+  WHERE p.id = pid AND p.visning_floruit IS DISTINCT FROM final.floruit;
+END $$;
+
 -- Recompute cache-felter fra personens konklusioner. Læser den VALGTE assertions værdi
 -- pr. faktatype. Dato-fakta (fødsel/død) bruger coalesce(date_raw, vaerdi_tekst).
 -- Udvidet (udledt-slægtsnavn-design §4.5) til også at sætte visning_efternavn/visning_fuldt_navn.
@@ -6482,18 +6528,35 @@ BEGIN
   ELSE
     DELETE FROM slaegtsnavn_karantaene WHERE person_id = pid;
   END IF;
+  -- visning-floruit: læser den netop skrevne visning_foedt/visning_doed.
+  PERFORM regen_person_floruit(pid);
 END $$;
 
--- Trigger-wrapper: udled berørt person fra conclusion-rækkens fact-target.
+-- visning-floruit: et familie-faktum (vielse o.l.), et medlemskab eller et medlems offentlighed ændrer
+-- partnernes visning_floruit — og kun den. Partnerne regenereres i id-orden (fast låserækkefølge).
+CREATE OR REPLACE FUNCTION regen_familie_partnere(p_family_id BIGINT)
+RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_pid BIGINT;
+BEGIN
+  FOR v_pid IN SELECT person_id FROM family_member WHERE family_id = p_family_id AND rolle = 'partner'
+               ORDER BY person_id LOOP
+    PERFORM regen_person_floruit(v_pid);
+  END LOOP;
+END $$;
+
+-- Trigger-wrapper: udled berørt person fra conclusion-rækkens fact-target. Et familie-faktum
+-- (visning-floruit) regenererer familiens partneres visning_floruit.
 CREATE OR REPLACE FUNCTION trg_regen_from_conclusion()
 RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
-DECLARE pid BIGINT;
+DECLARE pid BIGINT; v_type TEXT;
 BEGIN
-  SELECT f.subjekt_id INTO pid FROM fact f
+  SELECT f.subjekt_id, f.subjekt_type INTO pid, v_type FROM fact f
     WHERE f.id = coalesce(NEW.target_id, OLD.target_id)
       AND coalesce(NEW.target_type, OLD.target_type)='fact'
-      AND f.subjekt_type='person';
-  IF pid IS NOT NULL THEN PERFORM regen_person_visning(pid); END IF;
+      AND f.subjekt_type IN ('person','family');
+  IF v_type = 'person' THEN PERFORM regen_person_visning(pid);
+  ELSIF v_type = 'family' THEN PERFORM regen_familie_partnere(pid);
+  END IF;
   RETURN NULL;
 END $$;
 
@@ -6505,12 +6568,14 @@ CREATE TRIGGER trg_conclusion_regen
 -- Edits af den VALGTE assertion ændrer cache-værdien uden at conclusion-rækken røres.
 CREATE OR REPLACE FUNCTION trg_regen_from_assertion()
 RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
-DECLARE pid BIGINT;
+DECLARE pid BIGINT; v_type TEXT;
 BEGIN
-  SELECT f.subjekt_id INTO pid FROM fact f
+  SELECT f.subjekt_id, f.subjekt_type INTO pid, v_type FROM fact f
     JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id
-    WHERE c.valgt_assertion_id = NEW.id AND f.subjekt_type='person';
-  IF pid IS NOT NULL THEN PERFORM regen_person_visning(pid); END IF;
+    WHERE c.valgt_assertion_id = NEW.id AND f.subjekt_type IN ('person','family');
+  IF v_type = 'person' THEN PERFORM regen_person_visning(pid);
+  ELSIF v_type = 'family' THEN PERFORM regen_familie_partnere(pid);
+  END IF;
   RETURN NULL;
 END $$;
 
@@ -6518,6 +6583,57 @@ DROP TRIGGER IF EXISTS trg_assertion_regen ON assertion;
 CREATE TRIGGER trg_assertion_regen
   AFTER UPDATE ON assertion
   FOR EACH ROW EXECUTE FUNCTION trg_regen_from_assertion();
+
+-- visning-floruit (§5): ethvert medlemskab kan ændre partnernes floruit — et nyt levende barn lukker familien
+-- (family_offentlig), en partner-række med konfidens formodet/omstridt eller en ændret rolle fjerner vielsen fra
+-- personen. Både gammel og ny familie regenereres, og en partner, der har forladt familien, regenereres selv.
+-- ordinal påvirker ikke visning_*, så en ren ordinal-UPDATE udløser intet.
+CREATE OR REPLACE FUNCTION trg_regen_from_family_member()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_ny BIGINT; v_gl BIGINT;
+BEGIN
+  IF TG_OP IN ('INSERT','UPDATE') THEN v_ny := NEW.family_id; END IF;
+  IF TG_OP IN ('DELETE','UPDATE') THEN v_gl := OLD.family_id; END IF;
+  IF v_ny IS NOT NULL THEN PERFORM regen_familie_partnere(v_ny); END IF;
+  IF v_gl IS NOT NULL AND v_gl IS DISTINCT FROM v_ny THEN PERFORM regen_familie_partnere(v_gl); END IF;
+  IF TG_OP IN ('DELETE','UPDATE') AND OLD.rolle = 'partner' AND NOT EXISTS (
+       SELECT 1 FROM family_member WHERE person_id = OLD.person_id AND rolle = 'partner'
+                                     AND family_id IN (v_gl, v_ny)) THEN
+    PERFORM regen_person_floruit(OLD.person_id);
+  END IF;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_family_member_regen ON family_member;
+CREATE TRIGGER trg_family_member_regen
+  AFTER INSERT OR DELETE OR UPDATE OF family_id, person_id, rolle, konfidens ON family_member
+  FOR EACH ROW EXECUTE FUNCTION trg_regen_from_family_member();
+
+-- visning-floruit (§5): levende/privat/staged afgør family_offentlig for alle personens familier. Kolonnebegrænset, så
+-- regen_person_visning's og regen_person_floruit's egne UPDATEs af visning_* ikke udløser triggeren igen.
+CREATE OR REPLACE FUNCTION trg_regen_from_person_offentlighed()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_fid BIGINT;
+BEGIN
+  FOR v_fid IN SELECT DISTINCT family_id FROM family_member WHERE person_id = NEW.id ORDER BY family_id LOOP
+    PERFORM regen_familie_partnere(v_fid);
+  END LOOP;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_person_offentlighed_regen ON person;
+CREATE TRIGGER trg_person_offentlighed_regen
+  AFTER UPDATE OF levende, privat, staged ON person
+  FOR EACH ROW
+  WHEN ((OLD.levende, OLD.privat, OLD.staged) IS DISTINCT FROM (NEW.levende, NEW.privat, NEW.staged))
+  EXECUTE FUNCTION trg_regen_from_person_offentlighed();
+
+-- Interne hjælpere, ingen RPC'er: eksplicit ACL, så frisk og opgraderet base er ens (db-rls' default privileges fratager
+-- kun funktioner oprettet EFTER den EXECUTE). Triggerfunktioner kontrolleres ikke for EXECUTE ved affyring, og
+-- regen_familie_partnere/regen_person_floruit kaldes kun fra triggere og regen, der affyres af ejerens SECURITY
+-- DEFINER-skrivere.
+REVOKE EXECUTE ON FUNCTION regen_person_floruit(bigint), regen_familie_partnere(bigint), trg_regen_from_family_member(),
+  trg_regen_from_person_offentlighed() FROM PUBLIC, anon, authenticated, service_role;
 
 -- Udledt-slægtsnavn-invalidation (spec §4.7): linje-medlemskab (person_external_id) og
 -- linje-efternavn/-forgrening (lineage) er BEGGE input til visning_efternavn/visning_fuldt_navn,
@@ -9051,7 +9167,7 @@ CREATE TABLE IF NOT EXISTS version_pk_registry (
 );
 
 INSERT INTO version_pk_registry (tabel, pk_cols, skip_cols) VALUES
-  ('person',             ARRAY['id'], ARRAY['visning_navn','visning_foedt','visning_doed','visning_titel','visning_efternavn','visning_fuldt_navn']),
+  ('person',             ARRAY['id'], ARRAY['visning_navn','visning_foedt','visning_doed','visning_titel','visning_efternavn','visning_fuldt_navn','visning_floruit']),
   ('person_external_id', ARRAY['person_id','source_id'], '{}'),
   ('import_korrektion',  ARRAY['id'], '{}'),
   ('family',             ARRAY['id'], '{}'),
@@ -21953,7 +22069,7 @@ LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, public, pr
   SELECT * FROM (VALUES
     -- §1a Kerne og hårde FK'er
     ('S1',   'person', ARRAY['id','status','koen','visning_navn','visning_foedt','visning_doed','visning_titel',
-                             'visning_efternavn','visning_fuldt_navn'], 'slet', '11', 'egen'),
+                             'visning_efternavn','visning_fuldt_navn','visning_floruit'], 'slet', '11', 'egen'),
     ('S2',   'person_external_id', ARRAY['person_id','source_id','record_key'], 'slet', '10', 'egen'),
     ('S3',   'family_member', ARRAY['person_id','family_id'], 'slet', '10', 'egen'),
     ('S4',   'slaegtsnavn_karantaene', ARRAY['person_id'], 'slet', '10', 'egen'),

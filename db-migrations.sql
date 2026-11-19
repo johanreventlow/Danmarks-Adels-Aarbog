@@ -41971,3 +41971,381 @@ BEGIN
    ORDER BY reversible.created_at,reversible.id;
 END
 $$;
+
+-- ===== visning-floruit: »Nævnes …« som cache =====
+-- Spec docs/superpowers/specs/2026-11-19-visning-floruit-design.md §5; plan docs/superpowers/plans/2026-11-19-visning-floruit.md
+-- (Task 1). Idempotent spejl af schema.sql: kolonne, skip_cols, regen_person_floruit (skriver kun visning_floruit; den
+-- fulde regen_person_visning kalder den til sidst), familie-grene i konklusions-/påstands-triggerne, nye triggere på
+-- family_member og person samt kolonnen i sletteinventarets S1. Ingen backfill her — prod-ceremonien kalder
+-- regen_person_floruit for alle personer.
+ALTER TABLE person ADD COLUMN IF NOT EXISTS visning_floruit TEXT;
+
+UPDATE version_pk_registry
+  SET skip_cols = (SELECT array_agg(DISTINCT c) FROM unnest(skip_cols || ARRAY['visning_floruit']) c)
+  WHERE tabel = 'person';
+
+-- visning_floruit (visning-floruit-design §5, 2026-11-19): årsspændet over daterede, afklarede og valgte påstande på
+-- personens fakta undtagen fødsel/død og på fakta for offentlige familier, hvor personen er partner uden konfidens
+-- formodet/omstridt. Offentlighedsreglen er family_offentlig inlinet (den defineres først i db-rls.sql); db-verify
+-- låser, at de to er enige. Har personen livsdatoer (ikke-tom AKTUEL visning_foedt eller visning_doed), er værdien NULL
+-- (projektejerens afgørelse 19/11). Skriver KUN visning_floruit: familie-, medlemskabs- og offentlighedsstierne kalder
+-- denne og aldrig den fulde regen, så de seks øvrige visning_* kun ændres af deres egne kilder.
+CREATE OR REPLACE FUNCTION regen_person_floruit(pid BIGINT)
+RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
+BEGIN
+  WITH floruit_kilder AS (
+    SELECT a.date_min, a.date_max FROM fact f
+    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
+    JOIN assertion a ON a.id=c.valgt_assertion_id
+    WHERE f.subjekt_type='person' AND f.subjekt_id=pid AND f.faktatype NOT IN ('fødsel','død')
+      AND (a.date_min IS NOT NULL OR a.date_max IS NOT NULL)
+    UNION ALL
+    SELECT a.date_min, a.date_max FROM family_member fm
+    JOIN fact f ON f.subjekt_type='family' AND f.subjekt_id=fm.family_id
+    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
+    JOIN assertion a ON a.id=c.valgt_assertion_id
+    WHERE fm.person_id=pid AND fm.rolle='partner' AND coalesce(fm.konfidens,'') NOT IN ('formodet','omstridt')
+      AND (a.date_min IS NOT NULL OR a.date_max IS NOT NULL)
+      AND NOT EXISTS (SELECT 1 FROM family_member m JOIN person q ON q.id=m.person_id
+                      WHERE m.family_id=fm.family_id
+                        AND (q.levende IS NOT FALSE OR coalesce(q.privat,false) OR coalesce(q.staged,false)))
+  ),
+  floruit AS (
+    SELECT min(extract(year FROM coalesce(date_min,date_max)))::int AS lo,
+           max(extract(year FROM coalesce(date_max,date_min)))::int AS hi FROM floruit_kilder
+  ),
+  final AS (
+    SELECT CASE
+             WHEN coalesce(trim(p.visning_foedt),'') <> '' OR coalesce(trim(p.visning_doed),'') <> '' THEN NULL
+             WHEN floruit.lo IS NULL THEN NULL
+             WHEN floruit.lo = floruit.hi THEN floruit.lo::text
+             ELSE floruit.lo || '–' || floruit.hi
+           END AS floruit
+    FROM person p CROSS JOIN floruit
+    WHERE p.id = pid
+  )
+  UPDATE person p SET visning_floruit = final.floruit
+  FROM final
+  WHERE p.id = pid AND p.visning_floruit IS DISTINCT FROM final.floruit;
+END $$;
+
+-- Recompute cache-felter fra personens konklusioner. Læser den VALGTE assertions værdi
+-- pr. faktatype. Dato-fakta (fødsel/død) bruger coalesce(date_raw, vaerdi_tekst).
+-- Udvidet (udledt-slægtsnavn-design §4.5) til også at sætte visning_efternavn/visning_fuldt_navn.
+-- Efternavn-opslaget er fan-out-sikkert: LATERAL sikrer ÉN lineage_effective_slaegtsnavn-kald pr.
+-- linje-medlemskab (fremfor to — én for count(DISTINCT), én for min() — som i den oprindelige
+-- CTE-form), og resultatet genbruges BÅDE i UPDATE'ets CASE-logik og karantæne-tjekket nedenfor i
+-- stedet for at gen-joine person_external_id/lineage en ekstra gang (/simplify-fund, review 19).
+CREATE OR REPLACE FUNCTION regen_person_visning(pid BIGINT)
+RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_n_distinct INT; v_slaegtsnavn TEXT;
+BEGIN
+  SELECT count(DISTINCT sn.v), min(sn.v) INTO v_n_distinct, v_slaegtsnavn
+  FROM person_external_id pei
+  JOIN lineage l ON l.source_id = pei.source_id AND l.kode = pei.linje
+  CROSS JOIN LATERAL (SELECT lineage_effective_slaegtsnavn(l.id) AS v) sn
+  WHERE pei.person_id = pid;
+
+  WITH navn_agg AS (
+    SELECT
+      max(a.vaerdi_tekst) FILTER (WHERE f.faktatype='navn')  AS navn,
+      max(coalesce(a.date_raw,a.vaerdi_tekst)) FILTER (WHERE f.faktatype='fødsel') AS foedt,
+      max(coalesce(a.date_raw,a.vaerdi_tekst)) FILTER (WHERE f.faktatype='død')    AS doed,
+      max(a.vaerdi_tekst) FILTER (WHERE f.faktatype='titel') AS titel
+    FROM fact f
+    -- Review trin B (1d.1-04): kun afklarede konklusioner (en omstridt/forældet/tilbagetrukket indgår ikke).
+    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
+    JOIN assertion  a ON a.id = c.valgt_assertion_id
+    WHERE f.subjekt_type='person' AND f.subjekt_id = pid
+  ),
+  final AS (
+    SELECT
+      navn_agg.navn, navn_agg.foedt, navn_agg.doed, navn_agg.titel,
+      CASE
+        WHEN navn_agg.navn IS NULL THEN NULL
+        WHEN coalesce(v_n_distinct,0) <> 1 THEN NULL
+        WHEN slaegtsnavn_suffiks_match(navn_agg.navn, v_slaegtsnavn) THEN NULL
+        ELSE v_slaegtsnavn
+      END AS efternavn,
+      CASE
+        WHEN navn_agg.navn IS NULL THEN NULL
+        WHEN coalesce(v_n_distinct,0) <> 1 THEN navn_agg.navn
+        WHEN slaegtsnavn_suffiks_match(navn_agg.navn, v_slaegtsnavn) THEN navn_agg.navn
+        ELSE navn_agg.navn || ' ' || v_slaegtsnavn
+      END AS fuldt
+    FROM navn_agg
+  )
+  UPDATE person p SET
+    visning_navn = final.navn, visning_foedt = final.foedt, visning_doed = final.doed,
+    visning_titel = final.titel, visning_efternavn = final.efternavn, visning_fuldt_navn = final.fuldt
+  FROM final
+  WHERE p.id = pid
+    AND (p.visning_navn, p.visning_foedt, p.visning_doed, p.visning_titel, p.visning_efternavn, p.visning_fuldt_navn)
+        IS DISTINCT FROM (final.navn, final.foedt, final.doed, final.titel, final.efternavn, final.fuldt);
+
+  IF v_n_distinct > 1 THEN
+    INSERT INTO slaegtsnavn_karantaene(person_id, n_distinct) VALUES (pid, v_n_distinct)
+      ON CONFLICT (person_id) DO UPDATE SET n_distinct=excluded.n_distinct, noteret_at=now();
+  ELSE
+    DELETE FROM slaegtsnavn_karantaene WHERE person_id = pid;
+  END IF;
+  -- visning-floruit: læser den netop skrevne visning_foedt/visning_doed.
+  PERFORM regen_person_floruit(pid);
+END $$;
+
+-- visning-floruit: et familie-faktum (vielse o.l.), et medlemskab eller et medlems offentlighed ændrer
+-- partnernes visning_floruit — og kun den. Partnerne regenereres i id-orden (fast låserækkefølge).
+CREATE OR REPLACE FUNCTION regen_familie_partnere(p_family_id BIGINT)
+RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_pid BIGINT;
+BEGIN
+  FOR v_pid IN SELECT person_id FROM family_member WHERE family_id = p_family_id AND rolle = 'partner'
+               ORDER BY person_id LOOP
+    PERFORM regen_person_floruit(v_pid);
+  END LOOP;
+END $$;
+
+-- Trigger-wrapper: udled berørt person fra conclusion-rækkens fact-target. Et familie-faktum
+-- (visning-floruit) regenererer familiens partneres visning_floruit.
+CREATE OR REPLACE FUNCTION trg_regen_from_conclusion()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE pid BIGINT; v_type TEXT;
+BEGIN
+  SELECT f.subjekt_id, f.subjekt_type INTO pid, v_type FROM fact f
+    WHERE f.id = coalesce(NEW.target_id, OLD.target_id)
+      AND coalesce(NEW.target_type, OLD.target_type)='fact'
+      AND f.subjekt_type IN ('person','family');
+  IF v_type = 'person' THEN PERFORM regen_person_visning(pid);
+  ELSIF v_type = 'family' THEN PERFORM regen_familie_partnere(pid);
+  END IF;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_conclusion_regen ON conclusion;
+CREATE TRIGGER trg_conclusion_regen
+  AFTER INSERT OR UPDATE OR DELETE ON conclusion
+  FOR EACH ROW EXECUTE FUNCTION trg_regen_from_conclusion();
+
+-- Edits af den VALGTE assertion ændrer cache-værdien uden at conclusion-rækken røres.
+CREATE OR REPLACE FUNCTION trg_regen_from_assertion()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE pid BIGINT; v_type TEXT;
+BEGIN
+  SELECT f.subjekt_id, f.subjekt_type INTO pid, v_type FROM fact f
+    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id
+    WHERE c.valgt_assertion_id = NEW.id AND f.subjekt_type IN ('person','family');
+  IF v_type = 'person' THEN PERFORM regen_person_visning(pid);
+  ELSIF v_type = 'family' THEN PERFORM regen_familie_partnere(pid);
+  END IF;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_assertion_regen ON assertion;
+CREATE TRIGGER trg_assertion_regen
+  AFTER UPDATE ON assertion
+  FOR EACH ROW EXECUTE FUNCTION trg_regen_from_assertion();
+
+-- visning-floruit (§5): ethvert medlemskab kan ændre partnernes floruit — et nyt levende barn lukker familien
+-- (family_offentlig), en partner-række med konfidens formodet/omstridt eller en ændret rolle fjerner vielsen fra
+-- personen. Både gammel og ny familie regenereres, og en partner, der har forladt familien, regenereres selv.
+-- ordinal påvirker ikke visning_*, så en ren ordinal-UPDATE udløser intet.
+CREATE OR REPLACE FUNCTION trg_regen_from_family_member()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_ny BIGINT; v_gl BIGINT;
+BEGIN
+  IF TG_OP IN ('INSERT','UPDATE') THEN v_ny := NEW.family_id; END IF;
+  IF TG_OP IN ('DELETE','UPDATE') THEN v_gl := OLD.family_id; END IF;
+  IF v_ny IS NOT NULL THEN PERFORM regen_familie_partnere(v_ny); END IF;
+  IF v_gl IS NOT NULL AND v_gl IS DISTINCT FROM v_ny THEN PERFORM regen_familie_partnere(v_gl); END IF;
+  IF TG_OP IN ('DELETE','UPDATE') AND OLD.rolle = 'partner' AND NOT EXISTS (
+       SELECT 1 FROM family_member WHERE person_id = OLD.person_id AND rolle = 'partner'
+                                     AND family_id IN (v_gl, v_ny)) THEN
+    PERFORM regen_person_floruit(OLD.person_id);
+  END IF;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_family_member_regen ON family_member;
+CREATE TRIGGER trg_family_member_regen
+  AFTER INSERT OR DELETE OR UPDATE OF family_id, person_id, rolle, konfidens ON family_member
+  FOR EACH ROW EXECUTE FUNCTION trg_regen_from_family_member();
+
+-- visning-floruit (§5): levende/privat/staged afgør family_offentlig for alle personens familier. Kolonnebegrænset, så
+-- regen_person_visning's og regen_person_floruit's egne UPDATEs af visning_* ikke udløser triggeren igen.
+CREATE OR REPLACE FUNCTION trg_regen_from_person_offentlighed()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_fid BIGINT;
+BEGIN
+  FOR v_fid IN SELECT DISTINCT family_id FROM family_member WHERE person_id = NEW.id ORDER BY family_id LOOP
+    PERFORM regen_familie_partnere(v_fid);
+  END LOOP;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_person_offentlighed_regen ON person;
+CREATE TRIGGER trg_person_offentlighed_regen
+  AFTER UPDATE OF levende, privat, staged ON person
+  FOR EACH ROW
+  WHEN ((OLD.levende, OLD.privat, OLD.staged) IS DISTINCT FROM (NEW.levende, NEW.privat, NEW.staged))
+  EXECUTE FUNCTION trg_regen_from_person_offentlighed();
+
+-- Interne hjælpere, ingen RPC'er: eksplicit ACL, så frisk og opgraderet base er ens (db-rls' default privileges fratager
+-- kun funktioner oprettet EFTER den EXECUTE). Triggerfunktioner kontrolleres ikke for EXECUTE ved affyring, og
+-- regen_familie_partnere/regen_person_floruit kaldes kun fra triggere og regen, der affyres af ejerens SECURITY
+-- DEFINER-skrivere.
+REVOKE EXECUTE ON FUNCTION regen_person_floruit(bigint), regen_familie_partnere(bigint), trg_regen_from_family_member(),
+  trg_regen_from_person_offentlighed() FROM PUBLIC, anon, authenticated, service_role;
+
+-- Sletteinventarets S1 klassificerer person.visning_floruit som de øvrige visning_*-kolonner (kandidatkolonne-vagten).
+CREATE OR REPLACE FUNCTION private.person_purge_inventar()
+RETURNS TABLE(sted text, tabel text, kolonner text[], handling text, fase text, grund text)
+LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+  SELECT * FROM (VALUES
+    -- §1a Kerne og hårde FK'er
+    ('S1',   'person', ARRAY['id','status','koen','visning_navn','visning_foedt','visning_doed','visning_titel',
+                             'visning_efternavn','visning_fuldt_navn','visning_floruit'], 'slet', '11', 'egen'),
+    ('S2',   'person_external_id', ARRAY['person_id','source_id','record_key'], 'slet', '10', 'egen'),
+    ('S3',   'family_member', ARRAY['person_id','family_id'], 'slet', '10', 'egen'),
+    ('S4',   'slaegtsnavn_karantaene', ARRAY['person_id'], 'slet', '10', 'egen'),
+    ('S5',   'profiles', ARRAY['reventlow_person_id'], 'nulstil', '10', 'andres_ref'),
+    ('S6',   'bookmark', ARRAY['person_id'], 'slet', '4', 'egen'),
+    ('S7',   'person_slaegt_membership', ARRAY['person_id'], 'slet', '10', 'egen'),
+    ('S8',   'person_lineage_membership', ARRAY['person_id'], 'slet', '10', 'egen'),
+    ('S9',   'private.person_create_receipt', ARRAY['person_id'], 'slet', '11', 'egen'),
+    ('S10',  'private.source_persona_identity', ARRAY['source_persona_id','canonical_person_id'], 'slet', '2l+2m', 'hel_stroem'),
+    ('S11a', 'private.source_persona_identity_event', ARRAY['source_persona_id'], 'slet', '2k', 'hel_stroem'),
+    ('S11b', 'private.source_persona_identity_event', ARRAY['source_persona_id','canonical_person_id'], 'slet', '2k', 'andres_ref'),
+    ('S11c', 'private.source_persona_identity_event', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S12',  'private.source_persona_identity_candidate', ARRAY['candidate_person_id'], 'slet', '2j', 'egen'),
+    -- §1b Kerne-evidens
+    ('S13',  'fact', ARRAY['subjekt_type','subjekt_id'], 'slet', '8', 'egen'),
+    ('S13b', 'fact', ARRAY['subjekt_type','subjekt_id'], 'slet', '8', 'familie'),
+    ('S14',  'relation', ARRAY['subjekt_type','subjekt_id','objekt_type','objekt_id'], 'slet', '8', 'egen'),
+    ('S14b', 'relation', ARRAY['subjekt_type','subjekt_id','objekt_type','objekt_id'], 'slet', '8', 'familie'),
+    ('S15',  'assertion', ARRAY['target_type','target_id'], 'slet', '6', 'egen'),
+    ('S16',  'conclusion', ARRAY['target_type','target_id','valgt_assertion_id'], 'slet', '6', 'egen'),
+    ('S17',  'citation', ARRAY['assertion_id'], 'slet', '6', 'egen'),
+    ('S18',  'note', ARRAY['target_type','target_id'], 'slet', '6', 'egen'),
+    ('S19',  'relation', ARRAY['subjekt_type','subjekt_id','objekt_type','objekt_id'], 'slet', '8', 'egen'),
+    ('S20',  'assertion', ARRAY['objekt_type','objekt_id'], 'blokér', '0', NULL),
+    ('NY-A', 'assertion', ARRAY['objekt_type','objekt_id'], 'blokér', '0', NULL),
+    -- §1c Narrativ, publicering, formidling
+    ('S21',  'narrative', ARRAY['subjekt_type','subjekt_id'], 'slet', '7', 'egen'),
+    ('S22',  'private.narrative_record_publication', ARRAY['narrative_id'], 'slet', '3d', 'egen'),
+    -- M2-4: et familienarrativ i N (Fam_del) har sin egen grund i append-only-tjekket.
+    ('S23',  'private.narrative_publication_event', ARRAY['narrative_id'], 'slet', '3b', 'egen'),
+    ('S23',  'private.narrative_publication_event', ARRAY['narrative_id'], 'slet', '3b', 'familie'),
+    ('S23b', 'private.narrative_publication_event', ARRAY['before_state','after_state','decision_basis'], 'bevar_andres', NULL, NULL),
+    ('S23b', 'private.narrative_legacy_publication', ARRAY['baseline_state'], 'bevar_andres', NULL, NULL),
+    ('S24',  'private.narrative_legacy_publication', ARRAY['latest_event_id'], 'nulstil', '3a', 'egen'),
+    ('S24',  'private.narrative_legacy_publication', ARRAY['narrative_id'], 'slet', '3c', 'egen'),
+    ('S25',  'haendelse', ARRAY['narrative_id'], 'slet', '7', 'egen'),
+    ('S26',  'haendelse', ARRAY['subjekt_type','subjekt_id'], 'slet', '5', 'egen'),
+    ('S27',  'haendelse', ARRAY['fact_id','relation_id'], 'loesn', '5', 'andres_ref'),
+    ('S28',  'text_mention', ARRAY['kilde_type','kilde_id'], 'slet', '6/7', 'afledt'),
+    -- S29: link-tokens til P (og til Fam_del/M_del) i prosa, der bevares (slettegraf §4.1).
+    ('S29',  'text_mention', ARRAY['maal_type','maal_id'], 'blokér', '0', NULL),
+    ('S29',  'narrative', ARRAY['tekst'], 'blokér', '0', NULL),
+    ('S29',  'note', ARRAY['indhold'], 'blokér', '0', NULL),
+    ('S29',  'story', ARRAY['titel','tekst'], 'blokér', '0', NULL),
+    ('S29',  'entity_description', ARRAY['tekst'], 'blokér', '0', NULL),
+    ('S29',  'haendelse', ARRAY['klausul'], 'blokér', '0', NULL),
+    ('S29',  'suggestion', ARRAY['vaerdi','note','kilde_fritekst','payload'], 'blokér', '0', NULL),
+    ('S29',  'citation', ARRAY['citat_tekst'], 'blokér', '0', NULL),
+    ('S29',  'assertion', ARRAY['vaerdi_tekst','date_raw'], 'blokér', '0', NULL),
+    ('S29',  'media', ARRAY['titel'], 'blokér', '0', NULL),
+    ('S30',  'story', ARRAY['subjekt_type','subjekt_id'], 'slet', '4', 'egen'),
+    ('S30',  'story_kilde', ARRAY['story_id'], 'slet', '4', 'egen'),
+    ('S31',  'story', ARRAY['haendelse_id','fact_id','relation_id'], 'loesn', '5-8', 'andres_ref'),
+    ('S32',  'feed_pin', ARRAY['kort_noegle'], 'slet', '4', 'egen'),
+    ('NY-B', 'feed_pin', ARRAY['kort_noegle'], 'slet', '4', 'egen'),
+    ('S32c', 'feed_pin', ARRAY['kort_noegle'], 'bevar_andres', NULL, NULL),
+    ('S33',  'entity_description', ARRAY['subjekt_type','subjekt_id'], 'slet', '4', 'egen'),
+    ('S33',  'private.entity_description_source', ARRAY['description_id'], 'slet', '4', 'egen'),
+    ('S34',  'suggestion', ARRAY['subjekt_type','subjekt_id'], 'slet', '4', 'egen'),
+    ('S34b', 'suggestion', ARRAY['payload','vaerdi','note','kilde_fritekst'], 'blokér', '0', NULL),
+    -- §1d Rettelsesjournaler, medier, familier
+    ('S35',  'import_korrektion', ARRAY['import_key','record_key','importeret','korrigeret'], 'slet', '6', 'egen'),
+    ('S36',  'paastand_korrektion', ARRAY['assertion_id','foer','efter'], 'slet', '6', 'egen'),
+    ('S37',  'media', ARRAY['id','storage_path'], 'slet', '9', 'egen'),
+    ('S37',  'media_variant', ARRAY['media_id','storage_path'], 'slet', '9', 'egen'),
+    ('S37b', 'media', ARRAY['titel','original_filnavn','kunstner'], 'bevar_andres', NULL, NULL),
+    ('S38',  'family', ARRAY['id'], 'slet', '10', 'familie'),
+    ('S38b', 'family', ARRAY['id'], 'bevar_andres', NULL, NULL),
+    ('S38b', 'citation', ARRAY['citat_tekst'], 'bevar_andres', NULL, NULL),
+    ('S38b', 'assertion', ARRAY['vaerdi_tekst'], 'bevar_andres', NULL, NULL),
+    -- §1e Private ledgers (+ »Afgørelser« Q6)
+    ('S39a', 'private.interpretation_promotion', ARRAY['target_type','target_id','interpretation_id'], 'slet', '2c', 'egen'),
+    ('S39b', 'private.interpretation_promotion', ARRAY['target_type','target_id','interpretation_id'], 'blokér', '0', NULL),
+    -- R39: andres binding til Fam_keep afhænger af en ikke-principal persona i X.
+    ('S39f', 'private.interpretation_promotion', ARRAY['target_type','target_id','interpretation_id'], 'blokér', '0', NULL),
+    ('S39c', 'private.interpretation_promotion', ARRAY['target_type','target_id'], 'bevar_andres', NULL, NULL),
+    ('Prom_egen_fam', 'private.interpretation_promotion', ARRAY['target_type','target_id','interpretation_id'], 'slet', '2c', 'egen'),
+    ('S40',  'private.legacy_placement_disposition', ARRAY['person_id'], 'slet', '2i', 'egen'),
+    ('S41a', 'private.reimport_event', ARRAY['canonical_person_id','payload'], 'slet', '2g', 'egen'),
+    ('S41b', 'private.reimport_event', ARRAY['payload'], 'bevar_andres', NULL, NULL),
+    ('S42',  'private.reimport_name_completion_result', ARRAY['person_id','fact_id','assertion_id','citation_id','conclusion_id'],
+             'slet', '2f', 'egen'),
+    ('S43a', 'private.reimport_case_event', ARRAY['action','payload'], 'slet', '2h', 'egen'),
+    ('S43b', 'private.reimport_case_event', ARRAY['payload'], 'bevar_andres', NULL, NULL),
+    ('S44a', 'private.reimport_authorization', ARRAY['authorized_elements'], 'bevar_andres', NULL, NULL),
+    ('S44b', 'private.reimport_case_authorization', ARRAY['authorized_elements'], 'bevar_andres', NULL, NULL),
+    ('S45a', 'private.identity_control_parent_card', ARRAY['counterpart_person_id','family_id','partner_ids'], 'slet', '2e', 'egen'),
+    ('M5',   'private.identity_control_parent_event', ARRAY['card_id'], 'slet', '2d', 'afledt'),
+    ('S45b', 'private.identity_control_parent_card', ARRAY['partner_ids','family_id'], 'bevar_andres', NULL, NULL),
+    ('S45b', 'private.identity_control_parent_event', ARRAY['note'], 'bevar_andres', NULL, NULL),
+    ('S46',  'private.identity_control_sample', ARRAY['mapping','expected'], 'bevar_andres', NULL, NULL),
+    -- S47 henviser til S10-S12/S11c (slettegraf: uden egen handling).
+    ('S47',  'private.source_persona_identity_candidate', ARRAY['basis'], 'ingen', NULL, NULL),
+    ('S47',  'private.source_persona_identity', ARRAY['evidence'], 'ingen', NULL, NULL),
+    ('S47',  'private.source_persona_identity_event', ARRAY['evidence'], 'ingen', NULL, NULL),
+    ('S48',  'private.interpretation_promotion', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S48',  'private.relation_classification_event', ARRAY['state_sha256'], 'bevar_andres', NULL, NULL),
+    ('S48',  'private.source_persona_identity_candidate', ARRAY['family_context_sha256'], 'bevar_andres', NULL, NULL),
+    ('S49a', 'private.relation_reopen', ARRAY['superseded_promotion_id','from_family_id','to_family_id'], 'slet', '2b', 'afledt'),
+    ('S49b', 'private.text_revision_reconciliation', ARRAY['old_promotion_id','new_promotion_id','revision_batch_id',
+                                                           'revision_element_id'], 'slet', '2a', 'afledt'),
+    ('S49c', 'private.marriage_ordinal_correction', ARRAY['family_id','evidence'], 'bevar_andres', NULL, NULL),
+    -- S49d følger S39b: en genåbning til Fam_del, hvis promotion ikke er P's, blokerer.
+    ('S49d', 'private.relation_reopen', ARRAY['from_family_id','to_family_id'], 'blokér', '0', NULL),
+    ('S50',  'private.narrative_record_cutover_receipt', ARRAY['result'], 'bevar_andres', NULL, NULL),
+    ('S51',  'private.identity_relation_update_prelock', ARRAY['locked_person_ids','relation_id','current_signature',
+                                                              'target_signature'], 'ingen', NULL, NULL),
+    -- S58: øvrige jsonb/fritekst på fortolkningsniveau eller i bogens lag (Q9: til_kontrol).
+    ('S58',  'private.interpretation_promotion', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.interpretation', ARRAY['value','decision_evidence'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.source_persona_identity_candidate', ARRAY['basis'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.relation_reopen', ARRAY['context','note'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.text_revision_reconciliation', ARRAY['context'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.relation_classification_event', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.marriage_ordinal_correction', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.legacy_placement_disposition', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.source_record_placement_decision', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S58',  'private.source_persona_placement_decision', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('NY-C', 'private.identity_control_exclusion', ARRAY['source_persona_id'], 'bevar_andres', NULL, NULL),
+    ('NY-D', 'private.relation_persona_profile', ARRAY['profile','source_id','predicate_forms','text_form'], 'ingen', NULL, NULL),
+    -- Task 7 / R28: fritekstkontrol er selvstændig fra sletteplanen.
+    ('S34b', 'suggestion', ARRAY['payload','vaerdi','note','kilde_fritekst'], 'bevar_andres', NULL, NULL),
+    ('S38b', 'note', ARRAY['indhold'], 'bevar_andres', NULL, NULL),
+    ('S38b', 'narrative', ARRAY['tekst'], 'bevar_andres', NULL, NULL),
+    ('S58', 'note', ARRAY['indhold'], 'bevar_andres', NULL, NULL),
+    ('S58', 'private.identity_control_event', ARRAY['reason'], 'bevar_andres', NULL, NULL),
+    ('S58', 'private.identity_control_exclusion', ARRAY['reason'], 'bevar_andres', NULL, NULL),
+    ('S58', 'private.source_record_anchor_event', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S58', 'private.source_record_revision_event', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S58', 'private.source_observation_text', ARRAY['evidence'], 'bevar_andres', NULL, NULL),
+    ('S58', 'private.entity_description_source', ARRAY['citation_note'], 'bevar_andres', NULL, NULL),
+    -- §1f Historik (ingen append-only-trigger, derfor ingen grund; M2-4)
+    ('S54',  'change_event', ARRAY['tabel','row_pk','foer','efter'], 'slet', '12', NULL),
+    ('S57',  'change_event', ARRAY['row_pk','foer','efter'], 'bevar_andres', NULL, NULL),
+    ('S52',  'change_set', ARRAY['subjekt_type','subjekt_id'], 'slet', '13', NULL),
+    ('S53',  'change_set', ARRAY['summary'], 'slet', '13', NULL),
+    ('S55',  'change_set', ARRAY['reverterer_id'], 'slet', '13', NULL),
+    ('S52b', 'change_set', ARRAY['subjekt_id','summary'], 'bevar_andres', NULL, NULL),
+    -- S56: indgående FK'er til change_set (oversigt; handlingen ligger i S23/S36 og i at sættet bevares).
+    ('S56',  'private.narrative_publication_event', ARRAY['change_set_id'], 'ingen', NULL, NULL),
+    ('S56',  'paastand_korrektion', ARRAY['change_set_id'], 'ingen', NULL, NULL),
+    ('S56',  'private.reimport_case_batch', ARRAY['change_set_id'], 'ingen', NULL, NULL)
+  ) v(sted, tabel, kolonner, handling, fase, grund)
+$$;
+-- END visning-floruit
