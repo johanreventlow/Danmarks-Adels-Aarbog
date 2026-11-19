@@ -133,8 +133,35 @@ describe('PersonSide', () => {
     expect(screen.getByText('Ikke angivet i Aarbogen.')).toBeTruthy(); // forældre
     expect(screen.queryByText('Embeder og hverv')).toBeNull(); // ingen embeder → ingen sektion (19/11)
     expect(screen.queryByText(/Ingen embeder/)).toBeNull();
-    expect(screen.getByText('Ingen billeder eller dokumenter i Aarbogen.')).toBeTruthy();
+    expect(screen.queryByText('Billeder og dokumenter')).toBeNull(); // tom → ingen sektion (19/11)
     expect(screen.getByText('Intet portræt i Aarbogen.')).toBeTruthy();
+  });
+
+  it('tomme besiddelser og billeder: ingen sektion; med indhold vises den', () => {
+    render(<PersonSide {...props({ detail: detalje({ estates: [] }) })} />);
+    expect(screen.queryByText('Besiddelser')).toBeNull();
+    expect(screen.queryByText(/Ingen besiddelser/)).toBeNull();
+    expect(screen.queryByText('Billeder og dokumenter')).toBeNull();
+  });
+
+  it('børn: vises for gifte (også uden børn), ikke for ugifte uden børn', () => {
+    const m2 = {
+      ...model,
+      ...buildModel({
+        persons: [person('392', 'Conrad Reventlow', 1644), person('600', 'Anna Margrethe Gabel'), person('500', 'Ulrica Reventlow', 1686),
+          person('501', 'Christian Reventlow'), person('502', 'Frederik Ahlefeldt')],
+        unions: [{ id: 'f1', p1: '392', p2: '600', p2_name: null, year: null }, { id: 'f2', p1: '502', p2: '500', p2_name: null, year: null }],
+        parentChild: [{ child: '500', parent: '392', union: 'f1' }, { child: '501', parent: '392', union: 'f1' },
+          { child: '500', parent: '600', union: 'f1' }, { child: '501', parent: '600', union: 'f1' }],
+      }),
+    } as unknown as Model;
+    const { unmount } = render(<PersonSide {...props({ model: m2, focusId: '501' })} />); // ugift, ingen børn (død ung)
+    expect(screen.queryByText('Børn')).toBeNull();
+    expect(screen.queryByText('Ingen børn angivet i Aarbogen.')).toBeNull();
+    unmount();
+    render(<PersonSide {...props({ model: m2, focusId: '500' })} />); // gift, ingen børn
+    expect(screen.getByText('Børn')).toBeTruthy();
+    expect(screen.getByText('Ingen børn angivet i Aarbogen.')).toBeTruthy();
   });
 
   it('usikkert slægtskab vises med ordet', () => {

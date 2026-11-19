@@ -206,6 +206,9 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                   </div>
                 )) : <Mangel>Intet ægteskab angivet i Aarbogen.</Mangel>}
               </dd>
+              {/* Børn kun når personen var gift eller har børn (projektejeren 19/11): et barn, der døde ungt, skal ikke
+                  have »Ingen børn angivet«. */}
+              {(v.spouses.length > 0 || v.children.length > 0) && (<>
               <dt style={dtStil}>Børn</dt>
               <dd style={{ margin: 0 }}>
                 {v.children.length ? (
@@ -217,16 +220,16 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                   </>
                 ) : <Mangel>Ingen børn angivet i Aarbogen.</Mangel>}
               </dd>
+              </>)}
             </dl>
           </Sektion>
 
           {!detailError && (
             <>
-              {/* Embeder vises kun, når personen har nogen (projektejeren 19/11): kun ~8 % har embeder som oplysning,
-                  resten står i biografien, så »Ingen embeder … angivet i Aarbogen« var usandt. Skjult under hentning,
-                  så en tom boks ikke flimrer ind og ud (samme regel som livsrejsen). */}
-              {!henter && offices.length > 0 && (
-              <Sektion titel="Embeder og hverv">
+              {/* Embeder, besiddelser og billeder vises kun med indhold (projektejeren 19/11): kun ~8 % har embeder som
+                  oplysning, resten står i biografien, så »Ingen … angivet i Aarbogen« var usandt eller bare støj. Skjult
+                  under hentning, så en tom boks ikke flimrer ind og ud (samme regel som livsrejsen). */}
+              <Sektion titel="Embeder og hverv" vis={!henter && offices.length > 0}>
                   <ol style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: 15, lineHeight: '22px' }}>
                     {visteEmbeder.map((o, i) => (
                       <li key={i} style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 20px', padding: '9px 0', borderTop: `1px solid ${T.line}` }}>
@@ -243,10 +246,8 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                     )}
                   </ol>
               </Sektion>
-              )}
 
-              <Sektion titel="Besiddelser">
-                {henter ? <Henter /> : v.godser.length ? (
+              <Sektion titel="Besiddelser" vis={!henter && v.godser.length > 0}>
                   <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 220px), 1fr))', gap: '0 24px', fontSize: 15, lineHeight: '22px' }}>
                     {visteGodser.map((e) => (
                       <li key={e.id} style={{ padding: '9px 0', borderTop: `1px solid ${T.line}` }}>
@@ -261,7 +262,6 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                       </li>
                     )}
                   </ul>
-                ) : <Mangel>{harVaelger ? 'Ingen besiddelser i den valgte udgave.' : 'Ingen besiddelser angivet i Aarbogen.'}</Mangel>}
               </Sektion>
 
               {/* Livsrejsen vises kun, når personen har steder; de fleste har ingen, og en tom boks ville
@@ -272,8 +272,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                 </Suspense>
               </Sektion>
 
-              <Sektion titel="Billeder og dokumenter">
-                {henter ? <Henter /> : v.gallery.length ? (
+              <Sektion titel="Billeder og dokumenter" vis={!henter && v.gallery.length > 0}>
                   <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 150px), 1fr))', gap: 12 }}>
                     {v.gallery.map((m) => (
                       <li key={m.id}>
@@ -284,7 +283,6 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                       </li>
                     ))}
                   </ul>
-                ) : <Mangel>Ingen billeder eller dokumenter i Aarbogen.</Mangel>}
               </Sektion>
             </>
           )}
