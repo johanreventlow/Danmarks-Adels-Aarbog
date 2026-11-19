@@ -145,6 +145,12 @@ describe('bogensNummer og optraederSom (6e-2)', () => {
   test('nyeste udgave, derefter laveste slægtled', () => {
     expect(bogensNummer(conrad, 'c')).toBe('V, nr. 1');
   });
+  test("form 'fuld': linjens navn i personsidens etiket (2026-11-19), samme post som 'kort'", () => {
+    expect(bogensNummer(conrad, 'c', 'fuld')).toBe('V. Den grevelige linje af 1673, nr. 1');
+    // kun en side: udgaven foran, som i den korte form
+    const side: Record<string, SourceRef[]> = { s: [{ work: 'DAA 1939', ref: 's. 52', kort: 's. 52', personId: '9', sourceId: '3', aar: 1939, slaegtled: null }] };
+    expect(bogensNummer(side, 's', 'fuld')).toBe('DAA 1939, s. 52');
+  });
   test('slægtled lig → laveste personId numerisk; NULL slægtled sidst', () => {
     const r: Record<string, SourceRef[]> = { p: [
       { work: 'W', ref: 'x', kort: 'B', personId: '100', aar: 2018, slaegtled: 3 },

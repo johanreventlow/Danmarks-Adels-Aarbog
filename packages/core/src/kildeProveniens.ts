@@ -144,12 +144,15 @@ const KUN_SIDE = /^s\.\s*\S+$/;
 // aldrig fra citat-proveniensen, der for personer uden nummer (typisk ægtefæller) giver et sidetal.
 // Én regel for personsidens etiket og feedets kilde-§, så de to aldrig viser forskellige numre.
 // Er nummeret kun en side, får det udgaven foran: »DAA 1939, s. 52« (slutreview M-3).
+// form 'fuld' (personsidens etiket, projektejeren 2026-11-19) giver linjens navn: »V. Den grevelige Linje af 1673,
+// nr. 1« i stedet for »V, nr. 1«; samme post og orden som 'kort'.
 export function bogensNummer(
   sourcesBy: Record<string, SourceRef[]> | undefined,
   personId: string,
+  form: 'kort' | 'fuld' = 'kort',
 ): string | null {
   for (const r of sorterKilder(sourcesBy?.[personId] ?? [])) {
-    const tekst = (r.kort ?? r.ref).trim();
+    const tekst = (form === 'fuld' ? r.ref : (r.kort ?? r.ref)).trim();
     if (tekst !== '') return KUN_SIDE.test(tekst) ? `${udgaveAf(r)}, ${tekst}` : tekst;
   }
   return null;
