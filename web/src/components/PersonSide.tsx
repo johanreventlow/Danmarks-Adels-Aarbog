@@ -67,7 +67,8 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   const slaegt = v.linjer.length ? findSlaegt(STANDARD_SLAEGT) : null;
   const linjeNavne = v.hovedLinjer;
   // Bogens nummer (»V, nr. 1«) kun fra stamtavlens opslag — samme regel som feedets kilde-§ (bogensNummer).
-  const nr = bogensNummer(model.sourcesBy, focusId);
+  // Fuldt linjenavn i etiketten (»V. Den grevelige Linje af 1673, nr. 1«, projektejeren 2026-11-19).
+  const nr = bogensNummer(model.sourcesBy, focusId, 'fuld');
   const etiket = [slaegt?.navn, ...(nr ? [nr] : linjeNavne)].filter(Boolean).join(' · ');
   const harVaelger = v.vaelger.form === 'chips' || v.vaelger.form === 'skift';
   const henter = detail === null && !detailError;
