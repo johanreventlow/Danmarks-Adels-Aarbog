@@ -21,6 +21,10 @@
 - `schema.sql` er source of truth; `db-migrations.sql` får en idempotent blok `-- ===== visning-floruit: »Nævnes …« som cache =====` sidst i filen.
 - Commits: Conventional Commits, dansk beskrivelse, ingen Claude-attribution; implementer-subagenter committer IKKE (forælder-sessionen ejer commits). Ingen push uden projektejerens ja.
 - PII: læs aldrig `work/`, `work_presens/`; prod røres kun af projektejeren via `!`-kommandoer.
+- Implementering sker på `feat/visning-floruit` (oprettet fra `docs/visning-floruit-spec`, så spec og plan følger med).
+- Backfillen kalder hele `regen_person_visning`, der også genskriver navn/titel/efternavn/fuldt navn ved eksisterende
+  drift — og `visning_*` logges ikke (skip_cols). Derfor: de seks eksisterende `visning_*` skal være **identiske som
+  mængde** `(id, felter)` før og efter; afvigelse = STOP og projektejerens afgørelse.
 
 ## Review Focus
 
@@ -51,9 +55,18 @@
 **Interfaces:**
 - Produces: `person.visning_floruit TEXT`; `regen_person_visning(pid bigint)` (uændret signatur); triggerfunktionerne `trg_regen_from_family_member()` og `trg_regen_from_person_offentlighed()`; hjælper `regen_familie_partnere(p_family_id bigint)`.
 
-- [ ] **Step 1: Skriv verify-blokken først** — `-- ===== visning-floruit =====` i `db-verify.sql`, `BEGIN … ROLLBACK`, syntetiske negative id'er, én `DO`-blok pr. NOTICE:
+- [ ] **Step 1: Skriv verify-blokkene først** — to former i `db-verify.sql`:
+  - **Katalogblok** `DO $verify_visning_floruit$` uden fixtures og uden `BEGIN/ROLLBACK` (som `redaktoer-ser-levende`,
+    `db-verify.sql:10875`), så Task 4 kan køre den inde i ceremoniens transaktion → `OK: visning-floruit katalog`:
+    kolonnen findes; `skip_cols` indeholder den; de nye triggere findes med de rette events (`person`-triggeren er
+    `UPDATE OF levende, privat, staged`); `has_column_privilege('anon'|'authenticated','public.person','visning_floruit','SELECT')`;
+    den inlinede offentlighedsregel er enig med `family_offentlig(id)` for alle familier i basen.
+  - **Adfærdsblokke** `BEGIN … ROLLBACK` med syntetiske negative id'er, én `DO`-blok pr. NOTICE (kun CI, lokalt og
+    generalprøve — aldrig i prod-transaktionen):
   - `OK: visning-floruit spaend` — floruit-faktum 1349-01-01..1391-12-31 → `'1349–1391'`; dateret titel 1400 tilføjet → `'1349–1400'`; fødsel-faktum 1300 påvirker ikke; påstand med kun `date_raw` ignoreres; `date_min` NULL / `date_max` 1261-12-31 → `'1261'`; ikke-valgt påstand og `status<>'afklaret'` ignoreres; person uden kilder → NULL.
-  - `OK: visning-floruit vielse` — to afdøde partnere + dateret vielse (fact på `family`) 1657 → begge `'1657'`; ny konklusion på vielsen (1658) regenererer begge via triggeren; partner-række `konfidens='formodet'` → den partner NULL, den anden `'1657'`; `UPDATE family_member SET konfidens='sikker'` → `'1657'` igen.
+  - `OK: visning-floruit vielse` — to afdøde partnere + dateret vielse (fact på `family`) 1657 → begge `'1657'`; ny konklusion på vielsen (1658) regenererer begge via triggeren; partner-række `konfidens='formodet'` → den partner NULL, den anden `'1657'`; `UPDATE family_member SET konfidens='sikker'` → `'1657'` igen; DELETE af den ene partners række (eller
+    `rolle` ændret fra `partner`) → dens egen værdi bliver NULL; vielsen slettet via `red_slet_oplysning` (eller den
+    RPC, redaktionen bruger til at slette et familie-faktum) → begge NULL.
   - `OK: visning-floruit gdpr` — INSERT af et levende barn i familien → begge partnere NULL; `UPDATE person SET levende=false` på barnet → `'1657'`; samme med `privat=true` og `staged=true`; DELETE af barnets række → `'1657'`.
   - `OK: visning-floruit livsdatoer` — person med fødsel + floruit får både `visning_foedt` og `visning_floruit` sat.
   - Udvid skip_cols-assertet (~l.7046) med `'visning_floruit'`.
@@ -95,8 +108,17 @@ floruit_kilder AS (
 - [ ] **Step 4: Spejl i `db-migrations.sql`** — `ALTER TABLE person ADD COLUMN IF NOT EXISTS visning_floruit TEXT`, skip_cols-`UPDATE` som l.1512, `CREATE OR REPLACE` af de berørte funktioner (kopiér fra `schema.sql` ordret), `DROP TRIGGER IF EXISTS` + `CREATE TRIGGER`. Ingen backfill i blokken (Task 4).
 - [ ] **Step 5: Kør verify på frisk og migrations-sti**
   Run: Step 2's kommando på ny base `vf_t1b`, derefter `psql -X -d vf_t1b -f tests/sql/run-db-verify-disposable.sql 2>&1 | grep -c "OK: visning-floruit"`.
-  Expected: `4`, ingen ERROR. Kør derefter `db-migrations.sql` endnu en gang mod basen (idempotens): exit 0.
-- [ ] **Step 6: Opgraderingssti** — gendan en lokal stand-in-kopi (`createdb -T daa5ab_ddl_standin_20261114150000_fmd vf_t1_up`), kør KUN den nye blok, kald `SELECT count(*) FROM (SELECT regen_person_visning(id) FROM person) x`, og tæl `visning_floruit IS NOT NULL`. Expected: tallet stemmer med Task 0's `N_FLORUIT_RAEKKER` ±(ændringer siden 14/11; forklar afvigelser), og `visning_foedt/doed` er uændrede for alle personer (sammenlign før/efter). Slet egne testbaser bagefter (stående ja for syntetiske baser; stand-in-kopien er din egen `-T`-kopi).
+  Expected: `5`, ingen ERROR. Kør derefter `db-migrations.sql` endnu en gang mod basen (idempotens): exit 0.
+- [ ] **Step 5b: Sletnings- og flytte-veje.** Find RPC'er, der sletter eller flytter familie-fakta, konklusioner eller
+  `family_member`-rækker (`grep -n "DELETE FROM fact\|DELETE FROM conclusion\|DELETE FROM family_member" schema.sql`;
+  mindst `red_slet_oplysning`, `red_slet_person_helt`, `red_flyt_barn`, `red_fortryd_change_set`). Hvor faktum slettes
+  før konklusionen (så konklusions-triggeren ikke kan slå familien op), tilføj et eksplicit
+  `PERFORM regen_familie_partnere(...)` efter mønstret i de eksisterende eksplicitte `PERFORM regen_person_visning`-kald.
+- [ ] **Step 5c: Hele DB-CI'en lokalt** (de nye rækketriggere rammer alle writere): kør evidence-promotion-jobbets
+  `run:`-blok fra `.github/workflows/ci.yml` (l.216-280) og `bash tests/ci/interpretation-proposal-db.sh
+  schema-rls-migrations` samt writer-jobbets trin (l.328 ff.) mod lokale engangsbaser. Expected: exit 0 for alle; tjek
+  særligt masse-stierne `red_publicer_udgave`, reimport-writeren, `red_slet_person_helt` og `red_fortryd_change_set`.
+- [ ] **Step 6: Opgraderingssti** — lav en lokal kopi af stand-in (`createdb -T daa5ab_ddl_standin_20261114150000_fmd vf_t1_up`), gem `(id, visning_navn, visning_foedt, visning_doed, visning_titel, visning_efternavn, visning_fuldt_navn)` for alle personer, kør KUN den nye blok og `SELECT count(*) FROM (SELECT regen_person_visning(id) FROM person) x`. Expected: de seks felter er **identiske som mængde** (EXCEPT begge veje = 0 rækker; ellers vis diffen til projektejeren før prod — eksisterende drift er hans afgørelse), og `(id, visning_floruit)` er lig Task 0's forespørgsel kørt mod samme kopi. Slet egne testbaser bagefter (stående ja for syntetiske baser og egne `-T`-kopier).
 - [ ] **Step 7: Commit** — `git add schema.sql db-migrations.sql db-verify.sql && git commit -m "feat(db): visning_floruit som cache med offentlig-sikre vielser"`
 
 ### Task 2: Core — formatter og collapse-fletning
@@ -144,7 +166,7 @@ floruit_kilder AS (
 - Modify: `docs/database-current-state.md` (ny §33), `docs/changelog.md`, `docs/decisions.md` (indgang 2026-11-19: GDPR-filter, konfidens, kvalifikatorer, leverance 2-retning)
 
 - [ ] **Step 1: Rækkefølge låses i runbooken:** CI grøn på draft-PR → generalprøve → prod-DDL+backfill → først derefter preview-afprøvning mod prod og merge (Review Focus 1).
-- [ ] **Step 2: `prod.zsh`** efter mønstret i `database-current-state.md` §29: `apply` (default prøve-kørsel med ROLLBACK; `--jeg-mener-det` committer) i ÉN transaktion: hash-tjek af blokken (sha af `db-migrations.sql`-blokken) → blokken → db-verify-blokken `visning-floruit` (4 × OK) → `SELECT regen_person_visning(id) FROM person` → invarianter før COMMIT: antal personer med ikke-tom `visning_foedt`/`visning_doed` uændret (før-tal målt i samme transaktion), `count(visning_floruit IS NOT NULL) = N_FLORUIT_RAEKKER` (Task 0) → før/efter-tal skrives til `~/.private/visning-floruit/log/`. `fortryd --jeg-mener-det`: genskab main's funktionsdefinitioner, drop de nye triggere, `UPDATE person SET visning_floruit=NULL` (kolonnen bliver; ufarlig).
+- [ ] **Step 2: `prod.zsh`** efter mønstret i `database-current-state.md` §29: `apply` (default prøve-kørsel med ROLLBACK; `--jeg-mener-det` committer) i ÉN transaktion: snapshot af `(id, seks visning_*)` i en temp-tabel → hash-tjek af blokken (sha af `db-migrations.sql`-blokken) → blokken → katalogblokken `OK: visning-floruit katalog` (kun den; adfærdsblokkene har egen ROLLBACK) → `SELECT regen_person_visning(id) FROM person` → invarianter før COMMIT: snapshot og nu er **identiske som mængde** (EXCEPT begge veje = 0), og `(id, visning_floruit)` er lig Task 0's forespørgsel kørt i samme transaktion; afvigelse = ROLLBACK med diffen udskrevet → før/efter-tal skrives til `~/.private/visning-floruit/log/`. `fortryd --jeg-mener-det`: genskab main's funktionsdefinitioner, drop de nye triggere, `UPDATE person SET visning_floruit=NULL` (kolonnen bliver; ufarlig).
 - [ ] **Step 3: Generalprøve** på en frisk restore af prod-dump (stand-in): `apply --jeg-mener-det`, mål tiden (skal være ≪ 2 min), `fortryd`, `apply` igen; tal = Task 0.
 - [ ] **Step 4: Projektejeren kører** `! zsh ~/.private/visning-floruit/prod.zsh apply` (prøve), derefter med `--jeg-mener-det` efter eksplicit ja. Derefter `get_advisors` (security) uden nye fund.
 - [ ] **Step 5: Browsertjek** (preview mod prod, som anon, desktop + mobil): 44 viser »Nævnes 1349–1391«; 594 viser »Nævnes 1657« (hvis familien er offentlig, ellers intet — se Task 0-tallet); 392 Conrad uændret; en person uden dato viser ingen årslinje.
