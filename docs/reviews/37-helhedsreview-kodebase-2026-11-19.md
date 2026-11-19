@@ -19,10 +19,21 @@ de ikke er reelt lukket.
 - **Ingen kritiske fund.**
 - **Sikkerheden i databasen er i god stand:**
   - Alle 44 tabeller har RLS.
-  - Alle 358 SECURITY DEFINER-funktioner har `search_path`.
+  - Alle 358 SECURITY DEFINER-funktioner har `search_path` i headeren. Det er talt af
+    hovedsessionen: 348 i `schema.sql` og 10 i `db-rls.sql`.
   - Alle `red_*` har en rolle-gate.
   - Dynamisk SQL bruger `%I`/`%L`.
-  - Der findes ingen vej for anon eller medlemmer til levende personer.
+  - I den læste kode er der ikke fundet en vej, hvor anon eller medlemmer kan læse levende
+    personer.
+  - Personsletningen, reimport-writerne og live-ACL'erne er ikke gennemgået (§7).
+  - Delvise veje findes for en redaktør, der har været logget ind på samme browser eller enhed
+    (W5, M5).
+
+**Dækningsforbehold:** første bølge har ikke gennemgået hele projektet linje for linje.
+- Ulæst: fuld personsletning (`red_slet_person_helt` og purge-kæden), cirka halvdelen af
+  `schema.sql` (reimport, placement og narrative-record-kontrakten) og de prod-skrivende
+  `*_1939_v50`-apply-helpere.
+- Ydelse er kun dækket af D8, M8, M12 og E12. Der er ingen målinger.
 - **Fem fund med alvor høj:**
   - **W1:** redaktionen kan skrive på forkert person efter et hurtigt personskift.
   - **M1:** falske »halvsøskende«.
@@ -49,10 +60,10 @@ de ikke er reelt lukket.
 
 | id | område | fund | belæg |
 |---|---|---|---|
-| **W1** ✔ | web | `run()`/`fortrydChangeSet` kalder `loadPerson(recordId)` med den person, der gjaldt, da skrivningen startede. Skifter redaktøren til B, før svaret kommer, indlæses A's evidens under B's navn, og B's svar kasseres via generationstælleren. Næste »Vælg konklusion«, »Slet« eller »Tilføj« sender A's assertion- og fact-id'er. Producerbart i dag og ikke dækket af `Redaktion.personSkift.test.tsx`. | `web/src/Redaktion.tsx:765`, `:813`, `:649` |
+| **W1** ✔ | web | `run()`/`fortrydChangeSet` kalder `loadPerson(recordId)` med den person, der gjaldt, da skrivningen startede. Skifter redaktøren til B, før svaret kommer, indlæses A's evidens under B's navn, og B's svar kasseres via generationstælleren. Næste »Vælg konklusion«, »Slet« eller »Tilføj« sender A's assertion- og fact-id'er. Producerbart i dag: hovedsessionen fandt ingen busy-lås eller overlay, der spærrer personlisten, mens `submitChange` kører. Ikke dækket af `Redaktion.personSkift.test.tsx`. | `web/src/Redaktion.tsx:765`, `:813`, `:649` |
 | **M1** ✔ | core | `isHalfThrough` afgør »halv« ved at sammenligne id'et på den anden forælder. Er faderen foldet på tværs af udgaver, mens moderen står som to ulinkede rækker, giver det »halvsøskende« for helsøskende og »halvbrødre« mellem samme persons to rækker. Forekomst i prod er ikke målt (9 karantænegrupper). | `packages/core/src/relationship.ts:107-115`, `collapseSameAs.ts:169-179` |
 | **M2** ✔ | core | `uafhaengigeAntal` tæller node-disjunkte stier uden at se på stiernes konfidens. Flere linjer, der alle hviler på samme »formodede« barn-link, vises som »Bekræftet ad N uafhængige linjer«. »En anden, sikker linje« vises også, når den anden linje blot er uangivet. Det bryder invariant 7. | `relationship.ts:310-317, 351, 410`; `mobile/src/app/(tabs)/relate.tsx:26-27`; `web/src/components/RelateView.tsx:145` |
-| **E1** ✔ | pipeline, PII | Hændelses-eksporten filtrerer kun på hovedpersonen (`levende=false`). Afdødes 2018-20-biografier, der omtaler levende ægtefæller eller børn, sendes til LLM'en. Evidens-runnerens eligibility (regel 2-4) udelukker netop dem; ifølge `decisions.md:2820` drejer det sig om 13 + 62 + 2 poster. Rammer ved næste kørsel (#130). | `.claude/skills/daa-haendelser/scripts/export_narratives.R:23-34` |
+| **E1** ✔ | pipeline, PII | Hændelses-eksporten filtrerer kun på hovedpersonen (`levende=false`). Afdødes 2018-20-biografier, der omtaler levende ægtefæller eller børn, sendes til LLM'en. Evidens-runnerens eligibility (regel 2-4) udelukker netop dem; ifølge `decisions.md:2820` drejer det sig om 13 + 62 + 2 poster. Rammer ved næste kørsel (#130). **Forbehold:** det fremgår ikke entydigt, om regel 2-4 formelt binder dette LLM-pas eller kun evidens-runneren. Det er en beslutning for projektejeren, før #130 køres. | `.claude/skills/daa-haendelser/scripts/export_narratives.R:23-34` |
 | **E2** ✔ | pipeline, PII | `daa-presens`-skillen instruerer i at sende `raw_text` fra `work_presens/` (nulevende med navn, fødsel og bopæl) til en LLM, med noten »GDPR/RLS parkeret i PoC«. Det strider direkte mod CLAUDE.md. Validatoren skriver desuden levende personers `date_raw` til stderr. | `.claude/skills/daa-presens/SKILL.md:50-59, 105`; `scripts/validate_presens.py:66-67, 92-94` |
 
 ## 3. Middel alvor
@@ -73,13 +84,13 @@ de ikke er reelt lukket.
 ### Database
 | id | fund | belæg |
 |---|---|---|
-| D2 ✔ | `red_fortryd_change_set` sammenligner hele den nuværende række med `efter`-snapshot. En kolonne tilføjet efter snapshot (fx `source.sidekort`, `person.staged`) giver altid »nyere ændring rører …«, så gamle sæt kan kun fortrydes med `force`, som slår al divergensbeskyttelse fra. | `schema.sql:9327-9335, 9541` |
+| D2 ✔ | `red_fortryd_change_set` sammenligner hele den nuværende række med `efter`-snapshot. En kolonne tilføjet efter snapshot (fx `source.sidekort`, `person.staged`) giver altid »nyere ændring rører …«, så gamle sæt kan kun fortrydes med `force`, som slår al divergensbeskyttelse fra. Hovedsessionen har efterprøvet, at ingen af de senere tilføjede kolonner står i `version_pk_registry.skip_cols` (`schema.sql:9053-9088`), og at ingen migration retter `change_event.efter`. Gælder kun sæt fra før den pågældende kolonne blev tilføjet. | `schema.sql:9327-9335, 9541` |
 | D1 | `regen_person_visning` udleder slægtsnavn via `person_external_id.linje`. Genimport-writeren sætter kun `record_key`, så personer oprettet gennem evidenskæden får intet efternavn i cachen. Medlemskab via placement læses ikke og udløser ikke regenerering. Prod-effekt ikke målt; beslægtet med #150. | `schema.sql:6436-6439, 4235` |
 | D3 | Cachen tager `max()` over afklarede fakta af samme type (alfabetisk største titel), mens `red_upsert_fakta` rammer `LIMIT 1` uden `ORDER BY`. »Ret titel« kan derfor ramme et andet faktum end det viste. | `schema.sql:6444-6447, 6596-6597, 6655` |
 | D4 | `red_set_konklusion` genaktiverer ikke en `tilbagetrukket` konklusion. Kaldet melder succes uden synlig effekt. | `schema.sql:6700-6705` |
 | D5 | Ingen FK eller CHECK mod `vocab` for `faktatype`, `rolle`, `konfidens`, `status` og `date_qualifier`, og intet tjek af `date_min ≤ date_max` i `red_upsert_fakta`/`red_opret_fakta`/`red_relation`. Polymorf-triggeren validerer kun person og family (invariant 9). | `schema.sql:6581-6684, 7160-7194, 23639-23652` |
 | D6 | `db-rollback-foraeldrefamilie.sql` er udløbet (juli-cutover) og har hverken preflight eller flag. Kørt i dag sletter den 922 forældrefamilie-slots og genskaber gamle RPC-versioner. | `db-rollback-foraeldrefamilie.sql:21-104` |
-| S1 ✔ | `text_mention` gater narrativ-kilder med den gamle regel (`privat` + `entitet_offentlig`) i stedet for publiceringsgaten. Henvisninger fra kladder og tilbagetrukne narrativer er læsbare for anon. Ingen levende-læk. | `db-rls.sql:1050-1071` mod `:486-487` |
+| ~~S1~~ | **Tilbagekaldt af hovedsessionen.** `tm_read` bruger `EXISTS (SELECT … FROM narrative …)`, og den underforespørgsel kører under kalderens egen RLS på `narrative`. Dermed gælder `anon_read`/`auth_read` (publiceringsgaten, `db-rls.sql:486, 587`) allerede, og den gamle regel er kun et ekstra filter. Det er ikke et hul. | `db-rls.sql:1050-1071` |
 
 ### Mobil og packages
 | id | fund | belæg |
@@ -202,7 +213,7 @@ Ydelse er ikke målt nogen steder.
    - D1 og D3 (cache).
    - D5 (vokabular og CHECK, herunder S4).
    - D7 (historik ved udgavepublicering).
-   - S1 og S2.
+   - S2.
    - Arkivér D6.
 5. **CI og hosting:**
    - C1 (timeouts).
