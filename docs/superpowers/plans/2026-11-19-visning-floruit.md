@@ -13,7 +13,8 @@
 ## Global Constraints
 
 - Cacheformat: `'1671'` eller `'1349–1391'` (U+2013 en-tankestreg, ingen mellemrum); NULL uden kilder. Ordet »Nævnes« gemmes aldrig i DB.
-- Visningstekst: `'Nævnes ' + floruit` — kun når `fmtYears(foedt, doed)` er tom.
+- Visningstekst: `'Nævnes ' + floruit` — kun når `fmtYears(foedt, doed)` er tom. DB sætter `visning_floruit` NULL,
+  når personen har livsdatoer (projektejer 19/11); kun `regen_person_floruit` skriver feltet (ruling R4).
 - `visning_floruit` skrives KUN af `regen_person_visning` (invariant 4); står i `version_pk_registry.skip_cols` for `person`.
 - Kilder: kun `conclusion.status='afklaret'` og `assertion.id = conclusion.valgt_assertion_id`.
 - Familie-fakta tæller kun, når familien er offentlig (intet medlem med `levende IS NOT FALSE`, `privat` eller `staged`) og personens egen partner-række ikke har `konfidens IN ('formodet','omstridt')`.
@@ -166,7 +167,7 @@ floruit_kilder AS (
 - Modify: `docs/database-current-state.md` (ny §33), `docs/changelog.md`, `docs/decisions.md` (indgang 2026-11-19: GDPR-filter, konfidens, kvalifikatorer, leverance 2-retning)
 
 - [ ] **Step 1: Rækkefølge låses i runbooken:** CI grøn på draft-PR → generalprøve → prod-DDL+backfill → først derefter preview-afprøvning mod prod og merge (Review Focus 1).
-- [ ] **Step 2: `prod.zsh`** efter mønstret i `database-current-state.md` §29: `apply` (default prøve-kørsel med ROLLBACK; `--jeg-mener-det` committer) i ÉN transaktion: snapshot af `(id, seks visning_*)` i en temp-tabel → hash-tjek af blokken (sha af `db-migrations.sql`-blokken) → blokken → katalogblokken `OK: visning-floruit katalog` (kun den; adfærdsblokkene har egen ROLLBACK) → `SELECT regen_person_visning(id) FROM person` → invarianter før COMMIT: snapshot og nu er **identiske som mængde** (EXCEPT begge veje = 0), og `(id, visning_floruit)` er lig Task 0's forespørgsel kørt i samme transaktion; afvigelse = ROLLBACK med diffen udskrevet → før/efter-tal skrives til `~/.private/visning-floruit/log/`. `fortryd --jeg-mener-det`: genskab main's funktionsdefinitioner, drop de nye triggere, `UPDATE person SET visning_floruit=NULL` (kolonnen bliver; ufarlig).
+- [ ] **Step 2: `prod.zsh`** efter mønstret i `database-current-state.md` §29: `apply` (default prøve-kørsel med ROLLBACK; `--jeg-mener-det` committer) i ÉN transaktion: snapshot af `(id, seks visning_*)` i en temp-tabel → hash-tjek af blokken (sha af `db-migrations.sql`-blokken) → blokken → katalogblokken `OK: visning-floruit katalog` (kun den; adfærdsblokkene har egen ROLLBACK) → `SELECT regen_person_floruit(id) FROM person` (ruling R5) → invarianter før COMMIT: snapshot og nu er **identiske som mængde** (EXCEPT begge veje = 0), og `(id, visning_floruit)` er lig Task 0's forespørgsel kørt i samme transaktion; afvigelse = ROLLBACK med diffen udskrevet → før/efter-tal skrives til `~/.private/visning-floruit/log/`. `fortryd --jeg-mener-det`: genskab main's funktionsdefinitioner, drop de nye triggere, `UPDATE person SET visning_floruit=NULL` (kolonnen bliver; ufarlig).
 - [ ] **Step 3: Generalprøve** på en frisk restore af prod-dump (stand-in): `apply --jeg-mener-det`, mål tiden (skal være ≪ 2 min), `fortryd`, `apply` igen; tal = Task 0.
 - [ ] **Step 4: Projektejeren kører** `! zsh ~/.private/visning-floruit/prod.zsh apply` (prøve), derefter med `--jeg-mener-det` efter eksplicit ja. Derefter `get_advisors` (security) uden nye fund.
 - [ ] **Step 5: Browsertjek** (preview mod prod, som anon, desktop + mobil): 44 viser »Nævnes 1349–1391«; 594 viser »Nævnes 1657« (hvis familien er offentlig, ellers intet — se Task 0-tallet); 392 Conrad uændret; en person uden dato viser ingen årslinje.

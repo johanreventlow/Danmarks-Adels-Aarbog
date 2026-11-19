@@ -93,18 +93,22 @@ kilder. Åbne ender (`date_min` NULL = »før«) falder dermed tilbage på den k
 invariant 5), og råteksten bevares urørt i påstanden. Kun årstal, aldrig dag og måned, så visningen bliver aldrig mere
 præcis end bogen.
 
-**Altid beregnet**, også når livsdatoer findes (*mit valg*): cachen er en ren projektion af data; valget om at skjule
-den, når livsdatoer findes, ligger i præsentationen (§6). Det holder collapse simpel (en alias kan have livsdatoer).
+**NULL når livsdatoer findes** (projektejerens afgørelse 19/11, erstatter »altid beregnet«): har personen ikke-tom
+`visning_foedt` eller `visning_doed`, er `visning_floruit` NULL — floruit er kun relevant uden livsdatoer. I en
+samme_som-gruppe kan en alias uden livsdatoer stadig bære et floruit; collapse lader livsdatoerne vinde (§6).
 
-**Regenerering** — `regen_person_visning(pid)` sætter `visning_floruit` i samme `UPDATE` og samme
-`IS DISTINCT FROM`-vagt som de øvrige felter. Nye invalideringsveje, fordi en vielse ligger på familien:
+**Regenerering** (revideret efter Task 1, ruling R4) — en særskilt `regen_person_floruit(pid)` skriver **kun**
+`visning_floruit` (beregner spændet, NULL ved livsdatoer, `IS DISTINCT FROM`-vagt). `regen_person_visning(pid)` er
+uændret for de seks eksisterende felter og kalder `regen_person_floruit(pid)` til sidst, så den ser de friske
+livsdatoer. Alle nye invalideringsveje kalder kun `regen_person_floruit` — en trigger genberegner kun det, dens input
+påvirker, og eksisterende drift i de seks felter (issue #396) røres ikke:
 
 - `trg_regen_from_conclusion` og `trg_regen_from_assertion`: når target er et `fact` med `subjekt_type='family'`,
   regenerér alle familiens `partner`-medlemmer.
 - `family_member`: INSERT/DELETE/UPDATE (også af `konfidens`) af **enhver** række regenererer familiens
   `partner`-medlemmer (gammel og ny familie) — et nyt levende barn kan lukke familien.
 - `person`: UPDATE OF `levende`, `privat`, `staged` regenererer partnerne i alle familier, personen er medlem af
-  (`family_offentlig` kan skifte). Triggeren er kolonnebegrænset, så `regen_person_visning`s egen `UPDATE` af
+  (`family_offentlig` kan skifte). Triggeren er kolonnebegrænset, så regen-funktionernes egne `UPDATE`s af
   `visning_*` ikke udløser den igen.
 
 **Versionering:** `visning_floruit` tilføjes `version_pk_registry.skip_cols` for `person` (som `visning_efternavn`,
@@ -112,7 +116,7 @@ den, når livsdatoer findes, ligger i præsentationen (§6). Det holder collapse
 
 **Udrulning:** `schema.sql` (source of truth) + idempotent spejl i `db-migrations.sql` + asserts i `db-verify.sql`;
 prod-ceremoni efter den sædvanlige procedure (`docs/database-current-state.md`): DDL, derefter en backfill, der kalder
-`regen_person_visning` for alle personer, med før/efter-tal.
+`regen_person_floruit` for alle personer; de seks eksisterende `visning_*` skal være identiske som mængde før/efter.
 
 ## 6. Visning (app)
 
