@@ -49,7 +49,9 @@ describe('RelateView', () => {
     vis({ relA: '1', relB: '4' });
     const trin = within(screen.getByRole('list', { name: 'Vejen, trin for trin' })).getAllByRole('link');
     expect(trin[2].textContent).not.toContain('Livsdatoer');
-    expect(trin[2].querySelectorAll('span[style*="monospace"], span').length).toBeGreaterThan(0);
+    const aarSpans = (el: Element) => Array.from(el.querySelectorAll('span')).filter((s) => s.style.fontFamily.includes('monospace') && s.style.fontSize === '12px');
+    expect(aarSpans(trin[1]).length).toBe(1);
+    expect(aarSpans(trin[2])).toHaveLength(0);
     expect(screen.queryByText(/Livsdatoer ikke angivet/)).toBeNull();
   });
 
