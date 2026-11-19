@@ -31,24 +31,25 @@ const visning: UdgaveFaktaVisning = {
 const tom: UdgaveFaktaVisning = { linjer: [], kunI: [] };
 
 describe('PersonFakta', () => {
-  it('viser overskrift, værdier og kildeteksterne uden arbejdsgangsmærker', () => {
+  // 2026-11-19: kilden står ikke under hvert faktum; »Kilde i Aarbogen« nederst på personsiden er nok.
+  it('viser overskrift og værdier uden kildelinje pr. faktum og uden arbejdsgangsmærker', () => {
     const { container } = render(<PersonFakta visning={visning} error={false} />);
     expect(screen.getByText('Fakta')).toBeTruthy();
     expect(screen.getByText('Anna')).toBeTruthy();
-    expect(screen.getByText('DAA 2018-20, s. 45 · I-32')).toBeTruthy();
-    expect(screen.getByText('DAA 1939, s. 123')).toBeTruthy();
-    expect(screen.getByText('Kilde ikke registreret')).toBeTruthy();
+    expect(screen.queryByText('DAA 2018-20, s. 45 · I-32')).toBeNull();
+    expect(screen.queryByText('DAA 1939, s. 123')).toBeNull();
+    expect(screen.queryByText('Kilde ikke registreret')).toBeNull();
     expect(container.textContent).not.toContain('bundet til bogens post');
     expect(container.textContent).not.toContain('oprindelige import');
   });
 
-  it('viser alle kilder for en sammenlagt linje', () => {
+  it('en sammenlagt linje viser værdien én gang uden kilder', () => {
     render(<PersonFakta visning={{ linjer: [linje({ faktatype: 'titel', vaerdi: 'Greve', kilder: [
       { kind: 'bundet', label: 'DAA 2018-20, s. 137 · III-58', recordRef: 'a' },
       { kind: 'bundet', label: 'DAA 2018-20, s. 201-202 · V-1', recordRef: 'b' },
     ] })], kunI: [] }} error={false} />);
-    expect(screen.getByText('DAA 2018-20, s. 137 · III-58')).toBeTruthy();
-    expect(screen.getByText('DAA 2018-20, s. 201-202 · V-1')).toBeTruthy();
+    expect(screen.getAllByText('Greve')).toHaveLength(1);
+    expect(screen.queryByText('DAA 2018-20, s. 137 · III-58')).toBeNull();
   });
 
   it('omstridt viser mærket og Andre udsagn med hver sin kilde', () => {
