@@ -3754,18 +3754,27 @@ BEGIN
   PERFORM purge_test.nyt();
   INSERT INTO pg_temp.gdpr_id VALUES ('kob_forslag',public.red_suggest('rettelse','relation',pg_temp.gid('rel_m_famfoto'),'rolle',
     'afbildet',NULL,'{}'::jsonb,'Forslag: Testperson Gdpr Levende Barn står yderst'));
+  -- Codex runde 4 (fund B): note og forslag på en relation til familiens FAKTUM (vielsesfotoets kobling til vielse_b).
+  PERFORM purge_test.nyt();
+  PERFORM public.begin_change_set('gdpr_vielsesfoto_note','fixture','family',pg_temp.gid('fam_b'));
+  WITH x AS (INSERT INTO public.note(target_type,target_id,indhold) VALUES ('relation',pg_temp.gid('rel_m_vielse'),'Syntetisk billednote')
+    RETURNING id) INSERT INTO pg_temp.gdpr_id SELECT 'vfoto_note',id FROM x;
+  PERFORM purge_test.nyt();
+  INSERT INTO pg_temp.gdpr_id VALUES ('vfoto_forslag',public.red_suggest('rettelse','relation',pg_temp.gid('rel_m_vielse'),'rolle',
+    'afbildet',NULL,'{}'::jsonb,'Syntetisk billedforslag'));
   -- Codex-fund B: levende Q er barn i fam_s (kun en story), partner i fam_r (kun en relation familie→ejendom) og i fam_h
   -- (kun historik: en story, der er fortrudt). Alle tre bevares (afdøde partner/forældre og barn).
   FOR r IN SELECT * FROM (VALUES ('Q','Testperson Gdpr Kun','kvinde',true,'1992',NULL),
       ('q_pa','Testperson Gdpr Q Partner','mand',false,'1900','1970'),('q_barn','Testperson Gdpr Q Barn','mand',false,'1930','1990'),
       ('q_barn2','Testperson Gdpr Q Barn To','kvinde',false,'1932','1995'),
+      ('q_barn3','Testperson Gdpr Q Barn Tre','mand',false,'1934','1996'),
       ('q_f1','Testperson Gdpr Q Fader','mand',false,'1901','1980'),('q_f2','Testperson Gdpr Q Moder','kvinde',false,'1903','1985'))
     x(rolle,navn,koen,levende,foedt,doed) LOOP
     PERFORM purge_test.nyt();
     INSERT INTO pg_temp.gdpr_id VALUES (r.rolle,public.red_opret_person(r.navn,r.koen,r.levende,r.foedt,r.doed,NULL));
     PERFORM purge_test.nyt(); PERFORM public.red_set_privat(pg_temp.gid(r.rolle),false);
   END LOOP;
-  FOR f IN SELECT * FROM (VALUES ('s','q_f1','q_f2','Q',1),('r','Q','q_pa','q_barn',1),('h','Q','q_pa','q_barn2',2))
+  FOR f IN SELECT * FROM (VALUES ('s','q_f1','q_f2','Q',1),('r','Q','q_pa','q_barn',1),('h','Q','q_pa','q_barn2',2),('k','Q','q_pa','q_barn3',3))
     x(k,a,b,barn,ord) LOOP
     PERFORM purge_test.nyt();
     v_fam:=public.red_opret_union(pg_temp.gid(f.a),pg_temp.gid(f.b),'vielse',f.ord);
@@ -3776,8 +3785,20 @@ BEGIN
       INSERT INTO pg_temp.gdpr_id VALUES ('story_qs',public.red_opret_story('family',v_fam,'Syntetisk familiehistorie','Familien'));
     ELSIF f.k='r' THEN
       INSERT INTO pg_temp.gdpr_id VALUES ('rel_qr',public.red_relation('family',v_fam,'estate',purge_test.id('ejendom'),'ejer'));
-    ELSE
+    ELSIF f.k='h' THEN
       PERFORM public.red_opret_story('family',v_fam,'Syntetisk tidligere historie','Familien');
+      v_cs:=purge_test.saet();
+      PERFORM purge_test.nyt(); PERFORM public.red_fortryd_change_set(v_cs,false);
+    ELSE
+      -- Codex runde 4 (fund B): kun en bevaret familiefoto-kobling og historik fra en tidligere (fortrudt) note på den.
+      v_m:=public.red_upload_media('foto','Syntetisk billede','gdpr-test/q-familie.jpg','image/jpeg',p_objekt_type=>'family',
+        p_objekt_id=>v_fam,p_maa_publiceres=>true);
+      INSERT INTO pg_temp.gdpr_id VALUES ('m_qk',v_m);
+      PERFORM purge_test.nyt(); PERFORM public.red_bekraeft_media_upload(v_m);
+      PERFORM purge_test.nyt();
+      PERFORM public.begin_change_set('gdpr_koblingsnote_gl','fixture','family',v_fam);
+      INSERT INTO public.note(target_type,target_id,indhold)
+        SELECT 'relation',id,'Syntetisk tidligere note' FROM public.relation WHERE subjekt_type='media' AND subjekt_id=v_m;
       v_cs:=purge_test.saet();
       PERFORM purge_test.nyt(); PERFORM public.red_fortryd_change_set(v_cs,false);
     END IF;
@@ -4162,9 +4183,11 @@ BEGIN
   PERFORM pg_temp.gdpr_assert(jsonb_array_length(b->'familieindhold_slettes')=1
     AND pg_temp.gdpr_fi(b,pg_temp.gid('fam_b'))-'historik'=jsonb_build_object('family_id',pg_temp.gid('fam_b'),
       'fakta',jsonb_build_array(pg_temp.gid('vielse_b')),
-      'noter',jsonb_build_array(least(pg_temp.gid('note_b'),pg_temp.gid('kob_note')),greatest(pg_temp.gid('note_b'),pg_temp.gid('kob_note'))),
+      -- runde 4: også note og forslag på relationen til familiens faktum (vielsesfotoets kobling).
+      'noter',(SELECT jsonb_agg(x ORDER BY x) FROM unnest(ARRAY[pg_temp.gid('note_b'),pg_temp.gid('kob_note'),pg_temp.gid('vfoto_note')]) x),
       'narrativer',jsonb_build_array(pg_temp.gid('narr_b')),'haendelser','[]'::jsonb,'stories','[]'::jsonb,
-      'relationer',jsonb_build_array(pg_temp.gid('rel_m_vielse')),'forslag',jsonb_build_array(pg_temp.gid('kob_forslag')))
+      'relationer',jsonb_build_array(pg_temp.gid('rel_m_vielse')),
+      'forslag',(SELECT jsonb_agg(x ORDER BY x) FROM unnest(ARRAY[pg_temp.gid('kob_forslag'),pg_temp.gid('vfoto_forslag')]) x))
     AND (pg_temp.gdpr_fi(b,pg_temp.gid('fam_b'))->>'historik')::int>0
     AND b->'vielser_staar'='[]'::jsonb AND b->'familier_bevares' @> to_jsonb(pg_temp.gid('fam_b')),'gdpr_preview_familieindhold_barn');
   -- Familiefotoet skjules (låses), vielsesfotoet slettes med sin storage-sti.
@@ -4177,13 +4200,14 @@ END $t$;
 \echo OK gdpr_preview_familieindhold_partner
 \echo OK gdpr_preview_familieindhold_barn
 \echo OK gdpr_preview_familiefoto_skjules
--- Codex-fund B: en bevaret familie med KUN en story, KUN en relation eller KUN historik vises også.
+-- Codex-fund B: en bevaret familie med KUN en story, KUN en relation eller KUN historik vises også; runde 4: også kun
+-- historik fra en tidligere note på en bevaret familiefoto-kobling (fam_qk).
 DO $t$
 DECLARE q jsonb:=(SELECT j FROM gdpr_preview WHERE hvem='Q');
   v_tom jsonb:=jsonb_build_object('fakta','[]'::jsonb,'noter','[]'::jsonb,'narrativer','[]'::jsonb,'haendelser','[]'::jsonb,
     'stories','[]'::jsonb,'relationer','[]'::jsonb,'forslag','[]'::jsonb);
 BEGIN
-  PERFORM pg_temp.gdpr_assert(q->'blokeringer'='[]'::jsonb AND jsonb_array_length(q->'familieindhold_slettes')=3
+  PERFORM pg_temp.gdpr_assert(q->'blokeringer'='[]'::jsonb AND jsonb_array_length(q->'familieindhold_slettes')=4
     AND q->'familier_slettes'='[]'::jsonb,'gdpr_preview_kun_story_relation_historik');
   PERFORM pg_temp.gdpr_assert(pg_temp.gdpr_fi(q,pg_temp.gid('fam_qs'))-'historik'
       =v_tom||jsonb_build_object('family_id',pg_temp.gid('fam_qs'),'stories',jsonb_build_array(pg_temp.gid('story_qs'))),
@@ -4193,10 +4217,13 @@ BEGIN
     'gdpr_preview_kun_relation');
   PERFORM pg_temp.gdpr_assert(pg_temp.gdpr_fi(q,pg_temp.gid('fam_qh'))-'historik'=v_tom||jsonb_build_object('family_id',pg_temp.gid('fam_qh'))
     AND (pg_temp.gdpr_fi(q,pg_temp.gid('fam_qh'))->>'historik')::int>0,'gdpr_preview_kun_historik');
+  PERFORM pg_temp.gdpr_assert(pg_temp.gdpr_fi(q,pg_temp.gid('fam_qk'))=v_tom||jsonb_build_object('family_id',pg_temp.gid('fam_qk'),
+      'historik',1) AND q->'medier_skjules' @> to_jsonb(pg_temp.gid('m_qk')),'gdpr_preview_kun_koblingsnote_historik');
 END $t$;
 \echo OK gdpr_preview_kun_story
 \echo OK gdpr_preview_kun_relation
 \echo OK gdpr_preview_kun_historik
+\echo OK gdpr_preview_kun_koblingsnote_historik
 DO $t$
 DECLARE o jsonb:=(SELECT j FROM gdpr_preview WHERE hvem='O'); p jsonb:=(SELECT j FROM gdpr_preview WHERE hvem='P');
 BEGIN

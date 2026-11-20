@@ -176,7 +176,9 @@ hvor rækken handler om personen:
   udledes de berørte familier af hele sletteplanen, med kategorierne `fakta`, `noter` (også på familiens fakta og
   relationer), `narrativer`, `haendelser`, `stories`, `relationer` (familien eller dens fakta som ende), `forslag` og
   `historik` (antal slettede historik-events om familien, uden medlemskaber), så også en familie med fx kun en story,
-  en relation eller kun historik vises.
+  en relation eller kun historik vises. Familieejerskabet er transitivt (familie → fakta → relationer → noter, forslag
+  og evidens), så fx en tidligere note på en bevaret familiefoto-kobling eller en note på en relation til familiens
+  faktum også tælles med.
   **Undtagelse 2026-11-20 (projektejeren):** en kobling *direkte* mellem et billede og en sådan bevaret familie (fx
   forældrenes familiefoto, når et levende barn slettes) bevares med sin historik, og billedet låses
   (`maa_publiceres=false`, vist under `medier_skjules`), så redaktionen kan finde og genfrigive det. Et billede, der kun

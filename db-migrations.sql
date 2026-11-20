@@ -43543,6 +43543,84 @@ BEGIN
     UNION ALL SELECT jsonb_build_object('art','forældede_bindinger','niveau','advarsel',
       'narrativer',(SELECT count(*) FROM stale_narratives),'bindinger',(SELECT count(*) FROM stale_bindings))
       WHERE EXISTS (SELECT 1 FROM stale_narratives) OR EXISTS (SELECT 1 FROM stale_bindings)),
+  -- Codex-fund B (runde 4): familieejerskab for de bevarede Fam_ind-familier (fi), afledt TRANSITIVT: familie → fakta
+  -- → relationer (familie- eller fakta-ende) → noter, forslag og evidens; narrativ → hændelser; story → kilder. Kilderne
+  -- er de levende rækker og de historik-events, der SLETTES (slettes-id'erne): alt familieindhold i historikken, der
+  -- fjernes, ligger dér, så ingen fuld scanning af change_event (preview-loftet er 8 s). Samme mapping giver
+  -- kategorierne og historiktællingen. Bruges kun til visning; sletningen afgøres af planen.
+  fi AS MATERIALIZED (SELECT id FROM private.person_purge_familieindhold(p_person_id) EXCEPT SELECT id FROM fam_del),
+  ev AS MATERIALIZED (SELECT e.id,e.change_set_id,e.tabel,e.op,e.row_pk->>'id' AS rid,v.j FROM public.change_event e
+    CROSS JOIN LATERAL (VALUES(e.foer),(e.efter)) v(j)
+    WHERE EXISTS (SELECT 1 FROM fi) AND v.j IS NOT NULL
+      AND e.id IN (SELECT (pk->>'id')::bigint FROM slettes WHERE tabel='change_event')),
+  ofa AS MATERIALIZED (
+    SELECT f.subjekt_id AS k,f.id::text AS id FROM public.fact f WHERE f.subjekt_type='family' AND f.subjekt_id IN (SELECT id FROM fi)
+    UNION SELECT (j->>'subjekt_id')::bigint,rid FROM ev
+      WHERE tabel='fact' AND j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM fi)),
+  orl AS MATERIALIZED (
+    SELECT r.subjekt_id AS k,r.id::text AS id FROM public.relation r WHERE r.subjekt_type='family' AND r.subjekt_id IN (SELECT id FROM fi)
+    UNION SELECT r.objekt_id,r.id::text FROM public.relation r WHERE r.objekt_type='family' AND r.objekt_id IN (SELECT id FROM fi)
+    UNION SELECT o.k,r.id::text FROM public.relation r JOIN ofa o ON r.subjekt_type='fact' AND r.subjekt_id::text=o.id
+    UNION SELECT o.k,r.id::text FROM public.relation r JOIN ofa o ON r.objekt_type='fact' AND r.objekt_id::text=o.id
+    UNION SELECT (j->>'subjekt_id')::bigint,rid FROM ev
+      WHERE tabel='relation' AND j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM fi)
+    UNION SELECT (j->>'objekt_id')::bigint,rid FROM ev
+      WHERE tabel='relation' AND j->>'objekt_type'='family' AND j->>'objekt_id' IN (SELECT id::text FROM fi)
+    UNION SELECT o.k,ev.rid FROM ev JOIN ofa o ON ev.tabel='relation'
+      AND ((ev.j->>'subjekt_type'='fact' AND ev.j->>'subjekt_id'=o.id) OR (ev.j->>'objekt_type'='fact' AND ev.j->>'objekt_id'=o.id))),
+  onr AS MATERIALIZED (
+    SELECT n.subjekt_id AS k,n.id::text AS id FROM public.narrative n WHERE n.subjekt_type='family' AND n.subjekt_id IN (SELECT id FROM fi)
+    UNION SELECT (j->>'subjekt_id')::bigint,rid FROM ev
+      WHERE tabel='narrative' AND j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM fi)),
+  ost AS MATERIALIZED (
+    SELECT t.subjekt_id AS k,t.id::text AS id FROM public.story t WHERE t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM fi)
+    UNION SELECT (j->>'subjekt_id')::bigint,rid FROM ev
+      WHERE tabel='story' AND j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM fi)),
+  -- Mål (fakta/relationer) for evidens og noter: (k, 'fact'|'relation', id).
+  omaal AS MATERIALIZED (SELECT k,'fact'::text AS typ,id FROM ofa UNION ALL SELECT k,'relation',id FROM orl),
+  oas AS MATERIALIZED (
+    SELECT o.k,a.id::text AS id FROM public.assertion a JOIN omaal o ON a.target_type=o.typ AND a.target_id::text=o.id
+    UNION SELECT o.k,ev.rid FROM ev JOIN omaal o ON ev.tabel='assertion' AND ev.j->>'target_type'=o.typ AND ev.j->>'target_id'=o.id),
+  ocn AS MATERIALIZED (
+    SELECT o.k,c.id::text AS id FROM public.conclusion c JOIN omaal o ON c.target_type=o.typ AND c.target_id::text=o.id
+    UNION SELECT o.k,ev.rid FROM ev JOIN omaal o ON ev.tabel='conclusion' AND ev.j->>'target_type'=o.typ AND ev.j->>'target_id'=o.id),
+  oci AS MATERIALIZED (
+    SELECT o.k,c.id::text AS id FROM public.citation c JOIN oas o ON c.assertion_id::text=o.id
+    UNION SELECT o.k,ev.rid FROM ev JOIN oas o ON ev.tabel='citation' AND ev.j->>'assertion_id'=o.id),
+  ono AS MATERIALIZED (
+    SELECT o.target_id AS k,o.id::text AS id FROM public.note o WHERE o.target_type='family' AND o.target_id IN (SELECT id FROM fi)
+    UNION SELECT m.k,o.id::text FROM public.note o JOIN omaal m ON o.target_type=m.typ AND o.target_id::text=m.id
+    UNION SELECT (j->>'target_id')::bigint,rid FROM ev
+      WHERE tabel='note' AND j->>'target_type'='family' AND j->>'target_id' IN (SELECT id::text FROM fi)
+    UNION SELECT m.k,ev.rid FROM ev JOIN omaal m ON ev.tabel='note' AND ev.j->>'target_type'=m.typ AND ev.j->>'target_id'=m.id),
+  -- Hændelser: levende under familien eller dens narrativ; historiske med samme beviser som historiklukningen (feed-dom
+  -- åbnet for netop hændelsen med familien som subjekt, eller kaskadesletning af familiens narrativ).
+  oha AS MATERIALIZED (
+    SELECT h.subjekt_id AS k,h.id::text AS id FROM public.haendelse h WHERE h.subjekt_type='family' AND h.subjekt_id IN (SELECT id FROM fi)
+    UNION SELECT o.k,h.id::text FROM public.haendelse h JOIN onr o ON h.narrative_id::text=o.id
+    UNION SELECT cs.subjekt_id,ev.rid FROM ev JOIN public.change_set cs ON cs.id=ev.change_set_id
+      WHERE ev.tabel='haendelse' AND cs.operation='red_set_haendelse_status' AND cs.subjekt_type='family'
+        AND cs.subjekt_id IN (SELECT id FROM fi) AND cs.summary LIKE '% på hændelse '||ev.rid
+    UNION SELECT o.k,ev.rid FROM ev JOIN ev x ON x.change_set_id=ev.change_set_id AND x.tabel='narrative' AND x.op='DELETE'
+      JOIN onr o ON o.id=x.rid WHERE ev.tabel='haendelse' AND ev.op='DELETE'),
+  osk AS MATERIALIZED (
+    SELECT o.k,t.id::text AS id FROM public.story_kilde t JOIN ost o ON t.story_id::text=o.id
+    UNION SELECT o.k,ev.rid FROM ev JOIN ost o ON ev.tabel='story_kilde' AND ev.j->>'story_id'=o.id),
+  osg AS MATERIALIZED (
+    SELECT g.subjekt_id AS k,g.id::text AS id FROM public.suggestion g WHERE g.subjekt_type='family' AND g.subjekt_id IN (SELECT id FROM fi)
+    UNION SELECT m.k,g.id::text FROM public.suggestion g JOIN omaal m ON g.subjekt_type=m.typ AND g.subjekt_id::text=m.id),
+  ofp AS MATERIALIZED (
+    SELECT o.k,ev.rid AS id FROM ev JOIN ost o ON ev.tabel='feed_pin' AND ev.j->>'kort_noegle'='story:'||o.id
+    UNION SELECT o.k,ev.rid FROM ev JOIN oha o ON ev.tabel='feed_pin'
+      AND ev.j->>'kort_noegle' IN ('arkiv:'||o.id,'paadennedag:h:'||o.id)),
+  own AS MATERIALIZED (
+    SELECT k,'fact'::text AS tabel,id FROM ofa UNION SELECT k,'relation',id FROM orl UNION SELECT k,'narrative',id FROM onr
+    UNION SELECT k,'story',id FROM ost UNION SELECT k,'assertion',id FROM oas UNION SELECT k,'conclusion',id FROM ocn
+    UNION SELECT k,'citation',id FROM oci UNION SELECT k,'note',id FROM ono UNION SELECT k,'haendelse',id FROM oha
+    UNION SELECT k,'story_kilde',id FROM osk UNION SELECT k,'suggestion',id FROM osg UNION SELECT k,'feed_pin',id FROM ofp),
+  fi_slettes AS MATERIALIZED (SELECT o.k,d.tabel,(d.pk->>'id')::bigint AS id FROM slettes d JOIN own o
+    ON o.tabel=d.tabel AND o.id=d.pk->>'id' WHERE d.tabel IN ('fact','note','narrative','haendelse','story','relation','suggestion')),
+  fi_historik AS MATERIALIZED (SELECT o.k,count(DISTINCT ev.id) AS n FROM ev JOIN own o ON o.tabel=ev.tabel AND o.id=ev.rid GROUP BY o.k),
   steder AS (SELECT sted,jsonb_agg(jsonb_build_object('tabel',tabel,'pk',pk,'handling',handling,'grund',grund,'fase',fase,'ekstra',ekstra)
       ORDER BY tabel COLLATE "C",pk::text COLLATE "C") AS j FROM plan GROUP BY sted),
   storage AS (SELECT DISTINCT ekstra->>'bucket' AS bucket,ekstra->>'storage_path' AS sti
@@ -43559,50 +43637,21 @@ BEGIN
     'vielser_staar',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM public.fact
       WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep) AND faktatype='vielse'
         AND jsonb_build_object('id',id) NOT IN (SELECT pk FROM slettes WHERE tabel='fact')),'[]'::jsonb),
-    -- Codex-fund B: berørte familier udledes af HELE Fam_ind-sletteplanen, alle kategorier inkl. historik, så en
-    -- familie med fx kun en story, en relation eller kun historik også vises. Kun Fam_ind (bevarede familier).
-    'familieindhold_slettes',coalesce((SELECT jsonb_agg(x.j ORDER BY x.id) FROM (
-      SELECT k.id,jsonb_build_object('family_id',k.id,
-        'fakta',coalesce((SELECT jsonb_agg(f.id ORDER BY f.id) FROM public.fact f JOIN slettes d
-          ON d.tabel='fact' AND d.pk=jsonb_build_object('id',f.id) WHERE f.subjekt_type='family' AND f.subjekt_id=k.id),'[]'::jsonb),
-        -- Noter på familien, dens fakta og dens relationer (også en bevaret medie-kobling).
-        'noter',coalesce((SELECT jsonb_agg(o.id ORDER BY o.id) FROM public.note o JOIN slettes d
-          ON d.tabel='note' AND d.pk=jsonb_build_object('id',o.id) WHERE (o.target_type='family' AND o.target_id=k.id)
-            OR (o.target_type='fact' AND o.target_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id=k.id))
-            OR (o.target_type='relation' AND o.target_id IN (SELECT id FROM public.relation WHERE (subjekt_type='family' AND subjekt_id=k.id)
-              OR (objekt_type='family' AND objekt_id=k.id)))),'[]'::jsonb),
-        'narrativer',coalesce((SELECT jsonb_agg(n.id ORDER BY n.id) FROM public.narrative n JOIN slettes d
-          ON d.tabel='narrative' AND d.pk=jsonb_build_object('id',n.id) WHERE n.subjekt_type='family' AND n.subjekt_id=k.id),'[]'::jsonb),
-        'haendelser',coalesce((SELECT jsonb_agg(h.id ORDER BY h.id) FROM public.haendelse h JOIN slettes d
-          ON d.tabel='haendelse' AND d.pk=jsonb_build_object('id',h.id) WHERE (h.subjekt_type='family' AND h.subjekt_id=k.id)
-            OR h.narrative_id IN (SELECT id FROM public.narrative WHERE subjekt_type='family' AND subjekt_id=k.id)),'[]'::jsonb),
-        'stories',coalesce((SELECT jsonb_agg(t.id ORDER BY t.id) FROM public.story t JOIN slettes d
-          ON d.tabel='story' AND d.pk=jsonb_build_object('id',t.id) WHERE t.subjekt_type='family' AND t.subjekt_id=k.id),'[]'::jsonb),
-        -- Relationer med familien eller et af dens fakta som ende.
-        'relationer',coalesce((SELECT jsonb_agg(r.id ORDER BY r.id) FROM public.relation r JOIN slettes d
-          ON d.tabel='relation' AND d.pk=jsonb_build_object('id',r.id) WHERE (r.subjekt_type='family' AND r.subjekt_id=k.id)
-            OR (r.objekt_type='family' AND r.objekt_id=k.id)
-            OR (r.subjekt_type='fact' AND r.subjekt_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id=k.id))
-            OR (r.objekt_type='fact' AND r.objekt_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id=k.id))),'[]'::jsonb),
-        -- Forslag på familien, dens fakta og dens relationer.
-        'forslag',coalesce((SELECT jsonb_agg(g.id ORDER BY g.id) FROM public.suggestion g JOIN slettes d
-          ON d.tabel='suggestion' AND d.pk=jsonb_build_object('id',g.id) WHERE (g.subjekt_type='family' AND g.subjekt_id=k.id)
-            OR (g.subjekt_type='fact' AND g.subjekt_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id=k.id))
-            OR (g.subjekt_type='relation' AND g.subjekt_id IN (SELECT id FROM public.relation WHERE (subjekt_type='family' AND subjekt_id=k.id)
-              OR (objekt_type='family' AND objekt_id=k.id)))),'[]'::jsonb),
-        -- Antal historik-events, der slettes og handler om familien: snapshot med familien som subjekt/objekt/mål, eller
-        -- et sæt med familien som subjekt (fx en feed-dom eller en fortrudt vielse med evidens). Medlemskaber (P's eget
-        -- family_member) er ikke familiens indhold og tælles ikke.
-        'historik',(SELECT count(*) FROM public.change_event e JOIN slettes d
-          ON d.tabel='change_event' AND d.pk=jsonb_build_object('id',e.id)
-          WHERE e.tabel NOT IN ('family','family_member') AND (EXISTS (SELECT 1 FROM public.change_set cs WHERE cs.id=e.change_set_id AND cs.subjekt_type='family' AND cs.subjekt_id=k.id)
-            OR EXISTS (SELECT 1 FROM (VALUES(e.foer),(e.efter)) v(j) WHERE
-              (j->>'subjekt_type'='family' AND j->>'subjekt_id'=k.id::text) OR (j->>'objekt_type'='family' AND j->>'objekt_id'=k.id::text)
-              OR (j->>'target_type'='family' AND j->>'target_id'=k.id::text))))) AS j
-      FROM (SELECT id FROM private.person_purge_familieindhold(p_person_id) EXCEPT SELECT id FROM fam_del) k) x
-      WHERE x.j->'fakta'<>'[]'::jsonb OR x.j->'noter'<>'[]'::jsonb OR x.j->'narrativer'<>'[]'::jsonb
-        OR x.j->'haendelser'<>'[]'::jsonb OR x.j->'stories'<>'[]'::jsonb OR x.j->'relationer'<>'[]'::jsonb
-        OR x.j->'forslag'<>'[]'::jsonb OR (x.j->>'historik')::bigint>0),'[]'::jsonb),
+    -- Codex-fund B: berørte familier udledes af hele Fam_ind-sletteplanen, alle kategorier inkl. historik, via den
+    -- transitive ejerskabsmapping ovenfor (own), så en familie med fx kun en story, en relation eller kun historik vises.
+    'familieindhold_slettes',coalesce((SELECT jsonb_agg(x.j ORDER BY x.k) FROM (
+      SELECT k.id AS k,jsonb_build_object('family_id',k.id,
+        'fakta',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM fi_slettes WHERE k=k.id AND tabel='fact'),'[]'::jsonb),
+        'noter',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM fi_slettes WHERE k=k.id AND tabel='note'),'[]'::jsonb),
+        'narrativer',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM fi_slettes WHERE k=k.id AND tabel='narrative'),'[]'::jsonb),
+        'haendelser',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM fi_slettes WHERE k=k.id AND tabel='haendelse'),'[]'::jsonb),
+        'stories',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM fi_slettes WHERE k=k.id AND tabel='story'),'[]'::jsonb),
+        'relationer',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM fi_slettes WHERE k=k.id AND tabel='relation'),'[]'::jsonb),
+        'forslag',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM fi_slettes WHERE k=k.id AND tabel='suggestion'),'[]'::jsonb),
+        -- Antal slettede historik-events om familiens indhold (medlemskaber er ikke indhold og tælles ikke).
+        'historik',coalesce((SELECT n FROM fi_historik WHERE k=k.id),0)) AS j
+      FROM fi k WHERE EXISTS (SELECT 1 FROM fi_slettes WHERE k=k.id) OR EXISTS (SELECT 1 FROM fi_historik WHERE k=k.id)) x),
+      '[]'::jsonb),
     'medier_skjules',coalesce((SELECT jsonb_agg((pk->>'id')::bigint ORDER BY (pk->>'id')::bigint) FROM plan
       WHERE tabel='media' AND handling='skjul'),'[]'::jsonb),
     'samme_som_komponent',coalesce((SELECT jsonb_agg(pid ORDER BY pid) FROM public._samme_som_gruppe(p_person_id)),'[]'::jsonb),

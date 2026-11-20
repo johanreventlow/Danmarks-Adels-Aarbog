@@ -220,7 +220,11 @@ hændelser, relationer med familieende; Codex-fund). Manifestvagten godkender fa
 fra levende medlemskab; Fam_del kræver fortsat family-beviset i manifestet. Er P offentlig, er Fam_ind tom.
 Forhåndsvisningens `familieindhold_slettes` udledes pr. familie i `Fam_ind \ Fam_del` af planens slet-rækker i alle
 kategorier (fakta, noter, narrativer, hændelser, stories, relationer, forslag) plus antal slettede `change_event` om
-familien (snapshot med familien som subjekt/objekt/mål eller sæt med familien som subjekt; medlemskaber tælles ikke).
+familiens indhold (medlemskaber tælles ikke). Ejerskabet er transitivt (runde 4, Codex-fund B): familie → fakta →
+relationer med familie- eller fakta-ende (også en bevaret medie-kobling) → noter, forslag og evidens; narrativ →
+hændelser; story → kilder. Kilderne er de levende rækker og de historik-events, der slettes (planens slettes-id'er), så
+der ikke scannes hele `change_event`. Den første udgave (runde 3) scannede `change_event` pr. familie og tog 47 s på en
+syntetisk stand-in i prod-størrelse (108.601 events); den nye tager ca. 0,7 s (samme niveau som runde 2).
 
 **Bevaret medie↔familie-kobling (projektejeren 2026-11-20).** En relation *direkte* mellem et medie og en familie i
 `Fam_ind \ Fam_del` (`R_kob`, CTE `rk`) er ikke familieindhold: den er taget ud af R_fam (S14b), og dens historik
