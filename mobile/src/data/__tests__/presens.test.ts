@@ -188,7 +188,19 @@ describe('mapPresensNavneDele: fødenavn-faktum (#401)', () => {
     const kone = { id: 2, visning_navn: 'Anna Hansen', visning_efternavn: null, koen: 'kvinde' };
     const r = mapPresensNavneDele([kone, mand], adel, par, [{ subjekt_id: 2, vaerdi_tekst: 'Hansen' }]);
     expect(r['2'].fodt).toBe('Hansen');
-    expect(formatAndetNavn(r['2'], 'fallback')).toBe('Grevinde Anna Hansen Reventlow, født Hansen');
+    // Projektejeren 20/11: pigenavnet står ikke dobbelt — det fjernes fra navnets slutning, når »født …« vises.
+    expect(r['2'].navn).toBe('Anna');
+    expect(formatAndetNavn(r['2'], 'fallback')).toBe('Grevinde Anna Reventlow, født Hansen');
+    expect(formatAnkerNavn(r['2'], 'fallback')).toBe('Anna grevinde Reventlow, født Hansen');
+  });
+
+  test('pigenavnet fjernes uanset store bogstaver og bindestregs-tegn, men kun som helt ord til sidst', () => {
+    const kone = (navn: string) => ({ id: 2, visning_navn: navn, visning_efternavn: null, koen: 'kvinde' });
+    const fn = (v: string) => [{ subjekt_id: 2, vaerdi_tekst: v }];
+    expect(mapPresensNavneDele([kone('Beke Ahlefeldt\u2011Laurvig'), mand], adel, par, fn('ahlefeldt-laurvig'))['2'].navn).toBe('Beke');
+    expect(mapPresensNavneDele([kone('Anna Christensen'), mand], adel, par, fn('Hansen'))['2'].navn).toBe('Anna Christensen');
+    expect(mapPresensNavneDele([kone('Anna Hansensdatter'), mand], adel, par, fn('Hansen'))['2'].navn).toBe('Anna Hansensdatter');
+    expect(mapPresensNavneDele([kone('Hansen'), mand], adel, par, fn('Hansen'))['2'].navn).toBe('Hansen');
   });
 
   test('fødenavn uden adelig ægtefælle ændrer intet', () => {

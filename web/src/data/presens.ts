@@ -110,6 +110,17 @@ function fodtKlausul(egenTitel: string, egetEfternavn: string): string | undefin
   return egenTitel ? `${egenTitel.toLowerCase()} ${egetEfternavn}` : egetEfternavn;
 }
 
+// Projektejeren 20/11 (#401): pigenavnet står ikke dobbelt. Ender navnet (ingiftes fulde navn) på det slægtsnavn, der
+// vises i »født …«, fjernes det fra navnet — som helt ord, uden hensyn til store bogstaver og bindestregs-tegn. Står der
+// intet andet tilbage, bevares navnet.
+const normBindestreg = (s: string): string => s.replace(/[\u2010\u2011\u2012\u2013]/g, '-').toLowerCase();
+function udenSlaegtsnavnTilSidst(navn: string, slaegtsnavn: string): string {
+  const n = navn.trim();
+  const s = slaegtsnavn.trim();
+  if (!s || !normBindestreg(n).endsWith(` ${normBindestreg(s)}`)) return navn;
+  return n.slice(0, n.length - s.length).trim() || navn;
+}
+
 export function mapPresensNavneDele(
   personer: RawNavneDele[],
   adelsTitelFakta: RawTitelFact[],
@@ -152,7 +163,9 @@ export function mapPresensNavneDele(
         dele.titel = feminiseret;
         dele.efternavn = aegtefaelle.visning_efternavn;
         dele.tilgiftet = true;
-        dele.fodt = fodtKlausul(egenTitel, foedenavnById.get(id) ?? egetEfternavn);
+        const foede = foedenavnById.get(id) ?? egetEfternavn;
+        dele.fodt = fodtKlausul(egenTitel, foede);
+        if (dele.fodt) dele.navn = udenSlaegtsnavnTilSidst(dele.navn, foede);
       }
     }
     out[id] = dele;
