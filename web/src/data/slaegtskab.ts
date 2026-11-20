@@ -40,11 +40,11 @@ export function personForslag(model: Model, query: string, n = 8): PersonForslag
 export type VejTrin = {
   id: string; name: string; years: string;
   foerste: boolean; anden: boolean; faellesAne: boolean;
-  // Leddet op til dette trin fra det forrige, når bogen kalder det formodet eller omstridt.
-  usikkertLed: 'formodet' | 'omstridt' | null;
+  // Leddet op til dette trin, når bogen kalder det sandsynligt, formodet eller omstridt.
+  usikkertLed: 'sandsynlig' | 'formodet' | 'omstridt' | null;
 };
 
-const usikker = (k: Konfidens | undefined): VejTrin['usikkertLed'] => (k === 'formodet' || k === 'omstridt' ? k : null);
+const usikker = (k: Konfidens | undefined): VejTrin['usikkertLed'] => (k === 'sandsynlig' || k === 'formodet' || k === 'omstridt' ? k : null);
 
 export function vejTrin(line: RelationLine): VejTrin[] {
   const sidste = line.steps.length - 1;
@@ -92,7 +92,7 @@ function forbindelse(lines: RelationLine[], koen: Koen | undefined): Forbindelse
     ord: slaegtskabTilMig(l.d1, l.d2, { koen, half: l.half }),
     sikkerhed,
     // Samme regel som »Er vi i familie?«: en usikker vej bekræftes af en anden, sikker vej.
-    bekraeftetAndenVej: l.usikker && lines.slice(1).some((x) => !x.usikker),
+    bekraeftetAndenVej: l.usikker && lines.some((x) => x.uafhaengige > 0),
     veje: lines.length,
   };
 }

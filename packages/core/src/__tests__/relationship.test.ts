@@ -158,7 +158,8 @@ describe('anepar-collapse + halv-relationer', () => {
     ({ id, name: id, born: null, died: null, years: '', title: '', bio: '', privat: false, koen: koen ?? null });
   // Far + Mor → S1, S2 (helsøskende).  Far + Mor2 → H (halvsøskende til S1/S2).
   const db4: Db = {
-    persons: [mk4('Far', 'mand'), mk4('Mor', 'kvinde'), mk4('Mor2', 'kvinde'), mk4('S1', 'mand'), mk4('S2', 'kvinde'), mk4('H', 'mand')],
+    // Mødrenes hele levetider er disjunkte: forskelligt id alene beviser ikke forskellig identitet.
+    persons: [mk4('Far', 'mand'), { ...mk4('Mor', 'kvinde'), died: 1820 }, { ...mk4('Mor2', 'kvinde'), born: 1821 }, mk4('S1', 'mand'), mk4('S2', 'kvinde'), mk4('H', 'mand')],
     unions: [
       { id: 'u1', p1: 'Far', p2: 'Mor', p2_name: null, year: null },
       { id: 'u2', p1: 'Far', p2: 'Mor2', p2_name: null, year: null },
@@ -221,7 +222,7 @@ describe('multi-linje — dobbelt fætterskab', () => {
       { child: 'B', parent: 'mb', union: 'ub' },
     ],
   };
-  const m5 = buildModel(db5);
+  const m5 = buildModel({ ...db5, parentChild: db5.parentChild.map((pc) => ({ ...pc, konfidens: 'sikker' })) });
 
   test('samme afstand ad to anepar → slås sammen til ÉN "Dobbelt"-linje', () => {
     const r = computeRelationship(m5, 'A', 'B');
@@ -245,7 +246,7 @@ describe('multi-linje — dobbelt fætterskab', () => {
 
 describe('korroboration — enkelt linje er ikke bekræftet', () => {
   // Genbrug det simple træ fra toppen: A & B er fætre via ÉN fælles ane G (én sti).
-  test('enkelt forbindelse → uafhaengige === 1', () => {
+  test('enkelt uangivet forbindelse → én sikker linje', () => {
     expect(computeRelationship(model, 'A', 'B').lines[0].uafhaengige).toBe(1);
   });
 });
@@ -377,7 +378,7 @@ describe('relationshipLabel — grandonkel & halv-suffiks', () => {
 // alternativSolidLinje: NÆRMESTE linje hviler på et svagt led, men en FJERNERE linje
 // bekræfter slægtskabet solidt — flaget løfter usikkerheden uden at skjule den.
 //   Nær (usikker): A & B er 1. grads fætre via G, men B→Pb-leddet er omstridt.
-//   Fjern (solid): A & B er 2. grads fætre via K, alle led uangivne (ingen svaghed).
+//   Fjern (solid): A & B er 2. grads fætre via K, alle led udtrykkeligt sikre.
 // NB: et barns to forældre SKAL dele union (buildModel tager kun forældre fra første
 // union), så A og B har hver ÉT forælder-par-union (uA/uB).
 describe('alternativSolidLinje — fjernere solid linje bekræfter', () => {
@@ -403,7 +404,7 @@ describe('alternativSolidLinje — fjernere solid linje bekræfter', () => {
       { child: 'Rb', parent: 'K', union: 'uRb' },
     ],
   };
-  const m7 = buildModel(db7);
+  const m7 = buildModel({ ...db7, parentChild: db7.parentChild.map((pc) => ({ ...pc, konfidens: pc.konfidens ?? 'sikker' })) });
 
   test('nærmeste linje usikker, fjernere solid → alternativSolidLinje=true', () => {
     const r = computeRelationship(m7, 'A', 'B');
@@ -440,7 +441,7 @@ describe('korroboration — delt mellem-knude tæller ikke som uafhængig', () =
       { child: 'Q2', parent: 'G2', union: 'uQ2' },
     ],
   };
-  const m8 = buildModel(db8);
+  const m8 = buildModel({ ...db8, parentChild: db8.parentChild.map((pc) => ({ ...pc, konfidens: 'sikker' })) });
 
   test('to linjer i samme afstand → multiplicitet=2, men delt N ⇒ uafhaengige=1', () => {
     const r = computeRelationship(m8, 'A', 'B');
