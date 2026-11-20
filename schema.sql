@@ -13957,13 +13957,22 @@ GRANT EXECUTE ON FUNCTION public.red_reverse_reimport_cases(uuid,uuid) TO authen
 -- 2026-08-29: #152 — additive narrative publication event foundation
 -- =====================================================================
 
+-- Review 37 A1: tidlig definition, før kontrakttabellen findes (#152 Task 7 nedenfor). Læser tabellen, når den
+-- findes, så en genkørsel aldrig svarer 1 i en base med kontrakt v2; spejlet i db-migrations.sql.
 CREATE OR REPLACE FUNCTION public.narrative_record_contract_version()
 RETURNS integer
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path=pg_catalog
-AS $$ SELECT 1 $$;
+AS $$
+DECLARE v integer;
+BEGIN
+  IF to_regclass('private.narrative_record_contract') IS NULL THEN RETURN 1; END IF;
+  EXECUTE 'SELECT contract.version FROM private.narrative_record_contract contract WHERE contract.singleton' INTO v;
+  RETURN v;
+END
+$$;
 
 CREATE TABLE private.narrative_legacy_publication (
   legacy_publication_ref uuid NOT NULL,
