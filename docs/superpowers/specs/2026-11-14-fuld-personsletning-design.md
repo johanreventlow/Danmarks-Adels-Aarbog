@@ -168,6 +168,11 @@ hvor rækken handler om personen:
   (`NOT public.person_offentlig`), slettes også vielser på bevarede familier, hvor personen var partner, med hele
   evidenskæden og historikken (ellers bliver de offentlige via `family_offentlig`). Forhåndsvisningen viser
   `vielser_slettes` og `vielser_staar` (kun dem, der faktisk står).
+  **Udvidet 2026-11-20 (løsning A, projektejeren):** for en ikke-offentlig person slettes ALT familieindhold (som for en
+  slettet familie: fakta med evidens, noter, narrativer, hændelser, stories, forslag, relationer med familieende) på
+  bevarede familier, hvor personen var partner eller barn — også tidligere (fortrudte) rækker i historikken. Familien og
+  de øvrige medlemskaber bevares. Fail-closed, også hvis familien bliver offentlig bagefter. Forhåndsvisningen viser
+  `familieindhold_slettes` pr. familie (erstatter `vielser_slettes`) og `vielser_staar`.
 - **`samme_som` (projektejeren 2026-11-14):** har personen to eller flere identitetsnaboer (andre personer, der kun er
   forbundet gennem den), er det en **blokering** (6.6); en redaktør kobler dem direkte først. Med én nabo slettes kanten,
   og naboen er uændret. Forhåndsvisningen viser komponenten.

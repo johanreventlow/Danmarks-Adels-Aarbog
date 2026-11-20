@@ -163,7 +163,7 @@ Kolonnen **Indhold** udfyldes kun for bevar_andres: `id` = kun P's id/hash/uuid;
 | Sted | Tabel | Find ud fra P | Handling | Fase | Vagt | Indhold |
 |---|---|---|---|---|---|---|
 | S13 | `public.fact` | `id ∈ F` | slet | 8 | `trg_log_fact`; FK fra `haendelse.fact_id` (l. 6447, NO ACTION) og `story.fact_id` (l. 6481, SET NULL) | |
-| S13b NY | `public.fact` (familie) | `id ∈ F_fam` (Fam_del's fakta; review 37 P1+P2: også vielser på familier, hvor en ikke-offentlig P er partner, `private.person_purge_vielser`) | slet | 8 | samme | |
+| S13b NY | `public.fact` (familie) | `id ∈ F_fam` (fakta på Fam_c; se note om Fam_ind nedenfor) | slet | 8 | samme | |
 | S14 | `public.relation` | `id ∈ R` | slet | 8 | `trg_relation_evidence_delete` l. 7413 → `guard_relation_evidence_delete` l. 7394 (afviser DELETE mens assertion/conclusion/note peger på den); `trg_log_relation` | |
 | S14b NY | `public.relation` (familie-/familiefakta-ende) | `id ∈ R_fam` | slet | 8 | samme | |
 | S15 | `public.assertion` | `id ∈ A` | slet | 6 | `trg_assertion_relation_target` l. 7381 (INS/UPD), `trg_assertion_regen` l. 6653 (UPD), `trg_log_assertion` | |
@@ -207,7 +207,17 @@ Kolonnen **Indhold** udfyldes kun for bevar_andres: `id` = kun P's id/hash/uuid;
 | S37b | delte medier | relation P↔medie slettes (i `R`), mediet bevares | bevar_andres | – | | `titel`/`original_filnavn` kan nævne P → fritekst? |
 | NY-E | `public.media` (bevaret, P afbildet) | P ikke-offentlig før sletningen (`private.person_purge_ikke_offentlig`) og `person→media`-relation `afbildet` i `R` til et medie uden for `M_del` | skjul: `maa_publiceres=false` (review 37 P1+P2, projektejeren 2026-11-20); intet manifest, intet sæt | 9 | låst i L11b | relationen holdt mediet skjult (`media_afbilder_skjult`); en redaktør må frigive igen |
 | S38 | `public.family` | `id ∈ Fam_del` | slet | 10 | `trg_log_family` | |
-| S38b | `family` i `Fam_keep` + dens vielsesfakta, evidens, noter, narrativer | | bevar_andres (beslutning 7); vielserne kun når P er offentlig (ellers S13b, review 37 P1+P2) | – | | vielsens `citation.citat_tekst`/`assertion.vaerdi_tekst` er bogtekst, der kan nævne P → se K5 |
+| S38b | `family` i `Fam_keep` + dens vielsesfakta, evidens, noter, narrativer | | bevar_andres (beslutning 7); indholdet kun når P er offentlig eller ikke partner/barn (ellers Fam_ind, review 37 P1+P2) | – | | vielsens `citation.citat_tekst`/`assertion.vaerdi_tekst` er bogtekst, der kan nævne P → se K5 |
+
+**Fam_ind (review 37 P1+P2, projektejeren 2026-11-20, løsning A).** Var P ikke-offentlig før sletningen
+(`private.person_purge_ikke_offentlig`), er `Fam_ind` = de bevarede familier, hvor P er `partner` eller `barn`
+(`private.person_purge_familieindhold`). `Fam_c = Fam_del ∪ Fam_ind` erstatter Fam_del i alle *indholds*mængder: F_fam
+(S13b) med evidens (S15-S17), R_fam (S14b), noter (S18), familienarrativer (S21-S24, S28), hændelser (S25/S26), stories
+(S30) og forslag (S34). Familierækken (S38), de øvrige medlemskaber (S3), `forbundet:`-pins (S32/S32c), `[[family:]]`-
+blokeringen (S29) og NY-A følger fortsat kun Fam_del, fordi familien bevares. Historiklukningen tager også tidligere
+(fx fortrudte) familierækker på Fam_c, kendt kun fra `change_event` (fakta med evidenskæde, noter, narrativer, stories,
+hændelser, relationer med familieende; Codex-fund). Manifestvagten godkender familienarrativers events for Fam_ind ud
+fra levende medlemskab; Fam_del kræver fortsat family-beviset i manifestet. Er P offentlig, er Fam_ind tom.
 
 ### 1e. Private ledgers
 
