@@ -346,8 +346,15 @@ A*  = A ∪ { ce.row_pk->>'id' | ce.tabel='assertion' AND p_ass(x) },
                      OR (x->>'target_type'='relation' AND x->>'target_id' ∈ R*)
 N*  = N ∪ { ce.row_pk->>'id' | ce.tabel='narrative' AND x->>'subjekt_type'='person' AND x->>'subjekt_id'=Pt }
 S*  = S ∪ { ce.row_pk->>'id' | ce.tabel='story' AND x->>'subjekt_type'='person' AND x->>'subjekt_id'=Pt }
-H*  = H (kun levende; skip_cols l. 9169 fjerner subjekt/narrativ, så historiske hændelser kan ikke kobles — de
-      bærer kun id+feed_status, intet indhold)
+H*  = H ∪ ({ ce.row_pk->>'id' | ce.tabel='haendelse' AND sættets subjekt er ('person',P) eller ('family', ∈ Fam_c) }
+             ∪ { ce.row_pk->>'id' | ce.tabel='haendelse' AND ce.op='DELETE' AND sættet sletter et narrativ i N*
+                 og intet narrativ uden for N* })
+          minus levende hændelser uden for H.
+      skip_cols (version_pk_registry) fjerner subjekt/narrativ, så snapshottet bærer kun id+feed_status; ejerskabet
+      afledes af sættet: red_set_haendelse_status logger under hændelsens subjekt, og en kaskadesletning står i samme
+      sæt som narrativets DELETE (review 37, Codex-fund A, 2026-11-20; tidligere var H* kun levende, og grenen
+      `WHEN 'haendelse'` på snapshottets subjekt ramte aldrig). N* tæller her også familienarrativer på Fam_c. H* bruges
+      til `haendelse`-events og til feed_pin-nøglerne `arkiv:`/`paadennedag:h:` i historikken.
 M*  = M_del ∪ { medie-id i x for ce.tabel='relation' AND p_rel(x) AND x->>'objekt_type'='media'
                  AND mediet findes ikke længere AND ingen anden (historisk) relation fra en anden end P }
 PEI*= se afsnit 0

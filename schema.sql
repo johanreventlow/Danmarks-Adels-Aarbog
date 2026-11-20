@@ -22660,6 +22660,26 @@ WITH RECURSIVE
     CROSS JOIN LATERAL (VALUES(e.foer),(e.efter)) v(j)
     WHERE e.tabel='story' AND ((j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
       OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc)))),
+  -- Review 37 (Codex-fund A): version_pk_registry gemmer kun id+feed_status for haendelse, så ejerskabet af en tidligere
+  -- (slettet/fortrudt) hændelse kan ikke læses af dens snapshot. Det afledes af change_set'et: en feed-dom
+  -- (red_set_haendelse_status) logges under hændelsens subjekt (P eller en familie i Fam_c), og en kaskadesletning
+  -- logges i samme sæt som sletningen af narrativet. Sidstnævnte kun når ALLE narrativer, sættet sletter, er P's/Fam_c's
+  -- (nv). En levende hændelse, der ikke slettes, rører vi aldrig. Gælder også P's egne person-hændelser.
+  nv AS MATERIALIZED (SELECT id::text AS id FROM n UNION SELECT e.row_pk->>'id' FROM public.change_event e
+    CROSS JOIN LATERAL (VALUES(e.foer),(e.efter)) v(j)
+    WHERE e.tabel='narrative' AND ((j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
+      OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc)))),
+  hv AS MATERIALIZED (SELECT id::text AS id FROM h UNION (
+    (SELECT ce.row_pk->>'id' FROM public.change_event ce JOIN public.change_set cs ON cs.id=ce.change_set_id
+      WHERE ce.tabel='haendelse' AND ((cs.subjekt_type='person' AND cs.subjekt_id=p_person_id)
+        OR (cs.subjekt_type='family' AND cs.subjekt_id IN (SELECT id FROM famc)))
+    UNION SELECT ce.row_pk->>'id' FROM public.change_event ce
+      WHERE ce.tabel='haendelse' AND ce.op='DELETE'
+        AND EXISTS (SELECT 1 FROM public.change_event x WHERE x.change_set_id=ce.change_set_id AND x.tabel='narrative'
+          AND x.op='DELETE' AND x.row_pk->>'id' IN (SELECT id FROM nv))
+        AND NOT EXISTS (SELECT 1 FROM public.change_event x WHERE x.change_set_id=ce.change_set_id AND x.tabel='narrative'
+          AND x.op='DELETE' AND x.row_pk->>'id' NOT IN (SELECT id FROM nv)))
+    EXCEPT SELECT id::text FROM public.haendelse WHERE id NOT IN (SELECT id FROM h))),
   rel_images AS MATERIALIZED (
     SELECT e.row_pk->>'id' AS id,j FROM public.change_event e
       CROSS JOIN LATERAL (VALUES(e.foer),(e.efter)) v(j) WHERE e.tabel='relation' AND j IS NOT NULL),
@@ -22681,7 +22701,7 @@ WITH RECURSIVE
         AND ce.row_pk->>'person_id'=p_person_id::text)
       OR (ce.tabel='family_member' AND ce.row_pk->>'family_id' IN (SELECT id::text FROM fam_del))
       OR (ce.tabel='family' AND ce.row_pk->>'id' IN (SELECT id::text FROM fam_del))
-      OR (ce.tabel='haendelse' AND ce.row_pk->>'id' IN (SELECT id::text FROM h))
+      OR (ce.tabel='haendelse' AND ce.row_pk->>'id' IN (SELECT id FROM hv))
       OR (ce.tabel='media' AND ce.row_pk->>'id' IN (SELECT id FROM mv))
       OR (ce.tabel='fact' AND ce.row_pk->>'id' IN (SELECT id::text FROM fd))
       OR (ce.tabel='relation' AND ce.row_pk->>'id' IN (SELECT id::text FROM rd))
@@ -22713,12 +22733,11 @@ WITH RECURSIVE
           OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc))
         WHEN 'story' THEN (j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
           OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc))
-        WHEN 'haendelse' THEN j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc)
         WHEN 'story_kilde' THEN j->>'story_id' IN (SELECT id FROM sv)
         WHEN 'entity_description' THEN j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text
         WHEN 'feed_pin' THEN j->>'kort_noegle' ~ (SELECT rx FROM feed_rx)
-          OR j->>'kort_noegle' IN (SELECT 'story:'||id FROM sv UNION SELECT 'arkiv:'||id FROM h
-            UNION SELECT 'paadennedag:h:'||id FROM h UNION SELECT 'forbundet:'||id FROM fam_del)
+          OR j->>'kort_noegle' IN (SELECT 'story:'||id FROM sv UNION SELECT 'arkiv:'||id FROM hv
+            UNION SELECT 'paadennedag:h:'||id FROM hv UNION SELECT 'forbundet:'||id FROM fam_del)
         WHEN 'import_korrektion' THEN EXISTS (SELECT 1 FROM pei WHERE import_key=j->>'import_key' AND record_key=j->>'record_key')
         ELSE false END)),
   d0 AS MATERIALIZED (

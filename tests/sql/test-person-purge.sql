@@ -3728,6 +3728,30 @@ BEGIN
       WHERE subjekt_type='media' AND subjekt_id=v_m AND objekt_type=r.typ AND objekt_id=pg_temp.gid(r.maal);
     PERFORM purge_test.nyt(); PERFORM public.red_bekraeft_media_upload(v_m);
   END LOOP;
+  -- Codex-fund A: en kurateret hændelse (feed-dom) på et narrativ, der siden er væk, for fam_l og for L selv. fam_l:
+  -- narrativet fortrydes (fortrydelsen logger ingen events). L: narrativet slettes i et sæt uden subjekt (som en ældre
+  -- sletning), så hændelsens kaskadesletning logges dér. Hændelsen findes derefter kun i change_event, hvis snapshot kun
+  -- har id+feed_status (version_pk_registry).
+  FOR f IN SELECT * FROM (VALUES ('fam','family','fam_l'),('pers','person','L')) x(k,typ,ejer) LOOP
+    PERFORM purge_test.nyt();
+    v_fam:=public.red_upsert_narrativ(f.typ,pg_temp.gid(f.ejer),'Syntetisk tidligere narrativ',false,purge_test.id('kilde_b'),'1');
+    v_cs:=purge_test.saet();
+    INSERT INTO pg_temp.gdpr_id VALUES ('hnarr_'||f.k,v_fam),('hnarr_saet_'||f.k,v_cs);
+    PERFORM purge_test.nyt();  -- hændelser indlæses uden sæt (som load_haendelser.R)
+    INSERT INTO public.haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul,kategori,date_raw)
+      VALUES (f.typ,pg_temp.gid(f.ejer),v_fam,'gdpr-h-'||f.k,'Syntetisk hændelse 1990','andet','1990') RETURNING id INTO v_m;
+    INSERT INTO pg_temp.gdpr_id VALUES ('h_'||f.k,v_m);
+    PERFORM purge_test.nyt(); PERFORM public.red_set_haendelse_status(v_m,'interessant');
+    INSERT INTO pg_temp.gdpr_id VALUES ('h_status_saet_'||f.k,purge_test.saet());
+    PERFORM purge_test.nyt();
+    IF f.k='fam' THEN
+      PERFORM public.red_fortryd_change_set(v_cs,false);
+    ELSE
+      PERFORM public.begin_change_set('gdpr_tidligere_slettet','fixture',NULL,NULL);
+      DELETE FROM public.narrative WHERE id=v_fam;
+      INSERT INTO pg_temp.gdpr_id VALUES ('h_slet_saet_'||f.k,purge_test.saet());
+    END IF;
+  END LOOP;
   PERFORM purge_test.nyt();
 END $fix$;
 COMMIT;
@@ -3758,6 +3782,21 @@ BEGIN
     AND EXISTS (SELECT 1 FROM public.change_event WHERE tabel='citation'
       AND position('Testperson Gdpr Levende' IN coalesce(foer::text,efter::text))>0),'gdpr_fixture_fortrudt_vielse');
 END $t$;
+-- Codex-fund A, udgangspunkt: hændelserne er væk, men deres feed-dom og kaskadesletning står i historikken.
+DO $t$
+BEGIN
+  PERFORM pg_temp.gdpr_assert((SELECT bool_and(NOT EXISTS (SELECT 1 FROM public.haendelse WHERE id=pg_temp.gid('h_'||k))
+      AND NOT EXISTS (SELECT 1 FROM public.narrative WHERE id=pg_temp.gid('hnarr_'||k))
+      AND EXISTS (SELECT 1 FROM public.change_event WHERE tabel='haendelse' AND op='UPDATE'
+        AND change_set_id=pg_temp.gid('h_status_saet_'||k) AND row_pk->>'id'=pg_temp.gid('h_'||k)::text)
+      AND (k='fam' OR EXISTS (SELECT 1 FROM public.change_event e JOIN public.change_set cs ON cs.id=e.change_set_id
+        WHERE cs.id=pg_temp.gid('h_slet_saet_'||k) AND cs.subjekt_type IS NULL AND e.tabel='haendelse' AND e.op='DELETE'
+          AND e.row_pk->>'id'=pg_temp.gid('h_'||k)::text))
+      AND (k='pers' OR EXISTS (SELECT 1 FROM public.change_set WHERE reverterer_id=pg_temp.gid('hnarr_saet_'||k)))
+      AND NOT EXISTS (SELECT 1 FROM public.change_event WHERE tabel='haendelse' AND row_pk->>'id'=pg_temp.gid('h_'||k)::text
+        AND (foer ? 'subjekt_id' OR efter ? 'subjekt_id' OR foer ? 'narrative_id' OR efter ? 'narrative_id')))
+    FROM unnest(ARRAY['fam','pers']) k),'gdpr_fixture_tidligere_haendelse');
+END $t$;
 \echo OK gdpr_fixture
 
 -- Forhåndsvisningerne gemmes FØR sletningerne; de kontrolleres nederst.
@@ -3775,6 +3814,13 @@ CREATE TEMP TABLE gdpr_hist_gl AS
     WHERE cs.id=pg_temp.gid('saet_gl') OR cs.reverterer_id=pg_temp.gid('saet_gl')
   UNION ALL SELECT 'change_event',e.id FROM public.change_event e JOIN public.change_set cs ON cs.id=e.change_set_id
     WHERE cs.id=pg_temp.gid('saet_gl') OR cs.reverterer_id=pg_temp.gid('saet_gl');
+-- Codex-fund A: narrativsættet, feed-dommen, fortrydelsen og alle deres events.
+CREATE TEMP TABLE gdpr_hist_h AS
+  WITH saet AS (SELECT cs.id FROM public.change_set cs, unnest(ARRAY['fam','pers']) k
+    WHERE cs.id IN (pg_temp.gid('hnarr_saet_'||k),pg_temp.gid('h_status_saet_'||k),pg_temp.gid('h_slet_saet_'||k))
+      OR cs.reverterer_id=pg_temp.gid('hnarr_saet_'||k))
+  SELECT 'change_set'::text AS tabel,id FROM saet
+  UNION ALL SELECT 'change_event',e.id FROM public.change_event e WHERE e.change_set_id IN (SELECT id FROM saet);
 CREATE TEMP TABLE gdpr_history AS SELECT 'change_set' tabel,id FROM public.change_set
   UNION ALL SELECT 'change_event',id FROM public.change_event;
 CREATE TEMP TABLE gdpr_medlemmer AS SELECT family_id,person_id,rolle FROM public.family_member
@@ -3921,6 +3967,18 @@ BEGIN
          OR position('Testperson Gdpr Levende' IN coalesce(e.efter::text,''))>0),'gdpr_fortrudt_vielse_historik_slettet');
 END $t$;
 \echo OK gdpr_fortrudt_vielse_historik_slettet
+-- Codex-fund A: en tidligere familiehændelse (fam_l) og en tidligere person-hændelse (L) efterlader intet: hverken
+-- feed-dommen, kaskadesletningen eller sættene.
+DO $t$
+BEGIN
+  PERFORM pg_temp.gdpr_assert((SELECT count(*) FROM gdpr_hist_h WHERE tabel='change_set')=6
+    AND NOT EXISTS (SELECT 1 FROM gdpr_hist_h h WHERE
+      (h.tabel='change_set' AND EXISTS (SELECT 1 FROM public.change_set WHERE id=h.id))
+      OR (h.tabel='change_event' AND EXISTS (SELECT 1 FROM public.change_event WHERE id=h.id)))
+    AND NOT EXISTS (SELECT 1 FROM public.change_event WHERE tabel='haendelse'
+      AND row_pk->>'id' IN (pg_temp.gid('h_fam')::text,pg_temp.gid('h_pers')::text)),'gdpr_tidligere_haendelse_historik_slettet');
+END $t$;
+\echo OK gdpr_tidligere_haendelse_historik_slettet
 
 -- Sletning af den afdøde, offentlige O: uændret adfærd.
 BEGIN;

@@ -228,6 +228,29 @@ feed_keys AS MATERIALIZED (
   UNION SELECT 'arkiv:' || id FROM p_haendelse
   UNION SELECT 'paadennedag:h:' || id FROM p_haendelse
   UNION SELECT 'forbundet:' || id FROM fam_del),
+-- Tidligere hændelser (Codex-fund A): haendelse-snapshots har kun id+feed_status (version_pk_registry), så ejerskabet
+-- kommer fra sættet: en feed-dom står under hændelsens subjekt (P / Fam_c-familie); en kaskadesletning står i samme sæt
+-- som sletningen af narrativet, når sættet kun sletter P's/Fam_c's narrativer. Levende hændelser, der bevares, udelades.
+hist_haendelse AS MATERIALIZED (
+  SELECT x.idt FROM (
+    SELECT ce.row_pk->>'id' AS idt FROM public.change_event ce
+      JOIN public.change_set cs ON cs.id=ce.change_set_id, params p
+     WHERE ce.tabel='haendelse'
+       AND ((cs.subjekt_type='person' AND cs.subjekt_id=p.pid)
+         OR (cs.subjekt_type='family' AND cs.subjekt_id IN (SELECT id FROM fam_c)))
+    UNION
+    SELECT ce.row_pk->>'id' FROM public.change_event ce
+     WHERE ce.tabel='haendelse' AND ce.op='DELETE'
+       AND EXISTS (SELECT 1 FROM public.change_event nd WHERE nd.change_set_id=ce.change_set_id
+                    AND nd.tabel='narrative' AND nd.op='DELETE' AND nd.row_pk->>'id' IN (SELECT idt FROM hist_narr))
+       AND NOT EXISTS (SELECT 1 FROM public.change_event nd WHERE nd.change_set_id=ce.change_set_id
+                    AND nd.tabel='narrative' AND nd.op='DELETE' AND nd.row_pk->>'id' NOT IN (SELECT idt FROM hist_narr))) x
+   WHERE NOT EXISTS (SELECT 1 FROM public.haendelse h WHERE h.id::text=x.idt AND h.id NOT IN (SELECT id FROM p_haendelse))
+  UNION SELECT id::text FROM p_haendelse),
+hist_feed_keys AS MATERIALIZED (
+  SELECT k FROM feed_keys
+  UNION SELECT 'arkiv:' || idt FROM hist_haendelse
+  UNION SELECT 'paadennedag:h:' || idt FROM hist_haendelse),
 
 -- ---------- change_event-hits (S54) ----------
 ce_hits AS MATERIALIZED (
@@ -238,9 +261,7 @@ ce_hits AS MATERIALIZED (
           AND ce.row_pk->>'person_id'=p.pidt)
       OR (ce.tabel='family_member' AND ce.row_pk->>'family_id' IN (SELECT id::text FROM fam_del))
       OR (ce.tabel='family'        AND ce.row_pk->>'id'        IN (SELECT id::text FROM fam_del))
-      OR (ce.tabel='haendelse'     AND ce.row_pk->>'id'        IN (SELECT id::text FROM p_haendelse))
-      OR (ce.tabel='haendelse'     AND EXISTS (SELECT 1 FROM (VALUES (ce.foer),(ce.efter)) v(j)
-                                    WHERE v.j->>'subjekt_type'='family' AND v.j->>'subjekt_id' IN (SELECT id::text FROM fam_c)))
+      OR (ce.tabel='haendelse'     AND ce.row_pk->>'id'        IN (SELECT idt FROM hist_haendelse))
       OR (ce.tabel='media'         AND ce.row_pk->>'id'        IN (SELECT id::text FROM media_excl))
       OR (ce.tabel='profiles'
           AND (ce.foer->>'reventlow_person_id'=p.pidt OR ce.efter->>'reventlow_person_id'=p.pidt))
@@ -271,7 +292,7 @@ ce_hits AS MATERIALIZED (
       OR (ce.tabel='feed_pin'
           AND EXISTS (SELECT 1 FROM (VALUES (ce.foer),(ce.efter)) v(j)
                        WHERE v.j->>'kort_noegle' ~ fx.rx
-                          OR v.j->>'kort_noegle' IN (SELECT k FROM feed_keys)))
+                          OR v.j->>'kort_noegle' IN (SELECT k FROM hist_feed_keys)))
       OR (ce.tabel='import_korrektion'
           AND EXISTS (SELECT 1 FROM (VALUES (ce.foer),(ce.efter)) v(j), p_import_keys k
                        WHERE k.import_key=v.j->>'import_key' AND k.record_key=v.j->>'record_key'))),

@@ -177,6 +177,9 @@ hvor rækken handler om personen:
   forældrenes familiefoto, når et levende barn slettes) bevares med sin historik, og billedet låses
   (`maa_publiceres=false`, vist under `medier_skjules`), så redaktionen kan finde og genfrigive det. Et billede, der kun
   var koblet til slettet familieindhold (fx et vielsesfoto på vielsen), slettes helt inkl. filen.
+  Tidligere (slettede/fortrudte) hændelser på personen eller en sådan familie fjernes også fra historikken: deres
+  snapshot har kun id+feed_status, så ejerskabet afledes af change_set'ets subjekt (feed-dommen) eller af det sæt, der
+  slettede narrativet (kaskadesletningen).
 - **`samme_som` (projektejeren 2026-11-14):** har personen to eller flere identitetsnaboer (andre personer, der kun er
   forbundet gennem den), er det en **blokering** (6.6); en redaktør kobler dem direkte først. Med én nabo slettes kanten,
   og naboen er uændret. Forhåndsvisningen viser komponenten.
