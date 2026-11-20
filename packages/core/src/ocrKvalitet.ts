@@ -186,6 +186,12 @@ function deriveDateInfo(dateRaw: string): DateInfo {
   }
 
   let years: string[] = t.match(/\d{4}/g) ?? [];
+  // Forkortet årsspænd i samme århundrede. Samme udtryk som validate.py.
+  const shortYear = /(?<!\d)(\d{4})\s*[-–—]\s*(\d{2})(?!\d|[-]\d)/.exec(t);
+  if (years.length === 1 && shortYear) {
+    const endYear = Number(shortYear[1].slice(0, 2) + shortYear[2]);
+    if (endYear > Number(shortYear[1])) years.push(String(endYear));
+  }
   if (years.length === 0) {
     // Fallback: romertals-årstal (kun når intet arabisk årstal findes)
     const romanTokens = t.match(ROMERTAL_TOKEN_RE) ?? [];
@@ -222,7 +228,18 @@ function deriveDateInfo(dateRaw: string): DateInfo {
   const y = years[0];
   // Dag + månedsnavn: '25. marts' (2018-20) og '25 marts' (1939, uden punktum). Uden punktum kræves mellemrum, og intet
   // ciffer må stå foran dagen, så '1612 marts' ikke læses som den 12. marts. Samme udtryk som validate.py.
-  const dm = /(?<!\d)(\d{1,2})(?:\.\s*|\s+)([a-zæøåäöü]+)/.exec(t);
+  // Dagsinterval må ikke give et enkelt dagmatch. Samme udtryk som validate.py.
+  const dayRange = /(?<![\d\-–—])(\d{1,2})\.?\s*[-–—]\s*(\d{1,2})\.?(?:\s+)([a-zæøåäöü]+)/.exec(t);
+  if (dayRange && !(qBetween || qBefore || qAfter || qAbout || qFloruit)) {
+    const d1 = Number(dayRange[1]), d2 = Number(dayRange[2]);
+    const mo = maanedFraNavn(dayRange[3]);
+    if (mo && d1 >= 1 && d1 < d2 && d2 <= 31) {
+      info.min = `${y}-${String(mo).padStart(2, '0')}-${String(d1).padStart(2, '0')}`;
+      info.max = `${y}-${String(mo).padStart(2, '0')}-${String(d2).padStart(2, '0')}`;
+      return info;
+    }
+  }
+  const dm = dayRange ? null : /(?<![\d])(?<![\d][-–—])(\d{1,2})(?:\.\s*|\s+)([a-zæøåäöü]+)/.exec(t);
   let isoPoint: string | null = null;
   if (dm) {
     const mo = maanedFraNavn(dm[2]);

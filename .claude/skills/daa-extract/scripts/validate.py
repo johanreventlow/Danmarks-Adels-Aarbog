@@ -530,6 +530,12 @@ def derive_date_info(date_raw):
         return info
 
     years = re.findall(r'\d{4}', t)
+    # Forkortet årsspænd i samme århundrede. Samme udtryk som ocrKvalitet.ts.
+    short_year = re.search(r'(?<!\d)(\d{4})\s*[-–—]\s*(\d{2})(?!\d|[-]\d)', t)
+    if len(years) == 1 and short_year:
+        end_year = int(short_year.group(1)[:2] + short_year.group(2))
+        if end_year > int(short_year.group(1)):
+            years.append(str(end_year))
     if not years:
         # Fallback: romertals-årstal (kun når intet arabisk årstal findes)
         roman = [y for y in (_roman_year(tok) for tok in _ROMAN_TOKEN_RE.findall(t))
@@ -569,7 +575,16 @@ def derive_date_info(date_raw):
     y = years[0]
     # Dag + månedsnavn: '25. marts' (2018-20) og '25 marts' (1939, uden punktum). Uden punktum kræves mellemrum, og
     # intet ciffer må stå foran dagen, så '1612 marts' ikke læses som den 12. marts. Samme udtryk som ocrKvalitet.ts.
-    dm = re.search(r'(?<!\d)(\d{1,2})(?:\.\s*|\s+)([a-zæøåäöü]+)', t)
+    # Dagsinterval må ikke give et enkelt dagmatch. Samme udtryk som ocrKvalitet.ts.
+    day_range = re.search(r'(?<![\d\-–—])(\d{1,2})\.?\s*[-–—]\s*(\d{1,2})\.?(?:\s+)([a-zæøåäöü]+)', t)
+    if day_range and not (q_between or q_before or q_after or q_about or q_floruit):
+        d1, d2 = int(day_range.group(1)), int(day_range.group(2))
+        mo = _month_from_name(day_range.group(3))
+        if mo and 1 <= d1 < d2 <= 31:
+            info['date_min'] = f'{y}-{mo:02d}-{d1:02d}'
+            info['date_max'] = f'{y}-{mo:02d}-{d2:02d}'
+            return info
+    dm = re.search(r'(?<![\d])(?<![\d][-–—])(\d{1,2})(?:\.\s*|\s+)([a-zæøåäöü]+)', t) if not day_range else None
     iso_point = None
     iso_cal = None
     if dm:

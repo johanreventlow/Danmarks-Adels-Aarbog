@@ -1,5 +1,12 @@
 [
   {
+    "raw": "1732-01-13 Jan.",
+    "min": "1732-01-13",
+    "max": "1732-01-13",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
     "raw": "1698",
     "min": "1698-01-01",
     "max": "1698-12-31",
@@ -184,7 +191,7 @@
   {
     "raw": "1712-83",
     "min": "1712-01-01",
-    "max": "1712-12-31",
+    "max": "1783-12-31",
     "qualifier": null,
     "certainty": null
   },
@@ -311,6 +318,62 @@
     "raw": "25Marts 1578",
     "min": "1578-01-01",
     "max": "1578-12-31",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "12-13 Jan. 1732",
+    "min": "1732-01-12",
+    "max": "1732-01-13",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "1-4 Juni 1697",
+    "min": "1697-06-01",
+    "max": "1697-06-04",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "12–13 Jan. 1732",
+    "min": "1732-01-12",
+    "max": "1732-01-13",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "1718-19",
+    "min": "1718-01-01",
+    "max": "1719-12-31",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "1472—73",
+    "min": "1472-01-01",
+    "max": "1473-12-31",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "1699-00",
+    "min": "1699-01-01",
+    "max": "1699-12-31",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "o. 12-13 Jan. 1732",
+    "min": "1732-01-01",
+    "max": "1732-12-31",
+    "qualifier": "about",
+    "certainty": null
+  },
+  {
+    "raw": "25 Marts 1578",
+    "min": "1578-03-25",
+    "max": "1578-03-25",
     "qualifier": null,
     "certainty": null
   }
