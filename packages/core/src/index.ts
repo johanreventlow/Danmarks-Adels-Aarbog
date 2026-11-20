@@ -60,7 +60,6 @@ export type {
   ModelPerson,
   ModelIndexes,
   Model,
-  DroppedParentEdge,
   Lineage,
   SourceRef,
   LinjeEntry,

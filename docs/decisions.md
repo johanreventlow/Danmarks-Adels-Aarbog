@@ -2,6 +2,22 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: OCR-rettelse af kildepåstand uden importanker (2026-11-20)
+
+> Projektejeren 20/11. Plan: `docs/superpowers/plans/2026-11-20-ocr-rettelse-af-kildepaastand.md`.
+
+- **Udløser:** 1559 Sophie von Sperling står født »25 Marts 157« (DAA 1939, PDF-side 529; bogen: 1578). Hun har
+  intet importanker, så kvalitetsarkets `red_ret_ocr_felt` kan ikke nå hende, og personeditorens `red_edit_oplysning`
+  laver en ny påstand, så læsefejlen bliver stående som alternativ. Ca. 1100 personer har ikke anker (2026-07-29).
+- **Valg:** ny RPC `red_ret_ocr_paastand` retter en importeret kildepåstand på samme id (B12's OCR-undtagelse). Den
+  skriver i den eksisterende journal `paastand_korrektion` med grunden `ocr` (`interpretation_id` NULL) og fortrydes
+  med `red_fortryd_change_set`. Webeditoren får »Ret læsefejl« på kildepåstande.
+- **Afgrænsning:** kun påstande med `uforanderlig` ikke falsk og præcis én kilde; ikke `forældrefamilie`; ingen gyldig
+  binding må brydes; personer, som kvalitetsarket dækker (ét stabilt anker på påstandens kilde, navn/fødsel/død),
+  henvises dertil, så samme rettelse ikke får to journaler.
+- *Fravalgt:* at udvide `red_ret_paastand` med en fri værdi — ceremoniens garanti »værdien er aldrig fri« gælder
+  fortsat der.
+- **Roadmap:** et redaktørværktøj uden for genimportkædens aktive mål (som kvalitetsarket); ingen omprioritering.
 ## BESLUTTET: rettelserne fra review 37 genoptages; P1+P2 løses fail-closed; E1 er ikke et fund (2026-11-20)
 
 > Projektejeren 20/11. *Afløser* »ingen rettelser endnu« i posten 2026-11-19 nedenfor; stopreglerne gælder, til

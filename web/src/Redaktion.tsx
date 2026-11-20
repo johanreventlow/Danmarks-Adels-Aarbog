@@ -18,10 +18,11 @@ import {
   fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
   fetchMediaBibliotek, fetchMediaAnvendelse, fetchUdrensPreview, formatMedieAlder, fetchPersonNarrativeRecords, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe, type UdrensPreview,
 } from './data/redaktionRead';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, foldePrognose, insertAt, makeToken, type OcrFelt, type SameAsEdge, type PersonKvalitetsarkRow } from '@daa/core';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, foldePrognose, insertAt, makeToken, normaliserOcrDato, type OcrFelt, type SameAsEdge, type PersonKvalitetsarkRow } from '@daa/core';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
-import { submitChange, describeCall, erFortrydKonflikt, oversaetFejl, planCall, resumeMediaUpload, type Change } from './data/redaktionWrite';
+import { submitChange, describeCall, erFortrydKonflikt, oversaetFejl, planCall, resumeMediaUpload, DATE_FELT, type Change } from './data/redaktionWrite';
+import { byggOcrPaastand, kanRetteLaesefejl, laesefejlStartvaerdi } from './data/ocrPaastand';
 import { HistorikPanel, type FortrydUdfald } from './components/HistorikPanel';
 import { PersonNarrativeRecordEditor } from './components/PersonNarrativeRecordEditor';
 import type { HistPost } from './data/historik';
@@ -311,9 +312,20 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   // stadig ville være det gamle efter en genhentning. renderBekraeft slår op i aktuel state.
   const [bekraeft, setBekraeft] = useState<{ familyId: string; personId: string; navn: string } | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
+  // Slægts/linje-narrativ kunne ikke hentes (review 37 W3): vises som fejl, ikke som »ingen tekst endnu«.
+  const [narrativFejl, setNarrativFejl] = useState<string | null>(null);
+  // Review 37 W1: hvad redaktøren har valgt LIGE NU (det faktiske valg i state, også når /redaktion
+  // auto-vælger første person uden at ændre URL'en). En skrivning, der blev startet for person A, må
+  // ikke genindlæse A under B's navn, når den afsluttes.
+  const valgtRef = useRef({ entity, recordId });
+  valgtRef.current = { entity, recordId };
+  const erValgt = useCallback((ent: string, id: string | null | undefined) =>
+    valgtRef.current.entity === ent && valgtRef.current.recordId === (id ?? null), []);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [editingAssert, setEditingAssert] = useState<number | null>(null);
+  // »Ret læsefejl« (decisions 2026-11-20): OCR-rettelse af en kildepåstand på stedet.
+  const [laesefejlAssert, setLaesefejlAssert] = useState<number | null>(null);
   const [addingFact, setAddingFact] = useState<number | null>(null);
   // Opret-FØRSTE-oplysning for et felt uden noget fact endnu (factId er den syntetiske -1-
   // placeholder, se renderFactCard) — nøglet på (person, felt), IKKE kun felt-navn: flere tomme
@@ -541,15 +553,24 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   // Generaliseret fra person-only (billeder-i-narrativer 2026-07-05, Slice C3) — genbruges nu også
   // af slægts/linje-narrativ-editoren, samme udgave-fane-tilstand (narrativer/aktivSourceId/
   // narrativUdkast/nyUdgave), blot et andet (subjekt_type, subjekt_id).
+  // Generationsvagt (review 37 W3): kun det nyeste kald må skrive udkast-state; et sent svar for en
+  // tidligere linje ville ellers lægge dens tekst i editoren for den nu valgte linje.
+  const narrativGenRef = useRef(0);
   const loadNarrativer = useCallback((subjektType: string, subjektId: number) => {
-    setNarrativer([]); setAktivSourceId(null); setNyUdgave(null);
+    const gen = ++narrativGenRef.current;
+    setNarrativer([]); setAktivSourceId(null); setNyUdgave(null); setNarrativFejl(null);
     setNarrativUdkast({ tekst: '', privat: false, side: '' });
     fetchNarrativer(subjektType, subjektId).then((ns) => {
+      if (gen !== narrativGenRef.current) return;
       setNarrativer(ns);
       const first = ns[0];
       setAktivSourceId(first?.sourceId ?? 1);
       setNarrativUdkast({ tekst: first?.tekst ?? '', privat: first?.privat ?? false, side: first?.side ?? '' });
-    }).catch(() => { setNarrativer([]); setAktivSourceId(1); setNarrativUdkast({ tekst: '', privat: false, side: '' }); });
+    }).catch((e) => {
+      if (gen !== narrativGenRef.current) return;
+      setNarrativer([]); setAktivSourceId(null); setNarrativUdkast({ tekst: '', privat: false, side: '' });
+      setNarrativFejl(oversaetFejl(String((e as Error)?.message ?? e)));
+    });
   }, []);
 
   // Request-generation: øges ved hvert loadPerson-kald. Hver .then/.catch nedenfor sætter kun state,
@@ -568,9 +589,10 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   const loadPerson = useCallback((id: string, opts?: { skipMedia?: boolean }) => {
     storySaveGuardRef.current.invalidate();
     const gen = ++personGenRef.current;
+    narrativGenRef.current++; // et igangværende slægts/linje-narrativsvar må ikke lande i person-state
     const aktuel = () => gen === personGenRef.current;
     const meld = (e: unknown) => { if (aktuel()) setLoadErr(oversaetFejl(String((e as Error)?.message ?? e))); };
-    setEvidence(null); setHaendelser([]); setStories([]); setStoryEditor(null); setHaendelseNotice(''); setFamilie(null); setRelationer(null); setEditingAssert(null); setAddingFact(null); setAddingNyFelt(null); setBekraeft(null);
+    setEvidence(null); setHaendelser([]); setStories([]); setStoryEditor(null); setHaendelseNotice(''); setFamilie(null); setRelationer(null); setSammeSom([]); setEditingAssert(null); setAddingFact(null); setAddingNyFelt(null); setBekraeft(null);
     fetchPersonEvidence(id).then((v) => { if (aktuel()) setEvidence(v); }).catch(meld);
     fetchHaendelserForPerson(id).then((v) => { if (aktuel()) setHaendelser(v); }).catch(meld);
     fetchStoriesForPerson(id).then((v) => { if (aktuel()) setStories(v); }).catch(meld);
@@ -634,17 +656,27 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
     const change: Change = { art: 'opretKilde', subjektType: 'source', subjektId: '', payload: {
       titel: nyUdgave.titel.trim(), slags: 'DAA-udgave',
       udgave: nyUdgave.udgave.trim() || null, aar: nyUdgave.aar.trim() ? Number(nyUdgave.aar) : null } };
+    // Editorens identitet ved start: skifter redaktøren til en anden linje/record undervejs, må
+    // svaret ikke sætte fane og udkast i den nu viste editor (review 37).
+    const gen = narrativGenRef.current;
     try {
       const res = await submitChange(change, { dryRun, role });
       setWriteView({ title: dryRun ? 'Dry-run · dette ville blive sendt' : (res.direkte ? 'Sendt til basen' : 'Forslag sendt til staging'),
         lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte });
       if (!res.dryRun && res.direkte && res.result != null) {
-        setSources(await fetchSources());
+        const nyeSources = await fetchSources();
+        setSources(nyeSources); // udgave-listen er global
+        if (gen !== narrativGenRef.current) return;
         setNyUdgave(null); setAktivSourceId(Number(res.result));
         setNarrativUdkast({ tekst: '', privat: false, side: '' });
       }
     } catch (e) { setWriteView({ title: 'Ny udgave fejlede', lines: [], error: oversaetFejl(String((e as Error)?.message ?? e)), done: false, dryRun, direkte: false }); }
   }, [nyUdgave, dryRun, role]);
+  // Et valg-skift (også person → linje/objekt) gør alle igangværende person- og narrativsvar forældede.
+  // Deklareret FØR indlæsnings-effekten, så loadPerson's egen generation efterfølgende er den nyeste.
+  useEffect(() => {
+    personGenRef.current++; narrativGenRef.current++;
+  }, [entity, recordId]);
   useEffect(() => {
     if (entity === 'person' && recordId) loadPerson(recordId);
   }, [entity, recordId, loadPerson]);
@@ -678,9 +710,11 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
     if (!slaegtSubjekt) return;
     loadNarrativer(slaegtSubjekt.type, slaegtSubjekt.id);
     setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
-    if (slaegtSubjekt.type === 'lineage') {
-      fetchRedObjectMedia('lineage', String(slaegtSubjekt.id)).then(setMedia).catch(() => setMedia([]));
-    }
+    if (slaegtSubjekt.type !== 'lineage') return;
+    let aktiv = true;
+    fetchRedObjectMedia('lineage', String(slaegtSubjekt.id))
+      .then((v) => { if (aktiv) setMedia(v); }).catch(() => { if (aktiv) setMedia([]); });
+    return () => { aktiv = false; };
   }, [slaegtSubjekt, loadNarrativer]);
 
   // Objekt-foto (Slice 0h): estate/arms er de eneste generiske entiteter med et materiale-galleri
@@ -689,8 +723,11 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   const refreshObjMedia = useCallback(() => {
     if (!HAR_OBJEKT_MATERIALE.has(entity) || !curRecord) return;
     const db = ENTITY_DB[entity];
-    fetchRedObjectMedia(db.type, curRecord.id).then(setMedia).catch(() => setMedia([]));
-  }, [entity, curRecord]);
+    const ent = entity, id = curRecord.id;
+    fetchRedObjectMedia(db.type, id)
+      .then((v) => { if (erValgt(ent, id)) setMedia(v); })
+      .catch(() => { if (erValgt(ent, id)) setMedia([]); });
+  }, [entity, curRecord, erValgt]);
   useEffect(() => {
     if (!HAR_OBJEKT_MATERIALE.has(entity)) return;
     setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
@@ -762,11 +799,16 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
       // sletRelation dækker også ikke-media unlinks (hverv/gods) — en ekstra, harmløs medie-refetch
       // for dem er billigere end at holde to separate art-lister i sync (/simplify-fund).
       const mediaChanged = MEDIA_ARTER.has(change.art);
-      if (!dryRun && options?.refresh !== false && entity === 'person' && recordId) loadPerson(recordId, { skipMedia: !mediaChanged });
-      if (!dryRun && HAR_OBJEKT_MATERIALE.has(entity) && mediaChanged) refreshObjMedia();
+      // Review 37 W1: genindlæs kun, hvis redaktøren stadig står på samme record. Er der skiftet
+      // til B undervejs, har B's egen indlæsning allerede kørt, og den skal stå urørt.
+      const stadigValgt = erValgt(entity, recordId);
+      if (!dryRun && stadigValgt && options?.refresh !== false && entity === 'person' && recordId) loadPerson(recordId, { skipMedia: !mediaChanged });
+      if (!dryRun && stadigValgt && HAR_OBJEKT_MATERIALE.has(entity) && mediaChanged) refreshObjMedia();
       // Linje-materiale (Slice C3) — "Generelt" (recordId 'generelt') har ingen billed-samling.
-      if (!dryRun && entity === 'slaegt' && recordId && recordId !== 'generelt' && mediaChanged) {
-        fetchRedObjectMedia('lineage', recordId).then(setMedia).catch(() => setMedia([]));
+      if (!dryRun && stadigValgt && entity === 'slaegt' && recordId && recordId !== 'generelt' && mediaChanged) {
+        fetchRedObjectMedia('lineage', recordId)
+          .then((v) => { if (erValgt('slaegt', recordId)) setMedia(v); })
+          .catch(() => { if (erValgt('slaegt', recordId)) setMedia([]); });
       }
       if (!dryRun && mediaChanged && entity === 'media') refreshMediaBibliotek();
       if (!dryRun && mediaChanged && mediaDetalje) {
@@ -785,7 +827,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
       setWriteView({ title: titel + ' fejlede', lines: [], error: oversaetFejl(String((e as Error)?.message ?? e)), done: false, dryRun, direkte: false });
       return undefined;
     }
-  }, [dryRun, role, entity, recordId, loadPerson, refreshObjMedia, refreshMediaBibliotek, mediaDetalje]);
+  }, [dryRun, role, entity, recordId, loadPerson, refreshObjMedia, refreshMediaBibliotek, mediaDetalje, erValgt]);
 
   // Fortryd fra historik-panelet (issue #144): samme submitChange-flow som run(), men med
   // rå-fejl-klassifikation FØR oversaetFejl — B9-konflikten ("nyere ændring rører samme data")
@@ -809,7 +851,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
       const res = await submitChange(change, { dryRun, role });
       setWriteView({ title: dryRun ? 'Dry-run · dette ville blive sendt' : 'Ændring fortrudt',
         lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte });
-      if (!dryRun && recordId) {
+      if (!dryRun && recordId && erValgt('person', recordId)) {
         loadPerson(recordId, { skipMedia: true });
         if (post.undoKind === 'publication_event') setPersonNarrativeRefresh((version) => version + 1);
       }
@@ -820,7 +862,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
       setWriteView({ title: 'Fortryd fejlede', lines: [], error: oversaetFejl(raw), done: false, dryRun, direkte: false });
       return 'fejl';
     }
-  }, [dryRun, role, recordId, loadPerson]);
+  }, [dryRun, role, recordId, loadPerson, erValgt]);
 
   const submitNarrativeRecordChange = useCallback(async (change: Change, title: string): Promise<boolean> => {
     try {
@@ -1420,7 +1462,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
         {role === 'redaktion' ? (
           <>
             <div style={sectionHeader(24)}>Ændringshistorik</div>
-            <HistorikPanel personId={String(p.id)} onFortryd={fortrydChangeSet} />
+            <HistorikPanel key={String(p.id)} personId={String(p.id)} onFortryd={fortrydChangeSet} />
           </>
         ) : null}
       </div>
@@ -1519,7 +1561,12 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
     return (
       <div style={{ padding: '24px 30px 60px', maxWidth: 780 }}>
         <div style={{ fontFamily: T.serif, fontSize: 30, fontWeight: 600, lineHeight: 1, marginBottom: 16 }}>{slaegtSubjekt.label}</div>
-        {renderNarrativEditor(slaegtSubjekt)}
+        {narrativFejl ? (
+          <div role="alert" style={{ margin: '12px 0', color: T.danger, fontSize: 13.5 }}>
+            Narrativet kunne ikke hentes: {narrativFejl}{' '}
+            <span onClick={() => loadNarrativer(slaegtSubjekt.type, slaegtSubjekt.id)} style={{ fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>Prøv igen</span>
+          </div>
+        ) : renderNarrativEditor(slaegtSubjekt)}
         {slaegtSubjekt.type === 'lineage' && renderMateriale({
           subjektType: 'lineage', subjektId: String(slaegtSubjekt.id),
           uploadTarget: { objektType: 'lineage', objektId: String(slaegtSubjekt.id) },
@@ -1913,10 +1960,40 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
 
   function renderOplysning(pid: string, f: FeltEvidens, o: Oplysning) {
     const editing = editingAssert === o.assertionId;
+    const laesefejl = laesefejlAssert === o.assertionId;
+    const lfKey = 'ocr:' + o.assertionId;
+    const lfVaerdi = sc(lfKey + ':v', laesefejlStartvaerdi(f, o));
+    const lfBekraeft = sc(lfKey + ':ok') === '1';
+    const lfDato = DATE_FELT.has(f.felt) && lfVaerdi.trim() !== '' ? normaliserOcrDato(lfVaerdi.trim()) : null;
+    const lfKald = laesefejl ? byggOcrPaastand(f, o, lfVaerdi, lfBekraeft) : null;
     return (
       <div key={o.assertionId} style={{ display: 'flex', alignItems: 'flex-start', gap: 11, background: o.erKonklusion ? T.successTint : T.surfaceRaised, border: `1px solid ${o.erKonklusion ? 'rgba(31,91,58,.32)' : T.line}`, borderRadius: 10, padding: '10px 12px', marginBottom: 7 }}>
         <span style={{ width: 11, height: 11, borderRadius: '50%', background: o.erKonklusion ? T.success : '#bcae93', marginTop: 4 }} />
-        {!editing ? (
+        {laesefejl ? (
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux, marginBottom: 5 }}>Ret læsefejl</div>
+            <div style={{ fontSize: 12.5, color: T.inkMuted, marginBottom: 7 }}>Retter bogens tekst, som den står trykt — ingen ny påstand. Originalen gemmes i påstandens historik.</div>
+            <input value={lfVaerdi} onChange={(e) => setSc(lfKey + ':v', e.target.value)} placeholder="Teksten som den står i bogen" style={inp} />
+            {lfDato && (lfDato.understood
+              ? <div style={{ fontSize: 12.5, color: T.inkMuted, marginTop: 6 }}>Forstået som {datoForstaaet(lfDato.min, lfDato.max)}</div>
+              : <div style={{ fontSize: 12.5, color: T.danger, marginTop: 6 }}>
+                  Kan ikke fortolkes som dato.{' '}
+                  <label style={{ color: T.inkMuted, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={lfBekraeft} onChange={(e) => setSc(lfKey + ':ok', e.target.checked ? '1' : '')} style={{ marginRight: 5 }} />
+                    Gem alligevel uden fortolket dato
+                  </label>
+                </div>)}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 9 }}>
+              <div onClick={() => {
+                if (!lfKald) return;
+                run({ art: 'retLaesefejl', subjektType: 'person', subjektId: pid, assertionId: String(lfKald.p_assertion_id),
+                  payload: { forventet: lfKald.p_forventet, ny: lfKald.p_ny } }, 'Ret læsefejl');
+                setLaesefejlAssert(null);
+              }} aria-disabled={!lfKald} style={{ ...btnGreen, opacity: lfKald ? 1 : 0.45, cursor: lfKald ? 'pointer' : 'not-allowed' }}>Gem rettelse</div>
+              <div onClick={() => setLaesefejlAssert(null)} style={btnGhost}>Annullér</div>
+            </div>
+          </div>
+        ) : !editing ? (
           <>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -1928,7 +2005,8 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
               {!o.erKonklusion && <div onClick={() => run({ art: 'setKonklusion', subjektType: 'person', subjektId: pid, assertionId: String(o.assertionId) }, 'Konklusion')} style={{ fontSize: 12, fontWeight: 600, color: T.success, border: '1px solid rgba(31,91,58,.4)', borderRadius: 7, padding: '6px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Gør til konklusion</div>}
               <div style={{ display: 'flex', gap: 4 }}>
-                <span onClick={() => { setEditingAssert(o.assertionId); setAddingFact(null); setSc('ed:' + o.assertionId + ':v', o.vaerdi); setSc('ed:' + o.assertionId + ':src', kildeAf(o) === 'ingen kilde' ? '' : kildeAf(o)); }} title="Redigér" style={iconBtn}>✎</span>
+                {role === 'redaktion' && kanRetteLaesefejl(f, o) && <span onClick={() => { setLaesefejlAssert(o.assertionId); setEditingAssert(null); setAddingFact(null); setSc(lfKey + ':v', laesefejlStartvaerdi(f, o)); setSc(lfKey + ':ok', ''); }} title="Ret læsefejl" style={iconBtn}>Aa</span>}
+                <span onClick={() => { setLaesefejlAssert(null); setEditingAssert(o.assertionId); setAddingFact(null); setSc('ed:' + o.assertionId + ':v', o.vaerdi); setSc('ed:' + o.assertionId + ':src', kildeAf(o) === 'ingen kilde' ? '' : kildeAf(o)); }} title="Redigér" style={iconBtn}>✎</span>
                 {/* Kun redaktørens egne oplysninger (uforanderlig eksplicit false) kan slettes; importerede kildepåstande er uforanderlige (review trin B, 1d.1-02). Fail-closed: mangler feltet, vises knappen ikke. */}
                 {o.uforanderlig === false && <span onClick={() => run({ art: 'sletOplysning', subjektType: 'person', subjektId: pid, assertionId: String(o.assertionId) }, 'Slet oplysning')} title="Slet" style={{ ...iconBtn, border: '1px solid rgba(138,43,43,.3)', color: T.danger }}>🗑</span>}
               </div>
@@ -2535,6 +2613,17 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
 }
 
 // --- delte små stilarter ---
+// »Forstået som …« under Ret læsefejl: én dag som d.m.åååå, et helt år som »år åååå«, ellers et interval.
+function datoForstaaet(min: string | null, max: string | null): string {
+  const kort = (iso: string) => { const [y, m, d] = iso.split('-'); return `${Number(d)}.${Number(m)}.${y}`; };
+  if (min && max && min === max) return kort(min);
+  if (min && max && min.slice(0, 4) === max.slice(0, 4) && min.endsWith('-01-01') && max.endsWith('-12-31')) return `år ${min.slice(0, 4)}`;
+  if (min && max) return `${kort(min)} – ${kort(max)}`;
+  if (min) return `efter ${kort(min)}`;
+  if (max) return `før ${kort(max)}`;
+  return 'uden datogrænser';
+}
+
 const inp: React.CSSProperties = { width: '100%', fontSize: 14, color: T.ink, background: '#fff', border: `1px solid ${T.lineStrong}`, borderRadius: 7, padding: '8px 10px', outline: 'none' };
 const lbl: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: T.inkMuted, marginBottom: 4 };
 const btnGreen: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: T.inkOnInverse, background: T.success, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' };

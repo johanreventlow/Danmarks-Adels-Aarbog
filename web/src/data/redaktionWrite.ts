@@ -17,7 +17,7 @@ export const FELT_FAKTATYPE: Record<string, string> = {
   daab: 'dåb', begravelse: 'begravelse', floruit: 'floruit', naturalisering: 'naturalisering',
   overhoved: 'overhoved', // præsensliste-anker: 'II linje, 1. gren' (spec 2026-07-22 §4)
 };
-const DATE_FELT = new Set(['foedt', 'doed', 'daab', 'begravelse', 'floruit', 'naturalisering']);
+export const DATE_FELT = new Set(['foedt', 'doed', 'daab', 'begravelse', 'floruit', 'naturalisering']);
 
 // Medie-metadata (Task 3): kanoniske engelske date_qualifier-værdier (schema.sql:826, MM-07) —
 // afviser alt andet i stedet for at lade en fri tekststreng ramme kolonnen ukontrolleret.
@@ -29,7 +29,7 @@ const MEDIA_DATE_FAKTATYPER = new Set(['hentedato', 'datering']);
 
 export type Change = {
   art: 'fakta' | 'narrativ' | 'relation' | 'gods' | 'hverv'
-     | 'redigerOplysning' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'sletPerson' | 'sletPersonHelt' | 'kvitterPersonPurgeFil'
+     | 'redigerOplysning' | 'retLaesefejl' | 'sletOplysning' | 'setKonklusion' | 'setPrivat' | 'sletPerson' | 'sletPersonHelt' | 'kvitterPersonPurgeFil'
      | 'tilfoejOplysning' | 'opretFakta' | 'sletRelation' | 'sletMediaRelationUdenEvidens' | 'tilfoejRelation'
      | 'opretUnion' | 'tilfoejBarn' | 'setFamilieKonfidens' | 'sletFamilieLink'
      | 'setFamilieOrdinal' | 'flytBarn'
@@ -296,6 +296,15 @@ export function buildRpcCall(c: Change): RpcCall | null {
     if (c.felt && DATE_FELT.has(c.felt)) args.p_date_raw = c.vaerdi;
     if (c.kildeFritekst != null) args.p_kilde_fritekst = c.kildeFritekst;
     return { fn: 'red_edit_oplysning', args };
+  }
+  if (c.art === 'retLaesefejl') {
+    // OCR-rettelse af kildepåstand (decisions 2026-11-20): payload bygges af ocrPaastand.ts' byggOcrPaastand.
+    const forventet = c.payload?.forventet;
+    const ny = c.payload?.ny;
+    if (aid == null || !Number.isSafeInteger(aid) || aid <= 0
+      || forventet == null || typeof forventet !== 'object' || Array.isArray(forventet)
+      || ny == null || typeof ny !== 'object' || Array.isArray(ny)) return null;
+    return { fn: 'red_ret_ocr_paastand', args: { p_assertion_id: aid, p_forventet: forventet, p_ny: ny } };
   }
   if (c.art === 'sletOplysning') {
     if (aid == null) return null;
@@ -687,7 +696,7 @@ export function buildSuggestCall(c: Change): RpcCall {
 // Arter hvor et ufuldstændigt Change ALDRIG må degradere til red_suggest: de beskriver en
 // struktur-operation på en konkret række, og et forslag uden mål er ikke en svagere udgave af
 // handlingen — det er en tom post der kvitteres som "sendt til staging" (Codex sol, 2026-08-01).
-const KRAEVER_GYLDIGT_KALD = new Set(['tilknytMedia', 'tilfoejPartner', 'narrativRecord', 'fortrydNarrativPublicering', 'sletPersonHelt', 'kvitterPersonPurgeFil']);
+const KRAEVER_GYLDIGT_KALD = new Set(['retLaesefejl', 'tilknytMedia', 'tilfoejPartner', 'narrativRecord', 'fortrydNarrativPublicering', 'sletPersonHelt', 'kvitterPersonPurgeFil']);
 
 export function planCall(c: Change, role: string | undefined): RpcCall {
   const bygget = buildRpcCall(c);
@@ -726,6 +735,7 @@ export async function submitChange(c: Change, opts: { dryRun: boolean; role?: st
     fortryd: 'Fortryd', // et "fortryd-forslag" er en tom kø-post der kvitteres, mens intet fortrydes
     narrativRecord: 'Narrativ-publicering',
     fortrydNarrativPublicering: 'Narrativ-publicering',
+    retLaesefejl: 'Rettelse af læsefejl', // retter en kildepåstand på stedet; ikke et forslag
   };
   const gateNavn = IKKE_DEGRADERBAR[c.art];
   if (gateNavn && !direkte) {
@@ -803,6 +813,19 @@ export function narrativeRecordErrorState(message: string): NarrativeRecordError
   return null;
 }
 
+// red_ret_ocr_paastand's fejlkoder (decisions 2026-11-20). Rækkefølgen betyder intet: ingen kode er præfiks af en anden.
+const PAASTAND_FEJL: [string, string][] = [
+  ['PAASTAND_ROLLE_FORBUDT', 'Kræver redaktør-rettigheder.'],
+  ['PAASTAND_DRIFT', 'Påstanden er ændret siden indlæsning. Genindlæs personen, før du retter.'],
+  ['PAASTAND_IKKE_KILDEPAASTAND', 'Kun en importeret kildepåstand kan rettes som læsefejl — redigér din egen oplysning i stedet.'],
+  ['PAASTAND_KILDE_DELT', 'Påstanden har flere kilder og kan ikke rettes som én kildes læsefejl.'],
+  ['PAASTAND_FAKTATYPE_UGYLDIG', 'Denne slags oplysning kan ikke rettes som læsefejl.'],
+  ['PAASTAND_BRUG_KVALITETSARK', 'Personen har et importanker — ret feltet i kvalitetsarket.'],
+  ['PAASTAND_VAERDI_UGYLDIG', 'Den nye værdi er ugyldig.'],
+  ['PAASTAND_VAERDI_UAENDRET', 'Værdien er uændret — intet at rette.'],
+  ['PAASTAND_BINDING_BRYDES', 'Rettelsen ville bryde en bekræftet binding til bogen.'],
+];
+
 // PostgREST/Postgres-fejl → dansk UI-tekst (spec §9). Fald tilbage til rå besked.
 export function oversaetFejl(message: string): string {
   switch (narrativeRecordErrorState(message)) {
@@ -816,6 +839,8 @@ export function oversaetFejl(message: string): string {
     case 'legacy_drift': return 'Overgangsbiografien afviger fra sit godkendte grundlag og kan ikke ændres her.';
     case 'person_delete_publication_history': return 'Personen kan ikke slettes, mens der findes narrativ-publiceringshistorik.';
   }
+  const paastand = PAASTAND_FEJL.find(([kode]) => message.includes(kode));
+  if (paastand) return paastand[1];
   if (/kun redaktion/i.test(message)) return 'Kræver redaktør-rettigheder.';
   if (/medie med samme indhold findes allerede/i.test(message)) return "Billedet findes allerede i biblioteket — brug 'Tilknyt eksisterende' i stedet.";
   if (/allerede tilknyttet dette subjekt/i.test(message)) return 'Mediet er allerede tilknyttet dette subjekt.';

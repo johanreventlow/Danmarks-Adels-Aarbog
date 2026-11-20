@@ -529,6 +529,21 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 36. OCR-rettelse af kildepåstand uden importanker (`red_ret_ocr_paastand`) — LIVE i prod (2026-11-20)
+
+**Grundlag:** decisions 2026-11-20, plan `docs/superpowers/plans/2026-11-20-ocr-rettelse-af-kildepaastand.md`, PR #407.
+Runbook `docs/runbooks/ocr-paastand-prod.md`. Privat runner `~/.private/ocr-paastand-407/prod.zsh`, kørt i
+projektejerens shell før merge.
+
+- **DDL:** kun blokken `-- ===== ocr-rettelse af kildepåstand` … `-- END ocr-rettelse af kildepåstand` fra
+  `db-migrations.sql` @ `f7dcf575` (sha `6d299c81…`): `paastand_korrektion_grund_check` tillader også `ocr`; ny
+  `public.red_ret_ocr_paastand(bigint,jsonb,jsonb)` (security definer, kun `authenticated`). Invarianter i
+  transaktionen: `person`, `fact`, `assertion`, `paastand_korrektion`, `change_set`, `change_event` og
+  `visning_foedt/doed` uændrede. 695 ms.
+- **Efter (ny forbindelse):** funktion 1, CHECK med `ocr` 1, anon 0, authenticated 1; journal `bogen_har_ret` 27,
+  `linjeskift-v1` 70, ingen `ocr`.
+- **Web:** »Ret læsefejl« (»Aa«) på kildepåstande i personeditoren, kun for redaktører.
+
 ## 35. Faktatypen `fødenavn` og præsenslistens født-klausul (#401) — LIVE i prod (2026-11-20)
 
 **Grundlag:** spec `docs/superpowers/specs/2026-11-20-foedenavn-design.md`, plan

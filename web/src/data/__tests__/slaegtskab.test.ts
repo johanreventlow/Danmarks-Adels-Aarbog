@@ -93,8 +93,8 @@ describe('slaegtskabsKontekst — linjen over navnet set fra »Det er mig«', ()
     expect(slaegtskabsKontekst(m, 'A2', 'B')).toEqual({ art: 'blod', ord: 'din 1. grads fætter', sikkerhed: 'sikker', veje: 1, bekraeftetAndenVej: false });
   });
 
-  it('formodet led → sandsynligvis; omstridt led → omstridt', () => {
-    expect(slaegtskabsKontekst(byg({ 'B|P2': 'formodet' }), 'A2', 'B')).toMatchObject({ art: 'blod', sikkerhed: 'sandsynligvis', bekraeftetAndenVej: false });
+  it.each(['sandsynlig', 'formodet'] as const)('%s led → sandsynligvis; omstridt led → omstridt', (k) => {
+    expect(slaegtskabsKontekst(byg({ 'B|P2': k }), 'A2', 'B')).toMatchObject({ art: 'blod', sikkerhed: 'sandsynligvis', bekraeftetAndenVej: false });
     expect(slaegtskabsKontekst(byg({ 'B|P2': 'omstridt' }), 'A2', 'B')).toMatchObject({ art: 'blod', sikkerhed: 'omstridt' });
   });
 
@@ -112,15 +112,15 @@ describe('slaegtskabsKontekst — linjen over navnet set fra »Det er mig«', ()
         ],
         parentChild: [
           { child: 'A', parent: 'Pa', union: 'uA' },
-          { child: 'A', parent: 'Qa', union: 'uA' },
+          { child: 'A', parent: 'Qa', union: 'uA', konfidens: 'sikker' },
           { child: 'B', parent: 'Pb', union: 'uB', konfidens: konf },
-          { child: 'B', parent: 'Qb', union: 'uB' },
+          { child: 'B', parent: 'Qb', union: 'uB', konfidens: 'sikker' },
           { child: 'Pa', parent: 'G', union: 'uPa' },
           { child: 'Pb', parent: 'G', union: 'uPb' },
-          { child: 'Qa', parent: 'Ra', union: 'uQa' },
-          { child: 'Qb', parent: 'Rb', union: 'uQb' },
-          { child: 'Ra', parent: 'K', union: 'uRa' },
-          { child: 'Rb', parent: 'K', union: 'uRb' },
+          { child: 'Qa', parent: 'Ra', union: 'uQa', konfidens: 'sikker' },
+          { child: 'Qb', parent: 'Rb', union: 'uQb', konfidens: 'sikker' },
+          { child: 'Ra', parent: 'K', union: 'uRa', konfidens: 'sikker' },
+          { child: 'Rb', parent: 'K', union: 'uRb', konfidens: 'sikker' },
         ],
       } as Db) as unknown as Model;
     expect(slaegtskabsKontekst(byg7('omstridt'), 'A', 'B')).toEqual({ art: 'blod', ord: 'din 1. grads fætter/kusine', sikkerhed: 'omstridt', veje: 2, bekraeftetAndenVej: true });

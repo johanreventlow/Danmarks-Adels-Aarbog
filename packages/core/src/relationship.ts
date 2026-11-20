@@ -102,8 +102,34 @@ function pathUp(reach: Reach, from: string, to: string): string[] {
   return rev.reverse();
 }
 
-// "Halv" KUN når begge sider har en anden, kendt forælder der adskiller sig. Mangler den
-// anden forælder på en side, påstås intet (kunne være helsøskende med uregistreret par).
+// Navne sammenlignes uden store bogstaver, diakritik, tegnsætning og ekstra mellemrum.
+// En ord-delmængde kan være en kortere navneform i en anden udgave, også i anden ordstilling.
+const nameWords = (name: string): string[] => name.toLowerCase().normalize('NFD')
+  .replace(/\p{M}/gu, '').replace(/\p{P}/gu, ' ').trim().split(/\s+/).filter(Boolean);
+
+// Forskellige id'er kræver desuden modstridende kendt køn, adskilte mulige levetider
+// eller tydeligt forskellige navne. Ens navne/ord-delmængder med kompatible datoer
+// forbliver uafklarede; der udledes ingen ny samme_som-identitet.
+function definitelyDifferent(model: Model, aId: string, bId: string): boolean {
+  const canonical = (id: string) => model.canonicalIdById?.[id] ?? id;
+  if (canonical(aId) === canonical(bId)) return false;
+  const a = model.byId[aId];
+  const b = model.byId[bId];
+  if (!a || !b) return false;
+  if (a.koen && b.koen && a.koen !== b.koen) return true;
+  const ab = a.foedtSpaend?.[0] ?? a.born;
+  const ad = a.doedSpaend?.[1] ?? a.died;
+  const bb = b.foedtSpaend?.[0] ?? b.born;
+  const bd = b.doedSpaend?.[1] ?? b.died;
+  if ((ab != null && bd != null && ab > bd) || (bb != null && ad != null && bb > ad)) return true;
+  const an = nameWords(a.name);
+  const bn = nameWords(b.name);
+  return an.length > 0 && bn.length > 0
+    && !an.every((word) => bn.includes(word)) && !bn.every((word) => an.includes(word));
+}
+
+// "Halv" KUN når ALLE mulige andre forældre er bevist forskellige på tværs af siderne.
+// Uafklaret identitet eller manglende anden forælder bruger den generelle søskendeetiket.
 function isHalfThrough(model: Model, ra: Reach, rb: Reach, rep: string): boolean {
   const xa = ra.prev[rep];
   const xb = rb.prev[rep];
@@ -111,7 +137,7 @@ function isHalfThrough(model: Model, ra: Reach, rb: Reach, rep: string): boolean
   const pa = (model.indexes.parentsByChild[xa] || []).filter((p) => p !== rep);
   const pb = (model.indexes.parentsByChild[xb] || []).filter((p) => p !== rep);
   if (!pa.length || !pb.length) return false; // anden forælder ukendt på en side
-  return !pa.some((p) => pb.includes(p)); // delt anden forælder ⇒ par (ikke halv)
+  return pa.every((p) => pb.every((q) => definitelyDifferent(model, p, q)));
 }
 
 // ── Etiketter ────────────────────────────────────────────────────────────────
@@ -248,14 +274,14 @@ export type RelationLine = {
   steps: RelationStep[]; // repræsentantens sti (de øvrige linjers stier udelades)
   // Svageste STATEREDE konfidens på stien (null = alle led uangivet/ingen svaghed).
   weakestKonfidens: Konfidens;
-  // True når stien hviler på et formodet/omstridt led — finderen skal vise usikkerhed.
+  // True når stien hviler på et sandsynligt/formodet/omstridt led.
   usikker: boolean;
   // Antal uafhængige linjer i samme afstand (1 = normal; 2 = dobbelt; 3 = tredobbelt …).
   multiplicitet: number;
   // Visningsnavn pr. sammenslået linjes ane/anepar (længde === multiplicitet).
   aner: string[];
-  // Antal indbyrdes NODE-disjunkte stier bag linjen (korroboration). ≥2 ⇒ slægtskabet er
-  // bekræftet ad uafhængige veje, selv hvis den viste sti har et svagt led. ≤ multiplicitet.
+  // Antal indbyrdes NODE-disjunkte stier med uangivet eller 'sikker' på HVERT led.
+  // 0 = ingen sikker sti; ≥2 = bekræftet ad uafhængige sikre veje. ≤ multiplicitet.
   uafhaengige: number;
 };
 
@@ -304,12 +330,18 @@ function innerNodes(steps: RelationStep[]): Set<string> {
   return out;
 }
 
-// Antal indbyrdes NODE-disjunkte stier (grådigt, nærmeste først). To stier der ikke deler
-// en mellem-PERSON er uafhængig bekræftelse (Mengers definition) — deler de en person, er
-// beviskæden delvist den samme, og de tæller ikke som uafhængige. ≥2 ⇒ korroboreret.
+// Projektejerens regel 2026-11-20: uangivet og 'sikker' tæller som sikkert;
+// sandsynlig/formodet/omstridt gør ikke. Første trin har ingen indgående kant.
+function sikkerSti(steps: RelationStep[]): boolean {
+  return steps.length > 1 && steps.slice(1).every((s) => s.edgeKonfidens == null || s.edgeKonfidens === 'sikker');
+}
+
+// Grådigt antal indbyrdes NODE-disjunkte SIKRE stier. Et fælles usikkert led udelukker
+// begge stier allerede før disjunkthedstjekket. Delte sikre mellem-personer tæller kun én gang.
 function uafhaengigeAntal(members: RelationLine[]): number {
   const valgt: Set<string>[] = [];
   for (const m of members) {
+    if (!sikkerSti(m.steps)) continue;
     const ns = innerNodes(m.steps);
     if (valgt.every((c) => disjunkt(c, ns))) valgt.push(ns);
   }
@@ -359,7 +391,7 @@ export function computeRelationship(model: Model, aId: string, bId: string): Rel
   const none: RelationResult = { found: false, label: '', lcaId: null, lcaName: '', steps: [], lines: [] };
   if (!a || !b) return none;
   if (a.id === b.id) {
-    const line: RelationLine = { label: 'Samme person', lcaId: a.id, lcaName: a.name, half: false, d1: 0, d2: 0, steps: [], weakestKonfidens: null, usikker: false, multiplicitet: 1, aner: [a.name], uafhaengige: 1 };
+    const line: RelationLine = { label: 'Samme person', lcaId: a.id, lcaName: a.name, half: false, d1: 0, d2: 0, steps: [], weakestKonfidens: null, usikker: false, multiplicitet: 1, aner: [a.name], uafhaengige: 0 };
     return { found: true, label: line.label, lcaId: a.id, lcaName: a.name, steps: [], lines: [line] };
   }
 
@@ -392,8 +424,8 @@ export function computeRelationship(model: Model, aId: string, bId: string): Rel
     const lcaName = model.byId[rep]?.name ?? '';
     const coupleNames = couple ? `${lcaName} & ${model.byId[rep === c ? partner! : c]?.name ?? ''}` : undefined;
     const weakestKonfidens = weakestOnPath(steps);
-    const usikker = weakestKonfidens != null && KONFIDENS_RANK[weakestKonfidens] <= KONFIDENS_RANK.formodet;
-    lines.push({ label, lcaId: rep, lcaName, coupleNames, half, d1, d2, steps, weakestKonfidens, usikker, multiplicitet: 1, aner: [coupleNames ?? lcaName], uafhaengige: 1 });
+    const usikker = weakestKonfidens != null && KONFIDENS_RANK[weakestKonfidens] <= KONFIDENS_RANK.sandsynlig;
+    lines.push({ label, lcaId: rep, lcaName, coupleNames, half, d1, d2, steps, weakestKonfidens, usikker, multiplicitet: 1, aner: [coupleNames ?? lcaName], uafhaengige: sikkerSti(steps) ? 1 : 0 });
   }
 
   // Nærmeste først: mindste samlede afstand, så mest balancerede, så stærkeste led, så id.
@@ -407,6 +439,8 @@ export function computeRelationship(model: Model, aId: string, bId: string): Rel
 
   const merged = mergeSameDistanceLines(lines);
   const p = merged[0];
-  const alternativSolidLinje = p.usikker && merged.slice(1).some((l) => !l.usikker);
+  // Tallet kommer fra hele stier, så en uangivet alternativ sti også kan bekræfte;
+  // svageste staterede konfidens alene kan ikke afgøre korroboration i en flettet gruppe.
+  const alternativSolidLinje = p.usikker && merged.some((l) => l.uafhaengige > 0);
   return { found: true, label: p.label, lcaId: p.lcaId, lcaName: p.lcaName, steps: p.steps, lines: merged, alternativSolidLinje };
 }

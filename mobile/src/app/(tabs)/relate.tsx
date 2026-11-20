@@ -13,13 +13,13 @@ import { chooseMeSlot } from '../../lib/relateSlot';
 import { selectMeId, useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
 
-// Vis kun de led der reelt er usikre (formodet/omstridt); sikre/sandsynlige/uangivne flages ikke.
+// Sandsynlig/formodet/omstridt vises som usikre; sikker/uangivet flages ikke.
 function konfTekst(k?: Konfidens): string {
-  return k === 'omstridt' ? 'omstridt' : k === 'formodet' ? 'formodet' : '';
+  return k === 'omstridt' ? 'omstridt' : k === 'formodet' ? 'formodet' : k === 'sandsynlig' ? 'sandsynligt' : '';
 }
 
-// Positivt korroborations-signal: flere uafhængige veje, eller en solid alternativ-linje
-// der bekræfter slægtskabet selv om den viste sti har et svagt led. '' = intet at vise.
+// Core tæller veje med uangivet/'sikker' på hvert led. Sandsynlig/formodet/omstridt
+// er ikke sikker bekræftelse, heller ikke som alternativ til den viste usikre sti.
 function korroborationsTekst(rel: RelationResult): string {
   const p = rel.lines[0];
   if (!p) return '';

@@ -671,6 +671,36 @@ describe('fase 4: oversaetFejl', () => {
   });
 });
 
+describe('buildRpcCall — retLaesefejl (OCR-rettelse af kildepåstand)', () => {
+  const forventet = { fact_id: 11315, faktatype: 'fødsel', vaerdi_tekst: null, date_raw: '25 Marts 157',
+    valgt_assertion_id: 13833, citation_sources: [3] };
+  const ny = { date_raw: '25 Marts 1578', date_min: '1578-01-01', date_max: '1578-12-31',
+    date_qualifier: null, date_certainty: null };
+  const c: Change = { art: 'retLaesefejl', subjektType: 'person', subjektId: '1559', assertionId: '13833',
+    payload: { forventet, ny } };
+
+  it('mapper til red_ret_ocr_paastand', () => {
+    expect(buildRpcCall(c)).toEqual({ fn: 'red_ret_ocr_paastand',
+      args: { p_assertion_id: 13833, p_forventet: forventet, p_ny: ny } });
+  });
+  it('ufuldstændig ændring afvises i stedet for at blive et forslag', () => {
+    expect(buildRpcCall({ ...c, payload: { forventet } })).toBeNull();
+    expect(() => planCall({ ...c, assertionId: undefined }, 'redaktion')).toThrow('Ufuldstændig');
+  });
+  it('kan ikke degradere til et forslag', async () => {
+    await expect(submitChange(c, { dryRun: true, role: 'medlem' })).rejects.toThrow('kræver redaktør-rettigheder');
+  });
+  it.each([
+    'PAASTAND_ROLLE_FORBUDT', 'PAASTAND_DRIFT', 'PAASTAND_IKKE_KILDEPAASTAND', 'PAASTAND_KILDE_DELT',
+    'PAASTAND_FAKTATYPE_UGYLDIG', 'PAASTAND_BRUG_KVALITETSARK', 'PAASTAND_VAERDI_UGYLDIG', 'PAASTAND_VAERDI_UAENDRET',
+    'PAASTAND_BINDING_BRYDES',
+  ])('%s oversættes til dansk', (kode) => {
+    const tekst = oversaetFejl(kode);
+    expect(tekst).not.toContain(kode);
+    expect(tekst.length).toBeGreaterThan(10);
+  });
+});
+
 // --- Union-redigering (2026-08-01): reparér en union der mangler sin ene part.
 // Hullet kostede 65 barne-flytninger da 1939-loaderens mor-løse børne-familier
 // skulle rettes — én "tilføj mor" havde været nok.

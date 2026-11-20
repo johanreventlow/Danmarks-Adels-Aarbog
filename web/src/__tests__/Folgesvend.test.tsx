@@ -42,7 +42,7 @@ vi.mock('../data/public', async (importOriginal) => ({
 }));
 vi.mock('../data/auth', () => ({
   currentSession: () => Promise.resolve(null),
-  signIn: mocks.signIn,
+  signIn: mocks.signIn, onAuthChange: () => () => {},
   loginFejlTekst: () => 'Login lykkedes ikke.',
   signOut: vi.fn(),
 }));
