@@ -101,7 +101,7 @@ DECLARE
   v_actor uuid:='11000000-0000-0000-0000-0000000c2871'; v_medlem uuid:='11000000-0000-0000-0000-0000000c2872';
   v_p bigint:=-2871; v_s bigint:=-2871; m jsonb; v_post jsonb; v_run uuid;
   a_foed bigint; a_navn bigint; a_ufort bigint; a_egen bigint; a_fri bigint; a_delt bigint; a_ff bigint;
-  a_anker bigint; a_bund bigint; i_bund uuid; a_titel bigint;
+  a_anker bigint; a_bund bigint; i_bund uuid; a_titel bigint; a_valgt_egen bigint; a_egen_ovenpaa bigint;
   r jsonb; a record; v_cs bigint; h record; v_ny jsonb;
 BEGIN
   PERFORM pg_temp.f5b_actor(v_actor);
@@ -196,6 +196,16 @@ BEGIN
   PERFORM pg_temp.op_fejl('PAASTAND_FAKTATYPE_UGYLDIG',v_actor,a_ff,pg_temp.op_forventet(a_ff),v_ny);
   PERFORM pg_temp.op_fejl('PAASTAND_BRUG_KVALITETSARK',v_actor,a_anker,pg_temp.op_forventet(a_anker),
     '{"date_raw":"1 Jan 1600","date_min":"1600-01-01","date_max":"1600-01-01","date_qualifier":"exact","date_certainty":null}');
+  -- Kvalitetsarket kan kun rette den valgte, afklarede påstand, ankerets kilde citerer: har en redaktør lagt en egen
+  -- oplysning ovenpå (konklusionen peger på den), rettes kildepåstanden her i stedet for at blive henvist til arket.
+  a_valgt_egen:=pg_temp.op_fakta(-2872,'død','date_raw','5 Maj 165',ARRAY[v_s]);
+  INSERT INTO assertion(target_type,target_id,date_raw,uforanderlig)
+    SELECT 'fact',target_id,'5 Maj 1650',false FROM assertion WHERE id=a_valgt_egen RETURNING id INTO a_egen_ovenpaa;
+  UPDATE conclusion SET valgt_assertion_id=a_egen_ovenpaa
+   WHERE target_type='fact' AND target_id=(SELECT target_id FROM assertion WHERE id=a_valgt_egen);
+  r:=pg_temp.op_ret(v_actor,a_valgt_egen,pg_temp.op_forventet(a_valgt_egen),
+    '{"date_raw":"5 Maj 1650","date_min":"1650-01-01","date_max":"1650-12-31","date_qualifier":null,"date_certainty":null}');
+  IF (SELECT date_raw FROM assertion WHERE id=a_valgt_egen)<>'5 Maj 1650' THEN RAISE EXCEPTION 'OCRP_TEST_ANKER_IKKE_VALGT'; END IF;
   -- Ankeret dækker kun navn/fødsel/død: en titel hos samme person rettes her.
   r:=pg_temp.op_ret(v_actor,a_titel,pg_temp.op_forventet(a_titel),'{"vaerdi_tekst":"Kammerjunker"}');
   IF (SELECT vaerdi_tekst FROM assertion WHERE id=a_titel)<>'Kammerjunker' THEN RAISE EXCEPTION 'OCRP_TEST_ANKER_TITEL'; END IF;
@@ -259,7 +269,7 @@ BEGIN
   PERFORM pg_temp.op_fejl('PAASTAND_BINDING_BRYDES',v_actor,a_bund,pg_temp.op_forventet(a_bund),
     '{"vaerdi_tekst":"Hofmesterinde"}');
 
-  IF (SELECT count(*) FROM paastand_korrektion WHERE grund='ocr')<>4 THEN
+  IF (SELECT count(*) FROM paastand_korrektion WHERE grund='ocr')<>5 THEN
     RAISE EXCEPTION 'OCRP_TEST_ANTAL: %',(SELECT count(*) FROM paastand_korrektion WHERE grund='ocr');
   END IF;
 END $ocr$;

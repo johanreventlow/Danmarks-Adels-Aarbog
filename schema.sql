@@ -10568,7 +10568,10 @@ BEGIN
   IF v_f.faktatype='forældrefamilie' THEN RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG'; END IF;
   IF v_a.uforanderlig IS FALSE OR cardinality(v_sources)=0 THEN RAISE EXCEPTION 'PAASTAND_IKKE_KILDEPAASTAND'; END IF;
   IF cardinality(v_sources)<>1 OR v_null_source THEN RAISE EXCEPTION 'PAASTAND_KILDE_DELT'; END IF;
-  -- The quality sheet's reach (red_person_grid's external_anchor): exactly one anchor, and it is stable.
+  -- The quality sheet's reach: red_person_grid's external_anchor (exactly one anchor, and it is stable) and the
+  -- assertion red_ret_ocr_felt would pick (the only chosen, settled assertion of this type cited by the anchor's
+  -- source). Only that exact assertion is sent to the sheet; any other source assertion is corrected here, so an
+  -- editor is never sent to a sheet that cannot reach it.
   IF v_f.faktatype IN ('navn','fødsel','død') AND EXISTS (
        SELECT 1 FROM (
          SELECT count(*) AS n,
@@ -10576,7 +10579,13 @@ BEGIN
                 max(pei.source_id) AS source_id
            FROM public.person_external_id pei LEFT JOIN public.source s ON s.id=pei.source_id
           WHERE pei.person_id=v_person) x
-        WHERE x.n=1 AND x.n_stabil=1 AND x.source_id=v_sources[1]) THEN
+        WHERE x.n=1 AND x.n_stabil=1 AND x.source_id=v_sources[1])
+     AND v_a.id=(SELECT CASE WHEN count(DISTINCT a2.id)=1 THEN min(a2.id) END
+                   FROM public.fact f2
+                   JOIN public.conclusion c2 ON c2.target_type='fact' AND c2.target_id=f2.id AND c2.status='afklaret'
+                   JOIN public.assertion a2 ON a2.id=c2.valgt_assertion_id
+                   JOIN public.citation ci2 ON ci2.assertion_id=a2.id AND ci2.source_id=v_sources[1]
+                  WHERE f2.subjekt_type='person' AND f2.subjekt_id=v_person AND f2.faktatype=v_f.faktatype) THEN
     RAISE EXCEPTION 'PAASTAND_BRUG_KVALITETSARK';
   END IF;
 
