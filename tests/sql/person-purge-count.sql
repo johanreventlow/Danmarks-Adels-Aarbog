@@ -280,6 +280,7 @@ ce_hits AS MATERIALIZED (
                        WHERE (v.j->>'target_type'='person'   AND v.j->>'target_id'=p.pidt)
                           OR (v.j->>'target_type'='fact'     AND v.j->>'target_id' IN (SELECT idt FROM hist_facts))
                           OR (v.j->>'target_type'='relation' AND v.j->>'target_id' IN (SELECT idt FROM hist_rels))
+                          OR (v.j->>'target_type'='relation' AND v.j->>'target_id' IN (SELECT id::text FROM kept_media_rels))
                           OR (v.j->>'target_type'='family'   AND v.j->>'target_id' IN (SELECT id::text FROM fam_c))))
       OR (ce.tabel='narrative' AND ce.row_pk->>'id' IN (SELECT idt FROM hist_narr))
       OR (ce.tabel='story'     AND ce.row_pk->>'id' IN (SELECT idt FROM hist_story))
@@ -349,10 +350,11 @@ counts(nr, sted, antal) AS (
        WHERE (c.target_type='fact' AND c.target_id IN (SELECT id FROM fact_fam))
           OR (c.target_type='relation' AND c.target_id IN (SELECT id FROM rels_fam)))
   UNION ALL SELECT 'S17b','public.citation på F_fam/R_fam-assertions', (SELECT count(*) FROM public.citation c WHERE c.assertion_id IN (SELECT id FROM asrt_fam))
-  UNION ALL SELECT 'S18b','public.note på Fam_del/F_fam/R_fam', (SELECT count(*) FROM public.note o
+  UNION ALL SELECT 'S18b','public.note på Fam_c/F_fam/R_fam og på bevarede medie↔familie-koblinger', (SELECT count(*) FROM public.note o
        WHERE (o.target_type='family' AND o.target_id IN (SELECT id FROM fam_c))
           OR (o.target_type='fact' AND o.target_id IN (SELECT id FROM fact_fam))
-          OR (o.target_type='relation' AND o.target_id IN (SELECT id FROM rels_fam)))
+          OR (o.target_type='relation' AND o.target_id IN (SELECT id FROM rels_fam))
+          OR (o.target_type='relation' AND o.target_id IN (SELECT id FROM kept_media_rels)))
   UNION ALL SELECT 'S19','public.relation med fact-ende i P''s fakta', (SELECT count(*) FROM public.relation r
        WHERE (r.subjekt_type='fact' AND r.subjekt_id IN (SELECT id FROM facts))
           OR (r.objekt_type='fact' AND r.objekt_id IN (SELECT id FROM facts)))
@@ -403,7 +405,11 @@ counts(nr, sted, antal) AS (
        WHERE s.description_id IN (SELECT d.id FROM public.entity_description d, params p WHERE d.subjekt_type='person' AND d.subjekt_id=p.pid))
   UNION ALL SELECT 'S34','public.suggestion (subjekt person)', (SELECT count(*) FROM public.suggestion g, params p WHERE g.subjekt_type='person' AND g.subjekt_id=p.pid)
   -- Punkt 2c: rettelsesjournaler, medier, familier
-  UNION ALL SELECT 'S34c','public.suggestion (subjekt family i Fam_c)', (SELECT count(*) FROM public.suggestion g WHERE g.subjekt_type='family' AND g.subjekt_id IN (SELECT id FROM fam_c))
+  UNION ALL SELECT 'S34c','public.suggestion (subjekt family i Fam_c, fakta/relationer der slettes, bevarede medie↔familie-koblinger)', (SELECT count(*) FROM public.suggestion g
+       WHERE (g.subjekt_type='family' AND g.subjekt_id IN (SELECT id FROM fam_c))
+          OR (g.subjekt_type='fact' AND g.subjekt_id IN (SELECT id FROM facts UNION SELECT id FROM fact_fam))
+          OR (g.subjekt_type='relation' AND g.subjekt_id IN (SELECT id FROM rels UNION SELECT id FROM rels_fam
+                                                             UNION SELECT id FROM kept_media_rels)))
   UNION ALL SELECT 'S35','public.import_korrektion (via import_key+record_key)', (SELECT count(*) FROM public.import_korrektion ik
        WHERE EXISTS (SELECT 1 FROM p_import_keys k WHERE k.import_key=ik.import_key AND k.record_key=ik.record_key))
   UNION ALL SELECT 'S36','public.paastand_korrektion (levende+historiske assertions)', (SELECT count(*) FROM public.paastand_korrektion k

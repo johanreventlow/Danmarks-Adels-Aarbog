@@ -176,7 +176,8 @@ hvor rækken handler om personen:
   **Undtagelse 2026-11-20 (projektejeren):** en kobling *direkte* mellem et billede og en sådan bevaret familie (fx
   forældrenes familiefoto, når et levende barn slettes) bevares med sin historik, og billedet låses
   (`maa_publiceres=false`, vist under `medier_skjules`), så redaktionen kan finde og genfrigive det. Et billede, der kun
-  var koblet til slettet familieindhold (fx et vielsesfoto på vielsen), slettes helt inkl. filen.
+  var koblet til slettet familieindhold (fx et vielsesfoto på vielsen), slettes helt inkl. filen. På en bevaret
+  kobling står evidenskæden (påstand, citat, konklusion), mens noter og forslag på den slettes med historik.
   Tidligere (slettede/fortrudte) hændelser på personen eller en sådan familie fjernes også fra historikken: deres
   snapshot har kun id+feed_status, så ejerskabet afledes af change_set'ets subjekt (feed-dommen) eller af det sæt, der
   slettede narrativet (kaskadesletningen).

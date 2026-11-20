@@ -194,7 +194,7 @@ Kolonnen **Indhold** udfyldes kun for bevar_andres: `id` = kun P's id/hash/uuid;
 | NY-B | (del af S32) | nøgleformaterne `story:`, `paadennedag:h:`, `dagensperson:` mangler i kortlægningen og `count.sql` (kilde: `packages/feed/src/story.ts:108`, `temporal.ts:100,130`) | slet | 4 | | |
 | S32c | `feed_pin 'forbundet:'||f` for `f ∈ Fam_keep` | | bevar_andres | – | `trg_log_feed_pin` | id (familie-id) |
 | S33 | `public.entity_description` + `private.entity_description_source` | `id ∈ ED` | slet (`…_source` CASCADE l. 11961) | 4 | `trg_entity_description_subject` l. 11981 (INS/UPD), `trg_log_entity_description` l. 11989 | |
-| S34 | `public.suggestion` | `subjekt_type='person' AND subjekt_id=P` ∪ `subjekt_type='family' AND subjekt_id ∈ Fam_del` | slet | 4 | ingen (ikke versioneret). `interpretation_forslag_binding` (l. 10073) sidder på `private.interpretation` (AFTER INSERT), ikke på `suggestion` | |
+| S34 | `public.suggestion` | `subjekt_type='person' AND subjekt_id=P` ∪ `subjekt_type='family' AND subjekt_id ∈ Fam_c` ∪ `subjekt_type='fact' AND subjekt_id ∈ F ∪ F_fam` ∪ `subjekt_type='relation' AND subjekt_id ∈ Rd ∪ R_kob` (CTE `sg`) | slet | 4 | ingen (ikke versioneret). `interpretation_forslag_binding` (l. 10073) sidder på `private.interpretation` (AFTER INSERT), ikke på `suggestion` | |
 | S34b | andres `suggestion`, hvor `payload`/`vaerdi`/`note`/`kilde_fritekst` nævner P | `subjekt ≠ P` og `payload::text`/tekst indeholder P's id eller token | **blokér** ved token (afsnit 4.1); ellers bevar_andres | 0 | – | fritekst? |
 
 ### 1d. Rettelsesjournaler, medier, familier
@@ -226,6 +226,12 @@ redaktionen kun finder billeder via koblinger og skal kunne genfrigive det. En t
 (kun i `change_event`) fjernes stadig som familieindhold. Et medie, der kun var koblet til slettet Fam_ind-indhold (fx et
 vielsesfoto kun på vielses-faktummet), mister alle koblinger og slettes helt som i løsning A (S37 inkl. storage-udbakke).
 Plan, historiklukning, manifestvagt (promotion-ejerskab) og den uafhængige tæller bruger samme udtagning.
+Det, der hænger på en bevaret kobling (sikkerhedsfund 2026-11-20): evidenskæden (påstand, citat, konklusion) og
+promotions bevares med historik — relationen må ikke stå uden konklusion (invariant 1), og evidensen er kun synlig for
+læsere, når relationen er det (RLS kaskaderer; relationen er skjult, fordi mediet er låst). Eksisterende blokeringer
+(S20, S29 på påstands-/citattekst) gælder uændret for den bevarede evidens. Noter (S18) og forslag (S34) på koblingen er
+redaktionel fritekst og slettes som familieindhold, noterne med historik. S34 omfatter desuden forslag på fakta og
+relationer, der slettes (`fd`, `rd`), som før blev efterladt uden mål.
 
 ### 1e. Private ledgers
 

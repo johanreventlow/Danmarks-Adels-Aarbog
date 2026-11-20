@@ -42673,7 +42673,7 @@ WITH RECURSIVE
       AND NOT ((t.kilde_type='narrative' AND t.kilde_id IN (SELECT id FROM n))
         OR (t.kilde_type='note' AND t.kilde_id IN (SELECT nn.id FROM public.note nn WHERE (nn.target_type='person' AND nn.target_id=p_person_id)
           OR (nn.target_type='family' AND nn.target_id IN (SELECT id FROM famc))
-          OR (nn.target_type='fact' AND nn.target_id IN (SELECT id FROM fd)) OR (nn.target_type='relation' AND nn.target_id IN (SELECT id FROM rd))))))),
+          OR (nn.target_type='fact' AND nn.target_id IN (SELECT id FROM fd)) OR (nn.target_type='relation' AND nn.target_id IN (SELECT id FROM rd UNION SELECT id FROM rk))))))),
   pei_raw AS MATERIALIZED (
     SELECT source_id::text AS source_id,record_key FROM public.person_external_id WHERE person_id=p_person_id
     UNION SELECT j->>'source_id',j->>'record_key' FROM public.change_event e
@@ -42778,6 +42778,7 @@ WITH RECURSIVE
           OR (j->>'target_type'='family' AND j->>'target_id' IN (SELECT id::text FROM famc))
           OR (j->>'target_type'='fact' AND j->>'target_id' IN (SELECT id FROM fv))
           OR (j->>'target_type'='relation' AND j->>'target_id' IN (SELECT id FROM rv))
+          OR (j->>'target_type'='relation' AND j->>'target_id' IN (SELECT id::text FROM rk))
         WHEN 'narrative' THEN (j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
           OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc))
         WHEN 'story' THEN (j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
@@ -42861,7 +42862,7 @@ WITH RECURSIVE
       AND NOT ((t.kilde_type='narrative' AND t.kilde_id IN (SELECT id FROM n))
         OR (t.kilde_type='note' AND t.kilde_id IN (SELECT nn.id FROM public.note nn WHERE (nn.target_type='person' AND nn.target_id=p_person_id)
           OR (nn.target_type='family' AND nn.target_id IN (SELECT id FROM famc))
-          OR (nn.target_type='fact' AND nn.target_id IN (SELECT id FROM fd)) OR (nn.target_type='relation' AND nn.target_id IN (SELECT id FROM rd))))))),
+          OR (nn.target_type='fact' AND nn.target_id IN (SELECT id FROM fd)) OR (nn.target_type='relation' AND nn.target_id IN (SELECT id FROM rd UNION SELECT id FROM rk))))))),
   pei_raw AS MATERIALIZED (
     SELECT source_id::text AS source_id,record_key FROM public.person_external_id WHERE person_id=p_person_id
     UNION SELECT j->>'source_id',j->>'record_key' FROM public.change_event e
@@ -42903,7 +42904,16 @@ WITH RECURSIVE
       SELECT 1 FROM jsonb_array_elements(c.context->'families') f WHERE f->>'family_id' IN (SELECT id::text FROM fam))),
   nt AS MATERIALIZED (SELECT id FROM public.note WHERE (target_type='person' AND target_id=p_person_id)
     OR (target_type='family' AND target_id IN (SELECT id FROM famc))
-    OR (target_type='fact' AND target_id IN (SELECT id FROM fd)) OR (target_type='relation' AND target_id IN (SELECT id FROM rd))),
+    OR (target_type='fact' AND target_id IN (SELECT id FROM fd)) OR (target_type='relation' AND target_id IN (SELECT id FROM rd))
+    -- Sikkerhedsfund til rk (2026-11-20): en bevaret medie↔familie-kobling beholder sin evidenskæde (påstand, citat,
+    -- konklusion; invariant 1, og evidensen er kun synlig, når relationen er), men noter og forslag på den er redaktionel
+    -- fritekst og slettes som familieindhold, med historik.
+    OR (target_type='relation' AND target_id IN (SELECT id FROM rk))),
+  -- Forslag, der slettes: på P, på Fam_c, og på fakta/relationer, der slettes (fd, rd), samt på rk.
+  sg AS MATERIALIZED (SELECT id FROM public.suggestion t WHERE (t.subjekt_type='person' AND t.subjekt_id=p_person_id)
+    OR (t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM famc))
+    OR (t.subjekt_type='fact' AND t.subjekt_id IN (SELECT id FROM fd))
+    OR (t.subjekt_type='relation' AND t.subjekt_id IN (SELECT id FROM rd UNION SELECT id FROM rk))),
   hist AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_historik) h(tabel text,pk jsonb)),
   av AS MATERIALIZED (SELECT id::text AS id FROM a UNION SELECT ce.row_pk->>'id' FROM public.change_event ce
     JOIN hist ON hist.tabel='change_event' AND hist.pk=jsonb_build_object('id',ce.id) WHERE ce.tabel='assertion'),
@@ -43054,7 +43064,7 @@ WITH RECURSIVE
     FROM private.entity_description_source t WHERE t.description_id IN (SELECT id FROM ed)
   UNION ALL
   SELECT 'S34'::text,'suggestion'::text,jsonb_build_object('id',t.id),'slet'::text,'egen'::text,'{}'::jsonb,0
-    FROM public.suggestion t WHERE (t.subjekt_type='person' AND t.subjekt_id=p_person_id) OR (t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM famc))
+    FROM public.suggestion t WHERE t.id IN (SELECT id FROM sg)
   UNION ALL
   SELECT 'S35'::text,'import_korrektion'::text,jsonb_build_object('id',t.id),'slet'::text,'egen'::text,'{}'::jsonb,0
     FROM public.import_korrektion t WHERE EXISTS (SELECT 1 FROM pei WHERE import_key=t.import_key AND record_key=t.record_key)
@@ -43143,8 +43153,7 @@ WITH RECURSIVE
     FROM public.feed_pin t WHERE t.kort_noegle IN (SELECT 'forbundet:'||id FROM fam_keep)
   UNION ALL
   SELECT 'S34b'::text,'suggestion'::text,jsonb_build_object('id',t.id),'bevar_andres'::text,NULL::text,'{}'::jsonb,10
-    FROM public.suggestion t WHERE ((t.subjekt_type='person' AND t.subjekt_id=p_person_id)
-      OR (t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM famc))) IS NOT TRUE
+    FROM public.suggestion t WHERE t.id NOT IN (SELECT id FROM sg)
       AND (t.vaerdi ~ (SELECT rx FROM jrx) OR t.note ~ (SELECT rx FROM jrx)
         OR t.kilde_fritekst ~ (SELECT rx FROM jrx) OR t.payload::text ~ (SELECT rx FROM jrx))
   UNION ALL
@@ -43257,7 +43266,7 @@ WITH RECURSIVE
     FROM public.haendelse t WHERE (t.id IN (SELECT id FROM h)) IS NOT TRUE AND (t.klausul::text ~ (SELECT rx FROM token_rx))
   UNION ALL
   SELECT 'S34b'::text,'suggestion'::text,jsonb_build_object('id',t.id),'blokér'::text,NULL::text,'{}'::jsonb,2
-    FROM public.suggestion t WHERE ((t.subjekt_type='person' AND t.subjekt_id=p_person_id) OR (t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM famc))) IS NOT TRUE AND (t.vaerdi::text ~ (SELECT rx FROM token_rx) OR t.note::text ~ (SELECT rx FROM token_rx) OR t.kilde_fritekst::text ~ (SELECT rx FROM token_rx) OR t.payload::text ~ (SELECT rx FROM token_rx))
+    FROM public.suggestion t WHERE t.id NOT IN (SELECT id FROM sg) AND (t.vaerdi::text ~ (SELECT rx FROM token_rx) OR t.note::text ~ (SELECT rx FROM token_rx) OR t.kilde_fritekst::text ~ (SELECT rx FROM token_rx) OR t.payload::text ~ (SELECT rx FROM token_rx))
   UNION ALL
   SELECT 'S29'::text,'assertion'::text,jsonb_build_object('id',t.id),'blokér'::text,NULL::text,'{}'::jsonb,2
     FROM public.assertion t WHERE (t.id IN (SELECT id FROM a)) IS NOT TRUE AND (t.vaerdi_tekst::text ~ (SELECT rx FROM token_rx) OR t.date_raw::text ~ (SELECT rx FROM token_rx))

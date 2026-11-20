@@ -3728,6 +3728,25 @@ BEGIN
       WHERE subjekt_type='media' AND subjekt_id=v_m AND objekt_type=r.typ AND objekt_id=pg_temp.gid(r.maal);
     PERFORM purge_test.nyt(); PERFORM public.red_bekraeft_media_upload(v_m);
   END LOOP;
+  -- Sikkerhedsfund til den bevarede kobling: evidenskæde (påstand, citat, konklusion), en note og et forslag på den.
+  PERFORM purge_test.nyt();
+  PERFORM public.begin_change_set('gdpr_koblingsevidens','fixture','family',pg_temp.gid('fam_b'));
+  INSERT INTO public.assertion(target_type,target_id,vaerdi_tekst) VALUES ('relation',pg_temp.gid('rel_m_famfoto'),'Syntetisk familiefoto')
+    RETURNING id INTO v_m;
+  INSERT INTO pg_temp.gdpr_id VALUES ('kob_assertion',v_m),('kob_saet',purge_test.saet());
+  WITH x AS (INSERT INTO public.conclusion(target_type,target_id,valgt_assertion_id,status)
+    VALUES ('relation',pg_temp.gid('rel_m_famfoto'),v_m,'afklaret') RETURNING id) INSERT INTO pg_temp.gdpr_id SELECT 'kob_conclusion',id FROM x;
+  WITH x AS (INSERT INTO public.citation(assertion_id,source_id,citat_tekst,side)
+    VALUES (v_m,purge_test.id('kilde_b'),'Syntetisk billedkilde','1') RETURNING id) INSERT INTO pg_temp.gdpr_id SELECT 'kob_citation',id FROM x;
+  PERFORM purge_test.nyt();
+  PERFORM public.begin_change_set('gdpr_koblingsnote','fixture','family',pg_temp.gid('fam_b'));
+  WITH x AS (INSERT INTO public.note(target_type,target_id,indhold)
+    VALUES ('relation',pg_temp.gid('rel_m_famfoto'),'Syntetisk note: Testperson Gdpr Levende Barn står yderst') RETURNING id)
+  INSERT INTO pg_temp.gdpr_id SELECT 'kob_note',id FROM x;
+  INSERT INTO pg_temp.gdpr_id VALUES ('kob_note_saet',purge_test.saet());
+  PERFORM purge_test.nyt();
+  INSERT INTO pg_temp.gdpr_id VALUES ('kob_forslag',public.red_suggest('rettelse','relation',pg_temp.gid('rel_m_famfoto'),'rolle',
+    'afbildet',NULL,'{}'::jsonb,'Forslag: Testperson Gdpr Levende Barn står yderst'));
   -- Codex-fund A: en kurateret hændelse (feed-dom) på et narrativ, der siden er væk, for fam_l og for L selv. fam_l:
   -- narrativet fortrydes (fortrydelsen logger ingen events). L: narrativet slettes i et sæt uden subjekt (som en ældre
   -- sletning), så hændelsens kaskadesletning logges dér. Hændelsen findes derefter kun i change_event, hvis snapshot kun
@@ -3916,14 +3935,34 @@ BEGIN
     AND public.family_offentlig(pg_temp.gid('fam_b')) AND NOT public.media_synlig_anon(v_m),'gdpr_barn_familiefoto_kobling_bevaret_laast');
 END $t$;
 \echo OK gdpr_barn_familiefoto_kobling_bevaret_laast
+-- Sikkerhedsfund: på den bevarede kobling står evidenskæden (med historik), mens note og forslag (fritekst) er væk med
+-- historik og sæt.
+DO $t$
+BEGIN
+  PERFORM pg_temp.gdpr_assert(EXISTS (SELECT 1 FROM public.assertion WHERE id=pg_temp.gid('kob_assertion'))
+    AND EXISTS (SELECT 1 FROM public.conclusion WHERE id=pg_temp.gid('kob_conclusion'))
+    AND EXISTS (SELECT 1 FROM public.citation WHERE id=pg_temp.gid('kob_citation'))
+    AND EXISTS (SELECT 1 FROM public.change_set WHERE id=pg_temp.gid('kob_saet'))
+    AND (SELECT count(*) FROM public.change_event WHERE change_set_id=pg_temp.gid('kob_saet')
+      AND tabel IN ('assertion','conclusion','citation'))=3,'gdpr_barn_kobling_evidens_bevaret');
+  PERFORM pg_temp.gdpr_assert(NOT EXISTS (SELECT 1 FROM public.note WHERE id=pg_temp.gid('kob_note'))
+    AND NOT EXISTS (SELECT 1 FROM public.suggestion WHERE id=pg_temp.gid('kob_forslag'))
+    AND NOT EXISTS (SELECT 1 FROM public.change_event WHERE tabel='note' AND row_pk->>'id'=pg_temp.gid('kob_note')::text)
+    AND NOT EXISTS (SELECT 1 FROM public.change_set WHERE id=pg_temp.gid('kob_note_saet')),'gdpr_barn_kobling_note_forslag_slettet');
+END $t$;
+\echo OK gdpr_barn_kobling_evidens_bevaret
+\echo OK gdpr_barn_kobling_note_forslag_slettet
 -- Gæst (anon, uden redaktør-claim): hverken den bevarede kobling eller billedet kan læses.
 BEGIN;
 DO $t$
 DECLARE v_m bigint:=pg_temp.gid('m_famfoto'); v_rel bigint:=pg_temp.gid('rel_m_famfoto'); v_n int;
+  v_a bigint:=pg_temp.gid('kob_assertion'); v_c bigint:=pg_temp.gid('kob_conclusion'); v_ci bigint:=pg_temp.gid('kob_citation');
 BEGIN
   PERFORM set_config('request.jwt.claim.sub','',true);
   SET LOCAL ROLE anon;
-  SELECT (SELECT count(*) FROM public.relation WHERE id=v_rel)+(SELECT count(*) FROM public.media WHERE id=v_m) INTO v_n;
+  SELECT (SELECT count(*) FROM public.relation WHERE id=v_rel)+(SELECT count(*) FROM public.media WHERE id=v_m)
+    +(SELECT count(*) FROM public.assertion WHERE id=v_a)+(SELECT count(*) FROM public.conclusion WHERE id=v_c)
+    +(SELECT count(*) FROM public.citation WHERE id=v_ci) INTO v_n;
   RESET ROLE;
   PERFORM set_config('request.jwt.claim.sub','a2a00000-0000-4000-8000-00000000a001',true);
   PERFORM pg_temp.gdpr_assert(v_n=0,'gdpr_barn_familiefoto_anon_skjult');
