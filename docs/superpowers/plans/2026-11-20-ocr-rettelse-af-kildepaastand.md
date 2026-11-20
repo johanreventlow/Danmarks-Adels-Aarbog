@@ -156,5 +156,5 @@ Skrivning: `begin_change_set('red_ret_ocr_paastand', format('Paastand %s: ocr', 
 ### Task 7: Ret 1559 og dokumentér
 
 - [ ] **Step 1:** Projektejeren retter i webredaktionen: person 1559 → Fødsel → »Ret læsefejl« → `25 Marts 1578` → Gem (prøvekørsel slået fra).
-- [ ] **Step 2:** Verificér læse-kun: én påstand på fact 11315; `date_raw='25 Marts 1578'`, `date_min=date_max='1578-03-25'`; `visning_foedt` opdateret; journalrække grund `ocr` med `foer->>'date_raw'='25 Marts 157'`; personsiden som anon viser 1578 uden alternativ.
+- [ ] **Step 2:** Verificér læse-kun: én påstand på fact 11315; `date_raw='25 Marts 1578'`, `date_min='1578-01-01'`, `date_max='1578-12-31'` (parseren læser 1939-formatet uden punktum som år; ruling 2026-11-20); `visning_foedt` opdateret; journalrække grund `ocr` med `foer->>'date_raw'='25 Marts 157'`; personsiden som anon viser 1578 uden alternativ.
 - [ ] **Step 3:** Opdatér `docs/database-current-state.md` (ny RPC, journalgrund), `docs/changelog.md` (dateret post), og commit: `docs(ocr): red_ret_ocr_paastand i prod; 1559 rettet`.
