@@ -5,7 +5,7 @@ import { normaliserOcrDato } from '@daa/core';
 
 // DATE_FELT bor i redaktionWrite, som importerer supabase-klienten; ingen netværk her.
 vi.mock('../../supabase', () => ({ supabase: { rpc: vi.fn(), auth: { onAuthStateChange: vi.fn() } } }));
-import { byggOcrPaastand, kanRetteLaesefejl } from '../ocrPaastand';
+import { byggOcrPaastand, kanRetteLaesefejl, laesefejlStartvaerdi } from '../ocrPaastand';
 import type { FeltEvidens, Oplysning } from '../redaktionRead';
 
 function oplysning(over: Partial<Oplysning> = {}): Oplysning {
@@ -25,25 +25,53 @@ function felt(over: Partial<FeltEvidens> = {}, o: Oplysning = oplysning()): Felt
 
 describe('kanRetteLaesefejl', () => {
   it('kildepåstand med én kilde kan rettes', () => {
-    expect(kanRetteLaesefejl(oplysning())).toBe(true);
+    expect(kanRetteLaesefejl(felt(), oplysning())).toBe(true);
   });
   it('manglende uforanderlig-felt behandles som kildepåstand', () => {
-    expect(kanRetteLaesefejl(oplysning({ uforanderlig: undefined }))).toBe(true);
+    expect(kanRetteLaesefejl(felt(), oplysning({ uforanderlig: undefined }))).toBe(true);
   });
   it('redaktørens egen oplysning kan ikke', () => {
-    expect(kanRetteLaesefejl(oplysning({ uforanderlig: false }))).toBe(false);
+    expect(kanRetteLaesefejl(felt(), oplysning({ uforanderlig: false }))).toBe(false);
   });
   it('to kilder kan ikke', () => {
-    expect(kanRetteLaesefejl(oplysning({ kilder: [{ sourceId: 3 }, { sourceId: 1 }] }))).toBe(false);
+    expect(kanRetteLaesefejl(felt(), oplysning({ kilder: [{ sourceId: 3 }, { sourceId: 1 }] }))).toBe(false);
   });
   it('samme kilde citeret to gange tæller som én', () => {
-    expect(kanRetteLaesefejl(oplysning({ kilder: [{ sourceId: 3 }, { sourceId: 3 }] }))).toBe(true);
+    expect(kanRetteLaesefejl(felt(), oplysning({ kilder: [{ sourceId: 3 }, { sourceId: 3 }] }))).toBe(true);
   });
   it('kun fritekst-kilde kan ikke', () => {
-    expect(kanRetteLaesefejl(oplysning({ kilder: [{ sourceId: null }] }))).toBe(false);
+    expect(kanRetteLaesefejl(felt(), oplysning({ kilder: [{ sourceId: null }] }))).toBe(false);
   });
   it('kilde plus fritekst kan ikke', () => {
-    expect(kanRetteLaesefejl(oplysning({ kilder: [{ sourceId: 3 }, { sourceId: null }] }))).toBe(false);
+    expect(kanRetteLaesefejl(felt(), oplysning({ kilder: [{ sourceId: 3 }, { sourceId: null }] }))).toBe(false);
+  });
+});
+
+describe('kanRetteLaesefejl — formens kolonne skal findes', () => {
+  it('datofelt uden date_raw kan ikke', () => {
+    const o = oplysning({ dateRaw: null, vaerdiTekst: 'ukendt' });
+    expect(kanRetteLaesefejl(felt({}, o), o)).toBe(false);
+  });
+  it('tekstfelt uden vaerdi_tekst kan ikke', () => {
+    const o = oplysning({ vaerdiTekst: null, dateRaw: '1750' });
+    expect(kanRetteLaesefejl(felt({ felt: 'titel', faktatype: 'titel' }, o), o)).toBe(false);
+  });
+  it('manglende rå kolonner kan ikke', () => {
+    const o = oplysning({ vaerdiTekst: undefined, dateRaw: undefined });
+    expect(kanRetteLaesefejl(felt({}, o), o)).toBe(false);
+  });
+});
+
+describe('laesefejlStartvaerdi', () => {
+  // 183 titler i prod har både vaerdi_tekst og date_raw (målt 2026-11-20): formen må ikke åbne med datoen.
+  it('titel med både tekst og dato starter med teksten', () => {
+    const o = oplysning({ vaerdi: 'Kammerjunker', vaerdiTekst: 'Kammerjunker', dateRaw: '1750' });
+    const f = felt({ felt: 'titel', faktatype: 'titel' }, o);
+    expect(laesefejlStartvaerdi(f, o)).toBe('Kammerjunker');
+    expect(byggOcrPaastand(f, o, laesefejlStartvaerdi(f, o), true)).toBeNull();
+  });
+  it('datofelt starter med date_raw', () => {
+    expect(laesefejlStartvaerdi(felt(), oplysning())).toBe('25 Marts 157');
   });
 });
 

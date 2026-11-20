@@ -115,6 +115,27 @@ describe('Redaktion — Ret læsefejl', () => {
     expect(screen.queryByTitle('Ret læsefejl')).toBeNull();
   });
 
+  test('ikke-redaktør ser ikke knappen', async () => {
+    mocks.currentSession.mockResolvedValue(session('medlem'));
+    await aabnFoedt();
+    await screen.findByTitle('Redigér');
+    expect(screen.queryByTitle('Ret læsefejl')).toBeNull();
+  });
+
+  test('titel med både tekst og dato åbner med teksten, og Gem kræver en ændring', async () => {
+    const o = kildepaastand({ assertionId: 501, vaerdi: 'Kammerjunker', vaerdiTekst: 'Kammerjunker', dateRaw: '1750' });
+    mocks.fetchPersonEvidence.mockResolvedValue({
+      felter: { titel: [{ felt: 'titel', faktatype: 'titel', factId: 77, konklusionAssertionId: 501, oplysninger: [o], uenig: false }] },
+      koen: null,
+    });
+    render(<Redaktion />);
+    fireEvent.click(await screen.findByText('1 oplysning'));
+    fireEvent.click(await screen.findByTitle('Ret læsefejl'));
+    expect(screen.getByDisplayValue('Kammerjunker')).toBeTruthy();
+    fireEvent.click(screen.getByText('Gem rettelse'));
+    expect(mocks.submitChange).not.toHaveBeenCalled();
+  });
+
   test('formularen forudfyldes, fortolker datoen og sender retLaesefejl', async () => {
     await aabnFoedt();
     fireEvent.click(await screen.findByTitle('Ret læsefejl'));

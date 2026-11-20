@@ -16,11 +16,24 @@ function kildeIds(o: Oplysning): { ids: number[]; fritekst: boolean } {
   return { ids, fritekst: o.kilder.some((k) => k.sourceId == null) };
 }
 
-// Importeret kildepåstand med præcis én kilde og ingen fritekst-citation (samme regel som RPC'en).
-export function kanRetteLaesefejl(o: Oplysning): boolean {
-  if (o.uforanderlig === false) return false;
+// Formen følger feltet (DATE_FELT → date_raw, ellers vaerdi_tekst), ikke hvad påstanden tilfældigvis bærer: en titel
+// kan have både tekst og dato (183 i prod, målt 2026-11-20), og den skal rettes som tekst.
+function formensVaerdi(f: FeltEvidens, o: Oplysning): string | null | undefined {
+  return DATE_FELT.has(f.felt) ? o.dateRaw : o.vaerdiTekst;
+}
+
+// Importeret kildepåstand med præcis én kilde og ingen fritekst-citation (samme regel som RPC'en), og formens
+// kolonne findes på påstanden.
+export function kanRetteLaesefejl(f: FeltEvidens, o: Oplysning): boolean {
+  if (o.uforanderlig === false || o.vaerdiTekst === undefined || o.dateRaw === undefined) return false;
+  if (formensVaerdi(f, o) == null) return false;
   const { ids, fritekst } = kildeIds(o);
   return ids.length === 1 && !fritekst;
+}
+
+// Formularens startværdi: den kolonne, rettelsen skriver.
+export function laesefejlStartvaerdi(f: FeltEvidens, o: Oplysning): string {
+  return formensVaerdi(f, o) ?? '';
 }
 
 // null = intet at sende: kan ikke rettes, mangler rå kolonner, tom/uændret værdi, eller dato der ikke kan fortolkes
@@ -28,7 +41,7 @@ export function kanRetteLaesefejl(o: Oplysning): boolean {
 export function byggOcrPaastand(
   f: FeltEvidens, o: Oplysning, ny: string, bekraeftUfortolkelig: boolean,
 ): OcrPaastandArgs | null {
-  if (!kanRetteLaesefejl(o) || o.vaerdiTekst === undefined || o.dateRaw === undefined) return null;
+  if (!kanRetteLaesefejl(f, o)) return null;
   const vaerdi = ny.trim();
   if (vaerdi === '') return null;
   const p_forventet = {

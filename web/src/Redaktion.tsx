@@ -22,7 +22,7 @@ import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, foldePrognose, insertA
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
 import { submitChange, describeCall, erFortrydKonflikt, oversaetFejl, planCall, resumeMediaUpload, DATE_FELT, type Change } from './data/redaktionWrite';
-import { byggOcrPaastand, kanRetteLaesefejl } from './data/ocrPaastand';
+import { byggOcrPaastand, kanRetteLaesefejl, laesefejlStartvaerdi } from './data/ocrPaastand';
 import { HistorikPanel, type FortrydUdfald } from './components/HistorikPanel';
 import { PersonNarrativeRecordEditor } from './components/PersonNarrativeRecordEditor';
 import type { HistPost } from './data/historik';
@@ -1918,7 +1918,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
     const editing = editingAssert === o.assertionId;
     const laesefejl = laesefejlAssert === o.assertionId;
     const lfKey = 'ocr:' + o.assertionId;
-    const lfVaerdi = sc(lfKey + ':v', o.dateRaw ?? o.vaerdiTekst ?? o.vaerdi);
+    const lfVaerdi = sc(lfKey + ':v', laesefejlStartvaerdi(f, o));
     const lfBekraeft = sc(lfKey + ':ok') === '1';
     const lfDato = DATE_FELT.has(f.felt) && lfVaerdi.trim() !== '' ? normaliserOcrDato(lfVaerdi.trim()) : null;
     const lfKald = laesefejl ? byggOcrPaastand(f, o, lfVaerdi, lfBekraeft) : null;
@@ -1961,7 +1961,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
               {!o.erKonklusion && <div onClick={() => run({ art: 'setKonklusion', subjektType: 'person', subjektId: pid, assertionId: String(o.assertionId) }, 'Konklusion')} style={{ fontSize: 12, fontWeight: 600, color: T.success, border: '1px solid rgba(31,91,58,.4)', borderRadius: 7, padding: '6px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Gør til konklusion</div>}
               <div style={{ display: 'flex', gap: 4 }}>
-                {kanRetteLaesefejl(o) && <span onClick={() => { setLaesefejlAssert(o.assertionId); setEditingAssert(null); setAddingFact(null); setSc(lfKey + ':v', o.dateRaw ?? o.vaerdiTekst ?? o.vaerdi); setSc(lfKey + ':ok', ''); }} title="Ret læsefejl" style={iconBtn}>Aa</span>}
+                {role === 'redaktion' && kanRetteLaesefejl(f, o) && <span onClick={() => { setLaesefejlAssert(o.assertionId); setEditingAssert(null); setAddingFact(null); setSc(lfKey + ':v', laesefejlStartvaerdi(f, o)); setSc(lfKey + ':ok', ''); }} title="Ret læsefejl" style={iconBtn}>Aa</span>}
                 <span onClick={() => { setLaesefejlAssert(null); setEditingAssert(o.assertionId); setAddingFact(null); setSc('ed:' + o.assertionId + ':v', o.vaerdi); setSc('ed:' + o.assertionId + ':src', kildeAf(o) === 'ingen kilde' ? '' : kildeAf(o)); }} title="Redigér" style={iconBtn}>✎</span>
                 {/* Kun redaktørens egne oplysninger (uforanderlig eksplicit false) kan slettes; importerede kildepåstande er uforanderlige (review trin B, 1d.1-02). Fail-closed: mangler feltet, vises knappen ikke. */}
                 {o.uforanderlig === false && <span onClick={() => run({ art: 'sletOplysning', subjektType: 'person', subjektId: pid, assertionId: String(o.assertionId) }, 'Slet oplysning')} title="Slet" style={{ ...iconBtn, border: '1px solid rgba(138,43,43,.3)', color: T.danger }}>🗑</span>}
