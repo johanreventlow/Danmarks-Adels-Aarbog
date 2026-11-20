@@ -224,7 +224,10 @@ familiens indhold (medlemskaber tælles ikke). Ejerskabet er transitivt (runde 4
 relationer med familie- eller fakta-ende (også en bevaret medie-kobling) → noter, forslag og evidens; narrativ →
 hændelser; story → kilder. Kilderne er de levende rækker og de historik-events, der slettes (planens slettes-id'er), så
 der ikke scannes hele `change_event`. Den første udgave (runde 3) scannede `change_event` pr. familie og tog 47 s på en
-syntetisk stand-in i prod-størrelse (108.601 events); den nye tager ca. 0,7 s (samme niveau som runde 2).
+syntetisk stand-in i prod-størrelse (108.601 events); den nye tager ca. 0,7 s (samme niveau som runde 2). Planens
+hændelsesmængde (`hvp`, punkt C) slår historikkens events op på id (indeks), ikke ved at bygge jsonb pr. event: ellers
+2,2 s pr. planberegning på samme stand-in. Målt med `tests/sql/measure-person-purge.sql` (rullet tilbage): preview ca.
+0,65-0,71 s, sletning ca. 1,5-1,6 s for både ikke-offentlig og offentlig person.
 
 **Bevaret medie↔familie-kobling (projektejeren 2026-11-20).** En relation *direkte* mellem et medie og en familie i
 `Fam_ind \ Fam_del` (`R_kob`, CTE `rk`) er ikke familieindhold: den er taget ud af R_fam (S14b), og dens historik

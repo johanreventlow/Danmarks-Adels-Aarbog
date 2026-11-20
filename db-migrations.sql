@@ -42934,7 +42934,7 @@ WITH RECURSIVE
   -- Samme hændelsesmængde som historiklukningen (hv): levende H + hændelser, hvis events slettes. Så forsvinder også en
   -- levende feed_pin (arkiv:/paadennedag:h:) på en tidligere hændelse med entydigt ejerskabsbevis (runde 4, punkt C).
   hvp AS MATERIALIZED (SELECT id::text AS id FROM h UNION SELECT ce.row_pk->>'id' FROM public.change_event ce
-    JOIN hist ON hist.tabel='change_event' AND hist.pk=jsonb_build_object('id',ce.id) WHERE ce.tabel='haendelse'),
+    WHERE ce.tabel='haendelse' AND ce.id IN (SELECT (pk->>'id')::bigint FROM hist WHERE tabel='change_event')),
   av AS MATERIALIZED (SELECT id::text AS id FROM a UNION SELECT ce.row_pk->>'id' FROM public.change_event ce
     JOIN hist ON hist.tabel='change_event' AND hist.pk=jsonb_build_object('id',ce.id) WHERE ce.tabel='assertion'),
   prom_target AS MATERIALIZED (
