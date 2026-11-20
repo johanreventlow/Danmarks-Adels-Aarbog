@@ -20,6 +20,13 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 - **M2: »Bekræftet ad N uafhængige linjer«** tæller kun linjer, hvor hvert led er uden konfidens (bogens normale
   tilfælde) eller `sikker`; `sandsynlig`, `formodet` og `omstridt` gør linjen usikker. Målt 20/11: 2.252 af 2.257
   familieled er uden konfidens, 4 `formodet`, 1 `omstridt`.
+- **M1: »halv«(søskende) kun ved bevist forskellig anden forælder.** To forskellige forældrerækker er bevist forskellige
+  personer, når mindst ét gælder: modstridende kendt køn; levetider der umuligt kan overlappe; eller tydeligt forskellige
+  navne (efter små bogstaver, uden accenter og tegnsætning er det ene navns ord ikke alle med i det andet). Overlappende
+  levetider beviser intet. Kan det ikke bevises, vises »søskende« uden »halv«. Kendt rest: stavevarianter mellem udgaver
+  (»Sophie«/»Sophia«) kan stadig give et forkert »halv«; løsningen er en `samme_som`-kobling i data, ikke i finderen.
+  Fravalgt: en mere tilgivende regel (samme efternavn = måske samme person), som ville fjerne »halv« fra ægte
+  halvsøskende, hvis to hustruer kom fra samme slægt.
 - **E1 lukkes som beslutning:** eligibility-regel 2-4 (evidens-runnerens udelukkelse af tekster, der omtaler
   levende ægtefæller eller børn) binder **ikke** hændelses-passet (`/daa-haendelser`). Hovedpersonen skal fortsat
   være afdød (`export_narratives.R`), og `work/`-mapperne må stadig aldrig sendes til en model.
