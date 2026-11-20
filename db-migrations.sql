@@ -11255,13 +11255,25 @@ BEGIN
 END
 $narrative_source_record_public_ref_unique$;
 
+-- Review 37 A1: denne tidlige definition gjaldt, før kontrakttabellen fandtes (#152 Task 7 nedenfor).
+-- Som »SELECT 1« svarede den 1 i resten af filen ved en genkørsel mod en base med kontrakt v2, så
+-- narrativ-gaten åbnede og legacy-writerne blev genåbnet, indtil den endelige definition nåede frem.
+-- Nu læser den tabellen, når den findes (svarer altså 2 i prod hele vejen), og falder kun tilbage på 1
+-- i en base uden tabellen. Dynamisk SQL, så funktionen kan oprettes, før tabellen findes.
 CREATE OR REPLACE FUNCTION public.narrative_record_contract_version()
 RETURNS integer
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
-SECURITY INVOKER
+SECURITY DEFINER
 SET search_path=pg_catalog
-AS $$ SELECT 1 $$;
+AS $$
+DECLARE v integer;
+BEGIN
+  IF to_regclass('private.narrative_record_contract') IS NULL THEN RETURN 1; END IF;
+  EXECUTE 'SELECT contract.version FROM private.narrative_record_contract contract WHERE contract.singleton' INTO v;
+  RETURN v;
+END
+$$;
 
 CREATE TABLE IF NOT EXISTS private.narrative_legacy_publication (
   legacy_publication_ref uuid NOT NULL,
