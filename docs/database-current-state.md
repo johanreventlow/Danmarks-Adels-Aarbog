@@ -529,6 +529,24 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 35. Faktatypen `fødenavn` og præsenslistens født-klausul (#401) — LIVE i prod (2026-11-20)
+
+**Grundlag:** spec `docs/superpowers/specs/2026-11-20-foedenavn-design.md`, plan
+`docs/superpowers/plans/2026-11-20-foedenavn.md`, PR #403 (merget `816605c3`). Privat runner
+`~/.private/visning-cache-396/prod.zsh vocab`, kørt i projektejerens shell før merge.
+
+- **DDL (data):** kun blokken `-- ===== fødenavn-faktatype` … `-- END fødenavn-faktatype` fra `db-migrations.sql` @
+  `0d9cf40c` (sha `488b6dd7…`): én vocab-række `('faktatype','fødenavn')`. Invarianter: vocab +1, `fact`, `person`,
+  `change_set`, `change_event` uændrede. Generalprøve på stand-in fra `daa-prod-20261120132821-laes.dump` (sha
+  `71045928…`): prøve, commit, gentagelse uden ny række.
+- **Web:** Vercel promoverede ikke main automatisk (slået fra siden floruit-rollbacken samme dag); projektejeren
+  promoverede `816605c3` manuelt. Kontrol: Redaktion- og redaktionRead-bundtet indeholder feltet.
+- **811:** projektejeren registrerede hendes fødenavn i Redaktion med kilde (fact 12203, afklaret, ét citat). Triggeren
+  regenererede hendes cache med #396's regel, så det håndskrevne `visning_efternavn` fra 24/7 er væk; drift under
+  reglen er 0 (`prod.zsh tal`). `prod.zsh rest` blev ikke brugt.
+- **Fortrydelse:** `DELETE FROM vocab WHERE scheme='faktatype' AND code='fødenavn'` kun mens ingen fact bruger
+  typen; i dag bruger 811's fact den, så fortrydelse er en redaktionel sletning først.
+
 ## 34. Visningscachens titel- og datoregel (#396) — LIVE i prod (2026-11-20)
 
 **Grundlag:** issue #396, PR #400 (commit `5f115574`), runbook `docs/runbooks/visning-cache-regler-prod.md`. Privat
