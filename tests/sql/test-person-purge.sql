@@ -3735,6 +3735,14 @@ BEGIN
       WHERE subjekt_type='media' AND subjekt_id=v_m AND objekt_type=r.typ AND objekt_id=pg_temp.gid(r.maal);
     PERFORM purge_test.nyt(); PERFORM public.red_bekraeft_media_upload(v_m);
   END LOOP;
+  -- Runde 4, F (projektejeren godkendt): forslag på fakta og relationer, der slettes, slettes også for en OFFENTLIG
+  -- person (O): på O's fødselsfaktum og på O's afbildet-relation. Et forslag på den bevarede fam_o's vielse står.
+  PERFORM purge_test.nyt();
+  INSERT INTO pg_temp.gdpr_id VALUES ('forslag_o_fakta',public.red_suggest('rettelse','fact',(SELECT id FROM public.fact
+      WHERE subjekt_type='person' AND subjekt_id=pg_temp.gid('O') AND faktatype='fødsel'),'vaerdi','1841',NULL,'{}'::jsonb,'Syntetisk')),
+    ('forslag_o_rel',public.red_suggest('rettelse','relation',(SELECT id FROM public.relation WHERE subjekt_type='person'
+      AND subjekt_id=pg_temp.gid('O') AND objekt_type='media'),'rolle','afbildet',NULL,'{}'::jsonb,'Syntetisk')),
+    ('forslag_o_vielse',public.red_suggest('rettelse','fact',pg_temp.gid('vielse_o'),'vaerdi','1866',NULL,'{}'::jsonb,'Syntetisk'));
   -- Sikkerhedsfund til den bevarede kobling: evidenskæde (påstand, citat, konklusion), en note og et forslag på den.
   PERFORM purge_test.nyt();
   PERFORM public.begin_change_set('gdpr_koblingsevidens','fixture','family',pg_temp.gid('fam_b'));
@@ -4166,6 +4174,17 @@ BEGIN
     AND EXISTS (SELECT 1 FROM public.family WHERE id=pg_temp.gid('fam_o')),'gdpr_offentlig_familieindhold_staar');
 END $t$;
 \echo OK gdpr_offentlig_familieindhold_staar
+-- Runde 4, F: forslag på O's slettede faktum og relation er væk; forslaget på den bevarede familie's vielse står.
+DO $t$
+BEGIN
+  PERFORM pg_temp.gdpr_assert(pg_temp.gid('forslag_o_fakta') IS NOT NULL AND pg_temp.gid('forslag_o_rel') IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM public.suggestion WHERE id IN (pg_temp.gid('forslag_o_fakta'),pg_temp.gid('forslag_o_rel')))
+    AND EXISTS (SELECT 1 FROM public.suggestion WHERE id=pg_temp.gid('forslag_o_vielse'))
+    AND (SELECT count(*) FROM jsonb_array_elements((SELECT j FROM gdpr_preview WHERE hvem='O')#>'{steder,S34}') x
+      WHERE x->'pk' IN (jsonb_build_object('id',pg_temp.gid('forslag_o_fakta')),jsonb_build_object('id',pg_temp.gid('forslag_o_rel'))))=2,
+    'gdpr_offentlig_forslag_paa_slettet_maal_slettet');
+END $t$;
+\echo OK gdpr_offentlig_forslag_paa_slettet_maal_slettet
 
 -- Forhåndsvisningen viser låste medier, familieindhold der slettes, og vielser der står.
 DO $t$
