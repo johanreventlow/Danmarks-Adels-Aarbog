@@ -6,7 +6,7 @@ import { beforeEach, expect, test, vi } from 'vitest';
 import { buildModel } from '@daa/core';
 
 const mocks = vi.hoisted(() => ({
-  loadModel: vi.fn(), currentSession: vi.fn(), signOut: vi.fn(),
+  loadModel: vi.fn(), currentSession: vi.fn(), signOut: vi.fn(), signIn: vi.fn(),
   authCb: null as null | ((event: string, userId: string | null) => void),
 }));
 
@@ -39,7 +39,7 @@ vi.mock('../data/public', async (importOriginal) => ({
 }));
 vi.mock('../data/media', () => ({ fetchPersonMedia: async () => [], fetchObjectMedia: async () => new Map() }));
 vi.mock('../data/auth', () => ({
-  currentSession: mocks.currentSession, signIn: vi.fn(), loginFejlTekst: () => 'x', signOut: mocks.signOut,
+  currentSession: mocks.currentSession, signIn: mocks.signIn, loginFejlTekst: () => 'x', signOut: mocks.signOut,
   onAuthChange: (cb: (event: string, userId: string | null) => void) => { mocks.authCb = cb; return () => { mocks.authCb = null; }; },
 }));
 vi.mock('../data/bookmarks', () => ({
@@ -160,4 +160,39 @@ test('USER_UPDATED efterfulgt af SIGNED_OUT: det sene sessionsopslag ignoreres',
   await act(async () => { sent.resolve(redaktoer); });
   expect(screen.queryByRole('button', { name: 'Log ud' })).toBeNull();
   expect(screen.getByText(/Afdød Anna/)).toBeTruthy();
+});
+
+test('SIGNED_IN for en anden bruger: gammel redaktørstatus og model ryddes straks, mens det nye rolleopslag venter', async () => {
+  const nyRolle = udsat<unknown>();
+  mocks.loadModel.mockResolvedValueOnce(model('Levende Lars')).mockResolvedValueOnce(model('Afdød Anna')).mockResolvedValue(model('Bent'));
+  render(<Folgesvend />);
+  expect(await screen.findByText(/Levende Lars/)).toBeTruthy();
+  await screen.findByRole('button', { name: 'Log ud' });
+  mocks.currentSession.mockReturnValueOnce(nyRolle.promise);
+  act(() => { mocks.authCb?.('SIGNED_IN', 'u2'); });
+  expect(screen.queryByRole('button', { name: 'Log ud' })).toBeNull();
+  expect(screen.queryByText(/Levende Lars/)).toBeNull();
+  await waitFor(() => expect(mocks.currentSession).toHaveBeenCalledTimes(2));
+  await act(async () => { nyRolle.resolve({ email: 'x@example.dk', role: 'medlem', userId: 'u2' }); });
+  expect(await screen.findByRole('button', { name: 'Log ud' })).toBeTruthy();
+});
+
+test('logout under loginets rolleopslag: det sene signIn-svar genindsætter ikke brugeren, og eget SIGNED_IN giver intet dobbeltopslag', async () => {
+  const loginSvar = udsat<unknown>();
+  mocks.currentSession.mockResolvedValue(null);
+  mocks.signIn.mockReturnValue(loginSvar.promise);
+  mocks.loadModel.mockResolvedValue(model('Afdød Anna'));
+  render(<Folgesvend />);
+  expect(await screen.findByText(/Afdød Anna/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Log ind' }));
+  fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'red@example.dk' } });
+  fireEvent.change(screen.getByLabelText('Adgangskode'), { target: { value: 'hemmeligt' } });
+  fireEvent.submit(screen.getByRole('dialog'));
+  await waitFor(() => expect(mocks.signIn).toHaveBeenCalled());
+  act(() => { mocks.authCb?.('SIGNED_IN', 'u1'); }); // eget login
+  await new Promise((r) => setTimeout(r, 20));
+  expect(mocks.currentSession).toHaveBeenCalledTimes(1); // kun opstarten
+  act(() => { mocks.authCb?.('SIGNED_OUT', null); });
+  await act(async () => { loginSvar.resolve(redaktoer); });
+  expect(screen.queryByRole('button', { name: 'Log ud' })).toBeNull();
 });

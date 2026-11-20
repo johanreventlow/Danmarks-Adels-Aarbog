@@ -94,6 +94,7 @@ export default function Folgesvend() {
   // Fælles sessionsgeneration for opstart, »Prøv igen« og auth-events: kun det nyeste opslag må sætte
   // session/fejl. SIGNED_OUT, login og logout tæller op og gør dermed tidligere opslag forældede.
   const sessGenRef = useRef(0);
+  const loginIgangRef = useRef(false);
   const genskabSession = (): Promise<void> => {
     const gen = ++sessGenRef.current;
     return currentSession().then(
@@ -129,18 +130,24 @@ export default function Folgesvend() {
   // eller profilen er opdateret. INITIAL_SESSION ignoreres (den ovenstående effekt tager den).
   useEffect(() => onAuthChange((event, userId) => {
     if (event === 'INITIAL_SESSION') return;
-    if (event === 'SIGNED_OUT') {
-      // Gør tidligere sessions- og modelsvar forældede og hent den offentlige model — også når session
-      // allerede er null (kold start midt i et rolleopslag). forrigeBrugerRef sættes, så bruger-effekten
-      // ikke henter en gang til.
+    // Gør tidligere sessions- og modelsvar forældede, ryd session og model og hent den offentlige model
+    // — også når session allerede er null (kold start midt i et rolleopslag). forrigeBrugerRef sættes,
+    // så bruger-effekten ikke henter en gang til.
+    const nulstil = () => {
       sessGenRef.current++;
       forrigeBrugerRef.current = null;
       geoRequestedRef.current = false;
       setSessionFejl(false); setSession(null); setModel(null);
       loadDataRef.current();
-      return;
-    }
-    if (event === 'USER_UPDATED' || userId !== (sessionRef.current?.userId ?? null)) {
+    };
+    if (event === 'SIGNED_OUT') { nulstil(); return; }
+    // Eget login (doLogin) håndterer selv sin session; dets SIGNED_IN må ikke give et dobbelt opslag.
+    if (loginIgangRef.current) return;
+    if (userId !== (sessionRef.current?.userId ?? null)) {
+      // Anden bruger: den gamle redaktørstatus og model må ikke stå, mens den nye brugers rolle slås op.
+      nulstil();
+      setTimeout(() => { void genskabSession(); }, 0);
+    } else if (event === 'USER_UPDATED') {
       setTimeout(() => { void genskabSession(); }, 0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -149,14 +156,19 @@ export default function Folgesvend() {
     if (login.busy) return; // review 22 N3: forhindr overlappende signIn-kald ved dobbelt-klik
     if (!login.email.trim() || !login.pw) { setLogin((l) => ({ ...l, err: 'Udfyld e-mail og adgangskode' })); return; }
     setLogin((l) => ({ ...l, busy: true, err: '' }));
+    // Loginforsøget bindes til en generation FØR await: logout/brugerskift undervejs gør svaret forældet.
+    const gen = ++sessGenRef.current;
+    loginIgangRef.current = true;
     try {
       const s = await signIn(login.email, login.pw);
-      sessGenRef.current++;
+      if (gen !== sessGenRef.current) { setLogin((l) => ({ ...l, busy: false })); return; }
       setSession(s);
       setLoginOpen(false);
       setLogin({ email: '', pw: '', err: '', busy: false });
     } catch (e) {
-      setLogin((l) => ({ ...l, busy: false, err: loginFejlTekst(e) }));
+      setLogin((l) => ({ ...l, busy: false, err: gen === sessGenRef.current ? loginFejlTekst(e) : '' }));
+    } finally {
+      loginIgangRef.current = false;
     }
   };
   const doLogout = async () => { sessGenRef.current++; await signOut(); setSession(null); };
