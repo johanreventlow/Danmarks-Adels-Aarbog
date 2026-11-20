@@ -20,6 +20,8 @@ mønster som `R/tng-qa/`.
 
 ```sh
 # 1) Byg crosswalk (dry-run, ingen skrivning). Skriver data/geo-crosswalk.csv.
+#    Findes CSV'en i forvejen, føres dine anvend-værdier over, hvor matchet er uændret;
+#    ændrede match tælles som forkastede og skal godkendes igen.
 Rscript R/geo-enrich/run-geo-enrich.R
 
 # 2) Gennemgå data/geo-crosswalk.csv:
@@ -31,7 +33,9 @@ Rscript R/geo-enrich/run-geo-enrich.R
 Rscript R/geo-enrich/03-geocode.R
 #    Flet godkendte rækker fra data/geo-geocode-candidates.csv ind i geo-crosswalk.csv.
 
-# 4) Skriv koordinaterne (kun anvend=TRUE + gyldige coords).
+# 4) Skriv koordinaterne (kun anvend=TRUE + gyldige coords). Læser CSV'en, som du har
+#    godkendt den, uden at genberegne eller overskrive den; stopper, hvis et place-id
+#    mangler eller har skiftet navn siden trin 1 (så: kør trin 1 igen).
 Rscript R/geo-enrich/run-geo-enrich.R --apply
 
 # 5) Test de rene hjælpere.

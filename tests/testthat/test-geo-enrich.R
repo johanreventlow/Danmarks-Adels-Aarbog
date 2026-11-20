@@ -188,3 +188,63 @@ test_that("corroborate_places_by_person: none-tier (tng_place NA) springes over"
   expect_equal(out$person_checked, 0L)
   expect_equal(out$person_detalje, "")
 })
+
+# ---- Review 37, E3: menneskets godkendelser overlever en ny kørsel --------------------
+.cw <- function(place_id, tng_place, lat, lon, anvend, navn = paste0("sted", place_id))
+  data.frame(place_id = place_id, navn = navn, tng_place = tng_place, lat = lat, lon = lon,
+             tier = "review", anvend = anvend, stringsAsFactors = FALSE)
+
+test_that("merge_crosswalk_approvals: uændret match beholder menneskets anvend", {
+  ny  <- .cw(1:3, c("A", "B", "C"), c(55, 56, 57), c(12, 13, 14), c("", "", "TRUE"))
+  gml <- .cw(1:3, c("A", "B", "C"), c(55, 56, 57), c(12, 13, 14), c("TRUE", "FALSE", "FALSE"))
+  m <- merge_crosswalk_approvals(ny, gml)
+  expect_equal(m$crosswalk$anvend, c("TRUE", "FALSE", "FALSE")) # også et afvist auto-match holdes
+  expect_equal(c(m$bevaret, m$forkastet), c(3L, 0L))
+})
+
+test_that("merge_crosswalk_approvals: ændret punkt, ændret navn eller forsvundet sted forkaster godkendelsen", {
+  ny  <- .cw(1:2, c("A", "Bx"), c(55.5, 56), c(12, 13), c("", ""))
+  gml <- .cw(1:3, c("A", "B", "C"), c(55, 56, 57), c(12, 13, 14), c("TRUE", "TRUE", "TRUE"))
+  m <- merge_crosswalk_approvals(ny, gml)
+  expect_equal(m$crosswalk$anvend, c("", ""))
+  expect_equal(c(m$bevaret, m$forkastet), c(0L, 3L))
+})
+
+test_that("merge_crosswalk_approvals: tomme/NA-celler er ingen beslutning; CSV-afrunding tåles", {
+  ny  <- .cw(1:2, c("A", "B"), c(55.123456789012345, 56), c(12, 13), c("", "TRUE"))
+  gml <- .cw(1:2, c("A", "B"), c(55.1234567890123, 56), c(12, 13), c("ja", NA))
+  gml$anvend[2] <- "NA"
+  m <- merge_crosswalk_approvals(ny, gml)
+  expect_equal(m$crosswalk$anvend, c("ja", "TRUE"))
+  expect_equal(c(m$bevaret, m$forkastet), c(1L, 0L))
+  expect_identical(merge_crosswalk_approvals(ny, NULL)$crosswalk, ny)
+})
+
+test_that("merge_crosswalk_approvals: dublet place_id i den gamle CSV stopper", {
+  ny  <- .cw(1L, "A", 55, 12, "")
+  gml <- .cw(c(1L, 1L), c("A", "A"), c(55, 55), c(12, 12), c("TRUE", "FALSE"))
+  expect_error(merge_crosswalk_approvals(ny, gml), "dublet place_id")
+})
+
+test_that("verify_apply_rows: stopper, hvis place mangler eller har skiftet navn", {
+  places <- data.frame(id = 1:3, navn = c("sted1", "sted2", "Nyt navn"), stringsAsFactors = FALSE)
+  ok <- rows_to_apply(.cw(1:2, c("A", "B"), c(55, 56), c(12, 13), c("TRUE", "TRUE")))
+  expect_silent(verify_apply_rows(ok, places))
+  omdoebt <- rows_to_apply(.cw(3L, "C", 57, 14, "TRUE"))
+  expect_error(verify_apply_rows(omdoebt, places), "place_id 3")
+  slettet <- rows_to_apply(.cw(9L, "C", 57, 14, "TRUE"))
+  expect_error(verify_apply_rows(slettet, places), "place_id 9")
+  expect_error(verify_apply_rows(omdoebt, places), "^(?!.*Nyt navn)", perl = TRUE) # intet stednavn i fejlen
+})
+
+test_that("run-geo-enrich.R: --apply genberegner ikke og skriver ikke CSV'en", {
+  src <- readLines(file.path(root, "R", "geo-enrich", "run-geo-enrich.R"), encoding = "UTF-8")
+  apply_start <- grep("^if \\(do_apply\\) \\{", src)
+  apply_end <- grep("^# ---- 1\\) tng_places", src)
+  expect_length(apply_start, 1L); expect_length(apply_end, 1L)
+  expect_lt(apply_start, apply_end) # apply-grenen ligger før genberegningen og slutter med quit()
+  apply_gren <- src[apply_start:(apply_end - 1L)]
+  expect_false(any(grepl("write\\.csv|match_places|build_geo_crosswalk", apply_gren)))
+  expect_true(any(grepl("verify_apply_rows", apply_gren)))
+  expect_true(any(grepl("quit\\(save = \"no\"\\)", tail(apply_gren, 3))))
+})
