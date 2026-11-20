@@ -543,6 +543,11 @@ projektejerens shell før merge.
 - **Efter (ny forbindelse):** funktion 1, CHECK med `ocr` 1, anon 0, authenticated 1; journal `bogen_har_ret` 27,
   `linjeskift-v1` 70, ingen `ocr`.
 - **Web:** »Ret læsefejl« (»Aa«) på kildepåstande i personeditoren, kun for redaktører.
+- **Web live:** #407 merget (`8b2301ca`); Vercel-bundtet indeholder »Ret læsefejl« (kontrolleret efter merge).
+- **1559 (færdigbevis):** projektejeren rettede fødslen i Redaktion. Assertion 13833 (fact 11315) er nu »25 Marts
+  1578«, `date_min/max` 1578-01-01/1578-12-31 (parseren læser formatet uden punktum som år), stadig 1 påstand;
+  `visning_foedt` = »25 Marts 1578«. Journalen: én `ocr`-række, `foer.date_raw` »25 Marts 157«, ingen fortolkning,
+  change_set-operation `red_ret_ocr_paastand`, ikke fortrudt.
 
 ## 35. Faktatypen `fødenavn` og præsenslistens født-klausul (#401) — LIVE i prod (2026-11-20)
 

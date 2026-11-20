@@ -278,5 +278,40 @@
     "max": null,
     "qualifier": null,
     "certainty": null
+  },
+  {
+    "raw": "25 Marts 1578",
+    "min": "1578-03-25",
+    "max": "1578-03-25",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "3 Maj 1602",
+    "min": "1602-05-03",
+    "max": "1602-05-03",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "før 26 Juli 1261",
+    "min": null,
+    "max": "1261-07-26",
+    "qualifier": "before",
+    "certainty": null
+  },
+  {
+    "raw": "1612 Marts",
+    "min": "1612-01-01",
+    "max": "1612-12-31",
+    "qualifier": null,
+    "certainty": null
+  },
+  {
+    "raw": "25Marts 1578",
+    "min": "1578-01-01",
+    "max": "1578-12-31",
+    "qualifier": null,
+    "certainty": null
   }
 ]

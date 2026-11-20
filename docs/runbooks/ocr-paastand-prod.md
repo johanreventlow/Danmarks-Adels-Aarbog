@@ -41,6 +41,7 @@ repoet), kørt med `/bin/zsh -f` i projektejerens shell; prod-skrivninger er sp�
 | apply (prøve) | invarianter OK; 1,4 s; ROLLBACK |
 | apply --jeg-mener-det | invarianter OK; 695 ms; COMMIT |
 | tal (ny forbindelse) | funktion 1; CHECK `ocr` 1; anon 0, authenticated 1, secdef 1; journal uændret |
+| 1559 i Redaktion (projektejeren), derefter tal | 13833 = »25 Marts 1578« (1578-01-01..12-31), 1 påstand, cache følger; journal `ocr`=1 med original »25 Marts 157« |
 
 ## Fortrydelse
 

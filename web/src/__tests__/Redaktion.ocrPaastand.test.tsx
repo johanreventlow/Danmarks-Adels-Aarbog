@@ -155,7 +155,7 @@ describe('Redaktion — Ret læsefejl', () => {
       payload: {
         forventet: { fact_id: 11315, faktatype: 'fødsel', date_raw: '25 Marts 157', vaerdi_tekst: null,
           valgt_assertion_id: 13833, citation_sources: [3] },
-        ny: { date_raw: '25 Marts 1578', date_min: '1578-01-01', date_max: '1578-12-31' },
+        ny: { date_raw: '25 Marts 1578', date_min: '1578-03-25', date_max: '1578-03-25' },
       },
     });
     // Prøvekørsel er standard: kaldet planlægges, men sendes ikke.
