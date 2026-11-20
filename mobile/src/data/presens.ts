@@ -109,7 +109,15 @@ export function mapPresensNavneDele(
   personer: RawNavneDele[],
   adelsTitelFakta: RawTitelFact[],
   aegtefaelleIdById: Map<string, string> = new Map(),
+  // #401: afklarede fødenavn-påstande vinder over visning_efternavn i født-klausulen (web/src/data/presens.ts).
+  foedenavnFakta: RawTitelFact[] = [],
 ): Record<string, PresensNavneDele> {
+  const foedenavnById = new Map<string, string>();
+  for (const f of foedenavnFakta) {
+    const id = String(f.subjekt_id);
+    const v = f.vaerdi_tekst?.trim();
+    if (v && !foedenavnById.has(id)) foedenavnById.set(id, v);
+  }
   const titelById = new Map<string, string>();
   for (const t of adelsTitelFakta) {
     const id = String(t.subjekt_id);
@@ -137,7 +145,7 @@ export function mapPresensNavneDele(
         dele.titel = feminiseret;
         dele.efternavn = aegtefaelle.visning_efternavn;
         dele.tilgiftet = true;
-        dele.fodt = fodtKlausul(egenTitel, egetEfternavn);
+        dele.fodt = fodtKlausul(egenTitel, foedenavnById.get(id) ?? egetEfternavn);
       }
     }
     out[id] = dele;
@@ -145,12 +153,12 @@ export function mapPresensNavneDele(
   return out;
 }
 
-async function fetchAdelsTitelFakta(personIds: number[]): Promise<RawTitelFact[]> {
+async function fetchFaktaVaerdier(faktatype: string, personIds: number[]): Promise<RawTitelFact[]> {
   if (!supabase || !personIds.length) return [];
   const sb = supabase;
   const facts = await getAll<{ id: number | string; subjekt_id: number | string }>(() =>
     sb.from('fact').select('id,subjekt_id')
-      .eq('subjekt_type', 'person').eq('faktatype', 'titel').in('subjekt_id', personIds).order('id'));
+      .eq('subjekt_type', 'person').eq('faktatype', faktatype).in('subjekt_id', personIds).order('id'));
   if (!facts.length) return [];
   const factIds = facts.map((f) => f.id);
   const conclusions = await getAll<RawKonkl>(() =>
@@ -170,11 +178,15 @@ async function fetchAdelsTitelFakta(personIds: number[]): Promise<RawTitelFact[]
       ? assertById.get(String(c.valgt_assertion_id))
       : null;
     const subjekt_id = subjektByFact.get(String(c.target_id));
-    if (vaerdi && subjekt_id != null && erAdelsTitel(vaerdi)) {
+    if (vaerdi && subjekt_id != null) {
       out.push({ subjekt_id, vaerdi_tekst: vaerdi });
     }
   }
   return out;
+}
+
+async function fetchAdelsTitelFakta(personIds: number[]): Promise<RawTitelFact[]> {
+  return (await fetchFaktaVaerdier('titel', personIds)).filter((t) => erAdelsTitel(t.vaerdi_tekst));
 }
 
 async function fetchAegtefaelleIdById(personIds: number[]): Promise<Map<string, string>> {
@@ -214,12 +226,13 @@ export async function fetchPresensNavneDele(
   const aegtefaelleIdById = await fetchAegtefaelleIdById(numIds);
   const aegtefaelleIds = [...new Set([...aegtefaelleIdById.values()].map(Number))];
   const alleIds = [...new Set([...numIds, ...aegtefaelleIds])];
-  const [personer, adelsTitelFakta] = await Promise.all([
+  const [personer, adelsTitelFakta, foedenavnFakta] = await Promise.all([
     getAll<RawNavneDele>(() =>
       sb.from('person').select('id,visning_navn,visning_efternavn,koen').in('id', alleIds).order('id')),
     fetchAdelsTitelFakta(alleIds),
+    fetchFaktaVaerdier('fødenavn', alleIds),
   ]);
-  return mapPresensNavneDele(personer, adelsTitelFakta, aegtefaelleIdById);
+  return mapPresensNavneDele(personer, adelsTitelFakta, aegtefaelleIdById, foedenavnFakta);
 }
 
 const fodtSuffiks = (fodt: string | undefined): string => (fodt ? `, født ${fodt}` : '');
