@@ -3881,6 +3881,22 @@ CREATE TEMP TABLE gdpr_history AS SELECT 'change_set' tabel,id FROM public.chang
 CREATE TEMP TABLE gdpr_medlemmer AS SELECT family_id,person_id,rolle FROM public.family_member
   WHERE family_id IN (pg_temp.gid('fam_l'),pg_temp.gid('fam_b'),pg_temp.gid('fam_o'));
 
+-- Sikkerhedsfund: den bevarede evidens på familiefoto-koblingen er stadig omfattet af token-blokeringen (S29). Prøves i en
+-- transaktion, der rulles tilbage: et [[person:B|…]]-link i citatet eller påstanden blokerer sletningen af B.
+BEGIN;
+UPDATE public.citation SET citat_tekst='Syntetisk billedkilde [[person:'||pg_temp.gid('B')||'|B]]' WHERE id=pg_temp.gid('kob_citation');
+UPDATE public.assertion SET vaerdi_tekst='Syntetisk familiefoto [[person:'||pg_temp.gid('B')||'|B]]' WHERE id=pg_temp.gid('kob_assertion');
+DO $t$
+DECLARE b jsonb:=public.red_slet_person_helt_preview(pg_temp.gid('B'));
+BEGIN
+  PERFORM pg_temp.gdpr_assert(EXISTS (SELECT 1 FROM jsonb_array_elements(b->'blokeringer') x WHERE x->>'art'='link_i_tekst'
+      AND x->>'tabel'='citation' AND x->'pk'=jsonb_build_object('id',pg_temp.gid('kob_citation')))
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(b->'blokeringer') x WHERE x->>'art'='link_i_tekst'
+      AND x->>'tabel'='assertion' AND x->'pk'=jsonb_build_object('id',pg_temp.gid('kob_assertion'))),'gdpr_kobling_evidens_token_blokerer');
+END $t$;
+ROLLBACK;
+\echo OK gdpr_kobling_evidens_token_blokerer
+
 -- Sletning af den levende L og det levende barn B.
 BEGIN;
 DO $t$
