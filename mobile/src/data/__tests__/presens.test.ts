@@ -89,22 +89,22 @@ test('feminiserTitel bøjer mandlige adelstitler og afviser andre værdier', () 
 test('mapPresensNavneDele: gift-ind kvinde overtager ægtefællens rang og efternavn', () => {
   const r = mapPresensNavneDele(
     [
-      { id: 811, visning_navn: 'Hedwig', visning_efternavn: 'Mundhenke', koen: 'kvinde' },
-      { id: 380, visning_navn: 'Henning Lothar Gerd', visning_efternavn: 'Reventlow', koen: 'mand' },
+      { id: 911, visning_navn: 'Ingrid', visning_efternavn: 'Mortensen', koen: 'kvinde' },
+      { id: 912, visning_navn: 'Erik Frederik', visning_efternavn: 'Reventlow', koen: 'mand' },
     ],
-    [{ subjekt_id: 380, vaerdi_tekst: 'Lensgreve' }],
-    new Map([['811', '380'], ['380', '811']]),
+    [{ subjekt_id: 912, vaerdi_tekst: 'Lensgreve' }],
+    new Map([['911', '912'], ['912', '911']]),
   );
 
-  expect(r['811']).toEqual({
-    navn: 'Hedwig',
+  expect(r['911']).toEqual({
+    navn: 'Ingrid',
     titel: 'Lensgrevinde',
     efternavn: 'Reventlow',
-    fodt: 'Mundhenke',
+    fodt: 'Mortensen',
     tilgiftet: true,
   });
-  expect(formatAndetNavn(r['811'], 'fallback'))
-    .toBe('Lensgrevinde Hedwig Reventlow, født Mundhenke');
+  expect(formatAndetNavn(r['911'], 'fallback'))
+    .toBe('Lensgrevinde Ingrid Reventlow, født Mortensen');
 });
 
 test('mapPresensNavneDele: egen fødetitel bevares i født-klausulen', () => {
@@ -127,22 +127,22 @@ test('mapPresensNavneDele: egen fødetitel bevares i født-klausulen', () => {
 test('tilgiftet og født holdes adskilt: gift-ind kvinde uden pigenavn beholder efternavnet', () => {
   const r = mapPresensNavneDele(
     [
-      { id: 811, visning_navn: 'Hedwig', visning_efternavn: null, koen: 'kvinde' },
-      { id: 380, visning_navn: 'Henning Lothar Gerd', visning_efternavn: 'Reventlow', koen: 'mand' },
+      { id: 911, visning_navn: 'Ingrid', visning_efternavn: null, koen: 'kvinde' },
+      { id: 912, visning_navn: 'Erik Frederik', visning_efternavn: 'Reventlow', koen: 'mand' },
     ],
-    [{ subjekt_id: 380, vaerdi_tekst: 'Lensgreve' }],
-    new Map([['811', '380'], ['380', '811']]),
+    [{ subjekt_id: 912, vaerdi_tekst: 'Lensgreve' }],
+    new Map([['911', '912'], ['912', '911']]),
   );
 
-  expect(r['811']).toEqual({
-    navn: 'Hedwig',
+  expect(r['911']).toEqual({
+    navn: 'Ingrid',
     titel: 'Lensgrevinde',
     efternavn: 'Reventlow',
     tilgiftet: true,
   });
-  expect(r['811'].fodt).toBeUndefined();
-  expect(formatAnkerNavn(r['811'], 'fallback')).toBe('Hedwig lensgrevinde Reventlow');
-  expect(formatAndetNavn(r['811'], 'fallback')).toBe('Lensgrevinde Hedwig Reventlow');
+  expect(r['911'].fodt).toBeUndefined();
+  expect(formatAnkerNavn(r['911'], 'fallback')).toBe('Ingrid lensgrevinde Reventlow');
+  expect(formatAndetNavn(r['911'], 'fallback')).toBe('Lensgrevinde Ingrid Reventlow');
 });
 
 test('gift-ind override kræver både bøjelig titel og ægtefællens efternavn', () => {

@@ -118,20 +118,19 @@ test('feminiserTitel: ukendt/ikke-bøjelig titel giver null (fx Komtesse — ing
   expect(feminiserTitel('Premierløjtnant i vesttyske Pionier Bataillons reserve')).toBeNull();
 });
 
-test('mapPresensNavneDele: gift-ind kvinde overtager ægtefællens titel+efternavn, egen fødeidentitet i født-klausul — Hedwig-scenariet', () => {
-  // Reelt prod-scenarie (bruger-verifikation 2026-07-24): Hedwig Mundhenke (811) er enke efter
-  // Lensgreve Henning Lothar Gerd Reventlow (380). Efter datastrukturering (visning_navn='Hedwig',
-  // visning_efternavn='Mundhenke', ingen egen titel) skal hun vises "Lensgrevinde Hedwig
-  // Reventlow, født Mundhenke" — ALDRIG "Hedwig Mundhenke" (hendes rå, utilgiftede identitet).
+test('mapPresensNavneDele: gift-ind kvinde overtager ægtefællens titel+efternavn, egen fødeidentitet i født-klausul — Ingrid-scenariet', () => {
+  // Prod-scenarie (bruger-verifikation 2026-07-24; syntetiske navne, da personen er levende): en ingift kvinde
+  // uden egen titel, gift med en lensgreve. Hun skal vises "Lensgrevinde Ingrid Reventlow, født Mortensen" —
+  // ALDRIG "Ingrid Mortensen" (hendes utilgiftede identitet).
   const personer = [
-    { id: 811, visning_navn: 'Hedwig', visning_efternavn: 'Mundhenke', koen: 'kvinde' },
-    { id: 380, visning_navn: 'Henning Lothar Gerd', visning_efternavn: 'Reventlow', koen: 'mand' },
+    { id: 911, visning_navn: 'Ingrid', visning_efternavn: 'Mortensen', koen: 'kvinde' },
+    { id: 912, visning_navn: 'Erik Frederik', visning_efternavn: 'Reventlow', koen: 'mand' },
   ];
-  const adelsTitelFakta = [{ subjekt_id: 380, vaerdi_tekst: 'Lensgreve' }];
-  const aegtefaelleIdById = new Map([['811', '380'], ['380', '811']]);
+  const adelsTitelFakta = [{ subjekt_id: 912, vaerdi_tekst: 'Lensgreve' }];
+  const aegtefaelleIdById = new Map([['911', '912'], ['912', '911']]);
   const r = mapPresensNavneDele(personer, adelsTitelFakta, aegtefaelleIdById);
-  expect(r['811']).toEqual({ navn: 'Hedwig', titel: 'Lensgrevinde', efternavn: 'Reventlow', fodt: 'Mundhenke', tilgiftet: true });
-  expect(formatAndetNavn(r['811'], 'fallback')).toBe('Lensgrevinde Hedwig Reventlow, født Mundhenke');
+  expect(r['911']).toEqual({ navn: 'Ingrid', titel: 'Lensgrevinde', efternavn: 'Reventlow', fodt: 'Mortensen', tilgiftet: true });
+  expect(formatAndetNavn(r['911'], 'fallback')).toBe('Lensgrevinde Ingrid Reventlow, født Mortensen');
 });
 
 test('mapPresensNavneDele: gift-ind kvinde der selv var adelig — fødetitel bevares i født-klausul (Beke-scenariet)', () => {
@@ -159,16 +158,16 @@ test('mapPresensNavneDele: gift-ind kvinde UDEN registreret pigenavn — efterna
   // gjorde ubetinget. Før fixet var gaten på `fodt`s tilstedeværelse, så dette tilfælde tabte
   // efternavnet i formatAndetNavn alene — de to formater var uenige om samme person.
   const personer = [
-    { id: 811, visning_navn: 'Hedwig', visning_efternavn: null, koen: 'kvinde' },
-    { id: 380, visning_navn: 'Henning Lothar Gerd', visning_efternavn: 'Reventlow', koen: 'mand' },
+    { id: 911, visning_navn: 'Ingrid', visning_efternavn: null, koen: 'kvinde' },
+    { id: 912, visning_navn: 'Erik Frederik', visning_efternavn: 'Reventlow', koen: 'mand' },
   ];
-  const adelsTitelFakta = [{ subjekt_id: 380, vaerdi_tekst: 'Lensgreve' }];
-  const aegtefaelleIdById = new Map([['811', '380'], ['380', '811']]);
+  const adelsTitelFakta = [{ subjekt_id: 912, vaerdi_tekst: 'Lensgreve' }];
+  const aegtefaelleIdById = new Map([['911', '912'], ['912', '911']]);
   const r = mapPresensNavneDele(personer, adelsTitelFakta, aegtefaelleIdById);
-  expect(r['811']).toEqual({ navn: 'Hedwig', titel: 'Lensgrevinde', efternavn: 'Reventlow', tilgiftet: true });
-  expect(r['811'].fodt).toBeUndefined();
-  expect(formatAnkerNavn(r['811'], 'fallback')).toBe('Hedwig lensgrevinde Reventlow');
-  expect(formatAndetNavn(r['811'], 'fallback')).toBe('Lensgrevinde Hedwig Reventlow');
+  expect(r['911']).toEqual({ navn: 'Ingrid', titel: 'Lensgrevinde', efternavn: 'Reventlow', tilgiftet: true });
+  expect(r['911'].fodt).toBeUndefined();
+  expect(formatAnkerNavn(r['911'], 'fallback')).toBe('Ingrid lensgrevinde Reventlow');
+  expect(formatAndetNavn(r['911'], 'fallback')).toBe('Lensgrevinde Ingrid Reventlow');
 });
 
 test('mapPresensNavneDele: ægtefællen har slet ingen adelstitel-fakta — ingen tilgift-override', () => {
@@ -211,16 +210,16 @@ test('mapPresensNavneDele: ægtefællen har gyldig titel men mangler efternavn �
 });
 
 test('mapPresensNavneDele: mand uden ægtefælle-opslag rammes ikke af kvinde-mekanismen', () => {
-  const personer = [{ id: 380, visning_navn: 'Henning Lothar Gerd', visning_efternavn: 'Reventlow', koen: 'mand' }];
-  const adelsTitelFakta = [{ subjekt_id: 380, vaerdi_tekst: 'Lensgreve' }];
-  const r = mapPresensNavneDele(personer, adelsTitelFakta, new Map([['811', '380']]));
-  expect(r['380']).toEqual({ navn: 'Henning Lothar Gerd', titel: 'Lensgreve', efternavn: 'Reventlow' });
+  const personer = [{ id: 912, visning_navn: 'Erik Frederik', visning_efternavn: 'Reventlow', koen: 'mand' }];
+  const adelsTitelFakta = [{ subjekt_id: 912, vaerdi_tekst: 'Lensgreve' }];
+  const r = mapPresensNavneDele(personer, adelsTitelFakta, new Map([['911', '912']]));
+  expect(r['912']).toEqual({ navn: 'Erik Frederik', titel: 'Lensgreve', efternavn: 'Reventlow' });
 });
 
 test('formatAnkerNavn/formatAndetNavn: født-klausul vedhæftes uændret uanset format', () => {
-  const dele = { navn: 'Hedwig', titel: 'Lensgrevinde', efternavn: 'Reventlow', fodt: 'Mundhenke', tilgiftet: true };
-  expect(formatAnkerNavn(dele, 'fallback')).toBe('Hedwig lensgrevinde Reventlow, født Mundhenke');
-  expect(formatAndetNavn(dele, 'fallback')).toBe('Lensgrevinde Hedwig Reventlow, født Mundhenke');
+  const dele = { navn: 'Ingrid', titel: 'Lensgrevinde', efternavn: 'Reventlow', fodt: 'Mortensen', tilgiftet: true };
+  expect(formatAnkerNavn(dele, 'fallback')).toBe('Ingrid lensgrevinde Reventlow, født Mortensen');
+  expect(formatAndetNavn(dele, 'fallback')).toBe('Lensgrevinde Ingrid Reventlow, født Mortensen');
 });
 
 // #401: født-klausulen læser faktatypen fødenavn (kildebundet) frem for den cachede visning_efternavn.

@@ -67,7 +67,7 @@ export async function fetchPresensGrundlag(): Promise<PresensGrundlag> {
 //
 // `fodt` (valgfri): gift-ind kvinder tager ægtefællens køns-bøjede titel + efternavn i BEGGE
 // formater (inkl. efternavn i det ellers efternavn-løse "øvrige rækker"-format), med egen
-// fødeidentitet i en født-klausul — "Lensgrevinde Hedwig Reventlow, født Mundhenke" (fundet ved
+// fødeidentitet i en født-klausul — "Lensgrevinde Ingrid Reventlow, født Mortensen" (fundet ved
 // bruger-verifikation 2026-07-24). Tom/manglende eget efternavn giver INGEN født-klausul (intet at
 // vise), men `tilgiftet` forbliver sand — efternavnet skal stadig med. Se mapPresensNavneDele.
 export type PresensNavneDele = { navn: string; titel: string; efternavn: string; fodt?: string; tilgiftet?: boolean };
