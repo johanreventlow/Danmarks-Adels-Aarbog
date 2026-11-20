@@ -90,7 +90,8 @@ describe('byggOcrPaastand', () => {
         date_qualifier: info.qualifier, date_certainty: info.certainty,
       },
     });
-    expect(info.min).toBe('1578-01-01');
+    expect(info.min).toBe('1578-03-25'); // 1939-formatet uden punktum læses som dag
+    expect(info.max).toBe('1578-03-25');
   });
   it('værdien trimmes', () => {
     expect(byggOcrPaastand(felt(), oplysning(), '  25 Marts 1578 ', false)?.p_ny.date_raw).toBe('25 Marts 1578');

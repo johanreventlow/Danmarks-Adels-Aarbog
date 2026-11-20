@@ -567,7 +567,9 @@ def derive_date_info(date_raw):
         return info
 
     y = years[0]
-    dm = re.search(r'(\d{1,2})\.\s*([a-zæøåäöü]+)', t)
+    # Dag + månedsnavn: '25. marts' (2018-20) og '25 marts' (1939, uden punktum). Uden punktum kræves mellemrum, og
+    # intet ciffer må stå foran dagen, så '1612 marts' ikke læses som den 12. marts. Samme udtryk som ocrKvalitet.ts.
+    dm = re.search(r'(?<!\d)(\d{1,2})(?:\.\s*|\s+)([a-zæøåäöü]+)', t)
     iso_point = None
     iso_cal = None
     if dm:

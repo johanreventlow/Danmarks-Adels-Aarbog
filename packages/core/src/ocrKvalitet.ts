@@ -220,7 +220,9 @@ function deriveDateInfo(dateRaw: string): DateInfo {
   }
 
   const y = years[0];
-  const dm = /(\d{1,2})\.\s*([a-zæøåäöü]+)/.exec(t);
+  // Dag + månedsnavn: '25. marts' (2018-20) og '25 marts' (1939, uden punktum). Uden punktum kræves mellemrum, og intet
+  // ciffer må stå foran dagen, så '1612 marts' ikke læses som den 12. marts. Samme udtryk som validate.py.
+  const dm = /(?<!\d)(\d{1,2})(?:\.\s*|\s+)([a-zæøåäöü]+)/.exec(t);
   let isoPoint: string | null = null;
   if (dm) {
     const mo = maanedFraNavn(dm[2]);
