@@ -9869,6 +9869,15 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- Fødenavn (#401, spec 2026-11-20-foedenavn-design.md): præsenslistens født-klausul læser faktatypen direkte.
+-- Forvent: NOTICE "OK: fødenavn-faktatype".
+DO $verify_foedenavn$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM vocab WHERE scheme='faktatype' AND code='fødenavn') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: fødenavn-faktatype mangler';
+  END IF;
+  RAISE NOTICE 'OK: fødenavn-faktatype';
+END $verify_foedenavn$;
+
 -- ===== Person OCR kvalitetsark — identitet =====
 -- Selvstændig, rollback-sikker kontrakt for stabile importnøgler og den varige
 -- korrektionsjournal. Den bruger rigtige constraints, trigger og SET ROLE, ikke

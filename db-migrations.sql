@@ -42431,3 +42431,10 @@ BEGIN
   PERFORM regen_person_floruit(pid);
 END $$;
 -- END visning-cache-regler
+
+-- ===== fødenavn-faktatype =====
+-- #401, spec docs/superpowers/specs/2026-11-20-foedenavn-design.md. Kun vocab-data; idempotent.
+INSERT INTO vocab (scheme, code, label) VALUES
+  ('faktatype','fødenavn','Fødenavn — slægtsnavn ved fødslen (ingifte); titel er et eget titel-faktum')
+ON CONFLICT (scheme, code) DO NOTHING;
+-- END fødenavn-faktatype

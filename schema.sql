@@ -6405,6 +6405,12 @@ INSERT INTO vocab (scheme, code, label) VALUES
   ('faktatype','overhoved','Linje-/gren-overhoved — anker for præsenslisten')
 ON CONFLICT (scheme, code) DO NOTHING;
 
+-- Fødenavn (#401, spec docs/superpowers/specs/2026-11-20-foedenavn-design.md): en ingift kvindes slægtsnavn ved fødslen
+-- som kildebundet påstand. Præsenslistens født-klausul læser den direkte (ikke visning_efternavn, der er linjens navn).
+INSERT INTO vocab (scheme, code, label) VALUES
+  ('faktatype','fødenavn','Fødenavn — slægtsnavn ved fødslen (ingifte); titel er et eget titel-faktum')
+ON CONFLICT (scheme, code) DO NOTHING;
+
 -- Medie-metadata (spec docs/superpowers/specs/2026-08-06-medie-metadata-design.md §1).
 -- Faktatyper på media-entiteten — ingen kolonner (invariant 2+3). Skrives via red_upsert_fakta.
 INSERT INTO vocab (scheme, code, label) VALUES
