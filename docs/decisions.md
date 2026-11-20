@@ -2,6 +2,25 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: review 37's E-blok — LLM-trin spærret, udgavebinding og loader-værn; to åbne afgørelser (2026-11-20)
+
+> Gren `fix/review37-pipeline` (#397: E2-E8). Ren kode og skills; ingen prod-ændring.
+
+- **E2:** `/daa-presens` trin ③ (rekonstruktion pr. gren) er **spærret for sprogmodeller**: `work_presens/` handler om
+  nulevende (invariant 8). Noten »GDPR/RLS parkeret i PoC« er ophævet. Validatoren skriver kun antal og regelkoder til
+  stderr. **Åbent for projektejeren:** præsenslisten har nu ingen godkendt udtræksvej. En ny præsensliste (2015-17
+  o.l.) kræver først en beslutning om, hvem eller hvad der laver rekonstruktionen (fx manuelt).
+- **E7:** `model_gennemgang.py` bygger kun modelinput for `import_key` i `MODEL_TILLADTE_UDGAVER` = `{daa:1939}` og
+  afviser fail-closed resten. Listen hviler på beslutningen 2026-11-05 (DAA 1939's personer lever ikke).
+  **Åbent for projektejeren:** en ny udgave på listen kræver en beslutningspost her først.
+- **E8:** `/daa-extract` trin ③/④b har fået GDPR-forbehold: `work/` sendes aldrig til en model; nye modelkørsler på
+  udgaver med levende går kun gennem evidens-runnerens eligibility.
+- **E3, E4, E5, E6** (geo-godkendelser, integer64 i hændelses-loaderen, visning-cache og genkørselsværn i
+  præsensloaderen) er rene fejlrettelser uden ny politik. E6 sætter bevidst ikke `source.import_key` på
+  præsenskilden, fordi nøglen bærer stamtavlernes OCR-journal. Værnet er i stedet et tjek på (slags, udgave) under
+  `EXCLUSIVE`-låsen.
+- **Roadmap:** forudsætninger før #130/#131/næste præsensliste (posten 2026-11-20 nedenfor); ingen omprioritering.
+
 ## BESLUTTET: OCR-rettelse af kildepåstand uden importanker (2026-11-20)
 
 > Projektejeren 20/11. Plan: `docs/superpowers/plans/2026-11-20-ocr-rettelse-af-kildepaastand.md`.
