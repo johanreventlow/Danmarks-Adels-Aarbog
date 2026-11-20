@@ -313,14 +313,13 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   const [loadErr, setLoadErr] = useState<string | null>(null);
   // Slægts/linje-narrativ kunne ikke hentes (review 37 W3): vises som fejl, ikke som »ingen tekst endnu«.
   const [narrativFejl, setNarrativFejl] = useState<string | null>(null);
-  // Review 37 W1: hvad redaktøren har valgt LIGE NU (fra URL'en, som er sandheden). En skrivning,
-  // der blev startet for person A, må ikke genindlæse A under B's navn, når den afsluttes.
-  const pathRef = useRef(path);
-  pathRef.current = path;
-  const erValgt = useCallback((ent: string, id: string | null | undefined) => {
-    const p = parseRedaktionPath(pathRef.current);
-    return p.entity === ent && p.recordId === (id ?? null);
-  }, []);
+  // Review 37 W1: hvad redaktøren har valgt LIGE NU (det faktiske valg i state, også når /redaktion
+  // auto-vælger første person uden at ændre URL'en). En skrivning, der blev startet for person A, må
+  // ikke genindlæse A under B's navn, når den afsluttes.
+  const valgtRef = useRef({ entity, recordId });
+  valgtRef.current = { entity, recordId };
+  const erValgt = useCallback((ent: string, id: string | null | undefined) =>
+    valgtRef.current.entity === ent && valgtRef.current.recordId === (id ?? null), []);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [editingAssert, setEditingAssert] = useState<number | null>(null);
@@ -654,17 +653,27 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
     const change: Change = { art: 'opretKilde', subjektType: 'source', subjektId: '', payload: {
       titel: nyUdgave.titel.trim(), slags: 'DAA-udgave',
       udgave: nyUdgave.udgave.trim() || null, aar: nyUdgave.aar.trim() ? Number(nyUdgave.aar) : null } };
+    // Editorens identitet ved start: skifter redaktøren til en anden linje/record undervejs, må
+    // svaret ikke sætte fane og udkast i den nu viste editor (review 37).
+    const gen = narrativGenRef.current;
     try {
       const res = await submitChange(change, { dryRun, role });
       setWriteView({ title: dryRun ? 'Dry-run · dette ville blive sendt' : (res.direkte ? 'Sendt til basen' : 'Forslag sendt til staging'),
         lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte });
       if (!res.dryRun && res.direkte && res.result != null) {
-        setSources(await fetchSources());
+        const nyeSources = await fetchSources();
+        setSources(nyeSources); // udgave-listen er global
+        if (gen !== narrativGenRef.current) return;
         setNyUdgave(null); setAktivSourceId(Number(res.result));
         setNarrativUdkast({ tekst: '', privat: false, side: '' });
       }
     } catch (e) { setWriteView({ title: 'Ny udgave fejlede', lines: [], error: oversaetFejl(String((e as Error)?.message ?? e)), done: false, dryRun, direkte: false }); }
   }, [nyUdgave, dryRun, role]);
+  // Et valg-skift (også person → linje/objekt) gør alle igangværende person- og narrativsvar forældede.
+  // Deklareret FØR indlæsnings-effekten, så loadPerson's egen generation efterfølgende er den nyeste.
+  useEffect(() => {
+    personGenRef.current++; narrativGenRef.current++;
+  }, [entity, recordId]);
   useEffect(() => {
     if (entity === 'person' && recordId) loadPerson(recordId);
   }, [entity, recordId, loadPerson]);
