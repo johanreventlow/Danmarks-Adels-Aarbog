@@ -11,6 +11,12 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
   slægtsnavn, fx de født-Reventlow-koner). `visning_efternavn` betyder fortsat kun »slægtsnavnet bag navnet«.
 - **Ingen dobbelt-visning:** ender navnet på slægtsnavnet i født-klausulen, fjernes det fra navnet i præsenslisten
   (helt ord, uden hensyn til store bogstaver og bindestregs-tegn). Data og personside uændrede.
+- **Profilen:** fødenavn-linjen vises kun, når den tilføjer noget — ender navnet på fødenavnet (og er der ingen anden
+  påstand), skjules den (`byggUdgaveFakta`). Samme sammenligning som præsenslisten (`@daa/core` `slaegtsnavn.ts`).
+- **Målform, når flere slægter indlæses:** den trykte præsensliste 2004-06 viser under slægten Ahlefeldt »Beke
+  Lensgrevinde Reventlow, født komtesse Ahlefeldt-Laurvig« — præsenslistens hovedrække-form (`formatAnkerNavn`). Den
+  form holdes fast for ingifte, også når Beke kommer ind som barn i Ahlefeldt-slægten (`samme_som`; fødenavnet er et
+  identitetsbevis). En samlet »Navne og titler gennem livet« på profilen hører til den import.
 - *Fravalgt:* at lade 811's håndskrevne cacheværdi stå (forsvinder ved næste redigering) og at rette 811's navn til
   fornavne (personsiden, søgning og træet ville kun vise fornavnet, fordi hun ingen linje har). Udtræk af fødenavn
   for alle ~730 ingifte (løsning C) er ikke bestilt.

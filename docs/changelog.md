@@ -4,7 +4,7 @@
 
 Redaktion har fået feltet »Fødenavn«. Præsenslisten bruger det i »født …«, så en ingift kone ikke ser født ind i
 mandens slægt ud, og pigenavnet står ikke længere to gange (»Lensgrevinde … Reventlow, født …«). Personsiden viser
-fødenavnet efter tilnavn. `database-current-state.md` §35, #401.
+kun fødenavnet, når navnet ikke allerede ender på det. `database-current-state.md` §35, #401.
 
 ## 2026-11-20 — Titlen under navnet skifter ikke længere ved redigering
 
