@@ -9,8 +9,10 @@ export type PurgePreview = {
   familier_slettes: (number | string)[]; familier_bevares: (number | string)[];
   // Review 37 P1+P2. Valgfri: et preview fra en database uden ændringen har dem ikke (web deployes før prod-DDL).
   vielser_staar?: (number | string)[]; medier_skjules?: (number | string)[];
+  // Kategorierne efter narrativer kom til med Codex-fund B; valgfri, så et preview fra en database uden dem stadig vises.
   familieindhold_slettes?: { family_id: number | string; fakta: (number | string)[]; noter: (number | string)[];
-    narrativer: (number | string)[] }[];
+    narrativer: (number | string)[]; haendelser?: (number | string)[]; stories?: (number | string)[];
+    relationer?: (number | string)[]; forslag?: (number | string)[]; historik?: number }[];
   blokeringer: { art: string; [key: string]: unknown }[];
   advarsler: { art: string; [key: string]: unknown }[];
   til_kontrol: { sted: string; tabel: string; pk: Record<string, unknown>; grund: string }[];

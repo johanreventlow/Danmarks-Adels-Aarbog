@@ -42,6 +42,14 @@ it('viser bevarede familiers indhold, der slettes, vielser der står, og billede
   expect(screen.getByText(/skjules for læserne \(en redaktør kan frigive dem igen\): 9, 12\./)).toBeTruthy();
   expect(screen.getByText(/bevares med deres koblinger til andre end profilen \(også til en bevaret familie\)/)).toBeTruthy();
 });
+it('viser alle kategorier af familieindhold, også en familie med kun en historie eller relation (Codex-fund B)', async () => {
+  setup(preview({ familieindhold_slettes: [
+    { family_id: 56, fakta: [], noter: [], narrativer: [], haendelser: [], stories: [7], relationer: [], forslag: [], historik: 2 },
+    { family_id: 57, fakta: [], noter: [], narrativer: [], haendelser: [4], stories: [], relationer: [8, 9], forslag: [5], historik: 0 },
+  ], vielser_staar: [] }));
+  await screen.findByText(/Familie 56: 0 fakta, 0 noter, 0 narrativer, 0 hændelser, 1 historier, 0 relationer, 0 forslag, 2 historik-ændringer/);
+  expect(screen.getByText(/Familie 57: 0 fakta, 0 noter, 0 narrativer, 1 hændelser, 0 historier, 2 relationer, 1 forslag, 0 historik-ændringer/)).toBeTruthy();
+});
 it('et preview uden de nye nøgler (database før ændringen) vises uden vielse- og billedlinje', async () => {
   setup(); await screen.findByText('Slet helt · Rå profil · id 1791');
   expect(screen.queryByText(/indhold slettes/)).toBeNull(); expect(screen.queryByText(/Vielser der bliver stående/)).toBeNull(); expect(screen.queryByText(/skjules for læserne/)).toBeNull();

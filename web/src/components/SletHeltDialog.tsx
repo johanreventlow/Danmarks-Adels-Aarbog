@@ -72,7 +72,9 @@ export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurg
         {preview.familieindhold_slettes !== undefined && <>
           <p>Bevarede familier, hvis indhold slettes, fordi profilen ikke er offentlig: {preview.familieindhold_slettes.length ? '' : 'ingen.'}</p>
           {preview.familieindhold_slettes.length > 0 && <ul>{preview.familieindhold_slettes.map((f) => <li key={String(f.family_id)}>
-            Familie {f.family_id}: {f.fakta.length} fakta, {f.noter.length} noter, {f.narrativer.length} narrativer</li>)}</ul>}
+            Familie {f.family_id}: {f.fakta.length} fakta, {f.noter.length} noter, {f.narrativer.length} narrativer
+            {f.haendelser !== undefined && <>, {f.haendelser.length} hændelser, {(f.stories ?? []).length} historier,{' '}
+              {(f.relationer ?? []).length} relationer, {(f.forslag ?? []).length} forslag, {f.historik ?? 0} historik-ændringer</>}</li>)}</ul>}
           <p>Vielser der bliver stående: {(preview.vielser_staar ?? []).join(', ') || 'ingen'}.</p>
         </>}
         {(preview.medier_skjules?.length ?? 0) > 0 && <p>Billeder der bevares med deres koblinger til andre end profilen (også til en bevaret familie), men skjules for læserne (en redaktør kan frigive dem igen): {preview.medier_skjules!.join(', ')}.</p>}

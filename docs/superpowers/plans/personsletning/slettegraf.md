@@ -218,6 +218,9 @@ blokeringen (S29) og NY-A følger fortsat kun Fam_del, fordi familien bevares. H
 (fx fortrudte) familierækker på Fam_c, kendt kun fra `change_event` (fakta med evidenskæde, noter, narrativer, stories,
 hændelser, relationer med familieende; Codex-fund). Manifestvagten godkender familienarrativers events for Fam_ind ud
 fra levende medlemskab; Fam_del kræver fortsat family-beviset i manifestet. Er P offentlig, er Fam_ind tom.
+Forhåndsvisningens `familieindhold_slettes` udledes pr. familie i `Fam_ind \ Fam_del` af planens slet-rækker i alle
+kategorier (fakta, noter, narrativer, hændelser, stories, relationer, forslag) plus antal slettede `change_event` om
+familien (snapshot med familien som subjekt/objekt/mål eller sæt med familien som subjekt; medlemskaber tælles ikke).
 
 **Bevaret medie↔familie-kobling (projektejeren 2026-11-20).** En relation *direkte* mellem et medie og en familie i
 `Fam_ind \ Fam_del` (`R_kob`, CTE `rk`) er ikke familieindhold: den er taget ud af R_fam (S14b), og dens historik

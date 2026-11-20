@@ -23825,16 +23825,50 @@ BEGIN
     'vielser_staar',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM public.fact
       WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep) AND faktatype='vielse'
         AND jsonb_build_object('id',id) NOT IN (SELECT pk FROM slettes WHERE tabel='fact')),'[]'::jsonb),
+    -- Codex-fund B: berørte familier udledes af HELE Fam_ind-sletteplanen, alle kategorier inkl. historik, så en
+    -- familie med fx kun en story, en relation eller kun historik også vises. Kun Fam_ind (bevarede familier).
     'familieindhold_slettes',coalesce((SELECT jsonb_agg(x.j ORDER BY x.id) FROM (
       SELECT k.id,jsonb_build_object('family_id',k.id,
         'fakta',coalesce((SELECT jsonb_agg(f.id ORDER BY f.id) FROM public.fact f JOIN slettes d
           ON d.tabel='fact' AND d.pk=jsonb_build_object('id',f.id) WHERE f.subjekt_type='family' AND f.subjekt_id=k.id),'[]'::jsonb),
+        -- Noter på familien, dens fakta og dens relationer (også en bevaret medie-kobling).
         'noter',coalesce((SELECT jsonb_agg(o.id ORDER BY o.id) FROM public.note o JOIN slettes d
-          ON d.tabel='note' AND d.pk=jsonb_build_object('id',o.id) WHERE o.target_type='family' AND o.target_id=k.id),'[]'::jsonb),
+          ON d.tabel='note' AND d.pk=jsonb_build_object('id',o.id) WHERE (o.target_type='family' AND o.target_id=k.id)
+            OR (o.target_type='fact' AND o.target_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id=k.id))
+            OR (o.target_type='relation' AND o.target_id IN (SELECT id FROM public.relation WHERE (subjekt_type='family' AND subjekt_id=k.id)
+              OR (objekt_type='family' AND objekt_id=k.id)))),'[]'::jsonb),
         'narrativer',coalesce((SELECT jsonb_agg(n.id ORDER BY n.id) FROM public.narrative n JOIN slettes d
-          ON d.tabel='narrative' AND d.pk=jsonb_build_object('id',n.id) WHERE n.subjekt_type='family' AND n.subjekt_id=k.id),'[]'::jsonb)) AS j
-      FROM fam_keep k) x
-      WHERE x.j->'fakta'<>'[]'::jsonb OR x.j->'noter'<>'[]'::jsonb OR x.j->'narrativer'<>'[]'::jsonb),'[]'::jsonb),
+          ON d.tabel='narrative' AND d.pk=jsonb_build_object('id',n.id) WHERE n.subjekt_type='family' AND n.subjekt_id=k.id),'[]'::jsonb),
+        'haendelser',coalesce((SELECT jsonb_agg(h.id ORDER BY h.id) FROM public.haendelse h JOIN slettes d
+          ON d.tabel='haendelse' AND d.pk=jsonb_build_object('id',h.id) WHERE (h.subjekt_type='family' AND h.subjekt_id=k.id)
+            OR h.narrative_id IN (SELECT id FROM public.narrative WHERE subjekt_type='family' AND subjekt_id=k.id)),'[]'::jsonb),
+        'stories',coalesce((SELECT jsonb_agg(t.id ORDER BY t.id) FROM public.story t JOIN slettes d
+          ON d.tabel='story' AND d.pk=jsonb_build_object('id',t.id) WHERE t.subjekt_type='family' AND t.subjekt_id=k.id),'[]'::jsonb),
+        -- Relationer med familien eller et af dens fakta som ende.
+        'relationer',coalesce((SELECT jsonb_agg(r.id ORDER BY r.id) FROM public.relation r JOIN slettes d
+          ON d.tabel='relation' AND d.pk=jsonb_build_object('id',r.id) WHERE (r.subjekt_type='family' AND r.subjekt_id=k.id)
+            OR (r.objekt_type='family' AND r.objekt_id=k.id)
+            OR (r.subjekt_type='fact' AND r.subjekt_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id=k.id))
+            OR (r.objekt_type='fact' AND r.objekt_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id=k.id))),'[]'::jsonb),
+        -- Forslag på familien, dens fakta og dens relationer.
+        'forslag',coalesce((SELECT jsonb_agg(g.id ORDER BY g.id) FROM public.suggestion g JOIN slettes d
+          ON d.tabel='suggestion' AND d.pk=jsonb_build_object('id',g.id) WHERE (g.subjekt_type='family' AND g.subjekt_id=k.id)
+            OR (g.subjekt_type='fact' AND g.subjekt_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id=k.id))
+            OR (g.subjekt_type='relation' AND g.subjekt_id IN (SELECT id FROM public.relation WHERE (subjekt_type='family' AND subjekt_id=k.id)
+              OR (objekt_type='family' AND objekt_id=k.id)))),'[]'::jsonb),
+        -- Antal historik-events, der slettes og handler om familien: snapshot med familien som subjekt/objekt/mål, eller
+        -- et sæt med familien som subjekt (fx en feed-dom eller en fortrudt vielse med evidens). Medlemskaber (P's eget
+        -- family_member) er ikke familiens indhold og tælles ikke.
+        'historik',(SELECT count(*) FROM public.change_event e JOIN slettes d
+          ON d.tabel='change_event' AND d.pk=jsonb_build_object('id',e.id)
+          WHERE e.tabel NOT IN ('family','family_member') AND (EXISTS (SELECT 1 FROM public.change_set cs WHERE cs.id=e.change_set_id AND cs.subjekt_type='family' AND cs.subjekt_id=k.id)
+            OR EXISTS (SELECT 1 FROM (VALUES(e.foer),(e.efter)) v(j) WHERE
+              (j->>'subjekt_type'='family' AND j->>'subjekt_id'=k.id::text) OR (j->>'objekt_type'='family' AND j->>'objekt_id'=k.id::text)
+              OR (j->>'target_type'='family' AND j->>'target_id'=k.id::text))))) AS j
+      FROM (SELECT id FROM private.person_purge_familieindhold(p_person_id) EXCEPT SELECT id FROM fam_del) k) x
+      WHERE x.j->'fakta'<>'[]'::jsonb OR x.j->'noter'<>'[]'::jsonb OR x.j->'narrativer'<>'[]'::jsonb
+        OR x.j->'haendelser'<>'[]'::jsonb OR x.j->'stories'<>'[]'::jsonb OR x.j->'relationer'<>'[]'::jsonb
+        OR x.j->'forslag'<>'[]'::jsonb OR (x.j->>'historik')::bigint>0),'[]'::jsonb),
     'medier_skjules',coalesce((SELECT jsonb_agg((pk->>'id')::bigint ORDER BY (pk->>'id')::bigint) FROM plan
       WHERE tabel='media' AND handling='skjul'),'[]'::jsonb),
     'samme_som_komponent',coalesce((SELECT jsonb_agg(pid ORDER BY pid) FROM public._samme_som_gruppe(p_person_id)),'[]'::jsonb),

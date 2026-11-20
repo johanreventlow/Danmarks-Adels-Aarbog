@@ -1951,8 +1951,12 @@ BEGIN
   PERFORM pg_temp.preview_assert(j->'familier_slettes' @> to_jsonb(purge_test.id('fam_del'))
     AND j->'familier_bevares' @> to_jsonb(purge_test.id('fam_keep'))
     -- Fixturens P er privat (red_opret_person): fam_keep's indhold (vielsen) slettes med P (review 37 P1+P2, løsning A).
-    AND j->'familieindhold_slettes'=jsonb_build_array(jsonb_build_object('family_id',purge_test.id('fam_keep'),
-      'fakta',jsonb_build_array(purge_test.id('fakta_vielse_keep')),'noter','[]'::jsonb,'narrativer','[]'::jsonb))
+    -- Alle kategorier (Codex-fund B); historik er et antal og kontrolleres for sig.
+    AND jsonb_array_length(j->'familieindhold_slettes')=1
+    AND (j->'familieindhold_slettes'->0)-'historik'=jsonb_build_object('family_id',purge_test.id('fam_keep'),
+      'fakta',jsonb_build_array(purge_test.id('fakta_vielse_keep')),'noter','[]'::jsonb,'narrativer','[]'::jsonb,
+      'haendelser','[]'::jsonb,'stories','[]'::jsonb,'relationer','[]'::jsonb,'forslag','[]'::jsonb)
+    AND (j->'familieindhold_slettes'->0->>'historik')::int>0
     AND NOT j->'vielser_staar' @> to_jsonb(purge_test.id('fakta_vielse_keep'))
     AND NOT j->'vielser_staar' @> to_jsonb(purge_test.id('fakta_vielse_del'))
     AND j->'medier_skjules'=jsonb_build_array(purge_test.id('medie_delt')),'preview_familier');
@@ -3634,6 +3638,9 @@ BEGIN IF p_ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'TEST_FAILED %',p_test;
 CREATE TEMP TABLE gdpr_id(rolle text PRIMARY KEY, id bigint NOT NULL);
 CREATE FUNCTION pg_temp.gid(p_rolle text) RETURNS bigint LANGUAGE sql STABLE AS $$
   SELECT id FROM pg_temp.gdpr_id WHERE rolle=p_rolle $$;
+-- Én families post i forhåndsvisningens familieindhold_slettes (NULL hvis den ikke er der).
+CREATE FUNCTION pg_temp.gdpr_fi(p_j jsonb,p_fam bigint) RETURNS jsonb LANGUAGE sql IMMUTABLE AS $$
+  SELECT x FROM jsonb_array_elements(p_j->'familieindhold_slettes') x WHERE (x->>'family_id')::bigint=p_fam $$;
 -- Familieindhold (fakta med evidenskæde, noter, narrativer, stories, relationer med familieende) for én familie.
 -- En relation mellem et medie og familien er ikke familieindhold (projektejeren 2026-11-20); den kontrolleres for sig.
 CREATE FUNCTION pg_temp.gdpr_indhold(p_fam bigint) RETURNS TABLE(tabel text,id bigint) LANGUAGE sql STABLE AS $$
@@ -3747,6 +3754,34 @@ BEGIN
   PERFORM purge_test.nyt();
   INSERT INTO pg_temp.gdpr_id VALUES ('kob_forslag',public.red_suggest('rettelse','relation',pg_temp.gid('rel_m_famfoto'),'rolle',
     'afbildet',NULL,'{}'::jsonb,'Forslag: Testperson Gdpr Levende Barn står yderst'));
+  -- Codex-fund B: levende Q er barn i fam_s (kun en story), partner i fam_r (kun en relation familie→ejendom) og i fam_h
+  -- (kun historik: en story, der er fortrudt). Alle tre bevares (afdøde partner/forældre og barn).
+  FOR r IN SELECT * FROM (VALUES ('Q','Testperson Gdpr Kun','kvinde',true,'1992',NULL),
+      ('q_pa','Testperson Gdpr Q Partner','mand',false,'1900','1970'),('q_barn','Testperson Gdpr Q Barn','mand',false,'1930','1990'),
+      ('q_barn2','Testperson Gdpr Q Barn To','kvinde',false,'1932','1995'),
+      ('q_f1','Testperson Gdpr Q Fader','mand',false,'1901','1980'),('q_f2','Testperson Gdpr Q Moder','kvinde',false,'1903','1985'))
+    x(rolle,navn,koen,levende,foedt,doed) LOOP
+    PERFORM purge_test.nyt();
+    INSERT INTO pg_temp.gdpr_id VALUES (r.rolle,public.red_opret_person(r.navn,r.koen,r.levende,r.foedt,r.doed,NULL));
+    PERFORM purge_test.nyt(); PERFORM public.red_set_privat(pg_temp.gid(r.rolle),false);
+  END LOOP;
+  FOR f IN SELECT * FROM (VALUES ('s','q_f1','q_f2','Q',1),('r','Q','q_pa','q_barn',1),('h','Q','q_pa','q_barn2',2))
+    x(k,a,b,barn,ord) LOOP
+    PERFORM purge_test.nyt();
+    v_fam:=public.red_opret_union(pg_temp.gid(f.a),pg_temp.gid(f.b),'vielse',f.ord);
+    INSERT INTO pg_temp.gdpr_id VALUES ('fam_q'||f.k,v_fam);
+    PERFORM purge_test.nyt(); PERFORM public.red_tilfoej_barn(v_fam,pg_temp.gid(f.barn));
+    PERFORM purge_test.nyt();
+    IF f.k='s' THEN
+      INSERT INTO pg_temp.gdpr_id VALUES ('story_qs',public.red_opret_story('family',v_fam,'Syntetisk familiehistorie','Familien'));
+    ELSIF f.k='r' THEN
+      INSERT INTO pg_temp.gdpr_id VALUES ('rel_qr',public.red_relation('family',v_fam,'estate',purge_test.id('ejendom'),'ejer'));
+    ELSE
+      PERFORM public.red_opret_story('family',v_fam,'Syntetisk tidligere historie','Familien');
+      v_cs:=purge_test.saet();
+      PERFORM purge_test.nyt(); PERFORM public.red_fortryd_change_set(v_cs,false);
+    END IF;
+  END LOOP;
   -- Codex-fund A: en kurateret hændelse (feed-dom) på et narrativ, der siden er væk, for fam_l og for L selv. fam_l:
   -- narrativet fortrydes (fortrydelsen logger ingen events). L: narrativet slettes i et sæt uden subjekt (som en ældre
   -- sletning), så hændelsens kaskadesletning logges dér. Hændelsen findes derefter kun i change_event, hvis snapshot kun
@@ -3823,7 +3858,8 @@ CREATE TEMP TABLE gdpr_preview AS
   SELECT 'L'::text AS hvem,public.red_slet_person_helt_preview(pg_temp.gid('L')) AS j
   UNION ALL SELECT 'B',public.red_slet_person_helt_preview(pg_temp.gid('B'))
   UNION ALL SELECT 'O',public.red_slet_person_helt_preview(pg_temp.gid('O'))
-  UNION ALL SELECT 'P',public.red_slet_person_helt_preview(purge_test.id('P'));
+  UNION ALL SELECT 'P',public.red_slet_person_helt_preview(purge_test.id('P'))
+  UNION ALL SELECT 'Q',public.red_slet_person_helt_preview(pg_temp.gid('Q'));
 -- Familieindholdet, målt før sletningerne.
 CREATE TEMP TABLE gdpr_indhold_foer AS
   SELECT k AS fam,i.tabel,i.id FROM unnest(ARRAY['fam_l','fam_o','fam_b']) k CROSS JOIN LATERAL pg_temp.gdpr_indhold(pg_temp.gid(k)) i;
@@ -4059,14 +4095,25 @@ END $t$;
 DO $t$
 DECLARE l jsonb:=(SELECT j FROM gdpr_preview WHERE hvem='L'); b jsonb:=(SELECT j FROM gdpr_preview WHERE hvem='B');
 BEGIN
-  PERFORM pg_temp.gdpr_assert(l->'familieindhold_slettes'=jsonb_build_array(jsonb_build_object('family_id',pg_temp.gid('fam_l'),
+  -- Alle kategorier (Codex-fund B): fam_l har også story og relation; historik er et antal.
+  PERFORM pg_temp.gdpr_assert(jsonb_array_length(l->'familieindhold_slettes')=1
+    AND pg_temp.gdpr_fi(l,pg_temp.gid('fam_l'))-'historik'=jsonb_build_object('family_id',pg_temp.gid('fam_l'),
       'fakta',jsonb_build_array(least(pg_temp.gid('vielse_l'),pg_temp.gid('skilsmisse_l')),greatest(pg_temp.gid('vielse_l'),pg_temp.gid('skilsmisse_l'))),
-      'noter',jsonb_build_array(pg_temp.gid('note_l')),'narrativer',jsonb_build_array(pg_temp.gid('narr_l'))))
+      'noter',jsonb_build_array(pg_temp.gid('note_l')),'narrativer',jsonb_build_array(pg_temp.gid('narr_l')),
+      'haendelser','[]'::jsonb,'stories',jsonb_build_array(pg_temp.gid('story_l')),
+      'relationer',jsonb_build_array(pg_temp.gid('rel_l')),'forslag','[]'::jsonb)
+    AND (pg_temp.gdpr_fi(l,pg_temp.gid('fam_l'))->>'historik')::int>0
     AND NOT l->'vielser_staar' @> to_jsonb(pg_temp.gid('vielse_l'))
     AND l->'familier_bevares' @> to_jsonb(pg_temp.gid('fam_l')),'gdpr_preview_familieindhold_partner');
-  PERFORM pg_temp.gdpr_assert(b->'familieindhold_slettes'=jsonb_build_array(jsonb_build_object('family_id',pg_temp.gid('fam_b'),
-      'fakta',jsonb_build_array(pg_temp.gid('vielse_b')),'noter',jsonb_build_array(pg_temp.gid('note_b')),
-      'narrativer',jsonb_build_array(pg_temp.gid('narr_b'))))
+  -- fam_b: noten og forslaget på den bevarede familiefoto-kobling og vielsesfotoets relation (på vielsen) tæller med;
+  -- selve den bevarede kobling gør ikke.
+  PERFORM pg_temp.gdpr_assert(jsonb_array_length(b->'familieindhold_slettes')=1
+    AND pg_temp.gdpr_fi(b,pg_temp.gid('fam_b'))-'historik'=jsonb_build_object('family_id',pg_temp.gid('fam_b'),
+      'fakta',jsonb_build_array(pg_temp.gid('vielse_b')),
+      'noter',jsonb_build_array(least(pg_temp.gid('note_b'),pg_temp.gid('kob_note')),greatest(pg_temp.gid('note_b'),pg_temp.gid('kob_note'))),
+      'narrativer',jsonb_build_array(pg_temp.gid('narr_b')),'haendelser','[]'::jsonb,'stories','[]'::jsonb,
+      'relationer',jsonb_build_array(pg_temp.gid('rel_m_vielse')),'forslag',jsonb_build_array(pg_temp.gid('kob_forslag')))
+    AND (pg_temp.gdpr_fi(b,pg_temp.gid('fam_b'))->>'historik')::int>0
     AND b->'vielser_staar'='[]'::jsonb AND b->'familier_bevares' @> to_jsonb(pg_temp.gid('fam_b')),'gdpr_preview_familieindhold_barn');
   -- Familiefotoet skjules (låses), vielsesfotoet slettes med sin storage-sti.
   PERFORM pg_temp.gdpr_assert(b->'medier_skjules'=jsonb_build_array(pg_temp.gid('m_famfoto'))
@@ -4078,6 +4125,26 @@ END $t$;
 \echo OK gdpr_preview_familieindhold_partner
 \echo OK gdpr_preview_familieindhold_barn
 \echo OK gdpr_preview_familiefoto_skjules
+-- Codex-fund B: en bevaret familie med KUN en story, KUN en relation eller KUN historik vises også.
+DO $t$
+DECLARE q jsonb:=(SELECT j FROM gdpr_preview WHERE hvem='Q');
+  v_tom jsonb:=jsonb_build_object('fakta','[]'::jsonb,'noter','[]'::jsonb,'narrativer','[]'::jsonb,'haendelser','[]'::jsonb,
+    'stories','[]'::jsonb,'relationer','[]'::jsonb,'forslag','[]'::jsonb);
+BEGIN
+  PERFORM pg_temp.gdpr_assert(q->'blokeringer'='[]'::jsonb AND jsonb_array_length(q->'familieindhold_slettes')=3
+    AND q->'familier_slettes'='[]'::jsonb,'gdpr_preview_kun_story_relation_historik');
+  PERFORM pg_temp.gdpr_assert(pg_temp.gdpr_fi(q,pg_temp.gid('fam_qs'))-'historik'
+      =v_tom||jsonb_build_object('family_id',pg_temp.gid('fam_qs'),'stories',jsonb_build_array(pg_temp.gid('story_qs'))),
+    'gdpr_preview_kun_story');
+  PERFORM pg_temp.gdpr_assert(pg_temp.gdpr_fi(q,pg_temp.gid('fam_qr'))-'historik'
+      =v_tom||jsonb_build_object('family_id',pg_temp.gid('fam_qr'),'relationer',jsonb_build_array(pg_temp.gid('rel_qr'))),
+    'gdpr_preview_kun_relation');
+  PERFORM pg_temp.gdpr_assert(pg_temp.gdpr_fi(q,pg_temp.gid('fam_qh'))-'historik'=v_tom||jsonb_build_object('family_id',pg_temp.gid('fam_qh'))
+    AND (pg_temp.gdpr_fi(q,pg_temp.gid('fam_qh'))->>'historik')::int>0,'gdpr_preview_kun_historik');
+END $t$;
+\echo OK gdpr_preview_kun_story
+\echo OK gdpr_preview_kun_relation
+\echo OK gdpr_preview_kun_historik
 DO $t$
 DECLARE o jsonb:=(SELECT j FROM gdpr_preview WHERE hvem='O'); p jsonb:=(SELECT j FROM gdpr_preview WHERE hvem='P');
 BEGIN
