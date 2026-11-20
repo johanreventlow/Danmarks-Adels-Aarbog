@@ -17,6 +17,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
   Lensgrevinde Reventlow, født komtesse Ahlefeldt-Laurvig« — præsenslistens hovedrække-form (`formatAnkerNavn`). Den
   form holdes fast for ingifte, også når Beke kommer ind som barn i Ahlefeldt-slægten (`samme_som`; fødenavnet er et
   identitetsbevis). En samlet »Navne og titler gennem livet« på profilen hører til den import.
+  **Forudsætning:** formen bygges kun for `person.koen = 'kvinde'` med en ægtefælle, der har en adelstitel som faktum.
+  Målt 20/11: ca. 640 ingifte har tomt køn (også Beke, 852). Køn skal sættes (Redaktion `red_set_koen` eller ved
+  importen), før formen kan vises for dem.
 - *Fravalgt:* at lade 811's håndskrevne cacheværdi stå (forsvinder ved næste redigering) og at rette 811's navn til
   fornavne (personsiden, søgning og træet ville kun vise fornavnet, fordi hun ingen linje har). Udtræk af fødenavn
   for alle ~730 ingifte (løsning C) er ikke bestilt.
