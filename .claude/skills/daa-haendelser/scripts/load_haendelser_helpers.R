@@ -22,6 +22,25 @@ parse_load_haendelser_args <- function(argv) {
   list(path = positional[[1L]], dry_run = dry_run)
 }
 
+# Review 37, E4: en UPDATE/DELETE pr. hændelses-id skal ramme præcis én række; ellers
+# melder tælleren N, mens basen er urørt (eller den forkerte række er ramt).
+kraev_en_raekke <- function(hvad, id, n) {
+  if (!identical(as.numeric(n), 1)) stop(sprintf("%s id=%s ramte %s rækker, forventet 1",
+    hvad, format(id, scientific = FALSE), format(n)), call. = FALSE)
+  invisible(n)
+}
+
+# Id-kolonner skal være almindelige tal (ikke integer64) og heltal inden for 2^53.
+assert_id_numerisk <- function(...) {
+  for (df in list(...)) for (kol in intersect(c("id", "fact_id", "relation_id", "subjekt_id", "narrative_id"), names(df))) {
+    v <- df[[kol]]
+    if (inherits(v, "integer64")) stop(sprintf("%s er integer64; loaderen kræver bigint='numeric'", kol), call. = FALSE)
+    ok <- is.na(v) | (is.numeric(v) & v == floor(v) & abs(v) < 2^53 & (is.na(v) | v >= 1))
+    if (!all(ok)) stop(sprintf("%s har ugyldige id'er (fx %s)", kol, format(v[!ok][[1]])), call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
 normaliser_date_raw <- function(x) {
   if (is.null(x) || length(x) == 0L || is.na(x) || !nzchar(trimws(x))) return(NA_character_)
   tolower(trimws(gsub("\\s+", " ", as.character(x))))
