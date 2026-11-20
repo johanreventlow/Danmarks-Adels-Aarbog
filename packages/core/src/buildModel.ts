@@ -7,7 +7,7 @@
 // I React var indekserne implicitte instans-felter; her returneres de eksplicit så Zustand-
 // storen kan gemme dem (uden dem: træ uden forældre, tomme børn-grupper).
 import { KONFIDENS_RANK } from './types';
-import type { Db, DroppedParentEdge, Model, ModelIndexes, ModelPerson } from './types';
+import type { Db, Model, ModelIndexes, ModelPerson } from './types';
 
 export function buildModel(db: Db): Model {
   const persons = db.persons ?? [];
@@ -17,29 +17,20 @@ export function buildModel(db: Db): Model {
   // fjern umulige forælder→barn-kanter (barn ældre end forælder, eller født >1 år efter
   // forælderens død — 1 års margin tillader posthume fødsler). Stopgap i app-laget indtil
   // data rettes mod den korrekte GEDCOM-base. Rører ikke basen.
-  const bornOf: Record<string, number | null> = {};
-  const diedOf: Record<string, number | null> = {};
-  persons.forEach((p) => { bornOf[p.id] = p.born ?? null; diedOf[p.id] = p.died ?? null; });
-  // Droppede kanter registreres (ikke kun kasseres), så de kan vises/logges: årene er udledt af
-  // kildens RÅ datotekst (parseYear på visning_foedt/doed), og kvalifikatorer som »ca.«/»o.«/
-  // »efter« ignoreres i dag — en droppet kant kan derfor være ægte usikkerhed, ikke kun en
-  // datafejl. Dedup pr. (forælder, barn, årsag): flere påstande for samme link giver én post.
-  const droppedParentEdges: DroppedParentEdge[] = [];
-  const droppedKeys = new Set<string>();
-  const drop = (pc: { parent: string; child: string }, reason: DroppedParentEdge['reason']) => {
-    const key = `${pc.parent}|${pc.child}|${reason}`;
-    if (!droppedKeys.has(key)) {
-      droppedKeys.add(key);
-      droppedParentEdges.push({ parent: pc.parent, child: pc.child, reason });
-    }
-    return false;
-  };
+  // Sammenlign HELE fuzzy spænd. Ældre modeller uden spænd bruger rååret som punkt.
+  // Manglende datoer kan ikke bevise umulighed. Ingen rå datotekst fortolkes her.
+  const bornOf: Record<string, [number, number] | null> = {};
+  const diedOf: Record<string, [number, number] | null> = {};
+  persons.forEach((p) => {
+    bornOf[p.id] = p.foedtSpaend ?? (p.born != null ? [p.born, p.born] : null);
+    diedOf[p.id] = p.doedSpaend ?? (p.died != null ? [p.died, p.died] : null);
+  });
   const parentChild = (db.parentChild ?? []).filter((pc) => {
     const cb = bornOf[pc.child];
     const pb = bornOf[pc.parent];
     const pd = diedOf[pc.parent];
-    if (cb != null && pb != null && cb < pb) return drop(pc, 'barn_aeldre'); // barn ældre end forælder
-    if (cb != null && pd != null && cb > pd + 1) return drop(pc, 'foedt_efter_doed'); // barn født >1 år efter forælders død
+    if (cb && pb && cb[1] < pb[0]) return false; // selv seneste barnefødsel er før tidligste forældrefødsel
+    if (cb && pd && cb[0] > pd[1] + 1) return false; // selv tidligste barnefødsel er for sent
     return true;
   });
 
@@ -133,5 +124,5 @@ export function buildModel(db: Db): Model {
     konfByEdge,
   };
 
-  return { persons: modelPersons, byId, indexes, droppedParentEdges };
+  return { persons: modelPersons, byId, indexes };
 }

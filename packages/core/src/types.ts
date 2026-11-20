@@ -169,14 +169,6 @@ export type ModelIndexes = {
   konfByEdge: Record<string, Konfidens>;
 };
 
-// En forælder→barn-kant som buildModels kronologiske vagt har droppet. 'barn_aeldre' = barnet er
-// født før forælderen; 'foedt_efter_doed' = barnet er født >1 år efter forælderens død.
-export type DroppedParentEdge = {
-  parent: string;
-  child: string;
-  reason: 'barn_aeldre' | 'foedt_efter_doed';
-};
-
 // Kanonisk Model = SUPERSET: kernen (persons/byId/indexes) som begge apps sætter,
 // plus valgfrie lag som kun web udfylder i dag (lineage, sourcesBy, canonicalIdById,
 // geo, genCoordsByPerson, parentsUnknownByPerson). Mobil tolererer de ekstra
@@ -209,9 +201,6 @@ export type Model = {
   udgaveForPersonRaekke?: Record<string, string>;
   // 6e-2: personens linjerækker pr. kilde (hovedets linjer pr. udgave, B6-note); kun web sætter dem.
   linjeRaekkerBy?: Record<string, import('./b6Note').LinjeRaekke[]>;
-  // Kanter droppet af buildModels kronologiske vagt (sat af buildModel; valgfri fordi andre
-  // Model-literaler ikke bærer den). Gør vagtens fravalg synlige frem for lydløse.
-  droppedParentEdges?: DroppedParentEdge[];
 };
 
 // --- Geo-lag (kort) ---------------------------------------------------------
