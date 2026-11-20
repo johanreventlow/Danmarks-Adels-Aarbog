@@ -3,6 +3,7 @@
 // »… skriver: …«) eller samles under »Kun i …«. Projektets værste fejl er et falsk »✓ også« eller en udgaves
 // oplysning, der forsvinder uden spor — derfor: konservativ lighed, og alt fra en anden udgave, som ingen note
 // dækker, går til kunI.
+import { slutterPaaSlaegtsnavn } from './slaegtsnavn';
 import {
   FAKTA_UDELADT,
   datoErDobbelt,
@@ -148,7 +149,15 @@ function fakta(input: UdgaveFaktaInput, udenUdgaver: boolean): FaktumVisning[] {
   const raa = faktaRaa(input, udenUdgaver, raaVaerdi);
   const relativ = raa.some((f) => RELATIV_REFERENCE[f.faktatype]
     && [f.vaerdi, ...f.andre.map((a) => a.value), ...f.usikre].some(erRelativDato));
-  return relativ ? faktaRaa(input, udenUdgaver, oploser(referencer(raa), { ikkeFoerReference: true })) : raa;
+  return udenOverfloedigtFoedenavn(relativ ? faktaRaa(input, udenUdgaver, oploser(referencer(raa), { ikkeFoerReference: true })) : raa);
+}
+
+// Projektejeren 20/11 (#401, løsning A): fødenavnet vises kun, når det tilføjer noget. Ender et vist navn på det, og er
+// der ingen anden påstand om fødenavnet, skjules linjen (oplysningen bliver i data; præsenslisten bruger den).
+function udenOverfloedigtFoedenavn(fs: FaktumVisning[]): FaktumVisning[] {
+  const navne = fs.filter((f) => f.faktatype === 'navn' && f.vaerdi !== '').map((f) => f.vaerdi);
+  return fs.filter((f) => !(f.faktatype === 'fødenavn' && f.vaerdi !== '' && !f.andre.length && !f.usikre.length
+    && navne.some((n) => slutterPaaSlaegtsnavn(n, f.vaerdi))));
 }
 
 function faktaRaa(input: UdgaveFaktaInput, udenUdgaver: boolean, vaerdiFor: VaerdiFor): FaktumVisning[] {

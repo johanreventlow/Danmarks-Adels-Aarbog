@@ -842,3 +842,30 @@ describe('byggUdgaveFakta', () => {
     expect(tjekket).toBeGreaterThan(50);
   });
 });
+
+// Projektejeren 20/11 (#401, løsning A): fødenavn-linjen vises kun, når den tilføjer noget — ender navnet allerede
+// på fødenavnet, skjules den på profilen (oplysningen bliver i data og bruges af præsenslisten).
+describe('byggUdgaveFakta: overflødigt fødenavn skjules', () => {
+  const fn = (v: string, o: Partial<PublicPersonFactRow> = {}) =>
+    tekst({ faktatype: 'fødenavn', vaerdi_tekst: v, source_id: null, source_label: null, ...o });
+  const nv = (v: string) => tekst({ faktatype: 'navn', vaerdi_tekst: v });
+  const typer = (v: UdgaveFaktaVisning) => v.linjer.map((l) => l.faktatype);
+
+  it('skjules når navnet ender på fødenavnet (uden og med valgt udgave)', () => {
+    const inp = input([nv('Anna Hansen'), fn('Hansen')]);
+    expect(typer(byggUdgaveFakta(inp, null))).toEqual(['navn']);
+    expect(typer(byggUdgaveFakta(inp, '1'))).not.toContain('fødenavn');
+  });
+  it('skjules uanset store bogstaver og bindestregs-tegn', () => {
+    expect(typer(byggUdgaveFakta(input([nv('Beke Ahlefeldt‑Laurvig'), fn('ahlefeldt-laurvig')]), null))).toEqual(['navn']);
+  });
+  it('vises når navnet ikke ender på fødenavnet', () => {
+    expect(typer(byggUdgaveFakta(input([nv('Anna Reventlow'), fn('Hansen')]), null))).toEqual(['navn', 'fødenavn']);
+    expect(typer(byggUdgaveFakta(input([nv('Anna Hansensdatter'), fn('Hansen')]), null))).toEqual(['navn', 'fødenavn']);
+  });
+  it('vises når der er en anden påstand om fødenavnet', () => {
+    const f = fn('Hansen');
+    const anden = tekst({ fact_id: f.fact_id, faktatype: 'fødenavn', vaerdi_tekst: 'Jensen', chosen: false });
+    expect(typer(byggUdgaveFakta(input([nv('Anna Hansen'), f, anden]), null))).toContain('fødenavn');
+  });
+});
