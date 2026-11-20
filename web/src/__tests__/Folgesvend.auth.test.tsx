@@ -5,7 +5,10 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, test, vi } from 'vitest';
 import { buildModel } from '@daa/core';
 
-const mocks = vi.hoisted(() => ({ loadModel: vi.fn(), currentSession: vi.fn(), signOut: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  loadModel: vi.fn(), currentSession: vi.fn(), signOut: vi.fn(),
+  authCb: null as null | ((event: string, userId: string | null) => void),
+}));
 
 vi.mock('../supabase', () => ({
   supabase: {
@@ -37,6 +40,7 @@ vi.mock('../data/public', async (importOriginal) => ({
 vi.mock('../data/media', () => ({ fetchPersonMedia: async () => [], fetchObjectMedia: async () => new Map() }));
 vi.mock('../data/auth', () => ({
   currentSession: mocks.currentSession, signIn: vi.fn(), loginFejlTekst: () => 'x', signOut: mocks.signOut,
+  onAuthChange: (cb: (event: string, userId: string | null) => void) => { mocks.authCb = cb; return () => { mocks.authCb = null; }; },
 }));
 vi.mock('../data/bookmarks', () => ({
   useBookmarks: () => ({ canSave: false, ready: true, hydrationVersion: 1, ids: new Set<string>(), has: () => false, toggle: vi.fn() }),
@@ -69,6 +73,7 @@ beforeEach(() => {
   window.history.replaceState({}, '', '/slaegt/reventlow/stamtrae?fokus=1');
   mocks.currentSession.mockResolvedValue({ email: 'red@example.dk', role: 'redaktion', userId: 'u1' });
   mocks.signOut.mockResolvedValue(undefined);
+  mocks.authCb = null;
 });
 
 test('logout rydder den indlæste model med levende personer, før den offentlige model er hentet', async () => {
@@ -93,4 +98,31 @@ test('et sent svar fra den tidligere (redaktør-)hentning overskriver ikke den n
   await act(async () => { gammel.resolve(model('Levende Lars')); });
   expect(screen.queryByText(/Levende Lars/)).toBeNull();
   expect(screen.getByText(/Afdød Anna/)).toBeTruthy();
+});
+
+test('logout i en anden fane (SIGNED_OUT udefra) rydder redaktørens model og henter den offentlige', async () => {
+  const offentlig = udsat<unknown>();
+  mocks.loadModel.mockResolvedValueOnce(model('Levende Lars')).mockReturnValueOnce(offentlig.promise);
+  render(<Folgesvend />);
+  expect(await screen.findByText(/Levende Lars/)).toBeTruthy();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Log ud' })).toBeTruthy());
+  act(() => { mocks.authCb?.('SIGNED_OUT', null); });
+  await waitFor(() => expect(mocks.loadModel).toHaveBeenCalledTimes(2));
+  expect(screen.queryByText(/Levende Lars/)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Log ud' })).toBeNull();
+  await act(async () => { offentlig.resolve(model('Afdød Anna')); });
+  expect(await screen.findByText(/Afdød Anna/)).toBeTruthy();
+});
+
+test('fejlet sessionsgenskabelse (aktiv JWT, rolleopslag fejler) viser fejl med »Prøv igen« — ikke anonym status med privilegerede data', async () => {
+  mocks.currentSession.mockRejectedValueOnce(new Error('ROLLE_UDFALD'));
+  mocks.loadModel.mockResolvedValue(model('Levende Lars'));
+  render(<Folgesvend />);
+  expect(await screen.findByText('Din rolle kunne ikke hentes')).toBeTruthy();
+  expect(screen.queryByText(/Levende Lars/)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Log ind' })).toBeNull();
+  // Rolleopslaget lykkes ved nyt forsøg.
+  fireEvent.click(screen.getByRole('button', { name: 'Prøv igen' }));
+  expect(await screen.findByText(/Levende Lars/)).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Log ud' })).toBeTruthy();
 });

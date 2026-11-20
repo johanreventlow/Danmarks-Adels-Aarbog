@@ -52,6 +52,13 @@ export function loginFejlTekst(e: unknown): string {
   return 'Login lykkedes ikke. Prøv igen om lidt.';
 }
 
+// Abonnér på sessionsskift fra Supabase (udløb, logout i en anden fane, brugerskift). Callbacken må
+// ikke selv kalde Supabase synkront (deadlock i supabase-js): udskyd opslag med setTimeout.
+export function onAuthChange(cb: (event: string, userId: string | null) => void): () => void {
+  const { data } = supabase.auth.onAuthStateChange((event, session) => cb(event, session?.user?.id ?? null));
+  return () => data.subscription.unsubscribe();
+}
+
 export async function signOut(): Promise<void> {
   await supabase.auth.signOut();
 }

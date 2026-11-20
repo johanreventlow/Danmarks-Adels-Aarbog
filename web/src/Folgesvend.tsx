@@ -16,7 +16,7 @@ import { personMemberIds } from './data/personMembers';
 import type { AppModel, Model } from './data/types';
 import { buildBrowse, showSearchResults } from './data/browse';
 import { useBookmarks, type BookmarkSort } from './data/bookmarks';
-import { signIn, signOut, currentSession, loginFejlTekst, type RedSession } from './data/auth';
+import { signIn, signOut, currentSession, onAuthChange, loginFejlTekst, type RedSession } from './data/auth';
 import { BookmarksView } from './components/BookmarksView';
 import { Sidehoved, type HovedpunktAktiv } from './components/Sidehoved';
 import { Slaegtsbjaelke } from './components/Slaegtsbjaelke';
@@ -88,8 +88,39 @@ export default function Folgesvend() {
   useEffect(() => {
     // review 22 N3: currentSession() kan i princippet afvises (netværksfejl) — sluges ikke
     // tavst, men sætter session til null (allerede default) og logger til konsol.
-    currentSession().then(setSession, (e) => console.warn('[session] kunne ikke genskabes', e)).finally(() => setSessionKlar(true));
+    currentSession().then(setSession, sessionFejlet).finally(() => setSessionKlar(true));
   }, []);
+  // Sessionen findes (JWT'en er aktiv), men rollen kunne ikke slås op. Vis aldrig »anonym« oven på en
+  // aktiv, evt. privilegeret session: stands hentninger, ryd modellen og vis en eksplicit fejl (review 37).
+  const [sessionFejl, setSessionFejl] = useState(false);
+  const sessionRef = useRef<RedSession | null>(null);
+  sessionRef.current = session;
+  function sessionFejlet(e: unknown) {
+    console.warn('[session] kunne ikke genskabes', e);
+    loadGenRef.current++;
+    setModel(null);
+    setSessionFejl(true);
+  }
+  const proevSessionIgen = () => {
+    setSessionFejl(false);
+    currentSession().then((s) => { setSession(s); loadData(); }, sessionFejlet);
+  };
+  const logUdEfterFejl = async () => {
+    try { await signOut(); } catch { /* sessionen ryddes lokalt alligevel */ }
+    setSessionFejl(false); setSession(null); setModel(null);
+    geoRequestedRef.current = false;
+    loadData();
+  };
+  // Sessionsskift uden for denne komponents egen login/logout (logout i en anden fane, udløb,
+  // brugerskift): SIGNED_OUT rydder straks; andre skift genskaber sessionen, hvis brugeren er en anden
+  // eller profilen er opdateret. INITIAL_SESSION ignoreres (den ovenstående effekt tager den).
+  useEffect(() => onAuthChange((event, userId) => {
+    if (event === 'INITIAL_SESSION') return;
+    if (event === 'SIGNED_OUT') { setSessionFejl(false); setSession(null); return; }
+    if (event === 'USER_UPDATED' || userId !== (sessionRef.current?.userId ?? null)) {
+      setTimeout(() => { currentSession().then(setSession, sessionFejlet); }, 0);
+    }
+  }), []);
   const doLogin = async () => {
     if (login.busy) return; // review 22 N3: forhindr overlappende signIn-kald ved dobbelt-klik
     if (!login.email.trim() || !login.pw) { setLogin((l) => ({ ...l, err: 'Udfyld e-mail og adgangskode' })); return; }
@@ -433,7 +464,7 @@ export default function Folgesvend() {
   // den rummer, og ellers ville fx præsensmurens »Log ind« føre en redaktør til en liste uden
   // levende, indtil siden blev genindlæst. Første tjek af den gemte session udløser ikke en ny
   // hentning (den første hentning sker allerede med den gemte session).
-  const brugerId = session?.userId ?? null;
+  const brugerId = session ? `${session.userId}:${session.role}` : null;
   const forrigeBrugerRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     if (!sessionKlar) return;
@@ -482,6 +513,19 @@ export default function Folgesvend() {
       q: soegFiltreNu.q, besiddelseNavn: titelBesiddelse });
   }, [err, mode, titelSlaegt, titelPerson, titelA, titelB, soegFiltreNu.q, titelBesiddelse]);
 
+  if (sessionFejl) {
+    return (
+      <div style={{ minHeight: '100vh', background: T.surfaceGround, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Tilstand fejl etiket="Kunne ikke hente" titel="Din rolle kunne ikke hentes"
+          handlinger={<>
+            <button type="button" onClick={proevSessionIgen} style={tilstandPrimaer}>Prøv igen</button>
+            <button type="button" onClick={() => { void logUdEfterFejl(); }} style={tilstandSekundaer}>Log ud</button>
+          </>}>
+          Du er stadig logget ind, men vi kunne ikke slå din rolle op. Prøv igen om lidt, eller log ud.
+        </Tilstand>
+      </div>
+    );
+  }
   if (err) {
     return (
       <div style={{ minHeight: '100vh', background: T.surfaceGround, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>

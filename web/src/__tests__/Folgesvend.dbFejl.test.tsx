@@ -53,7 +53,7 @@ vi.mock('../data/public', async (importOriginal) => ({
 vi.mock('../data/media', () => ({ fetchPersonMedia: async () => [], fetchObjectMedia: async () => new Map() }));
 vi.mock('../data/auth', () => ({
   currentSession: () => Promise.resolve(null),
-  signIn: vi.fn(),
+  signIn: vi.fn(), onAuthChange: () => () => {},
   loginFejlTekst: () => 'Login lykkedes ikke.',
   signOut: vi.fn(),
 }));
