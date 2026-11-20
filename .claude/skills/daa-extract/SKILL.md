@@ -8,8 +8,9 @@ description: >-
   fra PDF'en", "byg databasen fra bogen", "load stamtavlen" eller nævner
   pdftotext på adelsårbogen. Pipeline: deterministisk tekstudtræk +
   segmentering, LLM-struktureret fakta-udtræk per post (default Sonnet,
-  Opus-fallback), blokerende validering, og R-load til Supabase. Bevarer
-  altid prosaen som narrativ; udtrækker rygrad selektivt.
+  Opus-fallback; kun for poster uden levende personer, se GDPR-forbeholdet i
+  trin ③), blokerende validering, og R-load til Supabase. Bevarer altid
+  prosaen som narrativ; udtrækker rygrad selektivt.
 ---
 
 # DAA-udtræk: stamtavle-PDF → evidensbaseret datamodel
@@ -83,6 +84,15 @@ Verificér altid: antal poster ≈ forventet, og at `nr` er sammenhængende per 
 
 ### ③ Struktureret fakta-udtræk (LLM — det eneste model-trin)
 
+> **GDPR-forbehold (review 37, E8; CLAUDE.md invariant 8).** En model må kun få poster,
+> der ikke rummer levende personer. `work/` (2018-20) og `work_presens/` rummer levende
+> og må **aldrig** sendes til en model — heller ikke via subagents. Trin ③ og ④b over
+> `work/posts.json` er historik: 2018-20 blev udtrukket, før reglen blev skrevet.
+> En ny modelkørsel på en udgave med levende personer går kun gennem evidens-runneren,
+> hvor `check_eligibility` mod udgavens ledger udelukker poster om levende
+> (`scripts/evidence_runner.py`; `docs/evidensbaseret-genimport/`). 1939-udgaven
+> (`work_1939_stamtavle/`) har ingen levende og må læses. Er du i tvivl, så stop og spørg.
+
 For **hver** post i `posts.json`, udtræk **kun struktureret rygrad** til JSON
 efter skemaet i `references/extraction-schema.json`. Kør ét nummer ad gangen
 (lille kontekst = mindre drift). Default-model **Sonnet**; dispatch i batches
@@ -130,6 +140,9 @@ med præcis hvilken regel der brød og hvor. Et menneske skal gennemgå
 Dette er bevidst blokerende: vi hellere mangler en post end loader en forkert.
 
 ### ④b Auto-eskalering (agent-orkestreret, ÉT forsøg)
+
+> Samme GDPR-forbehold som trin ③: Opus-eskaleringen sender posttekst til en model og
+> må kun køres på poster uden levende personer.
 
 Hvis trin ④ flagger poster i `escalation.json`, køres denne drift af agenten:
 
