@@ -54,9 +54,29 @@ fam_keep AS MATERIALIZED (SELECT id FROM fams WHERE id NOT IN (SELECT id FROM fa
 facts AS MATERIALIZED (
   SELECT f.id FROM public.fact f, params p
    WHERE f.subjekt_type='person' AND f.subjekt_id=p.pid),
+-- Review 37 P1+P2: P er ikke-offentlig (person_offentlig i db-rls.sql, her skrevet ud: levende/privat/staged). En
+-- slettet P findes ikke og er ikke ikke-offentlig (nul-tællingen efter sletningen).
+p_ikke_off AS MATERIALIZED (
+  SELECT EXISTS (SELECT 1 FROM public.person x, params p WHERE x.id=p.pid
+    AND (x.levende IS DISTINCT FROM false OR coalesce(x.privat,false) OR coalesce(x.staged,false))) AS v),
+-- Fam_c (løsning A): familier, hvis indhold slettes = Fam_del + familier, hvor en ikke-offentlig P er partner eller barn.
+fam_c AS MATERIALIZED (
+  SELECT id FROM fam_del
+  UNION SELECT fm.family_id FROM public.family_member fm, params p, p_ikke_off io
+   WHERE io.v AND fm.person_id=p.pid AND fm.rolle IN ('partner','barn')),
+-- Projektejeren 2026-11-20: relationer DIREKTE mellem et medie og en bevaret familie i Fam_c (ikke Fam_del) består med
+-- historik; mediet låses (NY-E). De er ikke familieindhold og tælles ikke i R_fam.
+kept_media_rels AS MATERIALIZED (
+  SELECT r.id, CASE WHEN r.subjekt_type='media' THEN r.subjekt_id ELSE r.objekt_id END AS media_id
+    FROM public.relation r
+   WHERE (r.subjekt_type='media' AND r.objekt_type='family'
+          AND r.objekt_id IN (SELECT id FROM fam_c) AND r.objekt_id NOT IN (SELECT id FROM fam_del))
+      OR (r.objekt_type='media' AND r.subjekt_type='family'
+          AND r.subjekt_id IN (SELECT id FROM fam_c) AND r.subjekt_id NOT IN (SELECT id FROM fam_del))),
+-- F_fam: alle fakta på Fam_c.
 fact_fam AS MATERIALIZED (
   SELECT f.id FROM public.fact f
-   WHERE f.subjekt_type='family' AND f.subjekt_id IN (SELECT id FROM fam_del)),
+   WHERE f.subjekt_type='family' AND f.subjekt_id IN (SELECT id FROM fam_c)),
 -- R: person-ender OG fact-ende i P's fakta (S19)
 rels AS MATERIALIZED (
   SELECT r.id FROM public.relation r, params p
@@ -67,9 +87,9 @@ rels AS MATERIALIZED (
 -- R_fam: ende family∈Fam_del eller fact∈F_fam (ikke allerede i R)
 rels_fam AS MATERIALIZED (
   SELECT r.id FROM public.relation r
-   WHERE r.id NOT IN (SELECT id FROM rels)
-     AND ((r.subjekt_type='family' AND r.subjekt_id IN (SELECT id FROM fam_del))
-       OR (r.objekt_type='family'  AND r.objekt_id  IN (SELECT id FROM fam_del))
+   WHERE r.id NOT IN (SELECT id FROM rels) AND r.id NOT IN (SELECT id FROM kept_media_rels)
+     AND ((r.subjekt_type='family' AND r.subjekt_id IN (SELECT id FROM fam_c))
+       OR (r.objekt_type='family'  AND r.objekt_id  IN (SELECT id FROM fam_c))
        OR (r.subjekt_type='fact' AND r.subjekt_id IN (SELECT id FROM fact_fam))
        OR (r.objekt_type='fact'  AND r.objekt_id  IN (SELECT id FROM fact_fam)))),
 asrt AS MATERIALIZED (
@@ -85,19 +105,19 @@ narr AS MATERIALIZED (
    WHERE n.subjekt_type='person' AND n.subjekt_id=p.pid),
 narr_fam AS MATERIALIZED (
   SELECT n.id FROM public.narrative n
-   WHERE n.subjekt_type='family' AND n.subjekt_id IN (SELECT id FROM fam_del)),
+   WHERE n.subjekt_type='family' AND n.subjekt_id IN (SELECT id FROM fam_c)),
 narr_all AS MATERIALIZED (SELECT id FROM narr UNION SELECT id FROM narr_fam),
 p_haendelse AS MATERIALIZED (
   SELECT h.id FROM public.haendelse h, params p
    WHERE h.narrative_id IN (SELECT id FROM narr_all)
       OR (h.subjekt_type='person' AND h.subjekt_id=p.pid)
-      OR (h.subjekt_type='family' AND h.subjekt_id IN (SELECT id FROM fam_del))),
+      OR (h.subjekt_type='family' AND h.subjekt_id IN (SELECT id FROM fam_c))),
 p_story AS MATERIALIZED (
   SELECT s.id FROM public.story s, params p
    WHERE s.subjekt_type='person' AND s.subjekt_id=p.pid),
 story_fam AS MATERIALIZED (
   SELECT s.id FROM public.story s
-   WHERE s.subjekt_type='family' AND s.subjekt_id IN (SELECT id FROM fam_del)),
+   WHERE s.subjekt_type='family' AND s.subjekt_id IN (SELECT id FROM fam_c)),
 story_all AS MATERIALIZED (SELECT id FROM p_story UNION SELECT id FROM story_fam),
 media_ids AS MATERIALIZED (
   SELECT DISTINCT CASE WHEN r.subjekt_type='media' THEN r.subjekt_id ELSE r.objekt_id END AS id
@@ -142,17 +162,21 @@ hist_facts AS MATERIALIZED (
   SELECT ce.row_pk->>'id' AS idt FROM public.change_event ce, params p
    WHERE ce.tabel='fact'
      AND ((ce.foer ->>'subjekt_type'='person' AND ce.foer ->>'subjekt_id'=p.pidt)
-       OR (ce.efter->>'subjekt_type'='person' AND ce.efter->>'subjekt_id'=p.pidt))
+       OR (ce.efter->>'subjekt_type'='person' AND ce.efter->>'subjekt_id'=p.pidt)
+       OR (ce.foer ->>'subjekt_type'='family' AND ce.foer ->>'subjekt_id' IN (SELECT id::text FROM fam_c))
+       OR (ce.efter->>'subjekt_type'='family' AND ce.efter->>'subjekt_id' IN (SELECT id::text FROM fam_c)))
   UNION SELECT id::text FROM facts
   UNION SELECT id::text FROM fact_fam),
 hist_rels AS MATERIALIZED (
   SELECT ce.row_pk->>'id' AS idt FROM public.change_event ce, params p,
          LATERAL (VALUES (ce.foer),(ce.efter)) v_f(j)
-   WHERE ce.tabel='relation'
+   WHERE ce.tabel='relation' AND ce.row_pk->>'id' NOT IN (SELECT id::text FROM kept_media_rels)
      AND ((ce.foer ->>'subjekt_type'='person' AND ce.foer ->>'subjekt_id'=p.pidt)
        OR (ce.foer ->>'objekt_type' ='person' AND ce.foer ->>'objekt_id' =p.pidt)
        OR (ce.efter->>'subjekt_type'='person' AND ce.efter->>'subjekt_id'=p.pidt)
        OR (ce.efter->>'objekt_type' ='person' AND ce.efter->>'objekt_id' =p.pidt)
+       OR (v_f.j->>'subjekt_type'='family' AND v_f.j->>'subjekt_id' IN (SELECT id::text FROM fam_c))
+       OR (v_f.j->>'objekt_type' ='family' AND v_f.j->>'objekt_id'  IN (SELECT id::text FROM fam_c))
        OR (v_f.j->>'subjekt_type'='fact' AND v_f.j->>'subjekt_id' IN (SELECT idt FROM hist_facts))
        OR (v_f.j->>'objekt_type' ='fact' AND v_f.j->>'objekt_id'  IN (SELECT idt FROM hist_facts)))
   UNION SELECT id::text FROM rels
@@ -169,13 +193,17 @@ hist_narr AS MATERIALIZED (
   SELECT ce.row_pk->>'id' AS idt FROM public.change_event ce, params p
    WHERE ce.tabel='narrative'
      AND ((ce.foer ->>'subjekt_type'='person' AND ce.foer ->>'subjekt_id'=p.pidt)
-       OR (ce.efter->>'subjekt_type'='person' AND ce.efter->>'subjekt_id'=p.pidt))
+       OR (ce.efter->>'subjekt_type'='person' AND ce.efter->>'subjekt_id'=p.pidt)
+       OR (ce.foer ->>'subjekt_type'='family' AND ce.foer ->>'subjekt_id' IN (SELECT id::text FROM fam_c))
+       OR (ce.efter->>'subjekt_type'='family' AND ce.efter->>'subjekt_id' IN (SELECT id::text FROM fam_c)))
   UNION SELECT id::text FROM narr_all),
 hist_story AS MATERIALIZED (
   SELECT ce.row_pk->>'id' AS idt FROM public.change_event ce, params p
    WHERE ce.tabel='story'
      AND ((ce.foer ->>'subjekt_type'='person' AND ce.foer ->>'subjekt_id'=p.pidt)
-       OR (ce.efter->>'subjekt_type'='person' AND ce.efter->>'subjekt_id'=p.pidt))
+       OR (ce.efter->>'subjekt_type'='person' AND ce.efter->>'subjekt_id'=p.pidt)
+       OR (ce.foer ->>'subjekt_type'='family' AND ce.foer ->>'subjekt_id' IN (SELECT id::text FROM fam_c))
+       OR (ce.efter->>'subjekt_type'='family' AND ce.efter->>'subjekt_id' IN (SELECT id::text FROM fam_c)))
   UNION SELECT id::text FROM story_all),
 -- (source_id, record_key) for personens external-id'er, levende + historiske (begge sider) → import_key
 hist_pei AS MATERIALIZED (
@@ -200,6 +228,45 @@ feed_keys AS MATERIALIZED (
   UNION SELECT 'arkiv:' || id FROM p_haendelse
   UNION SELECT 'paadennedag:h:' || id FROM p_haendelse
   UNION SELECT 'forbundet:' || id FROM fam_del),
+-- Tidligere hændelser (Codex-fund A): haendelse-snapshots har kun id+feed_status (version_pk_registry). Ejerskab kræver
+-- et entydigt bevis pr. hændelse (sættets subjekt alene beviser intet: et åbent sæt genbruges): (1) sættet er åbnet af
+-- red_set_haendelse_status for netop denne hændelse (summary), med P / en Fam_c-familie som subjekt; (2) en
+-- kaskadesletning i et sæt, hvor hvert slettet narrativ var P's/Fam_c's ifølge DELETE-eventets foer. Levende hændelser,
+-- der bevares, udelades.
+hist_haendelse AS MATERIALIZED (
+  SELECT x.idt FROM (
+    SELECT ce.row_pk->>'id' AS idt FROM public.change_event ce
+      JOIN public.change_set cs ON cs.id=ce.change_set_id, params p
+     WHERE ce.tabel='haendelse' AND cs.operation='red_set_haendelse_status'
+       AND right(cs.summary, length(' på hændelse ' || (ce.row_pk->>'id'))) = ' på hændelse ' || (ce.row_pk->>'id')
+       AND ((cs.subjekt_type='person' AND cs.subjekt_id=p.pid)
+         OR (cs.subjekt_type='family' AND cs.subjekt_id IN (SELECT id FROM fam_c)))
+    UNION
+    SELECT ce.row_pk->>'id' FROM public.change_event ce, params p
+     WHERE ce.tabel='haendelse' AND ce.op='DELETE'
+       AND EXISTS (SELECT 1 FROM public.change_event nd WHERE nd.change_set_id=ce.change_set_id
+                    AND nd.tabel='narrative' AND nd.op='DELETE')
+       AND NOT EXISTS (SELECT 1 FROM public.change_event nd WHERE nd.change_set_id=ce.change_set_id
+                    AND nd.tabel='narrative' AND nd.op='DELETE'
+                    AND NOT coalesce((nd.foer->>'subjekt_type'='person' AND nd.foer->>'subjekt_id'=p.pidt)
+                          OR (nd.foer->>'subjekt_type'='family' AND nd.foer->>'subjekt_id' IN (SELECT id::text FROM fam_c)),false))) x
+   WHERE NOT EXISTS (SELECT 1 FROM public.haendelse h WHERE h.id::text=x.idt AND h.id NOT IN (SELECT id FROM p_haendelse))
+     -- Modstridende bevis (Codex runde 5/6): en feed-dom på samme hændelse under et andet subjekt, eller hændelsens
+     -- kaskadesletning (DELETE) i et sæt, der sletter et andet subjekts narrativ, gør ejerskabet tvetydigt; så står id'et.
+     AND NOT EXISTS (SELECT 1 FROM public.change_set cs, params p
+           WHERE cs.operation='red_set_haendelse_status'
+             AND right(cs.summary, length(' på hændelse ' || x.idt)) = ' på hændelse ' || x.idt
+             AND NOT coalesce((cs.subjekt_type='person' AND cs.subjekt_id=p.pid)
+                   OR (cs.subjekt_type='family' AND cs.subjekt_id IN (SELECT id FROM fam_c)),false))
+     AND NOT EXISTS (SELECT 1 FROM public.change_event ce JOIN public.change_event nd ON nd.change_set_id=ce.change_set_id, params p
+           WHERE ce.tabel='haendelse' AND ce.op='DELETE' AND ce.row_pk->>'id'=x.idt AND nd.tabel='narrative' AND nd.op='DELETE'
+             AND NOT coalesce((nd.foer->>'subjekt_type'='person' AND nd.foer->>'subjekt_id'=p.pidt)
+                   OR (nd.foer->>'subjekt_type'='family' AND nd.foer->>'subjekt_id' IN (SELECT id::text FROM fam_c)),false))
+  UNION SELECT id::text FROM p_haendelse),
+hist_feed_keys AS MATERIALIZED (
+  SELECT k FROM feed_keys
+  UNION SELECT 'arkiv:' || idt FROM hist_haendelse
+  UNION SELECT 'paadennedag:h:' || idt FROM hist_haendelse),
 
 -- ---------- change_event-hits (S54) ----------
 ce_hits AS MATERIALIZED (
@@ -210,7 +277,7 @@ ce_hits AS MATERIALIZED (
           AND ce.row_pk->>'person_id'=p.pidt)
       OR (ce.tabel='family_member' AND ce.row_pk->>'family_id' IN (SELECT id::text FROM fam_del))
       OR (ce.tabel='family'        AND ce.row_pk->>'id'        IN (SELECT id::text FROM fam_del))
-      OR (ce.tabel='haendelse'     AND ce.row_pk->>'id'        IN (SELECT id::text FROM p_haendelse))
+      OR (ce.tabel='haendelse'     AND ce.row_pk->>'id'        IN (SELECT idt FROM hist_haendelse))
       OR (ce.tabel='media'         AND ce.row_pk->>'id'        IN (SELECT id::text FROM media_excl))
       OR (ce.tabel='profiles'
           AND (ce.foer->>'reventlow_person_id'=p.pidt OR ce.efter->>'reventlow_person_id'=p.pidt))
@@ -229,7 +296,8 @@ ce_hits AS MATERIALIZED (
                        WHERE (v.j->>'target_type'='person'   AND v.j->>'target_id'=p.pidt)
                           OR (v.j->>'target_type'='fact'     AND v.j->>'target_id' IN (SELECT idt FROM hist_facts))
                           OR (v.j->>'target_type'='relation' AND v.j->>'target_id' IN (SELECT idt FROM hist_rels))
-                          OR (v.j->>'target_type'='family'   AND v.j->>'target_id' IN (SELECT id::text FROM fam_del))))
+                          OR (v.j->>'target_type'='relation' AND v.j->>'target_id' IN (SELECT id::text FROM kept_media_rels))
+                          OR (v.j->>'target_type'='family'   AND v.j->>'target_id' IN (SELECT id::text FROM fam_c))))
       OR (ce.tabel='narrative' AND ce.row_pk->>'id' IN (SELECT idt FROM hist_narr))
       OR (ce.tabel='story'     AND ce.row_pk->>'id' IN (SELECT idt FROM hist_story))
       OR (ce.tabel='story_kilde'
@@ -241,7 +309,7 @@ ce_hits AS MATERIALIZED (
       OR (ce.tabel='feed_pin'
           AND EXISTS (SELECT 1 FROM (VALUES (ce.foer),(ce.efter)) v(j)
                        WHERE v.j->>'kort_noegle' ~ fx.rx
-                          OR v.j->>'kort_noegle' IN (SELECT k FROM feed_keys)))
+                          OR v.j->>'kort_noegle' IN (SELECT k FROM hist_feed_keys)))
       OR (ce.tabel='import_korrektion'
           AND EXISTS (SELECT 1 FROM (VALUES (ce.foer),(ce.efter)) v(j), p_import_keys k
                        WHERE k.import_key=v.j->>'import_key' AND k.record_key=v.j->>'record_key'))),
@@ -282,7 +350,7 @@ counts(nr, sted, antal) AS (
   -- Punkt 2a: kerne-evidens
   UNION ALL SELECT 'S13','public.fact (subjekt person)', (SELECT count(*) FROM facts)
   UNION ALL SELECT 'S14','public.relation (person-ende eller fact-ende i P''s fakta; slettegraf R)', (SELECT count(*) FROM rels)
-  UNION ALL SELECT 'S13b','public.fact (subjekt family i Fam_del; F_fam)', (SELECT count(*) FROM fact_fam)
+  UNION ALL SELECT 'S13b','public.fact (subjekt family i Fam_c = Fam_del + ikke-offentlig P''s partner-/barnefamilier; F_fam)', (SELECT count(*) FROM fact_fam)
   UNION ALL SELECT 'S14b','public.relation (family-ende/fact-ende i F_fam; R_fam)', (SELECT count(*) FROM rels_fam)
   UNION ALL SELECT 'S15','public.assertion (på fakta/relationer)', (SELECT count(*) FROM asrt)
   UNION ALL SELECT 'S16','public.conclusion (på fakta/relationer)', (SELECT count(*) FROM public.conclusion c
@@ -298,10 +366,11 @@ counts(nr, sted, antal) AS (
        WHERE (c.target_type='fact' AND c.target_id IN (SELECT id FROM fact_fam))
           OR (c.target_type='relation' AND c.target_id IN (SELECT id FROM rels_fam)))
   UNION ALL SELECT 'S17b','public.citation på F_fam/R_fam-assertions', (SELECT count(*) FROM public.citation c WHERE c.assertion_id IN (SELECT id FROM asrt_fam))
-  UNION ALL SELECT 'S18b','public.note på Fam_del/F_fam/R_fam', (SELECT count(*) FROM public.note o
-       WHERE (o.target_type='family' AND o.target_id IN (SELECT id FROM fam_del))
+  UNION ALL SELECT 'S18b','public.note på Fam_c/F_fam/R_fam og på bevarede medie↔familie-koblinger', (SELECT count(*) FROM public.note o
+       WHERE (o.target_type='family' AND o.target_id IN (SELECT id FROM fam_c))
           OR (o.target_type='fact' AND o.target_id IN (SELECT id FROM fact_fam))
-          OR (o.target_type='relation' AND o.target_id IN (SELECT id FROM rels_fam)))
+          OR (o.target_type='relation' AND o.target_id IN (SELECT id FROM rels_fam))
+          OR (o.target_type='relation' AND o.target_id IN (SELECT id FROM kept_media_rels)))
   UNION ALL SELECT 'S19','public.relation med fact-ende i P''s fakta', (SELECT count(*) FROM public.relation r
        WHERE (r.subjekt_type='fact' AND r.subjekt_id IN (SELECT id FROM facts))
           OR (r.objekt_type='fact' AND r.objekt_id IN (SELECT id FROM facts)))
@@ -344,7 +413,7 @@ counts(nr, sted, antal) AS (
          AND s.id NOT IN (SELECT id FROM story_all))
   UNION ALL SELECT 'S32','public.feed_pin (person-nøgler, forbundet:<Fam_del>, dagensperson, story:<S>, arkiv:/paadennedag:h:<H>/paadennedag:P:(født|død):<år>)', (SELECT count(*) FROM public.feed_pin f, feed_rx fx
        WHERE f.kort_noegle ~ fx.rx
-          OR f.kort_noegle IN (SELECT k FROM feed_keys))
+          OR f.kort_noegle IN (SELECT k FROM hist_feed_keys))
   UNION ALL SELECT 'S32c','public.feed_pin forbundet:<Fam_keep> (bevares)', (SELECT count(*) FROM public.feed_pin f
        WHERE f.kort_noegle IN (SELECT 'forbundet:' || id FROM fam_keep))
   UNION ALL SELECT 'S33','public.entity_description (subjekt person)', (SELECT count(*) FROM public.entity_description d, params p WHERE d.subjekt_type='person' AND d.subjekt_id=p.pid)
@@ -352,7 +421,11 @@ counts(nr, sted, antal) AS (
        WHERE s.description_id IN (SELECT d.id FROM public.entity_description d, params p WHERE d.subjekt_type='person' AND d.subjekt_id=p.pid))
   UNION ALL SELECT 'S34','public.suggestion (subjekt person)', (SELECT count(*) FROM public.suggestion g, params p WHERE g.subjekt_type='person' AND g.subjekt_id=p.pid)
   -- Punkt 2c: rettelsesjournaler, medier, familier
-  UNION ALL SELECT 'S34c','public.suggestion (subjekt family i Fam_del)', (SELECT count(*) FROM public.suggestion g WHERE g.subjekt_type='family' AND g.subjekt_id IN (SELECT id FROM fam_del))
+  UNION ALL SELECT 'S34c','public.suggestion (subjekt family i Fam_c, fakta/relationer der slettes, bevarede medie↔familie-koblinger)', (SELECT count(*) FROM public.suggestion g
+       WHERE (g.subjekt_type='family' AND g.subjekt_id IN (SELECT id FROM fam_c))
+          OR (g.subjekt_type='fact' AND g.subjekt_id IN (SELECT id FROM facts UNION SELECT id FROM fact_fam))
+          OR (g.subjekt_type='relation' AND g.subjekt_id IN (SELECT id FROM rels UNION SELECT id FROM rels_fam
+                                                             UNION SELECT id FROM kept_media_rels)))
   UNION ALL SELECT 'S35','public.import_korrektion (via import_key+record_key)', (SELECT count(*) FROM public.import_korrektion ik
        WHERE EXISTS (SELECT 1 FROM p_import_keys k WHERE k.import_key=ik.import_key AND k.record_key=ik.record_key))
   UNION ALL SELECT 'S36','public.paastand_korrektion (levende+historiske assertions)', (SELECT count(*) FROM public.paastand_korrektion k
@@ -362,6 +435,11 @@ counts(nr, sted, antal) AS (
   UNION ALL SELECT 'S37c','storage-objekter for eksklusive medier (media+varianter)', (SELECT
          (SELECT count(*) FROM public.media m WHERE m.id IN (SELECT id FROM media_excl) AND m.storage_path IS NOT NULL)
        + (SELECT count(*) FROM public.media_variant v WHERE v.media_id IN (SELECT id FROM media_excl)))
+  UNION ALL SELECT 'NY-E','public.media bevaret med ikke-offentlig P afbildet eller koblet til bevaret Fam_c-familie (maa_publiceres låses)', (SELECT count(*)
+       FROM public.media m, params p, p_ikke_off io WHERE io.v AND m.id NOT IN (SELECT id FROM media_excl) AND (
+         (m.id IN (SELECT id FROM media_ids) AND EXISTS (SELECT 1 FROM public.relation r
+           WHERE r.subjekt_type='person' AND r.subjekt_id=p.pid AND r.rolle='afbildet' AND r.objekt_type='media' AND r.objekt_id=m.id))
+         OR m.id IN (SELECT media_id FROM kept_media_rels)))
   UNION ALL SELECT 'S38','public.family der slettes (Fam_del)', (SELECT count(*) FROM fam_del)
   UNION ALL SELECT 'S38a','public.family hvor P er medlem (Fam)', (SELECT count(*) FROM fams)
   UNION ALL SELECT 'S38k','public.family bevaret (Fam_keep)', (SELECT count(*) FROM fam_keep)
@@ -489,7 +567,7 @@ SELECT coalesce(sum(antal),0)=0
 WHERE nr IN ('S01','S02','S03','S03b','S04','S05','S06','S07','S08','S09','S10','S11','S12','S13','S13b',
  'S14','S14b','S15','S15b','S16','S16b','S17','S17b','S18','S18b','S19','S21','S21b','S22','S23','S24',
  'S25','S26','S27','S28','S30','S30b','S30c','S31','S32','S33','S33b','S34','S34c','S35','S36',
- 'S37b','S37c','S38','S38c','S38d','S39','S39e','S40','S42','M5','S49','S49b','S53b','S54') \gset
+ 'S37b','S37c','NY-E','S38','S38c','S38d','S39','S39e','S40','S42','M5','S49','S49b','S53b','S54') \gset
 -- S55 står bevidst ikke på listen: tællerens rev_chain tæller fortrydelser af ALLE sæt, der rører P, også af bevarede
 -- sæt (S52b, andres events). Slettegrafens S55 er kun kæden under slettede sæt (mængden D); reverterer_id er en FK,
 -- så en tilbageværende kæde peger altid på et bevaret sæt og er selv S52b (kun P's id i subjekt_id).

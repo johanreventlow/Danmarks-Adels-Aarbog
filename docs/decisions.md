@@ -38,6 +38,14 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
   evidens), slettes med personen, også rækker der kun findes i historikken (fortrudte). Begrundelse: oplysningerne
   handler om den slettede, og familien kan blive offentlig, når personen forsvinder (fail-closed, invariant 8).
   Billedtitler i bevarede mediers historik følger fortsat spec'en (Q8: til redaktørens kontrol).
+  **Afgrænsning, samme aften:** (a) Kun rollerne ægtefælle (`partner`) og `barn` udløser oprydningen; andre
+  medlemsroller (fx `plejebarn`) gør ikke. (b) Et billede koblet **direkte** til en bevaret familie
+  (familiefotoet) beholder koblingen og låses (`maa_publiceres=false`) i stedet for at blive slettet. Grund:
+  redaktionen finder kun billeder via koblinger (der er ingen samlet medieliste), så et låst billede uden kobling
+  kunne ikke genfrigives. Noter og forslag på koblingen slettes; dens evidens (påstand, kilde, konklusion) bevares,
+  så relationen ikke står uden konklusion (invariant 1), og er skjult, så længe billedet er låst. (c) Et billede,
+  hvis eneste kobling var slettet familieindhold (fx et bryllupsbillede koblet til vielsen), slettes helt med fil.
+  Fravalgt: at låse sådanne billeder uden kobling (uopfindelige) eller flytte koblingen til familien.
 - **M2: »Bekræftet ad N uafhængige linjer«** tæller kun linjer, hvor hvert led er uden konfidens (bogens normale
   tilfælde) eller `sikker`; `sandsynlig`, `formodet` og `omstridt` gør linjen usikker. Målt 20/11: 2.252 af 2.257
   familieled er uden konfidens, 4 `formodet`, 1 `omstridt`.

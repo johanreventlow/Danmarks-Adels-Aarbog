@@ -4,7 +4,8 @@
 -- Personer (purge_test.ids, alle id > 1.000.000, så restsøgningens tal-token ikke forurenes; R10):
 --   P              »Testperson Purge«, personen der skal slettes
 --   aegtefaelle    familie fam_del med P og uden børn  → familien slettes (Fam_del)
---   anden_partner  familie fam_keep med P og barn       → familien bevares med vielse (Fam_keep)
+--   anden_partner  familie fam_keep med P og barn       → familien bevares (Fam_keep); vielsen slettes, fordi P er
+--                  privat (red_opret_person opretter privat; review 37 P1+P2), og P's delte medie låses (NY-E)
 --   barn           barn i fam_keep
 --   nabo           én samme_som-nabo (grad 1, blokerer ikke)
 --   tredje         uden forbindelse; har en note, hvis foer-tekst linker til P (Task 9)
@@ -228,7 +229,8 @@ BEGIN
   j := public.red_opret_fakta('person',v_p,'erhverv','Godsejer',p_kilde_fritekst=>'Syntetisk kilde, s. 3');
   PERFORM purge_test.gem('fakta_erhverv',(j->>'fact_id')::bigint);
   PERFORM purge_test.f_saet_helt(purge_test.saet());
-  -- Vielse på den slettede familie (F_fam) og på den bevarede (K5: citatet nævner P, bogtekst der bevares).
+  -- Vielse på den slettede familie (F_fam) og på den bevarede. P er ikke-offentlig (privat), så også den bevarede
+  -- families vielse er i F_fam og slettes med hele sit sæt (review 37 P1+P2; før: K5, bogtekst der bevares).
   PERFORM purge_test.nyt();
   j := public.red_opret_fakta('family',purge_test.id('fam_del'),'vielse','1875',p_date_raw=>'1875');
   PERFORM purge_test.gem('fakta_vielse_del',(j->>'fact_id')::bigint);
@@ -237,6 +239,7 @@ BEGIN
   j := public.red_opret_fakta('family',purge_test.id('fam_keep'),'vielse','1880',p_date_raw=>'1880',
                               p_kilde_fritekst=>'g. 1880 m. Testperson Purge');
   PERFORM purge_test.gem('fakta_vielse_keep',(j->>'fact_id')::bigint);
+  PERFORM purge_test.f_saet_helt(purge_test.saet());
 END $$;
 
 -- ---------------------------------------------------------------------------------------------------------------------

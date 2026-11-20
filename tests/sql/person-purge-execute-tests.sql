@@ -185,23 +185,20 @@ BEGIN
   PERFORM pg_temp.purge_assert(NOT EXISTS(SELECT 1 FROM private.interpretation_promotion WHERE id=purge_test.u('prom_egen_fam'))
     AND EXISTS(SELECT 1 FROM public.family WHERE id=purge_test.id('fam_keep'))
     AND (SELECT private.relation_binding_state(interpretation_id) IS NULL FROM purge_q6),'purge_q6_binding');
-  -- Restlisten er rækkepræcis også for historik: K2 (andres note/narrativ), K3 (delt medie),
-  -- K5 (bogtekst på bevaret families vielse). Andre events må ikke bære navnet.
+  -- Restlisten er rækkepræcis også for historik: K2 (andres note/narrativ), K3 (delt medie). K5 (bogtekst på
+  -- bevaret families vielse) forekommer ikke længere: fixturens P er privat, så vielsen og dens historik slettes
+  -- (review 37 P1+P2). Andre events må ikke bære navnet.
   PERFORM pg_temp.purge_assert(NOT EXISTS(SELECT 1 FROM public.change_event e
     WHERE (position('Testperson Purge' IN coalesce(e.foer::text,''))>0 OR position('Testperson Purge' IN coalesce(e.efter::text,''))>0)
       AND NOT (
         (e.tabel IN ('note','narrative') AND NOT EXISTS(SELECT 1 FROM purge_test.forventet f
           WHERE f.tabel=e.tabel AND f.pk=e.row_pk AND f.handling='slet'))
         OR (e.tabel='media' AND e.row_pk=jsonb_build_object('id',purge_test.id('medie_delt')))
-        OR (e.tabel='assertion' AND EXISTS(SELECT 1 FROM public.assertion a JOIN public.fact f ON a.target_type='fact' AND a.target_id=f.id
-          WHERE e.row_pk=jsonb_build_object('id',a.id) AND f.subjekt_type='family' AND f.faktatype='vielse'
-            AND f.subjekt_id=purge_test.id('fam_keep')))
-        OR (e.tabel='citation' AND EXISTS(SELECT 1 FROM public.citation c JOIN public.assertion a ON a.id=c.assertion_id
-          JOIN public.fact f ON a.target_type='fact' AND a.target_id=f.id
-          WHERE e.row_pk=jsonb_build_object('id',c.id) AND f.subjekt_type='family' AND f.faktatype='vielse'
-            AND f.subjekt_id=purge_test.id('fam_keep')))
       )),'purge_historik_navn_vaek_events');
-  PERFORM pg_temp.purge_assert(EXISTS(SELECT 1 FROM public.media WHERE id=purge_test.id('medie_delt'))
+  PERFORM pg_temp.purge_assert(NOT EXISTS(SELECT 1 FROM public.fact WHERE id=purge_test.id('fakta_vielse_keep'))
+    AND EXISTS(SELECT 1 FROM public.family WHERE id=purge_test.id('fam_keep')),'purge_vielse_bevaret_familie_slettet');
+  -- NY-E: det delte medie bevares og var aldrig frigivet; låsen er en no-op (purge_andre_uaendrede dækker rækken).
+  PERFORM pg_temp.purge_assert(EXISTS(SELECT 1 FROM public.media WHERE id=purge_test.id('medie_delt') AND NOT maa_publiceres)
     AND EXISTS(SELECT 1 FROM public.change_set WHERE id=purge_test.id('saet_medie_delt')),'purge_delt_medie');
   PERFORM pg_temp.purge_assert((SELECT j->>'slettet' FROM purge_result)=purge_test.id('P')::text
     AND (SELECT (j->>'personas_afvist')::int FROM purge_result)=2
@@ -215,6 +212,7 @@ END $t$;
 \echo OK purge_persona_ikke_en_person
 \echo OK purge_q6_binding
 \echo OK purge_delt_medie
+\echo OK purge_vielse_bevaret_familie_slettet
 \echo OK purge_retur
 \echo OK purge_l6b_laaser_saet
 \echo OK purge_l11b_laaser_medier

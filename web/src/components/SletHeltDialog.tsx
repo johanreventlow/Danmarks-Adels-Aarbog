@@ -12,6 +12,8 @@ const purgeLabels: Record<string, string> = {
   afventer_kontrol: 'En kildepersona afventer kontrol',
   samme_som_knudepunkt: 'Profilen er knudepunkt for andre profiler',
   link_i_tekst: 'En bevaret tekst linker til profilen eller dens data',
+  laast_familiefoto: 'Låst familiefoto: tjek billedet, før det frigives igen',
+  bevaret_evidens: 'Bevaret kilde/påstand på et låst familiefoto: kan nævne profilen',
 };
 
 type Props = {
@@ -69,6 +71,15 @@ export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurg
         </li>)}</ul>
         <h3>Familier</h3>
         <p>Slettes: {preview.familier_slettes.join(', ') || 'ingen'}. Bevares: {preview.familier_bevares.join(', ') || 'ingen'}.</p>
+        {preview.familieindhold_slettes !== undefined && <>
+          <p>Bevarede familier, hvis indhold slettes, fordi profilen ikke er offentlig: {preview.familieindhold_slettes.length ? '' : 'ingen.'}</p>
+          {preview.familieindhold_slettes.length > 0 && <ul>{preview.familieindhold_slettes.map((f) => <li key={String(f.family_id)}>
+            Familie {f.family_id}: {f.fakta.length} fakta, {f.noter.length} noter, {f.narrativer.length} narrativer
+            {f.haendelser !== undefined && <>, {f.haendelser.length} hændelser, {(f.stories ?? []).length} historier,{' '}
+              {(f.relationer ?? []).length} relationer, {(f.forslag ?? []).length} forslag, {f.historik ?? 0} historik-ændringer</>}</li>)}</ul>}
+          <p>Vielser der bliver stående: {(preview.vielser_staar ?? []).join(', ') || 'ingen'}.</p>
+        </>}
+        {(preview.medier_skjules?.length ?? 0) > 0 && <p>Billeder der bevares med deres koblinger til andre end profilen (også til en bevaret familie), men skjules for læserne (en redaktør kan frigive dem igen): {preview.medier_skjules!.join(', ')}.</p>}
         <h3>Blokeringer</h3>
         {preview.blokeringer.length ? <ul>{preview.blokeringer.map((b, i) => <li key={i}>{purgeLabels[b.art] ?? b.art}<details><summary>Detaljer</summary><code>{JSON.stringify(b)}</code></details></li>)}</ul> : <p>Ingen blokeringer.</p>}
         <h3>Advarsler</h3>
@@ -84,7 +95,7 @@ export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurg
           const href = ['person', 'family', 'narrative', 'media', 'source', 'estate'].includes(entity) && k.pk.id != null
             ? `/redaktion/${entity}/${encodeURIComponent(String(k.pk.id))}` : null;
           return <div key={i} id={`purge-kontrol-${i}`} tabIndex={-1} style={{ borderTop: `1px solid ${T.line}`, padding: 8 }}>
-            <b>{k.sted} · {k.tabel}</b><p>{JSON.stringify(k.pk)} · {k.grund}</p>
+            <b>{k.sted} · {k.tabel}</b><p>{JSON.stringify(k.pk)} · {purgeLabels[k.grund] ?? k.grund}</p>
             {href && <a href={href} target="_blank" rel="noreferrer">Åbn stedet i Redaktion</a>}
           </div>;
         })}

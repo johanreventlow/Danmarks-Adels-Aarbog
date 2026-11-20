@@ -187,6 +187,8 @@ for kind in b_identity c_publish d_candidates j_reverse; do
       # fortryder tilbagetrækningen. Previewets hash genberegnes efter opsætningen.
       j_reverse)
         q "$DB" -c "UPDATE person SET privat=false WHERE id=purge_test.id('P')"
+        # Offentlig P: vielsen på fam_keep bliver stående (review 37 P1+P2), så den er ikke i facit i denne kopi.
+        q "$DB" -c "DELETE FROM purge_test.forventet WHERE tabel='fact' AND pk=jsonb_build_object('id',purge_test.id('fakta_vielse_keep'))"
         a "$actor SELECT red_tilbagetraek_person_narrative_record(purge_test.id('P'),purge_test.id('kilde_a'),'PURGE-P',private.narrative_record_state(purge_test.id('P'),purge_test.id('kilde_a'),'PURGE-P',false)->>'state_sha256');" >/dev/null
         sha=$(a "$actor SELECT red_slet_person_helt_preview(purge_test.id('P'))->>'sha256'" | tail -1)
         s="SELECT red_slet_person_helt(purge_test.id('P'),'$sha');"

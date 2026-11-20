@@ -150,6 +150,16 @@ hvor rækken handler om personen:
   events; summary med kun id er dækket af beslutning 3 (M1). Summaries med navn (`red_opret_person`, l. 8641, og dens
   »Fortrød: …«-kopi) forsvinder, fordi sættene slettes efter reglen ovenfor; bygherren beviser, at der ikke findes
   andre summaries med navn.
+  **Runde 6 (review 37, Codex):** et sæt kan genbruges i samme transaktion (fx `red_set_feed_pin('embede:P:<titel>:<år>')`
+  efterfulgt af en anden skriver) og bevares, fordi det rummer andres events; så står P's id/titel i summary. Bevarede
+  sæt, som sletningen rører (subjekt personen eller en familie i Fam_c, eller events slettet nu),
+  og hvis summary bærer en feed-nøgle med personens id, et `[[person:P|…]]`-token eller personens navn, kommer på
+  kontrollisten (`til_kontrol`, grund `bevaret_summary`) efter Q8-mønstret. Summary rettes ikke.
+  **Runde 7:** tekstmatch på det aktuelle navn overser et gammelt navn. Derfor kommer et bevaret, rørt sæt fra en
+  skriver, hvis summary kan bære personindhold, ALTID på listen, uanset summary: `red_opret_person`, `red_opret_estate`,
+  `red_opret_kilde`, `red_opret_organisation`, `red_opret_media`, `red_upload_media`, `red_ret_paastand`,
+  `placement_membership_reversal`, `red_set_feed_pin`, `red_fjern_feed_pin`, `red_ret_ocr_felt` og `narrative_record_*`.
+  Fortryd-sæt (»Fortrød: …«) af et sæt på listen kommer med. Tekstmatchet er et ekstra net for øvrige operationer.
 - `red_fortryd_change_set` på et bevaret fælles sæt efter sletningen skal fejle lukket eller give et korrekt resultat
   (test, med og uden force). Den må aldrig genskabe en række, der hører til den slettede (fx en `family`-række), og
   afviser (`FORTRYD_DOED_LINK`) at genskabe tekst med et link til en person, familie eller et medie, der ikke findes.
@@ -164,6 +174,32 @@ hvor rækken handler om personen:
 - **Vielsesfakta (projektejeren 2026-11-14):** bevares familien (børn eller anden partner tilbage), bevares også dens
   vielsesfakta med evidens; de hører også ægtefællen til og bærer ikke den slettedes navn. Slettes familien (6.4 ovenfor),
   slettes vielsen med den. Forhåndsvisningen viser hvilke vielser der bliver stående.
+  **Tilføjet 2026-11-20 (review 37 P1+P2, projektejeren):** var personen ikke-offentlig før sletningen
+  (`NOT public.person_offentlig`), slettes også vielser på bevarede familier, hvor personen var partner, med hele
+  evidenskæden og historikken (ellers bliver de offentlige via `family_offentlig`). Forhåndsvisningen viser
+  `vielser_slettes` og `vielser_staar` (kun dem, der faktisk står).
+  **Udvidet 2026-11-20 (løsning A, projektejeren):** for en ikke-offentlig person slettes ALT familieindhold (som for en
+  slettet familie: fakta med evidens, noter, narrativer, hændelser, stories, forslag, relationer med familieende) på
+  bevarede familier, hvor personen var partner eller barn — også tidligere (fortrudte) rækker i historikken. Familien og
+  de øvrige medlemskaber bevares. Fail-closed, også hvis familien bliver offentlig bagefter. Forhåndsvisningen viser
+  `familieindhold_slettes` pr. familie (erstatter `vielser_slettes`) og `vielser_staar`. Fra 2026-11-20 (Codex-fund B)
+  udledes de berørte familier af hele sletteplanen, med kategorierne `fakta`, `noter` (også på familiens fakta og
+  relationer), `narrativer`, `haendelser`, `stories`, `relationer` (familien eller dens fakta som ende), `forslag` og
+  `historik` (antal slettede historik-events om familien, uden medlemskaber), så også en familie med fx kun en story,
+  en relation eller kun historik vises. Familieejerskabet er transitivt (familie → fakta → relationer → noter, forslag
+  og evidens), så fx en tidligere note på en bevaret familiefoto-kobling eller en note på en relation til familiens
+  faktum også tælles med.
+  **Undtagelse 2026-11-20 (projektejeren):** en kobling *direkte* mellem et billede og en sådan bevaret familie (fx
+  forældrenes familiefoto, når et levende barn slettes) bevares med sin historik, og billedet låses
+  (`maa_publiceres=false`, vist under `medier_skjules`), så redaktionen kan finde og genfrigive det. Et billede, der kun
+  var koblet til slettet familieindhold (fx et vielsesfoto på vielsen), slettes helt inkl. filen. På en bevaret
+  kobling står evidenskæden (påstand, citat, konklusion), mens noter og forslag på den slettes med historik. Det låste
+  billede og evidensen på koblingen står altid på kontrollisten (`til_kontrol`), så redaktøren ser dem før en
+  genfrigivelse.
+  Tidligere (slettede/fortrudte) hændelser på personen eller en sådan familie fjernes også fra historikken: deres
+  snapshot har kun id+feed_status, så ejerskabet kræver et entydigt bevis pr. hændelse: et sæt, som feed-dommen åbnede
+  for netop den hændelse (med personen/familien som subjekt), eller et sæt, hvor hvert slettet narrativ var personens
+  eller familiens (kaskadesletningen). Et blandet sæt beviser intet; andres hændelses-events og sættet bevares.
 - **`samme_som` (projektejeren 2026-11-14):** har personen to eller flere identitetsnaboer (andre personer, der kun er
   forbundet gennem den), er det en **blokering** (6.6); en redaktør kobler dem direkte først. Med én nabo slettes kanten,
   og naboen er uændret. Forhåndsvisningen viser komponenten.
@@ -195,7 +231,10 @@ hvor rækken handler om personen:
   kontrolkørsel, der bliver `failed` (Q4); forældede bindinger hos andre (6.5).
 - **Til kontrol, ikke blokering (Q8, Q9):** fritekster hos andre og titler på delte medier, der kan nævne personen.
 - Personen er knudepunkt i en `samme_som`-komponent med to eller flere andre (6.4).
-- Medier delt med andre: ingen blokering; koblingen slettes, mediet og filen bevares.
+- Medier delt med andre: ingen blokering; koblingen slettes, mediet og filen bevares. **Tilføjet 2026-11-20 (review 37
+  P1+P2):** var personen ikke-offentlig, får hvert bevaret medie, personen var afbildet på, `maa_publiceres=false` i
+  samme transaktion (en redaktør må frigive det igen). Intet sæt er åbent, så ændringen efterlader ingen historik.
+  Forhåndsvisningen viser dem som `medier_skjules`.
 - Levende person med brugerkonto: ingen blokering; nævnes i forhåndsvisningen.
 
 ### 6.7 Storage (V3)

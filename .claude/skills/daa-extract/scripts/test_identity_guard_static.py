@@ -52,7 +52,7 @@ ALLOWLIST = {
     # Fuld personsletning (decisions 2026-11-14; spec Q7): P's personas afvises som not_a_person, version n+1,
     # med oprindelsen person_purge. Eneste kalder er red_slet_person_helt (Task 8b).
     ("schema.sql", "red_slet_person_helt", "person_purge"): 1,
-    ("db-migrations.sql", "red_slet_person_helt", "person_purge"): 1,
+    ("db-migrations.sql", "red_slet_person_helt", "person_purge"): 2,   # review 37 P1+P2: kopi i blokken review37-p1p2
 }
 
 

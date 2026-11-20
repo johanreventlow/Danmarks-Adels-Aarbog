@@ -163,7 +163,7 @@ Kolonnen **Indhold** udfyldes kun for bevar_andres: `id` = kun P's id/hash/uuid;
 | Sted | Tabel | Find ud fra P | Handling | Fase | Vagt | Indhold |
 |---|---|---|---|---|---|---|
 | S13 | `public.fact` | `id ∈ F` | slet | 8 | `trg_log_fact`; FK fra `haendelse.fact_id` (l. 6447, NO ACTION) og `story.fact_id` (l. 6481, SET NULL) | |
-| S13b NY | `public.fact` (familie) | `id ∈ F_fam` | slet | 8 | samme | |
+| S13b NY | `public.fact` (familie) | `id ∈ F_fam` (fakta på Fam_c; se note om Fam_ind nedenfor) | slet | 8 | samme | |
 | S14 | `public.relation` | `id ∈ R` | slet | 8 | `trg_relation_evidence_delete` l. 7413 → `guard_relation_evidence_delete` l. 7394 (afviser DELETE mens assertion/conclusion/note peger på den); `trg_log_relation` | |
 | S14b NY | `public.relation` (familie-/familiefakta-ende) | `id ∈ R_fam` | slet | 8 | samme | |
 | S15 | `public.assertion` | `id ∈ A` | slet | 6 | `trg_assertion_relation_target` l. 7381 (INS/UPD), `trg_assertion_regen` l. 6653 (UPD), `trg_log_assertion` | |
@@ -194,7 +194,7 @@ Kolonnen **Indhold** udfyldes kun for bevar_andres: `id` = kun P's id/hash/uuid;
 | NY-B | (del af S32) | nøgleformaterne `story:`, `paadennedag:h:`, `dagensperson:` mangler i kortlægningen og `count.sql` (kilde: `packages/feed/src/story.ts:108`, `temporal.ts:100,130`) | slet | 4 | | |
 | S32c | `feed_pin 'forbundet:'||f` for `f ∈ Fam_keep` | | bevar_andres | – | `trg_log_feed_pin` | id (familie-id) |
 | S33 | `public.entity_description` + `private.entity_description_source` | `id ∈ ED` | slet (`…_source` CASCADE l. 11961) | 4 | `trg_entity_description_subject` l. 11981 (INS/UPD), `trg_log_entity_description` l. 11989 | |
-| S34 | `public.suggestion` | `subjekt_type='person' AND subjekt_id=P` ∪ `subjekt_type='family' AND subjekt_id ∈ Fam_del` | slet | 4 | ingen (ikke versioneret). `interpretation_forslag_binding` (l. 10073) sidder på `private.interpretation` (AFTER INSERT), ikke på `suggestion` | |
+| S34 | `public.suggestion` | `subjekt_type='person' AND subjekt_id=P` ∪ `subjekt_type='family' AND subjekt_id ∈ Fam_c` ∪ `subjekt_type='fact' AND subjekt_id ∈ F ∪ F_fam` ∪ `subjekt_type='relation' AND subjekt_id ∈ Rd ∪ R_kob` (CTE `sg`) | slet | 4 | ingen (ikke versioneret). `interpretation_forslag_binding` (l. 10073) sidder på `private.interpretation` (AFTER INSERT), ikke på `suggestion` | |
 | S34b | andres `suggestion`, hvor `payload`/`vaerdi`/`note`/`kilde_fritekst` nævner P | `subjekt ≠ P` og `payload::text`/tekst indeholder P's id eller token | **blokér** ved token (afsnit 4.1); ellers bevar_andres | 0 | – | fritekst? |
 
 ### 1d. Rettelsesjournaler, medier, familier
@@ -205,8 +205,47 @@ Kolonnen **Indhold** udfyldes kun for bevar_andres: `id` = kun P's id/hash/uuid;
 | S36 | `public.paastand_korrektion` | `assertion_id ∈ A*` (levende + historiske assertions, afsnit 2) | slet (FK `change_set_id` l. 10095 → skal væk før change_set) | 6 | **ingen trigger** (kun kommentar l. 10081-10086) | |
 | S37 | `public.media` + `media_variant` | `id ∈ M_del` | slet (`media_variant` CASCADE l. 103); stier til udbakke (§6.7) | 9 | `trg_log_media` | |
 | S37b | delte medier | relation P↔medie slettes (i `R`), mediet bevares | bevar_andres | – | | `titel`/`original_filnavn` kan nævne P → fritekst? |
+| NY-E | `public.media` (bevaret, P afbildet eller koblet til bevaret Fam_ind-familie) | P ikke-offentlig før sletningen (`private.person_purge_ikke_offentlig`) og enten `person→media`-relation `afbildet` i `R` til et medie uden for `M_del`, eller en relation i `R_kob` (se Fam_ind-noten); én række pr. medie | skjul: `maa_publiceres=false` (review 37 P1+P2, projektejeren 2026-11-20); intet manifest, intet sæt | 9 | låst i L11b | relationen holdt mediet skjult (`media_afbilder_skjult`); en redaktør må frigive igen |
 | S38 | `public.family` | `id ∈ Fam_del` | slet | 10 | `trg_log_family` | |
-| S38b | `family` i `Fam_keep` + dens vielsesfakta, evidens, noter, narrativer | | bevar_andres (beslutning 7) | – | | vielsens `citation.citat_tekst`/`assertion.vaerdi_tekst` er bogtekst, der kan nævne P → se K5 |
+| S38b | `family` i `Fam_keep` + dens vielsesfakta, evidens, noter, narrativer | | bevar_andres (beslutning 7); indholdet kun når P er offentlig eller ikke partner/barn (ellers Fam_ind, review 37 P1+P2) | – | | vielsens `citation.citat_tekst`/`assertion.vaerdi_tekst` er bogtekst, der kan nævne P → se K5 |
+
+**Fam_ind (review 37 P1+P2, projektejeren 2026-11-20, løsning A).** Var P ikke-offentlig før sletningen
+(`private.person_purge_ikke_offentlig`), er `Fam_ind` = de bevarede familier, hvor P er `partner` eller `barn`
+(`private.person_purge_familieindhold`). `Fam_c = Fam_del ∪ Fam_ind` erstatter Fam_del i alle *indholds*mængder: F_fam
+(S13b) med evidens (S15-S17), R_fam (S14b), noter (S18), familienarrativer (S21-S24, S28), hændelser (S25/S26), stories
+(S30) og forslag (S34). Familierækken (S38), de øvrige medlemskaber (S3), `forbundet:`-pins (S32/S32c), `[[family:]]`-
+blokeringen (S29) og NY-A følger fortsat kun Fam_del, fordi familien bevares. Historiklukningen tager også tidligere
+(fx fortrudte) familierækker på Fam_c, kendt kun fra `change_event` (fakta med evidenskæde, noter, narrativer, stories,
+hændelser, relationer med familieende; Codex-fund). Manifestvagten godkender familienarrativers events for Fam_ind ud
+fra levende medlemskab; Fam_del kræver fortsat family-beviset i manifestet. Er P offentlig, er Fam_ind tom.
+Forhåndsvisningens `familieindhold_slettes` udledes pr. familie i `Fam_ind \ Fam_del` af planens slet-rækker i alle
+kategorier (fakta, noter, narrativer, hændelser, stories, relationer, forslag) plus antal slettede `change_event` om
+familiens indhold (medlemskaber tælles ikke). Ejerskabet er transitivt (runde 4, Codex-fund B): familie → fakta →
+relationer med familie- eller fakta-ende (også en bevaret medie-kobling) → noter, forslag og evidens; narrativ →
+hændelser; story → kilder. Kilderne er de levende rækker og de historik-events, der slettes (planens slettes-id'er), så
+der ikke scannes hele `change_event`. Den første udgave (runde 3) scannede `change_event` pr. familie og tog 47 s på en
+syntetisk stand-in i prod-størrelse (108.601 events); den nye tager ca. 0,7 s (samme niveau som runde 2). Planens
+hændelsesmængde (`hvp`, punkt C) slår historikkens events op på id (indeks), ikke ved at bygge jsonb pr. event: ellers
+2,2 s pr. planberegning på samme stand-in. Målt med `tests/sql/measure-person-purge.sql` (rullet tilbage): preview ca.
+0,65-0,71 s, sletning ca. 1,5-1,6 s for både ikke-offentlig og offentlig person.
+
+**Bevaret medie↔familie-kobling (projektejeren 2026-11-20).** En relation *direkte* mellem et medie og en familie i
+`Fam_ind \ Fam_del` (`R_kob`, CTE `rk`) er ikke familieindhold: den er taget ud af R_fam (S14b), og dens historik
+(change_event nøglet på den *levende* relations id, med evidens) består; mediet låses i stedet (NY-E, `skjul`), fordi
+redaktionen kun finder billeder via koblinger og skal kunne genfrigive det. En tidligere slettet medie↔familie-kobling
+(kun i `change_event`) fjernes stadig som familieindhold. Et medie, der kun var koblet til slettet Fam_ind-indhold (fx et
+vielsesfoto kun på vielses-faktummet), mister alle koblinger og slettes helt som i løsning A (S37 inkl. storage-udbakke).
+Plan, historiklukning, manifestvagt (promotion-ejerskab) og den uafhængige tæller bruger samme udtagning.
+Det, der hænger på en bevaret kobling (sikkerhedsfund 2026-11-20): evidenskæden (påstand, citat, konklusion) og
+promotions bevares med historik — relationen må ikke stå uden konklusion (invariant 1), og evidensen er kun synlig for
+læsere, når relationen er det (RLS kaskaderer; relationen er skjult, fordi mediet er låst). Eksisterende blokeringer
+(S20, S29 på påstands-/citattekst) gælder uændret for den bevarede evidens. Noter (S18) og forslag (S34) på koblingen er
+redaktionel fritekst og slettes som familieindhold, noterne med historik. S34 omfatter desuden forslag på fakta og
+relationer, der slettes (`fd`, `rd`), som før blev efterladt uden mål.
+Kontrollisten (runde 4, E, projektejeren 2026-11-20): det låste familiefoto (`NY-E`, grund `laast_familiefoto`) og den
+bevarede evidens på koblingen (påstand og citat, grund `bevaret_evidens`) står ALTID i `til_kontrol` — ikke kun ved navn
+eller token som Q8's billedtitler — så redaktøren ser dem før en genfrigivelse. Medier med egne rettighedsfakta, der kun
+var koblet til slettet familieindhold, slettes og låses ikke (kendt, noteret i #397).
 
 ### 1e. Private ledgers
 
@@ -247,7 +286,7 @@ Kolonnen **Indhold** udfyldes kun for bevar_andres: `id` = kun P's id/hash/uuid;
 | S54 | `public.change_event` | lukningen `E` (afsnit 2) | slet | 12 | **ingen trigger**; FK `change_set_id` l. 9312 | |
 | S57 | `change_event` i berørte sæt, uden for `E` | | bevar_andres | – | | id (andres rækker); undtagelse K2 (andres narrativ-/notetekst med `[[person:P|Navn]]`) |
 | S52/S53/S55 | `public.change_set` | regel i afsnit 2.3 | slet (mængden `D`) | 13 | self-FK `reverterer_id` l. 9205 (NO ACTION) | |
-| S52b | sæt med subjekt P, som stadig har andres events | | bevar_andres | – | | id (`subjekt_id=P`, summary med id'er — M1). Undtagelse: K3 |
+| S52b | sæt med subjekt P, som stadig har andres events | | bevar_andres | – | | id (`subjekt_id=P`, summary med id'er — M1). Undtagelse: K3. Runde 6: summary med feed-nøgle med P's id, `[[person:P|`-token eller P's navn → `til_kontrol` (`bevaret_summary`; også S57-sæt med events slettet nu). Runde 7: altid, uanset summary, for de fritekst-/nøglebærende skrivere (spec §6.3) og for fortryd-sæt af et sæt på listen |
 | S56 | indgående FK til sæt: `npe.change_set_id` l. 13887, `paastand_korrektion.change_set_id` l. 10095, `reimport_case_batch.change_set_id` l. 9265 | | P's npe/paastand_korrektion slettes før; `reimport_case_batch` bevares altid (→ sættet bevares) | 3b/6 | | |
 
 ### 1.1 Faseplan (sletteorden, lavest først)
@@ -327,8 +366,23 @@ A*  = A ∪ { ce.row_pk->>'id' | ce.tabel='assertion' AND p_ass(x) },
                      OR (x->>'target_type'='relation' AND x->>'target_id' ∈ R*)
 N*  = N ∪ { ce.row_pk->>'id' | ce.tabel='narrative' AND x->>'subjekt_type'='person' AND x->>'subjekt_id'=Pt }
 S*  = S ∪ { ce.row_pk->>'id' | ce.tabel='story' AND x->>'subjekt_type'='person' AND x->>'subjekt_id'=Pt }
-H*  = H (kun levende; skip_cols l. 9169 fjerner subjekt/narrativ, så historiske hændelser kan ikke kobles — de
-      bærer kun id+feed_status, intet indhold)
+H*  = H ∪ ({ ce.row_pk->>'id' | ce.tabel='haendelse' AND sættet er åbnet af red_set_haendelse_status for netop
+                 denne hændelse (summary »… på hændelse <id>«) AND sættets subjekt er ('person',P) eller ('family', ∈ Fam_c) }
+             ∪ { ce.row_pk->>'id' | ce.tabel='haendelse' AND ce.op='DELETE' AND sættet sletter narrativer, og hvert
+                 narrativ, det sletter, var P's/Fam_c's ifølge DELETE-eventets foer })
+          minus levende hændelser uden for H.
+      skip_cols (version_pk_registry) fjerner subjekt/narrativ, så snapshottet bærer kun id+feed_status; ejerskabet
+      kræver et entydigt bevis pr. hændelse (review 37, Codex-fund A 2026-11-20; skærpet i runde 4: et sæts subjekt
+      alene beviser intet, fordi begin_change_set genbruger et åbent sæt uden at skifte subjekt, så to feed-domme i samme
+      transaktion deler sæt). Blandede/tvetydige sæt giver intet bevis: andres hændelses-events står, og sættet bevares
+      som ethvert sæt med andres events (S52b/S57) — samme regel som for alle andre tabeller. Modstridende bevis
+      (runde 5): har en tidligere hændelse også en feed-dom under et andet subjekt end P/Fam_c, eller blev den
+      kaskadeslettet (DELETE; runde 6: et UPDATE-event i samme sæt beviser intet) i et sæt, der sletter et andet
+      subjekts narrativ, udelades id'et helt (events og pins står). Ingen skriver flytter i dag en
+      hændelse eller et narrativ til et andet subjekt, så reglen er fail-safe. H* bruges til
+      `haendelse`-events og til feed_pin-nøglerne `arkiv:`/`paadennedag:h:` i historikken. Planen bruger samme mængde
+      (H ∪ hændelser, hvis events står i den låste historik) til de levende feed_pins i S32/NY-B, så en pin på en
+      tidligere hændelse også slettes (runde 4, punkt C).
 M*  = M_del ∪ { medie-id i x for ce.tabel='relation' AND p_rel(x) AND x->>'objekt_type'='media'
                  AND mediet findes ikke længere AND ingen anden (historisk) relation fra en anden end P }
 PEI*= se afsnit 0
@@ -747,6 +801,7 @@ ikke er sikret.
 | nulstil | 2 | S5 (`profiles.reventlow_person_id`), S24 (`nlp.latest_event_id`, før sletning) |
 | loesn | 2 | S27 (`haendelse.fact_id/relation_id`), S31 (`story.*_id`, automatisk SET NULL) |
 | bevar_andres | 19 | S11c, S23b, S32c, S37b, S38b, S39c, S41b, S43b, S44a, S44b, S45b, S46, S48, S49c, S50, S58, NY-C, S57, S52b |
+| skjul | 1 | NY-E (`media.maa_publiceres=false`, kun for ikke-offentlig P; review 37 P1+P2) |
 | blokér | 6 | S20, NY-A, S29, S34b (ved token), S39b, S39f |
 | KONFLIKT | 3 | K1 (S44a), K2 (S57/S23b-tekst), K3 (S52b-medie). K4 er et hul i specens regel, som den rettede regel lukker; ikke en bevaret række |
 

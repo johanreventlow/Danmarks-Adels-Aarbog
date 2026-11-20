@@ -33,6 +33,35 @@ it('viser råt navn/id, antal, familier, blokeringer, advarsler og link til hver
   for (const link of links) expect(document.getElementById(link.getAttribute('href')!.slice(1))).toBeTruthy();
   expect(screen.getByRole('link', { name: 'Åbn stedet i Redaktion' }).getAttribute('href')).toBe('/redaktion/narrative/8');
 });
+it('viser bevarede familiers indhold, der slettes, vielser der står, og billeder, der skjules (review 37 P1+P2)', async () => {
+  setup(preview({ familieindhold_slettes: [{ family_id: 55, fakta: [71, 72], noter: [3], narrativer: [] }],
+    vielser_staar: [80], medier_skjules: [9, 12] }));
+  await screen.findByText(/Familie 55: 2 fakta, 1 noter, 0 narrativer/);
+  expect(screen.getByText(/indhold slettes, fordi profilen ikke er offentlig/)).toBeTruthy();
+  expect(screen.getByText(/Vielser der bliver stående: 80\./)).toBeTruthy();
+  expect(screen.getByText(/skjules for læserne \(en redaktør kan frigive dem igen\): 9, 12\./)).toBeTruthy();
+  expect(screen.getByText(/bevares med deres koblinger til andre end profilen \(også til en bevaret familie\)/)).toBeTruthy();
+});
+it('viser alle kategorier af familieindhold, også en familie med kun en historie eller relation (Codex-fund B)', async () => {
+  setup(preview({ familieindhold_slettes: [
+    { family_id: 56, fakta: [], noter: [], narrativer: [], haendelser: [], stories: [7], relationer: [], forslag: [], historik: 2 },
+    { family_id: 57, fakta: [], noter: [], narrativer: [], haendelser: [4], stories: [], relationer: [8, 9], forslag: [5], historik: 0 },
+  ], vielser_staar: [] }));
+  await screen.findByText(/Familie 56: 0 fakta, 0 noter, 0 narrativer, 0 hændelser, 1 historier, 0 relationer, 0 forslag, 2 historik-ændringer/);
+  expect(screen.getByText(/Familie 57: 0 fakta, 0 noter, 0 narrativer, 1 hændelser, 0 historier, 2 relationer, 1 forslag, 0 historik-ændringer/)).toBeTruthy();
+});
+it('viser låste familiefotos og bevaret evidens på kontrollisten med link til billedet (runde 4, E)', async () => {
+  setup(preview({ til_kontrol: [{ sted: 'NY-E', tabel: 'media', pk: { id: 31 }, grund: 'laast_familiefoto' },
+    { sted: 'NY-E', tabel: 'citation', pk: { id: 41 }, grund: 'bevaret_evidens' }] }));
+  await screen.findByText(/Låst familiefoto: tjek billedet, før det frigives igen/);
+  expect(screen.getByText(/Bevaret kilde\/påstand på et låst familiefoto/)).toBeTruthy();
+  expect(screen.getAllByRole('link', { name: 'Åbn stedet i Redaktion' }).map((a) => a.getAttribute('href')))
+    .toEqual(['/redaktion/media/31']);
+});
+it('et preview uden de nye nøgler (database før ændringen) vises uden vielse- og billedlinje', async () => {
+  setup(); await screen.findByText('Slet helt · Rå profil · id 1791');
+  expect(screen.queryByText(/indhold slettes/)).toBeNull(); expect(screen.queryByText(/Vielser der bliver stående/)).toBeNull(); expect(screen.queryByText(/skjules for læserne/)).toBeNull();
+});
 it.each(['', '179', ' 1791', '1791 ', '01791'])('kalder aldrig sletning ved forkert id: %j', async (id) => {
   const p = setup(); await typeId(id); expect(button().disabled).toBe(true);
   fireEvent.click(button()); expect(p.execute).not.toHaveBeenCalled();
