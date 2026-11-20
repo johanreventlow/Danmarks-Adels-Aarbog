@@ -13,7 +13,7 @@ import type { MediaFaktatype } from './media';
 // skriver dem fra extraction — se load_daa.R:298-299), men var utilgængelige i redaktions-UI
 // før denne udvidelse (dato-analyse fund #5, docs/plan-1939-produktionsklar.md Wave 3).
 export const FELT_FAKTATYPE: Record<string, string> = {
-  navn: 'navn', foedt: 'fødsel', doed: 'død', titel: 'titel',
+  navn: 'navn', foedenavn: 'fødenavn', foedt: 'fødsel', doed: 'død', titel: 'titel', // fødenavn: #401
   daab: 'dåb', begravelse: 'begravelse', floruit: 'floruit', naturalisering: 'naturalisering',
   overhoved: 'overhoved', // præsensliste-anker: 'II linje, 1. gren' (spec 2026-07-22 §4)
 };

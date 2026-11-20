@@ -37,7 +37,7 @@ export type PersonFactView = {
 // forældrefamilie vises som familie med kildelinje; forældre_ukendt har sin egen markering.
 export const FAKTA_UDELADT = ['forældrefamilie', 'forældre_ukendt'];
 
-const FAKTA_RAEKKEFOELGE = ['navn', 'tilnavn', 'fødsel', 'dåb', 'titel', 'dekoration', 'adling', 'floruit',
+const FAKTA_RAEKKEFOELGE = ['navn', 'tilnavn', 'fødenavn', 'fødsel', 'dåb', 'titel', 'dekoration', 'adling', 'floruit',
   'klosterindgang', 'overhoved', 'død', 'dødsårsag', 'begravelse'];
 
 // Intern genbrug i editionFacts.ts; bevidst ikke eksporteret fra index.ts.
