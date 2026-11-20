@@ -69,6 +69,8 @@ export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurg
         </li>)}</ul>
         <h3>Familier</h3>
         <p>Slettes: {preview.familier_slettes.join(', ') || 'ingen'}. Bevares: {preview.familier_bevares.join(', ') || 'ingen'}.</p>
+        {preview.vielser_slettes !== undefined && <p>Vielser der slettes: {preview.vielser_slettes.join(', ') || 'ingen'}. Vielser der bliver stående: {(preview.vielser_staar ?? []).join(', ') || 'ingen'}.</p>}
+        {(preview.medier_skjules?.length ?? 0) > 0 && <p>Billeder der bevares, men skjules for læserne (en redaktør kan frigive dem igen): {preview.medier_skjules!.join(', ')}.</p>}
         <h3>Blokeringer</h3>
         {preview.blokeringer.length ? <ul>{preview.blokeringer.map((b, i) => <li key={i}>{purgeLabels[b.art] ?? b.art}<details><summary>Detaljer</summary><code>{JSON.stringify(b)}</code></details></li>)}</ul> : <p>Ingen blokeringer.</p>}
         <h3>Advarsler</h3>

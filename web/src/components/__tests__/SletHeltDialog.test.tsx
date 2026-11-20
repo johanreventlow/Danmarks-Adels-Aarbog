@@ -33,6 +33,15 @@ it('viser råt navn/id, antal, familier, blokeringer, advarsler og link til hver
   for (const link of links) expect(document.getElementById(link.getAttribute('href')!.slice(1))).toBeTruthy();
   expect(screen.getByRole('link', { name: 'Åbn stedet i Redaktion' }).getAttribute('href')).toBe('/redaktion/narrative/8');
 });
+it('viser vielser, der slettes eller står, og billeder, der skjules (review 37 P1+P2)', async () => {
+  setup(preview({ vielser_slettes: [71, 72], vielser_staar: [], medier_skjules: [9, 12] }));
+  await screen.findByText(/Vielser der slettes: 71, 72\. Vielser der bliver stående: ingen\./);
+  expect(screen.getByText(/skjules for læserne \(en redaktør kan frigive dem igen\): 9, 12\./)).toBeTruthy();
+});
+it('et preview uden de nye nøgler (database før ændringen) vises uden vielse- og billedlinje', async () => {
+  setup(); await screen.findByText('Slet helt · Rå profil · id 1791');
+  expect(screen.queryByText(/Vielser der slettes/)).toBeNull(); expect(screen.queryByText(/skjules for læserne/)).toBeNull();
+});
 it.each(['', '179', ' 1791', '1791 ', '01791'])('kalder aldrig sletning ved forkert id: %j', async (id) => {
   const p = setup(); await typeId(id); expect(button().disabled).toBe(true);
   fireEvent.click(button()); expect(p.execute).not.toHaveBeenCalled();
