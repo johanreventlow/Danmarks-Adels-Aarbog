@@ -85,8 +85,10 @@ get_place <- function(navn) {
   if (exists(k, envir=.cache, inherits=FALSE)) return(get(k, envir=.cache))
   id <- nid("place"); ex("INSERT INTO place (id, navn) VALUES ($1,$2)", list(id, navn))
   assign(k, id, envir=.cache); id }
+.nye_personer <- integer()  # alle personer, denne kørsel opretter (også partner-stubs)
 add_person <- function(koen = NA) { pid <- nid("person")
-  ex("INSERT INTO person (id, levende, koen) VALUES ($1, TRUE, $2)", list(pid, koen)); pid }
+  ex("INSERT INTO person (id, levende, koen) VALUES ($1, TRUE, $2)", list(pid, koen))
+  .nye_personer <<- c(.nye_personer, pid); pid }
 add_fact <- function(sid_, ft, sted_id=NA, st="person") { fid <- nid("fact")
   ex("INSERT INTO fact (id, subjekt_type, subjekt_id, faktatype, sted_id) VALUES ($1,$2,$3,$4,$5)",
      list(fid, st, sid_, ft, sted_id)); fid }
@@ -196,15 +198,19 @@ tryCatch({
     }
   }
 
-  # alle fire visning_*-felter fra konklusioner (kun for denne kildes personer = NULL-cache)
-  vexpr <- function(ft, kol) sprintf(
-    "(SELECT a.%s FROM conclusion c JOIN assertion a ON a.id=c.valgt_assertion_id
-        JOIN fact f ON f.id=c.target_id AND c.target_type='fact'
-        WHERE f.subjekt_type='person' AND f.subjekt_id=p.id AND f.faktatype='%s' LIMIT 1)", kol, ft)
-  ex(sprintf("UPDATE person p SET visning_navn=%s, visning_foedt=%s, visning_doed=%s, visning_titel=%s
-              WHERE p.visning_navn IS NULL",
-             vexpr("navn","vaerdi_tekst"), vexpr("fødsel","date_raw"),
-             vexpr("død","date_raw"), vexpr("titel","vaerdi_tekst")))
+  # Invariant 4 (review 37, E5): person.visning_* er en envejsprojektion, som databasens triggere
+  # (trg_conclusion_regen, trg_external_id_regen -> regen_person_visning) allerede har skrevet for hver
+  # ny konklusion. Loaderen skriver aldrig selv i cachen; den gamle UPDATE ramte også ældre personer
+  # med tom cache og brugte en anden afledning. Her tjekkes kun, at triggerne faktisk har kørt.
+  if (length(.nye_personer)) {
+    mangler <- dbGetQuery(con, paste(
+      "SELECT count(*)::int AS n FROM person p WHERE p.id = ANY($1::bigint[]) AND p.visning_navn IS NULL",
+      "AND EXISTS (SELECT 1 FROM fact f JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id",
+      "AND c.status='afklaret' WHERE f.subjekt_type='person' AND f.subjekt_id=p.id AND f.faktatype='navn')"),
+      params = list(paste0("{", paste(.nye_personer, collapse = ","), "}")))$n[[1]]
+    if (mangler != 0L)
+      stop(sprintf("%d nye personer med navn har tom visning_navn: cache-triggerne har ikke kørt (schema-drift?)", mangler))
+  }
   # Fail-closed sekvens-sync før commit (IDENTITY-kontrakt): tabeller uden
   # identity-sekvens (base før migrationen) er eneste lovlige undtagelse.
   for (t in id_tables) {

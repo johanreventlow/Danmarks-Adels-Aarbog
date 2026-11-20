@@ -38,3 +38,14 @@ test_that("load_presens.R har ingen TRUNCATE og bruger parseren", {
   expect_false(any(grepl("TRUNCATE|model_tables|RESET", code)))
   expect_true(any(grepl("parse_load_presens_args(commandArgs(trailingOnly = TRUE))", code, fixed = TRUE)))
 })
+
+test_that("load_presens.R skriver aldrig selv i person.visning_* (review 37, E5; invariant 4)", {
+  root <- normalizePath(file.path(getwd(), "..", ".."))
+  src <- readLines(file.path(root, ".claude/skills/daa-presens/scripts/load_presens.R"), warn = FALSE)
+  code <- src[!grepl("^\\s*#", src)]
+  expect_false(any(grepl("UPDATE\\s+person", code, ignore.case = TRUE)))
+  expect_false(any(grepl("visning_[a-z_]+\\s*=", code)))
+  # men tjekker, at triggerne har fyldt cachen for de nye personer
+  expect_true(any(grepl("p.visning_navn IS NULL", code, fixed = TRUE)))
+  expect_true(any(grepl(".nye_personer <<- c(.nye_personer, pid)", code, fixed = TRUE)))
+})
