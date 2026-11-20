@@ -228,23 +228,28 @@ feed_keys AS MATERIALIZED (
   UNION SELECT 'arkiv:' || id FROM p_haendelse
   UNION SELECT 'paadennedag:h:' || id FROM p_haendelse
   UNION SELECT 'forbundet:' || id FROM fam_del),
--- Tidligere hændelser (Codex-fund A): haendelse-snapshots har kun id+feed_status (version_pk_registry), så ejerskabet
--- kommer fra sættet: en feed-dom står under hændelsens subjekt (P / Fam_c-familie); en kaskadesletning står i samme sæt
--- som sletningen af narrativet, når sættet kun sletter P's/Fam_c's narrativer. Levende hændelser, der bevares, udelades.
+-- Tidligere hændelser (Codex-fund A): haendelse-snapshots har kun id+feed_status (version_pk_registry). Ejerskab kræver
+-- et entydigt bevis pr. hændelse (sættets subjekt alene beviser intet: et åbent sæt genbruges): (1) sættet er åbnet af
+-- red_set_haendelse_status for netop denne hændelse (summary), med P / en Fam_c-familie som subjekt; (2) en
+-- kaskadesletning i et sæt, hvor hvert slettet narrativ var P's/Fam_c's ifølge DELETE-eventets foer. Levende hændelser,
+-- der bevares, udelades.
 hist_haendelse AS MATERIALIZED (
   SELECT x.idt FROM (
     SELECT ce.row_pk->>'id' AS idt FROM public.change_event ce
       JOIN public.change_set cs ON cs.id=ce.change_set_id, params p
-     WHERE ce.tabel='haendelse'
+     WHERE ce.tabel='haendelse' AND cs.operation='red_set_haendelse_status'
+       AND right(cs.summary, length(' på hændelse ' || (ce.row_pk->>'id'))) = ' på hændelse ' || (ce.row_pk->>'id')
        AND ((cs.subjekt_type='person' AND cs.subjekt_id=p.pid)
          OR (cs.subjekt_type='family' AND cs.subjekt_id IN (SELECT id FROM fam_c)))
     UNION
-    SELECT ce.row_pk->>'id' FROM public.change_event ce
+    SELECT ce.row_pk->>'id' FROM public.change_event ce, params p
      WHERE ce.tabel='haendelse' AND ce.op='DELETE'
        AND EXISTS (SELECT 1 FROM public.change_event nd WHERE nd.change_set_id=ce.change_set_id
-                    AND nd.tabel='narrative' AND nd.op='DELETE' AND nd.row_pk->>'id' IN (SELECT idt FROM hist_narr))
+                    AND nd.tabel='narrative' AND nd.op='DELETE')
        AND NOT EXISTS (SELECT 1 FROM public.change_event nd WHERE nd.change_set_id=ce.change_set_id
-                    AND nd.tabel='narrative' AND nd.op='DELETE' AND nd.row_pk->>'id' NOT IN (SELECT idt FROM hist_narr))) x
+                    AND nd.tabel='narrative' AND nd.op='DELETE'
+                    AND NOT coalesce((nd.foer->>'subjekt_type'='person' AND nd.foer->>'subjekt_id'=p.pidt)
+                          OR (nd.foer->>'subjekt_type'='family' AND nd.foer->>'subjekt_id' IN (SELECT id::text FROM fam_c)),false))) x
    WHERE NOT EXISTS (SELECT 1 FROM public.haendelse h WHERE h.id::text=x.idt AND h.id NOT IN (SELECT id FROM p_haendelse))
   UNION SELECT id::text FROM p_haendelse),
 hist_feed_keys AS MATERIALIZED (

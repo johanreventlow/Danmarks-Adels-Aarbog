@@ -3806,6 +3806,23 @@ BEGIN
       INSERT INTO pg_temp.gdpr_id VALUES ('h_slet_saet_'||f.k,purge_test.saet());
     END IF;
   END LOOP;
+  -- Codex runde 4 (fund A): to feed-domme i SAMME transaktion, først på L's hændelse, så på D's. begin_change_set genbruger
+  -- det åbne sæt, så sættet har L som subjekt, men rummer også D's event. D's narrativ fortrydes bagefter, så D's
+  -- hændelse kun findes i historikken. Sletningen af L må ikke tage D's historik med.
+  FOR f IN SELECT * FROM (VALUES ('l','L','2'),('d','D','3')) x(k,ejer,side) LOOP
+    PERFORM purge_test.nyt();
+    v_fam:=public.red_upsert_narrativ('person',pg_temp.gid(f.ejer),'Syntetisk narrativ med hændelse',false,purge_test.id('kilde_b'),f.side);
+    INSERT INTO pg_temp.gdpr_id VALUES ('mix_narr_saet_'||f.k,purge_test.saet());
+    PERFORM purge_test.nyt();
+    INSERT INTO public.haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul,kategori,date_raw)
+      VALUES ('person',pg_temp.gid(f.ejer),v_fam,'gdpr-mix-'||f.k,'Syntetisk hændelse 1991','andet','1991') RETURNING id INTO v_m;
+    INSERT INTO pg_temp.gdpr_id VALUES ('mix_h_'||f.k,v_m);
+  END LOOP;
+  PERFORM purge_test.nyt();
+  PERFORM public.red_set_haendelse_status(pg_temp.gid('mix_h_l'),'interessant');
+  PERFORM public.red_set_haendelse_status(pg_temp.gid('mix_h_d'),'skjult');
+  INSERT INTO pg_temp.gdpr_id VALUES ('mix_saet',purge_test.saet());
+  PERFORM purge_test.nyt(); PERFORM public.red_fortryd_change_set(pg_temp.gid('mix_narr_saet_d'),false);
   PERFORM purge_test.nyt();
 END $fix$;
 COMMIT;
@@ -3850,6 +3867,15 @@ BEGIN
       AND NOT EXISTS (SELECT 1 FROM public.change_event WHERE tabel='haendelse' AND row_pk->>'id'=pg_temp.gid('h_'||k)::text
         AND (foer ? 'subjekt_id' OR efter ? 'subjekt_id' OR foer ? 'narrative_id' OR efter ? 'narrative_id')))
     FROM unnest(ARRAY['fam','pers']) k),'gdpr_fixture_tidligere_haendelse');
+END $t$;
+-- Codex runde 4: det blandede sæt har L som subjekt og begge hændelsers events; D's hændelse er væk.
+DO $t$
+BEGIN
+  PERFORM pg_temp.gdpr_assert(EXISTS (SELECT 1 FROM public.change_set WHERE id=pg_temp.gid('mix_saet') AND subjekt_type='person'
+      AND subjekt_id=pg_temp.gid('L') AND operation='red_set_haendelse_status')
+    AND (SELECT count(*) FROM public.change_event WHERE change_set_id=pg_temp.gid('mix_saet') AND tabel='haendelse')=2
+    AND NOT EXISTS (SELECT 1 FROM public.haendelse WHERE id=pg_temp.gid('mix_h_d'))
+    AND EXISTS (SELECT 1 FROM public.haendelse WHERE id=pg_temp.gid('mix_h_l')),'gdpr_fixture_blandet_saet');
 END $t$;
 \echo OK gdpr_fixture
 
@@ -4070,6 +4096,16 @@ BEGIN
       AND row_pk->>'id' IN (pg_temp.gid('h_fam')::text,pg_temp.gid('h_pers')::text)),'gdpr_tidligere_haendelse_historik_slettet');
 END $t$;
 \echo OK gdpr_tidligere_haendelse_historik_slettet
+-- Codex runde 4: i det blandede sæt slettes kun L's hændelses event; D's (andres) event og dermed sættet består.
+DO $t$
+BEGIN
+  PERFORM pg_temp.gdpr_assert(EXISTS (SELECT 1 FROM public.change_set WHERE id=pg_temp.gid('mix_saet'))
+    AND EXISTS (SELECT 1 FROM public.change_event WHERE change_set_id=pg_temp.gid('mix_saet') AND tabel='haendelse'
+      AND row_pk->>'id'=pg_temp.gid('mix_h_d')::text)
+    AND NOT EXISTS (SELECT 1 FROM public.change_event WHERE tabel='haendelse' AND row_pk->>'id'=pg_temp.gid('mix_h_l')::text)
+    AND NOT EXISTS (SELECT 1 FROM public.haendelse WHERE id=pg_temp.gid('mix_h_l')),'gdpr_blandet_saet_andres_historik_staar');
+END $t$;
+\echo OK gdpr_blandet_saet_andres_historik_staar
 
 -- Sletning af den afdøde, offentlige O: uændret adfærd.
 BEGIN;

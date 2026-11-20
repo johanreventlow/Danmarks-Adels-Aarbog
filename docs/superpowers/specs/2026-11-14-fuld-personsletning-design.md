@@ -183,8 +183,9 @@ hvor rækken handler om personen:
   var koblet til slettet familieindhold (fx et vielsesfoto på vielsen), slettes helt inkl. filen. På en bevaret
   kobling står evidenskæden (påstand, citat, konklusion), mens noter og forslag på den slettes med historik.
   Tidligere (slettede/fortrudte) hændelser på personen eller en sådan familie fjernes også fra historikken: deres
-  snapshot har kun id+feed_status, så ejerskabet afledes af change_set'ets subjekt (feed-dommen) eller af det sæt, der
-  slettede narrativet (kaskadesletningen).
+  snapshot har kun id+feed_status, så ejerskabet kræver et entydigt bevis pr. hændelse: et sæt, som feed-dommen åbnede
+  for netop den hændelse (med personen/familien som subjekt), eller et sæt, hvor hvert slettet narrativ var personens
+  eller familiens (kaskadesletningen). Et blandet sæt beviser intet; andres hændelses-events og sættet bevares.
 - **`samme_som` (projektejeren 2026-11-14):** har personen to eller flere identitetsnaboer (andre personer, der kun er
   forbundet gennem den), er det en **blokering** (6.6); en redaktør kobler dem direkte først. Med én nabo slettes kanten,
   og naboen er uændret. Forhåndsvisningen viser komponenten.

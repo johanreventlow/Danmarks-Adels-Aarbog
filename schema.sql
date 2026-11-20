@@ -22670,24 +22670,28 @@ WITH RECURSIVE
     WHERE e.tabel='story' AND ((j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
       OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc)))),
   -- Review 37 (Codex-fund A): version_pk_registry gemmer kun id+feed_status for haendelse, så ejerskabet af en tidligere
-  -- (slettet/fortrudt) hændelse kan ikke læses af dens snapshot. Det afledes af change_set'et: en feed-dom
-  -- (red_set_haendelse_status) logges under hændelsens subjekt (P eller en familie i Fam_c), og en kaskadesletning
-  -- logges i samme sæt som sletningen af narrativet. Sidstnævnte kun når ALLE narrativer, sættet sletter, er P's/Fam_c's
-  -- (nv). En levende hændelse, der ikke slettes, rører vi aldrig. Gælder også P's egne person-hændelser.
-  nv AS MATERIALIZED (SELECT id::text AS id FROM n UNION SELECT e.row_pk->>'id' FROM public.change_event e
-    CROSS JOIN LATERAL (VALUES(e.foer),(e.efter)) v(j)
-    WHERE e.tabel='narrative' AND ((j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
-      OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc)))),
+  -- (slettet/fortrudt) hændelse kan ikke læses af dens snapshot. Det kræver et ENTYDIGT bevis pr. hændelse; et sæts
+  -- subjekt alene beviser intet, fordi begin_change_set genbruger et åbent sæt uden at skifte subjekt (Codex runde 4).
+  --   Bevis 1 (feed-dom): sættet blev åbnet af red_set_haendelse_status for netop denne hændelse (summary slutter med
+  --     »på hændelse <id>«), og sættets subjekt, som den skriver tager fra hændelsen, er P eller en familie i Fam_c.
+  --   Bevis 2 (kaskadesletning): sættet sletter narrativer, og HVERT narrativ, det sletter, var P's/Fam_c's på
+  --     sletningstidspunktet (DELETE-eventets foer); ingen skriver sletter hændelser direkte under et sæt.
+  -- Blandede eller tvetydige sæt giver intet bevis: andres hændelses-events (kun id+feed_status) står, og sættet bevares
+  -- som ethvert sæt med andres events (S52b/S57). En levende hændelse, der ikke slettes, røres aldrig. Gælder også P's
+  -- egne person-hændelser.
   hv AS MATERIALIZED (SELECT id::text AS id FROM h UNION (
     (SELECT ce.row_pk->>'id' FROM public.change_event ce JOIN public.change_set cs ON cs.id=ce.change_set_id
-      WHERE ce.tabel='haendelse' AND ((cs.subjekt_type='person' AND cs.subjekt_id=p_person_id)
-        OR (cs.subjekt_type='family' AND cs.subjekt_id IN (SELECT id FROM famc)))
+      WHERE ce.tabel='haendelse' AND cs.operation='red_set_haendelse_status'
+        AND cs.summary LIKE '% på hændelse '||(ce.row_pk->>'id')
+        AND ((cs.subjekt_type='person' AND cs.subjekt_id=p_person_id)
+          OR (cs.subjekt_type='family' AND cs.subjekt_id IN (SELECT id FROM famc)))
     UNION SELECT ce.row_pk->>'id' FROM public.change_event ce
       WHERE ce.tabel='haendelse' AND ce.op='DELETE'
         AND EXISTS (SELECT 1 FROM public.change_event x WHERE x.change_set_id=ce.change_set_id AND x.tabel='narrative'
-          AND x.op='DELETE' AND x.row_pk->>'id' IN (SELECT id FROM nv))
+          AND x.op='DELETE')
         AND NOT EXISTS (SELECT 1 FROM public.change_event x WHERE x.change_set_id=ce.change_set_id AND x.tabel='narrative'
-          AND x.op='DELETE' AND x.row_pk->>'id' NOT IN (SELECT id FROM nv)))
+          AND x.op='DELETE' AND NOT coalesce((x.foer->>'subjekt_type'='person' AND x.foer->>'subjekt_id'=p_person_id::text)
+            OR (x.foer->>'subjekt_type'='family' AND x.foer->>'subjekt_id' IN (SELECT id::text FROM famc)),false)))
     EXCEPT SELECT id::text FROM public.haendelse WHERE id NOT IN (SELECT id FROM h))),
   rel_images AS MATERIALIZED (
     SELECT e.row_pk->>'id' AS id,j FROM public.change_event e

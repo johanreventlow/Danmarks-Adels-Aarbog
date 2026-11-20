@@ -355,15 +355,17 @@ A*  = A ∪ { ce.row_pk->>'id' | ce.tabel='assertion' AND p_ass(x) },
                      OR (x->>'target_type'='relation' AND x->>'target_id' ∈ R*)
 N*  = N ∪ { ce.row_pk->>'id' | ce.tabel='narrative' AND x->>'subjekt_type'='person' AND x->>'subjekt_id'=Pt }
 S*  = S ∪ { ce.row_pk->>'id' | ce.tabel='story' AND x->>'subjekt_type'='person' AND x->>'subjekt_id'=Pt }
-H*  = H ∪ ({ ce.row_pk->>'id' | ce.tabel='haendelse' AND sættets subjekt er ('person',P) eller ('family', ∈ Fam_c) }
-             ∪ { ce.row_pk->>'id' | ce.tabel='haendelse' AND ce.op='DELETE' AND sættet sletter et narrativ i N*
-                 og intet narrativ uden for N* })
+H*  = H ∪ ({ ce.row_pk->>'id' | ce.tabel='haendelse' AND sættet er åbnet af red_set_haendelse_status for netop
+                 denne hændelse (summary »… på hændelse <id>«) AND sættets subjekt er ('person',P) eller ('family', ∈ Fam_c) }
+             ∪ { ce.row_pk->>'id' | ce.tabel='haendelse' AND ce.op='DELETE' AND sættet sletter narrativer, og hvert
+                 narrativ, det sletter, var P's/Fam_c's ifølge DELETE-eventets foer })
           minus levende hændelser uden for H.
       skip_cols (version_pk_registry) fjerner subjekt/narrativ, så snapshottet bærer kun id+feed_status; ejerskabet
-      afledes af sættet: red_set_haendelse_status logger under hændelsens subjekt, og en kaskadesletning står i samme
-      sæt som narrativets DELETE (review 37, Codex-fund A, 2026-11-20; tidligere var H* kun levende, og grenen
-      `WHEN 'haendelse'` på snapshottets subjekt ramte aldrig). N* tæller her også familienarrativer på Fam_c. H* bruges
-      til `haendelse`-events og til feed_pin-nøglerne `arkiv:`/`paadennedag:h:` i historikken.
+      kræver et entydigt bevis pr. hændelse (review 37, Codex-fund A 2026-11-20; skærpet i runde 4: et sæts subjekt
+      alene beviser intet, fordi begin_change_set genbruger et åbent sæt uden at skifte subjekt, så to feed-domme i samme
+      transaktion deler sæt). Blandede/tvetydige sæt giver intet bevis: andres hændelses-events står, og sættet bevares
+      som ethvert sæt med andres events (S52b/S57) — samme regel som for alle andre tabeller. H* bruges til
+      `haendelse`-events og til feed_pin-nøglerne `arkiv:`/`paadennedag:h:` i historikken.
 M*  = M_del ∪ { medie-id i x for ce.tabel='relation' AND p_rel(x) AND x->>'objekt_type'='media'
                  AND mediet findes ikke længere AND ingen anden (historisk) relation fra en anden end P }
 PEI*= se afsnit 0
