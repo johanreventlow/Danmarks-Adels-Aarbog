@@ -8,8 +8,9 @@ export type PurgePreview = {
   steder: Record<string, PurgeSted[]>;
   familier_slettes: (number | string)[]; familier_bevares: (number | string)[];
   // Review 37 P1+P2. Valgfri: et preview fra en database uden ændringen har dem ikke (web deployes før prod-DDL).
-  vielser_staar?: (number | string)[]; vielser_slettes?: (number | string)[];
-  medier_skjules?: (number | string)[];
+  vielser_staar?: (number | string)[]; medier_skjules?: (number | string)[];
+  familieindhold_slettes?: { family_id: number | string; fakta: (number | string)[]; noter: (number | string)[];
+    narrativer: (number | string)[] }[];
   blokeringer: { art: string; [key: string]: unknown }[];
   advarsler: { art: string; [key: string]: unknown }[];
   til_kontrol: { sted: string; tabel: string; pk: Record<string, unknown>; grund: string }[];

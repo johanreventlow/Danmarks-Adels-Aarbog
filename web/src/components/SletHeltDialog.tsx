@@ -69,7 +69,12 @@ export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurg
         </li>)}</ul>
         <h3>Familier</h3>
         <p>Slettes: {preview.familier_slettes.join(', ') || 'ingen'}. Bevares: {preview.familier_bevares.join(', ') || 'ingen'}.</p>
-        {preview.vielser_slettes !== undefined && <p>Vielser der slettes: {preview.vielser_slettes.join(', ') || 'ingen'}. Vielser der bliver stående: {(preview.vielser_staar ?? []).join(', ') || 'ingen'}.</p>}
+        {preview.familieindhold_slettes !== undefined && <>
+          <p>Bevarede familier, hvis indhold slettes, fordi profilen ikke er offentlig: {preview.familieindhold_slettes.length ? '' : 'ingen.'}</p>
+          {preview.familieindhold_slettes.length > 0 && <ul>{preview.familieindhold_slettes.map((f) => <li key={String(f.family_id)}>
+            Familie {f.family_id}: {f.fakta.length} fakta, {f.noter.length} noter, {f.narrativer.length} narrativer</li>)}</ul>}
+          <p>Vielser der bliver stående: {(preview.vielser_staar ?? []).join(', ') || 'ingen'}.</p>
+        </>}
         {(preview.medier_skjules?.length ?? 0) > 0 && <p>Billeder der bevares, men skjules for læserne (en redaktør kan frigive dem igen): {preview.medier_skjules!.join(', ')}.</p>}
         <h3>Blokeringer</h3>
         {preview.blokeringer.length ? <ul>{preview.blokeringer.map((b, i) => <li key={i}>{purgeLabels[b.art] ?? b.art}<details><summary>Detaljer</summary><code>{JSON.stringify(b)}</code></details></li>)}</ul> : <p>Ingen blokeringer.</p>}
