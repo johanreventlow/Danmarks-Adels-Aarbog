@@ -22876,7 +22876,8 @@ WITH RECURSIVE
   -- som ethvert sæt med andres events (S52b/S57). En levende hændelse, der ikke slettes, røres aldrig. Gælder også P's
   -- egne person-hændelser.
   -- Modstridende bevis (Codex runde 5): har en tidligere hændelse OGSÅ en feed-dom under et andet subjekt end P/Fam_c,
-  -- eller events i et sæt, der sletter et andet subjekts narrativ, er ejerskabet tvetydigt, og id'et udelades helt
+  -- eller blev den kaskadeslettet (DELETE; runde 6: kun sletningen beviser tilhør til narrativet) i et sæt, der sletter
+  -- et andet subjekts narrativ, er ejerskabet tvetydigt, og id'et udelades helt
   -- (events og pins står). Ingen skriver flytter i dag en hændelse eller et narrativ til et andet subjekt; reglen er
   -- fail-safe. Levende hændelser i H er P's nu og slettes med al deres historik som hidtil.
   hkonflikt AS MATERIALIZED (
@@ -22884,7 +22885,7 @@ WITH RECURSIVE
       WHERE cs.operation='red_set_haendelse_status' AND NOT coalesce((cs.subjekt_type='person' AND cs.subjekt_id=p_person_id)
         OR (cs.subjekt_type='family' AND cs.subjekt_id IN (SELECT id FROM famc)),false)
     UNION SELECT ce.row_pk->>'id' FROM public.change_event ce
-      WHERE ce.tabel='haendelse' AND EXISTS (SELECT 1 FROM public.change_event x WHERE x.change_set_id=ce.change_set_id
+      WHERE ce.tabel='haendelse' AND ce.op='DELETE' AND EXISTS (SELECT 1 FROM public.change_event x WHERE x.change_set_id=ce.change_set_id
         AND x.tabel='narrative' AND x.op='DELETE' AND NOT coalesce((x.foer->>'subjekt_type'='person' AND x.foer->>'subjekt_id'=p_person_id::text)
           OR (x.foer->>'subjekt_type'='family' AND x.foer->>'subjekt_id' IN (SELECT id::text FROM famc)),false))),
   hv AS MATERIALIZED (SELECT id::text AS id FROM h UNION (
@@ -23844,6 +23845,16 @@ WITH plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_plan) q(tabel text
   -- Projektejeren 2026-11-20 (runde 4, E): bevarede medie↔familie-koblinger (rk) på Fam_ind-familier. Det låste billede
   -- og den bevarede evidens på koblingen kommer ALTID på listen (ikke kun ved navn/token, jf. Q8), så redaktøren ser dem
   -- før en genfrigivelse; evidensens tekst kan nævne personen uden token.
+  -- Runde 6 (Codex): bevarede change_sets, som sletningen rører (subjekt P eller en Fam_c-familie, eller med events, der
+  -- slettes nu), og hvis summary bærer P's indhold: en feed-nøgle med P's id (fx red_set_feed_pin 'embede:P:<titel>:<år>'),
+  -- et [[person:P|…]]-token eller P's navn. De kommer på kontrollisten (Q8-mønstret); summary rettes ikke.
+  famc AS MATERIALIZED (SELECT (pk->>'id')::bigint AS id FROM plan WHERE tabel='family' AND handling='slet'
+    UNION SELECT id FROM private.person_purge_familieindhold(p_person_id)),
+  cs_roert AS MATERIALIZED (
+    SELECT id FROM public.change_set WHERE (subjekt_type='person' AND subjekt_id=p_person_id)
+      OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc))
+    UNION SELECT change_set_id FROM public.change_event
+      WHERE id IN (SELECT (pk->>'id')::bigint FROM plan WHERE tabel='change_event' AND handling='slet')),
   rk AS MATERIALIZED (SELECT r.id,CASE WHEN r.subjekt_type='media' THEN r.subjekt_id ELSE r.objekt_id END AS media_id
     FROM public.relation r WHERE
       (r.subjekt_type='media' AND r.objekt_type='family' AND r.objekt_id IN (SELECT id FROM private.person_purge_familieindhold(p_person_id))
@@ -23943,6 +23954,16 @@ SELECT 'NY-E'::text,'assertion'::text,jsonb_build_object('id',a.id),'bevaret_evi
 UNION
 SELECT 'NY-E'::text,'citation'::text,jsonb_build_object('id',c.id),'bevaret_evidens'::text FROM public.citation c
   WHERE c.assertion_id IN (SELECT a.id FROM public.assertion a WHERE a.target_type='relation' AND a.target_id IN (SELECT id FROM rk))
+UNION
+SELECT CASE WHEN cs.subjekt_type='person' AND cs.subjekt_id=p_person_id THEN 'S52b' ELSE 'S57' END::text,'change_set'::text,
+    jsonb_build_object('id',cs.id),'bevaret_summary'::text
+  FROM public.change_set cs CROSS JOIN navn
+  WHERE cs.id IN (SELECT id FROM cs_roert)
+    AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel='change_set' AND d.pk=jsonb_build_object('id',cs.id) AND d.handling='slet')
+    AND ((cs.summary COLLATE "C") ~ ('(portrait|citat|naevnt|dagensperson|jubilaeum|embede|slaegt|paadennedag):([0-9]+:)?'
+          ||p_person_id::text||'([^0-9]|$)')
+      OR position((('[[person:'||p_person_id::text||'|') COLLATE "C") IN (cs.summary COLLATE "C"))>0
+      OR (navn.navn IS NOT NULL AND position((navn.navn COLLATE "C") IN (cs.summary COLLATE "C"))>0))
 $purge_control$;
 REVOKE ALL ON FUNCTION private.person_purge_kontrol(bigint,jsonb) FROM PUBLIC,anon,authenticated,service_role;
 

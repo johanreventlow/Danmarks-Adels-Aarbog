@@ -251,15 +251,15 @@ hist_haendelse AS MATERIALIZED (
                     AND NOT coalesce((nd.foer->>'subjekt_type'='person' AND nd.foer->>'subjekt_id'=p.pidt)
                           OR (nd.foer->>'subjekt_type'='family' AND nd.foer->>'subjekt_id' IN (SELECT id::text FROM fam_c)),false))) x
    WHERE NOT EXISTS (SELECT 1 FROM public.haendelse h WHERE h.id::text=x.idt AND h.id NOT IN (SELECT id FROM p_haendelse))
-     -- Modstridende bevis (Codex runde 5): en feed-dom på samme hændelse under et andet subjekt, eller events i et sæt,
-     -- der sletter et andet subjekts narrativ, gør ejerskabet tvetydigt; så står id'et.
+     -- Modstridende bevis (Codex runde 5/6): en feed-dom på samme hændelse under et andet subjekt, eller hændelsens
+     -- kaskadesletning (DELETE) i et sæt, der sletter et andet subjekts narrativ, gør ejerskabet tvetydigt; så står id'et.
      AND NOT EXISTS (SELECT 1 FROM public.change_set cs, params p
            WHERE cs.operation='red_set_haendelse_status'
              AND right(cs.summary, length(' på hændelse ' || x.idt)) = ' på hændelse ' || x.idt
              AND NOT coalesce((cs.subjekt_type='person' AND cs.subjekt_id=p.pid)
                    OR (cs.subjekt_type='family' AND cs.subjekt_id IN (SELECT id FROM fam_c)),false))
      AND NOT EXISTS (SELECT 1 FROM public.change_event ce JOIN public.change_event nd ON nd.change_set_id=ce.change_set_id, params p
-           WHERE ce.tabel='haendelse' AND ce.row_pk->>'id'=x.idt AND nd.tabel='narrative' AND nd.op='DELETE'
+           WHERE ce.tabel='haendelse' AND ce.op='DELETE' AND ce.row_pk->>'id'=x.idt AND nd.tabel='narrative' AND nd.op='DELETE'
              AND NOT coalesce((nd.foer->>'subjekt_type'='person' AND nd.foer->>'subjekt_id'=p.pidt)
                    OR (nd.foer->>'subjekt_type'='family' AND nd.foer->>'subjekt_id' IN (SELECT id::text FROM fam_c)),false))
   UNION SELECT id::text FROM p_haendelse),

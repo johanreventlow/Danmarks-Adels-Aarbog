@@ -150,6 +150,11 @@ hvor rækken handler om personen:
   events; summary med kun id er dækket af beslutning 3 (M1). Summaries med navn (`red_opret_person`, l. 8641, og dens
   »Fortrød: …«-kopi) forsvinder, fordi sættene slettes efter reglen ovenfor; bygherren beviser, at der ikke findes
   andre summaries med navn.
+  **Runde 6 (review 37, Codex):** et sæt kan genbruges i samme transaktion (fx `red_set_feed_pin('embede:P:<titel>:<år>')`
+  efterfulgt af en anden skriver) og bevares, fordi det rummer andres events; så står P's id/titel i summary. Bevarede
+  sæt, som sletningen rører (subjekt personen eller en familie i Fam_c, eller events slettet nu),
+  og hvis summary bærer en feed-nøgle med personens id, et `[[person:P|…]]`-token eller personens navn, kommer på
+  kontrollisten (`til_kontrol`, grund `bevaret_summary`) efter Q8-mønstret. Summary rettes ikke.
 - `red_fortryd_change_set` på et bevaret fælles sæt efter sletningen skal fejle lukket eller give et korrekt resultat
   (test, med og uden force). Den må aldrig genskabe en række, der hører til den slettede (fx en `family`-række), og
   afviser (`FORTRYD_DOED_LINK`) at genskabe tekst med et link til en person, familie eller et medie, der ikke findes.

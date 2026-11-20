@@ -3874,6 +3874,29 @@ BEGIN
   INSERT INTO pg_temp.gdpr_id VALUES ('flyt_dom_d',purge_test.saet());
   PERFORM purge_test.nyt(); PERFORM public.red_set_feed_pin('arkiv:'||v_m,'pin');
   PERFORM purge_test.nyt(); PERFORM public.red_fortryd_change_set(pg_temp.gid('flyt_narr_saet_d'),false);
+  -- Codex runde 6. a) Et feed-dom-sæt på L's hændelse, der i samme transaktion også sletter D's (uvedkommende) narrativ:
+  -- L's UPDATE-event er IKKE modstridende bevis. b) Codex' scenarie: et sæt åbnet af red_set_feed_pin('embede:L:…'),
+  -- genbrugt til en feed-dom på L's hændelse og en uvedkommende narrativsletning; hændelsen bliver senere historisk.
+  -- Sættet bevares (andres event) med L's id/titel i summary → skal på kontrollisten.
+  PERFORM purge_test.nyt(); INSERT INTO pg_temp.gdpr_id VALUES ('r6_kilde_a',public.red_opret_kilde('Syntetisk kilde runde 6 a','bog'));
+  PERFORM purge_test.nyt(); INSERT INTO pg_temp.gdpr_id VALUES ('r6_kilde_b',public.red_opret_kilde('Syntetisk kilde runde 6 b','bog'));
+  FOR f IN SELECT * FROM (VALUES ('a',pg_temp.gid('r6_kilde_a')),('b',pg_temp.gid('r6_kilde_b'))) x(k,kilde) LOOP
+    PERFORM purge_test.nyt();
+    v_fam:=public.red_upsert_narrativ('person',pg_temp.gid('L'),'Syntetisk narrativ runde 6',false,f.kilde,'6');
+    INSERT INTO pg_temp.gdpr_id VALUES ('r6'||f.k||'_narr_saet',purge_test.saet());
+    PERFORM purge_test.nyt();
+    INSERT INTO public.haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul,kategori,date_raw)
+      VALUES ('person',pg_temp.gid('L'),v_fam,'gdpr-r6'||f.k,'Syntetisk hændelse 1993','andet','1993') RETURNING id INTO v_m;
+    INSERT INTO pg_temp.gdpr_id VALUES ('r6'||f.k||'_h',v_m);
+    PERFORM purge_test.nyt();
+    v_fam:=public.red_upsert_narrativ('person',pg_temp.gid('D'),'Syntetisk D-narrativ runde 6',false,f.kilde,'6');
+    PERFORM purge_test.nyt();
+    IF f.k='b' THEN PERFORM public.red_set_feed_pin('embede:'||pg_temp.gid('L')||':Gdprtitel:1990','pin'); END IF;
+    PERFORM public.red_set_haendelse_status(v_m,'interessant');
+    DELETE FROM public.narrative WHERE id=v_fam;
+    INSERT INTO pg_temp.gdpr_id VALUES ('r6'||f.k||'_saet',purge_test.saet());
+    PERFORM purge_test.nyt(); PERFORM public.red_fortryd_change_set(pg_temp.gid('r6'||f.k||'_narr_saet'),false);
+  END LOOP;
   PERFORM purge_test.nyt();
 END $fix$;
 COMMIT;
@@ -4181,6 +4204,29 @@ BEGIN
     'gdpr_modstridende_bevis_staar');
 END $t$;
 \echo OK gdpr_modstridende_bevis_staar
+-- Codex runde 6 a): L's feed-dom-event i et sæt, der også slettede D's narrativ, er ikke modstridende → slettet; sættet
+-- står med D's narrativsletning.
+DO $t$
+BEGIN
+  PERFORM pg_temp.gdpr_assert(NOT EXISTS (SELECT 1 FROM public.haendelse WHERE id=pg_temp.gid('r6a_h'))
+    AND NOT EXISTS (SELECT 1 FROM public.change_event WHERE tabel='haendelse' AND row_pk->>'id'=pg_temp.gid('r6a_h')::text)
+    AND EXISTS (SELECT 1 FROM public.change_event WHERE change_set_id=pg_temp.gid('r6a_saet') AND tabel='narrative' AND op='DELETE'),
+    'gdpr_uvedkommende_narrativsletning_ikke_konflikt');
+END $t$;
+\echo OK gdpr_uvedkommende_narrativsletning_ikke_konflikt
+-- Codex runde 6 b): det bevarede sæt med 'embede:L:…' i summary stod på L's kontrolliste; pin-eventet er slettet.
+DO $t$
+DECLARE l jsonb:=(SELECT j FROM gdpr_preview WHERE hvem='L');
+BEGIN
+  PERFORM pg_temp.gdpr_assert(EXISTS (SELECT 1 FROM public.change_set WHERE id=pg_temp.gid('r6b_saet')
+      AND summary LIKE '%embede:'||pg_temp.gid('L')||':%')
+    AND NOT EXISTS (SELECT 1 FROM public.change_event WHERE change_set_id=pg_temp.gid('r6b_saet') AND tabel='feed_pin')
+    AND EXISTS (SELECT 1 FROM jsonb_array_elements(l->'til_kontrol') x WHERE x->>'tabel'='change_set'
+      AND x->'pk'=jsonb_build_object('id',pg_temp.gid('r6b_saet')) AND x->>'grund'='bevaret_summary')
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(l->'til_kontrol') x WHERE x->>'tabel'='change_set'
+      AND x->'pk'=jsonb_build_object('id',pg_temp.gid('r6a_saet'))),'gdpr_bevaret_summary_paa_kontrol');
+END $t$;
+\echo OK gdpr_bevaret_summary_paa_kontrol
 
 -- Sletning af den afdøde, offentlige O: uændret adfærd.
 BEGIN;
