@@ -164,6 +164,10 @@ hvor rækken handler om personen:
 - **Vielsesfakta (projektejeren 2026-11-14):** bevares familien (børn eller anden partner tilbage), bevares også dens
   vielsesfakta med evidens; de hører også ægtefællen til og bærer ikke den slettedes navn. Slettes familien (6.4 ovenfor),
   slettes vielsen med den. Forhåndsvisningen viser hvilke vielser der bliver stående.
+  **Tilføjet 2026-11-20 (review 37 P1+P2, projektejeren):** var personen ikke-offentlig før sletningen
+  (`NOT public.person_offentlig`), slettes også vielser på bevarede familier, hvor personen var partner, med hele
+  evidenskæden og historikken (ellers bliver de offentlige via `family_offentlig`). Forhåndsvisningen viser
+  `vielser_slettes` og `vielser_staar` (kun dem, der faktisk står).
 - **`samme_som` (projektejeren 2026-11-14):** har personen to eller flere identitetsnaboer (andre personer, der kun er
   forbundet gennem den), er det en **blokering** (6.6); en redaktør kobler dem direkte først. Med én nabo slettes kanten,
   og naboen er uændret. Forhåndsvisningen viser komponenten.
@@ -195,7 +199,10 @@ hvor rækken handler om personen:
   kontrolkørsel, der bliver `failed` (Q4); forældede bindinger hos andre (6.5).
 - **Til kontrol, ikke blokering (Q8, Q9):** fritekster hos andre og titler på delte medier, der kan nævne personen.
 - Personen er knudepunkt i en `samme_som`-komponent med to eller flere andre (6.4).
-- Medier delt med andre: ingen blokering; koblingen slettes, mediet og filen bevares.
+- Medier delt med andre: ingen blokering; koblingen slettes, mediet og filen bevares. **Tilføjet 2026-11-20 (review 37
+  P1+P2):** var personen ikke-offentlig, får hvert bevaret medie, personen var afbildet på, `maa_publiceres=false` i
+  samme transaktion (en redaktør må frigive det igen). Intet sæt er åbent, så ændringen efterlader ingen historik.
+  Forhåndsvisningen viser dem som `medier_skjules`.
 - Levende person med brugerkonto: ingen blokering; nævnes i forhåndsvisningen.
 
 ### 6.7 Storage (V3)

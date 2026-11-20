@@ -163,7 +163,7 @@ Kolonnen **Indhold** udfyldes kun for bevar_andres: `id` = kun P's id/hash/uuid;
 | Sted | Tabel | Find ud fra P | Handling | Fase | Vagt | Indhold |
 |---|---|---|---|---|---|---|
 | S13 | `public.fact` | `id ∈ F` | slet | 8 | `trg_log_fact`; FK fra `haendelse.fact_id` (l. 6447, NO ACTION) og `story.fact_id` (l. 6481, SET NULL) | |
-| S13b NY | `public.fact` (familie) | `id ∈ F_fam` | slet | 8 | samme | |
+| S13b NY | `public.fact` (familie) | `id ∈ F_fam` (Fam_del's fakta; review 37 P1+P2: også vielser på familier, hvor en ikke-offentlig P er partner, `private.person_purge_vielser`) | slet | 8 | samme | |
 | S14 | `public.relation` | `id ∈ R` | slet | 8 | `trg_relation_evidence_delete` l. 7413 → `guard_relation_evidence_delete` l. 7394 (afviser DELETE mens assertion/conclusion/note peger på den); `trg_log_relation` | |
 | S14b NY | `public.relation` (familie-/familiefakta-ende) | `id ∈ R_fam` | slet | 8 | samme | |
 | S15 | `public.assertion` | `id ∈ A` | slet | 6 | `trg_assertion_relation_target` l. 7381 (INS/UPD), `trg_assertion_regen` l. 6653 (UPD), `trg_log_assertion` | |
@@ -205,8 +205,9 @@ Kolonnen **Indhold** udfyldes kun for bevar_andres: `id` = kun P's id/hash/uuid;
 | S36 | `public.paastand_korrektion` | `assertion_id ∈ A*` (levende + historiske assertions, afsnit 2) | slet (FK `change_set_id` l. 10095 → skal væk før change_set) | 6 | **ingen trigger** (kun kommentar l. 10081-10086) | |
 | S37 | `public.media` + `media_variant` | `id ∈ M_del` | slet (`media_variant` CASCADE l. 103); stier til udbakke (§6.7) | 9 | `trg_log_media` | |
 | S37b | delte medier | relation P↔medie slettes (i `R`), mediet bevares | bevar_andres | – | | `titel`/`original_filnavn` kan nævne P → fritekst? |
+| NY-E | `public.media` (bevaret, P afbildet) | P ikke-offentlig før sletningen (`private.person_purge_ikke_offentlig`) og `person→media`-relation `afbildet` i `R` til et medie uden for `M_del` | skjul: `maa_publiceres=false` (review 37 P1+P2, projektejeren 2026-11-20); intet manifest, intet sæt | 9 | låst i L11b | relationen holdt mediet skjult (`media_afbilder_skjult`); en redaktør må frigive igen |
 | S38 | `public.family` | `id ∈ Fam_del` | slet | 10 | `trg_log_family` | |
-| S38b | `family` i `Fam_keep` + dens vielsesfakta, evidens, noter, narrativer | | bevar_andres (beslutning 7) | – | | vielsens `citation.citat_tekst`/`assertion.vaerdi_tekst` er bogtekst, der kan nævne P → se K5 |
+| S38b | `family` i `Fam_keep` + dens vielsesfakta, evidens, noter, narrativer | | bevar_andres (beslutning 7); vielserne kun når P er offentlig (ellers S13b, review 37 P1+P2) | – | | vielsens `citation.citat_tekst`/`assertion.vaerdi_tekst` er bogtekst, der kan nævne P → se K5 |
 
 ### 1e. Private ledgers
 
@@ -747,6 +748,7 @@ ikke er sikret.
 | nulstil | 2 | S5 (`profiles.reventlow_person_id`), S24 (`nlp.latest_event_id`, før sletning) |
 | loesn | 2 | S27 (`haendelse.fact_id/relation_id`), S31 (`story.*_id`, automatisk SET NULL) |
 | bevar_andres | 19 | S11c, S23b, S32c, S37b, S38b, S39c, S41b, S43b, S44a, S44b, S45b, S46, S48, S49c, S50, S58, NY-C, S57, S52b |
+| skjul | 1 | NY-E (`media.maa_publiceres=false`, kun for ikke-offentlig P; review 37 P1+P2) |
 | blokér | 6 | S20, NY-A, S29, S34b (ved token), S39b, S39f |
 | KONFLIKT | 3 | K1 (S44a), K2 (S57/S23b-tekst), K3 (S52b-medie). K4 er et hul i specens regel, som den rettede regel lukker; ikke en bevaret række |
 
