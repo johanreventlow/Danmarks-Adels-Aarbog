@@ -82,7 +82,7 @@ type RawNavneDele = { id: number | string; visning_navn: string | null; visning_
 // Bataillons reserve"; cachen valgte den sidste, hvilket ville have givet "Einar Karl Ludwig
 // premierløjtnant i vesttyske pionier bataillons reserve Reventlow" i hovedrække-formatet).
 // Derfor slås alle afklarede titel-fakta op direkte og filtreres til en lukket adels-titel-liste.
-const ADELS_TITLER = new Set([
+export const ADELS_TITLER = new Set([
   'greve', 'grevinde', 'komtesse', 'comtesse', 'lensgreve', 'lensgrevinde',
   'baron', 'baronesse', 'friherre', 'friherreinde', 'rigsgreve', 'rigsgrevinde',
 ]);
