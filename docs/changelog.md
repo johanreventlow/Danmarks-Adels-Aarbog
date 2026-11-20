@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-20 — Ret læsefejl i en kildepåstand, også uden importanker
+
+Redaktøren kan nu rette en OCR-læsefejl i en importeret kildepåstand direkte på påstanden (»Ret læsefejl« i
+personeditoren). Før lagde editoren en ny påstand ved siden af, så læsefejlen blev stående som alternativ, og
+kvalitetsarkets OCR-rettelse nåede kun personer med importanker. Originalen gemmes i `paastand_korrektion` (grund
+`ocr`) og kan fortrydes. Udløser: 1559 Sophie von Sperling, født »25 Marts 157« (bogen: 1578). DDL i prod før merge
+(`database-current-state.md` §36); generalprøve på frisk stand-in. Kendt begrænsning: datoparseren læser 1939-formatet
+uden punktum som år.
+
 ## 2026-11-20 — En fuld genkørsel af migrationsfilen åbner ikke længere narrativ-gaten (review 37 A1)
 
 Den tidlige, midlertidige definition af `narrative_record_contract_version()` i `db-migrations.sql` og `schema.sql`
