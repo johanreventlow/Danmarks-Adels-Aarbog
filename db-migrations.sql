@@ -42439,11 +42439,12 @@ INSERT INTO vocab (scheme, code, label) VALUES
 ON CONFLICT (scheme, code) DO NOTHING;
 -- END fødenavn-faktatype
 
--- ===== review37-p1p2: personsletning skjuler bevarede billeder og sletter vielser for ikke-offentlig person =====
--- Review 37 P1+P2 (docs/reviews/37-helhedsreview-kodebase-2026-11-19.md), projektejerens afgørelse 2026-11-20. Var den
--- slettede person ikke-offentlig, låses bevarede medier, personen var afbildet på (NY-E, maa_publiceres=false), og
--- vielser på bevarede familier, hvor personen var partner, slettes med evidenskæden (F_fam/S13b). Uændret for en
--- offentlig person. Kroppene er identiske med schema.sql; ingen signatur ændres. Idempotent (CREATE OR REPLACE).
+-- ===== review37-p1p2: personsletning skjuler bevarede billeder og sletter familieindhold for ikke-offentlig person =====
+-- Review 37 P1+P2 (docs/reviews/37-helhedsreview-kodebase-2026-11-19.md), projektejerens afgørelser 2026-11-20 (løsning
+-- A). Var den slettede person ikke-offentlig, låses bevarede medier, personen var afbildet på (NY-E, maa_publiceres=false),
+-- og ALT familieindhold (som for Fam_del) på bevarede familier, hvor personen var partner eller barn, slettes med
+-- evidenskæde og historik, også tidligere (fortrudte) rækker kendt fra change_event. Uændret for en offentlig person.
+-- Kroppene er identiske med schema.sql; ingen signatur ændres. Idempotent (CREATE OR REPLACE / DROP IF EXISTS).
 
 CREATE OR REPLACE FUNCTION private.person_purge_inventar()
 RETURNS TABLE(sted text, tabel text, kolonner text[], handling text, fase text, grund text)
@@ -42605,15 +42606,15 @@ BEGIN
   RETURN EXISTS (SELECT 1 FROM public.person WHERE id=p_person_id) AND NOT public.person_offentlig(p_person_id);
 END
 $purge_ikke_offentlig$;
--- Fra levende rækker (plan, historik og manifestvagt bruger samme mængde). Fam_del's vielser er også i F_fam.
-CREATE OR REPLACE FUNCTION private.person_purge_vielser(p_person_id bigint)
-RETURNS TABLE(id bigint) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_vielser$
-  SELECT f.id FROM public.fact f
-   WHERE f.subjekt_type='family' AND f.faktatype='vielse'
-     AND f.subjekt_id IN (SELECT m.family_id FROM public.family_member m WHERE m.person_id=p_person_id AND m.rolle='partner')
+-- Familierne, hvis indhold slettes ud over Fam_del's (Fam_ind). Fra levende medlemskaber; plan, historiklukning,
+-- manifestvagt og låsemængder bruger samme mængde. Kan overlappe Fam_del (union i kalderne).
+CREATE OR REPLACE FUNCTION private.person_purge_familieindhold(p_person_id bigint)
+RETURNS TABLE(id bigint) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_familieindhold$
+  SELECT DISTINCT m.family_id FROM public.family_member m
+   WHERE m.person_id=p_person_id AND m.rolle IN ('partner','barn')
      AND private.person_purge_ikke_offentlig(p_person_id)
-$purge_vielser$;
-REVOKE ALL ON FUNCTION private.person_purge_ikke_offentlig(bigint), private.person_purge_vielser(bigint)
+$purge_familieindhold$;
+REVOKE ALL ON FUNCTION private.person_purge_ikke_offentlig(bigint), private.person_purge_familieindhold(bigint)
   FROM PUBLIC,anon,authenticated,service_role;
 CREATE OR REPLACE FUNCTION private.person_purge_historik(p_person_id bigint)
 RETURNS TABLE(tabel text, pk jsonb)
@@ -42625,26 +42626,27 @@ WITH RECURSIVE
       SELECT 1 FROM public.family_member m WHERE m.family_id=f.id AND m.person_id<>p_person_id AND m.rolle<>'partner')
     AND (SELECT count(*) FROM public.family_member m WHERE m.family_id=f.id AND m.person_id<>p_person_id AND m.rolle='partner')<=1),
   fam_keep AS MATERIALIZED (SELECT id FROM fam EXCEPT SELECT id FROM fam_del),
+  -- Fam_c: familier, hvis indhold slettes = Fam_del + Fam_ind (review 37 P1+P2, løsning A). Familie- og
+  -- medlemsrækker følger stadig kun Fam_del.
+  famc AS MATERIALIZED (SELECT id FROM fam_del UNION SELECT id FROM private.person_purge_familieindhold(p_person_id)),
   f AS MATERIALIZED (SELECT id FROM public.fact WHERE subjekt_type='person' AND subjekt_id=p_person_id),
-  -- F_fam: Fam_del's fakta + en ikke-offentlig P's vielser på bevarede familier (review 37 P1+P2).
-  ff AS MATERIALIZED (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del)
-    UNION SELECT id FROM private.person_purge_vielser(p_person_id)),
+  ff AS MATERIALIZED (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc)),
   fd AS MATERIALIZED (SELECT id FROM f UNION SELECT id FROM ff),
   r AS MATERIALIZED (SELECT id FROM public.relation WHERE
     (subjekt_type='person' AND subjekt_id=p_person_id) OR (objekt_type='person' AND objekt_id=p_person_id)
     OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM f)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM f))),
   rf AS MATERIALIZED (SELECT id FROM public.relation WHERE id NOT IN (SELECT id FROM r) AND (
-    (subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del)) OR (objekt_type='family' AND objekt_id IN (SELECT id FROM fam_del))
+    (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc)) OR (objekt_type='family' AND objekt_id IN (SELECT id FROM famc))
     OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM ff)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM ff)))),
   rd AS MATERIALIZED (SELECT id FROM r UNION SELECT id FROM rf),
   a AS MATERIALIZED (SELECT id FROM public.assertion WHERE (target_type='fact' AND target_id IN (SELECT id FROM fd))
     OR (target_type='relation' AND target_id IN (SELECT id FROM rd))),
   n AS MATERIALIZED (SELECT id FROM public.narrative WHERE (subjekt_type='person' AND subjekt_id=p_person_id)
-    OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del))),
+    OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc))),
   h AS MATERIALIZED (SELECT id FROM public.haendelse WHERE narrative_id IN (SELECT id FROM n)
-    OR (subjekt_type='person' AND subjekt_id=p_person_id) OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del))),
+    OR (subjekt_type='person' AND subjekt_id=p_person_id) OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc))),
   s AS MATERIALIZED (SELECT id FROM public.story WHERE (subjekt_type='person' AND subjekt_id=p_person_id)
-    OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del))),
+    OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc))),
   ed AS MATERIALIZED (SELECT id FROM public.entity_description WHERE subjekt_type='person' AND subjekt_id=p_person_id),
   media_ref AS MATERIALIZED (
     SELECT subjekt_id AS id FROM public.relation WHERE id IN (SELECT id FROM rd) AND subjekt_type='media'
@@ -42663,7 +42665,7 @@ WITH RECURSIVE
     AND NOT EXISTS (SELECT 1 FROM public.text_mention t WHERE t.maal_type='media' AND t.maal_id=m.id
       AND NOT ((t.kilde_type='narrative' AND t.kilde_id IN (SELECT id FROM n))
         OR (t.kilde_type='note' AND t.kilde_id IN (SELECT nn.id FROM public.note nn WHERE (nn.target_type='person' AND nn.target_id=p_person_id)
-          OR (nn.target_type='family' AND nn.target_id IN (SELECT id FROM fam_del))
+          OR (nn.target_type='family' AND nn.target_id IN (SELECT id FROM famc))
           OR (nn.target_type='fact' AND nn.target_id IN (SELECT id FROM fd)) OR (nn.target_type='relation' AND nn.target_id IN (SELECT id FROM rd))))))),
   pei_raw AS MATERIALIZED (
     SELECT source_id::text AS source_id,record_key FROM public.person_external_id WHERE person_id=p_person_id
@@ -42677,13 +42679,17 @@ WITH RECURSIVE
     ||'|(jubilaeum|embede):'||p_person_id::text||':.*|slaegt:'||p_person_id::text||':[0-9]+|slaegt:[0-9]+:'
     ||p_person_id::text||'|paadennedag:'||p_person_id::text||':(født|død):[0-9]+)$' AS rx),
   -- Historiske mængder identificerer afhængige rækker. De gør IKKE alle events på en flyttet række til P's.
+  -- Review 37 (Codex): også tidligere (fx fortrudte) fakta på Fam_c, kendt kun fra change_event, med evidenskæde.
   fv AS MATERIALIZED (SELECT id::text AS id FROM fd UNION SELECT e.row_pk->>'id' FROM public.change_event e
     CROSS JOIN LATERAL (VALUES(e.foer),(e.efter)) v(j)
-    WHERE e.tabel='fact' AND j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text),
+    WHERE e.tabel='fact' AND ((j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
+      OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc)))),
   rv AS MATERIALIZED (SELECT id::text AS id FROM rd UNION SELECT e.row_pk->>'id' FROM public.change_event e
     CROSS JOIN LATERAL (VALUES(e.foer),(e.efter)) v(j) WHERE e.tabel='relation' AND (
       (j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
       OR (j->>'objekt_type'='person' AND j->>'objekt_id'=p_person_id::text)
+      OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc))
+      OR (j->>'objekt_type'='family' AND j->>'objekt_id' IN (SELECT id::text FROM famc))
       OR (j->>'subjekt_type'='fact' AND j->>'subjekt_id' IN (SELECT id FROM fv))
       OR (j->>'objekt_type'='fact' AND j->>'objekt_id' IN (SELECT id FROM fv)))),
   av AS MATERIALIZED (SELECT id::text AS id FROM a UNION SELECT e.row_pk->>'id' FROM public.change_event e
@@ -42692,7 +42698,8 @@ WITH RECURSIVE
       OR (j->>'target_type'='relation' AND j->>'target_id' IN (SELECT id FROM rv)))),
   sv AS MATERIALIZED (SELECT id::text AS id FROM s UNION SELECT e.row_pk->>'id' FROM public.change_event e
     CROSS JOIN LATERAL (VALUES(e.foer),(e.efter)) v(j)
-    WHERE e.tabel='story' AND j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text),
+    WHERE e.tabel='story' AND ((j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
+      OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc)))),
   rel_images AS MATERIALIZED (
     SELECT e.row_pk->>'id' AS id,j FROM public.change_event e
       CROSS JOIN LATERAL (VALUES(e.foer),(e.efter)) v(j) WHERE e.tabel='relation' AND j IS NOT NULL),
@@ -42724,9 +42731,12 @@ WITH RECURSIVE
       OR (ce.tabel='entity_description' AND ce.row_pk->>'id' IN (SELECT id::text FROM ed))
       OR EXISTS (SELECT 1 FROM (VALUES(ce.foer),(ce.efter)) v(j) WHERE CASE ce.tabel
         WHEN 'profiles' THEN j->>'reventlow_person_id'=p_person_id::text
-        WHEN 'fact' THEN j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text
+        WHEN 'fact' THEN (j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
+          OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc))
         WHEN 'relation' THEN (j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
           OR (j->>'objekt_type'='person' AND j->>'objekt_id'=p_person_id::text)
+          OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc))
+          OR (j->>'objekt_type'='family' AND j->>'objekt_id' IN (SELECT id::text FROM famc))
           OR (j->>'subjekt_type'='fact' AND j->>'subjekt_id' IN (SELECT id FROM fv))
           OR (j->>'objekt_type'='fact' AND j->>'objekt_id' IN (SELECT id FROM fv))
         WHEN 'assertion' THEN (j->>'target_type'='fact' AND j->>'target_id' IN (SELECT id FROM fv))
@@ -42735,11 +42745,14 @@ WITH RECURSIVE
           OR (j->>'target_type'='relation' AND j->>'target_id' IN (SELECT id FROM rv))
         WHEN 'citation' THEN j->>'assertion_id' IN (SELECT id FROM av)
         WHEN 'note' THEN (j->>'target_type'='person' AND j->>'target_id'=p_person_id::text)
-          OR (j->>'target_type'='family' AND j->>'target_id' IN (SELECT id::text FROM fam_del))
+          OR (j->>'target_type'='family' AND j->>'target_id' IN (SELECT id::text FROM famc))
           OR (j->>'target_type'='fact' AND j->>'target_id' IN (SELECT id FROM fv))
           OR (j->>'target_type'='relation' AND j->>'target_id' IN (SELECT id FROM rv))
-        WHEN 'narrative' THEN j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text
-        WHEN 'story' THEN j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text
+        WHEN 'narrative' THEN (j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
+          OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc))
+        WHEN 'story' THEN (j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
+          OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc))
+        WHEN 'haendelse' THEN j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc)
         WHEN 'story_kilde' THEN j->>'story_id' IN (SELECT id FROM sv)
         WHEN 'entity_description' THEN j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text
         WHEN 'feed_pin' THEN j->>'kort_noegle' ~ (SELECT rx FROM feed_rx)
@@ -42771,28 +42784,29 @@ WITH RECURSIVE
       SELECT 1 FROM public.family_member m WHERE m.family_id=f.id AND m.person_id<>p_person_id AND m.rolle<>'partner')
     AND (SELECT count(*) FROM public.family_member m WHERE m.family_id=f.id AND m.person_id<>p_person_id AND m.rolle='partner')<=1),
   fam_keep AS MATERIALIZED (SELECT id FROM fam EXCEPT SELECT id FROM fam_del),
+  -- Fam_c: familier, hvis indhold slettes = Fam_del + Fam_ind (review 37 P1+P2, løsning A). Familie- og
+  -- medlemsrækker følger stadig kun Fam_del.
+  famc AS MATERIALIZED (SELECT id FROM fam_del UNION SELECT id FROM private.person_purge_familieindhold(p_person_id)),
   f AS MATERIALIZED (SELECT id FROM public.fact WHERE subjekt_type='person' AND subjekt_id=p_person_id),
-  -- F_fam: Fam_del's fakta + en ikke-offentlig P's vielser på bevarede familier (review 37 P1+P2).
-  ff AS MATERIALIZED (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del)
-    UNION SELECT id FROM private.person_purge_vielser(p_person_id)),
+  ff AS MATERIALIZED (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc)),
   fd AS MATERIALIZED (SELECT id FROM f UNION SELECT id FROM ff),
   r AS MATERIALIZED (SELECT id FROM public.relation WHERE
     (subjekt_type='person' AND subjekt_id=p_person_id) OR (objekt_type='person' AND objekt_id=p_person_id)
     OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM f)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM f))),
   -- Q5-ejerskab bruger HELE R_fam, også overlap med R. Kun tællermængden rf er disjunkt.
   rf_all AS MATERIALIZED (SELECT id FROM public.relation WHERE
-    (subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del)) OR (objekt_type='family' AND objekt_id IN (SELECT id FROM fam_del))
+    (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc)) OR (objekt_type='family' AND objekt_id IN (SELECT id FROM famc))
     OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM ff)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM ff))),
   rf AS MATERIALIZED (SELECT id FROM rf_all EXCEPT SELECT id FROM r),
   rd AS MATERIALIZED (SELECT id FROM r UNION SELECT id FROM rf),
   a AS MATERIALIZED (SELECT id FROM public.assertion WHERE (target_type='fact' AND target_id IN (SELECT id FROM fd))
     OR (target_type='relation' AND target_id IN (SELECT id FROM rd))),
   n AS MATERIALIZED (SELECT id FROM public.narrative WHERE (subjekt_type='person' AND subjekt_id=p_person_id)
-    OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del))),
+    OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc))),
   h AS MATERIALIZED (SELECT id FROM public.haendelse WHERE narrative_id IN (SELECT id FROM n)
-    OR (subjekt_type='person' AND subjekt_id=p_person_id) OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del))),
+    OR (subjekt_type='person' AND subjekt_id=p_person_id) OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc))),
   s AS MATERIALIZED (SELECT id FROM public.story WHERE (subjekt_type='person' AND subjekt_id=p_person_id)
-    OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del))),
+    OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc))),
   ed AS MATERIALIZED (SELECT id FROM public.entity_description WHERE subjekt_type='person' AND subjekt_id=p_person_id),
   media_ref AS MATERIALIZED (
     SELECT subjekt_id AS id FROM public.relation WHERE id IN (SELECT id FROM rd) AND subjekt_type='media'
@@ -42811,7 +42825,7 @@ WITH RECURSIVE
     AND NOT EXISTS (SELECT 1 FROM public.text_mention t WHERE t.maal_type='media' AND t.maal_id=m.id
       AND NOT ((t.kilde_type='narrative' AND t.kilde_id IN (SELECT id FROM n))
         OR (t.kilde_type='note' AND t.kilde_id IN (SELECT nn.id FROM public.note nn WHERE (nn.target_type='person' AND nn.target_id=p_person_id)
-          OR (nn.target_type='family' AND nn.target_id IN (SELECT id FROM fam_del))
+          OR (nn.target_type='family' AND nn.target_id IN (SELECT id FROM famc))
           OR (nn.target_type='fact' AND nn.target_id IN (SELECT id FROM fd)) OR (nn.target_type='relation' AND nn.target_id IN (SELECT id FROM rd))))))),
   pei_raw AS MATERIALIZED (
     SELECT source_id::text AS source_id,record_key FROM public.person_external_id WHERE person_id=p_person_id
@@ -42849,7 +42863,7 @@ WITH RECURSIVE
     SELECT c.id FROM family_contexts c WHERE EXISTS (
       SELECT 1 FROM jsonb_array_elements(c.context->'families') f WHERE f->>'family_id' IN (SELECT id::text FROM fam))),
   nt AS MATERIALIZED (SELECT id FROM public.note WHERE (target_type='person' AND target_id=p_person_id)
-    OR (target_type='family' AND target_id IN (SELECT id FROM fam_del))
+    OR (target_type='family' AND target_id IN (SELECT id FROM famc))
     OR (target_type='fact' AND target_id IN (SELECT id FROM fd)) OR (target_type='relation' AND target_id IN (SELECT id FROM rd))),
   hist AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_historik) h(tabel text,pk jsonb)),
   av AS MATERIALIZED (SELECT id::text AS id FROM a UNION SELECT ce.row_pk->>'id' FROM public.change_event ce
@@ -43001,7 +43015,7 @@ WITH RECURSIVE
     FROM private.entity_description_source t WHERE t.description_id IN (SELECT id FROM ed)
   UNION ALL
   SELECT 'S34'::text,'suggestion'::text,jsonb_build_object('id',t.id),'slet'::text,'egen'::text,'{}'::jsonb,0
-    FROM public.suggestion t WHERE (t.subjekt_type='person' AND t.subjekt_id=p_person_id) OR (t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM fam_del))
+    FROM public.suggestion t WHERE (t.subjekt_type='person' AND t.subjekt_id=p_person_id) OR (t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM famc))
   UNION ALL
   SELECT 'S35'::text,'import_korrektion'::text,jsonb_build_object('id',t.id),'slet'::text,'egen'::text,'{}'::jsonb,0
     FROM public.import_korrektion t WHERE EXISTS (SELECT 1 FROM pei WHERE import_key=t.import_key AND record_key=t.record_key)
@@ -43091,7 +43105,7 @@ WITH RECURSIVE
   UNION ALL
   SELECT 'S34b'::text,'suggestion'::text,jsonb_build_object('id',t.id),'bevar_andres'::text,NULL::text,'{}'::jsonb,10
     FROM public.suggestion t WHERE ((t.subjekt_type='person' AND t.subjekt_id=p_person_id)
-      OR (t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM fam_del))) IS NOT TRUE
+      OR (t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM famc))) IS NOT TRUE
       AND (t.vaerdi ~ (SELECT rx FROM jrx) OR t.note ~ (SELECT rx FROM jrx)
         OR t.kilde_fritekst ~ (SELECT rx FROM jrx) OR t.payload::text ~ (SELECT rx FROM jrx))
   UNION ALL
@@ -43204,7 +43218,7 @@ WITH RECURSIVE
     FROM public.haendelse t WHERE (t.id IN (SELECT id FROM h)) IS NOT TRUE AND (t.klausul::text ~ (SELECT rx FROM token_rx))
   UNION ALL
   SELECT 'S34b'::text,'suggestion'::text,jsonb_build_object('id',t.id),'blokér'::text,NULL::text,'{}'::jsonb,2
-    FROM public.suggestion t WHERE ((t.subjekt_type='person' AND t.subjekt_id=p_person_id) OR (t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM fam_del))) IS NOT TRUE AND (t.vaerdi::text ~ (SELECT rx FROM token_rx) OR t.note::text ~ (SELECT rx FROM token_rx) OR t.kilde_fritekst::text ~ (SELECT rx FROM token_rx) OR t.payload::text ~ (SELECT rx FROM token_rx))
+    FROM public.suggestion t WHERE ((t.subjekt_type='person' AND t.subjekt_id=p_person_id) OR (t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM famc))) IS NOT TRUE AND (t.vaerdi::text ~ (SELECT rx FROM token_rx) OR t.note::text ~ (SELECT rx FROM token_rx) OR t.kilde_fritekst::text ~ (SELECT rx FROM token_rx) OR t.payload::text ~ (SELECT rx FROM token_rx))
   UNION ALL
   SELECT 'S29'::text,'assertion'::text,jsonb_build_object('id',t.id),'blokér'::text,NULL::text,'{}'::jsonb,2
     FROM public.assertion t WHERE (t.id IN (SELECT id FROM a)) IS NOT TRUE AND (t.vaerdi_tekst::text ~ (SELECT rx FROM token_rx) OR t.date_raw::text ~ (SELECT rx FROM token_rx))
@@ -43303,28 +43317,33 @@ BEGIN
             AND n.subjekt_id IN (SELECT id FROM private.person_purge_fam_del(m.person_id)) AND EXISTS (
             SELECT 1 FROM private.person_purge_manifest q WHERE q.xid=m.xid AND q.backend_pid=m.backend_pid
               AND q.person_id=m.person_id AND q.tabel='family' AND q.grund='familie'
-              AND q.pk=jsonb_build_object('id',n.subjekt_id)))));
+              AND q.pk=jsonb_build_object('id',n.subjekt_id)))
+          -- Review 37 P1+P2: en BEVARET familie i Fam_ind, uafhængigt beregnet fra levende medlemskab og offentlighed.
+          -- Fam_del kræver fortsat family-beviset ovenfor.
+          OR (m.grund='familie' AND n.subjekt_type='family'
+            AND n.subjekt_id IN (SELECT id FROM private.person_purge_familieindhold(m.person_id))
+            AND n.subjekt_id NOT IN (SELECT id FROM private.person_purge_fam_del(m.person_id)))));
     WHEN 'private.interpretation_promotion' THEN
       IF m.grund<>'egen' THEN RETURN false; END IF;
       -- Uafhængigt ejerskab fra levende mål, aldrig fra person_purge_plan eller et mål i manifestet.
       -- Q5: hele R_fam (også overlap med R) kræver principal-persona i X. Bevarede familier er Q6-bindinger.
       WITH fam AS (SELECT DISTINCT family_id AS id FROM public.family_member WHERE person_id=m.person_id),
       fam_del AS (SELECT id FROM private.person_purge_fam_del(m.person_id)),
+      famc AS (SELECT id FROM fam_del UNION SELECT id FROM private.person_purge_familieindhold(m.person_id)),
       f AS (SELECT id FROM public.fact WHERE subjekt_type='person' AND subjekt_id=m.person_id),
-      ff AS (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del)
-        UNION SELECT id FROM private.person_purge_vielser(m.person_id)),
+      ff AS (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc)),
       r AS (SELECT id FROM public.relation WHERE
         (subjekt_type='person' AND subjekt_id=m.person_id) OR (objekt_type='person' AND objekt_id=m.person_id)
         OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM f)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM f))),
       rf AS (SELECT id FROM public.relation WHERE
-        (subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del)) OR (objekt_type='family' AND objekt_id IN (SELECT id FROM fam_del))
+        (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc)) OR (objekt_type='family' AND objekt_id IN (SELECT id FROM famc))
         OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM ff)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM ff))),
       n AS (SELECT id FROM public.narrative WHERE (subjekt_type='person' AND subjekt_id=m.person_id)
-        OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del))),
+        OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc))),
       a AS (SELECT id FROM public.assertion WHERE (target_type='fact' AND target_id IN (SELECT id FROM f UNION SELECT id FROM ff))
         OR (target_type='relation' AND target_id IN (SELECT id FROM r UNION SELECT id FROM rf))),
       h AS (SELECT id FROM public.haendelse WHERE narrative_id IN (SELECT id FROM n)
-        OR (subjekt_type='person' AND subjekt_id=m.person_id) OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del)))
+        OR (subjekt_type='person' AND subjekt_id=m.person_id) OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc)))
       SELECT EXISTS (SELECT 1 FROM private.interpretation i WHERE i.id=(p_old->>'interpretation_id')::uuid
         AND ((p_old->>'target_type'='person' AND (p_old->>'target_id')::bigint=m.person_id
                 AND EXISTS (SELECT 1 FROM public.person WHERE id=m.person_id))
@@ -43468,13 +43487,21 @@ BEGIN
       'saet',(SELECT count(*) FROM slettes WHERE tabel='change_set')),
     'familier_slettes',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM fam_del),'[]'::jsonb),
     'familier_bevares',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM fam_keep),'[]'::jsonb),
-    -- Review 37 P1+P2: kun vielser, der faktisk bliver stående; de slettede (F_fam) og de låste medier står for sig.
+    -- Review 37 P1+P2: kun vielser, der faktisk bliver stående. Bevarede familiers indhold, der slettes (Fam_ind),
+    -- pr. familie; de låste medier står for sig.
     'vielser_staar',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM public.fact
       WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep) AND faktatype='vielse'
         AND jsonb_build_object('id',id) NOT IN (SELECT pk FROM slettes WHERE tabel='fact')),'[]'::jsonb),
-    'vielser_slettes',coalesce((SELECT jsonb_agg(f.id ORDER BY f.id) FROM public.fact f
-      JOIN slettes d ON d.tabel='fact' AND d.pk=jsonb_build_object('id',f.id)
-      WHERE f.subjekt_type='family' AND f.faktatype='vielse'),'[]'::jsonb),
+    'familieindhold_slettes',coalesce((SELECT jsonb_agg(x.j ORDER BY x.id) FROM (
+      SELECT k.id,jsonb_build_object('family_id',k.id,
+        'fakta',coalesce((SELECT jsonb_agg(f.id ORDER BY f.id) FROM public.fact f JOIN slettes d
+          ON d.tabel='fact' AND d.pk=jsonb_build_object('id',f.id) WHERE f.subjekt_type='family' AND f.subjekt_id=k.id),'[]'::jsonb),
+        'noter',coalesce((SELECT jsonb_agg(o.id ORDER BY o.id) FROM public.note o JOIN slettes d
+          ON d.tabel='note' AND d.pk=jsonb_build_object('id',o.id) WHERE o.target_type='family' AND o.target_id=k.id),'[]'::jsonb),
+        'narrativer',coalesce((SELECT jsonb_agg(n.id ORDER BY n.id) FROM public.narrative n JOIN slettes d
+          ON d.tabel='narrative' AND d.pk=jsonb_build_object('id',n.id) WHERE n.subjekt_type='family' AND n.subjekt_id=k.id),'[]'::jsonb)) AS j
+      FROM fam_keep k) x
+      WHERE x.j->'fakta'<>'[]'::jsonb OR x.j->'noter'<>'[]'::jsonb OR x.j->'narrativer'<>'[]'::jsonb),'[]'::jsonb),
     'medier_skjules',coalesce((SELECT jsonb_agg((pk->>'id')::bigint ORDER BY (pk->>'id')::bigint) FROM plan
       WHERE tabel='media' AND handling='skjul'),'[]'::jsonb),
     'samme_som_komponent',coalesce((SELECT jsonb_agg(pid ORDER BY pid) FROM public._samme_som_gruppe(p_person_id)),'[]'::jsonb),
@@ -43490,6 +43517,44 @@ BEGIN
   RETURN v_result||jsonb_build_object('sha256',encode(extensions.digest(convert_to(v_result::text,'UTF8'),'sha256'),'hex'));
 END
 $purge_preview$;
+CREATE OR REPLACE FUNCTION private.person_purge_laasemaengder(p_person_id bigint)
+RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $$
+WITH
+  x AS MATERIALIZED (SELECT source_persona_id id FROM private.source_persona_identity
+    WHERE canonical_person_id=p_person_id AND decision_status='accepted'),
+  xy AS MATERIALIZED (SELECT id FROM x UNION SELECT source_persona_id FROM private.source_persona_identity_event
+    WHERE canonical_person_id=p_person_id),
+  candidates AS MATERIALIZED (SELECT id,run_id,source_persona_id FROM private.source_persona_identity_candidate
+    WHERE candidate_person_id=p_person_id),
+  fam AS MATERIALIZED (SELECT family_id id FROM public.family_member WHERE person_id=p_person_id),
+  control AS MATERIALIZED (
+    SELECT s.control_run_id id FROM private.identity_control_sample s WHERE s.source_persona_id IN (SELECT id FROM xy)
+      OR s.expected IN (SELECT id::text FROM candidates)
+      OR EXISTS (SELECT 1 FROM jsonb_each_text(s.mapping) m WHERE m.value IN (SELECT id::text FROM candidates))
+    UNION SELECT control_run_id FROM private.identity_control_exclusion WHERE source_persona_id IN (SELECT id FROM x)
+    UNION SELECT control_run_id FROM private.identity_control_parent_card
+      WHERE counterpart_person_id=p_person_id OR p_person_id=ANY(partner_ids) OR family_id IN (SELECT id FROM fam)
+    UNION SELECT id FROM private.identity_control_run WHERE candidate_run_id IN (SELECT run_id FROM candidates)),
+  records AS MATERIALIZED (
+    SELECT rp.source_record_id id FROM private.source_persona_placement pp
+      JOIN private.source_record_placement rp ON rp.id=pp.record_placement_id WHERE pp.source_persona_id IN (SELECT id FROM xy)
+    UNION SELECT b.source_record_id FROM private.narrative_record_publication b JOIN public.narrative n ON n.id=b.narrative_id
+      WHERE (n.subjekt_type='person' AND n.subjekt_id=p_person_id)
+         OR (n.subjekt_type='family' AND n.subjekt_id IN (SELECT id FROM private.person_purge_fam_del(p_person_id)
+           UNION SELECT id FROM private.person_purge_familieindhold(p_person_id)))),
+  sources AS MATERIALIZED (
+    SELECT source_id id FROM public.person_external_id WHERE person_id=p_person_id
+    UNION SELECT source_id FROM private.source_persona WHERE id IN (SELECT id FROM xy UNION SELECT source_persona_id FROM candidates)
+    UNION SELECT source_id FROM private.source_persona_identity_candidate_run WHERE id IN (SELECT run_id FROM candidates)
+    UNION SELECT source_id FROM private.identity_control_run WHERE id IN (SELECT id FROM control)
+    UNION SELECT source_id FROM private.source_record WHERE id IN (SELECT id FROM records))
+SELECT jsonb_build_object(
+  'sources',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM sources WHERE id IS NOT NULL),'[]'::jsonb),
+  'profiles',coalesce((SELECT jsonb_agg(jsonb_build_object('source_id',source_id,'profile_id',profile_id)
+    ORDER BY source_id,profile_id COLLATE "C") FROM private.reimport_writer_profile WHERE source_id IN (SELECT id FROM sources)),'[]'::jsonb),
+  'records',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM records),'[]'::jsonb),
+  'personas',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM xy),'[]'::jsonb))
+$$;
 CREATE OR REPLACE FUNCTION public.red_slet_person_helt(p_person_id bigint,p_preview_sha256 text)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public, private AS $purge_execute$
@@ -43726,4 +43791,6 @@ BEGIN
   RETURN jsonb_build_object('slettet',p_person_id,'storage_antal',v_storage,'personas_afvist',v_personas);
 END
 $purge_execute$;
+-- Mellemversion af grenen (kun vielser); erstattet af person_purge_familieindhold. Aldrig i prod.
+DROP FUNCTION IF EXISTS private.person_purge_vielser(bigint);
 -- END review37-p1p2
