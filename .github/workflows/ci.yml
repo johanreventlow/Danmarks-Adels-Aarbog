@@ -252,6 +252,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-interpretation-predicate.sql
           python3 .claude/skills/daa-extract/scripts/check_interpretation_predicates.py
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-paastand-rettelse.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-ocr-paastand.sql
           bash tests/sql/test-6c2b-kraever-6c2a.sh "$PGDATABASE"
           psql -v ON_ERROR_STOP=1 -f tests/sql/run-db-verify-disposable.sql
       - name: Evidens-hardening på frisk schema-sti
@@ -297,6 +298,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-samme-som-retning.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-person-source-coordinates.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-paastand-rettelse.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-ocr-paastand.sql
           bash tests/sql/test-150-ceremoni.sh ci150_ceremoni
           bash tests/sql/test-placement-ceremoni.sh ci6d1_ceremoni
           bash tests/sql/test-identitet-ceremoni.sh ci6d2a_ceremoni

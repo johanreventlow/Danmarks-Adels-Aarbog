@@ -18,10 +18,11 @@ import {
   fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
   fetchMediaBibliotek, fetchMediaAnvendelse, fetchUdrensPreview, formatMedieAlder, fetchPersonNarrativeRecords, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe, type UdrensPreview,
 } from './data/redaktionRead';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, foldePrognose, insertAt, makeToken, type OcrFelt, type SameAsEdge, type PersonKvalitetsarkRow } from '@daa/core';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, foldePrognose, insertAt, makeToken, normaliserOcrDato, type OcrFelt, type SameAsEdge, type PersonKvalitetsarkRow } from '@daa/core';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
-import { submitChange, describeCall, erFortrydKonflikt, oversaetFejl, planCall, resumeMediaUpload, type Change } from './data/redaktionWrite';
+import { submitChange, describeCall, erFortrydKonflikt, oversaetFejl, planCall, resumeMediaUpload, DATE_FELT, type Change } from './data/redaktionWrite';
+import { byggOcrPaastand, kanRetteLaesefejl, laesefejlStartvaerdi } from './data/ocrPaastand';
 import { HistorikPanel, type FortrydUdfald } from './components/HistorikPanel';
 import { PersonNarrativeRecordEditor } from './components/PersonNarrativeRecordEditor';
 import type { HistPost } from './data/historik';
@@ -323,6 +324,8 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [editingAssert, setEditingAssert] = useState<number | null>(null);
+  // »Ret læsefejl« (decisions 2026-11-20): OCR-rettelse af en kildepåstand på stedet.
+  const [laesefejlAssert, setLaesefejlAssert] = useState<number | null>(null);
   const [addingFact, setAddingFact] = useState<number | null>(null);
   // Opret-FØRSTE-oplysning for et felt uden noget fact endnu (factId er den syntetiske -1-
   // placeholder, se renderFactCard) — nøglet på (person, felt), IKKE kun felt-navn: flere tomme
@@ -1957,10 +1960,40 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
 
   function renderOplysning(pid: string, f: FeltEvidens, o: Oplysning) {
     const editing = editingAssert === o.assertionId;
+    const laesefejl = laesefejlAssert === o.assertionId;
+    const lfKey = 'ocr:' + o.assertionId;
+    const lfVaerdi = sc(lfKey + ':v', laesefejlStartvaerdi(f, o));
+    const lfBekraeft = sc(lfKey + ':ok') === '1';
+    const lfDato = DATE_FELT.has(f.felt) && lfVaerdi.trim() !== '' ? normaliserOcrDato(lfVaerdi.trim()) : null;
+    const lfKald = laesefejl ? byggOcrPaastand(f, o, lfVaerdi, lfBekraeft) : null;
     return (
       <div key={o.assertionId} style={{ display: 'flex', alignItems: 'flex-start', gap: 11, background: o.erKonklusion ? T.successTint : T.surfaceRaised, border: `1px solid ${o.erKonklusion ? 'rgba(31,91,58,.32)' : T.line}`, borderRadius: 10, padding: '10px 12px', marginBottom: 7 }}>
         <span style={{ width: 11, height: 11, borderRadius: '50%', background: o.erKonklusion ? T.success : '#bcae93', marginTop: 4 }} />
-        {!editing ? (
+        {laesefejl ? (
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.bordeaux, marginBottom: 5 }}>Ret læsefejl</div>
+            <div style={{ fontSize: 12.5, color: T.inkMuted, marginBottom: 7 }}>Retter bogens tekst, som den står trykt — ingen ny påstand. Originalen gemmes i påstandens historik.</div>
+            <input value={lfVaerdi} onChange={(e) => setSc(lfKey + ':v', e.target.value)} placeholder="Teksten som den står i bogen" style={inp} />
+            {lfDato && (lfDato.understood
+              ? <div style={{ fontSize: 12.5, color: T.inkMuted, marginTop: 6 }}>Forstået som {datoForstaaet(lfDato.min, lfDato.max)}</div>
+              : <div style={{ fontSize: 12.5, color: T.danger, marginTop: 6 }}>
+                  Kan ikke fortolkes som dato.{' '}
+                  <label style={{ color: T.inkMuted, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={lfBekraeft} onChange={(e) => setSc(lfKey + ':ok', e.target.checked ? '1' : '')} style={{ marginRight: 5 }} />
+                    Gem alligevel uden fortolket dato
+                  </label>
+                </div>)}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 9 }}>
+              <div onClick={() => {
+                if (!lfKald) return;
+                run({ art: 'retLaesefejl', subjektType: 'person', subjektId: pid, assertionId: String(lfKald.p_assertion_id),
+                  payload: { forventet: lfKald.p_forventet, ny: lfKald.p_ny } }, 'Ret læsefejl');
+                setLaesefejlAssert(null);
+              }} aria-disabled={!lfKald} style={{ ...btnGreen, opacity: lfKald ? 1 : 0.45, cursor: lfKald ? 'pointer' : 'not-allowed' }}>Gem rettelse</div>
+              <div onClick={() => setLaesefejlAssert(null)} style={btnGhost}>Annullér</div>
+            </div>
+          </div>
+        ) : !editing ? (
           <>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -1972,7 +2005,8 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
               {!o.erKonklusion && <div onClick={() => run({ art: 'setKonklusion', subjektType: 'person', subjektId: pid, assertionId: String(o.assertionId) }, 'Konklusion')} style={{ fontSize: 12, fontWeight: 600, color: T.success, border: '1px solid rgba(31,91,58,.4)', borderRadius: 7, padding: '6px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>Gør til konklusion</div>}
               <div style={{ display: 'flex', gap: 4 }}>
-                <span onClick={() => { setEditingAssert(o.assertionId); setAddingFact(null); setSc('ed:' + o.assertionId + ':v', o.vaerdi); setSc('ed:' + o.assertionId + ':src', kildeAf(o) === 'ingen kilde' ? '' : kildeAf(o)); }} title="Redigér" style={iconBtn}>✎</span>
+                {role === 'redaktion' && kanRetteLaesefejl(f, o) && <span onClick={() => { setLaesefejlAssert(o.assertionId); setEditingAssert(null); setAddingFact(null); setSc(lfKey + ':v', laesefejlStartvaerdi(f, o)); setSc(lfKey + ':ok', ''); }} title="Ret læsefejl" style={iconBtn}>Aa</span>}
+                <span onClick={() => { setLaesefejlAssert(null); setEditingAssert(o.assertionId); setAddingFact(null); setSc('ed:' + o.assertionId + ':v', o.vaerdi); setSc('ed:' + o.assertionId + ':src', kildeAf(o) === 'ingen kilde' ? '' : kildeAf(o)); }} title="Redigér" style={iconBtn}>✎</span>
                 {/* Kun redaktørens egne oplysninger (uforanderlig eksplicit false) kan slettes; importerede kildepåstande er uforanderlige (review trin B, 1d.1-02). Fail-closed: mangler feltet, vises knappen ikke. */}
                 {o.uforanderlig === false && <span onClick={() => run({ art: 'sletOplysning', subjektType: 'person', subjektId: pid, assertionId: String(o.assertionId) }, 'Slet oplysning')} title="Slet" style={{ ...iconBtn, border: '1px solid rgba(138,43,43,.3)', color: T.danger }}>🗑</span>}
               </div>
@@ -2579,6 +2613,17 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
 }
 
 // --- delte små stilarter ---
+// »Forstået som …« under Ret læsefejl: én dag som d.m.åååå, et helt år som »år åååå«, ellers et interval.
+function datoForstaaet(min: string | null, max: string | null): string {
+  const kort = (iso: string) => { const [y, m, d] = iso.split('-'); return `${Number(d)}.${Number(m)}.${y}`; };
+  if (min && max && min === max) return kort(min);
+  if (min && max && min.slice(0, 4) === max.slice(0, 4) && min.endsWith('-01-01') && max.endsWith('-12-31')) return `år ${min.slice(0, 4)}`;
+  if (min && max) return `${kort(min)} – ${kort(max)}`;
+  if (min) return `efter ${kort(min)}`;
+  if (max) return `før ${kort(max)}`;
+  return 'uden datogrænser';
+}
+
 const inp: React.CSSProperties = { width: '100%', fontSize: 14, color: T.ink, background: '#fff', border: `1px solid ${T.lineStrong}`, borderRadius: 7, padding: '8px 10px', outline: 'none' };
 const lbl: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: T.inkMuted, marginBottom: 4 };
 const btnGreen: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: T.inkOnInverse, background: T.success, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' };

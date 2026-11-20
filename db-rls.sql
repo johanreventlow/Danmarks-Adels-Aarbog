@@ -743,6 +743,7 @@ BEGIN
     'public.red_relation(text,bigint,text,bigint,text,text)',
     'public.red_ret_ocr_felt(bigint,text,text,text,text,jsonb,text,text)',
     'public.red_ret_forslag(uuid,integer,text,jsonb)',
+    'public.red_ret_ocr_paastand(bigint,jsonb,jsonb)',
     'public.red_ret_paastand(bigint,jsonb,text,uuid,jsonb)',
     'public.red_saet_portraet(bigint,bigint)',
     'public.red_samme_som(bigint,bigint)',
@@ -907,9 +908,12 @@ CREATE POLICY redaktion_read ON public.import_korrektion FOR SELECT TO authentic
   USING ((select public.current_rolle()) = 'redaktion');
 
 -- Trin 6c-2b: den påstandsnøglede rettelsesjournal. RLS på og ingen klientadgang overhovedet (heller ikke læsning):
--- red_ret_paastand er eneste skrivevej og red_paastand_historik eneste læsevej, begge rolle-gated.
+-- red_ret_paastand og red_ret_ocr_paastand (grund 'ocr', decisions 2026-11-20) er eneste skriveveje og
+-- red_paastand_historik eneste læsevej, alle rolle-gated.
 ALTER TABLE public.paastand_korrektion ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.paastand_korrektion FROM PUBLIC, anon, authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.red_ret_ocr_paastand(bigint,jsonb,jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.red_ret_ocr_paastand(bigint,jsonb,jsonb) TO authenticated;
 
 -- Grid-RPC'en er den eneste læseoverflade for kvalitetsarket. Den læser som ejer,
 -- men dens interne rolle-gate er stadig autoritativ; den delte fingerprint-helper er intern.
