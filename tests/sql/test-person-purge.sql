@@ -3897,6 +3897,21 @@ BEGIN
     INSERT INTO pg_temp.gdpr_id VALUES ('r6'||f.k||'_saet',purge_test.saet());
     PERFORM purge_test.nyt(); PERFORM public.red_fortryd_change_set(pg_temp.gid('r6'||f.k||'_narr_saet'),false);
   END LOOP;
+  -- Codex runde 7: P7 og Q7 oprettes i SAMME sæt (to red_opret_person uden nyt sæt imellem); P7 omdøbes bagefter, så
+  -- sættets summary bærer P7's GAMLE navn. Desuden et pin-sæt (P7's og Q7's portræt-pin i samme sæt), der fortrydes:
+  -- fortryd-sættets summary er en kopi (»Fortrød: …«).
+  PERFORM purge_test.nyt();
+  INSERT INTO pg_temp.gdpr_id VALUES ('p7',public.red_opret_person('Testperson Gdpr Gammelt Navn','mand',true,'1995',NULL,NULL));
+  INSERT INTO pg_temp.gdpr_id VALUES ('q7',public.red_opret_person('Testperson Gdpr Q Syv','kvinde',false,'1900','1980',NULL));
+  INSERT INTO pg_temp.gdpr_id VALUES ('opret7_saet',purge_test.saet());
+  PERFORM purge_test.nyt(); PERFORM public.red_set_privat(pg_temp.gid('q7'),false);
+  PERFORM purge_test.nyt(); PERFORM public.red_upsert_fakta('person',pg_temp.gid('p7'),'navn','Testperson Gdpr Nyt Navn');
+  PERFORM purge_test.nyt();
+  PERFORM public.red_set_feed_pin('portrait:'||pg_temp.gid('p7'),'pin');
+  PERFORM public.red_set_feed_pin('portrait:'||pg_temp.gid('q7'),'pin');
+  INSERT INTO pg_temp.gdpr_id VALUES ('pin7_saet',purge_test.saet());
+  PERFORM purge_test.nyt(); PERFORM public.red_fortryd_change_set(pg_temp.gid('pin7_saet'),false);
+  INSERT INTO pg_temp.gdpr_id SELECT 'pin7_fortryd',id FROM public.change_set WHERE reverterer_id=pg_temp.gid('pin7_saet');
   PERFORM purge_test.nyt();
 END $fix$;
 COMMIT;
@@ -4263,6 +4278,30 @@ BEGIN
     'gdpr_offentlig_forslag_paa_slettet_maal_slettet');
 END $t$;
 \echo OK gdpr_offentlig_forslag_paa_slettet_maal_slettet
+-- Codex runde 7: sletning af P7. Sættet med det gamle navn og fortryd-kopien står (Q7's events/kæde) og var på
+-- kontrollisten (operations-regel og fortryd-regel); det aktuelle navn står ikke i nogen af dem.
+CREATE TEMP TABLE gdpr_p7_preview AS SELECT public.red_slet_person_helt_preview(pg_temp.gid('p7')) AS j;
+BEGIN;
+DO $t$
+DECLARE v_hash text:=(SELECT j->>'sha256' FROM gdpr_p7_preview); v_id bigint:=pg_temp.gid('p7');
+BEGIN
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_slet_person_helt(v_id,v_hash);
+  RESET ROLE;
+END $t$;
+COMMIT;
+DO $t$
+DECLARE j jsonb:=(SELECT j FROM gdpr_p7_preview);
+BEGIN
+  PERFORM pg_temp.gdpr_assert(NOT EXISTS (SELECT 1 FROM public.person WHERE id=pg_temp.gid('p7'))
+    AND EXISTS (SELECT 1 FROM public.change_set WHERE id=pg_temp.gid('opret7_saet') AND summary LIKE '%Gammelt Navn%')
+    AND position('Nyt Navn' IN (SELECT summary FROM public.change_set WHERE id=pg_temp.gid('opret7_saet')))=0
+    AND EXISTS (SELECT 1 FROM public.change_set WHERE id=pg_temp.gid('pin7_fortryd') AND summary LIKE 'Fortrød: %')
+    AND (SELECT count(*) FROM jsonb_array_elements(j->'til_kontrol') x WHERE x->>'tabel'='change_set' AND x->>'grund'='bevaret_summary'
+      AND x->'pk' IN (jsonb_build_object('id',pg_temp.gid('opret7_saet')),jsonb_build_object('id',pg_temp.gid('pin7_saet')),
+        jsonb_build_object('id',pg_temp.gid('pin7_fortryd'))))=3,'gdpr_gammelt_navn_og_fortryd_kopi_paa_kontrol');
+END $t$;
+\echo OK gdpr_gammelt_navn_og_fortryd_kopi_paa_kontrol
 
 -- Forhåndsvisningen viser låste medier, familieindhold der slettes, og vielser der står.
 DO $t$

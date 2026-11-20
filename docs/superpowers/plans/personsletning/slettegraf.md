@@ -286,7 +286,7 @@ var koblet til slettet familieindhold, slettes og låses ikke (kendt, noteret i 
 | S54 | `public.change_event` | lukningen `E` (afsnit 2) | slet | 12 | **ingen trigger**; FK `change_set_id` l. 9312 | |
 | S57 | `change_event` i berørte sæt, uden for `E` | | bevar_andres | – | | id (andres rækker); undtagelse K2 (andres narrativ-/notetekst med `[[person:P|Navn]]`) |
 | S52/S53/S55 | `public.change_set` | regel i afsnit 2.3 | slet (mængden `D`) | 13 | self-FK `reverterer_id` l. 9205 (NO ACTION) | |
-| S52b | sæt med subjekt P, som stadig har andres events | | bevar_andres | – | | id (`subjekt_id=P`, summary med id'er — M1). Undtagelse: K3. Runde 6: summary med feed-nøgle med P's id, `[[person:P|`-token eller P's navn → `til_kontrol` (`bevaret_summary`; også S57-sæt med events slettet nu) |
+| S52b | sæt med subjekt P, som stadig har andres events | | bevar_andres | – | | id (`subjekt_id=P`, summary med id'er — M1). Undtagelse: K3. Runde 6: summary med feed-nøgle med P's id, `[[person:P|`-token eller P's navn → `til_kontrol` (`bevaret_summary`; også S57-sæt med events slettet nu). Runde 7: altid, uanset summary, for de fritekst-/nøglebærende skrivere (spec §6.3) og for fortryd-sæt af et sæt på listen |
 | S56 | indgående FK til sæt: `npe.change_set_id` l. 13887, `paastand_korrektion.change_set_id` l. 10095, `reimport_case_batch.change_set_id` l. 9265 | | P's npe/paastand_korrektion slettes før; `reimport_case_batch` bevares altid (→ sættet bevares) | 3b/6 | | |
 
 ### 1.1 Faseplan (sletteorden, lavest først)

@@ -155,6 +155,11 @@ hvor rækken handler om personen:
   sæt, som sletningen rører (subjekt personen eller en familie i Fam_c, eller events slettet nu),
   og hvis summary bærer en feed-nøgle med personens id, et `[[person:P|…]]`-token eller personens navn, kommer på
   kontrollisten (`til_kontrol`, grund `bevaret_summary`) efter Q8-mønstret. Summary rettes ikke.
+  **Runde 7:** tekstmatch på det aktuelle navn overser et gammelt navn. Derfor kommer et bevaret, rørt sæt fra en
+  skriver, hvis summary kan bære personindhold, ALTID på listen, uanset summary: `red_opret_person`, `red_opret_estate`,
+  `red_opret_kilde`, `red_opret_organisation`, `red_opret_media`, `red_upload_media`, `red_ret_paastand`,
+  `placement_membership_reversal`, `red_set_feed_pin`, `red_fjern_feed_pin`, `red_ret_ocr_felt` og `narrative_record_*`.
+  Fortryd-sæt (»Fortrød: …«) af et sæt på listen kommer med. Tekstmatchet er et ekstra net for øvrige operationer.
 - `red_fortryd_change_set` på et bevaret fælles sæt efter sletningen skal fejle lukket eller give et korrekt resultat
   (test, med og uden force). Den må aldrig genskabe en række, der hører til den slettede (fx en `family`-række), og
   afviser (`FORTRYD_DOED_LINK`) at genskabe tekst med et link til en person, familie eller et medie, der ikke findes.

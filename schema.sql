@@ -23855,6 +23855,26 @@ WITH plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_plan) q(tabel text
       OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc))
     UNION SELECT change_set_id FROM public.change_event
       WHERE id IN (SELECT (pk->>'id')::bigint FROM plan WHERE tabel='change_event' AND handling='slet')),
+  -- Runde 7 (Codex): tekstmatch på det AKTUELLE navn overser et gammelt navn (fx to red_opret_person i samme sæt, P
+  -- omdøbt senere). Operations-regel: et bevaret, rørt sæt fra en skriver, hvis summary kan bære personindhold (navn,
+  -- titel, fritekst eller feed-/record-nøgle), kommer ALTID på listen; tekstmatchet er et ekstra net for øvrige
+  -- operationer. Fortryd-sæt (»Fortrød: …«) af et sådant bevaret sæt følger med.
+  cs_kontrol0 AS MATERIALIZED (
+    SELECT cs.id FROM public.change_set cs CROSS JOIN navn
+    WHERE cs.id IN (SELECT id FROM cs_roert)
+      AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel='change_set' AND d.pk=jsonb_build_object('id',cs.id) AND d.handling='slet')
+      AND (cs.operation IN ('red_opret_person','red_opret_estate','red_opret_kilde','red_opret_organisation','red_opret_media',
+            'red_upload_media','red_ret_paastand','placement_membership_reversal','red_set_feed_pin','red_fjern_feed_pin',
+            'red_ret_ocr_felt')
+        OR cs.operation LIKE 'narrative\_record\_%'
+        OR (cs.summary COLLATE "C") ~ ('(portrait|citat|naevnt|dagensperson|jubilaeum|embede|slaegt|paadennedag):([0-9]+:)?'
+          ||p_person_id::text||'([^0-9]|$)')
+        OR position((('[[person:'||p_person_id::text||'|') COLLATE "C") IN (cs.summary COLLATE "C"))>0
+        OR (navn.navn IS NOT NULL AND position((navn.navn COLLATE "C") IN (cs.summary COLLATE "C"))>0))),
+  cs_kontrol AS MATERIALIZED (
+    SELECT id FROM cs_kontrol0
+    UNION SELECT r.id FROM public.change_set r WHERE r.reverterer_id IN (SELECT id FROM cs_kontrol0)
+      AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel='change_set' AND d.pk=jsonb_build_object('id',r.id) AND d.handling='slet')),
   rk AS MATERIALIZED (SELECT r.id,CASE WHEN r.subjekt_type='media' THEN r.subjekt_id ELSE r.objekt_id END AS media_id
     FROM public.relation r WHERE
       (r.subjekt_type='media' AND r.objekt_type='family' AND r.objekt_id IN (SELECT id FROM private.person_purge_familieindhold(p_person_id))
@@ -23957,13 +23977,7 @@ SELECT 'NY-E'::text,'citation'::text,jsonb_build_object('id',c.id),'bevaret_evid
 UNION
 SELECT CASE WHEN cs.subjekt_type='person' AND cs.subjekt_id=p_person_id THEN 'S52b' ELSE 'S57' END::text,'change_set'::text,
     jsonb_build_object('id',cs.id),'bevaret_summary'::text
-  FROM public.change_set cs CROSS JOIN navn
-  WHERE cs.id IN (SELECT id FROM cs_roert)
-    AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel='change_set' AND d.pk=jsonb_build_object('id',cs.id) AND d.handling='slet')
-    AND ((cs.summary COLLATE "C") ~ ('(portrait|citat|naevnt|dagensperson|jubilaeum|embede|slaegt|paadennedag):([0-9]+:)?'
-          ||p_person_id::text||'([^0-9]|$)')
-      OR position((('[[person:'||p_person_id::text||'|') COLLATE "C") IN (cs.summary COLLATE "C"))>0
-      OR (navn.navn IS NOT NULL AND position((navn.navn COLLATE "C") IN (cs.summary COLLATE "C"))>0))
+  FROM cs_kontrol k JOIN public.change_set cs ON cs.id=k.id
 $purge_control$;
 REVOKE ALL ON FUNCTION private.person_purge_kontrol(bigint,jsonb) FROM PUBLIC,anon,authenticated,service_role;
 
