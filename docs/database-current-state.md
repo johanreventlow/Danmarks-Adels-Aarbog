@@ -557,7 +557,10 @@ som `5e274f54`. Privat runner `~/.private/visning-floruit/prod.zsh`, kørt i pro
 - **Fortrydelse:** `prod.zsh fortryd --jeg-mener-det` genskaber prods egne definitioner fra før kørslen
   (`~/.private/visning-floruit/fortryd-definitioner.prod.sql`), dropper de nye objekter og nulstiller kolonnen.
   Kolonnen bliver. Web på main læser kolonnen, så fortryd kræver også et Vercel-bundt fra før #398.
-- **Ikke kørt:** Security Advisor (MCP når ikke prod; projektejeren kører den i dashboardet).
+- **Security Advisor** (projektejeren i dashboardet, 2026-11-20 efter DDL): intet fund nævner de fire nye funktioner eller
+  triggerne. Fundene er de kendte: 12 `anon_security_definer_function_executable` på læserfunktionerne (11 som 12/11 plus
+  `public_person_source_coordinates_samlet` fra §31), `authenticated_…` på `public.red_*`/`current_rolle`/`hist_*`,
+  `rls_enabled_no_policy` (INFO) på private/interne tabeller og `auth_leaked_password_protection` (kræver Pro, parkeret).
 - **Står tilbage:** issue #396 (cache-drift i 83 rækker, uændret af denne ændring); leverance 2 (biografierne).
 
 ## 32. `record_persona`: Henrik og Iven får deres egen 1939-tekst — LIVE i prod (2026-11-18)
