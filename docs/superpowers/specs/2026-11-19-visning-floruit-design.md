@@ -84,8 +84,8 @@ til Brunsholm«), så visningen bygges af `date_min/date_max`, ikke af råtekste
    - *Konfidens (invariant 7):* en formodet eller omstridt ægteskabsforbindelse må ikke datere personen; usikkerheden
      vises i familieafsnittet, ikke i årstallet.
 
-**Spænd:** `lo = min(år(coalesce(date_min, date_max)))`, `hi = max(år(coalesce(date_max, date_min)))` over alle
-kilder. Åbne ender (`date_min` NULL = »før«) falder dermed tilbage på den kendte ende. `lo = hi` → `'1671'`, ellers
+**Spænd:** `lo = min(år(least(date_min, date_max)))`, `hi = max(år(greatest(date_min, date_max)))` over alle
+kilder (`least`/`greatest` ignorerer NULL og vender et omvendt interval). Åbne ender (`date_min` NULL = »før«) falder dermed tilbage på den kendte ende. `lo = hi` → `'1671'`, ellers
 `'lo–hi'`; ingen kilder → NULL.
 
 **Kvalifikatorer og læsesikkerhed** (*mit valg*): `date_qualifier` (`before`, `after`, `about` …) og
