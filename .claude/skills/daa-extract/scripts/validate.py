@@ -576,7 +576,7 @@ def derive_date_info(date_raw):
     # Dag + månedsnavn: '25. marts' (2018-20) og '25 marts' (1939, uden punktum). Uden punktum kræves mellemrum, og
     # intet ciffer må stå foran dagen, så '1612 marts' ikke læses som den 12. marts. Samme udtryk som ocrKvalitet.ts.
     # Dagsinterval må ikke give et enkelt dagmatch. Samme udtryk som ocrKvalitet.ts.
-    day_range = re.search(r'(?<!\d)(\d{1,2})\.?\s*[-–—]\s*(\d{1,2})\.?(?:\s+)([a-zæøåäöü]+)', t)
+    day_range = re.search(r'(?<![\d\-–—])(\d{1,2})\.?\s*[-–—]\s*(\d{1,2})\.?(?:\s+)([a-zæøåäöü]+)', t)
     if day_range and not (q_between or q_before or q_after or q_about or q_floruit):
         d1, d2 = int(day_range.group(1)), int(day_range.group(2))
         mo = _month_from_name(day_range.group(3))
