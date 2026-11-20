@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-20 — »Slet helt« af en ikke-offentlig person efterlader intet, der bliver synligt (review 37 P1+P2)
+
+Før kunne sletning af en levende, privat eller ikke-udgivet person gøre et bevaret billede eller en families indhold
+offentligt, fordi det netop var personen, der holdt det skjult. Nu låses billeder, personen var afbildet på
+(`maa_publiceres=false`), og alt familieindhold på familier, hvor personen var ægtefælle eller barn, slettes med
+evidens og historik. Et familiefoto koblet direkte til familien beholder koblingen og låses; et billede, hvis eneste
+kobling var slettet familieindhold, slettes. Låste billeder, bevaret evidens og bevarede ændringsbeskrivelser kommer på
+redaktørens kontrolliste, og sletdialogen viser hver berørt familie. Uændret for en offentlig person (bortset fra at
+forslag på slettede oplysninger nu også slettes). PR #410; DDL i prod efter merge (`database-current-state.md` §37).
+
 ## 2026-11-20 — Ret læsefejl i en kildepåstand, også uden importanker
 
 Redaktøren kan nu rette en OCR-læsefejl i en importeret kildepåstand direkte på påstanden (»Ret læsefejl« i

@@ -529,6 +529,28 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 37. Personsletning for ikke-offentlig person: familieindhold slettes, bevarede billeder låses (review 37 P1+P2) — LIVE i prod (2026-11-20)
+
+**Grundlag:** decisions 2026-11-20 (løsning A + afgrænsning), spec `docs/superpowers/specs/2026-11-14-fuld-personsletning-design.md`,
+slettegraf `docs/superpowers/plans/personsletning/slettegraf.md`, PR #410 (merget `015b10cb`). Privat runner
+`~/.private/review37-p1p2/prod.zsh`, kørt i projektejerens shell efter merge (web tåler den gamle database).
+
+- **DDL:** kun blokken `-- ===== review37-p1p2: …` … `-- END review37-p1p2` fra `db-migrations.sql` @ `015b10cb`
+  (sha `9ae1da00…`): 10 funktioner (`red_slet_person_helt` og `private.person_purge_*`; nye:
+  `person_purge_ikke_offentlig`, `person_purge_familieindhold`, kun ejeren kan kalde dem). Ingen data ændret.
+  Invarianter i transaktionen: `md5(pg_get_functiondef)` for alle 10 = frisk base af samme SQL; ACL; tal for `person`,
+  `family`, `fact`, `relation`, `media` (+ frigivne), `note`, `change_set`, `change_event` uændrede. 42 s (inkl. røgtest).
+- **Røgtest i transaktionen** (historik → plan → preview → kontrol for de 3 personer med flest fakta, 1 levende og 1
+  afbildet): koldt 1,6-12,6 s (306 er tungest), varmt 1,4-1,8 s. Kold første preview over 8 s var kendt med den gamle
+  kode (18/11, backlog: 8 s-loft for store profiler); dialogen siger »prøv igen«.
+- **Generalprøve** på stand-in fra `daa-prod-20261120202702-laes.dump` (sha `6ac3a0a9…`): prøve, commit, gentaget apply
+  afvist, fortryd trofast (hashes = før), apply igen.
+- **Efter (ny, læse-kun forbindelse):** alle 10 hashes = facit.
+- **Web live:** Redaktion-bundtet indeholder de nye kontrolgrunde (`laast_familiefoto`).
+- **Fortrydelse:** `prod.zsh fortryd --jeg-mener-det` genskaber prods egne 8 definitioner fra før
+  (`~/.private/review37-p1p2/fortryd-definitioner.prod.sql`) og dropper de 2 nye.
+- **Stopregel ophævet:** »Slet helt« må igen bruges på personer med billeder.
+
 ## 36. OCR-rettelse af kildepåstand uden importanker (`red_ret_ocr_paastand`) — LIVE i prod (2026-11-20)
 
 **Grundlag:** decisions 2026-11-20, plan `docs/superpowers/plans/2026-11-20-ocr-rettelse-af-kildepaastand.md`, PR #407.
