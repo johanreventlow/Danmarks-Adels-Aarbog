@@ -2,10 +2,13 @@
 # =====================================================================
 #  load_presens.R — loader VALIDERET præsensliste-udtræk (clean.json).
 #
-#  Brug:  Rscript load_presens.R clean.json [udgave] --jeg-mener-det
+#  Brug:  Rscript load_presens.R clean.json [udgave] (--dry-run | --jeg-mener-det)
 #         udgave default "DAA 2012-2014".
 #  Login fra ~/.Renviron. SKRIVER TIL PROD: --jeg-mener-det er obligatorisk, og
-#  ukendte flag afvises (presens_args.R).
+#  ukendte flag afvises (presens_args.R). --dry-run kører det hele og ruller
+#  tilbage; den tager de samme EXCLUSIVE-låse på 13 tabeller (skrivere venter).
+#  Genkørselsværn (review 37, E6): findes en præsensliste-kilde med samme udgave,
+#  stopper loaderen før første INSERT — en genkørsel ville dublere alle levende.
 #
 #  APPEND-only: præsenslisten er en NY source der sameksisterer med
 #  stamtavle-data — id'er allokeres fra MAX(id) i basen. Der er ingen TRUNCATE;
@@ -22,6 +25,7 @@ source(file.path(script_dir, "presens_args.R"))
 args   <- parse_load_presens_args(commandArgs(trailingOnly = TRUE))
 path   <- args$path
 udgave <- args$udgave
+DRY_RUN <- args$dry_run
 
 # source.aar = tidsserie-aksen (schema.sql:37 — udgave-fritekst er upålidelig til sortering).
 # Konvention: SIDSTE dækkede år. Fail-closed: uparsebar udgave-streng stopper FØR DB-kontakt,
@@ -139,6 +143,15 @@ tryCatch({
   ex(paste0("LOCK TABLE ", paste(id_tables, collapse = ", "), " IN EXCLUSIVE MODE"))
   seed_seq()
 
+  # Genkørselsværn (E6) under EXCLUSIVE-låsen på source, så to samtidige kørsler ikke begge
+  # passerer. source.import_key sættes bevidst ikke: den nøgle bærer stamtavlernes
+  # OCR-journal (import_korrektion), og præsenslistens personer har ingen record_key.
+  findes <- dbGetQuery(con, "SELECT count(*)::int AS n FROM source WHERE slags = 'præsensliste' AND udgave = $1",
+                       params = list(udgave))$n[[1]]
+  if (findes != 0L)
+    stop(sprintf("præsenslisten '%s' er allerede indlæst (%d kilde(r)); en genkørsel ville dublere personerne.",
+                 udgave, findes))
+
   src <- nid("source")
   ex("INSERT INTO source (id, slags, titel, udgave, aar, ekstern) VALUES ($1,'præsensliste',$2,$3,$4,FALSE)",
      list(src, paste("Dansk Adels Aarbog (præsensliste) –", udgave), udgave, aar))
@@ -211,14 +224,20 @@ tryCatch({
     if (mangler != 0L)
       stop(sprintf("%d nye personer med navn har tom visning_navn: cache-triggerne har ikke kørt (schema-drift?)", mangler))
   }
-  # Fail-closed sekvens-sync før commit (IDENTITY-kontrakt): tabeller uden
-  # identity-sekvens (base før migrationen) er eneste lovlige undtagelse.
-  for (t in id_tables) {
-    s <- dbGetQuery(con, sprintf("SELECT pg_get_serial_sequence('%s','id') s", t))$s[1]
-    if (is.na(s) || is.null(s)) message(sprintf("sekvens-sync: %s uden identity — sprunget over", t))
-    else ex(sprintf("SELECT setval('%s', (%s) + 1, false)", s, sub(" m$", "", id_gulv_sql(t))))
+  if (DRY_RUN) {
+    # setval er ikke transaktionel: sekvens-sync hører kun til skrivegrenen.
+    dbRollback(con)
+    message(sprintf("DRY-RUN: %d personer fra præsensliste (%s) ville være indlæst; rullet tilbage.", total, udgave))
+  } else {
+    # Fail-closed sekvens-sync før commit (IDENTITY-kontrakt): tabeller uden
+    # identity-sekvens (base før migrationen) er eneste lovlige undtagelse.
+    for (t in id_tables) {
+      s <- dbGetQuery(con, sprintf("SELECT pg_get_serial_sequence('%s','id') s", t))$s[1]
+      if (is.na(s) || is.null(s)) message(sprintf("sekvens-sync: %s uden identity — sprunget over", t))
+      else ex(sprintf("SELECT setval('%s', (%s) + 1, false)", s, sub(" m$", "", id_gulv_sql(t))))
+    }
+    dbCommit(con); message(sprintf("Indlæst %d personer fra præsensliste (%s).", total, udgave))
   }
-  dbCommit(con); message(sprintf("Indlæst %d personer fra præsensliste (%s).", total, udgave))
 }, error = function(e) { dbRollback(con); dbDisconnect(con)
   stop("Load fejlede, rullet tilbage: ", conditionMessage(e)) })
 

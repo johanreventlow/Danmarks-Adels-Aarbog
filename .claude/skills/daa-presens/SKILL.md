@@ -95,12 +95,17 @@ regelkoder; navne, datoer og lokal_id'er står kun i `review.json`/`advisory.jso
 ### ⑤ Load (append) til Supabase
 
 ```bash
+# prøvekørsel: hele loaden i én transaktion, rulles tilbage
+Rscript .claude/skills/daa-presens/scripts/load_presens.R work_presens/clean.json "DAA 2012-2014" --dry-run
 Rscript .claude/skills/daa-presens/scripts/load_presens.R work_presens/clean.json "DAA 2012-2014" --jeg-mener-det
 ```
 
 **Append som default** (ingen TRUNCATE): præsenslisten er en ny `source` der
 sameksisterer med stamtavle-data; id'er allokeres fra `MAX(id)`. Scriptet skriver
-til prod: `--jeg-mener-det` er obligatorisk, og ukendte flag afvises. `--reset` er
+til prod: `--jeg-mener-det` (eller `--dry-run`) er obligatorisk, og ukendte flag afvises.
+Findes en præsensliste-kilde med samme udgave allerede, stopper loaderen før første
+skrivning (review 37, E6): en genkørsel ville dublere alle levende personer.
+`person.visning_*` skrives af databasens triggere, aldrig af loaderen (E5, invariant 4). `--reset` er
 fjernet (review 2026-10-27, fund 1c-01) — start forfra ved restore af et dump.
 Loader personer (`levende=TRUE`) + fakta + forælder-barn/ægtefælle-familier +
 kollateral-relation til gren-hoved.
