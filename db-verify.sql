@@ -7028,6 +7028,73 @@ END $verify_visning_floruit_livsdatoer$;
 ROLLBACK;
 
 
+-- ===== visning-cache-regler (issue #396): titel- og datoregel i regen_person_visning =====
+-- Titel: adelstitlen vinder over embeder; uden adelstitel den første i bogens orden (laveste fact.id) — uanset
+-- indsættelses- og alfabetisk orden. Fødsel/død: kun date_raw; en udateret tekst (»ung«) er ingen livsdato.
+-- Hele fixturen rulles tilbage. Forvent: NOTICE "OK: visning-cache-regler".
+BEGIN;
+DO $verify_visning_cache_regler$
+DECLARE
+  p_adel CONSTANT bigint := -987716001; p_embede CONSTANT bigint := -987716002; p_ung CONSTANT bigint := -987716003;
+  v text;
+BEGIN
+  INSERT INTO person(id,levende,privat) VALUES (p_adel,false,false),(p_embede,false,false),(p_ung,false,false);
+  -- p_adel: »kammerherre« (fact -987716013, laveste id) og »Greve« (-987716011); konklusionerne indsættes i
+  -- omvendt orden, og »kammerherre« er alfabetisk størst — den gamle max()-regel valgte den.
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES
+    (-987716013,'person',p_adel,'titel'),(-987716011,'person',p_adel,'titel'),
+    (-987716012,'person',p_embede,'titel'),(-987716014,'person',p_embede,'titel'),
+    (-987716015,'person',p_ung,'død'),(-987716016,'person',p_ung,'fødsel'),(-987716017,'person',p_ung,'floruit');
+  INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst) VALUES
+    (-987716021,'fact',-987716011,'Greve'),(-987716023,'fact',-987716013,'kammerherre'),
+    (-987716022,'fact',-987716012,'Sekltnt.'),(-987716024,'fact',-987716014,'Fændrik ved Livregimentet'),
+    (-987716025,'fact',-987716015,'ung'),(-987716026,'fact',-987716016,'lille');
+  INSERT INTO assertion(id,target_type,target_id,date_raw,date_min,date_max) VALUES
+    (-987716027,'fact',-987716017,'nævnt 1620','1620-01-01','1620-12-31');
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status) VALUES
+    (-987716031,'fact',-987716011,-987716021,'afklaret'),(-987716033,'fact',-987716013,-987716023,'afklaret'),
+    (-987716034,'fact',-987716014,-987716024,'afklaret'),(-987716032,'fact',-987716012,-987716022,'afklaret'),
+    (-987716035,'fact',-987716015,-987716025,'afklaret'),(-987716036,'fact',-987716016,-987716026,'afklaret'),
+    (-987716037,'fact',-987716017,-987716027,'afklaret');
+  -- Cachen skrevet af triggerne; en eksplicit regen skal give det samme.
+  UPDATE person SET visning_titel='forældet', visning_doed='forældet', visning_foedt='forældet'
+    WHERE id IN (p_adel,p_embede,p_ung);
+  PERFORM regen_person_visning(p_adel); PERFORM regen_person_visning(p_embede); PERFORM regen_person_visning(p_ung);
+  SELECT visning_titel INTO v FROM person WHERE id=p_adel;
+  IF v IS DISTINCT FROM 'Greve' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-cache-regler: adelstitel forventede Greve, fik %', v;
+  END IF;
+  -- »Fændrik …« har laveste fact.id (-987716014 < -987716012) og vinder over den alfabetisk større »Sekltnt.«.
+  SELECT visning_titel INTO v FROM person WHERE id=p_embede;
+  IF v IS DISTINCT FROM 'Fændrik ved Livregimentet' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-cache-regler: første titel forventede Fændrik ved Livregimentet, fik %', v;
+  END IF;
+  -- Adelstitlen matches uden hensyn til store bogstaver og omgivende mellemrum.
+  UPDATE assertion SET vaerdi_tekst=' GREVE ' WHERE id=-987716021;
+  PERFORM regen_person_visning(p_adel);
+  IF (SELECT visning_titel FROM person WHERE id=p_adel) IS DISTINCT FROM ' GREVE ' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-cache-regler: adelstitel matchede ikke uden hensyn til form';
+  END IF;
+  IF (SELECT row(visning_doed, visning_foedt) FROM person WHERE id=p_ung) IS DISTINCT FROM row(NULL::text, NULL::text) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-cache-regler: udateret død/fødsel gav livsdato (%/%)',
+      (SELECT visning_doed FROM person WHERE id=p_ung), (SELECT visning_foedt FROM person WHERE id=p_ung);
+  END IF;
+  -- Uden livsdatoer vises floruit stadig.
+  IF (SELECT visning_floruit FROM person WHERE id=p_ung) IS DISTINCT FROM '1620' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-cache-regler: floruit forventede 1620, fik %',
+      (SELECT visning_floruit FROM person WHERE id=p_ung);
+  END IF;
+  -- En død med datotekst vises stadig.
+  UPDATE assertion SET date_raw='1650' WHERE id=-987716025;
+  PERFORM regen_person_visning(p_ung);
+  IF (SELECT visning_doed FROM person WHERE id=p_ung) IS DISTINCT FROM '1650' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-cache-regler: død med date_raw blev ikke vist';
+  END IF;
+  RAISE NOTICE 'OK: visning-cache-regler';
+END $verify_visning_cache_regler$;
+ROLLBACK;
+
+
 -- ===== Task 3: current_rolle + red_upsert_fakta (fact-triplet, rolle-gated) =====
 -- (a) Uden redaktion-rolle: forvent afvisning.
 -- Forvent: NOTICE "OK: medlem afvist".

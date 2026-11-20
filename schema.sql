@@ -6471,13 +6471,19 @@ BEGIN
   WHERE p.id = pid AND p.visning_floruit IS DISTINCT FROM final.floruit;
 END $$;
 
--- Recompute cache-felter fra personens konklusioner. Læser den VALGTE assertions værdi
--- pr. faktatype. Dato-fakta (fødsel/død) bruger coalesce(date_raw, vaerdi_tekst).
+-- Recompute cache-felter fra personens konklusioner. Læser den VALGTE assertions værdi pr. faktatype.
 -- Udvidet (udledt-slægtsnavn-design §4.5) til også at sætte visning_efternavn/visning_fuldt_navn.
 -- Efternavn-opslaget er fan-out-sikkert: LATERAL sikrer ÉN lineage_effective_slaegtsnavn-kald pr.
 -- linje-medlemskab (fremfor to — én for count(DISTINCT), én for min() — som i den oprindelige
 -- CTE-form), og resultatet genbruges BÅDE i UPDATE'ets CASE-logik og karantæne-tjekket nedenfor i
 -- stedet for at gen-joine person_external_id/lineage en ekstra gang (/simplify-fund, review 19).
+-- visning-cache-regler (issue #396, 2026-11-20):
+--  * Fødsel/død viser kun date_raw (bogens/redaktørens datotekst). En udateret dødsoplysning som »ung« eller
+--    »fem dage gammel« ligger i vaerdi_tekst og er ikke en livsdato (ville ellers give »2. okt. 1859–lille«).
+--  * Titel: flere afklarede titel-fakta er normalt; vis adelstitlen (lukket liste, identisk med web's
+--    ADELS_TITLER i web/src/data/presens.ts — en vitest låser dem sammen), ellers den første i bogens orden
+--    (laveste fact.id, så conclusion.id). Før valgte triggeren alfabetisk max() og loaderen LIMIT 1, så titlen
+--    skiftede, når en redaktør rørte personen.
 CREATE OR REPLACE FUNCTION regen_person_visning(pid BIGINT)
 RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
 DECLARE v_n_distinct INT; v_slaegtsnavn TEXT;
@@ -6491,9 +6497,13 @@ BEGIN
   WITH navn_agg AS (
     SELECT
       max(a.vaerdi_tekst) FILTER (WHERE f.faktatype='navn')  AS navn,
-      max(coalesce(a.date_raw,a.vaerdi_tekst)) FILTER (WHERE f.faktatype='fødsel') AS foedt,
-      max(coalesce(a.date_raw,a.vaerdi_tekst)) FILTER (WHERE f.faktatype='død')    AS doed,
-      max(a.vaerdi_tekst) FILTER (WHERE f.faktatype='titel') AS titel
+      max(a.date_raw) FILTER (WHERE f.faktatype='fødsel') AS foedt,
+      max(a.date_raw) FILTER (WHERE f.faktatype='død')    AS doed,
+      (array_agg(a.vaerdi_tekst ORDER BY
+         lower(trim(a.vaerdi_tekst)) IN ('greve','grevinde','komtesse','comtesse','lensgreve','lensgrevinde',
+                                         'baron','baronesse','friherre','friherreinde','rigsgreve','rigsgrevinde') DESC,
+         f.id, c.id)
+        FILTER (WHERE f.faktatype='titel' AND a.vaerdi_tekst IS NOT NULL))[1] AS titel
     FROM fact f
     -- Review trin B (1d.1-04): kun afklarede konklusioner (en omstridt/forældet/tilbagetrukket indgår ikke).
     JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
