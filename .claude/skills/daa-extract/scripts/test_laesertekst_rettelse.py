@@ -31,7 +31,7 @@ def _r(fra, til, art="ocr", billede="bekraefter"):
 
 def opsaet(tmp_path, b_svar=None):
     """p1, p2 skrivbare; p3 kun_rapport. Samme OCR-par på alle tre; p2 har desuden en grænserettelse."""
-    eksport = {"udgave": "Testudgave", "source_id": 3, "personer": {},
+    eksport = {"udgave": "Testudgave", "source_id": 3, "import_key": "daa:1939", "personer": {},
                "poster": [_post(1), _post(2), _post(3, tilladte=("withdraw",))]}
     bidder, noegle = mg.byg_input(eksport)
     b_svar = b_svar or [
