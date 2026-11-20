@@ -311,6 +311,16 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   // stadig ville være det gamle efter en genhentning. renderBekraeft slår op i aktuel state.
   const [bekraeft, setBekraeft] = useState<{ familyId: string; personId: string; navn: string } | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
+  // Slægts/linje-narrativ kunne ikke hentes (review 37 W3): vises som fejl, ikke som »ingen tekst endnu«.
+  const [narrativFejl, setNarrativFejl] = useState<string | null>(null);
+  // Review 37 W1: hvad redaktøren har valgt LIGE NU (fra URL'en, som er sandheden). En skrivning,
+  // der blev startet for person A, må ikke genindlæse A under B's navn, når den afsluttes.
+  const pathRef = useRef(path);
+  pathRef.current = path;
+  const erValgt = useCallback((ent: string, id: string | null | undefined) => {
+    const p = parseRedaktionPath(pathRef.current);
+    return p.entity === ent && p.recordId === (id ?? null);
+  }, []);
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [editingAssert, setEditingAssert] = useState<number | null>(null);
@@ -541,15 +551,24 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   // Generaliseret fra person-only (billeder-i-narrativer 2026-07-05, Slice C3) — genbruges nu også
   // af slægts/linje-narrativ-editoren, samme udgave-fane-tilstand (narrativer/aktivSourceId/
   // narrativUdkast/nyUdgave), blot et andet (subjekt_type, subjekt_id).
+  // Generationsvagt (review 37 W3): kun det nyeste kald må skrive udkast-state; et sent svar for en
+  // tidligere linje ville ellers lægge dens tekst i editoren for den nu valgte linje.
+  const narrativGenRef = useRef(0);
   const loadNarrativer = useCallback((subjektType: string, subjektId: number) => {
-    setNarrativer([]); setAktivSourceId(null); setNyUdgave(null);
+    const gen = ++narrativGenRef.current;
+    setNarrativer([]); setAktivSourceId(null); setNyUdgave(null); setNarrativFejl(null);
     setNarrativUdkast({ tekst: '', privat: false, side: '' });
     fetchNarrativer(subjektType, subjektId).then((ns) => {
+      if (gen !== narrativGenRef.current) return;
       setNarrativer(ns);
       const first = ns[0];
       setAktivSourceId(first?.sourceId ?? 1);
       setNarrativUdkast({ tekst: first?.tekst ?? '', privat: first?.privat ?? false, side: first?.side ?? '' });
-    }).catch(() => { setNarrativer([]); setAktivSourceId(1); setNarrativUdkast({ tekst: '', privat: false, side: '' }); });
+    }).catch((e) => {
+      if (gen !== narrativGenRef.current) return;
+      setNarrativer([]); setAktivSourceId(null); setNarrativUdkast({ tekst: '', privat: false, side: '' });
+      setNarrativFejl(oversaetFejl(String((e as Error)?.message ?? e)));
+    });
   }, []);
 
   // Request-generation: øges ved hvert loadPerson-kald. Hver .then/.catch nedenfor sætter kun state,
@@ -568,9 +587,10 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   const loadPerson = useCallback((id: string, opts?: { skipMedia?: boolean }) => {
     storySaveGuardRef.current.invalidate();
     const gen = ++personGenRef.current;
+    narrativGenRef.current++; // et igangværende slægts/linje-narrativsvar må ikke lande i person-state
     const aktuel = () => gen === personGenRef.current;
     const meld = (e: unknown) => { if (aktuel()) setLoadErr(oversaetFejl(String((e as Error)?.message ?? e))); };
-    setEvidence(null); setHaendelser([]); setStories([]); setStoryEditor(null); setHaendelseNotice(''); setFamilie(null); setRelationer(null); setEditingAssert(null); setAddingFact(null); setAddingNyFelt(null); setBekraeft(null);
+    setEvidence(null); setHaendelser([]); setStories([]); setStoryEditor(null); setHaendelseNotice(''); setFamilie(null); setRelationer(null); setSammeSom([]); setEditingAssert(null); setAddingFact(null); setAddingNyFelt(null); setBekraeft(null);
     fetchPersonEvidence(id).then((v) => { if (aktuel()) setEvidence(v); }).catch(meld);
     fetchHaendelserForPerson(id).then((v) => { if (aktuel()) setHaendelser(v); }).catch(meld);
     fetchStoriesForPerson(id).then((v) => { if (aktuel()) setStories(v); }).catch(meld);
@@ -678,9 +698,11 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
     if (!slaegtSubjekt) return;
     loadNarrativer(slaegtSubjekt.type, slaegtSubjekt.id);
     setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
-    if (slaegtSubjekt.type === 'lineage') {
-      fetchRedObjectMedia('lineage', String(slaegtSubjekt.id)).then(setMedia).catch(() => setMedia([]));
-    }
+    if (slaegtSubjekt.type !== 'lineage') return;
+    let aktiv = true;
+    fetchRedObjectMedia('lineage', String(slaegtSubjekt.id))
+      .then((v) => { if (aktiv) setMedia(v); }).catch(() => { if (aktiv) setMedia([]); });
+    return () => { aktiv = false; };
   }, [slaegtSubjekt, loadNarrativer]);
 
   // Objekt-foto (Slice 0h): estate/arms er de eneste generiske entiteter med et materiale-galleri
@@ -689,8 +711,11 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   const refreshObjMedia = useCallback(() => {
     if (!HAR_OBJEKT_MATERIALE.has(entity) || !curRecord) return;
     const db = ENTITY_DB[entity];
-    fetchRedObjectMedia(db.type, curRecord.id).then(setMedia).catch(() => setMedia([]));
-  }, [entity, curRecord]);
+    const ent = entity, id = curRecord.id;
+    fetchRedObjectMedia(db.type, id)
+      .then((v) => { if (erValgt(ent, id)) setMedia(v); })
+      .catch(() => { if (erValgt(ent, id)) setMedia([]); });
+  }, [entity, curRecord, erValgt]);
   useEffect(() => {
     if (!HAR_OBJEKT_MATERIALE.has(entity)) return;
     setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
@@ -762,11 +787,16 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
       // sletRelation dækker også ikke-media unlinks (hverv/gods) — en ekstra, harmløs medie-refetch
       // for dem er billigere end at holde to separate art-lister i sync (/simplify-fund).
       const mediaChanged = MEDIA_ARTER.has(change.art);
-      if (!dryRun && options?.refresh !== false && entity === 'person' && recordId) loadPerson(recordId, { skipMedia: !mediaChanged });
-      if (!dryRun && HAR_OBJEKT_MATERIALE.has(entity) && mediaChanged) refreshObjMedia();
+      // Review 37 W1: genindlæs kun, hvis redaktøren stadig står på samme record. Er der skiftet
+      // til B undervejs, har B's egen indlæsning allerede kørt, og den skal stå urørt.
+      const stadigValgt = erValgt(entity, recordId);
+      if (!dryRun && stadigValgt && options?.refresh !== false && entity === 'person' && recordId) loadPerson(recordId, { skipMedia: !mediaChanged });
+      if (!dryRun && stadigValgt && HAR_OBJEKT_MATERIALE.has(entity) && mediaChanged) refreshObjMedia();
       // Linje-materiale (Slice C3) — "Generelt" (recordId 'generelt') har ingen billed-samling.
-      if (!dryRun && entity === 'slaegt' && recordId && recordId !== 'generelt' && mediaChanged) {
-        fetchRedObjectMedia('lineage', recordId).then(setMedia).catch(() => setMedia([]));
+      if (!dryRun && stadigValgt && entity === 'slaegt' && recordId && recordId !== 'generelt' && mediaChanged) {
+        fetchRedObjectMedia('lineage', recordId)
+          .then((v) => { if (erValgt('slaegt', recordId)) setMedia(v); })
+          .catch(() => { if (erValgt('slaegt', recordId)) setMedia([]); });
       }
       if (!dryRun && mediaChanged && entity === 'media') refreshMediaBibliotek();
       if (!dryRun && mediaChanged && mediaDetalje) {
@@ -785,7 +815,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
       setWriteView({ title: titel + ' fejlede', lines: [], error: oversaetFejl(String((e as Error)?.message ?? e)), done: false, dryRun, direkte: false });
       return undefined;
     }
-  }, [dryRun, role, entity, recordId, loadPerson, refreshObjMedia, refreshMediaBibliotek, mediaDetalje]);
+  }, [dryRun, role, entity, recordId, loadPerson, refreshObjMedia, refreshMediaBibliotek, mediaDetalje, erValgt]);
 
   // Fortryd fra historik-panelet (issue #144): samme submitChange-flow som run(), men med
   // rå-fejl-klassifikation FØR oversaetFejl — B9-konflikten ("nyere ændring rører samme data")
@@ -809,7 +839,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
       const res = await submitChange(change, { dryRun, role });
       setWriteView({ title: dryRun ? 'Dry-run · dette ville blive sendt' : 'Ændring fortrudt',
         lines: [describeCall(res.call)], error: '', done: !dryRun, dryRun, direkte: res.direkte });
-      if (!dryRun && recordId) {
+      if (!dryRun && recordId && erValgt('person', recordId)) {
         loadPerson(recordId, { skipMedia: true });
         if (post.undoKind === 'publication_event') setPersonNarrativeRefresh((version) => version + 1);
       }
@@ -820,7 +850,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
       setWriteView({ title: 'Fortryd fejlede', lines: [], error: oversaetFejl(raw), done: false, dryRun, direkte: false });
       return 'fejl';
     }
-  }, [dryRun, role, recordId, loadPerson]);
+  }, [dryRun, role, recordId, loadPerson, erValgt]);
 
   const submitNarrativeRecordChange = useCallback(async (change: Change, title: string): Promise<boolean> => {
     try {
@@ -1420,7 +1450,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
         {role === 'redaktion' ? (
           <>
             <div style={sectionHeader(24)}>Ændringshistorik</div>
-            <HistorikPanel personId={String(p.id)} onFortryd={fortrydChangeSet} />
+            <HistorikPanel key={String(p.id)} personId={String(p.id)} onFortryd={fortrydChangeSet} />
           </>
         ) : null}
       </div>
@@ -1519,7 +1549,12 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
     return (
       <div style={{ padding: '24px 30px 60px', maxWidth: 780 }}>
         <div style={{ fontFamily: T.serif, fontSize: 30, fontWeight: 600, lineHeight: 1, marginBottom: 16 }}>{slaegtSubjekt.label}</div>
-        {renderNarrativEditor(slaegtSubjekt)}
+        {narrativFejl ? (
+          <div role="alert" style={{ margin: '12px 0', color: T.danger, fontSize: 13.5 }}>
+            Narrativet kunne ikke hentes: {narrativFejl}{' '}
+            <span onClick={() => loadNarrativer(slaegtSubjekt.type, slaegtSubjekt.id)} style={{ fontWeight: 600, color: T.bordeaux, cursor: 'pointer' }}>Prøv igen</span>
+          </div>
+        ) : renderNarrativEditor(slaegtSubjekt)}
         {slaegtSubjekt.type === 'lineage' && renderMateriale({
           subjektType: 'lineage', subjektId: String(slaegtSubjekt.id),
           uploadTarget: { objektType: 'lineage', objektId: String(slaegtSubjekt.id) },

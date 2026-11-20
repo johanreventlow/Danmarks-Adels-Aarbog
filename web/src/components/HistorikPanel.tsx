@@ -4,7 +4,7 @@
 // som Redaktion.tsx implementerer gennem det delte submitChange-flow (dry-run/rolle/
 // writeView). 'konflikt' er B9-divergensen ("nyere ændring rører samme data") — den vises
 // som et eksplicit force-valg i panelet; tavs overskrivning findes ikke.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { T } from '../theme';
 import { fetchHistorik, type HistPost } from '../data/historik';
 
@@ -20,25 +20,36 @@ export function HistorikPanel({ personId, onFortryd }: {
   const [konfliktId, setKonfliktId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // Review 37 W2: kun det nyeste svar for den NUVÆRENDE person må sætte state. Et sent svar for en
+  // tidligere person ville ellers vise dennes historik (og »Fortryd« med dens changeSetId) her.
+  const genRef = useRef(0);
+  const mountedRef = useRef(true);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
+  const personRef = useRef(personId);
+  personRef.current = personId;
+  useEffect(() => () => { genRef.current++; }, [personId]);
   const indlaes = useCallback(() => {
+    const gen = ++genRef.current;
     setStatus('loading');
     fetchHistorik(personId)
-      .then((hist) => { setPoster(hist); setStatus('ready'); })
-      .catch((e) => { setFejl(String((e as Error)?.message ?? e)); setStatus('error'); });
+      .then((hist) => { if (gen === genRef.current) { setPoster(hist); setStatus('ready'); } })
+      .catch((e) => { if (gen === genRef.current) { setFejl(String((e as Error)?.message ?? e)); setStatus('error'); } });
   }, [personId]);
-  useEffect(() => { indlaes(); }, [indlaes]);
+  useEffect(() => { setPoster([]); setKonfliktId(null); setBusyId(null); indlaes(); }, [indlaes]);
 
   const startFortryd = useCallback(async (post: HistPost, force: boolean) => {
     setKonfliktId(null);
     setBusyId(post.id);
     try {
       const udfald = await onFortryd(post, force);
+      if (personRef.current !== personId) return; // personen er skiftet undervejs
+      if (!mountedRef.current) return;
       if (udfald === 'konflikt') setKonfliktId(post.id);
       if (udfald === 'ok') indlaes();
     } finally {
       setBusyId(null);
     }
-  }, [onFortryd, indlaes]);
+  }, [onFortryd, indlaes, personId]);
 
   // Fire gensidigt udelukkende handlings-tilstande pr. post — tidlige returns frem for
   // indlejrede ternaries, så hver gren kan læses isoleret (/simplify-fund).
