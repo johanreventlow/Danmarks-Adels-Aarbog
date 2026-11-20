@@ -1,4 +1,4 @@
-import { aarSpaend, fmtYears, parseYear, stripParen } from '../fields';
+import { aarSpaend, fletFloruit, fmtVisningsAar, fmtYears, parseYear, stripParen } from '../fields';
 import { oploesRelativDato } from '../relativeDates';
 
 // Rene felt-hjælpere (port fra design-HTML). Datalag-dækning: årstals-udtræk og
@@ -72,5 +72,36 @@ describe('aarSpaend', () => {
   });
   it('»s.å.« opløst mod fødslen giver fødselsåret', () => {
     expect(aarSpaend(oploesRelativDato('† s.å.', '* 12. maj 1650'))).toEqual([1650, 1650]);
+  });
+});
+
+describe('fmtVisningsAar — livsdatoer vinder over floruit', () => {
+  test('livsdatoer vises som fmtYears, floruit ignoreres', () => {
+    expect(fmtVisningsAar('* 1640', '† 1708', '1660')).toBe('1640–1708');
+  });
+  test('kun floruit-interval → Nævnes', () => {
+    expect(fmtVisningsAar(null, null, '1349–1391')).toBe('Nævnes 1349–1391');
+  });
+  test('kun floruit-år → Nævnes', () => {
+    expect(fmtVisningsAar(null, null, '1671')).toBe('Nævnes 1671');
+  });
+  test('intet → tom streng', () => {
+    expect(fmtVisningsAar(null, null, null)).toBe('');
+    expect(fmtVisningsAar(undefined, undefined, undefined)).toBe('');
+  });
+  test('delvis livsdato vinder også over floruit', () => {
+    expect(fmtVisningsAar(null, '(-1358)', '1319–1363')).toBe(fmtYears(null, '(-1358)'));
+  });
+});
+
+describe('fletFloruit — forening af floruit-spænd', () => {
+  test('forener spænd og enkeltår', () => {
+    expect(fletFloruit(['1349–1391', '1400', null])).toBe('1349–1400');
+  });
+  test('enkelt år bevares', () => {
+    expect(fletFloruit(['1657'])).toBe('1657');
+  });
+  test('kun tomme → null', () => {
+    expect(fletFloruit([null, undefined])).toBeNull();
   });
 });

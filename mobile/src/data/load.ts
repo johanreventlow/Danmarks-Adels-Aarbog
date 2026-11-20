@@ -5,7 +5,7 @@ import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
 import {
   boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, buildBioSourceVersions,
-  mapPublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, fmtYears, parseYear, getAll, EMPTY_GEO,
+  mapPublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, fmtVisningsAar, parseYear, getAll, EMPTY_GEO,
   citationRowsTilProveniens, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates,
   type GenCoord, type ParentsUnknown, type CitationProvenanceRow, type RaaCitationRow,
 } from '@daa/core';
@@ -99,7 +99,8 @@ export function mapAppPersons(
       name: personVisningsnavn(p, boern.has(String(p.id))),
       born: parseYear(p.visning_foedt),
       died: parseYear(p.visning_doed),
-      years: fmtYears(p.visning_foedt, p.visning_doed),
+      floruit: p.visning_floruit ?? null,
+      years: fmtVisningsAar(p.visning_foedt, p.visning_doed, p.visning_floruit),
       title: p.visning_titel || '',
       bio: bioBy[String(p.id)] || '',
       privat: Boolean(p.privat),
@@ -212,7 +213,7 @@ export async function loadFromSupabase(opts?: {
       // Alle tabel-læsninger her sorteres på en ENTYDIG nøgle (PK / alle PK-kolonner): getAll
       // offset-paginerer, og uden fast rækkefølge kan rækker springes over/gentages mellem sider.
       getAll<RawPerson>(() =>
-        sb.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_titel,koen,privat').order('id'),
+        sb.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_floruit,visning_titel,koen,privat').order('id'),
       ),
       getAll<RawMember>(() => sb.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens')
         .order('family_id').order('person_id').order('rolle')),

@@ -16,7 +16,7 @@ const P = (id: string, name: string, years = '', koen: AppPerson['koen'] = null)
 const model = buildModel({
   persons: [P('1', 'Otto Reventlow', '1634', 'mand'), P('2', 'Otto Reventlow', 'ca. 1660–1700', 'mand'),
     P('3', 'Friedrich Reventlow', '', 'mand'), P('4', 'Magdalena Sophia Reventlow', '1745', 'kvinde'),
-    P('9', 'Hans Holck')],
+    P('9', 'Hans Holck'), P('8', 'Niels Brahe', 'Nævnes 1349–1391')],
   unions: [],
   parentChild: [{ child: '2', parent: '1', union: 'u1' }, { child: '3', parent: '2', union: 'u2' }, { child: '4', parent: '3', union: 'u3' }],
 }) as unknown as Model;
@@ -33,6 +33,26 @@ describe('RelateView', () => {
     expect(screen.getByRole('combobox', { name: 'Første person' })).toBeTruthy();
     expect(screen.getByRole('combobox', { name: 'Anden person' })).toBeTruthy();
     expect(screen.getByText(/Vælg to personer/)).toBeTruthy();
+  });
+
+  it('forslag: floruit vises som Nævnes, og uden år står kun navnet (ingen »Livsdatoer ikke angivet«)', () => {
+    vis();
+    const felt = screen.getByRole('combobox', { name: 'Første person' });
+    fireEvent.change(felt, { target: { value: 'brahe' } });
+    expect(within(screen.getByRole('listbox', { name: /første person/ })).getAllByRole('option').map((o) => o.textContent)).toEqual(['Niels BraheNævnes 1349–1391']);
+    fireEvent.change(felt, { target: { value: 'friedrich' } });
+    expect(within(screen.getByRole('listbox', { name: /første person/ })).getAllByRole('option').map((o) => o.textContent)).toEqual(['Friedrich Reventlow']);
+    expect(screen.queryByText(/Livsdatoer ikke angivet/)).toBeNull();
+  });
+
+  it('resultat: trin uden år har intet årsspan', () => {
+    vis({ relA: '1', relB: '4' });
+    const trin = within(screen.getByRole('list', { name: 'Vejen, trin for trin' })).getAllByRole('link');
+    expect(trin[2].textContent).not.toContain('Livsdatoer');
+    const aarSpans = (el: Element) => Array.from(el.querySelectorAll('span')).filter((s) => s.style.fontFamily.includes('monospace') && s.style.fontSize === '12px');
+    expect(aarSpans(trin[1]).length).toBe(1);
+    expect(aarSpans(trin[2])).toHaveLength(0);
+    expect(screen.queryByText(/Livsdatoer ikke angivet/)).toBeNull();
   });
 
   it('personvælgeren: skriv, piletast, Enter vælger og bevarer den anden plads', () => {

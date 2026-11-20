@@ -25,6 +25,19 @@ const vis = (f: Partial<SoegFiltre> = {}, o: Partial<Parameters<typeof SoegView>
 };
 
 describe('SoegView', () => {
+  it('floruit vises som Nævnes; uden år står kun titlen', () => {
+    const m = buildModel({
+      persons: [{ ...P('7', 'Niels Brahe'), years: 'Nævnes 1349–1391', title: 'ridder' }, { ...P('8', 'Anna Brahe'), title: 'frue' }],
+      unions: [], parentChild: [],
+    }) as unknown as Model;
+    m.lineage = { byPerson: {}, list: [], navn: {} } as never;
+    vis({ q: 'Brahe' }, { model: m });
+    const res = screen.getByRole('region', { name: 'Resultater' });
+    expect(within(res).getByText('Nævnes 1349–1391 · ridder')).toBeTruthy();
+    expect(within(res).getByText('frue')).toBeTruthy();
+    expect(screen.queryByText(/Livsdatoer ikke angivet/)).toBeNull();
+  });
+
   it('fremhæver søgeordet; godser og personer; linjens navn', () => {
     vis({ q: 'Conrad' });
     const res = screen.getByRole('region', { name: 'Resultater' });

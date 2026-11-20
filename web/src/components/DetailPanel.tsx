@@ -68,7 +68,7 @@ export function DetailPanel({ model, focusId, detail, backName, onBack, onClose,
 
         {etiket && <p style={{ margin: 0, fontFamily: T.mono, fontSize: 11, lineHeight: '14px', fontWeight: 500, letterSpacing: '.16em', textTransform: 'uppercase', color: T.goldInk }}>{etiket}</p>}
         <h2 style={{ margin: 0, fontFamily: T.serif, fontSize: 28, fontWeight: 600, lineHeight: 1.1, color: T.ink }}>{p.name}</h2>
-        <p style={{ margin: 0, fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{p.years || 'Livsdatoer ikke angivet i Aarbogen'}</p>
+        {p.years && <p style={{ margin: 0, fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{p.years}</p>}
         {resume && <p style={{ margin: 0, fontFamily: T.sans, fontSize: 14, lineHeight: '21px', color: T.inkSecondary }}>{resume}</p>}
         {detail === null && <p role="status" style={{ margin: 0, fontSize: 13, color: T.inkMuted }}>Henter …</p>}
 

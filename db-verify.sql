@@ -6676,6 +6676,358 @@ END $$;
 ROLLBACK;
 
 
+-- ===== visning-floruit (spec 2026-11-19-visning-floruit-design.md §5): »Nævnes …« som cache =====
+-- Katalogblokken har ingen fixtures og ingen BEGIN/ROLLBACK, så prod-ceremonien kan køre netop den inde i sin
+-- transaktion. Forvent: NOTICE "OK: visning-floruit katalog".
+DO $verify_visning_floruit$
+DECLARE v_tgtype int; v_cols text[]; v_qual boolean; v_fn oid; v_uenige bigint;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='person'
+                  AND column_name='visning_floruit' AND data_type='text') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit: person.visning_floruit mangler';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.version_pk_registry WHERE tabel='person' AND 'visning_floruit'=ANY(skip_cols)) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit: visning_floruit står ikke i skip_cols for person';
+  END IF;
+  IF NOT has_column_privilege('anon','public.person','visning_floruit','SELECT')
+     OR NOT has_column_privilege('authenticated','public.person','visning_floruit','SELECT') THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit: anon/authenticated kan ikke læse visning_floruit';
+  END IF;
+  -- Beregningen ligger i regen_person_floruit, som den fulde regen kalder til sidst; familie-, medlemskabs- og
+  -- offentlighedsstierne kalder KUN regen_person_floruit (rører aldrig de seks øvrige visning_*).
+  IF to_regprocedure('public.regen_person_floruit(bigint)') IS NULL
+     OR to_regprocedure('public.regen_familie_partnere(bigint)') IS NULL
+     OR strpos(pg_get_functiondef('public.regen_person_visning(bigint)'::regprocedure),'PERFORM regen_person_floruit(pid);')=0
+     OR strpos(pg_get_functiondef('public.regen_familie_partnere(bigint)'::regprocedure),'regen_person_floruit')=0
+     OR strpos(pg_get_functiondef('public.regen_familie_partnere(bigint)'::regprocedure),'regen_person_visning')>0
+     OR strpos(pg_get_functiondef('public.trg_regen_from_family_member()'::regprocedure),'regen_person_visning')>0
+     OR strpos(pg_get_functiondef('public.trg_regen_from_person_offentlighed()'::regprocedure),'regen_person_visning')>0
+     OR strpos(pg_get_functiondef('public.trg_regen_from_conclusion()'::regprocedure),'regen_familie_partnere')=0
+     OR strpos(pg_get_functiondef('public.trg_regen_from_assertion()'::regprocedure),'regen_familie_partnere')=0 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit: beregning, familie-gren eller floruit-alene-stierne mangler';
+  END IF;
+  -- family_member: AFTER INSERT OR DELETE OR UPDATE OF family_id, person_id, rolle, konfidens, FOR EACH ROW (tgtype 29).
+  SELECT t.tgtype, (SELECT array_agg(a.attname::text ORDER BY a.attname) FROM pg_attribute a
+                     WHERE a.attrelid=t.tgrelid AND a.attnum=ANY(t.tgattr)), t.tgfoid
+    INTO v_tgtype, v_cols, v_fn
+    FROM pg_trigger t WHERE t.tgrelid='public.family_member'::regclass AND t.tgname='trg_family_member_regen'
+     AND t.tgenabled='O';
+  IF v_tgtype IS DISTINCT FROM 29 OR v_cols IS DISTINCT FROM ARRAY['family_id','konfidens','person_id','rolle']
+     OR v_fn IS DISTINCT FROM 'public.trg_regen_from_family_member()'::regprocedure::oid THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit: family_member-triggeren mangler eller har forkerte events';
+  END IF;
+  -- person: AFTER UPDATE OF levende, privat, staged, FOR EACH ROW (tgtype 17) med WHEN; kolonnebegrænsningen sikrer,
+  -- at regen_person_visning's og regen_person_floruit's egne UPDATEs af visning_* ikke udløser den igen.
+  v_tgtype:=NULL; v_cols:=NULL; v_fn:=NULL;
+  SELECT t.tgtype, (SELECT array_agg(a.attname::text ORDER BY a.attname) FROM pg_attribute a
+                     WHERE a.attrelid=t.tgrelid AND a.attnum=ANY(t.tgattr)), t.tgqual IS NOT NULL, t.tgfoid
+    INTO v_tgtype, v_cols, v_qual, v_fn
+    FROM pg_trigger t WHERE t.tgrelid='public.person'::regclass AND t.tgname='trg_person_offentlighed_regen'
+     AND t.tgenabled='O';
+  IF v_tgtype IS DISTINCT FROM 17 OR v_cols IS DISTINCT FROM ARRAY['levende','privat','staged'] OR NOT coalesce(v_qual,false)
+     OR v_fn IS DISTINCT FROM 'public.trg_regen_from_person_offentlighed()'::regprocedure::oid THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit: person-triggeren mangler eller har forkerte events';
+  END IF;
+  -- De nye hjælpere er lukket for klientroller (eksplicit REVOKE; NULL-ACL ville betyde PUBLIC-EXECUTE).
+  FOR v_fn IN SELECT to_regprocedure(s)::oid FROM unnest(ARRAY['public.regen_person_floruit(bigint)',
+      'public.regen_familie_partnere(bigint)','public.trg_regen_from_family_member()',
+      'public.trg_regen_from_person_offentlighed()']) s LOOP
+    IF v_fn IS NULL OR (SELECT proacl FROM pg_proc WHERE oid=v_fn) IS NULL
+       OR EXISTS (SELECT 1 FROM pg_proc pr, aclexplode(pr.proacl) a WHERE pr.oid=v_fn AND a.grantee=0)
+       OR has_function_privilege('anon',v_fn,'EXECUTE') OR has_function_privilege('authenticated',v_fn,'EXECUTE')
+       OR (EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role')
+           AND has_function_privilege('service_role',v_fn,'EXECUTE')) THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit: % mangler eller er kaldbar af en klientrolle', v_fn::regprocedure;
+    END IF;
+  END LOOP;
+  -- regen_person_floruit og triggerne er SECURITY INVOKER og forudsætter, at kun ejeren og SECURITY DEFINER-skrivere
+  -- ændrer kildetabellerne; en RLS-bundet skriver ville kunne skjule medlemmer for den inlinede regel (fail-open).
+  IF EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public'
+              AND tablename IN ('person','family_member','conclusion','assertion')
+              AND cmd IN ('INSERT','UPDATE','DELETE','ALL')) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit: skrive-policy på person/family_member/conclusion/assertion';
+  END IF;
+  -- Offentlighedsreglen er inlinet i regen_person_floruit (family_offentlig defineres først i db-rls.sql);
+  -- den skal være enig med family_offentlig for alle familier i basen.
+  SELECT count(*) INTO v_uenige FROM public.family f
+   WHERE public.family_offentlig(f.id) IS DISTINCT FROM NOT EXISTS (
+           SELECT 1 FROM public.family_member m JOIN public.person q ON q.id=m.person_id
+            WHERE m.family_id=f.id
+              AND (q.levende IS NOT FALSE OR coalesce(q.privat,false) OR coalesce(q.staged,false)));
+  IF v_uenige<>0 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit: inlinet offentlighedsregel uenig med family_offentlig for % familier', v_uenige;
+  END IF;
+  RAISE NOTICE 'OK: visning-floruit katalog';
+END $verify_visning_floruit$;
+
+-- Adfærdsblokkene (kun CI, lokalt og generalprøve; aldrig i prod-transaktionen): syntetiske negative id'er, hele
+-- fixturen rulles tilbage.
+BEGIN;
+CREATE FUNCTION pg_temp.vf_tjek(p_pid bigint, p_forventet text, p_trin text) RETURNS void LANGUAGE plpgsql AS $f$
+DECLARE v text;
+BEGIN
+  SELECT visning_floruit INTO v FROM public.person WHERE id=p_pid;
+  IF v IS DISTINCT FROM p_forventet THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit %: person % forventede %, fik %', p_trin, p_pid,
+      coalesce(p_forventet,'NULL'), coalesce(v,'NULL');
+  END IF;
+END $f$;
+
+CREATE FUNCTION pg_temp.vf_offentlig(p_fam bigint, p_forventet boolean, p_trin text) RETURNS void LANGUAGE plpgsql AS $f$
+BEGIN
+  IF public.family_offentlig(p_fam) IS DISTINCT FROM p_forventet
+     OR (NOT EXISTS (SELECT 1 FROM public.family_member m JOIN public.person q ON q.id=m.person_id
+                      WHERE m.family_id=p_fam
+                        AND (q.levende IS NOT FALSE OR coalesce(q.privat,false) OR coalesce(q.staged,false))))
+        IS DISTINCT FROM p_forventet THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit %: family_offentlig og den inlinede regel er ikke begge %', p_trin, p_forventet;
+  END IF;
+END $f$;
+
+-- Forvent: NOTICE "OK: visning-floruit spaend".
+DO $verify_visning_floruit_spaend$
+DECLARE
+  p CONSTANT bigint := -987715001; p_aaben CONSTANT bigint := -987715002; p_tom CONSTANT bigint := -987715003;
+BEGIN
+  INSERT INTO person(id,levende,privat) VALUES (p,false,false),(p_aaben,false,false),(p_tom,false,false);
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES
+    (-987715011,'person',p,'floruit'),(-987715012,'person',p,'titel'),(-987715013,'person',p,'fødsel'),
+    (-987715014,'person',p,'begravelse'),(-987715015,'person',p,'erhverv'),(-987715016,'person',p,'embede'),
+    (-987715017,'person',p_aaben,'embede');
+  -- floruit 1349-01-01..1391-12-31
+  INSERT INTO assertion(id,target_type,target_id,date_raw,date_min,date_max)
+    VALUES (-987715021,'fact',-987715011,'nævnt 1349-91','1349-01-01','1391-12-31');
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status)
+    VALUES (-987715031,'fact',-987715011,-987715021,'afklaret');
+  PERFORM pg_temp.vf_tjek(p,'1349–1391','floruit-faktum');
+  -- dateret titel 1400 udvider spændet
+  INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,date_min,date_max)
+    VALUES (-987715022,'fact',-987715012,'syntetisk titel','1400-01-01','1400-12-31');
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status)
+    VALUES (-987715032,'fact',-987715012,-987715022,'afklaret');
+  PERFORM pg_temp.vf_tjek(p,'1349–1400','dateret titel');
+  -- fødsel tæller ikke med i spændet (kun date_min/date_max, ingen tekst → ingen visning_foedt, så floruit vises stadig)
+  INSERT INTO assertion(id,target_type,target_id,date_min,date_max)
+    VALUES (-987715023,'fact',-987715013,'1300-01-01','1300-12-31');
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status)
+    VALUES (-987715033,'fact',-987715013,-987715023,'afklaret');
+  IF (SELECT visning_foedt FROM person WHERE id=p) IS NOT NULL THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit fødsel: fixturen forventede visning_foedt NULL';
+  END IF;
+  PERFORM pg_temp.vf_tjek(p,'1349–1400','fødsel påvirker ikke');
+  -- påstand med kun date_raw ignoreres
+  INSERT INTO assertion(id,target_type,target_id,date_raw) VALUES (-987715024,'fact',-987715014,'1500');
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status)
+    VALUES (-987715034,'fact',-987715014,-987715024,'afklaret');
+  PERFORM pg_temp.vf_tjek(p,'1349–1400','kun date_raw');
+  -- ikke-valgt dateret påstand ignoreres (den valgte er udateret)
+  INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst) VALUES (-987715025,'fact',-987715015,'udateret');
+  INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,date_min,date_max)
+    VALUES (-987715026,'fact',-987715015,'dateret','1800-01-01','1800-12-31');
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status)
+    VALUES (-987715035,'fact',-987715015,-987715025,'afklaret');
+  PERFORM pg_temp.vf_tjek(p,'1349–1400','ikke-valgt påstand');
+  -- status<>'afklaret' ignoreres
+  INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,date_min,date_max)
+    VALUES (-987715027,'fact',-987715016,'omstridt','1900-01-01','1900-12-31');
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status)
+    VALUES (-987715036,'fact',-987715016,-987715027,'omstridt');
+  PERFORM pg_temp.vf_tjek(p,'1349–1400','status omstridt');
+  -- åben ende: date_min NULL, date_max 1261-12-31 → '1261'
+  INSERT INTO assertion(id,target_type,target_id,date_raw,date_max)
+    VALUES (-987715028,'fact',-987715017,'før 1261','1261-12-31');
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status)
+    VALUES (-987715037,'fact',-987715017,-987715028,'afklaret');
+  PERFORM pg_temp.vf_tjek(p_aaben,'1261','åben ende');
+  -- person uden kilder → NULL (en forældet cacheværdi ryddes)
+  UPDATE person SET visning_floruit='1111' WHERE id=p_tom;
+  PERFORM regen_person_visning(p_tom);
+  PERFORM pg_temp.vf_tjek(p_tom,NULL,'uden kilder');
+  -- omvendt interval (date_min > date_max, dårlige data) normaliseres pr. række: 1400..1300 → '1300–1400'
+  INSERT INTO person(id,levende,privat) VALUES (-987715004,false,false);
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-987715018,'person',-987715004,'embede');
+  INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,date_min,date_max)
+    VALUES (-987715029,'fact',-987715018,'omvendt','1400-01-01','1300-12-31');
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status)
+    VALUES (-987715038,'fact',-987715018,-987715029,'afklaret');
+  PERFORM pg_temp.vf_tjek(-987715004,'1300–1400','omvendt interval normaliseret');
+  RAISE NOTICE 'OK: visning-floruit spaend';
+END $verify_visning_floruit_spaend$;
+
+-- Forvent: NOTICE "OK: visning-floruit vielse".
+DO $verify_visning_floruit_vielse$
+DECLARE
+  actor CONSTANT uuid := '19390000-0000-4000-8000-000000000715';
+  a CONSTANT bigint := -987715101; b CONSTANT bigint := -987715102; fam CONSTANT bigint := -987715110;
+  fv CONSTANT bigint := -987715111; a1 CONSTANT bigint := -987715121; a2 CONSTANT bigint := -987715122;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO auth.users(id,email) VALUES (actor,'visning-floruit-db-verify@example.invalid');
+  INSERT INTO profiles(id,rolle,email) VALUES (actor,'redaktion','visning-floruit-db-verify@example.invalid');
+  -- a's visning_navn sættes direkte uden navn-faktum: familie- og medlemskabsstierne må ikke røre den (kun floruit).
+  INSERT INTO person(id,levende,privat,visning_navn) VALUES (a,false,false,'Direkte sat'),(b,false,false,NULL);
+  INSERT INTO family(id,type) VALUES (fam,'vielse');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (fam,a,'partner'),(fam,b,'partner');
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (fv,'family',fam,'vielse');
+  INSERT INTO assertion(id,target_type,target_id,date_raw,date_min,date_max,uforanderlig)
+    VALUES (a1,'fact',fv,'1657','1657-01-01','1657-12-31',false);
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status) VALUES (-987715131,'fact',fv,a1,'afklaret');
+  PERFORM pg_temp.vf_tjek(a,'1657','vielse a'); PERFORM pg_temp.vf_tjek(b,'1657','vielse b');
+  -- ny konklusion på vielsen regenererer begge via konklusions-triggeren
+  INSERT INTO assertion(id,target_type,target_id,date_raw,date_min,date_max,uforanderlig)
+    VALUES (a2,'fact',fv,'1658','1658-01-01','1658-12-31',false);
+  UPDATE conclusion SET valgt_assertion_id=a2 WHERE id=-987715131;
+  PERFORM pg_temp.vf_tjek(a,'1658','ny konklusion a'); PERFORM pg_temp.vf_tjek(b,'1658','ny konklusion b');
+  -- rettelse af den valgte påstand regenererer begge via påstands-triggeren
+  UPDATE assertion SET date_raw='1657', date_min='1657-01-01', date_max='1657-12-31' WHERE id=a2;
+  PERFORM pg_temp.vf_tjek(a,'1657','påstand a'); PERFORM pg_temp.vf_tjek(b,'1657','påstand b');
+  -- konfidens formodet/omstridt på den ene partner-række
+  UPDATE family_member SET konfidens='formodet' WHERE family_id=fam AND person_id=a;
+  PERFORM pg_temp.vf_tjek(a,NULL,'formodet a'); PERFORM pg_temp.vf_tjek(b,'1657','formodet b');
+  UPDATE family_member SET konfidens='sikker' WHERE family_id=fam AND person_id=a;
+  PERFORM pg_temp.vf_tjek(a,'1657','sikker a');
+  UPDATE family_member SET konfidens='omstridt' WHERE family_id=fam AND person_id=a;
+  PERFORM pg_temp.vf_tjek(a,NULL,'omstridt a');
+  UPDATE family_member SET konfidens=NULL WHERE family_id=fam AND person_id=a;
+  PERFORM pg_temp.vf_tjek(a,'1657','konfidens NULL a');
+  -- rolle ændret fra partner, og DELETE af partner-rækken
+  UPDATE family_member SET rolle='barn' WHERE family_id=fam AND person_id=a;
+  PERFORM pg_temp.vf_tjek(a,NULL,'rolle barn a'); PERFORM pg_temp.vf_tjek(b,'1657','rolle barn b');
+  UPDATE family_member SET rolle='partner' WHERE family_id=fam AND person_id=a;
+  PERFORM pg_temp.vf_tjek(a,'1657','rolle partner a');
+  DELETE FROM family_member WHERE family_id=fam AND person_id=a;
+  PERFORM pg_temp.vf_tjek(a,NULL,'delete a'); PERFORM pg_temp.vf_tjek(b,'1657','delete b');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (fam,a,'partner');
+  PERFORM pg_temp.vf_tjek(a,'1657','genindsat a');
+  -- sletning via redaktionens RPC: først re-peg til a1, dernæst ingen påstande tilbage → konklusionen slettes
+  PERFORM set_config('request.jwt.claim.sub', actor::text, true);
+  PERFORM red_slet_oplysning(a2);
+  PERFORM pg_temp.vf_tjek(a,'1657','re-peg a'); PERFORM pg_temp.vf_tjek(b,'1657','re-peg b');
+  PERFORM red_slet_oplysning(a1);
+  PERFORM pg_temp.vf_tjek(a,NULL,'slettet a'); PERFORM pg_temp.vf_tjek(b,NULL,'slettet b');
+  IF (SELECT visning_navn FROM person WHERE id=a) IS DISTINCT FROM 'Direkte sat' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit vielse: familie-/medlemskabsstierne rørte visning_navn';
+  END IF;
+  RAISE NOTICE 'OK: visning-floruit vielse';
+END $verify_visning_floruit_vielse$;
+
+-- Forvent: NOTICE "OK: visning-floruit gdpr".
+DO $verify_visning_floruit_gdpr$
+DECLARE
+  a CONSTANT bigint := -987715201; b CONSTANT bigint := -987715202; barn CONSTANT bigint := -987715203;
+  fam CONSTANT bigint := -987715210; fv CONSTANT bigint := -987715211;
+BEGIN
+  -- b's visning_navn sættes direkte uden navn-faktum: offentlighedsstien må ikke røre den (kun floruit).
+  INSERT INTO person(id,levende,privat,visning_navn) VALUES (a,false,false,NULL),(b,false,false,'Direkte sat'),(barn,true,false,NULL);
+  INSERT INTO family(id,type) VALUES (fam,'vielse');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (fam,a,'partner'),(fam,b,'partner');
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (fv,'family',fam,'vielse');
+  INSERT INTO assertion(id,target_type,target_id,date_raw,date_min,date_max) VALUES (-987715221,'fact',fv,'1657','1657-01-01','1657-12-31');
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status) VALUES (-987715231,'fact',fv,-987715221,'afklaret');
+  PERFORM pg_temp.vf_tjek(a,'1657','offentlig a');
+  PERFORM pg_temp.vf_offentlig(fam,true,'åben familie');
+  -- et levende barn lukker familien
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (fam,barn,'barn');
+  PERFORM pg_temp.vf_offentlig(fam,false,'lukket familie');
+  PERFORM pg_temp.vf_tjek(a,NULL,'levende barn a'); PERFORM pg_temp.vf_tjek(b,NULL,'levende barn b');
+  UPDATE person SET levende=false WHERE id=barn;
+  PERFORM pg_temp.vf_tjek(a,'1657','barn afdødt a'); PERFORM pg_temp.vf_tjek(b,'1657','barn afdødt b');
+  UPDATE person SET privat=true WHERE id=barn;
+  PERFORM pg_temp.vf_tjek(a,NULL,'privat a'); PERFORM pg_temp.vf_tjek(b,NULL,'privat b');
+  UPDATE person SET privat=false WHERE id=barn;
+  PERFORM pg_temp.vf_tjek(a,'1657','ikke privat a');
+  UPDATE person SET staged=true WHERE id=barn;
+  PERFORM pg_temp.vf_tjek(a,NULL,'staged a'); PERFORM pg_temp.vf_tjek(b,NULL,'staged b');
+  UPDATE person SET staged=false WHERE id=barn;
+  PERFORM pg_temp.vf_tjek(a,'1657','ikke staged a');
+  -- levende igen, dernæst barnets række slettet → familien er offentlig igen
+  UPDATE person SET levende=true WHERE id=barn;
+  PERFORM pg_temp.vf_tjek(a,NULL,'levende igen a');
+  DELETE FROM family_member WHERE family_id=fam AND person_id=barn;
+  PERFORM pg_temp.vf_tjek(a,'1657','barn slettet a'); PERFORM pg_temp.vf_tjek(b,'1657','barn slettet b');
+  PERFORM pg_temp.vf_offentlig(fam,true,'genåbnet familie');
+  -- levende IS NULL (ukendt) lukker familien (fail-closed)
+  INSERT INTO person(id,levende,privat) VALUES (-987715204,NULL,false);
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (fam,-987715204,'barn');
+  PERFORM pg_temp.vf_offentlig(fam,false,'levende ukendt');
+  PERFORM pg_temp.vf_tjek(a,NULL,'levende ukendt a'); PERFORM pg_temp.vf_tjek(b,NULL,'levende ukendt b');
+  UPDATE person SET levende=false WHERE id=-987715204;
+  PERFORM pg_temp.vf_tjek(a,'1657','levende afklaret a'); PERFORM pg_temp.vf_tjek(b,'1657','levende afklaret b');
+  IF (SELECT visning_navn FROM person WHERE id=b) IS DISTINCT FROM 'Direkte sat' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit gdpr: offentlighedsstien rørte visning_navn';
+  END IF;
+  RAISE NOTICE 'OK: visning-floruit gdpr';
+END $verify_visning_floruit_gdpr$;
+
+-- Forvent: NOTICE "OK: visning-floruit flyt". Rækker flyttet mellem familier (family_id) og en partner udskiftet
+-- (person_id): både gammel og ny familie og den flyttede/udskiftede person ender korrekt.
+DO $verify_visning_floruit_flyt$
+DECLARE
+  a CONSTANT bigint := -987715401; b CONSTANT bigint := -987715402; c CONSTANT bigint := -987715403;
+  e CONSTANT bigint := -987715404; barn CONSTANT bigint := -987715405;
+  fam1 CONSTANT bigint := -987715410; fam2 CONSTANT bigint := -987715420;
+BEGIN
+  INSERT INTO person(id,levende,privat) VALUES (a,false,false),(b,false,false),(c,false,false),(e,false,false),(barn,true,false);
+  INSERT INTO family(id,type) VALUES (fam1,'vielse'),(fam2,'vielse');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (fam1,a,'partner'),(fam1,b,'partner'),(fam2,c,'partner');
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-987715411,'family',fam1,'vielse'),(-987715421,'family',fam2,'vielse');
+  INSERT INTO assertion(id,target_type,target_id,date_raw,date_min,date_max) VALUES
+    (-987715412,'fact',-987715411,'1657','1657-01-01','1657-12-31'),(-987715422,'fact',-987715421,'1700','1700-01-01','1700-12-31');
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status) VALUES
+    (-987715413,'fact',-987715411,-987715412,'afklaret'),(-987715423,'fact',-987715421,-987715422,'afklaret');
+  PERFORM pg_temp.vf_tjek(a,'1657','start a'); PERFORM pg_temp.vf_tjek(c,'1700','start c');
+  -- et levende barn flyttes fra fam1 til fam2: fam1 åbner, fam2 lukker
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (fam1,barn,'barn');
+  PERFORM pg_temp.vf_tjek(a,NULL,'barn i fam1 a'); PERFORM pg_temp.vf_tjek(b,NULL,'barn i fam1 b');
+  UPDATE family_member SET family_id=fam2 WHERE family_id=fam1 AND person_id=barn;
+  PERFORM pg_temp.vf_tjek(a,'1657','barn flyttet a'); PERFORM pg_temp.vf_tjek(b,'1657','barn flyttet b');
+  PERFORM pg_temp.vf_tjek(c,NULL,'barn flyttet c');
+  DELETE FROM family_member WHERE family_id=fam2 AND person_id=barn;
+  PERFORM pg_temp.vf_tjek(c,'1700','barn væk c');
+  -- partneren a flyttes fra fam1 til fam2
+  UPDATE family_member SET family_id=fam2 WHERE family_id=fam1 AND person_id=a;
+  PERFORM pg_temp.vf_tjek(a,'1700','partner flyttet a'); PERFORM pg_temp.vf_tjek(b,'1657','partner flyttet b');
+  PERFORM pg_temp.vf_tjek(c,'1700','partner flyttet c');
+  -- partneren c udskiftes med e i fam2
+  UPDATE family_member SET person_id=e WHERE family_id=fam2 AND person_id=c;
+  PERFORM pg_temp.vf_tjek(c,NULL,'udskiftet c'); PERFORM pg_temp.vf_tjek(e,'1700','udskiftet e');
+  PERFORM pg_temp.vf_tjek(a,'1700','udskiftet a');
+  RAISE NOTICE 'OK: visning-floruit flyt';
+END $verify_visning_floruit_flyt$;
+
+-- Forvent: NOTICE "OK: visning-floruit livsdatoer". Projektejerens afgørelse 19/11: har personen livsdatoer
+-- (ikke-tom visning_foedt eller visning_doed), er visning_floruit NULL.
+DO $verify_visning_floruit_livsdatoer$
+DECLARE p CONSTANT bigint := -987715301;
+BEGIN
+  INSERT INTO person(id,levende,privat) VALUES (p,false,false);
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES
+    (-987715311,'person',p,'fødsel'),(-987715312,'person',p,'floruit'),(-987715313,'person',p,'død');
+  INSERT INTO assertion(id,target_type,target_id,date_raw,date_min,date_max) VALUES
+    (-987715321,'fact',-987715311,'1600','1600-01-01','1600-12-31'),
+    (-987715322,'fact',-987715312,'1620-30','1620-01-01','1630-12-31'),
+    (-987715323,'fact',-987715313,'1650','1650-01-01','1650-12-31');
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status) VALUES
+    (-987715331,'fact',-987715311,-987715321,'afklaret'),(-987715332,'fact',-987715312,-987715322,'afklaret');
+  IF (SELECT visning_foedt FROM person WHERE id=p) IS DISTINCT FROM '1600' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit livsdatoer: visning_foedt blev ikke sat';
+  END IF;
+  PERFORM pg_temp.vf_tjek(p,NULL,'med fødsel');
+  -- fødselskonklusionen trækkes tilbage → ingen livsdatoer → spændet vises
+  UPDATE conclusion SET status='tilbagetrukket' WHERE id=-987715331;
+  IF (SELECT visning_foedt FROM person WHERE id=p) IS NOT NULL THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit livsdatoer: visning_foedt blev ikke ryddet';
+  END IF;
+  PERFORM pg_temp.vf_tjek(p,'1620–1630','fødsel tilbagetrukket');
+  -- død alene er også livsdatoer
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status)
+    VALUES (-987715333,'fact',-987715313,-987715323,'afklaret');
+  PERFORM pg_temp.vf_tjek(p,NULL,'med død');
+  RAISE NOTICE 'OK: visning-floruit livsdatoer';
+END $verify_visning_floruit_livsdatoer$;
+ROLLBACK;
+
+
 -- ===== Task 3: current_rolle + red_upsert_fakta (fact-triplet, rolle-gated) =====
 -- (a) Uden redaktion-rolle: forvent afvisning.
 -- Forvent: NOTICE "OK: medlem afvist".
@@ -7044,7 +7396,7 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM version_pk_registry WHERE tabel='person'
                  AND skip_cols @> ARRAY['visning_navn','visning_foedt','visning_doed','visning_titel',
-                                         'visning_efternavn','visning_fuldt_navn']) THEN
+                                         'visning_efternavn','visning_fuldt_navn','visning_floruit']) THEN
     RAISE EXCEPTION 'FEJL: person visning_* (inkl. udledt-slægtsnavn-kolonnerne) ikke i skip_cols';
   END IF;
   RAISE NOTICE 'OK: version_pk_registry seeded';
@@ -11303,7 +11655,8 @@ BEGIN
   SELECT md5(coalesce(string_agg(j,E'\n' ORDER BY j COLLATE "C"),'')) INTO v_hash FROM (
     SELECT jsonb_build_array(i.sted,i.tabel,i.kolonner,i.handling,i.fase,i.grund)::text j
       FROM private.person_purge_inventar() i) s;
-  IF v_hash IS DISTINCT FROM '2d30f2e1162e8bfa8c806b20bce21c45' THEN
+  -- visning-floruit (2026-11-19): S1 fik person.visning_floruit (ny afledt cachekolonne på P's egen række).
+  IF v_hash IS DISTINCT FROM 'cd09bbefb56bce52aef2c4a350813ecf' THEN
     RAISE EXCEPTION 'PURGE_INVENTAR_HASH: person_purge_inventar';
   END IF;
 END $purge_verify_inventory_hash$;

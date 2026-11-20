@@ -94,6 +94,19 @@ const props = (o: Partial<Parameters<typeof PersonSide>[0]> = {}) => ({
 });
 
 describe('PersonSide', () => {
+  it('floruit vises som Nævnes; uden år ingen årslinje', () => {
+    const m = { ...model, byId: { ...model.byId, '392': { ...model.byId['392'], years: 'Nævnes 1349–1391' } } } as unknown as Model;
+    const aarP = (c: HTMLElement) => Array.from(c.querySelectorAll('p')).filter((p) => p.style.fontFamily.includes('monospace') && p.style.fontSize === '14px');
+    const { unmount, container } = render(<PersonSide {...props({ model: m })} />);
+    expect(screen.getByText('Nævnes 1349–1391')).toBeTruthy();
+    expect(aarP(container)).toHaveLength(1);
+    unmount();
+    const tom = { ...model, byId: { ...model.byId, '392': { ...model.byId['392'], years: '' } } } as unknown as Model;
+    const r2 = render(<PersonSide {...props({ model: tom })} />);
+    expect(screen.queryByText(/Livsdatoer ikke angivet/)).toBeNull();
+    expect(aarP(r2.container)).toHaveLength(0);
+  });
+
   it('navn, slægt, udgavevælger og biografi fra standardudgaven', () => {
     render(<PersonSide {...props()} />);
     expect(screen.getByRole('heading', { level: 1, name: 'Conrad Reventlow' })).toBeTruthy();

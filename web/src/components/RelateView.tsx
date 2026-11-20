@@ -109,7 +109,7 @@ function PersonVaelger({ label, smal, model, valgtId, valgt, onVaelg }: {
             onMouseDown={(e) => e.preventDefault()} onClick={() => vaelg(f)} onMouseEnter={() => setAktiv(i)}
             style={{ padding: '9px 12px', borderRadius: 8, cursor: 'pointer', background: i === aktiv ? T.bordeauxTint : 'transparent', display: 'flex', flexDirection: 'column' }}>
             <span style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600, lineHeight: '22px' }}>{f.name}</span>
-            <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{[f.years, f.linje].filter(Boolean).join(' · ') || 'Livsdatoer ikke angivet'}</span>
+            <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{[f.years, f.linje].filter(Boolean).join(' · ')}</span>
           </li>
         ))}
         {aaben && forslag.length === 0 && (
@@ -199,7 +199,7 @@ function Resultat({ lines, found, aNavn, bNavn, delSti, slug, smal }: {
                     <Link href={personPath(t.id)} style={{ background: t.faellesAne ? T.surfaceRaised : ende ? T.bordeauxTint : T.surfaceRaised, border: t.faellesAne ? `1px solid ${T.gold}` : ende ? `1.5px solid ${T.bordeaux}` : `1px solid ${T.line}`, borderRadius: 14, padding: '14px 18px', textDecoration: 'none', color: T.ink, display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '4px 12px', alignItems: 'baseline' }}>
                       <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                         <span style={{ fontFamily: T.serif, fontSize: 21, fontWeight: 600, lineHeight: '25px' }}>{t.name}</span>
-                        <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{t.years || 'Livsdatoer ikke angivet'}</span>
+                        {t.years && <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{t.years}</span>}
                       </span>
                       {maerker && <span style={{ fontFamily: T.mono, fontSize: 11, lineHeight: '14px', letterSpacing: '0.14em', textTransform: 'uppercase', color: t.faellesAne ? T.goldInk : T.bordeaux }}>{maerker}</span>}
                     </Link>

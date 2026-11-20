@@ -176,7 +176,7 @@ export function SoegView({ model, estates, filtre: f, linjer, bogmaerker, onFilt
                           <span aria-hidden="true" style={{ width: smal ? 36 : 44, height: smal ? 36 : 44, borderRadius: 9999, background: T.surfaceSunken, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontFamily: T.serif, fontSize: smal ? 15 : 17, fontWeight: 600, color: T.bordeaux }}>{initials(p.name)}</span>
                           <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                             <span style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600, lineHeight: '24px' }}><Fremhaev tekst={p.name} maerker={p.maerker} /></span>
-                            <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{[p.years || 'Livsdatoer ikke angivet', p.title].filter(Boolean).join(' · ')}</span>
+                            <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{[p.years, p.title].filter(Boolean).join(' · ')}</span>
                             {smal && p.linje && <span style={{ fontFamily: T.mono, fontSize: 11, lineHeight: '14px', color: T.inkSecondary, marginTop: 2 }}>{p.linje}</span>}
                           </span>
                           {!smal && p.linje && <span style={{ fontFamily: T.mono, fontSize: 11, lineHeight: '14px', padding: '3px 8px', borderRadius: 8, background: T.surfaceSunken, color: T.inkSecondary, whiteSpace: 'nowrap' }}>{p.linje}</span>}

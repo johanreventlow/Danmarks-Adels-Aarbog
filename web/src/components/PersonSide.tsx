@@ -86,7 +86,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   const navneblok = (
     <>
       <h1 style={{ margin: 0, fontFamily: T.serif, fontSize: smal ? 32 : 44, lineHeight: 1.05, fontWeight: 500, color: T.ink, textWrap: 'balance' } as CSSProperties}>{p.name}</h1>
-      <p style={{ margin: 0, fontFamily: T.mono, fontSize: smal ? 13 : 14, lineHeight: '20px', color: T.inkMuted }}>{p.years || 'Livsdatoer ikke angivet i Aarbogen'}</p>
+      {p.years && <p style={{ margin: 0, fontFamily: T.mono, fontSize: smal ? 13 : 14, lineHeight: '20px', color: T.inkMuted }}>{p.years}</p>}
       {p.title && <p style={{ margin: 0, fontSize: 15, color: T.bordeaux, fontWeight: 600 }}>{p.title}</p>}
     </>
   );

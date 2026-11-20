@@ -60,9 +60,14 @@ describe('DetailPanel (genvej)', () => {
     unmount();
   });
 
-  it('mangler siges med ord, og der hentes, før detaljen er kommet', () => {
+  it('floruit vises som Nævnes', () => {
+    vis({ model: { ...model, byId: { '60': { ...model.byId['60'], years: 'Nævnes 1349–1391' } } } as Model, detail: null });
+    expect(screen.getByText('Nævnes 1349–1391')).toBeTruthy();
+  });
+
+  it('uden år vises ingen årslinje, og der hentes, før detaljen er kommet', () => {
     vis({ model: { ...model, byId: { '60': { ...model.byId['60'], years: '', title: '' } } } as Model, detail: null });
-    expect(screen.getByText('Livsdatoer ikke angivet i Aarbogen')).toBeTruthy();
+    expect(screen.queryByText(/Livsdatoer ikke angivet/)).toBeNull();
     expect(screen.getByRole('status').textContent).toBe('Henter …');
   });
 });
