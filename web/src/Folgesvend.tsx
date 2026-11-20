@@ -120,10 +120,15 @@ export default function Folgesvend() {
   // review 27 R2: udtrukket til en genkaldelig funktion, så fejlskærmens "Prøv igen"-knap
   // kan forsøge indlæsningen igen uden hard-reload (Supabase free-tier pauser efter 7 dages
   // inaktivitet — første kald efter en pause kan derfor fejle og lykkes ved forsøg nr. 2).
+  // Generationstæller (review 37 W5): et sent svar fra en tidligere hentning (fx den anonyme,
+  // eller redaktørens) må ikke overskrive den nyeste models data ved login/logout-skift.
+  const loadGenRef = useRef(0);
   const loadData = useCallback(() => {
+    const gen = ++loadGenRef.current;
     setErr(null);
     // Den rå fejl (og udviklerens RLS-hint) går til konsollen; læseren får en forklaring i ord.
-    loadModel().then(setModel).catch((e) => { console.warn('[Folgesvend] model-hentning fejlede:', describeErr(e)); setErr('fejl'); });
+    loadModel().then((m) => { if (gen === loadGenRef.current) setModel(m); })
+      .catch((e) => { console.warn('[Folgesvend] model-hentning fejlede:', describeErr(e)); if (gen === loadGenRef.current) setErr('fejl'); });
   }, []);
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -417,8 +422,9 @@ export default function Folgesvend() {
     if (!needsGeo || !model || geoRequestedRef.current) return;
     geoRequestedRef.current = true;
     setGeoLoading(true);
+    const gen = loadGenRef.current;
     model.loadGeo()
-      .then((geo) => setModel((m) => (m ? { ...m, geo } : m)))
+      .then((geo) => { if (gen === loadGenRef.current) setModel((m) => (m ? { ...m, geo } : m)); })
       .catch((e) => console.warn('[Folgesvend] geo-hentning fejlede — intet kort:', e))
       .finally(() => setGeoLoading(false));
   }, [mode, model]);
@@ -435,6 +441,8 @@ export default function Folgesvend() {
     if (forrigeBrugerRef.current === brugerId) return;
     forrigeBrugerRef.current = brugerId;
     geoRequestedRef.current = false; // den nye model har ingen geo; lad geo-effekten hente igen
+    // Ryd den gamle model med det samme: den kan rumme redaktørens levende personer (W5).
+    setModel(null);
     loadData();
   }, [brugerId, sessionKlar, loadData]);
 
@@ -656,6 +664,5 @@ function startFokus(m: Model): string | null {
 }
 
 function describeErr(e: unknown): string {
-  const m = e instanceof Error ? e.message : String(e);
-  return /permission|row-level|JWT|PGRST|policy/i.test(m) ? m + '\n\nMangler måske anon-læseadgang — kør web/dev-rls.sql i Supabase.' : m;
+  return e instanceof Error ? e.message : String(e);
 }
