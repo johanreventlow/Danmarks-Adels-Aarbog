@@ -37,10 +37,12 @@ permissions:
   contents: read
 
 jobs:
-  # Hvilke jobs skal køre (Actions-minutter, projektejeren 2026-11-20): en ren web/mobil/packages-PR
-  # kører kun node (~5 min i stedet for ~30). Alt andet kører de øvrige seks jobs som før. Manuel start
-  # og ændringer af selve workflowet kører alt. Hellere et job for meget end for lidt: node-testene læser
-  # også .claude/skills/ (1939-UI'erne), og en fil uden for node-stierne udløser de øvrige jobs.
+  # Hvilke jobs skal køre (Actions-minutter, projektejeren 2026-11-20). Testene læser på kryds og tværs:
+  # node-tests læser schema.sql, db-migrations.sql, tests/fixtures/ og .claude/skills/; R-testen
+  # test-narrative-record-source-inventory.R scanner web/ og mobile/. Derfor kører node og R ved enhver
+  # ikke-docs-ændring, mens python og de fire PostgreSQL-jobs (~21 af ~30 min) kun springes over, når PR'en
+  # udelukkende rører web/, mobile/, packages/ og package*.json (deres tests nævner app-stier kun som data).
+  # Manuel start kører alt. Hellere et job for meget end for lidt.
   changes:
     name: hvilke jobs
     runs-on: ubuntu-latest
@@ -49,8 +51,7 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      node: ${{ steps.f.outputs.node }}
-      ovrige: ${{ steps.f.outputs.ovrige }}
+      db: ${{ steps.f.outputs.db }}
     steps:
       - id: f
         env:
@@ -60,30 +61,22 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          if [ "$EVENT" != pull_request ]; then
-            echo node=true >>"$GITHUB_OUTPUT"; echo ovrige=true >>"$GITHUB_OUTPUT"; exit 0
-          fi
+          if [ "$EVENT" != pull_request ]; then echo db=true >>"$GITHUB_OUTPUT"; exit 0; fi
           # Også det gamle navn ved omdøbning. API'et lister højst 3000 filer; ved loftet køres alt.
           gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)' > filer.txt
           antal=$(wc -l < filer.txt)
           echo "ændrede filer: $antal"
-          if [ "$antal" -ge 3000 ]; then
-            echo node=true >>"$GITHUB_OUTPUT"; echo ovrige=true >>"$GITHUB_OUTPUT"; exit 0
-          fi
-          node_re='^(web/|mobile/|packages/|package\.json$|package-lock\.json$|\.claude/skills/|\.github/workflows/)'
-          kun_node_re='^(web/|mobile/|packages/|package\.json$|package-lock\.json$)'
+          if [ "$antal" -ge 3000 ]; then echo db=true >>"$GITHUB_OUTPUT"; exit 0; fi
+          app_re='^(web/|mobile/|packages/|package\.json$|package-lock\.json$)'
           neutral_re='^(docs/|[^/]+\.md$)'
-          if grep -Eq "$node_re" filer.txt; then node=true; else node=false; fi
           # Uden `grep -q` i en pipe: med pipefail kan et tidligt -q-exit give SIGPIPE og et falsk »nej«.
-          andre=$(grep -Ev "$kun_node_re" filer.txt | grep -Ev "$neutral_re" || true)
-          if [ -n "$andre" ]; then ovrige=true; else ovrige=false; fi
-          echo "node=$node ovrige=$ovrige"
-          echo "node=$node" >>"$GITHUB_OUTPUT"; echo "ovrige=$ovrige" >>"$GITHUB_OUTPUT"
+          andre=$(grep -Ev "$app_re" filer.txt | grep -Ev "$neutral_re" || true)
+          if [ -n "$andre" ]; then db=true; else db=false; fi
+          echo "db=$db"
+          echo "db=$db" >>"$GITHUB_OUTPUT"
 
   node:
     name: node · core + feed + web + mobil
-    needs: changes
-    if: needs.changes.outputs.node == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -148,8 +141,6 @@ jobs:
 
   r:
     name: r · testthat
-    needs: changes
-    if: needs.changes.outputs.ovrige == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -180,7 +171,7 @@ jobs:
   python:
     name: python · pipeline unittest + evidence contract pytest
     needs: changes
-    if: needs.changes.outputs.ovrige == 'true'
+    if: needs.changes.outputs.db == 'true'
     runs-on: ubuntu-latest
     # Trin 6b's manifest-test kører SQL mod en frisk base (opretter og dropper sin egen t6b_11_*).
     services:
@@ -219,7 +210,7 @@ jobs:
   evidence-promotion-db:
     name: evidence promotion · PostgreSQL 17
     needs: changes
-    if: needs.changes.outputs.ovrige == 'true'
+    if: needs.changes.outputs.db == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -332,7 +323,7 @@ jobs:
   interpretation-proposal-db:
     name: interpretation proposal projection · PostgreSQL 17 · begge katalogrækkefølger
     needs: changes
-    if: needs.changes.outputs.ovrige == 'true'
+    if: needs.changes.outputs.db == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -380,7 +371,7 @@ jobs:
   writer-1939-v50-db:
     name: DAA 1939 v50 writer · PostgreSQL 17
     needs: changes
-    if: needs.changes.outputs.ovrige == 'true'
+    if: needs.changes.outputs.db == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -835,7 +826,7 @@ jobs:
   narrative-record-contract-db:
     name: 'narrative record #152 · PostgreSQL 17'
     needs: changes
-    if: needs.changes.outputs.ovrige == 'true'
+    if: needs.changes.outputs.db == 'true'
     runs-on: ubuntu-latest
     env:
       PGDATABASE: narrative_record_152_ci
