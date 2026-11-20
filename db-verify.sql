@@ -11732,7 +11732,8 @@ BEGIN
     SELECT jsonb_build_array(i.sted,i.tabel,i.kolonner,i.handling,i.fase,i.grund)::text j
       FROM private.person_purge_inventar() i) s;
   -- visning-floruit (2026-11-19): S1 fik person.visning_floruit (ny afledt cachekolonne på P's egen række).
-  IF v_hash IS DISTINCT FROM 'cd09bbefb56bce52aef2c4a350813ecf' THEN
+  -- Review 37 P1+P2 (2026-11-20): NY-E (media, skjul) — bevaret medie med ikke-offentlig P afbildet låses.
+  IF v_hash IS DISTINCT FROM '60997b375d304d00bc528dcd84c66b82' THEN
     RAISE EXCEPTION 'PURGE_INVENTAR_HASH: person_purge_inventar';
   END IF;
 END $purge_verify_inventory_hash$;

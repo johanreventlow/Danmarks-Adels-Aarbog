@@ -54,9 +54,19 @@ fam_keep AS MATERIALIZED (SELECT id FROM fams WHERE id NOT IN (SELECT id FROM fa
 facts AS MATERIALIZED (
   SELECT f.id FROM public.fact f, params p
    WHERE f.subjekt_type='person' AND f.subjekt_id=p.pid),
+-- Review 37 P1+P2: P er ikke-offentlig (person_offentlig i db-rls.sql, her skrevet ud: levende/privat/staged). En
+-- slettet P findes ikke og er ikke ikke-offentlig (nul-tællingen efter sletningen).
+p_ikke_off AS MATERIALIZED (
+  SELECT EXISTS (SELECT 1 FROM public.person x, params p WHERE x.id=p.pid
+    AND (x.levende IS DISTINCT FROM false OR coalesce(x.privat,false) OR coalesce(x.staged,false))) AS v),
+-- F_fam: Fam_del's fakta + en ikke-offentlig P's vielser på familier, hvor P er partner.
 fact_fam AS MATERIALIZED (
   SELECT f.id FROM public.fact f
-   WHERE f.subjekt_type='family' AND f.subjekt_id IN (SELECT id FROM fam_del)),
+   WHERE f.subjekt_type='family' AND f.subjekt_id IN (SELECT id FROM fam_del)
+  UNION
+  SELECT f.id FROM public.fact f, params p, p_ikke_off io
+   WHERE io.v AND f.subjekt_type='family' AND f.faktatype='vielse'
+     AND f.subjekt_id IN (SELECT fm.family_id FROM public.family_member fm WHERE fm.person_id=p.pid AND fm.rolle='partner')),
 -- R: person-ender OG fact-ende i P's fakta (S19)
 rels AS MATERIALIZED (
   SELECT r.id FROM public.relation r, params p
@@ -282,7 +292,7 @@ counts(nr, sted, antal) AS (
   -- Punkt 2a: kerne-evidens
   UNION ALL SELECT 'S13','public.fact (subjekt person)', (SELECT count(*) FROM facts)
   UNION ALL SELECT 'S14','public.relation (person-ende eller fact-ende i P''s fakta; slettegraf R)', (SELECT count(*) FROM rels)
-  UNION ALL SELECT 'S13b','public.fact (subjekt family i Fam_del; F_fam)', (SELECT count(*) FROM fact_fam)
+  UNION ALL SELECT 'S13b','public.fact (subjekt family i Fam_del + ikke-offentlig P''s vielser; F_fam)', (SELECT count(*) FROM fact_fam)
   UNION ALL SELECT 'S14b','public.relation (family-ende/fact-ende i F_fam; R_fam)', (SELECT count(*) FROM rels_fam)
   UNION ALL SELECT 'S15','public.assertion (på fakta/relationer)', (SELECT count(*) FROM asrt)
   UNION ALL SELECT 'S16','public.conclusion (på fakta/relationer)', (SELECT count(*) FROM public.conclusion c
@@ -362,6 +372,10 @@ counts(nr, sted, antal) AS (
   UNION ALL SELECT 'S37c','storage-objekter for eksklusive medier (media+varianter)', (SELECT
          (SELECT count(*) FROM public.media m WHERE m.id IN (SELECT id FROM media_excl) AND m.storage_path IS NOT NULL)
        + (SELECT count(*) FROM public.media_variant v WHERE v.media_id IN (SELECT id FROM media_excl)))
+  UNION ALL SELECT 'NY-E','public.media bevaret med ikke-offentlig P afbildet (maa_publiceres låses)', (SELECT count(*)
+       FROM public.media m, params p, p_ikke_off io WHERE io.v AND m.id IN (SELECT id FROM media_ids)
+         AND m.id NOT IN (SELECT id FROM media_excl) AND EXISTS (SELECT 1 FROM public.relation r
+           WHERE r.subjekt_type='person' AND r.subjekt_id=p.pid AND r.rolle='afbildet' AND r.objekt_type='media' AND r.objekt_id=m.id))
   UNION ALL SELECT 'S38','public.family der slettes (Fam_del)', (SELECT count(*) FROM fam_del)
   UNION ALL SELECT 'S38a','public.family hvor P er medlem (Fam)', (SELECT count(*) FROM fams)
   UNION ALL SELECT 'S38k','public.family bevaret (Fam_keep)', (SELECT count(*) FROM fam_keep)
@@ -489,7 +503,7 @@ SELECT coalesce(sum(antal),0)=0
 WHERE nr IN ('S01','S02','S03','S03b','S04','S05','S06','S07','S08','S09','S10','S11','S12','S13','S13b',
  'S14','S14b','S15','S15b','S16','S16b','S17','S17b','S18','S18b','S19','S21','S21b','S22','S23','S24',
  'S25','S26','S27','S28','S30','S30b','S30c','S31','S32','S33','S33b','S34','S34c','S35','S36',
- 'S37b','S37c','S38','S38c','S38d','S39','S39e','S40','S42','M5','S49','S49b','S53b','S54') \gset
+ 'S37b','S37c','NY-E','S38','S38c','S38d','S39','S39e','S40','S42','M5','S49','S49b','S53b','S54') \gset
 -- S55 står bevidst ikke på listen: tællerens rev_chain tæller fortrydelser af ALLE sæt, der rører P, også af bevarede
 -- sæt (S52b, andres events). Slettegrafens S55 er kun kæden under slettede sæt (mængden D); reverterer_id er en FK,
 -- så en tilbageværende kæde peger altid på et bevaret sæt og er selv S52b (kun P's id i subjekt_id).

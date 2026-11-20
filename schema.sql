@@ -22156,6 +22156,9 @@ LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, public, pr
     ('S37',  'media', ARRAY['id','storage_path'], 'slet', '9', 'egen'),
     ('S37',  'media_variant', ARRAY['media_id','storage_path'], 'slet', '9', 'egen'),
     ('S37b', 'media', ARRAY['titel','original_filnavn','kunstner'], 'bevar_andres', NULL, NULL),
+    -- NY-E (review 37 P1+P2): bevaret medie, en ikke-offentlig P var afbildet på → maa_publiceres=false. Ikke i
+    -- manifestet (ingen append-only); ingen grund. Fase 9 sammen med medierne; L11b låser rækken.
+    ('NY-E', 'media', ARRAY['id','maa_publiceres'], 'skjul', '9', NULL),
     ('S38',  'family', ARRAY['id'], 'slet', '10', 'familie'),
     ('S38b', 'family', ARRAY['id'], 'bevar_andres', NULL, NULL),
     ('S38b', 'citation', ARRAY['citat_tekst'], 'bevar_andres', NULL, NULL),
@@ -22537,6 +22540,29 @@ $$;
 REVOKE ALL ON FUNCTION private.person_purge_inventar(), private.person_purge_undtagelser(),
   private.person_purge_kandidatkolonner() FROM PUBLIC,anon,authenticated,service_role;
 
+-- Review 37 P1+P2 (projektejeren 2026-11-20). Var P ikke-offentlig (levende/privat/staged), holdt P's afbildet-relation
+-- et bevaret billede skjult (media_afbilder_skjult) og P's medlemskab en bevaret families vielse skjult
+-- (family_offentlig). Uden P bliver de offentlige. Derfor: bevarede medier med P afbildet låses (NY-E,
+-- maa_publiceres=false), og vielser på familier, hvor P er partner, slettes som F_fam (S13b). Er P offentlig, er
+-- adfærden uændret. plpgsql (sen binding), fordi public.person_offentlig først oprettes i db-rls.sql; reglen findes
+-- dermed ét sted. En person, der ikke (længere) findes, er ikke »ikke-offentlig« her: EFTER-planen udvider sig aldrig.
+CREATE OR REPLACE FUNCTION private.person_purge_ikke_offentlig(p_person_id bigint)
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_ikke_offentlig$
+BEGIN
+  RETURN EXISTS (SELECT 1 FROM public.person WHERE id=p_person_id) AND NOT public.person_offentlig(p_person_id);
+END
+$purge_ikke_offentlig$;
+-- Fra levende rækker (plan, historik og manifestvagt bruger samme mængde). Fam_del's vielser er også i F_fam.
+CREATE OR REPLACE FUNCTION private.person_purge_vielser(p_person_id bigint)
+RETURNS TABLE(id bigint) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_vielser$
+  SELECT f.id FROM public.fact f
+   WHERE f.subjekt_type='family' AND f.faktatype='vielse'
+     AND f.subjekt_id IN (SELECT m.family_id FROM public.family_member m WHERE m.person_id=p_person_id AND m.rolle='partner')
+     AND private.person_purge_ikke_offentlig(p_person_id)
+$purge_vielser$;
+REVOKE ALL ON FUNCTION private.person_purge_ikke_offentlig(bigint), private.person_purge_vielser(bigint)
+  FROM PUBLIC,anon,authenticated,service_role;
+
 -- Task 4: læsende historiklukning (§2.2-2.4), uden sideeffekter eller dynamisk SQL.
 CREATE OR REPLACE FUNCTION private.person_purge_historik(p_person_id bigint)
 RETURNS TABLE(tabel text, pk jsonb)
@@ -22549,7 +22575,9 @@ WITH RECURSIVE
     AND (SELECT count(*) FROM public.family_member m WHERE m.family_id=f.id AND m.person_id<>p_person_id AND m.rolle='partner')<=1),
   fam_keep AS MATERIALIZED (SELECT id FROM fam EXCEPT SELECT id FROM fam_del),
   f AS MATERIALIZED (SELECT id FROM public.fact WHERE subjekt_type='person' AND subjekt_id=p_person_id),
-  ff AS MATERIALIZED (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del)),
+  -- F_fam: Fam_del's fakta + en ikke-offentlig P's vielser på bevarede familier (review 37 P1+P2).
+  ff AS MATERIALIZED (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del)
+    UNION SELECT id FROM private.person_purge_vielser(p_person_id)),
   fd AS MATERIALIZED (SELECT id FROM f UNION SELECT id FROM ff),
   r AS MATERIALIZED (SELECT id FROM public.relation WHERE
     (subjekt_type='person' AND subjekt_id=p_person_id) OR (objekt_type='person' AND objekt_id=p_person_id)
@@ -22696,7 +22724,9 @@ WITH RECURSIVE
     AND (SELECT count(*) FROM public.family_member m WHERE m.family_id=f.id AND m.person_id<>p_person_id AND m.rolle='partner')<=1),
   fam_keep AS MATERIALIZED (SELECT id FROM fam EXCEPT SELECT id FROM fam_del),
   f AS MATERIALIZED (SELECT id FROM public.fact WHERE subjekt_type='person' AND subjekt_id=p_person_id),
-  ff AS MATERIALIZED (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del)),
+  -- F_fam: Fam_del's fakta + en ikke-offentlig P's vielser på bevarede familier (review 37 P1+P2).
+  ff AS MATERIALIZED (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del)
+    UNION SELECT id FROM private.person_purge_vielser(p_person_id)),
   fd AS MATERIALIZED (SELECT id FROM f UNION SELECT id FROM ff),
   r AS MATERIALIZED (SELECT id FROM public.relation WHERE
     (subjekt_type='person' AND subjekt_id=p_person_id) OR (objekt_type='person' AND objekt_id=p_person_id)
@@ -22746,6 +22776,11 @@ WITH RECURSIVE
   feed_rx AS (SELECT '^((portrait|citat|naevnt|dagensperson):'||p_person_id::text
     ||'|(jubilaeum|embede):'||p_person_id::text||':.*|slaegt:'||p_person_id::text||':[0-9]+|slaegt:[0-9]+:'
     ||p_person_id::text||'|paadennedag:'||p_person_id::text||':(født|død):[0-9]+)$' AS rx),
+  -- NY-E (review 37 P1+P2): bevarede medier, som en ikke-offentlig P er afbildet på (person→media, den retning
+  -- media_afbilder_skjult læser). Relationen slettes (S14); frigivelsen låses, til en redaktør frigiver igen.
+  ms AS MATERIALIZED (SELECT t.objekt_id AS id FROM public.relation t WHERE t.id IN (SELECT id FROM r)
+    AND t.subjekt_type='person' AND t.subjekt_id=p_person_id AND t.rolle='afbildet' AND t.objekt_type='media'
+    AND t.objekt_id NOT IN (SELECT id FROM md) AND private.person_purge_ikke_offentlig(p_person_id)),
   x AS MATERIALIZED (SELECT source_persona_id AS id FROM private.source_persona_identity
     WHERE canonical_person_id=p_person_id AND decision_status='accepted'),
   -- persona_family_context(spouse) finder familier via PRINCIPALENS accepterede identitet.
@@ -22931,6 +22966,9 @@ WITH RECURSIVE
   UNION ALL
   SELECT 'S37'::text,'media_variant'::text,jsonb_build_object('id',t.id),'slet'::text,'egen'::text,jsonb_build_object('bucket',(SELECT m.bucket FROM public.media m WHERE m.id=t.media_id),'storage_path',t.storage_path),0
     FROM public.media_variant t WHERE t.media_id IN (SELECT id FROM md)
+  UNION ALL
+  SELECT 'NY-E'::text,'media'::text,jsonb_build_object('id',t.id),'skjul'::text,NULL::text,'{}'::jsonb,0
+    FROM public.media t WHERE t.id IN (SELECT id FROM ms)
   UNION ALL
   SELECT 'S38'::text,'family'::text,jsonb_build_object('id',t.id),'slet'::text,'familie'::text,'{}'::jsonb,0
     FROM public.family t WHERE t.id IN (SELECT id FROM fam_del)
@@ -23286,7 +23324,8 @@ BEGIN
       WITH fam AS (SELECT DISTINCT family_id AS id FROM public.family_member WHERE person_id=m.person_id),
       fam_del AS (SELECT id FROM private.person_purge_fam_del(m.person_id)),
       f AS (SELECT id FROM public.fact WHERE subjekt_type='person' AND subjekt_id=m.person_id),
-      ff AS (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del)),
+      ff AS (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_del)
+        UNION SELECT id FROM private.person_purge_vielser(m.person_id)),
       r AS (SELECT id FROM public.relation WHERE
         (subjekt_type='person' AND subjekt_id=m.person_id) OR (objekt_type='person' AND objekt_id=m.person_id)
         OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM f)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM f))),
@@ -23709,8 +23748,15 @@ BEGIN
       'saet',(SELECT count(*) FROM slettes WHERE tabel='change_set')),
     'familier_slettes',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM fam_del),'[]'::jsonb),
     'familier_bevares',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM fam_keep),'[]'::jsonb),
+    -- Review 37 P1+P2: kun vielser, der faktisk bliver stående; de slettede (F_fam) og de låste medier står for sig.
     'vielser_staar',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM public.fact
-      WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep) AND faktatype='vielse'),'[]'::jsonb),
+      WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep) AND faktatype='vielse'
+        AND jsonb_build_object('id',id) NOT IN (SELECT pk FROM slettes WHERE tabel='fact')),'[]'::jsonb),
+    'vielser_slettes',coalesce((SELECT jsonb_agg(f.id ORDER BY f.id) FROM public.fact f
+      JOIN slettes d ON d.tabel='fact' AND d.pk=jsonb_build_object('id',f.id)
+      WHERE f.subjekt_type='family' AND f.faktatype='vielse'),'[]'::jsonb),
+    'medier_skjules',coalesce((SELECT jsonb_agg((pk->>'id')::bigint ORDER BY (pk->>'id')::bigint) FROM plan
+      WHERE tabel='media' AND handling='skjul'),'[]'::jsonb),
     'samme_som_komponent',coalesce((SELECT jsonb_agg(pid ORDER BY pid) FROM public._samme_som_gruppe(p_person_id)),'[]'::jsonb),
     'forældes',jsonb_build_object('narrativer',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM stale_narratives),'[]'::jsonb),
       'bindinger',coalesce((SELECT jsonb_agg(id ORDER BY id) FROM stale_bindings),'[]'::jsonb)),
@@ -23996,10 +24042,10 @@ BEGIN
   PERFORM private.lock_identity_people(v_people);
   -- L11
   PERFORM private.lock_family_rows(ARRAY[p_person_id]);
-  -- L11b: planens md-mængde; media FOR UPDATE i id-orden efter personer og familier.
-  -- Historik påvirker ikke md; den autoritative plan med låst historik beregnes i L12.
+  -- L11b: planens md-mængde + de medier, der låses (NY-E); media FOR UPDATE i id-orden efter personer og familier.
+  -- Historik påvirker hverken md eller NY-E; den autoritative plan med låst historik beregnes i L12.
   SELECT coalesce(array_agg((p.pk->>'id')::bigint ORDER BY (p.pk->>'id')::bigint),'{}') INTO v_medier
-    FROM private.person_purge_plan_fra_historik(p_person_id,'[]'::jsonb) p WHERE p.tabel='media' AND p.handling='slet';
+    FROM private.person_purge_plan_fra_historik(p_person_id,'[]'::jsonb) p WHERE p.tabel='media' AND p.handling IN ('slet','skjul');
   PERFORM 1 FROM public.media WHERE id=ANY(v_medier) ORDER BY id FOR UPDATE;
   -- L12: genberegn alle mængder; tag ALDRIG en ny, sent opdaget lås.
   v_nu:=private.person_purge_laasemaengder(p_person_id);
@@ -24009,7 +24055,7 @@ BEGIN
   SELECT coalesce(jsonb_agg(to_jsonb(p) ORDER BY p.tabel COLLATE "C",p.pk::text COLLATE "C"),'[]'::jsonb)
     INTO v_plan FROM private.person_purge_plan_fra_historik(p_person_id,v_historik) p;
   SELECT coalesce(array_agg((p.pk->>'id')::bigint ORDER BY (p.pk->>'id')::bigint),'{}') INTO v_medier_nu
-    FROM jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text) WHERE p.tabel='media' AND p.handling='slet';
+    FROM jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text) WHERE p.tabel='media' AND p.handling IN ('slet','skjul');
   IF NOT v_nu <@ v_laas OR NOT v_saet_nu <@ v_saet OR NOT v_medier_nu <@ v_medier THEN
     RAISE EXCEPTION 'PURGE_LOCKSET_DRIFT';
   END IF;
@@ -24093,6 +24139,11 @@ BEGIN
     WHERE p.handling='slet' AND p.tabel IN ('media','media_variant') AND p.ekstra->>'storage_path' IS NOT NULL) paths;
   DELETE FROM public.media_variant t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'media_variant') p);
   DELETE FROM public.media t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'media') p);
+  -- NY-E (review 37 P1+P2): bevarede medier, en ikke-offentlig P var afbildet på, mister frigivelsen; en redaktør må
+  -- frigive dem igen. Låst i L11b. Intet sæt er åbent, så log_change skriver intet: intet spor af P i historikken.
+  UPDATE public.media t SET maa_publiceres=false
+    WHERE t.maa_publiceres AND t.id IN (SELECT (p.pk->>'id')::bigint
+      FROM jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text) WHERE p.tabel='media' AND p.handling='skjul');
   -- Fase 10: external-id/conclusion-regen før karantænen. Profiler beholder brugerkontoen (R15).
   UPDATE public.profiles t SET reventlow_person_id=NULL
     WHERE t.id IN (SELECT (p.pk->>'id')::uuid FROM jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text)
@@ -24125,6 +24176,10 @@ BEGIN
       INTO v_rest USING v_delete,r.tabel;
     IF v_rest THEN RAISE EXCEPTION 'PURGE_REST: %',r.tabel; END IF;
   END LOOP;
+  IF EXISTS (SELECT 1 FROM public.media m JOIN jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text)
+      ON p.tabel='media' AND p.handling='skjul' AND p.pk=jsonb_build_object('id',m.id) WHERE m.maa_publiceres) THEN
+    RAISE EXCEPTION 'PURGE_REST: NY-E';
+  END IF;
   SELECT coalesce(jsonb_agg(jsonb_build_object('typ',tabel,'id',(pk->>'id')::bigint)),'[]'::jsonb) INTO v_deleted
     FROM private.person_purge_manifest WHERE xid=pg_current_xact_id() AND backend_pid=pg_backend_pid()
       AND tabel IN ('person','family','fact','relation','media');

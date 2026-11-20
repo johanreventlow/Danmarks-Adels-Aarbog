@@ -10,13 +10,14 @@
   \echo 'PURGE_TEST_FEJL: angiv -v gruppe=<navn>'
   SELECT 1/0 AS gruppe_mangler;
 \endif
-SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest','oprindelse','preview','preview_q3','vagt','purge','purge_ekstra','purge_binding','fortryd_link','db_verify','udbakke') AS gruppe_kendt,
+SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest','oprindelse','preview','preview_q3','vagt','purge','purge_ekstra','purge_binding','fortryd_link','db_verify','udbakke','purge_gdpr') AS gruppe_kendt,
        :'gruppe'='udbakke' AS g_udbakke, :'gruppe'='inventar' AS g_inventar, :'gruppe'='binding' AS g_binding,
        :'gruppe'='plan' AS g_plan, :'gruppe'='historik' AS g_historik, :'gruppe'='fortrydelse' AS g_fortrydelse,
        :'gruppe'='manifest' AS g_manifest, :'gruppe'='oprindelse' AS g_oprindelse,
        :'gruppe'='preview' AS g_preview, :'gruppe'='preview_q3' AS g_preview_q3,
        :'gruppe'='vagt' AS g_vagt, :'gruppe'='fortryd_link' AS g_fortryd_link, :'gruppe'='db_verify' AS g_db_verify,
        :'gruppe'='purge_binding' AS g_purge_binding, :'gruppe'='purge' AS g_purge, :'gruppe'='purge_ekstra' AS g_purge_ekstra,
+       :'gruppe'='purge_gdpr' AS g_purge_gdpr,
        :'gruppe' IN ('preview','preview_q3') AS g_preview_helpers \gset
 \if :gruppe_kendt
 \else
@@ -139,7 +140,7 @@ DECLARE
     -- §1c
     'S21','S22','S23','S23b','S24','S25','S26','S27','S28','S29','S30','S31','S32','NY-B','S32c','S33','S34','S34b',
     -- §1d
-    'S35','S36','S37','S37b','S38','S38b',
+    'S35','S36','S37','S37b','NY-E','S38','S38b',
     -- §1e (+ Q6)
     'S39a','S39b','S39c','S39f','Prom_egen_fam','S40','S41a','S41b','S42','S43a','S43b','S44a','S44b','S45a','M5','S45b',
     'S46','S47','S48','S49a','S49b','S49c','S49d','S50','S51','S58','NY-C','NY-D',
@@ -177,7 +178,9 @@ DECLARE v text;
 BEGIN
   SELECT string_agg(DISTINCT sted,', ') INTO v FROM private.person_purge_inventar()
    WHERE sted IS NULL OR tabel IS NULL OR coalesce(cardinality(kolonner),0)=0
-      OR handling IS NULL OR handling NOT IN ('slet','nulstil','loesn','bevar_andres','blokér','ingen')
+      OR handling IS NULL OR handling NOT IN ('slet','nulstil','loesn','skjul','bevar_andres','blokér','ingen')
+      -- skjul (NY-E, review 37 P1+P2) er en planlagt UPDATE uden manifest: fase, men ingen grund.
+      OR (handling='skjul' AND (grund IS NOT NULL OR fase IS NULL))
       OR (grund IS NOT NULL AND grund NOT IN ('egen','hel_stroem','andres_ref','afledt','familie'))
       OR (handling IN ('bevar_andres','blokér','ingen') AND grund IS NOT NULL)
       OR (handling='blokér' AND fase IS DISTINCT FROM '0')
@@ -451,7 +454,7 @@ INSERT INTO count_map VALUES
  ('{S20}','{S20}'),('{S21}','{S21,S21b}'),('{S22}','{S22}'),('{S23}','{S23}'),('{S24}','{S24}'),
  ('{S25,S26}','{S25,S25b,S26}'),('{S27}','{S27}'),('{S28}','{S28}'),('{S30}','{S30,S30b,S30c}'),
  ('{S31}','{S31}'),('{S32,NY-B}','{S32}'),('{S33}','{S33,S33b}'),('{S34}','{S34,S34c}'),
- ('{S35}','{S35}'),('{S36}','{S36}'),('{S37}','{S37c}'),('{S38}','{S38}'),
+ ('{S35}','{S35}'),('{S36}','{S36}'),('{S37}','{S37c}'),('{NY-E}','{NY-E}'),('{S38}','{S38}'),
  ('{S39a,Prom_egen_fam}','{S39}'),('{S39f}','{S39f}'),('{S40}','{S40}'),('{S41a}','{S41}'),('{S42}','{S42}'),
  ('{S43a}','{S43}'),('{S45a}','{S45}'),('{M5}','{M5}'),('{S49a}','{S49}'),('{S49b}','{S49b}'),('{S54}','{S54}');
 -- Afvigelser i den eksisterende tæller, afgrænset og testet:
@@ -1929,8 +1932,12 @@ BEGIN
   PERFORM pg_temp.preview_assert(j->'blokeringer'='[]'::jsonb,'preview_fixture_ingen_blokering');
   PERFORM pg_temp.preview_assert(j->'familier_slettes' @> to_jsonb(purge_test.id('fam_del'))
     AND j->'familier_bevares' @> to_jsonb(purge_test.id('fam_keep'))
-    AND j->'vielser_staar' @> to_jsonb(purge_test.id('fakta_vielse_keep'))
-    AND NOT j->'vielser_staar' @> to_jsonb(purge_test.id('fakta_vielse_del')),'preview_familier');
+    -- Fixturens P er privat (red_opret_person): vielsen på fam_keep slettes med P (review 37 P1+P2).
+    AND j->'vielser_slettes' @> to_jsonb(purge_test.id('fakta_vielse_keep'))
+    AND j->'vielser_slettes' @> to_jsonb(purge_test.id('fakta_vielse_del'))
+    AND NOT j->'vielser_staar' @> to_jsonb(purge_test.id('fakta_vielse_keep'))
+    AND NOT j->'vielser_staar' @> to_jsonb(purge_test.id('fakta_vielse_del'))
+    AND j->'medier_skjules'=jsonb_build_array(purge_test.id('medie_delt')),'preview_familier');
   PERFORM pg_temp.preview_assert(j->'samme_som_komponent' @> to_jsonb(purge_test.id('nabo'))
     AND (j#>>'{historik,events}')::int>0 AND (j#>>'{historik,saet}')::int>0
     AND jsonb_array_length(j->'storage')>0 AND (j->>'levende_bruger')::boolean,'preview_indhold');
@@ -1975,10 +1982,14 @@ BEGIN
     ('story','titel',purge_test.id('story_anden_forankret')),('story','tekst',purge_test.id('story_anden_forankret')),
     ('haendelse','klausul',purge_test.id('haendelse_anden_forankret')),
     ('media','titel',purge_test.id('medie_delt')),
-    ('assertion','vaerdi_tekst',(SELECT id FROM public.assertion WHERE target_type='fact' AND target_id=purge_test.id('fakta_vielse_keep') LIMIT 1)),
-    ('assertion','date_raw',(SELECT id FROM public.assertion WHERE target_type='fact' AND target_id=purge_test.id('fakta_vielse_keep') LIMIT 1)),
+    -- Bevaret påstand/citat hos en anden. Ikke vielsen på fam_keep: P er privat, så den slettes (review 37 P1+P2).
+    ('assertion','vaerdi_tekst',(SELECT a.id FROM public.assertion a JOIN public.fact f ON a.target_type='fact' AND a.target_id=f.id
+       WHERE f.subjekt_type='person' AND f.subjekt_id=purge_test.id('anden_partner') AND f.faktatype='fødsel' ORDER BY a.id LIMIT 1)),
+    ('assertion','date_raw',(SELECT a.id FROM public.assertion a JOIN public.fact f ON a.target_type='fact' AND a.target_id=f.id
+       WHERE f.subjekt_type='person' AND f.subjekt_id=purge_test.id('anden_partner') AND f.faktatype='fødsel' ORDER BY a.id LIMIT 1)),
     ('citation','citat_tekst',(SELECT c.id FROM public.citation c JOIN public.assertion a ON a.id=c.assertion_id
-       WHERE a.target_type='fact' AND a.target_id=purge_test.id('fakta_vielse_keep') LIMIT 1))
+       JOIN public.fact f ON a.target_type='fact' AND a.target_id=f.id
+       WHERE f.subjekt_type='person' AND f.subjekt_id=purge_test.id('anden_partner') AND f.faktatype='fødsel' ORDER BY c.id LIMIT 1))
     ) x(tabel,kolonne,id) LOOP
     FOR target IN SELECT * FROM (VALUES ('person',purge_test.id('P')),('family',purge_test.id('fam_del')),
       ('media',purge_test.id('medie_eksklusiv'))) x(typ,id) LOOP
@@ -2257,7 +2268,11 @@ BEGIN
   INSERT INTO q9_expected VALUES('S38b','note',jsonb_build_object('id',v_id));
   INSERT INTO public.narrative(subjekt_type,subjekt_id,tekst) VALUES('family',purge_test.id('fam_keep'),v_name) RETURNING id INTO v_id;
   INSERT INTO q9_expected VALUES('S38b','narrative',jsonb_build_object('id',v_id));
-  UPDATE public.assertion SET vaerdi_tekst=v_name WHERE target_type='fact' AND target_id=purge_test.id('fakta_vielse_keep') RETURNING id INTO STRICT v_id;
+  -- Fixturens P er privat, så vielsen på fam_keep slettes (review 37 P1+P2); S38b prøves på et faktum, der står.
+  PERFORM purge_test.nyt();
+  j:=public.red_opret_fakta('family',purge_test.id('fam_keep'),'skilsmisse','1890',p_kilde_fritekst=>'Syntetisk kilde');
+  PERFORM purge_test.nyt(); PERFORM public.begin_change_set('preview_q9_familie','fixture');
+  UPDATE public.assertion SET vaerdi_tekst=v_name WHERE target_type='fact' AND target_id=(j->>'fact_id')::bigint RETURNING id INTO STRICT v_id;
   INSERT INTO q9_expected VALUES('S38b','assertion',jsonb_build_object('id',v_id));
   UPDATE public.citation SET citat_tekst=v_name WHERE assertion_id=v_id RETURNING id INTO STRICT v_id;
   INSERT INTO q9_expected VALUES('S38b','citation',jsonb_build_object('id',v_id));
@@ -3574,4 +3589,205 @@ END $t$;
 ROLLBACK;
 \echo OK udbakke_genbrug_intern_acl
 \echo OK udbakke_genbrug_klientkald_afvist
+\endif
+
+-- =====================================================================================================================
+-- Review 37 P1+P2 (projektejeren 2026-11-20): sletning af en IKKE-offentlig person må ikke gøre bevarede billeder eller
+-- bevarede familiers vielser offentlige. Egne syntetiske personer i gruppens kopi; fixturens P (privat, altså også
+-- ikke-offentlig) slettes ikke her, kun dens forhåndsvisning kontrolleres (den fulde sletning er gruppe purge).
+--   L  levende, afbildet på M_eget (kun L, egen rettighedsfakta → bevares) og M_delt (L + afdød D), partner i fam_l
+--      (+ afdød partner og barn → bevares) med en vielse.
+--   O  afdød/offentlig, afbildet på M_off (kun O, egen rettighedsfakta), partner i fam_o (+ barn) med en vielse.
+-- Alle tre medier er 'klar' med maa_publiceres=true. Sletningerne COMMIT'es (udskudte triggere, V-4).
+-- =====================================================================================================================
+\if :g_purge_gdpr
+SET request.jwt.claim.sub='a2a00000-0000-4000-8000-00000000a001';
+CREATE FUNCTION pg_temp.gdpr_assert(p_ok boolean,p_test text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN IF p_ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'TEST_FAILED %',p_test; END IF; END $$;
+CREATE TEMP TABLE gdpr_id(rolle text PRIMARY KEY, id bigint NOT NULL);
+CREATE FUNCTION pg_temp.gid(p_rolle text) RETURNS bigint LANGUAGE sql STABLE AS $$
+  SELECT id FROM pg_temp.gdpr_id WHERE rolle=p_rolle $$;
+BEGIN;
+DO $fix$
+DECLARE v_i int; v_fam bigint; v_m bigint; j jsonb; r record;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES ('L','Testperson Gdpr Levende','mand',true,'1960',NULL),
+      ('D','Testperson Gdpr Afdød','kvinde',false,'1850','1910'),
+      ('pa_l','Testperson Gdpr Partner','kvinde',false,'1955','2001'),('barn_l','Testperson Gdpr Barn','mand',false,'1980','2002'),
+      ('O','Testperson Gdpr Offentlig','mand',false,'1840','1900'),
+      ('pa_o','Testperson Gdpr Partner O','kvinde',false,'1842','1901'),('barn_o','Testperson Gdpr Barn O','kvinde',false,'1870','1930'))
+    x(rolle,navn,koen,levende,foedt,doed) LOOP
+    PERFORM purge_test.nyt();
+    INSERT INTO pg_temp.gdpr_id VALUES (r.rolle,public.red_opret_person(r.navn,r.koen,r.levende,r.foedt,r.doed,NULL));
+    -- red_opret_person opretter privat; her afgør kun levende offentligheden.
+    PERFORM purge_test.nyt(); PERFORM public.red_set_privat(pg_temp.gid(r.rolle),false);
+  END LOOP;
+  -- Familier med barn, så de bevares (Fam_keep), og en vielse med påstand, citat og konklusion.
+  FOREACH v_i IN ARRAY ARRAY[0,1] LOOP
+    PERFORM purge_test.nyt();
+    v_fam:=public.red_opret_union(pg_temp.gid(CASE v_i WHEN 0 THEN 'L' ELSE 'O' END),
+      pg_temp.gid(CASE v_i WHEN 0 THEN 'pa_l' ELSE 'pa_o' END),'vielse',1);
+    INSERT INTO pg_temp.gdpr_id VALUES (CASE v_i WHEN 0 THEN 'fam_l' ELSE 'fam_o' END,v_fam);
+    PERFORM purge_test.nyt();
+    PERFORM public.red_tilfoej_barn(v_fam,pg_temp.gid(CASE v_i WHEN 0 THEN 'barn_l' ELSE 'barn_o' END));
+    PERFORM purge_test.nyt();
+    j:=public.red_opret_fakta('family',v_fam,'vielse','1985',p_date_raw=>'1985',p_kilde_fritekst=>'Syntetisk vielseskilde');
+    INSERT INTO pg_temp.gdpr_id VALUES (CASE v_i WHEN 0 THEN 'vielse_l' ELSE 'vielse_o' END,(j->>'fact_id')::bigint);
+  END LOOP;
+  -- Medier: frigivet ('klar' + maa_publiceres). M_eget/M_off har egne fakta (rettigheder) og bevares derfor (S37b).
+  FOR r IN SELECT * FROM (VALUES ('m_eget','L','gdpr-test/eget.jpg',true),('m_delt','L','gdpr-test/delt.jpg',false),
+      ('m_off','O','gdpr-test/off.jpg',true)) x(rolle,afbildet,sti,egne_fakta) LOOP
+    PERFORM purge_test.nyt();
+    v_m:=public.red_upload_media('foto','Syntetisk billede',r.sti,'image/jpeg',p_afbildet_person_id=>pg_temp.gid(r.afbildet),
+      p_maa_publiceres=>true);
+    INSERT INTO pg_temp.gdpr_id VALUES (r.rolle,v_m);
+    PERFORM purge_test.nyt(); PERFORM public.red_bekraeft_media_upload(v_m);
+    IF r.egne_fakta THEN
+      PERFORM purge_test.nyt(); PERFORM public.red_set_media_rettigheder(v_m,'frigivet',true,p_licens=>'CC BY 4.0');
+    END IF;
+  END LOOP;
+  PERFORM purge_test.nyt();
+  PERFORM public.red_relation('person',pg_temp.gid('D'),'media',pg_temp.gid('m_delt'),'afbildet');
+  PERFORM purge_test.nyt();
+END $fix$;
+COMMIT;
+
+-- Udgangspunktet: kun de afbildede/familiemedlemmerne holder billeder og vielse skjult.
+DO $t$
+BEGIN
+  PERFORM pg_temp.gdpr_assert(NOT public.person_offentlig(pg_temp.gid('L')) AND public.person_offentlig(pg_temp.gid('O'))
+    AND public.person_offentlig(pg_temp.gid('D')),'gdpr_fixture_offentlighed');
+  PERFORM pg_temp.gdpr_assert((SELECT bool_and(maa_publiceres AND upload_status='klar') FROM public.media
+    WHERE id IN (pg_temp.gid('m_eget'),pg_temp.gid('m_delt'),pg_temp.gid('m_off'))),'gdpr_fixture_frigivet');
+  PERFORM pg_temp.gdpr_assert(EXISTS (SELECT 1 FROM public.fact WHERE subjekt_type='media' AND subjekt_id=pg_temp.gid('m_eget'))
+    AND EXISTS (SELECT 1 FROM public.fact WHERE subjekt_type='media' AND subjekt_id=pg_temp.gid('m_off')),'gdpr_fixture_egne_fakta');
+  PERFORM pg_temp.gdpr_assert(NOT public.media_synlig_anon(pg_temp.gid('m_eget')) AND NOT public.media_synlig_anon(pg_temp.gid('m_delt'))
+    AND public.media_synlig_anon(pg_temp.gid('m_off')),'gdpr_fixture_synlighed_foer');
+  PERFORM pg_temp.gdpr_assert(NOT public.family_offentlig(pg_temp.gid('fam_l')) AND public.family_offentlig(pg_temp.gid('fam_o')),
+    'gdpr_fixture_familie_foer');
+END $t$;
+\echo OK gdpr_fixture
+
+-- Forhåndsvisningerne gemmes FØR sletningerne; de kontrolleres nederst.
+CREATE TEMP TABLE gdpr_preview AS
+  SELECT 'L'::text AS hvem,public.red_slet_person_helt_preview(pg_temp.gid('L')) AS j
+  UNION ALL SELECT 'O',public.red_slet_person_helt_preview(pg_temp.gid('O'))
+  UNION ALL SELECT 'P',public.red_slet_person_helt_preview(purge_test.id('P'));
+-- Evidenskæden under L's vielse (fact → assertion → citation/conclusion), målt før sletningen.
+CREATE TEMP TABLE gdpr_vielse_l AS
+  SELECT 'fact'::text AS tabel,f.id FROM public.fact f WHERE f.id=pg_temp.gid('vielse_l')
+  UNION ALL SELECT 'assertion',a.id FROM public.assertion a WHERE a.target_type='fact' AND a.target_id=pg_temp.gid('vielse_l')
+  UNION ALL SELECT 'citation',c.id FROM public.citation c JOIN public.assertion a ON a.id=c.assertion_id
+    WHERE a.target_type='fact' AND a.target_id=pg_temp.gid('vielse_l')
+  UNION ALL SELECT 'conclusion',c.id FROM public.conclusion c WHERE c.target_type='fact' AND c.target_id=pg_temp.gid('vielse_l');
+CREATE TEMP TABLE gdpr_history AS SELECT 'change_set' tabel,id FROM public.change_set
+  UNION ALL SELECT 'change_event',id FROM public.change_event;
+DO $t$
+BEGIN
+  PERFORM pg_temp.gdpr_assert((SELECT count(DISTINCT tabel) FROM gdpr_vielse_l)=4,'gdpr_fixture_vielse_evidens');
+END $t$;
+-- Afgørelsen gælder kun, hvor P er partner: et ikke-offentligt BARN i den bevarede familie sletter ikke forældrenes vielse.
+BEGIN;
+UPDATE public.person SET privat=true WHERE id=pg_temp.gid('barn_l');
+DO $t$
+DECLARE b jsonb:=public.red_slet_person_helt_preview(pg_temp.gid('barn_l'));
+BEGIN
+  PERFORM pg_temp.gdpr_assert(b->'vielser_slettes'='[]'::jsonb AND b->'vielser_staar' @> to_jsonb(pg_temp.gid('vielse_l'))
+    AND b->'medier_skjules'='[]'::jsonb,'gdpr_preview_barn_ikke_partner');
+END $t$;
+ROLLBACK;
+\echo OK gdpr_preview_barn_ikke_partner
+
+-- Sletning af den levende L.
+BEGIN;
+DO $t$
+DECLARE v_hash text:=(SELECT j->>'sha256' FROM gdpr_preview WHERE hvem='L'); v_id bigint:=pg_temp.gid('L');
+BEGIN
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_slet_person_helt(v_id,v_hash);
+  RESET ROLE;
+END $t$;
+COMMIT;
+DO $t$
+BEGIN
+  PERFORM pg_temp.gdpr_assert(NOT EXISTS (SELECT 1 FROM public.person WHERE id=pg_temp.gid('L')),'gdpr_levende_slettet');
+  -- Medie-lås: bevaret, ikke længere frigivet, usynligt for anon.
+  PERFORM pg_temp.gdpr_assert(EXISTS (SELECT 1 FROM public.media WHERE id=pg_temp.gid('m_eget') AND NOT maa_publiceres
+      AND upload_status='klar')
+    AND EXISTS (SELECT 1 FROM public.fact WHERE subjekt_type='media' AND subjekt_id=pg_temp.gid('m_eget'))
+    AND NOT public.media_synlig_anon(pg_temp.gid('m_eget')),'gdpr_levende_eget_medie_laast');
+  PERFORM pg_temp.gdpr_assert(EXISTS (SELECT 1 FROM public.media WHERE id=pg_temp.gid('m_delt') AND NOT maa_publiceres)
+    AND EXISTS (SELECT 1 FROM public.relation WHERE subjekt_type='person' AND subjekt_id=pg_temp.gid('D') AND rolle='afbildet'
+      AND objekt_type='media' AND objekt_id=pg_temp.gid('m_delt'))
+    AND NOT public.media_synlig_anon(pg_temp.gid('m_delt')),'gdpr_levende_delt_medie_laast');
+  -- Vielsen på den bevarede familie er slettet med hele evidenskæden; familien består.
+  PERFORM pg_temp.gdpr_assert(NOT EXISTS (SELECT 1 FROM gdpr_vielse_l v WHERE
+      (v.tabel='fact' AND EXISTS (SELECT 1 FROM public.fact WHERE id=v.id))
+      OR (v.tabel='assertion' AND EXISTS (SELECT 1 FROM public.assertion WHERE id=v.id))
+      OR (v.tabel='citation' AND EXISTS (SELECT 1 FROM public.citation WHERE id=v.id))
+      OR (v.tabel='conclusion' AND EXISTS (SELECT 1 FROM public.conclusion WHERE id=v.id))),'gdpr_levende_vielse_slettet');
+  PERFORM pg_temp.gdpr_assert(EXISTS (SELECT 1 FROM public.family WHERE id=pg_temp.gid('fam_l'))
+    AND public.family_offentlig(pg_temp.gid('fam_l'))
+    AND NOT EXISTS (SELECT 1 FROM public.fact WHERE subjekt_type='family' AND subjekt_id=pg_temp.gid('fam_l')),
+    'gdpr_levende_familie_bevaret');
+  -- Ingen spor: ingen ny historik (låsen skriver ingen change_event), og ingen overlevende historik om vielsen.
+  PERFORM pg_temp.gdpr_assert(NOT EXISTS (
+    (SELECT 'change_set',id FROM public.change_set UNION ALL SELECT 'change_event',id FROM public.change_event)
+    EXCEPT SELECT * FROM gdpr_history),'gdpr_levende_ingen_ny_historik');
+  PERFORM pg_temp.gdpr_assert(NOT EXISTS (SELECT 1 FROM public.change_event e JOIN gdpr_vielse_l v
+    ON e.tabel=v.tabel AND e.row_pk->>'id'=v.id::text),'gdpr_levende_vielse_historik_slettet');
+  PERFORM pg_temp.gdpr_assert(NOT EXISTS (SELECT 1 FROM private.person_purge_manifest),'gdpr_levende_manifest_tomt');
+END $t$;
+\echo OK gdpr_levende_eget_medie_laast
+\echo OK gdpr_levende_delt_medie_laast
+\echo OK gdpr_levende_vielse_slettet
+\echo OK gdpr_levende_familie_bevaret
+\echo OK gdpr_levende_ingen_ny_historik
+
+-- Sletning af den afdøde, offentlige O: uændret adfærd.
+BEGIN;
+DO $t$
+DECLARE v_hash text:=(SELECT j->>'sha256' FROM gdpr_preview WHERE hvem='O'); v_id bigint:=pg_temp.gid('O');
+BEGIN
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_slet_person_helt(v_id,v_hash);
+  RESET ROLE;
+END $t$;
+COMMIT;
+DO $t$
+BEGIN
+  PERFORM pg_temp.gdpr_assert(NOT EXISTS (SELECT 1 FROM public.person WHERE id=pg_temp.gid('O'))
+    AND EXISTS (SELECT 1 FROM public.media WHERE id=pg_temp.gid('m_off') AND maa_publiceres)
+    AND public.media_synlig_anon(pg_temp.gid('m_off')),'gdpr_offentlig_medie_uaendret');
+  PERFORM pg_temp.gdpr_assert(EXISTS (SELECT 1 FROM public.fact WHERE id=pg_temp.gid('vielse_o'))
+    AND EXISTS (SELECT 1 FROM public.assertion WHERE target_type='fact' AND target_id=pg_temp.gid('vielse_o'))
+    AND EXISTS (SELECT 1 FROM public.family WHERE id=pg_temp.gid('fam_o')),'gdpr_offentlig_vielse_staar');
+END $t$;
+\echo OK gdpr_offentlig_medie_uaendret
+\echo OK gdpr_offentlig_vielse_staar
+
+-- Forhåndsvisningen viser låste medier og vielser, der slettes eller står.
+DO $t$
+DECLARE l jsonb:=(SELECT j FROM gdpr_preview WHERE hvem='L'); o jsonb:=(SELECT j FROM gdpr_preview WHERE hvem='O');
+  p jsonb:=(SELECT j FROM gdpr_preview WHERE hvem='P');
+BEGIN
+  PERFORM pg_temp.gdpr_assert(l->'blokeringer'='[]'::jsonb AND o->'blokeringer'='[]'::jsonb,'gdpr_preview_ingen_blokering');
+  PERFORM pg_temp.gdpr_assert(l->'medier_skjules'=jsonb_build_array(least(pg_temp.gid('m_eget'),pg_temp.gid('m_delt')),
+      greatest(pg_temp.gid('m_eget'),pg_temp.gid('m_delt')))
+    AND o->'medier_skjules'='[]'::jsonb AND p->'medier_skjules'=jsonb_build_array(purge_test.id('medie_delt')),
+    'gdpr_preview_medier_skjules');
+  PERFORM pg_temp.gdpr_assert(l->'vielser_slettes' @> to_jsonb(pg_temp.gid('vielse_l'))
+    AND NOT l->'vielser_staar' @> to_jsonb(pg_temp.gid('vielse_l'))
+    AND l->'familier_bevares' @> to_jsonb(pg_temp.gid('fam_l')),'gdpr_preview_vielse_slettes');
+  PERFORM pg_temp.gdpr_assert(o->'vielser_staar' @> to_jsonb(pg_temp.gid('vielse_o'))
+    AND NOT o->'vielser_slettes' @> to_jsonb(pg_temp.gid('vielse_o'))
+    AND p->'vielser_slettes' @> to_jsonb(purge_test.id('fakta_vielse_keep'))
+    AND p->'vielser_slettes' @> to_jsonb(purge_test.id('fakta_vielse_del'))
+    AND p->'vielser_staar'='[]'::jsonb,'gdpr_preview_vielse_staar');
+  PERFORM pg_temp.gdpr_assert(EXISTS (SELECT 1 FROM jsonb_array_elements(l#>'{steder,NY-E}') s
+      WHERE s->>'tabel'='media' AND s->>'handling'='skjul') AND NOT o->'steder' ? 'NY-E','gdpr_preview_sted');
+END $t$;
+\echo OK gdpr_preview_medier_skjules
+\echo OK gdpr_preview_vielse_slettes
+\echo OK gdpr_preview_vielse_staar
 \endif
