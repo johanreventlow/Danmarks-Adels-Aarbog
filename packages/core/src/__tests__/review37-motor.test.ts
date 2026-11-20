@@ -72,7 +72,7 @@ describe('review37 M1 — forskellige hustruer og plausible navnealiaser', () =>
   test.each([
     ['Anna A', 'Anna A'], ['Anna A', 'Anna Clara A'], ['Anna Clara A', 'Anna A'],
     ['  ÁNNA,   A. ', 'Anna A'], ['Anna Clara A', 'A Anna Clara'],
-    ['', 'Anna A'],
+    ['', 'Anna A'], ['Anna-Clara A', 'Anna Clara A'], ['Anna-Clara A', 'Anna A'],
   ])('ulinkede moderrækker med navne »%s« / »%s« og overlappende spænd er ikke bevist forskellige', (a, b) => {
     expect(computeRelationship(siblings(a, b), 'a', 'b').lines[0].half).toBe(false);
   });

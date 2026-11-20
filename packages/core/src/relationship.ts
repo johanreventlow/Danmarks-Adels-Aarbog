@@ -105,7 +105,7 @@ function pathUp(reach: Reach, from: string, to: string): string[] {
 // Navne sammenlignes uden store bogstaver, diakritik, tegnsætning og ekstra mellemrum.
 // En ord-delmængde kan være en kortere navneform i en anden udgave, også i anden ordstilling.
 const nameWords = (name: string): string[] => name.toLowerCase().normalize('NFD')
-  .replace(/\p{M}/gu, '').replace(/\p{P}/gu, '').trim().split(/\s+/).filter(Boolean);
+  .replace(/\p{M}/gu, '').replace(/\p{P}/gu, ' ').trim().split(/\s+/).filter(Boolean);
 
 // Forskellige id'er kræver desuden modstridende kendt køn, adskilte mulige levetider
 // eller tydeligt forskellige navne. Ens navne/ord-delmængder med kompatible datoer
