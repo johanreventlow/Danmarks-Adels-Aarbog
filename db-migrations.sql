@@ -18896,6 +18896,8 @@ DECLARE
     -- 6m-a: findes først efter blokken sidst i filen; to_regprocedure som red_normaliser_forslag.
     to_regprocedure('public.red_ret_forslag(uuid,integer,text,jsonb)'),
     to_regprocedure('public.red_ret_paastand(bigint,jsonb,text,uuid,jsonb)'),
+    -- OCR-rettelse af kildepåstand: findes først efter blokken sidst i filen.
+    to_regprocedure('public.red_ret_ocr_paastand(bigint,jsonb,jsonb)'),
     'public.red_revalider_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
     'public.red_reverse_1939_v50_reimport(uuid,uuid)'::regprocedure,
     'public.red_reverse_reimport(uuid,uuid)'::regprocedure,
@@ -42450,3 +42452,202 @@ INSERT INTO vocab (scheme, code, label) VALUES
   ('faktatype','fødenavn','Fødenavn — slægtsnavn ved fødslen (ingifte); titel er et eget titel-faktum')
 ON CONFLICT (scheme, code) DO NOTHING;
 -- END fødenavn-faktatype
+
+-- ===== ocr-rettelse af kildepåstand =====
+-- Decisions 2026-11-20 (plan docs/superpowers/plans/2026-11-20-ocr-rettelse-af-kildepaastand.md). Idempotent. Kræver
+-- 6c-2b's journal og 6c-2a's binding_value_matches (red_ret_ocr_paastand kalder den; plpgsql slår kaldet op ved kørsel).
+DO $$ BEGIN
+  IF to_regclass('public.paastand_korrektion') IS NULL
+     OR to_regprocedure('private.binding_value_matches(text,jsonb,text,text)') IS NULL THEN
+    RAISE EXCEPTION 'MIGRATION_OCR_PAASTAND_KRAEVER_6C2B';
+  END IF;
+END $$;
+ALTER TABLE public.paastand_korrektion DROP CONSTRAINT IF EXISTS paastand_korrektion_grund_check;
+ALTER TABLE public.paastand_korrektion ADD CONSTRAINT paastand_korrektion_grund_check
+  CHECK (grund IN ('bogen_har_ret','linjeskift-v1','ocr'));
+-- OCR-rettelse af kildepåstand (decisions 2026-11-20): retter en importeret kildepåstand på samme id (B12's
+-- OCR-undtagelse) med redaktørens læsning af bogen, også for personer uden importanker, som kvalitetsarkets
+-- red_ret_ocr_felt ikke når. p_forventet er målet, som editoren viste det (samme nøgler som red_ret_paastand;
+-- citation_sources er de distinkte ikke-NULL kilder); enhver afvigelse giver PAASTAND_DRIFT. p_ny er enten
+-- {vaerdi_tekst} eller {date_raw, date_min, date_max, date_qualifier, date_certainty}, præcis de nøgler; datoformen
+-- erstatter hele den fortolkede læsning, så en gammel date_certainty ikke overlever (som red_ret_ocr_felt). Påstanden
+-- skal være importeret (uforanderlig ikke falsk) og citeret af præcis én kilde; forældrefamilie rettes ikke her; en
+-- gyldig binding, som den nye værdi ville gøre ugyldig, afviser rettelsen; navn/fødsel/død hos en person, som
+-- kvalitetsarket dækker (ét stabilt anker i påstandens kilde), henvises dertil, så samme rettelse ikke får to
+-- journaler. Journal: paastand_korrektion med grund 'ocr' og uden fortolkning. Visningscachen følger af
+-- trg_assertion_regen; rettelsen fortrydes med red_fortryd_change_set.
+CREATE OR REPLACE FUNCTION red_ret_ocr_paastand(
+  p_assertion_id bigint,
+  p_forventet jsonb,
+  p_ny jsonb
+) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE
+  v_actor uuid := auth.uid();
+  v_actor_navn text;
+  v_a public.assertion%ROWTYPE;
+  v_f public.fact%ROWTYPE;
+  v_person bigint;
+  v_valgt bigint;
+  v_sources bigint[];
+  v_null_source boolean;
+  v_forv_sources bigint[];
+  v_forv_fact bigint;
+  v_forv_valgt bigint;
+  v_keys text[];
+  v_kind text;
+  v_new_vaerdi text;
+  v_new_raw text;
+  v_new_min date;
+  v_new_max date;
+  v_new_qual text;
+  v_new_cert text;
+  v_foer jsonb;
+  v_efter jsonb;
+  v_cs bigint;
+  v_kid bigint;
+BEGIN
+  IF v_actor IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN
+    RAISE EXCEPTION 'PAASTAND_ROLLE_FORBUDT';
+  END IF;
+
+  -- Lock order follows red_ret_paastand: person, then assertion and fact.
+  SELECT f.subjekt_id INTO v_person
+    FROM public.assertion a JOIN public.fact f ON f.id=a.target_id
+   WHERE a.id=p_assertion_id AND a.target_type='fact' AND f.subjekt_type='person';
+  IF v_person IS NULL THEN RAISE EXCEPTION 'PAASTAND_DRIFT'; END IF;
+  PERFORM 1 FROM public.person WHERE id=v_person FOR UPDATE;
+  SELECT * INTO v_a FROM public.assertion WHERE id=p_assertion_id FOR UPDATE;
+  IF v_a.id IS NULL OR v_a.target_type IS DISTINCT FROM 'fact' THEN RAISE EXCEPTION 'PAASTAND_DRIFT'; END IF;
+  SELECT * INTO v_f FROM public.fact WHERE id=v_a.target_id FOR SHARE;
+  IF v_f.id IS NULL OR v_f.subjekt_type IS DISTINCT FROM 'person' OR v_f.subjekt_id IS DISTINCT FROM v_person THEN
+    RAISE EXCEPTION 'PAASTAND_DRIFT';
+  END IF;
+
+  -- Drift: the target exactly as the editor showed it.
+  SELECT c.valgt_assertion_id INTO v_valgt FROM public.conclusion c WHERE c.target_type='fact' AND c.target_id=v_f.id;
+  v_sources := ARRAY(SELECT DISTINCT c.source_id FROM public.citation c
+                      WHERE c.assertion_id=v_a.id AND c.source_id IS NOT NULL ORDER BY 1);
+  v_null_source := EXISTS (SELECT 1 FROM public.citation c WHERE c.assertion_id=v_a.id AND c.source_id IS NULL);
+  IF p_forventet IS NULL OR jsonb_typeof(p_forventet)<>'object'
+     OR NOT (p_forventet ?& ARRAY['fact_id','faktatype','vaerdi_tekst','date_raw','valgt_assertion_id',
+                                   'citation_sources'])
+     OR jsonb_typeof(p_forventet->'citation_sources')<>'array' THEN
+    RAISE EXCEPTION 'PAASTAND_DRIFT';
+  END IF;
+  BEGIN
+    v_forv_fact := (p_forventet->>'fact_id')::bigint;
+    v_forv_valgt := (p_forventet->>'valgt_assertion_id')::bigint;
+    v_forv_sources := ARRAY(SELECT DISTINCT e::bigint
+                              FROM jsonb_array_elements_text(p_forventet->'citation_sources') e ORDER BY 1);
+  EXCEPTION WHEN invalid_text_representation OR numeric_value_out_of_range THEN
+    RAISE EXCEPTION 'PAASTAND_DRIFT';
+  END;
+  IF v_forv_fact IS DISTINCT FROM v_f.id
+     OR (p_forventet->>'faktatype') IS DISTINCT FROM v_f.faktatype
+     OR (p_forventet->>'vaerdi_tekst') IS DISTINCT FROM v_a.vaerdi_tekst
+     OR (p_forventet->>'date_raw') IS DISTINCT FROM v_a.date_raw
+     OR v_forv_valgt IS DISTINCT FROM v_valgt
+     OR v_forv_sources IS DISTINCT FROM v_sources THEN
+    RAISE EXCEPTION 'PAASTAND_DRIFT';
+  END IF;
+
+  -- What can be corrected here: an imported source assertion with exactly one source, not the parent-family slot.
+  IF v_f.faktatype='forældrefamilie' THEN RAISE EXCEPTION 'PAASTAND_FAKTATYPE_UGYLDIG'; END IF;
+  IF v_a.uforanderlig IS FALSE OR cardinality(v_sources)=0 THEN RAISE EXCEPTION 'PAASTAND_IKKE_KILDEPAASTAND'; END IF;
+  IF cardinality(v_sources)<>1 OR v_null_source THEN RAISE EXCEPTION 'PAASTAND_KILDE_DELT'; END IF;
+  -- The quality sheet's reach (red_person_grid's external_anchor): exactly one anchor, and it is stable.
+  IF v_f.faktatype IN ('navn','fødsel','død') AND EXISTS (
+       SELECT 1 FROM (
+         SELECT count(*) AS n,
+                count(*) FILTER (WHERE s.import_key IS NOT NULL AND pei.record_key IS NOT NULL) AS n_stabil,
+                max(pei.source_id) AS source_id
+           FROM public.person_external_id pei LEFT JOIN public.source s ON s.id=pei.source_id
+          WHERE pei.person_id=v_person) x
+        WHERE x.n=1 AND x.n_stabil=1 AND x.source_id=v_sources[1]) THEN
+    RAISE EXCEPTION 'PAASTAND_BRUG_KVALITETSARK';
+  END IF;
+
+  -- The new value: exactly one of the two forms, matching what the assertion holds.
+  IF p_ny IS NULL OR jsonb_typeof(p_ny)<>'object' THEN RAISE EXCEPTION 'PAASTAND_VAERDI_UGYLDIG'; END IF;
+  v_keys := ARRAY(SELECT k COLLATE "C" FROM jsonb_object_keys(p_ny) k ORDER BY 1);
+  IF v_keys=ARRAY['vaerdi_tekst'] THEN
+    v_kind := 'text';
+    IF v_a.vaerdi_tekst IS NULL OR jsonb_typeof(p_ny->'vaerdi_tekst')<>'string'
+       OR nullif(btrim(p_ny->>'vaerdi_tekst'),'') IS NULL THEN
+      RAISE EXCEPTION 'PAASTAND_VAERDI_UGYLDIG';
+    END IF;
+    v_new_vaerdi := p_ny->>'vaerdi_tekst';
+    v_new_raw := v_a.date_raw;
+    IF v_new_vaerdi=v_a.vaerdi_tekst THEN RAISE EXCEPTION 'PAASTAND_VAERDI_UAENDRET'; END IF;
+  ELSIF v_keys=ARRAY['date_certainty','date_max','date_min','date_qualifier','date_raw'] THEN
+    v_kind := 'date';
+    -- The type checks stand alone: Postgres does not guarantee OR order.
+    IF v_a.date_raw IS NULL OR jsonb_typeof(p_ny->'date_raw')<>'string'
+       OR nullif(btrim(p_ny->>'date_raw'),'') IS NULL
+       OR jsonb_typeof(p_ny->'date_min') NOT IN ('string','null')
+       OR jsonb_typeof(p_ny->'date_max') NOT IN ('string','null')
+       OR jsonb_typeof(p_ny->'date_qualifier') NOT IN ('string','null')
+       OR jsonb_typeof(p_ny->'date_certainty') NOT IN ('string','null') THEN
+      RAISE EXCEPTION 'PAASTAND_VAERDI_UGYLDIG';
+    END IF;
+    BEGIN
+      v_new_min := (p_ny->>'date_min')::date;
+      v_new_max := (p_ny->>'date_max')::date;
+    EXCEPTION WHEN invalid_datetime_format OR datetime_field_overflow OR invalid_text_representation THEN
+      RAISE EXCEPTION 'PAASTAND_VAERDI_UGYLDIG';
+    END;
+    v_new_qual := p_ny->>'date_qualifier';
+    v_new_cert := p_ny->>'date_certainty';
+    -- The qualifiers and certainties the web's normaliserOcrDato can produce (or none).
+    IF v_new_min>v_new_max
+       OR (v_new_qual IS NOT NULL AND v_new_qual NOT IN ('exact','before','after','between','about','floruit'))
+       OR (v_new_cert IS NOT NULL AND v_new_cert NOT IN ('certain','uncertain','ambiguous')) THEN
+      RAISE EXCEPTION 'PAASTAND_VAERDI_UGYLDIG';
+    END IF;
+    v_new_raw := p_ny->>'date_raw';
+    v_new_vaerdi := v_a.vaerdi_tekst;
+    IF v_new_raw=v_a.date_raw THEN RAISE EXCEPTION 'PAASTAND_VAERDI_UAENDRET'; END IF;
+  ELSE
+    RAISE EXCEPTION 'PAASTAND_VAERDI_UGYLDIG';
+  END IF;
+
+  -- No silent loss: every currently valid binding on the target must still hold with the new value.
+  IF EXISTS (
+    SELECT 1
+      FROM private.interpretation_promotion p
+      JOIN private.interpretation q ON q.id=p.interpretation_id
+      JOIN private.interpretation_current cur
+        ON cur.interpretation_key=q.interpretation_key AND cur.id=p.interpretation_id
+      JOIN private.interpretation_promotion_rule r ON r.rule_key=p.rule_key AND r.rule_version=p.rule_version
+     WHERE p.target_type='assertion' AND p.target_id=v_a.id
+       AND private.assertion_binding_current(p.id)
+       AND NOT private.binding_value_matches(r.value_kind,cur.value,v_new_vaerdi,v_new_raw)
+  ) THEN
+    RAISE EXCEPTION 'PAASTAND_BINDING_BRYDES';
+  END IF;
+
+  SELECT coalesce(pr.navn,pr.email,v_actor::text) INTO v_actor_navn FROM public.profiles pr WHERE pr.id=v_actor;
+  v_actor_navn := coalesce(v_actor_navn,'ukendt');
+  v_foer := jsonb_build_object('vaerdi_tekst',v_a.vaerdi_tekst,'date_raw',v_a.date_raw,'date_min',v_a.date_min,
+              'date_max',v_a.date_max,'date_qualifier',v_a.date_qualifier,'date_certainty',v_a.date_certainty);
+  v_cs := public.begin_change_set('red_ret_ocr_paastand',format('Paastand %s: ocr',v_a.id),'person',v_f.subjekt_id);
+  IF v_kind='text' THEN
+    UPDATE public.assertion SET vaerdi_tekst=v_new_vaerdi WHERE id=v_a.id;
+  ELSE
+    UPDATE public.assertion SET date_raw=v_new_raw,date_min=v_new_min,date_max=v_new_max,date_qualifier=v_new_qual,
+           date_certainty=v_new_cert
+     WHERE id=v_a.id;
+  END IF;
+  SELECT jsonb_build_object('vaerdi_tekst',a.vaerdi_tekst,'date_raw',a.date_raw,'date_min',a.date_min,
+           'date_max',a.date_max,'date_qualifier',a.date_qualifier,'date_certainty',a.date_certainty)
+    INTO v_efter FROM public.assertion a WHERE a.id=v_a.id;
+  INSERT INTO public.paastand_korrektion(assertion_id,interpretation_id,grund,foer,efter,change_set_id,actor_id,actor_navn)
+    VALUES (v_a.id,NULL,'ocr',v_foer,v_efter,v_cs,v_actor,v_actor_navn)
+    RETURNING id INTO v_kid;
+  RETURN jsonb_build_object('assertion_id',v_a.id,'grund','ocr','foer',v_foer,'efter',v_efter,
+    'change_set_id',v_cs,'korrektion_id',v_kid);
+END $$;
+REVOKE ALL ON FUNCTION red_ret_ocr_paastand(bigint,jsonb,jsonb) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION red_ret_ocr_paastand(bigint,jsonb,jsonb) TO authenticated;
+-- END ocr-rettelse af kildepåstand

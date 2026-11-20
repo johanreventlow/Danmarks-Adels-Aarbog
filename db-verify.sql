@@ -3041,6 +3041,7 @@ DECLARE
     'public.red_relation(text,bigint,text,bigint,text,text)'::regprocedure,
     'public.red_ret_ocr_felt(bigint,text,text,text,text,jsonb,text,text)'::regprocedure,
     'public.red_ret_forslag(uuid,integer,text,jsonb)'::regprocedure,
+    'public.red_ret_ocr_paastand(bigint,jsonb,jsonb)'::regprocedure,
     'public.red_ret_paastand(bigint,jsonb,text,uuid,jsonb)'::regprocedure,
     'public.red_revalider_person_narrative_record(bigint,bigint,text,text)'::regprocedure,
     'public.red_reverse_1939_v50_reimport(uuid,uuid)'::regprocedure,
@@ -11155,7 +11156,8 @@ BEGIN
     END IF;
   END LOOP;
   FOREACH f IN ARRAY ARRAY['public.red_ret_paastand(bigint,jsonb,text,uuid,jsonb)',
-                           'public.red_paastand_historik(bigint)'] LOOP
+                           'public.red_paastand_historik(bigint)',
+                           'public.red_ret_ocr_paastand(bigint,jsonb,jsonb)'] LOOP
     IF to_regprocedure(f) IS NULL OR NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid=to_regprocedure(f))
        OR NOT EXISTS (SELECT 1 FROM pg_proc p, unnest(p.proconfig) c WHERE p.oid=to_regprocedure(f) AND c LIKE 'search_path=%')
        OR has_function_privilege('anon',f,'EXECUTE') OR NOT has_function_privilege('authenticated',f,'EXECUTE') THEN
