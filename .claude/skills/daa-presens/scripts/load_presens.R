@@ -146,11 +146,12 @@ tryCatch({
   # Genkørselsværn (E6) under EXCLUSIVE-låsen på source, så to samtidige kørsler ikke begge
   # passerer. source.import_key sættes bevidst ikke: den nøgle bærer stamtavlernes
   # OCR-journal (import_korrektion), og præsenslistens personer har ingen record_key.
-  findes <- dbGetQuery(con, "SELECT count(*)::int AS n FROM source WHERE slags = 'præsensliste' AND udgave = $1",
-                       params = list(udgave))$n[[1]]
+  # Også samme årstal (aar = sidste dækkede år), så »DAA 2012-14« ikke slipper forbi »DAA 2012-2014«.
+  findes <- dbGetQuery(con, paste("SELECT count(*)::int AS n FROM source WHERE slags = 'præsensliste'",
+                                  "AND (udgave = $1 OR aar = $2)"), params = list(udgave, aar))$n[[1]]
   if (findes != 0L)
-    stop(sprintf("præsenslisten '%s' er allerede indlæst (%d kilde(r)); en genkørsel ville dublere personerne.",
-                 udgave, findes))
+    stop(sprintf("en præsensliste '%s' eller med år %d er allerede indlæst (%d kilde(r)); en genkørsel ville dublere personerne.",
+                 udgave, aar, findes))
 
   src <- nid("source")
   ex("INSERT INTO source (id, slags, titel, udgave, aar, ekstern) VALUES ($1,'præsensliste',$2,$3,$4,FALSE)",

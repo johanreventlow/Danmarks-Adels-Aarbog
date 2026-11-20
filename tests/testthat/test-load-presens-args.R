@@ -61,7 +61,7 @@ test_that("load_presens.R: genkørselsværn før første INSERT og sekvens-sync 
   root <- normalizePath(file.path(getwd(), "..", ".."))
   src <- readLines(file.path(root, ".claude/skills/daa-presens/scripts/load_presens.R"), warn = FALSE)
   code <- src[!grepl("^\\s*#", src)]
-  vaern <- grep("FROM source WHERE slags = 'præsensliste' AND udgave = $1", code, fixed = TRUE)
+  vaern <- grep("AND (udgave = $1 OR aar = $2)", code, fixed = TRUE)
   laas <- grep("IN EXCLUSIVE MODE", code, fixed = TRUE)
   foerste_insert <- grep("INSERT INTO source", code, fixed = TRUE)
   expect_length(vaern, 1L)
