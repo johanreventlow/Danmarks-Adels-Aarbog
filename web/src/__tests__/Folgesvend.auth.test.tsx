@@ -215,3 +215,40 @@ test('anden bruger logger ind i en anden fane under eget login: det sene login-s
   await waitFor(() => expect(mocks.currentSession).toHaveBeenCalledTimes(2));
   expect(screen.queryByText(/redaktion/i)).toBeNull();
 });
+
+test('SIGNED_OUT + SIGNED_IN(u2) i en anden fane under eget login: u2-sessionen genskabes, når u1-svaret er forældet', async () => {
+  const loginSvar = udsat<unknown>();
+  mocks.currentSession.mockResolvedValueOnce(null).mockResolvedValue({ email: 'b@example.dk', role: 'medlem', userId: 'u2' });
+  mocks.signIn.mockReturnValue(loginSvar.promise);
+  mocks.loadModel.mockResolvedValue(model('Afdød Anna'));
+  render(<Folgesvend />);
+  expect(await screen.findByText(/Afdød Anna/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Log ind' }));
+  fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'red@example.dk' } });
+  fireEvent.change(screen.getByLabelText('Adgangskode'), { target: { value: 'hemmeligt' } });
+  fireEvent.submit(screen.getByRole('dialog'));
+  await waitFor(() => expect(mocks.signIn).toHaveBeenCalled());
+  act(() => { mocks.authCb?.('SIGNED_OUT', null); mocks.authCb?.('SIGNED_IN', 'u2'); });
+  await act(async () => { loginSvar.resolve(redaktoer); });
+  // u1-svaret er forældet (logout talte generationen op), men u2's session må ikke gå tabt.
+  await waitFor(() => expect(mocks.currentSession).toHaveBeenCalledTimes(2));
+  expect(await screen.findByRole('button', { name: 'Log ud' })).toBeTruthy();
+});
+
+test('SIGNED_IN(u2) i en anden fane, og eget login afvises: u2-sessionen genskabes', async () => {
+  const loginSvar = udsat<unknown>();
+  mocks.currentSession.mockResolvedValueOnce(null).mockResolvedValue({ email: 'b@example.dk', role: 'medlem', userId: 'u2' });
+  mocks.signIn.mockReturnValue(loginSvar.promise.then(() => { throw new Error('afvist'); }));
+  mocks.loadModel.mockResolvedValue(model('Afdød Anna'));
+  render(<Folgesvend />);
+  expect(await screen.findByText(/Afdød Anna/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Log ind' }));
+  fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'red@example.dk' } });
+  fireEvent.change(screen.getByLabelText('Adgangskode'), { target: { value: 'forkert' } });
+  fireEvent.submit(screen.getByRole('dialog'));
+  await waitFor(() => expect(mocks.signIn).toHaveBeenCalled());
+  act(() => { mocks.authCb?.('SIGNED_IN', 'u2'); });
+  await act(async () => { loginSvar.resolve(null); });
+  await waitFor(() => expect(mocks.currentSession).toHaveBeenCalledTimes(2));
+  expect(await screen.findByRole('button', { name: 'Log ud' })).toBeTruthy();
+});

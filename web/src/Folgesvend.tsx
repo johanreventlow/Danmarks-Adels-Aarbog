@@ -163,19 +163,22 @@ export default function Folgesvend() {
     const gen = ++sessGenRef.current;
     loginIgangRef.current = true;
     loginEventBrugerRef.current = undefined;
+    // Blev svaret ikke taget i brug (forældet, afvist eller anden bruger), mens et auth-event kom undervejs,
+    // genskabes den faktiske Supabase-session i finally — ellers går fx et brugerskift i en anden fane tabt.
+    let taget = false;
     try {
       const s = await signIn(login.email, login.pw);
       if (gen !== sessGenRef.current) { setLogin((l) => ({ ...l, busy: false })); return; }
       // Review 37 W5: loggede en anden bruger ind undervejs (auth-event for et andet id), er dette svar
-      // forældet; den aktive Supabase-session tilhører den anden bruger. Genskab den i stedet.
+      // forældet; den aktive Supabase-session tilhører den anden bruger og genskabes i finally.
       const eventBruger = loginEventBrugerRef.current;
       if (eventBruger !== undefined && eventBruger !== s.userId) {
         setLogin((l) => ({ ...l, busy: false }));
         setLoginOpen(false);
         setSession(null); setModel(null);
-        void genskabSession();
         return;
       }
+      taget = true;
       setSession(s);
       setLoginOpen(false);
       setLogin({ email: '', pw: '', err: '', busy: false });
@@ -183,6 +186,8 @@ export default function Folgesvend() {
       setLogin((l) => ({ ...l, busy: false, err: gen === sessGenRef.current ? loginFejlTekst(e) : '' }));
     } finally {
       loginIgangRef.current = false;
+      if (!taget && loginEventBrugerRef.current !== undefined) void genskabSession();
+      loginEventBrugerRef.current = undefined;
     }
   };
   const doLogout = async () => { sessGenRef.current++; await signOut(); setSession(null); };
