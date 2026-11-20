@@ -67,6 +67,10 @@ export type Oplysning = {
   // Importerede kildepåstande er uforanderlige og kan ikke slettes (red_slet_oplysning afviser dem, review trin B
   // 1d.1-02); kun redaktørens egne (uforanderlig=false i basen) er sletbare. Mangler feltet, behandles det som sandt.
   uforanderlig?: boolean;
+  // Rå kolonner til OCR-rettelsens forventede mål (red_ret_ocr_paastand's p_forventet): vaerdi er en visningsværdi
+  // (vaerdi_tekst ?? date_raw) og kan ikke skelne dem. Mangler felterne, kan påstanden ikke rettes som læsefejl.
+  vaerdiTekst?: string | null;
+  dateRaw?: string | null;
 };
 export type FeltEvidens = {
   felt: string;
@@ -117,6 +121,8 @@ export function joinEvidence(rows: {
         kilder: citByAssert.get(a.id) ?? [],
         erKonklusion: a.id === valgt,
         uforanderlig: a.uforanderlig !== false,
+        vaerdiTekst: a.vaerdi_tekst,
+        dateRaw: a.date_raw,
       }));
     // uenig = >1 DISTINKT NON-TOM værdi inden for DETTE fact. Tomme værdier ekskluderes
     // (ellers ville en rigtig værdi + en tom assertion give falsk "uenig").
