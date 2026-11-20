@@ -120,25 +120,20 @@ describe('buildModel — sanity-guard mod umulige forælder→barn-kanter', () =
     expect(model.byId['ok'].parentId).toBe('p');
   });
 
-  test('registrerer de droppede kanter med årsag (ikke lydløst)', () => {
-    expect(model.droppedParentEdges).toEqual([
-      { parent: 'p', child: 'c', reason: 'barn_aeldre' },
-      { parent: 'p', child: 'late', reason: 'foedt_efter_doed' },
-    ]);
-  });
-
-  test('ingen droppede kanter → tom liste', () => {
+  test('gyldige kanter bevares i begge retninger', () => {
     const ren = buildModel({ ...db, parentChild: db.parentChild.filter((pc) => pc.child === 'ok' || pc.child === 'post') });
-    expect(ren.droppedParentEdges).toEqual([]);
+    expect(ren.indexes.parentsByChild.ok).toEqual(['p']);
+    expect([...ren.indexes.childIdx.p].sort()).toEqual(['ok', 'post']);
   });
 
-  test('flere påstande for samme link giver én registrering', () => {
+  test('flere påstande for samme umulige link fjernes fra alle indekser', () => {
     const dub = buildModel({ ...db, parentChild: [...db.parentChild, { child: 'late', parent: 'p', union: 'f1' }] });
-    expect(dub.droppedParentEdges?.filter((e) => e.child === 'late')).toHaveLength(1);
+    expect(dub.indexes.parentsByChild.late).toBeUndefined();
+    expect(dub.indexes.childIdx.p.has('late')).toBe(false);
+    expect(dub.indexes.childrenByUnion.p.f1).not.toContain('late');
   });
 
-  test('uændret adfærd: kvalificeret rå datotekst droppes stadig ud fra parseYear-tallet', () => {
-    // Forælder "† ca. 1672" giver died=1672; barn født 1678 → droppes som i dag (bevidst, se buildModel).
+  test('ældre modeller uden spænd bruger rååret som et punkt', () => {
     const kv = buildModel({
       persons: [
         { ...mkY('p2', 'Forælder', 1640, 1672), years: '1640–ca. 1672' },
@@ -148,6 +143,5 @@ describe('buildModel — sanity-guard mod umulige forælder→barn-kanter', () =
       parentChild: [{ child: 'b2', parent: 'p2', union: 'f2' }],
     });
     expect(kv.byId['b2'].parentId).toBeNull();
-    expect(kv.droppedParentEdges).toEqual([{ parent: 'p2', child: 'b2', reason: 'foedt_efter_doed' }]);
   });
 });

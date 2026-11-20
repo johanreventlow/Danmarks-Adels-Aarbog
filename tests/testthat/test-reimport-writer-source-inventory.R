@@ -258,7 +258,8 @@ testthat::test_that("CI history contract is bound to exactly the migration job a
   testthat::expect_silent(writer_validate_ci_history_contract(workflow))
 
   extra_history <- workflow
-  extra_history$jobs[[1L]]$steps[[1L]]$with <- list(`fetch-depth` = 0L)
+  # Et navngivet job med checkout som første trin; jobs[[1L]] er changes-filteret uden checkout.
+  extra_history$jobs[["node"]]$steps[[1L]]$with <- list(`fetch-depth` = 0L)
   testthat::expect_error(writer_validate_ci_history_contract(extra_history), "exactly one full-history checkout")
 
   reordered <- workflow

@@ -16,7 +16,7 @@ import { personMemberIds } from './data/personMembers';
 import type { AppModel, Model } from './data/types';
 import { buildBrowse, showSearchResults } from './data/browse';
 import { useBookmarks, type BookmarkSort } from './data/bookmarks';
-import { signIn, signOut, currentSession, loginFejlTekst, type RedSession } from './data/auth';
+import { signIn, signOut, currentSession, onAuthChange, loginFejlTekst, type RedSession } from './data/auth';
 import { BookmarksView } from './components/BookmarksView';
 import { Sidehoved, type HovedpunktAktiv } from './components/Sidehoved';
 import { Slaegtsbjaelke } from './components/Slaegtsbjaelke';
@@ -88,22 +88,109 @@ export default function Folgesvend() {
   useEffect(() => {
     // review 22 N3: currentSession() kan i princippet afvises (netværksfejl) — sluges ikke
     // tavst, men sætter session til null (allerede default) og logger til konsol.
-    currentSession().then(setSession, (e) => console.warn('[session] kunne ikke genskabes', e)).finally(() => setSessionKlar(true));
+    genskabSession().finally(() => setSessionKlar(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Fælles sessionsgeneration for opstart, »Prøv igen« og auth-events: kun det nyeste opslag må sætte
+  // session/fejl. SIGNED_OUT, login og logout tæller op og gør dermed tidligere opslag forældede.
+  const sessGenRef = useRef(0);
+  const loginIgangRef = useRef(false);
+  // Bruger-id fra auth-events, der kom, mens eget login var i gang (undefined = ingen).
+  const loginEventBrugerRef = useRef<string | null | undefined>(undefined);
+  const genskabSession = (): Promise<void> => {
+    const gen = ++sessGenRef.current;
+    return currentSession().then(
+      (s) => { if (gen === sessGenRef.current) setSession(s); },
+      (e) => { if (gen === sessGenRef.current) sessionFejlet(e); },
+    );
+  };
+  // Sessionen findes (JWT'en er aktiv), men rollen kunne ikke slås op. Vis aldrig »anonym« oven på en
+  // aktiv, evt. privilegeret session: stands hentninger, ryd modellen og vis en eksplicit fejl (review 37).
+  const [sessionFejl, setSessionFejl] = useState(false);
+  const sessionRef = useRef<RedSession | null>(null);
+  sessionRef.current = session;
+  function sessionFejlet(e: unknown) {
+    console.warn('[session] kunne ikke genskabes', e);
+    loadGenRef.current++;
+    setModel(null);
+    setSessionFejl(true);
+  }
+  const proevSessionIgen = () => {
+    setSessionFejl(false);
+    const gen = sessGenRef.current + 1;
+    void genskabSession().then(() => { if (gen === sessGenRef.current) loadData(); });
+  };
+  const logUdEfterFejl = async () => {
+    sessGenRef.current++;
+    try { await signOut(); } catch { /* sessionen ryddes lokalt alligevel */ }
+    setSessionFejl(false); setSession(null); setModel(null);
+    geoRequestedRef.current = false;
+    loadData();
+  };
+  // Sessionsskift uden for denne komponents egen login/logout (logout i en anden fane, udløb,
+  // brugerskift): SIGNED_OUT rydder straks; andre skift genskaber sessionen, hvis brugeren er en anden
+  // eller profilen er opdateret. INITIAL_SESSION ignoreres (den ovenstående effekt tager den).
+  useEffect(() => onAuthChange((event, userId) => {
+    if (event === 'INITIAL_SESSION') return;
+    // Gør tidligere sessions- og modelsvar forældede, ryd session og model og hent den offentlige model
+    // — også når session allerede er null (kold start midt i et rolleopslag). forrigeBrugerRef sættes,
+    // så bruger-effekten ikke henter en gang til.
+    const nulstil = () => {
+      sessGenRef.current++;
+      forrigeBrugerRef.current = null;
+      geoRequestedRef.current = false;
+      setSessionFejl(false); setSession(null); setModel(null);
+      loadDataRef.current();
+    };
+    if (event === 'SIGNED_OUT') { nulstil(); return; }
+    // Eget login (doLogin) håndterer selv sin session; dets SIGNED_IN må ikke give et dobbelt opslag. Brugeren
+    // noteres dog, så doLogin kan afvise sit svar, hvis en ANDEN bruger loggede ind undervejs (anden fane).
+    if (loginIgangRef.current) { loginEventBrugerRef.current = userId; return; }
+    if (userId !== (sessionRef.current?.userId ?? null)) {
+      // Anden bruger: den gamle redaktørstatus og model må ikke stå, mens den nye brugers rolle slås op.
+      nulstil();
+      setTimeout(() => { void genskabSession(); }, 0);
+    } else if (event === 'USER_UPDATED') {
+      setTimeout(() => { void genskabSession(); }, 0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
   const doLogin = async () => {
     if (login.busy) return; // review 22 N3: forhindr overlappende signIn-kald ved dobbelt-klik
     if (!login.email.trim() || !login.pw) { setLogin((l) => ({ ...l, err: 'Udfyld e-mail og adgangskode' })); return; }
     setLogin((l) => ({ ...l, busy: true, err: '' }));
+    // Loginforsøget bindes til en generation FØR await: logout/brugerskift undervejs gør svaret forældet.
+    const gen = ++sessGenRef.current;
+    loginIgangRef.current = true;
+    loginEventBrugerRef.current = undefined;
+    // Blev svaret ikke taget i brug (forældet, afvist eller anden bruger), mens et auth-event kom undervejs,
+    // genskabes den faktiske Supabase-session i finally — ellers går fx et brugerskift i en anden fane tabt.
+    let taget = false;
     try {
       const s = await signIn(login.email, login.pw);
+      if (gen !== sessGenRef.current) { setLogin((l) => ({ ...l, busy: false })); return; }
+      // Review 37 W5: loggede en anden bruger ind undervejs (auth-event for et andet id), er dette svar
+      // forældet; den aktive Supabase-session tilhører den anden bruger og genskabes i finally.
+      const eventBruger = loginEventBrugerRef.current;
+      if (eventBruger !== undefined && eventBruger !== s.userId) {
+        setLogin((l) => ({ ...l, busy: false }));
+        setLoginOpen(false);
+        setSession(null); setModel(null);
+        return;
+      }
+      taget = true;
       setSession(s);
       setLoginOpen(false);
       setLogin({ email: '', pw: '', err: '', busy: false });
     } catch (e) {
-      setLogin((l) => ({ ...l, busy: false, err: loginFejlTekst(e) }));
+      setLogin((l) => ({ ...l, busy: false, err: gen === sessGenRef.current ? loginFejlTekst(e) : '' }));
+    } finally {
+      loginIgangRef.current = false;
+      if (!taget && loginEventBrugerRef.current !== undefined) void genskabSession();
+      loginEventBrugerRef.current = undefined;
     }
   };
-  const doLogout = async () => { await signOut(); setSession(null); };
+  const doLogout = async () => { sessGenRef.current++; await signOut(); setSession(null); };
   const [estates, setEstates] = useState<EstateItem[] | null>(null);
   const [arms, setArms] = useState<ArmsItem[] | null>(null);
   const [about, setAbout] = useState<AboutSection[] | null>(null);
@@ -120,11 +207,18 @@ export default function Folgesvend() {
   // review 27 R2: udtrukket til en genkaldelig funktion, så fejlskærmens "Prøv igen"-knap
   // kan forsøge indlæsningen igen uden hard-reload (Supabase free-tier pauser efter 7 dages
   // inaktivitet — første kald efter en pause kan derfor fejle og lykkes ved forsøg nr. 2).
+  // Generationstæller (review 37 W5): et sent svar fra en tidligere hentning (fx den anonyme,
+  // eller redaktørens) må ikke overskrive den nyeste models data ved login/logout-skift.
+  const loadGenRef = useRef(0);
+  const loadDataRef = useRef<() => void>(() => {});
   const loadData = useCallback(() => {
+    const gen = ++loadGenRef.current;
     setErr(null);
     // Den rå fejl (og udviklerens RLS-hint) går til konsollen; læseren får en forklaring i ord.
-    loadModel().then(setModel).catch((e) => { console.warn('[Folgesvend] model-hentning fejlede:', describeErr(e)); setErr('fejl'); });
+    loadModel().then((m) => { if (gen === loadGenRef.current) setModel(m); })
+      .catch((e) => { console.warn('[Folgesvend] model-hentning fejlede:', describeErr(e)); if (gen === loadGenRef.current) setErr('fejl'); });
   }, []);
+  loadDataRef.current = loadData;
   useEffect(() => { loadData(); }, [loadData]);
 
   // Resolv et (evt. alias-)id til dets kanoniske (samme_som-collapse). canonicalIdById bor på
@@ -417,8 +511,9 @@ export default function Folgesvend() {
     if (!needsGeo || !model || geoRequestedRef.current) return;
     geoRequestedRef.current = true;
     setGeoLoading(true);
+    const gen = loadGenRef.current;
     model.loadGeo()
-      .then((geo) => setModel((m) => (m ? { ...m, geo } : m)))
+      .then((geo) => { if (gen === loadGenRef.current) setModel((m) => (m ? { ...m, geo } : m)); })
       .catch((e) => console.warn('[Folgesvend] geo-hentning fejlede — intet kort:', e))
       .finally(() => setGeoLoading(false));
   }, [mode, model]);
@@ -427,7 +522,7 @@ export default function Folgesvend() {
   // den rummer, og ellers ville fx præsensmurens »Log ind« føre en redaktør til en liste uden
   // levende, indtil siden blev genindlæst. Første tjek af den gemte session udløser ikke en ny
   // hentning (den første hentning sker allerede med den gemte session).
-  const brugerId = session?.userId ?? null;
+  const brugerId = session ? `${session.userId}:${session.role}` : null;
   const forrigeBrugerRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
     if (!sessionKlar) return;
@@ -435,6 +530,8 @@ export default function Folgesvend() {
     if (forrigeBrugerRef.current === brugerId) return;
     forrigeBrugerRef.current = brugerId;
     geoRequestedRef.current = false; // den nye model har ingen geo; lad geo-effekten hente igen
+    // Ryd den gamle model med det samme: den kan rumme redaktørens levende personer (W5).
+    setModel(null);
     loadData();
   }, [brugerId, sessionKlar, loadData]);
 
@@ -474,6 +571,19 @@ export default function Folgesvend() {
       q: soegFiltreNu.q, besiddelseNavn: titelBesiddelse });
   }, [err, mode, titelSlaegt, titelPerson, titelA, titelB, soegFiltreNu.q, titelBesiddelse]);
 
+  if (sessionFejl) {
+    return (
+      <div style={{ minHeight: '100vh', background: T.surfaceGround, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <Tilstand fejl etiket="Kunne ikke hente" titel="Din rolle kunne ikke hentes"
+          handlinger={<>
+            <button type="button" onClick={proevSessionIgen} style={tilstandPrimaer}>Prøv igen</button>
+            <button type="button" onClick={() => { void logUdEfterFejl(); }} style={tilstandSekundaer}>Log ud</button>
+          </>}>
+          Du er stadig logget ind, men vi kunne ikke slå din rolle op. Prøv igen om lidt, eller log ud.
+        </Tilstand>
+      </div>
+    );
+  }
   if (err) {
     return (
       <div style={{ minHeight: '100vh', background: T.surfaceGround, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
@@ -656,6 +766,5 @@ function startFokus(m: Model): string | null {
 }
 
 function describeErr(e: unknown): string {
-  const m = e instanceof Error ? e.message : String(e);
-  return /permission|row-level|JWT|PGRST|policy/i.test(m) ? m + '\n\nMangler måske anon-læseadgang — kør web/dev-rls.sql i Supabase.' : m;
+  return e instanceof Error ? e.message : String(e);
 }

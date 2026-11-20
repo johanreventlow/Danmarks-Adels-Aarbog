@@ -215,12 +215,34 @@ describe('RelateView — flere veje', () => {
     expect(screen.getByRole('button', { name: 'Næste vej ›' })).toHaveProperty('disabled', true);
   });
 
-  it('en usikker vej 2 bekræftes af den sikre vej 1', () => {
-    const mu = { ...m, indexes: { ...m.indexes, konfByEdge: { 'qa|x': 'formodet' } } } as Model;
+  it.each([null, undefined, 'sikker'] as const)('en usikker vej 2 bekræftes af en uangivet/sikker (%s) vej 1', (k) => {
+    const konfByEdge = Object.fromEntries([
+      ['A|pa', k], ['B|pb', k], ['pa|G1', k], ['pb|G1', k],
+      ['qa|x', 'formodet'],
+    ]);
+    const mu = { ...m, indexes: { ...m.indexes, konfByEdge } } as Model;
     vis({ model: mu, relA: 'A', relB: 'B' });
     expect(screen.queryByText(/Bekræftet ad en anden, sikker linje/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Næste vej ›' }));
     expect(screen.getByRole('heading', { level: 2 }).textContent).toMatch(/^Sandsynligvis/);
     expect(screen.getByText(/Bekræftet ad en anden, sikker linje/)).toBeTruthy();
+  });
+
+  it.each(['sandsynlig', 'formodet', 'omstridt'] as const)('en %s vej 1 bekræfter ikke den usikre vej 2', (k) => {
+    const mu = { ...m, indexes: { ...m.indexes, konfByEdge: {
+      'A|pa': k, 'B|pb': 'sikker', 'pa|G1': 'sikker', 'pb|G1': 'sikker', 'qa|x': 'formodet',
+    } } } as Model;
+    vis({ model: mu, relA: 'A', relB: 'B' });
+    fireEvent.click(screen.getByRole('button', { name: 'Næste vej ›' }));
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toMatch(/^Sandsynligvis/);
+    expect(screen.queryByText(/Bekræftet ad/)).toBeNull();
+  });
+
+  it('et sandsynligt led vises som sandsynligt, med ordet ved selve leddet', () => {
+    const mu = { ...m, indexes: { ...m.indexes, konfByEdge: { 'A|pa': 'sandsynlig' } } } as Model;
+    vis({ model: mu, relA: 'A', relB: 'B' });
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toMatch(/^Sandsynligvis/);
+    expect(screen.getByText('sandsynligt led')).toBeTruthy();
+    expect(screen.queryByText(/Vejen går gennem et formodet led/)).toBeNull();
   });
 });

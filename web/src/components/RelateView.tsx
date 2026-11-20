@@ -141,9 +141,10 @@ function Resultat({ lines, found, aNavn, bNavn, delSti, slug, smal }: {
   }
   const valgt = Math.min(vej, lines.length - 1);
   const line = lines[valgt];
-  // Korroboration gælder den viste vej: en usikker vej bekræftes af en ANDEN, sikker vej (også når den viste er vej 2).
+  // Kun stier med uangivet/'sikker' på hvert led tæller; uafhaengige kan også dække en anden
+  // sti i samme sammenslåede linje. Fravær af usikker-flaget er ikke nok.
   const korrob = line.uafhaengige >= 2 ? `Bekræftet ad ${line.uafhaengige} uafhængige linjer`
-    : line.usikker && lines.some((l, i) => i !== valgt && !l.usikker) ? 'Bekræftet ad en anden, sikker linje' : '';
+    : line.usikker && lines.some((l) => l.uafhaengige > 0) ? 'Bekræftet ad en anden, sikker linje' : '';
   const omstridt = line.weakestKonfidens === 'omstridt';
   const trin = vejTrin(line);
   const samme = line.d1 === 0 && line.d2 === 0;
@@ -160,7 +161,9 @@ function Resultat({ lines, found, aNavn, bNavn, delSti, slug, smal }: {
         </p>
         {line.usikker && (
           <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: T.goldOnInverse }}>
-            {omstridt ? 'Vejen går gennem et omstridt led: kilderne er uenige om det.' : 'Vejen går gennem et formodet led, så slægtskabet er sandsynligt, ikke sikkert.'}
+            {omstridt ? 'Vejen går gennem et omstridt led: kilderne er uenige om det.'
+              : line.weakestKonfidens === 'sandsynlig' ? 'Vejen går gennem et sandsynligt led, så slægtskabet er sandsynligt, ikke sikkert.'
+                : 'Vejen går gennem et formodet led, så slægtskabet er sandsynligt, ikke sikkert.'}
           </p>
         )}
         {korrob && <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: T.inkMutedOnInverse }}>✓ {korrob}</p>}
@@ -191,7 +194,7 @@ function Resultat({ lines, found, aNavn, bNavn, delSti, slug, smal }: {
                   {i > 0 && (
                     <div style={{ display: 'grid', gridTemplateColumns: '28px minmax(0, 1fr)', gap: 16, alignItems: 'center' }}>
                       <span aria-hidden="true" style={{ justifySelf: 'center', height: 22, borderLeft: `2px ${t.usikkertLed ? 'dashed' : 'solid'} ${t.usikkertLed ? T.danger : T.lineStrong}` }} />
-                      {t.usikkertLed && <span style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: T.danger }}>{t.usikkertLed} led</span>}
+                      {t.usikkertLed && <span style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: T.danger }}>{t.usikkertLed === 'sandsynlig' ? 'sandsynligt' : t.usikkertLed} led</span>}
                     </div>
                   )}
                   <div style={{ display: 'grid', gridTemplateColumns: '28px minmax(0, 1fr)', gap: 16, alignItems: 'center' }}>
@@ -210,7 +213,7 @@ function Resultat({ lines, found, aNavn, bNavn, delSti, slug, smal }: {
           </ol>
           {trin.some((t) => t.usikkertLed) && (
             <p style={{ margin: 0, fontSize: 13.5, lineHeight: '20px', color: T.inkMuted }}>
-              Et formodet eller omstridt led står med ordet og stiplet streg.
+              Et sandsynligt, formodet eller omstridt led står med ordet og stiplet streg.
             </p>
           )}
         </div>

@@ -37,6 +37,45 @@ permissions:
   contents: read
 
 jobs:
+  # Hvilke jobs skal køre (Actions-minutter, projektejeren 2026-11-20). Testene læser på kryds og tværs:
+  # node-tests læser schema.sql, db-migrations.sql, tests/fixtures/ og .claude/skills/; R-testen
+  # test-narrative-record-source-inventory.R scanner web/ og mobile/, og python's test_clause_readers.py læser
+  # app-filer. Derfor kører node, R og python ved enhver ikke-docs-ændring, mens de fire PostgreSQL-jobs (~20 af
+  # ~30 min) kun springes over, når PR'en udelukkende rører web/, mobile/, packages/ og package*.json (deres
+  # tests nævner app-stier kun som data).
+  # Manuel start kører alt. Hellere et job for meget end for lidt.
+  changes:
+    name: hvilke jobs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      db: ${{ steps.f.outputs.db }}
+    steps:
+      - id: f
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ]; then echo db=true >>"$GITHUB_OUTPUT"; exit 0; fi
+          # Også det gamle navn ved omdøbning. API'et lister højst 3000 filer; ved loftet køres alt.
+          gh api "repos/$REPO/pulls/$PR/files" --paginate --jq '.[] | .filename, (.previous_filename // empty)' > filer.txt
+          antal=$(wc -l < filer.txt)
+          echo "ændrede filer: $antal"
+          if [ "$antal" -ge 3000 ]; then echo db=true >>"$GITHUB_OUTPUT"; exit 0; fi
+          app_re='^(web/|mobile/|packages/|package\.json$|package-lock\.json$)'
+          neutral_re='^(docs/|[^/]+\.md$)'
+          # Uden `grep -q` i en pipe: med pipefail kan et tidligt -q-exit give SIGPIPE og et falsk »nej«.
+          andre=$(grep -Ev "$app_re" filer.txt | grep -Ev "$neutral_re" || true)
+          if [ -n "$andre" ]; then db=true; else db=false; fi
+          echo "db=$db"
+          echo "db=$db" >>"$GITHUB_OUTPUT"
+
   node:
     name: node · core + feed + web + mobil
     runs-on: ubuntu-latest
@@ -169,6 +208,8 @@ jobs:
 
   evidence-promotion-db:
     name: evidence promotion · PostgreSQL 17
+    needs: changes
+    if: needs.changes.outputs.db == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -280,6 +321,8 @@ jobs:
 
   interpretation-proposal-db:
     name: interpretation proposal projection · PostgreSQL 17 · begge katalogrækkefølger
+    needs: changes
+    if: needs.changes.outputs.db == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -326,6 +369,8 @@ jobs:
 
   writer-1939-v50-db:
     name: DAA 1939 v50 writer · PostgreSQL 17
+    needs: changes
+    if: needs.changes.outputs.db == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -779,6 +824,8 @@ jobs:
 
   narrative-record-contract-db:
     name: 'narrative record #152 · PostgreSQL 17'
+    needs: changes
+    if: needs.changes.outputs.db == 'true'
     runs-on: ubuntu-latest
     env:
       PGDATABASE: narrative_record_152_ci
