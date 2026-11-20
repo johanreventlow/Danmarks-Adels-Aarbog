@@ -88,8 +88,19 @@ export default function Folgesvend() {
   useEffect(() => {
     // review 22 N3: currentSession() kan i princippet afvises (netværksfejl) — sluges ikke
     // tavst, men sætter session til null (allerede default) og logger til konsol.
-    currentSession().then(setSession, sessionFejlet).finally(() => setSessionKlar(true));
+    genskabSession().finally(() => setSessionKlar(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Fælles sessionsgeneration for opstart, »Prøv igen« og auth-events: kun det nyeste opslag må sætte
+  // session/fejl. SIGNED_OUT, login og logout tæller op og gør dermed tidligere opslag forældede.
+  const sessGenRef = useRef(0);
+  const genskabSession = (): Promise<void> => {
+    const gen = ++sessGenRef.current;
+    return currentSession().then(
+      (s) => { if (gen === sessGenRef.current) setSession(s); },
+      (e) => { if (gen === sessGenRef.current) sessionFejlet(e); },
+    );
+  };
   // Sessionen findes (JWT'en er aktiv), men rollen kunne ikke slås op. Vis aldrig »anonym« oven på en
   // aktiv, evt. privilegeret session: stands hentninger, ryd modellen og vis en eksplicit fejl (review 37).
   const [sessionFejl, setSessionFejl] = useState(false);
@@ -103,9 +114,11 @@ export default function Folgesvend() {
   }
   const proevSessionIgen = () => {
     setSessionFejl(false);
-    currentSession().then((s) => { setSession(s); loadData(); }, sessionFejlet);
+    const gen = sessGenRef.current + 1;
+    void genskabSession().then(() => { if (gen === sessGenRef.current) loadData(); });
   };
   const logUdEfterFejl = async () => {
+    sessGenRef.current++;
     try { await signOut(); } catch { /* sessionen ryddes lokalt alligevel */ }
     setSessionFejl(false); setSession(null); setModel(null);
     geoRequestedRef.current = false;
@@ -116,10 +129,21 @@ export default function Folgesvend() {
   // eller profilen er opdateret. INITIAL_SESSION ignoreres (den ovenstående effekt tager den).
   useEffect(() => onAuthChange((event, userId) => {
     if (event === 'INITIAL_SESSION') return;
-    if (event === 'SIGNED_OUT') { setSessionFejl(false); setSession(null); return; }
-    if (event === 'USER_UPDATED' || userId !== (sessionRef.current?.userId ?? null)) {
-      setTimeout(() => { currentSession().then(setSession, sessionFejlet); }, 0);
+    if (event === 'SIGNED_OUT') {
+      // Gør tidligere sessions- og modelsvar forældede og hent den offentlige model — også når session
+      // allerede er null (kold start midt i et rolleopslag). forrigeBrugerRef sættes, så bruger-effekten
+      // ikke henter en gang til.
+      sessGenRef.current++;
+      forrigeBrugerRef.current = null;
+      geoRequestedRef.current = false;
+      setSessionFejl(false); setSession(null); setModel(null);
+      loadDataRef.current();
+      return;
     }
+    if (event === 'USER_UPDATED' || userId !== (sessionRef.current?.userId ?? null)) {
+      setTimeout(() => { void genskabSession(); }, 0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }), []);
   const doLogin = async () => {
     if (login.busy) return; // review 22 N3: forhindr overlappende signIn-kald ved dobbelt-klik
@@ -127,6 +151,7 @@ export default function Folgesvend() {
     setLogin((l) => ({ ...l, busy: true, err: '' }));
     try {
       const s = await signIn(login.email, login.pw);
+      sessGenRef.current++;
       setSession(s);
       setLoginOpen(false);
       setLogin({ email: '', pw: '', err: '', busy: false });
@@ -134,7 +159,7 @@ export default function Folgesvend() {
       setLogin((l) => ({ ...l, busy: false, err: loginFejlTekst(e) }));
     }
   };
-  const doLogout = async () => { await signOut(); setSession(null); };
+  const doLogout = async () => { sessGenRef.current++; await signOut(); setSession(null); };
   const [estates, setEstates] = useState<EstateItem[] | null>(null);
   const [arms, setArms] = useState<ArmsItem[] | null>(null);
   const [about, setAbout] = useState<AboutSection[] | null>(null);
@@ -154,6 +179,7 @@ export default function Folgesvend() {
   // Generationstæller (review 37 W5): et sent svar fra en tidligere hentning (fx den anonyme,
   // eller redaktørens) må ikke overskrive den nyeste models data ved login/logout-skift.
   const loadGenRef = useRef(0);
+  const loadDataRef = useRef<() => void>(() => {});
   const loadData = useCallback(() => {
     const gen = ++loadGenRef.current;
     setErr(null);
@@ -161,6 +187,7 @@ export default function Folgesvend() {
     loadModel().then((m) => { if (gen === loadGenRef.current) setModel(m); })
       .catch((e) => { console.warn('[Folgesvend] model-hentning fejlede:', describeErr(e)); if (gen === loadGenRef.current) setErr('fejl'); });
   }, []);
+  loadDataRef.current = loadData;
   useEffect(() => { loadData(); }, [loadData]);
 
   // Resolv et (evt. alias-)id til dets kanoniske (samme_som-collapse). canonicalIdById bor på

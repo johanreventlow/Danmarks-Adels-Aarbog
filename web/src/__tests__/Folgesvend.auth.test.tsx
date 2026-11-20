@@ -126,3 +126,38 @@ test('fejlet sessionsgenskabelse (aktiv JWT, rolleopslag fejler) viser fejl med 
   expect(await screen.findByText(/Levende Lars/)).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Log ud' })).toBeTruthy();
 });
+
+const redaktoer = { email: 'red@example.dk', role: 'redaktion', userId: 'u1' };
+
+test('logout under det initiale rolleopslag: sene svar genskaber hverken session eller model', async () => {
+  const sessionSvar = udsat<unknown>();
+  const gammelModel = udsat<unknown>();
+  mocks.currentSession.mockReturnValueOnce(sessionSvar.promise);
+  mocks.loadModel.mockReturnValueOnce(gammelModel.promise).mockResolvedValueOnce(model('Afdød Anna'));
+  render(<Folgesvend />);
+  await waitFor(() => expect(mocks.authCb).not.toBeNull());
+  act(() => { mocks.authCb?.('SIGNED_OUT', null); });
+  await waitFor(() => expect(mocks.loadModel).toHaveBeenCalledTimes(2));
+  expect(await screen.findByText(/Afdød Anna/)).toBeTruthy();
+  await act(async () => { sessionSvar.resolve(redaktoer); gammelModel.resolve(model('Levende Lars')); });
+  expect(screen.queryByRole('button', { name: 'Log ud' })).toBeNull();
+  expect(screen.queryByText(/Levende Lars/)).toBeNull();
+  expect(screen.getByText(/Afdød Anna/)).toBeTruthy();
+  expect(mocks.loadModel).toHaveBeenCalledTimes(2);
+});
+
+test('USER_UPDATED efterfulgt af SIGNED_OUT: det sene sessionsopslag ignoreres', async () => {
+  const sent = udsat<unknown>();
+  mocks.loadModel.mockResolvedValueOnce(model('Levende Lars')).mockResolvedValueOnce(model('Afdød Anna'));
+  render(<Folgesvend />);
+  expect(await screen.findByText(/Levende Lars/)).toBeTruthy();
+  await screen.findByRole('button', { name: 'Log ud' });
+  mocks.currentSession.mockReturnValueOnce(sent.promise);
+  act(() => { mocks.authCb?.('USER_UPDATED', 'u1'); });
+  await waitFor(() => expect(mocks.currentSession).toHaveBeenCalledTimes(2));
+  act(() => { mocks.authCb?.('SIGNED_OUT', null); });
+  expect(await screen.findByText(/Afdød Anna/)).toBeTruthy();
+  await act(async () => { sent.resolve(redaktoer); });
+  expect(screen.queryByRole('button', { name: 'Log ud' })).toBeNull();
+  expect(screen.getByText(/Afdød Anna/)).toBeTruthy();
+});
