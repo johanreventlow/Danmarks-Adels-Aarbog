@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-20 — »Nævnes …« for personer uden livsdatoer
+
+Personer uden fødsels- og dødsdato viser nu det tidsrum, Aarbogen dokumenterer dem i, fx »Nævnes 1349–1391« for
+Iwan (44), i stedet for »Livsdatoer ikke angivet«. 232 personer har sådan et tidsrum. Det beregnes af afklarede,
+daterede fakta og af vielser i offentlige familier, hvor forbindelsen ikke er formodet eller omstridt. Personsiden,
+detaljepanelet, Søg og Relatér er ændret; personer uden noget viser ingen årslinje. PR #398 kom i luften før
+databaseændringen og blev rullet tilbage i Vercel, til ændringen var i prod. `database-current-state.md` §33.
+
 ## 2026-11-18 — Henrik og Iven har deres egen 1939-tekst
 
 Henriks og Ivens hele poster i DAA 1939 (s. 9-10 og s. 10) er bundet til deres personer gennem evidenskæden, med persona, identitet,

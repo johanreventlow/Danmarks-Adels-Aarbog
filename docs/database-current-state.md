@@ -529,6 +529,40 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 33. `visning_floruit`: »Nævnes …« for personer uden livsdatoer — LIVE i prod (2026-11-20)
+
+**Grundlag:** spec `docs/superpowers/specs/2026-11-19-visning-floruit-design.md`, plan
+`docs/superpowers/plans/2026-11-19-visning-floruit.md`, runbook `docs/runbooks/visning-floruit-prod.md`. PR #398 merget
+som `5e274f54`. Privat runner `~/.private/visning-floruit/prod.zsh`, kørt i projektejerens shell.
+
+- **DDL + backfill** (én transaktion, 2,5 s, låsevindue ca. 2 s): kun blokken `-- ===== visning-floruit` …
+  `-- END visning-floruit` fra `db-migrations.sql` @ `5e274f54` (sha `856e1ecf…`; stopregel A1), katalogtjekket
+  `OK: visning-floruit katalog` og `SELECT regen_person_floruit(id) FROM person`. `db-rls.sql` er ikke kørt (uændret
+  siden §32; blokken har egen `REVOKE … FROM PUBLIC, anon, authenticated, service_role`).
+  - Nyt: kolonnen `person.visning_floruit` (cache, i `version_pk_registry.skip_cols` og sletteinventarets S1),
+    `regen_person_floruit(pid)` (skriver kun den kolonne; NULL ved livsdatoer), `regen_familie_partnere(family_id)`,
+    triggerne `trg_family_member_regen` og `trg_person_offentlighed_regen`. `regen_person_visning` kalder
+    `regen_person_floruit` sidst; konklusions-/påstandstriggerne regenererer familiens partnere ved familie-fakta.
+  - Invarianter før COMMIT: personrækkerne uændrede bortset fra kolonnen, `change_set`/`change_event` uændrede,
+    `(id, visning_floruit)` = uafhængigt facit, ingen person med både floruit og livsdatoer.
+- **Tal:** 1802 personer; 232 med floruit, heraf 33 med spænd; 0 påstande med `date_min > date_max`.
+- **Efterkontrol:** anon-REST `person?select=id,visning_floruit` 200 (44 = `1349–1391`, 594 = `1657`, 392 = null;
+  232 rækker synlige). Browser som anon, desktop og mobil: 44 og 594 viser »Nævnes …«, Conrad (392) viser
+  `1644–1708`, ingen »Livsdatoer ikke angivet«, ingen fejlende Supabase-kald.
+- **Hændelse:** #398 blev merget før DDL'en; Vercel deployede main, og person-hentningen fejlede (`42703`), indtil
+  projektejeren rullede produktion tilbage (Instant Rollback). Efter DDL'en er main promoveret igen.
+- **Generalprøve:** stand-in fra `daa-prod-20261118191613-laes.dump` med prods standard-EXECUTE efterlignet:
+  apply (prøve/commit), afvisning af dobbeltkørsel, fortryd (prøve/commit), apply igen; fuld `db-verify.sql` @
+  `5e274f54` grøn (155 OK). Detaljer i runbooken.
+- **Fortrydelse:** `prod.zsh fortryd --jeg-mener-det` genskaber prods egne definitioner fra før kørslen
+  (`~/.private/visning-floruit/fortryd-definitioner.prod.sql`), dropper de nye objekter og nulstiller kolonnen.
+  Kolonnen bliver. Web på main læser kolonnen, så fortryd kræver også et Vercel-bundt fra før #398.
+- **Security Advisor** (projektejeren i dashboardet, 2026-11-20 efter DDL): intet fund nævner de fire nye funktioner eller
+  triggerne. Fundene er de kendte: 12 `anon_security_definer_function_executable` på læserfunktionerne (11 som 12/11 plus
+  `public_person_source_coordinates_samlet` fra §31), `authenticated_…` på `public.red_*`/`current_rolle`/`hist_*`,
+  `rls_enabled_no_policy` (INFO) på private/interne tabeller og `auth_leaked_password_protection` (kræver Pro, parkeret).
+- **Står tilbage:** issue #396 (cache-drift i 83 rækker, uændret af denne ændring); leverance 2 (biografierne).
+
 ## 32. `record_persona`: Henrik og Iven får deres egen 1939-tekst — LIVE i prod (2026-11-18)
 
 **Grundlag:** spec `docs/superpowers/specs/2026-11-17-persona-for-post-uden-tekst-design.md`, plan

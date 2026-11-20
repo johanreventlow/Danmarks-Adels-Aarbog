@@ -2,6 +2,30 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: `visning_floruit` er en offentlig-sikker cache, kun uden livsdatoer (2026-11-20)
+
+> Projektejeren 19/11 (livsdato-reglen) og bygherre-tjekket i spec'en §5 (*mit valg*-punkterne, godkendt med
+> planen). I prod 2026-11-20 (`database-current-state.md` §33).
+
+- **Kun når personen ikke har livsdatoer.** Har personen `visning_foedt` eller `visning_doed`, er floruit NULL.
+  »Nævnes« er dokumenteret aktivitet, ikke levetid (invariant 5).
+- **GDPR, fail-closed:** vielser tæller kun i familier, hvor `family_offentlig` er sand (ingen levende, ukendte,
+  private eller staged medlemmer, også børn). Cachen er én værdi for alle læsere, så den må aldrig vise et år fra en
+  familie, anon ikke kan se.
+- **Konfidens:** en partner-række med `formodet` eller `omstridt` daterer ikke personen. Usikkerheden vises i
+  familieafsnittet, ikke i årstallet (invariant 7).
+- **Kvalifikatorer** (`before`, `after`, `about`, sikkerhed) vises ikke og filtrerer ikke; kun årstal. Et omvendt
+  interval (`date_min > date_max`) vendes pr. påstand.
+- **Kun `regen_person_floruit` skriver kolonnen.** Familie-, medlemskabs- og offentlighedsstierne kalder den og aldrig
+  den fulde regen, så de seks andre `visning_*` kun ændres af deres egne kilder (cache-drift: #396).
+- **Antagelse:** ingen skriver ændrer `conclusion`, `assertion`, `family_member` eller `person(levende, privat,
+  staged)` direkte som `service_role`. Triggerne kalder hjælperne som invoker, og EXECUTE er taget fra
+  `service_role`; i dag bruges `service_role` kun til at kalde SECURITY DEFINER-RPC'er.
+- **Leverance 2** (årstal i biografierne) bliver nye, kildebundne floruit-påstande gennem evidenskæden
+  (`docs/evidensbaseret-genimport/`), ikke skrivning i cachen. §5's beregning tager dem med uden ny kode.
+- **Lære:** en PR, der læser en ny kolonne, må ikke merges før prod-DDL'en. Vercel deployer main få minutter efter
+  merge. Skriv »MERGE IKKE FØR PROD-DDL« i PR'en.
+
 ## BESLUTTET: rettelserne fra review 37 udskydes og samles i ét backlog-issue (2026-11-19)
 
 > Projektejeren, efter helhedsreview 37 (main @ `880ab241`, to bølger, ni Fable-reviewere der kun læste kode).
