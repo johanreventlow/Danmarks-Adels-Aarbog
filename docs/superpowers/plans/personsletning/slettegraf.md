@@ -239,6 +239,10 @@ læsere, når relationen er det (RLS kaskaderer; relationen er skjult, fordi med
 (S20, S29 på påstands-/citattekst) gælder uændret for den bevarede evidens. Noter (S18) og forslag (S34) på koblingen er
 redaktionel fritekst og slettes som familieindhold, noterne med historik. S34 omfatter desuden forslag på fakta og
 relationer, der slettes (`fd`, `rd`), som før blev efterladt uden mål.
+Kontrollisten (runde 4, E, projektejeren 2026-11-20): det låste familiefoto (`NY-E`, grund `laast_familiefoto`) og den
+bevarede evidens på koblingen (påstand og citat, grund `bevaret_evidens`) står ALTID i `til_kontrol` — ikke kun ved navn
+eller token som Q8's billedtitler — så redaktøren ser dem før en genfrigivelse. Medier med egne rettighedsfakta, der kun
+var koblet til slettet familieindhold, slettes og låses ikke (kendt, noteret i #397).
 
 ### 1e. Private ledgers
 

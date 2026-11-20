@@ -43443,6 +43443,120 @@ BEGIN
   RETURN false;
 END
 $purge_allowed$;
+CREATE OR REPLACE FUNCTION private.person_purge_kontrol(p_person_id bigint,p_plan jsonb)
+RETURNS TABLE(sted text,tabel text,pk jsonb,grund text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_control$
+WITH plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_plan) q(tabel text,pk jsonb,handling text)),
+  fam AS MATERIALIZED (SELECT family_id AS id FROM public.family_member WHERE person_id=p_person_id),
+  fam_keep AS (SELECT id FROM fam WHERE id NOT IN
+    (SELECT (pk->>'id')::bigint FROM plan WHERE tabel='family' AND handling='slet')),
+  tokens AS (SELECT '(^|[^0-9])('||string_agg(id::text,'|' ORDER BY id)||')([^0-9]|$)' AS rx
+    FROM (SELECT p_person_id AS id UNION SELECT id FROM fam) ids),
+  navn AS MATERIALIZED (SELECT n.navn,substring(to_jsonb(n.navn)::text FROM 2 FOR length(to_jsonb(n.navn)::text)-2) AS json_navn
+    FROM (SELECT nullif(visning_navn,'') AS navn FROM public.person WHERE id=p_person_id) n),
+  -- Projektejeren 2026-11-20 (runde 4, E): bevarede medie↔familie-koblinger (rk) på Fam_ind-familier. Det låste billede
+  -- og den bevarede evidens på koblingen kommer ALTID på listen (ikke kun ved navn/token, jf. Q8), så redaktøren ser dem
+  -- før en genfrigivelse; evidensens tekst kan nævne personen uden token.
+  rk AS MATERIALIZED (SELECT r.id,CASE WHEN r.subjekt_type='media' THEN r.subjekt_id ELSE r.objekt_id END AS media_id
+    FROM public.relation r WHERE
+      (r.subjekt_type='media' AND r.objekt_type='family' AND r.objekt_id IN (SELECT id FROM private.person_purge_familieindhold(p_person_id))
+        AND r.objekt_id NOT IN (SELECT (pk->>'id')::bigint FROM plan WHERE tabel='family' AND handling='slet'))
+      OR (r.objekt_type='media' AND r.subjekt_type='family' AND r.subjekt_id IN (SELECT id FROM private.person_purge_familieindhold(p_person_id))
+        AND r.subjekt_id NOT IN (SELECT (pk->>'id')::bigint FROM plan WHERE tabel='family' AND handling='slet'))),
+  tekster AS (
+  SELECT 'S11c'::text AS sted,'private.source_persona_identity_event'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_persona_identity_event t WHERE true
+  UNION ALL
+  SELECT 'S34b'::text AS sted,'suggestion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.payload::text,t.vaerdi::text,t.note::text,t.kilde_fritekst::text) AS tekst FROM public.suggestion t WHERE true
+  UNION ALL
+  SELECT 'S37b'::text AS sted,'media'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.titel::text,t.original_filnavn::text,t.kunstner::text) AS tekst FROM public.media t WHERE true
+  UNION ALL
+  SELECT 'S38b'::text AS sted,'narrative'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.tekst::text) AS tekst FROM public.narrative t WHERE t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM fam_keep)
+  UNION ALL
+  SELECT 'S38b'::text AS sted,'note'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.indhold::text) AS tekst FROM public.note t WHERE t.target_type='family' AND t.target_id IN (SELECT id FROM fam_keep)
+  UNION ALL
+  SELECT 'S58'::text AS sted,'note'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.indhold::text) AS tekst FROM public.note t WHERE (t.target_type='family' AND t.target_id IN (SELECT id FROM fam_keep)) IS NOT TRUE
+  UNION ALL
+  SELECT 'S38b'::text AS sted,'assertion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.vaerdi_tekst::text,t.date_raw::text) AS tekst FROM public.assertion t WHERE t.target_type='fact' AND t.target_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep))
+  UNION ALL
+  SELECT 'S38b'::text AS sted,'citation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.citat_tekst::text) AS tekst FROM public.citation t WHERE t.assertion_id IN (SELECT a.id FROM public.assertion a JOIN public.fact f ON a.target_type='fact' AND a.target_id=f.id WHERE f.subjekt_type='family' AND f.subjekt_id IN (SELECT id FROM fam_keep))
+  UNION ALL
+  SELECT 'S44b'::text AS sted,'private.reimport_case_authorization'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.authorized_elements::text) AS tekst FROM private.reimport_case_authorization t WHERE true
+  UNION ALL
+  SELECT 'S45b'::text AS sted,'private.identity_control_parent_event'::text AS tabel,jsonb_build_object('card_id',t.card_id,'seq',t.seq) AS pk,
+    concat_ws(' ',t.note::text) AS tekst FROM private.identity_control_parent_event t WHERE true
+  UNION ALL
+  SELECT 'S49c'::text AS sted,'private.marriage_ordinal_correction'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.marriage_ordinal_correction t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.interpretation_promotion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.interpretation_promotion t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.interpretation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.value::text,t.decision_evidence::text) AS tekst FROM private.interpretation t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_persona_identity_candidate'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.basis::text) AS tekst FROM private.source_persona_identity_candidate t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.relation_reopen'::text AS tabel,jsonb_build_object('to_interpretation_id',t.to_interpretation_id) AS pk,
+    concat_ws(' ',t.context::text,t.note::text) AS tekst FROM private.relation_reopen t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.text_revision_reconciliation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.context::text) AS tekst FROM private.text_revision_reconciliation t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.relation_classification_event'::text AS tabel,jsonb_build_object('interpretation_key',t.interpretation_key,'seq',t.seq) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.relation_classification_event t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.legacy_placement_disposition'::text AS tabel,jsonb_build_object('person_id',t.person_id,'source_id',t.source_id,'version',t.version) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.legacy_placement_disposition t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_record_placement_decision'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_record_placement_decision t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_persona_placement_decision'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_persona_placement_decision t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.identity_control_event'::text AS tabel,jsonb_build_object('control_run_id',t.control_run_id,'seq',t.seq) AS pk,
+    concat_ws(' ',t.reason::text) AS tekst FROM private.identity_control_event t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.identity_control_exclusion'::text AS tabel,jsonb_build_object('control_run_id',t.control_run_id,'source_persona_id',t.source_persona_id) AS pk,
+    concat_ws(' ',t.reason::text) AS tekst FROM private.identity_control_exclusion t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_record_anchor_event'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_record_anchor_event t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_record_revision_event'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_record_revision_event t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_observation_text'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_observation_text t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.entity_description_source'::text AS tabel,jsonb_build_object('description_id',t.description_id,'source_record_id',t.source_record_id) AS pk,
+    concat_ws(' ',t.citation_note::text) AS tekst FROM private.entity_description_source t WHERE true
+  )
+SELECT DISTINCT t.sted,t.tabel,t.pk,'fritekst'::text FROM tekster t CROSS JOIN tokens CROSS JOIN navn
+WHERE (t.tekst COLLATE "C" ~ tokens.rx OR (navn.navn IS NOT NULL AND (
+    position((navn.navn COLLATE "C") IN (t.tekst COLLATE "C"))>0
+    OR position((navn.json_navn COLLATE "C") IN (t.tekst COLLATE "C"))>0)))
+  AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel=t.tabel AND d.pk=t.pk AND d.handling='slet')
+UNION
+SELECT 'NY-E'::text,'media'::text,jsonb_build_object('id',k.media_id),'laast_familiefoto'::text FROM rk k
+  WHERE EXISTS (SELECT 1 FROM plan d WHERE d.tabel='media' AND d.pk=jsonb_build_object('id',k.media_id) AND d.handling='skjul')
+UNION
+SELECT 'NY-E'::text,'assertion'::text,jsonb_build_object('id',a.id),'bevaret_evidens'::text FROM public.assertion a
+  WHERE a.target_type='relation' AND a.target_id IN (SELECT id FROM rk)
+UNION
+SELECT 'NY-E'::text,'citation'::text,jsonb_build_object('id',c.id),'bevaret_evidens'::text FROM public.citation c
+  WHERE c.assertion_id IN (SELECT a.id FROM public.assertion a WHERE a.target_type='relation' AND a.target_id IN (SELECT id FROM rk))
+$purge_control$;
 CREATE OR REPLACE FUNCTION private.person_purge_preview_fra_plan(p_person_id bigint,p_plan jsonb)
 RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, public, private AS $purge_preview$

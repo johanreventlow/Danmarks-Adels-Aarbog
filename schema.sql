@@ -23632,6 +23632,15 @@ WITH plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_plan) q(tabel text
     FROM (SELECT p_person_id AS id UNION SELECT id FROM fam) ids),
   navn AS MATERIALIZED (SELECT n.navn,substring(to_jsonb(n.navn)::text FROM 2 FOR length(to_jsonb(n.navn)::text)-2) AS json_navn
     FROM (SELECT nullif(visning_navn,'') AS navn FROM public.person WHERE id=p_person_id) n),
+  -- Projektejeren 2026-11-20 (runde 4, E): bevarede medie↔familie-koblinger (rk) på Fam_ind-familier. Det låste billede
+  -- og den bevarede evidens på koblingen kommer ALTID på listen (ikke kun ved navn/token, jf. Q8), så redaktøren ser dem
+  -- før en genfrigivelse; evidensens tekst kan nævne personen uden token.
+  rk AS MATERIALIZED (SELECT r.id,CASE WHEN r.subjekt_type='media' THEN r.subjekt_id ELSE r.objekt_id END AS media_id
+    FROM public.relation r WHERE
+      (r.subjekt_type='media' AND r.objekt_type='family' AND r.objekt_id IN (SELECT id FROM private.person_purge_familieindhold(p_person_id))
+        AND r.objekt_id NOT IN (SELECT (pk->>'id')::bigint FROM plan WHERE tabel='family' AND handling='slet'))
+      OR (r.objekt_type='media' AND r.subjekt_type='family' AND r.subjekt_id IN (SELECT id FROM private.person_purge_familieindhold(p_person_id))
+        AND r.subjekt_id NOT IN (SELECT (pk->>'id')::bigint FROM plan WHERE tabel='family' AND handling='slet'))),
   tekster AS (
   SELECT 'S11c'::text AS sted,'private.source_persona_identity_event'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
     concat_ws(' ',t.evidence::text) AS tekst FROM private.source_persona_identity_event t WHERE true
@@ -23716,6 +23725,15 @@ WHERE (t.tekst COLLATE "C" ~ tokens.rx OR (navn.navn IS NOT NULL AND (
     position((navn.navn COLLATE "C") IN (t.tekst COLLATE "C"))>0
     OR position((navn.json_navn COLLATE "C") IN (t.tekst COLLATE "C"))>0)))
   AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel=t.tabel AND d.pk=t.pk AND d.handling='slet')
+UNION
+SELECT 'NY-E'::text,'media'::text,jsonb_build_object('id',k.media_id),'laast_familiefoto'::text FROM rk k
+  WHERE EXISTS (SELECT 1 FROM plan d WHERE d.tabel='media' AND d.pk=jsonb_build_object('id',k.media_id) AND d.handling='skjul')
+UNION
+SELECT 'NY-E'::text,'assertion'::text,jsonb_build_object('id',a.id),'bevaret_evidens'::text FROM public.assertion a
+  WHERE a.target_type='relation' AND a.target_id IN (SELECT id FROM rk)
+UNION
+SELECT 'NY-E'::text,'citation'::text,jsonb_build_object('id',c.id),'bevaret_evidens'::text FROM public.citation c
+  WHERE c.assertion_id IN (SELECT a.id FROM public.assertion a WHERE a.target_type='relation' AND a.target_id IN (SELECT id FROM rk))
 $purge_control$;
 REVOKE ALL ON FUNCTION private.person_purge_kontrol(bigint,jsonb) FROM PUBLIC,anon,authenticated,service_role;
 

@@ -50,6 +50,14 @@ it('viser alle kategorier af familieindhold, også en familie med kun en histori
   await screen.findByText(/Familie 56: 0 fakta, 0 noter, 0 narrativer, 0 hændelser, 1 historier, 0 relationer, 0 forslag, 2 historik-ændringer/);
   expect(screen.getByText(/Familie 57: 0 fakta, 0 noter, 0 narrativer, 1 hændelser, 0 historier, 2 relationer, 1 forslag, 0 historik-ændringer/)).toBeTruthy();
 });
+it('viser låste familiefotos og bevaret evidens på kontrollisten med link til billedet (runde 4, E)', async () => {
+  setup(preview({ til_kontrol: [{ sted: 'NY-E', tabel: 'media', pk: { id: 31 }, grund: 'laast_familiefoto' },
+    { sted: 'NY-E', tabel: 'citation', pk: { id: 41 }, grund: 'bevaret_evidens' }] }));
+  await screen.findByText(/Låst familiefoto: tjek billedet, før det frigives igen/);
+  expect(screen.getByText(/Bevaret kilde\/påstand på et låst familiefoto/)).toBeTruthy();
+  expect(screen.getAllByRole('link', { name: 'Åbn stedet i Redaktion' }).map((a) => a.getAttribute('href')))
+    .toEqual(['/redaktion/media/31']);
+});
 it('et preview uden de nye nøgler (database før ændringen) vises uden vielse- og billedlinje', async () => {
   setup(); await screen.findByText('Slet helt · Rå profil · id 1791');
   expect(screen.queryByText(/indhold slettes/)).toBeNull(); expect(screen.queryByText(/Vielser der bliver stående/)).toBeNull(); expect(screen.queryByText(/skjules for læserne/)).toBeNull();

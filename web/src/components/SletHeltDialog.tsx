@@ -12,6 +12,8 @@ const purgeLabels: Record<string, string> = {
   afventer_kontrol: 'En kildepersona afventer kontrol',
   samme_som_knudepunkt: 'Profilen er knudepunkt for andre profiler',
   link_i_tekst: 'En bevaret tekst linker til profilen eller dens data',
+  laast_familiefoto: 'Låst familiefoto: tjek billedet, før det frigives igen',
+  bevaret_evidens: 'Bevaret kilde/påstand på et låst familiefoto: kan nævne profilen',
 };
 
 type Props = {
@@ -93,7 +95,7 @@ export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurg
           const href = ['person', 'family', 'narrative', 'media', 'source', 'estate'].includes(entity) && k.pk.id != null
             ? `/redaktion/${entity}/${encodeURIComponent(String(k.pk.id))}` : null;
           return <div key={i} id={`purge-kontrol-${i}`} tabIndex={-1} style={{ borderTop: `1px solid ${T.line}`, padding: 8 }}>
-            <b>{k.sted} · {k.tabel}</b><p>{JSON.stringify(k.pk)} · {k.grund}</p>
+            <b>{k.sted} · {k.tabel}</b><p>{JSON.stringify(k.pk)} · {purgeLabels[k.grund] ?? k.grund}</p>
             {href && <a href={href} target="_blank" rel="noreferrer">Åbn stedet i Redaktion</a>}
           </div>;
         })}

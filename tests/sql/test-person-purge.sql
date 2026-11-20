@@ -4210,10 +4210,20 @@ BEGIN
     AND NOT b->'storage' @> jsonb_build_array(jsonb_build_object('bucket','media','sti','gdpr-test/familie.jpg'))
     AND EXISTS (SELECT 1 FROM jsonb_array_elements(b#>'{steder,S37}') x WHERE x->>'tabel'='media'
       AND x->'pk'=jsonb_build_object('id',pg_temp.gid('m_vielse')) AND x->>'handling'='slet'),'gdpr_preview_familiefoto_skjules');
+  -- Runde 4, E: det låste familiefoto og den bevarede evidens på dets kobling står altid på kontrollisten.
+  PERFORM pg_temp.gdpr_assert((SELECT count(*) FROM jsonb_array_elements(b->'til_kontrol') x WHERE x->>'sted'='NY-E'
+      AND ((x->>'tabel'='media' AND x->'pk'=jsonb_build_object('id',pg_temp.gid('m_famfoto')) AND x->>'grund'='laast_familiefoto')
+        OR (x->>'tabel'='assertion' AND x->'pk'=jsonb_build_object('id',pg_temp.gid('kob_assertion')) AND x->>'grund'='bevaret_evidens')
+        OR (x->>'tabel'='citation' AND x->'pk'=jsonb_build_object('id',pg_temp.gid('kob_citation')) AND x->>'grund'='bevaret_evidens')))=3
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(b->'til_kontrol') x WHERE x->>'sted'='NY-E'
+      AND x->'pk'=jsonb_build_object('id',pg_temp.gid('m_vielse')))
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements((SELECT j FROM gdpr_preview WHERE hvem='O')->'til_kontrol') x
+      WHERE x->>'sted'='NY-E'),'gdpr_preview_kontrol_familiefoto');
 END $t$;
 \echo OK gdpr_preview_familieindhold_partner
 \echo OK gdpr_preview_familieindhold_barn
 \echo OK gdpr_preview_familiefoto_skjules
+\echo OK gdpr_preview_kontrol_familiefoto
 -- Codex-fund B: en bevaret familie med KUN en story, KUN en relation eller KUN historik vises også; runde 4: også kun
 -- historik fra en tidligere note på en bevaret familiefoto-kobling (fam_qk).
 DO $t$

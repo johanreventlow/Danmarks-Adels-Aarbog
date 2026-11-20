@@ -183,7 +183,9 @@ hvor rækken handler om personen:
   forældrenes familiefoto, når et levende barn slettes) bevares med sin historik, og billedet låses
   (`maa_publiceres=false`, vist under `medier_skjules`), så redaktionen kan finde og genfrigive det. Et billede, der kun
   var koblet til slettet familieindhold (fx et vielsesfoto på vielsen), slettes helt inkl. filen. På en bevaret
-  kobling står evidenskæden (påstand, citat, konklusion), mens noter og forslag på den slettes med historik.
+  kobling står evidenskæden (påstand, citat, konklusion), mens noter og forslag på den slettes med historik. Det låste
+  billede og evidensen på koblingen står altid på kontrollisten (`til_kontrol`), så redaktøren ser dem før en
+  genfrigivelse.
   Tidligere (slettede/fortrudte) hændelser på personen eller en sådan familie fjernes også fra historikken: deres
   snapshot har kun id+feed_status, så ejerskabet kræver et entydigt bevis pr. hændelse: et sæt, som feed-dommen åbnede
   for netop den hændelse (med personen/familien som subjekt), eller et sæt, hvor hvert slettet narrativ var personens
