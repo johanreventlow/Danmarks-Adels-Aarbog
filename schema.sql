@@ -22545,7 +22545,9 @@ REVOKE ALL ON FUNCTION private.person_purge_inventar(), private.person_purge_und
 -- skjult (family_offentlig). Uden P bliver de offentlige. Derfor: bevarede medier med P afbildet låses (NY-E,
 -- maa_publiceres=false), og ALT familieindhold (fakta med evidens, noter, narrativer, hændelser, stories, forslag og
 -- relationer med familieende — præcis Fam_del's indhold) på familier, hvor P er partner eller barn, slettes; familien
--- og de øvrige medlemskaber bevares. Fail-closed, også hvis familien bliver offentlig bagefter. Er P offentlig, er
+-- og de øvrige medlemskaber bevares. Fail-closed, også hvis familien bliver offentlig bagefter. Undtagelse
+-- (projektejeren 2026-11-20): en relation direkte mellem et medie og en bevaret familie består med sin historik, og
+-- mediet låses (NY-E), så redaktionen kan finde og genfrigive det. Er P offentlig, er
 -- adfærden uændret. plpgsql (sen binding), fordi public.person_offentlig først oprettes i db-rls.sql; reglen findes
 -- dermed ét sted. En person, der ikke (længere) findes, er ikke »ikke-offentlig« her: EFTER-planen udvider sig aldrig.
 CREATE OR REPLACE FUNCTION private.person_purge_ikke_offentlig(p_person_id bigint)
@@ -22579,13 +22581,19 @@ WITH RECURSIVE
   -- Fam_c: familier, hvis indhold slettes = Fam_del + Fam_ind (review 37 P1+P2, løsning A). Familie- og
   -- medlemsrækker følger stadig kun Fam_del.
   famc AS MATERIALIZED (SELECT id FROM fam_del UNION SELECT id FROM private.person_purge_familieindhold(p_person_id)),
+  -- Projektejeren 2026-11-20: en relation DIREKTE mellem et medie og en BEVARET familie i Fam_ind (Fam_ind \ Fam_del)
+  -- er ikke familieindhold: koblingen og dens historik består, og mediet låses (NY-E), så redaktionen kan finde og
+  -- genfrigive billedet. Kun medie↔familie; alt andet familieindhold slettes som i løsning A.
+  rk AS MATERIALIZED (SELECT id FROM public.relation WHERE
+    (subjekt_type='media' AND objekt_type='family' AND objekt_id IN (SELECT id FROM famc EXCEPT SELECT id FROM fam_del))
+    OR (objekt_type='media' AND subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc EXCEPT SELECT id FROM fam_del))),
   f AS MATERIALIZED (SELECT id FROM public.fact WHERE subjekt_type='person' AND subjekt_id=p_person_id),
   ff AS MATERIALIZED (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc)),
   fd AS MATERIALIZED (SELECT id FROM f UNION SELECT id FROM ff),
   r AS MATERIALIZED (SELECT id FROM public.relation WHERE
     (subjekt_type='person' AND subjekt_id=p_person_id) OR (objekt_type='person' AND objekt_id=p_person_id)
     OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM f)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM f))),
-  rf AS MATERIALIZED (SELECT id FROM public.relation WHERE id NOT IN (SELECT id FROM r) AND (
+  rf AS MATERIALIZED (SELECT id FROM public.relation WHERE id NOT IN (SELECT id FROM r) AND id NOT IN (SELECT id FROM rk) AND (
     (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc)) OR (objekt_type='family' AND objekt_id IN (SELECT id FROM famc))
     OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM ff)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM ff)))),
   rd AS MATERIALIZED (SELECT id FROM r UNION SELECT id FROM rf),
@@ -22634,8 +22642,10 @@ WITH RECURSIVE
     CROSS JOIN LATERAL (VALUES(e.foer),(e.efter)) v(j)
     WHERE e.tabel='fact' AND ((j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
       OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc)))),
+  -- rk (bevaret medie↔familie-kobling) beholder sin historik. Nøglet på LEVENDE id: en tidligere slettet kobling til
+  -- familien fjernes stadig.
   rv AS MATERIALIZED (SELECT id::text AS id FROM rd UNION SELECT e.row_pk->>'id' FROM public.change_event e
-    CROSS JOIN LATERAL (VALUES(e.foer),(e.efter)) v(j) WHERE e.tabel='relation' AND (
+    CROSS JOIN LATERAL (VALUES(e.foer),(e.efter)) v(j) WHERE e.tabel='relation' AND e.row_pk->>'id' NOT IN (SELECT id::text FROM rk) AND (
       (j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
       OR (j->>'objekt_type'='person' AND j->>'objekt_id'=p_person_id::text)
       OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc))
@@ -22683,12 +22693,13 @@ WITH RECURSIVE
         WHEN 'profiles' THEN j->>'reventlow_person_id'=p_person_id::text
         WHEN 'fact' THEN (j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
           OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc))
-        WHEN 'relation' THEN (j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
+        WHEN 'relation' THEN ce.row_pk->>'id' NOT IN (SELECT id::text FROM rk) AND (
+          (j->>'subjekt_type'='person' AND j->>'subjekt_id'=p_person_id::text)
           OR (j->>'objekt_type'='person' AND j->>'objekt_id'=p_person_id::text)
           OR (j->>'subjekt_type'='family' AND j->>'subjekt_id' IN (SELECT id::text FROM famc))
           OR (j->>'objekt_type'='family' AND j->>'objekt_id' IN (SELECT id::text FROM famc))
           OR (j->>'subjekt_type'='fact' AND j->>'subjekt_id' IN (SELECT id FROM fv))
-          OR (j->>'objekt_type'='fact' AND j->>'objekt_id' IN (SELECT id FROM fv))
+          OR (j->>'objekt_type'='fact' AND j->>'objekt_id' IN (SELECT id FROM fv)))
         WHEN 'assertion' THEN (j->>'target_type'='fact' AND j->>'target_id' IN (SELECT id FROM fv))
           OR (j->>'target_type'='relation' AND j->>'target_id' IN (SELECT id FROM rv))
         WHEN 'conclusion' THEN (j->>'target_type'='fact' AND j->>'target_id' IN (SELECT id FROM fv))
@@ -22740,6 +22751,12 @@ WITH RECURSIVE
   -- Fam_c: familier, hvis indhold slettes = Fam_del + Fam_ind (review 37 P1+P2, løsning A). Familie- og
   -- medlemsrækker følger stadig kun Fam_del.
   famc AS MATERIALIZED (SELECT id FROM fam_del UNION SELECT id FROM private.person_purge_familieindhold(p_person_id)),
+  -- Projektejeren 2026-11-20: en relation DIREKTE mellem et medie og en BEVARET familie i Fam_ind (Fam_ind \ Fam_del)
+  -- er ikke familieindhold: koblingen og dens historik består, og mediet låses (NY-E), så redaktionen kan finde og
+  -- genfrigive billedet. Kun medie↔familie; alt andet familieindhold slettes som i løsning A.
+  rk AS MATERIALIZED (SELECT id FROM public.relation WHERE
+    (subjekt_type='media' AND objekt_type='family' AND objekt_id IN (SELECT id FROM famc EXCEPT SELECT id FROM fam_del))
+    OR (objekt_type='media' AND subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc EXCEPT SELECT id FROM fam_del))),
   f AS MATERIALIZED (SELECT id FROM public.fact WHERE subjekt_type='person' AND subjekt_id=p_person_id),
   ff AS MATERIALIZED (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc)),
   fd AS MATERIALIZED (SELECT id FROM f UNION SELECT id FROM ff),
@@ -22747,9 +22764,9 @@ WITH RECURSIVE
     (subjekt_type='person' AND subjekt_id=p_person_id) OR (objekt_type='person' AND objekt_id=p_person_id)
     OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM f)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM f))),
   -- Q5-ejerskab bruger HELE R_fam, også overlap med R. Kun tællermængden rf er disjunkt.
-  rf_all AS MATERIALIZED (SELECT id FROM public.relation WHERE
+  rf_all AS MATERIALIZED (SELECT id FROM public.relation WHERE id NOT IN (SELECT id FROM rk) AND (
     (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc)) OR (objekt_type='family' AND objekt_id IN (SELECT id FROM famc))
-    OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM ff)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM ff))),
+    OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM ff)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM ff)))),
   rf AS MATERIALIZED (SELECT id FROM rf_all EXCEPT SELECT id FROM r),
   rd AS MATERIALIZED (SELECT id FROM r UNION SELECT id FROM rf),
   a AS MATERIALIZED (SELECT id FROM public.assertion WHERE (target_type='fact' AND target_id IN (SELECT id FROM fd))
@@ -22795,7 +22812,11 @@ WITH RECURSIVE
   -- media_afbilder_skjult læser). Relationen slettes (S14); frigivelsen låses, til en redaktør frigiver igen.
   ms AS MATERIALIZED (SELECT t.objekt_id AS id FROM public.relation t WHERE t.id IN (SELECT id FROM r)
     AND t.subjekt_type='person' AND t.subjekt_id=p_person_id AND t.rolle='afbildet' AND t.objekt_type='media'
-    AND t.objekt_id NOT IN (SELECT id FROM md) AND private.person_purge_ikke_offentlig(p_person_id)),
+    AND t.objekt_id NOT IN (SELECT id FROM md) AND private.person_purge_ikke_offentlig(p_person_id)
+  -- + medier koblet direkte til en bevaret Fam_ind-familie (rk; kun for en ikke-offentlig P). Koblingen består og holder
+  -- mediet i live, så det er aldrig i md. Én NY-E-række pr. medie (UNION).
+  UNION SELECT CASE WHEN t.subjekt_type='media' THEN t.subjekt_id ELSE t.objekt_id END FROM public.relation t
+    WHERE t.id IN (SELECT id FROM rk)),
   x AS MATERIALIZED (SELECT source_persona_id AS id FROM private.source_persona_identity
     WHERE canonical_person_id=p_person_id AND decision_status='accepted'),
   -- persona_family_context(spouse) finder familier via PRINCIPALENS accepterede identitet.
@@ -23344,14 +23365,17 @@ BEGIN
       WITH fam AS (SELECT DISTINCT family_id AS id FROM public.family_member WHERE person_id=m.person_id),
       fam_del AS (SELECT id FROM private.person_purge_fam_del(m.person_id)),
       famc AS (SELECT id FROM fam_del UNION SELECT id FROM private.person_purge_familieindhold(m.person_id)),
+      rk AS (SELECT id FROM public.relation WHERE
+        (subjekt_type='media' AND objekt_type='family' AND objekt_id IN (SELECT id FROM famc EXCEPT SELECT id FROM fam_del))
+        OR (objekt_type='media' AND subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc EXCEPT SELECT id FROM fam_del))),
       f AS (SELECT id FROM public.fact WHERE subjekt_type='person' AND subjekt_id=m.person_id),
       ff AS (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc)),
       r AS (SELECT id FROM public.relation WHERE
         (subjekt_type='person' AND subjekt_id=m.person_id) OR (objekt_type='person' AND objekt_id=m.person_id)
         OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM f)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM f))),
-      rf AS (SELECT id FROM public.relation WHERE
+      rf AS (SELECT id FROM public.relation WHERE id NOT IN (SELECT id FROM rk) AND (
         (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc)) OR (objekt_type='family' AND objekt_id IN (SELECT id FROM famc))
-        OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM ff)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM ff))),
+        OR (subjekt_type='fact' AND subjekt_id IN (SELECT id FROM ff)) OR (objekt_type='fact' AND objekt_id IN (SELECT id FROM ff)))),
       n AS (SELECT id FROM public.narrative WHERE (subjekt_type='person' AND subjekt_id=m.person_id)
         OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc))),
       a AS (SELECT id FROM public.assertion WHERE (target_type='fact' AND target_id IN (SELECT id FROM f UNION SELECT id FROM ff))

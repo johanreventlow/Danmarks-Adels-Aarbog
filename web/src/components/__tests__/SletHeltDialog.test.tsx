@@ -40,6 +40,7 @@ it('viser bevarede familiers indhold, der slettes, vielser der står, og billede
   expect(screen.getByText(/indhold slettes, fordi profilen ikke er offentlig/)).toBeTruthy();
   expect(screen.getByText(/Vielser der bliver stående: 80\./)).toBeTruthy();
   expect(screen.getByText(/skjules for læserne \(en redaktør kan frigive dem igen\): 9, 12\./)).toBeTruthy();
+  expect(screen.getByText(/bevares med deres koblinger til andre end profilen \(også til en bevaret familie\)/)).toBeTruthy();
 });
 it('et preview uden de nye nøgler (database før ændringen) vises uden vielse- og billedlinje', async () => {
   setup(); await screen.findByText('Slet helt · Rå profil · id 1791');

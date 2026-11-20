@@ -173,6 +173,10 @@ hvor rækken handler om personen:
   bevarede familier, hvor personen var partner eller barn — også tidligere (fortrudte) rækker i historikken. Familien og
   de øvrige medlemskaber bevares. Fail-closed, også hvis familien bliver offentlig bagefter. Forhåndsvisningen viser
   `familieindhold_slettes` pr. familie (erstatter `vielser_slettes`) og `vielser_staar`.
+  **Undtagelse 2026-11-20 (projektejeren):** en kobling *direkte* mellem et billede og en sådan bevaret familie (fx
+  forældrenes familiefoto, når et levende barn slettes) bevares med sin historik, og billedet låses
+  (`maa_publiceres=false`, vist under `medier_skjules`), så redaktionen kan finde og genfrigive det. Et billede, der kun
+  var koblet til slettet familieindhold (fx et vielsesfoto på vielsen), slettes helt inkl. filen.
 - **`samme_som` (projektejeren 2026-11-14):** har personen to eller flere identitetsnaboer (andre personer, der kun er
   forbundet gennem den), er det en **blokering** (6.6); en redaktør kobler dem direkte først. Med én nabo slettes kanten,
   og naboen er uændret. Forhåndsvisningen viser komponenten.

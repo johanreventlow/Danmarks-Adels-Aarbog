@@ -64,6 +64,15 @@ fam_c AS MATERIALIZED (
   SELECT id FROM fam_del
   UNION SELECT fm.family_id FROM public.family_member fm, params p, p_ikke_off io
    WHERE io.v AND fm.person_id=p.pid AND fm.rolle IN ('partner','barn')),
+-- Projektejeren 2026-11-20: relationer DIREKTE mellem et medie og en bevaret familie i Fam_c (ikke Fam_del) består med
+-- historik; mediet låses (NY-E). De er ikke familieindhold og tælles ikke i R_fam.
+kept_media_rels AS MATERIALIZED (
+  SELECT r.id, CASE WHEN r.subjekt_type='media' THEN r.subjekt_id ELSE r.objekt_id END AS media_id
+    FROM public.relation r
+   WHERE (r.subjekt_type='media' AND r.objekt_type='family'
+          AND r.objekt_id IN (SELECT id FROM fam_c) AND r.objekt_id NOT IN (SELECT id FROM fam_del))
+      OR (r.objekt_type='media' AND r.subjekt_type='family'
+          AND r.subjekt_id IN (SELECT id FROM fam_c) AND r.subjekt_id NOT IN (SELECT id FROM fam_del))),
 -- F_fam: alle fakta på Fam_c.
 fact_fam AS MATERIALIZED (
   SELECT f.id FROM public.fact f
@@ -78,7 +87,7 @@ rels AS MATERIALIZED (
 -- R_fam: ende family∈Fam_del eller fact∈F_fam (ikke allerede i R)
 rels_fam AS MATERIALIZED (
   SELECT r.id FROM public.relation r
-   WHERE r.id NOT IN (SELECT id FROM rels)
+   WHERE r.id NOT IN (SELECT id FROM rels) AND r.id NOT IN (SELECT id FROM kept_media_rels)
      AND ((r.subjekt_type='family' AND r.subjekt_id IN (SELECT id FROM fam_c))
        OR (r.objekt_type='family'  AND r.objekt_id  IN (SELECT id FROM fam_c))
        OR (r.subjekt_type='fact' AND r.subjekt_id IN (SELECT id FROM fact_fam))
@@ -161,7 +170,7 @@ hist_facts AS MATERIALIZED (
 hist_rels AS MATERIALIZED (
   SELECT ce.row_pk->>'id' AS idt FROM public.change_event ce, params p,
          LATERAL (VALUES (ce.foer),(ce.efter)) v_f(j)
-   WHERE ce.tabel='relation'
+   WHERE ce.tabel='relation' AND ce.row_pk->>'id' NOT IN (SELECT id::text FROM kept_media_rels)
      AND ((ce.foer ->>'subjekt_type'='person' AND ce.foer ->>'subjekt_id'=p.pidt)
        OR (ce.foer ->>'objekt_type' ='person' AND ce.foer ->>'objekt_id' =p.pidt)
        OR (ce.efter->>'subjekt_type'='person' AND ce.efter->>'subjekt_id'=p.pidt)
@@ -383,10 +392,11 @@ counts(nr, sted, antal) AS (
   UNION ALL SELECT 'S37c','storage-objekter for eksklusive medier (media+varianter)', (SELECT
          (SELECT count(*) FROM public.media m WHERE m.id IN (SELECT id FROM media_excl) AND m.storage_path IS NOT NULL)
        + (SELECT count(*) FROM public.media_variant v WHERE v.media_id IN (SELECT id FROM media_excl)))
-  UNION ALL SELECT 'NY-E','public.media bevaret med ikke-offentlig P afbildet (maa_publiceres låses)', (SELECT count(*)
-       FROM public.media m, params p, p_ikke_off io WHERE io.v AND m.id IN (SELECT id FROM media_ids)
-         AND m.id NOT IN (SELECT id FROM media_excl) AND EXISTS (SELECT 1 FROM public.relation r
+  UNION ALL SELECT 'NY-E','public.media bevaret med ikke-offentlig P afbildet eller koblet til bevaret Fam_c-familie (maa_publiceres låses)', (SELECT count(*)
+       FROM public.media m, params p, p_ikke_off io WHERE io.v AND m.id NOT IN (SELECT id FROM media_excl) AND (
+         (m.id IN (SELECT id FROM media_ids) AND EXISTS (SELECT 1 FROM public.relation r
            WHERE r.subjekt_type='person' AND r.subjekt_id=p.pid AND r.rolle='afbildet' AND r.objekt_type='media' AND r.objekt_id=m.id))
+         OR m.id IN (SELECT media_id FROM kept_media_rels)))
   UNION ALL SELECT 'S38','public.family der slettes (Fam_del)', (SELECT count(*) FROM fam_del)
   UNION ALL SELECT 'S38a','public.family hvor P er medlem (Fam)', (SELECT count(*) FROM fams)
   UNION ALL SELECT 'S38k','public.family bevaret (Fam_keep)', (SELECT count(*) FROM fam_keep)

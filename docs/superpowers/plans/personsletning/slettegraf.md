@@ -205,7 +205,7 @@ Kolonnen **Indhold** udfyldes kun for bevar_andres: `id` = kun P's id/hash/uuid;
 | S36 | `public.paastand_korrektion` | `assertion_id ∈ A*` (levende + historiske assertions, afsnit 2) | slet (FK `change_set_id` l. 10095 → skal væk før change_set) | 6 | **ingen trigger** (kun kommentar l. 10081-10086) | |
 | S37 | `public.media` + `media_variant` | `id ∈ M_del` | slet (`media_variant` CASCADE l. 103); stier til udbakke (§6.7) | 9 | `trg_log_media` | |
 | S37b | delte medier | relation P↔medie slettes (i `R`), mediet bevares | bevar_andres | – | | `titel`/`original_filnavn` kan nævne P → fritekst? |
-| NY-E | `public.media` (bevaret, P afbildet) | P ikke-offentlig før sletningen (`private.person_purge_ikke_offentlig`) og `person→media`-relation `afbildet` i `R` til et medie uden for `M_del` | skjul: `maa_publiceres=false` (review 37 P1+P2, projektejeren 2026-11-20); intet manifest, intet sæt | 9 | låst i L11b | relationen holdt mediet skjult (`media_afbilder_skjult`); en redaktør må frigive igen |
+| NY-E | `public.media` (bevaret, P afbildet eller koblet til bevaret Fam_ind-familie) | P ikke-offentlig før sletningen (`private.person_purge_ikke_offentlig`) og enten `person→media`-relation `afbildet` i `R` til et medie uden for `M_del`, eller en relation i `R_kob` (se Fam_ind-noten); én række pr. medie | skjul: `maa_publiceres=false` (review 37 P1+P2, projektejeren 2026-11-20); intet manifest, intet sæt | 9 | låst i L11b | relationen holdt mediet skjult (`media_afbilder_skjult`); en redaktør må frigive igen |
 | S38 | `public.family` | `id ∈ Fam_del` | slet | 10 | `trg_log_family` | |
 | S38b | `family` i `Fam_keep` + dens vielsesfakta, evidens, noter, narrativer | | bevar_andres (beslutning 7); indholdet kun når P er offentlig eller ikke partner/barn (ellers Fam_ind, review 37 P1+P2) | – | | vielsens `citation.citat_tekst`/`assertion.vaerdi_tekst` er bogtekst, der kan nævne P → se K5 |
 
@@ -218,6 +218,14 @@ blokeringen (S29) og NY-A følger fortsat kun Fam_del, fordi familien bevares. H
 (fx fortrudte) familierækker på Fam_c, kendt kun fra `change_event` (fakta med evidenskæde, noter, narrativer, stories,
 hændelser, relationer med familieende; Codex-fund). Manifestvagten godkender familienarrativers events for Fam_ind ud
 fra levende medlemskab; Fam_del kræver fortsat family-beviset i manifestet. Er P offentlig, er Fam_ind tom.
+
+**Bevaret medie↔familie-kobling (projektejeren 2026-11-20).** En relation *direkte* mellem et medie og en familie i
+`Fam_ind \ Fam_del` (`R_kob`, CTE `rk`) er ikke familieindhold: den er taget ud af R_fam (S14b), og dens historik
+(change_event nøglet på den *levende* relations id, med evidens) består; mediet låses i stedet (NY-E, `skjul`), fordi
+redaktionen kun finder billeder via koblinger og skal kunne genfrigive det. En tidligere slettet medie↔familie-kobling
+(kun i `change_event`) fjernes stadig som familieindhold. Et medie, der kun var koblet til slettet Fam_ind-indhold (fx et
+vielsesfoto kun på vielses-faktummet), mister alle koblinger og slettes helt som i løsning A (S37 inkl. storage-udbakke).
+Plan, historiklukning, manifestvagt (promotion-ejerskab) og den uafhængige tæller bruger samme udtagning.
 
 ### 1e. Private ledgers
 
