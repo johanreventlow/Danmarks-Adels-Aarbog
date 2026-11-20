@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-20 — Titlen under navnet skifter ikke længere ved redigering
+
+Personer med flere titler viser nu adelstitlen (fx »Greve«), ellers den første titel i bogen. Før kunne titlen skifte
+til den alfabetisk sidste, når en redaktør rettede noget på personen; det var sket for Conrad (392, »storkansler«) og
+1088 (»Sekltnt.«). Udaterede dødsoplysninger som »ung« vises ikke som dødsdato. Beke Ahlefeldt-Laurvig (852) har fået
+sit navn rettet, så titlen »Komtesse« ikke længere står inde i navnet. `database-current-state.md` §34, #396.
+
 ## 2026-11-20 — »Nævnes …« for personer uden livsdatoer
 
 Personer uden fødsels- og dødsdato viser nu det tidsrum, Aarbogen dokumenterer dem i, fx »Nævnes 1349–1391« for

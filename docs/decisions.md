@@ -2,6 +2,24 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: visningscachens titel er adelstitlen, livsdatoer kun datotekst (2026-11-20)
+
+> Projektejeren 20/11 (#396). I prod 2026-11-20 (`database-current-state.md` §34).
+
+- **Titel:** har en person flere afklarede titler, viser `visning_titel` adelstitlen (greve, komtesse, lensgreve,
+  baron, friherre m.fl.; samme lukkede liste som web's `ADELS_TITLER`, låst af en vitest), ellers den første titel i
+  bogens orden (laveste `fact.id`, så `conclusion.id`). Før valgte loaderen den første (`LIMIT 1`) og triggeren den
+  alfabetisk sidste (`max()`), så titlen skiftede, når en redaktør rørte personen. *Fravalgt:* alfabetisk regel
+  (vilkårlig) og »første titel« uden adelsforrang.
+- **Fødsel/død:** `visning_foedt`/`visning_doed` er kun `date_raw`. En udateret dødsoplysning (»ung«, »lille«, »fem dage
+  gammel«) ligger i `vaerdi_tekst` og er ingen livsdato; den ville ellers give »2. okt. 1859–lille« og skjule floruit.
+  Redaktionen sender altid datoteksten som `p_date_raw`, så redaktørens datoer vises fortsat.
+- **Ingifte uden linje (852, 811):** efternavnet i cachen havde ingen kilde. 852's navn er rettet redaktionelt
+  (titlen var skrevet ind i navnet). 811 (levende) er bevidst ikke regenereret, fordi præsenslistens »født …« bruger
+  værdien; kildebundet pigenavn er #401.
+- **Lære:** floruit-fortrydelsen (`~/.private/visning-floruit/fortryd-definitioner.prod.sql`) gemmer en ældre
+  `regen_person_visning` og genindfører `max()`-reglen. Kør den ikke uden at genanvende denne regel bagefter.
+
 ## BESLUTTET: `visning_floruit` er en offentlig-sikker cache, kun uden livsdatoer (2026-11-20)
 
 > Projektejeren 19/11 (livsdato-reglen) og bygherre-tjekket i spec'en §5 (*mit valg*-punkterne, godkendt med
