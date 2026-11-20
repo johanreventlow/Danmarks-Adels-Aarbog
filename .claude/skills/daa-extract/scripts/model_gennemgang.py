@@ -8,6 +8,10 @@ en post, `p<n>-f<i>` for et forslag); nøglen bliver hos operatøren. Filter (de
 fail-closed): databasens værdi vises kun for kontrolfelterne (navn, titel, fødsel, død) og kun for bundne personer, der
 opfylder `sikker`. Forslag om andre personer sendes uden databaseværdi (bogteksten om dem ser modellen alligevel).
 Generaliseret fra 6c-2's modelforslag.py (operatørens private kopi). Printer kun antal; filer skrives 0600.
+
+Udgavebinding (review 37, E7; invariant 8): modellen ser bogteksten om alle i posten, også dem uden databaseværdi.
+Derfor bygges input kun for udgaver uden levende personer: eksportens `import_key` skal stå i `MODEL_TILLADTE_UDGAVER`
+(fail-closed: mangler feltet, afvises eksporten). En ny udgave kræver en beslutning i docs/decisions.md først.
 """
 from __future__ import annotations
 
@@ -26,6 +30,9 @@ from typing import Callable
 import persona_kort as pk
 from private_io import write_private_replace
 
+#: Udgaver, hvis bogtekst må sendes til en model: DAA 1939's personer lever ikke (decisions 2026-11-05, »tekst fra
+#: DAA 1939 må sendes til en model«). 2018-20 og præsenslisterne rummer levende og må aldrig stå her.
+MODEL_TILLADTE_UDGAVER = frozenset({"daa:1939"})
 MAX_SIDER = 4
 NABO_TAERSKEL = 0.15
 #: Kontrolfelterne og den visningsværdi, databasen sammenlignes med (samme som persona_kort.VISNING).
@@ -91,12 +98,21 @@ def _db_vaerdi(predicate: str, person: dict):
     return None
 
 
+def tjek_udgave(eksport: dict) -> str:
+    """Fail-closed udgavebinding (E7): kun en eksport fra en tilladt udgave må blive modelinput."""
+    key = eksport.get("import_key")
+    if not isinstance(key, str) or key not in MODEL_TILLADTE_UDGAVER:
+        raise GennemgangError(f"UDGAVE_IKKE_TILLADT import_key={key!r}")
+    return key
+
+
 def byg_input(eksport: dict, *, bid: int = 25,
               sidevaelger: Callable[[list, str], list] | None = None) -> tuple:
     """Bidder à `bid` poster og nøglen ref -> id. `sidevaelger(occ_sider, posttekst)` giver postens sider
     (standard: forekomstsiderne); bidden nævner dem som `s<p>.png`."""
     if bid < 1:
         raise GennemgangError("BID_UGYLDIG")
+    tjek_udgave(eksport)
     personer = eksport.get("personer") or {}
     noegle: dict = {}
     poster: list = []
@@ -393,6 +409,7 @@ def _laes_json(sti: Path):
 
 def cmd_input(a) -> int:
     eksport = _laes_json(a.eksport)
+    tjek_udgave(eksport)  # før der renderes sider eller skrives filer
     ud = Path(a.ud)
     ud.mkdir(mode=0o700, parents=True, exist_ok=True)
     sider_mappe = ud / "sider"

@@ -121,6 +121,8 @@ SELECT jsonb_build_object(
   'udgave', (SELECT nullif(btrim(concat_ws(' ', coalesce(nullif(btrim(s.udgave), ''), s.titel), s.aar)), '')
                FROM public.source s WHERE s.id = :src),
   'source_id', :src,
+  -- Udgavebinding (review 37, E7): model_gennemgang.py afviser en eksport, hvis import_key ikke er tilladt.
+  'import_key', (SELECT s.import_key FROM public.source s WHERE s.id = :src),
   'poster', (SELECT coalesce(jsonb_agg(p.j ORDER BY p.side NULLS LAST, p.pos NULLS LAST, p.record_key), '[]')
                FROM poster p),
   'personer', (SELECT coalesce(jsonb_object_agg(x.id::text, jsonb_build_object(

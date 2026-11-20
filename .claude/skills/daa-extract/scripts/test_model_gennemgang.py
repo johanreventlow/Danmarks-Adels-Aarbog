@@ -72,7 +72,7 @@ def eksport(**post_over) -> dict:
     p1.update(post_over)
     p2 = {"record_key": "R-2", "narrativ": None, "legacy": None, "placering": _plac(11, 100, "Gamma, f. 1820."),
           "forslag": []}
-    return {"udgave": "Testudgave 1939", "source_id": 3, "poster": [p1, p2],
+    return {"udgave": "Testudgave 1939", "source_id": 3, "import_key": "daa:1939", "poster": [p1, p2],
             "personer": {"1": {"navn": "Testperson Alfa", "fuldt_navn": "Testperson Alfa", "foedt": "1801",
                                "doed": "1870", "titel": None},
                          "2": {"navn": "Ung Delta", "fuldt_navn": None, "foedt": "1950", "doed": None,
@@ -486,3 +486,39 @@ def test_saml_usynlige_tegn_taelles_og_styretegn_er_altid_forbudt(tmp_path):
     assert _kode_af(lambda: _saml(tmp_path, b=to_nbsp, e=e)) == "SVAR_UGYLDIGT"
     bidi = [_b("p1", [_r("død 1870‮", "d. 1870‮")]), _b("p2")]
     assert _kode_af(lambda: _saml(tmp_path, b=bidi, e=e)) == "SVAR_UGYLDIGT"
+
+
+# --- Review 37, E7: udgavebinding (fail-closed) -------------------------------------------------------------------
+
+@pytest.mark.parametrize("key", [None, "", "daa:2018-20", "DAA 1939", 1939])
+def test_byg_input_afviser_udgave_uden_tilladelse(key):
+    e = eksport()
+    if key is None:
+        del e["import_key"]
+    else:
+        e["import_key"] = key
+    with pytest.raises(mg.GennemgangError, match="UDGAVE_IKKE_TILLADT"):
+        mg.byg_input(e)
+
+
+def test_kun_1939_er_tilladt():
+    assert mg.MODEL_TILLADTE_UDGAVER == frozenset({"daa:1939"})
+
+
+def test_cmd_input_afviser_foer_der_skrives_eller_renderes(tmp_path, monkeypatch, capsys):
+    e = eksport()
+    e["import_key"] = "daa:2018-20"
+    f = tmp_path / "eksport.json"
+    f.write_text(json.dumps(e), encoding="utf-8")
+    kald = []
+    monkeypatch.setattr(mg, "render_side", lambda *a: kald.append(a))
+    monkeypatch.setattr(mg, "sideord_fra_pdf", lambda *a: kald.append(a) or set())
+    ud = tmp_path / "ud"
+    assert mg.main(["input", "--eksport", str(f), "--pdf", str(tmp_path / "bog.pdf"), "--ud", str(ud)]) == 2
+    assert "MG_FEJL UDGAVE_IKKE_TILLADT import_key='daa:2018-20'" in capsys.readouterr().err
+    assert kald == [] and not ud.exists()
+
+
+def test_eksport_sql_leverer_import_key():
+    sql = (Path(__file__).with_name("model_gennemgang_eksport.sql")).read_text(encoding="utf-8")
+    assert "'import_key', (SELECT s.import_key FROM public.source s WHERE s.id = :src)" in sql
