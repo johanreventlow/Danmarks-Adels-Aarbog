@@ -6843,6 +6843,14 @@ BEGIN
   UPDATE person SET visning_floruit='1111' WHERE id=p_tom;
   PERFORM regen_person_visning(p_tom);
   PERFORM pg_temp.vf_tjek(p_tom,NULL,'uden kilder');
+  -- omvendt interval (date_min > date_max, dårlige data) normaliseres pr. række: 1400..1300 → '1300–1400'
+  INSERT INTO person(id,levende,privat) VALUES (-987715004,false,false);
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-987715018,'person',-987715004,'embede');
+  INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,date_min,date_max)
+    VALUES (-987715029,'fact',-987715018,'omvendt','1400-01-01','1300-12-31');
+  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status)
+    VALUES (-987715038,'fact',-987715018,-987715029,'afklaret');
+  PERFORM pg_temp.vf_tjek(-987715004,'1300–1400','omvendt interval normaliseret');
   RAISE NOTICE 'OK: visning-floruit spaend';
 END $verify_visning_floruit_spaend$;
 

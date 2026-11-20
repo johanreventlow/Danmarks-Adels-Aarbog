@@ -6451,8 +6451,10 @@ BEGIN
                         AND (q.levende IS NOT FALSE OR coalesce(q.privat,false) OR coalesce(q.staged,false)))
   ),
   floruit AS (
-    SELECT min(extract(year FROM coalesce(date_min,date_max)))::int AS lo,
-           max(extract(year FROM coalesce(date_max,date_min)))::int AS hi FROM floruit_kilder
+    -- least/greatest normaliserer pr. række (en omvendt påstand date_min>date_max må ikke give '1400–1300');
+    -- de ignorerer NULL, så åben ende (kun én grænse) giver samme år som før.
+    SELECT min(extract(year FROM least(date_min,date_max)))::int AS lo,
+           max(extract(year FROM greatest(date_min,date_max)))::int AS hi FROM floruit_kilder
   ),
   final AS (
     SELECT CASE
