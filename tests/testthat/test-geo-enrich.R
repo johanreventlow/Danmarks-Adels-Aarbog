@@ -271,3 +271,17 @@ test_that("run-geo-enrich.R: forkastede godkendelser gemmes, før CSV'en overskr
   expect_length(bak, 1L); expect_length(skriv, 1L)
   expect_lt(bak, skriv)
 })
+
+test_that("merge_crosswalk_approvals: auto -> review overfører ikke den automatiske accept (Codex)", {
+  ny  <- .cw(1L, "A", 55, 12, ""); ny$tier <- "review"
+  gml <- .cw(1L, "A", 55, 12, "TRUE"); gml$tier <- "auto"
+  m <- merge_crosswalk_approvals(ny, gml)
+  expect_equal(m$crosswalk$anvend, "")
+  expect_equal(c(m$bevaret, m$forkastet), c(0L, 1L))
+})
+
+test_that("run-geo-enrich.R: UPDATE kræver uændret navn og apply henter id'er som numeric (Codex)", {
+  src <- paste(readLines(file.path(root, "R", "geo-enrich", "run-geo-enrich.R"), encoding = "UTF-8"), collapse = "\n")
+  expect_match(src, "WHERE id=$3 AND navn=$4 AND (lat IS NULL OR lon IS NULL)", fixed = TRUE)
+  expect_match(src, 'bigint = "numeric"', fixed = TRUE)
+})

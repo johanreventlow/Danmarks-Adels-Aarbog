@@ -40,7 +40,7 @@ write_db_connect <- function() dbConnect(RPostgres::Postgres(), host = Sys.geten
                   port = as.integer(Sys.getenv("SUPABASE_PORT", "5432")),
                   dbname = Sys.getenv("SUPABASE_DB", "postgres"),
                   user = Sys.getenv("SUPABASE_USER"), password = Sys.getenv("SUPABASE_PASSWORD"),
-                  sslmode = "require", bigint = "integer")
+                  sslmode = "require", bigint = "numeric")
 
 if (do_apply) {
   # ---- 4) apply: fra den godkendte CSV, aldrig fra en genberegning (E3) ----
@@ -57,9 +57,11 @@ if (do_apply) {
     verify_apply_rows(apply_rows, dbGetQuery(wcon, "SELECT id, navn FROM place"))
     for (i in seq_len(nrow(apply_rows))) {
       # AND lat IS NULL: idempotent + overskriver aldrig et manuelt kurateret punkt.
+      # AND navn = $4: et navn, der er ændret efter verify_apply_rows (samtidig transaktion), får intet punkt.
       n_upd <- n_upd + dbExecute(wcon,
-        "UPDATE place SET lat=$1, lon=$2 WHERE id=$3 AND (lat IS NULL OR lon IS NULL)",
-        params = list(apply_rows$lat[i], apply_rows$lon[i], apply_rows$place_id[i]))
+        "UPDATE place SET lat=$1, lon=$2 WHERE id=$3 AND navn=$4 AND (lat IS NULL OR lon IS NULL)",
+        params = list(apply_rows$lat[i], apply_rows$lon[i], as.numeric(apply_rows$place_id[i]),
+                      as.character(apply_rows$navn[i])))
     }
     dbCommit(wcon); message(sprintf("  OK: %d place-rækker opdateret", n_upd))
   }, error = function(e) { dbRollback(wcon); dbDisconnect(wcon); stop("apply fejlede, rullet tilbage: ", conditionMessage(e)) })
