@@ -2,7 +2,7 @@
 // anon/medlem får ingen levende rækker (fail-closed), redaktør-JWT ser alt. Visningen
 // tilføjer altså ingen eksponering (spec 2026-07-22 §8).
 import { supabase } from '../lib/supabase';
-import { getAll, parseOverhovedVaerdi } from '@daa/core';
+import { getAll, parseOverhovedVaerdi, udenSlaegtsnavnTilSidst } from '@daa/core';
 import type { PresensAnker } from '@daa/core';
 
 export type PresensGrundlag = { ankre: PresensAnker[]; levendeById: Record<string, boolean> };
@@ -105,17 +105,7 @@ function fodtKlausul(egenTitel: string, egetEfternavn: string): string | undefin
   return egenTitel ? `${egenTitel.toLowerCase()} ${egetEfternavn}` : egetEfternavn;
 }
 
-// Projektejeren 20/11 (#401): pigenavnet står ikke dobbelt. Ender navnet (ingiftes fulde navn) på det slægtsnavn, der
-// vises i »født …«, fjernes det fra navnet — som helt ord, uden hensyn til store bogstaver og bindestregs-tegn. Står der
-// intet andet tilbage, bevares navnet.
-const normBindestreg = (s: string): string => s.replace(/[\u2010\u2011\u2012\u2013]/g, '-').toLowerCase();
-function udenSlaegtsnavnTilSidst(navn: string, slaegtsnavn: string): string {
-  const n = navn.trim();
-  const s = slaegtsnavn.trim();
-  if (!s || !normBindestreg(n).endsWith(` ${normBindestreg(s)}`)) return navn;
-  return n.slice(0, n.length - s.length).trim() || navn;
-}
-
+// Projektejeren 20/11 (#401): pigenavnet står ikke dobbelt — se udenSlaegtsnavnTilSidst i @daa/core.
 export function mapPresensNavneDele(
   personer: RawNavneDele[],
   adelsTitelFakta: RawTitelFact[],

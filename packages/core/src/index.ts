@@ -70,3 +70,4 @@ export type {
 } from './types';
 export * from './b6Note';
 export * from './personNavn';
+export { slutterPaaSlaegtsnavn, udenSlaegtsnavnTilSidst } from './slaegtsnavn';
