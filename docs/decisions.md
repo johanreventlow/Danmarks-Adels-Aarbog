@@ -12,7 +12,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
   o.l.) kræver først en beslutning om, hvem eller hvad der laver rekonstruktionen (fx manuelt).
 - **E7:** `model_gennemgang.py` bygger kun modelinput for `import_key` i `MODEL_TILLADTE_UDGAVER` = `{daa:1939}` og
   afviser fail-closed resten. Listen hviler på beslutningen 2026-11-05 (DAA 1939's personer lever ikke).
-  **Åbent for projektejeren:** en ny udgave på listen kræver en beslutningspost her først.
+  **Åbent for projektejeren:** en ny udgave på listen kræver en beslutningspost her først. **Restrisiko (Codex):**
+  `--pdf` er ikke bundet til udgaven; en 1939-eksport med en forkert PDF ville rendere forkerte sider til modellen.
+  Lukkes ved at låse 1939-PDF'ens sha256 i allowlisten, når projektejeren har udpeget filen.
 - **E8:** `/daa-extract` trin ③/④b har fået GDPR-forbehold: `work/` sendes aldrig til en model; nye modelkørsler på
   udgaver med levende går kun gennem evidens-runnerens eligibility.
 - **E3, E4, E5, E6** (geo-godkendelser, integer64 i hændelses-loaderen, visning-cache og genkørselsværn i
