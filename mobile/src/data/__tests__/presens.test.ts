@@ -89,22 +89,22 @@ test('feminiserTitel bøjer mandlige adelstitler og afviser andre værdier', () 
 test('mapPresensNavneDele: gift-ind kvinde overtager ægtefællens rang og efternavn', () => {
   const r = mapPresensNavneDele(
     [
-      { id: 811, visning_navn: 'Hedwig', visning_efternavn: 'Mundhenke', koen: 'kvinde' },
-      { id: 380, visning_navn: 'Henning Lothar Gerd', visning_efternavn: 'Reventlow', koen: 'mand' },
+      { id: 911, visning_navn: 'Ingrid', visning_efternavn: 'Mortensen', koen: 'kvinde' },
+      { id: 912, visning_navn: 'Erik Frederik', visning_efternavn: 'Reventlow', koen: 'mand' },
     ],
-    [{ subjekt_id: 380, vaerdi_tekst: 'Lensgreve' }],
-    new Map([['811', '380'], ['380', '811']]),
+    [{ subjekt_id: 912, vaerdi_tekst: 'Lensgreve' }],
+    new Map([['911', '912'], ['912', '911']]),
   );
 
-  expect(r['811']).toEqual({
-    navn: 'Hedwig',
+  expect(r['911']).toEqual({
+    navn: 'Ingrid',
     titel: 'Lensgrevinde',
     efternavn: 'Reventlow',
-    fodt: 'Mundhenke',
+    fodt: 'Mortensen',
     tilgiftet: true,
   });
-  expect(formatAndetNavn(r['811'], 'fallback'))
-    .toBe('Lensgrevinde Hedwig Reventlow, født Mundhenke');
+  expect(formatAndetNavn(r['911'], 'fallback'))
+    .toBe('Lensgrevinde Ingrid Reventlow, født Mortensen');
 });
 
 test('mapPresensNavneDele: egen fødetitel bevares i født-klausulen', () => {
@@ -127,22 +127,22 @@ test('mapPresensNavneDele: egen fødetitel bevares i født-klausulen', () => {
 test('tilgiftet og født holdes adskilt: gift-ind kvinde uden pigenavn beholder efternavnet', () => {
   const r = mapPresensNavneDele(
     [
-      { id: 811, visning_navn: 'Hedwig', visning_efternavn: null, koen: 'kvinde' },
-      { id: 380, visning_navn: 'Henning Lothar Gerd', visning_efternavn: 'Reventlow', koen: 'mand' },
+      { id: 911, visning_navn: 'Ingrid', visning_efternavn: null, koen: 'kvinde' },
+      { id: 912, visning_navn: 'Erik Frederik', visning_efternavn: 'Reventlow', koen: 'mand' },
     ],
-    [{ subjekt_id: 380, vaerdi_tekst: 'Lensgreve' }],
-    new Map([['811', '380'], ['380', '811']]),
+    [{ subjekt_id: 912, vaerdi_tekst: 'Lensgreve' }],
+    new Map([['911', '912'], ['912', '911']]),
   );
 
-  expect(r['811']).toEqual({
-    navn: 'Hedwig',
+  expect(r['911']).toEqual({
+    navn: 'Ingrid',
     titel: 'Lensgrevinde',
     efternavn: 'Reventlow',
     tilgiftet: true,
   });
-  expect(r['811'].fodt).toBeUndefined();
-  expect(formatAnkerNavn(r['811'], 'fallback')).toBe('Hedwig lensgrevinde Reventlow');
-  expect(formatAndetNavn(r['811'], 'fallback')).toBe('Lensgrevinde Hedwig Reventlow');
+  expect(r['911'].fodt).toBeUndefined();
+  expect(formatAnkerNavn(r['911'], 'fallback')).toBe('Ingrid lensgrevinde Reventlow');
+  expect(formatAndetNavn(r['911'], 'fallback')).toBe('Lensgrevinde Ingrid Reventlow');
 });
 
 test('gift-ind override kræver både bøjelig titel og ægtefællens efternavn', () => {
@@ -157,4 +157,55 @@ test('gift-ind override kræver både bøjelig titel og ægtefællens efternavn'
   );
 
   expect(r['1']).toEqual({ navn: 'Anni', titel: '', efternavn: '' });
+});
+// #401: født-klausulen læser faktatypen fødenavn (kildebundet) frem for den cachede visning_efternavn.
+describe('mapPresensNavneDele: fødenavn-faktum (#401)', () => {
+  const mand = { id: 1, visning_navn: 'Manden', visning_efternavn: 'Reventlow', koen: 'mand' };
+  const adel = [{ subjekt_id: 1, vaerdi_tekst: 'Greve' }];
+  const par = new Map([['2', '1'], ['1', '2']]);
+
+  test('født-klausul bruger fødenavn-faktum frem for cachet efternavn', () => {
+    const kone = { id: 2, visning_navn: 'Anna', visning_efternavn: 'Reventlow', koen: 'kvinde' };
+    const r = mapPresensNavneDele([kone, mand], adel, par, [{ subjekt_id: 2, vaerdi_tekst: 'Hansen' }]);
+    expect(r['2'].fodt).toBe('Hansen');
+    expect(r['2'].titel).toBe('Grevinde');
+    expect(r['2'].tilgiftet).toBe(true);
+  });
+
+  test('født-klausul uden fødenavn er uændret', () => {
+    const kone = { id: 2, visning_navn: 'Beke', visning_efternavn: 'Ahlefeldt-Laurvig', koen: 'kvinde' };
+    const r = mapPresensNavneDele([kone, mand], [...adel, { subjekt_id: 2, vaerdi_tekst: 'Komtesse' }], par);
+    expect(r['2'].fodt).toBe('komtesse Ahlefeldt-Laurvig');
+  });
+
+  test('tomt fødenavn ignoreres', () => {
+    const kone = { id: 2, visning_navn: 'Anna', visning_efternavn: 'Hansen', koen: 'kvinde' };
+    const r = mapPresensNavneDele([kone, mand], adel, par, [{ subjekt_id: 2, vaerdi_tekst: '  ' }]);
+    expect(r['2'].fodt).toBe('Hansen');
+  });
+
+  test('kone uden visning_efternavn men med fødenavn får klausul', () => {
+    const kone = { id: 2, visning_navn: 'Anna Hansen', visning_efternavn: null, koen: 'kvinde' };
+    const r = mapPresensNavneDele([kone, mand], adel, par, [{ subjekt_id: 2, vaerdi_tekst: 'Hansen' }]);
+    expect(r['2'].fodt).toBe('Hansen');
+    // Projektejeren 20/11: pigenavnet står ikke dobbelt — det fjernes fra navnets slutning, når »født …« vises.
+    expect(r['2'].navn).toBe('Anna');
+    expect(formatAndetNavn(r['2'], 'fallback')).toBe('Grevinde Anna Reventlow, født Hansen');
+    expect(formatAnkerNavn(r['2'], 'fallback')).toBe('Anna grevinde Reventlow, født Hansen');
+  });
+
+  test('pigenavnet fjernes uanset store bogstaver og bindestregs-tegn, men kun som helt ord til sidst', () => {
+    const kone = (navn: string) => ({ id: 2, visning_navn: navn, visning_efternavn: null, koen: 'kvinde' });
+    const fn = (v: string) => [{ subjekt_id: 2, vaerdi_tekst: v }];
+    expect(mapPresensNavneDele([kone('Beke Ahlefeldt\u2011Laurvig'), mand], adel, par, fn('ahlefeldt-laurvig'))['2'].navn).toBe('Beke');
+    expect(mapPresensNavneDele([kone('Anna Christensen'), mand], adel, par, fn('Hansen'))['2'].navn).toBe('Anna Christensen');
+    expect(mapPresensNavneDele([kone('Anna Hansensdatter'), mand], adel, par, fn('Hansen'))['2'].navn).toBe('Anna Hansensdatter');
+    expect(mapPresensNavneDele([kone('Hansen'), mand], adel, par, fn('Hansen'))['2'].navn).toBe('Hansen');
+  });
+
+  test('fødenavn uden adelig ægtefælle ændrer intet', () => {
+    const kone = { id: 2, visning_navn: 'Anna', visning_efternavn: null, koen: 'kvinde' };
+    const r = mapPresensNavneDele([kone], [], new Map(), [{ subjekt_id: 2, vaerdi_tekst: 'Hansen' }]);
+    expect(r['2']).toEqual({ navn: 'Anna', titel: '', efternavn: '' });
+  });
 });

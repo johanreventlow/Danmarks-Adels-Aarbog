@@ -62,9 +62,9 @@ import { type Change } from '../../../data/redaktionWrite';
 import { useStore } from '../../../store/useStore';
 import { Border, Colors, Radius } from '../../../theme/tokens';
 
-const FELTER = ['navn', 'foedt', 'doed', 'titel', 'daab', 'begravelse', 'floruit', 'naturalisering', 'overhoved']; // koen håndteres separat (ikke et fact)
+const FELTER = ['navn', 'foedenavn', 'foedt', 'doed', 'titel', 'daab', 'begravelse', 'floruit', 'naturalisering', 'overhoved']; // koen håndteres separat (ikke et fact)
 const FELT_LABEL: Record<string, string> = {
-  navn: 'navn', foedt: 'født', doed: 'død', titel: 'titel',
+  navn: 'navn', foedenavn: 'fødenavn', foedt: 'født', doed: 'død', titel: 'titel',
   daab: 'dåb', begravelse: 'begravelse', floruit: 'floruit', naturalisering: 'naturalisation',
   overhoved: 'overhoved (linje/gren)',
 };

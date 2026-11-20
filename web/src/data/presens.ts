@@ -67,7 +67,7 @@ export async function fetchPresensGrundlag(): Promise<PresensGrundlag> {
 //
 // `fodt` (valgfri): gift-ind kvinder tager ægtefællens køns-bøjede titel + efternavn i BEGGE
 // formater (inkl. efternavn i det ellers efternavn-løse "øvrige rækker"-format), med egen
-// fødeidentitet i en født-klausul — "Lensgrevinde Hedwig Reventlow, født Mundhenke" (fundet ved
+// fødeidentitet i en født-klausul — "Lensgrevinde Ingrid Reventlow, født Mortensen" (fundet ved
 // bruger-verifikation 2026-07-24). Tom/manglende eget efternavn giver INGEN født-klausul (intet at
 // vise), men `tilgiftet` forbliver sand — efternavnet skal stadig med. Se mapPresensNavneDele.
 export type PresensNavneDele = { navn: string; titel: string; efternavn: string; fodt?: string; tilgiftet?: boolean };
@@ -110,11 +110,31 @@ function fodtKlausul(egenTitel: string, egetEfternavn: string): string | undefin
   return egenTitel ? `${egenTitel.toLowerCase()} ${egetEfternavn}` : egetEfternavn;
 }
 
+// Projektejeren 20/11 (#401): pigenavnet står ikke dobbelt. Ender navnet (ingiftes fulde navn) på det slægtsnavn, der
+// vises i »født …«, fjernes det fra navnet — som helt ord, uden hensyn til store bogstaver og bindestregs-tegn. Står der
+// intet andet tilbage, bevares navnet.
+const normBindestreg = (s: string): string => s.replace(/[\u2010\u2011\u2012\u2013]/g, '-').toLowerCase();
+function udenSlaegtsnavnTilSidst(navn: string, slaegtsnavn: string): string {
+  const n = navn.trim();
+  const s = slaegtsnavn.trim();
+  if (!s || !normBindestreg(n).endsWith(` ${normBindestreg(s)}`)) return navn;
+  return n.slice(0, n.length - s.length).trim() || navn;
+}
+
 export function mapPresensNavneDele(
   personer: RawNavneDele[],
   adelsTitelFakta: RawTitelFact[],
   aegtefaelleIdById: Map<string, string> = new Map(),
+  // #401: afklarede fødenavn-påstande (kildebundne). Vinder over visning_efternavn i født-klausulen, som ellers kun
+  // kender linjens slægtsnavn — en ingift uden linje ville uden dem se født ind i mandens slægt ud.
+  foedenavnFakta: RawTitelFact[] = [],
 ): Record<string, PresensNavneDele> {
+  const foedenavnById = new Map<string, string>();
+  for (const f of foedenavnFakta) {
+    const id = String(f.subjekt_id);
+    const v = f.vaerdi_tekst?.trim();
+    if (v && !foedenavnById.has(id)) foedenavnById.set(id, v);
+  }
   const titelById = new Map<string, string>();
   for (const t of adelsTitelFakta) {
     const id = String(t.subjekt_id);
@@ -143,7 +163,9 @@ export function mapPresensNavneDele(
         dele.titel = feminiseret;
         dele.efternavn = aegtefaelle.visning_efternavn;
         dele.tilgiftet = true;
-        dele.fodt = fodtKlausul(egenTitel, egetEfternavn);
+        const foede = foedenavnById.get(id) ?? egetEfternavn;
+        dele.fodt = fodtKlausul(egenTitel, foede);
+        if (dele.fodt) dele.navn = udenSlaegtsnavnTilSidst(dele.navn, foede);
       }
     }
     out[id] = dele;
@@ -152,11 +174,11 @@ export function mapPresensNavneDele(
 }
 
 // Fælles fact→conclusion→assertion-join (samme mønster som fetchPresensGrundlag's 'overhoved'-
-// opslag ovenfor), filtreret til afklarede 'titel'-fakta der matcher den lukkede adelstitel-liste.
-async function fetchAdelsTitelFakta(personIds: number[]): Promise<RawTitelFact[]> {
+// opslag ovenfor): afklarede, valgte påstande af én faktatype for personerne.
+async function fetchFaktaVaerdier(faktatype: string, personIds: number[]): Promise<RawTitelFact[]> {
   if (!personIds.length) return [];
   const facts = await getAll<{ id: number | string; subjekt_id: number | string }>(() =>
-    supabase.from('fact').select('id,subjekt_id').eq('subjekt_type', 'person').eq('faktatype', 'titel').in('subjekt_id', personIds).order('id'));
+    supabase.from('fact').select('id,subjekt_id').eq('subjekt_type', 'person').eq('faktatype', faktatype).in('subjekt_id', personIds).order('id'));
   if (!facts.length) return [];
   const factIds = facts.map((f) => f.id);
   const conclusions = await getAll<RawKonkl>(() =>
@@ -170,9 +192,14 @@ async function fetchAdelsTitelFakta(personIds: number[]): Promise<RawTitelFact[]
   for (const c of conclusions) {
     const vaerdi = c.valgt_assertion_id != null ? assertById.get(String(c.valgt_assertion_id)) : null;
     const subjekt_id = subjektByFact.get(String(c.target_id));
-    if (vaerdi && subjekt_id != null && erAdelsTitel(vaerdi)) out.push({ subjekt_id, vaerdi_tekst: vaerdi });
+    if (vaerdi && subjekt_id != null) out.push({ subjekt_id, vaerdi_tekst: vaerdi });
   }
   return out;
+}
+
+// Afklarede 'titel'-fakta filtreret til den lukkede adelstitel-liste.
+async function fetchAdelsTitelFakta(personIds: number[]): Promise<RawTitelFact[]> {
+  return (await fetchFaktaVaerdier('titel', personIds)).filter((t) => erAdelsTitel(t.vaerdi_tekst));
 }
 
 type RawPartnerRow = { family_id: number | string; person_id: number | string };
@@ -214,11 +241,12 @@ export async function fetchPresensNavneDele(ids: string[]): Promise<Record<strin
   const aegtefaelleIdById = await fetchAegtefaelleIdById(numIds);
   const aegtefaelleIds = [...new Set([...aegtefaelleIdById.values()].map(Number))];
   const alleIds = [...new Set([...numIds, ...aegtefaelleIds])];
-  const [personer, adelsTitelFakta] = await Promise.all([
+  const [personer, adelsTitelFakta, foedenavnFakta] = await Promise.all([
     getAll<RawNavneDele>(() => supabase.from('person').select('id,visning_navn,visning_efternavn,koen').in('id', alleIds).order('id')),
     fetchAdelsTitelFakta(alleIds),
+    fetchFaktaVaerdier('fødenavn', alleIds),
   ]);
-  return mapPresensNavneDele(personer, adelsTitelFakta, aegtefaelleIdById);
+  return mapPresensNavneDele(personer, adelsTitelFakta, aegtefaelleIdById, foedenavnFakta);
 }
 
 const fodtSuffiks = (fodt: string | undefined): string => (fodt ? `, født ${fodt}` : '');

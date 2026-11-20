@@ -89,7 +89,7 @@ const ENTITIES = [
   { key: 'kildepersonaer', label: 'Kildepersonaer', icon: '⌕' },
 ];
 const FELT_DEFS: [string, string][] = [
-  ['navn', 'Navn'], ['foedt', 'Født'], ['doed', 'Død'], ['titel', 'Titel/rang'],
+  ['navn', 'Navn'], ['foedenavn', 'Fødenavn'], ['foedt', 'Født'], ['doed', 'Død'], ['titel', 'Titel/rang'],
   ['daab', 'Dåb'], ['begravelse', 'Begravelse'], ['floruit', 'Floruit'], ['naturalisering', 'Naturalisation'],
   ['overhoved', 'Overhoved (linje/gren)'],
 ];

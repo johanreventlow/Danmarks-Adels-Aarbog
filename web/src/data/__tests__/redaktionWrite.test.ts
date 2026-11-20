@@ -755,3 +755,11 @@ describe('fortryd — buildRpcCall + rolle-gate + konflikt-genkendelse', () => {
     expect(erFortrydKonflikt('FEJL: change_set 12 er allerede fortrudt')).toBe(false);
   });
 });
+
+test('opretFakta med felt foedenavn mapper til red_opret_fakta med faktatype fødenavn uden p_date_raw (#401)', () => {
+  const c = { art: 'opretFakta', subjektType: 'person', subjektId: '7', felt: 'foedenavn', vaerdi: 'Hansen' } as const;
+  expect(buildRpcCall(c)).toEqual({
+    fn: 'red_opret_fakta',
+    args: { p_subjekt_type: 'person', p_subjekt_id: 7, p_faktatype: 'fødenavn', p_vaerdi: 'Hansen' },
+  });
+});

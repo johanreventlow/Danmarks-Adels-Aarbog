@@ -14,7 +14,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 - **Fødsel/død:** `visning_foedt`/`visning_doed` er kun `date_raw`. En udateret dødsoplysning (»ung«, »lille«, »fem dage
   gammel«) ligger i `vaerdi_tekst` og er ingen livsdato; den ville ellers give »2. okt. 1859–lille« og skjule floruit.
   Redaktionen sender altid datoteksten som `p_date_raw`, så redaktørens datoer vises fortsat.
-- **Ingifte uden linje (852, 811):** efternavnet i cachen havde ingen kilde. 852's navn er rettet redaktionelt
+- **Ingifte uden linje (852, 811):** efternavnet i cachen havde ingen kilde. Det blev skrevet direkte i cachen ved en
+  manuel SQL-datastrukturering 2026-07-24 til præsenslistens født-klausul (commit `95be4ca4`: »visning_navn/-efternavn
+  splittet fra rå-blob'en«), uden om konklusionerne (invariant 4). 852's navn er rettet redaktionelt
   (titlen var skrevet ind i navnet). 811 (levende) er bevidst ikke regenereret, fordi præsenslistens »født …« bruger
   værdien; kildebundet pigenavn er #401.
 - **Lære:** floruit-fortrydelsen (`~/.private/visning-floruit/fortryd-definitioner.prod.sql`) gemmer en ældre
