@@ -5,8 +5,8 @@ Dato: 2026-11-20. Projektejeren valgte løsning B.
 ## Hvorfor
 
 Præsenslistens født-klausul (»Grevinde Anna … Reventlow, født ‹pigenavn›«) bygger i dag på kvindens cachede
-`visning_efternavn`. For ingifte uden slægtslinje har den værdi ingen kilde; for 811 er den en rest, som forsvinder
-første gang hun redigeres (#396). Uden klausulen ligner hun en født Reventlow, fordi hun kun bærer mandens navn
+`visning_efternavn`. For ingifte uden slægtslinje har den værdi ingen kilde; for 811 blev den skrevet direkte i cachen
+ved en manuel datastrukturering 2026-07-24 (commit `95be4ca4`) og forsvinder første gang hun redigeres (#396). Uden klausulen ligner hun en født Reventlow, fordi hun kun bærer mandens navn
 (projektejeren 20/11). `visning_efternavn` betyder i databasen »slægtsnavnet, der sættes bag navnet«; præsenslisten
 bruger det som »eget fødenavn«. De to betydninger kan ikke dele ét felt.
 
