@@ -369,7 +369,9 @@ H*  = H ∪ ({ ce.row_pk->>'id' | ce.tabel='haendelse' AND sættet er åbnet af 
       alene beviser intet, fordi begin_change_set genbruger et åbent sæt uden at skifte subjekt, så to feed-domme i samme
       transaktion deler sæt). Blandede/tvetydige sæt giver intet bevis: andres hændelses-events står, og sættet bevares
       som ethvert sæt med andres events (S52b/S57) — samme regel som for alle andre tabeller. H* bruges til
-      `haendelse`-events og til feed_pin-nøglerne `arkiv:`/`paadennedag:h:` i historikken.
+      `haendelse`-events og til feed_pin-nøglerne `arkiv:`/`paadennedag:h:` i historikken. Planen bruger samme mængde
+      (H ∪ hændelser, hvis events står i den låste historik) til de levende feed_pins i S32/NY-B, så en pin på en
+      tidligere hændelse også slettes (runde 4, punkt C).
 M*  = M_del ∪ { medie-id i x for ce.tabel='relation' AND p_rel(x) AND x->>'objekt_type'='media'
                  AND mediet findes ikke længere AND ingen anden (historisk) relation fra en anden end P }
 PEI*= se afsnit 0

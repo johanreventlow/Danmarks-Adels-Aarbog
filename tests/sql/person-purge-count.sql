@@ -402,7 +402,7 @@ counts(nr, sted, antal) AS (
          AND s.id NOT IN (SELECT id FROM story_all))
   UNION ALL SELECT 'S32','public.feed_pin (person-nøgler, forbundet:<Fam_del>, dagensperson, story:<S>, arkiv:/paadennedag:h:<H>/paadennedag:P:(født|død):<år>)', (SELECT count(*) FROM public.feed_pin f, feed_rx fx
        WHERE f.kort_noegle ~ fx.rx
-          OR f.kort_noegle IN (SELECT k FROM feed_keys))
+          OR f.kort_noegle IN (SELECT k FROM hist_feed_keys))
   UNION ALL SELECT 'S32c','public.feed_pin forbundet:<Fam_keep> (bevares)', (SELECT count(*) FROM public.feed_pin f
        WHERE f.kort_noegle IN (SELECT 'forbundet:' || id FROM fam_keep))
   UNION ALL SELECT 'S33','public.entity_description (subjekt person)', (SELECT count(*) FROM public.entity_description d, params p WHERE d.subjekt_type='person' AND d.subjekt_id=p.pid)

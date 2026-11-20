@@ -3818,6 +3818,8 @@ BEGIN
     INSERT INTO pg_temp.gdpr_id VALUES ('h_'||f.k,v_m);
     PERFORM purge_test.nyt(); PERFORM public.red_set_haendelse_status(v_m,'interessant');
     INSERT INTO pg_temp.gdpr_id VALUES ('h_status_saet_'||f.k,purge_test.saet());
+    -- Runde 4, punkt C: en levende feed-pin på hændelsen, som overlever hændelsen.
+    PERFORM purge_test.nyt(); PERFORM public.red_set_feed_pin('arkiv:'||v_m,'pin');
     PERFORM purge_test.nyt();
     IF f.k='fam' THEN
       PERFORM public.red_fortryd_change_set(v_cs,false);
@@ -3887,7 +3889,9 @@ BEGIN
       AND (k='pers' OR EXISTS (SELECT 1 FROM public.change_set WHERE reverterer_id=pg_temp.gid('hnarr_saet_'||k)))
       AND NOT EXISTS (SELECT 1 FROM public.change_event WHERE tabel='haendelse' AND row_pk->>'id'=pg_temp.gid('h_'||k)::text
         AND (foer ? 'subjekt_id' OR efter ? 'subjekt_id' OR foer ? 'narrative_id' OR efter ? 'narrative_id')))
-    FROM unnest(ARRAY['fam','pers']) k),'gdpr_fixture_tidligere_haendelse');
+    FROM unnest(ARRAY['fam','pers']) k)
+    AND (SELECT count(*) FROM public.feed_pin WHERE kort_noegle IN ('arkiv:'||pg_temp.gid('h_fam'),'arkiv:'||pg_temp.gid('h_pers')))=2,
+    'gdpr_fixture_tidligere_haendelse');
 END $t$;
 -- Codex runde 4: det blandede sæt har L som subjekt og begge hændelsers events; D's hændelse er væk.
 DO $t$
@@ -4117,6 +4121,16 @@ BEGIN
       AND row_pk->>'id' IN (pg_temp.gid('h_fam')::text,pg_temp.gid('h_pers')::text)),'gdpr_tidligere_haendelse_historik_slettet');
 END $t$;
 \echo OK gdpr_tidligere_haendelse_historik_slettet
+-- Runde 4, punkt C: den levende feed-pin på en tidligere hændelse (fam_l og L) er væk med sin historik.
+DO $t$
+BEGIN
+  PERFORM pg_temp.gdpr_assert(NOT EXISTS (SELECT 1 FROM public.feed_pin
+      WHERE kort_noegle IN ('arkiv:'||pg_temp.gid('h_fam'),'arkiv:'||pg_temp.gid('h_pers')))
+    AND NOT EXISTS (SELECT 1 FROM public.change_event WHERE tabel='feed_pin'
+      AND (efter->>'kort_noegle' IN ('arkiv:'||pg_temp.gid('h_fam'),'arkiv:'||pg_temp.gid('h_pers'))
+        OR foer->>'kort_noegle' IN ('arkiv:'||pg_temp.gid('h_fam'),'arkiv:'||pg_temp.gid('h_pers')))),'gdpr_tidligere_haendelse_feed_pin_slettet');
+END $t$;
+\echo OK gdpr_tidligere_haendelse_feed_pin_slettet
 -- Codex runde 4: i det blandede sæt slettes kun L's hændelses event; D's (andres) event og dermed sættet består.
 DO $t$
 BEGIN

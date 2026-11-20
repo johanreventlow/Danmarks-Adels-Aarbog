@@ -22882,6 +22882,10 @@ WITH RECURSIVE
     OR (t.subjekt_type='fact' AND t.subjekt_id IN (SELECT id FROM fd))
     OR (t.subjekt_type='relation' AND t.subjekt_id IN (SELECT id FROM rd UNION SELECT id FROM rk))),
   hist AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_historik) h(tabel text,pk jsonb)),
+  -- Samme hændelsesmængde som historiklukningen (hv): levende H + hændelser, hvis events slettes. Så forsvinder også en
+  -- levende feed_pin (arkiv:/paadennedag:h:) på en tidligere hændelse med entydigt ejerskabsbevis (runde 4, punkt C).
+  hvp AS MATERIALIZED (SELECT id::text AS id FROM h UNION SELECT ce.row_pk->>'id' FROM public.change_event ce
+    JOIN hist ON hist.tabel='change_event' AND hist.pk=jsonb_build_object('id',ce.id) WHERE ce.tabel='haendelse'),
   av AS MATERIALIZED (SELECT id::text AS id FROM a UNION SELECT ce.row_pk->>'id' FROM public.change_event ce
     JOIN hist ON hist.tabel='change_event' AND hist.pk=jsonb_build_object('id',ce.id) WHERE ce.tabel='assertion'),
   prom_target AS MATERIALIZED (
@@ -23019,10 +23023,10 @@ WITH RECURSIVE
     FROM public.story t WHERE t.id NOT IN (SELECT id FROM s) AND (t.fact_id IN (SELECT id FROM fd) OR t.relation_id IN (SELECT id FROM rd) OR t.haendelse_id IN (SELECT id FROM h))
   UNION ALL
   SELECT 'NY-B'::text,'feed_pin'::text,jsonb_build_object('id',t.id),'slet'::text,'egen'::text,'{}'::jsonb,0
-    FROM public.feed_pin t WHERE t.kort_noegle IN (SELECT 'story:'||id FROM s UNION SELECT 'paadennedag:h:'||id FROM h) OR t.kort_noegle='dagensperson:'||p_person_id::text
+    FROM public.feed_pin t WHERE t.kort_noegle IN (SELECT 'story:'||id FROM s UNION SELECT 'paadennedag:h:'||id FROM hvp) OR t.kort_noegle='dagensperson:'||p_person_id::text
   UNION ALL
   SELECT 'S32'::text,'feed_pin'::text,jsonb_build_object('id',t.id),'slet'::text,'egen'::text,'{}'::jsonb,1
-    FROM public.feed_pin t WHERE t.kort_noegle ~ (SELECT rx FROM feed_rx) OR t.kort_noegle IN (SELECT 'story:'||id FROM s UNION SELECT 'arkiv:'||id FROM h UNION SELECT 'paadennedag:h:'||id FROM h UNION SELECT 'forbundet:'||id FROM fam_del)
+    FROM public.feed_pin t WHERE t.kort_noegle ~ (SELECT rx FROM feed_rx) OR t.kort_noegle IN (SELECT 'story:'||id FROM s UNION SELECT 'arkiv:'||id FROM hvp UNION SELECT 'paadennedag:h:'||id FROM hvp UNION SELECT 'forbundet:'||id FROM fam_del)
   UNION ALL
   SELECT 'S33'::text,'entity_description'::text,jsonb_build_object('id',t.id),'slet'::text,'egen'::text,'{}'::jsonb,0
     FROM public.entity_description t WHERE t.id IN (SELECT id FROM ed)
