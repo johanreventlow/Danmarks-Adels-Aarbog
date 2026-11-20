@@ -39,9 +39,10 @@ permissions:
 jobs:
   # Hvilke jobs skal køre (Actions-minutter, projektejeren 2026-11-20). Testene læser på kryds og tværs:
   # node-tests læser schema.sql, db-migrations.sql, tests/fixtures/ og .claude/skills/; R-testen
-  # test-narrative-record-source-inventory.R scanner web/ og mobile/. Derfor kører node og R ved enhver
-  # ikke-docs-ændring, mens python og de fire PostgreSQL-jobs (~21 af ~30 min) kun springes over, når PR'en
-  # udelukkende rører web/, mobile/, packages/ og package*.json (deres tests nævner app-stier kun som data).
+  # test-narrative-record-source-inventory.R scanner web/ og mobile/, og python's test_clause_readers.py læser
+  # app-filer. Derfor kører node, R og python ved enhver ikke-docs-ændring, mens de fire PostgreSQL-jobs (~20 af
+  # ~30 min) kun springes over, når PR'en udelukkende rører web/, mobile/, packages/ og package*.json (deres
+  # tests nævner app-stier kun som data).
   # Manuel start kører alt. Hellere et job for meget end for lidt.
   changes:
     name: hvilke jobs
@@ -170,8 +171,6 @@ jobs:
 
   python:
     name: python · pipeline unittest + evidence contract pytest
-    needs: changes
-    if: needs.changes.outputs.db == 'true'
     runs-on: ubuntu-latest
     # Trin 6b's manifest-test kører SQL mod en frisk base (opretter og dropper sin egen t6b_11_*).
     services:
