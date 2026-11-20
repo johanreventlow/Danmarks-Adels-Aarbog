@@ -95,6 +95,8 @@ export default function Folgesvend() {
   // session/fejl. SIGNED_OUT, login og logout tæller op og gør dermed tidligere opslag forældede.
   const sessGenRef = useRef(0);
   const loginIgangRef = useRef(false);
+  // Bruger-id fra auth-events, der kom, mens eget login var i gang (undefined = ingen).
+  const loginEventBrugerRef = useRef<string | null | undefined>(undefined);
   const genskabSession = (): Promise<void> => {
     const gen = ++sessGenRef.current;
     return currentSession().then(
@@ -141,8 +143,9 @@ export default function Folgesvend() {
       loadDataRef.current();
     };
     if (event === 'SIGNED_OUT') { nulstil(); return; }
-    // Eget login (doLogin) håndterer selv sin session; dets SIGNED_IN må ikke give et dobbelt opslag.
-    if (loginIgangRef.current) return;
+    // Eget login (doLogin) håndterer selv sin session; dets SIGNED_IN må ikke give et dobbelt opslag. Brugeren
+    // noteres dog, så doLogin kan afvise sit svar, hvis en ANDEN bruger loggede ind undervejs (anden fane).
+    if (loginIgangRef.current) { loginEventBrugerRef.current = userId; return; }
     if (userId !== (sessionRef.current?.userId ?? null)) {
       // Anden bruger: den gamle redaktørstatus og model må ikke stå, mens den nye brugers rolle slås op.
       nulstil();
@@ -159,9 +162,20 @@ export default function Folgesvend() {
     // Loginforsøget bindes til en generation FØR await: logout/brugerskift undervejs gør svaret forældet.
     const gen = ++sessGenRef.current;
     loginIgangRef.current = true;
+    loginEventBrugerRef.current = undefined;
     try {
       const s = await signIn(login.email, login.pw);
       if (gen !== sessGenRef.current) { setLogin((l) => ({ ...l, busy: false })); return; }
+      // Review 37 W5: loggede en anden bruger ind undervejs (auth-event for et andet id), er dette svar
+      // forældet; den aktive Supabase-session tilhører den anden bruger. Genskab den i stedet.
+      const eventBruger = loginEventBrugerRef.current;
+      if (eventBruger !== undefined && eventBruger !== s.userId) {
+        setLogin((l) => ({ ...l, busy: false }));
+        setLoginOpen(false);
+        setSession(null); setModel(null);
+        void genskabSession();
+        return;
+      }
       setSession(s);
       setLoginOpen(false);
       setLogin({ email: '', pw: '', err: '', busy: false });

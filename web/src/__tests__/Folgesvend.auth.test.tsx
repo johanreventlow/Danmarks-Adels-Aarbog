@@ -196,3 +196,22 @@ test('logout under loginets rolleopslag: det sene signIn-svar genindsætter ikke
   await act(async () => { loginSvar.resolve(redaktoer); });
   expect(screen.queryByRole('button', { name: 'Log ud' })).toBeNull();
 });
+
+test('anden bruger logger ind i en anden fane under eget login: det sene login-svar for u1 kasseres', async () => {
+  const loginSvar = udsat<unknown>();
+  mocks.currentSession.mockResolvedValueOnce(null).mockResolvedValue({ email: 'b@example.dk', role: 'medlem', userId: 'u2' });
+  mocks.signIn.mockReturnValue(loginSvar.promise);
+  mocks.loadModel.mockResolvedValue(model('Afdød Anna'));
+  render(<Folgesvend />);
+  expect(await screen.findByText(/Afdød Anna/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Log ind' }));
+  fireEvent.change(screen.getByLabelText('E-mail'), { target: { value: 'red@example.dk' } });
+  fireEvent.change(screen.getByLabelText('Adgangskode'), { target: { value: 'hemmeligt' } });
+  fireEvent.submit(screen.getByRole('dialog'));
+  await waitFor(() => expect(mocks.signIn).toHaveBeenCalled());
+  act(() => { mocks.authCb?.('SIGNED_IN', 'u2'); }); // anden fane, uden SIGNED_OUT imellem
+  await act(async () => { loginSvar.resolve(redaktoer); });
+  // u1's redaktørstatus må ikke stå: den aktive session er u2's, som genskabes (medlem).
+  await waitFor(() => expect(mocks.currentSession).toHaveBeenCalledTimes(2));
+  expect(screen.queryByText(/redaktion/i)).toBeNull();
+});
