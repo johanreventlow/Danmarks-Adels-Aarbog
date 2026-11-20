@@ -3854,6 +3854,26 @@ BEGIN
   PERFORM public.red_set_haendelse_status(pg_temp.gid('mix_h_d'),'skjult');
   INSERT INTO pg_temp.gdpr_id VALUES ('mix_saet',purge_test.saet());
   PERFORM purge_test.nyt(); PERFORM public.red_fortryd_change_set(pg_temp.gid('mix_narr_saet_d'),false);
+  -- Codex runde 5: modstridende bevis. Hændelsen får feed-dom under L, FLYTTES (simuleret med direkte UPDATE uden sæt;
+  -- ingen skriver kan i dag) til D's narrativ, får feed-dom under D og en feed-pin, og D's narrativ fortrydes. Ejerskabet
+  -- er tvetydigt; sletningen af L skal lade begge domme og pin'en stå.
+  PERFORM purge_test.nyt();
+  v_fam:=public.red_upsert_narrativ('person',pg_temp.gid('L'),'Syntetisk narrativ før flytning',false,purge_test.id('kilde_b'),'4');
+  PERFORM purge_test.nyt();
+  INSERT INTO public.haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul,kategori,date_raw)
+    VALUES ('person',pg_temp.gid('L'),v_fam,'gdpr-flyt','Syntetisk hændelse 1992','andet','1992') RETURNING id INTO v_m;
+  INSERT INTO pg_temp.gdpr_id VALUES ('flyt_h',v_m);
+  PERFORM purge_test.nyt(); PERFORM public.red_set_haendelse_status(v_m,'interessant');
+  INSERT INTO pg_temp.gdpr_id VALUES ('flyt_dom_l',purge_test.saet());
+  PERFORM purge_test.nyt();
+  v_fam:=public.red_upsert_narrativ('person',pg_temp.gid('D'),'Syntetisk narrativ efter flytning',false,purge_test.id('kilde_b'),'5');
+  INSERT INTO pg_temp.gdpr_id VALUES ('flyt_narr_saet_d',purge_test.saet());
+  PERFORM purge_test.nyt();
+  UPDATE public.haendelse SET subjekt_id=pg_temp.gid('D'),narrative_id=v_fam WHERE id=v_m;
+  PERFORM purge_test.nyt(); PERFORM public.red_set_haendelse_status(v_m,'skjult');
+  INSERT INTO pg_temp.gdpr_id VALUES ('flyt_dom_d',purge_test.saet());
+  PERFORM purge_test.nyt(); PERFORM public.red_set_feed_pin('arkiv:'||v_m,'pin');
+  PERFORM purge_test.nyt(); PERFORM public.red_fortryd_change_set(pg_temp.gid('flyt_narr_saet_d'),false);
   PERFORM purge_test.nyt();
 END $fix$;
 COMMIT;
@@ -4149,6 +4169,18 @@ BEGIN
     AND NOT EXISTS (SELECT 1 FROM public.haendelse WHERE id=pg_temp.gid('mix_h_l')),'gdpr_blandet_saet_andres_historik_staar');
 END $t$;
 \echo OK gdpr_blandet_saet_andres_historik_staar
+-- Codex runde 5: modstridende ejerskabsbevis (dom under L og under D) → tvetydig → begge domme, deres sæt og D's pin
+-- står. Kontrollen (kun L-/familie-domme) er gdpr_tidligere_haendelse_historik_slettet og _feed_pin_slettet ovenfor.
+DO $t$
+BEGIN
+  PERFORM pg_temp.gdpr_assert(NOT EXISTS (SELECT 1 FROM public.haendelse WHERE id=pg_temp.gid('flyt_h'))
+    AND (SELECT count(*) FROM public.change_event WHERE tabel='haendelse' AND row_pk->>'id'=pg_temp.gid('flyt_h')::text
+      AND change_set_id IN (pg_temp.gid('flyt_dom_l'),pg_temp.gid('flyt_dom_d')))=2
+    AND EXISTS (SELECT 1 FROM public.feed_pin WHERE kort_noegle='arkiv:'||pg_temp.gid('flyt_h'))
+    AND EXISTS (SELECT 1 FROM public.change_event WHERE tabel='feed_pin' AND efter->>'kort_noegle'='arkiv:'||pg_temp.gid('flyt_h')),
+    'gdpr_modstridende_bevis_staar');
+END $t$;
+\echo OK gdpr_modstridende_bevis_staar
 
 -- Sletning af den afdøde, offentlige O: uændret adfærd.
 BEGIN;

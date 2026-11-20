@@ -22875,6 +22875,18 @@ WITH RECURSIVE
   -- Blandede eller tvetydige sæt giver intet bevis: andres hændelses-events (kun id+feed_status) står, og sættet bevares
   -- som ethvert sæt med andres events (S52b/S57). En levende hændelse, der ikke slettes, røres aldrig. Gælder også P's
   -- egne person-hændelser.
+  -- Modstridende bevis (Codex runde 5): har en tidligere hændelse OGSÅ en feed-dom under et andet subjekt end P/Fam_c,
+  -- eller events i et sæt, der sletter et andet subjekts narrativ, er ejerskabet tvetydigt, og id'et udelades helt
+  -- (events og pins står). Ingen skriver flytter i dag en hændelse eller et narrativ til et andet subjekt; reglen er
+  -- fail-safe. Levende hændelser i H er P's nu og slettes med al deres historik som hidtil.
+  hkonflikt AS MATERIALIZED (
+    SELECT substring(cs.summary FROM ' på hændelse ([0-9]+)$') AS id FROM public.change_set cs
+      WHERE cs.operation='red_set_haendelse_status' AND NOT coalesce((cs.subjekt_type='person' AND cs.subjekt_id=p_person_id)
+        OR (cs.subjekt_type='family' AND cs.subjekt_id IN (SELECT id FROM famc)),false)
+    UNION SELECT ce.row_pk->>'id' FROM public.change_event ce
+      WHERE ce.tabel='haendelse' AND EXISTS (SELECT 1 FROM public.change_event x WHERE x.change_set_id=ce.change_set_id
+        AND x.tabel='narrative' AND x.op='DELETE' AND NOT coalesce((x.foer->>'subjekt_type'='person' AND x.foer->>'subjekt_id'=p_person_id::text)
+          OR (x.foer->>'subjekt_type'='family' AND x.foer->>'subjekt_id' IN (SELECT id::text FROM famc)),false))),
   hv AS MATERIALIZED (SELECT id::text AS id FROM h UNION (
     (SELECT ce.row_pk->>'id' FROM public.change_event ce JOIN public.change_set cs ON cs.id=ce.change_set_id
       WHERE ce.tabel='haendelse' AND cs.operation='red_set_haendelse_status'
@@ -22888,7 +22900,8 @@ WITH RECURSIVE
         AND NOT EXISTS (SELECT 1 FROM public.change_event x WHERE x.change_set_id=ce.change_set_id AND x.tabel='narrative'
           AND x.op='DELETE' AND NOT coalesce((x.foer->>'subjekt_type'='person' AND x.foer->>'subjekt_id'=p_person_id::text)
             OR (x.foer->>'subjekt_type'='family' AND x.foer->>'subjekt_id' IN (SELECT id::text FROM famc)),false)))
-    EXCEPT SELECT id::text FROM public.haendelse WHERE id NOT IN (SELECT id FROM h))),
+    EXCEPT SELECT id::text FROM public.haendelse WHERE id NOT IN (SELECT id FROM h)
+    EXCEPT SELECT id FROM hkonflikt WHERE id IS NOT NULL)),
   rel_images AS MATERIALIZED (
     SELECT e.row_pk->>'id' AS id,j FROM public.change_event e
       CROSS JOIN LATERAL (VALUES(e.foer),(e.efter)) v(j) WHERE e.tabel='relation' AND j IS NOT NULL),
