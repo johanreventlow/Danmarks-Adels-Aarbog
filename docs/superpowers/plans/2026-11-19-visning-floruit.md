@@ -4,7 +4,7 @@
 
 **Goal:** Personer uden fødsel og død viser »Nævnes 1349–1391« (afledt af strukturerede datoer) i stedet for »Livsdatoer ikke angivet«, alle fem steder.
 
-**Architecture:** Nyt cachefelt `person.visning_floruit` (kun årstal) sat af `regen_person_visning` ud fra afklarede, daterede fakta på personen og på offentlige, ikke-formodede familier, hvor personen er partner; nye invalideringstriggere på familie-fakta, `family_member` og `person`. Klienten danner visningsteksten med én delt formatter i `@daa/core`, og samme_som-collapse fletter spændene.
+**Architecture:** Nyt cachefelt `person.visning_floruit` (kun årstal) sat af `regen_person_floruit` (kaldt sidst af `regen_person_visning`) ud fra afklarede, daterede fakta på personen og på offentlige, ikke-formodede familier, hvor personen er partner; nye invalideringstriggere på familie-fakta, `family_member` og `person`. Klienten danner visningsteksten med én delt formatter i `@daa/core`, og samme_som-collapse fletter spændene.
 
 **Tech Stack:** PostgreSQL 17 / Supabase (plpgsql, triggere), TypeScript + React (Vite, vitest), RN/Expo (jest).
 
@@ -15,7 +15,7 @@
 - Cacheformat: `'1671'` eller `'1349–1391'` (U+2013 en-tankestreg, ingen mellemrum); NULL uden kilder. Ordet »Nævnes« gemmes aldrig i DB.
 - Visningstekst: `'Nævnes ' + floruit` — kun når `fmtYears(foedt, doed)` er tom. DB sætter `visning_floruit` NULL,
   når personen har livsdatoer (projektejer 19/11); kun `regen_person_floruit` skriver feltet (ruling R4).
-- `visning_floruit` skrives KUN af `regen_person_visning` (invariant 4); står i `version_pk_registry.skip_cols` for `person`.
+- `visning_floruit` skrives KUN af `regen_person_floruit` (invariant 4; `regen_person_visning` kalder den til sidst); NULL når personen har livsdatoer; står i `version_pk_registry.skip_cols` for `person`.
 - Kilder: kun `conclusion.status='afklaret'` og `assertion.id = conclusion.valgt_assertion_id`.
 - Familie-fakta tæller kun, når familien er offentlig (intet medlem med `levende IS NOT FALSE`, `privat` eller `staged`) og personens egen partner-række ikke har `konfidens IN ('formodet','omstridt')`.
 - `born`/`died`/`foedtSpaend`/`doedSpaend` uændrede — floruit må aldrig blive en fødsel eller død.
@@ -23,9 +23,10 @@
 - Commits: Conventional Commits, dansk beskrivelse, ingen Claude-attribution; implementer-subagenter committer IKKE (forælder-sessionen ejer commits). Ingen push uden projektejerens ja.
 - PII: læs aldrig `work/`, `work_presens/`; prod røres kun af projektejeren via `!`-kommandoer.
 - Implementering sker på `feat/visning-floruit` (oprettet fra `docs/visning-floruit-spec`, så spec og plan følger med).
-- Backfillen kalder hele `regen_person_visning`, der også genskriver navn/titel/efternavn/fuldt navn ved eksisterende
-  drift — og `visning_*` logges ikke (skip_cols). Derfor: de seks eksisterende `visning_*` skal være **identiske som
-  mængde** `(id, felter)` før og efter; afvigelse = STOP og projektejerens afgørelse.
+- Backfillen er `SELECT regen_person_floruit(id) FROM person` — den skriver kun `visning_floruit` og genskriver
+  ikke navn/titel/efternavn/fuldt navn (eksisterende drift, issue #396, røres ikke). Alligevel: de seks eksisterende
+  `visning_*` skal være **identiske som mængde** `(id, felter)` før og efter som sikkerhedsnet; afvigelse = STOP og
+  projektejerens afgørelse.
 
 ## Review Focus
 
@@ -69,12 +70,12 @@
     `rolle` ændret fra `partner`) → dens egen værdi bliver NULL; vielsen slettet via `red_slet_oplysning` (eller den
     RPC, redaktionen bruger til at slette et familie-faktum) → begge NULL.
   - `OK: visning-floruit gdpr` — INSERT af et levende barn i familien → begge partnere NULL; `UPDATE person SET levende=false` på barnet → `'1657'`; samme med `privat=true` og `staged=true`; DELETE af barnets række → `'1657'`.
-  - `OK: visning-floruit livsdatoer` — person med fødsel + floruit får både `visning_foedt` og `visning_floruit` sat.
+  - `OK: visning-floruit livsdatoer` — person med fødsel (eller død) + floruit-faktum får `visning_foedt` sat og `visning_floruit` NULL; fjernes livsdatoen igen, kommer floruit tilbage via `regen_person_floruit`.
   - Udvid skip_cols-assertet (~l.7046) med `'visning_floruit'`.
 - [ ] **Step 2: Kør på frisk base og se den fejle**
   Run: `db=vf_t1; createdb $db && for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql db-migrations.sql db-migrations.sql db-rls.sql; do psql -q -X -v ON_ERROR_STOP=1 -d $db -f $f >/dev/null || break; done; psql -X -v ON_ERROR_STOP=1 -d $db -f tests/sql/run-db-verify-disposable.sql 2>&1 | grep -E "visning-floruit|ERROR" | head`
   Expected: ERROR om manglende kolonne `visning_floruit`.
-- [ ] **Step 3: Implementér i `schema.sql`.** Kolonnen; skip_cols; i `regen_person_visning` en ekstra CTE og `visning_floruit` i `UPDATE` + `IS DISTINCT FROM`-tuplen. Beregningen (bindende form; resten som eksisterende kode):
+- [ ] **Step 3: Implementér i `schema.sql`.** Kolonnen; skip_cols; en særskilt `regen_person_floruit(pid)` med CTE'erne nedenfor, der kun skriver `visning_floruit` (NULL ved ikke-tom `visning_foedt`/`visning_doed`; `IS DISTINCT FROM`-vagt); `regen_person_visning` kalder den til sidst. Beregningen (bindende form; resten som eksisterende kode):
 
 ```sql
 floruit_kilder AS (
@@ -102,9 +103,9 @@ floruit_kilder AS (
 
   Offentlighedsreglen er inlinet (ikke `family_offentlig()`), fordi `family_offentlig` defineres i `db-rls.sql`, der kører efter `schema.sql`; verify-blokken skal desuden assertere, at den inlinede regel og `family_offentlig(id)` er enige for alle familier i basen.
   Triggere:
-  - `regen_familie_partnere(p_family_id)`: `PERFORM regen_person_visning(person_id)` for hver `partner` i familien.
+  - `regen_familie_partnere(p_family_id)`: `PERFORM regen_person_floruit(person_id)` for hver `partner` i familien (id-orden).
   - `trg_regen_from_conclusion` / `trg_regen_from_assertion`: tilføj gren for `fact.subjekt_type='family'` → `regen_familie_partnere`.
-  - `trg_regen_from_family_member()` AFTER INSERT OR DELETE OR UPDATE ON `family_member` FOR EACH ROW: `regen_familie_partnere` for NEW.family_id og OLD.family_id (begge, hvis forskellige), samt `regen_person_visning` for OLD.person_id, hvis den var partner og har forladt familien.
+  - `trg_regen_from_family_member()` AFTER INSERT OR DELETE OR UPDATE ON `family_member` FOR EACH ROW: `regen_familie_partnere` for NEW.family_id og OLD.family_id (begge, hvis forskellige), samt `regen_person_floruit` for OLD.person_id, hvis den var partner og har forladt familien.
   - `trg_regen_from_person_offentlighed()` AFTER UPDATE OF levende, privat, staged ON `person` FOR EACH ROW WHEN (værdierne er DISTINCT): `regen_familie_partnere` for hver familie, personen er medlem af.
 - [ ] **Step 4: Spejl i `db-migrations.sql`** — `ALTER TABLE person ADD COLUMN IF NOT EXISTS visning_floruit TEXT`, skip_cols-`UPDATE` som l.1512, `CREATE OR REPLACE` af de berørte funktioner (kopiér fra `schema.sql` ordret), `DROP TRIGGER IF EXISTS` + `CREATE TRIGGER`. Ingen backfill i blokken (Task 4).
 - [ ] **Step 5: Kør verify på frisk og migrations-sti**
@@ -114,12 +115,12 @@ floruit_kilder AS (
   `family_member`-rækker (`grep -n "DELETE FROM fact\|DELETE FROM conclusion\|DELETE FROM family_member" schema.sql`;
   mindst `red_slet_oplysning`, `red_slet_person_helt`, `red_flyt_barn`, `red_fortryd_change_set`). Hvor faktum slettes
   før konklusionen (så konklusions-triggeren ikke kan slå familien op), tilføj et eksplicit
-  `PERFORM regen_familie_partnere(...)` efter mønstret i de eksisterende eksplicitte `PERFORM regen_person_visning`-kald.
+  `PERFORM regen_familie_partnere(...)` efter mønstret i de eksisterende eksplicitte `PERFORM regen_person_visning`-kald (familie-/partnerstier kalder `regen_familie_partnere` → `regen_person_floruit`).
 - [ ] **Step 5c: Hele DB-CI'en lokalt** (de nye rækketriggere rammer alle writere): kør evidence-promotion-jobbets
   `run:`-blok fra `.github/workflows/ci.yml` (l.216-280) og `bash tests/ci/interpretation-proposal-db.sh
   schema-rls-migrations` samt writer-jobbets trin (l.328 ff.) mod lokale engangsbaser. Expected: exit 0 for alle; tjek
   særligt masse-stierne `red_publicer_udgave`, reimport-writeren, `red_slet_person_helt` og `red_fortryd_change_set`.
-- [ ] **Step 6: Opgraderingssti** — lav en lokal kopi af stand-in (`createdb -T daa5ab_ddl_standin_20261114150000_fmd vf_t1_up`), gem `(id, visning_navn, visning_foedt, visning_doed, visning_titel, visning_efternavn, visning_fuldt_navn)` for alle personer, kør KUN den nye blok og `SELECT count(*) FROM (SELECT regen_person_visning(id) FROM person) x`. Expected: de seks felter er **identiske som mængde** (EXCEPT begge veje = 0 rækker; ellers vis diffen til projektejeren før prod — eksisterende drift er hans afgørelse), og `(id, visning_floruit)` er lig Task 0's forespørgsel kørt mod samme kopi. Slet egne testbaser bagefter (stående ja for syntetiske baser og egne `-T`-kopier).
+- [ ] **Step 6: Opgraderingssti** — lav en lokal kopi af stand-in (`createdb -T daa5ab_ddl_standin_20261114150000_fmd vf_t1_up`), gem `(id, visning_navn, visning_foedt, visning_doed, visning_titel, visning_efternavn, visning_fuldt_navn)` for alle personer, kør KUN den nye blok og `SELECT count(*) FROM (SELECT regen_person_floruit(id) FROM person) x` (som prod-backfillen). Expected: de seks felter er **identiske som mængde** (EXCEPT begge veje = 0 rækker; ellers vis diffen til projektejeren før prod — eksisterende drift er hans afgørelse), og `(id, visning_floruit)` er lig facit-forespørgslen med livsdato-reglen (`floruit-forventet.sh`) kørt mod samme kopi. Slet egne testbaser bagefter (stående ja for syntetiske baser og egne `-T`-kopier).
 - [ ] **Step 7: Commit** — `git add schema.sql db-migrations.sql db-verify.sql && git commit -m "feat(db): visning_floruit som cache med offentlig-sikre vielser"`
 
 ### Task 2: Core — formatter og collapse-fletning
@@ -171,4 +172,4 @@ floruit_kilder AS (
 - [ ] **Step 3: Generalprøve** på en frisk restore af prod-dump (stand-in): `apply --jeg-mener-det`, mål tiden (skal være ≪ 2 min), `fortryd`, `apply` igen; **tidtag HELE transaktionen** (BEGIN→COMMIT, ikke kun backfillen; prod ≈ 13× stand-in). Den skal være ≪ 2 min (`statement_timeout`) og kort nok til, at anon-læsninger med 3 s-timeout ikke sultes: `ALTER TABLE` og `DROP TRIGGER` tager ACCESS EXCLUSIVE, som holdes til COMMIT. Antal `visning_floruit`-rækker = facit-forespørgslen med livsdato-reglen (`floruit-forventet.sh`), og det forventede antal **måles i generalprøven** (ikke det tidligere 970 fra Task 0, der var uden livsdato-reglen). Komparatoren læser samme cachede `visning_foedt`/`visning_doed` som funktionen, så den validerer spænd samt offentlig-/konfidensfiltre; selve livsdato-porten er dækket af db-verifys `livsdatoer`-blok.
 - [ ] **Step 4: Projektejeren kører** `! zsh ~/.private/visning-floruit/prod.zsh apply` (prøve), derefter med `--jeg-mener-det` efter eksplicit ja. Derefter `get_advisors` (security) uden nye fund.
 - [ ] **Step 5: Browsertjek** (preview mod prod, som anon, desktop + mobil): 44 viser »Nævnes 1349–1391«; 594 viser »Nævnes 1657« (hvis familien er offentlig, ellers intet — se Task 0-tallet); 392 Conrad uændret; en person uden dato viser ingen årslinje.
-- [ ] **Step 6: Dokumentér** tal og fortrydelsesartefakt i de tre docs-filer; commit `docs(floruit): prod-status og beslutninger for visning_floruit`.
+- [ ] **Step 6: Dokumentér** tal og fortrydelsesartefakt i de tre docs-filer. Decisions-indgangen skal indeholde den udtalte antagelse: »ingen skriver ændrer conclusion/assertion/family_member/person(levende,privat,staged) direkte som service_role — triggerne kalder regen_person_floruit/regen_familie_partnere som invoker, og EXECUTE er revoket; service_role bruges kun til DEFINER-RPC'er«; commit `docs(floruit): prod-status og beslutninger for visning_floruit`.

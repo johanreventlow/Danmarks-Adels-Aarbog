@@ -60,7 +60,7 @@ til Brunsholm«), så visningen bygges af `date_min/date_max`, ikke af råtekste
 - Mobilens personside-redesign (mobil er dev-only); mobilen får kun feltet med i load + den delte formatter.
 
 **Anti-mål** (ville være fejl, selv om det virker)
-- At skrive `visning_floruit` direkte (invariant 4) — kun `regen_person_visning`.
+- At skrive `visning_floruit` direkte (invariant 4) — kun `regen_person_floruit` (som `regen_person_visning` kalder til sidst); aldrig direkte, og aldrig ved livsdatoer.
 - At vise »Nævnes …« for en person med livsdatoer.
 - At logik, der i dag bruger `years`/`born`/`died` som »har livsdatoer« (sortering, generationer, alder, aarUnder),
   begynder at opfatte et floruit som en fødsel eller død.
