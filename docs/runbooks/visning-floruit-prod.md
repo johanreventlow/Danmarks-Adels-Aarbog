@@ -87,3 +87,7 @@ transaktion. **Det forventede antal er prøvekørslens tal i prod (trin 2), ikke
    44 viser »Nævnes 1349–1391«; 392 (Conrad) er uændret; en person uden dato viser ingen årslinje.
 6. **Advisors:** projektejeren kører Security Advisor i dashboardet (MCP når ikke prod): ingen nye fund.
 7. **Dokumentation:** `docs/database-current-state.md` (§33), `docs/changelog.md`, `docs/decisions.md`.
+
+> **NB (2026-11-20, #396):** `fortryd-definitioner.prod.sql` indeholder en `regen_person_visning` fra før
+> visningscachens titel- og datoregel. Kører fortrydelsen, er den gamle `max()`-titelregel tilbage; kør bagefter
+> `docs/runbooks/visning-cache-regler-prod.md`s apply igen.

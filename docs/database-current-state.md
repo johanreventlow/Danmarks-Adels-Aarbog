@@ -529,6 +529,28 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 34. Visningscachens titel- og datoregel (#396) — LIVE i prod (2026-11-20)
+
+**Grundlag:** issue #396, PR #400 (commit `5f115574`), runbook `docs/runbooks/visning-cache-regler-prod.md`. Privat
+runner `~/.private/visning-cache-396/prod.zsh`, kørt i projektejerens shell.
+
+- **DDL + backfill** (én transaktion, 1,2 s): kun blokken `-- ===== visning-cache-regler` … `-- END visning-cache-regler`
+  fra `db-migrations.sql` @ `5f115574` (sha `2488a570…`) — en ny `regen_person_visning` — og regen af 392 og 1088.
+  `db-rls.sql` er ikke kørt (ingen nye objekter eller rettigheder).
+- **Invarianter før COMMIT:** driften under den nye regel før backfill = {392, 811, 1088}; kun `visning_titel` på 392
+  og 1088 ændret; ingen drift bagefter uden for den udeladte 811; `slaegtsnavn_karantaene` og
+  `change_set`/`change_event` uændrede.
+- **Tal:** driften var 83 personer (titel 68, død 13, efternavn 2, fuldt navn 1). Under den nye regel er kun 392
+  (storkansler → Greve), 1088 (Sekltnt. → Fændrik ved sjæll. Inf.Reg.), 852 og 811 ude af takt. 852 er rettet
+  redaktionelt (change_set 4588: navn »Beke Ahlefeldt-Laurvig«, titel »Komtesse«); 811 står tilbage med vilje (#401).
+  Floruit uændret: 232.
+- **Generalprøve:** stand-in fra `daa-prod-20261120123209-laes.dump` (sha `4a946268…`): apply prøve/commit, fortryd
+  (gendanner storkansler/Sekltnt.), apply igen; en fremmed drift stopper ceremonien. Fuld `db-verify.sql` grøn på frisk
+  base, `OK: visning-cache-regler` fejler mod den gamle funktion.
+- **Fortrydelse:** `prod.zsh fortryd --jeg-mener-det` genskaber prods egen definition fra før kørslen
+  (`~/.private/visning-cache-396/fortryd-definition.prod.sql`) og regenererer 392 og 1088. Web er upåvirket.
+  NB: floruit-fortrydelsen (§33) genindfører `max()`-reglen.
+
 ## 33. `visning_floruit`: »Nævnes …« for personer uden livsdatoer — LIVE i prod (2026-11-20)
 
 **Grundlag:** spec `docs/superpowers/specs/2026-11-19-visning-floruit-design.md`, plan
