@@ -14,12 +14,12 @@ NAVN = "Testine Syntetisk"
 DATO = "31. februar 2099"
 
 
-def _kør(tmp_path: Path, personer: list, *ekstra: str) -> subprocess.CompletedProcess:
+def _kør(tmp_path: Path, personer: list, *ekstra: str, fil: str = "gren-1.json") -> subprocess.CompletedProcess:
     blocks = [{"linje": "I", "gren": 1, "raw_text": f"{NAVN}, f. 1. jan. 2001."}]
     (tmp_path / "blocks.json").write_text(json.dumps(blocks), encoding="utf-8")
     ext = tmp_path / "extracted"
     ext.mkdir()
-    (ext / "gren-1.json").write_text(json.dumps({"linje": "I", "gren": 1, "personer": personer}),
+    (ext / fil).write_text(json.dumps({"linje": "I", "gren": 1, "personer": personer}),
                                      encoding="utf-8")
     return subprocess.run(
         [sys.executable, str(SCRIPT), str(tmp_path / "blocks.json"), str(ext),
@@ -50,7 +50,15 @@ def test_uden_advisory_fil_nævnes_kun_antallet(tmp_path):
 def test_flaggede_blokke_viser_kun_regelkoder(tmp_path):
     r = _kør(tmp_path, [_person(koen=None, foraelder_lokal_id="x-findes-ikke")])
     assert DATO not in r.stderr and NAVN not in r.stderr and "x-findes-ikke" not in r.stderr
-    assert "FLAG gren-1.json: 2 brud (S1, S3)" in r.stderr
+    assert "FLAG gren-1.json: 2 brud (S1, S3); se review-filen" in r.stderr
     review = json.loads((tmp_path / "review.json").read_text(encoding="utf-8"))
     assert any("x-findes-ikke" in b for b in review[0]["brud"])
     assert DATO in review[0]["advisory"][0]
+
+
+def test_filnavne_uden_for_konventionen_vises_ikke(tmp_path):
+    fil = f"{NAVN} 2001-01-01.json"
+    r = _kør(tmp_path, [_person(koen=None)], fil=fil)
+    assert NAVN not in r.stderr and "2001-01-01" not in r.stderr
+    assert "FLAG fil nr. 1 (navn ikke vist): 1 brud (S3)" in r.stderr
+    assert json.loads((tmp_path / "review.json").read_text(encoding="utf-8"))[0]["fil"] == fil

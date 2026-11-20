@@ -33,6 +33,11 @@ def ocr_norm(s):
     return s
 
 
+def fil_etiket(fn, n):
+    """Kun filnavne efter skillens konvention (gren-<N>.json) må nå stderr; andre kan rumme navne."""
+    return fn if re.fullmatch(r'gren-[0-9]+\.json', fn) else f'fil nr. {n} (navn ikke vist)'
+
+
 def regelkoder(beskeder):
     """Kun regelkoden (S1, A1 …) fra hver besked: det eneste, der må nå stderr."""
     return sorted({b.split(' ', 1)[0].split(':', 1)[0] for b in beskeder})
@@ -110,11 +115,11 @@ def main():
     print(f'[validate_presens] {len(clean)} rene blokke ({npers} personer), {len(review)} flaggede', file=sys.stderr)
     nadv = sum(len(x['advisory']) for x in advisories)
     if nadv:
-        hvor = a.advisory if a.advisory else 'ikke gemt (giv --advisory)'
+        hvor = 'se advisory-filen' if a.advisory else 'ikke gemt (giv --advisory)'
         print(f'[validate_presens] {nadv} advisory i rene blokke (ej-blokerende): {hvor}', file=sys.stderr)
-    for r in review:
-        print(f'  FLAG {r["fil"]}: {len(r["brud"])} brud ({", ".join(regelkoder(r["brud"]))}); se {a.review}',
-              file=sys.stderr)
+    for n, r in enumerate(review, 1):
+        print(f'  FLAG {fil_etiket(r["fil"], n)}: {len(r["brud"])} brud ({", ".join(regelkoder(r["brud"]))}); '
+              f'se review-filen', file=sys.stderr)
 
 
 if __name__ == '__main__':
