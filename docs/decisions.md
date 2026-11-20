@@ -2,6 +2,28 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: rettelserne fra review 37 genoptages; P1+P2 løses fail-closed; E1 er ikke et fund (2026-11-20)
+
+> Projektejeren 20/11. *Afløser* »ingen rettelser endnu« i posten 2026-11-19 nedenfor; stopreglerne gælder, til
+> det enkelte fund er rettet og i prod.
+
+- **Rettelserne genoptages** i blokke efter #397's rækkefølge, én draft-PR pr. område. Kode uden prod-ændring
+  først (A1, redaktionen W, slægtskabsmotoren M); prod-DDL samles i få ceremonier.
+- **P1+P2 (løsning A, fail-closed), kun når den slettede var ikke-offentlig** (levende, privat eller staged, dvs.
+  `person_offentlig` falsk før sletningen): et bevaret medie, der afbildede personen, bliver automatisk »ikke
+  frigivet« (`media.maa_publiceres=false`), så en redaktør bevidst må frigive det igen; og vielsesfakta på en bevaret
+  familie, hvor personen var ægtefælle, slettes med personen. *Afløser* for dette tilfælde spec'en for fuld
+  personsletning (`2026-11-14-fuld-personsletning-design.md`, »vielsesfakta … bliver stående«); ved sletning af en
+  offentlig person gælder spec'en uændret, fordi intet skifter fra skjult til synligt. Fravalgt B: at nægte
+  sletningen, til redaktøren selv har ryddet medier og familie. Målt 20/11: 0 af prods 13 medier afbilder en
+  ikke-offentlig person, så fejlen er latent.
+- **M2: »Bekræftet ad N uafhængige linjer«** tæller kun linjer, hvor hvert led er uden konfidens (bogens normale
+  tilfælde) eller `sikker`; `sandsynlig`, `formodet` og `omstridt` gør linjen usikker. Målt 20/11: 2.252 af 2.257
+  familieled er uden konfidens, 4 `formodet`, 1 `omstridt`.
+- **E1 lukkes som beslutning:** eligibility-regel 2-4 (evidens-runnerens udelukkelse af tekster, der omtaler
+  levende ægtefæller eller børn) binder **ikke** hændelses-passet (`/daa-haendelser`). Hovedpersonen skal fortsat
+  være afdød (`export_narratives.R`), og `work/`-mapperne må stadig aldrig sendes til en model.
+
 ## BESLUTTET: en ingift kvindes fødenavn er et faktum, ikke en cacheværdi (2026-11-20)
 
 > Projektejeren 20/11 (#401, løsning B). I prod 2026-11-20 (`database-current-state.md` §35).

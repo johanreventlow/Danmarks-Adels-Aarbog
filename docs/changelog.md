@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-20 — En fuld genkørsel af migrationsfilen åbner ikke længere narrativ-gaten (review 37 A1)
+
+Den tidlige, midlertidige definition af `narrative_record_contract_version()` i `db-migrations.sql` og `schema.sql`
+svarede altid 1. Ved en fuld genkørsel mod en base med kontrakt v2 (prod) åbnede det narrativ-gaten og legacy-writerne,
+indtil den endelige definition nåede frem. Nu læser den kontrakttabellen, når den findes. Bevist på en lokal kopi af prod
+(læsedump 20/11): den gamle definition svarer 1, den nye 2, og hele den rettede fil kører fejlfrit to gange med version 2
+bagefter. Ingen prod-ændring er nødvendig; stopreglen om aldrig at køre hele filen mod prod bortfalder ved merge.
+
 ## 2026-11-20 — Fødenavn for ingifte
 
 Redaktion har fået feltet »Fødenavn«. Præsenslisten bruger det i »født …«, så en ingift kone ikke ser født ind i
