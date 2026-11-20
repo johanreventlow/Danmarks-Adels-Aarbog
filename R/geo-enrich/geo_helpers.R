@@ -179,6 +179,9 @@ rows_to_apply <- function(crosswalk) {
 # operatøren kan se, at en godkendelse skal gives igen. Rene data.frames ind og ud.
 .same_text <- function(a, b) (is.na(a) & is.na(b)) | (!is.na(a) & !is.na(b) & a == b)
 .same_num <- function(a, b, tol = 1e-7) (is.na(a) & is.na(b)) | (!is.na(a) & !is.na(b) & abs(a - b) < tol)
+# place_id fra basen er integer64 (RPostgres' standard i connect_readonly), fra CSV'en heltal. base::match
+# sammenligner integer64's rå bitmønster (jf. E4), så begge sider gøres til almindelige tal via tekst.
+.id_num <- function(x) as.numeric(as.character(x))
 
 merge_crosswalk_approvals <- function(new, old) {
   if (is.null(old) || !nrow(old) || !"anvend" %in% names(old))
@@ -188,8 +191,8 @@ merge_crosswalk_approvals <- function(new, old) {
   # Kun ikke-tomme værdier er beslutninger; en tom review-celle er ingen godkendelse.
   old <- old[nzchar(old_anvend), , drop = FALSE]; old_anvend <- old_anvend[nzchar(old_anvend)]
   if (!nrow(old)) return(list(crosswalk = new, bevaret = 0L, forkastet = 0L))
-  if (anyDuplicated(old$place_id)) stop("gammel crosswalk har dublet place_id — ret CSV'en før en ny kørsel")
-  j <- match(new$place_id, old$place_id)
+  if (anyDuplicated(.id_num(old$place_id))) stop("gammel crosswalk har dublet place_id — ret CSV'en før en ny kørsel")
+  j <- match(.id_num(new$place_id), .id_num(old$place_id))
   same <- !is.na(j) &
     .same_text(new$tng_place, old$tng_place[j]) &
     .same_num(as.numeric(new$lat), as.numeric(old$lat[j])) &
@@ -206,8 +209,8 @@ merge_crosswalk_approvals <- function(new, old) {
 # kørslen før skrivning (fail-closed), og operatøren kører en ny dry-run.
 verify_apply_rows <- function(apply_rows, places) {
   if (!nrow(apply_rows)) return(invisible(apply_rows))
-  if (anyDuplicated(apply_rows$place_id)) stop("crosswalk har dublet place_id blandt anvend-rækkerne")
-  j <- match(apply_rows$place_id, places$id)
+  if (anyDuplicated(.id_num(apply_rows$place_id))) stop("crosswalk har dublet place_id blandt anvend-rækkerne")
+  j <- match(.id_num(apply_rows$place_id), .id_num(places$id))
   bad <- is.na(j) | !.same_text(as.character(apply_rows$navn), as.character(places$navn[j]))
   bad[is.na(bad)] <- TRUE
   if (any(bad))

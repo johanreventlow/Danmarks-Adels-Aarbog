@@ -104,6 +104,12 @@ old_cw <- if (file.exists(cw_csv))
   read.csv(cw_csv, stringsAsFactors = FALSE, encoding = "UTF-8", colClasses = c(anvend = "character")) else NULL
 merged <- merge_crosswalk_approvals(build_geo_crosswalk(matched), old_cw)
 crosswalk <- merged$crosswalk
+if (merged$forkastet > 0L) {
+  # Forkastede godkendelser (fx håndflettede geokode-koordinater på tier=none) gemmes, før CSV'en overskrives.
+  bak <- sprintf("data/geo-crosswalk.%s.bak.csv", format(Sys.time(), "%Y%m%d%H%M%S"))
+  if (!file.copy(cw_csv, bak)) stop("kunne ikke gemme den gamle crosswalk som ", bak, " — afbryder før overskrivning")
+  message(sprintf("  gammel crosswalk gemt som %s (%d forkastede godkendelser)", bak, merged$forkastet))
+}
 write.csv(crosswalk, cw_csv, row.names = FALSE, fileEncoding = "UTF-8")
 tier_tab <- table(factor(crosswalk$tier, levels = c("auto", "review", "none")))
 message(sprintf("  tiers: auto=%d review=%d none=%d -> %s",

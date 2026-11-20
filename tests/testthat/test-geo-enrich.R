@@ -248,3 +248,26 @@ test_that("run-geo-enrich.R: --apply genberegner ikke og skriver ikke CSV'en", {
   expect_true(any(grepl("verify_apply_rows", apply_gren)))
   expect_true(any(grepl("quit\\(save = \"no\"\\)", tail(apply_gren, 3))))
 })
+
+test_that("merge/verify: integer64 place_id fra basen matcher CSV'ens heltal (samme fælde som E4)", {
+  skip_if_not_installed("bit64")
+  ny <- .cw(1:2, c("A", "B"), c(55, 56), c(12, 13), c("", ""))
+  ny$place_id <- bit64::as.integer64(c(1, 3000000002))
+  gml <- .cw(c(1L, 2L), c("A", "B"), c(55, 56), c(12, 13), c("TRUE", "FALSE"))
+  gml$place_id <- c(1, 3000000002)
+  m <- merge_crosswalk_approvals(ny, gml)
+  expect_equal(m$crosswalk$anvend, c("TRUE", "FALSE"))
+  expect_equal(c(m$bevaret, m$forkastet), c(2L, 0L))
+  places <- data.frame(id = bit64::as.integer64(c(1, 3000000002)), navn = c("sted1", "sted2"))
+  ok <- rows_to_apply(.cw(c(1, 3000000002), c("A", "B"), c(55, 56), c(12, 13), c("TRUE", "TRUE"),
+                          navn = c("sted1", "sted2")))
+  expect_silent(verify_apply_rows(ok, places))
+})
+
+test_that("run-geo-enrich.R: forkastede godkendelser gemmes, før CSV'en overskrives", {
+  src <- readLines(file.path(root, "R", "geo-enrich", "run-geo-enrich.R"), encoding = "UTF-8")
+  bak <- grep("file.copy(cw_csv, bak)", src, fixed = TRUE)
+  skriv <- grep("^write\\.csv\\(crosswalk, cw_csv", src)
+  expect_length(bak, 1L); expect_length(skriv, 1L)
+  expect_lt(bak, skriv)
+})
