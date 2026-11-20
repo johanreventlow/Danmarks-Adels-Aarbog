@@ -17,6 +17,11 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
   offentlig person gælder spec'en uændret, fordi intet skifter fra skjult til synligt. Fravalgt B: at nægte
   sletningen, til redaktøren selv har ryddet medier og familie. Målt 20/11: 0 af prods 13 medier afbilder en
   ikke-offentlig person, så fejlen er latent.
+  **Udvidet samme dag (løsning A):** ikke kun vielser, men *alt* familieindhold på en bevaret familie, hvor den
+  ikke-offentlige person var ægtefælle **eller barn** (fakta som skilsmisse, noter, familiebiografier og deres
+  evidens), slettes med personen, også rækker der kun findes i historikken (fortrudte). Begrundelse: oplysningerne
+  handler om den slettede, og familien kan blive offentlig, når personen forsvinder (fail-closed, invariant 8).
+  Billedtitler i bevarede mediers historik følger fortsat spec'en (Q8: til redaktørens kontrol).
 - **M2: »Bekræftet ad N uafhængige linjer«** tæller kun linjer, hvor hvert led er uden konfidens (bogens normale
   tilfælde) eller `sikker`; `sandsynlig`, `formodet` og `omstridt` gør linjen usikker. Målt 20/11: 2.252 af 2.257
   familieled er uden konfidens, 4 `formodet`, 1 `omstridt`.
