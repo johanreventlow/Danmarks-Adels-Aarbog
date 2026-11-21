@@ -574,7 +574,10 @@ BEGIN
   -- (c) Låsen (text_editable og revise) læses via hjælperen, ikke via publication_state.
   FOREACH v_function IN ARRAY ARRAY[
     'private.narrative_record_state(bigint,bigint,text,boolean)',
-    'private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text)'
+    'private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text)',
+    -- Codex r1: fortrydelse og historikkens can_reverse bruger samme lås.
+    'private.reverse_narrative_publication_event(uuid,text)',
+    'public.red_person_narrative_publication_history(bigint)'
   ] LOOP
     IF strpos(pg_get_functiondef(v_function::regprocedure),'private.narrative_har_haendelse(')=0
        OR strpos(pg_get_functiondef(v_function::regprocedure),'''has_haendelse'')::boolean')<>0 THEN
