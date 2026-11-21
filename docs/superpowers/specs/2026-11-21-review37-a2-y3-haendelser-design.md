@@ -185,7 +185,7 @@ definitioner pr. fil), `web/src/data/{haendelser,feedGrundlag}.ts`, `mobile/src/
 ## 7. Udrulning
 
 **Deploy-området** er blokkene `review37-a2` og `review37-y3` i `db-migrations.sql` + `db-rls.sql` i én transaktion
-(prod-runneren udtrækker navngivne blokke; bevis: `tests/sql/test-review37-a2y3-upgrade.sh` fra 8bca497c).
+(prod-runneren udtrækker navngivne blokke; bevis: `tests/sql/test-review37-a2y3-upgrade.sh` fra a9bb776d).
 
 DDL før merge: web-ændringen kalder en ny RPC; findes den ikke, giver hændelseskortene tom liste med advarsel, men
 `feedGrundlag` kaster (fail-closed), og »Nævnt i Aarbogen«-kortene udebliver, til DDL'en er i prod. Derfor DDL → merge.

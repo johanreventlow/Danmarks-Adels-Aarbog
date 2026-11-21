@@ -3,7 +3,7 @@
 # blokkene review37-a2 og review37-y3 (i den rækkefølge) + db-rls.sql i ÉN psql-transaktion (-1).
 # 1) Frisk reference (bootstrap + dblink + schema.sql + db-rls.sql): kroppe (sha256 af pg_get_functiondef) og ACL for
 #    alle funktioner, blokkene definerer (alle overloads med samme navn).
-# 2) Prod-formet base (2. arg; CI pinner 8bca497c = main med p1p2, OCR-rettelse af kildepåstand, #396 og #401, alle i
+# 2) Prod-formet base (2. arg; CI pinner a9bb776d = main (#413) med p1p2, OCR-rettelse af kildepåstand, #396 og #401, alle i
 #    prod 20/11): basens skema + migrationer to gange + rls. Basen skal mangle hjælperen og feed-RPC'en.
 # 3) Kun blokkene + db-rls.sql i én transaktion → kroppe og ACL = 1). Blokkene en gang til er en no-op (samme sha).
 # 4) Kontrakt- og feedtest på den opgraderede base; db-verify på en anden, ens opgraderet base (som i CI-jobbet:

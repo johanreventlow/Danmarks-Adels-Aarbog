@@ -14,7 +14,7 @@ Alle ændrede funktioner rettes **både** i `schema.sql` (source of truth) og so
 prod-vejen (`test-record-persona-upgrade.sh` trin 5 fejlede med `REVIEW37_A2_HELPER_MISSING`). Derfor ligger de endelige
 kroppe nu også i blokken `-- BEGIN review37-a2` … `-- END review37-a2` lige før y3-blokken (maskinelt kopieret fra
 schema.sql; rettelserne på stedet står, så den fulde sti stadig er korrekt). **Deploy-området er blokkene review37-a2 og
-review37-y3 + db-rls.sql i én transaktion**; bevist af `tests/sql/test-review37-a2y3-upgrade.sh` fra 8bca497c (CI-trin
+review37-y3 + db-rls.sql i én transaktion**; bevist af `tests/sql/test-review37-a2y3-upgrade.sh` fra a9bb776d (CI-trin
 i writer-jobbet).
 
 1. `private.narrative_har_haendelse(bigint) RETURNS boolean` (SQL, STABLE, `SET search_path=pg_catalog`), REVOKE fra
