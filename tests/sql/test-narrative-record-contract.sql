@@ -2563,6 +2563,7 @@ DECLARE
   v_old_binding uuid;
   v_event private.narrative_publication_event%ROWTYPE;
   v_latest private.narrative_publication_event%ROWTYPE;
+  v_error text;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
 
@@ -3004,6 +3005,30 @@ BEGIN
     'revise',-91521001,'active-draft','must not rewrite derived event',NULL,
     v_state->>'state_sha256','NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT'
   );
+  -- Review 37 A2 (Codex r1): hændelsen ændrer ikke publiceringshashen, så drift-tjekket fanger den ikke længere.
+  -- Fortrydelsen af revisionen ville genskabe den gamle tekst under hændelsen og skal afvises med samme lås,
+  -- uden at skrive noget; historikken må ikke tilbyde den.
+  IF (SELECT row.can_reverse OR row.blocking_reason IS DISTINCT FROM 'NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT'
+        FROM public.red_person_narrative_publication_history(-91521001) row
+       WHERE row.event_id=v_event.id) IS DISTINCT FROM false THEN
+    RAISE EXCEPTION 'A2_HISTORY_OFFERS_REVERSAL_UNDER_EVENTS';
+  END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  v_before:=pg_temp.task3_write_snapshot();
+  v_error:=NULL;
+  BEGIN
+    PERFORM public.red_fortryd_person_narrative_publication_event(
+      v_event.id,v_state->>'state_sha256'
+    );
+  EXCEPTION WHEN OTHERS THEN
+    v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT' THEN
+    RAISE EXCEPTION 'A2_REVERSAL_UNDER_EVENTS: %',v_error;
+  END IF;
+  IF pg_temp.task3_write_snapshot() IS DISTINCT FROM v_before THEN
+    RAISE EXCEPTION 'A2_REVERSAL_REJECTION_CHANGED_WRITE_SET';
+  END IF;
 
   PERFORM set_config('app.change_set_id','',true);
   v_pre_state:=private.narrative_publication_state(
