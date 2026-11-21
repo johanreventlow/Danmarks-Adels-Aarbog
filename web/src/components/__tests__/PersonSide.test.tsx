@@ -8,7 +8,6 @@ import type { PersonDetailData } from '../../data/public';
 import type { Model } from '../../data/types';
 import type { MediaItem } from '../../data/media';
 
-vi.mock('../../data/familySources', () => ({ fetchFamilySources: async () => [] }));
 vi.mock('../../router', () => ({ navigate: vi.fn() }));
 const smal = vi.hoisted(() => ({ v: false }));
 vi.mock('../../useSmalSkaerm', () => ({ useSmalSkaerm: () => smal.v }));
@@ -17,6 +16,7 @@ vi.mock('../lazyMaps', () => ({
   MapFallback: () => null,
 }));
 const { PersonSide } = await import('../PersonSide');
+const { BOERN_UDEN_AEGTESKAB } = await import('../../data/fokusTrae');
 
 const D18: Udgave = { sourceId: '1', label: 'DAA 2018-20', aar: 2018 };
 const D39: Udgave = { sourceId: '3', label: 'DAA 1939', aar: 1939 };
@@ -178,6 +178,93 @@ describe('PersonSide', () => {
     expect(screen.getByText('Gift med')).toBeTruthy();
     expect(screen.getByText('Børn')).toBeTruthy();
     expect(screen.getByText('Ingen børn angivet i Aarbogen.')).toBeTruthy();
+  });
+
+  // Børn pr. ægteskab i bogens rækkefølge (projektejeren 2026-11-21): Conrads 2018-20-numre V/2-7 (Gabel), V/8-17 (Hahn).
+  const nrV = (n: number) => ({ sourceId: '1', linje: 'V', nr: n, nrLabel: null });
+  const toAegteskaber = (medUdenAegteskab = false) => ({
+    ...model,
+    udgaver: [D18],
+    bogNrBy: { '392': [nrV(1)], '503': [nrV(2)], '515': [nrV(3)], '570': [nrV(8)], '581': [nrV(9)] },
+    ...buildModel({
+      persons: [person('392', 'Conrad Reventlow', 1644), person('815', 'Anna Margrethe Gabel'), person('816', 'Sophie Amalie Hahn'),
+        person('503', 'Friedrich'), person('515', 'Christian Detlef', 1671), person('570', 'Anna Margaretha', 1682),
+        person('581', 'Charlotta Amalia', 1683), person('599', 'Ukendt Barn', 1700)],
+      unions: [{ id: 'f265', p1: '392', p2: '815', p2_name: null, year: null }, { id: 'f266', p1: '392', p2: '816', p2_name: null, year: null }],
+      parentChild: [
+        { child: '515', parent: '392', union: 'f265' }, { child: '503', parent: '392', union: 'f265' },
+        { child: '581', parent: '392', union: 'f266' }, { child: '570', parent: '392', union: 'f266' },
+        ...(medUdenAegteskab ? [{ child: '599', parent: '392', union: null as unknown as string }] : []),
+      ],
+    }),
+  }) as unknown as Model;
+  const boerneDd = () => screen.getByText('Børn').nextElementSibling as HTMLElement;
+  const linkNavne = (el: HTMLElement) => within(el).getAllByRole('link').map((l) => l.textContent ?? '');
+
+  const medAeldreBarn = (): Model => ({
+    ...model,
+    bogNrBy: {
+      '392': [{ ...nrV(1), stamtavle: true }],
+      '500': [{ ...nrV(2), sourceId: '3', linje: 'IV' }],
+      '501': [nrV(3), { ...nrV(3), sourceId: '3', linje: 'IV' }],
+    },
+    indexes: { ...model.indexes, konfByEdge: { '500|392': 'formodet' } },
+  });
+
+  it('børnelisten mærker kun barnet fra den ældre udgave efter konfidensordet', () => {
+    render(<PersonSide {...props({ model: medAeldreBarn() })} />);
+    const barn = screen.getByRole('link', { name: 'Ulrica Reventlow' }).closest('li')!;
+    const maerke = within(barn).getByText('Kun i DAA 1939');
+    expect(maerke.getAttribute('title')).toBe('Står i DAA 1939, men ikke i DAA 2018-20.');
+    expect(within(barn).getByText('formodet').nextElementSibling).toBe(maerke);
+    const soeskende = screen.getByRole('link', { name: 'Christian Reventlow' }).closest('li')!;
+    expect(within(soeskende).queryByText(/Kun i/)).toBeNull();
+    expect(within(boerneDd()).getAllByText('Kun i DAA 1939')).toHaveLength(1);
+  });
+
+  it('barnets egen side viser forklaringslinjen i headeren', () => {
+    const { container } = render(<PersonSide {...props({ model: medAeldreBarn(), focusId: '500' })} />);
+    const header = container.querySelector('header')!;
+    expect(within(header).getByText('Nævnes kun i DAA 1939 og er ikke med i DAA 2018-20.')).toBeTruthy();
+  });
+
+  it('en person i begge udgaver har ingen forklaringslinje', () => {
+    render(<PersonSide {...props({ model: medAeldreBarn(), focusId: '501' })} />);
+    expect(screen.queryByText(/Nævnes kun i/)).toBeNull();
+  });
+
+  it('to ægteskaber: børn under »Med <hustru>« i bogens rækkefølge', () => {
+    render(<PersonSide {...props({ model: toAegteskaber(), focusId: '392' })} />);
+    const dd = boerneDd();
+    const gabel = within(dd).getByText('Med Anna Margrethe Gabel').parentElement as HTMLElement;
+    const hahn = within(dd).getByText('Med Sophie Amalie Hahn').parentElement as HTMLElement;
+    expect(linkNavne(gabel).map((n) => n.split(' ')[0])).toEqual(['Friedrich', 'Christian']);
+    expect(linkNavne(hahn).map((n) => n.split(' ')[0])).toEqual(['Anna', 'Charlotta']);
+  });
+
+  it('overskrifternes navne matcher »Gift med«', () => {
+    render(<PersonSide {...props({ model: toAegteskaber(), focusId: '392' })} />);
+    const gift = screen.getByText('Gift med').nextElementSibling as HTMLElement;
+    const overskrifter = within(boerneDd()).getAllByText(/^Med /).map((e) => (e.textContent ?? '').replace(/^Med /, ''));
+    expect(overskrifter).toHaveLength(2);
+    for (const navn of overskrifter) expect(gift.textContent).toContain(navn);
+  });
+
+  it('barn uden ægteskab: »Ægteskab ikke angivet« + note, intet barn forsvinder', () => {
+    render(<PersonSide {...props({ model: toAegteskaber(true), focusId: '392' })} />);
+    const dd = boerneDd();
+    expect(within(dd).getByText('Ægteskab ikke angivet')).toBeTruthy();
+    expect(within(dd).getByText(BOERN_UDEN_AEGTESKAB)).toBeTruthy();
+    expect(linkNavne(dd)).toHaveLength(5);
+  });
+
+  it('ét ægteskab: ingen »Med …«-overskrift', () => {
+    const m = toAegteskaber();
+    const et = { ...m, ...buildModel({ persons: [...m.persons], unions: [{ id: 'f265', p1: '392', p2: '815', p2_name: null, year: null }],
+      parentChild: [{ child: '515', parent: '392', union: 'f265' }, { child: '503', parent: '392', union: 'f265' }] }) } as unknown as Model;
+    render(<PersonSide {...props({ model: et, focusId: '392' })} />);
+    expect(within(boerneDd()).queryByText(/^Med /)).toBeNull();
+    expect(linkNavne(boerneDd()).map((n) => n.split(' ')[0])).toEqual(['Friedrich', 'Christian']);
   });
 
   it('usikkert slægtskab vises med ordet', () => {

@@ -122,11 +122,17 @@ export type AppPerson = {
   title: string;
   bio: string;
   privat: boolean;
+  // Valgfri: person.levende (RLS skjuler levende for gæster; kun redaktionen får dem). Kun web sætter den.
+  levende?: boolean;
   koen?: Koen; // valgfri: ældre fixtures/seed mangler den → behandles som ukendt
   // Valgfri: årstallenes spænd i bogens dato (»† 1406/1410« → [1406, 1410]; et enkelt år → [år, år]).
   // born/died er det første år; spændet bruges, hvor en usikker dato skal tælle i hele sin bredde.
   foedtSpaend?: [number, number] | null;
   doedSpaend?: [number, number] | null;
+  // Valgfri: bogens rå visningstekst (visning_foedt/visning_doed, fx »† lille«). Sammenfoldningen bruger den for en
+  // side uden årstal, så ordlyden ikke forsvinder, når år genberegnes af tallene; kun web sætter dem.
+  foedtTekst?: string | null;
+  doedTekst?: string | null;
 };
 
 // Db = output af loadFromSupabase; persons mangler stadig parentId/spouse.
@@ -201,6 +207,8 @@ export type Model = {
   udgaveForPersonRaekke?: Record<string, string>;
   // 6e-2: personens linjerækker pr. kilde (hovedets linjer pr. udgave, B6-note); kun web sætter dem.
   linjeRaekkerBy?: Record<string, import('./b6Note').LinjeRaekke[]>;
+  // Stamtavlenumre pr. kanonisk person (ét pr. udgave) til bogens rækkefølge af børn (bogensOrden.ts); kun web.
+  bogNrBy?: Record<string, import('./bogensOrden').BogNr[]>;
 };
 
 // --- Geo-lag (kort) ---------------------------------------------------------

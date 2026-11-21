@@ -27,6 +27,22 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
   en kladdes tekst under hændelser; den afvises som før A2.
 - Kendt begrænsning: bladringen opdager ikke, at hændelsesprojektionen udskiftes midt i en sidevisning (spec §4.2).
 
+## NOTERET: sammenfoldede rækker arver ikke den kanoniske persons skjulthed — lukket i data, reglen åben (2026-11-21)
+
+**Fund.** `person_offentlig(pid)` (db-rls.sql) afgør synlighed ud fra rækkens egne `levende`/`privat`/`staged`. En
+afklaret `samme_som`-alias fra en ældre udgave kan derfor være offentlig, selv om dens kanoniske person er skjult.
+Målt i prod 2026-11-21 (læse-kun): præcis tre sådanne par, alle 1939-aliaser af nulevende (1434→381, 1343→453,
+1344→454). Fire omvendte par (offentlig kanonisk, skjult alias: 935→13, 933→43, 1014→1048, 967→1354) lækker ikke,
+fordi aliasets data ikke læses af gæster.
+
+**Gjort.** De tre aliaser er sat `levende = true` (changelog 2026-11-21). Det modbeviser også forudsætningen
+»ingen levende i DAA 1939« bag tilladelsen til at give `work_1939_stamtavle/` til en model; den er suspenderet, til
+projektejeren tager stilling igen.
+
+**Åbent.** Reglen bør være fail-closed for hele sammenfoldningsgruppen (en række er kun offentlig, hvis alle rækker i
+dens afklarede `samme_som`-gruppe er det), så en fremtidig sammenfoldning ikke åbner hullet igen. DDL-ændring med
+generalprøve; eget issue. Indtil da: kør omfangsmålingen efter hver ny sammenfoldning af en ældre udgave.
+
 ## NOTERET: review 37's E-blok — LLM-trin spærret, udgavebinding og loader-værn; to åbne afgørelser (2026-11-20)
 
 > Gren `fix/review37-pipeline` (#397: E2-E8). Ren kode og skills; ingen prod-ændring.

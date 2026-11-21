@@ -249,8 +249,10 @@ export function validateGroups(
 // Regenerér display-år fra de coalescede tal + flettet floruit via samme formatter som loaderen
 // (fields.ts), så et flettet person-år er format-konsistent med resten af appen (sti-visningen
 // bruger `years` separat — inkonsistens ville ellers lydløst afvige).
-const regenYears = (born: number | null, died: number | null, floruit: string | null): string =>
-  fmtVisningsAar(born == null ? null : String(born), died == null ? null : String(died), floruit);
+// En side uden årstal beholder bogens tekst (»† lille«, »† ung«); årstallet vinder, når det findes.
+const regenYears = (born: number | null, died: number | null, floruit: string | null,
+  foedtTekst: string | null = null, doedTekst: string | null = null): string =>
+  fmtVisningsAar(born == null ? foedtTekst : String(born), died == null ? doedTekst : String(died), floruit);
 
 // Gruppér (Task 1) → validér/karantænér (Task 2) UDEN projektion. Egen indgang fordi
 // previewSammeSom kun behøver karantænen — den fulde projektion (person-flet + kant-omskrivning)
@@ -301,10 +303,12 @@ export function collapseSameAs(
       foedtSpaend: coalesce('foedtSpaend'),
       doedSpaend: coalesce('doedSpaend'),
       floruit,
-      years: regenYears(born as number | null, died as number | null, floruit),
+      years: regenYears(born as number | null, died as number | null, floruit, coalesce('foedtTekst') ?? null, coalesce('doedTekst') ?? null),
       title: primary.title || others.find((o) => o.title)?.title || '',
       koen: primary.koen ?? others.find((o) => o.koen)?.koen,
       privat: ids.some((id) => Boolean(personById.get(id)?.privat)), // OR
+      // Levende: OR som privat — en levende persons 1939-alias er samme nulevende person.
+      ...(ids.some((id) => personById.get(id)?.levende) ? { levende: true } : {}),
       // Narrativ = UNION (spec §8), kanonisk (fuld) bio først, dedup eksakte. No-op på web (bio='';
       // web unionerer narrativer i public.ts) — men fikser mobile hvor bio bæres på personen.
       bio: [...new Set([primary.bio, ...others.map((o) => o.bio)].filter(Boolean))].join('\n\n'),

@@ -68,5 +68,7 @@ export type {
   Geo,
 } from './types';
 export * from './b6Note';
+export * from './bogensOrden';
+export * from './kunIAeldreUdgave';
 export * from './personNavn';
 export { slutterPaaSlaegtsnavn, udenSlaegtsnavnTilSidst } from './slaegtsnavn';
