@@ -529,6 +529,44 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 39. Hændelser ændrer ikke en biografis synlighed + feedet i bidder (review 37 A2+Y3) — LIVE i prod (2026-11-21)
+
+**Grundlag:** decisions 2026-11-21 (BESLUTTET: hændelser ændrer ikke en biografis synlighed; feedet henter hændelser i
+bidder), spec `docs/superpowers/specs/2026-11-21-review37-a2-y3-haendelser-design.md`, PR #418 (CI grøn på `09249df1`,
+merget `535536b8`). Privat runner `~/.private/review37-a2y3/prod.zsh`, fastlåst på `09249df1`; kørt i projektejerens
+shell **før** merge (webklienten kalder den nye RPC).
+
+- **DDL:** blokkene `-- BEGIN review37-a2` … `-- END review37-a2` og `-- BEGIN review37-y3` … `-- END review37-y3` fra
+  `db-migrations.sql` + DO-blokken `$review37_y3_acl$` fra `db-rls.sql`, i én transaktion (sha256 `d15e8ef1…`). **Ikke
+  hele `db-rls.sql`:** dens politikgenskabelse låser tabellerne for gæsternes læsninger, og `db-rls.sql:805` (REVOKE fra
+  før #152-cutover) ville lukke redaktørens narrativ-writers. Nyt: `private.narrative_har_haendelse`,
+  `public.public_haendelse_feed` (anon/authenticated), `private.feed_cursor_noegle` (én privat nøgle, RLS, ingen
+  klientadgang), indekset `ix_haendelse_narrative_id`; ændret: 9 private/redaktionsfunktioner (publiceringstilstand,
+  editor-tilstand, fortrydelse, personsletningens undtagelser). Ingen tabellås for læsere; 40 s.
+- **Invarianter i transaktionen:** katalog-diff = præcis de 15 forventede objekter; facit (md5 af kroppe fra en frisk
+  base af `09249df1`) 11/11; fingeraftryk af `publication_state` + editor-`state_sha256` for alle 1.151 bindinger og
+  legacy-tilstand for 550 grundlinjer uændret; gæstens 1.099 narrativ-id'er uændret; data uændret;
+  `OK: #415 synlighed pr. samme_som-gruppe`; røgtest som anon (1 kald, 0 rækker, 5 ms).
+- **Efterkontrol (frisk forbindelse + prods PostgREST som anon):** `tal` = anvendt, `haendelse=0`; RPC'en svarer `200`
+  med `rows=[]`, `naeste=null` (0,18-0,69 s); falsk bladremærke `400 FEED_CURSOR_INVALID`; nøgletabellen ikke
+  eksponeret. Prods katalog før apply = frisk base af `bc3b1c46` (456/456 funktionskroppe;
+  `~/.private/review37-a2y3/katalog-20261121/RESULTAT.md`).
+- **Generalprøve** på stand-in fra læsedump 21/11 (efter #415): prøve, commit, fortryd prøve + commit (katalog byte-ens
+  med før), apply igen; derefter færdigbevis §6 med syntetisk #130-load (5.880 hændelser): gæstens narrativ-mængde
+  uændret ved (a)-(d); publiceret binding låses (`text_editable` true→false) uden at synligheden ændres, kladde uændret;
+  maks 480 ms pr. kald; samlet bladring gennem lokal PostgREST 8 kald ≈ 3,0 s (gammel tabellæsning 15,9 s). Den
+  samlede ventetid i prod måles efter #130 (#419). Revise-afvisning, reversal og genimport-fortrydelse er dækket af CI
+  (kontrakt- og sletningstestene), ikke af stand-in'en.
+- **Fortryd:** `/bin/zsh -f ~/.private/review37-a2y3/prod.zsh fortryd` (prøve) / `fortryd --jeg-mener-det`: genskaber
+  prods egne 9 definitioner fra før apply og dropper feed, hjælper, nøgle og indeks; nægter, når `haendelse` > 0 (de
+  gamle kroppe lader hændelser ændre en biografis synlighed). Kræver, at web samtidig rulles tilbage.
+- **Vercel-røgtest som anon** (live efter merge, 21/11): forsiden kalder `public_haendelse_feed` (200). Samme
+  sidevisning viste en **ældre fejl**: `public_person_bio_source_versions_v2` med alle 1.725 offentlige id'er i ét kald
+  rammer anon-loftet (`57014`, 3,2 s), så »Nævnt i Aarbogen« udebliver. Ikke forårsaget af A2: stand-in-tider for samme
+  kald er 3,04-3,10 s (dump 20/11, før #415), 3,14-3,17 s (21/11, før A2) og 3,13 s (med A2). Klienten sender alle id'er
+  i ét kald (`web/src/data/feedAux.ts`).
+- **#130** må først køres, når bio-kaldet er rettet, og feedet er efterkontrolleret på forsiden (spec §7).
+
 ## 38. Synlighed pr. samme_som-gruppe (#415) — LIVE i prod (2026-11-21)
 
 **Grundlag:** decisions 2026-11-21 (BESLUTTET: levende og privat smitter, staged gør ikke), PR #417 (CI grøn). Privat
