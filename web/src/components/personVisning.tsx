@@ -9,7 +9,7 @@ import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
 import { erTekniskLinje } from '../data/lineage';
 import {
-  aegteskabsKilder as aegteskabsKilderFor, boerneKilder as boerneKilderFor, byggUdgaveFakta, byggUdgaveVaelger,
+  boerneKilder as boerneKilderFor, byggUdgaveFakta, byggUdgaveVaelger,
   familieIderForPerson, foraelderKilder as foraelderKilderFor, kildeLinje, udgaveForRaekker,
   udgaverMedFakta, type BioSourceVersionV2, type FamilieKilde, type UdgaveChip,
   optraederSom, sorterKilder, unikkeKildelinjer, linjerForUdgave, b6Noter,
@@ -58,7 +58,6 @@ export function usePersonVisning(model: Model, focusId: string, detail: PersonDe
   // Kildefiltrene bor i core (6d-3 spor L): modparten slås op kanonisk, så en kilde fra en sammenfoldet
   // udgaves post (fx 1939's alias-række) vises hos den kanoniske person.
   const canon = model.canonicalIdById ?? {};
-  const aegteskabsKilder = (spouseId: string | null) => aegteskabsKilderFor(familieKilder, familieIder, spouseId, focusId, canon);
   const foraelderKilder = (parentId: string) => foraelderKilderFor(familieKilder, familieIder, parentId, canon);
   const boerneKilder = boerneKilderFor(familieKilder, familieIder, focusId, canon);
   // Samme ægteskab kan være bundet fra flere udgaver/poster; nøglen skal derfor også bære kilden.
@@ -118,7 +117,7 @@ export function usePersonVisning(model: Model, focusId: string, detail: PersonDe
   return {
     p, vaelger, valgtIdx, vaelgChip, aktivChip, valgtUdgave, faktaVisning, bioText, tidligereUdgave,
     parents, spouses, children, linjer, hovedLinjer, linjeNoter, sources, portrait, gallery, lightboxItems, proveniens, godser,
-    aegteskabsKilder, foraelderKilder, boerneKilder, kildeNøgle,
+    foraelderKilder, boerneKilder, kildeNøgle,
   };
 }
 

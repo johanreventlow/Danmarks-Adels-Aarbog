@@ -49,9 +49,18 @@ const blok = (navn: string) => screen.getByRole('link', { name: navn }).closest(
 beforeEach(() => { kilder = []; kald.length = 0; });
 
 describe('PersonSide — familiekilder', () => {
-  it('viser ægteskabskilden som knap til egen post og forælderkilden kun ved den rette forælder', async () => {
+  // Projektejeren 2026-11-21: ingen kildelinje under »Gift med« (som fakta: kilden står nederst på siden).
+  it('viser ingen ægteskabskilde under »Gift med«', async () => {
+    kilder = [kilde({ sourceRecordRef: 'r1' }), kilde({ counterpartPersonId: '98', recordLabel: 'Post 11' })];
+    vis({ ...model, canonicalIdById: { '98': '2' } } as Model);
+    await screen.findByRole('link', { name: 'Person 2' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText(/Kilde: DAA X · Post 1/)).toBeNull();
+    expect(blok('Person 2')?.textContent).not.toContain('Kilde:');
+  });
+  it('viser forælderkilden som knap til egen post, kun ved den rette forælder', async () => {
     kilder = [
-      kilde({ sourceRecordRef: 'r1' }),
+      kilde({ familyId: '20', slags: 'foraelder', counterpartPersonId: '5', sourceRecordRef: 'r1', recordLabel: 'Post 1' }),
       kilde({ familyId: '20', slags: 'foraelder', counterpartPersonId: '5', sourceRecordRef: 'r9', recordLabel: 'Post 2' }),
     ];
     vis();
@@ -94,28 +103,19 @@ describe('PersonSide — familiekilder', () => {
     await Promise.resolve();
     expect(screen.queryByText(/Kilde:/)).toBeNull();
   });
-  it('viser ikke en ægteskabskilde, hvis modparten ikke er ægtefællen eller personen selv', async () => {
-    kilder = [kilde({ counterpartPersonId: '99', recordLabel: 'Post 7' })];
-    vis();
-    await screen.findByRole('link', { name: 'Person 2' });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(screen.queryByText('Kilde: DAA X · Post 7')).toBeNull();
-  });
   // Trin 6d-3 spor L: modparten er postens person-id (fx 1939's alias-række 98 for ægtefælle 2 og 97 for
   // forælder 5); modellens canonicalIdById fører dem til de viste personer.
-  it('viser kilder, hvis modpart er alias for den viste ægtefælle eller forælder', async () => {
-    kilder = [kilde({ counterpartPersonId: '98', recordLabel: 'Post 11' }),
-      kilde({ familyId: '20', slags: 'foraelder', counterpartPersonId: '97', recordLabel: 'Post 12' })];
-    vis({ ...model, canonicalIdById: { '98': '2', '97': '5' } } as Model);
-    await screen.findByText('Kilde: DAA X · Post 11');
-    expect(screen.getAllByText('Kilde: DAA X · Post 11')).toHaveLength(1);
+  it('viser forælderkilden, hvis modpart er alias for den viste forælder', async () => {
+    kilder = [kilde({ familyId: '20', slags: 'foraelder', counterpartPersonId: '97', recordLabel: 'Post 12' })];
+    vis({ ...model, canonicalIdById: { '97': '5' } } as Model);
+    await screen.findByText('Kilde: DAA X · Post 12');
     expect(blok('Person 5')?.textContent).toContain('Kilde: DAA X · Post 12');
     expect(blok('Person 6')?.textContent).not.toContain('Kilde:');
   });
   it('uden canonicalIdById vises en alias-modpart ikke', async () => {
-    kilder = [kilde({ counterpartPersonId: '98', recordLabel: 'Post 11' })];
+    kilder = [kilde({ familyId: '20', slags: 'foraelder', counterpartPersonId: '97', recordLabel: 'Post 11' })];
     vis();
-    await screen.findByRole('link', { name: 'Person 2' });
+    await screen.findByRole('link', { name: 'Person 5' });
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.queryByText('Kilde: DAA X · Post 11')).toBeNull();
   });

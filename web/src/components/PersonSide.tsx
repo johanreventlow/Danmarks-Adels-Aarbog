@@ -202,14 +202,14 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                 )) : <Mangel>Ikke angivet i Aarbogen.</Mangel>}
               </dd>
               {/* »Gift med« og »Børn« kun, når de har indhold (projektejeren 19/11): et barn, der døde ungt, skal ikke have
-                  »Intet ægteskab angivet« eller »Ingen børn angivet«. En gift person uden børn får stadig »Ingen børn«. */}
+                  »Intet ægteskab angivet« eller »Ingen børn angivet«. En gift person uden børn får stadig »Ingen børn«.
+                  Ingen kildelinje under »Gift med« (projektejeren 21/11): som ved fakta står kilden nederst på siden. */}
               {v.spouses.length > 0 && (<>
               <dt style={dtStil}>Gift med</dt>
               <dd style={{ margin: 0 }}>
                 {v.spouses.map((sp, i) => (
                   <div key={(sp.id ?? sp.name) + i}>
                     {sp.id ? <PersonLink id={sp.id} navn={sp.name} aar={model.byId[sp.id]?.years} onVis={onVisPerson} /> : <span style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600 }}>{sp.name}</span>}
-                    {v.aegteskabsKilder(sp.id).map((k) => <KildeLinjeVisning key={v.kildeNøgle(k)} kilde={k} chips={v.vaelger.chips} onVaelg={v.vaelgChip} fontSize={12} />)}
                   </div>
                 ))}
               </dd>
