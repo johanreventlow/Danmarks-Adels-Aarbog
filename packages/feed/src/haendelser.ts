@@ -26,7 +26,8 @@ export interface HaendelseSourceRow {
   udgave: string | number | null;
 }
 
-const sortKey = (item: HaendelseItem): string => item.dato.min ?? '9999-99-99';
+// Kun øvre grænse (»før 1565«, qualifier before) sorteres efter grænsen frem for sidst.
+const sortKey = (item: HaendelseItem): string => item.dato.min ?? item.dato.max ?? '9999-99-99';
 
 export function buildHaendelserBy(
   rows: HaendelseRow[],
