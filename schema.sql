@@ -6713,15 +6713,14 @@ BEGIN
   RETURN NULL;
 END $$;
 
--- To triggere: en INSERT-triggers WHEN må ikke nævne OLD og en DELETE-triggers ikke NEW.
-DROP TRIGGER IF EXISTS trg_samme_som_regen_ins ON relation;
-CREATE TRIGGER trg_samme_som_regen_ins
+-- To triggere: en INSERT-triggers WHEN må ikke nævne OLD og en DELETE-triggers ikke NEW. CREATE OR REPLACE (ikke
+-- DROP+CREATE): tager kun SHARE ROW EXCLUSIVE, så gæsternes læsninger af relation ikke venter under deploy.
+CREATE OR REPLACE TRIGGER trg_samme_som_regen_ins
   AFTER INSERT ON relation
   FOR EACH ROW
   WHEN (NEW.rolle = 'samme_som' AND NEW.subjekt_type = 'person' AND NEW.objekt_type = 'person')
   EXECUTE FUNCTION trg_regen_from_samme_som();
-DROP TRIGGER IF EXISTS trg_samme_som_regen_del ON relation;
-CREATE TRIGGER trg_samme_som_regen_del
+CREATE OR REPLACE TRIGGER trg_samme_som_regen_del
   AFTER DELETE ON relation
   FOR EACH ROW
   WHEN (OLD.rolle = 'samme_som' AND OLD.subjekt_type = 'person' AND OLD.objekt_type = 'person')

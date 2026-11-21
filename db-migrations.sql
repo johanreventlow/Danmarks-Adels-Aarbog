@@ -44321,7 +44321,7 @@ GRANT EXECUTE ON FUNCTION red_ret_ocr_paastand(bigint,jsonb,jsonb) TO authentica
 -- END ocr-rettelse af kildepåstand
 
 -- ===== #415 samme_som-synlighed: levende/privat smitter hele samme_som-gruppen =====
--- Issue #415, decisions 2026-11-21. Idempotent spejl af schema.sql: delindekser, person_gruppe_skjult,
+-- Issue #415, decisions 2026-11-21. Idempotent spejl af schema.sql (ingen ACCESS EXCLUSIVE-lås på person/relation): delindekser, person_gruppe_skjult,
 -- regen_person_floruit (den inlinede offentlighedsregel kender gruppen), person-triggerens funktion og relation-
 -- triggerne. person_offentlig selv ligger i db-rls.sql og skal anvendes i samme deploy-transaktion. Ingen backfill:
 -- prod 2026-11-21 havde 0 personer, der skifter synlighed (de tre lækkende 1939-aliaser blev sat levende samme dag),
@@ -44431,12 +44431,8 @@ BEGIN
   RETURN NULL;
 END $$;
 
-DROP TRIGGER IF EXISTS trg_person_offentlighed_regen ON person;
-CREATE TRIGGER trg_person_offentlighed_regen
-  AFTER UPDATE OF levende, privat, staged ON person
-  FOR EACH ROW
-  WHEN ((OLD.levende, OLD.privat, OLD.staged) IS DISTINCT FROM (NEW.levende, NEW.privat, NEW.staged))
-  EXECUTE FUNCTION trg_regen_from_person_offentlighed();
+-- trg_person_offentlighed_regen er uændret (kun funktionen ovenfor er ny) og genoprettes ikke: DROP TRIGGER ville
+-- tage ACCESS EXCLUSIVE på person og stoppe gæsternes læsninger, til transaktionen slutter.
 
 -- #415: en ny eller fjernet samme_som-kant ændrer gruppen og dermed person_gruppe_skjult for dens medlemmer — og
 -- family_offentlig for deres familier. Efter INSERT er de to ender én gruppe; efter DELETE regenereres begge enders
@@ -44455,15 +44451,14 @@ BEGIN
   RETURN NULL;
 END $$;
 
--- To triggere: en INSERT-triggers WHEN må ikke nævne OLD og en DELETE-triggers ikke NEW.
-DROP TRIGGER IF EXISTS trg_samme_som_regen_ins ON relation;
-CREATE TRIGGER trg_samme_som_regen_ins
+-- To triggere: en INSERT-triggers WHEN må ikke nævne OLD og en DELETE-triggers ikke NEW. CREATE OR REPLACE (ikke
+-- DROP+CREATE): tager kun SHARE ROW EXCLUSIVE, så gæsternes læsninger af relation ikke venter under deploy.
+CREATE OR REPLACE TRIGGER trg_samme_som_regen_ins
   AFTER INSERT ON relation
   FOR EACH ROW
   WHEN (NEW.rolle = 'samme_som' AND NEW.subjekt_type = 'person' AND NEW.objekt_type = 'person')
   EXECUTE FUNCTION trg_regen_from_samme_som();
-DROP TRIGGER IF EXISTS trg_samme_som_regen_del ON relation;
-CREATE TRIGGER trg_samme_som_regen_del
+CREATE OR REPLACE TRIGGER trg_samme_som_regen_del
   AFTER DELETE ON relation
   FOR EACH ROW
   WHEN (OLD.rolle = 'samme_som' AND OLD.subjekt_type = 'person' AND OLD.objekt_type = 'person')
