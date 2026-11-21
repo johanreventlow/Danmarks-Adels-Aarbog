@@ -16315,7 +16315,8 @@ BEGIN
              WHEN classified.event_type NOT IN ('legacy_withdrawn','legacy_migrated','draft_created')
                   AND private.narrative_har_haendelse(classified.narrative_id)
                   AND (
-                    classified.before_state #>> '{binding,status}' IS NOT DISTINCT FROM 'draft'
+                    (classified.before_state #>> '{binding,status}' IS NOT DISTINCT FROM 'draft'
+                     AND classified.after_state #>> '{binding,status}' IS DISTINCT FROM 'draft')
                     OR EXISTS (
                       SELECT 1 FROM public.narrative narrative
                        WHERE narrative.id=classified.narrative_id
@@ -17051,11 +17052,13 @@ BEGIN
   END IF;
   -- Review 37 A2: hændelser indgår ikke længere i publiceringstilstanden, så drift-tjekket ovenfor fanger dem
   -- ikke. En fortrydelse under afledte hændelser afvises som revise (samme lås), når den ville ændre teksten, eller
-  -- når den genskaber en kladde (Codex r2: kladden kan få ny tekst og publiceres igen under de gamle hændelser).
+  -- når den gør en ikke-kladde til kladde igen (Codex r2: kladden kan få ny tekst og publiceres igen under de gamle
+  -- hændelser). En fortrydelse fra kladde til kladde (fx genimport-fortrydelse) åbner intet nyt og er tilladt.
   IF v_target.event_type NOT IN ('legacy_withdrawn','legacy_migrated','draft_created')
      AND private.narrative_har_haendelse(v_target.narrative_id)
      AND (
-       v_target.before_state #>> '{binding,status}' IS NOT DISTINCT FROM 'draft'
+       (v_target.before_state #>> '{binding,status}' IS NOT DISTINCT FROM 'draft'
+        AND v_target.after_state #>> '{binding,status}' IS DISTINCT FROM 'draft')
        OR EXISTS (
          SELECT 1 FROM public.narrative narrative
           WHERE narrative.id=v_target.narrative_id
