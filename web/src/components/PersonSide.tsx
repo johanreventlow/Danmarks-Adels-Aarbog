@@ -18,6 +18,7 @@ import { T } from '../theme';
 import { Link } from '../Link';
 import { personPath, estatePath, slaegtPath, stamtraePath, slaegtskabPath, findSlaegt, STANDARD_SLAEGT } from '../data/nav';
 import { konfTekst } from '../data/format';
+import { kunIAeldreTekst, type KunIAeldreTekst } from '../data/kunIAeldre';
 import { mediaCaption, type MediaItem } from '../data/media';
 import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
@@ -64,6 +65,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   const fam = useMemo(() => byggFokusRaekker(model, focusId), [model, focusId]);
   const p = v.p;
   if (!p) return null;
+  const kunI = kunIAeldreTekst(model, focusId);
 
   // Slægten: personer med en linje i stamtavlen hører til slægten (i dag kun Reventlow). Ægtefæller uden linje
   // står uden slægt i etiketten, frem for at blive tilskrevet en slægt, de ikke tilhører.
@@ -157,6 +159,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
               </div>
             ) : navneblok}
             {v.proveniens && <p style={{ margin: 0, fontSize: 13.5, color: T.inkMuted }}>Optræder i Aarbogen som {v.proveniens}.</p>}
+            {kunI && <p style={{ margin: 0, fontSize: 13.5, color: T.inkMuted }}>{kunI.linje}</p>}
             {v.tidligereUdgave && <p style={{ margin: 0, fontSize: 13, color: T.inkMuted }}>Du ser en tidligere udgave.</p>}
             {v.linjeNoter.map((n) => <p key={n} style={{ margin: 0, fontSize: 13, color: T.inkMuted }}>{n}</p>)}
           </header>
@@ -227,7 +230,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                         )}
                         {!g.aegteskab && fam?.boerneNote && <Mangel>{fam.boerneNote}</Mangel>}
                         <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                          {g.boern.map(({ person: c }) => <li key={c.id}><PersonLink id={c.id} navn={c.name} aar={c.years} konf={konfOrd(c.id, focusId)} onVis={onVisPerson} /></li>)}
+                          {g.boern.map(({ person: c }) => <li key={c.id}><PersonLink id={c.id} navn={c.name} aar={c.years} konf={konfOrd(c.id, focusId)} kunI={kunIAeldreTekst(model, c.id)} onVis={onVisPerson} /></li>)}
                         </ul>
                       </div>
                     ))}
@@ -380,13 +383,14 @@ function Henter() {
   return <p style={{ margin: 0, fontSize: 14, color: T.inkMuted }}>Henter …</p>;
 }
 
-function PersonLink({ id, navn, aar, konf, onVis }: { id: string; navn: string; aar?: string; konf?: string; onVis: (id: string) => void }) {
+function PersonLink({ id, navn, aar, konf, kunI, onVis }: { id: string; navn: string; aar?: string; konf?: string; kunI?: KunIAeldreTekst | null; onVis: (id: string) => void }) {
   return (
     <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '2px 10px' }}>
       <Link href={personPath(id)} onNavigate={() => onVis(id)} style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600, color: T.bordeaux }}>{navn}</Link>
       {aar && <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{aar}</span>}
       {/* Usikkert slægtskab vises med ordet, aldrig skjult (invariant 7). */}
       {konf && <span style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: T.danger }}>{konf}</span>}
+      {kunI && <span title={kunI.forklaring} style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: T.goldInk }}>{kunI.maerke}</span>}
     </span>
   );
 }

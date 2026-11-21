@@ -202,6 +202,38 @@ describe('PersonSide', () => {
   const boerneDd = () => screen.getByText('Børn').nextElementSibling as HTMLElement;
   const linkNavne = (el: HTMLElement) => within(el).getAllByRole('link').map((l) => l.textContent ?? '');
 
+  const medAeldreBarn = (): Model => ({
+    ...model,
+    bogNrBy: {
+      '392': [{ ...nrV(1), stamtavle: true }],
+      '500': [{ ...nrV(2), sourceId: '3', linje: 'IV' }],
+      '501': [nrV(3), { ...nrV(3), sourceId: '3', linje: 'IV' }],
+    },
+    indexes: { ...model.indexes, konfByEdge: { '500|392': 'formodet' } },
+  });
+
+  it('børnelisten mærker kun barnet fra den ældre udgave efter konfidensordet', () => {
+    render(<PersonSide {...props({ model: medAeldreBarn() })} />);
+    const barn = screen.getByRole('link', { name: 'Ulrica Reventlow' }).closest('li')!;
+    const maerke = within(barn).getByText('Kun i DAA 1939');
+    expect(maerke.getAttribute('title')).toBe('Står i DAA 1939, men ikke i DAA 2018-20.');
+    expect(within(barn).getByText('formodet').nextElementSibling).toBe(maerke);
+    const soeskende = screen.getByRole('link', { name: 'Christian Reventlow' }).closest('li')!;
+    expect(within(soeskende).queryByText(/Kun i/)).toBeNull();
+    expect(within(boerneDd()).getAllByText('Kun i DAA 1939')).toHaveLength(1);
+  });
+
+  it('barnets egen side viser forklaringslinjen i headeren', () => {
+    const { container } = render(<PersonSide {...props({ model: medAeldreBarn(), focusId: '500' })} />);
+    const header = container.querySelector('header')!;
+    expect(within(header).getByText('Nævnes kun i DAA 1939 og er ikke med i DAA 2018-20.')).toBeTruthy();
+  });
+
+  it('en person i begge udgaver har ingen forklaringslinje', () => {
+    render(<PersonSide {...props({ model: medAeldreBarn(), focusId: '501' })} />);
+    expect(screen.queryByText(/Nævnes kun i/)).toBeNull();
+  });
+
   it('to ægteskaber: børn under »Med <hustru>« i bogens rækkefølge', () => {
     render(<PersonSide {...props({ model: toAegteskaber(), focusId: '392' })} />);
     const dd = boerneDd();

@@ -7,6 +7,7 @@ import { buildLineage, stamtavleSkemaOpslag } from './lineage';
 import { buildSources } from './sources';
 import { byggLinjeRaekker } from './linjeRaekker';
 import { byggUdgaveModel } from './udgaver';
+import { byggErStamtavle } from './stamtavleKilder';
 import { normalizeKoen, normalizeKonfidens, type AppModel, type AppPerson, type Db, type Geo, type Model, type ModelPerson, type ParentChild, type RawEstate, type RawExtId, type RawFact, type RawLineageContext, type RawLineageScheme, type RawLineageSchemeEntry, type RawLineageSchemeEntryLineage, type RawPlace, type RawSource, type Union } from './types';
 
 const PARTNER_ROLLER = ['partner'];
@@ -175,7 +176,7 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     // første kort-brug (Godser-kort, Slægtens kort, livsrejse-minikort).
     geo: EMPTY_GEO,
     genCoordsByPerson: buildGenCoords(extIds, lineageRows, collapsed.canonicalIdById),
-    bogNrBy: byggBogNr(extIds, collapsed.canonicalIdById),
+    bogNrBy: byggBogNr(extIds, collapsed.canonicalIdById, byggErStamtavle(lineageRows, schemes)),
     parentsUnknownByPerson,
     loadGeo: async (): Promise<Geo> => {
       // Geo-lag: godser m. sted (allerede hentet ovenfor), steder m. koordinater, geo-bærende
