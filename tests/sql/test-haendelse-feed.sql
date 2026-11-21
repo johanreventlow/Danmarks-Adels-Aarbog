@@ -298,5 +298,48 @@ BEGIN
 END
 $felter$;
 
+-- #415: feedet følger synligheden pr. samme_som-gruppe. En afdød, ikke-privat person, hvis samme_som-nabo er levende,
+-- er skjult for gæsten, og hendes hændelser må derfor ikke komme med (for nogen rolle; alle har gæstens regel).
+-- Positiv kontrol: uden kanten kommer rækken med, så testen kan fange en feed-regel, der ikke kender gruppen.
+-- Kanten oprettes/fjernes gennem redaktørens RPC'er som i appen.
+INSERT INTO public.person(id,levende,privat,staged) VALUES (-93970004,false,false,false);
+INSERT INTO public.narrative(id,subjekt_type,subjekt_id,source_id,tekst,side,privat) VALUES
+  (-93970010,'person',-93970004,-93970012,'Alias-narrativ','10',false);
+INSERT INTO feedtest.tilladt VALUES (-93970010);
+INSERT INTO public.haendelse(id,subjekt_type,subjekt_id,narrative_id,noegle,klausul,feed_status) VALUES
+  (-93970101,'person',-93970004,-93970010,'h101','Alias med levende nabo','kandidat');
+DO $samme_som_gruppe$
+DECLARE v_rel bigint; v_rolle text; v_sub text; v_ser boolean;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000093a1',true);
+  PERFORM set_config('app.change_set_id','',true);
+  SET LOCAL ROLE authenticated;
+  v_rel:=public.red_samme_som(-93970004,-93970002);
+  RESET ROLE;
+  PERFORM set_config('app.change_set_id','',true);
+  IF public.person_offentlig(-93970004) THEN RAISE EXCEPTION 'FEEDTEST_415_FIXTUR: aliaset er offentligt'; END IF;
+  FOR v_rolle,v_sub IN VALUES ('anon',''),('medlem','00000000-0000-0000-0000-0000000093a2'),
+                             ('redaktion','00000000-0000-0000-0000-0000000093a1') LOOP
+    PERFORM set_config('request.jwt.claim.sub',v_sub,true);
+    IF v_rolle='anon' THEN SET LOCAL ROLE anon; ELSE SET LOCAL ROLE authenticated; END IF;
+    SELECT bool_or(-93970101=ANY(b.ids)) INTO v_ser FROM feedtest.bladr(150,1000) b;
+    RESET ROLE;
+    IF v_ser THEN RAISE EXCEPTION 'FEEDTEST_415_SKJULT_NABO_I_FEED: %',v_rolle; END IF;
+  END LOOP;
+  -- Positiv kontrol: kanten fjernes -> aliaset er offentligt -> rækken kommer med for gæsten.
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000093a1',true);
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_fjern_samme_som(v_rel);
+  RESET ROLE;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  SET LOCAL ROLE anon;
+  SELECT bool_or(-93970101=ANY(b.ids)) INTO v_ser FROM feedtest.bladr(150,1000) b;
+  RESET ROLE;
+  IF v_ser IS NOT TRUE THEN RAISE EXCEPTION 'FEEDTEST_415_KONTROL: offentligt alias mangler i feedet'; END IF;
+  RAISE NOTICE 'OK: #415 skjult samme_som-nabo holdes ude af feedet';
+END
+$samme_som_gruppe$;
+
 \echo OK test-haendelse-feed
 ROLLBACK;
