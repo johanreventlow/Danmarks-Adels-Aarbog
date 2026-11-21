@@ -2,6 +2,28 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: synlighed pr. samme_som-gruppe — levende og privat smitter, staged gør ikke (#415, 2026-11-21)
+
+**Regel.** En person-række er kun offentlig, hvis den selv er det (afdød, ikke privat, ikke staged) **og** intet andet
+medlem af dens samme_som-gruppe er levende (også NULL = ukendt), privat eller mangler som række
+(`person_gruppe_skjult`, kaldt af `person_offentlig`). Gruppen er alle samme_som-kanter i begge retninger, ikke kun
+afklarede: læserfladen folder alle kanter sammen, og en uafklaret identitetspåstand skal fail-close. Kaskaden til
+fakta, relationer, narrativer, familier, koordinater og biografi-RPC'erne følger af, at de alle går gennem
+`person_offentlig`/`entitet_offentlig`; `visning_floruit`'s inlinede familieregel kender også gruppen, og cachen
+regenereres for hele gruppen, når en persons flag eller en samme_som-kant ændres.
+
+**Afvigelse fra noten nedenfor (»alle rækker i gruppen offentlige«).** `staged` smitter ikke. Det er rækkens egen
+kurateringstilstand (en ny-udgave-post, som redaktøren ikke har afstemt), ikke et udsagn om mennesket. Målt i prod
+2026-11-21: den bogstavelige regel ville have skjult 7 døde, offentlige personer (13, 43, 134, 178, 298, 1048, 1354),
+hvis eneste skjulte gruppemedlem var en staged 1939-række. Med reglen her skifter ingen personer synlighed i prod.
+
+**Ydelse.** Hjælperen er plpgsql (planen genbruges; en sql-funktion kaldt inde fra en anden planlægges forfra ved
+hvert kald) med LATERAL-opslag i hver retning og to delindekser på samme_som-endepunkter. Stand-in med prod-data:
+gæstens fulde faktaliste 0,22 → 0,38 s, relationer 0,10 → 0,17 s, koordinater 0,11 → 0,15 s (anon-loftet er 3 s).
+
+**Følge.** Pligten »kør omfangsmålingen efter hver ny sammenfoldning« bortfalder; db-verify's blok #415 måler
+lækagen ved hver verify. 21/11-datarettelsen (1434/1343/1344 `levende = true`) bevares; reglen ville dække dem uden.
+
 ## NOTERET: sammenfoldede rækker arver ikke den kanoniske persons skjulthed — lukket i data, reglen åben (2026-11-21)
 
 **Fund.** `person_offentlig(pid)` (db-rls.sql) afgør synlighed ud fra rækkens egne `levende`/`privat`/`staged`. En
@@ -11,12 +33,12 @@ Målt i prod 2026-11-21 (læse-kun): præcis tre sådanne par, alle 1939-aliaser
 fordi aliasets data ikke læses af gæster.
 
 **Gjort.** De tre aliaser er sat `levende = true` (changelog 2026-11-21). Det modbeviser også forudsætningen
-»ingen levende i DAA 1939« bag tilladelsen til at give `work_1939_stamtavle/` til en model; den er suspenderet, til
-projektejeren tager stilling igen.
+»ingen levende i DAA 1939« bag tilladelsen til at give `work_1939_stamtavle/` til en model. Projektejeren genoptog
+tilladelsen samme dag med en ny begrundelse: DAA 1939 er en trykt, udgivet bog, så oplysningerne er offentlige.
+Tilladelsen gælder kun `work_1939_stamtavle/`, ikke `work/` eller `work_presens/`.
 
-**Åbent.** Reglen bør være fail-closed for hele sammenfoldningsgruppen (en række er kun offentlig, hvis alle rækker i
-dens afklarede `samme_som`-gruppe er det), så en fremtidig sammenfoldning ikke åbner hullet igen. DDL-ændring med
-generalprøve; eget issue. Indtil da: kør omfangsmålingen efter hver ny sammenfoldning af en ældre udgave.
+**Åbent → besluttet ovenfor (#415).** Reglen bør være fail-closed for hele sammenfoldningsgruppen, så en fremtidig
+sammenfoldning ikke åbner hullet igen.
 
 ## NOTERET: review 37's E-blok — LLM-trin spærret, udgavebinding og loader-værn; to åbne afgørelser (2026-11-20)
 

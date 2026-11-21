@@ -6732,7 +6732,8 @@ BEGIN
   -- De nye hjælpere er lukket for klientroller (eksplicit REVOKE; NULL-ACL ville betyde PUBLIC-EXECUTE).
   FOR v_fn IN SELECT to_regprocedure(s)::oid FROM unnest(ARRAY['public.regen_person_floruit(bigint)',
       'public.regen_familie_partnere(bigint)','public.trg_regen_from_family_member()',
-      'public.trg_regen_from_person_offentlighed()']) s LOOP
+      'public.trg_regen_from_person_offentlighed()','public.trg_regen_from_samme_som()',
+      'public.person_gruppe_skjult(bigint)']) s LOOP
     IF v_fn IS NULL OR (SELECT proacl FROM pg_proc WHERE oid=v_fn) IS NULL
        OR EXISTS (SELECT 1 FROM pg_proc pr, aclexplode(pr.proacl) a WHERE pr.oid=v_fn AND a.grantee=0)
        OR has_function_privilege('anon',v_fn,'EXECUTE') OR has_function_privilege('authenticated',v_fn,'EXECUTE')
@@ -6744,9 +6745,9 @@ BEGIN
   -- regen_person_floruit og triggerne er SECURITY INVOKER og forudsætter, at kun ejeren og SECURITY DEFINER-skrivere
   -- ændrer kildetabellerne; en RLS-bundet skriver ville kunne skjule medlemmer for den inlinede regel (fail-open).
   IF EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public'
-              AND tablename IN ('person','family_member','conclusion','assertion')
+              AND tablename IN ('person','family_member','conclusion','assertion','relation')
               AND cmd IN ('INSERT','UPDATE','DELETE','ALL')) THEN
-    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit: skrive-policy på person/family_member/conclusion/assertion';
+    RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit: skrive-policy på person/family_member/conclusion/assertion/relation';
   END IF;
   -- Offentlighedsreglen er inlinet i regen_person_floruit (family_offentlig defineres først i db-rls.sql);
   -- den skal være enig med family_offentlig for alle familier i basen.
@@ -6754,7 +6755,8 @@ BEGIN
    WHERE public.family_offentlig(f.id) IS DISTINCT FROM NOT EXISTS (
            SELECT 1 FROM public.family_member m JOIN public.person q ON q.id=m.person_id
             WHERE m.family_id=f.id
-              AND (q.levende IS NOT FALSE OR coalesce(q.privat,false) OR coalesce(q.staged,false)));
+              AND (q.levende IS NOT FALSE OR coalesce(q.privat,false) OR coalesce(q.staged,false)
+                   OR public.person_gruppe_skjult(q.id)));
   IF v_uenige<>0 THEN
     RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit: inlinet offentlighedsregel uenig med family_offentlig for % familier', v_uenige;
   END IF;
@@ -6779,7 +6781,8 @@ BEGIN
   IF public.family_offentlig(p_fam) IS DISTINCT FROM p_forventet
      OR (NOT EXISTS (SELECT 1 FROM public.family_member m JOIN public.person q ON q.id=m.person_id
                       WHERE m.family_id=p_fam
-                        AND (q.levende IS NOT FALSE OR coalesce(q.privat,false) OR coalesce(q.staged,false))))
+                        AND (q.levende IS NOT FALSE OR coalesce(q.privat,false) OR coalesce(q.staged,false)
+                             OR public.person_gruppe_skjult(q.id))))
         IS DISTINCT FROM p_forventet THEN
     RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit %: family_offentlig og den inlinede regel er ikke begge %', p_trin, p_forventet;
   END IF;
@@ -11845,3 +11848,58 @@ BEGIN
   -- den allokerer rækker via DEFAULT. max(id) -> sekvensgulv er ikke en max+1-id-allokator.
 END $purge_verify_allocators$;
 -- END PERSON PURGE TASK 10 CHECKS
+
+-- ===== #415: synlighed pr. samme_som-gruppe =====
+-- Ingen fixtures, ingen skrivning: kan køres i prod-transaktionen. Adfærden testes i tests/sql/test-person-offentlig-gruppe.sql.
+-- Forvent: NOTICE "OK: #415 synlighed pr. samme_som-gruppe".
+DO $verify_415_gruppe$
+DECLARE f regprocedure; v_tg text; v_laek bigint;
+BEGIN
+  f:=to_regprocedure('public.person_gruppe_skjult(bigint)');
+  IF f IS NULL OR NOT (SELECT prosecdef FROM pg_proc WHERE oid=f)
+     OR (SELECT proconfig FROM pg_proc WHERE oid=f) IS DISTINCT FROM ARRAY['search_path=pg_catalog, public']
+     OR (SELECT proacl FROM pg_proc WHERE oid=f) IS NULL
+     OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(p.proacl) a WHERE p.oid=f AND a.grantee=0)
+     OR has_function_privilege('anon',f,'EXECUTE') OR has_function_privilege('authenticated',f,'EXECUTE')
+     OR (EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role') AND has_function_privilege('service_role',f,'EXECUTE')) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: #415: person_gruppe_skjult mangler, er ikke DEFINER med fast search_path eller er kaldbar af en klientrolle';
+  END IF;
+  -- staged må ikke smitte (decisions 2026-11-21); levende/privat skal.
+  IF strpos(pg_get_functiondef(f),'staged')>0
+     OR strpos(pg_get_functiondef(f),'m.levende IS FALSE AND NOT coalesce(m.privat,false)')=0
+     OR (SELECT l.lanname FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang WHERE p.oid=f)<>'plpgsql' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: #415: person_gruppe_skjult har ikke reglen levende/privat smitter, staged ikke';
+  END IF;
+  IF strpos(pg_get_functiondef('public.person_offentlig(bigint)'::regprocedure),'and not public.person_gruppe_skjult(pid)')=0 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: #415: person_offentlig kalder ikke person_gruppe_skjult';
+  END IF;
+  IF strpos(pg_get_functiondef('public.regen_person_floruit(bigint)'::regprocedure),'public.person_gruppe_skjult(q.id)')=0
+     OR strpos(pg_get_functiondef('public.trg_regen_from_person_offentlighed()'::regprocedure),'_samme_som_gruppe(NEW.id)')=0 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: #415: floruit-cachen kender ikke samme_som-gruppen';
+  END IF;
+  -- Delindekserne bag hjælperens opslag (ydelse; anon-loftet er 3 s).
+  IF to_regclass('public.ix_relation_samme_som_subjekt') IS NULL OR to_regclass('public.ix_relation_samme_som_objekt') IS NULL THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: #415: delindekserne på samme_som-kanterne mangler';
+  END IF;
+  FOREACH v_tg IN ARRAY ARRAY['trg_samme_som_regen_ins','trg_samme_som_regen_del'] LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger t WHERE t.tgrelid='public.relation'::regclass AND t.tgname=v_tg
+                    AND t.tgenabled='O' AND t.tgqual IS NOT NULL
+                    AND t.tgfoid='public.trg_regen_from_samme_som()'::regprocedure::oid) THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: #415: relation-triggeren % mangler', v_tg;
+    END IF;
+  END LOOP;
+  -- Data: ingen offentlig person-række har et samme_som-gruppemedlem, der er levende/ukendt/privat.
+  WITH RECURSIVE e AS (
+    SELECT subjekt_id a, objekt_id b FROM public.relation
+     WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
+  ), u AS (SELECT a,b FROM e UNION SELECT b,a FROM e),
+  reach(start,pid) AS (SELECT a,a FROM u UNION SELECT reach.start,u.b FROM reach JOIN u ON u.a=reach.pid)
+  SELECT count(DISTINCT r.start) INTO v_laek
+    FROM reach r LEFT JOIN public.person m ON m.id=r.pid
+   WHERE r.start<>r.pid AND public.person_offentlig(r.start)
+     AND (m.id IS NULL OR m.levende IS NOT FALSE OR coalesce(m.privat,false));
+  IF v_laek<>0 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: #415: % offentlige personer har et levende/privat samme_som-gruppemedlem', v_laek;
+  END IF;
+  RAISE NOTICE 'OK: #415 synlighed pr. samme_som-gruppe';
+END $verify_415_gruppe$;

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-21 — En ældre udgaves række kan ikke længere vise en nulevende (#415)
+
+Synlighedsreglen afgør nu offentlighed for hele mennesket, ikke række for række. Er en person levende eller privat i
+én udgave, er alle personens sammenfoldede rækker fra andre udgaver skjult for gæster — også fakta, narrativer,
+relationer og familier, der hænger på dem. En række, som blot ikke er afstemt endnu (staged), skjuler ikke den
+offentlige hovedrække. Ingen personer skifter synlighed i dag (generalprøve på stand-in med prod-data: 0 personer,
+0 familier, 0 floruit-værdier); reglen forhindrer, at næste sammenfoldning åbner hullet fra 21/11 igen. Gæstens
+læsninger bliver 50-480 ms langsommere pr. fuld tabel (alle under 1,1 s). PR #417; DDL i prod 21/11 før merge
+(`database-current-state.md` §38).
+
 ## 2026-11-21 — Tre 1939-rækker for nulevende er ikke længere offentlige
 
 Tre personer, der lever i dag og står i DAA 2018-20 (381, 453, 454), havde hver en sammenfoldet 1939-række (1434, 1343,

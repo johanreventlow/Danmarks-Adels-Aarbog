@@ -100,12 +100,14 @@ as $$
   -- staged (K2-kuratering): en ny udgaves poster skjules indtil redaktør har matchet dem; NULL =
   -- ikke-staget = synlig (kun loaderen sætter TRUE, så NULL-default er sikkert her). Cascader til
   -- fact/relation/narrative via entitet_offentlig (F-02c) — ét ændringspunkt for hele PII-fladen.
+  -- #415: rækken er desuden skjult, hvis et andet medlem af dens samme_som-gruppe er levende/privat
+  -- (person_gruppe_skjult, schema.sql) — en ældre udgaves alias må ikke vise en nulevende. staged smitter ikke.
   select exists (
     select 1 from public.person p
     where p.id = pid and p.levende = false
       and coalesce(p.privat, false) = false
       and coalesce(p.staged, false) = false
-  );
+  ) and not public.person_gruppe_skjult(pid);
 $$;
 
 revoke all on function public.person_offentlig(bigint) from public;

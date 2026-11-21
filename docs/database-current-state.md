@@ -529,6 +529,32 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 38. Synlighed pr. samme_som-gruppe (#415) — LIVE i prod (2026-11-21)
+
+**Grundlag:** decisions 2026-11-21 (BESLUTTET: levende og privat smitter, staged gør ikke), PR #417 (CI grøn). Privat
+runner `~/.private/415-synlighed/prod.zsh`, fastlåst på `8f9695e1` (kode) og `151f9f47` (main før), kørt i
+projektejerens shell før merge (ingen web-ændring).
+
+- **DDL:** kun blokken `-- ===== #415 samme_som-synlighed` … `-- END #415 samme_som-synlighed` fra `db-migrations.sql`
+  + `person_offentlig` fra `db-rls.sql`, i én transaktion (SQL sha256 `6bd56263…`; prøven `26064feb…`). Nyt:
+  `person_gruppe_skjult` (plpgsql, DEFINER, ingen klient-EXECUTE), `trg_regen_from_samme_som` + triggerne
+  `trg_samme_som_regen_ins/_del` på `relation`, delindekserne `ix_relation_samme_som_subjekt/_objekt`; ændret:
+  `person_offentlig`, `regen_person_floruit`, `trg_regen_from_person_offentlighed`. Ingen ACCESS EXCLUSIVE-lås (kontrolleret
+  i transaktionen); 6 s.
+- **Invarianter i transaktionen:** 0 personer, 0 familier og 0 `visning_floruit` skifter (før/efter-sammenligning pr.
+  id); `change_set`/`change_event` uændrede; `OK: visning-floruit katalog` og `OK: #415 synlighed pr. samme_som-gruppe`.
+- **Gæstetider i prod** (server-side `count(*)` som anon, før → efter): fakta 0,57 → 1,05 s, relationer 0,26 → 0,47 s,
+  personer 18 → 76 ms, familiemedlemmer 21 → 96 ms, koordinater 0,28 → 0,31 s (anon-loft 3 s).
+- **Frisk forbindelse bagefter:** `tjek` grøn; 1725 offentlige personer (uændret), 1434/1343/1344 skjult, de 7
+  staged-par (13, 43, 134, 178, 298, 1048, 1354) offentlige, `person_gruppe_skjult` uden anon/authenticated-EXECUTE.
+  Supabase-advisors ikke kørt (MCP'en ser ikke DAA-projektet).
+- **Generalprøve** på stand-in fra læse-kun data-dump 21/11 (narrativ-kontrakt sat til prods v2): prøve, commit,
+  gentaget apply afvist (`G415_ALLEREDE_ANVENDT`), fortryd prøve + commit, apply igen; alle 0/0/0. Prods definitioner af
+  `person_offentlig`, `family_offentlig`, `regen_person_floruit` og person-triggerfunktionen var identiske med main@151f9f47.
+- **Fortryd:** `zsh ~/.private/415-synlighed/prod.zsh fortryd` (prøve) / `fortryd --jeg-mener-det`: genskaber
+  main@151f9f47's definitioner, dropper hjælper, triggere og indekser; samme invarianter.
+- **Bortfaldet:** pligten til omfangsmåling efter hver sammenfoldning (db-verify-blokken måler lækagen).
+
 ## 37. Personsletning for ikke-offentlig person: familieindhold slettes, bevarede billeder låses (review 37 P1+P2) — LIVE i prod (2026-11-20)
 
 **Grundlag:** decisions 2026-11-20 (løsning A + afgrænsning), spec `docs/superpowers/specs/2026-11-14-fuld-personsletning-design.md`,
