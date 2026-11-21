@@ -882,7 +882,7 @@ BEGIN
   v_state:=pg_temp.purge_complete_profile(v_state);
   SELECT np.narrative_id INTO STRICT v_narr FROM private.narrative_record_publication np
     WHERE np.source_record_id=(v_state->>'source_record_id')::uuid AND np.status='draft';
-  -- Præcis én hændelse: subjekt P, narrativ Q. Receiptet skal fødes MED has_haendelse=true.
+  -- Præcis én hændelse: subjekt P, narrativ Q (en kladde). Review 37 A2: hændelsen indgår ikke i receiptet.
   PERFORM purge_test.nyt();
   INSERT INTO public.haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul)
     VALUES ('person',purge_test.id('P'),v_narr,'purge-generic-s26','Syntetisk hændelse') RETURNING id INTO v_h;
@@ -956,8 +956,13 @@ SELECT pg_temp.assert_reversal(
   ARRAY[(state->>'source_batch_id')::uuid],'{}'::uuid[],ARRAY[purge_test.u('c_batch')],'{}'::uuid[]) FROM generic_test;
 \echo OK fortrydelse_uberoert
 
+-- Review 37 A2: has_haendelse er udfaset. Kladdens receipt er uafhængigt af hændelser, så fjernelse af den sidste
+-- hændelse bevarer receiptet, og begge fortrydelses-RPC'er virker stadig (R30-leddet ovenfor er en overmængde:
+-- »advarer, men intet mistes«). Den publicerede side (lås og editor-token skifter, publiceringstilstanden er
+-- byte-identisk) bevises i test-narrative-record-contract.sql (Task 5, review 37 A2); fixturens publicerede
+-- bindinger her er ikke publicerbare (stale_published, ikke tilladt).
 DO $s26_drift$
-DECLARE v_state jsonb; v_b uuid; v_before jsonb; v_after jsonb; v_receipt jsonb; v_auth uuid; v_error text;
+DECLARE v_state jsonb; v_b uuid; v_before jsonb; v_after jsonb; v_receipt jsonb; v_auth uuid; v_result jsonb;
   v_wrapper boolean;
 BEGIN
   SELECT state,(state->>'source_batch_id')::uuid INTO STRICT v_state,v_b FROM generic_test;
@@ -965,35 +970,40 @@ BEGIN
     v_state->'person_payload'->>'source_record_key',false);
   SELECT payload->'post_activation_receipts'->(v_state->>'person_id') INTO STRICT v_receipt
     FROM private.reimport_event WHERE batch_id=v_b AND operation='activation';
+  IF v_before->>'publication_status' IS DISTINCT FROM 'draft'
+    OR v_before#>>'{publication_state,has_haendelse}' IS DISTINCT FROM 'false'
+    OR v_before#>>'{publication_state,narrative,has_haendelse}' IS DISTINCT FROM 'false'
+    OR v_before->>'state_sha256' IS DISTINCT FROM v_receipt->>'state_sha256' THEN
+    RAISE EXCEPTION 'TEST_FAILED fortrydelse_s26: kladde-receipt med hændelse';
+  END IF;
+
+  -- Kladde: den sidste hændelse fjernes; receiptet er uændret, og fortrydelsen virker ad begge API-navne.
   PERFORM purge_test.nyt();
   DELETE FROM public.haendelse WHERE id=(SELECT haendelse_id FROM generic_test);
   v_after:=private.narrative_record_state((v_state->>'person_id')::bigint,(v_state->>'source_id')::bigint,
     v_state->'person_payload'->>'source_record_key',false);
-  IF v_before#>>'{publication_state,narrative,has_haendelse}' IS DISTINCT FROM 'true'
-    OR v_after#>>'{publication_state,narrative,has_haendelse}' IS DISTINCT FROM 'false'
-    OR v_before->>'state_sha256' IS DISTINCT FROM v_receipt->>'state_sha256'
-    OR v_after->>'state_sha256' IS NOT DISTINCT FROM v_receipt->>'state_sha256' THEN
-    RAISE EXCEPTION 'TEST_FAILED fortrydelse_s26: receipt-drift';
+  IF v_after->>'state_sha256' IS DISTINCT FROM v_receipt->>'state_sha256' THEN
+    RAISE EXCEPTION 'TEST_FAILED fortrydelse_s26: kladde-receipt ændret af hændelse';
   END IF;
   FOREACH v_wrapper IN ARRAY ARRAY[false,true] LOOP
-    PERFORM purge_test.nyt();
-    SET LOCAL ROLE service_role;
-    v_auth:=public.red_authorize_reimport_reversal(v_b,gen_random_uuid(),clock_timestamp()+interval '10 minutes');
-    RESET ROLE;
     BEGIN
+      PERFORM purge_test.nyt();
+      SET LOCAL ROLE service_role;
+      v_auth:=public.red_authorize_reimport_reversal(v_b,gen_random_uuid(),clock_timestamp()+interval '10 minutes');
       SET LOCAL ROLE authenticated;
-      IF v_wrapper THEN PERFORM public.red_reverse_1939_v50_reimport(v_b,v_auth);
-      ELSE PERFORM public.red_reverse_reimport(v_b,v_auth); END IF;
+      IF v_wrapper THEN v_result:=public.red_reverse_1939_v50_reimport(v_b,v_auth);
+      ELSE v_result:=public.red_reverse_reimport(v_b,v_auth); END IF;
       RESET ROLE;
-      RAISE EXCEPTION 'TEST_FAILED fortrydelse_s26: ugyldigt receipt accepteret';
-    EXCEPTION WHEN raise_exception THEN
-      GET STACKED DIAGNOSTICS v_error=MESSAGE_TEXT;
-      IF v_error IS DISTINCT FROM (CASE WHEN v_wrapper THEN 'REIMPORT_1939_REVERSAL_INVALID'
-        ELSE 'REIMPORT_WRITER_REVERSAL_INVALID' END) THEN RAISE; END IF;
+      IF v_result->>'status' IS DISTINCT FROM 'reversed' THEN
+        RAISE EXCEPTION 'TEST_FAILED fortrydelse_s26: fortrydelse efter hændelse-sletning';
+      END IF;
+      SET CONSTRAINTS ALL IMMEDIATE; SET CONSTRAINTS ALL DEFERRED;
+      RAISE SQLSTATE 'ZX001';
+    EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL;
     END;
   END LOOP;
 END $s26_drift$;
-\echo OK fortrydelse_s26_receipt_drift
+\echo OK fortrydelse_s26_receipt_uaendret
 \unset purge_reversal_assert
 ROLLBACK;
 \endif
@@ -2449,18 +2459,11 @@ BEGIN
   END LOOP;
   p:=public.red_slet_person_helt_preview(v_q);
   PERFORM pg_temp.preview_assert(NOT pg_temp.preview_has(p,'aaben_batch'),'preview_ingen_blokering_aktiveret_batch');
-  -- Reel fjernelse af sidste hændelse bryder receiptet for Q og dermed den generelle RPC.
+  -- Review 37 A2: fjernelse af sidste hændelse ændrer ikke kladdens receipt; advarslen ovenfor er en
+  -- overmængde (fail-closed), og den generelle RPC virker stadig.
   BEGIN
     DELETE FROM public.haendelse WHERE id=v_h;
-    SET LOCAL ROLE service_role;
-    v_a:=public.red_authorize_reimport_reversal(v_b,gen_random_uuid(),now()+interval '10 minutes');
-    RESET ROLE;
-    BEGIN
-      SET LOCAL ROLE authenticated; PERFORM public.red_reverse_reimport(v_b,v_a); RESET ROLE;
-      RAISE EXCEPTION 'TEST_FAILED preview_s26_sidste_rpc';
-    EXCEPTION WHEN raise_exception THEN GET STACKED DIAGNOSTICS v_error=MESSAGE_TEXT;
-      IF v_error IS DISTINCT FROM 'REIMPORT_WRITER_REVERSAL_INVALID' THEN RAISE; END IF;
-    END;
+    PERFORM pg_temp.preview_reverse_ok(v_b,false);
     RAISE SQLSTATE 'ZX001';
   EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL; END;
 END $last$;
@@ -2475,7 +2478,7 @@ BEGIN
   SELECT narrative_id INTO STRICT v_n FROM public.haendelse WHERE id=v_h;
   FOR v_mode IN 1..2 LOOP
     BEGIN
-      IF v_mode=1 THEN -- S26 fjernes, men en ANDEN hændelse bevares: has_haendelse forbliver true.
+      IF v_mode=1 THEN -- S26 fjernes, men en ANDEN hændelse bevares: narrativet har stadig hændelser.
         INSERT INTO public.haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul)
           VALUES('person',v_q,v_n,'preview-q3-kept','Fixture');
       ELSE -- Ren S27: hændelsen er Q's; kun dens binding til P's faktum forsvinder.
@@ -2506,7 +2509,7 @@ BEGIN
   BEGIN
     SELECT state,(state->>'source_batch_id')::uuid,(state->>'person_id')::bigint,haendelse_id
       INTO STRICT j,v_b,v_q,v_h FROM preview_chain;
-    -- S26 må ikke være en anden grund til tab i denne prøve; has_haendelse ændres ikke.
+    -- S26 må ikke være en anden grund til tab i denne prøve; narrativets hændelser ændres ikke.
     UPDATE public.haendelse SET subjekt_id=v_q WHERE id=v_h;
     v_before:=private.narrative_record_state(v_q,(j->>'source_id')::bigint,j#>>'{person_payload,source_record_key}',false);
     SELECT payload->'post_activation_receipts'->v_q::text INTO STRICT v_receipt

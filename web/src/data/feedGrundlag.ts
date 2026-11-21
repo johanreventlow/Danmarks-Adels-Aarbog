@@ -6,6 +6,7 @@
 import { getAll } from '@daa/core';
 import type { NaevntGrundlag } from '@daa/feed';
 import { supabase } from '../supabase';
+import { fetchHaendelseFeed } from './haendelser';
 
 type SubjektRow = { subjekt_id: number | string };
 
@@ -30,9 +31,10 @@ export async function fetchNaevntGrundlag(
     // Embeder (organisation) og godser (estate) — samme kilde som personsidens sektioner.
     getAll<SubjektRow>(() => supabase.from('relation').select('subjekt_id')
       .eq('subjekt_type', 'person').in('objekt_type', ['organisation', 'estate']).order('id')),
-    // Alle hændelser, også dem feedet ikke viser (feed_status): de er stadig mere end et navn.
-    getAll<SubjektRow>(() => supabase.from('haendelse').select('subjekt_id')
-      .eq('subjekt_type', 'person').order('id')),
+    // Hændelser via feed-RPC'en i bidder (review 37 Y3), med samme regel pr. rolle som tabellens RLS. Bladreren
+    // kaster ved enhver sidefejl, også efter en vellykket side, så et delvist resultat aldrig gør en person med
+    // hændelser til »kun nævnt«.
+    fetchHaendelseFeed().then((feed): SubjektRow[] => feed.rows),
     getAll<SubjektRow>(() => supabase.from('story').select('subjekt_id')
       .eq('subjekt_type', 'person').eq('status', 'publiceret').order('id')),
   ]);

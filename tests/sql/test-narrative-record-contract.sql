@@ -2563,6 +2563,7 @@ DECLARE
   v_old_binding uuid;
   v_event private.narrative_publication_event%ROWTYPE;
   v_latest private.narrative_publication_event%ROWTYPE;
+  v_error text;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub',v_actor::text,true);
 
@@ -2961,6 +2962,38 @@ BEGIN
      OR v_event.after_state #>> '{narrative,text_sha256}' IS NULL THEN
     RAISE EXCEPTION 'TASK3_PUBLISHED_SNAPSHOT_INCOMPLETE: %',v_event.after_state;
   END IF;
+  -- Review 37 A2 (Codex r2): fortrydelse af publiceringen bevarer teksten, men genskaber en kladde, som kunne få ny
+  -- tekst og publiceres igen under de gamle hændelser. Den afvises med hændelseslåsen og tilbydes ikke i historikken.
+  INSERT INTO public.haendelse(
+    id,subjekt_type,subjekt_id,narrative_id,noegle,klausul
+  ) VALUES (
+    -91522002,'person',-91521001,-91521170,'task3-derived-published','Derived event'
+  );
+  IF (SELECT row.can_reverse OR row.blocking_reason IS DISTINCT FROM 'NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT'
+        FROM public.red_person_narrative_publication_history(-91521001) row
+       WHERE row.event_id=v_event.id) IS DISTINCT FROM false THEN
+    RAISE EXCEPTION 'A2_HISTORY_OFFERS_UNPUBLISH_UNDER_EVENTS';
+  END IF;
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'active-draft',false
+  );
+  PERFORM set_config('app.change_set_id','',true);
+  v_before:=pg_temp.task3_write_snapshot();
+  v_error:=NULL;
+  BEGIN
+    PERFORM public.red_fortryd_person_narrative_publication_event(
+      v_event.id,v_state->>'state_sha256'
+    );
+  EXCEPTION WHEN OTHERS THEN
+    v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT' THEN
+    RAISE EXCEPTION 'A2_UNPUBLISH_UNDER_EVENTS: %',v_error;
+  END IF;
+  IF pg_temp.task3_write_snapshot() IS DISTINCT FROM v_before THEN
+    RAISE EXCEPTION 'A2_UNPUBLISH_REJECTION_CHANGED_WRITE_SET';
+  END IF;
+  DELETE FROM public.haendelse WHERE id=-91522002;
 
   PERFORM set_config('app.change_set_id','',true);
   v_pre_state:=private.narrative_publication_state(
@@ -3004,6 +3037,30 @@ BEGIN
     'revise',-91521001,'active-draft','must not rewrite derived event',NULL,
     v_state->>'state_sha256','NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT'
   );
+  -- Review 37 A2 (Codex r1): hændelsen ændrer ikke publiceringshashen, så drift-tjekket fanger den ikke længere.
+  -- Fortrydelsen af revisionen ville genskabe den gamle tekst under hændelsen og skal afvises med samme lås,
+  -- uden at skrive noget; historikken må ikke tilbyde den.
+  IF (SELECT row.can_reverse OR row.blocking_reason IS DISTINCT FROM 'NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT'
+        FROM public.red_person_narrative_publication_history(-91521001) row
+       WHERE row.event_id=v_event.id) IS DISTINCT FROM false THEN
+    RAISE EXCEPTION 'A2_HISTORY_OFFERS_REVERSAL_UNDER_EVENTS';
+  END IF;
+  PERFORM set_config('app.change_set_id','',true);
+  v_before:=pg_temp.task3_write_snapshot();
+  v_error:=NULL;
+  BEGIN
+    PERFORM public.red_fortryd_person_narrative_publication_event(
+      v_event.id,v_state->>'state_sha256'
+    );
+  EXCEPTION WHEN OTHERS THEN
+    v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT' THEN
+    RAISE EXCEPTION 'A2_REVERSAL_UNDER_EVENTS: %',v_error;
+  END IF;
+  IF pg_temp.task3_write_snapshot() IS DISTINCT FROM v_before THEN
+    RAISE EXCEPTION 'A2_REVERSAL_REJECTION_CHANGED_WRITE_SET';
+  END IF;
 
   PERFORM set_config('app.change_set_id','',true);
   v_pre_state:=private.narrative_publication_state(
@@ -4273,6 +4330,11 @@ BEGIN
   );
 END
 $narrative_record_task5_non_daa_attestation$;
+-- Review 37 A2: gem tilstanden for den publicerede tekst FØR hændelserne, så det kan bevises, at de ikke
+-- ændrer publiceringstilstanden (synlighed), men kun editor-låsen (text_editable/token).
+CREATE TEMP TABLE task5_a2_before ON COMMIT DROP AS
+SELECT private.narrative_publication_state(-91521001,-91521001,'published') AS publication_state,
+       private.narrative_record_state(-91521001,-91521001,'published',false) AS editor_state;
 INSERT INTO public.haendelse(
   id,subjekt_type,subjekt_id,narrative_id,noegle,klausul,feed_status
 ) VALUES
@@ -4283,13 +4345,62 @@ DO $narrative_record_task5_revalidate_event_projection$
 DECLARE
   v_state jsonb;
   v_hash text;
+  v_before jsonb;
+  v_before_editor jsonb;
+  v_editor jsonb;
 BEGIN
-  -- has_haendelse is semantic publication state. Model the explicit
-  -- revalidation required after adding a derived event to a published record.
+  -- Review 37 A2: has_haendelse er udfaset. En afledt hændelse ændrer ikke publiceringstilstanden, så den
+  -- publicerede tekst forbliver synlig uden revalidering; kun editor-låsen (text_editable) og dermed
+  -- editor-kuvertens token skifter.
   v_state:=private.narrative_publication_state(
     -91521001,-91521001,'published'
   );
   v_hash:=encode(extensions.digest(v_state::text,'sha256'),'hex');
+  v_before:=(SELECT before.publication_state FROM task5_a2_before before);
+  v_before_editor:=(SELECT before.editor_state FROM task5_a2_before before);
+  IF v_state->>'has_haendelse' IS DISTINCT FROM 'false'
+     OR v_state #>> '{narrative,has_haendelse}' IS DISTINCT FROM 'false' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_A2_HAS_HAENDELSE_NOT_FALSE: %',v_state;
+  END IF;
+  IF v_state IS DISTINCT FROM v_before
+     OR v_hash IS DISTINCT FROM (
+       SELECT event.after_state_sha256 FROM private.narrative_publication_event event
+        WHERE event.stream_ref='15210000-0000-0000-0000-000000001180'
+        ORDER BY event.stream_version DESC LIMIT 1
+     ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_A2_EVENT_CHANGED_PUBLICATION_STATE';
+  END IF;
+  SET LOCAL ROLE anon;
+  IF NOT 'Published text'=ANY(pg_temp.task5_v1_texts(-91521001))
+     OR NOT 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001))
+     OR NOT -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180])) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_A2_EVENT_HID_PUBLISHED_TEXT';
+  END IF;
+  SET LOCAL ROLE NONE;
+  v_editor:=private.narrative_record_state(-91521001,-91521001,'published',false);
+  IF v_before_editor->>'publication_status' IS DISTINCT FROM 'published'
+     OR v_before_editor->>'text_editable' IS DISTINCT FROM 'true'
+     OR v_editor->>'publication_status' IS DISTINCT FROM 'published'
+     OR v_editor->>'text_editable' IS DISTINCT FROM 'false'
+     OR v_editor->'allowed_actions' IS DISTINCT FROM '["withdraw"]'::jsonb
+     OR v_editor->>'state_sha256' IS NOT DISTINCT FROM v_before_editor->>'state_sha256' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_A2_EDITOR_LOCK_INVALID: before=% after=%',
+      v_before_editor,v_editor;
+  END IF;
+  -- Fjernes den sidste hændelse igen, er låsen væk, og editor-tokenet er det oprindelige (rulles tilbage).
+  BEGIN
+    DELETE FROM public.haendelse WHERE id=-91521291;
+    IF private.narrative_record_state(-91521001,-91521001,'published',false)->>'state_sha256'
+         IS DISTINCT FROM v_before_editor->>'state_sha256'
+       OR private.narrative_publication_state(-91521001,-91521001,'published') IS DISTINCT FROM v_before THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_A2_LAST_EVENT_REMOVAL_INVALID';
+    END IF;
+    RAISE SQLSTATE 'ZX001';
+  EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL;
+  END;
+  -- Den efterfølgende drift-matrix bruger 2183 som seneste attestation. Revalideringen er ikke længere
+  -- påkrævet af hændelsen; den attesterer den uændrede tilstand.
+  RAISE NOTICE 'OK: review 37 A2 — hændelse bevarer synlighed og publiceringstilstand, låser kun redigering';
   INSERT INTO private.narrative_publication_event(
     id,change_set_id,stream_ref,stream_version,event_type,binding_id,
     narrative_id,source_id,source_record_id,decision_basis,before_state,
@@ -4460,6 +4571,7 @@ DECLARE
   ];
   v_all_events bigint[]:=ARRAY[-91521292,-91521291,-91521290];
   v_public_events bigint[]:=ARRAY[-91521292,-91521291];
+  v_feed jsonb;
   v_actual record;
   v_actual_v2_order text[];
 BEGIN
@@ -4495,6 +4607,31 @@ BEGIN
     RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_VERSION2_REDACTION_MATRIX_INVALID';
   END IF;
   SET LOCAL ROLE NONE;
+
+  -- Review 37 Y3: feed-RPC'en med den RIGTIGE gate giver gæstens RLS-mængde (kun personhændelser) for alle roller:
+  -- hændelsen på den gyldigt publicerede tekst, ikke den på den forældede (-91521190). Redaktøren ser begge i
+  -- tabellen (matrixen ovenfor), men feedet er en læserflade (projektejeren 2026-11-21).
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  SET LOCAL ROLE anon;
+  v_feed:=public.public_haendelse_feed();
+  SET LOCAL ROLE NONE;
+  IF ARRAY(SELECT (r->>'id')::bigint FROM jsonb_array_elements(v_feed->'rows') r
+            WHERE (r->>'id')::bigint=ANY(v_all_events) ORDER BY 1) IS DISTINCT FROM ARRAY[-91521291]::bigint[]
+     OR v_feed->'naeste' IS DISTINCT FROM 'null'::jsonb
+     OR NOT v_feed->'narrativer' @> '[{"id":-91521180}]'::jsonb
+     OR v_feed->'narrativer' @> '[{"id":-91521190}]'::jsonb THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_Y3_FEED_ANON_INVALID: %',v_feed;
+  END IF;
+  PERFORM set_config('request.jwt.claim.sub',v_redactor::text,true);
+  SET LOCAL ROLE authenticated;
+  v_feed:=public.public_haendelse_feed();
+  SET LOCAL ROLE NONE;
+  IF ARRAY(SELECT (r->>'id')::bigint FROM jsonb_array_elements(v_feed->'rows') r
+            WHERE (r->>'id')::bigint=ANY(v_all_events) ORDER BY 1)
+       IS DISTINCT FROM ARRAY[-91521291]::bigint[] THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_Y3_FEED_REDACTION_INVALID: %',v_feed;
+  END IF;
+  RAISE NOTICE 'OK: review 37 Y3 — feed-RPC med rigtig gate = gæstens RLS-mængde, også for redaktøren';
 
   SELECT array_agg(row.narrative_text ORDER BY row.ordinality)
     INTO v_actual_v2_order

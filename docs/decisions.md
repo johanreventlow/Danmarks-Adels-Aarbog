@@ -2,6 +2,34 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: hændelser ændrer ikke en biografis synlighed; feedet henter hændelser i bidder (2026-11-21)
+
+> Projektejeren 21/11 (review 37 A2 + Y3, #397). Spec: `docs/superpowers/specs/2026-11-21-review37-a2-y3-haendelser-design.md`.
+> Målt i prod samme dag: 0 hændelser; alle 4.697 attesterede tilstande og 550 legacy-grundlinjer har `has_haendelse=false`.
+
+- **A2:** `has_haendelse` i `narrative_publication_state` låses til `false` (udfaset). Hændelseslåsen (ingen tekstrevision,
+  når der er hændelser) læser tabellen direkte. Fravalgt: at sammenligne tilstande uden feltet (ændrer gaten); at fjerne
+  feltet (skjuler alle publicerede tekster).
+- **Y3:** ny RPC `public_haendelse_feed` i bidder, gaten én gang pr. narrativ, filtre på hver række, krypteret
+  bladremærke (pgp_sym med privat nøgle). Fravalgt: server-side udvælgelse af forsidens kort; gemt synlighedsbeslutning
+  (cache).
+- **Y3, alle roller får gæsternes regel i feedet** (projektejeren 21/11, under Task 2): også redaktøren. Feedet er en
+  læserflade; redaktøren ser fortsat alt i redaktionsfladerne og via tabellens `redaktion_read`. Bevidst undtagelse fra
+  mønstret »redaktøren ser levende« (2026-11-13), som gælder personsidens læse-RPC'er. Fravalgt: en redaktørgren som
+  i `public_person_facts` (bevarer redaktørens nuværende feed, men gør feedet rolleafhængigt).
+- **#130** må først køres, når A2, RPC'en og den udrullede webklient er i prod og efterkontrolleret som anon.
+- **Fortrydelse under hændelser** (projektejeren 21/11, efter Codex kode-runde 1 og 2): uden hash-drift læser
+  fortrydelsen låsen direkte. Med hændelser på narrativet afvises en fortrydelse, der ændrer teksten, eller som gør en
+  ikke-kladde til kladde igen (fortrydelse af `published`). Fortrydelse af `withdrawn`, `draft_created` og legacy-hændelser
+  og kladde→kladde uden tekstændring er tilladt. Fravalgt: at afvise alle fortrydelser (spærrer genpublicering efter
+  tilbagetrækning); at tillade kladde→kladde med tekstændring (projektejeren: behold afvisningen som før A2).
+- Genimport-fortrydelse påvirkes ikke af hændelser (kvitteringen er kladdens tilstand), **undtagen** når den ville ændre
+  en kladdes tekst under hændelser; den afvises som før A2.
+- Kendt begrænsning: bladringen opdager ikke, at hændelsesprojektionen udskiftes midt i en sidevisning (spec §4.2).
+- **Udrulning uden politikgenskabelse** (projektejeren 21/11, Task 5): prod får blokkene `review37-a2`/`review37-y3` +
+  ACL-blokken fra `db-rls.sql`, ikke hele `db-rls.sql`, hvis 95 `DROP/CREATE POLICY` ville låse tabellerne for gæsternes
+  læsninger under hele transaktionen. Opgraderingstesten beviser, at hele filen oveni intet ændrer.
+
 ## BESLUTTET: synlighed pr. samme_som-gruppe — levende og privat smitter, staged gør ikke (#415, 2026-11-21)
 
 **Regel.** En person-række er kun offentlig, hvis den selv er det (afdød, ikke privat, ikke staged) **og** intet andet

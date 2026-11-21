@@ -518,6 +518,136 @@ BEGIN
 END
 $narrative_record_state_verify$;
 
+-- Review 37 A2: hændelser ændrer ikke en biografis publiceringstilstand; låsen læses via én privat hjælper.
+-- Adfærden (uændret synlighed, ændret editor-token, afvist revise) bevises i test-narrative-record-contract.sql.
+DO $review37_a2_verify$
+DECLARE
+  v_role text;
+  v_function text;
+  v_count bigint;
+BEGIN
+  IF to_regprocedure('private.narrative_har_haendelse(bigint)') IS NULL THEN
+    RAISE EXCEPTION 'REVIEW37_A2_HELPER_MISSING';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_proc function
+     WHERE function.oid='private.narrative_har_haendelse(bigint)'::regprocedure
+       AND (function.provolatile<>'s' OR function.prosecdef
+            OR function.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[])
+  ) THEN
+    RAISE EXCEPTION 'REVIEW37_A2_HELPER_FORM_INVALID';
+  END IF;
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_function_privilege(v_role,'private.narrative_har_haendelse(bigint)','EXECUTE') THEN
+      RAISE EXCEPTION 'REVIEW37_A2_HELPER_ACL_INVALID: %',v_role;
+    END IF;
+  END LOOP;
+
+  -- (b) Ingen publiceringstilstand læser hændelser.
+  FOREACH v_function IN ARRAY ARRAY[
+    'private.narrative_publication_state(bigint,bigint,text)',
+    'private.narrative_legacy_candidate_publication_state(bigint,bigint,uuid)',
+    'private.narrative_legacy_publication_state(uuid)'
+  ] LOOP
+    IF strpos(pg_get_functiondef(v_function::regprocedure),'public.haendelse')<>0
+       OR strpos(pg_get_functiondef(v_function::regprocedure),'narrative_har_haendelse(')<>0 THEN
+      RAISE EXCEPTION 'REVIEW37_A2_STATE_READS_HAENDELSE: %',v_function;
+    END IF;
+  END LOOP;
+  SELECT count(*) INTO v_count
+    FROM (
+      SELECT DISTINCT narrative.subjekt_id AS person_id,record.source_id,record.record_key
+        FROM private.narrative_record_publication binding
+        JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+        JOIN private.source_record record ON record.id=binding.source_record_id
+       WHERE narrative.subjekt_type='person'
+         AND EXISTS (SELECT 1 FROM public.haendelse event WHERE event.narrative_id=binding.narrative_id)
+    ) k
+    CROSS JOIN LATERAL private.narrative_publication_state(k.person_id,k.source_id,k.record_key) state
+   WHERE (state->>'has_haendelse') IS DISTINCT FROM 'false'
+      OR ((state->'narrative') IS NOT NULL AND jsonb_typeof(state->'narrative')='object'
+          AND (state #>> '{narrative,has_haendelse}') IS DISTINCT FROM 'false');
+  IF v_count<>0 THEN
+    RAISE EXCEPTION 'REVIEW37_A2_HAS_HAENDELSE_NOT_FALSE: %',v_count;
+  END IF;
+
+  -- (c) Låsen (text_editable og revise) læses via hjælperen, ikke via publication_state.
+  FOREACH v_function IN ARRAY ARRAY[
+    'private.narrative_record_state(bigint,bigint,text,boolean)',
+    'private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text)',
+    -- Codex r1: fortrydelse og historikkens can_reverse bruger samme lås.
+    'private.reverse_narrative_publication_event(uuid,text)',
+    'public.red_person_narrative_publication_history(bigint)'
+  ] LOOP
+    IF strpos(pg_get_functiondef(v_function::regprocedure),'private.narrative_har_haendelse(')=0
+       OR strpos(pg_get_functiondef(v_function::regprocedure),'''has_haendelse'')::boolean')<>0 THEN
+      RAISE EXCEPTION 'REVIEW37_A2_LOCK_NOT_VIA_HELPER: %',v_function;
+    END IF;
+  END LOOP;
+
+  RAISE NOTICE 'OK: review 37 A2 — has_haendelse udfaset, hændelseslås via private.narrative_har_haendelse';
+END
+$review37_a2_verify$;
+
+-- Review 37 Y3: feedets hændelser i bidder. Adfærden (RLS-lighed, tom bid, gate pr. narrativ, mærke) bevises i
+-- tests/sql/test-haendelse-feed.sql; her form, ACL, nøgle og fejlkoder.
+DO $review37_y3_verify$
+DECLARE
+  f regprocedure:=to_regprocedure('public.public_haendelse_feed(text,integer,integer)');
+  v_def text;
+  v_role text;
+  v_fejl text;
+  v_kald text;
+BEGIN
+  IF f IS NULL OR to_regclass('private.feed_cursor_noegle') IS NULL
+     OR to_regclass('public.ix_haendelse_narrative_id') IS NULL THEN
+    RAISE EXCEPTION 'REVIEW37_Y3_MISSING';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc p WHERE p.oid=f
+              AND (NOT p.prosecdef OR p.provolatile<>'s'
+                   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[])) THEN
+    RAISE EXCEPTION 'REVIEW37_Y3_FORM_INVALID';
+  END IF;
+  IF NOT has_function_privilege('anon',f,'EXECUTE') OR NOT has_function_privilege('authenticated',f,'EXECUTE')
+     OR has_function_privilege('service_role',f,'EXECUTE')
+     OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(p.proacl) a WHERE p.oid=f AND a.grantee=0) THEN
+    RAISE EXCEPTION 'REVIEW37_Y3_ACL_INVALID';
+  END IF;
+  v_def:=pg_get_functiondef(f);
+  -- Samme regel for alle roller (projektejeren 2026-11-21): ingen afhængighed af kalderens rolle.
+  IF strpos(v_def,'current_rolle')<>0 OR strpos(v_def,'auth.uid')<>0
+     OR strpos(v_def,'public.person_daa_narrative_publication_allowed(n.narrative_id)')=0
+     OR strpos(v_def,'h.feed_status<>''skjult''')=0
+     OR strpos(v_def,'public.entitet_offentlig(h.subjekt_type,h.subjekt_id)')=0
+     OR strpos(v_def,'extensions.pgp_sym_encrypt(')=0 THEN
+    RAISE EXCEPTION 'REVIEW37_Y3_FILTER_OR_CURSOR_MISSING';
+  END IF;
+  IF (SELECT count(*) FROM private.feed_cursor_noegle)<>1 THEN
+    RAISE EXCEPTION 'REVIEW37_Y3_KEY_ROW_INVALID';
+  END IF;
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_table_privilege(v_role,'private.feed_cursor_noegle','SELECT')
+       OR has_table_privilege(v_role,'private.feed_cursor_noegle','UPDATE') THEN
+      RAISE EXCEPTION 'REVIEW37_Y3_KEY_ACL_INVALID: %',v_role;
+    END IF;
+  END LOOP;
+  FOREACH v_kald IN ARRAY ARRAY['limit:0','limit:2001','cursor'] LOOP
+    BEGIN
+      IF v_kald='limit:0' THEN PERFORM public.public_haendelse_feed(NULL,0,10);
+      ELSIF v_kald='limit:2001' THEN PERFORM public.public_haendelse_feed(NULL,10,2001);
+      ELSE PERFORM public.public_haendelse_feed('ikke-et-maerke',10,10); END IF;
+      RAISE EXCEPTION 'REVIEW37_Y3_ACCEPTED: %',v_kald;
+    EXCEPTION WHEN others THEN
+      GET STACKED DIAGNOSTICS v_fejl=MESSAGE_TEXT;
+      IF v_fejl IS DISTINCT FROM (CASE WHEN v_kald='cursor' THEN 'FEED_CURSOR_INVALID' ELSE 'FEED_LIMIT_INVALID' END) THEN
+        RAISE;
+      END IF;
+    END;
+  END LOOP;
+  RAISE NOTICE 'OK: review 37 Y3 — public_haendelse_feed er DEFINER, gatet pr. narrativ for alle roller, privat nøgle, fejlkoder';
+END
+$review37_y3_verify$;
+
 
 -- ===== Task 1: Tabeller profiles + suggestion =====
 -- Forvent: begge tabeller findes, rolle-CHECK håndhæves.

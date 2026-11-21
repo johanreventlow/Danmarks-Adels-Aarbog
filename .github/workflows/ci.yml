@@ -725,6 +725,10 @@ jobs:
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         # f37b294a = #363, prods installerede SQL; origin/main har fuld personsletning, som ikke er i prod.
         run: bash tests/sql/test-record-persona-upgrade.sh cirecord_persona_upgrade f37b294a
+      - name: Opgradering fra prods skema (review 37 A2+Y3 · kun deploy-blokkene)
+        env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
+        # bc3b1c46 = main (#417) med p1p2, OCR-rettelse af kildepåstand, #396, #401 og #415 (alle i prod 21/11).
+        run: bash tests/sql/test-review37-a2y3-upgrade.sh ci_r37a2y3_upgrade bc3b1c46
       - name: Fuld personsletning · fixtur, tæller og katalogvagt pr. kolonne
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         run: bash tests/sql/test-person-purge.sh ciperson_purge
@@ -863,6 +867,10 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f db-rls.sql
       - name: Fokuseret record-kontrakt
         run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-narrative-record-contract.sql
+      - name: Feed i bidder (review 37 Y3)
+        run: |
+          out=$(psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-haendelse-feed.sql)
+          grep -qx 'OK test-haendelse-feed' <<<"$out"
       - name: Helpost-regel (trin 6a, schema + migrationer to gange)
         run: |
           psql -X -v ON_ERROR_STOP=1 -f db-migrations.sql

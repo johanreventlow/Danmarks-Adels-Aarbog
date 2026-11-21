@@ -16,6 +16,9 @@ build() {
          -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role" \
          -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role"
   q "$1" -f schema.sql; q "$1" -f db-rls.sql
+  # Review 37 Y3: feedets bladremærkenøgle er bevidst tilfældig pr. base. Fastlåst her, så testen fortsat beviser,
+  # at alt andet indhold i to friske byggerier er ens (kun denne ene række; kolonnenavnet findes også andre steder).
+  q "$1" -c "UPDATE private.feed_cursor_noegle SET noegle=repeat('0',64) WHERE id=1"
 }
 # digest <db> <fil> <del> [ekstra psql-args] -> sha
 digest() { qa "$1" "${@:4}" -v mode=digest -f "$S/$2" | awk -v d="$3" '$1==d {print $2}'; }

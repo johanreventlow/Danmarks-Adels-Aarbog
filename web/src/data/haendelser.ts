@@ -1,7 +1,9 @@
 // Web-spejl af mobilens hændelses-loader (fase2-design.md §5.2). Henter kun
 // projektionen + narrativ/source-metadata; narrativteksten forlader ikke sit normale lag.
-// Fejl — inklusive en endnu umigreret base — degraderer til {}, aldrig et brudt feed.
-import { getAll } from '@daa/core';
+// Review 37 Y3: hentes via RPC'en public_haendelse_feed i bidder (gaten én gang pr. narrativ, så hvert kald
+// holder anon-grænsen), til naeste er null. Klienten stopper KUN ved naeste=null: en bid kan lovligt være tom.
+// Fejl — inklusive en endnu umigreret base — degraderer i hændelseskortene til {}, aldrig et brudt feed;
+// feedGrundlag bruger samme bladrer, men fail-closed.
 import { buildHaendelserBy } from '@daa/feed';
 import type {
   HaendelseNarrativRow,
@@ -11,64 +13,78 @@ import type {
 } from '@daa/feed';
 import { supabase } from '../supabase';
 
-const IN_CHUNK = 200;
-
-function chunkArray<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
-async function fetchInChunks<T, TId>(
-  ids: TId[],
-  run: (idsChunk: TId[]) => PromiseLike<{ data: T[] | null; error: unknown }>,
-): Promise<T[]> {
-  const out: T[] = [];
-  for (const idsChunk of chunkArray(ids, IN_CHUNK)) {
-    const { data, error } = await run(idsChunk);
-    if (error) throw error;
-    out.push(...(data ?? []));
-  }
-  return out;
-}
-
 export type HaendelseRowsResult = {
   rows: HaendelseRow[];
   narrativer: HaendelseNarrativRow[];
   sources: HaendelseSourceRow[];
 };
 
-export async function fetchHaendelseRows(): Promise<HaendelseRowsResult> {
-  const empty: HaendelseRowsResult = { rows: [], narrativer: [], sources: [] };
-  try {
-    const rows = await getAll<HaendelseRow>(() =>
-      supabase.from('haendelse')
-        .select('id,subjekt_id,narrative_id,klausul,kategori,date_min,date_max,date_qualifier,date_raw,feed_status,fact_id,relation_id')
-        .eq('subjekt_type', 'person')
-        .order('id'),
-    );
-    if (!rows.length) return empty;
+// Loft over antal kald i én bladring. Med serverens standardlofter (150 narrativer / 1.000 rækker pr. kald) rækker det
+// langt ud over hele korpusset; nås det, er noget galt, og resultatet ville være afkortet.
+const MAX_SIDER = 500;
 
-    const narrativeIds = [...new Set(rows.map((row) => row.narrative_id))];
-    const narrativer = await fetchInChunks<HaendelseNarrativRow, string | number>(
-      narrativeIds,
-      (idsChunk) => supabase.from('narrative').select('id,source_id,side')
-        .in('id', idsChunk).order('id'),
-    );
-    const sourceIds = [...new Set(
-      narrativer.map((n) => n.source_id).filter((id): id is string | number => id != null),
-    )];
-    const sources = sourceIds.length > 0
-      ? await fetchInChunks<HaendelseSourceRow, string | number>(
-          sourceIds,
-          (idsChunk) => supabase.from('source').select('id,udgave')
-            .in('id', idsChunk).order('id'),
-        )
-      : [];
-    return { rows, narrativer, sources };
+type FeedSide = {
+  rows: HaendelseRow[];
+  narrativer: HaendelseNarrativRow[];
+  sources: HaendelseSourceRow[];
+  naeste: string | null;
+};
+
+function erFeedSide(data: unknown): data is FeedSide {
+  if (data === null || typeof data !== 'object') return false;
+  const side = data as Record<string, unknown>;
+  return Array.isArray(side.rows) && Array.isArray(side.narrativer) && Array.isArray(side.sources)
+    && (side.naeste === null || typeof side.naeste === 'string');
+}
+
+// Feedet starter hændelseskortene og »Nævnt i Aarbogen«-grundlaget samtidig. De deler én igangværende bladring,
+// så gaten ikke kører to gange over hele korpusset. Delingen er bundet til brugeren: RPC'en er i dag ens for alle
+// roller, men en senere rolleforskel må aldrig kunne arves over logud/login. Ingen cache: når bladringen er
+// afsluttet, henter næste kald forfra.
+const igangvaerende = new Map<string, Promise<HaendelseRowsResult>>();
+
+// Bladrer hele feedet igennem. Kaster ved enhver fejl, også efter en vellykket side: et delvist resultat må aldrig
+// se ud som et helt. Narrativer og kilder, der går igen på flere sider, tages kun med én gang. Resultatet deles
+// mellem samtidige kaldere for samme bruger og må ikke ændres af dem.
+export async function fetchHaendelseFeed(): Promise<HaendelseRowsResult> {
+  const { data } = await supabase.auth.getSession();
+  const noegle = data.session?.user.id ?? 'gaest';
+  let bladring = igangvaerende.get(noegle);
+  if (!bladring) {
+    bladring = bladrFeed().finally(() => { igangvaerende.delete(noegle); });
+    igangvaerende.set(noegle, bladring);
+  }
+  return bladring;
+}
+
+async function bladrFeed(): Promise<HaendelseRowsResult> {
+  const rows: HaendelseRow[] = [];
+  const narrativer = new Map<string, HaendelseNarrativRow>();
+  const sources = new Map<string, HaendelseSourceRow>();
+  let fortsaet: string | null = null;
+  for (let i = 0; i < MAX_SIDER; i++) {
+    const svar: { data: unknown; error: unknown } =
+      await supabase.rpc('public_haendelse_feed', { p_fortsaet: fortsaet });
+    const { data, error } = svar;
+    if (error) throw error;
+    if (!erFeedSide(data)) throw new Error('public_haendelse_feed: svaret har ikke den forventede form');
+    rows.push(...data.rows);
+    for (const n of data.narrativer) narrativer.set(String(n.id), n);
+    for (const s of data.sources) sources.set(String(s.id), s);
+    if (data.naeste === null) {
+      return { rows, narrativer: [...narrativer.values()], sources: [...sources.values()] };
+    }
+    fortsaet = data.naeste;
+  }
+  throw new Error(`public_haendelse_feed: loftet på ${MAX_SIDER} sider er nået — resultatet ville være afkortet`);
+}
+
+export async function fetchHaendelseRows(): Promise<HaendelseRowsResult> {
+  try {
+    return await fetchHaendelseFeed();
   } catch (e) {
     console.warn('[haendelser] utilgængelig — arkiv-/hændelseskort udelades:', e);
-    return empty;
+    return { rows: [], narrativer: [], sources: [] };
   }
 }
 

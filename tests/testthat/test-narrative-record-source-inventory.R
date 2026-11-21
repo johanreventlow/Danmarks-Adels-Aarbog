@@ -424,8 +424,9 @@ test_that("direct narrative mutation sources remain an exact closed inventory", 
 test_that("direct narrative readers remain an explicit closed inventory", {
   # Task 8 moves the three public person-text readers to the gated v1/v2
   # RPCs.  The remaining direct reads are deliberately classified here:
-  # about/presens are non-person controls, haendelser is RLS-gated metadata,
-  # and the generic redaction readers remain Task 9's editor-RPC migration.
+  # about/presens are non-person controls, and the generic redaction readers
+  # remain Task 9's editor-RPC migration.  Review 37 Y3 moved haendelser.ts to
+  # the public_haendelse_feed RPC, so it no longer reads narrative directly.
   source_files <- c(
     list.files(file.path(root, "web", "src"), "\\.(ts|tsx)$", recursive = TRUE, full.names = TRUE),
     list.files(file.path(root, "mobile", "src"), "\\.(ts|tsx)$", recursive = TRUE, full.names = TRUE)
@@ -435,9 +436,9 @@ test_that("direct narrative readers remain an explicit closed inventory", {
   }, logical(1))
   actual <- sort(sub(paste0("^", root, "/"), "", source_files[hits]))
   expected <- sort(c(
-    "mobile/src/data/about.ts", "mobile/src/data/haendelser.ts",
+    "mobile/src/data/about.ts",
     "mobile/src/data/presensLinjer.ts", "mobile/src/data/redaktionRead.ts",
-    "web/src/data/haendelser.ts", "web/src/data/presensLinjer.ts",
+    "web/src/data/presensLinjer.ts",
     "web/src/data/public.ts", "web/src/data/redaktionRead.ts"
   ))
   expect_identical(actual, expected)

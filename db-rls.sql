@@ -1242,6 +1242,18 @@ GRANT EXECUTE ON FUNCTION
 -- Trin 5b 2a (#151): kildevisning for bundne familier; tom i kontrakt 1 (gaten er i funktionen).
 REVOKE ALL ON FUNCTION public.public_family_sources(bigint[]) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION public.public_family_sources(bigint[]) TO anon,authenticated;
+-- Review 37 Y3: feedets hændelser i bidder (gate pr. narrativ, filtre pr. række; alle roller gæstens regel). Nøglen er privat.
+DO $review37_y3_acl$
+BEGIN
+  IF to_regprocedure('public.public_haendelse_feed(text,integer,integer)') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION public.public_haendelse_feed(text,integer,integer) FROM PUBLIC,anon,authenticated,service_role;
+    GRANT EXECUTE ON FUNCTION public.public_haendelse_feed(text,integer,integer) TO anon,authenticated;
+  END IF;
+  IF to_regclass('private.feed_cursor_noegle') IS NOT NULL THEN
+    REVOKE ALL ON TABLE private.feed_cursor_noegle FROM PUBLIC,anon,authenticated,service_role;
+  END IF;
+END
+$review37_y3_acl$;
 
 -- #152 Task 7: one version-aware ACL source of truth is applied after every
 -- historical grant block. A fresh #153 schema intentionally lacks legacy
