@@ -2,6 +2,20 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: hændelser ændrer ikke en biografis synlighed; feedet henter hændelser i bidder (2026-11-21)
+
+> Projektejeren 21/11 (review 37 A2 + Y3, #397). Spec: `docs/superpowers/specs/2026-11-21-review37-a2-y3-haendelser-design.md`.
+> Målt i prod samme dag: 0 hændelser; alle 4.697 attesterede tilstande og 550 legacy-grundlinjer har `has_haendelse=false`.
+
+- **A2:** `has_haendelse` i `narrative_publication_state` låses til `false` (udfaset). Hændelseslåsen (ingen tekstrevision,
+  når der er hændelser) læser tabellen direkte. Fravalgt: at sammenligne tilstande uden feltet (ændrer gaten); at fjerne
+  feltet (skjuler alle publicerede tekster).
+- **Y3:** ny RPC `public_haendelse_feed` i bidder, gaten én gang pr. narrativ, filtre på hver række, krypteret
+  bladremærke (pgp_sym med privat nøgle). Fravalgt: server-side udvælgelse af forsidens kort; gemt synlighedsbeslutning
+  (cache).
+- **#130** må først køres, når A2, RPC'en og den udrullede webklient er i prod og efterkontrolleret som anon.
+- Genimport-fortrydelse påvirkes ikke af hændelser (kvitteringen er kladdens tilstand).
+
 ## NOTERET: review 37's E-blok — LLM-trin spærret, udgavebinding og loader-værn; to åbne afgørelser (2026-11-20)
 
 > Gren `fix/review37-pipeline` (#397: E2-E8). Ren kode og skills; ingen prod-ændring.

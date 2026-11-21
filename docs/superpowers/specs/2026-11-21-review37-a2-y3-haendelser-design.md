@@ -65,23 +65,20 @@ synlighedsbeslutning (cache med mange indgange, kan drive).
    `private.person_purge_fortrydelse` (`schema.sql:~23759`) skal være en **overmængde** af de faktiske ændringer
    (fail-closed). Implementeringen vælger mellem at beholde prædikatet (overmængde, kan melde tab for kladder) og at
    indsnævre det til aktive `published`-bindinger; valget og begrundelsen skrives i planen. Kommentaren opdateres.
-6. **Fortrydelse af genimport efter #130.** Genimportens kvittering (`post_activation_receipts`) gemmer editor-kuvertens
-   `state_sha256`. Får en publiceret, tilladt biografi sin første hændelse, skifter `text_editable`, og en fortrydelse af
-   den genimport, der skrev kvitteringen, nægtes for den biografi. Det er ikke nyt (i dag ændrer hændelsen også
-   `publication_state`), og det er ikke permanent: hændelser er en regenererbar projektion, så sletter man hændelserne på
-   de berørte biografier, passer kvitteringen igen, og fortrydelsen virker; `/daa-haendelser` køres derefter igen.
-   **Valg for projektejeren:** (a) acceptér og dokumentér fremgangsmåden (anbefalet), eller (b) tag hændelseslåsen ud af
-   den hashede kuvert som et særskilt, ikke-hashet felt (kvitteringer påvirkes aldrig, men redaktørens kontrakt ændres).
+6. **Fortrydelse af genimport påvirkes ikke** (Codex runde 2). Genimportens kvittering (`post_activation_receipts`) er
+   editor-kuvertens `state_sha256` for **kladden** lige efter aktivering, og `red_reverse_1939_v50_reimport`-vejen kræver
+   netop den tilstand (`schema.sql:5823`). Er biografien siden publiceret, kan genimporten allerede ikke fortrydes ad
+   den vej; er den stadig en kladde, ændrer hændelser intet (låsen gælder kun publicerede tekster). `red_reverse_reimport_
+   publication` binder identitetsversion, ikke tilstand. Hændelser ændrer derfor ingen genimport-fortrydelse.
 7. **Udrulningsinvariant:** med 0 hændelser i prod er `text_editable` uændret for alle bindinger, så hverken
    `publication_state`, editor-tokens eller kvitteringer skifter hash ved udrulningen. Det bevises (§6).
 
 ### 4.2 Y3 — `public.public_haendelse_feed`
 
 ```
-public.public_haendelse_feed(p_efter_narrative_id bigint DEFAULT NULL, p_efter_id bigint DEFAULT NULL,
+public.public_haendelse_feed(p_fortsaet text DEFAULT NULL,
                              p_max_narrativer int DEFAULT 150, p_max_raekker int DEFAULT 1000)
-  RETURNS jsonb   -- {rows:[…], narrativer:[{id,source_id,side}], sources:[{id,udgave}],
-                  --  naeste: {narrative_id, id} | null}
+  RETURNS jsonb   -- {rows:[…], narrativer:[{id,source_id,side}], sources:[{id,udgave}], naeste: text | null}
   LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog
 ```
 
@@ -89,7 +86,13 @@ public.public_haendelse_feed(p_efter_narrative_id bigint DEFAULT NULL, p_efter_i
   `feed_status<>'skjult'`, `entitet_offentlig(subjekt_type, subjekt_id)` **og** at rækkens eget narrativ er godkendt af
   gaten. Et narrativ gøres aldrig til »godkendt for alle dets rækker«: rækker, der falder på et filter, udelades, også når
   andre rækker på samme narrativ er med (Codex 1). `narrativer` og `sources` afledes kun af de returnerede rækker.
-- **Cursor over `(narrative_id, id)`**, strengt stigende. Et kald tager kandidatrækker efter cursoren i den orden og
+- **Uigennemsigtigt bladremærke** (Codex runde 2; projektejeren 2026-11-21): den interne cursor `(narrative_id, id)`
+  kan pege på en skjult kandidat og må derfor aldrig udleveres i klartekst. `naeste` er
+  `extensions.pgp_sym_encrypt(cursor-json, nøgle)` (base64), hvor nøglen ligger i en privat tabel
+  (`private.feed_cursor_noegle`, én række, genereret med `gen_random_bytes(32)` ved DDL'en, ingen grants). pgp_sym's
+  integritetskontrol (MDC) afviser et manipuleret mærke: dekrypteringsfejl eller ugyldig form → `FEED_CURSOR_INVALID`.
+  Nøglen roteres ved at udskifte rækken (gamle mærker bliver ugyldige; klienten starter forfra).
+- **Intern cursor over `(narrative_id, id)`**, strengt stigende. Et kald tager kandidatrækker efter cursoren i den orden og
   stopper ved det første af: `p_max_raekker` rækker eller `p_max_narrativer` forskellige narrativer (et narrativ kan
   deles over to kald; cursoren peger midt i det). Begge lofter er bundne (fx ≤ 200 / ≤ 2000; ugyldig værdi → fejl), så
   arbejdet pr. kald er begrænset både i gate-kald og rækker (Codex 4).
@@ -125,6 +128,8 @@ definitioner pr. fil), `web/src/data/{haendelser,feedGrundlag}.ts`, `mobile/src/
 
 ## 6. Færdigbevis
 
+0a. **Bladremærket** — mærket indeholder ingen læsbare id'er; et ændret eller fremmed mærke afvises
+   (`FEED_CURSOR_INVALID`); et mærke, der peger på en skjult kandidat, afslører den ikke.
 0. **Rækkefiltre** — negativ fixture: ét synligt narrativ med både en tilladt række, en `skjult` række og en række med
    ikke-offentligt subjekt; kun den tilladte returneres, og `narrativer`/`sources` nævner kun dens kilde.
 1. **Synlighed uændret** — mængden af anon-synlige narrativ-**id'er** (ikke antal; legacy med) er identisk ved fire
@@ -139,8 +144,8 @@ definitioner pr. fil), `web/src/data/{haendelser,feedGrundlag}.ts`, `mobile/src/
    - på en kladde: editor-`state_sha256` og en kladdebetinget aktiveringskvittering er uændrede, og reversal virker;
    - R30-tilfældene i `test-person-purge.sql` (S26 ~884-980, ~2475) får konkrete nye forventninger efter det valgte
      prædikat (§4.1 pkt. 5);
-   - fortrydelse af genimport (§4.1 pkt. 6): nægtes efter første hændelse på en publiceret biografi, virker igen efter
-     sletning af hændelserne.
+   - fortrydelse af genimport (§4.1 pkt. 6): en kladde fra en aktiveret genimport får en hændelse, og
+     `red_reverse_1939_v50_reimport` virker stadig.
 4. **Y3** — efter (c): hvert RPC-kald som anon med `statement_timeout=3s` < 1,5 s, også med skæv fordeling (ét narrativ
    med den største forventede fan-out fra #130 og lange klausuler); samlet bladring giver præcis de hændelses-id'er,
    RLS-politikken ville give, **uden dubletter** (antal = antal forskellige); en bid, hvor alle kandidater afvises,
