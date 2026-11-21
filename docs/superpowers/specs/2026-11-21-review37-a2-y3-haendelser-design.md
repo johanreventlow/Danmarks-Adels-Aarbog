@@ -65,32 +65,52 @@ synlighedsbeslutning (cache med mange indgange, kan drive).
    `private.person_purge_fortrydelse` (`schema.sql:~23759`) skal være en **overmængde** af de faktiske ændringer
    (fail-closed). Implementeringen vælger mellem at beholde prædikatet (overmængde, kan melde tab for kladder) og at
    indsnævre det til aktive `published`-bindinger; valget og begrundelsen skrives i planen. Kommentaren opdateres.
-6. **Udrulningsinvariant:** med 0 hændelser i prod er `text_editable` uændret for alle bindinger, så hverken
+6. **Fortrydelse af genimport efter #130.** Genimportens kvittering (`post_activation_receipts`) gemmer editor-kuvertens
+   `state_sha256`. Får en publiceret, tilladt biografi sin første hændelse, skifter `text_editable`, og en fortrydelse af
+   den genimport, der skrev kvitteringen, nægtes for den biografi. Det er ikke nyt (i dag ændrer hændelsen også
+   `publication_state`), og det er ikke permanent: hændelser er en regenererbar projektion, så sletter man hændelserne på
+   de berørte biografier, passer kvitteringen igen, og fortrydelsen virker; `/daa-haendelser` køres derefter igen.
+   **Valg for projektejeren:** (a) acceptér og dokumentér fremgangsmåden (anbefalet), eller (b) tag hændelseslåsen ud af
+   den hashede kuvert som et særskilt, ikke-hashet felt (kvitteringer påvirkes aldrig, men redaktørens kontrakt ændres).
+7. **Udrulningsinvariant:** med 0 hændelser i prod er `text_editable` uændret for alle bindinger, så hverken
    `publication_state`, editor-tokens eller kvitteringer skifter hash ved udrulningen. Det bevises (§6).
 
 ### 4.2 Y3 — `public.public_haendelse_feed`
 
 ```
-public.public_haendelse_feed(p_efter_narrative_id bigint DEFAULT NULL, p_antal_narrativer int DEFAULT 150)
-  RETURNS jsonb   -- {rows:[…], narrativer:[{id,source_id,side}], sources:[{id,udgave}], naeste: bigint|null}
+public.public_haendelse_feed(p_efter_narrative_id bigint DEFAULT NULL, p_efter_id bigint DEFAULT NULL,
+                             p_max_narrativer int DEFAULT 150, p_max_raekker int DEFAULT 1000)
+  RETURNS jsonb   -- {rows:[…], narrativer:[{id,source_id,side}], sources:[{id,udgave}],
+                  --  naeste: {narrative_id, id} | null}
   LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog
 ```
 
-- Kandidater: `DISTINCT narrative_id` fra `haendelse` med `subjekt_type='person'`, `feed_status<>'skjult'`,
-  `entitet_offentlig(subjekt_type, subjekt_id)` og `narrative_id > coalesce(p_efter, -∞)`, ordnet stigende, højst
-  `p_antal_narrativer` (loft fx 200; ugyldig værdi → fejl).
-- Gaten kaldes **én gang pr. kandidat** (MATERIALIZED CTE): `public.person_daa_narrative_publication_allowed(id)`.
-  Samme regel som RLS-politikken; politikken bevares uændret som forsvar for direkte tabellæsning.
-- Rækkernes felter er de samme, som klienten læser i dag (`haendelser.ts:44`). Feltet `fact_id`/`relation_id`
-  med som i dag. `naeste` = sidste kandidat-id, når der kan være flere, ellers null.
+- **Rækkefiltre på hver returneret række** (samme regel som `haendelse.anon_read`): `subjekt_type='person'`,
+  `feed_status<>'skjult'`, `entitet_offentlig(subjekt_type, subjekt_id)` **og** at rækkens eget narrativ er godkendt af
+  gaten. Et narrativ gøres aldrig til »godkendt for alle dets rækker«: rækker, der falder på et filter, udelades, også når
+  andre rækker på samme narrativ er med (Codex 1). `narrativer` og `sources` afledes kun af de returnerede rækker.
+- **Cursor over `(narrative_id, id)`**, strengt stigende. Et kald tager kandidatrækker efter cursoren i den orden og
+  stopper ved det første af: `p_max_raekker` rækker eller `p_max_narrativer` forskellige narrativer (et narrativ kan
+  deles over to kald; cursoren peger midt i det). Begge lofter er bundne (fx ≤ 200 / ≤ 2000; ugyldig værdi → fejl), så
+  arbejdet pr. kald er begrænset både i gate-kald og rækker (Codex 4).
+- Gaten kaldes **én gang pr. forskelligt narrativ i bidden** (MATERIALIZED CTE). RLS-politikken bevares uændret som
+  forsvar for direkte tabellæsning.
+- `naeste` = cursoren efter den sidste **kandidat** (ikke den sidste returnerede række), når der kan være flere; ellers
+  null. En bid kan derfor lovligt returnere `rows=[]` med `naeste` sat; **klienten stopper kun, når `naeste` er null**
+  (Codex 3).
+- Rækkernes felter er de samme, som klienten læser i dag (`haendelser.ts:44`), inkl. `fact_id`/`relation_id`.
 - GRANT EXECUTE til anon og authenticated; redaktionens egne flader (`redaktionRead.ts`) ændres ikke.
 - `feedGrundlag.ts:34` (`haendelse.subjekt_id`) læser fra samme funktion i stedet for tabellen.
-- Bidstørrelsen vælges ud fra målingen (§6): det tungeste kald skal holde sig under 1,5 s som anon på stand-in.
+- Lofterne vælges ud fra målingen (§6): det tungeste kald skal holde sig under 1,5 s som anon på stand-in.
 
 ### 4.3 Klienter
 
-- **web:** `fetchHaendelseRows` og `feedGrundlag` bladrer via RPC'en; fejl i ét kald giver som i dag tom feed med
-  advarsel (tolerant). Tests (vitest) for bladring og tom tabel.
+- **web:** `fetchHaendelseRows` og `feedGrundlag` bladrer via RPC'en, til `naeste` er null.
+  - `fetchHaendelseRows` (hændelseskort) forbliver **tolerant**: fejl → tom liste med advarsel, som i dag.
+  - `fetchNaevntGrundlag` i `feedGrundlag.ts` forbliver **fail-closed**: enhver sidefejl kastes, også efter en vellykket
+    side; et delvist resultat må aldrig gøre en person med hændelser til »kun nævnt« (Codex 2).
+  - Tests (vitest): bladring over en tom side med `naeste` sat, stop ved `naeste=null`, fejl efter første side
+    (kastes i `feedGrundlag`, tolereres i hændelseskort), tom tabel.
 - **mobil:** samme ændring i `mobile/src/data/haendelser.ts` (dev-only, paritet).
 - Delt logik i `packages/core` kun hvis den allerede deles; ellers ingen ny flytning.
 
@@ -105,24 +125,35 @@ definitioner pr. fil), `web/src/data/{haendelser,feedGrundlag}.ts`, `mobile/src/
 
 ## 6. Færdigbevis
 
+0. **Rækkefiltre** — negativ fixture: ét synligt narrativ med både en tilladt række, en `skjult` række og en række med
+   ikke-offentligt subjekt; kun den tilladte returneres, og `narrativer`/`sources` nævner kun dens kilde.
 1. **Synlighed uændret** — mængden af anon-synlige narrativ-**id'er** (ikke antal; legacy med) er identisk ved fire
    punkter på en stand-in fra prod-dump: (a) før DDL, (b) efter DDL, (c) efter en syntetisk hændelses-load på alle
    publicerede narrativer (#130-volumen, fx 5 pr. narrativ), (d) efter sletning af den sidste hændelse på et udvalg.
 2. **Hashes uændret ved udrulning** — for alle bindinger er `publication_state`-hash og editor-`state_sha256` ens før og
    efter DDL; alle `post_activation_receipts` matcher stadig.
-3. **Låsen virker** — revise af en publiceret tekst med hændelse afvises (`NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT`);
-   uden hændelse tilladt.
-4. **Y3** — efter (c): hvert RPC-kald som anon med `statement_timeout=3s` < 1,5 s; samlet bladring giver præcis de
-   hændelser, RLS-politikken ville give (mængdesammenligning som postgres med gaten); den gamle direkte tabellæsning
-   måles til sammenligning.
+3. **Låsen og kvitteringerne efter hændelsesændringer** (Codex 5) — for første og sidste hændelse:
+   - `publication_state`-hashen er uændret (synligheden følger ikke hændelser);
+   - på en publiceret, tilladt binding: `text_editable`/`allowed_actions` og editor-`state_sha256` skifter, og revise
+     afvises med `NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT`; uden hændelse tilladt;
+   - på en kladde: editor-`state_sha256` og en kladdebetinget aktiveringskvittering er uændrede, og reversal virker;
+   - R30-tilfældene i `test-person-purge.sql` (S26 ~884-980, ~2475) får konkrete nye forventninger efter det valgte
+     prædikat (§4.1 pkt. 5);
+   - fortrydelse af genimport (§4.1 pkt. 6): nægtes efter første hændelse på en publiceret biografi, virker igen efter
+     sletning af hændelserne.
+4. **Y3** — efter (c): hvert RPC-kald som anon med `statement_timeout=3s` < 1,5 s, også med skæv fordeling (ét narrativ
+   med den største forventede fan-out fra #130 og lange klausuler); samlet bladring giver præcis de hændelses-id'er,
+   RLS-politikken ville give, **uden dubletter** (antal = antal forskellige); en bid, hvor alle kandidater afvises,
+   efterfølges af en tilladt bid; den gamle direkte tabellæsning måles til sammenligning.
 5. **Opgraderingsvej** — test fra en prod-formet base (ikke kun frisk `schema.sql`, jf. memory om signaturændringer).
 6. CI grøn; prod-DDL via runner (standin → apply → efterkontrol → fortryd-definitioner gemt), projektejeren kører apply.
 
 ## 7. Udrulning
 
-DDL før merge eller samtidig: web-ændringen kalder en ny RPC; findes den ikke, giver `haendelser.ts` tom feed med
-advarsel (tabellen er alligevel tom). Derfor kan merge ske før DDL uden nedetid, men rækkefølgen DDL → merge
-foretrækkes. #130 må først køres, når A2 er i prod.
+DDL før merge: web-ændringen kalder en ny RPC; findes den ikke, giver hændelseskortene tom liste med advarsel, men
+`feedGrundlag` kaster (fail-closed), og »Nævnt i Aarbogen«-kortene udebliver, til DDL'en er i prod. Derfor DDL → merge.
+**Adgangskrav for #130** (Codex 6): A2 og Y3-RPC'en i prod, webklienten med den nye vej udrullet på Vercel, og et
+efterkontrolleret anon-kald gennem klientens nye vej. Først derefter må #130 køres.
 
 ## 8. Roadmapets adgangskrav
 
