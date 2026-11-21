@@ -611,7 +611,8 @@ BEGIN
     RAISE EXCEPTION 'REVIEW37_Y3_ACL_INVALID';
   END IF;
   v_def:=pg_get_functiondef(f);
-  IF strpos(v_def,'v_red boolean:=public.current_rolle()=''redaktion''')=0
+  -- Samme regel for alle roller (projektejeren 2026-11-21): ingen afhængighed af kalderens rolle.
+  IF strpos(v_def,'current_rolle')<>0 OR strpos(v_def,'auth.uid')<>0
      OR strpos(v_def,'public.person_daa_narrative_publication_allowed(n.narrative_id)')=0
      OR strpos(v_def,'h.feed_status<>''skjult''')=0
      OR strpos(v_def,'public.entitet_offentlig(h.subjekt_type,h.subjekt_id)')=0
@@ -640,7 +641,7 @@ BEGIN
       END IF;
     END;
   END LOOP;
-  RAISE NOTICE 'OK: review 37 Y3 — public_haendelse_feed er DEFINER, gatet pr. narrativ, privat nøgle, fejlkoder';
+  RAISE NOTICE 'OK: review 37 Y3 — public_haendelse_feed er DEFINER, gatet pr. narrativ for alle roller, privat nøgle, fejlkoder';
 END
 $review37_y3_verify$;
 

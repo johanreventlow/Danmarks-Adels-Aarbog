@@ -52,8 +52,9 @@ SQL-tests + `test-person-purge.sh`; `db-verify.sql` grøn.
    narrativ, tom bid med `naeste`, stop ved null, ingen dubletter og samme id-mængde som RLS-politikken, manipuleret og
    fremmed mærke afvises, mærket indeholder ingen klartekst-id. Køres i det CI-job, der kører
    `test-narrative-record-contract.sql` (ci.yml:863).
-5. *Efter implementering:* redaktørgren (spec §4.2), indeks `ix_haendelse_narrative_id`, nøgletabellen på
-   `person_purge_undtagelser`; kontrakttesten (Task 5) prøver RPC'en mod den rigtige gate for gæst og redaktør.
+5. *Efter implementering:* alle roller får anon-reglen (projektejeren 2026-11-21; en redaktørgren blev prøvet og
+   fravalgt), indeks `ix_haendelse_narrative_id`, nøgletabellen på `person_purge_undtagelser`; kontrakttesten (Task 5)
+   prøver RPC'en mod den rigtige gate for gæst og redaktør.
 
 ## Task 3 — webklient
 

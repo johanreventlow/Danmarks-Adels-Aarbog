@@ -24756,8 +24756,9 @@ CREATE TRIGGER trg_media_variant_person_purge_udbakke_genbrug AFTER INSERT OR UP
 
 -- BEGIN review37-y3
 -- Review 37 Y3 (spec 2026-11-21 §4.2): feedets hændelser i bidder under anon-grænsen 3 s. Gaten kaldes én gang pr.
--- narrativ i bidden; filtrene gælder hver række (samme regel som haendelse.anon_read). Redaktøren ser det samme som
--- det additive redaktion_read-lag (decisions 2026-11-13, redaktoer-ser-levende). RLS-politikkerne er uændrede.
+-- narrativ i bidden; filtrene gælder hver række (samme regel som haendelse.anon_read) for ALLE roller, også
+-- redaktøren (projektejeren 2026-11-21: feedet er en læserflade; redaktøren ser alt i redaktionsfladerne og via
+-- tabellens redaktion_read). RLS-politikkerne er uændrede.
 -- Bladremærket er krypteret med en privat nøgle, så en intern position (som kan pege på en skjult kandidat) aldrig
 -- udleveres i klartekst; pgp_sym's integritetskontrol afviser et ændret mærke. Rotation: udskift rækken.
 CREATE TABLE IF NOT EXISTS private.feed_cursor_noegle (
@@ -24783,7 +24784,6 @@ SECURITY DEFINER
 SET search_path=pg_catalog
 AS $haendelse_feed$
 DECLARE
-  v_red boolean:=public.current_rolle()='redaktion';
   v_noegle text;
   v_cursor jsonb;
   v_efter_n bigint;
@@ -24832,8 +24832,7 @@ BEGIN
   ), gate AS MATERIALIZED (
     -- Én gate-evaluering pr. forskelligt narrativ (aldrig pr. række).
     SELECT n.narrative_id,
-           CASE WHEN v_red THEN true
-                ELSE public.person_daa_narrative_publication_allowed(n.narrative_id) IS TRUE END AS tilladt
+           public.person_daa_narrative_publication_allowed(n.narrative_id) IS TRUE AS tilladt
       FROM (SELECT DISTINCT b.narrative_id FROM bid b) n
   ), raekker AS MATERIALIZED (
     SELECT h.id,h.subjekt_id,h.narrative_id,h.klausul,h.kategori,h.date_min,h.date_max,h.date_qualifier,
@@ -24842,10 +24841,9 @@ BEGIN
       JOIN public.haendelse h ON h.id=b.id
       JOIN gate g ON g.narrative_id=b.narrative_id
      WHERE h.subjekt_type='person'
-       AND CASE WHEN v_red THEN true
-                ELSE h.feed_status<>'skjult'
-                     AND public.entitet_offentlig(h.subjekt_type,h.subjekt_id) IS TRUE
-                     AND g.tilladt END
+       AND h.feed_status<>'skjult'
+       AND public.entitet_offentlig(h.subjekt_type,h.subjekt_id) IS TRUE
+       AND g.tilladt
   ), narrativer AS MATERIALIZED (
     SELECT n.id,n.source_id,n.side FROM public.narrative n
      WHERE n.id IN (SELECT r.narrative_id FROM raekker r)

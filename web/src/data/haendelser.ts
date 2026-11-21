@@ -38,8 +38,8 @@ function erFeedSide(data: unknown): data is FeedSide {
 }
 
 // Feedet starter hændelseskortene og »Nævnt i Aarbogen«-grundlaget samtidig. De deler én igangværende bladring,
-// så gaten ikke kører to gange over hele korpusset. Delingen er bundet til brugeren (redaktøren ser mere end en
-// gæst), så en kalder efter logud/login aldrig arver en anden brugers rækker. Ingen cache: når bladringen er
+// så gaten ikke kører to gange over hele korpusset. Delingen er bundet til brugeren: RPC'en er i dag ens for alle
+// roller, men en senere rolleforskel må aldrig kunne arves over logud/login. Ingen cache: når bladringen er
 // afsluttet, henter næste kald forfra.
 const igangvaerende = new Map<string, Promise<HaendelseRowsResult>>();
 

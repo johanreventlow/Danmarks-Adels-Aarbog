@@ -4551,8 +4551,9 @@ BEGIN
   END IF;
   SET LOCAL ROLE NONE;
 
-  -- Review 37 Y3: feed-RPC'en med den RIGTIGE gate giver rollens RLS-mængde (kun personhændelser): gæsten ser
-  -- hændelsen på den gyldigt publicerede tekst, ikke den på den forældede (-91521190); redaktøren ser begge.
+  -- Review 37 Y3: feed-RPC'en med den RIGTIGE gate giver gæstens RLS-mængde (kun personhændelser) for alle roller:
+  -- hændelsen på den gyldigt publicerede tekst, ikke den på den forældede (-91521190). Redaktøren ser begge i
+  -- tabellen (matrixen ovenfor), men feedet er en læserflade (projektejeren 2026-11-21).
   PERFORM set_config('request.jwt.claim.sub','',true);
   SET LOCAL ROLE anon;
   v_feed:=public.public_haendelse_feed();
@@ -4570,10 +4571,10 @@ BEGIN
   SET LOCAL ROLE NONE;
   IF ARRAY(SELECT (r->>'id')::bigint FROM jsonb_array_elements(v_feed->'rows') r
             WHERE (r->>'id')::bigint=ANY(v_all_events) ORDER BY 1)
-       IS DISTINCT FROM ARRAY[-91521291,-91521290]::bigint[] THEN
+       IS DISTINCT FROM ARRAY[-91521291]::bigint[] THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_Y3_FEED_REDACTION_INVALID: %',v_feed;
   END IF;
-  RAISE NOTICE 'OK: review 37 Y3 — feed-RPC med rigtig gate = RLS-mængden for gæst og redaktør';
+  RAISE NOTICE 'OK: review 37 Y3 — feed-RPC med rigtig gate = gæstens RLS-mængde, også for redaktøren';
 
   SELECT array_agg(row.narrative_text ORDER BY row.ordinality)
     INTO v_actual_v2_order

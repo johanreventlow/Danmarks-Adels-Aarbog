@@ -13,6 +13,10 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 - **Y3:** ny RPC `public_haendelse_feed` i bidder, gaten én gang pr. narrativ, filtre på hver række, krypteret
   bladremærke (pgp_sym med privat nøgle). Fravalgt: server-side udvælgelse af forsidens kort; gemt synlighedsbeslutning
   (cache).
+- **Y3, alle roller får gæsternes regel i feedet** (projektejeren 21/11, under Task 2): også redaktøren. Feedet er en
+  læserflade; redaktøren ser fortsat alt i redaktionsfladerne og via tabellens `redaktion_read`. Bevidst undtagelse fra
+  mønstret »redaktøren ser levende« (2026-11-13), som gælder personsidens læse-RPC'er. Fravalgt: en redaktørgren som
+  i `public_person_facts` (bevarer redaktørens nuværende feed, men gør feedet rolleafhængigt).
 - **#130** må først køres, når A2, RPC'en og den udrullede webklient er i prod og efterkontrolleret som anon.
 - Genimport-fortrydelse påvirkes ikke af hændelser (kvitteringen er kladdens tilstand).
 

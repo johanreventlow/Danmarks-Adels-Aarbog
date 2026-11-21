@@ -106,12 +106,10 @@ public.public_haendelse_feed(p_fortsaet text DEFAULT NULL,
   (Codex 3).
 - Rækkernes felter er de samme, som klienten læser i dag (`haendelser.ts:44`), inkl. `fact_id`/`relation_id`.
 - GRANT EXECUTE til anon og authenticated; redaktionens egne flader (`redaktionRead.ts`) ændres ikke.
-- **Redaktørgren (afvigelse fra første udkast, Task 2 2026-11-21).** Første udkast gav alle roller anon-reglen. Det ville
-  indsnævre redaktørens feed i forhold til i dag (`haendelse.redaktion_read` viser alle rækker) i strid med beslutningen
-  2026-11-13 (»redaktøren ser levende«, håndhævet i `db-verify.sql` blokken `redaktoer-ser-levende`). Funktionen følger
-  derfor det mønster: `v_red boolean:=public.current_rolle()='redaktion'`; for redaktøren springes gaten og
-  rækkefiltrene over (kun `subjekt_type='person'`, som klienten altid har filtreret), for gæster og medlemmer gælder
-  anon-reglen pr. række. Hver rolle får dermed præcis sin RLS-mængde.
+- **Alle roller, også redaktøren, får anon-reglen** (projektejeren 2026-11-21, `decisions.md`). En redaktørgren som i
+  `public_person_facts` blev implementeret og forelagt, men fravalgt: feedet er en læserflade, og redaktøren ser alt i
+  redaktionsfladerne og via tabellens `redaktion_read`. Redaktørens feed bliver dermed snævrere end i dag. Funktionen
+  afhænger ikke af kalderens rolle (db-verify).
 - Cursor-scannet bruger det nye indeks `ix_haendelse_narrative_id (narrative_id,id)`. Nøgletabellen står på
   personsletningens undtagelsesliste (`person_purge_undtagelser`: teknik, ingen P-sti).
 - `feedGrundlag.ts:34` (`haendelse.subjekt_id`) læser fra samme funktion i stedet for tabellen.
@@ -127,8 +125,8 @@ public.public_haendelse_feed(p_fortsaet text DEFAULT NULL,
     (kastes i `feedGrundlag`, tolereres i hændelseskort), tom tabel.
   - **Delt bladring (tilføjet Task 3, 2026-11-21):** feedet starter hændelseskort og »Nævnt«-grundlag samtidig;
     de deler én *igangværende* bladring pr. bruger (bruger-id, ellers gæst), så gaten ikke kører to gange over
-    korpusset. Det er ikke en cache: når bladringen er afsluttet, henter næste kald forfra, og en kalder efter
-    logud/login arver aldrig en anden brugers rækker. En fejl afviser begge kaldere (kortene tolererer, grundlaget
+    korpusset. Det er ikke en cache: når bladringen er afsluttet, henter næste kald forfra. Bindingen til brugeren
+    er et værn: RPC'en er i dag ens for alle roller, men en senere rolleforskel må ikke kunne arves over logud/login. En fejl afviser begge kaldere (kortene tolererer, grundlaget
     kaster).
 - **mobil:** samme ændring i `mobile/src/data/haendelser.ts` (dev-only, paritet).
 - Delt logik i `packages/core` kun hvis den allerede deles; ellers ingen ny flytning.

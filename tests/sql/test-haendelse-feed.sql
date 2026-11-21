@@ -2,6 +2,8 @@
 -- Kører i én transaktion, der rulles tilbage. Publiceringsgaten erstattes inde i transaktionen af en tællende stub,
 -- så testen styrer, hvilke narrativer der er tilladt, og kan tælle gate-kald. Sammenligningen med RLS er ægte:
 -- narrative.anon_read kalder samme gate, og haendelse.anon_read/auth_read/redaktion_read er uændrede.
+-- Alle roller får gæsternes regel (projektejeren 2026-11-21); redaktørens bredere tabeladgang (redaktion_read) bruges
+-- kun som kontrol af, at feedet bevidst er snævrere end tabellen for redaktøren.
 -- Integration med den rigtige gate: test-narrative-record-contract.sql (Task 5, review 37 Y3).
 \set ON_ERROR_STOP on
 BEGIN;
@@ -111,17 +113,26 @@ BEGIN
 END
 $bladring$;
 
--- §4: samlet bladring = præcis RLS-politikkens id-mængde for rollen, uden dubletter. §6.0: rækkefiltre pr. række.
+-- §4: samlet bladring = præcis gæstens RLS-mængde for alle roller, uden dubletter. §6.0: rækkefiltre pr. række.
 DO $samme_som_rls$
 DECLARE v_rolle text; v_sub text; v_rls bigint[]; v_feed bigint[]; v_alle bigint; v_forskellige bigint; v_l record;
+  v_rolle_rls bigint[];
   v_forventet_anon bigint[]:=ARRAY[-93970505,-93970501,-93970403,-93970402,-93970401,-93970301,-93970201];
 BEGIN
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  SET LOCAL ROLE anon;
+  v_rls:=ARRAY(SELECT h.id FROM public.haendelse h
+                WHERE h.subjekt_type='person' AND h.id BETWEEN -93970999 AND -93970001 ORDER BY h.id);
+  RESET ROLE;
+  IF v_rls IS DISTINCT FROM (SELECT array_agg(x ORDER BY x) FROM unnest(v_forventet_anon) x) THEN
+    RAISE EXCEPTION 'FEEDTEST_FIXTUR_RLS_UVENTET: %',v_rls;
+  END IF;
   FOR v_rolle,v_sub IN VALUES ('anon',''),('medlem','00000000-0000-0000-0000-0000000093a2'),
                              ('redaktion','00000000-0000-0000-0000-0000000093a1') LOOP
     PERFORM set_config('request.jwt.claim.sub',v_sub,true);
     IF v_rolle='anon' THEN SET LOCAL ROLE anon; ELSE SET LOCAL ROLE authenticated; END IF;
-    v_rls:=ARRAY(SELECT h.id FROM public.haendelse h
-                  WHERE h.subjekt_type='person' AND h.id BETWEEN -93970999 AND -93970001 ORDER BY h.id);
+    v_rolle_rls:=ARRAY(SELECT h.id FROM public.haendelse h
+                        WHERE h.subjekt_type='person' AND h.id BETWEEN -93970999 AND -93970001 ORDER BY h.id);
     RESET ROLE;
     FOR v_l IN SELECT DISTINCT max_n,max_r FROM feedtest_resultat WHERE rolle=v_rolle LOOP
       SELECT array_agg(i ORDER BY i),count(*),count(DISTINCT i) INTO v_feed,v_alle,v_forskellige
@@ -132,29 +143,27 @@ BEGIN
           v_rolle,v_l.max_n,v_l.max_r,v_feed,v_rls,v_alle,v_forskellige;
       END IF;
     END LOOP;
-    IF v_rolle IN ('anon','medlem') AND v_rls IS DISTINCT FROM (SELECT array_agg(x ORDER BY x) FROM unnest(v_forventet_anon) x) THEN
-      RAISE EXCEPTION 'FEEDTEST_FIXTUR_RLS_UVENTET: % %',v_rolle,v_rls;
-    END IF;
-    IF v_rolle='redaktion' AND cardinality(v_rls)<>11 THEN
-      RAISE EXCEPTION 'FEEDTEST_FIXTUR_REDAKTOER_UVENTET: %',v_rls;
+    -- Kontrol: medlemmet har gæstens tabelmængde; redaktøren ser mere i tabellen (redaktion_read), men ikke i feedet.
+    IF (v_rolle='medlem' AND v_rolle_rls IS DISTINCT FROM v_rls)
+       OR (v_rolle='redaktion' AND cardinality(v_rolle_rls)<>11) THEN
+      RAISE EXCEPTION 'FEEDTEST_FIXTUR_ROLLE_UVENTET: % %',v_rolle,v_rolle_rls;
     END IF;
   END LOOP;
   PERFORM set_config('request.jwt.claim.sub','',true);
   -- narrativer/sources nævner kun de returnerede rækkers narrativer og kilder (aldrig det skjulte narrativ/kilde C).
-  IF EXISTS (SELECT 1 FROM feedtest_resultat WHERE rolle<>'redaktion'
-              AND (-93970090=ANY(narrativer) OR -93970013=ANY(kilder)))
-     OR EXISTS (SELECT 1 FROM feedtest_resultat r WHERE rolle<>'redaktion' AND cardinality(r.ids)=0
+  IF EXISTS (SELECT 1 FROM feedtest_resultat WHERE -93970090=ANY(narrativer) OR -93970013=ANY(kilder))
+     OR EXISTS (SELECT 1 FROM feedtest_resultat r WHERE cardinality(r.ids)=0
                  AND (cardinality(r.narrativer)>0 OR cardinality(r.kilder)>0))
      OR EXISTS (SELECT 1 FROM feedtest_resultat r,unnest(r.narrativer) n
                  WHERE NOT EXISTS (SELECT 1 FROM public.haendelse h WHERE h.id=ANY(r.ids) AND h.narrative_id=n)) THEN
     RAISE EXCEPTION 'FEEDTEST_METADATA_UDEN_RAEKKE';
   END IF;
-  RAISE NOTICE 'OK: Y3 bladring = RLS-mængden for anon, medlem og redaktør; ingen dubletter; metadata kun for returnerede rækker';
+  RAISE NOTICE 'OK: Y3 bladring = gæstens RLS-mængde for anon, medlem og redaktør; ingen dubletter; metadata kun for returnerede rækker';
 END
 $samme_som_rls$;
 
 -- §4: en bid, hvor alle kandidater afvises, har rows=[] og naeste sat og efterfølges af en tilladt bid.
--- §4.2: gaten kaldes én gang pr. forskelligt narrativ i bidden (aldrig for redaktøren); lofterne binder.
+-- §4.2: gaten kaldes én gang pr. forskelligt narrativ i bidden (for alle roller); lofterne binder.
 DO $tom_bid_og_gate$
 DECLARE v record;
 BEGIN
@@ -169,18 +178,17 @@ BEGIN
                FROM feedtest_resultat x WHERE x.rolle=r.rolle AND x.max_n=r.max_n AND x.max_r=r.max_r))) THEN
     RAISE EXCEPTION 'FEEDTEST_NAESTE_FORKERT';
   END IF;
-  IF EXISTS (SELECT 1 FROM feedtest_resultat r WHERE r.rolle<>'redaktion' AND r.gate_kald>r.max_n)
-     OR EXISTS (SELECT 1 FROM feedtest_resultat r WHERE r.rolle='redaktion' AND r.gate_kald<>0)
+  IF EXISTS (SELECT 1 FROM feedtest_resultat r WHERE r.gate_kald>r.max_n OR (cardinality(r.ids)>0 AND r.gate_kald=0))
      OR EXISTS (SELECT 1 FROM feedtest_resultat r WHERE cardinality(r.ids)>r.max_r) THEN
     RAISE EXCEPTION 'FEEDTEST_LOFT_ELLER_GATE_OVERSKREDET';
   END IF;
   -- Ét kald med plads til alt: gaten kaldes præcis én gang pr. narrativ (5), ikke pr. række (12).
-  SELECT * INTO STRICT v FROM feedtest_resultat WHERE rolle='anon' AND max_n=150 AND max_r=1000;
-  IF v.gate_kald<>5 OR v.naeste IS NOT NULL THEN
-    RAISE EXCEPTION 'FEEDTEST_GATE_PR_NARRATIV: %',to_jsonb(v);
+  IF EXISTS (SELECT 1 FROM feedtest_resultat x WHERE x.max_n=150 AND x.max_r=1000
+              AND (x.gate_kald<>5 OR x.naeste IS NOT NULL)) THEN
+    RAISE EXCEPTION 'FEEDTEST_GATE_PR_NARRATIV';
   END IF;
   -- Et narrativ kan deles over to kald (max 2 rækker; det blandede narrativ har 5 kandidater).
-  IF (SELECT count(*) FROM feedtest_resultat r WHERE r.rolle='redaktion' AND r.max_n=1 AND r.max_r=2
+  IF (SELECT count(*) FROM feedtest_resultat r WHERE r.rolle='anon' AND r.max_n=1 AND r.max_r=2
         AND EXISTS (SELECT 1 FROM unnest(r.ids) i WHERE i BETWEEN -93970505 AND -93970501))<2 THEN
     RAISE EXCEPTION 'FEEDTEST_NARRATIV_IKKE_DELT';
   END IF;
