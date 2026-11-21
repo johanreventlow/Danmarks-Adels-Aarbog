@@ -201,6 +201,8 @@ export type Model = {
   udgaveForPersonRaekke?: Record<string, string>;
   // 6e-2: personens linjerækker pr. kilde (hovedets linjer pr. udgave, B6-note); kun web sætter dem.
   linjeRaekkerBy?: Record<string, import('./b6Note').LinjeRaekke[]>;
+  // Stamtavlenumre pr. kanonisk person (ét pr. udgave) til bogens rækkefølge af børn (bogensOrden.ts); kun web.
+  bogNrBy?: Record<string, import('./bogensOrden').BogNr[]>;
 };
 
 // --- Geo-lag (kort) ---------------------------------------------------------
