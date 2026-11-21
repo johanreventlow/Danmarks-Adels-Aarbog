@@ -3438,7 +3438,11 @@ data — ikke spec'ens evidensbaserede genimport (fortolkningslag 0 rækker,
 EXECUTE), #155 (DB-hærdning), #157 (dokumentationsdrift), #158 (1939 v50
 lukning).
 
-## ÅBENT: hvor langt er bio-udtrækket nået? (2026-08-20)
+## LUKKET 2026-11-21: hvor langt er bio-udtrækket nået? (2026-08-20)
+
+> **Lukket 2026-11-21 (#423):** det åbne spørgsmål, om hændelsesudtrækket skal køres nu, er afgjort. Det er #130,
+> og det køres, når review 37's A2+Y3 (PR #418) er i prod og efterkontrolleret som anon (posten 2026-11-21 øverst).
+> Fakta-visningen, som spørgsmålet hang sammen med, er løst (se »strukturerede fakta er usynlige« nedenfor).
 
 Målt mod prod, så spørgsmålet »har vi udtrukket de ekstra bio-oplysninger?«
 kan besvares med tal frem for indtryk.
@@ -3508,7 +3512,10 @@ kobling kan ikke fortrydes — dumpen er eneste udvej. Gate-kæden skal være
 stærkere end D2's, og fasen erstatter narrativtekst frem for at sætte et flag.
 Det kræver egen spec.
 
-## ÅBENT: 1021 er ikke enestående — 12 narrativer begynder midt i en sætning (2026-08-20)
+## LUKKET 2026-11-21: 1021 er ikke enestående — 12 narrativer begynder midt i en sætning (2026-08-20)
+
+> **Lukket 2026-11-21 (#423), videreført — ikke løst:** klassifikationen og reparationen af de 12 kandidater er
+> issue #162 (parkeret under #158). Posten her lukkes som dokumentation; arbejdskøen er #162.
 
 Scannet over alle 576 1939-narrativer for 1021's signatur (teksten begynder med
 lille bogstav = fortsættelse af noget afskåret):
@@ -3531,7 +3538,10 @@ afkortet eller ligger i en anden post, som 1021's gør hos 1017.
 C3's reelle størrelse: grænsefejlene er en klasse på mindst 12, ikke et
 enkelttilfælde.
 
-## ÅBENT: strukturerede fakta er usynlige i fladen (2026-08-20)
+## LUKKET 2026-11-21: strukturerede fakta er usynlige i fladen (2026-08-20)
+
+> **Lukket 2026-11-21 (#423):** løst. Læserfladen viser personens fakta med kilde siden B11 (i prod 2026-10-29,
+> `status.md`: »Læserflade: fakta med kildehenvisning«) og med udgave og trykt side siden 6e-1/6e-2 (2026-11-12/14).
 
 **Fundet under D2's web-verifikation.** Persondetaljen viser aldrig en
 fakta-liste. `fetchPersonDetail` (`web/src/data/public.ts:171`) henter
@@ -3560,7 +3570,11 @@ derfor intet at se, selv om rygraden er der.
 om den skal vise konklusionen alene eller også påstand/kilde (evidenskæden).
 Redaktionsfladen viser allerede fakta; læserfladen gør ikke.
 
-## ÅBENT: 16 tomme unioner i prod (2026-08-20)
+## LUKKET 2026-11-21: 16 tomme unioner i prod (2026-08-20)
+
+> **Lukket 2026-11-21 (#423), videreført — ikke løst:** auditten og valget mellem oprydning og loader-guard er
+> issue #163 (parkeret under #158). De gamle loadere er frosset siden kontrakt v2 (B5, 2026-10-27), så der kommer
+> ingen reload, der kan genskabe dem, mens auditten venter.
 
 Målt under D2's efterkontrol: 16 af 682 familier har **præcis én partner og
 nul børn** — altså et registreret ægteskab uden nogen at være gift med.
@@ -3646,7 +3660,10 @@ person-sletning — registreringen af, at teksten står på siden, er stadig san
 
 ---
 
-## ÅBEN: hvad skal en person-sletning gøre ved `source_persona_identity`? (2026-08-20)
+## LUKKET 2026-11-21: hvad skal en person-sletning gøre ved `source_persona_identity`? (2026-08-20)
+
+> **Lukket 2026-11-21 (#423):** afgjort 2026-11-14 i »fuld sletning af en personprofil uden rest« (hård sletning,
+> imod anbefalingen her; bogens lag med source records og personas bevares). I prod siden 2026-11-18.
 
 **Spørgsmålet dukkede op** under rettelsen af `red_slet_person` ovenfor.
 `private.source_persona_identity` og `private.source_persona_identity_event`
@@ -4102,7 +4119,13 @@ fuld kørsel var de forsvundet tavst ud af korpus. Rettet med et selvstændigt f
 omstridte poster nu klassificeres rigtigt uden tab af data. **60 kald fandt en fejl der
 ellers ville være ramt 515 poster.**
 
-## 1939-posternes permanente løbenummer: ÅBEN, og bevidst ikke sat endnu (2026-07-28)
+## LUKKET 2026-11-21: 1939-posternes permanente løbenummer — afløst af source records og placement (2026-07-28)
+
+> **Lukket 2026-11-21 (#423), afløst:** 1939-posternes permanente anker er nu bogens source record (`record-…`,
+> rendition-forankret; 1939 produktionsverificeret 2026-08-22) med persona og identitet (6b/6c-1, 2026-11-01/02) og
+> bogens trykte koordinater i placementet (6d-1, 2026-11-09). `person_external_id.record_key` sættes ikke for 1939
+> (kun 8 af 576 legacy-rækker har den, jf. 6d-2-posten 2026-11-09). Kravet K4 nedenfor — nye slægter får nøglen ved
+> udtræk — gælder fortsat for trin 7.
 
 Brugerspørgsmål: er der en plan for at 1939-posterne får et permanent løbenummer
 (`person_external_id.record_key`)? **Nej — det er noteret tre gange samme dag af to
