@@ -7,8 +7,8 @@ Synlighedsreglen afgør nu offentlighed for hele mennesket, ikke række for ræk
 relationer og familier, der hænger på dem. En række, som blot ikke er afstemt endnu (staged), skjuler ikke den
 offentlige hovedrække. Ingen personer skifter synlighed i dag (generalprøve på stand-in med prod-data: 0 personer,
 0 familier, 0 floruit-værdier); reglen forhindrer, at næste sammenfoldning åbner hullet fra 21/11 igen. Gæstens
-læsninger bliver 30-170 ms langsommere pr. fuld tabel. Branch `fix/415-samme-som-synlighed`; prod-status i
-`database-current-state.md`.
+læsninger bliver 50-480 ms langsommere pr. fuld tabel (alle under 1,1 s). PR #417; DDL i prod 21/11 før merge
+(`database-current-state.md` §38).
 
 ## 2026-11-21 — Tre 1939-rækker for nulevende er ikke længere offentlige
 
