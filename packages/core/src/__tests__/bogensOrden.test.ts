@@ -81,6 +81,16 @@ describe('sorterBoernEfterBogen', () => {
     expect(ider(sorterBoernEfterBogen([B('m'), B('c'), B('a')], 'F', idx, [U2018, U1939]))).toEqual(['a', 'm', 'c']);
   });
 
+  it('ét barn på forælderens legacy-linje slår ikke flertallets linje fra (review I1)', () => {
+    const idx = { F: [N('10', '1939', 275)], a: [N('10', '1939', 280)], b: [N('10', 'IV', 1)], c: [N('10', 'IV', 2)] };
+    expect(ider(sorterBoernEfterBogen([B('a', 1700), B('c', 1701), B('b', 1702)], 'F', idx, [U1939]))).toEqual(['b', 'c', 'a']);
+  });
+
+  it('barn med to numre i samme udgave bruger nummeret i den gyldige linje (review I2)', () => {
+    const idx = { F: [N('10', 'IV', 0)], x: [N('10', 'OZ', 9), N('10', 'IV', 1)], y: [N('10', 'IV', 2)], z: [N('10', 'IV', 3)] };
+    expect(ider(sorterBoernEfterBogen([B('y'), B('z'), B('x')], 'F', idx, [U1939]))).toEqual(['x', 'y', 'z']);
+  });
+
   it('uden bogNrBy: fødselsår-fallback', () => {
     expect(ider(sorterBoernEfterBogen([B('b', 1702), B('a', 1701)], 'F', undefined, undefined))).toEqual(['a', 'b']);
   });

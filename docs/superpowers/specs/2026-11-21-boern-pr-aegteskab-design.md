@@ -43,8 +43,9 @@ Sorteringsnøgle pr. barn (projektejerens godkendte regel):
    første barn, der står efter dem i den ældre udgave (prod 21/11: Conrads 1939-børn nr. 1-2,
    Frederik 1792 og Charlotte Amalie 1793, findes ikke i 2018-20 og har ingen fødselsdato).
 4. Resten: efter fødselsår, sidst; derefter navn (deterministisk).
-5. Linje: forælderens linje i udgaven, hvis et barn står dér; ellers børnenes mest brugte linje
-   (1939: Conrad står under linjekoden »1939«, børnene under IV).
+5. Linje: den linje flest af børnene står i (lige: forælderens linje); 1939 blander legacy-koden
+   »1939« og skemakoden IV i samme udgave (review I1). Et barn med flere numre i samme udgave
+   bruger nummeret i den linje (review I2).
 
 ## Overladt til implementeringen
 

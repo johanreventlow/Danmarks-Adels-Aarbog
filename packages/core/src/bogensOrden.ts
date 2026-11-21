@@ -2,7 +2,7 @@
 //
 // Kilden er barnets stamtavlenummer (koordinatens nr + nr_label): loaderen hentede børn via forælderens
 // nr-interval, så nummeret ER bogens orden. family_member.ordinal er partneres ægteskabsnummer og bruges ikke.
-// Højst ét nummer pr. person og udgave (person_external_id's nøgle), men en sammenfoldet person har ét pr. udgave.
+// Højst ét nummer pr. person-række og udgave (person_external_id's nøgle); en sammenfoldet person kan have flere.
 import type { RawExtId } from './types';
 
 export type BogNr = { sourceId: string; linje: string; nr: number; nrLabel: string | null };
@@ -34,24 +34,27 @@ const cmpFallback = (a: Barn, b: Barn) => {
   return a.name.localeCompare(b.name, 'da');
 };
 
-// Børnenes numre i én udgave, kun i de gyldige linjer: forælderens linje(r) i udgaven, hvis et barn står dér;
-// ellers den linje flest børn står i (1939: forælderen står under en anden linjekode end børnene).
+// Børnenes numre i én udgave, kun i én gyldig linje: den linje flest børn står i (lige: forælderens linje, så
+// alfabetisk). Flertallet og ikke forælderens linje afgør, fordi koordinat-RPC'en kan blande proveniens i én udgave
+// (1939: Conrad og enkelte børn under legacy-koden »1939«, søskende under skemakoden IV; review I1). Et sammenfoldet
+// barn kan have flere numre i samme udgave (to aliasrækker); nummeret i den gyldige linje bruges (review I2).
 function noeglerIUdgave(boern: readonly Barn[], foraelderId: string, bogNrBy: Record<string, BogNr[]>, sid: string): Map<string, BogNr> {
-  const nummererede: [string, BogNr][] = [];
+  const pr = new Map<string, BogNr[]>();
   for (const b of boern) {
-    const n = (bogNrBy[b.id] ?? []).find((x) => x.sourceId === sid);
-    if (n) nummererede.push([b.id, n]);
+    const ns = (bogNrBy[b.id] ?? []).filter((x) => x.sourceId === sid);
+    if (ns.length) pr.set(b.id, ns);
   }
   const ud = new Map<string, BogNr>();
-  if (!nummererede.length) return ud;
+  if (!pr.size) return ud;
+  const antal = new Map<string, number>();
+  for (const ns of pr.values()) for (const l of new Set(ns.map((n) => n.linje))) antal.set(l, (antal.get(l) ?? 0) + 1);
   const foraelderLinjer = new Set((bogNrBy[foraelderId] ?? []).filter((n) => n.sourceId === sid).map((n) => n.linje));
-  let linjer = new Set([...foraelderLinjer].filter((l) => nummererede.some(([, n]) => n.linje === l)));
-  if (linjer.size === 0) {
-    const antal = new Map<string, number>();
-    for (const [, n] of nummererede) antal.set(n.linje, (antal.get(n.linje) ?? 0) + 1);
-    linjer = new Set([[...antal.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0]]);
+  const linje = [...antal.entries()].sort((a, b) =>
+    b[1] - a[1] || Number(foraelderLinjer.has(b[0])) - Number(foraelderLinjer.has(a[0])) || (a[0] < b[0] ? -1 : 1))[0][0];
+  for (const [id, ns] of pr) {
+    const i = ns.filter((n) => n.linje === linje).sort(cmpNr)[0];
+    if (i) ud.set(id, i);
   }
-  for (const [id, n] of nummererede) if (linjer.has(n.linje)) ud.set(id, n);
   return ud;
 }
 
