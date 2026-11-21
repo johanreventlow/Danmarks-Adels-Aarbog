@@ -7,7 +7,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PersonDetailData } from '../../data/public';
 import type { Model } from '../../data/types';
 
-vi.mock('../../data/familySources', () => ({ fetchFamilySources: async () => [] }));
 vi.mock('../../router', () => ({ navigate: vi.fn() }));
 const { PersonSide } = await import('../PersonSide');
 

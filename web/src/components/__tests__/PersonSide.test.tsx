@@ -8,7 +8,6 @@ import type { PersonDetailData } from '../../data/public';
 import type { Model } from '../../data/types';
 import type { MediaItem } from '../../data/media';
 
-vi.mock('../../data/familySources', () => ({ fetchFamilySources: async () => [] }));
 vi.mock('../../router', () => ({ navigate: vi.fn() }));
 const smal = vi.hoisted(() => ({ v: false }));
 vi.mock('../../useSmalSkaerm', () => ({ useSmalSkaerm: () => smal.v }));
