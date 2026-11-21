@@ -26,6 +26,7 @@ import { NarrativRenderer } from './NarrativRenderer';
 import { PersonFakta } from './PersonFakta';
 import { SlaegtskabsLinje } from './SlaegtskabsLinje';
 import { slaegtskabsKontekst } from '../data/slaegtskab';
+import { byggFokusRaekker } from '../data/fokusTrae';
 import { Lightbox } from './Lightbox';
 import { Tilstand, tilstandSekundaer } from './Tilstand';
 import { usePersonVisning, KildeLinjeVisning } from './personVisning';
@@ -59,6 +60,8 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   const livsrejse = useMemo(() => (!geoLoading && model.geo ? lifeJourney(model.geo, focusId) : []), [geoLoading, model.geo, focusId]);
   // Før det tidlige return: hooks skal kaldes i samme rækkefølge ved hver render.
   const kontekst = useMemo(() => slaegtskabsKontekst(model, meId, focusId), [model, meId, focusId]);
+  // Børn pr. ægteskab i Aarbogens rækkefølge: samme gruppering som stamtræet (fokusTrae), så de to aldrig er uenige.
+  const fam = useMemo(() => byggFokusRaekker(model, focusId), [model, focusId]);
   const p = v.p;
   if (!p) return null;
 
@@ -216,9 +219,19 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
               <dd style={{ margin: 0 }}>
                 {v.children.length ? (
                   <>
-                    <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                      {v.children.map((c) => <li key={c.id}><PersonLink id={c.id} navn={c.name} aar={c.years} konf={konfOrd(c.id, focusId)} onVis={onVisPerson} /></li>)}
-                    </ul>
+                    {(fam?.boerneGrupper ?? []).map((g, gi) => (
+                      <div key={g.aegteskab?.unionId ?? g.aegteskab?.navn ?? `uden-${gi}`} style={{ marginTop: gi > 0 ? 10 : 0 }}>
+                        {(fam?.aegteskaber.length ?? 0) > 1 && (
+                          <p style={{ margin: '0 0 2px', fontFamily: T.serif, fontStyle: 'italic', fontSize: 16, color: T.inkSecondary }}>
+                            {g.aegteskab ? `Med ${g.aegteskab.navn}` : 'Ægteskab ikke angivet'}
+                          </p>
+                        )}
+                        {!g.aegteskab && fam?.boerneNote && <Mangel>{fam.boerneNote}</Mangel>}
+                        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+                          {g.boern.map(({ person: c }) => <li key={c.id}><PersonLink id={c.id} navn={c.name} aar={c.years} konf={konfOrd(c.id, focusId)} onVis={onVisPerson} /></li>)}
+                        </ul>
+                      </div>
+                    ))}
                     {v.boerneKilder.map((k) => <KildeLinjeVisning key={v.kildeNøgle(k)} kilde={k} chips={v.vaelger.chips} onVaelg={v.vaelgChip} fontSize={12} />)}
                   </>
                 ) : <Mangel>Ingen børn angivet i Aarbogen.</Mangel>}
