@@ -45,9 +45,11 @@ nrk_postverify_direct_readers <- function() {
   }), use.names = FALSE)
   files <- files[!grepl("/(__tests__|test)/|\\.(test|spec)\\.(ts|tsx)$", files)]
   text <- lapply(files, readLines, warn = FALSE, encoding = "UTF-8")
+  # Review 37 Y3: haendelser.ts læser narrativ-gatede hændelser via public_haendelse_feed
+  # i stedet for .from('narrative'); den frosne 11-liste (cutover-kontrakten) er uændret.
   direct <- sub(paste0("^", repository, "/"), "", files[vapply(text, function(lines) {
     any(grepl(
-      "\\.from\\(['\"]narrative['\"]\\)|public_person_bio_source_versions(_v2)?|red_person_narrative_records",
+      "\\.from\\(['\"]narrative['\"]\\)|public_person_bio_source_versions(_v2)?|red_person_narrative_records|public_haendelse_feed",
       lines
     ))
   }, logical(1))])
