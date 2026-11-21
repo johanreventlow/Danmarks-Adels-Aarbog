@@ -92,6 +92,9 @@ public.public_haendelse_feed(p_fortsaet text DEFAULT NULL,
   (`private.feed_cursor_noegle`, én række, genereret med `gen_random_bytes(32)` ved DDL'en, ingen grants). pgp_sym's
   integritetskontrol (MDC) afviser et manipuleret mærke: dekrypteringsfejl eller ugyldig form → `FEED_CURSOR_INVALID`.
   Nøglen roteres ved at udskifte rækken (gamle mærker bliver ugyldige; klienten starter forfra).
+  Nøglen beskytter kun mærkets uigennemsigtighed (ingen data er krypteret med den). Den ligger i `private`-data og
+  følger derfor med i projektejerens private læsedumps; den er forskellig pr. base (genereres ved DDL'en). Lækkes den,
+  afslører den højst interne positioner; rotation er én UPDATE (Task 2, 2026-11-21).
 - **Intern cursor over `(narrative_id, id)`**, strengt stigende. Et kald tager kandidatrækker efter cursoren i den orden og
   stopper ved det første af: `p_max_raekker` rækker eller `p_max_narrativer` forskellige narrativer (et narrativ kan
   deles over to kald; cursoren peger midt i det). Begge lofter er bundne (fx ≤ 200 / ≤ 2000; ugyldig værdi → fejl), så
@@ -103,6 +106,14 @@ public.public_haendelse_feed(p_fortsaet text DEFAULT NULL,
   (Codex 3).
 - Rækkernes felter er de samme, som klienten læser i dag (`haendelser.ts:44`), inkl. `fact_id`/`relation_id`.
 - GRANT EXECUTE til anon og authenticated; redaktionens egne flader (`redaktionRead.ts`) ændres ikke.
+- **Redaktørgren (afvigelse fra første udkast, Task 2 2026-11-21).** Første udkast gav alle roller anon-reglen. Det ville
+  indsnævre redaktørens feed i forhold til i dag (`haendelse.redaktion_read` viser alle rækker) i strid med beslutningen
+  2026-11-13 (»redaktøren ser levende«, håndhævet i `db-verify.sql` blokken `redaktoer-ser-levende`). Funktionen følger
+  derfor det mønster: `v_red boolean:=public.current_rolle()='redaktion'`; for redaktøren springes gaten og
+  rækkefiltrene over (kun `subjekt_type='person'`, som klienten altid har filtreret), for gæster og medlemmer gælder
+  anon-reglen pr. række. Hver rolle får dermed præcis sin RLS-mængde.
+- Cursor-scannet bruger det nye indeks `ix_haendelse_narrative_id (narrative_id,id)`. Nøgletabellen står på
+  personsletningens undtagelsesliste (`person_purge_undtagelser`: teknik, ingen P-sti).
 - `feedGrundlag.ts:34` (`haendelse.subjekt_id`) læser fra samme funktion i stedet for tabellen.
 - Lofterne vælges ud fra målingen (§6): det tungeste kald skal holde sig under 1,5 s som anon på stand-in.
 

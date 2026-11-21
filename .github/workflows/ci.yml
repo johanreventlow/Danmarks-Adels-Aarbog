@@ -861,6 +861,10 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -f db-rls.sql
       - name: Fokuseret record-kontrakt
         run: psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-narrative-record-contract.sql
+      - name: Feed i bidder (review 37 Y3)
+        run: |
+          out=$(psql -X -v ON_ERROR_STOP=1 -f tests/sql/test-haendelse-feed.sql)
+          grep -qx 'OK test-haendelse-feed' <<<"$out"
       - name: Helpost-regel (trin 6a, schema + migrationer to gange)
         run: |
           psql -X -v ON_ERROR_STOP=1 -f db-migrations.sql

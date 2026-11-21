@@ -4514,6 +4514,7 @@ DECLARE
   ];
   v_all_events bigint[]:=ARRAY[-91521292,-91521291,-91521290];
   v_public_events bigint[]:=ARRAY[-91521292,-91521291];
+  v_feed jsonb;
   v_actual record;
   v_actual_v2_order text[];
 BEGIN
@@ -4549,6 +4550,30 @@ BEGIN
     RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_VERSION2_REDACTION_MATRIX_INVALID';
   END IF;
   SET LOCAL ROLE NONE;
+
+  -- Review 37 Y3: feed-RPC'en med den RIGTIGE gate giver rollens RLS-mængde (kun personhændelser): gæsten ser
+  -- hændelsen på den gyldigt publicerede tekst, ikke den på den forældede (-91521190); redaktøren ser begge.
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  SET LOCAL ROLE anon;
+  v_feed:=public.public_haendelse_feed();
+  SET LOCAL ROLE NONE;
+  IF ARRAY(SELECT (r->>'id')::bigint FROM jsonb_array_elements(v_feed->'rows') r
+            WHERE (r->>'id')::bigint=ANY(v_all_events) ORDER BY 1) IS DISTINCT FROM ARRAY[-91521291]::bigint[]
+     OR v_feed->'naeste' IS DISTINCT FROM 'null'::jsonb
+     OR NOT v_feed->'narrativer' @> '[{"id":-91521180}]'::jsonb
+     OR v_feed->'narrativer' @> '[{"id":-91521190}]'::jsonb THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_Y3_FEED_ANON_INVALID: %',v_feed;
+  END IF;
+  PERFORM set_config('request.jwt.claim.sub',v_redactor::text,true);
+  SET LOCAL ROLE authenticated;
+  v_feed:=public.public_haendelse_feed();
+  SET LOCAL ROLE NONE;
+  IF ARRAY(SELECT (r->>'id')::bigint FROM jsonb_array_elements(v_feed->'rows') r
+            WHERE (r->>'id')::bigint=ANY(v_all_events) ORDER BY 1)
+       IS DISTINCT FROM ARRAY[-91521291,-91521290]::bigint[] THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_Y3_FEED_REDACTION_INVALID: %',v_feed;
+  END IF;
+  RAISE NOTICE 'OK: review 37 Y3 — feed-RPC med rigtig gate = RLS-mængden for gæst og redaktør';
 
   SELECT array_agg(row.narrative_text ORDER BY row.ordinality)
     INTO v_actual_v2_order

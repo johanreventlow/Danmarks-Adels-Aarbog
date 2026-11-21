@@ -22610,6 +22610,7 @@ LANGUAGE sql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, public, pr
     ('private.person_purge_manifest', ARRAY['xid','backend_pid','person_id','tabel','pk','grund','forrige_version'],
       'internt transaktionsmanifest; tømmes af sletningen, ingen klientadgang (Task 5)'),
     ('private.entity_description_source', ARRAY['source_record_id'], 'reference til bogens lag'),
+    ('private.feed_cursor_noegle', ARRAY['noegle'], 'teknik: feedets krypteringsnøgle til bladremærker (review 37 Y3); ingen P-sti'),
     ('private.identity_control_parent_card', ARRAY['id','interpretation_key','interpretation_version'], 'egen nøgle/fortolkningsnøgle'),
     ('private.identity_control_parent_card', ARRAY['control_run_id','counterpart_persona_id'], 'reference til bogens lag'),
     ('private.identity_control_parent_event', ARRAY['seq','line'], 'egen rækkefølge/arklinje'),
@@ -24752,3 +24753,126 @@ CREATE TRIGGER trg_media_person_purge_udbakke_genbrug AFTER INSERT OR UPDATE OF 
 DROP TRIGGER IF EXISTS trg_media_variant_person_purge_udbakke_genbrug ON public.media_variant;
 CREATE TRIGGER trg_media_variant_person_purge_udbakke_genbrug AFTER INSERT OR UPDATE OF storage_path ON public.media_variant
   FOR EACH ROW EXECUTE FUNCTION private.person_purge_udbakke_genbrug();
+
+-- BEGIN review37-y3
+-- Review 37 Y3 (spec 2026-11-21 §4.2): feedets hændelser i bidder under anon-grænsen 3 s. Gaten kaldes én gang pr.
+-- narrativ i bidden; filtrene gælder hver række (samme regel som haendelse.anon_read). Redaktøren ser det samme som
+-- det additive redaktion_read-lag (decisions 2026-11-13, redaktoer-ser-levende). RLS-politikkerne er uændrede.
+-- Bladremærket er krypteret med en privat nøgle, så en intern position (som kan pege på en skjult kandidat) aldrig
+-- udleveres i klartekst; pgp_sym's integritetskontrol afviser et ændret mærke. Rotation: udskift rækken.
+CREATE TABLE IF NOT EXISTS private.feed_cursor_noegle (
+  id smallint PRIMARY KEY CHECK (id=1),
+  noegle text NOT NULL CHECK (noegle ~ '^[0-9a-f]{64}$')
+);
+ALTER TABLE private.feed_cursor_noegle ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE private.feed_cursor_noegle FROM PUBLIC,anon,authenticated,service_role;
+INSERT INTO private.feed_cursor_noegle(id,noegle)
+VALUES (1,encode(extensions.gen_random_bytes(32),'hex'))
+ON CONFLICT (id) DO NOTHING;
+
+CREATE INDEX IF NOT EXISTS ix_haendelse_narrative_id ON public.haendelse(narrative_id,id);
+
+CREATE OR REPLACE FUNCTION public.public_haendelse_feed(
+  p_fortsaet text DEFAULT NULL,
+  p_max_narrativer integer DEFAULT 150,
+  p_max_raekker integer DEFAULT 1000
+) RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path=pg_catalog
+AS $haendelse_feed$
+DECLARE
+  v_red boolean:=public.current_rolle()='redaktion';
+  v_noegle text;
+  v_cursor jsonb;
+  v_efter_n bigint;
+  v_efter_i bigint;
+  v_result jsonb;
+BEGIN
+  IF p_max_narrativer IS NULL OR p_max_narrativer NOT BETWEEN 1 AND 200
+     OR p_max_raekker IS NULL OR p_max_raekker NOT BETWEEN 1 AND 2000 THEN
+    RAISE EXCEPTION 'FEED_LIMIT_INVALID' USING ERRCODE='22023';
+  END IF;
+  SELECT k.noegle INTO v_noegle FROM private.feed_cursor_noegle k WHERE k.id=1;
+  IF v_noegle IS NULL THEN
+    RAISE EXCEPTION 'FEED_CURSOR_KEY_MISSING';
+  END IF;
+  IF p_fortsaet IS NOT NULL THEN
+    BEGIN
+      v_cursor:=extensions.pgp_sym_decrypt(decode(p_fortsaet,'base64'),v_noegle)::jsonb;
+      IF jsonb_typeof(v_cursor) IS DISTINCT FROM 'object'
+         OR v_cursor->>'v' IS DISTINCT FROM '1'
+         OR jsonb_typeof(v_cursor->'n') IS DISTINCT FROM 'number'
+         OR jsonb_typeof(v_cursor->'i') IS DISTINCT FROM 'number' THEN
+        RAISE EXCEPTION 'FEED_CURSOR_SHAPE';
+      END IF;
+      v_efter_n:=(v_cursor->>'n')::bigint;
+      v_efter_i:=(v_cursor->>'i')::bigint;
+    EXCEPTION WHEN others THEN
+      RAISE EXCEPTION 'FEED_CURSOR_INVALID' USING ERRCODE='22023';
+    END;
+  END IF;
+
+  WITH kandidat AS MATERIALIZED (
+    -- Strengt stigende intern position (narrative_id,id); højst p_max_raekker kandidater pr. kald.
+    SELECT h.id,h.narrative_id
+      FROM public.haendelse h
+     WHERE v_efter_n IS NULL OR (h.narrative_id,h.id)>(v_efter_n,v_efter_i)
+     ORDER BY h.narrative_id,h.id
+     LIMIT p_max_raekker
+  ), rangeret AS MATERIALIZED (
+    SELECT k.id,k.narrative_id,
+           dense_rank() OVER (ORDER BY k.narrative_id) AS narrativ_nr,
+           row_number() OVER (ORDER BY k.narrative_id,k.id) AS raekke_nr
+      FROM kandidat k
+  ), bid AS MATERIALIZED (
+    -- Højst p_max_narrativer forskellige narrativer; et narrativ kan deles over to kald.
+    SELECT r.id,r.narrative_id,r.raekke_nr FROM rangeret r WHERE r.narrativ_nr<=p_max_narrativer
+  ), gate AS MATERIALIZED (
+    -- Én gate-evaluering pr. forskelligt narrativ (aldrig pr. række).
+    SELECT n.narrative_id,
+           CASE WHEN v_red THEN true
+                ELSE public.person_daa_narrative_publication_allowed(n.narrative_id) IS TRUE END AS tilladt
+      FROM (SELECT DISTINCT b.narrative_id FROM bid b) n
+  ), raekker AS MATERIALIZED (
+    SELECT h.id,h.subjekt_id,h.narrative_id,h.klausul,h.kategori,h.date_min,h.date_max,h.date_qualifier,
+           h.date_raw,h.feed_status,h.fact_id,h.relation_id
+      FROM bid b
+      JOIN public.haendelse h ON h.id=b.id
+      JOIN gate g ON g.narrative_id=b.narrative_id
+     WHERE h.subjekt_type='person'
+       AND CASE WHEN v_red THEN true
+                ELSE h.feed_status<>'skjult'
+                     AND public.entitet_offentlig(h.subjekt_type,h.subjekt_id) IS TRUE
+                     AND g.tilladt END
+  ), narrativer AS MATERIALIZED (
+    SELECT n.id,n.source_id,n.side FROM public.narrative n
+     WHERE n.id IN (SELECT r.narrative_id FROM raekker r)
+  ), kilder AS (
+    SELECT s.id,s.udgave FROM public.source s
+     WHERE s.id IN (SELECT n.source_id FROM narrativer n)
+  ), naeste AS (
+    -- Cursoren peger på den sidste KANDIDAT i bidden (ikke den sidste returnerede række), når der kan være flere.
+    SELECT b.narrative_id,b.id FROM bid b
+     WHERE (SELECT count(*) FROM kandidat)=p_max_raekker
+        OR EXISTS (SELECT 1 FROM rangeret r WHERE r.narrativ_nr>p_max_narrativer)
+     ORDER BY b.raekke_nr DESC
+     LIMIT 1
+  )
+  SELECT jsonb_build_object(
+           'rows',coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.narrative_id,r.id) FROM raekker r),'[]'::jsonb),
+           'narrativer',coalesce((SELECT jsonb_agg(to_jsonb(n) ORDER BY n.id) FROM narrativer n),'[]'::jsonb),
+           'sources',coalesce((SELECT jsonb_agg(to_jsonb(s) ORDER BY s.id) FROM kilder s),'[]'::jsonb),
+           'naeste',(SELECT replace(encode(extensions.pgp_sym_encrypt(
+                       jsonb_build_object('v',1,'n',x.narrative_id,'i',x.id)::text,
+                       v_noegle,'cipher-algo=aes256'),'base64'),E'\n','')
+                       FROM naeste x)
+         )
+    INTO v_result;
+  RETURN v_result;
+END
+$haendelse_feed$;
+REVOKE ALL ON FUNCTION public.public_haendelse_feed(text,integer,integer) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.public_haendelse_feed(text,integer,integer) TO anon,authenticated;
+-- END review37-y3

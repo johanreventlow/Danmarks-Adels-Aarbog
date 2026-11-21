@@ -586,6 +586,64 @@ BEGIN
 END
 $review37_a2_verify$;
 
+-- Review 37 Y3: feedets hændelser i bidder. Adfærden (RLS-lighed, tom bid, gate pr. narrativ, mærke) bevises i
+-- tests/sql/test-haendelse-feed.sql; her form, ACL, nøgle og fejlkoder.
+DO $review37_y3_verify$
+DECLARE
+  f regprocedure:=to_regprocedure('public.public_haendelse_feed(text,integer,integer)');
+  v_def text;
+  v_role text;
+  v_fejl text;
+  v_kald text;
+BEGIN
+  IF f IS NULL OR to_regclass('private.feed_cursor_noegle') IS NULL
+     OR to_regclass('public.ix_haendelse_narrative_id') IS NULL THEN
+    RAISE EXCEPTION 'REVIEW37_Y3_MISSING';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_proc p WHERE p.oid=f
+              AND (NOT p.prosecdef OR p.provolatile<>'s'
+                   OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[])) THEN
+    RAISE EXCEPTION 'REVIEW37_Y3_FORM_INVALID';
+  END IF;
+  IF NOT has_function_privilege('anon',f,'EXECUTE') OR NOT has_function_privilege('authenticated',f,'EXECUTE')
+     OR has_function_privilege('service_role',f,'EXECUTE')
+     OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(p.proacl) a WHERE p.oid=f AND a.grantee=0) THEN
+    RAISE EXCEPTION 'REVIEW37_Y3_ACL_INVALID';
+  END IF;
+  v_def:=pg_get_functiondef(f);
+  IF strpos(v_def,'v_red boolean:=public.current_rolle()=''redaktion''')=0
+     OR strpos(v_def,'public.person_daa_narrative_publication_allowed(n.narrative_id)')=0
+     OR strpos(v_def,'h.feed_status<>''skjult''')=0
+     OR strpos(v_def,'public.entitet_offentlig(h.subjekt_type,h.subjekt_id)')=0
+     OR strpos(v_def,'extensions.pgp_sym_encrypt(')=0 THEN
+    RAISE EXCEPTION 'REVIEW37_Y3_FILTER_OR_CURSOR_MISSING';
+  END IF;
+  IF (SELECT count(*) FROM private.feed_cursor_noegle)<>1 THEN
+    RAISE EXCEPTION 'REVIEW37_Y3_KEY_ROW_INVALID';
+  END IF;
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_table_privilege(v_role,'private.feed_cursor_noegle','SELECT')
+       OR has_table_privilege(v_role,'private.feed_cursor_noegle','UPDATE') THEN
+      RAISE EXCEPTION 'REVIEW37_Y3_KEY_ACL_INVALID: %',v_role;
+    END IF;
+  END LOOP;
+  FOREACH v_kald IN ARRAY ARRAY['limit:0','limit:2001','cursor'] LOOP
+    BEGIN
+      IF v_kald='limit:0' THEN PERFORM public.public_haendelse_feed(NULL,0,10);
+      ELSIF v_kald='limit:2001' THEN PERFORM public.public_haendelse_feed(NULL,10,2001);
+      ELSE PERFORM public.public_haendelse_feed('ikke-et-maerke',10,10); END IF;
+      RAISE EXCEPTION 'REVIEW37_Y3_ACCEPTED: %',v_kald;
+    EXCEPTION WHEN others THEN
+      GET STACKED DIAGNOSTICS v_fejl=MESSAGE_TEXT;
+      IF v_fejl IS DISTINCT FROM (CASE WHEN v_kald='cursor' THEN 'FEED_CURSOR_INVALID' ELSE 'FEED_LIMIT_INVALID' END) THEN
+        RAISE;
+      END IF;
+    END;
+  END LOOP;
+  RAISE NOTICE 'OK: review 37 Y3 — public_haendelse_feed er DEFINER, gatet pr. narrativ, privat nøgle, fejlkoder';
+END
+$review37_y3_verify$;
+
 
 -- ===== Task 1: Tabeller profiles + suggestion =====
 -- Forvent: begge tabeller findes, rolle-CHECK håndhæves.
