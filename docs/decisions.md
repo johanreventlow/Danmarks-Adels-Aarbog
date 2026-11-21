@@ -26,6 +26,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 - Genimport-fortrydelse påvirkes ikke af hændelser (kvitteringen er kladdens tilstand), **undtagen** når den ville ændre
   en kladdes tekst under hændelser; den afvises som før A2.
 - Kendt begrænsning: bladringen opdager ikke, at hændelsesprojektionen udskiftes midt i en sidevisning (spec §4.2).
+- **Udrulning uden politikgenskabelse** (projektejeren 21/11, Task 5): prod får blokkene `review37-a2`/`review37-y3` +
+  ACL-blokken fra `db-rls.sql`, ikke hele `db-rls.sql`, hvis 95 `DROP/CREATE POLICY` ville låse tabellerne for gæsternes
+  læsninger under hele transaktionen. Opgraderingstesten beviser, at hele filen oveni intet ændrer.
 
 ## BESLUTTET: synlighed pr. samme_som-gruppe — levende og privat smitter, staged gør ikke (#415, 2026-11-21)
 
