@@ -39,7 +39,12 @@ loaderen hentede netop børn via forælderens `nr_range`, så nummeret *er* boge
 Sorteringsnøgle pr. barn (projektejerens godkendte regel):
 1. Nummeret i den udgave og linje, hvor forælderen selv står; nyeste udgave foretrækkes.
 2. `nr_label` som tiebreak (»15a« før »15b«).
-3. Børn uden nummer i den udgave: efter fødselsår, sidst; derefter navn (deterministisk).
+3. Børn uden nummer i den udgave, men med nummer i en ældre udgave, flettes ind lige før det
+   første barn, der står efter dem i den ældre udgave (prod 21/11: Conrads 1939-børn nr. 1-2,
+   Frederik 1792 og Charlotte Amalie 1793, findes ikke i 2018-20 og har ingen fødselsdato).
+4. Resten: efter fødselsår, sidst; derefter navn (deterministisk).
+5. Linje: forælderens linje i udgaven, hvis et barn står dér; ellers børnenes mest brugte linje
+   (1939: Conrad står under linjekoden »1939«, børnene under IV).
 
 ## Overladt til implementeringen
 

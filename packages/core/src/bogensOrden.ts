@@ -22,56 +22,79 @@ type Barn = { id: string; born: number | null; name: string };
 type UdgaveAar = { sourceId: string; aar: number | null };
 
 const etiket = (n: BogNr) => n.nrLabel ?? String(n.nr);
+const cmpNr = (a: BogNr, b: BogNr) => {
+  if (a.linje !== b.linje) return a.linje < b.linje ? -1 : 1;
+  if (a.nr !== b.nr) return a.nr - b.nr;
+  const ea = etiket(a);
+  const eb = etiket(b);
+  return ea < eb ? -1 : ea > eb ? 1 : 0;
+};
+const cmpFallback = (a: Barn, b: Barn) => {
+  if (a.born !== b.born) return a.born == null ? 1 : b.born == null ? -1 : a.born - b.born;
+  return a.name.localeCompare(b.name, 'da');
+};
+
+// Børnenes numre i én udgave, kun i de gyldige linjer: forælderens linje(r) i udgaven, hvis et barn står dér;
+// ellers den linje flest børn står i (1939: forælderen står under en anden linjekode end børnene).
+function noeglerIUdgave(boern: readonly Barn[], foraelderId: string, bogNrBy: Record<string, BogNr[]>, sid: string): Map<string, BogNr> {
+  const nummererede: [string, BogNr][] = [];
+  for (const b of boern) {
+    const n = (bogNrBy[b.id] ?? []).find((x) => x.sourceId === sid);
+    if (n) nummererede.push([b.id, n]);
+  }
+  const ud = new Map<string, BogNr>();
+  if (!nummererede.length) return ud;
+  const foraelderLinjer = new Set((bogNrBy[foraelderId] ?? []).filter((n) => n.sourceId === sid).map((n) => n.linje));
+  let linjer = new Set([...foraelderLinjer].filter((l) => nummererede.some(([, n]) => n.linje === l)));
+  if (linjer.size === 0) {
+    const antal = new Map<string, number>();
+    for (const [, n] of nummererede) antal.set(n.linje, (antal.get(n.linje) ?? 0) + 1);
+    linjer = new Set([[...antal.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0]]);
+  }
+  for (const [id, n] of nummererede) if (linjer.has(n.linje)) ud.set(id, n);
+  return ud;
+}
 
 // Børn i bogens rækkefølge:
-// 1. Udgaven: den nyeste (ukendt år sidst), hvor mindst ét barn har et nummer; forælderens egne udgaver først ved lige år.
-// 2. Linjen: forælderens linje(r) i udgaven, hvis et barn står dér; ellers den linje flest børn står i (1939: forælderen
-//    står under en anden linjekode end børnene).
-// 3. Børn med nummer i den linje efter linje, nr, label; øvrige bagefter efter fødselsår (ukendt sidst), så navn.
+// 1. Hovedudgaven: den nyeste (ukendt år sidst), hvor mindst ét barn har et nummer; forælderens egne udgaver først
+//    ved lige år. Børn med nummer dér står efter linje, nr, label.
+// 2. Et barn uden nummer i hovedudgaven, men med nummer i en ældre udgave (fx 1939's nr. 1-2 hos Conrad, som
+//    2018-20 ikke har), flettes ind lige før det første barn, der står efter det i den ældre udgave; står intet
+//    barn efter det dér, kommer det efter de nummererede.
+// 3. Resten efter fødselsår (ukendt sidst), så navn.
 export function sorterBoernEfterBogen<T extends Barn>(
   boern: readonly T[],
   foraelderId: string,
   bogNrBy: Record<string, BogNr[]> | undefined,
   udgaver: readonly UdgaveAar[] | undefined,
 ): T[] {
-  const nøgler = new Map<string, BogNr>();
-  if (bogNrBy) {
-    const aar = new Map((udgaver ?? []).map((u) => [u.sourceId, u.aar]));
-    const egne = new Set((bogNrBy[foraelderId] ?? []).map((n) => n.sourceId));
-    const kandidater = [...new Set([...egne, ...boern.flatMap((b) => (bogNrBy[b.id] ?? []).map((n) => n.sourceId))])];
-    kandidater.sort((a, b) => {
-      const aa = aar.get(a) ?? null;
-      const ba = aar.get(b) ?? null;
-      if (aa !== ba) return aa == null ? 1 : ba == null ? -1 : ba - aa;
-      return Number(egne.has(b)) - Number(egne.has(a));
-    });
-    const iUdgave = (id: string, sid: string) => (bogNrBy[id] ?? []).find((n) => n.sourceId === sid) ?? null;
-    const udgave = kandidater.find((sid) => boern.some((b) => iUdgave(b.id, sid)));
-    if (udgave) {
-      const nummererede = boern.map((b) => [b.id, iUdgave(b.id, udgave)] as const).filter((x): x is readonly [string, BogNr] => x[1] != null);
-      const foraelderLinjer = new Set((bogNrBy[foraelderId] ?? []).filter((n) => n.sourceId === udgave).map((n) => n.linje));
-      let linjer = new Set([...foraelderLinjer].filter((l) => nummererede.some(([, n]) => n.linje === l)));
-      if (linjer.size === 0) {
-        const antal = new Map<string, number>();
-        for (const [, n] of nummererede) antal.set(n.linje, (antal.get(n.linje) ?? 0) + 1);
-        const flest = [...antal.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))[0][0];
-        linjer = new Set([flest]);
-      }
-      for (const [id, n] of nummererede) if (linjer.has(n.linje)) nøgler.set(id, n);
-    }
-  }
-  return [...boern].sort((a, b) => {
-    const na = nøgler.get(a.id);
-    const nb = nøgler.get(b.id);
-    if (na && nb) {
-      if (na.linje !== nb.linje) return na.linje < nb.linje ? -1 : 1;
-      if (na.nr !== nb.nr) return na.nr - nb.nr;
-      const ea = etiket(na);
-      const eb = etiket(nb);
-      return ea < eb ? -1 : ea > eb ? 1 : 0;
-    }
-    if (na || nb) return na ? -1 : 1;
-    if (a.born !== b.born) return a.born == null ? 1 : b.born == null ? -1 : a.born - b.born;
-    return a.name.localeCompare(b.name, 'da');
+  if (!bogNrBy) return [...boern].sort(cmpFallback);
+  const aar = new Map((udgaver ?? []).map((u) => [u.sourceId, u.aar]));
+  const egne = new Set((bogNrBy[foraelderId] ?? []).map((n) => n.sourceId));
+  const kandidater = [...new Set([...egne, ...boern.flatMap((b) => (bogNrBy[b.id] ?? []).map((n) => n.sourceId))])];
+  kandidater.sort((a, b) => {
+    const aa = aar.get(a) ?? null;
+    const ba = aar.get(b) ?? null;
+    if (aa !== ba) return aa == null ? 1 : ba == null ? -1 : ba - aa;
+    return Number(egne.has(b)) - Number(egne.has(a));
   });
+  const pr = kandidater.map((sid) => noeglerIUdgave(boern, foraelderId, bogNrBy, sid)).filter((m) => m.size > 0);
+  if (!pr.length) return [...boern].sort(cmpFallback);
+  const [hoved, ...aeldre] = pr;
+  const byId = new Map(boern.map((b) => [b.id, b]));
+  const raekke: T[] = [...hoved.entries()].sort((a, b) => cmpNr(a[1], b[1])).map(([id]) => byId.get(id)!);
+  const placeret = new Set(raekke.map((b) => b.id));
+  let haleStart = raekke.length; // indsæt »efter de nummererede« her, så hale-børn bevarer deres indbyrdes orden
+  for (const udg of aeldre) {
+    const orden = [...udg.entries()].sort((a, b) => cmpNr(a[1], b[1])).map(([id]) => id);
+    orden.forEach((id, i) => {
+      if (placeret.has(id)) return;
+      const efterfoelger = orden.slice(i + 1).find((x) => placeret.has(x));
+      const pos = efterfoelger ? raekke.findIndex((b) => b.id === efterfoelger) : haleStart;
+      raekke.splice(pos, 0, byId.get(id)!);
+      if (pos <= haleStart) haleStart += 1;
+      placeret.add(id);
+    });
+  }
+  return [...raekke, ...boern.filter((b) => !placeret.has(b.id)).sort(cmpFallback)];
 }

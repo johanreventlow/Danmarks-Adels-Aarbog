@@ -63,6 +63,24 @@ describe('sorterBoernEfterBogen', () => {
     expect(ider(sorterBoernEfterBogen([B('c', 1600), B('a'), B('b')], 'F', idx, [U2018]))).toEqual(['b', 'a', 'c']);
   });
 
+  it('barn kun i en ældre udgave flettes ind efter den udgaves rækkefølge (Conrad: 1939 nr. 1-2)', () => {
+    const idx = {
+      F: [N('20', 'V', 1), N('10', '1939', 275)],
+      a: [N('20', 'V', 2), N('10', 'IV', 3)],
+      b: [N('20', 'V', 3), N('10', 'IV', 4)],
+      x: [N('10', 'IV', 1)],
+      y: [N('10', 'IV', 2)],
+      z: [N('10', 'IV', 5)],
+    };
+    const boern = [B('w', 1700), B('z'), B('b'), B('y'), B('a'), B('x')];
+    expect(ider(sorterBoernEfterBogen(boern, 'F', idx, [U2018, U1939]))).toEqual(['x', 'y', 'a', 'b', 'z', 'w']);
+  });
+
+  it('ældre udgaves barn midt i flokken lander før sin efterfølger', () => {
+    const idx = { F: [N('20', 'V', 1)], a: [N('20', 'V', 2), N('10', 'IV', 1)], c: [N('20', 'V', 3), N('10', 'IV', 3)], m: [N('10', 'IV', 2)] };
+    expect(ider(sorterBoernEfterBogen([B('m'), B('c'), B('a')], 'F', idx, [U2018, U1939]))).toEqual(['a', 'm', 'c']);
+  });
+
   it('uden bogNrBy: fødselsår-fallback', () => {
     expect(ider(sorterBoernEfterBogen([B('b', 1702), B('a', 1701)], 'F', undefined, undefined))).toEqual(['a', 'b']);
   });
