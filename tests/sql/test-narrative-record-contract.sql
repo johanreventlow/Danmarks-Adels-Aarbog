@@ -2962,6 +2962,38 @@ BEGIN
      OR v_event.after_state #>> '{narrative,text_sha256}' IS NULL THEN
     RAISE EXCEPTION 'TASK3_PUBLISHED_SNAPSHOT_INCOMPLETE: %',v_event.after_state;
   END IF;
+  -- Review 37 A2 (Codex r2): fortrydelse af publiceringen bevarer teksten, men genskaber en kladde, som kunne få ny
+  -- tekst og publiceres igen under de gamle hændelser. Den afvises med hændelseslåsen og tilbydes ikke i historikken.
+  INSERT INTO public.haendelse(
+    id,subjekt_type,subjekt_id,narrative_id,noegle,klausul
+  ) VALUES (
+    -91522002,'person',-91521001,-91521170,'task3-derived-published','Derived event'
+  );
+  IF (SELECT row.can_reverse OR row.blocking_reason IS DISTINCT FROM 'NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT'
+        FROM public.red_person_narrative_publication_history(-91521001) row
+       WHERE row.event_id=v_event.id) IS DISTINCT FROM false THEN
+    RAISE EXCEPTION 'A2_HISTORY_OFFERS_UNPUBLISH_UNDER_EVENTS';
+  END IF;
+  v_state:=private.narrative_record_state(
+    -91521001,-91521001,'active-draft',false
+  );
+  PERFORM set_config('app.change_set_id','',true);
+  v_before:=pg_temp.task3_write_snapshot();
+  v_error:=NULL;
+  BEGIN
+    PERFORM public.red_fortryd_person_narrative_publication_event(
+      v_event.id,v_state->>'state_sha256'
+    );
+  EXCEPTION WHEN OTHERS THEN
+    v_error:=SQLERRM;
+  END;
+  IF v_error IS DISTINCT FROM 'NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT' THEN
+    RAISE EXCEPTION 'A2_UNPUBLISH_UNDER_EVENTS: %',v_error;
+  END IF;
+  IF pg_temp.task3_write_snapshot() IS DISTINCT FROM v_before THEN
+    RAISE EXCEPTION 'A2_UNPUBLISH_REJECTION_CHANGED_WRITE_SET';
+  END IF;
+  DELETE FROM public.haendelse WHERE id=-91522002;
 
   PERFORM set_config('app.change_set_id','',true);
   v_pre_state:=private.narrative_publication_state(

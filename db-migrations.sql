@@ -41684,13 +41684,17 @@ BEGIN
     RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_HASH_MISMATCH';
   END IF;
   -- Review 37 A2: hændelser indgår ikke længere i publiceringstilstanden, så drift-tjekket ovenfor fanger dem
-  -- ikke. En fortrydelse, der ville ændre teksten under afledte hændelser, afvises som revise (samme lås).
+  -- ikke. En fortrydelse under afledte hændelser afvises som revise (samme lås), når den ville ændre teksten, eller
+  -- når den genskaber en kladde (Codex r2: kladden kan få ny tekst og publiceres igen under de gamle hændelser).
   IF v_target.event_type NOT IN ('legacy_withdrawn','legacy_migrated','draft_created')
      AND private.narrative_har_haendelse(v_target.narrative_id)
-     AND EXISTS (
-       SELECT 1 FROM public.narrative narrative
-        WHERE narrative.id=v_target.narrative_id
-          AND narrative.tekst IS DISTINCT FROM v_target.before_state #>> '{narrative,text}'
+     AND (
+       v_target.before_state #>> '{binding,status}' IS NOT DISTINCT FROM 'draft'
+       OR EXISTS (
+         SELECT 1 FROM public.narrative narrative
+          WHERE narrative.id=v_target.narrative_id
+            AND narrative.tekst IS DISTINCT FROM v_target.before_state #>> '{narrative,text}'
+       )
      ) THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT';
   END IF;
@@ -42000,11 +42004,14 @@ BEGIN
              -- Review 37 A2: samme hændelseslås som private.reverse_narrative_publication_event.
              WHEN classified.event_type NOT IN ('legacy_withdrawn','legacy_migrated','draft_created')
                   AND private.narrative_har_haendelse(classified.narrative_id)
-                  AND EXISTS (
-                    SELECT 1 FROM public.narrative narrative
-                     WHERE narrative.id=classified.narrative_id
-                       AND narrative.tekst IS DISTINCT FROM
-                           classified.before_state #>> '{narrative,text}'
+                  AND (
+                    classified.before_state #>> '{binding,status}' IS NOT DISTINCT FROM 'draft'
+                    OR EXISTS (
+                      SELECT 1 FROM public.narrative narrative
+                       WHERE narrative.id=classified.narrative_id
+                         AND narrative.tekst IS DISTINCT FROM
+                             classified.before_state #>> '{narrative,text}'
+                    )
                   )
                THEN 'NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT'
              WHEN classified.current_blocking_reason IS NOT NULL
@@ -45517,13 +45524,17 @@ BEGIN
     RAISE EXCEPTION 'NARRATIVE_PUBLICATION_EVENT_HASH_MISMATCH';
   END IF;
   -- Review 37 A2: hændelser indgår ikke længere i publiceringstilstanden, så drift-tjekket ovenfor fanger dem
-  -- ikke. En fortrydelse, der ville ændre teksten under afledte hændelser, afvises som revise (samme lås).
+  -- ikke. En fortrydelse under afledte hændelser afvises som revise (samme lås), når den ville ændre teksten, eller
+  -- når den genskaber en kladde (Codex r2: kladden kan få ny tekst og publiceres igen under de gamle hændelser).
   IF v_target.event_type NOT IN ('legacy_withdrawn','legacy_migrated','draft_created')
      AND private.narrative_har_haendelse(v_target.narrative_id)
-     AND EXISTS (
-       SELECT 1 FROM public.narrative narrative
-        WHERE narrative.id=v_target.narrative_id
-          AND narrative.tekst IS DISTINCT FROM v_target.before_state #>> '{narrative,text}'
+     AND (
+       v_target.before_state #>> '{binding,status}' IS NOT DISTINCT FROM 'draft'
+       OR EXISTS (
+         SELECT 1 FROM public.narrative narrative
+          WHERE narrative.id=v_target.narrative_id
+            AND narrative.tekst IS DISTINCT FROM v_target.before_state #>> '{narrative,text}'
+       )
      ) THEN
     RAISE EXCEPTION 'NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT';
   END IF;
@@ -45833,11 +45844,14 @@ BEGIN
              -- Review 37 A2: samme hændelseslås som private.reverse_narrative_publication_event.
              WHEN classified.event_type NOT IN ('legacy_withdrawn','legacy_migrated','draft_created')
                   AND private.narrative_har_haendelse(classified.narrative_id)
-                  AND EXISTS (
-                    SELECT 1 FROM public.narrative narrative
-                     WHERE narrative.id=classified.narrative_id
-                       AND narrative.tekst IS DISTINCT FROM
-                           classified.before_state #>> '{narrative,text}'
+                  AND (
+                    classified.before_state #>> '{binding,status}' IS NOT DISTINCT FROM 'draft'
+                    OR EXISTS (
+                      SELECT 1 FROM public.narrative narrative
+                       WHERE narrative.id=classified.narrative_id
+                         AND narrative.tekst IS DISTINCT FROM
+                             classified.before_state #>> '{narrative,text}'
+                    )
                   )
                THEN 'NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT'
              WHEN classified.current_blocking_reason IS NOT NULL
