@@ -27,6 +27,7 @@ data/tng-corroboration.csv
 # geo-enrich-afledte filer (samme begrundelse: afledt af TNG-dumpet)
 data/geo-tng.duckdb
 data/geo-crosswalk.csv
+data/geo-crosswalk.*.bak.csv
 data/geo-geocode-candidates.csv
 data/geo-geocode-cache.csv
 

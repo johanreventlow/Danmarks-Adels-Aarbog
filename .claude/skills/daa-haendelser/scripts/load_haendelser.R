@@ -17,7 +17,10 @@ if (host == "" || user == "" || pw == "") stop("Sæt SUPABASE_HOST/USER/PASSWORD
 con <- dbConnect(
   RPostgres::Postgres(), host=host, port=as.integer(Sys.getenv("SUPABASE_PORT", "5432")),
   dbname=Sys.getenv("SUPABASE_DB", "postgres"), user=user, password=pw,
-  sslmode=Sys.getenv("SUPABASE_SSLMODE", "require"), bigint="integer64"
+  # Review 37, E4: id'er som almindelige tal (eksakte op til 2^53). Med integer64 mistede en
+  # for-løkke klassen (DELETE fik det rå bitmønster), og rbind med en NA-først række gjorde
+  # et fact_id til et denormalt tal. assert_id_numerisk() nedenfor holder det fast.
+  sslmode=Sys.getenv("SUPABASE_SSLMODE", "require"), bigint="numeric"
 )
 on.exit(if (dbIsValid(con)) dbDisconnect(con), add=TRUE)
 
@@ -116,15 +119,16 @@ tryCatch({
     old_rows <- if (nrow(existing)) existing[existing$narrative_id == narrative_id,,drop=FALSE] else existing
     plan <- plan_merge(old_rows, new_rows)
 
+    assert_id_numerisk(plan$updates, plan$deletes, new_rows)
     if (nrow(plan$updates)) for (i in seq_len(nrow(plan$updates))) {
       x <- plan$updates[i,,drop=FALSE]
-      dbExecute(con, paste0(
+      kraev_en_raekke("UPDATE haendelse", x$id, dbExecute(con, paste0(
         "UPDATE haendelse SET subjekt_type=$1,subjekt_id=$2,narrative_id=$3,noegle=$4,",
         "span_start=$5,span_laengde=$6,klausul=$7,kategori=$8,date_min=$9::date,date_max=$10::date,",
         "date_qualifier=$11,date_raw=$12,fact_id=$13,relation_id=$14,pass_version=$15 WHERE id=$16"),
         params=unname(list(x$subjekt_type,x$subjekt_id,x$narrative_id,x$noegle,x$span_start,
           x$span_laengde,x$klausul,x$kategori,x$date_min,x$date_max,x$date_qualifier,x$date_raw,
-          x$fact_id,x$relation_id,x$pass_version,x$id)))
+          x$fact_id,x$relation_id,x$pass_version,x$id))))
     }
     if (nrow(plan$inserts)) for (i in seq_len(nrow(plan$inserts))) {
       x <- plan$inserts[i,,drop=FALSE]
@@ -136,8 +140,11 @@ tryCatch({
           x$span_laengde,x$klausul,x$kategori,x$date_min,x$date_max,x$date_qualifier,x$date_raw,
           x$feed_status,x$fact_id,x$relation_id,x$pass_version)))
     }
-    if (nrow(plan$deletes)) for (id in plan$deletes$id)
-      dbExecute(con, "DELETE FROM haendelse WHERE id=$1", params=list(id))
+    if (nrow(plan$deletes)) for (i in seq_len(nrow(plan$deletes))) {
+      id <- plan$deletes$id[[i]]
+      kraev_en_raekke("DELETE haendelse", id,
+        dbExecute(con, "DELETE FROM haendelse WHERE id=$1", params=list(id)))
+    }
 
     if (nrow(plan$mistede)) for (i in seq_len(nrow(plan$mistede))) {
       x <- plan$mistede[i,,drop=FALSE]

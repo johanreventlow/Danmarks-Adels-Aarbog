@@ -172,6 +172,59 @@ rows_to_apply <- function(crosswalk) {
 }
 
 # ---------------------------------------------------------------------------
+# Menneskets godkendelser (review 37, E3). En ny dry-run genberegner crosswalken; de
+# `anvend`-værdier, mennesket har skrevet i den gamle CSV, føres over, når matchet for
+# samme place er uændret (samme tier, samme tng_place og samme punkt). Er matchet ændret eller
+# forsvundet, falder rækken tilbage til standarden og tælles som `forkastet`, så
+# operatøren kan se, at en godkendelse skal gives igen. Rene data.frames ind og ud.
+.same_text <- function(a, b) (is.na(a) & is.na(b)) | (!is.na(a) & !is.na(b) & a == b)
+.same_num <- function(a, b, tol = 1e-7) (is.na(a) & is.na(b)) | (!is.na(a) & !is.na(b) & abs(a - b) < tol)
+# place_id fra basen er integer64 (RPostgres' standard i connect_readonly), fra CSV'en heltal. base::match
+# sammenligner integer64's rå bitmønster (jf. E4), så begge sider gøres til almindelige tal via tekst.
+.id_num <- function(x) as.numeric(as.character(x))
+
+merge_crosswalk_approvals <- function(new, old) {
+  if (is.null(old) || !nrow(old) || !"anvend" %in% names(old))
+    return(list(crosswalk = new, bevaret = 0L, forkastet = 0L))
+  # "NA" er ingen beslutning: 04-person-corroboration.R's read.csv/write.csv gør en tom celle til NA.
+  old_anvend <- trimws(as.character(old$anvend)); old_anvend[is.na(old_anvend) | old_anvend == "NA"] <- ""
+  # Kun ikke-tomme værdier er beslutninger; en tom review-celle er ingen godkendelse.
+  old <- old[nzchar(old_anvend), , drop = FALSE]; old_anvend <- old_anvend[nzchar(old_anvend)]
+  if (!nrow(old)) return(list(crosswalk = new, bevaret = 0L, forkastet = 0L))
+  if (anyDuplicated(.id_num(old$place_id))) stop("gammel crosswalk har dublet place_id — ret CSV'en før en ny kørsel")
+  j <- match(.id_num(new$place_id), .id_num(old$place_id))
+  # Også samme tier: et auto-match, der er blevet tvetydigt (review), skal ses af et menneske igen,
+  # selv om den valgte kandidat er den samme (Codex-review E3).
+  old_tier <- if ("tier" %in% names(old)) old$tier[j] else rep(NA_character_, length(j))
+  same <- !is.na(j) &
+    .same_text(as.character(new$tier), as.character(old_tier)) &
+    .same_text(new$tng_place, old$tng_place[j]) &
+    .same_num(as.numeric(new$lat), as.numeric(old$lat[j])) &
+    .same_num(as.numeric(new$lon), as.numeric(old$lon[j]))
+  same[is.na(same)] <- FALSE
+  out <- new
+  out$anvend <- as.character(out$anvend)
+  out$anvend[same] <- old_anvend[j[same]]
+  list(crosswalk = out, bevaret = sum(same), forkastet = nrow(old) - sum(same))
+}
+
+# --apply skriver fra den CSV, mennesket har godkendt — aldrig fra en genberegning. Hver
+# række skal stadig passe på basen: place findes og har samme navn. Ellers stopper
+# kørslen før skrivning (fail-closed), og operatøren kører en ny dry-run.
+verify_apply_rows <- function(apply_rows, places) {
+  if (!nrow(apply_rows)) return(invisible(apply_rows))
+  if (anyDuplicated(.id_num(apply_rows$place_id))) stop("crosswalk har dublet place_id blandt anvend-rækkerne")
+  j <- match(.id_num(apply_rows$place_id), .id_num(places$id))
+  bad <- is.na(j) | !.same_text(as.character(apply_rows$navn), as.character(places$navn[j]))
+  bad[is.na(bad)] <- TRUE
+  if (any(bad))
+    stop(sprintf("%d anvend-række(r) passer ikke længere på place (id mangler eller navnet er ændret): place_id %s. ",
+                 sum(bad), paste(utils::head(apply_rows$place_id[bad], 10), collapse = ", ")),
+         "Kør dry-run igen, og godkend på ny.")
+  invisible(apply_rows)
+}
+
+# ---------------------------------------------------------------------------
 # Person-corroboration (annotation, IKKE tier-ændring — jf. R/tng-qa/04b-
 # corroboration.R's princip). Idé: en stedmatch bekræftes uafhængigt hvis en
 # person KNYTTET TIL STEDET hos os (via fact.sted_id) har en TNG-modpart (via

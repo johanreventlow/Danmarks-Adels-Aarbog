@@ -14,9 +14,12 @@
 #    1. tng_places -> DuckDB (genbruger 01-extract-tng.R)
 #    2. place (id,navn,lat,lon) <- Supabase read-only (genbruger 02-pull-ours.R)
 #    3. match -> data/geo-crosswalk.csv  (auto=TRUE, review=tom, none=FALSE i `anvend`)
-#    4. --apply: UPDATE place SET lat,lon WHERE id=? AND lat IS NULL  (idempotent, i txn)
-#       for rækker hvor `anvend` er sandt. Review-rækker skrives KUN efter du har
-#       redigeret CSV'en (sæt anvend=TRUE) og kørt igen med --apply.
+#       Findes CSV'en, føres dine `anvend`-værdier over for steder, hvis match er uændret
+#       (review 37, E3); ændrede match tælles som forkastede godkendelser.
+#    4. --apply: læser CSV'en, som du har godkendt den — genberegner og overskriver den
+#       IKKE (E3). Hver anvend-række tjekkes mod place (id + navn) før skrivning; derefter
+#       UPDATE place SET lat,lon WHERE id=? AND lat IS NULL (idempotent, i txn).
+#       Kræver hverken TNG-dumpet eller trin 1-3.
 # =====================================================================
 suppressPackageStartupMessages({ library(DBI); library(duckdb); library(RPostgres) })
 
@@ -32,6 +35,42 @@ geo_db   <- "data/geo-tng.duckdb"
 cw_csv   <- "data/geo-crosswalk.csv"
 cfg      <- default_geo_cfg()
 dir.create("data", showWarnings = FALSE)
+
+write_db_connect <- function() dbConnect(RPostgres::Postgres(), host = Sys.getenv("SUPABASE_HOST"),
+                  port = as.integer(Sys.getenv("SUPABASE_PORT", "5432")),
+                  dbname = Sys.getenv("SUPABASE_DB", "postgres"),
+                  user = Sys.getenv("SUPABASE_USER"), password = Sys.getenv("SUPABASE_PASSWORD"),
+                  sslmode = "require", bigint = "numeric")
+
+if (do_apply) {
+  # ---- 4) apply: fra den godkendte CSV, aldrig fra en genberegning (E3) ----
+  if (!file.exists(cw_csv)) stop("Mangler ", cw_csv, " — kør først uden --apply, og godkend rækkerne.")
+  crosswalk <- read.csv(cw_csv, stringsAsFactors = FALSE, encoding = "UTF-8", colClasses = c(anvend = "character"))
+  apply_rows <- rows_to_apply(crosswalk)
+  if (!nrow(apply_rows)) { message("Ingen rækker at skrive (anvend-kolonnen er tom/FALSE)."); quit(save = "no") }
+  message(sprintf("== 4: APPLY == skriver %d koordinat-sæt fra %s til place ==", nrow(apply_rows), cw_csv))
+  wcon <- write_db_connect()
+  n_upd <- 0L
+  dbBegin(wcon)
+  tryCatch({
+    # Under samme transaktion som skrivningen: rækkerne skal passe på basen, som den er nu.
+    verify_apply_rows(apply_rows, dbGetQuery(wcon, "SELECT id, navn FROM place"))
+    for (i in seq_len(nrow(apply_rows))) {
+      # AND lat IS NULL: idempotent + overskriver aldrig et manuelt kurateret punkt.
+      # AND navn = $4: et navn, der er ændret efter verify_apply_rows (samtidig transaktion), får intet punkt.
+      n_upd <- n_upd + dbExecute(wcon,
+        "UPDATE place SET lat=$1, lon=$2 WHERE id=$3 AND navn=$4 AND (lat IS NULL OR lon IS NULL)",
+        params = list(apply_rows$lat[i], apply_rows$lon[i], as.numeric(apply_rows$place_id[i]),
+                      as.character(apply_rows$navn[i])))
+    }
+    dbCommit(wcon); message(sprintf("  OK: %d place-rækker opdateret", n_upd))
+  }, error = function(e) { dbRollback(wcon); dbDisconnect(wcon); stop("apply fejlede, rullet tilbage: ", conditionMessage(e)) })
+
+  cat("\n=== verifikation ===\n")
+  print(dbGetQuery(wcon, "SELECT count(*) AS med_koordinat FROM place WHERE lat IS NOT NULL AND lon IS NOT NULL"))
+  dbDisconnect(wcon)
+  quit(save = "no")
+}
 
 # ---- 1) tng_places -> DuckDB ----------------------------------------------
 if (!file.exists(dump)) stop(sprintf("TNG-dump mangler: %s (læg den i repo-rod; git-ignoreret).", dump))
@@ -63,41 +102,25 @@ message("== 3: match + crosswalk ==")
 # Match kun de steder der endnu MANGLER koordinater (idempotent; rør ikke berigede/kuraterede).
 todo <- places[is.na(places$lat) | is.na(places$lon), c("id", "navn")]
 matched <- match_places(todo, tng_idx, cfg)
-crosswalk <- build_geo_crosswalk(matched)
+old_cw <- if (file.exists(cw_csv))
+  read.csv(cw_csv, stringsAsFactors = FALSE, encoding = "UTF-8", colClasses = c(anvend = "character")) else NULL
+merged <- merge_crosswalk_approvals(build_geo_crosswalk(matched), old_cw)
+crosswalk <- merged$crosswalk
+if (merged$forkastet > 0L) {
+  # Forkastede godkendelser (fx håndflettede geokode-koordinater på tier=none) gemmes, før CSV'en overskrives.
+  bak <- sprintf("data/geo-crosswalk.%s.bak.csv", format(Sys.time(), "%Y%m%d%H%M%S"))
+  if (!file.copy(cw_csv, bak)) stop("kunne ikke gemme den gamle crosswalk som ", bak, " — afbryder før overskrivning")
+  message(sprintf("  gammel crosswalk gemt som %s (%d forkastede godkendelser)", bak, merged$forkastet))
+}
 write.csv(crosswalk, cw_csv, row.names = FALSE, fileEncoding = "UTF-8")
 tier_tab <- table(factor(crosswalk$tier, levels = c("auto", "review", "none")))
 message(sprintf("  tiers: auto=%d review=%d none=%d -> %s",
                 tier_tab[["auto"]], tier_tab[["review"]], tier_tab[["none"]], cw_csv))
+message(sprintf("  dine anvend-værdier: %d ført over, %d forkastet (matchet er ændret eller stedet har fået koordinat)",
+                merged$bevaret, merged$forkastet))
 message("  (review-rækker: åbn CSV'en, sæt `anvend`=TRUE på dem du godkender, kør igen med --apply)")
 
-# ---- 4) apply (kun med --apply) -------------------------------------------
+# ---- dry-run: vis hvad --apply ville skrive ---------------------------------
 apply_rows <- rows_to_apply(crosswalk)
-if (!do_apply) {
-  message(sprintf("== DRY-RUN == %d rækker ville blive skrevet (kør med --apply). Ingen ændringer.",
-                  nrow(apply_rows)))
-  print(utils::head(apply_rows, 20))
-  quit(save = "no")
-}
-
-if (!nrow(apply_rows)) { message("Ingen rækker at skrive (anvend-kolonnen er tom/FALSE)."); quit(save = "no") }
-message(sprintf("== 4: APPLY == skriver %d koordinat-sæt til place ==", nrow(apply_rows)))
-wcon <- dbConnect(RPostgres::Postgres(), host = Sys.getenv("SUPABASE_HOST"),
-                  port = as.integer(Sys.getenv("SUPABASE_PORT", "5432")),
-                  dbname = Sys.getenv("SUPABASE_DB", "postgres"),
-                  user = Sys.getenv("SUPABASE_USER"), password = Sys.getenv("SUPABASE_PASSWORD"),
-                  sslmode = "require", bigint = "integer")
-n_upd <- 0L
-dbBegin(wcon)
-tryCatch({
-  for (i in seq_len(nrow(apply_rows))) {
-    # AND lat IS NULL: idempotent + overskriver aldrig et manuelt kurateret punkt.
-    n_upd <- n_upd + dbExecute(wcon,
-      "UPDATE place SET lat=$1, lon=$2 WHERE id=$3 AND (lat IS NULL OR lon IS NULL)",
-      params = list(apply_rows$lat[i], apply_rows$lon[i], apply_rows$place_id[i]))
-  }
-  dbCommit(wcon); message(sprintf("  OK: %d place-rækker opdateret", n_upd))
-}, error = function(e) { dbRollback(wcon); dbDisconnect(wcon); stop("apply fejlede, rullet tilbage: ", conditionMessage(e)) })
-
-cat("\n=== verifikation ===\n")
-print(dbGetQuery(wcon, "SELECT count(*) AS med_koordinat FROM place WHERE lat IS NOT NULL AND lon IS NOT NULL"))
-dbDisconnect(wcon)
+message(sprintf("== DRY-RUN == %d rækker ville blive skrevet (kør med --apply). Ingen ændringer.",
+                nrow(apply_rows)))

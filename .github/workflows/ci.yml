@@ -204,7 +204,7 @@ jobs:
             --deselect=.claude/skills/daa-extract/scripts/test_convert_c3_decisions_1939_v50.py::test_c3_scripts_pass_mechanical_no_writer_audit
             --deselect=.claude/skills/daa-extract/scripts/test_convert_c3_decisions_1939_v50.py::test_c3_preview_scripts_only_writer_hit_is_the_read_only_preview_rpc
           )
-          python3 -m pytest .claude/skills/daa-extract/scripts .claude/skills/daa-haendelser/scripts -q -rs -p no:cacheprovider "${udeluk[@]}"
+          python3 -m pytest .claude/skills/daa-extract/scripts .claude/skills/daa-haendelser/scripts .claude/skills/daa-presens/scripts -q -rs -p no:cacheprovider "${udeluk[@]}"
 
   evidence-promotion-db:
     name: evidence promotion · PostgreSQL 17

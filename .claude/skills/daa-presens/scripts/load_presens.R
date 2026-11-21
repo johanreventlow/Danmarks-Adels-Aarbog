@@ -2,10 +2,13 @@
 # =====================================================================
 #  load_presens.R — loader VALIDERET præsensliste-udtræk (clean.json).
 #
-#  Brug:  Rscript load_presens.R clean.json [udgave] --jeg-mener-det
+#  Brug:  Rscript load_presens.R clean.json [udgave] (--dry-run | --jeg-mener-det)
 #         udgave default "DAA 2012-2014".
 #  Login fra ~/.Renviron. SKRIVER TIL PROD: --jeg-mener-det er obligatorisk, og
-#  ukendte flag afvises (presens_args.R).
+#  ukendte flag afvises (presens_args.R). --dry-run kører det hele og ruller
+#  tilbage; den tager de samme EXCLUSIVE-låse på 13 tabeller (skrivere venter).
+#  Genkørselsværn (review 37, E6): findes en præsensliste-kilde med samme udgave,
+#  stopper loaderen før første INSERT — en genkørsel ville dublere alle levende.
 #
 #  APPEND-only: præsenslisten er en NY source der sameksisterer med
 #  stamtavle-data — id'er allokeres fra MAX(id) i basen. Der er ingen TRUNCATE;
@@ -22,6 +25,7 @@ source(file.path(script_dir, "presens_args.R"))
 args   <- parse_load_presens_args(commandArgs(trailingOnly = TRUE))
 path   <- args$path
 udgave <- args$udgave
+DRY_RUN <- args$dry_run
 
 # source.aar = tidsserie-aksen (schema.sql:37 — udgave-fritekst er upålidelig til sortering).
 # Konvention: SIDSTE dækkede år. Fail-closed: uparsebar udgave-streng stopper FØR DB-kontakt,
@@ -85,8 +89,10 @@ get_place <- function(navn) {
   if (exists(k, envir=.cache, inherits=FALSE)) return(get(k, envir=.cache))
   id <- nid("place"); ex("INSERT INTO place (id, navn) VALUES ($1,$2)", list(id, navn))
   assign(k, id, envir=.cache); id }
+.nye_personer <- integer()  # alle personer, denne kørsel opretter (også partner-stubs)
 add_person <- function(koen = NA) { pid <- nid("person")
-  ex("INSERT INTO person (id, levende, koen) VALUES ($1, TRUE, $2)", list(pid, koen)); pid }
+  ex("INSERT INTO person (id, levende, koen) VALUES ($1, TRUE, $2)", list(pid, koen))
+  .nye_personer <<- c(.nye_personer, pid); pid }
 add_fact <- function(sid_, ft, sted_id=NA, st="person") { fid <- nid("fact")
   ex("INSERT INTO fact (id, subjekt_type, subjekt_id, faktatype, sted_id) VALUES ($1,$2,$3,$4,$5)",
      list(fid, st, sid_, ft, sted_id)); fid }
@@ -136,6 +142,16 @@ tryCatch({
   # nextval tage samme id. Læsere passerer uhindret.
   ex(paste0("LOCK TABLE ", paste(id_tables, collapse = ", "), " IN EXCLUSIVE MODE"))
   seed_seq()
+
+  # Genkørselsværn (E6) under EXCLUSIVE-låsen på source, så to samtidige kørsler ikke begge
+  # passerer. source.import_key sættes bevidst ikke: den nøgle bærer stamtavlernes
+  # OCR-journal (import_korrektion), og præsenslistens personer har ingen record_key.
+  # Også samme årstal (aar = sidste dækkede år), så »DAA 2012-14« ikke slipper forbi »DAA 2012-2014«.
+  findes <- dbGetQuery(con, paste("SELECT count(*)::int AS n FROM source WHERE slags = 'præsensliste'",
+                                  "AND (udgave = $1 OR aar = $2)"), params = list(udgave, aar))$n[[1]]
+  if (findes != 0L)
+    stop(sprintf("en præsensliste '%s' eller med år %d er allerede indlæst (%d kilde(r)); en genkørsel ville dublere personerne.",
+                 udgave, aar, findes))
 
   src <- nid("source")
   ex("INSERT INTO source (id, slags, titel, udgave, aar, ekstern) VALUES ($1,'præsensliste',$2,$3,$4,FALSE)",
@@ -196,23 +212,33 @@ tryCatch({
     }
   }
 
-  # alle fire visning_*-felter fra konklusioner (kun for denne kildes personer = NULL-cache)
-  vexpr <- function(ft, kol) sprintf(
-    "(SELECT a.%s FROM conclusion c JOIN assertion a ON a.id=c.valgt_assertion_id
-        JOIN fact f ON f.id=c.target_id AND c.target_type='fact'
-        WHERE f.subjekt_type='person' AND f.subjekt_id=p.id AND f.faktatype='%s' LIMIT 1)", kol, ft)
-  ex(sprintf("UPDATE person p SET visning_navn=%s, visning_foedt=%s, visning_doed=%s, visning_titel=%s
-              WHERE p.visning_navn IS NULL",
-             vexpr("navn","vaerdi_tekst"), vexpr("fødsel","date_raw"),
-             vexpr("død","date_raw"), vexpr("titel","vaerdi_tekst")))
-  # Fail-closed sekvens-sync før commit (IDENTITY-kontrakt): tabeller uden
-  # identity-sekvens (base før migrationen) er eneste lovlige undtagelse.
-  for (t in id_tables) {
-    s <- dbGetQuery(con, sprintf("SELECT pg_get_serial_sequence('%s','id') s", t))$s[1]
-    if (is.na(s) || is.null(s)) message(sprintf("sekvens-sync: %s uden identity — sprunget over", t))
-    else ex(sprintf("SELECT setval('%s', (%s) + 1, false)", s, sub(" m$", "", id_gulv_sql(t))))
+  # Invariant 4 (review 37, E5): person.visning_* er en envejsprojektion, som databasens triggere
+  # (trg_conclusion_regen, trg_external_id_regen -> regen_person_visning) allerede har skrevet for hver
+  # ny konklusion. Loaderen skriver aldrig selv i cachen; den gamle UPDATE ramte også ældre personer
+  # med tom cache og brugte en anden afledning. Her tjekkes kun, at triggerne faktisk har kørt.
+  if (length(.nye_personer)) {
+    mangler <- dbGetQuery(con, paste(
+      "SELECT count(*)::int AS n FROM person p WHERE p.id = ANY($1::bigint[]) AND p.visning_navn IS NULL",
+      "AND EXISTS (SELECT 1 FROM fact f JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id",
+      "AND c.status='afklaret' WHERE f.subjekt_type='person' AND f.subjekt_id=p.id AND f.faktatype='navn')"),
+      params = list(paste0("{", paste(.nye_personer, collapse = ","), "}")))$n[[1]]
+    if (mangler != 0L)
+      stop(sprintf("%d nye personer med navn har tom visning_navn: cache-triggerne har ikke kørt (schema-drift?)", mangler))
   }
-  dbCommit(con); message(sprintf("Indlæst %d personer fra præsensliste (%s).", total, udgave))
+  if (DRY_RUN) {
+    # setval er ikke transaktionel: sekvens-sync hører kun til skrivegrenen.
+    dbRollback(con)
+    message(sprintf("DRY-RUN: %d personer fra præsensliste (%s) ville være indlæst; rullet tilbage.", total, udgave))
+  } else {
+    # Fail-closed sekvens-sync før commit (IDENTITY-kontrakt): tabeller uden
+    # identity-sekvens (base før migrationen) er eneste lovlige undtagelse.
+    for (t in id_tables) {
+      s <- dbGetQuery(con, sprintf("SELECT pg_get_serial_sequence('%s','id') s", t))$s[1]
+      if (is.na(s) || is.null(s)) message(sprintf("sekvens-sync: %s uden identity — sprunget over", t))
+      else ex(sprintf("SELECT setval('%s', (%s) + 1, false)", s, sub(" m$", "", id_gulv_sql(t))))
+    }
+    dbCommit(con); message(sprintf("Indlæst %d personer fra præsensliste (%s).", total, udgave))
+  }
 }, error = function(e) { dbRollback(con); dbDisconnect(con)
   stop("Load fejlede, rullet tilbage: ", conditionMessage(e)) })
 

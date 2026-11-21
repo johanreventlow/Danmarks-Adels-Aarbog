@@ -12,6 +12,11 @@ Vi fokuserer på STRUKTUR — det er der en svagere model fejler:
   S4  ægteskabs-ordinaler er strengt stigende per person
   S5  ingen ukendte topfelter (mulig tredjeparts-oprettelse)
   A1  (ADVISORY) dato_raw findes løst i blokkens raw_text efter OCR-normalisering
+
+PII (review 37, E2): udtrækket handler om nulevende. stderr får derfor kun antal og
+regelkoder, aldrig navne, datoer eller lokal_id'er. Detaljerne står i --review-filen
+(og advisories for rene blokke i --advisory, hvis den er givet); begge ligger i den
+gitignorerede work_presens/.
 """
 import sys, os, re, json, argparse
 
@@ -26,6 +31,16 @@ def ocr_norm(s):
     s = s.replace('†', '').replace(' ', ' ')
     s = re.sub(r'[^\wæøå]', '', s)        # kun alfanumerisk
     return s
+
+
+def fil_etiket(fn, n):
+    """Kun filnavne efter skillens konvention (gren-<N>.json) må nå stderr; andre kan rumme navne."""
+    return fn if re.fullmatch(r'gren-[0-9]+\.json', fn) else f'fil nr. {n} (navn ikke vist)'
+
+
+def regelkoder(beskeder):
+    """Kun regelkoden (S1, A1 …) fra hver besked: det eneste, der må nå stderr."""
+    return sorted({b.split(' ', 1)[0].split(':', 1)[0] for b in beskeder})
 
 
 def validate_block(blk, ext):
@@ -72,10 +87,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('blocks'); ap.add_argument('extracted_dir')
     ap.add_argument('--clean', required=True); ap.add_argument('--review', required=True)
+    ap.add_argument('--advisory', help='valgfri fil til advisories for rene blokke (work_presens/)')
     a = ap.parse_args()
 
     blocks = {(b['linje'], b['gren']): b for b in json.load(open(a.blocks, encoding='utf-8'))}
-    clean, review = [], []
+    clean, review, advisories = [], [], []
     for fn in sorted(f for f in os.listdir(a.extracted_dir) if f.endswith('.json')):
         ext = json.load(open(os.path.join(a.extracted_dir, fn), encoding='utf-8'))
         blk = blocks.get((ext.get('linje'), ext.get('gren')))
@@ -89,18 +105,21 @@ def main():
         else:
             clean.append(ext)
             if advisory:
-                print(f'[validate_presens] gren {ext.get("gren")}: {len(advisory)} advisory (ej-blokerende):', file=sys.stderr)
-                for adv in advisory:
-                    print(f'      ~ {adv}', file=sys.stderr)
+                advisories.append({'fil': fn, 'gren': ext.get('gren'), 'advisory': advisory})
 
     json.dump(clean, open(a.clean, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
     json.dump(review, open(a.review, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+    if a.advisory:
+        json.dump(advisories, open(a.advisory, 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
     npers = sum(len(b.get('personer') or []) for b in clean)
     print(f'[validate_presens] {len(clean)} rene blokke ({npers} personer), {len(review)} flaggede', file=sys.stderr)
-    for r in review:
-        print(f'  FLAG {r["fil"]}:', file=sys.stderr)
-        for b in r['brud']:
-            print(f'      - {b}', file=sys.stderr)
+    nadv = sum(len(x['advisory']) for x in advisories)
+    if nadv:
+        hvor = 'se advisory-filen' if a.advisory else 'ikke gemt (giv --advisory)'
+        print(f'[validate_presens] {nadv} advisory i rene blokke (ej-blokerende): {hvor}', file=sys.stderr)
+    for n, r in enumerate(review, 1):
+        print(f'  FLAG {fil_etiket(r["fil"], n)}: {len(r["brud"])} brud ({", ".join(regelkoder(r["brud"]))}); '
+              f'se review-filen', file=sys.stderr)
 
 
 if __name__ == '__main__':

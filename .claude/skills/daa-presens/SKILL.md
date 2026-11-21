@@ -6,9 +6,10 @@ description: >-
   Brug ALTID når brugeren vil udtrække/parse/importere en præsensliste,
   nulevende-medlemsliste, "presens", eller en almindelig årbogs-families-
   opslag (modsat den store stamtavle — brug /daa-extract til stamtavler).
-  Pipeline: deterministisk tekstudtræk + grov gren-segmentering, LLM-
-  rekonstruktion af relations-træet per gren (default Sonnet), OCR-tolerant
-  validering, og R-load (append) til Supabase som en ny source.
+  Pipeline: deterministisk tekstudtræk + grov gren-segmentering, rekonstruktion
+  af relations-træet per gren (SPÆRRET for sprogmodeller: listen handler om
+  nulevende, invariant 8), OCR-tolerant validering, og R-load (append) til
+  Supabase som en ny source.
 ---
 
 # DAA-præsensliste → datamodel
@@ -32,7 +33,7 @@ hvad der IKKE udtrækkes. Skema: `references/presens-schema.json`.
 
 ```
 PDF ──①pdftotext──> raw.txt ──②segment_presens.py──> blocks.json (per gren)
-   ──③LLM per gren──> extracted/gren-N.json ──④validate_presens.py──> {clean,review}
+   ──③rekonstruktion per gren──> extracted/gren-N.json ──④validate_presens.py──> {clean,review}
    ──⑤load_presens.R (append)──> Supabase
 ```
 
@@ -47,7 +48,17 @@ python3 .claude/skills/daa-presens/scripts/segment_presens.py work_presens/raw.t
 Segmenterer i **gren-blokke** (`N. GREN`), bærer linje + sider. Slægtskabs-
 sektions-headers (SØSTRE …) bevares i blok-teksten — LLM'en bruger dem.
 
-### ③ Rekonstruér relations-træet (LLM — Sonnet default)
+### ③ Rekonstruér relations-træet — SPÆRRET for sprogmodeller
+
+> **GDPR-spærre (review 37, E2; CLAUDE.md invariant 8).** `work_presens/` rummer navn,
+> fødsel og bopæl på **nulevende**. Hverken `raw_text`, `blocks.json` eller andre filer
+> derfra må sendes til en sprogmodel — heller ikke en subagent, Codex eller et
+> »engangsforsøg«. Trinnet har i dag **ingen godkendt vej**: før en ny præsensliste
+> indlæses, skal projektejeren træffe en beslutning i `docs/decisions.md` om, hvordan
+> rekonstruktionen laves (fx manuelt af et menneske). Indtil da stopper skillen her.
+> Den tidligere note »GDPR/RLS parkeret i PoC« er ophævet.
+
+Kontrakten nedenfor beskriver, hvad rekonstruktionen skal levere, uanset hvem der laver den.
 
 For **hver** gren-blok: udtræk personerne til ét JSON-objekt
 `{linje, gren, personer:[…]}` efter `references/presens-schema.json`. Den
@@ -55,7 +66,7 @@ flade `personer[]`-liste rekonstruerer træet via `foraelder_lokal_id` (peger
 på et andet `lokal_id` i samme blok). Strukturen kommer fra nesting
 (a./1)/a)/(1) + `Børn:`/`Søn:` + `af 1./2. ægteskab:`).
 
-Prompten skal indeholde: blokkens `raw_text`, `linje`, `gren`, hele
+Rekonstruktionen bygger på blokkens `raw_text`, `linje`, `gren` og hele
 `docs/daa-presens-archetype.md` (især §3 fælder og §4 OCR-tolerance).
 
 Centralt:
@@ -72,22 +83,29 @@ Gem ét objekt per gren til `work_presens/extracted/gren-<N>.json`.
 ```bash
 python3 .claude/skills/daa-presens/scripts/validate_presens.py \
   work_presens/blocks.json work_presens/extracted/ \
-  --clean work_presens/clean.json --review work_presens/review.json
+  --clean work_presens/clean.json --review work_presens/review.json \
+  --advisory work_presens/advisory.json
 ```
 
 Tjekker STRUKTUR (forælder-links gyldige, lokal_id unikke, køn sat, ordinaler
 stigende). Dato-verbatim er **advisory, ikke blokerende** — OCR gør streng
-match upålidelig. Flaggede blokke loades ikke før review.
+match upålidelig. Flaggede blokke loades ikke før review. stderr viser kun antal og
+regelkoder; navne, datoer og lokal_id'er står kun i `review.json`/`advisory.json` (E2).
 
 ### ⑤ Load (append) til Supabase
 
 ```bash
+# prøvekørsel: hele loaden i én transaktion, rulles tilbage
+Rscript .claude/skills/daa-presens/scripts/load_presens.R work_presens/clean.json "DAA 2012-2014" --dry-run
 Rscript .claude/skills/daa-presens/scripts/load_presens.R work_presens/clean.json "DAA 2012-2014" --jeg-mener-det
 ```
 
 **Append som default** (ingen TRUNCATE): præsenslisten er en ny `source` der
 sameksisterer med stamtavle-data; id'er allokeres fra `MAX(id)`. Scriptet skriver
-til prod: `--jeg-mener-det` er obligatorisk, og ukendte flag afvises. `--reset` er
+til prod: `--jeg-mener-det` (eller `--dry-run`) er obligatorisk, og ukendte flag afvises.
+Findes en præsensliste-kilde med samme udgave allerede, stopper loaderen før første
+skrivning (review 37, E6): en genkørsel ville dublere alle levende personer.
+`person.visning_*` skrives af databasens triggere, aldrig af loaderen (E5, invariant 4). `--reset` er
 fjernet (review 2026-10-27, fund 1c-01) — start forfra ved restore af et dump.
 Loader personer (`levende=TRUE`) + fakta + forælder-barn/ægtefælle-familier +
 kollateral-relation til gren-hoved.
@@ -102,6 +120,6 @@ conclusion), så slægtskabet er evidens-komplet på tværs af udgaver. **Kræve
 - Præsensliste = én `source` (`slags='præsensliste'`); forenes med stamtavler
   via evidenslaget. Identitetssammenkædning (samme person i stamtavle +
   præsensliste) holdes pragmatisk i PoC.
-- Nulevende-data: `person.levende=TRUE`. (GDPR/RLS parkeret i PoC — løs før
-  multi-bruger-eksponering.)
-- `work_presens/` er git-ignoreret arbejdsmappe.
+- Nulevende-data: `person.levende=TRUE`; synligheden styres af RLS (invariant 8).
+- `work_presens/` er git-ignoreret arbejdsmappe med PII: commit den aldrig, send den
+  aldrig til en model, og læs den ikke i en agent-session (se trin ③).

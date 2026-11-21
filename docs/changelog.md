@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-21 — Pipelinerne sender ikke nulevendes data til en model og skriver ikke forkert ved genkørsel (review 37 E2-E8)
+
+Præsenslistens model-trin er spærret, fordi listen handler om nulevende. Validatoren skriver kun antal og regelkoder
+til terminalen. Modelgennemgangen bygger kun input for DAA 1939. Extract-skillen siger nu tydeligt, at 2018-20's
+arbejdsmappe aldrig må gives til en model. Geo-`--apply` skriver fra den CSV, mennesket har godkendt, i stedet for at
+genberegne og overskrive den. En ny prøvekørsel bevarer godkendelserne, og der gemmes en kopi, når noget forkastes.
+Hændelses-loaderen sletter og opdaterer de rigtige rækker (integer64-fælden ramte både DELETE og fact_id), og hver
+skrivning skal ramme præcis én række. Præsensloaderen skriver ikke længere selv i visnings-cachen, stopper ved en
+genkørsel af samme udgave eller år og har fået `--dry-run`. Ingen prod-ændring. Åbne afgørelser i
+`decisions.md` (2026-11-20, NOTERET).
+
 ## 2026-11-20 — »Slet helt« af en ikke-offentlig person efterlader intet, der bliver synligt (review 37 P1+P2)
 
 Før kunne sletning af en levende, privat eller ikke-udgivet person gøre et bevaret billede eller en families indhold
