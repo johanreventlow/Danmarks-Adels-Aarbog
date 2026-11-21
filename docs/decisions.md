@@ -2,6 +2,23 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: hændelseslaget opløser s.å./s.m./s.d. fra konteksten; udaterede parkeres (#130, 2026-11-21)
+
+- **Valg (projektejeren 21/11):** i #130's udtræk havde 312 af 3.966 hændelser ingen dato, mest
+  »s.å. (29. maj)«. Projektejeren: »s.m. betyder samme måned, s.d. betyder samme dag — kan de ikke
+  bruges? og dem som ikke kan løses, kan vi lægge dem til side til senere gennemgang«.
+- **Regel (H9 i `validate_haendelser.py`):** kun når den fælles parser ikke giver nogen grænse.
+  Datoen tages fra den nærmeste foregående dato i samme narrativ; et nyt årstal nulstiller
+  måned/dag, så `s.m.`/`s.d.` ikke gættes på tværs af år. `date_raw` forbliver ordret; hver
+  opløsning logges som H9-advisory. 259 opløst; stikprøver mod teksten korrekte.
+- **Afgrænset til hændelseslaget.** `derive_date_info` i daa-extract opløser stadig bevidst ikke
+  ankre (docstring »BEVIDST UDELADT«): der er fakta evidens, og en falsk opløsning bryder den.
+  Hændelser er regenererbar formidling med ordret klausul, så en sjælden fejl giver et kort på
+  forkert plads i tidslinjen, ikke en forkert påstand.
+- **Parkering (`parker_udaterede.py`, trin ③c):** hændelser uden nogen grænse (34, fx
+  »1842‑1846 og 1855‑«, »4 Dec.«) loades ikke, men gemmes til gennemgang. **ÅBEN:** gennemgå eller
+  drop dem; hvis parseren lærer sammensatte datoer, kommer de med ved næste load.
+
 ## BESLUTTET: hændelser ændrer ikke en biografis synlighed; feedet henter hændelser i bidder (2026-11-21)
 
 > Projektejeren 21/11 (review 37 A2 + Y3, #397). Spec: `docs/superpowers/specs/2026-11-21-review37-a2-y3-haendelser-design.md`.

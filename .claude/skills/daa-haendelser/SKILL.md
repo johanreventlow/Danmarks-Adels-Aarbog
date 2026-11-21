@@ -29,6 +29,7 @@ narrative ──① export_narratives.R──> work/haendelser/narrativer.json
   ──② LLM pr. narrativ──> work/haendelser/extracted/<narrative_id>.json
   ──③ validate_haendelser.py──> clean.json + review.json + escalation.json
   ──③b ét Opus-forsøg på flaggede narrativer──> deterministisk revalidering
+  ──③c parker_udaterede.py──> clean.json uden udaterede + parkeret.json
   ──④ load_haendelser.R──> haendelse (feed_status bevares)
 ```
 
@@ -66,7 +67,10 @@ python3 .claude/skills/daa-haendelser/scripts/validate_haendelser.py \
 
 H1-H3 er blokerende for hele narrativet. H4-H6 beregnes deterministisk.
 H7 normaliserer ukendt kategori til `andet`; H8 sender år-rig prosa uden fund
-til eskalering. Validatoren printer alle advisory-beskeder, også for rene poster,
+til eskalering. H9 opløser relative datoer (`s.å.`/`s. A.`/`d. A.` = samme år,
+`s.m.` = samme måned, `s.d.` = samme dag) fra den nærmeste foregående dato i samme
+narrativ; et nyt årstal nulstiller måned og dag, så `s.m.`/`s.d.` aldrig gættes på
+tværs af år. `date_raw` forbliver ordret, og hver opløsning logges som H9-advisory. Validatoren printer alle advisory-beskeder, også for rene poster,
 så vokabulardrift ikke forsvinder i `clean.json`.
 
 Opus må kun bruges én gang på de flaggede narrativer. Gem først det oprindelige
@@ -83,6 +87,17 @@ python3 .claude/skills/daa-haendelser/scripts/escalate_haendelser.py \
 Helperen kræver et snapshot og kører altid samme H1-H8-validator igen. Kun et
 blokkeringsfrit output uden nye H8-advisory-typer kan erstatte `clean.json`;
 resten fjernes fail-closed fra clean og bliver i review.
+
+### ③c Parkér udaterede
+
+```bash
+python3 .claude/skills/daa-haendelser/scripts/parker_udaterede.py \
+  work/haendelser/clean.json --parkeret work/haendelser/parkeret.json
+```
+
+Hændelser uden nogen datogrænse (hverken `date_min` eller `date_max`, heller ikke
+efter H9) tages ud af `clean.json` og gemmes til redaktionel gennemgang eller
+beslutning om at droppe. Narrativet bliver i inputtet, så merge-loaden stadig dækker det.
 
 ### ④ Merge-load
 

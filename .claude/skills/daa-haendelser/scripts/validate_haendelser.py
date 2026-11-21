@@ -49,6 +49,94 @@ def normaliser_klausul(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()[:160]
 
 
+# H9: relative datoer (s.å./s. A./d. A. = samme år, s.m. = samme måned, s.d. = samme dag).
+# daa-extract's parser opløser dem bevidst ikke (fakta-laget: falsk opløsning bryder evidensen).
+# Hændelseslaget er regenererbar formidling, og klausulen står ordret i narrativet, så her
+# opløses de fra den nærmeste foregående dato i SAMME narrativ — konservativt: et nyt årstal
+# nulstiller måned/dag, så s.m./s.d. aldrig gættes ud fra en dato i et andet år. date_raw
+# forbliver ordret; kun bounds udledes, og hver opløsning logges som H9-advisory.
+_MAANED = {
+    "januar": 1, "jan": 1, "februar": 2, "febr": 2, "feb": 2, "marts": 3, "mar": 3,
+    "april": 4, "apr": 4, "maj": 5, "mai": 5, "juni": 6, "jun": 6, "juli": 7, "jul": 7,
+    "august": 8, "aug": 8, "september": 9, "sept": 9, "sep": 9, "oktober": 10, "okt": 10,
+    "oct": 10, "november": 11, "nov": 11, "december": 12, "decbr": 12, "dec": 12,
+}
+_MAANED_NAVN = ["jan.", "febr.", "marts", "april", "maj", "juni", "juli", "aug.", "sept.", "okt.", "nov.", "dec."]
+_MON = "(?:" + "|".join(sorted(_MAANED, key=len, reverse=True)) + r")(?![a-zæøå])"
+_AAR_KERNE = r"(?:1[0-9]{3}|20[0-9]{2})"
+_AAR = rf"(?<!\d)({_AAR_KERNE})(?!\d)"
+_DATO_TOKEN = re.compile(
+    rf"(?P<a>(?<!\d)(?P<ad>\d{{1,2}})\.?\s+(?P<am>{_MON})\.?\s+(?P<ay>{_AAR_KERNE})(?!\d))"
+    rf"|(?P<b>(?<!\d)(?P<by>{_AAR_KERNE})\s*\(\s*(?P<bd>\d{{1,2}})\.?\s+(?P<bm>{_MON}))"
+    rf"|(?P<y>{_AAR})"
+    rf"|(?P<c>(?<!\d)(?P<cd>\d{{1,2}})\.?\s+(?P<cm>{_MON}))"
+    rf"|(?P<m>\(\s*(?P<mm>{_MON}))",
+    re.IGNORECASE,
+)
+_REL_AAR = re.compile(r"\bs\.\s?[åa]\.|\bs\.\s?a\.(?=\s|$|[,;)(-])|\bd\.\s?[aå]\.", re.IGNORECASE)
+_REL_MAANED = re.compile(r"\bs\.\s?m\.", re.IGNORECASE)
+_REL_DAG = re.compile(r"\bs\.\s?d\.", re.IGNORECASE)
+
+
+def _dato_tilstand(prefix: str) -> tuple[int | None, int | None, int | None]:
+    """(år, måned, dag) for den seneste dato i prefix, læst fra venstre mod højre."""
+    y = m = d = None
+    for tok in _DATO_TOKEN.finditer(prefix):
+        if tok.group("a"):
+            y, m, d = int(tok.group("ay")), _MAANED[tok.group("am").lower()], int(tok.group("ad"))
+        elif tok.group("b"):
+            y, m, d = int(tok.group("by")), _MAANED[tok.group("bm").lower()], int(tok.group("bd"))
+        elif tok.group("y"):
+            y, m, d = int(tok.group("y")), None, None
+        elif tok.group("c") and y is not None:
+            m, d = _MAANED[tok.group("cm").lower()], int(tok.group("cd"))
+        elif tok.group("m") and y is not None:
+            m, d = _MAANED[tok.group("mm").lower()], None
+    return y, m, d
+
+
+def kontekst_dato(prefix: str, date_raw: str) -> tuple[dict[str, Any], str] | None:
+    """Opløs s.å./s.m./s.d. i date_raw fra prefix; None hvis ikke entydigt muligt."""
+    y, m, d = _dato_tilstand(prefix)
+    if y is None:
+        return None
+    sub = date_raw
+    if _REL_DAG.search(sub):
+        if m is None or d is None:
+            return None
+        sub = _REL_DAG.sub(f"{d}. {_MAANED_NAVN[m - 1]} {y}", sub, count=1)
+    elif _REL_MAANED.search(sub):
+        if m is None:
+            return None
+        sub = _REL_MAANED.sub(f"{_MAANED_NAVN[m - 1]} {y}", sub, count=1)
+    elif _REL_AAR.search(sub):
+        sub = _REL_AAR.sub(str(y), sub, count=1)
+    else:
+        return None
+    info = daa_validate.derive_date_info(sub)
+    if info["date_min"] is None and info["date_max"] is None:
+        return None
+    return info, sub
+
+
+def parker_udaterede(clean: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Tag hændelser uden nogen datogrænse ud af clean (til senere gennemgang).
+
+    Narrativet bliver i clean (evt. med tom liste), så loaderens merge stadig dækker det.
+    """
+    kept: list[dict[str, Any]] = []
+    parked: list[dict[str, Any]] = []
+    for record in clean:
+        beholdt = []
+        for event in record.get("haendelser", []):
+            if event.get("date_min") is None and event.get("date_max") is None:
+                parked.append({"narrative_id": record["narrative_id"], "grund": "ingen datogrænse", "haendelse": event})
+            else:
+                beholdt.append(event)
+        kept.append({**record, "haendelser": beholdt})
+    return kept, parked
+
+
 def _next_span(text: str, clause: str, used_offsets: set[int]) -> tuple[int | None, int | None]:
     start = 0
     while True:
@@ -122,12 +210,22 @@ def validate_narrative(
         if qualifier not in QUALIFIERS:
             issues.append(f"H3: {label}.date_qualifier er ugyldig: {qualifier}")
             qualifier = None
-        date_info = daa_validate.derive_date_info(date_raw)
-        derived_qualifier = date_info["qualifier"] or (qualifier if date_raw else None)
-
         span_start, span_length = _next_span(text, clause, used_offsets)
         if span_start is None:
             issues.append(f"H5: {label}s klausul har ingen ubrugt forekomst")
+
+        date_info = daa_validate.derive_date_info(date_raw)
+        if (date_raw and span_start is not None and date_info["date_min"] is None
+                and date_info["date_max"] is None and date_raw in clause):
+            prefix = text[:span_start] + clause[:clause.find(date_raw)]
+            resolved = kontekst_dato(prefix, date_raw)
+            if resolved is not None:
+                date_info, via = resolved
+                advisory.append(
+                    f"H9: {label}: '{date_raw}' udledt af konteksten som '{via}' "
+                    f"({date_info['date_min']}..{date_info['date_max']})"
+                )
+        derived_qualifier = date_info["qualifier"] or (qualifier if date_raw else None)
 
         base_key = normaliser_klausul(clause)
         key_counts[base_key] += 1
