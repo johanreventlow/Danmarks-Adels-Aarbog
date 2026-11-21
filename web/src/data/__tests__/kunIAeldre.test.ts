@@ -47,6 +47,13 @@ describe('kunIAeldreTekst', () => {
     expect(kunIAeldreTekst({ ...model, udgaver: undefined }, 'B')).toBeNull();
   });
 
+  // Projektejeren 2026-11-21: en nulevende står også i den nyere udgave (fx 381/453/454: i 2018-20, men med
+  // 1939-alias); mærket må aldrig sige »kun i 1939« om en levende, uanset hvad numrene viser.
+  it('levende person giver null', () => {
+    const levende = buildModel({ persons: [{ id: 'B', name: 'B', born: 1931, died: null, years: '', title: '', bio: '', privat: false, levende: true }], unions: [], parentChild: [] });
+    expect(kunIAeldreTekst({ ...model, byId: levende.byId }, 'B')).toBeNull();
+  });
+
   it('person uden forældre giver null', () => {
     expect(kunIAeldreTekst(model, 'F')).toBeNull();
   });

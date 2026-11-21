@@ -3,7 +3,9 @@ import type { Model } from './types';
 
 export type KunIAeldreTekst = { maerke: string; forklaring: string; linje: string };
 
+// En nulevende står også i den nyere udgave (projektejeren 2026-11-21): aldrig »kun i« for en levende.
 export function kunIAeldreTekst(model: Model, personId: string): KunIAeldreTekst | null {
+  if (model.byId[personId]?.levende) return null;
   const resultat = kunIAeldreUdgave(personId, model.indexes.parentsByChild[personId] ?? [], model.bogNrBy, model.udgaver);
   if (!resultat) return null;
   const labels = new Map((model.udgaver ?? []).map((u) => [u.sourceId, u.label]));

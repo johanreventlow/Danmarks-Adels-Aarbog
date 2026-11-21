@@ -424,3 +424,15 @@ describe('collapseSameAs — dødstekst uden årstal', () => {
     expect(fold([P('K', { doedTekst: '† ung' }), P('A', { born: 1700, died: 1720 })]).years).toBe('1700–1720');
   });
 });
+
+describe('collapseSameAs — levende', () => {
+  it('levende på én række gør den foldede person levende (OR, som privat)', () => {
+    const ext = new Map<string, { linje: string | null; nr: number | null }>();
+    const r = collapseSameAs({ persons: [P('K', { levende: true }), P('A', { levende: false })], unions: [], parentChild: [] },
+      [{ alias: 'A', canonical: 'K' }], ext);
+    expect(r.db.persons.find((p) => p.id === 'K')!.levende).toBe(true);
+    const r2 = collapseSameAs({ persons: [P('K'), P('A', { levende: true })], unions: [], parentChild: [] },
+      [{ alias: 'A', canonical: 'K' }], ext);
+    expect(r2.db.persons.find((p) => p.id === 'K')!.levende).toBe(true);
+  });
+});

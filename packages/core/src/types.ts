@@ -122,6 +122,8 @@ export type AppPerson = {
   title: string;
   bio: string;
   privat: boolean;
+  // Valgfri: person.levende (RLS skjuler levende for gæster; kun redaktionen får dem). Kun web sætter den.
+  levende?: boolean;
   koen?: Koen; // valgfri: ældre fixtures/seed mangler den → behandles som ukendt
   // Valgfri: årstallenes spænd i bogens dato (»† 1406/1410« → [1406, 1410]; et enkelt år → [år, år]).
   // born/died er det første år; spændet bruges, hvor en usikker dato skal tælle i hele sin bredde.
