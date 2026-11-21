@@ -21,6 +21,11 @@ Alle ændrede funktioner rettes **både** i `schema.sql` (source of truth) og so
 5. `person_purge_fortrydelse` R30: **prædikatet beholdes** (overmængde: melder også tab for kladder, hvor kvitteringen
    reelt ikke ændres — fail-closed); kommentaren omskrives til, at kvitteringen ændres via `text_editable` på publicerede,
    tilladte bindinger.
+   *Efter implementering:* `generic_rows.ready` kræver, at bindingen stadig er den kladde, receiptet blev taget af, så
+   leddet har ingen ægte træffere på den generelle vej længere; slette-previewet kan vise en falsk »fortrydelse mistes«
+   (aldrig et skjult tab). Indsnævring ville i praksis fjerne leddet; det beholdes, så en fremtidig receipt-form ikke
+   lydløst mister vagten. S26-testene beviser nu »advarer, men fortrydelsen virker« (fixturens publicerede bindinger er
+   ikke publicerbare; den publicerede lås/token bevises i kontrakttestens Task 5).
 6. `db-verify.sql`: asserts for (a) hjælperens ACL, (b) at `narrative_publication_state` aldrig giver
    `has_haendelse=true` med en hændelse til stede, (c) at revise afvises med hændelse.
 7. Tests: `tests/sql/test-narrative-record-contract.sql` (task5-revalideringstesten ~4287: hændelse ændrer ikke længere

@@ -13652,6 +13652,19 @@ BEGIN
 END
 $$;
 
+-- Review 37 A2: den eneste kilde til hændelseslåsen. En publiceret tekst med afledte hændelser kan ikke
+-- revideres (narrative_record_state.text_editable, mutate_person_narrative_record revise), men hændelser
+-- indgår ikke i publiceringstilstanden og ændrer derfor aldrig en biografis synlighed.
+CREATE OR REPLACE FUNCTION private.narrative_har_haendelse(p_narrative_id bigint)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path=pg_catalog
+AS $$
+  SELECT EXISTS(SELECT 1 FROM public.haendelse event WHERE event.narrative_id=p_narrative_id)
+$$;
+REVOKE ALL ON FUNCTION private.narrative_har_haendelse(bigint) FROM PUBLIC,anon,authenticated,service_role;
+
 CREATE OR REPLACE FUNCTION private.narrative_publication_state(
   p_person_id bigint,
   p_source_id bigint,
@@ -13844,12 +13857,11 @@ BEGIN
              'text_sha256',encode(extensions.digest(narrative.tekst,'sha256'),'hex'),
              'private',coalesce(narrative.privat,false),
              'side',narrative.side,
-             'has_haendelse',EXISTS(
-               SELECT 1 FROM public.haendelse event WHERE event.narrative_id=narrative.id
-             )
-           ),coalesce(narrative.privat,false),EXISTS(
-             SELECT 1 FROM public.haendelse event WHERE event.narrative_id=narrative.id
-           )
+             -- Review 37 A2: has_haendelse er udfaset og altid false. Hændelser påvirker ikke en biografis
+             -- synlighed; feltet bevares kun, så attesterede tilstande (alle false) forbliver identiske.
+             -- Hændelseslåsen læses direkte via private.narrative_har_haendelse.
+             'has_haendelse',false
+           ),coalesce(narrative.privat,false),false
       INTO v_narrative_json,v_narrative_private,v_has_haendelse
       FROM public.narrative narrative
      WHERE narrative.id=v_binding.narrative_id;
@@ -14167,8 +14179,13 @@ BEGIN
       THEN '["save_draft","discard_draft","publish"]'::jsonb
       ELSE '["save_draft","discard_draft"]'::jsonb END;
   ELSIF v_publication_status='published' THEN
+    -- Review 37 A2: hændelseslåsen læses live (has_haendelse i publication_state er udfaset). text_editable
+    -- indgår i editor-kuvertens state_sha256, så første/sidste hændelse på en publiceret, tilladt binding
+    -- ændrer stadig editor-tokenet; for kladder (og dermed genimportens receipts) ændrer hændelser intet.
     v_text_editable:=v_publication_allowed
-                     AND NOT (v_publication_state->>'has_haendelse')::boolean;
+                     AND NOT private.narrative_har_haendelse(
+                       (v_publication_state #>> '{binding,narrative_id}')::bigint
+                     );
     v_allowed_actions:=CASE WHEN NOT v_publication_allowed
       THEN '["withdraw"]'::jsonb WHEN v_text_editable
       THEN '["publish_revision","withdraw"]'::jsonb
@@ -14230,7 +14247,7 @@ DECLARE
 BEGIN
   SELECT person.levende,coalesce(person.privat,false),
          coalesce(person.staged,false),coalesce(narrative.privat,false),
-         EXISTS(SELECT 1 FROM public.haendelse event WHERE event.narrative_id=narrative.id)
+         false -- review 37 A2: has_haendelse udfaset, altid false
     INTO v_person_levende,v_person_private,v_person_staged,
          v_narrative_private,v_has_haendelse
     FROM private.narrative_legacy_publication legacy
@@ -14832,7 +14849,10 @@ BEGIN
     IF p_text IS NULL THEN
       RAISE EXCEPTION 'NARRATIVE_RECORD_TEXT_REQUIRED';
     END IF;
-    IF coalesce((v_before_publication->>'has_haendelse')::boolean,false) THEN
+    -- Review 37 A2: låsen læses live via hjælperen (has_haendelse i publication_state er udfaset).
+    IF private.narrative_har_haendelse(
+         (v_before_publication #>> '{binding,narrative_id}')::bigint
+       ) THEN
       RAISE EXCEPTION 'NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT';
     END IF;
     IF v_status='stale_published' THEN
@@ -16035,8 +16055,9 @@ DECLARE
 BEGIN
   SELECT person.levende,coalesce(person.privat,false),
          coalesce(person.staged,false),coalesce(narrative.privat,false),
-         EXISTS(SELECT 1 FROM public.haendelse event
-                 WHERE event.narrative_id=narrative.id)
+         -- Review 37 A2: has_haendelse er udfaset og altid false (hændelser påvirker ikke synlighed);
+         -- feltet bevares, så legacy-grundlinjerne (alle false) forbliver identiske.
+         false
     INTO v_person_levende,v_person_private,v_person_staged,
          v_narrative_private,v_has_haendelse
     FROM public.narrative narrative
@@ -38819,8 +38840,11 @@ generic_lost AS MATERIALIZED (
         WHERE r.batch_id=b.id AND q.pk=jsonb_build_object('id',r.publication_event_id)))
       OR (q.tabel='narrative' AND EXISTS (SELECT 1 FROM generic_rows r
         WHERE r.batch_id=b.id AND q.pk=jsonb_build_object('id',r.narrative_id)))
-      -- R30: state indeholder kun has_haendelse, ikke fact_id/relation_id eller hændelsens tekst.
-      -- Kun fjernelse af den SIDSTE hændelse ændrer receiptet. S27 er altid en no-op her.
+      -- R30 (omskrevet review 37 A2): hændelser indgår ikke længere i publication_state; de påvirker kun
+      -- editor-kuvertens state_sha256 via text_editable på en PUBLICERET, tilladt binding. generic_rows.ready
+      -- kræver, at bindingen stadig er den kladde, receiptet blev taget af, så på denne vej ændrer en hændelse
+      -- aldrig receiptet. Leddet bevares bevidst som overmængde (fail-closed): det kan melde »mistes« for en
+      -- fortrydelse, der reelt stadig virker, men aldrig skjule et ægte tab. S27 er altid en no-op her.
       OR (q.tabel='haendelse' AND q.handling='slet' AND EXISTS (
         SELECT 1 FROM generic_rows r JOIN public.haendelse h ON h.narrative_id=r.narrative_id
         WHERE r.batch_id=b.id AND q.pk=jsonb_build_object('id',h.id)

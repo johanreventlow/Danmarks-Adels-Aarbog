@@ -4273,6 +4273,11 @@ BEGIN
   );
 END
 $narrative_record_task5_non_daa_attestation$;
+-- Review 37 A2: gem tilstanden for den publicerede tekst FØR hændelserne, så det kan bevises, at de ikke
+-- ændrer publiceringstilstanden (synlighed), men kun editor-låsen (text_editable/token).
+CREATE TEMP TABLE task5_a2_before ON COMMIT DROP AS
+SELECT private.narrative_publication_state(-91521001,-91521001,'published') AS publication_state,
+       private.narrative_record_state(-91521001,-91521001,'published',false) AS editor_state;
 INSERT INTO public.haendelse(
   id,subjekt_type,subjekt_id,narrative_id,noegle,klausul,feed_status
 ) VALUES
@@ -4283,13 +4288,62 @@ DO $narrative_record_task5_revalidate_event_projection$
 DECLARE
   v_state jsonb;
   v_hash text;
+  v_before jsonb;
+  v_before_editor jsonb;
+  v_editor jsonb;
 BEGIN
-  -- has_haendelse is semantic publication state. Model the explicit
-  -- revalidation required after adding a derived event to a published record.
+  -- Review 37 A2: has_haendelse er udfaset. En afledt hændelse ændrer ikke publiceringstilstanden, så den
+  -- publicerede tekst forbliver synlig uden revalidering; kun editor-låsen (text_editable) og dermed
+  -- editor-kuvertens token skifter.
   v_state:=private.narrative_publication_state(
     -91521001,-91521001,'published'
   );
   v_hash:=encode(extensions.digest(v_state::text,'sha256'),'hex');
+  v_before:=(SELECT before.publication_state FROM task5_a2_before before);
+  v_before_editor:=(SELECT before.editor_state FROM task5_a2_before before);
+  IF v_state->>'has_haendelse' IS DISTINCT FROM 'false'
+     OR v_state #>> '{narrative,has_haendelse}' IS DISTINCT FROM 'false' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_A2_HAS_HAENDELSE_NOT_FALSE: %',v_state;
+  END IF;
+  IF v_state IS DISTINCT FROM v_before
+     OR v_hash IS DISTINCT FROM (
+       SELECT event.after_state_sha256 FROM private.narrative_publication_event event
+        WHERE event.stream_ref='15210000-0000-0000-0000-000000001180'
+        ORDER BY event.stream_version DESC LIMIT 1
+     ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_A2_EVENT_CHANGED_PUBLICATION_STATE';
+  END IF;
+  SET LOCAL ROLE anon;
+  IF NOT 'Published text'=ANY(pg_temp.task5_v1_texts(-91521001))
+     OR NOT 'Published text'=ANY(pg_temp.task5_v2_texts(-91521001))
+     OR NOT -91521180=ANY(pg_temp.task5_direct_narrative_ids(ARRAY[-91521180])) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_A2_EVENT_HID_PUBLISHED_TEXT';
+  END IF;
+  SET LOCAL ROLE NONE;
+  v_editor:=private.narrative_record_state(-91521001,-91521001,'published',false);
+  IF v_before_editor->>'publication_status' IS DISTINCT FROM 'published'
+     OR v_before_editor->>'text_editable' IS DISTINCT FROM 'true'
+     OR v_editor->>'publication_status' IS DISTINCT FROM 'published'
+     OR v_editor->>'text_editable' IS DISTINCT FROM 'false'
+     OR v_editor->'allowed_actions' IS DISTINCT FROM '["withdraw"]'::jsonb
+     OR v_editor->>'state_sha256' IS NOT DISTINCT FROM v_before_editor->>'state_sha256' THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_A2_EDITOR_LOCK_INVALID: before=% after=%',
+      v_before_editor,v_editor;
+  END IF;
+  -- Fjernes den sidste hændelse igen, er låsen væk, og editor-tokenet er det oprindelige (rulles tilbage).
+  BEGIN
+    DELETE FROM public.haendelse WHERE id=-91521291;
+    IF private.narrative_record_state(-91521001,-91521001,'published',false)->>'state_sha256'
+         IS DISTINCT FROM v_before_editor->>'state_sha256'
+       OR private.narrative_publication_state(-91521001,-91521001,'published') IS DISTINCT FROM v_before THEN
+      RAISE EXCEPTION 'NARRATIVE_RECORD_TASK5_A2_LAST_EVENT_REMOVAL_INVALID';
+    END IF;
+    RAISE SQLSTATE 'ZX001';
+  EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL;
+  END;
+  -- Den efterfølgende drift-matrix bruger 2183 som seneste attestation. Revalideringen er ikke længere
+  -- påkrævet af hændelsen; den attesterer den uændrede tilstand.
+  RAISE NOTICE 'OK: review 37 A2 — hændelse bevarer synlighed og publiceringstilstand, låser kun redigering';
   INSERT INTO private.narrative_publication_event(
     id,change_set_id,stream_ref,stream_version,event_type,binding_id,
     narrative_id,source_id,source_record_id,decision_basis,before_state,

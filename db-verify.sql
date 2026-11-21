@@ -518,6 +518,74 @@ BEGIN
 END
 $narrative_record_state_verify$;
 
+-- Review 37 A2: hændelser ændrer ikke en biografis publiceringstilstand; låsen læses via én privat hjælper.
+-- Adfærden (uændret synlighed, ændret editor-token, afvist revise) bevises i test-narrative-record-contract.sql.
+DO $review37_a2_verify$
+DECLARE
+  v_role text;
+  v_function text;
+  v_count bigint;
+BEGIN
+  IF to_regprocedure('private.narrative_har_haendelse(bigint)') IS NULL THEN
+    RAISE EXCEPTION 'REVIEW37_A2_HELPER_MISSING';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM pg_proc function
+     WHERE function.oid='private.narrative_har_haendelse(bigint)'::regprocedure
+       AND (function.provolatile<>'s' OR function.prosecdef
+            OR function.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[])
+  ) THEN
+    RAISE EXCEPTION 'REVIEW37_A2_HELPER_FORM_INVALID';
+  END IF;
+  FOREACH v_role IN ARRAY ARRAY['anon','authenticated','service_role'] LOOP
+    IF has_function_privilege(v_role,'private.narrative_har_haendelse(bigint)','EXECUTE') THEN
+      RAISE EXCEPTION 'REVIEW37_A2_HELPER_ACL_INVALID: %',v_role;
+    END IF;
+  END LOOP;
+
+  -- (b) Ingen publiceringstilstand læser hændelser.
+  FOREACH v_function IN ARRAY ARRAY[
+    'private.narrative_publication_state(bigint,bigint,text)',
+    'private.narrative_legacy_candidate_publication_state(bigint,bigint,uuid)',
+    'private.narrative_legacy_publication_state(uuid)'
+  ] LOOP
+    IF strpos(pg_get_functiondef(v_function::regprocedure),'public.haendelse')<>0
+       OR strpos(pg_get_functiondef(v_function::regprocedure),'narrative_har_haendelse(')<>0 THEN
+      RAISE EXCEPTION 'REVIEW37_A2_STATE_READS_HAENDELSE: %',v_function;
+    END IF;
+  END LOOP;
+  SELECT count(*) INTO v_count
+    FROM (
+      SELECT DISTINCT narrative.subjekt_id AS person_id,record.source_id,record.record_key
+        FROM private.narrative_record_publication binding
+        JOIN public.narrative narrative ON narrative.id=binding.narrative_id
+        JOIN private.source_record record ON record.id=binding.source_record_id
+       WHERE narrative.subjekt_type='person'
+         AND EXISTS (SELECT 1 FROM public.haendelse event WHERE event.narrative_id=binding.narrative_id)
+    ) k
+    CROSS JOIN LATERAL private.narrative_publication_state(k.person_id,k.source_id,k.record_key) state
+   WHERE (state->>'has_haendelse') IS DISTINCT FROM 'false'
+      OR ((state->'narrative') IS NOT NULL AND jsonb_typeof(state->'narrative')='object'
+          AND (state #>> '{narrative,has_haendelse}') IS DISTINCT FROM 'false');
+  IF v_count<>0 THEN
+    RAISE EXCEPTION 'REVIEW37_A2_HAS_HAENDELSE_NOT_FALSE: %',v_count;
+  END IF;
+
+  -- (c) Låsen (text_editable og revise) læses via hjælperen, ikke via publication_state.
+  FOREACH v_function IN ARRAY ARRAY[
+    'private.narrative_record_state(bigint,bigint,text,boolean)',
+    'private.mutate_person_narrative_record(text,bigint,bigint,text,text,boolean,text)'
+  ] LOOP
+    IF strpos(pg_get_functiondef(v_function::regprocedure),'private.narrative_har_haendelse(')=0
+       OR strpos(pg_get_functiondef(v_function::regprocedure),'''has_haendelse'')::boolean')<>0 THEN
+      RAISE EXCEPTION 'REVIEW37_A2_LOCK_NOT_VIA_HELPER: %',v_function;
+    END IF;
+  END LOOP;
+
+  RAISE NOTICE 'OK: review 37 A2 — has_haendelse udfaset, hændelseslås via private.narrative_har_haendelse';
+END
+$review37_a2_verify$;
+
 
 -- ===== Task 1: Tabeller profiles + suggestion =====
 -- Forvent: begge tabeller findes, rolle-CHECK håndhæves.
