@@ -269,8 +269,9 @@ BEGIN
   -- red_opret_person opretter privat=true. Som test-family-sources.sql/fixtures/person-facts.sql kræver
   -- denne publiceringsprøve offentlige, afdøde narrativsubjekter. Kun denne gruppes rollback-kopi ændres;
   -- den rigtige publiceringspolitik og f2a_publish bruges uændret.
+  -- #415: P's samme_som-nabo er privat (red_opret_person) og ville ellers skjule P og dermed familiens kilder.
   UPDATE public.person SET levende=false,privat=false,staged=false
-    WHERE id IN (v_p,purge_test.id('barn'));
+    WHERE id IN (v_p,purge_test.id('barn'),purge_test.id('nabo'));
   -- Ny kilde med positivt sekvens-id; ingen ændring af fixturens syntetiske prom_egen_fam-hash (R21).
   v_source := nextval(pg_get_serial_sequence('public.source','id'));
   v_src := pg_temp.f5b_source(v_source);
@@ -1499,7 +1500,8 @@ BEGIN
   UPDATE private.narrative_legacy_publication SET latest_event_id=NULL WHERE narrative_id=v_n;
   -- Selv en family-post med korrekt person/grund/PK må ikke autorisere Fam_keep eller en familie uden P. Fam_keep
   -- prøves med en OFFENTLIG P: er P ikke-offentlig, er Fam_keep Fam_ind (review 37 P1+P2, løsning A; nedenfor).
-  UPDATE public.person SET privat=false WHERE id=purge_test.id('P');
+  -- #415: også P's private samme_som-nabo, ellers forbliver P ikke-offentlig.
+  UPDATE public.person SET privat=false WHERE id IN (purge_test.id('P'),purge_test.id('nabo'));
   FOREACH v_fam IN ARRAY ARRAY[purge_test.id('fam_andre'),purge_test.id('fam_keep')] LOOP
     UPDATE public.narrative SET subjekt_id=v_fam WHERE id=v_n;
     UPDATE private.person_purge_manifest SET pk=jsonb_build_object('id',v_fam) WHERE tabel='family';
@@ -2281,7 +2283,8 @@ BEGIN
   SELECT visning_navn INTO STRICT v_name FROM public.person WHERE id=purge_test.id('P');
   -- S38b (bevarede familiers fritekst) gælder kun en offentlig P: er P ikke-offentlig, slettes fam_keep's indhold
   -- (review 37 P1+P2, løsning A). Kun i denne rollback-transaktion.
-  UPDATE public.person SET privat=false WHERE id=purge_test.id('P');
+  -- #415: også P's private samme_som-nabo, ellers forbliver P ikke-offentlig.
+  UPDATE public.person SET privat=false WHERE id IN (purge_test.id('P'),purge_test.id('nabo'));
   PERFORM purge_test.nyt(); PERFORM public.begin_change_set('preview_q9','fixture');
   UPDATE public.note SET indhold=v_name WHERE id=purge_test.id('note_tredje');
   INSERT INTO q9_expected VALUES('S58','note',jsonb_build_object('id',purge_test.id('note_tredje')));
@@ -3191,8 +3194,9 @@ BEGIN
   -- red_opret_person opretter privat=true. Som test-family-sources.sql/fixtures/person-facts.sql kræver
   -- denne publiceringsprøve offentlige, afdøde narrativsubjekter. Kun denne gruppes rollback-kopi ændres;
   -- den rigtige publiceringspolitik og f2a_publish bruges uændret.
+  -- #415: P's samme_som-nabo er privat (red_opret_person) og ville ellers skjule P og dermed familiens kilder.
   UPDATE public.person SET levende=false,privat=false,staged=false
-    WHERE id IN (v_p,purge_test.id('barn'),purge_test.id('anden_partner'));
+    WHERE id IN (v_p,purge_test.id('barn'),purge_test.id('anden_partner'),purge_test.id('nabo'));
   -- Ny kilde med positivt sekvens-id; ingen ændring af fixturens syntetiske prom_egen_fam-hash (R21).
   v_source := nextval(pg_get_serial_sequence('public.source','id'));
   v_src := pg_temp.f5b_source(v_source);
