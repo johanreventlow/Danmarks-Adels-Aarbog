@@ -184,8 +184,13 @@ definitioner pr. fil), `web/src/data/{haendelser,feedGrundlag}.ts`, `mobile/src/
 
 ## 7. Udrulning
 
-**Deploy-området** er blokkene `review37-a2` og `review37-y3` i `db-migrations.sql` + `db-rls.sql` i én transaktion
-(prod-runneren udtrækker navngivne blokke; bevis: `tests/sql/test-review37-a2y3-upgrade.sh` fra bc3b1c46 (main med #415; tidligere a9bb776d)).
+**Deploy-området** er blokkene `review37-a2` og `review37-y3` i `db-migrations.sql` + DO-blokken `$review37_y3_acl$`
+fra `db-rls.sql` i én transaktion (prod-runneren udtrækker navngivne blokke; bevis: `tests/sql/test-review37-a2y3-upgrade.sh`
+fra bc3b1c46 = main med #415). **Ikke hele `db-rls.sql`** (projektejeren 2026-11-21, ændret fra den første version af
+specen): dens 95 `DROP/CREATE POLICY` tager ACCESS EXCLUSIVE på tabellerne, så gæsternes læsninger ville vente under
+hele transaktionen inkl. kontrollerne. Grenens eneste ændring i `db-rls.sql` er ACL-blokken; opgraderingstesten beviser,
+at hele `db-rls.sql` oveni ikke ændrer kroppe, ACL, politikker eller tabel-ACL. Runneren pinner en commit efter merge af
+#415 og stopper, hvis origin/main har SQL-ændringer siden bc3b1c46.
 
 DDL før merge: web-ændringen kalder en ny RPC; findes den ikke, giver hændelseskortene tom liste med advarsel, men
 `feedGrundlag` kaster (fail-closed), og »Nævnt i Aarbogen«-kortene udebliver, til DDL'en er i prod. Derfor DDL → merge.
