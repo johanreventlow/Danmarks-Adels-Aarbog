@@ -505,6 +505,10 @@ def derive_date_info(date_raw):
     tværs af facts ville risikere FORKERTE opløsninger og bryde "never
     degrade"-invarianten i normalize_record — bevidst fravalgt frem for
     halvfærdigt. (TODO kun hvis korpus-empirien ændrer sig.)
+    Fravalget gælder FAKTA-laget. Hændelseslaget (daa-haendelser H9 i
+    validate_haendelser.py) opløser bevidst ankre fra narrativets kontekst —
+    regenererbar formidling, ikke evidens (decisions.md 2026-11-21, #130).
+    Flyt ikke den regel hertil.
     """
     info = {'date_min': None, 'date_max': None, 'qualifier': None,
             'certainty': None, 'calendar': None}
