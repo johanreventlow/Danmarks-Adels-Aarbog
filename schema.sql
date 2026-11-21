@@ -6428,6 +6428,49 @@ INSERT INTO vocab (scheme, code, label) VALUES
   ('faktatype','datering',          'Datering af værket (fuzzy dato på fact)')
 ON CONFLICT (scheme, code) DO NOTHING;
 
+-- ---------- SYNLIGHED PR. SAMME_SOM-GRUPPE (#415) ----------
+-- Et menneske kan stå som flere person-rækker (én pr. udgave), bundet af samme_som. Er mennesket levende eller privat
+-- ifølge NOGEN af rækkerne, skal alle rækkerne skjules — ellers kan en ældre udgaves alias vise en nulevendes navn og
+-- data (invariant 8). TRUE hvis et ANDET medlem af p_pid's samme_som-gruppe (alle kanter, begge retninger, kæder) er
+-- levende (også NULL = ukendt), privat eller mangler som række. staged smitter IKKE: det er rækkens egen
+-- kurateringstilstand (en ikke-afstemt ny-udgave-post), ikke et udsagn om mennesket — prod 2026-11-21 havde 7 døde,
+-- offentlige personer, hvis eneste skjulte gruppemedlem var staged (decisions 2026-11-21). Alle kanter, ikke kun
+-- afklarede: læserfladen folder alle samme_som-kanter sammen (web/src/data/model.ts), og en uafklaret identitetspåstand
+-- skal fail-close. SECURITY DEFINER (ser alle relation- og person-rækker uden RLS — ellers ville netop den skjulte
+-- tvilling være usynlig = fail-open) og lukket for klientroller (ellers et orakel over skjulte samme_som-kanter).
+-- Kaldes af person_offentlig (db-rls.sql) og den inlinede offentlighedsregel i regen_person_floruit.
+-- Ydelse (stand-in med prod-data 2026-11-21): person_offentlig kaldes pr. række i fact/relation/narrative-politikkerne.
+-- plpgsql, ikke sql: en ikke-inlinet sql-funktion kaldt inde fra en anden funktion planlægges forfra ved hvert kald
+-- (0,25 ms), plpgsql genbruger planen (0,02 ms). LATERAL-opslag i hver retning og NOT EXISTS på person, ikke
+-- OR-join og LEFT JOIN: planlæggeren gætter 10 rækker pr. rekursionstrin og valgte ellers sekventielle scanninger.
+-- Delindekserne gør opslaget uafhængigt af, hvor mange andre relationer personen har.
+CREATE INDEX IF NOT EXISTS ix_relation_samme_som_subjekt ON relation(subjekt_id)
+  WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person';
+CREATE INDEX IF NOT EXISTS ix_relation_samme_som_objekt ON relation(objekt_id)
+  WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person';
+CREATE OR REPLACE FUNCTION public.person_gruppe_skjult(p_pid bigint)
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+BEGIN
+  RETURN EXISTS (
+    WITH RECURSIVE grp(pid) AS (
+      SELECT p_pid
+      UNION
+      SELECT n.pid FROM grp g CROSS JOIN LATERAL (
+        SELECT r.objekt_id FROM public.relation r
+         WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person' AND r.subjekt_id=g.pid
+        UNION ALL
+        SELECT r.subjekt_id FROM public.relation r
+         WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person' AND r.objekt_id=g.pid
+      ) n(pid)
+    )
+    -- skjult = et andet medlem mangler som række, eller er ikke (levende = false og ikke privat)
+    SELECT 1 FROM grp g
+     WHERE g.pid<>p_pid
+       AND NOT EXISTS (SELECT 1 FROM public.person m
+                        WHERE m.id=g.pid AND m.levende IS FALSE AND NOT coalesce(m.privat,false)));
+END $$;
+REVOKE ALL ON FUNCTION public.person_gruppe_skjult(bigint) FROM PUBLIC, anon, authenticated, service_role;
+
 -- ---------- CACHE-REGENERERING & TRIGGERS ----------
 -- visning_floruit (visning-floruit-design §5, 2026-11-19): årsspændet over daterede, afklarede og valgte påstande på
 -- personens fakta undtagen fødsel/død og på fakta for offentlige familier, hvor personen er partner uden konfidens
@@ -6454,7 +6497,8 @@ BEGIN
       AND (a.date_min IS NOT NULL OR a.date_max IS NOT NULL)
       AND NOT EXISTS (SELECT 1 FROM family_member m JOIN person q ON q.id=m.person_id
                       WHERE m.family_id=fm.family_id
-                        AND (q.levende IS NOT FALSE OR coalesce(q.privat,false) OR coalesce(q.staged,false)))
+                        AND (q.levende IS NOT FALSE OR coalesce(q.privat,false) OR coalesce(q.staged,false)
+                             OR public.person_gruppe_skjult(q.id)))
   ),
   floruit AS (
     -- least/greatest normaliserer pr. række (en omvendt påstand date_min>date_max må ikke give '1400–1300');
@@ -6631,11 +6675,15 @@ CREATE TRIGGER trg_family_member_regen
 
 -- visning-floruit (§5): levende/privat/staged afgør family_offentlig for alle personens familier. Kolonnebegrænset, så
 -- regen_person_visning's og regen_person_floruit's egne UPDATEs af visning_* ikke udløser triggeren igen.
+-- #415: levende/privat smitter hele samme_som-gruppen (person_gruppe_skjult), så alle gruppemedlemmers familier
+-- regenereres, ikke kun personens egne.
 CREATE OR REPLACE FUNCTION trg_regen_from_person_offentlighed()
 RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
 DECLARE v_fid BIGINT;
 BEGIN
-  FOR v_fid IN SELECT DISTINCT family_id FROM family_member WHERE person_id = NEW.id ORDER BY family_id LOOP
+  FOR v_fid IN SELECT DISTINCT fm.family_id FROM family_member fm
+                WHERE fm.person_id IN (SELECT g.pid FROM _samme_som_gruppe(NEW.id) g)
+                ORDER BY fm.family_id LOOP
     PERFORM regen_familie_partnere(v_fid);
   END LOOP;
   RETURN NULL;
@@ -6648,12 +6696,43 @@ CREATE TRIGGER trg_person_offentlighed_regen
   WHEN ((OLD.levende, OLD.privat, OLD.staged) IS DISTINCT FROM (NEW.levende, NEW.privat, NEW.staged))
   EXECUTE FUNCTION trg_regen_from_person_offentlighed();
 
+-- #415: en ny eller fjernet samme_som-kant ændrer gruppen og dermed person_gruppe_skjult for dens medlemmer — og
+-- family_offentlig for deres familier. Efter INSERT er de to ender én gruppe; efter DELETE regenereres begge enders
+-- (nu adskilte) grupper. samme_som-endepunkter kan ikke UPDATEs (enforce_samme_som_invariants).
+CREATE OR REPLACE FUNCTION trg_regen_from_samme_som()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_fid BIGINT; v_r relation%ROWTYPE;
+BEGIN
+  v_r := CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  FOR v_fid IN SELECT DISTINCT fm.family_id FROM family_member fm
+                WHERE fm.person_id IN (SELECT g.pid FROM _samme_som_gruppe(v_r.subjekt_id) g
+                                       UNION SELECT g.pid FROM _samme_som_gruppe(v_r.objekt_id) g)
+                ORDER BY fm.family_id LOOP
+    PERFORM regen_familie_partnere(v_fid);
+  END LOOP;
+  RETURN NULL;
+END $$;
+
+-- To triggere: en INSERT-triggers WHEN må ikke nævne OLD og en DELETE-triggers ikke NEW.
+DROP TRIGGER IF EXISTS trg_samme_som_regen_ins ON relation;
+CREATE TRIGGER trg_samme_som_regen_ins
+  AFTER INSERT ON relation
+  FOR EACH ROW
+  WHEN (NEW.rolle = 'samme_som' AND NEW.subjekt_type = 'person' AND NEW.objekt_type = 'person')
+  EXECUTE FUNCTION trg_regen_from_samme_som();
+DROP TRIGGER IF EXISTS trg_samme_som_regen_del ON relation;
+CREATE TRIGGER trg_samme_som_regen_del
+  AFTER DELETE ON relation
+  FOR EACH ROW
+  WHEN (OLD.rolle = 'samme_som' AND OLD.subjekt_type = 'person' AND OLD.objekt_type = 'person')
+  EXECUTE FUNCTION trg_regen_from_samme_som();
+
 -- Interne hjælpere, ingen RPC'er: eksplicit ACL, så frisk og opgraderet base er ens (db-rls' default privileges fratager
 -- kun funktioner oprettet EFTER den EXECUTE). Triggerfunktioner kontrolleres ikke for EXECUTE ved affyring, og
 -- regen_familie_partnere/regen_person_floruit kaldes kun fra triggere og regen, der affyres af ejerens SECURITY
 -- DEFINER-skrivere.
 REVOKE EXECUTE ON FUNCTION regen_person_floruit(bigint), regen_familie_partnere(bigint), trg_regen_from_family_member(),
-  trg_regen_from_person_offentlighed() FROM PUBLIC, anon, authenticated, service_role;
+  trg_regen_from_person_offentlighed(), trg_regen_from_samme_som() FROM PUBLIC, anon, authenticated, service_role;
 
 -- Udledt-slægtsnavn-invalidation (spec §4.7): linje-medlemskab (person_external_id) og
 -- linje-efternavn/-forgrening (lineage) er BEGGE input til visning_efternavn/visning_fuldt_navn,

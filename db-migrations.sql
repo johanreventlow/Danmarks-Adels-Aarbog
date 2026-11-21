@@ -44319,3 +44319,155 @@ END $$;
 REVOKE ALL ON FUNCTION red_ret_ocr_paastand(bigint,jsonb,jsonb) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION red_ret_ocr_paastand(bigint,jsonb,jsonb) TO authenticated;
 -- END ocr-rettelse af kildepåstand
+
+-- ===== #415 samme_som-synlighed: levende/privat smitter hele samme_som-gruppen =====
+-- Issue #415, decisions 2026-11-21. Idempotent spejl af schema.sql: delindekser, person_gruppe_skjult,
+-- regen_person_floruit (den inlinede offentlighedsregel kender gruppen), person-triggerens funktion og relation-
+-- triggerne. person_offentlig selv ligger i db-rls.sql og skal anvendes i samme deploy-transaktion. Ingen backfill:
+-- prod 2026-11-21 havde 0 personer, der skifter synlighed (de tre lækkende 1939-aliaser blev sat levende samme dag),
+-- så ingen familie og ingen visning_floruit skifter heller (generalprøve på stand-in: 0/0/0).
+DO $$ BEGIN
+  IF to_regprocedure('public._samme_som_gruppe(bigint)') IS NULL
+     OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='person'
+                     AND column_name='visning_floruit') THEN
+    RAISE EXCEPTION 'MIGRATION_415_KRAEVER_SAMME_SOM_OG_VISNING_FLORUIT';
+  END IF;
+END $$;
+-- Et menneske kan stå som flere person-rækker (én pr. udgave), bundet af samme_som. Er mennesket levende eller privat
+-- ifølge NOGEN af rækkerne, skal alle rækkerne skjules — ellers kan en ældre udgaves alias vise en nulevendes navn og
+-- data (invariant 8). TRUE hvis et ANDET medlem af p_pid's samme_som-gruppe (alle kanter, begge retninger, kæder) er
+-- levende (også NULL = ukendt), privat eller mangler som række. staged smitter IKKE: det er rækkens egen
+-- kurateringstilstand (en ikke-afstemt ny-udgave-post), ikke et udsagn om mennesket — prod 2026-11-21 havde 7 døde,
+-- offentlige personer, hvis eneste skjulte gruppemedlem var staged (decisions 2026-11-21). Alle kanter, ikke kun
+-- afklarede: læserfladen folder alle samme_som-kanter sammen (web/src/data/model.ts), og en uafklaret identitetspåstand
+-- skal fail-close. SECURITY DEFINER (ser alle relation- og person-rækker uden RLS — ellers ville netop den skjulte
+-- tvilling være usynlig = fail-open) og lukket for klientroller (ellers et orakel over skjulte samme_som-kanter).
+-- Kaldes af person_offentlig (db-rls.sql) og den inlinede offentlighedsregel i regen_person_floruit.
+-- Ydelse (stand-in med prod-data 2026-11-21): person_offentlig kaldes pr. række i fact/relation/narrative-politikkerne.
+-- plpgsql, ikke sql: en ikke-inlinet sql-funktion kaldt inde fra en anden funktion planlægges forfra ved hvert kald
+-- (0,25 ms), plpgsql genbruger planen (0,02 ms). LATERAL-opslag i hver retning og NOT EXISTS på person, ikke
+-- OR-join og LEFT JOIN: planlæggeren gætter 10 rækker pr. rekursionstrin og valgte ellers sekventielle scanninger.
+-- Delindekserne gør opslaget uafhængigt af, hvor mange andre relationer personen har.
+CREATE INDEX IF NOT EXISTS ix_relation_samme_som_subjekt ON relation(subjekt_id)
+  WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person';
+CREATE INDEX IF NOT EXISTS ix_relation_samme_som_objekt ON relation(objekt_id)
+  WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person';
+CREATE OR REPLACE FUNCTION public.person_gruppe_skjult(p_pid bigint)
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+BEGIN
+  RETURN EXISTS (
+    WITH RECURSIVE grp(pid) AS (
+      SELECT p_pid
+      UNION
+      SELECT n.pid FROM grp g CROSS JOIN LATERAL (
+        SELECT r.objekt_id FROM public.relation r
+         WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person' AND r.subjekt_id=g.pid
+        UNION ALL
+        SELECT r.subjekt_id FROM public.relation r
+         WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person' AND r.objekt_id=g.pid
+      ) n(pid)
+    )
+    -- skjult = et andet medlem mangler som række, eller er ikke (levende = false og ikke privat)
+    SELECT 1 FROM grp g
+     WHERE g.pid<>p_pid
+       AND NOT EXISTS (SELECT 1 FROM public.person m
+                        WHERE m.id=g.pid AND m.levende IS FALSE AND NOT coalesce(m.privat,false)));
+END $$;
+REVOKE ALL ON FUNCTION public.person_gruppe_skjult(bigint) FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION regen_person_floruit(pid BIGINT)
+RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
+BEGIN
+  WITH floruit_kilder AS (
+    SELECT a.date_min, a.date_max FROM fact f
+    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
+    JOIN assertion a ON a.id=c.valgt_assertion_id
+    WHERE f.subjekt_type='person' AND f.subjekt_id=pid AND f.faktatype NOT IN ('fødsel','død')
+      AND (a.date_min IS NOT NULL OR a.date_max IS NOT NULL)
+    UNION ALL
+    SELECT a.date_min, a.date_max FROM family_member fm
+    JOIN fact f ON f.subjekt_type='family' AND f.subjekt_id=fm.family_id
+    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
+    JOIN assertion a ON a.id=c.valgt_assertion_id
+    WHERE fm.person_id=pid AND fm.rolle='partner' AND coalesce(fm.konfidens,'') NOT IN ('formodet','omstridt')
+      AND (a.date_min IS NOT NULL OR a.date_max IS NOT NULL)
+      AND NOT EXISTS (SELECT 1 FROM family_member m JOIN person q ON q.id=m.person_id
+                      WHERE m.family_id=fm.family_id
+                        AND (q.levende IS NOT FALSE OR coalesce(q.privat,false) OR coalesce(q.staged,false)
+                             OR public.person_gruppe_skjult(q.id)))
+  ),
+  floruit AS (
+    -- least/greatest normaliserer pr. række (en omvendt påstand date_min>date_max må ikke give '1400–1300');
+    -- de ignorerer NULL, så åben ende (kun én grænse) giver samme år som før.
+    SELECT min(extract(year FROM least(date_min,date_max)))::int AS lo,
+           max(extract(year FROM greatest(date_min,date_max)))::int AS hi FROM floruit_kilder
+  ),
+  final AS (
+    SELECT CASE
+             WHEN coalesce(trim(p.visning_foedt),'') <> '' OR coalesce(trim(p.visning_doed),'') <> '' THEN NULL
+             WHEN floruit.lo IS NULL THEN NULL
+             WHEN floruit.lo = floruit.hi THEN floruit.lo::text
+             ELSE floruit.lo || '–' || floruit.hi
+           END AS floruit
+    FROM person p CROSS JOIN floruit
+    WHERE p.id = pid
+  )
+  UPDATE person p SET visning_floruit = final.floruit
+  FROM final
+  WHERE p.id = pid AND p.visning_floruit IS DISTINCT FROM final.floruit;
+END $$;
+
+-- #415: levende/privat smitter hele samme_som-gruppen (person_gruppe_skjult), så alle gruppemedlemmers familier
+-- regenereres, ikke kun personens egne.
+CREATE OR REPLACE FUNCTION trg_regen_from_person_offentlighed()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_fid BIGINT;
+BEGIN
+  FOR v_fid IN SELECT DISTINCT fm.family_id FROM family_member fm
+                WHERE fm.person_id IN (SELECT g.pid FROM _samme_som_gruppe(NEW.id) g)
+                ORDER BY fm.family_id LOOP
+    PERFORM regen_familie_partnere(v_fid);
+  END LOOP;
+  RETURN NULL;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_person_offentlighed_regen ON person;
+CREATE TRIGGER trg_person_offentlighed_regen
+  AFTER UPDATE OF levende, privat, staged ON person
+  FOR EACH ROW
+  WHEN ((OLD.levende, OLD.privat, OLD.staged) IS DISTINCT FROM (NEW.levende, NEW.privat, NEW.staged))
+  EXECUTE FUNCTION trg_regen_from_person_offentlighed();
+
+-- #415: en ny eller fjernet samme_som-kant ændrer gruppen og dermed person_gruppe_skjult for dens medlemmer — og
+-- family_offentlig for deres familier. Efter INSERT er de to ender én gruppe; efter DELETE regenereres begge enders
+-- (nu adskilte) grupper. samme_som-endepunkter kan ikke UPDATEs (enforce_samme_som_invariants).
+CREATE OR REPLACE FUNCTION trg_regen_from_samme_som()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_fid BIGINT; v_r relation%ROWTYPE;
+BEGIN
+  v_r := CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+  FOR v_fid IN SELECT DISTINCT fm.family_id FROM family_member fm
+                WHERE fm.person_id IN (SELECT g.pid FROM _samme_som_gruppe(v_r.subjekt_id) g
+                                       UNION SELECT g.pid FROM _samme_som_gruppe(v_r.objekt_id) g)
+                ORDER BY fm.family_id LOOP
+    PERFORM regen_familie_partnere(v_fid);
+  END LOOP;
+  RETURN NULL;
+END $$;
+
+-- To triggere: en INSERT-triggers WHEN må ikke nævne OLD og en DELETE-triggers ikke NEW.
+DROP TRIGGER IF EXISTS trg_samme_som_regen_ins ON relation;
+CREATE TRIGGER trg_samme_som_regen_ins
+  AFTER INSERT ON relation
+  FOR EACH ROW
+  WHEN (NEW.rolle = 'samme_som' AND NEW.subjekt_type = 'person' AND NEW.objekt_type = 'person')
+  EXECUTE FUNCTION trg_regen_from_samme_som();
+DROP TRIGGER IF EXISTS trg_samme_som_regen_del ON relation;
+CREATE TRIGGER trg_samme_som_regen_del
+  AFTER DELETE ON relation
+  FOR EACH ROW
+  WHEN (OLD.rolle = 'samme_som' AND OLD.subjekt_type = 'person' AND OLD.objekt_type = 'person')
+  EXECUTE FUNCTION trg_regen_from_samme_som();
+
+REVOKE EXECUTE ON FUNCTION regen_person_floruit(bigint), trg_regen_from_person_offentlighed(), trg_regen_from_samme_som() FROM PUBLIC, anon, authenticated, service_role;
+-- END #415 samme_som-synlighed
