@@ -8,7 +8,8 @@ at læse hele tabellen: på en stand-in med 5.880 syntetiske hændelser 8 kald o
 Ingen synlighed ændret ved udrulningen (1.099 narrativer for gæsten før og efter; 1.701 bindinger og grundlinjer med
 uændret tilstand). PR #418; DDL i prod 21/11 før merge (`database-current-state.md` §39). Ventetiden måles i prod efter
 #130 (#419). Røgtesten afslørede en ældre fejl i biografi-hentningen på forsiden (alle id'er i ét kald rammer
-gæsteloftet); den rettes separat.
+gæsteloftet); rettet samme dag i #420 + #421 (bidder à 50, højst 3 samtidige kald; ~10-12 s samlet, server-side
+optimering i #422).
 
 ## 2026-11-21 — En ældre udgaves række kan ikke længere vise en nulevende (#415)
 

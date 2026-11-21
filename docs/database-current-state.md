@@ -565,7 +565,12 @@ shell **før** merge (webklienten kalder den nye RPC).
   rammer anon-loftet (`57014`, 3,2 s), så »Nævnt i Aarbogen« udebliver. Ikke forårsaget af A2: stand-in-tider for samme
   kald er 3,04-3,10 s (dump 20/11, før #415), 3,14-3,17 s (21/11, før A2) og 3,13 s (med A2). Klienten sender alle id'er
   i ét kald (`web/src/data/feedAux.ts`).
-- **#130** må først køres, når bio-kaldet er rettet, og feedet er efterkontrolleret på forsiden (spec §7).
+- **Bio-kaldet rettet i klienten** (#420 + #421, 21/11): biografierne hentes i bidder à 50 med højst 3 samtidige
+  kald (#420's 9 parallelle bidder à 200 ramte stadig loftet, 7/9 afbrudt). Målt som anon i prod: 35/35 kald `200`,
+  maks 2,27 s live (1,38-1,89 s i forhåndsmålingerne), ~10-12 s samlet; første kort vises efter 0,4-0,5 s, uafhængigt
+  af biografierne. RPC'en koster ~10 ms pr. id i prod (stand-in ~2,5 ms) — server-side optimering i #422.
+  **Åbent:** visuel bekræftelse af »Nævnt i Aarbogen«-kort (den hovedløse røgtest viste kun ~7 kort uden ét).
+- **#130** er frigivet (spec §7): A2, RPC'en og webklienten er i prod og efterkontrolleret som anon.
 
 ## 38. Synlighed pr. samme_som-gruppe (#415) — LIVE i prod (2026-11-21)
 
