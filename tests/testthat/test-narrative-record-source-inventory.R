@@ -436,7 +436,7 @@ test_that("direct narrative readers remain an explicit closed inventory", {
   }, logical(1))
   actual <- sort(sub(paste0("^", root, "/"), "", source_files[hits]))
   expected <- sort(c(
-    "mobile/src/data/about.ts", "mobile/src/data/haendelser.ts",
+    "mobile/src/data/about.ts",
     "mobile/src/data/presensLinjer.ts", "mobile/src/data/redaktionRead.ts",
     "web/src/data/presensLinjer.ts",
     "web/src/data/public.ts", "web/src/data/redaktionRead.ts"

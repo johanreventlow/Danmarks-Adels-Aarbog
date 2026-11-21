@@ -1,8 +1,10 @@
-// Hændelses-load (fase2-design.md §5.2): tolerant treleddet hentning af den
-// regenererbare hændelsesprojektion + narrativ/source-metadata til feed-kildefødder.
-// Narrativ-teksten hentes bevidst ikke. Enhver fejl — også en endnu umigreret base —
-// degraderer til et tomt map, så fase 1-feedet fortsat virker.
-import { getAll } from '@daa/core';
+// Hændelses-load (fase2-design.md §5.2): tolerant hentning af den regenererbare hændelsesprojektion
+// + narrativ/source-metadata til feed-kildefødder. Narrativ-teksten hentes bevidst ikke.
+// Review 37 Y3 (spejl af web/src/data/haendelser.ts): hentes via RPC'en public_haendelse_feed i bidder
+// (gaten én gang pr. narrativ, så hvert kald holder anon-grænsen), til naeste er null. Klienten stopper KUN ved
+// naeste=null: en bid kan lovligt være tom. Enhver fejl — også en endnu umigreret base, og også efter en vellykket
+// side — degraderer til et tomt resultat, så feedet fortsat virker; et delvist resultat bruges aldrig.
+// Ingen delt igangværende bladring som på web: her er der én kalder (load.ts), og klienten er en parameter.
 import { buildHaendelserBy } from '@daa/feed';
 import type {
   HaendelseNarrativRow,
@@ -12,65 +14,61 @@ import type {
 } from '@daa/feed';
 import type { supabase } from '../lib/supabase';
 
-const IN_CHUNK = 200;
-
-function chunkArray<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
-async function fetchInChunks<T, TId>(
-  ids: TId[],
-  run: (idsChunk: TId[]) => PromiseLike<{ data: T[] | null; error: unknown }>,
-): Promise<T[]> {
-  const out: T[] = [];
-  for (const idsChunk of chunkArray(ids, IN_CHUNK)) {
-    const { data, error } = await run(idsChunk);
-    if (error) throw error;
-    out.push(...(data ?? []));
-  }
-  return out;
-}
-
 export type HaendelseRowsResult = {
   rows: HaendelseRow[];
   narrativer: HaendelseNarrativRow[];
   sources: HaendelseSourceRow[];
 };
 
+// Loft over antal kald i én bladring (samme som web). Nås det, er noget galt, og resultatet ville være afkortet.
+const MAX_SIDER = 500;
+
+type FeedSide = {
+  rows: HaendelseRow[];
+  narrativer: HaendelseNarrativRow[];
+  sources: HaendelseSourceRow[];
+  naeste: string | null;
+};
+
+function erFeedSide(data: unknown): data is FeedSide {
+  if (data === null || typeof data !== 'object') return false;
+  const side = data as Record<string, unknown>;
+  return Array.isArray(side.rows) && Array.isArray(side.narrativer) && Array.isArray(side.sources)
+    && (side.naeste === null || typeof side.naeste === 'string');
+}
+
+// Bladrer hele feedet igennem. Kaster ved enhver fejl. Narrativer og kilder, der går igen på flere sider, tages
+// kun med én gang.
+async function bladrFeed(sb: NonNullable<typeof supabase>): Promise<HaendelseRowsResult> {
+  const rows: HaendelseRow[] = [];
+  const narrativer = new Map<string, HaendelseNarrativRow>();
+  const sources = new Map<string, HaendelseSourceRow>();
+  let fortsaet: string | null = null;
+  for (let i = 0; i < MAX_SIDER; i++) {
+    const svar: { data: unknown; error: unknown } =
+      await sb.rpc('public_haendelse_feed', { p_fortsaet: fortsaet });
+    const { data, error } = svar;
+    if (error) throw error;
+    if (!erFeedSide(data)) throw new Error('public_haendelse_feed: svaret har ikke den forventede form');
+    rows.push(...data.rows);
+    for (const n of data.narrativer) narrativer.set(String(n.id), n);
+    for (const s of data.sources) sources.set(String(s.id), s);
+    if (data.naeste === null) {
+      return { rows, narrativer: [...narrativer.values()], sources: [...sources.values()] };
+    }
+    fortsaet = data.naeste;
+  }
+  throw new Error(`public_haendelse_feed: loftet på ${MAX_SIDER} sider er nået — resultatet ville være afkortet`);
+}
+
 export async function fetchHaendelseRows(
   sb: NonNullable<typeof supabase>,
 ): Promise<HaendelseRowsResult> {
-  const empty: HaendelseRowsResult = { rows: [], narrativer: [], sources: [] };
   try {
-    const rows = await getAll<HaendelseRow>(() =>
-      sb.from('haendelse')
-        .select('id,subjekt_id,narrative_id,klausul,kategori,date_min,date_max,date_qualifier,date_raw,feed_status,fact_id,relation_id')
-        .eq('subjekt_type', 'person')
-        .order('id'),
-    );
-    if (!rows.length) return empty;
-
-    const narrativeIds = [...new Set(rows.map((row) => row.narrative_id))];
-    const narrativer = await fetchInChunks<HaendelseNarrativRow, string | number>(
-      narrativeIds,
-      (idsChunk) => sb.from('narrative').select('id,source_id,side')
-        .in('id', idsChunk).order('id'),
-    );
-    const sourceIds = [...new Set(
-      narrativer.map((n) => n.source_id).filter((id): id is string | number => id != null),
-    )];
-    const sources = sourceIds.length > 0
-      ? await fetchInChunks<HaendelseSourceRow, string | number>(
-          sourceIds,
-          (idsChunk) => sb.from('source').select('id,udgave').in('id', idsChunk).order('id'),
-        )
-      : [];
-    return { rows, narrativer, sources };
+    return await bladrFeed(sb);
   } catch (e) {
     console.warn('[haendelser] utilgængelig — arkiv-/hændelseskort udelades:', e);
-    return empty;
+    return { rows: [], narrativer: [], sources: [] };
   }
 }
 
