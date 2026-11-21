@@ -34,7 +34,7 @@ vi.mock('../../supabase', () => ({
   },
 }));
 
-const { FEED_BIO_IN_CHUNK, buildFeedBioSubjectIds, buildWebFeedAux, fetchFeedBios, withFeedBios } = await import('../feedAux');
+const { FEED_BIO_IN_CHUNK, FEED_BIO_PARALLEL, buildFeedBioSubjectIds, buildWebFeedAux, fetchFeedBios, withFeedBios } = await import('../feedAux');
 
 beforeEach(() => { byTable = {}; inCalls = []; rpc = vi.fn(); });
 
@@ -71,6 +71,28 @@ describe('fetchFeedBios', () => {
     expect(new Set(sendt).size).toBe(401);
     expect(sendt).toContain(1);
     expect(sendt).not.toContain(9999);
+  });
+  it('har højst FEED_BIO_PARALLEL bio-kald i gang ad gangen', async () => {
+    // 9 samtidige kald à 200 id'er strakte hvert kald over 3 s-loftet i prod (2026-11-21).
+    let aktive = 0; let maks = 0;
+    rpc.mockImplementation(async (name: string) => {
+      if (name === 'narrative_record_contract_version') return { data: 2, error: null };
+      aktive += 1; maks = Math.max(maks, aktive);
+      await new Promise((r) => setTimeout(r, 5));
+      aktive -= 1;
+      return { data: [], error: null };
+    });
+    const modelIds = Array.from({ length: FEED_BIO_IN_CHUNK * 7 + 3 }, (_, i) => String(i + 1));
+    await fetchFeedBios({}, modelIds);
+    const bioCalls = rpc.mock.calls.filter(([name]) => name === 'public_person_bio_source_versions_v2');
+    expect(bioCalls.length).toBe(8);
+    expect(maks).toBeLessThanOrEqual(FEED_BIO_PARALLEL);
+    expect(maks).toBeGreaterThan(1);
+  });
+  it('bidstørrelsen holder hvert kald langt under gæsteloftet', () => {
+    // Prod 2026-11-21: ~10 ms pr. id; 50 id'er à 3 parallelt gav maks 1,4 s (loft 3 s).
+    expect(FEED_BIO_IN_CHUNK).toBeLessThanOrEqual(50);
+    expect(FEED_BIO_PARALLEL).toBeLessThanOrEqual(3);
   });
   it('vælger én v2-default på tværs af aliaser i forskellige bidder', async () => {
     const modelIds = Array.from({ length: FEED_BIO_IN_CHUNK + 1 }, (_, i) => String(i + 1));

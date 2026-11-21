@@ -23,7 +23,24 @@ export function buildWebFeedAux(estates: EstateItem[] | null, arms: ArmsItem[] |
   };
 }
 
-export const FEED_BIO_IN_CHUNK = 200;
+// Prod 2026-11-21: bio-RPC'en koster ~10 ms pr. id som gæst (loft 3 s). 200 id'er à 9 parallelt → 7/9 afbrudt;
+// 50 id'er à 3 parallelt → maks 1,4 s pr. kald, ~10 s samlet. Server-side optimering følger separat.
+export const FEED_BIO_IN_CHUNK = 50;
+export const FEED_BIO_PARALLEL = 3;
+
+// Kører opgaverne med højst `limit` i gang ad gangen; resultaterne i opgavernes rækkefølge. Første fejl afviser.
+async function mapLimited<T, R>(items: readonly T[], limit: number, fn: (item: T) => PromiseLike<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
 
 function chunks<T>(values: readonly T[], size: number): T[][] {
   const out: T[][] = [];
@@ -82,10 +99,10 @@ export async function fetchFeedBios(
     const rpcName = contractVersion >= 2
       ? 'public_person_bio_source_versions_v2'
       : 'public_person_bio_source_versions';
-    // I bidder: alle id'er i ét kald ramte gæsternes 3 s-loft i prod (1.725 id'er → 57014, 2026-11-21).
+    // I bidder med begrænset parallelitet: alle id'er i ét kald ramte gæsternes 3 s-loft i prod (1.725 id'er → 57014).
     // Rækkerne samles FØR valget, så aliaser i forskellige bidder stadig giver ét valg pr. kanonisk person.
-    const svar = await Promise.all(chunks(personIds, FEED_BIO_IN_CHUNK).map((ids) =>
-      supabase.rpc(rpcName, { p_person_ids: ids })));
+    const svar = await mapLimited(chunks(personIds, FEED_BIO_IN_CHUNK), FEED_BIO_PARALLEL, (ids) =>
+      supabase.rpc(rpcName, { p_person_ids: ids }));
     const rows: unknown[] = [];
     for (const result of svar) {
       if (result.error || !Array.isArray(result.data)) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
