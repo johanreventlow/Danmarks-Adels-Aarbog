@@ -18,7 +18,14 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
   mønstret »redaktøren ser levende« (2026-11-13), som gælder personsidens læse-RPC'er. Fravalgt: en redaktørgren som
   i `public_person_facts` (bevarer redaktørens nuværende feed, men gør feedet rolleafhængigt).
 - **#130** må først køres, når A2, RPC'en og den udrullede webklient er i prod og efterkontrolleret som anon.
-- Genimport-fortrydelse påvirkes ikke af hændelser (kvitteringen er kladdens tilstand).
+- **Fortrydelse under hændelser** (projektejeren 21/11, efter Codex kode-runde 1 og 2): uden hash-drift læser
+  fortrydelsen låsen direkte. Med hændelser på narrativet afvises en fortrydelse, der ændrer teksten, eller som gør en
+  ikke-kladde til kladde igen (fortrydelse af `published`). Fortrydelse af `withdrawn`, `draft_created` og legacy-hændelser
+  og kladde→kladde uden tekstændring er tilladt. Fravalgt: at afvise alle fortrydelser (spærrer genpublicering efter
+  tilbagetrækning); at tillade kladde→kladde med tekstændring (projektejeren: behold afvisningen som før A2).
+- Genimport-fortrydelse påvirkes ikke af hændelser (kvitteringen er kladdens tilstand), **undtagen** når den ville ændre
+  en kladdes tekst under hændelser; den afvises som før A2.
+- Kendt begrænsning: bladringen opdager ikke, at hændelsesprojektionen udskiftes midt i en sidevisning (spec §4.2).
 
 ## NOTERET: review 37's E-blok — LLM-trin spærret, udgavebinding og loader-værn; to åbne afgørelser (2026-11-20)
 

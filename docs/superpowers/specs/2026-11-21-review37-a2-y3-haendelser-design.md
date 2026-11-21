@@ -69,13 +69,16 @@ synlighedsbeslutning (cache med mange indgange, kan drive).
    editor-kuvertens `state_sha256` for **kladden** lige efter aktivering, og `red_reverse_1939_v50_reimport`-vejen kræver
    netop den tilstand (`schema.sql:5823`). Er biografien siden publiceret, kan genimporten allerede ikke fortrydes ad
    den vej; er den stadig en kladde, ændrer hændelser intet (låsen gælder kun publicerede tekster). `red_reverse_reimport_
-   publication` binder identitetsversion, ikke tilstand. Hændelser ændrer derfor ingen genimport-fortrydelse.
+   publication` binder identitetsversion, ikke tilstand. Hændelser ændrer derfor ingen genimport-kvittering. *Undtagelse
+   (punkt 6a, projektejeren 21/11):* ville fortrydelsen ændre en kladdes tekst under hændelser, afvises den som før A2.
 6a. **Fortrydelse af narrativhændelser** (Codex kode-runde 1 og 2, projektejeren 2026-11-21). Før A2 stoppede
    hash-drift enhver fortrydelse efter en ny hændelse; nu læser `private.reverse_narrative_publication_event` og
    historikkens `can_reverse` låsen direkte. Med hændelser på narrativet afvises (`NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT`)
    en fortrydelse, der **ændrer teksten**, eller som **gør en ikke-kladde til kladde igen** (fortrydelse af `published`:
-   kladden kunne få ny tekst og publiceres under de gamle hændelser). Fortrydelse fra kladde til kladde (genimport-
-   fortrydelsen, punkt 6), af `withdrawn` (genpublicerer samme tekst), af `draft_created` og af legacy-hændelser er uændret.
+   kladden kunne få ny tekst og publiceres under de gamle hændelser). Fortrydelse fra kladde til kladde **uden
+   tekstændring** (fx genimport-fortrydelsen i personsletningens S26), af `withdrawn` (genpublicerer samme tekst), af
+   `draft_created` og af legacy-hændelser er tilladt. Kladde→kladde med tekstændring afvises (projektejeren: som før A2).
+   Kladde-gem efter en tilbagetrækning opretter et nyt narrativ, så de gamle hændelser følger ikke med.
    `red_upsert_narrativ` (legacy-vejen, ikke-DAA-kilder) har aldrig tjekket hændelser og er uberørt af A2.
 7. **Udrulningsinvariant:** med 0 hændelser i prod er `text_editable` uændret for alle bindinger, så hverken
    `publication_state`, editor-tokens eller kvitteringer skifter hash ved udrulningen. Det bevises (§6).
