@@ -5,15 +5,23 @@
 // Højst ét nummer pr. person-række og udgave (person_external_id's nøgle); en sammenfoldet person kan have flere.
 import type { RawExtId } from './types';
 
-export type BogNr = { sourceId: string; linje: string; nr: number; nrLabel: string | null };
+export type BogNr = { sourceId: string; linje: string; nr: number; nrLabel: string | null; stamtavle?: boolean };
 
 // Kanonisk person-id → personens stamtavlenumre (ét pr. udgave). Rækker uden linje eller nr springes over.
-export function byggBogNr(extIds: RawExtId[], canonicalIdById: Record<string, string>): Record<string, BogNr[]> {
+export function byggBogNr(
+  extIds: RawExtId[],
+  canonicalIdById: Record<string, string>,
+  erStamtavle?: (sourceId: string, linje: string) => boolean,
+): Record<string, BogNr[]> {
   const ud: Record<string, BogNr[]> = {};
   for (const x of extIds) {
     if (x.linje == null || x.nr == null) continue;
     const canon = canonicalIdById[String(x.person_id)] ?? String(x.person_id);
-    (ud[canon] ??= []).push({ sourceId: String(x.source_id), linje: x.linje, nr: x.nr, nrLabel: x.nr_label ?? null });
+    const sourceId = String(x.source_id);
+    (ud[canon] ??= []).push({
+      sourceId, linje: x.linje, nr: x.nr, nrLabel: x.nr_label ?? null,
+      ...(erStamtavle ? { stamtavle: erStamtavle(sourceId, x.linje) } : {}),
+    });
   }
   return ud;
 }
