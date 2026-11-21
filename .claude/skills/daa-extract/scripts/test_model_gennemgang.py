@@ -173,6 +173,7 @@ def test_vaelg_sider_altid_forekomst_og_belagt_nabo():
 
 
 def test_cli_printer_kun_tal(tmp_path, monkeypatch, capsys):
+    _tillad_pdf(monkeypatch, tmp_path / "bog.pdf")
     f = tmp_path / "eksport.json"
     f.write_text(json.dumps(eksport()), encoding="utf-8")
     ud = tmp_path / "ud"
@@ -502,7 +503,26 @@ def test_byg_input_afviser_udgave_uden_tilladelse(key):
 
 
 def test_kun_1939_er_tilladt():
-    assert mg.MODEL_TILLADTE_UDGAVER == frozenset({"daa:1939"})
+    assert mg.MODEL_TILLADTE_UDGAVER == {
+        "daa:1939": "5711975512a2b14a2ce49eee404cc9796c9020343ca67d64b99606035deba0b7"}
+
+
+def _tillad_pdf(monkeypatch, pdf: Path) -> None:
+    pdf.write_bytes(b"%PDF syntetisk")
+    monkeypatch.setitem(mg.MODEL_TILLADTE_UDGAVER, "daa:1939", hashlib.sha256(b"%PDF syntetisk").hexdigest())
+
+
+def test_cmd_input_afviser_forkert_pdf_foer_sider_laeses(tmp_path, monkeypatch, capsys):
+    f = tmp_path / "eksport.json"
+    f.write_text(json.dumps(eksport()), encoding="utf-8")
+    (tmp_path / "anden.pdf").write_bytes(b"%PDF en anden bog")
+    kald = []
+    monkeypatch.setattr(mg, "render_side", lambda *a: kald.append(a))
+    monkeypatch.setattr(mg, "sideord_fra_pdf", lambda *a: kald.append(a) or set())
+    ud = tmp_path / "ud"
+    assert mg.main(["input", "--eksport", str(f), "--pdf", str(tmp_path / "anden.pdf"), "--ud", str(ud)]) == 2
+    assert "MG_FEJL PDF_IKKE_UDGAVENS import_key=daa:1939" in capsys.readouterr().err
+    assert kald == [] and not ud.exists()
 
 
 def test_cmd_input_afviser_foer_der_skrives_eller_renderes(tmp_path, monkeypatch, capsys):

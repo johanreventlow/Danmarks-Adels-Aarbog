@@ -11,7 +11,9 @@ Generaliseret fra 6c-2's modelforslag.py (operatørens private kopi). Printer ku
 
 Udgavebinding (review 37, E7; invariant 8): modellen ser bogteksten om alle i posten, også dem uden databaseværdi.
 Derfor bygges input kun for udgaver uden levende personer: eksportens `import_key` skal stå i `MODEL_TILLADTE_UDGAVER`
-(fail-closed: mangler feltet, afvises eksporten). En ny udgave kræver en beslutning i docs/decisions.md først.
+(fail-closed: mangler feltet, afvises eksporten), og `--pdf` skal have udgavens sha256, før en side læses eller
+renderes (ellers kunne en forkert PDF give modellen sider om levende). En ny udgave kræver en beslutning i
+docs/decisions.md først.
 """
 from __future__ import annotations
 
@@ -32,7 +34,9 @@ from private_io import write_private_replace
 
 #: Udgaver, hvis bogtekst må sendes til en model: DAA 1939's personer lever ikke (decisions 2026-11-05, »tekst fra
 #: DAA 1939 må sendes til en model«). 2018-20 og præsenslisterne rummer levende og må aldrig stå her.
-MODEL_TILLADTE_UDGAVER = frozenset({"daa:1939"})
+#: Værdien er sha256 af den PDF, hele 1939-kæden er bygget på (»Dansk Adels Aarbog - Reventlow 1939.pdf«, 680 sider;
+#: samme hash i alle 1939-rapporternes `pdf_sha256`).
+MODEL_TILLADTE_UDGAVER = {"daa:1939": "5711975512a2b14a2ce49eee404cc9796c9020343ca67d64b99606035deba0b7"}
 MAX_SIDER = 4
 NABO_TAERSKEL = 0.15
 #: Kontrolfelterne og den visningsværdi, databasen sammenlignes med (samme som persona_kort.VISNING).
@@ -104,6 +108,16 @@ def tjek_udgave(eksport: dict) -> str:
     if not isinstance(key, str) or key not in MODEL_TILLADTE_UDGAVER:
         raise GennemgangError(f"UDGAVE_IKKE_TILLADT import_key={key!r}")
     return key
+
+
+def tjek_pdf(pdf: Path, key: str) -> None:
+    """Fail-closed PDF-binding (E7, Codex): PDF'en skal være netop den, udgaven er tilladt med."""
+    h = hashlib.sha256()
+    with open(pdf, "rb") as f:
+        for blok in iter(lambda: f.read(1 << 20), b""):
+            h.update(blok)
+    if h.hexdigest() != MODEL_TILLADTE_UDGAVER[key]:
+        raise GennemgangError(f"PDF_IKKE_UDGAVENS import_key={key} sha256={h.hexdigest()[:12]}")
 
 
 def byg_input(eksport: dict, *, bid: int = 25,
@@ -409,7 +423,7 @@ def _laes_json(sti: Path):
 
 def cmd_input(a) -> int:
     eksport = _laes_json(a.eksport)
-    tjek_udgave(eksport)  # før der renderes sider eller skrives filer
+    tjek_pdf(Path(a.pdf), tjek_udgave(eksport))  # før der læses/renderes sider eller skrives filer
     ud = Path(a.ud)
     ud.mkdir(mode=0o700, parents=True, exist_ok=True)
     sider_mappe = ud / "sider"
