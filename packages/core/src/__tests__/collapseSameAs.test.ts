@@ -403,3 +403,24 @@ describe('collapseSameAs — floruit', () => {
     expect(k.years).toBe('Nævnes 1349–1391');
   });
 });
+
+// Projektejeren 2026-11-21: Conrads børn »† lille«/»† ung« forsvandt i børnelisten, fordi en sammenfoldet persons år
+// kun blev genberegnet af tallene. Bogens ordlyd for en side uden årstal skal overleve sammenfoldningen.
+describe('collapseSameAs — dødstekst uden årstal', () => {
+  const ext = new Map<string, { linje: string | null; nr: number | null }>();
+  const fold = (persons: AppPerson[]) =>
+    collapseSameAs({ persons, unions: [], parentChild: [] }, [{ alias: 'A', canonical: 'K' }], ext).db.persons.find((p) => p.id === 'K')!;
+
+  it('»† lille« fra den kanoniske post bevares', () => {
+    expect(fold([P('K', { years: '† lille', doedTekst: '† lille' }), P('A')]).years).toBe('† lille');
+  });
+  it('»† ung« fra aliaset bevares, når den kanoniske intet har', () => {
+    expect(fold([P('K'), P('A', { years: '† ung', doedTekst: '† ung' })]).years).toBe('† ung');
+  });
+  it('fødselsår fra den ene + dødstekst fra den anden', () => {
+    expect(fold([P('K', { doedTekst: '† lille' }), P('A', { born: 1701, foedtTekst: '* 1701' })]).years).toBe('1701–lille');
+  });
+  it('et dødsår vinder over teksten', () => {
+    expect(fold([P('K', { doedTekst: '† ung' }), P('A', { born: 1700, died: 1720 })]).years).toBe('1700–1720');
+  });
+});

@@ -106,4 +106,33 @@ describe('byggFokusRaekker', () => {
     expect(r.boerneGrupper.map((g) => navne(g.boern))).toEqual([['Karl']]);
     expect(r.boerneNote).toBeNull();
   });
+
+  // Conrad-formen (prod 2026-11-21): 2018-20 nummererer Gabel-børnene V/2-7 og Hahn-børnene V/8-17.
+  const nr = (linje: string, n: number) => ({ sourceId: '20', linje, nr: n, nrLabel: null });
+  const udgaver = [{ sourceId: '20', label: 'DAA 2018-20', aar: 2018 }];
+
+  it('børn i bogens rækkefølge inden for hvert ægteskab', () => {
+    const m = model({ persons: [P('A', 'Conrad', 'mand'), P('E1', 'Gabel'), P('E2', 'Hahn'), P('K1', 'K1'), P('K2', 'K2'), P('K3', 'K3'), P('K4', 'K4')],
+      unions: [
+        { id: 'u1', p1: 'A', p2: 'E1', p2_name: null, year: null },
+        { id: 'u2', p1: 'A', p2: 'E2', p2_name: null, year: null },
+      ],
+      parentChild: [
+        { child: 'K3', parent: 'A', union: 'u1' }, { child: 'K1', parent: 'A', union: 'u1' },
+        { child: 'K4', parent: 'A', union: 'u2' }, { child: 'K2', parent: 'A', union: 'u2' },
+      ] }, { udgaver, bogNrBy: { A: [nr('V', 1)], K1: [nr('V', 2)], K3: [nr('V', 3)], K2: [nr('V', 4)], K4: [nr('V', 5)] } });
+    const r = byggFokusRaekker(m, 'A')!;
+    expect(r.boerneGrupper.map((g) => [g.aegteskab?.navn ?? null, navne(g.boern)])).toEqual([
+      ['Gabel', ['K1', 'K3']], ['Hahn', ['K2', 'K4']],
+    ]);
+  });
+
+  it('ét ægteskab: én gruppe i bogens rækkefølge', () => {
+    const m = model({ persons: [P('A', 'Anna'), P('E', 'Erik'), P('K1', 'K1'), P('K2', 'K2'), P('K3', 'K3')],
+      unions: [{ id: 'u1', p1: 'E', p2: 'A', p2_name: null, year: null }],
+      parentChild: [{ child: 'K3', parent: 'A', union: 'u1' }, { child: 'K1', parent: 'A', union: 'u1' }, { child: 'K2', parent: 'A', union: 'u1' }] },
+    { udgaver, bogNrBy: { K1: [nr('V', 7)], K2: [nr('V', 8)], K3: [nr('V', 9)] } });
+    const r = byggFokusRaekker(m, 'A')!;
+    expect(r.boerneGrupper.map((g) => navne(g.boern))).toEqual([['K1', 'K2', 'K3']]);
+  });
 });

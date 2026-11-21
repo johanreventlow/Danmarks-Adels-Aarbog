@@ -10,9 +10,11 @@
 // - »Mor/Far ikke angivet i bogen« kun med præcis én forælder af kendt køn.
 // - Usikre slægtskaber (formodet/omstridt) bærer ordet; komponenten tegner kanten stiplet.
 // - Børn grupperes pr. ægteskab, når data knytter dem til ét af personens ægteskaber; ellers samlet med note.
+// - Børn står i Aarbogens rækkefølge (sorterBoernEfterBogen); søskende i dagens rækkefølge.
 import type { Model, ModelPerson } from './types';
 import { childrenOf, parentsOf } from './model';
 import { konfTekst } from './format';
+import { sorterBoernEfterBogen } from '@daa/core';
 
 export type FokusRelation = { person: ModelPerson; konf: string };
 export type FokusForaelder = FokusRelation & { rolle: 'Far' | 'Mor' | 'Forælder' };
@@ -106,7 +108,8 @@ export function byggFokusRaekker(model: Model, focusId: string): FokusRaekker | 
   }
 
   // Børn: grupperet pr. ægteskab, når der er flere ægteskaber og data knytter børnene til ét af dem.
-  const boernP = childrenOf(model, focusId);
+  // I Aarbogens rækkefølge (stamtavlenummeret); grupperne nedenfor filtrerer boernP og arver den.
+  const boernP = sorterBoernEfterBogen(childrenOf(model, focusId), focusId, model.bogNrBy, model.udgaver);
   const boernRel = (b: ModelPerson): FokusRelation => ({ person: b, konf: konf(b.id, focusId) });
   let boerneGrupper: FokusBoerneGruppe[] = [];
   let boerneNote: string | null = null;

@@ -2,7 +2,7 @@
 // → buildModel. Lean udgave af mobile/src/data/load.ts (kun det stamtræ + slægtskabsfinder
 // behøver — ikke Aux/godser/våben). Rolle-vokab: partner = forælder-par, barn = blodslægt.
 import { supabase } from '../supabase';
-import { aarSpaend, boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates, fmtVisningsAar, oploesRelativDato, parseYear, getAll, EMPTY_GEO } from '@daa/core';
+import { aarSpaend, boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, byggBogNr, buildGeo, buildModel, collapseSameAs, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates, fmtVisningsAar, oploesRelativDato, parseYear, getAll, EMPTY_GEO } from '@daa/core';
 import { buildLineage, stamtavleSkemaOpslag } from './lineage';
 import { buildSources } from './sources';
 import { byggLinjeRaekker } from './linjeRaekker';
@@ -107,6 +107,8 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     doedSpaend: aarSpaend(p.visning_doed == null ? null : oploesRelativDato(p.visning_doed, p.visning_foedt ?? null) ?? p.visning_doed),
     floruit: p.visning_floruit ?? null,
     years: fmtVisningsAar(p.visning_foedt, p.visning_doed, p.visning_floruit),
+    foedtTekst: p.visning_foedt ?? null,
+    doedTekst: p.visning_doed ?? null,
     title: p.visning_titel ?? '',
     bio: '',
     privat: Boolean(p.privat),
@@ -173,6 +175,7 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     // første kort-brug (Godser-kort, Slægtens kort, livsrejse-minikort).
     geo: EMPTY_GEO,
     genCoordsByPerson: buildGenCoords(extIds, lineageRows, collapsed.canonicalIdById),
+    bogNrBy: byggBogNr(extIds, collapsed.canonicalIdById),
     parentsUnknownByPerson,
     loadGeo: async (): Promise<Geo> => {
       // Geo-lag: godser m. sted (allerede hentet ovenfor), steder m. koordinater, geo-bærende
