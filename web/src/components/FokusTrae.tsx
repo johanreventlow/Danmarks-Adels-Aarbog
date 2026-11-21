@@ -14,6 +14,7 @@ import type { Model } from '../data/types';
 import { byggFokusRaekker, type FokusRelation, type FokusSoeskende } from '../data/fokusTrae';
 import { Avatar, BookmarkFlag } from './primitives';
 import { erTekniskLinje } from '../data/lineage';
+import { kunIAeldreTekst } from '../data/kunIAeldre';
 
 const BOERN_FOER_VIS_ALLE = 4;
 
@@ -73,14 +74,18 @@ export function FokusTrae({ model, focusId, onPick, onFocus, personHref = person
     </div>
   );
 
-  const kort = (rel: FokusRelation, ekstra?: string, bred = 150) => (
+  const kort = (rel: FokusRelation, ekstra?: string, bred = 150) => {
+    const kunI = kunIAeldreTekst(model, rel.person.id);
+    return (
     <Link key={rel.person.id} href={personHref(rel.person.id)} onNavigate={() => onPick(rel.person.id)}
       style={{ flex: smal ? undefined : 'none', width: smal ? undefined : bred, minWidth: 0, background: T.surfaceGround, border: rel.konf ? `1.5px dashed ${T.danger}` : `1px solid ${T.line}`, borderRadius: radius.card, padding: '10px 12px', textDecoration: 'none', color: T.ink, display: 'flex', flexDirection: 'column', gap: 2 }}>
       <span style={{ fontFamily: T.serif, fontSize: 17, fontWeight: 600, lineHeight: 1.15 }}>{rel.person.name}</span>
       {(ekstra || rel.person.years) && <span style={aarStil}>{[ekstra, rel.person.years].filter(Boolean).join(' · ')}</span>}
       {rel.konf && <span style={{ ...etiketStil, color: T.danger }}>{rel.konf}</span>}
+      {kunI && <span title={kunI.forklaring} style={{ ...etiketStil, color: T.goldInk }}>{kunI.maerke}</span>}
     </Link>
-  );
+    );
+  };
 
   const visAlle = alleBoern === focusId;
   const kanAfkorte = smal && r.antalBoern > BOERN_FOER_VIS_ALLE + 2;

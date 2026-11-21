@@ -26,6 +26,25 @@ const vis = (o: Partial<Parameters<typeof FokusTrae>[0]> = {}) => {
   return { ...render(<FokusTrae {...p} />), p };
 };
 
+it.each([false, true])('barnekort viser udgavemærket efter konfidensordet (smal: %s)', (smal) => {
+  const nr = (sourceId: string) => ({ sourceId, linje: 'V', nr: 1, nrLabel: null, stamtavle: true });
+  const m: Model = {
+    ...model,
+    bogNrBy: { I: [nr('20')], K1: [nr('10')], K2: [nr('10'), nr('20')] },
+    udgaver: [
+      { sourceId: '20', label: 'DAA 2018-20', aar: 2018 },
+      { sourceId: '10', label: 'DAA 1939', aar: 1939 },
+    ],
+    indexes: { ...model.indexes, konfByEdge: { 'K1|I': 'formodet' } },
+  };
+  vis({ model: m, smal });
+  const barn = screen.getByText('Barn1').closest('a')!;
+  const maerke = within(barn).getByText('Kun i DAA 1939');
+  expect(maerke.getAttribute('title')).toBe('Står i DAA 1939, men ikke i DAA 2018-20.');
+  expect(within(barn).getByText('formodet').nextElementSibling).toBe(maerke);
+  expect(within(screen.getByText('Barn2').closest('a')!).queryByText(/Kun i/)).toBeNull();
+});
+
 describe('FokusTrae (bred)', () => {
   it('hele søskendeflokken i én række; piletaster skifter person uden historik', () => {
     const { p } = vis();

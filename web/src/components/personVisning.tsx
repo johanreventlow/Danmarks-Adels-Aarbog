@@ -1,7 +1,7 @@
 // Personens visning, delt af stamtræets panel (DetailPanel) og personsiden (PersonSide): udgavevælger
-// (6e-1), familie med kilder (trin 5b), godser i den valgte udgave, kilder og medier. Udtrukket fra
+// (6e-1), familie (uden kildelinjer siden 2026-11-21), godser i den valgte udgave, kilder og medier. Udtrukket fra
 // DetailPanel (webredesign fase 3), uden ændret adfærd.
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { T } from '../theme';
 import { childrenOf, parentsOf } from '../data/model';
 import { pickPortrait, withUrl } from '../data/media';
@@ -9,12 +9,10 @@ import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
 import { erTekniskLinje } from '../data/lineage';
 import {
-  boerneKilder as boerneKilderFor, byggUdgaveFakta, byggUdgaveVaelger,
-  familieIderForPerson, foraelderKilder as foraelderKilderFor, kildeLinje, udgaveForRaekker,
-  udgaverMedFakta, type BioSourceVersionV2, type FamilieKilde, type UdgaveChip,
+  byggUdgaveFakta, byggUdgaveVaelger, udgaveForRaekker,
+  udgaverMedFakta, type BioSourceVersionV2, type UdgaveChip,
   optraederSom, sorterKilder, unikkeKildelinjer, linjerForUdgave, b6Noter,
 } from '@daa/core';
-import { fetchFamilySources } from '../data/familySources';
 
 export function usePersonVisning(model: Model, focusId: string, detail: PersonDetailData | null) {
   // Udgavevælger (6e-1, spec §5.5): ÉN chip-liste styrer både biografien og fakta-udgaven. Læserens valg er
@@ -41,27 +39,7 @@ export function usePersonVisning(model: Model, focusId: string, detail: PersonDe
   // En chip fra en ukendt udgave (fx »label:…« uden udgaveoplysninger) filtrerer intet: alt vises som i dag.
   const valgtUdgave = aktivChip && udgaver.some((u) => u.sourceId === aktivChip.sourceId) ? aktivChip.sourceId : null;
   const faktaVisning = faktaInput ? byggUdgaveFakta(faktaInput, valgtUdgave) : null;
-  // Trin 5b 2a (spec §5.2): kilder på ægteskab og forældrelinje. Hentes pr. person; et svar for en
-  // tidligere person ignoreres. Fejl giver [] i datalaget, så panelet aldrig brydes. Afhænger af
-  // model.indexes, ikke model: et nyt modelobjekt (fx når geo ankommer) skal ikke hente kilderne igen.
-  const [familieKilder, setFamilieKilder] = useState<FamilieKilde[]>([]);
-  useEffect(() => {
-    let aktiv = true;
-    setFamilieKilder([]);
-    const { aegteskaber, foraeldreFamilier } = familieIderForPerson(model.indexes, focusId);
-    const ids = [...aegteskaber.map((a) => a.familyId), ...foraeldreFamilier];
-    void fetchFamilySources(ids).then((k) => { if (aktiv) setFamilieKilder(k); });
-    return () => { aktiv = false; };
-  }, [focusId, model.indexes]);
   const p = model.byId[focusId] ?? null;
-  const familieIder = familieIderForPerson(model.indexes, focusId);
-  // Kildefiltrene bor i core (6d-3 spor L): modparten slås op kanonisk, så en kilde fra en sammenfoldet
-  // udgaves post (fx 1939's alias-række) vises hos den kanoniske person.
-  const canon = model.canonicalIdById ?? {};
-  const foraelderKilder = (parentId: string) => foraelderKilderFor(familieKilder, familieIder, parentId, canon);
-  const boerneKilder = boerneKilderFor(familieKilder, familieIder, focusId, canon);
-  // Samme ægteskab kan være bundet fra flere udgaver/poster; nøglen skal derfor også bære kilden.
-  const kildeNøgle = (k: FamilieKilde) => [k.familyId, k.slags, k.counterpartPersonId, k.sourceLabel, k.sourceRecordRef ?? k.recordLabel].join('|');
   const parents = p ? parentsOf(model, focusId) : [];
   const spouses = p ? (model.indexes.spousesBy[focusId] ?? []) : [];
   const children = p ? childrenOf(model, focusId) : [];
@@ -117,7 +95,6 @@ export function usePersonVisning(model: Model, focusId: string, detail: PersonDe
   return {
     p, vaelger, valgtIdx, vaelgChip, aktivChip, valgtUdgave, faktaVisning, bioText, tidligereUdgave,
     parents, spouses, children, linjer, hovedLinjer, linjeNoter, sources, portrait, gallery, lightboxItems, proveniens, godser,
-    foraelderKilder, boerneKilder, kildeNøgle,
   };
 }
 
@@ -144,17 +121,4 @@ export function UdgaveKnapper({ chips, valgt, onVaelg, style }: {
       ))}
     </div>
   );
-}
-
-// Kildelinjen »Kilde: ‹udgave› · ‹post›«. Er posten en af personens egne biografiposter, vælger et klik udgavens chip
-// (chips er pr. udgave, 2026-11-19: III-58 → »DAA 2018-20«); ellers (fx forælderens post) er linjen ren tekst.
-export function KildeLinjeVisning({ kilde, chips, onVaelg, fontSize = 11.5 }: {
-  kilde: FamilieKilde; chips: UdgaveChip[]; onVaelg: (idx: number) => void; fontSize?: number;
-}) {
-  const ref = kilde.sourceRecordRef;
-  const idx = ref ? chips.findIndex((c) => c.art === 'post' && (c.version.recordRef === ref || c.poster.includes(ref))) : -1;
-  const stil = { display: 'block', fontFamily: T.sans, fontSize, fontStyle: 'normal' as const, color: T.inkMuted };
-  return idx >= 0
-    ? <button type="button" onClick={() => onVaelg(idx)} style={{ ...stil, background: 'none', border: 0, padding: 0, cursor: 'pointer', textAlign: 'left' }}>{kildeLinje(kilde)}</button>
-    : <span style={stil}>{kildeLinje(kilde)}</span>;
 }

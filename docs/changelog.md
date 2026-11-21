@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-21 — Tre 1939-rækker for nulevende er ikke længere offentlige
+
+Tre personer, der lever i dag og står i DAA 2018-20 (381, 453, 454), havde hver en sammenfoldet 1939-række (1434, 1343,
+1344) med `levende = false`. Synlighedsreglen `person_offentlig` ser kun på rækken selv, så gæster kunne se navn og
+1939-oplysninger (bl.a. fødselsdato) for dem. Fundet ved målingen til mærket »Kun i DAA 1939«. De tre rækker er sat
+`levende = true` i prod (prøve + gem fra projektejerens shell, kontrol før og efter, frisk forbindelse bagefter:
+ingen offentlig række hører længere til en skjult person). Fortryd: `UPDATE person SET levende=false WHERE id IN
+(1434,1343,1344);`. Selve reglen er ikke rettet (`decisions.md` 2026-11-21).
+
 ## 2026-11-21 — Pipelinerne sender ikke nulevendes data til en model og skriver ikke forkert ved genkørsel (review 37 E2-E8)
 
 Præsenslistens model-trin er spærret, fordi listen handler om nulevende. Validatoren skriver kun antal og regelkoder
