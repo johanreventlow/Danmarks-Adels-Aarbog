@@ -107,6 +107,8 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     doedSpaend: aarSpaend(p.visning_doed == null ? null : oploesRelativDato(p.visning_doed, p.visning_foedt ?? null) ?? p.visning_doed),
     floruit: p.visning_floruit ?? null,
     years: fmtVisningsAar(p.visning_foedt, p.visning_doed, p.visning_floruit),
+    foedtTekst: p.visning_foedt ?? null,
+    doedTekst: p.visning_doed ?? null,
     title: p.visning_titel ?? '',
     bio: '',
     privat: Boolean(p.privat),
