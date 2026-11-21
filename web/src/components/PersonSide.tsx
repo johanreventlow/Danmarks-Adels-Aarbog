@@ -29,7 +29,7 @@ import { slaegtskabsKontekst } from '../data/slaegtskab';
 import { byggFokusRaekker } from '../data/fokusTrae';
 import { Lightbox } from './Lightbox';
 import { Tilstand, tilstandSekundaer } from './Tilstand';
-import { usePersonVisning, KildeLinjeVisning } from './personVisning';
+import { usePersonVisning } from './personVisning';
 import { SlaegtsMaerke } from './SlaegtsMaerke';
 import { ExpandableMiniMap, MapFallback } from './lazyMaps';
 import { radius, shadow } from '@daa/theme';
@@ -197,13 +197,12 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                 {v.parents.length ? v.parents.map((pa) => (
                   <div key={pa.id}>
                     <PersonLink id={pa.id} navn={pa.name} aar={pa.years} konf={konfOrd(focusId, pa.id)} onVis={onVisPerson} />
-                    {v.foraelderKilder(pa.id).map((k) => <KildeLinjeVisning key={v.kildeNøgle(k)} kilde={k} chips={v.vaelger.chips} onVaelg={v.vaelgChip} fontSize={12} />)}
                   </div>
                 )) : <Mangel>Ikke angivet i Aarbogen.</Mangel>}
               </dd>
               {/* »Gift med« og »Børn« kun, når de har indhold (projektejeren 19/11): et barn, der døde ungt, skal ikke have
                   »Intet ægteskab angivet« eller »Ingen børn angivet«. En gift person uden børn får stadig »Ingen børn«.
-                  Ingen kildelinje under »Gift med« (projektejeren 21/11): som ved fakta står kilden nederst på siden. */}
+                  Ingen kildelinjer i Familie (projektejeren 21/11): som ved fakta står kilden nederst på siden. */}
               {v.spouses.length > 0 && (<>
               <dt style={dtStil}>Gift med</dt>
               <dd style={{ margin: 0 }}>
@@ -232,7 +231,6 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                         </ul>
                       </div>
                     ))}
-                    {v.boerneKilder.map((k) => <KildeLinjeVisning key={v.kildeNøgle(k)} kilde={k} chips={v.vaelger.chips} onVaelg={v.vaelgChip} fontSize={12} />)}
                   </>
                 ) : <Mangel>Ingen børn angivet i Aarbogen.</Mangel>}
               </dd>
