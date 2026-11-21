@@ -25,6 +25,12 @@ export function buildWebFeedAux(estates: EstateItem[] | null, arms: ArmsItem[] |
 
 export const FEED_BIO_IN_CHUNK = 200;
 
+function chunks<T>(values: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < values.length; i += size) out.push(values.slice(i, i + size));
+  return out;
+}
+
 function mapV1Text(row: unknown): string | null {
   if (typeof row !== 'object' || row === null) return null;
   const value = row as Record<string, unknown>;
@@ -76,12 +82,19 @@ export async function fetchFeedBios(
     const rpcName = contractVersion >= 2
       ? 'public_person_bio_source_versions_v2'
       : 'public_person_bio_source_versions';
-    const result = await supabase.rpc(rpcName, { p_person_ids: personIds });
-    if (result.error || !Array.isArray(result.data)) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+    // I bidder: alle id'er i ét kald ramte gæsternes 3 s-loft i prod (1.725 id'er → 57014, 2026-11-21).
+    // Rækkerne samles FØR valget, så aliaser i forskellige bidder stadig giver ét valg pr. kanonisk person.
+    const svar = await Promise.all(chunks(personIds, FEED_BIO_IN_CHUNK).map((ids) =>
+      supabase.rpc(rpcName, { p_person_ids: ids })));
+    const rows: unknown[] = [];
+    for (const result of svar) {
+      if (result.error || !Array.isArray(result.data)) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+      rows.push(...result.data);
+    }
     const bioBy: Record<string, string> = {};
     if (contractVersion >= 2) {
       const versionsByCanonicalPerson = new Map<string, unknown[]>();
-      for (const row of result.data) {
+      for (const row of rows) {
         if (typeof row !== 'object' || row === null || typeof (row as Record<string, unknown>).person_id !== 'number') {
           throw new Error('PUBLIC_BIO_SOURCE_VERSION_V2_INVALID_person_id');
         }
@@ -95,7 +108,7 @@ export async function fetchFeedBios(
         if (selected) bioBy[canonicalId] = selected.narrativeText;
       }
     } else {
-      for (const row of result.data) {
+      for (const row of rows) {
         if (typeof row !== 'object' || row === null || typeof (row as Record<string, unknown>).person_id !== 'number') continue;
         const text = mapV1Text(row);
         if (text) {

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-11-21 — Hændelser ændrer ikke længere en biografis synlighed; feedet henter hændelser i bidder (review 37 A2+Y3)
+
+En publiceret biografi forbliver synlig for gæster, når der indlæses hændelser fra den; hændelserne låser kun
+redigeringen af teksten. Forsidens hændelser hentes nu gennem én RPC i bidder (gaten én gang pr. narrativ) i stedet for
+at læse hele tabellen: på en stand-in med 5.880 syntetiske hændelser 8 kald og ca. 3 s mod 15,9 s for den gamle vej.
+Ingen synlighed ændret ved udrulningen (1.099 narrativer for gæsten før og efter; 1.701 bindinger og grundlinjer med
+uændret tilstand). PR #418; DDL i prod 21/11 før merge (`database-current-state.md` §39). Ventetiden måles i prod efter
+#130 (#419). Røgtesten afslørede en ældre fejl i biografi-hentningen på forsiden (alle id'er i ét kald rammer
+gæsteloftet); den rettes separat.
+
 ## 2026-11-21 — En ældre udgaves række kan ikke længere vise en nulevende (#415)
 
 Synlighedsreglen afgør nu offentlighed for hele mennesket, ikke række for række. Er en person levende eller privat i

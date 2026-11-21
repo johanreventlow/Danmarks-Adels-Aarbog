@@ -34,7 +34,7 @@ vi.mock('../../supabase', () => ({
   },
 }));
 
-const { buildFeedBioSubjectIds, buildWebFeedAux, fetchFeedBios, withFeedBios } = await import('../feedAux');
+const { FEED_BIO_IN_CHUNK, buildFeedBioSubjectIds, buildWebFeedAux, fetchFeedBios, withFeedBios } = await import('../feedAux');
 
 beforeEach(() => { byTable = {}; inCalls = []; rpc = vi.fn(); });
 
@@ -55,14 +55,50 @@ describe('buildWebFeedAux', () => {
 });
 
 describe('fetchFeedBios', () => {
-  it('afgrænser model+alias-id server-side gennem v2-RPCen', async () => {
-    rpc.mockResolvedValueOnce({ data: 2, error: null }).mockResolvedValueOnce({ data: [], error: null });
+  it('afgrænser model+alias-id server-side gennem v2-RPCen i bidder', async () => {
+    // Alle id'er i ét kald ramte gæsternes 3 s-loft i prod (1.725 id'er, 57014) — derfor bidder.
+    rpc.mockImplementation(async (name: string) => (
+      name === 'narrative_record_contract_version' ? { data: 2, error: null } : { data: [], error: null }));
     const modelIds = Array.from({ length: 401 }, (_, i) => String(i + 1));
     await fetchFeedBios({ alias1: '1', irrelevantAlias: '9999' }, modelIds);
-    const args = rpc.mock.calls[1]?.[1] as { p_person_ids: number[] };
-    expect(args.p_person_ids).toHaveLength(401);
-    expect(args.p_person_ids).toContain(1);
-    expect(args.p_person_ids).not.toContain(9999);
+    const bioCalls = rpc.mock.calls.filter(([name]) => name === 'public_person_bio_source_versions_v2');
+    const sendt = bioCalls.flatMap(([, args]) => (args as { p_person_ids: number[] }).p_person_ids);
+    expect(bioCalls.length).toBe(Math.ceil(401 / FEED_BIO_IN_CHUNK));
+    for (const [, args] of bioCalls) {
+      expect((args as { p_person_ids: number[] }).p_person_ids.length).toBeLessThanOrEqual(FEED_BIO_IN_CHUNK);
+    }
+    expect(sendt).toHaveLength(401);
+    expect(new Set(sendt).size).toBe(401);
+    expect(sendt).toContain(1);
+    expect(sendt).not.toContain(9999);
+  });
+  it('vælger én v2-default på tværs af aliaser i forskellige bidder', async () => {
+    const modelIds = Array.from({ length: FEED_BIO_IN_CHUNK + 1 }, (_, i) => String(i + 1));
+    const sidst = Number(modelIds.at(-1));
+    rpc.mockImplementation(async (name: string, args: { p_person_ids?: number[] }) => {
+      if (name === 'narrative_record_contract_version') return { data: 2, error: null };
+      const ids = args.p_person_ids ?? [];
+      return { data: [
+        ...(ids.includes(1) ? [{ person_id: 1, source_id: 30, source_year: 2020, record_order: null, source_record_ref: null, source_label: 'DAA', record_label: 'Overgangsdata', narrative_text: 'Ny legacy', citation_label: '', provenance_kind: 'legacy_narrative' }] : []),
+        ...(ids.includes(sidst) ? [{ person_id: sidst, source_id: 1, source_year: 1939, record_order: 1, source_record_ref: 'bound', source_label: 'DAA', record_label: 'Post 1', narrative_text: 'Bundet alias-post', citation_label: '', provenance_kind: 'source_record' }] : []),
+      ], error: null };
+    });
+    const bios = await fetchFeedBios({ '1': 'canon', [String(sidst)]: 'canon' }, modelIds);
+    const bioCalls = rpc.mock.calls.filter(([name]) => name === 'public_person_bio_source_versions_v2');
+    expect(bioCalls.length).toBeGreaterThan(1);
+    expect(bios.canon).toBe('Bundet alias-post');
+  });
+  it('en fejl i én bid er en eksplicit hente-fejl for hele hentningen', async () => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    let n = 0;
+    rpc.mockImplementation(async (name: string) => {
+      if (name === 'narrative_record_contract_version') return { data: 2, error: null };
+      n += 1;
+      return n === 2 ? { data: null, error: { code: '57014' } } : { data: [], error: null };
+    });
+    const modelIds = Array.from({ length: FEED_BIO_IN_CHUNK * 2 + 1 }, (_, i) => String(i + 1));
+    await expect(fetchFeedBios({}, modelIds)).rejects.toThrow('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+    spy.mockRestore();
   });
 
   it('bygger stabilt subject-id-sæt med relevante aliases', () => {
