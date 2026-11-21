@@ -10,6 +10,12 @@ Alle ændrede funktioner rettes **både** i `schema.sql` (source of truth) og so
 (eksisterende spejle: `narrative_publication_state` 13655, `narrative_legacy_candidate_publication_state` 16017,
 `narrative_legacy_publication_state` 14214 + 16098, `narrative_record_state` 13963, `mutate_person_narrative_record`
 14710, `person_purge_fortrydelse` 38737). Den sidste definition i hver fil skal være den nye.
+*Afvigelse (2026-11-21, efter lokal CI):* prod-runneren udtrækker navngivne blokke, så rettelserne på stedet nåede ikke
+prod-vejen (`test-record-persona-upgrade.sh` trin 5 fejlede med `REVIEW37_A2_HELPER_MISSING`). Derfor ligger de endelige
+kroppe nu også i blokken `-- BEGIN review37-a2` … `-- END review37-a2` lige før y3-blokken (maskinelt kopieret fra
+schema.sql; rettelserne på stedet står, så den fulde sti stadig er korrekt). **Deploy-området er blokkene review37-a2 og
+review37-y3 + db-rls.sql i én transaktion**; bevist af `tests/sql/test-review37-a2y3-upgrade.sh` fra 8bca497c (CI-trin
+i writer-jobbet).
 
 1. `private.narrative_har_haendelse(bigint) RETURNS boolean` (SQL, STABLE, `SET search_path=pg_catalog`), REVOKE fra
    PUBLIC/anon/authenticated/service_role.

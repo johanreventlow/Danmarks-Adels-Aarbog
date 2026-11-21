@@ -114,6 +114,11 @@ public.public_haendelse_feed(p_fortsaet text DEFAULT NULL,
   personsletningens undtagelsesliste (`person_purge_undtagelser`: teknik, ingen P-sti).
 - `feedGrundlag.ts:34` (`haendelse.subjekt_id`) læser fra samme funktion i stedet for tabellen.
 - Lofterne vælges ud fra målingen (§6): det tungeste kald skal holde sig under 1,5 s som anon på stand-in.
+- **Kendt begrænsning (Codex r1 fund 2, projektejeren 2026-11-21):** bladremærket binder kun positionen
+  `(narrative_id,id)`, og hvert kald læser sit eget snapshot. Udskiftes hændelsesprojektionen midt i en bladring (fx en
+  genkørsel af #130), kan den ene sidevisning blande gamle og nye kort. Der lækkes intet (hver række gates), næste
+  indlæsning er korrekt, og den gamle `range`-bladring havde samme egenskab. En revisionsværdi i mærket (triggere på
+  `haendelse`) er fravalgt som uforholdsmæssig.
 
 ### 4.3 Klienter
 
@@ -168,6 +173,9 @@ definitioner pr. fil), `web/src/data/{haendelser,feedGrundlag}.ts`, `mobile/src/
 6. CI grøn; prod-DDL via runner (standin → apply → efterkontrol → fortryd-definitioner gemt), projektejeren kører apply.
 
 ## 7. Udrulning
+
+**Deploy-området** er blokkene `review37-a2` og `review37-y3` i `db-migrations.sql` + `db-rls.sql` i én transaktion
+(prod-runneren udtrækker navngivne blokke; bevis: `tests/sql/test-review37-a2y3-upgrade.sh` fra 8bca497c).
 
 DDL før merge: web-ændringen kalder en ny RPC; findes den ikke, giver hændelseskortene tom liste med advarsel, men
 `feedGrundlag` kaster (fail-closed), og »Nævnt i Aarbogen«-kortene udebliver, til DDL'en er i prod. Derfor DDL → merge.
