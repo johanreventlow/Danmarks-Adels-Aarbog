@@ -59,6 +59,9 @@ SQL-tests + `test-person-purge.sh`; `db-verify.sql` grøn.
 
 `web/src/data/haendelser.ts` (tolerant) og `web/src/data/feedGrundlag.ts` (fail-closed) bladrer via RPC'en, til
 `naeste` er null. Vitest efter spec §4.3. Gate: `npm run test -w web` + `npm run build -w web` (ikke `tsc -p web`).
+*Efter implementering:* samtidige kald deler én igangværende bladring pr. bruger (spec §4.3); svarform og løbsk
+bladring (500 sider) kaster. Task 5-runneren skal også kalde RPC'en gennem PostgREST med anon-nøglen (rigtigt mærke),
+ikke kun via psql.
 
 ## Task 4 — mobil (dev-only, paritet)
 
@@ -70,6 +73,10 @@ SQL-tests + `test-person-purge.sh`; `db-verify.sql` grøn.
 2. Stand-in fra nyeste læsedump (projektejerens runner); privat runner `~/.private/review37-a2y3/prod.zsh`
    (standin/apply/fortryd/tal, facit-hashes, røgtest) efter mønstret fra `review37-p1p2`.
 3. Færdigbevis spec §6 på stand-in: id-mængder ved fire punkter, hashes, lås/kvitteringer, Y3-tider som anon med 3 s.
+4. **Samlet ventetid** (tilføjet 2026-11-21): ud over hvert kald for sig måles den samlede bladring som anon gennem
+   PostgREST (det, forsiden venter på, før hændelses- og »Nævnt«-kortene vises) efter den syntetiske #130-load (c).
+   Gaten koster ~5,4 ms pr. narrativ, så summen kan nå ~6 s ved fuld dækning. Tallet forelægges projektejeren som
+   beslutningsgrundlag; mulige svar (kort vises progressivt, færre gate-kald, accept) vælges først derefter.
 
 ## Task 6 — prod og afslutning
 

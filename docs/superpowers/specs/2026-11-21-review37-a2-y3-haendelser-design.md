@@ -125,6 +125,11 @@ public.public_haendelse_feed(p_fortsaet text DEFAULT NULL,
     side; et delvist resultat må aldrig gøre en person med hændelser til »kun nævnt« (Codex 2).
   - Tests (vitest): bladring over en tom side med `naeste` sat, stop ved `naeste=null`, fejl efter første side
     (kastes i `feedGrundlag`, tolereres i hændelseskort), tom tabel.
+  - **Delt bladring (tilføjet Task 3, 2026-11-21):** feedet starter hændelseskort og »Nævnt«-grundlag samtidig;
+    de deler én *igangværende* bladring pr. bruger (bruger-id, ellers gæst), så gaten ikke kører to gange over
+    korpusset. Det er ikke en cache: når bladringen er afsluttet, henter næste kald forfra, og en kalder efter
+    logud/login arver aldrig en anden brugers rækker. En fejl afviser begge kaldere (kortene tolererer, grundlaget
+    kaster).
 - **mobil:** samme ændring i `mobile/src/data/haendelser.ts` (dev-only, paritet).
 - Delt logik i `packages/core` kun hvis den allerede deles; ellers ingen ny flytning.
 

@@ -1,100 +1,142 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-type FakeRow = Record<string, unknown>;
-let byTable: Record<string, FakeRow[]> = {};
-let shouldThrow = false;
-const fromCalls: string[] = [];
-const inCalls: Array<{ table: string; ids: unknown[] }> = [];
+// Review 37 Y3: hændelserne hentes via RPC'en public_haendelse_feed i bidder, til naeste er null.
+// Sider simuleres som et kort fra bladremærke (null = første kald) til svar.
+type Side = { data: unknown; error: unknown };
+let sider: Map<string | null, Side> = new Map();
+let rpcKald: Array<{ fn: string; args: Record<string, unknown> }> = [];
+const fromKald: string[] = [];
+let brugerId: string | null = null;
 
 vi.mock('../../supabase', () => ({
   supabase: {
+    auth: {
+      async getSession() {
+        return { data: { session: brugerId ? { user: { id: brugerId } } : null }, error: null };
+      },
+    },
+    async rpc(fn: string, args: Record<string, unknown>) {
+      rpcKald.push({ fn, args });
+      const side = sider.get((args.p_fortsaet as string | null) ?? null);
+      if (!side) return { data: null, error: { message: `ukendt mærke ${String(args.p_fortsaet)}` } };
+      return side;
+    },
     from(table: string) {
-      if (shouldThrow) throw new Error('netværksfejl');
-      fromCalls.push(table);
-      let rows = byTable[table] ?? [];
-      const builder = {
-        select: () => builder,
-        eq: () => builder,
-        in(column: string, ids: unknown[]) {
-          inCalls.push({ table, ids });
-          const wanted = new Set(ids.map(String));
-          rows = rows.filter((row) => wanted.has(String(row[column])));
-          return builder;
-        },
-        order: () => builder,
-        range: async (from: number, to: number) => ({ data: rows.slice(from, to + 1), error: null }),
-        then(resolve: (value: { data: FakeRow[]; error: null }) => void) {
-          return Promise.resolve(resolve({ data: rows, error: null }));
-        },
-      };
-      return builder;
+      // Den gamle direkte tabellæsning må ikke bruges længere.
+      fromKald.push(table);
+      throw new Error(`direkte tabellæsning af ${table}`);
     },
   },
 }));
 
-const { fetchHaendelseRows, loadHaendelserBy } = await import('../haendelser');
+const { fetchHaendelseRows, fetchHaendelseFeed, loadHaendelserBy } = await import('../haendelser');
 
-const row = (id: number, narrativeId = 10, subjektId = 'p1') => ({
+const row = (id: number, narrativeId = 10, subjektId: string | number = 'p1') => ({
   id, subjekt_id: subjektId, narrative_id: narrativeId, klausul: 'En historisk klausul.',
   kategori: null, date_min: null, date_max: null, date_qualifier: null, date_raw: null,
   feed_status: 'kandidat', fact_id: null, relation_id: null,
 });
+const svar = (data: unknown): Side => ({ data, error: null });
+const side = (rows: unknown[], narrativer: unknown[], sources: unknown[], naeste: string | null) =>
+  svar({ rows, narrativer, sources, naeste });
 
 beforeEach(() => {
-  byTable = {};
-  shouldThrow = false;
-  fromCalls.length = 0;
-  inCalls.length = 0;
+  sider = new Map();
+  rpcKald = [];
+  fromKald.length = 0;
+  brugerId = null;
 });
 
-describe('fetchHaendelseRows', () => {
-  it('henter hændelser → narrativer → sources uden narrativtekst', async () => {
-    byTable = {
-      haendelse: [row(1), row(2, 11)],
-      narrative: [{ id: 10, source_id: 20, side: '12' }, { id: 11, source_id: 20, side: '13' }],
-      source: [{ id: 20, udgave: '1939' }],
-    };
-    const out = await fetchHaendelseRows();
-    expect(out.rows).toHaveLength(2);
-    expect(out.narrativer).toHaveLength(2);
-    expect(out.sources).toHaveLength(1);
-    expect(fromCalls).toEqual(['haendelse', 'narrative', 'source']);
-    expect(out.narrativer[0]).not.toHaveProperty('tekst');
+describe('fetchHaendelseFeed (bladring)', () => {
+  it('bladrer over en tom side med naeste sat og stopper først ved naeste=null', async () => {
+    sider.set(null, side([], [], [], 'A'));
+    sider.set('A', side([row(1)], [{ id: 10, source_id: 20, side: '12' }], [{ id: 20, udgave: '1939' }], 'B'));
+    sider.set('B', side([row(2, 10), row(3, 11)],
+      [{ id: 10, source_id: 20, side: '12' }, { id: 11, source_id: 20, side: '13' }],
+      [{ id: 20, udgave: '1939' }], null));
+    const out = await fetchHaendelseFeed();
+    expect(rpcKald.map((k) => k.args.p_fortsaet)).toEqual([null, 'A', 'B']);
+    expect(rpcKald.every((k) => k.fn === 'public_haendelse_feed')).toBe(true);
+    expect(out.rows.map((r) => r.id)).toEqual([1, 2, 3]);
+    // Et narrativ og en kilde, der optræder på flere sider, kommer kun med én gang.
+    expect(out.narrativer.map((n) => n.id)).toEqual([10, 11]);
+    expect(out.sources.map((s) => s.id)).toEqual([20]);
+    expect(fromKald).toEqual([]);
   });
 
-  it('chunker mere end 200 narrative-id’er', async () => {
-    const rows = Array.from({ length: 450 }, (_, i) => row(i, 1000 + i, 'p' + i));
-    byTable = {
-      haendelse: rows,
-      narrative: rows.map((r) => ({ id: r.narrative_id, source_id: null, side: null })),
-    };
-    const out = await fetchHaendelseRows();
-    expect(out.narrativer).toHaveLength(450);
-    expect(inCalls.filter((call) => call.table === 'narrative')).toHaveLength(3);
+  it('en fejl på en senere side kastes (intet delvist resultat)', async () => {
+    sider.set(null, side([row(1)], [], [], 'A'));
+    sider.set('A', { data: null, error: { message: 'canceling statement due to statement timeout' } });
+    await expect(fetchHaendelseFeed()).rejects.toBeTruthy();
   });
 
-  it('fejl giver tomt resultat + warn', async () => {
+  it('et svar uden gyldig form kastes', async () => {
+    sider.set(null, svar({ rows: 'ikke en liste', naeste: null }));
+    await expect(fetchHaendelseFeed()).rejects.toThrow(/form/);
+    sider.set(null, svar({ rows: [], narrativer: [], sources: [], naeste: 7 }));
+    await expect(fetchHaendelseFeed()).rejects.toThrow(/form/);
+  });
+
+  it('samtidige kald deler én bladring; et senere kald henter forfra (ingen cache)', async () => {
+    sider.set(null, side([], [], [], 'A'));
+    sider.set('A', side([row(1)], [], [], null));
+    const [a, b] = await Promise.all([fetchHaendelseFeed(), fetchHaendelseFeed()]);
+    expect(rpcKald).toHaveLength(2);
+    expect(a.rows.map((r) => r.id)).toEqual([1]);
+    expect(b.rows.map((r) => r.id)).toEqual([1]);
+    await fetchHaendelseFeed();
+    expect(rpcKald).toHaveLength(4);
+  });
+
+  it('en bladring deles aldrig på tværs af brugere (fx logud midt i indlæsningen)', async () => {
+    sider.set(null, side([row(1)], [], [], null));
+    brugerId = 'redaktoer';
+    const redaktoer = fetchHaendelseFeed();
+    // Kalderen efter logud må ikke arve redaktørens igangværende bladring.
+    await Promise.resolve();
+    brugerId = null;
+    const gaest = fetchHaendelseFeed();
+    await Promise.all([redaktoer, gaest]);
+    expect(rpcKald).toHaveLength(2);
+  });
+
+  it('en delt bladring, der fejler, afvises for begge kaldere', async () => {
+    sider.set(null, side([row(1)], [], [], 'A'));
+    sider.set('A', { data: null, error: { message: 'timeout' } });
+    const [a, b] = await Promise.allSettled([fetchHaendelseFeed(), fetchHaendelseFeed()]);
+    expect(a.status).toBe('rejected');
+    expect(b.status).toBe('rejected');
+    expect(rpcKald).toHaveLength(2);
+  });
+
+  it('en bladring, der aldrig slutter, afbrydes', async () => {
+    sider.set(null, side([], [], [], 'A'));
+    sider.set('A', side([], [], [], 'A'));
+    await expect(fetchHaendelseFeed()).rejects.toThrow(/sider/);
+  });
+});
+
+describe('fetchHaendelseRows (hændelseskort: tolerant)', () => {
+  it('tom feed giver tomt resultat med ét kald', async () => {
+    sider.set(null, side([], [], [], null));
+    await expect(fetchHaendelseRows()).resolves.toEqual({ rows: [], narrativer: [], sources: [] });
+    expect(rpcKald).toHaveLength(1);
+  });
+
+  it('fejl efter første side giver tomt resultat + warn', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    shouldThrow = true;
+    sider.set(null, side([row(1)], [{ id: 10, source_id: null, side: null }], [], 'A'));
+    sider.set('A', { data: null, error: { message: 'Could not find the function public.public_haendelse_feed' } });
     await expect(fetchHaendelseRows()).resolves.toEqual({ rows: [], narrativer: [], sources: [] });
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
-  });
-
-  it('tom hændelsestabel stopper uden følgequeries', async () => {
-    byTable = { haendelse: [] };
-    await expect(fetchHaendelseRows()).resolves.toEqual({ rows: [], narrativer: [], sources: [] });
-    expect(fromCalls).toEqual(['haendelse']);
   });
 });
 
 describe('loadHaendelserBy', () => {
   it('joiner og kanoniserer person-id', async () => {
-    byTable = {
-      haendelse: [row(1, 10, 'alias')],
-      narrative: [{ id: 10, source_id: 20, side: '12' }],
-      source: [{ id: 20, udgave: '1939' }],
-    };
+    sider.set(null, side([row(1, 10, 'alias')], [{ id: 10, source_id: 20, side: '12' }],
+      [{ id: 20, udgave: '1939' }], null));
     const out = await loadHaendelserBy({ alias: 'kanonisk' });
     expect(out.kanonisk).toEqual([
       expect.objectContaining({ id: '1', kilde: 'DAA 1939, s. 12' }),
