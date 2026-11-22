@@ -9105,6 +9105,50 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 -- END-VERIFY r37b2-d3
 
+-- BEGIN-VERIFY r37b2-d5
+-- ===== Review 37 D5 (RPC-delen): redigerings-RPC'erne afviser date_min > date_max =====
+-- red_upsert_fakta, red_opret_fakta og red_tilfoej_oplysning kaster DATO_INTERVAL_OMVENDT (22023) uden at åbne et
+-- ændringssæt; et lige interval (min = max) og åbne grænser er stadig tilladt. Selvforsynende; rulles tilbage.
+DO $$
+DECLARE v_fact bigint; n_cs bigint; v_rpc text; v_ok boolean; v_state text; v_msg text;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  INSERT INTO person(id,levende,privat) VALUES (-937401,false,false);
+  v_fact := (red_opret_fakta('person',-937401,'fødsel','1850', '1850-01-01', '1850-01-01', NULL, '1850')->>'fact_id')::bigint;
+  PERFORM red_upsert_fakta('person',-937401,'død','1900', NULL, '1900-12-31', NULL, '1900');
+  PERFORM set_config('app.change_set_id','',true);
+  SELECT count(*) INTO n_cs FROM change_set;
+  FOREACH v_rpc IN ARRAY ARRAY['red_upsert_fakta','red_opret_fakta','red_tilfoej_oplysning'] LOOP
+    v_ok := false;
+    BEGIN
+      IF v_rpc = 'red_upsert_fakta' THEN
+        PERFORM red_upsert_fakta('person',-937401,'fødsel','1851', '1851-12-31', '1851-01-01', NULL, '1851');
+      ELSIF v_rpc = 'red_opret_fakta' THEN
+        PERFORM red_opret_fakta('person',-937401,'fødsel','1851', '1851-12-31', '1851-01-01', NULL, '1851');
+      ELSE
+        PERFORM red_tilfoej_oplysning(v_fact,'1851', '1851-12-31', '1851-01-01', NULL, '1851');
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+      IF v_state = '22023' AND v_msg = 'DATO_INTERVAL_OMVENDT' THEN v_ok := true; ELSE RAISE; END IF;
+    END;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: D5 — % accepterede et omvendt datointerval', v_rpc; END IF;
+    PERFORM set_config('app.change_set_id','',true);
+  END LOOP;
+  IF (SELECT count(*) FROM change_set) <> n_cs THEN
+    RAISE EXCEPTION 'FEJL: D5 — en afvist skrivning åbnede et ændringssæt'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D5 — omvendt datointerval afvises i tre redigerings-RPC''er';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b2-d5
+
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt
 -- request.jwt.claim.sub; i Supabase SQL Editor kør som funktionsejer (jf. Task 4-note).

@@ -6893,6 +6893,10 @@ BEGIN
   IF p_faktatype = 'forældrefamilie' THEN
     RAISE EXCEPTION 'Brug red_tilfoej_foraeldre_paastand / red_vaelg_foraeldre til forældrefamilie';
   END IF;
+  -- Review 37 D5: et omvendt datointerval afvises, før et ændringssæt åbnes.
+  IF p_date_min IS NOT NULL AND p_date_max IS NOT NULL AND p_date_min > p_date_max THEN
+    RAISE EXCEPTION 'DATO_INTERVAL_OMVENDT' USING ERRCODE = '22023';
+  END IF;
   PERFORM begin_change_set('red_upsert_fakta', format('Opdaterede %s på %s/%s', p_faktatype, p_subjekt_type, p_subjekt_id), p_subjekt_type, p_subjekt_id);
   -- Review 37 D3: på en person rammes det viste faktum (samme regel som visningscachen); findes intet afklaret,
   -- genbruges det første i bogens orden (genaktiverer fx en tilbagetrukket forældre_ukendt-markering).
@@ -6941,6 +6945,10 @@ BEGIN
   IF (SELECT faktatype FROM fact WHERE id=p_fact_id) = 'forældrefamilie' THEN
     RAISE EXCEPTION 'Brug red_tilfoej_foraeldre_paastand til forældrefamilie-slottet';
   END IF;
+  -- Review 37 D5: et omvendt datointerval afvises, før et ændringssæt åbnes.
+  IF p_date_min IS NOT NULL AND p_date_max IS NOT NULL AND p_date_min > p_date_max THEN
+    RAISE EXCEPTION 'DATO_INTERVAL_OMVENDT' USING ERRCODE = '22023';
+  END IF;
   PERFORM begin_change_set('red_tilfoej_oplysning', format('Tilføjede oplysning til fakta %s', p_fact_id), NULL, NULL);
   IF NOT EXISTS (SELECT 1 FROM fact WHERE id = p_fact_id) THEN
     RAISE EXCEPTION 'Fact % findes ikke', p_fact_id;
@@ -6970,6 +6978,10 @@ BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   IF p_faktatype = 'forældrefamilie' THEN
     RAISE EXCEPTION 'Brug red_tilfoej_foraeldre_paastand / red_vaelg_foraeldre til forældrefamilie';
+  END IF;
+  -- Review 37 D5: et omvendt datointerval afvises, før et ændringssæt åbnes.
+  IF p_date_min IS NOT NULL AND p_date_max IS NOT NULL AND p_date_min > p_date_max THEN
+    RAISE EXCEPTION 'DATO_INTERVAL_OMVENDT' USING ERRCODE = '22023';
   END IF;
   PERFORM begin_change_set('red_opret_fakta', format('Oprettede %s på %s/%s', p_faktatype, p_subjekt_type, p_subjekt_id), p_subjekt_type, p_subjekt_id);
   INSERT INTO fact(subjekt_type, subjekt_id, faktatype)
