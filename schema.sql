@@ -7105,11 +7105,14 @@ BEGIN
   IF v_target_id IS NULL THEN RAISE EXCEPTION 'Ukendt assertion %', p_assertion_id; END IF;
   -- Cycle 02: upsert frem for UPDATE — et fact m. assertions men ingen conclusion (importeret/
   -- delvist) ville ellers give silent no-op (0 rækker) + falsk success.
+  -- Review 37 D4: valget er redaktørens afgørelse og gør konklusionen gyldig ('afklaret'), også en tilbagetrukket eller
+  -- omstridt (samme regel som red_upsert_fakta og red_vaelg_foraeldre; projektejeren 2026-11-22). Før blev status
+  -- stående, så en tilbagetrukket konklusion forblev skjult, mens kaldet meldte succes.
   INSERT INTO conclusion(target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
     VALUES (v_target_type, v_target_id, p_assertion_id,
             'afklaret', 'Redaktør', current_date)
     ON CONFLICT (target_type, target_id)
-    DO UPDATE SET valgt_assertion_id = excluded.valgt_assertion_id, blaastemplet_naar = current_date;
+    DO UPDATE SET valgt_assertion_id = excluded.valgt_assertion_id, status = 'afklaret', blaastemplet_naar = current_date;
 END $$;
 
 -- PoC blød redigering: UPDATE assertion direkte (indkapslet — skift til insert-ny senere).
@@ -7173,10 +7176,13 @@ BEGIN
     RAISE EXCEPTION 'Forældrefamilie-slottets påstande slettes ikke (uforanderlige) — skift kanonisk valg med red_vaelg_foraeldre';
   END IF;
   -- Review trin B (1d.1-02): importerede kildepåstande er uforanderlige (invariant 1); kun redaktørens egne
-  -- (uforanderlig=false) slettes. NULL behandles som kolonnens default (sand). Ukendt id: uændret (stille retur nedenfor).
+  -- (uforanderlig=false) slettes. NULL behandles som kolonnens default (sand).
   IF EXISTS (SELECT 1 FROM assertion WHERE id=p_assertion_id AND uforanderlig IS NOT FALSE) THEN
     RAISE EXCEPTION 'Kildepåstande slettes ikke (uforanderlige) — kun redaktørens egne oplysninger kan slettes; tilføj eller ret en oplysning og vælg den i stedet';
   END IF;
+  -- Review 37 D11: et ukendt id er en fejl, før ændringssættet åbnes (før: stille retur med et tomt sæt og falsk succes).
+  IF NOT EXISTS (SELECT 1 FROM assertion WHERE id = p_assertion_id) THEN
+    RAISE EXCEPTION 'Oplysning % findes ikke', p_assertion_id; END IF;
   PERFORM begin_change_set('red_slet_oplysning', format('Slettede oplysning %s', p_assertion_id), NULL, NULL);
   SELECT target_type, target_id INTO v_target_type, v_target_id
     FROM assertion WHERE id = p_assertion_id;
@@ -7258,6 +7264,9 @@ CREATE OR REPLACE FUNCTION red_set_koen(p_person_id bigint, p_koen text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 D11: et ukendt id er en fejl, før ændringssættet åbnes (ikke falsk succes med et tomt sæt).
+  IF NOT EXISTS (SELECT 1 FROM person WHERE id = p_person_id) THEN
+    RAISE EXCEPTION 'Person % findes ikke', p_person_id; END IF;
   PERFORM begin_change_set('red_set_koen', format('Satte køn på person %s', p_person_id), 'person', p_person_id);
   UPDATE person SET koen = p_koen WHERE id = p_person_id;  -- CHECK håndhæver vokabular
 END $$;
@@ -7267,6 +7276,9 @@ CREATE OR REPLACE FUNCTION red_set_privat(p_person_id bigint, p_privat boolean)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 D11: et ukendt id er en fejl, før ændringssættet åbnes (ikke falsk succes med et tomt sæt).
+  IF NOT EXISTS (SELECT 1 FROM person WHERE id = p_person_id) THEN
+    RAISE EXCEPTION 'Person % findes ikke', p_person_id; END IF;
   PERFORM begin_change_set('red_set_privat', format('Satte privat-flag på person %s', p_person_id), 'person', p_person_id);
   UPDATE person SET privat = p_privat WHERE id = p_person_id;
 END $$;
@@ -8803,10 +8815,13 @@ BEGIN
     RETURNING id INTO v_cit;
 
   -- Adjudikations-tilstand: hvad peger konklusionen (om nogen) på, og hvor er barnet projiceret?
+  -- Review 37 D10: en tilbagetrukket konklusion gælder ikke (fx efter red_slet_familie_link af barnet); slottet
+  -- behandles som uden konklusion, så en ny påstand ikke bliver en falsk konflikt med en fjernet forældrefamilie.
   SELECT a.objekt_id INTO v_valgt_family
     FROM conclusion c JOIN assertion a ON a.id=c.valgt_assertion_id
-    WHERE c.target_type='fact' AND c.target_id=v_fact;
-  v_concl_exists := EXISTS(SELECT 1 FROM conclusion WHERE target_type='fact' AND target_id=v_fact);
+    WHERE c.target_type='fact' AND c.target_id=v_fact AND c.status IS DISTINCT FROM 'tilbagetrukket';
+  v_concl_exists := EXISTS(SELECT 1 FROM conclusion WHERE target_type='fact' AND target_id=v_fact
+                             AND status IS DISTINCT FROM 'tilbagetrukket');
   SELECT family_id INTO v_barn_family FROM family_member WHERE person_id=p_barn_id AND rolle='barn' LIMIT 1;
 
   IF v_concl_exists THEN
@@ -8822,11 +8837,15 @@ BEGIN
     END IF;
     -- v_valgt_family = p_family_id: korroboration af det valgte — ingen ændring.
   ELSE
-    -- Ingen conclusion endnu: selv-helende afklaret KUN når påstanden matcher barnets projicerede række.
+    -- Ingen gældende conclusion: selv-helende afklaret KUN når påstanden matcher barnets projicerede række.
+    -- Upsert: et tilbagetrukket slot har allerede en conclusion-række (D10); den genbruges og bliver afklaret.
     IF v_barn_family IS NOT DISTINCT FROM p_family_id THEN
       INSERT INTO conclusion(target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
         VALUES ('fact', v_fact, v_assert, 'afklaret',
-                'Redaktør (korroboration)', current_date);
+                'Redaktør (korroboration)', current_date)
+        ON CONFLICT (target_type, target_id)
+        DO UPDATE SET valgt_assertion_id = excluded.valgt_assertion_id, status = 'afklaret',
+                      blaastemplet_af = excluded.blaastemplet_af, blaastemplet_naar = current_date;
     END IF;
     -- ellers: påstanden står som ren kandidat; adjudicér med red_vaelg_foraeldre.
   END IF;

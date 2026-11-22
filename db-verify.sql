@@ -9754,6 +9754,225 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 -- END-VERIFY r37p11
 
+-- BEGIN-VERIFY r37d4
+-- ===== Review 37 D4: »Gør til konklusion« gør konklusionen gyldig igen =====
+-- red_set_konklusion er redaktørens eksplicitte valg og sætter derfor status 'afklaret' uanset den gamle status (samme
+-- regel som red_upsert_fakta og red_vaelg_foraeldre; projektejeren 2026-11-22). Før rettelsen skiftede kaldet kun den
+-- valgte påstand: en tilbagetrukket konklusion forblev tilbagetrukket og skjult, og kaldet meldte succes. Testen kræver
+-- den synlige effekt (visningscachen), ikke kun kolonnen: tilbagetrukket navn → valg af en anden oplysning → navnet vises;
+-- tilbagetrukket igen → valg af den SAMME oplysning → vises igen. En omstridt relationskonklusion bliver også afklaret.
+-- ACL: kun authenticated (og ejeren) må kalde. Kaldt som ejer med en redaktør-uid.
+DO $$
+DECLARE
+  v_fact bigint; v_a1 bigint; v_a2 bigint; v_rel bigint; v_ra bigint; v_st text; v_valgt bigint; v_navn text;
+  v_acl text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO person(id,levende,privat,staged) VALUES (-937401,false,false,false),(-937402,false,false,false);
+
+  v_fact := (red_upsert_fakta('person',-937401,'navn','Verify Første D4')->>'fact_id')::bigint;
+  PERFORM set_config('app.change_set_id','',true);
+  v_a1 := (SELECT valgt_assertion_id FROM conclusion WHERE target_type='fact' AND target_id=v_fact);
+  v_a2 := (red_tilfoej_oplysning(v_fact,'Verify Anden D4')->>'assertion_id')::bigint;
+  PERFORM set_config('app.change_set_id','',true);
+  IF v_a1 IS NULL OR v_a2 IS NULL OR v_a1 = v_a2 THEN
+    RAISE EXCEPTION 'FEJL: D4 — fixturen gav ikke to påstande på ét faktum (a1=%, a2=%)', v_a1, v_a2; END IF;
+  IF (SELECT visning_navn FROM person WHERE id=-937401) IS DISTINCT FROM 'Verify Første D4' THEN
+    RAISE EXCEPTION 'FEJL: D4 — fixturen viste ikke navnet før tilbagetrækningen'; END IF;
+
+  -- 1) Tilbagetrukket → valg af en ANDEN oplysning.
+  PERFORM red_tilbagetraek_fakta(v_fact);
+  PERFORM set_config('app.change_set_id','',true);
+  IF (SELECT visning_navn FROM person WHERE id=-937401) IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: D4 — fixturen: det tilbagetrukne navn vises stadig'; END IF;
+  PERFORM red_set_konklusion(v_a2);
+  PERFORM set_config('app.change_set_id','',true);
+  SELECT status, valgt_assertion_id INTO v_st, v_valgt FROM conclusion WHERE target_type='fact' AND target_id=v_fact;
+  v_navn := (SELECT visning_navn FROM person WHERE id=-937401);
+  IF v_st IS DISTINCT FROM 'afklaret' OR v_valgt IS DISTINCT FROM v_a2 OR v_navn IS DISTINCT FROM 'Verify Anden D4' THEN
+    RAISE EXCEPTION 'FEJL: D4 — valg på en tilbagetrukket konklusion: status %, valgt % (forventet %), vist navn «%»',
+      v_st, v_valgt, v_a2, v_navn; END IF;
+
+  -- 2) Tilbagetrukket → valg af den SAMME oplysning.
+  PERFORM red_tilbagetraek_fakta(v_fact);
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_set_konklusion(v_a2);
+  PERFORM set_config('app.change_set_id','',true);
+  SELECT status INTO v_st FROM conclusion WHERE target_type='fact' AND target_id=v_fact;
+  v_navn := (SELECT visning_navn FROM person WHERE id=-937401);
+  IF v_st IS DISTINCT FROM 'afklaret' OR v_navn IS DISTINCT FROM 'Verify Anden D4' THEN
+    RAISE EXCEPTION 'FEJL: D4 — genvalg af den tilbagetrukne oplysning: status %, vist navn «%»', v_st, v_navn; END IF;
+
+  -- 3) En omstridt relationskonklusion: redaktørens valg afklarer den.
+  INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('person',-937401,'person',-937402,'verify_d4') RETURNING id INTO v_rel;
+  INSERT INTO assertion(target_type,target_id,vaerdi_tekst,uforanderlig) VALUES ('relation',v_rel,'verify_d4',true)
+    RETURNING id INTO v_ra;
+  INSERT INTO conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('relation',v_rel,v_ra,'omstridt');
+  PERFORM red_set_konklusion(v_ra);
+  PERFORM set_config('app.change_set_id','',true);
+  SELECT status INTO v_st FROM conclusion WHERE target_type='relation' AND target_id=v_rel;
+  IF v_st IS DISTINCT FROM 'afklaret' THEN
+    RAISE EXCEPTION 'FEJL: D4 — valg på en omstridt relationskonklusion gav status %', v_st; END IF;
+
+  -- ACL: uændret (ingen anon, ingen PUBLIC).
+  SELECT coalesce(p.proacl::text,'NULL') INTO v_acl FROM pg_proc p WHERE p.oid='public.red_set_konklusion(bigint)'::regprocedure;
+  IF has_function_privilege('anon','public.red_set_konklusion(bigint)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_set_konklusion(bigint)','EXECUTE') THEN
+    RAISE EXCEPTION 'FEJL: D4 — red_set_konklusion har forkert ACL: %', v_acl; END IF;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D4 — »Gør til konklusion« gør konklusionen gyldig igen';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37d4
+
+-- BEGIN-VERIFY r37d10
+-- ===== Review 37 D10: en ny forældre-påstand på et tilbagetrukket slot er ikke en konflikt =====
+-- Et tilbagetrukket forældrefamilie-slot (fx efter red_slet_familie_link af barnet) har ingen gældende konklusion. En ny
+-- påstand dér behandles som på et slot uden konklusion: matcher den barnets projicerede række, bliver den den afklarede
+-- konklusion; ellers står den som kandidat, og slottet forbliver tilbagetrukket. Før rettelsen gav den »konflikt«,
+-- satte slottet til 'omstridt' og barnets projektionsrække til konfidens 'omstridt'. Modprøve: et slot med en gældende
+-- (afklaret) konklusion giver stadig konflikt.
+DO $$
+DECLARE
+  v_res jsonb; v_st text; v_valgt bigint; v_fact bigint; v_konf text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO person(id,levende,privat,staged) VALUES
+    (-937501,false,false,false),(-937502,false,false,false),(-937503,false,false,false),  -- børn A, B, C
+    (-937506,false,false,false),(-937507,false,false,false);                              -- forældre i F1, F2
+  INSERT INTO family(id,type) VALUES (-937511,'vielse'),(-937512,'vielse');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES
+    (-937511,-937506,'partner'),(-937512,-937507,'partner'),
+    (-937511,-937501,'barn'),(-937511,-937502,'barn'),(-937511,-937503,'barn');
+  -- Alle tre børn: påstand F1 (matcher projektionen) → afklaret slot.
+  PERFORM red_tilfoej_foraeldre_paastand(-937501,-937511); PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_tilfoej_foraeldre_paastand(-937502,-937511); PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_tilfoej_foraeldre_paastand(-937503,-937511); PERFORM set_config('app.change_set_id','',true);
+  -- A og B fjernes fra F1 → deres slot er tilbagetrukket.
+  PERFORM red_slet_familie_link(-937511,-937501,'barn'); PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_slet_familie_link(-937511,-937502,'barn'); PERFORM set_config('app.change_set_id','',true);
+  IF (SELECT count(*) FROM conclusion c JOIN fact f ON c.target_type='fact' AND f.id=c.target_id
+       WHERE f.faktatype='forældrefamilie' AND f.subjekt_id IN (-937501,-937502) AND c.status='tilbagetrukket') <> 2 THEN
+    RAISE EXCEPTION 'FEJL: D10 — fixturen gav ikke to tilbagetrukne slots'; END IF;
+
+  -- A: ny påstand F2, A har ingen projektionsrække → kandidat; slottet forbliver tilbagetrukket.
+  v_res := red_tilfoej_foraeldre_paastand(-937501,-937512); PERFORM set_config('app.change_set_id','',true);
+  v_fact := (v_res->>'fact_id')::bigint;
+  SELECT status INTO v_st FROM conclusion WHERE target_type='fact' AND target_id=v_fact;
+  IF (v_res->>'konflikt')::boolean OR v_st IS DISTINCT FROM 'tilbagetrukket' THEN
+    RAISE EXCEPTION 'FEJL: D10 — påstand på tilbagetrukket slot uden projektion: konflikt %, status %',
+      v_res->>'konflikt', v_st; END IF;
+
+  -- B: projiceret i F2 (direkte række, konfidens sikker), ny påstand F2 → afklaret konklusion på den nye påstand.
+  INSERT INTO family_member(family_id,person_id,rolle,konfidens) VALUES (-937512,-937502,'barn','sikker');
+  v_res := red_tilfoej_foraeldre_paastand(-937502,-937512); PERFORM set_config('app.change_set_id','',true);
+  v_fact := (v_res->>'fact_id')::bigint;
+  SELECT status, valgt_assertion_id INTO v_st, v_valgt FROM conclusion WHERE target_type='fact' AND target_id=v_fact;
+  v_konf := (SELECT konfidens FROM family_member WHERE person_id=-937502 AND rolle='barn');
+  IF (v_res->>'konflikt')::boolean OR v_st IS DISTINCT FROM 'afklaret'
+     OR v_valgt IS DISTINCT FROM (v_res->>'assertion_id')::bigint OR v_konf IS DISTINCT FROM 'sikker' THEN
+    RAISE EXCEPTION 'FEJL: D10 — påstand på tilbagetrukket slot, der matcher projektionen: konflikt %, status %, valgt % (forventet %), konfidens %',
+      v_res->>'konflikt', v_st, v_valgt, v_res->>'assertion_id', v_konf; END IF;
+
+  -- Modprøve C: gældende (afklaret) slot F1, ny påstand F2 → konflikt, omstridt.
+  v_res := red_tilfoej_foraeldre_paastand(-937503,-937512); PERFORM set_config('app.change_set_id','',true);
+  SELECT status INTO v_st FROM conclusion WHERE target_type='fact' AND target_id=(v_res->>'fact_id')::bigint;
+  IF NOT (v_res->>'konflikt')::boolean OR v_st IS DISTINCT FROM 'omstridt' THEN
+    RAISE EXCEPTION 'FEJL: D10 — modprøven: rivaliserende påstand på afklaret slot gav konflikt %, status %',
+      v_res->>'konflikt', v_st; END IF;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D10 — en ny forældre-påstand på et tilbagetrukket slot er ikke en konflikt';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37d10
+
+-- BEGIN-VERIFY r37d11
+-- ===== Review 37 D11: ukendt id giver en ærlig fejl, ikke falsk succes og et tomt ændringssæt =====
+-- red_set_koen og red_set_privat afviser en ukendt person med »Person <id> findes ikke«, og red_slet_oplysning en ukendt
+-- påstand med »Oplysning <id> findes ikke«, efter rollegaten og før et ændringssæt åbnes. Før rettelsen åbnede de et
+-- ændringssæt, ændrede intet og meldte succes. Kontrol: på kendte id'er virker de stadig. Uden redaktørrolle afvises
+-- et ukendt id stadig med »Kun redaktion« (intet orakel om, hvilke id'er findes).
+DO $$
+DECLARE
+  r record; v_msg text; v_n_cs bigint; v_aid bigint; v_fact bigint;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO person(id,levende,privat,staged,koen) VALUES (-937601,false,false,false,NULL);
+
+  FOR r IN SELECT * FROM (VALUES
+      ('koen',   'Person -937699 findes ikke'),
+      ('privat', 'Person -937699 findes ikke'),
+      ('slet',   'Oplysning -937699 findes ikke')) x(fn,forventet) LOOP
+    SELECT count(*) INTO v_n_cs FROM change_set;
+    v_msg := NULL;
+    BEGIN
+      IF r.fn='koen' THEN PERFORM red_set_koen(-937699,'mand');
+      ELSIF r.fn='privat' THEN PERFORM red_set_privat(-937699,true);
+      ELSE PERFORM red_slet_oplysning(-937699); END IF;
+    EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM;
+    END;
+    PERFORM set_config('app.change_set_id','',true);
+    IF v_msg IS DISTINCT FROM r.forventet THEN
+      RAISE EXCEPTION 'FEJL: D11 — % med ukendt id gav «%», forventet «%»', r.fn, coalesce(v_msg,'(succes)'), r.forventet; END IF;
+    IF (SELECT count(*) FROM change_set) <> v_n_cs THEN
+      RAISE EXCEPTION 'FEJL: D11 — % med ukendt id efterlod et ændringssæt', r.fn; END IF;
+  END LOOP;
+
+  -- Kendte id'er virker stadig.
+  PERFORM red_set_koen(-937601,'kvinde'); PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_set_privat(-937601,true);   PERFORM set_config('app.change_set_id','',true);
+  IF (SELECT koen FROM person WHERE id=-937601) IS DISTINCT FROM 'kvinde'
+     OR (SELECT privat FROM person WHERE id=-937601) IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'FEJL: D11 — red_set_koen/red_set_privat virker ikke længere på en kendt person'; END IF;
+  v_fact := (red_upsert_fakta('person',-937601,'titel','Verify D11')->>'fact_id')::bigint;
+  PERFORM set_config('app.change_set_id','',true);
+  v_aid := (red_tilfoej_oplysning(v_fact,'Verify D11 anden')->>'assertion_id')::bigint;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_slet_oplysning(v_aid); PERFORM set_config('app.change_set_id','',true);
+  IF EXISTS (SELECT 1 FROM assertion WHERE id=v_aid) THEN
+    RAISE EXCEPTION 'FEJL: D11 — red_slet_oplysning sletter ikke længere en kendt oplysning'; END IF;
+
+  -- Uden redaktørrolle: »Kun redaktion«, også for et ukendt id.
+  UPDATE profiles SET rolle='medlem' WHERE id='00000000-0000-0000-0000-000000000001';
+  FOR r IN SELECT * FROM (VALUES ('koen'),('privat'),('slet')) x(fn) LOOP
+    v_msg := NULL;
+    BEGIN
+      IF r.fn='koen' THEN PERFORM red_set_koen(-937699,'mand');
+      ELSIF r.fn='privat' THEN PERFORM red_set_privat(-937699,true);
+      ELSE PERFORM red_slet_oplysning(-937699); END IF;
+    EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM;
+    END;
+    IF v_msg IS DISTINCT FROM 'Kun redaktion' THEN
+      RAISE EXCEPTION 'FEJL: D11 — % uden redaktørrolle gav «%», forventet «Kun redaktion»', r.fn, coalesce(v_msg,'(succes)'); END IF;
+  END LOOP;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D11 — ukendt id giver en ærlig fejl uden ændringssæt';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37d11
+
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt
 -- request.jwt.claim.sub; i Supabase SQL Editor kør som funktionsejer (jf. Task 4-note).
