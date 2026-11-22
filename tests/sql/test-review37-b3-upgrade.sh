@@ -34,7 +34,7 @@ awk '$0=="DO $review37_b3_media_gate$" {p=1} p{print} $0=="$review37_b3_media_ga
   || fail "DO-blokken \$review37_b3_media_gate\$ mangler i db-rls.sql"
 names=$( { cat "$tmp/blok.sql" "$tmp/rls.sql" | grep -ioE '^CREATE OR REPLACE FUNCTION [a-z_.]+\(' || true; } \
   | sed -E 's/.*[Ff][Uu][Nn][Cc][Tt][Ii][Oo][Nn] ([a-z_.]+)\(/\1/; /\./!s/^/public./' | sort -u | tr '\n' ' ')
-[ "$(wc -w <<<"$names")" -eq 12 ] || fail "forventede 12 funktioner i deploy-området, fandt: $names"
+[ "$(wc -w <<<"$names")" -eq 13 ] || fail "forventede 13 funktioner i deploy-området, fandt: $names"
 list=$(for n in $names; do printf "'%s'," "$n"; done); list=${list%,}
 deploy() { env -u PGOPTIONS psql -X -q -1 -v ON_ERROR_STOP=1 -d "$1" \
   -f tests/sql/review37-b3-foer.sql -f "$tmp/rls.sql" -f "$tmp/blok.sql" 2>&1; }
@@ -87,7 +87,7 @@ build_start() { createdb "$1"; q "$1" -f tests/sql/evidence-promotion-bootstrap.
 # 1) Frisk reference.
 build_start "$dbf"; q "$dbf" -f schema.sql; q "$dbf" -f db-rls.sql
 fresh=$(sha "$dbf"); kat "$dbf" "$tmp/kat-fresh.txt"
-[ "$(wc -l <<<"$fresh")" -eq 12 ] || fail "referencen mangler funktioner: $names"
+[ "$(wc -l <<<"$fresh")" -eq 13 ] || fail "referencen mangler funktioner: $names"
 
 # 2) Prod-formet base med fixtur; enhederne og matricen er røde på den.
 build_prod() { build_start "$1"
@@ -174,6 +174,7 @@ con|story.story_dato_orden
 fn|media_afbilder_privat(bigint)
 fn|media_afbilder_skjult(bigint)
 fn|private.kraev_gyldig_datering(date,date,text)
+fn|private.person_purge_familie_skjult(bigint)
 fn|private.person_purge_plan_fra_historik(bigint,jsonb)
 fn|red_opret_fakta(text,bigint,text,text,date,date,text,text,text)
 fn|red_opret_story(text,bigint,text,text,bigint,bigint,bigint,bigint,date,date,text,text,boolean)
@@ -185,7 +186,7 @@ fn|red_tilfoej_relation(bigint,text,bigint,text,text)
 fn|red_upsert_fakta(text,bigint,text,text,date,date,text,text,text)
 EOF
 )
-[ "$delta" = "$forventet" ] || { diff <(echo "$forventet") <(echo "$delta") >&2 || true; fail "katalog-delta er ikke de 24 forventede objekter"; }
+[ "$delta" = "$forventet" ] || { diff <(echo "$forventet") <(echo "$delta") >&2 || true; fail "katalog-delta er ikke de 25 forventede objekter"; }
 bash tests/sql/check-catalog-parity.sh "$tmp/kat-fresh.txt" "$tmp/kat-efter.txt" >/dev/null \
   || { bash tests/sql/check-catalog-parity.sh "$tmp/kat-fresh.txt" "$tmp/kat-efter.txt" || true; fail "kataloget efter blokken ≠ frisk schema.sql"; }
 out=$(deploy "$dbp") || { echo "$out" >&2; fail "anden deploy-transaktion fejlede"; }

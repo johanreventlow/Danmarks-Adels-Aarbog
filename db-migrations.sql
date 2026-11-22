@@ -47547,8 +47547,16 @@ BEGIN
   RETURN v_id;
 END $$;
 
--- S4 og personsletning: et medie, der afbilder en Fam_del-familie og lever videre på en anden kobling, låses (NY-E),
--- så sletning af familiens eneste skjulte medlem ikke gør billedet offentligt.
+-- S4 og personsletning: et medie, der afbilder en Fam_del-familie, som er skjult før sletningen (family_offentlig er
+-- falsk, uanset den slettede persons egen synlighed), og lever videre på en anden kobling, låses (NY-E), så sletningen
+-- ikke gør billedet offentligt. Ny hjælper (sen binding til family_offentlig); kun ejeren kan kalde den.
+CREATE OR REPLACE FUNCTION private.person_purge_familie_skjult(p_family_id bigint)
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_familie_skjult$
+BEGIN
+  RETURN NOT public.family_offentlig(p_family_id);
+END
+$purge_familie_skjult$;
+REVOKE ALL ON FUNCTION private.person_purge_familie_skjult(bigint) FROM PUBLIC,anon,authenticated,service_role;
 CREATE OR REPLACE FUNCTION private.person_purge_plan_fra_historik(p_person_id bigint,p_historik jsonb)
 RETURNS TABLE(sted text, tabel text, pk jsonb, handling text, grund text, fase text, ekstra jsonb)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_plan$
@@ -47630,10 +47638,11 @@ WITH RECURSIVE
     WHERE t.id IN (SELECT id FROM rk)
   -- + review 37 blok 3 (S4): billed-gaten følger familiens synlighed (media_afbilder_skjult læser media→family,
   -- 'afbildet'). Et medie, der afbilder en Fam_del-familie, mister koblingen med familien; lever det videre på en anden
-  -- kobling (ikke i md), låses det som ovenfor — ellers ville det blive offentligt, når familiens skjulte medlem er væk.
+  -- kobling (ikke i md), låses det som ovenfor, hvis familien var skjult FØR sletningen — uanset P's egen synlighed
+  -- (en offentlig P med en levende eller privat partner). Planen beregnes, før noget slettes.
   UNION SELECT t.subjekt_id FROM public.relation t WHERE t.id IN (SELECT id FROM rd)
     AND t.subjekt_type='media' AND t.rolle='afbildet' AND t.objekt_type='family' AND t.objekt_id IN (SELECT id FROM fam_del)
-    AND t.subjekt_id NOT IN (SELECT id FROM md) AND private.person_purge_ikke_offentlig(p_person_id)),
+    AND t.subjekt_id NOT IN (SELECT id FROM md) AND private.person_purge_familie_skjult(t.objekt_id)),
   x AS MATERIALIZED (SELECT source_persona_id AS id FROM private.source_persona_identity
     WHERE canonical_person_id=p_person_id AND decision_status='accepted'),
   -- persona_family_context(spouse) finder familier via PRINCIPALENS accepterede identitet.

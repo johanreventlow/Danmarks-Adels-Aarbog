@@ -4419,6 +4419,10 @@ END $t$;
 --   P1 levende + Q1 afdød, ingen børn → fam_d slettes med P1. m_d: koblet til fam_d OG afbildet på Q1 (lever videre).
 --   P2 levende + Q2 afdød + barn C2 afdød → fam_i bevares. m_i: kun koblet til fam_i.
 --   Q3 + R3 afdøde → fam_o offentlig. m_o: kun koblet til fam_o (kontrol: synlig før og efter).
+-- Koordinatorens fund (låsen må ikke afhænge af P's egen synlighed): P er OFFENTLIG, familien slettes med (Fam_del), og
+-- billedet lever videre på en våbenkobling.
+--   P4 afdød + Q4 LEVENDE partner → fam_a skjult før; m_a skal låses.   P5 afdød + Q5 afdød PRIVAT → fam_b5; m_b5 låses.
+--   P6 afdød + Q6 afdød offentlig → fam_c6 offentlig; m_c6 låses IKKE (uændret adfærd).
 -- =====================================================================================================================
 \if :g_purge_familiefoto
 SET request.jwt.claim.sub='a2a00000-0000-4000-8000-00000000a001';
@@ -4444,13 +4448,21 @@ BEGIN
       ('Q2','Testperson Familiefoto Afdød To','mand',false,'1852','1912'),
       ('C2','Testperson Familiefoto Barn To','mand',false,'1880','1950'),
       ('Q3','Testperson Familiefoto Afdød Tre','mand',false,'1800','1870'),
-      ('R3','Testperson Familiefoto Afdød Fire','kvinde',false,'1802','1872'))
+      ('R3','Testperson Familiefoto Afdød Fire','kvinde',false,'1802','1872'),
+      ('P4','Testperson Familiefoto Offentlig A','mand',false,'1900','1980'),
+      ('Q4','Testperson Familiefoto Levende A','kvinde',true,'1950',NULL),
+      ('P5','Testperson Familiefoto Offentlig B','mand',false,'1800','1880'),
+      ('Q5','Testperson Familiefoto Privat B','kvinde',false,'1802','1882'),
+      ('P6','Testperson Familiefoto Offentlig C','mand',false,'1700','1780'),
+      ('Q6','Testperson Familiefoto Offentlig D','kvinde',false,'1702','1782'))
     x(rolle,navn,koen,levende,foedt,doed) LOOP
     PERFORM purge_test.nyt();
     INSERT INTO pg_temp.ff_id VALUES (r.rolle,public.red_opret_person(r.navn,r.koen,r.levende,r.foedt,r.doed,NULL));
     PERFORM purge_test.nyt(); PERFORM public.red_set_privat(pg_temp.ffid(r.rolle),false);
   END LOOP;
-  FOR f IN SELECT * FROM (VALUES ('d','P1','Q1',NULL),('i','P2','Q2','C2'),('o','Q3','R3',NULL)) x(k,a,b,barn) LOOP
+  PERFORM purge_test.nyt(); PERFORM public.red_set_privat(pg_temp.ffid('Q5'),true);
+  FOR f IN SELECT * FROM (VALUES ('d','P1','Q1',NULL),('i','P2','Q2','C2'),('o','Q3','R3',NULL),
+      ('a','P4','Q4',NULL),('b5','P5','Q5',NULL),('c6','P6','Q6',NULL)) x(k,a,b,barn) LOOP
     PERFORM purge_test.nyt();
     v_fam:=public.red_opret_union(pg_temp.ffid(f.a),pg_temp.ffid(f.b),'vielse',1);
     INSERT INTO pg_temp.ff_id VALUES ('fam_'||f.k,v_fam);
@@ -4464,6 +4476,11 @@ BEGIN
   -- m_d er også et portræt af den afdøde Q1, så det overlever, at fam_d slettes.
   PERFORM purge_test.nyt();
   PERFORM public.red_relation('person',pg_temp.ffid('Q1'),'media',pg_temp.ffid('m_d'),'afbildet');
+  -- m_a, m_b5 og m_c6 afbilder også et våben, så de overlever, at familien slettes.
+  FOR f IN SELECT unnest(ARRAY['m_a','m_b5','m_c6']) AS m LOOP
+    PERFORM purge_test.nyt();
+    PERFORM public.red_relation('media',pg_temp.ffid(f.m),'coat_of_arms',-938790,'afbildet');
+  END LOOP;
   PERFORM purge_test.nyt();
 END $fix$;
 COMMIT;
@@ -4479,13 +4496,22 @@ BEGIN
   PERFORM pg_temp.ff_ser('ff_m_d_foer','m_d',0);
   PERFORM pg_temp.ff_ser('ff_m_i_foer','m_i',0);
   PERFORM pg_temp.ff_ser('ff_m_o_foer','m_o',1);
+  PERFORM pg_temp.ff_assert(public.person_offentlig(pg_temp.ffid('P4')) AND public.person_offentlig(pg_temp.ffid('P5'))
+    AND public.person_offentlig(pg_temp.ffid('P6')) AND NOT public.family_offentlig(pg_temp.ffid('fam_a'))
+    AND NOT public.family_offentlig(pg_temp.ffid('fam_b5')) AND public.family_offentlig(pg_temp.ffid('fam_c6')),'ff_offentlig_p_foer');
+  PERFORM pg_temp.ff_ser('ff_m_a_foer','m_a',0);
+  PERFORM pg_temp.ff_ser('ff_m_b5_foer','m_b5',0);
+  PERFORM pg_temp.ff_ser('ff_m_c6_foer','m_c6',1);
 END $t$;
 COMMIT;
 \echo OK ff_familiefoto_skjult_foer
 
 CREATE TEMP TABLE ff_preview AS
   SELECT 'P1'::text AS hvem,public.red_slet_person_helt_preview(pg_temp.ffid('P1')) AS j
-  UNION ALL SELECT 'P2',public.red_slet_person_helt_preview(pg_temp.ffid('P2'));
+  UNION ALL SELECT 'P2',public.red_slet_person_helt_preview(pg_temp.ffid('P2'))
+  UNION ALL SELECT 'P4',public.red_slet_person_helt_preview(pg_temp.ffid('P4'))
+  UNION ALL SELECT 'P5',public.red_slet_person_helt_preview(pg_temp.ffid('P5'))
+  UNION ALL SELECT 'P6',public.red_slet_person_helt_preview(pg_temp.ffid('P6'));
 DO $t$
 BEGIN
   PERFORM pg_temp.ff_assert((SELECT j->'familier_slettes' FROM ff_preview WHERE hvem='P1') @> to_jsonb(pg_temp.ffid('fam_d'))
@@ -4494,6 +4520,13 @@ BEGIN
     'ff_preview_m_d_skjules');
   PERFORM pg_temp.ff_assert((SELECT j->'medier_skjules' FROM ff_preview WHERE hvem='P2') @> to_jsonb(pg_temp.ffid('m_i')),
     'ff_preview_m_i_skjules');
+  PERFORM pg_temp.ff_assert((SELECT j->'familier_slettes' FROM ff_preview WHERE hvem='P4') @> to_jsonb(pg_temp.ffid('fam_a'))
+    AND (SELECT j->'familier_slettes' FROM ff_preview WHERE hvem='P5') @> to_jsonb(pg_temp.ffid('fam_b5'))
+    AND (SELECT j->'familier_slettes' FROM ff_preview WHERE hvem='P6') @> to_jsonb(pg_temp.ffid('fam_c6')),'ff_preview_offentlig_p_familier');
+  PERFORM pg_temp.ff_assert((SELECT j->'medier_skjules' FROM ff_preview WHERE hvem='P4') @> to_jsonb(pg_temp.ffid('m_a'))
+    AND (SELECT j->'medier_skjules' FROM ff_preview WHERE hvem='P5') @> to_jsonb(pg_temp.ffid('m_b5'))
+    AND NOT (SELECT j->'medier_skjules' FROM ff_preview WHERE hvem='P6') @> to_jsonb(pg_temp.ffid('m_c6')),
+    'ff_preview_offentlig_p_medier');
 END $t$;
 \echo OK ff_preview_medier_skjules
 
@@ -4509,6 +4542,33 @@ COMMIT;
 BEGIN;
 DO $t$
 DECLARE v_hash text:=(SELECT j->>'sha256' FROM ff_preview WHERE hvem='P2'); v_id bigint:=pg_temp.ffid('P2');
+BEGIN
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_slet_person_helt(v_id,v_hash);
+  RESET ROLE;
+END $t$;
+COMMIT;
+BEGIN;
+DO $t$
+DECLARE v_hash text:=(SELECT j->>'sha256' FROM ff_preview WHERE hvem='P4'); v_id bigint:=pg_temp.ffid('P4');
+BEGIN
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_slet_person_helt(v_id,v_hash);
+  RESET ROLE;
+END $t$;
+COMMIT;
+BEGIN;
+DO $t$
+DECLARE v_hash text:=(SELECT j->>'sha256' FROM ff_preview WHERE hvem='P5'); v_id bigint:=pg_temp.ffid('P5');
+BEGIN
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_slet_person_helt(v_id,v_hash);
+  RESET ROLE;
+END $t$;
+COMMIT;
+BEGIN;
+DO $t$
+DECLARE v_hash text:=(SELECT j->>'sha256' FROM ff_preview WHERE hvem='P6'); v_id bigint:=pg_temp.ffid('P6');
 BEGIN
   SET LOCAL ROLE authenticated;
   PERFORM public.red_slet_person_helt(v_id,v_hash);
@@ -4535,7 +4595,18 @@ BEGIN
   PERFORM pg_temp.ff_ser('ff_m_d_efter','m_d',0);
   PERFORM pg_temp.ff_ser('ff_m_i_efter','m_i',0);
   PERFORM pg_temp.ff_ser('ff_m_o_efter','m_o',1);
+  -- Offentlig P: låsen følger familiens synlighed før sletningen, ikke P's.
+  PERFORM pg_temp.ff_assert(NOT EXISTS (SELECT 1 FROM public.family WHERE id IN (pg_temp.ffid('fam_a'),pg_temp.ffid('fam_b5'),
+      pg_temp.ffid('fam_c6'))),'ff_offentlig_p_familier_slettet');
+  PERFORM pg_temp.ff_assert(EXISTS (SELECT 1 FROM public.media WHERE id=pg_temp.ffid('m_a') AND NOT maa_publiceres)
+    AND EXISTS (SELECT 1 FROM public.media WHERE id=pg_temp.ffid('m_b5') AND NOT maa_publiceres),'ff_offentlig_p_laast');
+  PERFORM pg_temp.ff_assert(EXISTS (SELECT 1 FROM public.media WHERE id=pg_temp.ffid('m_c6') AND maa_publiceres),
+    'ff_offentlig_familie_ikke_laast');
+  PERFORM pg_temp.ff_ser('ff_m_a_efter','m_a',0);
+  PERFORM pg_temp.ff_ser('ff_m_b5_efter','m_b5',0);
+  PERFORM pg_temp.ff_ser('ff_m_c6_efter','m_c6',1);
 END $t$;
 COMMIT;
 \echo OK ff_familiefoto_skjult_efter_sletning
+\echo OK ff_offentlig_p_laaser_skjult_familiefoto
 \endif
