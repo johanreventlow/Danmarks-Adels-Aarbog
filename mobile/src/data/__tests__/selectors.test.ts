@@ -1,6 +1,6 @@
 import { buildBidirectionalColumns, buildModel } from '@daa/core';
 import { buildSearch, buildSnapPath, childrenOf, parentsOf, routeToMe, searchPool, treeFocusA, wayToMe } from '../selectors';
-import type { Db } from '../types';
+import type { AppPerson, Db } from '../types';
 import type { SearchItem } from '../selectors';
 
 // NB: initialOf bruger efternavn (sidst token) — testfixture bruger Æbeltoft som efternavn
@@ -35,7 +35,7 @@ test('buildSearch-wrapper giver samme matches som searchPool på model.persons',
   expect(viaWrapper.matches).toEqual(viaPool.matches);
 });
 
-const mk = (id: string, name: string, born: number | null = null) => ({
+const mk = (id: string, name: string, born: number | null = null): AppPerson => ({
   id,
   name,
   born,
@@ -43,6 +43,7 @@ const mk = (id: string, name: string, born: number | null = null) => ({
   years: born ? `* ${born}` : '',
   title: '',
   bio: '',
+  privat: false,
 });
 
 const db: Db = {

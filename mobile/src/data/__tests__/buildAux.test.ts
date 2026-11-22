@@ -216,7 +216,7 @@ describe('buildAux — linje-navne fra lineage', () => {
 describe('buildAux — kilder ("Linje X, nr. N" + trykt værk)', () => {
   const extIds: RawExtId[] = [{ person_id: 7, source_id: 1, linje: 'II', nr: 4 }];
   const sources: RawSource[] = [
-    { id: 1, slags: 'bog', titel: 'Danmarks Adels Aarbog', udgave: null, ekstern: null },
+    { id: 1, slags: 'bog', titel: 'Danmarks Adels Aarbog', udgave: null, ekstern: null, aar: null },
   ];
   const aux = buildAux({ extIds, sources, relations: [], estates: [], orgs: [], media: [] });
 

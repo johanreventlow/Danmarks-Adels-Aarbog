@@ -2,8 +2,8 @@ import { mapPresensLinjer, pickPresensIntro } from '../presensLinjer';
 
 test('mapPresensLinjer: nøgles på presens_kode og kobler våbenets signerede URL', () => {
   const lineageRows = [
-    { id: 4, kode: 'IV', navn: 'Den lensgrevelige linje af 1767', slaegtsnavn: 'Reventlou', presens_kode: 'I' },
-    { id: 5, kode: 'V', navn: 'Den grevelige linje af 1673', slaegtsnavn: 'Reventlow', presens_kode: 'II' },
+    { id: 4, kode: 'IV', navn: 'Den lensgrevelige linje af 1767', slaegtsnavn: 'Reventlou', presens_kode: 'I', parent_lineage_id: null },
+    { id: 5, kode: 'V', navn: 'Den grevelige linje af 1673', slaegtsnavn: 'Reventlow', presens_kode: 'II', parent_lineage_id: null },
   ];
   const vaabenRel = [{ subjekt_id: 4, objekt_id: 100 }];
   const mediaRel = [{ subjekt_id: 501, objekt_id: 100 }];
@@ -26,7 +26,7 @@ test('mapPresensLinjer: nøgles på presens_kode og kobler våbenets signerede U
 
 test('mapPresensLinjer: usignerbart eller manglende våben giver vaabenUrl=null', () => {
   const lineageRows = [
-    { id: 5, kode: 'V', navn: 'Den grevelige linje af 1673', slaegtsnavn: 'Reventlow', presens_kode: 'II' },
+    { id: 5, kode: 'V', navn: 'Den grevelige linje af 1673', slaegtsnavn: 'Reventlow', presens_kode: 'II', parent_lineage_id: null },
   ];
   const result = mapPresensLinjer(
     lineageRows,
@@ -41,8 +41,8 @@ test('mapPresensLinjer: usignerbart eller manglende våben giver vaabenUrl=null'
 
 test('mapPresensLinjer: uddød linje uden presens_kode udelades', () => {
   const lineageRows = [
-    { id: 1, kode: 'I', navn: 'Den holstenske linje', slaegtsnavn: null, presens_kode: null },
-    { id: 4, kode: 'IV', navn: 'Den lensgrevelige linje af 1767', slaegtsnavn: 'Reventlou', presens_kode: 'I' },
+    { id: 1, kode: 'I', navn: 'Den holstenske linje', slaegtsnavn: null, presens_kode: null, parent_lineage_id: null },
+    { id: 4, kode: 'IV', navn: 'Den lensgrevelige linje af 1767', slaegtsnavn: 'Reventlou', presens_kode: 'I', parent_lineage_id: null },
   ];
 
   const result = mapPresensLinjer(lineageRows, [], [], [], new Map());
