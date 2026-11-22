@@ -529,6 +529,27 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 41. Review 37 blok 1: fortryd, udgavehistorik, bogmærke-orakel, FK-indeks — LIVE i prod (2026-11-22)
+
+**Grundlag:** decisions 2026-11-22 (BESLUTTET: review 37's databasefund, pakke B), PR #434 (CI grøn på `974a6773`).
+Privat runner `~/.private/review37-b1/prod.zsh`, fastlåst på `974a6773` (blok-sha `5ef7da7c…`), kørt i projektejerens
+shell **efter** merge (ingen web-afhængighed; vagten tillader main = præcis blokkens SQL).
+
+- **DDL:** blokken `-- BEGIN review37-b1` … `-- END review37-b1` (db-migrations.sql) + DO-blokken
+  `$review37_b1_bookmark$` (db-rls.sql) i én transaktion — ikke hele db-rls.sql. Præcis 10 katalogobjekter:
+  `_version_upsert_row`, `red_fortryd_change_set`, `red_publicer_udgave` (nye kroppe, uændret ACL), politikken
+  `bookmark.bookmark_insert_own`, 6 indeks (`ix_haendelse_fact_id/_relation_id`, `ix_story_fact_id/_relation_id/
+  _historical_event_id`, `ix_bookmark_person_id`). Facit (frisk base af samme commit) ens; data uændret; 3,0 s.
+- **Effekt:** D2 — ældre ændringssæt kan fortrydes uden `force`, når kun nyere kolonner mangler i snapshottet (190
+  relationssæt, 17 påstande, 16 medier m.fl.); sæt hvis rækker reelt er ændret/slettet afvises stadig. D7 —
+  `red_publicer_udgave` står i historikken og kan fortrydes. S2 — medlemmer afvises (42501) ved bogmærke på skjulte og
+  ikke-eksisterende id'er; redaktionen må. Y9 — FK-opslag i `haendelse`/`story`/`bookmark` er indekseret.
+- **Øvelse:** prod-formet stand-in: prøve → commit → fortryd (katalog trofast) → commit. Prod: prøve, derefter commit.
+- **Efterkontrol (læse-kun):** 6 gyldige indeks, ny politik, nye kroppe; forsiden 200. `get_advisors` via MCP gav
+  adgangsfejl (ingen nye tabeller/funktioner i blokken).
+- **Fortryd:** `/bin/zsh -f ~/.private/review37-b1/prod.zsh fortryd [--jeg-mener-det]` (prods egne 3 definitioner fra
+  før apply + gammel politik; dropper de 6 indeks; katalog-sammenligning med før).
+
 ## 40. Første hændelses-load (#130) — LIVE i prod (2026-11-22)
 
 **Grundlag:** decisions 2026-11-21 (BESLUTTET: hændelseslaget opløser s.å./s.m./s.d. fra konteksten; udaterede

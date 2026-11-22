@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-22 — Review 37 blok 1 i prod: fortryd af ældre ændringer, udgavehistorik, bogmærke-værn
+
+Redaktionen kan nu fortryde ældre ændringer, der hidtil kun kunne tvinges igennem, fordi en kolonne var kommet til
+siden. Publicering af en hel udgave står i historikken og kan fortrydes. Et medlem kan ikke længere se ud fra en
+fejlbesked, om et skjult person-id findes. Seks indeks gør sletning af fakta og relationer billigere efter #130. To
+forældede rollback-scripts er arkiveret. PR #434; DDL i prod 22/11 (`database-current-state.md` §41).
+
 ## 2026-11-22 — Første hændelser i feedet (#130)
 
 Forsiden viser nu daterede gerninger fra biografierne: 3.932 hændelser fra 764 narrativer, udtrukket af Sonnet (Opus
