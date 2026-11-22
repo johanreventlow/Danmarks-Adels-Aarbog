@@ -532,7 +532,7 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
 ## 46. Review 37 blok 4: konklusion og ændringssæt i redaktionens RPC'er (D4, D10, D11) — LIVE i prod (2026-11-22)
 
 **Grundlag:** decisions 2026-11-22 (BESLUTTET: et redaktionelt valg af konklusion gør den gyldig; et tilbagetrukket
-slot har ingen gældende konklusion), PR #447 (CI grøn på `b4ae8510`; SQL = `201c64db`). Privat runner
+slot har ingen gældende konklusion), PR #447 (CI grøn på `b4ae8510`; SQL = `201c64db`; merget `b18bd8a8` efter DDL). Privat runner
 `~/.private/review37-b4/prod.zsh`, fastlåst på `201c64db` (blok-sha `2365d3d4…`), kørt i projektejerens shell **før**
 merge.
 
