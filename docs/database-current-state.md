@@ -529,6 +529,40 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 42. Review 37 blok 2: slægtsnavn fra linjemedlemskab, »Ret« rammer det viste, datotjek — LIVE i prod (2026-11-22)
+
+**Grundlag:** decisions 2026-11-22 (BESLUTTET: review 37's databasefund, pakke B), PR #436 (CI grøn på `d6ce73f6`).
+Privat runner `~/.private/review37-b2/prod.zsh`, fastlåst på `d6ce73f6` (blok-sha `9257af0c…`), kørt i projektejerens
+shell. PR'en blev merget ~30 s **før** DDL'en; uden betydning her (den nye fejltekst virker i begge rækkefølger), men
+rækkefølgen DDL → merge gælder fortsat for blokke med web-afhængighed.
+
+- **DDL + data (én transaktion):** før-billede (`tests/sql/review37-b2-backfill-foer.sql`) → blokken
+  `-- BEGIN review37-b2` … `-- END review37-b2` (db-migrations.sql) → backfill (`tests/sql/review37-b2-backfill.sql`).
+  Præcis 11 katalogobjekter: `private.person_visnings_fakt`, `red_opret_fakta`, `red_upsert_fakta`,
+  `red_tilfoej_oplysning`, `red_promote_placement_memberships`, `red_reverse_placement_membership`,
+  `regen_person_visning`, `trg_regen_from_lineage`, `trg_regen_from_lineage_membership` og triggerne
+  `lineage.trg_lineage_regen`, `person_lineage_membership.trg_lineage_membership_regen`. Facit (`P_FACIT_OK`) og
+  invarianter ens; 7,8 s.
+- **Data:** **495** personer fik `visning_efternavn`/`visning_fuldt_navn` fra deres linjemedlemskab; intet andet ændret
+  (backfillens kontroller: ændrede ⊆ kandidater = uafhængig forudsigelse, karantæne og historik uændret, prøve-regen af
+  alle andre personer ændrer intet). Første prøve stoppede som ventet på `forventet 504` (runnerens default); prods tal
+  = stand-in'ens 495 (21/11-data) → `P_FORVENTET=495`. Efter: 1.102 af 1.802 personer har efternavn.
+- **Effekt:** D1+D12 — slægtsnavnet hentes også fra linjemedlemskaber og regenereres ved ændring af medlemskab og linje
+  (også DELETE og ændret `kode`/`source_id`). D1 — medlemskabs-writerne låser personen før medlemskabet (ingen 40P01
+  mod personsletning). D3 — »Ret« rammer den viste oplysning; navn/fødsel/død vises i bogens orden. D5 (RPC) —
+  redigerings-RPC'erne afviser omvendt datointerval (`DATO_INTERVAL_OMVENDT`, dansk tekst i web og mobil).
+- **Øvelse:** prod-formet stand-in med blok 1: prøve → commit → fortryd (katalog og cache trofast) → commit →
+  fortryd-prøve. Prod: prøve (stop på antal), prøve, commit.
+- **Efterkontrol (læse-kun, MCP):** begge triggere findes og er aktive; ingen af de fem `red_*` (SECURITY DEFINER) kan
+  køres af `anon`; hjælperen og trigger-funktionerne er INVOKER med kun ejer-EXECUTE; `regen_person_visning` har som
+  før PUBLIC-EXECUTE (INVOKER, så RLS gælder).
+  `get_advisors`: ingen nye fund for blokkens objekter (de fem `red_*` står som før under
+  `authenticated_security_definer_function_executable`).
+- **Fortryd:** `/bin/zsh -f ~/.private/review37-b2/prod.zsh fortryd [--jeg-mener-det]` (prods egne definitioner fra før
+  apply: `~/.private/review37-b2/fortryd-definitioner.prod.sql`).
+- **Kendt rest:** `red_fortryd_change_set` låser medlemsrækken før triggeren opdaterer personen ved fortrydelse af
+  medlemskabs-events — samme mønster som for `conclusion`/`person_external_id`; åbent punkt i #397.
+
 ## 41. Review 37 blok 1: fortryd, udgavehistorik, bogmærke-orakel, FK-indeks — LIVE i prod (2026-11-22)
 
 **Grundlag:** decisions 2026-11-22 (BESLUTTET: review 37's databasefund, pakke B), PR #434 (CI grøn på `974a6773`).
