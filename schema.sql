@@ -7176,10 +7176,13 @@ BEGIN
     RAISE EXCEPTION 'Forældrefamilie-slottets påstande slettes ikke (uforanderlige) — skift kanonisk valg med red_vaelg_foraeldre';
   END IF;
   -- Review trin B (1d.1-02): importerede kildepåstande er uforanderlige (invariant 1); kun redaktørens egne
-  -- (uforanderlig=false) slettes. NULL behandles som kolonnens default (sand). Ukendt id: uændret (stille retur nedenfor).
+  -- (uforanderlig=false) slettes. NULL behandles som kolonnens default (sand).
   IF EXISTS (SELECT 1 FROM assertion WHERE id=p_assertion_id AND uforanderlig IS NOT FALSE) THEN
     RAISE EXCEPTION 'Kildepåstande slettes ikke (uforanderlige) — kun redaktørens egne oplysninger kan slettes; tilføj eller ret en oplysning og vælg den i stedet';
   END IF;
+  -- Review 37 D11: et ukendt id er en fejl, før ændringssættet åbnes (før: stille retur med et tomt sæt og falsk succes).
+  IF NOT EXISTS (SELECT 1 FROM assertion WHERE id = p_assertion_id) THEN
+    RAISE EXCEPTION 'Oplysning % findes ikke', p_assertion_id; END IF;
   PERFORM begin_change_set('red_slet_oplysning', format('Slettede oplysning %s', p_assertion_id), NULL, NULL);
   SELECT target_type, target_id INTO v_target_type, v_target_id
     FROM assertion WHERE id = p_assertion_id;
@@ -7261,6 +7264,9 @@ CREATE OR REPLACE FUNCTION red_set_koen(p_person_id bigint, p_koen text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 D11: et ukendt id er en fejl, før ændringssættet åbnes (ikke falsk succes med et tomt sæt).
+  IF NOT EXISTS (SELECT 1 FROM person WHERE id = p_person_id) THEN
+    RAISE EXCEPTION 'Person % findes ikke', p_person_id; END IF;
   PERFORM begin_change_set('red_set_koen', format('Satte køn på person %s', p_person_id), 'person', p_person_id);
   UPDATE person SET koen = p_koen WHERE id = p_person_id;  -- CHECK håndhæver vokabular
 END $$;
@@ -7270,6 +7276,9 @@ CREATE OR REPLACE FUNCTION red_set_privat(p_person_id bigint, p_privat boolean)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 D11: et ukendt id er en fejl, før ændringssættet åbnes (ikke falsk succes med et tomt sæt).
+  IF NOT EXISTS (SELECT 1 FROM person WHERE id = p_person_id) THEN
+    RAISE EXCEPTION 'Person % findes ikke', p_person_id; END IF;
   PERFORM begin_change_set('red_set_privat', format('Satte privat-flag på person %s', p_person_id), 'person', p_person_id);
   UPDATE person SET privat = p_privat WHERE id = p_person_id;
 END $$;

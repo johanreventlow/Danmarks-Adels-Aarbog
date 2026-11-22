@@ -48347,6 +48347,8 @@ GRANT EXECUTE ON FUNCTION public.red_slettede_personer(integer) TO authenticated
 --      2026-11-22: samme regel som red_upsert_fakta og red_vaelg_foraeldre).
 --  D10 red_tilfoej_foraeldre_paastand: et tilbagetrukket slot har ingen gældende konklusion; en ny påstand dér er
 --      ikke en konflikt (afklaret, hvis den matcher barnets projektion, ellers kandidat).
+--  D11 red_set_koen, red_set_privat og red_slet_oplysning afviser et ukendt id efter rollegaten og før ændringssættet
+--      (før: falsk succes og et tomt ændringssæt).
 -- Deploy-området for prod er hele denne blok i ÉN transaktion. Kroppene er kopieret fra schema.sql og er de endelige
 -- definitioner; de ældre definitioner længere oppe gælder kun den fulde migrationssti. Idempotent: CREATE OR REPLACE med
 -- samme signatur og returtype bevarer funktionernes ACL. Ingen data ændres.
@@ -48458,5 +48460,67 @@ BEGIN
   END IF;
 
   RETURN jsonb_build_object('fact_id',v_fact,'assertion_id',v_assert,'citation_id',v_cit,'konflikt',v_konflikt);
+END $$;
+
+CREATE OR REPLACE FUNCTION red_slet_oplysning(p_assertion_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_target_type text; v_target_id bigint; v_was_chosen boolean; v_next bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF (SELECT f.faktatype FROM assertion a JOIN fact f ON f.id=a.target_id AND a.target_type='fact' WHERE a.id=p_assertion_id) = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Forældrefamilie-slottets påstande slettes ikke (uforanderlige) — skift kanonisk valg med red_vaelg_foraeldre';
+  END IF;
+  -- Review trin B (1d.1-02): importerede kildepåstande er uforanderlige (invariant 1); kun redaktørens egne
+  -- (uforanderlig=false) slettes. NULL behandles som kolonnens default (sand).
+  IF EXISTS (SELECT 1 FROM assertion WHERE id=p_assertion_id AND uforanderlig IS NOT FALSE) THEN
+    RAISE EXCEPTION 'Kildepåstande slettes ikke (uforanderlige) — kun redaktørens egne oplysninger kan slettes; tilføj eller ret en oplysning og vælg den i stedet';
+  END IF;
+  -- Review 37 D11: et ukendt id er en fejl, før ændringssættet åbnes (før: stille retur med et tomt sæt og falsk succes).
+  IF NOT EXISTS (SELECT 1 FROM assertion WHERE id = p_assertion_id) THEN
+    RAISE EXCEPTION 'Oplysning % findes ikke', p_assertion_id; END IF;
+  PERFORM begin_change_set('red_slet_oplysning', format('Slettede oplysning %s', p_assertion_id), NULL, NULL);
+  SELECT target_type, target_id INTO v_target_type, v_target_id
+    FROM assertion WHERE id = p_assertion_id;
+  IF v_target_id IS NULL THEN RETURN; END IF;
+  SELECT (valgt_assertion_id = p_assertion_id) INTO v_was_chosen
+    FROM conclusion WHERE target_type=v_target_type AND target_id=v_target_id;
+  -- VIGTIGT: slip FK'en (conclusion.valgt_assertion_id -> assertion.id) FØR assertion slettes,
+  -- ellers fejler DELETE med conclusion_valgt_assertion_id_fkey. Re-peg til første tilbageværende
+  -- oplysning (ekskl. den der slettes); ingen tilbage -> drop conclusion. Fact-slot bevares.
+  IF coalesce(v_was_chosen,false) THEN
+    SELECT id INTO v_next FROM assertion
+      WHERE target_type=v_target_type AND target_id=v_target_id AND id <> p_assertion_id
+      ORDER BY id LIMIT 1;
+    IF v_next IS NULL THEN
+      DELETE FROM conclusion WHERE target_type=v_target_type AND target_id=v_target_id;
+    ELSE
+      UPDATE conclusion SET valgt_assertion_id=v_next
+        WHERE target_type=v_target_type AND target_id=v_target_id;
+    END IF;
+  END IF;
+  DELETE FROM citation  WHERE assertion_id = p_assertion_id;
+  DELETE FROM assertion WHERE id = p_assertion_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_set_koen(p_person_id bigint, p_koen text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 D11: et ukendt id er en fejl, før ændringssættet åbnes (ikke falsk succes med et tomt sæt).
+  IF NOT EXISTS (SELECT 1 FROM person WHERE id = p_person_id) THEN
+    RAISE EXCEPTION 'Person % findes ikke', p_person_id; END IF;
+  PERFORM begin_change_set('red_set_koen', format('Satte køn på person %s', p_person_id), 'person', p_person_id);
+  UPDATE person SET koen = p_koen WHERE id = p_person_id;  -- CHECK håndhæver vokabular
+END $$;
+
+CREATE OR REPLACE FUNCTION red_set_privat(p_person_id bigint, p_privat boolean)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 D11: et ukendt id er en fejl, før ændringssættet åbnes (ikke falsk succes med et tomt sæt).
+  IF NOT EXISTS (SELECT 1 FROM person WHERE id = p_person_id) THEN
+    RAISE EXCEPTION 'Person % findes ikke', p_person_id; END IF;
+  PERFORM begin_change_set('red_set_privat', format('Satte privat-flag på person %s', p_person_id), 'person', p_person_id);
+  UPDATE person SET privat = p_privat WHERE id = p_person_id;
 END $$;
 -- END review37-b4

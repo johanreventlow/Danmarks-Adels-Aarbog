@@ -9901,6 +9901,78 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 -- END-VERIFY r37d10
 
+-- BEGIN-VERIFY r37d11
+-- ===== Review 37 D11: ukendt id giver en ærlig fejl, ikke falsk succes og et tomt ændringssæt =====
+-- red_set_koen og red_set_privat afviser en ukendt person med »Person <id> findes ikke«, og red_slet_oplysning en ukendt
+-- påstand med »Oplysning <id> findes ikke«, efter rollegaten og før et ændringssæt åbnes. Før rettelsen åbnede de et
+-- ændringssæt, ændrede intet og meldte succes. Kontrol: på kendte id'er virker de stadig. Uden redaktørrolle afvises
+-- et ukendt id stadig med »Kun redaktion« (intet orakel om, hvilke id'er findes).
+DO $$
+DECLARE
+  r record; v_msg text; v_n_cs bigint; v_aid bigint; v_fact bigint;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO person(id,levende,privat,staged,koen) VALUES (-937601,false,false,false,NULL);
+
+  FOR r IN SELECT * FROM (VALUES
+      ('koen',   'Person -937699 findes ikke'),
+      ('privat', 'Person -937699 findes ikke'),
+      ('slet',   'Oplysning -937699 findes ikke')) x(fn,forventet) LOOP
+    SELECT count(*) INTO v_n_cs FROM change_set;
+    v_msg := NULL;
+    BEGIN
+      IF r.fn='koen' THEN PERFORM red_set_koen(-937699,'mand');
+      ELSIF r.fn='privat' THEN PERFORM red_set_privat(-937699,true);
+      ELSE PERFORM red_slet_oplysning(-937699); END IF;
+    EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM;
+    END;
+    PERFORM set_config('app.change_set_id','',true);
+    IF v_msg IS DISTINCT FROM r.forventet THEN
+      RAISE EXCEPTION 'FEJL: D11 — % med ukendt id gav «%», forventet «%»', r.fn, coalesce(v_msg,'(succes)'), r.forventet; END IF;
+    IF (SELECT count(*) FROM change_set) <> v_n_cs THEN
+      RAISE EXCEPTION 'FEJL: D11 — % med ukendt id efterlod et ændringssæt', r.fn; END IF;
+  END LOOP;
+
+  -- Kendte id'er virker stadig.
+  PERFORM red_set_koen(-937601,'kvinde'); PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_set_privat(-937601,true);   PERFORM set_config('app.change_set_id','',true);
+  IF (SELECT koen FROM person WHERE id=-937601) IS DISTINCT FROM 'kvinde'
+     OR (SELECT privat FROM person WHERE id=-937601) IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'FEJL: D11 — red_set_koen/red_set_privat virker ikke længere på en kendt person'; END IF;
+  v_fact := (red_upsert_fakta('person',-937601,'titel','Verify D11')->>'fact_id')::bigint;
+  PERFORM set_config('app.change_set_id','',true);
+  v_aid := (red_tilfoej_oplysning(v_fact,'Verify D11 anden')->>'assertion_id')::bigint;
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_slet_oplysning(v_aid); PERFORM set_config('app.change_set_id','',true);
+  IF EXISTS (SELECT 1 FROM assertion WHERE id=v_aid) THEN
+    RAISE EXCEPTION 'FEJL: D11 — red_slet_oplysning sletter ikke længere en kendt oplysning'; END IF;
+
+  -- Uden redaktørrolle: »Kun redaktion«, også for et ukendt id.
+  UPDATE profiles SET rolle='medlem' WHERE id='00000000-0000-0000-0000-000000000001';
+  FOR r IN SELECT * FROM (VALUES ('koen'),('privat'),('slet')) x(fn) LOOP
+    v_msg := NULL;
+    BEGIN
+      IF r.fn='koen' THEN PERFORM red_set_koen(-937699,'mand');
+      ELSIF r.fn='privat' THEN PERFORM red_set_privat(-937699,true);
+      ELSE PERFORM red_slet_oplysning(-937699); END IF;
+    EXCEPTION WHEN OTHERS THEN v_msg := SQLERRM;
+    END;
+    IF v_msg IS DISTINCT FROM 'Kun redaktion' THEN
+      RAISE EXCEPTION 'FEJL: D11 — % uden redaktørrolle gav «%», forventet «Kun redaktion»', r.fn, coalesce(v_msg,'(succes)'); END IF;
+  END LOOP;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D11 — ukendt id giver en ærlig fejl uden ændringssæt';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37d11
+
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt
 -- request.jwt.claim.sub; i Supabase SQL Editor kør som funktionsejer (jf. Task 4-note).
