@@ -4753,4 +4753,61 @@ BEGIN
 END $t$;
 COMMIT;
 \echo OK bg_slet_helt_sletter_de_afviste
+
+-- Listen over slettede personer (red_slettede_personer): X slettes simpelt og står på listen med navn; fortrydes og er
+-- væk; slettes så helt, og hverken listen eller X's ændringssæt bærer X bagefter (den fulde sletning tager historikken).
+BEGIN;
+DO $t$
+DECLARE v_x bigint;
+BEGIN
+  PERFORM purge_test.nyt();
+  v_x:=public.red_opret_person('Testperson Blindgyde Liste','mand',false,'1800','1870',NULL);
+  INSERT INTO pg_temp.bg_id VALUES ('X',v_x);
+  PERFORM purge_test.nyt(); PERFORM public.red_set_privat(v_x,false);
+  PERFORM purge_test.nyt();
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_slet_person(v_x);
+  RESET ROLE;
+  PERFORM purge_test.nyt();
+END $t$;
+COMMIT;
+BEGIN;
+DO $t$
+DECLARE v_x bigint:=pg_temp.bgid('X'); v_cs bigint;
+BEGIN
+  SELECT l.change_set_id INTO v_cs FROM public.red_slettede_personer(500) l
+   WHERE l.person_id=v_x AND l.navn='Testperson Blindgyde Liste';
+  PERFORM pg_temp.bg_assert(v_cs IS NOT NULL,'bg_liste_viser_sletning');
+  PERFORM pg_temp.bg_assert(NOT EXISTS (SELECT 1 FROM public.red_slettede_personer(500) l
+    WHERE l.person_id IN (pg_temp.bgid('L'),pg_temp.bgid('S'))),'bg_liste_uden_helt_slettede');
+  PERFORM purge_test.nyt();
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_fortryd_change_set(v_cs,false);
+  RESET ROLE;
+  PERFORM purge_test.nyt();
+  PERFORM pg_temp.bg_assert(EXISTS (SELECT 1 FROM public.person WHERE id=v_x)
+    AND NOT EXISTS (SELECT 1 FROM public.red_slettede_personer(500) l WHERE l.person_id=v_x),'bg_liste_fortrudt');
+END $t$;
+COMMIT;
+CREATE TEMP TABLE bg_preview_x AS SELECT public.red_slet_person_helt_preview(pg_temp.bgid('X')) AS j;
+BEGIN;
+DO $t$
+DECLARE v_hash text:=(SELECT j->>'sha256' FROM bg_preview_x); v_id bigint:=pg_temp.bgid('X');
+BEGIN
+  PERFORM pg_temp.bg_assert((SELECT j->'blokeringer' FROM bg_preview_x)='[]'::jsonb,'bg_liste_helt_ingen_blokering');
+  PERFORM purge_test.nyt();
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_slet_person_helt(v_id,v_hash);
+  RESET ROLE;
+END $t$;
+COMMIT;
+DO $t$
+DECLARE v_x bigint:=pg_temp.bgid('X');
+BEGIN
+  PERFORM pg_temp.bg_assert(NOT EXISTS (SELECT 1 FROM public.person WHERE id=v_x)
+    AND NOT EXISTS (SELECT 1 FROM public.red_slettede_personer(500) l WHERE l.person_id=v_x),'bg_liste_efter_slet_helt');
+  PERFORM pg_temp.bg_assert(NOT EXISTS (SELECT 1 FROM public.change_set
+    WHERE operation='red_slet_person' AND subjekt_type='person' AND subjekt_id=v_x),'bg_liste_historik_slettet');
+END $t$;
+\echo OK bg_liste_slettede_personer
 \endif

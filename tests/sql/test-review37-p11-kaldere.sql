@@ -1,7 +1,8 @@
 -- Review 37 P11 (#397): kaldermatrix for de to slette-RPC'er med rigtige klientroller (tests/sql/fixtures/kalder-matrix.sql).
 -- Gæst, bruger uden profil og medlem får samme afvisning for en offentlig og en ikke-offentlig person (intet orakel:
 -- afvisningen siger intet om, hvem personen er). Redaktionen får forhåndsvisningens vej (kan_fortrydes/aarsag), afvises
--- med SLET_KRAEVER_SLET_HELT for den levende og kan slette den offentlige. Syntetiske negative id'er; alt rulles tilbage.
+-- med SLET_KRAEVER_SLET_HELT for den levende og kan slette den offentlige. Listen over slettede personer
+-- (red_slettede_personer) afviser alle andre end redaktionen, som ser sletningen. Syntetiske negative id'er; alt rulles tilbage.
 -- Forvent: NOTICE "OK: review37 p11 kaldere". Køres af tests/sql/test-review37-p11-upgrade.sh (rød på basen, grøn efter).
 \set ON_ERROR_STOP on
 BEGIN;
@@ -29,7 +30,7 @@ INSERT INTO public.person(id,levende,privat,staged) VALUES
 SELECT set_config('app.change_set_id','',false);
 
 DO $t$
-DECLARE k text; v_off text; v_lev text; v_pv_off text; v_pv_lev text; v_pv jsonb; v_msg text;
+DECLARE k text; v_off text; v_lev text; v_pv_off text; v_pv_lev text; v_pv jsonb; v_msg text; v_liste text;
 BEGIN
   FOREACH k IN ARRAY ARRAY['gaest','uden_profil','medlem'] LOOP
     v_off:=pg_temp.p11_fejl(k,'SELECT public.red_slet_person(-937951)');
@@ -43,6 +44,11 @@ BEGIN
        OR v_lev LIKE '%SLET_KRAEVER_SLET_HELT%' OR v_pv_lev LIKE '%SLET_KRAEVER_SLET_HELT%' THEN
       RAISE EXCEPTION 'KALDER_MATRIX_FAILED: p11 % er et orakel: offentlig «%» / levende «%» (preview «%» / «%»)',
         k,v_off,v_lev,v_pv_off,v_pv_lev;
+    END IF;
+    -- Listen over slettede personer (navne og id'er på slettede) er kun for redaktionen.
+    v_liste:=pg_temp.p11_fejl(k,'SELECT * FROM public.red_slettede_personer()');
+    IF v_liste IS NULL THEN
+      RAISE EXCEPTION 'KALDER_MATRIX_FAILED: p11 % kunne læse listen over slettede personer',k;
     END IF;
     IF NOT EXISTS (SELECT 1 FROM public.person WHERE id IN (-937951,-937952) HAVING count(*)=2) THEN
       RAISE EXCEPTION 'KALDER_MATRIX_FAILED: p11 % slettede en person',k;
@@ -74,6 +80,10 @@ BEGIN
      OR NOT EXISTS (SELECT 1 FROM public.person WHERE id IN (-937952,-937953) HAVING count(*)=2) THEN
     RAISE EXCEPTION 'KALDER_MATRIX_FAILED: p11 redaktion: den offentlige blev ikke slettet, eller en anden blev (fejl: %)',
       coalesce(v_msg,'ingen');
+  END IF;
+  v_msg:=pg_temp.p11_fejl('redaktion','SELECT * FROM public.red_slettede_personer() WHERE person_id=-937951');
+  IF v_msg IS NOT NULL OR pg_temp.km_antal('redaktion','SELECT * FROM public.red_slettede_personer() WHERE person_id=-937951')<>1 THEN
+    RAISE EXCEPTION 'KALDER_MATRIX_FAILED: p11 redaktion: den slettede står ikke på listen (fejl: %)',coalesce(v_msg,'ingen');
   END IF;
   RAISE NOTICE 'OK: review37 p11 kaldere';
 END $t$;

@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Review 37 P11 (#397): den simple, fortrydelige sletning (red_slet_person) afviser en person, der ikke er offentlig, med
-# SLET_KRAEVER_SLET_HELT, og red_slet_person_preview fortæller vejen (kan_fortrydes + aarsag). Prods deploy-form: KUN
-# blokken review37-p11 i db-migrations.sql (tre funktioner: den nye hjælper private.person_slet_aarsag og de to RPC'er,
-# samme signatur og returtype) i én psql-transaktion (-1). db-rls.sql røres ikke.
+# SLET_KRAEVER_SLET_HELT, og red_slet_person_preview fortæller vejen (kan_fortrydes + aarsag); red_slettede_personer er
+# redaktionens liste over slettede personer med fortryd. Prods deploy-form: KUN blokken review37-p11 i db-migrations.sql
+# (fire funktioner: de nye private.person_slet_aarsag og red_slettede_personer, og de to RPC'er med samme signatur og
+# returtype) i én psql-transaktion (-1). db-rls.sql's allow-liste nævner red_slettede_personer, men deployes ikke: blokken
+# giver selv samme ACL, og hele db-rls.sql oveni må intet ændre (trin 3).
 # 1) Frisk reference (bootstrap + dblink + schema.sql + db-rls.sql): kroppe (sha256 af pg_get_functiondef) og ACL for
 #    blokkens funktioner + hele kataloget (tests/sql/inspect-catalog-parity.sql).
 # 2) Prod-formet base (2. arg; CI pinner 92363d3c = prods SQL efter S3): basens skema + migrationer to gange + rls og en
 #    lille fixtur. Basen skal mangle rettelsen: verify-enheden r37p11 og kaldermatricen tests/sql/test-review37-p11-kaldere.sql
 #    er RØDE med deres egen forventede fejl.
-# 3) Deploy-transaktionen: kroppe/ACL = frisk, katalog-delta = præcis de tre funktioner, hele kataloget = frisk, data
+# 3) Deploy-transaktionen: kroppe/ACL = frisk, katalog-delta = præcis de fire funktioner, hele kataloget = frisk, data
 #    uændret. Det hele en gang til ændrer intet, og hele db-rls.sql derefter ændrer hverken kroppe, ACL eller politikker.
 # 4) Enheden og matricen er GRØNNE på den opgraderede base; fuld db-verify på en anden, ens opgraderet base.
 # Kun lokalt/CI. Ved succes droppes de tre baser, scriptet selv oprettede (<db>_f, _p, _v); ved fejl står de tilbage.
@@ -29,8 +31,8 @@ awk '$0=="-- BEGIN review37-p11" {p=1} p{print} $0=="-- END review37-p11" {p=0}'
   || fail "blokken review37-p11 skal stå sidst i db-migrations.sql (red_slet_person defineres flere gange i filen)"
 names=$( { grep -ioE '^CREATE OR REPLACE FUNCTION [a-z_.]+\(' "$tmp/blok.sql" || true; } \
   | sed -E 's/.*[Ff][Uu][Nn][Cc][Tt][Ii][Oo][Nn] ([a-z_.]+)\(/\1/; /\./!s/^/public./' | sort -u | tr '\n' ' ')
-[ "$names" = "private.person_slet_aarsag public.red_slet_person public.red_slet_person_preview " ] \
-  || fail "forventede præcis tre funktioner i blokken, fandt: $names"
+[ "$names" = "private.person_slet_aarsag public.red_slet_person public.red_slet_person_preview public.red_slettede_personer " ] \
+  || fail "forventede præcis fire funktioner i blokken, fandt: $names"
 list=$(for n in $names; do printf "'%s'," "$n"; done); list=${list%,}
 deploy() { env -u PGOPTIONS psql -X -q -1 -v ON_ERROR_STOP=1 -d "$1" -f "$tmp/blok.sql" 2>&1; }
 awk '$0=="-- BEGIN-VERIFY r37p11" {p=1} p{print} $0=="-- END-VERIFY r37p11" {p=0}' db-verify.sql > "$tmp/v-r37p11.sql"
@@ -76,7 +78,7 @@ build_start() { createdb "$1"; q "$1" -f tests/sql/evidence-promotion-bootstrap.
 # 1) Frisk reference.
 build_start "$dbf"; q "$dbf" -f schema.sql; q "$dbf" -f db-rls.sql
 fresh=$(sha "$dbf"); kat "$dbf" "$tmp/kat-fresh.txt"
-[ "$(wc -l <<<"$fresh")" -eq 3 ] || fail "referencen mangler funktioner: $names"
+[ "$(wc -l <<<"$fresh")" -eq 4 ] || fail "referencen mangler funktioner: $names"
 
 # 2) Prod-formet base med fixtur; enheden og matricen er røde på den.
 build_prod() { build_start "$1"
@@ -116,9 +118,10 @@ forventet=$(LC_ALL=C sort <<'EOF'
 fn|private.person_slet_aarsag(bigint)
 fn|red_slet_person(bigint)
 fn|red_slet_person_preview(bigint)
+fn|red_slettede_personer(integer)
 EOF
 )
-[ "$delta" = "$forventet" ] || { diff <(echo "$forventet") <(echo "$delta") >&2 || true; fail "katalog-delta er ikke de tre forventede funktioner"; }
+[ "$delta" = "$forventet" ] || { diff <(echo "$forventet") <(echo "$delta") >&2 || true; fail "katalog-delta er ikke de fire forventede funktioner"; }
 bash tests/sql/check-catalog-parity.sh "$tmp/kat-fresh.txt" "$tmp/kat-efter.txt" >/dev/null \
   || { bash tests/sql/check-catalog-parity.sh "$tmp/kat-fresh.txt" "$tmp/kat-efter.txt" || true; fail "kataloget efter blokken ≠ frisk schema.sql"; }
 out=$(deploy "$dbp") || { echo "$out" >&2; fail "anden deploy-transaktion fejlede"; }

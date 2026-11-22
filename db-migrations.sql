@@ -48116,7 +48116,8 @@ $review37_b3_checks$;
 -- docs/decisions.md 2026-11-22. Deploy-området for prod er hele denne blok i ÉN transaktion. Kroppene er kopieret fra
 -- schema.sql og er de endelige definitioner; de ældre definitioner længere oppe gælder kun den fulde migrationssti.
 -- Idempotent: CREATE OR REPLACE bevarer de eksisterende funktioners ACL; den nye hjælper får eksplicit REVOKE. Samme
--- signatur og returtype (void / jsonb) som før. Ingen data ændres.
+-- signatur og returtype (void / jsonb) som før. Ingen data ændres. red_slettede_personer (ny) er redaktionens liste
+-- over slettede personer med fortryd; den står også på db-rls.sql's allow-liste.
 CREATE OR REPLACE FUNCTION private.person_slet_aarsag(p_person_id bigint)
 RETURNS text LANGUAGE plpgsql STABLE SET search_path = pg_catalog, public, private AS $$
 DECLARE v_levende boolean; v_privat boolean; v_staged boolean;
@@ -48303,4 +48304,38 @@ BEGIN
     'aarsag', v_aarsag,
     'relationer', v_rels);
 END $$;
+
+-- Review 37 P11 (projektejeren 2026-11-22): »kan fortrydes« skal holde efter genindlæsning. Redaktionens fælles liste
+-- over slettede personer: pr. ufortrudt red_slet_person-sæt, hvor personen ikke findes igen, nyeste først. Navnet er
+-- navne-faktummets påstand før sletningen (change_event.foer; den valgte påstand først). Personrækkens visning_*
+-- logges ikke (skip_cols: cachen), så navnet kan ikke læses dér. En fuld sletning (red_slet_person_helt) fjerner
+-- personens historik, så dens personer står ikke her. Fortrydelsen går gennem red_fortryd_change_set.
+CREATE OR REPLACE FUNCTION red_slettede_personer(p_limit integer DEFAULT 50)
+RETURNS TABLE(change_set_id bigint, slettet_naar timestamptz, actor_navn text, person_id bigint, navn text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
+#variable_conflict use_column
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  RETURN QUERY
+  SELECT cs.id, cs.created_at, cs.actor_navn, cs.subjekt_id,
+         (SELECT nullif(btrim(a.foer->>'vaerdi_tekst'),'')
+            FROM change_event f
+            JOIN change_event a ON a.change_set_id=f.change_set_id AND a.tabel='assertion' AND a.op='DELETE'
+                               AND a.foer->>'target_type'='fact' AND a.foer->>'target_id'=f.foer->>'id'
+            LEFT JOIN change_event c ON c.change_set_id=f.change_set_id AND c.tabel='conclusion' AND c.op='DELETE'
+                               AND c.foer->>'target_type'='fact' AND c.foer->>'target_id'=f.foer->>'id'
+           WHERE f.change_set_id=cs.id AND f.tabel='fact' AND f.op='DELETE'
+             AND f.foer->>'subjekt_type'='person' AND f.foer->>'faktatype'='navn'
+             AND nullif(btrim(a.foer->>'vaerdi_tekst'),'') IS NOT NULL
+           ORDER BY (a.foer->>'id') IS NOT DISTINCT FROM (c.foer->>'valgt_assertion_id') DESC, (a.foer->>'id')::bigint
+           LIMIT 1)
+    FROM change_set cs
+   WHERE cs.operation='red_slet_person' AND cs.subjekt_type='person'
+     AND NOT EXISTS (SELECT 1 FROM change_set r WHERE r.reverterer_id=cs.id)
+     AND NOT EXISTS (SELECT 1 FROM person p WHERE p.id=cs.subjekt_id)
+   ORDER BY cs.created_at DESC, cs.id DESC
+   LIMIT greatest(1, least(coalesce(p_limit,50), 500));
+END $$;
+REVOKE ALL ON FUNCTION public.red_slettede_personer(integer) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.red_slettede_personer(integer) TO authenticated;
 -- END review37-p11
