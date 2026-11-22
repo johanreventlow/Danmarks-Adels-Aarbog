@@ -529,6 +529,28 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 44. Review 37 S3: en familie uden medlemmer er ikke offentlig — LIVE i prod (2026-11-22)
+
+**Grundlag:** decisions 2026-11-22 (BESLUTTET: en familie uden medlemmer er ikke offentlig), PR #440 (CI grøn på
+`99a652f0`; SQL = `d529f386`). Privat runner `~/.private/review37-s3/prod.zsh`, fastlåst på `d529f386` (blok-sha
+`4733ff07…`), kørt i projektejerens shell **før** merge.
+
+- **DDL (én transaktion):** kun DO-blokken `$review37_s3_tom_familie$` (db-rls.sql): `family_offentlig(bigint)` kræver
+  mindst ét medlem. Præcis 1 katalogobjekt; krop = facit, ACL uændret, data uændret (4 tabeller), ingen tabel-låse;
+  2,4 s (stand-in 0,1 s).
+- **Effekt:** en familie uden medlemmer og et ikke-eksisterende familie-id er ikke offentlige, så fakta, noter, narrativer
+  og billeder, der står tilbage efter fjernede partnerkoblinger, skjules for gæster (og billeder også for medlemmer).
+  Medlemmer kan ikke foreslå rettelser til en tom familie (`FORSLAG_SUBJEKT_UTILGAENGELIGT`).
+- **Målt:** 0 af 676 familier uden medlemmer før og efter → intet skiftede; 640 af 676 offentlige; 13 af 13 medier
+  synlige for anon.
+- **Øvelse:** stand-in `kar20261122_…h130` (nu blok 1-3 + S3): prøve → commit → fortryd-prøve → fortryd
+  (`P_FORTRYD_TROFAST`) → commit. Prod: prøve, derefter commit.
+- **Efterkontrol (læse-kun, MCP):** krop-md5 = facit; `get_advisors` (security) identisk med før.
+- **Fortryd:** `/bin/zsh -f ~/.private/review37-s3/prod.zsh fortryd [--jeg-mener-det]` (prods egen definition fra før
+  apply: `~/.private/review37-s3/fortryd-definitioner.prod.sql`).
+- **NB:** kommentaren i `red_suggest` (»family_offentlig er true for en familie uden medlemmer«) er forældet, men
+  står i funktionskroppen og er ikke rettet for ikke at ændre funktionen; eksistensvagten dér er stadig korrekt.
+
 ## 43. Review 37 blok 3: billedretning, familie-gate, dato- og liste-CHECKs — LIVE i prod (2026-11-22)
 
 **Grundlag:** decisions 2026-11-22 (BESLUTTET: review 37's databasefund, S4 og D5) + blok 3's note, PR #438 (CI grøn på

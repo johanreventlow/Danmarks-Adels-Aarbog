@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-22 — En familie uden medlemmer er ikke længere offentlig (review 37 S3)
+
+Hvis en redaktør fjerner begge partneres kobling til et ægteskab, men lader ægteskabet og dets oplysninger stå (fx en
+vielsesdato for en nulevende), skjules oplysningerne nu for gæster i stedet for at blive offentlige. Ingen familier var
+tomme i prod, så intet skiftede. PR #440; DDL i prod 22/11 (`database-current-state.md` §44).
+
 ## 2026-11-22 — Review 37 blok 3 i prod: billedretning, familie-gate, dato- og liste-CHECKs
 
 Databasen håndhæver nu selv reglerne, som før kun redigeringsfunktionerne tjekkede: et billede kan kun kobles i de seks
