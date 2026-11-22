@@ -435,11 +435,15 @@ counts(nr, sted, antal) AS (
   UNION ALL SELECT 'S37c','storage-objekter for eksklusive medier (media+varianter)', (SELECT
          (SELECT count(*) FROM public.media m WHERE m.id IN (SELECT id FROM media_excl) AND m.storage_path IS NOT NULL)
        + (SELECT count(*) FROM public.media_variant v WHERE v.media_id IN (SELECT id FROM media_excl)))
-  UNION ALL SELECT 'NY-E','public.media bevaret med ikke-offentlig P afbildet eller koblet til bevaret Fam_c-familie (maa_publiceres låses)', (SELECT count(*)
+  UNION ALL SELECT 'NY-E','public.media bevaret med ikke-offentlig P afbildet, koblet til bevaret Fam_c-familie eller afbildende en Fam_del-familie (maa_publiceres låses)', (SELECT count(*)
        FROM public.media m, params p, p_ikke_off io WHERE io.v AND m.id NOT IN (SELECT id FROM media_excl) AND (
          (m.id IN (SELECT id FROM media_ids) AND EXISTS (SELECT 1 FROM public.relation r
            WHERE r.subjekt_type='person' AND r.subjekt_id=p.pid AND r.rolle='afbildet' AND r.objekt_type='media' AND r.objekt_id=m.id))
-         OR m.id IN (SELECT media_id FROM kept_media_rels)))
+         OR m.id IN (SELECT media_id FROM kept_media_rels)
+         -- review 37 blok 3 (S4): medier, der afbilder en Fam_del-familie og lever videre på en anden kobling
+         OR (m.id IN (SELECT id FROM media_ids) AND EXISTS (SELECT 1 FROM public.relation r
+           WHERE r.subjekt_type='media' AND r.subjekt_id=m.id AND r.rolle='afbildet' AND r.objekt_type='family'
+             AND r.objekt_id IN (SELECT id FROM fam_del)))))
   UNION ALL SELECT 'S38','public.family der slettes (Fam_del)', (SELECT count(*) FROM fam_del)
   UNION ALL SELECT 'S38a','public.family hvor P er medlem (Fam)', (SELECT count(*) FROM fams)
   UNION ALL SELECT 'S38k','public.family bevaret (Fam_keep)', (SELECT count(*) FROM fam_keep)

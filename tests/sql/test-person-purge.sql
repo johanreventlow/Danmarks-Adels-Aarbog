@@ -10,14 +10,14 @@
   \echo 'PURGE_TEST_FEJL: angiv -v gruppe=<navn>'
   SELECT 1/0 AS gruppe_mangler;
 \endif
-SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest','oprindelse','preview','preview_q3','vagt','purge','purge_ekstra','purge_binding','fortryd_link','db_verify','udbakke','purge_gdpr') AS gruppe_kendt,
+SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest','oprindelse','preview','preview_q3','vagt','purge','purge_ekstra','purge_binding','fortryd_link','db_verify','udbakke','purge_gdpr','purge_familiefoto') AS gruppe_kendt,
        :'gruppe'='udbakke' AS g_udbakke, :'gruppe'='inventar' AS g_inventar, :'gruppe'='binding' AS g_binding,
        :'gruppe'='plan' AS g_plan, :'gruppe'='historik' AS g_historik, :'gruppe'='fortrydelse' AS g_fortrydelse,
        :'gruppe'='manifest' AS g_manifest, :'gruppe'='oprindelse' AS g_oprindelse,
        :'gruppe'='preview' AS g_preview, :'gruppe'='preview_q3' AS g_preview_q3,
        :'gruppe'='vagt' AS g_vagt, :'gruppe'='fortryd_link' AS g_fortryd_link, :'gruppe'='db_verify' AS g_db_verify,
        :'gruppe'='purge_binding' AS g_purge_binding, :'gruppe'='purge' AS g_purge, :'gruppe'='purge_ekstra' AS g_purge_ekstra,
-       :'gruppe'='purge_gdpr' AS g_purge_gdpr,
+       :'gruppe'='purge_gdpr' AS g_purge_gdpr, :'gruppe'='purge_familiefoto' AS g_purge_familiefoto,
        :'gruppe' IN ('preview','preview_q3') AS g_preview_helpers \gset
 \if :gruppe_kendt
 \else
@@ -4409,4 +4409,133 @@ BEGIN
       WHERE s->>'tabel'='media' AND s->>'handling'='skjul') AND NOT o->'steder' ? 'NY-E','gdpr_preview_sted');
 END $t$;
 \echo OK gdpr_preview_vielse_staar
+\endif
+
+-- =====================================================================================================================
+-- Gruppe purge_familiefoto (review 37 blok 3, S4): billed-gaten følger familiens synlighed (media_afbilder_skjult), så
+-- et billede af en familie med et levende medlem er skjult. Sletning af familiens ENESTE skjulte medlem må ikke gøre
+-- billedet offentligt — hverken når familien slettes med (Fam_del: billedet lever videre på en anden kobling) eller
+-- når den bevares (Fam_ind: koblingen består, NY-E låser billedet). Egne syntetiske personer; sletningerne COMMIT'es.
+--   P1 levende + Q1 afdød, ingen børn → fam_d slettes med P1. m_d: koblet til fam_d OG afbildet på Q1 (lever videre).
+--   P2 levende + Q2 afdød + barn C2 afdød → fam_i bevares. m_i: kun koblet til fam_i.
+--   Q3 + R3 afdøde → fam_o offentlig. m_o: kun koblet til fam_o (kontrol: synlig før og efter).
+-- =====================================================================================================================
+\if :g_purge_familiefoto
+SET request.jwt.claim.sub='a2a00000-0000-4000-8000-00000000a001';
+\ir fixtures/kalder-matrix.sql
+SELECT pg_temp.km_kaldere();
+CREATE FUNCTION pg_temp.ff_assert(p_ok boolean,p_test text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN IF p_ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'TEST_FAILED %',p_test; END IF; END $$;
+CREATE TEMP TABLE ff_id(rolle text PRIMARY KEY, id bigint NOT NULL);
+CREATE FUNCTION pg_temp.ffid(p_rolle text) RETURNS bigint LANGUAGE sql STABLE AS $$
+  SELECT id FROM pg_temp.ff_id WHERE rolle=p_rolle $$;
+-- Gæst og medlem ser p_ikke_red rækker af mediet (og dets variant-fri række), redaktionen 1.
+CREATE FUNCTION pg_temp.ff_ser(p_navn text,p_m text,p_ikke_red int) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM pg_temp.km_forvent(p_navn,format('SELECT 1 FROM public.media WHERE id=%s',pg_temp.ffid(p_m)),p_ikke_red,1);
+END $$;
+BEGIN;
+DO $fix$
+DECLARE r record; f record; v_fam bigint; v_m bigint;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES ('P1','Testperson Familiefoto Levende En','mand',true,'1960',NULL),
+      ('Q1','Testperson Familiefoto Afdød En','kvinde',false,'1850','1910'),
+      ('P2','Testperson Familiefoto Levende To','kvinde',true,'1962',NULL),
+      ('Q2','Testperson Familiefoto Afdød To','mand',false,'1852','1912'),
+      ('C2','Testperson Familiefoto Barn To','mand',false,'1880','1950'),
+      ('Q3','Testperson Familiefoto Afdød Tre','mand',false,'1800','1870'),
+      ('R3','Testperson Familiefoto Afdød Fire','kvinde',false,'1802','1872'))
+    x(rolle,navn,koen,levende,foedt,doed) LOOP
+    PERFORM purge_test.nyt();
+    INSERT INTO pg_temp.ff_id VALUES (r.rolle,public.red_opret_person(r.navn,r.koen,r.levende,r.foedt,r.doed,NULL));
+    PERFORM purge_test.nyt(); PERFORM public.red_set_privat(pg_temp.ffid(r.rolle),false);
+  END LOOP;
+  FOR f IN SELECT * FROM (VALUES ('d','P1','Q1',NULL),('i','P2','Q2','C2'),('o','Q3','R3',NULL)) x(k,a,b,barn) LOOP
+    PERFORM purge_test.nyt();
+    v_fam:=public.red_opret_union(pg_temp.ffid(f.a),pg_temp.ffid(f.b),'vielse',1);
+    INSERT INTO pg_temp.ff_id VALUES ('fam_'||f.k,v_fam);
+    IF f.barn IS NOT NULL THEN PERFORM purge_test.nyt(); PERFORM public.red_tilfoej_barn(v_fam,pg_temp.ffid(f.barn)); END IF;
+    PERFORM purge_test.nyt();
+    v_m:=public.red_upload_media('foto','Syntetisk familiefoto','familiefoto-test/'||f.k||'.jpg','image/jpeg',
+      p_objekt_type=>'family',p_objekt_id=>v_fam,p_maa_publiceres=>true);
+    INSERT INTO pg_temp.ff_id VALUES ('m_'||f.k,v_m);
+    PERFORM purge_test.nyt(); PERFORM public.red_bekraeft_media_upload(v_m);
+  END LOOP;
+  -- m_d er også et portræt af den afdøde Q1, så det overlever, at fam_d slettes.
+  PERFORM purge_test.nyt();
+  PERFORM public.red_relation('person',pg_temp.ffid('Q1'),'media',pg_temp.ffid('m_d'),'afbildet');
+  PERFORM purge_test.nyt();
+END $fix$;
+COMMIT;
+
+-- Før: familiens levende medlem skjuler billedet for gæst og medlem; den offentlige families billede er synligt.
+BEGIN;
+DO $t$
+BEGIN
+  PERFORM pg_temp.ff_assert(NOT public.family_offentlig(pg_temp.ffid('fam_d')) AND NOT public.family_offentlig(pg_temp.ffid('fam_i'))
+    AND public.family_offentlig(pg_temp.ffid('fam_o')),'ff_familie_foer');
+  PERFORM pg_temp.ff_assert((SELECT bool_and(maa_publiceres AND upload_status='klar') FROM public.media
+    WHERE id IN (pg_temp.ffid('m_d'),pg_temp.ffid('m_i'),pg_temp.ffid('m_o'))),'ff_frigivet_foer');
+  PERFORM pg_temp.ff_ser('ff_m_d_foer','m_d',0);
+  PERFORM pg_temp.ff_ser('ff_m_i_foer','m_i',0);
+  PERFORM pg_temp.ff_ser('ff_m_o_foer','m_o',1);
+END $t$;
+COMMIT;
+\echo OK ff_familiefoto_skjult_foer
+
+CREATE TEMP TABLE ff_preview AS
+  SELECT 'P1'::text AS hvem,public.red_slet_person_helt_preview(pg_temp.ffid('P1')) AS j
+  UNION ALL SELECT 'P2',public.red_slet_person_helt_preview(pg_temp.ffid('P2'));
+DO $t$
+BEGIN
+  PERFORM pg_temp.ff_assert((SELECT j->'familier_slettes' FROM ff_preview WHERE hvem='P1') @> to_jsonb(pg_temp.ffid('fam_d'))
+    AND NOT (SELECT j->'familier_slettes' FROM ff_preview WHERE hvem='P2') @> to_jsonb(pg_temp.ffid('fam_i')),'ff_preview_familier');
+  PERFORM pg_temp.ff_assert((SELECT j->'medier_skjules' FROM ff_preview WHERE hvem='P1') @> to_jsonb(pg_temp.ffid('m_d')),
+    'ff_preview_m_d_skjules');
+  PERFORM pg_temp.ff_assert((SELECT j->'medier_skjules' FROM ff_preview WHERE hvem='P2') @> to_jsonb(pg_temp.ffid('m_i')),
+    'ff_preview_m_i_skjules');
+END $t$;
+\echo OK ff_preview_medier_skjules
+
+BEGIN;
+DO $t$
+DECLARE v_hash text:=(SELECT j->>'sha256' FROM ff_preview WHERE hvem='P1'); v_id bigint:=pg_temp.ffid('P1');
+BEGIN
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_slet_person_helt(v_id,v_hash);
+  RESET ROLE;
+END $t$;
+COMMIT;
+BEGIN;
+DO $t$
+DECLARE v_hash text:=(SELECT j->>'sha256' FROM ff_preview WHERE hvem='P2'); v_id bigint:=pg_temp.ffid('P2');
+BEGIN
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_slet_person_helt(v_id,v_hash);
+  RESET ROLE;
+END $t$;
+COMMIT;
+
+-- Efter: fam_d er væk, m_d lever på Q1's portræt og er låst; fam_i består med kobling, m_i låst; m_o urørt.
+BEGIN;
+DO $t$
+BEGIN
+  PERFORM pg_temp.ff_assert(NOT EXISTS (SELECT 1 FROM public.person WHERE id IN (pg_temp.ffid('P1'),pg_temp.ffid('P2')))
+    AND NOT EXISTS (SELECT 1 FROM public.family WHERE id=pg_temp.ffid('fam_d'))
+    AND EXISTS (SELECT 1 FROM public.family WHERE id=pg_temp.ffid('fam_i'))
+    AND public.family_offentlig(pg_temp.ffid('fam_i')),'ff_slettet');
+  PERFORM pg_temp.ff_assert(EXISTS (SELECT 1 FROM public.media WHERE id=pg_temp.ffid('m_d') AND NOT maa_publiceres)
+    AND EXISTS (SELECT 1 FROM public.relation WHERE subjekt_type='person' AND subjekt_id=pg_temp.ffid('Q1')
+      AND objekt_type='media' AND objekt_id=pg_temp.ffid('m_d'))
+    AND NOT EXISTS (SELECT 1 FROM public.relation WHERE subjekt_type='media' AND subjekt_id=pg_temp.ffid('m_d')),'ff_m_d_laast');
+  PERFORM pg_temp.ff_assert(EXISTS (SELECT 1 FROM public.media WHERE id=pg_temp.ffid('m_i') AND NOT maa_publiceres)
+    AND EXISTS (SELECT 1 FROM public.relation WHERE subjekt_type='media' AND subjekt_id=pg_temp.ffid('m_i')
+      AND objekt_type='family' AND objekt_id=pg_temp.ffid('fam_i')),'ff_m_i_laast');
+  PERFORM pg_temp.ff_assert(EXISTS (SELECT 1 FROM public.media WHERE id=pg_temp.ffid('m_o') AND maa_publiceres),'ff_m_o_urort');
+  PERFORM pg_temp.ff_ser('ff_m_d_efter','m_d',0);
+  PERFORM pg_temp.ff_ser('ff_m_i_efter','m_i',0);
+  PERFORM pg_temp.ff_ser('ff_m_o_efter','m_o',1);
+END $t$;
+COMMIT;
+\echo OK ff_familiefoto_skjult_efter_sletning
 \endif

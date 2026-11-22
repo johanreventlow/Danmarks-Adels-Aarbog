@@ -23368,7 +23368,13 @@ WITH RECURSIVE
   -- + medier koblet direkte til en bevaret Fam_ind-familie (rk; kun for en ikke-offentlig P). Koblingen består og holder
   -- mediet i live, så det er aldrig i md. Én NY-E-række pr. medie (UNION).
   UNION SELECT CASE WHEN t.subjekt_type='media' THEN t.subjekt_id ELSE t.objekt_id END FROM public.relation t
-    WHERE t.id IN (SELECT id FROM rk)),
+    WHERE t.id IN (SELECT id FROM rk)
+  -- + review 37 blok 3 (S4): billed-gaten følger familiens synlighed (media_afbilder_skjult læser media→family,
+  -- 'afbildet'). Et medie, der afbilder en Fam_del-familie, mister koblingen med familien; lever det videre på en anden
+  -- kobling (ikke i md), låses det som ovenfor — ellers ville det blive offentligt, når familiens skjulte medlem er væk.
+  UNION SELECT t.subjekt_id FROM public.relation t WHERE t.id IN (SELECT id FROM rd)
+    AND t.subjekt_type='media' AND t.rolle='afbildet' AND t.objekt_type='family' AND t.objekt_id IN (SELECT id FROM fam_del)
+    AND t.subjekt_id NOT IN (SELECT id FROM md) AND private.person_purge_ikke_offentlig(p_person_id)),
   x AS MATERIALIZED (SELECT source_persona_id AS id FROM private.source_persona_identity
     WHERE canonical_person_id=p_person_id AND decision_status='accepted'),
   -- persona_family_context(spouse) finder familier via PRINCIPALENS accepterede identitet.
