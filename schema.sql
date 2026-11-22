@@ -7429,6 +7429,28 @@ BEGIN
   DELETE FROM feed_pin WHERE kort_noegle=p_kort_noegle;
 END $$;
 
+-- Review 37 P11 (projektejeren 2026-11-22: én sletteknap, systemet vælger): hvorfor en person IKKE kan slettes, så det
+-- kan fortrydes. NULL = personen er offentlig (public.person_offentlig: afdød, ikke privat, ikke staged, ikke skjult af
+-- sin samme_som-gruppe), og den simple sletning (red_slet_person) er tilladt. Ellers årsagen i fast prioritet:
+-- 'levende' (også NULL = ukendt) → 'privat' → 'staged' → 'samme_som_skjult'; 'findes_ikke' for et ukendt id og
+-- 'ukendt', hvis person_offentlig en dag får en regel, som listen her ikke kender (fail-closed: stadig afvist).
+-- Fælles for red_slet_person (afvisningen) og red_slet_person_preview (klientens valg af vej), så de ikke kan skilles.
+-- plpgsql, fordi person_offentlig først defineres i db-rls.sql. Kun ejeren kan kalde den.
+CREATE OR REPLACE FUNCTION private.person_slet_aarsag(p_person_id bigint)
+RETURNS text LANGUAGE plpgsql STABLE SET search_path = pg_catalog, public, private AS $$
+DECLARE v_levende boolean; v_privat boolean; v_staged boolean;
+BEGIN
+  IF public.person_offentlig(p_person_id) THEN RETURN NULL; END IF;
+  SELECT p.levende, p.privat, p.staged INTO v_levende, v_privat, v_staged FROM public.person p WHERE p.id = p_person_id;
+  IF NOT FOUND THEN RETURN 'findes_ikke'; END IF;
+  IF v_levende IS DISTINCT FROM false THEN RETURN 'levende'; END IF;
+  IF coalesce(v_privat, false) THEN RETURN 'privat'; END IF;
+  IF coalesce(v_staged, false) THEN RETURN 'staged'; END IF;
+  IF public.person_gruppe_skjult(p_person_id) THEN RETURN 'samme_som_skjult'; END IF;
+  RETURN 'ukendt';
+END $$;
+REVOKE ALL ON FUNCTION private.person_slet_aarsag(bigint) FROM PUBLIC, anon, authenticated, service_role;
+
 -- Direkte person-sletning (og familje-relationer)
 -- Cycle 02 H2: FK-sikker cascade. Tidligere slettede den kun family_member+person → fejlede med
 -- foreign_key_violation for enhver loadet person (non-cascade FK'er fra person_external_id/profiles/
@@ -7436,7 +7458,7 @@ END $$;
 -- (citation+conclusion FØR assertion, da conclusion.valgt_assertion_id → assertion).
 CREATE OR REPLACE FUNCTION red_slet_person(p_person_id bigint)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
-DECLARE v_facts bigint[]; v_rels bigint[]; v_contract_version integer;
+DECLARE v_facts bigint[]; v_rels bigint[]; v_contract_version integer; v_aarsag text;
 BEGIN
   -- #152: serialize with the atomic narrative-record cutover before every
   -- existing delete lock. Publication history is append-only, so whole-person
@@ -7479,6 +7501,23 @@ BEGIN
   PERFORM 1 FROM source s JOIN person_external_id pei ON pei.source_id=s.id
     WHERE pei.person_id=p_person_id ORDER BY s.id,pei.source_id FOR UPDATE OF s,pei;
   PERFORM private.lock_identity_people(ARRAY[p_person_id]);
+
+  -- Review 37 P11: kun en offentlig person kan slettes, så det kan fortrydes. En offentlig person indgår ikke i nogen
+  -- skjul-regel (family_offentlig skjuler for et IKKE-offentligt medlem, media_afbilder_skjult for en ikke-offentlig
+  -- afbildet person eller familie, media_afbilder_privat for et privat medlem, person_gruppe_skjult for et levende
+  -- eller privat gruppemedlem), så at fjerne den kan ikke gøre noget skjult offentligt: dens familier, billeder og
+  -- samme_som-gruppe bliver højst mere skjulte. Fjernes derimod en ikke-offentlig person, bliver en familie med en
+  -- offentlig partner offentlig (vielsen), et fællesbillede mister sin skjul-kobling, og en ældre udgaves registrering
+  -- af samme nulevende bliver synlig. Og en ikke-offentlig persons oplysninger skal alligevel slettes helt
+  -- (red_slet_person_helt): change_event-historikken, som gør denne sletning fortrydelig, bevarer dem ellers.
+  -- Efter rollegaten (intet orakel for ikke-redaktører) og efter låsene: personrækken er låst FOR UPDATE
+  -- (lock_identity_people, red_set_privat venter), og samme_som-mutationerne venter på advisory-låsen ovenfor.
+  -- Undtagelsen ruller også change_set'et tilbage.
+  v_aarsag:=private.person_slet_aarsag(p_person_id);
+  IF v_aarsag IS NOT NULL THEN
+    RAISE EXCEPTION 'SLET_KRAEVER_SLET_HELT: % — personen er ikke offentlig, så den skal slettes helt (»Slet helt«), og det kan ikke fortrydes', v_aarsag
+      USING ERRCODE='P0001';
+  END IF;
 
   SELECT coalesce(array_agg(id),'{}') INTO v_facts FROM fact
     WHERE subjekt_type='person' AND subjekt_id=p_person_id;
@@ -8911,8 +8950,11 @@ DECLARE
   v_nbind int;
   v_nmedlem int;
   v_nevents int;
+  v_aarsag text;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 P11: samme regel som afvisningen i red_slet_person, så klienten kan vælge vej før klikket.
+  v_aarsag:=private.person_slet_aarsag(p_person_id);
   SELECT count(*) INTO v_nfacts FROM fact
     WHERE subjekt_type='person' AND subjekt_id=p_person_id;
   -- 2026-08-20: preview rapporterede kun fakta og relationer, så redaktøren kunne ikke se at
@@ -8947,6 +8989,9 @@ BEGIN
     'antal_medlemskaber', v_nmedlem,
     'antal_publication_events', v_nevents,
     'sletning_blokeret', v_nevents>0,
+    -- Review 37 P11: kan_fortrydes = public.person_offentlig; ellers aarsag (private.person_slet_aarsag) og »Slet helt«.
+    'kan_fortrydes', v_aarsag IS NULL,
+    'aarsag', v_aarsag,
     'relationer', v_rels);
 END $$;
 

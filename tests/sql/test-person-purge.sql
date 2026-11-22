@@ -10,7 +10,7 @@
   \echo 'PURGE_TEST_FEJL: angiv -v gruppe=<navn>'
   SELECT 1/0 AS gruppe_mangler;
 \endif
-SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest','oprindelse','preview','preview_q3','vagt','purge','purge_ekstra','purge_binding','fortryd_link','db_verify','udbakke','purge_gdpr','purge_familiefoto') AS gruppe_kendt,
+SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest','oprindelse','preview','preview_q3','vagt','purge','purge_ekstra','purge_binding','fortryd_link','db_verify','udbakke','purge_gdpr','purge_familiefoto','p11_blindgyde') AS gruppe_kendt,
        :'gruppe'='udbakke' AS g_udbakke, :'gruppe'='inventar' AS g_inventar, :'gruppe'='binding' AS g_binding,
        :'gruppe'='plan' AS g_plan, :'gruppe'='historik' AS g_historik, :'gruppe'='fortrydelse' AS g_fortrydelse,
        :'gruppe'='manifest' AS g_manifest, :'gruppe'='oprindelse' AS g_oprindelse,
@@ -18,6 +18,7 @@ SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manif
        :'gruppe'='vagt' AS g_vagt, :'gruppe'='fortryd_link' AS g_fortryd_link, :'gruppe'='db_verify' AS g_db_verify,
        :'gruppe'='purge_binding' AS g_purge_binding, :'gruppe'='purge' AS g_purge, :'gruppe'='purge_ekstra' AS g_purge_ekstra,
        :'gruppe'='purge_gdpr' AS g_purge_gdpr, :'gruppe'='purge_familiefoto' AS g_purge_familiefoto,
+       :'gruppe'='p11_blindgyde' AS g_p11_blindgyde,
        :'gruppe' IN ('preview','preview_q3') AS g_preview_helpers \gset
 \if :gruppe_kendt
 \else
@@ -4615,4 +4616,141 @@ END $t$;
 COMMIT;
 \echo OK ff_familiefoto_skjult_efter_sletning
 \echo OK ff_offentlig_p_laaser_skjult_familiefoto
+\endif
+
+-- =====================================================================================================================
+-- Gruppe p11_blindgyde (review 37 P11): den simple sletning afviser en ikke-offentlig person med SLET_KRAEVER_SLET_HELT og
+-- henviser til »Slet helt«. Fejlbeskeden må ikke pege ud i intet: for de afviste tilfælde viser vi, at
+-- red_slet_person_helt_preview er uden blokeringer, og at red_slet_person_helt sletter (COMMIT i gruppens kopi).
+--   L levende, gift med den offentlige O (vielse på familien) → Slet helt sletter L; vielsen ses ikke af gæsten bagefter.
+--   S staged dublet (ny udgave, uden batch) → Slet helt sletter S.
+--   V afdød, privat, gift med O → ingen blokeringer.   G afdød, offentlig selv, men samme_som den levende GL → ingen.
+-- Kendt grænse, som projektejeren skal kende (rapporteret): en ikke-offentlig person, som er samme_som-knudepunkt (to
+-- eller flere samme_som-kanter), afviser BEGGE veje — den simple med SLET_KRAEVER_SLET_HELT, »Slet helt« med blokeringen
+-- samme_som_knudepunkt. Redaktøren skal først fjerne kanterne. K (afdød, privat; samme_som A og B) dokumenterer det.
+-- =====================================================================================================================
+\if :g_p11_blindgyde
+SET request.jwt.claim.sub='a2a00000-0000-4000-8000-00000000a001';
+\ir fixtures/kalder-matrix.sql
+SELECT pg_temp.km_kaldere();
+CREATE FUNCTION pg_temp.bg_assert(p_ok boolean,p_test text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN IF p_ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'TEST_FAILED %',p_test; END IF; END $$;
+CREATE TEMP TABLE bg_id(rolle text PRIMARY KEY, id bigint NOT NULL);
+CREATE FUNCTION pg_temp.bgid(p_rolle text) RETURNS bigint LANGUAGE sql STABLE AS $$
+  SELECT id FROM pg_temp.bg_id WHERE rolle=p_rolle $$;
+-- Den simple sletning skal afvise med årsagen og intet ændre.
+CREATE FUNCTION pg_temp.bg_afvist(p_rolle text,p_aarsag text) RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_msg text; v_id bigint:=pg_temp.bgid(p_rolle);
+BEGIN
+  PERFORM purge_test.nyt();
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    PERFORM public.red_slet_person(v_id);
+    RESET ROLE;
+  EXCEPTION WHEN OTHERS THEN v_msg:=SQLERRM;
+  END;
+  RESET ROLE;
+  PERFORM purge_test.nyt();
+  PERFORM pg_temp.bg_assert(v_msg LIKE 'SLET_KRAEVER_SLET_HELT: '||p_aarsag||' %'
+    AND EXISTS (SELECT 1 FROM public.person WHERE id=pg_temp.bgid(p_rolle)),
+    'bg_simpel_afvist_'||p_rolle||': '||coalesce(v_msg,'ingen fejl'));
+  PERFORM pg_temp.bg_assert((public.red_slet_person_preview(pg_temp.bgid(p_rolle))->>'aarsag')=p_aarsag
+    AND NOT (public.red_slet_person_preview(pg_temp.bgid(p_rolle))->>'kan_fortrydes')::boolean,'bg_preview_'||p_rolle);
+END $$;
+BEGIN;
+DO $fix$
+DECLARE r record; v_fam bigint;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES ('L','Testperson Blindgyde Levende','mand',true,'1960',NULL),
+      ('O','Testperson Blindgyde Offentlig','kvinde',false,'1850','1910'),
+      ('V','Testperson Blindgyde Privat','mand',false,'1852','1912'),
+      ('G','Testperson Blindgyde Alias','kvinde',false,'1950','2000'),
+      ('GL','Testperson Blindgyde Alias Levende','kvinde',true,'1950',NULL),
+      ('K','Testperson Blindgyde Knudepunkt','mand',false,'1800','1870'),
+      ('A','Testperson Blindgyde Udgave A','mand',false,'1800','1870'),
+      ('B','Testperson Blindgyde Udgave B','mand',false,'1800','1870'))
+    x(rolle,navn,koen,levende,foedt,doed) LOOP
+    PERFORM purge_test.nyt();
+    INSERT INTO pg_temp.bg_id VALUES (r.rolle,public.red_opret_person(r.navn,r.koen,r.levende,r.foedt,r.doed,NULL));
+    PERFORM purge_test.nyt(); PERFORM public.red_set_privat(pg_temp.bgid(r.rolle),r.rolle IN ('V','K'));
+  END LOOP;
+  -- S: en staged dublet, som loaderen lægger den (--staged), uden reimport-batch.
+  INSERT INTO public.person(levende,privat,staged) VALUES (false,false,true) RETURNING id INTO v_fam;
+  INSERT INTO pg_temp.bg_id VALUES ('S',v_fam);
+  PERFORM purge_test.nyt(); PERFORM public.red_upsert_fakta('person',v_fam,'navn','Testperson Blindgyde Dublet');
+  FOR r IN SELECT * FROM (VALUES ('l','L'),('v','V')) x(k,a) LOOP
+    PERFORM purge_test.nyt();
+    v_fam:=public.red_opret_union(pg_temp.bgid(r.a),pg_temp.bgid('O'),'vielse',1);
+    INSERT INTO pg_temp.bg_id VALUES ('fam_'||r.k,v_fam);
+    PERFORM purge_test.nyt(); PERFORM public.red_upsert_fakta('family',v_fam,'vielse','1990');
+  END LOOP;
+  PERFORM purge_test.nyt(); PERFORM public.red_samme_som(pg_temp.bgid('G'),pg_temp.bgid('GL'));
+  -- A og B er aliaser af K (K er stjernens centrum: to samme_som-kanter).
+  PERFORM purge_test.nyt(); PERFORM public.red_samme_som(pg_temp.bgid('A'),pg_temp.bgid('K'));
+  PERFORM purge_test.nyt(); PERFORM public.red_samme_som(pg_temp.bgid('B'),pg_temp.bgid('K'));
+  PERFORM purge_test.nyt();
+END $fix$;
+COMMIT;
+
+-- Den simple sletning afviser alle fem med deres årsag.
+BEGIN;
+DO $t$
+BEGIN
+  PERFORM pg_temp.bg_assert(public.person_offentlig(pg_temp.bgid('O')) AND NOT public.family_offentlig(pg_temp.bgid('fam_l'))
+    AND NOT public.family_offentlig(pg_temp.bgid('fam_v')),'bg_fixtur');
+  PERFORM pg_temp.bg_afvist('L','levende');
+  PERFORM pg_temp.bg_afvist('S','staged');
+  PERFORM pg_temp.bg_afvist('V','privat');
+  PERFORM pg_temp.bg_afvist('G','samme_som_skjult');
+  PERFORM pg_temp.bg_afvist('K','privat');
+END $t$;
+COMMIT;
+\echo OK bg_simpel_sletning_afviser
+
+-- »Slet helt«: ingen blokeringer for L, S, V og G; K er blokeret som samme_som-knudepunkt.
+CREATE TEMP TABLE bg_preview AS
+  SELECT x.rolle AS hvem,public.red_slet_person_helt_preview(pg_temp.bgid(x.rolle)) AS j
+    FROM unnest(ARRAY['L','S','V','G','K']) x(rolle);
+DO $t$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT * FROM bg_preview WHERE hvem<>'K' LOOP
+    PERFORM pg_temp.bg_assert(r.j->'blokeringer'='[]'::jsonb,'bg_helt_ingen_blokering_'||r.hvem||': '||(r.j->'blokeringer')::text);
+  END LOOP;
+  PERFORM pg_temp.bg_assert((SELECT j->'blokeringer' FROM bg_preview WHERE hvem='K')
+    @> '[{"art":"samme_som_knudepunkt"}]'::jsonb,'bg_helt_knudepunkt_blokeret');
+END $t$;
+\echo OK bg_slet_helt_preview
+
+BEGIN;
+DO $t$
+DECLARE v_hash text:=(SELECT j->>'sha256' FROM bg_preview WHERE hvem='L'); v_id bigint:=pg_temp.bgid('L');
+BEGIN
+  PERFORM purge_test.nyt();
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_slet_person_helt(v_id,v_hash);
+  RESET ROLE;
+END $t$;
+COMMIT;
+BEGIN;
+DO $t$
+DECLARE v_hash text:=(SELECT j->>'sha256' FROM bg_preview WHERE hvem='S'); v_id bigint:=pg_temp.bgid('S');
+BEGIN
+  PERFORM purge_test.nyt();
+  SET LOCAL ROLE authenticated;
+  PERFORM public.red_slet_person_helt(v_id,v_hash);
+  RESET ROLE;
+END $t$;
+COMMIT;
+BEGIN;
+DO $t$
+BEGIN
+  PERFORM pg_temp.bg_assert(NOT EXISTS (SELECT 1 FROM public.person WHERE id IN (pg_temp.bgid('L'),pg_temp.bgid('S')))
+    AND EXISTS (SELECT 1 FROM public.person WHERE id=pg_temp.bgid('O')),'bg_helt_slettet');
+  -- Vielsen fra familien med den levende er ikke synlig for læseren bagefter (familien er væk eller tømt).
+  PERFORM pg_temp.km_forvent('bg_vielse_efter',format('SELECT 1 FROM public.fact WHERE subjekt_type=%L AND subjekt_id=%s',
+    'family',pg_temp.bgid('fam_l')),0,(SELECT count(*)::int FROM public.fact WHERE subjekt_type='family' AND subjekt_id=pg_temp.bgid('fam_l')));
+END $t$;
+COMMIT;
+\echo OK bg_slet_helt_sletter_de_afviste
 \endif
