@@ -2040,7 +2040,9 @@ BEGIN
  IF p_felt='koen' THEN SELECT private.ocr_importeret('koen',koen,NULL,NULL,NULL,NULL,NULL,NULL) INTO observed FROM person WHERE id=p_person_id; ctx:=NULL;
  ELSE WITH c AS (SELECT DISTINCT a.id FROM fact f JOIN conclusion cn ON cn.target_type='fact' AND cn.target_id=f.id JOIN assertion a ON a.id=cn.valgt_assertion_id JOIN citation ci ON ci.assertion_id=a.id AND ci.source_id=s WHERE f.subjekt_type='person' AND f.subjekt_id=p_person_id AND cn.status='afklaret' AND f.faktatype=CASE p_felt WHEN 'navn' THEN 'navn' WHEN 'foedsel' THEN 'fødsel' ELSE 'død' END) SELECT count(*),min(id) INTO cc,aid FROM c; IF cc<>1 THEN RAISE EXCEPTION 'OCR_ASSERTION_AMBIGUOUS'; END IF; SELECT private.ocr_importeret(p_felt,a.vaerdi_tekst,a.date_raw,a.date_min,a.date_max,a.date_qualifier,a.calendar,a.date_certainty),ci.citat_tekst INTO observed,ctx FROM assertion a JOIN citation ci ON ci.assertion_id=a.id AND ci.source_id=s WHERE a.id=aid ORDER BY ci.id LIMIT 1 FOR UPDATE OF a,ci; IF NOT FOUND THEN RAISE EXCEPTION 'OCR_ASSERTION_AMBIGUOUS'; END IF; END IF;
  PERFORM pg_advisory_xact_lock(hashtextextended(concat_ws(chr(31),p_import_key,p_record_key,p_felt),0)); SELECT * INTO j FROM import_korrektion WHERE import_key=p_import_key AND record_key=p_record_key AND felt=p_felt FOR UPDATE; imp:=coalesce(j.importeret,observed); fp:=private.ocr_fingerprint(p_import_key,p_record_key,p_felt,imp,ctx); IF j.id IS NOT NULL AND j.input_fingerprint IS DISTINCT FROM fp THEN RAISE EXCEPTION 'OCR_FINGERPRINT_STALE'; END IF; IF p_input_fingerprint IS DISTINCT FROM coalesce(j.input_fingerprint,fp) THEN RAISE EXCEPTION 'OCR_FINGERPRINT_STALE'; END IF;
- IF p_status='rettet' THEN IF jsonb_typeof(p_korrigeret)<>'object' THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF; IF p_felt='navn' AND (jsonb_typeof(p_korrigeret->'value')<>'string' OR nullif(btrim(p_korrigeret->>'value'),'') IS NULL) THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF; IF p_felt='koen' AND p_korrigeret->>'value' NOT IN ('mand','kvinde','ukendt') THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF; IF p_felt IN ('foedsel','doed') THEN IF jsonb_typeof(p_korrigeret->'raw')<>'string' OR nullif(btrim(p_korrigeret->>'raw'),'') IS NULL THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF; BEGIN dmin:=nullif(p_korrigeret->>'min','')::date; dmax:=nullif(p_korrigeret->>'max','')::date; EXCEPTION WHEN others THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END; END IF; END IF;
+ IF p_status='rettet' THEN IF jsonb_typeof(p_korrigeret)<>'object' THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF; IF p_felt='navn' AND (jsonb_typeof(p_korrigeret->'value')<>'string' OR nullif(btrim(p_korrigeret->>'value'),'') IS NULL) THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF; IF p_felt='koen' AND p_korrigeret->>'value' NOT IN ('mand','kvinde','ukendt') THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF; IF p_felt IN ('foedsel','doed') THEN IF jsonb_typeof(p_korrigeret->'raw')<>'string' OR nullif(btrim(p_korrigeret->>'raw'),'') IS NULL THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END IF; BEGIN dmin:=nullif(p_korrigeret->>'min','')::date; dmax:=nullif(p_korrigeret->>'max','')::date; EXCEPTION WHEN others THEN RAISE EXCEPTION 'OCR_VALUE_INVALID'; END;
+   -- Review 37 D5 (blok 3): omvendt interval/ukendt kvalifikator afvises før ændringssættet og før assertion-CHECK'erne.
+   PERFORM private.kraev_gyldig_datering(dmin, dmax, p_korrigeret->>'qualifier'); END IF; END IF;
  SELECT coalesce(pr.navn,pr.email,p_actor_navn,auth.uid()::text,'ukendt') INTO actor FROM profiles pr WHERE pr.id=auth.uid(); actor:=coalesce(actor,p_actor_navn,'ukendt'); PERFORM begin_change_set('red_ret_ocr_felt',format('OCR-%s: %s/%s',p_felt,p_import_key,p_record_key),'person',p_person_id);
  IF p_status='rettet' THEN IF p_felt='navn' THEN UPDATE assertion SET vaerdi_tekst=p_korrigeret->>'value' WHERE id=aid; ELSIF p_felt='koen' THEN UPDATE person SET koen=p_korrigeret->>'value' WHERE id=p_person_id; ELSE UPDATE assertion SET date_raw=p_korrigeret->>'raw',date_min=dmin,date_max=dmax,date_qualifier=p_korrigeret->>'qualifier',calendar=coalesce(p_korrigeret->>'calendar','gregoriansk'),date_certainty=p_korrigeret->>'certainty' WHERE id=aid; END IF; END IF;
  INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,korrigeret,status,actor_id,actor_navn) VALUES(p_import_key,p_record_key,p_felt,fp,imp,CASE WHEN p_status='rettet' THEN p_korrigeret ELSE NULL END,p_status,auth.uid(),actor) ON CONFLICT(import_key,record_key,felt) DO UPDATE SET input_fingerprint=import_korrektion.input_fingerprint,korrigeret=CASE WHEN excluded.status='rettet' THEN excluded.korrigeret ELSE import_korrektion.korrigeret END,status=excluded.status,actor_id=excluded.actor_id,actor_navn=excluded.actor_navn,opdateret_at=now(); SELECT to_jsonb(g) INTO out FROM red_person_grid() g WHERE g.person_id=p_person_id; RETURN out;
@@ -3629,7 +3631,7 @@ CREATE TABLE conclusion (                -- den blåstemplede vurdering ovenpå 
   target_type       TEXT NOT NULL,       -- 'fact' | 'relation'
   target_id         BIGINT NOT NULL,
   valgt_assertion_id BIGINT REFERENCES assertion(id),
-  status            TEXT,                -- 'afklaret','omstridt','forældet'
+  status            TEXT,                -- 'afklaret','omstridt','forældet','tilbagetrukket' (CHECK conclusion_status_chk, review 37 blok 3)
   blaastemplet_af   TEXT,                -- udgave eller beslutning (proveniens)
   blaastemplet_naar DATE,
   UNIQUE (target_type, target_id)
@@ -6388,6 +6390,71 @@ CREATE INDEX IF NOT EXISTS ix_story_fact_id             ON story(fact_id)       
 CREATE INDEX IF NOT EXISTS ix_story_relation_id         ON story(relation_id)         WHERE relation_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_story_historical_event_id ON story(historical_event_id) WHERE historical_event_id IS NOT NULL;
 
+-- Review 37 S4 + D5a + D5b (#397, projektejeren 2026-11-22): tabel-CHECKs, så reglerne gælder alle skriveveje (også
+-- loadere, generisk fortryd og direkte SQL), ikke kun RPC'erne. Samme DO-blok står i db-migrations.sql (review37-b3).
+-- Idempotent: en eksisterende constraint med samme navn skal have præcis samme definition (sammenlignet med en
+-- tom tvillingetabel, så teksten normaliseres ens) og være valideret; ellers stopper blokken. NULL er tilladt overalt.
+--   S4  relation_afbildet_kanonisk: et billede afbilder en person (person → media) eller et gods, et våben, en linje,
+--       en familie eller et sted (media → estate/coat_of_arms/lineage/family/place). lower(btrim()) i første led:
+--       'Afbildet' og ' afbildet' må hverken slippe forbi CHECK'en eller billed-gaten (som sammenligner eksakt).
+--   D5a datointervaller i orden. relation: start-parret og slut-parret hver for sig, og tidligst mulige start ≤
+--       senest mulige slut (start_min ≤ end_max). start_min > end_min er IKKE en modsigelse (løse grænser), så den
+--       afvises ikke (decisions 2026-11-22, review 37 blok 3).
+--   D5b lukkede lister udledt af writerne (ikke kun af prods nuværende værdier): family_member.rolle (red_tilfoej_barn's
+--       barn-subtyper), konfidens (invariant 7), conclusion.status (+ 'tilbagetrukket' fra red_tilbagetraek_fakta og
+--       'forældet' fra datamodel-oversigt.md), date_qualifier (assertion-kolonnens dokumenterede ni værdier).
+DO $review37_b3_checks$
+DECLARE r record; v_ist text; v_valideret boolean; v_soll text;
+BEGIN
+  PERFORM set_config('lock_timeout','5s',true);
+  FOR r IN SELECT * FROM (VALUES
+    ('relation','relation_afbildet_kanonisk',
+     $c$lower(btrim(rolle)) <> 'afbildet' OR (rolle = 'afbildet' AND ((subjekt_type = 'person' AND objekt_type = 'media')
+       OR (subjekt_type = 'media' AND objekt_type IN ('estate','coat_of_arms','lineage','family','place'))))$c$),
+    ('relation','relation_periode_orden',
+     $c$(start_min IS NULL OR start_max IS NULL OR start_min <= start_max)
+       AND (end_min IS NULL OR end_max IS NULL OR end_min <= end_max)
+       AND (start_min IS NULL OR end_max IS NULL OR start_min <= end_max)$c$),
+    ('relation','relation_konfidens_chk',
+     $c$konfidens IN ('sikker','sandsynlig','formodet','omstridt')$c$),
+    ('assertion','assertion_dato_orden',
+     $c$date_min IS NULL OR date_max IS NULL OR date_min <= date_max$c$),
+    ('assertion','assertion_date_qualifier_chk',
+     $c$date_qualifier IN ('exact','before','after','between','about','floruit','until_event','open_end','ongoing')$c$),
+    ('haendelse','haendelse_dato_orden',
+     $c$date_min IS NULL OR date_max IS NULL OR date_min <= date_max$c$),
+    ('haendelse','haendelse_date_qualifier_chk',
+     $c$date_qualifier IN ('exact','before','after','between','about','floruit','until_event','open_end','ongoing')$c$),
+    ('story','story_dato_orden',
+     $c$date_min IS NULL OR date_max IS NULL OR date_min <= date_max$c$),
+    ('story','story_date_qualifier_chk',
+     $c$date_qualifier IN ('exact','before','after','between','about','floruit','until_event','open_end','ongoing')$c$),
+    ('family_member','family_member_rolle_chk',
+     $c$rolle IN ('partner','barn','adopteret_barn','plejebarn','stedbarn')$c$),
+    ('family_member','family_member_konfidens_chk',
+     $c$konfidens IN ('sikker','sandsynlig','formodet','omstridt')$c$),
+    ('conclusion','conclusion_status_chk',
+     $c$status IN ('afklaret','omstridt','forældet','tilbagetrukket')$c$)
+  ) x(tabel,navn,udtryk) LOOP
+    -- Forventet normaliseret tekst: samme udtryk på en tom tvilling med de samme kolonnetyper.
+    EXECUTE format('CREATE TEMP TABLE r37b3_tvilling (LIKE public.%I) ON COMMIT DROP', r.tabel);
+    EXECUTE format('ALTER TABLE pg_temp.r37b3_tvilling ADD CONSTRAINT %I CHECK (%s)', r.navn, r.udtryk);
+    SELECT pg_get_constraintdef(c.oid) INTO v_soll FROM pg_constraint c
+     WHERE c.conrelid = 'pg_temp.r37b3_tvilling'::regclass AND c.conname = r.navn;
+    DROP TABLE pg_temp.r37b3_tvilling;
+    v_ist := NULL; v_valideret := NULL;
+    SELECT pg_get_constraintdef(c.oid), c.convalidated INTO v_ist, v_valideret FROM pg_constraint c
+     WHERE c.conrelid = format('public.%I', r.tabel)::regclass AND c.conname = r.navn;
+    IF v_ist IS NULL THEN
+      EXECUTE format('ALTER TABLE public.%I ADD CONSTRAINT %I CHECK (%s)', r.tabel, r.navn, r.udtryk);
+    ELSIF v_ist IS DISTINCT FROM v_soll OR NOT v_valideret THEN
+      RAISE EXCEPTION 'R37B3_CONSTRAINT_AFVIGER: %.% findes med en anden definition (%), forventet %',
+        r.tabel, r.navn, v_ist, v_soll;
+    END IF;
+  END LOOP;
+END
+$review37_b3_checks$;
+
 -- Historien viser altid sine kilder (koncept §3.2 — "transparens er tonen").
 CREATE TABLE IF NOT EXISTS story_kilde (
   id        BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
@@ -6879,6 +6946,23 @@ RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public AS $$
   SELECT coalesce((SELECT rolle FROM profiles WHERE id = auth.uid()), 'medlem');
 $$;
 
+-- Review 37 D5 (blok 2 og 3): én regel for en datering i redigerings-RPC'erne, så de afviser med en læsbar fejlkode,
+-- før tabel-CHECK'erne (assertion/story/haendelse: *_dato_orden og *_date_qualifier_chk) rammer med en rå 23514.
+-- Kvalifikatorlisten er den samme som CHECK'ernes. Ren validering, ingen tabeladgang; kun ejeren kan kalde den.
+CREATE OR REPLACE FUNCTION private.kraev_gyldig_datering(p_min date, p_max date, p_qualifier text)
+RETURNS void LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+BEGIN
+  IF p_min IS NOT NULL AND p_max IS NOT NULL AND p_min > p_max THEN
+    RAISE EXCEPTION 'DATO_INTERVAL_OMVENDT' USING ERRCODE = '22023';
+  END IF;
+  IF p_qualifier IS NOT NULL
+     AND p_qualifier NOT IN ('exact','before','after','between','about','floruit','until_event','open_end','ongoing') THEN
+    RAISE EXCEPTION 'DATO_KVALIFIKATOR_UGYLDIG' USING ERRCODE = '22023',
+      DETAIL = format('Ukendt kvalifikator «%s».', p_qualifier);
+  END IF;
+END $$;
+REVOKE ALL ON FUNCTION private.kraev_gyldig_datering(date,date,text) FROM PUBLIC, anon, authenticated, service_role;
+
 -- Tilføj/opdater en oplysning på et fact-slot. Find-or-create fact → assertion →
 -- citation → upsert conclusion (peg på den nye assertion). Atomisk (én funktion = én txn).
 -- PoC: kilde er fritekst (source_id null, teksten i citat_tekst). Proper source-link senere.
@@ -6900,10 +6984,9 @@ BEGIN
   IF p_faktatype = 'forældrefamilie' THEN
     RAISE EXCEPTION 'Brug red_tilfoej_foraeldre_paastand / red_vaelg_foraeldre til forældrefamilie';
   END IF;
-  -- Review 37 D5: et omvendt datointerval afvises, før et ændringssæt åbnes.
-  IF p_date_min IS NOT NULL AND p_date_max IS NOT NULL AND p_date_min > p_date_max THEN
-    RAISE EXCEPTION 'DATO_INTERVAL_OMVENDT' USING ERRCODE = '22023';
-  END IF;
+  -- Review 37 D5: et omvendt datointerval og en ukendt kvalifikator afvises, før et ændringssæt åbnes (blok 3:
+  -- samme regel som tabel-CHECK'erne, i private.kraev_gyldig_datering).
+  PERFORM private.kraev_gyldig_datering(p_date_min, p_date_max, p_date_qualifier);
   PERFORM begin_change_set('red_upsert_fakta', format('Opdaterede %s på %s/%s', p_faktatype, p_subjekt_type, p_subjekt_id), p_subjekt_type, p_subjekt_id);
   -- Review 37 D3: på en person rammes det viste faktum (samme regel som visningscachen); findes intet afklaret,
   -- genbruges det første i bogens orden (genaktiverer fx en tilbagetrukket forældre_ukendt-markering).
@@ -6952,10 +7035,9 @@ BEGIN
   IF (SELECT faktatype FROM fact WHERE id=p_fact_id) = 'forældrefamilie' THEN
     RAISE EXCEPTION 'Brug red_tilfoej_foraeldre_paastand til forældrefamilie-slottet';
   END IF;
-  -- Review 37 D5: et omvendt datointerval afvises, før et ændringssæt åbnes.
-  IF p_date_min IS NOT NULL AND p_date_max IS NOT NULL AND p_date_min > p_date_max THEN
-    RAISE EXCEPTION 'DATO_INTERVAL_OMVENDT' USING ERRCODE = '22023';
-  END IF;
+  -- Review 37 D5: et omvendt datointerval og en ukendt kvalifikator afvises, før et ændringssæt åbnes (blok 3:
+  -- samme regel som tabel-CHECK'erne, i private.kraev_gyldig_datering).
+  PERFORM private.kraev_gyldig_datering(p_date_min, p_date_max, p_date_qualifier);
   PERFORM begin_change_set('red_tilfoej_oplysning', format('Tilføjede oplysning til fakta %s', p_fact_id), NULL, NULL);
   IF NOT EXISTS (SELECT 1 FROM fact WHERE id = p_fact_id) THEN
     RAISE EXCEPTION 'Fact % findes ikke', p_fact_id;
@@ -6986,10 +7068,9 @@ BEGIN
   IF p_faktatype = 'forældrefamilie' THEN
     RAISE EXCEPTION 'Brug red_tilfoej_foraeldre_paastand / red_vaelg_foraeldre til forældrefamilie';
   END IF;
-  -- Review 37 D5: et omvendt datointerval afvises, før et ændringssæt åbnes.
-  IF p_date_min IS NOT NULL AND p_date_max IS NOT NULL AND p_date_min > p_date_max THEN
-    RAISE EXCEPTION 'DATO_INTERVAL_OMVENDT' USING ERRCODE = '22023';
-  END IF;
+  -- Review 37 D5: et omvendt datointerval og en ukendt kvalifikator afvises, før et ændringssæt åbnes (blok 3:
+  -- samme regel som tabel-CHECK'erne, i private.kraev_gyldig_datering).
+  PERFORM private.kraev_gyldig_datering(p_date_min, p_date_max, p_date_qualifier);
   PERFORM begin_change_set('red_opret_fakta', format('Oprettede %s på %s/%s', p_faktatype, p_subjekt_type, p_subjekt_id), p_subjekt_type, p_subjekt_id);
   INSERT INTO fact(subjekt_type, subjekt_id, faktatype)
     VALUES (p_subjekt_type, p_subjekt_id, p_faktatype)
@@ -7221,6 +7302,8 @@ DECLARE v_id bigint;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   IF p_tekst IS NULL OR btrim(p_tekst) = '' THEN RAISE EXCEPTION 'Story-tekst må ikke være tom'; END IF;
+  -- Review 37 D5 (blok 3): dateringen afvises med en læsbar fejlkode før story_dato_orden/story_date_qualifier_chk.
+  PERFORM private.kraev_gyldig_datering(p_date_min, p_date_max, p_date_qualifier);
   PERFORM begin_change_set('red_opret_story',
     format('Oprettede story om %s %s', p_subjekt_type, p_subjekt_id), p_subjekt_type, p_subjekt_id);
   INSERT INTO story (subjekt_type, subjekt_id, haendelse_id, fact_id, relation_id,
@@ -7248,6 +7331,8 @@ BEGIN
   IF p_tekst IS NULL OR btrim(p_tekst) = '' THEN RAISE EXCEPTION 'Story-tekst må ikke være tom'; END IF;
   SELECT subjekt_type, subjekt_id INTO v_stype, v_sid FROM story WHERE id=p_story_id;
   IF v_stype IS NULL THEN RAISE EXCEPTION 'Story % findes ikke', p_story_id; END IF;
+  -- Review 37 D5 (blok 3): dateringen afvises med en læsbar fejlkode før story_dato_orden/story_date_qualifier_chk.
+  PERFORM private.kraev_gyldig_datering(p_date_min, p_date_max, p_date_qualifier);
   PERFORM begin_change_set('red_rediger_story',
     format('Redigerede story %s', p_story_id), v_stype, v_sid);
   UPDATE story SET titel=p_titel, tekst=p_tekst, haendelse_id=p_haendelse_id,
@@ -7497,6 +7582,14 @@ BEGIN
   -- En person på objekt-siden ville være usynlig for gatingen → fail-open. Luk det for ALLE kaldere.
   IF p_rolle = 'afbildet' AND p_objekt_type = 'person' THEN
     RAISE EXCEPTION 'afbildet skal gå person→media (person kan ikke stå på objekt-siden — GDPR-gating)';
+  END IF;
+  -- Review 37 S4: samme regel som tabel-CHECK'en relation_afbildet_kanonisk, men med en læsbar fejl før ændringssættet.
+  -- lower(btrim()): 'Afbildet' eller ' afbildet' ville ellers gå uden om billed-gaten, som sammenligner eksakt.
+  IF lower(btrim(p_rolle)) = 'afbildet' AND NOT (p_rolle = 'afbildet' AND (
+       (p_subjekt_type = 'person' AND p_objekt_type = 'media')
+    OR (p_subjekt_type = 'media' AND p_objekt_type IN ('estate','coat_of_arms','lineage','family','place')))) THEN
+    RAISE EXCEPTION 'AFBILDET_RETNING_UGYLDIG: et billede kan kun afbilde en person, et gods, et våben, en linje, en familie eller et sted (fik % → %, rolle «%»)',
+      p_subjekt_type, p_objekt_type, p_rolle USING ERRCODE = '22023';
   END IF;
   PERFORM begin_change_set('red_relation', format('Relation %s: %s/%s → %s/%s', p_rolle, p_subjekt_type, p_subjekt_id, p_objekt_type, p_objekt_id), p_subjekt_type, p_subjekt_id);
   BEGIN
@@ -8209,6 +8302,12 @@ RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_id bigint; v_findes boolean;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 S4: en person afbildes kun person → media (relation_afbildet_kanonisk); her er objektet en organisation
+  -- eller et gods, så 'afbildet' (i enhver stavemåde) afvises med en læsbar fejl før ændringssættet.
+  IF lower(btrim(p_rolle)) = 'afbildet' THEN
+    RAISE EXCEPTION 'AFBILDET_RETNING_UGYLDIG: et billede kan kun afbilde en person, et gods, et våben, en linje, en familie eller et sted (fik person → %, rolle «%»)',
+      p_objekt_type, p_rolle USING ERRCODE = '22023';
+  END IF;
   PERFORM begin_change_set('red_tilfoej_relation', format('Relation %s fra person %s', p_rolle, p_subjekt_id), 'person', p_subjekt_id);
   IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_subjekt_id) THEN RAISE EXCEPTION 'Person % findes ikke', p_subjekt_id; END IF;
   IF p_objekt_type NOT IN ('organisation','estate') THEN RAISE EXCEPTION 'Ugyldig objekt_type %', p_objekt_type; END IF;
@@ -23031,6 +23130,18 @@ RETURNS TABLE(id bigint) LANGUAGE sql STABLE SECURITY DEFINER SET search_path = 
 $purge_familieindhold$;
 REVOKE ALL ON FUNCTION private.person_purge_ikke_offentlig(bigint), private.person_purge_familieindhold(bigint)
   FROM PUBLIC,anon,authenticated,service_role;
+-- Review 37 blok 3 (S4): familien er skjult for gæster (family_offentlig er falsk: et medlem er levende/privat/staged
+-- eller i en skjult samme_som-gruppe). Billed-gaten læser præcis den regel, så personsletningens låsning af et
+-- familiebillede skal bruge den — ikke den slettede persons egen synlighed: P kan være offentlig, mens en levende
+-- partner holder familiens billede skjult. Evalueres i planfasen, før noget slettes. plpgsql (sen binding), fordi
+-- public.family_offentlig først oprettes i db-rls.sql.
+CREATE OR REPLACE FUNCTION private.person_purge_familie_skjult(p_family_id bigint)
+RETURNS boolean LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_familie_skjult$
+BEGIN
+  RETURN NOT public.family_offentlig(p_family_id);
+END
+$purge_familie_skjult$;
+REVOKE ALL ON FUNCTION private.person_purge_familie_skjult(bigint) FROM PUBLIC,anon,authenticated,service_role;
 
 -- Task 4: læsende historiklukning (§2.2-2.4), uden sideeffekter eller dynamisk SQL.
 CREATE OR REPLACE FUNCTION private.person_purge_historik(p_person_id bigint)
@@ -23319,7 +23430,14 @@ WITH RECURSIVE
   -- + medier koblet direkte til en bevaret Fam_ind-familie (rk; kun for en ikke-offentlig P). Koblingen består og holder
   -- mediet i live, så det er aldrig i md. Én NY-E-række pr. medie (UNION).
   UNION SELECT CASE WHEN t.subjekt_type='media' THEN t.subjekt_id ELSE t.objekt_id END FROM public.relation t
-    WHERE t.id IN (SELECT id FROM rk)),
+    WHERE t.id IN (SELECT id FROM rk)
+  -- + review 37 blok 3 (S4): billed-gaten følger familiens synlighed (media_afbilder_skjult læser media→family,
+  -- 'afbildet'). Et medie, der afbilder en Fam_del-familie, mister koblingen med familien; lever det videre på en anden
+  -- kobling (ikke i md), låses det som ovenfor, hvis familien var skjult FØR sletningen — uanset P's egen synlighed
+  -- (en offentlig P med en levende eller privat partner). Planen beregnes, før noget slettes.
+  UNION SELECT t.subjekt_id FROM public.relation t WHERE t.id IN (SELECT id FROM rd)
+    AND t.subjekt_type='media' AND t.rolle='afbildet' AND t.objekt_type='family' AND t.objekt_id IN (SELECT id FROM fam_del)
+    AND t.subjekt_id NOT IN (SELECT id FROM md) AND private.person_purge_familie_skjult(t.objekt_id)),
   x AS MATERIALIZED (SELECT source_persona_id AS id FROM private.source_persona_identity
     WHERE canonical_person_id=p_person_id AND decision_status='accepted'),
   -- persona_family_context(spouse) finder familier via PRINCIPALENS accepterede identitet.

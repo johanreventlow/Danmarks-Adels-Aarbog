@@ -16,6 +16,18 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > - **D5 (F):** 0 omvendte datointervaller i prod, så reglen gælder alle rækker. Blok 2 (RPC) og 3 (CHECK).
 > - **D5c (G):** afvisning af ukendte faktatyper/roller udskydes til #433 (kræver oprydning af vocab-seeds).
 
+> **Blok 3's ikke-oplagte valg (gren `fix/397-db-blok3`, 2026-11-22):**
+> - **Relationens dato-regel:** start-parret og slut-parret hver for sig i orden, og `start_min ≤ end_max` (tidligst mulige
+>   start efter senest mulige slut er en modsigelse). `start_min > end_min` afvises ikke: det er blot løse grænser.
+> - **Lukkede lister udledt af writerne, ikke kun af prod:** `family_member.rolle` tillader også `red_tilfoej_barn`'s
+>   `adopteret_barn`, `plejebarn`, `stedbarn`; `conclusion.status` tillader også `tilbagetrukket` (`red_tilbagetraek_fakta`,
+>   `red_slet_familie_link`) og `forældet` (datamodel-oversigt.md). Kvalifikatoren følger assertion-kolonnens ni værdier.
+>   Redigerings-RPC'erne med fri kvalifikator (fakta, story, OCR-felt) afviser med `DATO_KVALIFIKATOR_UGYLDIG`.
+> - **`afbildet` mod et faktum** (testfixturens vielsesfoto) er ikke på projektejerens liste og afvises nu; ingen klient
+>   tilbyder det.
+> - **Personsletning:** et billede af en familie, der slettes med personen (Fam_del) og lever videre på en anden kobling,
+>   låses (NY-E), hvis familien var skjult før sletningen — uanset den slettede persons egen synlighed.
+
 ## BESLUTTET: en model må læse `work/` (2018-20) og `work_2018_saerudgave/`; præsenslisterne forbliver spærret (#397 C6, 2026-11-22)
 
 > Projektejeren 2026-11-22: »Claude må læse work for det er publiceret data allerede«. Samme begrundelse som for

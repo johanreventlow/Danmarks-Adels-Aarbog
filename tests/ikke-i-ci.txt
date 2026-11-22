@@ -17,6 +17,7 @@ tests/sql/test-248-upgrade.sh | engangstest før merge af #248; kræver at base 
 tests/sql/test-2bii-upgrade.sh | engangstest før merge af 2b-ii (#151); målt grøn
 tests/sql/test-review37-a2y3-upgrade.sh | engangstest før deploy af A2+Y3 (#418, i prod 21/11); afløst af test-review37-b1-upgrade.sh. Målt 2026-11-22: rød på blok 1's HEAD, fordi trin 3 kræver, at hele den aktuelle db-rls.sql ikke ændrer bookmark_insert_own (S2), og trin 4 kører den aktuelle db-verify.sql
 tests/sql/test-review37-b1-upgrade.sh | engangstest før deploy af review 37 blok 1 (#434); afløst af test-review37-b2-upgrade.sh, der bygger på blok 1's head. Målt 2026-11-22: rød på blok 2's HEAD (R37B1_UPGRADE_FAIL: kataloget efter blokkene ≠ frisk schema.sql), fordi schema.sql nu også har blok 2's 9 funktioner og 2 triggere
+tests/sql/test-review37-b2-upgrade.sh | engangstest før deploy af review 37 blok 2 (#436); afløst af test-review37-b3-upgrade.sh, der bygger på c356e838 (main efter blok 2). Målt 2026-11-22: rød på blok 3's HEAD (R37B2_UPGRADE_FAIL: kroppe/ACL afviger efter blokken), fordi schema.sql nu har blok 3's versioner af red_upsert_fakta, red_opret_fakta og red_tilfoej_oplysning
 
 # Opgradering fra historiske prodtræer, som prod har passeret. Holdt ude af CI af hensyn til minutbudgettet.
 tests/sql/test-indholds-id-upgrade.sh | fra prodtræ 140a17b (september); målt grøn (23 s lokalt)

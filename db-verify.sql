@@ -6977,14 +6977,17 @@ BEGIN
   UPDATE person SET visning_floruit='1111' WHERE id=p_tom;
   PERFORM regen_person_visning(p_tom);
   PERFORM pg_temp.vf_tjek(p_tom,NULL,'uden kilder');
-  -- omvendt interval (date_min > date_max, dårlige data) normaliseres pr. række: 1400..1300 → '1300–1400'
+  -- omvendt interval (date_min > date_max): siden review 37 blok 3 afvist af tabel-CHECK'en assertion_dato_orden, så
+  -- tilstanden kan ikke opstå (regen_person_floruit's least/greatest er nu kun et ekstra værn).
   INSERT INTO person(id,levende,privat) VALUES (-987715004,false,false);
   INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-987715018,'person',-987715004,'embede');
-  INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,date_min,date_max)
-    VALUES (-987715029,'fact',-987715018,'omvendt','1400-01-01','1300-12-31');
-  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status)
-    VALUES (-987715038,'fact',-987715018,-987715029,'afklaret');
-  PERFORM pg_temp.vf_tjek(-987715004,'1300–1400','omvendt interval normaliseret');
+  BEGIN
+    INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,date_min,date_max)
+      VALUES (-987715029,'fact',-987715018,'omvendt','1400-01-01','1300-12-31');
+    RAISE EXCEPTION 'FEJL: visning-floruit — et omvendt interval blev accepteret af assertion';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  PERFORM pg_temp.vf_tjek(-987715004,NULL,'omvendt interval afvist');
   RAISE NOTICE 'OK: visning-floruit spaend';
 END $verify_visning_floruit_spaend$;
 
@@ -8110,6 +8113,7 @@ END $$;
 -- ===== Versionering Task 7b: composite-PK restore-hjælpere (B11/M2) =====
 -- T7 dækkede kun enkelt-id (note). Her: family_member (3-kol PK) gennem alle tre
 -- helper-stier — fanger ON CONFLICT-constraint-match + multi-kolonne WHERE-cast.
+-- Rollen er en gyldig barn-subtype (family_member_rolle_chk, review 37 blok 3), som ikke rammer fødselsfamilie-reglen.
 BEGIN;
 DO $$
 DECLARE
@@ -8117,17 +8121,17 @@ DECLARE
   v_person CONSTANT bigint := -987656222;
   cur jsonb;
   pk jsonb := jsonb_build_object(
-    'family_id',-987656221,'person_id',-987656222,'rolle','__verify_fm__');
+    'family_id',-987656221,'person_id',-987656222,'rolle','plejebarn');
 BEGIN
   INSERT INTO family(id,type) VALUES (v_family,'ukendt');
   INSERT INTO person(id,levende,privat) VALUES (v_person,false,false);
   PERFORM _version_upsert_row('family_member',
-    jsonb_build_object('family_id',v_family,'person_id',v_person,'rolle','__verify_fm__','ordinal',9,'konfidens','sikker'));
+    jsonb_build_object('family_id',v_family,'person_id',v_person,'rolle','plejebarn','ordinal',9,'konfidens','sikker'));
   cur := _version_current_row('family_member', pk);
   IF cur->>'konfidens' <> 'sikker' THEN RAISE EXCEPTION 'FEJL: composite upsert-insert virkede ikke (%)', cur; END IF;
   -- update via ON CONFLICT (samme composite-nøgle)
   PERFORM _version_upsert_row('family_member',
-    jsonb_build_object('family_id',v_family,'person_id',v_person,'rolle','__verify_fm__','ordinal',9,'konfidens','formodet'));
+    jsonb_build_object('family_id',v_family,'person_id',v_person,'rolle','plejebarn','ordinal',9,'konfidens','formodet'));
   cur := _version_current_row('family_member', pk);
   IF cur->>'konfidens' <> 'formodet' THEN RAISE EXCEPTION 'FEJL: composite upsert-update virkede ikke (%)', cur; END IF;
   PERFORM _version_delete_row('family_member', pk);
@@ -9148,6 +9152,301 @@ EXCEPTION WHEN OTHERS THEN
   ELSE RAISE; END IF;
 END $$;
 -- END-VERIFY r37b2-d5
+
+-- BEGIN-VERIFY r37b3-s4
+-- ===== Review 37 S4: et billede afbilder person (person → media) eller gods/våben/linje/familie/sted (media → …) =====
+-- Tabel-CHECK'en relation_afbildet_kanonisk afviser enhver anden retning og enhver stavemåde af 'afbildet' end den
+-- eksakte (billed-gaten sammenligner eksakt). red_relation og red_tilfoej_relation afviser med AFBILDET_RETNING_UGYLDIG
+-- (22023) uden at åbne et ændringssæt. Alle seks tilladte retninger accepteres. Selvforsynende; rulles tilbage.
+DO $$
+DECLARE v_t text; v_n_cs bigint; v_state text; v_msg text; v_ok boolean;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  INSERT INTO person(id,levende,privat) VALUES (-937601,false,false);
+  INSERT INTO family(id,type) VALUES (-937611,'vielse');
+  INSERT INTO media(id) VALUES (-937621),(-937622);
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-937631,'person',-937601,'embede');
+  -- Stavemåder, der ville gå uden om gaten, og retninger uden for listen: tabel-CHECK'en.
+  FOREACH v_t IN ARRAY ARRAY['Afbildet',' afbildet','AFBILDET '] LOOP
+    v_ok := false;
+    BEGIN
+      INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES ('person',-937601,'media',-937621,v_t);
+    EXCEPTION WHEN check_violation THEN v_ok := true;
+    END;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: S4 — relation accepterede rollen «%» (relation_afbildet_kanonisk mangler)', v_t; END IF;
+  END LOOP;
+  v_ok := false;
+  BEGIN
+    INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES ('media',-937621,'fact',-937631,'afbildet');
+  EXCEPTION WHEN check_violation THEN v_ok := true;
+  END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: S4 — relation accepterede media → fact som afbildet'; END IF;
+  -- Redigerings-RPC'erne: læsbar fejl før ændringssættet.
+  SELECT count(*) INTO v_n_cs FROM change_set;
+  FOREACH v_t IN ARRAY ARRAY['media→fact','media→organisation','Afbildet','person→estate'] LOOP
+    v_ok := false;
+    BEGIN
+      IF v_t = 'media→fact' THEN PERFORM red_relation('media',-937621,'fact',-937631,'afbildet');
+      ELSIF v_t = 'media→organisation' THEN PERFORM red_relation('media',-937621,'organisation',-937641,'afbildet');
+      ELSIF v_t = 'Afbildet' THEN PERFORM red_relation('person',-937601,'media',-937621,'Afbildet');
+      ELSE PERFORM red_tilfoej_relation(-937601,'estate',-937642,' afbildet');
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+      IF v_state = '22023' AND v_msg LIKE 'AFBILDET_RETNING_UGYLDIG:%' THEN v_ok := true;
+      ELSIF v_state = '23514' THEN v_ok := false;
+      ELSE RAISE; END IF;
+    END;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: S4 — % blev ikke afvist med AFBILDET_RETNING_UGYLDIG', v_t; END IF;
+    PERFORM set_config('app.change_set_id','',true);
+  END LOOP;
+  IF (SELECT count(*) FROM change_set) <> v_n_cs THEN
+    RAISE EXCEPTION 'FEJL: S4 — en afvist afbildning åbnede et ændringssæt'; END IF;
+  -- De seks tilladte retninger.
+  PERFORM red_relation('person',-937601,'media',-937621,'afbildet');
+  FOREACH v_t IN ARRAY ARRAY['estate','coat_of_arms','lineage','family','place'] LOOP
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_relation('media',-937622,v_t,CASE WHEN v_t='family' THEN -937611 ELSE -937650 END,'afbildet');
+  END LOOP;
+  IF (SELECT count(*) FROM relation WHERE rolle='afbildet' AND -937621 IN (subjekt_id,objekt_id)) <> 1
+     OR (SELECT count(*) FROM relation WHERE rolle='afbildet' AND subjekt_type='media' AND subjekt_id=-937622) <> 5 THEN
+    RAISE EXCEPTION 'FEJL: S4 — en tilladt retning blev ikke oprettet'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 S4 — afbildet kun i de seks retninger, eksakt stavet';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b3-s4
+
+-- BEGIN-VERIFY r37b3-gate
+-- ===== Review 37 S4: billed-gaten følger familiens synlighed =====
+-- media_afbilder_skjult er sand for et billede af en familie, der ikke er offentlig (et levende eller privat medlem);
+-- media_afbilder_privat for en familie med et privat medlem. Et billede af en offentlig familie er synligt. S3
+-- (uden for blok 3): et billede af en familie UDEN medlemmer er synligt, fordi family_offentlig er sand for den.
+-- Kaldt som ejer (begge er lukket for klientroller); gæst/medlem-matricen står i tests/sql/test-review37-b3-gate.sql.
+DO $$
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO person(id,levende,privat) VALUES (-937701,true,false),(-937702,false,false),(-937703,false,true),(-937704,false,false);
+  INSERT INTO family(id,type) VALUES (-937711,'vielse'),(-937712,'vielse'),(-937713,'vielse'),(-937714,'vielse');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES
+    (-937711,-937701,'partner'),(-937711,-937702,'partner'),   -- levende medlem
+    (-937712,-937703,'partner'),(-937712,-937702,'partner'),   -- privat (afdødt) medlem
+    (-937713,-937702,'partner'),(-937713,-937704,'partner');   -- offentlig; -937714 har ingen medlemmer
+  INSERT INTO media(id,maa_publiceres,upload_status) VALUES
+    (-937721,true,'klar'),(-937722,true,'klar'),(-937723,true,'klar'),(-937724,true,'klar');
+  INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
+    ('media',-937721,'family',-937711,'afbildet'),('media',-937722,'family',-937712,'afbildet'),
+    ('media',-937723,'family',-937713,'afbildet'),('media',-937724,'family',-937714,'afbildet');
+  IF NOT media_afbilder_skjult(-937721) OR media_synlig_anon(-937721) THEN
+    RAISE EXCEPTION 'FEJL: gate — billedet af en familie med et levende medlem er ikke skjult'; END IF;
+  IF NOT media_afbilder_skjult(-937722) OR NOT media_afbilder_privat(-937722) OR media_synlig_auth(-937722) THEN
+    RAISE EXCEPTION 'FEJL: gate — billedet af en familie med et privat medlem er ikke skjult (skjult=%, privat=%)',
+      media_afbilder_skjult(-937722), media_afbilder_privat(-937722); END IF;
+  IF media_afbilder_privat(-937721) THEN
+    RAISE EXCEPTION 'FEJL: gate — media_afbilder_privat er sand for en familie uden privat medlem'; END IF;
+  IF media_afbilder_skjult(-937723) OR NOT media_synlig_anon(-937723) THEN
+    RAISE EXCEPTION 'FEJL: gate — billedet af en offentlig familie er skjult'; END IF;
+  IF media_afbilder_skjult(-937724) OR NOT media_synlig_anon(-937724) THEN
+    RAISE EXCEPTION 'FEJL: gate — S3-adfærden ændret: billedet af en medlemsløs familie er skjult'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 S4 gate — billedet følger familiens synlighed (medlemsløs familie: synlig, S3)';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b3-gate
+
+-- BEGIN-VERIFY r37b3-d5a
+-- ===== Review 37 D5a: datointervaller i orden på assertion, haendelse, story og relation =====
+-- Tabel-CHECK'erne *_dato_orden og relation_periode_orden afviser date_min > date_max, start_min > start_max,
+-- end_min > end_max og start_min > end_max; NULL-grænser og start_min > end_min (løse grænser) er tilladt.
+-- red_opret_story, red_rediger_story og red_ret_ocr_felt afviser med DATO_INTERVAL_OMVENDT før ændringssættet.
+DO $$
+DECLARE v_t text; v_ok boolean; v_state text; v_msg text; v_story bigint; v_n_cs bigint; v_fp text;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  INSERT INTO person(id,levende,privat) VALUES (-937801,false,false);
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-937811,'person',-937801,'embede');
+  INSERT INTO narrative(id,subjekt_type,subjekt_id,tekst) VALUES (-937821,'person',-937801,'Syntetisk');
+  FOREACH v_t IN ARRAY ARRAY['assertion','haendelse','story','relation_start','relation_slut','relation_start_slut'] LOOP
+    v_ok := false;
+    BEGIN
+      IF v_t = 'assertion' THEN
+        INSERT INTO assertion(target_type,target_id,date_min,date_max) VALUES ('fact',-937811,'1851-12-31','1851-01-01');
+      ELSIF v_t = 'haendelse' THEN
+        INSERT INTO haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul,date_min,date_max)
+          VALUES ('person',-937801,-937821,'r37b3','x','1851-12-31','1851-01-01');
+      ELSIF v_t = 'story' THEN
+        INSERT INTO story(subjekt_type,subjekt_id,tekst,date_min,date_max) VALUES ('person',-937801,'x','1851-12-31','1851-01-01');
+      ELSIF v_t = 'relation_start' THEN
+        INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,start_min,start_max)
+          VALUES ('person',-937801,'estate',-937831,'ejer','1851-12-31','1851-01-01');
+      ELSIF v_t = 'relation_slut' THEN
+        INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,end_min,end_max)
+          VALUES ('person',-937801,'estate',-937831,'ejer','1851-12-31','1851-01-01');
+      ELSE
+        INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,start_min,end_max)
+          VALUES ('person',-937801,'estate',-937831,'ejer','1860-01-01','1850-12-31');
+      END IF;
+    EXCEPTION WHEN check_violation THEN v_ok := true;
+    END;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: D5a — % accepterede et omvendt datointerval', v_t; END IF;
+  END LOOP;
+  -- Tilladt: lige interval, åbne grænser, og en slutgrænse hvis nedre grænse ligger før starten (løse grænser).
+  INSERT INTO assertion(target_type,target_id,date_min,date_max) VALUES ('fact',-937811,'1851-01-01','1851-01-01'),
+    ('fact',-937811,NULL,'1851-01-01'),('fact',-937811,'1851-01-01',NULL);
+  INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,start_min,start_max,end_min,end_max)
+    VALUES ('person',-937801,'estate',-937831,'ejer','1850-01-01','1855-12-31','1840-01-01','1870-12-31');
+  -- Story- og OCR-writerne.
+  v_story := red_opret_story('person',-937801,'Syntetisk historie');
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO source(id,slags,titel,import_key) VALUES (-937841,'test','r37b3 ocr','r37b3:ocr');
+  INSERT INTO person_external_id(person_id,source_id,record_key) VALUES (-937801,-937841,'R37B3-1');
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-937812,'person',-937801,'fødsel');
+  INSERT INTO assertion(id,target_type,target_id,date_raw,date_min,date_max,date_qualifier,uforanderlig)
+    VALUES (-937851,'fact',-937812,'1850','1850-01-01','1850-12-31','between',true);
+  INSERT INTO conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('fact',-937812,-937851,'afklaret');
+  INSERT INTO citation(assertion_id,source_id,side,citat_tekst) VALUES (-937851,-937841,'1','født 1850');
+  SET LOCAL ROLE authenticated;
+  SELECT input_fingerprint->>'foedsel' INTO v_fp FROM red_person_grid() WHERE person_id=-937801;
+  RESET ROLE;
+  IF v_fp IS NULL THEN RAISE EXCEPTION 'FEJL: D5a — OCR-fixturen gav intet fingerprint'; END IF;
+  SELECT count(*) INTO v_n_cs FROM change_set;
+  FOREACH v_t IN ARRAY ARRAY['red_opret_story','red_rediger_story','red_ret_ocr_felt'] LOOP
+    v_ok := false;
+    BEGIN
+      IF v_t = 'red_opret_story' THEN
+        PERFORM red_opret_story('person',-937801,'x',p_date_min=>'1851-12-31',p_date_max=>'1851-01-01');
+      ELSIF v_t = 'red_rediger_story' THEN
+        PERFORM red_rediger_story(v_story,'x',p_date_min=>'1851-12-31',p_date_max=>'1851-01-01');
+      ELSE
+        SET LOCAL ROLE authenticated;
+        PERFORM red_ret_ocr_felt(-937801,'r37b3:ocr','R37B3-1','foedsel',v_fp,
+          '{"raw":"1851","min":"1851-12-31","max":"1851-01-01","qualifier":"between"}'::jsonb);
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+      IF v_state = '22023' AND v_msg = 'DATO_INTERVAL_OMVENDT' THEN v_ok := true;
+      ELSIF v_state = '23514' THEN v_ok := false;
+      ELSE RAISE; END IF;
+    END;
+    RESET ROLE;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: D5a — % afviste ikke et omvendt interval med DATO_INTERVAL_OMVENDT', v_t; END IF;
+    PERFORM set_config('app.change_set_id','',true);
+  END LOOP;
+  IF (SELECT count(*) FROM change_set) <> v_n_cs THEN
+    RAISE EXCEPTION 'FEJL: D5a — en afvist skrivning åbnede et ændringssæt'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D5a — datointervaller i orden på fire tabeller og i story-/OCR-writerne';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b3-d5a
+
+-- BEGIN-VERIFY r37b3-d5b
+-- ===== Review 37 D5b: lukkede lister som tabel-CHECKs =====
+-- family_member.rolle, family_member.konfidens, relation.konfidens, conclusion.status og date_qualifier på assertion,
+-- haendelse og story. NULL er tilladt (ikke for rolle, som er NOT NULL). Hver tilladt værdi accepteres; en ukendt
+-- afvises. Redigerings-RPC'erne afviser en ukendt kvalifikator med DATO_KVALIFIKATOR_UGYLDIG før ændringssættet.
+DO $$
+DECLARE v_t text; v_v text; v_ok boolean; v_state text; v_msg text; v_n_cs bigint; i int := 0;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  INSERT INTO person(id,levende,privat) SELECT g,false,false FROM generate_series(-937920,-937901) g;
+  INSERT INTO family(id,type) SELECT g,'vielse' FROM generate_series(-937936,-937931) g;
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) SELECT g,'person',-937901,'embede' FROM generate_series(-937950,-937941) g;
+  INSERT INTO narrative(id,subjekt_type,subjekt_id,tekst) VALUES (-937961,'person',-937901,'Syntetisk');
+  -- Ukendte værdier afvises af tabellen (første kontrol er rød på en base uden blok 3).
+  FOR v_t, v_v IN SELECT * FROM (VALUES ('family_member.rolle','svigerbarn'),('family_member.konfidens','usikker'),
+      ('relation.konfidens','Sikker'),('conclusion.status','aaben'),('assertion.date_qualifier','ca'),
+      ('haendelse.date_qualifier','open_start'),('story.date_qualifier','omkring')) x LOOP
+    v_ok := false;
+    BEGIN
+      IF v_t = 'family_member.rolle' THEN
+        INSERT INTO family_member(family_id,person_id,rolle) VALUES (-937931,-937901,v_v);
+      ELSIF v_t = 'family_member.konfidens' THEN
+        INSERT INTO family_member(family_id,person_id,rolle,konfidens) VALUES (-937931,-937901,'partner',v_v);
+      ELSIF v_t = 'relation.konfidens' THEN
+        INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,konfidens)
+          VALUES ('person',-937901,'estate',-937971,'ejer',v_v);
+      ELSIF v_t = 'conclusion.status' THEN
+        INSERT INTO conclusion(target_type,target_id,status) VALUES ('fact',-937941,v_v);
+      ELSIF v_t = 'assertion.date_qualifier' THEN
+        INSERT INTO assertion(target_type,target_id,date_qualifier) VALUES ('fact',-937941,v_v);
+      ELSIF v_t = 'haendelse.date_qualifier' THEN
+        INSERT INTO haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul,date_qualifier)
+          VALUES ('person',-937901,-937961,'r37b3','x',v_v);
+      ELSE
+        INSERT INTO story(subjekt_type,subjekt_id,tekst,date_qualifier) VALUES ('person',-937901,'x',v_v);
+      END IF;
+    EXCEPTION WHEN check_violation THEN v_ok := true;
+    END;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: D5b — % accepterede den ukendte værdi «%»', v_t, v_v; END IF;
+  END LOOP;
+  -- Hver tilladt værdi (og NULL) accepteres.
+  FOREACH v_v IN ARRAY ARRAY['partner','barn','adopteret_barn','plejebarn','stedbarn'] LOOP
+    i := i + 1;
+    INSERT INTO family_member(family_id,person_id,rolle) VALUES (-937931,-937901-i,v_v);
+  END LOOP;
+  FOREACH v_v IN ARRAY ARRAY['sikker','sandsynlig','formodet','omstridt',NULL] LOOP
+    i := i + 1;
+    INSERT INTO family_member(family_id,person_id,rolle,konfidens) VALUES (-937926-i,-937901-i,'partner',v_v);
+    INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,konfidens)
+      VALUES ('person',-937901,'estate',-937971,'ejer',v_v);
+  END LOOP;
+  i := 0;
+  FOREACH v_v IN ARRAY ARRAY['afklaret','omstridt','forældet','tilbagetrukket',NULL] LOOP
+    i := i + 1;
+    INSERT INTO conclusion(target_type,target_id,status) VALUES ('fact',-937940-i,v_v);
+  END LOOP;
+  FOREACH v_v IN ARRAY ARRAY['exact','before','after','between','about','floruit','until_event','open_end','ongoing',NULL] LOOP
+    INSERT INTO assertion(target_type,target_id,date_qualifier) VALUES ('fact',-937941,v_v);
+    INSERT INTO haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul,date_qualifier)
+      VALUES ('person',-937901,-937961,'r37b3-'||coalesce(v_v,'null'),'x',v_v);
+    INSERT INTO story(subjekt_type,subjekt_id,tekst,date_qualifier) VALUES ('person',-937901,'x',v_v);
+  END LOOP;
+  -- Redigerings-RPC'erne: læsbar fejlkode før CHECK'en og før ændringssættet.
+  SELECT count(*) INTO v_n_cs FROM change_set;
+  FOREACH v_t IN ARRAY ARRAY['red_upsert_fakta','red_opret_fakta','red_tilfoej_oplysning','red_opret_story'] LOOP
+    v_ok := false;
+    BEGIN
+      IF v_t = 'red_upsert_fakta' THEN PERFORM red_upsert_fakta('person',-937901,'død','1900',NULL,NULL,'ca.','1900');
+      ELSIF v_t = 'red_opret_fakta' THEN PERFORM red_opret_fakta('person',-937901,'død','1900',NULL,NULL,'ca.','1900');
+      ELSIF v_t = 'red_tilfoej_oplysning' THEN PERFORM red_tilfoej_oplysning(-937941,'1900',NULL,NULL,'ca.','1900');
+      ELSE PERFORM red_opret_story('person',-937901,'x',p_date_qualifier=>'ca.');
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+      IF v_state = '22023' AND v_msg = 'DATO_KVALIFIKATOR_UGYLDIG' THEN v_ok := true;
+      ELSIF v_state = '23514' THEN v_ok := false;
+      ELSE RAISE; END IF;
+    END;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: D5b — % afviste ikke en ukendt kvalifikator med DATO_KVALIFIKATOR_UGYLDIG', v_t; END IF;
+    PERFORM set_config('app.change_set_id','',true);
+  END LOOP;
+  IF (SELECT count(*) FROM change_set) <> v_n_cs THEN
+    RAISE EXCEPTION 'FEJL: D5b — en afvist skrivning åbnede et ændringssæt'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D5b — lukkede lister på syv kolonner, kvalifikatoren afvises i redigerings-RPC''erne';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b3-d5b
 
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt

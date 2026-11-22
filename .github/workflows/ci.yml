@@ -310,6 +310,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-overview-mention.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-samme-som-retning.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-person-offentlig-gruppe.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-review37-b3-gate.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-person-source-coordinates.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-paastand-rettelse.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-ocr-paastand.sql
@@ -739,11 +740,11 @@ jobs:
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         # f37b294a = #363, prods installerede SQL; origin/main har fuld personsletning, som ikke er i prod.
         run: bash tests/sql/test-record-persona-upgrade.sh cirecord_persona_upgrade f37b294a
-      - name: Opgradering fra prods skema (review 37 blok 2 · D1, D3, D5, D12 · blok + backfill)
+      - name: Opgradering fra prods skema (review 37 blok 3 · S4, D5a, D5b · gate + tabel-CHECKs)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
-        # 974a6773 = blok 1's head (#434) — prods skema, når blok 1 er anvendt. Fastlås igen efter merge af #434, hvis
-        # den squash-merges (committen kan så forsvinde). Blok 1's test er pensioneret (tests/ikke-i-ci.txt).
-        run: bash tests/sql/test-review37-b2-upgrade.sh ci_r37b2_upgrade 974a6773
+        # c356e838 = main efter merge af #436 (blok 2) — prods SQL, når blok 2 er anvendt. Blok 2's test er pensioneret
+        # (tests/ikke-i-ci.txt).
+        run: bash tests/sql/test-review37-b3-upgrade.sh ci_r37b3_upgrade c356e838
       - name: Fuld personsletning · fixtur, tæller og katalogvagt pr. kolonne
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         run: bash tests/sql/test-person-purge.sh ciperson_purge
