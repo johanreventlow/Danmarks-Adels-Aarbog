@@ -12,21 +12,37 @@
 #  NYE afhængigheder (ikke ellers brugt i R-koden): httr2, jsonlite.
 #  Nominatim-brugsvilkår: max 1 request/sekund + reel User-Agent. Overhold dem —
 #  scriptet rate-limiter og cacher, så gentagne kørsler ikke rammer API'et igen.
+#  Kontakten i User-Agent læses fra GEO_CONTACT (~/.Renviron) — aldrig hardkodet (review 37 E11).
+#  Kun steder, som mindst én OFFENTLIG entitet bruger (entitet_offentlig), sendes ud: en bopæl,
+#  der kun kendes fra levende/private personer (fx præsenslisten), forlader aldrig maskinen.
+#  Netfejl caches ikke; kun et bekræftet tomt svar caches som »intet resultat«.
 #  Højere DK-præcision kan fås via DAWA/Dataforsyningen (dawa.aws.dk/steder) —
 #  bevidst ikke wiret her (kræver egen endpoint-tuning); Nominatim dækker DK+DE.
 # =====================================================================
-suppressPackageStartupMessages({ library(httr2); library(jsonlite) })
+suppressPackageStartupMessages({ library(httr2); library(jsonlite); library(DBI); library(RPostgres) })
 source(file.path(normalizePath("."), "R", "geo-enrich", "geo_helpers.R"))
+source(file.path(normalizePath("."), "R", "tng-qa", "02-pull-ours.R")) # connect_readonly, assert_readonly
 
 cw_csv    <- "data/geo-crosswalk.csv"
 cand_csv  <- "data/geo-geocode-candidates.csv"
 cache_csv <- "data/geo-geocode-cache.csv"
-UA <- "danmarks-adels-aarbog geo-enrich (kontakt: johan@reventlow.dk)"
+GEO_CONTACT <- Sys.getenv("GEO_CONTACT")
+if (!nzchar(GEO_CONTACT)) stop("Sæt GEO_CONTACT (kontakt til Nominatims User-Agent) i ~/.Renviron.")
+UA <- paste0("danmarks-adels-aarbog geo-enrich (kontakt: ", GEO_CONTACT, ")")
 BIAS_CC <- "dk,de" # slægten pendlede mellem Danmark og Holsten
 
 if (!file.exists(cw_csv)) stop("Kør run-geo-enrich.R først (mangler ", cw_csv, ").")
 cw <- read.csv(cw_csv, stringsAsFactors = FALSE, encoding = "UTF-8")
 todo <- cw[cw$tier == "none" & nzchar(trimws(cw$navn)), c("place_id", "navn"), drop = FALSE]
+
+# Kun steder med mindst én offentlig bruger må sendes til Nominatim (E11).
+scon <- connect_readonly(); assert_readonly(scon)
+offentlige <- dbGetQuery(scon, "SELECT DISTINCT f.sted_id AS place_id FROM fact f
+  WHERE f.sted_id IS NOT NULL AND public.entitet_offentlig(f.subjekt_type, f.subjekt_id) IS TRUE")$place_id
+dbDisconnect(scon)
+skjult <- !(as.numeric(todo$place_id) %in% as.numeric(offentlige))
+if (any(skjult)) message(sprintf("  %d steder uden offentlig bruger springes over (sendes ikke ud)", sum(skjult)))
+todo <- todo[!skjult, , drop = FALSE]
 if (!nrow(todo)) { message("Ingen tier=none-steder at geokode."); quit(save = "no") }
 
 # Cache: navn-nøgle -> lat/lon (så gentagne kørsler ikke geokoder igen).
@@ -44,8 +60,9 @@ geocode_one <- function(navn) {
       req_url_query(q = navn, format = "jsonv2", limit = 1, countrycodes = BIAS_CC) |>
       req_perform() |> resp_body_string() |> fromJSON(),
     error = function(e) { message("  geokod-fejl for '", navn, "': ", conditionMessage(e)); NULL })
-  res <- if (is.null(resp) || !length(resp) || is.null(nrow(resp)) || nrow(resp) == 0)
-    data.frame(lat = NA_real_, lon = NA_real_, display = NA_character_) else
+  tom <- data.frame(lat = NA_real_, lon = NA_real_, display = NA_character_)
+  if (is.null(resp)) return(tom) # netfejl: IKKE cachet, så næste kørsel prøver igen (E11)
+  res <- if (!length(resp) || is.null(nrow(resp)) || nrow(resp) == 0) tom else
     data.frame(lat = as.numeric(resp$lat[1]), lon = as.numeric(resp$lon[1]),
                display = as.character(resp$display_name[1]))
   cache[nrow(cache) + 1, ] <<- list(key, res$lat, res$lon, res$display)

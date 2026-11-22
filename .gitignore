@@ -13,8 +13,8 @@ dist/
 web/test-results/
 web/playwright-report/
 .env
-.env.local
-.env.*.local
+.env.*
+!.env*.example
 *.local
 jr_tng_reventlow.sql
 # Afledt analyse af TNG-dumpet — kan indeholde levende-persondata (GDPR, invariant #8)
@@ -31,12 +31,19 @@ data/geo-crosswalk.*.bak.csv
 data/geo-geocode-candidates.csv
 data/geo-geocode-cache.csv
 
-# DAA-udtræk arbejdsmappe (kan indeholde levende-persondata)
+# DAA-udtræk arbejdsmappe (kan indeholde levende-persondata). Mønstret fanger også nye work_*-mapper
+# (review 37 C6); de navngivne linjer bevares som dokumentation.
 work/
+work_*/
 work_presens/
 work_presens_1939/
 work_1939_stamtavle/
 work_2018_saerudgave/
+
+# Databasedumps (PII — invariant 8). Dumps ligger uden for repoet (fx ~/.private), aldrig i git.
+*.dump
+*.sql.gz
+*.backup
 
 # Kilde-PDF'er (store, ophavsret) — ikke i repo
 *.pdf

@@ -136,7 +136,7 @@ writer_validate_ci_history_contract <- function(workflow) {
     steps <- workflow$jobs[[job_name]]$steps %||% list()
     for (step_index in seq_along(steps)) {
       step <- steps[[step_index]]
-      if (identical(step$uses %||% "", "actions/checkout@v4") &&
+      if (step$uses %||% "" %in% c("actions/checkout@v4", "actions/checkout@11d5960a326750d5838078e36cf38b85af677262") &&
           identical(as.integer(step$with[["fetch-depth"]] %||% NA_integer_), 0L)) {
         full_history[[length(full_history) + 1L]] <- list(job = job_name, step = step_index)
       }

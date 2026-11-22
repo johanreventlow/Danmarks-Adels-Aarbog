@@ -14,6 +14,8 @@ mønster som `R/tng-qa/`.
 - `jr_tng_reventlow.sql` i repo-rod (git-ignoreret MySQL-dump — samme fil som `R/tng-qa` bruger).
 - `~/.Renviron`: `SUPABASE_HOST`, `SUPABASE_USER`, `SUPABASE_PASSWORD` (+ evt. `SUPABASE_DB`,
   `SUPABASE_PORT`). Byg-crosswalken er read-only; **`--apply` kræver en skrive-rolle.**
+- Geokodning (`03-geocode.R`) kræver desuden `GEO_CONTACT` i `~/.Renviron` (kontakt til Nominatims User-Agent).
+  Kun steder med mindst én offentlig bruger sendes ud; netfejl caches ikke (review 37 E11).
 - Pakker: `DBI`, `duckdb`, `RPostgres`, `stringi`, `stringdist` (geokodning også: `httr2`, `jsonlite`).
 
 ## Kør
