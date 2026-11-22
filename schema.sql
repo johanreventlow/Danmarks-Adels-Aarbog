@@ -3145,6 +3145,10 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_set->'items') x WHERE (x->>'eligible')::boolean) THEN RETURN 0; END IF;
   PERFORM public.begin_change_set('placement_membership','placement-membership-v1 source '||p_source_id);
+  -- Review 37 D1: hvert medlemskab regenererer personens visning (UPDATE person). Personerne låses i id-orden før
+  -- medlemskaberne, i personsletningens rækkefølge (person før medlemskab), så de to ikke deadlocker.
+  PERFORM 1 FROM public.person WHERE id IN (SELECT (x->>'person_id')::bigint FROM jsonb_array_elements(v_set->'items') x
+                                             WHERE (x->>'eligible')::boolean) ORDER BY id FOR NO KEY UPDATE;
   FOR i IN SELECT x FROM jsonb_array_elements(v_set->'items') x WHERE (x->>'eligible')::boolean LOOP
     v_basis:=private.membership_state((i->>'persona_placement_id')::uuid)
              ||jsonb_build_object('state_sha256',i->>'state_sha256','source_id',p_source_id);
@@ -3179,6 +3183,9 @@ BEGIN
     RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_CHANGE_SET';
   END IF;
   IF btrim(coalesce(p_note,''))='' THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_NOTE_REQUIRED'; END IF;
+  -- Review 37 D1: sletningen regenererer personens visning (UPDATE person via trg_lineage_membership_regen). Personen
+  -- låses før medlemskabet, i personsletningens rækkefølge (person før medlemskab), så de to ikke deadlocker.
+  PERFORM 1 FROM public.person WHERE id=p_person_id FOR NO KEY UPDATE;
   SELECT source_basis INTO b FROM public.person_lineage_membership
    WHERE person_id=p_person_id AND lineage_id=p_lineage_id FOR UPDATE;
   IF b IS NULL OR b->>'rule_version' IS DISTINCT FROM 'placement-membership-v1' THEN

@@ -30,7 +30,7 @@ awk '$0=="-- BEGIN review37-b2" {p=1} p{print} $0=="-- END review37-b2" {p=0}' d
 [ "$(head -1 "$tmp/blok.sql")" = "-- BEGIN review37-b2" ] && [ "$(tail -1 "$tmp/blok.sql")" = "-- END review37-b2" ] \
   || fail "blokken review37-b2 mangler eller er ikke afsluttet"
 names=$(grep -oE '^CREATE OR REPLACE FUNCTION [a-z_]+\.[a-z0-9_]+' "$tmp/blok.sql" | awk '{print $5}' | sort -u | tr '\n' ' ')
-[ "$(wc -w <<<"$names")" -eq 7 ] || fail "forventede 7 funktioner i blokken, fandt: $names"
+[ "$(wc -w <<<"$names")" -eq 9 ] || fail "forventede 9 funktioner i blokken, fandt: $names"
 list=$(for n in $names; do printf "'%s'," "$n"; done); list=${list%,}
 # Deploy-transaktionen: før-billede, blok, backfill + kontrol. $2 = forventet antal ændrede personer.
 deploy() { env -u PGOPTIONS psql -X -q -1 -v ON_ERROR_STOP=1 -v forventet="$2" -d "$1" \
@@ -69,7 +69,7 @@ build_start() { createdb "$1"; q "$1" -f tests/sql/evidence-promotion-bootstrap.
 # 1) Frisk reference.
 build_start "$dbf"; q "$dbf" -f schema.sql; q "$dbf" -f db-rls.sql
 fresh=$(sha "$dbf"); kat "$dbf" "$tmp/kat-fresh.txt"
-[ "$(wc -l <<<"$fresh")" -eq 7 ] || fail "referencen mangler funktioner: $names"
+[ "$(wc -l <<<"$fresh")" -eq 9 ] || fail "referencen mangler funktioner: $names"
 
 # 2) Prod-formet base med fixtur, og enhederne er røde på den.
 build_prod() { build_start "$1"
@@ -137,6 +137,8 @@ delta=$(LC_ALL=C comm -3 <(LC_ALL=C sort "$tmp/kat-foer.txt") <(LC_ALL=C sort "$
 forventet=$(LC_ALL=C sort <<'EOF'
 fn|private.person_visnings_fakt(bigint,text)
 fn|red_opret_fakta(text,bigint,text,text,date,date,text,text,text)
+fn|red_promote_placement_memberships(bigint,text)
+fn|red_reverse_placement_membership(bigint,bigint,text)
 fn|red_tilfoej_oplysning(bigint,text,date,date,text,text,text)
 fn|red_upsert_fakta(text,bigint,text,text,date,date,text,text,text)
 fn|regen_person_visning(bigint)
@@ -146,7 +148,7 @@ trg|lineage.trg_lineage_regen
 trg|person_lineage_membership.trg_lineage_membership_regen
 EOF
 )
-[ "$delta" = "$forventet" ] || { diff <(echo "$forventet") <(echo "$delta") >&2 || true; fail "katalog-delta er ikke de 9 forventede objekter"; }
+[ "$delta" = "$forventet" ] || { diff <(echo "$forventet") <(echo "$delta") >&2 || true; fail "katalog-delta er ikke de 11 forventede objekter"; }
 bash tests/sql/check-catalog-parity.sh "$tmp/kat-fresh.txt" "$tmp/kat-efter.txt" >/dev/null \
   || { bash tests/sql/check-catalog-parity.sh "$tmp/kat-fresh.txt" "$tmp/kat-efter.txt" || true; fail "kataloget efter blokken ≠ frisk schema.sql"; }
 cache_efter=$(cache "$dbp")

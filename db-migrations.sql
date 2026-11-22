@@ -47023,6 +47023,81 @@ CREATE OR REPLACE TRIGGER trg_lineage_membership_regen
   AFTER INSERT OR DELETE OR UPDATE OF person_id, lineage_id, role ON public.person_lineage_membership
   FOR EACH ROW EXECUTE FUNCTION public.trg_regen_from_lineage_membership();
 
+-- D1: promotion og reversal låser personen før medlemskabet (som personsletningen), da medlemskabstriggeren nu
+-- opdaterer personrækken.
+CREATE OR REPLACE FUNCTION public.red_promote_placement_memberships(p_source_id bigint,p_preview_sha256 text)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_set jsonb; i jsonb; v_basis jsonb; v_n integer:=0; v_rows bigint; v_foreign bigint;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_CHANGE_SET';
+  END IF;
+  v_set:=private.placement_membership_set(p_source_id);
+  IF v_set->>'preview_sha256' IS DISTINCT FROM p_preview_sha256 THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_PREVIEW_DRIFT'; END IF;
+  SELECT min((x->>'person_id')::bigint) INTO v_foreign FROM jsonb_array_elements(v_set->'items') x
+   WHERE EXISTS (SELECT 1 FROM public.person_lineage_membership l
+                  WHERE l.person_id=(x->>'person_id')::bigint AND l.lineage_id=(x->>'lineage_id')::bigint
+                    AND l.source_basis->>'source_id' IS DISTINCT FROM p_source_id::text)
+      OR EXISTS (SELECT 1 FROM public.person_slaegt_membership m
+                  WHERE m.person_id=(x->>'person_id')::bigint AND m.slaegt_id=(x->>'slaegt_id')::bigint
+                    AND m.source_basis->>'source_id' IS DISTINCT FROM p_source_id::text);
+  IF v_foreign IS NOT NULL THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE: %',v_foreign; END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_set->'items') x WHERE x->>'reason_code'='conflict') THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_CONFLICT';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_set->'items') x WHERE (x->>'eligible')::boolean) THEN RETURN 0; END IF;
+  PERFORM public.begin_change_set('placement_membership','placement-membership-v1 source '||p_source_id);
+  -- Review 37 D1: hvert medlemskab regenererer personens visning (UPDATE person). Personerne låses i id-orden før
+  -- medlemskaberne, i personsletningens rækkefølge (person før medlemskab), så de to ikke deadlocker.
+  PERFORM 1 FROM public.person WHERE id IN (SELECT (x->>'person_id')::bigint FROM jsonb_array_elements(v_set->'items') x
+                                             WHERE (x->>'eligible')::boolean) ORDER BY id FOR NO KEY UPDATE;
+  FOR i IN SELECT x FROM jsonb_array_elements(v_set->'items') x WHERE (x->>'eligible')::boolean LOOP
+    v_basis:=private.membership_state((i->>'persona_placement_id')::uuid)
+             ||jsonb_build_object('state_sha256',i->>'state_sha256','source_id',p_source_id);
+    INSERT INTO public.person_lineage_membership(person_id,lineage_id,role,source_basis)
+      VALUES ((i->>'person_id')::bigint,(i->>'lineage_id')::bigint,'member',v_basis)
+      ON CONFLICT (person_id,lineage_id) DO UPDATE SET role='member',source_basis=excluded.source_basis
+        WHERE person_lineage_membership.source_basis->>'source_id'=excluded.source_basis->>'source_id';
+    GET DIAGNOSTICS v_rows=ROW_COUNT;
+    IF v_rows=0 THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE: %',i->>'person_id'; END IF;
+    INSERT INTO public.person_slaegt_membership(person_id,slaegt_id,membership_kind,source_basis)
+      VALUES ((i->>'person_id')::bigint,(i->>'slaegt_id')::bigint,'agnatic',v_basis)
+      ON CONFLICT (person_id,slaegt_id) DO UPDATE SET membership_kind='agnatic',source_basis=excluded.source_basis
+        WHERE person_slaegt_membership.source_basis->>'source_id'=excluded.source_basis->>'source_id';
+    GET DIAGNOSTICS v_rows=ROW_COUNT;
+    IF v_rows=0 THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE: %',i->>'person_id'; END IF;
+    v_n:=v_n+1;
+  END LOOP;
+  PERFORM set_config('app.change_set_id','',true);
+  RETURN v_n;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_reverse_placement_membership(p_person_id bigint,p_lineage_id bigint,p_note text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE b jsonb;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_CHANGE_SET';
+  END IF;
+  IF btrim(coalesce(p_note,''))='' THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_NOTE_REQUIRED'; END IF;
+  -- Review 37 D1: sletningen regenererer personens visning (UPDATE person via trg_lineage_membership_regen). Personen
+  -- låses før medlemskabet, i personsletningens rækkefølge (person før medlemskab), så de to ikke deadlocker.
+  PERFORM 1 FROM public.person WHERE id=p_person_id FOR NO KEY UPDATE;
+  SELECT source_basis INTO b FROM public.person_lineage_membership
+   WHERE person_id=p_person_id AND lineage_id=p_lineage_id FOR UPDATE;
+  IF b IS NULL OR b->>'rule_version' IS DISTINCT FROM 'placement-membership-v1' THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_NOT_FOUND';
+  END IF;
+  PERFORM public.begin_change_set('placement_membership_reversal',btrim(p_note),'person',p_person_id);
+  DELETE FROM public.person_lineage_membership WHERE person_id=p_person_id AND lineage_id=p_lineage_id;
+  DELETE FROM public.person_slaegt_membership
+   WHERE person_id=p_person_id AND slaegt_id=(b->>'slaegt_id')::bigint
+     AND source_basis->>'persona_placement_id'=b->>'persona_placement_id';
+  PERFORM set_config('app.change_set_id','',true);
+END $$;
+
 -- D1 + D12: linjetriggeren finder også medlemskabets personer og dækker sletning og ændret kode/kilde.
 CREATE OR REPLACE FUNCTION public.trg_regen_from_lineage()
 RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
