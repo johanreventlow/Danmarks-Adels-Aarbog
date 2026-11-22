@@ -1,6 +1,9 @@
 {
   "name": "daa-folgesvend-web",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "version": "0.0.1",
   "type": "module",
   "description": "Første tynde app-skive: viser én person med lagdelte evidens-data fra Supabase.",
