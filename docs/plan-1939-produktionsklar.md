@@ -182,7 +182,7 @@ Følger `docs/fase4-runbook.md`.
 - [ ] **B3 — Trin 1: Deploy `db-migrations.sql`** (Problem 2-skema: `objekt_type`, `family_member`-slot,
       vokabular; additiv/idempotent). `source.aar` ender på 2020.
 - [ ] **B4 — Trin 1b: Deploy `db-rls.sql`** (F-01 + F-02 sikkerhedsfixes; gen-anvendes ikke af Trin 1).
-- [ ] **B5 — Trin 2: Backfill `db-backfill-foraeldrefamilie.sql`** (fail-closed, single-edition-only).
+- [ ] **B5 — Trin 2: Backfill `docs/historik/sql/db-backfill-foraeldrefamilie.sql`** (fail-closed, single-edition-only).
 - [ ] **B6 — Trin 3: Verificér `db-verify.sql`** + kør `get_advisors(security)` efter DDL (jf. memory-regel).
       Bekræft forældrefamilie-slots + P1-invariant.
 

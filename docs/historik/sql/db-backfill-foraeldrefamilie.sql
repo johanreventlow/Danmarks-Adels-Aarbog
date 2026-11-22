@@ -12,6 +12,11 @@
 -- KØR KUN mod en base hvor ALLE 'barn'-rækker stammer fra DAA 2018-20 (prod / ren single-edition-
 -- kopi). Nedenstående prætjek ABORTER hvis en anden udgaves barn-række detekteres — men bekræft
 -- ALLIGEVEL manuelt (source-listen) før kørsel mod prod (ingen backup).
+-- ARKIVERET (review 37 D6, 2026-11-22): engangsscript fra juli-cutoveren (Problem 2 / Fase 4). Kørt i dag ville det
+-- skrive forældre-evidens ud fra forudsætninger (én udgave), der ikke længere gælder. Spærret: første sætning
+-- fejler, og resten af filen køres ikke.
+\set ON_ERROR_STOP on
+DO $$ BEGIN RAISE EXCEPTION 'ARKIVERET (review 37 D6): må ikke køres'; END $$;
 DO $$
 DECLARE v_src bigint;
 BEGIN

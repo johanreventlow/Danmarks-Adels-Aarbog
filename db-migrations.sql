@@ -2526,10 +2526,11 @@ WHERE f.subjekt_type='person' AND f.faktatype='forældrefamilie'
 GROUP BY f.subjekt_id, f.id
 HAVING count(DISTINCT a.objekt_id) > 1;
 
--- 5. Backfill af forældre-evidens: FLYTTET til db-backfill-foraeldrefamilie.sql (review 30/Fase 4).
+-- 5. Backfill af forældre-evidens: FLYTTET til docs/historik/sql/db-backfill-foraeldrefamilie.sql (review 30/Fase 4;
+--    arkiveret og spærret ved review 37 D6).
 -- Backfillen er en DELIBERAT engangs-datahandling med fail-open-risiko mod multi-edition-baser og
 -- hører derfor IKKE i den idempotente skema-afstemning (der ellers auto-kørte den ved hver anvendelse).
--- Kør db-backfill-foraeldrefamilie.sql separat EFTER denne migration + EFTER single-edition er bekræftet
+-- Den skulle køres separat EFTER denne migration + EFTER single-edition er bekræftet
 -- (filen har nu en external_id-baseret multi-edition-abort ud over STRICT-kildeopslaget). Se docs/fase4-runbook.md.
 
 -- =====================================================================

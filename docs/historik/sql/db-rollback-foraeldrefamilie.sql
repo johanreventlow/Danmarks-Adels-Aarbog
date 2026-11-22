@@ -18,6 +18,10 @@
 -- red_set_konklusion/red_edit_oplysning/red_slet_oplysning (de tjekker kun faktatype-strengen
 -- 'forældrefamilie', refererer ingen droppede kolonner → harmløs død kode uden slot-data/-vocab).
 BEGIN;
+-- ARKIVERET (review 37 D6, 2026-11-22): engangsscript fra juli-cutoveren (Problem 2 / Fase 4). Kørt i dag ville det
+-- ødelægge data og genskabe forældede funktioner. Spærret: første sætning fejler, og resten af filen køres ikke.
+\set ON_ERROR_STOP on
+DO $$ BEGIN RAISE EXCEPTION 'ARKIVERET (review 37 D6): må ikke køres'; END $$;
 
 -- 1) slet backfill/slot-data (FK-ordnet: conclusion → citation → assertion → fact)
 DELETE FROM conclusion WHERE target_type='fact' AND target_id IN
