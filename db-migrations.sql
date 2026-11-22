@@ -48340,3 +48340,35 @@ END $$;
 REVOKE ALL ON FUNCTION public.red_slettede_personer(integer) FROM PUBLIC, anon, authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.red_slettede_personer(integer) TO authenticated;
 -- END review37-p11
+
+-- BEGIN review37-b4
+-- Review 37 blok 4 (#397): konklusion og ændringssæt i redaktionens RPC'er.
+--  D4  red_set_konklusion gør konklusionen gyldig ('afklaret'), også en tilbagetrukket eller omstridt (projektejeren
+--      2026-11-22: samme regel som red_upsert_fakta og red_vaelg_foraeldre).
+-- Deploy-området for prod er hele denne blok i ÉN transaktion. Kroppene er kopieret fra schema.sql og er de endelige
+-- definitioner; de ældre definitioner længere oppe gælder kun den fulde migrationssti. Idempotent: CREATE OR REPLACE med
+-- samme signatur og returtype bevarer funktionernes ACL. Ingen data ændres.
+CREATE OR REPLACE FUNCTION red_set_konklusion(p_assertion_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_target_type text; v_target_id bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF (SELECT f.faktatype FROM assertion a JOIN fact f ON f.id=a.target_id AND a.target_type='fact' WHERE a.id=p_assertion_id) = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Forældrefamilie-slottets konklusion vælges kun via red_vaelg_foraeldre (bevarer projektion/invariant P1)';
+  END IF;
+  PERFORM begin_change_set('red_set_konklusion', format('Satte konklusion til oplysning %s', p_assertion_id), NULL, NULL);
+  SELECT target_type, target_id INTO v_target_type, v_target_id
+    FROM assertion WHERE id = p_assertion_id;
+  IF v_target_id IS NULL THEN RAISE EXCEPTION 'Ukendt assertion %', p_assertion_id; END IF;
+  -- Cycle 02: upsert frem for UPDATE — et fact m. assertions men ingen conclusion (importeret/
+  -- delvist) ville ellers give silent no-op (0 rækker) + falsk success.
+  -- Review 37 D4: valget er redaktørens afgørelse og gør konklusionen gyldig ('afklaret'), også en tilbagetrukket eller
+  -- omstridt (samme regel som red_upsert_fakta og red_vaelg_foraeldre; projektejeren 2026-11-22). Før blev status
+  -- stående, så en tilbagetrukket konklusion forblev skjult, mens kaldet meldte succes.
+  INSERT INTO conclusion(target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
+    VALUES (v_target_type, v_target_id, p_assertion_id,
+            'afklaret', 'Redaktør', current_date)
+    ON CONFLICT (target_type, target_id)
+    DO UPDATE SET valgt_assertion_id = excluded.valgt_assertion_id, status = 'afklaret', blaastemplet_naar = current_date;
+END $$;
+-- END review37-b4

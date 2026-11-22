@@ -9754,6 +9754,85 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 -- END-VERIFY r37p11
 
+-- BEGIN-VERIFY r37d4
+-- ===== Review 37 D4: »Gør til konklusion« gør konklusionen gyldig igen =====
+-- red_set_konklusion er redaktørens eksplicitte valg og sætter derfor status 'afklaret' uanset den gamle status (samme
+-- regel som red_upsert_fakta og red_vaelg_foraeldre; projektejeren 2026-11-22). Før rettelsen skiftede kaldet kun den
+-- valgte påstand: en tilbagetrukket konklusion forblev tilbagetrukket og skjult, og kaldet meldte succes. Testen kræver
+-- den synlige effekt (visningscachen), ikke kun kolonnen: tilbagetrukket navn → valg af en anden oplysning → navnet vises;
+-- tilbagetrukket igen → valg af den SAMME oplysning → vises igen. En omstridt relationskonklusion bliver også afklaret.
+-- ACL: kun authenticated (og ejeren) må kalde. Kaldt som ejer med en redaktør-uid.
+DO $$
+DECLARE
+  v_fact bigint; v_a1 bigint; v_a2 bigint; v_rel bigint; v_ra bigint; v_st text; v_valgt bigint; v_navn text;
+  v_acl text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO person(id,levende,privat,staged) VALUES (-937401,false,false,false),(-937402,false,false,false);
+
+  v_fact := (red_upsert_fakta('person',-937401,'navn','Verify Første D4')->>'fact_id')::bigint;
+  PERFORM set_config('app.change_set_id','',true);
+  v_a1 := (SELECT valgt_assertion_id FROM conclusion WHERE target_type='fact' AND target_id=v_fact);
+  v_a2 := (red_tilfoej_oplysning(v_fact,'Verify Anden D4')->>'assertion_id')::bigint;
+  PERFORM set_config('app.change_set_id','',true);
+  IF v_a1 IS NULL OR v_a2 IS NULL OR v_a1 = v_a2 THEN
+    RAISE EXCEPTION 'FEJL: D4 — fixturen gav ikke to påstande på ét faktum (a1=%, a2=%)', v_a1, v_a2; END IF;
+  IF (SELECT visning_navn FROM person WHERE id=-937401) IS DISTINCT FROM 'Verify Første D4' THEN
+    RAISE EXCEPTION 'FEJL: D4 — fixturen viste ikke navnet før tilbagetrækningen'; END IF;
+
+  -- 1) Tilbagetrukket → valg af en ANDEN oplysning.
+  PERFORM red_tilbagetraek_fakta(v_fact);
+  PERFORM set_config('app.change_set_id','',true);
+  IF (SELECT visning_navn FROM person WHERE id=-937401) IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: D4 — fixturen: det tilbagetrukne navn vises stadig'; END IF;
+  PERFORM red_set_konklusion(v_a2);
+  PERFORM set_config('app.change_set_id','',true);
+  SELECT status, valgt_assertion_id INTO v_st, v_valgt FROM conclusion WHERE target_type='fact' AND target_id=v_fact;
+  v_navn := (SELECT visning_navn FROM person WHERE id=-937401);
+  IF v_st IS DISTINCT FROM 'afklaret' OR v_valgt IS DISTINCT FROM v_a2 OR v_navn IS DISTINCT FROM 'Verify Anden D4' THEN
+    RAISE EXCEPTION 'FEJL: D4 — valg på en tilbagetrukket konklusion: status %, valgt % (forventet %), vist navn «%»',
+      v_st, v_valgt, v_a2, v_navn; END IF;
+
+  -- 2) Tilbagetrukket → valg af den SAMME oplysning.
+  PERFORM red_tilbagetraek_fakta(v_fact);
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_set_konklusion(v_a2);
+  PERFORM set_config('app.change_set_id','',true);
+  SELECT status INTO v_st FROM conclusion WHERE target_type='fact' AND target_id=v_fact;
+  v_navn := (SELECT visning_navn FROM person WHERE id=-937401);
+  IF v_st IS DISTINCT FROM 'afklaret' OR v_navn IS DISTINCT FROM 'Verify Anden D4' THEN
+    RAISE EXCEPTION 'FEJL: D4 — genvalg af den tilbagetrukne oplysning: status %, vist navn «%»', v_st, v_navn; END IF;
+
+  -- 3) En omstridt relationskonklusion: redaktørens valg afklarer den.
+  INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('person',-937401,'person',-937402,'verify_d4') RETURNING id INTO v_rel;
+  INSERT INTO assertion(target_type,target_id,vaerdi_tekst,uforanderlig) VALUES ('relation',v_rel,'verify_d4',true)
+    RETURNING id INTO v_ra;
+  INSERT INTO conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('relation',v_rel,v_ra,'omstridt');
+  PERFORM red_set_konklusion(v_ra);
+  PERFORM set_config('app.change_set_id','',true);
+  SELECT status INTO v_st FROM conclusion WHERE target_type='relation' AND target_id=v_rel;
+  IF v_st IS DISTINCT FROM 'afklaret' THEN
+    RAISE EXCEPTION 'FEJL: D4 — valg på en omstridt relationskonklusion gav status %', v_st; END IF;
+
+  -- ACL: uændret (ingen anon, ingen PUBLIC).
+  SELECT coalesce(p.proacl::text,'NULL') INTO v_acl FROM pg_proc p WHERE p.oid='public.red_set_konklusion(bigint)'::regprocedure;
+  IF has_function_privilege('anon','public.red_set_konklusion(bigint)','EXECUTE')
+     OR NOT has_function_privilege('authenticated','public.red_set_konklusion(bigint)','EXECUTE') THEN
+    RAISE EXCEPTION 'FEJL: D4 — red_set_konklusion har forkert ACL: %', v_acl; END IF;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D4 — »Gør til konklusion« gør konklusionen gyldig igen';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37d4
+
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt
 -- request.jwt.claim.sub; i Supabase SQL Editor kør som funktionsejer (jf. Task 4-note).

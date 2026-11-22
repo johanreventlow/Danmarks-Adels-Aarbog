@@ -7105,11 +7105,14 @@ BEGIN
   IF v_target_id IS NULL THEN RAISE EXCEPTION 'Ukendt assertion %', p_assertion_id; END IF;
   -- Cycle 02: upsert frem for UPDATE — et fact m. assertions men ingen conclusion (importeret/
   -- delvist) ville ellers give silent no-op (0 rækker) + falsk success.
+  -- Review 37 D4: valget er redaktørens afgørelse og gør konklusionen gyldig ('afklaret'), også en tilbagetrukket eller
+  -- omstridt (samme regel som red_upsert_fakta og red_vaelg_foraeldre; projektejeren 2026-11-22). Før blev status
+  -- stående, så en tilbagetrukket konklusion forblev skjult, mens kaldet meldte succes.
   INSERT INTO conclusion(target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
     VALUES (v_target_type, v_target_id, p_assertion_id,
             'afklaret', 'Redaktør', current_date)
     ON CONFLICT (target_type, target_id)
-    DO UPDATE SET valgt_assertion_id = excluded.valgt_assertion_id, blaastemplet_naar = current_date;
+    DO UPDATE SET valgt_assertion_id = excluded.valgt_assertion_id, status = 'afklaret', blaastemplet_naar = current_date;
 END $$;
 
 -- PoC blød redigering: UPDATE assertion direkte (indkapslet — skift til insert-ny senere).
