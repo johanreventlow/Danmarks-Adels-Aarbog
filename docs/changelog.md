@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-22 — Review 37 blok 2 i prod: slægtsnavn fra linjemedlemskab, »Ret« rammer det viste, datotjek
+
+495 personer viser nu deres slægtsnavn, fordi navnet også hentes fra linjemedlemskab og ikke kun fra linjekoden; det
+holdes ajour, når medlemskaber og linjer ændres. »Ret« i redaktionen retter den oplysning, læseren faktisk ser, og navn,
+fødsel og død vises i bogens orden. Redigering afviser et datointerval, der slutter før det begynder, med en dansk
+fejltekst. En mulig fastlåsning mellem medlemskabs-writere og personsletning er fjernet. PR #436; DDL og backfill i prod
+22/11 (`database-current-state.md` §42).
+
 ## 2026-11-22 — Review 37 blok 1 i prod: fortryd af ældre ændringer, udgavehistorik, bogmærke-værn
 
 Redaktionen kan nu fortryde ældre ændringer, der hidtil kun kunne tvinges igennem, fordi en kolonne var kommet til
