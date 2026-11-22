@@ -18945,6 +18945,7 @@ DECLARE
     'public.red_slet_person_preview(bigint)'::regprocedure,
     to_regprocedure('public.red_slet_person_helt(bigint,text)'),  -- Task 8b, defineres sidst
     to_regprocedure('public.red_slet_person_helt_preview(bigint)'),  -- personsletning Task 7; defineres sidst i filen
+    to_regprocedure('public.red_slettede_personer(integer)'),  -- review 37 P11; defineres i blokken review37-p11 sidst i filen
     to_regprocedure('public.red_person_purge_udbakke()'),  -- Task 12, defineres sidst
     to_regprocedure('public.red_person_purge_udbakke_kvitter(text,text)'),
     'public.red_slet_relation(bigint)'::regprocedure,
