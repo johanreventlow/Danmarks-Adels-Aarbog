@@ -11,6 +11,13 @@ prod-ændring; der skrives ikke tillæg (opdateringsreglen nederst). Det gamle d
 
 ## Aktivt programmål
 
+**Intet aktivt programmål: beslutningspunktet efter trin 6 afventer projektejeren.** Trin 6's færdigbevis
+(a)-(c) er nået: 6a-6e er i prod 2026-10-30—2026-11-14, og det sidste punkt (tunge personsider som `anon`) er målt
+2026-11-22 ([færdigbevis](trin6-faerdigbevis.md); decisions 2026-11-22). Projektets mål slutter med trin 6 (decisions
+2026-10-28). Udfaldet (stop, fortsæt med 7a eller forelæg foreningen en fortsættelse) er ikke afgjort.
+
+## Trin 6 — forløb (afsluttet)
+
 **Trin 6-spec'en:** 1939 gennem de samme operationer som 2018-20 (roadmap trin 6, færdigbevis a-c), opdelt i
 delspecs 6a-6e ([spec](../superpowers/specs/2026-10-29-trin6-1939-gennem-kaeden-design.md) §5). **6a er i prod
 2026-10-30:** 1939's klausuler er skrevet, og kildetekst-revisionen er bygget og bevist, men ikke anvendt på prod-data.
@@ -87,7 +94,7 @@ Tilladte tilstande: `specificeret`, `isoleret implementeret`, `integreret ende-t
 | Læsere på placement/membership (5c-2) | `produktionsverificeret` 2026-10-29 (GO 5c2 `bb1678f9`: 1.113 koordinater, 530 fra placement, 583 legacy; diff mod legacy 37 felter = forventet, træparitet ok; browsertjek som anon) | `produktionsverificeret` 2026-11-14 (6e-2: 1939's koordinater fra placement med bogens nøgle og trykte side, 561 rækker med side, højeste 92; 0 `record-`/`legacy-source:` som anon; stikprøve 5/5 mod bogen; [færdigbevis](laeserflade-6e2-prod.md)) |
 | Læserflade: fakta med kildehenvisning (B11) | `produktionsverificeret` 2026-10-29 (6.473 fakta-rækker over alle offentlige personer: 622 bundet til bogens post, 5.765 fra importen, 86 uden kilde; 0 bindinger falder ud; PostgREST-gate og browsertjek som anon). Læserkaldet koster op til ~1,9 s pr. person mod anons 3 s (vej B). 2026-11-12: kilde 1's fødsler med postens koordinat 67 → 334 og dødsfald 88 → 330 (datobindingerne); særskilt måling af de 10 tungeste 2018-20-personers fakta-kald: median ≤ 137 ms; browsertjek som anon || `produktionsverificeret` 2026-11-14 (6e-1 viser 1939's fakta som valgt udgave eller note; 6e-2: fakta-kilden med »DAA 1939, s. N«; bundne fakta (2.264) og offentlige biografier (1.100) uændrede; browsertjek som anon) |
 | C3 reversal | — | `integreret ende-til-ende` (ikke udført i prod). C3's 5 sager (2026-08-29) er siden grundlag for 6a-6e's 1939-data; om reversal stadig kan køres uden at bryde dem, er ikke vurderet, så den regnes ikke for en tilgængelig fortrydelse |
-| Trin 6 (1939 gennem kæden) | — | 6a i prod 2026-10-30; 6b's A og B i prod 2026-11-01; 6c-1 i prod 2026-11-02 (A, B og 6b's C efter retning 2); 6c-2 i prod 2026-11-06 (tilstand d); 6m del 1 i prod 2026-11-07 (268 narrativer revideret); 6m del 2 i prod 2026-11-07 (93 forslagsversioner, 14 påstandsrettelser, 37 bindinger); 6c-3 i prod 2026-11-08 (2018-20's A6b-rest: 14 genbundet, 2 tilbagetrukket); 6d-1 i prod 2026-11-09 (528 placements og medlemskaber); 6d-2a i prod 2026-11-10 (oversigtsregel, 1014 → 1048, 3 identiteter); 6d-2b i prod 2026-11-10 (indsnævret: 4 tekster trukket tilbage); 6d-3 i prod 2026-11-11 (69 relationsbindinger, 42 D-`samme_som`, 1791/1795 private); 6e-1 i prod 2026-11-12 (læseren viser valgt udgave forrest, [færdigbevis](laeserflade-6e1-prod.md)); 6e-2 i prod 2026-11-14 (1939's kildeetiket, trykte sider, koordinater; [færdigbevis](laeserflade-6e2-prod.md)) |
+| Trin 6 (1939 gennem kæden) | — | 6a i prod 2026-10-30; 6b's A og B i prod 2026-11-01; 6c-1 i prod 2026-11-02 (A, B og 6b's C efter retning 2); 6c-2 i prod 2026-11-06 (tilstand d); 6m del 1 i prod 2026-11-07 (268 narrativer revideret); 6m del 2 i prod 2026-11-07 (93 forslagsversioner, 14 påstandsrettelser, 37 bindinger); 6c-3 i prod 2026-11-08 (2018-20's A6b-rest: 14 genbundet, 2 tilbagetrukket); 6d-1 i prod 2026-11-09 (528 placements og medlemskaber); 6d-2a i prod 2026-11-10 (oversigtsregel, 1014 → 1048, 3 identiteter); 6d-2b i prod 2026-11-10 (indsnævret: 4 tekster trukket tilbage); 6d-3 i prod 2026-11-11 (69 relationsbindinger, 42 D-`samme_som`, 1791/1795 private); 6e-1 i prod 2026-11-12 (læseren viser valgt udgave forrest, [færdigbevis](laeserflade-6e1-prod.md)); 6e-2 i prod 2026-11-14 (1939's kildeetiket, trykte sider, koordinater; [færdigbevis](laeserflade-6e2-prod.md)). **Trin 6's færdigbevis (a)-(c) nået 2026-11-22** ([samlet færdigbevis](trin6-faerdigbevis.md)) |
 | Trin 7a, 7b | ikke påbegyndt; ingen spec | ikke påbegyndt |
 
 ## Gates før trin 6 (fra reviewet)
