@@ -22,7 +22,7 @@ Delbeviserne står i delspec'ernes færdigbeviser; her samles de, og det sidste 
 | Spec §8 (b) | Bevis |
 |---|---|
 | En sammenfoldet person åbner på 2018-20; 1939 viser 1939's fakta med »DAA 1939, s. N« | 6e-1 + 6e-2: Conrad (V-1) viser s. 52; [6e-2](laeserflade-6e2-prod.md) §8 |
-| En 1939-person uden 2018-20-modpart viser bundne 1939-fakta | 6e-1: person 927 |
+| En 1939-person uden 2018-20-modpart viser bundne 1939-fakta | 2026-11-22, læse-kun: person 1235 (ingen `samme_som`, kun 1939-narrativ) giver som `anon` 6 valgte fakta, heraf 4 bundet til 1939-posten med »DAA 1939, s. 57«. (6e-1's person 927 beviser kun »ingen vælger«: ét fakta, ubundet.) |
 | En rettet værdi viser bogens værdi og er bundet | 2026-11-22, læse-kun: påstand 11940 (person 1071, rettet `bogen_har_ret` fra »Dellev« til »Detlev«) er valgt og `afklaret`; `public_person_facts` som `anon` giver »Detlev« med `record_label` »I, nr. 2« og »DAA 1939, s. 31-32«. Browser som anon: `/person/1071` viderestiller til den samlede person 25; »Detlev« 1 gang, »Dellev« 0, ingen `record-`/`legacy-source:` |
 | En 1939-person har linje og nr. fra placement, ikke `linje='1939'` | 6e-2: 561 koordinater fra placement, ingen `record-`-etiket som anon |
 | Personsiden for de tungeste personer svarer under anons grænse med god margen | Målt 2026-11-22, se nedenfor |
@@ -31,7 +31,7 @@ Delbeviserne står i delspec'ernes færdigbeviser; her samles de, og det sidste 
 
 Anons grænse er `statement_timeout` = 3 s pr. kald. De tungeste sider er valgt **pr. samlet side** (`samme_som`-komponent,
 som læseren viser én side for): fakta, familierækker og narrativtegn summeret over komponentens rækker; top 12 plus
-tidligere målte tunge (149, 405, 442) og en let sammenligning (927).
+tidligere målte tunge (149, 405, 442), 306 fra en første optælling pr. række og en let sammenligning (927).
 
 **Serverens egen tid** (som `anon`, `EXPLAIN ANALYZE`, prod):
 
@@ -65,8 +65,9 @@ median; tiderne er klientens og rummer netværk og kø, fordi siden sender 31-46
 
 529 er målt i to runder (median fra anden, max over begge). **Dom: opfyldt.** 0 fejlede kald i 57 sideindlæsninger. Serverens tid for de tunge kald er 0,3-0,5 s mod grænsen på
 3 s. Ét klientmålt kald på 3,3 s (149, koldt første besøg) gentog sig ikke (1,4 s i næste runde) og gav ingen fejl.
-Sidens tid til »Fakta« (3,6-4,7 s) er den samme for den lette side som for de tunge, så den skyldes sidens faste antal
-kald, ikke personens mængde; det er en brugeroplevelse, ikke anons grænse.
+**Grænsen gælder pr. kald, ikke hele siden:** ingen personside viser »Fakta« under 3 s. Tiden (3,6-4,7 s) er den samme
+for den lette side (927: 4,1 s) som for de tunge, så den skyldes sidens faste 31-46 samtidige kald, ikke personens
+mængde. Det er en brugeroplevelse, ikke anons grænse, og står som kendt rest nedenfor.
 
 ## (c) To kilder
 
@@ -78,8 +79,21 @@ kald, ikke personens mængde; det er en brugeroplevelse, ikke anons grænse.
 Tallene pr. led står i [status.md](status.md)'s modenhedstabel. A6b-resten: 6c-3 (2026-11-08) rettede de 10 posters
 kildetekst og klausuler; I-84 er parkeret med synlig disposition (decisions 2026-10-29/30).
 
+## Status-punktet: 1939-kolonnen
+
+Spec'ens §8 hæver 1939-kolonnen led for led til `produktionsverificeret`. Tre celler er det ikke, og roadmappets
+(a)-(c) afhænger ikke af dem:
+
+- **Kildetekst-revision** (`isoleret implementeret`): 6a skulle kun bygge og bevise mekanismen (§6 pkt. 7); den er
+  `produktionsverificeret` for kilde 1 (6c-3), og (a) kræver ikke, at en 1939-helpost er revideret.
+- **Promotion — oprettelse** (—): oprettelse af nye personer, familier og fakta er opret-benet (B4), som hører til
+  fortsættelsen (decisions 2026-10-28 pkt. 3).
+- **C3 reversal** (`integreret ende-til-ende`): en fortrydelse af C3, ikke en operation i kæden.
+
 ## Kendte rester (ikke en del af færdigbeviset)
 
+- **Personsidens samlede tid:** ~4 s til »Fakta« for gæster, også på lette sider (31-46 samtidige kald). Hvert kald er
+  under anons grænse.
 - **Biografilæserens fart:** udskudt »til før projektets afslutning« (decisions 2026-11-10). Feedets biografier tager
   ~10 s (#422, åben); personsidens biografikald er inden for grænsen (decisions 2026-11-10: 209-487 ms).
 - **Stående forslag:** 1939: 25 forslag (23 uden faktum, 2 uden identitet), 203 ægteskaber, 5 forældre og 4 børn

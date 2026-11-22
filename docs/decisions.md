@@ -14,17 +14,22 @@ de tungeste personer svarer under anons grænse med god margen« var ikke målt.
 **Besluttet:**
 1. **Trin 6's færdigbevis (a)-(c) er nået** ([færdigbevis](evidensbaseret-genimport/trin6-faerdigbevis.md)). Målt
    2026-11-22 som `anon` mod prod: de tungeste sider pr. samlet side (`samme_som`-komponent), 57 sideindlæsninger og 0
-   fejlede kald; serverens tid for koordinatkaldet 336 ms og for den tungeste komponents fakta 484 ms mod grænsen 3 s.
-   En rettet værdi (1071: »Dellev« → »Detlev«, `bogen_har_ret`) er vist og bundet til bogens post.
+   fejlede kald; serverens tid for koordinatkaldet 336 ms og for den tungeste komponents fakta 484 ms mod grænsen 3 s
+   **pr. kald**. Hele siden viser »Fakta« efter 3,6-4,7 s, også en let side, fordi den sender 31-46 kald samtidig: et
+   brugeroplevelsesspørgsmål, ikke anons grænse (kendt rest). En rettet værdi (1071: »Dellev« → »Detlev«,
+   `bogen_har_ret`) er vist og bundet til bogens post; en 1939-person uden modpart (1235) viser 4 bundne 1939-fakta.
 2. **Beslutningspunktet er åbent.** Roadmap og status har intet aktivt programmål, før projektejeren vælger stop,
    fortsæt med 7a eller forelæg foreningen en fortsættelse; valget registreres som en ny post her. Indtil da gælder
    posten 2026-10-28 pkt. 4: arbejde, der kun tjener skalering, tages ikke ind.
-3. **Kendte rester følger med og skjules ikke** (færdigbevisets sidste afsnit): biografilæserens fart (udskudt »til før
-   projektets afslutning«, #422), stående forslag (1939: 25 forslag og 203/5/4 relationer; 2018-20: 59
+3. **Kendte rester følger med og skjules ikke** (færdigbevisets sidste afsnit): personsidens samlede tid (~4 s),
+   biografilæserens fart (udskudt »til før projektets afslutning«, #422), stående forslag (1939: 25 forslag og 203/5/4 relationer; 2018-20: 59
    `SKRIVEMAADE`), 6d-2b's kendte begrænsninger, #409, #388 og 1939's 16 `[NY]`-records (#160).
-4. **Tre ubrugte mekanismer er ikke mangler:** kildetekst-revision er bevidst ikke anvendt på 1939 (samme mekanisme som
-   kilde 1, i prod 2026-11-08); #244's rettelsesvej er en reserve, fordi fejlen aldrig opstod i prod; C3's reversal er
-   ikke udført og regnes ikke for en tilgængelig fortrydelse, efter at 6a-6e bygger på C3's sager.
+
+**Noteret (forslag, ikke afgjort af projektejeren):** tre deployede, ubrugte mekanismer beskrives i status som andet end
+mangler: kildetekst-revisionen er ikke anvendt på en 1939-helpost (samme mekanisme som kilde 1, i prod 2026-11-08);
+#244's rettelsesvej er en reserve, fordi fejlen aldrig opstod i prod; C3's reversal er ikke udført, og om den stadig
+kan køres uden at bryde senere 1939-data, er ikke vurderet, så den regnes ikke for en tilgængelig fortrydelse.
+
 ## BESLUTTET: et redaktionelt valg af konklusion gør den gyldig; et tilbagetrukket slot har ingen gældende konklusion (#397 D4+D10, 2026-11-22)
 
 > Projektejeren 22/11 (valgt blandt to: »altid gyldig« frem for »kun tilbagetrukket«): **»Gør til konklusion«
