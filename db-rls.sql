@@ -405,7 +405,8 @@ REVOKE ALL ON TABLE private.entity_description_source FROM PUBLIC,anon,authentic
 --   (1) afbildet-gating (GDPR/person) — media_afbilder_skjult/privat
 --   (2) rettigheds-gating (copyright/publikation) — media_rettigheder_ok
 -- Redaktion ser alt (additivt), uanset begge.
-grant select on table public.media to anon, authenticated;
+-- Gæsteadgang (anon) er kolonnevis: se review37-s8-blokken efter feed_pin nedenfor.
+grant select on table public.media to authenticated;
 alter table public.media enable row level security;
 drop policy if exists anon_read on public.media;
 create policy anon_read on public.media for select to anon
@@ -896,7 +897,8 @@ end $$;
 
 -- Levende feed fase 3: stories fail-closer som hændelser/personer. Kladder, private
 -- stories og stories om ikke-offentlige subjekter når aldrig publikum.
-grant select on table public.story to anon, authenticated;
+-- Gæsteadgang (anon) er kolonnevis: se review37-s8-blokken efter feed_pin nedenfor.
+grant select on table public.story to authenticated;
 revoke insert, update, delete, references, trigger, truncate on table public.story from anon, authenticated;
 alter table public.story enable row level security;
 drop policy if exists anon_read on public.story;
@@ -928,13 +930,45 @@ create policy redaktion_read on public.story_kilde for select to authenticated
   using ((select public.current_rolle()) = 'redaktion');
 
 -- feed_pin er ren kurering uden PII og skal kunne indlæses af hele klientmotoren.
-grant select on table public.feed_pin to anon, authenticated;
+-- Gæsteadgang (anon) er kolonnevis: se review37-s8-blokken lige nedenfor.
+grant select on table public.feed_pin to authenticated;
 revoke insert, update, delete, references, trigger, truncate on table public.feed_pin from anon, authenticated;
 alter table public.feed_pin enable row level security;
 drop policy if exists anon_read on public.feed_pin;
 create policy anon_read on public.feed_pin for select to anon using (true);
 drop policy if exists auth_read on public.feed_pin;
 create policy auth_read on public.feed_pin for select to authenticated using (true);
+
+-- Review 37 S8: gæster (anon) læser kun de kolonner, læseren bruger. Skjult for anon:
+--   story.skabt_af/godkendt_af/godkendt_naar (redaktørers bruger-id'er og tidspunkter),
+--   story.oprindelse/llm_model/llm_promptversion/llm_naar (intern produktionsproveniens),
+--   feed_pin.oprettet_af (redaktørens bruger-id), media.original_filnavn (uploadens filnavn kan
+--   bære navne) og media.sha256 (bruges kun af redaktionens dublettjek).
+-- BEVIDST UNDTAGELSE: media.storage_path forbliver læsbar. Web laver selv midlertidige billedlinks
+--   ud fra stien; det er sikkert, fordi bucket'en 'media' er privat (S5-assert i db-verify), og
+--   storage-politikken kun udsteder links til billeder, gæsten må se (media_object_synlig_anon).
+-- Medlemmer og redaktion (authenticated) beholder tabelretten: kolonneret kan ikke skelne
+--   redaktion fra medlem, og redaktionens læsere henter original_filnavn/sha256.
+-- FAIL-CLOSED: en ny kolonne er usynlig for gæster, til den føjes til listen her. En læser, der
+--   vælger den (eller select('*')), får »permission denied« som anon.
+-- Alle skrivninger på de tre tabeller går gennem SECURITY DEFINER-RPC'er, så anon og authenticated
+--   har kun SELECT (media havde fuld tabelret inkl. TRUNCATE, som RLS ikke dækker; alle tre havde
+--   MAINTAIN, som giver LOCK TABLE/VACUUM).
+-- REVOKE af tabelretten fjerner også eksisterende kolonneret, så blokken er idempotent.
+DO $review37_s8_anon_kolonner$
+BEGIN
+  REVOKE ALL ON TABLE public.media, public.story, public.feed_pin FROM anon;
+  REVOKE ALL ON TABLE public.media, public.story, public.feed_pin FROM authenticated;
+  GRANT SELECT ON TABLE public.media, public.story, public.feed_pin TO authenticated;
+  GRANT SELECT (id, slags, titel, kunstner, datering, bucket, storage_path, mime_type, byte_size,
+                bredde, hoejde, upload_status, maa_publiceres, rettigheder_status, created_at)
+    ON TABLE public.media TO anon;
+  GRANT SELECT (id, subjekt_type, subjekt_id, haendelse_id, fact_id, relation_id, historical_event_id,
+                titel, tekst, date_min, date_max, date_qualifier, date_raw, status, publiceret_dato, privat)
+    ON TABLE public.story TO anon;
+  GRANT SELECT (id, kort_noegle, handling, oprettet_naar) ON TABLE public.feed_pin TO anon;
+END
+$review37_s8_anon_kolonner$;
 
 -- Konflikt-view: læsbar for authenticated (RLS håndhæves af security_invoker på basistabeller).
 grant select on public.red_konflikt to authenticated;

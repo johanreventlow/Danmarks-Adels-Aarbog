@@ -9294,6 +9294,72 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 -- END-VERIFY r37s3
 
+-- BEGIN-VERIFY r37s8
+-- ===== Review 37 S8: gæster læser kun læserens kolonner på story, feed_pin og media =====
+-- anon har ingen tabelret og ingen skriveret på de tre tabeller; de interne kolonner er skjult, læserens
+-- kolonner (inkl. den bevidste undtagelse media.storage_path) er læsbare. authenticated beholder tabelretten
+-- (redaktionen læser original_filnavn/sha256), men ingen skrive- eller MAINTAIN-ret. Udøves også som rolle anon.
+DO $$
+DECLARE r record; v_fejl text := ''; v_state text;
+BEGIN
+  FOR r IN SELECT * FROM (VALUES
+      ('media','original_filnavn'),('media','sha256'),
+      ('story','skabt_af'),('story','godkendt_af'),('story','godkendt_naar'),('story','oprindelse'),
+      ('story','llm_model'),('story','llm_promptversion'),('story','llm_naar'),
+      ('feed_pin','oprettet_af')) v(t,c) LOOP
+    IF has_column_privilege('anon', format('public.%I', r.t), r.c, 'SELECT') THEN
+      v_fejl := v_fejl || format(' skjult-men-læsbar:%s.%s', r.t, r.c); END IF;
+  END LOOP;
+  FOR r IN SELECT * FROM (VALUES
+      ('media','id'),('media','slags'),('media','titel'),('media','kunstner'),('media','datering'),
+      ('media','storage_path'),('media','mime_type'),('media','upload_status'),('media','maa_publiceres'),
+      ('media','rettigheder_status'),('media','byte_size'),('media','bredde'),('media','hoejde'),('media','created_at'),
+      ('story','id'),('story','subjekt_id'),('story','haendelse_id'),('story','titel'),('story','tekst'),
+      ('story','date_min'),('story','date_max'),('story','date_qualifier'),('story','date_raw'),('story','status'),
+      ('story','publiceret_dato'),('story','privat'),
+      ('feed_pin','kort_noegle'),('feed_pin','handling'),('feed_pin','oprettet_naar')) v(t,c) LOOP
+    IF NOT has_column_privilege('anon', format('public.%I', r.t), r.c, 'SELECT') THEN
+      v_fejl := v_fejl || format(' læser-kolonne-mangler:%s.%s', r.t, r.c); END IF;
+  END LOOP;
+  FOR r IN SELECT t, p FROM unnest(ARRAY['media','story','feed_pin']) t,
+                       unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']) p LOOP
+    IF has_table_privilege('anon', format('public.%I', r.t), r.p) THEN
+      v_fejl := v_fejl || format(' anon-tabelret:%s.%s', r.t, r.p); END IF;
+  END LOOP;
+  FOR r IN SELECT t, p FROM unnest(ARRAY['media','story','feed_pin']) t,
+                       unnest(ARRAY['INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']) p LOOP
+    IF has_table_privilege('authenticated', format('public.%I', r.t), r.p) THEN
+      v_fejl := v_fejl || format(' authenticated-skriveret:%s.%s', r.t, r.p); END IF;
+  END LOOP;
+  IF NOT has_table_privilege('authenticated','public.media','SELECT') THEN
+    v_fejl := v_fejl || ' authenticated-mangler-media-select'; END IF;
+  IF v_fejl <> '' THEN RAISE EXCEPTION 'FEJL: S8 —%', v_fejl; END IF;
+
+  -- Udøvet som anon: læserens kolonner virker, en skjult kolonne og select * afvises.
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  PERFORM set_config('request.jwt.claims','',true);
+  EXECUTE 'SET LOCAL ROLE anon';
+  PERFORM count(*) FROM (SELECT id, storage_path FROM public.media) q;
+  PERFORM count(*) FROM (SELECT id, titel, status FROM public.story) q;
+  PERFORM count(*) FROM (SELECT kort_noegle, handling, oprettet_naar FROM public.feed_pin) q;
+  BEGIN
+    PERFORM count(*) FROM (SELECT original_filnavn FROM public.media) q;
+    v_state := 'ingen fejl';
+  EXCEPTION WHEN insufficient_privilege THEN v_state := '42501'; END;
+  IF v_state <> '42501' THEN RAISE EXCEPTION 'FEJL: S8 — anon læste media.original_filnavn (%)', v_state; END IF;
+  BEGIN
+    PERFORM count(*) FROM (SELECT * FROM public.story) q;
+    v_state := 'ingen fejl';
+  EXCEPTION WHEN insufficient_privilege THEN v_state := '42501'; END;
+  IF v_state <> '42501' THEN RAISE EXCEPTION 'FEJL: S8 — anon læste story.* (%)', v_state; END IF;
+  EXECUTE 'RESET ROLE';
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 S8 — gæster læser kun læserens kolonner på story, feed_pin og media';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37s8
+
 -- BEGIN-VERIFY r37b3-d5a
 -- ===== Review 37 D5a: datointervaller i orden på assertion, haendelse, story og relation =====
 -- Tabel-CHECK'erne *_dato_orden og relation_periode_orden afviser date_min > date_max, start_min > start_max,
