@@ -4,7 +4,6 @@
     "deny": [
       "Read(./work_presens/**)",
       "Read(./work_presens_1939/**)",
-      "Read(./work_2018_saerudgave/**)",
       "Read(./tmp/**)",
       "Read(./**/*.dump)",
       "Read(./**/*.sql.gz)",

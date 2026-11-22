@@ -58,7 +58,7 @@ der kan være ændret siden statussnapshotet.
 
 - **Supabase:** brug *Session pooler* (IPv4), `sslmode=require`, EU-region. Free-tier pauser efter 7 dages inaktivitet (hold varm før live-demo) og har ingen backup — hold et dump **uden for** repo'et (`~/.private`, chmod 600; dumps rummer levende-persondata og er gitignoreret).
 - **Hver trykt DAA-udgave er en selvstændig `source`** — så modstridende udgaver håndteres indfødt.
-- **Arbejdsmapper (gitignoreret) — commit dem aldrig:** `work/` (2018-20) og `work_1939_stamtavle/` er udtræk af trykte, publicerede udgaver og **må læses af en model** (projektejerens beslutning 2026-11-21/22). `work_presens*/` (præsenslister over nulevende) må **aldrig** sendes til en model (invariant 8); `work_2018_saerudgave/` er spærret, indtil projektejeren har afklaret den. Begge håndhæves af `.claude/settings.json`.
+- **Arbejdsmapper (gitignoreret) — commit dem aldrig:** `work/` (2018-20), `work_2018_saerudgave/` og `work_1939_stamtavle/` er udtræk af trykte, publicerede udgaver og **må læses af en model** (projektejerens beslutning 2026-11-21/22). `work_presens*/` (præsenslister over nulevende) må **aldrig** sendes til en model (invariant 8); det håndhæves af `.claude/settings.json`.
 
 ## Levende dokumentation (status/backlog bor IKKE her)
 
