@@ -943,10 +943,12 @@ create policy auth_read on public.feed_pin for select to authenticated using (tr
 --   story.skabt_af/godkendt_af/godkendt_naar (redaktørers bruger-id'er og tidspunkter),
 --   story.oprindelse/llm_model/llm_promptversion/llm_naar (intern produktionsproveniens),
 --   feed_pin.oprettet_af (redaktørens bruger-id), media.original_filnavn (uploadens filnavn kan
---   bære navne) og media.sha256 (bruges kun af redaktionens dublettjek).
+--   bære navne) og media.sha256 (bruges kun af redaktionens dublettjek; står i forvejen i stien for
+--   redaktørens uploads, redaktor/<sha[0:2]>/<sha>-…, så det er konsekvens, ikke hemmeligholdelse).
 -- BEVIDST UNDTAGELSE: media.storage_path forbliver læsbar. Web laver selv midlertidige billedlinks
 --   ud fra stien; det er sikkert, fordi bucket'en 'media' er privat (S5-assert i db-verify), og
---   storage-politikken kun udsteder links til billeder, gæsten må se (media_object_synlig_anon).
+--   storage-politikken kun udsteder links til billeder, gæsten må se (media_object_synlig_anon). Stien kan
+--   bære et beskrivende filnavn (heraldik-filer); personbilleder fra redaktionen ligger under hash-navne.
 -- Medlemmer og redaktion (authenticated) beholder tabelretten: kolonneret kan ikke skelne
 --   redaktion fra medlem, og redaktionens læsere henter original_filnavn/sha256.
 -- FAIL-CLOSED: en ny kolonne er usynlig for gæster, til den føjes til listen her. En læser, der

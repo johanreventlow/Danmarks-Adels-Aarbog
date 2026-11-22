@@ -9296,8 +9296,9 @@ END $$;
 
 -- BEGIN-VERIFY r37s8
 -- ===== Review 37 S8: gæster læser kun læserens kolonner på story, feed_pin og media =====
--- anon har ingen tabelret og ingen skriveret på de tre tabeller; de interne kolonner er skjult, læserens
--- kolonner (inkl. den bevidste undtagelse media.storage_path) er læsbare. authenticated beholder tabelretten
+-- anon har ingen tabelret på de tre tabeller, og dens kolonneretter er PRÆCIS læserlisten (kun SELECT; listen
+-- her er bevidst skrevet uafhængigt af db-rls.sql); de interne kolonner er skjult, media.storage_path er en bevidst
+-- undtagelse. authenticated beholder tabelretten
 -- (redaktionen læser original_filnavn/sha256), men ingen skrive- eller MAINTAIN-ret. Udøves også som rolle anon.
 DO $$
 DECLARE r record; v_fejl text := ''; v_state text;
@@ -9310,17 +9311,33 @@ BEGIN
     IF has_column_privilege('anon', format('public.%I', r.t), r.c, 'SELECT') THEN
       v_fejl := v_fejl || format(' skjult-men-læsbar:%s.%s', r.t, r.c); END IF;
   END LOOP;
-  FOR r IN SELECT * FROM (VALUES
-      ('media','id'),('media','slags'),('media','titel'),('media','kunstner'),('media','datering'),
-      ('media','storage_path'),('media','mime_type'),('media','upload_status'),('media','maa_publiceres'),
-      ('media','rettigheder_status'),('media','byte_size'),('media','bredde'),('media','hoejde'),('media','created_at'),
-      ('story','id'),('story','subjekt_id'),('story','haendelse_id'),('story','titel'),('story','tekst'),
-      ('story','date_min'),('story','date_max'),('story','date_qualifier'),('story','date_raw'),('story','status'),
-      ('story','publiceret_dato'),('story','privat'),
-      ('feed_pin','kort_noegle'),('feed_pin','handling'),('feed_pin','oprettet_naar')) v(t,c) LOOP
-    IF NOT has_column_privilege('anon', format('public.%I', r.t), r.c, 'SELECT') THEN
-      v_fejl := v_fejl || format(' læser-kolonne-mangler:%s.%s', r.t, r.c); END IF;
-  END LOOP;
+  -- Eksakt mængde: anons kolonneretter (alle typer) på de tre tabeller = præcis læserlisten i
+  -- db-rls.sql's $review37_s8_anon_kolonner$, kun SELECT. Fanger både en manglende læserkolonne (fx
+  -- story.subjekt_type, som forsiden filtrerer på) og en ekstra ret (fx UPDATE (titel)).
+  WITH forventet(l) AS (SELECT t||'.'||c||':SELECT' FROM (VALUES
+      ('media','id'),('media','slags'),('media','titel'),('media','kunstner'),('media','datering'),('media','bucket'),
+      ('media','storage_path'),('media','mime_type'),('media','byte_size'),('media','bredde'),('media','hoejde'),
+      ('media','upload_status'),('media','maa_publiceres'),('media','rettigheder_status'),('media','created_at'),
+      ('story','id'),('story','subjekt_type'),('story','subjekt_id'),('story','haendelse_id'),('story','fact_id'),
+      ('story','relation_id'),('story','historical_event_id'),('story','titel'),('story','tekst'),('story','date_min'),
+      ('story','date_max'),('story','date_qualifier'),('story','date_raw'),('story','status'),('story','publiceret_dato'),
+      ('story','privat'),
+      ('feed_pin','id'),('feed_pin','kort_noegle'),('feed_pin','handling'),('feed_pin','oprettet_naar')) v(t,c)),
+  faktisk(l) AS (
+    SELECT c.relname||'.'||at.attname||':'||x.privilege_type
+      FROM pg_attribute at JOIN pg_class c ON c.oid=at.attrelid, aclexplode(at.attacl) x
+     WHERE c.oid IN ('public.media'::regclass,'public.story'::regclass,'public.feed_pin'::regclass)
+       AND at.attnum > 0 AND NOT at.attisdropped AND x.grantee = 'anon'::regrole)
+  SELECT v_fejl || coalesce(string_agg(CASE WHEN f.l IS NULL THEN ' læser-kolonne-mangler:'||e.l
+                                            ELSE ' uventet-anon-kolonneret:'||f.l END, '' ORDER BY coalesce(e.l,f.l)), '')
+    INTO v_fejl
+    FROM forventet e FULL JOIN faktisk f ON e.l=f.l WHERE e.l IS NULL OR f.l IS NULL;
+  -- authenticated: tabelret SELECT på alle tre og ingen kolonneretter (dem ville REVOKE ALL have fjernet).
+  SELECT v_fejl || coalesce(string_agg(' authenticated-kolonneret:'||c.relname||'.'||at.attname||':'||x.privilege_type, ''), '')
+    INTO v_fejl
+    FROM pg_attribute at JOIN pg_class c ON c.oid=at.attrelid, aclexplode(at.attacl) x
+   WHERE c.oid IN ('public.media'::regclass,'public.story'::regclass,'public.feed_pin'::regclass)
+     AND at.attnum > 0 AND NOT at.attisdropped AND x.grantee = 'authenticated'::regrole;
   FOR r IN SELECT t, p FROM unnest(ARRAY['media','story','feed_pin']) t,
                        unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']) p LOOP
     IF has_table_privilege('anon', format('public.%I', r.t), r.p) THEN
@@ -9331,8 +9348,10 @@ BEGIN
     IF has_table_privilege('authenticated', format('public.%I', r.t), r.p) THEN
       v_fejl := v_fejl || format(' authenticated-skriveret:%s.%s', r.t, r.p); END IF;
   END LOOP;
-  IF NOT has_table_privilege('authenticated','public.media','SELECT') THEN
-    v_fejl := v_fejl || ' authenticated-mangler-media-select'; END IF;
+  FOR r IN SELECT unnest(ARRAY['media','story','feed_pin']) t LOOP
+    IF NOT has_table_privilege('authenticated', format('public.%I', r.t), 'SELECT') THEN
+      v_fejl := v_fejl || format(' authenticated-mangler-select:%s', r.t); END IF;
+  END LOOP;
   IF v_fejl <> '' THEN RAISE EXCEPTION 'FEJL: S8 —%', v_fejl; END IF;
 
   -- Udøvet som anon: læserens kolonner virker, en skjult kolonne og select * afvises.
