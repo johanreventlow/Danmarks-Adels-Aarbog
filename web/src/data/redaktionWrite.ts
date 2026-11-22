@@ -3,6 +3,7 @@
 // Oversætter en UI-redigering ("change") til ét RPC-kald mod skrive-laget (Task 3–6).
 // Ren build-funktion (buildRpcCall) er netværksfri og unit-testes; submitChange udfører.
 import { supabase } from '../supabase';
+import { sletKraeverSletHelt, sletKraeverSletHeltTekst } from '@daa/core';
 import { performUpload } from './mediaUpload';
 import type { ResizedVariant } from './mediaUpload';
 import { MEDIA_FAKTATYPER } from './media';
@@ -839,6 +840,9 @@ export function oversaetFejl(message: string): string {
     case 'legacy_drift': return 'Overgangsbiografien afviger fra sit godkendte grundlag og kan ikke ændres her.';
     case 'person_delete_publication_history': return 'Personen kan ikke slettes, mens der findes narrativ-publiceringshistorik.';
   }
+  // Review 37 P11: den simple sletning afviser en person, der (nu) ikke er offentlig.
+  const sletHelt = sletKraeverSletHelt(message);
+  if (sletHelt) return sletKraeverSletHeltTekst(sletHelt);
   const paastand = PAASTAND_FEJL.find(([kode]) => message.includes(kode));
   if (paastand) return paastand[1];
   // Review 37 D5: fakta-, story- og OCR-RPC'erne afviser date_min > date_max (blok 2 og 3).
