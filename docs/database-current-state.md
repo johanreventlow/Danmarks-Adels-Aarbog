@@ -567,8 +567,10 @@ shell **før** merge (webklienten kalder den nye RPC).
   i ét kald (`web/src/data/feedAux.ts`).
 - **Bio-kaldet rettet i klienten** (#420 + #421, 21/11): biografierne hentes i bidder à 50 med højst 3 samtidige
   kald (#420's 9 parallelle bidder à 200 ramte stadig loftet, 7/9 afbrudt). Målt som anon i prod: 35/35 kald `200`,
-  maks 2,27 s live (1,38-1,89 s i forhåndsmålingerne), ~10-12 s samlet; første kort vises efter 0,4-0,5 s, uafhængigt
-  af biografierne. RPC'en koster ~10 ms pr. id i prod (stand-in ~2,5 ms) — server-side optimering i #422.
+  maks 2,27 s live (1,38-1,89 s i forhåndsmålingerne), ~10-12 s samlet. **Rettet:** tallet »første kort efter 0,4-0,5 s«
+  var forkert — målingen fangede noget andet på siden; `FeedStreamView` ventede på alle kilder inkl. biografierne, så gæster
+  ventede ~10-12 s. Første uddeling har nu en frist på 2,5 s (`FEED_FOERSTE_UDDELING_FRIST_MS`); sene biografier og
+  hændelser fylder de næste blade. RPC'en koster ~10 ms pr. id i prod (stand-in ~2,5 ms) — server-side optimering i #422.
   **Åbent:** visuel bekræftelse af »Nævnt i Aarbogen«-kort (den hovedløse røgtest viste kun ~7 kort uden ét).
 - **#130** er frigivet (spec §7): A2, RPC'en og webklienten er i prod og efterkontrolleret som anon.
 

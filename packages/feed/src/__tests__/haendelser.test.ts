@@ -38,6 +38,15 @@ describe('buildHaendelserBy', () => {
     expect(out.p1.map((x) => x.id)).toEqual(['3', '10', '2', '12']);
   });
 
+  it('sorterer en hændelse med kun øvre grænse (»før 1565«) efter den grænse, ikke sidst', () => {
+    const out = buildHaendelserBy([
+      row(1),
+      row(2, { date_min: '1600-01-01' }),
+      row(3, { date_max: '1565-12-31', date_qualifier: 'before' }),
+    ], [], []);
+    expect(out.p1.map((x) => x.id)).toEqual(['3', '2', '1']);
+  });
+
   it('filtrerer skjult defensivt og giver null-kilde uden source', () => {
     const out = buildHaendelserBy([
       row(1, { feed_status: 'skjult' }), row(2),

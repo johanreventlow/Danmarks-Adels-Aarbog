@@ -2,7 +2,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FeedCard, FeedInputs } from '@daa/feed';
-import { hrefForCard } from '../feed/FeedStreamView';
+import { FEED_FOERSTE_UDDELING_FRIST_MS, hrefForCard } from '../feed/FeedStreamView';
 
 const mediaMocks = vi.hoisted(() => ({
   fetchFeedMediaCandidates: vi.fn(),
@@ -102,6 +102,30 @@ describe('FeedStreamView — uddeling', () => {
     await waitFor(() => expect(streamMocks.createFeedStream).toHaveBeenCalledTimes(1));
     const inputs = streamMocks.createFeedStream.mock.calls[0][2] as FeedInputs;
     expect(inputs.naevntGrundlag?.personerMedMereEndNavn).toBeInstanceOf(Set);
+  });
+
+  it('deler ud efter fristen, selv om biografierne og hændelserne ikke er kommet, og bygger om når de kommer', async () => {
+    vi.useFakeTimers();
+    try {
+      const bios = deferred<Record<string, string>>();
+      const haendelser = deferred<Record<string, unknown>>();
+      feedAuxMocks.fetchFeedBios.mockReturnValue(bios.promise);
+      loaderMocks.loadHaendelserBy.mockReturnValue(haendelser.promise);
+      render(<FeedStreamView {...feedProps(null)} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(FEED_FOERSTE_UDDELING_FRIST_MS - 1); });
+      expect(streamMocks.createFeedStream).not.toHaveBeenCalled();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(streamMocks.createFeedStream).toHaveBeenCalledTimes(1);
+      expect(screen.getAllByRole('article')).toHaveLength(6);
+
+      await act(async () => { bios.resolve({ '1': 'En biografi.' }); haendelser.resolve({}); });
+      expect(streamMocks.createFeedStream.mock.calls.length).toBeGreaterThan(1);
+      expect(streamMocks.resumeStream).toHaveBeenCalled();
+      expect(screen.getAllByRole('article')).toHaveLength(6); // viste blade nulstilles ikke
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('sender intet nævnt-grundlag, når grundlaget fejler eller biografierne er tomme', async () => {

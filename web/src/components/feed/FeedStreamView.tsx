@@ -31,6 +31,9 @@ import type { Model } from '../../data/types';
 import { FeedCardView } from './FeedCardView';
 
 const SEEN_EXCLUDED_KINDS = new Set<FeedCard['kind']>(['slaegt', 'dagensperson', 'samle']);
+// Loftet for første uddeling: før #421 fejlede biografierne efter gæsternes 3 s-loft, så feedet kom
+// reelt frem efter ~3 s. Nu lykkes de, men først efter ~10-12 s — fristen holder den gamle ventetid.
+export const FEED_FOERSTE_UDDELING_FRIST_MS = 2500;
 
 // Hvor peger et feed-kort hen, som en adresserbar sti? null = målet ligger bevidst uden for
 // URL-grammatikken (Slægtskabsfanens A/B-par, browse-tilstand), og så får kortet intet anker —
@@ -99,18 +102,22 @@ export function FeedStreamView({
   }, [bookmarksReady, bookmarkOwnerId, bookmarkHydrationVersion, bookmarkedIds]);
 
   // Bio + livsdato + hændelser + stories + nævnt-grundlag hentes ved mount (§7.3). Første
-  // uddeling venter, til ALLE er afgjort (hentet eller fejlet) — ellers kom de første seks blade
-  // uden biografi. null = venter. Sene ankomster (fx en ny model) genopbygger med samme seed og
-  // resume-kontrakten nedenfor — viste kort nulstilles aldrig.
+  // uddeling venter, til ALLE er afgjort (hentet eller fejlet) — dog højst FEED_FOERSTE_UDDELING_FRIST_MS:
+  // efter #421 tager biografierne ~10-12 s i prod, og gæsten må ikke stirre på »Henter blade« så
+  // længe. null = venter. Sene ankomster genopbygger med samme seed og resume-kontrakten nedenfor —
+  // viste kort nulstilles aldrig, så de første blade kan mangle biografi; de næste har den.
   const [bios, setBios] = useState<Record<string, string> | null>(null);
   const [bioError, setBioError] = useState<string | null>(null);
   const [livsdatoBy, setLivsdatoBy] = useState<LivsdatoBy | null>(null);
   const [haendelserBy, setHaendelserBy] = useState<HaendelserBy | null>(null);
   const [storieBy, setStorieBy] = useState<StorieBy | null>(null);
   const [naevntGrundlag, setNaevntGrundlag] = useState<NaevntGrundlag | 'fejlet' | null>(null);
+  const [fristUdloebet, setFristUdloebet] = useState(false);
   useEffect(() => {
     let alive = true;
     const canon = model.canonicalIdById ?? {};
+    setFristUdloebet(false);
+    const frist = setTimeout(() => { if (alive) setFristUdloebet(true); }, FEED_FOERSTE_UDDELING_FRIST_MS);
     setBios(null);
     setBioError(null);
     setLivsdatoBy(null);
@@ -130,10 +137,10 @@ export function FeedStreamView({
       (g) => { if (alive) setNaevntGrundlag(g); },
       (e) => { if (alive) { console.warn('[feed] nævnt-grundlag fejlede — ingen nævnt-kort:', e); setNaevntGrundlag('fejlet'); } },
     );
-    return () => { alive = false; };
+    return () => { alive = false; clearTimeout(frist); };
   }, [model]);
-  const dataAfgjort = (bios !== null || bioError !== null)
-    && livsdatoBy !== null && haendelserBy !== null && storieBy !== null && naevntGrundlag !== null;
+  const dataAfgjort = fristUdloebet || ((bios !== null || bioError !== null)
+    && livsdatoBy !== null && haendelserBy !== null && storieBy !== null && naevntGrundlag !== null);
   // Nævnt-kort kræver, at hver kilde til fravær er hentet komplet. En tom bio-mængde tæller som
   // fejlet (fetchFeedBios kan give {} ved en fejl i den gamle kontrakt), ikke som »ingen har tekst«.
   const naevntInput = bios !== null && Object.keys(bios).length > 0 && naevntGrundlag !== null
