@@ -11,9 +11,9 @@ import { SammenlignUdgaver } from './components/SammenlignUdgaver';
 import { FeedStyring } from './components/FeedStyring';
 import { signIn, signOut, currentSession, loginFejlTekst, type RedSession } from './data/auth';
 import {
-  buildTidslinje, fetchHaendelserForPerson, fetchStoriesForPerson, storyPrefillFraPost, fetchRedaktionPersoner, fetchPersonEvidence, fetchNarrativer, fetchSources, fetchLineages, fetchSletPreview,
+  buildTidslinje, fetchHaendelserForPerson, fetchStoriesForPerson, storyPrefillFraPost, fetchRedaktionPersoner, fetchPersonEvidence, fetchNarrativer, fetchSources, fetchLineages,
   fetchEntityRecords, fetchPersonFamilie, fetchPersonRelationer, fetchSammeSomLinks, fetchSammeSomPar, fetchRedPersonMedia, fetchRedObjectMedia, nudgeOrdinal, fetchForaeldreUkendtMarkering, type RedPerson, type PersonEvidence,
-  type FeltEvidens, type Oplysning, type SletPreview, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
+  type FeltEvidens, type Oplysning, type EntityRecord, type PersonFamilie, type PersonRelation, type SammeSomLink,
   type HaendelsePost, type StoryPost, type TidslinjePost, type PersonNarrativ, type SourceRow, type LineageRow, type PersonMedia, type ForaeldreUkendtMarkering, SLAEGT_SUBJEKT_ID,
   fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
   fetchMediaBibliotek, fetchMediaAnvendelse, fetchUdrensPreview, formatMedieAlder, fetchPersonNarrativeRecords, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe, type UdrensPreview,
@@ -41,7 +41,8 @@ import {
 import { executeMediaMerge, fetchMediaMergeRelationEvidence, findMediaMergeCandidates, mediaMentionFingerprint, sortMediaForQueue } from './data/mediaMerge';
 import { executeUdrens } from './data/mediaUdrens';
 import { executeSletHelt, purgeStorage } from './data/personPurge';
-import { SletHeltDialog } from './components/SletHeltDialog';
+import { SletPersonDialog } from './components/SletPersonDialog';
+import { SlettedePersoner } from './components/SlettedePersoner';
 import { PersonPurgeUdbakke } from './components/PersonPurgeUdbakke';
 import { withUrl, fetchMediaFakta, type MediaFakta } from './data/media';
 import { supabase } from './supabase';
@@ -88,6 +89,8 @@ const ENTITIES = [
   { key: 'sammenlign', label: 'Sammenlign udgaver', icon: '⇄' },
   { key: 'foraeldre-konflikter', label: 'Forældre-konflikter', icon: '⚠' },
   { key: 'kildepersonaer', label: 'Kildepersonaer', icon: '⌕' },
+  // Review 37 P11: fortrydelige sletninger, også efter genindlæsning.
+  { key: 'slettede-personer', label: 'Slettede personer', icon: '↺' },
 ];
 const FELT_DEFS: [string, string][] = [
   ['navn', 'Navn'], ['foedenavn', 'Fødenavn'], ['foedt', 'Født'], ['doed', 'Død'], ['titel', 'Titel/rang'],
@@ -335,9 +338,11 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   const [addingNyFelt, setAddingNyFelt] = useState<{ pid: string; felt: string } | null>(null);
   const [scratch, setScratch] = useState<Record<string, string>>({});
 
-  const [purgePerson, setPurgePerson] = useState<{ id: string; navn: string } | null>(null);
+  // Review 37 P11: én »Slet person…«-dialog; den vælger selv mellem den fortrydelige og den fulde sletning.
+  const [sletPerson, setSletPerson] = useState<{ id: string; navn: string } | null>(null);
+  // Efter en fortrydelig sletning hentes ændringshistorikken igen, så »Slettede person …« straks kan fortrydes.
+  const [historikRevision, setHistorikRevision] = useState(0);
   const [purgeRevision, setPurgeRevision] = useState(0);
-  const [confirmDel, setConfirmDel] = useState<{ id: string; label: string; preview: SletPreview | null; ack: boolean } | null>(null);
   const [writeView, setWriteView] = useState<{ title: string; lines: string[]; error: string; done: boolean; dryRun: boolean; direkte: boolean } | null>(null);
 
   const role = session?.role;
@@ -789,7 +794,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   }, [tidslinje, narrativer, aktivSourceId, narrativUdkast.tekst]);
 
   // --- Skrivning ---
-  const run = useCallback(async (change: Change, titel: string, options?: { refresh?: boolean }) => {
+  const run = useCallback(async (change: Change, titel: string, options?: { refresh?: boolean; kastFejl?: boolean }) => {
     try {
       const res = await submitChange(change, { dryRun, role });
       setWriteView({
@@ -824,6 +829,8 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
       }
       return res;
     } catch (e) {
+      // kastFejl: kalderen (fx sletdialogen, review 37 P11) viser selv fejlen og kan skifte vej.
+      if (options?.kastFejl) throw e;
       setWriteView({ title: titel + ' fejlede', lines: [], error: oversaetFejl(String((e as Error)?.message ?? e)), done: false, dryRun, direkte: false });
       return undefined;
     }
@@ -942,17 +949,6 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
 
   const doLogout = () => { signOut().catch(() => {}); onLogout(); };
 
-  const requestDelete = (id: string, label: string) => {
-    setConfirmDel({ id, label, preview: null, ack: false });
-    if (entity === 'person') fetchSletPreview(id).then((pv) => setConfirmDel((c) => c && c.id === id ? { ...c, preview: pv } : c)).catch(() => {});
-  };
-  const performDelete = () => {
-    if (!confirmDel || !confirmDel.ack) return;
-    const id = confirmDel.id;
-    run({ art: 'sletPerson', subjektType: 'person', subjektId: id }, 'Sletning');
-    setConfirmDel(null);
-  };
-
   // Kvalitetsark-tilstand er kun reelt aktiv når rollen faktisk er redaktion — falder tilbage
   // til den almindelige liste/editor hvis session udløber eller entiteten skiftes væk, uden at
   // rydde personVisning-state (så et tilbageskift til person+redaktion respekterer valget igen).
@@ -964,7 +960,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
       {renderTopBar()}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {renderSidebar()}
-        {entity === 'feed' || entity === 'sammenlign' || entity === 'foraeldre-konflikter' || entity === 'kildepersonaer' ? (
+        {entity === 'feed' || entity === 'sammenlign' || entity === 'foraeldre-konflikter' || entity === 'kildepersonaer' || entity === 'slettede-personer' ? (
           <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: T.surfaceRaised }}>
             {entity === 'feed'
               ? <FeedStyring role={role} model={model} run={run} />
@@ -972,6 +968,18 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
               ? <SammenlignUdgaver role={role} dryRun={dryRun} />
               : entity === 'foraeldre-konflikter'
               ? <ForaeldreKonflikterListe onOpen={(id) => openRecord('person', id)} />
+              : entity === 'slettede-personer'
+              ? <SlettedePersoner role={role} dryRun={dryRun} revision={purgeRevision} fortryd={async (r) => {
+                  const res = await run({ art: 'fortryd', subjektType: 'person', subjektId: r.personId,
+                    payload: { changeSetId: r.changeSetId, force: false } }, 'Fortryd sletning', { refresh: false, kastFejl: true });
+                  const kunDryRun = res?.dryRun ?? dryRun;
+                  if (!kunDryRun) {
+                    // Den genskabte person skal straks stå i personlisten og modellen igen.
+                    fetchRedaktionPersoner().then(setPersons).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
+                    loadModel({ collapse: false }).then(setModel).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
+                  }
+                  return { dryRun: kunDryRun };
+                }} />
               : <KildepersonaKo role={role} />}
           </div>
         ) : visKvalitetsark ? (
@@ -986,18 +994,21 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
           </>
         )}
       </div>
-      {purgePerson && role === 'redaktion' && <SletHeltDialog key={purgePerson.id}
-        personId={purgePerson.id} navn={purgePerson.navn} dryRun={dryRun}
-        execute={(opts) => executeSletHelt({ ...opts, role }, { ...purgeStorage, submit: submitChange })}
-        onClose={() => setPurgePerson(null)} onDeleted={() => {
-          setPersons((ps) => ps.filter((p) => p.id !== purgePerson.id));
-          setKvRows((rs) => rs.filter((r) => r.personId !== purgePerson.id));
-          setRecordId((id) => id === purgePerson.id ? null : id);
+      {sletPerson && <SletPersonDialog key={sletPerson.id}
+        personId={sletPerson.id} navn={sletPerson.navn} dryRun={dryRun} role={role}
+        sletFortrydeligt={async () => {
+          await run({ art: 'sletPerson', subjektType: 'person', subjektId: sletPerson.id }, 'Sletning', { kastFejl: true });
+          setHistorikRevision((n) => n + 1);
+        }}
+        executeHelt={(opts) => executeSletHelt({ ...opts, role }, { ...purgeStorage, submit: submitChange })}
+        onClose={() => setSletPerson(null)} onHeltSlettet={() => {
+          setPersons((ps) => ps.filter((p) => p.id !== sletPerson.id));
+          setKvRows((rs) => rs.filter((r) => r.personId !== sletPerson.id));
+          setRecordId((id) => id === sletPerson.id ? null : id);
           // Tøm også »hentet«-markeringen, ellers genhentes tidligere besøgte entitetslister aldrig (Codex-review P2).
           setRecCache({}); fetchedRef.current.clear(); setPurgeRevision((n) => n + 1);
           loadModel({ collapse: false }).then(setModel).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
         }} />}
-      {renderConfirmModal()}
       {renderWriteModal()}
       {renderPicker()}
       {renderSammeSomConfirm()}
@@ -1308,11 +1319,10 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
               <span style={{ width: 26, height: 15, borderRadius: 8, background: p.privat ? T.bordeaux : '#cfc6b5', position: 'relative' }}><span style={{ position: 'absolute', top: 1.5, left: p.privat ? 12.5 : 1.5, width: 11, height: 11, borderRadius: '50%', background: '#fff' }} /></span>
               <span style={{ fontSize: 13, fontWeight: 600, color: p.privat ? T.bordeaux : T.inkMuted }}>Privat</span>
             </div>
-            <div onClick={() => requestDelete(p.id, p.navn)} style={{ display: 'flex', alignItems: 'center', gap: 7, background: T.surfaceRaised, border: '1.5px solid rgba(138,43,43,.3)', borderRadius: 8, padding: '6px 11px', cursor: 'pointer' }}>
-              <span style={{ fontSize: 13, color: T.danger }}>🗑</span><span style={{ fontSize: 13, fontWeight: 600, color: T.danger }}>Slet person</span>
-            </div>
-            {role === 'redaktion' && <button type="button" onClick={() => setPurgePerson({ id: p.id, navn: p.navn })}
-              style={{ color: T.danger, border: `1px solid ${T.danger}`, borderRadius: 8, padding: '6px 11px', background: T.surfaceRaised }}>Slet helt</button>}
+            {/* Review 37 P11: én knap; dialogen afgør, om sletningen kan fortrydes, eller om personen skal slettes helt. */}
+            <button type="button" onClick={() => setSletPerson({ id: p.id, navn: p.navn })} style={{ display: 'flex', alignItems: 'center', gap: 7, background: T.surfaceRaised, border: '1.5px solid rgba(138,43,43,.3)', borderRadius: 8, padding: '6px 11px', cursor: 'pointer', fontFamily: 'inherit' }}>
+              <span aria-hidden="true" style={{ fontSize: 13, color: T.danger }}>🗑</span><span style={{ fontSize: 13, fontWeight: 600, color: T.danger }}>Slet person…</span>
+            </button>
           </div>
         </div>
 
@@ -1462,7 +1472,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
         {role === 'redaktion' ? (
           <>
             <div style={sectionHeader(24)}>Ændringshistorik</div>
-            <HistorikPanel key={String(p.id)} personId={String(p.id)} onFortryd={fortrydChangeSet} />
+            <HistorikPanel key={`${p.id}:${historikRevision}`} personId={String(p.id)} onFortryd={fortrydChangeSet} />
           </>
         ) : null}
       </div>
@@ -2544,43 +2554,6 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   }
 
   // ---- Modaler ----
-  function renderConfirmModal() {
-    if (!confirmDel) return null;
-    const pv = confirmDel.preview;
-    return (
-      <div style={overlay(90)}>
-        <div style={{ width: 460, maxWidth: '100%', background: T.surfaceRaised, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', overflow: 'hidden' }}>
-          <div style={{ padding: '20px 22px 16px', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-            <span style={{ width: 42, height: 42, borderRadius: '50%', background: T.dangerTint, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, color: T.danger }}>⚠</span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600, lineHeight: 1.1 }}>Slet person?</div>
-              <div style={{ fontSize: 14, lineHeight: 1.5, color: T.inkSecondary, marginTop: 5 }}>Du er ved at slette <b>{confirmDel.label}</b>. Posten fjernes permanent fra basen.</div>
-            </div>
-          </div>
-          <div style={{ margin: '0 22px', background: T.bordeauxTint, border: '1px solid rgba(138,43,43,.25)', borderRadius: 11, padding: '13px 15px' }}>
-            <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.1em', textTransform: 'uppercase', color: T.danger, marginBottom: 6 }}>Det her forsvinder</div>
-            <div style={{ fontSize: 13.5, lineHeight: 1.5, color: T.inkSecondary }}>{pv ? `${pv.antalRelationer} relation(er), ${pv.antalFacts} fakta, ${pv.antalNarrativer} biografi(er) og ${pv.antalMedlemskaber} slægts-/linjemedlemskab(er) knyttet til personen.` : 'Henter overblik…'}</div>
-            {pv && pv.antalBindinger > 0 ? (
-              <div style={{ fontSize: 12.5, lineHeight: 1.45, color: '#5a5147', marginTop: 6 }}>
-                {`Heraf er ${pv.antalBindinger} biografi(er) bundet til en kildepost. Bindingen fjernes med biografien — selve registreringen af, at teksten står på siden, bevares.`}
-              </div>
-            ) : null}
-          </div>
-          <div style={{ padding: '16px 22px 4px' }}>
-            <label onClick={() => setConfirmDel((c) => c && { ...c, ack: !c.ack })} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <span style={{ width: 18, height: 18, borderRadius: 5, border: `1.5px solid ${confirmDel.ack ? T.danger : 'rgba(34,31,26,.3)'}`, background: confirmDel.ack ? T.danger : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff' }}>{confirmDel.ack ? '✓' : ''}</span>
-              <span style={{ fontSize: 13, color: T.inkSecondary }}>Jeg forstår at relationerne brydes</span>
-            </label>
-          </div>
-          <div style={{ display: 'flex', gap: 9, padding: '16px 22px 20px', justifyContent: 'flex-end' }}>
-            <div onClick={() => setConfirmDel(null)} style={btnGhost}>Annullér</div>
-            <div onClick={performDelete} style={{ fontSize: 13.5, fontWeight: 600, color: confirmDel.ack ? '#fff' : '#b79c9c', background: confirmDel.ack ? T.danger : '#e7d9d9', borderRadius: 9, padding: '10px 16px', cursor: confirmDel.ack ? 'pointer' : 'not-allowed' }}>Slet endeligt</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   function renderWriteModal() {
     if (!writeView) return null;
     const w = writeView;

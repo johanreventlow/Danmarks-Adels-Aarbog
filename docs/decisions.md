@@ -2,6 +2,27 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: én sletteknap — systemet vælger, og den simple sletning afviser en ikke-offentlig person (#397 P11, 2026-11-22)
+
+> Projektejeren 22/11: **én knap, systemet vælger** — og det skal være tydeligt for redaktøren, om historikken beholdes
+> eller alt slettes, og hvordan man får det ene eller det andet. Web: én »Slet person…«; dialogen viser »Slet person —
+> kan fortrydes« (historikken gemmes; sekundært valg »Slet helt i stedet (GDPR, kan ikke fortrydes)…«) eller går
+> direkte til »Slet helt — kan ikke fortrydes« med årsag og vej til en fortrydelig sletning. Mobil (dev-only) har kun
+> den fortrydelige vej og henviser ellers til web.
+> - **Afvisning i stedet for låsning:** `red_slet_person` afviser en person, der ikke er offentlig
+>   (`public.person_offentlig`: levende/ukendt, privat, staged eller skjult af sin samme_som-gruppe), med
+>   `SLET_KRAEVER_SLET_HELT: <årsag>`. Vi låser/skjuler ikke familier, billeder og aliaser ved den simple sletning,
+>   fordi en ikke-offentlig persons oplysninger alligevel skal GDPR-slettes: change_event-historikken, som gør
+>   sletningen fortrydelig, bevarer dem ellers. En offentlig person indgår ikke i nogen skjul-regel (`family_offentlig`,
+>   `media_afbilder_skjult`/`_privat`, `person_gruppe_skjult`), så dens fortrydelige sletning kan ikke gøre noget mere
+>   offentligt. Tjekket står efter rollegaten (intet orakel) og efter personlåsen. Regel ét sted:
+>   `private.person_slet_aarsag`; `red_slet_person_preview` giver `kan_fortrydes` + `aarsag`. Klienterne er fail-closed:
+>   et preview uden feltet giver aldrig den fortrydelige vej.
+> - **Følger, projektejeren skal kende:** en person oprettet i redaktionen er privat (`red_opret_person`), så den skal
+>   enten have »Privat« slået fra eller slettes helt. En ikke-offentlig person, som »Slet helt« blokerer (fx
+>   `samme_som_knudepunkt`, `link_i_tekst`, åben batch), kan nu ikke slettes ad nogen vej, før blokeringen er fjernet;
+>   før kunne den simple sletning bruges. `levende` kan ikke rettes i redaktionen i dag.
+
 ## BESLUTTET: en familie uden medlemmer er ikke offentlig (#397 S3, 2026-11-22)
 
 > Projektejeren 22/11 (»ja«, efter forklaring): `family_offentlig` kræver nu mindst ét medlem. Før var en familie

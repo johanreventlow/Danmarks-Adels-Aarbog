@@ -4,6 +4,7 @@
 // device-API'er (billedvælger/filsystem) som ellers ville kræve jest-mocks for HELE denne fil,
 // selv i tests der kun øver buildRpcCall's rene logik.)
 import { supabase } from '../lib/supabase';
+import { sletKraeverSletHelt, sletKraeverSletHeltTekst } from '@daa/core';
 
 // felt → fact.faktatype. koen er BEVIDST udeladt: arbejdsværdi på person, ikke et fact.
 // daab/begravelse/floruit/naturalisering er del af rygraden og lå allerede i DB (loaderen
@@ -552,6 +553,9 @@ export function erFortrydKonflikt(rawMessage: string): boolean {
 
 // PostgREST/Postgres-fejl → dansk UI-tekst (spec §9). Fald tilbage til rå besked.
 export function oversaetFejl(message: string): string {
+  // Review 37 P11 (spejler web): den simple sletning afviser en person, der (nu) ikke er offentlig.
+  const sletHelt = sletKraeverSletHelt(message);
+  if (sletHelt) return sletKraeverSletHeltTekst(sletHelt);
   // Review 37 D5: fakta-, story- og OCR-RPC'erne afviser date_min > date_max (blok 2 og 3).
   if (message.includes('DATO_INTERVAL_OMVENDT')) return 'Datoerne er i forkert rækkefølge: den tidligste dato ligger efter den seneste.';
   // Review 37 D5b (blok 3): kun de kendte dato-kvalifikatorer (exact, before, after, between, about, floruit, …).

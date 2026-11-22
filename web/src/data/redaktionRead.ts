@@ -3,7 +3,8 @@
 // FK), så vi henter N flade queries og joiner i klienten. citation→source HAR FK og nestes.
 // joinEvidence er ren/testbar uden net.
 import { supabase } from '../supabase';
-import { fmtYears, parseYear, getAll, buildMatchPersoner, buildFamilyGraph } from '@daa/core';
+import { fmtYears, parseYear, getAll, buildMatchPersoner, buildFamilyGraph, sletVejFraPreview } from '@daa/core';
+import type { SletAarsag } from '@daa/core';
 import type { RedMatchPerson, MatchPersonRow, MatchFactRow, MatchConcRow, MatchAssertRow, MatchExtIdRow, MatchLineageRow, RawFamilyMember, Union, ParentChild } from '@daa/core';
 import { FELT_FAKTATYPE } from './redaktionWrite';
 import { resolveOrgEstateNames } from './public';
@@ -776,24 +777,45 @@ export type SletPreview = {
   antalBindinger: number;
   antalMedlemskaber: number;
   relationer: { rolle: string; retning: string; modpartId: number }[];
+  // Review 37 P11: kan sletningen fortrydes (kun en offentlig person), og ellers hvorfor ikke. Fail-closed: et svar uden
+  // feltet (database fra før P11) giver kanFortrydes=false og aarsag='ukendt' (sletVejFraPreview, @daa/core).
+  kanFortrydes: boolean;
+  aarsag: SletAarsag | null;
+  // Narrativ-publiceringshistorik: den simple sletning afvises (PERSON_HAR_NARRATIVE_PUBLICATION_HISTORY).
+  sletningBlokeret: boolean;
 };
 
+// Kaster ved fejl (P11): et tomt overblik må ikke se ud som »intet at slette« eller vælge en vej.
 export async function fetchSletPreview(personId: string): Promise<SletPreview> {
-  const tom: SletPreview = { antalRelationer: 0, antalFacts: 0, antalNarrativer: 0, antalBindinger: 0, antalMedlemskaber: 0, relationer: [] };
   const { data, error } = await supabase.rpc('red_slet_person_preview', { p_person_id: Number(personId) });
-  if (error || !data) return tom;
+  if (error) throw Object.assign(new Error(error.message), { code: error.code });
+  const d = (data ?? {}) as Record<string, unknown> & { relationer?: { rolle: string; retning: string; modpart_id: number }[] };
   return {
-    antalRelationer: data.antal_relationer ?? 0,
-    antalFacts: data.antal_facts ?? 0,
-    antalNarrativer: data.antal_narrativer ?? 0,
-    antalBindinger: data.antal_bindinger ?? 0,
-    antalMedlemskaber: data.antal_medlemskaber ?? 0,
-    relationer: (data.relationer ?? []).map((r: { rolle: string; retning: string; modpart_id: number }) => ({
+    antalRelationer: Number(d.antal_relationer ?? 0),
+    antalFacts: Number(d.antal_facts ?? 0),
+    antalNarrativer: Number(d.antal_narrativer ?? 0),
+    antalBindinger: Number(d.antal_bindinger ?? 0),
+    antalMedlemskaber: Number(d.antal_medlemskaber ?? 0),
+    relationer: (d.relationer ?? []).map((r) => ({
       rolle: r.rolle,
       retning: r.retning,
       modpartId: r.modpart_id,
     })),
+    ...sletVejFraPreview(d),
+    sletningBlokeret: d.sletning_blokeret === true,
   };
+}
+
+// --- Slettede personer (review 37 P11): redaktionens liste over fortrydelige sletninger ---
+export type SlettetPerson = { changeSetId: string; slettetNaar: string; actorNavn: string | null; personId: string; navn: string | null };
+
+// Kaster ved fejl: en tom liste må ikke ligne »intet at fortryde«, når den ikke kunne hentes.
+export async function fetchSlettedePersoner(limit = 100): Promise<SlettetPerson[]> {
+  const { data, error } = await supabase.rpc('red_slettede_personer', { p_limit: limit });
+  if (error) throw Object.assign(new Error(error.message), { code: error.code });
+  return ((data ?? []) as { change_set_id: number; slettet_naar: string; actor_navn: string | null; person_id: number; navn: string | null }[])
+    .map((r) => ({ changeSetId: String(r.change_set_id), slettetNaar: r.slettet_naar, actorNavn: r.actor_navn ?? null,
+      personId: String(r.person_id), navn: r.navn ?? null }));
 }
 
 // --- Familie-læsning til person-editor (porteret fra mobil 2C-2b — hold i sync) ---

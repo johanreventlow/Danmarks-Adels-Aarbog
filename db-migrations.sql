@@ -18945,6 +18945,7 @@ DECLARE
     'public.red_slet_person_preview(bigint)'::regprocedure,
     to_regprocedure('public.red_slet_person_helt(bigint,text)'),  -- Task 8b, defineres sidst
     to_regprocedure('public.red_slet_person_helt_preview(bigint)'),  -- personsletning Task 7; defineres sidst i filen
+    to_regprocedure('public.red_slettede_personer(integer)'),  -- review 37 P11; defineres i blokken review37-p11 sidst i filen
     to_regprocedure('public.red_person_purge_udbakke()'),  -- Task 12, defineres sidst
     to_regprocedure('public.red_person_purge_udbakke_kvitter(text,text)'),
     'public.red_slet_relation(bigint)'::regprocedure,
@@ -48107,3 +48108,235 @@ BEGIN
 END
 $review37_b3_checks$;
 -- END review37-b3
+
+-- BEGIN review37-p11
+-- Review 37 P11 (#397; projektejeren 2026-11-22: én sletteknap, systemet vælger). Den simple, fortrydelige sletning
+-- (red_slet_person) afviser en person, der ikke er offentlig (levende/privat/staged/samme_som-gruppe-skjult), med
+-- SLET_KRAEVER_SLET_HELT; sådan en person skal slettes helt (red_slet_person_helt). red_slet_person_preview fortæller
+-- klienten vejen på forhånd (kan_fortrydes + aarsag). Begrundelse: se kommentaren ved tjekket i red_slet_person og
+-- docs/decisions.md 2026-11-22. Deploy-området for prod er hele denne blok i ÉN transaktion. Kroppene er kopieret fra
+-- schema.sql og er de endelige definitioner; de ældre definitioner længere oppe gælder kun den fulde migrationssti.
+-- Idempotent: CREATE OR REPLACE bevarer de eksisterende funktioners ACL; den nye hjælper får eksplicit REVOKE. Samme
+-- signatur og returtype (void / jsonb) som før. Ingen data ændres. red_slettede_personer (ny) er redaktionens liste
+-- over slettede personer med fortryd; den står også på db-rls.sql's allow-liste.
+CREATE OR REPLACE FUNCTION private.person_slet_aarsag(p_person_id bigint)
+RETURNS text LANGUAGE plpgsql STABLE SET search_path = pg_catalog, public, private AS $$
+DECLARE v_levende boolean; v_privat boolean; v_staged boolean;
+BEGIN
+  IF public.person_offentlig(p_person_id) THEN RETURN NULL; END IF;
+  SELECT p.levende, p.privat, p.staged INTO v_levende, v_privat, v_staged FROM public.person p WHERE p.id = p_person_id;
+  IF NOT FOUND THEN RETURN 'findes_ikke'; END IF;
+  IF v_levende IS DISTINCT FROM false THEN RETURN 'levende'; END IF;
+  IF coalesce(v_privat, false) THEN RETURN 'privat'; END IF;
+  IF coalesce(v_staged, false) THEN RETURN 'staged'; END IF;
+  IF public.person_gruppe_skjult(p_person_id) THEN RETURN 'samme_som_skjult'; END IF;
+  RETURN 'ukendt';
+END $$;
+REVOKE ALL ON FUNCTION private.person_slet_aarsag(bigint) FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION red_slet_person(p_person_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_facts bigint[]; v_rels bigint[]; v_contract_version integer; v_aarsag text;
+BEGIN
+  -- #152: serialize with the atomic narrative-record cutover before every
+  -- existing delete lock. Publication history is append-only, so whole-person
+  -- hard delete stays fail-closed until the retention/tombstone design exists.
+  PERFORM pg_advisory_xact_lock_shared(
+    hashtextextended('daa-narrative-record-contract',0)
+  );
+  v_contract_version:=public.narrative_record_contract_version();
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM private.narrative_publication_event event
+      JOIN public.narrative narrative ON narrative.id=event.narrative_id
+     WHERE narrative.subjekt_type='person'
+       AND narrative.subjekt_id=p_person_id
+  ) THEN
+    RAISE EXCEPTION 'PERSON_HAR_NARRATIVE_PUBLICATION_HISTORY';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  PERFORM private.guard_identity_mutation_snapshot();
+
+  -- 2026-08-20: private.source_persona_identity(_event).canonical_person_id har FK mod person
+  -- uden ON DELETE, og _event er append-only (kun BEFORE INSERT-trigger). Har personen én gang
+  -- været mål for en ACCEPTERET kilde-identifikation, bærer den historiske event stadig id'et,
+  -- og sletningen kan aldrig lykkes — heller ikke efter en tilbagetrækning. Vi afviser derfor
+  -- tidligt med en forståelig fejl i stedet for at lade en rå FK-violation slippe ud midt i
+  -- en halvt udført sletning. Den varige løsning er et arkitekturvalg; se docs/decisions.md.
+  IF EXISTS (SELECT 1 FROM private.source_persona_identity_event
+               WHERE canonical_person_id = p_person_id)
+     OR EXISTS (SELECT 1 FROM private.source_persona_identity
+               WHERE canonical_person_id = p_person_id) THEN
+    RAISE EXCEPTION 'PERSON_HAR_KILDEIDENTITET: personen er mål for en accepteret kilde-identifikation, og beslutningssporet er uforanderligt. Sletning er ikke mulig — se docs/decisions.md om tombstone-valget.';
+  END IF;
+
+  PERFORM begin_change_set('red_slet_person', format('Slettede person %s', p_person_id), 'person', p_person_id);
+
+  -- Fælles skriveorden med OCR-rettelsen: source/external-id → person → evidens.
+  -- Sletningen må vente her, før den tager citation/assertion, ellers kan to transaktioner
+  -- danne cyklussen external-id→citation / citation→external-id.
+  PERFORM 1 FROM source s JOIN person_external_id pei ON pei.source_id=s.id
+    WHERE pei.person_id=p_person_id ORDER BY s.id,pei.source_id FOR UPDATE OF s,pei;
+  PERFORM private.lock_identity_people(ARRAY[p_person_id]);
+
+  -- Review 37 P11: kun en offentlig person kan slettes, så det kan fortrydes. En offentlig person indgår ikke i nogen
+  -- skjul-regel (family_offentlig skjuler for et IKKE-offentligt medlem, media_afbilder_skjult for en ikke-offentlig
+  -- afbildet person eller familie, media_afbilder_privat for et privat medlem, person_gruppe_skjult for et levende
+  -- eller privat gruppemedlem), så at fjerne den kan ikke gøre noget skjult offentligt: dens familier, billeder og
+  -- samme_som-gruppe bliver højst mere skjulte. Fjernes derimod en ikke-offentlig person, bliver en familie med en
+  -- offentlig partner offentlig (vielsen), et fællesbillede mister sin skjul-kobling, og en ældre udgaves registrering
+  -- af samme nulevende bliver synlig. Og en ikke-offentlig persons oplysninger skal alligevel slettes helt
+  -- (red_slet_person_helt): change_event-historikken, som gør denne sletning fortrydelig, bevarer dem ellers.
+  -- Efter rollegaten (intet orakel for ikke-redaktører) og efter låsene: personrækken er låst FOR UPDATE
+  -- (lock_identity_people, red_set_privat venter), og samme_som-mutationerne venter på advisory-låsen ovenfor.
+  -- Undtagelsen ruller også change_set'et tilbage.
+  v_aarsag:=private.person_slet_aarsag(p_person_id);
+  IF v_aarsag IS NOT NULL THEN
+    RAISE EXCEPTION 'SLET_KRAEVER_SLET_HELT: % — personen er ikke offentlig, så den skal slettes helt (»Slet helt«), og det kan ikke fortrydes', v_aarsag
+      USING ERRCODE='P0001';
+  END IF;
+
+  SELECT coalesce(array_agg(id),'{}') INTO v_facts FROM fact
+    WHERE subjekt_type='person' AND subjekt_id=p_person_id;
+  SELECT coalesce(array_agg(id),'{}') INTO v_rels FROM relation
+    WHERE (subjekt_type='person' AND subjekt_id=p_person_id)
+       OR (objekt_type='person'  AND objekt_id=p_person_id)
+       -- Task 8a: relationer til P's fakta skal også have evidensen ryddet før faktasletning.
+       OR (subjekt_type='fact' AND subjekt_id = ANY(v_facts))
+       OR (objekt_type='fact' AND objekt_id = ANY(v_facts));
+
+  UPDATE profiles SET reventlow_person_id = NULL WHERE reventlow_person_id = p_person_id;
+
+  DELETE FROM citation WHERE assertion_id IN (
+    SELECT id FROM assertion WHERE (target_type='fact'     AND target_id = ANY(v_facts))
+                                OR (target_type='relation' AND target_id = ANY(v_rels)));
+  DELETE FROM conclusion WHERE (target_type='fact'     AND target_id = ANY(v_facts))
+                            OR (target_type='relation' AND target_id = ANY(v_rels));
+  DELETE FROM assertion  WHERE (target_type='fact'     AND target_id = ANY(v_facts))
+                            OR (target_type='relation' AND target_id = ANY(v_rels));
+
+  DELETE FROM note WHERE (target_type='person'   AND target_id=p_person_id)
+                      OR (target_type='fact'     AND target_id = ANY(v_facts))
+                      OR (target_type='relation' AND target_id = ANY(v_rels));
+
+  -- 2026-08-20: private.narrative_record_publication har FK mod narrative(id) UDEN ON DELETE,
+  -- så den blokerede sletningen for alle 551 narrativ-bundne 1939-personer. Bindingen siger
+  -- »dette narrativ stammer fra denne kilderecord« — når narrativet går, er udsagnet
+  -- meningsløst, så bindingen skal med. private.source_record røres derimod ALDRIG: at
+  -- teksten står på siden er stadig sandt. Skema-kvalificeret, fordi SET search_path=public.
+  DELETE FROM private.narrative_record_publication WHERE narrative_id IN (
+    SELECT id FROM narrative WHERE subjekt_type='person' AND subjekt_id=p_person_id);
+  DELETE FROM narrative          WHERE subjekt_type='person' AND subjekt_id=p_person_id;
+  -- 2026-08-20: haendelse.relation_id/fact_id har FK uden ON DELETE. relation_id er en PÅVIST
+  -- blokering: red_slet_person samler relationer hvor personen er subjekt ELLER objekt, mens
+  -- hændelses-loaderen forankrer efter subjekt alene — en relation Q→P kan derfor bære en
+  -- hændelse under Q's narrativ, som overlever når P slettes. fact_id tages med for symmetri
+  -- (loaderen filtrerer i dag fakta til narrativets egen person, så den sti er ikke påvist).
+  -- Hændelseslaget er regenererbart, og begge kolonner er skip-cols i versioneringen, så vi
+  -- løsner ankeret i stedet for at slette en anden persons hændelse.
+  UPDATE haendelse SET relation_id = NULL WHERE relation_id = ANY(v_rels);
+  UPDATE haendelse SET fact_id     = NULL WHERE fact_id     = ANY(v_facts);
+
+  DELETE FROM relation           WHERE id = ANY(v_rels);
+  DELETE FROM fact               WHERE id = ANY(v_facts);
+  DELETE FROM person_external_id WHERE person_id = p_person_id;
+  DELETE FROM family_member      WHERE person_id = p_person_id;
+  -- review 19 H2: slaegtsnavn_karantaene.person_id har ingen ON DELETE CASCADE — uden denne linje
+  -- fejler sletningen for enhver person der har >1 distinkt effektivt efternavn (fan-out).
+  DELETE FROM slaegtsnavn_karantaene WHERE person_id = p_person_id;
+  -- 2026-08-20: samme klasse som H2 ovenfor — person_id er NOT NULL uden ON DELETE CASCADE,
+  -- så et medlemskab blokerer sletningen. Et medlemskab uden sin person er meningsløst.
+  DELETE FROM person_slaegt_membership   WHERE person_id = p_person_id;
+  DELETE FROM person_lineage_membership  WHERE person_id = p_person_id;
+  DELETE FROM person             WHERE id = p_person_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_slet_person_preview(p_person_id bigint)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE
+  v_rels jsonb;
+  v_nfacts int;
+  v_nnarr int;
+  v_nbind int;
+  v_nmedlem int;
+  v_nevents int;
+  v_aarsag text;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 P11: samme regel som afvisningen i red_slet_person, så klienten kan vælge vej før klikket.
+  v_aarsag:=private.person_slet_aarsag(p_person_id);
+  SELECT count(*) INTO v_nfacts FROM fact
+    WHERE subjekt_type='person' AND subjekt_id=p_person_id;
+  -- 2026-08-20: preview rapporterede kun fakta og relationer, så redaktøren kunne ikke se at
+  -- en biografi og dens kildebinding fulgte med. Skema-kvalificeret (SET search_path=public).
+  SELECT count(*) INTO v_nnarr FROM narrative
+    WHERE subjekt_type='person' AND subjekt_id=p_person_id;
+  SELECT count(*) INTO v_nbind FROM private.narrative_record_publication p
+    JOIN narrative n ON n.id = p.narrative_id
+    WHERE n.subjekt_type='person' AND n.subjekt_id=p_person_id;
+  SELECT count(*) INTO v_nevents
+    FROM private.narrative_publication_event event
+    JOIN narrative n ON n.id=event.narrative_id
+   WHERE n.subjekt_type='person' AND n.subjekt_id=p_person_id;
+  SELECT (SELECT count(*) FROM person_slaegt_membership  WHERE person_id=p_person_id)
+       + (SELECT count(*) FROM person_lineage_membership WHERE person_id=p_person_id)
+    INTO v_nmedlem;
+  SELECT coalesce(jsonb_agg(r), '[]'::jsonb) INTO v_rels FROM (
+    SELECT rolle,
+           CASE WHEN subjekt_type='person' AND subjekt_id=p_person_id
+                THEN 'ud' ELSE 'ind' END AS retning,
+           CASE WHEN subjekt_type='person' AND subjekt_id=p_person_id
+                THEN objekt_id ELSE subjekt_id END AS modpart_id
+    FROM relation
+    WHERE (subjekt_type='person' AND subjekt_id=p_person_id)
+       OR (objekt_type='person'  AND objekt_id=p_person_id)
+  ) r;
+  RETURN jsonb_build_object(
+    'antal_relationer', jsonb_array_length(v_rels),
+    'antal_facts', v_nfacts,
+    'antal_narrativer', v_nnarr,
+    'antal_bindinger', v_nbind,
+    'antal_medlemskaber', v_nmedlem,
+    'antal_publication_events', v_nevents,
+    'sletning_blokeret', v_nevents>0,
+    -- Review 37 P11: kan_fortrydes = public.person_offentlig; ellers aarsag (private.person_slet_aarsag) og »Slet helt«.
+    'kan_fortrydes', v_aarsag IS NULL,
+    'aarsag', v_aarsag,
+    'relationer', v_rels);
+END $$;
+
+-- Review 37 P11 (projektejeren 2026-11-22): »kan fortrydes« skal holde efter genindlæsning. Redaktionens fælles liste
+-- over slettede personer: pr. ufortrudt red_slet_person-sæt, hvor personen ikke findes igen, nyeste først. Navnet er
+-- navne-faktummets påstand før sletningen (change_event.foer; den valgte påstand først). Personrækkens visning_*
+-- logges ikke (skip_cols: cachen), så navnet kan ikke læses dér. En fuld sletning (red_slet_person_helt) fjerner
+-- personens historik, så dens personer står ikke her. Fortrydelsen går gennem red_fortryd_change_set.
+CREATE OR REPLACE FUNCTION red_slettede_personer(p_limit integer DEFAULT 50)
+RETURNS TABLE(change_set_id bigint, slettet_naar timestamptz, actor_navn text, person_id bigint, navn text)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path=public AS $$
+#variable_conflict use_column
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  RETURN QUERY
+  SELECT cs.id, cs.created_at, cs.actor_navn, cs.subjekt_id,
+         (SELECT nullif(btrim(a.foer->>'vaerdi_tekst'),'')
+            FROM change_event f
+            JOIN change_event a ON a.change_set_id=f.change_set_id AND a.tabel='assertion' AND a.op='DELETE'
+                               AND a.foer->>'target_type'='fact' AND a.foer->>'target_id'=f.foer->>'id'
+            LEFT JOIN change_event c ON c.change_set_id=f.change_set_id AND c.tabel='conclusion' AND c.op='DELETE'
+                               AND c.foer->>'target_type'='fact' AND c.foer->>'target_id'=f.foer->>'id'
+           WHERE f.change_set_id=cs.id AND f.tabel='fact' AND f.op='DELETE'
+             AND f.foer->>'subjekt_type'='person' AND f.foer->>'faktatype'='navn'
+             AND nullif(btrim(a.foer->>'vaerdi_tekst'),'') IS NOT NULL
+           ORDER BY (a.foer->>'id') IS NOT DISTINCT FROM (c.foer->>'valgt_assertion_id') DESC, (a.foer->>'id')::bigint
+           LIMIT 1)
+    FROM change_set cs
+   WHERE cs.operation='red_slet_person' AND cs.subjekt_type='person'
+     AND NOT EXISTS (SELECT 1 FROM change_set r WHERE r.reverterer_id=cs.id)
+     AND NOT EXISTS (SELECT 1 FROM person p WHERE p.id=cs.subjekt_id)
+   ORDER BY cs.created_at DESC, cs.id DESC
+   LIMIT greatest(1, least(coalesce(p_limit,50), 500));
+END $$;
+REVOKE ALL ON FUNCTION public.red_slettede_personer(integer) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.red_slettede_personer(integer) TO authenticated;
+-- END review37-p11

@@ -1,5 +1,9 @@
+// Review 37 P11 (projektejeren 2026-11-22): systemet vælger vejen ud fra red_slet_person_preview. Kun en offentlig
+// person kan slettes her, så det kan fortrydes. Mobil har ingen fuld sletning (»Slet helt«): for en ikke-offentlig
+// person forklarer arket hvorfor og henviser til web-redaktionen, og den simple sletning er slået fra.
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { sletAarsagTekst, sletKraeverSletHelt } from '@daa/core';
 import { fetchSletPreview, type SletPreview } from '../../data/redaktionRead';
 import { oversaetFejl, submitChange } from '../../data/redaktionWrite';
 import { useStore } from '../../store/useStore';
@@ -17,12 +21,21 @@ export function SletBekraeftSheet({ personId, onClose, onDeleted }: {
   const [bekraeftet, setBekraeftet] = useState(false);
   const [status, setStatus] = useState<'idle' | 'busy' | 'ok' | 'err'>('idle');
   const [fejl, setFejl] = useState<string | null>(null);
+  const [previewFejl, setPreviewFejl] = useState<string | null>(null);
+  // SLET_KRAEVER_SLET_HELT: status ændret mellem forhåndsvisning og tryk — kun den fulde sletning (web) er tilbage.
+  const [kraeverHelt, setKraeverHelt] = useState(false);
 
   useEffect(() => {
     setBekraeftet(false);
     setStatus('idle');
     setFejl(null);
-    fetchSletPreview(personId).then(setPreview).catch(() => setPreview({ antalRelationer: 0, antalFacts: 0, antalNarrativer: 0, antalBindinger: 0, antalMedlemskaber: 0, relationer: [] }));
+    setPreview(null);
+    setPreviewFejl(null);
+    setKraeverHelt(false);
+    let aktiv = true;
+    fetchSletPreview(personId).then((p) => { if (aktiv) setPreview(p); })
+      .catch((e) => { if (aktiv) setPreviewFejl(oversaetFejl(e instanceof Error ? e.message : String(e))); });
+    return () => { aktiv = false; };
   }, [personId]);
 
   async function slet() {
@@ -33,23 +46,51 @@ export function SletBekraeftSheet({ personId, onClose, onDeleted }: {
       setStatus('ok');
       if (!dryRun) onDeleted();
     } catch (e) {
-      setFejl(oversaetFejl(e instanceof Error ? e.message : String(e)));
+      const msg = e instanceof Error ? e.message : String(e);
+      setKraeverHelt(sletKraeverSletHelt(msg) !== null);
+      setFejl(oversaetFejl(msg));
       setStatus('err');
     }
   }
 
-  const kanSlette = bekraeftet && status !== 'busy';
+  const fortrydelig = !!preview && preview.kanFortrydes && !preview.sletningBlokeret && !kraeverHelt;
+  const kanSlette = fortrydelig && bekraeftet && status !== 'busy';
+  const helt = preview && !preview.kanFortrydes ? sletAarsagTekst(preview.aarsag ?? 'ukendt') : null;
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose} />
       <View style={styles.sheet}>
-        <Serif size={20} style={{ marginBottom: 6 }}>Slet person?</Serif>
+        <Serif size={20} style={{ marginBottom: 6 }}>{helt ? 'Slet helt — kan ikke fortrydes' : 'Slet person — kan fortrydes'}</Serif>
         <Mono size={10} color={dryRun ? Colors.inkMuted : Colors.live} style={{ marginBottom: 12 }}>
           {dryRun ? 'Dry-run · skriver ikke' : 'LIVE · sletter permanent'}
         </Mono>
 
-        {preview && (preview.antalRelationer > 0 || preview.antalFacts > 0
+        {!preview && !previewFejl ? (
+          <Body size={13} style={{ marginBottom: 8 }}>Henter forhåndsvisning…</Body>
+        ) : null}
+        {previewFejl ? (
+          <Mono size={11} color={Colors.danger} style={{ marginBottom: 8 }}>
+            Forhåndsvisningen kunne ikke hentes: {previewFejl}
+          </Mono>
+        ) : null}
+        {helt ? (
+          <View style={styles.advarsel}>
+            <Body size={13} style={{ fontWeight: '600' }}>Personen kan ikke slettes, så det kan fortrydes.</Body>
+            <Body size={13} style={{ marginTop: 6 }}>{helt.hvorfor}</Body>
+            <Body size={13} style={{ marginTop: 6 }}>Vil du hellere kunne fortryde? {helt.hvordan}</Body>
+            <Body size={13} style={{ marginTop: 6 }}>Den fulde sletning (»Slet helt«, kan ikke fortrydes) findes kun i web-redaktionen: brug »Slet person…« dér.</Body>
+          </View>
+        ) : null}
+        {fortrydelig ? (
+          <Body size={13} style={{ marginBottom: 8 }}>Personen og dens oplysninger fjernes. Historikken gemmes, så sletningen kan fortrydes under »Slettede personer« i web-redaktionen. Skal oplysningerne også ud af historikken (GDPR), så brug »Slet person…« i web-redaktionen.</Body>
+        ) : null}
+        {preview?.kanFortrydes && preview.sletningBlokeret ? (
+          <Mono size={11} color={Colors.danger} style={{ marginBottom: 8 }}>
+            Personen har narrativ-publiceringshistorik og kan ikke slettes her. Brug »Slet person…« i web-redaktionen.
+          </Mono>
+        ) : null}
+        {fortrydelig && preview && (preview.antalRelationer > 0 || preview.antalFacts > 0
           || preview.antalNarrativer > 0 || preview.antalMedlemskaber > 0) ? (
           <View style={styles.advarsel}>
             <Mono size={11} color={Colors.danger}>
@@ -75,20 +116,25 @@ export function SletBekraeftSheet({ personId, onClose, onDeleted }: {
           </View>
         ) : null}
 
-        <Pressable
-          style={styles.checkRow}
-          onPress={() => setBekraeftet((v) => !v)}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: bekraeftet }}
-        >
-          <View style={[styles.checkbox, bekraeftet && styles.checkboxChecked]}>
-            {bekraeftet ? <Mono size={10} color="#fff">✓</Mono> : null}
-          </View>
-          <Body size={13} style={{ marginLeft: 8 }}>Jeg bekræfter at personen skal slettes</Body>
-        </Pressable>
+        {fortrydelig ? (
+          <Pressable
+            style={styles.checkRow}
+            onPress={() => setBekraeftet((v) => !v)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: bekraeftet }}
+          >
+            <View style={[styles.checkbox, bekraeftet && styles.checkboxChecked]}>
+              {bekraeftet ? <Mono size={10} color="#fff">✓</Mono> : null}
+            </View>
+            <Body size={13} style={{ marginLeft: 8 }}>Jeg bekræfter at personen skal slettes</Body>
+          </Pressable>
+        ) : null}
 
         {fejl ? (
           <Mono size={11} color={Colors.danger} style={{ marginTop: 8 }}>{fejl}</Mono>
+        ) : null}
+        {kraeverHelt ? (
+          <Mono size={11} color={Colors.danger} style={{ marginTop: 4 }}>Den fulde sletning findes kun i web-redaktionen: brug »Slet person…« dér.</Mono>
         ) : null}
         {status === 'ok' ? (
           <Mono size={11} color={Colors.success} style={{ marginTop: 8 }}>
@@ -96,13 +142,17 @@ export function SletBekraeftSheet({ personId, onClose, onDeleted }: {
           </Mono>
         ) : null}
 
-        <Pressable
-          style={[styles.sletBtn, !kanSlette && styles.btnDisabled]}
-          disabled={!kanSlette}
-          onPress={slet}
-        >
-          <BtnLabel color="#fff">{'🗑 '}Slet endeligt</BtnLabel>
-        </Pressable>
+        {fortrydelig || status === 'ok' ? (
+          <Pressable
+            style={[styles.sletBtn, !kanSlette && styles.btnDisabled]}
+            disabled={!kanSlette}
+            onPress={slet}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !kanSlette }}
+          >
+            <BtnLabel color="#fff">{'🗑 '}Slet (kan fortrydes)</BtnLabel>
+          </Pressable>
+        ) : null}
         {status !== 'busy' ? (
           <Pressable style={styles.cancelBtn} onPress={onClose}>
             <BtnLabel color={Colors.inkSecondary}>Annullér</BtnLabel>

@@ -2,7 +2,8 @@
 // fact via target_type/target_id UDEN rigtig FK), så vi henter N flade queries og joiner i
 // klienten. citation→source HAR FK og nestes (spec §3). Ren joinEvidence er testbar uden net.
 import { supabase } from '../lib/supabase';
-import { parseYear, fmtYears, getAll, buildMatchPersoner, parseIkkeSammeSomPar } from '@daa/core';
+import { parseYear, fmtYears, getAll, buildMatchPersoner, parseIkkeSammeSomPar, sletVejFraPreview } from '@daa/core';
+import type { SletAarsag } from '@daa/core';
 import type { RedMatchPerson, MatchPersonRow, MatchFactRow, MatchConcRow, MatchAssertRow, MatchExtIdRow, MatchLineageRow } from '@daa/core';
 import { FELT_FAKTATYPE } from './redaktionWrite';
 
@@ -154,6 +155,11 @@ export type SletPreview = {
   antalBindinger: number;
   antalMedlemskaber: number;
   relationer: { rolle: string; retning: string; modpartId: number }[];
+  // Review 37 P11 (spejler web): kan sletningen fortrydes (kun en offentlig person), og ellers hvorfor ikke.
+  // Fail-closed: et svar uden feltet giver kanFortrydes=false og aarsag='ukendt' (sletVejFraPreview, @daa/core).
+  kanFortrydes: boolean;
+  aarsag: SletAarsag | null;
+  sletningBlokeret: boolean;
 };
 
 // "Forældre ukendt"-markering (docs/reviews/25): den aktuelle afklarede markering på en person,
@@ -286,22 +292,25 @@ export async function fetchForaeldreKonflikter(): Promise<ForaeldreKonflikt[]> {
     antalPaastande: r.antal_paastande, status: r.status, navn: navnById.get(r.person_id) ?? null }));
 }
 
+// Kaster ved fejl (P11): et tomt overblik må ikke se ud som »intet at slette« eller åbne den fortrydelige vej.
 export async function fetchSletPreview(personId: string): Promise<SletPreview> {
-  const tom: SletPreview = { antalRelationer: 0, antalFacts: 0, antalNarrativer: 0, antalBindinger: 0, antalMedlemskaber: 0, relationer: [] };
-  if (!supabase) return tom;
+  if (!supabase) throw new Error('Ingen forbindelse til basen.');
   const { data, error } = await supabase.rpc('red_slet_person_preview', { p_person_id: Number(personId) });
-  if (error || !data) return tom;
+  if (error) throw new Error(error.message);
+  const d = (data ?? {}) as Record<string, unknown> & { relationer?: { rolle: string; retning: string; modpart_id: number }[] };
   return {
-    antalRelationer: data.antal_relationer ?? 0,
-    antalFacts: data.antal_facts ?? 0,
-    antalNarrativer: data.antal_narrativer ?? 0,
-    antalBindinger: data.antal_bindinger ?? 0,
-    antalMedlemskaber: data.antal_medlemskaber ?? 0,
-    relationer: (data.relationer ?? []).map((r: { rolle: string; retning: string; modpart_id: number }) => ({
+    antalRelationer: Number(d.antal_relationer ?? 0),
+    antalFacts: Number(d.antal_facts ?? 0),
+    antalNarrativer: Number(d.antal_narrativer ?? 0),
+    antalBindinger: Number(d.antal_bindinger ?? 0),
+    antalMedlemskaber: Number(d.antal_medlemskaber ?? 0),
+    relationer: (d.relationer ?? []).map((r) => ({
       rolle: r.rolle,
       retning: r.retning,
       modpartId: r.modpart_id,
     })),
+    ...sletVejFraPreview(d),
+    sletningBlokeret: d.sletning_blokeret === true,
   };
 }
 

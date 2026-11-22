@@ -813,6 +813,7 @@ BEGIN
     'public.red_slet_person_preview(bigint)',
     'public.red_slet_person_helt(bigint,text)',
     'public.red_slet_person_helt_preview(bigint)',
+    'public.red_slettede_personer(integer)',
     'public.red_person_purge_udbakke()',
     'public.red_person_purge_udbakke_kvitter(text,text)',
     'public.red_slet_relation(bigint)',

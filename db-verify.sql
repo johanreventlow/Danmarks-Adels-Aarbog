@@ -3198,6 +3198,7 @@ DECLARE
     'public.red_slet_person_preview(bigint)'::regprocedure,
     'public.red_slet_person_helt(bigint,text)'::regprocedure,
     'public.red_slet_person_helt_preview(bigint)'::regprocedure,
+    'public.red_slettede_personer(integer)'::regprocedure,
     'public.red_person_purge_udbakke()'::regprocedure,
     'public.red_person_purge_udbakke_kvitter(text,text)'::regprocedure,
     'public.red_slet_relation(bigint)'::regprocedure,
@@ -7819,6 +7820,9 @@ BEGIN
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
   v_pid := red_opret_person('__verify_slet__','kvinde',false,'1600','1660','Fru');
+  -- Review 37 P11: red_opret_person opretter en privat person, og kun en offentlig kan slettes, så det kan fortrydes.
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_set_privat(v_pid,false);
   SELECT count(*) INTO n_facts_before FROM fact WHERE subjekt_type='person' AND subjekt_id=v_pid;
   -- slet personen (eget change_set)
   PERFORM set_config('app.change_set_id','',true);
@@ -8327,6 +8331,9 @@ BEGIN
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   PERFORM set_config('app.change_set_id','',true);
   v_pid := red_opret_person('__verify_h2__','mand',false,NULL,NULL,NULL);
+  -- Review 37 P11: red_opret_person opretter en privat person, og kun en offentlig kan slettes, så det kan fortrydes.
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_set_privat(v_pid,false);
   -- bind en profil til personen
   INSERT INTO auth.users(id,email) VALUES (v_uid,'medlem@x') ON CONFLICT DO NOTHING;
   INSERT INTO profiles(id,rolle,email,reventlow_person_id) VALUES (v_uid,'medlem','medlem@x',v_pid)
@@ -9584,6 +9591,168 @@ EXCEPTION WHEN OTHERS THEN
   ELSE RAISE; END IF;
 END $$;
 -- END-VERIFY r37b3-d5b
+
+-- BEGIN-VERIFY r37p11
+-- ===== Review 37 P11: den fortrydelige sletning kun for en offentlig person (én sletteknap) =====
+-- red_slet_person afviser en person, der ikke er offentlig, med SLET_KRAEVER_SLET_HELT: <årsag>, og intet ændres
+-- (heller intet ændringssæt). En afdød, offentlig person kan stadig slettes — også én i en familie og på et
+-- fællesbillede, og ingen familie, intet billede og ingen person bliver mere offentlig af det. red_slet_person_preview
+-- giver kan_fortrydes (= person_offentlig) og aarsag (fast prioritet levende → privat → staged → samme_som_skjult;
+-- findes_ikke for et ukendt id). Uden redaktørrolle afviser begge med »Kun redaktion«, ens for alle personer (intet
+-- orakel). red_slettede_personer (redaktionens liste) viser sletningen med navn, ikke efter fortrydelse, og afviser uden
+-- redaktørrolle. Kaldt som ejer med en redaktør-uid; matricen med rigtige klientroller er
+-- tests/sql/test-review37-p11-kaldere.sql. At en fuld sletning ikke står på listen, viser testgruppen p11_blindgyde.
+DO $$
+DECLARE
+  r record; v_pv jsonb; v_msg text; v_n_cs bigint; v_foer text; v_efter text; v_cs bigint; v_cs2 bigint;
+  v_offentlig_foer jsonb; v_offentlig_efter jsonb;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO person(id,levende,privat,staged) VALUES
+    (-937901,true ,false,false),  -- levende, gift med den offentlige -937902
+    (-937902,false,false,false),  -- offentlig partner (bevares i alle tilfælde)
+    (-937903,false,true ,false),  -- afdød, men privat; gift med -937902
+    (-937904,false,false,true ),  -- staged dublet fra en ny udgave
+    (-937905,false,false,false),  -- afdød og selv offentlig, men samme_som en levende (-937906)
+    (-937906,true ,false,false),
+    (-937907,NULL ,false,false),  -- levende ukendt (NULL) = levende
+    (-937908,true ,true ,true ),  -- alle tre: levende vinder
+    (-937909,false,true ,true ),  -- privat + staged: privat vinder
+    (-937910,false,false,false),  -- offentlig: i familie med -937902 og på fællesbillede med -937902 → må slettes
+    (-937912,false,false,false);  -- offentlig, alene (preview-kontrol)
+  INSERT INTO family(id,type) VALUES (-937921,'vielse'),(-937922,'vielse'),(-937923,'vielse');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES
+    (-937921,-937901,'partner'),(-937921,-937902,'partner'),
+    (-937922,-937903,'partner'),(-937922,-937902,'partner'),
+    (-937923,-937910,'partner'),(-937923,-937902,'partner');
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES
+    (-937931,'family',-937921,'vielse'),(-937932,'family',-937922,'vielse'),(-937933,'family',-937923,'vielse');
+  INSERT INTO media(id,maa_publiceres,upload_status) VALUES (-937941,true,'klar'),(-937942,true,'klar'),(-937943,true,'klar');
+  INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
+    ('person',-937901,'media',-937941,'afbildet'),('person',-937902,'media',-937941,'afbildet'),  -- levende på fællesbillede
+    ('person',-937910,'media',-937942,'afbildet'),('person',-937902,'media',-937942,'afbildet'),  -- offentlig på fællesbillede
+    ('media',-937943,'family',-937923,'afbildet');                                               -- billede af offentlig familie
+  PERFORM red_upsert_fakta('person',-937910,'navn','Verify Slettet P11');
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_samme_som(-937905,-937906);
+  PERFORM set_config('app.change_set_id','',true);
+
+  -- Afvisningen: hver ikke-offentlig person med sin årsag; rækkerne og ændringssættene er uændrede bagefter.
+  FOR r IN SELECT * FROM (VALUES (-937901::bigint,'levende'),(-937903,'privat'),(-937904,'staged'),
+      (-937905,'samme_som_skjult'),(-937907,'levende'),(-937908,'levende'),(-937909,'privat')) x(pid,aarsag) LOOP
+    SELECT count(*) INTO v_n_cs FROM change_set;
+    SELECT md5(coalesce((SELECT to_jsonb(p)::text FROM person p WHERE p.id=r.pid),'')
+      ||coalesce((SELECT string_agg(to_jsonb(fm)::text,',' ORDER BY fm.family_id) FROM family_member fm WHERE fm.person_id=r.pid),'')
+      ||coalesce((SELECT string_agg(to_jsonb(x)::text,',' ORDER BY x.id) FROM relation x
+                   WHERE (x.subjekt_type='person' AND x.subjekt_id=r.pid) OR (x.objekt_type='person' AND x.objekt_id=r.pid)),''))
+      INTO v_foer;
+    v_msg:=NULL;
+    BEGIN
+      PERFORM red_slet_person(r.pid);
+    EXCEPTION WHEN OTHERS THEN v_msg:=SQLERRM;
+    END;
+    IF v_msg IS NULL THEN
+      RAISE EXCEPTION 'FEJL: P11 — den simple sletning accepterede person % (forventet afvisning: %)', r.pid, r.aarsag; END IF;
+    IF v_msg NOT LIKE 'SLET_KRAEVER_SLET_HELT: '||r.aarsag||' %' THEN
+      RAISE EXCEPTION 'FEJL: P11 — person % blev afvist med «%», forventet SLET_KRAEVER_SLET_HELT: %', r.pid, v_msg, r.aarsag; END IF;
+    PERFORM set_config('app.change_set_id','',true);
+    SELECT md5(coalesce((SELECT to_jsonb(p)::text FROM person p WHERE p.id=r.pid),'')
+      ||coalesce((SELECT string_agg(to_jsonb(fm)::text,',' ORDER BY fm.family_id) FROM family_member fm WHERE fm.person_id=r.pid),'')
+      ||coalesce((SELECT string_agg(to_jsonb(x)::text,',' ORDER BY x.id) FROM relation x
+                   WHERE (x.subjekt_type='person' AND x.subjekt_id=r.pid) OR (x.objekt_type='person' AND x.objekt_id=r.pid)),''))
+      INTO v_efter;
+    IF v_efter IS DISTINCT FROM v_foer OR (SELECT count(*) FROM change_set) <> v_n_cs THEN
+      RAISE EXCEPTION 'FEJL: P11 — den afviste sletning af person % ændrede rækker eller åbnede et ændringssæt', r.pid; END IF;
+  END LOOP;
+
+  -- Forhåndsvisningen: kan_fortrydes = person_offentlig, aarsag i fast prioritet, falsk kan_fortrydes har altid en årsag.
+  FOR r IN SELECT * FROM (VALUES (-937901::bigint,'levende'),(-937903,'privat'),(-937904,'staged'),
+      (-937905,'samme_som_skjult'),(-937906,'levende'),(-937907,'levende'),(-937908,'levende'),(-937909,'privat'),
+      (-937902,NULL),(-937910,NULL),(-937912,NULL),(-937999,'findes_ikke')) x(pid,aarsag) LOOP
+    v_pv:=red_slet_person_preview(r.pid);
+    IF NOT (v_pv ? 'kan_fortrydes') OR NOT (v_pv ? 'aarsag') OR jsonb_typeof(v_pv->'kan_fortrydes') <> 'boolean' THEN
+      RAISE EXCEPTION 'FEJL: P11 — forhåndsvisningen mangler kan_fortrydes/aarsag: %', v_pv; END IF;
+    IF (v_pv->>'kan_fortrydes')::boolean IS DISTINCT FROM public.person_offentlig(r.pid)
+       OR (v_pv->>'aarsag') IS DISTINCT FROM r.aarsag
+       OR (NOT (v_pv->>'kan_fortrydes')::boolean AND v_pv->>'aarsag' IS NULL) THEN
+      RAISE EXCEPTION 'FEJL: P11 — forhåndsvisningen for person % er kan_fortrydes=%, aarsag=% (forventet aarsag %)',
+        r.pid, v_pv->>'kan_fortrydes', v_pv->>'aarsag', coalesce(r.aarsag,'NULL'); END IF;
+  END LOOP;
+
+  -- Tilladt: den offentlige -937910 slettes; ingen familie, intet billede og ingen person bliver mere offentlig.
+  SELECT jsonb_build_object(
+    'fam',(SELECT jsonb_object_agg(f.id,public.family_offentlig(f.id)) FROM family f WHERE f.id BETWEEN -937929 AND -937921),
+    'media',(SELECT jsonb_object_agg(m.id,public.media_synlig_anon(m.id)) FROM media m WHERE m.id BETWEEN -937949 AND -937941),
+    'person',(SELECT jsonb_object_agg(p.id,public.person_offentlig(p.id)) FROM person p WHERE p.id BETWEEN -937912 AND -937901))
+    INTO v_offentlig_foer;
+  IF NOT (v_offentlig_foer->'fam'->>'-937923')::boolean OR NOT (v_offentlig_foer->'media'->>'-937942')::boolean
+     OR (v_offentlig_foer->'fam'->>'-937921')::boolean OR (v_offentlig_foer->'media'->>'-937941')::boolean THEN
+    RAISE EXCEPTION 'FEJL: P11 — fixturen: forventet offentlig -937923/-937942 og skjult -937921/-937941, fik %', v_offentlig_foer; END IF;
+  PERFORM red_slet_person(-937910);
+  PERFORM set_config('app.change_set_id','',true);
+  IF EXISTS (SELECT 1 FROM person WHERE id=-937910) THEN RAISE EXCEPTION 'FEJL: P11 — den offentlige person blev ikke slettet'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM change_set WHERE operation='red_slet_person' AND subjekt_type='person' AND subjekt_id=-937910) THEN
+    RAISE EXCEPTION 'FEJL: P11 — sletningen af den offentlige person har intet ændringssæt (kan ikke fortrydes)'; END IF;
+  SELECT jsonb_build_object(
+    'fam',(SELECT jsonb_object_agg(f.id,public.family_offentlig(f.id)) FROM family f WHERE f.id BETWEEN -937929 AND -937921),
+    'media',(SELECT jsonb_object_agg(m.id,public.media_synlig_anon(m.id)) FROM media m WHERE m.id BETWEEN -937949 AND -937941),
+    'person',(SELECT jsonb_object_agg(p.id,public.person_offentlig(p.id)) FROM person p WHERE p.id BETWEEN -937912 AND -937901))
+    INTO v_offentlig_efter;
+  FOR r IN SELECT k.typ, e.key, e.value AS efter FROM (VALUES ('fam'),('media'),('person')) k(typ)
+             CROSS JOIN LATERAL jsonb_each(v_offentlig_efter->k.typ) e LOOP
+    IF (r.efter #>> '{}')::boolean AND NOT coalesce((v_offentlig_foer->r.typ->>r.key)::boolean,false) THEN
+      RAISE EXCEPTION 'FEJL: P11 — sletningen af en offentlig person gjorde % % offentlig', r.typ, r.key; END IF;
+  END LOOP;
+
+  -- Listen over slettede personer: sletningen står med navn og sæt; efter fortrydelse er den væk; en ny sletning står igen.
+  SELECT max(id) INTO v_cs FROM change_set WHERE operation='red_slet_person' AND subjekt_type='person' AND subjekt_id=-937910;
+  IF NOT EXISTS (SELECT 1 FROM red_slettede_personer(500) l
+                  WHERE l.change_set_id=v_cs AND l.person_id=-937910 AND l.navn='Verify Slettet P11'
+                    AND l.slettet_naar IS NOT NULL) THEN
+    RAISE EXCEPTION 'FEJL: P11 — listen over slettede personer mangler sletningen af -937910 med navn (sæt %)', v_cs; END IF;
+  IF EXISTS (SELECT 1 FROM red_slettede_personer(500) l WHERE l.person_id IN (-937901,-937902,-937903,-937904,-937905)) THEN
+    RAISE EXCEPTION 'FEJL: P11 — listen over slettede personer viser en person, der ikke er slettet'; END IF;
+  PERFORM red_fortryd_change_set(v_cs,false);
+  PERFORM set_config('app.change_set_id','',true);
+  IF NOT EXISTS (SELECT 1 FROM person WHERE id=-937910)
+     OR EXISTS (SELECT 1 FROM red_slettede_personer(500) l WHERE l.change_set_id=v_cs OR l.person_id=-937910) THEN
+    RAISE EXCEPTION 'FEJL: P11 — en fortrudt sletning står stadig på listen over slettede personer'; END IF;
+  PERFORM red_slet_person(-937910);
+  PERFORM set_config('app.change_set_id','',true);
+  SELECT max(id) INTO v_cs2 FROM change_set WHERE operation='red_slet_person' AND subjekt_type='person' AND subjekt_id=-937910;
+  IF v_cs2 = v_cs OR (SELECT count(*) FROM red_slettede_personer(500) l WHERE l.person_id=-937910) <> 1
+     OR NOT EXISTS (SELECT 1 FROM red_slettede_personer(500) l WHERE l.change_set_id=v_cs2) THEN
+    RAISE EXCEPTION 'FEJL: P11 — en ny sletning efter fortrydelse står ikke præcis én gang på listen'; END IF;
+  IF (SELECT count(*) FROM red_slettede_personer(1)) <> 1 THEN
+    RAISE EXCEPTION 'FEJL: P11 — p_limit begrænser ikke listen over slettede personer'; END IF;
+
+  -- Intet orakel: uden redaktørrolle samme afvisning for en offentlig og en ikke-offentlig person.
+  PERFORM set_config('request.jwt.claim.sub','',true);
+  FOR r IN SELECT * FROM (VALUES (-937902::bigint),(-937901),(-937999)) x(pid) LOOP
+    v_msg:=NULL;
+    BEGIN PERFORM red_slet_person(r.pid); EXCEPTION WHEN OTHERS THEN v_msg:=SQLERRM; END;
+    IF v_msg IS DISTINCT FROM 'Kun redaktion' THEN
+      RAISE EXCEPTION 'FEJL: P11 — red_slet_person(%) uden redaktørrolle gav «%», forventet «Kun redaktion»', r.pid, v_msg; END IF;
+    v_msg:=NULL;
+    BEGIN PERFORM red_slet_person_preview(r.pid); EXCEPTION WHEN OTHERS THEN v_msg:=SQLERRM; END;
+    IF v_msg IS DISTINCT FROM 'Kun redaktion' THEN
+      RAISE EXCEPTION 'FEJL: P11 — red_slet_person_preview(%) uden redaktørrolle gav «%», forventet «Kun redaktion»', r.pid, v_msg; END IF;
+  END LOOP;
+  v_msg:=NULL;
+  BEGIN PERFORM * FROM red_slettede_personer(); EXCEPTION WHEN OTHERS THEN v_msg:=SQLERRM; END;
+  IF v_msg IS DISTINCT FROM 'Kun redaktion' THEN
+    RAISE EXCEPTION 'FEJL: P11 — red_slettede_personer uden redaktørrolle gav «%», forventet «Kun redaktion»', v_msg; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 P11 — den fortrydelige sletning kun for en offentlig person; forhåndsvisningen viser vejen';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37p11
 
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt

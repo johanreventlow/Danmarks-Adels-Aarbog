@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { fetchPurgePreview, purgeFejl, type PurgePreview, type PurgeResult } from '../data/personPurge';
 import { T } from '../theme';
 
@@ -21,8 +21,11 @@ type Props = {
   loadPreview?: (id: string) => Promise<PurgePreview>;
   execute: (opts: { personId: string; previewSha256: string; dryRun: boolean }) => Promise<PurgeResult>;
   onDeleted: () => void; onClose: () => void;
+  // Review 37 P11: når »Slet person…« vælger den fulde sletning, står overskrift og begrundelse øverst.
+  overskrift?: string; intro?: ReactNode;
 };
-export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurgePreview, execute, onDeleted, onClose }: Props) {
+export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurgePreview, execute, onDeleted, onClose,
+  overskrift = 'Slet helt', intro }: Props) {
   const [preview, setPreview] = useState<PurgePreview | null>(null);
   const [typedId, setTypedId] = useState('');
   const [loading, setLoading] = useState(true);
@@ -59,7 +62,8 @@ export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurg
   return <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,.4)', display: 'grid', placeItems: 'center' }}>
     <section role="dialog" aria-modal="true" aria-labelledby="purge-title"
       style={{ background: T.surfaceRaised, color: T.ink, borderRadius: 12, padding: 24, width: 'min(760px, 90vw)', maxHeight: '90vh', overflowY: 'auto' }}>
-      <h2 id="purge-title">Slet helt · {preview?.navn ?? navn} · id {personId}</h2>
+      <h2 id="purge-title">{overskrift} · {preview?.navn ?? navn} · id {personId}</h2>
+      {intro}
       <p>Du sletter den rå profil med dette id, ikke den sammenfoldede person eller de andre profiler i samme_som-komponenten. Sletningen kan ikke fortrydes.</p>
       {loading && <p role="status">Henter forhåndsvisning…</p>}
       {preview && <>
