@@ -2,6 +2,25 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: et redaktionelt valg af konklusion gør den gyldig; et tilbagetrukket slot har ingen gældende konklusion (#397 D4+D10, 2026-11-22)
+
+> Projektejeren 22/11 (valgt blandt to: »altid gyldig« frem for »kun tilbagetrukket«): **»Gør til konklusion«
+> (`red_set_konklusion`) sætter status `afklaret`, uanset om konklusionen var tilbagetrukket eller omstridt.** Samme regel
+> som de øvrige valg-funktioner (`red_upsert_fakta`, `red_vaelg_foraeldre`): et eksplicit redaktørvalg er en afgørelse.
+> Før skiftede kaldet kun den valgte påstand, så en tilbagetrukket konklusion forblev skjult, mens kaldet meldte succes.
+> Følge: et valg på en omstridt konklusion fjerner »omstridt«; det vil redaktøren. I prod findes én omstridt konklusion
+> (på en relation), som appen ikke kan nå ad denne vej, og 0 tilbagetrukne fakta-konklusioner, så intet skifter i dag.
+> - **Redigering og sletning er ikke valg:** `red_edit_oplysning` og `red_slet_oplysning` peger konklusionen om, men
+>   lader status stå. En tilbagetrukket markering forbliver tilbagetrukket, når dens påstand rettes.
+> - **D10 følger af samme opfattelse:** et tilbagetrukket forældrefamilie-slot (fx efter `red_slet_familie_link` af
+>   barnet) har ingen gældende konklusion. `red_tilfoej_foraeldre_paastand` behandler det som et slot uden konklusion:
+>   matcher den nye påstand barnets projektion, bliver den den afklarede konklusion; ellers står den som kandidat. Før
+>   blev den en falsk konflikt med den fjernede familie (slottet `omstridt`, barnets projektionsrække konfidens
+>   `omstridt`).
+> - **Kendt rest:** redaktionens kernefelter (`joinEvidence` i web) viser den valgte påstand som konklusion uanset
+>   status, så knappen »Gør til konklusion« mangler på netop den påstand i en tilbagetrukket konklusion. I dag kan
+>   kernefelterne ikke tilbagetrækkes fra appen, så det er latent.
+
 ## BESLUTTET: én sletteknap — systemet vælger, og den simple sletning afviser en ikke-offentlig person (#397 P11, 2026-11-22)
 
 > Projektejeren 22/11: **én knap, systemet vælger** — og det skal være tydeligt for redaktøren, om historikken beholdes
