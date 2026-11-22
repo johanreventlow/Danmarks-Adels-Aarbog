@@ -4,8 +4,8 @@ describe('personMemberIds', () => {
   it('bevarer den kanoniske id, selv når mergedFrom kun indeholder aliaser', () => {
     expect(personMemberIds('10', {
       mergedFrom: [
-        { personId: '3', linje: 'III', nr: 3 },
-        { personId: '2', linje: 'II', nr: 2 },
+        { personId: '3', linje: 'III', nr: 3, nr_label: null },
+        { personId: '2', linje: 'II', nr: 2, nr_label: null },
       ],
     })).toEqual(['10', '2', '3']);
   });

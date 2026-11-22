@@ -35,7 +35,7 @@ const search = {
   sort: 'navn' as const, setSort: () => {}, activeLetter: null, setActiveLetter: () => {},
   linjeList: [], activeLinje: null, setActiveLinje: () => {},
   bmOnly: false, setBmOnly: () => {}, hasBookmarks: false,
-  browsing: false, setBrowsing: () => {}, showResults: false, focusToken: 0, onPick: () => {},
+  browsing: false, setBrowsing: () => {}, showResults: false, clearSearch: () => {}, focusToken: 0, resetFocus: () => {}, onPick: () => {},
 };
 const props = { model, onPick: () => {}, onFocus: () => {}, hasBookmark: () => false, onToggleBookmark: () => {}, search };
 

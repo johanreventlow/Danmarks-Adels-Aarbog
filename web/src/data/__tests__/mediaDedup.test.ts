@@ -29,7 +29,7 @@ describe('mediaDedup — målretning og autoritativ relation', () => {
   });
 
   it.each([[{ id: 1 }, true], [null, false]] as const)('bruger lookup-resultatet autoritativt (%j → %s)', async (data, expected) => {
-    const seen: Record<string, string>[][] = [];
+    const seen: Record<string, string>[] = [];
     const linked = await fetchMediaLinked('91', { maalType: 'person', maalId: '42' }, async (filters) => {
       seen.push(filters);
       return { data, error: null };

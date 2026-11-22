@@ -77,7 +77,7 @@ describe('buildBrowse — query giver flad, ufiltreret liste', () => {
 describe('buildBrowse — H1: ugyldigt activeLetter falder tilbage til Alle (ingen dead-end)', () => {
   test('activeLetter der ikke findes i pool → alle grupper vises (ikke blank)', () => {
     // 'X' er intet efternavns-initial → må ikke give tom liste.
-    const r = buildBrowse(people, '', 'navn', 'X', null);
+    const r = buildBrowse(people, '', 'navn', 'X', undefined);
     expect(r.grouped).toBe(true);
     expect(r.groups.length).toBeGreaterThan(0);
     expect(r.flat).toHaveLength(people.length);
@@ -92,7 +92,7 @@ describe('buildBrowse — H1: ugyldigt activeLetter falder tilbage til Alle (ing
   });
 
   test('gyldigt activeLetter respekteres stadig', () => {
-    const r = buildBrowse(people, '', 'navn', 'R', null);
+    const r = buildBrowse(people, '', 'navn', 'R', undefined);
     expect(r.groups.map((g) => g.letter)).toEqual(['R']);
   });
 });

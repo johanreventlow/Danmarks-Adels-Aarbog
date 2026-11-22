@@ -7,7 +7,7 @@ const baseMedia = {
   id: '9223372036854775807', slags: 'foto', titel: 'Kopi', storagePath: 'large.jpg',
   kunstner: null, datering: null, rettighederStatus: 'ukendt', mimeType: 'image/jpeg',
   byteSize: 100, bredde: 10, hoejde: 20, originalFilnavn: 'kopi.jpg', uploadStatus: 'fjernet',
-  maaPubliceres: false, createdAt: null, url: 'signed:large', thumbUrl: 'signed:thumb',
+  maaPubliceres: false, createdAt: null, url: 'signed:large', thumbUrl: 'signed:thumb', sha256: null, primaer: false,
 };
 const candidate = { ...baseMedia, id: '9007199254740992', titel: 'Original', uploadStatus: 'klar' };
 const noop = () => {};
