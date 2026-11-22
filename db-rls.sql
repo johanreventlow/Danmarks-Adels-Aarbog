@@ -637,9 +637,18 @@ revoke update, references, trigger, truncate on table public.bookmark from authe
 drop policy if exists bookmark_select_own on public.bookmark;
 create policy bookmark_select_own on public.bookmark
   for select to authenticated using (user_id = auth.uid());
-drop policy if exists bookmark_insert_own on public.bookmark;
-create policy bookmark_insert_own on public.bookmark
-  for insert to authenticated with check (user_id = auth.uid());
+-- Review 37 S2: INSERT må ikke være et eksistens-orakel. Uden person_offentlig-tjekket afslørede FK-fejlen (23503),
+-- om et skjult person-id findes; nu får et medlem samme 42501 for et skjult og et ikke-eksisterende id (som
+-- red_suggest's FORSLAG_SUBJEKT_UTILGAENGELIGT). Redaktionen må stadig bogmærke skjulte/levende personer
+-- (projektejeren 2026-11-22). Egen DO-blok, så prod kan tage den alene (ikke hele db-rls.sql).
+DO $review37_b1_bookmark$
+BEGIN
+  DROP POLICY IF EXISTS bookmark_insert_own ON public.bookmark;
+  CREATE POLICY bookmark_insert_own ON public.bookmark
+    FOR INSERT TO authenticated
+    WITH CHECK (user_id = auth.uid() AND (public.current_rolle() = 'redaktion' OR public.person_offentlig(person_id)));
+END
+$review37_b1_bookmark$;
 drop policy if exists bookmark_delete_own on public.bookmark;
 create policy bookmark_delete_own on public.bookmark
   for delete to authenticated using (user_id = auth.uid());

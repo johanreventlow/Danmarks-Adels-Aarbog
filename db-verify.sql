@@ -8874,6 +8874,61 @@ BEGIN
   RAISE NOTICE 'OK: bookmark RLS-isolation (egen-læs, fremmed-skriv afvist, anon blokeret) + cascade + dubletsikring';
 END $$;
 
+-- BEGIN-VERIFY r37b1-s2
+-- ===== Review 37 S2: bogmærke-INSERT er ikke et eksistens-orakel =====
+-- Et medlem får samme 42501 for en levende (skjult) person og for et id, der ikke findes (før: 23503 FK-fejl,
+-- der afslørede eksistensen). Redaktionen må stadig bogmærke en levende person (projektejeren 2026-11-22), og
+-- medlemmet kan stadig bogmærke en offentlig person. Selvforsynende; rulles tilbage.
+DO $$
+DECLARE v_state text; v_ok boolean;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO auth.users(id,email) VALUES
+    ('00000000-0000-0000-0000-0000000000b1','s2-medlem@test.invalid'),
+    ('00000000-0000-0000-0000-0000000000b2','s2-redaktion@test.invalid')
+  ON CONFLICT (id) DO NOTHING;
+  DELETE FROM profiles WHERE id='00000000-0000-0000-0000-0000000000b1';
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-0000000000b2','redaktion','s2@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  INSERT INTO person(id,levende,privat) VALUES (-937201,false,false),(-937202,true,false);
+  DELETE FROM person WHERE id=-937203;
+
+  -- Medlem: levende person → 42501
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000b1',true);
+  SET LOCAL ROLE authenticated;
+  v_state := 'ingen fejl';
+  BEGIN INSERT INTO bookmark(person_id) VALUES (-937202);
+  EXCEPTION WHEN OTHERS THEN v_state := SQLSTATE; END;
+  RESET ROLE;
+  IF v_state <> '42501' THEN RAISE EXCEPTION 'FEJL: S2 — medlem bogmærkede levende person: % (forventede 42501)', v_state; END IF;
+
+  -- Medlem: ikke-eksisterende id → samme 42501 (ikke 23503)
+  SET LOCAL ROLE authenticated;
+  v_state := 'ingen fejl';
+  BEGIN INSERT INTO bookmark(person_id) VALUES (-937203);
+  EXCEPTION WHEN OTHERS THEN v_state := SQLSTATE; END;
+  RESET ROLE;
+  IF v_state <> '42501' THEN RAISE EXCEPTION 'FEJL: S2 — ikke-eksisterende id gav % (forventede 42501, samme som skjult)', v_state; END IF;
+
+  -- Medlem: offentlig person → tilladt
+  SET LOCAL ROLE authenticated;
+  INSERT INTO bookmark(person_id) VALUES (-937201);
+  RESET ROLE;
+
+  -- Redaktion: levende person → tilladt
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000b2',true);
+  SET LOCAL ROLE authenticated;
+  INSERT INTO bookmark(person_id) VALUES (-937202);
+  RESET ROLE;
+  SELECT count(*)=2 INTO v_ok FROM bookmark WHERE person_id IN (-937201,-937202);
+  IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: S2 — forventede 2 tilladte bogmærker'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 S2 — bogmærke-INSERT er ikke et eksistens-orakel; redaktionen må bogmærke skjulte';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b1-s2
+
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt
 -- request.jwt.claim.sub; i Supabase SQL Editor kør som funktionsejer (jf. Task 4-note).
