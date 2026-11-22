@@ -52,7 +52,7 @@ describe('loadModel koordinater (kodereview 36 P2)', () => {
     samletSvar = { data: [KOORD], error: null };
     const model = await loadModel({ collapse: false });
     expect(rpcKald).toEqual([{ fn: 'public_person_source_coordinates_samlet' }]);
-    expect(model.genCoordsByPerson['1']).toBeDefined();
+    expect(model.genCoordsByPerson!['1']).toBeDefined();
   });
 
   it('falder tilbage til rækkefunktionen via sider, når den samlede ikke findes (PGRST202)', async () => {
@@ -63,7 +63,7 @@ describe('loadModel koordinater (kodereview 36 P2)', () => {
       { fn: 'public_person_source_coordinates_samlet' },
       { fn: 'public_person_source_coordinates', range: [0, 999] },
     ]);
-    expect(model.genCoordsByPerson['1']).toBeDefined();
+    expect(model.genCoordsByPerson!['1']).toBeDefined();
   });
 
   it('andre fejl degraderer til ingen koordinater uden fallback', async () => {
@@ -72,6 +72,6 @@ describe('loadModel koordinater (kodereview 36 P2)', () => {
     const model = await loadModel({ collapse: false });
     warn.mockRestore();
     expect(rpcKald).toEqual([{ fn: 'public_person_source_coordinates_samlet' }]);
-    expect(model.genCoordsByPerson['1']).toBeUndefined();
+    expect(model.genCoordsByPerson!['1']).toBeUndefined();
   });
 });

@@ -8,7 +8,7 @@ const DAGS_AAR = 2026;
 // died: 1900 → sikkert død (kunSikkertDoede's GDPR-gate i home.ts ekskluderer ellers alle
 // test-personer, uafhængigt af hvad den enkelte test faktisk øver på).
 function person(id: string, name: string): ModelPerson {
-  return { id, name, born: null, died: 1900, years: '', title: '', bio: '', privat: false, parentId: null, spouse: null } as ModelPerson;
+  return { id, name, born: null, died: 1900, years: '', title: '', bio: '', privat: false, parentId: null, spouse: '' };
 }
 
 function buildModel(persons: ModelPerson[], childIdx: Record<string, Set<string>>, heads: (string | null)[]): Model {

@@ -98,7 +98,7 @@ describe('buildSourcePersonaDecisionCall', () => {
   it.each([
     ['same', null, 'basis'], ['different', 42, 'basis'], ['unresolved', 42, 'basis'], ['new_person_needed', 42, 'basis'],
     ['same', 42, '   '], ['same', 42, 'basis', -1],
-  ] as const)('afviser fail-closed ugyldig afgørelse %s', (action, personId, note, version = 0) => {
+  ] as const)('afviser fail-closed ugyldig afgørelse %s', (action, personId, note, version: number = 0) => {
     expect(buildSourcePersonaDecisionCall('persona', version, action, personId, note)).toBeNull();
   });
 

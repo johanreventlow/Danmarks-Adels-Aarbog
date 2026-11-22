@@ -18,6 +18,7 @@ function person(overrides: Partial<RedMatchPerson> = {}): RedMatchPerson {
     bogReferencer: [],
     sourceIds: [3],
     staged: true,
+    udenforMatchning: false,
     ...overrides,
   };
 }

@@ -20,7 +20,7 @@ function person(id: string, navn: string, sourceId: number, linje: string, grenN
     foedsel: { date_min: '1660-01-01', date_max: '1660-12-31' },
     doed: { date_min: '1730-01-01', date_max: '1730-12-31' }, titel: null,
     bogReferencer: [{ sourceId, linje, nr: Number(id), slaegtledLokal: null, slaegtledGennem: null, kuld: null, grenNavn }],
-    sourceIds: [sourceId], staged: false,
+    sourceIds: [sourceId], staged: false, udenforMatchning: false,
   };
 }
 

@@ -11,7 +11,7 @@ const media = (overrides: Partial<MediaBibliotekPost>): MediaBibliotekPost => ({
   id: '1', slags: 'foto', titel: null, kunstner: null, datering: null,
   storagePath: null, uploadStatus: 'klar', maaPubliceres: false, rettighederStatus: 'ukendt',
   mimeType: 'image/jpeg', byteSize: 100, bredde: 10, hoejde: 20, originalFilnavn: null,
-  createdAt: null, url: null, thumbUrl: null, antalAfbildet: 0, antalMentions: 0, koeer: [],
+  createdAt: null, url: null, thumbUrl: null, antalAfbildet: 0, antalMentions: 0, koeer: [], sha256: null, primaer: false,
   ...overrides,
 });
 
@@ -60,8 +60,8 @@ describe('mediaMerge — køsortering og kandidater', () => {
 });
 
 describe('mediaMerge — autoritativ, genoptagelig orkestrering', () => {
-  const person = { type: 'person', id: '9007199254740992', navn: 'Person', relationId: '9223372036854775806' };
-  const estate = { type: 'estate', id: '7', navn: 'Gods', relationId: '81' };
+  const person = { type: 'person', id: '9007199254740992', navn: 'Person', relationId: '9223372036854775806', primaer: false };
+  const estate = { type: 'estate', id: '7', navn: 'Gods', relationId: '81', primaer: false };
   const mention = { kildeType: 'narrative', kildeId: '22', subjektNavn: 'Fortællingens person' };
   const noRelationEvidence = async () => [];
 

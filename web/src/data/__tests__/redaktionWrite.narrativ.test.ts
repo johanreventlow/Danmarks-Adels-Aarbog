@@ -4,7 +4,7 @@ vi.mock('../../supabase', () => ({
   supabase: { rpc: vi.fn(), auth: { onAuthStateChange: vi.fn() } },
 }));
 
-import { buildRpcCall, narrativeRecordErrorState, planCall } from '../redaktionWrite';
+import { buildRpcCall, narrativeRecordErrorState, planCall, type Change } from '../redaktionWrite';
 
 describe('narrativ arg-builder (source-nøglet)', () => {
   it('sender p_source_id + p_side fra payload', () => {
@@ -24,7 +24,7 @@ describe('narrativ arg-builder (source-nøglet)', () => {
 });
 
 const stateSha256 = 'b'.repeat(64);
-const recordChange = (action: string, overrides: Record<string, unknown> = {}) => ({
+const recordChange = (action: string, overrides: Record<string, unknown> = {}): Change => ({
   art: 'narrativRecord', subjektType: 'person', subjektId: '5',
   payload: {
     action,

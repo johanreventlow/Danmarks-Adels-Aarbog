@@ -17,6 +17,7 @@ function person(id: string, overrides: Partial<RedMatchPerson> = {}): RedMatchPe
     bogReferencer: [{ sourceId: 3, linje: 'III', nr: 58, slaegtledLokal: null, slaegtledGennem: null, kuld: null, grenNavn: 'Holstenske linje' }],
     sourceIds: [3],
     staged: true,
+    udenforMatchning: false,
     ...overrides,
   };
 }
