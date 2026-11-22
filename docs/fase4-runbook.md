@@ -4,6 +4,10 @@
 prod-målet. **Prod har INGEN backup.** Reviewet af to fable-agenter (2026-07-16) — denne version
 adresserer deres fund.
 
+> **ARKIVERET (review 37 D6, 2026-11-22):** cutoveren er for længst gennemført. Rollback- og backfill-scriptet
+> ligger nu i `docs/historik/sql/` og er spærret med en `RAISE EXCEPTION` som første sætning; kommandoerne
+> nedenfor er historik og må ikke køres.
+
 **Formål:** Anvend Problem 2 DB-laget (forældrefamilie-slot + konkurrerende påstande) på prod.
 
 ## Forbindelse (KRITISK)
@@ -26,7 +30,7 @@ Uden backup er en utestet restore ikke en rollback. FØR prod røres:
 2. Kør Trin 1-1b-2-3 mod kopien → bekræft grønt (lokalt kan redaktion-profilen seedes, så OGSÅ de
    rolle-gatede verify-blokke bliver grønne — se Trin 3). Trin 1b (db-rls.sql) skal med, så F-01/F-02
    også rehearses.
-3. **Øv rollbacken** mod kopien: kør `db-rollback-foraeldrefamilie.sql`, bekræft alle Problem 2-objekter
+3. **Øv rollbacken** mod kopien: kør `docs/historik/sql/db-rollback-foraeldrefamilie.sql`, bekræft alle Problem 2-objekter
    væk + funktioner revertet. (Denne øvelse er allerede kørt lokalt 2026-07-16 mod syntetisk bed — gentag mod prod-dump-kopien.)
 
 ## Forudsætninger (verificér på prod FØR noget anvendes; read-only)
@@ -98,7 +102,7 @@ LC_ALL=C psql -h <host> -p 5432 -U <user> -d <db> --single-transaction -v ON_ERR
 ## Trin 2 — Backfill (DELIBERAT, kun efter (a)+(d)+(e) bekræftet). Køres ÉN gang, straks efter Trin 1.
 
 ```bash
-LC_ALL=C psql -h <host> -p 5432 -U <user> -d <db> -v ON_ERROR_STOP=1 -f db-backfill-foraeldrefamilie.sql
+LC_ALL=C psql -h <host> -p 5432 -U <user> -d <db> -v ON_ERROR_STOP=1 -f docs/historik/sql/db-backfill-foraeldrefamilie.sql
 ```
 - Fail-closed: STRICT-kildeopslag + external_id-multi-edition-abort. Idempotent (NOT EXISTS). Forventet: "Backfill færdig …".
 
@@ -144,7 +148,7 @@ i troen på at env-vars redirecter; brug `R_ENVIRON_USER=<lokal .Renviron>` (ver
 
 **Primær (kirurgisk, foretrukket):**
 ```bash
-LC_ALL=C psql -h <host> -p 5432 -U <user> -d <db> -f db-rollback-foraeldrefamilie.sql
+LC_ALL=C psql -h <host> -p 5432 -U <user> -d <db> -f docs/historik/sql/db-rollback-foraeldrefamilie.sql
 ```
 Atomisk (én transaktion): sletter backfill/slot-data, reverterer de tre objekt-refererende funktioner
 til pre-Problem-2, dropper view/RPC'er/helper/EXCLUDE/objekt-kolonner/vocab. Rehearset mod migreret+

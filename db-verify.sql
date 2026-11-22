@@ -8198,6 +8198,114 @@ EXCEPTION WHEN OTHERS THEN
   ELSE RAISE; END IF;
 END $$;
 
+-- BEGIN-VERIFY r37b1-d2
+-- ===== Review 37 D2: fortryd sammenligner kun kolonner i snapshottet =====
+-- Et sæt optaget før en kolonne kom til (fx relation.kvalifikator) mangler kolonnen i foer/efter. (a) UPDATE-
+-- fortrydelse lykkes og genskaber foer; den nye kolonne bevarer sin nuværende værdi. (b) En kolonne i snapshottet,
+-- som er ændret siden, afvises stadig. (c) En nøgle, der ikke længere er en kolonne, springes over ved
+-- genindsættelse (DELETE-inverse) i stedet for at fejle med 42703. Selvforsynende; rulles tilbage.
+DO $$
+DECLARE v_nid bigint; cs bigint; afvist boolean := false; r record; v_res jsonb;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO public.person(id,levende,privat) VALUES (1,false,false) ON CONFLICT (id) DO NOTHING;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+
+  -- (a) note.privat »findes ikke« i sættets snapshot; rækken har privat=true i dag.
+  INSERT INTO note(target_type,target_id,indhold,privat) VALUES ('person',1,'EFTER',true) RETURNING id INTO v_nid;
+  INSERT INTO change_set(operation,summary,subjekt_synlighed) VALUES ('t','gammelt sæt','offentlig') RETURNING id INTO cs;
+  INSERT INTO change_event(change_set_id,seq,tabel,row_pk,op,foer,efter)
+    VALUES (cs, 1, 'note', jsonb_build_object('id',v_nid),'UPDATE',
+            jsonb_build_object('id',v_nid,'target_type','person','target_id',1,'indhold','FOER'),
+            jsonb_build_object('id',v_nid,'target_type','person','target_id',1,'indhold','EFTER'));
+  v_res := red_fortryd_change_set(cs, false);
+  SELECT * INTO r FROM note WHERE id=v_nid;
+  IF r.indhold IS DISTINCT FROM 'FOER' OR r.target_type<>'person' OR r.target_id<>1 THEN
+    RAISE EXCEPTION 'FEJL: D2 — rækken blev ikke genskabt til foer (indhold=%)', r.indhold; END IF;
+  IF r.privat IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'FEJL: D2 — kolonnen uden for snapshottet blev rørt (privat=%)', r.privat; END IF;
+  IF (v_res->>'divergenser')::int <> 0 THEN
+    RAISE EXCEPTION 'FEJL: D2 — fortrydelsen talte divergenser: %', v_res; END IF;
+
+  -- (b) kontrol: indhold (i snapshottet) er ændret siden → stadig afvist uden force, rækken uberørt.
+  INSERT INTO note(target_type,target_id,indhold,privat) VALUES ('person',1,'NYERE',true) RETURNING id INTO v_nid;
+  INSERT INTO change_set(operation,summary,subjekt_synlighed) VALUES ('t','gammelt sæt 2','offentlig') RETURNING id INTO cs;
+  INSERT INTO change_event(change_set_id,seq,tabel,row_pk,op,foer,efter)
+    VALUES (cs, 1, 'note', jsonb_build_object('id',v_nid),'UPDATE',
+            jsonb_build_object('id',v_nid,'target_type','person','target_id',1,'indhold','FOER'),
+            jsonb_build_object('id',v_nid,'target_type','person','target_id',1,'indhold','EFTER'));
+  BEGIN PERFORM red_fortryd_change_set(cs, false);
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM LIKE '%nyere ændring rører%' THEN afvist := true; ELSE RAISE; END IF; END;
+  IF NOT afvist THEN RAISE EXCEPTION 'FEJL: D2 — en nyere ændring i en snapshot-kolonne blev ikke afvist'; END IF;
+  IF (SELECT indhold FROM note WHERE id=v_nid) <> 'NYERE' THEN
+    RAISE EXCEPTION 'FEJL: D2 — rækken blev rørt trods afvisning'; END IF;
+
+  -- (c) DELETE-inverse med en droppet kolonne i snapshottet: rækken genindsættes uden den.
+  v_nid := (SELECT coalesce(max(id),0)+1 FROM note);
+  INSERT INTO change_set(operation,summary,subjekt_synlighed) VALUES ('t','gammelt sæt 3','offentlig') RETURNING id INTO cs;
+  INSERT INTO change_event(change_set_id,seq,tabel,row_pk,op,foer,efter)
+    VALUES (cs, 1, 'note', jsonb_build_object('id',v_nid),'DELETE',
+            jsonb_build_object('id',v_nid,'target_type','person','target_id',1,'indhold','SLETTET',
+                               'privat',false,'droppet_kolonne','x'), NULL);
+  PERFORM red_fortryd_change_set(cs, false);
+  IF (SELECT indhold FROM note WHERE id=v_nid) IS DISTINCT FROM 'SLETTET' THEN
+    RAISE EXCEPTION 'FEJL: D2 — DELETE-inverse genindsatte ikke rækken med en droppet kolonne i snapshottet'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D2 — fortryd tåler kolonner uden for snapshottet';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b1-d2
+
+-- BEGIN-VERIFY r37b1-d7
+-- ===== Review 37 D7: udgavepublicering er ét ændringssæt og kan fortrydes =====
+-- To stagede personer fra udgaven (én med external_id, én partner-stub i samme familie) og én staget person fra
+-- en anden udgave. red_publicer_udgave skal åbne et sæt med ét person-event pr. afstaget person; fortrydelsen af
+-- sættet gør begge stagede igen (projektejeren 2026-11-22). Den fremmede person røres ikke. Selvforsynende.
+DO $$
+DECLARE v_res jsonb; cs bigint; n_ev int;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  INSERT INTO source(id,slags,titel,import_key) VALUES
+    (-937101,'test','r37b1 D7 udgave','r37b1-d7-udgave'),(-937102,'test','r37b1 D7 anden','r37b1-d7-anden');
+  INSERT INTO person(id,levende,privat,staged) VALUES
+    (-937111,false,false,true),(-937112,false,false,true),(-937113,false,false,true);
+  INSERT INTO person_external_id(person_id,source_id,linje,nr) VALUES (-937111,-937101,'I',1),(-937113,-937102,'I',1);
+  INSERT INTO family(id) VALUES (-937121);
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (-937121,-937111,'partner'),(-937121,-937112,'partner');
+
+  v_res := red_publicer_udgave(-937101);
+  IF (v_res->>'personer_afstaget')::int <> 2 THEN RAISE EXCEPTION 'FEJL: D7 — forventede 2 afstagede, fik %', v_res; END IF;
+  SELECT max(id) INTO cs FROM change_set WHERE operation='red_publicer_udgave';
+  IF cs IS NULL THEN RAISE EXCEPTION 'FEJL: D7 — red_publicer_udgave åbnede intet ændringssæt'; END IF;
+  SELECT count(*) INTO n_ev FROM change_event
+   WHERE change_set_id=cs AND tabel='person' AND op='UPDATE' AND (efter->>'staged')::boolean IS false
+     AND (foer->>'staged')::boolean AND (row_pk->>'id')::bigint IN (-937111,-937112);
+  IF n_ev <> 2 THEN RAISE EXCEPTION 'FEJL: D7 — sættet har % person-events for de 2 afstagede', n_ev; END IF;
+  IF EXISTS (SELECT 1 FROM person WHERE id IN (-937111,-937112) AND staged) OR NOT (SELECT staged FROM person WHERE id=-937113) THEN
+    RAISE EXCEPTION 'FEJL: D7 — publiceringen afstagede forkerte personer'; END IF;
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_res := red_fortryd_change_set(cs, false);
+  IF (v_res->>'divergenser')::int <> 0 THEN RAISE EXCEPTION 'FEJL: D7 — fortrydelsen talte divergenser: %', v_res; END IF;
+  IF (SELECT count(*) FROM person WHERE id IN (-937111,-937112,-937113) AND staged) <> 3 THEN
+    RAISE EXCEPTION 'FEJL: D7 — fortrydelsen gjorde ikke udgavens personer stagede igen'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D7 — udgavepublicering står i historikken og kan fortrydes';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b1-d7
+
 -- ===== Review 09 H2: restore bevarer skip_cols (profiles email/rolle) =====
 -- End-to-end: slet en profil-bundet person, fortryd → profilen genskabes med
 -- rolle/email intakt (ikke NULL-crash). Ville have fanget review09 H2.
@@ -8765,6 +8873,90 @@ BEGIN
   DELETE FROM auth.users WHERE id IN ('00000000-0000-0000-0000-0000000000a1','00000000-0000-0000-0000-0000000000a2');
   RAISE NOTICE 'OK: bookmark RLS-isolation (egen-læs, fremmed-skriv afvist, anon blokeret) + cascade + dubletsikring';
 END $$;
+
+-- BEGIN-VERIFY r37b1-s2
+-- ===== Review 37 S2: bogmærke-INSERT er ikke et eksistens-orakel =====
+-- Et medlem får samme 42501 for en levende (skjult) person og for et id, der ikke findes (før: 23503 FK-fejl,
+-- der afslørede eksistensen). Redaktionen må stadig bogmærke en levende person (projektejeren 2026-11-22), og
+-- medlemmet kan stadig bogmærke en offentlig person. Selvforsynende; rulles tilbage.
+DO $$
+DECLARE v_state text; v_ok boolean;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO auth.users(id,email) VALUES
+    ('00000000-0000-0000-0000-0000000000b1','s2-medlem@test.invalid'),
+    ('00000000-0000-0000-0000-0000000000b2','s2-redaktion@test.invalid')
+  ON CONFLICT (id) DO NOTHING;
+  DELETE FROM profiles WHERE id='00000000-0000-0000-0000-0000000000b1';
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-0000000000b2','redaktion','s2@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  INSERT INTO person(id,levende,privat) VALUES (-937201,false,false),(-937202,true,false);
+  DELETE FROM person WHERE id=-937203;
+
+  -- Medlem: levende person → 42501
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000b1',true);
+  SET LOCAL ROLE authenticated;
+  v_state := 'ingen fejl';
+  BEGIN INSERT INTO bookmark(person_id) VALUES (-937202);
+  EXCEPTION WHEN OTHERS THEN v_state := SQLSTATE; END;
+  RESET ROLE;
+  IF v_state <> '42501' THEN RAISE EXCEPTION 'FEJL: S2 — medlem bogmærkede levende person: % (forventede 42501)', v_state; END IF;
+
+  -- Medlem: ikke-eksisterende id → samme 42501 (ikke 23503)
+  SET LOCAL ROLE authenticated;
+  v_state := 'ingen fejl';
+  BEGIN INSERT INTO bookmark(person_id) VALUES (-937203);
+  EXCEPTION WHEN OTHERS THEN v_state := SQLSTATE; END;
+  RESET ROLE;
+  IF v_state <> '42501' THEN RAISE EXCEPTION 'FEJL: S2 — ikke-eksisterende id gav % (forventede 42501, samme som skjult)', v_state; END IF;
+
+  -- Medlem: offentlig person → tilladt
+  SET LOCAL ROLE authenticated;
+  INSERT INTO bookmark(person_id) VALUES (-937201);
+  RESET ROLE;
+
+  -- Redaktion: levende person → tilladt
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000b2',true);
+  SET LOCAL ROLE authenticated;
+  INSERT INTO bookmark(person_id) VALUES (-937202);
+  RESET ROLE;
+  SELECT count(*)=2 INTO v_ok FROM bookmark WHERE person_id IN (-937201,-937202);
+  IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: S2 — forventede 2 tilladte bogmærker'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 S2 — bogmærke-INSERT er ikke et eksistens-orakel; redaktionen må bogmærke skjulte';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b1-s2
+
+-- BEGIN-VERIFY r37b1-y9
+-- ===== Review 37 Y9: FK'er med indeks (haendelse, story, bookmark) =====
+-- Hvert indeks skal findes på den rigtige tabel og have FK-kolonnen som første (eneste) nøglekolonne.
+DO $$
+DECLARE r record; v_mangler text[] := '{}';
+BEGIN
+  FOR r IN SELECT * FROM (VALUES
+      ('ix_haendelse_fact_id','haendelse','fact_id'),
+      ('ix_haendelse_relation_id','haendelse','relation_id'),
+      ('ix_story_fact_id','story','fact_id'),
+      ('ix_story_relation_id','story','relation_id'),
+      ('ix_story_historical_event_id','story','historical_event_id'),
+      ('ix_bookmark_person_id','bookmark','person_id')) v(ix,tabel,kol) LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_index i
+        JOIN pg_class ic ON ic.oid=i.indexrelid
+        JOIN pg_class tc ON tc.oid=i.indrelid
+        JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=i.indkey[0]
+       WHERE ic.relnamespace='public'::regnamespace AND ic.relname=r.ix
+         AND tc.relname=r.tabel AND a.attname=r.kol AND i.indnkeyatts=1 AND i.indisvalid) THEN
+      v_mangler := v_mangler || r.ix;
+    END IF;
+  END LOOP;
+  IF cardinality(v_mangler) > 0 THEN
+    RAISE EXCEPTION 'FEJL: Y9 — FK-indeks mangler eller er forkerte: %', v_mangler; END IF;
+  RAISE NOTICE 'OK: review37 Y9 — seks FK-indeks på haendelse, story og bookmark';
+END $$;
+-- END-VERIFY r37b1-y9
 
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt

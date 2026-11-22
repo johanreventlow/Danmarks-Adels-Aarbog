@@ -3526,6 +3526,8 @@ CREATE TABLE bookmark (              -- login-eksklusive bogmærker (kun persone
   oprettet  TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (user_id, person_id)
 );
+-- Review 37 Y9: UNIQUE (user_id, person_id) dækker ikke person_id alene (ON DELETE CASCADE fra person).
+CREATE INDEX IF NOT EXISTS ix_bookmark_person_id ON bookmark(person_id);
 ALTER TABLE bookmark ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE family (                    -- union/partnerskab
@@ -6317,6 +6319,11 @@ CREATE TABLE haendelse (
 );
 CREATE INDEX ix_haendelse_subjekt   ON haendelse(subjekt_type, subjekt_id);
 CREATE INDEX ix_haendelse_narrative ON haendelse(narrative_id);
+-- Review 37 Y9: FK'erne til fact/relation får et indeks (sletning af et faktum/en relation slår ellers op med seq scan).
+-- ix_haendelse_narrative er redundant med ix_haendelse_narrative_id (narrative_id,id), men droppes ikke her:
+-- det kræver DROP INDEX CONCURRENTLY uden for deploy-transaktionen.
+CREATE INDEX IF NOT EXISTS ix_haendelse_fact_id     ON haendelse(fact_id)     WHERE fact_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_haendelse_relation_id ON haendelse(relation_id) WHERE relation_id IS NOT NULL;
 
 INSERT INTO vocab (scheme, code, label) VALUES
   ('haendelse_feed_status','kandidat',   'Umarkeret — må vises som arkiv-kort'),
@@ -6369,6 +6376,10 @@ CREATE TABLE IF NOT EXISTS story (
 CREATE INDEX IF NOT EXISTS ix_story_subjekt   ON story(subjekt_type, subjekt_id);
 CREATE INDEX IF NOT EXISTS ix_story_haendelse ON story(haendelse_id);
 CREATE INDEX IF NOT EXISTS ix_story_status    ON story(status);
+-- Review 37 Y9: indeks på de øvrige FK-ankre (ON DELETE SET NULL slår ellers op med seq scan).
+CREATE INDEX IF NOT EXISTS ix_story_fact_id             ON story(fact_id)             WHERE fact_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_story_relation_id         ON story(relation_id)         WHERE relation_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_story_historical_event_id ON story(historical_event_id) WHERE historical_event_id IS NOT NULL;
 
 -- Historien viser altid sine kilder (koncept §3.2 — "transparens er tonen").
 CREATE TABLE IF NOT EXISTS story_kilde (
@@ -8046,6 +8057,9 @@ BEGIN
   IF current_rolle() <> 'redaktion' THEN
     RAISE EXCEPTION 'Kun redaktion må publicere en udgave (din rolle: %)', current_rolle();
   END IF;
+  -- Review 37 D7: publiceringen er ét ændringssæt (som red_publicer_personer), så den står i historikken og kan
+  -- fortrydes med ét klik (personerne skjules igen), hvis intet er redigeret siden (projektejeren 2026-11-22).
+  PERFORM begin_change_set('red_publicer_udgave', format('Publicerede udgave %s', p_source_id), NULL, NULL);
   UPDATE person p SET staged = false
   WHERE p.staged = true
     AND (EXISTS (SELECT 1 FROM person_external_id pei
@@ -9572,13 +9586,15 @@ BEGIN
   -- eksplicit værdi for dem i INSERT/UPDATE, uanset skip_cols; de genberegnes automatisk.
   -- Uden dette fejler fortryd hårdt for enhver tabel med en generated-kolonne (fundet ved
   -- manuel Expo-test 2026-07-01, ikke af statisk review).
+  -- Review 37 D2: kun nøgler, der stadig er en levende kolonne. Et gammelt snapshot kan bære en kolonne, der
+  -- siden er droppet; den springes over (som GENERATED), så fortrydelsen ikke fejler på »column does not exist«.
   SELECT string_agg(quote_ident(key),','), string_agg(format('%I = excluded.%I', key, key), ',')
     INTO v_cols, v_set
     FROM jsonb_object_keys(p_row) AS key
-    WHERE NOT EXISTS (
+    WHERE EXISTS (
       SELECT 1 FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
       WHERE c.relnamespace = 'public'::regnamespace AND c.relname = p_tabel
-        AND a.attname = key AND a.attgenerated = 's'
+        AND a.attname = key AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = ''
     );
   -- En UPDATE-fortrydelse har stadig målrækken. Gå direkte til UPDATE, så Postgres ikke
   -- validerer en kunstig, ufuldstændig INSERT-række mod NOT NULL før ON CONFLICT (haendelse
@@ -9617,6 +9633,7 @@ DECLARE
   v_link_rows jsonb := '{}'; v_link_row record; v_link record; v_link_cols text[];
   v_cur jsonb; v_pids bigint[] := '{}'; v_narr bigint[] := '{}'; v_notes bigint[] := '{}';
   v_div int := 0; pid bigint; v_forventet jsonb; v_contract_version integer; v_lock record; v_pin_maal record;
+  v_cur_cmp jsonb; v_forv_cmp jsonb;
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   v_contract_version:=public.narrative_record_contract_version();
@@ -9752,7 +9769,18 @@ BEGIN
     -- B9-divergens for ALLE op-typer (review09 H1): DELETE efterlod række ABSENT (NULL),
     -- INSERT/UPDATE efterlod ev.efter. Lukker blind PK-overskrivning ved DELETE-inverse.
     v_forventet := CASE WHEN ev.op='DELETE' THEN NULL ELSE ev.efter END;
-    IF v_cur IS DISTINCT FROM v_forventet THEN
+    -- Review 37 D2: sammenlign kun på kolonner, der står i BÅDE den nuværende række og snapshottet. En kolonne
+    -- tilføjet efter sættet (fx relation.kvalifikator) mangler i ev.efter, og en droppet kolonne mangler i v_cur;
+    -- ingen af dem er en nyere ændring. Kendt rest (accepteret): når fortrydelsen sletter en række, sættet
+    -- indsatte, går en værdi i en senere tilføjet kolonne tabt — kun relevant, hvis en nyere ændring rørte netop
+    -- den kolonne. En række, der mangler på den ene side, sammenlignes stadig helt (NULL ≠ række).
+    IF v_cur IS NOT NULL AND v_forventet IS NOT NULL THEN
+      v_cur_cmp  := v_cur - ARRAY(SELECT k FROM jsonb_object_keys(v_cur) k WHERE NOT v_forventet ? k);
+      v_forv_cmp := v_forventet - ARRAY(SELECT k FROM jsonb_object_keys(v_forventet) k WHERE NOT v_cur ? k);
+    ELSE
+      v_cur_cmp := v_cur; v_forv_cmp := v_forventet;
+    END IF;
+    IF v_cur_cmp IS DISTINCT FROM v_forv_cmp THEN
       v_div := v_div + 1;
       IF NOT p_force THEN
         RAISE EXCEPTION 'FEJL: nyere ændring rører %/% — afvist (brug force)', ev.tabel, ev.row_pk;
