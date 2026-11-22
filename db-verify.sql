@@ -9149,6 +9149,44 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 -- END-VERIFY r37b2-d5
 
+-- BEGIN-VERIFY r37b3-gate
+-- ===== Review 37 S4: billed-gaten følger familiens synlighed =====
+-- media_afbilder_skjult er sand for et billede af en familie, der ikke er offentlig (et levende eller privat medlem);
+-- media_afbilder_privat for en familie med et privat medlem. Et billede af en offentlig familie er synligt. S3
+-- (uden for blok 3): et billede af en familie UDEN medlemmer er synligt, fordi family_offentlig er sand for den.
+-- Kaldt som ejer (begge er lukket for klientroller); gæst/medlem-matricen står i tests/sql/test-review37-b3-gate.sql.
+DO $$
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO person(id,levende,privat) VALUES (-937701,true,false),(-937702,false,false),(-937703,false,true),(-937704,false,false);
+  INSERT INTO family(id,type) VALUES (-937711,'vielse'),(-937712,'vielse'),(-937713,'vielse'),(-937714,'vielse');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES
+    (-937711,-937701,'partner'),(-937711,-937702,'partner'),   -- levende medlem
+    (-937712,-937703,'partner'),(-937712,-937702,'partner'),   -- privat (afdødt) medlem
+    (-937713,-937702,'partner'),(-937713,-937704,'partner');   -- offentlig; -937714 har ingen medlemmer
+  INSERT INTO media(id,maa_publiceres,upload_status) VALUES
+    (-937721,true,'klar'),(-937722,true,'klar'),(-937723,true,'klar'),(-937724,true,'klar');
+  INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
+    ('media',-937721,'family',-937711,'afbildet'),('media',-937722,'family',-937712,'afbildet'),
+    ('media',-937723,'family',-937713,'afbildet'),('media',-937724,'family',-937714,'afbildet');
+  IF NOT media_afbilder_skjult(-937721) OR media_synlig_anon(-937721) THEN
+    RAISE EXCEPTION 'FEJL: gate — billedet af en familie med et levende medlem er ikke skjult'; END IF;
+  IF NOT media_afbilder_skjult(-937722) OR NOT media_afbilder_privat(-937722) OR media_synlig_auth(-937722) THEN
+    RAISE EXCEPTION 'FEJL: gate — billedet af en familie med et privat medlem er ikke skjult (skjult=%, privat=%)',
+      media_afbilder_skjult(-937722), media_afbilder_privat(-937722); END IF;
+  IF media_afbilder_privat(-937721) THEN
+    RAISE EXCEPTION 'FEJL: gate — media_afbilder_privat er sand for en familie uden privat medlem'; END IF;
+  IF media_afbilder_skjult(-937723) OR NOT media_synlig_anon(-937723) THEN
+    RAISE EXCEPTION 'FEJL: gate — billedet af en offentlig familie er skjult'; END IF;
+  IF media_afbilder_skjult(-937724) OR NOT media_synlig_anon(-937724) THEN
+    RAISE EXCEPTION 'FEJL: gate — S3-adfærden ændret: billedet af en medlemsløs familie er skjult'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 S4 gate — billedet følger familiens synlighed (medlemsløs familie: synlig, S3)';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b3-gate
+
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt
 -- request.jwt.claim.sub; i Supabase SQL Editor kør som funktionsejer (jf. Task 4-note).

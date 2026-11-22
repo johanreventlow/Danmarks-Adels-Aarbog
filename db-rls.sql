@@ -132,6 +132,16 @@ grant execute on function public.family_offentlig(bigint) to anon, authenticated
 -- re-filtreret af relation-RLS: et afbildet-link til en LEVENDE person er selv skjult for
 -- anon af relation-politikken, så en almindelig EXISTS-subquery i media-politikken ville
 -- fail-OPEN (ikke se det skjulte link → vise billedet). Definer-funktionen omgår det.
+-- Review 37 S4 (projektejeren 2026-11-22): et billede må afbilde person, gods, våben, linje, familie og sted
+-- (tabel-CHECK relation_afbildet_kanonisk, schema.sql). Familien er den eneste af objekt-typerne med personer bag sig,
+-- så gaten følger også familiens synlighed: et billede af en familie, der ikke er offentlig (family_offentlig: et
+-- medlem er levende/privat/staged), er skjult. CHECK'en gør de eksakte sammenligninger nedenfor udtømmende
+-- (rolle = 'afbildet' og typerne med små bogstaver). Egen DO-blok, så prod kan tage den alene (ikke hele db-rls.sql);
+-- CREATE OR REPLACE bevarer ACL'en, og grants/revokes nedenfor og i $anon_gate_hardening$ står uden for blokken.
+-- NB (S3, uden for blok 3): family_offentlig er sand for en familie uden medlemmer, så et billede af en medlemsløs
+-- familie er synligt.
+DO $review37_b3_media_gate$
+BEGIN
 create or replace function public.media_afbilder_skjult(mid bigint)
 returns boolean
 language sql
@@ -139,12 +149,18 @@ stable
 security definer
 set search_path = public
 as $$
-  -- True hvis billedet afbilder MINDST ÉN person der ikke er offentlig (levende/privat/ukendt).
+  -- True hvis billedet afbilder MINDST ÉN person der ikke er offentlig (levende/privat/ukendt) ELLER en familie, der
+  -- ikke er offentlig (review 37 S4).
   select exists (
     select 1 from public.relation r
     where r.objekt_type = 'media' and r.objekt_id = mid
       and r.subjekt_type = 'person' and r.rolle = 'afbildet'
       and not public.person_offentlig(r.subjekt_id)
+  ) or exists (
+    select 1 from public.relation r
+    where r.subjekt_type = 'media' and r.subjekt_id = mid
+      and r.objekt_type = 'family' and r.rolle = 'afbildet'
+      and not public.family_offentlig(r.objekt_id)
   );
 $$;
 
@@ -156,15 +172,25 @@ security definer
 set search_path = public
 as $$
   -- True hvis billedet afbilder MINDST ÉN manuelt privat-markeret person (levende tilladt
-  -- for authenticated; kun privat skjules).
+  -- for authenticated; kun privat skjules) ELLER en familie med et privat-markeret medlem (review 37 S4; samme
+  -- kriterium som person-grenen, anvendt på familiens medlemmer).
   select exists (
     select 1 from public.relation r
     join public.person p on p.id = r.subjekt_id
     where r.objekt_type = 'media' and r.objekt_id = mid
       and r.subjekt_type = 'person' and r.rolle = 'afbildet'
       and coalesce(p.privat, false) = true
+  ) or exists (
+    select 1 from public.relation r
+    join public.family_member fm on fm.family_id = r.objekt_id
+    join public.person p on p.id = fm.person_id
+    where r.subjekt_type = 'media' and r.subjekt_id = mid
+      and r.objekt_type = 'family' and r.rolle = 'afbildet'
+      and coalesce(p.privat, false) = true
   );
 $$;
+END
+$review37_b3_media_gate$;
 
 revoke all on function public.media_afbilder_skjult(bigint) from public;
 revoke all on function public.media_afbilder_privat(bigint) from public;
