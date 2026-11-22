@@ -139,8 +139,11 @@ export function FeedStreamView({
     );
     return () => { alive = false; clearTimeout(frist); };
   }, [model]);
-  const dataAfgjort = fristUdloebet || ((bios !== null || bioError !== null)
-    && livsdatoBy !== null && haendelserBy !== null && storieBy !== null && naevntGrundlag !== null);
+  const alleAfgjort = (bios !== null || bioError !== null)
+    && livsdatoBy !== null && haendelserBy !== null && storieBy !== null && naevntGrundlag !== null;
+  const dataAfgjort = fristUdloebet || alleAfgjort;
+  const alleAfgjortRef = useRef(alleAfgjort);
+  alleAfgjortRef.current = alleAfgjort;
   // Nævnt-kort kræver, at hver kilde til fravær er hentet komplet. En tom bio-mængde tæller som
   // fejlet (fetchFeedBios kan give {} ved en fejl i den gamle kontrakt), ikke som »ingen har tekst«.
   const naevntInput = bios !== null && Object.keys(bios).length > 0 && naevntGrundlag !== null
@@ -236,10 +239,14 @@ export function FeedStreamView({
       naevntGrundlag: naevntInput,
     });
     if (streamRef.current === null || streamOwnerRef.current !== bookmarkSnapshot.ownerId) {
+      // En tidlig uddeling (fristen, før alle kilder er afgjort) viser kun egentlige blade. Samlekortet beskriver
+      // den endelige pulje og fjernes alligevel ved genopbygningen; er der intet andet, ventes der på næste kilde —
+      // ellers står feedet med 0 blade efter genopbygningen (prod 22/11).
+      const first = alleAfgjort ? delUd(built, []) : delUd(built, []).filter((c) => c.kind !== 'samle');
+      if (first.length === 0 && !alleAfgjort) return;
       streamRef.current = built;
       streamOwnerRef.current = bookmarkSnapshot.ownerId;
       markedIdsRef.current.clear();
-      const first = delUd(built, []);
       shownRef.current = first;
       setShown(first);
     } else {
@@ -250,11 +257,22 @@ export function FeedStreamView({
         setShown(preserved);
       }
       streamRef.current = resumeStream(built, new Set(preserved.map((c) => c.id)));
+      if (preserved.length < BLADE_PR_UDDELING) {
+        // En tidlig uddeling kan have givet færre end en hel portion (puljen var tynd uden biografier og hændelser).
+        // Fyld første portion op, når data kommer — ellers bliver gæsten stående med de få blade fra fristen.
+        const fyld = delUd(streamRef.current, preserved, BLADE_PR_UDDELING - preserved.length)
+          .filter((c) => alleAfgjort || c.kind !== 'samle');
+        if (fyld.length > 0) {
+          shownRef.current = [...preserved, ...fyld];
+          setShown(shownRef.current);
+        }
+      }
     }
-    setDone(streamRef.current.done());
+    // »Du har vendt alle dagens blade« først, når alle kilder er afgjort — en tidlig pulje er ikke dagens pulje.
+    setDone(alleAfgjort && streamRef.current.done());
     // Live bookmarkedIds er bevidst ikke input her: bookmarkSnapshot fryses efter hydrering,
     // så et toggle midt i læsningen ikke omordner strømmen. shownRef læses tilsvarende via ref.
-  }, [model, bios, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins, dataAfgjort, naevntInput, markAsSeen]);
+  }, [model, bios, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins, dataAfgjort, alleAfgjort, naevntInput, markAsSeen]);
 
   // »Vend seks blade mere«: næste parti som egen blok; fokus flyttes til den nye blok, så
   // tastatur- og skærmlæserbrugere står ved de nye blade og ikke ved knappen under dem.
@@ -263,11 +281,12 @@ export function FeedStreamView({
   const vendFlere = useCallback(() => {
     const stream = streamRef.current;
     if (!stream || stream.done()) return;
-    const next = delUd(stream, shownRef.current);
+    // Før alle kilder er afgjort, hører samlekortet ikke hjemme midt i strømmen (se uddelingen ovenfor).
+    const next = delUd(stream, shownRef.current).filter((c) => alleAfgjortRef.current || c.kind !== 'samle');
     const blokIndex = Math.ceil(shownRef.current.length / BLADE_PR_UDDELING);
     shownRef.current = [...shownRef.current, ...next];
     setShown(shownRef.current);
-    setDone(stream.done());
+    setDone(alleAfgjortRef.current && stream.done());
     if (next.length > 0) setFokusBlok(blokIndex);
   }, []);
   useEffect(() => {

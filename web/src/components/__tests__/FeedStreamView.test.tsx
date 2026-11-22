@@ -128,6 +128,79 @@ describe('FeedStreamView — uddeling', () => {
     }
   });
 
+  it('deler ikke et rent samlekort ud ved fristen, men venter og deler rigtige blade ud, når data kommer', async () => {
+    // Prod 22/11: uden biografier og hændelser gav puljen kun samlekortet. Det blev vist ved fristen, fjernet
+    // ved genopbygningen (preserveShownForResume), og så stod feedet med 0 blade og »Henter blade« for evigt.
+    vi.useFakeTimers();
+    try {
+      const samle: FeedCard = { kind: 'samle', id: 'samle:personer', count: 919, tail: 'personer', kicker: 'Registeret' };
+      const bios = deferred<Record<string, string>>();
+      const haendelser = deferred<Record<string, unknown>>();
+      feedAuxMocks.fetchFeedBios.mockReturnValue(bios.promise);
+      loaderMocks.loadHaendelserBy.mockReturnValue(haendelser.promise);
+      let medData = false;
+      streamMocks.createFeedStream.mockImplementation(() => listStream(medData ? [...SYV, samle] : [samle]));
+      render(<FeedStreamView {...feedProps(null)} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(FEED_FOERSTE_UDDELING_FRIST_MS); });
+      expect(screen.queryAllByRole('article')).toHaveLength(0);
+      expect(screen.getByRole('status').textContent).toContain('Henter blade');
+      expect(screen.queryByText(/vendt alle dagens blade/)).toBeNull();
+
+      medData = true;
+      await act(async () => { bios.resolve({ '1': 'En biografi.' }); haendelser.resolve({}); });
+      expect(screen.getAllByRole('article')).toHaveLength(6);
+      expect(screen.queryByRole('status')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('viser ikke »vendt alle blade« ved en tidlig uddeling, mens kilder stadig mangler', async () => {
+    vi.useFakeTimers();
+    try {
+      const samle: FeedCard = { kind: 'samle', id: 'samle:personer', count: 919, tail: 'personer', kicker: 'Registeret' };
+      const bios = deferred<Record<string, string>>();
+      feedAuxMocks.fetchFeedBios.mockReturnValue(bios.promise);
+      streamMocks.createFeedStream.mockImplementation(() => listStream([portraet('1'), samle]));
+      streamMocks.resumeStream.mockImplementation((_s: unknown, vist: Set<string>) =>
+        listStream([portraet('1'), samle].filter((c) => !vist.has(c.id))));
+      render(<FeedStreamView {...feedProps(null)} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(FEED_FOERSTE_UDDELING_FRIST_MS); });
+      expect(screen.getAllByRole('article')).toHaveLength(1);
+      expect(screen.queryByText(/919/)).toBeNull(); // samlekortet hører til den endelige pulje
+      expect(screen.queryByText(/vendt alle dagens blade/)).toBeNull();
+
+      await act(async () => { bios.resolve({ '1': 'En biografi.' }); });
+      expect(screen.getByText(/919/)).toBeTruthy();
+      expect(screen.getByText(/vendt alle dagens blade/)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fylder første portion op til seks, når data kommer efter en tynd uddeling ved fristen', async () => {
+    // Prod-bygget 22/11 med første rettelse: fristen gav ét blad, og det blev stående alene.
+    vi.useFakeTimers();
+    try {
+      const bios = deferred<Record<string, string>>();
+      feedAuxMocks.fetchFeedBios.mockReturnValue(bios.promise);
+      let medData = false;
+      streamMocks.createFeedStream.mockImplementation(() => listStream(medData ? SYV : [portraet('1')]));
+      streamMocks.resumeStream.mockImplementation((_s: unknown, vist: Set<string>) =>
+        listStream(SYV.filter((c) => !vist.has(c.id))));
+      render(<FeedStreamView {...feedProps(null)} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(FEED_FOERSTE_UDDELING_FRIST_MS); });
+      expect(screen.getAllByRole('article')).toHaveLength(1);
+
+      medData = true;
+      await act(async () => { bios.resolve({ '1': 'En biografi.' }); });
+      expect(screen.getAllByRole('article')).toHaveLength(6);
+      expect(screen.getByRole('region', { name: 'Blade 1–6' })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('sender intet nævnt-grundlag, når grundlaget fejler eller biografierne er tomme', async () => {
     grundlagMocks.fetchNaevntGrundlag.mockRejectedValue(new Error('permission denied'));
     const view = render(<FeedStreamView {...feedProps(null)} />);
