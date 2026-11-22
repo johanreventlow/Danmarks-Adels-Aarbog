@@ -9360,6 +9360,30 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 -- END-VERIFY r37s8
 
+-- BEGIN-VERIFY r37s5
+-- ===== Review 37 S5: ingen storage-bucket er offentlig =====
+-- En offentlig bucket serverer filerne uden om storage-politikkerne, så billedgatingen (og S8's undtagelse
+-- for media.storage_path) ville være virkningsløs. Springer kun over, hvor storage-kataloget ikke findes
+-- (CI har en shim med den private media-bucket; prod har den rigtige).
+DO $$
+DECLARE v_offentlige text; v_media boolean;
+BEGIN
+  IF to_regclass('storage.buckets') IS NULL THEN
+    RAISE NOTICE 'SPRINGER OVER review37 S5: storage-kataloget er ikke installeret';
+    RETURN;
+  END IF;
+  EXECUTE $q$SELECT string_agg(id, ', ' ORDER BY id) FROM storage.buckets WHERE public$q$ INTO v_offentlige;
+  IF v_offentlige IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: S5 — offentlige storage-buckets: %', v_offentlige; END IF;
+  EXECUTE $q$SELECT EXISTS (SELECT 1 FROM storage.buckets WHERE id = 'media')$q$ INTO v_media;
+  IF NOT v_media THEN
+    RAISE NOTICE 'SPRINGER OVER review37 S5 (media-delen): ingen media-bucket';
+    RETURN;
+  END IF;
+  RAISE NOTICE 'OK: review37 S5 — ingen storage-bucket er offentlig (media er privat)';
+END $$;
+-- END-VERIFY r37s5
+
 -- BEGIN-VERIFY r37b3-d5a
 -- ===== Review 37 D5a: datointervaller i orden på assertion, haendelse, story og relation =====
 -- Tabel-CHECK'erne *_dato_orden og relation_periode_orden afviser date_min > date_max, start_min > start_max,
