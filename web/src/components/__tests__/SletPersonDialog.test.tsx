@@ -33,7 +33,8 @@ const primaer = () => screen.getByRole('button', { name: 'Slet (kan fortrydes)' 
 it('en offentlig person: »kan fortrydes«, historikken gemmes, primær sletning efter bekræftelse', async () => {
   const p = setup();
   await screen.findByRole('heading', { name: 'Slet person — kan fortrydes' });
-  expect(screen.getByText(/Historikken gemmes/)).toBeTruthy();
+  expect(screen.getByText(/Historikken gemmes/).closest('p')!.textContent).toMatch(/under »Slettede personer« i redaktionen \(og straks fra personens ændringshistorik/);
+  expect(screen.queryByText(/så længe du bliver på siden/)).toBeNull();
   expect(screen.getByText(/2 relation\(er\), 5 fakta, 1 biografi\(er\) og 1 slægts-\/linjemedlemskab/)).toBeTruthy();
   expect(primaer().disabled).toBe(true);
   fireEvent.click(screen.getByLabelText('Jeg forstår, at relationerne brydes'));
