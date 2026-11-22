@@ -1,8 +1,8 @@
 -- Review 37 blok 3 (S4): billed-gaten følger familiens synlighed — prøvet som rigtige kaldere (gæst = anon uden uid,
 -- uden_profil/medlem = authenticated, redaktion = authenticated med redaktørprofil) gennem tabel-RLS'en, ikke kun som
 -- ejer. Medlemstieren bruger samme media-politik som gæsten (media_synlig_anon), så en familie med et privat medlem
--- skjules også for medlemmer. Dokumenterer desuden S3 (uden for blok 3): et billede af en familie UDEN medlemmer er
--- synligt, fordi family_offentlig er sand for den. Kører på en base med schema.sql + db-rls.sql (frisk eller opgraderet).
+-- skjules også for medlemmer. S3 (2026-11-22): et billede af en familie UDEN medlemmer er skjult, fordi family_offentlig
+-- er falsk for den. Kører på en base med schema.sql + db-rls.sql (frisk eller opgraderet).
 -- Syntetiske negative id'er; alt rulles tilbage. Forvent: NOTICE "OK: review37 b3 gate — gæst/medlem/redaktion".
 \set ON_ERROR_STOP on
 BEGIN;
@@ -42,7 +42,7 @@ BEGIN
       ('levende_medlem',-938021,-938031,-938041,0),
       ('privat_medlem',-938022,-938032,-938042,0),
       ('offentlig_familie',-938023,-938033,-938043,1),
-      ('medlemsloes_familie_S3',-938024,-938034,-938044,1)) x(navn,mid,rid,fid,ikke_red) LOOP
+      ('medlemsloes_familie_S3',-938024,-938034,-938044,0)) x(navn,mid,rid,fid,ikke_red) LOOP
     PERFORM pg_temp.km_forvent('billede '||r.navn,format('SELECT 1 FROM public.media WHERE id=%s',r.mid),r.ikke_red,1);
     -- Selve koblingen (media → family) er en relation; den følger både billedets og familiens synlighed.
     PERFORM pg_temp.km_forvent('kobling '||r.navn,format('SELECT 1 FROM public.relation WHERE id=%s',r.rid),r.ikke_red,1);
@@ -55,6 +55,6 @@ BEGIN
   UPDATE public.person SET levende=true WHERE id=-938004;
   PERFORM pg_temp.km_forvent('billede offentlig_familie efter levende',
     'SELECT 1 FROM public.media WHERE id=-938023',0,1);
-  RAISE NOTICE 'OK: review37 b3 gate — gæst/medlem/redaktion (familie med levende/privat medlem skjult, offentlig og medlemsløs synlig)';
+  RAISE NOTICE 'OK: review37 b3 gate — gæst/medlem/redaktion (familie med levende/privat medlem skjult, medlemsløs skjult, offentlig synlig)';
 END $t$;
 ROLLBACK;

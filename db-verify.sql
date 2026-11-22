@@ -6880,13 +6880,16 @@ BEGIN
     RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit: skrive-policy på person/family_member/conclusion/assertion/relation';
   END IF;
   -- Offentlighedsreglen er inlinet i regen_person_floruit (family_offentlig defineres først i db-rls.sql);
-  -- den skal være enig med family_offentlig for alle familier i basen.
+  -- den skal være enig med family_offentlig for alle familier i basen. Kravet om mindst ét medlem (review 37 S3)
+  -- står ikke i den inlinede kopi: floruit læser kun familier, hvor personen selv er partner, altså aldrig en tom.
   SELECT count(*) INTO v_uenige FROM public.family f
-   WHERE public.family_offentlig(f.id) IS DISTINCT FROM NOT EXISTS (
+   WHERE public.family_offentlig(f.id) IS DISTINCT FROM (
+         EXISTS (SELECT 1 FROM public.family_member m0 WHERE m0.family_id=f.id)
+         AND NOT EXISTS (
            SELECT 1 FROM public.family_member m JOIN public.person q ON q.id=m.person_id
             WHERE m.family_id=f.id
               AND (q.levende IS NOT FALSE OR coalesce(q.privat,false) OR coalesce(q.staged,false)
-                   OR public.person_gruppe_skjult(q.id)));
+                   OR public.person_gruppe_skjult(q.id))));
   IF v_uenige<>0 THEN
     RAISE EXCEPTION 'VERIFY_FAILED: visning-floruit: inlinet offentlighedsregel uenig med family_offentlig for % familier', v_uenige;
   END IF;
@@ -6909,7 +6912,8 @@ END $f$;
 CREATE FUNCTION pg_temp.vf_offentlig(p_fam bigint, p_forventet boolean, p_trin text) RETURNS void LANGUAGE plpgsql AS $f$
 BEGIN
   IF public.family_offentlig(p_fam) IS DISTINCT FROM p_forventet
-     OR (NOT EXISTS (SELECT 1 FROM public.family_member m JOIN public.person q ON q.id=m.person_id
+     OR (EXISTS (SELECT 1 FROM public.family_member m0 WHERE m0.family_id=p_fam)
+         AND NOT EXISTS (SELECT 1 FROM public.family_member m JOIN public.person q ON q.id=m.person_id
                       WHERE m.family_id=p_fam
                         AND (q.levende IS NOT FALSE OR coalesce(q.privat,false) OR coalesce(q.staged,false)
                              OR public.person_gruppe_skjult(q.id))))
@@ -9227,7 +9231,7 @@ END $$;
 -- ===== Review 37 S4: billed-gaten følger familiens synlighed =====
 -- media_afbilder_skjult er sand for et billede af en familie, der ikke er offentlig (et levende eller privat medlem);
 -- media_afbilder_privat for en familie med et privat medlem. Et billede af en offentlig familie er synligt. S3
--- (uden for blok 3): et billede af en familie UDEN medlemmer er synligt, fordi family_offentlig er sand for den.
+-- (2026-11-22): et billede af en familie UDEN medlemmer er skjult, fordi family_offentlig er falsk for den.
 -- Kaldt som ejer (begge er lukket for klientroller); gæst/medlem-matricen står i tests/sql/test-review37-b3-gate.sql.
 DO $$
 BEGIN
@@ -9252,14 +9256,43 @@ BEGIN
     RAISE EXCEPTION 'FEJL: gate — media_afbilder_privat er sand for en familie uden privat medlem'; END IF;
   IF media_afbilder_skjult(-937723) OR NOT media_synlig_anon(-937723) THEN
     RAISE EXCEPTION 'FEJL: gate — billedet af en offentlig familie er skjult'; END IF;
-  IF media_afbilder_skjult(-937724) OR NOT media_synlig_anon(-937724) THEN
-    RAISE EXCEPTION 'FEJL: gate — S3-adfærden ændret: billedet af en medlemsløs familie er skjult'; END IF;
+  IF NOT media_afbilder_skjult(-937724) OR media_synlig_anon(-937724) THEN
+    RAISE EXCEPTION 'FEJL: gate — S3: billedet af en medlemsløs familie er ikke skjult'; END IF;
   RAISE EXCEPTION 'ROLLBACK_TEST_OK';
 EXCEPTION WHEN OTHERS THEN
-  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 S4 gate — billedet følger familiens synlighed (medlemsløs familie: synlig, S3)';
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 S4 gate — billedet følger familiens synlighed (medlemsløs familie: skjult, S3)';
   ELSE RAISE; END IF;
 END $$;
 -- END-VERIFY r37b3-gate
+
+-- BEGIN-VERIFY r37s3
+-- ===== Review 37 S3: en familie uden medlemmer er ikke offentlig =====
+-- family_offentlig er falsk for en familie uden medlemmer og for et ikke-eksisterende id; en familie med kun afdøde,
+-- offentlige medlemmer er offentlig; et levende medlem skjuler. Gæstens vej (entitet_offentlig, fakta-RLS) følger.
+DO $$
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO person(id,levende,privat) VALUES (-937801,false,false),(-937802,false,false),(-937803,true,false);
+  INSERT INTO family(id,type) VALUES (-937811,'vielse'),(-937812,'vielse'),(-937813,'vielse');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES
+    (-937811,-937801,'partner'),(-937811,-937802,'partner'),   -- offentlig
+    (-937812,-937801,'partner'),(-937812,-937803,'partner');   -- levende medlem; -937813 har ingen medlemmer
+  IF NOT public.family_offentlig(-937811) THEN
+    RAISE EXCEPTION 'FEJL: S3 — en familie med kun offentlige medlemmer er ikke offentlig'; END IF;
+  IF public.family_offentlig(-937812) THEN
+    RAISE EXCEPTION 'FEJL: S3 — en familie med et levende medlem er offentlig'; END IF;
+  IF public.family_offentlig(-937813) THEN
+    RAISE EXCEPTION 'FEJL: S3 — en familie uden medlemmer er offentlig'; END IF;
+  IF public.family_offentlig(-937899) THEN
+    RAISE EXCEPTION 'FEJL: S3 — et ikke-eksisterende familie-id er offentligt'; END IF;
+  IF public.entitet_offentlig('family',-937813) THEN
+    RAISE EXCEPTION 'FEJL: S3 — entitet_offentlig følger ikke family_offentlig for en tom familie'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 S3 — en familie uden medlemmer er ikke offentlig';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37s3
 
 -- BEGIN-VERIFY r37b3-d5a
 -- ===== Review 37 D5a: datointervaller i orden på assertion, haendelse, story og relation =====
