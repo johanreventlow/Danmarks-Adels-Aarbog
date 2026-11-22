@@ -136,6 +136,14 @@ jobs:
       - name: mobil · tsc
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm --workspace mobile exec -- tsc --noEmit
+      # Testfilerne er ekskluderet fra produktions-tsconfig'erne; egne test-tsconfig'er
+      # tjekker dem med vitest-/jest-globals (#397 C2).
+      - name: web · typecheck (tests)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm --workspace web exec -- tsc --noEmit -p tsconfig.test.json
+      - name: mobil · typecheck (tests)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm --workspace mobile exec -- tsc --noEmit -p tsconfig.test.json
       - name: mobil · jest
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm test -w mobile
