@@ -48345,6 +48345,8 @@ GRANT EXECUTE ON FUNCTION public.red_slettede_personer(integer) TO authenticated
 -- Review 37 blok 4 (#397): konklusion og ændringssæt i redaktionens RPC'er.
 --  D4  red_set_konklusion gør konklusionen gyldig ('afklaret'), også en tilbagetrukket eller omstridt (projektejeren
 --      2026-11-22: samme regel som red_upsert_fakta og red_vaelg_foraeldre).
+--  D10 red_tilfoej_foraeldre_paastand: et tilbagetrukket slot har ingen gældende konklusion; en ny påstand dér er
+--      ikke en konflikt (afklaret, hvis den matcher barnets projektion, ellers kandidat).
 -- Deploy-området for prod er hele denne blok i ÉN transaktion. Kroppene er kopieret fra schema.sql og er de endelige
 -- definitioner; de ældre definitioner længere oppe gælder kun den fulde migrationssti. Idempotent: CREATE OR REPLACE med
 -- samme signatur og returtype bevarer funktionernes ACL. Ingen data ændres.
@@ -48370,5 +48372,91 @@ BEGIN
             'afklaret', 'Redaktør', current_date)
     ON CONFLICT (target_type, target_id)
     DO UPDATE SET valgt_assertion_id = excluded.valgt_assertion_id, status = 'afklaret', blaastemplet_naar = current_date;
+END $$;
+
+CREATE OR REPLACE FUNCTION red_tilfoej_foraeldre_paastand(
+  p_barn_id bigint, p_family_id bigint,
+  p_source_id bigint DEFAULT NULL, p_side text DEFAULT NULL,
+  p_citat text DEFAULT NULL, p_kilde_fritekst text DEFAULT NULL
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE
+  v_fact bigint; v_assert bigint; v_cit bigint;
+  v_valgt_family bigint; v_barn_family bigint; v_konflikt boolean := false; v_concl_exists boolean;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion må skrive forældre-påstande (din rolle: %)', current_rolle(); END IF;
+  IF NOT EXISTS(SELECT 1 FROM person WHERE id=p_barn_id) THEN RAISE EXCEPTION 'Person % findes ikke', p_barn_id; END IF;
+  IF NOT EXISTS(SELECT 1 FROM family WHERE id=p_family_id) THEN RAISE EXCEPTION 'Familie % findes ikke', p_family_id; END IF;
+  IF NOT EXISTS(SELECT 1 FROM family_member WHERE family_id=p_family_id AND rolle='partner') THEN
+    RAISE EXCEPTION 'Familie % har ingen forælder (partner-medlem) — kan ikke være forældrefamilie', p_family_id; END IF;
+
+  -- Idempotens FØR change_set: samme slot + samme objekt_id + samme citation-source → returnér eksisterende (intet change_set).
+  SELECT f.id, a.id, c.id INTO v_fact, v_assert, v_cit
+    FROM fact f
+    JOIN assertion a ON a.target_type='fact' AND a.target_id=f.id AND a.objekt_type='family' AND a.objekt_id=p_family_id
+    JOIN citation c ON c.assertion_id=a.id AND c.source_id IS NOT DISTINCT FROM p_source_id
+    WHERE f.subjekt_type='person' AND f.subjekt_id=p_barn_id AND f.faktatype='forældrefamilie'
+    LIMIT 1;
+  IF v_assert IS NOT NULL THEN
+    RETURN jsonb_build_object('fact_id',v_fact,'assertion_id',v_assert,'citation_id',v_cit,'konflikt',false,'idempotent',true);
+  END IF;
+
+  PERFORM begin_change_set('red_tilfoej_foraeldre_paastand',
+    format('Forældrefamilie-påstand: barn %s → familie %s', p_barn_id, p_family_id), 'person', p_barn_id);
+
+  -- find-or-create slot (højst ét 'forældrefamilie'-fact pr. person)
+  SELECT id INTO v_fact FROM fact
+    WHERE subjekt_type='person' AND subjekt_id=p_barn_id AND faktatype='forældrefamilie' LIMIT 1;
+  IF v_fact IS NULL THEN
+    INSERT INTO fact(subjekt_type, subjekt_id, faktatype)
+      VALUES ('person', p_barn_id, 'forældrefamilie')
+      RETURNING id INTO v_fact;
+  END IF;
+
+  INSERT INTO assertion(target_type, target_id, vaerdi_tekst, objekt_type, objekt_id, uforanderlig)
+    VALUES ('fact', v_fact, 'barn', 'family', p_family_id, true)
+    RETURNING id INTO v_assert;
+  INSERT INTO citation(assertion_id, source_id, side, citat_tekst, kvalitet)
+    VALUES (v_assert, p_source_id, p_side,
+            coalesce(p_citat, p_kilde_fritekst, '(kilde mangler)'),
+            CASE WHEN p_source_id IS NOT NULL THEN 'primær' ELSE 'sekundær' END)  -- kildeløs redaktionel påstand er ikke primærkilde
+    RETURNING id INTO v_cit;
+
+  -- Adjudikations-tilstand: hvad peger konklusionen (om nogen) på, og hvor er barnet projiceret?
+  -- Review 37 D10: en tilbagetrukket konklusion gælder ikke (fx efter red_slet_familie_link af barnet); slottet
+  -- behandles som uden konklusion, så en ny påstand ikke bliver en falsk konflikt med en fjernet forældrefamilie.
+  SELECT a.objekt_id INTO v_valgt_family
+    FROM conclusion c JOIN assertion a ON a.id=c.valgt_assertion_id
+    WHERE c.target_type='fact' AND c.target_id=v_fact AND c.status IS DISTINCT FROM 'tilbagetrukket';
+  v_concl_exists := EXISTS(SELECT 1 FROM conclusion WHERE target_type='fact' AND target_id=v_fact
+                             AND status IS DISTINCT FROM 'tilbagetrukket');
+  SELECT family_id INTO v_barn_family FROM family_member WHERE person_id=p_barn_id AND rolle='barn' LIMIT 1;
+
+  IF v_concl_exists THEN
+    IF v_valgt_family IS DISTINCT FROM p_family_id THEN
+      -- Konflikt: rival peger på anden familie end den valgte. Vores konklusion URØRT (TNG-præcedens);
+      -- markér omstridt + eskalér projektions-rækkens konfidens (invariant 7: vis usikkerhed).
+      v_konflikt := true;
+      UPDATE conclusion SET status='omstridt', blaastemplet_naar=current_date
+        WHERE target_type='fact' AND target_id=v_fact;
+      -- EXCLUDE garanterer højst én 'barn'-række pr. person → intet familie-prædikat/NULL-guard nødvendigt.
+      UPDATE family_member SET konfidens='omstridt'
+        WHERE person_id=p_barn_id AND rolle='barn';
+    END IF;
+    -- v_valgt_family = p_family_id: korroboration af det valgte — ingen ændring.
+  ELSE
+    -- Ingen gældende conclusion: selv-helende afklaret KUN når påstanden matcher barnets projicerede række.
+    -- Upsert: et tilbagetrukket slot har allerede en conclusion-række (D10); den genbruges og bliver afklaret.
+    IF v_barn_family IS NOT DISTINCT FROM p_family_id THEN
+      INSERT INTO conclusion(target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
+        VALUES ('fact', v_fact, v_assert, 'afklaret',
+                'Redaktør (korroboration)', current_date)
+        ON CONFLICT (target_type, target_id)
+        DO UPDATE SET valgt_assertion_id = excluded.valgt_assertion_id, status = 'afklaret',
+                      blaastemplet_af = excluded.blaastemplet_af, blaastemplet_naar = current_date;
+    END IF;
+    -- ellers: påstanden står som ren kandidat; adjudicér med red_vaelg_foraeldre.
+  END IF;
+
+  RETURN jsonb_build_object('fact_id',v_fact,'assertion_id',v_assert,'citation_id',v_cit,'konflikt',v_konflikt);
 END $$;
 -- END review37-b4

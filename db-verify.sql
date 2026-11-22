@@ -9833,6 +9833,74 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 -- END-VERIFY r37d4
 
+-- BEGIN-VERIFY r37d10
+-- ===== Review 37 D10: en ny forældre-påstand på et tilbagetrukket slot er ikke en konflikt =====
+-- Et tilbagetrukket forældrefamilie-slot (fx efter red_slet_familie_link af barnet) har ingen gældende konklusion. En ny
+-- påstand dér behandles som på et slot uden konklusion: matcher den barnets projicerede række, bliver den den afklarede
+-- konklusion; ellers står den som kandidat, og slottet forbliver tilbagetrukket. Før rettelsen gav den »konflikt«,
+-- satte slottet til 'omstridt' og barnets projektionsrække til konfidens 'omstridt'. Modprøve: et slot med en gældende
+-- (afklaret) konklusion giver stadig konflikt.
+DO $$
+DECLARE
+  v_res jsonb; v_st text; v_valgt bigint; v_fact bigint; v_konf text;
+BEGIN
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO person(id,levende,privat,staged) VALUES
+    (-937501,false,false,false),(-937502,false,false,false),(-937503,false,false,false),  -- børn A, B, C
+    (-937506,false,false,false),(-937507,false,false,false);                              -- forældre i F1, F2
+  INSERT INTO family(id,type) VALUES (-937511,'vielse'),(-937512,'vielse');
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES
+    (-937511,-937506,'partner'),(-937512,-937507,'partner'),
+    (-937511,-937501,'barn'),(-937511,-937502,'barn'),(-937511,-937503,'barn');
+  -- Alle tre børn: påstand F1 (matcher projektionen) → afklaret slot.
+  PERFORM red_tilfoej_foraeldre_paastand(-937501,-937511); PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_tilfoej_foraeldre_paastand(-937502,-937511); PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_tilfoej_foraeldre_paastand(-937503,-937511); PERFORM set_config('app.change_set_id','',true);
+  -- A og B fjernes fra F1 → deres slot er tilbagetrukket.
+  PERFORM red_slet_familie_link(-937511,-937501,'barn'); PERFORM set_config('app.change_set_id','',true);
+  PERFORM red_slet_familie_link(-937511,-937502,'barn'); PERFORM set_config('app.change_set_id','',true);
+  IF (SELECT count(*) FROM conclusion c JOIN fact f ON c.target_type='fact' AND f.id=c.target_id
+       WHERE f.faktatype='forældrefamilie' AND f.subjekt_id IN (-937501,-937502) AND c.status='tilbagetrukket') <> 2 THEN
+    RAISE EXCEPTION 'FEJL: D10 — fixturen gav ikke to tilbagetrukne slots'; END IF;
+
+  -- A: ny påstand F2, A har ingen projektionsrække → kandidat; slottet forbliver tilbagetrukket.
+  v_res := red_tilfoej_foraeldre_paastand(-937501,-937512); PERFORM set_config('app.change_set_id','',true);
+  v_fact := (v_res->>'fact_id')::bigint;
+  SELECT status INTO v_st FROM conclusion WHERE target_type='fact' AND target_id=v_fact;
+  IF (v_res->>'konflikt')::boolean OR v_st IS DISTINCT FROM 'tilbagetrukket' THEN
+    RAISE EXCEPTION 'FEJL: D10 — påstand på tilbagetrukket slot uden projektion: konflikt %, status %',
+      v_res->>'konflikt', v_st; END IF;
+
+  -- B: projiceret i F2 (direkte række, konfidens sikker), ny påstand F2 → afklaret konklusion på den nye påstand.
+  INSERT INTO family_member(family_id,person_id,rolle,konfidens) VALUES (-937512,-937502,'barn','sikker');
+  v_res := red_tilfoej_foraeldre_paastand(-937502,-937512); PERFORM set_config('app.change_set_id','',true);
+  v_fact := (v_res->>'fact_id')::bigint;
+  SELECT status, valgt_assertion_id INTO v_st, v_valgt FROM conclusion WHERE target_type='fact' AND target_id=v_fact;
+  v_konf := (SELECT konfidens FROM family_member WHERE person_id=-937502 AND rolle='barn');
+  IF (v_res->>'konflikt')::boolean OR v_st IS DISTINCT FROM 'afklaret'
+     OR v_valgt IS DISTINCT FROM (v_res->>'assertion_id')::bigint OR v_konf IS DISTINCT FROM 'sikker' THEN
+    RAISE EXCEPTION 'FEJL: D10 — påstand på tilbagetrukket slot, der matcher projektionen: konflikt %, status %, valgt % (forventet %), konfidens %',
+      v_res->>'konflikt', v_st, v_valgt, v_res->>'assertion_id', v_konf; END IF;
+
+  -- Modprøve C: gældende (afklaret) slot F1, ny påstand F2 → konflikt, omstridt.
+  v_res := red_tilfoej_foraeldre_paastand(-937503,-937512); PERFORM set_config('app.change_set_id','',true);
+  SELECT status INTO v_st FROM conclusion WHERE target_type='fact' AND target_id=(v_res->>'fact_id')::bigint;
+  IF NOT (v_res->>'konflikt')::boolean OR v_st IS DISTINCT FROM 'omstridt' THEN
+    RAISE EXCEPTION 'FEJL: D10 — modprøven: rivaliserende påstand på afklaret slot gav konflikt %, status %',
+      v_res->>'konflikt', v_st; END IF;
+
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D10 — en ny forældre-påstand på et tilbagetrukket slot er ikke en konflikt';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37d10
+
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt
 -- request.jwt.claim.sub; i Supabase SQL Editor kør som funktionsejer (jf. Task 4-note).

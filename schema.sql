@@ -8806,10 +8806,13 @@ BEGIN
     RETURNING id INTO v_cit;
 
   -- Adjudikations-tilstand: hvad peger konklusionen (om nogen) på, og hvor er barnet projiceret?
+  -- Review 37 D10: en tilbagetrukket konklusion gælder ikke (fx efter red_slet_familie_link af barnet); slottet
+  -- behandles som uden konklusion, så en ny påstand ikke bliver en falsk konflikt med en fjernet forældrefamilie.
   SELECT a.objekt_id INTO v_valgt_family
     FROM conclusion c JOIN assertion a ON a.id=c.valgt_assertion_id
-    WHERE c.target_type='fact' AND c.target_id=v_fact;
-  v_concl_exists := EXISTS(SELECT 1 FROM conclusion WHERE target_type='fact' AND target_id=v_fact);
+    WHERE c.target_type='fact' AND c.target_id=v_fact AND c.status IS DISTINCT FROM 'tilbagetrukket';
+  v_concl_exists := EXISTS(SELECT 1 FROM conclusion WHERE target_type='fact' AND target_id=v_fact
+                             AND status IS DISTINCT FROM 'tilbagetrukket');
   SELECT family_id INTO v_barn_family FROM family_member WHERE person_id=p_barn_id AND rolle='barn' LIMIT 1;
 
   IF v_concl_exists THEN
@@ -8825,11 +8828,15 @@ BEGIN
     END IF;
     -- v_valgt_family = p_family_id: korroboration af det valgte — ingen ændring.
   ELSE
-    -- Ingen conclusion endnu: selv-helende afklaret KUN når påstanden matcher barnets projicerede række.
+    -- Ingen gældende conclusion: selv-helende afklaret KUN når påstanden matcher barnets projicerede række.
+    -- Upsert: et tilbagetrukket slot har allerede en conclusion-række (D10); den genbruges og bliver afklaret.
     IF v_barn_family IS NOT DISTINCT FROM p_family_id THEN
       INSERT INTO conclusion(target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
         VALUES ('fact', v_fact, v_assert, 'afklaret',
-                'Redaktør (korroboration)', current_date);
+                'Redaktør (korroboration)', current_date)
+        ON CONFLICT (target_type, target_id)
+        DO UPDATE SET valgt_assertion_id = excluded.valgt_assertion_id, status = 'afklaret',
+                      blaastemplet_af = excluded.blaastemplet_af, blaastemplet_naar = current_date;
     END IF;
     -- ellers: påstanden står som ren kandidat; adjudicér med red_vaelg_foraeldre.
   END IF;
