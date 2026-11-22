@@ -98,5 +98,78 @@ class ValidateHaendelserTest(unittest.TestCase):
         self.assertTrue(advisories[0]["advisory"][0].startswith("H7"))
 
 
+class KontekstDatoTest(unittest.TestCase):
+    """H9: s.å./s.m./s.d. opløses fra den nærmeste foregående dato i narrativet."""
+
+    def bounds(self, text, clause, date_raw):
+        event = {"klausul": clause, "date_raw": date_raw}
+        enriched, issues, advisory, _ = vh.validate_narrative(source(text), extraction([event]))
+        self.assertEqual([], issues)
+        got = enriched["haendelser"][0]
+        return (got["date_min"], got["date_max"]), got["date_raw"], advisory
+
+    def test_saa_takes_nearest_preceding_year_and_keeps_day(self):
+        text = "Kaptajn 1675, deltog s.å. (4. dec.) i slaget ved Lund."
+        b, raw, advisory = self.bounds(text, "deltog s.å. (4. dec.) i slaget ved Lund", "s.å. (4. dec.)")
+        self.assertEqual(("1675-12-04", "1675-12-04"), b)
+        self.assertEqual("s.å. (4. dec.)", raw)  # date_raw forbliver ordret
+        self.assertTrue(any(a.startswith("H9") for a in advisory))
+
+    def test_s_a_variant_without_day_gives_whole_year(self):
+        text = "1865 Fanejunker ved Dragonreg., s. A. Officersexamen."
+        b, _, _ = self.bounds(text, "s. A. Officersexamen", "s. A.")
+        self.assertEqual(("1865-01-01", "1865-12-31"), b)
+
+    def test_chained_saa_resolves_through_previous_relative_date(self):
+        text = "1469 beseglede han, s.å. (2. maj) i Kiel, s.å. (8. juli) i Lübeck."
+        b, _, _ = self.bounds(text, "s.å. (8. juli) i Lübeck", "s.å. (8. juli)")
+        self.assertEqual(("1469-07-08", "1469-07-08"), b)
+
+    def test_sm_takes_year_and_month_from_preceding_date(self):
+        text = "Udnævnt 13. juli 1469, bestalling 28. s.m. i Kiel."
+        b, _, _ = self.bounds(text, "bestalling 28. s.m. i Kiel", "28. s.m.")
+        self.assertEqual(("1469-07-28", "1469-07-28"), b)
+
+    def test_sm_after_year_with_parenthesised_day(self):
+        text = "1776 (9 Dec.) Deputeret, 15. s.m. Kammerherre."
+        b, _, _ = self.bounds(text, "15. s.m. Kammerherre", "15. s.m.")
+        self.assertEqual(("1776-12-15", "1776-12-15"), b)
+
+    def test_sd_takes_full_preceding_date(self):
+        text = "Gift 1700 (2. maj) i Kiel, s.d. Amtmand."
+        b, _, _ = self.bounds(text, "s.d. Amtmand", "s.d.")
+        self.assertEqual(("1700-05-02", "1700-05-02"), b)
+
+    def test_new_year_resets_month_so_sm_is_not_guessed(self):
+        text = "13. juli 1469 i Kiel; 1470 i Lübeck, 28. s.m. vidne."
+        b, _, advisory = self.bounds(text, "28. s.m. vidne", "28. s.m.")
+        self.assertEqual((None, None), b)
+        self.assertFalse(any(a.startswith("H9") for a in advisory))
+
+    def test_no_preceding_year_stays_undated(self):
+        b, _, _ = self.bounds("Han deltog s.å. i slaget.", "deltog s.å. i slaget", "s.å.")
+        self.assertEqual((None, None), b)
+
+    def test_parsable_date_is_never_rewritten(self):
+        b, _, advisory = self.bounds("1580 rejste han; 1590 blev han lensmand.", "1590 blev han lensmand", "1590")
+        self.assertEqual(("1590-01-01", "1590-12-31"), b)
+        self.assertFalse(any(a.startswith("H9") for a in advisory))
+
+
+class ParkerUdateredeTest(unittest.TestCase):
+    def test_events_without_any_bound_are_parked_and_narrative_kept(self):
+        clean = [{"narrative_id": 1, "haendelser": [
+            {"klausul": "a", "date_raw": "1580", "date_min": "1580-01-01", "date_max": "1580-12-31"},
+            {"klausul": "b", "date_raw": "før 1565", "date_min": None, "date_max": "1565-12-31"},
+            {"klausul": "c", "date_raw": "17 Aug.", "date_min": None, "date_max": None},
+        ]}, {"narrative_id": 2, "haendelser": [
+            {"klausul": "d", "date_raw": "s.d.", "date_min": None, "date_max": None},
+        ]}]
+        kept, parked = vh.parker_udaterede(clean)
+        self.assertEqual([["a", "b"], []], [[h["klausul"] for h in r["haendelser"]] for r in kept])
+        self.assertEqual([1, 2], [r["narrative_id"] for r in kept])  # narrativet bliver i inputtet
+        self.assertEqual([(1, "c"), (2, "d")], [(p["narrative_id"], p["haendelse"]["klausul"]) for p in parked])
+
+
 if __name__ == "__main__":
     unittest.main()

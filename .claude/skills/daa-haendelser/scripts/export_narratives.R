@@ -19,6 +19,11 @@ con <- dbConnect(
   bigint = "integer64"
 )
 on.exit(dbDisconnect(con), add = TRUE)
+# Læse-kun håndhævet på forbindelsen (PGOPTIONS virker ikke gennem Session pooleren) og kontrolleret.
+invisible(dbExecute(con, "SET default_transaction_read_only = on"))
+if (dbGetQuery(con, "SHOW default_transaction_read_only")[[1]][[1]] != "on") {
+  stop("EKSPORT_IKKE_LAESE_KUN")
+}
 
 eligible_sql <- "
 SELECT n.id AS narrative_id, n.subjekt_id, n.source_id, n.side, n.tekst,
@@ -31,6 +36,10 @@ WHERE n.subjekt_type = 'person'
   AND p.levende = false
   AND coalesce(p.privat, false) = false
   AND coalesce(p.staged, false) = false
+  -- Samme regel som gæstens læserflade: #415's samme_som-gruppe (en afdød alias-række for en nulevende er
+  -- skjult) og publiceringsgaten (kontrakt v2). Uden dem slap 13 narrativer igennem i prod 2026-11-21.
+  AND public.person_offentlig(n.subjekt_id) IS TRUE
+  AND public.person_daa_narrative_publication_allowed(n.id) IS TRUE
 ORDER BY n.id"
 
 rows <- dbGetQuery(con, eligible_sql)
@@ -48,7 +57,9 @@ if (nrow(rows)) {
       "WHERE n.id IN (%s) AND (",
       "n.subjekt_type IS DISTINCT FROM 'person' OR coalesce(n.privat,false)",
       "OR p.id IS NULL OR p.levende IS DISTINCT FROM false",
-      "OR coalesce(p.privat,false) OR coalesce(p.staged,false))"
+      "OR coalesce(p.privat,false) OR coalesce(p.staged,false)",
+      "OR public.person_offentlig(n.subjekt_id) IS NOT TRUE",
+      "OR public.person_daa_narrative_publication_allowed(n.id) IS NOT TRUE)"
     ), ids
   )
   bad_count <- dbGetQuery(con, bad_sql)$n[[1]]
@@ -57,4 +68,4 @@ if (bad_count != 0L) stop(sprintf("GDPR-SELVKONTROL FEJLEDE: %s forbudte narrati
 
 dir.create(dirname(out_path), recursive = TRUE, showWarnings = FALSE)
 write_json(rows, out_path, dataframe = "rows", pretty = TRUE, auto_unbox = TRUE, na = "null")
-message(sprintf("[export] %d offentlige afdøde-narrativer -> %s", nrow(rows), out_path))
+message(sprintf("[export] %d offentlige, publicerede afdøde-narrativer -> %s", nrow(rows), out_path))
