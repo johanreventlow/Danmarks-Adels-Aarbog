@@ -740,11 +740,11 @@ jobs:
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         # f37b294a = #363, prods installerede SQL; origin/main har fuld personsletning, som ikke er i prod.
         run: bash tests/sql/test-record-persona-upgrade.sh cirecord_persona_upgrade f37b294a
-      - name: Opgradering fra prods skema (review 37 blok 3 · S4, D5a, D5b · gate + tabel-CHECKs)
+      - name: Opgradering fra prods skema (review 37 S3 · en familie uden medlemmer er ikke offentlig)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
-        # c356e838 = main efter merge af #436 (blok 2) — prods SQL, når blok 2 er anvendt. Blok 2's test er pensioneret
+        # 7a20b51e = main efter merge af #438 (blok 3) — prods SQL, når blok 3 er anvendt. Blok 3's test er pensioneret
         # (tests/ikke-i-ci.txt).
-        run: bash tests/sql/test-review37-b3-upgrade.sh ci_r37b3_upgrade c356e838
+        run: bash tests/sql/test-review37-s3-upgrade.sh ci_r37s3_upgrade 7a20b51e
       - name: Fuld personsletning · fixtur, tæller og katalogvagt pr. kolonne
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         run: bash tests/sql/test-person-purge.sh ciperson_purge

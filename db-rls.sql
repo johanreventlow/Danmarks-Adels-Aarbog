@@ -113,18 +113,28 @@ $$;
 revoke all on function public.person_offentlig(bigint) from public;
 grant execute on function public.person_offentlig(bigint) to anon, authenticated;
 
--- family_offentlig: en familie er offentlig KUN hvis INTET medlem er ikke-offentligt (levende/privat).
--- Fail-closed: ét levende/privat medlem → hele familien (og dens fakta/noter/narrativer) skjules.
+-- family_offentlig: en familie er offentlig KUN hvis den har mindst ét medlem, og INTET medlem er ikke-offentligt
+-- (levende/privat). Fail-closed: ét levende/privat medlem → hele familien (og dens fakta/noter/narrativer) skjules.
+-- Review 37 S3 (projektejeren 2026-11-22): en familie UDEN medlemmer er også skjult. Ellers bliver fakta, der står
+-- tilbage, når en redaktør fjerner partnernes koblinger (fx vielsesdatoen for en nulevende), offentlige. Målt i prod
+-- 22/11: 0 af 676 familier uden medlemmer, så intet skifter i dag. Et ikke-eksisterende id er også falsk.
 -- SECURITY DEFINER (som person_offentlig): skal se ALLE family_member-rækker uden at blive re-
 -- filtreret af family_member-RLS — ellers ville netop det skjulte levende medlem være usynligt for
 -- subqueryen → fail-OPEN. Codex-fund F-02c (2026-07-17).
+-- Egen DO-blok, så prod kan tage den alene (ikke hele db-rls.sql); CREATE OR REPLACE bevarer ACL'en.
+DO $review37_s3_tom_familie$
+BEGIN
 create or replace function public.family_offentlig(fid bigint)
 returns boolean language sql stable security definer set search_path = public as $$
-  select not exists (
+  select exists (
+    select 1 from public.family_member fm where fm.family_id = fid
+  ) and not exists (
     select 1 from public.family_member fm
     where fm.family_id = fid and not public.person_offentlig(fm.person_id)
   );
 $$;
+END
+$review37_s3_tom_familie$;
 revoke all on function public.family_offentlig(bigint) from public;
 grant execute on function public.family_offentlig(bigint) to anon, authenticated;
 
@@ -138,8 +148,8 @@ grant execute on function public.family_offentlig(bigint) to anon, authenticated
 -- medlem er levende/privat/staged), er skjult. CHECK'en gør de eksakte sammenligninger nedenfor udtømmende
 -- (rolle = 'afbildet' og typerne med små bogstaver). Egen DO-blok, så prod kan tage den alene (ikke hele db-rls.sql);
 -- CREATE OR REPLACE bevarer ACL'en, og grants/revokes nedenfor og i $anon_gate_hardening$ står uden for blokken.
--- NB (S3, uden for blok 3): family_offentlig er sand for en familie uden medlemmer, så et billede af en medlemsløs
--- familie er synligt.
+-- S3 (2026-11-22): family_offentlig er falsk for en familie uden medlemmer, så et billede af en medlemsløs familie er
+-- også skjult.
 DO $review37_b3_media_gate$
 BEGIN
 create or replace function public.media_afbilder_skjult(mid bigint)

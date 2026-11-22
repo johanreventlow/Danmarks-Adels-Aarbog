@@ -3114,7 +3114,8 @@ ROLLBACK;
 BEGIN;
 SELECT pg_temp.km_kaldere();
 DO $t$
-DECLARE v_skjult bigint; v_offentlig bigint; v_fam_skjult bigint; v_fam_tom bigint; v_ingen bigint; v_fam_ingen bigint;
+DECLARE v_skjult bigint; v_offentlig bigint; v_fam_skjult bigint; v_fam_tom bigint; v_fam_offentlig bigint; v_ingen bigint;
+  v_fam_ingen bigint;
   v_fejl text[] := '{}'; v_msg text; r record;
 BEGIN
   PERFORM purge_test.nyt();
@@ -3123,11 +3124,16 @@ BEGIN
   INSERT INTO public.family(type) VALUES ('test') RETURNING id INTO v_fam_skjult;
   INSERT INTO public.family_member(family_id,person_id,rolle) VALUES (v_fam_skjult,v_skjult,'partner');
   INSERT INTO public.family(type) VALUES ('test') RETURNING id INTO v_fam_tom;
+  -- Review 37 S3: en familie uden medlemmer er ikke offentlig, så den afvises som de skjulte; den positive kontrol er en
+  -- familie med et offentligt medlem.
+  INSERT INTO public.family(type) VALUES ('test') RETURNING id INTO v_fam_offentlig;
+  INSERT INTO public.family_member(family_id,person_id,rolle) VALUES (v_fam_offentlig,v_offentlig,'partner');
   v_ingen := (SELECT max(id) FROM public.person)+1000;
   v_fam_ingen := (SELECT max(id) FROM public.family)+1000;
   PERFORM set_config('request.jwt.claim.sub','11000000-0000-0000-0000-00000000ca02',true);  -- medlem
   SET LOCAL ROLE authenticated;
-  FOR r IN SELECT * FROM (VALUES ('person',v_skjult),('person',v_ingen),('family',v_fam_skjult),('family',v_fam_ingen)) x(typ,id) LOOP
+  FOR r IN SELECT * FROM (VALUES ('person',v_skjult),('person',v_ingen),('family',v_fam_skjult),('family',v_fam_ingen),
+                              ('family',v_fam_tom)) x(typ,id) LOOP
     BEGIN
       PERFORM public.red_suggest('rettelse',r.typ,r.id,'navn','x');
       v_msg := 'LYKKEDES';
@@ -3135,11 +3141,11 @@ BEGIN
     END;
     v_fejl := v_fejl || v_msg;
   END LOOP;
-  -- Positive kontroller: offentlig person og eksisterende familie uden skjulte medlemmer.
+  -- Positive kontroller: offentlig person og familie med kun offentlige medlemmer.
   PERFORM public.red_suggest('rettelse','person',v_offentlig,'navn','x');
-  PERFORM public.red_suggest('rettelse','family',v_fam_tom,'navn','x');
+  PERFORM public.red_suggest('rettelse','family',v_fam_offentlig,'navn','x');
   RESET ROLE;
-  IF array_length(v_fejl,1)<>4 OR EXISTS (SELECT 1 FROM unnest(v_fejl) f WHERE f<>'FORSLAG_SUBJEKT_UTILGAENGELIGT') THEN
+  IF array_length(v_fejl,1)<>5 OR EXISTS (SELECT 1 FROM unnest(v_fejl) f WHERE f<>'FORSLAG_SUBJEKT_UTILGAENGELIGT') THEN
     RAISE EXCEPTION 'TEST_FAILED red_suggest_intet_orakel: %', v_fejl;
   END IF;
   -- Redaktøren må stadig foreslå på et skjult mål.
