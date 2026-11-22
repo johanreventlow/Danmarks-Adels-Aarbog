@@ -1,7 +1,21 @@
-# Large local/generated artifacts. Open explicitly only when needed.
+# PII-arbejdsmapper og dumps (CLAUDE.md, invariant 8; review 37 C6). work_1939_stamtavle/ må læses
+# (projektejerens beslutning 21/11) og står derfor ikke her.
 work/
 work_presens/
+work_presens_1939/
+work_2018_saerudgave/
+tmp/
+*.dump
+*.sql.gz
+.env
+.env.*
+data/tng*
+data/geo-*
+docs/tng-reventlow-analyse.md
 .claude/worktrees/
+.worktrees/
+
+# Large local/generated artifacts. Open explicitly only when needed.
 
 # Dependency/build output
 node_modules/

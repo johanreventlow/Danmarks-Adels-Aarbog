@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(./work/**)",
+      "Read(./work_presens/**)",
+      "Read(./work_presens_1939/**)",
+      "Read(./work_2018_saerudgave/**)",
+      "Read(./tmp/**)",
+      "Read(./**/*.dump)",
+      "Read(./**/*.sql.gz)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./web/.env.local)",
+      "Read(./mobile/.env.local)",
+      "Read(./jr_tng_reventlow.sql)",
+      "Read(./data/tng*)",
+      "Read(./data/geo-*)",
+      "Read(./docs/tng-reventlow-analyse.md)"
+    ]
+  }
+}

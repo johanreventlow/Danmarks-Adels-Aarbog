@@ -56,7 +56,7 @@ der kan være ændret siden statussnapshotet.
 
 ## Faldgruber
 
-- **Supabase:** brug *Session pooler* (IPv4), `sslmode=require`, EU-region. Free-tier pauser efter 7 dages inaktivitet (hold varm før live-demo) og har ingen backup — hold et dump i repo'et.
+- **Supabase:** brug *Session pooler* (IPv4), `sslmode=require`, EU-region. Free-tier pauser efter 7 dages inaktivitet (hold varm før live-demo) og har ingen backup — hold et dump **uden for** repo'et (`~/.private`, chmod 600; dumps rummer levende-persondata og er gitignoreret).
 - **Hver trykt DAA-udgave er en selvstændig `source`** — så modstridende udgaver håndteres indfødt.
 - **Arbejdsmapper indeholder PII:** `work/`, `work_1939_stamtavle/`, `work_presens/` (gitignoreret) rummer prosa om levende personer — commit dem aldrig, send dem aldrig til en model (invariant 8).
 
