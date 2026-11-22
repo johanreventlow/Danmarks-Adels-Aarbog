@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-22 — Første hændelser i feedet (#130)
+
+Forsiden viser nu daterede gerninger fra biografierne: 3.932 hændelser fra 764 narrativer, udtrukket af Sonnet (Opus
+på 32 flaggede) og valideret deterministisk. »s.å.«, »s.m.« og »s.d.« dateres ud fra den foregående dato i teksten
+(259 hændelser); 34 uden nogen datogrænse er lagt til side til senere gennemgang. Alle står som `kandidat` (må vises;
+redaktøren kan markere `interessant` eller `skjult`). Første feed-uddeling venter nu højst 2,5 s på biografier og
+hændelser (#427). PR #427 + #428; load i prod 22/11 (`database-current-state.md` §40).
+
 ## 2026-11-21 — Hændelser ændrer ikke længere en biografis synlighed; feedet henter hændelser i bidder (review 37 A2+Y3)
 
 En publiceret biografi forbliver synlig for gæster, når der indlæses hændelser fra den; hændelserne låser kun
