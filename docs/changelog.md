@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-22 — »Gør til konklusion« virker igen på en tilbagetrukket konklusion (review 37 blok 4)
+
+Vælger redaktøren en påstand som konklusion, bliver konklusionen nu gyldig, også hvis den før var trukket tilbage;
+før forblev den skjult, mens kaldet meldte succes. En ny forældre-påstand på et tilbagetrukket slot giver ikke længere
+en falsk konflikt, der satte barnets forældre til »omstridt«. Ret køn, Gør privat og Slet oplysning afviser nu et
+ukendt id med en ærlig fejl i stedet for at melde succes uden at have ændret noget. Fejlene kunne kun nås ved direkte
+kald; prod havde 0 tilbagetrukne fakta-konklusioner. PR #447; DDL i prod 22/11 (`database-current-state.md` §46).
+
 ## 2026-11-22 — Én sletteknap, og gæster ser ikke redaktionens interne felter (review 37 S8, S5, P11)
 
 Redaktøren har nu én knap »Slet person…«, og systemet vælger vejen: en offentlig afdød kan slettes og fortrydes, mens en

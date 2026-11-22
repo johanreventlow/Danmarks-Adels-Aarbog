@@ -529,6 +529,32 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 46. Review 37 blok 4: konklusion og ændringssæt i redaktionens RPC'er (D4, D10, D11) — LIVE i prod (2026-11-22)
+
+**Grundlag:** decisions 2026-11-22 (BESLUTTET: et redaktionelt valg af konklusion gør den gyldig; et tilbagetrukket
+slot har ingen gældende konklusion), PR #447 (CI grøn på `b4ae8510`; SQL = `201c64db`). Privat runner
+`~/.private/review37-b4/prod.zsh`, fastlåst på `201c64db` (blok-sha `2365d3d4…`), kørt i projektejerens shell **før**
+merge.
+
+- **DDL (én transaktion):** kun blokken `-- BEGIN review37-b4` (sidst i db-migrations.sql). 5 funktioner = facit
+  (krop-md5 + ACL): `red_set_konklusion` sætter `status='afklaret'` ved valget (D4); `red_tilfoej_foraeldre_paastand`
+  regner et tilbagetrukket slot for uden gældende konklusion og genbruger rækken med upsert (D10); `red_set_koen`,
+  `red_set_privat` og `red_slet_oplysning` afviser et ukendt id efter rollegaten og før ændringssættet (D11). Data
+  uændret (4 tabeller); 2,1 s (prøve 3,3 s, stand-in 0,3 s).
+- **Målt i transaktionen:** fakta-konklusioner 7.202 `afklaret` og 0 tilbagetrukne; relationskonklusioner 2.316
+  `afklaret` og 1 `omstridt` (bliver `afklaret`, hvis en redaktør vælger en påstand på den).
+- **Efterkontrol (læse-kun, MCP):** de fem har kun `postgres` og `authenticated` EXECUTE (ingen `anon`/PUBLIC);
+  rettelserne står i kroppene. `get_advisors` (security): samme 4 lint-typer som efter §45; de fem står kun under
+  `authenticated_security_definer_function_executable` som alle `red_*`.
+- **Øvelse:** stand-in `kar20261122_…h130` (nu blok 1-4 + S3): prøve → commit → fortryd-prøve → fortryd
+  (`P_FORTRYD_TROFAST`) → commit. Prod: prøve, derefter commit.
+- **Fortryd:** `/bin/zsh -f ~/.private/review37-b4/prod.zsh fortryd [--jeg-mener-det]` (prods definitioner fra før
+  apply: `~/.private/review37-b4/fortryd-definitioner.prod.sql`).
+- **Kendte rester (#397):** web's `joinEvidence` (`web/src/data/redaktionRead.ts`) viser den valgte påstand som
+  konklusion uanset status, så »Gør til konklusion« mangler på en tilbagetrukken konklusions egen påstand (latent:
+  kernefelter kan ikke trækkes tilbage fra appen). D9 (låserækkefølge) er holdt ude. P11's kaldermatrix kører nu
+  direkte mod frisk schema i CI, P11's opgraderingstest er pensioneret.
+
 ## 45. Review 37 S8 + S5 + P11: læserens kolonner, ingen offentlig bucket, én sletteknap — LIVE i prod (2026-11-22)
 
 ### S8 + S5 (PR #442 + #445)
