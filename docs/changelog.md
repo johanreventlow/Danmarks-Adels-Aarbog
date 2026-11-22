@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-22 — Én sletteknap, og gæster ser ikke redaktionens interne felter (review 37 S8, S5, P11)
+
+Redaktøren har nu én knap »Slet person…«, og systemet vælger vejen: en offentlig afdød kan slettes og fortrydes, mens en
+nulevende, privat eller ikke-udgivet person kun kan slettes helt, fordi historikken ellers ville gemme oplysningerne.
+Dialogen siger hvorfor. En ny side »Slettede personer« i redaktionen viser sletninger, der kan fortrydes, også efter
+genindlæsning. Gæster kan ikke længere læse redaktørernes bruger-id'er, uploadens filnavn eller den interne AI-proveniens
+på historier; medlemmer heller ikke på historier og fastgjorte opslag. `db-verify` fejler, hvis en storage-bucket bliver
+offentlig. PR #442, #445, #443; DDL i prod 22/11 (`database-current-state.md` §45).
+
 ## 2026-11-22 — En familie uden medlemmer er ikke længere offentlig (review 37 S3)
 
 Hvis en redaktør fjerner begge partneres kobling til et ægteskab, men lader ægteskabet og dets oplysninger stå (fx en
