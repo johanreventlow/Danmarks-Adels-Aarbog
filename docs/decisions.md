@@ -2,6 +2,20 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: review 37's databasefund (pakke B) — syv afgørelser (#397, 2026-11-22)
+
+> Målt i prod (læse-kun) og afgjort af projektejeren 22/11; tal og måleforespørgsler i #397 (kommentar 22/11).
+> - **D1:** slægtsnavnet i visningen hentes fra både linjekoden og linjemedlemskabet (504 personer får efternavn,
+>   0 i karantæne). Blok 2.
+> - **D3:** ved flere afklarede navne/datoer vises den første i bogens orden (som titel siden #396); 0 visninger skifter.
+>   »Ret« rammer fremover den viste oplysning. Blok 2.
+> - **S2:** redaktionen må bogmærke skjulte personer; medlemmer afvises med samme fejl, uanset om id'et findes. Blok 1.
+> - **D7:** en udgaves publicering logges som ændringssæt og kan fortrydes med ét klik. Blok 1.
+> - **S4:** et billede må afbilde person, gods, våben, linje, familie og sted. Billed-gaten skal derfor også følge en
+>   families synlighed. Blok 3.
+> - **D5 (F):** 0 omvendte datointervaller i prod, så reglen gælder alle rækker. Blok 2 (RPC) og 3 (CHECK).
+> - **D5c (G):** afvisning af ukendte faktatyper/roller udskydes til #433 (kræver oprydning af vocab-seeds).
+
 ## BESLUTTET: en model må læse `work/` (2018-20) og `work_2018_saerudgave/`; præsenslisterne forbliver spærret (#397 C6, 2026-11-22)
 
 > Projektejeren 2026-11-22: »Claude må læse work for det er publiceret data allerede«. Samme begrundelse som for
