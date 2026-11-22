@@ -5,16 +5,11 @@
 
 ## Aktivt programmål
 
-**Trin 6-spec'en:** 1939 gennem de samme operationer som 2018-20 (trin 6 nedenfor), i delspecs 6a-6e. 6a
-(klausuler og kildetekst-revision) er i prod 2026-10-30; 6b's ceremoni A og B (1939's personas) er i prod
-2026-11-01; 6c-1 (runneren på 1939: modellens 2.774 forslag, og 6b's ceremoni C efter retning 2: 1939's
-identiteter) er i prod 2026-11-02; 6c-2 (kontrol, rettelse, binding og vej B for 1939) 2026-11-06; 6m (1939 holdt op
-mod bogen) 2026-11-07; 6c-3 (resten af A6b for 2018-20) 2026-11-08; 6d-1 (1939's placements og medlemskaber)
-2026-11-09; 6d-2a (oversigtsreglen og 1939's sidste identitetssager) 2026-11-10; 6d-2b (indsnævret: fire forkert
-tilskrevne tekster trukket tilbage, decisions 2026-11-10) 2026-11-10; 6d-3 (1939's relationer, dobbelt ægtefælle,
-1791 skjult) 2026-11-11; 6e-1 (læseren viser valgt udgave forrest) 2026-11-12; 6e-2 (1939's kildeetiket, trykte
-sider og koordinater) 2026-11-14. De 30 »formodet«-forældreled: 28 rettet 2026-11-14, 79/80 bekræftet af bogens »?« (decisions). Status, modenhed pr. led og gates: [status.md](status.md). Sektionen her og status' »Aktivt programmål« skal
-sige det samme.
+**Intet aktivt programmål: beslutningspunktet efter trin 6 afventer projektejeren.** Trin 6's færdigbevis
+(a)-(c) er nået: 6a-6e er i prod 2026-10-30—2026-11-14, og det sidste punkt (tunge personsider som `anon`) er målt
+2026-11-22 ([færdigbevis](trin6-faerdigbevis.md); decisions 2026-11-22). Projektets mål slutter med trin 6 (decisions
+2026-10-28). Udfaldet (stop, fortsæt med 7a eller forelæg foreningen en fortsættelse) er ikke afgjort. Status, modenhed pr. led og gates:
+[status.md](status.md). Sektionen her og status' »Aktivt programmål« skal sige det samme.
 
 ## Styrende rækkefølge
 
