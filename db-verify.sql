@@ -8261,6 +8261,51 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 -- END-VERIFY r37b1-d2
 
+-- BEGIN-VERIFY r37b1-d7
+-- ===== Review 37 D7: udgavepublicering er ét ændringssæt og kan fortrydes =====
+-- To stagede personer fra udgaven (én med external_id, én partner-stub i samme familie) og én staget person fra
+-- en anden udgave. red_publicer_udgave skal åbne et sæt med ét person-event pr. afstaget person; fortrydelsen af
+-- sættet gør begge stagede igen (projektejeren 2026-11-22). Den fremmede person røres ikke. Selvforsynende.
+DO $$
+DECLARE v_res jsonb; cs bigint; n_ev int;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  INSERT INTO source(id,slags,titel,import_key) VALUES
+    (-937101,'test','r37b1 D7 udgave','r37b1-d7-udgave'),(-937102,'test','r37b1 D7 anden','r37b1-d7-anden');
+  INSERT INTO person(id,levende,privat,staged) VALUES
+    (-937111,false,false,true),(-937112,false,false,true),(-937113,false,false,true);
+  INSERT INTO person_external_id(person_id,source_id,linje,nr) VALUES (-937111,-937101,'I',1),(-937113,-937102,'I',1);
+  INSERT INTO family(id) VALUES (-937121);
+  INSERT INTO family_member(family_id,person_id,rolle) VALUES (-937121,-937111,'partner'),(-937121,-937112,'partner');
+
+  v_res := red_publicer_udgave(-937101);
+  IF (v_res->>'personer_afstaget')::int <> 2 THEN RAISE EXCEPTION 'FEJL: D7 — forventede 2 afstagede, fik %', v_res; END IF;
+  SELECT max(id) INTO cs FROM change_set WHERE operation='red_publicer_udgave';
+  IF cs IS NULL THEN RAISE EXCEPTION 'FEJL: D7 — red_publicer_udgave åbnede intet ændringssæt'; END IF;
+  SELECT count(*) INTO n_ev FROM change_event
+   WHERE change_set_id=cs AND tabel='person' AND op='UPDATE' AND (efter->>'staged')::boolean IS false
+     AND (foer->>'staged')::boolean AND (row_pk->>'id')::bigint IN (-937111,-937112);
+  IF n_ev <> 2 THEN RAISE EXCEPTION 'FEJL: D7 — sættet har % person-events for de 2 afstagede', n_ev; END IF;
+  IF EXISTS (SELECT 1 FROM person WHERE id IN (-937111,-937112) AND staged) OR NOT (SELECT staged FROM person WHERE id=-937113) THEN
+    RAISE EXCEPTION 'FEJL: D7 — publiceringen afstagede forkerte personer'; END IF;
+
+  PERFORM set_config('app.change_set_id','',true);
+  v_res := red_fortryd_change_set(cs, false);
+  IF (v_res->>'divergenser')::int <> 0 THEN RAISE EXCEPTION 'FEJL: D7 — fortrydelsen talte divergenser: %', v_res; END IF;
+  IF (SELECT count(*) FROM person WHERE id IN (-937111,-937112,-937113) AND staged) <> 3 THEN
+    RAISE EXCEPTION 'FEJL: D7 — fortrydelsen gjorde ikke udgavens personer stagede igen'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D7 — udgavepublicering står i historikken og kan fortrydes';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b1-d7
+
 -- ===== Review 09 H2: restore bevarer skip_cols (profiles email/rolle) =====
 -- End-to-end: slet en profil-bundet person, fortryd → profilen genskabes med
 -- rolle/email intakt (ikke NULL-crash). Ville have fanget review09 H2.

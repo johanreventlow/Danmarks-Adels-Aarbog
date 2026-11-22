@@ -8046,6 +8046,9 @@ BEGIN
   IF current_rolle() <> 'redaktion' THEN
     RAISE EXCEPTION 'Kun redaktion må publicere en udgave (din rolle: %)', current_rolle();
   END IF;
+  -- Review 37 D7: publiceringen er ét ændringssæt (som red_publicer_personer), så den står i historikken og kan
+  -- fortrydes med ét klik (personerne skjules igen), hvis intet er redigeret siden (projektejeren 2026-11-22).
+  PERFORM begin_change_set('red_publicer_udgave', format('Publicerede udgave %s', p_source_id), NULL, NULL);
   UPDATE person p SET staged = false
   WHERE p.staged = true
     AND (EXISTS (SELECT 1 FROM person_external_id pei

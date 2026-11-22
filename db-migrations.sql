@@ -46875,4 +46875,28 @@ BEGIN
   RETURN jsonb_build_object('reversal_change_set', v_new_cs, 'divergenser', v_div);
 END $$;
 
+-- D7: udgavepublicering åbner et ændringssæt (historik + fortryd med ét klik).
+CREATE OR REPLACE FUNCTION public.red_publicer_udgave(p_source_id bigint)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_n integer;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN
+    RAISE EXCEPTION 'Kun redaktion må publicere en udgave (din rolle: %)', current_rolle();
+  END IF;
+  -- Review 37 D7: publiceringen er ét ændringssæt (som red_publicer_personer), så den står i historikken og kan
+  -- fortrydes med ét klik (personerne skjules igen), hvis intet er redigeret siden (projektejeren 2026-11-22).
+  PERFORM begin_change_set('red_publicer_udgave', format('Publicerede udgave %s', p_source_id), NULL, NULL);
+  UPDATE person p SET staged = false
+  WHERE p.staged = true
+    AND (EXISTS (SELECT 1 FROM person_external_id pei
+                 WHERE pei.person_id = p.id AND pei.source_id = p_source_id)
+      OR EXISTS (SELECT 1 FROM family_member fm1
+                 JOIN family_member fm2 ON fm2.family_id = fm1.family_id
+                 JOIN person_external_id pei ON pei.person_id = fm2.person_id
+                   AND pei.source_id = p_source_id
+                 WHERE fm1.person_id = p.id));
+  GET DIAGNOSTICS v_n = ROW_COUNT;
+  RETURN jsonb_build_object('publiceret_source', p_source_id, 'personer_afstaget', v_n);
+END $$;
+
 -- END review37-b1
