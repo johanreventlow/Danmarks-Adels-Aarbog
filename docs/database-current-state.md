@@ -529,6 +529,28 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 40. Første hændelses-load (#130) — LIVE i prod (2026-11-22)
+
+**Grundlag:** decisions 2026-11-21 (BESLUTTET: hændelseslaget opløser s.å./s.m./s.d. fra konteksten; udaterede
+parkeres), PR #427 (første feed-uddeling venter højst 2,5 s; merget og udrullet **før** load) og PR #428 (eksportfilter,
+H9, trin ③c). Kun data: ingen DDL, ingen web-ændring ud over #427.
+
+- **Pipeline:** 1.097 narrativer eksporteret med gæstens læserflade (læse-kun) → Sonnet pr. narrativ → H1-H9 →
+  ét Opus-forsøg på 32 flaggede narrativer → H9 daterede 259 hændelser ud fra sammenhængen → ③c lagde 34 hændelser
+  uden datogrænse til side (`~/.private/h130/parkeret.json`, ÅBEN i decisions).
+- **Load:** `load_haendelser.R ~/.private/h130/clean.json --jeg-mener-det` (sha256 `e706fdc0…`), efter to
+  dry-runs mod prod med samme tal. Resultat `updates=0, inserts=3932, deletes=0, overfoerte=0, mistede=0,
+  uoploeste=0`, 16 min under `SHARE ROW EXCLUSIVE` på `haendelse` (blokerer kun skrivere).
+- **Efterkontrol (læse-kun):** 3.932 hændelser fra 764 narrativer (de øvrige 333 fik ingen hændelser), alle
+  `kandidat`, 0 uden datogrænse, spænd 1223-2013; ingen låse tilbage.
+- **Bladring som anon gennem prods PostgREST:** 6 sider, alle `200`, 3.932 rækker. Databasetid ~0,9 s pr. side
+  (`EXPLAIN ANALYZE`, varm); samlet ~7 s varm. **Kold første side 3,2 s klientside** — tæt på anon-loftet på 3 s; et
+  timeout giver ingen synlig fejl, kun manglende hændelseskort. Følges i #419/#422.
+- **Konsekvens (A2):** de 764 narrativer kan ikke revideres, før redaktøren har fjernet deres hændelser
+  (`NARRATIVE_RECORD_DERIVED_EVENTS_PRESENT`).
+- **Fortryd:** prod havde 0 hændelser før; at tømme `haendelse` genskaber tilstanden og låser teksterne op igen.
+  Redaktørens senere `feed_status`-markeringer går tabt ved en fuld tømning.
+
 ## 39. Hændelser ændrer ikke en biografis synlighed + feedet i bidder (review 37 A2+Y3) — LIVE i prod (2026-11-21)
 
 **Grundlag:** decisions 2026-11-21 (BESLUTTET: hændelser ændrer ikke en biografis synlighed; feedet henter hændelser i
