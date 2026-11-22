@@ -12,6 +12,13 @@
 --    personer (rulles tilbage) ændrer intet, dvs. kandidatmængden er fuldstændig, og der er ingen anden drift under den
 --    nye regel.
 \set ON_ERROR_STOP on
+-- Uden -1 (én transaktion) er før-billedet allerede væk (ON COMMIT DROP), og blokken er committet; stop før regen.
+DO $r37b2_vagt$
+BEGIN
+  IF to_regclass('pg_temp.r37b2_foer') IS NULL OR to_regclass('pg_temp.r37b2_forudsagt') IS NULL THEN
+    RAISE EXCEPTION 'R37B2_BACKFILL_UDEN_FOERBILLEDE: kør før-billede, blok og backfill i ÉN transaktion (psql -1)';
+  END IF;
+END $r37b2_vagt$;
 SELECT set_config('r37b2.forventet', :'forventet', true) IS NOT NULL AS forventet_sat;
 
 CREATE TEMP TABLE r37b2_kandidat ON COMMIT DROP AS
