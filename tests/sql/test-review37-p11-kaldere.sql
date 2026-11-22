@@ -3,7 +3,8 @@
 -- afvisningen siger intet om, hvem personen er). Redaktionen får forhåndsvisningens vej (kan_fortrydes/aarsag), afvises
 -- med SLET_KRAEVER_SLET_HELT for den levende og kan slette den offentlige. Listen over slettede personer
 -- (red_slettede_personer) afviser alle andre end redaktionen, som ser sletningen. Syntetiske negative id'er; alt rulles tilbage.
--- Forvent: NOTICE "OK: review37 p11 kaldere". Køres af tests/sql/test-review37-p11-upgrade.sh (rød på basen, grøn efter).
+-- Forvent: NOTICE "OK: review37 p11 kaldere". Køres i CI mod frisk schema (»Evidens-hardening på
+-- frisk schema-sti«); test-review37-p11-upgrade.sh (pensioneret) kørte den som rød på basen, grøn efter.
 \set ON_ERROR_STOP on
 BEGIN;
 \ir fixtures/kalder-matrix.sql
