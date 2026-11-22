@@ -7,9 +7,10 @@
 -- 2) regen_person_visning på kandidaterne i id-orden (fast låserækkefølge); listen over ændrede personer udskrives.
 -- 3) Kontrol (fejler med R37B2_BACKFILL_* og ruller alt tilbage): ændrede ⊆ kandidater; hver ændret person har kun
 --    fået visning_efternavn (fra NULL) og visning_fuldt_navn = navn + efternavn, har et medlemskab og ingen linjekode;
---    navn, fødsel, død, titel og floruit uændrede for alle; karantænen, change_set og change_event uændrede; antallet =
---    forventet; og en prøve-regen af ALLE andre personer (rulles tilbage) ændrer intet, dvs. kandidatmængden er
---    fuldstændig og der er ingen anden drift under den nye regel.
+--    navn, fødsel, død, titel og floruit uændrede for alle; karantænen, change_set og change_event uændrede; (id,
+--    efternavn) = den uafhængige forudsigelse fra før-billedet; antallet = forventet; og en prøve-regen af ALLE andre
+--    personer (rulles tilbage) ændrer intet, dvs. kandidatmængden er fuldstændig, og der er ingen anden drift under den
+--    nye regel.
 \set ON_ERROR_STOP on
 SELECT set_config('r37b2.forventet', :'forventet', true) IS NOT NULL AS forventet_sat;
 
@@ -68,6 +69,10 @@ BEGIN
   IF (SELECT (n_cs, n_ce) FROM r37b2_tal_foer)
      IS DISTINCT FROM ((SELECT count(*) FROM public.change_set), (SELECT count(*) FROM public.change_event)) THEN
     RAISE EXCEPTION 'R37B2_BACKFILL_HISTORIK: change_set/change_event ændret';
+  END IF;
+  IF EXISTS (SELECT id, efter_efternavn FROM r37b2_aendret EXCEPT SELECT id, efternavn FROM r37b2_forudsagt)
+     OR EXISTS (SELECT id, efternavn FROM r37b2_forudsagt EXCEPT SELECT id, efter_efternavn FROM r37b2_aendret) THEN
+    RAISE EXCEPTION 'R37B2_BACKFILL_FORUDSIGELSE: de ændrede personer/efternavne ≠ den uafhængige forudsigelse';
   END IF;
   SELECT count(*) INTO n FROM r37b2_aendret;
   IF n <> v_forventet THEN RAISE EXCEPTION 'R37B2_BACKFILL_ANTAL: % ændrede personer, forventet %', n, v_forventet; END IF;
