@@ -806,6 +806,18 @@ export async function fetchSletPreview(personId: string): Promise<SletPreview> {
   };
 }
 
+// --- Slettede personer (review 37 P11): redaktionens liste over fortrydelige sletninger ---
+export type SlettetPerson = { changeSetId: string; slettetNaar: string; actorNavn: string | null; personId: string; navn: string | null };
+
+// Kaster ved fejl: en tom liste må ikke ligne »intet at fortryde«, når den ikke kunne hentes.
+export async function fetchSlettedePersoner(limit = 100): Promise<SlettetPerson[]> {
+  const { data, error } = await supabase.rpc('red_slettede_personer', { p_limit: limit });
+  if (error) throw Object.assign(new Error(error.message), { code: error.code });
+  return ((data ?? []) as { change_set_id: number; slettet_naar: string; actor_navn: string | null; person_id: number; navn: string | null }[])
+    .map((r) => ({ changeSetId: String(r.change_set_id), slettetNaar: r.slettet_naar, actorNavn: r.actor_navn ?? null,
+      personId: String(r.person_id), navn: r.navn ?? null }));
+}
+
 // --- Familie-læsning til person-editor (porteret fra mobil 2C-2b — hold i sync) ---
 
 export type FamiliePartner = { personId: string; navn: string; aar: string; konfidens: string | null; ordinal: number | null };

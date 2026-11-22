@@ -42,6 +42,7 @@ import { executeMediaMerge, fetchMediaMergeRelationEvidence, findMediaMergeCandi
 import { executeUdrens } from './data/mediaUdrens';
 import { executeSletHelt, purgeStorage } from './data/personPurge';
 import { SletPersonDialog } from './components/SletPersonDialog';
+import { SlettedePersoner } from './components/SlettedePersoner';
 import { PersonPurgeUdbakke } from './components/PersonPurgeUdbakke';
 import { withUrl, fetchMediaFakta, type MediaFakta } from './data/media';
 import { supabase } from './supabase';
@@ -88,6 +89,8 @@ const ENTITIES = [
   { key: 'sammenlign', label: 'Sammenlign udgaver', icon: '⇄' },
   { key: 'foraeldre-konflikter', label: 'Forældre-konflikter', icon: '⚠' },
   { key: 'kildepersonaer', label: 'Kildepersonaer', icon: '⌕' },
+  // Review 37 P11: fortrydelige sletninger, også efter genindlæsning.
+  { key: 'slettede-personer', label: 'Slettede personer', icon: '↺' },
 ];
 const FELT_DEFS: [string, string][] = [
   ['navn', 'Navn'], ['foedenavn', 'Fødenavn'], ['foedt', 'Født'], ['doed', 'Død'], ['titel', 'Titel/rang'],
@@ -957,7 +960,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
       {renderTopBar()}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {renderSidebar()}
-        {entity === 'feed' || entity === 'sammenlign' || entity === 'foraeldre-konflikter' || entity === 'kildepersonaer' ? (
+        {entity === 'feed' || entity === 'sammenlign' || entity === 'foraeldre-konflikter' || entity === 'kildepersonaer' || entity === 'slettede-personer' ? (
           <div data-scroll style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: T.surfaceRaised }}>
             {entity === 'feed'
               ? <FeedStyring role={role} model={model} run={run} />
@@ -965,6 +968,18 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
               ? <SammenlignUdgaver role={role} dryRun={dryRun} />
               : entity === 'foraeldre-konflikter'
               ? <ForaeldreKonflikterListe onOpen={(id) => openRecord('person', id)} />
+              : entity === 'slettede-personer'
+              ? <SlettedePersoner role={role} dryRun={dryRun} revision={purgeRevision} fortryd={async (r) => {
+                  const res = await run({ art: 'fortryd', subjektType: 'person', subjektId: r.personId,
+                    payload: { changeSetId: r.changeSetId, force: false } }, 'Fortryd sletning', { refresh: false, kastFejl: true });
+                  const kunDryRun = res?.dryRun ?? dryRun;
+                  if (!kunDryRun) {
+                    // Den genskabte person skal straks stå i personlisten og modellen igen.
+                    fetchRedaktionPersoner().then(setPersons).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
+                    loadModel({ collapse: false }).then(setModel).catch((e) => setLoadErr(oversaetFejl(String(e?.message ?? e))));
+                  }
+                  return { dryRun: kunDryRun };
+                }} />
               : <KildepersonaKo role={role} />}
           </div>
         ) : visKvalitetsark ? (
