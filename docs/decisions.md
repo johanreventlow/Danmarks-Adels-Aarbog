@@ -2,6 +2,14 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: en model må læse `work/` (2018-20); præsenslisterne forbliver spærret (#397 C6, 2026-11-22)
+
+> Projektejeren 2026-11-22: »Claude må læse work for det er publiceret data allerede«. Samme begrundelse som for
+> `work_1939_stamtavle/` (21/11): udtræk af en trykt, publiceret udgave. **Gælder kun læsning af en model;** mapperne
+> committes stadig aldrig, og synlighed i appen (`person.levende`, RLS) er uberørt. `work_presens*/` (nulevende) og
+> `tmp/`, dumps og `.env` afvises i `.claude/settings.json` (`permissions.deny`). `work_2018_saerudgave/` er spærret,
+> indtil den er afklaret. CLAUDE.md er rettet tilsvarende.
+
 ## BESLUTTET: hændelseslaget opløser s.å./s.m./s.d. fra konteksten; udaterede parkeres (#130, 2026-11-21)
 
 - **Valg (projektejeren 21/11):** i #130's udtræk havde 312 af 3.966 hændelser ingen dato, mest
