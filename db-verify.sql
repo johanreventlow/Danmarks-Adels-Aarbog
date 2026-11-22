@@ -6977,14 +6977,17 @@ BEGIN
   UPDATE person SET visning_floruit='1111' WHERE id=p_tom;
   PERFORM regen_person_visning(p_tom);
   PERFORM pg_temp.vf_tjek(p_tom,NULL,'uden kilder');
-  -- omvendt interval (date_min > date_max, dårlige data) normaliseres pr. række: 1400..1300 → '1300–1400'
+  -- omvendt interval (date_min > date_max): siden review 37 blok 3 afvist af tabel-CHECK'en assertion_dato_orden, så
+  -- tilstanden kan ikke opstå (regen_person_floruit's least/greatest er nu kun et ekstra værn).
   INSERT INTO person(id,levende,privat) VALUES (-987715004,false,false);
   INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-987715018,'person',-987715004,'embede');
-  INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,date_min,date_max)
-    VALUES (-987715029,'fact',-987715018,'omvendt','1400-01-01','1300-12-31');
-  INSERT INTO conclusion(id,target_type,target_id,valgt_assertion_id,status)
-    VALUES (-987715038,'fact',-987715018,-987715029,'afklaret');
-  PERFORM pg_temp.vf_tjek(-987715004,'1300–1400','omvendt interval normaliseret');
+  BEGIN
+    INSERT INTO assertion(id,target_type,target_id,vaerdi_tekst,date_min,date_max)
+      VALUES (-987715029,'fact',-987715018,'omvendt','1400-01-01','1300-12-31');
+    RAISE EXCEPTION 'FEJL: visning-floruit — et omvendt interval blev accepteret af assertion';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  PERFORM pg_temp.vf_tjek(-987715004,NULL,'omvendt interval afvist');
   RAISE NOTICE 'OK: visning-floruit spaend';
 END $verify_visning_floruit_spaend$;
 
@@ -9256,6 +9259,98 @@ EXCEPTION WHEN OTHERS THEN
   ELSE RAISE; END IF;
 END $$;
 -- END-VERIFY r37b3-gate
+
+-- BEGIN-VERIFY r37b3-d5a
+-- ===== Review 37 D5a: datointervaller i orden på assertion, haendelse, story og relation =====
+-- Tabel-CHECK'erne *_dato_orden og relation_periode_orden afviser date_min > date_max, start_min > start_max,
+-- end_min > end_max og start_min > end_max; NULL-grænser og start_min > end_min (løse grænser) er tilladt.
+-- red_opret_story, red_rediger_story og red_ret_ocr_felt afviser med DATO_INTERVAL_OMVENDT før ændringssættet.
+DO $$
+DECLARE v_t text; v_ok boolean; v_state text; v_msg text; v_story bigint; v_n_cs bigint; v_fp text;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  INSERT INTO person(id,levende,privat) VALUES (-937801,false,false);
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-937811,'person',-937801,'embede');
+  INSERT INTO narrative(id,subjekt_type,subjekt_id,tekst) VALUES (-937821,'person',-937801,'Syntetisk');
+  FOREACH v_t IN ARRAY ARRAY['assertion','haendelse','story','relation_start','relation_slut','relation_start_slut'] LOOP
+    v_ok := false;
+    BEGIN
+      IF v_t = 'assertion' THEN
+        INSERT INTO assertion(target_type,target_id,date_min,date_max) VALUES ('fact',-937811,'1851-12-31','1851-01-01');
+      ELSIF v_t = 'haendelse' THEN
+        INSERT INTO haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul,date_min,date_max)
+          VALUES ('person',-937801,-937821,'r37b3','x','1851-12-31','1851-01-01');
+      ELSIF v_t = 'story' THEN
+        INSERT INTO story(subjekt_type,subjekt_id,tekst,date_min,date_max) VALUES ('person',-937801,'x','1851-12-31','1851-01-01');
+      ELSIF v_t = 'relation_start' THEN
+        INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,start_min,start_max)
+          VALUES ('person',-937801,'estate',-937831,'ejer','1851-12-31','1851-01-01');
+      ELSIF v_t = 'relation_slut' THEN
+        INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,end_min,end_max)
+          VALUES ('person',-937801,'estate',-937831,'ejer','1851-12-31','1851-01-01');
+      ELSE
+        INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,start_min,end_max)
+          VALUES ('person',-937801,'estate',-937831,'ejer','1860-01-01','1850-12-31');
+      END IF;
+    EXCEPTION WHEN check_violation THEN v_ok := true;
+    END;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: D5a — % accepterede et omvendt datointerval', v_t; END IF;
+  END LOOP;
+  -- Tilladt: lige interval, åbne grænser, og en slutgrænse hvis nedre grænse ligger før starten (løse grænser).
+  INSERT INTO assertion(target_type,target_id,date_min,date_max) VALUES ('fact',-937811,'1851-01-01','1851-01-01'),
+    ('fact',-937811,NULL,'1851-01-01'),('fact',-937811,'1851-01-01',NULL);
+  INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,start_min,start_max,end_min,end_max)
+    VALUES ('person',-937801,'estate',-937831,'ejer','1850-01-01','1855-12-31','1840-01-01','1870-12-31');
+  -- Story- og OCR-writerne.
+  v_story := red_opret_story('person',-937801,'Syntetisk historie');
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO source(id,slags,titel,import_key) VALUES (-937841,'test','r37b3 ocr','r37b3:ocr');
+  INSERT INTO person_external_id(person_id,source_id,record_key) VALUES (-937801,-937841,'R37B3-1');
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-937812,'person',-937801,'fødsel');
+  INSERT INTO assertion(id,target_type,target_id,date_raw,date_min,date_max,date_qualifier,uforanderlig)
+    VALUES (-937851,'fact',-937812,'1850','1850-01-01','1850-12-31','between',true);
+  INSERT INTO conclusion(target_type,target_id,valgt_assertion_id,status) VALUES ('fact',-937812,-937851,'afklaret');
+  INSERT INTO citation(assertion_id,source_id,side,citat_tekst) VALUES (-937851,-937841,'1','født 1850');
+  SET LOCAL ROLE authenticated;
+  SELECT input_fingerprint->>'foedsel' INTO v_fp FROM red_person_grid() WHERE person_id=-937801;
+  RESET ROLE;
+  IF v_fp IS NULL THEN RAISE EXCEPTION 'FEJL: D5a — OCR-fixturen gav intet fingerprint'; END IF;
+  SELECT count(*) INTO v_n_cs FROM change_set;
+  FOREACH v_t IN ARRAY ARRAY['red_opret_story','red_rediger_story','red_ret_ocr_felt'] LOOP
+    v_ok := false;
+    BEGIN
+      IF v_t = 'red_opret_story' THEN
+        PERFORM red_opret_story('person',-937801,'x',p_date_min=>'1851-12-31',p_date_max=>'1851-01-01');
+      ELSIF v_t = 'red_rediger_story' THEN
+        PERFORM red_rediger_story(v_story,'x',p_date_min=>'1851-12-31',p_date_max=>'1851-01-01');
+      ELSE
+        SET LOCAL ROLE authenticated;
+        PERFORM red_ret_ocr_felt(-937801,'r37b3:ocr','R37B3-1','foedsel',v_fp,
+          '{"raw":"1851","min":"1851-12-31","max":"1851-01-01","qualifier":"between"}'::jsonb);
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+      IF v_state = '22023' AND v_msg = 'DATO_INTERVAL_OMVENDT' THEN v_ok := true;
+      ELSIF v_state = '23514' THEN v_ok := false;
+      ELSE RAISE; END IF;
+    END;
+    RESET ROLE;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: D5a — % afviste ikke et omvendt interval med DATO_INTERVAL_OMVENDT', v_t; END IF;
+    PERFORM set_config('app.change_set_id','',true);
+  END LOOP;
+  IF (SELECT count(*) FROM change_set) <> v_n_cs THEN
+    RAISE EXCEPTION 'FEJL: D5a — en afvist skrivning åbnede et ændringssæt'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D5a — datointervaller i orden på fire tabeller og i story-/OCR-writerne';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b3-d5a
 
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt

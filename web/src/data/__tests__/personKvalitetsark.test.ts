@@ -366,4 +366,8 @@ describe('oversaetOcrFejl — samtlige OCR_*-koder plus ukendt-fallback', () => 
     // skal stadig oversættes forståeligt, ikke ende som "Ukendt fejl ved OCR-rettelse: Kun redaktion".
     expect(oversaetOcrFejl(new Error('Kun redaktion'))).toMatch(/redaktør-rettigheder/i);
   });
+
+  it('oversætter blok 3\'s dateringsfejl fra red_ret_ocr_felt (ikke OCR_-præfikset) via oversaetFejl (review 37 D5)', () => {
+    expect(oversaetOcrFejl(new Error('DATO_INTERVAL_OMVENDT'))).toMatch(/forkert rækkefølge/);
+  });
 });

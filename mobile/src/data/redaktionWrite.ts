@@ -552,7 +552,7 @@ export function erFortrydKonflikt(rawMessage: string): boolean {
 
 // PostgREST/Postgres-fejl → dansk UI-tekst (spec §9). Fald tilbage til rå besked.
 export function oversaetFejl(message: string): string {
-  // Review 37 D5: red_upsert_fakta/red_opret_fakta/red_tilfoej_oplysning afviser date_min > date_max.
+  // Review 37 D5: fakta-, story- og OCR-RPC'erne afviser date_min > date_max (blok 2 og 3).
   if (message.includes('DATO_INTERVAL_OMVENDT')) return 'Datoerne er i forkert rækkefølge: den tidligste dato ligger efter den seneste.';
   // Review 37 S4 (blok 3): et billede afbilder kun en person, et gods, et våben, en linje, en familie eller et sted.
   if (message.includes('AFBILDET_RETNING_UGYLDIG')) return 'Et billede kan kun afbilde en person, et gods, et våben, en linje, en familie eller et sted.';
