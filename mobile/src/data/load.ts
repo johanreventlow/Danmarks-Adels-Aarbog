@@ -251,7 +251,11 @@ export async function loadFromSupabase(opts?: {
       ),
       getAll<RawEstate>(() => sb.from('estate').select('id,navn,slags,sted_id').order('id')),
       getAll<RawOrg>(() => sb.from('organisation').select('id,navn,slags').order('id')),
-      getAll<RawMedia>(() => sb.from('media').select('*').order('id')),
+      // Faste kolonner, ikke '*': gæster har kun kolonneret på media (review 37 S8, db-rls.sql), så
+      // select('*') giver »permission denied« som anon. Skal svare til RawMedia (data/types.ts).
+      getAll<RawMedia>(() => sb.from('media')
+        .select('id,slags,titel,kunstner,datering,storage_path,mime_type,upload_status,maa_publiceres,rettigheder_status,byte_size,bredde,hoejde,created_at')
+        .order('id')),
       // Billedstørrelser (2026-07-05, Slice B3 'thumb' + Slice C 'medium' — narrativ-indlejrede
       // billeder). ÉN query for begge tiers (ikke to separate) — samme rækker filtreres i JS
       // nedenfor. Tolerant: tabellen kan mangle på en ikke-migreret base (samme mønster som
