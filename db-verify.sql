@@ -8958,6 +8958,79 @@ BEGIN
 END $$;
 -- END-VERIFY r37b1-y9
 
+-- BEGIN-VERIFY r37b2-d1
+-- ===== Review 37 D1 (+ D12): slægtsnavnet kommer også fra linjemedlemskabet =====
+-- (a) En person uden linjekode får visning_efternavn, når et medlemskab indsættes (som promotionen gør); (b) en ændring
+-- af linjens slaegtsnavn regenererer medlemmet; (c) reversal (red_reverse_placement_membership) gør efternavnet NULL
+-- igen. (d) Linjekode + medlemskab med to forskellige navne giver karantæne som før. (e) D12: ændret kode og sletning af
+-- linjen regenererer linjekodens personer. Selvforsynende; rulles tilbage.
+DO $$
+DECLARE v_e text; v_f text;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  INSERT INTO source(id,slags,titel,import_key) VALUES (-937201,'test','r37b2 D1','r37b2-d1');
+  INSERT INTO lineage(id,source_id,kode,navn,slaegtsnavn) VALUES
+    (-937211,-937201,'R37B2D1','r37b2 D1-linje','R37b2slaegt'),
+    (-937212,-937201,'R37B2D1B','r37b2 D1-anden','R37b2anden');
+  INSERT INTO person(id,levende,privat) VALUES (-937221,false,false),(-937222,false,false),(-937223,false,false);
+  PERFORM red_upsert_fakta('person',-937221,'navn','Conrad');
+  PERFORM red_upsert_fakta('person',-937222,'navn','Bodil');
+  PERFORM red_upsert_fakta('person',-937223,'navn','Cecilie');
+  PERFORM set_config('app.change_set_id','',true);
+
+  -- (a) medlemskab uden linjekode.
+  INSERT INTO person_lineage_membership(person_id,lineage_id,role,source_basis)
+    VALUES (-937221,-937211,'member','{"rule_version":"placement-membership-v1","source_id":"-937201"}');
+  SELECT visning_efternavn, visning_fuldt_navn INTO v_e, v_f FROM person WHERE id=-937221;
+  IF v_e IS DISTINCT FROM 'R37b2slaegt' OR v_f IS DISTINCT FROM 'Conrad R37b2slaegt' THEN
+    RAISE EXCEPTION 'FEJL: D1 — medlemskab gav intet slægtsnavn (efternavn=%, fuldt=%)', v_e, v_f; END IF;
+  -- (b) linjens navn ændres.
+  UPDATE lineage SET slaegtsnavn='R37b2nyt' WHERE id=-937211;
+  IF (SELECT visning_efternavn FROM person WHERE id=-937221) IS DISTINCT FROM 'R37b2nyt' THEN
+    RAISE EXCEPTION 'FEJL: D1 — ændret slaegtsnavn regenererede ikke medlemmet'; END IF;
+  -- (c) reversal.
+  PERFORM red_reverse_placement_membership(-937221,-937211,'r37b2 D1 test');
+  SELECT visning_efternavn, visning_fuldt_navn INTO v_e, v_f FROM person WHERE id=-937221;
+  IF v_e IS NOT NULL OR v_f IS DISTINCT FROM 'Conrad' THEN
+    RAISE EXCEPTION 'FEJL: D1 — efternavnet blev stående efter reversal (efternavn=%, fuldt=%)', v_e, v_f; END IF;
+
+  -- (d) linjekode (R37b2nyt) + medlemskab på en linje med et andet navn → karantæne, intet efternavn.
+  INSERT INTO person_external_id(person_id,source_id,linje,nr) VALUES (-937223,-937201,'R37B2D1',2);
+  IF (SELECT visning_efternavn FROM person WHERE id=-937223) IS DISTINCT FROM 'R37b2nyt' THEN
+    RAISE EXCEPTION 'FEJL: D1 — linjekoden gav ikke slægtsnavnet'; END IF;
+  INSERT INTO person_lineage_membership(person_id,lineage_id,role,source_basis)
+    VALUES (-937223,-937212,'member','{"rule_version":"placement-membership-v1","source_id":"-937201"}');
+  IF (SELECT visning_efternavn FROM person WHERE id=-937223) IS NOT NULL
+     OR NOT EXISTS (SELECT 1 FROM slaegtsnavn_karantaene WHERE person_id=-937223 AND n_distinct=2) THEN
+    RAISE EXCEPTION 'FEJL: D1 — to forskellige navne fra linjekode og medlemskab gav ikke karantæne'; END IF;
+  DELETE FROM person_lineage_membership WHERE person_id=-937223;
+  IF (SELECT visning_efternavn FROM person WHERE id=-937223) IS DISTINCT FROM 'R37b2nyt'
+     OR EXISTS (SELECT 1 FROM slaegtsnavn_karantaene WHERE person_id=-937223) THEN
+    RAISE EXCEPTION 'FEJL: D1 — sletning af medlemskabet hævede ikke karantænen'; END IF;
+
+  -- (e) D12: kodeskift og sletning af linjen.
+  INSERT INTO person_external_id(person_id,source_id,linje,nr) VALUES (-937222,-937201,'R37B2D1',1);
+  UPDATE lineage SET kode='R37B2D1X' WHERE id=-937211;
+  IF (SELECT visning_efternavn FROM person WHERE id=-937222) IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: D12 — ændret linjekode regenererede ikke linjekodens personer'; END IF;
+  UPDATE lineage SET kode='R37B2D1' WHERE id=-937211;
+  IF (SELECT visning_efternavn FROM person WHERE id=-937222) IS DISTINCT FROM 'R37b2nyt' THEN
+    RAISE EXCEPTION 'FEJL: D12 — personerne på den nye linjekode blev ikke regenereret'; END IF;
+  DELETE FROM lineage WHERE id=-937211;
+  IF (SELECT visning_efternavn FROM person WHERE id=-937222) IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: D12 — sletning af linjen regenererede ikke linjekodens personer'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D1 — slægtsnavn fra linjemedlemskab, D12 linjetrigger';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b2-d1
+
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt
 -- request.jwt.claim.sub; i Supabase SQL Editor kør som funktionsejer (jf. Task 4-note).

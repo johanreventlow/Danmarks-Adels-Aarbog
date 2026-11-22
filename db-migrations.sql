@@ -46910,3 +46910,141 @@ CREATE INDEX IF NOT EXISTS ix_story_historical_event_id ON public.story(historic
 CREATE INDEX IF NOT EXISTS ix_bookmark_person_id ON public.bookmark(person_id);
 
 -- END review37-b1
+
+-- BEGIN review37-b2
+-- Review 37 blok 2 (#397: D1 + D12-delen om linjetriggeren). Deploy-området for prod er denne blok i ÉN transaktion
+-- (prod-runneren udtrækker navngivne blokke). Kroppene er kopieret fra schema.sql og er de endelige definitioner; de
+-- ældre definitioner længere oppe gælder kun den fulde migrationssti. Idempotent: CREATE OR REPLACE bevarer de
+-- eksisterende funktioners ACL; de nye/ændrede triggerfunktioner får eksplicit REVOKE; triggerne er CREATE OR REPLACE
+-- TRIGGER (SHARE ROW EXCLUSIVE, ingen ACCESS EXCLUSIVE). Ingen data ændres her: backfillen af de berørte personers
+-- visning_* ligger i tests/sql/review37-b2-backfill.sql og køres af prod-runneren i samme transaktion.
+-- NB: de private fortryd-scripts fra §33/§34 (visning-floruit, visning-cache-regler) genskaber en ældre
+-- regen_person_visning uden D1/D3 og er forældede efter denne blok.
+
+-- D1: slægtsnavnet fra både linjekoden og linjemedlemskabet.
+CREATE OR REPLACE FUNCTION public.regen_person_visning(pid BIGINT)
+RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_n_distinct INT; v_slaegtsnavn TEXT;
+BEGIN
+  -- Review 37 D1: linjerne kommer fra både linjekoden (person_external_id.linje) og linjemedlemskabet
+  -- (person_lineage_membership, role 'member'), som evidenskædens personer kun har. UNION: samme linje tæller én gang.
+  SELECT count(DISTINCT sn.v), min(sn.v) INTO v_n_distinct, v_slaegtsnavn
+  FROM (SELECT l.id FROM person_external_id pei
+          JOIN lineage l ON l.source_id = pei.source_id AND l.kode = pei.linje
+         WHERE pei.person_id = pid
+        UNION
+        SELECT plm.lineage_id FROM person_lineage_membership plm
+         WHERE plm.person_id = pid AND plm.role = 'member') x
+  CROSS JOIN LATERAL (SELECT lineage_effective_slaegtsnavn(x.id) AS v) sn;
+
+  WITH navn_agg AS (
+    SELECT
+      max(a.vaerdi_tekst) FILTER (WHERE f.faktatype='navn')  AS navn,
+      max(a.date_raw) FILTER (WHERE f.faktatype='fødsel') AS foedt,
+      max(a.date_raw) FILTER (WHERE f.faktatype='død')    AS doed,
+      (array_agg(a.vaerdi_tekst ORDER BY
+         lower(trim(a.vaerdi_tekst)) IN ('greve','grevinde','komtesse','comtesse','lensgreve','lensgrevinde',
+                                         'baron','baronesse','friherre','friherreinde','rigsgreve','rigsgrevinde') DESC,
+         f.id, c.id)
+        FILTER (WHERE f.faktatype='titel' AND a.vaerdi_tekst IS NOT NULL))[1] AS titel
+    FROM fact f
+    -- Review trin B (1d.1-04): kun afklarede konklusioner (en omstridt/forældet/tilbagetrukket indgår ikke).
+    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
+    JOIN assertion  a ON a.id = c.valgt_assertion_id
+    WHERE f.subjekt_type='person' AND f.subjekt_id = pid
+  ),
+  final AS (
+    SELECT
+      navn_agg.navn, navn_agg.foedt, navn_agg.doed, navn_agg.titel,
+      CASE
+        WHEN navn_agg.navn IS NULL THEN NULL
+        WHEN coalesce(v_n_distinct,0) <> 1 THEN NULL
+        WHEN slaegtsnavn_suffiks_match(navn_agg.navn, v_slaegtsnavn) THEN NULL
+        ELSE v_slaegtsnavn
+      END AS efternavn,
+      CASE
+        WHEN navn_agg.navn IS NULL THEN NULL
+        WHEN coalesce(v_n_distinct,0) <> 1 THEN navn_agg.navn
+        WHEN slaegtsnavn_suffiks_match(navn_agg.navn, v_slaegtsnavn) THEN navn_agg.navn
+        ELSE navn_agg.navn || ' ' || v_slaegtsnavn
+      END AS fuldt
+    FROM navn_agg
+  )
+  UPDATE person p SET
+    visning_navn = final.navn, visning_foedt = final.foedt, visning_doed = final.doed,
+    visning_titel = final.titel, visning_efternavn = final.efternavn, visning_fuldt_navn = final.fuldt
+  FROM final
+  WHERE p.id = pid
+    AND (p.visning_navn, p.visning_foedt, p.visning_doed, p.visning_titel, p.visning_efternavn, p.visning_fuldt_navn)
+        IS DISTINCT FROM (final.navn, final.foedt, final.doed, final.titel, final.efternavn, final.fuldt);
+
+  IF v_n_distinct > 1 THEN
+    INSERT INTO slaegtsnavn_karantaene(person_id, n_distinct) VALUES (pid, v_n_distinct)
+      ON CONFLICT (person_id) DO UPDATE SET n_distinct=excluded.n_distinct, noteret_at=now();
+  ELSE
+    DELETE FROM slaegtsnavn_karantaene WHERE person_id = pid;
+  END IF;
+  -- visning-floruit: læser den netop skrevne visning_foedt/visning_doed.
+  PERFORM regen_person_floruit(pid);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.trg_regen_from_lineage_membership()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+BEGIN
+  IF TG_OP IN ('INSERT','UPDATE') THEN PERFORM regen_person_visning(NEW.person_id); END IF;
+  IF TG_OP = 'DELETE' OR (TG_OP = 'UPDATE' AND OLD.person_id IS DISTINCT FROM NEW.person_id) THEN
+    PERFORM regen_person_visning(OLD.person_id);
+  END IF;
+  RETURN NULL;
+END $$;
+
+CREATE OR REPLACE TRIGGER trg_lineage_membership_regen
+  AFTER INSERT OR DELETE OR UPDATE OF person_id, lineage_id, role ON public.person_lineage_membership
+  FOR EACH ROW EXECUTE FUNCTION public.trg_regen_from_lineage_membership();
+
+-- D1 + D12: linjetriggeren finder også medlemskabets personer og dækker sletning og ændret kode/kilde.
+CREATE OR REPLACE FUNCTION public.trg_regen_from_lineage()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_lid BIGINT; v_pid BIGINT;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    FOR v_pid IN SELECT DISTINCT pei.person_id FROM person_external_id pei
+                  WHERE pei.source_id = OLD.source_id AND pei.linje = OLD.kode ORDER BY 1 LOOP
+      PERFORM regen_person_visning(v_pid);
+    END LOOP;
+    RETURN NULL;
+  END IF;
+  IF TG_OP = 'INSERT' OR (NEW.slaegtsnavn IS DISTINCT FROM OLD.slaegtsnavn) OR (NEW.parent_lineage_id IS DISTINCT FROM OLD.parent_lineage_id) THEN
+    FOR v_lid IN SELECT * FROM lineage_descendants(NEW.id) LOOP
+      FOR v_pid IN
+        SELECT pei.person_id FROM person_external_id pei
+        JOIN lineage l ON l.source_id=pei.source_id AND l.kode=pei.linje
+        WHERE l.id = v_lid
+        UNION
+        SELECT plm.person_id FROM person_lineage_membership plm
+        WHERE plm.lineage_id = v_lid AND plm.role = 'member'
+        ORDER BY 1
+      LOOP
+        PERFORM regen_person_visning(v_pid);
+      END LOOP;
+    END LOOP;
+  END IF;
+  IF TG_OP = 'UPDATE' AND (NEW.source_id, NEW.kode) IS DISTINCT FROM (OLD.source_id, OLD.kode) THEN
+    FOR v_pid IN SELECT DISTINCT pei.person_id FROM person_external_id pei
+                  WHERE (pei.source_id = OLD.source_id AND pei.linje = OLD.kode)
+                     OR (pei.source_id = NEW.source_id AND pei.linje = NEW.kode)
+                  ORDER BY 1 LOOP
+      PERFORM regen_person_visning(v_pid);
+    END LOOP;
+  END IF;
+  RETURN NULL;
+END $$;
+
+CREATE OR REPLACE TRIGGER trg_lineage_regen
+  AFTER INSERT OR DELETE OR UPDATE OF slaegtsnavn, parent_lineage_id, kode, source_id ON public.lineage
+  FOR EACH ROW EXECUTE FUNCTION public.trg_regen_from_lineage();
+
+REVOKE EXECUTE ON FUNCTION public.trg_regen_from_lineage_membership(), public.trg_regen_from_lineage()
+  FROM PUBLIC, anon, authenticated, service_role;
+
+-- END review37-b2

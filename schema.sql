@@ -6549,11 +6549,16 @@ CREATE OR REPLACE FUNCTION regen_person_visning(pid BIGINT)
 RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
 DECLARE v_n_distinct INT; v_slaegtsnavn TEXT;
 BEGIN
+  -- Review 37 D1: linjerne kommer fra både linjekoden (person_external_id.linje) og linjemedlemskabet
+  -- (person_lineage_membership, role 'member'), som evidenskædens personer kun har. UNION: samme linje tæller én gang.
   SELECT count(DISTINCT sn.v), min(sn.v) INTO v_n_distinct, v_slaegtsnavn
-  FROM person_external_id pei
-  JOIN lineage l ON l.source_id = pei.source_id AND l.kode = pei.linje
-  CROSS JOIN LATERAL (SELECT lineage_effective_slaegtsnavn(l.id) AS v) sn
-  WHERE pei.person_id = pid;
+  FROM (SELECT l.id FROM person_external_id pei
+          JOIN lineage l ON l.source_id = pei.source_id AND l.kode = pei.linje
+         WHERE pei.person_id = pid
+        UNION
+        SELECT plm.lineage_id FROM person_lineage_membership plm
+         WHERE plm.person_id = pid AND plm.role = 'member') x
+  CROSS JOIN LATERAL (SELECT lineage_effective_slaegtsnavn(x.id) AS v) sn;
 
   WITH navn_agg AS (
     SELECT
@@ -6760,33 +6765,74 @@ CREATE TRIGGER trg_external_id_regen
   AFTER INSERT OR DELETE OR UPDATE OF person_id, source_id, linje, nr ON person_external_id
   FOR EACH ROW EXECUTE FUNCTION trg_regen_from_external_id();
 
+-- Review 37 D1: linjemedlemskabet er også input til slægtsnavnet (promotion indsætter, reversal og personsletning
+-- sletter, fortrydelse genskaber). CREATE OR REPLACE TRIGGER (ikke DROP+CREATE): kun SHARE ROW EXCLUSIVE på tabellen.
+CREATE OR REPLACE FUNCTION trg_regen_from_lineage_membership()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+BEGIN
+  IF TG_OP IN ('INSERT','UPDATE') THEN PERFORM regen_person_visning(NEW.person_id); END IF;
+  IF TG_OP = 'DELETE' OR (TG_OP = 'UPDATE' AND OLD.person_id IS DISTINCT FROM NEW.person_id) THEN
+    PERFORM regen_person_visning(OLD.person_id);
+  END IF;
+  RETURN NULL;
+END $$;
+
+CREATE OR REPLACE TRIGGER trg_lineage_membership_regen
+  AFTER INSERT OR DELETE OR UPDATE OF person_id, lineage_id, role ON person_lineage_membership
+  FOR EACH ROW EXECUTE FUNCTION trg_regen_from_lineage_membership();
+
 -- lineage.slaegtsnavn/parent_lineage_id-ændring (ELLER en frisk INSERT — review 19 H1: en fri
 -- --force-reset-genindlæsning opretter lineage-rækkerne FØRSTE gang via INSERT, og uden INSERT i
 -- trigger-betingelsen forbliver alle medlemmers cache stille NULL indtil en manuel sweep) regenererer
 -- HELE det berørte undertræs medlemmer (lineage_descendants — samme cyklus-sikre walker som
 -- skrive-tids cyklus-forebyggelsen). OLD findes ikke ved INSERT — TG_OP tjekkes derfor FØRST.
+-- Review 37 D1: undertræets personer findes via både linjekoden og linjemedlemskabet. D12: en sletning eller en ændret
+-- kode/kilde ændrer, hvilke personer linjekoden peger på (gamle og nye); medlemskaber peger på id og har FK, så en linje
+-- med medlemmer kan ikke slettes. CREATE OR REPLACE TRIGGER: ingen ACCESS EXCLUSIVE.
 CREATE OR REPLACE FUNCTION trg_regen_from_lineage()
 RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
 DECLARE v_lid BIGINT; v_pid BIGINT;
 BEGIN
+  IF TG_OP = 'DELETE' THEN
+    FOR v_pid IN SELECT DISTINCT pei.person_id FROM person_external_id pei
+                  WHERE pei.source_id = OLD.source_id AND pei.linje = OLD.kode ORDER BY 1 LOOP
+      PERFORM regen_person_visning(v_pid);
+    END LOOP;
+    RETURN NULL;
+  END IF;
   IF TG_OP = 'INSERT' OR (NEW.slaegtsnavn IS DISTINCT FROM OLD.slaegtsnavn) OR (NEW.parent_lineage_id IS DISTINCT FROM OLD.parent_lineage_id) THEN
     FOR v_lid IN SELECT * FROM lineage_descendants(NEW.id) LOOP
       FOR v_pid IN
-        SELECT DISTINCT pei.person_id FROM person_external_id pei
+        SELECT pei.person_id FROM person_external_id pei
         JOIN lineage l ON l.source_id=pei.source_id AND l.kode=pei.linje
         WHERE l.id = v_lid
+        UNION
+        SELECT plm.person_id FROM person_lineage_membership plm
+        WHERE plm.lineage_id = v_lid AND plm.role = 'member'
+        ORDER BY 1
       LOOP
         PERFORM regen_person_visning(v_pid);
       END LOOP;
     END LOOP;
   END IF;
+  IF TG_OP = 'UPDATE' AND (NEW.source_id, NEW.kode) IS DISTINCT FROM (OLD.source_id, OLD.kode) THEN
+    FOR v_pid IN SELECT DISTINCT pei.person_id FROM person_external_id pei
+                  WHERE (pei.source_id = OLD.source_id AND pei.linje = OLD.kode)
+                     OR (pei.source_id = NEW.source_id AND pei.linje = NEW.kode)
+                  ORDER BY 1 LOOP
+      PERFORM regen_person_visning(v_pid);
+    END LOOP;
+  END IF;
   RETURN NULL;
 END $$;
 
-DROP TRIGGER IF EXISTS trg_lineage_regen ON lineage;
-CREATE TRIGGER trg_lineage_regen
-  AFTER INSERT OR UPDATE OF slaegtsnavn, parent_lineage_id ON lineage
+CREATE OR REPLACE TRIGGER trg_lineage_regen
+  AFTER INSERT OR DELETE OR UPDATE OF slaegtsnavn, parent_lineage_id, kode, source_id ON lineage
   FOR EACH ROW EXECUTE FUNCTION trg_regen_from_lineage();
+
+-- Interne triggerfunktioner, ingen RPC'er: eksplicit ACL (se ovenfor), så frisk og opgraderet base er ens.
+REVOKE EXECUTE ON FUNCTION trg_regen_from_lineage_membership(), trg_regen_from_lineage()
+  FROM PUBLIC, anon, authenticated, service_role;
 
 -- ---------- REDAKTIONS-RPC'ER (Task 3) ----------
 
