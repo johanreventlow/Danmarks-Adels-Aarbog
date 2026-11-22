@@ -83,7 +83,7 @@ export function SletBekraeftSheet({ personId, onClose, onDeleted }: {
           </View>
         ) : null}
         {fortrydelig ? (
-          <Body size={13} style={{ marginBottom: 8 }}>Personen og dens oplysninger fjernes. Historikken gemmes, så sletningen kan fortrydes under historikken. Skal oplysningerne også ud af historikken (GDPR), så brug »Slet person…« i web-redaktionen.</Body>
+          <Body size={13} style={{ marginBottom: 8 }}>Personen og dens oplysninger fjernes. Historikken gemmes (ændringen »Slettede person {personId}«), så sletningen kan fortrydes. Skal oplysningerne også ud af historikken (GDPR), så brug »Slet person…« i web-redaktionen.</Body>
         ) : null}
         {preview?.kanFortrydes && preview.sletningBlokeret ? (
           <Mono size={11} color={Colors.danger} style={{ marginBottom: 8 }}>

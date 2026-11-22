@@ -337,6 +337,8 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
 
   // Review 37 P11: én »Slet person…«-dialog; den vælger selv mellem den fortrydelige og den fulde sletning.
   const [sletPerson, setSletPerson] = useState<{ id: string; navn: string } | null>(null);
+  // Efter en fortrydelig sletning hentes ændringshistorikken igen, så »Slettede person …« straks kan fortrydes.
+  const [historikRevision, setHistorikRevision] = useState(0);
   const [purgeRevision, setPurgeRevision] = useState(0);
   const [writeView, setWriteView] = useState<{ title: string; lines: string[]; error: string; done: boolean; dryRun: boolean; direkte: boolean } | null>(null);
 
@@ -981,6 +983,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
         personId={sletPerson.id} navn={sletPerson.navn} dryRun={dryRun} role={role}
         sletFortrydeligt={async () => {
           await run({ art: 'sletPerson', subjektType: 'person', subjektId: sletPerson.id }, 'Sletning', { kastFejl: true });
+          setHistorikRevision((n) => n + 1);
         }}
         executeHelt={(opts) => executeSletHelt({ ...opts, role }, { ...purgeStorage, submit: submitChange })}
         onClose={() => setSletPerson(null)} onHeltSlettet={() => {
@@ -1454,7 +1457,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
         {role === 'redaktion' ? (
           <>
             <div style={sectionHeader(24)}>Ændringshistorik</div>
-            <HistorikPanel key={String(p.id)} personId={String(p.id)} onFortryd={fortrydChangeSet} />
+            <HistorikPanel key={`${p.id}:${historikRevision}`} personId={String(p.id)} onFortryd={fortrydChangeSet} />
           </>
         ) : null}
       </div>

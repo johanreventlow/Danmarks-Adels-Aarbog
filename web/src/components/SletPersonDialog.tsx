@@ -103,7 +103,7 @@ export function SletPersonDialog({ personId, navn, dryRun, role, loadPreview = f
           <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5 }}>{`Det her forsvinder: ${pv.antalRelationer} relation(er), ${pv.antalFacts} fakta, ${pv.antalNarrativer} biografi(er) og ${pv.antalMedlemskaber} slægts-/linjemedlemskab(er).`}</p>
           {pv.antalBindinger > 0 && <p style={{ margin: '6px 0 0', fontSize: 12.5 }}>{`Heraf er ${pv.antalBindinger} biografi(er) bundet til en kildepost. Bindingen fjernes med biografien — selve registreringen af, at teksten står på siden, bevares.`}</p>}
         </div>
-        <p style={{ fontSize: 14, lineHeight: 1.5 }}><b>Historikken gemmes</b>, så sletningen kan fortrydes bagefter: den står som »Slettede person {personId}« i personens ændringshistorik.</p>
+        <p style={{ fontSize: 14, lineHeight: 1.5 }}><b>Historikken gemmes</b>, så sletningen kan fortrydes bagefter: den står som »Slettede person {personId}« under »Ændringshistorik« på personsiden, så længe du bliver på siden.</p>
         {pv.sletningBlokeret && <p role="alert">Personen har narrativ-publiceringshistorik og kan ikke slettes, så det kan fortrydes. Brug den fulde sletning nedenfor.</p>}
       </>}
       {(!redaktion || pv) && <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '12px 0', fontSize: 13 }}>
