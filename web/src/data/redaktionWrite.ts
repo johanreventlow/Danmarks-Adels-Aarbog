@@ -841,6 +841,8 @@ export function oversaetFejl(message: string): string {
   }
   const paastand = PAASTAND_FEJL.find(([kode]) => message.includes(kode));
   if (paastand) return paastand[1];
+  // Review 37 D5: red_upsert_fakta/red_opret_fakta/red_tilfoej_oplysning afviser date_min > date_max.
+  if (message.includes('DATO_INTERVAL_OMVENDT')) return 'Datoerne er i forkert rækkefølge: den tidligste dato ligger efter den seneste.';
   if (/kun redaktion/i.test(message)) return 'Kræver redaktør-rettigheder.';
   if (/medie med samme indhold findes allerede/i.test(message)) return "Billedet findes allerede i biblioteket — brug 'Tilknyt eksisterende' i stedet.";
   if (/allerede tilknyttet dette subjekt/i.test(message)) return 'Mediet er allerede tilknyttet dette subjekt.';
