@@ -8113,6 +8113,7 @@ END $$;
 -- ===== Versionering Task 7b: composite-PK restore-hjælpere (B11/M2) =====
 -- T7 dækkede kun enkelt-id (note). Her: family_member (3-kol PK) gennem alle tre
 -- helper-stier — fanger ON CONFLICT-constraint-match + multi-kolonne WHERE-cast.
+-- Rollen er en gyldig barn-subtype (family_member_rolle_chk, review 37 blok 3), som ikke rammer fødselsfamilie-reglen.
 BEGIN;
 DO $$
 DECLARE
@@ -8120,17 +8121,17 @@ DECLARE
   v_person CONSTANT bigint := -987656222;
   cur jsonb;
   pk jsonb := jsonb_build_object(
-    'family_id',-987656221,'person_id',-987656222,'rolle','__verify_fm__');
+    'family_id',-987656221,'person_id',-987656222,'rolle','plejebarn');
 BEGIN
   INSERT INTO family(id,type) VALUES (v_family,'ukendt');
   INSERT INTO person(id,levende,privat) VALUES (v_person,false,false);
   PERFORM _version_upsert_row('family_member',
-    jsonb_build_object('family_id',v_family,'person_id',v_person,'rolle','__verify_fm__','ordinal',9,'konfidens','sikker'));
+    jsonb_build_object('family_id',v_family,'person_id',v_person,'rolle','plejebarn','ordinal',9,'konfidens','sikker'));
   cur := _version_current_row('family_member', pk);
   IF cur->>'konfidens' <> 'sikker' THEN RAISE EXCEPTION 'FEJL: composite upsert-insert virkede ikke (%)', cur; END IF;
   -- update via ON CONFLICT (samme composite-nøgle)
   PERFORM _version_upsert_row('family_member',
-    jsonb_build_object('family_id',v_family,'person_id',v_person,'rolle','__verify_fm__','ordinal',9,'konfidens','formodet'));
+    jsonb_build_object('family_id',v_family,'person_id',v_person,'rolle','plejebarn','ordinal',9,'konfidens','formodet'));
   cur := _version_current_row('family_member', pk);
   IF cur->>'konfidens' <> 'formodet' THEN RAISE EXCEPTION 'FEJL: composite upsert-update virkede ikke (%)', cur; END IF;
   PERFORM _version_delete_row('family_member', pk);
@@ -9351,6 +9352,101 @@ EXCEPTION WHEN OTHERS THEN
   ELSE RAISE; END IF;
 END $$;
 -- END-VERIFY r37b3-d5a
+
+-- BEGIN-VERIFY r37b3-d5b
+-- ===== Review 37 D5b: lukkede lister som tabel-CHECKs =====
+-- family_member.rolle, family_member.konfidens, relation.konfidens, conclusion.status og date_qualifier på assertion,
+-- haendelse og story. NULL er tilladt (ikke for rolle, som er NOT NULL). Hver tilladt værdi accepteres; en ukendt
+-- afvises. Redigerings-RPC'erne afviser en ukendt kvalifikator med DATO_KVALIFIKATOR_UGYLDIG før ændringssættet.
+DO $$
+DECLARE v_t text; v_v text; v_ok boolean; v_state text; v_msg text; v_n_cs bigint; i int := 0;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  INSERT INTO person(id,levende,privat) SELECT g,false,false FROM generate_series(-937920,-937901) g;
+  INSERT INTO family(id,type) SELECT g,'vielse' FROM generate_series(-937936,-937931) g;
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) SELECT g,'person',-937901,'embede' FROM generate_series(-937950,-937941) g;
+  INSERT INTO narrative(id,subjekt_type,subjekt_id,tekst) VALUES (-937961,'person',-937901,'Syntetisk');
+  -- Ukendte værdier afvises af tabellen (første kontrol er rød på en base uden blok 3).
+  FOR v_t, v_v IN SELECT * FROM (VALUES ('family_member.rolle','svigerbarn'),('family_member.konfidens','usikker'),
+      ('relation.konfidens','Sikker'),('conclusion.status','aaben'),('assertion.date_qualifier','ca'),
+      ('haendelse.date_qualifier','open_start'),('story.date_qualifier','omkring')) x LOOP
+    v_ok := false;
+    BEGIN
+      IF v_t = 'family_member.rolle' THEN
+        INSERT INTO family_member(family_id,person_id,rolle) VALUES (-937931,-937901,v_v);
+      ELSIF v_t = 'family_member.konfidens' THEN
+        INSERT INTO family_member(family_id,person_id,rolle,konfidens) VALUES (-937931,-937901,'partner',v_v);
+      ELSIF v_t = 'relation.konfidens' THEN
+        INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,konfidens)
+          VALUES ('person',-937901,'estate',-937971,'ejer',v_v);
+      ELSIF v_t = 'conclusion.status' THEN
+        INSERT INTO conclusion(target_type,target_id,status) VALUES ('fact',-937941,v_v);
+      ELSIF v_t = 'assertion.date_qualifier' THEN
+        INSERT INTO assertion(target_type,target_id,date_qualifier) VALUES ('fact',-937941,v_v);
+      ELSIF v_t = 'haendelse.date_qualifier' THEN
+        INSERT INTO haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul,date_qualifier)
+          VALUES ('person',-937901,-937961,'r37b3','x',v_v);
+      ELSE
+        INSERT INTO story(subjekt_type,subjekt_id,tekst,date_qualifier) VALUES ('person',-937901,'x',v_v);
+      END IF;
+    EXCEPTION WHEN check_violation THEN v_ok := true;
+    END;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: D5b — % accepterede den ukendte værdi «%»', v_t, v_v; END IF;
+  END LOOP;
+  -- Hver tilladt værdi (og NULL) accepteres.
+  FOREACH v_v IN ARRAY ARRAY['partner','barn','adopteret_barn','plejebarn','stedbarn'] LOOP
+    i := i + 1;
+    INSERT INTO family_member(family_id,person_id,rolle) VALUES (-937931,-937901-i,v_v);
+  END LOOP;
+  FOREACH v_v IN ARRAY ARRAY['sikker','sandsynlig','formodet','omstridt',NULL] LOOP
+    i := i + 1;
+    INSERT INTO family_member(family_id,person_id,rolle,konfidens) VALUES (-937926-i,-937901-i,'partner',v_v);
+    INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,konfidens)
+      VALUES ('person',-937901,'estate',-937971,'ejer',v_v);
+  END LOOP;
+  i := 0;
+  FOREACH v_v IN ARRAY ARRAY['afklaret','omstridt','forældet','tilbagetrukket',NULL] LOOP
+    i := i + 1;
+    INSERT INTO conclusion(target_type,target_id,status) VALUES ('fact',-937940-i,v_v);
+  END LOOP;
+  FOREACH v_v IN ARRAY ARRAY['exact','before','after','between','about','floruit','until_event','open_end','ongoing',NULL] LOOP
+    INSERT INTO assertion(target_type,target_id,date_qualifier) VALUES ('fact',-937941,v_v);
+    INSERT INTO haendelse(subjekt_type,subjekt_id,narrative_id,noegle,klausul,date_qualifier)
+      VALUES ('person',-937901,-937961,'r37b3-'||coalesce(v_v,'null'),'x',v_v);
+    INSERT INTO story(subjekt_type,subjekt_id,tekst,date_qualifier) VALUES ('person',-937901,'x',v_v);
+  END LOOP;
+  -- Redigerings-RPC'erne: læsbar fejlkode før CHECK'en og før ændringssættet.
+  SELECT count(*) INTO v_n_cs FROM change_set;
+  FOREACH v_t IN ARRAY ARRAY['red_upsert_fakta','red_opret_fakta','red_tilfoej_oplysning','red_opret_story'] LOOP
+    v_ok := false;
+    BEGIN
+      IF v_t = 'red_upsert_fakta' THEN PERFORM red_upsert_fakta('person',-937901,'død','1900',NULL,NULL,'ca.','1900');
+      ELSIF v_t = 'red_opret_fakta' THEN PERFORM red_opret_fakta('person',-937901,'død','1900',NULL,NULL,'ca.','1900');
+      ELSIF v_t = 'red_tilfoej_oplysning' THEN PERFORM red_tilfoej_oplysning(-937941,'1900',NULL,NULL,'ca.','1900');
+      ELSE PERFORM red_opret_story('person',-937901,'x',p_date_qualifier=>'ca.');
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+      IF v_state = '22023' AND v_msg = 'DATO_KVALIFIKATOR_UGYLDIG' THEN v_ok := true;
+      ELSIF v_state = '23514' THEN v_ok := false;
+      ELSE RAISE; END IF;
+    END;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: D5b — % afviste ikke en ukendt kvalifikator med DATO_KVALIFIKATOR_UGYLDIG', v_t; END IF;
+    PERFORM set_config('app.change_set_id','',true);
+  END LOOP;
+  IF (SELECT count(*) FROM change_set) <> v_n_cs THEN
+    RAISE EXCEPTION 'FEJL: D5b — en afvist skrivning åbnede et ændringssæt'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D5b — lukkede lister på syv kolonner, kvalifikatoren afvises i redigerings-RPC''erne';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b3-d5b
 
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt

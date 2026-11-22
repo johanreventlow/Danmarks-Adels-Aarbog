@@ -554,6 +554,8 @@ export function erFortrydKonflikt(rawMessage: string): boolean {
 export function oversaetFejl(message: string): string {
   // Review 37 D5: fakta-, story- og OCR-RPC'erne afviser date_min > date_max (blok 2 og 3).
   if (message.includes('DATO_INTERVAL_OMVENDT')) return 'Datoerne er i forkert rækkefølge: den tidligste dato ligger efter den seneste.';
+  // Review 37 D5b (blok 3): kun de kendte dato-kvalifikatorer (exact, before, after, between, about, floruit, …).
+  if (message.includes('DATO_KVALIFIKATOR_UGYLDIG')) return 'Ukendt dato-kvalifikator — brug fx about, before, after, between eller floruit.';
   // Review 37 S4 (blok 3): et billede afbilder kun en person, et gods, et våben, en linje, en familie eller et sted.
   if (message.includes('AFBILDET_RETNING_UGYLDIG')) return 'Et billede kan kun afbilde en person, et gods, et våben, en linje, en familie eller et sted.';
   if (/kun redaktion/i.test(message)) return 'Kræver redaktør-rettigheder.';

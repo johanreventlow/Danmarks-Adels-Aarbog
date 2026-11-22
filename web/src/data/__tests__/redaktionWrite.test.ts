@@ -308,7 +308,8 @@ describe('buildRpcCall — filside fase 1', () => {
     expect(oversaetFejl('DATO_INTERVAL_OMVENDT')).toBe('Datoerne er i forkert rækkefølge: den tidligste dato ligger efter den seneste.');
   });
 
-  it('ugyldig billedretning oversættes (review 37 blok 3)', () => {
+  it('ukendt kvalifikator og ugyldig billedretning oversættes (review 37 blok 3)', () => {
+    expect(oversaetFejl('DATO_KVALIFIKATOR_UGYLDIG')).toMatch(/^Ukendt dato-kvalifikator/);
     expect(oversaetFejl('AFBILDET_RETNING_UGYLDIG: et billede kan kun afbilde en person, et gods, et våben, en linje, en familie eller et sted (fik media → fact, rolle «afbildet»)'))
       .toBe('Et billede kan kun afbilde en person, et gods, et våben, en linje, en familie eller et sted.');
     // Den gamle person-på-objektsiden-fejl beholder sin tekst.
