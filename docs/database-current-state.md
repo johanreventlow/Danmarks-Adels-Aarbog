@@ -529,6 +529,46 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 43. Review 37 blok 3: billedretning, familie-gate, dato- og liste-CHECKs — LIVE i prod (2026-11-22)
+
+**Grundlag:** decisions 2026-11-22 (BESLUTTET: review 37's databasefund, S4 og D5) + blok 3's note, PR #438 (CI grøn på
+`261a9236`). Privat runner `~/.private/review37-b3/prod.zsh`, fastlåst på `261a9236` (blok-sha `606e7da7…`), kørt i
+projektejerens shell **før** merge.
+
+- **DDL (én transaktion):** før-kontrol (`tests/sql/review37-b3-foer.sql`, 0 overtrædelser) → DO-blokken
+  `$review37_b3_media_gate$` (db-rls.sql; ikke hele filen) → blokken `-- BEGIN review37-b3` … `-- END review37-b3`
+  (db-migrations.sql), CHECK'erne sidst med `lock_timeout` 5 s. Præcis 25 katalogobjekter:
+  - 12 validerede CHECKs: `relation_afbildet_kanonisk`, `relation_periode_orden`, `relation_konfidens_chk`,
+    `assertion_/haendelse_/story_dato_orden`, `assertion_/haendelse_/story_date_qualifier_chk`,
+    `family_member_rolle_chk`, `family_member_konfidens_chk`, `conclusion_status_chk`.
+  - 2 nye funktioner (kun ejer-EXECUTE): `private.kraev_gyldig_datering(date,date,text)`,
+    `private.person_purge_familie_skjult(bigint)`.
+  - 11 ændrede kroppe (ACL uændret): `media_afbilder_skjult`, `media_afbilder_privat`,
+    `private.person_purge_plan_fra_historik`, `red_opret_fakta`, `red_upsert_fakta`, `red_tilfoej_oplysning`,
+    `red_opret_story`, `red_rediger_story`, `red_ret_ocr_felt`, `red_relation`, `red_tilfoej_relation`.
+
+  Facit (frisk base af samme commit) ens; data uændret (md5 af 8 tabeller før/efter); 5,4 s (prøve 6,4 s; stand-in 0,6 s
+  — forskellen er netværk pr. sætning). Seks læsertabeller er låst (ACCESS EXCLUSIVE) fra første ALTER til COMMIT.
+- **Effekt:** S4 — `afbildet` kun `person→media` og `media→{estate, coat_of_arms, lineage, family, place}`; case-varianter
+  afvises; `red_relation`/`red_tilfoej_relation` giver `AFBILDET_RETNING_UGYLDIG`. Billed-gaten skjuler også billeder af en
+  familie, der ikke er offentlig (anon) / har et privat medlem (medlem). Personsletning låser et bevaret billede, der
+  mister en slettet familie, når familien var skjult før sletningen. D5a — dato-orden på assertion/haendelse/story og
+  relationens perioder (start- og slut-par i orden + `start_min ≤ end_max`); writerne giver `DATO_INTERVAL_OMVENDT`
+  (nu også story og OCR). D5b — lukkede lister for `date_qualifier`, `family_member.rolle`, konfidens og
+  `conclusion.status`; `DATO_KVALIFIKATOR_UGYLDIG` med dansk tekst i web og mobil.
+- **Målt før (læse-kun):** `afbildet` kun `person→media` (11) og `media→coat_of_arms` (2); 0 omvendte intervaller; alle
+  listeværdier inden for listerne. Efter: 13 af 13 medier synlige for anon (uændret — ingen familiebilleder).
+- **Øvelse:** stand-in `kar20261122_…h130` (prod 21/11 + blok 1+2, midlertidigt omdøbt): prøve → commit → fortryd-prøve
+  → fortryd (`P_FORTRYD_TROFAST`) → commit. Stand-in'en har nu blok 1-3. Prod: prøve, derefter commit.
+- **Efterkontrol (læse-kun, MCP):** 12 CHECKs validerede; nye funktioner kun ejer-EXECUTE; ingen `anon`-EXECUTE på de
+  berørte `red_*`. `get_advisors` (security): identisk med før blokken (samme fund og antal pr. type).
+- **Fortryd:** `/bin/zsh -f ~/.private/review37-b3/prod.zsh fortryd [--jeg-mener-det]` (dropper de 12 CHECKs og 2 nye
+  funktioner; prods egne 11 definitioner fra før apply: `~/.private/review37-b3/fortryd-definitioner.prod.sql`).
+- **Kendte rester (#397):** simpel `red_slet_person` låser hverken person- eller familiebilleder; fortryd af et gammelt
+  ændringssæt, hvis snapshot bryder en ny CHECK, fejler med rå 23514 (ikke målt); S3 — billede af en medlemsløs familie
+  er synligt (`family_offentlig` sand for tom familie; afventer afgørelse); medie-fletning kender ikke familie-/
+  stedbilleder; story-editorens kvalifikator er fritekst.
+
 ## 42. Review 37 blok 2: slægtsnavn fra linjemedlemskab, »Ret« rammer det viste, datotjek — LIVE i prod (2026-11-22)
 
 **Grundlag:** decisions 2026-11-22 (BESLUTTET: review 37's databasefund, pakke B), PR #436 (CI grøn på `d6ce73f6`).

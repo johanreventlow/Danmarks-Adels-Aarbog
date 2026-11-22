@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-22 — Review 37 blok 3 i prod: billedretning, familie-gate, dato- og liste-CHECKs
+
+Databasen håndhæver nu selv reglerne, som før kun redigeringsfunktionerne tjekkede: et billede kan kun kobles i de seks
+tilladte retninger, datointervaller skal være i orden, og datokvalifikator, familierolle, konfidens og konklusionsstatus
+skal være fra de faste lister. Billeder af en familie med et nulevende eller privat medlem skjules, også når en person
+slettes. Redaktionen får danske fejlbeskeder for de nye afvisninger. Ingen data ændret; 0 billeder skjult i dag. PR #438;
+DDL i prod 22/11 (`database-current-state.md` §43).
+
 ## 2026-11-22 — Review 37 blok 2 i prod: slægtsnavn fra linjemedlemskab, »Ret« rammer det viste, datotjek
 
 495 personer viser nu deres slægtsnavn, fordi navnet også hentes fra linjemedlemskab og ikke kun fra linjekoden; det
