@@ -897,8 +897,7 @@ end $$;
 
 -- Levende feed fase 3: stories fail-closer som hændelser/personer. Kladder, private
 -- stories og stories om ikke-offentlige subjekter når aldrig publikum.
--- Gæsteadgang (anon) er kolonnevis: se review37-s8-blokken efter feed_pin nedenfor.
-grant select on table public.story to authenticated;
+-- Adgang for anon og authenticated er kolonnevis: se review37-s8-blokken efter feed_pin nedenfor.
 revoke insert, update, delete, references, trigger, truncate on table public.story from anon, authenticated;
 alter table public.story enable row level security;
 drop policy if exists anon_read on public.story;
@@ -930,8 +929,7 @@ create policy redaktion_read on public.story_kilde for select to authenticated
   using ((select public.current_rolle()) = 'redaktion');
 
 -- feed_pin er ren kurering uden PII og skal kunne indlæses af hele klientmotoren.
--- Gæsteadgang (anon) er kolonnevis: se review37-s8-blokken lige nedenfor.
-grant select on table public.feed_pin to authenticated;
+-- Adgang for anon og authenticated er kolonnevis: se review37-s8-blokken lige nedenfor.
 revoke insert, update, delete, references, trigger, truncate on table public.feed_pin from anon, authenticated;
 alter table public.feed_pin enable row level security;
 drop policy if exists anon_read on public.feed_pin;
@@ -949,8 +947,11 @@ create policy auth_read on public.feed_pin for select to authenticated using (tr
 --   ud fra stien; det er sikkert, fordi bucket'en 'media' er privat (S5-assert i db-verify), og
 --   storage-politikken kun udsteder links til billeder, gæsten må se (media_object_synlig_anon). Stien kan
 --   bære et beskrivende filnavn (heraldik-filer); personbilleder fra redaktionen ligger under hash-navne.
--- Medlemmer og redaktion (authenticated) beholder tabelretten: kolonneret kan ikke skelne
---   redaktion fra medlem, og redaktionens læsere henter original_filnavn/sha256.
+-- Medlemmer og redaktion (authenticated) deler rolle, så kolonneret kan ikke skelne dem. På story og
+--   feed_pin får authenticated samme kolonneliste som anon (redaktionen læser ingen af de interne kolonner;
+--   projektejeren 2026-11-22). På media beholder authenticated tabelretten, fordi redaktionens medieliste og
+--   dublettjek læser original_filnavn/sha256 direkte — KENDT REST (#397): skal flyttes til en rolle-gated RPC,
+--   før medlemmer lukkes ind (prod har 0 medlemmer 2026-11-22).
 -- FAIL-CLOSED: en ny kolonne er usynlig for gæster, til den føjes til listen her. En læser, der
 --   vælger den (eller select('*')), får »permission denied« som anon.
 -- Alle skrivninger på de tre tabeller går gennem SECURITY DEFINER-RPC'er, så anon og authenticated
@@ -961,14 +962,14 @@ DO $review37_s8_anon_kolonner$
 BEGIN
   REVOKE ALL ON TABLE public.media, public.story, public.feed_pin FROM anon;
   REVOKE ALL ON TABLE public.media, public.story, public.feed_pin FROM authenticated;
-  GRANT SELECT ON TABLE public.media, public.story, public.feed_pin TO authenticated;
+  GRANT SELECT ON TABLE public.media TO authenticated;
   GRANT SELECT (id, slags, titel, kunstner, datering, bucket, storage_path, mime_type, byte_size,
                 bredde, hoejde, upload_status, maa_publiceres, rettigheder_status, created_at)
     ON TABLE public.media TO anon;
   GRANT SELECT (id, subjekt_type, subjekt_id, haendelse_id, fact_id, relation_id, historical_event_id,
                 titel, tekst, date_min, date_max, date_qualifier, date_raw, status, publiceret_dato, privat)
-    ON TABLE public.story TO anon;
-  GRANT SELECT (id, kort_noegle, handling, oprettet_naar) ON TABLE public.feed_pin TO anon;
+    ON TABLE public.story TO anon, authenticated;
+  GRANT SELECT (id, kort_noegle, handling, oprettet_naar) ON TABLE public.feed_pin TO anon, authenticated;
 END
 $review37_s8_anon_kolonner$;
 
