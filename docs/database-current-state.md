@@ -529,6 +529,55 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 45. Review 37 S8 + S5 + P11: læserens kolonner, ingen offentlig bucket, én sletteknap — LIVE i prod (2026-11-22)
+
+### S8 + S5 (PR #442 + #445)
+
+**Grundlag:** PR #442 (merget `14f22a6d`) og opfølgningen #445 (projektejerens valg: medlemmer skjules også på
+`story`/`feed_pin`; merget `4cce1eb5`, SQL = `86c0df81`). S8 ændrer ikke web-koden, så begge PR'er blev merget **før**
+prod-kørslen, der tog den endelige blok fra main. Privat runner `~/.private/review37-s8/prod.zsh`, fastlåst på
+`86c0df81` (blok-sha `85b99151…`).
+
+- **DDL (én transaktion):** kun DO-blokken `$review37_s8_anon_kolonner$` (db-rls.sql, efter feed_pin-sektionen).
+  `anon` mister tabelretten på `media`, `story`, `feed_pin` og får kolonne-SELECT på læserens kolonner; `authenticated`
+  får det samme på `story` og `feed_pin`, men beholder tabel-SELECT på `media`. Begge roller har kun SELECT tilbage
+  (før: ALL inkl. TRUNCATE på `media`, MAINTAIN på alle tre). Facit 56 linjer; 38 katalogposter ændret (kun de tre
+  tabeller og deres kolonner); data uændret (4 tabeller); 1,7 s.
+- **Skjult for gæster:** `story.skabt_af/godkendt_af/godkendt_naar/oprindelse/llm_*`, `feed_pin.oprettet_af`,
+  `media.original_filnavn/sha256`. `media.storage_path` er bevidst læsbar (bucket'en er privat; storage-politikken gater
+  pr. billede).
+- **Målt efter (læse-kun, MCP, `set local role anon`):** `media` 13, `feed_pin` 1, `media_variant` 20 rækker læsbare;
+  `original_filnavn` og `story.skabt_af` giver permission denied. `get_advisors` (security): 4 lints, ingen om de tre
+  tabeller.
+- **S5:** `db-verify`-enheden `r37s5` fejler, hvis en storage-bucket er offentlig (ingen DDL).
+- **Øvelse:** stand-in `…_s8oev2`: prøve → commit → fortryd-prøve → fortryd → commit. Prod: prøve, derefter commit.
+- **Fortryd:** `/bin/zsh -f ~/.private/review37-s8/prod.zsh fortryd [--jeg-mener-det]` (prods ACL fra før apply:
+  `~/.private/review37-s8/fortryd-definitioner.prod.sql`).
+- **Kendte rester (#397):** medlemmer læser stadig `media.original_filnavn/sha256` (redaktionens medieliste og dublettjek
+  læser dem direkte → rolle-gated RPC, før medlemmer lukkes ind; prod har 0 medlemmer). `media_variant` har stadig
+  Supabases standard-ALL for `anon`/`authenticated`, og `story_kilde` har MAINTAIN.
+
+### P11 (PR #443)
+
+**Grundlag:** decisions 2026-11-22 (én sletteknap, systemet vælger vejen), PR #443 (CI grøn på `e8b8023d`; merget
+`526a769a` **efter** DDL — ny web på gammel database sender alle til »Slet helt«). Privat runner
+`~/.private/review37-p11/prod.zsh`, fastlåst på `e8b8023d` (blok-sha `34afc4ce…`).
+
+- **DDL (én transaktion):** kun blokken `-- BEGIN review37-p11` (sidst i db-migrations.sql). 4 funktioner = facit
+  (krop-md5 + ACL): ny `private.person_slet_aarsag(bigint)` (kun ejer), `red_slet_person` afviser en ikke-offentlig
+  person med `SLET_KRAEVER_SLET_HELT: <årsag>`, `red_slet_person_preview` får `kan_fortrydes` + `aarsag`, ny
+  `red_slettede_personer(integer)` (rollegate redaktion; kun `authenticated` EXECUTE). Data uændret (2 tabeller); 3,4 s.
+- **Målt i transaktionen:** af prods personer er 1.725 offentlige (kan slettes med fortryd), 73 levende og 4 staged
+  (kun »Slet helt«); 0 private eller skjult af samme_som.
+- **Efterkontrol (læse-kun, MCP):** `anon` har ingen EXECUTE på de fire; `person_slet_aarsag` lukket for alle andre end
+  ejeren; de tre `red_*` kun `authenticated`.
+- **Øvelse:** stand-in `…_p11oev2`: prøve → commit → fortryd-prøve → fortryd → commit. Prod: prøve, derefter commit.
+- **Fortryd:** `/bin/zsh -f ~/.private/review37-p11/prod.zsh fortryd [--jeg-mener-det]` (prods definitioner fra før
+  apply: `~/.private/review37-p11/fortryd-definitioner.prod.sql`).
+- **Kendte rester (#397):** en fortrudt fortrydelse falder ud af listen; intet tvangsvalg ved konflikt i listen; højst
+  100 rækker; ingen redaktørvej til at rette `levende`; en ikke-offentlig samme_som-knude blokeres begge veje; latent
+  kapløb i en samme_som-gruppe.
+
 ## 44. Review 37 S3: en familie uden medlemmer er ikke offentlig — LIVE i prod (2026-11-22)
 
 **Grundlag:** decisions 2026-11-22 (BESLUTTET: en familie uden medlemmer er ikke offentlig), PR #440 (CI grøn på
