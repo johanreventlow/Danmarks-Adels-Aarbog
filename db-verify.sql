@@ -8198,6 +8198,69 @@ EXCEPTION WHEN OTHERS THEN
   ELSE RAISE; END IF;
 END $$;
 
+-- BEGIN-VERIFY r37b1-d2
+-- ===== Review 37 D2: fortryd sammenligner kun kolonner i snapshottet =====
+-- Et sæt optaget før en kolonne kom til (fx relation.kvalifikator) mangler kolonnen i foer/efter. (a) UPDATE-
+-- fortrydelse lykkes og genskaber foer; den nye kolonne bevarer sin nuværende værdi. (b) En kolonne i snapshottet,
+-- som er ændret siden, afvises stadig. (c) En nøgle, der ikke længere er en kolonne, springes over ved
+-- genindsættelse (DELETE-inverse) i stedet for at fejle med 42703. Selvforsynende; rulles tilbage.
+DO $$
+DECLARE v_nid bigint; cs bigint; afvist boolean := false; r record; v_res jsonb;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  INSERT INTO public.person(id,levende,privat) VALUES (1,false,false) ON CONFLICT (id) DO NOTHING;
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+
+  -- (a) note.privat »findes ikke« i sættets snapshot; rækken har privat=true i dag.
+  INSERT INTO note(target_type,target_id,indhold,privat) VALUES ('person',1,'EFTER',true) RETURNING id INTO v_nid;
+  INSERT INTO change_set(operation,summary,subjekt_synlighed) VALUES ('t','gammelt sæt','offentlig') RETURNING id INTO cs;
+  INSERT INTO change_event(change_set_id,seq,tabel,row_pk,op,foer,efter)
+    VALUES (cs, 1, 'note', jsonb_build_object('id',v_nid),'UPDATE',
+            jsonb_build_object('id',v_nid,'target_type','person','target_id',1,'indhold','FOER'),
+            jsonb_build_object('id',v_nid,'target_type','person','target_id',1,'indhold','EFTER'));
+  v_res := red_fortryd_change_set(cs, false);
+  SELECT * INTO r FROM note WHERE id=v_nid;
+  IF r.indhold IS DISTINCT FROM 'FOER' OR r.target_type<>'person' OR r.target_id<>1 THEN
+    RAISE EXCEPTION 'FEJL: D2 — rækken blev ikke genskabt til foer (indhold=%)', r.indhold; END IF;
+  IF r.privat IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'FEJL: D2 — kolonnen uden for snapshottet blev rørt (privat=%)', r.privat; END IF;
+  IF (v_res->>'divergenser')::int <> 0 THEN
+    RAISE EXCEPTION 'FEJL: D2 — fortrydelsen talte divergenser: %', v_res; END IF;
+
+  -- (b) kontrol: indhold (i snapshottet) er ændret siden → stadig afvist uden force, rækken uberørt.
+  INSERT INTO note(target_type,target_id,indhold,privat) VALUES ('person',1,'NYERE',true) RETURNING id INTO v_nid;
+  INSERT INTO change_set(operation,summary,subjekt_synlighed) VALUES ('t','gammelt sæt 2','offentlig') RETURNING id INTO cs;
+  INSERT INTO change_event(change_set_id,seq,tabel,row_pk,op,foer,efter)
+    VALUES (cs, 1, 'note', jsonb_build_object('id',v_nid),'UPDATE',
+            jsonb_build_object('id',v_nid,'target_type','person','target_id',1,'indhold','FOER'),
+            jsonb_build_object('id',v_nid,'target_type','person','target_id',1,'indhold','EFTER'));
+  BEGIN PERFORM red_fortryd_change_set(cs, false);
+  EXCEPTION WHEN OTHERS THEN IF SQLERRM LIKE '%nyere ændring rører%' THEN afvist := true; ELSE RAISE; END IF; END;
+  IF NOT afvist THEN RAISE EXCEPTION 'FEJL: D2 — en nyere ændring i en snapshot-kolonne blev ikke afvist'; END IF;
+  IF (SELECT indhold FROM note WHERE id=v_nid) <> 'NYERE' THEN
+    RAISE EXCEPTION 'FEJL: D2 — rækken blev rørt trods afvisning'; END IF;
+
+  -- (c) DELETE-inverse med en droppet kolonne i snapshottet: rækken genindsættes uden den.
+  v_nid := (SELECT coalesce(max(id),0)+1 FROM note);
+  INSERT INTO change_set(operation,summary,subjekt_synlighed) VALUES ('t','gammelt sæt 3','offentlig') RETURNING id INTO cs;
+  INSERT INTO change_event(change_set_id,seq,tabel,row_pk,op,foer,efter)
+    VALUES (cs, 1, 'note', jsonb_build_object('id',v_nid),'DELETE',
+            jsonb_build_object('id',v_nid,'target_type','person','target_id',1,'indhold','SLETTET',
+                               'privat',false,'droppet_kolonne','x'), NULL);
+  PERFORM red_fortryd_change_set(cs, false);
+  IF (SELECT indhold FROM note WHERE id=v_nid) IS DISTINCT FROM 'SLETTET' THEN
+    RAISE EXCEPTION 'FEJL: D2 — DELETE-inverse genindsatte ikke rækken med en droppet kolonne i snapshottet'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D2 — fortryd tåler kolonner uden for snapshottet';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b1-d2
+
 -- ===== Review 09 H2: restore bevarer skip_cols (profiles email/rolle) =====
 -- End-to-end: slet en profil-bundet person, fortryd → profilen genskabes med
 -- rolle/email intakt (ikke NULL-crash). Ville have fanget review09 H2.

@@ -9572,13 +9572,15 @@ BEGIN
   -- eksplicit værdi for dem i INSERT/UPDATE, uanset skip_cols; de genberegnes automatisk.
   -- Uden dette fejler fortryd hårdt for enhver tabel med en generated-kolonne (fundet ved
   -- manuel Expo-test 2026-07-01, ikke af statisk review).
+  -- Review 37 D2: kun nøgler, der stadig er en levende kolonne. Et gammelt snapshot kan bære en kolonne, der
+  -- siden er droppet; den springes over (som GENERATED), så fortrydelsen ikke fejler på »column does not exist«.
   SELECT string_agg(quote_ident(key),','), string_agg(format('%I = excluded.%I', key, key), ',')
     INTO v_cols, v_set
     FROM jsonb_object_keys(p_row) AS key
-    WHERE NOT EXISTS (
+    WHERE EXISTS (
       SELECT 1 FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
       WHERE c.relnamespace = 'public'::regnamespace AND c.relname = p_tabel
-        AND a.attname = key AND a.attgenerated = 's'
+        AND a.attname = key AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = ''
     );
   -- En UPDATE-fortrydelse har stadig målrækken. Gå direkte til UPDATE, så Postgres ikke
   -- validerer en kunstig, ufuldstændig INSERT-række mod NOT NULL før ON CONFLICT (haendelse
@@ -9617,6 +9619,7 @@ DECLARE
   v_link_rows jsonb := '{}'; v_link_row record; v_link record; v_link_cols text[];
   v_cur jsonb; v_pids bigint[] := '{}'; v_narr bigint[] := '{}'; v_notes bigint[] := '{}';
   v_div int := 0; pid bigint; v_forventet jsonb; v_contract_version integer; v_lock record; v_pin_maal record;
+  v_cur_cmp jsonb; v_forv_cmp jsonb;
 BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   v_contract_version:=public.narrative_record_contract_version();
@@ -9752,7 +9755,18 @@ BEGIN
     -- B9-divergens for ALLE op-typer (review09 H1): DELETE efterlod række ABSENT (NULL),
     -- INSERT/UPDATE efterlod ev.efter. Lukker blind PK-overskrivning ved DELETE-inverse.
     v_forventet := CASE WHEN ev.op='DELETE' THEN NULL ELSE ev.efter END;
-    IF v_cur IS DISTINCT FROM v_forventet THEN
+    -- Review 37 D2: sammenlign kun på kolonner, der står i BÅDE den nuværende række og snapshottet. En kolonne
+    -- tilføjet efter sættet (fx relation.kvalifikator) mangler i ev.efter, og en droppet kolonne mangler i v_cur;
+    -- ingen af dem er en nyere ændring. Kendt rest (accepteret): når fortrydelsen sletter en række, sættet
+    -- indsatte, går en værdi i en senere tilføjet kolonne tabt — kun relevant, hvis en nyere ændring rørte netop
+    -- den kolonne. En række, der mangler på den ene side, sammenlignes stadig helt (NULL ≠ række).
+    IF v_cur IS NOT NULL AND v_forventet IS NOT NULL THEN
+      v_cur_cmp  := v_cur - ARRAY(SELECT k FROM jsonb_object_keys(v_cur) k WHERE NOT v_forventet ? k);
+      v_forv_cmp := v_forventet - ARRAY(SELECT k FROM jsonb_object_keys(v_forventet) k WHERE NOT v_cur ? k);
+    ELSE
+      v_cur_cmp := v_cur; v_forv_cmp := v_forventet;
+    END IF;
+    IF v_cur_cmp IS DISTINCT FROM v_forv_cmp THEN
       v_div := v_div + 1;
       IF NOT p_force THEN
         RAISE EXCEPTION 'FEJL: nyere ændring rører %/% — afvist (brug force)', ev.tabel, ev.row_pk;
