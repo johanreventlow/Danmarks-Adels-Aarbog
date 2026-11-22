@@ -8958,6 +8958,197 @@ BEGIN
 END $$;
 -- END-VERIFY r37b1-y9
 
+-- BEGIN-VERIFY r37b2-d1
+-- ===== Review 37 D1 (+ D12): slægtsnavnet kommer også fra linjemedlemskabet =====
+-- (a) En person uden linjekode får visning_efternavn, når et medlemskab indsættes (som promotionen gør); (b) en ændring
+-- af linjens slaegtsnavn regenererer medlemmet; (c) reversal (red_reverse_placement_membership) gør efternavnet NULL
+-- igen. (d) Linjekode + medlemskab med to forskellige navne giver karantæne som før. (e) D12: ændret kode og sletning af
+-- linjen regenererer linjekodens personer. Selvforsynende; rulles tilbage.
+DO $$
+DECLARE v_e text; v_f text;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  INSERT INTO source(id,slags,titel,import_key) VALUES (-937201,'test','r37b2 D1','r37b2-d1');
+  INSERT INTO lineage(id,source_id,kode,navn,slaegtsnavn) VALUES
+    (-937211,-937201,'R37B2D1','r37b2 D1-linje','R37b2slaegt'),
+    (-937212,-937201,'R37B2D1B','r37b2 D1-anden','R37b2anden');
+  INSERT INTO person(id,levende,privat) VALUES (-937221,false,false),(-937222,false,false),(-937223,false,false);
+  PERFORM red_upsert_fakta('person',-937221,'navn','Conrad');
+  PERFORM red_upsert_fakta('person',-937222,'navn','Bodil');
+  PERFORM red_upsert_fakta('person',-937223,'navn','Cecilie');
+  PERFORM set_config('app.change_set_id','',true);
+
+  -- (a) medlemskab uden linjekode.
+  INSERT INTO person_lineage_membership(person_id,lineage_id,role,source_basis)
+    VALUES (-937221,-937211,'member','{"rule_version":"placement-membership-v1","source_id":"-937201"}');
+  SELECT visning_efternavn, visning_fuldt_navn INTO v_e, v_f FROM person WHERE id=-937221;
+  IF v_e IS DISTINCT FROM 'R37b2slaegt' OR v_f IS DISTINCT FROM 'Conrad R37b2slaegt' THEN
+    RAISE EXCEPTION 'FEJL: D1 — medlemskab gav intet slægtsnavn (efternavn=%, fuldt=%)', v_e, v_f; END IF;
+  -- (b) linjens navn ændres.
+  UPDATE lineage SET slaegtsnavn='R37b2nyt' WHERE id=-937211;
+  IF (SELECT visning_efternavn FROM person WHERE id=-937221) IS DISTINCT FROM 'R37b2nyt' THEN
+    RAISE EXCEPTION 'FEJL: D1 — ændret slaegtsnavn regenererede ikke medlemmet'; END IF;
+  -- (c) reversal.
+  PERFORM red_reverse_placement_membership(-937221,-937211,'r37b2 D1 test');
+  SELECT visning_efternavn, visning_fuldt_navn INTO v_e, v_f FROM person WHERE id=-937221;
+  IF v_e IS NOT NULL OR v_f IS DISTINCT FROM 'Conrad' THEN
+    RAISE EXCEPTION 'FEJL: D1 — efternavnet blev stående efter reversal (efternavn=%, fuldt=%)', v_e, v_f; END IF;
+
+  -- (d) linjekode (R37b2nyt) + medlemskab på en linje med et andet navn → karantæne, intet efternavn.
+  INSERT INTO person_external_id(person_id,source_id,linje,nr) VALUES (-937223,-937201,'R37B2D1',2);
+  IF (SELECT visning_efternavn FROM person WHERE id=-937223) IS DISTINCT FROM 'R37b2nyt' THEN
+    RAISE EXCEPTION 'FEJL: D1 — linjekoden gav ikke slægtsnavnet'; END IF;
+  INSERT INTO person_lineage_membership(person_id,lineage_id,role,source_basis)
+    VALUES (-937223,-937212,'member','{"rule_version":"placement-membership-v1","source_id":"-937201"}');
+  IF (SELECT visning_efternavn FROM person WHERE id=-937223) IS NOT NULL
+     OR NOT EXISTS (SELECT 1 FROM slaegtsnavn_karantaene WHERE person_id=-937223 AND n_distinct=2) THEN
+    RAISE EXCEPTION 'FEJL: D1 — to forskellige navne fra linjekode og medlemskab gav ikke karantæne'; END IF;
+  DELETE FROM person_lineage_membership WHERE person_id=-937223;
+  IF (SELECT visning_efternavn FROM person WHERE id=-937223) IS DISTINCT FROM 'R37b2nyt'
+     OR EXISTS (SELECT 1 FROM slaegtsnavn_karantaene WHERE person_id=-937223) THEN
+    RAISE EXCEPTION 'FEJL: D1 — sletning af medlemskabet hævede ikke karantænen'; END IF;
+
+  -- (e) D12: kodeskift og sletning af linjen.
+  INSERT INTO person_external_id(person_id,source_id,linje,nr) VALUES (-937222,-937201,'R37B2D1',1);
+  UPDATE lineage SET kode='R37B2D1X' WHERE id=-937211;
+  IF (SELECT visning_efternavn FROM person WHERE id=-937222) IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: D12 — ændret linjekode regenererede ikke linjekodens personer'; END IF;
+  UPDATE lineage SET kode='R37B2D1' WHERE id=-937211;
+  IF (SELECT visning_efternavn FROM person WHERE id=-937222) IS DISTINCT FROM 'R37b2nyt' THEN
+    RAISE EXCEPTION 'FEJL: D12 — personerne på den nye linjekode blev ikke regenereret'; END IF;
+  DELETE FROM lineage WHERE id=-937211;
+  IF (SELECT visning_efternavn FROM person WHERE id=-937222) IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: D12 — sletning af linjen regenererede ikke linjekodens personer'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D1 — slægtsnavn fra linjemedlemskab, D12 linjetrigger';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b2-d1
+
+-- BEGIN-VERIFY r37b2-d3
+-- ===== Review 37 D3: »Ret navn/titel« rammer den viste oplysning; navn/fødsel/død vises i bogens orden =====
+-- (a) To afklarede navne: visningen er den første i bogens orden (ikke alfabetisk max()), og red_upsert_fakta('navn')
+-- retter netop det faktum. (b) Titel: en ikke-adelig titel først, så »Greve«: red_upsert_fakta('titel') retter Greve-
+-- faktummet. (c) Et tilbagetrukket navn før det viste genaktiveres ikke. (d) En tilbagetrukket forældre_ukendt-
+-- markering genaktiveres stadig på samme faktum. (e) En udateret død (»ung«) før en dateret skjuler ikke datoen.
+-- Selvforsynende; rulles tilbage.
+DO $$
+DECLARE v_f1 bigint; v_f2 bigint; v_res jsonb;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  INSERT INTO person(id,levende,privat) VALUES (-937301,false,false),(-937302,false,false),(-937303,false,false),
+    (-937304,false,false),(-937305,false,false);
+
+  -- (a) navn: Anna (bogens første) og Bodil (alfabetisk størst, max() viste den).
+  v_f1 := (red_opret_fakta('person',-937301,'navn','Anna')->>'fact_id')::bigint;
+  v_f2 := (red_opret_fakta('person',-937301,'navn','Bodil')->>'fact_id')::bigint;
+  IF (SELECT visning_navn FROM person WHERE id=-937301) IS DISTINCT FROM 'Anna' THEN
+    RAISE EXCEPTION 'FEJL: D3 — visningen viser ikke det første navn i bogens orden (%)',
+      (SELECT visning_navn FROM person WHERE id=-937301); END IF;
+  v_res := red_upsert_fakta('person',-937301,'navn','Annette');
+  IF (v_res->>'fact_id')::bigint IS DISTINCT FROM v_f1
+     OR (SELECT visning_navn FROM person WHERE id=-937301) IS DISTINCT FROM 'Annette' THEN
+    RAISE EXCEPTION 'FEJL: D3 — red_upsert_fakta(navn) ramte fakta % i stedet for det viste %', v_res->>'fact_id', v_f1; END IF;
+
+  -- (b) titel: Kammerherre først, så Greve (vist).
+  v_f1 := (red_opret_fakta('person',-937302,'titel','Kammerherre')->>'fact_id')::bigint;
+  v_f2 := (red_opret_fakta('person',-937302,'titel','Greve')->>'fact_id')::bigint;
+  IF (SELECT visning_titel FROM person WHERE id=-937302) IS DISTINCT FROM 'Greve' THEN
+    RAISE EXCEPTION 'FEJL: D3 — adelstitlen vises ikke'; END IF;
+  v_res := red_upsert_fakta('person',-937302,'titel','Lensgreve');
+  IF (v_res->>'fact_id')::bigint IS DISTINCT FROM v_f2
+     OR (SELECT a.vaerdi_tekst FROM conclusion c JOIN assertion a ON a.id=c.valgt_assertion_id
+          WHERE c.target_type='fact' AND c.target_id=v_f2) IS DISTINCT FROM 'Lensgreve'
+     OR (SELECT visning_titel FROM person WHERE id=-937302) IS DISTINCT FROM 'Lensgreve' THEN
+    RAISE EXCEPTION 'FEJL: D3 — red_upsert_fakta(titel) ramte fakta % i stedet for Greve-faktummet %', v_res->>'fact_id', v_f2; END IF;
+
+  -- (c) et tilbagetrukket navn før det viste.
+  v_f1 := (red_opret_fakta('person',-937303,'navn','Gammel')->>'fact_id')::bigint;
+  PERFORM red_tilbagetraek_fakta(v_f1);
+  v_f2 := (red_opret_fakta('person',-937303,'navn','Anna')->>'fact_id')::bigint;
+  v_res := red_upsert_fakta('person',-937303,'navn','Anne');
+  IF (v_res->>'fact_id')::bigint IS DISTINCT FROM v_f2
+     OR (SELECT status FROM conclusion WHERE target_type='fact' AND target_id=v_f1) IS DISTINCT FROM 'tilbagetrukket'
+     OR (SELECT visning_navn FROM person WHERE id=-937303) IS DISTINCT FROM 'Anne' THEN
+    RAISE EXCEPTION 'FEJL: D3 — red_upsert_fakta(navn) genaktiverede det tilbagetrukne faktum % i stedet for det viste %',
+      v_res->>'fact_id', v_f2; END IF;
+
+  -- (d) forældre_ukendt: markér, tilbagetræk, markér igen → samme faktum, afklaret.
+  v_f1 := (red_upsert_fakta('person',-937304,'forældre_ukendt','ukendt')->>'fact_id')::bigint;
+  PERFORM red_tilbagetraek_fakta(v_f1);
+  v_res := red_upsert_fakta('person',-937304,'forældre_ukendt','ukendt');
+  IF (v_res->>'fact_id')::bigint IS DISTINCT FROM v_f1
+     OR (SELECT count(*) FROM fact WHERE subjekt_type='person' AND subjekt_id=-937304) <> 1
+     OR (SELECT status FROM conclusion WHERE target_type='fact' AND target_id=v_f1) IS DISTINCT FROM 'afklaret' THEN
+    RAISE EXCEPTION 'FEJL: D3 — forældre_ukendt blev ikke genaktiveret på samme faktum (%)', v_res; END IF;
+
+  -- (e) død: »ung« (udateret) før en dateret død.
+  PERFORM red_opret_fakta('person',-937305,'død','ung');
+  PERFORM red_opret_fakta('person',-937305,'død','2. okt. 1859', p_date_raw => '2. okt. 1859');
+  IF (SELECT visning_doed FROM person WHERE id=-937305) IS DISTINCT FROM '2. okt. 1859' THEN
+    RAISE EXCEPTION 'FEJL: D3 — en udateret død skjulte datoen (%)', (SELECT visning_doed FROM person WHERE id=-937305); END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D3 — visning og »Ret« følger samme faktum';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b2-d3
+
+-- BEGIN-VERIFY r37b2-d5
+-- ===== Review 37 D5 (RPC-delen): redigerings-RPC'erne afviser date_min > date_max =====
+-- red_upsert_fakta, red_opret_fakta og red_tilfoej_oplysning kaster DATO_INTERVAL_OMVENDT (22023) uden at åbne et
+-- ændringssæt; et lige interval (min = max) og åbne grænser er stadig tilladt. Selvforsynende; rulles tilbage.
+DO $$
+DECLARE v_fact bigint; n_cs bigint; v_rpc text; v_ok boolean; v_state text; v_msg text;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  INSERT INTO person(id,levende,privat) VALUES (-937401,false,false);
+  v_fact := (red_opret_fakta('person',-937401,'fødsel','1850', '1850-01-01', '1850-01-01', NULL, '1850')->>'fact_id')::bigint;
+  PERFORM red_upsert_fakta('person',-937401,'død','1900', NULL, '1900-12-31', NULL, '1900');
+  PERFORM set_config('app.change_set_id','',true);
+  SELECT count(*) INTO n_cs FROM change_set;
+  FOREACH v_rpc IN ARRAY ARRAY['red_upsert_fakta','red_opret_fakta','red_tilfoej_oplysning'] LOOP
+    v_ok := false;
+    BEGIN
+      IF v_rpc = 'red_upsert_fakta' THEN
+        PERFORM red_upsert_fakta('person',-937401,'fødsel','1851', '1851-12-31', '1851-01-01', NULL, '1851');
+      ELSIF v_rpc = 'red_opret_fakta' THEN
+        PERFORM red_opret_fakta('person',-937401,'fødsel','1851', '1851-12-31', '1851-01-01', NULL, '1851');
+      ELSE
+        PERFORM red_tilfoej_oplysning(v_fact,'1851', '1851-12-31', '1851-01-01', NULL, '1851');
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+      IF v_state = '22023' AND v_msg = 'DATO_INTERVAL_OMVENDT' THEN v_ok := true; ELSE RAISE; END IF;
+    END;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: D5 — % accepterede et omvendt datointerval', v_rpc; END IF;
+    PERFORM set_config('app.change_set_id','',true);
+  END LOOP;
+  IF (SELECT count(*) FROM change_set) <> n_cs THEN
+    RAISE EXCEPTION 'FEJL: D5 — en afvist skrivning åbnede et ændringssæt'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D5 — omvendt datointerval afvises i tre redigerings-RPC''er';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b2-d5
+
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt
 -- request.jwt.claim.sub; i Supabase SQL Editor kør som funktionsejer (jf. Task 4-note).

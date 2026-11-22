@@ -37,6 +37,14 @@ DO $promotion$
 DECLARE f jsonb:=pg_temp.f150_placed(-1531,-153101); v jsonb; v_n int;
 BEGIN
   PERFORM set_config('request.jwt.claim.sub',f->>'actor',true);
+  -- Review 37 D1: linjen har et slægtsnavn, og personen har et navn, men ingen linjekode; efternavnet i visningen kommer
+  -- og går med medlemskabet.
+  UPDATE public.lineage SET slaegtsnavn='Fixtur150' WHERE id=(f->>'lineage')::bigint;
+  PERFORM public.red_upsert_fakta('person',-153101,'navn','Conrad');
+  PERFORM set_config('app.change_set_id','',true);
+  IF (SELECT visning_efternavn FROM public.person WHERE id=-153101) IS NOT NULL THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_TEST_FAILED: efternavn før promotion';
+  END IF;
   SET LOCAL ROLE authenticated;
   v:=public.red_preview_placement_memberships(-1531);
   IF jsonb_array_length(v->'items')<>1 OR (v#>>'{items,0,person_id}')::bigint<>-153101
@@ -58,6 +66,10 @@ BEGIN
        IS DISTINCT FROM private.reimport_canonical_json_sha256(private.membership_state((f->>'pp')::uuid)) THEN
     RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_TEST_FAILED: source_basis bærer ikke tilstands-sha';
   END IF;
+  IF (SELECT (visning_efternavn,visning_fuldt_navn) FROM public.person WHERE id=-153101)
+       IS DISTINCT FROM ('Fixtur150'::text,'Conrad Fixtur150'::text) THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_TEST_FAILED: promotion gav ikke slægtsnavnet i visningen (D1)';
+  END IF;
   -- Genkørsel: intet nyt at fremme.
   SET LOCAL ROLE authenticated;
   v:=public.red_preview_placement_memberships(-1531);
@@ -74,6 +86,10 @@ BEGIN
      OR (SELECT count(*) FROM public.change_event WHERE op='DELETE' AND row_pk->>'person_id'='-153101'
            AND tabel IN ('person_lineage_membership','person_slaegt_membership'))<>2 THEN
     RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_TEST_FAILED: reversal';
+  END IF;
+  IF (SELECT (visning_efternavn,visning_fuldt_navn) FROM public.person WHERE id=-153101)
+       IS DISTINCT FROM (NULL::text,'Conrad'::text) THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_TEST_FAILED: reversal fjernede ikke slægtsnavnet i visningen (D1)';
   END IF;
 END $promotion$;
 

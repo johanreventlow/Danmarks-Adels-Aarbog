@@ -46910,3 +46910,356 @@ CREATE INDEX IF NOT EXISTS ix_story_historical_event_id ON public.story(historic
 CREATE INDEX IF NOT EXISTS ix_bookmark_person_id ON public.bookmark(person_id);
 
 -- END review37-b1
+
+-- BEGIN review37-b2
+-- Review 37 blok 2 (#397: D1 + D12-delen om linjetriggeren, D3, D5's RPC-del). Deploy-området for prod er denne blok i ÉN transaktion
+-- (prod-runneren udtrækker navngivne blokke). Kroppene er kopieret fra schema.sql og er de endelige definitioner; de
+-- ældre definitioner længere oppe gælder kun den fulde migrationssti. Idempotent: CREATE OR REPLACE bevarer de
+-- eksisterende funktioners ACL; de nye/ændrede triggerfunktioner får eksplicit REVOKE; triggerne er CREATE OR REPLACE
+-- TRIGGER (SHARE ROW EXCLUSIVE, ingen ACCESS EXCLUSIVE). Ingen data ændres her: backfillen af de berørte personers
+-- visning_* ligger i tests/sql/review37-b2-backfill.sql og køres af prod-runneren i samme transaktion.
+-- NB: de private fortryd-scripts fra §33/§34 (visning-floruit, visning-cache-regler) genskaber en ældre
+-- regen_person_visning uden D1/D3 og er forældede efter denne blok.
+
+-- D3: én regel for det viste faktum (cache og skrivevej). Ny funktion; kun ejeren kan kalde den.
+CREATE OR REPLACE FUNCTION private.person_visnings_fakt(p_pid bigint, p_faktatype text)
+RETURNS bigint LANGUAGE sql STABLE SET search_path=public AS $$
+  SELECT f.id
+    FROM fact f
+    LEFT JOIN conclusion c ON c.target_type = 'fact' AND c.target_id = f.id
+    LEFT JOIN assertion a ON a.id = c.valgt_assertion_id
+   WHERE f.subjekt_type = 'person' AND f.subjekt_id = p_pid AND f.faktatype = p_faktatype
+   ORDER BY
+     coalesce(c.status = 'afklaret' AND CASE WHEN p_faktatype IN ('fødsel','død') THEN a.date_raw
+                                            WHEN p_faktatype IN ('navn','titel') THEN a.vaerdi_tekst
+                                            ELSE '' END IS NOT NULL, false) DESC,
+     coalesce(c.status = 'afklaret', false) DESC,
+     (p_faktatype = 'titel'
+      AND coalesce(lower(trim(a.vaerdi_tekst)) IN ('greve','grevinde','komtesse','comtesse','lensgreve','lensgrevinde',
+                                                   'baron','baronesse','friherre','friherreinde','rigsgreve','rigsgrevinde'),
+                   false)) DESC,
+     f.id, c.id
+   LIMIT 1;
+$$;
+REVOKE ALL ON FUNCTION private.person_visnings_fakt(bigint,text) FROM PUBLIC, anon, authenticated, service_role;
+
+-- D1: slægtsnavnet fra både linjekoden og linjemedlemskabet. D3: navn/fødsel/død/titel via person_visnings_fakt.
+CREATE OR REPLACE FUNCTION public.regen_person_visning(pid BIGINT)
+RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_n_distinct INT; v_slaegtsnavn TEXT;
+BEGIN
+  -- Review 37 D1: linjerne kommer fra både linjekoden (person_external_id.linje) og linjemedlemskabet
+  -- (person_lineage_membership, role 'member'), som evidenskædens personer kun har. UNION: samme linje tæller én gang.
+  SELECT count(DISTINCT sn.v), min(sn.v) INTO v_n_distinct, v_slaegtsnavn
+  FROM (SELECT l.id FROM person_external_id pei
+          JOIN lineage l ON l.source_id = pei.source_id AND l.kode = pei.linje
+         WHERE pei.person_id = pid
+        UNION
+        SELECT plm.lineage_id FROM person_lineage_membership plm
+         WHERE plm.person_id = pid AND plm.role = 'member') x
+  CROSS JOIN LATERAL (SELECT lineage_effective_slaegtsnavn(x.id) AS v) sn;
+
+  WITH navn_agg AS (
+    SELECT
+      max(v.vaerdi) FILTER (WHERE v.faktatype='navn')   AS navn,
+      max(v.vaerdi) FILTER (WHERE v.faktatype='fødsel') AS foedt,
+      max(v.vaerdi) FILTER (WHERE v.faktatype='død')    AS doed,
+      max(v.vaerdi) FILTER (WHERE v.faktatype='titel')  AS titel
+    FROM unnest(ARRAY['navn','fødsel','død','titel']) AS t(faktatype)
+    -- Højst én række pr. type: det viste faktum. Review trin B (1d.1-04): kun en afklaret konklusion vises (en
+    -- omstridt/forældet/tilbagetrukket indgår ikke).
+    CROSS JOIN LATERAL (
+      SELECT t.faktatype, CASE WHEN t.faktatype IN ('fødsel','død') THEN a.date_raw ELSE a.vaerdi_tekst END AS vaerdi
+        FROM conclusion c JOIN assertion a ON a.id = c.valgt_assertion_id
+       WHERE c.target_type = 'fact' AND c.status = 'afklaret'
+         AND c.target_id = private.person_visnings_fakt(pid, t.faktatype)) v
+  ),
+  final AS (
+    SELECT
+      navn_agg.navn, navn_agg.foedt, navn_agg.doed, navn_agg.titel,
+      CASE
+        WHEN navn_agg.navn IS NULL THEN NULL
+        WHEN coalesce(v_n_distinct,0) <> 1 THEN NULL
+        WHEN slaegtsnavn_suffiks_match(navn_agg.navn, v_slaegtsnavn) THEN NULL
+        ELSE v_slaegtsnavn
+      END AS efternavn,
+      CASE
+        WHEN navn_agg.navn IS NULL THEN NULL
+        WHEN coalesce(v_n_distinct,0) <> 1 THEN navn_agg.navn
+        WHEN slaegtsnavn_suffiks_match(navn_agg.navn, v_slaegtsnavn) THEN navn_agg.navn
+        ELSE navn_agg.navn || ' ' || v_slaegtsnavn
+      END AS fuldt
+    FROM navn_agg
+  )
+  UPDATE person p SET
+    visning_navn = final.navn, visning_foedt = final.foedt, visning_doed = final.doed,
+    visning_titel = final.titel, visning_efternavn = final.efternavn, visning_fuldt_navn = final.fuldt
+  FROM final
+  WHERE p.id = pid
+    AND (p.visning_navn, p.visning_foedt, p.visning_doed, p.visning_titel, p.visning_efternavn, p.visning_fuldt_navn)
+        IS DISTINCT FROM (final.navn, final.foedt, final.doed, final.titel, final.efternavn, final.fuldt);
+
+  IF v_n_distinct > 1 THEN
+    INSERT INTO slaegtsnavn_karantaene(person_id, n_distinct) VALUES (pid, v_n_distinct)
+      ON CONFLICT (person_id) DO UPDATE SET n_distinct=excluded.n_distinct, noteret_at=now();
+  ELSE
+    DELETE FROM slaegtsnavn_karantaene WHERE person_id = pid;
+  END IF;
+  -- visning-floruit: læser den netop skrevne visning_foedt/visning_doed.
+  PERFORM regen_person_floruit(pid);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.trg_regen_from_lineage_membership()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+BEGIN
+  IF TG_OP IN ('INSERT','UPDATE') THEN PERFORM regen_person_visning(NEW.person_id); END IF;
+  IF TG_OP = 'DELETE' OR (TG_OP = 'UPDATE' AND OLD.person_id IS DISTINCT FROM NEW.person_id) THEN
+    PERFORM regen_person_visning(OLD.person_id);
+  END IF;
+  RETURN NULL;
+END $$;
+
+CREATE OR REPLACE TRIGGER trg_lineage_membership_regen
+  AFTER INSERT OR DELETE OR UPDATE OF person_id, lineage_id, role ON public.person_lineage_membership
+  FOR EACH ROW EXECUTE FUNCTION public.trg_regen_from_lineage_membership();
+
+-- D1: promotion og reversal låser personen før medlemskabet (som personsletningen), da medlemskabstriggeren nu
+-- opdaterer personrækken.
+CREATE OR REPLACE FUNCTION public.red_promote_placement_memberships(p_source_id bigint,p_preview_sha256 text)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE v_set jsonb; i jsonb; v_basis jsonb; v_n integer:=0; v_rows bigint; v_foreign bigint;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_CHANGE_SET';
+  END IF;
+  v_set:=private.placement_membership_set(p_source_id);
+  IF v_set->>'preview_sha256' IS DISTINCT FROM p_preview_sha256 THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_PREVIEW_DRIFT'; END IF;
+  SELECT min((x->>'person_id')::bigint) INTO v_foreign FROM jsonb_array_elements(v_set->'items') x
+   WHERE EXISTS (SELECT 1 FROM public.person_lineage_membership l
+                  WHERE l.person_id=(x->>'person_id')::bigint AND l.lineage_id=(x->>'lineage_id')::bigint
+                    AND l.source_basis->>'source_id' IS DISTINCT FROM p_source_id::text)
+      OR EXISTS (SELECT 1 FROM public.person_slaegt_membership m
+                  WHERE m.person_id=(x->>'person_id')::bigint AND m.slaegt_id=(x->>'slaegt_id')::bigint
+                    AND m.source_basis->>'source_id' IS DISTINCT FROM p_source_id::text);
+  IF v_foreign IS NOT NULL THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE: %',v_foreign; END IF;
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_set->'items') x WHERE x->>'reason_code'='conflict') THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_CONFLICT';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(v_set->'items') x WHERE (x->>'eligible')::boolean) THEN RETURN 0; END IF;
+  PERFORM public.begin_change_set('placement_membership','placement-membership-v1 source '||p_source_id);
+  -- Review 37 D1: hvert medlemskab regenererer personens visning (UPDATE person). Personerne låses i id-orden før
+  -- medlemskaberne, i personsletningens rækkefølge (person før medlemskab), så de to ikke deadlocker.
+  PERFORM 1 FROM public.person WHERE id IN (SELECT (x->>'person_id')::bigint FROM jsonb_array_elements(v_set->'items') x
+                                             WHERE (x->>'eligible')::boolean) ORDER BY id FOR NO KEY UPDATE;
+  FOR i IN SELECT x FROM jsonb_array_elements(v_set->'items') x WHERE (x->>'eligible')::boolean LOOP
+    v_basis:=private.membership_state((i->>'persona_placement_id')::uuid)
+             ||jsonb_build_object('state_sha256',i->>'state_sha256','source_id',p_source_id);
+    INSERT INTO public.person_lineage_membership(person_id,lineage_id,role,source_basis)
+      VALUES ((i->>'person_id')::bigint,(i->>'lineage_id')::bigint,'member',v_basis)
+      ON CONFLICT (person_id,lineage_id) DO UPDATE SET role='member',source_basis=excluded.source_basis
+        WHERE person_lineage_membership.source_basis->>'source_id'=excluded.source_basis->>'source_id';
+    GET DIAGNOSTICS v_rows=ROW_COUNT;
+    IF v_rows=0 THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE: %',i->>'person_id'; END IF;
+    INSERT INTO public.person_slaegt_membership(person_id,slaegt_id,membership_kind,source_basis)
+      VALUES ((i->>'person_id')::bigint,(i->>'slaegt_id')::bigint,'agnatic',v_basis)
+      ON CONFLICT (person_id,slaegt_id) DO UPDATE SET membership_kind='agnatic',source_basis=excluded.source_basis
+        WHERE person_slaegt_membership.source_basis->>'source_id'=excluded.source_basis->>'source_id';
+    GET DIAGNOSTICS v_rows=ROW_COUNT;
+    IF v_rows=0 THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_SOURCE: %',i->>'person_id'; END IF;
+    v_n:=v_n+1;
+  END LOOP;
+  PERFORM set_config('app.change_set_id','',true);
+  RETURN v_n;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_reverse_placement_membership(p_person_id bigint,p_lineage_id bigint,p_note text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,private AS $$
+DECLARE b jsonb;
+BEGIN
+  IF auth.uid() IS NULL OR public.current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'EVIDENCE_ROLE_FORBIDDEN'; END IF;
+  IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_FOREIGN_CHANGE_SET';
+  END IF;
+  IF btrim(coalesce(p_note,''))='' THEN RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_NOTE_REQUIRED'; END IF;
+  -- Review 37 D1: sletningen regenererer personens visning (UPDATE person via trg_lineage_membership_regen). Personen
+  -- låses før medlemskabet, i personsletningens rækkefølge (person før medlemskab), så de to ikke deadlocker.
+  PERFORM 1 FROM public.person WHERE id=p_person_id FOR NO KEY UPDATE;
+  SELECT source_basis INTO b FROM public.person_lineage_membership
+   WHERE person_id=p_person_id AND lineage_id=p_lineage_id FOR UPDATE;
+  IF b IS NULL OR b->>'rule_version' IS DISTINCT FROM 'placement-membership-v1' THEN
+    RAISE EXCEPTION 'PLACEMENT_MEMBERSHIP_NOT_FOUND';
+  END IF;
+  PERFORM public.begin_change_set('placement_membership_reversal',btrim(p_note),'person',p_person_id);
+  DELETE FROM public.person_lineage_membership WHERE person_id=p_person_id AND lineage_id=p_lineage_id;
+  DELETE FROM public.person_slaegt_membership
+   WHERE person_id=p_person_id AND slaegt_id=(b->>'slaegt_id')::bigint
+     AND source_basis->>'persona_placement_id'=b->>'persona_placement_id';
+  PERFORM set_config('app.change_set_id','',true);
+END $$;
+
+-- D1 + D12: linjetriggeren finder også medlemskabets personer og dækker sletning og ændret kode/kilde.
+CREATE OR REPLACE FUNCTION public.trg_regen_from_lineage()
+RETURNS trigger LANGUAGE plpgsql SET search_path=public AS $$
+DECLARE v_lid BIGINT; v_pid BIGINT;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    FOR v_pid IN SELECT DISTINCT pei.person_id FROM person_external_id pei
+                  WHERE pei.source_id = OLD.source_id AND pei.linje = OLD.kode ORDER BY 1 LOOP
+      PERFORM regen_person_visning(v_pid);
+    END LOOP;
+    RETURN NULL;
+  END IF;
+  IF TG_OP = 'INSERT' OR (NEW.slaegtsnavn IS DISTINCT FROM OLD.slaegtsnavn) OR (NEW.parent_lineage_id IS DISTINCT FROM OLD.parent_lineage_id) THEN
+    FOR v_lid IN SELECT * FROM lineage_descendants(NEW.id) LOOP
+      FOR v_pid IN
+        SELECT pei.person_id FROM person_external_id pei
+        JOIN lineage l ON l.source_id=pei.source_id AND l.kode=pei.linje
+        WHERE l.id = v_lid
+        UNION
+        SELECT plm.person_id FROM person_lineage_membership plm
+        WHERE plm.lineage_id = v_lid AND plm.role = 'member'
+        ORDER BY 1
+      LOOP
+        PERFORM regen_person_visning(v_pid);
+      END LOOP;
+    END LOOP;
+  END IF;
+  IF TG_OP = 'UPDATE' AND (NEW.source_id, NEW.kode) IS DISTINCT FROM (OLD.source_id, OLD.kode) THEN
+    FOR v_pid IN SELECT DISTINCT pei.person_id FROM person_external_id pei
+                  WHERE (pei.source_id = OLD.source_id AND pei.linje = OLD.kode)
+                     OR (pei.source_id = NEW.source_id AND pei.linje = NEW.kode)
+                  ORDER BY 1 LOOP
+      PERFORM regen_person_visning(v_pid);
+    END LOOP;
+  END IF;
+  RETURN NULL;
+END $$;
+
+CREATE OR REPLACE TRIGGER trg_lineage_regen
+  AFTER INSERT OR DELETE OR UPDATE OF slaegtsnavn, parent_lineage_id, kode, source_id ON public.lineage
+  FOR EACH ROW EXECUTE FUNCTION public.trg_regen_from_lineage();
+
+REVOKE EXECUTE ON FUNCTION public.trg_regen_from_lineage_membership(), public.trg_regen_from_lineage()
+  FROM PUBLIC, anon, authenticated, service_role;
+
+-- D3: »Ret« på en person rammer det viste faktum. D5: omvendt datointerval afvises (også i de to næste).
+CREATE OR REPLACE FUNCTION public.red_upsert_fakta(
+  p_subjekt_type text, p_subjekt_id bigint, p_faktatype text, p_vaerdi text,
+  p_date_min date DEFAULT NULL, p_date_max date DEFAULT NULL,
+  p_date_qualifier text DEFAULT NULL, p_date_raw text DEFAULT NULL,
+  p_kilde_fritekst text DEFAULT NULL
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_fact bigint; v_assert bigint; v_cit bigint; v_concl bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN
+    RAISE EXCEPTION 'Kun redaktion må skrive fakta (din rolle: %)', current_rolle();
+  END IF;
+  IF p_faktatype = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Brug red_tilfoej_foraeldre_paastand / red_vaelg_foraeldre til forældrefamilie';
+  END IF;
+  -- Review 37 D5: et omvendt datointerval afvises, før et ændringssæt åbnes.
+  IF p_date_min IS NOT NULL AND p_date_max IS NOT NULL AND p_date_min > p_date_max THEN
+    RAISE EXCEPTION 'DATO_INTERVAL_OMVENDT' USING ERRCODE = '22023';
+  END IF;
+  PERFORM begin_change_set('red_upsert_fakta', format('Opdaterede %s på %s/%s', p_faktatype, p_subjekt_type, p_subjekt_id), p_subjekt_type, p_subjekt_id);
+  -- Review 37 D3: på en person rammes det viste faktum (samme regel som visningscachen); findes intet afklaret,
+  -- genbruges det første i bogens orden (genaktiverer fx en tilbagetrukket forældre_ukendt-markering).
+  IF p_subjekt_type = 'person' THEN
+    v_fact := private.person_visnings_fakt(p_subjekt_id, p_faktatype);
+  ELSE
+    SELECT id INTO v_fact FROM fact
+      WHERE subjekt_type=p_subjekt_type AND subjekt_id=p_subjekt_id AND faktatype=p_faktatype LIMIT 1;
+  END IF;
+  IF v_fact IS NULL THEN
+    INSERT INTO fact(subjekt_type, subjekt_id, faktatype)
+      VALUES (p_subjekt_type, p_subjekt_id, p_faktatype)
+      RETURNING id INTO v_fact;
+  END IF;
+  INSERT INTO assertion(target_type, target_id, vaerdi_tekst,
+                        date_min, date_max, date_qualifier, date_raw, uforanderlig)
+    VALUES ('fact', v_fact, p_vaerdi,
+            p_date_min, p_date_max, p_date_qualifier, p_date_raw, false)
+    RETURNING id INTO v_assert;
+  INSERT INTO citation(assertion_id, source_id, citat_tekst)
+    VALUES (v_assert, NULL,
+            coalesce(p_kilde_fritekst,'(kilde mangler)'))
+    RETURNING id INTO v_cit;
+  INSERT INTO conclusion(target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
+    VALUES ('fact', v_fact, v_assert,
+            'afklaret', 'Redaktør', current_date)
+    ON CONFLICT (target_type, target_id)
+    DO UPDATE SET valgt_assertion_id=excluded.valgt_assertion_id, status='afklaret',
+                  blaastemplet_af='Redaktør', blaastemplet_naar=current_date
+    RETURNING id INTO v_concl;
+  RETURN jsonb_build_object('fact_id',v_fact,'assertion_id',v_assert,'citation_id',v_cit,'conclusion_id',v_concl);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_tilfoej_oplysning(
+  p_fact_id bigint, p_vaerdi text,
+  p_date_min date DEFAULT NULL, p_date_max date DEFAULT NULL,
+  p_date_qualifier text DEFAULT NULL, p_date_raw text DEFAULT NULL,
+  p_kilde_fritekst text DEFAULT NULL
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_assert bigint; v_cit bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF (SELECT faktatype FROM fact WHERE id=p_fact_id) = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Brug red_tilfoej_foraeldre_paastand til forældrefamilie-slottet';
+  END IF;
+  -- Review 37 D5: et omvendt datointerval afvises, før et ændringssæt åbnes.
+  IF p_date_min IS NOT NULL AND p_date_max IS NOT NULL AND p_date_min > p_date_max THEN
+    RAISE EXCEPTION 'DATO_INTERVAL_OMVENDT' USING ERRCODE = '22023';
+  END IF;
+  PERFORM begin_change_set('red_tilfoej_oplysning', format('Tilføjede oplysning til fakta %s', p_fact_id), NULL, NULL);
+  IF NOT EXISTS (SELECT 1 FROM fact WHERE id = p_fact_id) THEN
+    RAISE EXCEPTION 'Fact % findes ikke', p_fact_id;
+  END IF;
+  INSERT INTO assertion(target_type, target_id, vaerdi_tekst,
+                        date_min, date_max, date_qualifier, date_raw, uforanderlig)
+    VALUES ('fact', p_fact_id, p_vaerdi,
+            p_date_min, p_date_max, p_date_qualifier, p_date_raw, false)
+    RETURNING id INTO v_assert;
+  INSERT INTO citation(assertion_id, source_id, citat_tekst)
+    VALUES (v_assert, NULL,
+            coalesce(p_kilde_fritekst,'(kilde mangler)'))
+    RETURNING id INTO v_cit;
+  RETURN jsonb_build_object('assertion_id', v_assert, 'citation_id', v_cit);
+END $$;
+
+CREATE OR REPLACE FUNCTION public.red_opret_fakta(
+  p_subjekt_type text, p_subjekt_id bigint, p_faktatype text, p_vaerdi text,
+  p_date_min date DEFAULT NULL, p_date_max date DEFAULT NULL,
+  p_date_qualifier text DEFAULT NULL, p_date_raw text DEFAULT NULL,
+  p_kilde_fritekst text DEFAULT NULL
+) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_fact bigint; v_assert bigint; v_cit bigint;
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_faktatype = 'forældrefamilie' THEN
+    RAISE EXCEPTION 'Brug red_tilfoej_foraeldre_paastand / red_vaelg_foraeldre til forældrefamilie';
+  END IF;
+  -- Review 37 D5: et omvendt datointerval afvises, før et ændringssæt åbnes.
+  IF p_date_min IS NOT NULL AND p_date_max IS NOT NULL AND p_date_min > p_date_max THEN
+    RAISE EXCEPTION 'DATO_INTERVAL_OMVENDT' USING ERRCODE = '22023';
+  END IF;
+  PERFORM begin_change_set('red_opret_fakta', format('Oprettede %s på %s/%s', p_faktatype, p_subjekt_type, p_subjekt_id), p_subjekt_type, p_subjekt_id);
+  INSERT INTO fact(subjekt_type, subjekt_id, faktatype)
+    VALUES (p_subjekt_type, p_subjekt_id, p_faktatype)
+    RETURNING id INTO v_fact;
+  INSERT INTO assertion(target_type, target_id, vaerdi_tekst,
+                        date_min, date_max, date_qualifier, date_raw, uforanderlig)
+    VALUES ('fact', v_fact, p_vaerdi,
+            p_date_min, p_date_max, p_date_qualifier, p_date_raw, false)
+    RETURNING id INTO v_assert;
+  INSERT INTO citation(assertion_id, source_id, citat_tekst)
+    VALUES (v_assert, NULL,
+            coalesce(p_kilde_fritekst,'(kilde mangler)'))
+    RETURNING id INTO v_cit;
+  INSERT INTO conclusion(target_type, target_id, valgt_assertion_id, status, blaastemplet_af, blaastemplet_naar)
+    VALUES ('fact', v_fact, v_assert,
+            'afklaret', 'Redaktør', current_date);
+  RETURN jsonb_build_object('fact_id', v_fact, 'assertion_id', v_assert, 'citation_id', v_cit);
+END $$;
+
+-- END review37-b2
