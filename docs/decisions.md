@@ -2,6 +2,17 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: en familie uden medlemmer er ikke offentlig (#397 S3, 2026-11-22)
+
+> Projektejeren 22/11 (»ja«, efter forklaring): `family_offentlig` kræver nu mindst ét medlem. Før var en familie
+> uden medlemmer offentlig, så fakta og billeder, der står tilbage, når en redaktør fjerner partnernes koblinger (fx en
+> vielsesdato for en nulevende), ville blive synlige for gæster. Målt i prod: 0 af 676 familier uden medlemmer, så intet
+> skifter i dag; læserne ser familier gennem deres medlemmer og mister intet. Følger: et ikke-eksisterende familie-id er
+> også falsk; et medlem kan ikke sende forslag om en tom familie (`FORSLAG_SUBJEKT_UTILGAENGELIGT`, samme fejl som for
+> skjulte og ikke-eksisterende, så intet orakel); billed-gaten skjuler et billede af en tom familie. Den inlinede kopi i
+> `regen_person_floruit` er uændret: den læser kun familier, hvor personen selv er partner. Medlemmer bruger samme
+> billedpolitik som gæster (`media_synlig_anon`), så billedet er også skjult for dem; redaktionen ser alt.
+
 ## BESLUTTET: review 37's databasefund (pakke B) — syv afgørelser (#397, 2026-11-22)
 
 > Målt i prod (læse-kun) og afgjort af projektejeren 22/11; tal og måleforespørgsler i #397 (kommentar 22/11).
