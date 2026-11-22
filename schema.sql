@@ -6532,6 +6532,36 @@ BEGIN
   WHERE p.id = pid AND p.visning_floruit IS DISTINCT FROM final.floruit;
 END $$;
 
+-- Review 37 D3: hvilket af personens fakta af en type er det viste. ÉN regel for visningscachen (regen_person_visning)
+-- og skrivevejen (red_upsert_fakta), så »Ret navn/titel« rammer det faktum, læseren ser. Rækkefølge:
+--  1. afklaret med en visningsværdi (vaerdi_tekst for navn/titel, date_raw for fødsel/død; andre typer: afklaret),
+--  2. afklaret,
+--  3. titel: adelstitlen (lukket liste, identisk med web's ADELS_TITLER i web/src/data/presens.ts — en vitest låser dem
+--     sammen; listen står kun her),
+--  4. bogens orden: laveste fact.id, så conclusion.id.
+-- Fakta uden eller med en ikke-afklaret konklusion kommer sidst; skrivevejen genbruger dem (red_upsert_fakta
+-- genaktiverer en tilbagetrukket markering som forældre_ukendt), mens cachen kun viser en afklaret konklusion.
+CREATE OR REPLACE FUNCTION private.person_visnings_fakt(p_pid bigint, p_faktatype text)
+RETURNS bigint LANGUAGE sql STABLE SET search_path=public AS $$
+  SELECT f.id
+    FROM fact f
+    LEFT JOIN conclusion c ON c.target_type = 'fact' AND c.target_id = f.id
+    LEFT JOIN assertion a ON a.id = c.valgt_assertion_id
+   WHERE f.subjekt_type = 'person' AND f.subjekt_id = p_pid AND f.faktatype = p_faktatype
+   ORDER BY
+     coalesce(c.status = 'afklaret' AND CASE WHEN p_faktatype IN ('fødsel','død') THEN a.date_raw
+                                            WHEN p_faktatype IN ('navn','titel') THEN a.vaerdi_tekst
+                                            ELSE '' END IS NOT NULL, false) DESC,
+     coalesce(c.status = 'afklaret', false) DESC,
+     (p_faktatype = 'titel'
+      AND coalesce(lower(trim(a.vaerdi_tekst)) IN ('greve','grevinde','komtesse','comtesse','lensgreve','lensgrevinde',
+                                                   'baron','baronesse','friherre','friherreinde','rigsgreve','rigsgrevinde'),
+                   false)) DESC,
+     f.id, c.id
+   LIMIT 1;
+$$;
+REVOKE ALL ON FUNCTION private.person_visnings_fakt(bigint,text) FROM PUBLIC, anon, authenticated, service_role;
+
 -- Recompute cache-felter fra personens konklusioner. Læser den VALGTE assertions værdi pr. faktatype.
 -- Udvidet (udledt-slægtsnavn-design §4.5) til også at sætte visning_efternavn/visning_fuldt_navn.
 -- Efternavn-opslaget er fan-out-sikkert: LATERAL sikrer ÉN lineage_effective_slaegtsnavn-kald pr.
@@ -6541,10 +6571,11 @@ END $$;
 -- visning-cache-regler (issue #396, 2026-11-20):
 --  * Fødsel/død viser kun date_raw (bogens/redaktørens datotekst). En udateret dødsoplysning som »ung« eller
 --    »fem dage gammel« ligger i vaerdi_tekst og er ikke en livsdato (ville ellers give »2. okt. 1859–lille«).
---  * Titel: flere afklarede titel-fakta er normalt; vis adelstitlen (lukket liste, identisk med web's
---    ADELS_TITLER i web/src/data/presens.ts — en vitest låser dem sammen), ellers den første i bogens orden
+--  * Titel: flere afklarede titel-fakta er normalt; vis adelstitlen, ellers den første i bogens orden
 --    (laveste fact.id, så conclusion.id). Før valgte triggeren alfabetisk max() og loaderen LIMIT 1, så titlen
 --    skiftede, når en redaktør rørte personen.
+--  * Review 37 D3: navn, fødsel og død følger samme regel (den første afklarede værdi i bogens orden, ikke max()).
+--    Valget ligger i private.person_visnings_fakt, som red_upsert_fakta også bruger.
 CREATE OR REPLACE FUNCTION regen_person_visning(pid BIGINT)
 RETURNS void LANGUAGE plpgsql SET search_path=public AS $$
 DECLARE v_n_distinct INT; v_slaegtsnavn TEXT;
@@ -6562,19 +6593,18 @@ BEGIN
 
   WITH navn_agg AS (
     SELECT
-      max(a.vaerdi_tekst) FILTER (WHERE f.faktatype='navn')  AS navn,
-      max(a.date_raw) FILTER (WHERE f.faktatype='fødsel') AS foedt,
-      max(a.date_raw) FILTER (WHERE f.faktatype='død')    AS doed,
-      (array_agg(a.vaerdi_tekst ORDER BY
-         lower(trim(a.vaerdi_tekst)) IN ('greve','grevinde','komtesse','comtesse','lensgreve','lensgrevinde',
-                                         'baron','baronesse','friherre','friherreinde','rigsgreve','rigsgrevinde') DESC,
-         f.id, c.id)
-        FILTER (WHERE f.faktatype='titel' AND a.vaerdi_tekst IS NOT NULL))[1] AS titel
-    FROM fact f
-    -- Review trin B (1d.1-04): kun afklarede konklusioner (en omstridt/forældet/tilbagetrukket indgår ikke).
-    JOIN conclusion c ON c.target_type='fact' AND c.target_id=f.id AND c.status='afklaret'
-    JOIN assertion  a ON a.id = c.valgt_assertion_id
-    WHERE f.subjekt_type='person' AND f.subjekt_id = pid
+      max(v.vaerdi) FILTER (WHERE v.faktatype='navn')   AS navn,
+      max(v.vaerdi) FILTER (WHERE v.faktatype='fødsel') AS foedt,
+      max(v.vaerdi) FILTER (WHERE v.faktatype='død')    AS doed,
+      max(v.vaerdi) FILTER (WHERE v.faktatype='titel')  AS titel
+    FROM unnest(ARRAY['navn','fødsel','død','titel']) AS t(faktatype)
+    -- Højst én række pr. type: det viste faktum. Review trin B (1d.1-04): kun en afklaret konklusion vises (en
+    -- omstridt/forældet/tilbagetrukket indgår ikke).
+    CROSS JOIN LATERAL (
+      SELECT t.faktatype, CASE WHEN t.faktatype IN ('fødsel','død') THEN a.date_raw ELSE a.vaerdi_tekst END AS vaerdi
+        FROM conclusion c JOIN assertion a ON a.id = c.valgt_assertion_id
+       WHERE c.target_type = 'fact' AND c.status = 'afklaret'
+         AND c.target_id = private.person_visnings_fakt(pid, t.faktatype)) v
   ),
   final AS (
     SELECT
@@ -6864,8 +6894,14 @@ BEGIN
     RAISE EXCEPTION 'Brug red_tilfoej_foraeldre_paastand / red_vaelg_foraeldre til forældrefamilie';
   END IF;
   PERFORM begin_change_set('red_upsert_fakta', format('Opdaterede %s på %s/%s', p_faktatype, p_subjekt_type, p_subjekt_id), p_subjekt_type, p_subjekt_id);
-  SELECT id INTO v_fact FROM fact
-    WHERE subjekt_type=p_subjekt_type AND subjekt_id=p_subjekt_id AND faktatype=p_faktatype LIMIT 1;
+  -- Review 37 D3: på en person rammes det viste faktum (samme regel som visningscachen); findes intet afklaret,
+  -- genbruges det første i bogens orden (genaktiverer fx en tilbagetrukket forældre_ukendt-markering).
+  IF p_subjekt_type = 'person' THEN
+    v_fact := private.person_visnings_fakt(p_subjekt_id, p_faktatype);
+  ELSE
+    SELECT id INTO v_fact FROM fact
+      WHERE subjekt_type=p_subjekt_type AND subjekt_id=p_subjekt_id AND faktatype=p_faktatype LIMIT 1;
+  END IF;
   IF v_fact IS NULL THEN
     INSERT INTO fact(subjekt_type, subjekt_id, faktatype)
       VALUES (p_subjekt_type, p_subjekt_id, p_faktatype)

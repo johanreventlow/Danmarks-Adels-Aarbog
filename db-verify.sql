@@ -9031,6 +9031,80 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 -- END-VERIFY r37b2-d1
 
+-- BEGIN-VERIFY r37b2-d3
+-- ===== Review 37 D3: »Ret navn/titel« rammer den viste oplysning; navn/fødsel/død vises i bogens orden =====
+-- (a) To afklarede navne: visningen er den første i bogens orden (ikke alfabetisk max()), og red_upsert_fakta('navn')
+-- retter netop det faktum. (b) Titel: en ikke-adelig titel først, så »Greve«: red_upsert_fakta('titel') retter Greve-
+-- faktummet. (c) Et tilbagetrukket navn før det viste genaktiveres ikke. (d) En tilbagetrukket forældre_ukendt-
+-- markering genaktiveres stadig på samme faktum. (e) En udateret død (»ung«) før en dateret skjuler ikke datoen.
+-- Selvforsynende; rulles tilbage.
+DO $$
+DECLARE v_f1 bigint; v_f2 bigint; v_res jsonb;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  INSERT INTO person(id,levende,privat) VALUES (-937301,false,false),(-937302,false,false),(-937303,false,false),
+    (-937304,false,false),(-937305,false,false);
+
+  -- (a) navn: Anna (bogens første) og Bodil (alfabetisk størst, max() viste den).
+  v_f1 := (red_opret_fakta('person',-937301,'navn','Anna')->>'fact_id')::bigint;
+  v_f2 := (red_opret_fakta('person',-937301,'navn','Bodil')->>'fact_id')::bigint;
+  IF (SELECT visning_navn FROM person WHERE id=-937301) IS DISTINCT FROM 'Anna' THEN
+    RAISE EXCEPTION 'FEJL: D3 — visningen viser ikke det første navn i bogens orden (%)',
+      (SELECT visning_navn FROM person WHERE id=-937301); END IF;
+  v_res := red_upsert_fakta('person',-937301,'navn','Annette');
+  IF (v_res->>'fact_id')::bigint IS DISTINCT FROM v_f1
+     OR (SELECT visning_navn FROM person WHERE id=-937301) IS DISTINCT FROM 'Annette' THEN
+    RAISE EXCEPTION 'FEJL: D3 — red_upsert_fakta(navn) ramte fakta % i stedet for det viste %', v_res->>'fact_id', v_f1; END IF;
+
+  -- (b) titel: Kammerherre først, så Greve (vist).
+  v_f1 := (red_opret_fakta('person',-937302,'titel','Kammerherre')->>'fact_id')::bigint;
+  v_f2 := (red_opret_fakta('person',-937302,'titel','Greve')->>'fact_id')::bigint;
+  IF (SELECT visning_titel FROM person WHERE id=-937302) IS DISTINCT FROM 'Greve' THEN
+    RAISE EXCEPTION 'FEJL: D3 — adelstitlen vises ikke'; END IF;
+  v_res := red_upsert_fakta('person',-937302,'titel','Lensgreve');
+  IF (v_res->>'fact_id')::bigint IS DISTINCT FROM v_f2
+     OR (SELECT a.vaerdi_tekst FROM conclusion c JOIN assertion a ON a.id=c.valgt_assertion_id
+          WHERE c.target_type='fact' AND c.target_id=v_f2) IS DISTINCT FROM 'Lensgreve'
+     OR (SELECT visning_titel FROM person WHERE id=-937302) IS DISTINCT FROM 'Lensgreve' THEN
+    RAISE EXCEPTION 'FEJL: D3 — red_upsert_fakta(titel) ramte fakta % i stedet for Greve-faktummet %', v_res->>'fact_id', v_f2; END IF;
+
+  -- (c) et tilbagetrukket navn før det viste.
+  v_f1 := (red_opret_fakta('person',-937303,'navn','Gammel')->>'fact_id')::bigint;
+  PERFORM red_tilbagetraek_fakta(v_f1);
+  v_f2 := (red_opret_fakta('person',-937303,'navn','Anna')->>'fact_id')::bigint;
+  v_res := red_upsert_fakta('person',-937303,'navn','Anne');
+  IF (v_res->>'fact_id')::bigint IS DISTINCT FROM v_f2
+     OR (SELECT status FROM conclusion WHERE target_type='fact' AND target_id=v_f1) IS DISTINCT FROM 'tilbagetrukket'
+     OR (SELECT visning_navn FROM person WHERE id=-937303) IS DISTINCT FROM 'Anne' THEN
+    RAISE EXCEPTION 'FEJL: D3 — red_upsert_fakta(navn) genaktiverede det tilbagetrukne faktum % i stedet for det viste %',
+      v_res->>'fact_id', v_f2; END IF;
+
+  -- (d) forældre_ukendt: markér, tilbagetræk, markér igen → samme faktum, afklaret.
+  v_f1 := (red_upsert_fakta('person',-937304,'forældre_ukendt','ukendt')->>'fact_id')::bigint;
+  PERFORM red_tilbagetraek_fakta(v_f1);
+  v_res := red_upsert_fakta('person',-937304,'forældre_ukendt','ukendt');
+  IF (v_res->>'fact_id')::bigint IS DISTINCT FROM v_f1
+     OR (SELECT count(*) FROM fact WHERE subjekt_type='person' AND subjekt_id=-937304) <> 1
+     OR (SELECT status FROM conclusion WHERE target_type='fact' AND target_id=v_f1) IS DISTINCT FROM 'afklaret' THEN
+    RAISE EXCEPTION 'FEJL: D3 — forældre_ukendt blev ikke genaktiveret på samme faktum (%)', v_res; END IF;
+
+  -- (e) død: »ung« (udateret) før en dateret død.
+  PERFORM red_opret_fakta('person',-937305,'død','ung');
+  PERFORM red_opret_fakta('person',-937305,'død','2. okt. 1859', p_date_raw => '2. okt. 1859');
+  IF (SELECT visning_doed FROM person WHERE id=-937305) IS DISTINCT FROM '2. okt. 1859' THEN
+    RAISE EXCEPTION 'FEJL: D3 — en udateret død skjulte datoen (%)', (SELECT visning_doed FROM person WHERE id=-937305); END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 D3 — visning og »Ret« følger samme faktum';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b2-d3
+
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt
 -- request.jwt.claim.sub; i Supabase SQL Editor kør som funktionsejer (jf. Task 4-note).
