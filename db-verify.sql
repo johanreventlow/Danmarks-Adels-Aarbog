@@ -9149,6 +9149,76 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 -- END-VERIFY r37b2-d5
 
+-- BEGIN-VERIFY r37b3-s4
+-- ===== Review 37 S4: et billede afbilder person (person → media) eller gods/våben/linje/familie/sted (media → …) =====
+-- Tabel-CHECK'en relation_afbildet_kanonisk afviser enhver anden retning og enhver stavemåde af 'afbildet' end den
+-- eksakte (billed-gaten sammenligner eksakt). red_relation og red_tilfoej_relation afviser med AFBILDET_RETNING_UGYLDIG
+-- (22023) uden at åbne et ændringssæt. Alle seks tilladte retninger accepteres. Selvforsynende; rulles tilbage.
+DO $$
+DECLARE v_t text; v_n_cs bigint; v_state text; v_msg text; v_ok boolean;
+BEGIN
+  PERFORM set_config('app.change_set_id','',true);
+  PERFORM set_config('request.jwt.claim.sub','00000000-0000-0000-0000-000000000001',true);
+  INSERT INTO auth.users(id,email) VALUES ('00000000-0000-0000-0000-000000000001','db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id,rolle,email) VALUES ('00000000-0000-0000-0000-000000000001','redaktion','t@x')
+    ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
+  INSERT INTO person(id,levende,privat) VALUES (-937601,false,false);
+  INSERT INTO family(id,type) VALUES (-937611,'vielse');
+  INSERT INTO media(id) VALUES (-937621),(-937622);
+  INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-937631,'person',-937601,'embede');
+  -- Stavemåder, der ville gå uden om gaten, og retninger uden for listen: tabel-CHECK'en.
+  FOREACH v_t IN ARRAY ARRAY['Afbildet',' afbildet','AFBILDET '] LOOP
+    v_ok := false;
+    BEGIN
+      INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES ('person',-937601,'media',-937621,v_t);
+    EXCEPTION WHEN check_violation THEN v_ok := true;
+    END;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: S4 — relation accepterede rollen «%» (relation_afbildet_kanonisk mangler)', v_t; END IF;
+  END LOOP;
+  v_ok := false;
+  BEGIN
+    INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES ('media',-937621,'fact',-937631,'afbildet');
+  EXCEPTION WHEN check_violation THEN v_ok := true;
+  END;
+  IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: S4 — relation accepterede media → fact som afbildet'; END IF;
+  -- Redigerings-RPC'erne: læsbar fejl før ændringssættet.
+  SELECT count(*) INTO v_n_cs FROM change_set;
+  FOREACH v_t IN ARRAY ARRAY['media→fact','media→organisation','Afbildet','person→estate'] LOOP
+    v_ok := false;
+    BEGIN
+      IF v_t = 'media→fact' THEN PERFORM red_relation('media',-937621,'fact',-937631,'afbildet');
+      ELSIF v_t = 'media→organisation' THEN PERFORM red_relation('media',-937621,'organisation',-937641,'afbildet');
+      ELSIF v_t = 'Afbildet' THEN PERFORM red_relation('person',-937601,'media',-937621,'Afbildet');
+      ELSE PERFORM red_tilfoej_relation(-937601,'estate',-937642,' afbildet');
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+      IF v_state = '22023' AND v_msg LIKE 'AFBILDET_RETNING_UGYLDIG:%' THEN v_ok := true;
+      ELSIF v_state = '23514' THEN v_ok := false;
+      ELSE RAISE; END IF;
+    END;
+    IF NOT v_ok THEN RAISE EXCEPTION 'FEJL: S4 — % blev ikke afvist med AFBILDET_RETNING_UGYLDIG', v_t; END IF;
+    PERFORM set_config('app.change_set_id','',true);
+  END LOOP;
+  IF (SELECT count(*) FROM change_set) <> v_n_cs THEN
+    RAISE EXCEPTION 'FEJL: S4 — en afvist afbildning åbnede et ændringssæt'; END IF;
+  -- De seks tilladte retninger.
+  PERFORM red_relation('person',-937601,'media',-937621,'afbildet');
+  FOREACH v_t IN ARRAY ARRAY['estate','coat_of_arms','lineage','family','place'] LOOP
+    PERFORM set_config('app.change_set_id','',true);
+    PERFORM red_relation('media',-937622,v_t,CASE WHEN v_t='family' THEN -937611 ELSE -937650 END,'afbildet');
+  END LOOP;
+  IF (SELECT count(*) FROM relation WHERE rolle='afbildet' AND -937621 IN (subjekt_id,objekt_id)) <> 1
+     OR (SELECT count(*) FROM relation WHERE rolle='afbildet' AND subjekt_type='media' AND subjekt_id=-937622) <> 5 THEN
+    RAISE EXCEPTION 'FEJL: S4 — en tilladt retning blev ikke oprettet'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM='ROLLBACK_TEST_OK' THEN RAISE NOTICE 'OK: review37 S4 — afbildet kun i de seks retninger, eksakt stavet';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37b3-s4
+
 -- BEGIN-VERIFY r37b3-gate
 -- ===== Review 37 S4: billed-gaten følger familiens synlighed =====
 -- media_afbilder_skjult er sand for et billede af en familie, der ikke er offentlig (et levende eller privat medlem);

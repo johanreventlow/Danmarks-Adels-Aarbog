@@ -3731,12 +3731,19 @@ BEGIN
   END LOOP;
   PERFORM purge_test.nyt();
   PERFORM public.red_relation('person',pg_temp.gid('D'),'media',pg_temp.gid('m_delt'),'afbildet');
-  -- Familiefoto direkte på fam_b og vielsesfoto kun på vielse_b, begge via upload-RPC'en (media→mål, 'afbildet').
+  -- Familiefoto direkte på fam_b (upload-RPC'en, media→familie, 'afbildet') og vielsesfoto kun på vielse_b. Review 37
+  -- blok 3 (S4): 'afbildet' må ikke pege på et faktum (relation_afbildet_kanonisk), så vielsesfotoets kobling er en
+  -- anden rolle ('illustrerer'); sletningen er rolle-uafhængig for medier (media_ref/md matcher kun typer).
   FOR r IN SELECT * FROM (VALUES ('famfoto','family','fam_b','gdpr-test/familie.jpg'),('vielse','fact','vielse_b','gdpr-test/vielse.jpg'))
       x(k,typ,maal,sti) LOOP
     PERFORM purge_test.nyt();
-    v_m:=public.red_upload_media('foto','Syntetisk billede',r.sti,'image/jpeg',p_objekt_type=>r.typ,p_objekt_id=>pg_temp.gid(r.maal),
-      p_maa_publiceres=>true);
+    IF r.typ='family' THEN
+      v_m:=public.red_upload_media('foto','Syntetisk billede',r.sti,'image/jpeg',p_objekt_type=>r.typ,p_objekt_id=>pg_temp.gid(r.maal),
+        p_maa_publiceres=>true);
+    ELSE
+      v_m:=public.red_upload_media('foto','Syntetisk billede',r.sti,'image/jpeg',p_maa_publiceres=>true);
+      PERFORM public.red_relation('media',v_m,r.typ,pg_temp.gid(r.maal),'illustrerer');
+    END IF;
     INSERT INTO pg_temp.gdpr_id VALUES ('m_'||r.k,v_m);
     INSERT INTO pg_temp.gdpr_id SELECT 'rel_m_'||r.k,id FROM public.relation
       WHERE subjekt_type='media' AND subjekt_id=v_m AND objekt_type=r.typ AND objekt_id=pg_temp.gid(r.maal);

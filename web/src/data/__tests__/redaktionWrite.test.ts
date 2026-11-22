@@ -308,6 +308,14 @@ describe('buildRpcCall — filside fase 1', () => {
     expect(oversaetFejl('DATO_INTERVAL_OMVENDT')).toBe('Datoerne er i forkert rækkefølge: den tidligste dato ligger efter den seneste.');
   });
 
+  it('ugyldig billedretning oversættes (review 37 blok 3)', () => {
+    expect(oversaetFejl('AFBILDET_RETNING_UGYLDIG: et billede kan kun afbilde en person, et gods, et våben, en linje, en familie eller et sted (fik media → fact, rolle «afbildet»)'))
+      .toBe('Et billede kan kun afbilde en person, et gods, et våben, en linje, en familie eller et sted.');
+    // Den gamle person-på-objektsiden-fejl beholder sin tekst.
+    expect(oversaetFejl('afbildet skal gå person→media (person kan ikke stå på objekt-siden — GDPR-gating)'))
+      .toBe('En person skal stå på subjekt-siden ved billedtilknytning.');
+  });
+
   it('nye domænefejl oversættes', () => {
     expect(oversaetFejl('Kan kun genoprette et fjernet medie')).toContain('kun genoprettes');
     expect(oversaetFejl('Slags kan ikke ryddes')).toBe('Slags kan ikke ryddes.');
