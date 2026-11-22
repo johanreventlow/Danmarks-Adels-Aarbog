@@ -3526,6 +3526,8 @@ CREATE TABLE bookmark (              -- login-eksklusive bogmærker (kun persone
   oprettet  TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (user_id, person_id)
 );
+-- Review 37 Y9: UNIQUE (user_id, person_id) dækker ikke person_id alene (ON DELETE CASCADE fra person).
+CREATE INDEX IF NOT EXISTS ix_bookmark_person_id ON bookmark(person_id);
 ALTER TABLE bookmark ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE family (                    -- union/partnerskab
@@ -6317,6 +6319,11 @@ CREATE TABLE haendelse (
 );
 CREATE INDEX ix_haendelse_subjekt   ON haendelse(subjekt_type, subjekt_id);
 CREATE INDEX ix_haendelse_narrative ON haendelse(narrative_id);
+-- Review 37 Y9: FK'erne til fact/relation får et indeks (sletning af et faktum/en relation slår ellers op med seq scan).
+-- ix_haendelse_narrative er redundant med ix_haendelse_narrative_id (narrative_id,id), men droppes ikke her:
+-- det kræver DROP INDEX CONCURRENTLY uden for deploy-transaktionen.
+CREATE INDEX IF NOT EXISTS ix_haendelse_fact_id     ON haendelse(fact_id)     WHERE fact_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_haendelse_relation_id ON haendelse(relation_id) WHERE relation_id IS NOT NULL;
 
 INSERT INTO vocab (scheme, code, label) VALUES
   ('haendelse_feed_status','kandidat',   'Umarkeret — må vises som arkiv-kort'),
@@ -6369,6 +6376,10 @@ CREATE TABLE IF NOT EXISTS story (
 CREATE INDEX IF NOT EXISTS ix_story_subjekt   ON story(subjekt_type, subjekt_id);
 CREATE INDEX IF NOT EXISTS ix_story_haendelse ON story(haendelse_id);
 CREATE INDEX IF NOT EXISTS ix_story_status    ON story(status);
+-- Review 37 Y9: indeks på de øvrige FK-ankre (ON DELETE SET NULL slår ellers op med seq scan).
+CREATE INDEX IF NOT EXISTS ix_story_fact_id             ON story(fact_id)             WHERE fact_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_story_relation_id         ON story(relation_id)         WHERE relation_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_story_historical_event_id ON story(historical_event_id) WHERE historical_event_id IS NOT NULL;
 
 -- Historien viser altid sine kilder (koncept §3.2 — "transparens er tonen").
 CREATE TABLE IF NOT EXISTS story_kilde (

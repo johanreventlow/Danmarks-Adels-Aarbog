@@ -8929,6 +8929,35 @@ EXCEPTION WHEN OTHERS THEN
 END $$;
 -- END-VERIFY r37b1-s2
 
+-- BEGIN-VERIFY r37b1-y9
+-- ===== Review 37 Y9: FK'er med indeks (haendelse, story, bookmark) =====
+-- Hvert indeks skal findes på den rigtige tabel og have FK-kolonnen som første (eneste) nøglekolonne.
+DO $$
+DECLARE r record; v_mangler text[] := '{}';
+BEGIN
+  FOR r IN SELECT * FROM (VALUES
+      ('ix_haendelse_fact_id','haendelse','fact_id'),
+      ('ix_haendelse_relation_id','haendelse','relation_id'),
+      ('ix_story_fact_id','story','fact_id'),
+      ('ix_story_relation_id','story','relation_id'),
+      ('ix_story_historical_event_id','story','historical_event_id'),
+      ('ix_bookmark_person_id','bookmark','person_id')) v(ix,tabel,kol) LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_index i
+        JOIN pg_class ic ON ic.oid=i.indexrelid
+        JOIN pg_class tc ON tc.oid=i.indrelid
+        JOIN pg_attribute a ON a.attrelid=i.indrelid AND a.attnum=i.indkey[0]
+       WHERE ic.relnamespace='public'::regnamespace AND ic.relname=r.ix
+         AND tc.relname=r.tabel AND a.attname=r.kol AND i.indnkeyatts=1 AND i.indisvalid) THEN
+      v_mangler := v_mangler || r.ix;
+    END IF;
+  END LOOP;
+  IF cardinality(v_mangler) > 0 THEN
+    RAISE EXCEPTION 'FEJL: Y9 — FK-indeks mangler eller er forkerte: %', v_mangler; END IF;
+  RAISE NOTICE 'OK: review37 Y9 — seks FK-indeks på haendelse, story og bookmark';
+END $$;
+-- END-VERIFY r37b1-y9
+
 -- ===== ikke_samme_som — persisteret identitets-afvisning (tværudgave-spec §4) =====
 -- Kræver redaktion-kontekst (auth.uid() → redaktion-profil). Lokalt: sæt
 -- request.jwt.claim.sub; i Supabase SQL Editor kør som funktionsejer (jf. Task 4-note).

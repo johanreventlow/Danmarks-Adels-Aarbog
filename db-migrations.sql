@@ -46899,4 +46899,13 @@ BEGIN
   RETURN jsonb_build_object('publiceret_source', p_source_id, 'personer_afstaget', v_n);
 END $$;
 
+-- Y9: FK'er uden indeks. ix_haendelse_narrative (redundant med ix_haendelse_narrative_id) droppes IKKE her: det
+-- kræver DROP INDEX CONCURRENTLY uden for transaktionen.
+CREATE INDEX IF NOT EXISTS ix_haendelse_fact_id     ON public.haendelse(fact_id)     WHERE fact_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_haendelse_relation_id ON public.haendelse(relation_id) WHERE relation_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_story_fact_id             ON public.story(fact_id)             WHERE fact_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_story_relation_id         ON public.story(relation_id)         WHERE relation_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_story_historical_event_id ON public.story(historical_event_id) WHERE historical_event_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS ix_bookmark_person_id ON public.bookmark(person_id);
+
 -- END review37-b1
