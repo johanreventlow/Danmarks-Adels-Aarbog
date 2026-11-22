@@ -570,7 +570,10 @@ shell **før** merge (webklienten kalder den nye RPC).
   maks 2,27 s live (1,38-1,89 s i forhåndsmålingerne), ~10-12 s samlet. **Rettet:** tallet »første kort efter 0,4-0,5 s«
   var forkert — målingen fangede noget andet på siden; `FeedStreamView` ventede på alle kilder inkl. biografierne, så gæster
   ventede ~10-12 s. Første uddeling har nu en frist på 2,5 s (`FEED_FOERSTE_UDDELING_FRIST_MS`); sene biografier og
-  hændelser fylder de næste blade. RPC'en koster ~10 ms pr. id i prod (stand-in ~2,5 ms) — server-side optimering i #422.
+  hændelser fylder de næste blade. **Fejl i #427, rettet 22/11 (`fix/feed-frist-tom-uddeling`):** uden biografier gav puljen ved fristen kun samlekortet; det
+  blev fjernet ved genopbygningen, og forsiden stod med »Henter blade« for evigt. Nu deles der kun ud ved fristen, hvis der
+  er egentlige blade; første portion fyldes op til seks, når data kommer. Målt i et produktionsbyg mod prod: 6 blade efter
+  17-20 s — feedets indhold afhænger af biografierne, så hastigheden ligger i #422. RPC'en koster ~10 ms pr. id i prod (stand-in ~2,5 ms) — server-side optimering i #422.
   **Åbent:** visuel bekræftelse af »Nævnt i Aarbogen«-kort (den hovedløse røgtest viste kun ~7 kort uden ét).
 - **#130** er frigivet (spec §7): A2, RPC'en og webklienten er i prod og efterkontrolleret som anon.
 
