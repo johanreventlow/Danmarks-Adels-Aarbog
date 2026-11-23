@@ -48529,12 +48529,12 @@ END $$;
 -- Review 37 D9 + R37B-1 (#397): låserækkefølgen i fortryd og sletning.
 --  D9      red_fortryd_change_set låste sættets rækker i sin egen faste orden (assertion → citation → conclusion → … →
 --          relation), slette-RPC'erne i FK-ordenen (conclusion/relation før assertion): to redaktører kunne låse
---          hinanden fast (deadlock). En fælles fortryd/slet-lås (advisory 'daa-fortryd-slet') tages FØR alle andre låse:
+--          hinanden fast (deadlock). En fælles fortryd/slet-lås (advisory 'daa-fortryd-slet') tages før alle rækkelåse
+--          (efter kontraktlåsen, som forbliver den første, hvor den findes):
 --          eksklusivt af fortrydelsen, delt af red_slet_oplysning, red_slet_relation, red_fjern_samme_som,
 --          red_fjern_ikke_samme_som, red_slet_person og red_slet_familie_link. red_slet_person_helt er uændret (dens
 --          låseorden L1-L13 følger fortrydelsens).
 --  R37B-1  fortrydelsen låser linjemedlemskabets person før medlemskabet, som medlemskabets writere.
--- Fortrydelsen og red_slet_person tager nu rollegaten før kontraktlåsen (rollegaten læser kun profiles).
 -- Deploy-området for prod er hele denne blok i ÉN transaktion. Kroppene er kopieret fra schema.sql og er de endelige
 -- definitioner; de ældre definitioner længere oppe gælder kun den fulde migrationssti. Idempotent: CREATE OR REPLACE med
 -- samme signatur og returtype bevarer funktionernes ACL. Ingen data ændres.
@@ -48547,15 +48547,16 @@ DECLARE
   v_div int := 0; pid bigint; v_forventet jsonb; v_contract_version integer; v_lock record; v_pin_maal record;
   v_cur_cmp jsonb; v_forv_cmp jsonb;
 BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  v_contract_version:=public.narrative_record_contract_version();
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   -- Review 37 D9: fortrydelsen låser sættets rækker i sin egen faste orden (person → … → assertion → citation →
   -- conclusion → … → relation), mens slette-RPC'erne følger FK-ordenen (conclusion/relation før assertion). De to
   -- kunne derfor låse hinanden fast. Den fælles fortryd/slet-lås serialiserer dem: fortrydelsen tager den eksklusivt,
-  -- slette-RPC'erne delt (de låser ikke hinanden ud). Den tages FØR alle andre låse i begge, så den aldrig kan indgå i
-  -- en cyklus.
+  -- slette-RPC'erne delt (de låser ikke hinanden ud). Den tages lige efter kontraktlåsen (som forbliver den første,
+  -- narrativ-kontraktens Task 6) og før alle rækkelåse; slette-RPC'erne uden kontraktlås tager den først, og
+  -- red_slet_person tager den også lige efter kontraktlåsen. Cutoveren tager aldrig fortryd/slet-låsen: ingen cyklus.
   PERFORM pg_advisory_xact_lock(hashtextextended('daa-fortryd-slet',0));
-  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
-  v_contract_version:=public.narrative_record_contract_version();
   -- Publication writers hold ACCESS EXCLUSIVE while allocating their audit
   -- set and appending its event. Take the weakest conflicting table lock before
   -- the dedicated-routing predicate so the predicate cannot race an uncommitted
@@ -48898,9 +48899,6 @@ CREATE OR REPLACE FUNCTION red_slet_person(p_person_id bigint)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_facts bigint[]; v_rels bigint[]; v_contract_version integer; v_aarsag text;
 BEGIN
-  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
-  -- Review 37 D9: fortryd/slet-låsen (delt) før alle andre låse, også kontraktlåsen; se red_fortryd_change_set.
-  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-fortryd-slet',0));
   -- #152: serialize with the atomic narrative-record cutover before every
   -- existing delete lock. Publication history is append-only, so whole-person
   -- hard delete stays fail-closed until the retention/tombstone design exists.
@@ -48908,6 +48906,10 @@ BEGIN
     hashtextextended('daa-narrative-record-contract',0)
   );
   v_contract_version:=public.narrative_record_contract_version();
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 D9: fortryd/slet-låsen (delt) lige efter kontraktlåsen og før alle andre låse, i samme orden som
+  -- red_fortryd_change_set (kontrakt → fortryd/slet).
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-fortryd-slet',0));
   IF EXISTS (
     SELECT 1
       FROM private.narrative_publication_event event
