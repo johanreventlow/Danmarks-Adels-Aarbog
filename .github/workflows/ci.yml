@@ -325,6 +325,7 @@ jobs:
             psql -q -v ON_ERROR_STOP=1 -d ci_k36_laase -f "$f" >/dev/null; done
           psql -v ON_ERROR_STOP=1 -d ci_k36_laase -f tests/sql/test-portraet-primaer.sql
           psql -v ON_ERROR_STOP=1 -d ci_k36_laase -f tests/sql/test-fortryd-raekkelaas.sql
+          psql -v ON_ERROR_STOP=1 -d ci_k36_laase -f tests/sql/test-review37-d9-laaseorden.sql
           sed -n '/^-- BEGIN 5a-cutover/,/^-- END 5a-cutover/p' db-migrations.sql > /tmp/cutover-5a.sql
           psql -v ON_ERROR_STOP=1 -v cutover=/tmp/cutover-5a.sql -f tests/sql/test-identity-cutover.sql
           python3 .claude/skills/daa-extract/scripts/check_interpretation_predicates.py
@@ -734,11 +735,11 @@ jobs:
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         # f37b294a = #363, prods installerede SQL; origin/main har fuld personsletning, som ikke er i prod.
         run: bash tests/sql/test-record-persona-upgrade.sh cirecord_persona_upgrade f37b294a
-      - name: Opgradering fra prods skema (review 37 blok 4 · konklusion og ændringssæt i redaktionens RPC'er)
+      - name: Opgradering fra prods skema (review 37 D9 + R37B-1 · låserækkefølgen i fortryd og sletning)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
-        # 526a769a = main efter merge af #443 (P11) — prods SQL efter P11 (i prod 22/11). P11's test er
+        # b18bd8a8 = main efter merge af #447 (blok 4) — prods SQL efter blok 4 (i prod 22/11). Blok 4's test er
         # pensioneret (tests/ikke-i-ci.txt).
-        run: bash tests/sql/test-review37-b4-upgrade.sh ci_r37b4_upgrade 526a769a
+        run: bash tests/sql/test-review37-d9-upgrade.sh ci_r37d9_upgrade b18bd8a8
       - name: Fuld personsletning · fixtur, tæller og katalogvagt pr. kolonne
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         run: bash tests/sql/test-person-purge.sh ciperson_purge

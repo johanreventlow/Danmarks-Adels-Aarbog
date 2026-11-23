@@ -7180,6 +7180,8 @@ BEGIN
   IF EXISTS (SELECT 1 FROM assertion WHERE id=p_assertion_id AND uforanderlig IS NOT FALSE) THEN
     RAISE EXCEPTION 'Kildepåstande slettes ikke (uforanderlige) — kun redaktørens egne oplysninger kan slettes; tilføj eller ret en oplysning og vælg den i stedet';
   END IF;
+  -- Review 37 D9: fortryd/slet-låsen (delt) før første rækkelås; se red_fortryd_change_set.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-fortryd-slet',0));
   -- Review 37 D11: et ukendt id er en fejl, før ændringssættet åbnes (før: stille retur med et tomt sæt og falsk succes).
   IF NOT EXISTS (SELECT 1 FROM assertion WHERE id = p_assertion_id) THEN
     RAISE EXCEPTION 'Oplysning % findes ikke', p_assertion_id; END IF;
@@ -7480,6 +7482,9 @@ BEGIN
   );
   v_contract_version:=public.narrative_record_contract_version();
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 D9: fortryd/slet-låsen (delt) lige efter kontraktlåsen og før alle andre låse, i samme orden som
+  -- red_fortryd_change_set (kontrakt → fortryd/slet).
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-fortryd-slet',0));
   IF EXISTS (
     SELECT 1
       FROM private.narrative_publication_event event
@@ -7687,6 +7692,8 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 DECLARE v_role text;
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 D9: fortryd/slet-låsen (delt) før alle andre låse, også identitetsprotokollens; se red_fortryd_change_set.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-fortryd-slet',0));
   -- Klassificér uden rækkelås. Identity/absent tager den globale protokol før
   -- change_set; unrelated bevarer repository-ordenen change_set -> relation tuple.
   SELECT rolle INTO v_role FROM relation WHERE id=p_relation_id;
@@ -8219,6 +8226,8 @@ CREATE OR REPLACE FUNCTION red_fjern_samme_som(p_relation_id bigint)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 D9: fortryd/slet-låsen (delt) før identitetslåsen; se red_fortryd_change_set.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-fortryd-slet',0));
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
   PERFORM private.guard_identity_mutation_snapshot();
   IF NOT EXISTS(SELECT 1 FROM relation WHERE id=p_relation_id AND rolle='samme_som'
@@ -8282,6 +8291,8 @@ CREATE OR REPLACE FUNCTION red_fjern_ikke_samme_som(p_relation_id bigint)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 D9: fortryd/slet-låsen (delt) før identitetslåsen; se red_fortryd_change_set.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-fortryd-slet',0));
   PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
   PERFORM private.guard_identity_mutation_snapshot();
   IF NOT EXISTS(SELECT 1 FROM relation WHERE id=p_relation_id AND rolle='ikke_samme_som'
@@ -8450,6 +8461,8 @@ CREATE OR REPLACE FUNCTION red_slet_familie_link(p_family_id bigint, p_person_id
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 D9: fortryd/slet-låsen (delt) før første rækkelås; se red_fortryd_change_set.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-fortryd-slet',0));
   PERFORM begin_change_set('red_slet_familie_link', format('Slettede familie-link %s/%s/%s', p_family_id, p_person_id, p_rolle), 'person', p_person_id);
   DELETE FROM family_member WHERE family_id=p_family_id AND person_id=p_person_id AND rolle=p_rolle;
   -- Slot-retraktion (Problem 2, review 30 B1): en fjernet 'barn'-række må ikke efterlade et
@@ -9936,6 +9949,13 @@ BEGIN
   PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
   v_contract_version:=public.narrative_record_contract_version();
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 D9: fortrydelsen låser sættets rækker i sin egen faste orden (person → … → assertion → citation →
+  -- conclusion → … → relation), mens slette-RPC'erne følger FK-ordenen (conclusion/relation før assertion). De to
+  -- kunne derfor låse hinanden fast. Den fælles fortryd/slet-lås serialiserer dem: fortrydelsen tager den eksklusivt,
+  -- slette-RPC'erne delt (de låser ikke hinanden ud). Den tages lige efter kontraktlåsen (som forbliver den første,
+  -- narrativ-kontraktens Task 6) og før alle rækkelåse; slette-RPC'erne uden kontraktlås tager den først, og
+  -- red_slet_person tager den også lige efter kontraktlåsen. Cutoveren tager aldrig fortryd/slet-låsen: ingen cyklus.
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-fortryd-slet',0));
   -- Publication writers hold ACCESS EXCLUSIVE while allocating their audit
   -- set and appending its event. Take the weakest conflicting table lock before
   -- the dedicated-routing predicate so the predicate cannot race an uncommitted
@@ -10040,7 +10060,17 @@ BEGIN
      SELECT m.id FROM change_event ce
        CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
        CROSS JOIN LATERAL private.feed_pin_maal(x.r->>'kort_noegle') m
-      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='feed_pin' AND m.typ='person')
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='feed_pin' AND m.typ='person'
+     UNION
+     -- Review 37 R37B-1: linjemedlemskabets person. trg_lineage_membership_regen opdaterer personen, og medlemskabets
+     -- writere (promotion, red_reverse_placement_membership, personsletningerne) låser personen FØR medlemskabet. Uden
+     -- denne linje låste fortrydelsen medlemskabet i K5 og fik personen sent via triggeren: deadlock mod en writer.
+     -- (conclusion og person_external_id får personen sent via triggeren i de almindelige writeres orden: conclusion →
+     -- person og external-id → person, så de låses IKKE her. Personsletningen, som låser personen først, er en
+     -- slette-RPC og venter på fortryd/slet-låsen.)
+     SELECT (x.r->>'person_id')::bigint
+       FROM change_event ce CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='person_lineage_membership')
    ORDER BY lp.id FOR UPDATE;
   -- Familier følger personerne, stadig før K5's øvrige rækker. Samme parser
   -- som red_set_feed_pin; ingen ny nøglegrammatik eller sen rækkelås i restore-helperen.
