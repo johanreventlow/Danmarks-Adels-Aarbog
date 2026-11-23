@@ -11,6 +11,11 @@ import type { MediaItem } from '../../data/media';
 vi.mock('../../router', () => ({ navigate: vi.fn() }));
 const smal = vi.hoisted(() => ({ v: false }));
 vi.mock('../../useSmalSkaerm', () => ({ useSmalSkaerm: () => smal.v }));
+// Vielsesdatoerne hentes fra basen; testen styrer svaret pr. family-id.
+const vielser = vi.hoisted(() => ({ svar: {} as Record<string, string>, kald: [] as string[][] }));
+vi.mock('../../data/vielser', () => ({
+  hentVielsesDatoer: async (ids: string[]) => { vielser.kald.push(ids); return vielser.svar; },
+}));
 vi.mock('../lazyMaps', () => ({
   ExpandableMiniMap: ({ points }: { points: unknown[] }) => <div data-testid="livsrejse">{points.length} steder</div>,
   MapFallback: () => null,
@@ -265,6 +270,38 @@ describe('PersonSide', () => {
     render(<PersonSide {...props({ model: et, focusId: '392' })} />);
     expect(within(boerneDd()).queryByText(/^Med /)).toBeNull();
     expect(linkNavne(boerneDd()).map((n) => n.split(' ')[0])).toEqual(['Friedrich', 'Christian']);
+  });
+
+  describe('⚭ vielsesdato ved ægtefællen', () => {
+    const giftDd = () => screen.getByText('Gift med').nextElementSibling as HTMLElement;
+    const raekke = (navn: string) => within(giftDd()).getByRole('link', { name: navn }).closest('div') as HTMLElement;
+
+    it('vielsesdatoen står efter hver hustrus livsdatoer', async () => {
+      vielser.kald = [];
+      vielser.svar = { '265': '⚭ 21. juli 1667', '266': '⚭ 1. maj 1681' };
+      render(<PersonSide {...props({ model: toAegteskaber(), focusId: '392' })} />);
+      expect(await within(giftDd()).findByText('⚭ 21. juli 1667')).toBeTruthy();
+      expect(within(raekke('Anna Margrethe Gabel')).getByText('⚭ 21. juli 1667')).toBeTruthy();
+      expect(within(raekke('Sophie Amalie Hahn')).getByText('⚭ 1. maj 1681')).toBeTruthy();
+      expect(vielser.kald.at(-1)?.slice().sort()).toEqual(['265', '266']);
+    });
+
+    it('ægteskab uden vielsesfakta: ingen ⚭', async () => {
+      vielser.svar = {};
+      render(<PersonSide {...props({ model: toAegteskaber(), focusId: '392' })} />);
+      await Promise.resolve();
+      expect(within(giftDd()).queryByText(/⚭/)).toBeNull();
+    });
+
+    it('ægtefælle kun med navn (intet person-id): ingen ⚭ og intet crash', async () => {
+      vielser.svar = { '7': '⚭ 1670' };
+      const m = { ...model, ...buildModel({ persons: [person('392', 'Conrad Reventlow', 1644)],
+        unions: [{ id: 'f7', p1: '392', p2: null, p2_name: 'Ukendt hustru', year: null }], parentChild: [] }) } as unknown as Model;
+      render(<PersonSide {...props({ model: m, focusId: '392' })} />);
+      expect(within(giftDd()).getByText('Ukendt hustru')).toBeTruthy();
+      await Promise.resolve();
+      expect(within(giftDd()).queryByText(/⚭/)).toBeNull();
+    });
   });
 
   it('usikkert slægtskab vises med ordet', () => {

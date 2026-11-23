@@ -13,7 +13,7 @@
 //
 // Mangler siges med ord. »i den valgte udgave« bruges kun, hvor vælgeren faktisk filtrerer (biografi, fakta,
 // godser); familie og embeder kommer fra den samlede model.
-import { Suspense, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { Suspense, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { T } from '../theme';
 import { Link } from '../Link';
 import { personPath, estatePath, slaegtPath, stamtraePath, slaegtskabPath, findSlaegt, STANDARD_SLAEGT } from '../data/nav';
@@ -22,7 +22,8 @@ import { kunIAeldreTekst, type KunIAeldreTekst } from '../data/kunIAeldre';
 import { mediaCaption, type MediaItem } from '../data/media';
 import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
-import { bogensNummer, lifeJourney, type UdgaveChip } from '@daa/core';
+import { bogensNummer, familieIderForPerson, lifeJourney, type UdgaveChip } from '@daa/core';
+import { hentVielsesDatoer } from '../data/vielser';
 import { NarrativRenderer } from './NarrativRenderer';
 import { PersonFakta } from './PersonFakta';
 import { SlaegtskabsLinje } from './SlaegtskabsLinje';
@@ -63,6 +64,24 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   const kontekst = useMemo(() => slaegtskabsKontekst(model, meId, focusId), [model, meId, focusId]);
   // Børn pr. ægteskab i Aarbogens rækkefølge: samme gruppering som stamtræet (fokusTrae), så de to aldrig er uenige.
   const fam = useMemo(() => byggFokusRaekker(model, focusId), [model, focusId]);
+  // Vielsesdato pr. ægteskab (»⚭ 21. juli 1667«), nøglet på ægtefællens person-id. Hentes for sig, så siden ikke
+  // venter på den; mangler den (ingen vielse, fejl), står der bare ingen ⚭.
+  const aegteskaber = useMemo(() => familieIderForPerson(model.indexes, focusId).aegteskaber, [model, focusId]);
+  const familieNoegle = aegteskaber.map((a) => a.familyId).sort().join(',');
+  const [vielseBySpouse, setVielseBySpouse] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let aktuel = true;
+    setVielseBySpouse({});
+    if (!familieNoegle) return;
+    void hentVielsesDatoer(familieNoegle.split(',')).then((byFam) => {
+      if (!aktuel) return;
+      const ud: Record<string, string> = {};
+      for (const a of aegteskaber) if (a.spouseId && byFam[a.familyId] && !ud[a.spouseId]) ud[a.spouseId] = byFam[a.familyId];
+      setVielseBySpouse(ud);
+    });
+    return () => { aktuel = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- familieNoegle bærer aegteskaber's familie-id'er
+  }, [familieNoegle]);
   const p = v.p;
   if (!p) return null;
   const kunI = kunIAeldreTekst(model, focusId);
@@ -211,7 +230,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
               <dd style={{ margin: 0 }}>
                 {v.spouses.map((sp, i) => (
                   <div key={(sp.id ?? sp.name) + i}>
-                    {sp.id ? <PersonLink id={sp.id} navn={sp.name} aar={model.byId[sp.id]?.years} onVis={onVisPerson} /> : <span style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600 }}>{sp.name}</span>}
+                    {sp.id ? <PersonLink id={sp.id} navn={sp.name} aar={model.byId[sp.id]?.years} vielse={vielseBySpouse[sp.id]} onVis={onVisPerson} /> : <span style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600 }}>{sp.name}</span>}
                   </div>
                 ))}
               </dd>
@@ -383,11 +402,12 @@ function Henter() {
   return <p style={{ margin: 0, fontSize: 14, color: T.inkMuted }}>Henter …</p>;
 }
 
-function PersonLink({ id, navn, aar, konf, kunI, onVis }: { id: string; navn: string; aar?: string; konf?: string; kunI?: KunIAeldreTekst | null; onVis: (id: string) => void }) {
+function PersonLink({ id, navn, aar, vielse, konf, kunI, onVis }: { id: string; navn: string; aar?: string; vielse?: string; konf?: string; kunI?: KunIAeldreTekst | null; onVis: (id: string) => void }) {
   return (
     <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '2px 10px' }}>
       <Link href={personPath(id)} onNavigate={() => onVis(id)} style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600, color: T.bordeaux }}>{navn}</Link>
       {aar && <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{aar}</span>}
+      {vielse && <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{vielse}</span>}
       {/* Usikkert slægtskab vises med ordet, aldrig skjult (invariant 7). */}
       {konf && <span style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: T.danger }}>{konf}</span>}
       {kunI && <span title={kunI.forklaring} style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: T.goldInk }}>{kunI.maerke}</span>}
