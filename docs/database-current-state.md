@@ -529,6 +529,39 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 47. Review 37 D9 + R37B-1: fortryd og sletning låser ikke hinanden fast — LIVE i prod (2026-11-23)
+
+**Grundlag:** PR #450 (CI grøn undtagen R-jobbet, der to gange blev stoppet af 20-minutters grænsen under duckdb-
+kompileringen, før nogen test kørte; R-suiten lokalt på `8f792c33`: 6901 bestået, 0 fejl; SQL = `8f792c33`; merget
+`8bc9acd4` efter DDL). Privat runner `~/.private/review37-d9/prod.zsh`, fastlåst på `8f792c33` (blok-sha `6297a49a…`),
+kørt i projektejerens shell **før** merge.
+
+- **DDL (én transaktion):** kun blokken `-- BEGIN review37-d9` (sidst i db-migrations.sql). 7 funktioner = facit
+  (krop-md5 + ACL). En fælles advisory-lås `daa-fortryd-slet`: `red_fortryd_change_set` tager den eksklusivt,
+  `red_slet_oplysning`, `red_slet_relation`, `red_fjern_samme_som`, `red_fjern_ikke_samme_som`, `red_slet_person` og
+  `red_slet_familie_link` delt, før første rækkelås (i fortrydelsen og `red_slet_person` lige efter narrativ-
+  kontraktlåsen, som forbliver den første). R37B-1: fortrydelsen låser linjemedlemskabets person før medlemskabet.
+  Data uændret (6 tabeller); 2,7 s (prøve 4,3 s, stand-in 0,8 s).
+- **Hvorfor én lås, ikke én rækkefølge:** fortrydelsen låste assertion → citation → conclusion → … → relation,
+  slette-RPC'erne følger FK-ordenen og de almindelige writere konklusion → påstand → person; der findes ingen fælles
+  orden, og at flytte fortrydelsens ville give nye baglåse mod writerne. Pris: to fortrydelser kører ikke samtidig, og en
+  sletning venter på en fortrydelse og omvendt (begge typisk under et sekund); sletninger blokerer ikke hinanden.
+- **Bevis:** `tests/sql/test-review37-d9-laaseorden.sql` (to-tre sessioner via dblink, i CI i `ci_k36_laase`) giver
+  deadlock på prods kode i (a) fortryd × `red_slet_oplysning` og (c) fortryd × `red_reverse_placement_membership`, og
+  er grøn efter. `tests/sql/test-review37-d9-upgrade.sh` fra `b18bd8a8`: rød på basen, efter blokken kroppe/ACL/katalog
+  = frisk `schema.sql`, data uændret, idempotent, db-rls oveni uden ændring, fuld db-verify grøn.
+- **Efterkontrol (læse-kun):** `prod.zsh tal`: anvendt, alle 7 md5 = facit. MCP: de 7 er stadig SECURITY DEFINER med
+  `search_path=public`, EXECUTE for `authenticated`, ikke `anon`. `get_advisors` (security): samme 4 lint-typer som efter
+  §46; de 7 står kun under `authenticated_security_definer_function_executable` som alle `red_*`.
+- **Øvelse:** stand-in `daa5ab_ddl_standin_20261121170307_d9oev` (kopi af `kar…h130`): prøve → commit → fortryd
+  (`P_FORTRYD_TROFAST`). Prod: prøve, derefter commit.
+- **Fortryd:** `/bin/zsh -f ~/.private/review37-d9/prod.zsh fortryd [--jeg-mener-det]` (prods definitioner fra før
+  apply: `~/.private/review37-d9/fortryd-definitioner.prod.sql`).
+- **Kendte rester (#397):** R37B-6 (ikke målt): almindelige writere kan stadig deadlocke mod en fortrydelse, fx
+  `red_set_konklusion` på den påstand, sættet oprettede (konklusion → påstand mod fortrydelsens påstand → konklusion).
+  `red_slet_person_helt` er bevidst uden låsen; dens to-sessionstests mod fortrydelsen (`test-person-purge-concurrent.sh`:
+  fakta-, pin- og mediesæt, begge rækkefølger) giver ingen 40P01. Blok 4's opgraderingstest er pensioneret.
+
 ## 46. Review 37 blok 4: konklusion og ændringssæt i redaktionens RPC'er (D4, D10, D11) — LIVE i prod (2026-11-22)
 
 **Grundlag:** decisions 2026-11-22 (BESLUTTET: et redaktionelt valg af konklusion gør den gyldig; et tilbagetrukket

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-23 — Fortrydelse og sletning kan ikke længere låse hinanden fast (review 37 D9 + R37B-1)
+
+Fortrød én redaktør en ændring, mens en anden slettede en oplysning, relation eller person, som ændringen rørte, kunne
+databasen afbryde den ene med »deadlock«. Det samme kunne ske, når en fortrydelse af et linjemedlemskab mødte en anden
+handling på samme person. Nu venter de på hinanden: fortrydelse og sletning deler én lås, og fortrydelsen låser personen
+først. To fortrydelser kører ikke længere samtidig. Almindelige rettelser er ikke omfattet (rest R37B-6 på #397).
+PR #450; DDL i prod 23/11 (`database-current-state.md` §47). Samme dag: R-cachen varmes op på main (#451), så PR'ernes
+R-job ikke skal kompilere duckdb.
+
 ## 2026-11-22 — »Gør til konklusion« virker igen på en tilbagetrukket konklusion (review 37 blok 4)
 
 Vælger redaktøren en påstand som konklusion, bliver konklusionen nu gyldig, også hvis den før var trukket tilbage;
