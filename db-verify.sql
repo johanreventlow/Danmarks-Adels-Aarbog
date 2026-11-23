@@ -9435,7 +9435,7 @@ BEGIN
     UNION
     SELECT 'standard:'||d.defaclobjtype::text||':'||CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE x.grantee::regrole::text END||':'||x.privilege_type
       FROM pg_default_acl d, aclexplode(d.defaclacl) x
-     WHERE d.defaclrole = 'postgres'::regrole AND d.defaclnamespace IN (0, 'public'::regnamespace)
+     WHERE d.defaclrole = to_regrole('postgres') AND d.defaclnamespace IN (0, 'public'::regnamespace)
        AND x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole)
        AND ((d.defaclobjtype = 'r' AND x.privilege_type <> 'SELECT') OR d.defaclobjtype = 'S'))
   SELECT coalesce(string_agg(CASE WHEN f.l IS NULL THEN ' mangler:'||e.l ELSE ' uventet:'||f.l END, ''

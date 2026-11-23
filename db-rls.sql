@@ -1918,20 +1918,30 @@ REVOKE ALL ON FUNCTION private.person_purge_udbakke_genbrug()
 DO $review37_r37s8_2_skriveret$
 DECLARE r record;
 BEGIN
+  -- Kun relationer, hvor de tre modtagere har noget at miste: på en ren base er blokken en no-op og efterlader
+  -- NULL-ACL'er urørte (en REVOKE på en NULL-ACL gør ejerens standard eksplicit — samme betydning, anden tekst).
   FOR r IN SELECT c.oid::regclass AS rel FROM pg_class c
             WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r','p','v','m','f')
+              AND (EXISTS (SELECT 1 FROM aclexplode(c.relacl) x
+                            WHERE x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole) AND x.privilege_type <> 'SELECT')
+                   OR EXISTS (SELECT 1 FROM pg_attribute at, aclexplode(at.attacl) x
+                               WHERE at.attrelid = c.oid AND at.attnum > 0
+                                 AND x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole) AND x.privilege_type <> 'SELECT'))
             ORDER BY c.relname LOOP
     EXECUTE format('REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON TABLE %s FROM PUBLIC, anon, authenticated', r.rel);
   END LOOP;
   FOR r IN SELECT c.oid::regclass AS rel FROM pg_class c
             WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'S'
+              AND EXISTS (SELECT 1 FROM aclexplode(c.relacl) x WHERE x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole))
             ORDER BY c.relname LOOP
     EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM PUBLIC, anon, authenticated', r.rel);
   END LOOP;
   GRANT INSERT, DELETE ON TABLE public.bookmark TO authenticated;
-  ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
-    REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON TABLES FROM PUBLIC, anon, authenticated;
-  ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
-    REVOKE ALL ON SEQUENCES FROM PUBLIC, anon, authenticated;
+  IF to_regrole('postgres') IS NOT NULL THEN  -- findes i Supabase, CI og de lokale klynger
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+      REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON TABLES FROM PUBLIC, anon, authenticated;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+      REVOKE ALL ON SEQUENCES FROM PUBLIC, anon, authenticated;
+  END IF;
 END
 $review37_r37s8_2_skriveret$;
