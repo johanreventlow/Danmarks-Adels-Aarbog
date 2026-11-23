@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
   fetchBarnFamilie: vi.fn(),
   loadModel: vi.fn(),
   fetchPersonKvalitetsark: vi.fn(),
+  fetchPersonKvalitetsarkRaekke: vi.fn(),
   fetchOcrHistorik: vi.fn(),
   retOcrFelt: vi.fn(),
 }));
@@ -70,13 +71,14 @@ vi.mock('../data/model', () => ({
   loadModel: mocks.loadModel,
 }));
 
-// oversaetOcrFejl er en ren funktion og forbliver ægte (importOriginal) — kun de tre RPC-
+// oversaetOcrFejl er en ren funktion og forbliver ægte (importOriginal) — kun de fire RPC-
 // vendte adaptere overstyres. Havde den været blanket-mocket til undefined, ville
 // `setKvError(oversaetOcrFejl(e))` kaste inde i en .catch og fremstå som en uhåndteret
 // rejection frem for en ren test-fejl.
 vi.mock('../data/personKvalitetsark', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../data/personKvalitetsark')>()),
   fetchPersonKvalitetsark: mocks.fetchPersonKvalitetsark,
+  fetchPersonKvalitetsarkRaekke: mocks.fetchPersonKvalitetsarkRaekke,
   fetchOcrHistorik: mocks.fetchOcrHistorik,
   retOcrFelt: mocks.retOcrFelt,
 }));
@@ -332,6 +334,30 @@ describe('Redaktion — gemning erstatter kun den returnerede række', () => {
     await waitFor(() => expect(mocks.retOcrFelt).toHaveBeenCalledTimes(1));
     // Rækken i griddet er stadig den oprindelige — kun input-feltets udkast er ændret lokalt.
     expect(screen.getByRole('button', { name: 'Christian Ditlev Reventlow' })).toBeTruthy();
+  });
+
+  test('"Genindlæs kilderække" henter kun den ene persons række (review 37 Y1)', async () => {
+    mocks.fetchPersonKvalitetsark.mockResolvedValue([
+      kvRow({ personId: '1', navn: 'Christian Ditlev Reventlow' }),
+      kvRow({ personId: '2', navn: 'Anna Sofie Reventlow', recordKey: 'p-002' }),
+    ]);
+    mocks.retOcrFelt.mockRejectedValue(new Error('OCR_FINGERPRINT_STALE'));
+    mocks.fetchPersonKvalitetsarkRaekke.mockResolvedValue(
+      kvRow({ personId: '1', navn: 'Christian Ditlev Reventlow (frisk)' }));
+    await aabnKvalitetsark();
+    fireEvent.click(screen.getByText('Dry-run · skriver ikke'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Christian Ditlev Reventlow' }));
+    const nyVaerdi = await screen.findByLabelText('Ny værdi');
+    fireEvent.change(nyVaerdi, { target: { value: 'Noget andet' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Gem OCR-rettelse' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Genindlæs kilderække' }));
+
+    await waitFor(() => expect(mocks.fetchPersonKvalitetsarkRaekke).toHaveBeenCalledWith('1'));
+    await screen.findByRole('button', { name: 'Christian Ditlev Reventlow (frisk)' });
+    expect(screen.getByText('Anna Sofie Reventlow')).toBeTruthy();
+    // Hele arket blev IKKE genhentet.
+    expect(mocks.fetchPersonKvalitetsark).toHaveBeenCalledTimes(1);
   });
 });
 

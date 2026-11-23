@@ -8,7 +8,6 @@
 // JS's number kan ikke sikkert rumme store bigint-værdier, og Postgres/PostgREST leverer
 // bigint uden garanteret tekst-cast fra red_person_grid()/red_ret_ocr_felt().
 import { supabase } from '../supabase';
-import { getAll } from '@daa/core';
 import type { OcrFelt, OcrReviewStatus, PersonKvalitetsarkRow } from '@daa/core';
 import { oversaetFejl } from './redaktionWrite';
 
@@ -156,16 +155,45 @@ function mapPersonKvalitetsarkRow(raw: RawPersonGridRow | null): PersonKvalitets
   };
 }
 
-// Ét RPC-kald pr. side (getAll pagineres via .range på red_person_grid()'s
-// set-returnerende resultat) — aldrig ét kald pr. person. red_person_grid()'s afsluttende
-// SELECT har INGEN ORDER BY (verificeret mod schema.sql), så uden en eksplicit .order() her
-// giver Postgres ingen garanti for stabil rækkefølge mellem to separate .range()-forespørgsler
-// — en side-2-forespørgsel kunne i teorien springe over eller gentage rækker. .order('person_id')
-// gør pagineringen deterministisk (samme mønster som fx model.ts's .order('id') før .range()).
+// Review 37 Y1: kvalitetsarket henter i keyset-vinduer over red_person_grid_udsnit(p_efter, p_antal),
+// som kun beregner vinduets personer. Tidligere offset-paginerede vi red_person_grid() med .range(), og
+// databasen beregnede da HELE gitteret for hver side. Vinduet er under PostgREST's max-rows (1000), og
+// løkken stopper først på et TOMT vindue: et kort vindue kunne også være et afkortet. Markøren og
+// person-id'et sendes som streng (bigint må ikke gennem number, jf. bigintTilString); PostgREST caster.
+export const KVALITETSARK_VINDUE = 500;
+
+async function hentUdsnit(args: { p_efter?: string; p_antal?: number; p_person_id?: string }): Promise<RawPersonGridRow[]> {
+  const { data, error } = await supabase.rpc('red_person_grid_udsnit', args);
+  if (error) throw error;
+  if (!Array.isArray(data)) throw new OcrGridKontraktFejl('red_person_grid_udsnit returnerede ikke en liste');
+  return data as RawPersonGridRow[];
+}
+
+// Ét RPC-kald pr. vindue à KVALITETSARK_VINDUE personer i id-orden — aldrig ét kald pr. person.
 export async function fetchPersonKvalitetsark(): Promise<PersonKvalitetsarkRow[]> {
-  const rows = await getAll<RawPersonGridRow>(() =>
-    supabase.rpc('red_person_grid').order('person_id'));
-  return rows.map(mapPersonKvalitetsarkRow);
+  const ud: PersonKvalitetsarkRow[] = [];
+  let efter: string | undefined;
+  for (;;) {
+    const raw = await hentUdsnit(efter === undefined
+      ? { p_antal: KVALITETSARK_VINDUE }
+      : { p_efter: efter, p_antal: KVALITETSARK_VINDUE });
+    if (raw.length === 0) return ud;
+    const rows = raw.map(mapPersonKvalitetsarkRow);
+    const sidste = rows[rows.length - 1].personId;
+    // Vinduet er sorteret stigende på person_id; en markør der ikke rykker frem ville løkke for evigt.
+    if (efter !== undefined && BigInt(sidste) <= BigInt(efter)) {
+      throw new OcrGridKontraktFejl(`vinduet efter person_id=${efter} rykkede ikke frem (sidste=${sidste})`);
+    }
+    ud.push(...rows);
+    efter = sidste;
+  }
+}
+
+// Én persons række (genindlæsning efter OCR_FINGERPRINT_STALE). null = personen findes ikke længere.
+export async function fetchPersonKvalitetsarkRaekke(personId: string): Promise<PersonKvalitetsarkRow | null> {
+  const raw = await hentUdsnit({ p_person_id: personId });
+  if (raw.length > 1) throw new OcrGridKontraktFejl(`${raw.length} rækker for person_id=${personId}`);
+  return raw.length === 0 ? null : mapPersonKvalitetsarkRow(raw[0]);
 }
 
 // --- red_ocr_historik (lazy per-felt historik) ---

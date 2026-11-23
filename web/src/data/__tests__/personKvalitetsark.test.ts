@@ -1,7 +1,6 @@
-// Task 7: web-dataadapter til OCR-kvalitetsarket (red_person_grid / red_ret_ocr_felt /
-// red_ocr_historik). In-memory fake af supabase-js's rpc-kæde: rpc() returnerer et objekt
-// der ER en Promise<{data,error}> (direkte-await-brug, fx retOcrFelt/fetchOcrHistorik) OG
-// bærer en .range()-metode (getAll-baseret paginering, fetchPersonKvalitetsark).
+// Task 7: web-dataadapter til OCR-kvalitetsarket (red_person_grid_udsnit / red_ret_ocr_felt /
+// red_ocr_historik). In-memory fake af supabase-js's rpc(): returnerer Promise<{data,error}>.
+// Review 37 Y1: arket hentes i keyset-vinduer over red_person_grid_udsnit (ikke .range() på hele gitteret).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PersonKvalitetsarkRow } from '@daa/core';
 
@@ -23,13 +22,12 @@ vi.mock('../../supabase', () => ({
   },
 }));
 
-const { fetchPersonKvalitetsark, fetchOcrHistorik, retOcrFelt, oversaetOcrFejl } = await import(
+const { fetchPersonKvalitetsark, fetchPersonKvalitetsarkRaekke, fetchOcrHistorik, retOcrFelt, oversaetOcrFejl } = await import(
   '../personKvalitetsark'
 );
 
 beforeEach(() => {
   rpcCalls.length = 0;
-  orderCalls.length = 0;
   rpcImpl = () => {
     throw new Error('rpcImpl ikke konfigureret for denne test');
   };
@@ -141,26 +139,20 @@ const MAPPED_ROW_FULL: PersonKvalitetsarkRow = {
   inputFingerprint: { navn: 'fp-navn', foedsel: 'fp-foedsel' },
 };
 
-const orderCalls: unknown[] = [];
-
-// Spejler PostgrestFilterBuilder-kæden: .order() returnerer sig selv (chainable), .range()
-// afslutter kaldet. red_person_grid() har ingen ORDER BY i sin egen SELECT (verificeret mod
-// schema.sql), så adapteren SKAL selv lægge .order() ind før .range() for at gøre pagineringen
-// deterministisk mellem to separate .range()-kald — ellers garanterer Postgres ikke rækkefølge.
-function rangeResult(data: unknown[]) {
-  const builder = {
-    order: (col: string) => {
-      orderCalls.push(col);
-      return builder;
-    },
-    range: async () => ({ data, error: null }),
+// Fake af red_person_grid_udsnit: hvert kald giver næste vindue, derefter tomme vinduer.
+function udsnitVinduer(...vinduer: unknown[][]) {
+  let i = 0;
+  return (fn: string) => {
+    if (fn !== 'red_person_grid_udsnit') throw new Error(`uventet rpc: ${fn}`);
+    const data = vinduer[i] ?? [];
+    i++;
+    return Promise.resolve({ data, error: null });
   };
-  return builder;
 }
 
 describe('fetchPersonKvalitetsark — mapning', () => {
   it('mapper en komplet snake_case-række til camelCase, person_id som string', async () => {
-    rpcImpl = () => rangeResult([rawRow()]);
+    rpcImpl = udsnitVinduer([rawRow()]);
     const rows = await fetchPersonKvalitetsark();
     expect(rows).toEqual([MAPPED_ROW_FULL]);
     expect(typeof rows[0].personId).toBe('string');
@@ -170,47 +162,77 @@ describe('fetchPersonKvalitetsark — mapning', () => {
 
   it('bigint-ID mappes aldrig til number, selv for store værdier uden for Number-sikkerhed', async () => {
     const stort = '9007199254740993'; // > Number.MAX_SAFE_INTEGER
-    rpcImpl = () => rangeResult([rawRow({ person_id: stort })]);
+    rpcImpl = udsnitVinduer([rawRow({ person_id: stort })]);
     const rows = await fetchPersonKvalitetsark();
     expect(rows[0].personId).toBe(stort);
     expect(typeof rows[0].personId).toBe('string');
+    // Markøren til næste vindue går heller ikke gennem number.
+    expect(rpcCalls[1].args).toEqual({ p_efter: stort, p_antal: 500 });
   });
 });
 
-describe('fetchPersonKvalitetsark — paginering', () => {
-  it('henter flere 1000-rækkers sider via ét RPC-kald pr. side, aldrig pr. person', async () => {
-    const side1 = Array.from({ length: 1000 }, (_, i) => rawRow({ person_id: i + 1 }));
-    const side2 = Array.from({ length: 5 }, (_, i) => rawRow({ person_id: 1001 + i }));
-    let kald = 0;
-    rpcImpl = (fn) => {
-      expect(fn).toBe('red_person_grid');
-      kald++;
-      const data = kald === 1 ? side1 : kald === 2 ? side2 : [];
-      return rangeResult(data);
-    };
+describe('fetchPersonKvalitetsark — vinduer', () => {
+  it('henter i vinduer à 500 med keyset-markør og stopper først på et tomt vindue', async () => {
+    const v1 = Array.from({ length: 500 }, (_, i) => rawRow({ person_id: i + 1 }));
+    const v2 = Array.from({ length: 5 }, (_, i) => rawRow({ person_id: 501 + i }));
+    rpcImpl = udsnitVinduer(v1, v2);
     const rows = await fetchPersonKvalitetsark();
-    expect(rows).toHaveLength(1005);
-    // Præcis to sider — IKKE ét kald pr. række (ville være 1005 kald).
-    expect(rpcCalls.filter((c) => c.fn === 'red_person_grid')).toHaveLength(2);
+    expect(rows).toHaveLength(505);
+    expect(rows.map((r) => r.personId)).toEqual(Array.from({ length: 505 }, (_, i) => String(i + 1)));
+    // Ét kald pr. vindue — aldrig pr. person; det korte vindue (5) stopper ikke løkken (det kunne være afkortet).
+    expect(rpcCalls).toEqual([
+      { fn: 'red_person_grid_udsnit', args: { p_antal: 500 } },
+      { fn: 'red_person_grid_udsnit', args: { p_efter: '500', p_antal: 500 } },
+      { fn: 'red_person_grid_udsnit', args: { p_efter: '505', p_antal: 500 } },
+    ]);
   });
 
-  it('lægger .order(person_id) før .range() — pagineringen skal være deterministisk', async () => {
-    rpcImpl = () => rangeResult([rawRow()]);
-    await fetchPersonKvalitetsark();
-    expect(orderCalls).toEqual(['person_id']);
+  it('tomt ark: ét kald, ingen rækker', async () => {
+    rpcImpl = udsnitVinduer();
+    expect(await fetchPersonKvalitetsark()).toEqual([]);
+    expect(rpcCalls).toHaveLength(1);
+  });
+
+  it('kaster i stedet for at løkke, hvis markøren ikke rykker frem', async () => {
+    rpcImpl = udsnitVinduer([rawRow({ person_id: 5 })], [rawRow({ person_id: 5 })], [rawRow({ person_id: 5 })]);
+    await expect(fetchPersonKvalitetsark()).rejects.toThrow(/rykkede ikke frem/);
+    expect(rpcCalls).toHaveLength(2);
+  });
+
+  it('videresender RPC-fejlen', async () => {
+    rpcImpl = () => Promise.resolve({ data: null, error: { message: 'Kun redaktion' } });
+    await expect(fetchPersonKvalitetsark()).rejects.toMatchObject({ message: 'Kun redaktion' });
+  });
+});
+
+describe('fetchPersonKvalitetsarkRaekke', () => {
+  it('henter kun den ene person (id som streng) og mapper rækken', async () => {
+    rpcImpl = udsnitVinduer([rawRow()]);
+    expect(await fetchPersonKvalitetsarkRaekke('42')).toEqual(MAPPED_ROW_FULL);
+    expect(rpcCalls).toEqual([{ fn: 'red_person_grid_udsnit', args: { p_person_id: '42' } }]);
+  });
+
+  it('null når personen ikke findes længere', async () => {
+    rpcImpl = udsnitVinduer([]);
+    expect(await fetchPersonKvalitetsarkRaekke('42')).toBeNull();
+  });
+
+  it('kaster ved mere end én række', async () => {
+    rpcImpl = udsnitVinduer([rawRow(), rawRow()]);
+    await expect(fetchPersonKvalitetsarkRaekke('42')).rejects.toThrow(/2 rækker/);
   });
 });
 
 describe('fetchPersonKvalitetsark — person uden importanker', () => {
   it('source_id=NULL (ingen person_external_id-række) → sourceId null, kaster ikke', async () => {
-    // external_anchor er en LEFT JOIN i red_person_grid() (schema.sql) — en person uden
+    // external_anchor er en LEFT JOIN i red_person_grid_udsnit() (schema.sql) — en person uden
     // nogen person_external_id får stadig én grid-række, blot med source_id=NULL. Griddet
     // skal blive ved med at være "alle personer, permanent first-class view" — én ramt
     // person må aldrig vælte hele svaret.
     // NULL mappes til null, ikke til en sentinel: importKey og recordKey er nullable af
     // præcis samme grund, og en tom streng ville tvinge hver UI-komponent til at kende
     // sentinel-konventionen for at skelne "intet importanker" fra en gyldig værdi.
-    rpcImpl = () => rangeResult([rawRow({
+    rpcImpl = udsnitVinduer([rawRow({
       source_id: null, import_key: null, record_key: null,
       kan_rettes: { navn: false, foedsel: false, doed: false, koen: true },
       blokarsager: { navn: 'ingen_importanker', foedsel: 'ingen_importanker', doed: 'ingen_importanker' },
@@ -224,22 +246,22 @@ describe('fetchPersonKvalitetsark — person uden importanker', () => {
 
 describe('fetchPersonKvalitetsark — kontraktvalidering', () => {
   it('kaster en tydelig fejl ved manglende person_id', async () => {
-    rpcImpl = () => rangeResult([rawRow({ person_id: null })]);
+    rpcImpl = udsnitVinduer([rawRow({ person_id: null })]);
     await expect(fetchPersonKvalitetsark()).rejects.toThrow(/person_id/);
   });
 
   it('kaster en tydelig fejl når qa_koder ikke er en liste', async () => {
-    rpcImpl = () => rangeResult([rawRow({ qa_koder: 'ikke-en-liste' })]);
+    rpcImpl = udsnitVinduer([rawRow({ qa_koder: 'ikke-en-liste' })]);
     await expect(fetchPersonKvalitetsark()).rejects.toThrow(/qa_koder/);
   });
 
   it('kaster en tydelig fejl når kan_rettes mangler felter', async () => {
-    rpcImpl = () => rangeResult([rawRow({ kan_rettes: { navn: true } })]);
+    rpcImpl = udsnitVinduer([rawRow({ kan_rettes: { navn: true } })]);
     await expect(fetchPersonKvalitetsark()).rejects.toThrow(/kan_rettes/);
   });
 
   it('kaster en tydelig fejl når kan_rettes slet ikke er et objekt', async () => {
-    rpcImpl = () => rangeResult([rawRow({ kan_rettes: null })]);
+    rpcImpl = udsnitVinduer([rawRow({ kan_rettes: null })]);
     await expect(fetchPersonKvalitetsark()).rejects.toThrow(/kan_rettes/);
   });
 });
