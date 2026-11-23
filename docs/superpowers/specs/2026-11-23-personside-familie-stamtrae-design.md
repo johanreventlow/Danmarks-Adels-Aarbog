@@ -36,9 +36,9 @@ deler kernen.
   af web og mobil; én rettelse dækker begge.
 
 ## Ikke-mål
-- Ingen datarettelser i denne leverance. Separat fund: 1939's »Charlotte Amalie † ung« er sandsynligvis samme
-  pige som 2018-20's nr. 5 »Charlotta Amalia« (uden datoer), blot ikke koblet på tværs af udgaver. Det er
-  redaktørarbejde (samme_som-kobling). Tilbud: en liste over lignende »kun i«-børn med en sandsynlig modpart.
+- Ingen datarettelser. Person 392's »Charlotte Amalie † ung — Kun i DAA 1939« er korrekt: 1939 nævner to døtre med
+  navnet, 2018-20 kun én (projektejeren 2026-11-23, afklaret tidligere). Udgavernes uenighed er netop, hvad mærket
+  skal vise.
 - Ingen ændring af hvilke børn der vises, kun hvordan.
 - Ingen DB-ændring forventet (vielsesdatoen hentes fra eksisterende læsevej; mangler den i web-modellen, hentes den
   via eksisterende offentlige fakta-RPC/-view — ingen ny RPC uden at spørge først).
