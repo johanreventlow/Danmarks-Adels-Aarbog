@@ -529,6 +529,32 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 49. Review 37 R37S8-2: klienter har kun læseret i public — LIVE i prod (2026-11-23)
+
+**Grundlag:** PR #455 (CI grøn i alle jobs; SQL = `01d0dd95`). Privat runner `~/.private/review37-r37s8-2/prod.zsh`,
+fastlåst på `01d0dd95` (blok-sha `08a196fd…`), kørt i projektejerens shell **før** merge.
+
+- **Målt før (23/11):** Supabases standardrettigheder (`pg_default_acl` for `postgres` i public) havde givet `anon` og
+  `authenticated` INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER/MAINTAIN på 29 tabeller og alle 4 views, MAINTAIN også
+  på `story_kilde`, `import_korrektion` og `bookmark`, og SELECT/UPDATE/USAGE på 27 sekvenser. Ikke et åbent hul (PostgREST har
+  intet TRUNCATE, ingen skrivepolitik uden for `bookmark`, views er `security_invoker`), men RLS var eneste mur.
+- **DDL (én transaktion):** kun DO-blokken `$review37_r37s8_2_skriveret$` (sidst i `db-rls.sql`): ikke-SELECT-retter
+  (tabel og kolonne) for PUBLIC/anon/authenticated fjernet på public-relationer med noget at fjerne, alle sekvensretter
+  fjernet, `bookmark` beholder authenticated INSERT + DELETE, og `postgres`' standardrettigheder i public mister
+  skrive- og sekvensretterne (standard-SELECT bevaret). Katalog-delta 63 relationer + 2 standardrækker, facit = frisk
+  base, verify-enheden `r37s8-2` OK i transaktionen, rækketal uændret i 43 tabeller, læserne som anon (1725 personer)
+  og authenticated uændrede; 4,3 s (prøve 5,1 s; rækketællingen dominerer). Ingen relationslåse (målt lokalt).
+- **Efterkontrol:** kun `bookmark:authenticated:{INSERT,DELETE}` tilbage ud over SELECT; ingen sekvensret;
+  standardrettighederne `r:{anon,authenticated}:SELECT`; alle public-tabeller med RLS; `get_advisors` uden nye
+  kategorier; sitet 200.
+- **Regel fremover** (`docs/decisions.md` 2026-11-23): ny klientskriveret GRANT'es inde i blokken og føjes til
+  verify-enhedens tilladte mængde; en ny public-tabel arver SELECT og skal derfor have RLS — verify kræver RLS på hver
+  public-tabel.
+- **Bevis:** `tests/sql/test-review37-r37s8-2-upgrade.sh` fra `f806cedc` (seeder Supabase-retterne som overmål inkl.
+  kolonneretter og standardrettigheder): enheden rød før/grøn efter, katalog = frisk, idempotent, db-rls oveni uden
+  ændring, en ny tabel arver kun SELECT, fuld db-verify grøn; rød uden MAINTAIN i blokken. Fortryd øvet trofast på
+  prod-kopi (`prod.zsh fortryd` GRANT'er præcis de målte retter tilbage).
+
 ## 48. Review 37 Y1 + D8: personkontrol-gitteret i udsnit — LIVE i prod (2026-11-23)
 
 **Grundlag:** PR #453 (CI grøn i alle jobs; SQL = `a9eba04b`; merget `f806cedc` efter DDL). Privat runner

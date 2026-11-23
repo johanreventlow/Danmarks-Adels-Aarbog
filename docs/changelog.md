@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-23 — Gæster og indloggede kan kun læse i databasen; skriveret er en eksplicit undtagelse (review 37 R37S8-2)
+
+Supabase havde automatisk givet gæster og indloggede ret til at oprette, ændre, slette og tømme rækker i 29 tabeller og
+alle 4 views, og til at ændre id-tællerne. Det var ikke et åbent hul, fordi appens API ikke kan tømme tabeller, og
+rækkesikkerheden stoppede al anden skrivning, men den var eneste mur. Nu har de kun læseret (bogmærkerne beholder opret
+og slet), ingen adgang til tællerne, og nye tabeller får fremover kun læseret automatisk. Databasekontrollen kræver
+desuden rækkesikkerhed på hver tabel. Appen virker som før. PR #455; DDL i prod 23/11 (`database-current-state.md` §49).
+
 ## 2026-11-23 — Kvalitetsarket og OCR-rettelsen beregner kun de personer, de viser (review 37 Y1 + D8)
 
 »Genindlæs kilderække« og svaret på en OCR-rettelse henter nu kun den ene persons række (i prod højst 13 ms, før ~350 ms
