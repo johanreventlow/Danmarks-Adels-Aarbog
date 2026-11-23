@@ -218,7 +218,9 @@ describe('PersonSide', () => {
 
   it('børnelisten mærker kun barnet fra den ældre udgave efter konfidensordet', () => {
     render(<PersonSide {...props({ model: medAeldreBarn() })} />);
-    const barn = screen.getByRole('link', { name: 'Ulrica Reventlow' }).closest('li')!;
+    // 2018-20 er valgt: barnet fra 1939 står som grå tekst (intet link), med mærket.
+    expect(within(boerneDd()).queryByRole('link', { name: 'Ulrica Reventlow' })).toBeNull();
+    const barn = within(boerneDd()).getByText('Ulrica Reventlow').closest('li')!;
     const maerke = within(barn).getByText('Kun i DAA 1939');
     expect(maerke.getAttribute('title')).toBe('Står i DAA 1939, men ikke i DAA 2018-20.');
     expect(within(barn).getByText('formodet').nextElementSibling).toBe(maerke);

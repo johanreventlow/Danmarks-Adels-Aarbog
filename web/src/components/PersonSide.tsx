@@ -85,6 +85,14 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   const p = v.p;
   if (!p) return null;
   const kunI = kunIAeldreTekst(model, focusId);
+  // Et barn, der kun står i en anden udgave, er et link, når den udgave er valgt i udgavevælgeren (projektejeren
+  // 2026-11-23, valg A); ellers grå tekst med mærket. Kan siden slet ikke vælge barnets udgave (ingen vælger, eller
+  // vælgeren har ikke den udgave), forbliver det et link, så barnet aldrig bliver uden adgang.
+  const barnErAktivt = (k: KunIAeldreTekst | null): boolean => {
+    if (!k || !v.aktivChip) return true;
+    if (k.kunISourceIds.includes(v.aktivChip.sourceId)) return true;
+    return !v.vaelger.chips.some((c) => k.kunISourceIds.includes(c.sourceId));
+  };
 
   // Slægten: personer med en linje i stamtavlen hører til slægten (i dag kun Reventlow). Ægtefæller uden linje
   // står uden slægt i etiketten, frem for at blive tilskrevet en slægt, de ikke tilhører.
@@ -249,7 +257,10 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                         )}
                         {!g.aegteskab && fam?.boerneNote && <Mangel>{fam.boerneNote}</Mangel>}
                         <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                          {g.boern.map(({ person: c }) => <li key={c.id}><PersonLink id={c.id} navn={c.name} aar={c.years} konf={konfOrd(c.id, focusId)} kunI={kunIAeldreTekst(model, c.id)} onVis={onVisPerson} /></li>)}
+                          {g.boern.map(({ person: c }) => {
+                            const barnKunI = kunIAeldreTekst(model, c.id);
+                            return <li key={c.id}><PersonLink id={c.id} navn={c.name} aar={c.years} konf={konfOrd(c.id, focusId)} kunI={barnKunI} aktiv={barnErAktivt(barnKunI)} onVis={onVisPerson} /></li>;
+                          })}
                         </ul>
                       </div>
                     ))}
@@ -402,10 +413,12 @@ function Henter() {
   return <p style={{ margin: 0, fontSize: 14, color: T.inkMuted }}>Henter …</p>;
 }
 
-function PersonLink({ id, navn, aar, vielse, konf, kunI, onVis }: { id: string; navn: string; aar?: string; vielse?: string; konf?: string; kunI?: KunIAeldreTekst | null; onVis: (id: string) => void }) {
+function PersonLink({ id, navn, aar, vielse, konf, kunI, aktiv = true, onVis }: { id: string; navn: string; aar?: string; vielse?: string; konf?: string; kunI?: KunIAeldreTekst | null; aktiv?: boolean; onVis: (id: string) => void }) {
   return (
     <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '2px 10px' }}>
-      <Link href={personPath(id)} onNavigate={() => onVis(id)} style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600, color: T.bordeaux }}>{navn}</Link>
+      {aktiv
+        ? <Link href={personPath(id)} onNavigate={() => onVis(id)} style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600, color: T.bordeaux }}>{navn}</Link>
+        : <span style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600, color: T.inkMuted }}>{navn}</span>}
       {aar && <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{aar}</span>}
       {vielse && <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{vielse}</span>}
       {/* Usikkert slægtskab vises med ordet, aldrig skjult (invariant 7). */}

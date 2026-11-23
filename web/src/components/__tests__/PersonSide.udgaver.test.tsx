@@ -205,6 +205,34 @@ describe('PersonSide — udgaver', () => {
     expect(chip('DAA 2018-20').getAttribute('aria-pressed')).toBe('true');
   });
 
+  describe('barn, der kun står i en anden udgave', () => {
+    // Ulrica (500) står kun i 1939; Christian (501) i begge. Conrad står i begge.
+    const nr = (sourceId: string, linje: string, n: number) => ({ sourceId, linje, nr: n, nrLabel: null });
+    const medKunI = { ...model, bogNrBy: { '392': [nr('1', 'V', 1), nr('3', 'IV', 1)], '500': [nr('3', 'IV', 2)], '501': [nr('1', 'V', 3), nr('3', 'IV', 3)] } } as unknown as Model;
+    const visKunI = (d: PersonDetailData) => render(
+      <PersonSide model={medKunI} focusId="392" detail={d} detailError={null} onRetry={vi.fn()} onVisPerson={vi.fn()}
+        onFindSlaegtskab={vi.fn()} onSlaegt={vi.fn()} loggetInd={false} onLogin={vi.fn()} erBogmaerket={false} onToggleBogmaerke={vi.fn()} />);
+    const boern = () => screen.getByText('Børn').nextElementSibling as HTMLElement;
+
+    it('grå tekst i 2018-20, link i 1939; mærket står begge steder', () => {
+      visKunI(detalje());
+      expect(chip('DAA 2018-20').getAttribute('aria-pressed')).toBe('true');
+      expect(within(boern()).queryByRole('link', { name: 'Ulrica Reventlow' })).toBeNull();
+      const graa = within(boern()).getByText('Ulrica Reventlow');
+      expect(within(graa.closest('li')!).getByText('Kun i DAA 1939').getAttribute('title')).toBe('Står i DAA 1939, men ikke i DAA 2018-20.');
+      expect(within(boern()).getByRole('link', { name: 'Christian Reventlow' })).toBeTruthy();
+      fireEvent.click(chip('DAA 1939'));
+      expect(within(boern()).getByRole('link', { name: 'Ulrica Reventlow' })).toBeTruthy();
+      expect(within(boern()).getByText('Kun i DAA 1939')).toBeTruthy();
+    });
+
+    it('uden udgavevælger (én udgave) er barnet stadig et link', () => {
+      visKunI(detalje({ bioVersions: [BIO_V1], faktaInput: faktaInput(ROWS_18) }));
+      expect(screen.queryByRole('group', { name: 'Udgave' })).toBeNull();
+      expect(within(boern()).getByRole('link', { name: 'Ulrica Reventlow' })).toBeTruthy();
+    });
+  });
+
   it('DOM indeholder hverken record- eller legacy-source:', () => {
     const { container } = vis(detalje());
     // fixturen bærer begge dele, så testen ikke består tomt
