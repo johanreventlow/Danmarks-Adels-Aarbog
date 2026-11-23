@@ -5,7 +5,8 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 ## BESLUTTET: trin 6 er afsluttet; beslutningspunktet efter trin 6 er åbent og uafgjort (2026-11-22)
 
 > Projektejerens valg 2026-11-22: luk trin 6 formelt, men først efter en måling af de tunge personsider (spec'ens
-> sidste ubeviste punkt), og registrér beslutningspunktet uden udfald.
+> sidste ubeviste punkt), og registrér beslutningspunktet uden udfald. Pkt. 4: projektejerens ja 2026-11-23 til
+> forslaget om de tre ubrugte mekanismer.
 
 **Baggrund:** Posten 2026-10-28 lader projektets mål slutte med trin 6 og kræver et beslutningspunkt bagefter. 6a-6e
 var i prod 2026-11-14, men roadmap og status stod stadig på trin 6 som aktivt mål, og spec'ens §8 (b) »personsiden for
@@ -24,11 +25,11 @@ de tungeste personer svarer under anons grænse med god margen« var ikke målt.
 3. **Kendte rester følger med og skjules ikke** (færdigbevisets sidste afsnit): personsidens samlede tid (~4 s),
    biografilæserens fart (udskudt »til før projektets afslutning«, #422), stående forslag (1939: 25 forslag og 203/5/4 relationer; 2018-20: 59
    `SKRIVEMAADE`), 6d-2b's kendte begrænsninger, #409, #388 og 1939's 16 `[NY]`-records (#160).
-
-**Noteret (forslag, ikke afgjort af projektejeren):** tre deployede, ubrugte mekanismer beskrives i status som andet end
-mangler: kildetekst-revisionen er ikke anvendt på en 1939-helpost (samme mekanisme som kilde 1, i prod 2026-11-08);
-#244's rettelsesvej er en reserve, fordi fejlen aldrig opstod i prod; C3's reversal er ikke udført, og om den stadig
-kan køres uden at bryde senere 1939-data, er ikke vurderet, så den regnes ikke for en tilgængelig fortrydelse.
+4. **Tre deployede, ubrugte mekanismer er ikke mangler** og beskrives sådan i status (2026-11-23):
+   kildetekst-revisionen er bevidst ikke anvendt på en 1939-helpost (samme mekanisme som kilde 1, i prod 2026-11-08);
+   #244's rettelsesvej er en reserve, fordi fejlen aldrig opstod i prod; C3's reversal er ikke udført, og om den stadig
+   kan køres uden at bryde senere 1939-data, er ikke vurderet, så den regnes ikke for en tilgængelig fortrydelse. Skal C3
+   en dag fortrydes, vurderes det først.
 
 ## BESLUTTET: et redaktionelt valg af konklusion gør den gyldig; et tilbagetrukket slot har ingen gældende konklusion (#397 D4+D10, 2026-11-22)
 
