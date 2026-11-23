@@ -305,6 +305,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-person-offentlig-gruppe.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-review37-b3-gate.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-review37-p11-kaldere.sql
+          psql -v ON_ERROR_STOP=1 -f tests/sql/test-review37-y1-udsnit.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-person-source-coordinates.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-paastand-rettelse.sql
           psql -v ON_ERROR_STOP=1 -f tests/sql/test-ocr-paastand.sql
@@ -735,11 +736,11 @@ jobs:
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         # f37b294a = #363, prods installerede SQL; origin/main har fuld personsletning, som ikke er i prod.
         run: bash tests/sql/test-record-persona-upgrade.sh cirecord_persona_upgrade f37b294a
-      - name: Opgradering fra prods skema (review 37 D9 + R37B-1 · låserækkefølgen i fortryd og sletning)
+      - name: Opgradering fra prods skema (review 37 Y1 + D8 · personkontrol-gitteret i udsnit)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
-        # b18bd8a8 = main efter merge af #447 (blok 4) — prods SQL efter blok 4 (i prod 22/11). Blok 4's test er
+        # 8bc9acd4 = main efter merge af #450 (D9 + R37B-1) — prods SQL efter D9 (i prod 23/11). D9's test er
         # pensioneret (tests/ikke-i-ci.txt).
-        run: bash tests/sql/test-review37-d9-upgrade.sh ci_r37d9_upgrade b18bd8a8
+        run: bash tests/sql/test-review37-y1-upgrade.sh ci_r37y1_upgrade 8bc9acd4
       - name: Fuld personsletning · fixtur, tæller og katalogvagt pr. kolonne
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         run: bash tests/sql/test-person-purge.sh ciperson_purge

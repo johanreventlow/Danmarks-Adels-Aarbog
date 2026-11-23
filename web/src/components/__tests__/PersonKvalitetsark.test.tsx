@@ -381,6 +381,28 @@ describe('PersonKvalitetsark — tilgængelighed', () => {
     expect(cell.getAttribute('aria-pressed')).toBe('true');
   });
 
+  test('valget flytter mellem rækker og felter (memo-rækkerne genrenderes, når deres valg ændres)', () => {
+    const rows = [row({ personId: '1' }), row({ personId: '2', navn: 'Anna Sofie Reventlow', foedselRaw: '2. feb. 1700' })];
+    const props = { rows, loading: false, error: null, onSelect: vi.fn(), onOpenPerson: vi.fn() };
+    const { rerender } = render(<PersonKvalitetsark {...props} selected={{ personId: '1', felt: 'navn' }} />);
+    const navn1 = () => screen.getByRole('button', { name: 'Christian Ditlev Reventlow' });
+    const navn2 = () => screen.getByRole('button', { name: 'Anna Sofie Reventlow' });
+    const foedt2 = () => screen.getByRole('button', { name: '2. feb. 1700' });
+    expect(navn1().getAttribute('aria-pressed')).toBe('true');
+    expect(navn2().getAttribute('aria-pressed')).toBe('false');
+
+    rerender(<PersonKvalitetsark {...props} selected={{ personId: '2', felt: 'navn' }} />);
+    expect(navn1().getAttribute('aria-pressed')).toBe('false');
+    expect(navn2().getAttribute('aria-pressed')).toBe('true');
+
+    rerender(<PersonKvalitetsark {...props} selected={{ personId: '2', felt: 'foedsel' }} />);
+    expect(navn2().getAttribute('aria-pressed')).toBe('false');
+    expect(foedt2().getAttribute('aria-pressed')).toBe('true');
+
+    rerender(<PersonKvalitetsark {...props} selected={null} />);
+    expect(foedt2().getAttribute('aria-pressed')).toBe('false');
+  });
+
   test('blokeret celle forbliver fokuserbar via tastatur selvom den ikke kan redigeres', () => {
     const rows = [
       row({

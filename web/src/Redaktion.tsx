@@ -27,7 +27,7 @@ import { HistorikPanel, type FortrydUdfald } from './components/HistorikPanel';
 import { PersonNarrativeRecordEditor } from './components/PersonNarrativeRecordEditor';
 import type { HistPost } from './data/historik';
 import {
-  fetchPersonKvalitetsark, fetchOcrHistorik, retOcrFelt, oversaetOcrFejl, type OcrHistorikEntry,
+  fetchPersonKvalitetsark, fetchPersonKvalitetsarkRaekke, fetchOcrHistorik, retOcrFelt, oversaetOcrFejl, type OcrHistorikEntry,
 } from './data/personKvalitetsark';
 import { PersonKvalitetsark } from './components/PersonKvalitetsark';
 import { OcrKildepanel, type RetOcrFeltInput } from './components/OcrKildepanel';
@@ -430,15 +430,12 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
       setKvBusy(false);
     }
   }, []);
-  // Stale-fingerprint-genindlæsning af ÉN kilderække. Der findes ingen enkelt-række-RPC
-  // (red_person_grid() er set-returnerende) — denne vej genhenter derfor hele griddet, men det
-  // er en eksplicit, brugerudløst gendannelses-handling (klik på "Genindlæs kilderække" i
-  // panelet ved OCR_FINGERPRINT_STALE), ikke det forbudte "genhent alt efter hver gemning".
+  // Stale-fingerprint-genindlæsning af ÉN kilderække (klik på "Genindlæs kilderække" i panelet ved
+  // OCR_FINGERPRINT_STALE). Review 37 Y1: henter kun den persons række og erstatter den, som ved gemning.
   const handleKvRefreshRow = useCallback(async (personId: string): Promise<PersonKvalitetsarkRow> => {
-    const rows = await fetchPersonKvalitetsark();
-    setKvRows(rows);
-    const found = rows.find((r) => r.personId === personId);
+    const found = await fetchPersonKvalitetsarkRaekke(personId);
     if (!found) throw new Error('Personen findes ikke længere i kvalitetsarket.');
+    setKvRows((rows) => rows.map((r) => (r.personId === found.personId ? found : r)));
     return found;
   }, []);
 

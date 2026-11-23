@@ -772,6 +772,7 @@ BEGIN
     'public.red_opret_union(bigint,bigint,text,integer)',
     'public.red_paastand_historik(bigint)',
     'public.red_person_grid()',
+    'public.red_person_grid_udsnit(bigint,integer,bigint)',
     'public.red_person_narrative_publication_history(bigint)',
     'public.red_person_narrative_records(bigint)',
     'public.red_overview_mentions(bigint[])',
