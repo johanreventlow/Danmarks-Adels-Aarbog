@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-23 — Kvalitetsarket og OCR-rettelsen beregner kun de personer, de viser (review 37 Y1 + D8)
+
+»Genindlæs kilderække« og svaret på en OCR-rettelse henter nu kun den ene persons række (i prod højst 13 ms, før ~350 ms
+gennem hele personkontrol-gitteret). Arket hentes i vinduer à 500 personer, og databasen beregner kun vinduets personer;
+den samlede indlæsning er omtrent uændret. Søgning og celle-valg genrenderer kun de berørte rækker. Undervejs blev en
+planfejl fundet og rettet: efter en stribe enkeltpersonopslag kunne et vindue tage 22 s. PR #453; DDL i prod 23/11
+(`database-current-state.md` §48).
+
 ## 2026-11-23 — Fortrydelse og sletning kan ikke længere låse hinanden fast (review 37 D9 + R37B-1)
 
 Fortrød én redaktør en ændring, mens en anden slettede en oplysning, relation eller person, som ændringen rørte, kunne
