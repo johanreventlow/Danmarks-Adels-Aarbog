@@ -430,3 +430,37 @@ describe('unknownChildSection + nedad-projektion (efterkommer-retning)', () => {
     expect(unknownChildSection(m, gc2, 'G', { W: { grade: GRADE_FORAELDER_UKENDT, kilde: null } })).toEqual([]);
   });
 });
+
+describe('efterkommer-kolonner i bogens rækkefølge (sorterBoernEfterBogen)', () => {
+  // Forælder BP med tre børn, indsat i childIdx i rækkefølgen C, A, B. A har intet fødselsår (»dårlig dato«),
+  // men står som nr. 2 i bogen og skal derfor først — ikke sidst.
+  const boernModel = (): Model =>
+    buildModel(
+      db(
+        [P('BP'), P('C', { born: 1671 }), P('A', { born: null }), P('B', { born: 1690 })],
+        [
+          { child: 'C', parent: 'BP', union: 'ub' },
+          { child: 'A', parent: 'BP', union: 'ub' },
+          { child: 'B', parent: 'BP', union: 'ub' },
+        ],
+      ),
+    );
+
+  it('efterkommere står i bogens rækkefølge, også børn uden fødselsår', () => {
+    const m = boernModel();
+    m.bogNrBy = {
+      BP: [{ sourceId: '1', linje: 'V', nr: 1, nrLabel: null }],
+      A: [{ sourceId: '1', linje: 'V', nr: 2, nrLabel: null }],
+      C: [{ sourceId: '1', linje: 'V', nr: 3, nrLabel: null }],
+      B: [{ sourceId: '1', linje: 'V', nr: 4, nrLabel: null }],
+    };
+    m.udgaver = [{ sourceId: '1', label: 'DAA 2018-20', aar: 2018 }];
+    expect(ids(col(buildCols(m, 'BP', [], []), 'descendant:1')!.people)).toEqual(['A', 'C', 'B']);
+  });
+
+  it('uden bognumre: ingen undtagelse, fødselsår-fallback (ukendt sidst)', () => {
+    const m = boernModel();
+    delete m.bogNrBy;
+    expect(ids(col(buildCols(m, 'BP', [], []), 'descendant:1')!.people)).toEqual(['C', 'B', 'A']);
+  });
+});
