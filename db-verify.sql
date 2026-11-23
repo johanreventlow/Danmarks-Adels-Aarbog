@@ -9410,7 +9410,7 @@ END $$;
 -- ===== Review 37 R37S8-2: anon og authenticated har kun læseret i public; ingen sekvensret; ingen arvet skriveret =====
 -- Eksakt mængde: alle ikke-SELECT-retter (tabel- og kolonneniveau) for PUBLIC, anon og authenticated på public-tabeller,
 -- -views og -matviews = præcis bookmarks to (authenticated INSERT + DELETE; web/mobil bookmarks.ts). Ingen ret på
--- public-sekvenserne. Standardrettighederne for den rolle, der kører verify (postgres i prod), giver hverken
+-- public-sekvenserne. Standardrettighederne for postgres (ejer af alle public-objekter) giver hverken
 -- skriveret på nye tabeller eller ret på nye sekvenser. Listen er bevidst skrevet uafhængigt af db-rls.sql.
 -- Udøves også som anon og authenticated (TRUNCATE, UPDATE, nextval afvises; bookmark-INSERT tilladt af rettighederne).
 DO $$
@@ -9435,7 +9435,7 @@ BEGIN
     UNION
     SELECT 'standard:'||d.defaclobjtype::text||':'||CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE x.grantee::regrole::text END||':'||x.privilege_type
       FROM pg_default_acl d, aclexplode(d.defaclacl) x
-     WHERE d.defaclrole = current_user::regrole AND d.defaclnamespace IN (0, 'public'::regnamespace)
+     WHERE d.defaclrole = 'postgres'::regrole AND d.defaclnamespace IN (0, 'public'::regnamespace)
        AND x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole)
        AND ((d.defaclobjtype = 'r' AND x.privilege_type <> 'SELECT') OR d.defaclobjtype = 'S'))
   SELECT coalesce(string_agg(CASE WHEN f.l IS NULL THEN ' mangler:'||e.l ELSE ' uventet:'||f.l END, ''

@@ -1911,8 +1911,9 @@ REVOKE ALL ON FUNCTION private.person_purge_udbakke_genbrug()
 --   bookmark (INSERT + DELETE for authenticated, web/mobil bookmarks.ts), som får sine to retter igen nederst.
 -- SELECT røres bevidst ikke: S8's kolonneret (anon på media, begge roller på story/feed_pin) og tabeller uden nogen
 --   klientadgang (paastand_korrektion m.fl.) forbliver præcis som før.
--- Standardrettighederne: kun ejeren, der kører blokken (postgres i prod), og kun skriveretterne/sekvensretterne;
---   standard-SELECT på nye tabeller bevares. supabase_admins egne standarder kan vi ikke ændre (ikke medlem).
+-- Standardrettighederne: kun for postgres (ejer af alle public-objekter og den rolle, migrationerne kører som; eksplicit,
+--   så en øvelse som en anden superbruger rammer det samme), og kun skrive- og sekvensretterne; standard-SELECT på nye
+--   tabeller bevares. supabase_admins egne standarder kan vi ikke ændre (postgres er ikke medlem).
 -- Idempotent; rører hverken politikker, data eller funktioner. Egen DO-blok, så prod kan tage den alene.
 DO $review37_r37s8_2_skriveret$
 DECLARE r record;
@@ -1928,9 +1929,9 @@ BEGIN
     EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM PUBLIC, anon, authenticated', r.rel);
   END LOOP;
   GRANT INSERT, DELETE ON TABLE public.bookmark TO authenticated;
-  ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
     REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON TABLES FROM PUBLIC, anon, authenticated;
-  ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
     REVOKE ALL ON SEQUENCES FROM PUBLIC, anon, authenticated;
 END
 $review37_r37s8_2_skriveret$;

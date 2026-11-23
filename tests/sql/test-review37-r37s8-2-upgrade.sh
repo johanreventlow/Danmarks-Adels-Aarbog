@@ -10,6 +10,7 @@
 #    på hver public-tabel og -view (et overmål af prods ~30 tabeller + 4 views; SELECT seedes IKKE, så S8's kolonneret
 #    og tabeller uden klientadgang står som i prod), SELECT/UPDATE/USAGE på hver public-sekvens, og samme standarder i
 #    pg_default_acl. Verify-enheden r37s8-2 er RØD på basen.
+#    Seedet og deployet som postgres; standardrettighederne sammenlignes for postgres (eksplicit i blokken).
 # 3) Deploy-transaktionen: katalog-delta = kun rel-linjer i public, hele kataloget = frisk, standardrettighederne uden
 #    skrive-/sekvensret, rækketal uændret. Det hele en gang til ændrer intet, og hele db-rls.sql derefter ændrer hverken
 #    ACL, standardrettigheder eller politikker.
@@ -33,17 +34,17 @@ awk '$0=="DO $review37_r37s8_2_skriveret$" {p=1} p{print} $0=="$review37_r37s8_2
   || fail "blokken skal stå sidst i db-rls.sql (den skal se alle tabeller, filen opretter)"
 ! grep -qiwE 'create|drop|policy|function|insert into|update [a-z_.]+ set|delete from' "$tmp/rls.sql" \
   || fail "DO-blokken må kun rumme REVOKE/GRANT/ALTER DEFAULT PRIVILEGES"
-[ "$(grep -ciE '\balter\b' "$tmp/rls.sql")" = "$(grep -ciE '\balter default privileges in schema public\b' "$tmp/rls.sql")" ] \
-  || fail "DO-blokken må kun bruge ALTER til ALTER DEFAULT PRIVILEGES IN SCHEMA public"
+[ "$(grep -ciE '\balter\b' "$tmp/rls.sql")" = "$(grep -ciE '\balter default privileges for role postgres in schema public\b' "$tmp/rls.sql")" ] \
+  || fail "DO-blokken må kun bruge ALTER til ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public"
 deploy() { env -u PGOPTIONS psql -X -q -1 -v ON_ERROR_STOP=1 -d "$1" -f "$tmp/rls.sql" 2>&1; }
 awk '$0=="-- BEGIN-VERIFY r37s8-2" {p=1} p{print} $0=="-- END-VERIFY r37s8-2" {p=0}' db-verify.sql > "$tmp/v-unit.sql"
 [ "$(head -1 "$tmp/v-unit.sql")" = "-- BEGIN-VERIFY r37s8-2" ] || fail "verify-enheden r37s8-2 mangler i db-verify.sql"
 
-# Ejerens standardrettigheder i public for anon/authenticated/PUBLIC, én linje pr. ret (alle typer, også SELECT).
+# postgres' standardrettigheder i public for anon/authenticated/PUBLIC, én linje pr. ret (alle typer, også SELECT).
 dacl() { a "$1" "SELECT coalesce(string_agg(l, ' ' ORDER BY l COLLATE \"C\"), '') FROM (
   SELECT d.defaclobjtype::text||':'||CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE x.grantee::regrole::text END||':'||x.privilege_type AS l
     FROM pg_default_acl d, aclexplode(d.defaclacl) x
-   WHERE d.defaclrole = current_user::regrole AND d.defaclnamespace IN (0, 'public'::regnamespace)
+   WHERE d.defaclrole = 'postgres'::regrole AND d.defaclnamespace IN (0, 'public'::regnamespace)
      AND x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole)) s"; }
 pol() { a "$1" "SELECT l FROM (SELECT schemaname||'.'||tablename||'|'||policyname||'|'||cmd||'|'||roles::text||'|'||
   coalesce(qual,'')||'|'||coalesce(with_check,'') AS l FROM pg_policies WHERE schemaname IN ('public','private')
@@ -87,8 +88,8 @@ build_prod() { build_start "$1"
     FOR r IN SELECT c.oid::regclass AS rel FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='S' LOOP
       EXECUTE format('GRANT SELECT, UPDATE, USAGE ON SEQUENCE %s TO anon, authenticated', r.rel);
     END LOOP;
-    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;
-    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, UPDATE, USAGE ON SEQUENCES TO anon, authenticated;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT, UPDATE, USAGE ON SEQUENCES TO anon, authenticated;
   END \$s\$"; }
 build_prod "$dbp"
 [ "$(a "$dbp" "SELECT (has_table_privilege('anon','public.media_variant','TRUNCATE')
