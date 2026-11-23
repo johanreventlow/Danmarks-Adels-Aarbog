@@ -3147,6 +3147,7 @@ DECLARE
     'public.red_opret_union(bigint,bigint,text,integer)'::regprocedure,
     'public.red_paastand_historik(bigint)'::regprocedure,
     'public.red_person_grid()'::regprocedure,
+    'public.red_person_grid_udsnit(bigint,integer,bigint)'::regprocedure,
     'public.red_person_narrative_publication_history(bigint)'::regprocedure,
     'public.red_person_narrative_records(bigint)'::regprocedure,
     'public.red_overview_mentions(bigint[])'::regprocedure,
@@ -13240,3 +13241,17 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: #415 synlighed pr. samme_som-gruppe';
 END $verify_415_gruppe$;
+
+-- Review 37 Y1 (#397): red_person_grid_udsnit skal tvinge custom plan. Uden indstillingen skifter plpgsql efter 5 kald
+-- til en generisk plan til små arrays, og et vindue à 500 tog 22 s i stedet for 0,3 s på en prod-kopi. En senere
+-- CREATE OR REPLACE uden SET-klausulen ville fjerne den lydløst; de syntetiske tests er for små til at mærke det.
+DO $verify_review37_y1$
+DECLARE f regprocedure := to_regprocedure('public.red_person_grid_udsnit(bigint,integer,bigint)');
+BEGIN
+  IF f IS NULL THEN RAISE EXCEPTION 'VERIFY_FAILED: review 37 Y1: red_person_grid_udsnit mangler'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_proc p WHERE p.oid=f AND p.prosecdef
+                  AND p.proconfig @> ARRAY['search_path=public, pg_temp','plan_cache_mode=force_custom_plan']::text[]) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: review 37 Y1: red_person_grid_udsnit skal være SECURITY DEFINER med search_path og plan_cache_mode=force_custom_plan';
+  END IF;
+  RAISE NOTICE 'OK: review 37 Y1 red_person_grid_udsnit tvinger custom plan';
+END $verify_review37_y1$;

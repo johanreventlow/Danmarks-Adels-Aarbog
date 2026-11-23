@@ -198,7 +198,8 @@ $$;
 
 -- Én række pr. fysisk person; alle sidegrene aggregeres før slut-projektionen, så
 -- relationer/facts aldrig multiplicerer griddens rækker. Samme-som er kontekst, aldrig collapse.
-CREATE OR REPLACE FUNCTION red_person_grid()
+CREATE OR REPLACE FUNCTION red_person_grid_udsnit(p_efter bigint DEFAULT NULL, p_antal integer DEFAULT NULL,
+  p_person_id bigint DEFAULT NULL)
 RETURNS TABLE (
   person_id bigint, import_key text, record_key text, source_id bigint, source_titel text,
   source_udgave text, linje text, nr integer, slaegtled integer, navn text,
@@ -210,10 +211,23 @@ RETURNS TABLE (
   samme_som_status text, antal_titler integer, antal_familier integer,
   antal_relationer integer, antal_kilde_assertions integer, qa_koder text[], qa_alvor text,
   review_status jsonb, kan_rettes jsonb, blokarsager jsonb
-) LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+) LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp SET plan_cache_mode = force_custom_plan AS $$
 #variable_conflict use_column
+DECLARE v_ids bigint[];
 BEGIN
   IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_antal IS NOT NULL AND (p_antal < 1 OR p_antal > 1000) THEN
+    RAISE EXCEPTION 'Udsnittet skal være 1-1000 personer (fik %)', p_antal;
+  END IF;
+  -- Review 37 Y1 + D8: udsnittets personer i id-orden. Hver rækkes værdier afhænger kun af personens egne data, så et
+  -- udsnit giver præcis de samme rækker som det fulde gitter (kontrolleret i tests/sql/test-review37-y1-udsnit.sql).
+  -- Filtret ligger i hver basis-CTE (flere bruges to gange og materialiseres) som = ANY(v_ids).
+  -- plan_cache_mode = force_custom_plan (funktionshovedet) er bærende: uden den skifter plpgsql efter 5 kald til en
+  -- generisk plan, der antager et lille v_ids; efter en stribe enkeltpersonkald tog et vindue à 500 så 22 s i stedet
+  -- for 0,3 s (målt på stand-in af prod 23/11). db-verify.sql og testen asserter indstillingen.
+  v_ids := ARRAY(SELECT pp.id FROM person pp
+                  WHERE (p_person_id IS NULL OR pp.id = p_person_id) AND (p_efter IS NULL OR pp.id > p_efter)
+                  ORDER BY pp.id LIMIT p_antal);
   RETURN QUERY
   WITH external_anchor AS (
     SELECT p.id AS grid_person_id, count(pei.person_id)::integer AS anchor_count,
@@ -223,6 +237,7 @@ BEGIN
       max(pei.nr) AS nr, max(pei.slaegtled_lokal) AS slaegtled
     FROM person p LEFT JOIN person_external_id pei ON pei.person_id=p.id
       LEFT JOIN source s ON s.id=pei.source_id
+    WHERE p.id = ANY(v_ids)
     GROUP BY p.id
   ), selected_assertions AS (
     SELECT f.subjekt_id AS grid_person_id,
@@ -232,6 +247,7 @@ BEGIN
     FROM fact f JOIN conclusion cn ON cn.target_type='fact' AND cn.target_id=f.id
       JOIN assertion a ON a.id=cn.valgt_assertion_id
     WHERE f.subjekt_type='person' AND f.faktatype IN ('navn','fødsel','død') AND cn.status='afklaret'
+      AND f.subjekt_id = ANY(v_ids)
   ), resolved_rollup AS (
     -- Ankeruafhængigt display-fallback: den allerede AFKLAREDE evidens (samme kilde som
     -- selected_assertions ovenfor), uden anker-gaten field_candidates lægger nedenfor.
@@ -278,22 +294,23 @@ BEGIN
     FROM field_candidates GROUP BY grid_person_id,felt
   ), title_counts AS (
     SELECT f.subjekt_id AS grid_person_id,count(*)::integer AS antal_titler FROM fact f
-    WHERE f.subjekt_type='person' AND f.faktatype='titel' GROUP BY f.subjekt_id
+    WHERE f.subjekt_type='person' AND f.faktatype='titel' AND f.subjekt_id = ANY(v_ids) GROUP BY f.subjekt_id
   ), family_counts AS (
-    SELECT person_id AS grid_person_id,count(DISTINCT family_id)::integer AS antal_familier FROM family_member GROUP BY person_id
+    SELECT person_id AS grid_person_id,count(DISTINCT family_id)::integer AS antal_familier FROM family_member WHERE person_id = ANY(v_ids) GROUP BY person_id
   ), relation_counts AS (
     SELECT grid_person_id,count(DISTINCT relation_id)::integer AS antal_relationer FROM (
-      SELECT subjekt_id AS grid_person_id,id AS relation_id FROM relation WHERE subjekt_type='person'
-      UNION ALL SELECT objekt_id,id FROM relation WHERE objekt_type='person') r GROUP BY grid_person_id
+      SELECT subjekt_id AS grid_person_id,id AS relation_id FROM relation WHERE subjekt_type='person' AND subjekt_id = ANY(v_ids)
+      UNION ALL SELECT objekt_id,id FROM relation WHERE objekt_type='person' AND objekt_id = ANY(v_ids)) r GROUP BY grid_person_id
   ), citation_counts AS (
     SELECT f.subjekt_id AS grid_person_id,count(DISTINCT a.id)::integer AS antal_kilde_assertions
     FROM fact f JOIN assertion a ON a.target_type='fact' AND a.target_id=f.id JOIN citation c ON c.assertion_id=a.id
-    WHERE f.subjekt_type='person' GROUP BY f.subjekt_id
+    WHERE f.subjekt_type='person' AND f.subjekt_id = ANY(v_ids) GROUP BY f.subjekt_id
   ), counts AS (
     SELECT p.id AS grid_person_id,coalesce(tc.antal_titler,0) AS antal_titler,coalesce(fc.antal_familier,0) AS antal_familier,
       coalesce(rc.antal_relationer,0) AS antal_relationer,coalesce(cc.antal_kilde_assertions,0) AS antal_kilde_assertions
     FROM person p LEFT JOIN title_counts tc ON tc.grid_person_id=p.id LEFT JOIN family_counts fc ON fc.grid_person_id=p.id
       LEFT JOIN relation_counts rc ON rc.grid_person_id=p.id LEFT JOIN citation_counts cc ON cc.grid_person_id=p.id
+    WHERE p.id = ANY(v_ids)
   ), same_as_context AS (
     -- Højst ÉN række pr. person. En person midt i en samme_som-kæde er både alias og
     -- kanonisk; de to rækker adskiller sig på samme_som_status og overlevede derfor
@@ -307,13 +324,16 @@ BEGIN
     FROM (
       SELECT r.subjekt_id AS grid_person_id,r.objekt_id AS kanonisk_grid_person_id,'alias'::text AS samme_som_status,1 AS prio
       FROM relation r WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+        AND r.subjekt_id = ANY(v_ids)
       UNION ALL
       SELECT r.objekt_id,r.objekt_id,'kanonisk'::text,2
       FROM relation r WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person'
+        AND r.objekt_id = ANY(v_ids)
     ) s
     ORDER BY grid_person_id,prio,kanonisk_grid_person_id
   ), all_fields AS (
     SELECT p.id AS grid_person_id,v.felt FROM person p CROSS JOIN (VALUES ('navn'::text),('foedsel'),('doed'),('koen')) v(felt)
+    WHERE p.id = ANY(v_ids)
   ), field_data AS (
     SELECT af.grid_person_id,af.felt,ea.anchor_count,ea.stable_anchor_count,ea.import_key,ea.record_key,ea.source_id,
       ea.source_titel,ea.source_udgave,ea.linje,ea.nr,ea.slaegtled,fr.candidate_count,fr.assertion_id,fr.vaerdi_tekst,fr.date_raw,
@@ -411,10 +431,34 @@ BEGIN
   FROM person p JOIN external_anchor ea ON ea.grid_person_id=p.id JOIN field_state fs ON fs.grid_person_id=p.id
     LEFT JOIN counts ct ON ct.grid_person_id=p.id LEFT JOIN same_as_context sac ON sac.grid_person_id=p.id
     LEFT JOIN qa q ON q.grid_person_id=p.id LEFT JOIN field_json fj ON fj.grid_person_id=p.id
+  WHERE p.id = ANY(v_ids)
   GROUP BY p.id,ea.import_key,ea.record_key,ea.source_id,ea.source_titel,ea.source_udgave,ea.linje,ea.nr,ea.slaegtled,
     p.koen,p.levende,p.privat,p.staged,p.status,sac.kanonisk_grid_person_id,sac.samme_som_status,ct.antal_titler,ct.antal_familier,
     ct.antal_relationer,ct.antal_kilde_assertions,q.qa_koder,q.qa_alvor,fj.input_fingerprint,fj.importeret,fj.korrigeret,
-    fj.ocr_context,fj.kilde_side,fj.review_status,fj.kan_rettes,fj.blokarsager;
+    fj.ocr_context,fj.kilde_side,fj.review_status,fj.kan_rettes,fj.blokarsager
+  ORDER BY p.id;
+END $$;
+REVOKE ALL ON FUNCTION public.red_person_grid_udsnit(bigint,integer,bigint) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.red_person_grid_udsnit(bigint,integer,bigint) TO authenticated;
+
+-- Hele gitteret (kaldes fra ceremonier og db-verify). Review 37 Y1: tynd indpakning om red_person_grid_udsnit, så de to
+-- ikke kan glide fra hinanden; kvalitetsarket henter i vinduer, og OCR-rettelsen (D8) henter én person.
+CREATE OR REPLACE FUNCTION red_person_grid()
+RETURNS TABLE (
+  person_id bigint, import_key text, record_key text, source_id bigint, source_titel text,
+  source_udgave text, linje text, nr integer, slaegtled integer, navn text,
+  navn_assertion_id bigint, foedsel_raw text, foedsel_min date, foedsel_max date,
+  foedsel_qualifier text, foedsel_assertion_id bigint, doed_raw text, doed_min date,
+  doed_max date, doed_qualifier text, doed_assertion_id bigint, input_fingerprint jsonb,
+  importeret jsonb, korrigeret jsonb, ocr_context jsonb, kilde_side jsonb, koen text,
+  levende boolean, privat boolean, staged boolean, person_status text, kanonisk_person_id bigint,
+  samme_som_status text, antal_titler integer, antal_familier integer,
+  antal_relationer integer, antal_kilde_assertions integer, qa_koder text[], qa_alvor text,
+  review_status jsonb, kan_rettes jsonb, blokarsager jsonb
+) LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  RETURN QUERY SELECT * FROM red_person_grid_udsnit();
 END $$;
 
 -- OCR-korrekturens indre kanonisering. JSONB er semantisk (ikke tekstuelt) ordnet;
@@ -2045,7 +2089,7 @@ BEGIN
    PERFORM private.kraev_gyldig_datering(dmin, dmax, p_korrigeret->>'qualifier'); END IF; END IF;
  SELECT coalesce(pr.navn,pr.email,p_actor_navn,auth.uid()::text,'ukendt') INTO actor FROM profiles pr WHERE pr.id=auth.uid(); actor:=coalesce(actor,p_actor_navn,'ukendt'); PERFORM begin_change_set('red_ret_ocr_felt',format('OCR-%s: %s/%s',p_felt,p_import_key,p_record_key),'person',p_person_id);
  IF p_status='rettet' THEN IF p_felt='navn' THEN UPDATE assertion SET vaerdi_tekst=p_korrigeret->>'value' WHERE id=aid; ELSIF p_felt='koen' THEN UPDATE person SET koen=p_korrigeret->>'value' WHERE id=p_person_id; ELSE UPDATE assertion SET date_raw=p_korrigeret->>'raw',date_min=dmin,date_max=dmax,date_qualifier=p_korrigeret->>'qualifier',calendar=coalesce(p_korrigeret->>'calendar','gregoriansk'),date_certainty=p_korrigeret->>'certainty' WHERE id=aid; END IF; END IF;
- INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,korrigeret,status,actor_id,actor_navn) VALUES(p_import_key,p_record_key,p_felt,fp,imp,CASE WHEN p_status='rettet' THEN p_korrigeret ELSE NULL END,p_status,auth.uid(),actor) ON CONFLICT(import_key,record_key,felt) DO UPDATE SET input_fingerprint=import_korrektion.input_fingerprint,korrigeret=CASE WHEN excluded.status='rettet' THEN excluded.korrigeret ELSE import_korrektion.korrigeret END,status=excluded.status,actor_id=excluded.actor_id,actor_navn=excluded.actor_navn,opdateret_at=now(); SELECT to_jsonb(g) INTO out FROM red_person_grid() g WHERE g.person_id=p_person_id; RETURN out;
+ INSERT INTO import_korrektion(import_key,record_key,felt,input_fingerprint,importeret,korrigeret,status,actor_id,actor_navn) VALUES(p_import_key,p_record_key,p_felt,fp,imp,CASE WHEN p_status='rettet' THEN p_korrigeret ELSE NULL END,p_status,auth.uid(),actor) ON CONFLICT(import_key,record_key,felt) DO UPDATE SET input_fingerprint=import_korrektion.input_fingerprint,korrigeret=CASE WHEN excluded.status='rettet' THEN excluded.korrigeret ELSE import_korrektion.korrigeret END,status=excluded.status,actor_id=excluded.actor_id,actor_navn=excluded.actor_navn,opdateret_at=now(); SELECT to_jsonb(g) INTO out FROM red_person_grid_udsnit(NULL,NULL,p_person_id) g; RETURN out;
 END $$;
 
 CREATE OR REPLACE FUNCTION red_ocr_historik(p_import_key text,p_record_key text,p_felt text) RETURNS TABLE(change_set_id bigint,changed_at timestamptz,actor_navn text,operation text,foer jsonb,efter jsonb) LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$ DECLARE jid bigint; BEGIN IF current_rolle()<>'redaktion' THEN RAISE EXCEPTION 'OCR_ROLE_FORBIDDEN'; END IF; SELECT id INTO jid FROM import_korrektion WHERE import_key=p_import_key AND record_key=p_record_key AND felt=p_felt; IF jid IS NULL THEN RETURN; END IF; RETURN QUERY SELECT cs.id,cs.created_at,cs.actor_navn,cs.operation,ce.foer,ce.efter FROM change_event ce JOIN change_set cs ON cs.id=ce.change_set_id WHERE ce.tabel='import_korrektion' AND ce.row_pk->>'id'=jid::text ORDER BY cs.created_at DESC,cs.id DESC,ce.seq DESC; END $$;
