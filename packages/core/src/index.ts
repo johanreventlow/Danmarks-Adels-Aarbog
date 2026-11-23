@@ -34,6 +34,7 @@ export * from './presensListe';
 export * from './ocrKvalitet';
 export * from './physicalPersonIds';
 export * from './familieKilder';
+export * from './vielse';
 export * from './recordLabel';
 export { KONFIDENS_VALUES, KONFIDENS_RANK } from './types';
 export type {
