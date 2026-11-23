@@ -529,6 +529,43 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 48. Review 37 Y1 + D8: personkontrol-gitteret i udsnit — LIVE i prod (2026-11-23)
+
+**Grundlag:** PR #453 (CI grøn i alle jobs; SQL = `a9eba04b`; merget `f806cedc` efter DDL). Privat runner
+`~/.private/review37-y1/prod.zsh`, fastlåst på `a9eba04b` (blok-sha `1da9ba10…`), kørt i projektejerens shell **før**
+merge.
+
+- **DDL (én transaktion):** kun blokken `-- BEGIN review37-y1` (sidst i db-migrations.sql). Ny
+  `red_person_grid_udsnit(p_efter, p_antal, p_person_id)`: et vindue i id-orden (1-1000 personer) eller én person,
+  SECURITY DEFINER, `search_path=public, pg_temp`, `plan_cache_mode=force_custom_plan`, EXECUTE kun `authenticated`
+  (eksplicit REVOKE/GRANT i blokken). `red_person_grid()` er en tynd indpakning om den (samme signatur og ACL);
+  `red_ret_ocr_felt` henter kun den rettede persons række (D8). Katalog-delta præcis 3 (2 ændrede + 1 ny), md5 = facit,
+  data uændret (5 tabeller); 8,5 s, fordi ceremonien beregner gitteret fire gange (prøve 8,1 s).
+- **Adfærd i transaktionen (som redaktør, kun md5/ms skrevet):** `red_person_grid()` før = efter = vinduer à 500
+  (1802 rækker, md5 `84d65ec3…`). Tider i prod: enkeltkald højst 13 ms (før ~350 ms via hele gitteret), vindue à 500
+  455 ms / 200 ms, fuldt gitter 405 ms.
+- **Planfejl fundet undervejs:** uden `force_custom_plan` skifter plpgsql efter 5 kald til en generisk plan for
+  `= ANY(v_ids)`, der passer til små arrays; på en prod-kopi tog et vindue à 500 efter 20 enkeltkald 22,5 s. `db-verify.sql`
+  asserter indstillingen (`VERIFY_FAILED: review 37 Y1`, set rød uden den).
+- **Bevis:** `tests/sql/test-review37-y1-udsnit.sql` (syntetisk, i CI på frisk schema): vinduer = fuldt gitter,
+  enkeltkald = fuld-række, grænser, ACL, ikke-redaktion afvist, D8-svaret; rød mod to vinduesafhængige fejl.
+  `tests/sql/test-review37-y1-upgrade.sh` fra `8bc9acd4`: rød på basen, efter blokken kroppe/proconfig/ACL/katalog =
+  frisk `schema.sql`, data uændret, idempotent, db-rls oveni uden ændring, fuld db-verify grøn. På prod-kopi: gammel fuld
+  = ny fuld = udsnit = vinduer (md5 `188d3586…`), 0 afvigelser ved enkeltkald for alle 1802.
+- **Web:** kvalitetsarket henter i keyset-vinduer à 500 (stop på tomt vindue; bigint som streng), »Genindlæs
+  kilderække« henter én række, og rækkerne er memo-komponenter med `useDeferredValue` på søgningen (renderingsgevinst
+  efter design, ikke målt). Vercel-preview som redaktør før merge: 1802 af 1802.
+- **Efterkontrol (læse-kun):** `prod.zsh tal`: anvendt, alle 3 md5 = facit. `get_advisors` (security): samme 4
+  lint-typer som efter §47; den nye funktion står ikke under `anon_security_definer_function_executable`, kun under
+  `authenticated_security_definer_function_executable` som alle `red_*`.
+- **Øvelse:** stand-in `daa5ab_ddl_standin_20261121170307_y1proeve` (kopi af `kar…h130` + D9-blokken fra `8bc9acd4`):
+  prøve → commit → fortryd (`P_FORTRYD_TROFAST`, md5 tilbage, ny funktion droppet), gentaget med adfærdstjekkene.
+  Prod: prøve, derefter commit.
+- **Fortryd:** `/bin/zsh -f ~/.private/review37-y1/prod.zsh fortryd [--jeg-mener-det]` (gendanner prods 2 definitioner
+  fra `~/.private/review37-y1/fortryd-definitioner.prod.sql` og dropper `red_person_grid_udsnit`). Fortryd kun DB'en,
+  efter at web er rullet tilbage — web kalder den nye funktion.
+- **Pensioneret:** D9's opgraderingstest (`tests/ikke-i-ci.txt`).
+
 ## 47. Review 37 D9 + R37B-1: fortryd og sletning låser ikke hinanden fast — LIVE i prod (2026-11-23)
 
 **Grundlag:** PR #450 (CI grøn undtagen R-jobbet, der to gange blev stoppet af 20-minutters grænsen under duckdb-
