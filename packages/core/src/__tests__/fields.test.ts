@@ -29,8 +29,13 @@ describe('parseYear — første 3-4-cifrede årstal', () => {
 });
 
 describe('fmtYears — leveår-visning', () => {
-  test('begge år → interval med en-dash', () => {
-    expect(fmtYears('1640', '1708')).toBe('1640–1708');
+  test('begge år → »* født † død«', () => {
+    expect(fmtYears('1671', '1738')).toBe('* 1671 † 1738');
+    expect(fmtYears('21. juni 1671', '1. okt. 1738')).toBe('* 21. juni 1671 † 1. okt. 1738');
+  });
+  test('død med ord i stedet for år: ét tegn, aldrig »† †«', () => {
+    expect(fmtYears(null, '† ung')).toBe('† ung');
+    expect(fmtYears('1688', '† lille')).toBe('* 1688 † lille');
   });
   test('kun fødsel → "* år"', () => {
     expect(fmtYears('1640', null)).toBe('* 1640');
@@ -43,8 +48,8 @@ describe('fmtYears — leveår-visning', () => {
     expect(fmtYears('', '')).toBe('');
   });
   test('eksisterende symboler/whitespace renses bort før formatering', () => {
-    expect(fmtYears('* 1640', '† 1708')).toBe('1640–1708');
-    expect(fmtYears('  1640 ', '1708')).toBe('1640–1708');
+    expect(fmtYears('* 1640', '† 1708')).toBe('* 1640 † 1708');
+    expect(fmtYears('  1640 ', '1708')).toBe('* 1640 † 1708');
   });
 });
 
@@ -77,7 +82,7 @@ describe('aarSpaend', () => {
 
 describe('fmtVisningsAar — livsdatoer vinder over floruit', () => {
   test('livsdatoer vises som fmtYears, floruit ignoreres', () => {
-    expect(fmtVisningsAar('* 1640', '† 1708', '1660')).toBe('1640–1708');
+    expect(fmtVisningsAar('* 1640', '† 1708', '1660')).toBe('* 1640 † 1708');
   });
   test('kun floruit-interval → Nævnes', () => {
     expect(fmtVisningsAar(null, null, '1349–1391')).toBe('Nævnes 1349–1391');
