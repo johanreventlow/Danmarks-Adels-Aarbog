@@ -8,7 +8,8 @@
 # 2) Prod-formet base (2. arg; CI pinner prods commit): basens skema + migrationer to gange + rls, derefter
 #    Supabase-standardrettighederne, som et frisk byg ikke giver: alle ikke-SELECT-tabelretter til anon og authenticated
 #    på hver public-tabel og -view (et overmål af prods ~30 tabeller + 4 views; SELECT seedes IKKE, så S8's kolonneret
-#    og tabeller uden klientadgang står som i prod), SELECT/UPDATE/USAGE på hver public-sekvens, og samme standarder i
+#    og tabeller uden klientadgang står som i prod), to kolonne-skriveretter (blokkens kolonnegren), SELECT/UPDATE/USAGE på
+#    hver public-sekvens, og samme standarder i
 #    pg_default_acl. Verify-enheden r37s8-2 er RØD på basen.
 #    Seedet og deployet som postgres; standardrettighederne sammenlignes for postgres (eksplicit i blokken).
 # 3) Deploy-transaktionen: katalog-delta = kun rel-linjer i public, hele kataloget = frisk, standardrettighederne uden
@@ -88,13 +89,17 @@ build_prod() { build_start "$1"
     FOR r IN SELECT c.oid::regclass AS rel FROM pg_class c WHERE c.relnamespace='public'::regnamespace AND c.relkind='S' LOOP
       EXECUTE format('GRANT SELECT, UPDATE, USAGE ON SEQUENCE %s TO anon, authenticated', r.rel);
     END LOOP;
+    -- Kolonneniveau (findes ikke i prod, men blokkens kolonnegren skal have tænder).
+    GRANT UPDATE (koen) ON TABLE public.person TO authenticated;
+    GRANT INSERT (code) ON TABLE public.vocab TO anon;
     ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated;
     ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT, UPDATE, USAGE ON SEQUENCES TO anon, authenticated;
   END \$s\$"; }
 build_prod "$dbp"
 [ "$(a "$dbp" "SELECT (has_table_privilege('anon','public.media_variant','TRUNCATE')
    AND has_table_privilege('authenticated','public.story_kilde','MAINTAIN')
-   AND has_sequence_privilege('anon','public.person_id_seq','UPDATE'))::text")" = true ] \
+   AND has_sequence_privilege('anon','public.person_id_seq','UPDATE')
+   AND has_column_privilege('authenticated','public.person','koen','UPDATE'))::text")" = true ] \
   || fail "basen har ikke prods standardrettigheder"
 grep -q 'r:anon:TRUNCATE' <<<"$(dacl "$dbp")" || fail "basen har ikke prods standardrettigheder i pg_default_acl"
 unit "$dbp" "FEJL: R37S8-2 —"
@@ -108,9 +113,9 @@ kat "$dbp" "$tmp/kat-efter.txt"
 delta=$(LC_ALL=C comm -3 <(LC_ALL=C sort "$tmp/kat-foer.txt") <(LC_ALL=C sort "$tmp/kat-efter.txt") | sed 's/^\t//' \
   | cut -d'|' -f1,2 | LC_ALL=C sort -u)
 [ -n "$delta" ] || fail "blokken ændrede intet i kataloget"
-# Udtrækket skriver public-objekter uden skemapræfiks (private.* med).
-uden=$(grep -vE '^rel\|[a-z0-9_]+$' <<<"$delta" || true)
-[ -z "$uden" ] || { echo "$uden" >&2; fail "katalog-delta rører andet end rel-linjer i public"; }
+# Udtrækket skriver public-objekter uden skemapræfiks (private.* med). col-linjerne er præcis de to seedede kolonner.
+uden=$(grep -vE '^(rel\|[a-z0-9_]+|col\|(person\.koen|vocab\.code))$' <<<"$delta" || true)
+[ -z "$uden" ] || { echo "$uden" >&2; fail "katalog-delta rører andet end rel-linjer i public og de seedede kolonner"; }
 for o in media_variant person person_id_seq red_konflikt story_kilde bookmark; do
   grep -qx "rel|$o" <<<"$delta" || fail "katalog-delta mangler rel|$o"
 done
@@ -133,6 +138,8 @@ q "$dbp" -1 -f db-rls.sql
 
 # 4) Adfærd på den opgraderede base; fuld db-verify på en anden, ens opgraderet base.
 unit "$dbp" ""
+[ "$(a "$dbp" "SELECT has_column_privilege('authenticated','public.person','koen','UPDATE')::text")" = false ] \
+  || fail "kolonneretten UPDATE(koen) på person overlevede blokken"
 # En ny tabel efter blokken arver kun SELECT (standard), ingen skriveret; en ny sekvens ingen ret.
 a "$dbp" "CREATE TABLE public._r37s8_2_ny (id bigserial PRIMARY KEY)" >/dev/null
 [ "$(a "$dbp" "SELECT (has_table_privilege('anon','public._r37s8_2_ny','SELECT')
