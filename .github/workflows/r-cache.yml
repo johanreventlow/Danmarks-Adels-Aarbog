@@ -1,0 +1,45 @@
+name: R-cache
+
+# Varmer R-bibliotekets cache op på main, så PR'ernes `r · testthat` (ci.yml) finder den.
+# GitHub lader en PR læse caches fra sin egen ref og fra main, men ikke fra andre PR'er. CI kører kun på
+# pull_request, så hver ny PR fandt ingen cache og kompilerede duckdb fra kilde (5-40 min; #450 blev stoppet af
+# jobbets 20-minutters grænse 2026-11-23). Denne kørsel gemmer cachen under main.
+# - Ugentligt: en cache, der ikke er brugt i 7 dage, slettes af GitHub, og en ny R-release (setup-r's `release`)
+#   giver en ny nøgle, som så bygges her i stedet for i en PR. Et cache-hit koster ~4 min.
+# - Manuelt (workflow_dispatch, kun på main): efter en ændret .github/r-testpakker.R eller en ny R-version.
+# Nøgle, sti, setup-r og installationsscript SKAL være ens med ci.yml's r-job.
+
+on:
+  schedule:
+    - cron: '17 4 * * 1'   # mandag 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r-cache
+  cancel-in-progress: false
+
+jobs:
+  r-cache:
+    name: R-bibliotek → cache på main
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # duckdb fra kilde har taget op til 41 min.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          sparse-checkout: .github
+      - uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2
+        id: setup-r
+        with:
+          use-public-rspm: true
+      - name: Cache R-bibliotek
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ env.R_LIBS_USER }}
+          key: ${{ runner.os }}-rlib-${{ steps.setup-r.outputs.installed-r-version }}-${{ hashFiles('.github/r-testpakker.R') }}
+      - name: Installér R-testpakker
+        run: Rscript .github/r-testpakker.R
