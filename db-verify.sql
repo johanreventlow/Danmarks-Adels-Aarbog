@@ -9413,6 +9413,7 @@ END $$;
 -- public-sekvenserne. Standardrettighederne for postgres (ejer af alle public-objekter) giver hverken
 -- skriveret på nye tabeller eller ret på nye sekvenser. Listen er bevidst skrevet uafhængigt af db-rls.sql.
 -- Udøves også som anon og authenticated (TRUNCATE, UPDATE, nextval afvises; bookmark-INSERT tilladt af rettighederne).
+-- Desuden: hver public-tabel har RLS slået til (standard-SELECT på nye tabeller er bevaret, så RLS skal skjule rækkerne).
 DO $$
 DECLARE v_fejl text; v_state text;
 BEGIN
@@ -9443,6 +9444,11 @@ BEGIN
     INTO v_fejl
     FROM forventet e FULL JOIN faktisk f ON e.l = f.l WHERE e.l IS NULL OR f.l IS NULL;
   IF v_fejl <> '' THEN RAISE EXCEPTION 'FEJL: R37S8-2 —%', v_fejl; END IF;
+  -- Standard-SELECT på nye public-tabeller er bevidst bevaret, så RLS er det eneste, der skjuler rækkerne: hver
+  -- public-tabel skal have RLS slået til (alle 43 har det i prod 2026-11-23). Fanger en ny tabel uden RLS allerede i CI.
+  SELECT string_agg(c.relname, ', ' ORDER BY c.relname) INTO v_fejl
+    FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r','p') AND NOT c.relrowsecurity;
+  IF v_fejl IS NOT NULL THEN RAISE EXCEPTION 'FEJL: R37S8-2 — public-tabel uden RLS: %', v_fejl; END IF;
 
   -- Udøvet som anon og authenticated (rettighedstjekket sker før RLS, så tomme tabeller og WHERE false er nok).
   PERFORM set_config('request.jwt.claim.sub', '', true);

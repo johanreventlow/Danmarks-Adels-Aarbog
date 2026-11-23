@@ -14,7 +14,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 > `bookmark`: INSERT + DELETE), kræver det en eksplicit GRANT **inde i** blokken `$review37_r37s8_2_skriveret$` sidst i
 > `db-rls.sql` (blokken fjerner enhver ikke-SELECT-ret givet tidligere i filen) **og** en linje i verify-enheden
 > `r37s8-2`'s tilladte mængde. Alle andre skrivninger går gennem SECURITY DEFINER-RPC'er. Standard-SELECT er bevidst bevaret (alle
-> læsetabeller bygger på SELECT + RLS); en ny tabel skal derfor stadig have RLS slået til, før den tages i brug.
+> læsetabeller bygger på SELECT + RLS); **en ny public-tabel skal derfor have RLS slået til**, ellers kan alle med den
+> offentlige nøgle læse den. Verify-enheden `r37s8-2` kræver RLS på hver public-tabel (alle 43 har det i prod), så en
+> glemt tabel fanges allerede i CI.
 
 ## BESLUTTET: trin 6 er afsluttet; beslutningspunktet efter trin 6 er åbent og uafgjort (2026-11-22)
 
