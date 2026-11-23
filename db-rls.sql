@@ -1898,3 +1898,52 @@ GRANT EXECUTE ON FUNCTION public.red_person_purge_udbakke(),public.red_person_pu
   TO authenticated;
 REVOKE ALL ON FUNCTION private.person_purge_udbakke_genbrug()
   FROM PUBLIC,anon,authenticated,service_role;
+
+-- Review 37 R37S8-2 (#397): gæster (anon) og indloggede (authenticated) har kun læseret på public-tabeller og -views,
+--   ingen ret på public-sekvenserne, og nye tabeller/sekvenser arver ikke længere skriveret.
+-- Baggrund (målt i prod 2026-11-23): Supabases standardrettigheder (pg_default_acl for ejeren postgres i schema public)
+--   gav anon og authenticated ALLE tabelretter på hver ny tabel — INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
+--   og MAINTAIN — og SELECT/UPDATE/USAGE på hver ny sekvens. Det stod på ~30 tabeller og alle 4 views. Ingen af dem var
+--   et åbent hul: PostgREST har intet TRUNCATE-verbum, skrivning standses af RLS (ingen skrivepolitik uden for
+--   bookmark), og views'ene er security_invoker. Men RLS var den eneste mur, og TRUNCATE/MAINTAIN (LOCK TABLE, VACUUM)
+--   dækkes slet ikke af RLS. Ældre eksplicitte revoke-lister (story_kilde, bookmark, import_korrektion) glemte MAINTAIN.
+-- Alle legitime skriveveje er SECURITY DEFINER-RPC'er (ejeren bypasser rettighederne); eneste direkte klientskrivning er
+--   bookmark (INSERT + DELETE for authenticated, web/mobil bookmarks.ts), som får sine to retter igen nederst.
+-- NY KLIENTSKRIVERET skal GRANT'es INDE i blokken (ved siden af bookmark) og føjes til verify-enheden r37s8-2's
+--   tilladte mængde: blokken står sidst i filen og fjerner enhver ikke-SELECT-ret, der er givet tidligere i filen.
+-- SELECT røres bevidst ikke: S8's kolonneret (anon på media, begge roller på story/feed_pin) og tabeller uden nogen
+--   klientadgang (paastand_korrektion m.fl.) forbliver præcis som før.
+-- Standardrettighederne: kun for postgres (ejer af alle public-objekter og den rolle, migrationerne kører som; eksplicit,
+--   så en øvelse som en anden superbruger rammer det samme), og kun skrive- og sekvensretterne; standard-SELECT på nye
+--   tabeller bevares. supabase_admins egne standarder kan vi ikke ændre (postgres er ikke medlem).
+-- Idempotent; rører hverken politikker, data eller funktioner. Egen DO-blok, så prod kan tage den alene.
+DO $review37_r37s8_2_skriveret$
+DECLARE r record;
+BEGIN
+  -- Kun relationer, hvor de tre modtagere har noget at miste: på en ren base er blokken en no-op og efterlader
+  -- NULL-ACL'er urørte (en REVOKE på en NULL-ACL gør ejerens standard eksplicit — samme betydning, anden tekst).
+  FOR r IN SELECT c.oid::regclass AS rel FROM pg_class c
+            WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r','p','v','m','f')
+              AND (EXISTS (SELECT 1 FROM aclexplode(c.relacl) x
+                            WHERE x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole) AND x.privilege_type <> 'SELECT')
+                   OR EXISTS (SELECT 1 FROM pg_attribute at, aclexplode(at.attacl) x
+                               WHERE at.attrelid = c.oid AND at.attnum > 0
+                                 AND x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole) AND x.privilege_type <> 'SELECT'))
+            ORDER BY c.relname LOOP
+    EXECUTE format('REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON TABLE %s FROM PUBLIC, anon, authenticated', r.rel);
+  END LOOP;
+  FOR r IN SELECT c.oid::regclass AS rel FROM pg_class c
+            WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'S'
+              AND EXISTS (SELECT 1 FROM aclexplode(c.relacl) x WHERE x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole))
+            ORDER BY c.relname LOOP
+    EXECUTE format('REVOKE ALL ON SEQUENCE %s FROM PUBLIC, anon, authenticated', r.rel);
+  END LOOP;
+  GRANT INSERT, DELETE ON TABLE public.bookmark TO authenticated;
+  IF to_regrole('postgres') IS NOT NULL THEN  -- findes i Supabase, CI og de lokale klynger
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+      REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER, MAINTAIN ON TABLES FROM PUBLIC, anon, authenticated;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+      REVOKE ALL ON SEQUENCES FROM PUBLIC, anon, authenticated;
+  END IF;
+END
+$review37_r37s8_2_skriveret$;

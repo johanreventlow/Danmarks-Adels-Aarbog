@@ -9406,6 +9406,100 @@ BEGIN
 END $$;
 -- END-VERIFY r37s5
 
+-- BEGIN-VERIFY r37s8-2
+-- ===== Review 37 R37S8-2: anon og authenticated har kun læseret i public; ingen sekvensret; ingen arvet skriveret =====
+-- Eksakt mængde: alle ikke-SELECT-retter (tabel- og kolonneniveau) for PUBLIC, anon og authenticated på public-tabeller,
+-- -views og -matviews = præcis bookmarks to (authenticated INSERT + DELETE; web/mobil bookmarks.ts). Ingen ret på
+-- public-sekvenserne. Standardrettighederne for postgres (ejer af alle public-objekter) giver hverken
+-- skriveret på nye tabeller eller ret på nye sekvenser. Listen er bevidst skrevet uafhængigt af db-rls.sql.
+-- Udøves også som anon og authenticated (TRUNCATE, UPDATE, nextval afvises; bookmark-INSERT tilladt af rettighederne).
+-- Desuden: hver public-tabel har RLS slået til (standard-SELECT på nye tabeller er bevaret, så RLS skal skjule rækkerne).
+DO $$
+DECLARE v_fejl text; v_state text;
+BEGIN
+  WITH forventet(l) AS (VALUES ('authenticated:bookmark:DELETE'), ('authenticated:bookmark:INSERT')),
+  faktisk(l) AS (
+    SELECT CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE x.grantee::regrole::text END||':'||c.relname||':'||x.privilege_type
+      FROM pg_class c, aclexplode(c.relacl) x
+     WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r','p','v','m','f')
+       AND x.privilege_type <> 'SELECT' AND x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole)
+    UNION
+    SELECT CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE x.grantee::regrole::text END||':'||c.relname||'.'||at.attname||':'||x.privilege_type
+      FROM pg_attribute at JOIN pg_class c ON c.oid = at.attrelid, aclexplode(at.attacl) x
+     WHERE c.relnamespace = 'public'::regnamespace AND at.attnum > 0 AND NOT at.attisdropped
+       AND x.privilege_type <> 'SELECT' AND x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole)
+    UNION
+    SELECT 'sekvens:'||CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE x.grantee::regrole::text END||':'||c.relname||':'||x.privilege_type
+      FROM pg_class c, aclexplode(c.relacl) x
+     WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'S'
+       AND x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole)
+    UNION
+    SELECT 'standard:'||d.defaclobjtype::text||':'||CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE x.grantee::regrole::text END||':'||x.privilege_type
+      FROM pg_default_acl d, aclexplode(d.defaclacl) x
+     WHERE d.defaclrole = to_regrole('postgres') AND d.defaclnamespace IN (0, 'public'::regnamespace)
+       AND x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole)
+       AND ((d.defaclobjtype = 'r' AND x.privilege_type <> 'SELECT') OR d.defaclobjtype = 'S'))
+  SELECT coalesce(string_agg(CASE WHEN f.l IS NULL THEN ' mangler:'||e.l ELSE ' uventet:'||f.l END, ''
+                             ORDER BY coalesce(e.l, f.l)), '')
+    INTO v_fejl
+    FROM forventet e FULL JOIN faktisk f ON e.l = f.l WHERE e.l IS NULL OR f.l IS NULL;
+  IF v_fejl <> '' THEN RAISE EXCEPTION 'FEJL: R37S8-2 —%', v_fejl; END IF;
+  -- Standard-SELECT på nye public-tabeller er bevidst bevaret, så RLS er det eneste, der skjuler rækkerne: hver
+  -- public-tabel skal have RLS slået til (alle 43 har det i prod 2026-11-23). Fanger en ny tabel uden RLS allerede i CI.
+  SELECT string_agg(c.relname, ', ' ORDER BY c.relname) INTO v_fejl
+    FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r','p') AND NOT c.relrowsecurity;
+  IF v_fejl IS NOT NULL THEN RAISE EXCEPTION 'FEJL: R37S8-2 — public-tabel uden RLS: %', v_fejl; END IF;
+
+  -- Udøvet som anon og authenticated (rettighedstjekket sker før RLS, så tomme tabeller og WHERE false er nok).
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  PERFORM set_config('request.jwt.claims', '', true);
+  EXECUTE 'SET LOCAL ROLE anon';
+  BEGIN
+    EXECUTE 'TRUNCATE public.media_variant';
+    v_state := 'ingen fejl';
+  EXCEPTION WHEN insufficient_privilege THEN v_state := '42501'; END;
+  IF v_state <> '42501' THEN RAISE EXCEPTION 'FEJL: R37S8-2 — anon kunne TRUNCATE media_variant (%)', v_state; END IF;
+  BEGIN
+    EXECUTE 'UPDATE public.person SET id = id WHERE false';
+    v_state := 'ingen fejl';
+  EXCEPTION WHEN insufficient_privilege THEN v_state := '42501'; END;
+  IF v_state <> '42501' THEN RAISE EXCEPTION 'FEJL: R37S8-2 — anon havde UPDATE på person (%)', v_state; END IF;
+  BEGIN
+    PERFORM nextval('public.person_id_seq');
+    v_state := 'ingen fejl';
+  EXCEPTION WHEN insufficient_privilege THEN v_state := '42501'; END;
+  IF v_state <> '42501' THEN RAISE EXCEPTION 'FEJL: R37S8-2 — anon kunne kalde nextval(person_id_seq) (%)', v_state; END IF;
+  EXECUTE 'RESET ROLE';
+  EXECUTE 'SET LOCAL ROLE authenticated';
+  BEGIN
+    EXECUTE 'DELETE FROM public.fact WHERE false';
+    v_state := 'ingen fejl';
+  EXCEPTION WHEN insufficient_privilege THEN v_state := '42501'; END;
+  IF v_state <> '42501' THEN RAISE EXCEPTION 'FEJL: R37S8-2 — authenticated havde DELETE på fact (%)', v_state; END IF;
+  BEGIN
+    EXECUTE 'LOCK TABLE public.vocab IN ACCESS SHARE MODE';
+    v_state := 'ingen fejl';
+  EXCEPTION WHEN insufficient_privilege THEN v_state := '42501'; END;
+  -- ACCESS SHARE kræver kun SELECT; strengere låsemodi kræver skrive-/MAINTAIN-ret.
+  IF v_state <> 'ingen fejl' THEN RAISE EXCEPTION 'FEJL: R37S8-2 — authenticated mistede læselåsen på vocab (%)', v_state; END IF;
+  BEGIN
+    EXECUTE 'LOCK TABLE public.vocab IN ACCESS EXCLUSIVE MODE';
+    v_state := 'ingen fejl';
+  EXCEPTION WHEN insufficient_privilege THEN v_state := '42501'; END;
+  IF v_state <> '42501' THEN RAISE EXCEPTION 'FEJL: R37S8-2 — authenticated kunne låse vocab eksklusivt (%)', v_state; END IF;
+  EXECUTE 'RESET ROLE';
+  IF NOT (has_table_privilege('authenticated', 'public.bookmark', 'INSERT')
+          AND has_table_privilege('authenticated', 'public.bookmark', 'DELETE')
+          AND has_table_privilege('authenticated', 'public.bookmark', 'SELECT')) THEN
+    RAISE EXCEPTION 'FEJL: R37S8-2 — authenticated mangler SELECT/INSERT/DELETE på bookmark'; END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM = 'ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: review37 R37S8-2 — anon og authenticated har kun læseret i public (bookmark: + INSERT/DELETE)';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY r37s8-2
+
 -- BEGIN-VERIFY r37b3-d5a
 -- ===== Review 37 D5a: datointervaller i orden på assertion, haendelse, story og relation =====
 -- Tabel-CHECK'erne *_dato_orden og relation_periode_orden afviser date_min > date_max, start_min > start_max,

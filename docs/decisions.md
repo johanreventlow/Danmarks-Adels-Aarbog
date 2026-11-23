@@ -2,6 +2,22 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: klienter har kun læseret i public; skriveret er en eksplicit undtagelse (#397 R37S8-2, 2026-11-23)
+
+> Projektejeren 23/11 (valgte »alle tabeller« + tællere + fremtidige tabeller, efter forklaring): gæster (`anon`) og
+> indloggede (`authenticated`) har kun SELECT på public-tabeller og -views og ingen ret på public-sekvenserne.
+> Supabases standardrettigheder havde givet dem INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER/MAINTAIN på ~30
+> tabeller og alle 4 views i prod; RLS var eneste mur, og TRUNCATE/MAINTAIN dækkes slet ikke af RLS. Ikke et åbent hul
+> (PostgREST har intet TRUNCATE, ingen skrivepolitik uden for bookmark, views er security_invoker), men nu er der to mure.
+> Også `postgres`' standardrettigheder i public er strammet, så **en ny public-tabel får kun SELECT** for de to roller
+> og en ny sekvens ingen ret. Konsekvens for nyt arbejde: skal en klient skrive direkte i en tabel (i dag kun
+> `bookmark`: INSERT + DELETE), kræver det en eksplicit GRANT **inde i** blokken `$review37_r37s8_2_skriveret$` sidst i
+> `db-rls.sql` (blokken fjerner enhver ikke-SELECT-ret givet tidligere i filen) **og** en linje i verify-enheden
+> `r37s8-2`'s tilladte mængde. Alle andre skrivninger går gennem SECURITY DEFINER-RPC'er. Standard-SELECT er bevidst bevaret (alle
+> læsetabeller bygger på SELECT + RLS); **en ny public-tabel skal derfor have RLS slået til**, ellers kan alle med den
+> offentlige nøgle læse den. Verify-enheden `r37s8-2` kræver RLS på hver public-tabel (alle 43 har det i prod), så en
+> glemt tabel fanges allerede i CI.
+
 ## BESLUTTET: trin 6 er afsluttet; beslutningspunktet efter trin 6 er åbent og uafgjort (2026-11-22)
 
 > Projektejerens valg 2026-11-22: luk trin 6 formelt, men først efter en måling af de tunge personsider (spec'ens
