@@ -7,7 +7,7 @@
 // Én grid-række = én fysisk person.id. Rows løber ALDRIG gennem collapseSameAs —
 // samme_som er read-only kontekst (Global Constraints), så to fysiske personer med
 // samme kanoniske person vises begge, uafhængigt af hinanden.
-import { useMemo, useState, type CSSProperties } from 'react';
+import { memo, useDeferredValue, useMemo, useState, type CSSProperties } from 'react';
 import { Link } from '../Link';
 import { T } from '../theme';
 import {
@@ -251,6 +251,120 @@ function TriStateFilterSelect({ label, alleLabel, jaLabel, nejLabel, value, onCh
   );
 }
 
+type CelleHandlinger = {
+  onSelect: (selection: { personId: string; felt: OcrFelt }) => void;
+  onOpenPerson: (personId: string) => void;
+};
+
+function renderEditableCell(row: PersonKvalitetsarkRow, felt: OcrFelt, value: string, selectedFelt: OcrFelt | null,
+  { onSelect, onOpenPerson }: CelleHandlinger) {
+  const kanRettes = row.kanRettes[felt];
+  const isSelected = selectedFelt === felt;
+  if (kanRettes) {
+    return (
+      <button
+        type="button"
+        aria-pressed={isSelected}
+        onClick={() => onSelect({ personId: row.personId, felt })}
+        style={editableButtonStyle(isSelected)}
+      >
+        {value}
+      </button>
+    );
+  }
+  const kode = row.blokarsager[felt];
+  const reasonText = kode ? blokarsagTekst(kode) : 'Feltet kan ikke rettes her.';
+  const reasonId = `kv-reason-${row.personId}-${felt}`;
+  return (
+    <div>
+      <span role="button" tabIndex={0} aria-disabled="true" aria-describedby={reasonId}>
+        {value}
+      </span>
+      <p id={reasonId} style={{ fontSize: 10.5, color: T.inkMuted, margin: '2px 0 0' }}>{reasonText}</p>
+      <Link
+        href={`/redaktion/person/${row.personId}`}
+        onNavigate={() => onOpenPerson(row.personId)}
+        style={{ fontSize: 10.5, color: T.bordeaux, padding: '2px 0', display: 'inline-block' }}
+      >
+        Åbn person
+      </Link>
+    </div>
+  );
+}
+
+function renderCountCell(row: PersonKvalitetsarkRow, antal: number, enhed: string, onOpenPerson: (personId: string) => void) {
+  return (
+    <Link
+      href={`/redaktion/person/${row.personId}`}
+      onNavigate={() => onOpenPerson(row.personId)}
+      style={{ color: T.ink, display: 'inline-block' }}
+    >
+      {antal} {enhed}
+    </Link>
+  );
+}
+
+function renderCell(row: PersonKvalitetsarkRow, col: ColumnDef, selectedFelt: OcrFelt | null, handlinger: CelleHandlinger) {
+  const editableFelt = EDITABLE_COLUMN_FELT[col.key];
+  if (editableFelt) {
+    return renderEditableCell(row, editableFelt, EDITABLE_COLUMN_VALUE[editableFelt](row), selectedFelt, handlinger);
+  }
+  const countCol = COUNT_COLUMNS[col.key];
+  if (countCol) {
+    return renderCountCell(row, countCol.antal(row), countCol.enhed, handlinger.onOpenPerson);
+  }
+  switch (col.key) {
+    case 'qa': {
+      if (row.qaAlvor === null) return <span>—</span>;
+      const alvor = QA_ALVOR[row.qaAlvor];
+      return (
+        <div>
+          <span aria-hidden="true">{alvor.icon}</span> <span>{alvor.label}</span>
+          {row.qaKoder.length > 0 && (
+            <div style={{ fontSize: 10, color: T.inkMuted }}>{row.qaKoder.join(', ')}</div>
+          )}
+        </div>
+      );
+    }
+    case 'kilde':
+      return <span>{kildeTekst(row)}</span>;
+    case 'linje':
+      return <span>{linjeTekst(row)}</span>;
+    case 'levende':
+      return <span>{row.levende ? 'Ja' : 'Nej'}</span>;
+    case 'privat':
+      return <span>{row.privat ? 'Ja' : 'Nej'}</span>;
+    case 'staged':
+      return <span>{row.staged ? 'Ja' : 'Nej'}</span>;
+    case 'status':
+      return <span>{displayEllerStreg(row.personStatus)}</span>;
+    case 'sammeSom':
+      return <span>{displayEllerStreg(row.sammeSomStatus)}</span>;
+    default:
+      return null;
+  }
+}
+
+// Review 37 Y1: én række som memo-komponent. selectedFelt er kun sat for den valgte række, og rækkeobjekterne
+// erstattes kun ved gemning/genindlæsning af netop den person — så et celle-valg eller et tastetryk i søgningen
+// genrenderer ikke ~2000 uændrede rækker. onSelect/onOpenPerson er stabile useCallback'er i Redaktion.
+const KvRaekke = memo(function KvRaekke({ row, columns, selectedFelt, onSelect, onOpenPerson }: {
+  row: PersonKvalitetsarkRow;
+  columns: ColumnDef[];
+  selectedFelt: OcrFelt | null;
+} & CelleHandlinger) {
+  const handlinger = { onSelect, onOpenPerson };
+  return (
+    <tr data-testid={`kv-row-${row.personId}`}>
+      {columns.map((col) => (
+        <td key={col.key} style={{ ...td_base, ...identityStyle(col.key, false) }}>
+          {renderCell(row, col, selectedFelt, handlinger)}
+        </td>
+      ))}
+    </tr>
+  );
+});
+
 export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, onOpenPerson }: PersonKvalitetsarkProps) {
   const [preset, setPreset] = useState<KvalitetsarkPreset>('alle');
   const [query, setQuery] = useState('');
@@ -271,14 +385,16 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
   // rows kan være op til ~2000 lange, og sortKvalitetsark sammenligner med en Intl.Collator
   // pr. par — genberegnes derfor kun når filter-/sorteringsinput reelt ændrer sig, ikke ved
   // urelaterede re-renders (fx celle-valg eller åbning af kolonnepanelet).
+  // Søgefeltet viser tastetrykket med det samme; filtreringen følger efter med lav prioritet (review 37 Y1).
+  const deferredQuery = useDeferredValue(query);
   const sorted = useMemo(() => {
     const filter: KvalitetsarkFilter = {
-      preset, query, source: sourceFilter, linje: linjeFilter,
+      preset, query: deferredQuery, source: sourceFilter, linje: linjeFilter,
       felt: feltFilter, reviewStatus: reviewStatusFilter, staged: stagedFilter, sammeSom: sammeSomFilter,
     };
     return sortKvalitetsark(filterKvalitetsark(rows, filter), sortKey, sortDir);
   }, [
-    rows, preset, query, sourceFilter, linjeFilter, feltFilter, reviewStatusFilter,
+    rows, preset, deferredQuery, sourceFilter, linjeFilter, feltFilter, reviewStatusFilter,
     stagedFilter, sammeSomFilter, sortKey, sortDir,
   ]);
 
@@ -299,101 +415,15 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
     });
   }
 
-  const visibleColumns = COLUMNS.filter((c) => !c.hideable || !hiddenColumns.has(c.key));
+  // Stabil reference, så KvRaekke's memo holder mellem renders.
+  const visibleColumns = useMemo(
+    () => COLUMNS.filter((c) => !c.hideable || !hiddenColumns.has(c.key)), [hiddenColumns]);
 
   if (loading) {
     return <div style={{ padding: 18, fontFamily: T.sans, color: T.inkMuted }}>Indlæser personkontrol…</div>;
   }
   if (error) {
     return <div role="alert" style={{ padding: 18, fontFamily: T.sans, color: T.danger }}>{error}</div>;
-  }
-
-  function renderEditableCell(row: PersonKvalitetsarkRow, felt: OcrFelt, value: string) {
-    const kanRettes = row.kanRettes[felt];
-    const isSelected = selected !== null && selected.personId === row.personId && selected.felt === felt;
-    if (kanRettes) {
-      return (
-        <button
-          type="button"
-          aria-pressed={isSelected}
-          onClick={() => onSelect({ personId: row.personId, felt })}
-          style={editableButtonStyle(isSelected)}
-        >
-          {value}
-        </button>
-      );
-    }
-    const kode = row.blokarsager[felt];
-    const reasonText = kode ? blokarsagTekst(kode) : 'Feltet kan ikke rettes her.';
-    const reasonId = `kv-reason-${row.personId}-${felt}`;
-    return (
-      <div>
-        <span role="button" tabIndex={0} aria-disabled="true" aria-describedby={reasonId}>
-          {value}
-        </span>
-        <p id={reasonId} style={{ fontSize: 10.5, color: T.inkMuted, margin: '2px 0 0' }}>{reasonText}</p>
-        <Link
-          href={`/redaktion/person/${row.personId}`}
-          onNavigate={() => onOpenPerson(row.personId)}
-          style={{ fontSize: 10.5, color: T.bordeaux, padding: '2px 0', display: 'inline-block' }}
-        >
-          Åbn person
-        </Link>
-      </div>
-    );
-  }
-
-  function renderCountCell(row: PersonKvalitetsarkRow, antal: number, enhed: string) {
-    return (
-      <Link
-        href={`/redaktion/person/${row.personId}`}
-        onNavigate={() => onOpenPerson(row.personId)}
-        style={{ color: T.ink, display: 'inline-block' }}
-      >
-        {antal} {enhed}
-      </Link>
-    );
-  }
-
-  function renderCell(row: PersonKvalitetsarkRow, col: ColumnDef) {
-    const editableFelt = EDITABLE_COLUMN_FELT[col.key];
-    if (editableFelt) {
-      return renderEditableCell(row, editableFelt, EDITABLE_COLUMN_VALUE[editableFelt](row));
-    }
-    const countCol = COUNT_COLUMNS[col.key];
-    if (countCol) {
-      return renderCountCell(row, countCol.antal(row), countCol.enhed);
-    }
-    switch (col.key) {
-      case 'qa': {
-        if (row.qaAlvor === null) return <span>—</span>;
-        const alvor = QA_ALVOR[row.qaAlvor];
-        return (
-          <div>
-            <span aria-hidden="true">{alvor.icon}</span> <span>{alvor.label}</span>
-            {row.qaKoder.length > 0 && (
-              <div style={{ fontSize: 10, color: T.inkMuted }}>{row.qaKoder.join(', ')}</div>
-            )}
-          </div>
-        );
-      }
-      case 'kilde':
-        return <span>{kildeTekst(row)}</span>;
-      case 'linje':
-        return <span>{linjeTekst(row)}</span>;
-      case 'levende':
-        return <span>{row.levende ? 'Ja' : 'Nej'}</span>;
-      case 'privat':
-        return <span>{row.privat ? 'Ja' : 'Nej'}</span>;
-      case 'staged':
-        return <span>{row.staged ? 'Ja' : 'Nej'}</span>;
-      case 'status':
-        return <span>{displayEllerStreg(row.personStatus)}</span>;
-      case 'sammeSom':
-        return <span>{displayEllerStreg(row.sammeSomStatus)}</span>;
-      default:
-        return null;
-    }
   }
 
   return (
@@ -517,13 +547,14 @@ export function PersonKvalitetsark({ rows, loading, error, selected, onSelect, o
           </thead>
           <tbody>
             {sorted.map((row) => (
-              <tr key={row.personId} data-testid={`kv-row-${row.personId}`}>
-                {visibleColumns.map((col) => (
-                  <td key={col.key} style={{ ...td_base, ...identityStyle(col.key, false) }}>
-                    {renderCell(row, col)}
-                  </td>
-                ))}
-              </tr>
+              <KvRaekke
+                key={row.personId}
+                row={row}
+                columns={visibleColumns}
+                selectedFelt={selected !== null && selected.personId === row.personId ? selected.felt : null}
+                onSelect={onSelect}
+                onOpenPerson={onOpenPerson}
+              />
             ))}
           </tbody>
         </table>
