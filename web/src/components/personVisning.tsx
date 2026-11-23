@@ -11,7 +11,7 @@ import { erTekniskLinje } from '../data/lineage';
 import {
   byggUdgaveFakta, byggUdgaveVaelger, udgaveForRaekker,
   udgaverMedFakta, type BioSourceVersionV2, type UdgaveChip,
-  optraederSom, sorterKilder, unikkeKildelinjer, linjerForUdgave, b6Noter,
+  sorterKilder, unikkeKildelinjer, linjerForUdgave, b6Noter,
 } from '@daa/core';
 
 export function usePersonVisning(model: Model, focusId: string, detail: PersonDetailData | null) {
@@ -64,8 +64,6 @@ export function usePersonVisning(model: Model, focusId: string, detail: PersonDe
   const portrait = pickPortrait(media);
   const gallery = media.filter((m) => m.url && m.id !== portrait?.id);
   const lightboxItems = withUrl([portrait, ...gallery]);
-  // Proveniens: er personen foldet af flere DAA-poster (samme_som), vis hvilke linjer/numre.
-  const mergedFrom = p?.mergedFrom ?? [];
   // Godser (spec §5.8): kun dem, hvis personrække hører til den valgte udgave, eller hvis udgave ikke kendes.
   // Rækkens udgave som for fakta (§5.1): fakta-rækkernes udgave, ellers personrækkens eksterne nøgle.
   const raekkeUdgave = faktaInput ? udgaveForRaekker(faktaInput) : {};
@@ -86,15 +84,13 @@ export function usePersonVisning(model: Model, focusId: string, detail: PersonDe
   const aktivAar = aktivChip ? chipAar(aktivChip) : null;
   const standardAar = standardChip ? chipAar(standardChip) : null;
   const tidligereUdgave = aktivAar != null && standardAar != null && aktivAar < standardAar;
-  // »Optræder i Aarbogen som …« (spec §5.7): foldet person → de bogreferencer, posterne giver, i bogensNummers orden.
-  const proveniens = mergedFrom.length > 1 ? optraederSom(model.sourcesBy?.[focusId] ?? []) || null : null;
   // Biografien for den aktive chip (eller den gamle bio-tekst, når der ingen vælger er).
   const bioText = aktivChip
     ? (aktivChip.art === 'post' ? aktivChip.version.narrativeText : '')
     : (detail?.bio ?? '');
   return {
     p, vaelger, valgtIdx, vaelgChip, aktivChip, valgtUdgave, faktaVisning, bioText, tidligereUdgave,
-    parents, spouses, children, linjer, hovedLinjer, linjeNoter, sources, portrait, gallery, lightboxItems, proveniens, godser,
+    parents, spouses, children, linjer, hovedLinjer, linjeNoter, sources, portrait, gallery, lightboxItems, godser,
   };
 }
 

@@ -185,7 +185,6 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                 </div>
               </div>
             ) : navneblok}
-            {v.proveniens && <p style={{ margin: 0, fontSize: 13.5, color: T.inkMuted }}>Optræder i Aarbogen som {v.proveniens}.</p>}
             {kunI && <p style={{ margin: 0, fontSize: 13.5, color: T.inkMuted }}>{kunI.linje}</p>}
             {v.tidligereUdgave && <p style={{ margin: 0, fontSize: 13, color: T.inkMuted }}>Du ser en tidligere udgave.</p>}
             {v.linjeNoter.map((n) => <p key={n} style={{ margin: 0, fontSize: 13, color: T.inkMuted }}>{n}</p>)}

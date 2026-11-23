@@ -306,6 +306,19 @@ describe('PersonSide', () => {
     });
   });
 
+  it('en sammenfoldet person har ingen »Optræder i Aarbogen som«-linje i toppen (kilderne står nederst)', () => {
+    const m = {
+      ...model,
+      byId: { ...model.byId, '392': { ...model.byId['392'], mergedFrom: ['392', '255', '1198'] } },
+      sourcesBy: { '392': [
+        { work: 'DAA 2018-20', ref: 'V. Linje, nr. 1', kort: 'V, nr. 1', personId: '392', sourceId: '1', aar: 2018, slaegtled: 1 },
+        { work: 'DAA 1939', ref: 's. 52', kort: 's. 52', personId: '1198', sourceId: '3', aar: 1939, slaegtled: null },
+      ] },
+    } as unknown as Model;
+    render(<PersonSide {...props({ model: m })} />);
+    expect(screen.queryByText(/Optræder i Aarbogen/)).toBeNull();
+  });
+
   it('usikkert slægtskab vises med ordet', () => {
     const m = { ...model, indexes: { ...model.indexes, konfByEdge: { '500|392': 'formodet' } } } as unknown as Model;
     render(<PersonSide {...props({ model: m })} />);
