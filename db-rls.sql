@@ -1909,6 +1909,8 @@ REVOKE ALL ON FUNCTION private.person_purge_udbakke_genbrug()
 --   dækkes slet ikke af RLS. Ældre eksplicitte revoke-lister (story_kilde, bookmark, import_korrektion) glemte MAINTAIN.
 -- Alle legitime skriveveje er SECURITY DEFINER-RPC'er (ejeren bypasser rettighederne); eneste direkte klientskrivning er
 --   bookmark (INSERT + DELETE for authenticated, web/mobil bookmarks.ts), som får sine to retter igen nederst.
+-- NY KLIENTSKRIVERET skal GRANT'es INDE i blokken (ved siden af bookmark) og føjes til verify-enheden r37s8-2's
+--   tilladte mængde: blokken står sidst i filen og fjerner enhver ikke-SELECT-ret, der er givet tidligere i filen.
 -- SELECT røres bevidst ikke: S8's kolonneret (anon på media, begge roller på story/feed_pin) og tabeller uden nogen
 --   klientadgang (paastand_korrektion m.fl.) forbliver præcis som før.
 -- Standardrettighederne: kun for postgres (ejer af alle public-objekter og den rolle, migrationerne kører som; eksplicit,
