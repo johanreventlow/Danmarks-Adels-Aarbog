@@ -1689,3 +1689,21 @@ personas, kandidater, kontrolstikprøve og -ark, korroboration, afgørelser og b
 - **Kendt afvigelse:** ét ægteskab står som forslag uden binding (dubletreglen, 5b §23.4). Reglen er rettet i prod
   2026-10-26 (§12); selve ægteskabet afgøres separat.
 - **Skrivepausen** er slut (`FREEZE_END_OK mode=verify`); webfladen er åben for redigering igen.
+
+## 50. Portrætter fra DAA 2018-20 — data i prod (2026-11-24)
+
+**Grundlag:** PR #466 (CI grøn i alle jobs), `R/billeder-2018-20-load.R --jeg-mener-det` kørt 24/11 fra grenen efter
+projektejerens godkendelse af alle 24 usikre koblinger (svarfil sha256 `3c3beb4a…8040`). Ingen DDL; skrevet via
+`red_upload_media`, `red_relation`, `red_registrer_media_variant`, `red_bekraeft_media_upload`, `red_upsert_fakta` og
+`red_saet_portraet` (redaktør-uuid `ba4ce28d…`), én transaktion pr. billede. `--proev-binding` (READ ONLY) før kørslen.
+
+- **Skrevet:** 156 `media` (id 18-173, `original_filnavn LIKE 'daa-2018-20-s%'`, `klar`, `maa_publiceres = true`,
+  `rettigheder_status = 'ukendt'`), 312 varianter (thumb/medium), 201 `afbildet`-relationer til 179 personer, 156
+  kreditlinjer (»Gengivet fra Danmarks Adels Aarbog 2018-20, s. N«), 4 portrætlåse (419→10, 515→16, 777→12, alias
+  1275→13) så de viste portrætter er uændrede. 468 objekter i Storage-bucketen `media` (`redaktor/<sha>-<tier>.jpg`).
+- **Verificeret som anon:** 0 af de 27 billeder, der afbilder en ikke-offentlig person, er synlige (heller ikke deres
+  varianter eller 81 filer); de 129 øvrige er synlige med 258 varianter. Personside 534 i prod viser portræt,
+  billedtekst og kreditlinje.
+- **Advisors (security, MCP):** ingen ERROR; kun de kendte WARN/INFO.
+- **Rettigheder:** uafklarede — se `docs/decisions.md` 2026-11-24. Forsidens billed-regel aktiveres, når web-delen af
+  PR #466 er merget (Edge-filen hæves til format v2).
