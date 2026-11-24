@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-24 — En dato inde i teksten står ikke længere to gange
+
+Personsiden viste fx »Født: 25. april 1861 på Pederstrup, 25. april 1861«, fordi en gentaget dato kun blev fjernet, når
+den stod sidst i teksten. Nu vises den én gang, uanset hvor i teksten den står (113 fakta i prod). Oversættelsen af
+»s.å.«/»s.m.« er uændret; den udvidelse er #478 (`decisions.md` 2026-11-24).
+
 ## 2026-11-24 — Leveårene ved navnet følger den nyeste udgave og beholder bogens forbehold
 
 Siwert (id 97) stod som »* 1500 † 1575«, men 2018-20 skriver kun »† efter 1575«; fødselsåret var et gæt fra DAA 1939,

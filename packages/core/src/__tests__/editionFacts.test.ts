@@ -616,10 +616,12 @@ describe('byggUdgaveFakta', () => {
       r39({ person_id: 281, faktatype: 'dåb', vaerdi_tekst: 'hjemmedøbt 10. febr. 1922', date_raw: null }),
     ], { udgaveForPersonRaekke: ext2(280, 281) }));
     const v = byggUdgaveFakta(inp, '1');
-    expect(linje(v, 'fødsel').map((l) => l.vaerdi)).toEqual(['12. jan. 1922 i København, 12. jan. 1922']);
+    // afgørelse 13 revideret 2026-11-24: datoen står ordret i teksten → vises én gang
+    expect(linje(v, 'fødsel').map((l) => l.vaerdi)).toEqual(['12. jan. 1922 i København']);
     // teksten opløses for sig; derefter er datofeltet dobbelt
     expect(linje(v, 'dåb').map((l) => [l.vaerdi, l.noter])).toEqual([['hjemmedøbt 10. febr. 1922', [{ art: 'enig', udgave: D39 }]]]);
-    expect(linje(v, 'begravelse').map((l) => l.vaerdi)).toEqual(['bisat 27. s.m., begravet 19. sept. 1924, 27. s.m.']);
+    // C3 består (intet opløses), men datofeltet står ordret i teksten og vises ikke igen
+    expect(linje(v, 'begravelse').map((l) => l.vaerdi)).toEqual(['bisat 27. s.m., begravet 19. sept. 1924']);
     // C3: en tekst med en sikker dato og et relativt datofelt — datofeltet kan henvise til tekstens dato
     const tekstDato = input([
       r18({ person_id: 283, faktatype: 'fødsel', date_raw: '12. jan. 1922' }),

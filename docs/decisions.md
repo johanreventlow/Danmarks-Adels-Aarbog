@@ -2,6 +2,19 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: en dato, der står ordret inde i teksten, vises kun én gang (afgørelse 13 revideret, 2026-11-24)
+
+**Projektejeren valgte** at læsersiden ikke gentager datofeltet, når det står ordret et vilkårligt sted i teksten —
+ikke kun, når teksten slutter med det (afgørelse 13, 2026-11-12, `docs/evidensbaseret-genimport/laeserflade-6e1-maaling.md`).
+Anledning: person 406 viste »Født: 25. april 1861 på Pederstrup, 25. april 1861«; 113 fakta i prod viste datoen to gange.
+
+- **Gælder kun visningen** (`factValue` i `packages/core/src/personFacts.ts`). Værnene består: et rent årstal tæller ikke
+  (kan være et tilfælde), ordgrænse før datoen, og efter datoen kun mellemrum, . , ; : eller tekstens slutning — »?« og
+  parenteser bærer betydning (»døbt 21. april 1644?« + »21. april 1644« vises begge).
+- **Oversættelsen af s.å./s.m./s.d. er uændret** (`datoErDobbelt`, »slutter med«), så de 273 målte oversættelser står.
+  At lade oversættelsen bruge den bredere regel er valgt til senere: #478 (med genmåling og eksempler før prod).
+- Ingen data ændres; web og mobil får det gennem `@daa/core`.
+
 ## BESLUTTET: leveårene ved navnet er den nyeste udgaves udsagn, med bogens forbehold (2026-11-24)
 
 > Projektejeren 24/11 om Siwert (id 97): »* 1500« stod ved navnet, men kun DAA 1939 skriver »o. 1500«; 2018-20 skriver
