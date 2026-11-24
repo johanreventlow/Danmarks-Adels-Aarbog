@@ -68,10 +68,13 @@ export function byggFokusRaekker(model: Model, focusId: string): FokusRaekker | 
     return null;
   };
 
-  // Søskende: hele flokken under alle viste forældre, i forældrenes rækkefølge.
+  // Søskende: hele flokken under alle viste forældre, hver forælders børn i Aarbogens rækkefølge (samme regel som
+  // børnelisten og kolonne-stamtræet; før stod de i indlæsningsrækkefølge, prod 392 2026-11-24).
   const set = new Map<string, ModelPerson>();
   if (foraeldreP.length === 0) set.set(f.id, f);
-  for (const p of foraeldreP) for (const b of childrenOf(model, p.id)) if (!set.has(b.id)) set.set(b.id, b);
+  for (const p of foraeldreP) {
+    for (const b of sorterBoernEfterBogen(childrenOf(model, p.id), p.id, model.bogNrBy, model.udgaver)) if (!set.has(b.id)) set.set(b.id, b);
+  }
   if (!set.has(f.id)) set.set(f.id, f);
   const soeskende: FokusSoeskende[] = [...set.values()].map((s) => {
     const faelles = foraeldreP.filter((p) => model.indexes.childIdx[p.id]?.has(s.id));
