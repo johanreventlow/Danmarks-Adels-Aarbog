@@ -1714,3 +1714,10 @@ projektejerens godkendelse af alle 24 usikre koblinger (svarfil sha256 `3c3beb4a
 ikke findes (Johann von Walstorp VI, 4; Otto von Muggele VIII, 2; Rantzau-medaljen VI, 39). Frederik 4. (861) koblet til
 begge s. 83-medaljer sammen med Anna Sophia (470). 1 portrætlås: Claus (289) beholder sit maleri (media 31). Personside
 59 (Hartwich) viser seglet som hovedbillede.
+
+**Runde 3 — våben (samme dag):** `manifest-runde3.json`, svarfil `gennemgang-runde3.txt` (sha256 `802c6d30…`; projektejeren
+godkendte med to rettelser: Revenfeld s. 405 udeladt, Vallø s. 58 også til Anna Sophia). 20 `media` af slags `våben`
+(id 185-204), alle synlige for anon (40 varianter): stamvåben → slægts-roden (lineage 6), lensgreve 1767 → lineage 4,
+greve 1673 → lineage 5, Vallø → estate 196 + person 470, og 16 personvåben (8 elefantridder-skjolde s. 68-75, våben på
+kirkeinventar s. 59-65, fyrstinde af Slesvig → 470). `coat_of_arms` 1-2 er urørte. 8 portrætlåse sikrer, at de viste
+portrætter er uændrede (fx 109→19, 510→67, 526→59, 882→68). Web-galleriet på våbensiden kræver merge af PR #466.

@@ -24,7 +24,11 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
   `personerMedBillede`; kun gæste-synlige billeder tæller. Mobilens forside følger i #457.
 - **Runde 2 (samme dag):** 6 segl og 5 medaljer importeret med kuraterede koblinger (`slags` = `segl`/`medalje`); billeder
   af personer, der ikke findes (sidelinjerne VI og VIII), ligger skjult og ukoblet.
-- **Udskudt:** våben, gravplade, miniature og godser uden for portrætafsnittet og en fast ordliste for `media.slags`
+- **Runde 3 (samme dag):** 20 våben, valg »B«: ingen nye våben-enheder. Slægts- og rangvåben kobles til slægten/linjerne
+  (og Vallø til godset og Anna Sophia), personvåben til personerne; våbensiden får et galleri med alle bogens våben. De to
+  eksisterende `coat_of_arms` får ikke bogens billede (web vælger hovedbilledet uden fast orden). Revenfeld-våbnet er
+  udeladt efter projektejerens ønske.
+- **Udskudt:** gravplade, miniature og godsbilleder uden for portrætafsnittet og en fast ordliste for `media.slags`
   (i dag fritekst).
 
 ## BESLUTTET: minimumskrav til personer på forsiden (2026-11-24)
