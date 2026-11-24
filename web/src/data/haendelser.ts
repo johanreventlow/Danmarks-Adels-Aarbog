@@ -5,37 +5,11 @@
 // Fejl — inklusive en endnu umigreret base — degraderer i hændelseskortene til {}, aldrig et brudt feed;
 // feedGrundlag bruger samme bladrer, men fail-closed.
 import { buildHaendelserBy } from '@daa/feed';
-import type {
-  HaendelseNarrativRow,
-  HaendelseRow,
-  HaendelseSourceRow,
-  HaendelserBy,
-} from '@daa/feed';
+import type { HaendelserBy } from '@daa/feed';
 import { supabase } from '../supabase';
+import { bladrHaendelser, type HaendelseRowsResult } from './forside/kilder';
 
-export type HaendelseRowsResult = {
-  rows: HaendelseRow[];
-  narrativer: HaendelseNarrativRow[];
-  sources: HaendelseSourceRow[];
-};
-
-// Loft over antal kald i én bladring. Med serverens standardlofter (150 narrativer / 1.000 rækker pr. kald) rækker det
-// langt ud over hele korpusset; nås det, er noget galt, og resultatet ville være afkortet.
-const MAX_SIDER = 500;
-
-type FeedSide = {
-  rows: HaendelseRow[];
-  narrativer: HaendelseNarrativRow[];
-  sources: HaendelseSourceRow[];
-  naeste: string | null;
-};
-
-function erFeedSide(data: unknown): data is FeedSide {
-  if (data === null || typeof data !== 'object') return false;
-  const side = data as Record<string, unknown>;
-  return Array.isArray(side.rows) && Array.isArray(side.narrativer) && Array.isArray(side.sources)
-    && (side.naeste === null || typeof side.naeste === 'string');
-}
+export type { HaendelseRowsResult } from './forside/kilder';
 
 // Feedet starter hændelseskortene og »Nævnt i Aarbogen«-grundlaget samtidig. De deler én igangværende bladring,
 // så gaten ikke kører to gange over hele korpusset. Delingen er bundet til brugeren: RPC'en er i dag ens for alle
@@ -51,36 +25,10 @@ export async function fetchHaendelseFeed(): Promise<HaendelseRowsResult> {
   const noegle = data.session?.user.id ?? 'gaest';
   let bladring = igangvaerende.get(noegle);
   if (!bladring) {
-    bladring = bladrFeed().finally(() => { igangvaerende.delete(noegle); });
+    bladring = bladrHaendelser(supabase).finally(() => { igangvaerende.delete(noegle); });
     igangvaerende.set(noegle, bladring);
   }
   return bladring;
-}
-
-async function bladrFeed(): Promise<HaendelseRowsResult> {
-  const rows: HaendelseRow[] = [];
-  const narrativer = new Map<string, HaendelseNarrativRow>();
-  const sources = new Map<string, HaendelseSourceRow>();
-  let fortsaet: string | null = null;
-  for (let i = 0; i < MAX_SIDER; i++) {
-    // Én side, der rammer gæsteloftet, prøves igen én gang med samme mærke (prod 24/11: 8 af 36 kald fejlede).
-    // Fejler den igen, kaster bladringen stadig: et delvist resultat må aldrig se ud som et helt.
-    const hentSide = (): PromiseLike<{ data: unknown; error: unknown }> =>
-      supabase.rpc('public_haendelse_feed', { p_fortsaet: fortsaet });
-    let svar = await hentSide();
-    if (svar.error) svar = await hentSide();
-    const { data, error } = svar;
-    if (error) throw error;
-    if (!erFeedSide(data)) throw new Error('public_haendelse_feed: svaret har ikke den forventede form');
-    rows.push(...data.rows);
-    for (const n of data.narrativer) narrativer.set(String(n.id), n);
-    for (const s of data.sources) sources.set(String(s.id), s);
-    if (data.naeste === null) {
-      return { rows, narrativer: [...narrativer.values()], sources: [...sources.values()] };
-    }
-    fortsaet = data.naeste;
-  }
-  throw new Error(`public_haendelse_feed: loftet på ${MAX_SIDER} sider er nået — resultatet ville være afkortet`);
 }
 
 export async function fetchHaendelseRows(): Promise<HaendelseRowsResult> {
