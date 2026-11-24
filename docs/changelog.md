@@ -6,6 +6,13 @@ Personsiden viste fx »Født: 25. april 1861 på Pederstrup, 25. april 1861«, f
 den stod sidst i teksten. Nu vises den én gang, uanset hvor i teksten den står (113 fakta i prod). Oversættelsen af
 »s.å.«/»s.m.« er uændret; den udvidelse er #478 (`decisions.md` 2026-11-24).
 
+## 2026-11-24 — Leveårene ved navnet følger den nyeste udgave og beholder bogens forbehold
+
+Siwert (id 97) stod som »* 1500 † 1575«, men 2018-20 skriver kun »† efter 1575«; fødselsåret var et gæt fra DAA 1939,
+og »efter« forsvandt. Tielluf (id 77) stod som død år 147, fordi bogens »147(5?)« blev læst som 147. Nu tager en person,
+der står i flere udgaver, sine leveår samlet fra den nyeste udgave, og forbehold som »efter«, »o.« og »(5?)« bevares.
+Web og mobil. Ingen DB-ændring (`decisions.md` 2026-11-24).
+
 ## 2026-11-24 — Portrætterne fra DAA 2018-20 kommer på personsiderne, og forsiden tæller billeder
 
 Kun 9 personer havde et billede. Nu udtrækkes de 156 billeder i særudgavens portrætafsnit (s. 119-369) med billedtekst,

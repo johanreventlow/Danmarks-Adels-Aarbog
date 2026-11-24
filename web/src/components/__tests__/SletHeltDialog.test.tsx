@@ -139,3 +139,56 @@ it('forhindrer dobbeltklik og lukning mens sletningen afventer', async () => {
   expect(p.execute).toHaveBeenCalledTimes(1); expect((screen.getByRole('button', { name: 'Luk' }) as HTMLButtonElement).disabled).toBe(true);
   resolve({ kind: 'completed' }); await screen.findByText('Profilen er slettet.');
 });
+
+// Review 37 P5: sletningen lykkedes, men svaret gik tabt. Det næste kald møder PURGE_FINDES_IKKE: dialogen viser ikke
+// en rå fejl, men rydder filerne op og melder profilen slettet.
+it('tabt svar: afbrudt forbindelse, så PURGE_FINDES_IKKE ved genhentning → oprydning og onDeleted (P5)', async () => {
+  const load = vi.fn().mockResolvedValueOnce(preview()).mockRejectedValueOnce({ code: 'P0001', message: 'PURGE_FINDES_IKKE' });
+  const execute = vi.fn().mockRejectedValue({ message: 'TypeError: Failed to fetch' });
+  const oprydning = vi.fn().mockResolvedValue({ kind: 'completed' });
+  const onDeleted = vi.fn();
+  render(<SletHeltDialog personId="1791" navn="Profil" dryRun={false} loadPreview={load} execute={execute}
+    oprydning={oprydning} onDeleted={onDeleted} onClose={vi.fn()} />);
+  await typeId(); fireEvent.click(button());
+  await screen.findByText(/Forbindelsen blev afbrudt/);
+  expect(onDeleted).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Hent ny forhåndsvisning' }));
+  await screen.findByText(/Profilen var allerede slettet/);
+  expect(oprydning).toHaveBeenCalledTimes(1); expect(onDeleted).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText(/PURGE_FINDES_IKKE/)).toBeNull();
+});
+it('PURGE_FINDES_IKKE direkte fra sletningen → oprydning; i dry-run kun beskeden (P5)', async () => {
+  const oprydning = vi.fn().mockResolvedValue({ kind: 'completed', storageAdvarsel: 'Filer venter stadig' });
+  const props = { personId: '1791', navn: 'P', loadPreview: vi.fn().mockResolvedValue(preview()),
+    execute: vi.fn().mockRejectedValue({ message: 'PURGE_FINDES_IKKE' }), oprydning, onDeleted: vi.fn(), onClose: vi.fn() };
+  const { unmount } = render(<SletHeltDialog {...props} dryRun={false} />);
+  await typeId(); fireEvent.click(button());
+  await screen.findByText(/Profilen var allerede slettet/); await screen.findByText('Filer venter stadig');
+  expect(props.onDeleted).toHaveBeenCalledTimes(1);
+  unmount();
+  const dry = { ...props, oprydning: vi.fn(), onDeleted: vi.fn() };
+  render(<SletHeltDialog {...dry} dryRun />);
+  await typeId(); fireEvent.click(button());
+  await screen.findByText('Profilen findes ikke længere — den er allerede slettet.');
+  expect(dry.oprydning).not.toHaveBeenCalled(); expect(dry.onDeleted).not.toHaveBeenCalled();
+});
+
+// Review 37 P6: felterne fra RPC'en vises, og tabeller står med danske navne i stedet for rå stedkoder.
+it('viser filer, historik, samme person og forældede, og tabeller med navne (P6)', async () => {
+  setup(preview({
+    steder: { S37b: [{ tabel: 'media', pk: { id: 9 }, handling: 'skjul', grund: 'x' }],
+      S1: [{ tabel: 'person', pk: { id: 1791 }, handling: 'slet', grund: 'egen' }],
+      S58: [{ tabel: 'private.interpretation_promotion', pk: { id: 'u' }, handling: 'slet', grund: 'y' }] },
+    storage: [{ bucket: 'media', sti: 'a/b.jpg' }, { bucket: 'media', sti: 'a/c.jpg' }],
+    historik: { events: 12, saet: 3 }, samme_som_komponent: [1791, 2001],
+    'forældes': { narrativer: [44], bindinger: [] },
+  }));
+  await screen.findByText('Det sker med data');
+  expect(screen.getByText('Billeder og filer: skjules for læserne (1)')).toBeTruthy();
+  expect(screen.getByText('Profilen: slettes (1)')).toBeTruthy();
+  expect(screen.getByText('Interne spor (interpretation_promotion): slettes (1)')).toBeTruthy();
+  expect(screen.getByText('2 filer i lageret slettes efter databasen.')).toBeTruthy();
+  expect(screen.getByText(/12 ændringer i 3 ændringssæt slettes/)).toBeTruthy();
+  expect(screen.getByText(/koblet som samme person som: 2001\./)).toBeTruthy();
+  expect(screen.getByText(/1 biografier og 0 kildebindinger bevares/)).toBeTruthy();
+});

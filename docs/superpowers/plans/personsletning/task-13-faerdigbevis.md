@@ -4,6 +4,9 @@ Alle ni personer på slettelisten er slettet i prod og kontrolleret. Ingen DDL i
 main `aca139a0`). Runbook: `docs/runbooks/personsletning-prod.md`. Runner: `~/.private/5ab-overfoersel/43-personsletning.sh`
 fastlåst til main `57a7fd44` (#386). Kun id'er, antal og tabelnavne her.
 
+> Review 37 P7: de ni var fejlprofiler, dubletter og importfejl (dataoprydning), ikke GDPR-anmodninger. Et færdigbevis
+> for en **GDPR-sletning** må ikke ligge i git; se `docs/runbooks/personsletning-prod.md`, »Ægte GDPR-sletning«.
+
 ## Dumps (vejen tilbage)
 
 | Dump (`~/.private/…/prod/laesedump/`) | sha256 (start) | Taget før |

@@ -138,6 +138,12 @@ describe('purgeFejl — oversættelse af afbrudte kald', () => {
     for (const code of ['40P01', '55P03']) expect(purgeFejl({ code, message: 'x' }).kind).toBe('retry');
     expect(purgeFejl({ message: 'PURGE_PREVIEW_AENDRET' }).tekst).toBe('Noget ændrede sig undervejs — intet er slettet. Prøv igen.');
   });
+  it('PURGE_FINDES_IKKE og afbrudt forbindelse får egne kategorier (review 37 P5)', () => {
+    expect(purgeFejl({ code: 'P0001', message: 'PURGE_FINDES_IKKE' }).kind).toBe('findes_ikke');
+    for (const m of ['TypeError: Failed to fetch', 'NetworkError when attempting to fetch resource.', 'Load failed']) {
+      expect(purgeFejl({ message: m }).kind).toBe('ukendt_udfald');
+    }
+  });
   it('blokering og ukendte fejl mappes ikke til et nyt forsøg', () => {
     expect(purgeFejl({ message: 'PURGE_BLOKERET: x' }).kind).toBe('blocked');
     expect(purgeFejl({ code: '42501', message: 'Kun redaktion' }).kind).toBe('raw');
