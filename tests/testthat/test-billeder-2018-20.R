@@ -257,3 +257,13 @@ test_that("RPC-SQL bruger navngivne parametre", {
 test_that("storage-stier følger buildShaStoragePaths", {
   expect_equal(billede_sti("abcdef", "thumb"), "redaktor/ab/abcdef-thumb.jpg")
 })
+
+test_that("ægtefælle uden årstal i billedteksten vælter ikke og går til gennemgang", {
+  to <- aeg_fix[, c("person_id", "visning_navn", "foedt_aar", "doed_aar")]
+  ingen_aar <- match_aegtefaelle(c(NA_integer_, NA_integer_), "Emilia", to)
+  expect_true(is.na(ingen_aar$person_id))
+  expect_false(ingen_aar$sikker)
+  en <- match_aegtefaelle(c(NA_integer_, NA_integer_), "Emilia", to[1, ])
+  expect_equal(en$person_id, "9")
+  expect_false(en$sikker)
+})

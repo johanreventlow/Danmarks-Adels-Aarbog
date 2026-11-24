@@ -48,8 +48,10 @@ match_aegtefaelle <- function(aar, navn, kandidater) {
   if (nrow(kandidater) == 0L) {
     return(list(person_id = NA_character_, sikker = FALSE, begrundelse = "ankeret har ingen ægtefæller"))
   }
-  passer <- !is.na(kandidater$foedt_aar) & kandidater$foedt_aar == foedt &
-    (is.na(doed) | (!is.na(kandidater$doed_aar) & kandidater$doed_aar == doed))
+  passer <- if (is.na(foedt)) rep(FALSE, nrow(kandidater)) else
+    (!is.na(kandidater$foedt_aar) & kandidater$foedt_aar == foedt &
+       (is.na(doed) | (!is.na(kandidater$doed_aar) & kandidater$doed_aar == doed)))
+  passer <- passer %in% TRUE
   if (sum(passer) == 1L) {
     return(list(person_id = as.character(kandidater$person_id[passer]), sikker = TRUE,
                 begrundelse = sprintf("ægtefælle med samme år: %s", kandidater$visning_navn[passer])))
