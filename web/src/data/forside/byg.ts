@@ -17,7 +17,9 @@ export async function byggForsideData(sb: Sb, nu: Date): Promise<ForsideData> {
     haendelserLoefte,
     hentLivsdatoRaekker(sb),
     hentHistorieRaekker(sb),
-    hentNaevntSubjekter(sb, haendelserLoefte),
+    // Nævnt-grundlaget behøver kun subjekt-id'et; hændelsernes fulde rækker står allerede i `haendelser`.
+    hentNaevntSubjekter(sb, haendelserLoefte)
+      .then((grupper) => grupper.map((g) => g.map((r) => ({ subjekt_id: r.subjekt_id })))),
   ]);
   return {
     version: FORSIDE_DATA_VERSION,
@@ -35,8 +37,9 @@ export type ForsideDataSvar = { status: number; headers: Record<string, string>;
 
 const JSON_TYPE = 'application/json; charset=utf-8';
 
-// Cache-regel: alt komplet → en time (+ et døgn med gammel fil, mens en ny bygges); en del helt mangler → intet gemmes
-// (503), så CDN'et ikke holder en dårlig fil; noget delvist (fx en bid biografier) → højst 5 min.
+// Cache-regel: alt komplet → en time (+ højst en time mere med den gamle fil, mens en ny bygges, så en person gjort
+// privat højst står i filen ~2 t); noget mangler eller er delvist → 5 min (browseren pakker ud fail-closed, og en fejl
+// skal ikke give en ny generering ved hvert besøg); personlisten kan ikke hentes → 503 uden cache.
 export async function forsideDataSvar(sb: Sb, nu: Date): Promise<ForsideDataSvar> {
   let fd: ForsideData;
   try {
@@ -46,13 +49,11 @@ export async function forsideDataSvar(sb: Sb, nu: Date): Promise<ForsideDataSvar
     return { status: 503, headers: { 'content-type': JSON_TYPE, 'cache-control': 'no-store' }, body: JSON.stringify({ fejl: 'utilgængelig' }) };
   }
   const dele = [fd.bios, fd.haendelser, fd.livsdato, fd.historier, fd.naevnt];
-  const cache = dele.some((d) => d.data === null)
-    ? 'no-store'
-    : dele.every((d) => d.komplet)
-      ? 'public, s-maxage=3600, stale-while-revalidate=86400'
-      : 'public, s-maxage=300, stale-while-revalidate=3600';
+  const cache = dele.every((d) => d.komplet && d.data !== null)
+    ? 'public, s-maxage=3600, stale-while-revalidate=3600'
+    : 'public, s-maxage=300, stale-while-revalidate=300';
   return {
-    status: cache === 'no-store' ? 503 : 200,
+    status: 200,
     headers: { 'content-type': JSON_TYPE, 'cache-control': cache },
     body: JSON.stringify(fd),
   };

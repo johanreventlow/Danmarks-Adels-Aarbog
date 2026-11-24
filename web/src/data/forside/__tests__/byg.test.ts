@@ -43,18 +43,41 @@ describe('forside/byg', () => {
   it('alle dele hentet giver 200 og en times cache', async () => {
     const svar = await forsideDataSvar(klient() as never, NU);
     expect(svar.status).toBe(200);
-    expect(svar.headers['cache-control']).toBe('public, s-maxage=3600, stale-while-revalidate=86400');
+    expect(svar.headers['cache-control']).toBe('public, s-maxage=3600, stale-while-revalidate=3600');
     expect(svar.headers['content-type']).toBe('application/json; charset=utf-8');
     expect(JSON.parse(svar.body).version).toBe(1);
   });
 
-  it('en fejlet hændelsesbladring giver 503, no-store og nævnt ufuldstændig', async () => {
+  it('en fejlet hændelsesbladring: nævnt ufuldstændig, 200 med kun fem minutters cache (ikke 503 ved hvert besøg)', async () => {
     const fd = await byggForsideData(klient({ haendelseFejl: true }) as never, NU);
     expect(fd.haendelser).toEqual({ komplet: false, data: null });
     expect(fd.naevnt).toEqual({ komplet: false, data: null });
     const svar = await forsideDataSvar(klient({ haendelseFejl: true }) as never, NU);
+    expect(svar.status).toBe(200);
+    expect(svar.headers['cache-control']).toBe('public, s-maxage=300, stale-while-revalidate=300');
+  });
+
+  it('kan personlisten ikke hentes, er hele filen 503 uden cache', async () => {
+    const sb = klient();
+    const from = sb.from.bind(sb);
+    sb.from = (t: string) => {
+      const b = from(t) as Record<string, unknown>;
+      if (t === 'person') b.range = async () => ({ data: null, error: { code: '57014' } });
+      return b;
+    };
+    const svar = await forsideDataSvar(sb as never, NU);
     expect(svar.status).toBe(503);
     expect(svar.headers['cache-control']).toBe('no-store');
+  });
+
+  it('nævnt-grundlaget gemmer kun subjekt-id for hændelserne (filen må ikke have hændelserne to gange)', async () => {
+    const sb = klient();
+    const rpc = sb.rpc.bind(sb);
+    sb.rpc = async (navn: string, args: Record<string, unknown>) => navn === 'public_haendelse_feed'
+      ? { data: { rows: [{ id: 9, subjekt_id: 2, klausul: 'En lang klausul.', narrative_id: 1 }], narrativer: [], sources: [], naeste: null }, error: null }
+      : rpc(navn, args);
+    const fd = await byggForsideData(sb as never, NU);
+    expect(fd.naevnt.data?.[1]).toEqual([{ subjekt_id: 2 }]);
   });
 
   it('delvise biografier giver 200 og fem minutters cache', async () => {
@@ -63,6 +86,6 @@ describe('forside/byg', () => {
     expect(fd.bios.data?.fejlede).toEqual([2]);
     const svar = await forsideDataSvar(klient({ bioFejlFor: 2 }) as never, NU);
     expect(svar.status).toBe(200);
-    expect(svar.headers['cache-control']).toBe('public, s-maxage=300, stale-while-revalidate=3600');
+    expect(svar.headers['cache-control']).toBe('public, s-maxage=300, stale-while-revalidate=300');
   });
 });
