@@ -3,7 +3,7 @@
 import { FORSIDE_DATA_VERSION, type Del, type ForsideData } from './format';
 import { hentBioKontrakt, hentBioRaekker } from '../feedAux';
 import { bladrHaendelser } from '../haendelser';
-import { hentHistorieRaekker, hentLivsdatoRaekker, hentNaevntSubjekter, hentPersonIder, type Sb } from './kilder';
+import { hentHistorieRaekker, hentLivsdatoRaekker, hentNaevntSubjekter, hentPersonerMedBilledeRaa, hentPersonIder, type Sb } from './kilder';
 
 const del = <T>(r: PromiseSettledResult<T>, komplet: (v: T) => boolean = () => true): Del<T> =>
   r.status === 'fulfilled' ? { komplet: komplet(r.value), data: r.value } : { komplet: false, data: null };
@@ -11,7 +11,7 @@ const del = <T>(r: PromiseSettledResult<T>, komplet: (v: T) => boolean = () => t
 export async function byggForsideData(sb: Sb, nu: Date): Promise<ForsideData> {
   const personIder = await hentPersonIder(sb);
   const haendelserLoefte = bladrHaendelser(sb);
-  const [bios, haendelser, livsdato, historier, naevnt] = await Promise.allSettled([
+  const [bios, haendelser, livsdato, historier, naevnt, billeder] = await Promise.allSettled([
     hentBioKontrakt(sb).then((k) => hentBioRaekker(sb, k, personIder)),
     haendelserLoefte,
     hentLivsdatoRaekker(sb),
@@ -19,6 +19,7 @@ export async function byggForsideData(sb: Sb, nu: Date): Promise<ForsideData> {
     // Nævnt-grundlaget behøver kun subjekt-id'et; hændelsernes fulde rækker står allerede i `haendelser`.
     hentNaevntSubjekter(sb, haendelserLoefte)
       .then((grupper) => grupper.map((g) => g.map((r) => ({ subjekt_id: r.subjekt_id })))),
+    hentPersonerMedBilledeRaa(sb),
   ]);
   return {
     version: FORSIDE_DATA_VERSION,
@@ -29,6 +30,7 @@ export async function byggForsideData(sb: Sb, nu: Date): Promise<ForsideData> {
     livsdato: del(livsdato),
     historier: del(historier),
     naevnt: del(naevnt),
+    billeder: del(billeder),
   };
 }
 
@@ -48,7 +50,7 @@ export async function forsideDataSvar(sb: Sb, nu: Date): Promise<ForsideDataSvar
     console.warn('[forside-data] kunne ikke bygges:', e);
     return { status: 503, headers: { 'content-type': JSON_TYPE, 'cache-control': 'no-store' }, body: JSON.stringify({ fejl: 'utilgængelig' }) };
   }
-  const dele = [fd.bios, fd.haendelser, fd.livsdato, fd.historier, fd.naevnt];
+  const dele = [fd.bios, fd.haendelser, fd.livsdato, fd.historier, fd.naevnt, fd.billeder];
   const cache = dele.every((d) => d.komplet && d.data !== null)
     ? 'public, s-maxage=3600, stale-while-revalidate=86400'
     : 'public, s-maxage=300, stale-while-revalidate=300';

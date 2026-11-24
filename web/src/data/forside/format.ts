@@ -4,7 +4,7 @@ import type { BioRaekker } from '../feedAux';
 import type { HaendelseRowsResult } from '../haendelser';
 import type { LivsdatoRows, StoryRowsResult, SubjektRow } from './kilder';
 
-export const FORSIDE_DATA_VERSION = 1;
+export const FORSIDE_DATA_VERSION = 2; // 2: billed-delen (spor 2)
 
 // En del af filen: `data: null` = delen kunne slet ikke hentes; `komplet: false` med data = noget mangler (fx en bid
 // biografier). Et ufuldstændigt resultat er aldrig bevis for fravær.
@@ -19,4 +19,5 @@ export type ForsideData = {
   livsdato: Del<LivsdatoRows>;
   historier: Del<StoryRowsResult>;
   naevnt: Del<SubjektRow[][]>;
+  billeder: Del<string[]>; // rå person-id'er med mindst ét gæste-synligt billede
 };

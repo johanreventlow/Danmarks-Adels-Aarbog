@@ -15,9 +15,11 @@ const loaderMocks = vi.hoisted(() => ({ loadHaendelserBy: vi.fn() }));
 const seenMocks = vi.hoisted(() => ({ markSeen: vi.fn(), weights: {} as Record<string, number> }));
 // Den færdigpakkede fil: standard null (→ direkte hentning), så de øvrige tests uddeler som før.
 const forsideMocks = vi.hoisted(() => ({ hentForsideData: vi.fn(), udpakForsideData: vi.fn() }));
+const billedMocks = vi.hoisted(() => ({ hentPersonerMedBillede: vi.fn() }));
 
 vi.mock('../../data/feedMedia', () => mediaMocks);
 vi.mock('../../data/forside/klient', () => ({ hentForsideData: forsideMocks.hentForsideData }));
+vi.mock('../../data/personerMedBilledeFeed', () => billedMocks);
 vi.mock('../../data/forside/udpak', () => ({ udpakForsideData: forsideMocks.udpakForsideData }));
 vi.mock('../../data/feedAux', () => ({
   buildWebFeedAux: () => ({ godsListe: [], vaabenListe: [], officesBy: {} }),
@@ -82,6 +84,7 @@ beforeEach(() => {
   feedAuxMocks.hentFeedBios.mockReset().mockResolvedValue({ bioBy: { '1': 'En biografi.' }, komplet: true });
   forsideMocks.hentForsideData.mockReset().mockResolvedValue(null);
   forsideMocks.udpakForsideData.mockReset();
+  billedMocks.hentPersonerMedBillede.mockReset().mockResolvedValue(null);
   grundlagMocks.fetchNaevntGrundlag.mockReset().mockResolvedValue({ personerMedMereEndNavn: new Set() });
   loaderMocks.loadHaendelserBy.mockReset().mockResolvedValue({});
   seenMocks.markSeen.mockReset();
@@ -93,6 +96,38 @@ beforeEach(() => {
       mediumUrl: `https://example.test/${candidate.id}.jpg`, largeUrl: `https://example.test/${candidate.id}.jpg`,
     }))]),
   ));
+});
+
+describe('FeedStreamView — personer med billede (spor 2)', () => {
+  it('direkte hentning: sender den kanoniske liste til feed-motoren', async () => {
+    billedMocks.hentPersonerMedBillede.mockResolvedValue(new Set(['1']));
+    render(<FeedStreamView {...feedProps(null)} />);
+    await waitFor(() => expect(streamMocks.createFeedStream).toHaveBeenCalled());
+    const inputs = streamMocks.createFeedStream.mock.calls.at(-1)![2] as FeedInputs;
+    expect(inputs.personerMedBillede && [...inputs.personerMedBillede]).toEqual(['1']);
+    expect(billedMocks.hentPersonerMedBillede).toHaveBeenCalledTimes(1);
+  });
+
+  it('fejlet hentning: ingen liste (billed-reglen udelades), forsiden uddeles stadig', async () => {
+    billedMocks.hentPersonerMedBillede.mockResolvedValue(null);
+    render(<FeedStreamView {...feedProps(null)} />);
+    await waitFor(() => expect(streamMocks.createFeedStream).toHaveBeenCalled());
+    const inputs = streamMocks.createFeedStream.mock.calls.at(-1)![2] as FeedInputs;
+    expect(inputs.personerMedBillede).toBeUndefined();
+  });
+
+  it('med fil: listen kommer fra filen, ingen direkte hentning', async () => {
+    forsideMocks.hentForsideData.mockResolvedValue({ version: 2 });
+    forsideMocks.udpakForsideData.mockReturnValue({
+      bios: { bioBy: {}, komplet: true }, livsdatoBy: {}, haendelserBy: {}, storieBy: {},
+      naevntGrundlag: { personerMedMereEndNavn: new Set() }, personerMedBillede: new Set(['2']),
+    });
+    render(<FeedStreamView {...feedProps(null)} />);
+    await waitFor(() => expect(streamMocks.createFeedStream).toHaveBeenCalledTimes(1));
+    const inputs = streamMocks.createFeedStream.mock.calls[0][2] as FeedInputs;
+    expect(inputs.personerMedBillede && [...inputs.personerMedBillede]).toEqual(['2']);
+    expect(billedMocks.hentPersonerMedBillede).not.toHaveBeenCalled();
+  });
 });
 
 describe('FeedStreamView — færdigpakket forside-data', () => {
