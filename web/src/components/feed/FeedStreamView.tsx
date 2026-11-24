@@ -9,7 +9,6 @@ import {
   type FeedCard, type FeedPinInput, type FeedStream, type HaendelserBy, type LivsdatoBy,
   type NaevntGrundlag, type StorieBy,
 } from '@daa/feed';
-import { bogensNummer } from '@daa/core';
 import { radius } from '@daa/theme';
 import { buildWebFeedAux, fetchFeedBios, withFeedBios } from '../../data/feedAux';
 import { fetchNaevntGrundlag } from '../../data/feedGrundlag';
@@ -364,7 +363,6 @@ export function FeedStreamView({
                   person={'personId' in card ? {
                     name: modelPerson?.name ?? fallbackName,
                     years: modelPerson?.years ?? fallbackYears,
-                    bogensNummer: bogensNummer(model.sourcesBy, card.personId),
                   } : undefined}
                   media={mediaByCard[card.id] ?? []}
                   bookmarked={pid ? hasBookmark(pid) : false}

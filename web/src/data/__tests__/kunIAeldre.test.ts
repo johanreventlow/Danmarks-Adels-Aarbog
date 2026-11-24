@@ -19,6 +19,7 @@ describe('kunIAeldreTekst', () => {
     expect(kunIAeldreTekst(model, 'B')).toEqual({
       maerke: 'Kun i DAA 1939', forklaring: 'Står i DAA 1939, men ikke i DAA 2018-20.',
       linje: 'Nævnes kun i DAA 1939 og er ikke med i DAA 2018-20.',
+      kunISourceIds: ['10'],
     });
   });
 
@@ -30,6 +31,7 @@ describe('kunIAeldreTekst', () => {
       maerke: 'Kun i DAA 1982 og DAA 1939',
       forklaring: 'Står i DAA 1982 og DAA 1939, men ikke i DAA 2018-20.',
       linje: 'Nævnes kun i DAA 1982 og DAA 1939 og er ikke med i DAA 2018-20.',
+      kunISourceIds: ['15', '10'],
     });
   });
 
@@ -38,8 +40,9 @@ describe('kunIAeldreTekst', () => {
   });
 
   it('ukendt kilde udelades fra barnets liste', () => {
-    expect(kunIAeldreTekst({ ...model, bogNrBy: { F: [N('20')], B: [N('ukendt'), N('10')] } }, 'B')?.maerke)
-      .toBe('Kun i DAA 1939');
+    const r = kunIAeldreTekst({ ...model, bogNrBy: { F: [N('20')], B: [N('ukendt'), N('10')] } }, 'B');
+    expect(r?.maerke).toBe('Kun i DAA 1939');
+    expect(r?.kunISourceIds).toEqual(['10']);
   });
 
   it('kun ukendte kilder eller manglende udgaver giver null', () => {

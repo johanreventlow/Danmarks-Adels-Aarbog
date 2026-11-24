@@ -15,13 +15,14 @@ export function aarSpaend(s: string | null | undefined): [number, number] | null
   return aar.length ? [Math.min(...aar), Math.max(...aar)] : null;
 }
 
-// Ordret leveår-visning: "1640–1708", "* 1640", "† 1708" eller tom.
+// Ordret leveår-visning: "* 1640 † 1708", "* 1640", "† 1708" eller tom (Aarbogens tegn, ikke bindestreg:
+// »1688–lille« læses forkert, »* 1688 † lille« gør ikke).
 export function fmtYears(f: string | null | undefined, d: string | null | undefined): string {
   const clean = (s: string | null | undefined) =>
     s == null ? '' : String(s).replace(/^[*†\s]+/, '').trim();
   const F = clean(f);
   const D = clean(d);
-  if (F && D) return F + '–' + D;
+  if (F && D) return '* ' + F + ' † ' + D;
   if (F) return '* ' + F;
   if (D) return '† ' + D;
   return '';

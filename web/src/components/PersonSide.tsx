@@ -13,7 +13,7 @@
 //
 // Mangler siges med ord. »i den valgte udgave« bruges kun, hvor vælgeren faktisk filtrerer (biografi, fakta,
 // godser); familie og embeder kommer fra den samlede model.
-import { Suspense, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { Suspense, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { T } from '../theme';
 import { Link } from '../Link';
 import { personPath, estatePath, slaegtPath, stamtraePath, slaegtskabPath, findSlaegt, STANDARD_SLAEGT } from '../data/nav';
@@ -22,7 +22,8 @@ import { kunIAeldreTekst, type KunIAeldreTekst } from '../data/kunIAeldre';
 import { mediaCaption, type MediaItem } from '../data/media';
 import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
-import { bogensNummer, lifeJourney, type UdgaveChip } from '@daa/core';
+import { bogensNummer, familieIderForPerson, lifeJourney, vielsePraecision, type UdgaveChip } from '@daa/core';
+import { hentVielsesDatoer } from '../data/vielser';
 import { NarrativRenderer } from './NarrativRenderer';
 import { PersonFakta } from './PersonFakta';
 import { SlaegtskabsLinje } from './SlaegtskabsLinje';
@@ -63,9 +64,39 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
   const kontekst = useMemo(() => slaegtskabsKontekst(model, meId, focusId), [model, meId, focusId]);
   // Børn pr. ægteskab i Aarbogens rækkefølge: samme gruppering som stamtræet (fokusTrae), så de to aldrig er uenige.
   const fam = useMemo(() => byggFokusRaekker(model, focusId), [model, focusId]);
+  // Vielsesdato pr. ægteskab (»⚭ 21. juli 1667«), nøglet på ægtefællens person-id. Hentes for sig, så siden ikke
+  // venter på den; mangler den (ingen vielse, fejl), står der bare ingen ⚭.
+  const aegteskaber = useMemo(() => familieIderForPerson(model.indexes, focusId).aegteskaber, [model, focusId]);
+  const familieNoegle = aegteskaber.map((a) => a.familyId).sort().join(',');
+  const [vielseBySpouse, setVielseBySpouse] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let aktuel = true;
+    setVielseBySpouse({});
+    if (!familieNoegle) return;
+    void hentVielsesDatoer(familieNoegle.split(',')).then((byFam) => {
+      if (!aktuel) return;
+      const ud: Record<string, string> = {};
+      // Står parret i flere familier (sammenfoldet på tværs af udgaver), vinder den mest præcise dato.
+      for (const a of aegteskaber) {
+        const t = byFam[a.familyId];
+        if (a.spouseId && t && vielsePraecision(t) > vielsePraecision(ud[a.spouseId] ?? '')) ud[a.spouseId] = t;
+      }
+      setVielseBySpouse(ud);
+    });
+    return () => { aktuel = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- familieNoegle bærer aegteskaber's familie-id'er
+  }, [familieNoegle]);
   const p = v.p;
   if (!p) return null;
   const kunI = kunIAeldreTekst(model, focusId);
+  // Et barn, der kun står i en anden udgave, er et link, når den udgave er valgt i udgavevælgeren (projektejeren
+  // 2026-11-23, valg A); ellers grå tekst med mærket. Kan siden slet ikke vælge barnets udgave (ingen vælger, eller
+  // vælgeren har ikke den udgave), forbliver det et link, så barnet aldrig bliver uden adgang.
+  const barnErAktivt = (k: KunIAeldreTekst | null): boolean => {
+    if (!k || !v.aktivChip) return true;
+    if (k.kunISourceIds.includes(v.aktivChip.sourceId)) return true;
+    return !v.vaelger.chips.some((c) => k.kunISourceIds.includes(c.sourceId));
+  };
 
   // Slægten: personer med en linje i stamtavlen hører til slægten (i dag kun Reventlow). Ægtefæller uden linje
   // står uden slægt i etiketten, frem for at blive tilskrevet en slægt, de ikke tilhører.
@@ -158,7 +189,6 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                 </div>
               </div>
             ) : navneblok}
-            {v.proveniens && <p style={{ margin: 0, fontSize: 13.5, color: T.inkMuted }}>Optræder i Aarbogen som {v.proveniens}.</p>}
             {kunI && <p style={{ margin: 0, fontSize: 13.5, color: T.inkMuted }}>{kunI.linje}</p>}
             {v.tidligereUdgave && <p style={{ margin: 0, fontSize: 13, color: T.inkMuted }}>Du ser en tidligere udgave.</p>}
             {v.linjeNoter.map((n) => <p key={n} style={{ margin: 0, fontSize: 13, color: T.inkMuted }}>{n}</p>)}
@@ -211,7 +241,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
               <dd style={{ margin: 0 }}>
                 {v.spouses.map((sp, i) => (
                   <div key={(sp.id ?? sp.name) + i}>
-                    {sp.id ? <PersonLink id={sp.id} navn={sp.name} aar={model.byId[sp.id]?.years} onVis={onVisPerson} /> : <span style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600 }}>{sp.name}</span>}
+                    {sp.id ? <PersonLink id={sp.id} navn={sp.name} aar={model.byId[sp.id]?.years} vielse={vielseBySpouse[sp.id]} onVis={onVisPerson} /> : <span style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600 }}>{sp.name}</span>}
                   </div>
                 ))}
               </dd>
@@ -230,7 +260,10 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                         )}
                         {!g.aegteskab && fam?.boerneNote && <Mangel>{fam.boerneNote}</Mangel>}
                         <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                          {g.boern.map(({ person: c }) => <li key={c.id}><PersonLink id={c.id} navn={c.name} aar={c.years} konf={konfOrd(c.id, focusId)} kunI={kunIAeldreTekst(model, c.id)} onVis={onVisPerson} /></li>)}
+                          {g.boern.map(({ person: c }) => {
+                            const barnKunI = kunIAeldreTekst(model, c.id);
+                            return <li key={c.id}><PersonLink id={c.id} navn={c.name} aar={c.years} konf={konfOrd(c.id, focusId)} kunI={barnKunI} aktiv={barnErAktivt(barnKunI)} onVis={onVisPerson} /></li>;
+                          })}
                         </ul>
                       </div>
                     ))}
@@ -383,11 +416,15 @@ function Henter() {
   return <p style={{ margin: 0, fontSize: 14, color: T.inkMuted }}>Henter …</p>;
 }
 
-function PersonLink({ id, navn, aar, konf, kunI, onVis }: { id: string; navn: string; aar?: string; konf?: string; kunI?: KunIAeldreTekst | null; onVis: (id: string) => void }) {
+function PersonLink({ id, navn, aar, vielse, konf, kunI, aktiv = true, onVis }: { id: string; navn: string; aar?: string; vielse?: string; konf?: string; kunI?: KunIAeldreTekst | null; aktiv?: boolean; onVis: (id: string) => void }) {
   return (
     <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '2px 10px' }}>
-      <Link href={personPath(id)} onNavigate={() => onVis(id)} style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600, color: T.bordeaux }}>{navn}</Link>
-      {aar && <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{aar}</span>}
+      {aktiv
+        ? <Link href={personPath(id)} onNavigate={() => onVis(id)} style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600, color: T.bordeaux }}>{navn}</Link>
+        : <span style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600, color: T.inkMuted }}>{navn}</span>}
+      {/* Vielsen efter ægtefællens livsdatoer, adskilt med komma, så den ikke læses som hendes livsdato, og navnene
+          holder linje (projektejeren 2026-11-24; »foran navnet« forskød navnene). */}
+      {(aar || vielse) && <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{[aar, vielse].filter(Boolean).join(', ')}</span>}
       {/* Usikkert slægtskab vises med ordet, aldrig skjult (invariant 7). */}
       {konf && <span style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: T.danger }}>{konf}</span>}
       {kunI && <span title={kunI.forklaring} style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: T.goldInk }}>{kunI.maerke}</span>}

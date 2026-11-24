@@ -1,3 +1,4 @@
+import { fmtDagDato } from '@daa/core';
 import type { FeedCard } from '@daa/feed';
 import { T } from '../../theme';
 import { Avatar, BookmarkFlag } from '../primitives';
@@ -7,9 +8,8 @@ import { Link } from '../../Link';
 import { personPath } from '../../data/nav';
 
 export type PersonCard = Extract<FeedCard, { personId: string }>;
-// bogensNummer: »Linje I, nr. 121« fra stamtavlens opslag (@daa/core bogensNummer) — kortets kilde (§).
-// Personer uden nummer (typisk indgiftede) får intet §, ikke et generisk »Danmarks Adels Aarbog«.
-export type PersonIdentity = { name: string; years: string; bogensNummer?: string | null };
+// Ingen bogplacering (§) på forsidens kort: den hører til personsiden (projektejeren 2026-11-24).
+export type PersonIdentity = { name: string; years: string };
 
 export function PersonFeedCardView({ card, href, person, media, onOpen, onSave, bookmarked }: {
   card: PersonCard;
@@ -20,7 +20,6 @@ export function PersonFeedCardView({ card, href, person, media, onOpen, onSave, 
   onSave: (personId: string) => void;
   bookmarked: boolean;
 }) {
-  const paragraf = person.bogensNummer ?? (card.kind === 'naevnt' ? card.kilde : null);
   return (
     <article onClick={() => onOpen(card)} style={{ position: 'relative', background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 14, padding: 18, boxShadow: '0 1px 2px rgba(34,31,26,.04)', cursor: 'pointer' }}>
       {/* Ægte link, ikke knap: at åbne en profil ER navigation, så rollen skal være 'link'.
@@ -37,11 +36,6 @@ export function PersonFeedCardView({ card, href, person, media, onOpen, onSave, 
         </div>
         <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.14em', textTransform: 'uppercase', color: T.goldInk, marginTop: 12 }}>{card.kicker}</div>
         <PersonCardBody card={card} />
-        {paragraf ? (
-          <div style={{ fontFamily: T.mono, fontSize: 10.5, color: T.inkMuted, marginTop: 12 }}>
-            § {paragraf}
-          </div>
-        ) : null}
       </Link>
       <div style={{ position: 'absolute', top: 18, right: 18 }}><BookmarkFlag active={bookmarked} onClick={() => onSave(card.personId)} /></div>
       <FeedMediaStrip media={media} />
@@ -91,8 +85,9 @@ function PersonCardBody({ card }: { card: PersonCard }) {
       </>;
     case 'paadennedag':
       return <>
-        <div style={{ fontFamily: T.mono, fontSize: 13, color: T.bordeaux, marginTop: 9 }}>{card.aarstal}</div>
-        <div style={{ fontFamily: T.sans, fontSize: 13, color: T.inkMuted, marginTop: 4 }}>{card.hvad === 'hændelse' ? card.klausul : `${card.hvad === 'født' ? 'Født' : 'Død'} ${card.aarstal}`}</div>
+        {/* Den fulde dato stort, under den kun hvad der skete — året står ikke to gange (projektejeren 2026-11-24). */}
+        <div style={{ fontFamily: T.serif, fontSize: 24, lineHeight: 1.1, color: T.bordeaux, marginTop: 9 }}>{fmtDagDato(card.dato) || card.aarstal}</div>
+        <div style={{ fontFamily: T.sans, fontSize: 13, color: T.inkMuted, marginTop: 4 }}>{card.hvad === 'hændelse' ? card.klausul : card.hvad === 'født' ? 'Født' : 'Død'}</div>
       </>;
     // Kun hvad bogen faktisk giver: forældrene, når de kendes. Ingen tekst om, at bogen intet
     // mere skriver — klienten kan ikke se upubliceret tekst (projektejerens valg 12/11).

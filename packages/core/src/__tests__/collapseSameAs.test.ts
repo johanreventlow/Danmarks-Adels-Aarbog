@@ -382,7 +382,7 @@ describe('collapseSameAs — floruit', () => {
     };
     const r = collapseSameAs(rawDb, [{ alias: 'A', canonical: 'K' }], ext);
     const k = r.db.persons.find((p) => p.id === 'K')!;
-    expect(k.years).toBe('1640–1708');
+    expect(k.years).toBe('* 1640 † 1708');
   });
   it('floruit flettes som forening', () => {
     const rawDb: Db = {
@@ -418,10 +418,10 @@ describe('collapseSameAs — dødstekst uden årstal', () => {
     expect(fold([P('K'), P('A', { years: '† ung', doedTekst: '† ung' })]).years).toBe('† ung');
   });
   it('fødselsår fra den ene + dødstekst fra den anden', () => {
-    expect(fold([P('K', { doedTekst: '† lille' }), P('A', { born: 1701, foedtTekst: '* 1701' })]).years).toBe('1701–lille');
+    expect(fold([P('K', { doedTekst: '† lille' }), P('A', { born: 1701, foedtTekst: '* 1701' })]).years).toBe('* 1701 † lille');
   });
   it('et dødsår vinder over teksten', () => {
-    expect(fold([P('K', { doedTekst: '† ung' }), P('A', { born: 1700, died: 1720 })]).years).toBe('1700–1720');
+    expect(fold([P('K', { doedTekst: '† ung' }), P('A', { born: 1700, died: 1720 })]).years).toBe('* 1700 † 1720');
   });
 });
 

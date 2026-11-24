@@ -18,6 +18,7 @@
 // mobil model.indexes.childrenByUnion — og injiceres derfor som Traverse-parametre i
 // buildBidirectionalColumns (buildDirection tog dem allerede som parameter).
 import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, type GenCoord, type ParentsUnknown } from './generations';
+import { sorterBoernEfterBogen } from './bogensOrden';
 import type { Model, ModelPerson } from './types';
 
 export type ColumnKind = 'ancestor' | 'anchor' | 'descendant';
@@ -142,7 +143,11 @@ function buildDirection(
   let cur = anchorId;
   let depth = 1;
   while (depth <= MAX_DEPTH) {
-    const people = traverse(model, cur).filter((p) => !visited.has(p.id));
+    // Efterkommere i Aarbogens rækkefølge (samme regel som profilen og fokustræet), ikke indlæsningsrækkefølgen,
+    // så børn med dårlige datoer ikke ender sidst. Aner-retningen er uændret.
+    const naeste = traverse(model, cur);
+    const people = (kind === 'descendant' ? sorterBoernEfterBogen(naeste, cur, model.bogNrBy, model.udgaver) : naeste)
+      .filter((p) => !visited.has(p.id));
     if (!people.length) {
       if (kind === 'ancestor' && parentsUnknown) {
         const ring = unknownParentRing(model, genCoords, cur, parentsUnknown[cur], depth);

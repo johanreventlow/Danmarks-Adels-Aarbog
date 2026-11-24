@@ -127,6 +127,20 @@ describe('byggFokusRaekker', () => {
     ]);
   });
 
+  it('søskende i bogens rækkefølge, også når fokus er et barn (prod: Charlotte Amalie, 392)', () => {
+    const m = model({ persons: [P('A', 'Conrad', 'mand'), P('E1', 'Gabel'), P('E2', 'Hahn'), P('K1', 'K1'), P('K2', 'K2'), P('K3', 'K3'), P('K4', 'K4')],
+      unions: [
+        { id: 'u1', p1: 'A', p2: 'E1', p2_name: null, year: null },
+        { id: 'u2', p1: 'A', p2: 'E2', p2_name: null, year: null },
+      ],
+      parentChild: [
+        { child: 'K3', parent: 'A', union: 'u1' }, { child: 'K1', parent: 'A', union: 'u1' },
+        { child: 'K4', parent: 'A', union: 'u2' }, { child: 'K2', parent: 'A', union: 'u2' },
+        { child: 'K3', parent: 'E1', union: 'u1' }, { child: 'K1', parent: 'E1', union: 'u1' },
+      ] }, { udgaver, bogNrBy: { A: [nr('V', 1)], K1: [nr('V', 2)], K3: [nr('V', 3)], K2: [nr('V', 4)], K4: [nr('V', 5)] } });
+    expect(navne(byggFokusRaekker(m, 'K1')!.soeskende)).toEqual(['K1', 'K3', 'K2', 'K4']);
+  });
+
   it('ét ægteskab: én gruppe i bogens rækkefølge', () => {
     const m = model({ persons: [P('A', 'Anna'), P('E', 'Erik'), P('K1', 'K1'), P('K2', 'K2'), P('K3', 'K3')],
       unions: [{ id: 'u1', p1: 'E', p2: 'A', p2_name: null, year: null }],

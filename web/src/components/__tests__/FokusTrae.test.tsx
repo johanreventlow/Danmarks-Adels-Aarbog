@@ -20,6 +20,10 @@ const model = buildModel({
   ],
 }) as unknown as Model;
 model.indexes.konfByEdge = { 'K8|I': 'formodet' };
+// Søskendeflokken står i bogens rækkefølge (Detlef, Iwan, Hartwich); uden numre ville den stå efter fødselsår/navn.
+model.udgaver = [{ sourceId: '20', label: 'DAA 2018-20', aar: 2018 }];
+model.bogNrBy = { F: [{ sourceId: '20', linje: 'V', nr: 1, nrLabel: null }], A: [{ sourceId: '20', linje: 'V', nr: 2, nrLabel: null }],
+  I: [{ sourceId: '20', linje: 'V', nr: 3, nrLabel: null }], H: [{ sourceId: '20', linje: 'V', nr: 4, nrLabel: null }] };
 
 const vis = (o: Partial<Parameters<typeof FokusTrae>[0]> = {}) => {
   const p = { model, focusId: 'I', onPick: vi.fn(), onFocus: vi.fn(), hasBookmark: () => false, onToggleBookmark: vi.fn(), smal: false, ...o };
