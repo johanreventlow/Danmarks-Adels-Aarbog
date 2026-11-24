@@ -106,6 +106,11 @@ besøg. Spec: `docs/superpowers/specs/2026-11-24-forside-data-cache-design.md`.
 >   præcis liste. **Konsekvens for nyt arbejde:** en ny public-funktion uden for `red_*`, som en klient skal kunne kalde,
 >   skal føjes til `c1`-listen (og ved anon til denne fil, jf. reglen om anon-grants); alle andre skal REVOKE'es fra
 >   PUBLIC, anon og authenticated ved navn (Supabase giver EXECUTE direkte, ikke kun via PUBLIC).
+> - **Nye funktioner lukket som standard** (projektejeren 24/11, funktionsdelen af R37S8-2-2): `postgres`' standardrettighed
+>   i public gav anon og authenticated EXECUTE på hver ny funktion (målt i prod; et frisk byg har den ikke). Samme DO-blok
+>   fjerner den; `service_role` beholder sin. En ny funktion skal derfor have en eksplicit GRANT for at kunne kaldes af
+>   klienterne — som `red_*` og `public_*` allerede får. `supabase_admin`s egne standarder kan vi ikke ændre, men
+>   migrationerne opretter funktionerne som `postgres`.
 > - **S6:** `red_suggest` afviser værdi over 40.000 bytes, kildefelt/note over 4.000, art/felt over 64 og payload over
 >   64 kB (`FORSLAG_FOR_STORT`), og en subjekttype, der hverken er en public-tabel eller et klientkaldenavn (`slaegt`,
 >   `arms`, `org`, `feed`, `storage`; `FORSLAG_UKENDT_SUBJEKTTYPE`). Lofterne er 4× de største værdier i prod 24/11

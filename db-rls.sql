@@ -1907,6 +1907,8 @@ REVOKE ALL ON FUNCTION private.person_purge_udbakke_genbrug()
 --   klient i tabellerne bag dem (eneste klientskrivning er bookmark, der ingen triggere har).
 -- Verify-enheden c1-execute (db-verify.sql) låser den præcise mængde af public-funktioner, anon og authenticated må
 --   kalde. NY KLIENTKALDBAR FUNKTION uden for red_* skal derfor føjes dertil (og til docs/decisions.md ved anon).
+-- Desuden får nye funktioner i public ikke længere EXECUTE til anon/authenticated af sig selv (postgres'
+--   standardrettighed; funktionsdelen af R37S8-2-2).
 -- Idempotent; rører hverken tabeller, politikker eller data. Egen DO-blok, så prod kan tage den sammen med
 --   migrationsblokken review37-c1. Står før R37S8-2-blokken, der skal være sidst i filen.
 DO $review37_c1_execute$
@@ -1922,6 +1924,12 @@ BEGIN
     public._regen_mentions_for(text,bigint),
     public.parse_mentions(text)
   FROM PUBLIC, anon, authenticated;
+  -- Nye funktioner: postgres' standardrettighed i schema public gav anon og authenticated EXECUTE på HVER ny funktion
+  -- (målt i prod 2026-11-24; et frisk byg har den ikke). Nu skal en ny funktion have en eksplicit GRANT for at kunne
+  -- kaldes af klienterne, som red_* og public_* allerede får. service_role beholder sin. supabase_admins egne
+  -- standarder kan vi ikke ændre, men migrationerne opretter funktionerne som postgres.
+  ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+    REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated;
 END
 $review37_c1_execute$;
 

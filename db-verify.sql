@@ -13408,6 +13408,15 @@ BEGIN
         || 'giver EXECUTE direkte). mangler = en funktion på listen er omdøbt/fjernet eller har mistet kalderetten.';
   END IF;
 
+  -- Standardrettigheden: en ny funktion i public, som postgres opretter, giver ikke anon/authenticated/PUBLIC EXECUTE.
+  SELECT string_agg(CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE x.grantee::regrole::text END, ', ') INTO v_state
+    FROM pg_default_acl d, aclexplode(d.defaclacl) x
+   WHERE d.defaclrole = to_regrole('postgres') AND d.defaclnamespace = 'public'::regnamespace AND d.defaclobjtype = 'f'
+     AND x.privilege_type = 'EXECUTE' AND x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole);
+  IF v_state IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: review37 c1 S9 — nye public-funktioner får EXECUTE af sig selv (standardrettighed for postgres): %', v_state;
+  END IF;
+
   -- Y8 + Y10: indeksene findes.
   IF to_regclass('private.ix_interpretation_promotion_target') IS NULL OR to_regclass('public.ix_fact_type_subjekt') IS NULL
      OR to_regclass('public.ix_fact_sted') IS NULL THEN

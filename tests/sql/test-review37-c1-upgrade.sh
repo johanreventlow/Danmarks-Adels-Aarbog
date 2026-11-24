@@ -27,8 +27,11 @@ awk '$0=="-- BEGIN review37-c1" {p=1} p{print} $0=="-- END review37-c1" {p=0}' d
 awk '$0=="DO $review37_c1_execute$" {p=1} p{print} $0=="$review37_c1_execute$;" {p=0}' db-rls.sql > "$tmp/rls.sql"
 [ "$(head -1 "$tmp/rls.sql")" = 'DO $review37_c1_execute$' ] && [ "$(tail -1 "$tmp/rls.sql")" = '$review37_c1_execute$;' ] \
   || fail "DO-blokken \$review37_c1_execute\$ mangler i db-rls.sql"
-! grep -qiwE 'create|drop|policy|grant|alter|insert into|update [a-z_.]+ set|delete from' "$tmp/rls.sql" \
+grep -vE '^[[:space:]]*--' "$tmp/rls.sql" > "$tmp/rls-kode.sql"   # tjekkene gælder koden, ikke kommentarerne
+! grep -qiwE 'create|drop|policy|grant|insert into|update [a-z_.]+ set|delete from' "$tmp/rls-kode.sql" \
   || fail "DO-blokken \$review37_c1_execute\$ må kun rumme REVOKE"
+[ "$(grep -ciE '\balter\b' "$tmp/rls-kode.sql")" = "$(grep -ciE '\balter default privileges for role postgres in schema public\b' "$tmp/rls-kode.sql")" ] \
+  || fail "DO-blokken må kun bruge ALTER til ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public"
 # Kun sætninger i kolonne 0 (funktionskroppen er indrykket og må gerne indeholde INSERT).
 ! grep -qiE '^(drop|alter table|insert into|update |delete from|truncate)' "$tmp/blok.sql" \
   || fail "migrationsblokken må hverken droppe, ændre tabeller eller skrive data"
@@ -73,12 +76,27 @@ facl_fresh=$(facl "$dbf")
 unit "$dbf" ""
 
 # 2) Prod-formet base; enheden er rød på den.
+# Prods standardrettighed for postgres i public (målt 24/11): nye funktioner får EXECUTE til anon/authenticated/service_role.
 build_prod() { build_start "$1"
   for f in base-schema.sql base-db-migrations.sql base-db-migrations.sql base-db-rls.sql; do q "$1" -f "$tmp/$f"; done
-  q "$1" -c "GRANT EXECUTE ON FUNCTION $NI TO anon, authenticated"; }
+  q "$1" -c "GRANT EXECUTE ON FUNCTION $NI TO anon, authenticated"
+  q "$1" -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role"
+  # Prods globale række for postgres er {postgres=X} (db-rls.sql kørt som postgres). Lokalt kører filen som en anden
+  # superbruger, så den gøres eksplicit her (i CI en no-op).
+  q "$1" -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC"; }
+# En ny funktion oprettet som postgres (som migrationerne): kan anon kalde den? (Ryddes op igen.)
+# Lokalt (anden superbruger end postgres) mangler postgres CREATE i public; den gives kun midlertidigt, hvis den mangler.
+ny_fn_anon() { a "$1" "CREATE TEMP TABLE _c1_cr AS SELECT has_schema_privilege('postgres','public','CREATE') AS havde;
+  DO \$g\$ BEGIN IF NOT (SELECT havde FROM _c1_cr) THEN GRANT CREATE ON SCHEMA public TO postgres; END IF; END \$g\$;
+  SET ROLE postgres; CREATE FUNCTION public._c1_ny_fn() RETURNS int LANGUAGE sql AS 'SELECT 1';
+  RESET ROLE;
+  SELECT has_function_privilege('anon','public._c1_ny_fn()','EXECUTE')::text||','||has_function_privilege('service_role','public._c1_ny_fn()','EXECUTE')::text;
+  DROP FUNCTION public._c1_ny_fn();
+  DO \$g\$ BEGIN IF NOT (SELECT havde FROM _c1_cr) THEN REVOKE CREATE ON SCHEMA public FROM postgres; END IF; END \$g\$" | grep -E '^(true|false),' ; }
 build_prod "$dbp"
 [ "$(a "$dbp" "SELECT has_function_privilege('anon','public.regen_person_visning(bigint)','EXECUTE')::text")" = true ] \
   || fail "basen giver ikke anon EXECUTE på regen_person_visning"
+[ "$(ny_fn_anon "$dbp")" = "true,true" ] || fail "basen giver ikke en ny funktion EXECUTE til anon (prods standardrettighed)"
 [ -z "$(a "$dbp" "SELECT to_regclass('public.ix_fact_type_subjekt')")" ] || fail "basen har allerede Y10-indekset"
 unit "$dbp" "FEJL: review37 c1 S9 —"
 data_foer=$(data "$dbp")
@@ -92,6 +110,7 @@ bash tests/sql/check-catalog-parity.sh "$tmp/kat-fresh.txt" "$tmp/kat-efter.txt"
 facl_efter=$(facl "$dbp")
 [ "$facl_efter" = "$facl_fresh" ] || { diff <(tr ' ' '\n' <<<"$facl_fresh") <(tr ' ' '\n' <<<"$facl_efter") >&2 || true
   fail "funktionsretterne efter blokken ≠ frisk base"; }
+[ "$(ny_fn_anon "$dbp")" = "false,true" ] || fail "en ny funktion efter blokken er stadig kaldbar for anon (eller mistede service_role)"
 out=$(deploy "$dbp") || { echo "$out" >&2; fail "anden deploy-transaktion fejlede"; }
 kat "$dbp" "$tmp/kat-efter2.txt"
 cmp -s "$tmp/kat-efter.txt" "$tmp/kat-efter2.txt" || fail "blokken to gange ændrer kataloget"
