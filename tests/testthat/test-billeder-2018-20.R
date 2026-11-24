@@ -366,3 +366,21 @@ test_that("sqlstate udledes af beskeden, også med ugyldige bytes (ø/æ i CONTE
   expect_equal(sqlstate_fra_besked("ERROR:  function public.red_x(p_a => unknown) does not exist"), "42883")
   expect_true(is.na(sqlstate_fra_besked("noget andet")))
 })
+
+# --- Runde 2: egne filer pr. manifest ----------------------------------------------------------------------------
+
+test_that("ud_sti: runde 1 beholder navnene, runde 2 får endelsen -runde2", {
+  expect_equal(ud_sti("m", "m/manifest.json", "plan.csv"), file.path("m", "plan.csv"))
+  expect_equal(ud_sti("m", "m/manifest-runde2.json", "plan.csv"), file.path("m", "plan-runde2.csv"))
+  expect_equal(ud_sti("m", "m/manifest-runde2.json", "gennemgang.txt"), file.path("m", "gennemgang-runde2.txt"))
+})
+
+test_that("runde 2 rører ikke runde 1's besvarede gennemgangsfil", {
+  mappe <- tempfile(); dir.create(mappe)
+  writeLines("runde 1 svar", file.path(mappe, "gennemgang.txt"))
+  sti <- gennemgang_sti(mappe, file.path(mappe, "manifest-runde2.json"))
+  expect_equal(basename(sti), "gennemgang-runde2.txt")
+  writeLines("x", sti)
+  expect_equal(basename(gennemgang_sti(mappe, file.path(mappe, "manifest-runde2.json"))), "gennemgang-runde2.ny.txt")
+  expect_equal(readLines(file.path(mappe, "gennemgang.txt")), "runde 1 svar")
+})

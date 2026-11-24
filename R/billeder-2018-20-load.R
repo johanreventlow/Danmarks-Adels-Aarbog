@@ -183,9 +183,18 @@ byg_plan <- function(manifest, ext, aegtefaeller, person_medier, svar = NULL) {
   )
 }
 
-gennemgang_sti <- function(mappe) {
-  sti <- file.path(mappe, "gennemgang.txt")
-  if (file.exists(sti)) file.path(mappe, "gennemgang.ny.txt") else sti
+# Runde 1 (manifest.json) beholder filnavnene; et andet manifest (fx manifest-runde2.json) får dets endelse på plan,
+# gennemgang og rapport, så en ny runde aldrig overskriver en tidligere rundes godkendte svar.
+ud_sti <- function(mappe, manifest, navn) {
+  stamme <- sub("\\.json$", "", basename(manifest))
+  endelse <- sub("^manifest", "", stamme)
+  if (!nzchar(endelse)) return(file.path(mappe, navn))
+  file.path(mappe, sub("(\\.[^.]+)$", paste0(endelse, "\\1"), navn))
+}
+
+gennemgang_sti <- function(mappe, manifest = file.path(mappe, "manifest.json")) {
+  sti <- ud_sti(mappe, manifest, "gennemgang.txt")
+  if (file.exists(sti)) sub("\\.txt$", ".ny.txt", sti) else sti
 }
 
 skriv_gennemgang <- function(plan, sti, manifest_sha = NULL) {
@@ -474,9 +483,9 @@ run_billeder_2018_20 <- function(args = commandArgs(trailingOnly = TRUE)) {
   opslag <- hent_opslag(con, alle_ids)
   plan <- byg_plan(manifest, opslag$ext, opslag$aegtefaeller, opslag$medier, svar)
 
-  skriv_plan_csv(plan, file.path(mappe, "plan.csv"))
+  skriv_plan_csv(plan, ud_sti(mappe, opt$manifest, "plan.csv"))
   if (is.null(opt$svar)) {
-    sti <- gennemgang_sti(mappe)
+    sti <- gennemgang_sti(mappe, opt$manifest)
     skriv_gennemgang(plan, sti, manifest_sha)
     message(sprintf("Gennemgang: %s", sti))
   }
@@ -517,7 +526,7 @@ run_billeder_2018_20 <- function(args = commandArgs(trailingOnly = TRUE)) {
     tryCatch(anvend_billede(raekke, mappe, ops), error = function(e) paste("fejl:", conditionMessage(e)))
   }, character(1))
   rapport <- data.frame(noegle = plan$noegle, resultat = resultater, maa_publiceres = plan$maa_publiceres)
-  utils::write.csv(rapport, file.path(mappe, "rapport.csv"), row.names = FALSE, fileEncoding = "UTF-8")
+  utils::write.csv(rapport, ud_sti(mappe, opt$manifest, "rapport.csv"), row.names = FALSE, fileEncoding = "UTF-8")
   message(paste(capture.output(print(table(sub(":.*", "", resultater)))), collapse = "\n"))
   invisible(rapport)
 }
