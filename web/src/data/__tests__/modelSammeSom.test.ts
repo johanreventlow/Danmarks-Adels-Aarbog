@@ -38,7 +38,7 @@ vi.mock('../../supabase', () => ({
 vi.mock('../sammeSomKanter', async (orig) => {
   const m = await orig<typeof import('../sammeSomKanter')>();
   // Genforsøget uden ventetid i testen.
-  return { ...m, hentSammeSomKanterMedGenforsoeg: (sb: Parameters<typeof m.hentSammeSomKanter>[0]) => m.hentSammeSomKanterMedGenforsoeg(sb, 0) };
+  return { ...m, hentSammeSomKanter: (sb: Parameters<typeof m.hentSammeSomKanter>[0]) => m.hentSammeSomKanter(sb, 0) };
 });
 
 const { loadModel } = await import('../model');

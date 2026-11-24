@@ -1,8 +1,8 @@
 // Review 37 Y2: opstarten hentede ALLE afklarede relationskonklusioner (prod 24/11: ~2.300 rækker i 3 offset-sider,
-// hver ~630 ms som gæst pga. RLS-kaskaden) for kun at bruge dem til samme_som. Nu hentes kun konklusionerne for
+// hver 630-815 ms som gæst pga. RLS-kaskaden) for kun at bruge dem til samme_som. Nu hentes kun konklusionerne for
 // samme_som-relationerne, i bidder. En fejl må ikke længere give tavse dubletpersoner.
 import { describe, expect, it, vi } from 'vitest';
-import { hentSammeSomKanter, hentSammeSomKanterMedGenforsoeg } from '../sammeSomKanter';
+import { hentSammeSomKanter } from '../sammeSomKanter';
 import type { Sb } from '../forside/kilder';
 
 type Kald = { tabel: string; eq: [string, unknown][]; in?: [string, unknown[]] };
@@ -51,7 +51,7 @@ const rel = (n: number) => Array.from({ length: n }, (_, i) => ({ id: 1000 + i, 
 describe('hentSammeSomKanter (review 37 Y2)', () => {
   it('henter kun konklusioner for samme_som-relationerne, afgrænset til afklarede relationskonklusioner', async () => {
     const { sb, kald } = fake({ relationer: rel(3), afklarede: [1000, 1002] });
-    const kanter = await hentSammeSomKanter(sb);
+    const kanter = await hentSammeSomKanter(sb, 0);
     expect(kanter).toEqual([
       { alias: '1', canonical: '5000' },
       { alias: '3', canonical: '5002' },
@@ -65,7 +65,7 @@ describe('hentSammeSomKanter (review 37 Y2)', () => {
 
   it('deler id-listen i bidder à højst 200', async () => {
     const { sb, kald } = fake({ relationer: rel(450), afklarede: rel(450).map((r) => r.id) });
-    const kanter = await hentSammeSomKanter(sb);
+    const kanter = await hentSammeSomKanter(sb, 0);
     expect(kanter).toHaveLength(450);
     const bidder = kald.filter((k) => k.tabel === 'conclusion').map((k) => k.in![1].length);
     expect(bidder.sort((a, b) => b - a)).toEqual([200, 200, 50]);
@@ -73,29 +73,33 @@ describe('hentSammeSomKanter (review 37 Y2)', () => {
 
   it('ingen samme_som-relationer → ingen konklusionskald', async () => {
     const { sb, kald } = fake({ relationer: [], afklarede: [] });
-    expect(await hentSammeSomKanter(sb)).toEqual([]);
+    expect(await hentSammeSomKanter(sb, 0)).toEqual([]);
     expect(kald.filter((k) => k.tabel === 'conclusion')).toHaveLength(0);
   });
 
-  it('én fejlet bid er en fejl for det hele (en halv sammenfoldning er værre end ingen)', async () => {
-    const { sb } = fake({ relationer: rel(450), afklarede: rel(450).map((r) => r.id), fejlPaaKonklusion: 1 });
-    await expect(hentSammeSomKanter(sb)).rejects.toThrow('konklusion-fejl');
+  it('én bid, der fejler to gange, er en fejl for det hele (en halv sammenfoldning er værre end ingen)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { sb } = fake({ relationer: rel(10), afklarede: rel(10).map((r) => r.id), fejlPaaKonklusion: 2 });
+    await expect(hentSammeSomKanter(sb, 0)).rejects.toThrow('konklusion-fejl');
+    warn.mockRestore();
   });
 });
 
-describe('hentSammeSomKanterMedGenforsoeg', () => {
-  it('prøver én gang til efter en fejl', async () => {
+describe('genforsøg pr. kald', () => {
+  it('en fejlet bid hentes igen alene — de andre bidder hentes ikke forfra', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { sb } = fake({ relationer: rel(2), afklarede: [1000, 1001], fejlPaaRelation: 1 });
-    expect(await hentSammeSomKanterMedGenforsoeg(sb, 0)).toHaveLength(2);
+    const { sb, kald } = fake({ relationer: rel(450), afklarede: rel(450).map((r) => r.id), fejlPaaKonklusion: 1 });
+    expect(await hentSammeSomKanter(sb, 0)).toHaveLength(450);
+    expect(kald.filter((k) => k.tabel === 'conclusion')).toHaveLength(4); // 3 bidder + 1 genforsøg
+    expect(kald.filter((k) => k.tabel === 'relation')).toHaveLength(1);
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });
 
-  it('fejler stadig efter genforsøget → afviser (ingen tavse dubletpersoner)', async () => {
+  it('relationerne prøves igen efter én fejl', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { sb } = fake({ relationer: rel(2), afklarede: [1000, 1001], fejlPaaKonklusion: 2 });
-    await expect(hentSammeSomKanterMedGenforsoeg(sb, 0)).rejects.toThrow('konklusion-fejl');
+    const { sb } = fake({ relationer: rel(2), afklarede: [1000, 1001], fejlPaaRelation: 1 });
+    expect(await hentSammeSomKanter(sb, 0)).toHaveLength(2);
     warn.mockRestore();
   });
 });

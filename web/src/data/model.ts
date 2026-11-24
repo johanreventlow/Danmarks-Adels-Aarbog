@@ -8,7 +8,7 @@ import { buildSources } from './sources';
 import { byggLinjeRaekker } from './linjeRaekker';
 import { byggUdgaveModel } from './udgaver';
 import { byggErStamtavle } from './stamtavleKilder';
-import { hentSammeSomKanterMedGenforsoeg, type SammeSomKant } from './sammeSomKanter';
+import { hentSammeSomKanter, type SammeSomKant } from './sammeSomKanter';
 import { normalizeKoen, normalizeKonfidens, type AppModel, type AppPerson, type Db, type Geo, type Model, type ModelPerson, type ParentChild, type RawEstate, type RawExtId, type RawFact, type RawLineageContext, type RawLineageScheme, type RawLineageSchemeEntry, type RawLineageSchemeEntryLineage, type RawPlace, type RawSource, type Union } from './types';
 
 const PARTNER_ROLLER = ['partner'];
@@ -82,9 +82,9 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     // Kilder (trykt værk) — til "Kilde i Aarbogen" pr. person.
     getAll<RawSource>(() => supabase.from('source').select('id,slags,titel,udgave,aar,ekstern').order('id')).catch((e) => { console.warn('[loadModel] source utilgængelig — Kilde-i-Aarbogen degraderet:', e); return [] as RawSource[]; }),
     // samme_som-kanter (alias → kanonisk) til collapse — kun afklarede (review 37 Y2: kun samme_som-konklusionerne
-    // hentes, og en fejl afviser loadModel efter ét genforsøg i stedet for tavst at vise dubletpersoner).
+    // hentes, og en fejl afviser loadModel efter ét genforsøg pr. kald i stedet for tavst at vise dubletpersoner).
     // Redaktionen (collapse: false) arbejder i det rå id-rum og henter dem slet ikke.
-    opts?.collapse === false ? Promise.resolve([] as SammeSomKant[]) : hentSammeSomKanterMedGenforsoeg(supabase),
+    opts?.collapse === false ? Promise.resolve([] as SammeSomKant[]) : hentSammeSomKanter(supabase),
     // estate (godser m. sted) er lille og bruges også af den ikke-geo gods-liste/tæller —
     // hentes eager. place+fact (den tunge geo-kæde, ~6.788 place-rækker) er UDSKUDT (review 27
     // P3): de hentes først af loadGeo() nedenfor, ved første kort-brug, ikke ved cold-start.
