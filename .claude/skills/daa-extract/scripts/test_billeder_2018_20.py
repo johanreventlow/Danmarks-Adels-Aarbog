@@ -321,3 +321,34 @@ def test_runde3_elefantridder_refs():
 
 def test_runde3_kun_53_har_kurateret_titel():
     assert {p["side"] for p in KURATEREDE_RUNDE3 if p.get("titel")} == {53}
+
+
+# --- Runde 4: godser + Hennekes våben (spec-afsnit »Runde 4«, projektejerens svar 24/11) --------------------------
+from billeder_2018_20 import KURATEREDE_RUNDE4  # noqa: E402
+
+_GODS_SVAR = {8: 5, 10: 169, 15: 172, 20: 170, 29: 119, 31: 145, 34: 185, 37: 165, 39: 196, 41: 367, 43: 182}
+
+
+def test_runde4_har_11_godser_og_henneke():
+    assert len(KURATEREDE_RUNDE4) == 12
+    assert {p["side"] for p in KURATEREDE_RUNDE4} == {3, *_GODS_SVAR}
+    assert len({(p["side"], p["nr"]) for p in KURATEREDE_RUNDE4}) == 12
+
+
+def test_runde4_godser_kobles_til_projektejerens_valg_uden_personer():
+    godser = [p for p in KURATEREDE_RUNDE4 if p["side"] != 3]
+    assert {p["side"]: p["objekt"] for p in godser} == {s: {"type": "estate", "id": i} for s, i in _GODS_SVAR.items()}
+    assert all(p["slags"] == "gods" and p["klasse"] == "objekt" and p["refs"] == [] for p in godser)
+
+
+def test_runde4_godstitler_er_bogens_overskrift_ikke_sidens_prosa():
+    titler = {p["side"]: p["titel"] for p in KURATEREDE_RUNDE4}
+    assert titler[8] == "Wittenberg (Selent Sogn, Plön Kreds) Siden 1584 i slægtens eje"
+    assert titler[43] == "Etelsen, Langwedel, Niedersachsen (Daverden Sogn, Verden Kreds) 1896-1937 i slægtens eje"
+    assert all(t and len(t) < 200 for t in titler.values())
+
+
+def test_runde4_henneke_er_vaaben_paa_person():
+    (h,) = [p for p in KURATEREDE_RUNDE4 if p["side"] == 3]
+    assert (h["slags"], h["klasse"], h["refs"], h["objekt"], h["datering"]) == ("våben", "egen", [["III", 27]], None, "1587")
+    assert "Dronning Sophies Våbenbog" in h["titel"]

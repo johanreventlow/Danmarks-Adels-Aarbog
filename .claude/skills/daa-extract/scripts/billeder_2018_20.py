@@ -293,6 +293,30 @@ KURATEREDE_RUNDE3 = [
 ]
 
 
+# Runde 4: godser (s. 8-43) og Hennekes våben (s. 3) (spec-afsnit »Runde 4«). Gods-rækken er projektejerens valg på
+# gennemgangsarket 24/11 (standard = rækken med flest ejere). Titlen er sidens overskrift ordret, ikke sidens prosa.
+def _g(side, estate_id, titel):
+    return dict(side=side, nr=1, billeder=[0], slags="gods", klasse="objekt", refs=[],
+                objekt={"type": "estate", "id": estate_id}, titel=titel, datering=None)
+
+
+KURATEREDE_RUNDE4 = [
+    dict(side=3, nr=1, billeder=[0], slags="våben", klasse="egen", refs=[["III", 27]], objekt=None, datering="1587",
+         titel="1587 de handt des hogestenn kan alles Enderenn Henneke Reuentlow meyne egene handt – Henneke von "
+               "Reventlow (III, 27) Kilde: Det Kongelige Bibliotek. Dronning Sophies Våbenbog."),
+    _g(8, 5, "Wittenberg (Selent Sogn, Plön Kreds) Siden 1584 i slægtens eje"),
+    _g(10, 169, "Sandbjerg (Sottrup Sogn, Nybøl Herred) 1673-1930 i slægtens eje"),
+    _g(15, 172, "Brahetrolleborg (Brahetrolleborg Sogn, Sallinge Herred) 1722-1972 i slægtens eje"),
+    _g(20, 170, "Christianssæde (Skørringe Sogn, Fuglse Herred) 1728-1934 i slægtens eje"),
+    _g(29, 119, "Altenhof (Altenhof Sogn, Rendsborg-Egernførde Kreds) 1691-1980 i slægtens eje"),
+    _g(31, 145, "Emkendorf (Emkendorf Sogn, Rendsborg-Egernførde Kreds) 1764-1828 i slægtens eje"),
+    _g(34, 185, "Wulfshagen (Tüttendorf Sogn, Rendsborg-Egernførde Kreds) Siden 1882 i slægtens eje"),
+    _g(37, 165, "Clausholm (Voldum Sogn, Galten Herred) 1683-1743 i slægtens eje."),
+    _g(39, 196, "Vallø (Valløby Sogn, Bjæverskov Herred) 1713-1730 hovedsæde i grevskabet Vallø"),
+    _g(41, 367, "Pederstrup (Horslunde Sogn, Lollands Nørre Herred) 1725-1938 i slægtens eje."),
+    _g(43, 182, "Etelsen, Langwedel, Niedersachsen (Daverden Sogn, Verden Kreds) 1896-1937 i slægtens eje"),
+]
+
 def kombiner_vandret(kilder: list[Path], maal: Path) -> Path:
     """Sætter billederne side om side (fx en medaljes for- og bagside) på hvidt, lodret centreret."""
     from PIL import Image
@@ -326,6 +350,10 @@ def byg_manifest_runde2(pdf: Path, ud: Path) -> dict:
 
 def byg_manifest_runde3(pdf: Path, ud: Path) -> dict:
     return byg_manifest_kurateret(pdf, ud, KURATEREDE_RUNDE3, "manifest-runde3.json", 3)
+
+
+def byg_manifest_runde4(pdf: Path, ud: Path) -> dict:
+    return byg_manifest_kurateret(pdf, ud, KURATEREDE_RUNDE4, "manifest-runde4.json", 4)
 
 
 def byg_manifest_kurateret(pdf: Path, ud: Path, poster: list[dict], filnavn: str, runde: int) -> dict:
@@ -368,11 +396,13 @@ def byg_manifest_kurateret(pdf: Path, ud: Path, poster: list[dict], filnavn: str
 def main(argv: list[str]) -> int:
     runde2 = "--runde2" in argv
     runde3 = "--runde3" in argv
-    argv = [a for a in argv if a not in ("--runde2", "--runde3")]
+    runde4 = "--runde4" in argv
+    argv = [a for a in argv if a not in ("--runde2", "--runde3", "--runde4")]
     if len(argv) != 2:
-        print("Brug: billeder_2018_20.py [--runde2] <pdf> <ud-mappe>", file=sys.stderr)
+        print("Brug: billeder_2018_20.py [--runde2|--runde3|--runde4] <pdf> <ud-mappe>", file=sys.stderr)
         return 2
-    bygger = byg_manifest_runde3 if runde3 else byg_manifest_runde2 if runde2 else byg_manifest
+    bygger = (byg_manifest_runde4 if runde4 else byg_manifest_runde3 if runde3
+              else byg_manifest_runde2 if runde2 else byg_manifest)
     manifest = bygger(Path(argv[0]), Path(argv[1]))
     klasser: dict[str, int] = {}
     for b in manifest["billeder"]:
