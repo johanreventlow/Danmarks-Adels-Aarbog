@@ -73,6 +73,13 @@ match_aegtefaelle <- function(aar, navn, kandidater) {
 opslaa_afbildede <- function(billede, ext, aegtefaeller) {
   klasse <- billede$klasse
   refs <- billede$refs %||% list()
+  # Runde 3: kuraterede objekt-koblinger (media → lineage/estate). Ingen personer: GDPR-gatingen scanner kun personer,
+  # så et objekt-billede må aldrig samtidig pege på en person uden gennemgang.
+  if (!is.null(billede$objekt)) {
+    if (length(refs)) stop(sprintf("OBJEKT_MED_PERSON: %s", billede$noegle %||% "?"), call. = FALSE)
+    return(list(person_ids = character(), sikker = TRUE,
+                begrundelse = sprintf("objekt: %s %s", billede$objekt$type, billede$objekt$id)))
+  }
   if (identical(klasse, "aegtefaelle")) {
     anker <- .ref_til_person(billede$aegtefaelle_anker, ext)
     if (is.na(anker)) {
@@ -166,8 +173,10 @@ byg_plan <- function(manifest, ext, aegtefaeller, person_medier, svar = NULL) {
       if (h$handling == "laas") laast <<- c(laast, pid)
       portraet[[pid]] <- h
     }
-    list(noegle = b$noegle, side = as.integer(b$side), person_ids = ids, sikker = sikker,
-         maa_publiceres = !skjul && kan_publiceres(ids, sikker), portraet = portraet,
+    objekt <- if (is.null(b$objekt)) NULL else list(type = as.character(b$objekt$type), id = as.integer(b$objekt$id))
+    publicerbar <- kan_publiceres(ids, sikker) || (!is.null(objekt) && length(ids) == 0L && isTRUE(sikker))
+    list(noegle = b$noegle, side = as.integer(b$side), person_ids = ids, sikker = sikker, objekt = objekt,
+         maa_publiceres = !skjul && publicerbar, portraet = portraet,
          begrundelse = o$begrundelse, titel = b$titel %||% "")
   })
   data.frame(
@@ -177,6 +186,7 @@ byg_plan <- function(manifest, ext, aegtefaeller, person_medier, svar = NULL) {
     sikker = vapply(raekker, `[[`, logical(1), "sikker"),
     maa_publiceres = vapply(raekker, `[[`, logical(1), "maa_publiceres"),
     portraet = I(lapply(raekker, `[[`, "portraet")),
+    objekt = I(lapply(raekker, function(r) r$objekt)),
     begrundelse = vapply(raekker, `[[`, character(1), "begrundelse"),
     titel = vapply(raekker, `[[`, character(1), "titel"),
     stringsAsFactors = FALSE
@@ -296,6 +306,8 @@ anvend_billede <- function(raekke, mappe, ops) {
         p_slags = raekke$slags, p_titel = raekke$titel, p_storage_path = billede_sti(sha, "large"),
         p_mime = "image/jpeg", p_kunstner = raekke$kunstner, p_datering = raekke$datering,
         p_afbildet_person_id = if (length(ids)) ids[[1]] else NULL,
+        p_objekt_type = if (!is.null(raekke$objekt)) raekke$objekt$type else NULL,
+        p_objekt_id = if (!is.null(raekke$objekt)) as.character(raekke$objekt$id) else NULL,
         p_byte_size = as.integer(raekke$bytes$large), p_bredde = dim_af("large", 1L), p_hoejde = dim_af("large", 2L),
         p_sha256 = sha, p_original_filnavn = filnavn,
         p_rettigheder_status = "ukendt", p_maa_publiceres = isTRUE(raekke$maa_publiceres)
@@ -490,13 +502,16 @@ run_billeder_2018_20 <- function(args = commandArgs(trailingOnly = TRUE)) {
     message(sprintf("Gennemgang: %s", sti))
   }
   if (opt$proev_binding) {
-    i <- which(lengths(plan$person_ids) >= 2L & !vapply(plan$person_ids, anyNA, logical(1)))[[1]]
+    # Prøv et objekt-billede, hvis manifestet har et (runde 3: p_objekt_type/p_objekt_id), ellers et med to personer.
+    objekt_i <- which(!vapply(plan$objekt, is.null, logical(1)))
+    i <- if (length(objekt_i)) objekt_i[[1]] else
+      which(lengths(plan$person_ids) >= 2L & !vapply(plan$person_ids, anyNA, logical(1)))[[1]]
     b <- stats::setNames(manifest$billeder, vapply(manifest$billeder, `[[`, character(1), "noegle"))[[plan$noegle[[i]]]]
     raekke <- c(b[c("noegle", "side", "sha256", "titel", "kunstner", "datering", "slags", "filer", "dims", "bytes")],
-                list(person_ids = plan$person_ids[[i]], maa_publiceres = FALSE,
-                     portraet = stats::setNames(list(list(handling = "laas", media_id = "0",
-                                                          person_id = plan$person_ids[[i]][[1]])),
-                                                plan$person_ids[[i]][[1]])))
+                list(person_ids = plan$person_ids[[i]], maa_publiceres = FALSE, objekt = plan$objekt[[i]],
+                     portraet = if (!length(plan$person_ids[[i]])) list() else
+                       stats::setNames(list(list(handling = "laas", media_id = "0",
+                                                 person_id = plan$person_ids[[i]][[1]])), plan$person_ids[[i]][[1]])))
     sqlstate_af <- function(e) {
       st <- janitor$db_error_sqlstate(e)
       if (!is.na(st)) return(st)
@@ -522,7 +537,7 @@ run_billeder_2018_20 <- function(args = commandArgs(trailingOnly = TRUE)) {
     b <- efter_noegle[[plan$noegle[[i]]]]
     raekke <- c(b[c("noegle", "side", "sha256", "titel", "kunstner", "datering", "slags", "filer", "dims", "bytes")],
                 list(person_ids = plan$person_ids[[i]], maa_publiceres = plan$maa_publiceres[[i]],
-                     portraet = plan$portraet[[i]]))
+                     portraet = plan$portraet[[i]], objekt = plan$objekt[[i]]))
     tryCatch(anvend_billede(raekke, mappe, ops), error = function(e) paste("fejl:", conditionMessage(e)))
   }, character(1))
   rapport <- data.frame(noegle = plan$noegle, resultat = resultater, maa_publiceres = plan$maa_publiceres)

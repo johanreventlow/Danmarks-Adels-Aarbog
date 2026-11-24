@@ -384,3 +384,34 @@ test_that("runde 2 rører ikke runde 1's besvarede gennemgangsfil", {
   expect_equal(basename(gennemgang_sti(mappe, file.path(mappe, "manifest-runde2.json"))), "gennemgang-runde2.ny.txt")
   expect_equal(readLines(file.path(mappe, "gennemgang.txt")), "runde 1 svar")
 })
+
+# --- Runde 3: objekt-koblinger (media → lineage/estate) ---------------------------------------------------------
+
+objekt_billede <- billede('{"noegle":"daa-2018-20-s0055-1","side":55,"titel":"Lensgreve","klasse":"objekt","refs":[],
+                           "aegtefaelle_anker":null,"objekt":{"type":"lineage","id":4}}')
+
+test_that("objekt-billede er sikkert og kan publiceres uden personer", {
+  r <- opslaa_afbildede(objekt_billede, ext_fix, aeg_fix)
+  expect_equal(r$person_ids, character())
+  expect_true(r$sikker)
+  p <- byg_plan(list(billeder = list(objekt_billede)), ext_fix, aeg_fix, tom_medier)
+  expect_true(p$maa_publiceres)
+  expect_equal(p$objekt[[1]], list(type = "lineage", id = 4L))
+  expect_length(p$portraet[[1]], 0)
+})
+
+test_that("objekt-billede kobles via p_objekt_type/p_objekt_id og aldrig til en person", {
+  r <- ny_raekke
+  r$person_ids <- character(); r$portraet <- list(); r$objekt <- list(type = "lineage", id = 4L)
+  log <- anvend_med_fake(r, eksisterende = NULL)
+  a <- log$args$red_upload_media
+  expect_equal(a$p_objekt_type, "lineage")
+  expect_equal(a$p_objekt_id, "4")
+  expect_null(a$p_afbildet_person_id)
+  expect_false("red_relation" %in% log$rpc)
+})
+
+test_that("et objekt-billede med en person-henvisning er en fejl i manifestet", {
+  forkert <- objekt_billede; forkert$refs <- list(list("V", 106))
+  expect_error(opslaa_afbildede(forkert, ext_fix, aeg_fix), "OBJEKT_MED_PERSON")
+})
