@@ -15,8 +15,15 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 - **Forbehold bevares.** En sammenfoldet persons år vises kort (`kortLivsdato`): »efter 1575«, »o. 1500«,
   »147(5?)«, »1342/1353«, »1678?«; dag og måned falder bort som før. »147(5?)« regnes som 1475 (person 77 blev regnet
   som død år 147).
-- **Forudsætning:** den kanoniske post er den nyeste udgave. Målt i prod 24/11: ingen afklarede `samme_som`-par peger
-  mod en ældre udgave. Målt omfang (815 par): 4 fødsler og 15 dødsår kom før fra en ældre udgave.
+- **Erstatter** to tidligere regler i sammenfoldningen: floruit som forening over alle poster (visning-floruit; 5 par
+  får nu kun den nyeste udgaves spænd, fx Ghese 1475–1496 i stedet for 1456–1503) og 21/11-reglen om, at et alias'
+  årstal eller dødstekst flettes ind ved siden af den kanoniske posts dato.
+- **Forudsætning:** den kanoniske post er den nyeste udgave. Målt i prod 24/11 over 815 afklarede `samme_som`-par: intet
+  par peger mod en ældre udgave; 47 par har ingen målbar udgave. Omfang: 4 fødsler og 15 dødsår kom før fra en ældre
+  udgave; 11 personer får fortsat hele udsagnet fra 1939, fordi 2018-20 intet siger om datoerne.
+- **Kendte rester:** jubilæumskortene (`packages/feed/src/pool.ts`) regner stadig »efter 1575« og »ca. 1484« som
+  eksakte år. Personerne 23 og 122 har en floruit i 2018-20, der strider mod 1939's livsdatoer (sandsynligvis forkert
+  kobling eller floruit) og viser nu »Nævnes …«.
 - **Teknik:** `packages/core` (`collapseSameAs.ts`, `fields.ts`), så web og mobil får det samme. Ingen DB-ændring.
 
 ## BESLUTTET: portrætterne fra DAA 2018-20 importeres som redaktionelle medier, synlige uden afklaret ophavsret (2026-11-24)

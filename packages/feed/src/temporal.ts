@@ -35,9 +35,10 @@ export function buildLivsdatoBy(
   const assertionById = new Map(assertions.map((a) => [String(a.id), a]));
   const conclusionByFactId = new Map(conclusions.map((c) => [String(c.target_id), c]));
   const out: LivsdatoBy = {};
-  // Review 37 M13: en foldet person har datoer fra flere poster. Samme regel som collapseSameAs' coalesce
-  // (kanonisk post først, så alias'erne sorteret på id som streng); inden for én post den laveste fact-id.
-  // Før vandt den sidste række, så en 1939-posts årstal kunne erstatte den kanoniske posts dag-præcise dato.
+  // Review 37 M13: en foldet person har datoer fra flere poster. Rækkefølgen følger collapseSameAs (kanonisk post først,
+  // så alias'erne sorteret på id som streng); inden for én post den laveste fact-id. Før vandt den sidste række, så en
+  // 1939-posts årstal kunne erstatte den kanoniske posts dag-præcise dato. Jubilæumskortene bruger kun en dato, når den
+  // foldede persons born/died er sat, og de kommer fra én posts samlede udsagn (decisions 2026-11-24).
   const rang = new Map<string, [number, string, number]>();
   const foerst = (x: [number, string, number], y: [number, string, number]) =>
     x[0] - y[0] || (x[1] < y[1] ? -1 : x[1] > y[1] ? 1 : 0) || x[2] - y[2];
