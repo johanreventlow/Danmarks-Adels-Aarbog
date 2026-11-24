@@ -48,7 +48,7 @@ createdb "$TMPL" || die "createdb $TMPL"; CREATED="$CREATED $TMPL"
 for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-rls.sql; do
   q "$TMPL" -f "$f" || die "byg $f"
 done
-# Kontrakt v2 (Task 2b): publicerings- og reimport-writerne kræver den (som spike-person-purge-laase.sh).
+# Kontrakt v2 (Task 2b): publicerings- og reimport-writerne kræver den (som tools/spike-personsletning/spike-person-purge-laase.sh).
 q "$TMPL" -c 'BEGIN' -f tests/sql/reimport-writer-v2-bootstrap.sql -c 'COMMIT' || die "byg kontrakt v2"
 q "$TMPL" -f tests/sql/fixtures/person-purge.sql || die "byg tests/sql/fixtures/person-purge.sql"
 # createdb -T kræver, at ingen er forbundet til skabelonen.

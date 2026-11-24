@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Task 0 (fuld personsletning), step 2: kør de 4 PostgreSQL-CI-jobs lokalt med spikens vagter slået til.
 
-Brug:  python3 tests/sql/spike/ci_jobs_lokalt.py --variant {base,warn,enforce} --prefix <præfiks> --out <mappe>
+Brug:  python3 tools/spike-personsletning/ci_jobs_lokalt.py --variant {base,warn,enforce} --prefix <præfiks> --out <mappe>
                                                  [--jobs evidence-promotion-db,...]
 
 - Kopierer de git-sporede filer (+ spikens filer) til <out>/tree. Arbejdsmapperne work*/ er gitignorerede og kommer
   aldrig med. Repo'et selv ændres ikke.
-- warn/enforce: tests/sql/spike/person-purge-skelet.sql hægtes på SIDST i kopiens schema.sql OG db-migrations.sql.
+- warn/enforce: tools/spike-personsletning/person-purge-skelet.sql hægtes på SIDST i kopiens schema.sql OG db-migrations.sql.
   Så ligger vagterne der efter hver anvendelse af en af filerne, også midt i et job og i opgraderingsharnesses, der
   lægger den aktuelle db-migrations.sql oven på et gammelt skema (db-migrations.sql genskaber ellers de gamle kroppe
   af enforce_relation_evidence_target og validate_entity_description_subject). warn sætter spike.indstilling til
@@ -20,10 +20,10 @@ Brug:  python3 tests/sql/spike/ci_jobs_lokalt.py --variant {base,warn,enforce} -
 """
 import argparse, json, os, re, shutil, subprocess, sys, time
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 JOBS = ["evidence-promotion-db", "interpretation-proposal-db", "writer-1939-v50-db", "narrative-record-contract-db"]
-SPIKE_FILES = ["tests/sql/spike/person-purge-skelet.sql", "tests/sql/spike/person-purge-fixture.sql",
-               "tests/sql/spike/ci_jobs_lokalt.py", "tests/sql/spike-person-purge-laase.sh"]
+SPIKE_FILES = ["tools/spike-personsletning/person-purge-skelet.sql", "tools/spike-personsletning/person-purge-fixture.sql",
+               "tools/spike-personsletning/ci_jobs_lokalt.py", "tools/spike-personsletning/spike-person-purge-laase.sh"]
 
 
 def sh(cmd, **kw):
@@ -82,7 +82,7 @@ def main():
         if not os.path.isfile(src): continue
         dst = os.path.join(tree, f); os.makedirs(os.path.dirname(dst), exist_ok=True); shutil.copy2(src, dst)
     if a.variant != "base":
-        skel = open(os.path.join(ROOT, "tests/sql/spike/person-purge-skelet.sql")).read()
+        skel = open(os.path.join(ROOT, "tools/spike-personsletning/person-purge-skelet.sql")).read()
         tail = "\n-- ==== SPIKE (Task 0): vagter hægtet på af ci_jobs_lokalt.py ====\n" + skel
         if a.variant == "enforce_kendte":
             # De 13 kendte klasse-a-steder fra warn-inventaret advarer kun; alt andet fejler som i enforce.
