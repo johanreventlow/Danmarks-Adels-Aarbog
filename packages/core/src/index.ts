@@ -74,3 +74,4 @@ export * from './kunIAeldreUdgave';
 export * from './personNavn';
 export { slutterPaaSlaegtsnavn, udenSlaegtsnavnTilSidst } from './slaegtsnavn';
 export * from './sletVej';
+export * from './mediaVisning';

@@ -2,7 +2,7 @@
 // (gods/våben). RLS på 'media' + storage.objects skjuler ikke-offentlige rækker/objekter, så en
 // almindelig select/signering returnerer kun det den aktuelle rolle må se (fail-closed i basen).
 import { supabase } from '../supabase';
-import { getAll } from '@daa/core';
+import { erPortraetSlags, getAll } from '@daa/core';
 import { orThrow } from './orThrow';
 
 export type MediaItem = {
@@ -32,10 +32,11 @@ type RawMediaRow = {
   kunstner: string | null; datering: string | null; storage_path: string | null;
 };
 
-// Portræt-egnede slags (til at vælge hovedbilledet på et personkort). Sammenlign altid
-// normaliseret (lowercase+trim), så 'Maleri'/'Portræt ' også genkendes.
-export const PORTRAIT_SLAGS = new Set(['foto', 'maleri', 'portræt', 'portraet']);
-const normSlags = (s: string) => s.trim().toLowerCase();
+// Portræt-slags, portræt-test og billedtekstens formel bor i @daa/core (delt med mobil).
+export { PORTRAIT_SLAGS, erPortraetSlags, mediaCaption } from '@daa/core';
+// Portrætrammerne (4:5 / 4:3) beskærer; et segl, en medalje eller et våben som hovedbillede vises helt.
+export const portraetTilpasning = (m: { slags: string | null }): { objectFit: 'cover' | 'contain' } =>
+  ({ objectFit: erPortraetSlags(m.slags) ? 'cover' : 'contain' });
 
 const SIGN_TTL = 600; // sek. — dækker en detalje-visnings-session.
 const CACHE_TTL = SIGN_TTL / 2; // sek. — en genbrugt URL har altid mindst 5 min tilbage.
@@ -229,16 +230,8 @@ export function withUrl<T extends { url: string | null }>(items: (T | null | und
 export function pickPortrait(media: MediaItem[]): MediaItem | null {
   const signable = withUrl(media);
   return signable.find((m) => m.primaer === true)
-    ?? signable.find((m) => PORTRAIT_SLAGS.has(normSlags(m.slags)))
+    ?? signable.find((m) => erPortraetSlags(m.slags))
     ?? signable[0] ?? null;
-}
-
-// Billedtekst: titel · kunstner · datering (kun de udfyldte). Delt af MediaThumb (primitives.tsx)
-// og Lightbox — samme formel, ét sted (/simplify-fund, Slice A). Global Constraint (medie-metadata
-// Task 6): `dateringFakt` (den strukturerede fakt) vinder ALTID over den rå `datering`-kolonne i
-// visning, hvis begge er sat.
-export function mediaCaption(m: { titel?: string | null; kunstner?: string | null; datering?: string | null; dateringFakt?: string | null }): string {
-  return [m.titel, m.kunstner, m.dateringFakt ?? m.datering].filter(Boolean).join(' · ');
 }
 
 // Billeder indlejret i narrativer (billedstørrelser 2026-07-05, Slice C). Et [[media:ID|...]]-

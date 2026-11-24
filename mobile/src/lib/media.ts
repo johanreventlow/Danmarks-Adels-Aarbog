@@ -4,16 +4,15 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { supabase } from './supabase';
 import type { RawMedia } from '../data/types';
+import { erPortraetSlags } from '@daa/core';
 
 const SIGN_TTL = 600; // sek.
 const cache = new Map<string, { url: string; exp: number }>();
 let authEpoch = 0;
 const authEpochListeners = new Set<() => void>();
 
-// Portræt-egnede slags (hovedbillede på personkort). Spejler web PORTRAIT_SLAGS.
-// Sammenlign altid normaliseret (lowercase+trim), så 'Maleri'/'Portræt ' også genkendes.
-export const PORTRAIT_SLAGS = new Set(['foto', 'maleri', 'portræt', 'portraet']);
-const normSlags = (s: string) => s.trim().toLowerCase();
+// Portræt-slags, portræt-test og billedtekstens formel bor i @daa/core (delt med web).
+export { PORTRAIT_SLAGS, erPortraetSlags, mediaCaption } from '@daa/core';
 
 // Ryd signed-URL-cachen ved auth/session-skift: signed URLs er bærer-tokens der virker uafhængigt
 // af session indtil udløb — uden dette kunne en bruger efter rolle-skift genbruge en tidligere
@@ -121,7 +120,7 @@ export function dedupPreferPrimaer(items: RawMedia[]): RawMedia[] {
 // Vælg hovedbillede: eksplicit portræt-valg → slags-heuristik → første medie.
 export function pickPortrait(media: RawMedia[]): RawMedia | null {
   return media.find((m) => m.primaer === true)
-    ?? media.find((m) => PORTRAIT_SLAGS.has(normSlags(String(m.slags ?? ''))))
+    ?? media.find((m) => erPortraetSlags(m.slags))
     ?? media[0] ?? null;
 }
 

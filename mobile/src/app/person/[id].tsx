@@ -16,7 +16,7 @@ import { lifeJourney, selectDefaultPublicBioSourceVersionV2 } from '@daa/core';
 import type { BioSourceVersion, BioSourceVersionV2 } from '@daa/core';
 import { fetchPublicBioVersionsForPerson } from '../../data/publicBioVersions';
 import { childrenByMarriage, parentsOf, spousesOf } from '../../data/selectors';
-import { usePersonMedia } from '../../lib/media';
+import { erPortraetSlags, usePersonMedia } from '../../lib/media';
 import { supabase } from '../../lib/supabase';
 import { selectMeId, useStore } from '../../store/useStore';
 import { Border, Colors, Fonts, Radius } from '../../theme/tokens';
@@ -125,7 +125,7 @@ export default function PersonScreen() {
         <View style={styles.header}>
           {portraitItem ? (
             <Pressable onPress={() => setLightbox(0)}>
-              <Image source={{ uri: portraitItem.thumbUri }} style={{ width: 96, height: 120, borderRadius: 12 }} contentFit="cover" transition={150} />
+              <Image source={{ uri: portraitItem.thumbUri }} style={{ width: 96, height: 120, borderRadius: 12, backgroundColor: Colors.surfaceSunken }} contentFit={erPortraetSlags(portraitItem.media.slags) ? 'cover' : 'contain'} transition={150} />
             </Pressable>
           ) : (
             <StripedPlaceholder width={96} height={120} radius={12} label="portræt" />
