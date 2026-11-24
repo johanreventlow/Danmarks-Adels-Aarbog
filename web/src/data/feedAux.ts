@@ -3,7 +3,8 @@
 // cold-start (model.ts sætter bio:'') — hentFeedBios/withFeedBios henter og stempler bio
 // ind i en KOPI af modellen ved feed-mount, uden at røre den originale model.
 import { supabase } from '../supabase';
-import { buildFeedBioSubjectIds, hentBioKontrakt, hentBioRaekker, vaelgFeedBios } from './forside/kilder';
+import { buildFeedBioSubjectIds, hentBioKontrakt, hentBioRaekker } from './forside/kilder';
+import { vaelgFeedBios } from './forside/vaelgBios';
 import type { ArmsItem, EstateItem } from './public';
 import type { FeedAux } from '@daa/feed';
 import type { Model, ModelPerson } from './types';

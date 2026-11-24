@@ -7,7 +7,8 @@ import type { HaendelserBy, LivsdatoBy, NaevntGrundlag, StorieBy } from '@daa/fe
 import type { FeedBios } from '../feedAux';
 import { buildNaevntGrundlag } from '../feedGrundlag';
 import type { ForsideData } from './format';
-import { buildFeedBioSubjectIds, vaelgFeedBios } from './kilder';
+import { buildFeedBioSubjectIds } from './kilder';
+import { vaelgFeedBios } from './vaelgBios';
 
 export type UdpakketForside = {
   bios: FeedBios | null;

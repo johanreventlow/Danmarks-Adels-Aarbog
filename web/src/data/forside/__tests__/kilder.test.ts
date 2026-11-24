@@ -36,7 +36,7 @@ describe('forside/kilder', () => {
   });
 
   it('vaelgFeedBios udelader en kanonisk person med et fejlet alias', async () => {
-    const { vaelgFeedBios } = await import('../kilder');
+    const { vaelgFeedBios } = await import('../vaelgBios');
     const row = (id: number, tekst: string) => ({ person_id: id, source_id: 1, source_year: 2018, record_order: 1, source_record_ref: 'r' + id, source_label: 'DAA', record_label: 'Post', narrative_text: tekst, citation_label: '', provenance_kind: 'source_record' });
     const bios = vaelgFeedBios({ kontrakt: 2, rows: [row(1, 'Et'), row(2, 'To')], fejlede: [3] }, { '1': 'canon', '3': 'canon' });
     expect(bios).toEqual({ '2': 'To' });
