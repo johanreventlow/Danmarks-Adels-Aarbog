@@ -179,12 +179,21 @@ function afstand(a: string, b: string): number {
 // to stavemåder af ét; de foreslås ikke.
 export const MIN_STAVEORD = 5;
 const kvindeEndelse = (w: string) => /[ae]$/.test(w);
-export function stavemaader(navne: readonly string[], q: string, n = 3): string[] {
+// Review 37 Y7: ordbogen (ord → som i bogen, plus den foldede form) bygges én gang pr. model, ikke ved hvert
+// tastetryk. stavemaader tager både en færdig ordbog og (som før) en navneliste.
+export type Staveordbog = { ord: ReadonlyMap<string, string>; foldet: ReadonlyMap<string, string> };
+export function byggStaveordbog(navne: readonly string[]): Staveordbog {
+  const ord = new Map<string, string>(); // lille → som i bogen
+  for (const navn of navne) for (const w of navn.split(ORD)) if (w.length >= 3 && !ord.has(w.toLowerCase())) ord.set(w.toLowerCase(), w);
+  const foldet = new Map<string, string>();
+  for (const k of ord.keys()) foldet.set(k, foldToken(k));
+  return { ord, foldet };
+}
+export function stavemaader(kilde: readonly string[] | Staveordbog, q: string, n = 3): string[] {
   const toks = q.trim().split(/\s+/).filter(Boolean);
   if (!toks.length) return [];
-  const ordbog = new Map<string, string>(); // lille → som i bogen
-  for (const navn of navne) for (const w of navn.split(ORD)) if (w.length >= 3 && !ordbog.has(w.toLowerCase())) ordbog.set(w.toLowerCase(), w);
-  const rammer = (t: string) => { const tf = foldToken(t); return [...ordbog.keys()].some((k) => k.includes(t) || foldToken(k).startsWith(tf)); };
+  const { ord: ordbog, foldet } = Array.isArray(kilde) ? byggStaveordbog(kilde) : (kilde as Staveordbog);
+  const rammer = (t: string) => { const tf = foldToken(t); for (const k of ordbog.keys()) if (k.includes(t) || foldet.get(k)!.startsWith(tf)) return true; return false; };
   const raekkefoelge = toks.map((t, i) => ({ i, ingen: !rammer(t.toLowerCase()) })).sort((a, b) => Number(b.ingen) - Number(a.ingen) || a.i - b.i).map((x) => x.i);
   for (const i of raekkefoelge) {
     if (toks[i].length < MIN_STAVEORD) continue;
@@ -192,7 +201,7 @@ export function stavemaader(navne: readonly string[], q: string, n = 3): string[
     const tf = foldToken(lt);
     const max = Math.max(1, Math.floor(lt.length / 4));
     const naboer = [...ordbog.entries()]
-      .filter(([k]) => k !== lt && !k.includes(lt) && foldToken(k) !== tf && kvindeEndelse(k) === kvindeEndelse(lt))
+      .filter(([k]) => k !== lt && !k.includes(lt) && foldet.get(k) !== tf && kvindeEndelse(k) === kvindeEndelse(lt))
       .map(([k, v]) => ({ v, d: afstand(lt, k) }))
       .filter((x) => x.d <= max)
       .sort((a, b) => a.d - b.d || compareDanish(a.v, b.v))
