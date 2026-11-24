@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-24 — Portrætterne fra DAA 2018-20 kommer på personsiderne, og forsiden tæller billeder
+
+Kun 9 personer havde et billede. Nu udtrækkes de 156 billeder i særudgavens portrætafsnit (s. 119-369) med billedtekst,
+kunstner og kreditlinje og kobles til de afbildede personer; usikre koblinger (ægtefæller, grupper) gennemgås af
+projektejeren først. Billeder af levende er skjult for gæster. Forsiden regner nu et synligt billede som indhold. Ingen
+DB-ændring; data skrives via redaktørens RPC'er (`decisions.md` 2026-11-24; plan
+`docs/superpowers/plans/2026-11-24-billeder-2018-20.md`).
+
 ## 2026-11-24 — Forsiden viser kun personer med noget at fortælle, og hver kun én gang
 
 Forsiden viste fx »(Søn) Reventlow« to gange: et barn, der døde samme dag, som det blev født. Nu kræver forsiden et
