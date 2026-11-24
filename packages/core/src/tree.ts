@@ -218,7 +218,8 @@ export function unknownParentRing(
   for (const m of members.values()) (kuldGroups[m.kuld] ??= []).push(m.person);
   const people = [...members.values()].map((m) => m.person);
   // Vist generation = target-slægtled (deterministisk laveste lokal/linje ved flere linjer).
-  const target = [...members.values()].sort((a, b) => a.lokal - b.lokal || a.linje.localeCompare(b.linje))[0];
+  // Kodeenhedsorden, ikke localeCompare (review 37 M12): samme valg i web og mobil uanset platformens ICU.
+  const target = [...members.values()].sort((a, b) => a.lokal - b.lokal || (a.linje < b.linje ? -1 : a.linje > b.linje ? 1 : 0))[0];
   const candidateNote = marking.grade === GRADE_FORAELDER_UKENDT
     ? 'Mulige forældre — kilden navngiver dem ikke'
     : 'Kilden angiver ingen forbindelse — andre i forrige slægtled';

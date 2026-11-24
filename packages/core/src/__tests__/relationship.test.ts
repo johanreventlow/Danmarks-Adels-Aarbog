@@ -1,5 +1,5 @@
 import { buildModel } from '../buildModel';
-import { computeRelationship, multiplicitetForled, relationshipLabel, slaegtskabTilMig } from '../relationship';
+import { computeRelationship, mrcaIdsForTest, multiplicitetForled, relationshipLabel, slaegtskabTilMig } from '../relationship';
 import type { Db } from '../types';
 
 const mk = (id: string, name: string) => ({ id, name, born: null, died: null, years: '', title: '', bio: '', privat: false });
@@ -510,6 +510,108 @@ describe('slaegtskabTilMig — ordet set fra mig', () => {
         expect(mig).not.toBe('');
         if (Math.min(d1, d2) >= 2) {
           expect(mig.match(/(\d+)\. grads/)?.[1]).toBe(par.match(/(\d+)\. grads/)?.[1]);
+        }
+      }
+    }
+  });
+});
+
+// Review 37 M12: anepar i ULIGE afstand. G og W er gift (fGW) med børnene S og S2; W har også H med X.
+// A er barn af S (G og W i afstand 2). B er barn af H og K, hvor K er barn af S2: W nås i afstand 2 (via H),
+// G kun i afstand 3 (via K, S2). Før valgte parret sin repræsentant på id (G < W), så etiketten kom fra G's
+// afstand 3, og den nærmere halvfætter-forbindelse gennem W forsvandt.
+describe('computeRelationship — anepar i ulige afstand (review 37 M12)', () => {
+  const ulige: Db = {
+    persons: ['G', 'W', 'X', 'S', 'S2', 'H', 'K', 'A', 'B'].map((id) => mk(id, id)),
+    unions: [
+      { id: 'fGW', p1: 'G', p2: 'W', p2_name: 'W', year: null },
+      { id: 'fWX', p1: 'X', p2: 'W', p2_name: 'W', year: null },
+      { id: 'fS', p1: 'S', p2: null, p2_name: null, year: null },
+      { id: 'fS2', p1: 'S2', p2: null, p2_name: null, year: null },
+      { id: 'fHK', p1: 'H', p2: 'K', p2_name: 'K', year: null },
+    ],
+    parentChild: [
+      { child: 'S', parent: 'G', union: 'fGW' }, { child: 'S', parent: 'W', union: 'fGW' },
+      { child: 'S2', parent: 'G', union: 'fGW' }, { child: 'S2', parent: 'W', union: 'fGW' },
+      { child: 'H', parent: 'X', union: 'fWX' }, { child: 'H', parent: 'W', union: 'fWX' },
+      { child: 'K', parent: 'S2', union: 'fS2' },
+      { child: 'A', parent: 'S', union: 'fS' },
+      { child: 'B', parent: 'H', union: 'fHK' }, { child: 'B', parent: 'K', union: 'fHK' },
+    ],
+  };
+  const m = buildModel(ulige);
+
+  test('nærmeste linje går gennem W i afstand (2,2), halv; G står som egen linje (2,3)', () => {
+    const r = computeRelationship(m, 'A', 'B');
+    expect(r.found).toBe(true);
+    expect(r.lines[0]).toMatchObject({ lcaId: 'W', d1: 2, d2: 2, half: true });
+    expect(r.label).toBe('1. grads fætter/kusine (halv)');
+    expect(r.lines.map((l) => [l.lcaId, l.d1, l.d2])).toContainEqual(['G', 2, 3]);
+  });
+
+  test('symmetrisk: B mod A giver samme linjer spejlet', () => {
+    const r = computeRelationship(m, 'B', 'A');
+    expect(r.lines[0]).toMatchObject({ lcaId: 'W', d1: 2, d2: 2, half: true });
+    expect(r.lines.map((l) => [l.lcaId, l.d1, l.d2])).toContainEqual(['G', 3, 2]);
+  });
+
+  test('anepar i LIGE afstand forbliver én linje (helsøskende er ikke to)', () => {
+    const r = computeRelationship(m, 'S', 'S2');
+    expect(r.lines).toHaveLength(1);
+    expect(r.lines[0]).toMatchObject({ d1: 1, d2: 1, half: false, coupleNames: 'G & W' });
+  });
+});
+
+// Review 37 M12: MRCA-sættet beregnes nu i én gennemgang. Den gamle kvadratiske metode står her som orakel og
+// skal give samme mængde på tilfældige grafer, også med cyklusser, selvkanter og A som ane til B.
+describe('MRCA i én gennemgang = den gamle kvadratiske metode (review 37 M12)', () => {
+  type M = ReturnType<typeof buildModel>;
+  const gammelIsAncestorOf = (mdl: M, anc: string, node: string): boolean => {
+    if (anc === node) return false;
+    const seen = new Set([node]); const q = [node]; let h = 0;
+    while (h < q.length) {
+      for (const p of mdl.indexes.parentsByChild[q[h++]] || []) {
+        if (p === anc) return true;
+        if (!seen.has(p)) { seen.add(p); q.push(p); }
+      }
+    }
+    return false;
+  };
+  const gammelReach = (mdl: M, s: string): Set<string> => {
+    const seen = new Set([s]); const q = [s]; let h = 0;
+    while (h < q.length) for (const p of mdl.indexes.parentsByChild[q[h++]] || []) if (!seen.has(p)) { seen.add(p); q.push(p); }
+    return seen;
+  };
+  const gammelMrca = (mdl: M, a: string, b: string): string[] => {
+    const ra = gammelReach(mdl, a); const rb = gammelReach(mdl, b);
+    const common = [...ra].filter((id) => rb.has(id));
+    return common.filter((c) => !common.some((d) => d !== c && gammelIsAncestorOf(mdl, c, d)));
+  };
+  // Deterministisk pseudotilfældighed (mulberry32), så en fejl kan genskabes.
+  const rng = (seed: number) => () => {
+    seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  test('300 tilfældige grafer à 25 personer, mange par', () => {
+    for (let seed = 1; seed <= 300; seed++) {
+      const r = rng(seed);
+      const n = 25;
+      const ids = Array.from({ length: n }, (_, i) => `p${i}`);
+      const parentChild: Db['parentChild'] = [];
+      for (let c = 1; c < n; c++) {
+        // op til to forældre blandt de ældre (DAG) …
+        for (let k = 0; k < 2; k++) if (r() < 0.8) parentChild.push({ child: ids[c], parent: ids[Math.floor(r() * c)], union: `u${c}` });
+      }
+      // … og i hver tiende graf en kant baglæns (cyklus), i hver femtende en selvkant.
+      if (seed % 10 === 0) parentChild.push({ child: ids[2], parent: ids[n - 1], union: 'cyk' });
+      if (seed % 15 === 0) parentChild.push({ child: ids[5], parent: ids[5], union: 'selv' });
+      const mdl = buildModel({ persons: ids.map((id) => mk(id, id)), unions: [], parentChild });
+      for (let i = 0; i < n; i += 3) {
+        for (let j = 0; j < n; j += 2) {
+          expect(mrcaIdsForTest(mdl, ids[i], ids[j]).sort()).toEqual(gammelMrca(mdl, ids[i], ids[j]).sort());
         }
       }
     }

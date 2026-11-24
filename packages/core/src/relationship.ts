@@ -56,32 +56,26 @@ function ancestorReach(model: Model, startId: string): Reach {
   return { dist, prev };
 }
 
-// Er `anc` en (egentlig) ane til `node`? Bruges til at reducere fælles aner til de NÆRMESTE.
-function isAncestorOf(model: Model, anc: string, node: string): boolean {
-  if (anc === node) return false;
-  const seen = new Set<string>([node]);
-  const queue: string[] = [node];
-  let head = 0;
-  let guard = 0;
-  while (head < queue.length && guard < 100000) {
-    guard++;
-    const cur = queue[head++];
-    for (const p of model.indexes.parentsByChild[cur] || []) {
-      if (p === anc) return true;
-      if (!seen.has(p)) {
-        seen.add(p);
-        queue.push(p);
-      }
-    }
-  }
-  return false;
-}
-
 // Mest-nære fælles aner (MRCA-sættet): fælles aner som ikke selv er ane til en anden
 // fælles ane. Hver svarer til en distinkt forbindelses-linje (anepar grupperes senere).
+// Review 37 M12: én gennemgang i stedet for en BFS pr. par af fælles aner (kvadratisk). De fælles aner er
+// lukket opad (enhver ane til en fælles ane er selv fælles, da ancestorReach går hele vejen op), så c er ane
+// til en anden fælles ane, netop når c er FORÆLDER til en fælles ane. Selvkanter springes over som før.
 function mostRecentCommon(model: Model, ra: Reach, rb: Reach): string[] {
   const common = Object.keys(ra.dist).filter((id) => id in rb.dist);
-  return common.filter((c) => !common.some((d) => d !== c && isAncestorOf(model, c, d)));
+  const commonSet = new Set(common);
+  const ikkeNaermest = new Set<string>();
+  for (const d of common) {
+    for (const p of model.indexes.parentsByChild[d] || []) {
+      if (p !== d && commonSet.has(p)) ikkeNaermest.add(p);
+    }
+  }
+  return common.filter((c) => !ikkeNaermest.has(c));
+}
+
+/** Kun til tests (review 37 M12): MRCA-sættet for to personer, som computeRelationship beregner det. */
+export function mrcaIdsForTest(model: Model, aId: string, bId: string): string[] {
+  return mostRecentCommon(model, ancestorReach(model, aId), ancestorReach(model, bId));
 }
 
 // Sti fra descendenten `from` op til (og med) anen `to`. prev[ane] = barn-knuden, så vi
@@ -409,8 +403,12 @@ export function computeRelationship(model: Model, aId: string, bId: string): Rel
   for (const c of mrcas) {
     if (used.has(c)) continue;
     // Anepar: en anden MRCA der er ægtefælle til c → samme linje (helsøskende ≠ to linjer).
+    // Kun i SAMME afstand på begge sider (review 37 M12): står ægtefællen nærmere ad en anden vej (fx et
+    // barn af et andet ægteskab), er det en anden forbindelse, og parrets repræsentant ville ellers give
+    // etiketten fra den forkerte afstand.
     const spouseIds = (model.indexes.spousesBy[c] || []).map((s) => s.id).filter((id): id is string => !!id);
-    const partner = spouseIds.find((id) => mrcaSet.has(id) && !used.has(id) && id !== c) ?? null;
+    const partner = spouseIds.find((id) => mrcaSet.has(id) && !used.has(id) && id !== c
+      && ra.dist[id] === ra.dist[c] && rb.dist[id] === rb.dist[c]) ?? null;
     used.add(c);
     if (partner) used.add(partner);
 
