@@ -80,10 +80,10 @@ test_that("portræt: ingen billeder → ingen; primaer → behold; billeder uden
                                             primaer = c(FALSE, TRUE)))$handling, "behold")
   h <- portraet_handling(data.frame(media_id = c("1", "2"), slags = c("scanning", " Foto "),
                                     primaer = c(FALSE, FALSE)))
-  expect_equal(h, list(handling = "laas", media_id = "2"))
+  expect_equal(h, list(handling = "laas", media_id = "2", person_id = NA_character_))
   uden_slags <- portraet_handling(data.frame(media_id = c("7", "8"), slags = c("scanning", NA),
                                              primaer = c(FALSE, FALSE)))
-  expect_equal(uden_slags, list(handling = "laas", media_id = "7"))
+  expect_equal(uden_slags, list(handling = "laas", media_id = "7", person_id = NA_character_))
 })
 
 test_that("plan: sikker egen kan publiceres, usikre og uafklarede kan ikke uden svar", {
@@ -96,7 +96,7 @@ test_that("plan: låser kun ét portræt pr. person, selv med flere nye billeder
   m <- list(billeder = list(manifest_fix$billeder[[3]], modifyList(manifest_fix$billeder[[3]], list(noegle = "c2"))))
   medier <- data.frame(person_id = "501", media_id = "77", slags = "foto", primaer = FALSE)
   p <- byg_plan(m, ext_fix, aeg_fix, medier)
-  expect_equal(p$portraet[[1]][["501"]], list(handling = "laas", media_id = "77"))
+  expect_equal(p$portraet[[1]][["501"]][c("handling", "media_id")], list(handling = "laas", media_id = "77"))
   expect_equal(p$portraet[[2]][["501"]]$handling, "behold")
 })
 
@@ -266,4 +266,103 @@ test_that("ægtefælle uden årstal i billedteksten vælter ikke og går til gen
   en <- match_aegtefaelle(c(NA_integer_, NA_integer_), "Emilia", to[1, ])
   expect_equal(en$person_id, "9")
   expect_false(en$sikker)
+})
+
+
+# --- Final review-rettelser ---------------------------------------------------------------------------------
+
+test_that("egen med ekstra tekst (»og hustru …«) går til gennemgang og kan ikke publiceres uden svar", {
+  b <- modifyList(manifest_fix$billeder[[3]], list(ekstra_tekst = TRUE))
+  r <- opslaa_afbildede(b, ext_fix, aeg_fix)
+  expect_equal(r$person_ids, "501")
+  expect_false(r$sikker)
+  expect_match(r$begrundelse, "nævner mere")
+  p <- byg_plan(list(billeder = list(b)), ext_fix, aeg_fix, tom_medier)
+  expect_false(p$maa_publiceres)
+})
+
+test_that("portrætlås peger på det id, relationen faktisk sidder på (alias), og ignorerer fjernede medier", {
+  medier <- data.frame(media_id = c("1", "2"), slags = c("foto", "foto"), primaer = c(FALSE, FALSE),
+                       medlem = c("1600", "501"), upload_status = c("fjernet", "klar"))
+  expect_equal(portraet_handling(medier), list(handling = "laas", media_id = "2", person_id = "501"))
+  alias <- data.frame(media_id = "3", slags = "foto", primaer = FALSE, medlem = "1600", upload_status = "klar")
+  expect_equal(portraet_handling(alias)$person_id, "1600")
+  kun_fjernet <- data.frame(media_id = "1", slags = "foto", primaer = FALSE, medlem = "501", upload_status = "fjernet")
+  expect_equal(portraet_handling(kun_fjernet)$handling, "ingen")
+})
+
+test_that("låsen kaldes på aliasets id", {
+  r <- ny_raekke
+  r$portraet[["501"]] <- list(handling = "laas", media_id = "42", person_id = "1600")
+  log <- anvend_med_fake(r, eksisterende = NULL)
+  expect_equal(log$args$red_saet_portraet, list(p_person_id = "1600", p_media_id = "42"))
+})
+
+test_that("OK er bundet til det forslag, projektejeren så", {
+  svar <- data.frame(noegle = "b", svar = "OK")
+  svar$person_ids <- I(list(character()))
+  svar$forslag <- I(list(c("503", "504", "505")))
+  expect_true(byg_plan(manifest_fix, ext_fix, aeg_fix, tom_medier, svar)$maa_publiceres[2])
+  svar$forslag <- I(list(c("503", "504", "999")))
+  expect_error(byg_plan(manifest_fix, ext_fix, aeg_fix, tom_medier, svar), "SVAR_FORSLAG_AENDRET")
+})
+
+test_that("svar på en ukendt nøgle afvises", {
+  svar <- data.frame(noegle = "zzz", svar = "skjul")
+  svar$person_ids <- I(list(character()))
+  svar$forslag <- I(list(character()))
+  expect_error(byg_plan(manifest_fix, ext_fix, aeg_fix, tom_medier, svar), "SVAR_UKENDT_NOEGLE")
+})
+
+test_that("gennemgangsfilen bærer manifestets sha256 og forslagene læses tilbage", {
+  p <- byg_plan(manifest_fix, ext_fix, aeg_fix, tom_medier)
+  sti <- tempfile(fileext = ".txt")
+  skriv_gennemgang(p, sti, manifest_sha = "cafe01")
+  s <- laes_svar(sti)
+  expect_equal(attr(s, "manifest_sha"), "cafe01")
+  linjer <- readLines(sti, encoding = "UTF-8")
+  b <- grep("^b \\|", linjer)
+  linjer[b] <- paste0(linjer[b], "OK")
+  writeLines(linjer, sti, useBytes = TRUE)
+  s <- laes_svar(sti)
+  expect_equal(s$forslag[[1]], c("503", "504", "505"))
+})
+
+test_that("en ny prøvekørsel overskriver ikke en besvaret gennemgangsfil", {
+  mappe <- tempfile(); dir.create(mappe)
+  expect_equal(basename(gennemgang_sti(mappe)), "gennemgang.txt")
+  writeLines("x", file.path(mappe, "gennemgang.txt"))
+  expect_equal(basename(gennemgang_sti(mappe)), "gennemgang.ny.txt")
+})
+
+test_that("--proev-binding er et eget, ikke-skrivende flag", {
+  a <- parse_billede_args("--proev-binding")
+  expect_true(a$proev_binding)
+  expect_false(a$skriv)
+  expect_error(parse_billede_args(c("--proev-binding", "--jeg-mener-det")), "kan ikke kombineres")
+})
+
+test_that("optag_kald giver de præcise RPC-kald for ét billede, også lås og ekstra person", {
+  r <- ny_raekke
+  r$portraet[["501"]] <- list(handling = "laas", media_id = "42", person_id = "501")
+  kald <- optag_kald(r)
+  expect_equal(vapply(kald, `[[`, character(1), "navn"),
+               c("red_saet_portraet", "red_upload_media", "red_relation", "red_registrer_media_variant",
+                 "red_registrer_media_variant", "red_bekraeft_media_upload", "red_upsert_fakta"))
+  expect_equal(kald[[2]]$args$p_original_filnavn, "daa-2018-20-s0150-1.jpg")
+})
+
+test_that("binding er bevist ved read-only- eller funktionsfejl, ikke ved typefejl", {
+  expect_true(binding_ok("25006"))
+  expect_true(binding_ok("P0001"))
+  expect_false(binding_ok("42883"))
+  expect_false(binding_ok("22P02"))
+  expect_false(binding_ok(NA_character_))
+})
+
+test_that("sqlstate udledes af beskeden, også med ugyldige bytes (ø/æ i CONTEXT)", {
+  m <- paste0("ERROR:  cannot execute INSERT in a read-only transaction\nCONTEXT: Uploadede media \xf8 ", "x")
+  expect_equal(sqlstate_fra_besked(m), "25006")
+  expect_equal(sqlstate_fra_besked("ERROR:  function public.red_x(p_a => unknown) does not exist"), "42883")
+  expect_true(is.na(sqlstate_fra_besked("noget andet")))
 })

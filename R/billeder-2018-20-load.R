@@ -19,12 +19,14 @@ BILLEDER_PORTRAET_SLAGS <- c("foto", "maleri", "portræt", "portraet") # = PORTR
 # ---------------------------------------------------------------------------------------------------------------
 
 parse_billede_args <- function(args) {
-  ud <- list(skriv = FALSE, manifest = BILLEDER_MANIFEST, svar = NULL)
+  ud <- list(skriv = FALSE, manifest = BILLEDER_MANIFEST, svar = NULL, proev_binding = FALSE)
   i <- 1L
   while (i <= length(args)) {
     a <- args[[i]]
     if (identical(a, "--jeg-mener-det")) {
       ud$skriv <- TRUE
+    } else if (identical(a, "--proev-binding")) {
+      ud$proev_binding <- TRUE
     } else if (identical(a, "--svar") || identical(a, "--manifest")) {
       if (i == length(args) || startsWith(args[[i + 1L]], "--")) stop(sprintf("%s kræver en sti", a), call. = FALSE)
       ud[[sub("^--", "", a)]] <- args[[i + 1L]]
@@ -34,6 +36,7 @@ parse_billede_args <- function(args) {
     }
     i <- i + 1L
   }
+  if (ud$skriv && ud$proev_binding) stop("--proev-binding kan ikke kombineres med --jeg-mener-det", call. = FALSE)
   ud
 }
 
@@ -80,6 +83,10 @@ opslaa_afbildede <- function(billede, ext, aegtefaeller) {
     aar <- billede$aegtefaelle_aar %||% list(NA, NA)
     aar <- vapply(aar, function(x) if (is.null(x)) NA_integer_ else as.integer(x), integer(1))
     m <- match_aegtefaelle(aar, billede$aegtefaelle_navn, kand)
+    if (isTRUE(billede$ekstra_tekst)) {
+      return(list(person_ids = m$person_id, sikker = FALSE,
+                  begrundelse = paste0(m$begrundelse, "; billedteksten nævner mere end personen")))
+    }
     return(list(person_ids = m$person_id, sikker = m$sikker, begrundelse = m$begrundelse))
   }
   if (length(refs) == 0L) {
@@ -87,6 +94,10 @@ opslaa_afbildede <- function(billede, ext, aegtefaeller) {
   }
   ids <- vapply(refs, .ref_til_person, character(1), ext = ext)
   alle <- !anyNA(ids)
+  if (identical(klasse, "egen") && isTRUE(billede$ekstra_tekst)) {
+    return(list(person_ids = ids, sikker = FALSE,
+                begrundelse = "billedteksten nævner mere end personen (fx »og hustru«): tilføj de øvrige afbildede"))
+  }
   if (identical(klasse, "egen")) {
     return(list(person_ids = ids, sikker = alle,
                 begrundelse = if (alle) "henvisning" else "henvisningen findes ikke"))
@@ -100,16 +111,27 @@ kan_publiceres <- function(person_ids, alle_koblet) {
 }
 
 portraet_handling <- function(medier) {
-  if (nrow(medier) == 0L) return(list(handling = "ingen", media_id = NA_character_))
-  if (any(medier$primaer %in% TRUE)) return(list(handling = "behold", media_id = NA_character_))
+  # Fjernede medier vises ikke og kan ikke låses (final review, vigtigt fund 2).
+  if ("upload_status" %in% names(medier)) medier <- medier[medier$upload_status %in% "klar", , drop = FALSE]
+  if (nrow(medier) == 0L) return(list(handling = "ingen", media_id = NA_character_, person_id = NA_character_))
+  if (any(medier$primaer %in% TRUE)) {
+    return(list(handling = "behold", media_id = NA_character_, person_id = NA_character_))
+  }
   slags <- tolower(trimws(ifelse(is.na(medier$slags), "", medier$slags)))
   i <- which(slags %in% BILLEDER_PORTRAET_SLAGS)
   valgt <- if (length(i)) i[[1]] else 1L
-  list(handling = "laas", media_id = as.character(medier$media_id[[valgt]]))
+  # Låsen skal sidde på det id, relationen faktisk har (et samme_som-alias), ellers afviser red_saet_portraet.
+  medlem <- if ("medlem" %in% names(medier)) as.character(medier$medlem[[valgt]]) else NA_character_
+  list(handling = "laas", media_id = as.character(medier$media_id[[valgt]]), person_id = medlem)
 }
 
 byg_plan <- function(manifest, ext, aegtefaeller, person_medier, svar = NULL) {
   billeder <- manifest$billeder
+  if (!is.null(svar) && nrow(svar)) {
+    kendte <- vapply(billeder, `[[`, character(1), "noegle")
+    ukendte <- setdiff(svar$noegle, kendte)
+    if (length(ukendte)) stop(sprintf("SVAR_UKENDT_NOEGLE: %s", paste(ukendte, collapse = ", ")), call. = FALSE)
+  }
   laast <- character()
   raekker <- lapply(billeder, function(b) {
     o <- opslaa_afbildede(b, ext, aegtefaeller)
@@ -120,6 +142,12 @@ byg_plan <- function(manifest, ext, aegtefaeller, person_medier, svar = NULL) {
     if (length(besvaret)) {
       s <- svar[besvaret[[1]], ]
       if (s$svar == "OK") {
+        # OK gælder det forslag, projektejeren så — ikke hvad prod giver i dag (final review, vigtigt fund 3).
+        set_forslag <- if ("forslag" %in% names(svar)) as.character(s$forslag[[1]]) else NULL
+        if (!is.null(set_forslag) && !identical(sort(set_forslag), sort(ifelse(is.na(ids), "?", ids)))) {
+          stop(sprintf("SVAR_FORSLAG_AENDRET: %s (så %s, nu %s)", b$noegle, paste(set_forslag, collapse = ","),
+                       paste(ids, collapse = ",")), call. = FALSE)
+        }
         sikker <- TRUE
       } else if (s$svar == "ret") {
         ids <- as.character(s$person_ids[[1]])
@@ -155,14 +183,20 @@ byg_plan <- function(manifest, ext, aegtefaeller, person_medier, svar = NULL) {
   )
 }
 
-skriv_gennemgang <- function(plan, sti) {
+gennemgang_sti <- function(mappe) {
+  sti <- file.path(mappe, "gennemgang.txt")
+  if (file.exists(sti)) file.path(mappe, "gennemgang.ny.txt") else sti
+}
+
+skriv_gennemgang <- function(plan, sti, manifest_sha = NULL) {
   usikre <- plan[!plan$sikker, , drop = FALSE]
   hoved <- c(
     "# Gennemgang af usikre billedkoblinger (DAA 2018-20). Skriv dit svar efter »svar:« på hver linje:",
     "#   OK            forslaget er rigtigt",
     "#   ret 12, 34    billedet viser person-id 12 og 34 (erstatter forslaget)",
     "#   skjul         importér billedet skjult (opfølgning senere)",
-    "# Linjer uden svar importeres skjult."
+    "# Linjer uden svar importeres skjult.",
+    if (!is.null(manifest_sha)) sprintf("# manifest-sha256: %s", manifest_sha)
   )
   linjer <- vapply(seq_len(nrow(usikre)), function(i) {
     ids <- usikre$person_ids[[i]]
@@ -175,11 +209,13 @@ skriv_gennemgang <- function(plan, sti) {
 }
 
 laes_svar <- function(sti) {
-  linjer <- readLines(sti, encoding = "UTF-8", warn = FALSE)
-  linjer <- linjer[nzchar(trimws(linjer)) & !startsWith(linjer, "#")]
+  alle_linjer <- readLines(sti, encoding = "UTF-8", warn = FALSE)
+  sha_linje <- grep("^# manifest-sha256: ", alle_linjer, value = TRUE)
+  linjer <- alle_linjer[nzchar(trimws(alle_linjer)) & !startsWith(alle_linjer, "#")]
   noegler <- character()
   svar <- character()
   ids <- list()
+  forslag <- list()
   for (linje in linjer) {
     noegle <- trimws(sub(" \\|.*$", "", linje))
     tekst <- trimws(sub("^.*\\| svar:", "", linje))
@@ -193,10 +229,14 @@ laes_svar <- function(sti) {
     } else {
       stop(sprintf("Ugyldigt svar for %s: »%s« (brug OK, ret <id>[, <id>] eller skjul)", noegle, tekst), call. = FALSE)
     }
-    noegler <- c(noegler, noegle); svar <- c(svar, s); ids <- c(ids, list(p))
+    f <- regmatches(linje, regexec("forslag: ([0-9?, ]*)", linje))[[1]]
+    f <- if (length(f) == 2L) trimws(strsplit(f[[2]], ",")[[1]]) else character()
+    noegler <- c(noegler, noegle); svar <- c(svar, s); ids <- c(ids, list(p)); forslag <- c(forslag, list(f[nzchar(f)]))
   }
   ud <- data.frame(noegle = noegler, svar = svar, stringsAsFactors = FALSE)
   ud$person_ids <- I(ids)
+  ud$forslag <- I(forslag)
+  attr(ud, "manifest_sha") <- if (length(sha_linje)) sub("^# manifest-sha256: ", "", sha_linje[[1]]) else NA_character_
   ud
 }
 
@@ -239,7 +279,8 @@ anvend_billede <- function(raekke, mappe, ops) {
       for (pid in names(raekke$portraet)) {
         h <- raekke$portraet[[pid]]
         if (identical(h$handling, "laas")) {
-          ops$rpc("red_saet_portraet", list(p_person_id = pid, p_media_id = h$media_id))
+          laas_id <- if (!is.null(h$person_id) && !is.na(h$person_id)) h$person_id else pid
+          ops$rpc("red_saet_portraet", list(p_person_id = laas_id, p_media_id = h$media_id))
         }
       }
       args <- list(
@@ -317,6 +358,56 @@ default_billede_ops <- function(con, janitor) {
   )
 }
 
+# ---------------------------------------------------------------------------------------------------------------
+# Prøve af RPC-bindingen mod en rigtig base uden at skrive (final review, vigtigt fund 4): de præcise kald for ét
+# billede afspilles hver for sig i en READ ONLY-transaktion. Binder parametrene, når kaldet enten rammer read-only-
+# spærren (25006) eller funktionens egen RAISE (P0001); en typefejl (fx 42883/22P02) betyder forkert binding.
+# ---------------------------------------------------------------------------------------------------------------
+
+optag_kald <- function(raekke) {
+  kald <- list()
+  ops <- list(
+    find_media = function(filnavn) NULL,
+    upload = function(sti, fil) invisible(TRUE),
+    transaktion = function(fn) fn(),
+    aktoer = function(uuid) "redaktion",
+    rpc = function(navn, args) {
+      kald[[length(kald) + 1L]] <<- list(navn = navn, args = args)
+      if (navn == "red_upload_media") "0" else NULL
+    },
+    har_variant = function(media_id, tier) FALSE
+  )
+  anvend_billede(raekke, ".", ops)
+  kald
+}
+
+sqlstate_fra_besked <- function(m) {
+  # useBytes: beskedens CONTEXT kan bære æ/ø i en kodning, grepl ellers ikke kan læse (gav NA ved første prøve).
+  if (grepl("read-only transaction", m, fixed = TRUE, useBytes = TRUE)) return("25006")
+  if (grepl("does not exist", m, fixed = TRUE, useBytes = TRUE)) return("42883")
+  NA_character_
+}
+
+binding_ok <- function(sqlstate) isTRUE(sqlstate %in% c("25006", "P0001"))
+
+proev_binding <- function(con, raekke, sqlstate_af) {
+  resultater <- vapply(optag_kald(raekke), function(k) {
+    DBI::dbExecute(con, "BEGIN READ ONLY")
+    on.exit(DBI::dbExecute(con, "ROLLBACK"), add = TRUE)
+    DBI::dbGetQuery(con, "SELECT set_config('request.jwt.claim.sub', $1, true)", params = list(BILLEDER_REDAKTOER_UUID))
+    fejl <- tryCatch({
+      DBI::dbGetQuery(con, byg_rpc_sql(k$navn, k$args), params = unname(k$args))
+      "intet (skrev intet? read-only burde stoppe)"
+    }, error = function(e) {
+      st <- sqlstate_af(e)
+      sprintf("%s %s", if (binding_ok(st)) "OK" else "FEJL", paste0(st, ": ", substr(conditionMessage(e), 1, 120)))
+    })
+    sprintf("%-30s %s", k$navn, fejl)
+  }, character(1))
+  message(paste(resultater, collapse = "\n"))
+  invisible(all(startsWith(sub("^\\S+\\s+", "", resultater), "OK")))
+}
+
 hent_opslag <- function(con, person_ids) {
   ext <- DBI::dbGetQuery(con, "SELECT linje, nr, person_id::text AS person_id FROM person_external_id
                                WHERE source_id = 1")
@@ -327,7 +418,8 @@ hent_opslag <- function(con, person_ids) {
       FROM family_member a
       JOIN family_member b ON b.family_id = a.family_id AND b.rolle = 'partner' AND b.person_id <> a.person_id
       JOIN person p ON p.id = b.person_id
-     WHERE a.rolle = 'partner'")
+     WHERE a.rolle = 'partner'
+     ORDER BY a.person_id, b.person_id")
   medier <- if (length(person_ids)) DBI::dbGetQuery(con, "
     WITH valgt AS (SELECT unnest($1::bigint[]) AS person_id),
     gruppe AS (
@@ -336,13 +428,15 @@ hent_opslag <- function(con, person_ids) {
         FROM valgt v JOIN relation r ON r.rolle = 'samme_som' AND r.subjekt_type = 'person' AND r.objekt_type = 'person'
                                     AND v.person_id IN (r.subjekt_id, r.objekt_id))
     SELECT g.person_id::text AS person_id, m.id::text AS media_id, m.slags,
-           coalesce((r.kvalifikator->>'primaer')::boolean, false) AS primaer
+           coalesce((r.kvalifikator->>'primaer')::boolean, false) AS primaer,
+           g.medlem::text AS medlem, m.upload_status
       FROM gruppe g
       JOIN relation r ON r.subjekt_type = 'person' AND r.subjekt_id = g.medlem
                      AND r.objekt_type = 'media' AND r.rolle = 'afbildet'
       JOIN media m ON m.id = r.objekt_id
      ORDER BY g.person_id, r.id", params = list(paste0("{", paste(person_ids, collapse = ","), "}")))
-  else data.frame(person_id = character(), media_id = character(), slags = character(), primaer = logical())
+  else data.frame(person_id = character(), media_id = character(), slags = character(), primaer = logical(),
+                  medlem = character(), upload_status = character())
   list(ext = ext, aegtefaeller = aegtefaeller, medier = medier)
 }
 
@@ -362,8 +456,14 @@ run_billeder_2018_20 <- function(args = commandArgs(trailingOnly = TRUE)) {
   opt <- parse_billede_args(args)
   mappe <- dirname(opt$manifest)
   manifest <- jsonlite::fromJSON(opt$manifest, simplifyVector = FALSE)
+  manifest_sha <- digest::digest(file = opt$manifest, algo = "sha256")
   svar <- if (is.null(opt$svar)) NULL else laes_svar(opt$svar)
-  if (!is.null(opt$svar)) message(sprintf("Svarfil sha256: %s", digest::digest(file = opt$svar, algo = "sha256")))
+  if (!is.null(svar)) {
+    message(sprintf("Svarfil sha256: %s", digest::digest(file = opt$svar, algo = "sha256")))
+    if (!identical(attr(svar, "manifest_sha"), manifest_sha)) {
+      stop("SVAR_MANIFEST_AENDRET: svarfilen hører til et andet manifest — kør planen igen og gennemgå på ny.", call. = FALSE)
+    }
+  }
   janitor <- source_janitor_helpers()
   con <- janitor$connect_media_janitor_db()
   on.exit(DBI::dbDisconnect(con), add = TRUE)
@@ -375,7 +475,28 @@ run_billeder_2018_20 <- function(args = commandArgs(trailingOnly = TRUE)) {
   plan <- byg_plan(manifest, opslag$ext, opslag$aegtefaeller, opslag$medier, svar)
 
   skriv_plan_csv(plan, file.path(mappe, "plan.csv"))
-  if (is.null(opt$svar)) skriv_gennemgang(plan, file.path(mappe, "gennemgang.txt"))
+  if (is.null(opt$svar)) {
+    sti <- gennemgang_sti(mappe)
+    skriv_gennemgang(plan, sti, manifest_sha)
+    message(sprintf("Gennemgang: %s", sti))
+  }
+  if (opt$proev_binding) {
+    i <- which(lengths(plan$person_ids) >= 2L & !vapply(plan$person_ids, anyNA, logical(1)))[[1]]
+    b <- stats::setNames(manifest$billeder, vapply(manifest$billeder, `[[`, character(1), "noegle"))[[plan$noegle[[i]]]]
+    raekke <- c(b[c("noegle", "side", "sha256", "titel", "kunstner", "datering", "slags", "filer", "dims", "bytes")],
+                list(person_ids = plan$person_ids[[i]], maa_publiceres = FALSE,
+                     portraet = stats::setNames(list(list(handling = "laas", media_id = "0",
+                                                          person_id = plan$person_ids[[i]][[1]])),
+                                                plan$person_ids[[i]][[1]])))
+    sqlstate_af <- function(e) {
+      st <- janitor$db_error_sqlstate(e)
+      if (!is.na(st)) return(st)
+      sqlstate_fra_besked(conditionMessage(e))
+    }
+    ok <- proev_binding(con, raekke, sqlstate_af)
+    message(if (ok) "Binding: alle kald bundet korrekt (intet skrevet)." else "Binding: se FEJL-linjerne ovenfor.")
+    return(invisible(ok))
+  }
   laase <- sum(vapply(plan$portraet, function(p) sum(vapply(p, function(h) identical(h$handling, "laas"), logical(1))),
                       numeric(1)))
   message(sprintf("Plan: %d billeder · %d sikre · %d usikre · %d synlige · %d skjulte · %d portrætlåse",
