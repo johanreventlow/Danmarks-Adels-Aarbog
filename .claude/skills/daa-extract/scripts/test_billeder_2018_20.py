@@ -183,3 +183,69 @@ def test_tom_billedside_laaner_naeste_sides_tekst():
     assert vaelg_billedtekst("272\n", naeste, naeste_har_billede=True) == "272\n"
     assert vaelg_billedtekst(S300, naeste, naeste_har_billede=False) == S300
     assert vaelg_billedtekst("272\n", None, naeste_har_billede=False) == "272\n"
+
+
+# --- Final review: ekstra personer i billedteksten, kunstnerlinjer, grupper og sidefod ---------------------------
+
+S351 = """Overlæge
+Christian greve af Reventlow
+født 1952
+(V, 176)
+og hustru Professor, speciallæge Susanne Dalsgård grevinde af Reventlow
+født Nielsen født 1954
+351
+"""
+
+S346 = """Fra venstre:
+Victoria Franziska Marie komtesse af Reventlow
+født 1998
+(V, 184)
+Caroline grevinde af Reventlow
+født Boyens
+født 1969
+Gift med Nicolaus Franz Friedrich greve af Reventlow (V, 170)
+Løjtnant Nicolaus Franz Friedrich greve af Reventlow til Eckhof
+født 1964
+(V, 170)
+Fanny Sophie komtesse af Reventlow
+født 2001
+(V, 185)
+25/10/2023 14.08
+"""
+
+
+def test_egen_med_og_hustru_markeres_som_ekstra_tekst():
+    r = parse_billedtekst(S351)
+    assert r["klasse"] == "egen" and r["refs"] == [["V", 176]]
+    assert r["ekstra_tekst"] is True
+
+
+def test_egen_uden_ekstra_tekst():
+    assert parse_billedtekst(S300)["ekstra_tekst"] is False
+    assert parse_billedtekst(S279)["ekstra_tekst"] is False
+
+
+def test_aegtefaelle_med_tekst_efter_ankeret_er_ekstra():
+    tekst = S185.replace("(IV, 2)\n", "(IV, 2)\nUdsnit af epitafium ca. 1699 i Auning Kirke\n")
+    r = parse_billedtekst(tekst)
+    assert r["klasse"] == "aegtefaelle" and r["ekstra_tekst"] is True
+
+
+def test_kunstnerlinjer_med_datering_foer_af():
+    r = parse_billedtekst(S300.replace("Malet af Knud Erik Larsen", "Malet ca. 1823 af C. A. Jensen"))
+    assert (r["kunstner"], r["datering"], r["slags"], r["ekstra_tekst"]) == ("C. A. Jensen", "ca. 1823", "maleri", False)
+    r = parse_billedtekst(S300.replace("Malet af Knud Erik Larsen", "Tegning i farvet kridt ca. 1780 af Jens Juel"))
+    assert (r["kunstner"], r["datering"], r["ekstra_tekst"]) == ("Jens Juel", "ca. 1780", False)
+    r = parse_billedtekst(S300.replace("Malet af Knud Erik Larsen", "Litografi fra 1870’erne (?) af Gustav Feckert"))
+    assert (r["kunstner"], r["datering"]) == ("Gustav Feckert", "1870’erne (?)")
+    r = parse_billedtekst(S300.replace("Malet af Knud Erik Larsen", "Malet 1744 eller 1752 af Louis Tocqué"))
+    assert (r["kunstner"], r["datering"]) == ("Louis Tocqué", "1744 eller 1752")
+
+
+def test_gruppe_tager_alle_henvisninger_ogsaa_efter_gift_med():
+    r = parse_billedtekst(S346)
+    assert r["klasse"] == "gruppe" and r["refs"] == [["V", 184], ["V", 170], ["V", 185]]
+
+
+def test_sidefodens_dato_kommer_ikke_med_i_titlen():
+    assert "25/10/2023" not in parse_billedtekst(S346)["titel"]

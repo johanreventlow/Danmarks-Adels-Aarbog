@@ -26,9 +26,12 @@ FRA_SIDE, TIL_SIDE = 119, 369
 REF = re.compile(r"\(([IVX]+|\d+)\s*,\s*(\d+)\)")
 AARSPAEND = re.compile(r"(\d{4})\s*-\s*(\d{4})")
 FOEDT_AAR = re.compile(r"født (\d{4})")
-MALET = re.compile(r"^Malet(?: (\d{4}))?(?: (?:formentlig|sandsynligvis))? af (.+)$")
+# Kunstnerlinje: »Malet ca. 1823 af …«, »Tegning i farvet kridt ca. 1780 af …«, »Litografi fra 1870’erne (?) af …«.
+KUNSTNER = re.compile(r"^(Malet|Tegnet|Tegning|Litografi|Grafisk tryk|Radering|Raderet|Kobberstik|Stik|Skitsearbejde|"
+                      r"Skitse|Pastel|Akvarel|Miniature)\b(.*?)\s*(?:\b(?:formentlig|sandsynligvis|muligvis)\s+)?\baf\s+(.+)$")
+DATERING = re.compile(r"(?:ca\.\s*)?\d{4}(?:’erne)?(?:\s*(?:eller|-)\s*\d{4})?(?:\s*\(\?\))?")
 FOTO = re.compile(r"^Foto(?:graferet)?(?: af|:)\s*(.+)$")
-TEGNET = re.compile(r"^Tegnet(?: (\d{4}))? af (.+)$")
+SIDEFOD_DATO = re.compile(r"^\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}\.\d{2}$")
 
 # Størrelsestrin som web/src/data/mediaUpload.ts (TIER_SPECS); large er originalen.
 TRIN = {"thumb": (500, 70), "medium": (1100, 78)}
@@ -38,7 +41,7 @@ def _linjer(tekst: str) -> list[str]:
     ud = []
     for linje in tekst.splitlines():
         s = " ".join(linje.split())
-        if not s or "indd" in s or s.isdigit():
+        if not s or "indd" in s or s.isdigit() or SIDEFOD_DATO.match(s):
             continue
         ud.append(s)
     return ud
@@ -50,17 +53,16 @@ def parse_billedtekst(tekst: str) -> dict:
     slags = "portræt"
     rest = []
     for linje in _linjer(tekst):
-        m = MALET.match(linje)
+        m = KUNSTNER.match(linje)
         if m:
-            datering, kunstner, slags = m.group(1), m.group(2), "maleri"
+            d = DATERING.search(m.group(2))
+            datering, kunstner = (d.group(0) if d else None), m.group(3)
+            if m.group(1) == "Malet":
+                slags = "maleri"
             continue
         m = FOTO.match(linje)
         if m:
             kunstner, slags = m.group(1), "foto"
-            continue
-        m = TEGNET.match(linje)
-        if m:
-            datering, kunstner = m.group(1), m.group(2)
             continue
         rest.append(linje)
 
@@ -68,9 +70,18 @@ def parse_billedtekst(tekst: str) -> dict:
     foer, gift, efter = fuld.partition("Gift med")
     refs_foer = [[linje, int(nr)] for linje, nr in REF.findall(foer)]
     anker_match = REF.search(efter) if gift else None
+    # Tekst efter personens egen henvisning eller efter ægtefællens anker (»og hustru …«, »På billedet ses …«) kan
+    # nævne flere afbildede: så skal billedet gennemgås, ellers kobles det kun til den ene (final review, kritisk fund).
+    sidste_ref = list(REF.finditer(foer))
+    efter_ref = foer[sidste_ref[-1].end():].strip() if sidste_ref else ""
+    efter_anker = efter[anker_match.end():].strip() if anker_match else ""
 
     if "fra venstre" in fuld.lower():
         klasse = "gruppe"
+        refs_foer = []
+        for linje, nr in REF.findall(fuld):
+            if [linje, int(nr)] not in refs_foer:
+                refs_foer.append([linje, int(nr)])
     elif len(refs_foer) > 1:
         klasse = "flere"
     elif len(refs_foer) == 1:
@@ -91,7 +102,9 @@ def parse_billedtekst(tekst: str) -> dict:
             foedt = FOEDT_AAR.search(foer)
             aar = [int(foedt.group(1)), None] if foedt else None
 
+    ekstra = (klasse == "egen" and bool(efter_ref or efter_anker)) or (klasse == "aegtefaelle" and bool(efter_anker))
     return {
+        "ekstra_tekst": ekstra,
         "titel": fuld,
         "kunstner": kunstner,
         "datering": datering,
