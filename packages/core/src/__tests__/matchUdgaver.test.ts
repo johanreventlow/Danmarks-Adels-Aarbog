@@ -65,15 +65,15 @@ describe('assignTiers — injektiv tildeling + auto/review-gating', () => {
   const A: MatchFrame = { id: 'a1', nameKey: 'ludvig', birthMin: 1848, birthMax: 1848, deathMin: 1916, deathMax: 1916, sex: 'mand' };
 
   test('to A-personer må ikke begge claime samme B (injektiv)', () => {
-    // to næsten-identiske A-personer, én B-kandidat → kun den bedste får B
+    // To næsten-identiske A-personer, én B-kandidat: højst én ★ (auto) pr. B. Siden review 37 M7 får ingen af
+    // dem ★, når de ligger inden for marginen af hinanden; begge står så til gennemsyn, og ingen taber B.
     const scored: ScoredPair[] = [
       { aId: 'a1', bId: 'b1', nameSim: 1.0, birthOverlap: true, deathOverlap: true, sexEq: true, uniqueBlock: true },
       { aId: 'a2', bId: 'b1', nameSim: 0.95, birthOverlap: true, deathOverlap: true, sexEq: true, uniqueBlock: true },
     ];
     const tiers = assignTiers(scored, defaultCfg());
-    const b1claims = tiers.filter((t) => t.bId === 'b1' && t.tier !== 'none');
-    expect(b1claims.length).toBe(1);
-    expect(b1claims[0].aId).toBe('a1'); // højeste score vinder
+    expect(tiers.filter((t) => t.bId === 'b1' && t.tier === 'auto').length).toBeLessThanOrEqual(1);
+    expect(tiers.map((t) => t.tier)).toEqual(['review', 'review']);
   });
 
   test('auto KUN når score≥0.90 + margin≥0.05 + personens top', () => {
@@ -92,6 +92,31 @@ describe('assignTiers — injektiv tildeling + auto/review-gating', () => {
     const tiers = assignTiers(scored, defaultCfg());
     expect(tiers.filter((t) => t.tier === 'auto').length).toBe(0);
     expect(tiers.some((t) => t.tier === 'review')).toBe(true);
+  });
+
+  // Review 37 M7: marginen gælder også pr. B. To A-personer, der matcher samme B lige godt, er tvetydige:
+  // ingen af dem må få ★ (auto), og ingen må tabe B til den anden — begge står til gennemsyn.
+  test('to A-personer lige gode til samme B → ingen auto, begge review (M7)', () => {
+    const scored: ScoredPair[] = [
+      { aId: 'a1', bId: 'b1', nameSim: 1.0, birthOverlap: true, deathOverlap: true, sexEq: true, uniqueBlock: false, birthKendt: true, deathKendt: true },
+      { aId: 'a2', bId: 'b1', nameSim: 1.0, birthOverlap: true, deathOverlap: true, sexEq: true, uniqueBlock: false, birthKendt: true, deathKendt: true },
+      // a1 har også en svag anden kandidat, så a1's egen (pr. A) margin er stor
+      { aId: 'a1', bId: 'b2', nameSim: 0.75, birthOverlap: false, deathOverlap: false, sexEq: true, uniqueBlock: false, birthKendt: true, deathKendt: true },
+    ];
+    const tiers = assignTiers(scored, defaultCfg());
+    const t = (a: string, b: string) => tiers.find((x) => x.aId === a && x.bId === b)!.tier;
+    expect(t('a1', 'b1')).toBe('review');
+    expect(t('a2', 'b1')).toBe('review');
+  });
+
+  test('B-margin stor nok → auto som før; den svagere A taber B (M7)', () => {
+    const scored: ScoredPair[] = [
+      { aId: 'a1', bId: 'b1', nameSim: 1.0, birthOverlap: true, deathOverlap: true, sexEq: true, uniqueBlock: false, birthKendt: true, deathKendt: true },
+      { aId: 'a2', bId: 'b1', nameSim: 0.75, birthOverlap: false, deathOverlap: false, sexEq: true, uniqueBlock: false, birthKendt: true, deathKendt: true },
+    ];
+    const tiers = assignTiers(scored, defaultCfg());
+    expect(tiers.find((x) => x.aId === 'a1')!.tier).toBe('auto');
+    expect(tiers.find((x) => x.aId === 'a2')!.tier).toBe('none');
   });
 
   test('score < review_cutoff → none', () => {
