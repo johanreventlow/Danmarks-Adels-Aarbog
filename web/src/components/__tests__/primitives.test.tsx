@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // MediaThumb sætter alt-attributten ét sted (MM-05, medie-metadata Task 6) — dækker alle
 // MediaItem-gallerier (DetailPanel/ArmsView/EstatesView) uden at kalderne selv skal håndtere det.
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MediaThumb } from '../primitives';
 import type { MediaItem } from '../../data/media';
 
@@ -31,5 +31,15 @@ describe('MediaThumb — alt-tekst', () => {
   it('falder tilbage til "billede" uden noget af det', () => {
     render(<MediaThumb m={{ ...base, altTekst: null, titel: '', slags: '' }} w={80} h={80} onClick={vi.fn()} />);
     expect(screen.getByRole('img').getAttribute('alt')).toBe('billede');
+  });
+});
+
+describe('MediaThumb — tastatur (review 37 W8)', () => {
+  it('er en knap med navn, der åbner ved aktivering', () => {
+    const onClick = vi.fn();
+    render(<MediaThumb m={base} w={80} h={80} onClick={onClick} />);
+    const knap = screen.getByRole('button', { name: 'Vis Et portræt i fuld størrelse' });
+    fireEvent.click(knap);
+    expect(onClick).toHaveBeenCalledTimes(1);
   });
 });

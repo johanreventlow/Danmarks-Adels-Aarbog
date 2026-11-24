@@ -36,14 +36,7 @@ export const NARRATIVES = PERSONS.map((p, i) => ({
   source_id: 1,
 }));
 
-// RPC-svar (feed.spec.ts): biografier efter kontrakt v2 for personer 1-4 og bog-numre for alle.
-// Personer 5, 6 og 8 har hverken tekst, titel eller børn → kandidater til »Nævnt i Aarbogen«.
-export const BIO_ROWS = PERSONS.slice(0, 4).map((p, i) => ({
-  person_id: p.id, source_id: 1, source_year: 2012, record_order: 1, source_record_ref: `e2e-rec-${p.id}`,
-  source_label: 'DAA 2012-14', record_label: `Post ${p.id}`, citation_label: 'DAA 2012-14', provenance_kind: 'source_record',
-  narrative_text: i % 2 === 0 ? LONG_BIO_1 : LONG_BIO_2,
-}));
-
+// Bogens koordinater (public_person_source_coordinates[_samlet]) for alle personer: »Linje I, nr. <id>«.
 export const COORDINATE_ROWS = PERSONS.map((p) => ({
   person_id: p.id, source_id: 1, legacy_line_code: 'I', printed_number: p.id, printed_number_label: String(p.id),
   generation_local: null, generation_global: null, kuld_label: null, provenance_kind: 'placement',

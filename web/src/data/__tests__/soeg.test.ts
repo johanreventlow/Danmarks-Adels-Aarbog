@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildModel, type AppPerson } from '@daa/core';
 import type { Model } from '../types';
-import { levetid, matchNavn, roererPerioden, soeg, soegFiltre, soegSti, stavemaader, STANDARD_FILTRE } from '../soeg';
+import { byggStaveordbog, levetid, matchNavn, roererPerioden, soeg, soegFiltre, soegSti, stavemaader, STANDARD_FILTRE } from '../soeg';
 
 const P = (id: string, name: string, born: number | null = null, died: number | null = null): AppPerson =>
   ({ id, name, born, died, years: '', title: '', bio: '', privat: false, koen: null });
@@ -107,6 +107,12 @@ describe('soeg', () => {
 
 describe('stavemaader', () => {
   const navne = ['Conrad Reventlow', 'Detlef Reventlow', 'Anna Holck', 'Adelheid de Reventlou', 'Conradt Holck'];
+  it('review 37 Y7: en forudbygget ordbog giver samme forslag som navnelisten', () => {
+    const ordbog = byggStaveordbog(navne);
+    for (const q of ['Revenlow', 'Reventlow', 'Reventlou', 'conrad reventlou', 'Conrad', 'Xyzzy']) {
+      expect(stavemaader(ordbog, q)).toEqual(stavemaader(navne, q));
+    }
+  });
   it('»Revenlow« (ingen træffere) foreslår de nærmeste ord', () => {
     expect(stavemaader(navne, 'Revenlow')).toEqual(['Reventlow', 'Reventlou']); // nærmeste først
   });

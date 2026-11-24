@@ -1,12 +1,12 @@
 // ---- Søgning (webredesign fase 6b, tegningen »Søgeresultater (web)«) ----
 // Søgeord og filtre ligger i adressen (/soeg?q=&type=&linje=&fra=&til=&sort=&bm=), så en søgning kan deles.
 // Uden søgeord viser siden alle personer (Personer i hovedmenuen lander her).
-import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useDeferredValue, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { T } from '../theme';
 import { Link } from '../Link';
 import { estatePath, personPath, SLAEGTER } from '../data/nav';
 import { initials } from '../data/format';
-import { soeg, soegSti, stavemaader, type Maerke, type SoegFiltre, type SoegType } from '../data/soeg';
+import { byggStaveordbog, soeg, soegSti, stavemaader, type Maerke, type SoegFiltre, type SoegType } from '../data/soeg';
 import type { EstateItem } from '../data/public';
 import type { LinjeEntry, Model } from '../data/types';
 import { kanoniskLinje } from '../data/lineage';
@@ -43,12 +43,19 @@ export function SoegView({ model, estates, filtre: f, linjer, bogmaerker, onFilt
   const saet = (x: Partial<SoegFiltre>) => onFiltre(soegSti({ ...f, ...x }));
   const res = useMemo(() => (model ? soeg(model, estates ?? [], f, bogmaerker ?? undefined) : null), [model, estates, f, bogmaerker]);
   // Andre stavemåder (Reventlow ↔ Reventlou) med antal træffere under de samme filtre; kun dem, der finder noget.
+  // Review 37 Y7: ordbogen bygges én gang pr. model, og forslagene (op til tre ekstra søgninger) regnes på en
+  // udskudt kopi af filtrene, så de aldrig forsinker selve indtastningen og hovedresultatet.
+  const ordbog = useMemo(
+    () => (model ? byggStaveordbog([...model.persons.map((p) => p.name), ...(estates ?? []).map((e) => e.navn)]) : null),
+    [model, estates],
+  );
+  const fUdskudt = useDeferredValue(f);
   const andre = useMemo(() => {
-    if (!model || !f.q.trim()) return [];
-    return stavemaader([...model.persons.map((p) => p.name), ...(estates ?? []).map((e) => e.navn)], f.q)
-      .map((q) => { const r = soeg(model, estates ?? [], { ...f, q }, bogmaerker ?? undefined); return { q, n: r.personer.length + r.godser.length }; })
+    if (!model || !ordbog || !fUdskudt.q.trim()) return [];
+    return stavemaader(ordbog, fUdskudt.q)
+      .map((q) => { const r = soeg(model, estates ?? [], { ...fUdskudt, q }, bogmaerker ?? undefined); return { q, n: r.personer.length + r.godser.length }; })
       .filter((x) => x.n > 0);
-  }, [model, estates, f, bogmaerker]);
+  }, [model, ordbog, estates, fUdskudt, bogmaerker]);
   const stavLink = (x: { q: string; n: number }, medAntal: boolean) => (
     <Link href={soegSti({ ...f, q: x.q })} onNavigate={() => onFiltre(soegSti({ ...f, q: x.q }))} style={{ fontWeight: 600, color: T.bordeaux }}>
       {x.q}{medAntal ? ` (${x.n})` : ''}

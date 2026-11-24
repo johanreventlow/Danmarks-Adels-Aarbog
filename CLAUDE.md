@@ -18,7 +18,7 @@ målet foreningens samlede data.
 | Spor | Kommandoer |
 |---|---|
 | Monorepo | npm workspaces, ÉN rod-lockfile → `npm ci` fra roden, kør pr. workspace: `npm run test -w @daa/core`. Delt DOM/RN-fri kerne: `packages/core` + `packages/feed`; fælles designværdier (farver, skrifter, afstande) i `packages/theme` (kopi af designsystemets `tokens.json`; kopiér igen ved ændringer). |
-| `web/` | `npm run dev` · `npm run build` · `npm run test` (vitest) · `npm run e2e` (Playwright) |
+| `web/` | `npm run dev` · `npm run build` · `npm run test` (vitest) · `npm run e2e` (Playwright; mocker alle Supabase-kald). **e2e kører ikke i CI** (projektejerens valg 24/11, #397 W9): kør den lokalt før merge af en web-PR, fx `PLAYWRIGHT_PORT=5293 VITE_SUPABASE_URL=https://e2e.invalid VITE_SUPABASE_ANON_KEY=e2e-dummy npx playwright test`, og skriv resultatet i PR'en |
 | `mobile/` | `npm start` · `npm run ios` / `npm run android` (expo) · `npm test` (jest) |
 | Data | Indgange: `/daa-extract` (stamtavle) · `/daa-presens` (præsensliste) · `/daa-haendelser`. Genimport og nye udgaver går gennem evidenskæden (`docs/evidensbaseret-genimport/`). **`load_daa.R`, `post_load_fixup.R` og `backfill_slaegtled.R` er frosset** (lukket ved kontrakt v2; `docs/decisions.md` 2026-10-27, B5), og **`supabase_load.R` i roden er historisk, brug den aldrig mod prod.** `Rscript run-tests.R` = R-suiten. |
 | DB | `schema.sql` = **source of truth** · `db-migrations.sql` (idempotent → prod) · `db-verify.sql` (asserts) · `db-rls.sql` (politikker) |

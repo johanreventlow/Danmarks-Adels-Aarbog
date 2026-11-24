@@ -6,13 +6,18 @@
 // `url` er i dag den samme fil som thumbnailen (kun én størrelse findes endnu) — Slice B
 // (media_variant, planen §1-2) skifter kaldernes url til en 'large'-variant; denne komponent
 // rører ikke ved dét, den viser bare den url den får.
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { T } from '../theme';
 import { mediaCaption } from '../data/media';
+import { SignedImg } from './SignedImg';
+import { useModalFokus } from './useModalFokus';
 
 // MM-11: kilde_url whitelist — kun http(s)-URLs vises som klikbart link (spejler
 // MediaDetaljeOverlay.tsx's KILDE_URL_RE, som håndhæver det samme ved skrivning).
 const KILDE_URL_RE = /^https?:\/\//i;
+
+// Tegn-knapper (×, ‹, ›) som rigtige <button> uden browserens standardudseende (review 37 W8).
+export const knapNulstil = { background: 'transparent', border: 0, padding: '4px 8px', margin: 0, font: 'inherit', cursor: 'pointer' } as const;
 
 // Alle nye felter valgfrie (bagudkompatibelt — narrativ-indlejrede billeder (EmbeddedMedia) og
 // andre kaldere uden medie-metadata sender bare id/url/titel/kunstner/datering som hidtil).
@@ -30,6 +35,10 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
 }) {
   const harForrige = index > 0;
   const harNaeste = index < items.length - 1;
+  // Review 37 W8: dialog-semantik og fokus (ind ved åbning, Tab bliver inde, tilbage til miniaturen ved lukning).
+  // Esc og piletaster håndteres af lytteren herunder.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFokus(dialogRef);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -50,27 +59,28 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
   const visInfoBlok = cap || items.length > 1 || m.kreditlinje || kildeLinkOk || m.beskrivelse;
 
   return (
-    <div onClick={onClose} data-overlay style={{
+    <div ref={dialogRef} onClick={onClose} data-overlay role="dialog" aria-modal="true"
+      aria-label={m.titel ? `Billede: ${m.titel}` : 'Billede i fuld størrelse'} style={{
       position: 'fixed', inset: 0, background: 'rgba(10,8,6,.92)', zIndex: 300,
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24,
     }}>
-      <span onClick={onClose} title="Luk (Esc)"
-        style={{ position: 'absolute', top: 18, right: 22, fontSize: 30, lineHeight: 1, color: T.inkOnInverse, cursor: 'pointer' }}>
+      <button type="button" onClick={(e) => { e.stopPropagation(); onClose(); }} title="Luk (Esc)" aria-label="Luk billedet"
+        style={{ ...knapNulstil, position: 'absolute', top: 18, right: 22, fontSize: 30, lineHeight: 1, color: T.inkOnInverse }}>
         ×
-      </span>
+      </button>
       {items.length > 1 && harForrige && (
-        <span onClick={(e) => { e.stopPropagation(); onNavigate(index - 1); }} title="Forrige billede"
-          style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 38, color: T.inkOnInverse, cursor: 'pointer', userSelect: 'none' }}>
+        <button type="button" onClick={(e) => { e.stopPropagation(); onNavigate(index - 1); }} title="Forrige billede" aria-label="Forrige billede"
+          style={{ ...knapNulstil, position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 38, color: T.inkOnInverse, userSelect: 'none' }}>
           ‹
-        </span>
+        </button>
       )}
       {items.length > 1 && harNaeste && (
-        <span onClick={(e) => { e.stopPropagation(); onNavigate(index + 1); }} title="Næste billede"
-          style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 38, color: T.inkOnInverse, cursor: 'pointer', userSelect: 'none' }}>
+        <button type="button" onClick={(e) => { e.stopPropagation(); onNavigate(index + 1); }} title="Næste billede" aria-label="Næste billede"
+          style={{ ...knapNulstil, position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', fontSize: 38, color: T.inkOnInverse, userSelect: 'none' }}>
           ›
-        </span>
+        </button>
       )}
-      <img src={m.url} alt={m.altTekst || m.titel || 'billede'} onClick={(e) => e.stopPropagation()}
+      <SignedImg src={m.url} alt={m.altTekst || m.titel || 'billede'} onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: '92vw', maxHeight: '82vh', objectFit: 'contain', borderRadius: 6, boxShadow: '0 24px 70px rgba(0,0,0,.55)' }} />
       {visInfoBlok && (
         <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 14, textAlign: 'center', maxWidth: '80vw' }}>

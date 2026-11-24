@@ -5,13 +5,16 @@ import { T } from '../theme';
 import { Link } from '../Link';
 import { personPath } from '../data/nav';
 import { ViewHeader, Avatar, BookmarkFlag } from './primitives';
+import { Tilstand, tilstandSekundaer } from './Tilstand';
 import { buildBookmarkList, type BookmarkSort } from '../data/bookmarks';
 import type { Model } from '../data/types';
 
-export function BookmarksView({ model, ids, sort, setSort, onPick, onRemove, loggedIn, onRequireLogin }: {
+export function BookmarksView({ model, ids, sort, setSort, onPick, onRemove, loggedIn, onRequireLogin, fejl = false, onRetry }: {
   model: Model; ids: string[]; sort: BookmarkSort; setSort: (s: BookmarkSort) => void;
   onPick: (id: string) => void; onRemove: (id: string) => void;
   loggedIn: boolean; onRequireLogin: () => void;
+  // Review 37 W12: hentningen fejlede — sig det i stedet for »Ingen bogmærker endnu«.
+  fejl?: boolean; onRetry?: () => void;
 }) {
   // ids er nu en stabil array-reference fra Folgesvend (useMemo på bookmarks.ids) — memoisér
   // også selve grupperingen her, så et re-render der ikke ændrer bogmærker ikke sorterer igen.
@@ -35,7 +38,15 @@ export function BookmarksView({ model, ids, sort, setSort, onPick, onRemove, log
         </div>
       </div>
 
-      {total === 0 ? (
+      {fejl && (
+        <div style={{ marginBottom: 20 }}>
+          <Tilstand fejl etiket="Kunne ikke hente" titel="Dine bogmærker kunne ikke hentes"
+            handlinger={onRetry && <button type="button" onClick={onRetry} style={tilstandSekundaer}>Prøv igen</button>}>
+            Forbindelsen til arkivet svigtede et øjeblik. Dine bogmærker er ikke væk — prøv igen om lidt.
+          </Tilstand>
+        </div>
+      )}
+      {fejl && total === 0 ? null : total === 0 ? (
         <div style={{ border: '1px dashed rgba(34,31,26,.2)', borderRadius: 11, padding: 20, background: T.surfaceRaised, fontSize: 14, color: T.inkMuted, textAlign: 'center' }}>
           {loggedIn ? (
             'Ingen bogmærker endnu — tryk flaget på en person for at gemme den her.'

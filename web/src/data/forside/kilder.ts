@@ -29,16 +29,21 @@ export function chunks<T>(values: readonly T[], size: number): T[][] {
   return out;
 }
 
+// Review 37 Y5: bidderne hentes 4 ad gangen, ikke én ad gangen. Målt som gæst mod prod 24/11: livsdato-kæden (25 kald)
+// 4,1-4,5 s → 2,2-2,5 s, identiske rækker. Rækkefølgen bevares; første fejl afviser (som før).
+const SAMTIDIGE_BIDDER = 4;
+
 export async function fetchInChunks<T, TId>(
   ids: TId[],
   run: (idsChunk: TId[]) => PromiseLike<{ data: T[] | null; error: unknown }>,
 ): Promise<T[]> {
-  const out: T[] = [];
-  for (const idsChunk of chunks(ids, IN_CHUNK)) {
+  const svar = await mapLimited(chunks(ids, IN_CHUNK), SAMTIDIGE_BIDDER, async (idsChunk) => {
     const { data, error } = await run(idsChunk);
     if (error) throw error;
-    out.push(...(data ?? []));
-  }
+    return data ?? [];
+  });
+  const out: T[] = [];
+  for (const rows of svar) out.push(...rows);
   return out;
 }
 

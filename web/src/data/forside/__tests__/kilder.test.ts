@@ -29,6 +29,26 @@ describe('forside/kilder', () => {
     await expect(hentLivsdatoRaekker(sb as never)).rejects.toBeTruthy();
   });
 
+  it('fetchInChunks (Y5): højst 4 bidder ad gangen, rækkefølgen bevares, første fejl afviser', async () => {
+    const { fetchInChunks } = await import('../kilder');
+    const ids = Array.from({ length: 1001 }, (_, i) => i); // 6 bidder à 200 (sidste med 1)
+    let igang = 0; let maks = 0; const bidStart: number[] = [];
+    const run = async (bid: number[]) => {
+      igang++; maks = Math.max(maks, igang); bidStart.push(bid[0]);
+      // senere bidder svarer hurtigere, så rækkefølgen ikke kommer gratis
+      await new Promise((r) => setTimeout(r, 30 - bid[0] / 50));
+      igang--;
+      return { data: bid.map((id) => ({ id })), error: null };
+    };
+    const rows = await fetchInChunks(ids, run);
+    expect(rows.map((r) => r.id)).toEqual(ids);
+    expect(maks).toBe(4);
+    expect(bidStart).toHaveLength(6);
+    await expect(fetchInChunks(ids, async (bid) => (bid[0] === 400
+      ? { data: null, error: { message: 'timeout' } } : { data: [], error: null }))).rejects.toEqual({ message: 'timeout' });
+    expect(await fetchInChunks([], run)).toEqual([]);
+  });
+
   it('hentPersonIder giver sorterede tal', async () => {
     const { hentPersonIder } = await import('../kilder');
     const sb = klient({ person: { data: [{ id: 12 }, { id: '3' }, { id: 7 }], error: null } });

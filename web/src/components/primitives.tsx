@@ -6,6 +6,7 @@ import { T } from '../theme';
 import { KlikbarFlade } from '../Link';
 import { initials } from '../data/format';
 import { mediaCaption, type MediaItem } from '../data/media';
+import { SignedImg } from './SignedImg';
 
 export const Kicker = ({ children }: { children: React.ReactNode }) => (
   <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.2em', textTransform: 'uppercase', color: T.goldInk, marginBottom: 6 }}>{children}</div>
@@ -57,10 +58,14 @@ export const BookmarkFlag = ({ active, onClick }: { active: boolean; onClick: ()
 export const MediaThumb = ({ m, w, h, radius = 10, onClick }: { m: MediaItem; w: number | string; h: number | string; radius?: number; onClick: () => void }) => {
   if (!m.url) return null;
   const cap = mediaCaption(m);
+  const alt = m.altTekst || m.titel || m.slags || 'billede';
+  // Review 37 W8: en rigtig knap, så miniaturen kan nås og åbnes med tastatur (Enter/mellemrum).
   return (
-    <img src={m.thumbUrl ?? m.url} alt={m.altTekst || m.titel || m.slags || 'billede'} title={cap || undefined}
-      onClick={onClick}
-      style={{ width: w, height: h, objectFit: 'cover', borderRadius: radius, border: `1px solid ${T.line}`, cursor: 'zoom-in', display: 'block' }} />
+    <button type="button" onClick={onClick} aria-label={`Vis ${alt} i fuld størrelse`} title={cap || undefined}
+      style={{ width: w, height: h, background: 'transparent', border: 0, padding: 0, margin: 0, display: 'block', cursor: 'zoom-in', borderRadius: radius }}>
+      <SignedImg src={m.thumbUrl ?? m.url} alt={alt}
+        style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: radius, border: `1px solid ${T.line}`, display: 'block', boxSizing: 'border-box' }} />
+    </button>
   );
 };
 

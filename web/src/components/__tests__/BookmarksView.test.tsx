@@ -17,6 +17,15 @@ function makeModel(persons: ModelPerson[]): Model {
 }
 
 describe('BookmarksView', () => {
+  it('review 37 W12: en hentefejl vises som fejl med »Prøv igen«, ikke som »Ingen bogmærker endnu«', () => {
+    const onRetry = vi.fn();
+    render(<BookmarksView model={makeModel([])} ids={[]} sort="navn" setSort={vi.fn()} onPick={vi.fn()} onRemove={vi.fn()} loggedIn onRequireLogin={vi.fn()} fejl onRetry={onRetry} />);
+    expect(screen.getByRole('alert').textContent).toContain('Dine bogmærker kunne ikke hentes');
+    expect(screen.queryByText(/Ingen bogmærker endnu/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Prøv igen' }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
   it('bogmærke-navnet er et ægte anker til /person/<id>', () => {
     const model = makeModel([person('1', 'Anders Reventlow')]);
     render(<BookmarksView model={model} ids={['1']} sort="navn" setSort={vi.fn()} onPick={vi.fn()} onRemove={vi.fn()} loggedIn onRequireLogin={vi.fn()} />);
