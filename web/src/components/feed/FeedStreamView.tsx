@@ -10,7 +10,7 @@ import {
   type NaevntGrundlag, type StorieBy,
 } from '@daa/feed';
 import { radius } from '@daa/theme';
-import { buildWebFeedAux, fetchFeedBios, withFeedBios } from '../../data/feedAux';
+import { buildWebFeedAux, hentFeedBios, withFeedBios } from '../../data/feedAux';
 import { fetchNaevntGrundlag } from '../../data/feedGrundlag';
 import { BLADE_PR_UDDELING, delUd, iBlokke } from '../../data/feedUddeling';
 import { epochDay, newSeed, todayISO } from '../../data/feedSession';
@@ -107,6 +107,9 @@ export function FeedStreamView({
   // viste kort nulstilles aldrig, så de første blade kan mangle biografi; de næste har den.
   const [bios, setBios] = useState<Record<string, string> | null>(null);
   const [bioError, setBioError] = useState<string | null>(null);
+  // Falsk, når en bid af biografierne blev ved med at fejle: feedet viser resten uden fejlbanner, men bruger ikke
+  // biografierne som bevis for fravær (nævnt-kort).
+  const [biosKomplet, setBiosKomplet] = useState(false);
   const [livsdatoBy, setLivsdatoBy] = useState<LivsdatoBy | null>(null);
   const [haendelserBy, setHaendelserBy] = useState<HaendelserBy | null>(null);
   const [storieBy, setStorieBy] = useState<StorieBy | null>(null);
@@ -119,12 +122,13 @@ export function FeedStreamView({
     const frist = setTimeout(() => { if (alive) setFristUdloebet(true); }, FEED_FOERSTE_UDDELING_FRIST_MS);
     setBios(null);
     setBioError(null);
+    setBiosKomplet(false);
     setLivsdatoBy(null);
     setHaendelserBy(null);
     setStorieBy(null);
     setNaevntGrundlag(null);
-    void fetchFeedBios(canon, model.persons.map((p) => p.id)).then(
-      (b) => { if (alive) setBios(b); },
+    void hentFeedBios(canon, model.persons.map((p) => p.id)).then(
+      (b) => { if (alive) { setBios(b.bioBy); setBiosKomplet(b.komplet); } },
       (e) => { if (alive) { console.warn('[feed] biografier fejlede:', e); setBioError(String((e as Error)?.message ?? e)); } },
     );
     // Loaderne sluger selv deres fejl (tomt = degraderet feed); .catch er kun et værn, så en
@@ -144,8 +148,9 @@ export function FeedStreamView({
   const alleAfgjortRef = useRef(alleAfgjort);
   alleAfgjortRef.current = alleAfgjort;
   // Nævnt-kort kræver, at hver kilde til fravær er hentet komplet. En tom bio-mængde tæller som
-  // fejlet (fetchFeedBios kan give {} ved en fejl i den gamle kontrakt), ikke som »ingen har tekst«.
-  const naevntInput = bios !== null && Object.keys(bios).length > 0 && naevntGrundlag !== null
+  // fejlet (hentFeedBios kan give {} ved en fejl i den gamle kontrakt), ikke som »ingen har tekst«; det samme gør et
+  // ufuldstændigt resultat (en bid ramte gæsteloftet).
+  const naevntInput = bios !== null && biosKomplet && Object.keys(bios).length > 0 && naevntGrundlag !== null
     && naevntGrundlag !== 'fejlet'
     ? naevntGrundlag
     : undefined;

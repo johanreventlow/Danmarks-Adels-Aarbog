@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 type Side = { data: unknown; error: unknown };
 let sider: Map<string | null, Side> = new Map();
 let rpcKald: Array<{ fn: string; args: Record<string, unknown> }> = [];
+// Bladremærker, hvis første kald fejler med gæsteloftet (57014); næste kald med samme mærke lykkes.
+let fejlFoerst = new Set<string | null>();
 const fromKald: string[] = [];
 let brugerId: string | null = null;
 
@@ -17,6 +19,8 @@ vi.mock('../../supabase', () => ({
     },
     async rpc(fn: string, args: Record<string, unknown>) {
       rpcKald.push({ fn, args });
+      const maerke = (args.p_fortsaet as string | null) ?? null;
+      if (fejlFoerst.delete(maerke)) return { data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } };
       const side = sider.get((args.p_fortsaet as string | null) ?? null);
       if (!side) return { data: null, error: { message: `ukendt mærke ${String(args.p_fortsaet)}` } };
       return side;
@@ -45,6 +49,7 @@ beforeEach(() => {
   rpcKald = [];
   fromKald.length = 0;
   brugerId = null;
+  fejlFoerst = new Set();
 });
 
 describe('fetchHaendelseFeed (bladring)', () => {
@@ -68,6 +73,15 @@ describe('fetchHaendelseFeed (bladring)', () => {
     sider.set(null, side([row(1)], [], [], 'A'));
     sider.set('A', { data: null, error: { message: 'canceling statement due to statement timeout' } });
     await expect(fetchHaendelseFeed()).rejects.toBeTruthy();
+  });
+
+  it('en side, der rammer gæsteloftet én gang, hentes igen med samme mærke (prod 24/11: 8 af 36 kald fejlede)', async () => {
+    sider.set(null, side([row(1)], [], [], 'A'));
+    sider.set('A', side([row(2)], [], [], null));
+    fejlFoerst = new Set(['A']);
+    const out = await fetchHaendelseFeed();
+    expect(rpcKald.map((k) => k.args.p_fortsaet)).toEqual([null, 'A', 'A']);
+    expect(out.rows.map((r) => r.id)).toEqual([1, 2]);
   });
 
   it('et svar uden gyldig form kastes', async () => {
@@ -106,7 +120,8 @@ describe('fetchHaendelseFeed (bladring)', () => {
     const [a, b] = await Promise.allSettled([fetchHaendelseFeed(), fetchHaendelseFeed()]);
     expect(a.status).toBe('rejected');
     expect(b.status).toBe('rejected');
-    expect(rpcKald).toHaveLength(2);
+    // Én delt bladring: første side + den fejlende side + dens ene genforsøg (uden deling ville det være 6).
+    expect(rpcKald.map((k) => k.args.p_fortsaet)).toEqual([null, 'A', 'A']);
   });
 
   it('en bladring, der aldrig slutter, afbrydes', async () => {

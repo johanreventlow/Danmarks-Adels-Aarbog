@@ -34,7 +34,9 @@ vi.mock('../../supabase', () => ({
   },
 }));
 
-const { FEED_BIO_IN_CHUNK, FEED_BIO_PARALLEL, buildFeedBioSubjectIds, buildWebFeedAux, fetchFeedBios, withFeedBios } = await import('../feedAux');
+const { FEED_BIO_IN_CHUNK, FEED_BIO_PARALLEL, buildFeedBioSubjectIds, buildWebFeedAux, hentFeedBios, withFeedBios } = await import('../feedAux');
+// De ældre tests ser kun på biografierne; fuldstændigheden testes i »hentFeedBios«-blokken.
+const fetchFeedBios = async (canon: Record<string, string>, ids?: readonly string[]) => (await hentFeedBios(canon, ids)).bioBy;
 
 beforeEach(() => { byTable = {}; inCalls = []; rpc = vi.fn(); });
 
@@ -110,17 +112,70 @@ describe('fetchFeedBios', () => {
     expect(bioCalls.length).toBeGreaterThan(1);
     expect(bios.canon).toBe('Bundet alias-post');
   });
-  it('en fejl i én bid er en eksplicit hente-fejl for hele hentningen', async () => {
-    const spy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    let n = 0;
-    rpc.mockImplementation(async (name: string) => {
-      if (name === 'narrative_record_contract_version') return { data: 2, error: null };
-      n += 1;
-      return n === 2 ? { data: null, error: { code: '57014' } } : { data: [], error: null };
-    });
+  describe('hentFeedBios — én langsom bid koster ikke alle biografier (prod 24/11: 7 af 456 bid-kald ramte 3 s-loftet)', () => {
+    const bioRow = (id: number, tekst: string) => ({ person_id: id, source_id: 1, source_year: 2018, record_order: 1, source_record_ref: 'r' + id, source_label: 'DAA', record_label: 'Post ' + id, narrative_text: tekst, citation_label: '', provenance_kind: 'source_record' });
     const modelIds = Array.from({ length: FEED_BIO_IN_CHUNK * 2 + 1 }, (_, i) => String(i + 1));
-    await expect(fetchFeedBios({}, modelIds)).rejects.toThrow('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
-    spy.mockRestore();
+    const svarMed = (fejler: (ids: number[], kaldNr: number) => boolean) => {
+      let kald = 0;
+      rpc.mockImplementation(async (name: string, args: { p_person_ids?: number[] }) => {
+        if (name === 'narrative_record_contract_version') return { data: 2, error: null };
+        const ids = args.p_person_ids ?? [];
+        kald += 1;
+        if (fejler(ids, kald)) return { data: null, error: { code: '57014' } };
+        return { data: ids.map((id) => bioRow(id, 'Tekst ' + id)), error: null };
+      });
+    };
+    const warn = () => vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    it('en bid, der fejler én gang og så lykkes, giver et komplet resultat', async () => {
+      const spy = warn();
+      let fejlet = false;
+      svarMed((ids) => { if (!fejlet && ids.includes(1)) { fejlet = true; return true; } return false; });
+      const r = await hentFeedBios({}, modelIds);
+      expect(r.komplet).toBe(true);
+      expect(Object.keys(r.bioBy)).toHaveLength(modelIds.length);
+      spy.mockRestore();
+    });
+
+    it('en bid, der bliver ved med at fejle: de andre bidders biografier beholdes, resultatet er ufuldstændigt', async () => {
+      const spy = warn();
+      svarMed((ids) => ids.includes(FEED_BIO_IN_CHUNK + 1));
+      const r = await hentFeedBios({}, modelIds);
+      expect(r.komplet).toBe(false);
+      expect(r.bioBy['1']).toBe('Tekst 1');
+      expect(r.bioBy[String(FEED_BIO_IN_CHUNK + 1)]).toBeUndefined();
+      expect(Object.keys(r.bioBy).length).toBeGreaterThan(FEED_BIO_IN_CHUNK);
+      spy.mockRestore();
+    });
+
+    it('genforsøget deler bidden i to halvdele, så kun den langsomme halvdel mangler', async () => {
+      const spy = warn();
+      const langsom = FEED_BIO_IN_CHUNK + 1; // første id i anden bid
+      svarMed((ids) => ids.includes(langsom) && ids.length > FEED_BIO_IN_CHUNK / 2);
+      const r = await hentFeedBios({}, modelIds);
+      expect(r.komplet).toBe(true);
+      const bidKald = rpc.mock.calls.filter(([n]) => n === 'public_person_bio_source_versions_v2').map(([, a]) => (a as { p_person_ids: number[] }).p_person_ids.length);
+      expect(bidKald).toContain(FEED_BIO_IN_CHUNK / 2);
+      spy.mockRestore();
+    });
+
+    it('en sammenfoldet person med et alias i den fejlede bid får ingen biografi frem for en forkert', async () => {
+      const spy = warn();
+      const sidst = modelIds.length; // alene i tredje bid
+      svarMed((ids) => ids.includes(sidst));
+      const r = await hentFeedBios({ '1': 'canon', [String(sidst)]: 'canon' }, modelIds);
+      expect(r.komplet).toBe(false);
+      expect(r.bioBy.canon).toBeUndefined();
+      expect(r.bioBy['99']).toBe('Tekst 99'); // id'erne sorteres som tekst; 99 ligger i en anden bid end 101
+      spy.mockRestore();
+    });
+
+    it('fejler alle bidder, er det en hente-fejl', async () => {
+      const spy = warn();
+      svarMed(() => true);
+      await expect(hentFeedBios({}, modelIds)).rejects.toThrow('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+      spy.mockRestore();
+    });
   });
 
   it('bygger stabilt subject-id-sæt med relevante aliases', () => {
@@ -158,9 +213,9 @@ describe('fetchFeedBios', () => {
   });
   it('lader en v2 RPC-fejl være en eksplicit hente-fejl', async () => {
     const spy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    rpc
-      .mockResolvedValueOnce({ data: 2, error: null })
-      .mockResolvedValueOnce({ data: null, error: { message: 'RPC utilgængelig' } });
+    // Vedvarende fejl (også genforsøget): ingen bid lykkes → hente-fejl.
+    rpc.mockImplementation(async (name: string) => (name === 'narrative_record_contract_version'
+      ? { data: 2, error: null } : { data: null, error: { message: 'RPC utilgængelig' } }));
     await expect(fetchFeedBios({}, ['1'])).rejects.toThrow('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
     spy.mockRestore();
   });
