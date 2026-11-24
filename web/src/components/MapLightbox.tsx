@@ -7,11 +7,13 @@
 // Portal til document.body: ExpandableMiniMap kaldes DYBT i indholdstræet, så et fixed-overlay
 // ville ellers arve en ancestor-stacking-context (fx TreeViews zIndex:1) og male BAG header/
 // sidebar. Portalen hejser overlayet til body-niveau, så backdrop dækker hele viewporten.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { GeoMap } from './GeoMap';
 import type { GeoPoint } from '../data/types';
 import { T } from '../theme';
+import { knapNulstil } from './Lightbox';
+import { useModalFokus } from './useModalFokus';
 
 export function MapLightbox({ points, onClose }: { points: GeoPoint[]; onClose: () => void }) {
   useEffect(() => {
@@ -19,20 +21,25 @@ export function MapLightbox({ points, onClose }: { points: GeoPoint[]; onClose: 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+  // Review 37 W8: dialog-semantik og fokus; Esc håndteres af lytteren ovenfor.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFokus(dialogRef);
 
   return createPortal(
     <div
+      ref={dialogRef}
       data-testid="map-lightbox-backdrop"
+      role="dialog" aria-modal="true" aria-label="Forstørret kort"
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, background: 'rgba(10,8,6,.92)', zIndex: 300,
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24,
       }}
     >
-      <span onClick={onClose} title="Luk (Esc)"
-        style={{ position: 'absolute', top: 18, right: 22, fontSize: 30, lineHeight: 1, color: T.inkOnInverse, cursor: 'pointer' }}>
+      <button type="button" onClick={(e) => { e.stopPropagation(); onClose(); }} title="Luk (Esc)" aria-label="Luk kortet"
+        style={{ ...knapNulstil, position: 'absolute', top: 18, right: 22, fontSize: 30, lineHeight: 1, color: T.inkOnInverse }}>
         ×
-      </span>
+      </button>
       {/* Kort-container fanger sine egne klik (stopPropagation), så pan/zoom-træk ikke bobler op
           og lukker overlayet — kun backdrop-margin + × lukker. */}
       <div
@@ -60,13 +67,16 @@ export function ExpandableMiniMap({ points }: { points: GeoPoint[] }) {
   return (
     <div style={{ position: 'relative' }}>
       <GeoMap points={points} mode="mini" />
-      <div
+      <button
+        type="button"
         data-testid="minimap-expand-trigger"
         onClick={() => setOpen(true)}
         title="Forstør kort"
+        aria-label="Forstør kortet"
         style={{
+          ...knapNulstil, padding: 8, width: '100%', height: '100%',
           position: 'absolute', inset: 0, cursor: 'pointer',
-          display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', padding: 8,
+          display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end',
         }}
       >
         <span style={{
@@ -77,7 +87,7 @@ export function ExpandableMiniMap({ points }: { points: GeoPoint[] }) {
         }}>
           ⤢ Forstør
         </span>
-      </div>
+      </button>
       {open && <MapLightbox points={points} onClose={() => setOpen(false)} />}
     </div>
   );

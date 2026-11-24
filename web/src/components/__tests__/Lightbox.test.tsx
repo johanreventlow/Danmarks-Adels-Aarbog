@@ -3,7 +3,7 @@
 // i Lightbox-overlayet. Kreditlinjen er et juridisk krav ved CC-licenser og vises derfor ALTID
 // når udfyldt (aldrig bag et fold) — kilde-linket derimod kun når kildeUrl er en gyldig http(s)-url
 // (MM-11), og beskrivelsen ligger bag en native <details>-fold (ingen ny state).
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { Lightbox, type LightboxItem } from '../Lightbox';
 
 const base: LightboxItem = { id: '1', url: 'https://x/large.jpg', titel: 'Et portræt' };
@@ -68,5 +68,36 @@ describe('Lightbox — kreditlinje/kildelink/beskrivelse/alt-tekst', () => {
     render(<Lightbox items={[{ ...base, kunstner: null, datering: '1900', dateringFakt: 'ca. 1840' }]} index={0} onClose={vi.fn()} onNavigate={vi.fn()} />);
     expect(screen.getByText(/ca\. 1840/)).toBeTruthy();
     expect(screen.queryByText(/1900/)).toBeNull();
+  });
+});
+
+describe('Lightbox — tastatur og skærmlæser (review 37 W8)', () => {
+  const to: LightboxItem[] = [{ ...base, id: '1' }, { ...base, id: '2', titel: 'Andet' }];
+
+  it('er en modal dialog med navn, og knapperne er rigtige knapper', () => {
+    render(<Lightbox items={to} index={0} onClose={vi.fn()} onNavigate={vi.fn()} />);
+    const dialog = screen.getByRole('dialog', { name: 'Billede: Et portræt' });
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Luk billedet' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Næste billede' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Forrige billede' })).toBeNull();
+  });
+
+  it('fokus flyttes ind ved åbning og tilbage ved lukning', () => {
+    const aabner = document.createElement('button');
+    document.body.appendChild(aabner);
+    aabner.focus();
+    const { unmount } = render(<Lightbox items={to} index={0} onClose={vi.fn()} onNavigate={vi.fn()} />);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Luk billedet' }));
+    unmount();
+    expect(document.activeElement).toBe(aabner);
+    aabner.remove();
+  });
+
+  it('luk-knappen kalder onClose præcis én gang (klikket bobler ikke også til baggrunden)', () => {
+    const onClose = vi.fn();
+    render(<Lightbox items={to} index={0} onClose={onClose} onNavigate={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Luk billedet' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

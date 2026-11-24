@@ -9,6 +9,7 @@ import { navigate, useLocation } from './router';
 import { Link } from './Link';
 import { loadModel } from './data/model';
 import { gemMigId, laesMigId } from './data/migLager';
+import { useModalFokus } from './components/useModalFokus';
 import { initials } from './data/format';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type PersonDetailData } from './data/public';
 import { antalEjere, byggEjerraekke, type EjerRelation } from './data/ejerraekke';
@@ -718,24 +719,39 @@ export default function Folgesvend() {
         ))}
       </div>
 
-      {loginOpen && (
-        <div onClick={() => setLoginOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(20,17,13,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
-          {/* Rigtig <form> med <label htmlFor>: skærmlæsere navngiver felterne, og Enter logger ind. */}
-          <form onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); void doLogin(); }} role="dialog" aria-modal="true" aria-labelledby="fs-login-titel" style={{ width: 380, maxWidth: '100%', background: T.surfaceRaised, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '22px 24px 20px' }}>
-            <div id="fs-login-titel" style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>Log ind</div>
-            <div style={{ fontSize: 13, color: T.inkMuted, marginTop: 3, marginBottom: 15 }}>Log ind for at gemme bogmærker på tværs af dine enheder.</div>
-            <label htmlFor="fs-login-email" style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: T.inkMuted, marginBottom: 4 }}>E-mail</label>
-            <input id="fs-login-email" type="email" autoComplete="username" value={login.email} onChange={(e) => setLogin((l) => ({ ...l, email: e.target.value }))} placeholder="din@email.dk" style={{ width: '100%', fontSize: 14, color: T.ink, background: '#fff', border: `1px solid ${T.lineStrong}`, borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
-            <label htmlFor="fs-login-pw" style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: T.inkMuted, marginTop: 11, marginBottom: 4 }}>Adgangskode</label>
-            <input id="fs-login-pw" type="password" autoComplete="current-password" value={login.pw} onChange={(e) => setLogin((l) => ({ ...l, pw: e.target.value }))} style={{ width: '100%', fontSize: 14, color: T.ink, background: '#fff', border: `1px solid ${T.lineStrong}`, borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
-            {login.err && <div role="alert" style={{ fontSize: 12.5, color: T.bordeaux, marginTop: 9 }}>{login.err}</div>}
-            <div style={{ display: 'flex', gap: 9, marginTop: 16, justifyContent: 'flex-end' }}>
-              <button type="button" onClick={() => setLoginOpen(false)} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.inkMuted, background: 'transparent', border: 0, padding: '8px 13px', cursor: 'pointer' }}>Annullér</button>
-              <button type="submit" disabled={login.busy} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.onBordeaux, background: T.bordeaux, border: 0, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>{login.busy ? 'Logger ind…' : 'Log ind'}</button>
-            </div>
-          </form>
+      {loginOpen && <LoginDialog login={login} setLogin={setLogin} onClose={() => setLoginOpen(false)} onSubmit={() => { void doLogin(); }} />}
+    </div>
+  );
+}
+
+// Login-dialogen (review 37 W8): fokus starter i e-mailfeltet, Tab bliver i dialogen, Esc lukker, og fokus vender
+// tilbage til knappen, der åbnede den. Egen komponent, så fokus-hook'en kun kører, mens dialogen er åben.
+type LoginTilstand = { email: string; pw: string; err: string; busy: boolean };
+function LoginDialog({ login, setLogin, onClose, onSubmit }: {
+  login: LoginTilstand;
+  setLogin: (f: (l: LoginTilstand) => LoginTilstand) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
+  useModalFokus(formRef, { onEscape: onClose, startFokus: emailRef });
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(20,17,13,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+      {/* Rigtig <form> med <label htmlFor>: skærmlæsere navngiver felterne, og Enter logger ind. */}
+      <form ref={formRef} onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); onSubmit(); }} role="dialog" aria-modal="true" aria-labelledby="fs-login-titel" style={{ width: 380, maxWidth: '100%', background: T.surfaceRaised, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '22px 24px 20px' }}>
+        <div id="fs-login-titel" style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>Log ind</div>
+        <div style={{ fontSize: 13, color: T.inkMuted, marginTop: 3, marginBottom: 15 }}>Log ind for at gemme bogmærker på tværs af dine enheder.</div>
+        <label htmlFor="fs-login-email" style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: T.inkMuted, marginBottom: 4 }}>E-mail</label>
+        <input ref={emailRef} id="fs-login-email" type="email" autoComplete="username" value={login.email} onChange={(e) => setLogin((l) => ({ ...l, email: e.target.value }))} placeholder="din@email.dk" style={{ width: '100%', fontSize: 14, color: T.ink, background: '#fff', border: `1px solid ${T.lineStrong}`, borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
+        <label htmlFor="fs-login-pw" style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: T.inkMuted, marginTop: 11, marginBottom: 4 }}>Adgangskode</label>
+        <input id="fs-login-pw" type="password" autoComplete="current-password" value={login.pw} onChange={(e) => setLogin((l) => ({ ...l, pw: e.target.value }))} style={{ width: '100%', fontSize: 14, color: T.ink, background: '#fff', border: `1px solid ${T.lineStrong}`, borderRadius: 7, padding: '8px 10px', outline: 'none' }} />
+        {login.err && <div role="alert" style={{ fontSize: 12.5, color: T.bordeaux, marginTop: 9 }}>{login.err}</div>}
+        <div style={{ display: 'flex', gap: 9, marginTop: 16, justifyContent: 'flex-end' }}>
+          <button type="button" onClick={onClose} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.inkMuted, background: 'transparent', border: 0, padding: '8px 13px', cursor: 'pointer' }}>Annullér</button>
+          <button type="submit" disabled={login.busy} style={{ fontFamily: T.sans, fontSize: 13, fontWeight: 600, color: T.onBordeaux, background: T.bordeaux, border: 0, borderRadius: 7, padding: '8px 13px', cursor: 'pointer' }}>{login.busy ? 'Logger ind…' : 'Log ind'}</button>
         </div>
-      )}
+      </form>
     </div>
   );
 }

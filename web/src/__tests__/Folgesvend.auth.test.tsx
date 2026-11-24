@@ -252,3 +252,17 @@ test('SIGNED_IN(u2) i en anden fane, og eget login afvises: u2-sessionen genskab
   await waitFor(() => expect(mocks.currentSession).toHaveBeenCalledTimes(2));
   expect(await screen.findByRole('button', { name: 'Log ud' })).toBeTruthy();
 });
+
+test('review 37 W8: login-dialogen starter i e-mailfeltet, Esc lukker, og fokus vender tilbage til knappen', async () => {
+  mocks.currentSession.mockResolvedValue(null);
+  mocks.loadModel.mockResolvedValue(model('Afdød Anna'));
+  render(<Folgesvend />);
+  expect(await screen.findByText(/Afdød Anna/)).toBeTruthy();
+  const knap = screen.getByRole('button', { name: 'Log ind' });
+  knap.focus();
+  fireEvent.click(knap);
+  expect(document.activeElement).toBe(screen.getByLabelText('E-mail'));
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(document.activeElement).toBe(knap);
+});

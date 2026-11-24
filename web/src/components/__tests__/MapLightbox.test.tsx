@@ -64,3 +64,19 @@ describe('ExpandableMiniMap', () => {
     expect(screen.queryByTestId('map-lightbox-backdrop')).toBeNull();
   });
 });
+
+describe('MapLightbox — tastatur og skærmlæser (review 37 W8)', () => {
+  it('forstør-fladen er en knap, og overlayet er en navngiven modal dialog', () => {
+    render(<ExpandableMiniMap points={POINTS} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Forstør kortet' }));
+    expect(screen.getByRole('dialog', { name: 'Forstørret kort' }).getAttribute('aria-modal')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Luk kortet' })).toBeTruthy();
+  });
+
+  it('×-knappen kalder onClose præcis én gang', () => {
+    const onClose = vi.fn();
+    render(<MapLightbox points={POINTS} onClose={onClose} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Luk kortet' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
