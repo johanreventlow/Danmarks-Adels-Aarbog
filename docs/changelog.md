@@ -8,7 +8,9 @@ projektejeren først. Billeder af levende er skjult for gæster. Forsiden regner
 DB-ændring; data skrives via redaktørens RPC'er (`decisions.md` 2026-11-24; plan
 `docs/superpowers/plans/2026-11-24-billeder-2018-20.md`). Samme dag fulgte 6 segl og 5 medaljer (runde 2); tre af
 dem viser personer fra sidelinjer, der ikke er i databasen, og ligger skjult. Runde 3 tilføjede 20 våben
-(elefantridder-skjolde, våben på kirkeinventar, slægts- og rangvåben) og et våbengalleri på våbensiden.
+(elefantridder-skjolde, våben på kirkeinventar, slægts- og rangvåben) og et våbengalleri på våbensiden. Runde 4 gav 11
+godser (Wittenberg, Brahetrolleborg, Altenhof …) deres billede fra bogen på godssiden, og Henneke von Reventlows våben
+med hans håndskrift fra 1587 kom på hans side og i våbengalleriet.
 
 ## 2026-11-24 — Forsiden viser kun personer med noget at fortælle, og hver kun én gang
 
