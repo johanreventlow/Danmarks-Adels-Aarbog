@@ -69,6 +69,27 @@ og forsiden er forskellig fra besøg til besøg.
 - **Første uddeling:** når filen er kommet, er alle forsidens kilder afgjort, og første uddeling sker straks med fuldt
   data. Fristen på 2,5 s bliver kun aktuel ved tilbagefald.
 
+## Afklaringer efter builder-tjek (mine afgørelser, til projektejerens gennemsyn)
+- **Hvilke personer funktionen henter biografier for:** funktionen kender ikke klientens model. Den læser selv alle
+  person-id'er, en gæst må se (`person.id` som anon — billigt, ~2.700 rækker), og henter biografiversioner for dem alle.
+  Filen bærer listen (`personIder`). Klienten folder som i dag med `canonicalIdById`.
+- **Filen er op til en time gammel, modellen er levende:** en person i modellen, hvis række-id ikke står i
+  `personIder`, regnes som *ukendt*, ikke som »uden tekst«. Så længe én sådan findes, bruges filen ikke som bevis for
+  fravær (intet nævnt-grundlag fra filen) — samme regel som `komplet: false`.
+- **For gammel fil:** klienten afviser en fil med `genereret` ældre end 48 timer og falder tilbage til direkte hentning
+  (fx efter en pause i free tier, hvor `stale-while-revalidate` ellers kunne servere en gammel fil længe).
+- **Forbindelse og region:** funktionen bruger de eksisterende `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` fra
+  Vercels miljø (de er offentlige og findes allerede). Funktionen pindes til Vercel-regionen `fra1` (Frankfurt), tæt på
+  Supabases EU-region, og får `maxDuration` 60 s.
+- **Første version rummer alle fem kilder** (biografier, hændelser, livsdatoer, historier, nævnt-grundlag), så første
+  uddeling ikke venter på noget. Succes-målet er: mindst ét portræt- eller citatkort blandt de første seks (historier er
+  få, så de er ikke et krav).
+- **Kold cache efter deploy:** tilbagefaldet dækker første besøg. Før bestyrelsesmødet åbnes forsiden én gang (varmer
+  filen) — samme rutine som at holde basen vågen.
+- **Kodens placering:** loaderne omskrives, så de tager en Supabase-klient som parameter, og deles af browser og
+  funktion (ingen kopi). Byggeren starter med et lille forsøg: en `web/api`-funktion, der importerer fra `@daa/core`,
+  bygget og kørt på et Vercel-preview, før resten bygges.
+
 ## Begrænsninger
 - Gæsternes `statement_timeout` er 3 s pr. kald, også for funktionen; den skal hente i bidder som klienten (og må gerne
   have højere parallelitet end browserens 3, hvis loggen tåler det).
