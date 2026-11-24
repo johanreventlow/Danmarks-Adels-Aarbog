@@ -114,14 +114,31 @@ describe('kortLivsdato — årstal med bogens forbehold', () => {
     expect(kortLivsdato('† før 1606')).toBe('før 1606');
     expect(kortLivsdato('† senest 1414')).toBe('senest 1414');
     expect(kortLivsdato('efter 4 Decbr. 1676 (saaret ved Lund)')).toBe('efter 1676');
+    expect(kortLivsdato('† efter 17. jan. 1670')).toBe('efter 1670');
+    expect(kortLivsdato('eft. 1672')).toBe('efter 1672');
+    expect(kortLivsdato('kort før 1761, 25 Juli')).toBe('før 1761');
+    expect(kortLivsdato('o.\n1655')).toBe('o. 1655');
+    expect(kortLivsdato('formentlig † 1677')).toBe('formentlig 1677');
+    expect(kortLivsdato('† formentlig dec. 1530')).toBe('formentlig 1530');
+    expect(kortLivsdato('* vist nok 1587')).toBe('vist nok 1587');
+    expect(kortLivsdato('Var † 1485')).toBe('senest 1485');
+    expect(kortLivsdato('levede 1363, var død Aaret efter (1364)')).toBe('1363/1364');
+    expect(kortLivsdato('levede 14 April 1459, var død 24 Marts 1460')).toBe('1459/1460');
+    expect(kortLivsdato('levede 1626, men død ikke længe efter')).toBe('efter 1626');
   });
   test('forbehold om dagen, ikke året, giver rent årstal', () => {
     expect(kortLivsdato('† 1496, før 10. okt.')).toBe('1496');
     expect(kortLivsdato('† før 1261 (22. aug.)')).toBe('før 1261');
+    expect(kortLivsdato('† 1567, kort før 13. april')).toBe('1567');
+    expect(kortLivsdato('† mellem 16. jan. og 23. april 1483')).toBe('1483');
+    expect(kortLivsdato('† 1622 i Egernførde')).toBe('1622');
   });
   test('usikre og flertydige år bevares', () => {
     expect(kortLivsdato('† 1. aug. 147(5?)')).toBe('147(5?)');
     expect(kortLivsdato('† 1342/1353')).toBe('1342/1353');
+    expect(kortLivsdato('1472—73')).toBe('1472—73');
+    expect(kortLivsdato('1617-18')).toBe('1617-18');
+    expect(kortLivsdato('† 12./13. jan. 1732')).toBe('1732');
     expect(kortLivsdato('1678 (?)')).toBe('1678?');
     expect(kortLivsdato('† mellem 1363 og 1364 (før 14. juni)')).toBe('1363/1364');
   });
