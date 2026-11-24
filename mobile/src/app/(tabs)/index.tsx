@@ -119,6 +119,8 @@ export default function HomeScreen() {
       storieBy,
       pins: feedPins,
       disabledKinds: TEMP_DISABLED_KINDS,
+      // Forsidens minimumskrav (spec 2026-11-24-forside-minimumskrav-design.md), samme motor som web.
+      forsideKrav: true,
     });
   }, [model, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkedSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins]);
 

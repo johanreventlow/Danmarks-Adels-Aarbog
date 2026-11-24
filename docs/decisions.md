@@ -2,6 +2,23 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: minimumskrav til personer på forsiden (2026-11-24)
+
+> Projektejeren 24/11 (»ja til dem alle«, efter forsiden viste »(Søn) Reventlow« to gange). Spec:
+> `docs/superpowers/specs/2026-11-24-forside-minimumskrav-design.md`. Gælder kun forsiden; personsiden viser stadig alle
+> offentlige personer.
+
+- **Hvem:** sikkert død (som før), rigtigt navn (ikke »(Søn)«/»N. N.«), blev mindst 15 år (og ikke »† ung«/»lille«),
+  død for mindst 25 år siden (uden dødsår: født for mindst 145 år siden) og har noget at fortælle: biografi på mindst
+  200 tegn, titel, embede, en hændelse uden rygrad eller et billede. Ukendt alder udelukker ikke.
+- **Højst ét kort pr. person.** Den tilfældige prioritet afgør hvilket; fastgjorte og låste kort vinder.
+- **»Nævnt i Aarbogen« slået fra** (`TEMP_DISABLED_KINDS`): typen handler om personer uden indhold. Koden og testene
+  bliver, så den kan tændes igen.
+- **Billeder tæller først med spor 2:** motoren tager `personerMedBillede`, web sender det ikke endnu (9 personer i dag).
+- **Teknik:** et valgfrit flag `FeedInputs.forsideKrav` i `packages/feed` (`forside.ts`), sat af web og mobil. Uden
+  flaget er ordningen uændret, så ekvivalenstesten mod den frosne `orderReference.ts` stadig beviser trækningsløkken.
+  *Følge:* web's genopbygning (`resumeStream`) springer også allerede viste personer over.
+
 ## NOTERET: robotter kan gå direkte til Supabase — to huller i anon-fladen og tre åbne valg, åben backlog (2026-11-24)
 
 > Baggrund: robottrafikken på reventlow.dk (TNG) okt.–nov. 2026 — op til 44 000 kald/døgn, SQL-injektionsscannere,
