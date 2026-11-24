@@ -22,8 +22,10 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
   før koblingen, så læseren ser samme portræt som før; har personen ingen, bliver bogens billede portrættet af sig selv.
 - **Forsiden** tæller nu billeder som indhold (krav 8 i minimumskravene): web og Edge-filen (format v2) sender
   `personerMedBillede`; kun gæste-synlige billeder tæller. Mobilens forside følger i #457.
-- **Udskudt:** segl, våben, medaljer, godser m.m. uden for portrætafsnittet (s. 119-369) og en fast ordliste for
-  `media.slags` (i dag fritekst) — projektejeren 24/11 vil gerne have dem med; tages som næste runde.
+- **Runde 2 (samme dag):** 6 segl og 5 medaljer importeret med kuraterede koblinger (`slags` = `segl`/`medalje`); billeder
+  af personer, der ikke findes (sidelinjerne VI og VIII), ligger skjult og ukoblet.
+- **Udskudt:** våben, gravplade, miniature og godser uden for portrætafsnittet og en fast ordliste for `media.slags`
+  (i dag fritekst).
 
 ## BESLUTTET: minimumskrav til personer på forsiden (2026-11-24)
 

@@ -1707,3 +1707,10 @@ projektejerens godkendelse af alle 24 usikre koblinger (svarfil sha256 `3c3beb4a
 - **Advisors (security, MCP):** ingen ERROR; kun de kendte WARN/INFO.
 - **Rettigheder:** uafklarede — se `docs/decisions.md` 2026-11-24. Forsidens billed-regel aktiveres, når web-delen af
   PR #466 er merget (Edge-filen hæves til format v2).
+
+**Runde 2 — segl og medaljer (samme dag):** `--manifest …/manifest-runde2.json`, svarfil `gennemgang-runde2.txt`
+(sha256 `ac7ee86e…`, projektejeren godkendte alle 5 kort). 11 `media` (id 174-184): 6 `segl` (s. 54) og 5 `medalje`
+(s. 82, 83, 379); 8 synlige for anon (174, 175, 177, 179-183, med 16 varianter), 3 skjult og ukoblet, fordi personerne
+ikke findes (Johann von Walstorp VI, 4; Otto von Muggele VIII, 2; Rantzau-medaljen VI, 39). Frederik 4. (861) koblet til
+begge s. 83-medaljer sammen med Anna Sophia (470). 1 portrætlås: Claus (289) beholder sit maleri (media 31). Personside
+59 (Hartwich) viser seglet som hovedbillede.
