@@ -33,7 +33,8 @@ og forsiden er forskellig fra besøg til besøg.
 
 ## Anti-mål (ville være en fiasko, selv om det virker)
 - **Filen indeholder noget, en gæst ikke må se** (levende personer, private narrativer, upublicerede tekster).
-- **En redaktør retter noget og kan ikke se det**, fordi hun får den gamle fil.
+- **En redaktør retter noget og kan ikke se det nogen steder**: forsiden må være op til en time bagud, men personsiden
+  viser altid de nyeste data.
 - **Forsiden går i stykker, når filen mangler** (første besøg efter en deploy, Vercel nede): den skal falde tilbage
   til dagens direkte hentning.
 - **En ufuldstændig fil ligner en komplet** og bruges som bevis for fravær (falske »Nævnt i Aarbogen«-kort).
@@ -62,8 +63,9 @@ og forsiden er forskellig fra besøg til besøg.
   `genereret` (tidspunkt). En ufuldstændig del bruges som i #459: vis det, der er, men aldrig som bevis for fravær.
   Et svar, hvor en hel del fejlede, caches ikke (funktionen svarer med fejl / `no-store`), så CDN'et ikke gemmer en dårlig
   fil i en time.
-- **Hvem får filen:** gæster (ikke logget ind). En logget-ind bruger (redaktør) bruger dagens direkte hentning, så hun
-  ser sine rettelser med det samme.
+- **Hvem får filen: alle**, også indloggede redaktører (projektejerens valg A 2026-11-24). Så er forsiden hurtig, også
+  når den vises frem logget ind. En rettelse slår igennem på forsiden inden for en time og ses straks på personsiden.
+  Der er kun én hentevej (plus tilbagefaldet), og ingen afhængighed af `getSession` før hentningen.
 - **Tilbagefald:** henter browseren ikke filen inden for en kort frist (forslag 3 s) eller er den ugyldig, bruger
   forsiden dagens direkte hentning (inkl. #459's robusthed).
 - **Første uddeling:** når filen er kommet, er alle forsidens kilder afgjort, og første uddeling sker straks med fuldt
@@ -113,7 +115,7 @@ og forsiden er forskellig fra besøg til besøg.
 
 ## Færdigbevis
 - Enhedstests: funktionen (mocket Supabase) leverer de rå svar og `komplet`; et svar med en fejlet del caches ikke;
-  klienten bruger filen for gæster, dagens hentning for indloggede og ved tilbagefald; ufuldstændig fil giver intet
+  klienten bruger filen (også indlogget) og dagens hentning ved tilbagefald; ufuldstændig fil giver intet
   nævnt-grundlag.
 - Preview: forsiden indlæst 5 gange efter hinanden — portræt/citat blandt de første seks kort, forskellig rækkefølge
   hver gang; svartid for `/api/forside-data` og `x-vercel-cache: HIT` på 2. kald.
