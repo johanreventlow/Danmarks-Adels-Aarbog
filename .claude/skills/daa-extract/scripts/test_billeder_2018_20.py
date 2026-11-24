@@ -283,3 +283,37 @@ def test_kuraterede_koblinger():
     assert len(efter[(83, 2)]["billeder"]) == 2  # guldmedaljens for- og bagside
     assert "guld" in efter[(83, 2)]["titel"]
     assert efter[(379, 1)]["refs"] == [["VI", 39]]
+
+
+# --- Runde 3: våben ----------------------------------------------------------------------------------------------
+
+from billeder_2018_20 import KURATEREDE_RUNDE3  # noqa: E402
+
+
+def test_runde3_har_de_21_vaaben():
+    assert len(KURATEREDE_RUNDE3) == 21
+    assert {p["slags"] for p in KURATEREDE_RUNDE3} == {"våben"}
+    assert len({(p["side"], p["nr"]) for p in KURATEREDE_RUNDE3}) == 21
+
+
+def test_runde3_objekt_koblinger_har_ingen_personer():
+    objekter = {p["side"]: p["objekt"] for p in KURATEREDE_RUNDE3 if p.get("objekt")}
+    assert objekter == {53: {"type": "lineage", "id": 6}, 55: {"type": "lineage", "id": 4},
+                        56: {"type": "lineage", "id": 5}, 58: {"type": "estate", "id": 196},
+                        405: {"type": "lineage", "id": 6}}
+    assert all(p["refs"] == [] and p["klasse"] == "objekt" for p in KURATEREDE_RUNDE3 if p.get("objekt"))
+
+
+def test_runde3_flere_personer_gaar_til_gennemgang():
+    klasse = {p["side"]: p["klasse"] for p in KURATEREDE_RUNDE3}
+    assert klasse[57] == klasse[64] == klasse[65] == "flere"
+    assert all(klasse[s] == "egen" for s in (59, 60, 61, 62, 63, 68, 69, 70, 71, 72, 73, 74, 75))
+
+
+def test_runde3_elefantridder_refs():
+    refs = {p["side"]: p["refs"] for p in KURATEREDE_RUNDE3}
+    assert refs[68] == [["III", 61]] and refs[73] == [["V", 3]] and refs[75] == [["V", 42]]
+
+
+def test_runde3_kun_53_og_405_har_kurateret_titel():
+    assert {p["side"] for p in KURATEREDE_RUNDE3 if p.get("titel")} == {53, 405}

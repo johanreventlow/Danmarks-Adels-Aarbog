@@ -260,6 +260,43 @@ KURATEREDE = [
 ]
 
 
+# Runde 3: våben (spec-afsnit »Runde 3«). Ét billede pr. side; titlen hentes fra sidens tekst, undtagen s. 53 og s. 405,
+# hvor billedet står i brødtekst. `objekt` = ikke-person-kobling (media → lineage/estate).
+def _v(side, klasse="egen", refs=None, objekt=None, titel=None, datering=None):
+    return dict(side=side, nr=1, billeder=[0], slags="våben", klasse=klasse, refs=refs or [], objekt=objekt,
+                titel=titel, datering=datering)
+
+
+KURATEREDE_RUNDE3 = [
+    _v(53, "objekt", objekt={"type": "lineage", "id": 6},
+       titel="Våben: von Reventlow – von Walstorp – von Muggele"),
+    _v(55, "objekt", objekt={"type": "lineage", "id": 4}, datering="1767"),
+    _v(56, "objekt", objekt={"type": "lineage", "id": 5}, datering="1673"),
+    _v(57, "flere", datering="1712"),  # fyrstinde af Slesvig: Anna Sophia (V, 17), ingen henvisning i teksten
+    _v(58, "objekt", objekt={"type": "estate", "id": 196}, datering="1713"),
+    _v(59, refs=[["I", 59]]),
+    _v(60, refs=[["I", 63]]),
+    _v(61, refs=[["I", 74]], datering="1581"),
+    _v(62, refs=[["I", 105]], datering="1699"),
+    _v(63, refs=[["III", 41]]),
+    _v(64, "flere", refs=[["V", 4]], datering="1732"),  # + ægtefællen Ulrich Adolph Holstein
+    _v(65, "flere", refs=[["V", 25]], datering="1755"),  # alliancevåben: + hustruen von Bothmer
+    _v(68, refs=[["III", 61]]),
+    _v(69, refs=[["III", 89]]),
+    _v(70, refs=[["IV", 1]]),
+    _v(71, refs=[["IV", 2]]),
+    _v(72, refs=[["V", 1]]),
+    _v(73, refs=[["V", 3]]),
+    _v(74, refs=[["V", 25]]),
+    _v(75, refs=[["V", 42]]),
+    _v(405, "objekt", objekt={"type": "lineage", "id": 6},
+       titel="Revenfeld. Skjold: Firdelt. 1. og 4. felt: i sølv et blåt skjold med guld og rød rand og guld bukkel. "
+             "2. og 3. felt: i rødt en guld hjelm hvorpå sølv fjerbuske. Hjelmtegn: En jernklædt arm svingende et sværd. "
+             "Detlef, Conrad og Conradine, naturlige børn af Conrad greve de Reventlow (1644-1708), blev ved patent af "
+             "7. september 1695 optaget i adelig stand med navnet Revenfeld."),
+]
+
+
 def kombiner_vandret(kilder: list[Path], maal: Path) -> Path:
     """Sætter billederne side om side (fx en medaljes for- og bagside) på hvidt, lodret centreret."""
     from PIL import Image
@@ -288,9 +325,17 @@ def _flad(kilde: Path, maske: Path | None, maal: Path) -> Path:
 
 
 def byg_manifest_runde2(pdf: Path, ud: Path) -> dict:
+    return byg_manifest_kurateret(pdf, ud, KURATEREDE, "manifest-runde2.json", 2)
+
+
+def byg_manifest_runde3(pdf: Path, ud: Path) -> dict:
+    return byg_manifest_kurateret(pdf, ud, KURATEREDE_RUNDE3, "manifest-runde3.json", 3)
+
+
+def byg_manifest_kurateret(pdf: Path, ud: Path, poster: list[dict], filnavn: str, runde: int) -> dict:
     ud.mkdir(parents=True, exist_ok=True)
     billeder = []
-    for side in sorted({p["side"] for p in KURATEREDE}):
+    for side in sorted({p["side"] for p in poster}):
         liste = _billedliste(pdf, side, side)
         with tempfile.TemporaryDirectory() as tmp:
             prefix = Path(tmp) / "b"
@@ -303,7 +348,7 @@ def byg_manifest_runde2(pdf: Path, ud: Path) -> dict:
                     raise RuntimeError(f"Forventede én fil for billede {num} på s. {side}, fandt {len(hits)}")
                 return hits[0]
 
-            for post in [p for p in KURATEREDE if p["side"] == side]:
+            for post in [p for p in poster if p["side"] == side]:
                 noegle = f"daa-2018-20-s{side:04d}-{post['nr']}"
                 flade = []
                 for i, idx in enumerate(post["billeder"]):
@@ -311,25 +356,28 @@ def byg_manifest_runde2(pdf: Path, ud: Path) -> dict:
                     maske = fil(b["maske_num"]) if b["maske_num"] is not None else None
                     flade.append(_flad(fil(b["num"]), maske, Path(tmp) / f"flad-{noegle}-{i}.jpg"))
                 kilde = flade[0] if len(flade) == 1 else kombiner_vandret(flade, Path(tmp) / f"{noegle}-samlet.jpg")
-                rec = {"noegle": noegle, "side": side, "billednr": post["nr"], "billedtekst": post["titel"]}
+                titel = post.get("titel") or " ".join(_linjer(_sidetekst(pdf, side)))
+                rec = {"noegle": noegle, "side": side, "billednr": post["nr"], "billedtekst": titel}
                 rec.update(lav_varianter(kilde, None, ud, noegle))
-                rec.update({"titel": post["titel"], "kunstner": None, "datering": post["datering"],
+                rec.update({"titel": titel, "objekt": post.get("objekt"), "kunstner": None, "datering": post["datering"],
                             "slags": post["slags"], "klasse": post["klasse"], "refs": post["refs"],
                             "aegtefaelle_anker": None, "aegtefaelle_navn": None, "aegtefaelle_aar": None,
                             "ekstra_tekst": False})
                 billeder.append(rec)
-    manifest = {"kilde_pdf": pdf.name, "runde": 2, "billeder": billeder}
-    (ud / "manifest-runde2.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
+    manifest = {"kilde_pdf": pdf.name, "runde": runde, "billeder": billeder}
+    (ud / filnavn).write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
     return manifest
 
 
 def main(argv: list[str]) -> int:
     runde2 = "--runde2" in argv
-    argv = [a for a in argv if a != "--runde2"]
+    runde3 = "--runde3" in argv
+    argv = [a for a in argv if a not in ("--runde2", "--runde3")]
     if len(argv) != 2:
         print("Brug: billeder_2018_20.py [--runde2] <pdf> <ud-mappe>", file=sys.stderr)
         return 2
-    manifest = (byg_manifest_runde2 if runde2 else byg_manifest)(Path(argv[0]), Path(argv[1]))
+    bygger = byg_manifest_runde3 if runde3 else byg_manifest_runde2 if runde2 else byg_manifest
+    manifest = bygger(Path(argv[0]), Path(argv[1]))
     klasser: dict[str, int] = {}
     for b in manifest["billeder"]:
         klasser[b["klasse"]] = klasser.get(b["klasse"], 0) + 1
