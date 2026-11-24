@@ -1720,4 +1720,12 @@ godkendte med to rettelser: Revenfeld s. 405 udeladt, Vallø s. 58 også til Ann
 (id 185-204), alle synlige for anon (40 varianter): stamvåben → slægts-roden (lineage 6), lensgreve 1767 → lineage 4,
 greve 1673 → lineage 5, Vallø → estate 196 + person 470, og 16 personvåben (8 elefantridder-skjolde s. 68-75, våben på
 kirkeinventar s. 59-65, fyrstinde af Slesvig → 470). `coat_of_arms` 1-2 er urørte. 8 portrætlåse sikrer, at de viste
-portrætter er uændrede (fx 109→19, 510→67, 526→59, 882→68). Web-galleriet på våbensiden kræver merge af PR #466.
+portrætter er uændrede (fx 109→19, 510→67, 526→59, 882→68). Web-galleriet på våbensiden kom med PR #469.
+
+**Runde 4 — godser og Hennekes våben (samme dag):** `manifest-runde4.json` (sha256 `e5a1fb98…`), svarfil
+`gennemgang-runde4.txt` (sha256 `ae326dc3…`, ingen usikre). Gods-rækkerne valgt af projektejeren på et forhåndsark
+(`runde4-forhaand/`, standard = flest ejere). 12 `media` (id 205-216), alle synlige for anon (24 varianter): 11 af slags
+`gods` → estate 5 (Wittenberg), 169 (Sandbjerg), 172 (baroniet Brahetrolleborg), 170 (grevskabet Christianssæde), 119
+(Altenhof), 145 (Emkendorf), 185 (Wulfshagen), 165 (Clausholm), 196 (grevskabet Vallø), 367 (Pederstrup med Skjelstofte)
+og 182 (Koppel med … Etelsen …); Hennekes våben med håndskrift 1587 (s. 3, slags `våben`) → person 221. 1 portrætlås:
+221→21. Godsnavnenes dubletter er åbne i #471; en sammenlægning skal flytte disse koblinger med. Advisors: ingen ERROR.
