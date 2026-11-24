@@ -128,6 +128,7 @@ describe('kortLivsdato — årstal med bogens forbehold', () => {
   test('tekst uden årstal bevares ordret', () => {
     expect(kortLivsdato('† lille')).toBe('lille');
     expect(kortLivsdato('ung')).toBe('ung');
+    expect(kortLivsdato('+ ung')).toBe('ung'); // 1939-OCR'ens † som »+«
   });
 });
 

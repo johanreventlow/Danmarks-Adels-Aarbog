@@ -25,7 +25,8 @@ export function aarSpaend(s: string | null | undefined): [number, number] | null
 // årstallet, gælder dagen (»† 1496, før 10. okt.«) og falder bort med den (projektejeren 2026-11-24).
 const FORBEHOLD = /(?:^|\s)(o\.|ca\.|omkr\.|efter|før|senest|tidligst)\s+(?:\d{1,2}\.?\s+[a-zæøå]+\.?\s+)?$/i;
 export function kortLivsdato(tekst: string): string {
-  const t = tekst.replace(/^[*†\s]+/, '').replace(/\s+/g, ' ').trim();
+  // »+« er 1939-OCR'ens † (»+ ung«).
+  const t = tekst.replace(/^[*†+\s]+/, '').replace(/\s+/g, ' ').trim();
   const mellem = /mellem\s+(\d{3,4})\b.*?\bog\s+(\d{3,4})\b/i.exec(t);
   if (mellem) return `${mellem[1]}/${mellem[2]}`;
   const m = /(\d{3,4})(\(\d\?\))?(\/\d{3,4})?/.exec(t);
