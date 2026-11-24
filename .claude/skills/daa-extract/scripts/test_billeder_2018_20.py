@@ -290,18 +290,22 @@ def test_kuraterede_koblinger():
 from billeder_2018_20 import KURATEREDE_RUNDE3  # noqa: E402
 
 
-def test_runde3_har_de_21_vaaben():
-    assert len(KURATEREDE_RUNDE3) == 21
+def test_runde3_har_de_20_vaaben_uden_revenfeld():
+    # Projektejeren 24/11: Revenfeld-våbnet (s. 405) skal ikke med.
+    assert len(KURATEREDE_RUNDE3) == 20
+    assert 405 not in {p["side"] for p in KURATEREDE_RUNDE3}
     assert {p["slags"] for p in KURATEREDE_RUNDE3} == {"våben"}
-    assert len({(p["side"], p["nr"]) for p in KURATEREDE_RUNDE3}) == 21
+    assert len({(p["side"], p["nr"]) for p in KURATEREDE_RUNDE3}) == 20
 
 
 def test_runde3_objekt_koblinger_har_ingen_personer():
     objekter = {p["side"]: p["objekt"] for p in KURATEREDE_RUNDE3 if p.get("objekt")}
     assert objekter == {53: {"type": "lineage", "id": 6}, 55: {"type": "lineage", "id": 4},
-                        56: {"type": "lineage", "id": 5}, 58: {"type": "estate", "id": 196},
-                        405: {"type": "lineage", "id": 6}}
-    assert all(p["refs"] == [] and p["klasse"] == "objekt" for p in KURATEREDE_RUNDE3 if p.get("objekt"))
+                        56: {"type": "lineage", "id": 5}, 58: {"type": "estate", "id": 196}}
+    assert all(p["klasse"] == "objekt" for p in KURATEREDE_RUNDE3 if p.get("objekt"))
+    refs = {p["side"]: p["refs"] for p in KURATEREDE_RUNDE3 if p.get("objekt")}
+    # Projektejeren 24/11: grevskabet Vallø knyttes også til Anna Sophia (V, 17); de øvrige objekt-billeder har ingen personer.
+    assert refs == {53: [], 55: [], 56: [], 58: [["V", 17]]}
 
 
 def test_runde3_flere_personer_gaar_til_gennemgang():
@@ -315,5 +319,5 @@ def test_runde3_elefantridder_refs():
     assert refs[68] == [["III", 61]] and refs[73] == [["V", 3]] and refs[75] == [["V", 42]]
 
 
-def test_runde3_kun_53_og_405_har_kurateret_titel():
-    assert {p["side"] for p in KURATEREDE_RUNDE3 if p.get("titel")} == {53, 405}
+def test_runde3_kun_53_har_kurateret_titel():
+    assert {p["side"] for p in KURATEREDE_RUNDE3 if p.get("titel")} == {53}

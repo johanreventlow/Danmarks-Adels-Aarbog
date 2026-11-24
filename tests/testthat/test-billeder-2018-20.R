@@ -411,7 +411,24 @@ test_that("objekt-billede kobles via p_objekt_type/p_objekt_id og aldrig til en 
   expect_false("red_relation" %in% log$rpc)
 })
 
-test_that("et objekt-billede med en person-henvisning er en fejl i manifestet", {
-  forkert <- objekt_billede; forkert$refs <- list(list("V", 106))
-  expect_error(opslaa_afbildede(forkert, ext_fix, aeg_fix), "OBJEKT_MED_PERSON")
+test_that("objekt-billede kan også kobles til kuraterede personer (Vallø + Anna Sophia), og de skal findes", {
+  med_person <- objekt_billede; med_person$refs <- list(list("V", 106))
+  r <- opslaa_afbildede(med_person, ext_fix, aeg_fix)
+  expect_equal(r$person_ids, "501")
+  expect_true(r$sikker)
+  ukendt <- objekt_billede; ukendt$refs <- list(list("I", 999))
+  r <- opslaa_afbildede(ukendt, ext_fix, aeg_fix)
+  expect_false(r$sikker)
+  p <- byg_plan(list(billeder = list(ukendt)), ext_fix, aeg_fix, tom_medier)
+  expect_false(p$maa_publiceres)
+})
+
+test_that("objekt + person: både p_afbildet_person_id og p_objekt_type sendes", {
+  r <- ny_raekke
+  r$person_ids <- "470"; r$portraet <- list(); r$objekt <- list(type = "estate", id = 196L)
+  log <- anvend_med_fake(r, eksisterende = NULL)
+  a <- log$args$red_upload_media
+  expect_equal(a$p_afbildet_person_id, "470")
+  expect_equal(a$p_objekt_type, "estate")
+  expect_equal(a$p_objekt_id, "196")
 })

@@ -260,8 +260,8 @@ KURATEREDE = [
 ]
 
 
-# Runde 3: våben (spec-afsnit »Runde 3«). Ét billede pr. side; titlen hentes fra sidens tekst, undtagen s. 53 og s. 405,
-# hvor billedet står i brødtekst. `objekt` = ikke-person-kobling (media → lineage/estate).
+# Runde 3: våben (spec-afsnit »Runde 3«). Ét billede pr. side; titlen hentes fra sidens tekst, undtagen s. 53, hvor
+# billedet står uden egentlig billedtekst. `objekt` = ikke-person-kobling (media → lineage/estate).
 def _v(side, klasse="egen", refs=None, objekt=None, titel=None, datering=None):
     return dict(side=side, nr=1, billeder=[0], slags="våben", klasse=klasse, refs=refs or [], objekt=objekt,
                 titel=titel, datering=datering)
@@ -273,7 +273,8 @@ KURATEREDE_RUNDE3 = [
     _v(55, "objekt", objekt={"type": "lineage", "id": 4}, datering="1767"),
     _v(56, "objekt", objekt={"type": "lineage", "id": 5}, datering="1673"),
     _v(57, "flere", datering="1712"),  # fyrstinde af Slesvig: Anna Sophia (V, 17), ingen henvisning i teksten
-    _v(58, "objekt", objekt={"type": "estate", "id": 196}, datering="1713"),
+    # Grevskabet Vallø: godset + Anna Sophia (V, 17), projektejeren 24/11. Revenfeld (s. 405) er udeladt efter ønske.
+    _v(58, "objekt", refs=[["V", 17]], objekt={"type": "estate", "id": 196}, datering="1713"),
     _v(59, refs=[["I", 59]]),
     _v(60, refs=[["I", 63]]),
     _v(61, refs=[["I", 74]], datering="1581"),
@@ -289,11 +290,6 @@ KURATEREDE_RUNDE3 = [
     _v(73, refs=[["V", 3]]),
     _v(74, refs=[["V", 25]]),
     _v(75, refs=[["V", 42]]),
-    _v(405, "objekt", objekt={"type": "lineage", "id": 6},
-       titel="Revenfeld. Skjold: Firdelt. 1. og 4. felt: i sølv et blåt skjold med guld og rød rand og guld bukkel. "
-             "2. og 3. felt: i rødt en guld hjelm hvorpå sølv fjerbuske. Hjelmtegn: En jernklædt arm svingende et sværd. "
-             "Detlef, Conrad og Conradine, naturlige børn af Conrad greve de Reventlow (1644-1708), blev ved patent af "
-             "7. september 1695 optaget i adelig stand med navnet Revenfeld."),
 ]
 
 

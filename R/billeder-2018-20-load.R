@@ -73,12 +73,13 @@ match_aegtefaelle <- function(aar, navn, kandidater) {
 opslaa_afbildede <- function(billede, ext, aegtefaeller) {
   klasse <- billede$klasse
   refs <- billede$refs %||% list()
-  # Runde 3: kuraterede objekt-koblinger (media → lineage/estate). Ingen personer: GDPR-gatingen scanner kun personer,
-  # så et objekt-billede må aldrig samtidig pege på en person uden gennemgang.
+  # Runde 3: kuraterede objekt-koblinger (media → lineage/estate). Kuraterede person-henvisninger (fx Vallø + Anna
+  # Sophia, projektejeren 24/11) slås op som andre; findes én ikke, er billedet usikkert og skjules (fail-closed).
   if (!is.null(billede$objekt)) {
-    if (length(refs)) stop(sprintf("OBJEKT_MED_PERSON: %s", billede$noegle %||% "?"), call. = FALSE)
-    return(list(person_ids = character(), sikker = TRUE,
-                begrundelse = sprintf("objekt: %s %s", billede$objekt$type, billede$objekt$id)))
+    ids <- vapply(refs, .ref_til_person, character(1), ext = ext)
+    return(list(person_ids = ids, sikker = !anyNA(ids),
+                begrundelse = sprintf("objekt: %s %s%s", billede$objekt$type, billede$objekt$id,
+                                      if (length(ids)) " + personer" else "")))
   }
   if (identical(klasse, "aegtefaelle")) {
     anker <- .ref_til_person(billede$aegtefaelle_anker, ext)
