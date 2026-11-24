@@ -15,6 +15,7 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 - **»Nævnt i Aarbogen« slået fra** (`TEMP_DISABLED_KINDS`): typen handler om personer uden indhold. Koden og testene
   bliver, så den kan tændes igen.
 - **Billeder tæller først med spor 2:** motoren tager `personerMedBillede`, web sender det ikke endnu (9 personer i dag).
+  **Embeder tæller kun på mobil** indtil web's feed indlæser dem (`feedAux.ts`: `officesBy: {}`); titlen dækker de fleste.
 - **Teknik:** et valgfrit flag `FeedInputs.forsideKrav` i `packages/feed` (`forside.ts`), sat af web og mobil. Uden
   flaget er ordningen uændret, så ekvivalenstesten mod den frosne `orderReference.ts` stadig beviser trækningsløkken.
   *Følge:* web's genopbygning (`resumeStream`) springer også allerede viste personer over.

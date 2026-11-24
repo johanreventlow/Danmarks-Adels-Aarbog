@@ -4,6 +4,7 @@ import {
   blevVoksen, doedForLaengeSiden, harIndhold, harRigtigtNavn, kunForsideVaerdige, type ForsideKontekst,
 } from '../forside';
 import { buildFeedOrder } from '../order';
+import { TEMP_DISABLED_KINDS } from '../score';
 import { bookmarkPersonId } from '../types';
 import type { FeedCard, FeedInputs, HaendelseItem, LivsdatoBy, Model } from '../types';
 
@@ -34,6 +35,9 @@ describe('harRigtigtNavn', () => {
   it.each(['(Søn) Reventlow', '( datter ) Reventlow', 'N. N. von Lützow', 'N.N. Lunov eller Anne Juel af Aabjærg'])(
     '%s er ikke et rigtigt navn', (navn) => expect(harRigtigtNavn(navn)).toBe(false),
   );
+  it.each(['Unavngivet barn', '(uden navn)'])('pladsholderen %s er ikke et rigtigt navn', (navn) => {
+    expect(harRigtigtNavn(navn)).toBe(false);
+  });
   it.each(['(Anna?) von Ahlefeldt', 'Christian Ditlev Reventlow', 'Nanna Reventlow'])(
     '%s er et rigtigt navn', (navn) => expect(harRigtigtNavn(navn)).toBe(true),
   );
@@ -47,6 +51,13 @@ describe('blevVoksen', () => {
   it('15 år eller ukendt alder tæller som voksen', () => {
     expect(blevVoksen(person('1', { born: 1700, died: 1715 }))).toBe(true);
     expect(blevVoksen(person('1', { born: null, died: 1700 }))).toBe(true);
+  });
+  it('»† s.d.« (dødsår kun i spændet, died null) er ikke voksen', () => {
+    expect(blevVoksen(person('1', { born: 1750, died: null, doedSpaend: [1750, 1750], doedTekst: '† s.d.' }))).toBe(false);
+  });
+  it('et dødsspænd tæller med sit øvre år mod fødselsspændets nedre', () => {
+    expect(blevVoksen(person('1', { born: 1700, died: 1706, doedSpaend: [1706, 1720] }))).toBe(true);
+    expect(blevVoksen(person('1', { born: 1701, died: 1712, foedtSpaend: [1699, 1701] }))).toBe(false);
   });
   it.each(['† ung', 'lille', '+ ung', '† ung.'])('dødsteksten »%s« er ikke voksen', (doedTekst) => {
     expect(blevVoksen(person('1', { born: null, doedTekst }))).toBe(false);
@@ -136,6 +147,23 @@ describe('buildFeedOrder med forsideKrav', () => {
       expect(personKort(buildFeedOrder(enPerson(), AUX, base({ seed, livsdatoBy, forsideKrav: true })), '1'))
         .toHaveLength(1);
     }
+  });
+
+  it('med prods TEMP_DISABLED_KINDS: højst ét kort pr. person blandt flere personer', () => {
+    const model = mkModel(['1', '2', '3'].map((id) => person(id, { name: 'Person Reventlow ' + id, bio: LANG })));
+    const ld: LivsdatoBy = Object.fromEntries(['1', '2', '3'].map((id) => [id, livsdatoBy['1']]));
+    let dubletterUden = 0;
+    for (let seed = 1; seed <= 100; seed++) {
+      const ins = base({ seed, livsdatoBy: ld, disabledKinds: TEMP_DISABLED_KINDS });
+      const taeller = (cards: FeedCard[]) => {
+        const n = new Map<string, number>();
+        for (const id of cards.map(bookmarkPersonId)) if (id) n.set(id, (n.get(id) ?? 0) + 1);
+        return Math.max(0, ...n.values());
+      };
+      if (taeller(buildFeedOrder(model, AUX, ins)) > 1) dubletterUden++;
+      expect(taeller(buildFeedOrder(model, AUX, { ...ins, forsideKrav: true }))).toBe(1);
+    }
+    expect(dubletterUden).toBeGreaterThan(0);
   });
 
   it('fastgjort kort vinder over personens øvrige kort', () => {

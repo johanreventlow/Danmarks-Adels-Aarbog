@@ -29,6 +29,9 @@ Og for forsiden som helhed:
    uden indhold og strider mod krav 4. Koden bliver; typen lægges i `TEMP_DISABLED_KINDS`, så den kan tændes igen.
 8. **Billeder tæller først med spor 2** (projektejeren 24/11). Motoren får krav 4's billed-gren som valgfrit input
    (`personerMedBillede`); web sender det ikke endnu. I dag har 9 personer i prod et billede.
+9. **Embeder tæller kun på mobil indtil videre.** Web indlæser ikke embeder til feedet (`web/src/data/feedAux.ts`:
+   `officesBy: {}`), så en person, hvis eneste indhold er et embede, kommer ikke på web-forsiden. Titlen dækker de
+   fleste; embederne følger, når web's feed får dem (samme vej som billederne).
 
 Personsiden er uændret: alle offentlige personer kan stadig åbnes.
 

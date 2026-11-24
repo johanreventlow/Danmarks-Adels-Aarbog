@@ -1,6 +1,7 @@
 // Forsidens minimumskrav til personer (spec docs/superpowers/specs/2026-11-24-forside-minimumskrav-design.md,
 // projektejeren 24/11). Gælder kun forsiden — personsiden viser stadig alle offentlige personer. Anvendes oven på
 // GDPR-gaten i levende.ts (kun sikkert døde) og kun når FeedInputs.forsideKrav er sat.
+import { UDEN_NAVN, UNAVNGIVET_BARN } from '@daa/core';
 import { LEVENDE_ALDERSGRAENSE } from './levende';
 import type { FeedAux, HaendelserBy, Model } from './types';
 
@@ -18,12 +19,14 @@ export type ForsideKontekst = {
   personerMedBillede?: ReadonlySet<string>;
 };
 
-// Et rollenavn i parentes (»(Søn)«) eller »N. N.« er ikke et navn. »(Anna?)« er et usikkert, men rigtigt navn.
+// Et rollenavn i parentes (»(Søn)«), »N. N.« eller visningens pladsholder for en person uden navn (»Unavngivet barn«,
+// »(uden navn)«, @daa/core personNavn.ts) er ikke et navn. »(Anna?)« er et usikkert, men rigtigt navn.
 const ROLLENAVN = /^\(\s*(søn|datter|barn|dreng|pige)\s*\)/i;
 const NN = /^N\.\s?N\./i;
 
 export function harRigtigtNavn(name: string): boolean {
   const n = name.trim();
+  if (n === UNAVNGIVET_BARN || n === UDEN_NAVN) return false;
   return !ROLLENAVN.test(n) && !NN.test(n);
 }
 
@@ -32,7 +35,11 @@ const DOED_SOM_BARN = /(^|[^\p{L}])(ung|lille|spæd)([^\p{L}]|$)/iu;
 
 export function blevVoksen(p: ModelPerson): boolean {
   if (p.doedTekst && DOED_SOM_BARN.test(p.doedTekst)) return false;
-  if (p.born != null && p.died != null) return p.died - p.born >= FORSIDE_MIN_ALDER;
+  // Spændene: web opløser »† s.d.«/»† s.å.« mod fødslen i doedSpaend, mens died forbliver null. Øvre dødsår mod nedre
+  // fødselsår, så en usikker dato tæller i hele sin bredde (»† 1706/1720« for en født 1700 er voksen).
+  const doed = p.doedSpaend?.[1] ?? p.died;
+  const foedt = p.foedtSpaend?.[0] ?? p.born;
+  if (foedt != null && doed != null) return doed - foedt >= FORSIDE_MIN_ALDER;
   return true;
 }
 
