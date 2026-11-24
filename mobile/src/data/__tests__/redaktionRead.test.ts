@@ -51,6 +51,20 @@ test('mapKonfliktRow oversætter faktatype → UI-felt + bærer fact_id', () => 
     .toEqual({ personId: '7', felt: 'navn', antalVaerdier: 2, factId: 42 });
 });
 
+// Review 37 R37B-5 (spejl af web): en tilbagetrukken eller forældet konklusion udpeger ikke længere sin påstand.
+test.each([['tilbagetrukket', null, false], ['forældet', null, false], ['afklaret', 1, true], [undefined, 1, true]] as const)(
+  'joinEvidence: konklusion med status %s', (status, forventetId, erKonklusion) => {
+    const ev = joinEvidence({
+      facts: [{ id: 7, faktatype: 'titel' }],
+      assertions: [{ id: 1, target_id: 7, vaerdi_tekst: 'Greve', date_min: null, date_max: null, date_qualifier: null, date_raw: null }],
+      conclusions: [{ target_id: 7, valgt_assertion_id: 1, status }],
+      citations: [], koen: null,
+    });
+    const felt = Object.values(ev.felter).flat()[0];
+    expect(felt.konklusionAssertionId).toBe(forventetId);
+    expect(felt.oplysninger[0].erKonklusion).toBe(erKonklusion);
+  });
+
 test('joinEvidence samler felter (liste pr. felt), markerer konklusion + uenig pr. fact', () => {
   const ev = joinEvidence({ facts: FACTS, assertions: ASSERTS, conclusions: CONCS, citations: CITS, koen: 'M' });
   expect(ev.koen).toBe('M');

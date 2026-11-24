@@ -61,6 +61,29 @@ describe('joinEvidence: uforanderlige kildepåstande (review trin B, 1d.1-02)', 
   });
 });
 
+// Review 37 R37B-5: en tilbagetrukken (eller forældet) konklusion er ikke længere konklusionen. Dens påstand skal
+// vises som almindelig oplysning, så »Gør til konklusion« findes på den igen.
+describe('joinEvidence: kun gældende konklusioner (R37B-5)', () => {
+  const base = { target_id: 7, date_min: null, date_max: null, date_qualifier: null, date_raw: null, uforanderlig: true };
+  const med = (status: string | undefined) => joinEvidence({
+    facts: [{ id: 7, faktatype: 'titel' }],
+    assertions: [{ ...base, id: 1, vaerdi_tekst: 'Greve' }],
+    conclusions: [{ target_id: 7, valgt_assertion_id: 1, status }],
+    citations: [],
+    koen: null,
+  });
+  it.each(['afklaret', 'omstridt', undefined])('status %s → konklusion', (status) => {
+    const felt = Object.values(med(status).felter).flat()[0];
+    expect(felt.konklusionAssertionId).toBe(1);
+    expect(felt.oplysninger[0].erKonklusion).toBe(true);
+  });
+  it.each(['tilbagetrukket', 'forældet'])('status %s → ingen konklusion', (status) => {
+    const felt = Object.values(med(status).felter).flat()[0];
+    expect(felt.konklusionAssertionId).toBeNull();
+    expect(felt.oplysninger[0].erKonklusion).toBe(false);
+  });
+});
+
 describe('joinEvidence: trykt side (#388)', () => {
   it('fører side_trykt med som sideTrykt; rå PDF-side bevares i side', () => {
     const ev = joinEvidence({

@@ -89,14 +89,18 @@ type RawFact = { id: number; faktatype: string };
 type RawAssert = { id: number; target_id: number; vaerdi_tekst: string | null;
   date_min: string | null; date_max: string | null; date_qualifier: string | null; date_raw: string | null;
   uforanderlig?: boolean | null };
-type RawConc = { target_id: number; valgt_assertion_id: number | null };
+type RawConc = { target_id: number; valgt_assertion_id: number | null; status?: string | null };
+// Review 37 R37B-5: kun en gældende konklusion udpeger en påstand som konklusion (som læsefladerne, schema.sql
+// cn.status IN ('afklaret','omstridt')). Uden status (ældre kaldere/fixtures) regnes den som gældende.
+const GAELDENDE_KONKLUSION = new Set(['afklaret', 'omstridt']);
+const erGaeldende = (c: RawConc) => c.status == null || GAELDENDE_KONKLUSION.has(c.status);
 type RawCit = { assertion_id: number; source_id: number | null; side: string | null; side_trykt?: string | null;
   citat_tekst: string | null; citat_dato: string | null; source?: { titel?: string } | null };
 
 export function joinEvidence(rows: {
   facts: RawFact[]; assertions: RawAssert[]; conclusions: RawConc[]; citations: RawCit[]; koen: string | null;
 }): PersonEvidence {
-  const concByFact = new Map(rows.conclusions.map((c) => [c.target_id, c.valgt_assertion_id]));
+  const concByFact = new Map(rows.conclusions.filter(erGaeldende).map((c) => [c.target_id, c.valgt_assertion_id]));
   const citByAssert = new Map<number, Kilde[]>();
   for (const c of rows.citations) {
     const list = citByAssert.get(c.assertion_id) ?? [];
@@ -150,7 +154,7 @@ export async function fetchPersonEvidence(personId: string): Promise<PersonEvide
   const [assertionsRes, conclusionsRes, personRes] = await Promise.all([
     supabase.from('assertion').select('id,target_id,vaerdi_tekst,date_min,date_max,date_qualifier,date_raw,uforanderlig')
       .eq('target_type', 'fact').in('target_id', factIds),
-    supabase.from('conclusion').select('target_id,valgt_assertion_id')
+    supabase.from('conclusion').select('target_id,valgt_assertion_id,status')
       .eq('target_type', 'fact').in('target_id', factIds),
     supabase.from('person').select('koen').eq('id', pid).maybeSingle(),
   ]);
