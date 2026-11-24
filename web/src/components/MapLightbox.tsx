@@ -29,6 +29,7 @@ export function MapLightbox({ points, onClose }: { points: GeoPoint[]; onClose: 
     <div
       ref={dialogRef}
       data-testid="map-lightbox-backdrop"
+      data-overlay
       role="dialog" aria-modal="true" aria-label="Forstørret kort"
       onClick={onClose}
       style={{

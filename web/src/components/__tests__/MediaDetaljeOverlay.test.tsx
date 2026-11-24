@@ -88,8 +88,10 @@ describe('MediaDetaljeOverlay — sikker fletdialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Flet ind i…' }));
     fireEvent.change(screen.getByLabelText('Original · beholdes'), { target: { value: candidate.id } });
     fireEvent.click(screen.getByRole('button', { name: 'Kør blød flet' }));
-    await waitFor(() => expect(screen.getByAltText('Kopi').getAttribute('aria-disabled')).toBe('true'));
-    fireEvent.click(screen.getByAltText('Kopi'));
+    // Review 37 W8: forhåndsvisningen er en knap, der slås fra under fletningen.
+    const preview = screen.getByRole('button', { name: 'Vis Kopi i fuld størrelse' }) as HTMLButtonElement;
+    await waitFor(() => expect(preview.disabled).toBe(true));
+    fireEvent.click(preview);
     expect(onPreview).not.toHaveBeenCalled();
     await act(async () => resolve({ kind: 'completed', lines: [] }));
   });

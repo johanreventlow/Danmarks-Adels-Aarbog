@@ -737,7 +737,7 @@ function LoginDialog({ login, setLogin, onClose, onSubmit }: {
   const emailRef = useRef<HTMLInputElement>(null);
   useModalFokus(formRef, { onEscape: onClose, startFokus: emailRef });
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(20,17,13,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+    <div onClick={onClose} data-overlay style={{ position: 'fixed', inset: 0, background: 'rgba(20,17,13,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
       {/* Rigtig <form> med <label htmlFor>: skærmlæsere navngiver felterne, og Enter logger ind. */}
       <form ref={formRef} onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); onSubmit(); }} role="dialog" aria-modal="true" aria-labelledby="fs-login-titel" style={{ width: 380, maxWidth: '100%', background: T.surfaceRaised, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '22px 24px 20px' }}>
         <div id="fs-login-titel" style={{ fontFamily: T.serif, fontSize: 22, fontWeight: 600 }}>Log ind</div>

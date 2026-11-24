@@ -98,8 +98,12 @@ export function NarrativRenderer(props: {
           const cap = b.label || mediaCaption(m);
           return (
             <div key={i} style={{ margin: '0.7em 0' }}>
-              <SignedImg src={m.mediumUrl} alt={cap || 'billede'} onClick={() => setLightbox(lightboxIndex)}
-                style={{ maxWidth: '100%', borderRadius: 8, cursor: 'zoom-in', display: 'block' }} />
+              {/* Review 37 W8: en rigtig knap, så billedet kan åbnes med tastatur. */}
+              <button type="button" onClick={() => setLightbox(lightboxIndex)} aria-label={`Vis ${cap || 'billedet'} i fuld størrelse`}
+                style={{ background: 'transparent', border: 0, padding: 0, margin: 0, display: 'block', maxWidth: '100%', cursor: 'zoom-in', borderRadius: 8 }}>
+                <SignedImg src={m.mediumUrl} alt={cap || 'billede'}
+                  style={{ maxWidth: '100%', borderRadius: 8, display: 'block' }} />
+              </button>
               {cap && <div style={{ fontSize: '0.8em', opacity: 0.75, marginTop: 4 }}>{cap}</div>}
             </div>
           );
