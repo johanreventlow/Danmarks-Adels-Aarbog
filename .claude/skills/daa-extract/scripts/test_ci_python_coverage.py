@@ -88,6 +88,34 @@ def test_exclusions_point_at_things_that_exist():
         assert navn.split("[")[0].split("::")[-1] in funktioner, f"forældet --deselect (test): {node}"
 
 
+# Review 37 C13: node-testfiler (`test_*.mjs`) i skill-mapperne kører ikke under pytest og var usynlige for vagten.
+# Hver skal enten køres af ci.yml (stien står i workflowet) eller stå her med årsagen til, at den kun køres lokalt.
+KUN_LOKALT_MJS = {
+    ".claude/skills/daa-extract/scripts/test_c3_html_review_browser_1939_v50.mjs":
+        "kræver Playwright-Chromium og /usr/bin/python3; CI-minutterne er begrænsede. Køres lokalt med "
+        "`node <fil>`, når C3-HTML-reviewet (build_c3_html_review_1939_v50.py) ændres.",
+}
+
+
+def _mjs_test_files():
+    # Samme afgrænsning som _test_files: kun skill-mapperne, ét niveau.
+    return sorted(str(p.relative_to(REPO)) for p in REPO.glob(".claude/skills/*/scripts/test_*.mjs"))
+
+
+def test_every_node_test_file_is_run_or_explicitly_local():
+    ci = CI.read_text(encoding="utf-8")
+    usynlige = [f for f in _mjs_test_files() if f not in ci and f not in KUN_LOKALT_MJS]
+    assert usynlige == [], f"node-testfiler, CI hverken kører eller lister som kun lokale: {usynlige}"
+
+
+def test_local_only_node_tests_exist_and_are_not_also_in_ci():
+    ci = CI.read_text(encoding="utf-8")
+    for f, aarsag in KUN_LOKALT_MJS.items():
+        assert (REPO / f).is_file(), f"forældet KUN_LOKALT_MJS: {f}"
+        assert aarsag.strip(), f"KUN_LOKALT_MJS uden årsag: {f}"
+        assert f not in ci, f"{f} køres af CI og skal ikke stå som kun lokal"
+
+
 def test_every_exclusion_carries_a_reason():
     script = _step_run(_python_job(CI.read_text(encoding="utf-8")))
     linjer = script.splitlines()

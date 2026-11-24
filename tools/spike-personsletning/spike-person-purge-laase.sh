@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Task 0 (fuld personsletning): låse-spike med tvungne interleavings.
 #
-# Brug:  bash tests/sql/spike-person-purge-laase.sh [præfiks] [scenarie ...]
+# Brug:  bash tools/spike-personsletning/spike-person-purge-laase.sh [præfiks] [scenarie ...]
 #   præfiks   navn på engangsbaserne (default spike_purge_ci_<pid>); scriptet opretter <præfiks>_base og én kopi pr.
 #             scenarie (<præfiks>_<n>) og sletter KUN dem, det selv har oprettet i denne kørsel
 #             Baserne BEHOLDES som standard (oprydning sker manuelt efter måling). SPIKE_DROP_DBS=1 sletter dem,
@@ -53,8 +53,8 @@ build_base() {
   createdb "$BASE" || die "createdb $BASE"; CREATED="$CREATED $BASE"
   for f in tests/sql/evidence-promotion-bootstrap.sql schema.sql db-migrations.sql db-rls.sql; do q "$BASE" -f "$f" || die "byg $f"; done
   q "$BASE" -c 'BEGIN' -f tests/sql/reimport-writer-v2-bootstrap.sql -c 'COMMIT' || die v2
-  q "$BASE" -f tests/sql/spike/person-purge-skelet.sql || die skelet
-  q "$BASE" -f tests/sql/spike/person-purge-fixture.sql || die fixtur
+  q "$BASE" -f tools/spike-personsletning/person-purge-skelet.sql || die skelet
+  q "$BASE" -f tools/spike-personsletning/person-purge-fixture.sql || die fixtur
   # Testinstrument: pausepunkt først i begin_change_set (identisk krop ellers; schema.sql l. 9339).
   q "$BASE" <<'SQL' || die pausekrog
 CREATE OR REPLACE FUNCTION begin_change_set(
