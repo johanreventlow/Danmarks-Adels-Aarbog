@@ -396,7 +396,9 @@ export const useStore = create<State>((set, get) => ({
       // Redaktion collapser IKKE: en redaktør skal se de separate DB-poster for at forvalte
       // samme_som-links (spec §8 — redaktions-modellen holdes eksplicit separat).
       const res = await loadFromSupabase({ includePrivat: true, collapse: false });
-      const model = buildModel(res.db);
+      // Review 37 M11: fold-prognosen skal se det rå grundlag (ægteskaber + alle forældrekanter), som
+      // buildModel ikke bevarer.
+      const model = { ...buildModel(res.db), grundlagDb: res.db };
       if (gen !== redaktionGeneration) return; // logout/brugerskift/nyere reload imens → kassér
       set({ redaktionModel: model, redaktionAux: res.aux, redaktionStatus: 'ready' });
     } catch {

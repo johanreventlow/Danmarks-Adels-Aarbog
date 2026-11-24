@@ -10,7 +10,7 @@
 // afgøres på parrets eget nabolag. Alt der ikke BEVISELIGT er inert falder tilbage til den fulde
 // beregning, så svaret forbliver byte-identisk med den naive sti (låst af equivalence-testen).
 import { groupSameAs, resolveSameAs, validateGroups } from './collapseSameAs';
-import type { AppPerson, Db, ParentChild, QuarantineNote, SameAsEdge, Union } from './types';
+import type { AppPerson, Db, Model, ParentChild, QuarantineNote, SameAsEdge, Union } from './types';
 
 type PreflightCtx = {
   personById: Map<string, AppPerson>;
@@ -189,6 +189,20 @@ export function previewSammeSom(
     (q) => q.members.includes(hypotetisk.alias) || q.members.includes(hypotetisk.canonical),
   );
   return karantæne ? { folder: false, grund: karantæne.reason } : { folder: true, grund: null };
+}
+
+/** Prognosens grundlag fra redaktionens model (review 37 M11). Helst det rå grundlag, modellen blev bygget af
+ *  (`grundlagDb`); ellers rekonstrueret med modellens ægteskaber, så selv-ægtefælle-tjekket ikke er blindt.
+ *  Kald det på en stabil model (ikke pr. render), så previewSammeSoms cache genbruges. */
+export function prognoseGrundlag(model: Model): Db {
+  if (model.grundlagDb) return model.grundlagDb;
+  return {
+    persons: model.persons,
+    unions: Object.values(model.indexes.unionById),
+    parentChild: Object.entries(model.indexes.parentsByChild).flatMap(
+      ([child, parents]) => parents.map((parent) => ({ child, parent, union: '' })),
+    ),
+  };
 }
 
 /** Bekræftelsesdialogens fold-prognose. `kanter` er de eksisterende samme_som-kanter: `null` mens de

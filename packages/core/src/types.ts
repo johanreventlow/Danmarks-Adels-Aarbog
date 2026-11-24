@@ -191,6 +191,10 @@ export type Model = {
   // samme_som-collapse: ethvert medlems-id → kanonisk id. Bor på modellen (én kilde), så
   // runtime-læsere resolver alias-id'er uden at tråde et separat map ved siden af.
   canonicalIdById?: Record<string, string>;
+  // Review 37 M11: det rå grundlag, redaktionens (ufoldede) model blev bygget af — med ægteskaber og med de
+  // forældrekanter, buildModel frasorterer. Fold-prognosen skal se det samme som den rigtige sammenlægning.
+  // Valgfrit: sættes kun af redaktionernes indlæsning (web loadModel({ collapse: false }), mobilens store).
+  grundlagDb?: Db;
   // Geo-lag (kortpunkter). Valgfrit: udfyldes af loadModel; tomt indtil koordinat-berigelsen kører.
   geo?: Geo;
   // Generations-koordinater pr. kanonisk person-id (slægtled_lokal/gennem + kuld pr. linje).

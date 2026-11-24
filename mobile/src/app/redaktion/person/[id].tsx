@@ -56,7 +56,7 @@ import {
 } from '../../../data/redaktionRead';
 import { fetchExistingMediaBySha } from '../../../data/mediaDedup';
 import { cleanupUdrensStorage } from '../../../data/mediaUdrens';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, foldePrognose, type SameAsEdge } from '@daa/core';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, foldePrognose, prognoseGrundlag, type SameAsEdge } from '@daa/core';
 import { eraAdvarsel } from '../../../data/eraAdvarsel';
 import { type Change } from '../../../data/redaktionWrite';
 import { useStore } from '../../../store/useStore';
@@ -133,15 +133,9 @@ export default function PersonEditor() {
   const [ssScratch, setSsScratch] = useState<{ personId: string; navn: string; kanoniskId: string } | null>(null);
   const refreshSammeSom = () => { if (id) fetchSammeSomLinks(id).then(setSammeSom).catch((e) => console.warn('[redaktion/person] samme-som fejlede:', e)); };
   useEffect(refreshSammeSom, [id]);
-  // Rå-db til rådgivende pre-flight (rekonstrueret fra redaktionsmodellen; unions ej nødvendig for
-  // karantæne-tjekket — kun personer + forældre-kanter bruges).
-  const ssRawDb = useMemo(() => ({
-    persons: redaktionModel?.persons ?? [],
-    unions: [],
-    parentChild: Object.entries(redaktionModel?.indexes.parentsByChild ?? {}).flatMap(
-      ([child, parents]) => parents.map((parent) => ({ child, parent, union: '' })),
-    ),
-  }), [redaktionModel]);
+  // Rå-db til rådgivende pre-flight. Review 37 M11: samme grundlag som den rigtige sammenlægning (ægteskaber + alle forældrekanter).
+  const ssRawDb = useMemo(() => (redaktionModel ? prognoseGrundlag(redaktionModel)
+    : { persons: [], unions: [], parentChild: [] }), [redaktionModel]);
   // Alle eksisterende samme_som-kanter til arkets fold-prognose (null = hentes, 'fejl' = kunne ikke hentes).
   // Uden dem ligner forældre, der allerede er koblet på tværs af udgaverne, konkurrerende forældre.
   const [ssKanter, setSsKanter] = useState<SameAsEdge[] | null | 'fejl'>(null);
