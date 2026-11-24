@@ -3,6 +3,20 @@
 Plan: `docs/superpowers/plans/2026-11-14-fuld-personsletning.md` (Task 13). Spec og beslutninger:
 `docs/decisions.md` 2026-11-14 (fuld personsletning) og 2026-11-17 (R41/R42 »prøv igen«).
 
+## Ægte GDPR-sletning: intet i git (review 37 P7)
+
+Sletningerne 18/11 var **fejlprofiler, dubletter og importfejl** (dataoprydning). Derfor står deres id'er og tal i
+denne runbook og i færdigbeviset. Ved en sletning efter en **GDPR-anmodning** gælder specens krav (§1, §5.1: »heller
+ikke en indholdsløs linje om, at sletningen fandt sted«) også for repoet:
+
+- **Intet om personen i git:** intet id, navn, antal steder, familie-id, dump-navn, sha eller dato for netop den
+  sletning — hverken i runbooks, planer, færdigbeviser, commit-beskeder, PR'er, issues eller `docs/changelog.md`.
+- **Al dokumentation i `~/.private`** (chmod 700, uden for repoet): forhåndsvisning, før/efter-filer, forventede tal og
+  færdigbevis, fx `~/.private/gdpr-sletning/<dato>/`. Runnerens før/efter-filer ligger der allerede.
+- **Tal i denne runbook er eksempler** fra dataoprydningen 18/11; en GDPR-sletning skriver ikke sine egne tal herind.
+- **Dumpet** lige før er stadig vejen tilbage og ældes ud som de andre dumps (spec §2); det nævnes ikke i git.
+- Er der tvivl om, hvorvidt en sletning er GDPR, så behandl den som GDPR.
+
 ## Udgangspunkt
 
 - **Der er ingen DDL i denne ceremoni.** Al personsletningens DDL (#369, #377, #380) kom i prod med record_persona-
