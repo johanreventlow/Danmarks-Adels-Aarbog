@@ -288,6 +288,16 @@ describe('PersonSide', () => {
       expect(vielser.kald.at(-1)?.slice().sort()).toEqual(['265', '266']);
     });
 
+    it('par i to familier (sammenfoldet på tværs af udgaver): den mest præcise dato vinder', async () => {
+      vielser.svar = { '265': '⚭ 1667', '300': '⚭ 21. juli 1667' };
+      const m = { ...model, ...buildModel({ persons: [person('392', 'Conrad Reventlow', 1644), person('815', 'Anna Margrethe Gabel')],
+        unions: [{ id: 'f265', p1: '392', p2: '815', p2_name: null, year: null }, { id: 'f300', p1: '392', p2: '815', p2_name: null, year: null }],
+        parentChild: [] }) } as unknown as Model;
+      render(<PersonSide {...props({ model: m, focusId: '392' })} />);
+      expect(await within(giftDd()).findByText('⚭ 21. juli 1667')).toBeTruthy();
+      expect(within(giftDd()).queryByText('⚭ 1667')).toBeNull();
+    });
+
     it('ægteskab uden vielsesfakta: ingen ⚭', async () => {
       vielser.svar = {};
       render(<PersonSide {...props({ model: toAegteskaber(), focusId: '392' })} />);

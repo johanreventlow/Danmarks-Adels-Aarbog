@@ -59,6 +59,13 @@ describe('hentVielsesDatoer', () => {
     expect(konkl.filtre).toContainEqual(['in', 'status', ['afklaret', 'omstridt']]);
   });
 
+  it('»Gift ca. 1688« i den rå tekst giver »⚭ ca. 1688«, ikke et sikkert år', async () => {
+    svar.fact = { data: [{ id: 1, subjekt_id: 6 }], error: null };
+    svar.conclusion = { data: [{ target_id: 1, valgt_assertion_id: 11 }], error: null };
+    svar.assertion = { data: [{ id: 11, date_min: '1688-01-01', date_max: '1688-12-31', date_qualifier: null, date_raw: 'Gift ca. 1688' }], error: null };
+    expect(await hentVielsesDatoer(['6'])).toEqual({ '6': '⚭ ca. 1688' });
+  });
+
   it('tom liste kalder ikke databasen', async () => {
     expect(await hentVielsesDatoer([])).toEqual({});
     expect(kald).toEqual([]);

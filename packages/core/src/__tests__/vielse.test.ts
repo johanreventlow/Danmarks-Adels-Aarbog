@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtVielse } from '../vielse';
+import { fmtVielse, vielsePraecision } from '../vielse';
 
 describe('fmtVielse — vielsesdato med ⚭', () => {
   it('kendt dag → »⚭ D. måned ÅÅÅÅ«, dag uden foranstillet nul', () => {
@@ -26,5 +26,30 @@ describe('fmtVielse — vielsesdato med ⚭', () => {
   });
   it('ugyldig streng → intet', () => {
     expect(fmtVielse('ukendt', 'ukendt')).toBe('');
+  });
+});
+
+describe('fmtVielse — »ca.« bevares (prod: »Gift ca. 1688«, kvalifikatoren er tom)', () => {
+  it('rå tekst med »ca.« → »⚭ ca. ÅÅÅÅ«', () => {
+    expect(fmtVielse('1688-01-01', '1688-12-31', { raw: 'Gift ca. 1688' })).toBe('⚭ ca. 1688');
+    expect(fmtVielse('1632-01-01', '1632-12-31', { raw: 'Gift omkring 1632' })).toBe('⚭ ca. 1632');
+  });
+  it('kvalifikator about → »ca.«, aldrig en dag', () => {
+    expect(fmtVielse('1700-05-05', '1700-05-05', { qualifier: 'about' })).toBe('⚭ ca. 1700');
+  });
+  it('anden kvalifikator end exact (før/efter) → intet, aldrig en for præcis dato', () => {
+    expect(fmtVielse('1618-01-01', '1618-12-31', { qualifier: 'after' })).toBe('');
+    expect(fmtVielse('1759-09-25', '1759-09-25', { qualifier: 'exact' })).toBe('⚭ 25. sept. 1759');
+  });
+  it('stednavn med »før« i sig er ikke en kvalifikator', () => {
+    expect(fmtVielse('1759-09-25', '1759-09-25', { raw: 'Gift 25. sept. 1759 i Egernførde' })).toBe('⚭ 25. sept. 1759');
+  });
+});
+
+describe('vielsePraecision — dag slår år slår ca.-år', () => {
+  it('rangerer formaterede tekster', () => {
+    expect(vielsePraecision('⚭ 21. juli 1667')).toBeGreaterThan(vielsePraecision('⚭ 1667'));
+    expect(vielsePraecision('⚭ 1667')).toBeGreaterThan(vielsePraecision('⚭ ca. 1667'));
+    expect(vielsePraecision('⚭ ca. 1667')).toBeGreaterThan(vielsePraecision(''));
   });
 });

@@ -22,7 +22,7 @@ import { kunIAeldreTekst, type KunIAeldreTekst } from '../data/kunIAeldre';
 import { mediaCaption, type MediaItem } from '../data/media';
 import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
-import { bogensNummer, familieIderForPerson, lifeJourney, type UdgaveChip } from '@daa/core';
+import { bogensNummer, familieIderForPerson, lifeJourney, vielsePraecision, type UdgaveChip } from '@daa/core';
 import { hentVielsesDatoer } from '../data/vielser';
 import { NarrativRenderer } from './NarrativRenderer';
 import { PersonFakta } from './PersonFakta';
@@ -76,7 +76,11 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
     void hentVielsesDatoer(familieNoegle.split(',')).then((byFam) => {
       if (!aktuel) return;
       const ud: Record<string, string> = {};
-      for (const a of aegteskaber) if (a.spouseId && byFam[a.familyId] && !ud[a.spouseId]) ud[a.spouseId] = byFam[a.familyId];
+      // Står parret i flere familier (sammenfoldet på tværs af udgaver), vinder den mest præcise dato.
+      for (const a of aegteskaber) {
+        const t = byFam[a.familyId];
+        if (a.spouseId && t && vielsePraecision(t) > vielsePraecision(ud[a.spouseId] ?? '')) ud[a.spouseId] = t;
+      }
       setVielseBySpouse(ud);
     });
     return () => { aktuel = false; };
