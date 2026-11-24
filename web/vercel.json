@@ -1,7 +1,7 @@
 {
   "installCommand": "npm ci --prefix ..",
   "rewrites": [
-    { "source": "/((?!assets/|vaaben/|robots.txt|daf-logo.png).*)", "destination": "/index.html" }
+    { "source": "/((?!api/|assets/|vaaben/|robots.txt|daf-logo.png).*)", "destination": "/index.html" }
   ],
   "headers": [
     {

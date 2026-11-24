@@ -19,6 +19,32 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   søgemaskiner: offentlige sider forhåndsgenereres statisk, så crawlere rammer CDN'en og ikke RPC'erne; (3) udgiftsloft
 >   og alarm hos Vercel og Supabase før lancering, så en robotbølge ikke bliver en regning.
 
+## BESLUTTET: forsidens data pakkes færdigt af en Vercel-funktion bag Vercels CDN (2026-11-24)
+
+Forsiden hentede biografier, hændelser, livsdatoer, historier og nævnt-grundlag direkte fra Supabase ved hvert besøg
+(100+ kald, 10-12 s; en del ramte gæsternes 3 s-loft), så de første seks kort blev datokort. Nu samler
+`web/api/forside-data.ts` de rå svar i én fil, som Vercels CDN gemmer; browseren blander stadig kortene tilfældigt pr.
+besøg. Spec: `docs/superpowers/specs/2026-11-24-forside-data-cache-design.md`.
+
+- **Kun anon-nøglen.** Funktionen henter som gæst; RLS og de offentlige RPC'er afgør, hvad der kommer med. Aldrig
+  service-rollen. *Følge:* hver offentlig tabel, forsiden læser, skal være RLS-sikret som i dag — filen er offentlig og
+  ens for alle.
+- **Edge-runtime** (`export const config = { runtime: 'edge', regions: ['fra1'] }`): Vercels Node-runtime samler ikke
+  koden, og ESM-importen af workspace-pakker, der kun findes som TypeScript-kilde, fejlede ved kørsel (500 på previewet
+  24/11). Edge samles af Vercel til én fil; genereringen tog ~13 s lokalt mod prod (Edge-loft: svar inden 25 s).
+- **Cache:** alt komplet → `s-maxage=3600, stale-while-revalidate=86400` (projektejeren 24/11: hellere en langsommere
+  opdatering end en langsom forside; en person gjort privat kan stå i den offentlige fil op til ~25 t, men vises ikke på
+  siden, fordi gæstens model ikke har personen); noget mangler eller er delvist → `s-maxage=300` (browseren pakker fail-closed ud, og en fejl giver ikke en ny
+  generering ved hvert besøg); personlisten kan ikke hentes → `503` + `no-store`. Klienten afviser en fil ældre end
+  48 timer.
+- **Alle får filen**, også indloggede (projektejeren, valg A): en rettelse ses straks på personsiden og inden for en time
+  på forsiden.
+- **Fravær:** en ufuldstændig fil, eller en fil der ikke dækker browserens model (en ikke-levende person tilføjet efter
+  generering), giver ingen »Nævnt i Aarbogen«-kort.
+- **Tilbagefald:** mangler filen (kold cache efter deploy, fejl, for gammel, over 2 s), henter forsiden direkte som før.
+- **Rutine før fremvisning:** varm filen med `curl -sI https://<side>/api/forside-data` (uden tidsgrænse; browseren
+  giver op efter 2 s) og se `x-vercel-cache: HIT` ved andet kald — samme rutine som at holde basen vågen.
+
 ## BESLUTTET: klienter har kun læseret i public; skriveret er en eksplicit undtagelse (#397 R37S8-2, 2026-11-23)
 
 > Projektejeren 23/11 (valgte »alle tabeller« + tællere + fremtidige tabeller, efter forklaring): gæster (`anon`) og
