@@ -2,6 +2,33 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: leveårene ved navnet er den nyeste udgaves udsagn, med bogens forbehold (2026-11-24)
+
+> Projektejeren 24/11 om Siwert (id 97): »* 1500« stod ved navnet, men kun DAA 1939 skriver »o. 1500«; 2018-20 skriver
+> »Nævnt (-1523-1569-)« og »† efter 1575«. Valgt: variant A (floruit vises stadig ikke, når der er en livsdato).
+
+- **Én udgaves udsagn.** Når samme person står i flere udgaver (`samme_som`), tager overskriften fødsel, død og floruit
+  samlet fra den første post, der siger noget om datoerne: den kanoniske (nyeste) først, derefter aliaserne. Felterne
+  flettes ikke enkeltvis (før: Siwert fik fødsel fra én 1939-dublet og død fra en anden). Tallene (`born`/`died`, spænd)
+  følger samme post, så sortering, søgning og jubilæumskort ikke bruger et ældre gæt. Siger den nyeste udgave intet om
+  datoerne, bruges den ældres udsagn samlet. Ældre udgavers datoer står fortsat på personsiden (»Kun i DAA 1939«).
+- **Forbehold bevares.** En sammenfoldet persons år vises kort (`kortLivsdato`): »efter 1575«, »o. 1500«,
+  »147(5?)«, »1342/1353«, »1678?«; dag og måned falder bort som før. »147(5?)« regnes som 1475 (person 77 blev regnet
+  som død år 147).
+- **Erstatter** to tidligere regler i sammenfoldningen: floruit som forening over alle poster (visning-floruit; 5 par
+  får nu kun den nyeste udgaves spænd, fx Ghese 1475–1496 i stedet for 1456–1503) og 21/11-reglen om, at et alias'
+  årstal eller dødstekst flettes ind ved siden af den kanoniske posts dato.
+- **Forudsætning:** den kanoniske post er den nyeste udgave. Målt i prod 24/11 over 815 afklarede `samme_som`-par: intet
+  par peger mod en ældre udgave; 47 par har ingen målbar udgave. Omfang: 4 fødsler og 15 dødsår kom før fra en ældre
+  udgave; 11 personer får fortsat hele udsagnet fra 1939, fordi 2018-20 intet siger om datoerne.
+- **Ingen undtagelse for »† ung«/»† lille«** (projektejeren 24/11: »lad os holde reglen«). Har den nyeste udgave en
+  fødsel, men ingen død i visningscachen, vises et ældre »ung«/»lille« ikke. Rammer 3 personer: 100 og 333 (kun 1939
+  skriver det) og 102 (2018-20 skriver »ung«, men som tekst uden dato, som #396 holder ude af `visning_doed`).
+- **Kendte rester:** jubilæumskortene (`packages/feed/src/pool.ts`) regner stadig »efter 1575« og »ca. 1484« som
+  eksakte år. Personerne 23 og 122 har en floruit i 2018-20, der strider mod 1939's livsdatoer (sandsynligvis forkert
+  kobling eller floruit) og viser nu »Nævnes …«.
+- **Teknik:** `packages/core` (`collapseSameAs.ts`, `fields.ts`), så web og mobil får det samme. Ingen DB-ændring.
+
 ## BESLUTTET: portrætterne fra DAA 2018-20 importeres som redaktionelle medier, synlige uden afklaret ophavsret (2026-11-24)
 
 > Projektejeren 24/11 (spor 2 i POC-klargøringen): »Vi laver foreløbig kun POC, så jeg vil gerne have alt med. Når

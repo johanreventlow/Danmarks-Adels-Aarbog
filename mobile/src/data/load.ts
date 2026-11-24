@@ -101,6 +101,9 @@ export function mapAppPersons(
       died: parseYear(p.visning_doed),
       floruit: p.visning_floruit ?? null,
       years: fmtVisningsAar(p.visning_foedt, p.visning_doed, p.visning_floruit),
+      // Bogens tekst til sammenfoldningens overskrift (»† efter 1575«, ikke »† 1575«), som web.
+      foedtTekst: p.visning_foedt ?? null,
+      doedTekst: p.visning_doed ?? null,
       title: p.visning_titel || '',
       bio: bioBy[String(p.id)] || '',
       privat: Boolean(p.privat),
