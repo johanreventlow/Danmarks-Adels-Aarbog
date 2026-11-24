@@ -683,7 +683,7 @@ export default function Folgesvend() {
                   onOpenArms: () => goToMode('arms'),
                   onOpenSlaegt: (aId, bId) => findSlaegtskab(aId, bId),
                   onBrowseAll: () => goToMode('soeg') }} />
-            : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={saveOrPrompt} loggedIn={bookmarks.canSave} onRequireLogin={() => setLoginOpen(true)} /> : <div style={{ padding: 40, color: T.inkMuted }}>Henter…</div>)
+            : mode === 'bookmarks' ? (model ? <BookmarksView model={model} ids={bookmarkIds} sort={bmSort} setSort={setBmSort} onPick={pickBookmark} onRemove={saveOrPrompt} loggedIn={bookmarks.canSave} onRequireLogin={() => setLoginOpen(true)} fejl={bookmarks.fejl} onRetry={bookmarks.genindlaes} /> : <div style={{ padding: 40, color: T.inkMuted }}>Henter…</div>)
             : mode === 'kort' ? <OverviewMapView model={model} geoLoading={geoLoading} onPickPerson={visPerson} onPickEstate={(id) => navigate(estatePath(id))} />
             : mode === 'praesens' ? <PresensView model={model} onPickPerson={visPerson} session={sessionKlar ? session : 'henter'} onLogin={() => setLoginOpen(true)} onGoTree={() => goToMode('tree')} />
             : mode === 'soeg' ? (

@@ -18,8 +18,9 @@ export function createRemoteBookmarkRepository(): BookmarkRepository {
   return {
     list: async () => {
       const { data, error } = await supabase.from('bookmark').select('person_id').order('oprettet', { ascending: false });
-      if (error || !data) return [];
-      return data.map((r: { person_id: string | number }) => String(r.person_id));
+      // Review 37 W12: en fejl er ikke »ingen bogmærker« — kalderen skal kunne vise fejlen og prøve igen.
+      if (error) throw new Error(error.message);
+      return (data ?? []).map((r: { person_id: string | number }) => String(r.person_id));
     },
     add: async (personId) => {
       const { error } = await supabase.from('bookmark').upsert(
@@ -49,7 +50,10 @@ function sameOrder(a: string[], b: string[]): boolean {
 export function useBookmarks(
   userId: string | null,
   canonicalIdById: Record<string, string>,
-): { ids: Set<string>; has(id: string): boolean; canSave: boolean; ready: boolean; hydrationVersion: number; toggle(id: string): void } {
+): {
+  ids: Set<string>; has(id: string): boolean; canSave: boolean; ready: boolean; hydrationVersion: number;
+  fejl: boolean; genindlaes(): void; toggle(id: string): void;
+} {
   const repoRef = useMemo(() => createRemoteBookmarkRepository(), []);
   const [idsList, setIdsList] = useState<string[]>([]);
   const pendingRef = useMemo(() => new Set<string>(), []); // id'er med in-flight write (H2-guard)
@@ -59,6 +63,11 @@ export function useBookmarks(
     canonicalIdById: Record<string, string>;
   } | null>(null);
   const [hydrationVersion, setHydrationVersion] = useState(0);
+  // Review 37 W12: hentningen fejlede. ready bliver alligevel sand (med tom liste), så feedet ikke venter for
+  // evigt på et bogmærke-snapshot; bogmærkesiden viser fejlen og kan prøve igen via genindlaes().
+  const [fejl, setFejl] = useState(false);
+  const [forsoeg, setForsoeg] = useState(0);
+  const genindlaes = useCallback(() => setForsoeg((n) => n + 1), []);
   const canon = useMemo(() => (id: string) => canonicalIdById[id] ?? id, [canonicalIdById]);
 
   useEffect(() => {
@@ -69,6 +78,7 @@ export function useBookmarks(
       setIdsList((prev) => (prev.length === 0 ? prev : []));
       lastUserIdRef.current = null;
       setLoadedFor(null);
+      setFejl(false);
       return;
     }
     // Ryd KUN ved et REELT brugerskift (review 22 N2-mitigering), sporet via ref — ikke ved
@@ -81,8 +91,9 @@ export function useBookmarks(
     }
     lastUserIdRef.current = userId;
     let alive = true;
-    void repoRef.list().then((raw) => {
+    repoRef.list().then((raw) => {
       if (!alive) return;
+      setFejl(false);
       const norm = raw.map(canon);
       // Merge: behold optimistisk tilstand for id'er der har en in-flight write (H2).
       setIdsList((prev) => {
@@ -92,9 +103,15 @@ export function useBookmarks(
       });
       setLoadedFor({ userId, canonicalIdById });
       setHydrationVersion((version) => version + 1);
+    }, (e: unknown) => {
+      if (!alive) return;
+      console.warn('[bookmarks] hentning fejlede:', e);
+      setFejl(true);
+      setLoadedFor({ userId, canonicalIdById });
+      setHydrationVersion((version) => version + 1);
     });
     return () => { alive = false; };
-  }, [userId, canon, canonicalIdById, repoRef, pendingRef]);
+  }, [userId, canon, canonicalIdById, repoRef, pendingRef, forsoeg]);
 
   const ready = userId == null || (
     loadedFor?.userId === userId && loadedFor.canonicalIdById === canonicalIdById
@@ -126,7 +143,7 @@ export function useBookmarks(
 
   return {
     ids, has: (id) => ids.has(canon(id)), canSave: userId != null,
-    ready, hydrationVersion, toggle,
+    ready, hydrationVersion, fejl: userId != null && fejl, genindlaes, toggle,
   };
 }
 
