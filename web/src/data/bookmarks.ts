@@ -88,6 +88,9 @@ export function useBookmarks(
     // kun et misvisende UI-glimt uden denne rydning).
     if (lastUserIdRef.current !== userId) {
       setIdsList((prev) => (prev.length === 0 ? prev : []));
+      // Den forrige brugers hentefejl gælder ikke den nye. (Ved »Prøv igen« står fejlen, til svaret kommer,
+      // så siden ikke blinker »Ingen bogmærker endnu«.)
+      setFejl(false);
     }
     lastUserIdRef.current = userId;
     let alive = true;
