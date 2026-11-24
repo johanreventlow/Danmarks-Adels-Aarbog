@@ -13400,7 +13400,13 @@ BEGIN
                              ORDER BY coalesce(e.l, f.l)), '')
     INTO v_fejl
     FROM forventet e FULL JOIN faktisk f ON e.l = f.l WHERE e.l IS NULL OR f.l IS NULL;
-  IF v_fejl <> '' THEN RAISE EXCEPTION 'FEJL: review37 c1 S9 —%', v_fejl; END IF;
+  IF v_fejl <> '' THEN
+    RAISE EXCEPTION 'FEJL: review37 c1 S9 —%', v_fejl
+      USING HINT = 'uventet = en public-funktion uden for red_*, som anon/authenticated kan kalde, men som ikke står på '
+        || 'listen. Skal klienten kalde den: føj den til listen i db-verify.sql (enhed c1); for anon også en linje i '
+        || 'docs/decisions.md. Ellers: REVOKE EXECUTE ON FUNCTION … FROM PUBLIC, anon, authenticated (ved navn; Supabase '
+        || 'giver EXECUTE direkte). mangler = en funktion på listen er omdøbt/fjernet eller har mistet kalderetten.';
+  END IF;
 
   -- Y8 + Y10: indeksene findes.
   IF to_regclass('private.ix_interpretation_promotion_target') IS NULL OR to_regclass('public.ix_fact_type_subjekt') IS NULL
