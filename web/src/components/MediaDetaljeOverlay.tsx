@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import type { MediaAnvendelse, PersonMedia, UdrensPreview } from '../data/redaktionRead';
 import { MEDIA_FAKTATYPER, type MediaFakta, type MediaFaktatype } from '../data/media';
 import { T } from '../theme';
+import { SignedImg } from './SignedImg';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
@@ -194,7 +195,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
         </div>
         <fieldset disabled={fletBusy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         {erBillede ? (
-          <img src={media.url!} alt={media.titel ?? media.slags} aria-disabled={fletBusy}
+          <SignedImg src={media.url!} alt={media.titel ?? media.slags} aria-disabled={fletBusy}
             onClick={media.uploadStatus === 'klar' && !fletBusy ? onPreview : undefined}
             style={{ width: '100%', maxHeight: 330, objectFit: 'contain', borderRadius: 10, background: C.beige, cursor: media.uploadStatus === 'klar' && !fletBusy ? 'zoom-in' : 'default', opacity: media.uploadStatus === 'fjernet' ? .5 : 1 }} />
         ) : <div style={{ height: 180, borderRadius: 10, background: C.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 7, opacity: media.uploadStatus === 'fjernet' ? .5 : 1 }}>

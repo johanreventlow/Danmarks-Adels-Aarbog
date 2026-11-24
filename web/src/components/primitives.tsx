@@ -6,6 +6,7 @@ import { T } from '../theme';
 import { KlikbarFlade } from '../Link';
 import { initials } from '../data/format';
 import { mediaCaption, type MediaItem } from '../data/media';
+import { SignedImg } from './SignedImg';
 
 export const Kicker = ({ children }: { children: React.ReactNode }) => (
   <div style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.2em', textTransform: 'uppercase', color: T.goldInk, marginBottom: 6 }}>{children}</div>
@@ -58,7 +59,7 @@ export const MediaThumb = ({ m, w, h, radius = 10, onClick }: { m: MediaItem; w:
   if (!m.url) return null;
   const cap = mediaCaption(m);
   return (
-    <img src={m.thumbUrl ?? m.url} alt={m.altTekst || m.titel || m.slags || 'billede'} title={cap || undefined}
+    <SignedImg src={m.thumbUrl ?? m.url} alt={m.altTekst || m.titel || m.slags || 'billede'} title={cap || undefined}
       onClick={onClick}
       style={{ width: w, height: h, objectFit: 'cover', borderRadius: radius, border: `1px solid ${T.line}`, cursor: 'zoom-in', display: 'block' }} />
   );

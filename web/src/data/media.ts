@@ -38,13 +38,19 @@ export const PORTRAIT_SLAGS = new Set(['foto', 'maleri', 'portræt', 'portraet']
 const normSlags = (s: string) => s.trim().toLowerCase();
 
 const SIGN_TTL = 600; // sek. — dækker en detalje-visnings-session.
+const CACHE_TTL = SIGN_TTL / 2; // sek. — en genbrugt URL har altid mindst 5 min tilbage.
 
 // TTL-cache (spejler mobile/src/lib/media.ts): genbrug stabile signed URLs mellem visninger, så
 // gentagne åbninger hverken re-signerer ELLER får browseren til at re-downloade billed-bytes (ny
 // URL-token = cache-miss). Ryddes ved auth-skift — signed URLs er bærer-tokens der virker uafhængigt
 // af session indtil udløb, så en bruger efter rolle-skift må ikke genbruge en tidligere brugers URLs.
+//
+// Review 37 W7: en URL, der først indlæses efter udløb (fx Lightbox efter 10 min), gav et brudt billede. Derfor:
+// cachen udleverer kun URL'er med mindst halvdelen af levetiden tilbage (CACHE_TTL), og urlTilSti husker stien bag
+// hver udleveret URL, så <SignedImg> kan signere forfra via fornyUrl, når browseren afviser en udløbet URL.
 const cache = new Map<string, { url: string; exp: number }>();
-supabase.auth.onAuthStateChange(() => cache.clear());
+const urlTilSti = new Map<string, string>();
+supabase.auth.onAuthStateChange(() => { cache.clear(); urlTilSti.clear(); });
 
 // Mint signed URLs for en batch stier; returnér path→url. Cache-hits springer signering over.
 // Tolerant (fejl → udeladt). Eksporteret: redaktionRead.ts's fetchRedPersonMedia genbruger den
@@ -66,13 +72,23 @@ export async function signPaths(paths: string[]): Promise<Map<string, string>> {
     for (const row of data ?? []) {
       if (row.signedUrl && row.path) {
         out.set(row.path, row.signedUrl);
-        cache.set(row.path, { url: row.signedUrl, exp: now + (SIGN_TTL - 30) * 1000 });
+        cache.set(row.path, { url: row.signedUrl, exp: now + CACHE_TTL * 1000 });
+        urlTilSti.set(row.signedUrl, row.path);
       }
     }
   } catch (e) {
     console.warn('[media] signering kastede:', e);
   }
   return out;
+}
+
+// Signér stien bag en (udløbet) URL forfra, uden om cachen. null, hvis URL'en ikke er signeret her (eller er
+// glemt ved et auth-skift), eller hvis signeringen fejler. Kaldes af <SignedImg> ved en indlæsningsfejl.
+export async function fornyUrl(url: string): Promise<string | null> {
+  const sti = urlTilSti.get(url);
+  if (!sti) return null;
+  cache.delete(sti);
+  return (await signPaths([sti])).get(sti) ?? null;
 }
 
 // Billedstørrelser (2026-07-05, Slice B3+C): variant-stien pr. media-id for én tier. Delt af

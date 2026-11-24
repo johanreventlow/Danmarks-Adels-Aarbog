@@ -16,6 +16,7 @@ import { Tilstand, tilstandPrimaer, tilstandSekundaer } from './Tilstand';
 import { T } from '../theme';
 import { Link } from '../Link';
 import { personPath } from '../data/nav';
+import { SignedImg } from './SignedImg';
 
 // Ren gren-sektion — eksporteret til test. navnAf/aarAf holder Model ude af renderingen.
 // navnAfAnker (valgfri, default=navnAf) navngiver KUN grenens hovedrække (dybde 0, gren.ankerBlok)
@@ -187,7 +188,7 @@ export function PresensLinjeSektion(props: {
     <div id={`linje-${gruppe.linje.toLowerCase()}`} style={{ marginTop: 52 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 24, borderTop: `1px solid rgba(34,31,26,.14)`, paddingTop: 26 }}>
         {info?.vaaben?.url && (
-          <img src={info.vaaben.url} alt={info.vaaben.altTekst || 'Linjens våben'} style={{ width: 92, height: 'auto', display: 'block', flex: 'none' }} />
+          <SignedImg src={info.vaaben.url} alt={info.vaaben.altTekst || 'Linjens våben'} style={{ width: 92, height: 'auto', display: 'block', flex: 'none' }} />
         )}
         <div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>

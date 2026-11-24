@@ -10,6 +10,7 @@ import { fetchMediaByIds, mediaCaption, type EmbeddedMedia } from '../data/media
 import { Lightbox, type LightboxItem } from './Lightbox';
 import { Link } from '../Link';
 import { personPath } from '../data/nav';
+import { SignedImg } from './SignedImg';
 
 function renderInline(
   segs: Segment[],
@@ -97,7 +98,7 @@ export function NarrativRenderer(props: {
           const cap = b.label || mediaCaption(m);
           return (
             <div key={i} style={{ margin: '0.7em 0' }}>
-              <img src={m.mediumUrl} alt={cap || 'billede'} onClick={() => setLightbox(lightboxIndex)}
+              <SignedImg src={m.mediumUrl} alt={cap || 'billede'} onClick={() => setLightbox(lightboxIndex)}
                 style={{ maxWidth: '100%', borderRadius: 8, cursor: 'zoom-in', display: 'block' }} />
               {cap && <div style={{ fontSize: '0.8em', opacity: 0.75, marginTop: 4 }}>{cap}</div>}
             </div>

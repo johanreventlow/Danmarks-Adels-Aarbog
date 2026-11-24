@@ -37,6 +37,7 @@ import { ExpandableMiniMap, MapFallback } from './lazyMaps';
 import { radius, shadow } from '@daa/theme';
 import { useSmalSkaerm } from '../useSmalSkaerm';
 import { delLink, type DelUdfald } from '../data/delLink';
+import { SignedImg } from './SignedImg';
 
 const FOERSTE_EMBEDER = 7;
 const FOERSTE_GODSER = 6;
@@ -179,7 +180,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
               <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
                 <button type="button" onClick={() => setLightbox(0)} aria-label={`Vis portrættet af ${p.name} større`}
                   style={{ flex: 'none', width: 92, padding: 0, border: 0, background: 'none', cursor: 'zoom-in' }}>
-                  <img src={portrait.url} alt={portrait.altTekst || `Portræt af ${p.name}`}
+                  <SignedImg src={portrait.url} alt={portrait.altTekst || `Portræt af ${p.name}`}
                     style={{ display: 'block', width: '100%', aspectRatio: '4 / 5', objectFit: 'cover', borderRadius: radius.card, border: `1px solid ${T.line}` }} />
                 </button>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
@@ -355,7 +356,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
             {portrait?.url ? (
               <button type="button" onClick={() => setLightbox(0)} aria-label={`Vis portrættet af ${p.name} større`}
                 style={{ padding: 0, border: 0, background: 'none', cursor: 'zoom-in', display: 'block', width: '100%' }}>
-                <img src={portrait.url} alt={portrait.altTekst || `Portræt af ${p.name}`}
+                <SignedImg src={portrait.url} alt={portrait.altTekst || `Portræt af ${p.name}`}
                   style={{ display: 'block', width: '100%', aspectRatio: '4 / 5', objectFit: 'cover', borderRadius: radius.card, border: `1px solid ${T.line}` }} />
               </button>
             ) : (
@@ -437,7 +438,7 @@ function BilledKnap({ m, onClick }: { m: MediaItem; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick} aria-label={`Vis ${m.titel || m.slags || 'billedet'} større`}
       style={{ padding: 0, border: 0, background: 'none', cursor: 'zoom-in', display: 'block' }}>
-      <img src={m.thumbUrl ?? m.url} alt={m.altTekst || m.titel || m.slags || 'billede'}
+      <SignedImg src={m.thumbUrl ?? m.url} alt={m.altTekst || m.titel || m.slags || 'billede'}
         style={{ display: 'block', width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: radius.field, border: `1px solid ${T.line}` }} />
     </button>
   );

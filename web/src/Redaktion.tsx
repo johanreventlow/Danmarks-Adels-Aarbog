@@ -54,6 +54,7 @@ import { Lightbox } from './components/Lightbox';
 import { MediaDetaljeOverlay } from './components/MediaDetaljeOverlay';
 import { KildepersonaKo } from './components/KildepersonaKo';
 import { T } from './theme';
+import { SignedImg } from './components/SignedImg';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const MEDIA_RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
@@ -1184,7 +1185,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
                 return (
                   <div key={m.id} onClick={() => { openRecord('media', m.id); setMediaDetalje({ id: m.id, subjektType: 'media', subjektId: m.id }); }}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px', borderRadius: 9, cursor: 'pointer', background: m.id === recordId ? T.surfaceSunken : 'transparent', opacity: m.uploadStatus === 'fjernet' ? .55 : 1 }}>
-                    {erBillede ? <img src={m.thumbUrl!} alt={m.titel ?? m.slags} style={{ width: 42, height: 42, borderRadius: 7, objectFit: 'cover', background: T.surfaceSunken, flex: 'none' }} />
+                    {erBillede ? <SignedImg src={m.thumbUrl!} alt={m.titel ?? m.slags} style={{ width: 42, height: 42, borderRadius: 7, objectFit: 'cover', background: T.surfaceSunken, flex: 'none' }} />
                       : <span style={{ width: 42, height: 42, borderRadius: 7, background: T.surfaceSunken, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: T.inkMuted, flex: 'none', fontSize: 17 }}>▤<small style={{ fontSize: 8 }}>{m.slags}</small></span>}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontFamily: T.serif, fontSize: 15.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.titel || '(uden titel)'}</div>
@@ -1604,7 +1605,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
                 const erBillede = m.mimeType?.startsWith('image/') === true && !!m.thumbUrl && !!m.url;
                 return <div key={m.id} style={{ width: 96 }}>
                   {erBillede ? (
-                    <img src={m.thumbUrl!} alt={m.titel ?? m.slags}
+                    <SignedImg src={m.thumbUrl!} alt={m.titel ?? m.slags}
                       onClick={() => {
                         if (mayUpload) setMediaDetalje({ id: m.id, subjektType, subjektId });
                         else {
@@ -2339,7 +2340,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
         <div onClick={(e) => e.stopPropagation()} style={{ width: 470, maxWidth: '100%', background: T.surfaceRaised, borderRadius: 16, border: '1px solid rgba(34,31,26,.14)', boxShadow: '0 24px 60px rgba(0,0,0,.3)', padding: '18px 20px' }}>
           <div style={{ display: 'flex', gap: 13, alignItems: 'center', marginBottom: 14 }}>
             {existing.thumbUrl
-              ? <img src={existing.thumbUrl} alt={existing.titel ?? ''} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 9, background: T.surfaceSunken }} />
+              ? <SignedImg src={existing.thumbUrl} alt={existing.titel ?? ''} style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 9, background: T.surfaceSunken }} />
               : <div style={{ width: 72, height: 72, borderRadius: 9, background: T.surfaceSunken, display: 'flex', alignItems: 'center', justifyContent: 'center', color: T.inkMuted, fontSize: 24 }}>▤</div>}
             <div>
               <div style={{ fontFamily: T.serif, fontSize: 20, fontWeight: 600 }}>
@@ -2396,7 +2397,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
             {brugbar.map((m) => (
               <div key={m.id} onClick={() => { insertNarrativToken(makeToken('media', Number(m.id), m.titel ?? '')); setMediaPickerOpen(false); }}
                 style={{ width: 100, cursor: 'pointer' }}>
-                <img src={m.thumbUrl!} style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 8, background: T.surfaceSunken, display: 'block' }} />
+                <SignedImg src={m.thumbUrl!} style={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 8, background: T.surfaceSunken, display: 'block' }} />
                 {m.titel && <div style={{ fontSize: 11, color: T.inkMuted, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.titel}</div>}
               </div>
             ))}
