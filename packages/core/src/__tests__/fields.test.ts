@@ -1,4 +1,4 @@
-import { aarSpaend, fletFloruit, fmtVisningsAar, fmtYears, parseYear, stripParen } from '../fields';
+import { aarSpaend, fmtVisningsAar, fmtYears, kortLivsdato, parseYear, stripParen } from '../fields';
 import { oploesRelativDato } from '../relativeDates';
 
 // Rene felt-hjælpere (port fra design-HTML). Datalag-dækning: årstals-udtræk og
@@ -99,14 +99,41 @@ describe('fmtVisningsAar — livsdatoer vinder over floruit', () => {
   });
 });
 
-describe('fletFloruit — forening af floruit-spænd', () => {
-  test('forener spænd og enkeltår', () => {
-    expect(fletFloruit(['1349–1391', '1400', null])).toBe('1349–1400');
+// Projektejeren 2026-11-24: en sammenfoldet persons overskrift viser kun årstallet, men bogens forbehold skal med.
+// »† efter 1575« må ikke blive »† 1575«, og »147(5?)« (usikkert sidste ciffer, person 77) ikke »147«.
+describe('kortLivsdato — årstal med bogens forbehold', () => {
+  test('dag og måned falder bort', () => {
+    expect(kortLivsdato('17. aug. 1840')).toBe('1840');
+    expect(kortLivsdato('* 1. april 1603')).toBe('1603');
+    expect(kortLivsdato('10 Juni\n1683')).toBe('1683');
   });
-  test('enkelt år bevares', () => {
-    expect(fletFloruit(['1657'])).toBe('1657');
+  test('forbehold foran årstallet bevares', () => {
+    expect(kortLivsdato('† efter 1575')).toBe('efter 1575');
+    expect(kortLivsdato('o. 1500')).toBe('o. 1500');
+    expect(kortLivsdato('* ca. 1484')).toBe('ca. 1484');
+    expect(kortLivsdato('† før 1606')).toBe('før 1606');
+    expect(kortLivsdato('† senest 1414')).toBe('senest 1414');
+    expect(kortLivsdato('efter 4 Decbr. 1676 (saaret ved Lund)')).toBe('efter 1676');
   });
-  test('kun tomme → null', () => {
-    expect(fletFloruit([null, undefined])).toBeNull();
+  test('forbehold om dagen, ikke året, giver rent årstal', () => {
+    expect(kortLivsdato('† 1496, før 10. okt.')).toBe('1496');
+    expect(kortLivsdato('† før 1261 (22. aug.)')).toBe('før 1261');
+  });
+  test('usikre og flertydige år bevares', () => {
+    expect(kortLivsdato('† 1. aug. 147(5?)')).toBe('147(5?)');
+    expect(kortLivsdato('† 1342/1353')).toBe('1342/1353');
+    expect(kortLivsdato('1678 (?)')).toBe('1678?');
+    expect(kortLivsdato('† mellem 1363 og 1364 (før 14. juni)')).toBe('1363/1364');
+  });
+  test('tekst uden årstal bevares ordret', () => {
+    expect(kortLivsdato('† lille')).toBe('lille');
+    expect(kortLivsdato('ung')).toBe('ung');
+  });
+});
+
+describe('parseYear/aarSpaend — usikkert sidste ciffer', () => {
+  test('»147(5?)« er 1475, ikke 147', () => {
+    expect(parseYear('† 1. aug. 147(5?)')).toBe(1475);
+    expect(aarSpaend('† 1. aug. 147(5?)')).toEqual([1475, 1475]);
   });
 });

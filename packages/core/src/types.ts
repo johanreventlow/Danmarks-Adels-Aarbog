@@ -130,7 +130,7 @@ export type AppPerson = {
   foedtSpaend?: [number, number] | null;
   doedSpaend?: [number, number] | null;
   // Valgfri: bogens rå visningstekst (visning_foedt/visning_doed, fx »† lille«). Sammenfoldningen bruger den for en
-  // side uden årstal, så ordlyden ikke forsvinder, når år genberegnes af tallene; kun web sætter dem.
+  // side uden årstal og til årstallets forbehold (»efter 1575«); web og mobil sætter dem.
   foedtTekst?: string | null;
   doedTekst?: string | null;
 };

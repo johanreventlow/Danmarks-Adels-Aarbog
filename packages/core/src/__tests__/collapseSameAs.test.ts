@@ -1,6 +1,7 @@
 import { groupSameAs, validateGroups, collapseSameAs } from '../collapseSameAs';
 import { buildModel } from '../buildModel';
 import { computeRelationship } from '../relationship';
+import { aarSpaend, fmtYears, parseYear } from '../fields';
 import type { Db, AppPerson } from '../types';
 
 const known = (...ids: string[]) => new Set(ids);
@@ -374,7 +375,8 @@ describe('collapse → buildModel → relationship (integration)', () => {
 
 describe('collapseSameAs — floruit', () => {
   const ext = new Map<string, { linje: string | null; nr: number | null }>();
-  it('alias med livsdatoer vinder over floruit', () => {
+  // 2026-11-24: før vandt et alias' livsdatoer over den kanoniske posts floruit; nu er leveårene ÉN udgaves udsagn.
+  it('den kanoniske posts floruit vinder over et alias\' livsdatoer', () => {
     const rawDb: Db = {
       persons: [P('K', { floruit: '1600' }), P('A', { born: 1640, died: 1708 })],
       unions: [],
@@ -382,9 +384,11 @@ describe('collapseSameAs — floruit', () => {
     };
     const r = collapseSameAs(rawDb, [{ alias: 'A', canonical: 'K' }], ext);
     const k = r.db.persons.find((p) => p.id === 'K')!;
-    expect(k.years).toBe('* 1640 † 1708');
+    expect(k.years).toBe('Nævnes 1600');
+    expect(k.born).toBeNull();
   });
-  it('floruit flettes som forening', () => {
+  // 2026-11-24: før blev floruit flettet som forening over alle poster; nu bruges den første post med et udsagn.
+  it('floruit fra den første post med et udsagn (ingen forening)', () => {
     const rawDb: Db = {
       persons: [P('K'), P('A', { floruit: '1349–1360' }), P('B', { floruit: '1380–1391' })],
       unions: [],
@@ -399,8 +403,8 @@ describe('collapseSameAs — floruit', () => {
       ext,
     );
     const k = r.db.persons.find((p) => p.id === 'K')!;
-    expect(k.floruit).toBe('1349–1391');
-    expect(k.years).toBe('Nævnes 1349–1391');
+    expect(k.floruit).toBe('1349–1360');
+    expect(k.years).toBe('Nævnes 1349–1360');
   });
 });
 
@@ -417,11 +421,51 @@ describe('collapseSameAs — dødstekst uden årstal', () => {
   it('»† ung« fra aliaset bevares, når den kanoniske intet har', () => {
     expect(fold([P('K'), P('A', { years: '† ung', doedTekst: '† ung' })]).years).toBe('† ung');
   });
-  it('fødselsår fra den ene + dødstekst fra den anden', () => {
-    expect(fold([P('K', { doedTekst: '† lille' }), P('A', { born: 1701, foedtTekst: '* 1701' })]).years).toBe('* 1701 † lille');
+  // 2026-11-24: før blev fødsel og død hentet fra hver sin post, og et alias' dødsår vandt over den kanoniske tekst.
+  it('fødselsår fra et alias flettes ikke ind ved den kanoniske dødstekst', () => {
+    expect(fold([P('K', { doedTekst: '† lille' }), P('A', { born: 1701, foedtTekst: '* 1701' })]).years).toBe('† lille');
   });
-  it('et dødsår vinder over teksten', () => {
-    expect(fold([P('K', { doedTekst: '† ung' }), P('A', { born: 1700, died: 1720 })]).years).toBe('* 1700 † 1720');
+  it('den kanoniske dødstekst vinder over et alias\' årstal', () => {
+    expect(fold([P('K', { doedTekst: '† ung' }), P('A', { born: 1700, died: 1720 })]).years).toBe('† ung');
+  });
+});
+
+// Projektejeren 2026-11-24: leveårene ved navnet er ÉN udgaves udsagn — den nyeste, der siger noget om datoerne. De
+// flettes ikke felt for felt (Siwert, id 97, fik »* 1500« fra en 1939-dublet og »† 1575« fra en anden, mens 2018-20
+// kun skriver »† efter 1575«). Forbehold (»efter«, »o.«, »147(5?)«) bevares; ældre udgavers fakta står på personsiden.
+describe('collapseSameAs — leveår fra én udgave', () => {
+  const ext = new Map<string, { linje: string | null; nr: number | null }>();
+  const fold = (persons: AppPerson[], aliaser = ['A']) =>
+    collapseSameAs({ persons, unions: [], parentChild: [] }, aliaser.map((a) => ({ alias: a, canonical: 'K' })), ext)
+      .db.persons.find((p) => p.id === 'K')!;
+  const fra = (id: string, foedt: string | null, doed: string | null, o: Partial<AppPerson> = {}) =>
+    P(id, { born: parseYear(foedt), died: parseYear(doed), foedtTekst: foedt, doedTekst: doed,
+      foedtSpaend: aarSpaend(foedt), doedSpaend: aarSpaend(doed), years: fmtYears(foedt, doed), ...o });
+
+  it('Siwert: 2018-20s »† efter 1575« vinder; 1939-dubletternes fødsel og død flettes ikke ind', () => {
+    const k = fold([fra('K', null, '† efter 1575'), fra('A', null, 'o. 1575'), fra('B', 'o. 1500', null)], ['A', 'B']);
+    expect(k.years).toBe('† efter 1575');
+    expect(k.born).toBeNull();
+    expect(k.foedtSpaend).toBeNull();
+    expect(k.died).toBe(1575);
+  });
+  it('person 77: »† 1. aug. 147(5?)« vises som »† 147(5?)« og regnes som 1475', () => {
+    const k = fold([fra('K', null, '† 1. aug. 147(5?)'), fra('A', null, '1. Aug. 147(5?)')]);
+    expect(k.years).toBe('† 147(5?)');
+    expect(k.died).toBe(1475);
+  });
+  it('fuld dato forkortes til årstal som før', () => {
+    expect(fold([fra('K', '17. aug. 1840', '3. jan. 1900'), fra('A', '1840', null)]).years).toBe('* 1840 † 1900');
+  });
+  it('den nyeste udgaves floruit vinder over en ældre udgaves livsdatoer', () => {
+    const k = fold([P('K', { floruit: '1523–1569' }), fra('A', 'o. 1500', 'o. 1575')]);
+    expect(k.years).toBe('Nævnes 1523–1569');
+    expect(k.born).toBeNull();
+  });
+  it('siger den nyeste udgave intet om datoerne, bruges den ældres udsagn samlet', () => {
+    const k = fold([P('K'), fra('A', 'o. 1500', 'o. 1575')]);
+    expect(k.years).toBe('* o. 1500 † o. 1575');
+    expect(k.born).toBe(1500);
   });
 });
 

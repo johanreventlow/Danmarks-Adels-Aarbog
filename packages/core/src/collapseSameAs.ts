@@ -2,7 +2,7 @@
 // (linket via afklarede samme_som-relationer) til ÉN kanonisk post FØR buildModel, så
 // slægtskabs-motoren forbliver urørt. Reversibel (returnerer alias-map + proveniens) og
 // valideret (konflikter karantæneres, foldes ikke). Se spec 2026-07-02-samme-som-collapse-design.md.
-import { fletFloruit, fmtVisningsAar } from './fields';
+import { fmtVisningsAar, kortLivsdato } from './fields';
 import { KONFIDENS_RANK } from './types';
 import type {
   SameAsEdge,
@@ -246,13 +246,21 @@ export function validateGroups(
   return { accepted, quarantined };
 }
 
-// Regenerér display-år fra de coalescede tal + flettet floruit via samme formatter som loaderen
-// (fields.ts), så et flettet person-år er format-konsistent med resten af appen (sti-visningen
-// bruger `years` separat — inkonsistens ville ellers lydløst afvige).
-// En side uden årstal beholder bogens tekst (»† lille«, »† ung«); årstallet vinder, når det findes.
-const regenYears = (born: number | null, died: number | null, floruit: string | null,
-  foedtTekst: string | null = null, doedTekst: string | null = null): string =>
-  fmtVisningsAar(born == null ? foedtTekst : String(born), died == null ? doedTekst : String(died), floruit);
+// Leveårene ved navnet er ÉN udgaves udsagn (projektejeren 2026-11-24): den første post i coalesce-rækkefølgen
+// (kanonisk først), der siger noget om datoerne — fødsel, død eller floruit. Felterne flettes ikke enkeltvis; ellers
+// fik Siwert (id 97) »* 1500« fra én 1939-dublet og »† 1575« fra en anden, mens 2018-20 kun skriver »† efter 1575«.
+// Forudsætter, at den kanoniske post er den nyeste udgave (samme_som peger fra 1939 mod 2018-20; målt i prod 24/11:
+// ingen par peger mod en ældre udgave). Ældre udgavers datoer står fortsat på personsiden (»Kun i DAA 1939«).
+const harDatoUdsagn = (p: AppPerson): boolean =>
+  p.born != null || p.died != null || Boolean(p.foedtTekst) || Boolean(p.doedTekst) || Boolean(p.floruit);
+
+// Visningsår for den valgte post: årstal med bogens forbehold (kortLivsdato), via samme formatter som loaderen. Mangler
+// bogens tekst (ældre fixtures), bruges tallet; en side uden årstal beholder bogens tekst (»† lille«, »† ung«).
+const regenYears = (p: AppPerson): string => {
+  const kort = (tekst: string | null | undefined, aar: number | null): string | null =>
+    tekst ? kortLivsdato(tekst) : aar == null ? null : String(aar);
+  return fmtVisningsAar(kort(p.foedtTekst, p.born), kort(p.doedTekst, p.died), p.floruit ?? null);
+};
 
 // Gruppér (Task 1) → validér/karantænér (Task 2) UDEN projektion. Egen indgang fordi
 // previewSammeSom kun behøver karantænen — den fulde projektion (person-flet + kant-omskrivning)
@@ -291,19 +299,17 @@ export function collapseSameAs(
     // Deterministisk coalesce-rækkefølge (spec §7): kanonisk først, derefter alias'er sorteret på id
     // — så et 3+-medlems-flet giver samme resultat på tværs af loads uanset traversérings-rækkefølge.
     const others = ids.filter((id) => id !== canonId).sort().map((id) => personById.get(id)!).filter(Boolean);
-    const coalesce = <K extends keyof AppPerson>(k: K): AppPerson[K] =>
-      (primary[k] ?? others.find((o) => o[k] != null)?.[k]) as AppPerson[K];
-    const born = coalesce('born');
-    const died = coalesce('died');
-    const floruit = fletFloruit([primary, ...others].map((p) => p.floruit));
+    const datoKilde = [primary, ...others].find(harDatoUdsagn) ?? primary;
     mergedPersons.push({
       ...primary,
-      born,
-      died,
-      foedtSpaend: coalesce('foedtSpaend'),
-      doedSpaend: coalesce('doedSpaend'),
-      floruit,
-      years: regenYears(born as number | null, died as number | null, floruit, coalesce('foedtTekst') ?? null, coalesce('doedTekst') ?? null),
+      born: datoKilde.born,
+      died: datoKilde.died,
+      foedtSpaend: datoKilde.foedtSpaend ?? null,
+      doedSpaend: datoKilde.doedSpaend ?? null,
+      foedtTekst: datoKilde.foedtTekst ?? null,
+      doedTekst: datoKilde.doedTekst ?? null,
+      floruit: datoKilde.floruit ?? null,
+      years: regenYears(datoKilde),
       title: primary.title || others.find((o) => o.title)?.title || '',
       koen: primary.koen ?? others.find((o) => o.koen)?.koen,
       privat: ids.some((id) => Boolean(personById.get(id)?.privat)), // OR

@@ -2,6 +2,23 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: leveårene ved navnet er den nyeste udgaves udsagn, med bogens forbehold (2026-11-24)
+
+> Projektejeren 24/11 om Siwert (id 97): »* 1500« stod ved navnet, men kun DAA 1939 skriver »o. 1500«; 2018-20 skriver
+> »Nævnt (-1523-1569-)« og »† efter 1575«. Valgt: variant A (floruit vises stadig ikke, når der er en livsdato).
+
+- **Én udgaves udsagn.** Når samme person står i flere udgaver (`samme_som`), tager overskriften fødsel, død og floruit
+  samlet fra den første post, der siger noget om datoerne: den kanoniske (nyeste) først, derefter aliaserne. Felterne
+  flettes ikke enkeltvis (før: Siwert fik fødsel fra én 1939-dublet og død fra en anden). Tallene (`born`/`died`, spænd)
+  følger samme post, så sortering, søgning og jubilæumskort ikke bruger et ældre gæt. Siger den nyeste udgave intet om
+  datoerne, bruges den ældres udsagn samlet. Ældre udgavers datoer står fortsat på personsiden (»Kun i DAA 1939«).
+- **Forbehold bevares.** En sammenfoldet persons år vises kort (`kortLivsdato`): »efter 1575«, »o. 1500«,
+  »147(5?)«, »1342/1353«, »1678?«; dag og måned falder bort som før. »147(5?)« regnes som 1475 (person 77 blev regnet
+  som død år 147).
+- **Forudsætning:** den kanoniske post er den nyeste udgave. Målt i prod 24/11: ingen afklarede `samme_som`-par peger
+  mod en ældre udgave. Målt omfang (815 par): 4 fødsler og 15 dødsår kom før fra en ældre udgave.
+- **Teknik:** `packages/core` (`collapseSameAs.ts`, `fields.ts`), så web og mobil får det samme. Ingen DB-ændring.
+
 ## BESLUTTET: portrætterne fra DAA 2018-20 importeres som redaktionelle medier, synlige uden afklaret ophavsret (2026-11-24)
 
 > Projektejeren 24/11 (spor 2 i POC-klargøringen): »Vi laver foreløbig kun POC, så jeg vil gerne have alt med. Når
