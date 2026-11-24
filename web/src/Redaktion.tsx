@@ -55,6 +55,7 @@ import { MediaDetaljeOverlay } from './components/MediaDetaljeOverlay';
 import { KildepersonaKo } from './components/KildepersonaKo';
 import { T } from './theme';
 import { SignedImg } from './components/SignedImg';
+import { STORY_DATO_KVALIFIKATORER } from './data/datoKvalifikatorer';
 
 const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const MEDIA_RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
@@ -111,8 +112,7 @@ const ENTITY_DB: Record<string, { type: string; felt: string }> = {
   majorat: { type: 'majorat', felt: 'navn' },
   media: { type: 'media', felt: 'titel' },
 };
-const konklusionAf = (f: FeltEvidens): Oplysning | undefined => f.oplysninger.find((o) => o.erKonklusion) ?? f.oplysninger[0];
-// Eksporteret for testbarhed. Redaktionelt tilføjede oplysninger (opretFakta/tilfoejOplysning/
+const konklusionAf = (f: FeltEvidens): Oplysning | undefined => f.oplysninger.find((o) => o.erKonklusion) ?? f.oplysninger[0];// Eksporteret for testbarhed. Redaktionelt tilføjede oplysninger (opretFakta/tilfoejOplysning/
 // redigerOplysning) har ALDRIG en linket source (source_id er hardkodet NULL i red_*_fakta —
 // "PoC: kilde er fritekst", schema.sql) — deres eneste kilde-spor er citat_tekst (fritekst-feltet
 // redaktøren selv udfylder). At kun vise sourceTitel/side betød derfor at ALLE redaktionelt
@@ -1424,9 +1424,21 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,minmax(0,1fr))', gap: 7, marginTop: 9 }}>
               {([['dateMin', 'Dato min'], ['dateMax', 'Dato max'], ['dateQualifier', 'Kvalifikator'], ['dateRaw', 'Dato som skrevet']] as const).map(([key, label]) => (
+                key === 'dateQualifier' ? (
+                  // Review 37 R37B-4: et valgfelt med netop de værdier, story_date_qualifier_chk tillader.
+                  <select key={key} aria-label={label} value={storyEditor.dateQualifier}
+                    onChange={(e) => setStoryEditor((s) => s && ({ ...s, dateQualifier: e.target.value }))}
+                    style={{ minWidth: 0, border: '1px solid rgba(34,31,26,.16)', borderRadius: 7, padding: '7px 8px', background: T.surfaceRaised, color: T.ink }}>
+                    {STORY_DATO_KVALIFIKATORER.map(([v, l]) => <option key={v || 'tom'} value={v}>{l}</option>)}
+                    {!STORY_DATO_KVALIFIKATORER.some(([v]) => v === storyEditor.dateQualifier) && (
+                      <option value={storyEditor.dateQualifier}>{storyEditor.dateQualifier}</option>
+                    )}
+                  </select>
+                ) : (
                 <input key={key} value={storyEditor[key]} placeholder={label}
                   onChange={(e) => setStoryEditor((s) => s && ({ ...s, [key]: e.target.value }))}
                   style={{ minWidth: 0, border: '1px solid rgba(34,31,26,.16)', borderRadius: 7, padding: '7px 8px', background: T.surfaceRaised, color: T.ink }} />
+                )
               ))}
             </div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 12.5, color: T.inkMuted }}>
