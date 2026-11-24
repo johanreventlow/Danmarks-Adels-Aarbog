@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { navigate, useLocation } from './router';
 import { Link } from './Link';
 import { loadModel } from './data/model';
+import { gemMigId, laesMigId } from './data/migLager';
 import { initials } from './data/format';
 import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type PersonDetailData } from './data/public';
 import { antalEjere, byggEjerraekke, type EjerRelation } from './data/ejerraekke';
@@ -73,7 +74,7 @@ export default function Folgesvend() {
   const [prevFocusId, setPrevFocusId] = useState<string | null>(null);
   // "Mig" i slægten (PoC: localStorage; flyttes til profiles.reventlow_person_id ved login).
   const smal = useSmalSkaerm();
-  const [meId, setMeId] = useState<string | null>(() => (typeof window !== 'undefined' ? window.localStorage.getItem('daa_me_id') : null));
+  const [meId, setMeId] = useState<string | null>(laesMigId);
   // Konto-bogmærker (spec 2026-07-06): login-eksklusiv session. "Mig" (ovenfor) forbliver
   // lokal/udskudt migration — denne session bruges KUN til bogmærker her.
   const [session, setSession] = useState<RedSession | null>(null);
@@ -541,8 +542,7 @@ export default function Folgesvend() {
     const cid = canon(id);
     const next = meId && canon(meId) === cid ? null : cid;
     setMeId(next);
-    if (next) window.localStorage.setItem('daa_me_id', next);
-    else window.localStorage.removeItem('daa_me_id');
+    gemMigId(next);
   };
 
   // Bogmærke-række → personsiden.
