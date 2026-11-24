@@ -35,13 +35,28 @@ export function buildLivsdatoBy(
   const assertionById = new Map(assertions.map((a) => [String(a.id), a]));
   const conclusionByFactId = new Map(conclusions.map((c) => [String(c.target_id), c]));
   const out: LivsdatoBy = {};
+  // Review 37 M13: en foldet person har datoer fra flere poster. Samme regel som collapseSameAs' coalesce
+  // (kanonisk post først, så alias'erne sorteret på id som streng); inden for én post den laveste fact-id.
+  // Før vandt den sidste række, så en 1939-posts årstal kunne erstatte den kanoniske posts dag-præcise dato.
+  const rang = new Map<string, [number, string, number]>();
+  const foerst = (x: [number, string, number], y: [number, string, number]) =>
+    x[0] - y[0] || (x[1] < y[1] ? -1 : x[1] > y[1] ? 1 : 0) || x[2] - y[2];
   for (const f of facts) {
     if (f.faktatype !== 'fødsel' && f.faktatype !== 'død') continue;
     const concl = conclusionByFactId.get(String(f.id));
     if (!concl || concl.valgt_assertion_id == null) continue;
     const a = assertionById.get(String(concl.valgt_assertion_id));
     if (!a) continue;
-    const pid = canonicalIdById[String(f.subjekt_id)] ?? String(f.subjekt_id);
+    // Ingen dato at give (fx 1939-poster, hvis datoer ikke er indlæst, #409): tæller som fraværende, så en
+    // anden post kan give datoen — som coalesce springer null over.
+    if (a.date_min == null && a.date_max == null) continue;
+    const sid = String(f.subjekt_id);
+    const pid = canonicalIdById[sid] ?? sid;
+    const r: [number, string, number] = [sid === pid ? 0 : 1, sid, Number(f.id)];
+    const noegle = `${pid}|${f.faktatype}`;
+    const tidligere = rang.get(noegle);
+    if (tidligere && foerst(tidligere, r) <= 0) continue;
+    rang.set(noegle, r);
     const dato: FuzzyDato = { min: a.date_min, max: a.date_max, qualifier: a.date_qualifier };
     const entry = out[pid] ?? (out[pid] = {});
     if (f.faktatype === 'fødsel') entry.foedt = dato;

@@ -52,6 +52,54 @@ describe('buildLivsdatoBy', () => {
     expect(out.p2).toBeUndefined();
   });
 
+  // Review 37 M13: en foldet person har datoer fra flere poster. Samme regel som collapseSameAs' coalesce:
+  // den kanoniske posts egen dato først, derefter alias'erne sorteret på id — ikke den sidste række.
+  it('foldet person: kanonisk posts dato vinder, ellers første alias efter id (M13)', () => {
+    const facts = [
+      { id: 41, subjekt_id: '4', faktatype: 'fødsel' },   // kanonisk: dag-præcis
+      { id: 91, subjekt_id: '9', faktatype: 'fødsel' },   // alias (1939): kun år, kommer SIDST
+      { id: 92, subjekt_id: '9', faktatype: 'død' },      // kun alias har død
+      { id: 95, subjekt_id: '12', faktatype: 'død' },     // endnu et alias; som streng sorterer '12' før '9'
+    ];
+    const conclusions = facts.map((f) => ({ target_id: f.id, valgt_assertion_id: f.id * 10 }));
+    const assertions = [
+      { id: 410, date_min: '1730-05-01', date_max: '1730-05-01', date_qualifier: 'exact' },
+      { id: 910, date_min: '1730-01-01', date_max: '1730-12-31', date_qualifier: 'year' },
+      { id: 920, date_min: '1790-03-02', date_max: '1790-03-02', date_qualifier: 'exact' },
+      { id: 950, date_min: '1791-01-01', date_max: '1791-12-31', date_qualifier: 'year' },
+    ];
+    const out = buildLivsdatoBy(facts, conclusions, assertions, { '9': '4', '12': '4' });
+    expect(out['4']?.foedt).toEqual({ min: '1730-05-01', max: '1730-05-01', qualifier: 'exact' });
+    // Kanonisk har ingen død → alias'erne efter id som streng ('12' før '9', som collapseSameAs' sort()).
+    expect(out['4']?.doed).toEqual({ min: '1791-01-01', max: '1791-12-31', qualifier: 'year' });
+    // Rækkefølgen af rækkerne ændrer intet.
+    const omvendt = buildLivsdatoBy([...facts].reverse(), conclusions, assertions, { '9': '4', '12': '4' });
+    expect(omvendt).toEqual(out);
+  });
+
+  it('en post uden dato (null/null) tæller som fraværende og overskriver intet (M13)', () => {
+    // Prod 24/11: 1939-alias'ers fakta uden indlæst dato (#409) slettede før den kanoniske posts årstal.
+    const facts = [
+      { id: 41, subjekt_id: '4', faktatype: 'fødsel' },
+      { id: 91, subjekt_id: '9', faktatype: 'fødsel' },
+      { id: 42, subjekt_id: '4', faktatype: 'død' },   // kanonisk uden dato …
+      { id: 92, subjekt_id: '9', faktatype: 'død' },   // … så alias'ets dato bruges
+    ];
+    const conclusions = facts.map((f) => ({ target_id: f.id, valgt_assertion_id: f.id * 10 }));
+    const assertions = [
+      { id: 410, date_min: '1643-01-01', date_max: '1643-12-31', date_qualifier: 'year' },
+      { id: 910, date_min: null, date_max: null, date_qualifier: null },
+      { id: 420, date_min: null, date_max: null, date_qualifier: null },
+      { id: 920, date_min: '1703-01-01', date_max: '1703-12-31', date_qualifier: 'year' },
+    ];
+    const out = buildLivsdatoBy(facts, conclusions, assertions, { '9': '4' });
+    expect(out['4']).toEqual({
+      foedt: { min: '1643-01-01', max: '1643-12-31', qualifier: 'year' },
+      doed: { min: '1703-01-01', max: '1703-12-31', qualifier: 'year' },
+    });
+    expect(buildLivsdatoBy([facts[1]], conclusions, assertions, { '9': '4' })).toEqual({});
+  });
+
   it('manglende konklusion/assertion springes tolerant over', () => {
     const facts = [{ id: 1, subjekt_id: 'a', faktatype: 'fødsel' }];
     expect(buildLivsdatoBy(facts, [], [], {})).toEqual({});
