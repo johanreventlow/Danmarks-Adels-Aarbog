@@ -195,9 +195,13 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
         </div>
         <fieldset disabled={fletBusy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         {erBillede ? (
-          <SignedImg src={media.url!} alt={media.titel ?? media.slags} aria-disabled={fletBusy}
-            onClick={media.uploadStatus === 'klar' && !fletBusy ? onPreview : undefined}
-            style={{ width: '100%', maxHeight: 330, objectFit: 'contain', borderRadius: 10, background: C.beige, cursor: media.uploadStatus === 'klar' && !fletBusy ? 'zoom-in' : 'default', opacity: media.uploadStatus === 'fjernet' ? .5 : 1 }} />
+          // Review 37 W8: forhåndsvisningen åbnes via en rigtig knap (tastatur); knappen er slået fra, når den ikke kan bruges.
+          <button type="button" onClick={onPreview} disabled={media.uploadStatus !== 'klar' || fletBusy}
+            aria-label={`Vis ${media.titel || media.slags} i fuld størrelse`}
+            style={{ background: 'transparent', border: 0, padding: 0, margin: 0, display: 'block', width: '100%', borderRadius: 10, cursor: media.uploadStatus === 'klar' && !fletBusy ? 'zoom-in' : 'default' }}>
+            <SignedImg src={media.url!} alt={media.titel ?? media.slags}
+              style={{ display: 'block', width: '100%', maxHeight: 330, objectFit: 'contain', borderRadius: 10, background: C.beige, opacity: media.uploadStatus === 'fjernet' ? .5 : 1 }} />
+          </button>
         ) : <div style={{ height: 180, borderRadius: 10, background: C.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 7, opacity: media.uploadStatus === 'fjernet' ? .5 : 1 }}>
           <span aria-hidden style={{ fontSize: 34, color: C.muted }}>▤</span>
           <span style={{ fontSize: 13, color: C.muted }}>{media.slags || 'dokument'}</span>
