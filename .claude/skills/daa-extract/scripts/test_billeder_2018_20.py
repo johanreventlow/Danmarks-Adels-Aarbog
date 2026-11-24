@@ -6,7 +6,7 @@ import hashlib
 
 from PIL import Image
 
-from billeder_2018_20 import lav_varianter, parse_billedtekst
+from billeder_2018_20 import lav_varianter, parse_billedtekst, vaelg_billedtekst
 
 S300 = """                                                Hofjægermester
                  Christian Benedictus Johan Ludvig Conrad Ferdinand greve af Reventlow
@@ -174,3 +174,12 @@ def test_sha_og_bytes_er_large_filens(tmp_path):
     data = (tmp_path / v["filer"]["large"]).read_bytes()
     assert v["sha256"] == hashlib.sha256(data).hexdigest()
     assert v["bytes"]["large"] == len(data)
+
+
+def test_tom_billedside_laaner_naeste_sides_tekst():
+    # Opslag (s. 272-273): billedet står på venstre side, billedteksten på højre, som ikke selv har et billede.
+    naeste = "Fra venstre\nChristian Detlef greve af Reventlow, 1775-1851 (V, 47)\n273\n"
+    assert vaelg_billedtekst("272\n", naeste, naeste_har_billede=False) == naeste
+    assert vaelg_billedtekst("272\n", naeste, naeste_har_billede=True) == "272\n"
+    assert vaelg_billedtekst(S300, naeste, naeste_har_billede=False) == S300
+    assert vaelg_billedtekst("272\n", None, naeste_har_billede=False) == "272\n"

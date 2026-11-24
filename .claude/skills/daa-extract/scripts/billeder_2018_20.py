@@ -104,6 +104,14 @@ def parse_billedtekst(tekst: str) -> dict:
     }
 
 
+def vaelg_billedtekst(sidetekst: str, naeste_sidetekst: str | None, naeste_har_billede: bool) -> str:
+    """Et opslag har billedet på venstre side og billedteksten på højre: er billedsiden uden tekst, og har næste side
+    intet billede, er næste sides tekst billedteksten."""
+    if _linjer(sidetekst) or naeste_sidetekst is None or naeste_har_billede:
+        return sidetekst
+    return naeste_sidetekst
+
+
 def lav_varianter(kilde: Path, maske: Path | None, maal: Path, noegle: str) -> dict:
     """Large = originalens bytes (eller fladet på hvid, hvis billedet har en alfamaske); thumb/medium nedskaleres,
     aldrig op."""
@@ -143,9 +151,9 @@ def lav_varianter(kilde: Path, maske: Path | None, maal: Path, noegle: str) -> d
     }
 
 
-def _billedliste(pdf: Path) -> list[dict]:
+def _billedliste(pdf: Path, fra: int = FRA_SIDE, til: int = TIL_SIDE) -> list[dict]:
     """`pdfimages -list` for portrætafsnittet: billeder med evt. tilhørende smask (rækken lige efter)."""
-    ud = subprocess.run(["pdfimages", "-list", "-f", str(FRA_SIDE), "-l", str(TIL_SIDE), str(pdf)],
+    ud = subprocess.run(["pdfimages", "-list", "-f", str(fra), "-l", str(til), str(pdf)],
                         capture_output=True, text=True, check=True).stdout
     billeder: list[dict] = []
     for linje in ud.splitlines()[2:]:
@@ -180,11 +188,16 @@ def byg_manifest(pdf: Path, ud: Path) -> dict:
 
         billeder = []
         nr_paa_side: dict[int, int] = {}
-        for b in _billedliste(pdf):
+        liste = _billedliste(pdf)
+        sider_med_billede = {b["side"] for b in liste}
+        for b in liste:
             side = b["side"]
             nr_paa_side[side] = nr_paa_side.get(side, 0) + 1
             noegle = f"daa-2018-20-s{side:04d}-{nr_paa_side[side]}"
-            tekst = _sidetekst(pdf, side)
+            naeste = side + 1
+            naeste_har_billede = naeste in sider_med_billede or (
+                naeste > TIL_SIDE and bool(_billedliste(pdf, naeste, naeste)))
+            tekst = vaelg_billedtekst(_sidetekst(pdf, side), _sidetekst(pdf, naeste), naeste_har_billede)
             maske = fil(b["maske_num"]) if b["maske_num"] is not None else None
             post = {"noegle": noegle, "side": side, "billednr": nr_paa_side[side],
                     "billedtekst": "\n".join(_linjer(tekst))}
