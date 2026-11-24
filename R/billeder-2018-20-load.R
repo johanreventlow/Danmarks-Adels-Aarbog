@@ -199,3 +199,204 @@ laes_svar <- function(sti) {
 }
 
 `%||%` <- function(a, b) if (is.null(a)) b else a
+
+# ---------------------------------------------------------------------------------------------------------------
+# Skrivning (Task 3): DB + Storage bag injicerede ops, så rækkefølgen kan testes uden prod.
+# ---------------------------------------------------------------------------------------------------------------
+
+BILLEDER_REDAKTOER_UUID <- "ba4ce28d-42a0-48af-a47c-773c26934236" # samme som apply_d2_spouses_1939_v50.R
+BILLEDER_VARIANTER <- c("medium", "thumb")
+
+billede_sti <- function(sha, tier) sprintf("redaktor/%s/%s-%s.jpg", substr(sha, 1L, 2L), sha, tier)
+
+byg_rpc_sql <- function(navn, args) {
+  dele <- if (length(args)) paste0(names(args), " => $", seq_along(args)) else character()
+  sprintf("SELECT public.%s(%s)", navn, paste(dele, collapse = ", "))
+}
+
+.kreditlinje <- function(side) sprintf("Gengivet fra Danmarks Adels Aarbog 2018-20, s. %d", as.integer(side))
+
+anvend_billede <- function(raekke, mappe, ops) {
+  filnavn <- paste0(raekke$noegle, ".jpg")
+  eks <- ops$find_media(filnavn)
+  if (!is.null(eks) && identical(eks$upload_status, "klar")) return("sprunget_over")
+
+  sha <- raekke$sha256
+  # Bytes først (idempotent på sha-stier, som i web/src/data/redaktionWrite.ts).
+  for (tier in c("large", BILLEDER_VARIANTER)) {
+    ops$upload(billede_sti(sha, tier), file.path(mappe, raekke$filer[[tier]]))
+  }
+  ids <- raekke$person_ids[!is.na(raekke$person_ids)]
+  dim_af <- function(tier, i) as.integer(raekke$dims[[tier]][[i]])
+
+  ops$transaktion(function() {
+    if (!identical(ops$aktoer(BILLEDER_REDAKTOER_UUID), "redaktion")) {
+      stop("BILLEDER_ACTOR_NOT_REDAKTION", call. = FALSE)
+    }
+    if (is.null(eks)) {
+      for (pid in names(raekke$portraet)) {
+        h <- raekke$portraet[[pid]]
+        if (identical(h$handling, "laas")) {
+          ops$rpc("red_saet_portraet", list(p_person_id = pid, p_media_id = h$media_id))
+        }
+      }
+      args <- list(
+        p_slags = raekke$slags, p_titel = raekke$titel, p_storage_path = billede_sti(sha, "large"),
+        p_mime = "image/jpeg", p_kunstner = raekke$kunstner, p_datering = raekke$datering,
+        p_afbildet_person_id = if (length(ids)) ids[[1]] else NULL,
+        p_byte_size = as.integer(raekke$bytes$large), p_bredde = dim_af("large", 1L), p_hoejde = dim_af("large", 2L),
+        p_sha256 = sha, p_original_filnavn = filnavn,
+        p_rettigheder_status = "ukendt", p_maa_publiceres = isTRUE(raekke$maa_publiceres)
+      )
+      media_id <- as.character(ops$rpc("red_upload_media", Filter(Negate(is.null), args)))
+      for (pid in ids[-1]) {
+        ops$rpc("red_relation", list(p_subjekt_type = "person", p_subjekt_id = pid, p_objekt_type = "media",
+                                     p_objekt_id = media_id, p_rolle = "afbildet"))
+      }
+    } else {
+      media_id <- as.character(eks$id)
+    }
+    for (tier in BILLEDER_VARIANTER) {
+      if (!is.null(eks) && isTRUE(ops$har_variant(media_id, tier))) next
+      ops$rpc("red_registrer_media_variant", list(
+        p_media_id = media_id, p_tier = tier, p_storage_path = billede_sti(sha, tier), p_mime = "image/jpeg",
+        p_byte_size = as.integer(raekke$bytes[[tier]]), p_bredde = dim_af(tier, 1L), p_hoejde = dim_af(tier, 2L)))
+    }
+    ops$rpc("red_bekraeft_media_upload", list(p_media_id = media_id))
+    ops$rpc("red_upsert_fakta", list(
+      p_subjekt_type = "media", p_subjekt_id = media_id, p_faktatype = "kreditlinje",
+      p_vaerdi = .kreditlinje(raekke$side), p_kilde_fritekst = sprintf("DAA 2018-20, s. %d", as.integer(raekke$side))))
+  })
+  if (is.null(eks)) "importeret" else "genoptaget"
+}
+
+# ---------------------------------------------------------------------------------------------------------------
+# Rigtige ops og kørsel (kræver ~/.Renviron; køres i projektejerens shell)
+# ---------------------------------------------------------------------------------------------------------------
+
+source_janitor_helpers <- function() {
+  e <- new.env()
+  sys.source(file.path("R", "media-janitor.R"), envir = e)
+  e
+}
+
+default_billede_ops <- function(con, janitor) {
+  storage <- janitor$storage_api_context()
+  list(
+    find_media = function(filnavn) {
+      r <- DBI::dbGetQuery(con, "SELECT id::text AS id, upload_status FROM media WHERE original_filnavn = $1
+                                 ORDER BY id LIMIT 1", params = list(filnavn))
+      if (nrow(r) == 0L) NULL else list(id = r$id[[1]], upload_status = r$upload_status[[1]])
+    },
+    upload = function(sti, fil) {
+      httr2::request(paste0(storage$base_url, "/storage/v1/object/media/", janitor$encode_storage_path(sti))) |>
+        httr2::req_method("POST") |>
+        httr2::req_headers(apikey = storage$key, Authorization = paste("Bearer", storage$key),
+                           `x-upsert` = "true", `content-type` = "image/jpeg") |>
+        httr2::req_body_file(fil, type = "image/jpeg") |>
+        httr2::req_perform()
+      invisible(TRUE)
+    },
+    transaktion = function(fn) DBI::dbWithTransaction(con, fn()),
+    aktoer = function(uuid) {
+      # dbGetQuery, ikke dbExecute: set_config ER en SELECT.
+      DBI::dbGetQuery(con, "SELECT set_config('request.jwt.claim.sub', $1, true)", params = list(uuid))
+      r <- DBI::dbGetQuery(con, "SELECT rolle FROM profiles WHERE id = $1::uuid", params = list(uuid))
+      if (nrow(r) == 1L) r$rolle[[1]] else NA_character_
+    },
+    rpc = function(navn, args) {
+      r <- DBI::dbGetQuery(con, byg_rpc_sql(navn, args), params = unname(lapply(args, function(x) x)))
+      if (nrow(r) && ncol(r)) r[[1]][[1]] else NULL
+    },
+    har_variant = function(media_id, tier) {
+      DBI::dbGetQuery(con, "SELECT EXISTS (SELECT 1 FROM media_variant WHERE media_id = $1::bigint AND tier = $2) AS f",
+                      params = list(media_id, tier))$f[[1]]
+    }
+  )
+}
+
+hent_opslag <- function(con, person_ids) {
+  ext <- DBI::dbGetQuery(con, "SELECT linje, nr, person_id::text AS person_id FROM person_external_id
+                               WHERE source_id = 1")
+  aegtefaeller <- DBI::dbGetQuery(con, "
+    SELECT a.person_id::text AS anker_person_id, b.person_id::text AS person_id, p.visning_navn,
+           substring(p.visning_foedt FROM '\\d{4}')::int AS foedt_aar,
+           substring(p.visning_doed FROM '\\d{4}')::int AS doed_aar
+      FROM family_member a
+      JOIN family_member b ON b.family_id = a.family_id AND b.rolle = 'partner' AND b.person_id <> a.person_id
+      JOIN person p ON p.id = b.person_id
+     WHERE a.rolle = 'partner'")
+  medier <- if (length(person_ids)) DBI::dbGetQuery(con, "
+    WITH valgt AS (SELECT unnest($1::bigint[]) AS person_id),
+    gruppe AS (
+      SELECT v.person_id, v.person_id AS medlem FROM valgt v
+      UNION SELECT v.person_id, CASE WHEN r.subjekt_id = v.person_id THEN r.objekt_id ELSE r.subjekt_id END
+        FROM valgt v JOIN relation r ON r.rolle = 'samme_som' AND r.subjekt_type = 'person' AND r.objekt_type = 'person'
+                                    AND v.person_id IN (r.subjekt_id, r.objekt_id))
+    SELECT g.person_id::text AS person_id, m.id::text AS media_id, m.slags,
+           coalesce((r.kvalifikator->>'primaer')::boolean, false) AS primaer
+      FROM gruppe g
+      JOIN relation r ON r.subjekt_type = 'person' AND r.subjekt_id = g.medlem
+                     AND r.objekt_type = 'media' AND r.rolle = 'afbildet'
+      JOIN media m ON m.id = r.objekt_id
+     ORDER BY g.person_id, r.id", params = list(paste0("{", paste(person_ids, collapse = ","), "}")))
+  else data.frame(person_id = character(), media_id = character(), slags = character(), primaer = logical())
+  list(ext = ext, aegtefaeller = aegtefaeller, medier = medier)
+}
+
+skriv_plan_csv <- function(plan, sti) {
+  flad <- data.frame(
+    noegle = plan$noegle, side = plan$side,
+    person_ids = vapply(plan$person_ids, function(x) paste(ifelse(is.na(x), "?", x), collapse = ";"), character(1)),
+    sikker = plan$sikker, maa_publiceres = plan$maa_publiceres,
+    portraet = vapply(plan$portraet, function(p) paste(vapply(names(p), function(n)
+      paste0(n, ":", p[[n]]$handling, if (identical(p[[n]]$handling, "laas")) paste0("=", p[[n]]$media_id) else ""),
+      character(1)), collapse = ";"), character(1)),
+    begrundelse = plan$begrundelse, titel = plan$titel, stringsAsFactors = FALSE)
+  utils::write.csv(flad, sti, row.names = FALSE, fileEncoding = "UTF-8")
+}
+
+run_billeder_2018_20 <- function(args = commandArgs(trailingOnly = TRUE)) {
+  opt <- parse_billede_args(args)
+  mappe <- dirname(opt$manifest)
+  manifest <- jsonlite::fromJSON(opt$manifest, simplifyVector = FALSE)
+  svar <- if (is.null(opt$svar)) NULL else laes_svar(opt$svar)
+  if (!is.null(opt$svar)) message(sprintf("Svarfil sha256: %s", digest::digest(file = opt$svar, algo = "sha256")))
+  janitor <- source_janitor_helpers()
+  con <- janitor$connect_media_janitor_db()
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  foreloebig <- hent_opslag(con, character())
+  udkast <- byg_plan(manifest, foreloebig$ext, foreloebig$aegtefaeller, foreloebig$medier, svar)
+  alle_ids <- unique(stats::na.omit(unlist(udkast$person_ids)))
+  opslag <- hent_opslag(con, alle_ids)
+  plan <- byg_plan(manifest, opslag$ext, opslag$aegtefaeller, opslag$medier, svar)
+
+  skriv_plan_csv(plan, file.path(mappe, "plan.csv"))
+  if (is.null(opt$svar)) skriv_gennemgang(plan, file.path(mappe, "gennemgang.txt"))
+  laase <- sum(vapply(plan$portraet, function(p) sum(vapply(p, function(h) identical(h$handling, "laas"), logical(1))),
+                      numeric(1)))
+  message(sprintf("Plan: %d billeder · %d sikre · %d usikre · %d synlige · %d skjulte · %d portrætlåse",
+                  nrow(plan), sum(plan$sikker), sum(!plan$sikker), sum(plan$maa_publiceres),
+                  sum(!plan$maa_publiceres), laase))
+  if (!opt$skriv) {
+    message("Prøvekørsel: intet skrevet. Kør med --jeg-mener-det for at skrive.")
+    return(invisible(plan))
+  }
+
+  ops <- default_billede_ops(con, janitor)
+  efter_noegle <- stats::setNames(manifest$billeder, vapply(manifest$billeder, `[[`, character(1), "noegle"))
+  resultater <- vapply(seq_len(nrow(plan)), function(i) {
+    b <- efter_noegle[[plan$noegle[[i]]]]
+    raekke <- c(b[c("noegle", "side", "sha256", "titel", "kunstner", "datering", "slags", "filer", "dims", "bytes")],
+                list(person_ids = plan$person_ids[[i]], maa_publiceres = plan$maa_publiceres[[i]],
+                     portraet = plan$portraet[[i]]))
+    tryCatch(anvend_billede(raekke, mappe, ops), error = function(e) paste("fejl:", conditionMessage(e)))
+  }, character(1))
+  rapport <- data.frame(noegle = plan$noegle, resultat = resultater, maa_publiceres = plan$maa_publiceres)
+  utils::write.csv(rapport, file.path(mappe, "rapport.csv"), row.names = FALSE, fileEncoding = "UTF-8")
+  message(paste(capture.output(print(table(sub(":.*", "", resultater)))), collapse = "\n"))
+  invisible(rapport)
+}
+
+if (sys.nframe() == 0L) run_billeder_2018_20()

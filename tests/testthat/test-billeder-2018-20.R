@@ -143,3 +143,117 @@ test_that("args: plan er standard, --jeg-mener-det skriver", {
   expect_error(parse_billede_args("--ukendt"), "Ukendt flag")
   expect_error(parse_billede_args("--svar"), "kræver en sti")
 })
+
+# --- Task 3: skrivning via injicerede ops --------------------------------------------------------------------
+
+ny_raekke <- list(
+  noegle = "daa-2018-20-s0150-1", side = 150L, person_ids = c("501", "502"), maa_publiceres = TRUE,
+  portraet = list("501" = list(handling = "ingen", media_id = NA_character_),
+                  "502" = list(handling = "behold", media_id = NA_character_)),
+  sha256 = "abcdef0123", titel = "Tysk kansler Detlef von Reventlow", kunstner = NULL, datering = NULL,
+  slags = "portræt",
+  filer = list(large = "k-large.jpg", medium = "k-medium.jpg", thumb = "k-thumb.jpg"),
+  dims = list(large = list(499L, 754L), medium = list(499L, 754L), thumb = list(499L, 754L)),
+  bytes = list(large = 57000L, medium = 40000L, thumb = 30000L)
+)
+
+med_portraet <- function(r, handling, media_id) {
+  r$portraet[["501"]] <- list(handling = handling, media_id = media_id)
+  r
+}
+
+anvend_med_fake <- function(raekke, eksisterende, har_variant = c(thumb = FALSE, medium = FALSE),
+                            rolle = "redaktion") {
+  log <- new.env()
+  log$upload <- character(); log$rpc <- character(); log$args <- list()
+  ops <- list(
+    find_media = function(filnavn) { log$find <- filnavn; eksisterende },
+    upload = function(sti, fil) log$upload <- c(log$upload, sti),
+    transaktion = function(fn) fn(),
+    aktoer = function(uuid) { log$rpc <- c(log$rpc, "set_config"); log$uuid <- uuid; rolle },
+    rpc = function(navn, args) {
+      log$rpc <- c(log$rpc, navn)
+      log$args[[navn]] <- args
+      if (navn == "red_upload_media") "900" else NULL
+    },
+    har_variant = function(media_id, tier) unname(har_variant[[tier]])
+  )
+  log$resultat <- anvend_billede(raekke, "/manifestmappe", ops)
+  as.list(log)
+}
+
+test_that("nyt billede: bytes først, så RPC-rækkefølgen", {
+  log <- anvend_med_fake(ny_raekke, eksisterende = NULL)
+  expect_equal(log$resultat, "importeret")
+  expect_equal(log$find, "daa-2018-20-s0150-1.jpg")
+  expect_equal(log$upload, c("redaktor/ab/abcdef0123-large.jpg", "redaktor/ab/abcdef0123-medium.jpg",
+                             "redaktor/ab/abcdef0123-thumb.jpg"))
+  expect_equal(log$rpc, c("set_config", "red_upload_media", "red_relation", "red_registrer_media_variant",
+                          "red_registrer_media_variant", "red_bekraeft_media_upload", "red_upsert_fakta"))
+  expect_equal(log$uuid, "ba4ce28d-42a0-48af-a47c-773c26934236")
+  a <- log$args$red_upload_media
+  expect_equal(a$p_original_filnavn, "daa-2018-20-s0150-1.jpg")
+  expect_equal(a$p_rettigheder_status, "ukendt")
+  expect_true(a$p_maa_publiceres)
+  expect_equal(a$p_storage_path, "redaktor/ab/abcdef0123-large.jpg")
+  expect_equal(a$p_afbildet_person_id, "501")
+  expect_equal(a$p_sha256, "abcdef0123")
+  expect_equal(log$args$red_relation$p_subjekt_id, "502")
+  expect_equal(log$args$red_relation$p_objekt_id, "900")
+  expect_equal(log$args$red_relation$p_rolle, "afbildet")
+  expect_equal(log$args$red_upsert_fakta$p_vaerdi, "Gengivet fra Danmarks Adels Aarbog 2018-20, s. 150")
+  expect_equal(log$args$red_upsert_fakta$p_faktatype, "kreditlinje")
+  expect_equal(log$args$red_upsert_fakta$p_subjekt_id, "900")
+})
+
+test_that("lås nuværende portræt FØR koblingen", {
+  log <- anvend_med_fake(med_portraet(ny_raekke, "laas", "42"), eksisterende = NULL)
+  expect_lt(which(log$rpc == "red_saet_portraet"), which(log$rpc == "red_upload_media"))
+  expect_equal(log$args$red_saet_portraet, list(p_person_id = "501", p_media_id = "42"))
+})
+
+test_that("klar → springes over uden kald", {
+  log <- anvend_med_fake(ny_raekke, eksisterende = list(id = "5", upload_status = "klar"))
+  expect_equal(log$resultat, "sprunget_over")
+  expect_length(log$rpc, 0)
+  expect_length(log$upload, 0)
+})
+
+test_that("kladde → genoptag manglende varianter + bekræft, ingen ny red_upload_media", {
+  log <- anvend_med_fake(ny_raekke, eksisterende = list(id = "5", upload_status = "kladde"),
+                         har_variant = c(thumb = TRUE, medium = FALSE))
+  expect_equal(log$resultat, "genoptaget")
+  expect_false("red_upload_media" %in% log$rpc)
+  expect_equal(sum(log$rpc == "red_registrer_media_variant"), 1)
+  expect_equal(log$args$red_registrer_media_variant$p_tier, "medium")
+  expect_true("red_bekraeft_media_upload" %in% log$rpc)
+})
+
+test_that("maa_publiceres følger planen", {
+  r <- ny_raekke; r$maa_publiceres <- FALSE
+  log <- anvend_med_fake(r, eksisterende = NULL)
+  expect_false(log$args$red_upload_media$p_maa_publiceres)
+})
+
+test_that("ukoblede personer springes over ved koblingen", {
+  r <- ny_raekke; r$person_ids <- c(NA, "502"); r$maa_publiceres <- FALSE
+  log <- anvend_med_fake(r, eksisterende = NULL)
+  expect_equal(log$args$red_upload_media$p_afbildet_person_id, "502")
+  expect_false("red_relation" %in% log$rpc)
+  r$person_ids <- NA_character_
+  log <- anvend_med_fake(r, eksisterende = NULL)
+  expect_null(log$args$red_upload_media$p_afbildet_person_id)
+})
+
+test_that("rollegate: forkert rolle stopper før skrivning", {
+  expect_error(anvend_med_fake(ny_raekke, eksisterende = NULL, rolle = "medlem"), "BILLEDER_ACTOR_NOT_REDAKTION")
+})
+
+test_that("RPC-SQL bruger navngivne parametre", {
+  expect_equal(byg_rpc_sql("red_x", list(p_a = 1, p_b = "x")), "SELECT public.red_x(p_a => $1, p_b => $2)")
+  expect_equal(byg_rpc_sql("red_y", list()), "SELECT public.red_y()")
+})
+
+test_that("storage-stier følger buildShaStoragePaths", {
+  expect_equal(billede_sti("abcdef", "thumb"), "redaktor/ab/abcdef-thumb.jpg")
+})
