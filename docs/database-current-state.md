@@ -529,6 +529,38 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 51. Review 37 ceremoni 1: indeks, forslagslofter, klientkaldbare funktioner — LIVE i prod (2026-11-24)
+
+**Grundlag:** PR #477 (CI grøn i alle jobs på `030d6c39`; merget `90fa6fff` efter DDL). Privat runner
+`~/.private/review37-c1/prod.zsh`, fastlåst på `030d6c39` (blok-sha `f19eda61…`), kørt i projektejerens shell **før** merge.
+
+- **DDL (én transaktion, 3,9 s):** blokken `-- BEGIN review37-c1` (sidst i db-migrations.sql) + DO-blokken
+  `$review37_c1_execute$` (db-rls.sql, før R37S8-2-blokken):
+  - Y8 `private.ix_interpretation_promotion_target`; Y10 `ix_fact_type_subjekt` og partiel `ix_fact_sted`.
+  - S6 `red_suggest`: `FORSLAG_FOR_STORT` (værdi > 40.000 bytes, kilde/note > 4.000, art/felt > 64, payload > 64 kB) og
+    `FORSLAG_UKENDT_SUBJEKTTYPE` (hverken public-tabel eller klientkaldenavn); `search_path` med `pg_temp` sidst.
+  - S9/R37S8-2-3: EXECUTE fjernet for PUBLIC/anon/authenticated på 9 triggere/interne skrivere (`log_change`, 5 `trg_*`,
+    `regen_person_visning`, `_regen_mentions_for`, `parse_mentions`); `service_role` beholder.
+  - R37S8-2-2 (funktionsdelen): `postgres`' standard-EXECUTE i public fjernet — nye funktioner er lukket for klienterne,
+    til de får en eksplicit GRANT. Efter: `{postgres=X, service_role=X}`.
+- **I transaktionen:** katalog-delta præcis 14 (standardrettigheden, `red_suggest`, 9 ACL, 3 indeks), intet forsvundet;
+  facit (frisk base af commit'en) 48 linjer OK; verify-enhederne `c1` og `r37s8-2` OK; anon 1725 personer og
+  `public_person_facts`-md5 før = efter; data uændret (4 tabeller). Prøve 5,6 s, commit 3,9 s.
+- **Efterkontrol (læse-kun):** anon kan ikke kalde `regen_person_visning` (REST: `42501`), `public_person_facts` 200;
+  indeksene findes; sitet 200. `get_advisors` (security): samme 4 lint-typer som efter §48, ingen nævner
+  ceremoniens funktioner.
+- **Bevis:** `tests/sql/test-review37-c1-upgrade.sh` fra `647b9e15` (prods SQL efter R37S8-2): enheden grøn på frisk base,
+  rød på prods form (direkte EXECUTE + prods standardrettighed seedet), katalog/funktionsretter = frisk efter deploy, en ny
+  funktion kaldbar for anon før og lukket efter, idempotent, hele db-rls.sql oveni uden ændring, fuld db-verify grøn.
+  `tests/sql/test-review37-r37s8-2-seeded.sh` giver r37s8-2 tænder på frisk base (R37S8-2-1).
+- **Øvelse:** stand-in `daa5ab_ddl_standin_20261124224412_c1` (læse-dump `daa-prod-20261124224127`, sha `67533d6c…`):
+  prøve → commit → fortryd (`P_FORTRYD_TROFAST`) → prøve igen. Prod: prøve, derefter commit.
+- **Fortryd:** `/bin/zsh -f ~/.private/review37-c1/prod.zsh fortryd [--jeg-mener-det]` (prods `red_suggest` fra
+  `fortryd-definitioner.prod.sql`, GRANT tilbage på de 9, standardrettigheden tilbage, DROP af de 3 indeks).
+- **Regel fremover** (`docs/decisions.md` 2026-11-24, CLAUDE.md »Robotter og misbrug«): en ny klientkaldbar
+  public-funktion uden for `red_*` skal på listen i verify-enheden `c1`; anon kræver også en linje i decisions.
+- **Pensioneret:** R37S8-2's opgraderingstest (`tests/ikke-i-ci.txt`).
+
 ## 49. Review 37 R37S8-2: klienter har kun læseret i public — LIVE i prod (2026-11-23)
 
 **Grundlag:** PR #455 (CI grøn i alle jobs; SQL = `01d0dd95`). Privat runner `~/.private/review37-r37s8-2/prod.zsh`,
