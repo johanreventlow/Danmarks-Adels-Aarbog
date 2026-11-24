@@ -5,6 +5,9 @@ import { buildNaevnt } from '../pool';
 import { TEMP_DISABLED_KINDS } from '../score';
 import type { FeedAux, FeedCard, FeedInputs, Model, NaevntGrundlag } from '../types';
 
+// Web-feedets form FØR naevnt blev slået fra (24/11): typen testes stadig, så den kan tændes igen.
+const UDEN_NAEVNT_SLAAET_FRA: ReadonlySet<FeedCard['kind']> = new Set([...TEMP_DISABLED_KINDS].filter((k) => k !== 'naevnt'));
+
 function person(id: string, over: Partial<{
   name: string; born: number | null; died: number | null; years: string;
   title: string; bio: string; privat: boolean;
@@ -37,7 +40,7 @@ const LONG_BIO = 'Dette er en tilstrækkelig lang og velformet biografisk tekst 
 function baseInputs(over: Partial<FeedInputs> = {}): FeedInputs {
   return {
     seed: 1, todayISO: '2026-07-18', meId: null, focusId: null,
-    disabledKinds: TEMP_DISABLED_KINDS, naevntGrundlag: GRUNDLAG, ...over,
+    disabledKinds: UDEN_NAEVNT_SLAAET_FRA, naevntGrundlag: GRUNDLAG, ...over,
   };
 }
 
@@ -202,5 +205,11 @@ describe('buildFeedOrder — højst ét naevnt pr. seks kort', () => {
         .filter((c) => c.kind !== 'samle');
       expect(ids(uden)).toEqual(ids(kunPortraetter));
     }
+  });
+});
+
+describe('naevnt på forsiden', () => {
+  it('TEMP_DISABLED_KINDS slår naevnt fra (projektejeren 24/11)', () => {
+    expect(TEMP_DISABLED_KINDS.has('naevnt')).toBe(true);
   });
 });

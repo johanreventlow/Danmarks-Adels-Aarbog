@@ -95,3 +95,17 @@ describe('resumeStream', () => {
     expect(resumed.done()).toBe(true);
   });
 });
+
+describe('resumeStream over personer', () => {
+  it('resumeStream springer allerede viste personer over', () => {
+    const kort = [
+      { kind: 'portrait', id: 'portrait:1', personId: '1', name: 'A', years: '', initials: 'A', title: null, bio: '', kicker: '' },
+      { kind: 'paadennedag', id: 'paadennedag:1:født:1750', personId: '1', name: 'A', years: '', aarstal: 1750, dato: '1750-11-03', hvad: 'født', praecision: 'maaned', kicker: '' },
+      { kind: 'portrait', id: 'portrait:2', personId: '2', name: 'B', years: '', initials: 'B', title: null, bio: '', kicker: '' },
+    ] as const;
+    let i = 0;
+    const s = { next: (n: number) => { const ud = kort.slice(i, i + n); i += ud.length; return [...ud]; }, done: () => i >= kort.length, total: () => kort.length };
+    const ud = resumeStream(s, new Set(['paadennedag:1:født:1750']), new Set(['1'])).next(10);
+    expect(ud.map((c) => c.id)).toEqual(['portrait:2']);
+  });
+});

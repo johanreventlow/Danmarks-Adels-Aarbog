@@ -269,6 +269,8 @@ export function FeedStreamView({
       pins: feedPins,
       disabledKinds: TEMP_DISABLED_KINDS,
       naevntGrundlag: naevntInput,
+      // Forsidens minimumskrav (spec 2026-11-24-forside-minimumskrav-design.md): forsideværdige personer, ét kort hver.
+      forsideKrav: true,
     });
     if (streamRef.current === null || streamOwnerRef.current !== bookmarkSnapshot.ownerId) {
       // En tidlig uddeling (fristen, før alle kilder er afgjort) viser kun egentlige blade. Samlekortet beskriver
@@ -288,7 +290,12 @@ export function FeedStreamView({
         shownRef.current = preserved;
         setShown(preserved);
       }
-      streamRef.current = resumeStream(built, new Set(preserved.map((c) => c.id)));
+      // Også de viste personer: en genopbygget ordning kan vælge et andet kort for en person, der allerede er vist.
+      streamRef.current = resumeStream(
+        built,
+        new Set(preserved.map((c) => c.id)),
+        new Set(preserved.map(bookmarkPersonId).filter((id): id is string => id != null)),
+      );
       if (preserved.length < BLADE_PR_UDDELING) {
         // En tidlig uddeling kan have givet færre end en hel portion (puljen var tynd uden biografier og hændelser).
         // Fyld første portion op, når data kommer — ellers bliver gæsten stående med de få blade fra fristen.

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-24 — Forsiden viser kun personer med noget at fortælle, og hver kun én gang
+
+Forsiden viste fx »(Søn) Reventlow« to gange: et barn, der døde samme dag, som det blev født. Nu kræver forsiden et
+rigtigt navn, at personen blev mindst 15 år og døde for mindst 25 år siden, og at der er tekst, titel, embede eller en
+hændelse. Hver person får højst ét kort, og »Nævnt i Aarbogen«-kortene er slået fra. Personsiden er uændret. Ingen
+DB-ændring (`decisions.md` 2026-11-24).
+
 ## 2026-11-24 — Forsiden henter sine data som én færdigpakket fil
 
 Forsiden viste i starten næsten kun »I denne måned«-kort, fordi biografierne og hændelserne tog 10-12 s at hente og

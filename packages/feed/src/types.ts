@@ -103,6 +103,11 @@ export interface FeedInputs {
   // indhold i kategorien). Se TEMP_DISABLED_KINDS i web/mobile's opsætning af FeedInputs.
   disabledKinds?: ReadonlySet<FeedCard['kind']>;
   naevntGrundlag?: NaevntGrundlag;
+  // Forsidens minimumskrav (spec 2026-11-24-forside-minimumskrav-design.md): kun forsideværdige personer
+  // (forside.ts) og højst ét kort pr. person. Udeladt/false = motoren som før (ekvivalenstesten).
+  forsideKrav?: boolean;
+  // Krav 4's billed-gren: kanoniske person-id'er med billede. Web sender det først med spor 2.
+  personerMedBillede?: ReadonlySet<string>;
 }
 
 export function bookmarkPersonId(card: FeedCard): string | null {

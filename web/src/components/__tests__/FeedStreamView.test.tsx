@@ -161,6 +161,12 @@ describe('FeedStreamView — uddeling', () => {
     expect(inputs.naevntGrundlag?.personerMedMereEndNavn).toBeInstanceOf(Set);
   });
 
+  it('forsiden beder motoren om forsidens minimumskrav', async () => {
+    render(<FeedStreamView {...feedProps(null)} />);
+    await waitFor(() => expect(streamMocks.createFeedStream).toHaveBeenCalled());
+    expect((streamMocks.createFeedStream.mock.calls[0][2] as FeedInputs).forsideKrav).toBe(true);
+  });
+
   it('deler ud efter fristen, selv om biografierne og hændelserne ikke er kommet, og bygger om når de kommer', async () => {
     vi.useFakeTimers();
     try {
@@ -179,6 +185,8 @@ describe('FeedStreamView — uddeling', () => {
       await act(async () => { bios.resolve({ bioBy: { '1': 'En biografi.' }, komplet: true }); haendelser.resolve({}); });
       expect(streamMocks.createFeedStream.mock.calls.length).toBeGreaterThan(1);
       expect(streamMocks.resumeStream).toHaveBeenCalled();
+      // Forsidens krav 6: en genopbygget ordning må ikke vise en allerede vist person med et andet kort.
+      expect([...streamMocks.resumeStream.mock.calls[0][2] as Set<string>].sort()).toEqual(ids1til6);
       expect(screen.getAllByRole('article')).toHaveLength(6); // viste blade nulstilles ikke
     } finally {
       vi.useRealTimers();
