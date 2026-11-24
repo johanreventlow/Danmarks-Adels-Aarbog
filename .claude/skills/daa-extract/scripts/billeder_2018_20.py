@@ -223,11 +223,113 @@ def byg_manifest(pdf: Path, ud: Path) -> dict:
     return manifest
 
 
+# ---------------------------------------------------------------------------------------------------------------
+# Runde 2: segl og medaljer (spec-afsnit »Runde 2«). Kuraterede poster: billede ↔ billedtekst er sat i hånden efter
+# sidens layout og seglenes omskrifter; titlen er bogens tekst ordret. `billeder` = indeks blandt sidens `image`-rækker
+# i `pdfimages -list` (smask tæller ikke). Seglets »(1, 3)« i tekstlaget er en læsefejl for »(I, 3)«.
+# ---------------------------------------------------------------------------------------------------------------
+
+_ODENSE = "Kilde: Museum Odenses Mønt- og Medaljesamling"
+KURATEREDE = [
+    dict(side=54, nr=1, billeder=[4], slags="segl", klasse="egen", refs=[["I", 3]], datering="25. februar 1272",
+         titel="Hartwig von Reventlows segl 25. februar 1272 (I, 3)"),
+    dict(side=54, nr=2, billeder=[0], slags="segl", klasse="egen", refs=[["I", 11]], datering="1320",
+         titel="Nicolaus von Reventlows segl 1320 (I, 11)"),
+    dict(side=54, nr=3, billeder=[1], slags="segl", klasse="egen", refs=[["VI", 4]], datering="6. december 1336",
+         titel="Johann von Walstorps segl 6. december 1336 (VI, 4)"),
+    dict(side=54, nr=4, billeder=[5], slags="segl", klasse="egen", refs=[["I", 12]], datering="30. juni 1347",
+         titel="Doso von Reventlows segl 30. juni 1347 (I, 12)"),
+    dict(side=54, nr=5, billeder=[3], slags="segl", klasse="egen", refs=[["VIII", 2]], datering="14. juli 1361",
+         titel="Otto von Muggeles segl 14. juli 1361 (VIII, 2)"),
+    dict(side=54, nr=6, billeder=[2], slags="segl", klasse="egen", refs=[["I", 43]], datering="8. juli 1469",
+         titel="Nicolaus von Reventlows segl 8. juli 1469 (I, 43)"),
+    dict(side=82, nr=1, billeder=[0], slags="medalje", klasse="egen", refs=[["III", 89]], datering="1758",
+         titel="Højesteretspræsident Claus von Reventlow 1693-1758 (III, 89) Sølvmedalje, præget 1758. "
+               f"Inskription: FULCIMEN ET DECUS. {_ODENSE}"),
+    dict(side=82, nr=2, billeder=[1], slags="medalje", klasse="egen", refs=[["V", 1]], datering="1708",
+         titel=f"Storkansler Conrad greve de Reventlow 1644-1708 (V, 1) Sølvmedalje, præget 1708. {_ODENSE}"),
+    dict(side=83, nr=1, billeder=[2], slags="medalje", klasse="flere", refs=[["V", 17]], datering="1721",
+         titel="Frederik 4. og Anna Sophia Reventlow (V, 17) Medalje fra 1721 kong Frederik 4. på forsiden og med "
+               f"dronning Anna Sophia på bagsiden. {_ODENSE}."),
+    dict(side=83, nr=2, billeder=[0, 1], slags="medalje", klasse="flere", refs=[["V", 17]], datering="1721",
+         titel="Frederik 4. og Anna Sophia Reventlow (V, 17) Medalje i guld fra 1721 i anledning af Dronning Anna "
+               "Sophias kroning. Kilde: Royal Collection of Coins and Medals, National Museum of Denmark."),
+    dict(side=379, nr=1, billeder=[0], slags="medalje", klasse="egen", refs=[["VI", 39]], datering="1560’erne",
+         titel="Feltherre Johann von Rantzau 1492-1565 og ægtefællen Anna von Walstorp 1509-1581 (VI, 39) Støbt "
+               "sølvmedalje, formentlig udført i 1560’erne af holstensk kunstner"),
+]
+
+
+def kombiner_vandret(kilder: list[Path], maal: Path) -> Path:
+    """Sætter billederne side om side (fx en medaljes for- og bagside) på hvidt, lodret centreret."""
+    from PIL import Image
+
+    billeder = [Image.open(k).convert("RGB") for k in kilder]
+    hoejde = max(b.height for b in billeder)
+    ud = Image.new("RGB", (sum(b.width for b in billeder), hoejde), (255, 255, 255))
+    x = 0
+    for b in billeder:
+        ud.paste(b, (x, (hoejde - b.height) // 2))
+        x += b.width
+    ud.save(maal, "JPEG", quality=90)
+    return Path(maal)
+
+
+def _flad(kilde: Path, maske: Path | None, maal: Path) -> Path:
+    if maske is None:
+        return kilde
+    from PIL import Image
+
+    with Image.open(kilde) as billede, Image.open(maske) as m:
+        rgb = billede.convert("RGB")
+        Image.composite(rgb, Image.new("RGB", rgb.size, (255, 255, 255)), m.convert("L").resize(rgb.size)).save(
+            maal, "JPEG", quality=90)
+    return maal
+
+
+def byg_manifest_runde2(pdf: Path, ud: Path) -> dict:
+    ud.mkdir(parents=True, exist_ok=True)
+    billeder = []
+    for side in sorted({p["side"] for p in KURATEREDE}):
+        liste = _billedliste(pdf, side, side)
+        with tempfile.TemporaryDirectory() as tmp:
+            prefix = Path(tmp) / "b"
+            subprocess.run(["pdfimages", "-j", "-png", "-f", str(side), "-l", str(side), str(pdf), str(prefix)],
+                           check=True)
+
+            def fil(num: int) -> Path:
+                hits = sorted(Path(tmp).glob(f"b-{num:03d}.*"))
+                if len(hits) != 1:
+                    raise RuntimeError(f"Forventede én fil for billede {num} på s. {side}, fandt {len(hits)}")
+                return hits[0]
+
+            for post in [p for p in KURATEREDE if p["side"] == side]:
+                noegle = f"daa-2018-20-s{side:04d}-{post['nr']}"
+                flade = []
+                for i, idx in enumerate(post["billeder"]):
+                    b = liste[idx]
+                    maske = fil(b["maske_num"]) if b["maske_num"] is not None else None
+                    flade.append(_flad(fil(b["num"]), maske, Path(tmp) / f"flad-{noegle}-{i}.jpg"))
+                kilde = flade[0] if len(flade) == 1 else kombiner_vandret(flade, Path(tmp) / f"{noegle}-samlet.jpg")
+                rec = {"noegle": noegle, "side": side, "billednr": post["nr"], "billedtekst": post["titel"]}
+                rec.update(lav_varianter(kilde, None, ud, noegle))
+                rec.update({"titel": post["titel"], "kunstner": None, "datering": post["datering"],
+                            "slags": post["slags"], "klasse": post["klasse"], "refs": post["refs"],
+                            "aegtefaelle_anker": None, "aegtefaelle_navn": None, "aegtefaelle_aar": None,
+                            "ekstra_tekst": False})
+                billeder.append(rec)
+    manifest = {"kilde_pdf": pdf.name, "runde": 2, "billeder": billeder}
+    (ud / "manifest-runde2.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
+    return manifest
+
+
 def main(argv: list[str]) -> int:
+    runde2 = "--runde2" in argv
+    argv = [a for a in argv if a != "--runde2"]
     if len(argv) != 2:
-        print("Brug: billeder_2018_20.py <pdf> <ud-mappe>", file=sys.stderr)
+        print("Brug: billeder_2018_20.py [--runde2] <pdf> <ud-mappe>", file=sys.stderr)
         return 2
-    manifest = byg_manifest(Path(argv[0]), Path(argv[1]))
+    manifest = (byg_manifest_runde2 if runde2 else byg_manifest)(Path(argv[0]), Path(argv[1]))
     klasser: dict[str, int] = {}
     for b in manifest["billeder"]:
         klasser[b["klasse"]] = klasser.get(b["klasse"], 0) + 1

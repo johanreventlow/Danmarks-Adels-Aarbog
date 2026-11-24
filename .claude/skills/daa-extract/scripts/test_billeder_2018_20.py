@@ -249,3 +249,37 @@ def test_gruppe_tager_alle_henvisninger_ogsaa_efter_gift_med():
 
 def test_sidefodens_dato_kommer_ikke_med_i_titlen():
     assert "25/10/2023" not in parse_billedtekst(S346)["titel"]
+
+
+# --- Runde 2: segl og medaljer ---------------------------------------------------------------------------------
+
+from billeder_2018_20 import KURATEREDE, kombiner_vandret  # noqa: E402
+
+
+def test_kombiner_vandret_laegger_billederne_side_om_side_paa_hvidt(tmp_path):
+    a = lille_jpeg(tmp_path, 10, 8)
+    b = tmp_path / "b.jpg"
+    Image.new("RGB", (12, 6), (0, 0, 0)).save(b, "JPEG", quality=95)
+    ud = kombiner_vandret([a, b], tmp_path / "k.jpg")
+    with Image.open(ud) as k:
+        assert k.size == (22, 8)
+        r, g, bb = k.convert("RGB").getpixel((21, 7))  # under det lave billede: hvid fyld
+        assert min(r, g, bb) >= 245
+
+
+def test_kuraterede_poster_er_de_elleve_segl_og_medaljer():
+    noegler = [f"daa-2018-20-s{p['side']:04d}-{p['nr']}" for p in KURATEREDE]
+    assert len(KURATEREDE) == 11 and len(set(noegler)) == 11
+    assert {p["slags"] for p in KURATEREDE} == {"segl", "medalje"}
+    assert sum(p["slags"] == "segl" for p in KURATEREDE) == 6
+    assert all(p["titel"].strip() for p in KURATEREDE)
+
+
+def test_kuraterede_koblinger():
+    efter = {(p["side"], p["nr"]): p for p in KURATEREDE}
+    hartwig = next(p for p in KURATEREDE if p["titel"].startswith("Hartwig"))
+    assert hartwig["refs"] == [["I", 3]] and hartwig["klasse"] == "egen"
+    assert efter[(83, 1)]["klasse"] == "flere" and efter[(83, 2)]["klasse"] == "flere"
+    assert len(efter[(83, 2)]["billeder"]) == 2  # guldmedaljens for- og bagside
+    assert "guld" in efter[(83, 2)]["titel"]
+    assert efter[(379, 1)]["refs"] == [["VI", 39]]
