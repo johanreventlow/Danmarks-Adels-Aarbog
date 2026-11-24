@@ -11,7 +11,7 @@ import { PERSONS, SOURCES, TABLE_FIXTURES } from './fixtures';
 type Opts = { factsStatus?: number; toUdgaver?: boolean };
 
 const RECORD_1939 = 'record-07565168-b903-4444-9189-43d62d5c6ed6';
-const faktum = (o: Record<string, unknown>) => ({
+const faktum = (o: Record<string, unknown>): Record<string, unknown> => ({
   conclusion_status: 'afklaret', chosen: true, vaerdi_tekst: null, date_raw: null, date_min: null, date_max: null,
   date_qualifier: null, date_certainty: null, side: null, ...o,
 });
@@ -21,6 +21,9 @@ const TO_UDGAVER_FAKTA = [
   faktum({ person_id: 4, fact_id: 41, assertion_id: 41, faktatype: 'fødsel', date_raw: '1. maj 1730', ...fra2012 }),
   faktum({ person_id: 9, fact_id: 91, assertion_id: 91, faktatype: 'fødsel', date_raw: '1 Maj 1730', ...fra1939 }),
   faktum({ person_id: 9, fact_id: 92, assertion_id: 92, faktatype: 'død', date_raw: '1790', ...fra1939 }),
+  // Dåben er uenig mellem udgaverne: den anden udgave står som note »… skriver: …« under linjen.
+  faktum({ person_id: 4, fact_id: 43, assertion_id: 43, faktatype: 'dåb', date_raw: '3. maj 1730', ...fra2012 }),
+  faktum({ person_id: 9, fact_id: 93, assertion_id: 93, faktatype: 'dåb', date_raw: '4 Maj 1730', ...fra1939 }),
 ];
 const bio = (personId: number, sourceId: number, aar: number, label: string, ref: string, recordLabel: string, tekst: string) => ({
   person_id: personId, source_id: sourceId, source_year: aar, record_order: 1, source_record_ref: ref, source_label: label,
@@ -71,6 +74,14 @@ async function mockSupabase(page: Page, kald: { coords: number; legacy: number; 
       return svar(TO_UDGAVER_BIO.filter((b) => ids.includes(String(b.person_id))));
     }
     if (sti.startsWith('rpc/')) return svar([]);
+    // »Kilde i Aarbogen« for en person uden bogens nummer (person 3) udledes af evidenslaget fact → assertion →
+    // citation → source (fetchProveniens i web/src/data/public.ts) — samme citation, som fakta-RPC'en ovenfor
+    // læser sin kilde fra. Kun personens egne opslag (subjekt_id/target_id/assertion_id i.(…)) besvares.
+    if (sti === 'fact' && url.searchParams.get('subjekt_id') === 'in.(3)') return svar([{ id: 31, subjekt_id: 3 }]);
+    if (sti === 'assertion' && url.searchParams.get('target_id') === 'in.(31)') return svar([{ id: 31, target_id: 31 }]);
+    if (sti === 'citation' && url.searchParams.get('assertion_id') === 'in.(31)') {
+      return svar([{ assertion_id: 31, side: '12', side_trykt: '12', source: { titel: 'Danmarks Adels Aarbog', udgave: 'DAA 2012-14' } }]);
+    }
     if (opts.toUdgaver && sti === 'person') return svar([...PERSONS, PERSON_9]);
     if (opts.toUdgaver && sti === 'relation' && url.searchParams.get('rolle') === 'eq.samme_som') return svar([SAMME_SOM]);
     if (opts.toUdgaver && sti === 'conclusion' && url.searchParams.get('target_type') === 'eq.relation'
@@ -92,13 +103,20 @@ test('koordinater fra placement-RPC\'en med bogstavsuffiks; legacy-viewet kaldes
   expect(kald.legacy).toBe(0);
 });
 
-test('person uden prosa viser fakta med bundet kilde', async ({ page }) => {
+// Projektejeren 2026-11-19 (cb75e13a, docs/decisions.md »kilden står kun nederst«): kilden står ikke længere under
+// hvert faktum; »Kilde i Aarbogen« nederst på siden bærer den. Faktumets kilde skal derfor stå dér.
+test('person uden prosa viser fakta, og kilden står i »Kilde i Aarbogen«', async ({ page }) => {
   const kald = { coords: 0, legacy: 0, facts: [] as unknown[] };
   await mockSupabase(page, kald);
   await page.goto('/person/3');
   await expect(page.getByText('Fakta', { exact: true })).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('1780', { exact: true })).toBeVisible();
-  await expect(page.getByText('DAA 2012-14, s. 12 · II-3')).toBeVisible();
+  const kilde = page.locator('footer').filter({ hasText: 'Kilde i Aarbogen' });
+  await expect(kilde).toContainText('Danmarks Adels Aarbog');
+  await expect(kilde).toContainText('s. 12');
+  await expect(kilde.getByText('Ingen kildehenvisning registreret.')).toHaveCount(0);
+  // ingen kildelinje under faktummet, og ingen arbejdsgangsmærker
+  await expect(page.getByText('DAA 2012-14, s. 12 · II-3')).toHaveCount(0);
   await expect(page.getByText('bundet til bogens post')).toHaveCount(0);
   const ids = (kald.facts[0] as { p_person_ids: unknown[] }).p_person_ids.map(String);
   expect(ids).toContain('3');
@@ -112,11 +130,15 @@ test('fejl fra fakta-RPC\'en giver »Fakta kunne ikke hentes«, resten af detalj
   await expect(page.getByText('Person 3', { exact: false }).first()).toBeVisible();
 });
 
+// Projektejeren 2026-11-19 (7ed9fca6): enighed mellem udgaverne (»✓ også i …«) vises ikke; kun uenighed som
+// »<udgave> skriver: …« under linjen, og det, kun den anden udgave har, under »Kun i <udgave>«.
 test('to udgaver: den valgte forrest, den anden som note; ingen tekniske postnøgler i siden', async ({ page }) => {
   const kald = { coords: 0, legacy: 0, facts: [] as unknown[] };
   await mockSupabase(page, kald, { toUdgaver: true });
   await page.goto('/person/4');
-  await expect(page.getByText('✓ også i DAA 1939')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('DAA 1939 skriver: 4 Maj 1730')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('3. maj 1730', { exact: true })).toBeVisible();
+  await expect(page.getByText(/også i/)).toHaveCount(0);
   // detaljen beder om begge medlems-id'er (medlemskontrakten), ikke kun det kanoniske
   const sendt = (kald.facts as { p_person_ids: unknown[] }[]).map((b) => b.p_person_ids.map(String).sort());
   expect(sendt).toContainEqual(['4', '9']);
@@ -129,8 +151,13 @@ test('to udgaver: den valgte forrest, den anden som note; ingen tekniske postnø
   await page.getByRole('button', { name: 'DAA 1939', exact: true }).click();
   await expect(page.getByText('Biografi fra 1939-udgaven.')).toBeVisible();
   await expect(page.getByText('1 Maj 1730', { exact: true })).toBeVisible();
-  await expect(page.getByText('✓ også i DAA 2012-14')).toBeVisible();
-  await expect(page.getByText('Tidligere udgave')).toBeVisible();
-  await expect(page.getByText('DAA 1939, s. 541', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('DAA 2012-14 skriver: 3. maj 1730')).toBeVisible();
+  await expect(page.getByText(/også i/)).toHaveCount(0);
+  await expect(page.getByText('Du ser en tidligere udgave.', { exact: true })).toBeVisible();
+  // Kilden pr. faktum er væk (cb75e13a); begge udgavers poster står i »Kilde i Aarbogen« nederst.
+  const kilde = page.locator('footer').filter({ hasText: 'Kilde i Aarbogen' });
+  await expect(kilde).toContainText('Linje II, nr. 4');
+  await expect(kilde).toContainText('Linje II, nr. 3');
+  await expect(page.getByText('DAA 1939, s. 541')).toHaveCount(0);
   expect(await page.content()).not.toMatch(/record-[0-9a-f]{8}-|legacy-source:/);
 });
