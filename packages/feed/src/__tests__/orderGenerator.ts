@@ -5,14 +5,17 @@
 import { buildModel, type ParentChild, type Union } from '@daa/core';
 import { mulberry32 } from '../prng';
 import { TEMP_DISABLED_KINDS } from '../score';
+
 import type { FeedAux, FeedCard, FeedInputs, HaendelserBy, LivsdatoBy, Model, StorieBy } from '../types';
+const UDEN_NAEVNT_SLAAET_FRA = new Set([...TEMP_DISABLED_KINDS].filter((k) => k !== 'naevnt'));
 
 export interface GenOpts {
   persons: number;
   // Andel personer uden tekst/titel (→ 'naevnt'-kandidater) og med brugbar bio (→ portræt/citat).
   naevntAndel?: number;
   bioAndel?: number;
-  // Web-feedets form: TEMP_DISABLED_KINDS slået fra + naevntGrundlag.
+  // Web-feedets form FØR naevnt blev slået fra (24/11): TEMP_DISABLED_KINDS uden 'naevnt' + naevntGrundlag, så
+  // naevnt-grenene i trækningsløkken stadig dækkes af ekvivalenstesten.
   webForm?: boolean;
   // Alle korttyper slået til (ingen disabledKinds) — til målingen.
   alleTyper?: boolean;
@@ -111,7 +114,7 @@ export function genFeedInput(seed: number, opts: GenOpts): { model: Model; aux: 
   const alleKinds: FeedCard['kind'][] = ['historie', 'portrait', 'paadennedag', 'dagensperson', 'jubilaeum', 'slaegt',
     'gods', 'embede', 'forbundet', 'arkiv', 'citat', 'vaaben', 'naevnt'];
   const disabledKinds: ReadonlySet<FeedCard['kind']> | undefined = opts.webForm
-    ? TEMP_DISABLED_KINDS
+    ? UDEN_NAEVNT_SLAAET_FRA
     : opts.alleTyper ? undefined : pick([undefined, TEMP_DISABLED_KINDS, new Set(alleKinds.filter(() => r() < 0.3)), new Set(alleKinds.filter((k) => k !== 'naevnt' && k !== 'embede'))]);
   // Ofte et beslægtet par (barn/forælder), så slægtskortet og dets positionslås opstår.
   const par = parentChild.length && r() < 0.6 ? pick(parentChild) : null;

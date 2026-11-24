@@ -29,6 +29,9 @@ export const BASE: Record<FeedCard['kind'], number> = {
 export const TEMP_DISABLED_KINDS: ReadonlySet<FeedCard['kind']> = new Set([
   'historie', 'dagensperson', 'jubilaeum', 'slaegt',
   'gods', 'embede', 'forbundet', 'arkiv', 'citat', 'vaaben',
+  // Projektejeren 24/11: »Nævnt i Aarbogen« handler om personer uden indhold og strider mod forsidens krav om indhold
+  // (spec 2026-11-24-forside-minimumskrav-design.md). Tænd igen ved at fjerne den herfra.
+  'naevnt',
 ]);
 
 export interface ScoreContext {
