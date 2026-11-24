@@ -60,6 +60,17 @@ der kan være ændret siden statussnapshotet.
 - **Hver trykt DAA-udgave er en selvstændig `source`** — så modstridende udgaver håndteres indfødt.
 - **Arbejdsmapper (gitignoreret) — commit dem aldrig:** `work/` (2018-20), `work_2018_saerudgave/` og `work_1939_stamtavle/` er udtræk af trykte, publicerede udgaver og **må læses af en model** (projektejerens beslutning 2026-11-21/22). `work_presens*/` (præsenslister over nulevende) må **aldrig** sendes til en model (invariant 8); det håndhæves af `.claude/settings.json`.
 
+## Robotter og misbrug (anon-fladen)
+
+Web og mobil taler **direkte** med Supabase med den offentlige anon-nøgle, så den reelle angrebsflade er `…supabase.co/rest/v1` og `/rpc` — ikke Vercel-sitet. Robotter kan springe appen helt over (erfaring fra TNG-siden reventlow.dk: titusindvis af kald/døgn, SQL-injektionsscannere, crawlere fanget i uendelige URL-rum).
+
+- **Nye anon-grants** (tabel, view, funktion) kræver en begrundet linje i `docs/decisions.md`; udgangspunktet er `authenticated`.
+- **Nye og ændrede anon-RPC'er afgrænser input og output server-side:** loft på array-parametre (`cardinality`) og afvisning af for store `limit`/sidestørrelser. Mønster: `public_haendelse_feed` (afviser uden for 1–200/1–2000 med `22023`). PostgREST's `max_rows` begrænser kun svaret, ikke arbejdet bag det.
+- **RLS-ændringer verificeres som anon** før deploy (som i `db-rls.sql`: 0 levende lækket).
+- **`service_role` og hemmeligheder aldrig i `web/` eller `mobile/`** — alt i klient-bundtet er offentligt, også i mobil-appen.
+- **Ingen crawlbare uendelige URL-rum** i web (filtre/søgning som query-parametre); `web/public/robots.txt` forbliver `Disallow: /`, indtil review 37 C10 er genbesøgt.
+- **Før offentlig tilmelding åbnes:** Supabase Auth's captcha (Turnstile) på oprettelse, login og nulstilling af adgangskode.
+
 ## Levende dokumentation (status/backlog bor IKKE her)
 
 - `docs/README.md` — dokumentationsindeks (start her)
