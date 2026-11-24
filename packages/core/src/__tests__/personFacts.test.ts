@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPersonFacts, factSource, factValue, FAKTA_UDELADT, type PublicPersonFactRow } from '../personFacts';
+import { buildPersonFacts, datoErDobbelt, factSource, factValue, FAKTA_UDELADT, type PublicPersonFactRow } from '../personFacts';
 
 let next = 1;
 const row = (o: Partial<PublicPersonFactRow> = {}): PublicPersonFactRow => {
@@ -136,14 +136,26 @@ describe('buildPersonFacts', () => {
     // et rent årstal kan være et tilfælde → begge vises
     expect(factValue(row({ vaerdi_tekst: 'døbt i kirken opført 1845', date_raw: '1845' }))).toBe('døbt i kirken opført 1845, 1845');
     expect(factValue(row({ vaerdi_tekst: 'døbt 5. sept. 1845 eller 1846', date_raw: '1846' }))).toBe('døbt 5. sept. 1845 eller 1846, 1846');
-    // står datoen inde i teksten (ikke til sidst), vises begge
+    // afgørelse 13 revideret 2026-11-24 (projektejeren): står datoen ordret inde i teksten, vises den også kun én gang
     expect(factValue(row({ vaerdi_tekst: 'døbt 5. sept. 1845 i Vesterborg Kirke', date_raw: '5. sept. 1845' })))
-      .toBe('døbt 5. sept. 1845 i Vesterborg Kirke, 5. sept. 1845');
-    // kun ved ordgrænse: »5. sept. 1845« er ikke slutningen af »15. sept. 1845«
+      .toBe('døbt 5. sept. 1845 i Vesterborg Kirke');
+    expect(factValue(row({ vaerdi_tekst: '25. april 1861 på Pederstrup', date_raw: '25. april 1861' }))).toBe('25. april 1861 på Pederstrup');
+    expect(factValue(row({ vaerdi_tekst: 'bisat 27. s.m. fra Garnisons Kirke s.st. og begravet 29. s.m.', date_raw: '27. s.m.' })))
+      .toBe('bisat 27. s.m. fra Garnisons Kirke s.st. og begravet 29. s.m.');
+    // et rent årstal inde i teksten tæller stadig ikke
+    expect(factValue(row({ vaerdi_tekst: 'døbt i kirken fra 1845 af præsten', date_raw: '1845' }))).toBe('døbt i kirken fra 1845 af præsten, 1845');
+    // kun ved ordgrænse på begge sider: »5. sept. 1845« står ikke i »15. sept. 1845« eller »5. sept. 18450«
     expect(factValue(row({ vaerdi_tekst: 'døbt 15. sept. 1845', date_raw: '5. sept. 1845' }))).toBe('døbt 15. sept. 1845, 5. sept. 1845');
+    expect(factValue(row({ vaerdi_tekst: 'døbt 15. sept. 1845 i kirken', date_raw: '5. sept. 1845' }))).toBe('døbt 15. sept. 1845 i kirken, 5. sept. 1845');
+    expect(factValue(row({ vaerdi_tekst: 'nr. 5. sept. 18450 i kirken', date_raw: '5. sept. 1845' }))).toBe('nr. 5. sept. 18450 i kirken, 5. sept. 1845');
     // tjekket sker efter en omformning af hver del (opløsning af relative datoer)
     const opl = (v: string) => v.replace('s.å.', '1922');
     expect(factValue(row({ vaerdi_tekst: 'hjemmedøbt 10. febr. 1922', date_raw: '10. febr. s.å.' }), opl)).toBe('hjemmedøbt 10. febr. 1922');
+  });
+
+  it('opløsningens test (datoErDobbelt) er stadig »slutter med« — nr. 2 i #478 er ikke taget endnu', () => {
+    expect(datoErDobbelt('hjemmedøbt 10. febr. s.å.', '10. febr. s.å.')).toBe(true);
+    expect(datoErDobbelt('døbt 18. aug. s.å. i Vesterborg Kirke', '18. aug. s.å.')).toBe(false);
   });
 
   it('C1: et betydningsbærende tegn i date_raw (»?«, parentes) fjernes aldrig ved dobbelttjekket', () => {

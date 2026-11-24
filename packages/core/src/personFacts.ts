@@ -63,8 +63,26 @@ const slutterMed = (tekst: string, del: string) => {
   return foer == null || !/[\p{L}\p{N}]/u.test(foer);
 };
 
-// Er `date_raw` en gentagelse af `vaerdi_tekst` (lig den eller dens afslutning)? Samme regel som i factValue.
+// Er `date_raw` en gentagelse af `vaerdi_tekst` (lig den eller dens afslutning)? Bruges af opløsningen af relative
+// datoer (editionFacts.ts, »datofelt ved en dato i teksten«), hvor reglen er målt 2026-11-12 og bevidst stadig er
+// »slutter med«. At lade opløsningen bruge visningens bredere regel er en senere opgave (#478).
 export const datoErDobbelt = (tekst: string, dato: string) => dato.trim() === tekst.trim() || slutterMed(tekst, dato);
+
+// Visningens regel (afgørelse 13 revideret 2026-11-24, projektejeren): `date_raw` vises ikke igen, når den står ORDRET
+// et vilkårligt sted i `vaerdi_tekst` med ordgrænse på begge sider og er mere end et årstal — fx »25. april 1861 på
+// Pederstrup« + »25. april 1861«. Værnene fra afgørelse 13 består: et rent årstal kan være et tilfælde, og »?« eller
+// parenteser i datoen gør den forskellig fra teksten (kun mellemrum og . , ; : er skrivemåde i halen).
+const staarITeksten = (tekst: string, del: string) => {
+  const d = udenHale(del);
+  if (!d || !/\p{L}/u.test(d)) return false;
+  for (let i = tekst.indexOf(d); i !== -1; i = tekst.indexOf(d, i + 1)) {
+    const foer = tekst[i - 1], efter = tekst[i + d.length];
+    // efter datoen kun mellemrum, . , ; : eller tekstens slutning — »døbt 21. april 1644?« bærer en tvivl, datofeltet ikke
+    if ((foer == null || !/[\p{L}\p{N}]/u.test(foer)) && (efter == null || /[\s.,;:]/u.test(efter))) return true;
+  }
+  return false;
+};
+const datoVisesIForvejen = (tekst: string, dato: string) => datoErDobbelt(tekst, dato) || staarITeksten(tekst, dato);
 
 // Den rå værdi med ledende tegn fjernet; null for tom.
 export const visDel = (v: string | null) => {
@@ -79,7 +97,7 @@ export function factValue(r: PublicPersonFactRow, del: (v: string) => string = (
   };
   const tekst = vis(r.vaerdi_tekst);
   const dato = vis(r.date_raw);
-  const dateRaw = dato && tekst && datoErDobbelt(tekst, dato) ? null : dato;
+  const dateRaw = dato && tekst && datoVisesIForvejen(tekst, dato) ? null : dato;
   const parts = [tekst, dateRaw].filter((x): x is string => !!x && x.trim() !== '');
   return parts.length ? parts.join(', ') : '—';
 }
