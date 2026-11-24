@@ -5,8 +5,8 @@
 import { buildModel, type ParentChild, type Union } from '@daa/core';
 import { mulberry32 } from '../prng';
 import { TEMP_DISABLED_KINDS } from '../score';
-
 import type { FeedAux, FeedCard, FeedInputs, HaendelserBy, LivsdatoBy, Model, StorieBy } from '../types';
+
 const UDEN_NAEVNT_SLAAET_FRA = new Set([...TEMP_DISABLED_KINDS].filter((k) => k !== 'naevnt'));
 
 export interface GenOpts {
