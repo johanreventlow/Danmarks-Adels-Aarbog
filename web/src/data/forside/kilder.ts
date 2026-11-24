@@ -8,9 +8,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 // (deploy 24/11: »referencing unsupported modules: … @daa/core«). Samme fil, stadig én kilde.
 import { getAll } from '../../../../packages/core/src/getAll';
 import type {
-  HaendelseNarrativRow,
-  HaendelseRow,
-  HaendelseSourceRow,
   LivsdatoAssertionRow,
   LivsdatoConclusionRow,
   LivsdatoFactRow,
@@ -18,6 +15,7 @@ import type {
   StoryRow,
   StorySourceRow,
 } from '@daa/feed';
+import type { HaendelseRowsResult } from '../haendelser';
 
 export type Sb = Pick<SupabaseClient, 'from' | 'rpc'>;
 
@@ -68,11 +66,6 @@ export async function hentPersonIder(sb: Sb): Promise<number[]> {
 
 // ---------- biografier ----------
 
-// Prod 2026-11-21: bio-RPC'en koster ~10 ms pr. id som gæst (loft 3 s). 200 id'er à 9 parallelt → 7/9 afbrudt;
-// 50 id'er à 3 parallelt → maks 1,4 s pr. kald, ~10 s samlet. Server-side optimering følger separat.
-export const FEED_BIO_IN_CHUNK = 50;
-export const FEED_BIO_PARALLEL = 3;
-
 // Modellen indeholder kun kanoniske personer, mens narrativer også kan ligge på alias-rækker.
 // Medtag derfor både model-id'erne og de alias-id'er der foldes ind i dem.
 export function buildFeedBioSubjectIds(
@@ -86,106 +79,6 @@ export function buildFeedBioSubjectIds(
       .filter(([, canonical]) => canonicalPersons.has(canonical))
       .map(([alias]) => alias),
   ])].sort();
-}
-
-export type BioRaekker = { kontrakt: number; rows: unknown[]; fejlede: number[] };
-
-export async function hentBioKontrakt(sb: Sb): Promise<number> {
-  const version = await sb.rpc('narrative_record_contract_version', {});
-  if (version.error || typeof version.data !== 'number' || !Number.isInteger(version.data)) {
-    throw new Error('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
-  }
-  return version.data;
-}
-
-type BioSvar = { data: unknown; error: unknown };
-
-// Én bid: ét forsøg; fejler det, prøves bidden igen som to halvdele (tiden voksede med antallet af id'er, #421).
-// Returnerer rækkerne og de id'er, der stadig fejlede.
-async function hentBid(sb: Sb, rpcName: string, ids: number[]): Promise<{ rows: unknown[]; fejlede: number[] }> {
-  const kald = (del: number[]) => sb.rpc(rpcName, { p_person_ids: del }) as unknown as PromiseLike<BioSvar>;
-  const foerste = await kald(ids);
-  if (!foerste.error) {
-    if (!Array.isArray(foerste.data)) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
-    return { rows: foerste.data, fejlede: [] };
-  }
-  const midt = Math.ceil(ids.length / 2);
-  const rows: unknown[] = [];
-  const fejlede: number[] = [];
-  for (const del of [ids.slice(0, midt), ids.slice(midt)]) {
-    if (!del.length) continue;
-    const svar = await kald(del);
-    if (svar.error) { fejlede.push(...del); continue; }
-    if (!Array.isArray(svar.data)) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
-    rows.push(...svar.data);
-  }
-  return { rows, fejlede };
-}
-
-// Biografiversioner for person-id'erne i bidder. En bid, der bliver ved med at fejle, koster kun sine egne id'er
-// (`fejlede`); fejler alle, kastes der.
-export async function hentBioRaekker(sb: Sb, kontrakt: number, personIds: number[]): Promise<BioRaekker> {
-  if (!personIds.length) return { kontrakt, rows: [], fejlede: [] };
-  const rpcName = kontrakt >= 2 ? 'public_person_bio_source_versions_v2' : 'public_person_bio_source_versions';
-  // I bidder med begrænset parallelitet: alle id'er i ét kald ramte gæsternes 3 s-loft i prod (1.725 id'er → 57014).
-  const svar = await mapLimited(chunks(personIds, FEED_BIO_IN_CHUNK), FEED_BIO_PARALLEL, (ids) => hentBid(sb, rpcName, ids));
-  const fejlede = svar.flatMap((r) => r.fejlede);
-  if (fejlede.length === personIds.length) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
-  return { kontrakt, rows: svar.flatMap((r) => r.rows), fejlede };
-}
-
-// ---------- hændelser ----------
-
-export type HaendelseRowsResult = {
-  rows: HaendelseRow[];
-  narrativer: HaendelseNarrativRow[];
-  sources: HaendelseSourceRow[];
-};
-
-// Loft over antal kald i én bladring. Med serverens standardlofter (150 narrativer / 1.000 rækker pr. kald) rækker det
-// langt ud over hele korpusset; nås det, er noget galt, og resultatet ville være afkortet.
-export const MAX_SIDER = 500;
-
-type FeedSide = {
-  rows: HaendelseRow[];
-  narrativer: HaendelseNarrativRow[];
-  sources: HaendelseSourceRow[];
-  naeste: string | null;
-};
-
-export function erFeedSide(data: unknown): data is FeedSide {
-  if (data === null || typeof data !== 'object') return false;
-  const side = data as Record<string, unknown>;
-  return Array.isArray(side.rows) && Array.isArray(side.narrativer) && Array.isArray(side.sources)
-    && (side.naeste === null || typeof side.naeste === 'string');
-}
-
-// Bladrer hele feedet igennem. Kaster ved enhver fejl, også efter en vellykket side: et delvist resultat må aldrig
-// se ud som et helt. Narrativer og kilder, der går igen på flere sider, tages kun med én gang.
-export async function bladrHaendelser(sb: Sb): Promise<HaendelseRowsResult> {
-  const rows: HaendelseRow[] = [];
-  const narrativer = new Map<string, HaendelseNarrativRow>();
-  const sources = new Map<string, HaendelseSourceRow>();
-  let fortsaet: string | null = null;
-  for (let i = 0; i < MAX_SIDER; i++) {
-    // Én side, der rammer gæsteloftet, prøves igen én gang med samme mærke (prod 24/11: 8 af 36 kald fejlede).
-    // Fejler den igen, kaster bladringen stadig: et delvist resultat må aldrig se ud som et helt.
-    const hentSide = (): PromiseLike<{ data: unknown; error: unknown }> =>
-      sb.rpc('public_haendelse_feed', { p_fortsaet: fortsaet });
-    let svar = await hentSide();
-    if (svar.error) svar = await hentSide();
-    const { data, error } = svar;
-    if (error) throw error;
-    if (!erFeedSide(data)) throw new Error('public_haendelse_feed: svaret har ikke den forventede form');
-    rows.push(...data.rows);
-    for (const n of data.narrativer) narrativer.set(String(n.id), n);
-    for (const s of data.sources) sources.set(String(s.id), s);
-    if (data.naeste === null) {
-      return { rows, narrativer: [...narrativer.values()], sources: [...sources.values()] };
-    }
-    fortsaet = data.naeste;
-  }
-  throw new Error(`public_haendelse_feed: loftet på ${MAX_SIDER} sider er nået — resultatet ville være afkortet`);
 }
 
 // ---------- livsdatoer ----------

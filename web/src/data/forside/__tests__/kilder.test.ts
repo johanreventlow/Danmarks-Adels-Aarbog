@@ -17,10 +17,10 @@ const klient = (tabeller: Record<string, Svar>, rpc: (navn: string, args: Record
 afterEach(() => { vi.unstubAllEnvs(); vi.resetModules(); });
 
 describe('forside/kilder', () => {
-  it('kilder importerer ikke den env-bundne klient', async () => {
+  it.each(['../kilder', '../../feedAux', '../../haendelser'])('%s importerer ikke den env-bundne klient', async (modul) => {
     vi.stubEnv('VITE_SUPABASE_URL', '');
     vi.stubEnv('VITE_SUPABASE_ANON_KEY', '');
-    await expect(import('../kilder')).resolves.toBeTruthy();
+    await expect(import(/* @vite-ignore */ modul)).resolves.toBeTruthy();
   });
 
   it('hentLivsdatoRaekker kaster ved fejl (sluger den ikke som browserens loader)', async () => {

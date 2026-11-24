@@ -5,7 +5,7 @@
 // Kun person-id'er hentes; teksterne hentes af feedets egne loadere.
 import type { NaevntGrundlag } from '@daa/feed';
 import { supabase } from '../supabase';
-import { fetchHaendelseFeed } from './haendelser';
+import { fetchHaendelseFeed } from './haendelseFeed';
 import { hentNaevntSubjekter, type SubjektRow } from './forside/kilder';
 
 export function buildNaevntGrundlag(

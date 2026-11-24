@@ -5,7 +5,7 @@ import {
   mapPublicBioSourceVersionsV2,
   selectDefaultPublicBioSourceVersionV2,
 } from '@daa/core';
-import type { BioRaekker } from './kilder';
+import type { BioRaekker } from '../feedAux';
 
 function mapV1Text(row: unknown): string | null {
   if (typeof row !== 'object' || row === null) return null;

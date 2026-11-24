@@ -1,10 +1,9 @@
 // Bygger forsidens færdigpakkede fil som gæst og afgør, hvor længe CDN'et må gemme den (spec
 // 2026-11-24-forside-data-cache-design.md). Kun de rå svar; browseren kører de eksisterende bygge-funktioner.
 import { FORSIDE_DATA_VERSION, type Del, type ForsideData } from './format';
-import {
-  bladrHaendelser, hentBioKontrakt, hentBioRaekker, hentHistorieRaekker, hentLivsdatoRaekker, hentNaevntSubjekter,
-  hentPersonIder, type Sb,
-} from './kilder';
+import { hentBioKontrakt, hentBioRaekker } from '../feedAux';
+import { bladrHaendelser } from '../haendelser';
+import { hentHistorieRaekker, hentLivsdatoRaekker, hentNaevntSubjekter, hentPersonIder, type Sb } from './kilder';
 
 const del = <T>(r: PromiseSettledResult<T>, komplet: (v: T) => boolean = () => true): Del<T> =>
   r.status === 'fulfilled' ? { komplet: komplet(r.value), data: r.value } : { komplet: false, data: null };

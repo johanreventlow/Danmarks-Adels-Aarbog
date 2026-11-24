@@ -21,12 +21,12 @@ vi.mock('../../data/forside/klient', () => ({ hentForsideData: forsideMocks.hent
 vi.mock('../../data/forside/udpak', () => ({ udpakForsideData: forsideMocks.udpakForsideData }));
 vi.mock('../../data/feedAux', () => ({
   buildWebFeedAux: () => ({ godsListe: [], vaabenListe: [], officesBy: {} }),
-  hentFeedBios: feedAuxMocks.hentFeedBios,
   withFeedBios: (model: unknown) => model,
 }));
+vi.mock('../../data/feedBios', () => ({ hentFeedBios: feedAuxMocks.hentFeedBios }));
 vi.mock('../../data/feedGrundlag', () => grundlagMocks);
 vi.mock('../../data/livsdato', () => ({ loadLivsdatoBy: () => Promise.resolve({}) }));
-vi.mock('../../data/haendelser', () => loaderMocks);
+vi.mock('../../data/haendelseFeed', () => loaderMocks);
 vi.mock('../../data/story', () => ({ loadStorieBy: () => Promise.resolve({}) }));
 vi.mock('../../data/seenCards', () => ({
   createSeenStore: () => ({ load: () => Promise.resolve([]), markSeen: seenMocks.markSeen }),

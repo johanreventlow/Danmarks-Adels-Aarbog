@@ -10,14 +10,15 @@ import {
   type NaevntGrundlag, type StorieBy,
 } from '@daa/feed';
 import { radius } from '@daa/theme';
-import { buildWebFeedAux, hentFeedBios, withFeedBios } from '../../data/feedAux';
+import { buildWebFeedAux, withFeedBios } from '../../data/feedAux';
+import { hentFeedBios } from '../../data/feedBios';
 import { hentForsideData } from '../../data/forside/klient';
 import { udpakForsideData } from '../../data/forside/udpak';
 import { fetchNaevntGrundlag } from '../../data/feedGrundlag';
 import { BLADE_PR_UDDELING, delUd, iBlokke } from '../../data/feedUddeling';
 import { epochDay, newSeed, todayISO } from '../../data/feedSession';
 import { loadLivsdatoBy } from '../../data/livsdato';
-import { loadHaendelserBy } from '../../data/haendelser';
+import { loadHaendelserBy } from '../../data/haendelseFeed';
 import { loadStorieBy } from '../../data/story';
 import { preserveShownForResume } from '../../data/feedResume';
 import { createSeenStore, toSeenWeights } from '../../data/seenCards';

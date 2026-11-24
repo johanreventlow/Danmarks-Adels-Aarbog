@@ -34,7 +34,8 @@ vi.mock('../../supabase', () => ({
   },
 }));
 
-const { FEED_BIO_IN_CHUNK, FEED_BIO_PARALLEL, buildFeedBioSubjectIds, buildWebFeedAux, hentFeedBios, withFeedBios } = await import('../feedAux');
+const { FEED_BIO_IN_CHUNK, FEED_BIO_PARALLEL, buildFeedBioSubjectIds, buildWebFeedAux, withFeedBios } = await import('../feedAux');
+const { hentFeedBios } = await import('../feedBios');
 // De ældre tests ser kun på biografierne; fuldstændigheden testes i »hentFeedBios«-blokken.
 const fetchFeedBios = async (canon: Record<string, string>, ids?: readonly string[]) => (await hentFeedBios(canon, ids)).bioBy;
 

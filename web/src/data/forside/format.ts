@@ -1,6 +1,8 @@
 // Formatet på forsidens færdigpakkede fil (spec 2026-11-24-forside-data-cache-design.md). Versionen hæves, når formen
 // ændres, så en gammel fil i CDN'et afvises efter en deploy.
-import type { BioRaekker, HaendelseRowsResult, LivsdatoRows, StoryRowsResult, SubjektRow } from './kilder';
+import type { BioRaekker } from '../feedAux';
+import type { HaendelseRowsResult } from '../haendelser';
+import type { LivsdatoRows, StoryRowsResult, SubjektRow } from './kilder';
 
 export const FORSIDE_DATA_VERSION = 1;
 
