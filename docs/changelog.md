@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-24 — Forsiden henter sine data som én færdigpakket fil
+
+Forsiden viste i starten næsten kun »I denne måned«-kort, fordi biografierne og hændelserne tog 10-12 s at hente og
+første uddeling sker efter 2,5 s; nogle kald ramte gæsternes 3 s-loft. Nu samler en Vercel-funktion forsidens data i én
+fil bag Vercels CDN (højst en time gammel), så de første kort også er portrætter, citater og historier. Kortene blandes
+stadig tilfældigt ved hvert besøg. Mangler filen, henter forsiden som før. Ingen DB-ændring
+(`decisions.md` 2026-11-24).
+
 ## 2026-11-23 — Gæster og indloggede kan kun læse i databasen; skriveret er en eksplicit undtagelse (review 37 R37S8-2)
 
 Supabase havde automatisk givet gæster og indloggede ret til at oprette, ændre, slette og tømme rækker i 29 tabeller og

@@ -3,12 +3,10 @@
 // fejlede og så tom ud — derfor kaster denne funktion ved enhver fejl i stedet for at falde
 // tilbage til en tom mængde (ingen safe()), og kalderen sender så intet naevntGrundlag.
 // Kun person-id'er hentes; teksterne hentes af feedets egne loadere.
-import { getAll } from '@daa/core';
 import type { NaevntGrundlag } from '@daa/feed';
 import { supabase } from '../supabase';
-import { fetchHaendelseFeed } from './haendelser';
-
-type SubjektRow = { subjekt_id: number | string };
+import { fetchHaendelseFeed } from './haendelseFeed';
+import { hentNaevntSubjekter, type SubjektRow } from './forside/kilder';
 
 export function buildNaevntGrundlag(
   rowGroups: SubjektRow[][],
@@ -27,16 +25,8 @@ export function buildNaevntGrundlag(
 export async function fetchNaevntGrundlag(
   canonicalIdById: Record<string, string>,
 ): Promise<NaevntGrundlag> {
-  const rowGroups = await Promise.all([
-    // Embeder (organisation) og godser (estate) — samme kilde som personsidens sektioner.
-    getAll<SubjektRow>(() => supabase.from('relation').select('subjekt_id')
-      .eq('subjekt_type', 'person').in('objekt_type', ['organisation', 'estate']).order('id')),
-    // Hændelser via feed-RPC'en i bidder (review 37 Y3), med samme regel pr. rolle som tabellens RLS. Bladreren
-    // kaster ved enhver sidefejl, også efter en vellykket side, så et delvist resultat aldrig gør en person med
-    // hændelser til »kun nævnt«.
-    fetchHaendelseFeed().then((feed): SubjektRow[] => feed.rows),
-    getAll<SubjektRow>(() => supabase.from('story').select('subjekt_id')
-      .eq('subjekt_type', 'person').eq('status', 'publiceret').order('id')),
-  ]);
-  return buildNaevntGrundlag(rowGroups, canonicalIdById);
+  // Hændelser via feed-RPC'en i bidder (review 37 Y3), med samme regel pr. rolle som tabellens RLS. Bladreren
+  // kaster ved enhver sidefejl, også efter en vellykket side, så et delvist resultat aldrig gør en person med
+  // hændelser til »kun nævnt«. Den deles med hændelseskortene (fetchHaendelseFeed).
+  return buildNaevntGrundlag(await hentNaevntSubjekter(supabase, fetchHaendelseFeed()), canonicalIdById);
 }

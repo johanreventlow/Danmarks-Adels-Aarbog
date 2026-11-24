@@ -10,12 +10,15 @@ import {
   type NaevntGrundlag, type StorieBy,
 } from '@daa/feed';
 import { radius } from '@daa/theme';
-import { buildWebFeedAux, hentFeedBios, withFeedBios } from '../../data/feedAux';
+import { buildWebFeedAux, withFeedBios } from '../../data/feedAux';
+import { hentFeedBios } from '../../data/feedBios';
+import { hentForsideData } from '../../data/forside/klient';
+import { udpakForsideData } from '../../data/forside/udpak';
 import { fetchNaevntGrundlag } from '../../data/feedGrundlag';
 import { BLADE_PR_UDDELING, delUd, iBlokke } from '../../data/feedUddeling';
 import { epochDay, newSeed, todayISO } from '../../data/feedSession';
 import { loadLivsdatoBy } from '../../data/livsdato';
-import { loadHaendelserBy } from '../../data/haendelser';
+import { loadHaendelserBy } from '../../data/haendelseFeed';
 import { loadStorieBy } from '../../data/story';
 import { preserveShownForResume } from '../../data/feedResume';
 import { createSeenStore, toSeenWeights } from '../../data/seenCards';
@@ -119,7 +122,9 @@ export function FeedStreamView({
     let alive = true;
     const canon = model.canonicalIdById ?? {};
     setFristUdloebet(false);
-    const frist = setTimeout(() => { if (alive) setFristUdloebet(true); }, FEED_FOERSTE_UDDELING_FRIST_MS);
+    // Fristen gælder kun den direkte hentning og regnes fra dens start: kommer filen, er alt afgjort straks; giver
+    // filen op (op til 2 s), får den direkte hentning stadig hele fristen (review: ellers kun ~0,5 s og næsten intet).
+    let frist: ReturnType<typeof setTimeout> | undefined;
     setBios(null);
     setBioError(null);
     setBiosKomplet(false);
@@ -127,19 +132,42 @@ export function FeedStreamView({
     setHaendelserBy(null);
     setStorieBy(null);
     setNaevntGrundlag(null);
-    void hentFeedBios(canon, model.persons.map((p) => p.id)).then(
-      (b) => { if (alive) { setBios(b.bioBy); setBiosKomplet(b.komplet); } },
-      (e) => { if (alive) { console.warn('[feed] biografier fejlede:', e); setBioError(String((e as Error)?.message ?? e)); } },
-    );
-    // Loaderne sluger selv deres fejl (tomt = degraderet feed); .catch er kun et værn, så en
-    // uventet afvisning aldrig lader første uddeling vente for evigt.
-    void loadLivsdatoBy(canon).catch(() => ({})).then((ld) => { if (alive) setLivsdatoBy(ld); });
-    void loadHaendelserBy(canon).catch(() => ({})).then((hs) => { if (alive) setHaendelserBy(hs); });
-    void loadStorieBy(canon).catch(() => ({})).then((stories) => { if (alive) setStorieBy(stories); });
-    void fetchNaevntGrundlag(canon).then(
-      (g) => { if (alive) setNaevntGrundlag(g); },
-      (e) => { if (alive) { console.warn('[feed] nævnt-grundlag fejlede — ingen nævnt-kort:', e); setNaevntGrundlag('fejlet'); } },
-    );
+    // Den direkte hentning: i dag kun tilbagefald, når den færdigpakkede fil mangler (kold cache, fejl, for gammel).
+    const direkte = () => {
+      frist = setTimeout(() => { if (alive) setFristUdloebet(true); }, FEED_FOERSTE_UDDELING_FRIST_MS);
+      void hentFeedBios(canon, model.persons.map((p) => p.id)).then(
+        (b) => { if (alive) { setBios(b.bioBy); setBiosKomplet(b.komplet); } },
+        (e) => { if (alive) { console.warn('[feed] biografier fejlede:', e); setBioError(String((e as Error)?.message ?? e)); } },
+      );
+      // Loaderne sluger selv deres fejl (tomt = degraderet feed); .catch er kun et værn, så en
+      // uventet afvisning aldrig lader første uddeling vente for evigt.
+      void loadLivsdatoBy(canon).catch(() => ({})).then((ld) => { if (alive) setLivsdatoBy(ld); });
+      void loadHaendelserBy(canon).catch(() => ({})).then((hs) => { if (alive) setHaendelserBy(hs); });
+      void loadStorieBy(canon).catch(() => ({})).then((stories) => { if (alive) setStorieBy(stories); });
+      void fetchNaevntGrundlag(canon).then(
+        (g) => { if (alive) setNaevntGrundlag(g); },
+        (e) => { if (alive) { console.warn('[feed] nævnt-grundlag fejlede — ingen nævnt-kort:', e); setNaevntGrundlag('fejlet'); } },
+      );
+    };
+    // Forsidens færdigpakkede fil (spec 2026-11-24-forside-data-cache-design.md): én fil fra Vercels CDN i stedet for
+    // 100+ kald. Kommer den inden for 2 s, er alle kilder afgjort med det samme; ellers hentes som før.
+    void hentForsideData().then((fd) => {
+      if (!alive) return;
+      if (!fd) { direkte(); return; }
+      let u: ReturnType<typeof udpakForsideData>;
+      try {
+        u = udpakForsideData(fd, { canonicalIdById: canon, persons: model.persons });
+      } catch (e) {
+        console.warn('[feed] forside-filen kunne ikke pakkes ud — henter direkte:', e);
+        direkte();
+        return;
+      }
+      if (u.bios) { setBios(u.bios.bioBy); setBiosKomplet(u.bios.komplet); } else setBioError('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+      setLivsdatoBy(u.livsdatoBy);
+      setHaendelserBy(u.haendelserBy);
+      setStorieBy(u.storieBy);
+      setNaevntGrundlag(u.naevntGrundlag);
+    });
     return () => { alive = false; clearTimeout(frist); };
   }, [model]);
   const alleAfgjort = (bios !== null || bioError !== null)

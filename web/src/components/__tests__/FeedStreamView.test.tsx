@@ -13,16 +13,20 @@ const feedAuxMocks = vi.hoisted(() => ({ hentFeedBios: vi.fn() }));
 const grundlagMocks = vi.hoisted(() => ({ fetchNaevntGrundlag: vi.fn() }));
 const loaderMocks = vi.hoisted(() => ({ loadHaendelserBy: vi.fn() }));
 const seenMocks = vi.hoisted(() => ({ markSeen: vi.fn(), weights: {} as Record<string, number> }));
+// Den færdigpakkede fil: standard null (→ direkte hentning), så de øvrige tests uddeler som før.
+const forsideMocks = vi.hoisted(() => ({ hentForsideData: vi.fn(), udpakForsideData: vi.fn() }));
 
 vi.mock('../../data/feedMedia', () => mediaMocks);
+vi.mock('../../data/forside/klient', () => ({ hentForsideData: forsideMocks.hentForsideData }));
+vi.mock('../../data/forside/udpak', () => ({ udpakForsideData: forsideMocks.udpakForsideData }));
 vi.mock('../../data/feedAux', () => ({
   buildWebFeedAux: () => ({ godsListe: [], vaabenListe: [], officesBy: {} }),
-  hentFeedBios: feedAuxMocks.hentFeedBios,
   withFeedBios: (model: unknown) => model,
 }));
+vi.mock('../../data/feedBios', () => ({ hentFeedBios: feedAuxMocks.hentFeedBios }));
 vi.mock('../../data/feedGrundlag', () => grundlagMocks);
 vi.mock('../../data/livsdato', () => ({ loadLivsdatoBy: () => Promise.resolve({}) }));
-vi.mock('../../data/haendelser', () => loaderMocks);
+vi.mock('../../data/haendelseFeed', () => loaderMocks);
 vi.mock('../../data/story', () => ({ loadStorieBy: () => Promise.resolve({}) }));
 vi.mock('../../data/seenCards', () => ({
   createSeenStore: () => ({ load: () => Promise.resolve([]), markSeen: seenMocks.markSeen }),
@@ -76,6 +80,8 @@ beforeEach(() => {
   streamMocks.createFeedStream.mockReset().mockImplementation(() => listStream(SYV));
   streamMocks.resumeStream.mockReset().mockImplementation((stream) => stream);
   feedAuxMocks.hentFeedBios.mockReset().mockResolvedValue({ bioBy: { '1': 'En biografi.' }, komplet: true });
+  forsideMocks.hentForsideData.mockReset().mockResolvedValue(null);
+  forsideMocks.udpakForsideData.mockReset();
   grundlagMocks.fetchNaevntGrundlag.mockReset().mockResolvedValue({ personerMedMereEndNavn: new Set() });
   loaderMocks.loadHaendelserBy.mockReset().mockResolvedValue({});
   seenMocks.markSeen.mockReset();
@@ -87,6 +93,57 @@ beforeEach(() => {
       mediumUrl: `https://example.test/${candidate.id}.jpg`, largeUrl: `https://example.test/${candidate.id}.jpg`,
     }))]),
   ));
+});
+
+describe('FeedStreamView — færdigpakket forside-data', () => {
+  it('med fil: ingen direkte hentning, første uddeling straks med fuld data', async () => {
+    forsideMocks.hentForsideData.mockResolvedValue({ version: 1 });
+    forsideMocks.udpakForsideData.mockReturnValue({
+      bios: { bioBy: { '1': 'Fra filen.' }, komplet: true }, livsdatoBy: {}, haendelserBy: {}, storieBy: {},
+      naevntGrundlag: { personerMedMereEndNavn: new Set(['1']) },
+    });
+    render(<FeedStreamView {...feedProps(null)} />);
+    await waitFor(() => expect(streamMocks.createFeedStream).toHaveBeenCalledTimes(1));
+    const inputs = streamMocks.createFeedStream.mock.calls[0][2] as FeedInputs;
+    expect(inputs.naevntGrundlag?.personerMedMereEndNavn.has('1')).toBe(true);
+    expect(feedAuxMocks.hentFeedBios).not.toHaveBeenCalled();
+    expect(loaderMocks.loadHaendelserBy).not.toHaveBeenCalled();
+    expect(grundlagMocks.fetchNaevntGrundlag).not.toHaveBeenCalled();
+  });
+
+  it('fil, der ikke kan pakkes ud (ugyldige rækker): direkte hentning i stedet for en hængende forside', async () => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    forsideMocks.hentForsideData.mockResolvedValue({ version: 1 });
+    forsideMocks.udpakForsideData.mockImplementation(() => { throw new Error('PUBLIC_BIO_SOURCE_VERSION_V2_INVALID_person_id'); });
+    render(<FeedStreamView {...feedProps(null)} />);
+    await waitFor(() => expect(feedAuxMocks.hentFeedBios).toHaveBeenCalledTimes(1));
+    spy.mockRestore();
+  });
+
+  it('tilbagefald efter en langsom fil: den direkte hentning får hele fristen, regnet fra dens start', async () => {
+    vi.useFakeTimers();
+    try {
+      // Filen giver op efter 2 s (kold cache); biografier og hændelser kommer aldrig i testen.
+      forsideMocks.hentForsideData.mockImplementation(() => new Promise((res) => setTimeout(() => res(null), 2000)));
+      feedAuxMocks.hentFeedBios.mockReturnValue(new Promise(() => undefined));
+      loaderMocks.loadHaendelserBy.mockReturnValue(new Promise(() => undefined));
+      render(<FeedStreamView {...feedProps(null)} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000 + FEED_FOERSTE_UDDELING_FRIST_MS - 1); });
+      expect(streamMocks.createFeedStream).not.toHaveBeenCalled();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(streamMocks.createFeedStream).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uden fil (null): direkte hentning som i dag', async () => {
+    render(<FeedStreamView {...feedProps(null)} />);
+    await waitFor(() => expect(streamMocks.createFeedStream).toHaveBeenCalled());
+    expect(feedAuxMocks.hentFeedBios).toHaveBeenCalledTimes(1);
+    expect(loaderMocks.loadHaendelserBy).toHaveBeenCalledTimes(1);
+    expect(forsideMocks.udpakForsideData).not.toHaveBeenCalled();
+  });
 });
 
 describe('FeedStreamView — uddeling', () => {

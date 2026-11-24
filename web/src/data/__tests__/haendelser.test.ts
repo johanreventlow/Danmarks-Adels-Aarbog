@@ -33,7 +33,7 @@ vi.mock('../../supabase', () => ({
   },
 }));
 
-const { fetchHaendelseRows, fetchHaendelseFeed, loadHaendelserBy } = await import('../haendelser');
+const { fetchHaendelseRows, fetchHaendelseFeed, loadHaendelserBy } = await import('../haendelseFeed');
 
 const row = (id: number, narrativeId = 10, subjektId: string | number = 'p1') => ({
   id, subjekt_id: subjektId, narrative_id: narrativeId, klausul: 'En historisk klausul.',
