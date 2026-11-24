@@ -1,3 +1,4 @@
+import { fmtDagDato } from '@daa/core';
 import type { FeedCard } from '@daa/feed';
 import { T } from '../../theme';
 import { Avatar, BookmarkFlag } from '../primitives';
@@ -91,8 +92,9 @@ function PersonCardBody({ card }: { card: PersonCard }) {
       </>;
     case 'paadennedag':
       return <>
-        <div style={{ fontFamily: T.mono, fontSize: 13, color: T.bordeaux, marginTop: 9 }}>{card.aarstal}</div>
-        <div style={{ fontFamily: T.sans, fontSize: 13, color: T.inkMuted, marginTop: 4 }}>{card.hvad === 'hændelse' ? card.klausul : `${card.hvad === 'født' ? 'Født' : 'Død'} ${card.aarstal}`}</div>
+        {/* Den fulde dato stort, under den kun hvad der skete — året står ikke to gange (projektejeren 2026-11-24). */}
+        <div style={{ fontFamily: T.serif, fontSize: 24, lineHeight: 1.1, color: T.bordeaux, marginTop: 9 }}>{fmtDagDato(card.dato) || card.aarstal}</div>
+        <div style={{ fontFamily: T.sans, fontSize: 13, color: T.inkMuted, marginTop: 4 }}>{card.hvad === 'hændelse' ? card.klausul : card.hvad === 'født' ? 'Født' : 'Død'}</div>
       </>;
     // Kun hvad bogen faktisk giver: forældrene, når de kendes. Ingen tekst om, at bogen intet
     // mere skriver — klienten kan ikke se upubliceret tekst (projektejerens valg 12/11).

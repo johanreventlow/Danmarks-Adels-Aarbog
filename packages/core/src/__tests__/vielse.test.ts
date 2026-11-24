@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtVielse, vielsePraecision } from '../vielse';
+import { fmtDagDato, fmtVielse, vielsePraecision } from '../vielse';
 
 describe('fmtVielse — vielsesdato med ⚭', () => {
   it('kendt dag → »⚭ D. måned ÅÅÅÅ«, dag uden foranstillet nul', () => {
@@ -51,5 +51,17 @@ describe('vielsePraecision — dag slår år slår ca.-år', () => {
     expect(vielsePraecision('⚭ 21. juli 1667')).toBeGreaterThan(vielsePraecision('⚭ 1667'));
     expect(vielsePraecision('⚭ 1667')).toBeGreaterThan(vielsePraecision('⚭ ca. 1667'));
     expect(vielsePraecision('⚭ ca. 1667')).toBeGreaterThan(vielsePraecision(''));
+  });
+});
+
+describe('fmtDagDato — ISO-dag som i Aarbogen', () => {
+  it('»26. nov. 1943«, dag uden foranstillet nul', () => {
+    expect(fmtDagDato('1943-11-26')).toBe('26. nov. 1943');
+    expect(fmtDagDato('1936-11-02')).toBe('2. nov. 1936');
+  });
+  it('ugyldig eller tom → tom streng', () => {
+    expect(fmtDagDato('1943')).toBe('');
+    expect(fmtDagDato('')).toBe('');
+    expect(fmtDagDato('1943-13-01')).toBe('');
   });
 });

@@ -1,3 +1,4 @@
+import { fmtDagDato } from '@daa/core';
 import type { FeedCard } from '@daa/feed';
 import { Pressable, View } from 'react-native';
 import type { RawMedia } from '../../data/types';
@@ -98,9 +99,10 @@ function PersonCardBody({ card }: { card: PersonCard }) {
       </>;
     case 'paadennedag':
       return <>
-        <Mono size={12} color={Colors.bordeaux} style={{ marginTop: 9 }}>{card.aarstal}</Mono>
+        {/* Fuld dato, under den kun hvad der skete — året står ikke to gange (som web, projektejeren 2026-11-24). */}
+        <Mono size={12} color={Colors.bordeaux} style={{ marginTop: 9 }}>{fmtDagDato(card.dato) || card.aarstal}</Mono>
         <Body size={12} color={Colors.inkMuted} style={{ marginTop: 4 }}>
-          {card.hvad === 'hændelse' ? card.klausul : `${card.hvad === 'født' ? 'Født' : 'Død'} ${card.aarstal}`}
+          {card.hvad === 'hændelse' ? card.klausul : card.hvad === 'født' ? 'Født' : 'Død'}
         </Body>
       </>;
     // Mobilen sender intet naevntGrundlag, så motoren bygger ikke kortet her; visningen tåler det dog.

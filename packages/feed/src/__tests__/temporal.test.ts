@@ -71,7 +71,7 @@ describe('buildPaaDenneDag', () => {
     const livsdatoBy: LivsdatoBy = { a: { foedt: exact('1700-07-18') } };
     const cards = buildPaaDenneDag(m, livsdatoBy, '2026-07-18');
     expect(cards).toHaveLength(1);
-    expect(cards[0]).toMatchObject({ kind: 'paadennedag', personId: 'a', hvad: 'født', aarstal: 1700, praecision: 'dag', kicker: 'På denne dag' });
+    expect(cards[0]).toMatchObject({ kind: 'paadennedag', personId: 'a', hvad: 'født', aarstal: 1700, dato: '1700-07-18', praecision: 'dag', kicker: 'På denne dag' });
   });
 
   it('måneds-fallback når ingen dag-match findes', () => {
@@ -79,7 +79,7 @@ describe('buildPaaDenneDag', () => {
     const livsdatoBy: LivsdatoBy = { a: { foedt: exact('1700-07-05') } };
     const cards = buildPaaDenneDag(m, livsdatoBy, '2026-07-18');
     expect(cards).toHaveLength(1);
-    expect(cards[0]).toMatchObject({ praecision: 'maaned', kicker: 'I denne måned' });
+    expect(cards[0]).toMatchObject({ praecision: 'maaned', kicker: 'I denne måned', dato: '1700-07-05' });
   });
 
   it('qualifier ≠ exact giver aldrig kort (hverken dag eller måned)', () => {
@@ -124,7 +124,7 @@ describe('buildPaaDenneDag', () => {
     const hs: HaendelserBy = { a: [haendelse('h1', '1723-07-18')] };
     expect(buildPaaDenneDag(m, {}, '2026-07-18', hs)).toEqual([
       expect.objectContaining({ id: 'paadennedag:h:h1', personId: 'a', hvad: 'hændelse',
-        klausul: hs.a[0].klausul, praecision: 'dag', aarstal: 1723 }),
+        klausul: hs.a[0].klausul, praecision: 'dag', aarstal: 1723, dato: '1723-07-18' }),
     ]);
   });
 

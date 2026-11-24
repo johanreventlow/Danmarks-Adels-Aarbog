@@ -69,7 +69,8 @@ export type FeedCard =
   | { kind: 'vaaben'; id: string; armsId: string; blazon: string; foot: string; kicker: string }
   | { kind: 'samle'; id: string; count: number; tail: string; kicker: string }
   | { kind: 'paadennedag'; id: string; personId: string; name: string; years: string;
-      aarstal: number; hvad: 'født' | 'død' | 'hændelse'; klausul?: string;
+      // dato: den dag-præcise ISO-dato (kortet findes kun for eksakte dage), vist som »26. nov. 1943«.
+      aarstal: number; dato: string; hvad: 'født' | 'død' | 'hændelse'; klausul?: string;
       praecision: 'dag' | 'maaned'; kicker: string }
   | { kind: 'dagensperson'; id: string; personId: string; name: string; years: string;
       initials: string; title: string | null; bio: string; kicker: string }

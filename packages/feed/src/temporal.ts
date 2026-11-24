@@ -79,12 +79,12 @@ export function buildPaaDenneDag(
         if (mmdd(dato.min) === todayMMDD) {
           dayMatches.push({
             kind: 'paadennedag', id, personId: p.id, name: p.name, years: p.years,
-            aarstal, hvad, praecision: 'dag', kicker: 'På denne dag',
+            aarstal, dato: dato.min, hvad, praecision: 'dag', kicker: 'På denne dag',
           });
         } else if (mm(dato.min) === todayMM) {
           monthMatches.push({
             kind: 'paadennedag', id, personId: p.id, name: p.name, years: p.years,
-            aarstal, hvad, praecision: 'maaned', kicker: 'I denne måned',
+            aarstal, dato: dato.min, hvad, praecision: 'maaned', kicker: 'I denne måned',
           });
         }
       }
@@ -102,6 +102,7 @@ export function buildPaaDenneDag(
         name: p.name,
         years: p.years,
         aarstal,
+        dato: dato.min,
         hvad: 'hændelse' as const,
         klausul: item.klausul,
       };

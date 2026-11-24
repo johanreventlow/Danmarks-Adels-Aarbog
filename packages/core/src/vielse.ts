@@ -8,6 +8,14 @@ const MAANEDER = ['jan.', 'feb.', 'marts', 'april', 'maj', 'juni', 'juli', 'aug.
 const ISO = /^(\d{3,4})-(\d{2})-(\d{2})/;
 const CA = /(^|[\s(])(ca\.|omkring|omkr\.)(\s|$)/i;
 
+// En ISO-dag (»1943-11-26«) som i Aarbogen: »26. nov. 1943«; tom streng, hvis strengen ikke er en gyldig dag.
+// Bruges også af forsidens dato-kort (»På denne dag«/»I denne måned«).
+export function fmtDagDato(iso: string): string {
+  const m = ISO.exec(iso);
+  const maaned = m ? MAANEDER[Number(m[2]) - 1] : undefined;
+  return m && maaned ? `${Number(m[3])}. ${maaned} ${Number(m[1])}` : '';
+}
+
 export type VielseKvalifikation = { qualifier?: string | null; raw?: string | null };
 
 export function fmtVielse(dateMin: string | null, dateMax: string | null, k: VielseKvalifikation = {}): string {
@@ -21,8 +29,8 @@ export function fmtVielse(dateMin: string | null, dateMax: string | null, k: Vie
   // Kun en eksakt (eller ukvalificeret) dato må vises som dag eller år; før/efter giver intet frem for en for præcis
   // dato (samme regel som isExactDay i @daa/feed).
   if (k.qualifier != null && k.qualifier !== 'exact') return '';
-  const maaned = MAANEDER[Number(a[2]) - 1];
-  if (a[0] === b[0] && maaned) return `⚭ ${Number(a[3])}. ${maaned} ${aar}`;
+  const dag = a[0] === b[0] ? fmtDagDato(a[0]) : '';
+  if (dag) return `⚭ ${dag}`;
   return `⚭ ${aar}`;
 }
 
