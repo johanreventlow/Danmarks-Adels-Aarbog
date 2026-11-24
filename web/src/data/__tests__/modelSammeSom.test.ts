@@ -48,7 +48,7 @@ beforeEach(() => { hentet.length = 0; relationFejler = false; });
 describe('loadModel samme_som (review 37 Y2)', () => {
   it('folder en afklaret samme_som-alias ind i den kanoniske person', async () => {
     const model = await loadModel();
-    expect(model.canonicalIdById['2']).toBe('1');
+    expect(model.canonicalIdById?.['2']).toBe('1');
     expect(model.persons.map((p) => p.id)).toEqual(['1']);
   });
 
