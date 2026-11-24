@@ -8,7 +8,7 @@ import type { EjerRelation } from './ejerraekke';
 import { pickPreferredBio, buildBioSourceVersions, mapPublicBioSourceVersionsV2 as mapCorePublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, buildBioVersions, getAll, buildProvenanceSources, citationRowsTilProveniens, buildPersonFacts, FAKTA_UDELADT, type BioSourceVersion, type BioSourceVersionV2, type NarrativeCand, type PersonFactView, type PublicPersonFactRow, type RaaCitationRow, type SourceRef, type Udgave, type UdgaveFaktaInput } from '@daa/core';
 import { laesCitationer } from './citationLaes';
 import { SLUKKET_ENIGHED } from './udgaver';
-import { fetchPersonMedia, fetchObjectMedia, type MediaItem } from './media';
+import { fetchPersonMedia, fetchObjectMedia, fetchMediaAfSlags, type MediaItem } from './media';
 
 // Rå narrativ-række med source-join (PostgREST embedded resource).
 type RawNarr = { id: number; subjekt_id: number | string; tekst: string | null; source_id: number | null; source: { slags: string | null; aar: number | null; udgave: string | null } | null };
@@ -124,6 +124,11 @@ export function fetchArms(): Promise<ArmsItem[]> {
     const mediaByArm = await fetchObjectMedia('coat_of_arms', rows.map((r) => r.id));
     return rows.map((r) => ({ id: String(r.id), blasonering: r.blasonering ?? '', note: r.note ?? '', media: mediaByArm.get(String(r.id)) ?? [] }));
   }, [], 'fetchArms');
+}
+
+// Bogens våbenbilleder til våbensidens galleri (runde 3). Ren pynt: en fejl giver et tomt galleri, ikke en fejlside.
+export function fetchVaabenGalleri(): Promise<MediaItem[]> {
+  return safe(() => fetchMediaAfSlags('våben'), [], 'fetchVaabenGalleri');
 }
 
 // Gods-detalje: historik-narrativ (offentlig) + beliggenhed (place via sted_id). Tolerant.

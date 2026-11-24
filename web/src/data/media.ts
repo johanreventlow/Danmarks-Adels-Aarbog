@@ -175,6 +175,14 @@ export function dedupPreferPrimaer(items: MediaItem[]): MediaItem[] {
   return [...byId.values()];
 }
 
+// Alle gæste-synlige medier af én slags (fx bogens våben, spec 2026-11-24-billeder-2018-20-design.md runde 3), i id-orden
+// — importen lagde dem ind i sideorden. RLS afgør synligheden; kalderen viser kun dem med signeret url.
+export async function fetchMediaAfSlags(slags: string): Promise<MediaItem[]> {
+  const rows = await getAll<{ id: number }>(() => supabase.from('media').select('id').eq('slags', slags).order('id'));
+  const items = await loadMediaItems(rows.map((r) => Number(r.id)));
+  return [...items].sort((a, b) => Number(a.id) - Number(b.id));
+}
+
 // Personens billeder (portræt+materiale): union over foldede medlems-id'er, dedup pr. media-id.
 export async function fetchPersonMedia(numIds: number[]): Promise<MediaItem[]> {
   const byPerson = await fetchMediaByRelation({ mediaSide: 'objekt', ankerType: 'person', ankerIds: numIds });
