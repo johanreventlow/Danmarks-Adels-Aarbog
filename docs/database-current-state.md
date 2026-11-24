@@ -1689,3 +1689,35 @@ personas, kandidater, kontrolstikprøve og -ark, korroboration, afgørelser og b
 - **Kendt afvigelse:** ét ægteskab står som forslag uden binding (dubletreglen, 5b §23.4). Reglen er rettet i prod
   2026-10-26 (§12); selve ægteskabet afgøres separat.
 - **Skrivepausen** er slut (`FREEZE_END_OK mode=verify`); webfladen er åben for redigering igen.
+
+## 50. Portrætter fra DAA 2018-20 — data i prod (2026-11-24)
+
+**Grundlag:** PR #466 (CI grøn i alle jobs), `R/billeder-2018-20-load.R --jeg-mener-det` kørt 24/11 fra grenen efter
+projektejerens godkendelse af alle 24 usikre koblinger (svarfil sha256 `3c3beb4a…8040`). Ingen DDL; skrevet via
+`red_upload_media`, `red_relation`, `red_registrer_media_variant`, `red_bekraeft_media_upload`, `red_upsert_fakta` og
+`red_saet_portraet` (redaktør-uuid `ba4ce28d…`), én transaktion pr. billede. `--proev-binding` (READ ONLY) før kørslen.
+
+- **Skrevet:** 156 `media` (id 18-173, `original_filnavn LIKE 'daa-2018-20-s%'`, `klar`, `maa_publiceres = true`,
+  `rettigheder_status = 'ukendt'`), 312 varianter (thumb/medium), 201 `afbildet`-relationer til 179 personer, 156
+  kreditlinjer (»Gengivet fra Danmarks Adels Aarbog 2018-20, s. N«), 4 portrætlåse (419→10, 515→16, 777→12, alias
+  1275→13) så de viste portrætter er uændrede. 468 objekter i Storage-bucketen `media` (`redaktor/<sha>-<tier>.jpg`).
+- **Verificeret som anon:** 0 af de 27 billeder, der afbilder en ikke-offentlig person, er synlige (heller ikke deres
+  varianter eller 81 filer); de 129 øvrige er synlige med 258 varianter. Personside 534 i prod viser portræt,
+  billedtekst og kreditlinje.
+- **Advisors (security, MCP):** ingen ERROR; kun de kendte WARN/INFO.
+- **Rettigheder:** uafklarede — se `docs/decisions.md` 2026-11-24. Forsidens billed-regel aktiveres, når web-delen af
+  PR #466 er merget (Edge-filen hæves til format v2).
+
+**Runde 2 — segl og medaljer (samme dag):** `--manifest …/manifest-runde2.json`, svarfil `gennemgang-runde2.txt`
+(sha256 `ac7ee86e…`, projektejeren godkendte alle 5 kort). 11 `media` (id 174-184): 6 `segl` (s. 54) og 5 `medalje`
+(s. 82, 83, 379); 8 synlige for anon (174, 175, 177, 179-183, med 16 varianter), 3 skjult og ukoblet, fordi personerne
+ikke findes (Johann von Walstorp VI, 4; Otto von Muggele VIII, 2; Rantzau-medaljen VI, 39). Frederik 4. (861) koblet til
+begge s. 83-medaljer sammen med Anna Sophia (470). 1 portrætlås: Claus (289) beholder sit maleri (media 31). Personside
+59 (Hartwich) viser seglet som hovedbillede.
+
+**Runde 3 — våben (samme dag):** `manifest-runde3.json`, svarfil `gennemgang-runde3.txt` (sha256 `802c6d30…`; projektejeren
+godkendte med to rettelser: Revenfeld s. 405 udeladt, Vallø s. 58 også til Anna Sophia). 20 `media` af slags `våben`
+(id 185-204), alle synlige for anon (40 varianter): stamvåben → slægts-roden (lineage 6), lensgreve 1767 → lineage 4,
+greve 1673 → lineage 5, Vallø → estate 196 + person 470, og 16 personvåben (8 elefantridder-skjolde s. 68-75, våben på
+kirkeinventar s. 59-65, fyrstinde af Slesvig → 470). `coat_of_arms` 1-2 er urørte. 8 portrætlåse sikrer, at de viste
+portrætter er uændrede (fx 109→19, 510→67, 526→59, 882→68). Web-galleriet på våbensiden kræver merge af PR #466.

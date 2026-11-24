@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { joinMediaFakta, mediaCaption, mediaFaktaFelter } from '../media';
+import { erPortraetSlags, joinMediaFakta, mediaCaption, mediaFaktaFelter, portraetTilpasning } from '../media';
 
 describe('joinMediaFakta', () => {
   it('samler valgt assertion pr. faktatype pr. medie', () => {
@@ -42,6 +42,26 @@ describe('mediaCaption', () => {
   });
   it('falder tilbage til datering når ingen dateringFakt', () => {
     expect(mediaCaption({ titel: 'T', kunstner: null, datering: '1900', dateringFakt: null })).toContain('1900');
+  });
+  it('gentager ikke dateringen, når titlen allerede rummer den (bogens billedtekster, 2018-20)', () => {
+    expect(mediaCaption({ titel: 'Hartwig von Reventlows segl 25. februar 1272 (I, 3)', kunstner: null, datering: '25. februar 1272', dateringFakt: null }))
+      .toBe('Hartwig von Reventlows segl 25. februar 1272 (I, 3)');
+    expect(mediaCaption({ titel: 'Nicolaus von Reventlows segl 1320 (I, 11)', kunstner: 'X', datering: null, dateringFakt: ' 1320 ' }))
+      .toBe('Nicolaus von Reventlows segl 1320 (I, 11) · X');
+  });
+});
+
+describe('erPortraetSlags', () => {
+  it('kender portrætslags uanset store bogstaver og mellemrum; segl/medalje/våben er ikke portrætter', () => {
+    expect(erPortraetSlags('Portræt ')).toBe(true);
+    expect(erPortraetSlags('maleri')).toBe(true);
+    expect(erPortraetSlags('segl')).toBe(false);
+    expect(erPortraetSlags('medalje')).toBe(false);
+    expect(erPortraetSlags(null)).toBe(false);
+  });
+  it('portrætrammen beskærer portrætter, men viser segl/medaljer/våben helt', () => {
+    expect(portraetTilpasning({ slags: 'portræt' }).objectFit).toBe('cover');
+    expect(portraetTilpasning({ slags: 'segl' }).objectFit).toBe('contain');
   });
 });
 

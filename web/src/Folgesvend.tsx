@@ -11,7 +11,8 @@ import { loadModel } from './data/model';
 import { gemMigId, laesMigId } from './data/migLager';
 import { useModalFokus } from './components/useModalFokus';
 import { initials } from './data/format';
-import { fetchArms, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type PersonDetailData } from './data/public';
+import type { MediaItem } from './data/media';
+import { fetchArms, fetchVaabenGalleri, fetchAbout, fetchEstates, fetchEstateInfo, fetchEstateOwners, fetchPersonDetail, type AboutSection, type ArmsItem, type EstateInfo, type EstateItem, type PersonDetailData } from './data/public';
 import { antalEjere, byggEjerraekke, type EjerRelation } from './data/ejerraekke';
 import type { EjereTilstand } from './components/EstatesView';
 import { personMemberIds } from './data/personMembers';
@@ -195,6 +196,7 @@ export default function Folgesvend() {
   const doLogout = async () => { sessGenRef.current++; await signOut(); setSession(null); };
   const [estates, setEstates] = useState<EstateItem[] | null>(null);
   const [arms, setArms] = useState<ArmsItem[] | null>(null);
+  const [vaabenGalleri, setVaabenGalleri] = useState<MediaItem[] | null>(null);
   const [about, setAbout] = useState<AboutSection[] | null>(null);
   const [estateId, setEstateId] = useState<string | null>(() => initialPath.estateId);
   // Ejer-relationerne for den åbne besiddelse; fejl er en tilstand, ikke en tom liste (fase 7b).
@@ -269,6 +271,7 @@ export default function Folgesvend() {
   // (fase1-design.md §7) viser våben-kort og skal have data uden at brugeren først har
   // besøgt Våben-siden.
   useEffect(() => { if ((mode === 'arms' || mode === 'home' || mode === 'about') && !arms) fetchArms().then(setArms).catch(() => setArms([])); }, [mode, arms]);
+  useEffect(() => { if (mode === 'arms' && !vaabenGalleri) fetchVaabenGalleri().then(setVaabenGalleri).catch(() => setVaabenGalleri([])); }, [mode, vaabenGalleri]);
   useEffect(() => { if (mode === 'about' && !about) fetchAbout().then(setAbout).catch(() => setAbout([])); }, [mode, about]);
   // Gods-detalje-fetches (review 15 M3): cancelled-guard så en sen resolver for gods A ikke
   // permanent overskriver gods B's data, når man skifter gods hurtigt.
@@ -675,7 +678,7 @@ export default function Folgesvend() {
               slaegt={findSlaegt(slug) ?? SLAEGTER[0]} geo={model?.geo} geoLoading={geoLoading} onOpen={(id) => { setEstateId(id); navigate(estatePath(id)); }} onPickOwner={visPerson}
               besiddelserHref={pathForMode('estates', slug)} onBesiddelser={() => { setEstateId(null); navigate(pathForMode('estates', slug)); }}
               slaegtensKortHref={pathForMode('kort', slug)} onSlaegtensKort={() => goToMode('kort')} />
-            : mode === 'arms' ? <ArmsView arms={arms} />
+            : mode === 'arms' ? <ArmsView arms={arms} galleri={vaabenGalleri} />
             : mode === 'about' ? <AboutView slaegt={findSlaegt(slug) ?? SLAEGTER[0]} model={model} about={about} personCount={persons.length} estateCount={estates?.length ?? null} onPick={visPerson}
                 feed={{ estates: estatesVist, arms, meId: meCanon, focusId, bookmarkedIds: bookmarkIds,
                   bookmarksReady: bookmarks.ready, bookmarkHydrationVersion: bookmarks.hydrationVersion,

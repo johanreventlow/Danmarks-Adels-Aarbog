@@ -366,3 +366,69 @@ test_that("sqlstate udledes af beskeden, også med ugyldige bytes (ø/æ i CONTE
   expect_equal(sqlstate_fra_besked("ERROR:  function public.red_x(p_a => unknown) does not exist"), "42883")
   expect_true(is.na(sqlstate_fra_besked("noget andet")))
 })
+
+# --- Runde 2: egne filer pr. manifest ----------------------------------------------------------------------------
+
+test_that("ud_sti: runde 1 beholder navnene, runde 2 får endelsen -runde2", {
+  expect_equal(ud_sti("m", "m/manifest.json", "plan.csv"), file.path("m", "plan.csv"))
+  expect_equal(ud_sti("m", "m/manifest-runde2.json", "plan.csv"), file.path("m", "plan-runde2.csv"))
+  expect_equal(ud_sti("m", "m/manifest-runde2.json", "gennemgang.txt"), file.path("m", "gennemgang-runde2.txt"))
+})
+
+test_that("runde 2 rører ikke runde 1's besvarede gennemgangsfil", {
+  mappe <- tempfile(); dir.create(mappe)
+  writeLines("runde 1 svar", file.path(mappe, "gennemgang.txt"))
+  sti <- gennemgang_sti(mappe, file.path(mappe, "manifest-runde2.json"))
+  expect_equal(basename(sti), "gennemgang-runde2.txt")
+  writeLines("x", sti)
+  expect_equal(basename(gennemgang_sti(mappe, file.path(mappe, "manifest-runde2.json"))), "gennemgang-runde2.ny.txt")
+  expect_equal(readLines(file.path(mappe, "gennemgang.txt")), "runde 1 svar")
+})
+
+# --- Runde 3: objekt-koblinger (media → lineage/estate) ---------------------------------------------------------
+
+objekt_billede <- billede('{"noegle":"daa-2018-20-s0055-1","side":55,"titel":"Lensgreve","klasse":"objekt","refs":[],
+                           "aegtefaelle_anker":null,"objekt":{"type":"lineage","id":4}}')
+
+test_that("objekt-billede er sikkert og kan publiceres uden personer", {
+  r <- opslaa_afbildede(objekt_billede, ext_fix, aeg_fix)
+  expect_equal(r$person_ids, character())
+  expect_true(r$sikker)
+  p <- byg_plan(list(billeder = list(objekt_billede)), ext_fix, aeg_fix, tom_medier)
+  expect_true(p$maa_publiceres)
+  expect_equal(p$objekt[[1]], list(type = "lineage", id = 4L))
+  expect_length(p$portraet[[1]], 0)
+})
+
+test_that("objekt-billede kobles via p_objekt_type/p_objekt_id og aldrig til en person", {
+  r <- ny_raekke
+  r$person_ids <- character(); r$portraet <- list(); r$objekt <- list(type = "lineage", id = 4L)
+  log <- anvend_med_fake(r, eksisterende = NULL)
+  a <- log$args$red_upload_media
+  expect_equal(a$p_objekt_type, "lineage")
+  expect_equal(a$p_objekt_id, "4")
+  expect_null(a$p_afbildet_person_id)
+  expect_false("red_relation" %in% log$rpc)
+})
+
+test_that("objekt-billede kan også kobles til kuraterede personer (Vallø + Anna Sophia), og de skal findes", {
+  med_person <- objekt_billede; med_person$refs <- list(list("V", 106))
+  r <- opslaa_afbildede(med_person, ext_fix, aeg_fix)
+  expect_equal(r$person_ids, "501")
+  expect_true(r$sikker)
+  ukendt <- objekt_billede; ukendt$refs <- list(list("I", 999))
+  r <- opslaa_afbildede(ukendt, ext_fix, aeg_fix)
+  expect_false(r$sikker)
+  p <- byg_plan(list(billeder = list(ukendt)), ext_fix, aeg_fix, tom_medier)
+  expect_false(p$maa_publiceres)
+})
+
+test_that("objekt + person: både p_afbildet_person_id og p_objekt_type sendes", {
+  r <- ny_raekke
+  r$person_ids <- "470"; r$portraet <- list(); r$objekt <- list(type = "estate", id = 196L)
+  log <- anvend_med_fake(r, eksisterende = NULL)
+  a <- log$args$red_upload_media
+  expect_equal(a$p_afbildet_person_id, "470")
+  expect_equal(a$p_objekt_type, "estate")
+  expect_equal(a$p_objekt_id, "196")
+})

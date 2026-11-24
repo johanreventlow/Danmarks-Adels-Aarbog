@@ -2,19 +2,21 @@
 // Udtrukket fra Folgesvend.tsx (review 27 W-K1) — samme komponent, blot flyttet fil.
 import { useState } from 'react';
 import { T } from '../theme';
-import { firstSignable, withUrl } from '../data/media';
+import { firstSignable, withUrl, type MediaItem } from '../data/media';
 import type { ArmsItem } from '../data/public';
 import { Lightbox } from './Lightbox';
 import { ViewHeader, Label, MediaThumb } from './primitives';
 
-export function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
+// galleri: bogens våbenbilleder (runde 3, spec 2026-11-24-billeder-2018-20-design.md); null = ikke hentet endnu.
+export function ArmsView({ arms, galleri = null }: { arms: ArmsItem[] | null; galleri?: MediaItem[] | null }) {
   const [lightbox, setLightbox] = useState<number | null>(null);
   const main = arms?.[0];
   const rest = (arms ?? []).slice(1);
   const mainCrest = main ? firstSignable(main.media) : null; // første signerbare (ikke blindt media[0])
   const variantImgs = rest.map((v) => firstSignable(v.media));
   // Lightbox (Slice A): hoved-våben + alle varianter er ÉT navigerbart sæt.
-  const lightboxItems = withUrl([mainCrest, ...variantImgs]);
+  const galleriMedUrl = withUrl(galleri ?? []);
+  const lightboxItems = withUrl([mainCrest, ...variantImgs, ...galleriMedUrl]);
   return (
     <div style={{ padding: '30px 40px 50px', maxWidth: 640 }}>
       <ViewHeader title="Slægtens våben" mb="18px" />
@@ -53,6 +55,22 @@ export function ArmsView({ arms }: { arms: ArmsItem[] | null }) {
                     </div>
                   );
                 })}
+              </div>
+            </>
+          )}
+          {galleriMedUrl.length > 0 && (
+            <>
+              <Label>Våben i Danmarks Adels Aarbog 2018-20</Label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(130px,1fr))', gap: 12 }}>
+                {galleriMedUrl.map((m) => (
+                  <div key={m.id} style={{ background: T.surfaceRaised, border: `1px solid ${T.line}`, borderRadius: 12, padding: 11 }}>
+                    <div style={{ width: '100%', aspectRatio: '.82', borderRadius: 8, overflow: 'hidden' }}>
+                      <MediaThumb m={m} w="100%" h="100%" radius={8}
+                        onClick={() => setLightbox(lightboxItems.findIndex((x) => x.id === m.id))} />
+                    </div>
+                    <div style={{ fontSize: 12.5, marginTop: 7, lineHeight: 1.3, color: T.inkSecondary }}>{m.titel}</div>
+                  </div>
+                ))}
               </div>
             </>
           )}

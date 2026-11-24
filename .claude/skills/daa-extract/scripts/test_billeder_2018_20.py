@@ -249,3 +249,75 @@ def test_gruppe_tager_alle_henvisninger_ogsaa_efter_gift_med():
 
 def test_sidefodens_dato_kommer_ikke_med_i_titlen():
     assert "25/10/2023" not in parse_billedtekst(S346)["titel"]
+
+
+# --- Runde 2: segl og medaljer ---------------------------------------------------------------------------------
+
+from billeder_2018_20 import KURATEREDE, kombiner_vandret  # noqa: E402
+
+
+def test_kombiner_vandret_laegger_billederne_side_om_side_paa_hvidt(tmp_path):
+    a = lille_jpeg(tmp_path, 10, 8)
+    b = tmp_path / "b.jpg"
+    Image.new("RGB", (12, 6), (0, 0, 0)).save(b, "JPEG", quality=95)
+    ud = kombiner_vandret([a, b], tmp_path / "k.jpg")
+    with Image.open(ud) as k:
+        assert k.size == (22, 8)
+        r, g, bb = k.convert("RGB").getpixel((21, 7))  # under det lave billede: hvid fyld
+        assert min(r, g, bb) >= 245
+
+
+def test_kuraterede_poster_er_de_elleve_segl_og_medaljer():
+    noegler = [f"daa-2018-20-s{p['side']:04d}-{p['nr']}" for p in KURATEREDE]
+    assert len(KURATEREDE) == 11 and len(set(noegler)) == 11
+    assert {p["slags"] for p in KURATEREDE} == {"segl", "medalje"}
+    assert sum(p["slags"] == "segl" for p in KURATEREDE) == 6
+    assert all(p["titel"].strip() for p in KURATEREDE)
+
+
+def test_kuraterede_koblinger():
+    efter = {(p["side"], p["nr"]): p for p in KURATEREDE}
+    hartwig = next(p for p in KURATEREDE if p["titel"].startswith("Hartwig"))
+    assert hartwig["refs"] == [["I", 3]] and hartwig["klasse"] == "egen"
+    assert efter[(83, 1)]["klasse"] == "flere" and efter[(83, 2)]["klasse"] == "flere"
+    assert len(efter[(83, 2)]["billeder"]) == 2  # guldmedaljens for- og bagside
+    assert "guld" in efter[(83, 2)]["titel"]
+    assert efter[(379, 1)]["refs"] == [["VI", 39]]
+
+
+# --- Runde 3: våben ----------------------------------------------------------------------------------------------
+
+from billeder_2018_20 import KURATEREDE_RUNDE3  # noqa: E402
+
+
+def test_runde3_har_de_20_vaaben_uden_revenfeld():
+    # Projektejeren 24/11: Revenfeld-våbnet (s. 405) skal ikke med.
+    assert len(KURATEREDE_RUNDE3) == 20
+    assert 405 not in {p["side"] for p in KURATEREDE_RUNDE3}
+    assert {p["slags"] for p in KURATEREDE_RUNDE3} == {"våben"}
+    assert len({(p["side"], p["nr"]) for p in KURATEREDE_RUNDE3}) == 20
+
+
+def test_runde3_objekt_koblinger_har_ingen_personer():
+    objekter = {p["side"]: p["objekt"] for p in KURATEREDE_RUNDE3 if p.get("objekt")}
+    assert objekter == {53: {"type": "lineage", "id": 6}, 55: {"type": "lineage", "id": 4},
+                        56: {"type": "lineage", "id": 5}, 58: {"type": "estate", "id": 196}}
+    assert all(p["klasse"] == "objekt" for p in KURATEREDE_RUNDE3 if p.get("objekt"))
+    refs = {p["side"]: p["refs"] for p in KURATEREDE_RUNDE3 if p.get("objekt")}
+    # Projektejeren 24/11: grevskabet Vallø knyttes også til Anna Sophia (V, 17); de øvrige objekt-billeder har ingen personer.
+    assert refs == {53: [], 55: [], 56: [], 58: [["V", 17]]}
+
+
+def test_runde3_flere_personer_gaar_til_gennemgang():
+    klasse = {p["side"]: p["klasse"] for p in KURATEREDE_RUNDE3}
+    assert klasse[57] == klasse[64] == klasse[65] == "flere"
+    assert all(klasse[s] == "egen" for s in (59, 60, 61, 62, 63, 68, 69, 70, 71, 72, 73, 74, 75))
+
+
+def test_runde3_elefantridder_refs():
+    refs = {p["side"]: p["refs"] for p in KURATEREDE_RUNDE3}
+    assert refs[68] == [["III", 61]] and refs[73] == [["V", 3]] and refs[75] == [["V", 42]]
+
+
+def test_runde3_kun_53_har_kurateret_titel():
+    assert {p["side"] for p in KURATEREDE_RUNDE3 if p.get("titel")} == {53}

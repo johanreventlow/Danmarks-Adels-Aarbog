@@ -12,6 +12,7 @@ import { Image } from 'expo-image';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { Mono, Body } from './Typography';
 import { Colors } from '../theme/tokens';
+import { mediaCaption } from '@daa/core';
 
 export type LightboxItem = { id: string; uri: string; titel?: string | null; kunstner?: string | null; datering?: string | null };
 
@@ -25,7 +26,7 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
   const harForrige = index > 0;
   const harNaeste = index < items.length - 1;
   if (!m) return null;
-  const cap = [m.titel, m.kunstner, m.datering].filter(Boolean).join(' · ');
+  const cap = mediaCaption(m);
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>

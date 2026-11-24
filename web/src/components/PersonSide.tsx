@@ -19,7 +19,7 @@ import { Link } from '../Link';
 import { personPath, estatePath, slaegtPath, stamtraePath, slaegtskabPath, findSlaegt, STANDARD_SLAEGT } from '../data/nav';
 import { konfTekst } from '../data/format';
 import { kunIAeldreTekst, type KunIAeldreTekst } from '../data/kunIAeldre';
-import { mediaCaption, type MediaItem } from '../data/media';
+import { mediaCaption, portraetTilpasning, type MediaItem } from '../data/media';
 import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
 import { bogensNummer, familieIderForPerson, lifeJourney, vielsePraecision, type UdgaveChip } from '@daa/core';
@@ -181,7 +181,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
                 <button type="button" onClick={() => setLightbox(0)} aria-label={`Vis portrættet af ${p.name} større`}
                   style={{ flex: 'none', width: 92, padding: 0, border: 0, background: 'none', cursor: 'zoom-in' }}>
                   <SignedImg src={portrait.url} alt={portrait.altTekst || `Portræt af ${p.name}`}
-                    style={{ display: 'block', width: '100%', aspectRatio: '4 / 5', objectFit: 'cover', borderRadius: radius.card, border: `1px solid ${T.line}` }} />
+                    style={{ display: 'block', width: '100%', aspectRatio: '4 / 5', ...portraetTilpasning(portrait), background: T.surfaceSunken, borderRadius: radius.card, border: `1px solid ${T.line}` }} />
                 </button>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
                   {navneblok}
@@ -357,7 +357,7 @@ export function PersonSide({ model, focusId, detail, detailError, onRetry, onVis
               <button type="button" onClick={() => setLightbox(0)} aria-label={`Vis portrættet af ${p.name} større`}
                 style={{ padding: 0, border: 0, background: 'none', cursor: 'zoom-in', display: 'block', width: '100%' }}>
                 <SignedImg src={portrait.url} alt={portrait.altTekst || `Portræt af ${p.name}`}
-                  style={{ display: 'block', width: '100%', aspectRatio: '4 / 5', objectFit: 'cover', borderRadius: radius.card, border: `1px solid ${T.line}` }} />
+                  style={{ display: 'block', width: '100%', aspectRatio: '4 / 5', ...portraetTilpasning(portrait), background: T.surfaceSunken, borderRadius: radius.card, border: `1px solid ${T.line}` }} />
               </button>
             ) : (
               <div role="img" aria-label="Intet portræt" style={{ aspectRatio: '4 / 5', width: '100%', borderRadius: radius.card, border: `1px solid ${T.line}`, background: `repeating-linear-gradient(135deg, ${T.surfaceSunken} 0 12px, ${T.surfaceGround} 12px 24px)`, display: 'flex', alignItems: 'flex-end', padding: 14 }}>
