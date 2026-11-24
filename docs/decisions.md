@@ -2,6 +2,23 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## NOTERET: robotter kan gå direkte til Supabase — to huller i anon-fladen og tre åbne valg, åben backlog (2026-11-24)
+
+> Baggrund: robottrafikken på reventlow.dk (TNG) okt.–nov. 2026 — op til 44 000 kald/døgn, SQL-injektionsscannere,
+> proxy-flåder fra tusindvis af privatforbindelser og AI-crawlere i uendelige URL-rum. Web og mobil kalder Supabase
+> direkte med den offentlige anon-nøgle, så en robot kan springe appen over; Vercel/Cloudflare foran sitet beskytter
+> ikke `…supabase.co/rest/v1` og `/rpc`. Kodereglerne står i `CLAUDE.md` (»Robotter og misbrug«).
+> - **Hul 1 (backlog):** `public_person_facts(bigint[])`, `public_person_bio_source_versions(bigint[])` og
+>   `public_family_sources(bigint[])` er kaldbare som anon uden loft på array-længden — én anon-forespørgsel kan bede
+>   om alle offentlige personer. Mønster for rettelsen: `public_haendelse_feed` (afviser for store grænser med `22023`).
+> - **Hul 2 (backlog):** ingen `ALTER ROLE … SET statement_timeout` i `schema.sql`/`db-migrations.sql`; prod hviler på
+>   Supabases standardværdier (`authenticated` målt til 8 s 18/11, `anon` ikke målt). Mål `anon` og overvej at pinne
+>   begge i skemaet.
+> - **Åbne valg for projektejeren:** (1) skal læsning kræve login (forretningsmodellen — medlemmer gratis, forskere
+>   abonnement — peger måske allerede derhen; det fjerner det meste af anon-fladen); (2) når review 37 C10 åbner for
+>   søgemaskiner: offentlige sider forhåndsgenereres statisk, så crawlere rammer CDN'en og ikke RPC'erne; (3) udgiftsloft
+>   og alarm hos Vercel og Supabase før lancering, så en robotbølge ikke bliver en regning.
+
 ## BESLUTTET: forsidens data pakkes færdigt af en Vercel-funktion bag Vercels CDN (2026-11-24)
 
 Forsiden hentede biografier, hændelser, livsdatoer, historier og nævnt-grundlag direkte fra Supabase ved hvert besøg
