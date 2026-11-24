@@ -16,15 +16,32 @@ const purgeLabels: Record<string, string> = {
   bevaret_evidens: 'Bevaret kilde/påstand på et låst familiefoto: kan nævne profilen',
 };
 
+// Review 37 P6: tabeller med danske navne i stedet for rå stedkoder (»S37b«); koderne står under »Detaljer«.
+const TABEL_NAVN: Record<string, string> = {
+  person: 'Profilen', fact: 'Oplysninger (fakta)', assertion: 'Påstande', citation: 'Kildehenvisninger',
+  conclusion: 'Konklusioner', relation: 'Relationer', narrative: 'Biografier og tekster', note: 'Noter',
+  media: 'Billeder og filer', media_variant: 'Billedstørrelser', family: 'Familier', family_member: 'Familiemedlemskaber',
+  story: 'Historier', haendelse: 'Hændelser', suggestion: 'Forslag', feed_pin: 'Forside-fastgørelser',
+  bookmark: 'Bogmærker', change_event: 'Historik (ændringer)', change_set: 'Historik (ændringssæt)',
+  entity_description: 'Beskrivelser', person_external_id: 'Bogens numre',
+};
+const HANDLING_NAVN: Record<string, string> = {
+  slet: 'slettes', skjul: 'skjules for læserne', nulstil: 'nulstilles', bevar_andres: 'bevares (andres data)',
+};
+const tabelNavn = (tabel: string) => TABEL_NAVN[tabel]
+  ?? (tabel.startsWith('private.') ? `Interne spor (${tabel.slice('private.'.length)})` : tabel);
+
 type Props = {
   personId: string; navn: string; dryRun: boolean;
   loadPreview?: (id: string) => Promise<PurgePreview>;
   execute: (opts: { personId: string; previewSha256: string; dryRun: boolean }) => Promise<PurgeResult>;
+  // Review 37 P5: filoprydningen alene. Køres, når profilen allerede er væk (svaret på sletningen gik tabt).
+  oprydning?: () => Promise<PurgeResult>;
   onDeleted: () => void; onClose: () => void;
   // Review 37 P11: når »Slet person…« vælger den fulde sletning, står overskrift og begrundelse øverst.
   overskrift?: string; intro?: ReactNode;
 };
-export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurgePreview, execute, onDeleted, onClose,
+export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurgePreview, execute, oprydning, onDeleted, onClose,
   overskrift = 'Slet helt', intro }: Props) {
   const [preview, setPreview] = useState<PurgePreview | null>(null);
   const [typedId, setTypedId] = useState('');
@@ -34,18 +51,36 @@ export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurg
   const [result, setResult] = useState<PurgeResult | null>(null);
   const [revision, setRevision] = useState(0);
   const writing = useRef(false);
+  const [alleredeSlettet, setAlleredeSlettet] = useState(false);
+  // Review 37 P5: findes profilen ikke længere (typisk: sletningen lykkedes, men svaret gik tabt), er der intet at
+  // slette — men filerne i udbakken skal stadig ryddes op, og listen skal opdateres. I dry-run vises kun beskeden.
+  const oprydRef = useRef(oprydning); oprydRef.current = oprydning;
+  const deletedRef = useRef(onDeleted); deletedRef.current = onDeleted;
+  const haandterFejl = async (e: unknown, erAktiv: () => boolean) => {
+    const f = purgeFejl(e);
+    if (f.kind !== 'findes_ikke' || dryRun) { if (erAktiv()) setError(f); return; }
+    setAlleredeSlettet(true);
+    let res: PurgeResult = { kind: 'completed' };
+    try { if (oprydRef.current) res = await oprydRef.current(); }
+    catch (oe) { res = { kind: 'completed', storageAdvarsel: `Filoprydningen fejlede: ${purgeFejl(oe).tekst}. Prøv igen i »Filer der venter på sletning«.` }; }
+    if (!erAktiv()) return;
+    setResult(res);
+    deletedRef.current();
+  };
   useEffect(() => {
     let active = true;
-    setLoading(true); setPreview(null); setTypedId(''); setError(null); setResult(null);
+    setLoading(true); setPreview(null); setTypedId(''); setError(null); setResult(null); setAlleredeSlettet(false);
     loadPreview(personId).then((p) => {
       if (!active) return;
       // Et forkert RPC-svar må ikke autorisere sletning af den valgte profil.
       if (String(p.person_id) !== personId || !/^[a-f0-9]{64}$/.test(p.sha256)) throw new Error('Ugyldig forhåndsvisning');
       setPreview(p);
-    }).catch((e: unknown) => { if (active) setError(purgeFejl(e)); })
+    }).catch((e: unknown) => haandterFejl(e, () => active))
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [personId, loadPreview, revision]);
+    // haandterFejl læser oprydning/onDeleted via refs; dryRun følger med i afhængighederne.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personId, loadPreview, revision, dryRun]);
   const done = result?.kind === 'completed';
   const canDelete = !!preview && !loading && !busy && !done && !error
     && typedId === personId && preview.blokeringer.length === 0;
@@ -56,7 +91,7 @@ export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurg
       const res = await execute({ personId, previewSha256: preview.sha256, dryRun });
       setResult(res);
       if (res.kind === 'completed') onDeleted();
-    } catch (e) { setError(purgeFejl(e)); }
+    } catch (e) { await haandterFejl(e, () => true); }
     finally { writing.current = false; setBusy(false); }
   };
   return <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,.4)', display: 'grid', placeItems: 'center' }}>
@@ -67,12 +102,38 @@ export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurg
       <p>Du sletter den rå profil med dette id, ikke den sammenfoldede person eller de andre profiler i samme_som-komponenten. Sletningen kan ikke fortrydes.</p>
       {loading && <p role="status">Henter forhåndsvisning…</p>}
       {preview && <>
-        <h3>Antal pr. sted</h3>
-        <ul>{Object.entries(preview.steder).map(([sted, rows]) => <li key={sted}>{sted}: {rows.length}
-          <ul>{Object.entries(rows.reduce<Record<string, number>>((counts, row) => {
-            const label = `${row.tabel} · ${row.handling}`; counts[label] = (counts[label] ?? 0) + 1; return counts;
-          }, {})).map(([label, count]) => <li key={label}>{label}: {count}</li>)}</ul>
-        </li>)}</ul>
+        <h3>Det sker med data</h3>
+        <ul>{Object.entries(Object.values(preview.steder).flat().reduce<Record<string, number>>((counts, row) => {
+          const label = `${tabelNavn(row.tabel)}: ${HANDLING_NAVN[row.handling] ?? row.handling}`;
+          counts[label] = (counts[label] ?? 0) + 1; return counts;
+        }, {})).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([label, count]) => <li key={label}>{label} ({count})</li>)}</ul>
+        <details><summary>Detaljer pr. sted (stedkoder fra sletteplanen)</summary>
+          <ul>{Object.entries(preview.steder).map(([sted, rows]) => <li key={sted}>{sted}: {rows.length}
+            <ul>{Object.entries(rows.reduce<Record<string, number>>((counts, row) => {
+              const label = `${row.tabel} · ${row.handling}`; counts[label] = (counts[label] ?? 0) + 1; return counts;
+            }, {})).map(([label, count]) => <li key={label}>{label}: {count}</li>)}</ul>
+          </li>)}</ul>
+        </details>
+        {preview.storage !== undefined && <>
+          <h3>Filer der slettes</h3>
+          <p>{preview.storage.length ? `${preview.storage.length} fil${preview.storage.length === 1 ? '' : 'er'} i lageret slettes efter databasen.` : 'Ingen filer i lageret.'}</p>
+          {preview.storage.length > 0 && <details><summary>Vis filerne</summary>
+            <ul>{preview.storage.map((f) => <li key={`${f.bucket}/${f.sti}`}><code>{f.bucket}/{f.sti}</code></li>)}</ul></details>}
+        </>}
+        {preview.historik !== undefined && <>
+          <h3>Historik</h3>
+          <p>{preview.historik.events} ændringer i {preview.historik.saet} ændringssæt slettes. Profilen kan derfor ikke genskabes fra historikken.</p>
+        </>}
+        {preview.samme_som_komponent !== undefined && <>
+          <h3>Samme person i andre udgaver</h3>
+          {(() => { const andre = preview.samme_som_komponent.filter((id) => String(id) !== personId); return andre.length
+            ? <p>Profilen er koblet som samme person som: {andre.join(', ')}. De andre profiler bevares; kun denne slettes.</p>
+            : <p>Ingen andre profiler er koblet som samme person.</p>; })()}
+        </>}
+        {preview['forældes'] !== undefined && (preview['forældes'].narrativer.length + preview['forældes'].bindinger.length) > 0 && <>
+          <h3>Bliver forældet</h3>
+          <p>{preview['forældes'].narrativer.length} biografier og {preview['forældes'].bindinger.length} kildebindinger bevares, men bygger på data, der slettes, og bliver derfor forældede: {[...preview['forældes'].narrativer, ...preview['forældes'].bindinger].join(', ')}.</p>
+        </>}
         <h3>Familier</h3>
         <p>Slettes: {preview.familier_slettes.join(', ') || 'ingen'}. Bevares: {preview.familier_bevares.join(', ') || 'ingen'}.</p>
         {preview.familieindhold_slettes !== undefined && <>
@@ -110,7 +171,9 @@ export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurg
       {error && <div role="alert"><p>{error.tekst}</p></div>}
       {error && !done && <button type="button" disabled={busy || loading} onClick={() => setRevision((n) => n + 1)}>Hent ny forhåndsvisning</button>}
       {result?.kind === 'dry-run' && <p role="status">Dry-run: ingen data eller filer er slettet.</p>}
-      {done && <p role="status">Profilen er slettet.</p>}
+      {done && <p role="status">{alleredeSlettet
+        ? 'Profilen var allerede slettet (svaret på sletningen nåede ikke frem). Filerne i udbakken er ryddet op.'
+        : 'Profilen er slettet.'}</p>}
       {result?.storageAdvarsel && <p role="alert">{result.storageAdvarsel}</p>}
       <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
         <button type="button" disabled={busy} onClick={onClose}>Luk</button>

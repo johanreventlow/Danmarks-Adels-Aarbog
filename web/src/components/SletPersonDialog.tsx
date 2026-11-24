@@ -19,6 +19,8 @@ type Props = {
   sletFortrydeligt: () => Promise<void>;
   // Den fulde sletning, som SletHeltDialog kalder den.
   executeHelt: (opts: { personId: string; previewSha256: string; dryRun: boolean }) => Promise<PurgeResult>;
+  // Review 37 P5: filoprydningen alene, når profilen allerede er væk (tabt svar efter sletningen).
+  oprydningHelt?: () => Promise<PurgeResult>;
   loadPurgePreview?: (id: string) => Promise<PurgePreview>;
   onHeltSlettet: () => void;
   onClose: () => void;
@@ -27,7 +29,7 @@ type Props = {
 const knap = { fontSize: 13.5, fontWeight: 600, borderRadius: 9, padding: '10px 16px', cursor: 'pointer' } as const;
 
 export function SletPersonDialog({ personId, navn, dryRun, role, loadPreview = fetchSletPreview, sletFortrydeligt,
-  executeHelt, loadPurgePreview, onHeltSlettet, onClose }: Props) {
+  executeHelt, oprydningHelt, loadPurgePreview, onHeltSlettet, onClose }: Props) {
   const redaktion = role === 'redaktion';
   const [preview, setPreview] = useState<SletPreview | null>(null);
   const [previewFejl, setPreviewFejl] = useState('');
@@ -56,6 +58,7 @@ export function SletPersonDialog({ personId, navn, dryRun, role, loadPreview = f
     const tekst = heltAarsag ? sletAarsagTekst(heltAarsag) : null;
     return <SletHeltDialog personId={personId} navn={navn} dryRun={dryRun} execute={executeHelt}
       {...(loadPurgePreview ? { loadPreview: loadPurgePreview } : {})}
+      {...(oprydningHelt ? { oprydning: oprydningHelt } : {})}
       onDeleted={onHeltSlettet} onClose={onClose} overskrift="Slet helt — kan ikke fortrydes"
       intro={tekst
         ? <div data-testid="slet-helt-hvorfor" style={{ background: T.dangerTint, borderRadius: 11, padding: '12px 14px', margin: '8px 0 12px' }}>

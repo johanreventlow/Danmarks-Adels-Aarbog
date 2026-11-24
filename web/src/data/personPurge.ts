@@ -13,6 +13,11 @@ export type PurgePreview = {
   familieindhold_slettes?: { family_id: number | string; fakta: (number | string)[]; noter: (number | string)[];
     narrativer: (number | string)[]; haendelser?: (number | string)[]; stories?: (number | string)[];
     relationer?: (number | string)[]; forslag?: (number | string)[]; historik?: number }[];
+  // Review 37 P6: felterne fandtes i RPC'ens svar, men dialogen viste dem ikke.
+  storage?: { bucket: string; sti: string }[];
+  historik?: { events: number; saet: number };
+  samme_som_komponent?: (number | string)[];
+  'forældes'?: { narrativer: (number | string)[]; bindinger: (number | string)[] };
   blokeringer: { art: string; [key: string]: unknown }[];
   advarsler: { art: string; [key: string]: unknown }[];
   til_kontrol: { sted: string; tabel: string; pk: Record<string, unknown>; grund: string }[];
@@ -58,8 +63,16 @@ function rawError(e: unknown): string {
   }
   return String(e);
 }
-export function purgeFejl(e: unknown): { kind: 'retry' | 'blocked' | 'raw'; tekst: string } {
+export function purgeFejl(e: unknown): { kind: 'retry' | 'blocked' | 'raw' | 'findes_ikke' | 'ukendt_udfald'; tekst: string } {
   const raw = rawError(e);
+  // Review 37 P5: profilen er væk — typisk fordi sletningen lykkedes, men svaret gik tabt. Dialogen rydder så filerne op.
+  if (/\bPURGE_FINDES_IKKE\b/.test(raw)) {
+    return { kind: 'findes_ikke', tekst: 'Profilen findes ikke længere — den er allerede slettet.' };
+  }
+  // Forbindelsen afbrudt: svaret kom aldrig, så ingen ved, om databasen nåede at slette.
+  if (/Failed to fetch|NetworkError|Load failed|fetch failed/i.test(raw)) {
+    return { kind: 'ukendt_udfald', tekst: 'Forbindelsen blev afbrudt, før svaret kom. Sletningen kan være gennemført — hent en ny forhåndsvisning for at se.' };
+  }
   // 57014 = authenticated-rollens statement_timeout (8 s i prod). Hele kaldet rulles tilbage; første kald
   // i en kold prod-base kan ramme den (målt 18/11), et nyt forsøg er varmt.
   if (/\b57014\b/.test(raw)) {

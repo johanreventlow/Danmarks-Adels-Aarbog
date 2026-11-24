@@ -40,7 +40,7 @@ import {
 } from './data/mediaDedup';
 import { executeMediaMerge, fetchMediaMergeRelationEvidence, findMediaMergeCandidates, mediaMentionFingerprint, sortMediaForQueue } from './data/mediaMerge';
 import { executeUdrens } from './data/mediaUdrens';
-import { executeSletHelt, purgeStorage } from './data/personPurge';
+import { executePurgeOprydning, executeSletHelt, purgeStorage } from './data/personPurge';
 import { SletPersonDialog } from './components/SletPersonDialog';
 import { SlettedePersoner } from './components/SlettedePersoner';
 import { PersonPurgeUdbakke } from './components/PersonPurgeUdbakke';
@@ -999,6 +999,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
           setHistorikRevision((n) => n + 1);
         }}
         executeHelt={(opts) => executeSletHelt({ ...opts, role }, { ...purgeStorage, submit: submitChange })}
+        oprydningHelt={() => executePurgeOprydning({ dryRun, role }, { ...purgeStorage, submit: submitChange })}
         onClose={() => setSletPerson(null)} onHeltSlettet={() => {
           setPersons((ps) => ps.filter((p) => p.id !== sletPerson.id));
           setKvRows((rs) => rs.filter((r) => r.personId !== sletPerson.id));
