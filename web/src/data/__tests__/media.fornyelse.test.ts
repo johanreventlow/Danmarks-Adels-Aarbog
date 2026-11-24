@@ -33,6 +33,14 @@ describe('signerede URL\'er fornyes (review 37 W7)', () => {
     expect(createSignedUrls).toHaveBeenLastCalledWith(['a/1.jpg'], 600);
   });
 
+  it('er stien allerede fornyet, genbruges den nye URL uden ny signering', async () => {
+    const gammel = (await signPaths(['d.jpg'])).get('d.jpg')!;
+    const ny = await fornyUrl(gammel);
+    createSignedUrls.mockClear();
+    expect(await fornyUrl(gammel)).toBe(ny);
+    expect(createSignedUrls).not.toHaveBeenCalled();
+  });
+
   it('fornyUrl på en ukendt URL giver null uden kald', async () => {
     expect(await fornyUrl('https://andet/billede.jpg')).toBeNull();
     expect(createSignedUrls).not.toHaveBeenCalled();

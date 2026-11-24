@@ -87,6 +87,9 @@ export async function signPaths(paths: string[]): Promise<Map<string, string>> {
 export async function fornyUrl(url: string): Promise<string | null> {
   const sti = urlTilSti.get(url);
   if (!sti) return null;
+  // Er stien allerede signeret forfra (fx af en anden komponent), genbruges den nye URL; kun den fejlede smides ud.
+  const c = cache.get(sti);
+  if (c && c.url !== url && c.exp > Date.now()) return c.url;
   cache.delete(sti);
   return (await signPaths([sti])).get(sti) ?? null;
 }
