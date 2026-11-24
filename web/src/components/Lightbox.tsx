@@ -9,6 +9,7 @@
 import { useEffect } from 'react';
 import { T } from '../theme';
 import { mediaCaption } from '../data/media';
+import { SignedImg } from './SignedImg';
 
 // MM-11: kilde_url whitelist — kun http(s)-URLs vises som klikbart link (spejler
 // MediaDetaljeOverlay.tsx's KILDE_URL_RE, som håndhæver det samme ved skrivning).
@@ -70,7 +71,7 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
           ›
         </span>
       )}
-      <img src={m.url} alt={m.altTekst || m.titel || 'billede'} onClick={(e) => e.stopPropagation()}
+      <SignedImg src={m.url} alt={m.altTekst || m.titel || 'billede'} onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: '92vw', maxHeight: '82vh', objectFit: 'contain', borderRadius: 6, boxShadow: '0 24px 70px rgba(0,0,0,.55)' }} />
       {visInfoBlok && (
         <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 14, textAlign: 'center', maxWidth: '80vw' }}>

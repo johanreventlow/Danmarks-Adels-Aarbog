@@ -12,6 +12,7 @@ import { personPath, slaegtskabPath, findSlaegt, STANDARD_SLAEGT } from '../data
 import type { PersonDetailData } from '../data/public';
 import type { Model } from '../data/types';
 import { usePersonVisning } from './personVisning';
+import { SignedImg } from './SignedImg';
 
 const GODSER_I_RESUME = 3;
 
@@ -60,7 +61,7 @@ export function DetailPanel({ model, focusId, detail, backName, onBack, onClose,
         )}
 
         {portraet ? (
-          <img src={portraet.thumbUrl ?? portraet.url ?? undefined} alt={portraet.altTekst || `Portræt af ${p.name}`} onError={() => setBilledFejl(portraet.id)}
+          <SignedImg src={portraet.thumbUrl ?? portraet.url ?? undefined} alt={portraet.altTekst || `Portræt af ${p.name}`} onError={() => setBilledFejl(portraet.id)}
             style={{ display: 'block', width: '100%', aspectRatio: '4 / 3', objectFit: 'cover', borderRadius: radius.field, border: `1px solid ${T.line}` }} />
         ) : (
           <div role="img" aria-label="Intet portræt" style={{ aspectRatio: '4 / 3', borderRadius: radius.field, background: `repeating-linear-gradient(135deg, ${T.surfaceSunken} 0 10px, ${T.surfaceGround} 10px 20px)` }} />

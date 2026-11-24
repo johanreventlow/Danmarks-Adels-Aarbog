@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildBookmarkList, useBookmarks } from '../bookmarks';
+import { buildBookmarkList, createRemoteBookmarkRepository, useBookmarks } from '../bookmarks';
 import type { Model, ModelPerson } from '../types';
 
 // In-memory fake af supabase.from('bookmark')-kæden. Delt mutabel tilstand pr. test.
 let rows: { user_id: string; person_id: string }[] = [];
 let failNextWrite = false;
+let failNextList = false;
 const IDENTITY_CANON: Record<string, string> = {};
 
 vi.mock('../../supabase', () => ({
@@ -15,7 +16,10 @@ vi.mock('../../supabase', () => ({
       if (table !== 'bookmark') throw new Error('uventet tabel: ' + table);
       return {
         select: () => ({
-          order: () => Promise.resolve({ data: rows.map((r) => ({ person_id: r.person_id })), error: null }),
+          order: () => {
+            if (failNextList) { failNextList = false; return Promise.resolve({ data: null, error: { message: 'netværk' } }); }
+            return Promise.resolve({ data: rows.map((r) => ({ person_id: r.person_id })), error: null });
+          },
         }),
         upsert: (row: { person_id: string }) => {
           if (failNextWrite) { failNextWrite = false; return Promise.resolve({ error: { message: 'boom' } }); }
@@ -47,7 +51,7 @@ function makeModel(persons: ModelPerson[], lineageByPerson: Record<string, strin
   };
 }
 
-beforeEach(() => { rows = []; failNextWrite = false; });
+beforeEach(() => { rows = []; failNextWrite = false; failNextList = false; });
 
 describe('useBookmarks — udlogget', () => {
   it('tom liste, canSave=false, toggle er no-op', () => {
@@ -150,6 +154,43 @@ describe('useBookmarks — logget ind', () => {
     await waitFor(() => expect(result.current.ready).toBe(true));
     expect(result.current.hydrationVersion).toBeGreaterThan(firstVersion);
     expect(result.current.ids.has('canon1')).toBe(true);
+  });
+});
+
+describe('useBookmarks — hentefejl (review 37 W12)', () => {
+  it('list() afviser ved fejl i stedet for at returnere en tom liste', async () => {
+    failNextList = true;
+    await expect(createRemoteBookmarkRepository().list()).rejects.toThrow('netværk');
+  });
+
+  it('en fejlet hentning er en fejltilstand, ikke »ingen bogmærker«, og feedet blokeres ikke', async () => {
+    rows = [{ user_id: 'u1', person_id: '42' }];
+    failNextList = true;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { result } = renderHook(() => useBookmarks('u1', IDENTITY_CANON));
+    await waitFor(() => expect(result.current.fejl).toBe(true));
+    // ready=true: feedet venter ikke for evigt på et bogmærke-snapshot (det får bare ingen bogmærker).
+    expect(result.current.ready).toBe(true);
+    expect(result.current.ids.size).toBe(0);
+    expect(warn).toHaveBeenCalled();
+
+    act(() => result.current.genindlaes());
+    await waitFor(() => expect(result.current.ids.has('42')).toBe(true));
+    expect(result.current.fejl).toBe(false);
+    warn.mockRestore();
+  });
+
+  it('logout efter en fejl rydder fejltilstanden', async () => {
+    failNextList = true;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { result, rerender } = renderHook(
+      ({ uid }: { uid: string | null }) => useBookmarks(uid, IDENTITY_CANON),
+      { initialProps: { uid: 'u1' as string | null } },
+    );
+    await waitFor(() => expect(result.current.fejl).toBe(true));
+    rerender({ uid: null });
+    expect(result.current.fejl).toBe(false);
+    warn.mockRestore();
   });
 });
 
