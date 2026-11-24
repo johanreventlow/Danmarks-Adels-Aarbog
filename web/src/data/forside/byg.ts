@@ -37,8 +37,9 @@ export type ForsideDataSvar = { status: number; headers: Record<string, string>;
 
 const JSON_TYPE = 'application/json; charset=utf-8';
 
-// Cache-regel: alt komplet → en time (+ højst en time mere med den gamle fil, mens en ny bygges, så en person gjort
-// privat højst står i filen ~2 t); noget mangler eller er delvist → 5 min (browseren pakker ud fail-closed, og en fejl
+// Cache-regel: alt komplet → en time (+ op til et døgn med den gamle fil, mens en ny bygges — projektejeren 24/11: hellere
+// en langsommere opdatering end en langsom forside; en person gjort privat kan derfor stå i filen op til ~25 t);
+// noget mangler eller er delvist → 5 min (browseren pakker ud fail-closed, og en fejl
 // skal ikke give en ny generering ved hvert besøg); personlisten kan ikke hentes → 503 uden cache.
 export async function forsideDataSvar(sb: Sb, nu: Date): Promise<ForsideDataSvar> {
   let fd: ForsideData;
@@ -50,7 +51,7 @@ export async function forsideDataSvar(sb: Sb, nu: Date): Promise<ForsideDataSvar
   }
   const dele = [fd.bios, fd.haendelser, fd.livsdato, fd.historier, fd.naevnt];
   const cache = dele.every((d) => d.komplet && d.data !== null)
-    ? 'public, s-maxage=3600, stale-while-revalidate=3600'
+    ? 'public, s-maxage=3600, stale-while-revalidate=86400'
     : 'public, s-maxage=300, stale-while-revalidate=300';
   return {
     status: 200,

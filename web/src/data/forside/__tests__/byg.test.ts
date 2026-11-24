@@ -43,7 +43,7 @@ describe('forside/byg', () => {
   it('alle dele hentet giver 200 og en times cache', async () => {
     const svar = await forsideDataSvar(klient() as never, NU);
     expect(svar.status).toBe(200);
-    expect(svar.headers['cache-control']).toBe('public, s-maxage=3600, stale-while-revalidate=3600');
+    expect(svar.headers['cache-control']).toBe('public, s-maxage=3600, stale-while-revalidate=86400');
     expect(svar.headers['content-type']).toBe('application/json; charset=utf-8');
     expect(JSON.parse(svar.body).version).toBe(1);
   });

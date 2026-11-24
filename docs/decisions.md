@@ -15,8 +15,9 @@ besøg. Spec: `docs/superpowers/specs/2026-11-24-forside-data-cache-design.md`.
 - **Edge-runtime** (`export const config = { runtime: 'edge', regions: ['fra1'] }`): Vercels Node-runtime samler ikke
   koden, og ESM-importen af workspace-pakker, der kun findes som TypeScript-kilde, fejlede ved kørsel (500 på previewet
   24/11). Edge samles af Vercel til én fil; genereringen tog ~13 s lokalt mod prod (Edge-loft: svar inden 25 s).
-- **Cache:** alt komplet → `s-maxage=3600, stale-while-revalidate=3600` (en person gjort privat står højst ~2 t i
-  filen); noget mangler eller er delvist → `s-maxage=300` (browseren pakker fail-closed ud, og en fejl giver ikke en ny
+- **Cache:** alt komplet → `s-maxage=3600, stale-while-revalidate=86400` (projektejeren 24/11: hellere en langsommere
+  opdatering end en langsom forside; en person gjort privat kan stå i den offentlige fil op til ~25 t, men vises ikke på
+  siden, fordi gæstens model ikke har personen); noget mangler eller er delvist → `s-maxage=300` (browseren pakker fail-closed ud, og en fejl giver ikke en ny
   generering ved hvert besøg); personlisten kan ikke hentes → `503` + `no-store`. Klienten afviser en fil ældre end
   48 timer.
 - **Alle får filen**, også indloggede (projektejeren, valg A): en rettelse ses straks på personsiden og inden for en time
