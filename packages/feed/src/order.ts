@@ -2,6 +2,7 @@
 // positionslåse + terminal. Hele ordningen beregnes ÉN GANG pr. seed (eager, bevidst
 // implementeringsvalg — spec §3.5) — "uendelig scroll" er dosering af denne færdige
 // ordning (strøm-API, task 5), ikke løbende genberegning.
+import { kunForsideVaerdige } from './forside';
 import { kunSikkertDoede } from './levende';
 import {
   buildArkivKort,
@@ -173,15 +174,33 @@ class RangPulje {
   }
 }
 
+// Filter-prædikat: første kort pr. person passerer; kort uden person passerer altid; personer i `brugt` er optaget.
+function foersteKortPrPerson(brugt: readonly FeedCard[]): (c: { card: FeedCard }) => boolean {
+  const set = new Set(brugt.map(bookmarkPersonId).filter((id): id is string => id != null));
+  return ({ card }) => {
+    const id = bookmarkPersonId(card);
+    if (id == null) return true;
+    if (set.has(id)) return false;
+    set.add(id);
+    return true;
+  };
+}
+
 export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): FeedCard[] {
   const rng = mulberry32(inputs.seed);
   const todayYear = Number(inputs.todayISO.slice(0, 4));
   // GDPR-nødbremse (levende.ts): kun personer med positiv dødsevidens (dødsår, eller fødsel
   // for >120 år siden) må optræde i feedets person-identificerende kort. Ét choke-point her,
   // FØR alle kort-builders, i stedet for spredt pr. builder — se levende.ts for begrundelsen.
-  const safeModel = kunSikkertDoede(model, todayYear);
+  const sikkertDoede = kunSikkertDoede(model, todayYear);
   const livsdatoBy = inputs.livsdatoBy ?? {};
   const haendelserBy = inputs.haendelserBy ?? {};
+  // Forsidens minimumskrav (forside.ts) oven på GDPR-gaten — samme choke-point, kun med flaget.
+  const safeModel = inputs.forsideKrav
+    ? kunForsideVaerdige(sikkertDoede, {
+      dagsAar: todayYear, haendelserBy, officesBy: aux.officesBy, personerMedBillede: inputs.personerMedBillede,
+    })
+    : sikkertDoede;
   const storieBy = inputs.storieBy ?? {};
   const pins = inputs.pins ?? [];
   // Hændelsens feed_status er en indholds-dom pr. hændelse; feed_pin er derimod
@@ -281,7 +300,13 @@ export function buildFeedOrder(model: Model, aux: FeedAux, inputs: FeedInputs): 
       ...candidate,
       priority: -Math.log(1 - rng()) / candidate.score,
     }))
-    .sort((a, b) => a.priority - b.priority || a.card.id.localeCompare(b.card.id));
+    .sort((a, b) => a.priority - b.priority || a.card.id.localeCompare(b.card.id))
+    // Forsidens krav 6: højst ét kort pr. person. Den tilfældige prioritet afgør, hvilket af personens kort der vinder;
+    // personer i fastgjorte og låste kort er allerede brugt. Ingen rng-kald her, så ordningen ellers er uændret.
+    .filter(inputs.forsideKrav ? foersteKortPrPerson([
+      ...pinnedBlock, ...(lockedDagensPerson ? [lockedDagensPerson.card] : []),
+      ...(lockedSlaegt ? [lockedSlaegt.card] : []),
+    ]) : () => true);
 
   const pulje = new RangPulje(pool);
   const ordered: FeedCard[] = [...pinnedBlock];

@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   blevVoksen, doedForLaengeSiden, harIndhold, harRigtigtNavn, kunForsideVaerdige, type ForsideKontekst,
 } from '../forside';
-import type { HaendelseItem, Model } from '../types';
+import { buildFeedOrder } from '../order';
+import { bookmarkPersonId } from '../types';
+import type { FeedCard, FeedInputs, HaendelseItem, LivsdatoBy, Model } from '../types';
 
 type P = Model['persons'][number];
 
@@ -98,5 +100,67 @@ describe('kunForsideVaerdige', () => {
     expect(ud.persons.map((p) => p.id)).toEqual(['1']);
     expect(Object.keys(ud.byId)).toEqual(['1']);
     expect(ud.indexes).toBe(model.indexes);
+  });
+});
+
+describe('buildFeedOrder med forsideKrav', () => {
+  const LANG = 'x'.repeat(220);
+  const AUX = { godsListe: [], vaabenListe: [], officesBy: {} };
+  const base = (over: Partial<FeedInputs> = {}): FeedInputs => ({
+    seed: 1, todayISO: '2026-11-24', meId: null, focusId: null, disabledKinds: new Set(), ...over,
+  });
+  const personKort = (cards: FeedCard[], id: string) => cards.filter((c) => bookmarkPersonId(c) === id);
+
+  it('forsideKrav udelader ikke-forsideværdige', () => {
+    const model = mkModel([
+      person('1', { name: '(Søn) Reventlow', bio: LANG }),
+      person('2', { name: 'Christian Reventlow', bio: LANG }),
+      person('3', { name: 'Anna Reventlow', born: 1700, died: 1701, bio: LANG }),
+    ]);
+    const ids = new Set(buildFeedOrder(model, AUX, base({ forsideKrav: true }))
+      .map(bookmarkPersonId).filter((id): id is string => id != null));
+    expect([...ids]).toEqual(['2']);
+  });
+
+  const enPerson = () => mkModel([person('1', { name: 'Christian Reventlow', bio: LANG, title: 'Greve' })]);
+  const livsdatoBy: LivsdatoBy = {
+    '1': {
+      foedt: { min: '1750-11-03', max: '1750-11-03', qualifier: null },
+      doed: { min: '1800-11-20', max: '1800-11-20', qualifier: null },
+    },
+  };
+
+  it('forsideKrav giver højst ét kort pr. person', () => {
+    expect(personKort(buildFeedOrder(enPerson(), AUX, base({ livsdatoBy })), '1').length).toBeGreaterThan(1);
+    for (let seed = 1; seed <= 50; seed++) {
+      expect(personKort(buildFeedOrder(enPerson(), AUX, base({ seed, livsdatoBy, forsideKrav: true })), '1'))
+        .toHaveLength(1);
+    }
+  });
+
+  it('fastgjort kort vinder over personens øvrige kort', () => {
+    const cards = buildFeedOrder(enPerson(), AUX, base({
+      livsdatoBy, forsideKrav: true, disabledKinds: new Set(['citat', 'dagensperson']),
+      pins: [{ kortNoegle: 'portrait:1', handling: 'pin' }],
+    }));
+    expect(personKort(cards, '1').map((c) => c.id)).toEqual(['portrait:1']);
+  });
+
+  it('kort uden person berøres ikke', () => {
+    const aux = { ...AUX, godsListe: ['a', 'b', 'c'].map((id) => ({ id, navn: 'Gods ' + id, slags: 'gods', ownerCount: 1 })) };
+    const cards = buildFeedOrder(enPerson(), aux, base({ forsideKrav: true }));
+    expect(cards.filter((c) => c.kind === 'gods')).toHaveLength(3);
+  });
+
+  it('uden forsideKrav er output uændret', () => {
+    const model = mkModel([
+      person('1', { name: 'Christian Reventlow', bio: LANG, title: 'Greve' }),
+      person('2', { name: 'Anna Reventlow', born: 1700, died: 1701, bio: LANG }),
+    ]);
+    for (let seed = 1; seed <= 20; seed++) {
+      const uden = buildFeedOrder(model, AUX, base({ seed, livsdatoBy }));
+      expect(buildFeedOrder(model, AUX, base({ seed, livsdatoBy, forsideKrav: false }))).toEqual(uden);
+      expect(personKort(uden, '2').length).toBeGreaterThan(0);
+    }
   });
 });
