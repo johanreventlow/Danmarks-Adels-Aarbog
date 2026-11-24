@@ -1,4 +1,6 @@
-import { foldePrognose, previewSammeSom } from '../sammeSomPreflight';
+import { foldePrognose, previewSammeSom, prognoseGrundlag } from '../sammeSomPreflight';
+import { buildModel } from '../buildModel';
+import { resolveSameAs } from '../collapseSameAs';
 import type { Db, AppPerson } from '../types';
 
 const P = (id: string, o: Partial<AppPerson> = {}): AppPerson =>
@@ -64,5 +66,44 @@ describe('foldePrognose (dialogens prognose)', () => {
   });
   it('klar med previewSammeSoms svar, når kanterne er hentet', () => {
     expect(foldePrognose(db, [], { alias: 'a', canonical: 'b' })).toEqual({ status: 'klar', folder: true, grund: null });
+  });
+});
+
+// Review 37 M11: redaktionerne byggede prognosens grundlag af den færdige model — uden ægteskaber og uden de
+// forældrekanter, buildModel frasorterer som umulige. Den rigtige sammenlægning ser begge dele.
+describe('prognoseGrundlag: samme grundlag som den rigtige sammenlægning (M11)', () => {
+  const raa: Db = {
+    persons: [
+      P('a', { born: 1800 }), P('b', { born: 1801 }),
+      P('c', { born: 1700 }), P('d', { born: 1700 }),
+      P('p', { born: 1850 }), P('q', { born: 1660 }),
+    ],
+    unions: [{ id: 'fab', p1: 'a', p2: 'b', p2_name: 'b', year: null }],
+    parentChild: [
+      // c's forælder p er født efter c: buildModel dropper kanten, sammenlægningen ser den.
+      { child: 'c', parent: 'p', union: 'fp' },
+      { child: 'd', parent: 'q', union: 'fq' },
+    ],
+  };
+  const model = buildModel(raa);
+  // Sådan byggede Redaktion.tsx og mobilens person-side grundlaget før.
+  const beskaaret: Db = {
+    persons: model.persons, unions: [],
+    parentChild: Object.entries(model.indexes.parentsByChild).flatMap(([child, ps]) => ps.map((parent) => ({ child, parent, union: '' }))),
+  };
+  const facit = (h: { alias: string; canonical: string }) =>
+    !resolveSameAs(raa, [h]).quarantined.some((q) => q.members.includes(h.alias));
+
+  it.each([
+    ['gift par (selv-ægtefælle)', { alias: 'a', canonical: 'b' }],
+    ['frasorteret forældrekant (konkurrerende forældre)', { alias: 'c', canonical: 'd' }],
+  ])('%s: det beskårne grundlag tog fejl, prognoseGrundlag svarer som sammenlægningen', (_navn, h) => {
+    expect(facit(h)).toBe(false);
+    expect(previewSammeSom(beskaaret, [], h).folder).toBe(true); // fejlen, review 37 M11
+    expect(previewSammeSom(prognoseGrundlag({ ...model, grundlagDb: raa }), [], h).folder).toBe(facit(h));
+  });
+
+  it('uden grundlagDb: ægteskaberne tages fra modellen, så det gifte par fanges stadig', () => {
+    expect(previewSammeSom(prognoseGrundlag(model), [], { alias: 'a', canonical: 'b' }).folder).toBe(false);
   });
 });

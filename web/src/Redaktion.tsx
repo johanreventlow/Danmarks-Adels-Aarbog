@@ -18,7 +18,7 @@ import {
   fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
   fetchMediaBibliotek, fetchMediaAnvendelse, fetchUdrensPreview, formatMedieAlder, fetchPersonNarrativeRecords, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe, type UdrensPreview,
 } from './data/redaktionRead';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, foldePrognose, insertAt, makeToken, normaliserOcrDato, type OcrFelt, type SameAsEdge, type PersonKvalitetsarkRow } from '@daa/core';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, foldePrognose, insertAt, makeToken, normaliserOcrDato, prognoseGrundlag, type OcrFelt, type SameAsEdge, type PersonKvalitetsarkRow } from '@daa/core';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
 import { submitChange, describeCall, erFortrydKonflikt, oversaetFejl, planCall, resumeMediaUpload, DATE_FELT, type Change } from './data/redaktionWrite';
@@ -2414,14 +2414,9 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
     const redigeretNavn = persons.find((p) => p.id === sid)?.navn ?? sid;
     const kanonisk = ssConfirm.kanoniskId === sid ? { id: sid, navn: redigeretNavn } : { id: ssConfirm.personId, navn: ssConfirm.navn };
     const alias = ssConfirm.kanoniskId === sid ? { id: ssConfirm.personId, navn: ssConfirm.navn } : { id: sid, navn: redigeretNavn };
-    // Rå-db til rådgivende pre-flight (rekonstrueret fra redaktionsmodellen; kun personer + forældre-kanter bruges).
-    const rawDb = {
-      persons: model?.persons ?? [],
-      unions: [],
-      parentChild: Object.entries(model?.indexes.parentsByChild ?? {}).flatMap(
-        ([child, parents]) => parents.map((parent) => ({ child, parent, union: '' })),
-      ),
-    };
+    // Rådgivende pre-flight på samme grundlag som den rigtige sammenlægning (review 37 M11): det rå grundlag fra
+    // loadModel({ collapse: false }), med ægteskaber og alle forældrekanter. Samme objekt pr. model → cachen holder.
+    const rawDb = model ? prognoseGrundlag(model) : { persons: [], unions: [], parentChild: [] };
     const prognose = foldePrognose(rawDb, ssKanter, { alias: alias.id, canonical: kanonisk.id });
     return (
       <div onClick={() => setSsConfirm(null)} style={overlay(96)}>

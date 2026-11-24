@@ -162,6 +162,8 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     sourcesBy: buildSources(extIds, sources, collapsed.canonicalIdById, stamtavleSkemaOpslag({ schemes, entries: schemeEntries, mappings: schemeMappings })),
     linjeRaekkerBy: byggLinjeRaekker(extIds, sources, collapsed.canonicalIdById, { schemes, entries: schemeEntries, mappings: schemeMappings }),
     canonicalIdById: collapsed.canonicalIdById,
+    // Review 37 M11: redaktionens fold-prognose skal se det rå grundlag (ægteskaber + alle forældrekanter).
+    ...(opts?.collapse === false ? { grundlagDb: rawDb } : {}),
     ...byggUdgaveModel(sources, extIds),
     // Geo-lag: starter TOMT (review 27 P3, "lazy geo-kæde") — place+fact hentes ikke ved
     // cold-start. loadGeo() henter dem + bygger den rigtige Geo, kaldt af web-laget ved

@@ -65,4 +65,12 @@ describe('loadModel samme_som (review 37 Y2)', () => {
     expect(model.persons.map((p) => p.id).sort()).toEqual(['1', '2']);
     expect(hentet).not.toContain('relation');
   });
+
+  // Review 37 M11: redaktionens fold-prognose bygger på det rå grundlag; den offentlige model bærer det ikke.
+  it('collapse: false bærer grundlagDb med alle personer; den offentlige model gør ikke', async () => {
+    const redaktion = await loadModel({ collapse: false });
+    expect(redaktion.grundlagDb?.persons.map((p) => p.id).sort()).toEqual(['1', '2']);
+    expect(redaktion.grundlagDb?.unions).toBeDefined();
+    expect((await loadModel()).grundlagDb).toBeUndefined();
+  });
 });

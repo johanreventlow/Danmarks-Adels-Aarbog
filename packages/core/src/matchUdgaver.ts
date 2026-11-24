@@ -222,22 +222,27 @@ export function buildScored(a: MatchFrame[], b: MatchFrame[], cfg: MatchCfg = de
 /** Score + injektiv (1:1) grådig tildeling i tre bins. Intet tier udløser en skrivning
  *  (rangering/fremhævning). auto = score≥cutoff + margin≥margin + personens top-kandidat. */
 export function assignTiers(scored: ScoredPair[], cfg: MatchCfg = defaultCfg()): ScoredPair[] {
-  interface Row extends ScoredPair { score: number; _margin: number; _isTop: boolean }
+  interface Row extends ScoredPair { score: number; _margin: number; _isTop: boolean; _marginB: number; _isTopB: boolean }
   const rows: Row[] = scored.map((s) => ({
     ...s,
     score: finalScore(s, cfg),
-    _margin: Infinity, _isTop: false,
+    _margin: Infinity, _isTop: false, _marginB: Infinity, _isTopB: false,
   }));
 
-  // per-A: margin (bedste − næstbedste) + flag for A's top-kandidat.
-  const byA = new Map<Id, Row[]>();
-  for (const r of rows) { const arr = byA.get(r.aId); if (arr) arr.push(r); else byA.set(r.aId, [r]); }
-  for (const arr of byA.values()) {
-    const ordered = [...arr].sort((p, q) => q.score - p.score);
-    const m = ordered.length < 2 ? Infinity : ordered[0].score - ordered[1].score;
-    for (const r of arr) r._margin = m;
-    ordered[0]._isTop = true;
-  }
+  // per-A: margin (bedste − næstbedste) + flag for A's top-kandidat. Review 37 M7: det samme pr. B, så to
+  // A-personer, der matcher samme B næsten lige godt, ikke giver den ene en ★ og den anden intet.
+  const perSide = (key: (r: Row) => Id, set: (r: Row, m: number) => void, top: (r: Row) => void) => {
+    const by = new Map<Id, Row[]>();
+    for (const r of rows) { const k = key(r); const arr = by.get(k); if (arr) arr.push(r); else by.set(k, [r]); }
+    for (const arr of by.values()) {
+      const ordered = [...arr].sort((p, q) => q.score - p.score);
+      const m = ordered.length < 2 ? Infinity : ordered[0].score - ordered[1].score;
+      for (const r of arr) set(r, m);
+      top(ordered[0]);
+    }
+  };
+  perSide((r) => r.aId, (r, m) => { r._margin = m; }, (r) => { r._isTop = true; });
+  perSide((r) => r.bId, (r, m) => { r._marginB = m; }, (r) => { r._isTopB = true; });
 
   // sortér ALLE efter score desc; injektiv grådig tildeling.
   const ordered = [...rows].sort((p, q) => q.score - p.score);
@@ -249,7 +254,8 @@ export function assignTiers(scored: ScoredPair[], cfg: MatchCfg = defaultCfg()):
     // evidens er ikke styrke. Måling mod prod: uden denne spærre blev 152 par
     // uden ét eneste årstal markeret stærke (fx "Otto ↔ Otto").
     const kunNavn = cfg.evidensNormaliseret && !r.birthKendt && !r.deathKendt;
-    if (!kunNavn && r.score >= cfg.autoCutoff && r._margin >= cfg.ambiguityMargin && r._isTop) {
+    if (!kunNavn && r.score >= cfg.autoCutoff && r._margin >= cfg.ambiguityMargin && r._isTop
+      && r._marginB >= cfg.ambiguityMargin && r._isTopB) {
       r.tier = 'auto'; usedA.add(r.aId); usedB.add(r.bId);
     } else if (r.score >= cfg.reviewCutoff) {
       r.tier = 'review';
@@ -258,7 +264,7 @@ export function assignTiers(scored: ScoredPair[], cfg: MatchCfg = defaultCfg()):
     }
   }
 
-  return rows.map(({ _margin, _isTop, ...r }) => r);
+  return rows.map(({ _margin, _isTop, _marginB, _isTopB, ...r }) => r);
 }
 
 /** Fuld pipeline: byg kandidatpar → score + tiers. */
