@@ -6,7 +6,7 @@ const NU = new Date('2026-11-24T10:00:00.000Z');
 const bioRow = (id: number) => ({ person_id: id, source_id: 1, source_year: 2018, record_order: 1, source_record_ref: 'r' + id, source_label: 'DAA', record_label: 'Post', narrative_text: 'Tekst ' + id, citation_label: '', provenance_kind: 'source_record' });
 
 // Mock-klient: tabeller svarer fast; RPC'er kan fejle pr. navn.
-const klient = (o: { haendelseFejl?: boolean; bioFejlFor?: number } = {}) => ({
+const klient = (o: { haendelseFejl?: boolean; bioFejlFor?: number; medieFejl?: boolean } = {}) => ({
   from(table: string) {
     const data: Record<string, unknown[]> = {
       person: [{ id: 1 }, { id: 2 }],
@@ -15,6 +15,7 @@ const klient = (o: { haendelseFejl?: boolean; bioFejlFor?: number } = {}) => ({
     const b: Record<string, unknown> = {};
     for (const m of ['select', 'eq', 'in', 'order']) b[m] = () => b;
     b.range = async (): Promise<Svar> => ({ data: data[table] ?? [], error: null });
+    b.then = (resolve: (v: Svar) => void) => resolve(table === 'media' && o.medieFejl ? { data: null, error: { code: '57014' } } : { data: data[table] ?? [], error: null });
     return b;
   },
   async rpc(navn: string, args: Record<string, unknown>): Promise<Svar> {
@@ -34,7 +35,8 @@ const klient = (o: { haendelseFejl?: boolean; bioFejlFor?: number } = {}) => ({
 describe('forside/byg', () => {
   it('personIder og genereret står i filen', async () => {
     const fd = await byggForsideData(klient() as never, NU);
-    expect(fd.version).toBe(1);
+    expect(fd.version).toBe(2);
+    expect(fd.billeder).toEqual({ komplet: true, data: [] });
     expect(fd.genereret).toBe(NU.toISOString());
     expect(fd.personIder).toEqual(['1', '2']);
     expect(fd.bios).toMatchObject({ komplet: true });
@@ -45,7 +47,7 @@ describe('forside/byg', () => {
     expect(svar.status).toBe(200);
     expect(svar.headers['cache-control']).toBe('public, s-maxage=3600, stale-while-revalidate=86400');
     expect(svar.headers['content-type']).toBe('application/json; charset=utf-8');
-    expect(JSON.parse(svar.body).version).toBe(1);
+    expect(JSON.parse(svar.body).version).toBe(2);
   });
 
   it('en fejlet hændelsesbladring: nævnt ufuldstændig, 200 med kun fem minutters cache (ikke 503 ved hvert besøg)', async () => {
@@ -54,6 +56,13 @@ describe('forside/byg', () => {
     expect(fd.naevnt).toEqual({ komplet: false, data: null });
     const svar = await forsideDataSvar(klient({ haendelseFejl: true }) as never, NU);
     expect(svar.status).toBe(200);
+    expect(svar.headers['cache-control']).toBe('public, s-maxage=300, stale-while-revalidate=300');
+  });
+
+  it('fejlet billed-del: ufuldstændig, kun fem minutters cache', async () => {
+    const fd = await byggForsideData(klient({ medieFejl: true }) as never, NU);
+    expect(fd.billeder).toEqual({ komplet: false, data: null });
+    const svar = await forsideDataSvar(klient({ medieFejl: true }) as never, NU);
     expect(svar.headers['cache-control']).toBe('public, s-maxage=300, stale-while-revalidate=300');
   });
 

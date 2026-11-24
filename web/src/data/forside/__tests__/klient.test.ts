@@ -4,10 +4,10 @@ import { hentForsideData } from '../klient';
 const NU = Date.parse('2026-11-24T10:00:00.000Z');
 const del = (data: unknown) => ({ komplet: true, data });
 const gyldig = (o: Record<string, unknown> = {}) => ({
-  version: 1, genereret: new Date(NU - 3600_000).toISOString(), personIder: ['1'],
+  version: 2, genereret: new Date(NU - 3600_000).toISOString(), personIder: ['1'],
   bios: del({ kontrakt: 2, rows: [], fejlede: [] }), haendelser: del({ rows: [], narrativer: [], sources: [] }),
   livsdato: del({ facts: [], conclusions: [], assertions: [] }), historier: del({ rows: [], kilder: [], sources: [] }),
-  naevnt: del([[], [], []]), ...o,
+  naevnt: del([[], [], []]), billeder: del([]), ...o,
 });
 const svar = (body: string, status = 200, type = 'application/json') =>
   vi.fn(async () => new Response(body, { status, headers: { 'content-type': type } })) as unknown as typeof fetch;
@@ -17,7 +17,7 @@ afterEach(() => { vi.useRealTimers(); });
 describe('hentForsideData', () => {
   it('gyldig fil returneres', async () => {
     const fd = await hentForsideData({ fetchFn: svar(JSON.stringify(gyldig())), nu: () => NU });
-    expect(fd?.version).toBe(1);
+    expect(fd?.version).toBe(2);
     expect(fd?.personIder).toEqual(['1']);
   });
 
@@ -35,8 +35,8 @@ describe('hentForsideData', () => {
     expect(await hentForsideData({ fetchFn: svar('<!doctype html><html></html>', 200, 'text/html'), nu: () => NU })).toBeNull();
   });
 
-  it('forkert version giver null', async () => {
-    expect(await hentForsideData({ fetchFn: svar(JSON.stringify(gyldig({ version: 2 }))), nu: () => NU })).toBeNull();
+  it('forkert version (fx en gammel fil i CDN\'et fra før billed-delen) giver null', async () => {
+    expect(await hentForsideData({ fetchFn: svar(JSON.stringify(gyldig({ version: 1 }))), nu: () => NU })).toBeNull();
   });
 
   it('fil ældre end 48 timer giver null', async () => {

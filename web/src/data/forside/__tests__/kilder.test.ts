@@ -35,6 +35,22 @@ describe('forside/kilder', () => {
     expect(await hentPersonIder(sb as never)).toEqual([3, 7, 12]);
   });
 
+  it('hentPersonerMedBilledeRaa: kun personer bag billeder, gæsten kan se', async () => {
+    const { hentPersonerMedBilledeRaa } = await import('../kilder');
+    const sb = klient({
+      relation: { data: [{ subjekt_id: 17, objekt_id: 1 }, { subjekt_id: 3, objekt_id: 2 }, { subjekt_id: '17', objekt_id: 4 }], error: null },
+      // RLS skjuler medie 2 (fx en levende afbildet) og 4 (ikke frigivet): kun medie 1 kommer tilbage.
+      media: { data: [{ id: 1 }], error: null },
+    });
+    expect(await hentPersonerMedBilledeRaa(sb as never)).toEqual(['17']);
+  });
+
+  it('hentPersonerMedBilledeRaa kaster ved fejl', async () => {
+    const { hentPersonerMedBilledeRaa } = await import('../kilder');
+    const sb = klient({ relation: { data: [{ subjekt_id: 1, objekt_id: 1 }], error: null }, media: { data: null, error: { message: 'timeout' } } });
+    await expect(hentPersonerMedBilledeRaa(sb as never)).rejects.toBeTruthy();
+  });
+
   it('vaelgFeedBios udelader en kanonisk person med et fejlet alias', async () => {
     const { vaelgFeedBios } = await import('../vaelgBios');
     const row = (id: number, tekst: string) => ({ person_id: id, source_id: 1, source_year: 2018, record_order: 1, source_record_ref: 'r' + id, source_label: 'DAA', record_label: 'Post', narrative_text: tekst, citation_label: '', provenance_kind: 'source_record' });

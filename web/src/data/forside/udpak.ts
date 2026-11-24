@@ -6,6 +6,7 @@ import { buildHaendelserBy, buildLivsdatoBy, buildStorieBy } from '@daa/feed';
 import type { HaendelserBy, LivsdatoBy, NaevntGrundlag, StorieBy } from '@daa/feed';
 import type { FeedBios } from '../feedAux';
 import { buildNaevntGrundlag } from '../feedGrundlag';
+import { buildPersonerMedBillede } from '../personerMedBillede';
 import type { ForsideData } from './format';
 import { buildFeedBioSubjectIds } from './kilder';
 import { vaelgFeedBios } from './vaelgBios';
@@ -16,6 +17,8 @@ export type UdpakketForside = {
   haendelserBy: HaendelserBy;
   storieBy: StorieBy;
   naevntGrundlag: NaevntGrundlag | 'fejlet';
+  // null = billed-delen mangler eller er ufuldstændig: forsiden udelader billed-reglen i stedet for at tro, ingen har billede.
+  personerMedBillede: ReadonlySet<string> | null;
 };
 
 export function udpakForsideData(
@@ -37,5 +40,6 @@ export function udpakForsideData(
     haendelserBy: h ? buildHaendelserBy(h.rows, h.narrativer, h.sources, canon) : {},
     storieBy: s ? buildStorieBy(s.rows, s.kilder, s.sources, canon) : {},
     naevntGrundlag: alleKomplette && daekker && fd.naevnt.data ? buildNaevntGrundlag(fd.naevnt.data, canon) : 'fejlet',
+    personerMedBillede: fd.billeder.komplet && fd.billeder.data ? buildPersonerMedBillede(fd.billeder.data, canon) : null,
   };
 }

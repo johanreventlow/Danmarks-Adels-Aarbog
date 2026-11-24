@@ -4,17 +4,28 @@ import { udpakForsideData } from '../udpak';
 
 const bioRow = (id: number) => ({ person_id: id, source_id: 1, source_year: 2018, record_order: 1, source_record_ref: 'r' + id, source_label: 'DAA', record_label: 'Post', narrative_text: 'Tekst ' + id, citation_label: '', provenance_kind: 'source_record' });
 const fil = (o: Partial<ForsideData> = {}): ForsideData => ({
-  version: 1, genereret: '2026-11-24T10:00:00.000Z', personIder: ['1', '2'],
+  version: 2, genereret: '2026-11-24T10:00:00.000Z', personIder: ['1', '2'],
   bios: { komplet: true, data: { kontrakt: 2, rows: [bioRow(1)], fejlede: [] } },
   haendelser: { komplet: true, data: { rows: [], narrativer: [], sources: [] } },
   livsdato: { komplet: true, data: { facts: [], conclusions: [], assertions: [] } },
   historier: { komplet: true, data: { rows: [], kilder: [], sources: [] } },
   naevnt: { komplet: true, data: [[{ subjekt_id: 2 }], [], []] },
+  billeder: { komplet: true, data: ['17', '3'] },
   ...o,
 });
 const model = (persons: { id: string; levende?: boolean }[]) => ({ canonicalIdById: {}, persons });
 
 describe('udpakForsideData', () => {
+  it('billed-delen giver kanoniske personer med billede', () => {
+    const u = udpakForsideData(fil(), { canonicalIdById: { '17': '5' }, persons: [{ id: '1' }, { id: '2' }] });
+    expect(u.personerMedBillede && [...u.personerMedBillede].sort()).toEqual(['3', '5']);
+  });
+
+  it('ufuldstændig eller manglende billed-del: ingen liste (ikke en tom liste som bevis)', () => {
+    expect(udpakForsideData(fil({ billeder: { komplet: false, data: ['17'] } }), model([{ id: '1' }])).personerMedBillede).toBeNull();
+    expect(udpakForsideData(fil({ billeder: { komplet: false, data: null } }), model([{ id: '1' }])).personerMedBillede).toBeNull();
+  });
+
   it('komplet og dækkende fil giver nævnt-grundlag og biografier', () => {
     const u = udpakForsideData(fil(), model([{ id: '1' }, { id: '2' }]));
     expect(u.bios).toEqual({ bioBy: { '1': 'Tekst 1' }, komplet: true });

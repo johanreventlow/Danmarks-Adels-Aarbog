@@ -13,6 +13,7 @@ import { radius } from '@daa/theme';
 import { buildWebFeedAux, withFeedBios } from '../../data/feedAux';
 import { hentFeedBios } from '../../data/feedBios';
 import { hentForsideData } from '../../data/forside/klient';
+import { hentPersonerMedBillede } from '../../data/personerMedBilledeFeed';
 import { udpakForsideData } from '../../data/forside/udpak';
 import { fetchNaevntGrundlag } from '../../data/feedGrundlag';
 import { BLADE_PR_UDDELING, delUd, iBlokke } from '../../data/feedUddeling';
@@ -117,6 +118,8 @@ export function FeedStreamView({
   const [haendelserBy, setHaendelserBy] = useState<HaendelserBy | null>(null);
   const [storieBy, setStorieBy] = useState<StorieBy | null>(null);
   const [naevntGrundlag, setNaevntGrundlag] = useState<NaevntGrundlag | 'fejlet' | null>(null);
+  // Personer med mindst ét gæste-synligt billede (spor 2). undefined = venter; null = fejlet (billed-reglen udelades).
+  const [personerMedBillede, setPersonerMedBillede] = useState<ReadonlySet<string> | null | undefined>(undefined);
   const [fristUdloebet, setFristUdloebet] = useState(false);
   useEffect(() => {
     let alive = true;
@@ -132,6 +135,7 @@ export function FeedStreamView({
     setHaendelserBy(null);
     setStorieBy(null);
     setNaevntGrundlag(null);
+    setPersonerMedBillede(undefined);
     // Den direkte hentning: i dag kun tilbagefald, når den færdigpakkede fil mangler (kold cache, fejl, for gammel).
     const direkte = () => {
       frist = setTimeout(() => { if (alive) setFristUdloebet(true); }, FEED_FOERSTE_UDDELING_FRIST_MS);
@@ -144,6 +148,7 @@ export function FeedStreamView({
       void loadLivsdatoBy(canon).catch(() => ({})).then((ld) => { if (alive) setLivsdatoBy(ld); });
       void loadHaendelserBy(canon).catch(() => ({})).then((hs) => { if (alive) setHaendelserBy(hs); });
       void loadStorieBy(canon).catch(() => ({})).then((stories) => { if (alive) setStorieBy(stories); });
+      void hentPersonerMedBillede(canon).then((s) => { if (alive) setPersonerMedBillede(s); });
       void fetchNaevntGrundlag(canon).then(
         (g) => { if (alive) setNaevntGrundlag(g); },
         (e) => { if (alive) { console.warn('[feed] nævnt-grundlag fejlede — ingen nævnt-kort:', e); setNaevntGrundlag('fejlet'); } },
@@ -167,11 +172,13 @@ export function FeedStreamView({
       setHaendelserBy(u.haendelserBy);
       setStorieBy(u.storieBy);
       setNaevntGrundlag(u.naevntGrundlag);
+      setPersonerMedBillede(u.personerMedBillede ?? null);
     });
     return () => { alive = false; clearTimeout(frist); };
   }, [model]);
   const alleAfgjort = (bios !== null || bioError !== null)
-    && livsdatoBy !== null && haendelserBy !== null && storieBy !== null && naevntGrundlag !== null;
+    && livsdatoBy !== null && haendelserBy !== null && storieBy !== null && naevntGrundlag !== null
+    && personerMedBillede !== undefined;
   const dataAfgjort = fristUdloebet || alleAfgjort;
   const alleAfgjortRef = useRef(alleAfgjort);
   alleAfgjortRef.current = alleAfgjort;
@@ -271,6 +278,7 @@ export function FeedStreamView({
       naevntGrundlag: naevntInput,
       // Forsidens minimumskrav (spec 2026-11-24-forside-minimumskrav-design.md): forsideværdige personer, ét kort hver.
       forsideKrav: true,
+      personerMedBillede: personerMedBillede ?? undefined,
     });
     if (streamRef.current === null || streamOwnerRef.current !== bookmarkSnapshot.ownerId) {
       // En tidlig uddeling (fristen, før alle kilder er afgjort) viser kun egentlige blade. Samlekortet beskriver
@@ -311,7 +319,7 @@ export function FeedStreamView({
     setDone(alleAfgjort && streamRef.current.done());
     // Live bookmarkedIds er bevidst ikke input her: bookmarkSnapshot fryses efter hydrering,
     // så et toggle midt i læsningen ikke omordner strømmen. shownRef læses tilsvarende via ref.
-  }, [model, bios, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins, dataAfgjort, alleAfgjort, naevntInput, markAsSeen]);
+  }, [model, bios, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins, dataAfgjort, alleAfgjort, naevntInput, personerMedBillede, markAsSeen]);
 
   // »Vend seks blade mere«: næste parti som egen blok; fokus flyttes til den nye blok, så
   // tastatur- og skærmlæserbrugere står ved de nye blade og ikke ved knappen under dem.

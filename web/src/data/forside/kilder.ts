@@ -64,6 +64,21 @@ export async function hentPersonIder(sb: Sb): Promise<number[]> {
   return rows.map((r) => Number(r.id)).filter(Number.isFinite).sort((a, b) => a - b);
 }
 
+// ---------- billeder ----------
+
+// Rå person-id'er (før kanonisering) med mindst ét billede, gæsten kan se (spec 2026-11-24-billeder-2018-20-design.md,
+// trin 4). Relationerne alene er ikke nok: medie-RLS skjuler et billede, der ikke er frigivet, eller som afbilder en
+// levende — derfor tæller kun relationer til medier, `media`-forespørgslen faktisk returnerer.
+export async function hentPersonerMedBilledeRaa(sb: Sb): Promise<string[]> {
+  const relationer = await getAll<{ subjekt_id: number | string; objekt_id: number | string }>(() =>
+    sb.from('relation').select('subjekt_id,objekt_id')
+      .eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('rolle', 'afbildet').order('id'));
+  const medieIder = [...new Set(relationer.map((r) => String(r.objekt_id)))];
+  const synlige = new Set((await fetchInChunks<{ id: number | string }, string>(medieIder, (bid) =>
+    sb.from('media').select('id').in('id', bid))).map((r) => String(r.id)));
+  return [...new Set(relationer.filter((r) => synlige.has(String(r.objekt_id))).map((r) => String(r.subjekt_id)))];
+}
+
 // ---------- biografier ----------
 
 // Modellen indeholder kun kanoniske personer, mens narrativer også kan ligge på alias-rækker.

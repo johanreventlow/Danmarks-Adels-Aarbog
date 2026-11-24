@@ -2,6 +2,29 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: portrætterne fra DAA 2018-20 importeres som redaktionelle medier, synlige uden afklaret ophavsret (2026-11-24)
+
+> Projektejeren 24/11 (spor 2 i POC-klargøringen): »Vi laver foreløbig kun POC, så jeg vil gerne have alt med. Når
+> foreningen har taget stilling, så må vi afklare det juridske, og fjerne ting vi ikke kan vise.« Spec:
+> `docs/superpowers/specs/2026-11-24-billeder-2018-20-design.md`.
+
+- **Rettigheder:** alle importerede billeder får `maa_publiceres = true` og `rettigheder_status = 'ukendt'` (ærligt:
+  ikke afklaret). Flere er nyere værker med ophavsret (fx »Malet 1983 af Gertrud Boberg«). Før bredere visning skal
+  foreningen tage stilling; billeder, der ikke må vises, skjules (`red_set_media_rettigheder`) eller fjernes. Alle kan
+  findes igen på `original_filnavn LIKE 'daa-2018-20-s%'` og kreditlinjen »Gengivet fra Danmarks Adels Aarbog 2018-20,
+  s. N«.
+- **GDPR:** billeder af levende kobles som alle andre; `media_afbilder_skjult` skjuler dem for gæster. Et billede, hvor
+  blot én afbildet person ikke kunne kobles sikkert, importeres skjult (`maa_publiceres = false`).
+- **Redaktionel upload, ikke genimport:** importen går gennem de samme `red_*`-RPC'er som redaktørfladen
+  (`R/billeder-2018-20-load.R`), ikke gennem evidenskæden. Kreditlinjen er fritekst (kildebinding af medie-fakta er
+  hullet i #389).
+- **Portrætvalg:** bogens billede kobles altid til personen. Har personen billeder uden valgt portræt, låses det viste
+  før koblingen, så læseren ser samme portræt som før; har personen ingen, bliver bogens billede portrættet af sig selv.
+- **Forsiden** tæller nu billeder som indhold (krav 8 i minimumskravene): web og Edge-filen (format v2) sender
+  `personerMedBillede`; kun gæste-synlige billeder tæller. Mobilens forside følger i #457.
+- **Udskudt:** segl, våben, medaljer, godser m.m. uden for portrætafsnittet (s. 119-369) og en fast ordliste for
+  `media.slags` (i dag fritekst) — projektejeren 24/11 vil gerne have dem med; tages som næste runde.
+
 ## BESLUTTET: minimumskrav til personer på forsiden (2026-11-24)
 
 > Projektejeren 24/11 (»ja til dem alle«, efter forsiden viste »(Søn) Reventlow« to gange). Spec:
