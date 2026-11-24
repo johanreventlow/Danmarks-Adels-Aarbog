@@ -1670,6 +1670,10 @@ CREATE UNIQUE INDEX interpretation_promotion_one_target_per_interpretation
   ON private.interpretation_promotion(interpretation_id,target_type,target_id) WHERE target_type<>'family';
 CREATE UNIQUE INDEX interpretation_promotion_one_family_per_state
   ON private.interpretation_promotion(interpretation_id,(evidence->>'state_sha256')) WHERE target_type='family';
+-- Review 37 Y8: opslag på målet (public_person_facts, public_family_sources, red_ret_paastand, personsletningens plan)
+-- kunne ikke bruge de to unikke indeks ovenfor, der begynder med interpretation_id.
+CREATE INDEX IF NOT EXISTS ix_interpretation_promotion_target
+  ON private.interpretation_promotion(target_type,target_id);
 
 -- Én current-state-række pr. persona gør to samtidige aktive mål umulige.
 -- Hver ændring spejles først i den uforanderlige eventlog nedenfor.
@@ -7285,6 +7289,9 @@ CREATE INDEX IF NOT EXISTS ix_extid_person       ON person_external_id(person_id
 CREATE INDEX IF NOT EXISTS ix_lineage_src_kode   ON lineage(source_id, kode);
 CREATE INDEX IF NOT EXISTS ix_lineage_parent      ON lineage(parent_lineage_id);
 CREATE INDEX IF NOT EXISTS ix_fact_subjekt       ON fact(subjekt_type, subjekt_id);
+-- Review 37 Y10: klienternes opslag på sjældne faktatyper (overhoved, vielse, forældre_ukendt) og på sted.
+CREATE INDEX IF NOT EXISTS ix_fact_type_subjekt  ON fact(subjekt_type, faktatype, subjekt_id);
+CREATE INDEX IF NOT EXISTS ix_fact_sted          ON fact(sted_id) WHERE sted_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_assertion_target   ON assertion(target_type, target_id);
 CREATE INDEX IF NOT EXISTS ix_conclusion_target  ON conclusion(target_type, target_id);
 -- Kodereview 36 P6: FK'en til assertion uden indeks gav en fuld scanning af conclusion pr. slettet påstand
@@ -8967,10 +8974,24 @@ HAVING count(DISTINCT a.objekt_id) > 1;
 CREATE OR REPLACE FUNCTION red_suggest(
   p_art text, p_subjekt_type text, p_subjekt_id bigint, p_felt text, p_vaerdi text,
   p_kilde_fritekst text DEFAULT NULL, p_payload jsonb DEFAULT '{}'::jsonb, p_note text DEFAULT NULL)
-RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public, pg_temp AS $$
 DECLARE v_id bigint;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Login kræves for forslag'; END IF;
+  -- Review 37 S6: grænser på størrelse og subjekttype (22023). Lofterne er 4× de største værdier i prod 24/11
+  -- (længste narrativ 9.193 bytes, længste note 373; 0 forslag), så ingen rigtig rettelse afvises. Subjekttypen skal
+  -- være navnet på en tabel i public eller et af klientens kaldenavne — listen følger datamodellen af sig selv.
+  IF octet_length(p_vaerdi) > 40000 OR octet_length(p_kilde_fritekst) > 4000 OR octet_length(p_note) > 4000
+     OR octet_length(p_art) > 64 OR octet_length(p_felt) > 64 OR octet_length(coalesce(p_payload,'{}'::jsonb)::text) > 65536 THEN
+    RAISE EXCEPTION 'FORSLAG_FOR_STORT' USING ERRCODE = '22023';
+  END IF;
+  IF p_subjekt_type IS NOT NULL AND NOT (
+       lower(p_subjekt_type) = ANY (ARRAY['slaegt','arms','org','feed','storage'])
+    OR EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+                WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r','p','v')
+                  AND c.relname = lower(p_subjekt_type))) THEN
+    RAISE EXCEPTION 'FORSLAG_UKENDT_SUBJEKTTYPE' USING ERRCODE = '22023';
+  END IF;
   -- Personsletning (8a-opfølgning): eksistensvagten på suggestion må ikke blive et orakel. En ikke-redaktør får
   -- samme fejl for et skjult og et ikke-eksisterende person-/familiemål, før INSERT når vagten.
   -- family_offentlig er true for en familie uden medlemmer; derfor kræves eksistens eksplicit.
