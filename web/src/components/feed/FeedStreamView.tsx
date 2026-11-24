@@ -121,7 +121,9 @@ export function FeedStreamView({
     let alive = true;
     const canon = model.canonicalIdById ?? {};
     setFristUdloebet(false);
-    const frist = setTimeout(() => { if (alive) setFristUdloebet(true); }, FEED_FOERSTE_UDDELING_FRIST_MS);
+    // Fristen gælder kun den direkte hentning og regnes fra dens start: kommer filen, er alt afgjort straks; giver
+    // filen op (op til 2 s), får den direkte hentning stadig hele fristen (review: ellers kun ~0,5 s og næsten intet).
+    let frist: ReturnType<typeof setTimeout> | undefined;
     setBios(null);
     setBioError(null);
     setBiosKomplet(false);
@@ -131,6 +133,7 @@ export function FeedStreamView({
     setNaevntGrundlag(null);
     // Den direkte hentning: i dag kun tilbagefald, når den færdigpakkede fil mangler (kold cache, fejl, for gammel).
     const direkte = () => {
+      frist = setTimeout(() => { if (alive) setFristUdloebet(true); }, FEED_FOERSTE_UDDELING_FRIST_MS);
       void hentFeedBios(canon, model.persons.map((p) => p.id)).then(
         (b) => { if (alive) { setBios(b.bioBy); setBiosKomplet(b.komplet); } },
         (e) => { if (alive) { console.warn('[feed] biografier fejlede:', e); setBioError(String((e as Error)?.message ?? e)); } },

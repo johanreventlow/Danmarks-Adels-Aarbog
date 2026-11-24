@@ -120,6 +120,23 @@ describe('FeedStreamView — færdigpakket forside-data', () => {
     spy.mockRestore();
   });
 
+  it('tilbagefald efter en langsom fil: den direkte hentning får hele fristen, regnet fra dens start', async () => {
+    vi.useFakeTimers();
+    try {
+      // Filen giver op efter 2 s (kold cache); biografier og hændelser kommer aldrig i testen.
+      forsideMocks.hentForsideData.mockImplementation(() => new Promise((res) => setTimeout(() => res(null), 2000)));
+      feedAuxMocks.hentFeedBios.mockReturnValue(new Promise(() => undefined));
+      loaderMocks.loadHaendelserBy.mockReturnValue(new Promise(() => undefined));
+      render(<FeedStreamView {...feedProps(null)} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000 + FEED_FOERSTE_UDDELING_FRIST_MS - 1); });
+      expect(streamMocks.createFeedStream).not.toHaveBeenCalled();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(streamMocks.createFeedStream).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('uden fil (null): direkte hentning som i dag', async () => {
     render(<FeedStreamView {...feedProps(null)} />);
     await waitFor(() => expect(streamMocks.createFeedStream).toHaveBeenCalled());
