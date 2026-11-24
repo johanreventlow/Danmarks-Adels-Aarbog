@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-24 — En dato inde i teksten står ikke længere to gange
+
+Personsiden viste fx »Født: 25. april 1861 på Pederstrup, 25. april 1861«, fordi en gentaget dato kun blev fjernet, når
+den stod sidst i teksten. Nu vises den én gang, uanset hvor i teksten den står (113 fakta i prod). Oversættelsen af
+»s.å.«/»s.m.« er uændret; den udvidelse er #478 (`decisions.md` 2026-11-24).
+
 ## 2026-11-24 — Portrætterne fra DAA 2018-20 kommer på personsiderne, og forsiden tæller billeder
 
 Kun 9 personer havde et billede. Nu udtrækkes de 156 billeder i særudgavens portrætafsnit (s. 119-369) med billedtekst,
