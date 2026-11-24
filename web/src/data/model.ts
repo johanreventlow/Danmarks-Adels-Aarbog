@@ -8,6 +8,7 @@ import { buildSources } from './sources';
 import { byggLinjeRaekker } from './linjeRaekker';
 import { byggUdgaveModel } from './udgaver';
 import { byggErStamtavle } from './stamtavleKilder';
+import { hentSammeSomKanterMedGenforsoeg, type SammeSomKant } from './sammeSomKanter';
 import { normalizeKoen, normalizeKonfidens, type AppModel, type AppPerson, type Db, type Geo, type Model, type ModelPerson, type ParentChild, type RawEstate, type RawExtId, type RawFact, type RawLineageContext, type RawLineageScheme, type RawLineageSchemeEntry, type RawLineageSchemeEntryLineage, type RawPlace, type RawSource, type Union } from './types';
 
 const PARTNER_ROLLER = ['partner'];
@@ -61,7 +62,7 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
   // Start "forældre ukendt"-markerings-hentningen NU, så den overlapper hoved-batchen (dens
   // facts-probe har ingen data-afhængighed af canonicalIdById — kun buildParentsUnknown til sidst har).
   const puRowsP = fetchParentsUnknownRows();
-  const [persons, members, extIds, lineageRows, schemes, schemeEntries, schemeMappings, sources, sameAsRel, approvedConc, estates] = await Promise.all([
+  const [persons, members, extIds, lineageRows, schemes, schemeEntries, schemeMappings, sources, sameAsEdges, estates] = await Promise.all([
     getAll<RawPerson>(() => supabase.from('person').select('id,visning_navn,visning_fuldt_navn,visning_foedt,visning_doed,visning_floruit,visning_titel,koen,privat,levende').order('id')),
     getAll<RawMember>(() => supabase.from('family_member').select('family_id,person_id,rolle,ordinal,konfidens').order('family_id').order('person_id').order('rolle')),
     // Linje/nr pr. person (grene) — tolerant: tabellen/kolonnerne kan mangle i ældre baser.
@@ -80,14 +81,10 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
     getAll<RawLineageSchemeEntryLineage>(() => supabase.from('lineage_scheme_entry_lineage').select('entry_id,lineage_id,relation_kind').order('entry_id').order('lineage_id').order('relation_kind')).catch((e) => { console.warn('[loadModel] lineage scheme mapping utilgængelig ikke — bruger kanonisk lineage-kontekst:', e); return [] as RawLineageSchemeEntryLineage[]; }),
     // Kilder (trykt værk) — til "Kilde i Aarbogen" pr. person.
     getAll<RawSource>(() => supabase.from('source').select('id,slags,titel,udgave,aar,ekstern').order('id')).catch((e) => { console.warn('[loadModel] source utilgængelig — Kilde-i-Aarbogen degraderet:', e); return [] as RawSource[]; }),
-    // samme_som-relationer (person→person; subjekt=alias, objekt=kanonisk) + afklarede konklusioner.
-    // Polymorf kobling (conclusion.target_type/target_id), ingen FK → hentes separat + matches i JS.
-    getAll<{ id: number | string; subjekt_id: number | string; objekt_id: number | string }>(() =>
-      supabase.from('relation').select('id,subjekt_id,objekt_id').eq('rolle', 'samme_som').eq('subjekt_type', 'person').eq('objekt_type', 'person').order('id'),
-    ).catch((e) => { console.warn('[loadModel] samme_som-relationer utilgængelige — ingen collapse:', e); return [] as { id: number | string; subjekt_id: number | string; objekt_id: number | string }[]; }),
-    getAll<{ target_id: number | string }>(() =>
-      supabase.from('conclusion').select('target_id').eq('target_type', 'relation').eq('status', 'afklaret').order('id'),
-    ).catch((e) => { console.warn('[loadModel] conclusion utilgængelig — ingen collapse:', e); return [] as { target_id: number | string }[]; }),
+    // samme_som-kanter (alias → kanonisk) til collapse — kun afklarede (review 37 Y2: kun samme_som-konklusionerne
+    // hentes, og en fejl afviser loadModel efter ét genforsøg i stedet for tavst at vise dubletpersoner).
+    // Redaktionen (collapse: false) arbejder i det rå id-rum og henter dem slet ikke.
+    opts?.collapse === false ? Promise.resolve([] as SammeSomKant[]) : hentSammeSomKanterMedGenforsoeg(supabase),
     // estate (godser m. sted) er lille og bruges også af den ikke-geo gods-liste/tæller —
     // hentes eager. place+fact (den tunge geo-kæde, ~6.788 place-rækker) er UDSKUDT (review 27
     // P3): de hentes først af loadGeo() nedenfor, ved første kort-brug, ikke ved cold-start.
@@ -149,13 +146,7 @@ export async function loadModel(opts?: { collapse?: boolean }): Promise<AppModel
 
   // samme_som-collapse FØR buildModel: fold flere person-rækker der er samme fysiske person til
   // ÉN kanonisk post (spec 2026-07-02). Kun afklarede identiteter foldes; konflikter karantæneres.
-  const approved = new Set((approvedConc || []).map((c) => String(c.target_id)));
-  const edges =
-    opts?.collapse === false
-      ? []
-      : (sameAsRel || [])
-          .filter((r) => approved.has(String(r.id)))
-          .map((r) => ({ alias: String(r.subjekt_id), canonical: String(r.objekt_id) }));
+  const edges = sameAsEdges;
   const extMap = new Map((extIds || []).map((x) => [String(x.person_id), { linje: x.linje, nr: x.nr, nr_label: x.nr_label ?? null }]));
   const collapsed = collapseSameAs(rawDb, edges, extMap);
   if (collapsed.quarantined.length) console.warn('[samme_som] karantæne (foldes ikke):', collapsed.quarantined);
