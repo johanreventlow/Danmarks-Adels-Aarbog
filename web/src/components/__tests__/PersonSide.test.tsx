@@ -288,12 +288,15 @@ describe('PersonSide', () => {
       expect(vielser.kald.at(-1)?.slice().sort()).toEqual(['265', '266']);
     });
 
-    it('⚭ står foran ægtefællens navn, som i Aarbogen (»Gift 21. juli 1667 med …«)', async () => {
+    it('⚭ står efter ægtefællens livsdatoer, adskilt med komma; navnene holder linje', async () => {
       vielser.svar = { '265': '⚭ 21. juli 1667' };
-      render(<PersonSide {...props({ model: toAegteskaber(), focusId: '392' })} />);
-      const vielse = await within(giftDd()).findByText('⚭ 21. juli 1667');
+      const m = { ...model, ...buildModel({
+        persons: [person('392', 'Conrad Reventlow', 1644), { ...person('815', 'Anna Margrethe Gabel'), years: '* 1651 † 1678' }],
+        unions: [{ id: 'f265', p1: '392', p2: '815', p2_name: null, year: null }], parentChild: [] }) } as unknown as Model;
+      render(<PersonSide {...props({ model: m, focusId: '392' })} />);
+      const linje = await within(giftDd()).findByText('* 1651 † 1678, ⚭ 21. juli 1667');
       const navn = within(giftDd()).getByRole('link', { name: 'Anna Margrethe Gabel' });
-      expect(vielse.compareDocumentPosition(navn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(navn.compareDocumentPosition(linje) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it('par i to familier (sammenfoldet på tværs af udgaver): den mest præcise dato vinder', async () => {
