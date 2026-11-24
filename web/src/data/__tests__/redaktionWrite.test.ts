@@ -308,6 +308,11 @@ describe('buildRpcCall — filside fase 1', () => {
     expect(oversaetFejl('DATO_INTERVAL_OMVENDT')).toBe('Datoerne er i forkert rækkefølge: den tidligste dato ligger efter den seneste.');
   });
 
+  it('red_suggest-lofterne oversættes (review 37 S6)', () => {
+    expect(oversaetFejl('FORSLAG_FOR_STORT')).toMatch(/^Forslaget er for stort/);
+    expect(oversaetFejl('FORSLAG_UKENDT_SUBJEKTTYPE')).toMatch(/^Forslaget gælder en ukendt slags ting/);
+  });
+
   it('ukendt kvalifikator og ugyldig billedretning oversættes (review 37 blok 3)', () => {
     expect(oversaetFejl('DATO_KVALIFIKATOR_UGYLDIG')).toMatch(/^Ukendt dato-kvalifikator/);
     expect(oversaetFejl('AFBILDET_RETNING_UGYLDIG: et billede kan kun afbilde en person, et gods, et våben, en linje, en familie eller et sted (fik media → fact, rolle «afbildet»)'))

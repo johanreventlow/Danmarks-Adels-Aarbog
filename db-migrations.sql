@@ -49332,3 +49332,60 @@ BEGIN
 END $$;
 
 -- END review37-y1
+
+-- BEGIN review37-c1
+-- Review 37 ceremoni 1 (#397: Y8, Y10, S6). Deploy-området for prod er denne blok plus DO-blokken
+-- $review37_c1_execute$ sidst i db-rls.sql (S9, R37S8-2-3), i ÉN transaktion.
+--  Y8  indeks på private.interpretation_promotion(target_type,target_id).
+--  Y10 indeks på fact(subjekt_type,faktatype,subjekt_id) og fact(sted_id) WHERE sted_id IS NOT NULL.
+--      Almindelig CREATE INDEX (CONCURRENTLY kan ikke stå i en transaktion): SHARE-lås på tabellen i den tid, det
+--      tager at bygge et indeks over ~7.200/~1.700 rækker (millisekunder); læsere blokeres ikke.
+--  S6  red_suggest: lofter på størrelse og en subjekttype, der skal være en public-tabel eller et klientkaldenavn
+--      (FORSLAG_FOR_STORT / FORSLAG_UKENDT_SUBJEKTTYPE, 22023). Samme signatur og ACL; search_path med pg_temp sidst.
+--      Kroppen er kopieret fra schema.sql og er den endelige definition (de ældre kopier ovenfor overskrives her).
+-- Ingen data ændres.
+
+CREATE INDEX IF NOT EXISTS ix_interpretation_promotion_target
+  ON private.interpretation_promotion(target_type,target_id);
+CREATE INDEX IF NOT EXISTS ix_fact_type_subjekt  ON fact(subjekt_type, faktatype, subjekt_id);
+CREATE INDEX IF NOT EXISTS ix_fact_sted          ON fact(sted_id) WHERE sted_id IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION red_suggest(
+  p_art text, p_subjekt_type text, p_subjekt_id bigint, p_felt text, p_vaerdi text,
+  p_kilde_fritekst text DEFAULT NULL, p_payload jsonb DEFAULT '{}'::jsonb, p_note text DEFAULT NULL)
+RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path=public, pg_temp AS $$
+DECLARE v_id bigint;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Login kræves for forslag'; END IF;
+  -- Review 37 S6: grænser på størrelse og subjekttype (22023). Lofterne er 4× de største værdier i prod 24/11
+  -- (længste narrativ 9.193 bytes, længste note 373; 0 forslag), så ingen rigtig rettelse afvises. Subjekttypen skal
+  -- være navnet på en tabel i public eller et af klientens kaldenavne — listen følger datamodellen af sig selv.
+  IF octet_length(p_vaerdi) > 40000 OR octet_length(p_kilde_fritekst) > 4000 OR octet_length(p_note) > 4000
+     OR octet_length(p_art) > 64 OR octet_length(p_felt) > 64 OR octet_length(coalesce(p_payload,'{}'::jsonb)::text) > 65536 THEN
+    RAISE EXCEPTION 'FORSLAG_FOR_STORT' USING ERRCODE = '22023';
+  END IF;
+  IF p_subjekt_type IS NOT NULL AND NOT (
+       lower(p_subjekt_type) = ANY (ARRAY['slaegt','arms','org','feed','storage'])
+    OR EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+                WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r','p','v')
+                  AND c.relname = lower(p_subjekt_type))) THEN
+    RAISE EXCEPTION 'FORSLAG_UKENDT_SUBJEKTTYPE' USING ERRCODE = '22023';
+  END IF;
+  -- Personsletning (8a-opfølgning): eksistensvagten på suggestion må ikke blive et orakel. En ikke-redaktør får
+  -- samme fejl for et skjult og et ikke-eksisterende person-/familiemål, før INSERT når vagten.
+  -- family_offentlig er true for en familie uden medlemmer; derfor kræves eksistens eksplicit.
+  IF current_rolle() IS DISTINCT FROM 'redaktion' AND (
+       (lower(p_subjekt_type)='person' AND NOT public.person_offentlig(p_subjekt_id))
+    OR (lower(p_subjekt_type)='family' AND (NOT EXISTS (SELECT 1 FROM public.family WHERE id=p_subjekt_id)
+                                            OR NOT public.family_offentlig(p_subjekt_id)))) THEN
+    RAISE EXCEPTION 'FORSLAG_SUBJEKT_UTILGAENGELIGT';
+  END IF;
+  INSERT INTO suggestion(forslagsstiller, art, subjekt_type, subjekt_id, felt, vaerdi,
+                         kilde_fritekst, payload, note)
+    VALUES (auth.uid(), p_art, p_subjekt_type, p_subjekt_id, p_felt, p_vaerdi,
+            p_kilde_fritekst, coalesce(p_payload,'{}'::jsonb), p_note)
+    RETURNING id INTO v_id;
+  RETURN v_id;
+END $$;
+
+-- END review37-c1

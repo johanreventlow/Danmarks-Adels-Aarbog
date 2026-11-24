@@ -736,11 +736,14 @@ jobs:
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         # f37b294a = #363, prods installerede SQL; origin/main har fuld personsletning, som ikke er i prod.
         run: bash tests/sql/test-record-persona-upgrade.sh cirecord_persona_upgrade f37b294a
-      - name: Opgradering fra prods skema (review 37 R37S8-2 · kun læseret for anon/authenticated i public)
+      - name: Opgradering fra prods skema (review 37 ceremoni 1 · indeks, forslagslofter, klientkaldbare funktioner)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
-        # f806cedc = main efter merge af #453 (Y1 + D8) — prods SQL efter Y1 (i prod 23/11). Y1's test er
-        # pensioneret (tests/ikke-i-ci.txt).
-        run: bash tests/sql/test-review37-r37s8-2-upgrade.sh ci_r37s8_2_upgrade f806cedc
+        # 647b9e15 = main efter merge af #455 (R37S8-2) — prods SQL efter R37S8-2 (i prod 23/11). R37S8-2's test er
+        # pensioneret (tests/ikke-i-ci.txt); dens verify-enhed har nu tænder i test-review37-r37s8-2-seeded.sh.
+        run: bash tests/sql/test-review37-c1-upgrade.sh ci_r37c1_upgrade 647b9e15
+      - name: Review 37 R37S8-2 · verify-enheden rød med Supabase-retter, grøn efter blokken (frisk base)
+        env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
+        run: bash tests/sql/test-review37-r37s8-2-seeded.sh ci_r37s8_2_seeded
       - name: Fuld personsletning · fixtur, tæller og katalogvagt pr. kolonne
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         run: bash tests/sql/test-person-purge.sh ciperson_purge

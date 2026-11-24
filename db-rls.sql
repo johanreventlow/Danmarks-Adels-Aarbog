@@ -1096,8 +1096,9 @@ REVOKE EXECUTE ON FUNCTION _subjekt_synlighed(text, bigint),
 -- PostgREST → uatoriseret kald af muterende helpers (fx _delete_relation_evidence sletter relations-
 -- evidens som EJER, omgår RLS). Kaldes kun fra gatede SECURITY DEFINER red_*-funktioner / red_fortryd
 -- (kører som ejer → beholder EXECUTE). _delete_relation_evidence har DESUDEN en current_rolle()-guard
--- (belt-and-suspenders). UNDTAGET _regen_mentions_for: kaldes af en SECURITY INVOKER-trigger som
--- SKRIVEREN → REVOKE ville bryde authenticated-redaktørers narrative/note-skrivninger.
+-- (belt-and-suspenders). _regen_mentions_for var undtaget her, fordi den kaldes af en SECURITY INVOKER-trigger som
+-- skriveren. Siden R37S8-2 skriver ingen klient i narrative/note (alt går gennem DEFINER-RPC'er, hvis triggere kører
+-- som ejeren), så review 37 R37S8-2-3 fjerner også dens EXECUTE i DO-blokken $review37_c1_execute$ nederst.
 REVOKE EXECUTE ON FUNCTION
   _delete_relation_evidence(bigint),
   _row_pk(text, jsonb),
@@ -1898,6 +1899,39 @@ GRANT EXECUTE ON FUNCTION public.red_person_purge_udbakke(),public.red_person_pu
   TO authenticated;
 REVOKE ALL ON FUNCTION private.person_purge_udbakke_genbrug()
   FROM PUBLIC,anon,authenticated,service_role;
+
+-- Review 37 ceremoni 1 (#397: S9, R37S8-2-3): klienterne kan ikke længere kalde public-funktioner, der kun er
+--   triggere eller interne skrivere. Målt i prod 2026-11-24: 29 public-funktioner uden for red_* var kaldbare af anon;
+--   heraf er disse 9 hverken gæste-API, RLS-hjælper eller beregnet felt. Triggere fyrer uden EXECUTE-tjek, og de interne
+--   skrivere kaldes kun fra DEFINER-RPC'er og triggere i deres transaktioner (som ejeren): siden R37S8-2 skriver ingen
+--   klient i tabellerne bag dem (eneste klientskrivning er bookmark, der ingen triggere har).
+-- Verify-enheden c1-execute (db-verify.sql) låser den præcise mængde af public-funktioner, anon og authenticated må
+--   kalde. NY KLIENTKALDBAR FUNKTION uden for red_* skal derfor føjes dertil (og til docs/decisions.md ved anon).
+-- Desuden får nye funktioner i public ikke længere EXECUTE til anon/authenticated af sig selv (postgres'
+--   standardrettighed; funktionsdelen af R37S8-2-2).
+-- Idempotent; rører hverken tabeller, politikker eller data. Egen DO-blok, så prod kan tage den sammen med
+--   migrationsblokken review37-c1. Står før R37S8-2-blokken, der skal være sidst i filen.
+DO $review37_c1_execute$
+BEGIN
+  REVOKE EXECUTE ON FUNCTION
+    public.log_change(),
+    public.trg_lineage_prevent_cycle(),
+    public.trg_regen_from_assertion(),
+    public.trg_regen_from_conclusion(),
+    public.trg_regen_from_external_id(),
+    public.trg_regen_mentions(),
+    public.regen_person_visning(bigint),
+    public._regen_mentions_for(text,bigint),
+    public.parse_mentions(text)
+  FROM PUBLIC, anon, authenticated;
+  -- Nye funktioner: postgres' standardrettighed i schema public gav anon og authenticated EXECUTE på HVER ny funktion
+  -- (målt i prod 2026-11-24; et frisk byg har den ikke). Nu skal en ny funktion have en eksplicit GRANT for at kunne
+  -- kaldes af klienterne, som red_* og public_* allerede får. service_role beholder sin. supabase_admins egne
+  -- standarder kan vi ikke ændre, men migrationerne opretter funktionerne som postgres.
+  ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+    REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC, anon, authenticated;
+END
+$review37_c1_execute$;
 
 -- Review 37 R37S8-2 (#397): gæster (anon) og indloggede (authenticated) har kun læseret på public-tabeller og -views,
 --   ingen ret på public-sekvenserne, og nye tabeller/sekvenser arver ikke længere skriveret.

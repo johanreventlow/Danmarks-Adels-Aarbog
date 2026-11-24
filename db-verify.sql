@@ -9487,7 +9487,21 @@ BEGIN
     v_state := 'ingen fejl';
   EXCEPTION WHEN insufficient_privilege THEN v_state := '42501'; END;
   IF v_state <> '42501' THEN RAISE EXCEPTION 'FEJL: R37S8-2 — authenticated kunne låse vocab eksklusivt (%)', v_state; END IF;
+  -- Review 37 R37S8-2-3: bogmærket skrives, som klienten gør det (PostgREST upsert med ignoreDuplicates =
+  -- INSERT … ON CONFLICT DO NOTHING; web/mobil bookmarks.ts), ikke kun has_table_privilege. Ingen rækker (WHERE false):
+  -- rettighedstjekket sker før RLS og før data.
+  BEGIN
+    EXECUTE 'INSERT INTO public.bookmark(person_id) SELECT NULL::bigint WHERE false ON CONFLICT (user_id, person_id) DO NOTHING';
+    v_state := 'ingen fejl';
+  EXCEPTION WHEN insufficient_privilege THEN v_state := '42501'; END;
+  IF v_state <> 'ingen fejl' THEN
+    RAISE EXCEPTION 'FEJL: R37S8-2 — authenticated kan ikke skrive bogmærker som klienten (INSERT … ON CONFLICT DO NOTHING) (%)', v_state; END IF;
   EXECUTE 'RESET ROLE';
+  -- Review 37 R37S8-2-3: rettighederne ovenfor ses kun direkte. anon og authenticated må derfor ikke arve noget via
+  -- rollemedlemskab (prod 2026-11-24: ingen; Supabases authenticator er medlem AF dem, ikke omvendt).
+  SELECT string_agg(m.member::regrole::text||'→'||m.roleid::regrole::text, ', ' ORDER BY m.member, m.roleid) INTO v_fejl
+    FROM pg_auth_members m WHERE m.member IN ('anon'::regrole, 'authenticated'::regrole);
+  IF v_fejl IS NOT NULL THEN RAISE EXCEPTION 'FEJL: R37S8-2 — anon/authenticated arver via rollemedlemskab: %', v_fejl; END IF;
   IF NOT (has_table_privilege('authenticated', 'public.bookmark', 'INSERT')
           AND has_table_privilege('authenticated', 'public.bookmark', 'DELETE')
           AND has_table_privilege('authenticated', 'public.bookmark', 'SELECT')) THEN
@@ -10401,7 +10415,10 @@ DECLARE fn text; v_bad text := '';
 BEGIN
   FOREACH fn IN ARRAY ARRAY[
     '_delete_relation_evidence(bigint)','_version_upsert_row(text, jsonb)','_version_delete_row(text, jsonb)',
-    '_row_pk(text, jsonb)','_version_pk_where(text, jsonb)','_version_current_row(text, jsonb)']
+    '_row_pk(text, jsonb)','_version_pk_where(text, jsonb)','_version_current_row(text, jsonb)',
+    -- Review 37 R37S8-2-3: siden R37S8-2 skriver ingen klient i narrative/note, så også denne er revoked
+    -- (DO-blokken $review37_c1_execute$ i db-rls.sql).
+    '_regen_mentions_for(text, bigint)']
   LOOP
     IF has_function_privilege('anon', fn, 'EXECUTE') OR has_function_privilege('authenticated', fn, 'EXECUTE') THEN
       v_bad := v_bad || fn || ' ';
@@ -10412,8 +10429,7 @@ BEGIN
   BEGIN PERFORM set_config('request.jwt.claim.sub','',true); PERFORM _delete_relation_evidence(-999999);
     RAISE EXCEPTION 'Sikkerhed: _delete_relation_evidence-guard fyrede ikke';
   EXCEPTION WHEN others THEN IF SQLERRM NOT LIKE '%relations-slet-helper%' THEN RAISE; END IF; END;
-  -- _regen_mentions_for er BEVIDST ikke revoked (SECURITY INVOKER-trigger kalder den som skriveren)
-  RAISE NOTICE 'OK: interne _-helpers ikke anon-kaldbare (REVOKE + guard); _regen_mentions_for bevidst undtaget';
+  RAISE NOTICE 'OK: interne _-helpers ikke anon-kaldbare (REVOKE + guard)';
 END $$;
 
 -- ===== Dato-hærdning A1: additive felter (plan Spor A, 2026-07-17) =====
@@ -13349,3 +13365,90 @@ BEGIN
   END IF;
   RAISE NOTICE 'OK: review 37 Y1 red_person_grid_udsnit tvinger custom plan';
 END $verify_review37_y1$;
+
+-- BEGIN-VERIFY c1
+-- ===== Review 37 ceremoni 1 (#397: Y8, Y10, S6, S9) =====
+-- S9: den præcise mængde af public-funktioner uden for red_* (ikke-extension), som anon og authenticated må kalde.
+-- red_* har sin egen vagt ovenfor. Listen er bevidst skrevet uafhængigt af db-rls.sql og målt i prod 2026-11-24:
+-- gæste-API'er (public_*, narrative_record_contract_version), RLS-hjælpere (*_offentlig, media_*_synlig_anon,
+-- person_daa_narrative_publication_allowed), beregnede felter/visninger (side_trykt, source_trykt_side, lineage_*,
+-- slaegtsnavn_*) og for authenticated desuden current_rolle og historikkens hist_*. Triggere og interne skrivere er
+-- fjernet med $review37_c1_execute$. EN NY KLIENTKALDBAR FUNKTION skal føjes hertil (anon: også docs/decisions.md).
+DO $$
+DECLARE v_fejl text; v_state text; v_uid uuid := '00000000-0000-0000-0000-0000000c1c1c';
+BEGIN
+  WITH begge(fn) AS (VALUES
+    ('entitet_offentlig(text, bigint)'), ('lineage_ancestors(bigint)'), ('lineage_descendants(bigint)'),
+    ('lineage_effective_slaegtsnavn(bigint)'), ('media_object_synlig_anon(text)'), ('media_synlig_anon(bigint)'),
+    ('narrative_record_contract_version()'), ('person_daa_narrative_publication_allowed(bigint)'),
+    ('person_offentlig(bigint)'), ('public_family_sources(bigint[])'), ('public_haendelse_feed(text, integer, integer)'),
+    ('public_person_bio_source_versions(bigint[])'), ('public_person_bio_source_versions_v2(bigint[])'),
+    ('public_person_facts(bigint[])'), ('public_person_source_coordinates()'),
+    ('public_person_source_coordinates_samlet()'), ('side_trykt(citation)'), ('slaegtsnavn_normaliser(text)'),
+    ('slaegtsnavn_suffiks_match(text, text)'), ('source_trykt_side(bigint, text)')),
+  forventet(l) AS (
+    SELECT r||':'||fn FROM begge, (VALUES ('anon'), ('authenticated')) v(r)
+    UNION ALL SELECT 'authenticated:'||fn FROM (VALUES ('current_rolle()'), ('hist_events(bigint)'),
+      ('hist_for_subjekt(text, bigint)'), ('hist_for_subjekter(text, bigint[])')) a(fn)),
+  faktisk(l) AS (
+    SELECT r.rolname||':'||p.proname||'('||oidvectortypes(p.proargtypes)||')'
+      FROM pg_proc p CROSS JOIN (VALUES ('anon'), ('authenticated')) r(rolname)
+     WHERE p.pronamespace = 'public'::regnamespace AND p.proname NOT LIKE 'red\_%' ESCAPE '\'
+       AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')
+       AND has_function_privilege(r.rolname, p.oid, 'EXECUTE'))
+  SELECT coalesce(string_agg(CASE WHEN f.l IS NULL THEN ' mangler:'||e.l ELSE ' uventet:'||f.l END, ''
+                             ORDER BY coalesce(e.l, f.l)), '')
+    INTO v_fejl
+    FROM forventet e FULL JOIN faktisk f ON e.l = f.l WHERE e.l IS NULL OR f.l IS NULL;
+  IF v_fejl <> '' THEN
+    RAISE EXCEPTION 'FEJL: review37 c1 S9 —%', v_fejl
+      USING HINT = 'uventet = en public-funktion uden for red_*, som anon/authenticated kan kalde, men som ikke står på '
+        || 'listen. Skal klienten kalde den: føj den til listen i db-verify.sql (enhed c1); for anon også en linje i '
+        || 'docs/decisions.md. Ellers: REVOKE EXECUTE ON FUNCTION … FROM PUBLIC, anon, authenticated (ved navn; Supabase '
+        || 'giver EXECUTE direkte). mangler = en funktion på listen er omdøbt/fjernet eller har mistet kalderetten.';
+  END IF;
+
+  -- Standardrettigheden: en ny funktion i public, som postgres opretter, giver ikke anon/authenticated/PUBLIC EXECUTE.
+  SELECT string_agg(CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE x.grantee::regrole::text END, ', ') INTO v_state
+    FROM pg_default_acl d, aclexplode(d.defaclacl) x
+   WHERE d.defaclrole = to_regrole('postgres') AND d.defaclnamespace = 'public'::regnamespace AND d.defaclobjtype = 'f'
+     AND x.privilege_type = 'EXECUTE' AND x.grantee IN (0, 'anon'::regrole, 'authenticated'::regrole);
+  IF v_state IS NOT NULL THEN
+    RAISE EXCEPTION 'FEJL: review37 c1 S9 — nye public-funktioner får EXECUTE af sig selv (standardrettighed for postgres): %', v_state;
+  END IF;
+
+  -- Y8 + Y10: indeksene findes.
+  IF to_regclass('private.ix_interpretation_promotion_target') IS NULL OR to_regclass('public.ix_fact_type_subjekt') IS NULL
+     OR to_regclass('public.ix_fact_sted') IS NULL THEN
+    RAISE EXCEPTION 'FEJL: review37 c1 Y8/Y10 — et indeks mangler';
+  END IF;
+
+  -- S6: red_suggest som en almindelig indlogget bruger (ikke redaktion).
+  INSERT INTO auth.users(id, email) VALUES (v_uid, 'c1-forslag@test.invalid') ON CONFLICT DO NOTHING;
+  PERFORM set_config('request.jwt.claim.sub', v_uid::text, true);
+  BEGIN
+    PERFORM red_suggest('fakta', 'source', NULL, 'titel', repeat('x', 40001));
+    v_state := 'ingen fejl';
+  EXCEPTION WHEN invalid_parameter_value THEN v_state := SQLERRM; END;
+  IF v_state <> 'FORSLAG_FOR_STORT' THEN RAISE EXCEPTION 'FEJL: review37 c1 S6 — for stor værdi blev ikke afvist (%)', v_state; END IF;
+  BEGIN
+    PERFORM red_suggest('fakta', 'source', NULL, 'titel', 'x', NULL, jsonb_build_object('t', repeat('y', 65536)));
+    v_state := 'ingen fejl';
+  EXCEPTION WHEN invalid_parameter_value THEN v_state := SQLERRM; END;
+  IF v_state <> 'FORSLAG_FOR_STORT' THEN RAISE EXCEPTION 'FEJL: review37 c1 S6 — for stor payload blev ikke afvist (%)', v_state; END IF;
+  BEGIN
+    PERFORM red_suggest('fakta', 'ikke_en_tabel', NULL, 'titel', 'x');
+    v_state := 'ingen fejl';
+  EXCEPTION WHEN invalid_parameter_value THEN v_state := SQLERRM; END;
+  IF v_state <> 'FORSLAG_UKENDT_SUBJEKTTYPE' THEN RAISE EXCEPTION 'FEJL: review37 c1 S6 — ukendt subjekttype blev ikke afvist (%)', v_state; END IF;
+  -- Grænsen selv, en tabel og et klientkaldenavn går igennem (også med store bogstaver).
+  PERFORM red_suggest('fakta', 'Source', NULL, 'tekst', repeat('æ', 20000), repeat('k', 4000), '{}'::jsonb);
+  PERFORM red_suggest('fakta', 'slaegt', NULL, 'titel', 'x');
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM = 'ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: review37 c1 — klientkaldbare public-funktioner = listen; indeks Y8/Y10; red_suggest-lofter';
+  ELSE RAISE; END IF;
+END $$;
+-- END-VERIFY c1

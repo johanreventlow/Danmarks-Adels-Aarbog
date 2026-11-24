@@ -123,6 +123,32 @@ besøg. Spec: `docs/superpowers/specs/2026-11-24-forside-data-cache-design.md`.
 - **Rutine før fremvisning:** varm filen med `curl -sI https://<side>/api/forside-data` (uden tidsgrænse; browseren
   giver op efter 2 s) og se `x-vercel-cache: HIT` ved andet kald — samme rutine som at holde basen vågen.
 
+## BESLUTTET: klienterne kan kun kalde en fast liste af public-funktioner; S7 og S10 lukket (#397 ceremoni 1, 2026-11-24)
+
+> Projektejeren 24/11 (valgte efter forklaring: »mål og sæt 4×«, S7 »luk som accepteret«, S10 »luk«):
+> - **S9:** målt i prod var 29 public-funktioner uden for `red_*` kaldbare af gæster. De 9, der kun er triggere eller
+>   interne skrivere (`log_change`, `trg_*`, `regen_person_visning`, `_regen_mentions_for`, `parse_mentions`), mister
+>   EXECUTE for PUBLIC/anon/authenticated (DO-blokken `$review37_c1_execute$` i `db-rls.sql`). Resten — gæste-API'er,
+>   RLS-hjælpere, beregnede felter og for authenticated `current_rolle`/`hist_*` — står i verify-enheden `c1` som en
+>   præcis liste. **Konsekvens for nyt arbejde:** en ny public-funktion uden for `red_*`, som en klient skal kunne kalde,
+>   skal føjes til `c1`-listen (og ved anon til denne fil, jf. reglen om anon-grants); alle andre skal REVOKE'es fra
+>   PUBLIC, anon og authenticated ved navn (Supabase giver EXECUTE direkte, ikke kun via PUBLIC).
+> - **Nye funktioner lukket som standard** (projektejeren 24/11, funktionsdelen af R37S8-2-2): `postgres`' standardrettighed
+>   i public gav anon og authenticated EXECUTE på hver ny funktion (målt i prod; et frisk byg har den ikke). Samme DO-blok
+>   fjerner den; `service_role` beholder sin. En ny funktion skal derfor have en eksplicit GRANT for at kunne kaldes af
+>   klienterne — som `red_*` og `public_*` allerede får. `supabase_admin`s egne standarder kan vi ikke ændre, men
+>   migrationerne opretter funktionerne som `postgres`.
+> - **S6:** `red_suggest` afviser værdi over 40.000 bytes, kildefelt/note over 4.000, art/felt over 64 og payload over
+>   64 kB (`FORSLAG_FOR_STORT`), og en subjekttype, der hverken er en public-tabel eller et klientkaldenavn (`slaegt`,
+>   `arms`, `org`, `feed`, `storage`; `FORSLAG_UKENDT_SUBJEKTTYPE`). Lofterne er 4× de største værdier i prod 24/11
+>   (længste narrativ 9.193 bytes, længste note 373; 0 forslag).
+> - **S7 lukket som accepteret latent:** 348 af 352 SECURITY DEFINER-funktioner har ikke `pg_temp` sidst i
+>   `search_path`. pg_temp søges aldrig for funktioner, og REST-klienter kan ikke oprette temp-objekter; en rettelse
+>   ville røre 348 funktionshoveder. Nye og ændrede funktioner får `pg_temp` sidst, når de alligevel røres.
+> - **S10 lukket som ikke et fund i prod:** `red_apply_reimport_cases`/`red_reverse_reimport_cases` er slået fra under
+>   kontrakt v2 og kun kaldbare, hvis `red_authorize_reimport` mangler; låserækkefølgen er en kontrakt, `db-verify.sql`
+>   håndhæver. Genimport-koden røres ikke.
+
 ## BESLUTTET: klienter har kun læseret i public; skriveret er en eksplicit undtagelse (#397 R37S8-2, 2026-11-23)
 
 > Projektejeren 23/11 (valgte »alle tabeller« + tællere + fremtidige tabeller, efter forklaring): gæster (`anon`) og
