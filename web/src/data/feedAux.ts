@@ -1,6 +1,6 @@
 // Web-adapter til feed-motoren (fase1-design.md §7.2-§7.3). buildWebFeedAux mapper
 // webbens allerede-hentede estates/arms til FeedAux. Web indlæser IKKE bio pr. person ved
-// cold-start (model.ts sætter bio:'') — fetchFeedBios/withFeedBios henter og stempler bio
+// cold-start (model.ts sætter bio:'') — hentFeedBios/withFeedBios henter og stempler bio
 // ind i en KOPI af modellen ved feed-mount, uden at røre den originale model.
 import {
   buildBioSourceVersions,
@@ -80,16 +80,46 @@ export function buildFeedBioSubjectIds(
   ])].sort();
 }
 
+// Biografierne til feedet og om de er hentet komplet. `komplet: false` betyder, at mindst én bid blev ved med at
+// ramme gæsternes 3 s-loft (prod 24/11: 7 af 456 bid-kald); de andre bidders biografier er med. Et ufuldstændigt
+// resultat må aldrig bruges som bevis for, at en person IKKE har tekst (»Nævnt i Aarbogen«-kortene).
+export type FeedBios = { bioBy: Record<string, string>; komplet: boolean };
+
+type BioSvar = { data: unknown; error: unknown };
+
+// Én bid: ét forsøg; fejler det, prøves bidden igen som to halvdele (tiden voksede med antallet af id'er, #421).
+// Returnerer rækkerne og de id'er, der stadig fejlede.
+async function hentBid(rpcName: string, ids: number[]): Promise<{ rows: unknown[]; fejlede: number[] }> {
+  const kald = (del: number[]) => supabase.rpc(rpcName, { p_person_ids: del }) as unknown as PromiseLike<BioSvar>;
+  const foerste = await kald(ids);
+  if (!foerste.error) {
+    if (!Array.isArray(foerste.data)) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+    return { rows: foerste.data, fejlede: [] };
+  }
+  const midt = Math.ceil(ids.length / 2);
+  const rows: unknown[] = [];
+  const fejlede: number[] = [];
+  for (const del of [ids.slice(0, midt), ids.slice(midt)]) {
+    if (!del.length) continue;
+    const svar = await kald(del);
+    if (svar.error) { fejlede.push(...del); continue; }
+    if (!Array.isArray(svar.data)) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+    rows.push(...svar.data);
+  }
+  return { rows, fejlede };
+}
+
 // Hent den foretrukne offentlige eventtekst pr. (kanonisk) person.  Contract
 // v2 is the only post-cutover reader; it never falls back to public.narrative.
-export async function fetchFeedBios(
+// En bid, der bliver ved med at fejle, koster kun sine egne personer; fejler alle, er det en hente-fejl.
+export async function hentFeedBios(
   canonicalIdById: Record<string, string>,
   modelPersonIds?: readonly string[],
-): Promise<Record<string, string>> {
+): Promise<FeedBios> {
   let contractVersion: number | null = null;
   try {
     const subjectIds = buildFeedBioSubjectIds(canonicalIdById, modelPersonIds ?? []);
-    if (!subjectIds.length) return {};
+    if (!subjectIds.length) return { bioBy: {}, komplet: true };
     const personIds = subjectIds.map(Number).filter(Number.isFinite);
     const version = await supabase.rpc('narrative_record_contract_version', {});
     if (version.error || typeof version.data !== 'number' || !Number.isInteger(version.data)) {
@@ -101,13 +131,12 @@ export async function fetchFeedBios(
       : 'public_person_bio_source_versions';
     // I bidder med begrænset parallelitet: alle id'er i ét kald ramte gæsternes 3 s-loft i prod (1.725 id'er → 57014).
     // Rækkerne samles FØR valget, så aliaser i forskellige bidder stadig giver ét valg pr. kanonisk person.
-    const svar = await mapLimited(chunks(personIds, FEED_BIO_IN_CHUNK), FEED_BIO_PARALLEL, (ids) =>
-      supabase.rpc(rpcName, { p_person_ids: ids }));
-    const rows: unknown[] = [];
-    for (const result of svar) {
-      if (result.error || !Array.isArray(result.data)) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
-      rows.push(...result.data);
-    }
+    const svar = await mapLimited(chunks(personIds, FEED_BIO_IN_CHUNK), FEED_BIO_PARALLEL, (ids) => hentBid(rpcName, ids));
+    const rows: unknown[] = svar.flatMap((r) => r.rows);
+    const fejlede = svar.flatMap((r) => r.fejlede);
+    if (fejlede.length === personIds.length) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+    // En sammenfoldet person, hvis alias lå i en fejlet bid, får ingen tekst frem for en forkert standardtekst.
+    const udelad = new Set(fejlede.map((id) => canonicalIdById[String(id)] ?? String(id)));
     const bioBy: Record<string, string> = {};
     if (contractVersion >= 2) {
       const versionsByCanonicalPerson = new Map<string, unknown[]>();
@@ -121,6 +150,7 @@ export async function fetchFeedBios(
         if (rows) rows.push(row); else versionsByCanonicalPerson.set(canonicalId, [row]);
       }
       for (const [canonicalId, rows] of versionsByCanonicalPerson) {
+        if (udelad.has(canonicalId)) continue;
         const selected = selectDefaultPublicBioSourceVersionV2(mapPublicBioSourceVersionsV2(rows));
         if (selected) bioBy[canonicalId] = selected.narrativeText;
       }
@@ -131,14 +161,15 @@ export async function fetchFeedBios(
         if (text) {
           const personId = (row as Record<string, number>).person_id;
           const canonicalId = canonicalIdById[String(personId)] ?? String(personId);
-          bioBy[canonicalId] ??= text;
+          if (!udelad.has(canonicalId)) bioBy[canonicalId] ??= text;
         }
       }
     }
-    return bioBy;
+    if (fejlede.length) console.warn(`[feedAux] ${fejlede.length} bio-id'er kunne ikke hentes — feedet viser resten`);
+    return { bioBy, komplet: fejlede.length === 0 };
   } catch (e) {
     console.warn('[feedAux] bio-hentning fejlede:', e);
-    if (contractVersion !== null && contractVersion < 2) return {};
+    if (contractVersion !== null && contractVersion < 2) return { bioBy: {}, komplet: false };
     throw e;
   }
 }

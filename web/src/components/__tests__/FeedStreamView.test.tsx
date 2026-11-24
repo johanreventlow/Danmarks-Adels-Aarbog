@@ -9,7 +9,7 @@ const mediaMocks = vi.hoisted(() => ({
   resolveFeedMediaForCards: vi.fn(),
 }));
 const streamMocks = vi.hoisted(() => ({ createFeedStream: vi.fn(), resumeStream: vi.fn() }));
-const feedAuxMocks = vi.hoisted(() => ({ fetchFeedBios: vi.fn() }));
+const feedAuxMocks = vi.hoisted(() => ({ hentFeedBios: vi.fn() }));
 const grundlagMocks = vi.hoisted(() => ({ fetchNaevntGrundlag: vi.fn() }));
 const loaderMocks = vi.hoisted(() => ({ loadHaendelserBy: vi.fn() }));
 const seenMocks = vi.hoisted(() => ({ markSeen: vi.fn(), weights: {} as Record<string, number> }));
@@ -17,7 +17,7 @@ const seenMocks = vi.hoisted(() => ({ markSeen: vi.fn(), weights: {} as Record<s
 vi.mock('../../data/feedMedia', () => mediaMocks);
 vi.mock('../../data/feedAux', () => ({
   buildWebFeedAux: () => ({ godsListe: [], vaabenListe: [], officesBy: {} }),
-  fetchFeedBios: feedAuxMocks.fetchFeedBios,
+  hentFeedBios: feedAuxMocks.hentFeedBios,
   withFeedBios: (model: unknown) => model,
 }));
 vi.mock('../../data/feedGrundlag', () => grundlagMocks);
@@ -75,7 +75,7 @@ const ids1til6 = ['1', '2', '3', '4', '5', '6'];
 beforeEach(() => {
   streamMocks.createFeedStream.mockReset().mockImplementation(() => listStream(SYV));
   streamMocks.resumeStream.mockReset().mockImplementation((stream) => stream);
-  feedAuxMocks.fetchFeedBios.mockReset().mockResolvedValue({ '1': 'En biografi.' });
+  feedAuxMocks.hentFeedBios.mockReset().mockResolvedValue({ bioBy: { '1': 'En biografi.' }, komplet: true });
   grundlagMocks.fetchNaevntGrundlag.mockReset().mockResolvedValue({ personerMedMereEndNavn: new Set() });
   loaderMocks.loadHaendelserBy.mockReset().mockResolvedValue({});
   seenMocks.markSeen.mockReset();
@@ -107,9 +107,9 @@ describe('FeedStreamView — uddeling', () => {
   it('deler ud efter fristen, selv om biografierne og hændelserne ikke er kommet, og bygger om når de kommer', async () => {
     vi.useFakeTimers();
     try {
-      const bios = deferred<Record<string, string>>();
+      const bios = deferred<{ bioBy: Record<string, string>; komplet: boolean }>();
       const haendelser = deferred<Record<string, unknown>>();
-      feedAuxMocks.fetchFeedBios.mockReturnValue(bios.promise);
+      feedAuxMocks.hentFeedBios.mockReturnValue(bios.promise);
       loaderMocks.loadHaendelserBy.mockReturnValue(haendelser.promise);
       render(<FeedStreamView {...feedProps(null)} />);
       await act(async () => { await vi.advanceTimersByTimeAsync(FEED_FOERSTE_UDDELING_FRIST_MS - 1); });
@@ -119,7 +119,7 @@ describe('FeedStreamView — uddeling', () => {
       expect(streamMocks.createFeedStream).toHaveBeenCalledTimes(1);
       expect(screen.getAllByRole('article')).toHaveLength(6);
 
-      await act(async () => { bios.resolve({ '1': 'En biografi.' }); haendelser.resolve({}); });
+      await act(async () => { bios.resolve({ bioBy: { '1': 'En biografi.' }, komplet: true }); haendelser.resolve({}); });
       expect(streamMocks.createFeedStream.mock.calls.length).toBeGreaterThan(1);
       expect(streamMocks.resumeStream).toHaveBeenCalled();
       expect(screen.getAllByRole('article')).toHaveLength(6); // viste blade nulstilles ikke
@@ -134,9 +134,9 @@ describe('FeedStreamView — uddeling', () => {
     vi.useFakeTimers();
     try {
       const samle: FeedCard = { kind: 'samle', id: 'samle:personer', count: 919, tail: 'personer', kicker: 'Registeret' };
-      const bios = deferred<Record<string, string>>();
+      const bios = deferred<{ bioBy: Record<string, string>; komplet: boolean }>();
       const haendelser = deferred<Record<string, unknown>>();
-      feedAuxMocks.fetchFeedBios.mockReturnValue(bios.promise);
+      feedAuxMocks.hentFeedBios.mockReturnValue(bios.promise);
       loaderMocks.loadHaendelserBy.mockReturnValue(haendelser.promise);
       let medData = false;
       streamMocks.createFeedStream.mockImplementation(() => listStream(medData ? [...SYV, samle] : [samle]));
@@ -147,7 +147,7 @@ describe('FeedStreamView — uddeling', () => {
       expect(screen.queryByText(/vendt alle dagens blade/)).toBeNull();
 
       medData = true;
-      await act(async () => { bios.resolve({ '1': 'En biografi.' }); haendelser.resolve({}); });
+      await act(async () => { bios.resolve({ bioBy: { '1': 'En biografi.' }, komplet: true }); haendelser.resolve({}); });
       expect(screen.getAllByRole('article')).toHaveLength(6);
       expect(screen.queryByRole('status')).toBeNull();
     } finally {
@@ -159,8 +159,8 @@ describe('FeedStreamView — uddeling', () => {
     vi.useFakeTimers();
     try {
       const samle: FeedCard = { kind: 'samle', id: 'samle:personer', count: 919, tail: 'personer', kicker: 'Registeret' };
-      const bios = deferred<Record<string, string>>();
-      feedAuxMocks.fetchFeedBios.mockReturnValue(bios.promise);
+      const bios = deferred<{ bioBy: Record<string, string>; komplet: boolean }>();
+      feedAuxMocks.hentFeedBios.mockReturnValue(bios.promise);
       streamMocks.createFeedStream.mockImplementation(() => listStream([portraet('1'), samle]));
       streamMocks.resumeStream.mockImplementation((_s: unknown, vist: Set<string>) =>
         listStream([portraet('1'), samle].filter((c) => !vist.has(c.id))));
@@ -170,7 +170,7 @@ describe('FeedStreamView — uddeling', () => {
       expect(screen.queryByText(/919/)).toBeNull(); // samlekortet hører til den endelige pulje
       expect(screen.queryByText(/vendt alle dagens blade/)).toBeNull();
 
-      await act(async () => { bios.resolve({ '1': 'En biografi.' }); });
+      await act(async () => { bios.resolve({ bioBy: { '1': 'En biografi.' }, komplet: true }); });
       expect(screen.getByText(/919/)).toBeTruthy();
       expect(screen.getByText(/vendt alle dagens blade/)).toBeTruthy();
     } finally {
@@ -182,8 +182,8 @@ describe('FeedStreamView — uddeling', () => {
     // Prod-bygget 22/11 med første rettelse: fristen gav ét blad, og det blev stående alene.
     vi.useFakeTimers();
     try {
-      const bios = deferred<Record<string, string>>();
-      feedAuxMocks.fetchFeedBios.mockReturnValue(bios.promise);
+      const bios = deferred<{ bioBy: Record<string, string>; komplet: boolean }>();
+      feedAuxMocks.hentFeedBios.mockReturnValue(bios.promise);
       let medData = false;
       streamMocks.createFeedStream.mockImplementation(() => listStream(medData ? SYV : [portraet('1')]));
       streamMocks.resumeStream.mockImplementation((_s: unknown, vist: Set<string>) =>
@@ -193,7 +193,7 @@ describe('FeedStreamView — uddeling', () => {
       expect(screen.getAllByRole('article')).toHaveLength(1);
 
       medData = true;
-      await act(async () => { bios.resolve({ '1': 'En biografi.' }); });
+      await act(async () => { bios.resolve({ bioBy: { '1': 'En biografi.' }, komplet: true }); });
       expect(screen.getAllByRole('article')).toHaveLength(6);
       expect(screen.getByRole('region', { name: 'Blade 1–6' })).toBeTruthy();
     } finally {
@@ -210,10 +210,19 @@ describe('FeedStreamView — uddeling', () => {
 
     streamMocks.createFeedStream.mockClear();
     grundlagMocks.fetchNaevntGrundlag.mockResolvedValue({ personerMedMereEndNavn: new Set() });
-    feedAuxMocks.fetchFeedBios.mockResolvedValue({});
+    feedAuxMocks.hentFeedBios.mockResolvedValue({ bioBy: {}, komplet: true });
     render(<FeedStreamView {...feedProps(null)} />);
     await waitFor(() => expect(streamMocks.createFeedStream).toHaveBeenCalled());
     expect((streamMocks.createFeedStream.mock.calls[0][2] as FeedInputs).naevntGrundlag).toBeUndefined();
+  });
+
+  it('ufuldstændige biografier: intet nævnt-grundlag (en manglende tekst er ikke bevis for, at der ingen er) og intet fejlbanner', async () => {
+    feedAuxMocks.hentFeedBios.mockResolvedValue({ bioBy: { '1': 'En biografi.' }, komplet: false });
+    render(<FeedStreamView {...feedProps(null)} />);
+    await waitFor(() => expect(streamMocks.createFeedStream).toHaveBeenCalled());
+    const inputs = streamMocks.createFeedStream.mock.calls.at(-1)![2] as FeedInputs;
+    expect(inputs.naevntGrundlag).toBeUndefined();
+    expect(screen.queryByText(/Kunne ikke hente feedets biografier/)).toBeNull();
   });
 
   it('markerer et blad som set, først når det er synligt — ikke ved uddelingen', async () => {
@@ -331,7 +340,7 @@ describe('FeedStreamView media lifecycle', () => {
   });
 
   it('viser en eksplicit biografi-fejl i stedet for en tavs tom feed-model', async () => {
-    feedAuxMocks.fetchFeedBios.mockRejectedValue(new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE'));
+    feedAuxMocks.hentFeedBios.mockRejectedValue(new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE'));
 
     render(<FeedStreamView {...feedProps(null)} />);
 
