@@ -1,9 +1,16 @@
 // Forsidens færdigpakkede data (spec 2026-11-24-forside-data-cache-design.md). Bygges som gæst med den offentlige
 // anon-nøgle (RLS afgør, hvad der kommer med) og gemmes af Vercels CDN efter Cache-Control fra forsideDataSvar.
+//
+// Edge-runtime, ikke Node: Vercels Node-runtime oversætter hver fil for sig uden at samle dem, så ESM-importen af
+// ../src/... uden filendelse og workspace-pakkerne, der kun findes som TypeScript-kilde (@daa/core), fejlede ved
+// kørsel (500 FUNCTION_INVOCATION_FAILED på previewet 24/11). Edge-funktioner samles af Vercel til én fil. Generering
+// målt lokalt mod prod: ~13 s (Edge skal svare inden 25 s); i Frankfurt tæt på basen.
 import { createClient } from '@supabase/supabase-js';
 import { forsideDataSvar } from '../src/data/forside/byg';
 
-export async function GET(): Promise<Response> {
+export const config = { runtime: 'edge', regions: ['fra1'] };
+
+export default async function handler(): Promise<Response> {
   const url = process.env.VITE_SUPABASE_URL;
   const anonKey = process.env.VITE_SUPABASE_ANON_KEY;
   if (!url || !anonKey) {
