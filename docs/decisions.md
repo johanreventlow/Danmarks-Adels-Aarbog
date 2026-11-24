@@ -36,6 +36,10 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   abonnement — peger måske allerede derhen; det fjerner det meste af anon-fladen); (2) når review 37 C10 åbner for
 >   søgemaskiner: offentlige sider forhåndsgenereres statisk, så crawlere rammer CDN'en og ikke RPC'erne; (3) udgiftsloft
 >   og alarm hos Vercel og Supabase før lancering, så en robotbølge ikke bliver en regning.
+> - **Opfølgning samme dag:** en samlet gennemgang (kun læsning) af anon-, authenticated-, storage-, auth- og
+>   klientfladen står i **#462** (label `parkeret`, tages op hvis projektet går videre end POC). Hul 1 og 2 og de tre
+>   valg er tjekpunkter dér. Målt i prod: `anon` har statement_timeout 3 s. Projektejeren slog Supabase-tilmelding fra
+>   24/11 (`disable_signup: true`, verificeret); ingen klient havde en tilmeldingsflade.
 
 ## BESLUTTET: forsidens data pakkes færdigt af en Vercel-funktion bag Vercels CDN (2026-11-24)
 
