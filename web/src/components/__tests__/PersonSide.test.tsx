@@ -288,6 +288,14 @@ describe('PersonSide', () => {
       expect(vielser.kald.at(-1)?.slice().sort()).toEqual(['265', '266']);
     });
 
+    it('⚭ står foran ægtefællens navn, som i Aarbogen (»Gift 21. juli 1667 med …«)', async () => {
+      vielser.svar = { '265': '⚭ 21. juli 1667' };
+      render(<PersonSide {...props({ model: toAegteskaber(), focusId: '392' })} />);
+      const vielse = await within(giftDd()).findByText('⚭ 21. juli 1667');
+      const navn = within(giftDd()).getByRole('link', { name: 'Anna Margrethe Gabel' });
+      expect(vielse.compareDocumentPosition(navn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
     it('par i to familier (sammenfoldet på tværs af udgaver): den mest præcise dato vinder', async () => {
       vielser.svar = { '265': '⚭ 1667', '300': '⚭ 21. juli 1667' };
       const m = { ...model, ...buildModel({ persons: [person('392', 'Conrad Reventlow', 1644), person('815', 'Anna Margrethe Gabel')],

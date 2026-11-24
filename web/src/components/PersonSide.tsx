@@ -419,11 +419,12 @@ function Henter() {
 function PersonLink({ id, navn, aar, vielse, konf, kunI, aktiv = true, onVis }: { id: string; navn: string; aar?: string; vielse?: string; konf?: string; kunI?: KunIAeldreTekst | null; aktiv?: boolean; onVis: (id: string) => void }) {
   return (
     <span style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '2px 10px' }}>
+      {/* Vielsen foran ægtefællen, som i Aarbogen (»Gift 21. juli 1667 med …«), så den ikke læses som hendes livsdato. */}
+      {vielse && <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{vielse}</span>}
       {aktiv
         ? <Link href={personPath(id)} onNavigate={() => onVis(id)} style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600, color: T.bordeaux }}>{navn}</Link>
         : <span style={{ fontFamily: T.serif, fontSize: 18, fontWeight: 600, color: T.inkMuted }}>{navn}</span>}
       {aar && <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{aar}</span>}
-      {vielse && <span style={{ fontFamily: T.mono, fontSize: 12, lineHeight: '16px', color: T.inkMuted }}>{vielse}</span>}
       {/* Usikkert slægtskab vises med ordet, aldrig skjult (invariant 7). */}
       {konf && <span style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: T.danger }}>{konf}</span>}
       {kunI && <span title={kunI.forklaring} style={{ fontFamily: T.mono, fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase', color: T.goldInk }}>{kunI.maerke}</span>}
