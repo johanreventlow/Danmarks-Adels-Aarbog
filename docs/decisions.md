@@ -21,6 +21,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 - **Forudsætning:** den kanoniske post er den nyeste udgave. Målt i prod 24/11 over 815 afklarede `samme_som`-par: intet
   par peger mod en ældre udgave; 47 par har ingen målbar udgave. Omfang: 4 fødsler og 15 dødsår kom før fra en ældre
   udgave; 11 personer får fortsat hele udsagnet fra 1939, fordi 2018-20 intet siger om datoerne.
+- **Ingen undtagelse for »† ung«/»† lille«** (projektejeren 24/11: »lad os holde reglen«). Har den nyeste udgave en
+  fødsel, men ingen død i visningscachen, vises et ældre »ung«/»lille« ikke. Rammer 3 personer: 100 og 333 (kun 1939
+  skriver det) og 102 (2018-20 skriver »ung«, men som tekst uden dato, som #396 holder ude af `visning_doed`).
 - **Kendte rester:** jubilæumskortene (`packages/feed/src/pool.ts`) regner stadig »efter 1575« og »ca. 1484« som
   eksakte år. Personerne 23 og 122 har en floruit i 2018-20, der strider mod 1939's livsdatoer (sandsynligvis forkert
   kobling eller floruit) og viser nu »Nævnes …«.
