@@ -7568,7 +7568,22 @@ BEGIN
   -- danne cyklussen external-id→citation / citation→external-id.
   PERFORM 1 FROM source s JOIN person_external_id pei ON pei.source_id=s.id
     WHERE pei.person_id=p_person_id ORDER BY s.id,pei.source_id FOR UPDATE OF s,pei;
-  PERFORM private.lock_identity_people(ARRAY[p_person_id]);
+  -- Review 37 R37P11-3 (ceremoni 2): lås hele samme_som-gruppen (stigende id, i ét kald), ikke kun P. Om P er offentlig,
+  -- afhænger også af de andre medlemmers levende/privat (person_gruppe_skjult); uden låsen kunne red_set_privat på et
+  -- medlem committe mellem tjekket og sletningen. Kanterne er stabile under samme_som_mutation-låsen ovenfor. Kun
+  -- medlemmer, der findes: en kant til en manglende person gør gruppen skjult, og så afvises sletningen nedenfor.
+  PERFORM private.lock_identity_people(ARRAY(
+    WITH RECURSIVE grp(pid) AS (
+      SELECT p_person_id
+      UNION
+      SELECT n.pid FROM grp g CROSS JOIN LATERAL (
+        SELECT r.objekt_id FROM public.relation r
+         WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person' AND r.subjekt_id=g.pid
+        UNION ALL
+        SELECT r.subjekt_id FROM public.relation r
+         WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person' AND r.objekt_id=g.pid
+      ) n(pid))
+    SELECT g.pid FROM grp g WHERE g.pid=p_person_id OR EXISTS (SELECT 1 FROM public.person p WHERE p.id=g.pid)));
 
   -- Review 37 P11: kun en offentlig person kan slettes, så det kan fortrydes. En offentlig person indgår ikke i nogen
   -- skjul-regel (family_offentlig skjuler for et IKKE-offentligt medlem, media_afbilder_skjult for en ikke-offentlig
@@ -7578,8 +7593,8 @@ BEGIN
   -- offentlig partner offentlig (vielsen), et fællesbillede mister sin skjul-kobling, og en ældre udgaves registrering
   -- af samme nulevende bliver synlig. Og en ikke-offentlig persons oplysninger skal alligevel slettes helt
   -- (red_slet_person_helt): change_event-historikken, som gør denne sletning fortrydelig, bevarer dem ellers.
-  -- Efter rollegaten (intet orakel for ikke-redaktører) og efter låsene: personrækken er låst FOR UPDATE
-  -- (lock_identity_people, red_set_privat venter), og samme_som-mutationerne venter på advisory-låsen ovenfor.
+  -- Efter rollegaten (intet orakel for ikke-redaktører) og efter låsene: personrækkerne i hele samme_som-gruppen er
+  -- låst FOR UPDATE (lock_identity_people, red_set_privat venter), og samme_som-mutationerne venter på advisory-låsen.
   -- Undtagelsen ruller også change_set'et tilbage.
   v_aarsag:=private.person_slet_aarsag(p_person_id);
   IF v_aarsag IS NOT NULL THEN

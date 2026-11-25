@@ -413,4 +413,27 @@ else
 fi
 retry_gone; report
 fi
+# Review 37 R37P11-3 (ceremoni 2): den fortrydelige sletning låser hele samme_som-gruppen. X og Y er offentlige og
+# samme_som. W gør Y privat og holder rækkelåsen; S (red_slet_person(X)) skal vente på W og bagefter afvise med
+# samme_som_skjult, fordi gruppen nu er skjult. Før rettelsen låste S kun X og slettede på et forældet billede.
+if ! skip r37p11_3_gruppelaas; then
+new r37p11_3_gruppelaas
+a "$actor DO \$c2\$ DECLARE x bigint; y bigint; BEGIN
+  PERFORM purge_test.nyt(); x:=red_opret_person('Testperson Gruppe X','mand',false,'1801','1870',NULL);
+  PERFORM purge_test.nyt(); y:=red_opret_person('Testperson Gruppe Y','mand',false,'1801','1870',NULL);
+  PERFORM purge_test.nyt(); PERFORM red_set_privat(x,false);
+  PERFORM purge_test.nyt(); PERFORM red_set_privat(y,false);
+  PERFORM purge_test.nyt(); PERFORM red_samme_som(x,y);
+  PERFORM purge_test.gem('c2_x',x); PERFORM purge_test.gem('c2_y',y); END \$c2\$;" >/dev/null
+[ "$(a "SELECT public.person_offentlig(purge_test.id('c2_x')) AND public.person_offentlig(purge_test.id('c2_y'))")" = t ]
+start W "BEGIN; UPDATE person SET privat=true WHERE id=purge_test.id('c2_y'); SELECT pg_sleep(2); COMMIT;"
+for k in {1..60}; do
+  [ "$(a "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND application_name='purge11_W' AND wait_event='PgSleep'")" = 1 ] && break
+  sleep 0.05
+done
+start S "SELECT red_slet_person(purge_test.id('c2_x'));"; observe S W transactionid person; finish
+expect W 00000 ''; expect S P0001 'SLET_KRAEVER_SLET_HELT: samme_som_skjult'
+[ "$(a "SELECT count(*) FROM person WHERE id=purge_test.id('c2_x')")" = 1 ]
+report
+fi
 printf 'SAMTIDIG_OK\n'
