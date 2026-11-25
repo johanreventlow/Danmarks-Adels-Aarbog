@@ -1,10 +1,10 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import type { MediaAnvendelse, PersonMedia, UdrensPreview } from '../data/redaktionRead';
 import { MEDIA_FAKTATYPER, type MediaFakta, type MediaFaktatype } from '../data/media';
+import { MEDIA_SLAGS, MEDIA_SLAGS_STANDARD, mediaSlagsLabel } from '@daa/core';
 import { T } from '../theme';
 import { SignedImg } from './SignedImg';
 
-const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
 const RET_FRITEKST_FELTER = ['licens', 'kildehenvisning', 'gengivelsestilladelse'] as const;
 
@@ -83,7 +83,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
   udrensPreview?: UdrensPreview;
   onSaetPortraet?: (personId: string, mediaId: string | null) => void | Promise<unknown>;
 }) {
-  const [meta, setMeta] = useState({ titel: '', slags: 'foto', kunstner: '', datering: '' });
+  const [meta, setMeta] = useState({ titel: '', slags: MEDIA_SLAGS_STANDARD, kunstner: '', datering: '' });
   const [ret, setRet] = useState({ status: 'ukendt', maaPubliceres: false, licens: '', kildehenvisning: '', gengivelsestilladelse: '', kildeFritekst: '' });
   const [faktaForm, setFaktaForm] = useState<Record<TekstFaktatype, string>>(tomFaktaForm);
   const [vaerkDatering, setVaerkDatering] = useState({ vaerdi: '', dateMin: '', dateMax: '', dateQualifier: '' });
@@ -100,7 +100,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
   const [fletResultat, setFletResultat] = useState<MediaFletResultat | null>(null);
   const [fletReviewMentions, setFletReviewMentions] = useState<MediaAnvendelse['mentions'] | null>(null);
   useEffect(() => {
-    setMeta({ titel: media.titel ?? '', slags: media.slags || 'foto', kunstner: media.kunstner ?? '', datering: media.datering ?? '' });
+    setMeta({ titel: media.titel ?? '', slags: media.slags || MEDIA_SLAGS_STANDARD, kunstner: media.kunstner ?? '', datering: media.datering ?? '' });
     // De tre rettigheds-fritekstfelter nulstilles IKKE her — de præudfyldes fra fakta-prop'en i
     // effekten nedenfor (MM-12), og et media.titel-refresh må ikke blanke dem undervejs.
     setRet((r) => ({ ...r, status: media.rettighederStatus || 'ukendt', maaPubliceres: media.maaPubliceres, kildeFritekst: '' }));
@@ -172,9 +172,10 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
         style={{ border: 0, background: 'transparent', color: C.red, cursor: fletBusy ? 'default' : 'pointer', fontSize: 11.5, padding: 0 }}>Fjern</button> : null}
     </div>
   );
-  const mediaSlags = Array.from(new Set<string>([...MEDIA_SLAGS, meta.slags].filter(Boolean)));
+  // Ordlistens motiver + mediets nuværende værdi, hvis den er en gammel (fx 'maleri' før dataflytningen).
+  const mediaSlags = Array.from(new Set<string>([...MEDIA_SLAGS.map((m) => m.code), meta.slags].filter(Boolean)));
   const warning = ret.maaPubliceres && (ret.status === 'spaerret' || ret.status === 'begraenset');
-  const statusLine = [media.slags, media.uploadStatus,
+  const statusLine = [mediaSlagsLabel(media.slags), media.uploadStatus,
     media.bredde && media.hoejde ? `${media.bredde}×${media.hoejde}` : null,
     media.byteSize != null ? `${Math.round(media.byteSize / 1024)} KB` : null,
     media.originalFilnavn].filter(Boolean).join(' · ');
@@ -204,7 +205,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
           </button>
         ) : <div style={{ height: 180, borderRadius: 10, background: C.beige, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 7, opacity: media.uploadStatus === 'fjernet' ? .5 : 1 }}>
           <span aria-hidden style={{ fontSize: 34, color: C.muted }}>▤</span>
-          <span style={{ fontSize: 13, color: C.muted }}>{media.slags || 'dokument'}</span>
+          <span style={{ fontSize: 13, color: C.muted }}>{mediaSlagsLabel(media.slags) || 'Dokument'}</span>
         </div>}
         <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10.5, color: C.muted2, marginTop: 6 }}>{statusLine || 'ingen filmetadata'}</div>
 
@@ -213,7 +214,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
           <div style={label}>Slags</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {mediaSlags.map((s) => <button type="button" key={s} disabled={fletBusy} onClick={() => { if (!fletBusy) setMeta((m) => ({ ...m, slags: s })); }}
-              style={{ border: 0, borderRadius: 6, padding: '5px 9px', cursor: 'pointer', background: meta.slags === s ? C.bordeaux : C.beige, color: meta.slags === s ? '#fff' : C.muted }}>{s}</button>)}
+              style={{ border: 0, borderRadius: 6, padding: '5px 9px', cursor: 'pointer', background: meta.slags === s ? C.bordeaux : C.beige, color: meta.slags === s ? '#fff' : C.muted }}>{mediaSlagsLabel(s)}</button>)}
           </div>
           <div style={label}>Titel</div><input disabled={fletBusy} value={meta.titel} onChange={(e) => { if (!fletBusy) setMeta((m) => ({ ...m, titel: e.target.value })); }} style={input} />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>

@@ -4,6 +4,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { ArmsView } from '../ArmsView';
 import type { MediaItem } from '../../data/media';
+import type { ArmsItem } from '../../data/public';
 
 const billede = (id: string, titel: string): MediaItem => ({
   id, slags: 'våben', titel, kunstner: '', datering: '', url: `https://x/${id}.jpg`, thumbUrl: `https://x/${id}-t.jpg`,
@@ -22,5 +23,15 @@ describe('ArmsView — våbengalleri', () => {
     expect(screen.queryByText('Våben i Danmarks Adels Aarbog 2018-20')).toBeNull();
     rerender(<ArmsView arms={[]} galleri={null} />);
     expect(screen.queryByText('Våben i Danmarks Adels Aarbog 2018-20')).toBeNull();
+  });
+
+  it('udelader billeder, der allerede vises som hovedvåben eller variant (linjevåbnene media 7-8, spec 2026-11-25)', () => {
+    const arms = [
+      { id: '1', blasonering: 'b1', note: '', media: [billede('7', 'Den lensgrevelige linje af 1767')] },
+      { id: '2', blasonering: 'b2', note: 'Den grevelige linje', media: [billede('8', 'Den grevelige linje af 1673')] },
+    ] as unknown as ArmsItem[];
+    render(<ArmsView arms={arms} galleri={[billede('7', 'Den lensgrevelige linje af 1767'), billede('185', 'Våben: von Reventlow')]} />);
+    expect(screen.getByText('Våben: von Reventlow')).toBeTruthy();
+    expect(screen.queryByText('Den lensgrevelige linje af 1767')).toBeNull();
   });
 });

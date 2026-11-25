@@ -12,8 +12,8 @@ import {
 import { oversaetFejl, submitChange } from '../../data/redaktionWrite';
 import { useStore } from '../../store/useStore';
 import { Border, Colors, Radius } from '../../theme/tokens';
+import { MEDIA_SLAGS, MEDIA_SLAGS_STANDARD } from '@daa/core';
 
-const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
 export type MediaUploadTarget = { afbildetPersonId: string } | { objektType: string; objektId: string };
 type MediaDedupState = {
@@ -33,7 +33,7 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
   const router = useRouter();
   const [picked, setPicked] = useState<PickedImage | null>(null);
   const [busy, setBusy] = useState(false);
-  const [slags, setSlags] = useState<string>('foto');
+  const [slags, setSlags] = useState<string>(MEDIA_SLAGS_STANDARD);
   const [titel, setTitel] = useState('');
   const [kunstner, setKunstner] = useState('');
   const [datering, setDatering] = useState('');
@@ -150,9 +150,9 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
             </View>;
           })() : picked ? <>
             <Mono size={9} color={Colors.goldInk} style={{ marginTop: 14, marginBottom: 6 }}>SLAGS</Mono>
-            <View style={styles.chips}>{MEDIA_SLAGS.map((s) => (
-              <Pressable key={s} style={[styles.chip, slags === s && styles.chipAktiv]} onPress={() => setSlags(s)}>
-                <BtnLabel size={11} color={slags === s ? '#fff' : Colors.inkMuted}>{s}</BtnLabel>
+            <View style={styles.chips}>{MEDIA_SLAGS.map(({ code, label }) => (
+              <Pressable key={code} style={[styles.chip, slags === code && styles.chipAktiv]} onPress={() => setSlags(code)}>
+                <BtnLabel size={11} color={slags === code ? '#fff' : Colors.inkMuted}>{label}</BtnLabel>
               </Pressable>
             ))}</View>
             <TextInput style={styles.input} placeholder="Titel" placeholderTextColor={Colors.inkMuted} value={titel} onChangeText={setTitel} />

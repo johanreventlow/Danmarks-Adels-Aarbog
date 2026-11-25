@@ -18,7 +18,7 @@ import {
   fetchForaeldreSlot, fetchForaeldreKonflikter, fetchBarnFamilie, type ForaeldreSlot, type ForaeldreKonflikt, type BarnFamilie,
   fetchMediaBibliotek, fetchMediaAnvendelse, fetchUdrensPreview, formatMedieAlder, fetchPersonNarrativeRecords, type MediaBibliotekPost, type MediaAnvendelse, type MedieKoe, type UdrensPreview,
 } from './data/redaktionRead';
-import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, foldePrognose, insertAt, makeToken, normaliserOcrDato, prognoseGrundlag, type OcrFelt, type SameAsEdge, type PersonKvalitetsarkRow } from '@daa/core';
+import { GRADE_FORAELDER_UKENDT, GRADE_INGEN_FORBINDELSE, MEDIA_SLAGS, MEDIA_SLAGS_STANDARD, foldePrognose, insertAt, makeToken, mediaSlagsLabel, normaliserOcrDato, prognoseGrundlag, type OcrFelt, type SameAsEdge, type PersonKvalitetsarkRow } from '@daa/core';
 import { loadModel } from './data/model';
 import type { Model } from './data/types';
 import { submitChange, describeCall, erFortrydKonflikt, oversaetFejl, planCall, resumeMediaUpload, DATE_FELT, type Change } from './data/redaktionWrite';
@@ -57,7 +57,6 @@ import { T } from './theme';
 import { SignedImg } from './components/SignedImg';
 import { STORY_DATO_KVALIFIKATORER } from './data/datoKvalifikatorer';
 
-const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const MEDIA_RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
 type StoryDraft = {
   storyId: number | null; titel: string; tekst: string; privat: boolean;
@@ -286,7 +285,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   const [mediaPick, setMediaPick] = useState<{ file: File; previewUrl: string } | null>(null);
   const [mediaDedup, setMediaDedup] = useState<MediaDedupState | null>(null);
   const [mediaForm, setMediaForm] = useState<{ slags: string; titel: string; kunstner: string; datering: string; rettighederStatus: string; maaPubliceres: boolean }>(
-    { slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false });
+    { slags: MEDIA_SLAGS_STANDARD, titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false });
   const [mediaBusy, setMediaBusy] = useState(false); // Slice B2: klient-genkodning tager et øjeblik
   // Retningsbekræftelse for et nyt samme_som-link: den valgte person + hvem der er kanonisk.
   const [ssConfirm, setSsConfirm] = useState<{ personId: string; navn: string; kanoniskId: string } | null>(null);
@@ -612,7 +611,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
     fetchSammeSomLinks(id).then((v) => { if (aktuel()) setSammeSom(v); })
       .catch((e) => { if (aktuel()) setSammeSom([]); meld(e); });
     if (!opts?.skipMedia) {
-      setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
+      setMedia([]); setMediaPick(null); setMediaForm({ slags: MEDIA_SLAGS_STANDARD, titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
       fetchRedPersonMedia(id).then((v) => { if (aktuel()) setMedia(v); })
         .catch((e) => { if (aktuel()) setMedia([]); meld(e); });
     }
@@ -712,7 +711,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   useEffect(() => {
     if (!slaegtSubjekt) return;
     loadNarrativer(slaegtSubjekt.type, slaegtSubjekt.id);
-    setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
+    setMedia([]); setMediaPick(null); setMediaForm({ slags: MEDIA_SLAGS_STANDARD, titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
     if (slaegtSubjekt.type !== 'lineage') return;
     let aktiv = true;
     fetchRedObjectMedia('lineage', String(slaegtSubjekt.id))
@@ -733,7 +732,7 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
   }, [entity, curRecord, erValgt]);
   useEffect(() => {
     if (!HAR_OBJEKT_MATERIALE.has(entity)) return;
-    setMedia([]); setMediaPick(null); setMediaForm({ slags: 'foto', titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
+    setMedia([]); setMediaPick(null); setMediaForm({ slags: MEDIA_SLAGS_STANDARD, titel: '', kunstner: '', datering: '', rettighederStatus: 'ukendt', maaPubliceres: false }); setMediaDetalje(null);
     refreshObjMedia();
     // refreshObjMedia afhænger kun af entity+curRecord.id reelt (curRecord-objektet skifter
     // reference oftere end det); undgår gen-fetch-loop på uændret post.
@@ -1187,11 +1186,11 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
                   <div key={m.id} onClick={() => { openRecord('media', m.id); setMediaDetalje({ id: m.id, subjektType: 'media', subjektId: m.id }); }}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px', borderRadius: 9, cursor: 'pointer', background: m.id === recordId ? T.surfaceSunken : 'transparent', opacity: m.uploadStatus === 'fjernet' ? .55 : 1 }}>
                     {erBillede ? <SignedImg src={m.thumbUrl!} alt={m.titel ?? m.slags} style={{ width: 42, height: 42, borderRadius: 7, objectFit: 'cover', background: T.surfaceSunken, flex: 'none' }} />
-                      : <span style={{ width: 42, height: 42, borderRadius: 7, background: T.surfaceSunken, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: T.inkMuted, flex: 'none', fontSize: 17 }}>▤<small style={{ fontSize: 8 }}>{m.slags}</small></span>}
+                      : <span style={{ width: 42, height: 42, borderRadius: 7, background: T.surfaceSunken, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: T.inkMuted, flex: 'none', fontSize: 17 }}>▤<small style={{ fontSize: 8 }}>{mediaSlagsLabel(m.slags)}</small></span>}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontFamily: T.serif, fontSize: 15.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.titel || '(uden titel)'}</div>
                       <div style={{ fontFamily: T.mono, fontSize: 9, color: T.inkMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {m.slags}{m.uploadStatus !== 'klar' ? ` · ${m.uploadStatus}` : ''}{m.maaPubliceres ? '' : ' · ej publiceret'}
+                        {mediaSlagsLabel(m.slags)}{m.uploadStatus !== 'klar' ? ` · ${m.uploadStatus}` : ''}{m.maaPubliceres ? '' : ' · ej publiceret'}
                       </div>
                       <div style={{ fontSize: 10.5, color: T.inkMuted, marginTop: 2 }}>bruges {antalBrug} {antalBrug === 1 ? 'sted' : 'steder'}</div>
                       {alder ? (
@@ -1633,11 +1632,11 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
                       style={{ width: 96, height: 96, borderRadius: 10, background: T.surfaceSunken,
                         cursor: mayUpload ? 'pointer' : 'default', opacity: m.uploadStatus === 'fjernet' ? .45 : 1,
                         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: T.inkMuted }}>
-                      <span style={{ fontSize: 28 }}>▤</span><span style={{ fontSize: 10 }}>{m.slags || 'dokument'}</span>
+                      <span style={{ fontSize: 28 }}>▤</span><span style={{ fontSize: 10 }}>{mediaSlagsLabel(m.slags) || 'Dokument'}</span>
                     </div>
                   )}
                   <div style={{ fontFamily: T.mono, fontSize: 9, color: T.inkMuted, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {m.slags}{m.uploadStatus !== 'klar' ? ` · ${m.uploadStatus}` : ''}{m.maaPubliceres ? '' : ' · ej publiceret'}
+                    {mediaSlagsLabel(m.slags)}{m.uploadStatus !== 'klar' ? ` · ${m.uploadStatus}` : ''}{m.maaPubliceres ? '' : ' · ej publiceret'}
                   </div>
                   {mayUpload ? (
                     <div style={{ display: 'flex', gap: 8, marginTop: 3 }}>
@@ -1678,10 +1677,10 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
                   <img src={mediaPick.previewUrl} alt="" style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 10, flex: 'none' }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 8 }}>
-                      {MEDIA_SLAGS.map((s) => (
-                        <span key={s} onClick={() => setMediaForm((f) => ({ ...f, slags: s }))}
-                          style={{ fontFamily: T.mono, fontSize: 11, fontWeight: 600, padding: '4px 8px', borderRadius: 6, cursor: 'pointer', background: mediaForm.slags === s ? T.bordeaux : T.surfaceSunken, color: mediaForm.slags === s ? T.onBordeaux : T.inkMuted }}>
-                          {s}
+                      {MEDIA_SLAGS.map(({ code, label }) => (
+                        <span key={code} onClick={() => setMediaForm((f) => ({ ...f, slags: code }))}
+                          style={{ fontFamily: T.mono, fontSize: 11, fontWeight: 600, padding: '4px 8px', borderRadius: 6, cursor: 'pointer', background: mediaForm.slags === code ? T.bordeaux : T.surfaceSunken, color: mediaForm.slags === code ? T.onBordeaux : T.inkMuted }}>
+                          {label}
                         </span>
                       ))}
                     </div>

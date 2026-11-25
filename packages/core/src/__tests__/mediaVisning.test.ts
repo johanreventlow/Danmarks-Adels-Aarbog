@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { erPortraetSlags, mediaCaption } from '../mediaVisning';
+import { erPortraetSlags, MEDIA_SLAGS, MEDIA_SLAGS_STANDARD, mediaCaption, mediaSlagsLabel } from '../mediaVisning';
 
 describe('mediaCaption', () => {
   it('samler titel · kunstner · datering og springer tomme over', () => {
@@ -22,5 +22,20 @@ describe('erPortraetSlags', () => {
     expect(erPortraetSlags('segl')).toBe(false);
     expect(erPortraetSlags('våben')).toBe(false);
     expect(erPortraetSlags(undefined)).toBe(false);
+  });
+});
+
+describe('MEDIA_SLAGS (billedtype = motiv; spec 2026-11-25-media-slags-ordliste)', () => {
+  it('er de seks motiver i fast rækkefølge — samme liste som vocab-rækkerne i db-verify.sql', () => {
+    expect(MEDIA_SLAGS.map((s) => s.code)).toEqual(['portræt', 'våben', 'segl', 'medalje', 'gods', 'dokument']);
+    expect(MEDIA_SLAGS.map((s) => s.label)).toEqual(['Portræt', 'Våben', 'Segl', 'Medalje', 'Gods', 'Dokument']);
+  });
+  it('standardvalget ved upload er portræt', () => {
+    expect(MEDIA_SLAGS_STANDARD).toBe('portræt');
+  });
+  it('mediaSlagsLabel viser label for kendte koder og koden selv for ukendte/gamle', () => {
+    expect(mediaSlagsLabel('våben')).toBe('Våben');
+    expect(mediaSlagsLabel('maleri')).toBe('maleri');
+    expect(mediaSlagsLabel(null)).toBe('');
   });
 });
