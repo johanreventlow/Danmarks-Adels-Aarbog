@@ -10,10 +10,15 @@ const purgeLabels: Record<string, string> = {
   anden_promotion: 'En anden persons kildebinding bruger profilen',
   aaben_koersel: 'En kørsel er stadig åben', aaben_batch: 'En batch er stadig åben',
   afventer_kontrol: 'En kildepersona afventer kontrol',
-  samme_som_knudepunkt: 'Profilen er knudepunkt for andre profiler',
+  // Review 37 R37P11-3 (ceremoni 2): reglen består; teksten viser vejen ud.
+  samme_som_knudepunkt: 'Profilen er knudepunkt for andre profiler. Fjern først koblingerne under »Samme person« på profilens redigeringsside, og hent så en ny forhåndsvisning.',
   link_i_tekst: 'En bevaret tekst linker til profilen eller dens data',
   laast_familiefoto: 'Låst familiefoto: tjek billedet, før det frigives igen',
   bevaret_evidens: 'Bevaret kilde/påstand på et låst familiefoto: kan nævne profilen',
+  // Review 37 P3/P10 (ceremoni 2): kontrollistens tekstfund.
+  fritekst: 'Teksten nævner profilens navn',
+  kun_id: 'Teksten rummer profilens eller en families id som tal — ofte et årstal, sidetal eller en anden talværdi i kildedata',
+  bevaret_summary: 'Et bevaret ændringssæts beskrivelse kan nævne profilen',
 };
 
 // Review 37 P6: tabeller med danske navne i stedet for rå stedkoder (»S37b«); koderne står under »Detaljer«.
@@ -41,6 +46,26 @@ type Props = {
   // Review 37 P11: når »Slet person…« vælger den fulde sletning, står overskrift og begrundelse øverst.
   overskrift?: string; intro?: ReactNode;
 };
+type KontrolPost = { k: PurgePreview['til_kontrol'][number]; i: number };
+// Links til hvert kontrolsted + selve stederne. Også interne steder uden en redaktionseditor har et konkret linkmål og
+// fuld PK. Ankrene bruger indekset i hele listen, så de er entydige på tværs af grupperne.
+function kontrolListe(poster: KontrolPost[]) {
+  return <>
+    <ul>{poster.map(({ k, i }) => <li key={i}>
+      <a href={`#purge-kontrol-${i}`}>{k.sted} · {k.tabel} · {JSON.stringify(k.pk)}</a>
+    </li>)}</ul>
+    {poster.map(({ k, i }) => {
+      const entity = k.tabel.replace(/^public\./, '');
+      const href = ['person', 'family', 'narrative', 'media', 'source', 'estate'].includes(entity) && k.pk.id != null
+        ? `/redaktion/${entity}/${encodeURIComponent(String(k.pk.id))}` : null;
+      return <div key={i} id={`purge-kontrol-${i}`} tabIndex={-1} style={{ borderTop: `1px solid ${T.line}`, padding: 8 }}>
+        <b>{k.sted} · {k.tabel}</b><p>{JSON.stringify(k.pk)} · {purgeLabels[k.grund] ?? k.grund}</p>
+        {href && <a href={href} target="_blank" rel="noreferrer">Åbn stedet i Redaktion</a>}
+      </div>;
+    })}
+  </>;
+}
+
 export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurgePreview, execute, oprydning, onDeleted, onClose,
   overskrift = 'Slet helt', intro }: Props) {
   const [preview, setPreview] = useState<PurgePreview | null>(null);
@@ -151,19 +176,15 @@ export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurg
         {preview.levende_bruger && <p>Profilen er knyttet til en levende bruger. Koblingen til profilen fjernes.</p>}
         {preview.advarsler.length ? <ul>{preview.advarsler.map((a, i) => <li key={i}>{purgeLabels[a.art] ?? a.art}<details><summary>Detaljer</summary><code>{JSON.stringify(a)}</code></details></li>)}</ul> : <p>Ingen øvrige advarsler.</p>}
         <h3>Til kontrol</h3>
-        <ul>{preview.til_kontrol.map((k, i) => <li key={i}>
-          <a href={`#purge-kontrol-${i}`}>{k.sted} · {k.tabel} · {JSON.stringify(k.pk)}</a>
-        </li>)}</ul>
-        {/* Også interne steder uden en redaktionseditor har et konkret linkmål og fuld PK. */}
-        {preview.til_kontrol.map((k, i) => {
-          const entity = k.tabel.replace(/^public\./, '');
-          const href = ['person', 'family', 'narrative', 'media', 'source', 'estate'].includes(entity) && k.pk.id != null
-            ? `/redaktion/${entity}/${encodeURIComponent(String(k.pk.id))}` : null;
-          return <div key={i} id={`purge-kontrol-${i}`} tabIndex={-1} style={{ borderTop: `1px solid ${T.line}`, padding: 8 }}>
-            <b>{k.sted} · {k.tabel}</b><p>{JSON.stringify(k.pk)} · {purgeLabels[k.grund] ?? k.grund}</p>
-            {href && <a href={href} target="_blank" rel="noreferrer">Åbn stedet i Redaktion</a>}
-          </div>;
-        })}
+        {/* Review 37 P10 (ceremoni 2): fund, der kun er et id-tal, står for sig (sammenklappet), så navnefund ikke drukner. */}
+        {kontrolListe(preview.til_kontrol.map((k, i) => ({ k, i })).filter(({ k }) => k.grund !== 'kun_id'))}
+        {(() => {
+          const tal = preview.til_kontrol.map((k, i) => ({ k, i })).filter(({ k }) => k.grund === 'kun_id');
+          return tal.length > 0 && <details>
+            <summary>Kun et id-tal ({tal.length}) — ofte et årstal, sidetal eller en anden talværdi i kildedata</summary>
+            {kontrolListe(tal)}
+          </details>;
+        })()}
         <label>Skriv personens id for at bekræfte
           <input aria-label="Personens id" value={typedId} onChange={(e) => setTypedId(e.target.value)} disabled={busy || done} autoComplete="off" />
         </label>

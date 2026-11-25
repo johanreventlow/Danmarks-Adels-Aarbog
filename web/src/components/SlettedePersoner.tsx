@@ -3,16 +3,20 @@
 // (red_fortryd_change_set). En person slettet helt (GDPR) står ikke her: den sletning tager historikken med.
 import { useEffect, useRef, useState } from 'react';
 import { fetchSlettedePersoner, type SlettetPerson } from '../data/redaktionRead';
-import { oversaetFejl } from '../data/redaktionWrite';
+import { erFortrydKonflikt, oversaetFejl } from '../data/redaktionWrite';
 import { T } from '../theme';
 
 type Props = {
   role: string | undefined; dryRun: boolean;
-  load?: () => Promise<SlettetPerson[]>;
-  // Fortryd ét ændringssæt. Returnerer om det kun var dry-run; kaster ved fejl.
-  fortryd: (r: SlettetPerson) => Promise<{ dryRun: boolean }>;
+  load?: (limit: number) => Promise<SlettetPerson[]>;
+  // Fortryd ét ændringssæt (force: overskriv nyere ændringer). Returnerer om det kun var dry-run; kaster ved fejl.
+  fortryd: (r: SlettetPerson, opts?: { force?: boolean }) => Promise<{ dryRun: boolean }>;
   revision?: number;
 };
+
+// Review 37 R37P11-1 (ceremoni 2): listen hentes 100 ad gangen op til databasens loft (red_slettede_personer: 500).
+const SIDE = 100;
+const LOFT = 500;
 
 const naar = (iso: string) => {
   const d = new Date(iso);
@@ -26,34 +30,46 @@ export function SlettedePersoner({ role, dryRun, load = fetchSlettedePersoner, f
   const [busy, setBusy] = useState<string | null>(null);
   const [rowFejl, setRowFejl] = useState<Record<string, string>>({});
   const [status, setStatus] = useState('');
+  const [konfliktId, setKonfliktId] = useState<string | null>(null);
+  const [limit, setLimit] = useState(SIDE);
+  // Antal rækker i seneste hentning: afgør »Vis flere«, også efter at en række er genskabt og fjernet lokalt.
+  const [hentet, setHentet] = useState(0);
   const writing = useRef(false);
+  // Sæt, der er fortrudt her: en hentning, der læste før fortrydelsens commit, må ikke vise dem igen.
+  const genskabt = useRef(new Set<string>());
   const redaktion = role === 'redaktion';
 
   useEffect(() => {
     if (!redaktion) return;
     let active = true;
-    setRows(null); setFejl('');
-    load().then((r) => { if (active) setRows(r); })
+    setFejl('');
+    load(limit).then((r) => {
+      if (active) { setRows(r.filter((x) => !genskabt.current.has(x.changeSetId))); setHentet(r.length); }
+    })
       .catch((e: unknown) => { if (active) setFejl(oversaetFejl(String((e as Error)?.message ?? e))); });
     return () => { active = false; };
-  }, [load, redaktion, revision, genhent]);
+  }, [load, redaktion, revision, genhent, limit]);
 
   if (!redaktion) return <div style={{ padding: 24 }}>Kun redaktionen kan se slettede personer.</div>;
 
-  const udfoer = async (r: SlettetPerson) => {
+  const udfoer = async (r: SlettetPerson, force = false) => {
     if (writing.current) return;
-    writing.current = true; setBusy(r.changeSetId); setStatus('');
+    writing.current = true; setBusy(r.changeSetId); setStatus(''); setKonfliktId(null);
     setRowFejl((f) => { const n = { ...f }; delete n[r.changeSetId]; return n; });
     try {
-      const res = await fortryd(r);
+      const res = force ? await fortryd(r, { force: true }) : await fortryd(r);
       if (res.dryRun) {
         setStatus('Dry-run: intet er fortrudt.');
       } else {
+        genskabt.current.add(r.changeSetId);
         setRows((rs) => (rs ?? []).filter((x) => x.changeSetId !== r.changeSetId));
         setStatus(`${r.navn ?? `Person ${r.personId}`} (id ${r.personId}) er genskabt.`);
       }
     } catch (e) {
-      setRowFejl((f) => ({ ...f, [r.changeSetId]: oversaetFejl(String((e as Error)?.message ?? e)) }));
+      const raw = String((e as Error)?.message ?? e);
+      // Nyere ændringer rører samme data: tilbyd tvangsvalget som i historikpanelet (HistorikPanel.tsx).
+      if (!force && erFortrydKonflikt(raw)) setKonfliktId(r.changeSetId);
+      else setRowFejl((f) => ({ ...f, [r.changeSetId]: oversaetFejl(raw) }));
     } finally { writing.current = false; setBusy(null); }
   };
 
@@ -82,9 +98,22 @@ export function SlettedePersoner({ role, dryRun, load = fetchSlettedePersoner, f
             {busy === r.changeSetId ? 'Fortryder…' : 'Fortryd sletning'}
           </button>
           {rowFejl[r.changeSetId] && <p role="alert" style={{ color: T.danger, margin: '6px 0 0', textAlign: 'left' }}>{rowFejl[r.changeSetId]}</p>}
+          {konfliktId === r.changeSetId && <div role="alert" style={{ margin: '6px 0 0', textAlign: 'left' }}>
+            <p style={{ margin: '0 0 6px' }}>Nyere ændring rører samme data — fortrydes der alligevel, overskrives den.</p>
+            <button type="button" disabled={busy !== null} onClick={() => udfoer(r, true)}
+              aria-label={`Fortryd alligevel: ${r.navn ?? `person ${r.personId}`}`}
+              style={{ fontSize: 13, fontWeight: 600, borderRadius: 8, padding: '6px 12px', border: `1px solid ${T.danger}`, background: T.surfaceRaised, color: T.danger, marginRight: 8 }}>
+              Fortryd alligevel
+            </button>
+            <button type="button" onClick={() => setKonfliktId(null)}
+              style={{ fontSize: 13, borderRadius: 8, padding: '6px 12px', border: `1px solid ${T.line}`, background: T.surfaceRaised }}>Annullér</button>
+          </div>}
         </td>
       </tr>)}</tbody>
     </table>}
+    {rows && hentet >= limit && limit < LOFT && <button type="button" onClick={() => setLimit((n) => Math.min(n + SIDE, LOFT))}
+      style={{ marginTop: 12, fontSize: 13, borderRadius: 8, padding: '6px 12px', border: `1px solid ${T.line}`, background: T.surfaceRaised }}>Vis flere</button>}
+    {rows && hentet >= LOFT && <p style={{ fontSize: 12.5, color: T.inkMuted }}>Viser de 500 nyeste sletninger.</p>}
     {dryRun && <p style={{ fontSize: 12.5 }}>Dry-run er slået til.</p>}
   </section>;
 }

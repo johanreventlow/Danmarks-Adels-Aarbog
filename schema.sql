@@ -7372,6 +7372,10 @@ BEGIN
   -- Review 37 D11: et ukendt id er en fejl, før ændringssættet åbnes (ikke falsk succes med et tomt sæt).
   IF NOT EXISTS (SELECT 1 FROM person WHERE id = p_person_id) THEN
     RAISE EXCEPTION 'Person % findes ikke', p_person_id; END IF;
+  -- Review 37 ceremoni 2 (R37P11-3): samme låseprotokol som red_slet_person — samme_som-låsen før personrækkerne. Uden
+  -- den kunne sletningen af X (låser gruppen i stigende id) og privat-flaget på gruppemedlemmet Y (låser Y; triggeren
+  -- regenererer bagefter X's visning_floruit) vente på hinanden i hver sin orden (40P01). Ingen andre låse tages før.
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
   PERFORM begin_change_set('red_set_privat', format('Satte privat-flag på person %s', p_person_id), 'person', p_person_id);
   UPDATE person SET privat = p_privat WHERE id = p_person_id;
 END $$;
@@ -7608,7 +7612,22 @@ BEGIN
   -- danne cyklussen external-id→citation / citation→external-id.
   PERFORM 1 FROM source s JOIN person_external_id pei ON pei.source_id=s.id
     WHERE pei.person_id=p_person_id ORDER BY s.id,pei.source_id FOR UPDATE OF s,pei;
-  PERFORM private.lock_identity_people(ARRAY[p_person_id]);
+  -- Review 37 R37P11-3 (ceremoni 2): lås hele samme_som-gruppen (stigende id, i ét kald), ikke kun P. Om P er offentlig,
+  -- afhænger også af de andre medlemmers levende/privat (person_gruppe_skjult); uden låsen kunne red_set_privat på et
+  -- medlem committe mellem tjekket og sletningen. Kanterne er stabile under samme_som_mutation-låsen ovenfor. Kun
+  -- medlemmer, der findes: en kant til en manglende person gør gruppen skjult, og så afvises sletningen nedenfor.
+  PERFORM private.lock_identity_people(ARRAY(
+    WITH RECURSIVE grp(pid) AS (
+      SELECT p_person_id
+      UNION
+      SELECT n.pid FROM grp g CROSS JOIN LATERAL (
+        SELECT r.objekt_id FROM public.relation r
+         WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person' AND r.subjekt_id=g.pid
+        UNION ALL
+        SELECT r.subjekt_id FROM public.relation r
+         WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person' AND r.objekt_id=g.pid
+      ) n(pid))
+    SELECT g.pid FROM grp g WHERE g.pid=p_person_id OR EXISTS (SELECT 1 FROM public.person p WHERE p.id=g.pid)));
 
   -- Review 37 P11: kun en offentlig person kan slettes, så det kan fortrydes. En offentlig person indgår ikke i nogen
   -- skjul-regel (family_offentlig skjuler for et IKKE-offentligt medlem, media_afbilder_skjult for en ikke-offentlig
@@ -7618,8 +7637,8 @@ BEGIN
   -- offentlig partner offentlig (vielsen), et fællesbillede mister sin skjul-kobling, og en ældre udgaves registrering
   -- af samme nulevende bliver synlig. Og en ikke-offentlig persons oplysninger skal alligevel slettes helt
   -- (red_slet_person_helt): change_event-historikken, som gør denne sletning fortrydelig, bevarer dem ellers.
-  -- Efter rollegaten (intet orakel for ikke-redaktører) og efter låsene: personrækken er låst FOR UPDATE
-  -- (lock_identity_people, red_set_privat venter), og samme_som-mutationerne venter på advisory-låsen ovenfor.
+  -- Efter rollegaten (intet orakel for ikke-redaktører) og efter låsene: personrækkerne i hele samme_som-gruppen er
+  -- låst FOR UPDATE (lock_identity_people, red_set_privat venter), og samme_som-mutationerne venter på advisory-låsen.
   -- Undtagelsen ruller også change_set'et tilbage.
   v_aarsag:=private.person_slet_aarsag(p_person_id);
   IF v_aarsag IS NOT NULL THEN
@@ -24455,7 +24474,8 @@ WITH plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_plan) q(tabel text
   tokens AS (SELECT '(^|[^0-9])('||string_agg(id::text,'|' ORDER BY id)||')([^0-9]|$)' AS rx
     FROM (SELECT p_person_id AS id UNION SELECT id FROM fam) ids),
   navn AS MATERIALIZED (SELECT n.navn,substring(to_jsonb(n.navn)::text FROM 2 FOR length(to_jsonb(n.navn)::text)-2) AS json_navn
-    FROM (SELECT nullif(visning_navn,'') AS navn FROM public.person WHERE id=p_person_id) n),
+    -- Ceremoni 2: trimmet, så et navn af blanktegn ikke matcher enhver tekst med et mellemrum.
+    FROM (SELECT nullif(btrim(visning_navn),'') AS navn FROM public.person WHERE id=p_person_id) n),
   -- Projektejeren 2026-11-20 (runde 4, E): bevarede medie↔familie-koblinger (rk) på Fam_ind-familier. Det låste billede
   -- og den bevarede evidens på koblingen kommer ALTID på listen (ikke kun ved navn/token, jf. Q8), så redaktøren ser dem
   -- før en genfrigivelse; evidensens tekst kan nævne personen uden token.
@@ -24573,12 +24593,42 @@ WITH plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_plan) q(tabel text
   UNION ALL
   SELECT 'S58'::text AS sted,'private.entity_description_source'::text AS tabel,jsonb_build_object('description_id',t.description_id,'source_record_id',t.source_record_id) AS pk,
     concat_ws(' ',t.citation_note::text) AS tekst FROM private.entity_description_source t WHERE true
+  UNION ALL
+  -- Review 37 P3 (ceremoni 2): andre bevarede tekster, der kan nævne P i ren tekst. Søges som resten (navn og id-tal;
+  -- projektejeren 25/11); id-tal i påstande er ofte årstal og står derfor som »kun_id«. Rækker, som S38b ovenfor
+  -- allerede dækker (påstande og citater på bevarede familiers fakta), står ikke her igen.
+  SELECT 'S58'::text AS sted,'story'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.titel::text,t.tekst::text) AS tekst FROM public.story t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'entity_description'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.tekst::text) AS tekst FROM public.entity_description t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'assertion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.vaerdi_tekst::text) AS tekst FROM public.assertion t WHERE t.vaerdi_tekst IS NOT NULL
+      AND (t.target_type='fact' AND t.target_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep))) IS NOT TRUE
+      -- Evidens på bevarede medie↔familie-koblinger står allerede som NY-E (bevaret_evidens) nedenfor.
+      AND (t.target_type='relation' AND t.target_id IN (SELECT id FROM rk)) IS NOT TRUE
+  UNION ALL
+  SELECT 'S58'::text AS sted,'citation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.citat_tekst::text) AS tekst FROM public.citation t WHERE t.citat_tekst IS NOT NULL
+      -- IS NOT TRUE: et citat uden påstand (assertion_id NULL) skal også med.
+      AND (t.assertion_id IN (SELECT a.id FROM public.assertion a JOIN public.fact f ON a.target_type='fact' AND a.target_id=f.id WHERE f.subjekt_type='family' AND f.subjekt_id IN (SELECT id FROM fam_keep))) IS NOT TRUE
+      AND (t.assertion_id IN (SELECT a.id FROM public.assertion a WHERE a.target_type='relation' AND a.target_id IN (SELECT id FROM rk))) IS NOT TRUE
+  ),
+  -- Review 37 P10 (ceremoni 2): ét fund pr. række. Et navnetræf er »fritekst«; et træf, der KUN er P's eller en families
+  -- id som tal (ofte et årstal, sidetal eller en talværdi i kildedataenes JSON), er »kun_id«. Søgningen er lige så
+  -- bred som før (projektejeren 25/11).
+  traef AS (
+    SELECT t.sted,t.tabel,t.pk,
+      (navn.navn IS NOT NULL AND (position((navn.navn COLLATE "C") IN (t.tekst COLLATE "C"))>0
+        OR position((navn.json_navn COLLATE "C") IN (t.tekst COLLATE "C"))>0)) AS navn_hit,
+      (t.tekst COLLATE "C" ~ tokens.rx) AS id_hit
+    FROM tekster t CROSS JOIN tokens CROSS JOIN navn
   )
-SELECT DISTINCT t.sted,t.tabel,t.pk,'fritekst'::text FROM tekster t CROSS JOIN tokens CROSS JOIN navn
-WHERE (t.tekst COLLATE "C" ~ tokens.rx OR (navn.navn IS NOT NULL AND (
-    position((navn.navn COLLATE "C") IN (t.tekst COLLATE "C"))>0
-    OR position((navn.json_navn COLLATE "C") IN (t.tekst COLLATE "C"))>0)))
+SELECT t.sted,t.tabel,t.pk,CASE WHEN bool_or(t.navn_hit) THEN 'fritekst' ELSE 'kun_id' END::text FROM traef t
+WHERE (t.navn_hit OR t.id_hit)
   AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel=t.tabel AND d.pk=t.pk AND d.handling='slet')
+GROUP BY t.sted,t.tabel,t.pk
 UNION
 SELECT 'NY-E'::text,'media'::text,jsonb_build_object('id',k.media_id),'laast_familiefoto'::text FROM rk k
   WHERE EXISTS (SELECT 1 FROM plan d WHERE d.tabel='media' AND d.pk=jsonb_build_object('id',k.media_id) AND d.handling='skjul')
@@ -25050,7 +25100,9 @@ DECLARE
   v_storage int; v_personas int:=0; v_pk_pred text; v_schema text; v_table text;
 BEGIN
   PERFORM set_config('lock_timeout','5s',true);
-  PERFORM set_config('statement_timeout','30s',true);
+  -- Review 37 P9: ingen statement_timeout her. PostgreSQL binder tidsgrænsen ved sætningens start, så en set_config
+  -- inde i funktionen virker ikke på det kald, der allerede kører. Grænsen er kalderens rolle-statement_timeout
+  -- (redaktøren 8 s via PostgREST); store profiler over 8 s står i backloggen (docs/decisions.md).
   -- Rollegate FØRST, også før kontraktlåsen og alle eksistens-/fremmed-sæt-læsninger.
   IF public.current_rolle() IS DISTINCT FROM 'redaktion' OR auth.uid() IS NULL THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN RAISE EXCEPTION 'PURGE_FREMMED_CHANGE_SET'; END IF;

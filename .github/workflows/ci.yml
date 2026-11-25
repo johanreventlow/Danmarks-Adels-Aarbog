@@ -738,9 +738,9 @@ jobs:
         run: bash tests/sql/test-record-persona-upgrade.sh cirecord_persona_upgrade f37b294a
       - name: Opgradering fra prods skema (billedtype som kontrolleret ordliste · vocab media_slags og trigger)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
-        # 232a0360 = main efter merge af #477 (review 37 ceremoni 1) og #479 — prods SQL (ceremoni 1 målt i prod 25/11).
-        # Ceremoni 1's test er pensioneret (tests/ikke-i-ci.txt), fordi denne blok nu står sidst.
-        run: bash tests/sql/test-media-slags-ordliste-upgrade.sh ci_media_slags_upgrade 232a0360
+        # 0c1288db = main efter merge af #482/#483 (review 37 ceremoni 2, i prod 25/11 §52) — prods SQL. Ceremoni 2's
+        # test er pensioneret (tests/ikke-i-ci.txt), fordi denne blok nu står sidst.
+        run: bash tests/sql/test-media-slags-ordliste-upgrade.sh ci_media_slags_upgrade 0c1288db
       - name: Review 37 R37S8-2 · verify-enheden rød med Supabase-retter, grøn efter blokken (frisk base)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         run: bash tests/sql/test-review37-r37s8-2-seeded.sh ci_r37s8_2_seeded

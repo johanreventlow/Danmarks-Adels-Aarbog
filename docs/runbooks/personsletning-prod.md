@@ -36,8 +36,9 @@ ikke en indholdsløs linje om, at sletningen fandt sted«) også for repoet:
 ## Tidsgrænsen (målt 18/11)
 
 `authenticated` har `statement_timeout=8s` i prod, `authenticator` `lock_timeout=8s`
-(`43-personsletning.sh roller`). Funktionens egen `set_config('statement_timeout','30s',true)` forlænger IKKE kaldet:
-timeren startes, når sætningen begynder (R4). Et klik i Redaktion har altså 8 s.
+(`43-personsletning.sh roller`). En `set_config('statement_timeout',…)` inde i funktionen ville IKKE forlænge kaldet,
+fordi timeren startes, når sætningen begynder (R4). Linjen er derfor fjernet (review 37 P9, ceremoni 2). Et klik i
+Redaktion har altså 8 s.
 
 | Måling | Stand-in (prod-dump 18/11) | Prod (`tid`, læse-kun) |
 |---|---|---|
