@@ -18,10 +18,13 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   fanges stadig ikke.
 > - **R37P11-3:** reglen består: en ikke-offentlig samme_som-knude blokerer »Slet helt«. Dialogen viser vejen (fjern
 >   koblingerne under »Samme person«). `red_slet_person` låser nu hele samme_som-gruppen, så et medlem ikke kan gøres
->   privat mellem tjekket og sletningen.
+>   privat mellem tjekket og sletningen, og `red_set_privat` tager samme_som-låsen først (samme protokol; ellers kunne
+>   de to vente på hinanden via floruit-triggeren, fund fra review). Andre skrivere af `privat`/`levende`/`staged`
+>   (import og promotion) tager ikke låsen; et kapløb dér ender højst i en dødlås, der afvises (kendt rest).
 > - **R37P11-1:** »Slettede personer« tilbyder »Fortryd alligevel« ved konflikt og henter 100 ad gangen op til 500.
 >   Påstanden »bliver en fortrydelse selv fortrudt, er personen væk« holder ikke: et fortrydelsessæt har ingen events, så
->   en fortrydelse af den er en no-op (test `r37p11_1_fortryd_af_fortryd`).
+>   en fortrydelse af den er en no-op (test `r37p11_1_fortryd_af_fortryd`). Den tavse no-op, der melder succes, er
+>   registreret som **R37C2-1** i #397.
 > - **P4** var allerede lukket af P1+P2-rettelsen 20/11 (b4e27c73): historikken for familier i Fam_c dækkes (test
 >   `p4_tidligere_familierelation`).
 > - **Målt på stand-in (prod-dump 24/11, varmt, efter ANALYZE):** uændret tid. Den største profil, der kan slettes:
