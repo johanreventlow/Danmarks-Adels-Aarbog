@@ -18,7 +18,9 @@ import {
   type LivsdatoBy,
   type StorieBy,
 } from '@daa/feed';
+import { chunks, mapLimited } from './bidder';
 import { fetchFeedPins } from './feedPins';
+import { hentSammeSomKanter, type SammeSomKant } from './sammeSomKanter';
 import { fetchHaendelseRows } from './haendelser';
 import { fetchLivsdatoRows } from './livsdato';
 import { fetchStoryRows } from './story';
@@ -176,25 +178,6 @@ type BioSvar = { data: unknown; error: unknown };
 export const BIO_IN_CHUNK = 50;
 export const BIO_PARALLEL = 3;
 
-function chunks<T>(values: readonly T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < values.length; i += size) out.push(values.slice(i, i + size));
-  return out;
-}
-
-async function mapLimited<T, R>(items: readonly T[], limit: number, fn: (item: T) => PromiseLike<R>): Promise<R[]> {
-  const out = new Array<R>(items.length);
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) {
-      const i = next++;
-      out[i] = await fn(items[i]);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return out;
-}
-
 // Én bid: ét forsøg; fejler det, prøves bidden igen som to halvdele. Returnerer rækkerne og de id'er, der stadig fejlede.
 async function hentBioBid(sb: Sb, rpcName: string, ids: number[]): Promise<{ rows: unknown[]; fejlede: number[] }> {
   const kald = (del: number[]) => sb.rpc(rpcName, { p_person_ids: del }) as unknown as PromiseLike<BioSvar>;
@@ -292,8 +275,7 @@ export async function loadFromSupabase(opts?: {
     mediaVariants,
     lineage,
     arms,
-    sameAsRel,
-    approvedConc,
+    sameAsEdges,
   ] = await Promise.all([
       // Alle tabel-læsninger her sorteres på en ENTYDIG nøgle (PK / alle PK-kolonner): getAll
       // offset-paginerer, og uden fast rækkefølge kan rækker springes over/gentages mellem sider.
@@ -352,21 +334,9 @@ export async function loadFromSupabase(opts?: {
       getAll<RawLineage>(() => sb.from('lineage').select('id,source_id,kode,navn,parent_lineage_id').order('id')).catch(() => [] as RawLineage[]),
       // Tolerant: coat_of_arms-tabellen findes måske ikke endnu.
       getAll<RawArms>(() => sb.from('coat_of_arms').select('id,blasonering,note').order('id')).catch(() => [] as RawArms[]),
-      // samme_som-relationer (person→person). Kanterne er retningsbestemte: subjekt=alias, objekt=kanonisk.
-      getAll<{ id: number | string; subjekt_id: number | string; objekt_id: number | string }>(() =>
-        sb
-          .from('relation')
-          .select('id,subjekt_id,objekt_id')
-          .eq('rolle', 'samme_som')
-          .eq('subjekt_type', 'person')
-          .eq('objekt_type', 'person')
-          .order('id'),
-      ).catch(() => [] as { id: number | string; subjekt_id: number | string; objekt_id: number | string }[]),
-      // Afklarede (blåstemplede) konklusioner på relationer — kun disse identiteter foldes (spec §4).
-      // Polymorf kobling (conclusion.target_type/target_id), ingen FK → hentes separat + matches i JS.
-      getAll<{ target_id: number | string }>(() =>
-        sb.from('conclusion').select('target_id').eq('target_type', 'relation').eq('status', 'afklaret').order('id'),
-      ).catch(() => [] as { target_id: number | string }[]),
+      // samme_som-kanter (relation + afklaret konklusion) i bidder med genforsøg; en fejl afviser hele load'en
+      // (review 37 Y2, spejl af web). Redaktionen (collapse:false) henter dem slet ikke.
+      opts?.collapse === false ? Promise.resolve([] as SammeSomKant[]) : hentSammeSomKanter(sb),
       // place+fact (den tunge geo-kæde) er UDSKUDT (review 27 P3): de hentes først af loadGeo()
       // nedenfor, ved første kort-brug, ikke ved cold-start. Se loadGeo-closuren for de faktiske
       // queries (uændrede) + degradering.
@@ -428,13 +398,7 @@ export async function loadFromSupabase(opts?: {
 
   // samme_som-collapse FØR alt andet: fold flere person-rækker der er samme fysiske person til
   // ÉN kanonisk post (spec 2026-07-02). Kun afklarede identiteter foldes; konflikter karantæneres.
-  const approved = new Set((approvedConc || []).map((c) => String(c.target_id)));
-  const edges =
-    opts?.collapse === false
-      ? []
-      : (sameAsRel || [])
-          .filter((r) => approved.has(String(r.id)))
-          .map((r) => ({ alias: String(r.subjekt_id), canonical: String(r.objekt_id) }));
+  const edges = sameAsEdges;
   const extMap = new Map((extIds || []).map((x) => [String(x.person_id), { linje: x.linje, nr: x.nr, nr_label: x.nr_label ?? null }]));
   const collapsed = collapseSameAs(rawDb, edges, extMap);
   if (collapsed.quarantined.length) {
