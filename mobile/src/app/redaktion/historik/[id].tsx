@@ -69,12 +69,12 @@ export default function HistorikSkaerm() {
               <Mono size={11} color={Colors.inkMuted} style={{ marginTop: 4 }}>
                 {post.hvem} · {post.hvornaar}
               </Mono>
-              {!post.reverteret ? (
+              {post.reverteret ? (
+                <Mono size={10} color={Colors.inkMuted} style={{ marginTop: 8 }}>Fortrudt</Mono>
+              ) : post.erFortryd ? null : ( // en fortrydelse har ingen events at spille baglæns (R37C2-1)
                 <Pressable style={styles.fortrydKnap} onPress={() => startFortryd(post, false)}>
                   <BtnLabel color={Colors.danger}>Fortryd</BtnLabel>
                 </Pressable>
-              ) : (
-                <Mono size={10} color={Colors.inkMuted} style={{ marginTop: 8 }}>Fortrudt</Mono>
               )}
             </View>
           ))}

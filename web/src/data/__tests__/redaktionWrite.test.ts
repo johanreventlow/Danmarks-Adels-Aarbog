@@ -304,6 +304,10 @@ describe('buildRpcCall — filside fase 1', () => {
     });
   });
 
+  it('fortryd af en fortrydelse (FORTRYD_AF_FORTRYDELSE) oversættes (review 37 R37C2-1)', () => {
+    expect(oversaetFejl('FORTRYD_AF_FORTRYDELSE')).toBe('En fortrydelse kan ikke selv fortrydes. Gentag i stedet den oprindelige ændring.');
+  });
+
   it('omvendt datointerval (DATO_INTERVAL_OMVENDT) oversættes (review 37 D5)', () => {
     expect(oversaetFejl('DATO_INTERVAL_OMVENDT')).toBe('Datoerne er i forkert rækkefølge: den tidligste dato ligger efter den seneste.');
   });

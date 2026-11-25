@@ -785,8 +785,10 @@ export async function fetchPersonEvidence(personId: string): Promise<PersonEvide
 }
 
 // ---------- Historik (versionering — DB-lag T2/T3/T11) ----------
-export type HistPost = { id: string; hvem: string; hvornaar: string; resume: string; reverteret: boolean };
-type RawHist = { id: number; actor_navn: string | null; created_at: string;
+// erFortryd (review 37 R37C2-1, spejler web/src/data/historik.ts): et fortryd-sæt logger bevidst ingen child-events,
+// så det kan ikke selv fortrydes (red_fortryd_change_set afviser med FORTRYD_AF_FORTRYDELSE); skærmen skjuler knappen.
+export type HistPost = { id: string; hvem: string; hvornaar: string; resume: string; reverteret: boolean; erFortryd: boolean };
+type RawHist = { id: number; actor_navn: string | null; created_at: string; operation: string | null;
                  summary: string | null; reverterer_id: number | null };
 
 // revertedIds: id'er på rækker der ER blevet fortrudt af en ANDEN række i samme liste
@@ -799,6 +801,7 @@ export function mapHistRow(r: RawHist, revertedIds: ReadonlySet<number> = new Se
     hvornaar: new Date(r.created_at).toLocaleString('da-DK'),
     resume: r.summary ?? '(uden beskrivelse)',
     reverteret: revertedIds.has(r.id),
+    erFortryd: r.operation === 'fortryd',
   };
 }
 

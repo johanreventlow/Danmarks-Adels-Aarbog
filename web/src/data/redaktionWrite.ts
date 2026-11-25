@@ -840,6 +840,8 @@ export function oversaetFejl(message: string): string {
     case 'legacy_drift': return 'Overgangsbiografien afviger fra sit godkendte grundlag og kan ikke ændres her.';
     case 'person_delete_publication_history': return 'Personen kan ikke slettes, mens der findes narrativ-publiceringshistorik.';
   }
+  // Review 37 R37C2-1: red_fortryd_change_set afviser et sæt, der selv er en fortrydelse (HistorikPanel skjuler knappen).
+  if (message.includes('FORTRYD_AF_FORTRYDELSE')) return 'En fortrydelse kan ikke selv fortrydes. Gentag i stedet den oprindelige ændring.';
   // Review 37 P11: den simple sletning afviser en person, der (nu) ikke er offentlig.
   const sletHelt = sletKraeverSletHelt(message);
   if (sletHelt) return sletKraeverSletHeltTekst(sletHelt);

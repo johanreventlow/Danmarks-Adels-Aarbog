@@ -553,6 +553,8 @@ export function erFortrydKonflikt(rawMessage: string): boolean {
 
 // PostgREST/Postgres-fejl → dansk UI-tekst (spec §9). Fald tilbage til rå besked.
 export function oversaetFejl(message: string): string {
+  // Review 37 R37C2-1 (spejler web): red_fortryd_change_set afviser et sæt, der selv er en fortrydelse.
+  if (message.includes('FORTRYD_AF_FORTRYDELSE')) return 'En fortrydelse kan ikke selv fortrydes. Gentag i stedet den oprindelige ændring.';
   // Review 37 P11 (spejler web): den simple sletning afviser en person, der (nu) ikke er offentlig.
   const sletHelt = sletKraeverSletHelt(message);
   if (sletHelt) return sletKraeverSletHeltTekst(sletHelt);
