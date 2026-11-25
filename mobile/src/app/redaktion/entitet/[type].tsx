@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Image } from 'expo-image';
+import { SignedImage } from '../../../components/SignedImage';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { TopBar } from '../../../components/TopBar';
@@ -87,7 +87,7 @@ export default function EntitetListe() {
               onPress={() => router.push({ pathname: type === 'medie' ? '/redaktion/entitet/medie/[id]' : '/redaktion/entitet/materiale', params: { type, id: r.id, navn: r.titel } })}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 {type === 'medie' ? erBillede
-                  ? <Image source={{ uri: mediaThumbUris[r.id] }} style={styles.thumb} contentFit="cover" />
+                  ? <SignedImage uri={mediaThumbUris[r.id]} style={styles.thumb} contentFit="cover" />
                   : <View style={[styles.thumb, styles.dokument]}><Mono size={18} color={Colors.inkMuted}>▤</Mono></View>
                   : null}
                 <View style={{ flex: 1 }}><Serif size={16}>{r.titel}{erTappbar ? ' ↗' : ''}</Serif>

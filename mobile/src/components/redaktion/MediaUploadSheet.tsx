@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { SignedImage } from '../SignedImage';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
@@ -103,7 +104,7 @@ export function MediaUploadSheet({ target, onClose, onGem, onApplied }: {
         <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 36 }} keyboardShouldPersistTaps="handled">
           <Serif size={20} style={{ marginBottom: 10 }}>Tilføj billede</Serif>
           {dedup?.existing.thumbUrl
-            ? <Image source={{ uri: dedup.existing.thumbUrl }} style={styles.preview} contentFit="cover" />
+            ? <SignedImage uri={dedup.existing.thumbUrl} style={styles.preview} contentFit="cover" />
             : picked ? <Image source={{ uri: picked.uri }} style={styles.preview} contentFit="cover" /> : null}
           <Pressable style={styles.addAnnuller} onPress={vaelg} disabled={busy}>
             <BtnLabel color={Colors.inkMuted}>{picked ? 'Vælg andet billede' : 'Vælg billede fra bibliotek'}</BtnLabel>

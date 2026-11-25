@@ -7,7 +7,12 @@ import type { RawMedia } from '../data/types';
 import { erPortraetSlags } from '@daa/core';
 
 const SIGN_TTL = 600; // sek.
+// Review 37 W7: cachen udleverer kun URL'er med mindst halvdelen af levetiden tilbage (før: ned til 30 s),
+// så en URL, der først indlæses senere (Lightbox, fuld størrelse), sjældnere er udløbet.
+const CACHE_TTL = SIGN_TTL / 2; // sek.
 const cache = new Map<string, { url: string; exp: number }>();
+// url → sti + epoke for hver udleveret URL, så fornyUrl kan signere forfra, når en udløbet URL afvises.
+const urlTilSti = new Map<string, { sti: string; epoch: number }>();
 let authEpoch = 0;
 const authEpochListeners = new Set<() => void>();
 
@@ -17,8 +22,15 @@ export { PORTRAIT_SLAGS, erPortraetSlags, mediaCaption } from '@daa/core';
 // Ryd signed-URL-cachen ved auth/session-skift: signed URLs er bærer-tokens der virker uafhængigt
 // af session indtil udløb — uden dette kunne en bruger efter rolle-skift genbruge en tidligere
 // (mere privilegeret) brugers cachede URLs i op til ~TTL sekunder.
-supabase?.auth.onAuthStateChange(() => {
+let sidsteBrugerId: string | null = null;
+supabase?.auth.onAuthStateChange((_event, session) => {
   cache.clear();
+  // url→sti glemmes kun ved brugerskift: TOKEN_REFRESHED kommer hver time, og uden stien kan en skærm, der har
+  // hentet sine URL'er før fornyelsen, ikke længere forny et udløbet billede. Fornyelsen signerer alligevel med den
+  // aktuelle session (review af fix/mobil-bio-bidder, fund 4).
+  const brugerId = session?.user?.id ?? null;
+  if (brugerId !== sidsteBrugerId) urlTilSti.clear();
+  sidsteBrugerId = brugerId;
   authEpoch += 1;
   authEpochListeners.forEach((listener) => listener());
 });
@@ -46,7 +58,10 @@ export async function signPaths(paths: string[], epoch = authEpoch): Promise<Map
   for (const p of new Set(paths.filter(Boolean))) {
     const cacheKey = `${epoch}\u0000${p}`;
     const c = cache.get(cacheKey);
-    if (c && c.exp > now) out.set(p, c.url);
+    if (c && c.exp > now) {
+      out.set(p, c.url);
+      urlTilSti.set(c.url, { sti: p, epoch });
+    }
     else need.push(p);
   }
   if (need.length && supabase) {
@@ -58,7 +73,8 @@ export async function signPaths(paths: string[], epoch = authEpoch): Promise<Map
           if (row.signedUrl && row.path) {
             out.set(row.path, row.signedUrl);
             const cacheKey = `${epoch}\u0000${row.path}`;
-            cache.set(cacheKey, { url: row.signedUrl, exp: now + (SIGN_TTL - 30) * 1000 });
+            cache.set(cacheKey, { url: row.signedUrl, exp: now + CACHE_TTL * 1000 });
+            urlTilSti.set(row.signedUrl, { sti: row.path, epoch });
           }
         }
     } catch (e) {
@@ -66,6 +82,26 @@ export async function signPaths(paths: string[], epoch = authEpoch): Promise<Map
     }
   }
   return out;
+}
+
+// Signér stien bag en (udløbet) URL forfra, uden om cachen. null, hvis URL'en ikke er signeret her (eller er
+// glemt ved et auth-skift), eller hvis signeringen fejler. Samtidige fornyelser af samme URL deles, og er stien
+// allerede signeret forfra (fx af en anden komponent), genbruges den nye URL; kun den fejlede smides ud.
+const fornyelser = new Map<string, Promise<string | null>>();
+export function fornyUrl(url: string): Promise<string | null> {
+  const k = urlTilSti.get(url);
+  if (!k) return Promise.resolve(null);
+  const igangvaerende = fornyelser.get(url);
+  if (igangvaerende) return igangvaerende;
+  const cacheKey = `${k.epoch}\u0000${k.sti}`;
+  const c = cache.get(cacheKey);
+  if (c && c.url !== url && c.exp > Date.now()) return Promise.resolve(c.url);
+  cache.delete(cacheKey);
+  const p = signPaths([k.sti], k.epoch)
+    .then((m) => m.get(k.sti) ?? null)
+    .finally(() => { fornyelser.delete(url); });
+  fornyelser.set(url, p);
+  return p;
 }
 
 // Resolvér BÅDE fulde ('large') og thumb-signed URLs for et sæt medie-rækker i ÉT signPaths-kald
@@ -144,7 +180,7 @@ function toLightboxItem(m: RawMedia, uri: string): PersonMediaItem {
 // uri (uri) uændret. Falder tilbage til uri hvis rækken mangler en thumb-variant (før Slice B).
 export function usePersonMedia(media: RawMedia[]): {
   portraitItem: { media: RawMedia; uri: string; thumbUri: string } | null;
-  gallery: Array<{ media: RawMedia; uri: string; thumbUri: string }>;
+  gallery: { media: RawMedia; uri: string; thumbUri: string }[];
   lightboxItems: PersonMediaItem[];
 } {
   const { uris, thumbUris } = useMediaAndThumbUris(media, (m) => m.thumb_storage_path);

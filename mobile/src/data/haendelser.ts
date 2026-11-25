@@ -45,8 +45,12 @@ async function bladrFeed(sb: NonNullable<typeof supabase>): Promise<HaendelseRow
   const sources = new Map<string, HaendelseSourceRow>();
   let fortsaet: string | null = null;
   for (let i = 0; i < MAX_SIDER; i++) {
-    const svar: { data: unknown; error: unknown } =
-      await sb.rpc('public_haendelse_feed', { p_fortsaet: fortsaet });
+    // Én side, der rammer gæsteloftet, prøves igen én gang med samme mærke (spejl af web, bd9602f9; prod 24/11:
+    // 8 af 36 kald fejlede). Fejler den igen, kaster bladringen stadig: et delvist resultat må aldrig se ud som et helt.
+    const hentSide = (): PromiseLike<{ data: unknown; error: unknown }> =>
+      sb.rpc('public_haendelse_feed', { p_fortsaet: fortsaet });
+    let svar = await hentSide();
+    if (svar.error) svar = await hentSide();
     const { data, error } = svar;
     if (error) throw error;
     if (!erFeedSide(data)) throw new Error('public_haendelse_feed: svaret har ikke den forventede form');

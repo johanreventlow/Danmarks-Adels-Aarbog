@@ -18,7 +18,9 @@ import {
   type LivsdatoBy,
   type StorieBy,
 } from '@daa/feed';
+import { chunks, mapLimited } from './bidder';
 import { fetchFeedPins } from './feedPins';
+import { hentSammeSomKanter, type SammeSomKant } from './sammeSomKanter';
 import { fetchHaendelseRows } from './haendelser';
 import { fetchLivsdatoRows } from './livsdato';
 import { fetchStoryRows } from './story';
@@ -65,6 +67,10 @@ export type LoadResult = {
   // kort-brug (Slægtens kort, Godser-kort, livsrejse-minikort). Spejler web/src/data/model.ts.
   geo: Geo;
   loadGeo: () => Promise<Geo>;
+  // Biografier hentes IKKE ved cold-start (personerne har bio:'' i db): alle id'er i ét kald ramte gæsternes
+  // 3 s-loft i prod (1.725 id'er → 57014), og så faldt hele appen tilbage til offline-seed. loadBios() henter dem
+  // i bidder og nøgler dem på kanonisk person-id; storen stempler dem ind bagefter. Spejler web/src/data/feedBios.ts.
+  loadBios: () => Promise<LoadedBios>;
   // Generations-koordinater pr. kanonisk person-id (slægtled_lokal/gennem + kuld pr. linje).
   // Bruges af tree-byggerens hul-reparation (Task C1); spejler web/src/data/model.ts (Task B2).
   genCoordsByPerson: Record<string, GenCoord[]>;
@@ -159,6 +165,65 @@ function mapPublicBioVersionsByPersonV1(
   return bioBy;
 }
 
+// ---------- biografier i bidder (spejl af web/src/data/feedAux.ts) ----------
+
+// `komplet: false` = mindst én bid blev ved med at ramme gæsternes 3 s-loft; de andre bidders biografier er med.
+// En tom bio i et ufuldstændigt resultat er derfor ikke bevis for, at personen ingen tekst har.
+export type LoadedBios = { bioBy: Record<string, string>; komplet: boolean };
+
+type Sb = NonNullable<typeof supabase>;
+type BioSvar = { data: unknown; error: unknown };
+
+// Samme tal som web (målt som gæst mod prod 21/11): ~10 ms pr. id, 50 id'er à 3 parallelt holder sig under loftet.
+export const BIO_IN_CHUNK = 50;
+export const BIO_PARALLEL = 3;
+
+// Én bid: ét forsøg; fejler det, prøves bidden igen som to halvdele. Returnerer rækkerne og de id'er, der stadig fejlede.
+async function hentBioBid(sb: Sb, rpcName: string, ids: number[]): Promise<{ rows: unknown[]; fejlede: number[] }> {
+  const kald = (del: number[]) => sb.rpc(rpcName, { p_person_ids: del }) as unknown as PromiseLike<BioSvar>;
+  const foerste = await kald(ids);
+  if (!foerste.error) {
+    if (!Array.isArray(foerste.data)) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+    return { rows: foerste.data, fejlede: [] };
+  }
+  const midt = Math.ceil(ids.length / 2);
+  const rows: unknown[] = [];
+  const fejlede: number[] = [];
+  for (const del of [ids.slice(0, midt), ids.slice(midt)]) {
+    if (!del.length) continue;
+    const svar = await kald(del);
+    if (svar.error) { fejlede.push(...del); continue; }
+    if (!Array.isArray(svar.data)) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+    rows.push(...svar.data);
+  }
+  return { rows, fejlede };
+}
+
+// A contract-gated RPC is the sole person biography reader; it never falls back to public.narrative.tekst.
+// Kaster kun, når kontrakten ikke kan læses, eller når ALLE bidder fejler.
+export async function hentBios(
+  sb: Sb,
+  personIds: number[],
+  canonicalIdById: Record<string, string>,
+): Promise<LoadedBios> {
+  if (!personIds.length) return { bioBy: {}, komplet: true };
+  const contract = await sb.rpc('narrative_record_contract_version', {});
+  if (contract.error || typeof contract.data !== 'number' || !Number.isInteger(contract.data)) {
+    throw new Error('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
+  }
+  const v2 = contract.data >= 2;
+  const rpcName = v2 ? 'public_person_bio_source_versions_v2' : 'public_person_bio_source_versions';
+  const svar = await mapLimited(chunks(personIds, BIO_IN_CHUNK), BIO_PARALLEL, (ids) => hentBioBid(sb, rpcName, ids));
+  const fejlede = svar.flatMap((r) => r.fejlede);
+  if (fejlede.length === personIds.length) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+  if (fejlede.length) console.warn(`[loadBios] ${fejlede.length} bio-id'er kunne ikke hentes — resten vises`);
+  const rows = svar.flatMap((r) => r.rows);
+  const bioBy = v2
+    ? mapPublicBioVersionsByPersonV2(rows, canonicalIdById)
+    : mapPublicBioVersionsByPersonV1(rows, canonicalIdById);
+  return { bioBy, komplet: fejlede.length === 0 };
+}
+
 // Sorterer forældre (partner-rolle-medlemmer af en familie) så far kommer før mor —
 // DAA er patrilineær, linje/nr følger mandslinjen. `ordinal` er ægteskabs-nummer
 // (1./2. ægteskab for DEN person), ikke en far/mor-markør: to forældre har typisk
@@ -210,8 +275,7 @@ export async function loadFromSupabase(opts?: {
     mediaVariants,
     lineage,
     arms,
-    sameAsRel,
-    approvedConc,
+    sameAsEdges,
   ] = await Promise.all([
       // Alle tabel-læsninger her sorteres på en ENTYDIG nøgle (PK / alle PK-kolonner): getAll
       // offset-paginerer, og uden fast rækkefølge kan rækker springes over/gentages mellem sider.
@@ -226,7 +290,13 @@ export async function loadFromSupabase(opts?: {
       // degrader i stedet til "ingen linje/generations-data" som web's model.ts-pendant.
       // 5c-2: koordinater fra public_person_source_coordinates (placement ved gældende membership, ellers legacy).
       // Kodereview 36 P2: ét kald (samlet jsonb); fald tilbage til rækkefunktionen via getAll, hvis DDL'en mangler.
+      // Ét genforsøg: det samlede kald ligger tæt på gæsternes 3 s-loft (målt 25/11: 2,9-4,6 s, 57014 ved kold start),
+      // og uden koordinater mister stamtræet linjer og generationer.
       fetchPublicCoordinates(() => sb.rpc(COORDINATES_RPC_SAMLET), () => sb.rpc(COORDINATES_RPC_RAEKKER))
+        .catch((e) => {
+          console.warn('[loadFromSupabase] koordinater fejlede — prøver igen:', e);
+          return fetchPublicCoordinates(() => sb.rpc(COORDINATES_RPC_SAMLET), () => sb.rpc(COORDINATES_RPC_RAEKKER));
+        })
         .then((rows) => rows.map(coordinateRowToExtId))
         .catch((e) => { console.warn('[loadFromSupabase] public_person_source_coordinates utilgængelig — linjer/generationer degraderet:', e); return [] as RawExtId[]; }),
       getAll<RawSource>(() => sb.from('source').select('id,slags,titel,udgave,aar,ekstern').order('id')),
@@ -270,42 +340,17 @@ export async function loadFromSupabase(opts?: {
       getAll<RawLineage>(() => sb.from('lineage').select('id,source_id,kode,navn,parent_lineage_id').order('id')).catch(() => [] as RawLineage[]),
       // Tolerant: coat_of_arms-tabellen findes måske ikke endnu.
       getAll<RawArms>(() => sb.from('coat_of_arms').select('id,blasonering,note').order('id')).catch(() => [] as RawArms[]),
-      // samme_som-relationer (person→person). Kanterne er retningsbestemte: subjekt=alias, objekt=kanonisk.
-      getAll<{ id: number | string; subjekt_id: number | string; objekt_id: number | string }>(() =>
-        sb
-          .from('relation')
-          .select('id,subjekt_id,objekt_id')
-          .eq('rolle', 'samme_som')
-          .eq('subjekt_type', 'person')
-          .eq('objekt_type', 'person')
-          .order('id'),
-      ).catch(() => [] as { id: number | string; subjekt_id: number | string; objekt_id: number | string }[]),
-      // Afklarede (blåstemplede) konklusioner på relationer — kun disse identiteter foldes (spec §4).
-      // Polymorf kobling (conclusion.target_type/target_id), ingen FK → hentes separat + matches i JS.
-      getAll<{ target_id: number | string }>(() =>
-        sb.from('conclusion').select('target_id').eq('target_type', 'relation').eq('status', 'afklaret').order('id'),
-      ).catch(() => [] as { target_id: number | string }[]),
+      // samme_som-kanter (relation + afklaret konklusion) i bidder med genforsøg; en fejl afviser hele load'en
+      // (review 37 Y2, spejl af web). Redaktionen (collapse:false) henter dem slet ikke.
+      opts?.collapse === false ? Promise.resolve([] as SammeSomKant[]) : hentSammeSomKanter(sb),
       // place+fact (den tunge geo-kæde) er UDSKUDT (review 27 P3): de hentes først af loadGeo()
       // nedenfor, ved første kort-brug, ikke ved cold-start. Se loadGeo-closuren for de faktiske
       // queries (uændrede) + degradering.
     ]);
 
-  // A contract-gated RPC is the sole person biography reader.  After v2 the
-  // model sees only the event text; an RPC failure rejects this load rather
-  // than reaching back to public.narrative.tekst.
-  const contract = await sb.rpc('narrative_record_contract_version', {});
-  if (contract.error || typeof contract.data !== 'number' || !Number.isInteger(contract.data)) {
-    throw new Error('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
-  }
-  const publicRows = await sb.rpc(
-    contract.data >= 2 ? 'public_person_bio_source_versions_v2' : 'public_person_bio_source_versions',
-    { p_person_ids: (persons || []).map((person) => Number(person.id)).filter(Number.isFinite) },
-  );
-  if (publicRows.error || !Array.isArray(publicRows.data)) {
-    throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
-  }
-  // Bios are applied only after identity collapse.  This prevents v2 event
-  // text from being concatenated across aliases by collapseSameAs.
+  // Biografierne hentes ikke her, men af loadBios() nedenfor (se LoadResult.loadBios). Personerne bygges med
+  // bio:''; storen stempler biografierne ind efter identitets-collapse, så v2-tekst ikke klistres sammen på tværs
+  // af aliaser.
   const appPersons = mapAppPersons(persons || [], {}, opts?.includePrivat ?? false, boernIder(members || []));
 
   // koen pr. person — bruges KUN til at afgøre forælder-rækkefølge nedenfor (ordinal er
@@ -359,23 +404,16 @@ export async function loadFromSupabase(opts?: {
 
   // samme_som-collapse FØR alt andet: fold flere person-rækker der er samme fysiske person til
   // ÉN kanonisk post (spec 2026-07-02). Kun afklarede identiteter foldes; konflikter karantæneres.
-  const approved = new Set((approvedConc || []).map((c) => String(c.target_id)));
-  const edges =
-    opts?.collapse === false
-      ? []
-      : (sameAsRel || [])
-          .filter((r) => approved.has(String(r.id)))
-          .map((r) => ({ alias: String(r.subjekt_id), canonical: String(r.objekt_id) }));
+  const edges = sameAsEdges;
   const extMap = new Map((extIds || []).map((x) => [String(x.person_id), { linje: x.linje, nr: x.nr, nr_label: x.nr_label ?? null }]));
   const collapsed = collapseSameAs(rawDb, edges, extMap);
   if (collapsed.quarantined.length) {
     console.warn('[samme_som] karantæne (foldes ikke):', collapsed.quarantined);
   }
   const db = collapsed.db;
-  const bioBy = contract.data >= 2
-    ? mapPublicBioVersionsByPersonV2(publicRows.data, collapsed.canonicalIdById)
-    : mapPublicBioVersionsByPersonV1(publicRows.data, collapsed.canonicalIdById);
-  db.persons.forEach((person) => { person.bio = bioBy[person.id] ?? ''; });
+  // Alle rå person-id'er (også aliaser), som før; rækkerne nøgles på kanonisk id ved mapningen.
+  const bioPersonIds = (persons || []).map((person) => Number(person.id)).filter(Number.isFinite);
+  const loadBios = () => hentBios(sb, bioPersonIds, collapsed.canonicalIdById);
 
   // Billedstørrelser (Slice B3 'thumb' + Slice C 'medium'): berig hver media-række med sine
   // variant-stier (hvis nogen) — downstream (buildAux/lib/media.ts) forbruger dermed bare to
@@ -465,6 +503,7 @@ export async function loadFromSupabase(opts?: {
     mergedFrom: collapsed.mergedFrom,
     geo,
     loadGeo,
+    loadBios,
     genCoordsByPerson,
     parentsUnknownByPerson,
     livsdatoBy,

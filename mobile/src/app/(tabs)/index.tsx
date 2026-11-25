@@ -21,6 +21,7 @@ import {
 } from '@daa/feed';
 import { counts } from '../../data/selectors';
 import { epochDay, newSeed, todayISO } from '../../lib/feedSession';
+import { FEED_FOERSTE_UDDELING_FRIST_MS, foersteUddeling, genoptag, naesteSide } from '../../lib/feedUddeling';
 import { useBookmarks } from '../../lib/bookmarks';
 import { createSeenStore, toSeenWeights } from '../../lib/seenCards';
 import { selectMeId, useStore } from '../../store/useStore';
@@ -47,6 +48,10 @@ export default function HomeScreen() {
   const haendelserBy = useStore((s) => s.haendelserBy);
   const storieBy = useStore((s) => s.storieBy);
   const feedPins = useStore((s) => s.feedPins);
+  // Biografierne hentes i baggrunden efter load (se useStore). Forsidens minimumskrav læser bio, så et feed bygget
+  // før de er der, er tyndt — se fristen og genoptagelsen nedenfor.
+  const biosStatus = useStore((s) => s.biosStatus);
+  const loadEpoch = useStore((s) => s.loadEpoch);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [slaegtOpen, setSlaegtOpen] = useState(false);
@@ -65,7 +70,7 @@ export default function HomeScreen() {
 
   // Bogmærke-id'er indgår som et FASTFROSSET SNAPSHOT (§4.1's "personal"-vægt), ikke en
   // live-reaktiv værdi: en stream må ALDRIG genopbygges bare fordi brugeren toggler et
-  // bogmærke midt i scroll — det ville nulstille de allerede viste kort. Snapshottet
+  // bogmærke midt i scroll — det ville omordne resten af strømmen. Snapshottet
   // opdateres kun ved afsluttet repository-/kanon-map-hydrering eller når et NYT seed
   // vælges eksplicit (pull-to-refresh, se handleRefresh).
   const [bookmarkedSnapshot, setBookmarkedSnapshot] = useState<{
@@ -108,9 +113,51 @@ export default function HomeScreen() {
   const [seed, setSeed] = useState(() => newSeed(today));
   const [refreshing, setRefreshing] = useState(false);
 
-  const stream = useMemo<FeedStream | null>(() => {
-    if (!model || !aux || seenWeights === null || !bookmarkSnapshotReady || !bookmarkedSnapshot) return null;
-    return createFeedStream(model, aux, {
+  // Første uddeling venter højst FEED_FOERSTE_UDDELING_FRIST_MS på biografierne (spejl af web bfef23bb): de tager
+  // ~10 s i prod efter modellen, og læseren må ikke stirre på en tom forside så længe. Fristen regnes fra, at
+  // bio-hentningen starter (biosStatus 'loading'), ikke fra modellen — dens identitet skifter, når biografierne
+  // stemples ind. Den nulstilles ikke: efter første uddeling genoptages strømmen alligevel (se nedenfor).
+  const alleAfgjort = biosStatus === 'komplet' || biosStatus === 'delvis' || biosStatus === 'fejl';
+  // Fristen hører til én indlæsning: efter »Prøv igen« (ny loadEpoch) gælder en ny frist.
+  const [fristUdloebetEpoch, setFristUdloebetEpoch] = useState<number | null>(null);
+  const fristUdloebet = fristUdloebetEpoch === loadEpoch;
+  useEffect(() => {
+    if (biosStatus !== 'loading') return;
+    const epoch = loadEpoch;
+    const t = setTimeout(() => setFristUdloebetEpoch(epoch), FEED_FOERSTE_UDDELING_FRIST_MS);
+    return () => clearTimeout(t);
+  }, [biosStatus, loadEpoch]);
+
+  // streamRef holder DEN strøm, der doseres fra. FeedStream.next() MUTERER cursoren, så strømmen er en ref, ikke en
+  // afledt værdi. Nyt seed (pull-to-refresh) eller ny bogmærke-ejer = ny strøm fra toppen; enhver anden ændring i
+  // input (biografierne kommer, pins, fokus, bogmærke-hydrering) genopbygger med SAMME seed og genoptager efter de
+  // viste kort — kortene under læserens finger nulstilles aldrig midt i scroll.
+  const streamRef = useRef<FeedStream | null>(null);
+  const streamNoegleRef = useRef<string | null>(null);
+  const shownRef = useRef<readonly FeedCard[]>([]);
+  const [shown, setShown] = useState<readonly FeedCard[]>([]);
+  const [done, setDone] = useState(false);
+  const appendingRef = useRef(false);
+  const [appending, setAppending] = useState(false);
+
+  // Modellen ryddes ved logout/brugerskift (review 37 M5): de viste kort hører til den forrige models personer (evt.
+  // redaktørens levende) og må ikke stå, til den nye model har biografier nok til en uddeling.
+  useEffect(() => {
+    if (model) return;
+    streamRef.current = null;
+    streamNoegleRef.current = null;
+    shownRef.current = [];
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- ryd de viste kort sammen med den eksterne strøm
+    setShown([]);
+    setDone(false);
+  }, [model]);
+
+  useEffect(() => {
+    if (!model || !aux || seenWeights === null || !bookmarkSnapshotReady || !bookmarkedSnapshot) return;
+    // Intet at uddele endnu: stop en evt. pull-to-refresh-spinner; de viste kort bliver stående (review fund 2).
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synkronisering med den eksterne strøm, som nedenfor
+    if (!alleAfgjort && !fristUdloebet) { setRefreshing(false); return; }
+    const built = createFeedStream(model, aux, {
       seed, todayISO: today, meId, focusId,
       bookmarkedIds: bookmarkedSnapshot.ids,
       seenWeights,
@@ -122,34 +169,47 @@ export default function HomeScreen() {
       // Forsidens minimumskrav (spec 2026-11-24-forside-minimumskrav-design.md), samme motor som web.
       forsideKrav: true,
     });
-  }, [model, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkedSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins]);
-
-  const [shown, setShown] = useState<FeedCard[]>([]);
-  const appendingRef = useRef(false);
-  const [appending, setAppending] = useState(false);
-
-  // Ny strøm (mount ELLER reseed) → nulstil viste kort til strømmens første side. Ægte
-  // synkronisering med en ekstern, tilstandsfuld cursor (FeedStream.next() MUTERER —
-  // kan ikke udledes rent i render uden at fremrykke cursoren ved hvert (evt. kasserede)
-  // render-forsøg) — en effekt er det rigtige værktøj her, ikke en afledt værdi.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setShown(stream ? stream.next(PAGE_SIZE) : []);
+    // loadEpoch i nøglen: en ny indlæsning (fx live efter offline-seed) starter forfra, så eksempelpersonernes kort
+    // ikke bliver hængende i det levende feed (review fund 1). Biografierne skifter ikke epoken og genoptager blot.
+    const noegle = `${seed}|${bookmarkedSnapshot.ownerId ?? ''}|${loadEpoch}`;
+    if (streamRef.current === null || streamNoegleRef.current !== noegle) {
+      // Uden biografier kvalificerer få personer sig til forsiden; finder fristen ingen egentlige blade, ventes der
+      // på biografierne i stedet for at låse en tom strøm fast (web 79c0adc0).
+      const first = foersteUddeling(built, PAGE_SIZE, alleAfgjort);
+      if (first === null) { setRefreshing(false); return; }
+      streamRef.current = built;
+      streamNoegleRef.current = noegle;
+      shownRef.current = first;
+    } else {
+      const r = genoptag(built, shownRef.current, PAGE_SIZE, alleAfgjort, streamRef.current.done());
+      streamRef.current = r.stream;
+      shownRef.current = r.shown;
+    }
+    // Ægte synkronisering med en ekstern, tilstandsfuld cursor — en effekt er det rigtige værktøj her.
+    setShown(shownRef.current);
+    // »Du har mødt hele slægten« først, når biografierne er afgjort — en tidlig pulje er ikke dagens pulje.
+    setDone(alleAfgjort && streamRef.current.done());
     setRefreshing(false);
-  }, [stream]);
+  }, [model, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkedSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins, alleAfgjort, fristUdloebet, loadEpoch]);
 
   const handleEndReached = useCallback(() => {
-    if (!stream || appendingRef.current || stream.done()) return;
+    if (!streamRef.current || appendingRef.current || streamRef.current.done()) return;
     appendingRef.current = true;
     setAppending(true);
     // stream.next() er synkron (ordningen er allerede beregnet, spec §3.5) — rAF giver blot
-    // UI'et en renderet "henter"-frame frem for et usynligt 0ms-flip.
+    // UI'et en renderet "henter"-frame frem for et usynligt 0ms-flip. Strømmen læses først i rAF: en
+    // genopbygning imellem har måske skiftet den.
     requestAnimationFrame(() => {
-      setShown((prev) => [...prev, ...stream.next(PAGE_SIZE)]);
+      const stream = streamRef.current;
+      if (stream) {
+        shownRef.current = [...shownRef.current, ...naesteSide(stream, PAGE_SIZE, alleAfgjort)];
+        setShown(shownRef.current);
+        setDone(alleAfgjort && stream.done());
+      }
       appendingRef.current = false;
       setAppending(false);
     });
-  }, [stream]);
+  }, [alleAfgjort]);
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
@@ -249,7 +309,7 @@ export default function HomeScreen() {
           viewabilityConfig={viewabilityConfig}
           onViewableItemsChanged={onViewableItemsChanged}
           ListHeaderComponent={<Hero counts={c} onSkift={() => setSlaegtOpen(true)} />}
-          ListFooterComponent={<Footer state={appending ? 'appending' : stream?.done() ? 'done' : 'more'} />}
+          ListFooterComponent={<Footer state={appending ? 'appending' : done ? 'done' : 'more'} />}
           renderItem={renderItem}
         />
         <MenuDrawer visible={drawerOpen} onClose={() => setDrawerOpen(false)} />

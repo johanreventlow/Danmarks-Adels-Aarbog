@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Image } from 'expo-image';
+import { SignedImage } from '../SignedImage';
 import { Pressable, ScrollView, View, type LayoutChangeEvent } from 'react-native';
 import { Lightbox } from '../Lightbox';
 import { Border, Colors, Radius } from '../../theme/tokens';
@@ -36,8 +36,8 @@ export function FeedMediaStrip({ media }: { media: MobileFeedMediaItem[] }) {
                 onPress={() => setOpenIndex(index)}
                 style={{ width: itemWidth, height: 220, backgroundColor: Colors.surfaceSunken, borderWidth: 1, borderColor: Border.light, borderRadius: Radius.card, overflow: 'hidden' }}
               >
-                <Image
-                  source={{ uri: item.mediumUri }}
+                <SignedImage
+                  uri={item.mediumUri}
                   style={{ width: '100%', height: '100%' }}
                   contentFit="contain"
                   onLoad={(event) => {
