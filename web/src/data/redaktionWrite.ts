@@ -853,6 +853,8 @@ export function oversaetFejl(message: string): string {
   if (message.includes('AFBILDET_RETNING_UGYLDIG')) return 'Et billede kan kun afbilde en person, et gods, et våben, en linje, en familie eller et sted.';
   // Review 37 S6 (ceremoni 1): red_suggest-lofterne.
   if (message.includes('FORSLAG_FOR_STORT')) return 'Forslaget er for stort — teksten må højst fylde 40.000 tegn (kilde og note 4.000).';
+  // Billedtypen er en kontrolleret ordliste (vocab 'media_slags', spec 2026-11-25-media-slags-ordliste).
+  if (message.includes('MEDIA_SLAGS_UKENDT')) return 'Ukendt billedtype — vælg portræt, våben, segl, medalje, gods eller dokument.';
   if (message.includes('FORSLAG_UKENDT_SUBJEKTTYPE')) return 'Forslaget gælder en ukendt slags ting og kan ikke gemmes.';
   if (/kun redaktion/i.test(message)) return 'Kræver redaktør-rettigheder.';
   if (/medie med samme indhold findes allerede/i.test(message)) return "Billedet findes allerede i biblioteket — brug 'Tilknyt eksisterende' i stedet.";

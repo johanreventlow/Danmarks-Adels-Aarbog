@@ -23,9 +23,9 @@ BEGIN
     (-938012,-938003,'partner'),(-938012,-938004,'partner'),   -- familie med privat medlem
     (-938013,-938002,'partner'),(-938013,-938004,'partner');   -- offentlig familie; -938014 er medlemsløs
   -- Frigivne billeder (rettighedsgaten åben), så kun afbildet-gaten afgør synligheden.
-  INSERT INTO media(id,maa_publiceres,upload_status,storage_path) VALUES
-    (-938021,true,'klar','r37b3/lev.jpg'),(-938022,true,'klar','r37b3/priv.jpg'),
-    (-938023,true,'klar','r37b3/off.jpg'),(-938024,true,'klar','r37b3/tom.jpg');
+  INSERT INTO media(id,slags,maa_publiceres,upload_status,storage_path) VALUES
+    (-938021,'portræt',true,'klar','r37b3/lev.jpg'),(-938022,'portræt',true,'klar','r37b3/priv.jpg'),
+    (-938023,'portræt',true,'klar','r37b3/off.jpg'),(-938024,'portræt',true,'klar','r37b3/tom.jpg');
   INSERT INTO relation(id,subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
     (-938031,'media',-938021,'family',-938011,'afbildet'),(-938032,'media',-938022,'family',-938012,'afbildet'),
     (-938033,'media',-938023,'family',-938013,'afbildet'),(-938034,'media',-938024,'family',-938014,'afbildet');

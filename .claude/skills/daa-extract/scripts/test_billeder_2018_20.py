@@ -97,7 +97,7 @@ def jpeg_med_nulmaske(mappe):
 def test_egen_med_maler():
     r = parse_billedtekst(S300)
     assert r["klasse"] == "egen" and r["refs"] == [["V", 106]]
-    assert r["kunstner"] == "Knud Erik Larsen" and r["slags"] == "maleri"
+    assert r["kunstner"] == "Knud Erik Larsen" and (r["slags"], r["teknik"]) == ("portræt", "Maleri")
     assert r["datering"] is None
 
 
@@ -130,7 +130,7 @@ def test_malet_aar_bliver_datering():
 def test_fra_venstre_er_gruppe():
     r = parse_billedtekst(S365)
     assert r["klasse"] == "gruppe" and r["refs"] == [["V", 192], ["V", 194], ["V", 193]]
-    assert r["slags"] == "foto" and r["kunstner"] == "Martin Mydtskov Rønne, Huset Mydtskov"
+    assert (r["slags"], r["teknik"]) == ("portræt", "Fotografi") and r["kunstner"] == "Martin Mydtskov Rønne, Huset Mydtskov"
 
 
 def test_flere_refs_uden_fra_venstre_er_flere():
@@ -233,7 +233,7 @@ def test_aegtefaelle_med_tekst_efter_ankeret_er_ekstra():
 
 def test_kunstnerlinjer_med_datering_foer_af():
     r = parse_billedtekst(S300.replace("Malet af Knud Erik Larsen", "Malet ca. 1823 af C. A. Jensen"))
-    assert (r["kunstner"], r["datering"], r["slags"], r["ekstra_tekst"]) == ("C. A. Jensen", "ca. 1823", "maleri", False)
+    assert (r["kunstner"], r["datering"], r["slags"], r["teknik"], r["ekstra_tekst"]) == ("C. A. Jensen", "ca. 1823", "portræt", "Maleri", False)
     r = parse_billedtekst(S300.replace("Malet af Knud Erik Larsen", "Tegning i farvet kridt ca. 1780 af Jens Juel"))
     assert (r["kunstner"], r["datering"], r["ekstra_tekst"]) == ("Jens Juel", "ca. 1780", False)
     r = parse_billedtekst(S300.replace("Malet af Knud Erik Larsen", "Litografi fra 1870’erne (?) af Gustav Feckert"))
@@ -352,3 +352,9 @@ def test_runde4_henneke_er_vaaben_paa_person():
     (h,) = [p for p in KURATEREDE_RUNDE4 if p["side"] == 3]
     assert (h["slags"], h["klasse"], h["refs"], h["objekt"], h["datering"]) == ("våben", "egen", [["III", 27]], None, "1587")
     assert "Dronning Sophies Våbenbog" in h["titel"]
+
+
+def test_slags_er_motiv_og_teknik_kun_fra_billedteksten():
+    """Spec 2026-11-25-media-slags-ordliste: slags = motiv; teknik kun når bogen siger »Malet af« / »Foto:«."""
+    assert (parse_billedtekst("Greve X 1800-1850 (V, 1)")["slags"], parse_billedtekst("Greve X 1800-1850 (V, 1)")["teknik"]) == ("portræt", None)
+    assert {p["slags"] for p in KURATEREDE + KURATEREDE_RUNDE3 + KURATEREDE_RUNDE4} <= {"portræt", "våben", "segl", "medalje", "gods", "dokument"}

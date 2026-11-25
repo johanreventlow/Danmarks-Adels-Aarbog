@@ -12,7 +12,7 @@
 # Output (gitignoreret): plan.csv, gennemgang.txt, rapport.csv i samme mappe.
 
 BILLEDER_MANIFEST <- "work_2018_saerudgave/billeder/manifest.json"
-BILLEDER_PORTRAET_SLAGS <- c("foto", "maleri", "portræt", "portraet") # = PORTRAIT_SLAGS i web/src/data/media.ts
+BILLEDER_PORTRAET_SLAGS <- c("portræt", "foto", "maleri", "portraet") # = PORTRAIT_SLAGS i packages/core/src/mediaVisning.ts (gamle værdier tåles)
 
 # ---------------------------------------------------------------------------------------------------------------
 # Rene funktioner (Task 2)
@@ -331,6 +331,12 @@ anvend_billede <- function(raekke, mappe, ops) {
     ops$rpc("red_upsert_fakta", list(
       p_subjekt_type = "media", p_subjekt_id = media_id, p_faktatype = "kreditlinje",
       p_vaerdi = .kreditlinje(raekke$side), p_kilde_fritekst = sprintf("DAA 2018-20, s. %d", as.integer(raekke$side))))
+    # Teknikken (»Maleri«/»Fotografi«) kun når billedteksten siger den; slags er motivet (spec 2026-11-25).
+    if (!is.null(raekke$teknik) && nzchar(raekke$teknik)) {
+      ops$rpc("red_upsert_fakta", list(
+        p_subjekt_type = "media", p_subjekt_id = media_id, p_faktatype = "teknik",
+        p_vaerdi = raekke$teknik, p_kilde_fritekst = sprintf("DAA 2018-20, s. %d", as.integer(raekke$side))))
+    }
   })
   if (is.null(eks)) "importeret" else "genoptaget"
 }
@@ -509,7 +515,7 @@ run_billeder_2018_20 <- function(args = commandArgs(trailingOnly = TRUE)) {
       which(lengths(plan$person_ids) >= 2L & !vapply(plan$person_ids, anyNA, logical(1)))[[1]]
     b <- stats::setNames(manifest$billeder, vapply(manifest$billeder, `[[`, character(1), "noegle"))[[plan$noegle[[i]]]]
     raekke <- c(b[c("noegle", "side", "sha256", "titel", "kunstner", "datering", "slags", "filer", "dims", "bytes")],
-                list(person_ids = plan$person_ids[[i]], maa_publiceres = FALSE, objekt = plan$objekt[[i]],
+                list(teknik = b$teknik, person_ids = plan$person_ids[[i]], maa_publiceres = FALSE, objekt = plan$objekt[[i]],
                      portraet = if (!length(plan$person_ids[[i]])) list() else
                        stats::setNames(list(list(handling = "laas", media_id = "0",
                                                  person_id = plan$person_ids[[i]][[1]])), plan$person_ids[[i]][[1]])))
@@ -537,7 +543,7 @@ run_billeder_2018_20 <- function(args = commandArgs(trailingOnly = TRUE)) {
   resultater <- vapply(seq_len(nrow(plan)), function(i) {
     b <- efter_noegle[[plan$noegle[[i]]]]
     raekke <- c(b[c("noegle", "side", "sha256", "titel", "kunstner", "datering", "slags", "filer", "dims", "bytes")],
-                list(person_ids = plan$person_ids[[i]], maa_publiceres = plan$maa_publiceres[[i]],
+                list(teknik = b$teknik, person_ids = plan$person_ids[[i]], maa_publiceres = plan$maa_publiceres[[i]],
                      portraet = plan$portraet[[i]], objekt = plan$objekt[[i]]))
     tryCatch(anvend_billede(raekke, mappe, ops), error = function(e) paste("fejl:", conditionMessage(e)))
   }, character(1))

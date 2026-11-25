@@ -49,7 +49,9 @@ def _linjer(tekst: str) -> list[str]:
 
 def parse_billedtekst(tekst: str) -> dict:
     """Fortolker én sides billedtekst (pdftotext -layout) til felter i manifestet."""
-    kunstner = datering = None
+    # slags = motivet (portrætafsnittet viser personer); teknikken kun når bogen selv siger den (»Malet af …« /
+    # »Foto: …«) — spec 2026-11-25-media-slags-ordliste-design.md.
+    kunstner = datering = teknik = None
     slags = "portræt"
     rest = []
     for linje in _linjer(tekst):
@@ -58,11 +60,11 @@ def parse_billedtekst(tekst: str) -> dict:
             d = DATERING.search(m.group(2))
             datering, kunstner = (d.group(0) if d else None), m.group(3)
             if m.group(1) == "Malet":
-                slags = "maleri"
+                teknik = "Maleri"
             continue
         m = FOTO.match(linje)
         if m:
-            kunstner, slags = m.group(1), "foto"
+            kunstner, teknik = m.group(1), "Fotografi"
             continue
         rest.append(linje)
 
@@ -109,6 +111,7 @@ def parse_billedtekst(tekst: str) -> dict:
         "kunstner": kunstner,
         "datering": datering,
         "slags": slags,
+        "teknik": teknik,
         "klasse": klasse,
         "refs": refs_foer,
         "aegtefaelle_anker": anker,
@@ -384,7 +387,7 @@ def byg_manifest_kurateret(pdf: Path, ud: Path, poster: list[dict], filnavn: str
                 rec = {"noegle": noegle, "side": side, "billednr": post["nr"], "billedtekst": titel}
                 rec.update(lav_varianter(kilde, None, ud, noegle))
                 rec.update({"titel": titel, "objekt": post.get("objekt"), "kunstner": None, "datering": post["datering"],
-                            "slags": post["slags"], "klasse": post["klasse"], "refs": post["refs"],
+                            "slags": post["slags"], "teknik": None, "klasse": post["klasse"], "refs": post["refs"],
                             "aegtefaelle_anker": None, "aegtefaelle_navn": None, "aegtefaelle_aar": None,
                             "ekstra_tekst": False})
                 billeder.append(rec)

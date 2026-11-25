@@ -49972,3 +49972,70 @@ BEGIN
 END
 $purge_execute$;
 -- END review37-c2
+
+-- BEGIN media-slags-ordliste
+-- Billedtype som kontrolleret ordliste (spec docs/superpowers/specs/2026-11-25-media-slags-ordliste-design.md, invariant
+-- 9). Deploy-området for prod er denne blok alene, i ÉN transaktion (-1), EFTER dataflytningen (R/media-slags-flytning.R):
+--  1. Vagt: stopper, hvis en media-række har en slags uden for de seks koder (også gamle værdier, NULL og tom). Tager
+--     SHARE ROW EXCLUSIVE på media (blokerer skrivere, ikke læsere) til COMMIT, så ingen gammel værdi når ind mellem
+--     tællingen og triggeren. Ændrer ingen data.
+--  2. Seks vocab-rækker (scheme media_slags); public.vocab er allerede læsbar for anon — ingen nye rettigheder.
+--  3. private.validate_media_slags() + trg_media_slags (BEFORE INSERT OR UPDATE OF slags ON media): oversætter de fire
+--     gamle værdier og afviser resten med 23514 MEDIA_SLAGS_UKENDT. CREATE OR REPLACE TRIGGER: SHARE ROW EXCLUSIVE.
+-- Definitionerne er kopieret fra schema.sql og er de endelige. Idempotent.
+
+DO $media_slags_vagt$
+DECLARE v_antal bigint; v_vaerdier text;
+BEGIN
+  LOCK TABLE public.media IN SHARE ROW EXCLUSIVE MODE;
+  SELECT count(*), string_agg(DISTINCT coalesce('»'||m.slags||'«','NULL'), ', ')
+    INTO v_antal, v_vaerdier
+    FROM public.media m
+   WHERE m.slags IS NULL OR m.slags NOT IN ('portræt','våben','segl','medalje','gods','dokument');
+  IF v_antal > 0 THEN
+    RAISE EXCEPTION 'MEDIA_SLAGS_DATA: % media-rækker har en billedtype uden for ordlisten (%); kør dataflytningen (R/media-slags-flytning.R) før denne blok', v_antal, v_vaerdier;
+  END IF;
+END
+$media_slags_vagt$;
+
+-- Billedtype som kontrolleret ordliste (spec docs/superpowers/specs/2026-11-25-media-slags-ordliste-design.md):
+-- media.slags beskriver kun MOTIVET (hvad billedet viser); teknikken er medie-faktummet 'teknik'. Invariant 9.
+-- Koderne skal være de samme som MEDIA_SLAGS i packages/core/src/mediaVisning.ts (db-verify låser listen); et nyt
+-- motiv kræver en vocab-række her og en linje dér.
+INSERT INTO vocab (scheme, code, label) VALUES
+  ('media_slags','portræt', 'Portræt'),
+  ('media_slags','våben',   'Våben'),
+  ('media_slags','segl',    'Segl'),
+  ('media_slags','medalje', 'Medalje'),
+  ('media_slags','gods',    'Gods'),
+  ('media_slags','dokument','Dokument')
+ON CONFLICT (scheme, code) DO NOTHING;
+
+-- Alle skriveveje til media.slags (RPC'er, loadere, fortryd) går gennem denne trigger. De fire gamle værdier
+-- oversættes i stedet for at blive afvist: fortryd (red_fortryd_change_set → _version_upsert_row) skriver hele den
+-- gamle række tilbage, og 132 historiske medie-hændelser bærer 'maleri'/'foto'/'scanning' (målt 2026-11-25). Uden
+-- oversættelse kunne de ændringer ikke fortrydes, eller en fortrydelse ville stille sætte motivet tilbage til en teknik.
+-- Alt andet uden for ordlisten (også NULL og tom) afvises med 23514; klienterne matcher på MEDIA_SLAGS_UKENDT.
+CREATE OR REPLACE FUNCTION private.validate_media_slags()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public, private AS $media_slags$
+DECLARE
+  v_slags text := btrim(NEW.slags);
+BEGIN
+  v_slags := CASE WHEN v_slags IN ('maleri','foto','portraet') THEN 'portræt'
+                  WHEN v_slags = 'scanning' THEN 'våben'
+                  ELSE v_slags END;
+  IF v_slags IS NULL OR v_slags = ''
+     OR NOT EXISTS (SELECT 1 FROM public.vocab v WHERE v.scheme = 'media_slags' AND v.code = v_slags) THEN
+    RAISE EXCEPTION 'MEDIA_SLAGS_UKENDT: »%« er ikke en billedtype', NEW.slags USING ERRCODE = '23514';
+  END IF;
+  NEW.slags := v_slags;
+  RETURN NEW;
+END
+$media_slags$;
+REVOKE ALL ON FUNCTION private.validate_media_slags() FROM PUBLIC,anon,authenticated,service_role;
+
+-- CREATE OR REPLACE TRIGGER (ikke DROP+CREATE): kun SHARE ROW EXCLUSIVE på media, så læsere blokeres ikke.
+CREATE OR REPLACE TRIGGER trg_media_slags BEFORE INSERT OR UPDATE OF slags ON public.media
+  FOR EACH ROW EXECUTE FUNCTION private.validate_media_slags();
+
+-- END media-slags-ordliste

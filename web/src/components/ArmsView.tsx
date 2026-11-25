@@ -15,7 +15,10 @@ export function ArmsView({ arms, galleri = null }: { arms: ArmsItem[] | null; ga
   const mainCrest = main ? firstSignable(main.media) : null; // første signerbare (ikke blindt media[0])
   const variantImgs = rest.map((v) => firstSignable(v.media));
   // Lightbox (Slice A): hoved-våben + alle varianter er ÉT navigerbart sæt.
-  const galleriMedUrl = withUrl(galleri ?? []);
+  // Billeder, der allerede står øverst som hovedvåben/variant (fx linjevåbnene, der også er slags 'våben'), gentages
+  // ikke i bogens galleri (spec 2026-11-25-media-slags-ordliste-design.md).
+  const vist = new Set((arms ?? []).flatMap((a) => a.media.map((m) => m.id)));
+  const galleriMedUrl = withUrl(galleri ?? []).filter((m) => !vist.has(m.id));
   const lightboxItems = withUrl([mainCrest, ...variantImgs, ...galleriMedUrl]);
   return (
     <div style={{ padding: '30px 40px 50px', maxWidth: 640 }}>

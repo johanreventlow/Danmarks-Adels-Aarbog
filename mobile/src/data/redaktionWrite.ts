@@ -562,6 +562,8 @@ export function oversaetFejl(message: string): string {
   if (message.includes('DATO_KVALIFIKATOR_UGYLDIG')) return 'Ukendt dato-kvalifikator — brug fx about, before, after, between eller floruit.';
   // Review 37 S4 (blok 3): et billede afbilder kun en person, et gods, et våben, en linje, en familie eller et sted.
   if (message.includes('AFBILDET_RETNING_UGYLDIG')) return 'Et billede kan kun afbilde en person, et gods, et våben, en linje, en familie eller et sted.';
+  // Billedtypen er en kontrolleret ordliste (vocab 'media_slags', spec 2026-11-25-media-slags-ordliste).
+  if (message.includes('MEDIA_SLAGS_UKENDT')) return 'Ukendt billedtype — vælg portræt, våben, segl, medalje, gods eller dokument.';
   if (/kun redaktion/i.test(message)) return 'Kræver redaktør-rettigheder.';
   if (/medie med samme indhold findes allerede/i.test(message)) return "Billedet findes allerede i biblioteket — brug 'Tilknyt eksisterende' i stedet.";
   if (/allerede tilknyttet dette subjekt/i.test(message)) return 'Mediet er allerede tilknyttet dette subjekt.';

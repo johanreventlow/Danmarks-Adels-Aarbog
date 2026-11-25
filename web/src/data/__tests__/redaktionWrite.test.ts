@@ -313,6 +313,10 @@ describe('buildRpcCall — filside fase 1', () => {
     expect(oversaetFejl('FORSLAG_UKENDT_SUBJEKTTYPE')).toMatch(/^Forslaget gælder en ukendt slags ting/);
   });
 
+  it('ukendt billedtype oversættes (vocab media_slags, spec 2026-11-25)', () => {
+    expect(oversaetFejl('MEDIA_SLAGS_UKENDT: »tegning« er ikke en billedtype')).toBe('Ukendt billedtype — vælg portræt, våben, segl, medalje, gods eller dokument.');
+  });
+
   it('ukendt kvalifikator og ugyldig billedretning oversættes (review 37 blok 3)', () => {
     expect(oversaetFejl('DATO_KVALIFIKATOR_UGYLDIG')).toMatch(/^Ukendt dato-kvalifikator/);
     expect(oversaetFejl('AFBILDET_RETNING_UGYLDIG: et billede kan kun afbilde en person, et gods, et våben, en linje, en familie eller et sted (fik media → fact, rolle «afbildet»)'))
