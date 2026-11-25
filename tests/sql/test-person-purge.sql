@@ -4967,18 +4967,31 @@ END $t$;
 \echo OK c2b_liste_familie_kun_id
 ROLLBACK;
 
--- R37P11-1: en fortrydelse af en fortrydelse er en no-op (fortrydelses-sæt har ingen events); personen står, og listen
--- over slettede personer er korrekt. En ny sletning kommer på listen.
+-- R37P11-1 + R37C2-1: en fortrydelse har ingen events og kan ikke selv fortrydes. red_fortryd_change_set afviser den
+-- med FORTRYD_AF_FORTRYDELSE (også med force) og opretter intet nyt sæt; personen står, og listen over slettede
+-- personer er korrekt. En ny sletning kommer på listen.
 BEGIN;
 DO $t$
-DECLARE v_x bigint; v_s bigint; v_f bigint;
+DECLARE v_x bigint; v_s bigint; v_f bigint; v_force boolean; v_fejl text; v_antal bigint;
 BEGIN
   PERFORM purge_test.nyt(); v_x:=public.red_opret_person('Testperson Fortryd To','mand',false,'1801','1870',NULL);
   PERFORM purge_test.nyt(); PERFORM public.red_set_privat(v_x,false);
   PERFORM purge_test.nyt(); PERFORM public.red_slet_person(v_x); v_s:=purge_test.saet();
   PERFORM purge_test.nyt(); v_f:=(public.red_fortryd_change_set(v_s,false)->>'reversal_change_set')::bigint;
   PERFORM pg_temp.c2_assert(NOT EXISTS (SELECT 1 FROM public.change_event WHERE change_set_id=v_f),'r37p11_1_fortrydelse_uden_events');
-  PERFORM purge_test.nyt(); PERFORM public.red_fortryd_change_set(v_f,false);
+  FOREACH v_force IN ARRAY ARRAY[false,true] LOOP
+    PERFORM purge_test.nyt();
+    SELECT count(*) INTO v_antal FROM public.change_set;
+    v_fejl := NULL;
+    BEGIN
+      PERFORM public.red_fortryd_change_set(v_f,v_force);
+    EXCEPTION WHEN OTHERS THEN v_fejl := SQLERRM;
+    END;
+    PERFORM pg_temp.c2_assert(v_fejl IS NOT DISTINCT FROM 'FORTRYD_AF_FORTRYDELSE'
+      AND (SELECT count(*) FROM public.change_set)=v_antal
+      AND NOT EXISTS (SELECT 1 FROM public.change_set WHERE reverterer_id=v_f),
+      format('r37c2_1_fortryd_af_fortryd_afvist(force=%s): %s',v_force,coalesce(v_fejl,'ingen fejl')));
+  END LOOP;
   PERFORM purge_test.nyt();
   PERFORM pg_temp.c2_assert(EXISTS (SELECT 1 FROM public.person WHERE id=v_x)
     AND NOT EXISTS (SELECT 1 FROM public.red_slettede_personer(500) l WHERE l.person_id=v_x),'r37p11_1_fortryd_af_fortryd');
@@ -4988,6 +5001,7 @@ BEGIN
     WHERE l.person_id=v_x AND l.change_set_id=v_s),'r37p11_1_ny_sletning_listes');
 END $t$;
 \echo OK r37p11_1_fortrydelse_uden_events
+\echo OK r37c2_1_fortryd_af_fortryd_afvist
 \echo OK r37p11_1_fortryd_af_fortryd
 \echo OK r37p11_1_ny_sletning_listes
 ROLLBACK;
