@@ -289,7 +289,6 @@ Frysningen af nye bindinger fra #152 er dermed ophævet for 2018-20 og 1939.
 
 | Emne | Status |
 |---|---|
-| **Review 37 R37C2-1: fortryd af en fortrydelse afvises** (blok `review37-r37c2-1`) | **I main, IKKE i prod** (projektejerens valg 2026-11-25): blokken står sidst i `db-migrations.sql` og køres sammen med ceremoni 3 (Y4/Y13). Indtil da giver prods `red_fortryd_change_set` den gamle tavse no-op ved fortryd af et fortryd-sæt; web og mobil viser ingen knap dertil. Ceremoni 3's deploy-område og opgraderingstest skal tage begge blokke med (base f6d0ba25). |
 | **RLS `authenticated`-tier** (medlem/forsker ser levende slægtninge m. samtykke) | Kun skitseret i `db-rls.sql` §FREMTID. Bygges når login/profiles-auth er på plads. Indtil da er levende data usynlige for alle uden `redaktion`-rolle. |
 | **`max(id)+1` → IDENTITY/sekvenser** | Udskudt post-PoC. Kritisk før flerbruger-skrivning (også multi-writer-risikoen generelt). |
 | **Samtykke-granularitet pr. levende person** (`samtykke_offentlig`) | Designes med auth-laget. |
@@ -529,6 +528,36 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
 - **Advisors (security, CLI):** 48 → 60; de 12 nye er `rls_enabled_no_policy` på de nye `private`-tabeller (med vilje).
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
+
+## 55. Review 37 ceremoni 3 (Y4 + Y13) og R37C2-1: personsidens fakta og fortryd af fortryd — LIVE i prod (2026-11-25)
+
+**Grundlag:** PR #489 (CI grøn i alle jobs på `d23d3f73`; merget `d24c8df0` efter DDL) og R37C2-1's blok fra PR #488.
+Privat runner `~/.private/review37-c3/prod.zsh`, fastlåst på `d23d3f73`, base `f6d0ba25` (prods SQL efter §54), kørt i
+projektejerens shell **før** merge. Afgørelse: `docs/decisions.md` 2026-11-25 (»personsidens fakta tjekker hver binding én
+gang; id-loftet gælder kun kald gennem REST-API'et«).
+
+- **Hvorfor:** målt i prod som gæst tog personsidens fakta op til ~0,55 s (person 199), loftet for gæster er 3 s.
+  `public_person_facts` kaldte publiceringsgaten (~9 ms) for hver kombination af påstandsrække og binding (Y13), og
+  ankervisningen blev bygget helt pr. binding (Y4).
+- **DDL (én transaktion, 9,0 s):** blokkene `-- BEGIN review37-r37c2-1` og `-- BEGIN review37-c3` (sidst i db-migrations.sql),
+  to funktionskroppe (`public.public_person_facts`, `public.red_fortryd_change_set`), samme signatur og ACL, ingen data.
+  - **Y13:** gate og etiketter beregnes én gang pr. binding (MATERIALIZED CTE, gaten i select-listen).
+  - **Y4:** ankeret slås op pr. occurrence (LATERAL + `OFFSET 0`, indeksscan under `DISTINCT ON`-visningen).
+  - **Loft:** højst 20 id'er pr. kald (`22023 PUBLIC_PERSON_FACTS_FOR_MANGE_ID`), kun når `request.jwt.claims` eller
+    `request.method` er sat (dvs. gennem PostgREST); interne psql-orakler rammes ikke.
+  - **R37C2-1:** `red_fortryd_change_set` afviser fortryd af et fortryd-sæt med `FORTRYD_AF_FORTRYDELSE` (før: tavs no-op).
+- **I transaktionen:** facit OK for begge kroppe; læserkontrol (113 personer som anon) md5 før = efter; data uændret.
+- **Efterkontrol:** `get_advisors`: samme 4 lint-typer som efter §54. Sitet 200 (`/`, `/person/402`, `/person/199`).
+  Anon-REST: 1 id → 200 (11 rækker), 21 id'er → 400 `22023`.
+- **Ydelse (prod, gæst, opvarmet, ms før → efter):** 199 ~545 → 52 · 402 ~375 → 40 · 531 ~311 → 40 · 1069 ~234 → 39 ·
+  405 ~130 → 32 · 125 ~80 → 23. Familiekilder uændrede (26-33 ms); `public_family_sources` og `bn`-CTE'en er målt, ikke rettet.
+- **Bevis:** rækkelighed ny mod gammel funktion for alle 1.802 personer i prod-kopien 24/11 (0 afvigelser som gæst, 6.494
+  rækker, og som redaktør, 6.796); `test-person-facts.sql` (`C3_GATE_PER_ROW`, `C3_LOFT`); `test-person-purge.sql`
+  (`r37c2_1_fortryd_af_fortryd_afvist`); `tests/sql/test-review37-c3-upgrade.sh` fra `f6d0ba25`. Generalprøve på stand-in:
+  prøve → apply → `tid` → fortryd-prøve → fortryd (trofast) → prøve.
+- **Fortryd:** `/bin/zsh -f ~/.private/review37-c3/prod.zsh fortryd [--jeg-mener-det]` (prods kroppe fra
+  `fortryd-definitioner.prod.sql`).
+- **Åbent:** R37C2-2 i #397.
 
 ## 54. Review 37 ceremoni 2b: kontrollistens id-henvisninger — LIVE i prod (2026-11-25)
 
