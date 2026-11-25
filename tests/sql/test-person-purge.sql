@@ -10,7 +10,7 @@
   \echo 'PURGE_TEST_FEJL: angiv -v gruppe=<navn>'
   SELECT 1/0 AS gruppe_mangler;
 \endif
-SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest','oprindelse','preview','preview_q3','vagt','purge','purge_ekstra','purge_binding','fortryd_link','db_verify','udbakke','purge_gdpr','purge_familiefoto','p11_blindgyde') AS gruppe_kendt,
+SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manifest','oprindelse','preview','preview_q3','vagt','purge','purge_ekstra','purge_binding','fortryd_link','db_verify','udbakke','purge_gdpr','purge_familiefoto','p11_blindgyde','review37_c2') AS gruppe_kendt,
        :'gruppe'='udbakke' AS g_udbakke, :'gruppe'='inventar' AS g_inventar, :'gruppe'='binding' AS g_binding,
        :'gruppe'='plan' AS g_plan, :'gruppe'='historik' AS g_historik, :'gruppe'='fortrydelse' AS g_fortrydelse,
        :'gruppe'='manifest' AS g_manifest, :'gruppe'='oprindelse' AS g_oprindelse,
@@ -18,7 +18,7 @@ SELECT :'gruppe' IN ('inventar','binding','plan','historik','fortrydelse','manif
        :'gruppe'='vagt' AS g_vagt, :'gruppe'='fortryd_link' AS g_fortryd_link, :'gruppe'='db_verify' AS g_db_verify,
        :'gruppe'='purge_binding' AS g_purge_binding, :'gruppe'='purge' AS g_purge, :'gruppe'='purge_ekstra' AS g_purge_ekstra,
        :'gruppe'='purge_gdpr' AS g_purge_gdpr, :'gruppe'='purge_familiefoto' AS g_purge_familiefoto,
-       :'gruppe'='p11_blindgyde' AS g_p11_blindgyde,
+       :'gruppe'='p11_blindgyde' AS g_p11_blindgyde, :'gruppe'='review37_c2' AS g_review37_c2,
        :'gruppe' IN ('preview','preview_q3') AS g_preview_helpers \gset
 \if :gruppe_kendt
 \else
@@ -4810,4 +4810,162 @@ BEGIN
     WHERE operation='red_slet_person' AND subjekt_type='person' AND subjekt_id=v_x),'bg_liste_historik_slettet');
 END $t$;
 \echo OK bg_liste_slettede_personer
+\endif
+
+-- =====================================================================================================================
+-- Gruppe review37_c2 (review 37 ceremoni 2, #397): P9, P10, P3, R37P11-1 og P4. Syntetisk; kun tal og navne på
+-- testpersoner. P er privat (fixturen), så »Slet helt« er vejen for P.
+-- =====================================================================================================================
+\if :g_review37_c2
+SET request.jwt.claim.sub='a2a00000-0000-4000-8000-00000000a001';
+CREATE FUNCTION pg_temp.c2_assert(p_ok boolean,p_test text) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN IF p_ok IS DISTINCT FROM true THEN RAISE EXCEPTION 'TEST_FAILED %',p_test; END IF; END $$;
+-- Kontrollistens grunde for én række (sorteret), læst af forhåndsvisningen.
+CREATE FUNCTION pg_temp.c2_grunde(p_j jsonb,p_tabel text,p_id bigint) RETURNS text[] LANGUAGE sql AS $$
+  SELECT coalesce(array_agg(k->>'grund' ORDER BY k->>'grund'),'{}'::text[]) FROM jsonb_array_elements(p_j->'til_kontrol') k
+  WHERE k->>'tabel'=p_tabel AND k->'pk'=jsonb_build_object('id',p_id) $$;
+CREATE TEMP TABLE c2_id(rolle text PRIMARY KEY, id bigint NOT NULL);
+CREATE FUNCTION pg_temp.c2id(p_rolle text) RETURNS bigint LANGUAGE sql STABLE AS $$
+  SELECT id FROM pg_temp.c2_id WHERE rolle=p_rolle $$;
+
+-- P9: ingen virkningsløs statement_timeout i execute; lock_timeout virker og bevares.
+DO $p9$
+DECLARE d text:=pg_get_functiondef('public.red_slet_person_helt(bigint,text)'::regprocedure);
+BEGIN
+  PERFORM pg_temp.c2_assert(position($q$set_config('statement_timeout'$q$ IN d)=0,'p9_ingen_statement_timeout');
+  PERFORM pg_temp.c2_assert(position($q$set_config('lock_timeout','5s',true)$q$ IN d)>0,'p9_lock_timeout_bevaret');
+END $p9$;
+\echo OK p9_ingen_statement_timeout
+\echo OK p9_lock_timeout_bevaret
+
+-- P10 + P3: bevarede tekster på »tredje« (en anden person). Navnet er P's visning_navn; id-tallet er P's id.
+BEGIN;
+DO $fix$
+DECLARE v_p bigint:=purge_test.id('P'); v_t bigint:=purge_test.id('tredje'); v_navn text;
+BEGIN
+  SELECT visning_navn INTO STRICT v_navn FROM public.person WHERE id=v_p;
+  PERFORM purge_test.nyt(); PERFORM public.begin_change_set('c2_noter','fixture','person',v_t);
+  WITH x AS (INSERT INTO public.note(target_type,target_id,indhold) VALUES('person',v_t,format('Nævnt i %s',v_p)) RETURNING id)
+    INSERT INTO pg_temp.c2_id SELECT 'n_tal',id FROM x;
+  WITH x AS (INSERT INTO public.note(target_type,target_id,indhold) VALUES('person',v_t,'Omtalt: '||v_navn) RETURNING id)
+    INSERT INTO pg_temp.c2_id SELECT 'n_navn',id FROM x;
+  WITH x AS (INSERT INTO public.note(target_type,target_id,indhold) VALUES('person',v_t,format('%s (%s)',v_navn,v_p)) RETURNING id)
+    INSERT INTO pg_temp.c2_id SELECT 'n_begge',id FROM x;
+  PERFORM purge_test.nyt();
+  INSERT INTO pg_temp.c2_id VALUES ('s_navn',public.red_opret_story('person',v_t,'Kendte '||v_navn,p_titel=>'Syntetisk'));
+  PERFORM purge_test.nyt();
+  INSERT INTO pg_temp.c2_id VALUES ('s_tal',public.red_opret_story('person',v_t,format('Nr. %s',v_p),p_titel=>'Syntetisk'));
+  PERFORM purge_test.nyt();
+  INSERT INTO pg_temp.c2_id VALUES ('s_egen',public.red_opret_story('person',v_p,'Selv '||v_navn,p_titel=>'Syntetisk'));
+  PERFORM purge_test.nyt(); PERFORM public.begin_change_set('c2_beskrivelser','fixture','person',v_t);
+  WITH x AS (INSERT INTO public.entity_description(subjekt_type,subjekt_id,kind,tekst) VALUES('person',v_t,'overview','Om '||v_navn) RETURNING id)
+    INSERT INTO pg_temp.c2_id SELECT 'e_navn',id FROM x;
+  WITH x AS (INSERT INTO public.entity_description(subjekt_type,subjekt_id,kind,tekst) VALUES('person',v_t,'history',format('Nr. %s',v_p)) RETURNING id)
+    INSERT INTO pg_temp.c2_id SELECT 'e_tal',id FROM x;
+  PERFORM purge_test.nyt();
+  PERFORM public.red_opret_fakta('person',v_t,'erhverv','Tjener hos '||v_navn,p_kilde_fritekst=>'Syntetisk c2-kilde');
+  INSERT INTO pg_temp.c2_id SELECT 'a_navn',id FROM public.assertion WHERE vaerdi_tekst='Tjener hos '||v_navn;
+  INSERT INTO pg_temp.c2_id SELECT 'c_ingen',c.id FROM public.citation c WHERE c.assertion_id=pg_temp.c2id('a_navn');
+  PERFORM purge_test.nyt();
+  PERFORM public.red_opret_fakta('person',v_t,'erhverv',format('Nr. %s',v_p),p_kilde_fritekst=>'Brev fra '||v_navn);
+  INSERT INTO pg_temp.c2_id SELECT 'a_tal',id FROM public.assertion WHERE vaerdi_tekst=format('Nr. %s',v_p);
+  INSERT INTO pg_temp.c2_id SELECT 'c_navn',c.id FROM public.citation c WHERE c.assertion_id=pg_temp.c2id('a_tal');
+  PERFORM pg_temp.c2_assert((SELECT count(*) FROM pg_temp.c2_id)=12,'c2_fixture');
+END $fix$;
+DO $t$
+DECLARE j jsonb:=public.red_slet_person_helt_preview(purge_test.id('P'));
+BEGIN
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'note',pg_temp.c2id('n_tal'))=ARRAY['kun_id'],'p10_kun_tal');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'note',pg_temp.c2id('n_navn'))=ARRAY['fritekst'],'p10_navn');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'note',pg_temp.c2id('n_begge'))=ARRAY['fritekst'],'p10_navn_vinder');
+  PERFORM pg_temp.c2_assert(NOT EXISTS (SELECT 1 FROM jsonb_array_elements(j->'til_kontrol') k
+    WHERE k->>'grund' NOT IN ('fritekst','kun_id','laast_familiefoto','bevaret_evidens','bevaret_summary')),'p10_kendte_grunde');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'story',pg_temp.c2id('s_navn'))=ARRAY['fritekst'],'p3_story');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'entity_description',pg_temp.c2id('e_navn'))=ARRAY['fritekst'],'p3_entity_description');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'assertion',pg_temp.c2id('a_navn'))=ARRAY['fritekst'],'p3_assertion');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'citation',pg_temp.c2id('c_navn'))=ARRAY['fritekst'],'p3_citation');
+  -- Projektejeren 25/11: de nye kilder søges også for id-tal; et rent tal står som »kun_id«.
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'story',pg_temp.c2id('s_tal'))=ARRAY['kun_id']
+    AND pg_temp.c2_grunde(j,'entity_description',pg_temp.c2id('e_tal'))=ARRAY['kun_id']
+    AND pg_temp.c2_grunde(j,'assertion',pg_temp.c2id('a_tal'))=ARRAY['kun_id']
+    AND pg_temp.c2_grunde(j,'citation',pg_temp.c2id('c_ingen'))='{}','p3_id_tal');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'story',pg_temp.c2id('s_egen'))='{}','p3_egne_slettes');
+END $t$;
+\echo OK p10_kun_tal
+\echo OK p10_navn
+\echo OK p10_navn_vinder
+\echo OK p10_kendte_grunde
+\echo OK p3_story
+\echo OK p3_entity_description
+\echo OK p3_assertion
+\echo OK p3_citation
+\echo OK p3_id_tal
+\echo OK p3_egne_slettes
+-- P uden navn: ingen navnetræf; id-søgningen består.
+DO $t$
+DECLARE j jsonb; v text;
+BEGIN
+  FOREACH v IN ARRAY ARRAY[NULL,'',' '] LOOP
+    PERFORM purge_test.nyt(); PERFORM public.begin_change_set('c2_tomt_navn','fixture','person',purge_test.id('P'));
+    UPDATE public.person SET visning_navn=v WHERE id=purge_test.id('P');
+    j:=public.red_slet_person_helt_preview(purge_test.id('P'));
+    PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'story',pg_temp.c2id('s_navn'))='{}'
+      AND pg_temp.c2_grunde(j,'entity_description',pg_temp.c2id('e_navn'))='{}'
+      AND pg_temp.c2_grunde(j,'assertion',pg_temp.c2id('a_navn'))='{}'
+      AND pg_temp.c2_grunde(j,'citation',pg_temp.c2id('c_navn'))='{}'
+      AND pg_temp.c2_grunde(j,'note',pg_temp.c2id('n_tal'))=ARRAY['kun_id'],'p3_tomt_navn '||coalesce(quote_literal(v),'NULL'));
+  END LOOP;
+END $t$;
+\echo OK p3_tomt_navn
+ROLLBACK;
+
+-- R37P11-1: en fortrydelse af en fortrydelse er en no-op (fortrydelses-sæt har ingen events); personen står, og listen
+-- over slettede personer er korrekt. En ny sletning kommer på listen.
+BEGIN;
+DO $t$
+DECLARE v_x bigint; v_s bigint; v_f bigint;
+BEGIN
+  PERFORM purge_test.nyt(); v_x:=public.red_opret_person('Testperson Fortryd To','mand',false,'1801','1870',NULL);
+  PERFORM purge_test.nyt(); PERFORM public.red_set_privat(v_x,false);
+  PERFORM purge_test.nyt(); PERFORM public.red_slet_person(v_x); v_s:=purge_test.saet();
+  PERFORM purge_test.nyt(); v_f:=(public.red_fortryd_change_set(v_s,false)->>'reversal_change_set')::bigint;
+  PERFORM pg_temp.c2_assert(NOT EXISTS (SELECT 1 FROM public.change_event WHERE change_set_id=v_f),'r37p11_1_fortrydelse_uden_events');
+  PERFORM purge_test.nyt(); PERFORM public.red_fortryd_change_set(v_f,false);
+  PERFORM purge_test.nyt();
+  PERFORM pg_temp.c2_assert(EXISTS (SELECT 1 FROM public.person WHERE id=v_x)
+    AND NOT EXISTS (SELECT 1 FROM public.red_slettede_personer(500) l WHERE l.person_id=v_x),'r37p11_1_fortryd_af_fortryd');
+  PERFORM purge_test.nyt(); PERFORM public.red_slet_person(v_x); v_s:=purge_test.saet();
+  PERFORM purge_test.nyt();
+  PERFORM pg_temp.c2_assert(EXISTS (SELECT 1 FROM public.red_slettede_personer(500) l
+    WHERE l.person_id=v_x AND l.change_set_id=v_s),'r37p11_1_ny_sletning_listes');
+END $t$;
+\echo OK r37p11_1_fortrydelse_uden_events
+\echo OK r37p11_1_fortryd_af_fortryd
+\echo OK r37p11_1_ny_sletning_listes
+ROLLBACK;
+
+-- P4: en TIDLIGERE (fortrudt) relation på en familie, hvis indhold slettes (fam_del), efterlader ingen historik.
+BEGIN;
+DO $t$
+DECLARE v_rel bigint; v_cs bigint;
+BEGIN
+  PERFORM purge_test.nyt();
+  v_rel:=public.red_relation('family',purge_test.id('fam_del'),'estate',purge_test.id('ejendom'),'forpagter');
+  v_cs:=purge_test.saet();
+  PERFORM purge_test.nyt(); PERFORM public.red_fortryd_change_set(v_cs,false);
+  PERFORM pg_temp.c2_assert(NOT EXISTS (SELECT 1 FROM public.relation WHERE id=v_rel)
+    AND EXISTS (SELECT 1 FROM public.change_event WHERE tabel='relation' AND row_pk->>'id'=v_rel::text),'p4_fixture');
+  INSERT INTO pg_temp.c2_id VALUES ('p4_rel',v_rel);
+  PERFORM purge_test.nyt();
+END $t$;
+COMMIT;
+SELECT public.red_slet_person_helt(purge_test.id('P'),public.red_slet_person_helt_preview(purge_test.id('P'))->>'sha256') \g /dev/null
+DO $t$
+BEGIN
+  PERFORM pg_temp.c2_assert(NOT EXISTS (SELECT 1 FROM public.person WHERE id=purge_test.id('P'))
+    AND NOT EXISTS (SELECT 1 FROM public.change_event WHERE tabel='relation' AND row_pk->>'id'=pg_temp.c2id('p4_rel')::text),
+    'p4_tidligere_familierelation');
+END $t$;
+\echo OK p4_fixture
+\echo OK p4_tidligere_familierelation
 \endif

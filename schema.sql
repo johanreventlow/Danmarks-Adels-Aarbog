@@ -24415,7 +24415,8 @@ WITH plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_plan) q(tabel text
   tokens AS (SELECT '(^|[^0-9])('||string_agg(id::text,'|' ORDER BY id)||')([^0-9]|$)' AS rx
     FROM (SELECT p_person_id AS id UNION SELECT id FROM fam) ids),
   navn AS MATERIALIZED (SELECT n.navn,substring(to_jsonb(n.navn)::text FROM 2 FOR length(to_jsonb(n.navn)::text)-2) AS json_navn
-    FROM (SELECT nullif(visning_navn,'') AS navn FROM public.person WHERE id=p_person_id) n),
+    -- Ceremoni 2: trimmet, så et navn af blanktegn ikke matcher enhver tekst med et mellemrum.
+    FROM (SELECT nullif(btrim(visning_navn),'') AS navn FROM public.person WHERE id=p_person_id) n),
   -- Projektejeren 2026-11-20 (runde 4, E): bevarede medie↔familie-koblinger (rk) på Fam_ind-familier. Det låste billede
   -- og den bevarede evidens på koblingen kommer ALTID på listen (ikke kun ved navn/token, jf. Q8), så redaktøren ser dem
   -- før en genfrigivelse; evidensens tekst kan nævne personen uden token.
@@ -24533,12 +24534,37 @@ WITH plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_plan) q(tabel text
   UNION ALL
   SELECT 'S58'::text AS sted,'private.entity_description_source'::text AS tabel,jsonb_build_object('description_id',t.description_id,'source_record_id',t.source_record_id) AS pk,
     concat_ws(' ',t.citation_note::text) AS tekst FROM private.entity_description_source t WHERE true
+  UNION ALL
+  -- Review 37 P3 (ceremoni 2): andre bevarede tekster, der kan nævne P i ren tekst. Søges som resten (navn og id-tal;
+  -- projektejeren 25/11); id-tal i påstande er ofte årstal og står derfor som »kun_id«. Rækker, som S38b ovenfor
+  -- allerede dækker (påstande og citater på bevarede familiers fakta), står ikke her igen.
+  SELECT 'S58'::text AS sted,'story'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.titel::text,t.tekst::text) AS tekst FROM public.story t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'entity_description'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.tekst::text) AS tekst FROM public.entity_description t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'assertion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.vaerdi_tekst::text) AS tekst FROM public.assertion t WHERE t.vaerdi_tekst IS NOT NULL
+      AND NOT (t.target_type='fact' AND t.target_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep)))
+  UNION ALL
+  SELECT 'S58'::text AS sted,'citation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.citat_tekst::text) AS tekst FROM public.citation t WHERE t.citat_tekst IS NOT NULL
+      AND t.assertion_id NOT IN (SELECT a.id FROM public.assertion a JOIN public.fact f ON a.target_type='fact' AND a.target_id=f.id WHERE f.subjekt_type='family' AND f.subjekt_id IN (SELECT id FROM fam_keep))
+  ),
+  -- Review 37 P10 (ceremoni 2): ét fund pr. række. Et navnetræf er »fritekst«; et træf, der KUN er P's eller en families
+  -- id som tal (ofte et årstal eller en dato), er »kun_id«. Søgningen er lige så bred som før (projektejeren 25/11).
+  traef AS (
+    SELECT t.sted,t.tabel,t.pk,
+      (navn.navn IS NOT NULL AND (position((navn.navn COLLATE "C") IN (t.tekst COLLATE "C"))>0
+        OR position((navn.json_navn COLLATE "C") IN (t.tekst COLLATE "C"))>0)) AS navn_hit,
+      (t.tekst COLLATE "C" ~ tokens.rx) AS id_hit
+    FROM tekster t CROSS JOIN tokens CROSS JOIN navn
   )
-SELECT DISTINCT t.sted,t.tabel,t.pk,'fritekst'::text FROM tekster t CROSS JOIN tokens CROSS JOIN navn
-WHERE (t.tekst COLLATE "C" ~ tokens.rx OR (navn.navn IS NOT NULL AND (
-    position((navn.navn COLLATE "C") IN (t.tekst COLLATE "C"))>0
-    OR position((navn.json_navn COLLATE "C") IN (t.tekst COLLATE "C"))>0)))
+SELECT t.sted,t.tabel,t.pk,CASE WHEN bool_or(t.navn_hit) THEN 'fritekst' ELSE 'kun_id' END::text FROM traef t
+WHERE (t.navn_hit OR t.id_hit)
   AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel=t.tabel AND d.pk=t.pk AND d.handling='slet')
+GROUP BY t.sted,t.tabel,t.pk
 UNION
 SELECT 'NY-E'::text,'media'::text,jsonb_build_object('id',k.media_id),'laast_familiefoto'::text FROM rk k
   WHERE EXISTS (SELECT 1 FROM plan d WHERE d.tabel='media' AND d.pk=jsonb_build_object('id',k.media_id) AND d.handling='skjul')
