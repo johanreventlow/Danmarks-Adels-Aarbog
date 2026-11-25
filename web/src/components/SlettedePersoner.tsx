@@ -35,13 +35,17 @@ export function SlettedePersoner({ role, dryRun, load = fetchSlettedePersoner, f
   // Antal rækker i seneste hentning: afgør »Vis flere«, også efter at en række er genskabt og fjernet lokalt.
   const [hentet, setHentet] = useState(0);
   const writing = useRef(false);
+  // Sæt, der er fortrudt her: en hentning, der læste før fortrydelsens commit, må ikke vise dem igen.
+  const genskabt = useRef(new Set<string>());
   const redaktion = role === 'redaktion';
 
   useEffect(() => {
     if (!redaktion) return;
     let active = true;
     setFejl('');
-    load(limit).then((r) => { if (active) { setRows(r); setHentet(r.length); } })
+    load(limit).then((r) => {
+      if (active) { setRows(r.filter((x) => !genskabt.current.has(x.changeSetId))); setHentet(r.length); }
+    })
       .catch((e: unknown) => { if (active) setFejl(oversaetFejl(String((e as Error)?.message ?? e))); });
     return () => { active = false; };
   }, [load, redaktion, revision, genhent, limit]);
@@ -57,6 +61,7 @@ export function SlettedePersoner({ role, dryRun, load = fetchSlettedePersoner, f
       if (res.dryRun) {
         setStatus('Dry-run: intet er fortrudt.');
       } else {
+        genskabt.current.add(r.changeSetId);
         setRows((rs) => (rs ?? []).filter((x) => x.changeSetId !== r.changeSetId));
         setStatus(`${r.navn ?? `Person ${r.personId}`} (id ${r.personId}) er genskabt.`);
       }

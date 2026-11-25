@@ -123,6 +123,21 @@ it('»Vis flere« bliver stående, når en række fra en fuld side er genskabt',
   expect(screen.getByRole('button', { name: 'Vis flere' })).toBeTruthy();
 });
 
+it('en hentning, der lander efter en fortrydelse, viser ikke den genskabte person igen', async () => {
+  let svar: (r: SlettetPerson[]) => void = () => {};
+  const load = vi.fn((limit: number) => limit === 100
+    ? Promise.resolve(mange(100))
+    : new Promise<SlettetPerson[]>((res) => { svar = res; }));
+  setup({ load });
+  await screen.findByText('Person 0');
+  fireEvent.click(screen.getByRole('button', { name: 'Vis flere' }));
+  fireEvent.click(knap('Person 0'));
+  await waitFor(() => expect(screen.queryByText('Person 0')).toBeNull());
+  svar(mange(200)); // læst før fortrydelsens commit
+  await screen.findByText('Person 199');
+  expect(screen.queryByText('Person 0')).toBeNull();
+});
+
 it('færre end 100 rækker: ingen »Vis flere«', async () => {
   setup();
   await screen.findByText('Christian Reventlow');
