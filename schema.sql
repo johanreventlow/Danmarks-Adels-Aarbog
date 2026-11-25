@@ -24582,10 +24582,16 @@ WITH plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_plan) q(tabel text
     SELECT t.sted,t.tabel,t.pk,
       (navn.navn IS NOT NULL AND (position((navn.navn COLLATE "C") IN (t.tekst COLLATE "C"))>0
         OR position((navn.json_navn COLLATE "C") IN (t.tekst COLLATE "C"))>0)) AS navn_hit,
-      (t.tekst COLLATE "C" ~ tokens.rx) AS id_hit
+      (t.tekst COLLATE "C" ~ tokens.rx) AS id_hit, t.tekst
     FROM tekster t CROSS JOIN tokens CROSS JOIN navn
   )
-SELECT t.sted,t.tabel,t.pk,CASE WHEN bool_or(t.navn_hit) THEN 'fritekst' ELSE 'kun_id' END::text FROM traef t
+-- Ceremoni 2b (projektejeren 25/11, efter måling i prod-kopien): P's EGET id som værdi for en nøgle med »person« i navnet
+-- (fx identitetskandidaters "candidate_person_id": P) er en ægte henvisning, ikke et årstal: grunden »id_henvisning«
+-- (vises åbent). En families id eller et id under en anden nøgle forbliver »kun_id«. Kun på rækker, der allerede er træf.
+SELECT t.sted,t.tabel,t.pk,CASE WHEN bool_or(t.navn_hit) THEN 'fritekst'
+    WHEN bool_or(t.id_hit AND t.tekst COLLATE "C" ~ ('"[a-z_]*person[a-z_]*"\s*:\s*"?'||p_person_id::text||'"?\s*[,}\]]'))
+      THEN 'id_henvisning'
+    ELSE 'kun_id' END::text FROM traef t
 WHERE (t.navn_hit OR t.id_hit)
   AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel=t.tabel AND d.pk=t.pk AND d.handling='slet')
 GROUP BY t.sted,t.tabel,t.pk

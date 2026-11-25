@@ -4887,7 +4887,7 @@ BEGIN
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'note',pg_temp.c2id('n_navn'))=ARRAY['fritekst'],'p10_navn');
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'note',pg_temp.c2id('n_begge'))=ARRAY['fritekst'],'p10_navn_vinder');
   PERFORM pg_temp.c2_assert(NOT EXISTS (SELECT 1 FROM jsonb_array_elements(j->'til_kontrol') k
-    WHERE k->>'grund' NOT IN ('fritekst','kun_id','laast_familiefoto','bevaret_evidens','bevaret_summary')),'p10_kendte_grunde');
+    WHERE k->>'grund' NOT IN ('fritekst','id_henvisning','kun_id','laast_familiefoto','bevaret_evidens','bevaret_summary')),'p10_kendte_grunde');
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'story',pg_temp.c2id('s_navn'))=ARRAY['fritekst'],'p3_story');
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'entity_description',pg_temp.c2id('e_navn'))=ARRAY['fritekst'],'p3_entity_description');
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'assertion',pg_temp.c2id('a_navn'))=ARRAY['fritekst'],'p3_assertion');
@@ -4927,6 +4927,35 @@ BEGIN
   END LOOP;
 END $t$;
 \echo OK p3_tomt_navn
+ROLLBACK;
+
+-- Ceremoni 2b (projektejeren 25/11, efter måling): et tal, der er P's id som værdi for en nøgle med »person« i navnet, er en
+-- ægte henvisning (fx identitetskandidaters candidate_person_id) og får grunden id_henvisning (vises åbent). Et id-tal under
+-- en anden nøgle, eller en families id under en person-nøgle, forbliver kun_id; et navnetræf vinder stadig.
+BEGIN;
+DO $t$
+DECLARE v_p bigint:=purge_test.id('P'); v_t bigint:=purge_test.id('tredje'); v_fam bigint:=purge_test.id('fam_keep');
+  v_ref bigint; v_side bigint; v_famref bigint; v_navn bigint; j jsonb;
+BEGIN
+  PERFORM purge_test.nyt(); PERFORM public.begin_change_set('c2b_forslag','fixture','person',v_t);
+  INSERT INTO public.suggestion(subjekt_type,subjekt_id,payload)
+    VALUES('person',v_t,jsonb_build_object('candidate_person_id',v_p)) RETURNING id INTO v_ref;
+  INSERT INTO public.suggestion(subjekt_type,subjekt_id,payload)
+    VALUES('person',v_t,jsonb_build_object('side',v_p)) RETURNING id INTO v_side;
+  INSERT INTO public.suggestion(subjekt_type,subjekt_id,payload)
+    VALUES('person',v_t,jsonb_build_object('person_id',v_fam)) RETURNING id INTO v_famref;
+  INSERT INTO public.suggestion(subjekt_type,subjekt_id,payload)
+    VALUES('person',v_t,jsonb_build_object('person_id',v_p,'note',(SELECT visning_navn FROM public.person WHERE id=v_p))) RETURNING id INTO v_navn;
+  j:=public.red_slet_person_helt_preview(v_p);
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'suggestion',v_ref)=ARRAY['id_henvisning'],'c2b_id_henvisning');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'suggestion',v_side)=ARRAY['kun_id'],'c2b_andet_noegle_kun_id');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'suggestion',v_famref)=ARRAY['kun_id'],'c2b_familie_id_kun_id');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'suggestion',v_navn)=ARRAY['fritekst'],'c2b_navn_vinder');
+END $t$;
+\echo OK c2b_id_henvisning
+\echo OK c2b_andet_noegle_kun_id
+\echo OK c2b_familie_id_kun_id
+\echo OK c2b_navn_vinder
 ROLLBACK;
 
 -- R37P11-1: en fortrydelse af en fortrydelse er en no-op (fortrydelses-sæt har ingen events); personen står, og listen
