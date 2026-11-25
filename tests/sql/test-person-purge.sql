@@ -4870,7 +4870,11 @@ BEGIN
   PERFORM public.red_opret_fakta('person',v_t,'erhverv',format('Nr. %s',v_p),p_kilde_fritekst=>'Brev fra '||v_navn);
   INSERT INTO pg_temp.c2_id SELECT 'a_tal',id FROM public.assertion WHERE vaerdi_tekst=format('Nr. %s',v_p);
   INSERT INTO pg_temp.c2_id SELECT 'c_navn',c.id FROM public.citation c WHERE c.assertion_id=pg_temp.c2id('a_tal');
-  PERFORM pg_temp.c2_assert((SELECT count(*) FROM pg_temp.c2_id)=12,'c2_fixture');
+  -- Et citat uden påstand (assertion_id er nullable): må ikke falde ud af søgningen (NOT IN med NULL).
+  PERFORM purge_test.nyt(); PERFORM public.begin_change_set('c2_citat_uden_paastand','fixture','person',v_t);
+  WITH x AS (INSERT INTO public.citation(assertion_id,citat_tekst) VALUES(NULL,'Løst citat om '||v_navn) RETURNING id)
+    INSERT INTO pg_temp.c2_id SELECT 'c_loes',id FROM x;
+  PERFORM pg_temp.c2_assert((SELECT count(*) FROM pg_temp.c2_id)=13,'c2_fixture');
 END $fix$;
 DO $t$
 DECLARE j jsonb:=public.red_slet_person_helt_preview(purge_test.id('P'));
@@ -4884,6 +4888,7 @@ BEGIN
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'entity_description',pg_temp.c2id('e_navn'))=ARRAY['fritekst'],'p3_entity_description');
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'assertion',pg_temp.c2id('a_navn'))=ARRAY['fritekst'],'p3_assertion');
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'citation',pg_temp.c2id('c_navn'))=ARRAY['fritekst'],'p3_citation');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'citation',pg_temp.c2id('c_loes'))=ARRAY['fritekst'],'p3_citat_uden_paastand');
   -- Projektejeren 25/11: de nye kilder søges også for id-tal; et rent tal står som »kun_id«.
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'story',pg_temp.c2id('s_tal'))=ARRAY['kun_id']
     AND pg_temp.c2_grunde(j,'entity_description',pg_temp.c2id('e_tal'))=ARRAY['kun_id']
@@ -4899,6 +4904,7 @@ END $t$;
 \echo OK p3_entity_description
 \echo OK p3_assertion
 \echo OK p3_citation
+\echo OK p3_citat_uden_paastand
 \echo OK p3_id_tal
 \echo OK p3_egne_slettes
 -- P uden navn: ingen navnetræf; id-søgningen består.

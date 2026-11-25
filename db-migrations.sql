@@ -49678,14 +49678,16 @@ WITH plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_plan) q(tabel text
   UNION ALL
   SELECT 'S58'::text AS sted,'assertion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
     concat_ws(' ',t.vaerdi_tekst::text) AS tekst FROM public.assertion t WHERE t.vaerdi_tekst IS NOT NULL
-      AND NOT (t.target_type='fact' AND t.target_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep)))
+      AND (t.target_type='fact' AND t.target_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep))) IS NOT TRUE
   UNION ALL
   SELECT 'S58'::text AS sted,'citation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
     concat_ws(' ',t.citat_tekst::text) AS tekst FROM public.citation t WHERE t.citat_tekst IS NOT NULL
-      AND t.assertion_id NOT IN (SELECT a.id FROM public.assertion a JOIN public.fact f ON a.target_type='fact' AND a.target_id=f.id WHERE f.subjekt_type='family' AND f.subjekt_id IN (SELECT id FROM fam_keep))
+      -- IS NOT TRUE: et citat uden påstand (assertion_id NULL) skal også med.
+      AND (t.assertion_id IN (SELECT a.id FROM public.assertion a JOIN public.fact f ON a.target_type='fact' AND a.target_id=f.id WHERE f.subjekt_type='family' AND f.subjekt_id IN (SELECT id FROM fam_keep))) IS NOT TRUE
   ),
   -- Review 37 P10 (ceremoni 2): ét fund pr. række. Et navnetræf er »fritekst«; et træf, der KUN er P's eller en families
-  -- id som tal (ofte et årstal eller en dato), er »kun_id«. Søgningen er lige så bred som før (projektejeren 25/11).
+  -- id som tal (ofte et årstal, sidetal eller en talværdi i kildedataenes JSON), er »kun_id«. Søgningen er lige så
+  -- bred som før (projektejeren 25/11).
   traef AS (
     SELECT t.sted,t.tabel,t.pk,
       (navn.navn IS NOT NULL AND (position((navn.navn COLLATE "C") IN (t.tekst COLLATE "C"))>0
