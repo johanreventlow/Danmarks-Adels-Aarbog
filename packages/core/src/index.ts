@@ -93,3 +93,5 @@ export * from './modelTraversering';
 export * from './konfTekst';
 export * from './fokusTrae';
 export * from './faktaVisning';
+// Slægtskab som kontekst over navnet og »Er vi i familie?«-teksterne — flyttet fra web/src/data (mobil-paritet, batch 7).
+export * from './slaegtskab';
