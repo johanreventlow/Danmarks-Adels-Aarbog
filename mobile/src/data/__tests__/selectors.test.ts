@@ -1,5 +1,5 @@
 import { buildBidirectionalColumns, buildModel } from '@daa/core';
-import { buildSearch, buildSnapPath, childrenOf, parentsOf, routeToMe, searchPool, treeFocusA, wayToMe } from '../selectors';
+import { buildSearch, buildSnapPath, childrenOf, parentsOf, routeToMe, siblingsOf, searchPool, treeFocusA, wayToMe } from '../selectors';
 import type { AppPerson, Db } from '../types';
 import type { SearchItem } from '../selectors';
 
@@ -258,5 +258,28 @@ describe('routeToMe — hele rute-planen til mig (rute-tegning)', () => {
     // snapPath = mig's egen linje [1,3,5]; fokus=1 (depth0); mig=5 ligger på stien i dybde 2.
     // (3 er IKKE 1's førstefødte — gammel logik lagde fejlagtigt et søskendeskift ind.)
     expect(routeToMe(wayModel, ['1', '3', '5'], 0, '5')).toEqual(['down', 'down']);
+  });
+});
+
+describe('childrenOf — samme barn i to ægteskaber (review 37 M4)', () => {
+  const dupDb: Db = {
+    persons: [mk('1', 'Forælder', 1600), mk('2', 'Barn A', 1630), mk('3', 'Barn B', 1632)],
+    unions: [
+      { id: 'u1', p1: '1', p2: null, p2_name: null, year: null },
+      { id: 'u2', p1: '1', p2: null, p2_name: null, year: null },
+    ],
+    parentChild: [
+      { child: '2', parent: '1', union: 'u1' },
+      { child: '3', parent: '1', union: 'u1' },
+      { child: '2', parent: '1', union: 'u2' },
+    ],
+  };
+  const m = buildModel(dupDb);
+  test('barnet optræder kun én gang, i førstegangs-rækkefølge', () => {
+    expect(childrenOf(m, '1').map((c) => c.id)).toEqual(['2', '3']);
+  });
+  test('slægtsspor og søskende får ingen dubletter', () => {
+    expect(siblingsOf(m, '2').map((c) => c.id)).toEqual(['2', '3']);
+    expect(buildSnapPath(m, '1', null).path).toEqual(['1', '2']);
   });
 });
