@@ -75,11 +75,14 @@ test('falder tilbage til rækkefunktionen via sider, når den samlede ikke finde
   expect(res.genCoordsByPerson['1']).toBeDefined();
 });
 
-test('andre fejl degraderer til ingen koordinater uden fallback', async () => {
+test('andre fejl prøves igen én gang og degraderer så til ingen koordinater uden fallback', async () => {
   const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
   mockTilstand.samlet = { data: null, error: { code: '57014', message: 'timeout' } };
   const res = await loadFromSupabase({ includePrivat: true, collapse: false });
   warn.mockRestore();
-  expect(koordKald()).toEqual([{ fn: 'public_person_source_coordinates_samlet' }]);
+  expect(koordKald()).toEqual([
+    { fn: 'public_person_source_coordinates_samlet' },
+    { fn: 'public_person_source_coordinates_samlet' },
+  ]);
   expect(res.genCoordsByPerson['1']).toBeUndefined();
 });
