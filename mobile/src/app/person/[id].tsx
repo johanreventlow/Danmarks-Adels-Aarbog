@@ -15,7 +15,7 @@ import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
 import { lifeJourney } from '@daa/core';
 import type { BioSourceVersion } from '@daa/core';
-import { byggPersonUdgave, chipNoegle } from '../../data/personUdgave';
+import { byggPersonUdgave } from '../../data/personUdgave';
 import { fetchPublicBioVersionsForPerson } from '../../data/publicBioVersions';
 import { childrenByMarriage, parentsOf, spousesOf } from '../../data/selectors';
 import { erPortraetSlags, usePersonMedia } from '../../lib/media';
@@ -41,7 +41,7 @@ export default function PersonScreen() {
   const [lightbox, setLightbox] = useState<number | null>(null); // Slice A
   const [bioVersionResult, setBioVersionResult] = useState<{ personId: string; versions: BioSourceVersion[] | null } | null>(null);
   // Læserens udgavevalg, bundet til personen og chippens identitet (som web): en anden person giver standarden.
-  const [valg, setValg] = useState<{ personId: string; noegle: string } | null>(null);
+  const [valg, setValg] = useState<{ personId: string; sourceId: string } | null>(null);
 
   // Lazy geo-kæde (review 27 P3): persondetaljen viser et livsrejse-minikort hvis personen har
   // geo-punkter — udløs hentningen ved mount (mirror af web's Folgesvend.tsx detailOpen-trigger).
@@ -99,13 +99,13 @@ export default function PersonScreen() {
   const bioVersions = bioVersionResult?.personId === personId ? bioVersionResult.versions : null;
   const v = byggPersonUdgave(model, person.id, {
     bioVersions,
-    valgtNoegle: valg?.personId === person.id ? valg.noegle : null,
+    valgtUdgaveId: valg?.personId === person.id ? valg.sourceId : null,
     fallbackBio: person.bio,
     fallbackKilder: aux?.sourcesBy[person.id] ?? [],
   });
   const vaelgChip = (idx: number) => {
     const c = v.vaelger.chips[idx];
-    if (c) setValg({ personId: person.id, noegle: chipNoegle(c) });
+    if (c) setValg({ personId: person.id, sourceId: c.sourceId });
   };
   const sources = v.sources;
   const activeBio = v.bioText;
@@ -150,7 +150,7 @@ export default function PersonScreen() {
             {v.vaelger.form !== 'ingen' ? (
               <View style={styles.udgaveRow} accessibilityRole="radiogroup" accessibilityLabel="Udgave">
                 {v.vaelger.chips.map((c, i) => (
-                  <Pressable key={chipNoegle(c)} onPress={() => vaelgChip(i)} accessibilityRole="radio"
+                  <Pressable key={c.sourceId} onPress={() => vaelgChip(i)} accessibilityRole="radio"
                     accessibilityState={{ selected: i === v.valgtIdx }}
                     style={[styles.udgaveChip, i === v.valgtIdx ? styles.udgaveChipActive : null]}>
                     <BtnLabel size={11.5} color={i === v.valgtIdx ? Colors.bordeaux : Colors.inkSecondary}>{c.label}</BtnLabel>

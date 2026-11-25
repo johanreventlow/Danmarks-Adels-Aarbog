@@ -27,19 +27,16 @@ export type PersonUdgaveVisning = {
   sources: SourceRef[];
 };
 
-// En chips identitet på tværs af genhentninger: art, udgave og post (postens ref, ellers etiketten). Som web.
-export function chipNoegle(c: UdgaveChip): string {
-  return c.art === 'post' ? `post:${c.sourceId}:${c.version.recordRef ?? c.label}` : `udgave:${c.sourceId}`;
-}
-
 export function byggPersonUdgave(
   model: Model,
   personId: string,
   input: {
     // null = biografierne er ikke hentet (endnu) eller kunne ikke hentes.
     bioVersions: BioSourceVersion[] | null;
-    // Læserens valg (chipNoegle); findes chippen ikke, gælder standarden (nyeste udgave med en post).
-    valgtNoegle: string | null;
+    // Læserens valgte udgave (chippens sourceId); findes den ikke, gælder standarden (nyeste udgave med en post).
+    // Nøglet på udgaven, ikke som web på chippens art + post: der er én chip pr. udgave, og før biografierne er hentet er chippen en
+    // udgave-chip, bagefter en post-chip — valget skal overleve skiftet.
+    valgtUdgaveId: string | null;
     // Personens biografi fra den samlede indlæsning (standardversionen) — bruges, til versionerne er hentet.
     fallbackBio: string;
     // Citations-proveniensen (aux.sourcesBy) for personer uden bogpost, typisk ægtefæller.
@@ -51,7 +48,7 @@ export function byggPersonUdgave(
   const bogKilder = model.sourcesBy?.[personId] ?? [];
   const udgaverMedPost = [...new Set(bogKilder.map((s) => s.sourceId).filter((id): id is string => id != null && kendt.has(id)))];
   const vaelger = byggUdgaveVaelger(input.bioVersions ?? [], udgaver, udgaverMedPost);
-  const fundet = input.valgtNoegle ? vaelger.chips.findIndex((c) => chipNoegle(c) === input.valgtNoegle) : -1;
+  const fundet = input.valgtUdgaveId != null ? vaelger.chips.findIndex((c) => c.sourceId === input.valgtUdgaveId) : -1;
   const valgtIdx = fundet >= 0 ? fundet : vaelger.standard;
   const aktivChip = vaelger.chips[valgtIdx] ?? null;
   // En chip fra en ukendt udgave (fx »label:…«) filtrerer intet.
@@ -75,9 +72,11 @@ export function byggPersonUdgave(
   const standardAar = chipAar(vaelger.chips[vaelger.standard] ?? null);
   const tidligereUdgave = aktivAar != null && standardAar != null && aktivAar < standardAar;
 
+  // fallbackBio er standardudgavens tekst og må kun stå under standardchippen — ellers stod den nyeste udgaves
+  // biografi under 1939-chippen, mens versionerne hentes (eller hvis hentningen fejlede).
   const harPost = vaelger.chips.some((c) => c.art === 'post');
   const bioText = input.bioVersions == null || !harPost
-    ? input.fallbackBio
+    ? (valgtIdx === vaelger.standard ? input.fallbackBio : '')
     : aktivChip?.art === 'post' ? aktivChip.version.narrativeText : '';
 
   // Bogens opslag vinder; citationen udfylder kun for personer uden opslag. Eksakte dubletter vises én gang (M-6).

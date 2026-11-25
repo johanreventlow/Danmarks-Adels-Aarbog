@@ -1,6 +1,6 @@
 // Personsidens udgavevisning (6e, batch 5) for den foldede person 446 (2018-20 V-148) = 1337 (1939 IV-3).
 import { buildModel, type BioSourceVersionV2, type RawLineageContext } from '@daa/core';
-import { byggPersonUdgave, chipNoegle } from '../personUdgave';
+import { byggPersonUdgave } from '../personUdgave';
 import { byggUdgaveLag } from '../udgaveLag';
 import type { Model, RawExtId, RawSource } from '../types';
 
@@ -36,7 +36,7 @@ const post = (sourceId: number, aar: number, tekst: string): BioSourceVersionV2 
   recordRef: `r${sourceId}`, sourceLabel: `DAA ${aar}`, recordLabel: 'post', narrativeText: tekst, citationLabel: '',
   provenanceKind: 'source_record', sourceId, sourceYear: aar,
 } as BioSourceVersionV2);
-const basis = { bioVersions: null, valgtNoegle: null, fallbackBio: 'standard', fallbackKilder: [] };
+const basis = { bioVersions: null, valgtUdgaveId: null, fallbackBio: 'standard', fallbackKilder: [] };
 
 test('standard: nyeste udgave — ét linjemærke og B6-noten om 1939', () => {
   const v = byggPersonUdgave(model, '446', { ...basis, bioVersions: [post(1, 1939, 'gammel'), post(2, 2018, 'ny')] });
@@ -50,8 +50,7 @@ test('standard: nyeste udgave — ét linjemærke og B6-noten om 1939', () => {
 
 test('skift til 1939: mærket, noten og biografien følger udgaven', () => {
   const bioVersions = [post(1, 1939, 'gammel'), post(2, 2018, 'ny')];
-  const foerst = byggPersonUdgave(model, '446', { ...basis, bioVersions });
-  const v = byggPersonUdgave(model, '446', { ...basis, bioVersions, valgtNoegle: chipNoegle(foerst.vaelger.chips[1]) });
+  const v = byggPersonUdgave(model, '446', { ...basis, bioVersions, valgtUdgaveId: '1' });
   expect(v.valgtUdgave).toBe('1');
   expect(v.hovedLinjer).toEqual(['IV. Den grevelige Linje af 1673']);
   expect(v.linjeNoter).toEqual(['✓ også i DAA 2018-20 (V. Den grevelige Linje af 1673)']);
@@ -67,10 +66,23 @@ test('før biografierne er hentet: vælgeren bygges af bogposterne, og hovedet v
   expect(v.bioManglerIUdgave).toBe(false);
 });
 
+test('mens biografierne hentes, står standardteksten kun under standardchippen', () => {
+  const v = byggPersonUdgave(model, '446', { ...basis, valgtUdgaveId: '1' });
+  expect(v.hovedLinjer).toEqual(['IV. Den grevelige Linje af 1673']);
+  expect(v.bioText).toBe('');
+});
+
+test('valget af 1939 overlever, at biografierne ankommer (udgave-chip → post-chip)', () => {
+  const foer = byggPersonUdgave(model, '446', { ...basis, valgtUdgaveId: '1' });
+  expect(foer.aktivChip?.art).toBe('udgave');
+  const efter = byggPersonUdgave(model, '446', { ...basis, valgtUdgaveId: '1', bioVersions: [post(1, 1939, 'gammel'), post(2, 2018, 'ny')] });
+  expect(efter.aktivChip?.art).toBe('post');
+  expect(efter.valgtUdgave).toBe('1');
+  expect(efter.bioText).toBe('gammel');
+});
+
 test('udgave uden biografi siger det, når en anden udgave har én', () => {
-  const v0 = byggPersonUdgave(model, '446', { ...basis, bioVersions: [post(2, 2018, 'ny')] });
-  const idx1939 = v0.vaelger.chips.findIndex((c) => c.sourceId === '1');
-  const v = byggPersonUdgave(model, '446', { ...basis, bioVersions: [post(2, 2018, 'ny')], valgtNoegle: chipNoegle(v0.vaelger.chips[idx1939]) });
+  const v = byggPersonUdgave(model, '446', { ...basis, bioVersions: [post(2, 2018, 'ny')], valgtUdgaveId: '1' });
   expect(v.bioText).toBe('');
   expect(v.bioManglerIUdgave).toBe(true);
 });
