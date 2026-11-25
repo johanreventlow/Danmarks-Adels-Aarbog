@@ -295,13 +295,8 @@ export async function loadFromSupabase(opts?: {
       // degrader i stedet til "ingen linje/generations-data" som web's model.ts-pendant.
       // 5c-2: koordinater fra public_person_source_coordinates (placement ved gældende membership, ellers legacy).
       // Kodereview 36 P2: ét kald (samlet jsonb); fald tilbage til rækkefunktionen via getAll, hvis DDL'en mangler.
-      // Ét genforsøg: det samlede kald ligger tæt på gæsternes 3 s-loft (målt 25/11: 2,9-4,6 s, 57014 ved kold start),
-      // og uden koordinater mister stamtræet linjer og generationer.
+      // Genforsøget ved 57014 o.l. bor i fetchPublicCoordinates (@daa/core, #491) — fælles for web og mobil.
       fetchPublicCoordinates(() => sb.rpc(COORDINATES_RPC_SAMLET), () => sb.rpc(COORDINATES_RPC_RAEKKER))
-        .catch((e) => {
-          console.warn('[loadFromSupabase] koordinater fejlede — prøver igen:', e);
-          return fetchPublicCoordinates(() => sb.rpc(COORDINATES_RPC_SAMLET), () => sb.rpc(COORDINATES_RPC_RAEKKER));
-        })
         .then((rows) => rows.map(coordinateRowToExtId))
         .catch((e) => { console.warn('[loadFromSupabase] public_person_source_coordinates utilgængelig — linjer/generationer degraderet:', e); return [] as RawExtId[]; }),
       getAll<RawSource>(() => sb.from('source').select('id,slags,titel,udgave,aar,ekstern').order('id')),
