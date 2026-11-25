@@ -11,8 +11,12 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 >   `fritekst` (personens navn) eller `kun_id` (kun personens eller en families id som tal). Web viser `kun_id`-fundene
 >   i en særskilt, sammenklappet gruppe med ét ærligt mærkat (projektejeren 25/11): »ofte et årstal, sidetal eller en
 >   anden talværdi i kildedata«. Målt: for den største profil er 3.799 af 3.829 fund rene tal, næsten alle i de interne
->   kildedatatabeller (`private.*`, JSON). Ægte henvisninger til personen dér fanges i forvejen af sletningens egne
->   regler (blokering eller sletning); listen er et ekstra net.
+>   kildedatatabeller (`private.*`, JSON).
+> - **Rettet samme dag (ceremoni 2b, projektejeren 25/11):** påstanden »ægte henvisninger fanges i forvejen af sletningens
+>   egne regler« holdt ikke. Målt i prod-kopien: for én af de tre største profiler stod 8 identitetskandidater med
+>   personens id (`candidate_person_id`), som sletningen ikke fjerner, i den sammenklappede gruppe; ca. 140 andre
+>   nøgletræf var familie-id'er, der tilfældigt matchede. Nu får personens eget id under en nøgle med »person« i navnet
+>   grunden `id_henvisning` og vises åbent; resten forbliver `kun_id`.
 > - **P3:** historier, beskrivelser og andres påstande og citater kommer på kontrollisten, søgt for navn **og** id-tal
 >   som resten (projektejerens valg; rene tal havner under `kun_id`). Et andet navn end det aktuelle (fx et pigenavn)
 >   fanges stadig ikke.
