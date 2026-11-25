@@ -25010,7 +25010,9 @@ DECLARE
   v_storage int; v_personas int:=0; v_pk_pred text; v_schema text; v_table text;
 BEGIN
   PERFORM set_config('lock_timeout','5s',true);
-  PERFORM set_config('statement_timeout','30s',true);
+  -- Review 37 P9: ingen statement_timeout her. PostgreSQL binder tidsgrænsen ved sætningens start, så en set_config
+  -- inde i funktionen virker ikke på det kald, der allerede kører. Grænsen er kalderens rolle-statement_timeout
+  -- (redaktøren 8 s via PostgREST); store profiler over 8 s står i backloggen (docs/decisions.md).
   -- Rollegate FØRST, også før kontraktlåsen og alle eksistens-/fremmed-sæt-læsninger.
   IF public.current_rolle() IS DISTINCT FROM 'redaktion' OR auth.uid() IS NULL THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
   IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN RAISE EXCEPTION 'PURGE_FREMMED_CHANGE_SET'; END IF;
