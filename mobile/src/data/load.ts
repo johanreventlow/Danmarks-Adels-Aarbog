@@ -311,7 +311,12 @@ export async function loadFromSupabase(opts?: {
           .select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw,kvalifikator')
           .eq('subjekt_type', 'person')
           .order('id'),
-      ),
+      ).catch((e) => {
+        // Tabellen er tung under RLS (web målte 630-815 ms pr. side) og kan ramme gæsternes 3 s-loft (57014). Uden
+        // .catch faldt hele appen til offline-seedet; nu mister vi kun embeder, godsejerskab og person→medie-relationer.
+        console.warn('[loadFromSupabase] person-relationer utilgængelige — embeder/godsejerskab degraderet:', e);
+        return [] as RawRelation[];
+      }),
       getAll<RawRelation>(() =>
         sb
           .from('relation')
@@ -536,16 +541,23 @@ type ParentsUnknownRows = {
 // fakta fra flere udgaver får kun navnefaktaets kilde — men netop faldback-mængden har
 // gennemgående præcis én kilde, så det koster intet i praksis.
 // Tolerant: fejler opslaget, degraderer visningen til det den var før (ingen kilde vist).
-async function fetchNavnProveniens(sb: NonNullable<typeof supabase>): Promise<CitationProvenanceRow[]> {
+// Id-lister i .in() deles i bidder à højst PROVENIENS_IN_CHUNK (en URL med ~1.756 + ~1.756 id'er er for lang og
+// rammer gæsternes 3 s-loft), med begrænset parallelitet; et bud på web's feed-bidder (forside/kilder.ts).
+export const PROVENIENS_IN_CHUNK = 200;
+export const PROVENIENS_PARALLEL = 4;
+
+export async function fetchNavnProveniens(sb: NonNullable<typeof supabase>): Promise<CitationProvenanceRow[]> {
   try {
     const facts = await getAll<{ id: number; subjekt_id: number }>(() =>
       sb.from('fact').select('id,subjekt_id').eq('subjekt_type', 'person').eq('faktatype', 'navn').order('id'));
     if (!facts.length) return [];
-    const asserts = await getAll<{ id: number; target_id: number }>(() =>
-      sb.from('assertion').select('id,target_id').eq('target_type', 'fact').in('target_id', facts.map((f) => f.id)).order('id'));
+    const asserts = (await mapLimited(chunks(facts.map((f) => f.id), PROVENIENS_IN_CHUNK), PROVENIENS_PARALLEL, (ids) =>
+      getAll<{ id: number; target_id: number }>(() =>
+        sb.from('assertion').select('id,target_id').eq('target_type', 'fact').in('target_id', ids).order('id')))).flat();
     if (!asserts.length) return [];
-    const cits = await getAll<RaaCitationRow>(() =>
-      sb.from('citation').select('assertion_id,side,source:source_id(titel,udgave)').in('assertion_id', asserts.map((a) => a.id)).order('id'));
+    const cits = (await mapLimited(chunks(asserts.map((a) => a.id), PROVENIENS_IN_CHUNK), PROVENIENS_PARALLEL, (ids) =>
+      getAll<RaaCitationRow>(() =>
+        sb.from('citation').select('assertion_id,side,source:source_id(titel,udgave)').in('assertion_id', ids).order('id')))).flat();
     const personAfFact = new Map(facts.map((f) => [f.id, String(f.subjekt_id)]));
     const personAfAssert = new Map(asserts.map((a) => [a.id, personAfFact.get(a.target_id) ?? '']));
     return citationRowsTilProveniens(cits, personAfAssert);
