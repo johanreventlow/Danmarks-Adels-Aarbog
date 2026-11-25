@@ -5,7 +5,7 @@ import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
 import {
   boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, buildBioSourceVersions,
-  mapPublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, fmtVisningsAar, parseYear, getAll, EMPTY_GEO,
+  mapPublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, fmtVisningsAar, parseYear, aarSpaend, oploesRelativDato, getAll, EMPTY_GEO,
   citationRowsTilProveniens, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates,
   type GenCoord, type ParentsUnknown, type CitationProvenanceRow, type RaaCitationRow,
 } from '@daa/core';
@@ -105,6 +105,11 @@ export function mapAppPersons(
       name: personVisningsnavn(p, boern.has(String(p.id))),
       born: parseYear(p.visning_foedt),
       died: parseYear(p.visning_doed),
+      // Årsspænd som web (model.ts): buildModels kronologi-vagt sammenligner hele spænd; uden dem behandles
+      // »† efter 1575« som præcis 1575, og et barn født 1580 mister forældrelinket.
+      foedtSpaend: aarSpaend(p.visning_foedt),
+      // »† s.å.« opløses mod fødslen, så et barn, der døde samme år, ikke får et åbent dødsår.
+      doedSpaend: aarSpaend(p.visning_doed == null ? null : oploesRelativDato(p.visning_doed, p.visning_foedt ?? null) ?? p.visning_doed),
       floruit: p.visning_floruit ?? null,
       years: fmtVisningsAar(p.visning_foedt, p.visning_doed, p.visning_floruit),
       // Bogens tekst til sammenfoldningens overskrift (»† efter 1575«, ikke »† 1575«), som web.

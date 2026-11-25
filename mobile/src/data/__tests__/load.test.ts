@@ -1,3 +1,4 @@
+import { buildModel } from '@daa/core';
 import { compareParentOrder, mapAppPersons, mapPublicBioVersionsByPersonV2 } from '../load';
 
 const RAW = [
@@ -76,4 +77,19 @@ test('compareParentOrder: mand rangeres altid før kvinde, uanset ordinal-række
   const mand = { person_id: 2, ordinal: 5 };
   const sorted = [kvinde, mand].sort((a, b) => compareParentOrder(a, b, koenById));
   expect(sorted.map((p) => p.person_id)).toEqual([2, 1]);
+});
+
+test('mapAppPersons: årsspænd sættes, så buildModel beholder forældrelink når dødsåret er et spænd († 1570/1580)', () => {
+  const raw = [
+    { id: 1, visning_navn: 'Far', visning_foedt: '1540', visning_doed: '† 1570/1580', visning_titel: '', privat: false },
+    { id: 2, visning_navn: 'Barn', visning_foedt: '1580', visning_doed: null, visning_titel: '', privat: false },
+  ];
+  const persons = mapAppPersons(raw as never, {}, false);
+  expect(persons[0].doedSpaend).toEqual([1570, 1580]);
+  expect(persons[0].foedtSpaend).toEqual([1540, 1540]);
+  const db = { persons, unions: [], parentChild: [{ parent: '1', child: '2', union: 'u1' }] };
+  expect(buildModel(db as never).indexes.parentsByChild['2']).toEqual(['1']);
+  // uden spænd (punktår = første årstal) droppes linket: det var fejlen
+  const punkt = persons.map((p) => ({ ...p, foedtSpaend: undefined, doedSpaend: undefined }));
+  expect(buildModel({ ...db, persons: punkt } as never).indexes.parentsByChild['2'] ?? []).toHaveLength(0);
 });
