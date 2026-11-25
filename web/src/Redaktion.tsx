@@ -967,9 +967,9 @@ function Arbejdsbord({ session, onLogout }: { session: RedSession; onLogout: () 
               : entity === 'foraeldre-konflikter'
               ? <ForaeldreKonflikterListe onOpen={(id) => openRecord('person', id)} />
               : entity === 'slettede-personer'
-              ? <SlettedePersoner role={role} dryRun={dryRun} revision={purgeRevision} fortryd={async (r) => {
+              ? <SlettedePersoner role={role} dryRun={dryRun} revision={purgeRevision} fortryd={async (r, opts) => {
                   const res = await run({ art: 'fortryd', subjektType: 'person', subjektId: r.personId,
-                    payload: { changeSetId: r.changeSetId, force: false } }, 'Fortryd sletning', { refresh: false, kastFejl: true });
+                    payload: { changeSetId: r.changeSetId, force: opts?.force ?? false } }, 'Fortryd sletning', { refresh: false, kastFejl: true });
                   const kunDryRun = res?.dryRun ?? dryRun;
                   if (!kunDryRun) {
                     // Den genskabte person skal straks stå i personlisten og modellen igen.

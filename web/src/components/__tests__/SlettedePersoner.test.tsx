@@ -11,8 +11,9 @@ const raekker: SlettetPerson[] = [
   { changeSetId: '91', slettetNaar: '2026-11-22T10:15:00Z', actorNavn: 'redaktor@daa.dk', personId: '1791', navn: 'Christian Reventlow' },
   { changeSetId: '88', slettetNaar: '2026-11-21T09:00:00Z', actorNavn: null, personId: '1802', navn: null },
 ];
-function setup(o: { role?: string; dryRun?: boolean; fortryd?: (r: SlettetPerson) => Promise<{ dryRun: boolean }>;
-  load?: () => Promise<SlettetPerson[]> } = {}) {
+function setup(o: { role?: string; dryRun?: boolean;
+  fortryd?: (r: SlettetPerson, opts?: { force?: boolean }) => Promise<{ dryRun: boolean }>;
+  load?: (limit: number) => Promise<SlettetPerson[]> } = {}) {
   const props = { role: o.role ?? 'redaktion', dryRun: o.dryRun ?? false,
     load: vi.fn(o.load ?? (() => Promise.resolve(raekker))),
     fortryd: vi.fn(o.fortryd ?? (() => Promise.resolve({ dryRun: false }))) };
@@ -70,6 +71,54 @@ it('tom liste og fejlet hentning', async () => {
   p.load.mockResolvedValueOnce(raekker);
   fireEvent.click(screen.getByRole('button', { name: 'Hent igen' }));
   await screen.findByText('Christian Reventlow');
+});
+
+// Review 37 R37P11-1 (ceremoni 2): tvangsvalg ved konflikt, som i historikpanelet.
+it('en konflikt tilbyder »Fortryd alligevel«, som fortryder med force', async () => {
+  const fortryd = vi.fn((_r: SlettetPerson, opts?: { force?: boolean }) => opts?.force
+    ? Promise.resolve({ dryRun: false })
+    : Promise.reject(new Error('FEJL: change_set 91 divergerer fra nuværende tilstand — afvist (brug force)')));
+  setup({ fortryd });
+  await screen.findByText('Christian Reventlow');
+  fireEvent.click(knap('Christian Reventlow'));
+  const raek = (await screen.findByText(/Nyere ændring rører samme data/)).closest('tr')!;
+  expect(fortryd).toHaveBeenCalledWith(raekker[0]);
+  fireEvent.click(within(raek).getByRole('button', { name: 'Fortryd alligevel: Christian Reventlow' }));
+  await waitFor(() => expect(screen.queryByText('Christian Reventlow')).toBeNull());
+  expect(fortryd).toHaveBeenLastCalledWith(raekker[0], { force: true });
+});
+
+it('»Annullér« lukker konflikten uden at fortryde', async () => {
+  const fortryd = vi.fn(() => Promise.reject(new Error('afvist (brug force)')));
+  setup({ fortryd });
+  await screen.findByText('Christian Reventlow');
+  fireEvent.click(knap('Christian Reventlow'));
+  await screen.findByText(/Nyere ændring rører samme data/);
+  fireEvent.click(screen.getByRole('button', { name: 'Annullér' }));
+  expect(screen.queryByText(/Nyere ændring rører samme data/)).toBeNull();
+  expect(fortryd).toHaveBeenCalledTimes(1);
+});
+
+const mange = (n: number): SlettetPerson[] => Array.from({ length: n }, (_, i) =>
+  ({ changeSetId: String(1000 + i), slettetNaar: '2026-11-22T10:15:00Z', actorNavn: null, personId: String(5000 + i), navn: `Person ${i}` }));
+
+it('»Vis flere« henter 100 ad gangen, højst 500', async () => {
+  const p = setup({ load: (limit) => Promise.resolve(mange(Math.min(limit, 500))) });
+  await screen.findByText('Person 99');
+  expect(p.load).toHaveBeenLastCalledWith(100);
+  for (const limit of [200, 300, 400, 500]) {
+    fireEvent.click(screen.getByRole('button', { name: 'Vis flere' }));
+    await screen.findByText(`Person ${limit - 1}`);
+    expect(p.load).toHaveBeenLastCalledWith(limit);
+  }
+  expect(screen.queryByRole('button', { name: 'Vis flere' })).toBeNull();
+  expect(screen.getByText('Viser de 500 nyeste sletninger.')).toBeTruthy();
+}, 20_000); // 4 × op til 500 rækker: over vitests standard på 5 s, når hele suiten kører samtidig.
+
+it('færre end 100 rækker: ingen »Vis flere«', async () => {
+  setup();
+  await screen.findByText('Christian Reventlow');
+  expect(screen.queryByRole('button', { name: 'Vis flere' })).toBeNull();
 });
 
 it('uden redaktørrolle hentes intet', () => {
