@@ -529,6 +529,25 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 53. Billedtypen er motivet og en kontrolleret ordliste — LIVE i prod (2026-11-25)
+**Grundlag:** PR #481 (CI grøn; merget `cb750799` FØR DDL — klienten tåler begge tilstande). Spec
+`docs/superpowers/specs/2026-11-25-media-slags-ordliste-design.md`; afgørelse `docs/decisions.md` 2026-11-25.
+- **Dataflytning (projektejerens shell):** `R/media-slags-flytning.R` (`--proev-binding` OK 25006 ×2, derefter
+  `--jeg-mener-det`): 56 `media` via `red_opdater_media` (45 maleri + 9 foto → `portræt`, 2 scanning (7, 8) → `våben`),
+  48 `teknik`-fakta via `red_upsert_fakta` (Maleri 45, Fotografi 3; ingen på 7, 8, 10-16). 56 change_sets. Efter:
+  portræt 167, våben 23, gods 11, segl 6, medalje 5; 0 uden for listen.
+- **DDL (én transaktion, 1,0 s):** blokken `-- BEGIN media-slags-ordliste` fra `cb750799` (sha `5074be40…`, 66 linjer),
+  kørt med en engangsrunner (`psql -1`, ON_ERROR_STOP, sha-tjek) i projektejerens shell: vagt (0 rækker uden for
+  listen), 6 `vocab`-rækker (scheme `media_slags`), `private.validate_media_slags()` + `trg_media_slags` (BEFORE INSERT
+  OR UPDATE OF slags ON media). Ingen data, ingen grants.
+- **Efterkontrol:** vocab 6, trigger 1, 0 media uden for listen. I ROLLBACK: `slags='maleri'` → `portræt`;
+  `slags='tegning'` → `23514 MEDIA_SLAGS_UKENDT`. `get_advisors` (security): samme 4 lint-typer, ingen ERROR, ingen nævner
+  den nye funktion.
+- **Ikke øvet på stand-in** (lille, transaktionel blok med egen vagt); opgraderingstesten
+  `tests/sql/test-media-slags-ordliste-upgrade.sh` kører blokken mod en prod-formet base fra `0c1288db`, også med
+  forkerte data (negativ base) og som mutationstest.
+- **Oprydning:** `PORTRAIT_SLAGS`/`BILLEDER_PORTRAET_SLAGS` = kun `portræt` (gren `chore/media-slags-oprydning`).
+
 ## 52. Review 37 ceremoni 2: personsletningens kontrolliste og gruppelås — LIVE i prod (2026-11-25)
 
 **Grundlag:** PR #482 (CI grøn i alle jobs på `acc94f21`; merget `e1692be6` efter DDL). Privat runner
