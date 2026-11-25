@@ -15,6 +15,8 @@ export default function Konto() {
   const router = useRouter();
   const session = useStore((s) => s.session);
   const rolle = useStore((s) => s.rolle);
+  const rolleFejl = useStore((s) => s.rolleFejl);
+  const hydrateAuth = useStore((s) => s.hydrateAuth);
   const doSignOut = useStore((s) => s.doSignOut);
   const model = useStore((s) => s.model);
   const meId = useStore(selectMeId);
@@ -37,6 +39,11 @@ export default function Konto() {
                 <Mono size={9} color={Colors.inkMuted}>{rolle.toUpperCase()}</Mono>
               </View>
             </View>
+            {rolleFejl ? (
+              <Pressable onPress={() => hydrateAuth()} style={{ marginTop: 10 }}>
+                <Mono size={11} color={Colors.bordeaux}>{rolleFejl} — tryk for at prøve igen</Mono>
+              </Pressable>
+            ) : null}
           </View>
         ) : (
           <View style={[styles.card, { backgroundColor: Colors.surfaceInverse }]}>

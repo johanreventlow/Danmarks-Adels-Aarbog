@@ -110,6 +110,8 @@ export type State = {
   session: import('@supabase/supabase-js').Session | null;
   rolle: import('./../lib/auth').Rolle;
   reventlowPersonId: string | null;
+  // Review 37 W6: sat når rolleopslaget fejlede ved app-start (sessionen beholdes, rollen er ukendt).
+  rolleFejl: string | null;
   dryRun: boolean;
   showAnnotations: boolean;
 
@@ -185,6 +187,7 @@ export const useStore = create<State>((set, get) => ({
   session: null,
   rolle: 'medlem',
   reventlowPersonId: null,
+  rolleFejl: null,
   dryRun: true,
   showAnnotations: false,
   query: '',
@@ -459,7 +462,7 @@ export const useStore = create<State>((set, get) => ({
     // Brugerskift: en anden brugers redaktions-model (og igangværende indlæsning) må ikke overleve.
     // Nulstilles i SAMME set som rollen, så _layout's effekt ser 'idle' og indlæser for den nye bruger.
     const skift = res.userId !== get().session?.user?.id;
-    set({ rolle: res.rolle, reventlowPersonId: res.reventlowPersonId, ...(skift ? nulstilRedaktion() : {}) });
+    set({ rolle: res.rolle, reventlowPersonId: res.reventlowPersonId, rolleFejl: null, ...(skift ? nulstilRedaktion() : {}) });
     const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
     set({ session: data.session });
   },
@@ -468,16 +471,23 @@ export const useStore = create<State>((set, get) => ({
     // igangværende indlæsning skal så stadig kunne lande (ellers hænger status på 'loading').
     // Et svar der lander mens signOut afventes, sætter blot modellen, som nulstilles lige efter.
     await signOut();
-    set({ session: null, rolle: 'medlem', reventlowPersonId: null, ...nulstilRedaktion() });
+    set({ session: null, rolle: 'medlem', reventlowPersonId: null, rolleFejl: null, ...nulstilRedaktion() });
   },
   hydrateAuth: async () => {
     if (!supabase) return;
     const { data } = await supabase.auth.getSession();
     if (data.session) {
-      const prof = await fetchProfile(data.session.user.id);
       const skift = data.session.user.id !== get().session?.user?.id; // brugerskift → nulstil (som doSignIn)
-      set({ session: data.session, rolle: prof.rolle, reventlowPersonId: prof.reventlowPersonId,
-            ...(skift ? nulstilRedaktion() : {}) });
+      try {
+        const prof = await fetchProfile(data.session.user.id);
+        set({ session: data.session, rolle: prof.rolle, reventlowPersonId: prof.reventlowPersonId,
+              rolleFejl: null, ...(skift ? nulstilRedaktion() : {}) });
+      } catch (e) {
+        // Review 37 W6: sessionen beholdes, men en fejlet opslag må ikke stille gøre redaktøren til medlem.
+        // Rollen røres ikke ved samme bruger; ved brugerskift nulstilles den, og fejlen vises på konto-siden.
+        set({ session: data.session, rolleFejl: e instanceof Error ? e.message : 'Rollen kunne ikke hentes — prøv igen',
+              ...(skift ? { rolle: 'medlem' as const, reventlowPersonId: null, ...nulstilRedaktion() } : {}) });
+      }
     }
   },
   setDryRun: (v) => set({ dryRun: v }),

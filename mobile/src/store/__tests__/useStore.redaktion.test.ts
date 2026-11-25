@@ -11,10 +11,11 @@ const mockLoad = jest.fn();
 jest.mock('../../data/load', () => ({ loadFromSupabase: (...a: unknown[]) => mockLoad(...a) }));
 const mockSignOut = jest.fn();
 const mockSignIn = jest.fn();
+const mockFetchProfile = jest.fn();
 jest.mock('../../lib/auth', () => ({
   signOut: () => mockSignOut(),
   signIn: (...a: unknown[]) => mockSignIn(...a),
-  fetchProfile: async () => ({ rolle: 'redaktion', reventlowPersonId: null }),
+  fetchProfile: (...a: unknown[]) => mockFetchProfile(...a),
 }));
 jest.mock('../../lib/supabase', () => ({ supabase: {
   auth: { getSession: async () => ({ data: { session: { user: { id: 'u2' } } } }) },
@@ -34,6 +35,8 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 beforeEach(() => {
   mockLoad.mockReset(); mockSignOut.mockReset(); mockSignIn.mockReset();
   mockSignOut.mockResolvedValue(undefined);
+  mockFetchProfile.mockReset();
+  mockFetchProfile.mockResolvedValue({ rolle: 'redaktion', reventlowPersonId: null });
   useStore.setState({ redaktionModel: null, redaktionAux: null, redaktionStatus: 'idle',
     session: { user: { id: 'u1' } } as never, rolle: 'redaktion' });
 });
@@ -145,5 +148,30 @@ describe('loadRedaktionModel — generationsværn', () => {
     await useStore.getState().doSignIn('a@b', 'x');
     // getSession-attrappen returnerer u2 som session, men modellen er kun nulstillet ved userId-skift.
     expect(landetMaerke()).toBe('u1-model');
+  });
+});
+
+describe('hydrateAuth — rolleopslag (review 37 W6)', () => {
+  test('fejlet opslag beholder sessionen, røre ikke rollen og sætter rolleFejl', async () => {
+    useStore.setState({ session: { user: { id: 'u2' } } as never, rolle: 'redaktion', rolleFejl: null });
+    mockFetchProfile.mockRejectedValueOnce(new Error('Rollen kunne ikke hentes — prøv igen'));
+    await useStore.getState().hydrateAuth();
+    const s = useStore.getState();
+    expect(s.session?.user.id).toBe('u2');
+    expect(s.rolle).toBe('redaktion');
+    expect(s.rolleFejl).toBe('Rollen kunne ikke hentes — prøv igen');
+  });
+  test('fejlet opslag ved brugerskift giver medlem (ingen arvet redaktørrolle)', async () => {
+    useStore.setState({ session: { user: { id: 'u1' } } as never, rolle: 'redaktion', rolleFejl: null });
+    mockFetchProfile.mockRejectedValueOnce(new Error('x'));
+    await useStore.getState().hydrateAuth();
+    expect(useStore.getState().rolle).toBe('medlem');
+    expect(useStore.getState().rolleFejl).toBe('x');
+  });
+  test('vellykket opslag rydder rolleFejl', async () => {
+    useStore.setState({ rolleFejl: 'gammel' });
+    await useStore.getState().hydrateAuth();
+    expect(useStore.getState().rolleFejl).toBeNull();
+    expect(useStore.getState().rolle).toBe('redaktion');
   });
 });
