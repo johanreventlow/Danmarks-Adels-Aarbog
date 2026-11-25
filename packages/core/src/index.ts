@@ -40,6 +40,12 @@ export { KONFIDENS_VALUES, KONFIDENS_RANK } from './types';
 export type {
   RawExtId,
   RawLineage,
+  RawSource,
+  LineageContext,
+  RawLineageContext,
+  RawLineageScheme,
+  RawLineageSchemeEntry,
+  RawLineageSchemeEntryLineage,
   SlaegtRef,
   LineageRef,
   LineageSchemeEntryRef,
@@ -75,3 +81,10 @@ export * from './personNavn';
 export { slutterPaaSlaegtsnavn, udenSlaegtsnavnTilSidst } from './slaegtsnavn';
 export * from './sletVej';
 export * from './mediaVisning';
+// 6e-projektionen (linjer, udgaver, kilder) — flyttet fra web/src/data (mobil-paritet, batch 3).
+export * from './lineage';
+export * from './linjeRaekker';
+export * from './udgaver';
+export * from './stamtavleKilder';
+export * from './sources';
+export * from './kunIAeldre';

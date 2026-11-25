@@ -1,4 +1,4 @@
-import { buildModel, type BogNr } from '@daa/core';
+import { buildModel, type BogNr } from '../index';
 import { describe, expect, it } from 'vitest';
 import type { Model } from '../types';
 import { kunIAeldreTekst } from '../kunIAeldre';

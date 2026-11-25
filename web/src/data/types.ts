@@ -5,12 +5,18 @@
 // herfra, så eksisterende imports fra './types' virker uændret. Kun web-specifikke
 // typer (Aux, Raw-rækker loaderen alene bruger, normaliserings-helpers) defineres lokalt.
 import { KONFIDENS_VALUES } from '@daa/core';
-import type { Geo, Koen, Konfidens, Model, SourceRef, LinjeEntry, RawLineage } from '@daa/core';
+import type { Geo, Koen, Konfidens, Model, SourceRef, LinjeEntry } from '@daa/core';
 
 export { KONFIDENS_VALUES, KONFIDENS_RANK } from '@daa/core';
 export type {
   RawExtId,
   RawLineage,
+  RawSource,
+  LineageContext,
+  RawLineageContext,
+  RawLineageScheme,
+  RawLineageSchemeEntry,
+  RawLineageSchemeEntryLineage,
   RawEstate,
   RawPlace,
   RawFact,
@@ -66,14 +72,6 @@ export type RawNarrative = {
   tekst: string | null;
   privat: boolean | null;
 };
-export type RawSource = {
-  id: number | string;
-  slags: string | null;
-  titel: string | null;
-  udgave: string | null;
-  aar?: number | null;
-  ekstern: string | null;
-};
 export type RawRelation = {
   subjekt_type: string;
   subjekt_id: number | string;
@@ -85,38 +83,6 @@ export type RawRelation = {
 export type RawOrg = { id: number | string; navn: string | null; slags: string | null };
 export type RawMedia = { person_id?: number | string | null; [k: string]: unknown };
 export type RawArms = { id: number | string; blasonering: string | null; note: string | null };
-
-// Den stabile klientkontekst for en lineage. Trykte koder som "II" er kun
-// præsentation; cache, navigation og filtrering skal bruge disse ID'er.
-export type LineageContext = {
-  slaegtId: string;
-  lineageId: string;
-  schemeId?: string;
-  schemeEntryId?: string;
-};
-
-export type RawLineageContext = RawLineage & {
-  slaegt_id?: number | string | null;
-  canonical_label?: string | null;
-  slaegtsnavn?: string | null;
-};
-export type RawLineageScheme = {
-  id: number | string;
-  slaegt_id: number | string;
-  source_id: number | string | null;
-  kind: string;
-};
-export type RawLineageSchemeEntry = {
-  id: number | string;
-  scheme_id: number | string;
-  code: string;
-  label: string;
-};
-export type RawLineageSchemeEntryLineage = {
-  entry_id: number | string;
-  lineage_id: number | string;
-  relation_kind: string;
-};
 
 // Normalisér rå streng-værdier fra basen til de typede unioner (ukendt → null).
 export function normalizeKonfidens(k: string | null | undefined): Konfidens {
