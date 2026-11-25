@@ -2,6 +2,25 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: s.å./s.m./s.d. oversættes også, når datofeltet står inde i teksten (afgørelse 13, del 2, 2026-11-25)
+
+**Projektejeren valgte** (#478; ønsket 2026-11-24, dom 2026-11-25: »alle 24 er korrekte«) at oversættelsen af bogens
+»s.å.«, »s.m.« og »s.d.« bruger samme regel som visningen: et datofelt, der står ordret et vilkårligt sted i teksten, er
+en gentagelse og intet selvstændigt led, så teksten oversættes for sig — fx »døbt 18. aug. s.å. i Vesterborg Kirke« →
+»døbt 18. aug. 1866 i Vesterborg Kirke«. Før gjaldt det kun, når teksten sluttede med datofeltet (afgørelse 13,
+2026-11-12).
+
+- **Kun fakta, kun på skærmen.** Oversættelsen sker i `@daa/core` (`oploser` i `editionFacts.ts`), når fakta-sektionen
+  bygges: kun dåb (ud fra fødslen) og begravelse (ud fra døden). Biografiteksten (narrativ) vises ordret som i årbogen,
+  og databasen ændres ikke — bogens ord, også forkortelserne, står urørt i påstandene. Titler, dekorationer og død
+  oversættes stadig ikke.
+- **Værnene består:** usikker reference, flere/omstridte referencer, forkortelser ≠ datoer, ikke før referencen, ingen
+  ugyldig kalenderdato. Et nøgent »s.d.« i datofeltet tæller nu som stående i teksten; kæden af datoer i teksten
+  (»bisat 5. april s.å. og begravet s.d.« = bisættelsens dag) stopper stadig oversættelsen, når den giver en anden dag
+  end dødsdagen (`oploesRelativDato`).
+- **Målt** på en prod-kopi verificeret identisk med prod: 273 → 297 oversættelser (+17 dåb, +7 begravelser), 0 nye eller
+  ændrede »✓ også«, intet andet ændret (`laeserflade-6e1-maaling.md` »Genmåling #478«). Projektejeren har set alle 24.
+
 ## BESLUTTET: billedtypen (media.slags) beskriver kun motivet og er en kontrolleret ordliste (2026-11-25)
 
 **Projektejeren valgte** »kun motiv«: `media.slags` siger, hvad billedet viser (portræt, våben, segl, medalje, gods,
@@ -62,8 +81,8 @@ Anledning: person 406 viste »Født: 25. april 1861 på Pederstrup, 25. april 18
 - **Gælder kun visningen** (`factValue` i `packages/core/src/personFacts.ts`). Værnene består: et rent årstal tæller ikke
   (kan være et tilfælde), ordgrænse før datoen, og efter datoen kun mellemrum, . , ; : eller tekstens slutning — »?« og
   parenteser bærer betydning (»døbt 21. april 1644?« + »21. april 1644« vises begge).
-- **Oversættelsen af s.å./s.m./s.d. er uændret** (`datoErDobbelt`, »slutter med«), så de 273 målte oversættelser står.
-  At lade oversættelsen bruge den bredere regel er valgt til senere: #478 (med genmåling og eksempler før prod).
+- **Oversættelsen af s.å./s.m./s.d. var uændret** (`datoErDobbelt`, »slutter med«), så de 273 målte oversættelser stod.
+  Den bredere regel blev taget i brug for oversættelsen 2026-11-25 (#478, se ovenfor).
 - Ingen data ændres; web og mobil får det gennem `@daa/core`.
 
 ## BESLUTTET: leveårene ved navnet er den nyeste udgaves udsagn, med bogens forbehold (2026-11-24)

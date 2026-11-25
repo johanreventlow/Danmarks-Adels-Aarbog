@@ -255,3 +255,5 @@ kæden af datoer i teksten tjekkes som før af `oploesRelativDato`.
   fremstillet …«); alle tre er i arket.
 - **Ark:** alle 24 nye oversættelser (bogens tekst, fødslen/døden, ny visning, kilde) i et ark uden for repo'et
   (`478-nye-oversaettelser.html`), til projektejerens dom.
+
+**Dom:** Projektejeren 2026-11-25: alle 24 korrekte (`decisions.md` 2026-11-25).
