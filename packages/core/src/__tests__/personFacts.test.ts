@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPersonFacts, datoErDobbelt, factSource, factValue, FAKTA_UDELADT, type PublicPersonFactRow } from '../personFacts';
+import { buildPersonFacts, datoErDobbelt, datoVisesIForvejen, factSource, factValue, FAKTA_UDELADT, type PublicPersonFactRow } from '../personFacts';
 
 let next = 1;
 const row = (o: Partial<PublicPersonFactRow> = {}): PublicPersonFactRow => {
@@ -153,9 +153,17 @@ describe('buildPersonFacts', () => {
     expect(factValue(row({ vaerdi_tekst: 'hjemmedøbt 10. febr. 1922', date_raw: '10. febr. s.å.' }), opl)).toBe('hjemmedøbt 10. febr. 1922');
   });
 
-  it('opløsningens test (datoErDobbelt) er stadig »slutter med« — nr. 2 i #478 er ikke taget endnu', () => {
-    expect(datoErDobbelt('hjemmedøbt 10. febr. s.å.', '10. febr. s.å.')).toBe(true);
+  it('opløsningen bruger visningens regel (#478): et datofelt inde i teksten er også en gentagelse', () => {
+    expect(datoVisesIForvejen('hjemmedøbt 10. febr. s.å.', '10. febr. s.å.')).toBe(true);
+    expect(datoVisesIForvejen('døbt 18. aug. s.å. i Vesterborg Kirke', '18. aug. s.å.')).toBe(true);
+    // »slutter med« alene (afgørelse 13's oprindelige regel) dækker ikke midten
     expect(datoErDobbelt('døbt 18. aug. s.å. i Vesterborg Kirke', '18. aug. s.å.')).toBe(false);
+    // værnene: rent årstal, ordgrænse, »?« efter datoen
+    expect(datoVisesIForvejen('kirken opført 1845 i Vester', '1845')).toBe(false);
+    expect(datoVisesIForvejen('døbt 118. aug. s.å.', '18. aug. s.å.')).toBe(false);
+    expect(datoVisesIForvejen('døbt 18. aug. 1858? i kirken', '18. aug. 1858')).toBe(false);
+    // efter et afsluttende punktum er »?« tekstens eget tegn: det bliver stående i teksten, så intet tabes
+    expect(datoVisesIForvejen('døbt 18. aug. s.å.? i kirken', '18. aug. s.å.')).toBe(true);
   });
 
   it('C1: et betydningsbærende tegn i date_raw (»?«, parentes) fjernes aldrig ved dobbelttjekket', () => {

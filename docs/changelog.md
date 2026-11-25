@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-25 — »s.å.« og »s.m.« oversættes også midt i teksten
+
+Fakta-sektionen viste fx »døbt 18. aug. s.å. i Vesterborg Kirke«, fordi forkortelserne kun blev oversat, når datoen
+stod sidst i teksten. Nu oversættes de også, når datoen står inde i teksten: 24 flere dåb og begravelser i DAA 2018-20
+viser rigtige datoer (297 i alt), alle set og godkendt af projektejeren. Kun fakta og kun på skærmen — biografien og
+databasen er urørt (`decisions.md` 2026-11-25, #478).
+
 ## 2026-11-25 — Billedtypen er motivet og kommer fra én ordliste
 
 Billedtypen blandede motiv og teknik (portræt, maleri, foto …), og redaktørens fire valglister kendte kun halvdelen af
