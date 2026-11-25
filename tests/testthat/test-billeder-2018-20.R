@@ -206,6 +206,17 @@ test_that("nyt billede: bytes først, så RPC-rækkefølgen", {
   expect_equal(log$args$red_upsert_fakta$p_subjekt_id, "900")
 })
 
+test_that("teknik fra billedteksten gemmes som faktum efter kreditlinjen (spec 2026-11-25-media-slags-ordliste)", {
+  log <- anvend_med_fake(c(ny_raekke, list(teknik = "Maleri")), eksisterende = NULL)
+  expect_equal(tail(log$rpc, 2), c("red_upsert_fakta", "red_upsert_fakta"))
+  expect_equal(log$args$red_upsert_fakta$p_faktatype, "teknik")
+  expect_equal(log$args$red_upsert_fakta$p_vaerdi, "Maleri")
+  expect_equal(log$args$red_upsert_fakta$p_kilde_fritekst, "DAA 2018-20, s. 150")
+  # uden teknik: kun kreditlinjen
+  uden <- anvend_med_fake(c(ny_raekke, list(teknik = NULL)), eksisterende = NULL)
+  expect_equal(sum(uden$rpc == "red_upsert_fakta"), 1L)
+})
+
 test_that("lås nuværende portræt FØR koblingen", {
   log <- anvend_med_fake(med_portraet(ny_raekke, "laas", "42"), eksisterende = NULL)
   expect_lt(which(log$rpc == "red_saet_portraet"), which(log$rpc == "red_upload_media"))
