@@ -436,4 +436,31 @@ expect W 00000 ''; expect S P0001 'SLET_KRAEVER_SLET_HELT: samme_som_skjult'
 [ "$(a "SELECT count(*) FROM person WHERE id=purge_test.id('c2_x')")" = 1 ]
 report
 fi
+# Review 37 R37P11-3 (ceremoni 2): »Slet helt« af P mod den fortrydelige sletning af P's samme_som-nabo, som nu låser
+# hele gruppen (inkl. P). Begge veje skal vente på samme_som-låsen og ende uden dødlås. P og naboen gøres offentlige,
+# så den fortrydelige sletning kan lykkes alene (preflight); P's hash hentes igen efter ændringen.
+for dir in wf sf; do
+  if skip "r37p11_3_purge_$dir"; then continue; fi
+  new "r37p11_3_purge_$dir"
+  a "$actor DO \$c2\$ BEGIN PERFORM purge_test.nyt(); PERFORM red_set_privat(purge_test.id('P'),false);
+    PERFORM purge_test.nyt(); PERFORM red_set_privat(purge_test.id('nabo'),false); END \$c2\$;" >/dev/null
+  sha=$(a "$actor SELECT red_slet_person_helt_preview(purge_test.id('P'))->>'sha256';" | tail -1)
+  s="SELECT red_slet_person_helt(purge_test.id('P'),'$sha');"
+  w="SELECT red_slet_person(purge_test.id('nabo'));"
+  if [ "$dir" = wf ]; then
+    wf advisory
+    expect W 00000 ''; expect S '00000|P0001' "$closed"
+  else
+    sf AFTER advisory
+    expect S 00000 ''; expect W 00000 ''
+  fi
+  # Ikke retry_gone: purge_test.gone() forudsætter fixturens private P (fam_keep's indhold slettes kun for en
+  # ikke-offentlig P). Her er P offentlig, så tjekket er: P og P's relationer er væk, også efter en lukket S.
+  if [ "$(a "SELECT count(*) FROM person WHERE id=purge_test.id('P')")" = 1 ]; then
+    a "$actor SELECT red_slet_person_helt(purge_test.id('P'),red_slet_person_helt_preview(purge_test.id('P'))->>'sha256');" >/dev/null
+  fi
+  [ "$(a "SELECT count(*) FROM person WHERE id=purge_test.id('P')")" = 0 ]
+  [ "$(a "SELECT count(*) FROM relation WHERE (subjekt_type='person' AND subjekt_id=purge_test.id('P')) OR (objekt_type='person' AND objekt_id=purge_test.id('P'))")" = 0 ]
+  report
+done
 printf 'SAMTIDIG_OK\n'
