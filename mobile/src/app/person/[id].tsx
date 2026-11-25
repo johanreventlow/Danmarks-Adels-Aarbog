@@ -6,7 +6,8 @@
 // @daa/core's byggFokusRaekker som web's personside — børn pr. ægteskab i bogens rækkefølge, et barn fra kun en ældre
 // udgave gråt uden for sin udgave med »Kun i …« (aldrig for en levende), ⚭-dato efter ægtefællens år og en udtrykkelig
 // sætning for børn uden kendt ægteskab. Batch 7: fakta med kilde pr. udgave (data/personFakta.ts, rendret som web's
-// PersonFakta), udgavevælgeren over udgaver med fakta, »Besiddelser« og ingen tom »Materiale«-sektion.
+// PersonFakta), udgavevælgeren over udgaver med fakta, »Besiddelser«, ingen tom »Materiale«-sektion og slægtskabet til
+// »mig« over navnet (core's slaegtskabsKontekst, som web's SlaegtskabsLinje).
 import { SignedImage } from '../../components/SignedImage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
@@ -17,11 +18,14 @@ import { NarrativRenderer } from '../../components/NarrativRenderer';
 import { StripedPlaceholder } from '../../components/StripedPlaceholder';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { byggFokusRaekker, faktaTypeNavn, grupperKunI, konfTekst, kunIAeldreTekst, lifeJourney, udgaveNoteTekst } from '@daa/core';
+import {
+  byggFokusRaekker, faktaTypeNavn, grupperKunI, konfTekst, kunIAeldreTekst, lifeJourney, slaegtskabsKontekst, udgaveNoteTekst,
+} from '@daa/core';
 import type { BioSourceVersion, UdgaveFaktaVisning } from '@daa/core';
 import { barnErAktivt } from '../../data/familieBlok';
 import { hentPersonFakta, type PersonFaktaResultat } from '../../data/personFakta';
 import { byggPersonUdgave } from '../../data/personUdgave';
+import { linjeTekst, slaegtskabsLinje } from '../../data/slaegtskabsLinje';
 import { fetchPublicBioVersionsForPerson } from '../../data/publicBioVersions';
 import { parentsOf, spousesOf } from '../../data/selectors';
 import { hentVielsesDatoer, vielseForAegtefaeller, vielsesFamilier } from '../../data/vielser';
@@ -103,6 +107,11 @@ export default function PersonScreen() {
     return () => { current = false; };
   }, [personId, familieNoegle]);
   const fam = useMemo(() => (personId && model ? byggFokusRaekker(model, personId) : null), [model, personId]);
+  // Slægtskab til »mig« over navnet (beregnet ud fra »Det er mig«, ikke login) — som web's personside.
+  const slaegtskab = useMemo(
+    () => (personId && model ? slaegtskabsLinje(slaegtskabsKontekst(model, meId, personId), meId, personId) : null),
+    [model, meId, personId],
+  );
 
   // Medier (mediehåndtering Slice 0): model-hook FØR early-return så hook-kaldet er ubetinget.
   // lightboxItems (portræt+galleri, ÉT navigerbart sæt) bygges af hooken selv (Slice A).
@@ -167,6 +176,15 @@ export default function PersonScreen() {
             <StripedPlaceholder width={96} height={120} radius={12} label="portræt" />
           )}
           <View style={{ flex: 1, minWidth: 0, paddingTop: 4 }}>
+            {slaegtskab ? (
+              <Serif size={15} italic color={slaegtskab.daempet ? Colors.inkMuted : Colors.bordeaux} accessibilityLabel={linjeTekst(slaegtskab)}
+                style={{ fontFamily: slaegtskab.daempet ? Fonts.serif : Fonts.serifItalic, lineHeight: 15 * 1.35, marginBottom: 6 }}>
+                {slaegtskab.dele.map((d, i) => d.art === 'tvivl' ? <Serif key={i} size={15} italic color={Colors.danger} style={{ fontFamily: Fonts.serifItalic }}>{d.tekst}</Serif>
+                  : d.art === 'person' ? <Serif key={i} size={15} italic color={Colors.bordeaux} style={styles.linjeLink} onPress={() => router.push(`/person/${d.personId}`)}>{d.tekst}</Serif>
+                  : d.art === 'vej' ? <Serif key={i} size={15} italic color={Colors.bordeaux} style={styles.linjeLink} onPress={() => { useStore.setState({ relA: d.fra, relB: d.til }); router.push('/relate'); }}>{d.tekst}</Serif>
+                  : d.tekst)}
+              </Serif>
+            ) : null}
             <Serif size={30} style={{ lineHeight: 30 }}>{person.name}</Serif>
             {person.years ? <Mono size={11} color={Colors.inkMuted} style={{ marginTop: 7 }}>{person.years}</Mono> : null}
             <View style={styles.badgeRow}>
@@ -475,6 +493,7 @@ const styles = StyleSheet.create({
   },
   inlineItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   block: { marginHorizontal: 22, marginTop: 16 },
+  linjeLink: { fontFamily: Fonts.serifItalic, textDecorationLine: 'underline' },
   faktaRaekke: {
     flexDirection: 'row',
     gap: 12,
