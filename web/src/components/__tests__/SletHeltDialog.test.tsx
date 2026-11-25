@@ -58,6 +58,31 @@ it('viser låste familiefotos og bevaret evidens på kontrollisten med link til 
   expect(screen.getAllByRole('link', { name: 'Åbn stedet i Redaktion' }).map((a) => a.getAttribute('href')))
     .toEqual(['/redaktion/media/31']);
 });
+// Review 37 ceremoni 2: P10 (rene tal for sig), P3 (navnetræf) og R37P11-3 (vejen ud af knudepunkt-blokeringen).
+it('viser navnetræf og ændringssæt med forklaring, og rene id-tal i en særskilt, sammenklappet gruppe (P10)', async () => {
+  setup(preview({ til_kontrol: [
+    { sted: 'S58', tabel: 'story', pk: { id: 5 }, grund: 'fritekst' },
+    { sted: 'S57', tabel: 'change_set', pk: { id: 6 }, grund: 'bevaret_summary' },
+    { sted: 'S58', tabel: 'note', pk: { id: 7 }, grund: 'kun_id' },
+    { sted: 'S34b', tabel: 'suggestion', pk: { id: 9 }, grund: 'kun_id' }] }));
+  await screen.findByText(/Teksten nævner profilens navn/);
+  expect(screen.getByText(/Et bevaret ændringssæts beskrivelse kan nævne profilen/)).toBeTruthy();
+  const gruppe = screen.getByText('Kun et id-tal (2) — ofte et årstal eller en dato').closest('details')!;
+  expect(gruppe.open).toBe(false);
+  expect(gruppe.textContent).toMatch(/note/); expect(gruppe.textContent).toMatch(/suggestion/);
+  expect(gruppe.textContent).not.toMatch(/story/);
+  const links = screen.getAllByRole('link').filter((a) => a.getAttribute('href')?.startsWith('#purge-kontrol-'));
+  expect(links).toHaveLength(4);
+  for (const link of links) expect(document.getElementById(link.getAttribute('href')!.slice(1))).toBeTruthy();
+});
+it('uden rene id-tal vises ingen id-tal-gruppe', async () => {
+  setup(); await screen.findByText('Slet helt · Rå profil · id 1791');
+  expect(screen.queryByText(/Kun et id-tal/)).toBeNull();
+});
+it('knudepunkt-blokeringen fortæller vejen: fjern koblingerne under »Samme person« (R37P11-3)', async () => {
+  setup(preview({ blokeringer: [{ art: 'samme_som_knudepunkt', antal: 2 }] }));
+  await screen.findByText(/Profilen er knudepunkt for andre profiler\. Fjern først koblingerne under »Samme person« på profilens redigeringsside, og hent så en ny forhåndsvisning\./);
+});
 it('et preview uden de nye nøgler (database før ændringen) vises uden vielse- og billedlinje', async () => {
   setup(); await screen.findByText('Slet helt · Rå profil · id 1791');
   expect(screen.queryByText(/indhold slettes/)).toBeNull(); expect(screen.queryByText(/Vielser der bliver stående/)).toBeNull(); expect(screen.queryByText(/skjules for læserne/)).toBeNull();
