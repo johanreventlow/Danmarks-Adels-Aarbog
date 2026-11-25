@@ -1,7 +1,10 @@
 // 6e-1 plan-Task 5 (spec 2026-11-12-trin6e-laeserflade-design.md »plan-Task 0«): måler læserfladens fakta pr. udgave
 // mod en LOKAL stand-in med den rigtige core-kode — ingen genimplementering af reglerne.
 //
-//   PGDATABASE=<stand-in> npx tsx tools/maal-6e1/maal.ts --ark <scratchpad>/6e1-stikproeve.html
+//   PGDATABASE=<stand-in> npx tsx tools/maal-6e1/maal.ts --ark <scratchpad>/6e1-stikproeve.html [--json <scratchpad>/x.json]
+//
+// --json (#478): hele visningen pr. komponent × udgave, de relative datoer og ✓-parrene som JSON, til en før/efter-
+// sammenligning af en regelændring. Filen bærer værdier og skal, som arket, ligge uden for repo'et.
 //
 // Kun læsning: SELECT og de offentlige læse-RPC'er. Stdout bærer kun tal og id'er; stikprøvearket (med værdier)
 // skrives kun til --ark-stien, som skal ligge uden for repo'et.
@@ -38,6 +41,9 @@ const ark = arkIdx >= 0 ? argv[arkIdx + 1] : undefined;
 if (!ark) throw new Error('--ark <sti uden for repo> mangler');
 const arkAbs = path.resolve(ark);
 if (arkAbs === REPO || arkAbs.startsWith(REPO + path.sep)) throw new Error('--ark må ikke ligge i repo\'et (arket bærer værdier)');
+const jsonIdx = argv.indexOf('--json');
+const jsonAbs = jsonIdx >= 0 ? path.resolve(argv[jsonIdx + 1] ?? '') : undefined;
+if (jsonAbs && (jsonAbs === REPO || jsonAbs.startsWith(REPO + path.sep))) throw new Error('--json må ikke ligge i repo\'et (filen bærer værdier)');
 if (!process.env.PGDATABASE) throw new Error('PGDATABASE mangler (stand-in)');
 
 const t0 = performance.now();
@@ -375,6 +381,13 @@ ${stik.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.komp)}</td><td>${esc(p.fa
 </body></html>
 `;
 writeFileSync(arkAbs, html, 'utf8');
+if (jsonAbs) {
+  writeFileSync(jsonAbs, JSON.stringify({
+    visninger: komps.map((k) => ({ id: k.id, visninger: [...k.visninger.values()] })),
+    relative: komps.flatMap((k) => relativeDatoer(k.input).map((r) => ({ komp: k.id, ...r }))),
+    par: alleParr,
+  }), 'utf8');
+}
 
 // ---- 9. Stdout: kun tal og id'er ----
 const ln = (...x: unknown[]) => console.log(...x);
