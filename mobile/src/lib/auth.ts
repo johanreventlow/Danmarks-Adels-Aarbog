@@ -1,5 +1,6 @@
 // Auth-helpers: tynd wrapper om supabase.auth + profiles-opslag. Ren mapping-logik
 // (mapProfileRow) er adskilt så den kan unit-testes uden netværk.
+import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 
 export type Rolle = 'redaktion' | 'medlem';
@@ -32,7 +33,8 @@ export async function fetchProfile(userId: string): Promise<Profile> {
   return mapProfileRow(svar.data);
 }
 
-export async function signIn(email: string, password: string): Promise<{ userId: string } & Profile> {
+// Sessionen returneres med, så storen kan sætte session og rolle i ét skridt (ingen getSession efter await).
+export async function signIn(email: string, password: string): Promise<{ userId: string; session: Session | null } & Profile> {
   if (!supabase) throw new Error('Supabase ikke konfigureret');
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) throw new Error(error.message);
@@ -44,7 +46,7 @@ export async function signIn(email: string, password: string): Promise<{ userId:
     await supabase.auth.signOut().catch(() => undefined);
     throw e;
   }
-  return { userId: data.user.id, ...prof };
+  return { userId: data.user.id, session: data.session, ...prof };
 }
 
 export async function signOut(): Promise<void> {

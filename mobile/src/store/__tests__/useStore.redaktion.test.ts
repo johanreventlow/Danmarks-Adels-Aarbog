@@ -146,7 +146,7 @@ describe('loadRedaktionModel — generationsværn', () => {
     await useStore.getState().loadRedaktionModel();
     mockSignIn.mockResolvedValueOnce({ userId: 'u1', rolle: 'redaktion', reventlowPersonId: null });
     await useStore.getState().doSignIn('a@b', 'x');
-    // getSession-attrappen returnerer u2 som session, men modellen er kun nulstillet ved userId-skift.
+    // Modellen nulstilles kun ved et skift af bruger-id.
     expect(landetMaerke()).toBe('u1-model');
   });
 });

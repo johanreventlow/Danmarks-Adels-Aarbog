@@ -9,7 +9,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { TextureOverlay } from '../components/TextureOverlay';
 import { Body, BtnLabel, Serif } from '../components/Typography';
-import { useStore } from '../store/useStore';
+import { lytPaaAuth, useStore } from '../store/useStore';
 import { useAppFonts } from '../theme/fonts';
 import { Colors, Radius } from '../theme/tokens';
 
@@ -39,6 +39,10 @@ export default function RootLayout() {
   const load = useStore((s) => s.load);
   const hydrateMe = useStore((s) => s.hydrateMe);
   const hydrateAuth = useStore((s) => s.hydrateAuth);
+
+  // Auth-skift (udløb, mislykket token-fornyelse, logout/brugerskift) skal nå storen — ellers står en forældet
+  // session og rolle tilbage (review 37 W4+W5). Abonnementet lægges før hydrateAuth i effekten nedenfor.
+  useEffect(() => lytPaaAuth(), []);
 
   useEffect(() => {
     hydrateMe();

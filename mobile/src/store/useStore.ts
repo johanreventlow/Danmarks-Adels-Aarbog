@@ -2,6 +2,7 @@
 // navigation (Expo Router styrer ruter): focus, variant, aktiv linje, "mig", slægtskab,
 // søge-/bladre-tilstand. buildModel kaldes eksplicit her efter load (advisor 2026-06-23).
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { create } from 'zustand';
 import { loadFromSupabase } from '../data/load';
 // Statisk (tidl. dynamisk `await import`): supabase-klienten indlæses alligevel allerede statisk via
@@ -51,6 +52,19 @@ const nulstilRedaktion = () => {
   redaktionGeneration++;
   return { redaktionModel: null, redaktionAux: null, redaktionStatus: 'idle' as const };
 };
+
+// Sessionsgeneration (review 37 W5, spejl af web's sessGenRef, 3eb6fb3e/7ad2032f): login, logout, hydrateAuth og
+// auth-events fra Supabase (udløb, mislykket token-fornyelse, brugerskift) tæller op. Et login- eller rolleopslag, der
+// lander efter et skift, er forældet og kasseres — ellers kan et sent svar lægge en tidligere brugers rolle tilbage.
+let sessionGeneration = 0;
+// Eget login i gang: dets SIGNED_IN-event må ikke ligne et brugerskift. Bruger-id fra auth-events, der kom imens
+// (undefined = intet event), så doSignIn kan afvise sit svar, hvis en ANDEN bruger nåede at logge ind (web fb32dc11).
+let loginIgang = false;
+let loginEventBruger: string | null | undefined;
+// Udlogget tilstand: session, rolle og redaktions-slicen ryddes i ét skridt.
+const udlogget = () => ({
+  session: null, rolle: 'medlem' as const, reventlowPersonId: null, rolleFejl: null, ...nulstilRedaktion(),
+});
 
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 // Biografierne hentes i baggrunden efter load() (data/load.ts's loadBios). 'fejl' = ingen bidder lykkedes;
@@ -151,6 +165,7 @@ export type State = {
   doSignIn: (email: string, password: string) => Promise<void>;
   doSignOut: () => Promise<void>;
   hydrateAuth: () => Promise<void>;
+  haandterAuthEvent: (event: AuthChangeEvent, session: Session | null) => void;
   setDryRun: (v: boolean) => void;
   setShowAnnotations: (v: boolean) => void;
 };
@@ -458,41 +473,103 @@ export const useStore = create<State>((set, get) => ({
   },
 
   doSignIn: async (email, password) => {
-    const res = await signIn(email, password);
-    // Brugerskift: en anden brugers redaktions-model (og igangværende indlæsning) må ikke overleve.
-    // Nulstilles i SAMME set som rollen, så _layout's effekt ser 'idle' og indlæser for den nye bruger.
-    const skift = res.userId !== get().session?.user?.id;
-    set({ rolle: res.rolle, reventlowPersonId: res.reventlowPersonId, rolleFejl: null, ...(skift ? nulstilRedaktion() : {}) });
-    const { data } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
-    set({ session: data.session });
+    // Loginforsøget bindes til en generation FØR await: logout eller et brugerskift undervejs gør svaret forældet.
+    // Fejl (forkert kode, rollen kunne ikke hentes) kastes altid videre til login-arket.
+    const gen = ++sessionGeneration;
+    loginIgang = true;
+    loginEventBruger = undefined;
+    let taget = false;
+    try {
+      const res = await signIn(email, password);
+      if (gen !== sessionGeneration) return;
+      // Loggede en anden bruger ind undervejs, tilhører Supabase-sessionen den anden bruger: svaret kasseres, og den
+      // faktiske session genskabes nedenfor.
+      if (loginEventBruger !== undefined && loginEventBruger !== res.userId) {
+        set(udlogget());
+        return;
+      }
+      taget = true;
+      // Brugerskift: en anden brugers redaktions-model (og igangværende indlæsning) må ikke overleve.
+      // Nulstilles i SAMME set som rollen, så _layout's effekt ser 'idle' og indlæser for den nye bruger.
+      const skift = res.userId !== get().session?.user?.id;
+      set({ session: res.session, rolle: res.rolle, reventlowPersonId: res.reventlowPersonId, rolleFejl: null,
+            ...(skift ? nulstilRedaktion() : {}) });
+    } finally {
+      loginIgang = false;
+      const eventBruger = loginEventBruger;
+      loginEventBruger = undefined;
+      // Kom et auth-event undervejs, og blev svaret ikke brugt, viser storen ikke længere Supabases faktiske
+      // session (fx brugerskift andetsteds) — hent den igen (web fed56ad4).
+      if (!taget && eventBruger !== undefined) void get().hydrateAuth();
+    }
   },
   doSignOut: async () => {
     // Nulstillingen sker EFTER signOut: fejler signOut, er brugeren stadig logget ind, og den
     // igangværende indlæsning skal så stadig kunne lande (ellers hænger status på 'loading').
     // Et svar der lander mens signOut afventes, sætter blot modellen, som nulstilles lige efter.
     await signOut();
-    set({ session: null, rolle: 'medlem', reventlowPersonId: null, rolleFejl: null, ...nulstilRedaktion() });
+    sessionGeneration++; // et rolleopslag, der stadig er undervejs, må ikke logge brugeren ind igen
+    set(udlogget());
   },
   hydrateAuth: async () => {
     if (!supabase) return;
+    const gen = ++sessionGeneration;
     const { data } = await supabase.auth.getSession();
-    if (data.session) {
-      const skift = data.session.user.id !== get().session?.user?.id; // brugerskift → nulstil (som doSignIn)
-      try {
-        const prof = await fetchProfile(data.session.user.id);
-        set({ session: data.session, rolle: prof.rolle, reventlowPersonId: prof.reventlowPersonId,
-              rolleFejl: null, ...(skift ? nulstilRedaktion() : {}) });
-      } catch (e) {
-        // Review 37 W6: sessionen beholdes, men en fejlet opslag må ikke stille gøre redaktøren til medlem.
-        // Rollen røres ikke ved samme bruger; ved brugerskift nulstilles den, og fejlen vises på konto-siden.
-        set({ session: data.session, rolleFejl: e instanceof Error ? e.message : 'Rollen kunne ikke hentes — prøv igen',
-              ...(skift ? { rolle: 'medlem' as const, reventlowPersonId: null, ...nulstilRedaktion() } : {}) });
-      }
+    if (gen !== sessionGeneration) return; // et login/logout/auth-skift kom imens — dets tilstand gælder
+    if (!data.session) {
+      // Supabase har ingen session (udløbet eller logget ud andetsteds): storen må ikke blive ved at vise en.
+      if (get().session) set(udlogget());
+      return;
     }
+    const skift = data.session.user.id !== get().session?.user?.id; // brugerskift → nulstil (som doSignIn)
+    try {
+      const prof = await fetchProfile(data.session.user.id);
+      if (gen !== sessionGeneration) return;
+      set({ session: data.session, rolle: prof.rolle, reventlowPersonId: prof.reventlowPersonId,
+            rolleFejl: null, ...(skift ? nulstilRedaktion() : {}) });
+    } catch (e) {
+      if (gen !== sessionGeneration) return;
+      // Review 37 W6: sessionen beholdes, men en fejlet opslag må ikke stille gøre redaktøren til medlem.
+      // Rollen røres ikke ved samme bruger; ved brugerskift nulstilles den, og fejlen vises på konto-siden.
+      set({ session: data.session, rolleFejl: e instanceof Error ? e.message : 'Rollen kunne ikke hentes — prøv igen',
+            ...(skift ? { rolle: 'medlem' as const, reventlowPersonId: null, ...nulstilRedaktion() } : {}) });
+    }
+  },
+  // Auth-skift uden for appens eget login/logout (review 37 W4+W5, spejl af web ec6eefe6): udløbet session,
+  // mislykket token-fornyelse og logout giver SIGNED_OUT; et andet bruger-id betyder brugerskift. Kaldes fra
+  // Supabases onAuthStateChange (se lytPaaAuth) og må derfor ikke selv afvente Supabase-kald — en genhentning
+  // planlægges med setTimeout, som supabase-js anbefaler.
+  haandterAuthEvent: (event, session) => {
+    if (event === 'INITIAL_SESSION') return; // hydrateAuth tager opstarten
+    if (event === 'SIGNED_OUT') {
+      sessionGeneration++;
+      set(udlogget());
+      return;
+    }
+    const userId = session?.user?.id ?? null;
+    if (loginIgang) { loginEventBruger = userId; return; } // doSignIn afgør selv sit svar
+    if (userId !== (get().session?.user?.id ?? null)) {
+      // Anden bruger: den gamle rolle og redaktions-model må ikke stå, mens den nye brugers rolle slås op.
+      sessionGeneration++;
+      set(udlogget());
+      setTimeout(() => { void get().hydrateAuth(); }, 0);
+    } else if (event === 'USER_UPDATED') {
+      setTimeout(() => { void get().hydrateAuth(); }, 0);
+    }
+    // TOKEN_REFRESHED o.l. for samme bruger: rolle og session bevares (storen bruger kun bruger-id og e-mail).
   },
   setDryRun: (v) => set({ dryRun: v }),
   setShowAnnotations: (v) => set({ showAnnotations: v }),
 }));
+
+// Abonnér på Supabases auth-skift ÉN gang (rod-layoutet). Returnerer afmeldingen.
+export function lytPaaAuth(): () => void {
+  if (!supabase) return () => undefined;
+  const { data } = supabase.auth.onAuthStateChange((event, session) => {
+    useStore.getState().haandterAuthEvent(event, session);
+  });
+  return () => data.subscription.unsubscribe();
+}
 
 // Read-time meId-kanonisering (review 27 M-K3): hydrateMe() og load() kører PARALLELT i
 // _layout.tsx og sætter/kanoniserer meId i vilkårlig indbyrdes rækkefølge — en skrive-tids
