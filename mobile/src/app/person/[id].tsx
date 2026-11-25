@@ -2,10 +2,13 @@
 // pladsholder, inline "barn af"/"gift med" i Cormorant, badges (Dig/Linje/titel), bio-klamp
 // 7 linjer, børn pr. ægteskab (50px avatarer), embeder, godser-tags, materiale-tomtilstand,
 // kilder m. §-tegn + "trykt værk", handlinger. 6e (paritetsplanens batch 5): udgavevælger, linjemærker for den
-// valgte udgave og B6-noter (data/personUdgave.ts, som web's usePersonVisning).
+// valgte udgave og B6-noter (data/personUdgave.ts, som web's usePersonVisning). Batch 6: familieblokken bygges af
+// @daa/core's byggFokusRaekker som web's personside — børn pr. ægteskab i bogens rækkefølge, et barn fra kun en ældre
+// udgave gråt uden for sin udgave med »Kun i …« (aldrig for en levende), ⚭-dato efter ægtefællens år og en udtrykkelig
+// sætning for børn uden kendt ægteskab.
 import { SignedImage } from '../../components/SignedImage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { GeoMap } from '../../components/GeoMap';
 import { Lightbox } from '../../components/Lightbox';
@@ -13,11 +16,13 @@ import { NarrativRenderer } from '../../components/NarrativRenderer';
 import { StripedPlaceholder } from '../../components/StripedPlaceholder';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { lifeJourney } from '@daa/core';
+import { byggFokusRaekker, konfTekst, kunIAeldreTekst, lifeJourney } from '@daa/core';
 import type { BioSourceVersion } from '@daa/core';
+import { barnErAktivt } from '../../data/familieBlok';
 import { byggPersonUdgave } from '../../data/personUdgave';
 import { fetchPublicBioVersionsForPerson } from '../../data/publicBioVersions';
-import { childrenByMarriage, parentsOf, spousesOf } from '../../data/selectors';
+import { parentsOf, spousesOf } from '../../data/selectors';
+import { hentVielsesDatoer, vielseForAegtefaeller, vielsesFamilier } from '../../data/vielser';
 import { erPortraetSlags, usePersonMedia } from '../../lib/media';
 import { supabase } from '../../lib/supabase';
 import { selectMeId, useStore } from '../../store/useStore';
@@ -68,6 +73,21 @@ export default function PersonScreen() {
     return () => { current = false; };
   }, [personId, person?.mergedFrom]);
 
+  // Vielsesdato pr. ægteskab (»⚭ 21. juli 1667«), hentet for sig, så skærmen ikke venter på den; mangler den (ingen
+  // vielse, fejl, offline), står der bare ingen ⚭. Svaret er bundet til personen, så et sent svar aldrig lander
+  // hos den næste.
+  const familieNoegle = personId && model ? vielsesFamilier(model.indexes, personId).join(',') : '';
+  const [vielser, setVielser] = useState<{ personId: string; byFam: Record<string, string> } | null>(null);
+  useEffect(() => {
+    let current = true;
+    if (!personId || !familieNoegle) return () => { current = false; };
+    void hentVielsesDatoer(supabase, familieNoegle.split(',')).then((byFam) => {
+      if (current) setVielser({ personId, byFam });
+    });
+    return () => { current = false; };
+  }, [personId, familieNoegle]);
+  const fam = useMemo(() => (personId && model ? byggFokusRaekker(model, personId) : null), [model, personId]);
+
   // Medier (mediehåndtering Slice 0): model-hook FØR early-return så hook-kaldet er ubetinget.
   // lightboxItems (portræt+galleri, ÉT navigerbart sæt) bygges af hooken selv (Slice A).
   const media = personId ? aux?.mediaBy[personId] ?? [] : [];
@@ -89,7 +109,8 @@ export default function PersonScreen() {
   const isMe = meId != null && meId === person.id;
   const parents = parentsOf(model, person.id);
   const spouses = spousesOf(model, person.id);
-  const marriages = childrenByMarriage(model, person.id).filter((m) => m.children.length);
+  const vielseBySpouse = vielser?.personId === person.id ? vielseForAegtefaeller(model.indexes, person.id, vielser.byFam) : {};
+  const kunI = kunIAeldreTekst(model, person.id);
   const journey = lifeJourney(geo, person.id);
   const offices = aux?.officesBy[person.id] ?? [];
   const estates = aux?.estatesBy[person.id] ?? [];
@@ -158,6 +179,9 @@ export default function PersonScreen() {
                 ))}
               </View>
             ) : null}
+            {kunI ? (
+              <Body size={11} color={Colors.inkMuted} style={styles.udgaveNote}>{kunI.linje}</Body>
+            ) : null}
             {v.tidligereUdgave ? (
               <Body size={11} color={Colors.inkMuted} style={styles.udgaveNote}>Du ser en tidligere udgave.</Body>
             ) : null}
@@ -213,46 +237,42 @@ export default function PersonScreen() {
           </View>
         ) : null}
 
-        {/* ⚭ gift med — inline Cormorant kursiv */}
+        {/* Gift med (med år og ⚭-dato) og børn pr. ægteskab — kun med indhold (som web): et barn, der døde ungt, får
+            hverken »Intet ægteskab« eller »Ingen børn«; en gift person uden børn får »Ingen børn angivet i Aarbogen.«. */}
         {spouses.length ? (
-          <View style={styles.block}>
-            <Serif size={16} italic color={Colors.inkMuted} style={{ lineHeight: 16 * 1.5, fontFamily: Fonts.serifItalic }}>
-              {'⚭ gift med  '}
-              {spouses.map((sp, i) => (
-                <Serif key={i} size={16} italic={!sp.id}
-                  color={sp.id ? Colors.bordeaux : Colors.inkMuted}
-                  style={{ fontFamily: sp.id ? Fonts.serifSemi : Fonts.serifItalic }}
-                  onPress={sp.id ? () => router.push(`/person/${sp.id}`) : undefined}>
-                  {i > 0 ? '· ' : ''}{sp.name}{sp.id ? ' ›' : ''}
-                </Serif>
-              ))}
-            </Serif>
-          </View>
-        ) : null}
-
-        {/* Børn grupperet pr. ægteskab */}
-        {marriages.length ? (
-          <View style={{ marginTop: 20 }}>
-            {marriages.map((m) => (
-              <View key={m.unionId} style={{ marginBottom: 4 }}>
-                <Kicker size={9.5} style={{ paddingHorizontal: 22, marginBottom: 10 }}>
-                  {m.spouseName ? `Børn med ${m.spouseName}` : 'Børn'}
-                </Kicker>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 9, paddingHorizontal: 22, paddingBottom: 14 }}>
-                  {m.children.map((c) => (
-                    <Pressable key={c.id} style={styles.childItem} onPress={() => router.push(`/person/${c.id}`)}>
-                      <View style={styles.childAvatar}>
-                        <Serif size={19} color={Colors.bordeaux}>{c.name[0]?.toUpperCase() ?? '?'}</Serif>
-                      </View>
-                      <Body size={11} color={Colors.ink} style={{ textAlign: 'center', marginTop: 6, lineHeight: 13, fontFamily: Fonts.sansSemi }} numberOfLines={2}>
-                        {c.name.split(' ')[0]}
-                      </Body>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
+          <Section title="Gift med">
+            {spouses.map((sp, i) => (
+              <PersonRaekke key={(sp.id ?? sp.name) + i} navn={sp.name}
+                aar={sp.id ? model.byId[sp.id]?.years : undefined} vielse={sp.id ? vielseBySpouse[sp.id] : undefined}
+                onPress={sp.id ? () => router.push(`/person/${sp.id}`) : undefined} />
             ))}
-          </View>
+          </Section>
+        ) : null}
+        {spouses.length || fam?.antalBoern ? (
+          <Section title="Børn">
+            {fam?.antalBoern ? fam.boerneGrupper.map((g, gi) => (
+              <View key={g.aegteskab?.unionId ?? g.aegteskab?.navn ?? `uden-${gi}`} style={{ marginTop: gi > 0 ? 12 : 0 }}>
+                {fam.aegteskaber.length > 1 ? (
+                  <Serif size={16} italic color={Colors.inkSecondary} style={{ fontFamily: Fonts.serifItalic, marginBottom: 2 }}>
+                    {g.aegteskab ? `Med ${g.aegteskab.navn}` : 'Ægteskab ikke angivet'}
+                  </Serif>
+                ) : null}
+                {!g.aegteskab && fam.boerneNote ? (
+                  <Body size={12.5} color={Colors.inkMuted} style={{ marginBottom: 4 }}>{fam.boerneNote}</Body>
+                ) : null}
+                {g.boern.map(({ person: c }) => {
+                  const barnKunI = kunIAeldreTekst(model, c.id);
+                  const aktiv = barnErAktivt(barnKunI, v.aktivChip, v.vaelger.chips);
+                  return (
+                    <PersonRaekke key={c.id} navn={c.name} aar={c.years} konf={konfTekst(model.indexes.konfByEdge?.[`${c.id}|${person.id}`])}
+                      kunI={barnKunI?.maerke} onPress={aktiv ? () => router.push(`/person/${c.id}`) : undefined} />
+                  );
+                })}
+              </View>
+            )) : (
+              <Body size={12.5} color={Colors.inkMuted}>Ingen børn angivet i Aarbogen.</Body>
+            )}
+          </Section>
         ) : null}
 
         {/* Embeder */}
@@ -364,6 +384,23 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+// Én person i familieblokken (som web's PersonLink): navnet som link (grå tekst uden link, når barnet kun står i en
+// anden udgave end den valgte), så år og ⚭-dato adskilt med komma — så vielsen ikke læses som ægtefællens livsdato —
+// og usikkert slægtskab med ordet (invariant 7) og »Kun i …«-mærket.
+function PersonRaekke({ navn, aar, vielse, konf, kunI, onPress }: {
+  navn: string; aar?: string; vielse?: string; konf?: string; kunI?: string; onPress?: () => void;
+}) {
+  const detaljer = [aar, vielse].filter(Boolean).join(', ');
+  return (
+    <Pressable onPress={onPress} disabled={!onPress} accessibilityRole={onPress ? 'link' : 'text'} style={styles.personRaekke}>
+      <Serif size={17} color={onPress ? Colors.bordeaux : Colors.inkMuted}>{navn}{onPress ? ' ›' : ''}</Serif>
+      {detaljer ? <Mono size={10.5} color={Colors.inkMuted}>{detaljer}</Mono> : null}
+      {konf ? <Mono size={9.5} color={Colors.danger} style={styles.maerke}>{konf}</Mono> : null}
+      {kunI ? <Mono size={9.5} color={Colors.goldInk} style={styles.maerke}>{kunI}</Mono> : null}
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   header: { paddingHorizontal: 22, paddingTop: 20, flexDirection: 'row', gap: 16, alignItems: 'flex-start' },
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10, alignItems: 'center' },
@@ -383,17 +420,17 @@ const styles = StyleSheet.create({
   },
   inlineItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   block: { marginHorizontal: 22, marginTop: 16 },
-  childItem: { alignItems: 'center', width: 74 },
-  childAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: Radius.round,
-    backgroundColor: Colors.surfaceSunken,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: Border.faint,
-    alignItems: 'center',
-    justifyContent: 'center',
+  personRaekke: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    columnGap: 10,
+    rowGap: 2,
+    paddingVertical: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Border.faint,
   },
+  maerke: { textTransform: 'uppercase', letterSpacing: 0.6 },
   officeRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
