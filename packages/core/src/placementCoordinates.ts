@@ -32,11 +32,20 @@ export function erUkendtFunktion(error: unknown): boolean {
   return code === 'PGRST202' || code === '42883';
 }
 
+// Ét genforsøg ved andre fejl end en ukendt funktion: det samlede kald lå 25/11 på 2,9-4,6 s som gæst, tæt på
+// gæsternes 3 s-loft, og ramte 57014 ved kold start. Uden genforsøg mistede stamtræet linjer, numre og generationer
+// uden besked (kalderne degraderer til ingen koordinater). Fejler genforsøget også, kastes fejlen som før.
 export async function fetchPublicCoordinates(
   samlet: () => PromiseLike<RpcSvar>,
   raekker: () => { range: (from: number, to: number) => PromiseLike<{ data: PublicCoordinateRow[] | null; error: unknown }> },
+  ventMs = 300,
 ): Promise<PublicCoordinateRow[]> {
-  const { data, error } = await samlet();
+  let { data, error } = await samlet();
+  if (error && !erUkendtFunktion(error)) {
+    console.warn(`[${COORDINATES_RPC_SAMLET}] fejlede — prøver igen:`, error);
+    if (ventMs > 0) await new Promise((r) => setTimeout(r, ventMs));
+    ({ data, error } = await samlet());
+  }
   if (!error) {
     if (!Array.isArray(data)) throw new Error(`${COORDINATES_RPC_SAMLET}: forventede et JSON-array`);
     return data as PublicCoordinateRow[];

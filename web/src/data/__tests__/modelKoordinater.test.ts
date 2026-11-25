@@ -66,12 +66,15 @@ describe('loadModel koordinater (kodereview 36 P2)', () => {
     expect(model.genCoordsByPerson!['1']).toBeDefined();
   });
 
-  it('andre fejl degraderer til ingen koordinater uden fallback', async () => {
+  it('andre fejl prøves igen én gang og degraderer så til ingen koordinater uden fallback', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     samletSvar = { data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } };
     const model = await loadModel({ collapse: false });
     warn.mockRestore();
-    expect(rpcKald).toEqual([{ fn: 'public_person_source_coordinates_samlet' }]);
+    expect(rpcKald).toEqual([
+      { fn: 'public_person_source_coordinates_samlet' },
+      { fn: 'public_person_source_coordinates_samlet' },
+    ]);
     expect(model.genCoordsByPerson!['1']).toBeUndefined();
   });
 });
