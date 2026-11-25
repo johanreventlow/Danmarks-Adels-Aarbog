@@ -2,6 +2,30 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: personsletningens kontrolliste søger bredere, rene id-tal står for sig, og gruppen låses (#397 ceremoni 2, 2026-11-25)
+
+> Projektejeren 25/11, efter forklaring:
+> - **P9:** den virkningsløse `set_config('statement_timeout','30s',true)` i `red_slet_person_helt` fjernes. Loftet er
+>   redaktørens 8 s; 8 s-backloggen for store profiler består (målt: se nedenfor).
+> - **P10:** søgningen er lige så bred som før (sikkerhedsnettet mister intet), men hvert fund får én grund:
+>   `fritekst` (personens navn) eller `kun_id` (kun personens eller en families id som tal, ofte et årstal). Web viser
+>   `kun_id`-fundene i en særskilt, sammenklappet gruppe.
+> - **P3:** historier, beskrivelser og andres påstande og citater kommer på kontrollisten, søgt for navn **og** id-tal
+>   som resten (projektejerens valg; rene tal havner under `kun_id`). Et andet navn end det aktuelle (fx et pigenavn)
+>   fanges stadig ikke.
+> - **R37P11-3:** reglen består: en ikke-offentlig samme_som-knude blokerer »Slet helt«. Dialogen viser vejen (fjern
+>   koblingerne under »Samme person«). `red_slet_person` låser nu hele samme_som-gruppen, så et medlem ikke kan gøres
+>   privat mellem tjekket og sletningen.
+> - **R37P11-1:** »Slettede personer« tilbyder »Fortryd alligevel« ved konflikt og henter 100 ad gangen op til 500.
+>   Påstanden »bliver en fortrydelse selv fortrudt, er personen væk« holder ikke: et fortrydelsessæt har ingen events, så
+>   en fortrydelse af den er en no-op (test `r37p11_1_fortryd_af_fortryd`).
+> - **P4** var allerede lukket af P1+P2-rettelsen 20/11 (b4e27c73): historikken for familier i Fam_c dækkes (test
+>   `p4_tidligere_familierelation`).
+> - **Målt på stand-in (prod-dump 24/11, varmt, efter ANALYZE):** uændret tid. Profil 309: forhåndsvisning 2,0 → 2,1 s,
+>   sletning 5,0 → 4,9 s. Profil 94 (3.829 fund, heraf 3.799 rene tal): forhåndsvisning 4,7 → 4,4 s. Profil 94 er
+>   i forvejen tættest på 8 s-loftet; stand-in-tid er ikke prod-tid.
+> - Forhåndsvisningens hash ændres: åbne forhåndsvisninger afvises med `PURGE_PREVIEW_AENDRET` og hentes igen.
+
 ## BESLUTTET: leveårene ved navnet er den nyeste udgaves udsagn, med bogens forbehold (2026-11-24)
 
 > Projektejeren 24/11 om Siwert (id 97): »* 1500« stod ved navnet, men kun DAA 1939 skriver »o. 1500«; 2018-20 skriver
