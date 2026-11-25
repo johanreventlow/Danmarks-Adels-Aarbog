@@ -4935,7 +4935,7 @@ ROLLBACK;
 BEGIN;
 DO $t$
 DECLARE v_p bigint:=purge_test.id('P'); v_t bigint:=purge_test.id('tredje'); v_fam bigint:=purge_test.id('fam_keep');
-  v_ref bigint; v_side bigint; v_famref bigint; v_navn bigint; j jsonb;
+  v_ref bigint; v_side bigint; v_famref bigint; v_navn bigint; v_liste bigint; v_listefam bigint; j jsonb;
 BEGIN
   PERFORM purge_test.nyt(); PERFORM public.begin_change_set('c2b_forslag','fixture','person',v_t);
   INSERT INTO public.suggestion(subjekt_type,subjekt_id,payload)
@@ -4946,16 +4946,25 @@ BEGIN
     VALUES('person',v_t,jsonb_build_object('person_id',v_fam)) RETURNING id INTO v_famref;
   INSERT INTO public.suggestion(subjekt_type,subjekt_id,payload)
     VALUES('person',v_t,jsonb_build_object('person_id',v_p,'note',(SELECT visning_navn FROM public.person WHERE id=v_p))) RETURNING id INTO v_navn;
+  -- Lister under person-/partner-nøgler (som planens jrx): P i listen er en henvisning, en families id i listen er ikke.
+  INSERT INTO public.suggestion(subjekt_type,subjekt_id,payload)
+    VALUES('person',v_t,jsonb_build_object('same_individual_person_ids',jsonb_build_array(1,v_p))) RETURNING id INTO v_liste;
+  INSERT INTO public.suggestion(subjekt_type,subjekt_id,payload)
+    VALUES('person',v_t,jsonb_build_object('person_ids',jsonb_build_array(v_fam))) RETURNING id INTO v_listefam;
   j:=public.red_slet_person_helt_preview(v_p);
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'suggestion',v_ref)=ARRAY['id_henvisning'],'c2b_id_henvisning');
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'suggestion',v_side)=ARRAY['kun_id'],'c2b_andet_noegle_kun_id');
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'suggestion',v_famref)=ARRAY['kun_id'],'c2b_familie_id_kun_id');
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'suggestion',v_navn)=ARRAY['fritekst'],'c2b_navn_vinder');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'suggestion',v_liste)=ARRAY['id_henvisning'],'c2b_liste_henvisning');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'suggestion',v_listefam)=ARRAY['kun_id'],'c2b_liste_familie_kun_id');
 END $t$;
 \echo OK c2b_id_henvisning
 \echo OK c2b_andet_noegle_kun_id
 \echo OK c2b_familie_id_kun_id
 \echo OK c2b_navn_vinder
+\echo OK c2b_liste_henvisning
+\echo OK c2b_liste_familie_kun_id
 ROLLBACK;
 
 -- R37P11-1: en fortrydelse af en fortrydelse er en no-op (fortrydelses-sæt har ingen events); personen står, og listen

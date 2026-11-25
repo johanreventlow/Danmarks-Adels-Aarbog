@@ -49975,8 +49975,8 @@ $purge_execute$;
 
 -- BEGIN review37-c2b
 -- Review 37 ceremoni 2b (#397, projektejeren 25/11 efter måling i prod-kopien): kontrollistens grund »id_henvisning«.
--- P's eget id som værdi for en nøgle med »person« i navnet (fx identitetskandidaters candidate_person_id) er en ægte
--- henvisning, ikke et årstal, og vises åbent i stedet for i den sammenklappede »kun_id«-gruppe. Deploy-området er denne
+-- P's eget id som værdi for en nøgle med »person« i navnet, eller i en liste under en person-/partner-nøgle (som planens
+-- jrx), er en ægte henvisning, ikke et årstal, og vises åbent i stedet for i den sammenklappede »kun_id«-gruppe. Deploy-området er denne
 -- blok alene, i ÉN transaktion. Kroppen er kopieret fra schema.sql og er den endelige definition. Samme signatur og ACL.
 -- Ændrer forhåndsvisningens hash for profiler med sådanne træf (åbne forhåndsvisninger: PURGE_PREVIEW_AENDRET).
 -- Ingen data ændres.
@@ -50143,10 +50143,13 @@ WITH plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_plan) q(tabel text
     FROM tekster t CROSS JOIN tokens CROSS JOIN navn
   )
 -- Ceremoni 2b (projektejeren 25/11, efter måling i prod-kopien): P's EGET id som værdi for en nøgle med »person« i navnet
--- (fx identitetskandidaters "candidate_person_id": P) er en ægte henvisning, ikke et årstal: grunden »id_henvisning«
--- (vises åbent). En families id eller et id under en anden nøgle forbliver »kun_id«. Kun på rækker, der allerede er træf.
+-- (fx identitetskandidaters "person_id": P), eller P i en liste under en person-/partner-nøgle (fx "person_ids": [..]),
+-- er en ægte henvisning, ikke et årstal: grunden »id_henvisning« (vises åbent). Samme betydning som planens jrx; mønstret
+-- starter med det faste ord, så regex-motoren ikke prøver hver position i lange JSON-tekster (en form med »"[a-z_]*« forrest
+-- tog 44 s for den største profil i prod-kopien 25/11).
+-- En families id eller et id under en anden nøgle forbliver »kun_id«. Kun på rækker, der allerede er træf.
 SELECT t.sted,t.tabel,t.pk,CASE WHEN bool_or(t.navn_hit) THEN 'fritekst'
-    WHEN bool_or(t.id_hit AND t.tekst COLLATE "C" ~ ('"[a-z_]*person[a-z_]*"\s*:\s*"?'||p_person_id::text||'"?\s*[,}\]]'))
+    WHEN bool_or(t.id_hit AND t.tekst COLLATE "C" ~ ('person[a-z_]*"\s*:\s*"?'||p_person_id::text||'"?\s*[],}]|(person|partner)[a-z_]*"\s*:\s*\[[^]]*\m'||p_person_id::text||'\M'))
       THEN 'id_henvisning'
     ELSE 'kun_id' END::text FROM traef t
 WHERE (t.navn_hit OR t.id_hit)
