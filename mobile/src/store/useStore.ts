@@ -26,6 +26,8 @@ const ME_KEY = 'daa_me_id';
 // fuldt bygget, ingen closure at kalde).
 // Pause før load() prøver igen (testene sætter den ikke; se useStore.load).
 export const LOAD_RETRY_MS = 1500;
+// Øvre grænse for bio-hentningen i baggrunden (prod 25/11: ~10 s over hotspot).
+export const BIOS_FRIST_MS = 45_000;
 
 let stashedLoadGeo: (() => Promise<Geo>) | null = null;
 
@@ -88,6 +90,9 @@ export type State = {
   geoLoading: boolean;
   geoLoaded: boolean;
   biosStatus: BiosStatus;
+  // Tælles op ved HVER load() (live og seed), men ikke når biografierne stemples ind: forsiden starter sin strøm
+  // forfra på en ny indlæsning (fx »Prøv igen« efter offline-seed), og genoptager blot, når biografierne kommer.
+  loadEpoch: number;
   // Generations-koordinater pr. kanonisk person-id (Task C1's hul-reparation); {} indtil load/SEED.
   genCoordsByPerson: Record<string, GenCoord[]>;
   // Marker-gatet "forældre ukendt" pr. kanonisk person-id (grad + proveniens); {} indtil load/SEED.
@@ -180,6 +185,7 @@ export const useStore = create<State>((set, get) => ({
   geoLoading: false,
   geoLoaded: false,
   biosStatus: 'idle',
+  loadEpoch: 0,
   genCoordsByPerson: {},
   parentsUnknownByPerson: {},
   livsdatoBy: {},
@@ -244,6 +250,7 @@ export const useStore = create<State>((set, get) => ({
         geoLoading: false,
         geoLoaded: false,
         biosStatus: 'loading',
+        loadEpoch: get().loadEpoch + 1,
         genCoordsByPerson: res.genCoordsByPerson ?? {},
         parentsUnknownByPerson: res.parentsUnknownByPerson ?? {},
         livsdatoBy: res.livsdatoBy ?? {},
@@ -266,6 +273,14 @@ export const useStore = create<State>((set, get) => ({
       // på biosStatus. Stemples ind i en KOPI af modellen (spejl af web's withFeedBios), bundet til denne
       // models generation, så en reload imens ikke får gamle biografier.
       const bioGen = geoGeneration;
+      // Tidsgrænse: supabase-js har ingen timeout, og et hængende kald ville holde biosStatus på 'loading' for
+      // evigt (forsiden venter på den). Efter fristen markeres fejl; lander biografierne senere, stemples de alligevel.
+      setTimeout(() => {
+        if (bioGen === geoGeneration && get().biosStatus === 'loading') {
+          console.warn('[useStore] bio-hentningen overskred fristen — feedet vises uden biografier');
+          set({ biosStatus: 'fejl' });
+        }
+      }, BIOS_FRIST_MS);
       void res.loadBios().then(
         ({ bioBy, komplet }) => {
           if (bioGen !== geoGeneration) return;
@@ -300,6 +315,7 @@ export const useStore = create<State>((set, get) => ({
         geo: SEED.geo,
         geoLoading: false,
         geoLoaded: true,
+        loadEpoch: get().loadEpoch + 1,
         biosStatus: 'komplet', // SEED bærer sine biografier i db
         genCoordsByPerson: {}, // SEED bærer ikke generations-koordinater — ingen kandidat-ring i offline-tilstand
         parentsUnknownByPerson: {}, // SEED bærer ingen forældre_ukendt-markeringer

@@ -22,9 +22,15 @@ export { PORTRAIT_SLAGS, erPortraetSlags, mediaCaption } from '@daa/core';
 // Ryd signed-URL-cachen ved auth/session-skift: signed URLs er bærer-tokens der virker uafhængigt
 // af session indtil udløb — uden dette kunne en bruger efter rolle-skift genbruge en tidligere
 // (mere privilegeret) brugers cachede URLs i op til ~TTL sekunder.
-supabase?.auth.onAuthStateChange(() => {
+let sidsteBrugerId: string | null = null;
+supabase?.auth.onAuthStateChange((_event, session) => {
   cache.clear();
-  urlTilSti.clear();
+  // url→sti glemmes kun ved brugerskift: TOKEN_REFRESHED kommer hver time, og uden stien kan en skærm, der har
+  // hentet sine URL'er før fornyelsen, ikke længere forny et udløbet billede. Fornyelsen signerer alligevel med den
+  // aktuelle session (review af fix/mobil-bio-bidder, fund 4).
+  const brugerId = session?.user?.id ?? null;
+  if (brugerId !== sidsteBrugerId) urlTilSti.clear();
+  sidsteBrugerId = brugerId;
   authEpoch += 1;
   authEpochListeners.forEach((listener) => listener());
 });

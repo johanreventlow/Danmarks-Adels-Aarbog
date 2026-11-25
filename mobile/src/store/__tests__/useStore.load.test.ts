@@ -62,3 +62,38 @@ test('bio-fejl → biosStatus fejl, modellen bliver live', async () => {
   expect(useStore.getState().source).toBe('live');
   expect(useStore.getState().biosStatus).toBe('fejl');
 });
+
+test('loadEpoch tælles op ved hver indlæsning (live og seed), men ikke når biografierne stemples ind', async () => {
+  const start = useStore.getState().loadEpoch;
+  mockLoad.mockRejectedValue({ code: '57014', message: 'timeout' });
+  await useStore.getState().load();
+  expect(useStore.getState().source).toBe('seed');
+  expect(useStore.getState().loadEpoch).toBe(start + 1);
+  mockLoad.mockReset();
+  let loes!: (v: { bioBy: Record<string, string>; komplet: boolean }) => void;
+  mockLoad.mockResolvedValueOnce(svar(new Promise((r) => { loes = r; })));
+  await useStore.getState().load();
+  expect(useStore.getState().loadEpoch).toBe(start + 2);
+  loes({ bioBy: { '1': 'Tekst' }, komplet: true });
+  await flush();
+  expect(useStore.getState().biosStatus).toBe('komplet');
+  expect(useStore.getState().loadEpoch).toBe(start + 2);
+});
+
+test('en hængende bio-hentning slipper forsiden efter fristen; lander den senere, stemples den alligevel', async () => {
+  jest.useFakeTimers();
+  try {
+    let loes!: (v: { bioBy: Record<string, string>; komplet: boolean }) => void;
+    mockLoad.mockResolvedValueOnce(svar(new Promise((r) => { loes = r; })));
+    await useStore.getState().load();
+    expect(useStore.getState().biosStatus).toBe('loading');
+    jest.advanceTimersByTime(45_000);
+    expect(useStore.getState().biosStatus).toBe('fejl');
+    loes({ bioBy: { '1': 'Sen tekst' }, komplet: true });
+    await Promise.resolve(); await Promise.resolve();
+    expect(useStore.getState().model?.byId['1'].bio).toBe('Sen tekst');
+    expect(useStore.getState().biosStatus).toBe('komplet');
+  } finally {
+    jest.useRealTimers();
+  }
+});

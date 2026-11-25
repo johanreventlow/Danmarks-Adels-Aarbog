@@ -51,6 +51,7 @@ export default function HomeScreen() {
   // Biografierne hentes i baggrunden efter load (se useStore). Forsidens minimumskrav læser bio, så et feed bygget
   // før de er der, er tyndt — se fristen og genoptagelsen nedenfor.
   const biosStatus = useStore((s) => s.biosStatus);
+  const loadEpoch = useStore((s) => s.loadEpoch);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [slaegtOpen, setSlaegtOpen] = useState(false);
@@ -117,12 +118,15 @@ export default function HomeScreen() {
   // bio-hentningen starter (biosStatus 'loading'), ikke fra modellen — dens identitet skifter, når biografierne
   // stemples ind. Den nulstilles ikke: efter første uddeling genoptages strømmen alligevel (se nedenfor).
   const alleAfgjort = biosStatus === 'komplet' || biosStatus === 'delvis' || biosStatus === 'fejl';
-  const [fristUdloebet, setFristUdloebet] = useState(false);
+  // Fristen hører til én indlæsning: efter »Prøv igen« (ny loadEpoch) gælder en ny frist.
+  const [fristUdloebetEpoch, setFristUdloebetEpoch] = useState<number | null>(null);
+  const fristUdloebet = fristUdloebetEpoch === loadEpoch;
   useEffect(() => {
     if (biosStatus !== 'loading') return;
-    const t = setTimeout(() => setFristUdloebet(true), FEED_FOERSTE_UDDELING_FRIST_MS);
+    const epoch = loadEpoch;
+    const t = setTimeout(() => setFristUdloebetEpoch(epoch), FEED_FOERSTE_UDDELING_FRIST_MS);
     return () => clearTimeout(t);
-  }, [biosStatus]);
+  }, [biosStatus, loadEpoch]);
 
   // streamRef holder DEN strøm, der doseres fra. FeedStream.next() MUTERER cursoren, så strømmen er en ref, ikke en
   // afledt værdi. Nyt seed (pull-to-refresh) eller ny bogmærke-ejer = ny strøm fra toppen; enhver anden ændring i
@@ -138,7 +142,9 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (!model || !aux || seenWeights === null || !bookmarkSnapshotReady || !bookmarkedSnapshot) return;
-    if (!alleAfgjort && !fristUdloebet) return;
+    // Intet at uddele endnu: stop en evt. pull-to-refresh-spinner; de viste kort bliver stående (review fund 2).
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- synkronisering med den eksterne strøm, som nedenfor
+    if (!alleAfgjort && !fristUdloebet) { setRefreshing(false); return; }
     const built = createFeedStream(model, aux, {
       seed, todayISO: today, meId, focusId,
       bookmarkedIds: bookmarkedSnapshot.ids,
@@ -151,12 +157,14 @@ export default function HomeScreen() {
       // Forsidens minimumskrav (spec 2026-11-24-forside-minimumskrav-design.md), samme motor som web.
       forsideKrav: true,
     });
-    const noegle = `${seed}|${bookmarkedSnapshot.ownerId ?? ''}`;
+    // loadEpoch i nøglen: en ny indlæsning (fx live efter offline-seed) starter forfra, så eksempelpersonernes kort
+    // ikke bliver hængende i det levende feed (review fund 1). Biografierne skifter ikke epoken og genoptager blot.
+    const noegle = `${seed}|${bookmarkedSnapshot.ownerId ?? ''}|${loadEpoch}`;
     if (streamRef.current === null || streamNoegleRef.current !== noegle) {
       // Uden biografier kvalificerer få personer sig til forsiden; finder fristen ingen egentlige blade, ventes der
       // på biografierne i stedet for at låse en tom strøm fast (web 79c0adc0).
       const first = foersteUddeling(built, PAGE_SIZE, alleAfgjort);
-      if (first === null) return;
+      if (first === null) { setRefreshing(false); return; }
       streamRef.current = built;
       streamNoegleRef.current = noegle;
       shownRef.current = first;
@@ -170,7 +178,7 @@ export default function HomeScreen() {
     // »Du har mødt hele slægten« først, når biografierne er afgjort — en tidlig pulje er ikke dagens pulje.
     setDone(alleAfgjort && streamRef.current.done());
     setRefreshing(false);
-  }, [model, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkedSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins, alleAfgjort, fristUdloebet]);
+  }, [model, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkedSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins, alleAfgjort, fristUdloebet, loadEpoch]);
 
   const handleEndReached = useCallback(() => {
     if (!streamRef.current || appendingRef.current || streamRef.current.done()) return;
