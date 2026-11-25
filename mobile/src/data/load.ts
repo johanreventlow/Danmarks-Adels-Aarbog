@@ -65,6 +65,10 @@ export type LoadResult = {
   // kort-brug (Slægtens kort, Godser-kort, livsrejse-minikort). Spejler web/src/data/model.ts.
   geo: Geo;
   loadGeo: () => Promise<Geo>;
+  // Biografier hentes IKKE ved cold-start (personerne har bio:'' i db): alle id'er i ét kald ramte gæsternes
+  // 3 s-loft i prod (1.725 id'er → 57014), og så faldt hele appen tilbage til offline-seed. loadBios() henter dem
+  // i bidder og nøgler dem på kanonisk person-id; storen stempler dem ind bagefter. Spejler web/src/data/feedBios.ts.
+  loadBios: () => Promise<LoadedBios>;
   // Generations-koordinater pr. kanonisk person-id (slægtled_lokal/gennem + kuld pr. linje).
   // Bruges af tree-byggerens hul-reparation (Task C1); spejler web/src/data/model.ts (Task B2).
   genCoordsByPerson: Record<string, GenCoord[]>;
@@ -157,6 +161,84 @@ function mapPublicBioVersionsByPersonV1(
     if (text) bioBy[canonicalIdById[String(value.person_id)] ?? String(value.person_id)] ??= text;
   }
   return bioBy;
+}
+
+// ---------- biografier i bidder (spejl af web/src/data/feedAux.ts) ----------
+
+// `komplet: false` = mindst én bid blev ved med at ramme gæsternes 3 s-loft; de andre bidders biografier er med.
+// En tom bio i et ufuldstændigt resultat er derfor ikke bevis for, at personen ingen tekst har.
+export type LoadedBios = { bioBy: Record<string, string>; komplet: boolean };
+
+type Sb = NonNullable<typeof supabase>;
+type BioSvar = { data: unknown; error: unknown };
+
+// Samme tal som web (målt som gæst mod prod 21/11): ~10 ms pr. id, 50 id'er à 3 parallelt holder sig under loftet.
+export const BIO_IN_CHUNK = 50;
+export const BIO_PARALLEL = 3;
+
+function chunks<T>(values: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < values.length; i += size) out.push(values.slice(i, i + size));
+  return out;
+}
+
+async function mapLimited<T, R>(items: readonly T[], limit: number, fn: (item: T) => PromiseLike<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
+// Én bid: ét forsøg; fejler det, prøves bidden igen som to halvdele. Returnerer rækkerne og de id'er, der stadig fejlede.
+async function hentBioBid(sb: Sb, rpcName: string, ids: number[]): Promise<{ rows: unknown[]; fejlede: number[] }> {
+  const kald = (del: number[]) => sb.rpc(rpcName, { p_person_ids: del }) as unknown as PromiseLike<BioSvar>;
+  const foerste = await kald(ids);
+  if (!foerste.error) {
+    if (!Array.isArray(foerste.data)) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+    return { rows: foerste.data, fejlede: [] };
+  }
+  const midt = Math.ceil(ids.length / 2);
+  const rows: unknown[] = [];
+  const fejlede: number[] = [];
+  for (const del of [ids.slice(0, midt), ids.slice(midt)]) {
+    if (!del.length) continue;
+    const svar = await kald(del);
+    if (svar.error) { fejlede.push(...del); continue; }
+    if (!Array.isArray(svar.data)) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+    rows.push(...svar.data);
+  }
+  return { rows, fejlede };
+}
+
+// A contract-gated RPC is the sole person biography reader; it never falls back to public.narrative.tekst.
+// Kaster kun, når kontrakten ikke kan læses, eller når ALLE bidder fejler.
+export async function hentBios(
+  sb: Sb,
+  personIds: number[],
+  canonicalIdById: Record<string, string>,
+): Promise<LoadedBios> {
+  if (!personIds.length) return { bioBy: {}, komplet: true };
+  const contract = await sb.rpc('narrative_record_contract_version', {});
+  if (contract.error || typeof contract.data !== 'number' || !Number.isInteger(contract.data)) {
+    throw new Error('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
+  }
+  const v2 = contract.data >= 2;
+  const rpcName = v2 ? 'public_person_bio_source_versions_v2' : 'public_person_bio_source_versions';
+  const svar = await mapLimited(chunks(personIds, BIO_IN_CHUNK), BIO_PARALLEL, (ids) => hentBioBid(sb, rpcName, ids));
+  const fejlede = svar.flatMap((r) => r.fejlede);
+  if (fejlede.length === personIds.length) throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
+  if (fejlede.length) console.warn(`[loadBios] ${fejlede.length} bio-id'er kunne ikke hentes — resten vises`);
+  const rows = svar.flatMap((r) => r.rows);
+  const bioBy = v2
+    ? mapPublicBioVersionsByPersonV2(rows, canonicalIdById)
+    : mapPublicBioVersionsByPersonV1(rows, canonicalIdById);
+  return { bioBy, komplet: fejlede.length === 0 };
 }
 
 // Sorterer forældre (partner-rolle-medlemmer af en familie) så far kommer før mor —
@@ -290,22 +372,9 @@ export async function loadFromSupabase(opts?: {
       // queries (uændrede) + degradering.
     ]);
 
-  // A contract-gated RPC is the sole person biography reader.  After v2 the
-  // model sees only the event text; an RPC failure rejects this load rather
-  // than reaching back to public.narrative.tekst.
-  const contract = await sb.rpc('narrative_record_contract_version', {});
-  if (contract.error || typeof contract.data !== 'number' || !Number.isInteger(contract.data)) {
-    throw new Error('NARRATIVE_RECORD_CONTRACT_VERSION_UNAVAILABLE');
-  }
-  const publicRows = await sb.rpc(
-    contract.data >= 2 ? 'public_person_bio_source_versions_v2' : 'public_person_bio_source_versions',
-    { p_person_ids: (persons || []).map((person) => Number(person.id)).filter(Number.isFinite) },
-  );
-  if (publicRows.error || !Array.isArray(publicRows.data)) {
-    throw new Error('PUBLIC_BIO_SOURCE_VERSIONS_UNAVAILABLE');
-  }
-  // Bios are applied only after identity collapse.  This prevents v2 event
-  // text from being concatenated across aliases by collapseSameAs.
+  // Biografierne hentes ikke her, men af loadBios() nedenfor (se LoadResult.loadBios). Personerne bygges med
+  // bio:''; storen stempler biografierne ind efter identitets-collapse, så v2-tekst ikke klistres sammen på tværs
+  // af aliaser.
   const appPersons = mapAppPersons(persons || [], {}, opts?.includePrivat ?? false, boernIder(members || []));
 
   // koen pr. person — bruges KUN til at afgøre forælder-rækkefølge nedenfor (ordinal er
@@ -372,10 +441,9 @@ export async function loadFromSupabase(opts?: {
     console.warn('[samme_som] karantæne (foldes ikke):', collapsed.quarantined);
   }
   const db = collapsed.db;
-  const bioBy = contract.data >= 2
-    ? mapPublicBioVersionsByPersonV2(publicRows.data, collapsed.canonicalIdById)
-    : mapPublicBioVersionsByPersonV1(publicRows.data, collapsed.canonicalIdById);
-  db.persons.forEach((person) => { person.bio = bioBy[person.id] ?? ''; });
+  // Alle rå person-id'er (også aliaser), som før; rækkerne nøgles på kanonisk id ved mapningen.
+  const bioPersonIds = (persons || []).map((person) => Number(person.id)).filter(Number.isFinite);
+  const loadBios = () => hentBios(sb, bioPersonIds, collapsed.canonicalIdById);
 
   // Billedstørrelser (Slice B3 'thumb' + Slice C 'medium'): berig hver media-række med sine
   // variant-stier (hvis nogen) — downstream (buildAux/lib/media.ts) forbruger dermed bare to
@@ -465,6 +533,7 @@ export async function loadFromSupabase(opts?: {
     mergedFrom: collapsed.mergedFrom,
     geo,
     loadGeo,
+    loadBios,
     genCoordsByPerson,
     parentsUnknownByPerson,
     livsdatoBy,

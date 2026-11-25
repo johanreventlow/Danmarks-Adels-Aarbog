@@ -47,6 +47,9 @@ export default function HomeScreen() {
   const haendelserBy = useStore((s) => s.haendelserBy);
   const storieBy = useStore((s) => s.storieBy);
   const feedPins = useStore((s) => s.feedPins);
+  // Feedet venter på biografierne (hentes i baggrunden efter load, se useStore): forsidens minimumskrav læser
+  // bio, så et feed bygget før de er der ville næsten være tomt og nulstilles, når de kommer.
+  const biosStatus = useStore((s) => s.biosStatus);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [slaegtOpen, setSlaegtOpen] = useState(false);
@@ -110,6 +113,7 @@ export default function HomeScreen() {
 
   const stream = useMemo<FeedStream | null>(() => {
     if (!model || !aux || seenWeights === null || !bookmarkSnapshotReady || !bookmarkedSnapshot) return null;
+    if (biosStatus === 'idle' || biosStatus === 'loading') return null;
     return createFeedStream(model, aux, {
       seed, todayISO: today, meId, focusId,
       bookmarkedIds: bookmarkedSnapshot.ids,
@@ -122,7 +126,7 @@ export default function HomeScreen() {
       // Forsidens minimumskrav (spec 2026-11-24-forside-minimumskrav-design.md), samme motor som web.
       forsideKrav: true,
     });
-  }, [model, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkedSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins]);
+  }, [model, aux, seed, today, meId, focusId, bookmarkSnapshotReady, bookmarkedSnapshot, seenWeights, livsdatoBy, haendelserBy, storieBy, feedPins, biosStatus]);
 
   const [shown, setShown] = useState<FeedCard[]>([]);
   const appendingRef = useRef(false);

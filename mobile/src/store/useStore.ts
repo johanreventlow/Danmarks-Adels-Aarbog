@@ -24,6 +24,15 @@ const ME_KEY = 'daa_me_id';
 // overleve mellem load() og et senere loadGeo()-kald. null i seed-fald (SEED.geo er allerede
 // fuldt bygget, ingen closure at kalde).
 let stashedLoadGeo: (() => Promise<Geo>) | null = null;
+
+// Ren kopi: stempler biografier ind i en NY persons-liste/byId; resten af modellen (indexes osv.) røres ikke.
+// Personer uden en post i bioBy beholder deres eksisterende (tomme) bio. Spejl af web's withFeedBios.
+export function withBios(model: Model, bioBy: Record<string, string>): Model {
+  const persons = model.persons.map((p) => (bioBy[p.id] ? { ...p, bio: bioBy[p.id] } : p));
+  const byId: Model['byId'] = {};
+  for (const p of persons) byId[p.id] = p;
+  return { ...model, persons, byId };
+}
 // Generations-tæller (dual-review-fund, Codex 2026-07-14): hver load() bumper den. loadGeo()
 // fanger sin generation og dropper sit resultat hvis en reload har skiftet den imens — ellers
 // kan en gammel (stadig-pending) geo-hentning lande sidst og overskrive den NYE models geo.
@@ -41,6 +50,9 @@ const nulstilRedaktion = () => {
 };
 
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
+// Biografierne hentes i baggrunden efter load() (data/load.ts's loadBios). 'fejl' = ingen bidder lykkedes;
+// 'delvis' = nogle bidder ramte gæsteloftet, resten er stemplet ind.
+export type BiosStatus = 'idle' | 'loading' | 'komplet' | 'delvis' | 'fejl';
 export type DataSource = 'live' | 'seed' | null;
 export type TreeVariant = 'A' | 'B' | 'C';
 export type BrowseSort = 'alpha' | 'born';
@@ -58,6 +70,7 @@ export type State = {
   // tomt resultat ikke udløser genforsøg ved hver mount).
   geoLoading: boolean;
   geoLoaded: boolean;
+  biosStatus: BiosStatus;
   // Generations-koordinater pr. kanonisk person-id (Task C1's hul-reparation); {} indtil load/SEED.
   genCoordsByPerson: Record<string, GenCoord[]>;
   // Marker-gatet "forældre ukendt" pr. kanonisk person-id (grad + proveniens); {} indtil load/SEED.
@@ -146,6 +159,7 @@ export const useStore = create<State>((set, get) => ({
   geo: EMPTY_GEO,
   geoLoading: false,
   geoLoaded: false,
+  biosStatus: 'idle',
   genCoordsByPerson: {},
   parentsUnknownByPerson: {},
   livsdatoBy: {},
@@ -202,6 +216,7 @@ export const useStore = create<State>((set, get) => ({
         geo: res.geo,
         geoLoading: false,
         geoLoaded: false,
+        biosStatus: 'loading',
         genCoordsByPerson: res.genCoordsByPerson ?? {},
         parentsUnknownByPerson: res.parentsUnknownByPerson ?? {},
         livsdatoBy: res.livsdatoBy ?? {},
@@ -220,6 +235,23 @@ export const useStore = create<State>((set, get) => ({
         canonicalIdById: res.canonicalIdById,
         meId: me ? (res.canonicalIdById[me] ?? me) : me,
       });
+      // Biografierne i baggrunden: appen (træ, søgning, personsider) er brugbar med det samme; feedet venter
+      // på biosStatus. Stemples ind i en KOPI af modellen (spejl af web's withFeedBios), bundet til denne
+      // models generation, så en reload imens ikke får gamle biografier.
+      const bioGen = geoGeneration;
+      void res.loadBios().then(
+        ({ bioBy, komplet }) => {
+          if (bioGen !== geoGeneration) return;
+          const cur = get().model;
+          if (!cur) return;
+          set({ model: withBios(cur, bioBy), biosStatus: komplet ? 'komplet' : 'delvis' });
+        },
+        (e) => {
+          if (bioGen !== geoGeneration) return;
+          console.warn('[useStore] bio-hentning fejlede — feedet vises uden biografier:', e);
+          set({ biosStatus: 'fejl' });
+        },
+      );
     } catch (e) {
       // Offline-fallback: indlejret Reventlow-seed, så appen ikke står blank.
       const model = buildModel(SEED.db);
@@ -237,6 +269,7 @@ export const useStore = create<State>((set, get) => ({
         geo: SEED.geo,
         geoLoading: false,
         geoLoaded: true,
+        biosStatus: 'komplet', // SEED bærer sine biografier i db
         genCoordsByPerson: {}, // SEED bærer ikke generations-koordinater — ingen kandidat-ring i offline-tilstand
         parentsUnknownByPerson: {}, // SEED bærer ingen forældre_ukendt-markeringer
         livsdatoBy: {}, // SEED bærer ingen livsdatoer — tidslige feed-kort degraderer til års-niveau
