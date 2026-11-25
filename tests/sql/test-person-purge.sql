@@ -3487,8 +3487,8 @@ DO $t$
 DECLARE v_media bigint;
 BEGIN
   PERFORM purge_test.nyt();
-  INSERT INTO public.media(bucket,storage_path,upload_status)
-    VALUES('purge-task12-live','genbrugt-original','kladde') RETURNING id INTO v_media;
+  INSERT INTO public.media(slags,bucket,storage_path,upload_status)
+    VALUES('portræt','purge-task12-live','genbrugt-original','kladde') RETURNING id INTO v_media;
   INSERT INTO public.media_variant(media_id,tier,storage_path)
     VALUES(v_media,'thumb','genbrugt-variant');
   INSERT INTO private.person_purge_udbakke(bucket,sti) VALUES
@@ -3567,12 +3567,12 @@ BEGIN
   INSERT INTO private.person_purge_udbakke(bucket,sti) VALUES
     ('purge-task12-anden',v_original.sti),('purge-task12-anden',v_thumb.sti);
   PERFORM purge_test.nyt();
-  INSERT INTO public.media(bucket,storage_path) VALUES(v_original.bucket,v_original.sti) RETURNING id INTO v_media;
+  INSERT INTO public.media(slags,bucket,storage_path) VALUES('portræt',v_original.bucket,v_original.sti) RETURNING id INTO v_media;
   PERFORM pg_temp.udbakke_assert(NOT EXISTS (SELECT 1 FROM private.person_purge_udbakke
     WHERE bucket=v_original.bucket AND sti=v_original.sti) AND EXISTS (SELECT 1 FROM private.person_purge_udbakke
     WHERE bucket='purge-task12-anden' AND sti=v_original.sti),'udbakke_genbrug_media_efter_commit');
   -- En variant skal rydde alle buckets, også når dens nye forælder har en anden bucket.
-  INSERT INTO public.media(bucket) VALUES('purge-task12-variant-foraelder') RETURNING id INTO v_media;
+  INSERT INTO public.media(slags,bucket) VALUES('portræt','purge-task12-variant-foraelder') RETURNING id INTO v_media;
   INSERT INTO public.media_variant(media_id,tier,storage_path) VALUES(v_media,'thumb',v_thumb.sti)
     RETURNING id INTO v_variant;
   PERFORM pg_temp.udbakke_assert(NOT EXISTS (SELECT 1 FROM private.person_purge_udbakke WHERE sti=v_thumb.sti),

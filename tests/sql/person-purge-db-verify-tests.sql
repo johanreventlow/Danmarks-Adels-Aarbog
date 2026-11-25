@@ -160,7 +160,7 @@ BEGIN
               FOR EACH ROW EXECUTE FUNCTION pg_temp.verify_late_fact_relation(%L);
             DELETE FROM public.fact WHERE id=v_id;
           ELSE
-            INSERT INTO public.media DEFAULT VALUES RETURNING id INTO v_id;
+            INSERT INTO public.media(slags) VALUES('portræt') RETURNING id INTO v_id;
             IF %L='subjekt' THEN
               INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
                 VALUES('media',v_id,'person',purge_test.id('nabo'),'test');
@@ -228,7 +228,7 @@ BEGIN
           IF %L='fact' THEN
             INSERT INTO public.fact(subjekt_type,subjekt_id,faktatype)
               VALUES('person',purge_test.id('nabo'),'test') RETURNING id INTO v_id;
-          ELSE INSERT INTO public.media DEFAULT VALUES RETURNING id INTO v_id; END IF;
+          ELSE INSERT INTO public.media(slags) VALUES('portræt') RETURNING id INTO v_id; END IF;
           CREATE TRIGGER zz_purge_verify_type BEFORE INSERT ON public.relation
             FOR EACH ROW EXECUTE FUNCTION pg_temp.verify_legacy_type(%L);
           IF %L='subjekt' THEN

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-25 — Billedtypen er motivet og kommer fra én ordliste
+
+Billedtypen blandede motiv og teknik (portræt, maleri, foto …), og redaktørens fire valglister kendte kun halvdelen af
+de typer, der var i brug. Nu er typen motivet (portræt, våben, segl, medalje, gods, dokument) fra én ordliste i
+`@daa/core` og `vocab`, og databasen afviser andre værdier. 56 billeder flyttes fra maleri/foto/scanning til
+portræt/våben, og teknikken gemmes som oplysning, hvor bogen siger den. Våbengalleriet gentager ikke længere
+billeder, der står øverst på siden (`decisions.md` 2026-11-25) I prod samme dag: flytning af de 56 billeder og
+databasens ordliste og kontrol (`database-current-state.md` §53).
+
 ## 2026-11-24 — En dato inde i teksten står ikke længere to gange
 
 Personsiden viste fx »Født: 25. april 1861 på Pederstrup, 25. april 1861«, fordi en gentaget dato kun blev fjernet, når

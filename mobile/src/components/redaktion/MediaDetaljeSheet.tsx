@@ -5,8 +5,8 @@ import { Body, BtnLabel, Mono, Serif } from '../Typography';
 import { Lightbox } from '../Lightbox';
 import type { MediaAnvendelse, PersonMedia, UdrensPreview } from '../../data/redaktionRead';
 import { Border, Colors, Radius } from '../../theme/tokens';
+import { MEDIA_SLAGS, MEDIA_SLAGS_STANDARD, mediaSlagsLabel } from '@daa/core';
 
-const MEDIA_SLAGS = ['foto', 'maleri', 'portræt', 'segl', 'dokument'] as const;
 const RETTIGHED_STATUS = ['ukendt', 'public_domain', 'licenseret', 'tilladelse_givet', 'begraenset', 'spaerret'] as const;
 
 type DetaljeMedia = Omit<PersonMedia, 'relationId'> & { relationId?: string };
@@ -30,7 +30,7 @@ export function MediaDetaljeSheet({ media, uri, thumbUri, anvendelse, anvendelse
   udrensPreview?: UdrensPreview;
   onSaetPortraet?: (personId: string, mediaId: string | null) => void | Promise<unknown>;
 }) {
-  const [meta, setMeta] = useState({ titel: '', slags: 'foto', kunstner: '', datering: '' });
+  const [meta, setMeta] = useState({ titel: '', slags: MEDIA_SLAGS_STANDARD, kunstner: '', datering: '' });
   const [ret, setRet] = useState({ status: 'ukendt', maaPubliceres: false, licens: '', kildehenvisning: '', gengivelsestilladelse: '', kildeFritekst: '' });
   const [lightbox, setLightbox] = useState(false);
   const [bekraeftSlet, setBekraeftSlet] = useState(false);
@@ -38,7 +38,7 @@ export function MediaDetaljeSheet({ media, uri, thumbUri, anvendelse, anvendelse
   const [medieAktionBusy, setMedieAktionBusy] = useState(false);
   const medieAktionBusyRef = useRef(false);
   useEffect(() => {
-    setMeta({ titel: media.titel ?? '', slags: media.slags || 'foto', kunstner: media.kunstner ?? '', datering: media.datering ?? '' });
+    setMeta({ titel: media.titel ?? '', slags: media.slags || MEDIA_SLAGS_STANDARD, kunstner: media.kunstner ?? '', datering: media.datering ?? '' });
     setRet({ status: media.rettighederStatus || 'ukendt', maaPubliceres: media.maaPubliceres, licens: '', kildehenvisning: '', gengivelsestilladelse: '', kildeFritekst: '' });
     setBekraeftSlet(false);
     setBekraeftUdrens(false);
@@ -65,7 +65,7 @@ export function MediaDetaljeSheet({ media, uri, thumbUri, anvendelse, anvendelse
   if (meta.slags !== media.slags) metadataPayload.slags = meta.slags;
   if (meta.kunstner !== (media.kunstner ?? '')) metadataPayload.kunstner = meta.kunstner.trim();
   if (meta.datering !== (media.datering ?? '')) metadataPayload.datering = meta.datering.trim();
-  const mediaSlags = Array.from(new Set<string>([...MEDIA_SLAGS, meta.slags].filter(Boolean)));
+  const mediaSlags = Array.from(new Set<string>([...MEDIA_SLAGS.map((m) => m.code), meta.slags].filter(Boolean)));
   const warning = ret.maaPubliceres && (ret.status === 'spaerret' || ret.status === 'begraenset');
   const filinfo = [media.mimeType, media.bredde && media.hoejde ? `${media.bredde}×${media.hoejde}` : null,
     media.byteSize != null ? `${Math.round(media.byteSize / 1024)} KB` : null, media.originalFilnavn].filter(Boolean).join(' · ');
@@ -89,14 +89,14 @@ export function MediaDetaljeSheet({ media, uri, thumbUri, anvendelse, anvendelse
               <Image source={{ uri: uri! }} style={[styles.preview, media.uploadStatus === 'fjernet' && { opacity: .5 }]} contentFit="contain" />
             </Pressable>
           ) : <View style={[styles.preview, styles.dokument, media.uploadStatus === 'fjernet' && { opacity: .5 }]}>
-            <Serif size={32} color={Colors.inkMuted}>▤</Serif><Body size={12} color={Colors.inkMuted}>{media.slags || 'dokument'}</Body>
+            <Serif size={32} color={Colors.inkMuted}>▤</Serif><Body size={12} color={Colors.inkMuted}>{mediaSlagsLabel(media.slags) || 'Dokument'}</Body>
           </View>}
           <Mono size={8.5} color={Colors.inkMuted} style={{ marginTop: 5 }}>{media.uploadStatus} · {filinfo || 'ingen filmetadata'}</Mono>
 
           <Mono size={9} color={Colors.goldInk} style={styles.heading}>METADATA</Mono>
           <View style={styles.chips}>{mediaSlags.map((s) => (
             <Pressable key={s} style={[styles.chip, meta.slags === s && styles.chipAktiv]} onPress={() => setMeta((m) => ({ ...m, slags: s }))}>
-              <BtnLabel size={10.5} color={meta.slags === s ? '#fff' : Colors.inkMuted}>{s}</BtnLabel>
+              <BtnLabel size={10.5} color={meta.slags === s ? '#fff' : Colors.inkMuted}>{mediaSlagsLabel(s)}</BtnLabel>
             </Pressable>
           ))}</View>
           <TextInput style={styles.input} placeholder="Titel" placeholderTextColor={Colors.inkMuted} value={meta.titel} onChangeText={(v) => setMeta((m) => ({ ...m, titel: v }))} />

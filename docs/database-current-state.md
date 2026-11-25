@@ -529,6 +529,54 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
 
+## 53. Billedtypen er motivet og en kontrolleret ordliste — LIVE i prod (2026-11-25)
+**Grundlag:** PR #481 (CI grøn; merget `cb750799` FØR DDL — klienten tåler begge tilstande). Spec
+`docs/superpowers/specs/2026-11-25-media-slags-ordliste-design.md`; afgørelse `docs/decisions.md` 2026-11-25.
+- **Dataflytning (projektejerens shell):** `R/media-slags-flytning.R` (`--proev-binding` OK 25006 ×2, derefter
+  `--jeg-mener-det`): 56 `media` via `red_opdater_media` (45 maleri + 9 foto → `portræt`, 2 scanning (7, 8) → `våben`),
+  48 `teknik`-fakta via `red_upsert_fakta` (Maleri 45, Fotografi 3; ingen på 7, 8, 10-16). 56 change_sets. Efter:
+  portræt 167, våben 23, gods 11, segl 6, medalje 5; 0 uden for listen.
+- **DDL (én transaktion, 1,0 s):** blokken `-- BEGIN media-slags-ordliste` fra `cb750799` (sha `5074be40…`, 66 linjer),
+  kørt med en engangsrunner (`psql -1`, ON_ERROR_STOP, sha-tjek) i projektejerens shell: vagt (0 rækker uden for
+  listen), 6 `vocab`-rækker (scheme `media_slags`), `private.validate_media_slags()` + `trg_media_slags` (BEFORE INSERT
+  OR UPDATE OF slags ON media). Ingen data, ingen grants.
+- **Efterkontrol:** vocab 6, trigger 1, 0 media uden for listen. I ROLLBACK: `slags='maleri'` → `portræt`;
+  `slags='tegning'` → `23514 MEDIA_SLAGS_UKENDT`. `get_advisors` (security): samme 4 lint-typer, ingen ERROR, ingen nævner
+  den nye funktion.
+- **Ikke øvet på stand-in** (lille, transaktionel blok med egen vagt); opgraderingstesten
+  `tests/sql/test-media-slags-ordliste-upgrade.sh` kører blokken mod en prod-formet base fra `0c1288db`, også med
+  forkerte data (negativ base) og som mutationstest.
+- **Oprydning:** `PORTRAIT_SLAGS`/`BILLEDER_PORTRAET_SLAGS` = kun `portræt` (gren `chore/media-slags-oprydning`).
+
+## 52. Review 37 ceremoni 2: personsletningens kontrolliste og gruppelås — LIVE i prod (2026-11-25)
+
+**Grundlag:** PR #482 (CI grøn i alle jobs på `acc94f21`; merget `e1692be6` efter DDL). Privat runner
+`~/.private/review37-c2/prod.zsh`, fastlåst på `d3a31df4` (blok-sha `54a0ea11…`), kørt i projektejerens shell **før** merge.
+Afgørelser: `docs/decisions.md` 2026-11-25.
+
+- **DDL (én transaktion, 6,1 s):** blokken `-- BEGIN review37-c2` (sidst i db-migrations.sql), fire funktionskroppe med
+  samme signaturer og ACL, ingen data:
+  - P3+P10 `private.person_purge_kontrol`: også historier, beskrivelser og andres påstande/citater søges (navn og id-tal);
+    ét fund pr. række med grund `fritekst` (navn) eller `kun_id` (kun et id-tal); navnet trimmes. Forhåndsvisningens
+    hash ændres, så åbne forhåndsvisninger afvises med `PURGE_PREVIEW_AENDRET`.
+  - P9 `red_slet_person_helt`: den virkningsløse `set_config('statement_timeout')` er væk (loftet er redaktørens 8 s).
+  - R37P11-3 `red_slet_person` låser hele samme_som-gruppen; `red_set_privat` tager `samme_som_mutation` først.
+- **I transaktionen:** katalog-delta præcis 4 (funktionskroppene), ACL uændret; facit (frisk base af commit'en) 4 linjer OK;
+  verify-enheden `c1` OK; anon 1725 personer og `public_person_facts`-md5 før = efter; data uændret (4 tabeller).
+  Prøve 6,4 s, commit 6,1 s.
+- **Efterkontrol:** `get_advisors` (security): samme 4 lint-typer som efter §51; ceremoniens funktioner står kun under den
+  kendte `authenticated_security_definer_function_executable` (alle `red_*`), `person_purge_kontrol` slet ikke.
+- **Bevis:** `tests/sql/test-review37-c2-upgrade.sh` fra `90fa6fff` (prods SQL efter c1): katalog = frisk, funktionsretter og
+  data uændrede, idempotent, hele db-rls.sql oveni uden ændring, fuld db-verify grøn. Adfærd: `test-person-purge.sh`
+  (gruppe `review37_c2`) og `test-person-purge-concurrent.sh` (`r37p11_3_*`, røde uden rettelsen).
+- **Øvelse:** stand-in `daa5ab_ddl_standin_20261124224412_c1`, først bragt i prods tilstand med c1 (c1's øvelse sluttede med
+  fortryd): prøve → commit → `tal` → `tid` → fortryd-prøve → fortryd (`P_FORTRYD_TROFAST`). Tid (stand-in, varmt) uændret:
+  største slettelige profil forhåndsvisning 2,1 s og sletning 4,9 s; største profil i alt forhåndsvisning 4,3 s.
+- **Fortryd:** `/bin/zsh -f ~/.private/review37-c2/prod.zsh fortryd [--jeg-mener-det]` (prods fire kroppe fra
+  `fortryd-definitioner.prod.sql`).
+- **Kendt rest:** R37C2-1 i #397 (fortryd af en fortrydelse er en tavs no-op); andre skrivere af `privat`/`levende`/`staged`
+  (import, promotion) tager ikke samme_som-låsen.
+
 ## 51. Review 37 ceremoni 1: indeks, forslagslofter, klientkaldbare funktioner — LIVE i prod (2026-11-24)
 
 **Grundlag:** PR #477 (CI grøn i alle jobs på `030d6c39`; merget `90fa6fff` efter DDL). Privat runner

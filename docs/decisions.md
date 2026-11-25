@@ -2,6 +2,23 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: billedtypen (media.slags) beskriver kun motivet og er en kontrolleret ordliste (2026-11-25)
+
+**Projektejeren valgte** »kun motiv«: `media.slags` siger, hvad billedet viser (portræt, våben, segl, medalje, gods,
+dokument); teknikken (maleri, fotografi) er medie-faktummet `teknik`. Før blandede feltet motiv og teknik, så bogens
+portrætter stod som `portræt`, `maleri` eller `foto` efter billedtekstens ordlyd. Invariant 9.
+
+- **Ordlisten** er `vocab` (scheme `media_slags`) og `MEDIA_SLAGS` i `@daa/core`; db-verify og en core-test låser dem til
+  samme seks koder. Et nyt motiv = en vocab-række + én linje kode.
+- **Håndhævelse:** `trg_media_slags` afviser ukendte værdier (23514 `MEDIA_SLAGS_UKENDT`), men **oversætter** de fire
+  gamle (`maleri`/`foto`/`portraet` → `portræt`, `scanning` → `våben`), fordi fortryd skriver hele den gamle række tilbage
+  og 132 historiske medie-hændelser bærer dem. Uden oversættelse kunne de ikke fortrydes.
+- **Dataflytning:** de 56 billeder, projektejeren godkendte på et ark (`R/media-slags-flytning.R`), via redaktørens RPC'er.
+  Teknik gemmes kun, hvor bogen selv siger den (»Malet af …« → Maleri 45, »Foto: …« → Fotografi 3); de 6 ældre uploads
+  får ingen, fordi `foto` dér var brugt løst.
+- **Rækkefølge i prod:** klient (tåler begge tilstande) → dataflytning → DDL-blok `media-slags-ordliste` (stopper, hvis
+  en gammel værdi står tilbage) → oprydning af `PORTRAIT_SLAGS`.
+
 ## BESLUTTET: personsletningens kontrolliste søger bredere, rene id-tal står for sig, og gruppen låses (#397 ceremoni 2, 2026-11-25)
 
 > Projektejeren 25/11, efter forklaring:

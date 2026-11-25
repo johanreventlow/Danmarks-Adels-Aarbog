@@ -9181,7 +9181,7 @@ BEGIN
     ON CONFLICT (id) DO UPDATE SET rolle='redaktion';
   INSERT INTO person(id,levende,privat) VALUES (-937601,false,false);
   INSERT INTO family(id,type) VALUES (-937611,'vielse');
-  INSERT INTO media(id) VALUES (-937621),(-937622);
+  INSERT INTO media(id,slags) VALUES (-937621,'portræt'),(-937622,'portræt');
   INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES (-937631,'person',-937601,'embede');
   -- Stavemåder, der ville gå uden om gaten, og retninger uden for listen: tabel-CHECK'en.
   FOREACH v_t IN ARRAY ARRAY['Afbildet',' afbildet','AFBILDET '] LOOP
@@ -9250,8 +9250,8 @@ BEGIN
     (-937711,-937701,'partner'),(-937711,-937702,'partner'),   -- levende medlem
     (-937712,-937703,'partner'),(-937712,-937702,'partner'),   -- privat (afdødt) medlem
     (-937713,-937702,'partner'),(-937713,-937704,'partner');   -- offentlig; -937714 har ingen medlemmer
-  INSERT INTO media(id,maa_publiceres,upload_status) VALUES
-    (-937721,true,'klar'),(-937722,true,'klar'),(-937723,true,'klar'),(-937724,true,'klar');
+  INSERT INTO media(id,slags,maa_publiceres,upload_status) VALUES
+    (-937721,'portræt',true,'klar'),(-937722,'portræt',true,'klar'),(-937723,'portræt',true,'klar'),(-937724,'portræt',true,'klar');
   INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
     ('media',-937721,'family',-937711,'afbildet'),('media',-937722,'family',-937712,'afbildet'),
     ('media',-937723,'family',-937713,'afbildet'),('media',-937724,'family',-937714,'afbildet');
@@ -9741,7 +9741,7 @@ BEGIN
     (-937923,-937910,'partner'),(-937923,-937902,'partner');
   INSERT INTO fact(id,subjekt_type,subjekt_id,faktatype) VALUES
     (-937931,'family',-937921,'vielse'),(-937932,'family',-937922,'vielse'),(-937933,'family',-937923,'vielse');
-  INSERT INTO media(id,maa_publiceres,upload_status) VALUES (-937941,true,'klar'),(-937942,true,'klar'),(-937943,true,'klar');
+  INSERT INTO media(id,slags,maa_publiceres,upload_status) VALUES (-937941,'portræt',true,'klar'),(-937942,'portræt',true,'klar'),(-937943,'portræt',true,'klar');
   INSERT INTO relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES
     ('person',-937901,'media',-937941,'afbildet'),('person',-937902,'media',-937941,'afbildet'),  -- levende på fællesbillede
     ('person',-937910,'media',-937942,'afbildet'),('person',-937902,'media',-937942,'afbildet'),  -- offentlig på fællesbillede
@@ -10624,12 +10624,12 @@ BEGIN
   PERFORM set_config('app.change_set_id','',true);
 
   INSERT INTO media(slags,titel,kunstner,datering,upload_status,maa_publiceres)
-    VALUES ('foto','Gammel titel','Gammel kunstner','1699','klar',false)
+    VALUES ('portræt','Gammel titel','Gammel kunstner','1699','klar',false)
     RETURNING id INTO v_id;
 
   SELECT count(*) INTO v_cs_foer FROM change_set;
   PERFORM red_opdater_media(v_id, 'Ny titel', NULL, '', 'ca. 1700');
-  IF NOT EXISTS (SELECT 1 FROM media WHERE id=v_id AND titel='Ny titel' AND slags='foto'
+  IF NOT EXISTS (SELECT 1 FROM media WHERE id=v_id AND titel='Ny titel' AND slags='portræt'
                  AND kunstner IS NULL AND datering='ca. 1700') THEN
     RAISE EXCEPTION 'FEJL: red_opdater_media overholdt ikke NULL/tom-streng-kontrakten';
   END IF;
@@ -13452,3 +13452,111 @@ EXCEPTION WHEN OTHERS THEN
   ELSE RAISE; END IF;
 END $$;
 -- END-VERIFY c1
+
+-- BEGIN-VERIFY media-slags
+-- ===== Billedtype som kontrolleret ordliste (spec docs/superpowers/specs/2026-11-25-media-slags-ordliste-design.md) =====
+-- Ordlisten er låst til en fast liste, som også står i MEDIA_SLAGS (packages/core/src/mediaVisning.ts; en core-test
+-- låser den side). Et nyt motiv kræver en vocab-række, en linje i MEDIA_SLAGS og en linje her.
+-- Skriver kun i en transaktion, der rulles tilbage. Forvent: NOTICE "OK: media-slags …".
+DO $verify_media_slags$
+DECLARE v_fejl text; v_id bigint; v_cs bigint; v_state text; v_msg text; v_slags text; v_antal bigint;
+  f regprocedure := to_regprocedure('private.validate_media_slags()');
+BEGIN
+  -- (1) Præcis de seks koder med deres labels.
+  WITH forventet(code, label) AS (VALUES
+    ('portræt','Portræt'), ('våben','Våben'), ('segl','Segl'), ('medalje','Medalje'), ('gods','Gods'),
+    ('dokument','Dokument')),
+  faktisk AS (SELECT v.code, v.label FROM public.vocab v WHERE v.scheme = 'media_slags')
+  SELECT coalesce(string_agg(CASE WHEN f2.code IS NULL THEN ' mangler:'||e.code||'='||e.label
+                                  ELSE ' uventet:'||f2.code||'='||coalesce(f2.label,'NULL') END, ''
+                             ORDER BY coalesce(e.code, f2.code)), '')
+    INTO v_fejl
+    FROM forventet e FULL JOIN faktisk f2 ON e.code = f2.code AND e.label IS NOT DISTINCT FROM f2.label
+   WHERE e.code IS NULL OR f2.code IS NULL;
+  IF v_fejl <> '' THEN RAISE EXCEPTION 'VERIFY_FAILED: media-slags — vocab media_slags ≠ den faste liste:%', v_fejl; END IF;
+
+  -- (2) Triggeren: BEFORE INSERT OR UPDATE OF slags, pr. række, aktiv, på den rigtige funktion. Funktionen er
+  -- SECURITY DEFINER med fast search_path og kan ikke kaldes af klientrollerne.
+  IF f IS NULL OR NOT EXISTS (
+       SELECT 1 FROM pg_trigger t
+        WHERE t.tgrelid = 'public.media'::regclass AND t.tgname = 'trg_media_slags' AND NOT t.tgisinternal
+          AND t.tgenabled = 'O' AND t.tgfoid = f::oid
+          AND t.tgtype = (1 | 2 | 4 | 16)   -- ROW | BEFORE | INSERT | UPDATE (ikke DELETE/TRUNCATE)
+          AND t.tgattr::text = (SELECT a.attnum::text FROM pg_attribute a   -- int2vector: kun kolonnen slags
+                                 WHERE a.attrelid = 'public.media'::regclass AND a.attname = 'slags')
+          AND t.tgqual IS NULL) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: media-slags — trg_media_slags mangler eller er ikke BEFORE INSERT OR UPDATE OF slags ON media FOR EACH ROW → private.validate_media_slags()';
+  END IF;
+  IF NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid = f)
+     OR (SELECT p.proconfig FROM pg_proc p WHERE p.oid = f) IS DISTINCT FROM ARRAY['search_path=pg_catalog, public, private']
+     OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                 WHERE p.oid = f AND a.grantee = 0)
+     OR has_function_privilege('anon', f, 'EXECUTE') OR has_function_privilege('authenticated', f, 'EXECUTE')
+     OR (EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') AND has_function_privilege('service_role', f, 'EXECUTE')) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: media-slags — validate_media_slags er ikke DEFINER med fast search_path eller kan kaldes af en klientrolle';
+  END IF;
+
+  -- (3) Data: ingen række uden for ordlisten (i prod: dataflytningen er kørt, og triggeren holder den sådan).
+  SELECT count(*) INTO v_antal FROM public.media m
+   WHERE m.slags IS NULL OR m.slags NOT IN (SELECT v.code FROM public.vocab v WHERE v.scheme = 'media_slags');
+  IF v_antal <> 0 THEN RAISE EXCEPTION 'VERIFY_FAILED: media-slags — % media-rækker har en billedtype uden for ordlisten', v_antal; END IF;
+
+  -- (4) Adfærd. Gamle værdier oversættes (efter btrim), både ved INSERT og UPDATE.
+  PERFORM set_config('app.change_set_id', '', true);
+  INSERT INTO public.media(slags, titel) VALUES (' maleri ', '__verify_media_slags__') RETURNING id, slags INTO v_id, v_slags;
+  IF v_slags IS DISTINCT FROM 'portræt' THEN RAISE EXCEPTION 'VERIFY_FAILED: media-slags — »maleri« blev til »%«, ikke portræt', v_slags; END IF;
+  UPDATE public.media SET slags = 'scanning' WHERE id = v_id RETURNING slags INTO v_slags;
+  IF v_slags IS DISTINCT FROM 'våben' THEN RAISE EXCEPTION 'VERIFY_FAILED: media-slags — »scanning« blev til »%«, ikke våben', v_slags; END IF;
+  UPDATE public.media SET slags = 'foto' WHERE id = v_id RETURNING slags INTO v_slags;
+  IF v_slags IS DISTINCT FROM 'portræt' THEN RAISE EXCEPTION 'VERIFY_FAILED: media-slags — »foto« blev til »%«, ikke portræt', v_slags; END IF;
+  UPDATE public.media SET slags = 'portraet' WHERE id = v_id RETURNING slags INTO v_slags;
+  IF v_slags IS DISTINCT FROM 'portræt' THEN RAISE EXCEPTION 'VERIFY_FAILED: media-slags — »portraet« blev til »%«, ikke portræt', v_slags; END IF;
+  UPDATE public.media SET slags = 'segl' WHERE id = v_id RETURNING slags INTO v_slags;
+  IF v_slags IS DISTINCT FROM 'segl' THEN RAISE EXCEPTION 'VERIFY_FAILED: media-slags — »segl« blev til »%«', v_slags; END IF;
+  -- Ukendt, NULL og tom afvises med 23514 og strengen, klienterne matcher på.
+  FOREACH v_slags IN ARRAY ARRAY['tegning', NULL, '', '  '] LOOP
+    v_state := NULL;
+    BEGIN
+      INSERT INTO public.media(slags, titel) VALUES (v_slags, '__verify_media_slags__');
+    EXCEPTION WHEN check_violation THEN GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+    END;
+    IF v_state IS NULL OR strpos(v_msg, 'MEDIA_SLAGS_UKENDT') <> 1 THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: media-slags — INSERT med slags »%« blev ikke afvist med 23514 MEDIA_SLAGS_UKENDT', v_slags;
+    END IF;
+    v_state := NULL;
+    BEGIN
+      UPDATE public.media SET slags = v_slags WHERE id = v_id;
+    EXCEPTION WHEN check_violation THEN GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+    END;
+    IF v_state IS NULL OR strpos(v_msg, 'MEDIA_SLAGS_UKENDT') <> 1 THEN
+      RAISE EXCEPTION 'VERIFY_FAILED: media-slags — UPDATE til slags »%« blev ikke afvist med 23514 MEDIA_SLAGS_UKENDT', v_slags;
+    END IF;
+  END LOOP;
+  -- (5) Fortryd skriver hele den gamle række tilbage (_version_upsert_row). Bærer snapshottet en gammel værdi (som 132
+  -- hændelser i prod), oversættes den, og fortrydelsen lykkes uden at sætte motivet tilbage til en teknik.
+  PERFORM set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000001', true);
+  INSERT INTO auth.users(id, email) VALUES ('00000000-0000-0000-0000-000000000001', 'db-verify@test.invalid')
+    ON CONFLICT (id) DO NOTHING;
+  INSERT INTO profiles(id, rolle, email) VALUES ('00000000-0000-0000-0000-000000000001', 'redaktion', 't@x')
+    ON CONFLICT (id) DO UPDATE SET rolle = 'redaktion';
+  PERFORM set_config('app.change_set_id', '', true);
+  PERFORM red_opdater_media(v_id, '__verify_media_slags_ny__');
+  SELECT max(id) INTO v_cs FROM change_set;
+  UPDATE change_event SET foer = jsonb_set(foer, '{slags}', '"maleri"')
+   WHERE change_set_id = v_cs AND tabel = 'media' AND foer->>'slags' = 'segl';
+  GET DIAGNOSTICS v_antal = ROW_COUNT;
+  IF v_antal <> 1 THEN RAISE EXCEPTION 'VERIFY_FAILED: media-slags — fortryd-fixturen fandt % media-hændelser (vent 1)', v_antal; END IF;
+  PERFORM set_config('app.change_set_id', '', true);
+  PERFORM red_fortryd_change_set(v_cs, false);
+  SELECT m.slags INTO v_slags FROM public.media m WHERE m.id = v_id AND m.titel = '__verify_media_slags__';
+  IF v_slags IS DISTINCT FROM 'portræt' THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: media-slags — fortryd med »maleri« i snapshottet gav slags »%« (vent portræt, titel gendannet)', v_slags;
+  END IF;
+  PERFORM set_config('request.jwt.claim.sub', '', true);
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM = 'ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: media-slags — ordlisten er de seks koder; trg_media_slags oversætter gamle værdier (også ved fortryd) og afviser resten';
+  ELSE RAISE; END IF;
+END $verify_media_slags$;
+-- END-VERIFY media-slags

@@ -54,7 +54,7 @@ describe('mediaCaption', () => {
 describe('erPortraetSlags', () => {
   it('kender portrætslags uanset store bogstaver og mellemrum; segl/medalje/våben er ikke portrætter', () => {
     expect(erPortraetSlags('Portræt ')).toBe(true);
-    expect(erPortraetSlags('maleri')).toBe(true);
+    expect(erPortraetSlags('maleri')).toBe(false); // teknik, ikke motiv (2026-11-25)
     expect(erPortraetSlags('segl')).toBe(false);
     expect(erPortraetSlags('medalje')).toBe(false);
     expect(erPortraetSlags(null)).toBe(false);
