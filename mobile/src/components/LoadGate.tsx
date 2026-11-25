@@ -8,6 +8,7 @@ import { Kicker } from './Typography';
 export function LoadGate({ children }: { children: React.ReactNode }) {
   const status = useStore((s) => s.status);
   const source = useStore((s) => s.source);
+  const error = useStore((s) => s.error);
 
   if (status === 'loading' || status === 'idle') {
     return (
@@ -25,6 +26,12 @@ export function LoadGate({ children }: { children: React.ReactNode }) {
           <Kicker color={Colors.bordeaux} size={9}>
             Offline-visning · begrænset seed-data
           </Kicker>
+          {/* Fejlteksten vises, fordi et Release-build ingen konsol har: uden den er næste fejl blind. */}
+          {error ? (
+            <Kicker color={Colors.bordeaux} size={8} style={{ marginTop: 2, textTransform: 'none' }} numberOfLines={2}>
+              {error}
+            </Kicker>
+          ) : null}
         </View>
       ) : null}
       {children}

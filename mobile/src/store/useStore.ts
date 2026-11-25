@@ -263,7 +263,11 @@ export const useStore = create<State>((set, get) => ({
       set({
         status: 'ready',
         source: 'seed',
-        error: e instanceof Error ? e.message : String(e),
+        // PostgREST-fejl er rene objekter ({code, message}); String(e) ville give »[object Object]«.
+        error: e instanceof Error ? e.message
+          : typeof e === 'object' && e !== null && typeof (e as { message?: unknown }).message === 'string'
+            ? `${(e as { code?: string }).code ?? ''} ${(e as { message: string }).message}`.trim()
+            : JSON.stringify(e) ?? String(e),
         model,
         aux: SEED.aux,
         geo: SEED.geo,
