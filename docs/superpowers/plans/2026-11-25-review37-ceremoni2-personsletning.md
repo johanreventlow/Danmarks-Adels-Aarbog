@@ -20,7 +20,7 @@
 
 - Signaturer uændrede: `person_purge_kontrol(bigint,jsonb) RETURNS TABLE(sted text,tabel text,pk jsonb,grund text)`, `red_slet_person_helt(bigint,text) RETURNS jsonb`, `red_slet_person(bigint) RETURNS void`. Ingen nye funktioner, ingen GRANT-ændringer, ingen `db-rls.sql`-ændring.
 - `grund`-værdier: `'fritekst'` = navnetræf (uændret betydning for navn), ny `'kun_id'` = kun et id-tal (P's eller en families) uden navnetræf. Én række pr. (sted, tabel, pk) fra tekst-scanningen; navn vinder over tal.
-- P3's nye kilder matcher **kun på navn** (ikke id-tal): ellers genskabes P10-støjen mod datoer i `assertion.vaerdi_tekst`.
+- P3's nye kilder søges for navn **og** id-tal som resten (projektejeren 25/11, ændret under udførelsen); rene tal bliver `kun_id`.
 - Preview-hashen ændres af P3/P10 → åbne forhåndsvisninger fejler lukket (`PURGE_PREVIEW_AENDRET`) og skal hentes igen. Det er accepteret.
 - Låseorden i `red_slet_person` uændret bortset fra, at `private.lock_identity_people` får hele gruppen i stedet for `ARRAY[p_person_id]` (samme kald-sted, efter `samme_som_mutation`-advisory og guard).
 - Tidsgate: preview og execute for den største profil skal holde sig under 8 s med margin (mål: preview ≤ 4 s) på stand-in efter `ANALYZE`. Stand-in-tid er ikke prod-tid; prods tal måles efter DDL med læse-kald.
