@@ -1,4 +1,4 @@
-import { Image } from 'expo-image';
+import { SignedImage } from '../SignedImage';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Mono } from '../Typography';
 import { Colors } from '../../theme/tokens';
@@ -24,7 +24,7 @@ export function MediaGallery({ media, mediaUris, mediaThumbUris = {}, onVaelg, o
         return <View key={m.id} style={{ width: 96 }}>
           <Pressable onPress={() => onVaelg(m)}>
             {erBillede ? (
-              <Image source={{ uri: mediaThumbUris[m.id] }}
+              <SignedImage uri={mediaThumbUris[m.id]}
                 style={[styles.mediaThumb, m.uploadStatus === 'fjernet' && styles.fjernet]} contentFit="cover" />
             ) : (
               <View style={[styles.mediaThumb, styles.dokument, m.uploadStatus === 'fjernet' && styles.fjernet]}>

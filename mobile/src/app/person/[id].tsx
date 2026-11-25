@@ -2,7 +2,7 @@
 // pladsholder, inline "barn af"/"gift med" i Cormorant, badges (Dig/Linje/titel), bio-klamp
 // 7 linjer, børn pr. ægteskab (50px avatarer), embeder, godser-tags, materiale-tomtilstand,
 // kilder m. §-tegn + "trykt værk", handlinger.
-import { Image } from 'expo-image';
+import { SignedImage } from '../../components/SignedImage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -125,7 +125,7 @@ export default function PersonScreen() {
         <View style={styles.header}>
           {portraitItem ? (
             <Pressable onPress={() => setLightbox(0)}>
-              <Image source={{ uri: portraitItem.thumbUri }} style={{ width: 96, height: 120, borderRadius: 12, backgroundColor: Colors.surfaceSunken }} contentFit={erPortraetSlags(portraitItem.media.slags) ? 'cover' : 'contain'} transition={150} />
+              <SignedImage uri={portraitItem.thumbUri} style={{ width: 96, height: 120, borderRadius: 12, backgroundColor: Colors.surfaceSunken }} contentFit={erPortraetSlags(portraitItem.media.slags) ? 'cover' : 'contain'} transition={150} />
             </Pressable>
           ) : (
             <StripedPlaceholder width={96} height={120} radius={12} label="portræt" />
@@ -287,8 +287,8 @@ export default function PersonScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 9 }}>
               {gallery.map(({ media: m, thumbUri }) => (
                 <Pressable key={String(m.id)} onPress={() => setLightbox(lightboxItems.findIndex((x) => x.id === String(m.id)))}>
-                  <Image
-                    source={{ uri: thumbUri }}
+                  <SignedImage
+                    uri={thumbUri}
                     style={{ width: 108, height: 108, borderRadius: 10, backgroundColor: Colors.surfaceSunken }}
                     contentFit="cover"
                     transition={150}

@@ -8,7 +8,7 @@
 // `uri` er i dag den samme fil som thumbnailen (kun én størrelse findes endnu) — Slice B
 // (media_variant, planen §1-2) skifter kaldernes uri til en 'large'-variant; denne komponent
 // rører ikke ved dét, den viser bare den uri den får.
-import { Image } from 'expo-image';
+import { SignedImage } from './SignedImage';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { Mono, Body } from './Typography';
 import { Colors } from '../theme/tokens';
@@ -31,7 +31,7 @@ export function Lightbox({ items, index, onClose, onNavigate }: {
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
-        <Image source={{ uri: m.uri }} style={styles.image} contentFit="contain" />
+        <SignedImage uri={m.uri} style={styles.image} contentFit="contain" />
         {(cap || items.length > 1) && (
           <View style={styles.captionWrap} pointerEvents="none">
             {cap ? <Body size={13} color={Colors.inkOnInverse} style={{ textAlign: 'center' }}>{cap}</Body> : null}

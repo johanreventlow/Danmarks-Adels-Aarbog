@@ -2,7 +2,7 @@
 // Mobilens bevidste forskel fra web: ALLE navnetryk går direkte til personprofilen.
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
-import { Image } from 'expo-image';
+import { SignedImage } from '../components/SignedImage';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -213,8 +213,8 @@ function PraesensLinjeSektion({
         }}
       >
         {info?.vaabenUrl ? (
-          <Image
-            source={{ uri: info.vaabenUrl }}
+          <SignedImage
+            uri={info.vaabenUrl}
             accessibilityLabel="Linjens våben"
             contentFit="contain"
             style={{ width: 76, height: 100 }}

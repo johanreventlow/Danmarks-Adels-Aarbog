@@ -8,6 +8,7 @@
 // medium/large-URL'erne går gennem lib/media.ts's eksisterende useMediaAndThumbUris.
 import React, { useMemo, useState } from 'react';
 import { Image } from 'expo-image';
+import { SignedImage } from './SignedImage';
 import { Pressable, Text, View, StyleSheet, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 import { useRouter } from 'expo-router';
 import { parseNarrativ, groupBlocks, type Segment } from '@daa/core';
@@ -112,7 +113,7 @@ export function NarrativRenderer(props: {
           return (
             <View key={i} style={styles.mediaBlock}>
               <Pressable onPress={() => setLightbox(lightboxIndex)}>
-                <Image source={{ uri: mediumUri }} style={styles.mediaImage} contentFit="cover" />
+                <SignedImage uri={mediumUri} style={styles.mediaImage} contentFit="cover" />
               </Pressable>
               {cap ? <Body size={(size ?? 14) - 2} color={Colors.inkMuted} style={styles.mediaCaption}>{cap}</Body> : null}
             </View>
