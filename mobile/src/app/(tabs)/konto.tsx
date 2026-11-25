@@ -1,5 +1,6 @@
 // Offentlig Konto-fane — login er ikke forbeholdt redaktører. Alle kan logge ind som
-// medlem (ser levende slægtninge via RLS); redaktør-rollen får derudover en genvej ind.
+// medlem (bogmærker på tværs af enheder); redaktør-rollen får derudover en genvej ind.
+// Levende personer ser i POC'en kun redaktører (RLS), så kortet lover ikke medlemmer dem.
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -49,8 +50,8 @@ export default function Konto() {
           <View style={[styles.card, { backgroundColor: Colors.surfaceInverse }]}>
             <Serif size={20} color={Colors.inkOnInverse}>Log ind</Serif>
             <Body size={13} color={Colors.inkMutedOnInverse} style={{ marginTop: 4 }}>
-              Som medlem ser du også levende slægtninge. Redaktører kan derudover bidrage
-              med rettelser.
+              Log ind for at gemme bogmærker på tværs af dine enheder. Redaktører kan
+              derudover bidrage med rettelser.
             </Body>
             <Pressable style={styles.loginBtn} onPress={() => setLoginOpen(true)}>
               <BtnLabel color={Colors.ink}>Log ind</BtnLabel>

@@ -140,6 +140,18 @@ export default function HomeScreen() {
   const appendingRef = useRef(false);
   const [appending, setAppending] = useState(false);
 
+  // Modellen ryddes ved logout/brugerskift (review 37 M5): de viste kort hører til den forrige models personer (evt.
+  // redaktørens levende) og må ikke stå, til den nye model har biografier nok til en uddeling.
+  useEffect(() => {
+    if (model) return;
+    streamRef.current = null;
+    streamNoegleRef.current = null;
+    shownRef.current = [];
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- ryd de viste kort sammen med den eksterne strøm
+    setShown([]);
+    setDone(false);
+  }, [model]);
+
   useEffect(() => {
     if (!model || !aux || seenWeights === null || !bookmarkSnapshotReady || !bookmarkedSnapshot) return;
     // Intet at uddele endnu: stop en evt. pull-to-refresh-spinner; de viste kort bliver stående (review fund 2).

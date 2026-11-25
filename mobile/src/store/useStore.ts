@@ -8,7 +8,7 @@ import { loadFromSupabase } from '../data/load';
 // Statisk (tidl. dynamisk `await import`): supabase-klienten indlæses alligevel allerede statisk via
 // data/load, så den dynamiske import sparede intet — og jest (uden vm-modules) kan ikke køre den,
 // hvilket gjorde logout-/login-forløbene utestbare (C8-generationsværnet).
-import { fetchProfile, signIn, signOut } from '../lib/auth';
+import { fetchProfile, signIn, signOut, type Rolle } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 import { buildSnapPath } from '../data/selectors';
 import { SEED } from '../data/seed';
@@ -68,6 +68,40 @@ const udlogget = () => ({
   session: null, rolle: 'medlem' as const, reventlowPersonId: null, rolleFejl: null, ...nulstilRedaktion(),
 });
 
+// Læsermodellens indlæsningsgeneration (review 37 M5, spejl af web's loadGenRef): hver load() og hver nulstilling ved
+// identitetsskift tæller op, og et svar (live, genforsøg eller seed) lander kun, hvis tælleren er uændret. Ellers kan
+// en indlæsning startet under redaktørens session lande efter logout og lægge levende personer tilbage.
+let loadGeneration = 0;
+// Identiteten (bruger-id:rolle), læsermodellen hentes under. RLS afgør, hvilke personer (levende) modellen rummer.
+const identitetAf = (session: Session | null, rolle: Rolle): string | null =>
+  session?.user?.id ? `${session.user.id}:${rolle}` : null;
+// Tom læsermodel: status 'idle', så load() starter igen, selv om en forældet indlæsning stadig er undervejs.
+const tomLaesermodel = () => ({
+  status: 'idle' as const, source: null, error: null, model: null, aux: null, geo: EMPTY_GEO,
+  geoLoading: false, geoLoaded: false, biosStatus: 'idle' as const, genCoordsByPerson: {}, parentsUnknownByPerson: {},
+  livsdatoBy: {}, haendelserBy: {}, storieBy: {}, feedPins: [], canonicalIdById: {},
+});
+
+// Fælles skrivevej for auth-tilstanden (spejl af web's brugerId-effekt i Folgesvend.tsx). Skifter den effektive
+// identitet i forhold til den, læsermodellen er hentet under, ryddes modellen i SAMME set (den kan rumme redaktørens
+// levende personer), og en ny indlæsning startes bagefter. TOKEN_REFRESHED o.l. for samme bruger og rolle rører intet.
+// grundlag: opstartens første rolleopslag — den første indlæsning kører allerede med Supabases gemte session, så en
+// ukendt identitet overtages uden ny indlæsning. identitet: overstyr (brugerskift, mens den nye rolle slås op).
+function saetAuth(patch: Partial<State>, opt: { grundlag?: boolean; identitet?: string | null } = {}) {
+  const s = useStore.getState();
+  const ny = opt.identitet !== undefined
+    ? opt.identitet
+    : identitetAf(patch.session !== undefined ? patch.session : s.session, patch.rolle ?? s.rolle);
+  const foer = s.modelIdentitet;
+  if (foer === ny) { useStore.setState(patch); return; }
+  if (foer === undefined && opt.grundlag) { useStore.setState({ ...patch, modelIdentitet: ny }); return; }
+  loadGeneration++; // en igangværende indlæsning under den gamle identitet kasseres
+  geoGeneration++; // ditto for igangværende geo- og bio-hentninger
+  stashedLoadGeo = null; // den gamle closure rummer den gamle models personer
+  useStore.setState({ ...patch, ...tomLaesermodel(), modelIdentitet: ny });
+  void useStore.getState().load();
+}
+
 export type LoadStatus = 'idle' | 'loading' | 'ready' | 'error';
 // Biografierne hentes i baggrunden efter load() (data/load.ts's loadBios). 'fejl' = ingen bidder lykkedes;
 // 'delvis' = nogle bidder ramte gæsteloftet, resten er stemplet ind.
@@ -124,6 +158,10 @@ export type State = {
 
   // samme_som-collapse: ethvert medlems-id → kanonisk id (alias-resolution i ruter/fokus/mig).
   canonicalIdById: Record<string, string>;
+
+  // Identiteten (bruger-id:rolle eller null), læsermodellen er hentet under; undefined = endnu ukendt (opstart).
+  // Vedligeholdes af auth-skrivevejen (saetAuth) — redigér ikke direkte.
+  modelIdentitet: string | null | undefined;
 
   // Auth-slice
   session: import('@supabase/supabase-js').Session | null;
@@ -205,6 +243,7 @@ export const useStore = create<State>((set, get) => ({
   relA: null,
   relB: null,
   canonicalIdById: {},
+  modelIdentitet: undefined,
   session: null,
   rolle: 'medlem',
   reventlowPersonId: null,
@@ -219,16 +258,21 @@ export const useStore = create<State>((set, get) => ({
   redaktionStatus: 'idle',
 
   load: async () => {
+    // Dobbeltkald under samme identitet (»Prøv igen«, opstart) deles; et identitetsskift sætter status 'idle' først.
     if (get().status === 'loading') return;
+    const gen = ++loadGeneration; // bind svaret til DENNE indlæsning (se loadGeneration)
     set({ status: 'loading', error: null });
     try {
       // Ét genforsøg efter en kort pause, før appen falder tilbage til offline-seed: en kold free-tier-base eller et
       // enkelt 57014 skal ikke efterlade læseren på 5 eksempelpersoner, til appen genstartes.
       const res = await loadFromSupabase().catch(async (e) => {
+        if (gen !== loadGeneration) throw e; // forældet — intet genforsøg
         console.warn('[useStore] indlæsning fejlede — prøver igen:', e);
         await new Promise((r) => setTimeout(r, LOAD_RETRY_MS));
+        if (gen !== loadGeneration) throw e;
         return loadFromSupabase();
       });
+      if (gen !== loadGeneration) return; // logout/brugerskift imens: svaret tilhører den gamle identitet → kassér
       const model = buildModel(res.db);
       // Påfør proveniens på de foldede kanoniske personer (til badge i person-visningen).
       for (const [canon, prov] of Object.entries(res.mergedFrom)) {
@@ -295,6 +339,7 @@ export const useStore = create<State>((set, get) => ({
         },
       );
     } catch (e) {
+      if (gen !== loadGeneration) return; // en forældet fejl må ikke lægge seed oven på en nyere indlæsning
       // Offline-fallback: indlejret Reventlow-seed, så appen ikke står blank.
       const model = buildModel(SEED.db);
       const snap = buildSnapPath(model, SEED.focusId, SEED.rootId);
@@ -501,15 +546,16 @@ export const useStore = create<State>((set, get) => ({
       // Loggede en anden bruger ind undervejs, tilhører Supabase-sessionen den anden bruger: svaret kasseres, og den
       // faktiske session genskabes nedenfor.
       if (loginEventBruger !== undefined && loginEventBruger !== res.userId) {
-        set(udlogget());
+        saetAuth(udlogget());
         return;
       }
       taget = true;
       // Brugerskift: en anden brugers redaktions-model (og igangværende indlæsning) må ikke overleve.
       // Nulstilles i SAMME set som rollen, så _layout's effekt ser 'idle' og indlæser for den nye bruger.
+      // Læsermodellen hentes igen, hvis identiteten skifter (medlem → redaktør ser levende; saetAuth).
       const skift = res.userId !== get().session?.user?.id;
-      set({ session: res.session, rolle: res.rolle, reventlowPersonId: res.reventlowPersonId, rolleFejl: null,
-            ...(skift ? nulstilRedaktion() : {}) });
+      saetAuth({ session: res.session, rolle: res.rolle, reventlowPersonId: res.reventlowPersonId, rolleFejl: null,
+                 ...(skift ? nulstilRedaktion() : {}) });
     } finally {
       loginIgang = false;
       const eventBruger = loginEventBruger;
@@ -525,7 +571,8 @@ export const useStore = create<State>((set, get) => ({
     // Et svar der lander mens signOut afventes, sætter blot modellen, som nulstilles lige efter.
     await signOut();
     sessionGeneration++; // et rolleopslag, der stadig er undervejs, må ikke logge brugeren ind igen
-    set(udlogget());
+    // Læsermodellen ryddes og hentes igen som gæst (review 37 M5); kom SIGNED_OUT-eventet først, er den allerede ryddet.
+    saetAuth(udlogget());
   },
   hydrateAuth: async () => {
     if (!supabase) return;
@@ -534,21 +581,23 @@ export const useStore = create<State>((set, get) => ({
     if (gen !== sessionGeneration) return; // et login/logout/auth-skift kom imens — dets tilstand gælder
     if (!data.session) {
       // Supabase har ingen session (udløbet eller logget ud andetsteds): storen må ikke blive ved at vise en.
-      if (get().session) set(udlogget());
+      // Ved opstart bliver »ingen session« blot læsermodellens kendte identitet (grundlag).
+      saetAuth(get().session ? udlogget() : {}, { grundlag: true });
       return;
     }
     const skift = data.session.user.id !== get().session?.user?.id; // brugerskift → nulstil (som doSignIn)
     try {
       const prof = await fetchProfile(data.session.user.id);
       if (gen !== sessionGeneration) return;
-      set({ session: data.session, rolle: prof.rolle, reventlowPersonId: prof.reventlowPersonId,
-            rolleFejl: null, ...(skift ? nulstilRedaktion() : {}) });
+      saetAuth({ session: data.session, rolle: prof.rolle, reventlowPersonId: prof.reventlowPersonId,
+                 rolleFejl: null, ...(skift ? nulstilRedaktion() : {}) }, { grundlag: true });
     } catch (e) {
       if (gen !== sessionGeneration) return;
       // Review 37 W6: sessionen beholdes, men en fejlet opslag må ikke stille gøre redaktøren til medlem.
       // Rollen røres ikke ved samme bruger; ved brugerskift nulstilles den, og fejlen vises på konto-siden.
-      set({ session: data.session, rolleFejl: e instanceof Error ? e.message : 'Rollen kunne ikke hentes — prøv igen',
-            ...(skift ? { rolle: 'medlem' as const, reventlowPersonId: null, ...nulstilRedaktion() } : {}) });
+      saetAuth({ session: data.session, rolleFejl: e instanceof Error ? e.message : 'Rollen kunne ikke hentes — prøv igen',
+                 ...(skift ? { rolle: 'medlem' as const, reventlowPersonId: null, ...nulstilRedaktion() } : {}) },
+               { grundlag: true });
     }
   },
   // Auth-skift uden for appens eget login/logout (review 37 W4+W5, spejl af web ec6eefe6): udløbet session,
@@ -559,15 +608,24 @@ export const useStore = create<State>((set, get) => ({
     if (event === 'INITIAL_SESSION') return; // hydrateAuth tager opstarten
     if (event === 'SIGNED_OUT') {
       sessionGeneration++;
-      set(udlogget());
+      saetAuth(udlogget()); // læsermodellen ryddes og hentes igen som gæst (review 37 M5)
       return;
     }
     const userId = session?.user?.id ?? null;
     if (loginIgang) { loginEventBruger = userId; return; } // doSignIn afgør selv sit svar
     if (userId !== (get().session?.user?.id ?? null)) {
-      // Anden bruger: den gamle rolle og redaktions-model må ikke stå, mens den nye brugers rolle slås op.
+      // Anden bruger: den gamle rolle, redaktions-model og læsermodel må ikke stå, mens den nye brugers rolle slås op.
+      // Den nye indlæsning kører allerede med den nye brugers JWT, men rollen er ukendt (»?«): rolleopslaget nedenfor
+      // giver derfor en ny indlæsning, og et senere SIGNED_OUT ligner ikke »uændret«.
       sessionGeneration++;
-      set(udlogget());
+      if (get().modelIdentitet === undefined) {
+        // Opstart: supabase-js sender SIGNED_IN/TOKEN_REFRESHED for den gemte session, før hydrateAuth har sat den i
+        // storen. Den første indlæsning kører allerede med netop den session, så læsermodellen bliver stående, og
+        // rolleopslaget nedenfor overtager identiteten uden en ekstra indlæsning.
+        set(udlogget());
+      } else {
+        saetAuth(udlogget(), { identitet: userId ? `${userId}:?` : null });
+      }
       setTimeout(() => { void get().hydrateAuth(); }, 0);
     } else if (event === 'USER_UPDATED') {
       setTimeout(() => { void get().hydrateAuth(); }, 0);
