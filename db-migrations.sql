@@ -49389,3 +49389,565 @@ BEGIN
 END $$;
 
 -- END review37-c1
+
+-- BEGIN review37-c2
+-- Review 37 ceremoni 2 (#397): personsletning. Deploy-området for prod er denne blok alene, i ÉN transaktion
+-- (ingen ACL-ændringer, så ingen db-rls-DO-blok). Kroppene er kopieret fra schema.sql og er de endelige definitioner
+-- (de ældre kopier ovenfor overskrives her). Signaturer og ACL er uændrede (CREATE OR REPLACE).
+--  R37P11-3 red_slet_person låser hele samme_som-gruppen (stigende id) før offentlighedstjekket.
+--  P3+P10   private.person_purge_kontrol: historier, beskrivelser og andres påstande/citater søges for navn og
+--           id-tal; ét fund pr. række med grund 'fritekst' (navn) eller 'kun_id' (kun id-tal); navnet trimmes.
+--           Ændrer forhåndsvisningens hash: åbne forhåndsvisninger afvises med PURGE_PREVIEW_AENDRET og hentes igen.
+--  P9       red_slet_person_helt sætter ikke længere en virkningsløs statement_timeout.
+-- Ingen data ændres.
+
+CREATE OR REPLACE FUNCTION red_slet_person(p_person_id bigint)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE v_facts bigint[]; v_rels bigint[]; v_contract_version integer; v_aarsag text;
+BEGIN
+  -- #152: serialize with the atomic narrative-record cutover before every
+  -- existing delete lock. Publication history is append-only, so whole-person
+  -- hard delete stays fail-closed until the retention/tombstone design exists.
+  PERFORM pg_advisory_xact_lock_shared(
+    hashtextextended('daa-narrative-record-contract',0)
+  );
+  v_contract_version:=public.narrative_record_contract_version();
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 D9: fortryd/slet-låsen (delt) lige efter kontraktlåsen og før alle andre låse, i samme orden som
+  -- red_fortryd_change_set (kontrakt → fortryd/slet).
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-fortryd-slet',0));
+  IF EXISTS (
+    SELECT 1
+      FROM private.narrative_publication_event event
+      JOIN public.narrative narrative ON narrative.id=event.narrative_id
+     WHERE narrative.subjekt_type='person'
+       AND narrative.subjekt_id=p_person_id
+  ) THEN
+    RAISE EXCEPTION 'PERSON_HAR_NARRATIVE_PUBLICATION_HISTORY';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  PERFORM private.guard_identity_mutation_snapshot();
+
+  -- 2026-08-20: private.source_persona_identity(_event).canonical_person_id har FK mod person
+  -- uden ON DELETE, og _event er append-only (kun BEFORE INSERT-trigger). Har personen én gang
+  -- været mål for en ACCEPTERET kilde-identifikation, bærer den historiske event stadig id'et,
+  -- og sletningen kan aldrig lykkes — heller ikke efter en tilbagetrækning. Vi afviser derfor
+  -- tidligt med en forståelig fejl i stedet for at lade en rå FK-violation slippe ud midt i
+  -- en halvt udført sletning. Den varige løsning er et arkitekturvalg; se docs/decisions.md.
+  IF EXISTS (SELECT 1 FROM private.source_persona_identity_event
+               WHERE canonical_person_id = p_person_id)
+     OR EXISTS (SELECT 1 FROM private.source_persona_identity
+               WHERE canonical_person_id = p_person_id) THEN
+    RAISE EXCEPTION 'PERSON_HAR_KILDEIDENTITET: personen er mål for en accepteret kilde-identifikation, og beslutningssporet er uforanderligt. Sletning er ikke mulig — se docs/decisions.md om tombstone-valget.';
+  END IF;
+
+  PERFORM begin_change_set('red_slet_person', format('Slettede person %s', p_person_id), 'person', p_person_id);
+
+  -- Fælles skriveorden med OCR-rettelsen: source/external-id → person → evidens.
+  -- Sletningen må vente her, før den tager citation/assertion, ellers kan to transaktioner
+  -- danne cyklussen external-id→citation / citation→external-id.
+  PERFORM 1 FROM source s JOIN person_external_id pei ON pei.source_id=s.id
+    WHERE pei.person_id=p_person_id ORDER BY s.id,pei.source_id FOR UPDATE OF s,pei;
+  -- Review 37 R37P11-3 (ceremoni 2): lås hele samme_som-gruppen (stigende id, i ét kald), ikke kun P. Om P er offentlig,
+  -- afhænger også af de andre medlemmers levende/privat (person_gruppe_skjult); uden låsen kunne red_set_privat på et
+  -- medlem committe mellem tjekket og sletningen. Kanterne er stabile under samme_som_mutation-låsen ovenfor. Kun
+  -- medlemmer, der findes: en kant til en manglende person gør gruppen skjult, og så afvises sletningen nedenfor.
+  PERFORM private.lock_identity_people(ARRAY(
+    WITH RECURSIVE grp(pid) AS (
+      SELECT p_person_id
+      UNION
+      SELECT n.pid FROM grp g CROSS JOIN LATERAL (
+        SELECT r.objekt_id FROM public.relation r
+         WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person' AND r.subjekt_id=g.pid
+        UNION ALL
+        SELECT r.subjekt_id FROM public.relation r
+         WHERE r.rolle='samme_som' AND r.subjekt_type='person' AND r.objekt_type='person' AND r.objekt_id=g.pid
+      ) n(pid))
+    SELECT g.pid FROM grp g WHERE g.pid=p_person_id OR EXISTS (SELECT 1 FROM public.person p WHERE p.id=g.pid)));
+
+  -- Review 37 P11: kun en offentlig person kan slettes, så det kan fortrydes. En offentlig person indgår ikke i nogen
+  -- skjul-regel (family_offentlig skjuler for et IKKE-offentligt medlem, media_afbilder_skjult for en ikke-offentlig
+  -- afbildet person eller familie, media_afbilder_privat for et privat medlem, person_gruppe_skjult for et levende
+  -- eller privat gruppemedlem), så at fjerne den kan ikke gøre noget skjult offentligt: dens familier, billeder og
+  -- samme_som-gruppe bliver højst mere skjulte. Fjernes derimod en ikke-offentlig person, bliver en familie med en
+  -- offentlig partner offentlig (vielsen), et fællesbillede mister sin skjul-kobling, og en ældre udgaves registrering
+  -- af samme nulevende bliver synlig. Og en ikke-offentlig persons oplysninger skal alligevel slettes helt
+  -- (red_slet_person_helt): change_event-historikken, som gør denne sletning fortrydelig, bevarer dem ellers.
+  -- Efter rollegaten (intet orakel for ikke-redaktører) og efter låsene: personrækkerne i hele samme_som-gruppen er
+  -- låst FOR UPDATE (lock_identity_people, red_set_privat venter), og samme_som-mutationerne venter på advisory-låsen.
+  -- Undtagelsen ruller også change_set'et tilbage.
+  v_aarsag:=private.person_slet_aarsag(p_person_id);
+  IF v_aarsag IS NOT NULL THEN
+    RAISE EXCEPTION 'SLET_KRAEVER_SLET_HELT: % — personen er ikke offentlig, så den skal slettes helt (»Slet helt«), og det kan ikke fortrydes', v_aarsag
+      USING ERRCODE='P0001';
+  END IF;
+
+  SELECT coalesce(array_agg(id),'{}') INTO v_facts FROM fact
+    WHERE subjekt_type='person' AND subjekt_id=p_person_id;
+  SELECT coalesce(array_agg(id),'{}') INTO v_rels FROM relation
+    WHERE (subjekt_type='person' AND subjekt_id=p_person_id)
+       OR (objekt_type='person'  AND objekt_id=p_person_id)
+       -- Task 8a: relationer til P's fakta skal også have evidensen ryddet før faktasletning.
+       OR (subjekt_type='fact' AND subjekt_id = ANY(v_facts))
+       OR (objekt_type='fact' AND objekt_id = ANY(v_facts));
+
+  UPDATE profiles SET reventlow_person_id = NULL WHERE reventlow_person_id = p_person_id;
+
+  DELETE FROM citation WHERE assertion_id IN (
+    SELECT id FROM assertion WHERE (target_type='fact'     AND target_id = ANY(v_facts))
+                                OR (target_type='relation' AND target_id = ANY(v_rels)));
+  DELETE FROM conclusion WHERE (target_type='fact'     AND target_id = ANY(v_facts))
+                            OR (target_type='relation' AND target_id = ANY(v_rels));
+  DELETE FROM assertion  WHERE (target_type='fact'     AND target_id = ANY(v_facts))
+                            OR (target_type='relation' AND target_id = ANY(v_rels));
+
+  DELETE FROM note WHERE (target_type='person'   AND target_id=p_person_id)
+                      OR (target_type='fact'     AND target_id = ANY(v_facts))
+                      OR (target_type='relation' AND target_id = ANY(v_rels));
+
+  -- 2026-08-20: private.narrative_record_publication har FK mod narrative(id) UDEN ON DELETE,
+  -- så den blokerede sletningen for alle 551 narrativ-bundne 1939-personer. Bindingen siger
+  -- »dette narrativ stammer fra denne kilderecord« — når narrativet går, er udsagnet
+  -- meningsløst, så bindingen skal med. private.source_record røres derimod ALDRIG: at
+  -- teksten står på siden er stadig sandt. Skema-kvalificeret, fordi SET search_path=public.
+  DELETE FROM private.narrative_record_publication WHERE narrative_id IN (
+    SELECT id FROM narrative WHERE subjekt_type='person' AND subjekt_id=p_person_id);
+  DELETE FROM narrative          WHERE subjekt_type='person' AND subjekt_id=p_person_id;
+  -- 2026-08-20: haendelse.relation_id/fact_id har FK uden ON DELETE. relation_id er en PÅVIST
+  -- blokering: red_slet_person samler relationer hvor personen er subjekt ELLER objekt, mens
+  -- hændelses-loaderen forankrer efter subjekt alene — en relation Q→P kan derfor bære en
+  -- hændelse under Q's narrativ, som overlever når P slettes. fact_id tages med for symmetri
+  -- (loaderen filtrerer i dag fakta til narrativets egen person, så den sti er ikke påvist).
+  -- Hændelseslaget er regenererbart, og begge kolonner er skip-cols i versioneringen, så vi
+  -- løsner ankeret i stedet for at slette en anden persons hændelse.
+  UPDATE haendelse SET relation_id = NULL WHERE relation_id = ANY(v_rels);
+  UPDATE haendelse SET fact_id     = NULL WHERE fact_id     = ANY(v_facts);
+
+  DELETE FROM relation           WHERE id = ANY(v_rels);
+  DELETE FROM fact               WHERE id = ANY(v_facts);
+  DELETE FROM person_external_id WHERE person_id = p_person_id;
+  DELETE FROM family_member      WHERE person_id = p_person_id;
+  -- review 19 H2: slaegtsnavn_karantaene.person_id har ingen ON DELETE CASCADE — uden denne linje
+  -- fejler sletningen for enhver person der har >1 distinkt effektivt efternavn (fan-out).
+  DELETE FROM slaegtsnavn_karantaene WHERE person_id = p_person_id;
+  -- 2026-08-20: samme klasse som H2 ovenfor — person_id er NOT NULL uden ON DELETE CASCADE,
+  -- så et medlemskab blokerer sletningen. Et medlemskab uden sin person er meningsløst.
+  DELETE FROM person_slaegt_membership   WHERE person_id = p_person_id;
+  DELETE FROM person_lineage_membership  WHERE person_id = p_person_id;
+  DELETE FROM person             WHERE id = p_person_id;
+END $$;
+
+CREATE OR REPLACE FUNCTION private.person_purge_kontrol(p_person_id bigint,p_plan jsonb)
+RETURNS TABLE(sted text,tabel text,pk jsonb,grund text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_control$
+WITH plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_plan) q(tabel text,pk jsonb,handling text)),
+  fam AS MATERIALIZED (SELECT family_id AS id FROM public.family_member WHERE person_id=p_person_id),
+  fam_keep AS (SELECT id FROM fam WHERE id NOT IN
+    (SELECT (pk->>'id')::bigint FROM plan WHERE tabel='family' AND handling='slet')),
+  tokens AS (SELECT '(^|[^0-9])('||string_agg(id::text,'|' ORDER BY id)||')([^0-9]|$)' AS rx
+    FROM (SELECT p_person_id AS id UNION SELECT id FROM fam) ids),
+  navn AS MATERIALIZED (SELECT n.navn,substring(to_jsonb(n.navn)::text FROM 2 FOR length(to_jsonb(n.navn)::text)-2) AS json_navn
+    -- Ceremoni 2: trimmet, så et navn af blanktegn ikke matcher enhver tekst med et mellemrum.
+    FROM (SELECT nullif(btrim(visning_navn),'') AS navn FROM public.person WHERE id=p_person_id) n),
+  -- Projektejeren 2026-11-20 (runde 4, E): bevarede medie↔familie-koblinger (rk) på Fam_ind-familier. Det låste billede
+  -- og den bevarede evidens på koblingen kommer ALTID på listen (ikke kun ved navn/token, jf. Q8), så redaktøren ser dem
+  -- før en genfrigivelse; evidensens tekst kan nævne personen uden token.
+  -- Runde 6 (Codex): bevarede change_sets, som sletningen rører (subjekt P eller en Fam_c-familie, eller med events, der
+  -- slettes nu), og hvis summary bærer P's indhold: en feed-nøgle med P's id (fx red_set_feed_pin 'embede:P:<titel>:<år>'),
+  -- et [[person:P|…]]-token eller P's navn. De kommer på kontrollisten (Q8-mønstret); summary rettes ikke.
+  famc AS MATERIALIZED (SELECT (pk->>'id')::bigint AS id FROM plan WHERE tabel='family' AND handling='slet'
+    UNION SELECT id FROM private.person_purge_familieindhold(p_person_id)),
+  cs_roert AS MATERIALIZED (
+    SELECT id FROM public.change_set WHERE (subjekt_type='person' AND subjekt_id=p_person_id)
+      OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc))
+    UNION SELECT change_set_id FROM public.change_event
+      WHERE id IN (SELECT (pk->>'id')::bigint FROM plan WHERE tabel='change_event' AND handling='slet')),
+  -- Runde 7 (Codex): tekstmatch på det AKTUELLE navn overser et gammelt navn (fx to red_opret_person i samme sæt, P
+  -- omdøbt senere). Operations-regel: et bevaret, rørt sæt fra en skriver, hvis summary kan bære personindhold (navn,
+  -- titel, fritekst eller feed-/record-nøgle), kommer ALTID på listen; tekstmatchet er et ekstra net for øvrige
+  -- operationer. Fortryd-sæt (»Fortrød: …«) af et sådant bevaret sæt følger med.
+  cs_kontrol0 AS MATERIALIZED (
+    SELECT cs.id FROM public.change_set cs CROSS JOIN navn
+    WHERE cs.id IN (SELECT id FROM cs_roert)
+      AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel='change_set' AND d.pk=jsonb_build_object('id',cs.id) AND d.handling='slet')
+      AND (cs.operation IN ('red_opret_person','red_opret_estate','red_opret_kilde','red_opret_organisation','red_opret_media',
+            'red_upload_media','red_ret_paastand','placement_membership_reversal','red_set_feed_pin','red_fjern_feed_pin',
+            'red_ret_ocr_felt')
+        OR cs.operation LIKE 'narrative\_record\_%'
+        OR (cs.summary COLLATE "C") ~ ('(portrait|citat|naevnt|dagensperson|jubilaeum|embede|slaegt|paadennedag):([0-9]+:)?'
+          ||p_person_id::text||'([^0-9]|$)')
+        OR position((('[[person:'||p_person_id::text||'|') COLLATE "C") IN (cs.summary COLLATE "C"))>0
+        OR (navn.navn IS NOT NULL AND position((navn.navn COLLATE "C") IN (cs.summary COLLATE "C"))>0))),
+  cs_kontrol AS MATERIALIZED (
+    SELECT id FROM cs_kontrol0
+    UNION SELECT r.id FROM public.change_set r WHERE r.reverterer_id IN (SELECT id FROM cs_kontrol0)
+      AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel='change_set' AND d.pk=jsonb_build_object('id',r.id) AND d.handling='slet')),
+  rk AS MATERIALIZED (SELECT r.id,CASE WHEN r.subjekt_type='media' THEN r.subjekt_id ELSE r.objekt_id END AS media_id
+    FROM public.relation r WHERE
+      (r.subjekt_type='media' AND r.objekt_type='family' AND r.objekt_id IN (SELECT id FROM private.person_purge_familieindhold(p_person_id))
+        AND r.objekt_id NOT IN (SELECT (pk->>'id')::bigint FROM plan WHERE tabel='family' AND handling='slet'))
+      OR (r.objekt_type='media' AND r.subjekt_type='family' AND r.subjekt_id IN (SELECT id FROM private.person_purge_familieindhold(p_person_id))
+        AND r.subjekt_id NOT IN (SELECT (pk->>'id')::bigint FROM plan WHERE tabel='family' AND handling='slet'))),
+  tekster AS (
+  SELECT 'S11c'::text AS sted,'private.source_persona_identity_event'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_persona_identity_event t WHERE true
+  UNION ALL
+  SELECT 'S34b'::text AS sted,'suggestion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.payload::text,t.vaerdi::text,t.note::text,t.kilde_fritekst::text) AS tekst FROM public.suggestion t WHERE true
+  UNION ALL
+  SELECT 'S37b'::text AS sted,'media'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.titel::text,t.original_filnavn::text,t.kunstner::text) AS tekst FROM public.media t WHERE true
+  UNION ALL
+  SELECT 'S38b'::text AS sted,'narrative'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.tekst::text) AS tekst FROM public.narrative t WHERE t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM fam_keep)
+  UNION ALL
+  SELECT 'S38b'::text AS sted,'note'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.indhold::text) AS tekst FROM public.note t WHERE t.target_type='family' AND t.target_id IN (SELECT id FROM fam_keep)
+  UNION ALL
+  SELECT 'S58'::text AS sted,'note'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.indhold::text) AS tekst FROM public.note t WHERE (t.target_type='family' AND t.target_id IN (SELECT id FROM fam_keep)) IS NOT TRUE
+  UNION ALL
+  SELECT 'S38b'::text AS sted,'assertion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.vaerdi_tekst::text,t.date_raw::text) AS tekst FROM public.assertion t WHERE t.target_type='fact' AND t.target_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep))
+  UNION ALL
+  SELECT 'S38b'::text AS sted,'citation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.citat_tekst::text) AS tekst FROM public.citation t WHERE t.assertion_id IN (SELECT a.id FROM public.assertion a JOIN public.fact f ON a.target_type='fact' AND a.target_id=f.id WHERE f.subjekt_type='family' AND f.subjekt_id IN (SELECT id FROM fam_keep))
+  UNION ALL
+  SELECT 'S44b'::text AS sted,'private.reimport_case_authorization'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.authorized_elements::text) AS tekst FROM private.reimport_case_authorization t WHERE true
+  UNION ALL
+  SELECT 'S45b'::text AS sted,'private.identity_control_parent_event'::text AS tabel,jsonb_build_object('card_id',t.card_id,'seq',t.seq) AS pk,
+    concat_ws(' ',t.note::text) AS tekst FROM private.identity_control_parent_event t WHERE true
+  UNION ALL
+  SELECT 'S49c'::text AS sted,'private.marriage_ordinal_correction'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.marriage_ordinal_correction t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.interpretation_promotion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.interpretation_promotion t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.interpretation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.value::text,t.decision_evidence::text) AS tekst FROM private.interpretation t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_persona_identity_candidate'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.basis::text) AS tekst FROM private.source_persona_identity_candidate t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.relation_reopen'::text AS tabel,jsonb_build_object('to_interpretation_id',t.to_interpretation_id) AS pk,
+    concat_ws(' ',t.context::text,t.note::text) AS tekst FROM private.relation_reopen t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.text_revision_reconciliation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.context::text) AS tekst FROM private.text_revision_reconciliation t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.relation_classification_event'::text AS tabel,jsonb_build_object('interpretation_key',t.interpretation_key,'seq',t.seq) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.relation_classification_event t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.legacy_placement_disposition'::text AS tabel,jsonb_build_object('person_id',t.person_id,'source_id',t.source_id,'version',t.version) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.legacy_placement_disposition t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_record_placement_decision'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_record_placement_decision t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_persona_placement_decision'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_persona_placement_decision t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.identity_control_event'::text AS tabel,jsonb_build_object('control_run_id',t.control_run_id,'seq',t.seq) AS pk,
+    concat_ws(' ',t.reason::text) AS tekst FROM private.identity_control_event t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.identity_control_exclusion'::text AS tabel,jsonb_build_object('control_run_id',t.control_run_id,'source_persona_id',t.source_persona_id) AS pk,
+    concat_ws(' ',t.reason::text) AS tekst FROM private.identity_control_exclusion t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_record_anchor_event'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_record_anchor_event t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_record_revision_event'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_record_revision_event t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_observation_text'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_observation_text t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.entity_description_source'::text AS tabel,jsonb_build_object('description_id',t.description_id,'source_record_id',t.source_record_id) AS pk,
+    concat_ws(' ',t.citation_note::text) AS tekst FROM private.entity_description_source t WHERE true
+  UNION ALL
+  -- Review 37 P3 (ceremoni 2): andre bevarede tekster, der kan nævne P i ren tekst. Søges som resten (navn og id-tal;
+  -- projektejeren 25/11); id-tal i påstande er ofte årstal og står derfor som »kun_id«. Rækker, som S38b ovenfor
+  -- allerede dækker (påstande og citater på bevarede familiers fakta), står ikke her igen.
+  SELECT 'S58'::text AS sted,'story'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.titel::text,t.tekst::text) AS tekst FROM public.story t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'entity_description'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.tekst::text) AS tekst FROM public.entity_description t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'assertion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.vaerdi_tekst::text) AS tekst FROM public.assertion t WHERE t.vaerdi_tekst IS NOT NULL
+      AND NOT (t.target_type='fact' AND t.target_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep)))
+  UNION ALL
+  SELECT 'S58'::text AS sted,'citation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.citat_tekst::text) AS tekst FROM public.citation t WHERE t.citat_tekst IS NOT NULL
+      AND t.assertion_id NOT IN (SELECT a.id FROM public.assertion a JOIN public.fact f ON a.target_type='fact' AND a.target_id=f.id WHERE f.subjekt_type='family' AND f.subjekt_id IN (SELECT id FROM fam_keep))
+  ),
+  -- Review 37 P10 (ceremoni 2): ét fund pr. række. Et navnetræf er »fritekst«; et træf, der KUN er P's eller en families
+  -- id som tal (ofte et årstal eller en dato), er »kun_id«. Søgningen er lige så bred som før (projektejeren 25/11).
+  traef AS (
+    SELECT t.sted,t.tabel,t.pk,
+      (navn.navn IS NOT NULL AND (position((navn.navn COLLATE "C") IN (t.tekst COLLATE "C"))>0
+        OR position((navn.json_navn COLLATE "C") IN (t.tekst COLLATE "C"))>0)) AS navn_hit,
+      (t.tekst COLLATE "C" ~ tokens.rx) AS id_hit
+    FROM tekster t CROSS JOIN tokens CROSS JOIN navn
+  )
+SELECT t.sted,t.tabel,t.pk,CASE WHEN bool_or(t.navn_hit) THEN 'fritekst' ELSE 'kun_id' END::text FROM traef t
+WHERE (t.navn_hit OR t.id_hit)
+  AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel=t.tabel AND d.pk=t.pk AND d.handling='slet')
+GROUP BY t.sted,t.tabel,t.pk
+UNION
+SELECT 'NY-E'::text,'media'::text,jsonb_build_object('id',k.media_id),'laast_familiefoto'::text FROM rk k
+  WHERE EXISTS (SELECT 1 FROM plan d WHERE d.tabel='media' AND d.pk=jsonb_build_object('id',k.media_id) AND d.handling='skjul')
+UNION
+SELECT 'NY-E'::text,'assertion'::text,jsonb_build_object('id',a.id),'bevaret_evidens'::text FROM public.assertion a
+  WHERE a.target_type='relation' AND a.target_id IN (SELECT id FROM rk)
+UNION
+SELECT 'NY-E'::text,'citation'::text,jsonb_build_object('id',c.id),'bevaret_evidens'::text FROM public.citation c
+  WHERE c.assertion_id IN (SELECT a.id FROM public.assertion a WHERE a.target_type='relation' AND a.target_id IN (SELECT id FROM rk))
+UNION
+SELECT CASE WHEN cs.subjekt_type='person' AND cs.subjekt_id=p_person_id THEN 'S52b' ELSE 'S57' END::text,'change_set'::text,
+    jsonb_build_object('id',cs.id),'bevaret_summary'::text
+  FROM cs_kontrol k JOIN public.change_set cs ON cs.id=k.id
+$purge_control$;
+
+CREATE OR REPLACE FUNCTION public.red_slet_person_helt(p_person_id bigint,p_preview_sha256 text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public, private AS $purge_execute$
+DECLARE
+  v_laas jsonb; v_nu jsonb; v_historik jsonb; v_plan jsonb; v_preview jsonb; v_delete jsonb;
+  v_saet bigint[]; v_saet_nu bigint[]; v_medier bigint[]; v_medier_nu bigint[]; v_people bigint[]; v_deleted jsonb;
+  v_source bigint; v_prof record; r record; v_persona uuid; v_sted text; v_handling text; v_art text; v_rest boolean;
+  v_storage int; v_personas int:=0; v_pk_pred text; v_schema text; v_table text;
+BEGIN
+  PERFORM set_config('lock_timeout','5s',true);
+  -- Review 37 P9: ingen statement_timeout her. PostgreSQL binder tidsgrænsen ved sætningens start, så en set_config
+  -- inde i funktionen virker ikke på det kald, der allerede kører. Grænsen er kalderens rolle-statement_timeout
+  -- (redaktøren 8 s via PostgREST); store profiler over 8 s står i backloggen (docs/decisions.md).
+  -- Rollegate FØRST, også før kontraktlåsen og alle eksistens-/fremmed-sæt-læsninger.
+  IF public.current_rolle() IS DISTINCT FROM 'redaktion' OR auth.uid() IS NULL THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF btrim(coalesce(current_setting('app.change_set_id',true),''))<>'' THEN RAISE EXCEPTION 'PURGE_FREMMED_CHANGE_SET'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.person WHERE id=p_person_id) THEN RAISE EXCEPTION 'PURGE_FINDES_IKKE'; END IF;
+  -- L1: delt kontraktlås. Gaten ovenfor læser ingen slette-/identitetstilstand.
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  -- L2: rolle og fremmed sæt er allerede kontrolleret uden person-opslag før gaten.
+  -- L3
+  v_laas:=private.person_purge_laasemaengder(p_person_id);
+  -- L4
+  FOR v_prof IN SELECT * FROM jsonb_to_recordset(v_laas->'profiles') p(source_id bigint,profile_id text)
+    ORDER BY source_id,profile_id COLLATE "C" LOOP
+    PERFORM private.lock_reimport_writer(v_prof.source_id,v_prof.profile_id);
+  END LOOP;
+  -- L5
+  FOR v_source IN SELECT value::bigint FROM jsonb_array_elements_text(v_laas->'sources') ORDER BY value::bigint LOOP
+    PERFORM pg_advisory_xact_lock(hashtextextended('daa-identity-candidates:'||v_source::text,0));
+  END LOOP;
+  -- L5b: source_record FOR UPDATE før personas og change_set.
+  PERFORM 1 FROM private.source_record WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(v_laas->'records'))
+    ORDER BY id FOR UPDATE;
+  -- L6
+  PERFORM 1 FROM private.source_persona WHERE id IN (SELECT value::uuid FROM jsonb_array_elements_text(v_laas->'personas'))
+    ORDER BY id FOR UPDATE;
+  PERFORM 1 FROM private.source_persona_identity WHERE source_persona_id IN (SELECT value::uuid FROM jsonb_array_elements_text(v_laas->'personas'))
+    ORDER BY source_persona_id FOR UPDATE;
+  -- L6b: R31, ALLE helt slettede sæt, også publiceringssæt. Samme orden som K5.
+  SELECT coalesce(array_agg((h.pk->>'id')::bigint ORDER BY (h.pk->>'id')::bigint),'{}') INTO v_saet
+    FROM private.person_purge_historik(p_person_id) h WHERE h.tabel='change_set';
+  PERFORM 1 FROM public.change_set WHERE id=ANY(v_saet) ORDER BY id FOR UPDATE;
+  -- L7
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  PERFORM private.guard_identity_mutation_snapshot();
+  -- L8: må IKKE styrkes (D-1).
+  LOCK TABLE public.change_set IN ROW EXCLUSIVE MODE;
+  -- L9
+  PERFORM 1 FROM public.source s JOIN public.person_external_id pei ON pei.source_id=s.id
+    WHERE pei.person_id=p_person_id ORDER BY s.id,pei.source_id FOR UPDATE OF s,pei;
+  -- L10
+  SELECT array_agg(DISTINCT id ORDER BY id) INTO v_people FROM (
+    SELECT p_person_id id UNION SELECT CASE WHEN subjekt_id=p_person_id THEN objekt_id ELSE subjekt_id END
+    FROM public.relation WHERE rolle='samme_som' AND subjekt_type='person' AND objekt_type='person'
+      AND (subjekt_id=p_person_id OR objekt_id=p_person_id)) q;
+  -- En anden sletning kan være committet mens vi ventede.
+  IF NOT EXISTS (SELECT 1 FROM public.person WHERE id=p_person_id) THEN RAISE EXCEPTION 'PURGE_FINDES_IKKE'; END IF;
+  PERFORM private.lock_identity_people(v_people);
+  -- L11
+  PERFORM private.lock_family_rows(ARRAY[p_person_id]);
+  -- L11b: planens md-mængde + de medier, der låses (NY-E); media FOR UPDATE i id-orden efter personer og familier.
+  -- Historik påvirker hverken md eller NY-E; den autoritative plan med låst historik beregnes i L12.
+  SELECT coalesce(array_agg((p.pk->>'id')::bigint ORDER BY (p.pk->>'id')::bigint),'{}') INTO v_medier
+    FROM private.person_purge_plan_fra_historik(p_person_id,'[]'::jsonb) p WHERE p.tabel='media' AND p.handling IN ('slet','skjul');
+  PERFORM 1 FROM public.media WHERE id=ANY(v_medier) ORDER BY id FOR UPDATE;
+  -- L12: genberegn alle mængder; tag ALDRIG en ny, sent opdaget lås.
+  v_nu:=private.person_purge_laasemaengder(p_person_id);
+  SELECT coalesce(jsonb_agg(to_jsonb(h)),'[]'::jsonb) INTO v_historik FROM private.person_purge_historik(p_person_id) h;
+  SELECT coalesce(array_agg((h.pk->>'id')::bigint ORDER BY (h.pk->>'id')::bigint),'{}') INTO v_saet_nu
+    FROM jsonb_to_recordset(v_historik) h(tabel text,pk jsonb) WHERE h.tabel='change_set';
+  SELECT coalesce(jsonb_agg(to_jsonb(p) ORDER BY p.tabel COLLATE "C",p.pk::text COLLATE "C"),'[]'::jsonb)
+    INTO v_plan FROM private.person_purge_plan_fra_historik(p_person_id,v_historik) p;
+  SELECT coalesce(array_agg((p.pk->>'id')::bigint ORDER BY (p.pk->>'id')::bigint),'{}') INTO v_medier_nu
+    FROM jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text) WHERE p.tabel='media' AND p.handling IN ('slet','skjul');
+  IF NOT v_nu <@ v_laas OR NOT v_saet_nu <@ v_saet OR NOT v_medier_nu <@ v_medier THEN
+    RAISE EXCEPTION 'PURGE_LOCKSET_DRIFT';
+  END IF;
+  -- L13: låst historik og autoritativ plan fra L12 genbruges til preview/manifest/DML.
+  v_preview:=private.person_purge_preview_fra_plan(p_person_id,v_plan);
+  IF v_preview->>'sha256' IS DISTINCT FROM p_preview_sha256 THEN RAISE EXCEPTION 'PURGE_PREVIEW_AENDRET'; END IF;
+  IF jsonb_array_length(v_preview->'blokeringer')>0 THEN
+    RAISE EXCEPTION 'PURGE_BLOKERET: %',v_preview->'blokeringer'->0->>'art';
+  END IF;
+
+  -- Fase 1: bevis for ALLE slet-/nulstil-/loesn-rækker. State-pk er Task 6's præcise kontrakt.
+  INSERT INTO private.person_purge_manifest(xid,backend_pid,person_id,tabel,pk,grund,forrige_version)
+  SELECT pg_current_xact_id(),pg_backend_pid(),p_person_id,p.tabel,
+    CASE WHEN p.tabel='private.source_persona_identity' THEN jsonb_build_object('source_persona_id',p.pk->'source_persona_id') ELSE p.pk END,
+    coalesce(p.grund,'historik'),(p.ekstra->>'forrige_version')::int
+    FROM jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text,grund text,ekstra jsonb)
+    WHERE p.handling IN ('slet','nulstil','loesn');
+  SELECT coalesce(jsonb_object_agg(tabel,pks),'{}'::jsonb) INTO v_delete FROM (
+    SELECT tabel,jsonb_agg(pk) pks FROM jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text)
+    WHERE handling='slet' GROUP BY tabel) q;
+  -- Fase 2a-2l: afledte kvitteringer før promotions, events før state, mål stadig levende.
+  DELETE FROM private.text_revision_reconciliation t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'private.text_revision_reconciliation') p);
+  DELETE FROM private.relation_reopen t WHERE t.to_interpretation_id IN (SELECT (p->>'to_interpretation_id')::uuid FROM jsonb_array_elements(v_delete->'private.relation_reopen') p);
+  DELETE FROM private.interpretation_promotion t WHERE t.id IN (SELECT (p->>'id')::uuid FROM jsonb_array_elements(v_delete->'private.interpretation_promotion') p);
+  DELETE FROM private.identity_control_parent_event t WHERE (t.card_id,t.seq) IN (SELECT (p->>'card_id')::uuid,(p->>'seq')::integer FROM jsonb_array_elements(v_delete->'private.identity_control_parent_event') p);
+  DELETE FROM private.identity_control_parent_card t WHERE t.id IN (SELECT (p->>'id')::uuid FROM jsonb_array_elements(v_delete->'private.identity_control_parent_card') p);
+  DELETE FROM private.reimport_name_completion_result t WHERE t.id IN (SELECT (p->>'id')::uuid FROM jsonb_array_elements(v_delete->'private.reimport_name_completion_result') p);
+  DELETE FROM private.reimport_event t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'private.reimport_event') p);
+  DELETE FROM private.reimport_case_event t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'private.reimport_case_event') p);
+  DELETE FROM private.legacy_placement_disposition t WHERE (t.person_id,t.source_id,t.version) IN (SELECT (p->>'person_id')::bigint,(p->>'source_id')::bigint,(p->>'version')::integer FROM jsonb_array_elements(v_delete->'private.legacy_placement_disposition') p);
+  DELETE FROM private.source_persona_identity_candidate t WHERE t.id IN (SELECT (p->>'id')::uuid FROM jsonb_array_elements(v_delete->'private.source_persona_identity_candidate') p);
+  DELETE FROM private.source_persona_identity_event t WHERE t.id IN (SELECT (p->>'id')::uuid FROM jsonb_array_elements(v_delete->'private.source_persona_identity_event') p);
+  DELETE FROM private.source_persona_identity t WHERE t.source_persona_id IN (SELECT (p->>'source_persona_id')::uuid FROM jsonb_array_elements(v_delete->'private.source_persona_identity') p);
+  -- Fase 2m / Q7: version n+1, ingen genbrug af gamle event-id’er.
+  FOR v_persona IN SELECT (p->>'source_persona_id')::uuid
+    FROM jsonb_array_elements(v_delete->'private.source_persona_identity') p ORDER BY 1 LOOP
+    PERFORM private.decide_source_persona_identity(v_persona,NULL,0,'rejected','{"reason":"not_a_person"}'::jsonb,'person_purge');
+    v_personas:=v_personas+1;
+  END LOOP;
+  -- Fase 3a-3d: bryd publiceringens FK-cirkel før event-/binding-sletning.
+  UPDATE private.narrative_legacy_publication t SET latest_event_id=NULL WHERE t.legacy_publication_ref IN (SELECT (p->>'legacy_publication_ref')::uuid FROM jsonb_array_elements(v_delete->'private.narrative_legacy_publication') p);
+  DELETE FROM private.narrative_publication_event t WHERE t.id IN (SELECT (p->>'id')::uuid FROM jsonb_array_elements(v_delete->'private.narrative_publication_event') p);
+  DELETE FROM private.narrative_legacy_publication t WHERE t.legacy_publication_ref IN (SELECT (p->>'legacy_publication_ref')::uuid FROM jsonb_array_elements(v_delete->'private.narrative_legacy_publication') p);
+  DELETE FROM private.narrative_record_publication t WHERE t.id IN (SELECT (p->>'id')::uuid FROM jsonb_array_elements(v_delete->'private.narrative_record_publication') p);
+  -- Fase 4: børn eksplicit før forældre; alle id’er kommer fra det manifesterede sæt.
+  DELETE FROM public.feed_pin t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'feed_pin') p);
+  DELETE FROM public.bookmark t WHERE t.id IN (SELECT (p->>'id')::uuid FROM jsonb_array_elements(v_delete->'bookmark') p);
+  DELETE FROM public.suggestion t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'suggestion') p);
+  DELETE FROM private.entity_description_source t WHERE (t.description_id,t.source_record_id) IN (SELECT (p->>'description_id')::bigint,(p->>'source_record_id')::uuid FROM jsonb_array_elements(v_delete->'private.entity_description_source') p);
+  DELETE FROM public.entity_description t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'entity_description') p);
+  DELETE FROM public.story_kilde t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'story_kilde') p);
+  DELETE FROM public.story t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'story') p);
+  -- Fase 5: alle slettede hændelser før andre hændelsers løsnede ankre.
+  DELETE FROM public.haendelse t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'haendelse') p);
+  UPDATE public.haendelse t SET
+    fact_id=CASE WHEN (p.ekstra->>'fact_id')::boolean THEN NULL ELSE t.fact_id END,
+    relation_id=CASE WHEN (p.ekstra->>'relation_id')::boolean THEN NULL ELSE t.relation_id END
+  FROM jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text,ekstra jsonb)
+  WHERE p.tabel='haendelse' AND p.handling='loesn' AND t.id=(p.pk->>'id')::bigint;
+  -- S31: FK SET NULL løser story-ankrene i fase 5-8; ingen andre kolonner ændres.
+  -- Fase 6: korrektionsjournalen før assertion (FK); citation → conclusion → assertion.
+  DELETE FROM public.paastand_korrektion t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'paastand_korrektion') p);
+  DELETE FROM public.citation t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'citation') p);
+  DELETE FROM public.conclusion t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'conclusion') p);
+  DELETE FROM public.assertion t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'assertion') p);
+  DELETE FROM public.import_korrektion t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'import_korrektion') p);
+  DELETE FROM public.note t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'note') p);
+  -- Fase 7-8: tekst-mentions fjernes af tekstens egne triggere; relation før fact.
+  DELETE FROM public.narrative t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'narrative') p);
+  DELETE FROM public.relation t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'relation') p);
+  DELETE FROM public.fact t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'fact') p);
+  -- Fase 9: indholdsadresserede stier uden person-id, før medier/varianter slettes.
+  INSERT INTO private.person_purge_udbakke(bucket,sti)
+  SELECT DISTINCT p.ekstra->>'bucket',p.ekstra->>'storage_path'
+    FROM jsonb_to_recordset(v_plan) p(tabel text,handling text,ekstra jsonb)
+    WHERE p.handling='slet' AND p.tabel IN ('media','media_variant') AND p.ekstra->>'storage_path' IS NOT NULL
+    ON CONFLICT(bucket,sti) DO NOTHING;
+  -- Antal unikke stier i denne sletning, også hvis en sti allerede ventede i udbakken.
+  SELECT count(*) INTO v_storage FROM (SELECT DISTINCT p.ekstra->>'bucket',p.ekstra->>'storage_path'
+    FROM jsonb_to_recordset(v_plan) p(tabel text,handling text,ekstra jsonb)
+    WHERE p.handling='slet' AND p.tabel IN ('media','media_variant') AND p.ekstra->>'storage_path' IS NOT NULL) paths;
+  DELETE FROM public.media_variant t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'media_variant') p);
+  DELETE FROM public.media t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'media') p);
+  -- NY-E (review 37 P1+P2): bevarede medier, en ikke-offentlig P var afbildet på, mister frigivelsen; en redaktør må
+  -- frigive dem igen. Låst i L11b. Intet sæt er åbent, så log_change skriver intet: intet spor af P i historikken.
+  UPDATE public.media t SET maa_publiceres=false
+    WHERE t.maa_publiceres AND t.id IN (SELECT (p.pk->>'id')::bigint
+      FROM jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text) WHERE p.tabel='media' AND p.handling='skjul');
+  -- Fase 10: external-id/conclusion-regen før karantænen. Profiler beholder brugerkontoen (R15).
+  UPDATE public.profiles t SET reventlow_person_id=NULL
+    WHERE t.id IN (SELECT (p.pk->>'id')::uuid FROM jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text)
+      WHERE p.tabel='profiles' AND p.handling='nulstil');
+  DELETE FROM public.person_external_id t WHERE (t.person_id,t.source_id) IN (SELECT (p->>'person_id')::bigint,(p->>'source_id')::bigint FROM jsonb_array_elements(v_delete->'person_external_id') p);
+  DELETE FROM public.family_member t WHERE (t.family_id,t.person_id,t.rolle) IN (SELECT (p->>'family_id')::bigint,(p->>'person_id')::bigint,(p->>'rolle')::text FROM jsonb_array_elements(v_delete->'family_member') p);
+  DELETE FROM public.family t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'family') p);
+  DELETE FROM public.person_slaegt_membership t WHERE (t.person_id,t.slaegt_id) IN (SELECT (p->>'person_id')::bigint,(p->>'slaegt_id')::bigint FROM jsonb_array_elements(v_delete->'person_slaegt_membership') p);
+  DELETE FROM public.person_lineage_membership t WHERE (t.person_id,t.lineage_id) IN (SELECT (p->>'person_id')::bigint,(p->>'lineage_id')::bigint FROM jsonb_array_elements(v_delete->'person_lineage_membership') p);
+  DELETE FROM public.slaegtsnavn_karantaene t WHERE t.person_id IN (SELECT (p->>'person_id')::bigint FROM jsonb_array_elements(v_delete->'slaegtsnavn_karantaene') p);
+  -- Fase 11-13: person og dernæst historik. Ét DELETE af sæt håndterer self-FK ved statement-slut.
+  DELETE FROM private.person_create_receipt t WHERE t.person_id IN (SELECT (p->>'person_id')::bigint FROM jsonb_array_elements(v_delete->'private.person_create_receipt') p);
+  DELETE FROM public.person t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'person') p);
+  DELETE FROM public.change_event t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'change_event') p);
+  DELETE FROM public.change_set t WHERE t.id IN (SELECT (p->>'id')::bigint FROM jsonb_array_elements(v_delete->'change_set') p);
+
+  -- Forløb 7a: ingen slettet række tilbage. Indekseret PK-join; S10 sammenligner også det GAMLE mål,
+  -- fordi den nye, afviste state-række bevidst har samme persona-PK. Manifestet er stadig til stede.
+  FOR r IN SELECT DISTINCT p.tabel FROM jsonb_to_recordset(v_plan) p(tabel text,handling text) WHERE p.handling='slet' LOOP
+    v_schema:=CASE WHEN r.tabel LIKE 'private.%' THEN 'private' ELSE 'public' END;
+    v_table:=CASE WHEN r.tabel LIKE 'private.%' THEN substring(r.tabel FROM 9) ELSE r.tabel END;
+    SELECT string_agg(format('t.%1$I=k.%1$I',a.attname),' AND ' ORDER BY u.ord) INTO v_pk_pred
+      FROM pg_constraint c CROSS JOIN LATERAL unnest(c.conkey) WITH ORDINALITY u(attnum,ord)
+      JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=u.attnum
+      WHERE c.conrelid=to_regclass(format('%I.%I',v_schema,v_table)) AND c.contype='p';
+    IF v_pk_pred IS NULL THEN RAISE EXCEPTION 'PURGE_REST: %',r.tabel; END IF;
+    EXECUTE format('SELECT EXISTS(SELECT 1 FROM jsonb_array_elements($1->$2) d
+      CROSS JOIN LATERAL jsonb_populate_record(NULL::%I.%I,d) k
+      JOIN %I.%I t ON %s WHERE to_jsonb(t) @> d)',v_schema,v_table,v_schema,v_table,v_pk_pred)
+      INTO v_rest USING v_delete,r.tabel;
+    IF v_rest THEN RAISE EXCEPTION 'PURGE_REST: %',r.tabel; END IF;
+  END LOOP;
+  IF EXISTS (SELECT 1 FROM public.media m JOIN jsonb_to_recordset(v_plan) p(tabel text,pk jsonb,handling text)
+      ON p.tabel='media' AND p.handling='skjul' AND p.pk=jsonb_build_object('id',m.id) WHERE m.maa_publiceres) THEN
+    RAISE EXCEPTION 'PURGE_REST: NY-E';
+  END IF;
+  SELECT coalesce(jsonb_agg(jsonb_build_object('typ',tabel,'id',(pk->>'id')::bigint)),'[]'::jsonb) INTO v_deleted
+    FROM private.person_purge_manifest WHERE xid=pg_current_xact_id() AND backend_pid=pg_backend_pid()
+      AND tabel IN ('person','family','fact','relation','media');
+  -- Forløb 7b: INVENTARETS polymorfe kolonnepar, ikke blot P. Også en sen række på et slettet fact/relation/family/media.
+  -- Tilladte historiske/id-rester er navngivet: S11c, S23b, S41b, S43b, S45b, S46, S48,
+  -- S49c, S50, NY-C, S57 ligger i evidence/arrays/tekst eller bogens lag, ikke i levende polymorfe ender.
+  -- S32c og S39c peger på BEVAREDE familier. S52b er den eneste eksplicitte undtagelse nedenfor:
+  -- bevarede change_set må stadig have subjekt_type=person, subjekt_id=P (kun historisk id).
+  FOR r IN
+    WITH cols AS MATERIALIZED (SELECT DISTINCT i.tabel,c FROM private.person_purge_inventar() i CROSS JOIN LATERAL unnest(i.kolonner) c)
+    SELECT DISTINCT ON (i.tabel,c.c) i.sted,i.tabel,c.c AS type_col,regexp_replace(c.c,'_type$','_id') AS id_col
+      FROM private.person_purge_inventar() i JOIN cols c ON c.tabel=i.tabel
+      WHERE c.c ~ '_type$' AND EXISTS (SELECT 1 FROM cols k WHERE k.tabel=c.tabel AND k.c=regexp_replace(c.c,'_type$','_id'))
+      ORDER BY i.tabel,c.c,i.sted COLLATE "C"
+  LOOP
+    v_schema:=CASE WHEN r.tabel LIKE 'private.%' THEN 'private' ELSE 'public' END;
+    v_table:=CASE WHEN r.tabel LIKE 'private.%' THEN substring(r.tabel FROM 9) ELSE r.tabel END;
+    EXECUTE format('SELECT EXISTS(SELECT 1 FROM %I.%I t JOIN jsonb_to_recordset($1) d(typ text,id bigint)
+      ON lower(t.%I)=d.typ AND t.%I=d.id %s)',v_schema,v_table,r.type_col,r.id_col,
+      CASE WHEN r.tabel='change_set' THEN 'WHERE NOT (d.typ=''person'' AND d.id=$2)' ELSE '' END)
+      INTO v_rest USING v_deleted,p_person_id;
+    IF v_rest THEN RAISE EXCEPTION 'PURGE_REST: %',r.sted; END IF;
+  END LOOP;
+  -- Den krævede EFTER-kontrol er en ny beregning; hash/manifest ovenfor genbrugte kun FØR-beregningen.
+  -- plan-wrapperen materialiserer historik én gang, så begge tjek dækkes uden et separat historikkald.
+  -- Restvindue: tekstskrivere låser ikke linkmål; et link kan stadig committe efter EFTER-kontrollen.
+  SELECT p.sted,p.handling,CASE WHEN p.sted IN ('S20','NY-A') THEN 'anden_paastand'
+      WHEN p.sted IN ('S39b','S39f','S49d') THEN 'anden_promotion' ELSE 'link_i_tekst' END
+    INTO v_sted,v_handling,v_art
+    FROM private.person_purge_plan(p_person_id) p WHERE p.handling IN ('slet','blokér')
+    ORDER BY (p.handling='blokér') DESC,p.sted COLLATE "C" LIMIT 1;
+  IF FOUND THEN
+    IF v_handling='blokér' THEN RAISE EXCEPTION 'PURGE_BLOKERET: %',v_art; END IF;
+    RAISE EXCEPTION 'PURGE_REST: %',v_sted;
+  END IF;
+  DELETE FROM private.person_purge_manifest WHERE xid=pg_current_xact_id() AND backend_pid=pg_backend_pid();
+  RETURN jsonb_build_object('slettet',p_person_id,'storage_antal',v_storage,'personas_afvist',v_personas);
+END
+$purge_execute$;
+-- END review37-c2
