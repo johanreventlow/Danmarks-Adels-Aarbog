@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { InitialBadge } from '../../../components/InitialBadge';
 import { TopBar } from '../../../components/TopBar';
@@ -24,6 +24,7 @@ import { SammeSomSheet } from '../../../components/redaktion/SammeSomSheet';
 import { RelTilfoejSheet } from '../../../components/redaktion/RelTilfoejSheet';
 import { personEditorSheetStyles } from '../../../components/redaktion/personEditorSheetStyles';
 import { Body, BtnLabel, Mono, Serif } from '../../../components/Typography';
+import { useHentning } from '../../../hooks/useHentning';
 import { useMediaAndThumbUris } from '../../../lib/media';
 import { buildVariants, pickImage } from '../../../lib/mediaUpload';
 import { supabase } from '../../../lib/supabase';
@@ -76,8 +77,23 @@ type StoryDraft = {
   kilder: { sourceId: number; side: string }[];
 };
 
+// Tomme standardværdier med fast identitet (så memoiseringer ikke genberegnes ved hver render).
+const INGEN_HAENDELSER: HaendelsePost[] = [];
+const INGEN_STORIES: StoryPost[] = [];
+const INGEN_RELATIONER: PersonRelation[] = [];
+const INGEN_SAMME_SOM: SammeSomLink[] = [];
+const INGEN_MEDIA: PersonMedia[] = [];
+const INGEN_FAMILIE: PersonFamilie = { somPartner: [], somBarn: [] };
+
 export default function PersonEditor() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  // Ét komponent-liv pr. person (review 37 W1): router.push til en anden person lægger i dag en ny skærm på stakken,
+  // men skulle skærmen nogensinde genbruges med nye params, nulstiller nøglen alle hentninger, åbne ark og en
+  // ventende skrivning (`pending` bærer subjektId) — intet svar eller skriv kan ramme den forrige person.
+  return <PersonEditorVisning key={id ?? ''} id={id} />;
+}
+
+function PersonEditorVisning({ id }: { id: string | undefined }) {
   const router = useRouter();
   const redaktionModel = useStore((s) => s.redaktionModel);
   const redaktionAux = useStore((s) => s.redaktionAux);
@@ -85,13 +101,19 @@ export default function PersonEditor() {
   const showAnn = useStore((s) => s.showAnnotations);
   const dryRun = useStore((s) => s.dryRun);
   const setDryRun = useStore((s) => s.setDryRun);
-  const [ev, setEv] = useState<PersonEvidence | null>(null);
-  const [haendelser, setHaendelser] = useState<HaendelsePost[]>([]);
-  const [stories, setStories] = useState<StoryPost[]>([]);
+  // Hver læsning har sin egen tilstand (henter/fejl/ok); en fejl vises som fejl med »Prøv igen«, ikke som tom sektion.
+  const noegle = id ?? null;
+  const evH = useHentning<PersonEvidence>(noegle, useCallback(() => fetchPersonEvidence(id!), [id]));
+  const ev = evH.data;
+  const haendelserH = useHentning<HaendelsePost[]>(noegle, useCallback(() => fetchHaendelserForPerson(id!), [id]));
+  const haendelser = haendelserH.data ?? INGEN_HAENDELSER;
+  const storiesH = useHentning<StoryPost[]>(noegle, useCallback(() => fetchStoriesForPerson(id!), [id]));
+  const stories = storiesH.data ?? INGEN_STORIES;
   const [storyEditor, setStoryEditor] = useState<StoryDraft | null>(null);
   const [storyKilderEfterGem, setStoryKilderEfterGem] = useState<StoryDraft['kilder'] | null>(null);
   const [pending, setPending] = useState<Change | null>(null);
-  const [markering, setMarkering] = useState<ForaeldreUkendtMarkering | null>(null);
+  const markeringH = useHentning<ForaeldreUkendtMarkering | null>(noegle, useCallback(() => fetchForaeldreUkendtMarkering(id!), [id]));
+  const markering = markeringH.data;
   const [foraeldreReload, setForaeldreReload] = useState(0); // refetch forældre-slot efter vaelgForaeldre
   const [markGrade, setMarkGrade] = useState<string>(GRADE_FORAELDER_UKENDT);
   const [markKilde, setMarkKilde] = useState('');
@@ -99,60 +121,51 @@ export default function PersonEditor() {
   const person = id && redaktionModel ? redaktionModel.byId[id] : null;
 
   // privat: initialiseres fra redaktionModel.byId[id].privat
-  const [privat, setPrivat] = useState(false);
-  useEffect(() => { if (person) setPrivat(Boolean(person.privat)); }, [person?.privat]);
+  // Følger modellen, når den ændres (genindlæsning efter en skrivning); nulstilles under render, ikke i en effekt.
+  const modelPrivat = Boolean(person?.privat);
+  const [privat, setPrivat] = useState(modelPrivat);
+  const [forrigeModelPrivat, setForrigeModelPrivat] = useState(modelPrivat);
+  if (modelPrivat !== forrigeModelPrivat) { setForrigeModelPrivat(modelPrivat); setPrivat(modelPrivat); }
 
   // Sektion-niveau "opret nyt fact"-form (operation B): hvilket felt + scratch-værdier.
   const [addFelt, setAddFelt] = useState<string | null>(null);
   const [addScratch, setAddScratch] = useState({ vaerdi: '', kilde: '' });
 
-  useEffect(() => { if (id) fetchPersonEvidence(id).then(setEv).catch((e) => console.warn('[redaktion/person] evidens fejlede:', e)); }, [id]);
-  const refreshHaendelser = () => { if (id) fetchHaendelserForPerson(id).then(setHaendelser).catch((e) => console.warn('[redaktion/person] hændelser fejlede:', e)); };
-  useEffect(refreshHaendelser, [id]);
-  const refreshStories = () => { if (id) fetchStoriesForPerson(id).then(setStories).catch((e) => console.warn('[redaktion/person] stories fejlede:', e)); };
-  useEffect(refreshStories, [id]);
   const tidslinje = useMemo(() => buildTidslinje(haendelser, ev ?? { felter: {}, koen: null }), [haendelser, ev]);
-  useEffect(() => {
-    if (!id) return;
-    fetchForaeldreUkendtMarkering(id)
-      .then((m) => { setMarkering(m); if (m) { setMarkGrade(m.grade || GRADE_FORAELDER_UKENDT); setMarkKilde(m.kilde ?? ''); } })
-      .catch((e) => console.warn('[redaktion/person] forældre-ukendt-markering fejlede:', e));
-  }, [id]);
+  // En hentet markering forudfylder formularen — kun når det er en ANDEN markering (første hentning eller en ny
+  // fact), så genindlæsningen efter en skrivning ikke overskriver tekst, redaktøren er i gang med at skrive.
+  const markeringFactId = markering ? String(markering.factId) : null;
+  const [forrigeMarkeringFactId, setForrigeMarkeringFactId] = useState<string | null>(null);
+  if (markering && markeringFactId !== forrigeMarkeringFactId) {
+    setForrigeMarkeringFactId(markeringFactId);
+    setMarkGrade(markering.grade || GRADE_FORAELDER_UKENDT);
+    setMarkKilde(markering.kilde ?? '');
+  }
 
-  const [relationer, setRelationer] = useState<PersonRelation[]>([]);
+  const relationerH = useHentning<PersonRelation[]>(noegle, useCallback(() => fetchPersonRelationer(id!, redaktionAux), [id, redaktionAux]));
+  const relationer = relationerH.data ?? INGEN_RELATIONER;
   const [pickerType, setPickerType] = useState<'organisation' | 'estate' | null>(null);
   const [relScratch, setRelScratch] = useState<{ objektType: string; objektId: string; navn: string; rolle: string; periode: string } | null>(null);
-  useEffect(() => {
-    if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch((e) => console.warn('[redaktion/person] relationer fejlede:', e));
-  }, [id, redaktionAux]);
 
   // Samme person (identitets-links, samme_som).
-  const [sammeSom, setSammeSom] = useState<SammeSomLink[]>([]);
+  const sammeSomH = useHentning<SammeSomLink[]>(noegle, useCallback(() => fetchSammeSomLinks(id!), [id]));
+  const sammeSom = sammeSomH.data ?? INGEN_SAMME_SOM;
   const [ssPicker, setSsPicker] = useState(false);
   // scratch: den valgte person + retning (kanoniskId = den der beholdes/foldes ind i).
   const [ssScratch, setSsScratch] = useState<{ personId: string; navn: string; kanoniskId: string } | null>(null);
-  const refreshSammeSom = () => { if (id) fetchSammeSomLinks(id).then(setSammeSom).catch((e) => console.warn('[redaktion/person] samme-som fejlede:', e)); };
-  useEffect(refreshSammeSom, [id]);
   // Rå-db til rådgivende pre-flight. Review 37 M11: samme grundlag som den rigtige sammenlægning (ægteskaber + alle forældrekanter).
   const ssRawDb = useMemo(() => (redaktionModel ? prognoseGrundlag(redaktionModel)
     : { persons: [], unions: [], parentChild: [] }), [redaktionModel]);
   // Alle eksisterende samme_som-kanter til arkets fold-prognose (null = hentes, 'fejl' = kunne ikke hentes).
   // Uden dem ligner forældre, der allerede er koblet på tværs af udgaverne, konkurrerende forældre.
-  const [ssKanter, setSsKanter] = useState<SameAsEdge[] | null | 'fejl'>(null);
   const ssPersonId = ssScratch?.personId ?? null;
-  useEffect(() => {
-    if (ssPersonId === null) return;
-    let aktiv = true;
-    setSsKanter(null);
-    fetchSammeSomPar()
-      .then((par) => { if (aktiv) setSsKanter(par.map((p) => ({ alias: p.aId, canonical: p.bId }))); })
-      .catch(() => { if (aktiv) setSsKanter('fejl'); });
-    return () => { aktiv = false; };
-  }, [ssPersonId]);
+  const ssKanterH = useHentning<SameAsEdge[]>(ssPersonId, useCallback(
+    () => fetchSammeSomPar().then((par) => par.map((p) => ({ alias: p.aId, canonical: p.bId }))), []));
+  const ssKanter: SameAsEdge[] | null | 'fejl' = ssKanterH.status === 'fejl' ? 'fejl' : ssKanterH.data;
 
   // Familie (2C-2b): redigerbar partner+barn-sektion.
-  const [familie, setFamilie] = useState<PersonFamilie>({ somPartner: [], somBarn: [] });
-  useEffect(() => { if (id) fetchPersonFamilie(id, redaktionModel).then(setFamilie).catch((e) => console.warn('[redaktion/person] familie fejlede:', e)); }, [id, redaktionModel]);
+  const familieH = useHentning<PersonFamilie>(noegle, useCallback(() => fetchPersonFamilie(id!, redaktionModel), [id, redaktionModel]));
+  const familie = familieH.data ?? INGEN_FAMILIE;
 
   // Add-flow state for familie:
   const [partnerPicker, setPartnerPicker] = useState(false);
@@ -162,37 +175,23 @@ export default function PersonEditor() {
   const [flytBarnScratch, setFlytBarnScratch] = useState<{ fraFamilyId: string; personId: string; rolle: string; navn: string } | null>(null);
 
   // Materiale (mediehåndtering Slice 0g).
-  const [media, setMedia] = useState<PersonMedia[]>([]);
+  const mediaH = useHentning<PersonMedia[]>(noegle, useCallback(() => fetchPersonMedia(id!), [id]));
+  const media = mediaH.data ?? INGEN_MEDIA;
   const [mediaDetalje, setMediaDetalje] = useState<PersonMedia | null>(null);
-  const [mediaAnvendelse, setMediaAnvendelse] = useState<MediaAnvendelse | undefined>();
-  const [mediaAnvendelseFejl, setMediaAnvendelseFejl] = useState('');
-  const [udrensPreview, setUdrensPreview] = useState<UdrensPreview | undefined>();
+  // Anvendelser og udrens-forhåndsvisning for det åbne medie; starter forfra for hvert medie, der åbnes.
+  const mediaDetaljeId = mediaDetalje?.id ?? null;
+  const anvendelseH = useHentning<MediaAnvendelse>(mediaDetaljeId, useCallback(() => fetchMediaAnvendelse(mediaDetaljeId!), [mediaDetaljeId]));
+  const mediaAnvendelse = anvendelseH.data ?? undefined;
+  const mediaAnvendelseFejl = anvendelseH.status === 'fejl' ? 'Kunne ikke kontrollere anvendelser. Sletning er blokeret.' : '';
+  const udrensId = mediaDetalje?.uploadStatus === 'fjernet' ? mediaDetalje.id : null;
+  const udrensH = useHentning<UdrensPreview>(udrensId, useCallback(() => fetchUdrensPreview(udrensId!), [udrensId]));
+  const udrensPreview = udrensH.data ?? undefined;
   const [uploadSheetOpen, setUploadSheetOpen] = useState(false);
-  const refreshMedia = async () => {
-    if (!id) return;
-    setMedia(await fetchPersonMedia(id));
-  };
-  useEffect(() => {
-    if (!id) return;
-    let aktiv = true;
-    fetchPersonMedia(id).then((m) => { if (aktiv) setMedia(m); }).catch(() => {});
-    return () => { aktiv = false; };
-  }, [id]);
+  const refreshMedia = mediaH.genhent;
   const { uris: mediaUris, thumbUris: mediaThumbUris } = useMediaAndThumbUris(
     media.map((m) => ({ id: m.id, storage_path: m.storagePath, thumb_storage_path: m.thumbStoragePath })),
     (m) => m.thumb_storage_path,
   );
-  useEffect(() => {
-    if (!mediaDetalje) { setMediaAnvendelse(undefined); setMediaAnvendelseFejl(''); setUdrensPreview(undefined); return; }
-    let aktiv = true; setMediaAnvendelse(undefined); setMediaAnvendelseFejl(''); setUdrensPreview(undefined);
-    fetchMediaAnvendelse(mediaDetalje.id).then((a) => { if (aktiv) setMediaAnvendelse(a); })
-      .catch(() => { if (aktiv) setMediaAnvendelseFejl('Kunne ikke kontrollere anvendelser. Sletning er blokeret.'); });
-    if (mediaDetalje.uploadStatus === 'fjernet') {
-      fetchUdrensPreview(mediaDetalje.id).then((preview) => { if (aktiv) setUdrensPreview(preview); })
-        .catch(() => { if (aktiv) setUdrensPreview(undefined); });
-    }
-    return () => { aktiv = false; };
-  }, [mediaDetalje?.id, mediaDetalje?.uploadStatus]);
 
   async function erstatMediaFil(m: PersonMedia) {
     try {
@@ -341,6 +340,11 @@ export default function PersonEditor() {
         {/* "Forældre ukendt"-markering (docs/reviews/25): kilden forbinder ikke opad → kandidat-kolonne. */}
         <View style={{ marginBottom: 12, borderWidth: 1, borderColor: markering ? Colors.bordeauxFillLight2 : Border.light, borderRadius: Radius.card, padding: 12, backgroundColor: markering ? '#faf1dc' : Colors.surfaceRaised }}>
           <Mono size={9} color={Colors.goldInk} style={{ marginBottom: 8, letterSpacing: 9 * 0.12, textTransform: 'uppercase' }}>Forældre ukendt — kilden forbinder ikke opad</Mono>
+          {markeringH.status === 'fejl' ? (
+            <HenteFejl hvad="markeringen" onProevIgen={markeringH.genhent} />
+          ) : markeringH.status === 'henter' ? (
+            <Mono size={9} color={Colors.inkMuted}>Henter…</Mono>
+          ) : (<>
           {markering ? (
             <Body size={12.5} style={{ marginBottom: 8, lineHeight: 17 }}>
               Markeret: {markering.grade === GRADE_FORAELDER_UKENDT ? 'forælder findes, men ukendt' : 'ingen forbindelse angivet'}{markering.kilde ? ` · kilde: ${markering.kilde}` : ''}.
@@ -367,15 +371,24 @@ export default function PersonEditor() {
               </Pressable>
             ) : null}
           </View>
+          </>)}
         </View>
 
-        {id ? <ForaeldrePaastandePanel personId={id} onChange={setPending} sammeSom={sammeSom} reloadKey={foraeldreReload} /> : null}
+        {/* Panelet bruger samme-person-links til at finde konkurrerende forældre; uden dem vises det ikke. */}
+        {sammeSomH.status === 'fejl' ? (
+          <HenteFejl hvad="forældre (samme-person-links mangler)" onProevIgen={sammeSomH.genhent} />
+        ) : id ? <ForaeldrePaastandePanel personId={id} onChange={setPending} sammeSom={sammeSom} reloadKey={foraeldreReload} /> : null}
 
         {showAnn ? (
           <Mono size={10} color={Colors.bordeaux} style={{ marginBottom: 12 }}>
             Konklusion ← oplysninger. Hver oplysning er én kildes udsagn.
           </Mono>
         ) : null}
+        {evH.status === 'fejl' ? (
+          <HenteFejl hvad="personens oplysninger" onProevIgen={evH.genhent} />
+        ) : ev === null ? (
+          <Mono size={9} color={Colors.inkMuted} style={{ marginVertical: 8 }}>Henter oplysninger…</Mono>
+        ) : (<>
         {FELTER.map((felt) => {
           const facts = ev?.felter[felt] ?? [];
           return (
@@ -453,7 +466,11 @@ export default function PersonEditor() {
             })}
           </View>
         </View>
+        </>)}
 
+        {haendelserH.status === 'fejl' ? (
+          <HenteFejl hvad="hændelserne" onProevIgen={haendelserH.genhent} />
+        ) : (
         <HaendelseTidslinje poster={tidslinje}
           onSetStatus={(haendelseId, status) => setPending({
             art: 'haendelseStatus', subjektType: 'person', subjektId: id!, haendelseId, status,
@@ -466,9 +483,11 @@ export default function PersonEditor() {
               dateRaw: prefill.dateRaw ?? '',
               kilder: prefill.kilder.map((k) => ({ sourceId: k.sourceId, side: k.side ?? '' })) });
           }} />
+        )}
 
         <View style={editorStyles.narrativSektion}>
           <Mono size={10} color={Colors.inkMuted} style={{ marginBottom: 7 }}>MINIHISTORIER · ALLE STATUSSER</Mono>
+          {storiesH.status === 'fejl' ? <HenteFejl hvad="historierne" onProevIgen={storiesH.genhent} /> : null}
           {stories.map((story) => (
             <View key={story.id} style={editorStyles.storyCard}>
               <Serif size={17}>{story.titel || 'Historie uden titel'}</Serif>
@@ -494,7 +513,8 @@ export default function PersonEditor() {
               </View>
             </View>
           ))}
-          {!stories.length ? <Mono size={9} color={Colors.inkMuted}>Ingen historier endnu.</Mono> : null}
+          {storiesH.status === 'ok' && !stories.length ? <Mono size={9} color={Colors.inkMuted}>Ingen historier endnu.</Mono> : null}
+          {storiesH.status === 'henter' && !stories.length ? <Mono size={9} color={Colors.inkMuted}>Henter…</Mono> : null}
         </View>
 
         <NarrativEditor subjektType="person" subjektId={id!} media={media} mediaThumbUris={mediaThumbUris} />
@@ -502,6 +522,7 @@ export default function PersonEditor() {
         {/* Materiale (mediehåndtering Slice 0g+0h) */}
         <View style={editorStyles.narrativSektion}>
           <Mono size={10} color={Colors.inkMuted} style={{ marginBottom: 6 }}>Materiale</Mono>
+          {mediaH.status === 'fejl' ? <HenteFejl hvad="materialet" onProevIgen={mediaH.genhent} /> : null}
           <MediaGallery
             media={media}
             mediaUris={mediaUris}
@@ -527,6 +548,8 @@ export default function PersonEditor() {
           );
           return (
             <View style={editorStyles.relSektion}>
+              {familieH.status === 'fejl' ? <HenteFejl hvad="familien" onProevIgen={familieH.genhent} /> : null}
+              {familieH.status === 'henter' && !familieH.data ? <Mono size={9} color={Colors.inkMuted}>Henter familie…</Mono> : null}
               {/* ÆGTEFÆLLER + BØRN (redigerbart, pr. union) */}
               {familie.somPartner.map((u) => (
                 <View key={u.familyId}>
@@ -556,9 +579,11 @@ export default function PersonEditor() {
                   </Pressable>
                 </View>
               ))}
-              <Pressable style={{ paddingVertical: 6 }} onPress={() => setPartnerPicker(true)}>
-                <Mono size={9} color={Colors.bordeaux}>+ Tilføj partner (ny union)</Mono>
-              </Pressable>
+              {familieH.status === 'ok' ? (
+                <Pressable style={{ paddingVertical: 6 }} onPress={() => setPartnerPicker(true)}>
+                  <Mono size={9} color={Colors.bordeaux}>+ Tilføj partner (ny union)</Mono>
+                </Pressable>
+              ) : null}
 
               {/* FORÆLDRE (somBarn) — forældre read-only; konfidens+slet redigerbart */}
               {familie.somBarn.map((sb) => (
@@ -580,6 +605,7 @@ export default function PersonEditor() {
 
               {/* HVERV (redigerbart) */}
               <Mono size={9} color={Colors.goldInk} style={editorStyles.relLabel}>HVERV</Mono>
+              {relationerH.status === 'fejl' ? <HenteFejl hvad="hverv og godser" onProevIgen={relationerH.genhent} /> : null}
               {relationer.filter((r) => r.art === 'hverv' || r.art === 'event').map((r) => (
                 <View key={r.relationId} style={personEditorSheetStyles.relEditRad}>
                   <View style={{ flex: 1 }}>
@@ -618,6 +644,7 @@ export default function PersonEditor() {
 
               {/* SAMME PERSON (identitets-links) */}
               <Mono size={9} color={Colors.goldInk} style={editorStyles.relLabel}>SAMME PERSON</Mono>
+              {sammeSomH.status === 'fejl' ? <HenteFejl hvad="samme-person-links" onProevIgen={sammeSomH.genhent} /> : null}
               {sammeSom.map((l) => (
                 <View key={l.relationId} style={personEditorSheetStyles.relEditRad}>
                   <View style={{ flex: 1 }}>
@@ -629,9 +656,11 @@ export default function PersonEditor() {
                   </Pressable>
                 </View>
               ))}
-              <Pressable style={{ paddingVertical: 6 }} onPress={() => setSsPicker(true)}>
-                <Mono size={9} color={Colors.bordeaux}>+ Marker som samme person</Mono>
-              </Pressable>
+              {sammeSomH.status === 'ok' ? (
+                <Pressable style={{ paddingVertical: 6 }} onPress={() => setSsPicker(true)}>
+                  <Mono size={9} color={Colors.bordeaux}>+ Marker som samme person</Mono>
+                </Pressable>
+              ) : null}
 
               {kld.length ? (<><Mono size={9} color={Colors.goldInk} style={editorStyles.relLabel}>KILDER</Mono>
                 {kld.map((s, i) => <View key={i} style={editorStyles.sekRad}><Body size={13}>{s.work}</Body><Mono size={9} color={Colors.inkMuted}>{s.ref}</Mono></View>)}</>) : null}
@@ -785,16 +814,17 @@ export default function PersonEditor() {
                 return supabase.storage.from(bucket).remove(stier);
               })
             : null;
-          if (id) fetchPersonEvidence(id).then(setEv).catch(() => {});
-          refreshHaendelser();
-          refreshStories();
-          if (id) fetchForaeldreUkendtMarkering(id).then(setMarkering).catch(() => {});
+          // Genindlæsningerne kasserer selv ældre svar; en fejl vises i sektionen med »Prøv igen«.
+          void evH.genhent();
+          void haendelserH.genhent();
+          void storiesH.genhent();
+          void markeringH.genhent();
           setForaeldreReload((k) => k + 1);
-          if (id) fetchPersonRelationer(id, redaktionAux).then(setRelationer).catch(() => {});
-          if (id) fetchPersonFamilie(id, redaktionModel).then(setFamilie).catch(() => {});
-          refreshSammeSom();
+          void relationerH.genhent();
+          void familieH.genhent();
+          void sammeSomH.genhent();
           if (['uploadMedia','opdaterMedia','genopretMedia','mediaRettigheder','fjernMedia','sletRelation','tilknytMedia','erstatMediaFil','udrensMedia','saetPortraet'].includes(applied?.art ?? '')) {
-            void refreshMedia().catch(() => {});
+            void refreshMedia();
           }
           if ((applied?.art === 'opretStory' || applied?.art === 'redigerStory') && storyKilderEfterGem) {
             const storyId = applied.storyId ?? Number(result);
@@ -820,6 +850,18 @@ export default function PersonEditor() {
           }}
         />
       ) : null}
+    </View>
+  );
+}
+
+// En læsefejl i en sektion: siges som fejl med »Prøv igen« — aldrig som tom sektion (review 37 W2).
+function HenteFejl({ hvad, onProevIgen }: { hvad: string; onProevIgen: () => void }) {
+  return (
+    <View style={editorStyles.henteFejl}>
+      <Body size={12.5} color={Colors.danger} style={{ flex: 1 }}>Kunne ikke hente {hvad}.</Body>
+      <Pressable onPress={onProevIgen} accessibilityRole="button" hitSlop={8}>
+        <BtnLabel size={12} color={Colors.bordeaux}>Prøv igen</BtnLabel>
+      </Pressable>
     </View>
   );
 }
@@ -983,5 +1025,17 @@ const editorStyles = StyleSheet.create({
   },
   sekRad: {
     paddingVertical: 4,
+  },
+  henteFejl: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: Colors.danger,
+    borderRadius: Radius.field,
+    backgroundColor: Colors.dangerTint,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginVertical: 8,
   },
 });
