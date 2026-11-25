@@ -4887,7 +4887,7 @@ BEGIN
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'note',pg_temp.c2id('n_navn'))=ARRAY['fritekst'],'p10_navn');
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'note',pg_temp.c2id('n_begge'))=ARRAY['fritekst'],'p10_navn_vinder');
   PERFORM pg_temp.c2_assert(NOT EXISTS (SELECT 1 FROM jsonb_array_elements(j->'til_kontrol') k
-    WHERE k->>'grund' NOT IN ('fritekst','kun_id','laast_familiefoto','bevaret_evidens','bevaret_summary')),'p10_kendte_grunde');
+    WHERE k->>'grund' NOT IN ('fritekst','id_henvisning','kun_id','laast_familiefoto','bevaret_evidens','bevaret_summary')),'p10_kendte_grunde');
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'story',pg_temp.c2id('s_navn'))=ARRAY['fritekst'],'p3_story');
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'entity_description',pg_temp.c2id('e_navn'))=ARRAY['fritekst'],'p3_entity_description');
   PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'assertion',pg_temp.c2id('a_navn'))=ARRAY['fritekst'],'p3_assertion');
@@ -4929,18 +4929,69 @@ END $t$;
 \echo OK p3_tomt_navn
 ROLLBACK;
 
--- R37P11-1: en fortrydelse af en fortrydelse er en no-op (fortrydelses-sæt har ingen events); personen står, og listen
--- over slettede personer er korrekt. En ny sletning kommer på listen.
+-- Ceremoni 2b (projektejeren 25/11, efter måling): et tal, der er P's id som værdi for en nøgle med »person« i navnet, er en
+-- ægte henvisning (fx identitetskandidaters candidate_person_id) og får grunden id_henvisning (vises åbent). Et id-tal under
+-- en anden nøgle, eller en families id under en person-nøgle, forbliver kun_id; et navnetræf vinder stadig.
 BEGIN;
 DO $t$
-DECLARE v_x bigint; v_s bigint; v_f bigint;
+DECLARE v_p bigint:=purge_test.id('P'); v_t bigint:=purge_test.id('tredje'); v_fam bigint:=purge_test.id('fam_keep');
+  v_ref bigint; v_side bigint; v_famref bigint; v_navn bigint; v_liste bigint; v_listefam bigint; j jsonb;
+BEGIN
+  PERFORM purge_test.nyt(); PERFORM public.begin_change_set('c2b_forslag','fixture','person',v_t);
+  INSERT INTO public.suggestion(subjekt_type,subjekt_id,payload)
+    VALUES('person',v_t,jsonb_build_object('candidate_person_id',v_p)) RETURNING id INTO v_ref;
+  INSERT INTO public.suggestion(subjekt_type,subjekt_id,payload)
+    VALUES('person',v_t,jsonb_build_object('side',v_p)) RETURNING id INTO v_side;
+  INSERT INTO public.suggestion(subjekt_type,subjekt_id,payload)
+    VALUES('person',v_t,jsonb_build_object('person_id',v_fam)) RETURNING id INTO v_famref;
+  INSERT INTO public.suggestion(subjekt_type,subjekt_id,payload)
+    VALUES('person',v_t,jsonb_build_object('person_id',v_p,'note',(SELECT visning_navn FROM public.person WHERE id=v_p))) RETURNING id INTO v_navn;
+  -- Lister under person-/partner-nøgler (som planens jrx): P i listen er en henvisning, en families id i listen er ikke.
+  INSERT INTO public.suggestion(subjekt_type,subjekt_id,payload)
+    VALUES('person',v_t,jsonb_build_object('same_individual_person_ids',jsonb_build_array(1,v_p))) RETURNING id INTO v_liste;
+  INSERT INTO public.suggestion(subjekt_type,subjekt_id,payload)
+    VALUES('person',v_t,jsonb_build_object('person_ids',jsonb_build_array(v_fam))) RETURNING id INTO v_listefam;
+  j:=public.red_slet_person_helt_preview(v_p);
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'suggestion',v_ref)=ARRAY['id_henvisning'],'c2b_id_henvisning');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'suggestion',v_side)=ARRAY['kun_id'],'c2b_andet_noegle_kun_id');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'suggestion',v_famref)=ARRAY['kun_id'],'c2b_familie_id_kun_id');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'suggestion',v_navn)=ARRAY['fritekst'],'c2b_navn_vinder');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'suggestion',v_liste)=ARRAY['id_henvisning'],'c2b_liste_henvisning');
+  PERFORM pg_temp.c2_assert(pg_temp.c2_grunde(j,'suggestion',v_listefam)=ARRAY['kun_id'],'c2b_liste_familie_kun_id');
+END $t$;
+\echo OK c2b_id_henvisning
+\echo OK c2b_andet_noegle_kun_id
+\echo OK c2b_familie_id_kun_id
+\echo OK c2b_navn_vinder
+\echo OK c2b_liste_henvisning
+\echo OK c2b_liste_familie_kun_id
+ROLLBACK;
+
+-- R37P11-1 + R37C2-1: en fortrydelse har ingen events og kan ikke selv fortrydes. red_fortryd_change_set afviser den
+-- med FORTRYD_AF_FORTRYDELSE (også med force) og opretter intet nyt sæt; personen står, og listen over slettede
+-- personer er korrekt. En ny sletning kommer på listen.
+BEGIN;
+DO $t$
+DECLARE v_x bigint; v_s bigint; v_f bigint; v_force boolean; v_fejl text; v_antal bigint;
 BEGIN
   PERFORM purge_test.nyt(); v_x:=public.red_opret_person('Testperson Fortryd To','mand',false,'1801','1870',NULL);
   PERFORM purge_test.nyt(); PERFORM public.red_set_privat(v_x,false);
   PERFORM purge_test.nyt(); PERFORM public.red_slet_person(v_x); v_s:=purge_test.saet();
   PERFORM purge_test.nyt(); v_f:=(public.red_fortryd_change_set(v_s,false)->>'reversal_change_set')::bigint;
   PERFORM pg_temp.c2_assert(NOT EXISTS (SELECT 1 FROM public.change_event WHERE change_set_id=v_f),'r37p11_1_fortrydelse_uden_events');
-  PERFORM purge_test.nyt(); PERFORM public.red_fortryd_change_set(v_f,false);
+  FOREACH v_force IN ARRAY ARRAY[false,true] LOOP
+    PERFORM purge_test.nyt();
+    SELECT count(*) INTO v_antal FROM public.change_set;
+    v_fejl := NULL;
+    BEGIN
+      PERFORM public.red_fortryd_change_set(v_f,v_force);
+    EXCEPTION WHEN OTHERS THEN v_fejl := SQLERRM;
+    END;
+    PERFORM pg_temp.c2_assert(v_fejl IS NOT DISTINCT FROM 'FORTRYD_AF_FORTRYDELSE'
+      AND (SELECT count(*) FROM public.change_set)=v_antal
+      AND NOT EXISTS (SELECT 1 FROM public.change_set WHERE reverterer_id=v_f),
+      format('r37c2_1_fortryd_af_fortryd_afvist(force=%s): %s',v_force,coalesce(v_fejl,'ingen fejl')));
+  END LOOP;
   PERFORM purge_test.nyt();
   PERFORM pg_temp.c2_assert(EXISTS (SELECT 1 FROM public.person WHERE id=v_x)
     AND NOT EXISTS (SELECT 1 FROM public.red_slettede_personer(500) l WHERE l.person_id=v_x),'r37p11_1_fortryd_af_fortryd');
@@ -4950,6 +5001,7 @@ BEGIN
     WHERE l.person_id=v_x AND l.change_set_id=v_s),'r37p11_1_ny_sletning_listes');
 END $t$;
 \echo OK r37p11_1_fortrydelse_uden_events
+\echo OK r37c2_1_fortryd_af_fortryd_afvist
 \echo OK r37p11_1_fortryd_af_fortryd
 \echo OK r37p11_1_ny_sletning_listes
 ROLLBACK;

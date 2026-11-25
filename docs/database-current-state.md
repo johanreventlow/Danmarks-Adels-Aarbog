@@ -289,6 +289,7 @@ Frysningen af nye bindinger fra #152 er dermed ophævet for 2018-20 og 1939.
 
 | Emne | Status |
 |---|---|
+| **Review 37 R37C2-1: fortryd af en fortrydelse afvises** (blok `review37-r37c2-1`) | **I main, IKKE i prod** (projektejerens valg 2026-11-25): blokken står sidst i `db-migrations.sql` og køres sammen med ceremoni 3 (Y4/Y13). Indtil da giver prods `red_fortryd_change_set` den gamle tavse no-op ved fortryd af et fortryd-sæt; web og mobil viser ingen knap dertil. Ceremoni 3's deploy-område og opgraderingstest skal tage begge blokke med (base f6d0ba25). |
 | **RLS `authenticated`-tier** (medlem/forsker ser levende slægtninge m. samtykke) | Kun skitseret i `db-rls.sql` §FREMTID. Bygges når login/profiles-auth er på plads. Indtil da er levende data usynlige for alle uden `redaktion`-rolle. |
 | **`max(id)+1` → IDENTITY/sekvenser** | Udskudt post-PoC. Kritisk før flerbruger-skrivning (også multi-writer-risikoen generelt). |
 | **Samtykke-granularitet pr. levende person** (`samtykke_offentlig`) | Designes med auth-laget. |
@@ -528,6 +529,31 @@ DDL'en skrev kun tre promotion-regler (`interpretation_promotion_rule`, `_rule_l
 - **Advisors (security, CLI):** 48 → 60; de 12 nye er `rls_enabled_no_policy` på de nye `private`-tabeller (med vilje).
   CLI'en dækker færre lint-typer end dashboardet.
 - **Skrivepausen** sluttede ved data-ceremoniens `VERIFY_OK` 2026-10-25 (afsnit 11).
+
+## 54. Review 37 ceremoni 2b: kontrollistens id-henvisninger — LIVE i prod (2026-11-25)
+
+**Grundlag:** PR #484 (CI grøn i alle jobs på `1c0ccbd2`; merget `f6d0ba25` efter DDL). Privat runner
+`~/.private/review37-c2b/prod.zsh`, fastlåst på `1c0ccbd2` (blok-sha `237af1fe…`), kørt i projektejerens shell **før** merge.
+Afgørelse: `docs/decisions.md` 2026-11-25 (»Rettet samme dag«).
+
+- **Hvorfor:** §52 foldede kontrollistens rene id-tal sammen ud fra en ukontrolleret påstand. Målt i prod-kopien stod 8
+  identitetskandidater med personens id (`basis`: `"person_id": P`) i den sammenklappede gruppe; sletningen fjerner dem ikke.
+- **DDL (én transaktion, 4,6 s):** blokken `-- BEGIN review37-c2b` (sidst i db-migrations.sql), én funktionskrop
+  (`private.person_purge_kontrol`), samme signatur og ACL, ingen data. Ny grund `id_henvisning`: P's eget id som værdi for
+  en nøgle med »person« i navnet eller i en liste under en person-/partner-nøgle (samme betydning som planens `jrx`).
+  Nøgleinventaret over de scannede kildedata viser, at alle person-id-bærende nøgler har »person« i navnet.
+- **I transaktionen:** katalog-delta præcis 1, ACL uændret; facit 1 linje OK; verify-enheden `c1` OK; anon 1725 personer og
+  `public_person_facts`-md5 før = efter; data uændret (4 tabeller). Prøve 6,0 s, commit 4,6 s.
+- **Efterkontrol (læse-kun):** kroppen har `id_henvisning`; hverken `anon` eller `authenticated` kan kalde funktionen;
+  `get_advisors` (security): samme 4 lint-typer som efter §52, funktionen nævnes ikke.
+- **Ydelse:** mønstret starter med det faste ord. En første form med `"[a-z_]*` forrest tog 44 s for den største profil i
+  generalprøven; den endelige 4,1-4,3 s (stand-in, varmt) som før.
+- **Bevis:** `tests/sql/test-review37-c2b-upgrade.sh` fra `86bc91ce` (prods SQL efter §53) og `test-person-purge.sh`
+  (6 `c2b_*`-tests). Generalprøve på stand-in (uden §53's blok, som kræver dataflytningen; c2b rører ikke billedtyper):
+  prøve → commit → `tal` → `tid` → fortryd-prøve → fortryd (`P_FORTRYD_TROFAST`).
+- **Fortryd:** `/bin/zsh -f ~/.private/review37-c2b/prod.zsh fortryd [--jeg-mener-det]` (prods krop fra
+  `fortryd-definitioner.prod.sql`).
+- **Åbent:** R37C2-2 i #397 — skal sletningen selv fjerne sådanne id-henvisninger i interne kildedata?
 
 ## 53. Billedtypen er motivet og en kontrolleret ordliste — LIVE i prod (2026-11-25)
 **Grundlag:** PR #481 (CI grøn; merget `cb750799` FØR DDL — klienten tåler begge tilstande). Spec

@@ -75,6 +75,15 @@ it('viser navnetræf og ændringssæt med forklaring, og rene id-tal i en særsk
   expect(links).toHaveLength(4);
   for (const link of links) expect(document.getElementById(link.getAttribute('href')!.slice(1))).toBeTruthy();
 });
+it('en id-henvisning (personens id under en person-nøgle) vises åbent med forklaring, ikke i id-tal-gruppen (ceremoni 2b)', async () => {
+  setup(preview({ til_kontrol: [
+    { sted: 'S58', tabel: 'private.source_persona_identity_candidate', pk: { id: 'uuid-1' }, grund: 'id_henvisning' },
+    { sted: 'S58', tabel: 'note', pk: { id: 7 }, grund: 'kun_id' }] }));
+  const tekst = await screen.findByText(/En kildedata-række henviser til profilen med dens id/);
+  expect(tekst.closest('details')).toBeNull();
+  const gruppe = screen.getByText(/^Kun et id-tal \(1\)/).closest('details')!;
+  expect(gruppe.textContent).not.toMatch(/source_persona_identity_candidate/);
+});
 it('uden rene id-tal vises ingen id-tal-gruppe', async () => {
   setup(); await screen.findByText('Slet helt · Rå profil · id 1791');
   expect(screen.queryByText(/Kun et id-tal/)).toBeNull();

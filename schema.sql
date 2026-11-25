@@ -10118,6 +10118,15 @@ BEGIN
   -- (nyt snapshot pr. sætning) den førstes reversal nedenfor og afvises — også med p_force.
   SELECT * INTO v_orig FROM change_set WHERE id=p_change_set_id FOR UPDATE;
   IF v_orig.id IS NULL THEN RAISE EXCEPTION 'FEJL: change_set % findes ikke', p_change_set_id; END IF;
+  -- Review 37 R37C2-1: en fortrydelse kan ikke selv fortrydes. Fortrydelsessættet logger ingen events (inverse-DML
+  -- kører med app.change_set_id nullet, se nedenfor), så en ny fortrydelse ville melde succes og skrive »Fortrød:
+  -- Fortrød: …« uden at ændre noget. Afvis i stedet, også med p_force. Kun denne funktion opretter sæt med
+  -- operation 'fortryd' eller reverterer_id, så de to kendetegn falder sammen; begge tjekkes.
+  IF v_orig.operation = 'fortryd' OR v_orig.reverterer_id IS NOT NULL THEN
+    RAISE EXCEPTION 'FORTRYD_AF_FORTRYDELSE'
+      USING DETAIL = format('change_set %s er selv en fortrydelse og kan ikke fortrydes.', p_change_set_id),
+            HINT = 'Gentag i stedet den oprindelige ændring.';
+  END IF;
   -- allerede reverteret? (reversal-kæde; M3)
   IF EXISTS (SELECT 1 FROM change_set WHERE reverterer_id=p_change_set_id) THEN
     RAISE EXCEPTION 'FEJL: change_set % er allerede fortrudt', p_change_set_id;
@@ -24622,10 +24631,19 @@ WITH plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_plan) q(tabel text
     SELECT t.sted,t.tabel,t.pk,
       (navn.navn IS NOT NULL AND (position((navn.navn COLLATE "C") IN (t.tekst COLLATE "C"))>0
         OR position((navn.json_navn COLLATE "C") IN (t.tekst COLLATE "C"))>0)) AS navn_hit,
-      (t.tekst COLLATE "C" ~ tokens.rx) AS id_hit
+      (t.tekst COLLATE "C" ~ tokens.rx) AS id_hit, t.tekst
     FROM tekster t CROSS JOIN tokens CROSS JOIN navn
   )
-SELECT t.sted,t.tabel,t.pk,CASE WHEN bool_or(t.navn_hit) THEN 'fritekst' ELSE 'kun_id' END::text FROM traef t
+-- Ceremoni 2b (projektejeren 25/11, efter måling i prod-kopien): P's EGET id som værdi for en nøgle med »person« i navnet
+-- (fx identitetskandidaters "person_id": P), eller P i en liste under en person-/partner-nøgle (fx "person_ids": [..]),
+-- er en ægte henvisning, ikke et årstal: grunden »id_henvisning« (vises åbent). Samme betydning som planens jrx; mønstret
+-- starter med det faste ord, så regex-motoren ikke prøver hver position i lange JSON-tekster (en form med »"[a-z_]*« forrest
+-- tog 44 s for den største profil i prod-kopien 25/11).
+-- En families id eller et id under en anden nøgle forbliver »kun_id«. Kun på rækker, der allerede er træf.
+SELECT t.sted,t.tabel,t.pk,CASE WHEN bool_or(t.navn_hit) THEN 'fritekst'
+    WHEN bool_or(t.id_hit AND t.tekst COLLATE "C" ~ ('person[a-z_]*"\s*:\s*"?'||p_person_id::text||'"?\s*[],}]|(person|partner)[a-z_]*"\s*:\s*\[[^]]*\m'||p_person_id::text||'\M'))
+      THEN 'id_henvisning'
+    ELSE 'kun_id' END::text FROM traef t
 WHERE (t.navn_hit OR t.id_hit)
   AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel=t.tabel AND d.pk=t.pk AND d.handling='slet')
 GROUP BY t.sted,t.tabel,t.pk

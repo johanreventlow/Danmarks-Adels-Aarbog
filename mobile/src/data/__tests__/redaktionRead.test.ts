@@ -429,6 +429,12 @@ describe('mapHistRow', () => {
                 summary: null, reverterer_id: null } as any;
     expect(mapHistRow(r)).toMatchObject({ hvem: 'ukendt', resume: '(uden beskrivelse)' });
   });
+  // Review 37 R37C2-1 (spejler web): en fortrydelse har ingen events og kan ikke selv fortrydes; skærmen skjuler knappen.
+  it('operation=fortryd → erFortryd=true; almindelig ændring → false', () => {
+    const base = { actor_navn: 'Johan', created_at: '2026-06-30T10:00:00Z', summary: 'x' };
+    expect(mapHistRow({ ...base, id: 13, operation: 'fortryd', reverterer_id: 12 } as any).erFortryd).toBe(true);
+    expect(mapHistRow({ ...base, id: 12, operation: 'red_set_fakta', reverterer_id: null } as any).erFortryd).toBe(false);
+  });
 });
 
 import { mapDoedLinkRow } from '../redaktionRead';
