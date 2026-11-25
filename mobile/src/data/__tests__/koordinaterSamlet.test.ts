@@ -75,11 +75,27 @@ test('falder tilbage til rækkefunktionen via sider, når den samlede ikke finde
   expect(res.genCoordsByPerson['1']).toBeDefined();
 });
 
-test('andre fejl degraderer til ingen koordinater uden fallback', async () => {
+test('andre fejl prøves igen én gang og degraderer så til ingen koordinater uden fallback', async () => {
   const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
   mockTilstand.samlet = { data: null, error: { code: '57014', message: 'timeout' } };
   const res = await loadFromSupabase({ includePrivat: true, collapse: false });
   warn.mockRestore();
-  expect(koordKald()).toEqual([{ fn: 'public_person_source_coordinates_samlet' }]);
+  expect(koordKald()).toEqual([
+    { fn: 'public_person_source_coordinates_samlet' },
+    { fn: 'public_person_source_coordinates_samlet' },
+  ]);
   expect(res.genCoordsByPerson['1']).toBeUndefined();
+});
+
+test('et 57014 på første kald redder sig på genforsøget (prod 25/11, kold start)', async () => {
+  const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  const fejl = { data: null, error: { code: '57014', message: 'timeout' } };
+  const ok = { data: [mockKoord], error: null };
+  let n = 0;
+  Object.defineProperty(mockTilstand, 'samlet', { configurable: true, get: () => (n++ === 0 ? fejl : ok), set: () => {} });
+  const res = await loadFromSupabase({ includePrivat: true, collapse: false });
+  warn.mockRestore();
+  delete (mockTilstand as { samlet?: unknown }).samlet;
+  expect(koordKald()).toHaveLength(2);
+  expect(res.genCoordsByPerson['1']).toBeDefined();
 });

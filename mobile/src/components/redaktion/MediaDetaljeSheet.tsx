@@ -1,4 +1,4 @@
-import { Image } from 'expo-image';
+import { SignedImage } from '../SignedImage';
 import { useEffect, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { Body, BtnLabel, Mono, Serif } from '../Typography';
@@ -86,7 +86,7 @@ export function MediaDetaljeSheet({ media, uri, thumbUri, anvendelse, anvendelse
           </View>
           {erBillede ? (
             <Pressable disabled={media.uploadStatus !== 'klar'} onPress={() => setLightbox(true)}>
-              <Image source={{ uri: uri! }} style={[styles.preview, media.uploadStatus === 'fjernet' && { opacity: .5 }]} contentFit="contain" />
+              <SignedImage uri={uri!} style={[styles.preview, media.uploadStatus === 'fjernet' && { opacity: .5 }]} contentFit="contain" />
             </Pressable>
           ) : <View style={[styles.preview, styles.dokument, media.uploadStatus === 'fjernet' && { opacity: .5 }]}>
             <Serif size={32} color={Colors.inkMuted}>▤</Serif><Body size={12} color={Colors.inkMuted}>{mediaSlagsLabel(media.slags) || 'Dokument'}</Body>

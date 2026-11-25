@@ -17,7 +17,7 @@ export default function BogmaerkerScreen() {
   const model = useStore((s) => s.model);
   const canonMap = useStore((s) => s.canonicalIdById);
   const session = useStore((s) => s.session);
-  const { ids, canSave } = useBookmarks(session?.user?.id ?? null, canonMap);
+  const { ids, canSave, fejl, genindlaes } = useBookmarks(session?.user?.id ?? null, canonMap);
 
   const people = useMemo(
     () => (model ? [...ids].map((id) => model.byId[id]).filter(Boolean) : []),
@@ -36,6 +36,16 @@ export default function BogmaerkerScreen() {
             </Body>
             <Pressable onPress={() => router.push('/konto')} style={{ marginTop: 12 }}>
               <BtnLabel size={13} color={Colors.bordeaux}>Log ind ›</BtnLabel>
+            </Pressable>
+          </View>
+        ) : fejl && people.length === 0 ? (
+          <View style={{ marginTop: 24 }}>
+            <Serif size={18}>Dine bogmærker kunne ikke hentes</Serif>
+            <Body size={13} color={Colors.inkMuted} style={{ marginTop: 6 }}>
+              Forbindelsen til arkivet svigtede et øjeblik. Dine bogmærker er ikke væk — prøv igen om lidt.
+            </Body>
+            <Pressable onPress={genindlaes} style={{ marginTop: 12 }}>
+              <BtnLabel size={13} color={Colors.bordeaux}>Prøv igen ›</BtnLabel>
             </Pressable>
           </View>
         ) : people.length === 0 ? (

@@ -73,6 +73,23 @@ describe('fetchHaendelseRows', () => {
     warn.mockRestore();
   });
 
+  it('en side, der rammer gæsteloftet én gang, hentes igen med samme mærke (spejl af web)', async () => {
+    const { sb, rpcKald } = fakeSupabase(new Map([[null, side([row(1)], [{ id: 10, source_id: null, side: null }], [], 'A')]]));
+    const timeout = { data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } };
+    let aKald = 0;
+    const rpc = sb.rpc.bind(sb);
+    sb.rpc = async (fn: string, args: Record<string, unknown>) => {
+      if (args.p_fortsaet === 'A') {
+        rpcKald.push({ fn, args });
+        return aKald++ === 0 ? timeout : side([row(2)], [], [], null);
+      }
+      return rpc(fn, args);
+    };
+    const res = await fetchHaendelseRows(sb as never);
+    expect(res.rows.map((r) => r.id)).toEqual([1, 2]);
+    expect(rpcKald.map((k) => k.args.p_fortsaet)).toEqual([null, 'A', 'A']);
+  });
+
   it('et svar uden gyldig form giver tomt resultat', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     for (const data of [{ rows: 'ikke en liste', naeste: null }, { rows: [], narrativer: [], sources: [], naeste: 7 }]) {

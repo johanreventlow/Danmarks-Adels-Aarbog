@@ -2,7 +2,7 @@
 // MentionPicker.tsx, men uden søgning/netværk: viser DENNE subjekts allerede indlæste egne
 // uploadede billeder (samme data + signerede URI'er som Materiale-galleriet allerede har hentet
 // via fetchPersonMedia/useMediaAndThumbUris — genbruges her via props, intet nyt fetch-kald).
-import { Image } from 'expo-image';
+import { SignedImage } from '../SignedImage';
 import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import type { PersonMedia } from '../../data/redaktionRead';
 import { makeToken } from '@daa/core';
@@ -31,7 +31,7 @@ export function MediaMentionPicker({ media, thumbUris, onVælg, onClose }: {
               {brugbar.map((m) => (
                 <Pressable key={m.id} style={styles.cell}
                   onPress={() => { onVælg(makeToken('media', Number(m.id), m.titel ?? '')); onClose(); }}>
-                  <Image source={{ uri: thumbUris[m.id] }} style={styles.thumb} contentFit="cover" />
+                  <SignedImage uri={thumbUris[m.id]} style={styles.thumb} contentFit="cover" />
                   {m.titel ? <Body size={10} numberOfLines={1}>{m.titel}</Body> : null}
                 </Pressable>
               ))}

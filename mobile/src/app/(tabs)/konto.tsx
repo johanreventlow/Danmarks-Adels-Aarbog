@@ -1,5 +1,6 @@
 // Offentlig Konto-fane — login er ikke forbeholdt redaktører. Alle kan logge ind som
-// medlem (ser levende slægtninge via RLS); redaktør-rollen får derudover en genvej ind.
+// medlem (bogmærker på tværs af enheder); redaktør-rollen får derudover en genvej ind.
+// Levende personer ser i POC'en kun redaktører (RLS), så kortet lover ikke medlemmer dem.
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -15,6 +16,8 @@ export default function Konto() {
   const router = useRouter();
   const session = useStore((s) => s.session);
   const rolle = useStore((s) => s.rolle);
+  const rolleFejl = useStore((s) => s.rolleFejl);
+  const hydrateAuth = useStore((s) => s.hydrateAuth);
   const doSignOut = useStore((s) => s.doSignOut);
   const model = useStore((s) => s.model);
   const meId = useStore(selectMeId);
@@ -37,13 +40,18 @@ export default function Konto() {
                 <Mono size={9} color={Colors.inkMuted}>{rolle.toUpperCase()}</Mono>
               </View>
             </View>
+            {rolleFejl ? (
+              <Pressable onPress={() => hydrateAuth()} style={{ marginTop: 10 }}>
+                <Mono size={11} color={Colors.bordeaux}>{rolleFejl} — tryk for at prøve igen</Mono>
+              </Pressable>
+            ) : null}
           </View>
         ) : (
           <View style={[styles.card, { backgroundColor: Colors.surfaceInverse }]}>
             <Serif size={20} color={Colors.inkOnInverse}>Log ind</Serif>
             <Body size={13} color={Colors.inkMutedOnInverse} style={{ marginTop: 4 }}>
-              Som medlem ser du også levende slægtninge. Redaktører kan derudover bidrage
-              med rettelser.
+              Log ind for at gemme bogmærker på tværs af dine enheder. Redaktører kan
+              derudover bidrage med rettelser.
             </Body>
             <Pressable style={styles.loginBtn} onPress={() => setLoginOpen(true)}>
               <BtnLabel color={Colors.ink}>Log ind</BtnLabel>

@@ -93,10 +93,30 @@ describe('fetchPublicCoordinates (kodereview 36 P2)', () => {
     expect(r.kald).toEqual([[0, 999], [1000, 1999]]);
   });
 
-  it('kaster andre fejl videre uden fallback', async () => {
+  it('prøver andre fejl igen én gang og kaster dem så videre uden fallback', async () => {
     const r = raekker([[row()]]);
-    await expect(fetchPublicCoordinates(async () => ({ data: null, error: { code: '57014', message: 'timeout' } }), r.fn)).rejects.toMatchObject({ code: '57014' });
+    let n = 0;
+    await expect(fetchPublicCoordinates(async () => { n++; return { data: null, error: { code: '57014', message: 'timeout' } }; }, r.fn, 0)).rejects.toMatchObject({ code: '57014' });
+    expect(n).toBe(2);
     expect(r.kald).toEqual([]);
+  });
+
+  it('et 57014 på første kald redder sig på genforsøget (prod 25/11, kold start)', async () => {
+    const r = raekker([]);
+    let n = 0;
+    const rows = await fetchPublicCoordinates(async () => (n++ === 0
+      ? { data: null, error: { code: '57014', message: 'timeout' } }
+      : { data: [row()], error: null }), r.fn, 0);
+    expect(n).toBe(2);
+    expect(rows.map((x) => x.person_id)).toEqual([7]);
+    expect(r.kald).toEqual([]);
+  });
+
+  it('en ukendt funktion prøves ikke igen, men falder tilbage med det samme', async () => {
+    const r = raekker([[row()]]);
+    let n = 0;
+    await fetchPublicCoordinates(async () => { n++; return { data: null, error: { code: 'PGRST202', message: 'x' } }; }, r.fn, 0);
+    expect(n).toBe(1);
   });
 
   it('kaster, hvis svaret ikke er et array', async () => {

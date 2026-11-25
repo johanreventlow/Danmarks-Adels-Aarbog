@@ -17,8 +17,9 @@ export function createRemoteBookmarkRepository(): BookmarkRepository {
     list: async () => {
       if (!supabase) return [];
       const { data, error } = await supabase.from('bookmark').select('person_id').order('oprettet', { ascending: false });
-      if (error || !data) return [];
-      return data.map((r: { person_id: string | number }) => String(r.person_id));
+      // Review 37 W12: en fejl er ikke »ingen bogmærker« — kalderen skal kunne vise fejlen og prøve igen.
+      if (error) throw new Error(error.message);
+      return (data ?? []).map((r: { person_id: string | number }) => String(r.person_id));
     },
     add: async (personId) => {
       if (!supabase) return;
@@ -50,7 +51,10 @@ function sameOrder(a: string[], b: string[]): boolean {
 export function useBookmarks(
   userId: string | null,
   canonicalIdById: Record<string, string>,
-): { ids: Set<string>; has(id: string): boolean; canSave: boolean; ready: boolean; hydrationVersion: number; toggle(id: string): void; count: number } {
+): {
+  ids: Set<string>; has(id: string): boolean; canSave: boolean; ready: boolean; hydrationVersion: number;
+  fejl: boolean; genindlaes(): void; toggle(id: string): void; count: number;
+} {
   const repoRef = useMemo(() => createRemoteBookmarkRepository(), []);
   const [idsList, setIdsList] = useState<string[]>([]);
   // Mutérbar side-kanal uden for render/state-cyklussen — useRef (ikke useMemo, som React
@@ -63,6 +67,11 @@ export function useBookmarks(
     canonicalIdById: Record<string, string>;
   } | null>(null);
   const [hydrationVersion, setHydrationVersion] = useState(0);
+  // Review 37 W12: hentningen fejlede. ready bliver alligevel sand (med tom liste), så feedet ikke
+  // venter for evigt på et bogmærke-snapshot; bogmærkesiden viser fejlen og kan prøve igen via genindlaes().
+  const [fejl, setFejl] = useState(false);
+  const [forsoeg, setForsoeg] = useState(0);
+  const genindlaes = useCallback(() => setForsoeg((n) => n + 1), []);
   const canon = useMemo(() => (id: string) => canonicalIdById[id] ?? id, [canonicalIdById]);
 
   useEffect(() => {
@@ -72,6 +81,7 @@ export function useBookmarks(
       lastUserIdRef.current = null;
       // eslint-disable-next-line react-hooks/set-state-in-effect -- sessionsikker reset ved logout
       setLoadedFor(null);
+      setFejl(false);
       return;
     }
     // Ryd KUN ved et REELT brugerskift (review 22 N2-mitigering), sporet via ref — ikke ved
@@ -79,11 +89,15 @@ export function useBookmarks(
     // genskabe samme uendelig-render-loop-mønster som udlogget-grenen er hærdet mod.
     if (lastUserIdRef.current !== userId) {
       setIdsList((prev) => (prev.length === 0 ? prev : []));
+      // Den forrige brugers hentefejl gælder ikke den nye. (Ved »Prøv igen« står fejlen, til svaret
+      // kommer, så siden ikke blinker »Ingen bogmærker endnu«.)
+      setFejl(false);
     }
     lastUserIdRef.current = userId;
     let alive = true;
-    void repoRef.list().then((raw) => {
+    repoRef.list().then((raw) => {
       if (!alive) return;
+      setFejl(false);
       const norm = raw.map(canon);
       setIdsList((prev) => {
         const pending = pendingRef.current;
@@ -93,9 +107,15 @@ export function useBookmarks(
       });
       setLoadedFor({ userId, canonicalIdById });
       setHydrationVersion((version) => version + 1);
+    }, (e: unknown) => {
+      if (!alive) return;
+      console.warn('[bookmarks] hentning fejlede:', e);
+      setFejl(true);
+      setLoadedFor({ userId, canonicalIdById });
+      setHydrationVersion((version) => version + 1);
     });
     return () => { alive = false; };
-  }, [userId, canon, canonicalIdById, repoRef]);
+  }, [userId, canon, canonicalIdById, repoRef, forsoeg]);
 
   // Afledt (ikke lagret): tom når udlogget, uanset hvad idsList internt måtte indeholde fra en
   // tidligere session — undgår enhver setState-i-effekt for logout-overgangen.
@@ -132,6 +152,7 @@ export function useBookmarks(
   // review 22 H1: count afledt af det session-gatede `ids` (IKKE rå idsList.length, som
   // forblev ikke-nulstillet efter logout og viste et stale badge-tal).
   return {
-    ids, has, canSave: userId != null, ready, hydrationVersion, toggle, count: ids.size,
+    ids, has, canSave: userId != null, ready, hydrationVersion, fejl: userId != null && fejl, genindlaes,
+    toggle, count: ids.size,
   };
 }
