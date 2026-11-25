@@ -45,7 +45,7 @@ BEGIN
     ('relation',format('(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES (''person'',%s,''person'',%s,''test'')',purge_test.id('tredje'),purge_test.id('nabo'))),
     ('assertion',format('(target_type,target_id,vaerdi_tekst) VALUES (''fact'',%s,''Id-test'')',v_fact)),
     ('family','(type) VALUES (''test'')'),
-    ('media','(titel) VALUES (''Id-test'')'),
+    ('media','(slags,titel) VALUES (''portræt'',''Id-test'')'),
     ('change_set','(operation,summary) VALUES (''test'',''Id-test'')')
   ) x(tabel,indsats) LOOP
     EXECUTE format('INSERT INTO public.%I %s RETURNING id',r.tabel,r.indsats) INTO v_first;
@@ -90,7 +90,8 @@ BEGIN
   FOREACH v_typ IN ARRAY ARRAY['person','family','media'] LOOP
     -- Sekvens-id og efterfølgende DELETE giver et sikkert fraværende mål.
     PERFORM purge_test.nyt();
-    EXECUTE format('INSERT INTO public.%I DEFAULT VALUES RETURNING id',v_typ) INTO v_target;
+    EXECUTE format('INSERT INTO public.%I %s RETURNING id',v_typ,
+      CASE v_typ WHEN 'media' THEN '(slags) VALUES (''portræt'')' ELSE 'DEFAULT VALUES' END) INTO v_target;
     EXECUTE format('DELETE FROM public.%I WHERE id=$1',v_typ) USING v_target;
     FOR r IN SELECT * FROM (VALUES ('narrative','tekst'),('note','indhold'),
       ('story','titel'),('story','tekst'),('entity_description','tekst')) x(tabel,kolonne) LOOP
