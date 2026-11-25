@@ -1,6 +1,6 @@
 // Indlæsnings-gate: viser spinner mens data hentes, og en diskret banner hvis appen kører
 // på offline-seed (live-hentning fejlede). Wrapper skærm-indhold.
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useStore } from '../store/useStore';
 import { Colors } from '../theme/tokens';
 import { Kicker } from './Typography';
@@ -9,6 +9,7 @@ export function LoadGate({ children }: { children: React.ReactNode }) {
   const status = useStore((s) => s.status);
   const source = useStore((s) => s.source);
   const error = useStore((s) => s.error);
+  const load = useStore((s) => s.load);
 
   if (status === 'loading' || status === 'idle') {
     return (
@@ -32,6 +33,9 @@ export function LoadGate({ children }: { children: React.ReactNode }) {
               {error}
             </Kicker>
           ) : null}
+          <Pressable onPress={() => { void load(); }} accessibilityRole="button" hitSlop={8} style={{ marginTop: 4 }}>
+            <Kicker color={Colors.bordeaux} size={9} style={{ textDecorationLine: 'underline' }}>Prøv igen</Kicker>
+          </Pressable>
         </View>
       ) : null}
       {children}

@@ -23,6 +23,9 @@ const ME_KEY = 'daa_me_id';
 // Stashet i en modul-ref (ikke i store-state) — den er ikke render-relevant og skal blot
 // overleve mellem load() og et senere loadGeo()-kald. null i seed-fald (SEED.geo er allerede
 // fuldt bygget, ingen closure at kalde).
+// Pause før load() prøver igen (testene sætter den ikke; se useStore.load).
+export const LOAD_RETRY_MS = 1500;
+
 let stashedLoadGeo: (() => Promise<Geo>) | null = null;
 
 // Ren kopi: stempler biografier ind i en NY persons-liste/byId; resten af modellen (indexes osv.) røres ikke.
@@ -195,7 +198,13 @@ export const useStore = create<State>((set, get) => ({
     if (get().status === 'loading') return;
     set({ status: 'loading', error: null });
     try {
-      const res = await loadFromSupabase();
+      // Ét genforsøg efter en kort pause, før appen falder tilbage til offline-seed: en kold free-tier-base eller et
+      // enkelt 57014 skal ikke efterlade læseren på 5 eksempelpersoner, til appen genstartes.
+      const res = await loadFromSupabase().catch(async (e) => {
+        console.warn('[useStore] indlæsning fejlede — prøver igen:', e);
+        await new Promise((r) => setTimeout(r, LOAD_RETRY_MS));
+        return loadFromSupabase();
+      });
       const model = buildModel(res.db);
       // Påfør proveniens på de foldede kanoniske personer (til badge i person-visningen).
       for (const [canon, prov] of Object.entries(res.mergedFrom)) {
