@@ -436,6 +436,21 @@ expect W 00000 ''; expect S P0001 'SLET_KRAEVER_SLET_HELT: samme_som_skjult'
 [ "$(a "SELECT count(*) FROM person WHERE id=purge_test.id('c2_x')")" = 1 ]
 report
 fi
+# Review 37 ceremoni 2 (review-fund): red_set_privat følger sletningens protokol og venter på samme_som-låsen, så
+# den ikke kan låse et gruppemedlem i modsat orden af red_slet_person (40P01 via floruit-triggeren).
+if ! skip r37p11_3_privat_venter; then
+new r37p11_3_privat_venter
+start H "BEGIN; SELECT pg_advisory_xact_lock(hashtext('samme_som_mutation')); SELECT pg_sleep(20); ROLLBACK;"
+for k in {1..60}; do
+  [ "$(a "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND application_name='purge11_H' AND wait_event='PgSleep'")" = 1 ] && break
+  sleep 0.05
+done
+start W "SELECT red_set_privat(purge_test.id('nabo'),false);"; observe W H advisory
+release; finish
+expect W 00000 ''
+[ "$(a "SELECT privat::text FROM person WHERE id=purge_test.id('nabo')")" = false ]
+printf '%s|%s|%s|1|\n' "$scen" "-" "$(code W)"
+fi
 # Review 37 R37P11-3 (ceremoni 2): »Slet helt« af P mod den fortrydelige sletning af P's samme_som-nabo, som nu låser
 # hele gruppen (inkl. P). Begge veje skal vente på samme_som-låsen og ende uden dødlås. P og naboen gøres offentlige,
 # så den fortrydelige sletning kan lykkes alene (preflight); P's hash hentes igen efter ændringen.

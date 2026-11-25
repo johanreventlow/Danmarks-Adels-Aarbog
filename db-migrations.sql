@@ -49394,12 +49394,28 @@ END $$;
 -- Review 37 ceremoni 2 (#397): personsletning. Deploy-området for prod er denne blok alene, i ÉN transaktion
 -- (ingen ACL-ændringer, så ingen db-rls-DO-blok). Kroppene er kopieret fra schema.sql og er de endelige definitioner
 -- (de ældre kopier ovenfor overskrives her). Signaturer og ACL er uændrede (CREATE OR REPLACE).
---  R37P11-3 red_slet_person låser hele samme_som-gruppen (stigende id) før offentlighedstjekket.
+--  R37P11-3 red_slet_person låser hele samme_som-gruppen (stigende id) før offentlighedstjekket; red_set_privat
+--           tager samme_som-låsen først (samme protokol), så de to ikke kan låse et gruppemedlem i modsat orden.
 --  P3+P10   private.person_purge_kontrol: historier, beskrivelser og andres påstande/citater søges for navn og
 --           id-tal; ét fund pr. række med grund 'fritekst' (navn) eller 'kun_id' (kun id-tal); navnet trimmes.
 --           Ændrer forhåndsvisningens hash: åbne forhåndsvisninger afvises med PURGE_PREVIEW_AENDRET og hentes igen.
 --  P9       red_slet_person_helt sætter ikke længere en virkningsløs statement_timeout.
 -- Ingen data ændres.
+
+CREATE OR REPLACE FUNCTION red_set_privat(p_person_id bigint, p_privat boolean)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 D11: et ukendt id er en fejl, før ændringssættet åbnes (ikke falsk succes med et tomt sæt).
+  IF NOT EXISTS (SELECT 1 FROM person WHERE id = p_person_id) THEN
+    RAISE EXCEPTION 'Person % findes ikke', p_person_id; END IF;
+  -- Review 37 ceremoni 2 (R37P11-3): samme låseprotokol som red_slet_person — samme_som-låsen før personrækkerne. Uden
+  -- den kunne sletningen af X (låser gruppen i stigende id) og privat-flaget på gruppemedlemmet Y (låser Y; triggeren
+  -- regenererer bagefter X's visning_floruit) vente på hinanden i hver sin orden (40P01). Ingen andre låse tages før.
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  PERFORM begin_change_set('red_set_privat', format('Satte privat-flag på person %s', p_person_id), 'person', p_person_id);
+  UPDATE person SET privat = p_privat WHERE id = p_person_id;
+END $$;
 
 CREATE OR REPLACE FUNCTION red_slet_person(p_person_id bigint)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
@@ -49679,11 +49695,14 @@ WITH plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_plan) q(tabel text
   SELECT 'S58'::text AS sted,'assertion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
     concat_ws(' ',t.vaerdi_tekst::text) AS tekst FROM public.assertion t WHERE t.vaerdi_tekst IS NOT NULL
       AND (t.target_type='fact' AND t.target_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep))) IS NOT TRUE
+      -- Evidens på bevarede medie↔familie-koblinger står allerede som NY-E (bevaret_evidens) nedenfor.
+      AND (t.target_type='relation' AND t.target_id IN (SELECT id FROM rk)) IS NOT TRUE
   UNION ALL
   SELECT 'S58'::text AS sted,'citation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
     concat_ws(' ',t.citat_tekst::text) AS tekst FROM public.citation t WHERE t.citat_tekst IS NOT NULL
       -- IS NOT TRUE: et citat uden påstand (assertion_id NULL) skal også med.
       AND (t.assertion_id IN (SELECT a.id FROM public.assertion a JOIN public.fact f ON a.target_type='fact' AND a.target_id=f.id WHERE f.subjekt_type='family' AND f.subjekt_id IN (SELECT id FROM fam_keep))) IS NOT TRUE
+      AND (t.assertion_id IN (SELECT a.id FROM public.assertion a WHERE a.target_type='relation' AND a.target_id IN (SELECT id FROM rk))) IS NOT TRUE
   ),
   -- Review 37 P10 (ceremoni 2): ét fund pr. række. Et navnetræf er »fritekst«; et træf, der KUN er P's eller en families
   -- id som tal (ofte et årstal, sidetal eller en talværdi i kildedataenes JSON), er »kun_id«. Søgningen er lige så

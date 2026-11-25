@@ -4374,6 +4374,10 @@ BEGIN
         OR (x->>'tabel'='citation' AND x->'pk'=jsonb_build_object('id',pg_temp.gid('kob_citation')) AND x->>'grund'='bevaret_evidens')))=3
     AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(b->'til_kontrol') x WHERE x->>'sted'='NY-E'
       AND x->'pk'=jsonb_build_object('id',pg_temp.gid('m_vielse')))
+    -- Ceremoni 2: evidensen på koblingen står kun som NY-E, ikke også under S58 (P3's nye grene).
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(b->'til_kontrol') x WHERE x->>'sted'<>'NY-E'
+      AND ((x->>'tabel'='assertion' AND x->'pk'=jsonb_build_object('id',pg_temp.gid('kob_assertion')))
+        OR (x->>'tabel'='citation' AND x->'pk'=jsonb_build_object('id',pg_temp.gid('kob_citation')))))
     AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements((SELECT j FROM gdpr_preview WHERE hvem='O')->'til_kontrol') x
       WHERE x->>'sted'='NY-E'),'gdpr_preview_kontrol_familiefoto');
 END $t$;

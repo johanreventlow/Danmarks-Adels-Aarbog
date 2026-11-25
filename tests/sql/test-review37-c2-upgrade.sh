@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Review 37 ceremoni 2 (#397: P3, P9, P10, R37P11-3). Prods deploy-form: blokken `-- BEGIN review37-c2` sidst i
+# Review 37 ceremoni 2 (#397: P3, P9, P10, R37P11-3; fire funktioner). Prods deploy-form: blokken `-- BEGIN review37-c2` sidst i
 # db-migrations.sql alene (ingen ACL-ændringer, så ingen db-rls-DO-blok), i ÉN psql-transaktion (-1).
 # 1) Frisk reference (bootstrap + dblink + schema.sql + db-rls.sql): hele kataloget (tests/sql/inspect-catalog-parity.sql).
 # 2) Prod-formet base (2. arg; CI pinner main efter ceremoni 1 = prods SQL): basens skema + migrationer to gange + rls.
@@ -26,7 +26,7 @@ awk '$0=="-- BEGIN review37-c2" {p=1} p{print} $0=="-- END review37-c2" {p=0}' d
 # Kun sætninger i kolonne 0 (funktionskroppene er indrykket og må gerne indeholde INSERT/DELETE).
 ! grep -qiE '^(drop|alter|grant|revoke|insert into|update |delete from|truncate|create (table|index|policy))' "$tmp/deploy.sql" \
   || fail "migrationsblokken må kun rumme CREATE OR REPLACE FUNCTION"
-[ "$(grep -c '^CREATE OR REPLACE FUNCTION' "$tmp/deploy.sql")" = 3 ] || fail "migrationsblokken skal rumme præcis tre funktioner"
+[ "$(grep -c '^CREATE OR REPLACE FUNCTION' "$tmp/deploy.sql")" = 4 ] || fail "migrationsblokken skal rumme præcis fire funktioner"
 deploy() { env -u PGOPTIONS psql -X -q -1 -v ON_ERROR_STOP=1 -d "$1" -f "$tmp/deploy.sql" 2>&1; }
 
 kat() { env -u PGOPTIONS psql -X -Atq -v ON_ERROR_STOP=1 -d "$1" -f tests/sql/inspect-catalog-parity.sql > "$2"; }
@@ -43,11 +43,12 @@ data() { a "$1" "DO \$d\$ DECLARE r record; n bigint; BEGIN
   FOR r IN SELECT c.oid::regclass AS rel FROM pg_class c WHERE c.relnamespace IN ('public'::regnamespace,'private'::regnamespace) AND c.relkind='r' LOOP
     EXECUTE format('SELECT count(*) FROM %s', r.rel) INTO n; INSERT INTO _c2_rt VALUES (r.rel::text, n);
   END LOOP; END \$d\$; SELECT md5(string_agg(t||'='||n, ',' ORDER BY t)) FROM _c2_rt"; }
-# Tænder: »gammel,gammel,gammel« på basen, »ny,ny,ny« efter blokken (P9, P10, R37P11-3).
+# Tænder: »gammel,…« på basen, »ny,…« efter blokken (P9, P10, R37P11-3 ×2).
 kroppe() { a "$1" "SELECT concat_ws(',',
   CASE WHEN position(\$q\$set_config('statement_timeout'\$q\$ IN pg_get_functiondef('public.red_slet_person_helt(bigint,text)'::regprocedure))>0 THEN 'gammel' ELSE 'ny' END,
   CASE WHEN position('kun_id' IN pg_get_functiondef('private.person_purge_kontrol(bigint,jsonb)'::regprocedure))>0 THEN 'ny' ELSE 'gammel' END,
-  CASE WHEN position('WITH RECURSIVE grp(pid)' IN pg_get_functiondef('public.red_slet_person(bigint)'::regprocedure))>0 THEN 'ny' ELSE 'gammel' END)"; }
+  CASE WHEN position('WITH RECURSIVE grp(pid)' IN pg_get_functiondef('public.red_slet_person(bigint)'::regprocedure))>0 THEN 'ny' ELSE 'gammel' END,
+  CASE WHEN position('samme_som_mutation' IN pg_get_functiondef('public.red_set_privat(bigint,boolean)'::regprocedure))>0 THEN 'ny' ELSE 'gammel' END)"; }
 build_start() { createdb "$1"; q "$1" -f tests/sql/evidence-promotion-bootstrap.sql
   q "$1" -c 'CREATE EXTENSION IF NOT EXISTS dblink WITH SCHEMA extensions'; }
 
@@ -55,7 +56,7 @@ build_start() { createdb "$1"; q "$1" -f tests/sql/evidence-promotion-bootstrap.
 build_start "$dbf"; q "$dbf" -f schema.sql; q "$dbf" -f db-rls.sql
 kat "$dbf" "$tmp/kat-fresh.txt"
 facl_fresh=$(facl "$dbf")
-[ "$(kroppe "$dbf")" = "ny,ny,ny" ] || fail "schema.sql har ikke ceremoni 2's kroppe: $(kroppe "$dbf")"
+[ "$(kroppe "$dbf")" = "ny,ny,ny,ny" ] || fail "schema.sql har ikke ceremoni 2's kroppe: $(kroppe "$dbf")"
 
 # 2) Prod-formet base (efter ceremoni 1). Prods globale række for postgres er {postgres=X} (db-rls.sql kørt som
 # postgres); lokalt kører filen som en anden superbruger, så den gøres eksplicit her (i CI en no-op).
@@ -63,13 +64,13 @@ build_prod() { build_start "$1"
   for f in base-schema.sql base-db-migrations.sql base-db-migrations.sql base-db-rls.sql; do q "$1" -f "$tmp/$f"; done
   q "$1" -c "ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC"; }
 build_prod "$dbp"
-[ "$(kroppe "$dbp")" = "gammel,gammel,gammel" ] || fail "basen $base har allerede (dele af) ceremoni 2: $(kroppe "$dbp")"
+[ "$(kroppe "$dbp")" = "gammel,gammel,gammel,gammel" ] || fail "basen $base har allerede (dele af) ceremoni 2: $(kroppe "$dbp")"
 facl_foer=$(facl "$dbp")
 data_foer=$(data "$dbp")
 
 # 3) Deploy-transaktionen, derefter det hele igen.
 out=$(deploy "$dbp") || { echo "$out" >&2; fail "deploy-transaktionen fejlede"; }
-[ "$(kroppe "$dbp")" = "ny,ny,ny" ] || fail "blokken gav ikke de nye kroppe: $(kroppe "$dbp")"
+[ "$(kroppe "$dbp")" = "ny,ny,ny,ny" ] || fail "blokken gav ikke de nye kroppe: $(kroppe "$dbp")"
 [ "$(data "$dbp")" = "$data_foer" ] || fail "rækketal ændret af blokken"
 kat "$dbp" "$tmp/kat-efter.txt"
 bash tests/sql/check-catalog-parity.sh "$tmp/kat-fresh.txt" "$tmp/kat-efter.txt" >/dev/null \
