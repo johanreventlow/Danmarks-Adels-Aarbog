@@ -92,3 +92,4 @@ export * from './kunIAeldre';
 export * from './modelTraversering';
 export * from './konfTekst';
 export * from './fokusTrae';
+export * from './faktaVisning';

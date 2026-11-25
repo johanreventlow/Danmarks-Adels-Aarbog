@@ -4,16 +4,12 @@
 // bogens post«/»fra den oprindelige import« er fjernet (decisions 2026-11-12): de beskrev vores arbejdsgang, ikke bogen.
 // 2026-11-19 (projektejeren): kilden står ikke længere under hvert faktum; personsidens »Kilde i Aarbogen« nederst er
 // nok. Kun »Andre udsagn« (omstridte fakta) beholder kilden, fordi den dér skelner udsagnene (invariant 7).
-import type { KunIUdgave, PersonFactSource, PersonFactStatement, UdgaveFaktaVisning, UdgaveNote } from '@daa/core';
+import { faktaTypeNavn as typeNavn, grupperKunI, udgaveNoteTekst } from '@daa/core';
+import type { PersonFactSource, PersonFactStatement, UdgaveFaktaVisning, UdgaveNote } from '@daa/core';
 import { T } from '../theme';
 import { Label } from './primitives';
 
-const NAVN: Record<string, string> = {
-  navn: 'Navn', tilnavn: 'Tilnavn', fødsel: 'Født', dåb: 'Døbt', titel: 'Titel', dekoration: 'Dekoration',
-  adling: 'Adlet', floruit: 'Nævnt', klosterindgang: 'Klosterindgang', overhoved: 'Overhoved', død: 'Død',
-  dødsårsag: 'Dødsårsag', begravelse: 'Begravet',
-};
-const typeNavn = (t: string) => NAVN[t] ?? t.charAt(0).toUpperCase() + t.slice(1);
+// Faktanavnene, noteteksten og »Kun i …«-grupperingen er flyttet til @daa/core (mobil-paritet, batch 7).
 
 function Kilde({ source }: { source: PersonFactSource }) {
   return <div style={{ fontFamily: T.mono, fontSize: 11, color: T.inkMuted, marginTop: 2 }}>{source.label}</div>;
@@ -29,9 +25,7 @@ function Udsagn({ st }: { st: PersonFactStatement }) {
 }
 
 function Note({ note }: { note: UdgaveNote }) {
-  const tekst = note.art === 'enig'
-    ? `✓ også i ${note.udgave.label}`
-    : `${note.udgave.label} skriver: ${note.vaerdier.join('; ')}`;
+  const tekst = udgaveNoteTekst(note);
   return <div style={{ fontFamily: T.sans, fontSize: 12, color: note.art === 'enig' ? T.inkMuted : T.bordeaux, lineHeight: 1.35 }}>{tekst}</div>;
 }
 
@@ -48,12 +42,7 @@ export function PersonFakta({ visning, error }: { visning: UdgaveFaktaVisning | 
   }
   if (!visning || (!visning.linjer.length && !visning.kunI.length)) return null;
   // »Kun i …« grupperet pr. udgave i core's rækkefølge (nyeste udgave først).
-  const kunI: { udgave: KunIUdgave['udgave']; raekker: KunIUdgave[] }[] = [];
-  for (const k of visning.kunI) {
-    const g = kunI.find((x) => x.udgave.sourceId === k.udgave.sourceId);
-    if (g) g.raekker.push(k);
-    else kunI.push({ udgave: k.udgave, raekker: [k] });
-  }
+  const kunI = grupperKunI(visning.kunI);
   return (
     <>
       <Label>Fakta</Label>
