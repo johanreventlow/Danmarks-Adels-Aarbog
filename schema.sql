@@ -10118,6 +10118,15 @@ BEGIN
   -- (nyt snapshot pr. sætning) den førstes reversal nedenfor og afvises — også med p_force.
   SELECT * INTO v_orig FROM change_set WHERE id=p_change_set_id FOR UPDATE;
   IF v_orig.id IS NULL THEN RAISE EXCEPTION 'FEJL: change_set % findes ikke', p_change_set_id; END IF;
+  -- Review 37 R37C2-1: en fortrydelse kan ikke selv fortrydes. Fortrydelsessættet logger ingen events (inverse-DML
+  -- kører med app.change_set_id nullet, se nedenfor), så en ny fortrydelse ville melde succes og skrive »Fortrød:
+  -- Fortrød: …« uden at ændre noget. Afvis i stedet, også med p_force. Kun denne funktion opretter sæt med
+  -- operation 'fortryd' eller reverterer_id, så de to kendetegn falder sammen; begge tjekkes.
+  IF v_orig.operation = 'fortryd' OR v_orig.reverterer_id IS NOT NULL THEN
+    RAISE EXCEPTION 'FORTRYD_AF_FORTRYDELSE'
+      USING DETAIL = format('change_set %s er selv en fortrydelse og kan ikke fortrydes.', p_change_set_id),
+            HINT = 'Gentag i stedet den oprindelige ændring.';
+  END IF;
   -- allerede reverteret? (reversal-kæde; M3)
   IF EXISTS (SELECT 1 FROM change_set WHERE reverterer_id=p_change_set_id) THEN
     RAISE EXCEPTION 'FEJL: change_set % er allerede fortrudt', p_change_set_id;

@@ -151,6 +151,10 @@ test('sletPerson → red_slet_person', () => {
     .toEqual({ fn: 'red_slet_person', args: { p_person_id: 1 } });
 });
 
+test('oversaetFejl: fortryd af en fortrydelse → dansk (review 37 R37C2-1)', () => {
+  expect(oversaetFejl('FORTRYD_AF_FORTRYDELSE')).toBe('En fortrydelse kan ikke selv fortrydes. Gentag i stedet den oprindelige ændring.');
+});
+
 test('oversaetFejl: omvendt datointerval → dansk (review 37 D5)', () => {
   expect(oversaetFejl('DATO_INTERVAL_OMVENDT')).toBe('Datoerne er i forkert rækkefølge: den tidligste dato ligger efter den seneste.');
 });

@@ -289,6 +289,7 @@ Frysningen af nye bindinger fra #152 er dermed ophævet for 2018-20 og 1939.
 
 | Emne | Status |
 |---|---|
+| **Review 37 R37C2-1: fortryd af en fortrydelse afvises** (blok `review37-r37c2-1`) | **I main, IKKE i prod** (projektejerens valg 2026-11-25): blokken står sidst i `db-migrations.sql` og køres sammen med ceremoni 3 (Y4/Y13). Indtil da giver prods `red_fortryd_change_set` den gamle tavse no-op ved fortryd af et fortryd-sæt; web og mobil viser ingen knap dertil. Ceremoni 3's deploy-område og opgraderingstest skal tage begge blokke med (base f6d0ba25). |
 | **RLS `authenticated`-tier** (medlem/forsker ser levende slægtninge m. samtykke) | Kun skitseret i `db-rls.sql` §FREMTID. Bygges når login/profiles-auth er på plads. Indtil da er levende data usynlige for alle uden `redaktion`-rolle. |
 | **`max(id)+1` → IDENTITY/sekvenser** | Udskudt post-PoC. Kritisk før flerbruger-skrivning (også multi-writer-risikoen generelt). |
 | **Samtykke-granularitet pr. levende person** (`samtykke_offentlig`) | Designes med auth-laget. |

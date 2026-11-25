@@ -50236,3 +50236,279 @@ SELECT CASE WHEN cs.subjekt_type='person' AND cs.subjekt_id=p_person_id THEN 'S5
   FROM cs_kontrol k JOIN public.change_set cs ON cs.id=k.id
 $purge_control$;
 -- END review37-c2b
+
+-- BEGIN review37-r37c2-1
+-- Review 37 R37C2-1 (#397, fundet i ceremoni 2): at fortryde en fortrydelse var en tavs no-op. Fortrydelsessættet logger
+-- ingen events, så red_fortryd_change_set meldte succes og skrev »Fortrød: Fortrød: …« i historikken uden at ændre noget.
+-- Nu afvises et sæt med operation 'fortryd' eller reverterer_id med FORTRYD_AF_FORTRYDELSE, også med p_force, før der
+-- tages identitetslås eller oprettes et nyt sæt. Deploy-området er denne blok alene, i ÉN transaktion. Kroppen er
+-- kopieret fra schema.sql og er den endelige definition; de ældre definitioner længere oppe gælder kun den fulde
+-- migrationssti. Idempotent: CREATE OR REPLACE med samme signatur og returtype bevarer funktionens ACL. Ingen data ændres.
+CREATE OR REPLACE FUNCTION red_fortryd_change_set(p_change_set_id bigint, p_force boolean DEFAULT false)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+DECLARE
+  ev change_event; v_new_cs bigint; v_orig change_set;
+  v_link_rows jsonb := '{}'; v_link_row record; v_link record; v_link_cols text[];
+  v_cur jsonb; v_pids bigint[] := '{}'; v_narr bigint[] := '{}'; v_notes bigint[] := '{}';
+  v_div int := 0; pid bigint; v_forventet jsonb; v_contract_version integer; v_lock record; v_pin_maal record;
+  v_cur_cmp jsonb; v_forv_cmp jsonb;
+BEGIN
+  PERFORM pg_advisory_xact_lock_shared(hashtextextended('daa-narrative-record-contract',0));
+  v_contract_version:=public.narrative_record_contract_version();
+  IF current_rolle() <> 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  -- Review 37 D9: fortrydelsen låser sættets rækker i sin egen faste orden (person → … → assertion → citation →
+  -- conclusion → … → relation), mens slette-RPC'erne følger FK-ordenen (conclusion/relation før assertion). De to
+  -- kunne derfor låse hinanden fast. Den fælles fortryd/slet-lås serialiserer dem: fortrydelsen tager den eksklusivt,
+  -- slette-RPC'erne delt (de låser ikke hinanden ud). Den tages lige efter kontraktlåsen (som forbliver den første,
+  -- narrativ-kontraktens Task 6) og før alle rækkelåse; slette-RPC'erne uden kontraktlås tager den først, og
+  -- red_slet_person tager den også lige efter kontraktlåsen. Cutoveren tager aldrig fortryd/slet-låsen: ingen cyklus.
+  PERFORM pg_advisory_xact_lock(hashtextextended('daa-fortryd-slet',0));
+  -- Publication writers hold ACCESS EXCLUSIVE while allocating their audit
+  -- set and appending its event. Take the weakest conflicting table lock before
+  -- the dedicated-routing predicate so the predicate cannot race an uncommitted
+  -- event. ACCESS SHARE remains compatible with ordinary legacy writers and
+  -- preserves their identity-advisory -> change_set ordering.
+  LOCK TABLE public.change_set IN ACCESS SHARE MODE;
+  IF EXISTS (
+    SELECT 1
+    FROM private.narrative_publication_event
+    WHERE change_set_id = p_change_set_id
+  ) OR (
+    v_contract_version >= 2
+    AND EXISTS (
+      SELECT 1
+      FROM public.change_event ce
+      WHERE ce.change_set_id = p_change_set_id
+        AND ce.tabel = 'narrative'
+        AND ce.row_pk ? 'id'
+        AND (
+          EXISTS (
+            SELECT 1
+            FROM private.narrative_publication_event npe
+            WHERE npe.narrative_id = (ce.row_pk->>'id')::bigint
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM private.narrative_legacy_publication nlp
+            WHERE nlp.narrative_id = (ce.row_pk->>'id')::bigint
+          )
+        )
+    )
+  ) THEN
+    RAISE EXCEPTION 'NARRATIVE_RECORD_DEDICATED_REVERSAL_REQUIRED';
+  END IF;
+  -- K5: lås sættets række, så to samtidige fortrydelser af samme sæt serialiseres; den anden ser bagefter
+  -- (nyt snapshot pr. sætning) den førstes reversal nedenfor og afvises — også med p_force.
+  SELECT * INTO v_orig FROM change_set WHERE id=p_change_set_id FOR UPDATE;
+  IF v_orig.id IS NULL THEN RAISE EXCEPTION 'FEJL: change_set % findes ikke', p_change_set_id; END IF;
+  -- Review 37 R37C2-1: en fortrydelse kan ikke selv fortrydes. Fortrydelsessættet logger ingen events (inverse-DML
+  -- kører med app.change_set_id nullet, se nedenfor), så en ny fortrydelse ville melde succes og skrive »Fortrød:
+  -- Fortrød: …« uden at ændre noget. Afvis i stedet, også med p_force. Kun denne funktion opretter sæt med
+  -- operation 'fortryd' eller reverterer_id, så de to kendetegn falder sammen; begge tjekkes.
+  IF v_orig.operation = 'fortryd' OR v_orig.reverterer_id IS NOT NULL THEN
+    RAISE EXCEPTION 'FORTRYD_AF_FORTRYDELSE'
+      USING DETAIL = format('change_set %s er selv en fortrydelse og kan ikke fortrydes.', p_change_set_id),
+            HINT = 'Gentag i stedet den oprindelige ændring.';
+  END IF;
+  -- allerede reverteret? (reversal-kæde; M3)
+  IF EXISTS (SELECT 1 FROM change_set WHERE reverterer_id=p_change_set_id) THEN
+    RAISE EXCEPTION 'FEJL: change_set % er allerede fortrudt', p_change_set_id;
+  END IF;
+
+  -- Forudscan HELE sættet før reversal-audit eller inverse DML. Hvis nogen inverse
+  -- operation kan indsætte, opdatere eller slette en identitetsrelation, tages den
+  -- fælles advisory+generation-protokol én gang i den globale rækkefølge.
+  IF EXISTS (
+    SELECT 1 FROM change_event ce
+    WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation' AND (
+      p_force OR CASE ce.op
+        WHEN 'INSERT' THEN ce.efter->>'rolle' IN ('samme_som','ikke_samme_som')
+        WHEN 'DELETE' THEN ce.foer->>'rolle' IN ('samme_som','ikke_samme_som')
+        WHEN 'UPDATE' THEN ce.foer->>'rolle' IN ('samme_som','ikke_samme_som')
+                            OR ce.efter->>'rolle' IN ('samme_som','ikke_samme_som')
+        ELSE false
+      END)
+  ) THEN
+    PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+    PERFORM private.guard_identity_mutation_snapshot();
+  END IF;
+
+  -- åbn reversal-sæt (re-entrant: triggere fanger ikke restore-DML ind under DET, da vi
+  -- bevidst NULLER app.change_set_id under selve inverse — se nedenfor). Vi logger restore
+  -- som ÉT change_set uden child-events for ikke at dobbelt-logge; reversal-kæden er sporet.
+  PERFORM set_config('app.change_set_id','',true);  -- undgå at inverse-DML re-logges
+  IF pg_get_serial_sequence('public.change_set','id') IS NULL THEN
+    RAISE EXCEPTION 'CHANGE_SET_SEQUENCE_MISSING';
+  ELSE
+    INSERT INTO change_set(actor_id, actor_navn, actor_rolle, operation, summary,
+                           subjekt_type, subjekt_id, subjekt_synlighed, reverterer_id)
+      VALUES (auth.uid(),
+              coalesce((SELECT coalesce(p.navn, p.email, auth.uid()::text) FROM profiles p WHERE p.id=auth.uid()), 'ukendt'),
+              current_rolle(), 'fortryd',
+              format('Fortrød: %s', coalesce(v_orig.summary,'(uden tekst)')),
+              v_orig.subjekt_type, v_orig.subjekt_id, v_orig.subjekt_synlighed, p_change_set_id)
+      RETURNING id INTO v_new_cs;
+  END IF;
+
+  -- K5 (kodereview 36): verifikationen nedenfor læser uden lås og skriver bagefter; uden låse kunne en samtidig
+  -- redigering (T2 gemmer mellem T1's tjek og skrivning) blive overskrevet uden divergens. Lås derfor ALLE berørte,
+  -- eksisterende rækker FOR UPDATE før første tjek, i en fast rækkefølge efter change_set (som writerne): først
+  -- personer i stigende id (sættets personrækker og personmål fra relationer/pins — samme orden som
+  -- identitetsprotokollen og red_saet_portraet), derefter pin-familier og resten efter (tabel, numerisk
+  -- id, row_pk). En samtidig writer venter nu på fortrydelsen, eller fortrydelsen venter på writeren og ser bagefter
+  -- dens committede værdi (nyt snapshot pr. sætning under READ COMMITTED) og afviser den som divergens. En række, som
+  -- sættet slettede (og fortrydelsen genindsætter), findes ikke og kan ikke låses.
+  PERFORM 1 FROM person lp
+   WHERE lp.id IN (
+     SELECT (ce.row_pk->>'id')::bigint FROM change_event ce
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='person'
+     UNION
+     SELECT (x.r->>'subjekt_id')::bigint
+       FROM change_event ce CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation' AND x.r->>'subjekt_type'='person'
+     UNION
+     SELECT (x.r->>'objekt_id')::bigint
+       FROM change_event ce CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='relation' AND x.r->>'objekt_type'='person'
+     UNION
+     -- R6: også pins i foer/efter, før K5 låser pin-rækken. Ellers kan en
+     -- inverse genindsætte P's pin efter sletningen eller danne pin→person-cyklus.
+     SELECT m.id FROM change_event ce
+       CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+       CROSS JOIN LATERAL private.feed_pin_maal(x.r->>'kort_noegle') m
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='feed_pin' AND m.typ='person'
+     UNION
+     -- Review 37 R37B-1: linjemedlemskabets person. trg_lineage_membership_regen opdaterer personen, og medlemskabets
+     -- writere (promotion, red_reverse_placement_membership, personsletningerne) låser personen FØR medlemskabet. Uden
+     -- denne linje låste fortrydelsen medlemskabet i K5 og fik personen sent via triggeren: deadlock mod en writer.
+     -- (conclusion og person_external_id får personen sent via triggeren i de almindelige writeres orden: conclusion →
+     -- person og external-id → person, så de låses IKKE her. Personsletningen, som låser personen først, er en
+     -- slette-RPC og venter på fortryd/slet-låsen.)
+     SELECT (x.r->>'person_id')::bigint
+       FROM change_event ce CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+      WHERE ce.change_set_id=p_change_set_id AND ce.tabel='person_lineage_membership')
+   ORDER BY lp.id FOR UPDATE;
+  -- Familier følger personerne, stadig før K5's øvrige rækker. Samme parser
+  -- som red_set_feed_pin; ingen ny nøglegrammatik eller sen rækkelås i restore-helperen.
+  PERFORM 1 FROM family lf WHERE lf.id IN (
+    SELECT m.id FROM change_event ce
+      CROSS JOIN LATERAL (VALUES (ce.foer),(ce.efter)) x(r)
+      CROSS JOIN LATERAL private.feed_pin_maal(x.r->>'kort_noegle') m
+     WHERE ce.change_set_id=p_change_set_id AND ce.tabel='feed_pin' AND m.typ='family')
+   ORDER BY lf.id FOR KEY SHARE;
+  FOR v_lock IN
+    SELECT d.tabel, d.row_pk
+      FROM (SELECT DISTINCT ce.tabel, ce.row_pk FROM change_event ce WHERE ce.change_set_id=p_change_set_id) d
+     ORDER BY d.tabel COLLATE "C",
+              CASE WHEN d.row_pk->>'id' ~ '^-?[0-9]{1,18}$' THEN (d.row_pk->>'id')::bigint END,
+              d.row_pk::text COLLATE "C"
+  LOOP
+    PERFORM _version_lock_row(v_lock.tabel, v_lock.row_pk);
+  END LOOP;
+
+  -- inverse-apply i OMVENDT seq-orden, alt i denne ene transaktion
+  FOR ev IN SELECT * FROM change_event WHERE change_set_id=p_change_set_id ORDER BY seq DESC LOOP
+    -- optimistisk verifikation (B9): nuværende tilstand skal matche hvad sættet efterlod
+    v_cur := _version_current_row(ev.tabel, ev.row_pk);
+    -- B9-divergens for ALLE op-typer (review09 H1): DELETE efterlod række ABSENT (NULL),
+    -- INSERT/UPDATE efterlod ev.efter. Lukker blind PK-overskrivning ved DELETE-inverse.
+    v_forventet := CASE WHEN ev.op='DELETE' THEN NULL ELSE ev.efter END;
+    -- Review 37 D2: sammenlign kun på kolonner, der står i BÅDE den nuværende række og snapshottet. En kolonne
+    -- tilføjet efter sættet (fx relation.kvalifikator) mangler i ev.efter, og en droppet kolonne mangler i v_cur;
+    -- ingen af dem er en nyere ændring. Kendt rest (accepteret): når fortrydelsen sletter en række, sættet
+    -- indsatte, går en værdi i en senere tilføjet kolonne tabt — kun relevant, hvis en nyere ændring rørte netop
+    -- den kolonne. En række, der mangler på den ene side, sammenlignes stadig helt (NULL ≠ række).
+    IF v_cur IS NOT NULL AND v_forventet IS NOT NULL THEN
+      v_cur_cmp  := v_cur - ARRAY(SELECT k FROM jsonb_object_keys(v_cur) k WHERE NOT v_forventet ? k);
+      v_forv_cmp := v_forventet - ARRAY(SELECT k FROM jsonb_object_keys(v_forventet) k WHERE NOT v_cur ? k);
+    ELSE
+      v_cur_cmp := v_cur; v_forv_cmp := v_forventet;
+    END IF;
+    IF v_cur_cmp IS DISTINCT FROM v_forv_cmp THEN
+      v_div := v_div + 1;
+      IF NOT p_force THEN
+        RAISE EXCEPTION 'FEJL: nyere ændring rører %/% — afvist (brug force)', ev.tabel, ev.row_pk;
+      END IF;
+    END IF;
+    -- Efter K5-låsene: en inverse, der efterlader en pin, skal have eksisterende
+    -- mål, også med force. Kun eksistenskontrol her; mållåsene blev taget før
+    -- pin-rækken. INSERT-inverse fjerner pinnen og behøver ikke et levende mål.
+    IF ev.tabel='feed_pin' AND ev.op IN ('DELETE','UPDATE') THEN
+      FOR v_pin_maal IN SELECT m.typ,m.id FROM private.feed_pin_maal(ev.foer->>'kort_noegle') m LOOP
+        IF v_pin_maal.typ='person' THEN
+          PERFORM 1 FROM public.person WHERE id=v_pin_maal.id;
+        ELSIF v_pin_maal.typ='family' THEN
+          PERFORM 1 FROM public.family WHERE id=v_pin_maal.id;
+        ELSE
+          RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %',v_pin_maal.typ,v_pin_maal.id;
+        END IF;
+        IF NOT FOUND THEN
+          RAISE EXCEPTION 'POLYMORF_SUBJEKT_FINDES_IKKE: % %',v_pin_maal.typ,v_pin_maal.id;
+        END IF;
+      END LOOP;
+    END IF;
+    -- D-9: fasthold v_cur før rækkens FØRSTE inverse. Et sæt kan røre samme
+    -- række flere gange; kun sluttilstandens indførte links skal kontrolleres.
+    -- Ingen mållåse her eller i slutkontrollen: K5/R33's prelock er uændret.
+    IF ev.tabel IN ('narrative','note','story','entity_description')
+       AND NOT (v_link_rows ? (ev.tabel||':'||(ev.row_pk->>'id'))) THEN
+      v_link_rows := v_link_rows || jsonb_build_object(ev.tabel||':'||(ev.row_pk->>'id'),
+        jsonb_build_object('tabel',ev.tabel,'pk',ev.row_pk,'foer',v_cur));
+    END IF;
+    -- anvend inverse
+    IF ev.op='INSERT' THEN
+      PERFORM _version_delete_row(ev.tabel, ev.row_pk);
+    ELSE  -- DELETE eller UPDATE: genskab foer-tilstand
+      PERFORM _version_upsert_row(ev.tabel, ev.foer);
+    END IF;
+    -- saml berørte for cache/indeks-regen
+    IF ev.tabel='person'    THEN v_pids := v_pids || (ev.row_pk->>'id')::bigint; END IF;
+    IF ev.tabel='conclusion' THEN
+      SELECT f.subjekt_id INTO pid FROM fact f
+        WHERE f.id=(coalesce(ev.foer,ev.efter)->>'target_id')::bigint AND f.subjekt_type='person';
+      IF pid IS NOT NULL THEN v_pids := v_pids || pid; END IF;
+    END IF;
+    IF ev.tabel='narrative' THEN v_narr := v_narr || (ev.row_pk->>'id')::bigint; END IF;
+    IF ev.tabel='note'      THEN v_notes := v_notes || (ev.row_pk->>'id')::bigint; END IF;
+  END LOOP;
+
+  -- D-9: EFTER alle inverser, så et mål genskabt i samme sæt nu findes.
+  -- Sammenlign (type,id) pr. tekstkolonne, ikke visningstekst eller hele strengen.
+  -- Eksisterende døde links må blive stående; p_force omgår aldrig denne kontrol.
+  FOR v_link_row IN SELECT value AS r FROM jsonb_each(v_link_rows) LOOP
+    v_cur := _version_current_row(v_link_row.r->>'tabel',v_link_row.r->'pk');
+    v_link_cols := CASE v_link_row.r->>'tabel'
+      WHEN 'narrative' THEN ARRAY['tekst'] WHEN 'note' THEN ARRAY['indhold']
+      WHEN 'story' THEN ARRAY['titel','tekst'] WHEN 'entity_description' THEN ARRAY['tekst'] END;
+    FOR v_link IN
+      SELECT DISTINCT m.maal_type,m.maal_id
+        FROM jsonb_each_text(v_cur) t
+        CROSS JOIN LATERAL private.parse_mentions_klikbare(t.value) m
+       WHERE t.key=ANY(v_link_cols) AND m.maal_type IN ('person','family','media')
+         AND NOT EXISTS (SELECT 1 FROM private.parse_mentions_klikbare(v_link_row.r->'foer'->>t.key) old_m
+           WHERE (old_m.maal_type,old_m.maal_id)=(m.maal_type,m.maal_id))
+       ORDER BY m.maal_type,m.maal_id
+    LOOP
+      IF (v_link.maal_type='person' AND NOT EXISTS (SELECT 1 FROM public.person WHERE id=v_link.maal_id))
+         OR (v_link.maal_type='family' AND NOT EXISTS (SELECT 1 FROM public.family WHERE id=v_link.maal_id))
+         OR (v_link.maal_type='media' AND NOT EXISTS (SELECT 1 FROM public.media WHERE id=v_link.maal_id)) THEN
+        RAISE EXCEPTION 'FORTRYD_DOED_LINK: % %',v_link.maal_type,v_link.maal_id;
+      END IF;
+    END LOOP;
+  END LOOP;
+
+  -- regenerér afledte projektioner ÉN gang (B8 + hyperlinks)
+  FOR pid IN SELECT DISTINCT unnest(v_pids) LOOP
+    PERFORM regen_person_visning(pid);
+  END LOOP;
+  -- text_mention regenereres af mention-trigger ved narrativ/note-skrivning (Task 10);
+  -- ved restore kalder vi den eksplicit (funktion tilføjes i Task 10):
+  PERFORM _regen_mentions_for('narrative', n) FROM unnest(v_narr) n;
+  PERFORM _regen_mentions_for('note', n)      FROM unnest(v_notes) n;
+
+  IF v_div > 0 THEN
+    UPDATE change_set SET summary = summary || format(' [%s divergenser tvunget]', v_div) WHERE id=v_new_cs;
+  END IF;
+  RETURN jsonb_build_object('reversal_change_set', v_new_cs, 'divergenser', v_div);
+END $$;
+-- END review37-r37c2-1
