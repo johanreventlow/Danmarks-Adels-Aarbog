@@ -9,7 +9,7 @@ import { byggLinjeRaekker } from './linjeRaekker';
 import { byggUdgaveModel } from './udgaver';
 import { byggErStamtavle } from './stamtavleKilder';
 import { hentSammeSomKanter, type SammeSomKant } from './sammeSomKanter';
-import { normalizeKoen, normalizeKonfidens, type AppModel, type AppPerson, type Db, type Geo, type Model, type ModelPerson, type ParentChild, type RawEstate, type RawExtId, type RawFact, type RawLineageContext, type RawLineageScheme, type RawLineageSchemeEntry, type RawLineageSchemeEntryLineage, type RawPlace, type RawSource, type Union } from './types';
+import { normalizeKoen, normalizeKonfidens, type AppModel, type AppPerson, type Db, type Geo, type ParentChild, type RawEstate, type RawExtId, type RawFact, type RawLineageContext, type RawLineageScheme, type RawLineageSchemeEntry, type RawLineageSchemeEntryLineage, type RawPlace, type RawSource, type Union } from './types';
 
 const PARTNER_ROLLER = ['partner'];
 // KUN blodslægt ('barn') bliver en forælder→barn-kant — matcher mobile/src/data/load.ts og
@@ -17,21 +17,8 @@ const PARTNER_ROLLER = ['partner'];
 // indgår bevidst IKKE i stamtræet/finderen; de er ikke blodslægt.
 const BARN_ROLLE = 'barn';
 
-// Børn af en person som ModelPerson[] (childIdx er Sets). Delt af stamtræ-visningen.
-export function childrenOf(model: Model, id: string): ModelPerson[] {
-  return [...(model.indexes.childIdx[id] ?? new Set<string>())]
-    .map((cid) => model.byId[cid])
-    .filter(Boolean) as ModelPerson[];
-}
-
-// Forældre af en person som ModelPerson[] (fra primær fødselsfamilie, far før mor jf.
-// compareParentOrder i loaderen). Symmetrisk med childrenOf; bruges af ane-drillen i variant B.
-// Matcher mobilens selectors.parentsOf.
-export function parentsOf(model: Model, id: string): ModelPerson[] {
-  return (model.indexes.parentsByChild[id] ?? [])
-    .map((pid) => model.byId[pid])
-    .filter(Boolean) as ModelPerson[];
-}
+// childrenOf/parentsOf er flyttet til @daa/core (mobil-paritet, batch 6); re-eksport så web-imports er uændrede.
+export { childrenOf, parentsOf } from '@daa/core';
 
 type RawPerson = {
   id: number | string; visning_navn: string | null; visning_fuldt_navn: string | null; visning_foedt: string | null;

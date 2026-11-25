@@ -88,3 +88,7 @@ export * from './udgaver';
 export * from './stamtavleKilder';
 export * from './sources';
 export * from './kunIAeldre';
+// Familieblokken i bogens rækkefølge — flyttet fra web/src/data (mobil-paritet, batch 6).
+export * from './modelTraversering';
+export * from './konfTekst';
+export * from './fokusTrae';

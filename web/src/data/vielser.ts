@@ -2,7 +2,7 @@
 // (date_min/date_max). Gæster må læse de tre tabeller (RLS), så der kræves ingen ny RPC. Nøglen er family-id'et
 // fra familieIderForPerson; værdien er færdig tekst fra fmtVielse. Familier uden brugbar dato udelades.
 // Enhver fejl giver {}: siden viser så bare ingen ⚭, og familien er stadig korrekt.
-import { fmtVielse, getAll, vielsePraecision } from '@daa/core';
+import { getAll, vielsesDatoerPrFamilie } from '@daa/core';
 import { supabase } from '../supabase';
 
 type Id = number | string;
@@ -21,17 +21,7 @@ export async function hentVielsesDatoer(familyIds: string[]): Promise<Record<str
     if (!assertionIds.length) return {};
     const assertions = await getAll<{ id: Id; date_min: string | null; date_max: string | null; date_qualifier?: string | null; date_raw?: string | null }>(() =>
       supabase.from('assertion').select('id,date_min,date_max,date_qualifier,date_raw').in('id', assertionIds).order('id'));
-    // Den rå tekst bærer »ca.« (kvalifikatoren er tom for alle vielser i prod), så den læses med.
-    const tekstByAssertion = new Map(assertions.map((a) =>
-      [String(a.id), fmtVielse(a.date_min, a.date_max, { qualifier: a.date_qualifier, raw: a.date_raw })]));
-    const familieByFact = new Map(facts.map((f) => [String(f.id), String(f.subjekt_id)]));
-    const ud: Record<string, string> = {};
-    for (const c of konkl) {
-      const fam = familieByFact.get(String(c.target_id));
-      const tekst = c.valgt_assertion_id == null ? '' : tekstByAssertion.get(String(c.valgt_assertion_id)) ?? '';
-      if (fam && tekst && vielsePraecision(tekst) > vielsePraecision(ud[fam] ?? '')) ud[fam] = tekst;
-    }
-    return ud;
+    return vielsesDatoerPrFamilie(facts, konkl, assertions);
   } catch {
     return {};
   }
