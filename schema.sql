@@ -22801,6 +22801,16 @@ DECLARE
   -- følger fortsat narrativets udgivelsesregel (lab nederst, trin 2).
   v_red boolean:=public.current_rolle()='redaktion';
 BEGIN
+  -- Review 37 ceremoni 3 (CLAUDE.md, anon-RPC'er): højst 20 id'er pr. kald gennem REST-API'et, 4× den største
+  -- samme_som-gruppe i prod-kopien 24/11 (5 personer); webben sender én persons samme_som-medlemmer. PostgREST sætter
+  -- request.jwt.claims og request.method i hver forespørgsels transaktion, og en klient kan ikke fjerne dem. Interne
+  -- psql-orakler (ceremoni- og målescripts, der hasher læserens visning for alle personer) rammes ikke
+  -- (projektejerens valg 2026-11-25, docs/decisions.md).
+  IF cardinality(p_person_ids)>20
+     AND coalesce(nullif(current_setting('request.jwt.claims',true),''),
+                  nullif(current_setting('request.method',true),'')) IS NOT NULL THEN
+    RAISE EXCEPTION 'PUBLIC_PERSON_FACTS_FOR_MANGE_ID' USING ERRCODE='22023';
+  END IF;
   IF public.narrative_record_contract_version()<2 OR p_person_ids IS NULL THEN RETURN; END IF;
   RETURN QUERY
   WITH f AS (
@@ -22826,10 +22836,15 @@ BEGIN
     -- Gældende bindinger pr. assertion med deres eneste record (betingelse 1, 2 og 4); gyldigheden som
     -- assertion_binding_current, for alle rækker på én gang.
     SELECT pr.target_id AS assertion_id,pr.id AS promotion_id,cur.source_id,
+           -- Review 37 Y4: ankeret slås op pr. occurrence i stedet for at bygge hele view'et pr. binding. OFFSET 0
+           -- forhindrer, at planneren flader underforespørgslen ud (så bliver filteret en join-betingelse igen); nu
+           -- skubbes filteret på view'ets DISTINCT ON-nøgle ind og bruger UNIQUE(occurrence_id,source_record_id,version).
            (SELECT array_agg(an.source_record_id)
               FROM private.interpretation_observation io
               JOIN private.source_observation o ON o.id=io.observation_id
-              JOIN private.source_record_anchor_current an ON an.occurrence_id=o.occurrence_id AND an.decision_status='accepted'
+              CROSS JOIN LATERAL (
+                SELECT ac.source_record_id FROM private.source_record_anchor_current ac
+                 WHERE ac.occurrence_id=o.occurrence_id AND ac.decision_status='accepted' OFFSET 0) an
              WHERE io.interpretation_id=pr.interpretation_id AND io.evidence_role='supporting') AS recs,
            (SELECT count(*) FROM private.interpretation_observation io
              WHERE io.interpretation_id=pr.interpretation_id AND io.evidence_role='supporting') AS n_support
@@ -22853,6 +22868,21 @@ BEGIN
      WHERE b.n_support=1 AND cardinality(b.recs)=1
        AND (SELECT count(*) FROM private.narrative_record_publication x
              WHERE x.source_record_id=sr.id AND x.status='published')=1
+  ), bl AS MATERIALIZED (
+    -- Review 37 ceremoni 3 (Y13): narrativets publiceringsgate og etiketterne én gang pr. binding. Før stod de i
+    -- hovedforespørgslens LATERAL, hvor planneren kunne bygge hele bp og kalde gaten for hver kombination af
+    -- påstandsrække og binding (prod-kopien 24/11: 66 gatekald for 11 rækker og 6 bindinger). Samme betingelser,
+    -- samme seneste event; personkoblingen (narrativets subjekt = faktummets person) står fortsat nedenfor. Gaten står i
+    -- select-listen, ikke i WHERE: et WHERE-filter kan planneren lægge på scanningen af ALLE narrativer før joinet
+    -- (testen så 35 kald for 2 bindinger); select-listen evalueres kun for bp's rækker.
+    SELECT bp.assertion_id,n.subjekt_id AS narrativ_person_id,bp.public_ref,
+           ev.after_state #>> '{labels,record_label}' AS record_label,
+           ev.after_state #>> '{labels,citation_label}' AS citation_label,
+           public.person_daa_narrative_publication_allowed(n.id) AS tilladt
+      FROM bp
+      JOIN public.narrative n ON n.id=bp.narrative_id AND n.subjekt_type='person'
+      JOIN LATERAL (SELECT e.after_state FROM private.narrative_publication_event e
+                     WHERE e.binding_id=bp.binding_id ORDER BY e.stream_version DESC,e.id DESC LIMIT 1) ev ON true
   ), bn AS (
     -- Entydighed: præcis én gældende binding pr. assertion, ellers ingen.
     SELECT a.id AS assertion_id,
@@ -22870,15 +22900,9 @@ BEGIN
     LEFT JOIN public.citation c ON c.assertion_id=a.id
     LEFT JOIN public.source s ON s.id=c.source_id
     LEFT JOIN LATERAL (
-      SELECT bp.public_ref,ev.after_state #>> '{labels,record_label}' AS record_label,
-             ev.after_state #>> '{labels,citation_label}' AS citation_label
-        FROM bp
-        JOIN public.narrative n ON n.id=bp.narrative_id
-        JOIN LATERAL (SELECT e.after_state FROM private.narrative_publication_event e
-                       WHERE e.binding_id=bp.binding_id ORDER BY e.stream_version DESC,e.id DESC LIMIT 1) ev ON true
-       WHERE bp.assertion_id=a.id AND bn.n_bind=1
-         AND n.subjekt_type='person' AND n.subjekt_id=f.subjekt_id
-         AND public.person_daa_narrative_publication_allowed(n.id)
+      SELECT bl.public_ref,bl.record_label,bl.citation_label
+        FROM bl
+       WHERE bl.assertion_id=a.id AND bn.n_bind=1 AND bl.narrativ_person_id=f.subjekt_id AND bl.tilladt
     ) lab ON true
    ORDER BY f.subjekt_id,f.id,a.id,c.id NULLS LAST;
 END $$;
