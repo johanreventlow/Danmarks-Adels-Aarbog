@@ -610,7 +610,7 @@ describe('byggUdgaveFakta', () => {
       r18({ person_id: 280, faktatype: 'fødsel', vaerdi_tekst: '12. jan. 1922 i København', date_raw: '12. jan. 1922' }),
       r18({ person_id: 280, faktatype: 'dåb', vaerdi_tekst: 'hjemmedøbt 10. febr. s.å.', date_raw: '10. febr. 1922' }),
       r18({ person_id: 280, faktatype: 'død', date_raw: '22. nov. 1922' }),
-      // C3: et relativt datofelt ved siden af en tekst med dato kan henvise til tekstens dato → bogens tekst
+      // et relativt datofelt, der står ordret i en tekst med flere datoer (#478)
       r18({ person_id: 280, faktatype: 'begravelse', vaerdi_tekst: 'bisat 27. s.m., begravet 19. sept. 1924', date_raw: '27. s.m.' }),
       r39({ person_id: 281, faktatype: 'fødsel', date_raw: '12. jan. 1922' }),
       r39({ person_id: 281, faktatype: 'dåb', vaerdi_tekst: 'hjemmedøbt 10. febr. 1922', date_raw: null }),
@@ -620,8 +620,8 @@ describe('byggUdgaveFakta', () => {
     expect(linje(v, 'fødsel').map((l) => l.vaerdi)).toEqual(['12. jan. 1922 i København']);
     // teksten opløses for sig; derefter er datofeltet dobbelt
     expect(linje(v, 'dåb').map((l) => [l.vaerdi, l.noter])).toEqual([['hjemmedøbt 10. febr. 1922', [{ art: 'enig', udgave: D39 }]]]);
-    // C3 består (intet opløses), men datofeltet står ordret i teksten og vises ikke igen
-    expect(linje(v, 'begravelse').map((l) => l.vaerdi)).toEqual(['bisat 27. s.m., begravet 19. sept. 1924']);
+    // datofeltet står ordret i teksten → intet selvstændigt led (#478); teksten opløses for sig
+    expect(linje(v, 'begravelse').map((l) => l.vaerdi)).toEqual(['bisat 27. november 1922, begravet 19. sept. 1924']);
     // C3: en tekst med en sikker dato og et relativt datofelt — datofeltet kan henvise til tekstens dato
     const tekstDato = input([
       r18({ person_id: 283, faktatype: 'fødsel', date_raw: '12. jan. 1922' }),
@@ -718,6 +718,43 @@ describe('byggUdgaveFakta', () => {
       r18({ person_id: 323, faktatype: 'dåb', vaerdi_tekst: 'hjemmedøbt 10. febr. s.å.', date_raw: '10. febr. s.å.' }),
     ], { udgaveForPersonRaekke: { '323': '1' } });
     expect(linje(byggUdgaveFakta(gentaget, '1'), 'dåb').map((l) => l.vaerdi)).toEqual(['hjemmedøbt 10. febr. 1922']);
+  });
+
+  it('#478: et datofelt, der står ordret INDE i teksten, er intet selvstændigt led — teksten opløses for sig', () => {
+    const doebt = input([
+      r18({ person_id: 340, faktatype: 'fødsel', date_raw: '2. juli 1858' }),
+      r18({ person_id: 340, faktatype: 'dåb', vaerdi_tekst: 'døbt 18. aug. s.å. i Vesterborg Kirke', date_raw: '18. aug. s.å.' }),
+    ], { udgaveForPersonRaekke: { '340': '1' } });
+    expect(linje(byggUdgaveFakta(doebt, '1'), 'dåb').map((l) => l.vaerdi)).toEqual(['døbt 18. aug. 1858 i Vesterborg Kirke']);
+    // to relative led i teksten, datofeltet gentager det sidste (person 406's form)
+    const bisat = input([
+      r18({ person_id: 341, faktatype: 'død', date_raw: '21. jan. 1923' }),
+      r18({ person_id: 341, faktatype: 'begravelse',
+        vaerdi_tekst: 'bisat 27. s.m. fra Garnisons Kirke s.st. og begravet 29. s.m. i Theophili Skov', date_raw: '29. s.m.' }),
+    ], { udgaveForPersonRaekke: { '341': '1' } });
+    expect(linje(byggUdgaveFakta(bisat, '1'), 'begravelse').map((l) => l.vaerdi))
+      .toEqual(['bisat 27. januar 1923 fra Garnisons Kirke s.st. og begravet 29. januar 1923 i Theophili Skov']);
+    // Værnet flytter: et nøgent »s.d.« står nu også »i teksten«. Kæden i teksten (»s.d.« = bisættelsens dag) skal
+    // stadig stoppe opløsningen, når den giver en anden dag end dødsdagen.
+    const kaede = input([
+      r18({ person_id: 342, faktatype: 'død', date_raw: '31. marts 1928' }),
+      r18({ person_id: 342, faktatype: 'begravelse', vaerdi_tekst: 'bisat 5. april s.å. og begravet s.d.', date_raw: 's.d.' }),
+    ], { udgaveForPersonRaekke: { '342': '1' } });
+    expect(linje(byggUdgaveFakta(kaede, '1'), 'begravelse').map((l) => l.vaerdi)).toEqual(['bisat 5. april s.å. og begravet s.d.']);
+    expect(relativeDatoer(kaede).map((r) => [r.oploest, r.kaedebrud])).toEqual([[false, false]]);
+    // står datofeltet ikke i teksten, består C3 uændret (målingens »kaedebrud«)
+    const c3 = input([
+      r18({ person_id: 343, faktatype: 'død', date_raw: '31. marts 1928' }),
+      r18({ person_id: 343, faktatype: 'begravelse', vaerdi_tekst: 'bisat 5. april s.å. og begravet', date_raw: 's.d.' }),
+    ], { udgaveForPersonRaekke: { '343': '1' } });
+    expect(relativeDatoer(c3).map((r) => [r.oploest, r.kaedebrud])).toEqual([[false, true]]);
+    // er dødsdagen bisættelsens dag, giver kæden og referencen samme dag → opløses
+    const sammeDag = input([
+      r18({ person_id: 344, faktatype: 'død', date_raw: '5. april 1928' }),
+      r18({ person_id: 344, faktatype: 'begravelse', vaerdi_tekst: 'bisat 5. april s.å. og begravet s.d.', date_raw: 's.d.' }),
+    ], { udgaveForPersonRaekke: { '344': '1' } });
+    expect(linje(byggUdgaveFakta(sammeDag, '1'), 'begravelse').map((l) => l.vaerdi))
+      .toEqual(['bisat 5. april 1928 og begravet 5. april 1928']);
   });
 
   it('C4: flere forskellige eller omstridte referencer opløser intet', () => {

@@ -63,12 +63,10 @@ const slutterMed = (tekst: string, del: string) => {
   return foer == null || !/[\p{L}\p{N}]/u.test(foer);
 };
 
-// Er `date_raw` en gentagelse af `vaerdi_tekst` (lig den eller dens afslutning)? Bruges af opløsningen af relative
-// datoer (editionFacts.ts, »datofelt ved en dato i teksten«), hvor reglen er målt 2026-11-12 og bevidst stadig er
-// »slutter med«. At lade opløsningen bruge visningens bredere regel er en senere opgave (#478).
+// Er `date_raw` lig `vaerdi_tekst` eller dens afslutning (afgørelse 13's oprindelige regel)? Indgår i `datoVisesIForvejen`.
 export const datoErDobbelt = (tekst: string, dato: string) => dato.trim() === tekst.trim() || slutterMed(tekst, dato);
 
-// Visningens regel (afgørelse 13 revideret 2026-11-24, projektejeren): `date_raw` vises ikke igen, når den står ORDRET
+// Visningens og opløsningens regel (afgørelse 13 revideret 2026-11-24, projektejeren; opløsningen fra #478): `date_raw` vises ikke igen, når den står ORDRET
 // et vilkårligt sted i `vaerdi_tekst` med ordgrænse på begge sider og er mere end et årstal — fx »25. april 1861 på
 // Pederstrup« + »25. april 1861«. Værnene fra afgørelse 13 består: et rent årstal kan være et tilfælde, og »?« eller
 // parenteser i datoen gør den forskellig fra teksten (kun mellemrum og . , ; : er skrivemåde i halen).
@@ -82,7 +80,9 @@ const staarITeksten = (tekst: string, del: string) => {
   }
   return false;
 };
-const datoVisesIForvejen = (tekst: string, dato: string) => datoErDobbelt(tekst, dato) || staarITeksten(tekst, dato);
+// Bruges også af opløsningen af relative datoer (editionFacts.ts, »datofelt ved en dato i teksten«): et datofelt, der står
+// ordret i teksten, er intet selvstændigt led, og teksten opløses for sig (#478).
+export const datoVisesIForvejen = (tekst: string, dato: string) => datoErDobbelt(tekst, dato) || staarITeksten(tekst, dato);
 
 // Den rå værdi med ledende tegn fjernet; null for tom.
 export const visDel = (v: string | null) => {

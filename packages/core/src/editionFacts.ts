@@ -6,7 +6,7 @@
 import { slutterPaaSlaegtsnavn } from './slaegtsnavn';
 import {
   FAKTA_UDELADT,
-  datoErDobbelt,
+  datoVisesIForvejen,
   factSource,
   factValue,
   typeRank,
@@ -286,10 +286,11 @@ function oploser(ref: Referencer, valg: OploesValg, kaedebrud?: Set<string>): Va
     const dato = visDel(r.date_raw);
     let raekke = r;
     if (tekst && dato && erRelativDato(dato) && indeholderDato(tekst)) {
-      // Et datofelt, der ordret gentager tekstens slutning, er intet selvstændigt led: teksten opløses for sig.
-      // Ellers kan feltets »s.d.«/»s.m.« henvise til tekstens dato i stedet for referencen (»bisat 5. april s.å.
-      // og begravet« + »s.d.«), og intet opløses — hele værdien er bogens tekst (final review C3).
-      if (!datoErDobbelt(tekst, dato)) {
+      // Et datofelt, der står ordret i teksten (visningens regel, #478), er intet selvstændigt led: teksten opløses
+      // for sig, og kæden af datoer i teksten tjekkes af `oploesRelativDato`. Ellers kan feltets »s.d.«/»s.m.«
+      // henvise til tekstens dato i stedet for referencen (»bisat 5. april s.å. og begravet« + »s.d.«), og intet
+      // opløses — hele værdien er bogens tekst (final review C3).
+      if (!datoVisesIForvejen(tekst, dato)) {
         kaedebrud?.add(String(r.fact_id));
         return factValue(r);
       }
