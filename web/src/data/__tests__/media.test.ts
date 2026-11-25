@@ -26,7 +26,7 @@ describe('pickPortrait med primaer-flag (fase 4)', () => {
   });
 
   it('uden primaer gælder den gamle heuristik uændret', () => {
-    expect(pickPortrait([m(1, 'segl', 'u1'), m(2, 'maleri', 'u2')])?.id).toBe('2');
+    expect(pickPortrait([m(1, 'segl', 'u1'), m(2, 'portræt', 'u2')])?.id).toBe('2');
     expect(pickPortrait([m(1, 'segl', 'u1'), m(2, 'dokument', 'u2')])?.id).toBe('1');
   });
 });
