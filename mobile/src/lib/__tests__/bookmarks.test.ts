@@ -9,6 +9,7 @@ import { createRemoteBookmarkRepository } from '../bookmarks';
 
 let mockRows: { user_id: string; person_id: string }[] = [];
 let mockFailNextWrite = false;
+let mockListError: string | null = null;
 
 jest.mock('../supabase', () => ({
   supabase: {
@@ -16,7 +17,9 @@ jest.mock('../supabase', () => ({
       if (table !== 'bookmark') throw new Error('uventet tabel: ' + table);
       return {
         select: () => ({
-          order: () => Promise.resolve({ data: mockRows.map((r) => ({ person_id: r.person_id })), error: null }),
+          order: () => Promise.resolve(mockListError
+            ? { data: null, error: { message: mockListError } }
+            : { data: mockRows.map((r) => ({ person_id: r.person_id })), error: null }),
         }),
         upsert: (row: { person_id: string }) => {
           if (mockFailNextWrite) { mockFailNextWrite = false; return Promise.resolve({ error: { message: 'boom' } }); }
@@ -36,7 +39,7 @@ jest.mock('../supabase', () => ({
   supabaseEnabled: true,
 }));
 
-beforeEach(() => { mockRows = []; mockFailNextWrite = false; });
+beforeEach(() => { mockRows = []; mockFailNextWrite = false; mockListError = null; });
 
 describe('createRemoteBookmarkRepository', () => {
   it('list/add/remove sender person_id som streng (ikke Number())', async () => {
@@ -69,5 +72,15 @@ describe('createRemoteBookmarkRepository', () => {
 
   it('list() på tom base giver tom liste', async () => {
     expect(await createRemoteBookmarkRepository().list()).toEqual([]);
+  });
+});
+
+describe('createRemoteBookmarkRepository — hentefejl (review 37 W12)', () => {
+  it('list kaster ved fejl i stedet for at give en tom liste', async () => {
+    mockListError = 'timeout';
+    await expect(createRemoteBookmarkRepository().list()).rejects.toThrow('timeout');
+  });
+  it('en tom, vellykket liste er stadig []', async () => {
+    await expect(createRemoteBookmarkRepository().list()).resolves.toEqual([]);
   });
 });
