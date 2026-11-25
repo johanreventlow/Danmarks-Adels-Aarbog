@@ -49972,3 +49972,198 @@ BEGIN
 END
 $purge_execute$;
 -- END review37-c2
+
+-- BEGIN review37-c2b
+-- Review 37 ceremoni 2b (#397, projektejeren 25/11 efter måling i prod-kopien): kontrollistens grund »id_henvisning«.
+-- P's eget id som værdi for en nøgle med »person« i navnet (fx identitetskandidaters candidate_person_id) er en ægte
+-- henvisning, ikke et årstal, og vises åbent i stedet for i den sammenklappede »kun_id«-gruppe. Deploy-området er denne
+-- blok alene, i ÉN transaktion. Kroppen er kopieret fra schema.sql og er den endelige definition. Samme signatur og ACL.
+-- Ændrer forhåndsvisningens hash for profiler med sådanne træf (åbne forhåndsvisninger: PURGE_PREVIEW_AENDRET).
+-- Ingen data ændres.
+
+CREATE OR REPLACE FUNCTION private.person_purge_kontrol(p_person_id bigint,p_plan jsonb)
+RETURNS TABLE(sted text,tabel text,pk jsonb,grund text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public, private AS $purge_control$
+WITH plan AS MATERIALIZED (SELECT * FROM jsonb_to_recordset(p_plan) q(tabel text,pk jsonb,handling text)),
+  fam AS MATERIALIZED (SELECT family_id AS id FROM public.family_member WHERE person_id=p_person_id),
+  fam_keep AS (SELECT id FROM fam WHERE id NOT IN
+    (SELECT (pk->>'id')::bigint FROM plan WHERE tabel='family' AND handling='slet')),
+  tokens AS (SELECT '(^|[^0-9])('||string_agg(id::text,'|' ORDER BY id)||')([^0-9]|$)' AS rx
+    FROM (SELECT p_person_id AS id UNION SELECT id FROM fam) ids),
+  navn AS MATERIALIZED (SELECT n.navn,substring(to_jsonb(n.navn)::text FROM 2 FOR length(to_jsonb(n.navn)::text)-2) AS json_navn
+    -- Ceremoni 2: trimmet, så et navn af blanktegn ikke matcher enhver tekst med et mellemrum.
+    FROM (SELECT nullif(btrim(visning_navn),'') AS navn FROM public.person WHERE id=p_person_id) n),
+  -- Projektejeren 2026-11-20 (runde 4, E): bevarede medie↔familie-koblinger (rk) på Fam_ind-familier. Det låste billede
+  -- og den bevarede evidens på koblingen kommer ALTID på listen (ikke kun ved navn/token, jf. Q8), så redaktøren ser dem
+  -- før en genfrigivelse; evidensens tekst kan nævne personen uden token.
+  -- Runde 6 (Codex): bevarede change_sets, som sletningen rører (subjekt P eller en Fam_c-familie, eller med events, der
+  -- slettes nu), og hvis summary bærer P's indhold: en feed-nøgle med P's id (fx red_set_feed_pin 'embede:P:<titel>:<år>'),
+  -- et [[person:P|…]]-token eller P's navn. De kommer på kontrollisten (Q8-mønstret); summary rettes ikke.
+  famc AS MATERIALIZED (SELECT (pk->>'id')::bigint AS id FROM plan WHERE tabel='family' AND handling='slet'
+    UNION SELECT id FROM private.person_purge_familieindhold(p_person_id)),
+  cs_roert AS MATERIALIZED (
+    SELECT id FROM public.change_set WHERE (subjekt_type='person' AND subjekt_id=p_person_id)
+      OR (subjekt_type='family' AND subjekt_id IN (SELECT id FROM famc))
+    UNION SELECT change_set_id FROM public.change_event
+      WHERE id IN (SELECT (pk->>'id')::bigint FROM plan WHERE tabel='change_event' AND handling='slet')),
+  -- Runde 7 (Codex): tekstmatch på det AKTUELLE navn overser et gammelt navn (fx to red_opret_person i samme sæt, P
+  -- omdøbt senere). Operations-regel: et bevaret, rørt sæt fra en skriver, hvis summary kan bære personindhold (navn,
+  -- titel, fritekst eller feed-/record-nøgle), kommer ALTID på listen; tekstmatchet er et ekstra net for øvrige
+  -- operationer. Fortryd-sæt (»Fortrød: …«) af et sådant bevaret sæt følger med.
+  cs_kontrol0 AS MATERIALIZED (
+    SELECT cs.id FROM public.change_set cs CROSS JOIN navn
+    WHERE cs.id IN (SELECT id FROM cs_roert)
+      AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel='change_set' AND d.pk=jsonb_build_object('id',cs.id) AND d.handling='slet')
+      AND (cs.operation IN ('red_opret_person','red_opret_estate','red_opret_kilde','red_opret_organisation','red_opret_media',
+            'red_upload_media','red_ret_paastand','placement_membership_reversal','red_set_feed_pin','red_fjern_feed_pin',
+            'red_ret_ocr_felt')
+        OR cs.operation LIKE 'narrative\_record\_%'
+        OR (cs.summary COLLATE "C") ~ ('(portrait|citat|naevnt|dagensperson|jubilaeum|embede|slaegt|paadennedag):([0-9]+:)?'
+          ||p_person_id::text||'([^0-9]|$)')
+        OR position((('[[person:'||p_person_id::text||'|') COLLATE "C") IN (cs.summary COLLATE "C"))>0
+        OR (navn.navn IS NOT NULL AND position((navn.navn COLLATE "C") IN (cs.summary COLLATE "C"))>0))),
+  cs_kontrol AS MATERIALIZED (
+    SELECT id FROM cs_kontrol0
+    UNION SELECT r.id FROM public.change_set r WHERE r.reverterer_id IN (SELECT id FROM cs_kontrol0)
+      AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel='change_set' AND d.pk=jsonb_build_object('id',r.id) AND d.handling='slet')),
+  rk AS MATERIALIZED (SELECT r.id,CASE WHEN r.subjekt_type='media' THEN r.subjekt_id ELSE r.objekt_id END AS media_id
+    FROM public.relation r WHERE
+      (r.subjekt_type='media' AND r.objekt_type='family' AND r.objekt_id IN (SELECT id FROM private.person_purge_familieindhold(p_person_id))
+        AND r.objekt_id NOT IN (SELECT (pk->>'id')::bigint FROM plan WHERE tabel='family' AND handling='slet'))
+      OR (r.objekt_type='media' AND r.subjekt_type='family' AND r.subjekt_id IN (SELECT id FROM private.person_purge_familieindhold(p_person_id))
+        AND r.subjekt_id NOT IN (SELECT (pk->>'id')::bigint FROM plan WHERE tabel='family' AND handling='slet'))),
+  tekster AS (
+  SELECT 'S11c'::text AS sted,'private.source_persona_identity_event'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_persona_identity_event t WHERE true
+  UNION ALL
+  SELECT 'S34b'::text AS sted,'suggestion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.payload::text,t.vaerdi::text,t.note::text,t.kilde_fritekst::text) AS tekst FROM public.suggestion t WHERE true
+  UNION ALL
+  SELECT 'S37b'::text AS sted,'media'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.titel::text,t.original_filnavn::text,t.kunstner::text) AS tekst FROM public.media t WHERE true
+  UNION ALL
+  SELECT 'S38b'::text AS sted,'narrative'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.tekst::text) AS tekst FROM public.narrative t WHERE t.subjekt_type='family' AND t.subjekt_id IN (SELECT id FROM fam_keep)
+  UNION ALL
+  SELECT 'S38b'::text AS sted,'note'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.indhold::text) AS tekst FROM public.note t WHERE t.target_type='family' AND t.target_id IN (SELECT id FROM fam_keep)
+  UNION ALL
+  SELECT 'S58'::text AS sted,'note'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.indhold::text) AS tekst FROM public.note t WHERE (t.target_type='family' AND t.target_id IN (SELECT id FROM fam_keep)) IS NOT TRUE
+  UNION ALL
+  SELECT 'S38b'::text AS sted,'assertion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.vaerdi_tekst::text,t.date_raw::text) AS tekst FROM public.assertion t WHERE t.target_type='fact' AND t.target_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep))
+  UNION ALL
+  SELECT 'S38b'::text AS sted,'citation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.citat_tekst::text) AS tekst FROM public.citation t WHERE t.assertion_id IN (SELECT a.id FROM public.assertion a JOIN public.fact f ON a.target_type='fact' AND a.target_id=f.id WHERE f.subjekt_type='family' AND f.subjekt_id IN (SELECT id FROM fam_keep))
+  UNION ALL
+  SELECT 'S44b'::text AS sted,'private.reimport_case_authorization'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.authorized_elements::text) AS tekst FROM private.reimport_case_authorization t WHERE true
+  UNION ALL
+  SELECT 'S45b'::text AS sted,'private.identity_control_parent_event'::text AS tabel,jsonb_build_object('card_id',t.card_id,'seq',t.seq) AS pk,
+    concat_ws(' ',t.note::text) AS tekst FROM private.identity_control_parent_event t WHERE true
+  UNION ALL
+  SELECT 'S49c'::text AS sted,'private.marriage_ordinal_correction'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.marriage_ordinal_correction t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.interpretation_promotion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.interpretation_promotion t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.interpretation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.value::text,t.decision_evidence::text) AS tekst FROM private.interpretation t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_persona_identity_candidate'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.basis::text) AS tekst FROM private.source_persona_identity_candidate t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.relation_reopen'::text AS tabel,jsonb_build_object('to_interpretation_id',t.to_interpretation_id) AS pk,
+    concat_ws(' ',t.context::text,t.note::text) AS tekst FROM private.relation_reopen t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.text_revision_reconciliation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.context::text) AS tekst FROM private.text_revision_reconciliation t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.relation_classification_event'::text AS tabel,jsonb_build_object('interpretation_key',t.interpretation_key,'seq',t.seq) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.relation_classification_event t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.legacy_placement_disposition'::text AS tabel,jsonb_build_object('person_id',t.person_id,'source_id',t.source_id,'version',t.version) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.legacy_placement_disposition t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_record_placement_decision'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_record_placement_decision t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_persona_placement_decision'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_persona_placement_decision t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.identity_control_event'::text AS tabel,jsonb_build_object('control_run_id',t.control_run_id,'seq',t.seq) AS pk,
+    concat_ws(' ',t.reason::text) AS tekst FROM private.identity_control_event t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.identity_control_exclusion'::text AS tabel,jsonb_build_object('control_run_id',t.control_run_id,'source_persona_id',t.source_persona_id) AS pk,
+    concat_ws(' ',t.reason::text) AS tekst FROM private.identity_control_exclusion t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_record_anchor_event'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_record_anchor_event t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_record_revision_event'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_record_revision_event t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.source_observation_text'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.evidence::text) AS tekst FROM private.source_observation_text t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'private.entity_description_source'::text AS tabel,jsonb_build_object('description_id',t.description_id,'source_record_id',t.source_record_id) AS pk,
+    concat_ws(' ',t.citation_note::text) AS tekst FROM private.entity_description_source t WHERE true
+  UNION ALL
+  -- Review 37 P3 (ceremoni 2): andre bevarede tekster, der kan nævne P i ren tekst. Søges som resten (navn og id-tal;
+  -- projektejeren 25/11); id-tal i påstande er ofte årstal og står derfor som »kun_id«. Rækker, som S38b ovenfor
+  -- allerede dækker (påstande og citater på bevarede familiers fakta), står ikke her igen.
+  SELECT 'S58'::text AS sted,'story'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.titel::text,t.tekst::text) AS tekst FROM public.story t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'entity_description'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.tekst::text) AS tekst FROM public.entity_description t WHERE true
+  UNION ALL
+  SELECT 'S58'::text AS sted,'assertion'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.vaerdi_tekst::text) AS tekst FROM public.assertion t WHERE t.vaerdi_tekst IS NOT NULL
+      AND (t.target_type='fact' AND t.target_id IN (SELECT id FROM public.fact WHERE subjekt_type='family' AND subjekt_id IN (SELECT id FROM fam_keep))) IS NOT TRUE
+      -- Evidens på bevarede medie↔familie-koblinger står allerede som NY-E (bevaret_evidens) nedenfor.
+      AND (t.target_type='relation' AND t.target_id IN (SELECT id FROM rk)) IS NOT TRUE
+  UNION ALL
+  SELECT 'S58'::text AS sted,'citation'::text AS tabel,jsonb_build_object('id',t.id) AS pk,
+    concat_ws(' ',t.citat_tekst::text) AS tekst FROM public.citation t WHERE t.citat_tekst IS NOT NULL
+      -- IS NOT TRUE: et citat uden påstand (assertion_id NULL) skal også med.
+      AND (t.assertion_id IN (SELECT a.id FROM public.assertion a JOIN public.fact f ON a.target_type='fact' AND a.target_id=f.id WHERE f.subjekt_type='family' AND f.subjekt_id IN (SELECT id FROM fam_keep))) IS NOT TRUE
+      AND (t.assertion_id IN (SELECT a.id FROM public.assertion a WHERE a.target_type='relation' AND a.target_id IN (SELECT id FROM rk))) IS NOT TRUE
+  ),
+  -- Review 37 P10 (ceremoni 2): ét fund pr. række. Et navnetræf er »fritekst«; et træf, der KUN er P's eller en families
+  -- id som tal (ofte et årstal, sidetal eller en talværdi i kildedataenes JSON), er »kun_id«. Søgningen er lige så
+  -- bred som før (projektejeren 25/11).
+  traef AS (
+    SELECT t.sted,t.tabel,t.pk,
+      (navn.navn IS NOT NULL AND (position((navn.navn COLLATE "C") IN (t.tekst COLLATE "C"))>0
+        OR position((navn.json_navn COLLATE "C") IN (t.tekst COLLATE "C"))>0)) AS navn_hit,
+      (t.tekst COLLATE "C" ~ tokens.rx) AS id_hit, t.tekst
+    FROM tekster t CROSS JOIN tokens CROSS JOIN navn
+  )
+-- Ceremoni 2b (projektejeren 25/11, efter måling i prod-kopien): P's EGET id som værdi for en nøgle med »person« i navnet
+-- (fx identitetskandidaters "candidate_person_id": P) er en ægte henvisning, ikke et årstal: grunden »id_henvisning«
+-- (vises åbent). En families id eller et id under en anden nøgle forbliver »kun_id«. Kun på rækker, der allerede er træf.
+SELECT t.sted,t.tabel,t.pk,CASE WHEN bool_or(t.navn_hit) THEN 'fritekst'
+    WHEN bool_or(t.id_hit AND t.tekst COLLATE "C" ~ ('"[a-z_]*person[a-z_]*"\s*:\s*"?'||p_person_id::text||'"?\s*[,}\]]'))
+      THEN 'id_henvisning'
+    ELSE 'kun_id' END::text FROM traef t
+WHERE (t.navn_hit OR t.id_hit)
+  AND NOT EXISTS (SELECT 1 FROM plan d WHERE d.tabel=t.tabel AND d.pk=t.pk AND d.handling='slet')
+GROUP BY t.sted,t.tabel,t.pk
+UNION
+SELECT 'NY-E'::text,'media'::text,jsonb_build_object('id',k.media_id),'laast_familiefoto'::text FROM rk k
+  WHERE EXISTS (SELECT 1 FROM plan d WHERE d.tabel='media' AND d.pk=jsonb_build_object('id',k.media_id) AND d.handling='skjul')
+UNION
+SELECT 'NY-E'::text,'assertion'::text,jsonb_build_object('id',a.id),'bevaret_evidens'::text FROM public.assertion a
+  WHERE a.target_type='relation' AND a.target_id IN (SELECT id FROM rk)
+UNION
+SELECT 'NY-E'::text,'citation'::text,jsonb_build_object('id',c.id),'bevaret_evidens'::text FROM public.citation c
+  WHERE c.assertion_id IN (SELECT a.id FROM public.assertion a WHERE a.target_type='relation' AND a.target_id IN (SELECT id FROM rk))
+UNION
+SELECT CASE WHEN cs.subjekt_type='person' AND cs.subjekt_id=p_person_id THEN 'S52b' ELSE 'S57' END::text,'change_set'::text,
+    jsonb_build_object('id',cs.id),'bevaret_summary'::text
+  FROM cs_kontrol k JOIN public.change_set cs ON cs.id=k.id
+$purge_control$;
+-- END review37-c2b
