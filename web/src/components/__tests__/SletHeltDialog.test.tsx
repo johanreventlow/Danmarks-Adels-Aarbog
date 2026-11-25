@@ -67,7 +67,7 @@ it('viser navnetræf og ændringssæt med forklaring, og rene id-tal i en særsk
     { sted: 'S34b', tabel: 'suggestion', pk: { id: 9 }, grund: 'kun_id' }] }));
   await screen.findByText(/Teksten nævner profilens navn/);
   expect(screen.getByText(/Et bevaret ændringssæts beskrivelse kan nævne profilen/)).toBeTruthy();
-  const gruppe = screen.getByText('Kun et id-tal (2) — ofte et årstal eller en dato').closest('details')!;
+  const gruppe = screen.getByText('Kun et id-tal (2) — ofte et årstal, sidetal eller en anden talværdi i kildedata').closest('details')!;
   expect(gruppe.open).toBe(false);
   expect(gruppe.textContent).toMatch(/note/); expect(gruppe.textContent).toMatch(/suggestion/);
   expect(gruppe.textContent).not.toMatch(/story/);

@@ -115,6 +115,14 @@ it('»Vis flere« henter 100 ad gangen, højst 500', async () => {
   expect(screen.getByText('Viser de 500 nyeste sletninger.')).toBeTruthy();
 }, 20_000); // 4 × op til 500 rækker: over vitests standard på 5 s, når hele suiten kører samtidig.
 
+it('»Vis flere« bliver stående, når en række fra en fuld side er genskabt', async () => {
+  setup({ load: (limit) => Promise.resolve(mange(Math.min(limit, 500))) });
+  await screen.findByText('Person 0');
+  fireEvent.click(knap('Person 0'));
+  await waitFor(() => expect(screen.queryByText('Person 0')).toBeNull());
+  expect(screen.getByRole('button', { name: 'Vis flere' })).toBeTruthy();
+});
+
 it('færre end 100 rækker: ingen »Vis flere«', async () => {
   setup();
   await screen.findByText('Christian Reventlow');

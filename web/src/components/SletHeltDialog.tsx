@@ -17,7 +17,7 @@ const purgeLabels: Record<string, string> = {
   bevaret_evidens: 'Bevaret kilde/påstand på et låst familiefoto: kan nævne profilen',
   // Review 37 P3/P10 (ceremoni 2): kontrollistens tekstfund.
   fritekst: 'Teksten nævner profilens navn',
-  kun_id: 'Teksten rummer profilens eller en families id som tal — ofte et årstal',
+  kun_id: 'Teksten rummer profilens eller en families id som tal — ofte et årstal, sidetal eller en anden talværdi i kildedata',
   bevaret_summary: 'Et bevaret ændringssæts beskrivelse kan nævne profilen',
 };
 
@@ -181,7 +181,7 @@ export function SletHeltDialog({ personId, navn, dryRun, loadPreview = fetchPurg
         {(() => {
           const tal = preview.til_kontrol.map((k, i) => ({ k, i })).filter(({ k }) => k.grund === 'kun_id');
           return tal.length > 0 && <details>
-            <summary>Kun et id-tal ({tal.length}) — ofte et årstal eller en dato</summary>
+            <summary>Kun et id-tal ({tal.length}) — ofte et årstal, sidetal eller en anden talværdi i kildedata</summary>
             {kontrolListe(tal)}
           </details>;
         })()}

@@ -32,6 +32,8 @@ export function SlettedePersoner({ role, dryRun, load = fetchSlettedePersoner, f
   const [status, setStatus] = useState('');
   const [konfliktId, setKonfliktId] = useState<string | null>(null);
   const [limit, setLimit] = useState(SIDE);
+  // Antal rækker i seneste hentning: afgør »Vis flere«, også efter at en række er genskabt og fjernet lokalt.
+  const [hentet, setHentet] = useState(0);
   const writing = useRef(false);
   const redaktion = role === 'redaktion';
 
@@ -39,7 +41,7 @@ export function SlettedePersoner({ role, dryRun, load = fetchSlettedePersoner, f
     if (!redaktion) return;
     let active = true;
     setFejl('');
-    load(limit).then((r) => { if (active) setRows(r); })
+    load(limit).then((r) => { if (active) { setRows(r); setHentet(r.length); } })
       .catch((e: unknown) => { if (active) setFejl(oversaetFejl(String((e as Error)?.message ?? e))); });
     return () => { active = false; };
   }, [load, redaktion, revision, genhent, limit]);
@@ -104,9 +106,9 @@ export function SlettedePersoner({ role, dryRun, load = fetchSlettedePersoner, f
         </td>
       </tr>)}</tbody>
     </table>}
-    {rows && rows.length >= limit && limit < LOFT && <button type="button" onClick={() => setLimit((n) => Math.min(n + SIDE, LOFT))}
+    {rows && hentet >= limit && limit < LOFT && <button type="button" onClick={() => setLimit((n) => Math.min(n + SIDE, LOFT))}
       style={{ marginTop: 12, fontSize: 13, borderRadius: 8, padding: '6px 12px', border: `1px solid ${T.line}`, background: T.surfaceRaised }}>Vis flere</button>}
-    {rows && rows.length >= LOFT && <p style={{ fontSize: 12.5, color: T.inkMuted }}>Viser de 500 nyeste sletninger.</p>}
+    {rows && hentet >= LOFT && <p style={{ fontSize: 12.5, color: T.inkMuted }}>Viser de 500 nyeste sletninger.</p>}
     {dryRun && <p style={{ fontSize: 12.5 }}>Dry-run er slået til.</p>}
   </section>;
 }
