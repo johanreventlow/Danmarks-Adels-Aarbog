@@ -76,12 +76,12 @@ test_that("gruppe med én ukoblet person må ikke publiceres", {
 test_that("portræt: ingen billeder → ingen; primaer → behold; billeder uden primaer → lås det viste", {
   tom <- data.frame(media_id = character(), slags = character(), primaer = logical())
   expect_equal(portraet_handling(tom)$handling, "ingen")
-  expect_equal(portraet_handling(data.frame(media_id = c("1", "2"), slags = c("scanning", "foto"),
+  expect_equal(portraet_handling(data.frame(media_id = c("1", "2"), slags = c("våben", "portræt"),
                                             primaer = c(FALSE, TRUE)))$handling, "behold")
-  h <- portraet_handling(data.frame(media_id = c("1", "2"), slags = c("scanning", " Foto "),
+  h <- portraet_handling(data.frame(media_id = c("1", "2"), slags = c("våben", " Portræt "),
                                     primaer = c(FALSE, FALSE)))
   expect_equal(h, list(handling = "laas", media_id = "2", person_id = NA_character_))
-  uden_slags <- portraet_handling(data.frame(media_id = c("7", "8"), slags = c("scanning", NA),
+  uden_slags <- portraet_handling(data.frame(media_id = c("7", "8"), slags = c("våben", NA),
                                              primaer = c(FALSE, FALSE)))
   expect_equal(uden_slags, list(handling = "laas", media_id = "7", person_id = NA_character_))
 })
@@ -94,7 +94,7 @@ test_that("plan: sikker egen kan publiceres, usikre og uafklarede kan ikke uden 
 
 test_that("plan: låser kun ét portræt pr. person, selv med flere nye billeder", {
   m <- list(billeder = list(manifest_fix$billeder[[3]], modifyList(manifest_fix$billeder[[3]], list(noegle = "c2"))))
-  medier <- data.frame(person_id = "501", media_id = "77", slags = "foto", primaer = FALSE)
+  medier <- data.frame(person_id = "501", media_id = "77", slags = "portræt", primaer = FALSE)
   p <- byg_plan(m, ext_fix, aeg_fix, medier)
   expect_equal(p$portraet[[1]][["501"]][c("handling", "media_id")], list(handling = "laas", media_id = "77"))
   expect_equal(p$portraet[[2]][["501"]]$handling, "behold")
@@ -293,12 +293,12 @@ test_that("egen med ekstra tekst (»og hustru …«) går til gennemgang og kan 
 })
 
 test_that("portrætlås peger på det id, relationen faktisk sidder på (alias), og ignorerer fjernede medier", {
-  medier <- data.frame(media_id = c("1", "2"), slags = c("foto", "foto"), primaer = c(FALSE, FALSE),
+  medier <- data.frame(media_id = c("1", "2"), slags = c("portræt", "portræt"), primaer = c(FALSE, FALSE),
                        medlem = c("1600", "501"), upload_status = c("fjernet", "klar"))
   expect_equal(portraet_handling(medier), list(handling = "laas", media_id = "2", person_id = "501"))
-  alias <- data.frame(media_id = "3", slags = "foto", primaer = FALSE, medlem = "1600", upload_status = "klar")
+  alias <- data.frame(media_id = "3", slags = "portræt", primaer = FALSE, medlem = "1600", upload_status = "klar")
   expect_equal(portraet_handling(alias)$person_id, "1600")
-  kun_fjernet <- data.frame(media_id = "1", slags = "foto", primaer = FALSE, medlem = "501", upload_status = "fjernet")
+  kun_fjernet <- data.frame(media_id = "1", slags = "portræt", primaer = FALSE, medlem = "501", upload_status = "fjernet")
   expect_equal(portraet_handling(kun_fjernet)$handling, "ingen")
 })
 

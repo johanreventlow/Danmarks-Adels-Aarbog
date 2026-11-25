@@ -9,11 +9,11 @@ describe('pickPortrait', () => {
   });
 
   test('vælger portræt-egnet slags frem for øvrige', () => {
-    expect(pickPortrait([m(1, 'segl'), m(2, 'maleri'), m(3, 'dokument')])?.id).toBe(2);
+    expect(pickPortrait([m(1, 'segl'), m(2, 'portræt'), m(3, 'dokument')])?.id).toBe(2);
   });
 
-  test('normaliserer slags (case + trim), så "Maleri"/" Portræt " genkendes', () => {
-    expect(pickPortrait([m(1, 'segl'), m(2, 'Maleri')])?.id).toBe(2);
+  test('normaliserer slags (case + trim), så "Portræt"/" Portræt " genkendes', () => {
+    expect(pickPortrait([m(1, 'segl'), m(2, 'Portræt')])?.id).toBe(2);
     expect(pickPortrait([m(1, 'dokument'), m(2, ' Portræt ')])?.id).toBe(2);
   });
 

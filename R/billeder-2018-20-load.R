@@ -12,7 +12,7 @@
 # Output (gitignoreret): plan.csv, gennemgang.txt, rapport.csv i samme mappe.
 
 BILLEDER_MANIFEST <- "work_2018_saerudgave/billeder/manifest.json"
-BILLEDER_PORTRAET_SLAGS <- c("portræt", "foto", "maleri", "portraet") # = PORTRAIT_SLAGS i packages/core/src/mediaVisning.ts (gamle værdier tåles)
+BILLEDER_PORTRAET_SLAGS <- "portræt" # = PORTRAIT_SLAGS i packages/core/src/mediaVisning.ts
 
 # ---------------------------------------------------------------------------------------------------------------
 # Rene funktioner (Task 2)

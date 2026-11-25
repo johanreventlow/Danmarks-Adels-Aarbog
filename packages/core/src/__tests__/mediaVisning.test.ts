@@ -17,8 +17,10 @@ describe('mediaCaption', () => {
 
 describe('erPortraetSlags', () => {
   it('portrætter ja, segl/medalje/våben nej', () => {
-    expect(erPortraetSlags(' Maleri')).toBe(true);
-    expect(erPortraetSlags('portraet')).toBe(true);
+    expect(erPortraetSlags(' Portræt')).toBe(true);
+    // gamle teknik-værdier er ikke længere portrætter (databasen oversætter dem til 'portræt', 2026-11-25)
+    expect(erPortraetSlags('maleri')).toBe(false);
+    expect(erPortraetSlags('portraet')).toBe(false);
     expect(erPortraetSlags('segl')).toBe(false);
     expect(erPortraetSlags('våben')).toBe(false);
     expect(erPortraetSlags(undefined)).toBe(false);

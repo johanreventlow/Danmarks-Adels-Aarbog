@@ -172,7 +172,7 @@ export function MediaDetaljeOverlay({ media, anvendelse, anvendelseFejl, fletKan
         style={{ border: 0, background: 'transparent', color: C.red, cursor: fletBusy ? 'default' : 'pointer', fontSize: 11.5, padding: 0 }}>Fjern</button> : null}
     </div>
   );
-  // Ordlistens motiver + mediets nuværende værdi, hvis den er en gammel (fx 'maleri' før dataflytningen).
+  // Ordlistens motiver + mediets nuværende værdi, hvis den mod forventning ikke står i listen.
   const mediaSlags = Array.from(new Set<string>([...MEDIA_SLAGS.map((m) => m.code), meta.slags].filter(Boolean)));
   const warning = ret.maaPubliceres && (ret.status === 'spaerret' || ret.status === 'begraenset');
   const statusLine = [mediaSlagsLabel(media.slags), media.uploadStatus,

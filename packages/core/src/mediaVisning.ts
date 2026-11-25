@@ -14,14 +14,14 @@ export const MEDIA_SLAGS: ReadonlyArray<{ code: string; label: string }> = [
 ];
 export const MEDIA_SLAGS_STANDARD = 'portræt';
 
-// Label til visning; en ukendt eller gammel kode (fx 'maleri' før dataflytningen) vises som den er.
+// Label til visning; en ukendt kode vises som den er.
 export function mediaSlagsLabel(slags: string | null | undefined): string {
   return MEDIA_SLAGS.find((s) => s.code === slags)?.label ?? (slags ?? '');
 }
 
-// Portræt-egnede slags (hovedbillede på personkort). Sammenlign altid normaliseret (lowercase+trim).
-// 'foto'/'maleri'/'portraet' er gamle værdier, som tåles, til dataflytningen er i prod (ryddes bagefter).
-export const PORTRAIT_SLAGS: ReadonlySet<string> = new Set(['portræt', 'foto', 'maleri', 'portraet']);
+// Portræt-egnede slags (hovedbillede på personkort). Sammenlign altid normaliseret (lowercase+trim). Efter
+// dataflytningen og databasens trigger (2026-11-25) findes kun motivet 'portræt'; gamle værdier oversættes i databasen.
+export const PORTRAIT_SLAGS: ReadonlySet<string> = new Set(['portræt']);
 
 // Er mediet et portræt? Portrætrammerne (beskåret) passer kun til portrætter; vælges et segl, en
 // medalje eller et våben som hovedbillede, skal det vises helt i stedet.
