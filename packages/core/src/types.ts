@@ -263,3 +263,44 @@ export type SourceRef = {
   slaegtled?: number | null;
 };
 export type LinjeEntry = { linje: string; count: number; headId: string | null; navn: string | null };
+
+export type RawSource = {
+  id: number | string;
+  slags: string | null;
+  titel: string | null;
+  udgave: string | null;
+  aar?: number | null;
+  ekstern: string | null;
+};
+
+// Den stabile klientkontekst for en lineage. Trykte koder som "II" er kun
+// præsentation; cache, navigation og filtrering skal bruge disse ID'er.
+export type LineageContext = {
+  slaegtId: string;
+  lineageId: string;
+  schemeId?: string;
+  schemeEntryId?: string;
+};
+
+export type RawLineageContext = RawLineage & {
+  slaegt_id?: number | string | null;
+  canonical_label?: string | null;
+  slaegtsnavn?: string | null;
+};
+export type RawLineageScheme = {
+  id: number | string;
+  slaegt_id: number | string;
+  source_id: number | string | null;
+  kind: string;
+};
+export type RawLineageSchemeEntry = {
+  id: number | string;
+  scheme_id: number | string;
+  code: string;
+  label: string;
+};
+export type RawLineageSchemeEntryLineage = {
+  entry_id: number | string;
+  lineage_id: number | string;
+  relation_kind: string;
+};
