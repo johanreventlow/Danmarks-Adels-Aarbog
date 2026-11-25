@@ -22836,14 +22836,15 @@ BEGIN
     -- Gældende bindinger pr. assertion med deres eneste record (betingelse 1, 2 og 4); gyldigheden som
     -- assertion_binding_current, for alle rækker på én gang.
     SELECT pr.target_id AS assertion_id,pr.id AS promotion_id,cur.source_id,
-           -- Review 37 Y4: ankeret slås op pr. occurrence (LATERAL; filteret på view'ets DISTINCT ON-nøgle skubbes ind
-           -- og bruger UNIQUE(occurrence_id,source_record_id,version)) i stedet for at bygge hele view'et pr. binding.
+           -- Review 37 Y4: ankeret slås op pr. occurrence i stedet for at bygge hele view'et pr. binding. OFFSET 0
+           -- forhindrer, at planneren flader underforespørgslen ud (så bliver filteret en join-betingelse igen); nu
+           -- skubbes filteret på view'ets DISTINCT ON-nøgle ind og bruger UNIQUE(occurrence_id,source_record_id,version).
            (SELECT array_agg(an.source_record_id)
               FROM private.interpretation_observation io
               JOIN private.source_observation o ON o.id=io.observation_id
               CROSS JOIN LATERAL (
                 SELECT ac.source_record_id FROM private.source_record_anchor_current ac
-                 WHERE ac.occurrence_id=o.occurrence_id AND ac.decision_status='accepted') an
+                 WHERE ac.occurrence_id=o.occurrence_id AND ac.decision_status='accepted' OFFSET 0) an
              WHERE io.interpretation_id=pr.interpretation_id AND io.evidence_role='supporting') AS recs,
            (SELECT count(*) FROM private.interpretation_observation io
              WHERE io.interpretation_id=pr.interpretation_id AND io.evidence_role='supporting') AS n_support

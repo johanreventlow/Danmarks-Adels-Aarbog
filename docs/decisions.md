@@ -19,7 +19,9 @@ Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
   hver forespørgsel, og en klient kan ikke fjerne dem. Grund: seks interne ceremoni- og målescripts (bl.a.
   `identitet_ceremoni.sql`, `record_persona_ceremoni.sql`, begge i CI) hasher læserens visning for alle offentlige
   personer i ét psql-kald som anon. Fravalgt: fast loft + opdeling af de seks scripts (rører afsluttede ceremonier) og
-  intet loft (anon's 3 s-timeout begrænser kun tiden, ikke klientens id-liste).
+  intet loft (anon's 3 s-timeout begrænser kun tiden, ikke klientens id-liste). **Ikke efterprøvet i prod endnu:** testen
+  simulerer markørerne; at prods PostgREST sætter dem, prøves med ét anon-REST-kald med 21 id'er efter apply (forventet
+  HTTP 400 `PUBLIC_PERSON_FACTS_FOR_MANGE_ID`). Sætter den dem ikke, er loftet virkningsløst — som før ceremonien.
 
 ## BESLUTTET: s.å./s.m./s.d. oversættes også, når datofeltet står inde i teksten (afgørelse 13, del 2, 2026-11-25)
 
