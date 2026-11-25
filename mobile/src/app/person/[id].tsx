@@ -12,7 +12,7 @@ import { NarrativRenderer } from '../../components/NarrativRenderer';
 import { StripedPlaceholder } from '../../components/StripedPlaceholder';
 import { TopBar } from '../../components/TopBar';
 import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { lifeJourney, selectDefaultPublicBioSourceVersionV2 } from '@daa/core';
+import { kanoniskeLinjer, lifeJourney, selectDefaultPublicBioSourceVersionV2 } from '@daa/core';
 import type { BioSourceVersion, BioSourceVersionV2 } from '@daa/core';
 import { fetchPublicBioVersionsForPerson } from '../../data/publicBioVersions';
 import { childrenByMarriage, parentsOf, spousesOf } from '../../data/selectors';
@@ -87,14 +87,14 @@ export default function PersonScreen() {
   const parents = parentsOf(model, person.id);
   const spouses = spousesOf(model, person.id);
   const marriages = childrenByMarriage(model, person.id).filter((m) => m.children.length);
-  const linjer = aux?.linjeByPerson[person.id] ?? [];
+  const linjer = kanoniskeLinjer(model.lineage, person.id);
   // Proveniens: er personen foldet af flere DAA-poster (samme_som), vis hvilke linjer/numre.
   const mergedFrom = person.mergedFrom ?? [];
   const proveniens =
     mergedFrom.length > 1
       ? mergedFrom
           .map((m) => {
-            const navn = m.linje ? aux?.linjeNavn[m.linje] ?? `linje ${m.linje}` : 'ukendt linje';
+            const navn = m.linje ? `linje ${m.linje}` : 'ukendt linje';
             const ref = m.linje && m.nr != null ? ` (${m.linje}-${m.nr_label ?? m.nr})` : '';
             return `${navn}${ref}`;
           })
@@ -141,7 +141,7 @@ export default function PersonScreen() {
               ) : null}
               {linjer.map((lk) => (
                 <View key={lk} style={[styles.badge, styles.badgeBordered, { backgroundColor: Colors.surfaceSunken }]}>
-                  <Mono size={10} color={Colors.inkMuted} style={{ letterSpacing: 0 }}>{aux?.linjeNavn[lk] ?? `Linje ${lk}`}</Mono>
+                  <Mono size={10} color={Colors.inkMuted} style={{ letterSpacing: 0 }}>{model.lineage?.navn[lk] ?? `Linje ${lk}`}</Mono>
                 </View>
               ))}
               {person.title ? (

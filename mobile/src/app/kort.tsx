@@ -3,28 +3,30 @@
 // (type-filter/år-slider/"nær mig" er senere skiver). Lokal filter-tilstand — påvirker
 // BEVIDST ikke den globale activeLinje (stamtræets linje-filter), da dette er en separat visning.
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { GeoMap } from '../components/GeoMap';
 import { LoadGate } from '../components/LoadGate';
 import { TopBar } from '../components/TopBar';
 import { Body, BtnLabel } from '../components/Typography';
-import { filterByLineage } from '@daa/core';
+import { filterByLineage, kanoniskeLinjerPrPerson, synligeLinjer } from '@daa/core';
 import { useGeoOnMount } from '../hooks/useGeoOnMount';
 import { useStore } from '../store/useStore';
 import { Border, Colors } from '../theme/tokens';
 
 export default function KortScreen() {
   const router = useRouter();
-  const aux = useStore((s) => s.aux);
+  const model = useStore((s) => s.model);
   const geo = useStore((s) => s.geo);
   const geoLoading = useStore((s) => s.geoLoading);
   const [linje, setLinje] = useState<string | null>(null);
 
   // Lazy geo-kæde (review 27 P3): dette ER kort-fladen — udløs geo-hentningen ved mount.
   useGeoOnMount();
-  const linjeList = aux?.linjeList ?? [];
-  const points = linje ? filterByLineage(geo.points, aux?.linjeByPerson ?? {}, linje, { includeNonPerson: true }) : geo.points;
+  // Chippens nøgle er kanonisk (én pr. linje på tværs af udgaver); filtret slår op i samme nøglerum (som web).
+  const linjeList = useMemo(() => synligeLinjer(model?.lineage?.list ?? []), [model]);
+  const linjeByPerson = useMemo(() => kanoniskeLinjerPrPerson(model?.lineage), [model]);
+  const points = linje ? filterByLineage(geo.points, linjeByPerson, linje, { includeNonPerson: true }) : geo.points;
   const linjeNavn = linjeList.find((l) => l.linje === linje)?.navn;
 
   return (

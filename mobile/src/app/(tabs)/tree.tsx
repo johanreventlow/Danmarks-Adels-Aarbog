@@ -10,7 +10,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LoadGate } from '../../components/LoadGate';
 import { BtnLabel, Kicker, Mono, Serif } from '../../components/Typography';
-import { buildBidirectionalColumns } from '@daa/core';
+import { buildBidirectionalColumns, kanoniskeLinjerPrPerson, synligeLinjer } from '@daa/core';
 import { childrenOf, parentsOf, routeToMe, treeFocusA, wayToMe, type WayStep } from '../../data/selectors';
 import type { Model, ModelPerson } from '../../data/types';
 import { selectMeId, useStore } from '../../store/useStore';
@@ -19,14 +19,16 @@ import { Border, Colors, Fonts, Radius, Shadow } from '../../theme/tokens';
 export default function TreeScreen() {
   const insets = useSafeAreaInsets();
   const model = useStore((s) => s.model);
-  const aux = useStore((s) => s.aux);
   const variant = useStore((s) => s.variant);
   const setVariant = useStore((s) => s.setVariant);
   const activeLinje = useStore((s) => s.activeLinje);
   const pickLinje = useStore((s) => s.pickLinje);
   const clearLinje = useStore((s) => s.clearLinje);
 
-  const linjeList = aux?.linjeList ?? [];
+  // Én chip pr. kanonisk linje på tværs af udgaver (6e): 1939 »IV« og 2018-20 »V« for samme linje er én chip, og en
+  // teknisk nøgle er aldrig en chip. Opslaget person → linjer bruger samme nøglerum.
+  const linjeList = useMemo(() => synligeLinjer(model?.lineage?.list ?? []), [model]);
+  const linjeByPerson = useMemo(() => kanoniskeLinjerPrPerson(model?.lineage), [model]);
 
   return (
     <LoadGate>
@@ -50,7 +52,7 @@ export default function TreeScreen() {
         {!model ? null : variant === 'B' ? (
           <VariantB model={model} insets={insets} />
         ) : variant === 'C' ? (
-          <VariantC model={model} activeLinje={activeLinje} linjeByPerson={aux?.linjeByPerson ?? {}} linjeNavn={aux?.linjeNavn ?? {}} />
+          <VariantC model={model} activeLinje={activeLinje} linjeByPerson={linjeByPerson} linjeNavn={model.lineage?.navn ?? {}} />
         ) : (
           <VariantA model={model} insets={insets} />
         )}
