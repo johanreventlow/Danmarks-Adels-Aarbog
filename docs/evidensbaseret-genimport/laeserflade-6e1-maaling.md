@@ -221,3 +221,37 @@ viser arket også nr. 42 (nu »skriver«) og nr. 43-46 (bedømt på bogens tekst
 
 **Efter slutrettelserne:** de 927 ✓-par er de samme (nøgle og værdier) som dem, dommene gælder; der er intet nyt
 par at bedømme.
+
+## Genmåling #478 (2026-11-25): datofelt inde i teksten
+
+Ændring: oversættelsen af »s.å./s.m./s.d.« bruger visningens regel (afgørelse 13 revideret 2026-11-24) i stedet for
+»slutter med«. Et datofelt, der står ordret *inde i* teksten, er intet selvstændigt led; teksten opløses for sig, og
+kæden af datoer i teksten tjekkes som før af `oploesRelativDato`.
+
+- **Base:** stand-in `daa5ab_ddl_standin_20261124224412_c1` (læse-dump af prod 24/11). Verificeret identisk med prod
+  2026-11-25: antal + md5 over `assertion` (id, `vaerdi_tekst`, `date_raw`) og `conclusion` for personers fødsel/død/
+  dåb/begravelse (2.869 / 2.862), `person` (id, levende, privat; 1.802) og `samme_som`-relationer (815). Eneste
+  skrivninger i prod siden dumpet: 48 `teknik`-fakta på billeder (§53).
+- **Kørsel:** `maal.ts --ark … --json …` før (main `86bc91ce`) og efter; sammenligningen bruger JSON-udtrækket af hele
+  visningen pr. komponent × udgave (linjer, noter, »Kun i«), de relative datoer og ✓-parrene.
+
+| | Før | Efter |
+|---|---:|---:|
+| Opløst / ikke opløst | 273 / 91 | 297 / 67 |
+| DAA 2018-20 dåb: opløst / »datofelt ved en dato i teksten« | 152 / 26 | 169 / 9 |
+| DAA 2018-20 begravelse: opløst / »datofelt ved en dato i teksten« | 92 / 18 | 99 / 7 |
+| Unikke ✓-par | 960 | 960 (0 nye, 0 tabte, 0 med ændret værdi) |
+| ✓ / skriver / »Kun i« pr. type | | uændret |
+
+- **Kun de nyopløste ændrer sig:** 24 viste værdier skifter fra bogens tekst til den opløste tekst, alle 24 var før
+  stoppet af »datofelt ved en dato i teksten«. 19 komponenter (37 visninger) ændres; erstattes de 24 gamle værdier med de
+  nye i før-udtrækket, er det identisk med efter-udtrækket (0 uforklarede ændringer). Ingen værdi er holdt op med at
+  blive opløst.
+- 4 af de 44 tidligere »datofelt ved en dato i teksten« opløses stadig ikke, nu af en senere regel (3 dødsdatoen er
+  selv relativ, 1 flertydig kæde i teksten); deres viste værdi er uændret.
+- **Kontrol** (egen dato-parser, uafhængig af core; samme tæller før og efter): ugyldige kalenderdatoer 0 → 0; før
+  referencen 0 → 0 (talt for 239 → 263 værdier med en hel dato som reference); opløste værdier med mere end én
+  forskellig hel dato 0 → 3 — to begravelser, der nævner både bisættelse og begravelse, og én dåb (»hjemmedøbt …,
+  fremstillet …«); alle tre er i arket.
+- **Ark:** alle 24 nye oversættelser (bogens tekst, fødslen/døden, ny visning, kilde) i et ark uden for repo'et
+  (`478-nye-oversaettelser.html`), til projektejerens dom.
