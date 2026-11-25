@@ -2,14 +2,15 @@
 // tidligere en hårdkodet pladsholder uden datahentning; nu en port af web/src/data/public.ts's
 // fetchAbout-mønster. Hver linje/"Generelt" kan have flere udgaver (Slice C3's edition-faner) —
 // pickPreferredBio vælger én pr. subjekt. NarrativRenderer (Slice C1) giver ##-overskrifter/
-// linjeskift/indlejrede billeder i selve prosaen, ikke kun rå tekst.
+// linjeskift/indlejrede billeder i selve prosaen, ikke kun rå tekst. 6e: hvert afsnit nævner sin udgave (»§ Kilde:
+// DAA 2018-20«), så linjeafsnit fra forskellige udgaver ikke står umærkede side om side (som web's AboutView).
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { LoadGate } from '../components/LoadGate';
 import { TopBar } from '../components/TopBar';
 import { NarrativRenderer } from '../components/NarrativRenderer';
 import { Body, Mono, Serif } from '../components/Typography';
-import { fetchAbout, type AboutSection } from '../data/about';
+import { fetchAbout, indledningKilde, type AboutSection } from '../data/about';
 import { Border, Colors, Radius } from '../theme/tokens';
 
 const SLAEGT = 'Reventlow';
@@ -41,10 +42,13 @@ export default function AboutScreen() {
               </Mono>
             </View>
           ) : (
-            sections.map((s, i) => (
-              <View key={i} style={{ marginBottom: 22 }}>
-                {s.lineageNavn && <Serif size={22} color={Colors.bordeaux} style={{ marginBottom: 8 }}>{s.lineageNavn}</Serif>}
+            sections.map((s) => (
+              <View key={s.lineageId ?? 'slaegt'} style={{ marginBottom: 22 }}>
+                {s.lineageId ? <Serif size={22} color={Colors.bordeaux} style={{ marginBottom: 8 }}>Om {s.lineageNavn ?? `linje ${s.lineageKode}`}</Serif> : null}
                 <NarrativRenderer tekst={s.tekst} size={14} color={Colors.ink} />
+                <Mono size={10.5} color={Colors.inkMuted} style={{ marginTop: 8 }}>
+                  <Serif size={14} color={Colors.bordeaux}>§ </Serif>{indledningKilde(s)}
+                </Mono>
               </View>
             ))
           )}
