@@ -40,7 +40,7 @@ const RPCER: Record<string, Post> = {
   public_person_bio_source_versions: B, public_person_bio_source_versions_v2: B,
   red_bekraeft_media_upload: B, red_match_personer: B, red_person_narrative_records: B,
   red_registrer_media_variant: B, red_slet_person_preview: B, red_udrens_media_preview: B,
-  public_person_facts: web('mobilen er bagud — planlagt i paritetsplanen (batch 7: fakta med kilde på personskærmen)'),
+  public_person_facts: B,
   hist_for_subjekter: web('mobilen viser kun historik for ét subjekt ad gangen; samlet historik er ikke planlagt (paritetsrapport 2.6)'),
   red_ocr_historik: web(IKKE_OCR),
   red_person_grid_udsnit: web(IKKE_OCR),
