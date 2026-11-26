@@ -50640,3 +50640,26 @@ BEGIN
    ORDER BY f.subjekt_id,f.id,a.id,c.id NULLS LAST;
 END $$;
 -- END review37-c3
+
+-- BEGIN review37-r37p11-2
+-- Review 37 R37P11-2 (#397, projektejeren 26/11: »begge veje, med advarsel«): redaktørens vej til at rette
+-- person.levende efter oprettelsen. Ny funktion med samme protokol som red_set_privat (rollegate, ukendt id før
+-- ændringssættet, samme_som-låsen, fortrydelig). Kun authenticated får EXECUTE (redaktionens allow-liste i db-rls.sql);
+-- anon aldrig. Kroppen er kopieret fra schema.sql og er den endelige definition. Ingen data ændres.
+CREATE OR REPLACE FUNCTION public.red_set_levende(p_person_id bigint, p_levende boolean)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_levende IS NULL THEN
+    RAISE EXCEPTION 'LEVENDE_UGYLDIG' USING ERRCODE='22023', DETAIL='levende skal være sand eller falsk.';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM person WHERE id = p_person_id) THEN
+    RAISE EXCEPTION 'Person % findes ikke', p_person_id; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  PERFORM begin_change_set('red_set_levende',
+    format('Satte person %s som %s', p_person_id, CASE WHEN p_levende THEN 'levende' ELSE 'afdød' END), 'person', p_person_id);
+  UPDATE person SET levende = p_levende WHERE id = p_person_id;
+END $$;
+REVOKE ALL ON FUNCTION public.red_set_levende(bigint,boolean) FROM PUBLIC,anon,authenticated,service_role;
+GRANT EXECUTE ON FUNCTION public.red_set_levende(bigint,boolean) TO authenticated;
+-- END review37-r37p11-2

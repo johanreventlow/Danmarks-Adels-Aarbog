@@ -7380,6 +7380,25 @@ BEGIN
   UPDATE person SET privat = p_privat WHERE id = p_person_id;
 END $$;
 
+-- Review 37 R37P11-2 (2026-11-26): redaktørens vej til at rette levende efter oprettelsen. Samme protokol som
+-- red_set_privat: rollegate, ukendt id afvises før ændringssættet, samme_som-låsen før personrækken (gruppens synlighed
+-- afhænger af medlemmernes levende, #415), fortrydelig via change_event. Levende → afdød kan gøre personen synlig for
+-- gæster (medmindre privat/staged); web beder om en ekstra bekræftelse. NULL afvises: levende er sand eller falsk.
+CREATE OR REPLACE FUNCTION red_set_levende(p_person_id bigint, p_levende boolean)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
+BEGIN
+  IF current_rolle() IS DISTINCT FROM 'redaktion' THEN RAISE EXCEPTION 'Kun redaktion'; END IF;
+  IF p_levende IS NULL THEN
+    RAISE EXCEPTION 'LEVENDE_UGYLDIG' USING ERRCODE='22023', DETAIL='levende skal være sand eller falsk.';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM person WHERE id = p_person_id) THEN
+    RAISE EXCEPTION 'Person % findes ikke', p_person_id; END IF;
+  PERFORM pg_advisory_xact_lock(hashtext('samme_som_mutation'));
+  PERFORM begin_change_set('red_set_levende',
+    format('Satte person %s som %s', p_person_id, CASE WHEN p_levende THEN 'levende' ELSE 'afdød' END), 'person', p_person_id);
+  UPDATE person SET levende = p_levende WHERE id = p_person_id;
+END $$;
+
 -- Eneste klient-skrivevej til hændelsesprojektionen: redaktørens feed-dom.
 CREATE OR REPLACE FUNCTION red_set_haendelse_status(p_haendelse_id bigint, p_status text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
