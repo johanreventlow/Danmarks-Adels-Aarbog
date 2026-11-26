@@ -1,6 +1,7 @@
 // #471: sammenlagte godser skjules i listen, og »hører under« hentes i ét filtreret relation-opslag.
 import { describe, expect, it, vi } from 'vitest';
 
+const fejlGodsRels = { paa: false };
 const kald: { tabel: string; filtre: Record<string, unknown> }[] = [];
 const ESTATES = [
   { id: 5, navn: 'Christianssæde', slags: 'grevskab' },
@@ -23,6 +24,7 @@ function table(name: string) {
   q.range = async () => {
     kald.push({ tabel: name, filtre: { ...filtre } });
     if (name === 'estate') return { data: ESTATES, error: null };
+    if (name === 'relation' && filtre.subjekt_type === 'estate' && fejlGodsRels.paa) return { data: null, error: { message: 'timeout', code: '57014' } };
     if (name === 'relation') return { data: filtre.subjekt_type === 'estate' ? GODS_RELS : PERSON_EJER, error: null };
     return { data: [], error: null };
   };
@@ -52,5 +54,14 @@ describe('fetchEstates med sammenlagte godser (#471)', () => {
     const model = { persons: [], byId: {}, lineage: [] } as never;
     const r = soeg(model, d.estates, { q: 'Christianssæde', type: 'alle', sort: 'navn', linje: null, fra: null, til: null, bm: false } as never);
     expect(r.godser.map((g) => g.id)).toEqual(['5']);
+  });
+  it('en fejl i KUN gods→gods-opslaget lader listen stå som før (ingen skjulte, ingen hører under)', async () => {
+    fejlGodsRels.paa = true;
+    try {
+      const d = await fetchEstates();
+      expect(d.estates.map((e) => e.id).sort()).toEqual(['405', '5', '7']);
+      expect(d.sammenlagt.size).toBe(0);
+      expect(d.hoererUnder).toEqual([]);
+    } finally { fejlGodsRels.paa = false; }
   });
 });

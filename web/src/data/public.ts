@@ -110,8 +110,10 @@ export async function fetchEstates(): Promise<EstatesData> {
     getAll<RawEstate>(() => supabase.from('estate').select('id,navn,slags')),
     getAll<{ subjekt_id: number; objekt_id: number }>(() => supabase.from('relation').select('subjekt_id,objekt_id')
       .eq('objekt_type', 'estate').eq('subjekt_type', 'person').eq('rolle', 'ejer')),
+    // Pynt-lag: en fejl her må ikke lægge listen, besiddelsessiderne og feedet ned (som før #471: ingen skjulte/omdirigerede/»hører under«).
     getAll<RawEstateGodsRel>(() => supabase.from('relation').select('subjekt_id,objekt_id,rolle,periode_raw')
-      .eq('subjekt_type', 'estate').eq('objekt_type', 'estate').in('rolle', ['sammenlagt_i', 'hører_under'])),
+      .eq('subjekt_type', 'estate').eq('objekt_type', 'estate').in('rolle', ['sammenlagt_i', 'hører_under']))
+      .catch((e) => { console.warn('[fetchEstates] gods→gods-relationer utilgængelige:', e); return [] as RawEstateGodsRel[]; }),
   ]);
   const ejere: Record<string, Set<string>> = {};
   rels.forEach((r) => { (ejere[String(r.objekt_id)] ??= new Set()).add(String(r.subjekt_id)); });
@@ -184,14 +186,6 @@ export function fetchEstateInfo(estateId: string): Promise<EstateInfo> {
 }
 
 // --- Person-detalje (bio + embeder + godser) til højre-panelet ---
-
-// Sammenlagt-kanterne (sammenlagt gods → overlevende) for en mængde godser; tomt uden opslag, når listen er tom.
-async function fetchSammenlagtFor(estIds: number[]): Promise<Map<string, string>> {
-  if (!estIds.length) return new Map();
-  const rows = await getAll<{ subjekt_id: number; objekt_id: number }>(() => supabase.from('relation').select('subjekt_id,objekt_id')
-    .eq('subjekt_type', 'estate').eq('objekt_type', 'estate').eq('rolle', 'sammenlagt_i').in('subjekt_id', estIds));
-  return new Map(rows.map((r) => [String(r.subjekt_id), String(r.objekt_id)]));
-}
 
 // Slå organisation/estate-navne op i ét hug (delt af person-detalje + relations-læsning).
 export async function resolveOrgEstateNames(orgIds: number[], estIds: number[]): Promise<{ org: Map<string, string>; estate: Map<string, string> }> {
@@ -420,11 +414,9 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
         ?? selectDefaultPublicBioSourceVersionV2(kladder))?.narrativeText ?? ''
       : bioVersions[0]?.narrativeText ?? '';
     const orgIds = rels.filter((r) => r.objekt_type === 'organisation').map((r) => r.objekt_id);
-    // Et sammenlagt gods vises som det gods, det blev lagt ind i (#471): ét filtreret opslag, kun når personen har godser.
-    const rawEstIds = rels.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);
-    const estSammenlagt = await fetchSammenlagtFor(rawEstIds);
-    const estKanon = (id: number | string) => estateKanonisk(String(id), estSammenlagt);
-    const estIds = [...new Set(rawEstIds.map((id) => Number(estKanon(id))))];
+    // Databasevagterne (ESTATE_SAMMENLAGT_HAR_KOBLINGER/ESTATE_ER_SAMMENLAGT) sikrer, at en besiddelse aldrig peger på et
+    // sammenlagt gods, så personsiden bruger id'erne direkte (ingen ekstra rundtur).
+    const estIds = rels.filter((r) => r.objekt_type === 'estate').map((r) => r.objekt_id);
     // Navne og redaktørens kildetekster i samme bølge (ingen ekstra seriel rundtur for personsiden).
     const [{ org: orgNavn, estate: estNavn }, fritekstKilde] = await Promise.all([
       resolveOrgEstateNames(orgIds, estIds),
@@ -440,7 +432,7 @@ export function fetchPersonDetail(id: string, memberIds?: string[], hentKilder =
     );
     const estates = dedupBy(
       rels.filter((r) => r.objekt_type === 'estate').map((r) => ({
-        id: estKanon(r.objekt_id), navn: estNavn.get(estKanon(r.objekt_id)) || `#${estKanon(r.objekt_id)}`, personId: String(r.subjekt_id),
+        id: String(r.objekt_id), navn: estNavn.get(String(r.objekt_id)) || `#${r.objekt_id}`, personId: String(r.subjekt_id),
       })),
       (e) => `${e.personId}|${e.id}`,
     );

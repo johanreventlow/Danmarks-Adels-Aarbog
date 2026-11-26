@@ -320,3 +320,12 @@ test('/besiddelse/<sammenlagt id> omdirigeres med replace til det gods, det blev
   render(<Folgesvend />);
   await waitFor(() => expect(navigate).toHaveBeenCalledWith('/besiddelse/5', expect.objectContaining({ replace: true })));
 });
+
+test('cyklus i sammenlagt (a→b, b→a) giver ingen omdirigerings-pingpong (#471)', async () => {
+  mocks.fetchEstates.mockResolvedValue({ estates: [], sammenlagt: new Map([['1', '2'], ['2', '1']]), hoererUnder: [] });
+  window.history.replaceState({}, '', '/besiddelse/1');
+  render(<Folgesvend />);
+  await waitFor(() => expect(mocks.fetchEstates).toHaveBeenCalled());
+  await new Promise((r) => setTimeout(r, 100));
+  expect(navigate).not.toHaveBeenCalledWith(expect.stringMatching(/^\/besiddelse\/\d+$/), expect.objectContaining({ replace: true }));
+});

@@ -276,7 +276,7 @@ export default function Folgesvend() {
   useEffect(() => {
     if (mode !== 'estates' || !estateId) return;
     const kanonisk = estateKanonisk(estateId, sammenlagt);
-    if (kanonisk === estateId) return;
+    if (kanonisk === estateId || sammenlagt.has(kanonisk)) return; // cyklus: ingen pingpong
     setEstateId(kanonisk);
     navigate(estatePath(kanonisk), { replace: true, state: window.history.state });
   }, [mode, estateId, sammenlagt]);
