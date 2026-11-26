@@ -45,8 +45,6 @@ const RAW_CLASSES: string[][] = [
   ['hartvig', 'hartwich'],
   ['bertram', 'bartram'],
   ['joachim', 'achim', 'jochim'],
-  // Linjernes adelsnavn (2026-11-26): IV skrives »de Reventlou« i bogen; søgning på den ene stavemåde finder den anden.
-  ['reventlow', 'reventlou'],
 ];
 
 const VARIANT_MAP: Record<string, string> = {};
