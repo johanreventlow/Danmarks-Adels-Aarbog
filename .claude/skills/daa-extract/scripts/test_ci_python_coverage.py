@@ -126,3 +126,28 @@ def test_every_exclusion_carries_a_reason():
             while j >= 0 and linjer[j].strip().startswith(("--ignore=", "--deselect=")):
                 j -= 1
             assert j >= 0 and linjer[j].strip().startswith("#"), f"udelukkelse uden årsag: {l.strip()}"
+
+
+# Review 37 C7: python-skips er tavse huller. CI-trinnet håndhæver et loft (SKIP_LOFT); testen sikrer, at loftet findes,
+# og at filer, der som helhed springes over i CI, står her med årsag (de dækker kun lokale kørsler med privat artefakt).
+SKIP_LOFT_MAX = 45
+KUN_LOKALT_PY = {
+    ".claude/skills/daa-extract/scripts/test_build_name_completion_manifest_1939_v50.py":
+        "alle tests bortset fra to env-vagt-tests kræver DAA_1939_V50_NAME_COMPLETION_SOURCE_MANIFEST (privat, gitignoreret "
+        "kildemanifest; invariant 8). Springes over i CI (30 skips) og køres lokalt med miljøvariablen sat.",
+}
+
+
+def test_ci_enforces_a_python_skip_ceiling():
+    script = _step_run(_python_job(CI.read_text(encoding="utf-8")))
+    m = re.search(r"^SKIP_LOFT=(\d+)$", script, re.M)
+    assert m, "CI-trinnet har intet SKIP_LOFT"
+    assert int(m.group(1)) <= SKIP_LOFT_MAX, "SKIP_LOFT må ikke hæves uden at ændre SKIP_LOFT_MAX her bevidst"
+    assert "set -o pipefail" in script and "overstiger loftet" in script
+
+
+def test_local_only_python_tests_exist_and_state_their_gate():
+    for f, aarsag in KUN_LOKALT_PY.items():
+        assert (REPO / f).is_file(), f"forældet KUN_LOKALT_PY: {f}"
+        assert aarsag.strip(), f"KUN_LOKALT_PY uden årsag: {f}"
+        assert "DAA_1939_V50_NAME_COMPLETION_SOURCE_MANIFEST" in (REPO / f).read_text(encoding="utf-8")
