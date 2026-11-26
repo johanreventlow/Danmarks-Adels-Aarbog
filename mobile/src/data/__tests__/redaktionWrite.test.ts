@@ -317,8 +317,8 @@ describe('buildRpcCall opret-arter', () => {
   });
   it('opretEstate → red_opret_estate', () => {
     expect(buildRpcCall({ art: 'opretEstate', subjektType: 'estate', subjektId: '',
-      payload: { navn: 'Brahetrolleborg', slags: 'gods' } } as const))
-      .toEqual({ fn: 'red_opret_estate', args: { p_navn: 'Brahetrolleborg', p_slags: 'gods' } });
+      payload: { navn: 'Brahetrolleborg', slags: 'gård' } } as const))
+      .toEqual({ fn: 'red_opret_estate', args: { p_navn: 'Brahetrolleborg', p_slags: 'gård' } });
   });
   it('opretKilde → red_opret_kilde', () => {
     expect(buildRpcCall({ art: 'opretKilde', subjektType: 'source', subjektId: '',

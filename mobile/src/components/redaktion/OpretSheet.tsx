@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { ESTATE_SLAGS } from '@daa/core';
 import { SkrivePreviewSheet } from './SkrivePreviewSheet';
 import { pickerSheetStyles } from './pickerSheetStyles';
 import { useStore } from '../../store/useStore';
@@ -14,12 +15,11 @@ const TYPER: { key: EntType; label: string }[] = [
   { key: 'kilde', label: 'Kilde' }, { key: 'organisation', label: 'Organisation' },
 ];
 const KOEN = ['mand', 'kvinde', 'ukendt'];
-const ESTATE_SLAGS = ['gods', 'len', 'stamhus', 'lensgrevskab', 'baroni'];
 const KILDE_SLAGS = ['kirkebog', 'DAA-udgave', 'bog', 'artikel', 'diplomsamling'];
 const ORG_SLAGS = ['amt', 'regiment', 'hof', 'institution', 'ridderorden'];
 // Eksplicit map (ikke ternary-fallthrough): en type uden slags-entry får tom liste, ikke ORG_SLAGS.
 const SLAGS_BY_TYPE: Partial<Record<EntType, string[]>> = {
-  estate: ESTATE_SLAGS, kilde: KILDE_SLAGS, organisation: ORG_SLAGS,
+  estate: [...ESTATE_SLAGS], kilde: KILDE_SLAGS, organisation: ORG_SLAGS,
 };
 
 function Pille({ valgt, label, onPress }: { valgt: boolean; label: string; onPress: () => void }) {

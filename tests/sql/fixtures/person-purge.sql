@@ -163,7 +163,7 @@ BEGIN
     VALUES (v_sb,'B','Prøvelinje B','Prøveslægt') RETURNING id INTO v_lb;
   PERFORM purge_test.gem('kilde_a',v_sa); PERFORM purge_test.gem('kilde_b',v_sb);
   PERFORM purge_test.gem('slaegt',v_sl); PERFORM purge_test.gem('linje_a',v_la); PERFORM purge_test.gem('linje_b',v_lb);
-  PERFORM purge_test.nyt(); v_est := public.red_opret_estate('Purgegaard','gods');
+  PERFORM purge_test.nyt(); v_est := public.red_opret_estate('Purgegaard','gård');
   PERFORM purge_test.nyt(); v_org := public.red_opret_organisation('Purgeordenen','orden');
   PERFORM purge_test.gem('ejendom',v_est); PERFORM purge_test.gem('organisation',v_org);
 END $$;
