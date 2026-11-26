@@ -36,7 +36,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 MAJORAT = ("grevskab", "baroni", "stamhus")
 FORMORD = {"grevskab": "Grevskabet", "baroni": "Baroniet", "stamhus": "Stamhuset"}
-ART_ETIKET = {"gård": "gård", "grevskab": "grevskab", "baroni": "baroni", "stamhus": "stamhus", None: "art ukendt"}
+ART_ETIKET = {"gård": "gård", "grevskab": "grevskab", "baroni": "baroni", "stamhus": "stamhus", None: "ukendt"}
 OPS = ("opret", "saet", "sammenlaeg", "kopier", "hoerer_under", "flyt")
 LIGHED = 0.85  # grænse for »ligner« (difflib-ratio på de foldede navne)
 
@@ -309,10 +309,50 @@ def parse_navn(navn: str) -> Navn:
     n.kerne = (_HALE_UDEN_KOMMA_RE if n.liste == "og" else _HALE_RE).split(n.hoved)[0].strip()
     if art == "gård":
         hit = _IKKE_GAARD_RE.search(n.kerne)
+        hit = hit or re.search(r"\b(?:til\s+)?(len|forlen\w*)\b", n.hoved[len(n.kerne):], re.I)
         hit = hit or next((_EMBEDE_RE.search(p) for p in parenteser if _EMBEDE_RE.search(p)), None)
         n.ikke_gaard = hit.group(0) if hit else None
     n.noegle = f"{art}:{_norm(n.hoved)}"
     return n
+
+
+_SOGN_RE = re.compile(r"((?:[A-ZÆØÅÄÖÜ][\w\-]*\.?\s+){0,2}?[A-ZÆØÅÄÖÜ][\w\-]*)\s+(S\.|Sogn|H\.|Herred)(?![\w])")
+
+
+def sogne_i_navn(navn: str) -> list:
+    """Sogn og herred, som navnet selv nævner (»Gaarz (Oldenburg Sogn …)«, »Vingegaard (Sønder Dyrs H.)«):
+    [(»sogn«|»herred«, navn)]."""
+    return [("herred" if t in ("H.", "Herred") else "sogn", n.strip()) for n, t in _SOGN_RE.findall(navn or "")]
+
+
+def sted_dele(sted: str | None) -> dict:
+    """place.navn (»Göhl S., Oldenburg Kr.«) → {"sogn": "Göhl", "herred": …} for de led, der findes."""
+    ud = {}
+    for d in (sted or "").split(","):
+        d = d.strip()
+        m = re.match(r"^(.+?)\s+(S\.|Sogn|H\.|Herred)$", d)
+        if m:
+            ud.setdefault("herred" if m.group(2) in ("H.", "Herred") else "sogn", m.group(1).strip())
+    return ud
+
+
+def samme_sted(a: str, b: str) -> bool:
+    """Tolerant sammenligning af sogne-/herredsnavne (Krokels/Krokek, Strø/Östra Strö)."""
+    fa, fb = fold(a), fold(b)
+    if not fa or not fb:
+        return True
+    return (fa == fb or (min(len(fa), len(fb)) >= 4 and (fa in fb or fb in fa))
+            or difflib.SequenceMatcher(None, fa, fb).ratio() >= 0.75)
+
+
+def periode_spaend(periode: str | None):
+    """(start, slut) for en periode; slut None = åben (»1750‑†«, »1731-«). Ingen årstal → None."""
+    aar = _aar(periode)
+    if not aar:
+        return None
+    tekst = (periode or "").strip()
+    aaben = "†" in tekst or bool(re.search(r"[-\u2010-\u2014]\s*$", tekst))
+    return min(aar), (None if aaben or (len(aar) == 1 and re.search(r"\d[-\u2010-\u2014]", tekst)) else max(aar))
 
 
 def kanonisk_navn(n: Navn) -> str:
@@ -494,6 +534,18 @@ def byg_forslag(data: dict) -> Forslag:
             return g.overlever, f"{ART_ETIKET[art]}en {g.navn} (række {g.overlever}, gruppe {g.nr})", None, None
         fk = fold(dn.kerne or dn.hoved)
         lign = [x for x in grupper if x.art == art and x is not egen and fk and fk in loese(x)]
+        if len(fk) < 5:
+            # Et kort navn rammer let ord i andre navne: alle grupper, hvor det står som helt ord, er kandidater.
+            lign += [x for x in grupper if x.art == art and x is not egen and x not in lign
+                     and any(fk in {fold(w) for w in re.split(r"[\s\-\u2010-\u2012/]+", navne[m].kerne)}
+                             for m in x.medlemmer)]
+        if len(lign) >= 2 or (lign and len(fk) < 5 and lign[0].noegle.split(":", 1)[1] != _norm(dn.hoved)):
+            ny_navn = dn.kerne or dn.hoved
+            noegle = f"ny:{ny_navn}"
+            return (noegle, f"en ny {ART_ETIKET[art]} {ny_navn}",
+                    f"»{del_navn}« passer løst på " + ", ".join(f"gruppe {x.nr} ({x.navn})" for x in lign) +
+                    f" — forslaget opretter en ny {ART_ETIKET[art]}; svar med gruppenummeret, hvis det er en af dem",
+                    {"noegle": noegle, "navn": ny_navn, "slags": art})
         if len(lign) == 1:
             x = lign[0]
             return (x.overlever, f"{ART_ETIKET[art]}en {x.navn} (række {x.overlever}, gruppe {x.nr})",
@@ -510,12 +562,18 @@ def byg_forslag(data: dict) -> Forslag:
                 {"noegle": noegle, "navn": ny_navn, "slags": art})
 
     def kopier_for(m: int, g: Gruppe, dele: list, art: str, ops: dict, tvivl: list, info: list):
+        sogne = [sted_dele(estates[x].get("sted")).get("sogn") for x in (m, g.overlever)]
+        sogne += [n_ for t_, n_ in sogne_i_navn(navne[m].original) if t_ == "sogn"]
         for d in dele:
             maal, beskr, tv, ny = find_maal(d, art, g)
             if maal is None:
                 continue
             if tv:
                 tvivl.append(tv)
+            sogn = next((x for x in sogne if x and fold(x) == fold(parse_navn(d).kerne or d)), None)
+            if sogn:
+                tvivl.append(f"»{d}« er også navnet på sognet ({sogn}), som godset ligger i — måske er det sognet og "
+                             f"ikke en gård; kopien er ikke valgt på forhånd")
             if ny:
                 ops["opret"].append({**ny, "gruppe": g.nr})
             maal_medl = gruppe_af[maal].medlemmer if isinstance(maal, int) else []
@@ -583,6 +641,25 @@ def byg_forslag(data: dict) -> Forslag:
         if medl != [ov] and len({kanonisk_navn(navne[m]) for m in medl}) > 1:
             info.append("andre stavemåder i gruppen: " +
                         ", ".join(sorted({kanonisk_navn(navne[m]) for m in medl} - {g.navn})))
+        ref = ov if estates[ov].get("sted") else next((m for m in medl if estates[m].get("sted")), None)
+        ref_dele = sted_dele(estates[ref]["sted"]) if ref else {}
+        set_sogne = {}
+        for m in medl:
+            for typ, nv in sogne_i_navn(navne[m].original):
+                if m == ref:
+                    continue
+                if typ in ref_dele:
+                    if not samme_sted(nv, ref_dele[typ]):
+                        tvivl.append(f"række {m} nævner {typ}et »{nv}«, men række {ref} ligger i "
+                                     f"»{estates[ref]['sted']}« — måske to forskellige godser")
+                elif ref is None and len(medl) > 1:
+                    for m2, nv2 in set_sogne.get(typ, []):
+                        if not samme_sted(nv, nv2):
+                            tvivl.append(f"række {m} nævner {typ}et »{nv}«, række {m2} »{nv2}« — måske to "
+                                         f"forskellige godser")
+                    set_sogne.setdefault(typ, []).append((m, nv))
+                    info.append(f"række {m} nævner {typ}et »{nv}«; den overlevende række {ov} har intet sted "
+                                f"(planen kan ikke sætte et)")
         if not estates[ov].get("sted_id"):
             for m in medl:
                 if m != ov and estates[m].get("sted_id"):
@@ -670,13 +747,13 @@ def byg_forslag(data: dict) -> Forslag:
 
         alts = []
         if len(medl) > 1:
-            alts.append(("A", "Læg sammen", a))
+            alts.append(("Læg sammen", a))
             adskilt = _tomme_ops()
             for m in medl:
                 adskilt["saet"].append(saet(m, navne[m].original, g.art))
-            alts.append(("C", "Behold rækkerne adskilt (kun art sættes)", adskilt))
+            alts.append(("Behold rækkerne adskilt (kun art sættes)", adskilt))
         elif n_ov.liste == "og" and not all(_ligner_navn(d) and not _IKKE_GAARD_RE.search(d) for d in n_ov.dele):
-            alts.append(("A", "Navn og art (listen ligner ikke flere gårde, så den deles ikke)", a))
+            alts.append(("Navn og art (listen ligner ikke flere gårde, så den deles ikke)", a))
             tvivl.append(f"»{n_ov.original}« er ikke oplagt en liste af gårde; ingen forvalg")
         elif n_ov.liste == "og":
             # Del op: første led bliver gården, de øvrige får en kopi af ejerforholdet.
@@ -692,25 +769,37 @@ def byg_forslag(data: dict) -> Forslag:
                 delt["saet"].append(saet(ov, parse_navn(n_ov.dele[0]).hoved, g.art))
             kopier_for(ov, g, n_ov.dele[1:], g.art, delt, d_tvivl, d_info)
             info.extend(t for t in d_info + d_tvivl if t not in info)
-            alts.append(("A", f"Del op: {' / '.join(n_ov.dele)} er hver sin gård", delt))
-            alts.append(("C", "Behold som én række med bogens navn", a))
+            alts.append((f"Del op: {' / '.join(n_ov.dele)} er hver sin gård", delt))
+            alts.append(("Behold som én række med bogens navn", a))
             tvivl.append("»og«-liste: er det flere gårde (del op) eller ét navn? Ingen forvalg")
         else:
-            alts.append(("A", "Navn og art", a))
+            alts.append(("Navn og art", a))
             renset = kanonisk_navn(n_ov)
             if a["saet"][0]["navn"] != renset:
                 b = json.loads(json.dumps(a))
                 b["saet"][0]["navn"] = renset
-                alts.append(("B", "Som A, men uden parentes/»til« i navnet", b))
+                alts.append(("Navnet uden parentes og »til«", b))
+            if a["saet"][0]["navn"] != n_ov.original:
+                b = json.loads(json.dumps(a))
+                b["saet"][0]["navn"] = n_ov.original
+                alts.append(("Behold navnet uændret", b))
+        if a["kopier"]:
+            # Kopierne skal kunne fravælges for sig (»X med Y« kan også være én gård med et andet navn).
+            uk = json.loads(json.dumps(alts[0][1]))
+            brugt = {k["til"] for k in uk["kopier"]}
+            uk["kopier"] = []
+            uk["opret"] = [o for o in uk["opret"] if o["noegle"] not in brugt]
+            alts.append((alts[0][0] + ", men uden kopier til de øvrige gårde", uk))
         if ikke_gaard and g.art == "gård":
             ekstra = []
-            for kode, tekst, ops in alts:
+            for tekst, ops in alts:
                 u = json.loads(json.dumps(ops))
-                for s in u["saet"]:
-                    s["slags"] = None
-                ekstra.append((kode + "u", tekst + " — art ukendt (ikke en gård)", u))
+                for s_ in u["saet"]:
+                    s_["slags"] = None
+                ekstra.append((tekst + " — men art ukendt (ikke en gård)", u))
             alts += ekstra
-        for kode, tekst, ops in alts:
+        for i, (tekst, ops) in enumerate(alts):
+            kode = "ABCDEFGHIJKLMNOP"[i]
             g.alternativer[kode] = Alternativ(kode, f"{tekst}: {beskriv(ops)}", ops)
         g.forvalg = None if tvivl else "A"
         ændrer = (len(medl) > 1 or any(g.alternativer["A"].ops[k] for k in ("kopier", "flyt", "opret"))
@@ -723,7 +812,12 @@ def byg_forslag(data: dict) -> Forslag:
                        r"(?P<formord>grevskabet|baroniet|stamhuset)\s+(?P<navn>.+?)\.?$", re.I)
     for mg in [x for x in grupper if x.art in MAJORAT]:
         base = mg.noegle.split(":", 1)[1]
-        mspan = [a for m in mg.medlemmer for e in ejer_pr_gods.get(m, []) for a in _aar(e["periode"])]
+        mper = [x for m in mg.medlemmer for e in ejer_pr_gods.get(m, []) for x in [periode_spaend(e["periode"])] if x]
+        # Majoratets levetid: første start til seneste udtrykkelige slut (fx »afløst 1924«), når den ligger efter alle
+        # starter; ellers er det åbent (»1736‑†« er ejerens levetid, ikke majoratets ophør).
+        mslut_kendt = [b for _, b in mper if b is not None]
+        mstart = min((a_ for a_, _ in mper), default=None)
+        mslut = (max(mslut_kendt) if mslut_kendt and max(mslut_kendt) >= max(a_ for a_, _ in mper) else None)
         evidens = []
         for m in mg.medlemmer:
             for b in media_pr_gods.get(m, []):
@@ -765,14 +859,36 @@ def byg_forslag(data: dict) -> Forslag:
                            f"siger det ikke; svar »ja« med periode, udgave og bogens ord — eller »nej«.")
                 if gg.noegle.split(":", 1)[1] != base:
                     h.info.append("navnene ligner kun hinanden (løst match)")
-            h.alternativer["ja"] = Alternativ("ja", "Ja: gården hører under majoratet", ja)
+            hu = ja["hoerer_under"][0]
+            ja_tekst = (f"Ja: der oprettes en »hører under«-relation fra {'den nye gård ' + gnavn if gg is None else f'række {gaard} ({gnavn})'}"
+                        f" til række {mg.overlever} ({mg.navn})")
+            if hu["citat"]:
+                ja_tekst += (f", periode {hu['periode']}, kilde DAA 2018-20, med bogens ord som citat"
+                             + (f"; den nye gård {gnavn} oprettes, og billedet (media {ev[0]['media_id']}) flyttes dertil"
+                                if gg is None else ""))
+            else:
+                ja_tekst += (" — periode, udgave og bogens ord skal du give i svaret (fx »" + nr +
+                             " ja 1729-1924, 2018-20, ›…‹«); ingen ejerforhold flyttes")
+            h.alternativer["ja"] = Alternativ("ja", ja_tekst, ja)
             h.alternativer["nej"] = Alternativ("nej", "Nej: ingen »hører under«", _tomme_ops())
             if gg is not None:
-                gspan = [a for m in gg.medlemmer for e in ejer_pr_gods.get(m, []) for a in _aar(e["periode"])]
-                if mspan and gspan and min(mspan) <= min(gspan) and max(gspan) <= max(mspan):
+                gper = [x for m in gg.medlemmer for e in ejer_pr_gods.get(m, []) for x in [periode_spaend(e["periode"])]
+                        if x]
+
+                def inden_for(per):
+                    a_, b_ = per
+                    if mstart is None or a_ < mstart:
+                        return False
+                    if mslut is None:
+                        return True
+                    # Streng ulighed: en ejer, der tiltræder det år majoratet ophører (»1924‑†«), er ikke inden for.
+                    return a_ < mslut and (b_ is None or b_ < mslut)
+
+                if gper and all(inden_for(x) for x in gper):
                     h.krenkerup = True
-                    h.info.append(f"Krenkerup-mønster: gårdens ejerperioder ({min(gspan)}-{max(gspan)}) ligger inden "
-                                  f"for majoratets ({min(mspan)}-{max(mspan)}) — måske menes majoratet")
+                    vis = lambda a_, b_: f"{a_}-{'' if b_ is None else b_}"
+                    h.info.append(f"Krenkerup-mønster: gårdens ejerperioder ({', '.join(vis(*x) for x in gper)}) "
+                                  f"ligger inden for majoratets ({vis(mstart, mslut)}) — måske menes majoratet")
                     fl = _tomme_ops()
                     for m in gg.medlemmer:
                         for e in ejer_pr_gods.get(m, []):
@@ -950,10 +1066,9 @@ def _raekker_html(f: Forslag, medl: list, overlever: int | None) -> str:
             for k in x["kilder"]:
                 u = k["udgave"].replace("DAA ", "")
                 udg[u] = udg.get(u, 0) + 1
-        perioder = [x["periode"] for x in ejer if (x["periode"] or "").strip()]
-        uden = len(ejer) - len(perioder)
-        per = "; ".join(_e(p) for p in perioder) + (f"{'; ' if perioder else ''}uden periode ×{uden}" if uden else "")
-        bil = ", ".join(f"{_e(b['media_id'])} ({_e(b['slags'])})" for b in f.media_pr_gods.get(m, []))
+        per = "; ".join(f"{x['rid']}: {_e((x['periode'] or '').strip() or 'uden periode')}" for x in ejer)
+        bil = ", ".join(f"media {_e(b['media_id'])} ({_e(b['slags'])}, relation {_e(b['rid'])})"
+                        for b in f.media_pr_gods.get(m, []))
         mærker = []
         if m == overlever:
             mærker.append("bliver stående")
@@ -961,10 +1076,10 @@ def _raekker_html(f: Forslag, medl: list, overlever: int | None) -> str:
             mærker.append("slettet ejerforhold i historikken")
         rk.append(f"<tr><td>{m}</td><td>{_e(e['navn'])}{''.join(f'<span class=chip>{_e(x)}</span>' for x in mærker)}"
                   f"</td><td>{_e(', '.join(f'{u} ({n})' for u, n in sorted(udg.items(), reverse=True)) or '—')}</td>"
-                  f"<td>{len(ejer)}{': ' + per if per else ''}</td><td>{bil or '—'}</td>"
+                  f"<td>{len(ejer)}{' — ' + per if per else ''}</td><td>{bil or '—'}</td>"
                   f"<td>{_e(e.get('sted') or '—')}</td></tr>")
     return ("<div class=tabel><table><tr><th>Række</th><th>Navn i databasen (bogens form)</th><th>Udgave</th>"
-            "<th>Ejerforhold (perioder)</th><th>Billeder</th><th>Sted</th></tr>" + "".join(rk) + "</table></div>")
+            "<th>Ejerforhold (antal — relation: periode)</th><th>Billeder</th><th>Sted</th></tr>" + "".join(rk) + "</table></div>")
 
 
 def _alternativer_html(p) -> str:

@@ -35,7 +35,7 @@ def data(rows, snapshots=(), media=(), samme_ejer=(), udgave=None):
                          "kilder": [{"source_id": 1 if u == "DAA 2018-20" else 3, "udgave": u}],
                          "kopierbar": True})
     return {"estates": estates, "ejer": ejer, "media": list(media), "snapshots": list(snapshots),
-            "hoerer_under": [], "samme_ejer": list(samme_ejer), "levende_estates": [],
+            "gods_relationer": [], "andre_koblinger": [], "samme_ejer": list(samme_ejer), "levende_estates": [],
             "kilder": {"DAA 2018-20": 1, "DAA 1939": 3}}
 
 
@@ -416,3 +416,88 @@ def test_stedtilfoejelse_skaber_ikke_lighed_med_stedet():
                                   (37, "Hvidøre Kongsgaard")]))
     par = [set(s.medlemmer) for s in f.sammenhaenge]
     assert not any({119, 406} <= x for x in par) and not any({36, 37} <= x for x in par)
+
+
+
+# ---------- review-runde 1 ----------
+
+def test_fixture_noegler_er_dem_hent_data_giver():
+    d = data([(1, "X")])
+    kilde = Path(forslag.__file__).read_text(encoding="utf-8")
+    for k in d:
+        assert f'"{k}"' in kilde, k
+
+
+def test_forskellige_majorater_i_dag_giver_tvivl():
+    d = data([(5, "Wittenberg"), (405, "Wittenberg (1779)"), (170, "grevskabet A"), (163, "grevskabet B")])
+    d["gods_relationer"] = [
+        {"rid": 1, "subjekt_type": "estate", "subjekt_id": 5, "objekt_type": "estate", "objekt_id": 170,
+         "rolle": "hører_under"},
+        {"rid": 2, "subjekt_type": "estate", "subjekt_id": 405, "objekt_type": "estate", "objekt_id": 163,
+         "rolle": "hører_under"}]
+    g = gruppe_med(forslag.byg_forslag(d), 5)
+    assert g.forvalg is None and any("forskellige majorater" in t for t in g.tvivl)
+
+
+def test_kopi_til_sognets_navn_er_tvivl():
+    d = data([(147, "Osterrade"), (140, "Osterrade med Bovenau")])
+    d["estates"][0].update(sted_id=484, sted="Bovenau S., Rendsburg Kr.")
+    d["estates"][1].update(sted_id=478, sted="Bovenau S., Rendsburg-Egernførde Kr.")
+    g = gruppe_med(forslag.byg_forslag(d), 147)
+    assert g.forvalg is None and any("sognet" in t and "Bovenau" in t for t in g.tvivl)
+    assert any(not a.ops["kopier"] and a.ops["sammenlaeg"] for a in g.alternativer.values())
+
+
+def test_sogn_i_parentes_mod_overlevendes_sted():
+    d = data([(27, "Gaarz", 2), (254, "Gaarz (Oldenburg Sogn, nævnt 1472)")])
+    d["estates"][0].update(sted_id=392, sted="Göhl S., Oldenburg Kr.")
+    g = gruppe_med(forslag.byg_forslag(d), 27)
+    assert g.forvalg is None and any("Oldenburg" in t for t in g.tvivl)
+    # stavevarianter af samme sogn er ikke tvivl
+    for sted, navn in (("Krokek S., Östergötland Len", "Getå (Krokels S.)"),
+                       ("Östra Strö S., Malmöhus Len", "Jeppstorp (Strø S.)"),
+                       ("Oldenburg S., Ostholstein Kr.", "Bankendorf (Oldenburg Sogn i Holsten)")):
+        hoved = navn.split(" (")[0]
+        d = data([(1, hoved), (2, navn)])
+        d["estates"][0].update(sted_id=9, sted=sted)
+        assert gruppe_med(forslag.byg_forslag(d), 1).forvalg == "A", navn
+
+
+def test_sogn_i_parentes_uden_sted_paa_overlevende_er_info():
+    g = gruppe_med(forslag.byg_forslag(data([(174, "Pugerup", 4), (378, "Pugerup (Gudmunstorp S.) (1845)")])), 174)
+    assert g.forvalg == "A" and any("Gudmunstorp" in t for t in g.info)
+
+
+def test_krenkerup_moenster_streng_slut_og_aabne_perioder():
+    assert forslag.periode_spaend("1924\u2011†") == (1924, None)
+    assert forslag.periode_spaend("1889\u2011afløst 26. marts 1924") == (1889, 1924)
+    # Christianssæde: gårdens ejer tiltræder det år, grevskabet afløses → ikke mønstret
+    f = forslag.byg_forslag(data([(170, "grevskabet Christianssæde", 1, "1889\u2011afløst 26. marts 1924"),
+                                  (171, "Christianssæde", 1, "1924\u2011†")]))
+    assert not any(h.krenkerup for h in f.hoerer)
+    # Krenkerup: stamhusets ejere 1736‑† (åbent), gårdens 1750‑† → mønstret
+    f = forslag.byg_forslag(data([(202, "stamhuset Krenkerup", 1, "1736\u2011†"), (210, "Krenkerup", 1, "1750\u2011†")]))
+    assert any(h.krenkerup for h in f.hoerer)
+
+
+def test_kort_navn_med_flere_loese_traef_er_tvivl():
+    f = forslag.byg_forslag(data([(1, "Holm med Kain"), (2, "Kain Mark"), (3, "Store Kain")]))
+    g = gruppe_med(f, 1)
+    assert g.forvalg is None and any("passer løst" in t for t in g.tvivl)
+
+
+def test_enkeltraekke_med_kopi_kan_beholde_navnet_og_fravaelge_kopien():
+    g = gruppe_med(forslag.byg_forslag(data([(367, "Pederstrup med Skjelstofte (1725)")])), 367)
+    alts = list(g.alternativer.values())
+    assert any(a.ops["saet"][0]["navn"] == "Pederstrup med Skjelstofte (1725)" and a.ops["kopier"] for a in alts)
+    assert any(a.ops["saet"][0]["navn"] == "Pederstrup" and not a.ops["kopier"] and not a.ops["opret"] for a in alts)
+
+
+def test_len_efter_komma_er_ikke_en_gaard():
+    assert forslag.parse_navn("Below (Bälau ved Mölln), fik 1376 til Len af Greve Henrik").ikke_gaard
+
+
+def test_ingen_dobbelt_art_og_ingen_kryptiske_koder():
+    g = gruppe_med(forslag.byg_forslag(data([(100, "Silkeborg Len")])), 100)
+    assert all(re.fullmatch(r"[A-P]", k) for k in g.alternativer)
+    assert not any("art art" in a.tekst for a in g.alternativer.values())

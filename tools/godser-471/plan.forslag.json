@@ -31,12 +31,6 @@
    "gruppe": 32
   },
   {
-   "noegle": "ny:Bovenau",
-   "navn": "Bovenau",
-   "slags": "gård",
-   "gruppe": 209
-  },
-  {
    "noegle": "ny:Skjelstofte",
    "navn": "Skjelstofte",
    "slags": "gård",
@@ -121,12 +115,6 @@
    "navn": "Belau",
    "slags": "gård",
    "gruppe": 17
-  },
-  {
-   "estate": 249,
-   "navn": "Below (Bälau ved Mölln), fik 1376 til Len af Greve Henrik",
-   "slags": "gård",
-   "gruppe": 18
   },
   {
    "estate": 25,
@@ -525,12 +513,6 @@
    "gruppe": 98
   },
   {
-   "estate": 27,
-   "navn": "Gaarz",
-   "slags": "gård",
-   "gruppe": 99
-  },
-  {
    "estate": 69,
    "navn": "Gallentin",
    "slags": "gård",
@@ -577,12 +559,6 @@
    "navn": "Gnemern",
    "slags": "gård",
    "gruppe": 110
-  },
-  {
-   "estate": 44,
-   "navn": "Gneningen",
-   "slags": "gård",
-   "gruppe": 111
   },
   {
    "estate": 71,
@@ -1075,12 +1051,6 @@
    "navn": "Oregaard",
    "slags": "gård",
    "gruppe": 208
-  },
-  {
-   "estate": 147,
-   "navn": "Osterrade",
-   "slags": "gård",
-   "gruppe": 209
   },
   {
    "estate": 66,
@@ -1777,16 +1747,6 @@
    "gruppe": 98
   },
   {
-   "fra": 254,
-   "til": 27,
-   "gruppe": 99
-  },
-  {
-   "fra": 257,
-   "til": 27,
-   "gruppe": 99
-  },
-  {
    "fra": 386,
    "til": 227,
    "gruppe": 103
@@ -1810,11 +1770,6 @@
    "fra": 403,
    "til": 118,
    "gruppe": 106
-  },
-  {
-   "fra": 274,
-   "til": 44,
-   "gruppe": 111
   },
   {
    "fra": 288,
@@ -1965,11 +1920,6 @@
    "fra": 416,
    "til": 158,
    "gruppe": 207
-  },
-  {
-   "fra": 140,
-   "til": 147,
-   "gruppe": 209
   },
   {
    "fra": 378,
@@ -2238,12 +2188,6 @@
    "gruppe": 122
   },
   {
-   "relation": 505,
-   "til": "ny:Bovenau",
-   "citat": "Osterrade med Bovenau",
-   "gruppe": 209
-  },
-  {
    "relation": 2593,
    "til": "ny:Skjelstofte",
    "citat": "Pederstrup med Skjelstofte (1725)",
@@ -2286,6 +2230,7 @@
   6,
   11,
   12,
+  18,
   31,
   48,
   57,
@@ -2300,9 +2245,11 @@
   90,
   91,
   97,
+  99,
   100,
   105,
   109,
+  111,
   115,
   119,
   137,
@@ -2318,6 +2265,7 @@
   186,
   189,
   206,
+  209,
   210,
   214,
   217,
@@ -2403,7 +2351,6 @@
   "15": "A",
   "16": "A",
   "17": "A",
-  "18": "A",
   "19": "A",
   "20": "A",
   "21": "A",
@@ -2470,7 +2417,6 @@
   "95": "A",
   "96": "A",
   "98": "A",
-  "99": "A",
   "101": "A",
   "102": "A",
   "103": "A",
@@ -2479,7 +2425,6 @@
   "107": "A",
   "108": "A",
   "110": "A",
-  "111": "A",
   "112": "A",
   "113": "A",
   "114": "A",
@@ -2562,7 +2507,6 @@
   "205": "A",
   "207": "A",
   "208": "A",
-  "209": "A",
   "211": "A",
   "212": "A",
   "213": "A",
@@ -2698,7 +2642,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 408 beholder navnet »Aakær og Dybvad (1802 Medejer, 1816-1836 Eneejer)«, art gård",
     "opret": [],
     "saet": [
@@ -2756,7 +2700,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 394 beholder navnet »til Aggerupgaard«, art gård; række 400 beholder navnet »Aggerupgaard (til)«, art gård",
     "opret": [],
     "saet": [
@@ -2820,7 +2764,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 119 beholder navnet »Altenhof«, art gård; række 159 beholder navnet »Altenhof med Aschau og Hoffnungsthal«, art gård; række 321 beholder navnet »Altenhof (1692)«, art gård",
     "opret": [],
     "saet": [
@@ -2847,6 +2791,33 @@
     "kopier": [],
     "hoerer_under": [],
     "flyt": []
+   },
+   "C": {
+    "tekst": "Læg sammen, men uden kopier til de øvrige gårde: række 119 beholder navnet »Altenhof«, art gård; række 159 lægges ind i række 119 (1 ejerforhold flyttes med); række 321 lægges ind i række 119 (1 ejerforhold flyttes med)",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 119,
+      "navn": "Altenhof",
+      "slags": "gård",
+      "gruppe": 5
+     }
+    ],
+    "sammenlaeg": [
+     {
+      "fra": 159,
+      "til": 119,
+      "gruppe": 5
+     },
+     {
+      "fra": 321,
+      "til": 119,
+      "gruppe": 5
+     }
+    ],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
    }
   },
   "6": {
@@ -2867,7 +2838,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 237 får navnet »andel af Ziesendorf« (før »andel af Ziesendorf (forlenet 1397)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 237 får navnet »andel af Ziesendorf« (før »andel af Ziesendorf (forlenet 1397)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -2882,8 +2853,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 237 beholder navnet »andel af Ziesendorf (forlenet 1397)«, art art ukendt",
+   "C": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 237 beholder navnet »andel af Ziesendorf (forlenet 1397)«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -2898,8 +2869,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Bu": {
-    "tekst": "Som A, men uden parentes/»til« i navnet — art ukendt (ikke en gård): række 237 får navnet »andel af Ziesendorf« (før »andel af Ziesendorf (forlenet 1397)«), art art ukendt",
+   "D": {
+    "tekst": "Navnet uden parentes og »til« — men art ukendt (ikke en gård): række 237 får navnet »andel af Ziesendorf« (før »andel af Ziesendorf (forlenet 1397)«), art ukendt",
     "opret": [],
     "saet": [
      {
@@ -2951,7 +2922,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 406 får navnet »Aschau ved Altenhof« (før »Aschau ved Altenhof (1782)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 406 får navnet »Aschau ved Altenhof« (før »Aschau ved Altenhof (1782)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -3034,7 +3005,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 213 beholder navnet »Ballegaard og Bøgskov«, art gård",
     "opret": [],
     "saet": [
@@ -3082,7 +3053,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 393 beholder navnet »Ballegaard og Bøgskov i Sundeved«, art gård",
     "opret": [],
     "saet": [
@@ -3122,7 +3093,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 62 beholder navnet »Bankendorf«, art gård; række 297 beholder navnet »Bankendorf (Oldenburg Sogn i Holsten)«, art gård",
     "opret": [],
     "saet": [
@@ -3189,7 +3160,7 @@
      }
     ]
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 172 beholder navnet »baroniet Brahetrolleborg«, art baroni; række 261 beholder navnet »Baroniet Brahe-Trolleborg«, art baroni; række 364 beholder navnet »Baroniet Brahe-Trolleborg (1722)«, art baroni; række 375 beholder navnet »Baroniet Brahe-Trolleborg (1775)«, art baroni; række 383 beholder navnet »Baroniet Brahe-Trolleborg (1854)«, art baroni",
     "opret": [],
     "saet": [
@@ -3302,13 +3273,45 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 249 får navnet »Below, fik 1376 til Len af Greve Henrik« (før »Below (Bälau ved Mölln), fik 1376 til Len af Greve Henrik«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 249 får navnet »Below, fik 1376 til Len af Greve Henrik« (før »Below (Bälau ved Mölln), fik 1376 til Len af Greve Henrik«), art gård",
     "opret": [],
     "saet": [
      {
       "estate": 249,
       "navn": "Below, fik 1376 til Len af Greve Henrik",
       "slags": "gård",
+      "gruppe": 18
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "C": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 249 beholder navnet »Below (Bälau ved Mölln), fik 1376 til Len af Greve Henrik«, art ukendt",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 249,
+      "navn": "Below (Bälau ved Mölln), fik 1376 til Len af Greve Henrik",
+      "slags": null,
+      "gruppe": 18
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "D": {
+    "tekst": "Navnet uden parentes og »til« — men art ukendt (ikke en gård): række 249 får navnet »Below, fik 1376 til Len af Greve Henrik« (før »Below (Bälau ved Mölln), fik 1376 til Len af Greve Henrik«), art ukendt",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 249,
+      "navn": "Below, fik 1376 til Len af Greve Henrik",
+      "slags": null,
       "gruppe": 18
      }
     ],
@@ -3354,7 +3357,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 234 får navnet »Bentvelde« (før »Bentvelde (Giekow Sogn)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 234 får navnet »Bentvelde« (før »Bentvelde (Giekow Sogn)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -3393,7 +3396,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 114 beholder navnet »Bibow«, art gård; række 286 beholder navnet »Bibow (pantegods)«, art gård",
     "opret": [],
     "saet": [
@@ -3475,7 +3478,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 318 beholder navnet »Binebek«, art gård; række 330 beholder navnet »Binebek (1684-1707)«, art gård",
     "opret": [],
     "saet": [
@@ -3521,7 +3524,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 16 beholder navnet »Birkenmoor«, art gård; række 241 beholder navnet »Birkenmoor (Dänischen Hagen Sogn)«, art gård",
     "opret": [],
     "saet": [
@@ -3562,7 +3565,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 384 får navnet »Bistingsmåla i Mønsterås« (før »til Bistingsmåla i Mønsterås«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 384 får navnet »Bistingsmåla i Mønsterås« (før »til Bistingsmåla i Mønsterås«), art gård",
     "opret": [],
     "saet": [
      {
@@ -3596,7 +3599,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 421 får navnet »Bjørnholm« (før »Bjørnholm (Sønder Dyrs H.), sammen med broderen Ove«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 421 får navnet »Bjørnholm« (før »Bjørnholm (Sønder Dyrs H.), sammen med broderen Ove«), art gård",
     "opret": [],
     "saet": [
      {
@@ -3630,7 +3633,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 423 får navnet »Bjørnsholm« (før »Bjørnsholm (solgt 1441 til Hr. Otto Nielsen Rosenkrantz)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 423 får navnet »Bjørnsholm« (før »Bjørnsholm (solgt 1441 til Hr. Otto Nielsen Rosenkrantz)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -3705,7 +3708,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 331 beholder navnet »Borghorst og Wittmold (1716)«, art gård",
     "opret": [],
     "saet": [
@@ -3795,7 +3798,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 173 beholder navnet »Brahetrolleborg med Sølyst, Egneborg, Høbbet og Brændegaard«, art gård; række 189 beholder navnet »Brahetrolleborg«, art gård",
     "opret": [],
     "saet": [
@@ -3813,6 +3816,28 @@
      }
     ],
     "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "C": {
+    "tekst": "Læg sammen, men uden kopier til de øvrige gårde: række 189 beholder navnet »Brahetrolleborg«, art gård; række 173 lægges ind i række 189 (1 ejerforhold flyttes med)",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 189,
+      "navn": "Brahetrolleborg",
+      "slags": "gård",
+      "gruppe": 32
+     }
+    ],
+    "sammenlaeg": [
+     {
+      "fra": 173,
+      "til": 189,
+      "gruppe": 32
+     }
+    ],
     "kopier": [],
     "hoerer_under": [],
     "flyt": []
@@ -3836,7 +3861,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 428 får navnet »Brangstrup« (før »Brangstrup (Aasum H.)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 428 får navnet »Brangstrup« (før »Brangstrup (Aasum H.)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -3947,7 +3972,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 7 beholder navnet »Brunsholm«, art gård; række 307 beholder navnet »Brunsholm (købt 1698 af Joachim v. Ahlefeldt)«, art gård",
     "opret": [],
     "saet": [
@@ -4065,7 +4090,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 13 beholder navnet »Bülk«, art gård; række 239 beholder navnet »Bülk (solgt 1353 til svogeren Wulf Pogwisch)«, art gård",
     "opret": [],
     "saet": [
@@ -4142,7 +4167,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 285 får navnet »Carnin« (før »Carnin (til leje)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 285 får navnet »Carnin« (før »Carnin (til leje)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -4224,6 +4249,70 @@
     ],
     "hoerer_under": [],
     "flyt": []
+   },
+   "B": {
+    "tekst": "Behold navnet uændret: række 171 beholder navnet »Christianssæde med Pederstrup, Aalstrup og Frihedsminde«, art gård; ny gård oprettes: Aalstrup; ny gård oprettes: Frihedsminde; ejerforhold 724 kopieres til række 367 (Pederstrup); ejerforhold 724 kopieres til den nye gård Aalstrup; ejerforhold 724 kopieres til den nye gård Frihedsminde",
+    "opret": [
+     {
+      "noegle": "ny:Aalstrup",
+      "navn": "Aalstrup",
+      "slags": "gård",
+      "gruppe": 48
+     },
+     {
+      "noegle": "ny:Frihedsminde",
+      "navn": "Frihedsminde",
+      "slags": "gård",
+      "gruppe": 48
+     }
+    ],
+    "saet": [
+     {
+      "estate": 171,
+      "navn": "Christianssæde med Pederstrup, Aalstrup og Frihedsminde",
+      "slags": "gård",
+      "gruppe": 48
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [
+     {
+      "relation": 724,
+      "til": 367,
+      "citat": "Christianssæde med Pederstrup, Aalstrup og Frihedsminde",
+      "gruppe": 48
+     },
+     {
+      "relation": 724,
+      "til": "ny:Aalstrup",
+      "citat": "Christianssæde med Pederstrup, Aalstrup og Frihedsminde",
+      "gruppe": 48
+     },
+     {
+      "relation": 724,
+      "til": "ny:Frihedsminde",
+      "citat": "Christianssæde med Pederstrup, Aalstrup og Frihedsminde",
+      "gruppe": 48
+     }
+    ],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "C": {
+    "tekst": "Navn og art, men uden kopier til de øvrige gårde: række 171 får navnet »Christianssæde« (før »Christianssæde med Pederstrup, Aalstrup og Frihedsminde«), art gård",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 171,
+      "navn": "Christianssæde",
+      "slags": "gård",
+      "gruppe": 48
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
    }
   },
   "49": {
@@ -4267,7 +4356,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 165 beholder navnet »Clausholm«, art gård; række 357 beholder navnet »Clausholm (1683)«, art gård",
     "opret": [],
     "saet": [
@@ -4313,7 +4402,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 263 beholder navnet »Colmar«, art gård; række 340 beholder navnet »Colmar (Arv efter Faderen)«, art gård",
     "opret": [],
     "saet": [
@@ -4395,7 +4484,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 186 beholder navnet »Damp«, art gård; række 399 beholder navnet »Damp (til)«, art gård",
     "opret": [],
     "saet": [
@@ -4436,7 +4525,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 429 får navnet »Damsbo« (før »Damsbo (Salling H.)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 429 får navnet »Damsbo« (før »Damsbo (Salling H.)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -4487,8 +4576,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 121 beholder navnet »det Blomeske Frihus«, art art ukendt",
+   "B": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 121 beholder navnet »det Blomeske Frihus«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -4521,8 +4610,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 212 beholder navnet »det Reventlowske hus i Amaliegade«, art art ukendt",
+   "B": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 212 beholder navnet »det Reventlowske hus i Amaliegade«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -4555,8 +4644,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 164 beholder navnet »det Reventlowske palæ«, art art ukendt",
+   "B": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 164 beholder navnet »det Reventlowske palæ«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -4595,7 +4684,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 188 beholder navnet »Ditlevslyst«, art gård; række 211 beholder navnet »Gjællebrede (senere Ditlevslyst)«, art gård",
     "opret": [],
     "saet": [
@@ -4695,7 +4784,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 41 beholder navnet »Dristorf«, art gård; række 273 beholder navnet »Dristorf (købt af Bertram v. Ahlefeldt)«, art gård",
     "opret": [],
     "saet": [
@@ -4735,8 +4824,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 101 beholder navnet »Dueholm Len«, art art ukendt",
+   "B": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 101 beholder navnet »Dueholm Len«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -4824,7 +4913,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 351 får navnet »Dänischenhagen Sogn« (før »Dänischenhagen Sogn (til 1780)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 351 får navnet »Dänischenhagen Sogn« (før »Dänischenhagen Sogn (til 1780)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -4839,8 +4928,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 351 beholder navnet »Dänischenhagen Sogn (til 1780)«, art art ukendt",
+   "C": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 351 beholder navnet »Dänischenhagen Sogn (til 1780)«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -4855,8 +4944,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Bu": {
-    "tekst": "Som A, men uden parentes/»til« i navnet — art ukendt (ikke en gård): række 351 får navnet »Dänischenhagen Sogn« (før »Dänischenhagen Sogn (til 1780)«), art art ukendt",
+   "D": {
+    "tekst": "Navnet uden parentes og »til« — men art ukendt (ikke en gård): række 351 får navnet »Dänischenhagen Sogn« (før »Dänischenhagen Sogn (til 1780)«), art ukendt",
     "opret": [],
     "saet": [
      {
@@ -4900,7 +4989,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 93 beholder navnet »Dörphof«, art gård; række 136 beholder navnet »Dörphof (Torp)«, art gård; række 352 beholder navnet »Dörphof (—1771)«, art gård",
     "opret": [],
     "saet": [
@@ -4947,7 +5036,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 336 får navnet »Dörphof ved Ekernförde« (før »Dörphof (Torp) ved Ekernförde (1723)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 336 får navnet »Dörphof ved Ekernförde« (før »Dörphof (Torp) ved Ekernförde (1723)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -5063,7 +5152,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 145 beholder navnet »Emkendorf«, art gård; række 404 beholder navnet »Emkendorf (købt 1764 af Geheimeraad Desmercières)«, art gård; række 407 beholder navnet »Emkendorf (1783)«, art gård",
     "opret": [],
     "saet": [
@@ -5139,7 +5228,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 338 beholder navnet »Eskær, Astrup og Skivehus i Nørre H. (1735-50)«, art gård",
     "opret": [],
     "saet": [
@@ -5246,7 +5335,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 312 får navnet »Farenstedgaard ved Slesvig« (før »Farenstedgaard ved Slesvig (1754–63)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 312 får navnet »Farenstedgaard ved Slesvig« (før »Farenstedgaard ved Slesvig (1754–63)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -5315,8 +5404,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art (listen ligner ikke flere gårde, så den deles ikke) — art ukendt (ikke en gård): række 395 beholder navnet »Fideikommisgodserne Varste-Polle og Koppel«, art art ukendt",
+   "B": {
+    "tekst": "Navn og art (listen ligner ikke flere gårde, så den deles ikke) — men art ukendt (ikke en gård): række 395 beholder navnet »Fideikommisgodserne Varste-Polle og Koppel«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -5355,7 +5444,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 220 beholder navnet »Finnhult«, art gård; række 388 beholder navnet »til Finnhult (Gudmundtorp S.)«, art gård",
     "opret": [],
     "saet": [
@@ -5395,8 +5484,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 9 beholder navnet »fogderiet i Tørning«, art art ukendt",
+   "B": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 9 beholder navnet »fogderiet i Tørning«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -5435,7 +5524,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 246 beholder navnet »Fogderiet Tørning (i Pant, sammen med Hr. Claus)«, art gård; række 248 beholder navnet »Fogderiet Tørning (i Pant, sammen med Hr. Hartvig)«, art gård",
     "opret": [],
     "saet": [
@@ -5457,8 +5546,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Læg sammen — art ukendt (ikke en gård): række 246 får navnet »Fogderiet Tørning« (før »Fogderiet Tørning (i Pant, sammen med Hr. Claus)«), art art ukendt; række 248 lægges ind i række 246 (1 ejerforhold flyttes med)",
+   "C": {
+    "tekst": "Læg sammen — men art ukendt (ikke en gård): række 246 får navnet »Fogderiet Tørning« (før »Fogderiet Tørning (i Pant, sammen med Hr. Claus)«), art ukendt; række 248 lægges ind i række 246 (1 ejerforhold flyttes med)",
     "opret": [],
     "saet": [
      {
@@ -5479,8 +5568,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Cu": {
-    "tekst": "Behold rækkerne adskilt (kun art sættes) — art ukendt (ikke en gård): række 246 beholder navnet »Fogderiet Tørning (i Pant, sammen med Hr. Claus)«, art art ukendt; række 248 beholder navnet »Fogderiet Tørning (i Pant, sammen med Hr. Hartvig)«, art art ukendt",
+   "D": {
+    "tekst": "Behold rækkerne adskilt (kun art sættes) — men art ukendt (ikke en gård): række 246 beholder navnet »Fogderiet Tørning (i Pant, sammen med Hr. Claus)«, art ukendt; række 248 beholder navnet »Fogderiet Tørning (i Pant, sammen med Hr. Hartvig)«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -5520,7 +5609,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 251 får navnet »Forlening af Preetz Kloster« (før »Forlening af Preetz Kloster (1399)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 251 får navnet »Forlening af Preetz Kloster« (før »Forlening af Preetz Kloster (1399)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -5535,8 +5624,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 251 beholder navnet »Forlening af Preetz Kloster (1399)«, art art ukendt",
+   "C": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 251 beholder navnet »Forlening af Preetz Kloster (1399)«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -5551,8 +5640,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Bu": {
-    "tekst": "Som A, men uden parentes/»til« i navnet — art ukendt (ikke en gård): række 251 får navnet »Forlening af Preetz Kloster« (før »Forlening af Preetz Kloster (1399)«), art art ukendt",
+   "D": {
+    "tekst": "Navnet uden parentes og »til« — men art ukendt (ikke en gård): række 251 får navnet »Forlening af Preetz Kloster« (før »Forlening af Preetz Kloster (1399)«), art ukendt",
     "opret": [],
     "saet": [
      {
@@ -5586,7 +5675,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 253 får navnet »Forpagter af Gjelskov i Fyen« (før »Forpagter af Gjelskov i Fyen (1670)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 253 får navnet »Forpagter af Gjelskov i Fyen« (før »Forpagter af Gjelskov i Fyen (1670)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -5601,8 +5690,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 253 beholder navnet »Forpagter af Gjelskov i Fyen (1670)«, art art ukendt",
+   "C": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 253 beholder navnet »Forpagter af Gjelskov i Fyen (1670)«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -5617,8 +5706,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Bu": {
-    "tekst": "Som A, men uden parentes/»til« i navnet — art ukendt (ikke en gård): række 253 får navnet »Forpagter af Gjelskov i Fyen« (før »Forpagter af Gjelskov i Fyen (1670)«), art art ukendt",
+   "D": {
+    "tekst": "Navnet uden parentes og »til« — men art ukendt (ikke en gård): række 253 får navnet »Forpagter af Gjelskov i Fyen« (før »Forpagter af Gjelskov i Fyen (1670)«), art ukendt",
     "opret": [],
     "saet": [
      {
@@ -5652,7 +5741,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 349 får navnet »Fredsholm« (før »Fredsholm (Vestenskov Sogn, købt 1755)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 349 får navnet »Fredsholm« (før »Fredsholm (Vestenskov Sogn, købt 1755)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -5691,7 +5780,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 131 beholder navnet »Fresenburg«, art gård; række 329 beholder navnet »Fresenburg (-1699)«, art gård",
     "opret": [],
     "saet": [
@@ -5791,7 +5880,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 381 beholder navnet »Frugården og Vänersnäs (V. Vrams S.) (1845)«, art gård",
     "opret": [],
     "saet": [
@@ -5841,7 +5930,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 57 beholder navnet »Futterkamp«, art gård; række 283 beholder navnet »Futterkamp (1602 købt af Jesper Rantzau)«, art gård; række 300 beholder navnet »Futterkamp (solgt 1648 til Ditlev Reventlow)«, art gård; række 353 beholder navnet »Futterkamp (tilskødet 1660, solgt 1672 til Henning Buchwald)«, art gård",
     "opret": [],
     "saet": [
@@ -5904,7 +5993,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 27 beholder navnet »Gaarz«, art gård; række 254 beholder navnet »Gaarz (Oldenburg Sogn, nævnt 1472)«, art gård; række 257 beholder navnet »Gaarz (genkøbt af Cismar Kloster)«, art gård",
     "opret": [],
     "saet": [
@@ -5963,7 +6052,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 267 beholder navnet »Gaarz og Kaden (arvekrav 1528, trætte med Hr. Iven Reventlow)«, art gård",
     "opret": [],
     "saet": [
@@ -6039,7 +6128,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 227 beholder navnet »Getå«, art gård; række 386 beholder navnet »Getå (Krokels S.)«, art gård",
     "opret": [],
     "saet": [
@@ -6098,7 +6187,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 245 får navnet »Glambæk« (før »Glambæk (Høvedsmand)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 245 får navnet »Glambæk« (før »Glambæk (Høvedsmand)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -6113,8 +6202,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 245 beholder navnet »Glambæk (Høvedsmand)«, art art ukendt",
+   "C": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 245 beholder navnet »Glambæk (Høvedsmand)«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -6129,8 +6218,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Bu": {
-    "tekst": "Som A, men uden parentes/»til« i navnet — art ukendt (ikke en gård): række 245 får navnet »Glambæk« (før »Glambæk (Høvedsmand)«), art art ukendt",
+   "D": {
+    "tekst": "Navnet uden parentes og »til« — men art ukendt (ikke en gård): række 245 får navnet »Glambæk« (før »Glambæk (Høvedsmand)«), art ukendt",
     "opret": [],
     "saet": [
      {
@@ -6184,7 +6273,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 118 beholder navnet »Glasau«, art gård; række 320 beholder navnet »Glasau (1689)«, art gård; række 335 beholder navnet »Glasau (solgt 1728 ved hans konkurs af kreditorerne til Broderen Cay Friederich)«, art gård; række 337 beholder navnet »Glasau (1728)«, art gård; række 403 beholder navnet »Glasau (1762)«, art gård",
     "opret": [],
     "saet": [
@@ -6279,7 +6368,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 314 får navnet »Glücksborg« (før »Glücksborg (hofmester)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 314 får navnet »Glücksborg« (før »Glücksborg (hofmester)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -6294,8 +6383,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 314 beholder navnet »Glücksborg (hofmester)«, art art ukendt",
+   "C": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 314 beholder navnet »Glücksborg (hofmester)«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -6310,8 +6399,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Bu": {
-    "tekst": "Som A, men uden parentes/»til« i navnet — art ukendt (ikke en gård): række 314 får navnet »Glücksborg« (før »Glücksborg (hofmester)«), art art ukendt",
+   "D": {
+    "tekst": "Navnet uden parentes og »til« — men art ukendt (ikke en gård): række 314 får navnet »Glücksborg« (før »Glücksborg (hofmester)«), art ukendt",
     "opret": [],
     "saet": [
      {
@@ -6368,7 +6457,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 44 beholder navnet »Gneningen«, art gård; række 274 beholder navnet »Gneningen (Hansiihn S., arvet med hustru)«, art gård",
     "opret": [],
     "saet": [
@@ -6432,7 +6521,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 77 beholder navnet »Goldebeck«, art gård; række 288 beholder navnet »Goldebeck (–1635)«, art gård",
     "opret": [],
     "saet": [
@@ -6506,7 +6595,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 90 beholder navnet »Gottesgabe«, art gård; række 120 beholder navnet »Gottesgabe (Sterdebølgaard)«, art gård; række 334 beholder navnet »Gottesgabe (solgt 1708 paa hans vegne af Broderen Cai Frederik for 11.333 Rdlr.)«, art gård; række 348 beholder navnet »Gottesgabe (Kappel Herred)«, art gård",
     "opret": [],
     "saet": [
@@ -6559,7 +6648,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 322 får navnet »Gottesgabe ved Bredsted« (før »Gottesgabe ved Bredsted (bygget af ham 1688)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 322 får navnet »Gottesgabe ved Bredsted« (før »Gottesgabe ved Bredsted (bygget af ham 1688)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -6598,7 +6687,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 15 beholder navnet »Gowens«, art gård; række 240 beholder navnet »Gowens (Neukirchen Sogn, ved Plön)«, art gård",
     "opret": [],
     "saet": [
@@ -6654,7 +6743,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 29 beholder navnet »Gram«, art gård; række 258 beholder navnet »Gram (ejede 1472)«, art gård; række 265 beholder navnet »Gram (arv fra søster Ghese 1496)«, art gård; række 269 beholder navnet »Gram (udskilt af Gram af Detlev Buchwald)«, art gård",
     "opret": [],
     "saet": [
@@ -6712,7 +6801,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 291 beholder navnet »Gram og Steensgaard (Steensgaard solgt 1493 til Otto Emmiksen; Gram forskrevet 1511 til hustruen)«, art gård",
     "opret": [],
     "saet": [
@@ -6803,7 +6892,7 @@
      }
     ]
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 170 beholder navnet »grevskabet Christianssæde«, art grevskab; række 205 beholder navnet »grevskabet Christiansborg (fra 1741 Christianssæde)«, art grevskab; række 208 beholder navnet »grevskabet Christiansborg (senere Christianssæde)«, art grevskab; række 363 beholder navnet »Grevskabet Christiansborg (1729)«, art grevskab; række 372 beholder navnet »Grevskabet Christianssæde (1775)«, art grevskab; række 377 beholder navnet »Grevskaberne Christianssæde og Reventlow (1827)«, art grevskab",
     "opret": [],
     "saet": [
@@ -6848,6 +6937,54 @@
     "kopier": [],
     "hoerer_under": [],
     "flyt": []
+   },
+   "C": {
+    "tekst": "Læg sammen, men uden kopier til de øvrige gårde: række 170 får navnet »Grevskabet Christianssæde« (før »grevskabet Christianssæde«), art grevskab; række 205 lægges ind i række 170 (1 ejerforhold flyttes med); række 208 lægges ind i række 170 (1 ejerforhold flyttes med); række 363 lægges ind i række 170 (1 ejerforhold flyttes med); række 372 lægges ind i række 170 (1 ejerforhold flyttes med); række 377 lægges ind i række 170 (1 ejerforhold flyttes med); billedet (media 209) flyttes til række 171 (Christianssæde)",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 170,
+      "navn": "Grevskabet Christianssæde",
+      "slags": "grevskab",
+      "gruppe": 121
+     }
+    ],
+    "sammenlaeg": [
+     {
+      "fra": 205,
+      "til": 170,
+      "gruppe": 121
+     },
+     {
+      "fra": 208,
+      "til": 170,
+      "gruppe": 121
+     },
+     {
+      "fra": 363,
+      "til": 170,
+      "gruppe": 121
+     },
+     {
+      "fra": 372,
+      "til": 170,
+      "gruppe": 121
+     },
+     {
+      "fra": 377,
+      "til": 170,
+      "gruppe": 121
+     }
+    ],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": [
+     {
+      "relation": 3434,
+      "til": 171,
+      "gruppe": 121
+     }
+    ]
    }
   },
   "122": {
@@ -6901,7 +7038,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 163 beholder navnet »grevskabet Reventlow«, art grevskab; række 362 beholder navnet »Grevskabet Reventlow (1708)«, art grevskab; række 373 beholder navnet »Grevskabet Reventlow (1815)«, art grevskab; række 382 beholder navnet »Grevskaberne Reventlow og Christianssæde (1851)«, art grevskab; række 392 beholder navnet »til Grevskaberne Reventlow og Christianssæde«, art grevskab",
     "opret": [],
     "saet": [
@@ -6940,6 +7077,43 @@
     "kopier": [],
     "hoerer_under": [],
     "flyt": []
+   },
+   "C": {
+    "tekst": "Læg sammen, men uden kopier til de øvrige gårde: række 163 får navnet »Grevskabet Reventlow« (før »grevskabet Reventlow«), art grevskab; række 362 lægges ind i række 163 (1 ejerforhold flyttes med); række 373 lægges ind i række 163 (1 ejerforhold flyttes med); række 382 lægges ind i række 163 (1 ejerforhold flyttes med); række 392 lægges ind i række 163 (1 ejerforhold flyttes med)",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 163,
+      "navn": "Grevskabet Reventlow",
+      "slags": "grevskab",
+      "gruppe": 122
+     }
+    ],
+    "sammenlaeg": [
+     {
+      "fra": 362,
+      "til": 163,
+      "gruppe": 122
+     },
+     {
+      "fra": 373,
+      "til": 163,
+      "gruppe": 122
+     },
+     {
+      "fra": 382,
+      "til": 163,
+      "gruppe": 122
+     },
+     {
+      "fra": 392,
+      "til": 163,
+      "gruppe": 122
+     }
+    ],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
    }
   },
   "123": {
@@ -6960,7 +7134,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 374 får navnet »Grevskabet Sandberg« (før »Grevskabet Sandberg (1775)«), art grevskab",
+    "tekst": "Navnet uden parentes og »til«: række 374 får navnet »Grevskabet Sandberg« (før »Grevskabet Sandberg (1775)«), art grevskab",
     "opret": [],
     "saet": [
      {
@@ -6984,6 +7158,22 @@
      {
       "estate": 196,
       "navn": "Grevskabet Vallø",
+      "slags": "grevskab",
+      "gruppe": 124
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "B": {
+    "tekst": "Behold navnet uændret: række 196 beholder navnet »grevskabet Vallø«, art grevskab",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 196,
+      "navn": "grevskabet Vallø",
       "slags": "grevskab",
       "gruppe": 124
      }
@@ -7035,7 +7225,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 8 beholder navnet »Grünholz«, art gård; række 311 beholder navnet »Grünholz (tiltraadt 1731)«, art gård",
     "opret": [],
     "saet": [
@@ -7171,7 +7361,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 116 beholder navnet »Hemmelmark«, art gård; række 325 beholder navnet »Hemmelmark (1692-97)«, art gård",
     "opret": [],
     "saet": [
@@ -7212,7 +7402,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 319 får navnet »Hemmelmark ved Ekernförde« (før »Hemmelmark ved Ekernförde (1675-92)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 319 får navnet »Hemmelmark ved Ekernförde« (før »Hemmelmark ved Ekernförde (1675-92)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -7246,7 +7436,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 236 får navnet »Hermenstorf« (før »Hermenstorf (solgt 1378)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 236 får navnet »Hermenstorf« (før »Hermenstorf (solgt 1378)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -7321,7 +7511,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 328 beholder navnet »Hohenfelde og Oregaard (Skovby H.)«, art gård",
     "opret": [],
     "saet": [
@@ -7379,7 +7569,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 21 beholder navnet »Holm«, art gård; række 232 beholder navnet »Holm (Schöneberg Sogn, forpagtet 1421)«, art gård",
     "opret": [],
     "saet": [
@@ -7451,7 +7641,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 235 beholder navnet »Honnigsee og Barkau (Barkau Sogn, holdt til tro Haand for Preetz Kloster fra 1445)«, art gård",
     "opret": [],
     "saet": [
@@ -7521,8 +7711,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 200 beholder navnet »Hverringe Skovdistrikt«, art art ukendt",
+   "B": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 200 beholder navnet »Hverringe Skovdistrikt«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -7561,7 +7751,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 37 beholder navnet »Hvidøre Kongsgaard«, art gård; række 268 beholder navnet »Hvidøre Kongsgaard (forlenet 1545)«, art gård",
     "opret": [],
     "saet": [
@@ -7583,8 +7773,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Læg sammen — art ukendt (ikke en gård): række 37 beholder navnet »Hvidøre Kongsgaard«, art art ukendt; række 268 lægges ind i række 37 (1 ejerforhold flyttes med)",
+   "C": {
+    "tekst": "Læg sammen — men art ukendt (ikke en gård): række 37 beholder navnet »Hvidøre Kongsgaard«, art ukendt; række 268 lægges ind i række 37 (1 ejerforhold flyttes med)",
     "opret": [],
     "saet": [
      {
@@ -7605,8 +7795,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Cu": {
-    "tekst": "Behold rækkerne adskilt (kun art sættes) — art ukendt (ikke en gård): række 37 beholder navnet »Hvidøre Kongsgaard«, art art ukendt; række 268 beholder navnet »Hvidøre Kongsgaard (forlenet 1545)«, art art ukendt",
+   "D": {
+    "tekst": "Behold rækkerne adskilt (kun art sættes) — men art ukendt (ikke en gård): række 37 beholder navnet »Hvidøre Kongsgaard«, art ukendt; række 268 beholder navnet »Hvidøre Kongsgaard (forlenet 1545)«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -7651,7 +7841,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 130 beholder navnet »Höltenklinken«, art gård; række 332 beholder navnet »Höltenklinken (boede her 1697-1709)«, art gård",
     "opret": [],
     "saet": [
@@ -7710,7 +7900,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 380 får navnet »Ilrestorp« (før »Ilrestorp (1856) [OCR-usikker stednavn]«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 380 får navnet »Ilrestorp« (før »Ilrestorp (1856) [OCR-usikker stednavn]«), art gård",
     "opret": [],
     "saet": [
      {
@@ -7749,7 +7939,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 223 beholder navnet »Jeppstorp«, art gård; række 389 beholder navnet »Jeppstorp (Strø S.)«, art gård",
     "opret": [],
     "saet": [
@@ -7813,7 +8003,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 411 beholder navnet »Jersbek og Stegen ved Oldesloe (1840)«, art gård",
     "opret": [],
     "saet": [
@@ -7853,7 +8043,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 74 beholder navnet »Jesendorf«, art gård; række 313 beholder navnet »Jesendorf (panthaver)«, art gård",
     "opret": [],
     "saet": [
@@ -7894,7 +8084,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 360 får navnet »Kain« (før »Kain (1690)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 360 får navnet »Kain« (før »Kain (1690)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -7987,7 +8177,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 61 beholder navnet »Kiesby«, art gård; række 296 beholder navnet »Kiesby (avlsgaard i Boren Sogn, købt 1622)«, art gård",
     "opret": [],
     "saet": [
@@ -8046,7 +8236,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 303 får navnet »Klampe« (før »Klampe (købt 1641 af svigermoderen Dorothea v. Ahlefeldt, solgt 1663 til Hans Rantzau)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 303 får navnet »Klampe« (før »Klampe (købt 1641 af svigermoderen Dorothea v. Ahlefeldt, solgt 1663 til Hans Rantzau)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -8098,7 +8288,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 250 får navnet »Koden, indløst 1384« (før »Koden (to der Koden/Köhn), indløst 1384 sammen med broderen Gotskalk«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 250 får navnet »Koden, indløst 1384« (før »Koden (to der Koden/Köhn), indløst 1384 sammen med broderen Gotskalk«), art gård",
     "opret": [],
     "saet": [
      {
@@ -8150,7 +8340,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 361 får navnet »Kollerup, Galten Herred« (før »Kollerup, Galten Herred (1692)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 361 får navnet »Kollerup, Galten Herred« (før »Kollerup, Galten Herred (1692)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -8202,7 +8392,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 266 får navnet »Kongsgaard i Hamborg« (før »Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 266 får navnet »Kongsgaard i Hamborg« (før »Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -8217,8 +8407,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 266 beholder navnet »Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)«, art art ukendt",
+   "C": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 266 beholder navnet »Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -8233,8 +8423,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Bu": {
-    "tekst": "Som A, men uden parentes/»til« i navnet — art ukendt (ikke en gård): række 266 får navnet »Kongsgaard i Hamborg« (før »Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)«), art art ukendt",
+   "D": {
+    "tekst": "Navnet uden parentes og »til« — men art ukendt (ikke en gård): række 266 får navnet »Kongsgaard i Hamborg« (før »Kongsgaard i Hamborg (forlenet 1510, senere frataget, tilbagegivet 1542)«), art ukendt",
     "opret": [],
     "saet": [
      {
@@ -8267,8 +8457,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 36 beholder navnet »kongsgård i Hamburg«, art art ukendt",
+   "B": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 36 beholder navnet »kongsgård i Hamburg«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -8374,6 +8564,112 @@
     ],
     "hoerer_under": [],
     "flyt": []
+   },
+   "B": {
+    "tekst": "Behold navnet uændret: række 182 beholder navnet »Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof«, art gård; ny gård oprettes: Gross-Koppel; ny gård oprettes: Klein‑Koppel; ny gård oprettes: Etelsen; ny gård oprettes: Embsen; ny gård oprettes: Ruschbaden; ny gård oprettes: Nesehof; ejerforhold 737 kopieres til den nye gård Gross-Koppel; ejerforhold 737 kopieres til den nye gård Klein‑Koppel; ejerforhold 737 kopieres til den nye gård Etelsen; ejerforhold 737 kopieres til den nye gård Embsen; ejerforhold 737 kopieres til den nye gård Ruschbaden; ejerforhold 737 kopieres til den nye gård Nesehof",
+    "opret": [
+     {
+      "noegle": "ny:Gross-Koppel",
+      "navn": "Gross-Koppel",
+      "slags": "gård",
+      "gruppe": 167
+     },
+     {
+      "noegle": "ny:Klein‑Koppel",
+      "navn": "Klein‑Koppel",
+      "slags": "gård",
+      "gruppe": 167
+     },
+     {
+      "noegle": "ny:Etelsen",
+      "navn": "Etelsen",
+      "slags": "gård",
+      "gruppe": 167
+     },
+     {
+      "noegle": "ny:Embsen",
+      "navn": "Embsen",
+      "slags": "gård",
+      "gruppe": 167
+     },
+     {
+      "noegle": "ny:Ruschbaden",
+      "navn": "Ruschbaden",
+      "slags": "gård",
+      "gruppe": 167
+     },
+     {
+      "noegle": "ny:Nesehof",
+      "navn": "Nesehof",
+      "slags": "gård",
+      "gruppe": 167
+     }
+    ],
+    "saet": [
+     {
+      "estate": 182,
+      "navn": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
+      "slags": "gård",
+      "gruppe": 167
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [
+     {
+      "relation": 737,
+      "til": "ny:Gross-Koppel",
+      "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
+      "gruppe": 167
+     },
+     {
+      "relation": 737,
+      "til": "ny:Klein‑Koppel",
+      "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
+      "gruppe": 167
+     },
+     {
+      "relation": 737,
+      "til": "ny:Etelsen",
+      "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
+      "gruppe": 167
+     },
+     {
+      "relation": 737,
+      "til": "ny:Embsen",
+      "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
+      "gruppe": 167
+     },
+     {
+      "relation": 737,
+      "til": "ny:Ruschbaden",
+      "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
+      "gruppe": 167
+     },
+     {
+      "relation": 737,
+      "til": "ny:Nesehof",
+      "citat": "Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof",
+      "gruppe": 167
+     }
+    ],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "C": {
+    "tekst": "Navn og art, men uden kopier til de øvrige gårde: række 182 får navnet »Koppel« (før »Koppel med Gross- og Klein‑Koppel, Etelsen, Embsen, Ruschbaden og Nesehof«), art gård",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 182,
+      "navn": "Koppel",
+      "slags": "gård",
+      "gruppe": 167
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
    }
   },
   "168": {
@@ -8394,7 +8690,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 420 får navnet »Krengerup« (før »Krengerup (Baag H.)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 420 får navnet »Krengerup« (før »Krengerup (Baag H.)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -8487,7 +8783,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 228 beholder navnet »Kyleberg«, art gård; række 387 beholder navnet »Kyleberg (Svanhals S.)«, art gård",
     "opret": [],
     "saet": [
@@ -8574,7 +8870,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 1 beholder navnet »Lammershagen«, art gård; række 281 beholder navnet »Lammershagen (1592 købt af Svogeren Henrik Rantzaus Kreditorer)«, art gård; række 298 beholder navnet »Lammershagen (solgt 1668)«, art gård",
     "opret": [],
     "saet": [
@@ -8621,7 +8917,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 306 får navnet »Lammershagen — solgt 1668 til Oberst Bertram Rantzau til Ascheberg for 43.000 Rdl.« (før »Lammershagen (med Selent, Bäslin og Bauersdorf) — solgt 1668 (Kiel, 8 Maj) til Oberst Bertram Rantzau til Ascheberg for 43.000 Rdl.«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 306 får navnet »Lammershagen — solgt 1668 til Oberst Bertram Rantzau til Ascheberg for 43.000 Rdl.« (før »Lammershagen (med Selent, Bäslin og Bauersdorf) — solgt 1668 (Kiel, 8 Maj) til Oberst Bertram Rantzau til Ascheberg for 43.000 Rdl.«), art gård",
     "opret": [],
     "saet": [
      {
@@ -8678,7 +8974,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 17 beholder navnet »Langwedel«, art gård; række 242 beholder navnet »Langwedel (købt 1357 af Otto Schinkel, skænket 1376 til Itzehoe Kloster)«, art gård",
     "opret": [],
     "saet": [
@@ -8742,7 +9038,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 142 beholder navnet »Lehmkulen«, art gård; række 341 beholder navnet »Lehmkulen (1704, købt af H. B. v. Ahlefeldt for 80.000 Rdlr.; udskilte Avlsgaardene Rethwisch og Bredeneck, solgt 1707 til Bertram Rantzau til Ascheberg)«, art gård",
     "opret": [],
     "saet": [
@@ -8800,8 +9096,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 22 beholder navnet »Lille Tønder Len«, art art ukendt",
+   "B": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 22 beholder navnet »Lille Tønder Len«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -8840,7 +9136,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 295 beholder navnet »Lindau«, art gård; række 302 beholder navnet »Lindau (arvet 1652 efter fasteren Dorothea)«, art gård",
     "opret": [],
     "saet": [
@@ -8917,7 +9213,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 347 får navnet »Lollands Sønder Herred« (før »Lollands Sønder Herred (1752)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 347 får navnet »Lollands Sønder Herred« (før »Lollands Sønder Herred (1752)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -8932,8 +9228,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 347 beholder navnet »Lollands Sønder Herred (1752)«, art art ukendt",
+   "C": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 347 beholder navnet »Lollands Sønder Herred (1752)«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -8948,8 +9244,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Bu": {
-    "tekst": "Som A, men uden parentes/»til« i navnet — art ukendt (ikke en gård): række 347 får navnet »Lollands Sønder Herred« (før »Lollands Sønder Herred (1752)«), art art ukendt",
+   "D": {
+    "tekst": "Navnet uden parentes og »til« — men art ukendt (ikke en gård): række 347 får navnet »Lollands Sønder Herred« (før »Lollands Sønder Herred (1752)«), art ukendt",
     "opret": [],
     "saet": [
      {
@@ -9043,7 +9339,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 75 beholder navnet »Lundsgaard med Filipsborg«, art gård; række 315 beholder navnet »Lundsgaard (forpagtet 1700)«, art gård; række 346 beholder navnet »Lundsgaard (1736)«, art gård",
     "opret": [],
     "saet": [
@@ -9070,6 +9366,33 @@
     "kopier": [],
     "hoerer_under": [],
     "flyt": []
+   },
+   "C": {
+    "tekst": "Læg sammen, men uden kopier til de øvrige gårde: række 75 får navnet »Lundsgaard« (før »Lundsgaard med Filipsborg«), art gård; række 315 lægges ind i række 75 (1 ejerforhold flyttes med); række 346 lægges ind i række 75 (1 ejerforhold flyttes med)",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 75,
+      "navn": "Lundsgaard",
+      "slags": "gård",
+      "gruppe": 189
+     }
+    ],
+    "sammenlaeg": [
+     {
+      "fra": 315,
+      "til": 75,
+      "gruppe": 189
+     },
+     {
+      "fra": 346,
+      "til": 75,
+      "gruppe": 189
+     }
+    ],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
    }
   },
   "190": {
@@ -9090,7 +9413,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 368 får navnet »Lungholm« (før »Lungholm (1727)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 368 får navnet »Lungholm« (før »Lungholm (1727)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -9124,7 +9447,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 225 får navnet »Lyngdalsgaard« (før »Lyngdalsgaard (medejer)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 225 får navnet »Lyngdalsgaard« (før »Lyngdalsgaard (medejer)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -9235,7 +9558,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 78 beholder navnet »Maslow«, art gård; række 289 beholder navnet »Maslow (pant fra 1645)«, art gård",
     "opret": [],
     "saet": [
@@ -9276,7 +9599,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 117 får navnet »Möhlhorst« (før »Möhlhorst (Mølskov)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 117 får navnet »Möhlhorst« (før »Möhlhorst (Mølskov)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -9315,7 +9638,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 262 beholder navnet »Neudorf«, art gård; række 323 beholder navnet »Neudorf (arvet efter Faderen, solgt 1719)«, art gård",
     "opret": [],
     "saet": [
@@ -9392,7 +9715,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 412 får navnet »Neuendorf ved Glückstadt« (før »Neuendorf ved Glückstadt (1835)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 412 får navnet »Neuendorf ved Glückstadt« (før »Neuendorf ved Glückstadt (1835)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -9480,7 +9803,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 401 får navnet »Nørre-Gyldenbjerg ved Nakskov« (før »Nørre-Gyldenbjerg ved Nakskov (til)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 401 får navnet »Nørre-Gyldenbjerg ved Nakskov« (før »Nørre-Gyldenbjerg ved Nakskov (til)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -9513,8 +9836,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 284 beholder navnet »o.s.v.«, art art ukendt",
+   "B": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 284 beholder navnet »o.s.v.«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -9553,7 +9876,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 158 beholder navnet »Ober‑Ellguth«, art gård; række 416 beholder navnet »Ober-Ellguth«, art gård",
     "opret": [],
     "saet": [
@@ -9631,7 +9954,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 140 beholder navnet »Osterrade med Bovenau«, art gård; række 147 beholder navnet »Osterrade«, art gård",
     "opret": [],
     "saet": [
@@ -9649,6 +9972,28 @@
      }
     ],
     "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "C": {
+    "tekst": "Læg sammen, men uden kopier til de øvrige gårde: række 147 beholder navnet »Osterrade«, art gård; række 140 lægges ind i række 147 (1 ejerforhold flyttes med)",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 147,
+      "navn": "Osterrade",
+      "slags": "gård",
+      "gruppe": 209
+     }
+    ],
+    "sammenlaeg": [
+     {
+      "fra": 140,
+      "til": 147,
+      "gruppe": 209
+     }
+    ],
     "kopier": [],
     "hoerer_under": [],
     "flyt": []
@@ -9677,7 +10022,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 339 beholder navnet »Osterrade og Kluvensiek (1753)«, art gård",
     "opret": [],
     "saet": [
@@ -9760,6 +10105,52 @@
     ],
     "hoerer_under": [],
     "flyt": []
+   },
+   "B": {
+    "tekst": "Behold navnet uændret: række 367 beholder navnet »Pederstrup med Skjelstofte (1725)«, art gård; ny gård oprettes: Skjelstofte; ejerforhold 2593 kopieres til den nye gård Skjelstofte",
+    "opret": [
+     {
+      "noegle": "ny:Skjelstofte",
+      "navn": "Skjelstofte",
+      "slags": "gård",
+      "gruppe": 213
+     }
+    ],
+    "saet": [
+     {
+      "estate": 367,
+      "navn": "Pederstrup med Skjelstofte (1725)",
+      "slags": "gård",
+      "gruppe": 213
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [
+     {
+      "relation": 2593,
+      "til": "ny:Skjelstofte",
+      "citat": "Pederstrup med Skjelstofte (1725)",
+      "gruppe": 213
+     }
+    ],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "C": {
+    "tekst": "Navn og art, men uden kopier til de øvrige gårde: række 367 får navnet »Pederstrup« (før »Pederstrup med Skjelstofte (1725)«), art gård",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 367,
+      "navn": "Pederstrup",
+      "slags": "gård",
+      "gruppe": 213
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
    }
   },
   "214": {
@@ -9780,7 +10171,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 425 får navnet »Peterstrup Birk« (før »Peterstrup(?) Birk (1510, som enke)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 425 får navnet »Peterstrup Birk« (før »Peterstrup(?) Birk (1510, som enke)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -9795,8 +10186,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 425 beholder navnet »Peterstrup(?) Birk (1510, som enke)«, art art ukendt",
+   "C": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 425 beholder navnet »Peterstrup(?) Birk (1510, som enke)«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -9811,8 +10202,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Bu": {
-    "tekst": "Som A, men uden parentes/»til« i navnet — art ukendt (ikke en gård): række 425 får navnet »Peterstrup Birk« (før »Peterstrup(?) Birk (1510, som enke)«), art art ukendt",
+   "D": {
+    "tekst": "Navnet uden parentes og »til« — men art ukendt (ikke en gård): række 425 får navnet »Peterstrup Birk« (før »Peterstrup(?) Birk (1510, som enke)«), art ukendt",
     "opret": [],
     "saet": [
      {
@@ -9846,7 +10237,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 316 får navnet »Philipsburg i Angel« (før »Philipsburg i Angel (forpagtet 1700)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 316 får navnet »Philipsburg i Angel« (før »Philipsburg i Angel (forpagtet 1700)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -9926,7 +10317,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 174 beholder navnet »Pugerup«, art gård; række 378 beholder navnet »Pugerup (Gudmunstorp S.) (1845)«, art gård; række 391 beholder navnet »til Pugerup«, art gård",
     "opret": [],
     "saet": [
@@ -9996,7 +10387,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 127 beholder navnet »Quarnbek«, art gård; række 326 beholder navnet »Quarnbek (-1705)«, art gård",
     "opret": [],
     "saet": [
@@ -10060,7 +10451,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 344 beholder navnet »Rantzau og Colmar (1732)«, art gård",
     "opret": [],
     "saet": [
@@ -10142,7 +10533,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 415 beholder navnet »Raubart, Starzeddel og Vettersfelde (1853-75)«, art gård",
     "opret": [],
     "saet": [
@@ -10200,7 +10591,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 94 beholder navnet »Reetz«, art gård; række 324 beholder navnet »Reetz (solgt 1684 til Oberst v. Vietinghof)«, art gård",
     "opret": [],
     "saet": [
@@ -10261,7 +10652,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 34 beholder navnet »Rixdorf«, art gård; række 270 beholder navnet »Rixdorf (erhvervet af Broderen)«, art gård; række 275 beholder navnet »Rixdorf (1561)«, art gård; række 277 beholder navnet »Rixdorf (solgt til Ditlev Brockdorff)«, art gård; række 290 beholder navnet »Rixdorf med landsbyerne Sellin, Küssow, Rastorf, Tramm og Rixdorf (købt af Ditlev v. Ahlefeldt, Heinrich og Schack Rantzau)«, art gård",
     "opret": [],
     "saet": [
@@ -10350,7 +10741,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 91 beholder navnet »Rudbjerggaard med Fredsholm«, art gård; række 183 beholder navnet »Rudbjerggaard«, art gård",
     "opret": [],
     "saet": [
@@ -10368,6 +10759,28 @@
      }
     ],
     "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "C": {
+    "tekst": "Læg sammen, men uden kopier til de øvrige gårde: række 183 beholder navnet »Rudbjerggaard«, art gård; række 91 lægges ind i række 183 (1 ejerforhold flyttes med)",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 183,
+      "navn": "Rudbjerggaard",
+      "slags": "gård",
+      "gruppe": 230
+     }
+    ],
+    "sammenlaeg": [
+     {
+      "fra": 91,
+      "til": 183,
+      "gruppe": 230
+     }
+    ],
     "kopier": [],
     "hoerer_under": [],
     "flyt": []
@@ -10391,7 +10804,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 396 får navnet »Rudbjerggaard, Maribo Amt« (før »til Rudbjerggaard, Maribo Amt (1891)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 396 får navnet »Rudbjerggaard, Maribo Amt« (før »til Rudbjerggaard, Maribo Amt (1891)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -10425,7 +10838,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 355 får navnet »Sandberg i Sundeved« (før »Sandberg i Sundeved (1673)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 355 får navnet »Sandberg i Sundeved« (før »Sandberg i Sundeved (1673)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -10536,7 +10949,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 19 beholder navnet »Schmoel«, art gård; række 327 beholder navnet »Schmoel (1695)«, art gård",
     "opret": [],
     "saet": [
@@ -10582,7 +10995,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 342 beholder navnet »Schmoel og Hohenfelde (1701)«, art gård",
     "opret": [],
     "saet": [
@@ -10617,7 +11030,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 233 får navnet »Schmoel/Smolde« (før »Schmoel/Smolde (boede der 1443, Giekow Sogn)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 233 får navnet »Schmoel/Smolde« (før »Schmoel/Smolde (boede der 1443, Giekow Sogn)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -10728,7 +11141,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 271 beholder navnet »Schöneweide (købt af Hr. Johan Rantzau)«, art gård; række 279 beholder navnet »Schöneweide (1561 ved Lodtrækning)«, art gård",
     "opret": [],
     "saet": [
@@ -10774,7 +11187,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 14 beholder navnet »Schönkirchen«, art gård; række 243 beholder navnet »Schönkirchen (solgt 1356 til Greverne Johan og Adolf)«, art gård",
     "opret": [],
     "saet": [
@@ -10846,8 +11259,54 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 354 får navnet »Segeberg Kalkbjerg« (før »Segeberg Kalkbjerg med Gieschenhagen (1673–84)«), art art ukendt; ny gård oprettes: Gieschenhagen; ejerforhold 2580 kopieres til den nye gård Gieschenhagen",
+   "B": {
+    "tekst": "Behold navnet uændret: række 354 beholder navnet »Segeberg Kalkbjerg med Gieschenhagen (1673–84)«, art gård; ny gård oprettes: Gieschenhagen; ejerforhold 2580 kopieres til den nye gård Gieschenhagen",
+    "opret": [
+     {
+      "noegle": "ny:Gieschenhagen",
+      "navn": "Gieschenhagen",
+      "slags": "gård",
+      "gruppe": 247
+     }
+    ],
+    "saet": [
+     {
+      "estate": 354,
+      "navn": "Segeberg Kalkbjerg med Gieschenhagen (1673–84)",
+      "slags": "gård",
+      "gruppe": 247
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [
+     {
+      "relation": 2580,
+      "til": "ny:Gieschenhagen",
+      "citat": "Segeberg Kalkbjerg med Gieschenhagen (1673–84)",
+      "gruppe": 247
+     }
+    ],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "C": {
+    "tekst": "Navn og art, men uden kopier til de øvrige gårde: række 354 får navnet »Segeberg Kalkbjerg« (før »Segeberg Kalkbjerg med Gieschenhagen (1673–84)«), art gård",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 354,
+      "navn": "Segeberg Kalkbjerg",
+      "slags": "gård",
+      "gruppe": 247
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "D": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 354 får navnet »Segeberg Kalkbjerg« (før »Segeberg Kalkbjerg med Gieschenhagen (1673–84)«), art ukendt; ny gård oprettes: Gieschenhagen; ejerforhold 2580 kopieres til den nye gård Gieschenhagen",
     "opret": [
      {
       "noegle": "ny:Gieschenhagen",
@@ -10873,6 +11332,52 @@
       "gruppe": 247
      }
     ],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "E": {
+    "tekst": "Behold navnet uændret — men art ukendt (ikke en gård): række 354 beholder navnet »Segeberg Kalkbjerg med Gieschenhagen (1673–84)«, art ukendt; ny gård oprettes: Gieschenhagen; ejerforhold 2580 kopieres til den nye gård Gieschenhagen",
+    "opret": [
+     {
+      "noegle": "ny:Gieschenhagen",
+      "navn": "Gieschenhagen",
+      "slags": "gård",
+      "gruppe": 247
+     }
+    ],
+    "saet": [
+     {
+      "estate": 354,
+      "navn": "Segeberg Kalkbjerg med Gieschenhagen (1673–84)",
+      "slags": null,
+      "gruppe": 247
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [
+     {
+      "relation": 2580,
+      "til": "ny:Gieschenhagen",
+      "citat": "Segeberg Kalkbjerg med Gieschenhagen (1673–84)",
+      "gruppe": 247
+     }
+    ],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "F": {
+    "tekst": "Navn og art, men uden kopier til de øvrige gårde — men art ukendt (ikke en gård): række 354 får navnet »Segeberg Kalkbjerg« (før »Segeberg Kalkbjerg med Gieschenhagen (1673–84)«), art ukendt",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 354,
+      "navn": "Segeberg Kalkbjerg",
+      "slags": null,
+      "gruppe": 247
+     }
+    ],
+    "sammenlaeg": [],
+    "kopier": [],
     "hoerer_under": [],
     "flyt": []
    }
@@ -10948,8 +11453,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 100 beholder navnet »Silkeborg Len«, art art ukendt",
+   "B": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 100 beholder navnet »Silkeborg Len«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -10983,7 +11488,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 222 får navnet »Skarhult« (før »Skarhult (halvpart)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 222 får navnet »Skarhult« (før »Skarhult (halvpart)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -11035,7 +11540,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 230 får navnet »Skænkede o. 1240-45 et stykke jord til Bredenberg Sogn ved den østlige bred af Stellau — bortgivet, ikke i eje.« (før »Skænkede o. 1240-45 (sammen med hustru Elisabeth, Henrik af Trent og dennes broder Eler Kale) et stykke jord til Bredenberg Sogn (ved Itzehoe) ved den østlige bred af Stellau — bortgivet, ikke i eje.«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 230 får navnet »Skænkede o. 1240-45 et stykke jord til Bredenberg Sogn ved den østlige bred af Stellau — bortgivet, ikke i eje.« (før »Skænkede o. 1240-45 (sammen med hustru Elisabeth, Henrik af Trent og dennes broder Eler Kale) et stykke jord til Bredenberg Sogn (ved Itzehoe) ved den østlige bred af Stellau — bortgivet, ikke i eje.«), art gård",
     "opret": [],
     "saet": [
      {
@@ -11050,8 +11555,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Navn og art — art ukendt (ikke en gård): række 230 beholder navnet »Skænkede o. 1240-45 (sammen med hustru Elisabeth, Henrik af Trent og dennes broder Eler Kale) et stykke jord til Bredenberg Sogn (ved Itzehoe) ved den østlige bred af Stellau — bortgivet, ikke i eje.«, art art ukendt",
+   "C": {
+    "tekst": "Navn og art — men art ukendt (ikke en gård): række 230 beholder navnet »Skænkede o. 1240-45 (sammen med hustru Elisabeth, Henrik af Trent og dennes broder Eler Kale) et stykke jord til Bredenberg Sogn (ved Itzehoe) ved den østlige bred af Stellau — bortgivet, ikke i eje.«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -11066,8 +11571,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Bu": {
-    "tekst": "Som A, men uden parentes/»til« i navnet — art ukendt (ikke en gård): række 230 får navnet »Skænkede o. 1240-45 et stykke jord til Bredenberg Sogn ved den østlige bred af Stellau — bortgivet, ikke i eje.« (før »Skænkede o. 1240-45 (sammen med hustru Elisabeth, Henrik af Trent og dennes broder Eler Kale) et stykke jord til Bredenberg Sogn (ved Itzehoe) ved den østlige bred af Stellau — bortgivet, ikke i eje.«), art art ukendt",
+   "D": {
+    "tekst": "Navnet uden parentes og »til« — men art ukendt (ikke en gård): række 230 får navnet »Skænkede o. 1240-45 et stykke jord til Bredenberg Sogn ved den østlige bred af Stellau — bortgivet, ikke i eje.« (før »Skænkede o. 1240-45 (sammen med hustru Elisabeth, Henrik af Trent og dennes broder Eler Kale) et stykke jord til Bredenberg Sogn (ved Itzehoe) ved den østlige bred af Stellau — bortgivet, ikke i eje.«), art ukendt",
     "opret": [],
     "saet": [
      {
@@ -11118,7 +11623,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 201 beholder navnet »stamhuset Frisenvold«, art stamhus; række 365 beholder navnet »Stamhuset Frisenvold (1731)«, art stamhus; række 376 beholder navnet »Stamhusene Frisenvold (vundet 1762 ved Højesteretsdom) og Krenkerup«, art stamhus",
     "opret": [],
     "saet": [
@@ -11142,6 +11647,33 @@
      }
     ],
     "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "C": {
+    "tekst": "Læg sammen, men uden kopier til de øvrige gårde: række 201 får navnet »Stamhuset Frisenvold« (før »stamhuset Frisenvold«), art stamhus; række 365 lægges ind i række 201 (1 ejerforhold flyttes med); række 376 lægges ind i række 201 (1 ejerforhold flyttes med)",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 201,
+      "navn": "Stamhuset Frisenvold",
+      "slags": "stamhus",
+      "gruppe": 255
+     }
+    ],
+    "sammenlaeg": [
+     {
+      "fra": 365,
+      "til": 201,
+      "gruppe": 255
+     },
+     {
+      "fra": 376,
+      "til": 201,
+      "gruppe": 255
+     }
+    ],
     "kopier": [],
     "hoerer_under": [],
     "flyt": []
@@ -11170,7 +11702,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 202 beholder navnet »stamhuset Krenkerup«, art stamhus; række 366 beholder navnet »Stamhuset Krenkerup (1736)«, art stamhus",
     "opret": [],
     "saet": [
@@ -11247,7 +11779,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 259 får navnet »Steensgaard i Fyen« (før »Steensgaard i Fyen (ejede 1472)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 259 får navnet »Steensgaard i Fyen« (før »Steensgaard i Fyen (ejede 1472)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -11381,7 +11913,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 39 beholder navnet »Stocksee«, art gård; række 293 beholder navnet »Stocksee (1606)«, art gård; række 299 beholder navnet »Stocksee (solgt 1643)«, art gård",
     "opret": [],
     "saet": [
@@ -11446,7 +11978,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 333 får navnet »Stubbe i Riseby S.« (før »Stubbe i Riseby S. (1722)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 333 får navnet »Stubbe i Riseby S.« (før »Stubbe i Riseby S. (1722)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -11495,7 +12027,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 418 beholder navnet »Søbo (siges at have ejet)«, art gård; række 419 beholder navnet »Søbo«, art gård; række 424 beholder navnet »Søbo (1468)«, art gård; række 430 beholder navnet »Søbo (til)«, art gård",
     "opret": [],
     "saet": [
@@ -11553,7 +12085,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 92 beholder navnet »Søllestedgaard«, art gård; række 350 beholder navnet »Søllestedgaard (1757)«, art gård",
     "opret": [],
     "saet": [
@@ -11599,7 +12131,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 85 beholder navnet »Sørup«, art gård; række 345 beholder navnet »Sørup (1736)«, art gård",
     "opret": [],
     "saet": [
@@ -11653,7 +12185,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 369 beholder navnet »Taastrup og Aalstrup (1728)«, art gård",
     "opret": [],
     "saet": [
@@ -11698,7 +12230,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 12 beholder navnet »Techelsdorf«, art gård; række 238 beholder navnet »Techelsdorf (halve landsby, solgt 1352 til Itzehoe Kloster)«, art gård; række 244 beholder navnet »Techelsdorf (sin halvdel skænket til Itzehoe Kloster)«, art gård",
     "opret": [],
     "saet": [
@@ -11768,7 +12300,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 304 beholder navnet »Testorf (afhændet 1667 til broderen Ditlev)«, art gård; række 305 beholder navnet »Testorf«, art gård",
     "opret": [],
     "saet": [
@@ -11809,7 +12341,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 247 får navnet »Tielenburg« (før »Tielenburg (havde i Pant)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 247 får navnet »Tielenburg« (før »Tielenburg (havde i Pant)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -11861,7 +12393,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 260 får navnet »Tovskov i Sommersted Sogn« (før »Tovskov i Sommersted Sogn (købt før 1476 sammen med svogeren Anders Jochimsen (Bjørn))«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 260 får navnet »Tovskov i Sommersted Sogn« (før »Tovskov i Sommersted Sogn (købt før 1476 sammen med svogeren Anders Jochimsen (Bjørn))«), art gård",
     "opret": [],
     "saet": [
      {
@@ -11905,7 +12437,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 55 beholder navnet »Tramm«, art gård; række 276 beholder navnet »Tramm (ved lodtrækning)«, art gård; række 278 beholder navnet »Tramm (under Rixdorf, 1597)«, art gård",
     "opret": [],
     "saet": [
@@ -11970,7 +12502,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 385 får navnet »Truelstorp« (før »til Truelstorp«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 385 får navnet »Truelstorp« (før »til Truelstorp«), art gård",
     "opret": [],
     "saet": [
      {
@@ -12027,7 +12559,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold som én række med bogens navn: række 379 beholder navnet »Trulstorp og Ugerup (Köpinge S.) (1865)«, art gård",
     "opret": [],
     "saet": [
@@ -12062,7 +12594,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 356 får navnet »Turø, Sunds Herred« (før »Turø, Sunds Herred (—1674)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 356 får navnet »Turø, Sunds Herred« (før »Turø, Sunds Herred (—1674)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -12101,7 +12633,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 370 beholder navnet »Tølløse (1728)«, art gård; række 371 beholder navnet »Tølløse«, art gård",
     "opret": [],
     "saet": [
@@ -12165,7 +12697,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 23 beholder navnet »Tønder Slot, Herreder og Fogderi«, art gård; række 231 beholder navnet »Tønder Slot, Herreder og Fogderi (i Pant fra 1431)«, art gård",
     "opret": [],
     "saet": [
@@ -12187,8 +12719,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Au": {
-    "tekst": "Læg sammen — art ukendt (ikke en gård): række 23 beholder navnet »Tønder Slot, Herreder og Fogderi«, art art ukendt; række 231 lægges ind i række 23 (1 ejerforhold flyttes med)",
+   "C": {
+    "tekst": "Læg sammen — men art ukendt (ikke en gård): række 23 beholder navnet »Tønder Slot, Herreder og Fogderi«, art ukendt; række 231 lægges ind i række 23 (1 ejerforhold flyttes med)",
     "opret": [],
     "saet": [
      {
@@ -12209,8 +12741,8 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "Cu": {
-    "tekst": "Behold rækkerne adskilt (kun art sættes) — art ukendt (ikke en gård): række 23 beholder navnet »Tønder Slot, Herreder og Fogderi«, art art ukendt; række 231 beholder navnet »Tønder Slot, Herreder og Fogderi (i Pant fra 1431)«, art art ukendt",
+   "D": {
+    "tekst": "Behold rækkerne adskilt (kun art sættes) — men art ukendt (ikke en gård): række 23 beholder navnet »Tønder Slot, Herreder og Fogderi«, art ukendt; række 231 beholder navnet »Tønder Slot, Herreder og Fogderi (i Pant fra 1431)«, art ukendt",
     "opret": [],
     "saet": [
      {
@@ -12350,7 +12882,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 184 beholder navnet »Vindeholme«, art gård; række 397 beholder navnet »til Vindeholme (udskilt 1909 af Rudbjerggaard)«, art gård; række 402 beholder navnet »Vindeholme (medejer fra 1929)«, art gård",
     "opret": [],
     "saet": [
@@ -12402,7 +12934,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 422 beholder navnet »Vingegaard (Sønder Dyrs H.)«, art gård; række 426 beholder navnet »Vingegaard (til)«, art gård",
     "opret": [],
     "saet": [
@@ -12543,7 +13075,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 56 beholder navnet »Waterneverstorf«, art gård; række 294 beholder navnet »Waterneverstorf (1608)«, art gård; række 301 beholder navnet »Waterneverstorf (solgt til H. Blome)«, art gård",
     "opret": [],
     "saet": [
@@ -12590,7 +13122,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 280 får navnet »Waterneverstorf ved Lütjenburg« (før »Waterneverstorf ved Lütjenburg (1592 købt af Henneke Rantzau)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 280 får navnet »Waterneverstorf ved Lütjenburg« (før »Waterneverstorf ved Lütjenburg (1592 købt af Henneke Rantzau)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -12678,7 +13210,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 287 får navnet »Wendischen Zülow« (før »Wendischen Zülow (bortpantet 1490)«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 287 får navnet »Wendischen Zülow« (før »Wendischen Zülow (bortpantet 1490)«), art gård",
     "opret": [],
     "saet": [
      {
@@ -12712,7 +13244,7 @@
     "flyt": []
    },
    "B": {
-    "tekst": "Som A, men uden parentes/»til« i navnet: række 390 får navnet »Wennberga i Brostorp i Frosta Herred« (før »til Wennberga i Brostorp i Frosta Herred«), art gård",
+    "tekst": "Navnet uden parentes og »til«: række 390 får navnet »Wennberga i Brostorp i Frosta Herred« (før »til Wennberga i Brostorp i Frosta Herred«), art gård",
     "opret": [],
     "saet": [
      {
@@ -12793,7 +13325,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 5 beholder navnet »Wittenberg«, art gård; række 64 beholder navnet »Wittenberg med Tresdorf«, art gård; række 282 beholder navnet »Wittenberg (1592 købt af Christopher Rantzau og Ditlev Brockdorff)«, art gård; række 309 beholder navnet »Wittenberg (afstaaet til Broderen)«, art gård; række 310 beholder navnet »Wittenberg (1712–38)«, art gård; række 405 beholder navnet »Wittenberg (1779)«, art gård; række 413 beholder navnet »Wittenberg (1816)«, art gård; række 414 beholder navnet »Wittenberg (1842-51)«, art gård; række 417 beholder navnet »Wittenberg (til)«, art gård",
     "opret": [],
     "saet": [
@@ -12853,6 +13385,63 @@
      }
     ],
     "sammenlaeg": [],
+    "kopier": [],
+    "hoerer_under": [],
+    "flyt": []
+   },
+   "C": {
+    "tekst": "Læg sammen, men uden kopier til de øvrige gårde: række 5 beholder navnet »Wittenberg«, art gård; række 64 lægges ind i række 5 (1 ejerforhold flyttes med); række 282 lægges ind i række 5 (1 ejerforhold flyttes med); række 309 lægges ind i række 5 (1 ejerforhold flyttes med); række 310 lægges ind i række 5 (1 ejerforhold flyttes med); række 405 lægges ind i række 5 (1 ejerforhold flyttes med); række 413 lægges ind i række 5 (1 ejerforhold flyttes med); række 414 lægges ind i række 5 (1 ejerforhold flyttes med); række 417 lægges ind i række 5 (1 ejerforhold flyttes med)",
+    "opret": [],
+    "saet": [
+     {
+      "estate": 5,
+      "navn": "Wittenberg",
+      "slags": "gård",
+      "gruppe": 306
+     }
+    ],
+    "sammenlaeg": [
+     {
+      "fra": 64,
+      "til": 5,
+      "gruppe": 306
+     },
+     {
+      "fra": 282,
+      "til": 5,
+      "gruppe": 306
+     },
+     {
+      "fra": 309,
+      "til": 5,
+      "gruppe": 306
+     },
+     {
+      "fra": 310,
+      "til": 5,
+      "gruppe": 306
+     },
+     {
+      "fra": 405,
+      "til": 5,
+      "gruppe": 306
+     },
+     {
+      "fra": 413,
+      "til": 5,
+      "gruppe": 306
+     },
+     {
+      "fra": 414,
+      "til": 5,
+      "gruppe": 306
+     },
+     {
+      "fra": 417,
+      "til": 5,
+      "gruppe": 306
+     }
+    ],
     "kopier": [],
     "hoerer_under": [],
     "flyt": []
@@ -12917,7 +13506,7 @@
     "hoerer_under": [],
     "flyt": []
    },
-   "C": {
+   "B": {
     "tekst": "Behold rækkerne adskilt (kun art sættes): række 185 beholder navnet »Wulfshagen«, art gård; række 398 beholder navnet »Wulfshagen (til)«, art gård",
     "opret": [],
     "saet": [
@@ -13014,7 +13603,7 @@
   },
   "H1": {
    "ja": {
-    "tekst": "Ja: gården hører under majoratet",
+    "tekst": "Ja: der oprettes en »hører under«-relation fra række 189 (Brahetrolleborg) til række 261 (Baroniet Brahetrolleborg) — periode, udgave og bogens ord skal du give i svaret (fx »H1 ja 1729-1924, 2018-20, ›…‹«); ingen ejerforhold flyttes",
     "opret": [],
     "saet": [],
     "sammenlaeg": [],
@@ -13043,7 +13632,7 @@
   },
   "H2": {
    "ja": {
-    "tekst": "Ja: gården hører under majoratet",
+    "tekst": "Ja: der oprettes en »hører under«-relation fra række 171 (Christianssæde) til række 170 (Grevskabet Christianssæde) — periode, udgave og bogens ord skal du give i svaret (fx »H2 ja 1729-1924, 2018-20, ›…‹«); ingen ejerforhold flyttes",
     "opret": [],
     "saet": [],
     "sammenlaeg": [],
@@ -13068,26 +13657,11 @@
     "kopier": [],
     "hoerer_under": [],
     "flyt": []
-   },
-   "flyt": {
-    "tekst": "Gårdens ejerforhold flyttes til Grevskabet Christianssæde (bogen mente majoratet)",
-    "opret": [],
-    "saet": [],
-    "sammenlaeg": [],
-    "kopier": [],
-    "hoerer_under": [],
-    "flyt": [
-     {
-      "relation": 724,
-      "til": 170,
-      "gruppe": "H2"
-     }
-    ]
    }
   },
   "H3": {
    "ja": {
-    "tekst": "Ja: gården hører under majoratet",
+    "tekst": "Ja: der oprettes en »hører under«-relation fra række 355 (Sandberg i Sundeved) til række 374 (Grevskabet Sandberg) — periode, udgave og bogens ord skal du give i svaret (fx »H3 ja 1729-1924, 2018-20, ›…‹«); ingen ejerforhold flyttes",
     "opret": [],
     "saet": [],
     "sammenlaeg": [],
@@ -13116,7 +13690,7 @@
   },
   "H4": {
    "ja": {
-    "tekst": "Ja: gården hører under majoratet",
+    "tekst": "Ja: der oprettes en »hører under«-relation fra den nye gård Vallø til række 196 (Grevskabet Vallø), periode 1713-1730, kilde DAA 2018-20, med bogens ord som citat; den nye gård Vallø oprettes, og billedet (media 214) flyttes dertil",
     "opret": [
      {
       "noegle": "ny:Vallø",
@@ -13158,7 +13732,7 @@
   },
   "H5": {
    "ja": {
-    "tekst": "Ja: gården hører under majoratet",
+    "tekst": "Ja: der oprettes en »hører under«-relation fra række 358 (Friisenvold) til række 201 (Stamhuset Frisenvold) — periode, udgave og bogens ord skal du give i svaret (fx »H5 ja 1729-1924, 2018-20, ›…‹«); ingen ejerforhold flyttes",
     "opret": [],
     "saet": [],
     "sammenlaeg": [],
@@ -13187,7 +13761,7 @@
   },
   "H6": {
    "ja": {
-    "tekst": "Ja: gården hører under majoratet",
+    "tekst": "Ja: der oprettes en »hører under«-relation fra række 166 (Frisenvold) til række 201 (Stamhuset Frisenvold) — periode, udgave og bogens ord skal du give i svaret (fx »H6 ja 1729-1924, 2018-20, ›…‹«); ingen ejerforhold flyttes",
     "opret": [],
     "saet": [],
     "sammenlaeg": [],
@@ -13216,7 +13790,7 @@
   },
   "H7": {
    "ja": {
-    "tekst": "Ja: gården hører under majoratet",
+    "tekst": "Ja: der oprettes en »hører under«-relation fra række 210 (Krenkerup) til række 202 (Stamhuset Krenkerup) — periode, udgave og bogens ord skal du give i svaret (fx »H7 ja 1729-1924, 2018-20, ›…‹«); ingen ejerforhold flyttes",
     "opret": [],
     "saet": [],
     "sammenlaeg": [],
