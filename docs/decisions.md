@@ -2,6 +2,27 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: personsidens fakta tjekker hver binding én gang; id-loftet gælder kun kald gennem REST-API'et (#397 ceremoni 3, 2026-11-25)
+
+**Projektejeren valgte** (25/11, efter læse-kun-måling i prod: værste personside ~0,6 s af anon-loftets 3 s) at rette
+`public_person_facts` i ceremoni 3 sammen med R37C2-1's blok, og at id-loftet kun gælder REST-kald.
+
+- **Y13 / A×B.** Publiceringsgaten (`person_daa_narrative_publication_allowed`, ~9 ms pr. kald i prod) blev kaldt for
+  hver kombination af påstandsrække og binding, når planneren valgte den form (prod-kopien 24/11: 66 kald for 11
+  rækker × 6 bindinger). Nu beregnes gate og etiketter én gang pr. binding (MATERIALIZED CTE, gaten i select-listen, så
+  planneren ikke kan lægge den på scanningen af alle narrativer). Rækkerne er uændrede for alle personer, som gæst og
+  som redaktør. Gatens krop og narrative-politikken er ikke rørt (#152-kontrakten).
+- **Y4.** Ankervisningen slås op pr. occurrence i stedet for at bygges helt pr. binding (~3 ms i dag, vokser med antal
+  udgaver). `public_family_sources` er ikke ændret (27-34 ms i prod).
+- **Loft kun via REST (undtagelse fra CLAUDE.md's input-regel).** Højst 20 id'er pr. kald (4× den største
+  samme_som-gruppe, 5 personer), men kun når PostgREST har sat `request.jwt.claims`/`request.method` — det gør den i
+  hver forespørgsel, og en klient kan ikke fjerne dem. Grund: seks interne ceremoni- og målescripts (bl.a.
+  `identitet_ceremoni.sql`, `record_persona_ceremoni.sql`, begge i CI) hasher læserens visning for alle offentlige
+  personer i ét psql-kald som anon. Fravalgt: fast loft + opdeling af de seks scripts (rører afsluttede ceremonier) og
+  intet loft (anon's 3 s-timeout begrænser kun tiden, ikke klientens id-liste). **Efterprøvet i prod 2026-11-25** efter
+  apply: anon-REST-kald med 1 id → HTTP 200 (11 rækker for 402, som før); med 21 id'er → HTTP 400
+  `22023 PUBLIC_PERSON_FACTS_FOR_MANGE_ID`. Prods PostgREST sætter altså markørerne.
+
 ## BESLUTTET: s.å./s.m./s.d. oversættes også, når datofeltet står inde i teksten (afgørelse 13, del 2, 2026-11-25)
 
 **Projektejeren valgte** (#478; ønsket 2026-11-24, dom 2026-11-25: »alle 24 er korrekte«) at oversættelsen af bogens
