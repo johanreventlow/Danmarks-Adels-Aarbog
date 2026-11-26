@@ -1080,6 +1080,57 @@ BEGIN
 END
 $t5$;
 
+-- ---------- 6. RLS som anon: godsernes relationer er offentlige, levende ejere er det ikke ----------
+-- Som db-rls.sql's egen kontrol (»0 levende lækket«): gæsten er SET LOCAL ROLE anon med tomt request.jwt.claim.sub
+-- (pg_temp.km_antal('gaest', …) fra kalder-matrix). Relationens anon_read kræver begge ender offentlige
+-- (entitet_offentlig: estate er altid offentligt, en person kun som afdød og ikke-privat).
+DO $t6$
+DECLARE eg bigint; em bigint; ed bigint; p_doed bigint; p_lev bigint; r_hu bigint; r_sm bigint; r_doed bigint; r_lev bigint;
+        v_ids text; n int;
+BEGIN
+  INSERT INTO public.estate(navn, slags) VALUES ('__t6_gaard__', 'gård') RETURNING id INTO eg;
+  INSERT INTO public.estate(navn, slags) VALUES ('__t6_majorat__', 'grevskab') RETURNING id INTO em;
+  INSERT INTO public.estate(navn, slags) VALUES ('__t6_dublet__', 'gård') RETURNING id INTO ed;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('estate',eg,'estate',em,'hører_under') RETURNING id INTO r_hu;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('estate',ed,'estate',eg,'sammenlagt_i') RETURNING id INTO r_sm;
+  INSERT INTO public.person(levende) VALUES (false) RETURNING id INTO p_doed;
+  INSERT INTO public.person(levende) VALUES (true) RETURNING id INTO p_lev;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('person',p_doed,'estate',eg,'ejer') RETURNING id INTO r_doed;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle)
+    VALUES ('person',p_lev,'estate',em,'ejer') RETURNING id INTO r_lev;
+  v_ids := format('%s,%s,%s,%s', r_hu, r_sm, r_doed, r_lev);
+
+  -- Tænder: alle fire relationer findes for ejeren af testen (uden RLS).
+  SELECT count(*) INTO n FROM public.relation r WHERE r.id IN (r_hu, r_sm, r_doed, r_lev);
+  IF n <> 4 THEN RAISE EXCEPTION 'GODSER_T6: forventede 4 fixture-relationer, fandt %', n; END IF;
+
+  -- (a) Gæsten ser hører_under og sammenlagt_i mellem to offentlige godser.
+  n := pg_temp.km_antal('gaest', format(
+    'SELECT 1 FROM public.relation r WHERE r.id IN (%s, %s) AND r.rolle IN (%L, %L)', r_hu, r_sm, 'hører_under', 'sammenlagt_i'));
+  IF n <> 2 THEN RAISE EXCEPTION 'GODSER_T6: anon ser % af 2 relationer hører_under/sammenlagt_i mellem offentlige godser', n; END IF;
+
+  -- (b) Gæsten ser den afdødes ejerforhold, men ikke den levendes (hverken relationen eller personen).
+  n := pg_temp.km_antal('gaest', format('SELECT 1 FROM public.relation r WHERE r.id IN (%s)', v_ids));
+  IF n <> 3 THEN RAISE EXCEPTION 'GODSER_T6: anon ser % af fixturens relationer (forventede 3: alle undtagen den levendes ejerforhold)', n; END IF;
+  n := pg_temp.km_antal('gaest', format('SELECT 1 FROM public.relation r WHERE r.id = %s', r_lev));
+  IF n <> 0 THEN RAISE EXCEPTION 'GODSER_T6: anon ser den levendes ejerforhold'; END IF;
+
+  -- (c) I hele basen: 0 levende (eller ikke-afklarede) personer bag et ejerforhold til et gods, og 0 levende i alt.
+  n := pg_temp.km_antal('gaest',
+    'SELECT DISTINCT p.id FROM public.person p JOIN public.relation r ON r.subjekt_type = ''person'' AND r.subjekt_id = p.id
+      AND r.objekt_type = ''estate'' WHERE p.levende IS DISTINCT FROM false');
+  IF n <> 0 THEN RAISE EXCEPTION 'GODSER_T6: anon ser % levende personer via ejerforhold', n; END IF;
+  n := pg_temp.km_antal('gaest', 'SELECT 1 FROM public.person p WHERE p.levende IS DISTINCT FROM false');
+  IF n <> 0 THEN RAISE EXCEPTION 'GODSER_T6: anon ser % levende personer', n; END IF;
+  n := pg_temp.km_antal('gaest', format('SELECT 1 FROM public.person p WHERE p.id = %s', p_doed));
+  IF n <> 1 THEN RAISE EXCEPTION 'GODSER_T6: anon ser ikke den afdøde ejer (tænder for (c))'; END IF;
+  IF current_user <> session_user THEN RAISE EXCEPTION 'GODSER_T6: rollen blev ikke nulstillet'; END IF;
+END
+$t6$;
+
 -- NY AFSNIT TILFØJES HER (før OK-linjen).
 ROLLBACK;
 \echo OK test-godser-fase1

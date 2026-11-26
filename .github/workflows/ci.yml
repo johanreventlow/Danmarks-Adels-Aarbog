@@ -736,11 +736,11 @@ jobs:
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         # f37b294a = #363, prods installerede SQL; origin/main har fuld personsletning, som ikke er i prod.
         run: bash tests/sql/test-record-persona-upgrade.sh cirecord_persona_upgrade f37b294a
-      - name: Opgradering fra prods skema (review 37 ceremoni 4 · red_set_levende + P8)
+      - name: Opgradering fra prods skema (godser fase 1 · estate_slags, hører_under, sammenlagt_i, fem red_*-RPC'er)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
-        # 03f23607 = main efter merge af #499 (linjernes adelsnavn, i prod 26/11 §56) — prods SQL. Ceremoni 3's og
-        # adelsnavn-blokkens tests er pensioneret (tests/ikke-i-ci.txt).
-        run: bash tests/sql/test-review37-c4-upgrade.sh ci_r37c4_upgrade 03f23607
+        # b753fa7f = main efter merge af #508 (efter review 37 ceremoni 4, i prod 26/11 §57) — prods SQL. Ceremoni 4's
+        # test er pensioneret (tests/ikke-i-ci.txt).
+        run: bash tests/sql/test-godser-fase1-upgrade.sh ci_godser_fase1_upgrade b753fa7f
       - name: Review 37 R37S8-2 · verify-enheden rød med Supabase-retter, grøn efter blokken (frisk base)
         env: {PGHOST: localhost, PGPORT: 5432, PGUSER: postgres, PGPASSWORD: postgres}
         run: bash tests/sql/test-review37-r37s8-2-seeded.sh ci_r37s8_2_seeded
