@@ -6,6 +6,7 @@ import { parseYear, fmtYears, getAll, buildMatchPersoner, parseIkkeSammeSomPar, 
 import type { SletAarsag } from '@daa/core';
 import type { RedMatchPerson, MatchPersonRow, MatchFactRow, MatchConcRow, MatchAssertRow, MatchExtIdRow, MatchLineageRow } from '@daa/core';
 import { FELT_FAKTATYPE } from './redaktionWrite';
+import { MEDIA_AFBILDET_OBJEKT_TYPER, MEDIA_INTERNE_FELTER_BID } from './mediaKontrakt';
 
 // --- Redaktions-person-liste (pagineret, inkl. levende/privat) ---
 
@@ -983,7 +984,7 @@ export function mapMediaBibliotekRows(
     if (r.rolle !== 'afbildet') continue;
     const pair = r.subjekt_type === 'person' && r.objekt_type === 'media'
       ? { mediaId: String(r.objekt_id), target: `person:${r.subjekt_id}` }
-      : r.subjekt_type === 'media' && ['estate','coat_of_arms','lineage'].includes(r.objekt_type)
+      : r.subjekt_type === 'media' && (MEDIA_AFBILDET_OBJEKT_TYPER as readonly string[]).includes(r.objekt_type)
         ? { mediaId: String(r.subjekt_id), target: `${r.objekt_type}:${r.objekt_id}` }
         : null;
     if (pair) {
@@ -1015,23 +1016,27 @@ export function mapMediaBibliotekRows(
 export async function fetchMediaBibliotek(): Promise<MediaBibliotekPost[]> {
   if (!supabase) return [];
   const sb = supabase;
-  const [mediaRows, personRelationer, objektRelationer, mentions] = await Promise.all([
-    getAll<RawPersonMediaRow>(() =>
-      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at').order('id')),
+  const [tabelRows, personRelationer, objektRelationer, mentions] = await Promise.all([
+    getAll<Omit<RawPersonMediaRow, 'original_filnavn'>>(() =>
+      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,created_at').order('id')),
     getAll<RawMediaRelationRow>(() =>
       sb.from('relation').select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle')
         .eq('subjekt_type', 'person').eq('objekt_type', 'media').eq('rolle', 'afbildet').order('id')),
     getAll<RawMediaRelationRow>(() =>
       sb.from('relation').select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle')
-        .eq('subjekt_type', 'media').in('objekt_type', ['estate','coat_of_arms','lineage']).eq('rolle', 'afbildet').order('id')),
+        .eq('subjekt_type', 'media').in('objekt_type', [...MEDIA_AFBILDET_OBJEKT_TYPER]).eq('rolle', 'afbildet').order('id')),
     getAll<RawMediaMentionRow>(() =>
       sb.from('text_mention').select('kilde_type,kilde_id,maal_type,maal_id').eq('maal_type', 'media').order('kilde_type').order('kilde_id').order('maal_type').order('maal_id')),
   ]);
-  const mediaIds = mediaRows.map((m) => m.id);
-  const variants = mediaIds.length
-    ? await getAll<{ media_id: number; storage_path: string }>(() =>
-        sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds).order('id'))
-    : [];
+  const mediaIds = tabelRows.map((m) => m.id);
+  const [interne, variants] = await Promise.all([
+    fetchMediaInterneFelter(mediaIds),
+    mediaIds.length
+      ? getAll<{ media_id: number; storage_path: string }>(() =>
+          sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds).order('id'))
+      : Promise.resolve([] as { media_id: number; storage_path: string }[]),
+  ]);
+  const mediaRows = flettInterneFelter(tabelRows, interne);
   return mapMediaBibliotekRows(
     mediaRows,
     [...personRelationer, ...objektRelationer],
@@ -1228,6 +1233,46 @@ export async function fetchUdrensPreview(mediaId: string): Promise<UdrensPreview
   return mapUdrensPreview(data);
 }
 
+// Review 37 R37S8-1 (#397): original_filnavn er ikke læsbar direkte på media (kolonne-kontrakten i mediaKontrakt.ts);
+// redaktionen henter det gennem den rolle-gatede red_media_interne_felter i bidder à højst MEDIA_INTERNE_FELTER_BID
+// id'er (serverens loft er 1000). Svaret caster id til tekst; et id over 2^53 sendes som streng.
+type RawMediaInterneFelter = { id: number | string; original_filnavn: string | null; sha256: string | null };
+type InterneFelterRpc = (ids: (number | string)[]) => Promise<{ data: RawMediaInterneFelter[] | null; error: { message: string } | null }>;
+
+const defaultInterneFelterRpc: InterneFelterRpc = async (ids) => {
+  if (!supabase) return { data: null, error: { message: 'Supabase ikke konfigureret' } };
+  const { data, error } = await supabase.rpc('red_media_interne_felter', { p_ids: ids })
+    .select('id::text,original_filnavn,sha256');
+  return { data: data as RawMediaInterneFelter[] | null, error };
+};
+
+const bigintArg = (id: number | string): number | string => {
+  if (typeof id === 'number') return id;
+  const n = Number(id);
+  return Number.isSafeInteger(n) ? n : id;
+};
+
+export async function fetchMediaInterneFelter(
+  ids: readonly (number | string)[],
+  rpc: InterneFelterRpc = defaultInterneFelterRpc,
+): Promise<Map<string, { originalFilnavn: string | null }>> {
+  const unikke = [...new Map(ids.map((id) => [String(id), id])).values()];
+  const out = new Map<string, { originalFilnavn: string | null }>();
+  for (let i = 0; i < unikke.length; i += MEDIA_INTERNE_FELTER_BID) {
+    const { data, error } = await rpc(unikke.slice(i, i + MEDIA_INTERNE_FELTER_BID).map(bigintArg));
+    if (error) throw new Error(`red_media_interne_felter: ${error.message}`);
+    for (const r of data ?? []) out.set(String(r.id), { originalFilnavn: r.original_filnavn });
+  }
+  return out;
+}
+
+/** Fletter original_filnavn ind på id; et medie uden svar (fx slettet imellem) får null. */
+export function flettInterneFelter<T extends { id: number | string }>(
+  rows: readonly T[], felter: ReadonlyMap<string, { originalFilnavn: string | null }>,
+): (T & { original_filnavn: string | null })[] {
+  return rows.map((r) => ({ ...r, original_filnavn: felter.get(String(r.id))?.originalFilnavn ?? null }));
+}
+
 // Fælles hale: rel-par (media-id + relation-id) → signede/mappede PersonMedia. Retningen af selve
 // relations-forespørgslen (person→media vs. media→objekt) afgøres af kalderne nedenfor.
 async function mediaFromRelPairs(sb: NonNullable<typeof supabase>, pairs: { mediaId: number; relationId: number; primaer?: boolean }[]): Promise<PersonMedia[]> {
@@ -1235,12 +1280,14 @@ async function mediaFromRelPairs(sb: NonNullable<typeof supabase>, pairs: { medi
   const relByMediaId = new Map(pairs.map((p) => [String(p.mediaId), String(p.relationId)]));
   const primaerByMediaId = new Map(pairs.map((p) => [String(p.mediaId), p.primaer === true]));
   const mediaIds = pairs.map((p) => p.mediaId);
-  const [rows, variants] = await Promise.all([
-    getAll<RawPersonMediaRow>(() =>
-      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,original_filnavn,created_at').in('id', mediaIds).order('id')),
+  const [tabelRows, interne, variants] = await Promise.all([
+    getAll<Omit<RawPersonMediaRow, 'original_filnavn'>>(() =>
+      sb.from('media').select('id,slags,titel,kunstner,datering,storage_path,upload_status,maa_publiceres,rettigheder_status,mime_type,byte_size,bredde,hoejde,created_at').in('id', mediaIds).order('id')),
+    fetchMediaInterneFelter(mediaIds),
     getAll<{ media_id: number; storage_path: string }>(() =>
       sb.from('media_variant').select('media_id,storage_path').eq('tier', 'thumb').in('media_id', mediaIds).order('id')),
   ]);
+  const rows = flettInterneFelter(tabelRows, interne);
   const thumbPathByMediaId = new Map(variants.map((v) => [String(v.media_id), v.storage_path]));
   return mapPersonMediaRows(rows, relByMediaId, thumbPathByMediaId)
     .map((media) => ({ ...media, primaer: primaerByMediaId.get(media.id) === true }));

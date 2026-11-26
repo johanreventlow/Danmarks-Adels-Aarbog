@@ -14,6 +14,7 @@ const INTERNE = ['original_filnavn', 'sha256'];
 type App = 'web' | 'mobil';
 const APPS: Record<App, { src: string; kontrakt: string; minFund: number }> = {
   web: { src: 'web/src', kontrakt: 'web/src/data/mediaKontrakt.ts', minFund: 7 },
+  mobil: { src: 'mobile/src', kontrakt: 'mobile/src/data/mediaKontrakt.ts', minFund: 4 },
 };
 
 function filer(mappe: string): string[] {

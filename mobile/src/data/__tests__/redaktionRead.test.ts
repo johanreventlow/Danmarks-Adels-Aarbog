@@ -485,11 +485,41 @@ describe('mapPersonMediaRows (mediehåndtering fase 1)', () => {
 });
 
 import {
+  fetchMediaInterneFelter,
+  flettInterneFelter,
   formatMedieAlder,
   klassificerMedie,
   mapMediaAnvendelse,
   mapMediaBibliotekRows,
 } from '../redaktionRead';
+
+describe('interne mediefelter via red_media_interne_felter (R37S8-1)', () => {
+  it('beder i bidder à højst 500 unikke id\'er og sender store bigint-id\'er som strenge', async () => {
+    const ids: (number | string)[] = [...Array.from({ length: 1001 }, (_, i) => i + 1), 7, '9223372036854775807'];
+    const kald: (number | string)[][] = [];
+    const felter = await fetchMediaInterneFelter(ids, async (bid) => {
+      kald.push(bid);
+      return { data: bid.map((id) => ({ id: String(id), original_filnavn: `f${id}.jpg`, sha256: null })), error: null };
+    });
+    expect(kald.map((b) => b.length)).toEqual([500, 500, 2]);
+    expect(kald[2]).toEqual([1001, '9223372036854775807']);
+    expect(felter.get('7')).toEqual({ originalFilnavn: 'f7.jpg' });
+    expect(felter.get('9223372036854775807')).toEqual({ originalFilnavn: 'f9223372036854775807.jpg' });
+  });
+
+  it('kalder ikke RPC\'en uden id\'er og kaster en RPC-fejl frem', async () => {
+    const rpc = jest.fn();
+    expect((await fetchMediaInterneFelter([], rpc)).size).toBe(0);
+    expect(rpc).not.toHaveBeenCalled();
+    await expect(fetchMediaInterneFelter([1], async () => ({ data: null, error: { message: 'Kun redaktion' } })))
+      .rejects.toThrow('red_media_interne_felter: Kun redaktion');
+  });
+
+  it('fletter original_filnavn ind på id; et medie uden svar får null', () => {
+    expect(flettInterneFelter([{ id: 91 }, { id: 92 }], new Map([['91', { originalFilnavn: 'a.jpg' }]])))
+      .toEqual([{ id: 91, original_filnavn: 'a.jpg' }, { id: 92, original_filnavn: null }]);
+  });
+});
 
 describe('mediebibliotek fase 2', () => {
   describe('klassificerMedie', () => {
@@ -573,6 +603,14 @@ describe('mediebibliotek fase 2', () => {
       { kilde_type: 'note', kilde_id: 5, maal_type: 'media', maal_id: 91 },
     ];
     const out = mapMediaBibliotekRows(media, relationer, mentions, new Map([['91', 'thumb/a.jpg']]));
+    // R37B-3: familie- og stedbilleder tæller med som afbildninger.
+    const medFamilieOgSted = mapMediaBibliotekRows(media, [
+      { subjekt_type: 'media', subjekt_id: 92, objekt_type: 'family', objekt_id: 5, rolle: 'afbildet' },
+      { subjekt_type: 'media', subjekt_id: 92, objekt_type: 'place', objekt_id: 6, rolle: 'afbildet' },
+      { subjekt_type: 'media', subjekt_id: 92, objekt_type: 'organisation', objekt_id: 7, rolle: 'afbildet' },
+    ], []);
+    expect(medFamilieOgSted[1]).toMatchObject({ id: '92', antalAfbildet: 2 });
+    expect(medFamilieOgSted[1].koeer).not.toContain('loese');
     expect(out[0]).toMatchObject({ id: '91', antalAfbildet: 2, antalMentions: 2,
       koeer: [], createdAt: '2026-07-20T08:00:00Z', thumbStoragePath: 'thumb/a.jpg' });
     expect(out[0]).not.toHaveProperty('relationId');
