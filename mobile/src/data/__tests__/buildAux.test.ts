@@ -312,3 +312,14 @@ test('buildAux: adelsnavnByPerson via (kilde, linjekode) → lineage-id; stifter
 test('buildAux: uden adelsnavne er adelsnavnByPerson tom', () => {
   expect(buildAux(base).adelsnavnByPerson).toEqual({});
 });
+
+test('buildAux: slaegtsnavn er slægtsrodens navn (som slaegt.navn på web), til formel navneform', () => {
+  const aux = buildAux({ ...base,
+    lineage: [
+      { id: 6, source_id: null, kode: null, navn: 'Reventlow', slaegtsnavn: 'Reventlow', parent_lineage_id: null },
+      { id: 5, source_id: 1, kode: 'V', navn: 'V', slaegtsnavn: null, parent_lineage_id: 6 },
+    ] as unknown as RawLineage[],
+  });
+  expect(aux.slaegtsnavn).toBe('Reventlow');
+  expect(buildAux(base).slaegtsnavn).toBeNull();
+});

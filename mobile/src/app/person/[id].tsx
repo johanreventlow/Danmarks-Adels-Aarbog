@@ -89,7 +89,7 @@ export default function PersonScreen() {
   const marriages = childrenByMarriage(model, person.id).filter((m) => m.children.length);
   const linjer = aux?.linjeByPerson[person.id] ?? [];
   // Bogens formelle navneform (»Johan Martin greve af Reventlow«; plan 2026-11-26): kun med linjeregel og adelstitel.
-  const formelNavn = formelNavneform({ fornavne: person.fornavne, titel: person.title, adelsnavn: aux?.adelsnavnByPerson?.[person.id] ?? null });
+  const formelNavn = formelNavneform({ fornavne: person.fornavne, titel: person.title, adelsnavn: aux?.adelsnavnByPerson?.[person.id] ?? null, slaegtsnavn: aux?.slaegtsnavn });
   // Proveniens: er personen foldet af flere DAA-poster (samme_som), vis hvilke linjer/numre.
   const mergedFrom = person.mergedFrom ?? [];
   const proveniens =

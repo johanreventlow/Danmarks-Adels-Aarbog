@@ -344,7 +344,7 @@ export async function loadFromSupabase(opts?: {
         sb.from('media_variant').select('media_id,tier,storage_path').in('tier', ['thumb', 'medium']).order('id'),
       ).catch(() => [] as { media_id: number; tier: string; storage_path: string }[]),
       // Tolerant: lineage-tabellen findes måske ikke endnu (migration ej kørt) → tom = fallback til 'Linje {kode}'.
-      getAll<RawLineage>(() => sb.from('lineage').select('id,source_id,kode,navn,parent_lineage_id').order('id')).catch(() => [] as RawLineage[]),
+      getAll<RawLineage>(() => sb.from('lineage').select('id,source_id,kode,navn,parent_lineage_id,slaegtsnavn').order('id')).catch(() => [] as RawLineage[]),
       // Tolerant: coat_of_arms-tabellen findes måske ikke endnu.
       getAll<RawArms>(() => sb.from('coat_of_arms').select('id,blasonering,note').order('id')).catch(() => [] as RawArms[]),
       // samme_som-kanter (relation + afklaret konklusion) i bidder med genforsøg; en fejl afviser hele load'en

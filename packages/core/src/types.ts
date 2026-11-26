@@ -30,6 +30,8 @@ export type RawLineage = {
   // Forgrenings-id'er (Task B2 Step 1) — pulled forward for B1's rene helpers.
   id?: string | number;
   parent_lineage_id?: string | number | null;
+  // Valgfri: slægtsnavnet på slægtsroden (arves via parent_lineage_id; se slaegtsrod.ts).
+  slaegtsnavn?: string | null;
 };
 export type SlaegtRef = { id: string; navn: string; slug: string };
 export type LineageRef = {

@@ -1,6 +1,6 @@
 // Port af buildAux() fra design-HTML (linje 808-868). Bygger hjælpe-indekser pr. person:
 // kilder (bogreference), embeder/godser (relation), linjer (grene I–V), medier.
-import { adelsnavnFraKoordinater, buildProvenanceSources, compareDanish, compareLineHead, flettKilder, parseYear, stripParen, type CitationProvenanceRow, type LinjeAdelsnavne } from '@daa/core';
+import { adelsnavnFraKoordinater, buildProvenanceSources, effektivtSlaegtsnavn, findSlaegtsrod, compareDanish, compareLineHead, flettKilder, parseYear, stripParen, type CitationProvenanceRow, type LinjeAdelsnavne } from '@daa/core';
 import { findMedieDubletKandidatIds, klassificerMedie, type MedieKoe } from './redaktionRead';
 import { dedupPreferPrimaer } from '../lib/media';
 import type {
@@ -36,6 +36,15 @@ type BuildAuxInput = {
 
 // Antal forskellige ejere (kanoniske person-id'er): en ejer med to perioder tæller én gang, som web's antalEjere.
 const antalEjere = (ejere: readonly { personId: string }[]): number => new Set(ejere.map((o) => o.personId)).size;
+
+// Slægtsrodens navn (»Reventlow«) — mobilens spejl af web's `slaegt.navn`; bruges til at fjerne et slægtsnavn, der
+// allerede står i fornavnene, fra bogens formelle navneform.
+function slaegtsnavnAf(lineage: readonly RawLineage[]): string | null {
+  const arv = lineage.filter((l) => l.id != null)
+    .map((l) => ({ id: l.id as string | number, slaegtsnavn: l.slaegtsnavn ?? null, parent_lineage_id: l.parent_lineage_id ?? null }));
+  const rod = findSlaegtsrod(arv);
+  return rod == null ? null : effektivtSlaegtsnavn(arv, rod);
+}
 
 export function buildAux(
   {
@@ -278,6 +287,7 @@ export function buildAux(
     linjeNavn,
     // Via (kilde, linjekode) → lineage-id, ikke linjeByPersons rå koder: udgaverne nummererer linjerne forskelligt.
     adelsnavnByPerson: adelsnavne ? adelsnavnFraKoordinater(extIds || [], lineage || [], adelsnavne, canonicalIdById) : {},
+    slaegtsnavn: slaegtsnavnAf(lineage || []),
     kildeListe,
     orgListe,
     medieListe,
