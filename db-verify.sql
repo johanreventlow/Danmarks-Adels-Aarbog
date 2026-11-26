@@ -13706,4 +13706,94 @@ EXCEPTION WHEN OTHERS THEN
     RAISE NOTICE 'OK: godser-fase1 — estate_slags er de fire koder; trg_estate_slags afviser alt andet end NULL og ordlisten';
   ELSE RAISE; END IF;
 END $verify_godser_fase1$;
+
+-- ===== Godsernes oprydning, fase 1 (#471): relationerne hører_under og sammenlagt_i =====
+-- Triggeren trg_estate_relation_vagt skal ligge med præcis denne form, og ingen relation må bryde reglerne (også ikke en,
+-- der er skrevet uden om triggeren). MAJORAT-listen er den samme som MAJORAT_SLAGS i packages/core/src/estates.ts.
+-- Skriver kun i en transaktion, der rulles tilbage.
+DO $verify_godser_fase1_relation$
+DECLARE v_antal bigint; v_state text; v_msg text; v_g bigint; v_m bigint; v_x bigint;
+  f regprocedure := to_regprocedure('private.validate_estate_relation()');
+BEGIN
+  -- (1) Triggeren: BEFORE INSERT OR UPDATE (uden kolonneliste), pr. række, aktiv, med det brede WHEN.
+  IF f IS NULL OR NOT EXISTS (
+       SELECT 1 FROM pg_trigger t
+        WHERE t.tgrelid = 'public.relation'::regclass AND t.tgname = 'trg_estate_relation_vagt' AND NOT t.tgisinternal
+          AND t.tgenabled = 'O' AND t.tgfoid = f::oid
+          AND t.tgtype = (1 | 2 | 4 | 16)   -- ROW | BEFORE | INSERT | UPDATE
+          AND t.tgattr::text = ''
+          AND t.tgqual IS NOT NULL
+          AND pg_get_triggerdef(t.oid) LIKE $w$% WHEN (((new.subjekt_type = 'estate'::text) OR (new.objekt_type = 'estate'::text) OR (new.rolle = ANY (ARRAY['hører_under'::text, 'sammenlagt_i'::text])))) %$w$) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — trg_estate_relation_vagt mangler eller er ikke BEFORE INSERT OR UPDATE ON relation FOR EACH ROW WHEN (estate-ende eller hører_under/sammenlagt_i) → private.validate_estate_relation()';
+  END IF;
+  IF NOT (SELECT p.prosecdef FROM pg_proc p WHERE p.oid = f)
+     OR (SELECT p.proconfig FROM pg_proc p WHERE p.oid = f) IS DISTINCT FROM ARRAY['search_path=public, pg_temp']
+     OR EXISTS (SELECT 1 FROM pg_proc p, aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                 WHERE p.oid = f AND a.grantee = 0)
+     OR has_function_privilege('anon', f, 'EXECUTE') OR has_function_privilege('authenticated', f, 'EXECUTE')
+     OR (EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') AND has_function_privilege('service_role', f, 'EXECUTE')) THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — validate_estate_relation er ikke DEFINER med fast search_path eller kan kaldes af en klientrolle';
+  END IF;
+
+  -- (2) Data: én optælling pr. regel.
+  SELECT count(*) INTO v_antal FROM public.relation r
+   WHERE r.rolle IN ('hører_under','sammenlagt_i')
+     AND (r.subjekt_type IS DISTINCT FROM 'estate' OR r.objekt_type IS DISTINCT FROM 'estate'
+          OR NOT EXISTS (SELECT 1 FROM public.estate e WHERE e.id = r.subjekt_id)
+          OR NOT EXISTS (SELECT 1 FROM public.estate e WHERE e.id = r.objekt_id));
+  IF v_antal <> 0 THEN RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — % hører_under/sammenlagt_i-relationer har en ende, der ikke er et eksisterende gods', v_antal; END IF;
+  SELECT count(*) INTO v_antal FROM public.relation r
+   WHERE r.rolle IN ('hører_under','sammenlagt_i') AND r.subjekt_type = r.objekt_type AND r.subjekt_id = r.objekt_id;
+  IF v_antal <> 0 THEN RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — % hører_under/sammenlagt_i-relationer peger på sig selv', v_antal; END IF;
+  SELECT count(*) INTO v_antal FROM public.relation r
+    JOIN public.estate s ON r.subjekt_type = 'estate' AND s.id = r.subjekt_id
+    JOIN public.estate o ON r.objekt_type = 'estate' AND o.id = r.objekt_id
+   WHERE r.rolle = 'hører_under'
+     AND (s.slags IS DISTINCT FROM 'gård' OR o.slags IS NULL OR o.slags NOT IN ('grevskab','baroni','stamhus'));
+  IF v_antal <> 0 THEN RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — % hører_under-relationer er ikke gård → grevskab/baroni/stamhus', v_antal; END IF;
+  SELECT count(*) INTO v_antal FROM (
+    SELECT r.subjekt_id FROM public.relation r WHERE r.rolle = 'sammenlagt_i' AND r.subjekt_type = 'estate'
+     GROUP BY r.subjekt_id HAVING count(*) > 1) x;
+  IF v_antal <> 0 THEN RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — % godser er lagt sammen mere end ét sted', v_antal; END IF;
+  SELECT count(*) INTO v_antal FROM public.relation r
+   WHERE r.rolle = 'sammenlagt_i' AND r.objekt_type = 'estate'
+     AND EXISTS (SELECT 1 FROM public.relation r2 WHERE r2.rolle = 'sammenlagt_i' AND r2.subjekt_type = 'estate'
+                    AND r2.subjekt_id = r.objekt_id AND r2.id <> r.id);
+  IF v_antal <> 0 THEN RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — % sammenlagt_i-relationer danner en kæde (målet er selv sammenlagt)', v_antal; END IF;
+  -- En sammenlagt række har ingen andre relationer end sin egen sammenlagt_i (ingen ejerforhold, billeder, hører_under).
+  SELECT count(*) INTO v_antal FROM public.relation r
+   WHERE r.rolle <> 'sammenlagt_i'
+     AND (EXISTS (SELECT 1 FROM public.relation s WHERE s.rolle = 'sammenlagt_i' AND s.subjekt_type = 'estate'
+                     AND r.subjekt_type = 'estate' AND s.subjekt_id = r.subjekt_id)
+          OR EXISTS (SELECT 1 FROM public.relation s WHERE s.rolle = 'sammenlagt_i' AND s.subjekt_type = 'estate'
+                     AND r.objekt_type = 'estate' AND s.subjekt_id = r.objekt_id));
+  IF v_antal <> 0 THEN RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — % relationer peger på en sammenlagt række', v_antal; END IF;
+
+  -- (3) Adfærd: lovlig hører_under og sammenlagt_i lykkes; kæde og kobling til en sammenlagt række afvises.
+  INSERT INTO public.estate(navn, slags) VALUES ('__verify_godser_fase1_g__','gård') RETURNING id INTO v_g;
+  INSERT INTO public.estate(navn, slags) VALUES ('__verify_godser_fase1_m__','stamhus') RETURNING id INTO v_m;
+  INSERT INTO public.estate(navn, slags) VALUES ('__verify_godser_fase1_x__',NULL) RETURNING id INTO v_x;
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES ('estate',v_g,'estate',v_m,'hører_under');
+  INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES ('estate',v_x,'estate',v_m,'sammenlagt_i');
+  BEGIN
+    INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES ('estate',v_m,'estate',v_g,'sammenlagt_i');
+  EXCEPTION WHEN check_violation THEN GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+  END;
+  IF v_state IS NULL OR strpos(v_msg, 'ESTATE_SAMMENLAGT_KAEDE') <> 1 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — sammenlagt_i af en række, der er mål for en sammenlægning, blev ikke afvist med ESTATE_SAMMENLAGT_KAEDE';
+  END IF;
+  v_state := NULL; v_msg := NULL;
+  BEGIN
+    INSERT INTO public.relation(subjekt_type,subjekt_id,objekt_type,objekt_id,rolle) VALUES ('estate',v_g,'estate',v_x,'nabo_til');
+  EXCEPTION WHEN check_violation THEN GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT;
+  END;
+  IF v_state IS NULL OR strpos(v_msg, 'ESTATE_ER_SAMMENLAGT') <> 1 THEN
+    RAISE EXCEPTION 'VERIFY_FAILED: godser-fase1 — en kobling til en sammenlagt række blev ikke afvist med ESTATE_ER_SAMMENLAGT';
+  END IF;
+  RAISE EXCEPTION 'ROLLBACK_TEST_OK';
+EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM = 'ROLLBACK_TEST_OK' THEN
+    RAISE NOTICE 'OK: godser-fase1 — trg_estate_relation_vagt håndhæver hører_under (gård → majorat) og sammenlagt_i (ingen kæde, ingen kobling til en sammenlagt række); 0 relationer bryder reglerne';
+  ELSE RAISE; END IF;
+END $verify_godser_fase1_relation$;
 -- END-VERIFY godser-fase1

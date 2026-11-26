@@ -6635,6 +6635,121 @@ REVOKE ALL ON FUNCTION private.validate_estate_slags() FROM PUBLIC,anon,authenti
 CREATE OR REPLACE TRIGGER trg_estate_slags BEFORE INSERT OR UPDATE OF slags ON public.estate
   FOR EACH ROW EXECUTE FUNCTION private.validate_estate_slags();
 
+-- Relationerne mellem godser (#471, decisions 2026-11-26; invariant 2: nye roller, ingen nye tabeller):
+--   hører_under   gård → majorat (grevskab, baroni, stamhus), fx en gård under et grevskab i en periode;
+--   sammenlagt_i  dublet → overlevende række. Den sammenlagte række bliver liggende (gamle adresser kan sendes videre),
+--                 men har ingen andre koblinger: ejerforhold, billeder og hører_under er flyttet til den overlevende.
+-- Vagten fyrer på enhver INSERT/UPDATE med en estate-ende eller en af de to roller, så også generisk fortryd
+-- (_version_upsert_row) og billedindlæsning rammes. Den ser kun NEW: at flytte en kobling væk fra en sammenlagt række
+-- og at slette er altid tilladt. Fejl er 23514 med koden forrest i teksten (klienterne matcher på den):
+--   ESTATE_RELATION_ENDEPUNKT       hører_under/sammenlagt_i kræver to godser, der findes
+--   ESTATE_RELATION_SELV            et gods kan ikke høre under eller lægges sammen i sig selv
+--   ESTATE_ER_SAMMENLAGT            ingen ny kobling til en sammenlagt række (undtagen dens egen sammenlagt_i)
+--   ESTATE_HOERER_UNDER_ART         hører_under kræver slags 'gård' → slags i MAJORAT_SLAGS (packages/core/src/estates.ts)
+--   ESTATE_SAMMENLAGT_TO_GANGE      en række lægges højst sammen ét sted
+--   ESTATE_SAMMENLAGT_KAEDE         ingen kæde A → B → C: målet er ikke selv sammenlagt, og en række, der er mål for en
+--                                   sammenlægning, lægges ikke videre
+--   ESTATE_SAMMENLAGT_HAR_KOBLINGER rækken har stadig andre relationer (de flyttes først), så intet peger på en skjult række
+-- Samtidighed: en sammenlægning låser den sammenlagte række FOR NO KEY UPDATE og målet FOR SHARE (i id-orden); enhver
+-- anden kobling låser sine estate-ender FOR SHARE. Så venter en samtidig kobling eller sammenlægning på den anden, og
+-- opslagene efter låsen (nyt snapshot pr. sætning i READ COMMITTED) ser dens resultat; A → B og B → C kan ikke begge
+-- lykkes. Opslagene går gennem ix_relation_subjekt/ix_relation_objekt, én retning ad gangen.
+CREATE OR REPLACE FUNCTION private.validate_estate_relation()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $estate_relation$
+DECLARE v_sub_slags text; v_obj_slags text; v_fundet int := 0; v_ende bigint;
+BEGIN
+  IF NEW.rolle IN ('hører_under','sammenlagt_i') THEN
+    IF NEW.subjekt_type IS DISTINCT FROM 'estate' OR NEW.objekt_type IS DISTINCT FROM 'estate' THEN
+      RAISE EXCEPTION 'ESTATE_RELATION_ENDEPUNKT: % kræver to godser (fik % → %)', NEW.rolle, NEW.subjekt_type, NEW.objekt_type
+        USING ERRCODE = '23514';
+    END IF;
+    IF NEW.subjekt_id = NEW.objekt_id THEN
+      RAISE EXCEPTION 'ESTATE_RELATION_SELV: gods % kan ikke have % til sig selv', NEW.subjekt_id, NEW.rolle USING ERRCODE = '23514';
+    END IF;
+    -- Lås begge ender i id-orden (undgår baglås mellem to samtidige skrivninger) og læs arten.
+    IF NEW.subjekt_id < NEW.objekt_id THEN
+      IF NEW.rolle = 'sammenlagt_i' THEN
+        SELECT e.slags INTO v_sub_slags FROM public.estate e WHERE e.id = NEW.subjekt_id FOR NO KEY UPDATE;
+      ELSE
+        SELECT e.slags INTO v_sub_slags FROM public.estate e WHERE e.id = NEW.subjekt_id FOR SHARE;
+      END IF;
+      IF FOUND THEN v_fundet := v_fundet + 1; END IF;
+      SELECT e.slags INTO v_obj_slags FROM public.estate e WHERE e.id = NEW.objekt_id FOR SHARE;
+      IF FOUND THEN v_fundet := v_fundet + 1; END IF;
+    ELSE
+      SELECT e.slags INTO v_obj_slags FROM public.estate e WHERE e.id = NEW.objekt_id FOR SHARE;
+      IF FOUND THEN v_fundet := v_fundet + 1; END IF;
+      IF NEW.rolle = 'sammenlagt_i' THEN
+        SELECT e.slags INTO v_sub_slags FROM public.estate e WHERE e.id = NEW.subjekt_id FOR NO KEY UPDATE;
+      ELSE
+        SELECT e.slags INTO v_sub_slags FROM public.estate e WHERE e.id = NEW.subjekt_id FOR SHARE;
+      END IF;
+      IF FOUND THEN v_fundet := v_fundet + 1; END IF;
+    END IF;
+    IF v_fundet <> 2 THEN
+      RAISE EXCEPTION 'ESTATE_RELATION_ENDEPUNKT: % mellem gods % og gods %, men et af dem findes ikke',
+        NEW.rolle, NEW.subjekt_id, NEW.objekt_id USING ERRCODE = '23514';
+    END IF;
+  ELSE
+    -- Andre roller: lås hver estate-ende FOR SHARE (findes den ikke, er det ikke denne vagts sag).
+    IF NEW.subjekt_type = 'estate' AND NEW.objekt_type = 'estate' AND NEW.objekt_id < NEW.subjekt_id THEN
+      PERFORM 1 FROM public.estate e WHERE e.id = NEW.objekt_id FOR SHARE;
+      PERFORM 1 FROM public.estate e WHERE e.id = NEW.subjekt_id FOR SHARE;
+    ELSE
+      IF NEW.subjekt_type = 'estate' THEN PERFORM 1 FROM public.estate e WHERE e.id = NEW.subjekt_id FOR SHARE; END IF;
+      IF NEW.objekt_type = 'estate' THEN PERFORM 1 FROM public.estate e WHERE e.id = NEW.objekt_id FOR SHARE; END IF;
+    END IF;
+  END IF;
+
+  IF NEW.rolle = 'sammenlagt_i' THEN
+    IF EXISTS (SELECT 1 FROM public.relation r WHERE r.subjekt_type = 'estate' AND r.subjekt_id = NEW.subjekt_id
+                  AND r.rolle = 'sammenlagt_i' AND r.id <> NEW.id) THEN
+      RAISE EXCEPTION 'ESTATE_SAMMENLAGT_TO_GANGE: gods % er allerede lagt sammen med et andet gods', NEW.subjekt_id
+        USING ERRCODE = '23514';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.relation r WHERE r.subjekt_type = 'estate' AND r.subjekt_id = NEW.objekt_id
+                  AND r.rolle = 'sammenlagt_i' AND r.id <> NEW.id) THEN
+      RAISE EXCEPTION 'ESTATE_SAMMENLAGT_KAEDE: gods % er selv lagt sammen med et andet gods; læg sammen i det', NEW.objekt_id
+        USING ERRCODE = '23514';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.relation r WHERE r.objekt_type = 'estate' AND r.objekt_id = NEW.subjekt_id
+                  AND r.rolle = 'sammenlagt_i' AND r.id <> NEW.id) THEN
+      RAISE EXCEPTION 'ESTATE_SAMMENLAGT_KAEDE: andre godser er lagt sammen i gods %, så det kan ikke selv lægges sammen',
+        NEW.subjekt_id USING ERRCODE = '23514';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.relation r WHERE r.subjekt_type = 'estate' AND r.subjekt_id = NEW.subjekt_id AND r.id <> NEW.id)
+       OR EXISTS (SELECT 1 FROM public.relation r WHERE r.objekt_type = 'estate' AND r.objekt_id = NEW.subjekt_id AND r.id <> NEW.id) THEN
+      RAISE EXCEPTION 'ESTATE_SAMMENLAGT_HAR_KOBLINGER: gods % har stadig andre relationer; flyt dem, før det lægges sammen',
+        NEW.subjekt_id USING ERRCODE = '23514';
+    END IF;
+  ELSE
+    FOREACH v_ende IN ARRAY ARRAY[CASE WHEN NEW.subjekt_type = 'estate' THEN NEW.subjekt_id END,
+                                  CASE WHEN NEW.objekt_type = 'estate' THEN NEW.objekt_id END] LOOP
+      IF v_ende IS NOT NULL AND EXISTS (
+           SELECT 1 FROM public.relation r WHERE r.subjekt_type = 'estate' AND r.subjekt_id = v_ende
+              AND r.rolle = 'sammenlagt_i' AND r.id <> NEW.id) THEN
+        RAISE EXCEPTION 'ESTATE_ER_SAMMENLAGT: gods % er lagt sammen med et andet gods; kobl til det i stedet', v_ende
+          USING ERRCODE = '23514';
+      END IF;
+    END LOOP;
+    IF NEW.rolle = 'hører_under'
+       AND (v_sub_slags IS DISTINCT FROM 'gård' OR v_obj_slags IS NULL OR v_obj_slags NOT IN ('grevskab','baroni','stamhus')) THEN
+      RAISE EXCEPTION 'ESTATE_HOERER_UNDER_ART: hører_under kræver en gård under et grevskab, baroni eller stamhus (fik % → %)',
+        coalesce(v_sub_slags,'ukendt'), coalesce(v_obj_slags,'ukendt') USING ERRCODE = '23514';
+    END IF;
+  END IF;
+  RETURN NEW;
+END
+$estate_relation$;
+REVOKE ALL ON FUNCTION private.validate_estate_relation() FROM PUBLIC,anon,authenticated,service_role;
+
+-- Bredt WHEN (enhver estate-ende ELLER en af de to roller): så fanges også en hører_under/sammenlagt_i uden estate-ender.
+-- UPDATE uden kolonneliste: også en ændring af subjekt_type/objekt_type rammes. CREATE OR REPLACE (ikke DROP+CREATE).
+CREATE OR REPLACE TRIGGER trg_estate_relation_vagt BEFORE INSERT OR UPDATE ON public.relation
+  FOR EACH ROW
+  WHEN (NEW.subjekt_type = 'estate' OR NEW.objekt_type = 'estate' OR NEW.rolle IN ('hører_under','sammenlagt_i'))
+  EXECUTE FUNCTION private.validate_estate_relation();
+
 -- ---------- SYNLIGHED PR. SAMME_SOM-GRUPPE (#415) ----------
 -- Et menneske kan stå som flere person-rækker (én pr. udgave), bundet af samme_som. Er mennesket levende eller privat
 -- ifølge NOGEN af rækkerne, skal alle rækkerne skjules — ellers kan en ældre udgaves alias vise en nulevendes navn og
