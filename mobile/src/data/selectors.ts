@@ -52,9 +52,11 @@ export function spousesOf(model: Model, id: string) {
 export function childrenOf(model: Model, id: string): ModelPerson[] {
   const groups = model.indexes.childrenByUnion[id];
   if (!groups) return [];
-  const ids: string[] = [];
-  Object.values(groups).forEach((arr) => arr.forEach((cid) => ids.push(cid)));
-  return ids.map((cid) => model.byId[cid]).filter((c): c is ModelPerson => Boolean(c));
+  // Dedup på id (rækkefølgen bevares): efter en samme_som-sammenlægning kan samme kanoniske barn stå i to
+  // ægteskaber hos samme forælder — web læser childIdx (et Set) og ser barnet én gang (review 37 M4).
+  const ids = new Set<string>();
+  Object.values(groups).forEach((arr) => arr.forEach((cid) => ids.add(cid)));
+  return [...ids].map((cid) => model.byId[cid]).filter((c): c is ModelPerson => Boolean(c));
 }
 
 // Søskende = den primære forælders børn (inkl. personen selv). Hvis ingen forælder: kun personen.

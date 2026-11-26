@@ -5,7 +5,7 @@ import { supabase, supabaseEnabled } from '../lib/supabase';
 import { buildAux } from './buildAux';
 import {
   boernIder, personVisningsnavn, buildGenCoords, buildParentsUnknown, buildGeo, collapseSameAs, buildBioSourceVersions,
-  mapPublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, fmtVisningsAar, parseYear, getAll, EMPTY_GEO,
+  mapPublicBioSourceVersionsV2, selectDefaultPublicBioSourceVersionV2, fmtVisningsAar, parseYear, aarSpaend, oploesRelativDato, getAll, EMPTY_GEO,
   citationRowsTilProveniens, coordinateRowToExtId, COORDINATES_RPC_RAEKKER, COORDINATES_RPC_SAMLET, fetchPublicCoordinates,
   type GenCoord, type ParentsUnknown, type CitationProvenanceRow, type RaaCitationRow,
 } from '@daa/core';
@@ -105,6 +105,11 @@ export function mapAppPersons(
       name: personVisningsnavn(p, boern.has(String(p.id))),
       born: parseYear(p.visning_foedt),
       died: parseYear(p.visning_doed),
+      // Årsspænd som web (model.ts): buildModels kronologi-vagt sammenligner hele spænd; uden dem behandles
+      // »† efter 1575« som præcis 1575, og et barn født 1580 mister forældrelinket.
+      foedtSpaend: aarSpaend(p.visning_foedt),
+      // »† s.å.« opløses mod fødslen, så et barn, der døde samme år, ikke får et åbent dødsår.
+      doedSpaend: aarSpaend(p.visning_doed == null ? null : oploesRelativDato(p.visning_doed, p.visning_foedt ?? null) ?? p.visning_doed),
       floruit: p.visning_floruit ?? null,
       years: fmtVisningsAar(p.visning_foedt, p.visning_doed, p.visning_floruit),
       // Bogens tekst til sammenfoldningens overskrift (»† efter 1575«, ikke »† 1575«), som web.
@@ -290,13 +295,8 @@ export async function loadFromSupabase(opts?: {
       // degrader i stedet til "ingen linje/generations-data" som web's model.ts-pendant.
       // 5c-2: koordinater fra public_person_source_coordinates (placement ved gældende membership, ellers legacy).
       // Kodereview 36 P2: ét kald (samlet jsonb); fald tilbage til rækkefunktionen via getAll, hvis DDL'en mangler.
-      // Ét genforsøg: det samlede kald ligger tæt på gæsternes 3 s-loft (målt 25/11: 2,9-4,6 s, 57014 ved kold start),
-      // og uden koordinater mister stamtræet linjer og generationer.
+      // Genforsøget ved 57014 o.l. bor i fetchPublicCoordinates (@daa/core, #491) — fælles for web og mobil.
       fetchPublicCoordinates(() => sb.rpc(COORDINATES_RPC_SAMLET), () => sb.rpc(COORDINATES_RPC_RAEKKER))
-        .catch((e) => {
-          console.warn('[loadFromSupabase] koordinater fejlede — prøver igen:', e);
-          return fetchPublicCoordinates(() => sb.rpc(COORDINATES_RPC_SAMLET), () => sb.rpc(COORDINATES_RPC_RAEKKER));
-        })
         .then((rows) => rows.map(coordinateRowToExtId))
         .catch((e) => { console.warn('[loadFromSupabase] public_person_source_coordinates utilgængelig — linjer/generationer degraderet:', e); return [] as RawExtId[]; }),
       getAll<RawSource>(() => sb.from('source').select('id,slags,titel,udgave,aar,ekstern').order('id')),
@@ -306,7 +306,12 @@ export async function loadFromSupabase(opts?: {
           .select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw,kvalifikator')
           .eq('subjekt_type', 'person')
           .order('id'),
-      ),
+      ).catch((e) => {
+        // Tabellen er tung under RLS (web målte 630-815 ms pr. side) og kan ramme gæsternes 3 s-loft (57014). Uden
+        // .catch faldt hele appen til offline-seedet; nu mister vi kun embeder, godsejerskab og person→medie-relationer.
+        console.warn('[loadFromSupabase] person-relationer utilgængelige — embeder/godsejerskab degraderet:', e);
+        return [] as RawRelation[];
+      }),
       getAll<RawRelation>(() =>
         sb
           .from('relation')
@@ -531,16 +536,23 @@ type ParentsUnknownRows = {
 // fakta fra flere udgaver får kun navnefaktaets kilde — men netop faldback-mængden har
 // gennemgående præcis én kilde, så det koster intet i praksis.
 // Tolerant: fejler opslaget, degraderer visningen til det den var før (ingen kilde vist).
-async function fetchNavnProveniens(sb: NonNullable<typeof supabase>): Promise<CitationProvenanceRow[]> {
+// Id-lister i .in() deles i bidder à højst PROVENIENS_IN_CHUNK (en URL med ~1.756 + ~1.756 id'er er for lang og
+// rammer gæsternes 3 s-loft), med begrænset parallelitet; et bud på web's feed-bidder (forside/kilder.ts).
+export const PROVENIENS_IN_CHUNK = 200;
+export const PROVENIENS_PARALLEL = 4;
+
+export async function fetchNavnProveniens(sb: NonNullable<typeof supabase>): Promise<CitationProvenanceRow[]> {
   try {
     const facts = await getAll<{ id: number; subjekt_id: number }>(() =>
       sb.from('fact').select('id,subjekt_id').eq('subjekt_type', 'person').eq('faktatype', 'navn').order('id'));
     if (!facts.length) return [];
-    const asserts = await getAll<{ id: number; target_id: number }>(() =>
-      sb.from('assertion').select('id,target_id').eq('target_type', 'fact').in('target_id', facts.map((f) => f.id)).order('id'));
+    const asserts = (await mapLimited(chunks(facts.map((f) => f.id), PROVENIENS_IN_CHUNK), PROVENIENS_PARALLEL, (ids) =>
+      getAll<{ id: number; target_id: number }>(() =>
+        sb.from('assertion').select('id,target_id').eq('target_type', 'fact').in('target_id', ids).order('id')))).flat();
     if (!asserts.length) return [];
-    const cits = await getAll<RaaCitationRow>(() =>
-      sb.from('citation').select('assertion_id,side,source:source_id(titel,udgave)').in('assertion_id', asserts.map((a) => a.id)).order('id'));
+    const cits = (await mapLimited(chunks(asserts.map((a) => a.id), PROVENIENS_IN_CHUNK), PROVENIENS_PARALLEL, (ids) =>
+      getAll<RaaCitationRow>(() =>
+        sb.from('citation').select('assertion_id,side,source:source_id(titel,udgave)').in('assertion_id', ids).order('id')))).flat();
     const personAfFact = new Map(facts.map((f) => [f.id, String(f.subjekt_id)]));
     const personAfAssert = new Map(asserts.map((a) => [a.id, personAfFact.get(a.target_id) ?? '']));
     return citationRowsTilProveniens(cits, personAfAssert);
