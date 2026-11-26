@@ -273,6 +273,12 @@ export async function loadFromSupabase(opts?: {
   // Stories og pins starter parallelt; story-person-id'er kanoniseres først efter collapse.
   const storyRowsP = fetchStoryRows(sb);
   const feedPinsP = fetchFeedPins(sb);
+  // Gods→gods-relationer (sammenlagt_i, hører_under) i ÉT filtreret opslag. Pynt-lag: en fejl her må aldrig fælde
+  // godserne eller hele indlæsningen — uden dem er alt som før #471 (#471).
+  const godsRelP = Promise.resolve()
+    .then(() => getAll<RawRelation>(() => sb.from('relation').select('subjekt_type,subjekt_id,objekt_type,objekt_id,rolle,periode_raw')
+      .eq('subjekt_type', 'estate').eq('objekt_type', 'estate').in('rolle', ['sammenlagt_i', 'hører_under']).order('id')))
+    .catch((e) => { console.warn('[loadFromSupabase] gods→gods-relationer utilgængelige:', e); return [] as RawRelation[]; });
 
   const [
     persons,
@@ -459,8 +465,9 @@ export async function loadFromSupabase(opts?: {
     collapsed.canonicalIdById,
   );
   const [citationKilder, adelsnavne] = await Promise.all([fetchNavnProveniens(sb), fetchLinjeAdelsnavne(sb)]);
+  const godsRelationer = await godsRelP;
   const aux = buildAux(
-    { bogKilder: udgaveLag.sourcesBy, sources, relations, mediaRelations, mediaMentions, estates, orgs, media: mediaEnriched, arms, citationKilder },
+    { bogKilder: udgaveLag.sourcesBy, sources, relations, mediaRelations, mediaMentions, estates, godsRelationer, orgs, media: mediaEnriched, arms, citationKilder },
     collapsed.canonicalIdById,
   );
 

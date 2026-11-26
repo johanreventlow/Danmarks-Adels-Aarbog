@@ -10,6 +10,7 @@ import { Body, BtnLabel, Kicker, Mono, Serif } from '../../components/Typography
 import { useGeoOnMount } from '../../hooks/useGeoOnMount';
 import { useStore } from '../../store/useStore';
 import { Colors, Fonts, Radius } from '../../theme/tokens';
+import { tilhoererLinje } from '../../data/estateTilhoerer';
 
 export default function EstateScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -20,8 +21,10 @@ export default function EstateScreen() {
   const geoLoading = useStore((s) => s.geoLoading);
 
   const estate = id && aux ? aux.estateById[id] : null;
-  const owners = id && aux ? aux.ownersByEstate[id] ?? [] : [];
-  const point = id ? geo.byEstate[id] : null;
+  // Ejere og kort hentes på det kanoniske id: et sammenlagt id viser den overlevende række (#471).
+  const kanonId = estate?.id ?? id;
+  const owners = kanonId && aux ? aux.ownersByEstate[kanonId] ?? [] : [];
+  const point = kanonId ? geo.byEstate[kanonId] : null;
 
   // Lazy geo-kæde (review 27 P3): gods-detaljen viser et minikort for godsets sted — udløs
   // hentningen ved mount.
@@ -37,10 +40,13 @@ export default function EstateScreen() {
           ) : (
             <>
               <Serif size={32} style={{ lineHeight: 33 }}>{estate.navn}</Serif>
-              {estate.slags ? (
+              {estate.art || estate.slags ? (
                 <View style={styles.slagsBadge}>
-                  <BtnLabel size={11.5} color={Colors.bordeaux}>{estate.slags}</BtnLabel>
+                  <BtnLabel size={11.5} color={Colors.bordeaux}>{estate.art ?? estate.slags}</BtnLabel>
                 </View>
+              ) : null}
+              {tilhoererLinje(estate) ? (
+                <Body size={14} color={Colors.inkMuted} style={{ marginTop: 10, lineHeight: 14 * 1.5 }}>{tilhoererLinje(estate)}</Body>
               ) : null}
 
               {geoLoading ? (

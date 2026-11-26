@@ -128,6 +128,12 @@ export function normalizeKoen(k: string | null | undefined): Koen {
 export type EstateRef = { id: string; navn: string; period: string; personId: string };
 export type OfficeRef = { label: string; period: string; _y: number };
 export type OwnerRef = { personId: string; period: string; _y: number };
+export type EstateDetalje = {
+  id: string; navn: string; slags: string;
+  art: string | null; // Gård/Grevskab/Baroni/Stamhus (estateArtEtiket), null hvis ukendt
+  hoererUnder: { id: string; navn: string; periode: string }[]; // gård → majorat
+  omfattede: { id: string; navn: string }[]; // majorat → gårde
+};
 export type EstateListEntry = { id: string; navn: string; ownerCount: number };
 
 // Linjerne bor ikke her men på modellen (model.lineage, 6e): én nøgle pr. kanonisk linje på tværs af udgaver.
@@ -140,7 +146,8 @@ export type Aux = {
   mediaById: Record<string, RawMedia>; // alle media-rækker, id-nøglet (billeder-i-narrativer 2026-07-05, Slice C)
   ownersByEstate: Record<string, OwnerRef[]>;
   estateList: EstateListEntry[];
-  estateById: Record<string, { id: string; navn: string; slags: string }>;
+  // Nøglet også på sammenlagte id'er (alias til den overlevende, hvis id står i `id`) — #471.
+  estateById: Record<string, EstateDetalje>;
   kildeListe: { id: string; titel: string; slags: string; udgave: string }[];
   orgListe: { id: string; navn: string; slags: string }[];
   medieListe: {

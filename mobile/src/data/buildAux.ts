@@ -1,11 +1,12 @@
 // Port af buildAux() fra design-HTML (linje 808-868). Bygger hjælpe-indekser pr. person:
 // kilder (bogreference + citations-faldback), embeder/godser (relation), medier. Linjerne bor siden 6e (batch 4) på
 // modellen (model.lineage, data/udgaveLag.ts): nøglet på den kanoniske linje, ikke på den trykte kode.
-import { buildProvenanceSources, compareDanish, flettKilder, parseYear, stripParen, type CitationProvenanceRow, type SourceRef } from '@daa/core';
+import { buildProvenanceSources, compareDanish, estateArtEtiket, estateKanonisk, MAJORAT_SLAGS, type EstateSlags, flettKilder, parseYear, stripParen, type CitationProvenanceRow, type SourceRef } from '@daa/core';
 import { findMedieDubletKandidatIds, klassificerMedie, type MedieKoe } from './redaktionRead';
 import { dedupPreferPrimaer } from '../lib/media';
 import type {
   Aux,
+  EstateDetalje,
   RawArms,
   RawEstate,
   RawMedia,
@@ -23,6 +24,8 @@ type BuildAuxInput = {
   mediaRelations?: RawRelation[];
   mediaMentions?: RawTextMention[];
   estates: RawEstate[];
+  // estate→estate-relationer (sammenlagt_i, hører_under); udeladt/tom = som før #471.
+  godsRelationer?: RawRelation[];
   orgs: RawOrg[];
   media: RawMedia[];
   arms?: RawArms[];
@@ -42,6 +45,7 @@ export function buildAux(
     mediaRelations,
     mediaMentions,
     estates,
+    godsRelationer,
     orgs,
     media,
     arms,
@@ -112,18 +116,54 @@ export function buildAux(
   });
   Object.values(officesBy).forEach((arr) => arr.sort((a, b) => a._y - b._y));
 
-  // Gods-oversigt: kun godser med registrerede ejere.
+  // Gods→gods (#471): sammenlagte rækker følger den overlevende; gård → majorat vises som »hører under«.
+  const sammenlagt = new Map<string, string>();
+  (godsRelationer || []).forEach((r) => {
+    if (r.rolle === 'sammenlagt_i' && r.subjekt_type === 'estate' && r.objekt_type === 'estate') sammenlagt.set(String(r.subjekt_id), String(r.objekt_id));
+  });
+  // Som web: en sammenlægning, der danner kreds, er ingen sammenlægning — rækken forbliver sig selv.
+  const kanon = (id: string): string => {
+    const k = estateKanonisk(id, sammenlagt);
+    return sammenlagt.has(k) ? id : k;
+  };
+  const erSammenlagt = (id: string) => kanon(id) !== id;
+  const hoererUnderRaa: { gaard: string; majorat: string; periode: string }[] = [];
+  const set = new Set<string>();
+  (godsRelationer || []).forEach((r) => {
+    if (r.rolle !== 'hører_under' || r.subjekt_type !== 'estate' || r.objekt_type !== 'estate') return;
+    const gaard = kanon(String(r.subjekt_id)), majorat = kanon(String(r.objekt_id));
+    const nøgle = `${gaard}|${majorat}|${r.periode_raw ?? ''}`;
+    if (gaard === majorat || !estById2[gaard] || !estById2[majorat] || set.has(nøgle)) return;
+    set.add(nøgle);
+    hoererUnderRaa.push({ gaard, majorat, periode: r.periode_raw ?? '' });
+  });
+  const navnFor = (id: string) => estById2[id]?.navn || 'Gods #' + id;
+  const detalje = (eid: string): EstateDetalje => {
+    const e = estById2[eid] || { id: eid, navn: 'Gods #' + eid, slags: '' };
+    const slags = e.slags || '';
+    const erMajorat = MAJORAT_SLAGS.has(slags as EstateSlags);
+    const omfattede = erMajorat
+      ? hoererUnderRaa.filter((h) => h.majorat === eid).map((h) => ({ id: h.gaard, navn: navnFor(h.gaard) }))
+        .filter((g, i, arr) => arr.findIndex((x) => x.id === g.id) === i)
+      : [];
+    const hoererUnder = erMajorat ? [] : hoererUnderRaa.filter((h) => h.gaard === eid).map((h) => ({ id: h.majorat, navn: navnFor(h.majorat), periode: h.periode }));
+    return { id: eid, navn: e.navn || 'Gods #' + eid, slags, art: estateArtEtiket(e.slags ?? null), hoererUnder, omfattede };
+  };
+
+  // Gods-oversigt: kun godser med registrerede ejere (sammenlagte rækker er ikke selvstændige godser).
   const estateById: Aux['estateById'] = {};
   const estateList: Aux['estateList'] = Object.keys(ownersByEstate)
+    .filter((eid) => !erSammenlagt(eid))
     .map((eid) => {
-      const e = estById2[eid] || { id: eid, navn: 'Gods #' + eid, slags: '' };
-      const navn = e.navn || 'Gods #' + eid;
-      estateById[eid] = { id: eid, navn, slags: e.slags || '' };
+      const d = detalje(eid);
+      estateById[eid] = d;
       ownersByEstate[eid].sort((a, b) => a._y - b._y);
-      return { id: eid, navn, ownerCount: antalEjere(ownersByEstate[eid]) };
+      return { id: eid, navn: d.navn, ownerCount: antalEjere(ownersByEstate[eid]) };
     })
     .sort((a, b) => compareDanish(a.navn, b.navn));
-
+  // Gamle (sammenlagte) id'er viser den overlevende; ejere hentes på det kanoniske id (estate.id).
+  Object.keys(estById2).filter(erSammenlagt).forEach((eid) => { estateById[eid] = estateById[kanon(eid)] ?? detalje(kanon(eid)); });
+  
   // Medier pr. person: relation person(subjekt) → media(objekt), rolle 'afbildet' (samme retning
   // som DB'ens afbildet-gating). media-rækken slås op på id. RLS har allerede skjult ikke-offentlige
   // rækker. (Tidligere nøglede denne på m.person_id — en kolonne der ikke findes i skemaet → altid tom.)
@@ -203,7 +243,7 @@ export function buildAux(
   };
   medieListe.forEach((m) => m.koeer.forEach((koe) => { medieKoeTaellere[koe] += 1; }));
   // godsListe: KOMPLET (alle estates, ikke kun ejede); ownerCount fra ownersByEstate (0 hvis ingen).
-  const godsListe = (estates || []).map((e) => ({
+  const godsListe = (estates || []).filter((e) => !erSammenlagt(String(e.id))).map((e) => ({
     id: String(e.id), navn: e.navn ?? '(uden navn)', slags: e.slags ?? '',
     ownerCount: antalEjere(ownersByEstate[String(e.id)] || []),
   })).sort((a, b) => compareDanish(a.navn, b.navn));

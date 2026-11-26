@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { estateArtEtiket } from '@daa/core';
 import { SignedImage } from '../../../components/SignedImage';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
@@ -35,7 +36,7 @@ export default function EntitetListe() {
   // type → rækker fra redaktionAux (read-only).
   const rows = useMemo<Row[]>(() => {
     if (!aux) return [];
-    if (type === 'gods') return aux.godsListe.map((g) => ({ id: g.id, titel: g.navn, under: `${g.slags || 'gods'} · ${g.ownerCount} ejere` }));
+    if (type === 'gods') return aux.godsListe.map((g) => ({ id: g.id, titel: g.navn, under: [estateArtEtiket(g.slags || null), `${g.ownerCount} ejere`].filter(Boolean).join(' · ') }));
     if (type === 'kilde') return aux.kildeListe.map((k) => ({ id: k.id, titel: k.titel, under: [k.slags, k.udgave].filter(Boolean).join(' · ') }));
     if (type === 'organisation') return aux.orgListe.map((o) => ({ id: o.id, titel: o.navn, under: o.slags }));
     if (type === 'medie') return aux.medieListe.map((m) => ({
