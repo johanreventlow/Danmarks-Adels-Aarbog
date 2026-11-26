@@ -2,6 +2,45 @@
 
 Kun ikke-oplagte arkitektur-/design-valg. Detaljer i changelog + memory.
 
+## BESLUTTET: godserne ryddes op i to niveauer — majorat og gård (#471, 2026-11-26)
+
+**Projektejeren valgte** (afgørelsesark v3, uafhængigt review med Fable undervejs) en oprydning af `estate` i tre faser.
+Anledning: 430 gods-rækker, hvor importen lavede en ny række for hver formulering (get-or-create på eksakt navn) og
+1939-importen lagde ejerens årstal/hændelse i selve navnet (»Wittenberg (1779)«; 9 Wittenberg-rækker).
+
+- **0 — Sammenlæg koblingerne, slet ikke rækkerne straks.** Ejerforhold, billeder og hændelser flyttes (UPDATE, ikke
+  slet+opret; 46 `haendelse` peger på ejerforhold) til den overlevende række. Den tømte række skjules med henvisning til
+  den nye (gamle `/besiddelse/<id>`, mobilens `/estate/<id>`, feednøglen `gods:<id>` sender videre) og slettes først
+  efter en frist. Rækker, som slettede ejerforhold i `change_event` peger på, overlever (fortrydelse). Begrundelse: en
+  gods-række er en navnestreng, ikke en bogpost (1939 genbrugte selv rækker ved ens navn) — derfor ikke `samme_som`
+  som for personer (2026-07-02).
+- **1 — To niveauer.** Grevskab, baroni og stamhus er **majorater**: en ejerskabsform, der dækker flere gårde.
+  Majoratet og gården er hver sin række (`estate.slags` fra et kontrolleret ordforråd, invariant 9), forbundet med en
+  relation »hører under« (gård → majorat, med periode). Bogens ejerforhold til »grevskabet X« peger på majoratet.
+  Varianter af samme majorat eller samme gård lægges sammen; navneskift (Christiansborg → Christianssæde 1741) er samme
+  majorat. Art og »hører under« sættes **redaktionelt pr. gruppe i et ark** ud fra bogens ord — ikke det automatiske
+  gæt ud fra navnet, som 2026-11-13 fravalgte. »Hører under« registreres kun, hvor bogen selv siger det; en fuld
+  fortegnelse er senere. »X med Y, Z« giver **et ejerforhold til hver gård** (manglende gårde oprettes); landsbyer og
+  »sammen med broderen« er ikke gårde. Billeder af bygninger flyttes til gården; billedmanifestet
+  (`billeder_2018_20.py`) opdateres i samme skridt.
+- **2 — Parentesen er en importfejl og rettes som én.** Indholdet flyttes til ejerforholdet (periode, hændelse,
+  forlening/pant/leje/medeje) eller godset (sted, andet navn) med originalen bevaret i rettelsesloggen (mønster B12),
+  og bogens fulde navneform sættes som citat (`citation.citat_tekst`) på det enkelte ejerforhold. **2b:** de 749
+  ejerforholds `erhvervelsesmaade` (»født/arvet« hardkodet ved import) nulstilles til ukendt og sættes kun, hvor bogen
+  siger det; forlening, pant og leje vises for læseren (kræver web + mobil, der i dag filtrerer på `rolle='ejer'`).
+- **3 — Navnet** er den nyeste udgaves stavemåde; kun-1939-godser beholder 1939's form (ingen automatisk aa→å — tyske
+  godser). Majoratet beholder formordet (»Grevskabet Christianssæde«), gården ikke. Alle andre former gemmes og gøres
+  søgbare.
+- **4 — Samme ejer fra begge udgaver** (ca. 89 i prod i dag, ca. 158 efter sammenlægning) vises som to linjer mærket
+  med udgave; at folde dem kræver en ny lighedsregel med eget gennemgangsark og er fravalgt nu.
+- **5 — Dubletterne må ikke komme igen.** Et gods slås op på alle gemte navneformer, før et nyt oprettes; ukendte
+  formuleringer går i en redaktørkø. Godser står ikke i genimport-programmets køreplan; det tages med i trin 7a
+  (de 356 `person.estate`-fortolkninger i `private.interpretation` er ikke promoveret).
+- **Faser:** 1 = navne, sammenlægning, art, »hører under«, billeder · 2 = parentes → ejerforhold, erhvervelsesmåde,
+  visning af forlening/leje · 3 = udgavemærke på ejerlinjer, opslag i navneformer. Ingen formulering må forsvinde
+  undervejs: fase 1 sætter bogens fulde navneform som citat på hvert ejerforhold, der flyttes eller hvis gods omdøbes,
+  i samme skridt; fase 2 udleder periode, hændelse og art af den.
+
 ## BESLUTTET: redaktøren kan rette »levende« begge veje; afdød-retningen kræver bekræftelse (#397 R37P11-2, 2026-11-26)
 
 **Projektejeren valgte** (26/11) »begge veje, med advarsel«. Før kunne `levende` kun vælges i »Opret person«
